@@ -6,6 +6,10 @@
 // + attachWorkflows）驱动边界情形：切体、换层位、关/换工程、绘制期间取消、
 // 提取在途切体、重开对话框期间收到事件。
 #include <QApplication>
+#include <QAction>
+#include <QListWidget>
+#include <QPushButton>
+#include <QSignalBlocker>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileInfo>
@@ -33,6 +37,8 @@
 #include "../src/ui/seismicsection/sectionsetupdialog.h"
 #include "../src/ui/wellcomposite/derivedsink.h"
 #include "../src/workflow/sectionworkbench.h"
+#include "../src/services/paleotaskservice.h"
+#include "sectionalignmentfixtures.h"
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
 
@@ -40,7 +46,7 @@ namespace
 {
 
 // 合成 4x4 体（同 tst_sections_alignment 的 SEG-Y 夹具口径）
-QString makeVolume(QTemporaryDir &dir, const QString &name)
+QString makeVolume(QTemporaryDir &dir, const QString &name,bool coordinates=false)
 {
   const auto path = dir.filePath(name);
   QFile file(path);
@@ -58,6 +64,7 @@ QString makeVolume(QTemporaryDir &dir, const QString &name)
   put16(binary, 16, 2000);
   put16(binary, 20, 64);
   put16(binary, 24, 5);
+  if(coordinates)put16(binary,54,1);
   file.write(binary);
   for (int il = 0; il < 4; ++il)
     for (int xl = 0; xl < 4; ++xl)
@@ -67,6 +74,7 @@ QString makeVolume(QTemporaryDir &dir, const QString &name)
       put32(header, 188, 1000 + il);
       put32(header, 192, 2000 + xl);
       put16(header, 114, 64);
+      if(coordinates){put16(header,70,1);put16(header,88,1);put32(header,180,300000+il*100);put32(header,184,2300000+xl*100);}
       file.write(header);
       QByteArray samples(64 * 4, 0);
       for (int k = 0; k < 64; ++k)
@@ -215,6 +223,30 @@ private slots:
     auto *sink = WellComposite::WellCompositeDerivedSink::defaultSink();
     QVERIFY(sink);
     QVERIFY(sink->isBound());
+  }
+  void openingSectionSetupLoadsVolumeAndBuildsWithoutTimeDepth(){
+    QTemporaryDir dir;
+    QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("on-demand.qgz")));QTest::qWait(30);
+    const auto path=makeVolume(dir,"on-demand.sgy",true);QVERIFY(!path.isEmpty());
+    auto *catalog=m_ctx->importSvc()->catalog();QVERIFY(catalog->open(dir.path()));
+    {const QSignalBlocker block(catalog); // Catalog metadata exists; no preview has loaded its body.
+      CatalogAsset asset;asset.id="section-volume";asset.type="seismic";asset.displayName="on-demand";QVERIFY(catalog->addAsset(asset));
+      CatalogVersion version;version.id="section-volume-v1";version.assetId=asset.id;version.path=path;version.managed=false;version.stage="RAW";QVERIFY(catalog->addVersion(version));
+      for(int i=0;i<2;++i){CatalogEntity well;well.id=QString("section-well-%1").arg(i);well.name=well.id;well.entityType="well";
+        well.hasSurface=true;well.surfaceX=300000+i*100;well.surfaceY=2300000+i*100;well.coordinateStatus="untransformed";
+        QVERIFY(catalog->addEntity(well));QVERIFY(addSectionLogFixture(*catalog,well.id));}
+    }
+    auto *link=m_ctx->seismicLink();link->setActiveVolume(nullptr);
+    auto *action=m_win->findChild<QAction *>("sectionWorkbenchAction");QVERIFY(action);
+    const auto tasks=m_ctx->taskSvc()->tasks().size();action->trigger();
+    QVERIFY(m_ctx->taskSvc()->tasks().size()>tasks); // The entry itself starts loading.
+    QTRY_VERIFY_WITH_TIMEOUT(link->activeVolume()&&link->gridGeometry().valid,20000);
+    auto *list=setup()->findChild<QListWidget *>("sectionWells");QTRY_COMPARE_WITH_TIMEOUT(list->count(),2,20000);
+    for(int i=0;i<list->count();++i)list->item(i)->setCheckState(Qt::Checked);
+    auto *build=setup()->findChild<QPushButton *>("buildWellSection");QVERIFY(build->isEnabled());build->click();
+    QTRY_VERIFY_WITH_TIMEOUT(dock()->hasRoute(),20000);QVERIFY(dock()->volume());
+    QVERIFY(workbench()->sectionWells().empty()); // No fabricated time-depth overlay.
+    setup()->hide();link->setActiveVolume(nullptr);
   }
 
   // 提取 → band 上线 + dock 有路线（后续边界用例的地基）

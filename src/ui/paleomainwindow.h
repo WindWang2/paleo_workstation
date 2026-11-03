@@ -442,6 +442,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // includeLargeVolumes 为 false 时跳过超过 2GB 的体。打开工程走这条，避免索引整卷大 SEG-Y。
     void syncSeismicVolumeToDocks(bool includeLargeVolumes = true);
     void attachSections(SeismicMapLink *link);
+    void showTimeDepthAlignment(const QStringList &ids);
     // 连井剖面（well correlation section）：attachWorkflows 内
     // attachSections 之后、m_seismicTaskSvc 就位后调用。store 供剖面编辑
     // 产物落 project.sqlite（井序/连线改接版本化）。

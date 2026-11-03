@@ -9,6 +9,14 @@
 
 using namespace paleo::datapreview_detail;
 namespace {
+void addPreviewSwitch(QBoxLayout *layout,QWidget *bar,QWidget *host,
+    WellComposite::WellCompositePanel *chart,QStackedWidget *stack,QToolButton *tableButton) {
+  auto *row=new PaleoToolRow(bar,host);row->setObjectName(QStringLiteral("wellPreviewModeRow"));row->hide();
+  layout->addWidget(row);
+  const QPointer<WellComposite::WellCompositePanel> guarded(chart);
+  QObject::connect(stack,&QStackedWidget::currentChanged,row,[row,guarded,stack](int index){row->setVisible(index!=0||!guarded||stack->currentWidget()!=guarded);});
+  chart->addPreviewAction(DataPreviewTabs::tr("数据列表"),[tableButton]{tableButton->click();});
+}
 QString coordinateSummary(const WellComposite::ComprehensiveWellData& data) {
   const auto known=[](const QString& value){return value.isEmpty()?QObject::tr("未确认"):value;};
   const auto number=[](double value){return std::isfinite(value)?QString::number(value,'g',12):QObject::tr("未提供");};
@@ -21,7 +29,7 @@ QString coordinateSummary(const WellComposite::ComprehensiveWellData& data) {
 QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QString &assetId,
                                                    QWidget *host, QVBoxLayout *lay, const QString &expectedSha, bool reference)
 {
-  auto *chart = new WellComposite::WellCompositePanel(host);
+  auto *chart = new WellComposite::WellCompositePanel(host, WellComposite::WellCompositePanel::PredictionScope::WholeWellPreview);
   chart->setProjectName(catalogProjectDir(m_doc ? m_doc->catalog() : nullptr));
   chart->setObjectName("wellCompositePanel");
   auto *hint = new QLabel(tr("正在后台读取井道图与数据列表…"), host);
@@ -53,7 +61,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
   connect(tableButton, &QToolButton::clicked, host, [select] { select(1); });
   buttons->addWidget(caption8(tr("呈现模式:"), bar)); buttons->addWidget(chartButton);
   buttons->addWidget(tableButton); buttons->addStretch(1);
-  lay->addWidget(new PaleoToolRow(bar, host)); lay->addWidget(hint); lay->addWidget(stack, 1);
+  addPreviewSwitch(lay,bar,host,chart,stack,tableButton); lay->addWidget(hint); lay->addWidget(stack, 1);
   auto *session = new XmlPreviewSession(host);
   session->setTaskService(m_doc ? m_doc->taskService() : nullptr);
   connect(session, &XmlPreviewSession::ready, host,
@@ -63,8 +71,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
     if (data.chartOk) {
       chart->loadWellData(data.chart, abs, reference);
       if (data.chart.modelWellId) {
-        hint->setText(coordinateSummary(data.chart));
-        hint->show();
+        chart->setPreviewSummary(coordinateSummary(data.chart));
       }
     }
     else {
@@ -106,7 +113,7 @@ void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellNa
   m_emptyLabel->setVisible(false);
   m_tabs->setCurrentIndex(idx);
 
-  auto *chart = new WellComposite::WellCompositePanel(page);
+  auto *chart = new WellComposite::WellCompositePanel(page, WellComposite::WellCompositePanel::PredictionScope::WholeWellPreview);
   const QString project = catalogProjectDir(m_doc->catalog());
   chart->setProjectName(project);
   auto *hint = new QLabel(tr("正在后台从数据基座读取 %1 的井道图…").arg(title), page);
@@ -142,7 +149,7 @@ void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellNa
   buttons->addWidget(chartButton);
   buttons->addWidget(tableButton);
   buttons->addStretch(1);
-  pageLay->addWidget(new PaleoToolRow(bar, page));
+  addPreviewSwitch(pageLay,bar,page,chart,stack,tableButton);
   pageLay->addWidget(hint);
   pageLay->addWidget(stack, 1);
   auto *session = new XmlPreviewSession(page);
@@ -156,8 +163,7 @@ void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellNa
             {
               chart->loadWellData(data.chart, QString(), false);
               if (data.chart.modelWellId) {
-                hint->setText(coordinateSummary(data.chart));
-                hint->show();
+                chart->setPreviewSummary(coordinateSummary(data.chart));
               }
             }
             else

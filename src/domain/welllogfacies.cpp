@@ -113,10 +113,12 @@ void appendUnique(QStringList &list, const QString &value) {
     list.append(value);
 }
 } // namespace
-WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
-                                       const WellFaciesModel &model) {
+static WellFaciesInput prepareGroupInput(const ComprehensiveWellData &data,
+    const WellFaciesModel &model,const QString &groupName,QVector<WellFaciesInput> *validSegments,QStringList *skipped) {
+  if (validSegments) validSegments->clear();
   WellFaciesInput out;
-  const auto fail = [&out](const QString &s) {
+  const auto fail = [&out,validSegments](const QString &s) {
+    if (validSegments) validSegments->clear();
     out.rows = {};
     out.reason = s;
     return out;
@@ -156,32 +158,41 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
     }
     curves.append(found);
   }
-  if (data.formationIntervals.isEmpty())
+  if (data.formationIntervals.isEmpty() && data.seismicSubIntervals.isEmpty() && data.seismicIntervals.isEmpty())
     return fail(tr("缺少段井道（地层单位）"));
   if (data.lithologyIntervals.isEmpty())
     return fail(tr("缺少岩性井道"));
+  const auto isSeismicTrack = [](const FormationInterval &f) {
+    return f.unitType == QStringLiteral("地震小层") || f.unitType == QStringLiteral("地震层位");
+  };
   QVector<FormationInterval> segments;
   for (const auto &f : data.formationIntervals)
-    if (f.unitType == QStringLiteral("段") ||
-        f.name.trimmed().endsWith(QStringLiteral("段")) ||
-        (!isGroupName(f) && !f.name.trimmed().isEmpty()))
+    if (!isSeismicTrack(f) &&
+        (f.unitType == QStringLiteral("段") ||
+         f.name.trimmed().endsWith(QStringLiteral("段")) ||
+         (!isGroupName(f) && !f.name.trimmed().isEmpty())))
       segments.append(f);
+  if (segments.isEmpty()) {
+    for (const auto &f : data.formationIntervals)
+      if (f.unitType == QStringLiteral("地震小层") && !f.name.trimmed().isEmpty())
+        segments.append(f);
+    if (segments.isEmpty())
+      for (const auto &f : data.seismicSubIntervals)
+        if (!f.name.trimmed().isEmpty())
+          segments.append(f);
+    if (segments.isEmpty())
+      for (const auto &f : data.formationIntervals)
+        if (f.unitType == QStringLiteral("地震层位") && !f.name.trimmed().isEmpty())
+          segments.append(f);
+    if (segments.isEmpty())
+      for (const auto &f : data.seismicIntervals)
+        if (!f.name.trimmed().isEmpty())
+          segments.append(f);
+  }
   if (segments.isEmpty())
     return fail(tr("缺少段井道（只有组分层，不能代替段）"));
-  bool namedGroup = false;
-  bool groupHit = model.formationGroup.isEmpty();
-  for (const auto &f : data.formationIntervals) {
-    if (f.unitType == QStringLiteral("组") || f.name.trimmed().endsWith(QStringLiteral("组")))
-      namedGroup = true;
-    if (!model.formationGroup.isEmpty() && matchesFormationGroup(f.name, model.formationGroup))
-      groupHit = true;
-  }
-  for (const auto &f : data.stratigraphyIntervals)
-    if (f.formation == model.formationGroup || matchesFormationGroup(f.formation, model.formationGroup))
-      groupHit = true;
-  // 井道图只有 C1、D61 这类段名、没有「组」时，段名就是当前图的分层，
-  // 不再因为对不上模型的组名而整井拒绝。已经标了别的组则仍然拒绝。
-  const bool restrictToGroup = !model.formationGroup.isEmpty() && (groupHit || namedGroup);
+  // A well group is a task partition, never a restriction inferred from model metadata.
+  const bool restrictToGroup = !groupName.isEmpty();
   const auto &depths = curves.first()->depths;
   const auto medianStep = [](const CurveData &curve) {
     QVector<double> steps;
@@ -207,20 +218,27 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
   for (const auto *curve : curves)
     curveSteps.append(qMax(step, medianStep(*curve)));
   double previous = -std::numeric_limits<double>::infinity();
+  int skippedPoints=0, gaps=0;QString firstSkipped;
+  const auto flush=[&] {
+    if (out.rows.size()>=model.window) validSegments->append(out);
+    else skippedPoints+=out.rows.size();
+    out.rows={};previous=-std::numeric_limits<double>::infinity();
+  };
+  const auto note=[&](const QString &reason){if(firstSkipped.isEmpty())firstSkipped=reason;};
   for (double depth : depths) {
     bool inGroup = !restrictToGroup;
     if (restrictToGroup) {
       for (const auto &f : data.formationIntervals)
         if (depth >= f.topDepth && depth < f.bottomDepth &&
-            matchesFormationGroup(f.name, model.formationGroup))
+            matchesFormationGroup(f.name, groupName))
           inGroup = true;
       for (const auto &f : data.stratigraphyIntervals)
         if (depth >= f.topDepth && depth < f.bottomDepth &&
-            matchesFormationGroup(f.formation, model.formationGroup))
+            matchesFormationGroup(f.formation, groupName))
           inGroup = true;
       for (const auto &f : segments)
         if (depth >= f.topDepth && depth < f.bottomDepth &&
-            matchesFormationGroup(f.name, model.formationGroup))
+            matchesFormationGroup(f.name, groupName))
           inGroup = true;
     }
     if (!inGroup)
@@ -232,34 +250,54 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
     // 「*岩段」（如白云岩段、砂岩段）属于岩性描述分段，不能作为地层分段。
     if (!segment || segment->name.trimmed().isEmpty() ||
         segment->name.endsWith(QStringLiteral("岩段")) || !lith ||
-        lith->lithoName.trimmed().isEmpty())
+        lith->lithoName.trimmed().isEmpty()) {
+      if(validSegments){flush();++skippedPoints;note(tr("缺少段或岩性井道"));}
       continue;
-    if (std::isfinite(previous) && depth - previous > step * 1.5 + 0.001)
-      return fail(tr("目标井段存在深度缺口，不能作为连续井段预测"));
+    }
+    if (std::isfinite(previous) && depth - previous > step * 1.5 + 0.001) {
+      if(!validSegments)return fail(tr("目标井段存在深度缺口，不能作为连续井段预测"));
+      flush();++gaps;note(tr("目标井段存在深度缺口，不能作为连续井段预测"));
+    }
     if (segment->name.size() > 128 || lith->lithoName.size() > 128)
       return fail(tr("段或岩性文本超过 128 字符"));
     QJsonObject row{{QStringLiteral("深度"), depth},
                     {QStringLiteral("段"), segment->name.trimmed()},
                     {QStringLiteral("岩性"), lith->lithoName.trimmed()}};
     const double maxGap = step * 1.5 + 0.001;
+    QString rowError;
     for (qsizetype n = 0; n < curves.size(); ++n) {
       double value;
       const double curveGap = curveSteps[n] * 1.5 + 0.001;
-      if (!curveValue(*curves[n], depth, &value, qMax(maxGap, curveGap)))
-        return fail(
-            tr("深度 %1 m 的 %2 缺少有效数值").arg(depth).arg(model.curves[n]));
+      if (!curveValue(*curves[n], depth, &value, qMax(maxGap, curveGap))) {
+        rowError=tr("深度 %1 m 的 %2 缺少有效数值").arg(depth).arg(model.curves[n]);break;
+      }
       row.insert(model.curves[n], value);
+    }
+    if(!rowError.isEmpty()){
+      if(!validSegments)return fail(rowError);
+      flush();++skippedPoints;note(rowError);continue;
     }
     out.rows.append(row);
     previous = depth;
   }
+  if(validSegments){
+    flush();
+    if(skipped&&(skippedPoints||gaps))skipped->append(tr("%1：跳过 %2 个样点、%3 处缺口（%4）")
+        .arg(groupName.isEmpty()?tr("整井"):groupName).arg(skippedPoints).arg(gaps).arg(firstSkipped));
+    if(!validSegments->isEmpty())return validSegments->first();
+    return fail(firstSkipped.isEmpty()?tr("有效深度点 %1 个，模型至少需要 %2 个").arg(0).arg(model.window):firstSkipped);
+  }
   if (out.rows.isEmpty())
-    return fail(tr("没有模型对应的 %1 井段").arg(model.formationGroup));
+    return fail(tr("当前范围内没有可用于预测的井段"));
   if (out.rows.size() < model.window)
     return fail(tr("有效深度点 %1 个，模型至少需要 %2 个")
                     .arg(out.rows.size())
                     .arg(model.window));
   return out;
+}
+WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,const WellFaciesModel &model,
+    QVector<WellFaciesInput> *validSegments,QStringList *skipped){
+  return prepareGroupInput(data,model,{},validSegments,skipped);
 }
 bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
                            const WellFaciesInput &input,
@@ -344,7 +382,7 @@ bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
 }
 WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
                                   const QVector<WellFaciesModel> &models,
-                                  const QString &preferredModelId) {
+                                  const QString &preferredModelId,bool allowPartial) {
   WellFaciesPlan plan;
   if (models.isEmpty()) {
     plan.reason = tr("没有可调用的测井相模型，请刷新模型");
@@ -354,86 +392,56 @@ WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
   for (const auto &m : models)
     if (m.id == preferredModelId)
       preferred = &m;
-  // 每个地层组取一个模型；所选模型所在的组排最前，重叠时它优先。
-  QStringList order{preferred->formationGroup};
-  QHash<QString, const WellFaciesModel *> chosen;
-  for (const auto &m : models) {
-    if (!order.contains(m.formationGroup))
-      order.append(m.formationGroup);
-    if (!chosen.contains(m.formationGroup) || m.id == preferredModelId)
-      chosen.insert(m.formationGroup, &m);
-  }
-  const QStringList groups = wellGroups(data);
-  // 组匹配口径与 prepare 层一致（finding-39/40）：prepareWellFaciesInput /
-  // planWellFaciesFormationRun 用 matchesFormationGroup 的宽松段式匹配
-  // （「珠江一段」↔「珠江组」），这里此前只用单向 w.startsWith(group)——
-  // 段式命名的井组被静默跳过，还在 covered 检查里被谎报「无对应模型」。
-  // startsWith 保留为并集一支（组名不以「组」结尾时它是唯一命中路径）。
-  const auto groupMatches = [](const QString &wellGroup, const QString &group) {
-    return wellGroup.startsWith(group) || matchesFormationGroup(wellGroup, group);
-  };
+  // Prefer matching descriptive metadata when several versions are offered; every
+  // model remains usable for every group. The selected/default model covers others.
+  const auto groups=wellGroups(data);
+  const QStringList order=groups.isEmpty()?QStringList{QString()}:groups;
   QSet<qint64> used;
-  for (const QString &group : order) {
-    const bool present =
-        group.isEmpty() ||
-        std::any_of(groups.cbegin(), groups.cend(), [&group, &groupMatches](const QString &w) {
-          return groupMatches(w, group);
-        });
-    if (!present) {
-      // 不静默：模型组在井上不存在也进 skipped（否则用户只看到「少跑了一组」）。
-      plan.skipped << tr("%1（井上无该地层组）").arg(group.isEmpty() ? tr("整井") : group);
+  for(const auto &group:order){
+    const WellFaciesModel *model=preferred;
+    if(!group.isEmpty()){
+      const WellFaciesModel *matching=nullptr;
+      for(const auto &candidate:models){
+        if(candidate.formationGroup.isEmpty()||!matchesFormationGroup(group,candidate.formationGroup))continue;
+        if(!matching||candidate.id==preferredModelId)matching=&candidate;
+      }
+      if(matching)model=matching;
+    }
+    const auto label=group.isEmpty()?tr("整井"):group;
+    QVector<WellFaciesInput> inputs;
+    const auto prepared=prepareGroupInput(data,*model,group,allowPartial?&inputs:nullptr,allowPartial?&plan.skipped:nullptr);
+    if(!allowPartial&&prepared.ready())inputs.append(prepared);
+    if(inputs.isEmpty()){
+      plan.skipped<<tr("%1（%2）").arg(label,prepared.reason);
+      if(plan.reason.isEmpty())plan.reason=prepared.reason;
       continue;
     }
-    const WellFaciesModel &model = *chosen.value(group);
-    const QString label = group.isEmpty() ? tr("整井") : group;
-    WellFaciesInput input = prepareWellFaciesInput(data, model);
-    if (!input.ready()) {
-      plan.skipped << tr("%1（%2）").arg(label, input.reason);
-      continue;
+    for(const auto &input:inputs){
+      if(std::any_of(input.rows.cbegin(),input.rows.cend(),[&](const auto &row){return used.contains(depthKey(row));})){
+        plan.skipped<<tr("%1（井段与其他地层组重叠）").arg(label);continue;
+      }
+      for(const auto &row:input.rows)used.insert(depthKey(row));
+      plan.runs.append({group,*model,input});
     }
-    const bool overlap = std::any_of(
-        input.rows.cbegin(), input.rows.cend(),
-        [&used](const QJsonValue &row) { return used.contains(depthKey(row)); });
-    if (overlap) {
-      plan.skipped << tr("%1（井段与其他地层组重叠）").arg(label);
-      continue;
-    }
-    for (const auto &row : input.rows)
-      used.insert(depthKey(row));
-    plan.runs.append({group, model, input});
   }
-  if (plan.runs.isEmpty()) {
-    // 没有任何组命中模型：沿用整井口径，只用所选模型，原因也取它的。
-    plan.skipped.clear();
-    WellFaciesInput input = prepareWellFaciesInput(data, *preferred);
-    if (input.ready())
-      plan.runs.append({preferred->formationGroup, *preferred, input});
-    else
-      plan.reason = input.reason;
-    return plan;
-  }
-  for (const QString &w : groups) {
-    const bool covered =
-        std::any_of(models.cbegin(), models.cend(), [&w, &groupMatches](const WellFaciesModel &m) {
-          return m.formationGroup.isEmpty() || groupMatches(w, m.formationGroup);
-        });
-    if (!covered)
-      plan.skipped << tr("%1（无对应模型）").arg(w);
-  }
-  std::stable_sort(plan.runs.begin(), plan.runs.end(),
-                   [](const WellFaciesRun &a, const WellFaciesRun &b) {
-                     return depthKey(a.input.rows.first()) <
-                            depthKey(b.input.rows.first());
-                   });
+  if(plan.ready())plan.reason.clear();
+  std::stable_sort(plan.runs.begin(),plan.runs.end(),[](const auto &a,const auto &b){
+    return depthKey(a.input.rows.first())<depthKey(b.input.rows.first());
+  });
   return plan;
 }
 WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
                                           const QVector<WellFaciesModel> &models,
                                           const QString &horizon) {
   WellFaciesPlan plan;
-  const auto current = std::find_if(data.formationIntervals.cbegin(), data.formationIntervals.cend(),
+  QVector<FormationInterval> allFormations = data.formationIntervals;
+  for (const auto &s : data.seismicSubIntervals)
+    allFormations.append(s);
+  for (const auto &s : data.seismicIntervals)
+    allFormations.append(s);
+  const auto current = std::find_if(allFormations.cbegin(), allFormations.cend(),
       [&horizon](const auto &f) { return f.name.compare(horizon, Qt::CaseInsensitive) == 0; });
-  if (current == data.formationIntervals.cend() ||
+  if (current == allFormations.cend() ||
       !std::isfinite(current->topDepth) || !std::isfinite(current->bottomDepth) ||
       current->bottomDepth <= current->topDepth) {
     plan.reason = tr("当前地层 %1 缺少有效顶底深").arg(horizon);
@@ -441,6 +449,7 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
   }
   const double top = current->topDepth, base = current->bottomDepth;
   ComprehensiveWellData scoped = data;
+  scoped.formationIntervals = allFormations;
   scoped.minDepth = top; scoped.maxDepth = base;
   // 保留每根曲线在当前地层内的原始采样，不向层外扩窗或补模拟数据。
   for (auto &curve : scoped.continuousCurves) {
@@ -471,7 +480,7 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
     scoped.formationIntervals.erase(std::remove_if(scoped.formationIntervals.begin(), scoped.formationIntervals.end(),
         [&horizon](const auto &f) { return !isGroupName(f) && f.name.compare(horizon, Qt::CaseInsensitive) != 0; }),
         scoped.formationIntervals.end());
-  // 模型只从当前范围包含的地层组匹配；未标组的编图段名沿用服务默认模型。
+  // Group annotations rank available models; they do not limit geological applicability.
   const QStringList groups = wellGroups(scoped);
   const WellFaciesModel *model = nullptr;
   for (const auto &candidate : models) {
@@ -485,15 +494,8 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
   if (!model)
     for (const auto &candidate : models)
       if (candidate.formationGroup.isEmpty()) { model = &candidate; break; }
-  // 井上没有任何组标注时无从判错配：服务清单第一顺位即「服务默认模型」。
-  // 有组标注却都不匹配才拒绝——那时拿错组模型才是真风险。
-  if (!model && groups.isEmpty() && !models.isEmpty())
-    model = &models.first();
-  if (!model) {
-    plan.reason = models.isEmpty() ? tr("没有可调用的测井相模型")
-                                  : tr("当前地层 %1 没有对应模型").arg(horizon);
-    return plan;
-  }
+  if(!model&&!models.isEmpty())model=&models.first();
+  if(!model){plan.reason=tr("没有可调用的测井相模型");return plan;}
   auto input = prepareWellFaciesInput(scoped, *model);
   if (!input.ready()) {
     plan.reason = input.reason;

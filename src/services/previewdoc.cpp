@@ -29,6 +29,7 @@
 #include <QSet>
 #include <QTimer>
 #include <QTemporaryDir>
+#include <atomic>
 
 namespace
 {
@@ -781,6 +782,8 @@ void PreviewDocService::requestSection(const QString &assetId,
   struct DecodeOut
   {
     SectionDoc doc;
+    std::atomic<std::shared_ptr<const SectionDoc>> image;
+    bool imageDelivered=false; // GUI-thread only.
   };
   auto out = std::make_shared<DecodeOut>();
   out->doc.isInline = isInline;
@@ -803,6 +806,7 @@ void PreviewDocService::requestSection(const QString &assetId,
     paleo::data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
     paleo::data::SeismicSectionResult section;std::string detail;
     const auto cancel=[t]{return t&&t->cancelRequested();};
+    if(t)t->reportStage(QObject::tr("读取测线振幅"),10);
     if(!source.line(isInline,lineNo,options,section,detail,cancel))return QString::fromUtf8(detail);
     out->doc.sampleIntervalUs=float(section.sampleInterval*1000);out->doc.startTimeMs=section.firstTime;
     out->doc.readReport.requestedTraceCount=section.columns;
@@ -815,6 +819,13 @@ void PreviewDocService::requestSection(const QString &assetId,
       if(section.traceIndexes.at(column)>=0)++out->doc.readReport.decodedTraceCount;
       out->doc.traces.append(std::move(trace));
     }
+    if(cancel())return {};
+    if(t){
+      out->image.store(std::make_shared<const SectionDoc>(out->doc));
+      t->reportDetail(QObject::tr("振幅已就绪，正在加载地震层位"));
+      t->reportStage(QObject::tr("加载地震层位"),70);
+    }
+    out->doc.horizons=source.sectionHorizons(section,cancel);
     if(t)t->reportBytes(section.columns,section.columns);
     return {};
   };
@@ -826,6 +837,7 @@ void PreviewDocService::requestSection(const QString &assetId,
     if (st == PaleoTask::State::Succeeded)
     {
       m_shaVerified.insert(assetId, true);
+      out->doc.horizonsOnly=out->imageDelivered;
       emit seismicSectionReady(assetId, out->doc);
     }
     else if (st == PaleoTask::State::Failed)
@@ -843,8 +855,11 @@ void PreviewDocService::requestSection(const QString &assetId,
       emit seismicSectionFailed(
           assetId, errText.isEmpty() ? QStringLiteral("无法解码测线") : errText);
     }
-    else
-      emit seismicSectionCancelled(assetId);
+    else if(out->imageDelivered){
+      out->doc.horizonsOnly=true;
+      out->doc.horizons.warnings.append(QObject::tr("地震层位加载已取消"));
+      emit seismicSectionReady(assetId,out->doc);
+    }else emit seismicSectionCancelled(assetId);
   };
 
   if (m_taskSvc)
@@ -855,6 +870,12 @@ void PreviewDocService::requestSection(const QString &assetId,
         QStringLiteral("解码剖面 %1").arg(QFileInfo(absPath).fileName()), work,
         QString(), /*quiet=*/true);
     m_decodeTask[assetId] = task;
+    connect(task,&PaleoTask::changed,this,[this,assetId,seq,out,task]{
+      if(out->imageDelivered||seq!=m_decodeSeq.value(assetId)||task->cancelRequested())return;
+      if(const auto image=out->image.load()){
+        out->imageDelivered=true;emit seismicSectionImageReady(assetId,*image);
+      }
+    });
     connect(task, &PaleoTask::finished, this,
             [apply, task]() { apply(task->state(), task->errorText()); });
   }

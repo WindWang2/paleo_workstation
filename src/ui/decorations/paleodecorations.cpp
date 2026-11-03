@@ -47,6 +47,27 @@ namespace
       return 0;
     return qBound( 0, int( -std::floor( std::log10( interval ) ) ), 8 );
   }
+
+  bool inProjectedScaleDomain( const QgsCoordinateReferenceSystem &crs, const QgsPointXY &p )
+  {
+    if ( !std::isfinite( p.x() ) || !std::isfinite( p.y() ) )
+      return false;
+    const QString auth = crs.authid();
+    if ( auth == QLatin1String( "EPSG:3857" ) )
+      return std::abs( p.x() ) <= 20037508.0 && std::abs( p.y() ) <= 19900000.0;
+    if ( std::abs( p.y() ) > 10000000.0 )
+      return false;
+    if ( p.x() >= -500000.0 && p.x() <= 1500000.0 )
+      return true;
+    if ( auth.startsWith( QLatin1String( "EPSG:326" ) ) || auth.startsWith( QLatin1String( "EPSG:327" ) ) )
+      return false;
+    if ( p.x() > 1500000.0 && p.x() < 61000000.0 )
+    {
+      const double intraZone = std::fmod( p.x(), 1000000.0 );
+      return intraZone >= 100000.0 && intraZone <= 900000.0;
+    }
+    return false;
+  }
 }
 
 
@@ -88,14 +109,38 @@ void PaleoScaleBarDecoration::render( const QgsMapSettings &mapSettings, QgsRend
 
   double mupp = mapSettings.mapUnitsPerPixel();
   Qgis::DistanceUnit shownUnit = mapSettings.mapUnits();
-  if (mapSettings.destinationCrs().type() != Qgis::CrsType::Engineering) {
-    QgsDistanceArea distance;
-    distance.setSourceCrs(mapSettings.destinationCrs(), mapSettings.transformContext());
-    distance.setEllipsoid(QStringLiteral("WGS84"));
+  const auto &crs = mapSettings.destinationCrs();
+  if ( crs.isValid() && crs.type() != Qgis::CrsType::Engineering )
+  {
     const auto &pixels = mapSettings.mapToPixel();
-    mupp = distance.measureLine(pixels.toMapCoordinates(12, painter->device()->height()-12),
-                                pixels.toMapCoordinates(92, painter->device()->height()-12)) / 80.0;
-    shownUnit = Qgis::DistanceUnit::Meters;
+    const QgsPointXY p0 = pixels.toMapCoordinates( 12, painter->device()->height() - 12 );
+    const QgsPointXY p1 = pixels.toMapCoordinates( 92, painter->device()->height() - 12 );
+    if ( crs.isGeographic() )
+    {
+      if ( !std::isfinite( p0.x() ) || !std::isfinite( p0.y() )
+           || !std::isfinite( p1.x() ) || !std::isfinite( p1.y() )
+           || std::abs( p0.x() ) > 180.0 || std::abs( p0.y() ) > 90.0
+           || std::abs( p1.x() ) > 180.0 || std::abs( p1.y() ) > 90.0 )
+        return;
+      QgsDistanceArea distance;
+      distance.setSourceCrs( crs, mapSettings.transformContext() );
+      distance.setEllipsoid( QStringLiteral( "WGS84" ) );
+      try { mupp = distance.measureLine( p0, p1 ) / 80.0; } catch ( const QgsCsException & ) { return; }
+      shownUnit = Qgis::DistanceUnit::Meters;
+    }
+    else if ( mapSettings.extent().width() <= 2000000.0
+              && inProjectedScaleDomain( crs, p0 ) && inProjectedScaleDomain( crs, p1 ) )
+    {
+      QgsDistanceArea distance;
+      distance.setSourceCrs( crs, mapSettings.transformContext() );
+      distance.setEllipsoid( QStringLiteral( "WGS84" ) );
+      try
+      {
+        mupp = distance.measureLine( p0, p1 ) / 80.0;
+        shownUnit = Qgis::DistanceUnit::Meters;
+      }
+      catch ( const QgsCsException & ) {}
+    }
   }
   if ( !( mupp > 0 ) || !std::isfinite( mupp ) )
     return;

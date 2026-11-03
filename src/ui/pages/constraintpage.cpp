@@ -63,7 +63,14 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *inputStage = caption( tr( "1. 获取单因素" ), this );
   inputStage->setObjectName( QStringLiteral( "factorInputStageCaption" ) );
   lay->addWidget( inputStage );
-  lay->addWidget( caption( tr( "当前层位" ), this ) );
+  auto *scopeCaption=caption(tr("当前层位"),this);
+  scopeCaption->setObjectName(QStringLiteral("factorHorizonCaption"));
+  lay->addWidget(scopeCaption);
+  auto *scopeLabel=new QLabel(this);
+  scopeLabel->setObjectName(QStringLiteral("factorAnalysisUnit"));
+  scopeLabel->setAccessibleName(tr("当前地震层段"));
+  scopeLabel->setToolTip(tr("与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。"));
+  scopeLabel->hide();lay->addWidget(scopeLabel);
   auto *horizons = new QComboBox( this );
   horizons->setObjectName( QStringLiteral( "horizonCombo" ) );
   horizons->setAccessibleName( tr( "单因素图层位" ) );
@@ -287,6 +294,9 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
 
 void ConstraintPage::setHorizons( const QStringList &horizons )
 {
+  if(qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>())){
+    refreshAnalysisUnit();return;
+  }
   auto *combo = child<QComboBox>( this, "horizonCombo" );
   if ( !combo )
     return;

@@ -5,14 +5,38 @@
 #include "io/wellfileparsers.h"
 #include <paleo_data/service.h>
 #include <QFile>
+#include <QDir>
 #include <cmath>
+#include <algorithm>
 
 QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
   QVector<TdSample> out;m_lastError.clear();
   const QString path=assetFilePathFor(wellId,QStringLiteral("time_depth"));
-  if(path.isEmpty())return out;
+  const auto entity=m_catalog?m_catalog->entityById(wellId):CatalogEntity{};
+  long long nativeWell=entity.extra.value("areaModelWellId").toLongLong();
+  const bool native=nativeWell>0&&QFile::exists(paleo::area_model::directory(projectDir())+"/data.sqlite");
+  if(path.isEmpty()&&!native)return out;
   paleo::data::DataService service;long long source=0;
-  const auto state=paleo::area_model::openSource(path,service,source,&m_lastError);
+  auto state=paleo::area_model::Read::Ready;
+  std::string error;std::vector<paleo::data::DataEntry> entries;
+  if(native){
+    if(!service.openProjectReadOnly(paleo::area_model::directory(projectDir()).toStdString(),error)||
+       !service.listData("time_depth",nativeWell,entries,error)){m_lastError=QString::fromStdString(error);return {};}
+    for(const auto &link:m_catalog->linksForEntity(wellId))if(!link.unresolved&&link.role=="time_depth"&&link.isPrimary){
+      source=m_catalog->currentVersion(link.assetId).extra.value("areaModelSourceId").toLongLong();break;
+    }
+    if(!source&&!path.isEmpty()){
+      std::vector<paleo::data::SourceIndexEntry> sources;if(!service.listSourceIndexEntries(sources,error)){m_lastError=QString::fromStdString(error);return {};}
+      for(const auto &candidate:sources){
+        const auto stored=QString::fromStdString(candidate.storedPath);
+        const auto storedPath=QDir::isAbsolutePath(stored)?stored:QDir(paleo::area_model::directory(projectDir())).absoluteFilePath(stored);
+        if(QDir::cleanPath(QString::fromStdString(candidate.path))==QDir::cleanPath(path)||QDir::cleanPath(storedPath)==QDir::cleanPath(path)){source=candidate.id;break;}
+      }
+    }
+    if(!path.isEmpty()&&!source){m_lastError=tr("所选时深来源未在工区数据服务中匹配，请检查关联");return {};}
+    if(path.isEmpty()&&entries.empty())return out;
+    if(source)entries.erase(std::remove_if(entries.begin(),entries.end(),[&](const auto &entry){return entry.sourceId!=source;}),entries.end());
+  }else state=paleo::area_model::openSource(path,service,source,&m_lastError);
   if(state==paleo::area_model::Read::Failed)return out;
   if(state==paleo::area_model::Read::Unbound) {
     if(!QFile::exists(path))return out;
@@ -24,8 +48,6 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
     for(const auto& row:table.rows)out.append({row.timeMs,row.hasTvd?row.tvd:qQNaN(),row.hasMd?row.md:qQNaN(),{}});
     return out;
   }
-  const auto entity=m_catalog->entityById(wellId);
-  long long nativeWell=entity.extra.value("areaModelWellId").toLongLong();std::string error;
   if(!nativeWell) {
     std::vector<paleo::data::WellSummary> wells;
     if(!service.listWells(wells,error)){m_lastError=QString::fromUtf8(error);return {};}
@@ -34,8 +56,7 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
       nativeWell=well.id;
     }
   }
-  std::vector<paleo::data::DataEntry> entries;
-  if(!service.verifySource(source,error)||!service.listSourceData("time_depth",source,entries,error)){m_lastError=QString::fromUtf8(error);return {};}
+  if(!native&&(!service.verifySource(source,error)||!service.listSourceData("time_depth",source,entries,error))){m_lastError=QString::fromUtf8(error);return {};}
   std::vector<paleo::data::TimeDepthTable> tables;
   for(const auto& entry:entries)if(nativeWell&&entry.wellId==nativeWell) {
     paleo::data::TimeDepthTable table;if(!service.readTimeDepth(entry.id,table,error)){m_lastError=QString::fromUtf8(error);return {};}
@@ -53,7 +74,12 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
   const auto& table=*selected;
   if((table.timeUnit!="ms"&&table.timeUnit!="s")||(table.timeType!="TWT"&&table.timeType!="OWT")||table.timeReference.empty()||
       (table.depthInfo.depthUnit!="m"&&table.depthInfo.depthUnit!="ft")) {
-    m_lastError=tr("时深关系的深度单位、时间单位、单/双程或时间基准尚未确认");return {};
+    QStringList missing;
+    if(table.depthInfo.depthUnit!="m"&&table.depthInfo.depthUnit!="ft")missing<<tr("深度单位");
+    if(table.timeUnit!="ms"&&table.timeUnit!="s")missing<<tr("时间单位");
+    if(table.timeType!="TWT"&&table.timeType!="OWT")missing<<tr("单/双程类型");
+    if(table.timeReference.empty())missing<<tr("时间基准");
+    m_lastError=tr("时深关系存在，但%1缺失或不受支持").arg(missing.join(QStringLiteral("、")));return {};
   }
   const double timeScale=(table.timeUnit=="s"?1000.:1.)*(table.timeType=="OWT"?2.:1.);
   const double depthScale=table.depthInfo.depthUnit=="ft"?0.3048:1.;

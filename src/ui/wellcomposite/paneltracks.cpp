@@ -17,6 +17,7 @@
 #include <QMap>
 #include "../notifications/paleonotify.h"
 #include <QSignalBlocker>
+#include <QScrollBar>
 
 namespace WellComposite
 {
@@ -47,7 +48,13 @@ void WellCompositePanel::syncSessionToTracks()
           break; // 砂层组不受分层编辑会话同步（与旧标题判据同语义）
         case FormationTrack::FormationSource::Layers:
           if (!doc.formationIntervals.isEmpty())
-            ft->setIntervals(doc.formationIntervals);
+          {
+            QVector<FormationInterval> byType;
+            for (const auto &fi : doc.formationIntervals)
+              if (fi.unitType == ft->title())
+                byType.append(fi);
+            ft->setIntervals(byType.isEmpty() ? doc.formationIntervals : byType);
+          }
           break;
       }
     }
@@ -73,8 +80,9 @@ void WellCompositePanel::syncSessionToTracks()
 }
 
 void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
-  if (!workflow || m_faciesWorkflow) return;
+  if (!workflow || m_faciesWorkflow || property("comparisonPreview").toBool()) return;
   m_faciesWorkflow = workflow;
+  workflow->setAllowPartialPrediction(m_wholeWellPreview);
   connect(this, &WellCompositePanel::faciesDataChanged, workflow, &WellFaciesWorkflow::setData);
   connect(this, &WellCompositePanel::faciesPredictionRequested, workflow, &WellFaciesWorkflow::run);
   connect(this, &WellCompositePanel::faciesCancelRequested, workflow, &WellFaciesWorkflow::cancel);
@@ -96,18 +104,67 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
     m_faciesReady = ready;
     if (!m_btnCancelFacies->isEnabled())
       m_btnPredictFacies->setEnabled(true);
-    m_faciesModel->setToolTip(tr("%1\n预测按地层组逐组进行；同一地层组有多个模型版本时使用此处所选版本")
+    m_faciesModel->setToolTip(tr("%1\n模型可用于全部地层段；按实际地层组组织任务，模型的组名标注不限制预测范围")
                                   .arg(m_faciesModel->currentData(Qt::ToolTipRole).toString()));
     m_btnPredictFacies->setToolTip(ready ? tr("提交当前井的对应井段预测相（按地层组逐组，逐组返回）：%1").arg(m_faciesPlan) : reason);
     m_faciesStatus->setText(ready ? tr("可预测：%1").arg(m_faciesPlan) : reason);
+    m_faciesStatus->setToolTip(m_faciesStatus->text());
   });
   connect(workflow, &WellFaciesWorkflow::busyChanged, this, [this](bool busy) {
     m_btnCancelFacies->setEnabled(busy);
     m_btnPredictFacies->setEnabled(!busy);
     m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待（所有地层），服务端已受理任务继续执行") : tr("没有正在等待的预测"));
     m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
+    if (m_faciesStratTrack) m_faciesStratTrack->setEnabled(!busy&&!m_selectionContext&&!m_wholeWellPreview);
+    if(!busy&&m_wholeWellPreview&&property("locatePredictionOnReturn").toBool()){
+      setProperty("locatePredictionOnReturn",false);
+      if(m_predictionTrack){
+        m_canvas->setScrollDepth(property("predictionFirstDepth").toDouble());
+        m_canvas->syncScrollBars();qreal left=0;
+        for(const auto &track:m_canvas->tracks()){
+          if(track==m_predictionTrack)break;
+          if(track->isVisible())left+=track->width();
+        }
+        for(auto *bar:m_canvas->findChildren<QScrollBar *>())
+          if(bar->orientation()==Qt::Horizontal)bar->setValue(qMax(0,int(left-m_canvas->width()/3.0)));
+      }
+    }
   });
-  connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, &QLabel::setText);
+  const auto refreshStratTracks = [this, workflow] {
+    if (!m_faciesStratTrack || !workflow) return;
+    if (m_wholeWellPreview) {
+      QSignalBlocker blocker(m_faciesStratTrack);m_faciesStratTrack->clear();
+      m_faciesStratTrack->addItem(tr("整井（按地层组逐组）"));m_faciesStratTrack->setEnabled(false);return;
+    }
+    if(m_selectionContext){
+      QSignalBlocker blocker(m_faciesStratTrack);m_faciesStratTrack->clear();
+      m_faciesStratTrack->addItem(m_selectionContext->activeUnit().displayName);m_faciesStratTrack->setEnabled(false);return;
+    }
+    const QVariantMap prev = m_faciesStratTrack->currentData().toMap();
+    QSignalBlocker block(m_faciesStratTrack);
+    m_faciesStratTrack->clear();
+    m_faciesStratTrack->addItem(tr("跟随分析层段 / 全部地层组"), QVariantMap{});
+    int selectIdx = 0;
+    for (const auto &v : workflow->availableStratigraphicTracks()) {
+      const auto t = v.toMap();
+      const QString trackName = t.value(QStringLiteral("trackName")).toString();
+      const QString schemeId = t.value(QStringLiteral("schemeId")).toString();
+      for (const QString &unitName : t.value(QStringLiteral("unitNames")).toStringList()) {
+        const QVariantMap itemData{{QStringLiteral("trackName"), trackName},
+                                   {QStringLiteral("unitName"), unitName},
+                                   {QStringLiteral("schemeId"), schemeId}};
+        m_faciesStratTrack->addItem(QStringLiteral("%1 · %2").arg(trackName, unitName), itemData);
+        if (!prev.isEmpty() && prev.value(QStringLiteral("trackName")) == trackName &&
+            prev.value(QStringLiteral("unitName")) == unitName)
+          selectIdx = m_faciesStratTrack->count() - 1;
+      }
+    }
+    m_faciesStratTrack->setCurrentIndex(selectIdx);
+  };
+  connect(this, &WellCompositePanel::faciesDataChanged, this, [refreshStratTracks](const ComprehensiveWellData &) {
+    refreshStratTracks();
+  });
+  connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, [this](const QString &text) { m_faciesStatus->setText(text);m_faciesStatus->setToolTip(text); });
   connect(workflow, &WellFaciesWorkflow::resultReady, this, &WellCompositePanel::showFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::resultCleared, this, &WellCompositePanel::clearFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::attributeAvailabilityChanged, this, [this](bool available, const QString &reason) {
@@ -125,6 +182,7 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   if (auto *button = findChild<QToolButton *>(QStringLiteral("btnWellFormations")))
     connect(button, &QToolButton::clicked, workflow, &WellFaciesWorkflow::requestFormationTable);
   workflow->setData(m_data);
+  refreshStratTracks();
   if (m_selectionContext) workflow->setAnalysisUnit(m_selectionContext->activeUnit());
 }
 void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
@@ -205,6 +263,7 @@ void WellCompositePanel::showFaciesPrediction(const WellFaciesResult &result) {
   m_btnShowFacies->setEnabled(true);
   m_btnShowFacies->setToolTip(tr("显示或隐藏预测相、置信度和优势相；模型 %1 %2；任务 %3")
                             .arg(result.modelName, result.modelVersion, result.jobId));
+  if(m_wholeWellPreview&&!result.intervals.isEmpty())setProperty("predictionFirstDepth",result.intervals.first().topDepth);
   m_canvas->updateAll();
 }
 

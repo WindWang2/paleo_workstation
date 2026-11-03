@@ -668,6 +668,18 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   mainLay->addWidget(m_btnLegend);
 }
 
+void WellPositionLegendWidget::setCompactPreview()
+{
+  m_compactPreview = true;
+  for (auto *child : findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly))
+    if (child != m_scaleBar && child != m_lblViewportRange && child != m_miniBar) child->hide();
+  m_lblViewportRange->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  m_lblViewportRange->setMinimumWidth(0);
+  m_miniBar->setMaximumWidth(fontMetrics().averageCharWidth()*14);
+  setMinimumWidth(0);setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+  updateViewport(m_currentTopDepth,m_currentBottomDepth,m_currentSpan);
+}
+
 void WellPositionLegendWidget::updateViewport(double topDepth, double bottomDepth, double span)
 {
   m_currentTopDepth = topDepth;
@@ -675,8 +687,9 @@ void WellPositionLegendWidget::updateViewport(double topDepth, double bottomDept
   m_currentSpan = span;
 
   // 更新当前显示区域文字
-  m_lblViewportRange->setText(
-      tr("视口: %1 ~ %2m (跨度 %3m)")
+  m_lblViewportRange->setText(m_compactPreview
+      ? tr("%1–%2 m").arg(QString::number(topDepth,'f',1),QString::number(bottomDepth,'f',1))
+      : tr("视口: %1 ~ %2m (跨度 %3m)")
           .arg(QString::number(topDepth, 'f', 1))
           .arg(QString::number(bottomDepth, 'f', 1))
           .arg(QString::number(span, 'f', 1)));
@@ -695,6 +708,7 @@ void WellPositionLegendWidget::updateViewport(double topDepth, double bottomDept
 
   // 更新全井微缩条高亮滑块
   m_miniBar->setVisibleRange(topDepth, bottomDepth);
+  setToolTip(m_lblViewportRange->text()+QLatin1Char('\n')+m_lblWellRange->text());
 }
 
 void WellPositionLegendWidget::updateScale(double pxPerMeter, const QString &scaleRatio)

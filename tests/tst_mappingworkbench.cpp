@@ -159,6 +159,18 @@ public:
     emit completed(result);
   }
 };
+class ReplayedWellPredictionService : public RemotePredictionService {
+public:
+  QVariantList points,facies;
+  void start(const RemotePredictionRequest &request) override {
+    RemotePredictionResult result;result.request=request;result.facies=facies;result.mock=false;
+    result.partialWellCoverage=true;result.currentFormationOnly=true;result.method="remote-well-facies-api-v2";
+    for(const auto &well:request.wells)for(const auto &point:points)
+      if(point.toMap().value("id")==well.toMap().value("id")){result.points.append(point);break;}
+    emit completed(result);
+  }
+  void cancel() override {}
+};
 
 // 测井预测的定制应答：整井优势相与 D61 地层内优势相刻意不同——
 // [top, top+10) 相 1、[top+10, top+60) 相 2、[top+60, bottom) 相 1。
@@ -4078,6 +4090,79 @@ private slots:
     QCOMPARE(reasons->count(), 3);
   }
 
+  void wellsRemoteApiUsesNativeSelectedUnitWithoutTimeDepth() {
+    WellApiServer server; WellApiEnvironment environment(server);
+    Fixture f; QVERIFY(f.init()); QString error; std::string detail;
+    QVERIFY(!f.well("A",10,20).isEmpty());
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog,f.dir.path(),&f.layers,
+      {QVariantMap{{"well_id","A"},{"top_md",1000.},{"base_md",1240.},{"lithology",QStringLiteral("砂岩")}}},&error));
+    paleo::data::DataService ds; const auto root=f.dir.path()+"/artifacts/metadata/area-model";
+    QVERIFY(QFileInfo::exists(root+"/data.sqlite")?ds.openProject(root.toStdString(),detail):ds.createProject(root.toStdString(),"test",detail));
+    const auto source=f.dir.filePath("native.txt");QFile input(source);QVERIFY(input.open(QIODevice::WriteOnly));input.write("synthetic");input.close();
+    paleo::data::ParsedFile parsed;parsed.status="parsed";parsed.kind="test";
+    paleo::data::WellDataset well;well.wellInfo.wellName="A";well.wellInfo.wellheadX=10;well.wellInfo.wellheadY=20;
+    paleo::data::LogSet log;log.logSetName="GR";log.depthInfo.depthType="MD";log.depthInfo.depthUnit="m";
+    log.samplingAxis.depthValues={1000,1030,1060,1090,1120};log.logCurves.push_back({"GR","API",{130,150,90,NAN,20},{}});
+    well.wellbore.logSets.push_back(log);
+    auto other=log;other.logSetName="other";other.logCurves={{"SP","mV",{1,2,3,4,5},{}}};
+    well.wellbore.logSets.push_back(other);parsed.wells.push_back(well);long long fileId=0;
+    QVERIFY2(ds.importPreparedFile(source.toStdString(),source.toStdString(),source.toStdString(),
+      QCryptographicHash::hash("synthetic",QCryptographicHash::Sha256).toHex().toStdString(),parsed,fileId,detail),detail.c_str());
+    std::vector<paleo::data::WellSummary> nativeWells;QVERIFY(ds.listWells(nativeWells,detail));QCOMPARE(nativeWells.size(),size_t(1));
+    const auto nativeId=nativeWells.front().id;
+    paleo::strat::WellTopTable tops; tops[nativeId]={{"T30",1000},{"T70",1240}};
+    tops[paleo::strat::stableWellKey("A")]={{"T30",1100},{"T70",1140}};
+    auto draft=paleo::strat::draftScheme("unit","test",{"T30","T70"},tops);
+    paleo::data::StratigraphicScheme scheme; std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},scheme,issues,detail));
+    const auto unit=paleo::strat::makeSelection(scheme,paleo::strat::selectorOptions(scheme).front().intervalId,1);
+    const auto key=paleo::strat::analysisLayerKey(unit);f.work.setAnalysisUnit(unit);
+    installRemotePrediction(&f.work,RemotePredictConfig{},nullptr,{},&f.work);
+    QSignalSpy readiness(&f.work,&MappingWorkbench::wellReadinessReady);
+    QVERIFY2(f.work.checkWellReadiness(key,{"A"},&error),qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(readiness.size(),1,10000);
+    QVERIFY2(readiness.first()[2].toString().isEmpty(),qPrintable(readiness.first()[2].toString()));
+    QVERIFY(readiness.first()[1].toList().first().toMap().value("ready").toBool());
+    QCOMPARE(server.bodies.size(),0);
+    QSignalSpy failures(&f.work,&MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict(key,"wells",{"A"},&error),qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(),10000);
+    QVERIFY2(failures.isEmpty(),failures.isEmpty()?"":qPrintable(failures.first()[0].toString()));
+    QCOMPARE(server.bodies.size(),1);
+    const auto rows=server.bodies.first().value("wells").toArray().first().toObject().value("rows").toArray();
+    QCOMPARE(rows.size(),2);
+    QCOMPARE(rows.first().toObject().value("GR").toDouble(),130.);
+    for(const auto &row:rows){const auto depth=row.toObject().value(QStringLiteral("深度")).toDouble();QVERIFY(depth>=1000&&depth<1060);}
+    QString product;
+    for(const auto &row:f.work.products(key))if(row.toMap().value("kind")=="wells_prediction")product=row.toMap().value("id").toString();
+    QVERIFY(!product.isEmpty());
+    const auto version=f.work.versionForLayer(product);
+    QCOMPARE(paleo::strat::fromMap(version.extra.value("unitSelection").toMap()),unit);
+    QCOMPARE(syncAnalysisResults(&f.catalog,f.dir.path()),QString());
+    std::vector<paleo::data::SubIntervalResultBinding> bindings;
+    QVERIFY(ds.listSubIntervalResults(scheme.id,{},bindings,detail));
+    bool native=false;
+    for(const auto &b:bindings)if(b.assetRef==version.id.toStdString()&&b.wellId==nativeId){native=true;QCOMPARE(b.status,std::string("current"));QCOMPARE(b.subInterval.value,unit.subIntervalId.toStdString());}
+    QVERIFY(native);
+    // Publishing stores this unit's formation row. A repeat run must use the
+    // frozen scheme window once, rather than append a second copy from history.
+    for(bool stale:{false,true}){
+      if(stale)QVERIFY(WellAttributeStore::mergeFormations(&f.catalog,f.dir.path(),&f.layers,
+        {QVariantMap{{"well_id","A"},{"formation",key},{"top_md",1002.},{"base_md",1059.}}},&error));
+      failures.clear();
+      QVERIFY2(f.work.predict(key,"wells",{"A"},&error),qPrintable(error));
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(),10000);
+      QVERIFY2(failures.isEmpty(),failures.isEmpty()?"":qPrintable(failures.first()[0].toString()));
+      const auto rows=WellAttributeStore::rows(f.dir.path(),&f.layers,WellAttributeStore::Table::Formations,"A",key);
+      QCOMPARE(rows.size(),1);QCOMPARE(rows.first().toMap().value("top_md").toDouble(),stale?1002.:1000.);
+      QCOMPARE(rows.first().toMap().value("base_md").toDouble(),stale?1059.:1060.); // preserve maintained interpretation
+      QString latest;int number=0;for(const auto &entry:f.work.products(key)){const auto row=entry.toMap();
+        if(row.value("kind")=="wells_prediction"&&row.value("version").toInt()>number){latest=row.value("id").toString();number=row.value("version").toInt();}}
+      auto *output=qobject_cast<QgsVectorLayer *>(f.layers.instantiate(latest));QVERIFY(output&&output->isValid());
+      QgsFeature feature;QVERIFY(output->getFeatures().nextFeature(feature));
+      QCOMPARE(feature.attribute("formation_top").toDouble(),1000.);QCOMPARE(feature.attribute("formation_base").toDouble(),1060.);
+    }
+  }
   void wellsRemoteApiProducesCurrentFormationVectorAndUpdatesArea() {
     WellApiServer server;
     WellApiEnvironment environment(server);
@@ -5711,6 +5796,23 @@ private slots:
       QVERIFY(!f.latest("contour_lines").isEmpty());
       f.constraints.setTaskService(nullptr);
       f.work.setTaskService(nullptr);
+    }
+  }
+  void realBatchResponsePublishesInIsolatedProject() {
+    const auto path=qEnvironmentVariable("PALEO_BATCH_RESPONSE_REPLAY");
+    if(path.isEmpty())QSKIP("Optional local response replay");
+    QFile input(path);QVERIFY(input.open(QIODevice::ReadOnly));
+    const auto batches=QJsonDocument::fromJson(input.readAll()).object().value("liveBatchResponseContract").toArray();QVERIFY(!batches.isEmpty());
+    for(const auto &value:batches){const auto batch=value.toObject();Fixture f;QVERIFY(f.init());ReplayedWellPredictionService service;
+      service.points=batch.value("points").toArray().toVariantList();service.facies=batch.value("facies").toArray().toVariantList();
+      for(auto &v:service.points){auto point=v.toMap();point.insert("formation_intervals",point.value("formation_intervals").toString().replace(batch.value("unit").toString(),QStringLiteral("D61")));v=point;}
+      QStringList ids;for(const auto &v:service.points){const auto p=v.toMap();const auto id=p.value("id").toString();
+        QVERIFY(!f.well(id,p.value("x").toDouble(),p.value("y").toDouble()).isEmpty());ids.append(id);}
+      f.work.setPredictionService(&service);QString error;QSignalSpy failures(&f.work,&MappingWorkbench::errorOccurred);
+      QVERIFY2(f.work.predict("D61","wells",ids,&error),qPrintable(error));
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(),30000);
+      QVERIFY2(failures.isEmpty(),failures.isEmpty()?"":qPrintable(failures.first()[0].toString()));
+      QVERIFY(!f.latest("wells_prediction").isEmpty());
     }
   }
   void rejectsBadAndLateRemoteResponses() {

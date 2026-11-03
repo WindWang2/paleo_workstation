@@ -10,11 +10,13 @@
 #include <QLabel>
 #include <QToolButton>
 #include <QComboBox>
+#include <QSignalBlocker>
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <functional>
 
 namespace WellComposite {
@@ -42,7 +44,8 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
       tr("<b>分析层段</b><p>测井相预测归属稳定 SubIntervalId。"
          "切换请用画布层段分析条；本标签只反映 SelectionContext::activeUnit。</p>"));
   topLay->addWidget(m_analysisUnitLabel);
-  bindSelectionContext(s_selectionProvider);
+  if (!m_wholeWellPreview) bindSelectionContext(s_selectionProvider);
+  else m_analysisUnitLabel->setText(tr("预测范围：整井（按地层组逐组）"));
 
   m_faciesModel = new QComboBox(topBar);
   m_faciesModel->setObjectName(QStringLiteral("faciesPredictionModel"));
@@ -55,6 +58,16 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
          "预测深度窗与成果身份跟随分析层段（UnitSelection），"
          "勿把本下拉当作层位选择。</p>"));
   topLay->addWidget(m_faciesModel);
+  m_faciesStratTrack = new QComboBox(topBar);
+  m_faciesStratTrack->setObjectName(QStringLiteral("faciesStratigraphicTrack"));
+  m_faciesStratTrack->setAccessibleName(tr("测井相地层道范围"));
+  m_faciesStratTrack->setMinimumContentsLength(10);
+  m_faciesStratTrack->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  m_faciesStratTrack->setToolTip(tr("选择单井相预测的地层道与单元范围（支持地震小层、地震层位及其他地层道）"));
+  m_faciesStratTrack->setWhatsThis(
+      tr("<b>测井相地层道范围</b><p>可切换地震小层（T70-T72-S1..S4）、地震层位或其他地质分层道（组、段）截取测井相预测输入。</p>"));
+  m_faciesStratTrack->addItem(tr("跟随分析层段 / 全部地层组"), QVariantMap{});
+  topLay->addWidget(m_faciesStratTrack);
   const auto faciesButton = [&](const QString &name, const QString &text) {
     auto *button = new QToolButton(topBar);
     button->setObjectName(name);
@@ -66,7 +79,7 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
   };
   m_btnPredictFacies = faciesButton(QStringLiteral("btnPredictFacies"), tr("预测相"));
   m_btnPredictFacies->setToolTip(tr("测井相预测服务尚未连接"));
-  m_btnPredictFacies->setWhatsThis(
+  m_btnPredictFacies->setWhatsThis(m_wholeWellPreview ? tr("预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。") :
       tr("<b>预测相</b><p>按当前分析层段深度窗提交测井相预测；"
          "成果带 SubIntervalId，可供编图证据拉取。</p>"));
   m_btnCancelFacies = faciesButton(QStringLiteral("btnCancelFacies"), tr("停止等待"));
@@ -81,6 +94,12 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
   m_btnRefreshFacies->setToolTip(tr("获取网络服务当前可调用的模型及输入要求"));
   m_btnFaciesService = faciesButton(QStringLiteral("btnFaciesService"), tr("预测服务"));
   m_btnFaciesService->setToolTip(tr("设置测井相预测服务地址与 API 密钥"));
+  if(property("comparisonPreview").toBool()){
+    for(QWidget *widget:QList<QWidget*>{m_analysisUnitLabel,m_faciesModel,m_faciesStratTrack,
+        m_btnPredictFacies,m_btnCancelFacies,m_btnShowFacies,m_btnRefreshFacies,m_btnFaciesService})
+      widget->setProperty("omitFromWellOptions",true);
+    return;
+  }
   connect(m_btnPredictFacies, &QToolButton::clicked, this, [this] {
     if (!m_faciesWorkflow) {
       m_faciesStatus->setText(tr("测井相预测尚未接入"));
@@ -92,14 +111,24 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
       if (reason.contains(QStringLiteral("API 密钥")) || reason.contains(QStringLiteral("服务地址"))
           || reason.contains(QStringLiteral("允许不加密")))
         m_btnFaciesService->click();
+      else QMessageBox::information(this,tr("当前井无法开始预测"),reason);
       return;
     }
+    if(m_wholeWellPreview){setProperty("locatePredictionOnReturn",true);m_btnShowFacies->setChecked(true);}
     emit faciesPredictionRequested();
   });
   connect(m_btnCancelFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesCancelRequested);
   connect(m_btnRefreshFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesModelsRequested);
   connect(m_faciesModel, &QComboBox::currentIndexChanged, this, [this] {
     emit faciesModelSelected(m_faciesModel->currentData().toString());
+  });
+  connect(m_faciesStratTrack, &QComboBox::currentIndexChanged, this, [this] {
+    if (!m_faciesWorkflow || !m_faciesStratTrack) return;
+    const QVariantMap sel = m_faciesStratTrack->currentData().toMap();
+    m_faciesWorkflow->setStratigraphicTrackFilter(
+        sel.value(QStringLiteral("trackName")).toString(),
+        sel.value(QStringLiteral("unitName")).toString(),
+        sel.value(QStringLiteral("schemeId")).toString());
   });
   connect(m_btnShowFacies, &QToolButton::toggled, this, [this](bool visible) {
     if (m_predictionTrack)
@@ -140,6 +169,7 @@ void WellCompositePanel::setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
 
 void WellCompositePanel::bindSelectionContext(SelectionContext *selection)
 {
+  if (m_wholeWellPreview) return;
   if (!m_analysisUnitLabel)
     return;
   if (m_selectionContext) {
@@ -147,6 +177,12 @@ void WellCompositePanel::bindSelectionContext(SelectionContext *selection)
     m_selectionContext = nullptr;
   }
   const auto apply = [this](const paleo::strat::UnitSelection &u) {
+    if(m_faciesStratTrack&&m_selectionContext){
+      QSignalBlocker blocker(m_faciesStratTrack);m_faciesStratTrack->clear();
+      m_faciesStratTrack->addItem(u.isValid()?u.displayName:tr("请在顶部选择地震层段"));
+      m_faciesStratTrack->setEnabled(false);
+      m_faciesStratTrack->setToolTip(tr("预测范围跟随顶部地震层段选择，成果保存到同一方案修订"));
+    }
     if (m_faciesWorkflow) m_faciesWorkflow->setAnalysisUnit(u);
     if (!m_analysisUnitLabel)
       return;

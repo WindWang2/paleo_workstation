@@ -257,6 +257,10 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   if (decl->layerId.startsWith(QStringLiteral("contours.")) ||
       (decl->layerId.startsWith(QStringLiteral("cartographic.")) && decl->layerId.endsWith(QStringLiteral(".contours"))))
     FactorStyleWriter::applyContours(qobject_cast<QgsVectorLayer *>(layer.get()));
+  if(decl->layerId==QLatin1String("boundary.project_range")){
+    bool loaded=false;layer->loadNamedStyle(decl->styleRef,loaded);
+    if(auto *vector=qobject_cast<QgsVectorLayer *>(layer.get()))vector->setReadOnly(true);
+  }
 
   // QgsProject takes ownership; keep only the raw pointer in the instance map.
   QgsMapLayer *added = proj->addMapLayer(layer.get());

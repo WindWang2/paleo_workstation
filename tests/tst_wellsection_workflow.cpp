@@ -1986,6 +1986,45 @@ private slots:
     const auto& gap=strip.gaps[0];
     QVERIFY(std::abs(gap.sampleAt(0,wells[0].timeDepth->twtAt(1500))-std::sin(14.f))<1e-6);
     QVERIFY(std::abs(gap.sampleAt(1,wells[1].timeDepth->twtAt(1500))-std::sin(17.f))<1e-6);
+    auto incompatible=wells;incompatible[1].timeDepth->timeReference="MSL";seismicReady.clear();
+    workflow.requestSeismic(incompatible,workflow.seismicSource());QTRY_COMPARE(seismicReady.size(),1);
+    const auto refused=seismicReady.first()[1].value<wellsection::SeismicStrip>();QVERIFY(!refused.anyValid());
+    QVERIFY(refused.gaps.first().reason.contains(QStringLiteral("基准不一致")));
+  }
+
+  void nativeMdWellsRemainSelectableAndLoadStoredCurveGroups(){
+    QTemporaryDir dir;const auto project=dir.filePath("project"),raw=dir.filePath("native.xml");
+    paleo::data::DataService ds;std::string error;QVERIFY(ds.createProject(paleo::area_model::directory(project).toStdString(),"native",error));
+    QVERIFY(writeText(raw,"synthetic"));paleo::data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";
+    for(int i=0;i<2;++i){
+      paleo::data::WellDataset well;well.wellInfo.wellName=i?"N2":"N1";well.wellInfo.wellheadX=i*100.;well.wellInfo.wellheadY=0.;
+      paleo::data::LogSet log;log.logSetName="main";log.depthInfo.depthType="MD";log.depthInfo.depthUnit="m";
+      log.samplingAxis.depthValues={1000,1500,2000};log.logCurves.push_back({"GR","API",{10,20,30},{}});well.wellbore.logSets.push_back(log);
+      log.logSetName="second";log.logCurves={{"RT","ohm.m",{1,2,3},{}}};well.wellbore.logSets.push_back(log);
+      paleo::data::TimeDepthTable td;td.depthInfo.depthType="MD";td.depthInfo.depthUnit="m";td.timeType="TWT";
+      td.timeUnit="ms";td.timeReference=i?"":"SRD";td.depthTimePairs={{1000,80},{2000,180}};well.timeDepthRelations.push_back(td);parsed.wells.push_back(well);
+    }
+    long long source=0;QVERIFY(ds.importPreparedFile(raw.toStdString(),raw.toStdString(),raw.toStdString(),
+      QCryptographicHash::hash("synthetic",QCryptographicHash::Sha256).toHex().toStdString(),parsed,source,error));
+    std::vector<paleo::data::WellSummary> native;QVERIFY(ds.listWells(native,error));DataCatalog catalog;QString detail;QVERIFY(catalog.open(project,&detail));
+    for(const auto &well:native){CatalogEntity entity;entity.id=QString::fromStdString(well.name);entity.name=entity.id;entity.entityType="well";
+      entity.hasSurface=true;entity.surfaceX=entity.id=="N1"?0:100;entity.surfaceY=0;entity.coordinateStatus="ok";entity.td=2000;
+      entity.extra={{"areaModelWellId",qlonglong(well.id)},{"wellHasCurveData",true}};QVERIFY(catalog.addEntity(entity,&detail));}
+    QVERIFY(QFile::remove(raw)); // Stored native records remain usable without path parsing or registry aliases.
+    WellSectionWorkflow workflow(&catalog);const auto choices=workflow.wellChoices();QCOMPARE(choices.size(),2);
+    QVERIFY(choices.last().alignmentStatus.contains(QStringLiteral("有时深")));
+    QCOMPARE(workflow.availableMnemonics({"N1","N2"}),(QStringList{"GR","RT"}));
+    QSignalSpy loaded(&workflow,&WellSectionWorkflow::sectionReady);workflow.request({"N1","N2"},{"GR"});QCOMPARE(loaded.size(),1);
+    const auto wells=loaded.first()[1].value<QVector<wellsection::Well>>();QCOMPARE(wells.size(),2);
+    QCOMPARE(wells[0].curves.first().values,(QVector<float>{10,20,30}));QCOMPARE(wells[1].curves.first().depths,(QVector<float>{1000,1500,2000}));
+    QVERIFY(wells[0].timeDepth);QCOMPARE(wells[0].timeDepth->twtAt(1500),130.);QVERIFY(!wells[1].timeDepth);
+    QVERIFY(!wells[1].timeDepthStatus.isEmpty());
+    SectionWorkbench workbench(&catalog);QCOMPARE(workbench.wells().size(),2);
+    const auto overlay=workbench.sectionWells();QCOMPARE(overlay.size(),size_t(1));QVERIFY(!overlay.front().curves.empty());
+    QCOMPARE(overlay.front().curves.front().twtMs[1],130.);
+    SectionWorkbench::PreviewData preview;bool ready=false;
+    workbench.requestPreviewData([&](const auto &value){preview=value;ready=true;});QTRY_VERIFY(ready);
+    QCOMPARE(preview.wells.size(),2);QCOMPARE(preview.sectionWells.size(),size_t(1));
   }
 
   // ---- 时深口径确认（HY 验收 2026-10-31：Merge_TDR 型来源解锁链路）----
@@ -2046,14 +2085,16 @@ private slots:
     ProjectDataFacade facade;facade.setCatalog(&cat,project);
     // 确认前：元数据门拒绝（不猜单位/基准），诊断可行动。
     QVERIFY(facade.tdTableFor("one").isEmpty());
-    QVERIFY(facade.lastError().contains(QStringLiteral("尚未确认")));
+    QVERIFY(facade.lastError().contains(QStringLiteral("时深关系存在")));
     // 就绪口径：模型井曲线在、时深未确认 → 不就绪；legacy 双全井即就绪
     //（覆盖兜底分支）。
     const auto readinessBefore=paleo::analysisReadiness(&cat,project);
     QVERIFY(readinessBefore.value("one").hasCurves);
+    QVERIFY(readinessBefore.value("one").hasTimeDepth);
     QVERIFY(!readinessBefore.value("one").tdUsable);
     QVERIFY(!readinessBefore.value("one").analysisReady());
     QVERIFY(readinessBefore.value("two").analysisReady());
+    QVERIFY(readinessBefore.value("two").hasTimeDepth);
     // 校验面：单位/单双程/基准逐项拒绝，未挂链井如实报错。
     QString confirmError;
     QVERIFY(!facade.confirmTimeDepthSemantics("one","ns","TWT","MSL",true,&confirmError));
@@ -2086,6 +2127,7 @@ private slots:
     QVERIFY(readinessAfter.value("one").analysisReady());
     QVERIFY(readinessAfter.value("two").analysisReady());
     QVERIFY(!readinessAfter.value("three").tdUsable); // 确认过但脏表——严格拒
+    QVERIFY(readinessAfter.value("three").hasTimeDepth);
     QVERIFY(!readinessAfter.value("three").analysisReady());
     WellSectionWorkflow wf(&cat);
     const auto choices=wf.wellChoices();

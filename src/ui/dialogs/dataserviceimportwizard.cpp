@@ -70,10 +70,11 @@ QWizardPage *DataServiceImportWizard::settingsPage()
   m_crsUnit->setEnabled(false);
   form->addRow(tr("工程坐标系"), m_crs->widget()); form->addRow(tr("坐标单位"), m_crsUnit);
   m_threads = new QComboBox(page); m_threads->setObjectName(QStringLiteral("dataServiceThreadsCombo"));
-  // The model importer currently enforces serial parsing for publication safety.
-  // Show the effective setting instead of offering ignored parallel values.
-  m_threads->addItem(QStringLiteral("1"), 1); m_threads->setEnabled(false);
-  m_threads->setToolTip(tr("当前导入器使用单线程解析，资料入库在后台进行。"));
+  m_threads->addItem(QStringLiteral("1"), 1);
+  m_threads->addItem(QStringLiteral("2"), 2);
+  m_threads->addItem(QStringLiteral("4"), 4);
+  m_threads->setCurrentIndex(2);
+  m_threads->setToolTip(tr("后台并行解析文件的线程数；资料按目录顺序统一入库。"));
   m_pending = new QComboBox(page); m_pending->setObjectName(QStringLiteral("dataServicePendingCombo"));
   m_pending->addItem(QStringLiteral("256 MiB"), 256); m_pending->addItem(QStringLiteral("512 MiB"), 512); m_pending->addItem(QStringLiteral("1024 MiB"), 1024);
   form->addRow(tr("并行解析线程"), m_threads); form->addRow(tr("待解析内存预算"), m_pending);
@@ -212,6 +213,7 @@ bool DataServiceImportWizard::validateCurrentPage()
 void DataServiceImportWizard::finish()
 {
   if (!validateProjectInputs() || !validateCoordinateInputs()) return;
+  qputenv("PALEO_IMPORT_PARSER_THREADS", m_threads->currentData().toByteArray());
   qputenv("PALEO_IMPORT_PENDING_MB", m_pending->currentData().toByteArray());
   QWizard::accept();
 }

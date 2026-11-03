@@ -797,7 +797,10 @@ bool PaleoMainWindow::revealDeclaredLayer(const QString &layerId, bool zoomTo)
   {
     if (QgsMapCanvas *canvas = m_canvasCtl->canvas())
       canvas->setCurrentLayer(layer);
-    m_canvasCtl->zoomToLayer(layerId);
+    const auto group = m_layerSvc->declaration(layerId).group;
+    const QString area = QStringLiteral("boundary.project_range");
+    const bool factor = group == QLatin1String("04_SingleFactor") || group.startsWith(QLatin1String("04_SingleFactor/"));
+    m_canvasCtl->zoomToLayer(factor && m_layerSvc->layer(area) ? area : layerId);
   }
   return true;
 }

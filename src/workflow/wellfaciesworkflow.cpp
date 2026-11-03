@@ -43,7 +43,7 @@ WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
               {"id", m.id},
               {"selected", m.id == m_modelId},
               {"name", m.name + QStringLiteral(" · ") + m.version},
-              {"requirements", tr("%1；曲线 %2；段、岩性；至少 %3 点")
+              {"requirements", tr("全部地层段可用（模型标注：%1）；曲线 %2；段、岩性；至少 %3 点")
                                    .arg(m.formationGroup, m.curves.join(", "))
                                    .arg(m.window)}});
         }
@@ -432,6 +432,10 @@ QString WellFaciesWorkflow::cachePath(const WellFaciesRun &run) const {
          QStringLiteral("/paleo/well-facies/") + hash + QStringLiteral(".json");
 }
 QString WellFaciesWorkflow::runLabel(const WellFaciesRun &run) const {
+  if(m_allowPartialPrediction&&!m_hasAnalysisContext&&!run.input.rows.isEmpty())
+    return tr("%1 · %2–%3 m").arg(run.group.isEmpty()?tr("整井"):run.group)
+        .arg(run.input.rows.first().toObject().value(QStringLiteral("深度")).toDouble(),0,'f',2)
+        .arg(run.input.rows.last().toObject().value(QStringLiteral("深度")).toDouble(),0,'f',2);
   return run.group.isEmpty() ? tr("整井") : run.group;
 }
 QString WellFaciesWorkflow::planSummary() const {
@@ -459,8 +463,9 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
   else if (!m_modelError.isEmpty())
     reason = m_modelError;
   else {
-    m_plan = planWellFaciesRuns(m_data, m_models, m_modelId);
-    reason = m_plan.ready() ? QString()
+    auto input=m_data;
+    if(scopePlanToUnit(&reason,&input))m_plan = planWellFaciesRuns(input, m_models, m_modelId,m_allowPartialPrediction&&!m_hasAnalysisContext);
+    if(reason.isEmpty())reason = m_plan.ready() ? QString()
              : m_plan.reason.isEmpty()
                  ? tr("没有可调用的测井相模型，请刷新模型")
                  : m_plan.reason;
@@ -665,13 +670,15 @@ void WellFaciesWorkflow::finishRun() {
   QStringList groups;
   for (const auto &result : results) {
     points += result.confidence.depths.size();
-    if (!result.group.isEmpty())
+    if (!result.group.isEmpty()&&!groups.contains(result.group))
       groups << result.group;
   }
   QString status =
       results.size() == 1
           ? tr("预测完成：%1 个深度点 · %2；%3").arg(points).arg(merged.modelName, note)
-          : tr("预测完成：%1 个地层（%2）· %3 个深度点 · %4；%5")
+          : (m_allowPartialPrediction&&!m_hasAnalysisContext
+                ?tr("预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5")
+                :tr("预测完成：%1 个地层（%2）· %3 个深度点 · %4；%5"))
                 .arg(results.size())
                 .arg(groups.join(QStringLiteral("、")))
                 .arg(points)

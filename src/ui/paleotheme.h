@@ -24,6 +24,8 @@ class QWidget;
 
 namespace PaleoTheme
 {
+  // Geological horizon symbols, stable across sections and UI themes (DESIGN.md).
+  QColor sectionHorizonColor(const QString &name);
   // DESIGN.md typography tokens。
   constexpr int kDisplayPt = 15; // 图件标题 chip、页级标题 (15pt)
   constexpr int kTitlePt = 12;   // 标题 (12pt)

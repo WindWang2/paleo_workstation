@@ -12,6 +12,30 @@
 class AnalysisResultSyncTest : public QObject {
   Q_OBJECT
 private slots:
+  void batchWellResultsKeepNativeUnitBindingsAcrossReopenAndInvalidation() {
+    QTemporaryDir dir;paleo::data::DataService ds;std::string error;
+    QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(),"test",error));
+    auto draft=paleo::strat::draftScheme("test","test",{"A","B"},{{17,{{"A",1000.},{"B",1080.}}}});
+    paleo::data::StratigraphicScheme head;std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},head,issues,error));
+    const auto unit=paleo::strat::makeSelection(head,paleo::strat::selectorOptions(head).first().intervalId,1);
+    DataCatalog catalog;QString detail;QVERIFY(catalog.open(dir.path(),&detail));
+    CatalogEntity well;well.id="native-well";well.entityType="well";well.name="W";well.extra.insert("areaModelWellId",17);
+    QVERIFY(catalog.addEntity(well,&detail));CatalogAsset asset;asset.id="batch";asset.type="wells_prediction";QVERIFY(catalog.addAsset(asset,&detail));
+    CatalogVersion version;version.id="prediction-v1";version.assetId=asset.id;version.stage="DERIVED";
+    version.extra={{"unitSelection",paleo::strat::toMap(unit)},{"supporting_wells",QVariantList{QVariantMap{{"entity_id",well.id},{"facies_code",1}}}}};
+    QVERIFY(catalog.addVersion(version,&detail));QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    std::vector<paleo::data::SubIntervalResultBinding> bindings;QVERIFY(ds.listSubIntervalResults(head.id,{},bindings,error));QCOMPARE(bindings.size(),size_t(2));
+    int native=0;for(const auto &binding:bindings){QCOMPARE(binding.status,std::string("current"));if(binding.wellId==17){++native;QCOMPARE(binding.subInterval.value,unit.subIntervalId.toStdString());}}
+    QCOMPARE(native,1);
+    auto changed=head;changed.divisions.front().fractions={.2,.5,.75};changed.divisions.front().mode="interpreted";
+    paleo::data::StratigraphicScheme next;QVERIFY(ds.commitStratigraphicScheme(changed,head.revision.value,next,issues,error));
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    ds.closeProject();QVERIFY(ds.openProject((dir.path()+"/artifacts/metadata/area-model").toStdString(),error));
+    QVERIFY(ds.listSubIntervalResults(head.id,{},bindings,error));QCOMPARE(bindings.size(),size_t(2));
+    for(const auto &binding:bindings)QCOMPARE(binding.status,std::string("stale"));
+  }
   void editedMapLineageRemainsCurrentUntilExternalInputChanges() {
     QTemporaryDir dir; paleo::data::DataService ds; std::string error;
     QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(),"test",error));

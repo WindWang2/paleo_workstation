@@ -33,3 +33,16 @@ SeismicClusterResult clusterSeismicHorizon(
     const std::function<void(int)> &progress = {},
     const std::function<bool()> &cancel = {},
     SeismicHorizonSource source = SeismicHorizonSource::TimeRaster);
+
+SeismicClusterResult clusterSeismicStratigraphicWindow(
+    const QString &projectDir, const QString &targetUnitOrHorizon,
+    const QString &schemeId, const QString &revision,
+    const QVector<int> &faciesCodes,
+    const std::function<void(int)> &progress = {},
+    const std::function<bool()> &cancel = {});
+
+namespace paleo::strat { struct UnitSelection; }
+SeismicClusterResult clusterSeismicStratigraphicWindow(
+    const QString &projectDir,const paleo::strat::UnitSelection &unit,const QString &seismicPath,
+    const QVector<int> &faciesCodes,const std::function<void(int)> &progress={},
+    const std::function<bool()> &cancel={});

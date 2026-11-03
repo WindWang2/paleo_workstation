@@ -21,6 +21,7 @@
 #include "services/welllogset.h"
 #include "services/wellreadiness.h"
 #include "services/areawellchart.h"
+#include "services/wellsectioncorrelation.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -39,6 +40,7 @@
 // 一次 request 的共享产物：计划步填井身/分层/时深 + 曲线计划，worker 步
 // 只补曲线数据体（catalog 只在其所属线程触）。
 struct WellSectionWorkflow::Shared {
+  QString project;QStringList mnemonics;QHash<int,qlonglong> nativeWells;
   QVector<wellsection::Well> wells;
   QStringList warnings;
   struct Entry {
@@ -178,13 +180,14 @@ QVector<WellSectionWorkflow::WellChoice>
 WellSectionWorkflow::wellChoices() const {
   QVector<WellChoice> out;
   syncData();
-  // 就绪井口径（HY 验收 2026-11-01）：分析选井面只进「曲线+可用时深」双全
-  // 的井；stamp 缓存，确认/导入后自愈。数据管理面不受此过滤。
+  // MD 井道与地震时间对齐分别判断；无可用时深不能让有曲线的井从入口消失。
   const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
   for (const ProjectWell &w : m_data.wells())
-    if(readiness.value(w.id).analysisReady()) out.push_back({w.id, w.name, usableCoords(w),
+    if(readiness.value(w.id).hasCurves) out.push_back({w.id, w.name, usableCoords(w),
                    usableCoords(w) ? w.surfaceX : qQNaN(),
-                   usableCoords(w) ? w.surfaceY : qQNaN()});
+                   usableCoords(w) ? w.surfaceY : qQNaN(),
+                   readiness.value(w.id).tdUsable?tr("有可用时深；叠加仍校验地震基准"):
+                   readiness.value(w.id).hasTimeDepth?tr("有时深；时间对齐不可用，MD 井道可显示"):tr("无时深；MD 井道可显示")});
   return out;
 }
 
@@ -193,7 +196,10 @@ WellSectionWorkflow::availableMnemonics(const QStringList &wellIds) const {
   syncData();
   QStringList out;
   QSet<QString> seen; // 大小写不敏感去重（留首个拼写）
-  for (const QString &id : wellIds)
+  QVector<qlonglong> native;
+  for (const QString &id : wellIds){
+    const auto modelId=m_catalog->entityById(id).extra.value("areaModelWellId").toLongLong();
+    if(modelId>0){native.append(modelId);continue;}
     for (const WellCurveRef &ref :
          WellLogSet::wellCurveIndex(m_catalog, projectDir(), id)) {
       const QString key = ref.mnemonic.toUpper();
@@ -202,6 +208,8 @@ WellSectionWorkflow::availableMnemonics(const QStringList &wellIds) const {
       seen.insert(key);
       out << ref.mnemonic;
     }
+  }
+  for(const auto &name:areaWellCurveNames(projectDir(),native))if(!out.contains(name,Qt::CaseInsensitive))out.append(name);
   out.sort(Qt::CaseInsensitive);
   return out;
 }
@@ -221,6 +229,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
   syncData();
   const QVector<ProjectWell> candidates = m_data.wells();
   const QString dir = projectDir();
+  shared->project=dir;shared->mnemonics=mnemonics;
   for (const QString &id : wellIds) {
     const ProjectWell *pw = nullptr;
     for (const ProjectWell &w : candidates)
@@ -233,6 +242,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       continue;
     }
     wellsection::Well well;
+    const auto modelId=m_catalog->entityById(id).extra.value("areaModelWellId").toLongLong();
     well.id = pw->id;
     well.name = pw->name;
     if (usableCoords(*pw)) {
@@ -262,7 +272,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
         shared->warnings << tr("井 %1 未挂接所选分层来源，分层留空")
                                 .arg(pw->name);
     }
-    const auto tops = m_topsSource.isEmpty() ? m_data.topsFor(pw->id, &topsReport)
+    const auto tops = m_topsSource.isEmpty() ? (modelId>0?m_data.topsForMapping(pw->id):m_data.topsFor(pw->id, &topsReport))
                                            : m_data.topsForAsset(pw->id, m_topsSource, &topsReport);
     if (!topsReport.issues.isEmpty())
       shared->warnings << tr("井 %1 的分层文件读面：%2")
@@ -346,9 +356,10 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       shared->warnings
           << tr("井 %1 的井斜轨迹不可用：%2").arg(pw->name, well.surveyError);
     }
-    const QVector<WellCurveRef> index =
+    const QVector<WellCurveRef> index = modelId>0?QVector<WellCurveRef>{}:
         WellLogSet::wellCurveIndex(m_catalog, dir, pw->id);
     const int wellIndex = shared->wells.size();
+    if(modelId>0)shared->nativeWells.insert(wellIndex,modelId);
     for (const QString &mnemonic : mnemonics) {
       const WellCurveRef *ref = pickCurveRef(index, mnemonic);
       if (ref)
@@ -388,6 +399,14 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
 
 void WellSectionWorkflow::loadCurveBodies(Shared &shared,
                                           PaleoTask *task) {
+  paleo::loadSeismicCorrelationTops(shared.project,shared.nativeWells,shared.wells,shared.warnings);
+  if(!shared.mnemonics.isEmpty())for(auto it=shared.nativeWells.cbegin();it!=shared.nativeWells.cend();++it){
+    if(task&&task->cancelRequested())return;
+    QString reason;QVector<wellsection::Curve> curves;
+    readAreaWellSectionCurves(shared.project,it.value(),shared.mnemonics,curves,&reason,[task]{return task&&task->cancelRequested();});
+    shared.wells[it.key()].curves=curves;
+    if(!reason.isEmpty())shared.warnings.append(shared.wells[it.key()].name+QStringLiteral(": ")+reason);
+  }
   // 按路径分组，一份 LAS 只载一次（LasCache 线程安全）。
   QStringList order;
   QHash<QString, QVector<int>> byPath;
@@ -964,12 +983,15 @@ private:
 // 预测结果落 DERIVED）。岩屑表契约：顶深/底深/岩性必需列 + 描述可选列
 // （方言表头见 cuttingsdoc.h），一井一份。
 QHash<QString, QVector<wellsection::LithoSegment>> WellSectionWorkflow::lithologiesFor(
-    const QStringList &wellIds, QStringList *warnings) const {
+    const QStringList &wellIds, QStringList *warnings,QHash<QString,QStringList> *perWellWarnings) const {
   Q_ASSERT(QThread::currentThread() == thread());
+  QStringList localWarnings;if(!warnings)warnings=&localWarnings;
+  if(perWellWarnings)perWellWarnings->clear();
   CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings,
                                         &m_lithoSelection, &m_interpParseCache);
   QHash<QString, QVector<wellsection::LithoSegment>> result;
-  for (const QString &id : wellIds) result.insert(id, provider.lithologyFor(id));
+  for (const QString &id : wellIds){const auto first=warnings->size();result.insert(id, provider.lithologyFor(id));
+    if(perWellWarnings)perWellWarnings->insert(id,warnings->mid(first));}
   return result;
 }
 
@@ -1165,7 +1187,7 @@ int WellSectionWorkflow::requestSeismic(
           if(ok&&section&&section->columns>0&&section->samples>0&&section->values.size()==size_t(section->columns)*section->samples) {
             gap.columns=section->columns;gap.samples=section->samples;
             gap.startMs=section->firstTimeMs;gap.stepMs=section->sampleIntervalMs;
-            gap.values=section->values;gap.columnDistancesM=section->distancesM;
+            gap.values=section->values;gap.columnDistancesM=section->distancesM;gap.horizons=section->horizons;
           } else {
             gap.columns = 0;
             gap.samples = 0;

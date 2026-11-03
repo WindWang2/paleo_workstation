@@ -97,7 +97,7 @@ void SeismicSectionCanvas::setSectionData(
     const std::vector<float> &columnDistancesM,
     const std::vector<glm::dvec2> &mapCoords)
 {
-    m_orientation = SectionOrientation::Vertical;
+    setHorizonOverlays({});m_orientation = SectionOrientation::Vertical;
     // 入图行序转换：vendor 行 0=最深 → 画布行 y=采样 y 升序（标尺/hover/
     // 拾取/井分层全链升序；契约见 seismicsectioncanvas_internal.h）。
     m_slice = ToAscendingSampleRows(image);
@@ -155,6 +155,7 @@ void SeismicSectionCanvas::setTimeSliceData(
     int xlineMin, int xlineMax)
 {
     m_orientation = SectionOrientation::TimeSlice;
+    setHorizonOverlays({});
     m_slice = image;
     m_traces = image.width;    // XL count
     m_samples = image.height;  // IL count
@@ -297,6 +298,7 @@ void SeismicSectionCanvas::setOrientation(SectionOrientation orientation) {
 }
 
 void SeismicSectionCanvas::clearData() {
+    setHorizonOverlays({});
     m_slice = {};
     m_traces = 0;
     m_samples = 0;

@@ -23,9 +23,10 @@ void WellCompositePanel::setFaciesWorkflowFactory(FaciesWorkflowFactory factory)
   s_faciesFactory = std::move(factory);
 }
 
-WellCompositePanel::WellCompositePanel(QWidget *parent)
-  : QWidget(parent)
+WellCompositePanel::WellCompositePanel(QWidget *parent, PredictionScope scope)
+  : QWidget(parent), m_wholeWellPreview(scope != PredictionScope::SelectedUnit)
 {
+  setProperty("comparisonPreview",scope==PredictionScope::Comparison);
   setupUi();
   connect(m_canvas, &WellCompositeCanvas::imagePreviewRequested, this,
           [this](const ImageDepthItem &item) { PaleoCoreImageViewer::open(item, m_wellName, this); });
@@ -37,7 +38,7 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
   // D1：登记进活跃面板表并挂接默认 sink（壳 attachWorkflows 先于预览页建立；
   // sink 迟装时由 setDefault 补挂）。
   WellCompositeDerivedSink::registerPanel(this);
-  if (s_faciesFactory) bindFaciesWorkflow(s_faciesFactory(this));
+  if (s_faciesFactory && scope!=PredictionScope::Comparison) bindFaciesWorkflow(s_faciesFactory(this));
 
   // 方向63：懒建面板自行按清单回填「这是什么？」说明。
   paleo::help::applyWhatsThis(this);

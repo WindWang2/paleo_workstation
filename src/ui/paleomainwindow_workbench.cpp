@@ -172,20 +172,19 @@ void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWo
 bool matchesWorkbenchHorizon(const SelectionContext *selection,const QString &horizon) {
   return selection && (horizon==selection->activeHorizon() || horizon==paleo::strat::analysisLayerKey(selection->activeUnit()));
 }
+// 三页（单井相/地震相 predict、单因素 constraint、编图 compose）统一跟随层段分析
+// UnitSelection：选了子层段（T70-T72/S2）即以其分析键为页内层位；无有效层段时
+// 才回落界限 activeHorizon。此前只有 compose 页接了 activeUnitChanged，predict/
+// constraint 页停在空层位——「请选择编图层位」且「运行预测」恒灰。
 void bindWorkbenchPageHorizon(MappingWorkbenchPage *page,SelectionContext *selection) {
-  if(page->mode()==QLatin1String("compose")) {
-    const auto apply=[page,selection] {
-      const auto unit=selection->activeUnit();
-      const auto key=paleo::strat::analysisLayerKey(unit);
-      page->setProperty("paleo.unitDisplayName",unit.displayName);
-      page->setHorizon(key.isEmpty()?selection->activeHorizon():key);
-    };
-    apply();QObject::connect(selection,&SelectionContext::activeUnitChanged,page,apply);
-    QObject::connect(selection,&SelectionContext::activeHorizonChanged,page,apply);
-  } else {
-    page->setHorizon(selection->activeHorizon());
-    QObject::connect(selection,&SelectionContext::activeHorizonChanged,page,&MappingWorkbenchPage::setHorizon);
-  }
+  const auto apply=[page,selection] {
+    const auto unit=selection->activeUnit();
+    const auto key=paleo::strat::analysisLayerKey(unit);
+    page->setProperty("paleo.unitDisplayName",key.isEmpty()?QString():unit.displayName);
+    page->setHorizon(key.isEmpty()?selection->activeHorizon():key);
+  };
+  apply();QObject::connect(selection,&SelectionContext::activeUnitChanged,page,apply);
+  QObject::connect(selection,&SelectionContext::activeHorizonChanged,page,apply);
 }
 }
 void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
@@ -650,8 +649,11 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
           QgisLayerProfileService::pageThemeName(currentPage()));
     // 创建编辑副本或保存版本后的上图保持当前视图；
     // 主动显示图件和新生成成果仍缩放定位。
-    if (!workbench->consumeSuppressedProductZoom())
-      m_canvasCtl->zoomToLayer(id);
+    if (!workbench->consumeSuppressedProductZoom()) {
+      const QString area=QStringLiteral("boundary.project_range");
+      const bool factor=d.group==QLatin1String("04_SingleFactor")||d.group.startsWith(QLatin1String("04_SingleFactor/"));
+      m_canvasCtl->zoomToLayer(factor&&m_layerSvc&&m_layerSvc->layer(area)?area:id);
+    }
     canvas->freeze(wasFrozen);
     if (!wasFrozen) canvas->refresh();
     legend(id);

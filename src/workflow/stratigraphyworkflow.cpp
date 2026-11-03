@@ -45,10 +45,8 @@ void StratigraphyWorkflow::setProject(const QString &project,bool readOnly) {
   if(opened&&service.listWells(wells,error)) {
    QHash<qlonglong,WellDataAvailability> support;QString supportError;
    if(readWellDataAvailability(service,support,&supportError)) {
-    // 就绪井口径（HY 验收 2026-11-01）：地层对比选井只进「曲线+可用时深」
-    // 双全的井（时深口径已确认——未确认表不算，与就绪表同一确认门）。
-    const auto usableTd=paleo::usableTimeDepthWells(service);
-    for(const auto &w:wells)if(support.value(w.id).curves&&usableTd.contains(w.id))d->wells.append({w.id,text(w.name)});
+    // 井道预览和人工地层划分只需要曲线；井震计算在执行时校验时深。
+    for(const auto &w:wells)if(support.value(w.id).curves)d->wells.append({w.id,text(w.name)});
    } else emit statusChanged(supportError);
    std::vector<InterpretationSummary> versions;
    if(!service.listInterpretations(versions,error)) {
@@ -78,9 +76,7 @@ void StratigraphyWorkflow::refreshWells() {
  if(!service.openProjectReadOnly(d->path.toStdString(),error)||!service.listWells(wells,error)){emit statusChanged(text(error));return;}
  QHash<qlonglong,WellDataAvailability> support;QString supportError;
  if(!readWellDataAvailability(service,support,&supportError)){emit statusChanged(supportError);return;}
- // 就绪井口径同 setProject：曲线+可用（已确认）时深双全。
- const auto usableTd=paleo::usableTimeDepthWells(service);
- d->wells.clear();for(const auto &well:wells)if(support.value(well.id).curves&&usableTd.contains(well.id))d->wells.append({well.id,text(well.name)});emit changed();
+ d->wells.clear();for(const auto &well:wells)if(support.value(well.id).curves)d->wells.append({well.id,text(well.name)});emit changed();
 }
 QList<StratigraphyTrack> StratigraphyWorkflow::tracks() const {
  QList<StratigraphyTrack> result;const auto policy=conventions();
@@ -214,12 +210,14 @@ void StratigraphyWorkflow::runCalculation(const QList<qlonglong> &wells,int mode
    return {};
   }catch(const std::exception &e){return QString::fromUtf8(e.what());}
  });d->task=task;emit busyChanged(true);
- connect(task,&PaleoTask::finished,this,[this,task,result,generation] {
+ connect(task,&PaleoTask::finished,this,[this,task,result,generation,mode] {
   if(generation!=d->generation)return;d->task=nullptr;emit busyChanged(false);
   if(task->state()!=PaleoTask::State::Succeeded){emit statusChanged(task->errorText());return;}
   d->history.clear();d->future.clear();d->document=std::move(*result);d->dirty=true;emit documentReplaced();QStringList diagnostics;
   for(const auto &w:d->document.wells)for(const auto &message:w.warnings)diagnostics.append(text(message));
-  emit changed();emit statusChanged(diagnostics.isEmpty()?tr("计算完成，请复核并保存分层版本"):diagnostics.join('\n'));
+  diagnostics.removeDuplicates();emit changed();
+  emit statusChanged(mode==2?tr("已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。").arg(d->document.wells.size())
+      :diagnostics.isEmpty()?tr("计算完成，请复核并保存分层版本"):tr("计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。"));
  });
 }
 void StratigraphyWorkflow::save() {

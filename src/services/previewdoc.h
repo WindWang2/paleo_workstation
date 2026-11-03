@@ -351,6 +351,9 @@ class PreviewDocService : public QObject
     int prefetch(const QStringList &absPaths);
 
   signals:
+    // Same-generation amplitude, before the optional horizon query completes.
+    void seismicSectionImageReady(const QString &assetId,
+                                 const PreviewDocService::SectionDoc &doc);
     // 解码成功（已判陈旧——到达的必然是最新一代）。
     void seismicSectionReady(const QString &assetId,
                              const PreviewDocService::SectionDoc &doc);

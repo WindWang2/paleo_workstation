@@ -11,6 +11,12 @@
 #include "derivedassets.h"
 #include "algorithmpublish.h"
 #include "algorithmadapters.h"
+#include "services/analysisunitcontext.h"
+#include "services/seismicunitinput.h"
+#include "services/seismicdataaccess.h"
+#include "qgis/unitraster.h"
+#include "analysisresultsync.h"
+#include <QTemporaryDir>
 
 #include <QDateTime>
 #include <QDir>
@@ -109,19 +115,26 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     return false;
   }
   *job = PredictionJob();
+  job->params=params;
   job->projectGeneration = m_projectGeneration;
   const QString resultKey = params.value(QStringLiteral("analysisLayerKey"), horizon).toString();
   job->horizon = resultKey;
-  job->commitExtra.insert(QStringLiteral("unitSelection"), params.value(QStringLiteral("unitSelection")));
+  if(params.contains("unitSelection")){
+    paleo::strat::UnitSelection frozen;
+    if(!paleo::strat::freezeAnalysisUnit(m_projectDir,paleo::strat::fromMap(params.value("unitSelection").toMap()),frozen,error))return false;
+    job->params.insert("unitSelection",paleo::strat::toMap(frozen));
+    job->params.insert("unitProject",m_projectDir);
+    job->commitExtra.insert("unitSelection",paleo::strat::toMap(frozen));
+  }
   job->commitExtra.insert(QStringLiteral("source_horizon"), resultKey);
-  QVariantMap metadata = params;
+  QVariantMap metadata = job->params;
+  metadata.remove("unitProject");
   metadata.remove(QStringLiteral("INPUT"));
   metadata.remove(QStringLiteral("OUTPUT"));
   for (const auto &key : metadata.keys())
     if (metadata.value(key).value<QgsMapLayer *>()) metadata.remove(key);
   job->commitExtra.insert(QStringLiteral("algorithm_parameters"), metadata);
   job->algorithmId = algorithmId;
-  job->params = params;
 
   // prepare 是 catalog 所属线程段（stage → addAsset 有线程闸）：登记、参数
   // 解析、父版本溯源全在这里做完，compute 在 worker 线程不碰 catalog。
@@ -147,7 +160,8 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     if ( model.isEmpty() )
       return fail( tr( "onnx algorithm id '%1' carries no model name" ).arg( algorithmId ) );
 
-    // params-derived tensors; defaults keep toy-model runs trivial:
+    if(!job->params.contains("unitSelection")){
+    // Explicit standalone tensor API:
     // input {0}, shape {1}, inputName "x".
     const QVariantList inVals = params.value( QStringLiteral( "input" ) ).toList();
     if ( inVals.isEmpty() )
@@ -167,6 +181,7 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     if ( job->onnxInputName.isEmpty() )
       job->onnxInputName = QStringLiteral( "x" );
 
+    }
     job->executionEngine = QStringLiteral( "onnxruntime" );
 
     // 网格几何（清单 horizon.<target>* 声明）在 GUI 线程解析好，compute 直接用。
@@ -176,6 +191,12 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     job->onnxSourcePath = grid.sourcePath;
     job->onnxFromDecl = grid.fromDecl;
 
+    if(job->params.contains("unitSelection")){
+      QString sourceError;
+      const auto source=paleo::seismicProjectSource(m_projectDir,params.value("seismicPath").toString(),&sourceError);
+      if(source.isEmpty())return fail(sourceError);
+      job->params.insert("seismicPath",source);
+    }
     // T26：预测栅格落 artifacts/derived + DERIVED 版本（父版本 = 提供
     // geotransform 的时间栅格版本，可溯源时）。
     QString regErr;
@@ -191,6 +212,7 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     job->parentVersionIds = grid.fromDecl && !grid.sourcePath.isEmpty()
                                 ? registrar.parentVersionIdsFor( QStringList{ grid.sourcePath } )
                                 : QStringList();
+    if(job->params.contains("unitSelection"))job->parentVersionIds.append(registrar.parentVersionIdsFor({job->params.value("seismicPath").toString()}));
     if ( job->parentVersionIds.isEmpty() && m_catalog )
     {
       for ( const auto &link : m_catalog->links() )
@@ -244,8 +266,24 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     return fail( regErr );
   job->params.insert( QStringLiteral( "OUTPUT" ), job->staging.absolutePath );
 
+  if(job->params.contains("unitSelection")){
+    if(!job->params.contains("INPUT")||job->params.value("INPUT").isNull()){
+      if(!proc->algorithmRequiresParameter(algorithmId,"INPUT"))return fail(tr("所选算法未声明地震层段输入"));
+      const auto source=paleo::seismicProjectSource(m_projectDir,params.value("seismicPath").toString(),&regErr);
+      if(source.isEmpty())return fail(regErr);
+      job->params.insert("unitRasterInput",true);job->params.insert("seismicPath",source);
+      job->parentVersionIds=registrar.parentVersionIdsFor({source});
+    }else{
+      const auto *input=job->params.value("INPUT").value<QgsMapLayer *>();
+      const auto path=input?input->source().section('|',0,0):job->params.value("INPUT").toString();
+      bool scoped=false;const auto selected=paleo::strat::fromMap(job->params.value("unitSelection").toMap());
+      for(const auto &id:registrar.parentVersionIdsFor({path}))
+        if(analysisResultUnitSelection(m_catalog,m_catalog->versionById(id))==selected)scoped=true;
+      if(!scoped)return fail(tr("输入成果不属于所选地震层段，请先按该层段获取输入"));
+    }
+  }
   // P0-1: 自动解析层位输入栅格图层作为 INPUT（页面只收标量参数，图层输入由工作流上下文解析）
-  if (proc->algorithmRequiresParameter(algorithmId, QStringLiteral("INPUT")) &&
+  if (!job->params.value("unitRasterInput").toBool() && proc->algorithmRequiresParameter(algorithmId, QStringLiteral("INPUT")) &&
       (!job->params.contains(QStringLiteral("INPUT")) || job->params.value(QStringLiteral("INPUT")).isNull()))
   {
     QgsMapLayer *inputLayer = nullptr;
@@ -293,7 +331,7 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     if ( !src.isEmpty() && paleo::workflow_detail::isFileBackedSource( src ) )
       parentPaths.append( src );
   }
-  job->parentVersionIds = registrar.parentVersionIdsFor( parentPaths );
+  job->parentVersionIds.append(registrar.parentVersionIdsFor( parentPaths ));
   for (const auto &key : job->params.keys())
     if (const auto *layer = job->params.value(key).value<QgsMapLayer *>()) {
       job->extraInputLayers.insert(key, QVariantMap{{"uri", layer->source()}, {"provider", layer->providerType()},
@@ -350,8 +388,25 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     if ( job->isCancelled && job->isCancelled() )
       return fail( tr( "预测已取消" ) );
 
+    paleo::strat::SeismicUnitInput scopedInput;
+    const bool scoped=job->params.contains("unitSelection");
+    if(scoped){
+      scopedInput=paleo::strat::prepareSeismicUnitInput(job->params.value("unitProject").toString(),
+          paleo::strat::fromMap(job->params.value("unitSelection").toMap()),job->params.value("seismicPath").toString(),job->isCancelled);
+      if(!scopedInput.error.isEmpty())return fail(scopedInput.error);
+      if(meta.inputShape.size()!=4||meta.inputShape[0]>1||meta.inputShape[1]>1||
+         (meta.inputShape[2]>0&&meta.inputShape[2]!=scopedInput.rows)||(meta.inputShape[3]>0&&meta.inputShape[3]!=scopedInput.columns))
+        return fail(tr("模型输入与当前层段的 RMS 网格不匹配，需要 [1,1,%1,%2]").arg(scopedInput.rows).arg(scopedInput.columns));
+      job->onnxInput=scopedInput.samples;
+      for(auto &v:job->onnxInput)if(!std::isfinite(v))v=0;
+      job->onnxShape={1,1,scopedInput.rows,scopedInput.columns};job->onnxInputName=meta.inputName;
+      job->onnxGt[0]=scopedInput.extent.left();job->onnxGt[1]=scopedInput.extent.width()/scopedInput.columns;job->onnxGt[2]=0;
+      job->onnxGt[3]=scopedInput.extent.bottom();job->onnxGt[4]=0;job->onnxGt[5]=-scopedInput.extent.height()/scopedInput.rows;
+      job->params.insert("crs",scopedInput.crs);job->onnxProjection=scopedInput.crs;
+      job->commitExtra.insert("input_attribute","layer_window_rms");job->commitExtra.insert("valid_cells",scopedInput.validCells);
+    }
     // #144：绑定模型名推理，并发任务换活动模型不影响本次。
-    const OnnxTensor tensor =
+    OnnxTensor tensor =
         onnx->runTensorOn( model, job->onnxInputName, job->onnxInput, job->onnxShape, &job->error );
     if ( tensor.values.isEmpty() )
       return fail( job->error.isEmpty()
@@ -370,7 +425,15 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     grid.fromDecl = job->onnxFromDecl;
     int rows = 0;
     int cols = 0;
-    if ( !paleo::workflow_detail::resolveOnnxGrid( tensor.values, tensor.shape, rows, cols,
+    if(scoped){
+      if(tensor.shape.size()!=4||tensor.shape[0]!=1||tensor.shape[1]<1||tensor.shape[1]>256||
+         tensor.shape[2]!=scopedInput.rows||tensor.shape[3]!=scopedInput.columns||
+         tensor.values.size()!=tensor.shape[1]*scopedInput.rows*scopedInput.columns)
+        return fail(tr("模型输出与所选层段网格不一致"));
+      rows=scopedInput.rows;cols=scopedInput.columns;
+      for(qsizetype i=0;i<tensor.values.size();++i)if(!std::isfinite(scopedInput.samples[i%scopedInput.samples.size()]))tensor.values[i]=NAN;
+    }
+    if ( !scoped&&!paleo::workflow_detail::resolveOnnxGrid( tensor.values, tensor.shape, rows, cols,
                                                    &job->error ) )
       return fail( job->error.isEmpty() ? tr( "cannot place ONNX output on a grid" ) : job->error );
 
@@ -421,6 +484,18 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     runParams.insert(it.key(), QVariant::fromValue(layer.get()));
     extraInputs.push_back(std::move(layer));
   }
+  std::unique_ptr<QTemporaryDir> unitTemporary;
+  paleo::strat::SeismicUnitInput scopedInput;
+  if(job->params.value("unitRasterInput").toBool()){
+    scopedInput=paleo::strat::prepareSeismicUnitInput(job->params.value("unitProject").toString(),
+        paleo::strat::fromMap(job->params.value("unitSelection").toMap()),job->params.value("seismicPath").toString(),job->isCancelled);
+    if(!scopedInput.error.isEmpty())return fail(scopedInput.error);
+    unitTemporary=std::make_unique<QTemporaryDir>(QFileInfo(job->staging.absolutePath).absolutePath()+"/unit-input-XXXXXX");
+    if(!unitTemporary->isValid())return fail(tr("不能创建层段预测临时输入"));
+    job->inputUri=unitTemporary->filePath("rms.tif");job->inputProvider="gdal";job->inputIsRaster=true;job->inputCrsWkt=scopedInput.crs;
+    if(!UnitRaster::writeInput(scopedInput,job->inputUri,&job->error))return false;
+    job->commitExtra.insert("input_attribute","layer_window_rms");job->commitExtra.insert("valid_cells",scopedInput.validCells);
+  }
   std::unique_ptr<QgsMapLayer> inputLayer;
   if ( !job->inputUri.isEmpty() )
   {
@@ -457,6 +532,11 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
   job->outputPath = paleo::workflow_detail::outputPathOf( results );
   if ( job->outputPath.isEmpty() )
     return fail( tr( "prediction algorithm '%1' returned no output path" ).arg( job->algorithmId ) );
+  if(job->params.contains("unitSelection")){
+    if(QFileInfo(job->outputPath)!=QFileInfo(job->staging.absolutePath))return fail(tr("算法输出未写入本次任务的成果路径，结果未发布"));
+    const auto input=job->inputUri.isEmpty()?job->params.value("INPUT").toString():job->inputUri;
+    if(!UnitRaster::maskOutputLikeInput(input,job->outputPath,&job->error))return false;
+  }
   job->ok = true;
   return true;
 }

@@ -185,7 +185,7 @@ SandRatioMetrics sandRatioForProvisionalSub( double parentTopMd, double parentBo
 }
 
 BindResult bindSandRatioFactor( paleo::data::DataService &ds, const UnitSelection &sel, qlonglong wellId,
-                                const SandRatioMetrics &metrics, const QString &assetRef )
+                                const SandRatioMetrics &metrics, const QString &assetRef,const QVariantMap &acquisition )
 {
   if ( !metrics.ok )
   {
@@ -203,12 +203,18 @@ BindResult bindSandRatioFactor( paleo::data::DataService &ds, const UnitSelectio
   detail.insert( QStringLiteral( "classCode" ), metrics.faciesClass.code );
   detail.insert( QStringLiteral( "classId" ), metrics.faciesClass.id );
   detail.insert( QStringLiteral( "classLabelZh" ), metrics.faciesClass.labelZh );
+  detail.insert("acquisition",acquisition);
+  if(acquisition.value("valueBasis")==QLatin1String("covered_md")){
+    detail.insert("intervalThicknessMd",metrics.thicknessMd);
+    detail.insert("thicknessMd",acquisition.value("coveredThicknessMd"));
+    detail.insert("sandThicknessMd",acquisition.value("observedSandThicknessMd"));
+  }
   return bindKind( ds, sel, QStringLiteral( "single_factor" ), wellId, assetRef, QStringLiteral( "current" ),
                    detail );
 }
 
 BindResult bindWellFaciesFromSandRatio( paleo::data::DataService &ds, const UnitSelection &sel, qlonglong wellId,
-                                        const SandRatioMetrics &metrics, const QString &assetRef )
+                                        const SandRatioMetrics &metrics, const QString &assetRef,const QVariantMap &acquisition )
 {
   if ( !metrics.ok )
   {
@@ -224,6 +230,7 @@ BindResult bindWellFaciesFromSandRatio( paleo::data::DataService &ds, const Unit
   detail.insert( QStringLiteral( "classLabelZh" ), metrics.faciesClass.labelZh );
   detail.insert( QStringLiteral( "topMd" ), metrics.topMd );
   detail.insert( QStringLiteral( "bottomMd" ), metrics.bottomMd );
+  detail.insert("acquisition",acquisition);
   return bindKind( ds, sel, QStringLiteral( "well_facies" ), wellId, assetRef, QStringLiteral( "current" ),
                    detail );
 }
@@ -303,7 +310,7 @@ AutoBindReport autoBindSandRatioExtraction( const QString &projectDir, const Uni
   for ( const auto &v : rows )
   {
     const auto row = v.toMap();
-    if ( !row.value( QStringLiteral( "contributing" ) ).toBool()
+    if ( !row.value("calculated").toBool() && !row.value( QStringLiteral( "contributing" ) ).toBool()
          && !row.value( QStringLiteral( "participating" ) ).toBool() )
     {
       ++report.skipped;
@@ -346,10 +353,15 @@ AutoBindReport autoBindSandRatioExtraction( const QString &projectDir, const Uni
       ++report.skipped;
       continue;
     }
-    const qlonglong wid = stableWellKey( wellId );
+    const qlonglong nativeId = row.value( QStringLiteral( "analysisWellId" ) ).toLongLong();
+    const qlonglong wid = nativeId > 0 ? nativeId : stableWellKey( wellId );
     const QString ref = assetRef.isEmpty() ? QStringLiteral( "wellfactor.%1" ).arg( wellId ) : assetRef;
-    const auto f = bindSandRatioFactor( ds, sel, wid, metrics, ref );
-    const auto w = bindWellFaciesFromSandRatio( ds, sel, wid, metrics, ref + QStringLiteral( ".facies" ) );
+    QVariantMap acquisition;
+    for(const auto *key:{"valueMethod","valueBasis","estimated","coverage","coveredThicknessMd","observedSandThicknessMd",
+                        "grLogSetId","grSourceId","grCurve","grSandBaseline","grShaleBaseline","grShaleCutoff","grThreshold","grMaxGapMetres","source"})
+      if(row.contains(key))acquisition.insert(QLatin1String(key),row.value(key));
+    const auto f = bindSandRatioFactor( ds, sel, wid, metrics, ref,acquisition );
+    const auto w = bindWellFaciesFromSandRatio( ds, sel, wid, metrics, ref + QStringLiteral( ".facies" ),acquisition );
     if ( f.ok && w.ok )
       ++report.boundWells;
     else
@@ -517,16 +529,39 @@ bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeI
   if ( sid.isEmpty() )
   {
     QString listErr;
-    const auto schemes = listProjectSchemes( ds, &listErr );
+    auto schemes = listProjectSchemes( ds, &listErr );
+    if ( schemes.isEmpty() )
+    {
+      std::vector<paleo::data::DataEntry> horizons;
+      std::string hErr;
+      if ( ds.listData( "horizons", 0, horizons, hErr ) && horizons.size() >= 2 )
+      {
+        paleo::data::SeismicStratigraphyBuildOptions buildOpts;
+        paleo::data::SeismicStratigraphyBuildReport buildReport;
+        std::string buildErr;
+        if ( ds.buildSeismicStratigraphicFramework( buildOpts, buildReport, buildErr ) &&
+             buildReport.intervalCount > 0 )
+          schemes = listProjectSchemes( ds, &listErr );
+      }
+    }
     if ( schemes.isEmpty() )
     {
       if ( error )
         *error = listErr.isEmpty() ? QStringLiteral( "工程尚无地层方案" ) : listErr;
       return false;
     }
-    sid = schemes.first().id;
+    const SchemeChoice *picked = &schemes.first();
+    for ( const auto &c : schemes )
+    {
+      if ( c.id == QLatin1String( "default" ) )
+      {
+        picked = &c;
+        break;
+      }
+    }
+    sid = picked->id;
     if ( rev.isEmpty() )
-      rev = schemes.first().headRevision;
+      rev = picked->headRevision;
   }
   if ( !loadProjectScheme( ds, sid, rev, out, error ) )
     return false;
@@ -549,6 +584,20 @@ bool listProjectSchemesFromDir( const QString &projectDir, QVector<SchemeChoice>
   if ( !openProjectDataService( projectDir, ds, error ) )
     return false;
   out = listProjectSchemes( ds, error );
+  if ( out.isEmpty() )
+  {
+    std::vector<paleo::data::DataEntry> horizons;
+    std::string hErr;
+    if ( ds.listData( "horizons", 0, horizons, hErr ) && horizons.size() >= 2 )
+    {
+      paleo::data::SeismicStratigraphyBuildOptions buildOpts;
+      paleo::data::SeismicStratigraphyBuildReport buildReport;
+      std::string buildErr;
+      if ( ds.buildSeismicStratigraphicFramework( buildOpts, buildReport, buildErr ) &&
+           buildReport.intervalCount > 0 )
+        out = listProjectSchemes( ds, error );
+    }
+  }
   return !out.isEmpty() || ( error && error->isEmpty() );
 }
 
@@ -592,6 +641,74 @@ PagedLabeledChoices pageLabeledChoices( const QVector<LabeledIdChoice> &all, con
   for ( int i = begin; i < end; ++i )
     out.items.push_back( filtered.at( i ) );
   return out;
+}
+
+bool queryProjectSeismicHorizonWindow( const QString &projectDir, const UnitSelection &sel,
+                                       paleo::data::SeismicHorizonWindowQuery query,
+                                       paleo::data::SeismicHorizonWindowResult &out, QString *error,
+                                       const std::function<bool()> &cancelled )
+{
+  out = {};
+  paleo::data::DataService ds;
+  if ( !openProjectDataService( projectDir, ds, error ) )
+    return false;
+  if ( !sel.schemeId.isEmpty() )
+    query.target.schemeId = sel.schemeId.toStdString();
+  if ( !sel.revision.isEmpty() )
+    query.target.revision = sel.revision.toStdString();
+  if ( !sel.subIntervalId.isEmpty() )
+    query.target.subIntervalId.value = sel.subIntervalId.toStdString();
+  if ( !sel.intervalId.isEmpty() )
+    query.target.intervalId.value = sel.intervalId.toStdString();
+  if ( sel.subIndex >= 1 && sel.subIndex <= 4 )
+    query.target.subIndex = sel.subIndex;
+  if ( query.target.unitName.empty() && !sel.displayName.isEmpty() )
+    query.target.unitName = sel.displayName.toStdString();
+  std::string err;
+  if ( !ds.readSeismicHorizonWindow( query, out, err, cancelled ) )
+  {
+    if ( error )
+      *error = QString::fromStdString( err );
+    return false;
+  }
+  return true;
+}
+
+bool listProjectStratigraphicTracks( const QString &projectDir,
+                                     std::vector<paleo::data::StratigraphicTrackDescriptor> &out,
+                                     QString *error )
+{
+  out.clear();
+  paleo::data::DataService ds;
+  if ( !openProjectDataService( projectDir, ds, error ) )
+    return false;
+  std::string err;
+  if ( !ds.listAvailableStratigraphicTracks( out, err ) )
+  {
+    if ( error )
+      *error = QString::fromStdString( err );
+    return false;
+  }
+  return true;
+}
+
+bool queryProjectWellLogsByStratigraphy( const QString &projectDir,
+                                         const paleo::data::WellIntervalLogQuery &query,
+                                         std::vector<paleo::data::WellStratigraphicLogSlice> &out,
+                                         QString *error )
+{
+  out.clear();
+  paleo::data::DataService ds;
+  if ( !openProjectDataService( projectDir, ds, error ) )
+    return false;
+  std::string err;
+  if ( !ds.queryWellLogsByStratigraphy( query, out, err ) )
+  {
+    if ( error )
+      *error = QString::fromStdString( err );
+    return false;
+  }
+  return true;
 }
 
 } // namespace paleo::strat

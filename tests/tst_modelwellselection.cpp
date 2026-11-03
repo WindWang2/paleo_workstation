@@ -11,11 +11,55 @@
 #include "linkage/selectioncontext.h"
 #include "workflow/workflows.h"
 #include <QTabWidget>
+#include <QComboBox>
+#include <QLabel>
+#include <QPushButton>
 #include <QTableWidget>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
+#include <QFile>
+#include <QDir>
+#include <paleo_data/service.h>
 
 class TestModelWellSelection : public QObject {
   Q_OBJECT
 private slots:
+  void factorScopeMirrorsSeismicUnitAndRejectsLegacyHorizonFallback(){
+    ConstraintPage page(nullptr);page.setHorizons({"C3","D61"});SelectionContext selection;
+    page.setProperty("paleo.selection",QVariant::fromValue<QObject *>(&selection));
+    auto *legacy=page.findChild<QComboBox *>("horizonCombo");auto *label=page.findChild<QLabel *>("factorAnalysisUnit");
+    QVERIFY(legacy&&label);page.refreshAnalysisUnit();QVERIFY(legacy->isHidden());QVERIFY(!label->isHidden());
+    QVERIFY(!page.findChild<QPushButton *>("extractWellFactorsButton")->isEnabled());
+    paleo::strat::UnitSelection unit;unit.schemeId="scheme";unit.revision="r1";unit.intervalId="T70-T72";
+    unit.subIntervalId="S2";unit.subIndex=2;unit.topBoundary="T70";unit.bottomBoundary="T72";unit.displayName=QStringLiteral("T70–T72/S2");
+    selection.setActiveUnit(unit);page.refreshAnalysisUnit();page.setHorizons({"C3","D61"});
+    QCOMPARE(label->text(),unit.displayName);QCOMPARE(legacy->currentText(),QString("T70"));QCOMPARE(legacy->count(),1);
+    QCOMPARE(page.wellFactorParams().value("unitSelection").toMap(),paleo::strat::toMap(unit));
+    auto *factors=page.findChild<QTableWidget *>("factorTable");
+    for(int row=0;row<factors->rowCount();++row)factors->item(row,0)->setCheckState(factors->item(row,0)->data(Qt::UserRole).toString()=="sandthick"?Qt::Checked:Qt::Unchecked);
+    QSignalSpy extraction(&page,&ConstraintPage::extractWellFactorsRequested);
+    page.findChild<QPushButton *>("extractWellFactorsButton")->click();QCOMPARE(extraction.size(),1);
+    QCOMPARE(extraction.first()[1].toString(),QString("T70"));QCOMPARE(extraction.first()[2].toMap().value("unitSelection").toMap(),paleo::strat::toMap(unit));
+    unit.aggregate=true;unit.subIntervalId.clear();unit.subIndex=0;unit.displayName=QStringLiteral("T70–T72/综合");
+    selection.setActiveUnit(unit);page.refreshAnalysisUnit();QCOMPARE(label->text(),unit.displayName);
+    selection.clearActiveUnit();page.refreshAnalysisUnit();QCOMPARE(legacy->count(),0);
+    QVERIFY(!page.findChild<QPushButton *>("extractWellFactorsButton")->isEnabled());
+  }
+  void inventoryShowsExistingUnconfirmedTimeDepthAsPresent() {
+    QTemporaryDir tmp;PaleoProjectStore store;DataImportService imports(&store);imports.setProjectDir(tmp.path());
+    const auto root=areaModelDirectory(tmp.path());QVERIFY(QDir().mkpath(root));
+    paleo::data::DataService ds;std::string detail;
+    QVERIFY(ds.createProject(root.toStdString(),"inventory",detail));
+    const auto input=tmp.filePath("checkshots.txt");QFile file(input);QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("# Petrel checkshots format\n# Unit in depth: m\nVERSION 1\nBEGIN HEADER\nX\nY\nZ\nTWT picked\nMD\nWell\nEND HEADER\n1 2 -100 -50 110 \"SYNTH-1\"\n1 2 -200 -100 210 \"SYNTH-1\"\n");file.close();
+    paleo::data::ImportReport report;QVERIFY2(ds.importFile(input.toStdString(),{},report,detail),detail.c_str());ds.closeProject();
+    PreviewDocService doc(&imports);DataPage page;page.setProperty("paleo.page.importsvc",QVariant::fromValue<QObject*>(&doc));page.refreshAssetTable();
+    auto* tree=page.findChild<QTreeWidget*>("dataTree");QVERIFY(tree);bool found=false;
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->text(0)=="SYNTH-1") {
+      found=true;QVERIFY((*it)->text(1).contains(QStringLiteral("有时深")));QVERIFY(!(*it)->text(1).contains(QStringLiteral("待确认")));QVERIFY(!(*it)->text(1).contains(QStringLiteral("缺时深")));
+    }
+    QVERIFY(found);
+  }
   void factorResultsUseSelectedRevisionForPointsAndMaps() {
     QTemporaryDir dir;DataCatalog catalog;QString error;QVERIFY(catalog.open(dir.path(),&error));
     paleo::strat::UnitSelection unit;unit.schemeId="scheme";unit.revision="r1";unit.intervalId="parent";

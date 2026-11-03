@@ -49,7 +49,10 @@ class WellCompositePanel : public QWidget
   Q_OBJECT
 
 public:
-  explicit WellCompositePanel(QWidget *parent = nullptr);
+  enum class PredictionScope { SelectedUnit, WholeWellPreview, Comparison };
+  explicit WellCompositePanel(QWidget *parent = nullptr, PredictionScope scope = PredictionScope::SelectedUnit);
+  void addPreviewAction(const QString &text, std::function<void()> action);
+  void setPreviewSummary(const QString &text);
   ~WellCompositePanel() override;
   // 组装根注入功能层；面板只发意图、接收可用性与绘图数据。
   using FaciesWorkflowFactory = std::function<WellFaciesWorkflow *(QObject *)>;
@@ -204,6 +207,8 @@ private slots:
   void onMarkerMoved(const QString &name, double newDepth); // D3.1 接编辑栈
 
 private:
+  void setupPreviewFooter(QBoxLayout *root);
+  bool m_wholeWellPreview = false;
   void clearFaciesPrediction();
   void setupUi();
   void setupFaciesChrome(QWidget *topBar, QBoxLayout *topLay,
@@ -272,6 +277,7 @@ private:
   QToolButton *m_btnPredictFacies = nullptr, *m_btnCancelFacies = nullptr;
   QToolButton *m_btnFaciesService = nullptr, *m_btnRefreshFacies = nullptr, *m_btnShowFacies = nullptr;
   QComboBox *m_faciesModel = nullptr;
+  QComboBox *m_faciesStratTrack = nullptr;
   QLabel *m_faciesStatus = nullptr;
   QLabel *m_analysisUnitLabel = nullptr;
   QPointer<SelectionContext> m_selectionContext;

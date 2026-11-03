@@ -8,8 +8,8 @@
 class DataCatalog;
 class QgisLayerService;
 class QgsVectorLayer;
-// 测井相预测按地层组进行：井上每个有模型的地层组各提交一次（模型取
-// formationGroup 与该组一致的那个），逐组顺序执行、逐组返回——每组一回来
+// 测井相按实际地层组组织任务，模型不受 formationGroup 描述限制。
+// 逐组顺序执行、逐组返回——每组一回来
 // 就并入预测相道显示并按组缓存；全部组走完后一次性回写属性。注入任务服务
 // 后每个地层组是任务中心里的一条任务（进度条 + 完成/失败/已取消状态，可单独取消）。
 class WellFaciesWorkflow : public QObject {
@@ -24,6 +24,11 @@ public:
   void refreshModels();
   void run();
   void setAnalysisUnit(const paleo::strat::UnitSelection &unit);
+  void setAllowPartialPrediction(bool enabled);
+  void setStratigraphicTrackFilter(const QString &trackName,
+                                   const QString &unitName = QString(),
+                                   const QString &schemeId = QString());
+  QVariantList availableStratigraphicTracks() const;
   void cancel();
   // 绑定图层服务时预测回写可维护矢量相属性；未绑定保留旧资产兼容缝。
   // 方向 69：旧接口落 catalog DERIVED 解释岩性资产（well_litho_intervals
@@ -58,11 +63,14 @@ signals:
   void attributeTableRequested(const QString &layerId);
 
 private:
-  bool scopePlanToUnit(QString *error);
+  bool scopePlanToUnit(QString *error, WellComposite::ComprehensiveWellData *input=nullptr);
   QString publishUnitResult(const WellFaciesResult &result);
   paleo::strat::UnitSelection m_analysisUnit;
   bool m_hasAnalysisContext = false;
+  bool m_allowPartialPrediction = false;
+  QString m_stratTrackName, m_stratUnitName, m_stratSchemeId;
   QStringList m_unitParentVersions;
+  qlonglong m_analysisWellId=0;
   void updateInput(bool restoreCache = true);
   void loadKeyFromKeychain();
   int m_configGeneration = 0; // configure() 递增：迟到的钥匙串读结果不覆盖新配置

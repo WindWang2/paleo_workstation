@@ -135,6 +135,7 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
   p->setPen(QPen(m_st->theme.link, 1.0));
   for (const wellsection::Top &t : w.tops)
   {
+    if(w.correlationTops)p->setPen(QPen(PaleoTheme::sectionHorizonColor(t.name),1.6));
     const double y = m_st->yForMd(m_index, t.md);
     if (std::isfinite(y) && y >= exposed.top() - 1 && y <= exposed.bottom() + 1)
       p->drawLine(QPointF(left, y), QPointF(colRect.right(), y));

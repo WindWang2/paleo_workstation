@@ -184,7 +184,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return generateGeostatFactor( horizon, factorId, method, def, params, error );
   if ( method == QLatin1String( "surfer_idw" ) )
     return generateSurferIdwFactor( horizon, factorId, def, params, error );
-  if ( !method.isEmpty() )
+  if ( !method.isEmpty() && method != QLatin1String( "idw" ) )
   {
     paleo::workflow_detail::setError( error, tr( "未知单因素方法：%1" ).arg( method ) );
     return false;
@@ -691,7 +691,10 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
     return false;
   }
   // 上游 data_mode=current_layers 的边界是必选项；缺省即拒绝（不静默降级）。
-  const QString boundaryId = params.value( QStringLiteral( "boundaryLayerId" ) ).toString();
+  QString boundaryId = params.value( QStringLiteral( "boundaryLayerId" ) ).toString();
+  if(boundaryId==QLatin1String("boundary.project_range")){
+    boundaryId=ensureProjectBoundary(error);if(boundaryId.isEmpty())return false;
+  }
   if ( boundaryId.isEmpty() )
   {
     paleo::workflow_detail::setError( error, tr( "请先选择成图边界图层" ) );

@@ -205,26 +205,26 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     std::shared_ptr<SgyVolume> volume,
     const std::vector<glm::ivec2> &pathPoints,
     const SgySectionOptions &options,
-    std::function<void(bool, std::shared_ptr<const SgySliceImage>, const SgySectionStats &, const QString &)> onFinished)
+    std::function<void(bool, std::shared_ptr<const SgySliceImage>, const SeismicSectionExtractionStats &, const QString &)> onFinished)
 {
   if (!volume || !volume->IsIndexComplete())
   {
     if (onFinished)
-      onFinished(false, nullptr, SgySectionStats{}, tr("地震体未完成索引，无法提取剖面"));
+      onFinished(false, nullptr, SeismicSectionExtractionStats{}, tr("地震体未完成索引，无法提取剖面"));
     return nullptr;
   }
 
   if (!taskService_)
   {
     if (onFinished)
-      onFinished(false, nullptr, SgySectionStats{}, QStringLiteral("PaleoTaskService not set"));
+      onFinished(false, nullptr, SeismicSectionExtractionStats{}, QStringLiteral("PaleoTaskService not set"));
     return nullptr;
   }
 
   const QString title = tr("提取任意测线/过井剖面 (%1 节点)").arg(pathPoints.size());
 
   // D5.2 任意线缓存：同体同路径同选项重复提取即出（缓存查询+命中回调走事件循环）
-  SgySectionStats hitStats;
+  SeismicSectionExtractionStats hitStats;
   if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume, options, &hitStats))
   {
     // B-2（full-audit-20261021）：删除「命中但 distances 为空 → 按线号总长
@@ -244,7 +244,7 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   }
 
   auto outImage = std::make_shared<SgySliceImage>();
-  auto outStats = std::make_shared<SgySectionStats>();
+  auto outStats = std::make_shared<SeismicSectionExtractionStats>();
 
   const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
   auto work = [sgyPath, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
@@ -252,6 +252,7 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     std::vector<std::pair<int,int>> path;for(const auto& p:pathPoints)path.push_back({p.x,p.y});
     paleo::data::SeismicSectionResult result;std::string detail;
     if(!source.section(path,options.maxColumns,options.interpolate,options.keepOutsideColumns,result,detail,[task]{return task->cancelRequested();}))return QString::fromUtf8(detail);
+    outStats->horizons=source.sectionHorizons(result,[task]{return task->cancelRequested();});
     *outImage=paleo::seismicSectionImage(result);outStats->columns=result.columns;
     outStats->firstTimeMs=result.firstTime;outStats->sampleIntervalMs=result.sampleInterval;
     outStats->coordinateSystem=source.coordinateSystem().toStdString();
@@ -946,7 +947,7 @@ std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
     const std::vector<glm::ivec2> &pathPoints,
     std::shared_ptr<const SgyVolume> volume,
     const SgySectionOptions &options,
-    SgySectionStats *stats) const
+    SeismicSectionExtractionStats *stats) const
 {
   const qint64 key = sectionCacheKey(pathPoints, volume, options);
   for (auto &entry : sectionCache_)
@@ -965,7 +966,7 @@ std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
 void SeismicTaskService::cacheSection(const std::vector<glm::ivec2> &pathPoints,
                                       std::shared_ptr<const SgyVolume> volume,
                                       std::shared_ptr<const SgySliceImage> image,
-                                      std::shared_ptr<const SgySectionStats> stats,
+                                      std::shared_ptr<const SeismicSectionExtractionStats> stats,
                                       const SgySectionOptions &options)
 {
   const qint64 key = sectionCacheKey(pathPoints, volume, options);

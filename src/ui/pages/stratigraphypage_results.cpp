@@ -22,7 +22,7 @@ void StratigraphyPage::showResults() {
  const auto document=m_workflow->document();std::vector<const paleo::data::InterpretationSeries*> all;
  QDialog dialog(this);dialog.setWindowTitle(tr("计算结果 · 数值与曲线"));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(1100,720));auto* layout=new QVBoxLayout(&dialog);auto* combo=new QComboBox(&dialog);combo->setObjectName(QStringLiteral("stratigraphyResultSeries"));
  for(const auto& w:document.wells)for(const auto& s:w.series){all.push_back(&s);combo->addItem(QString::fromStdString(w.name+" / "+s.segmentId+" / "+s.kind+" / "+s.name));}
- if(all.empty()){m_status->setText(tr("请先计算曲线或完成层序划分。"));return;}layout->addWidget(combo);
+ if(all.empty()){setStatus(tr("请先计算曲线或完成层序划分。"));return;}layout->addWidget(combo);
  auto* note=new QLabel(&dialog);note->setWordWrap(true);layout->addWidget(note);auto* split=new QSplitter(&dialog);auto* plot=new StratigraphyResultPlot(split);plot->setMinimumWidth(450);split->addWidget(plot);
  auto* table=new QTableWidget(0,3,split);table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);table->setEditTriggers(QAbstractItemView::NoEditTriggers);split->addWidget(table);split->setStretchFactor(0,13);split->setStretchFactor(1,7);layout->addWidget(split,1);
  auto* bottom=new QHBoxLayout;bottom->addWidget(new QLabel(tr("表格起始行（每页 500 行）"),&dialog));auto* offset=new QSpinBox(&dialog);bottom->addWidget(offset);bottom->addStretch();

@@ -78,6 +78,11 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   m_status = new QLabel(right);
   m_status->setWordWrap(true);
   form->addRow(m_status);
+  auto *semantics=new QPushButton(tr("时深来源与地震时间基准…"),right);
+  semantics->setObjectName("editTimeDepthSemantics");form->addRow(semantics);
+  connect(semantics,&QPushButton::clicked,this,[this]{
+    if(auto *item=m_wells->currentItem())emit timeDepthSettingsRequested({item->data(Qt::UserRole).toMap().value("id").toString()});
+  });
   m_mode = new QComboBox(right);
   m_mode->setObjectName("alignmentMode");
   m_mode->addItems({tr("使用本井时深表（不外推）"), tr("常速近似（需复核）")});
@@ -98,9 +103,9 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   apply->setObjectName("applyAlignment");
   form->addRow(apply);
   auto *note = new QLabel(tr("正值向下平移。分层优先 TVD，测井按 "
-                             "MD。没有本井时深表时，井道和分层按近似速度画在剖面上，"
-                             "并标明需复核。时深表范围外的点不绘制。左侧深度尺与"
-                             "该近似速度一致，地震图像仍按 TWT 排列。"),
+                             "MD。井道叠加需要有效时深及一致的地震时间基准。"
+                             "常速近似仅在明确选择后使用，不补齐缺失基准。"
+                             "时深表范围外的点不绘制，地震图像按 TWT 排列。"),
                           right);
   note->setWordWrap(true);
   form->addRow(note);
@@ -132,17 +137,8 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   m_message->setObjectName("sectionSetupMessage");
   m_message->setWordWrap(true);
   layout->addWidget(m_message);
-  auto gateBuild = [this, build, reorder] {
-    int selected = 0;
-    for (int i = 0; i < m_wells->count(); ++i)
-      selected += m_wells->item(i)->checkState() == Qt::Checked;
-    build->setEnabled(selected >= 2);
-    build->setToolTip(selected < 2 ? tr("至少勾选两口坐标不同的井")
-                                   : tr("按列表从上到下生成剖面"));
-    reorder->setEnabled(selected >= 2);
-  };
-  connect(m_wells, &QListWidget::itemChanged, this, gateBuild);
-  gateBuild();
+  connect(m_wells, &QListWidget::itemChanged, this, &SectionSetupDialog::updateActions);
+  updateActions();
   connect(m_wells, &QListWidget::currentRowChanged, this,
           &SectionSetupDialog::showWell);
   connect(m_mode, &QComboBox::currentIndexChanged, this,
@@ -217,23 +213,29 @@ void SectionSetupDialog::setWells(const QVariantList &wells) {
   if (!m_wells->currentItem() && m_wells->count())
     m_wells->setCurrentRow(0);
   showWell();
-  int checkedCount = 0;
-  for (int i = 0; i < m_wells->count(); ++i)
-    checkedCount += m_wells->item(i)->checkState() == Qt::Checked;
-  findChild<QPushButton *>("buildWellSection")->setEnabled(checkedCount >= 2);
-  if (auto *reorderBtn = findChild<QPushButton *>("spatialReorderBtn"))
-    reorderBtn->setEnabled(checkedCount >= 2);
+  updateActions();
 }
 void SectionSetupDialog::setSavedSections(const QVariantList &sections) {
   m_saved->clear();
-  findChild<QPushButton *>("restoreSectionSession")
-      ->setEnabled(!sections.isEmpty());
   m_saved->setToolTip(sections.isEmpty() ? tr("工程尚无已保存的剖面版本")
                                          : QString());
   for (const auto &v : sections) {
     auto row = v.toMap();
     m_saved->addItem(row.value("name").toString(), row.value("id"));
   }
+  updateActions();
+}
+void SectionSetupDialog::setSeismicState(bool ready,const QString &message){
+  m_seismicReady=ready;setMessage(message);updateActions();
+}
+void SectionSetupDialog::updateActions(){
+  const int selected=checkedWellIds().size();
+  auto *build=findChild<QPushButton *>("buildWellSection");
+  build->setEnabled(m_seismicReady&&selected>=2);
+  build->setToolTip(!m_seismicReady?tr("地震体及测网就绪后可生成剖面"):selected<2?tr("至少勾选两口坐标不同的井"):tr("按列表从上到下生成剖面"));
+  findChild<QPushButton *>("drawArbitrarySection")->setEnabled(m_seismicReady);
+  findChild<QPushButton *>("restoreSectionSession")->setEnabled(m_seismicReady&&m_saved->count()>0);
+  findChild<QPushButton *>("spatialReorderBtn")->setEnabled(selected>=2);
 }
 void SectionSetupDialog::setMessage(const QString &text) {
   m_message->setText(text);
@@ -244,7 +246,7 @@ void SectionSetupDialog::showWell() {
                        : QVariantMap();
   findChild<QPushButton *>("applyAlignment")->setEnabled(!row.isEmpty());
   m_velocity->setToolTip(tr("仅常速近似模式使用此速度"));
-  m_status->setText(row.isEmpty() ? tr("请先导入井数据及关联时深表")
+  m_status->setText(row.isEmpty() ? tr("请选择有曲线的井；读取完成后列表显示可选井")
                                   : row.value("name").toString() + " · " +
                                         row.value("status").toString());
   m_mode->setCurrentIndex(row.value("constant").toBool() ? 1 : 0);

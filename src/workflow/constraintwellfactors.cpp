@@ -9,6 +9,8 @@
 #include "domain/mappinghorizons.h"
 #include "domain/subintervalfacies.h"
 #include "services/subintervalfactors.h"
+#include "services/analysisunitcontext.h"
+#include "services/sandratiofromlogs.h"
 #include "domain/stratigraphicunit.h"
 #include "domain/singlefactorstrategy.h"
 #include "services/projectdata.h"
@@ -157,7 +159,7 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     // 也会让已保存井值失效，而非仅依赖目录中的父版本变化。
     if (wf->catalog())
       for (const auto &link : wf->catalog()->links())
-        if (!link.unresolved && QStringList{"tops", "interpretation", "cuttings"}.contains(link.role)) {
+        if (!link.unresolved && QStringList{"tops", "interpretation", "cuttings", "well_log"}.contains(link.role)) {
           const auto version = wf->catalog()->currentVersion(link.assetId);
           if (!version.id.isEmpty()) out.guardedPaths << DataCatalog::resolvedVersionPath(wf->projectDir(), version);
         }
@@ -186,6 +188,10 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   paleo::data::StratigraphicScheme scheme;
   if (unitSel.isValid() && !paleo::strat::loadProjectSchemeFromDir(wf->projectDir(), unitSel.schemeId,
       unitSel.revision, scheme, nullptr, error)) return {};
+  if(unitSel.isValid()&&!out.hasMapSource){
+    const auto crs=paleo::strat::analysisProjectCrs(wf->projectDir(),error);if(crs.isEmpty())return {};
+    out.crs=QgsCoordinateReferenceSystem(crs);
+  }
   QString effectiveTopName = horizon;
   QString effectiveBaseName = baseName;
   if (unitSel.isValid() && !unitSel.topBoundary.isEmpty())
@@ -195,7 +201,8 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   const auto wells = data.wells();
   QStringList ids, lithologyWarnings;
   for (const auto &well : wells) ids << well.id;
-  const auto lithologies = sandMetric ? lithology.lithologiesFor(ids, &lithologyWarnings) : QHash<QString, QVector<wellsection::LithoSegment>>();
+  QHash<QString,QStringList> perWellWarnings;
+  const auto lithologies = sandMetric ? lithology.lithologiesFor(ids, &lithologyWarnings,&perWellWarnings) : QHash<QString, QVector<wellsection::LithoSegment>>();
   // 岩性词表是循环不变量（projectDir/catalog 在整轮里不变）：提前一次构造。
   // 原实现逐井调 fromProject——W 口井 = W×(读盘+JSON 解析+两遍默认词表重建）。
   QString lexiconError;
@@ -204,7 +211,8 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       : paleo::domain::LithoLexicon::defaultLexicon();
   // 坏词表不再静默回落：原因进用户可见的 sandReason（同 lithologiesFor 警告口径）。
   if (!lexiconError.isEmpty())
-    lithologyWarnings << ConstraintWorkflow::tr("岩性词表：%1（已回退内置词表）").arg(lexiconError);
+    lithologyWarnings={ConstraintWorkflow::tr("岩性词表：%1（已回退内置词表）").arg(lexiconError)};
+  else lithologyWarnings.clear();
   QHash<QString, int> byId, byName;
   // 目录井按行认领记录（entity id）：规范化名碰撞守卫——目标行已被另一口
   // 目录井认领时，后来的井不合并进该行（原实现改写 row.id/name，前一口井
@@ -309,18 +317,12 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     double top = qQNaN(), base = qQNaN();
     QString topsError;
     if (unitSel.isValid()) {
-      const auto key=paleo::strat::stableWellKey(well.id);
-      for (const auto &sub : scheme.subIntervals) {
-        if (unitSel.aggregate ? sub.interval.value != unitSel.intervalId.toStdString()
-                              : sub.id.value != unitSel.subIntervalId.toStdString()) continue;
-        const auto range=paleo::data::framework::wellRange(scheme,key,sub.id);
-        if (!range.resolved || range.depthType != "MD" || range.depthUnit != "m") {
-          topsError=QString::fromStdString(range.reason.empty() ? "Analysis window requires confirmed MD/m" : range.reason); break;
-        }
-        top=std::isfinite(top) ? qMin(top,range.top) : range.top;
-        base=std::isfinite(base) ? qMax(base,range.bottom) : range.bottom;
-      }
-      if (!std::isfinite(top) && topsError.isEmpty()) topsError=QStringLiteral("No well occurrence in selected analysis revision");
+      const auto nativeId=wf->catalog()->entityById(well.id).extra.value("areaModelWellId").toLongLong();
+      const auto range=paleo::strat::analysisWellRange(scheme,unitSel,well.id,nativeId);
+      if(!range.resolved||range.depthType!="MD"||range.depthUnit!="m")
+        topsError=QString::fromStdString(range.reason.empty()?"当前井在所选分析层段缺少 MD 米深度窗":range.reason);
+      else {top=range.top;base=range.bottom;}
+      row.provenance.insert(QStringLiteral("analysisWellId"),range.wellId);
       row.provenance.insert(QStringLiteral("subIntervalId"),unitSel.subIntervalId);
       row.provenance.insert(QStringLiteral("windowTopMd"),top);
       row.provenance.insert(QStringLiteral("windowBottomMd"),base);
@@ -353,7 +355,27 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
           sourceBase += QStringLiteral(" [词表：%1]").arg(auditRules.join(QStringLiteral(", ")));
         }
         if (!row.maintainedSand) row.sandSource = sourceBase;
-      } else if (!lithologyWarnings.isEmpty()) row.sandReason += QStringLiteral("; ") + lithologyWarnings.join(QStringLiteral("; "));
+        row.provenance.insert("valueMethod","interpreted_lithology");
+        row.provenance.insert("coverage",1.);
+      } else {
+        if(autoSand&&params.value("factorId")==QLatin1String("sandratio")){
+          paleo::singlefactor::GrSandOptions options;
+          options.sandGr=params.value("grSandBaseline",qQNaN()).toDouble();
+          options.shaleGr=params.value("grShaleBaseline",qQNaN()).toDouble();
+          options.shaleCutoff=params.value("grShaleCutoff",.5).toDouble();
+          options.maxGapMetres=params.value("grMaxGapMetres",0.).toDouble();
+          const auto estimate=paleo::singlefactor::sandRatioFromLogs(wf->catalog(),wf->projectDir(),well.id,
+              wf->catalog()->entityById(well.id).extra.value("areaModelWellId").toLongLong(),top,base,options,cancelled);
+          if(estimate.estimate.ok){
+            row.attributes.insert("sand_ratio",estimate.estimate.ratio);row.sandSource=estimate.source;row.sandReason.clear();
+            for(auto i=estimate.provenance.cbegin();i!=estimate.provenance.cend();++i)row.provenance.insert(i.key(),i.value());
+            auto versions=row.provenance.value("source_version_ids").toStringList();versions.append(estimate.versionIds);versions.removeDuplicates();
+            row.provenance.insert("source_version_ids",versions);out.paths.append(estimate.paths);
+          }else row.sandReason+=QStringLiteral("; ")+estimate.estimate.reason;
+        }
+        if(!row.sandReason.isEmpty()){const auto issues=perWellWarnings.value(well.id)+lithologyWarnings;
+          if(!issues.isEmpty())row.sandReason+=QStringLiteral("; ")+issues.join(QStringLiteral("; "));}
+      }
     } else if (std::isfinite(top) && std::isfinite(base)) {
       row.thicknessReason = ConstraintWorkflow::tr("分层倒置或层厚为零"); row.sandReason = row.thicknessReason;
     }
@@ -478,7 +500,7 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
       if (autoFactorId == QLatin1String("sandratio")) {
         if (const auto direct = take(QStringLiteral("sand_ratio"))) {
           value = direct;
-          valueSource = ConstraintWorkflow::tr("直读：井点砂地比");
+          valueSource = r.provenance.value("estimated").toBool()?r.sandSource:ConstraintWorkflow::tr("直读：井点砂地比");
         } else {
           const auto sand = take(sandThickness);
           const auto thick = take(layerThickness);
@@ -564,6 +586,7 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
     }
     const QString coordinateStatus = r.attributes.value(QStringLiteral("coordinate_status")).toString();
     located = located && coordinateStatus != QLatin1String("invalid") && coordinateStatus != QLatin1String("missing");
+    const bool calculated=value&&reason.isEmpty();
     if (!located)
       reason += (reason.isEmpty() ? QString() : QStringLiteral("; ")) +
                 ConstraintWorkflow::tr("缺少有效井点坐标");
@@ -592,6 +615,7 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
     row.insert("well_id", r.id); row.insert("well_name", r.name); row.insert("horizon", source.horizon);
     row.insert("reason", reason); row.insert("source", valueSource); row.insert("contributing", contributing);
     row.insert("participating", contributing);
+    row.insert("calculated",calculated);
     if (located) { const auto point = pointGeometry.asPoint(); row.insert("x", point.x()); row.insert("y", point.y()); }
     if (!row.contains("entity_id")) row.insert("identity_scope", "source_well_identifier");
     if (value) row.insert(QStringLiteral("value"), *value);
@@ -617,6 +641,10 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
               .arg(okCount)
               .arg(missing)
               .arg(profile.note);
+      if(autoFactorId==QLatin1String("sandratio")){
+        const auto computed=std::count_if(result.rows.begin(),result.rows.end(),[](const auto &row){return row.toMap().value("calculated").toBool();});
+        result.message+=ConstraintWorkflow::tr("可计算 %1 井，其中 %2 井有坐标参与成图。").arg(computed).arg(okCount);
+      }
     }
     else
     {
@@ -657,11 +685,22 @@ QVariantMap extractionParams(const QVariantMap &params) {
     result.insert("valueField", params.value("field"));
   if (result.value("factorMode") == QLatin1String("auto"))
     for (const auto *key : {"valueField","numeratorField","denominatorField"}) result.remove(QLatin1String(key));
+  if(result.value("factorMode")==QLatin1String("auto")){
+    result.insert("sandRatioAcquisition","interpreted_or_gr_v1");
+    result.insert("grShaleCutoff",params.value("grShaleCutoff",.5));
+    result.insert("grMaxGapMetres",params.value("grMaxGapMetres",0.));
+    for(const auto *key:{"grSandBaseline","grShaleBaseline","grShaleCutoff","grMaxGapMetres"})
+      if(params.contains(key))result.insert(QLatin1String(key),params.value(key));
+  }
   return result;
 }
 
 bool savedFactorInputsCurrent(const DataCatalog *catalog, QgisLayerService *layers, const QString &dir, const CatalogVersion &v) {
   if (v.id.isEmpty() || !QFile::exists(DataCatalog::resolvedVersionPath(dir, v))) return false;
+  if(v.extra.value("factor_id")==QLatin1String("sandratio")&&v.extra.value("factorMode")==QLatin1String("auto")&&
+     v.extra.value("acquisition_schema").toInt()!=2)return false;
+  const auto unit=paleo::strat::fromMap(v.extra.value("unitSelection").toMap());
+  if(unit.isValid()&&!paleo::strat::analysisUnitGeometryCurrent(dir,unit))return false;
   for (const auto &parent : v.parentVersionIds) {
     const auto input = catalog->versionById(parent);
     if (input.id.isEmpty() || catalog->currentVersion(input.assetId).id != parent) return false;
@@ -792,8 +831,14 @@ bool ConstraintWorkflow::startWellFactorExtraction(const QString &horizon, const
 }
 
 bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QString &factorId,
-                                                const QVariantMap &params, QString *error,
+                                                const QVariantMap &requestedParams, QString *error,
                                                 bool synchronous) {
+  QVariantMap params=requestedParams;
+  if(params.contains("unitSelection")){
+    paleo::strat::UnitSelection frozen;
+    if(!paleo::strat::freezeAnalysisUnit(projectDir(),paleo::strat::fromMap(params.value("unitSelection").toMap()),frozen,error,true))return false;
+    params.insert("unitSelection",paleo::strat::toMap(frozen));
+  }
   if (factorBusy()) {
     if (error)
       *error = tr("已有单因素任务，请在任务中心查看进度");
@@ -861,6 +906,8 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
         QVariantMap{{"size", file.size()}, {"modified", file.lastModified().toMSecsSinceEpoch()}});
   }
   auto publish = [this, result, st, horizon, factorId, params, def](QString *publishError) {
+    const auto unit=paleo::strat::fromMap(params.value("unitSelection").toMap());
+    const bool geometryStale=unit.isValid()&&!paleo::strat::analysisUnitGeometryCurrent(projectDir(),unit);
     DerivedAssetRegistrar registrar(catalog(), projectDir());
     QString err;
     for (auto it = result->sourceFileStates.cbegin(); it != result->sourceFileStates.cend(); ++it) {
@@ -875,7 +922,9 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     }
     const QString id = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
     QVariantMap extra = params;
+    extra.insert("acquisition_schema",2);
     extra.insert(QStringLiteral("factor_id"), factorId);
+    if(geometryStale)extra.insert("stale",true);
     extra.insert(QStringLiteral("horizon"), horizon);
     extra.insert(
         QStringLiteral("sample_count"),

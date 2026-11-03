@@ -10,6 +10,7 @@
 #include <QSqlQuery>
 #include <QUuid>
 #include <cmath>
+#include <memory>
 #include <qgscoordinatetransform.h>
 #include <qgsdatumtransform.h>
 #include <qgsexception.h>
@@ -23,6 +24,7 @@
 #include <qgsgeometry.h>
 #include <qgsfillsymbol.h>
 #include <qgssinglesymbolrenderer.h>
+#include <qgsvectorfilewriter.h>
 
 namespace paleo::mapreference {
 QgsVectorLayer *areaRangeLayer(const QgsRectangle &extent,const QgsCoordinateReferenceSystem &crs,
@@ -35,6 +37,17 @@ QgsVectorLayer *areaRangeLayer(const QgsRectangle &extent,const QgsCoordinateRef
   layer->setRenderer(new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple({
     {"style","no"},{"outline_color",stroke.name()},{"outline_style","dash"},{"outline_width","0.4"}}).release()));
   return layer;
+}
+bool writeAreaRange(const QString &path,const QgsRectangle &extent,
+                    const QgsCoordinateReferenceSystem &crs,QString *error) {
+  std::unique_ptr<QgsVectorLayer> layer(areaRangeLayer(extent,crs,QObject::tr("工区范围"),QColor("#24303E"),nullptr));
+  if(!layer){if(error)*error=QObject::tr("工区范围或坐标系无效");return false;}
+  QgsVectorFileWriter::SaveVectorOptions options;
+  options.driverName="GPKG";options.layerName="area";
+  if(QgsVectorFileWriter::writeAsVectorFormatV3(layer.get(),path,QgsCoordinateTransformContext(),options,error)!=QgsVectorFileWriter::NoError)return false;
+  bool saved=false;layer->saveNamedStyle(path+".qml",saved);
+  if(!saved&&error)*error=QObject::tr("工区范围样式保存失败");
+  return saved;
 }
 namespace {
 QString affine(const PaleoGeoreference &g)

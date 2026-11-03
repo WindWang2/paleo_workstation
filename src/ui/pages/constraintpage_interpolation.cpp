@@ -12,6 +12,7 @@
 #include "../../domain/singlefactorstrategy.h" // 方向67：策略包词表（方法下拉单一真源）
 #include "../../qgis/qgislayerservice.h"
 #include "../../services/singlefactordef.h"
+#include "../../workflow/workflows.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -61,8 +62,8 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   auto *task = new QComboBox( content );
   task->setObjectName( QStringLiteral( "factorTaskCombo" ) );
   task->addItem( tr( "快速查看井点趋势" ), QStringLiteral( "surfer_idw" ) );
-  task->addItem( tr( "考虑断层或沉积相界约束" ), QStringLiteral( "local_direction_idw" ) );
-  task->addItem( tr( "考虑沉积展布方向" ), QStringLiteral( "local_direction_idw" ) );
+  task->addItem( tr( "考虑断层或沉积相界约束" ), QStringLiteral( "structural_idw" ) );
+  task->addItem( tr( "考虑沉积展布方向" ), QStringLiteral( "structural_idw" ) );
   task->addItem( tr( "地统计估计并检查误差" ), QStringLiteral( "kriging" ) );
   task->addItem( tr( "分析多种可能的模拟结果" ), QStringLiteral( "sgs" ) );
   task->addItem( tr( "手动选择高级算法…" ), QString() );
@@ -94,7 +95,7 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   }
   method->addItem( tr( "序贯高斯模拟（SGS）" ), QStringLiteral( "sgs" ) );
   method->setItemData(method->count() - 1, tr("序贯高斯模拟按变差模型生成实现集合，输出均值与标准差；逐线方向/屏障参数不参与地统求解。"), Qt::ToolTipRole);
-  const int defaultMethod = method->findData( QStringLiteral( "surfer_idw" ) );
+  const int defaultMethod = method->findData( QStringLiteral( "structural_idw" ) );
   if ( defaultMethod >= 0 )
     method->setCurrentIndex( defaultMethod );
   method->setAccessibleName( tr( "成图方法" ) );
@@ -123,6 +124,7 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
       method->setCurrentIndex( i );
   } );
 
+  task->setCurrentIndex(1);
   auto *coverageCaption = caption( tr( "覆盖方式" ), content );
   coverageCaption->setObjectName( QStringLiteral( "factorCoverageCaption" ) );
   lay->addWidget( coverageCaption );
@@ -130,6 +132,7 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   coverage->setObjectName( QStringLiteral( "factorCoverageCombo" ) );
   coverage->addItem( tr( "井点支撑" ), QStringLiteral( "well_supported" ) );
   coverage->addItem( tr( "域内外推" ), QStringLiteral( "domain_extrapolation" ) );
+  coverage->setCurrentIndex(1);
   coverage->setAccessibleName( tr( "覆盖方式" ) );
   coverage->setToolTip(tr("井点支撑：只保留有足够井点支撑的区域；域内外推：允许向计算边界外推，边缘结果需复核。"));
   lay->addWidget( coverage );
@@ -449,6 +452,8 @@ void ConstraintPage::rebuildBoundaryCombo( QComboBox *boundaryCombo )
   const QString keep = boundaryCombo->currentData().toString();
   boundaryCombo->blockSignals( true );
   boundaryCombo->clear();
+  if(auto *wf=qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>()))
+    wf->ensureProjectBoundary();
   if ( auto *svc = qobject_cast<QgisLayerService *>(
            property( kLayersProp ).value<QObject *>() ) )
   {

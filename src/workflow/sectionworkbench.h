@@ -34,6 +34,8 @@ public:
   };
   void requestPreviewData(std::function<void(const PreviewData &)> ready, bool includeSections = true);
   void cancelPreviewData();
+  QVariantMap timeDepthAlignmentOptions(const QStringList &ids,QString *error) const;
+  bool saveTimeDepthAlignment(const QVariantMap &selection,QString *error);
   // MD 域时深：逐井校正优先（常速校正 → 常速模型），否则主时深表 MD 列严格表；
   // shift 为校正时间平移。false = 无可用时深，status 写原因
   // （「无时深表」/「时深表无序或有效样点不足」）。

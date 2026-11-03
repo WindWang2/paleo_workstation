@@ -31,6 +31,22 @@
 using namespace paleo::pagesinternal;
 using namespace paleo::constraintpage_internal;
 
+void ConstraintPage::buildGrSandSection(QWidget *content,QVBoxLayout *lay)
+{
+  auto *section=new CollapsibleSection(tr("GR 估算参数（解释不足时使用）"),content);
+  section->setObjectName(QStringLiteral("grSandSection"));section->setExpanded(false);lay->addWidget(section);
+  for(const auto &item:QVector<QPair<QString,QString>>{{"grSandBaselineSpin",tr("砂岩 GR 基线")},{"grShaleBaselineSpin",tr("泥岩 GR 基线")},
+      {"grShaleCutoffSpin",tr("砂层泥质指标上限")},{"grMaxGapMetresSpin",tr("允许的最大采样间隔（米）")}}){
+    section->containerLayout()->addWidget(caption(item.second,content));
+    auto *spin=new QDoubleSpinBox(content);spin->setObjectName(item.first);spin->setAccessibleName(item.second);spin->setDecimals(3);useMono(spin);
+    if(item.first.contains("Baseline")){spin->setRange(-1,1e6);spin->setSpecialValueText(tr("自动（全井 P05 / P95）"));spin->setValue(-1);}
+    else if(item.first.contains("Cutoff")){spin->setRange(.01,.99);spin->setSingleStep(.05);spin->setValue(.5);}
+    else{spin->setRange(0,1e6);spin->setSpecialValueText(tr("自动（典型采样间隔的三倍）"));}
+    section->containerLayout()->addWidget(spin);
+    connect(spin,&QDoubleSpinBox::valueChanged,this,[this]{invalidateWellFactors();restoreWellFactorDisplay();});
+  }
+}
+
 void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
                                              QTableWidget *factors )
 {
@@ -66,6 +82,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   geoHint->setObjectName(QStringLiteral("wellFactorGeoHint"));
   geoHint->setWordWrap(true);
   wellLay->addWidget(geoHint);
+  buildGrSandSection(wellFactors,wellLay);
   auto *fieldSection = new CollapsibleSection(tr("高级：技术字段映射"), wellFactors);
   fieldSection->setObjectName(QStringLiteral("wellFactorFieldMappingSection"));
   fieldSection->setExpanded(false);
@@ -197,6 +214,11 @@ QVariantMap ConstraintPage::wellFactorParams() const {
   const auto *table = findChild<QTableWidget *>(QStringLiteral("factorTable"));
   if (factorIdOfRow(table, checkedRow(table)) == QLatin1String("strathick"))
     params.insert(QStringLiteral("factorSource"), value("factorSourceCombo"));
+  if(factorIdOfRow(table,checkedRow(table))==QLatin1String("sandratio")&&params.value("factorMode")==QLatin1String("auto"))
+    for(const auto *key:{"grSandBaseline","grShaleBaseline","grShaleCutoff","grMaxGapMetres"}){
+      const auto *spin=findChild<QDoubleSpinBox *>(QString::fromLatin1(key)+"Spin");
+      if(spin&&spin->value()>=0)params.insert(QLatin1String(key),spin->value());
+    }
   if (auto *selection=qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>()))
     params.insert(QStringLiteral("unitSelection"),paleo::strat::toMap(selection->activeUnit()));
   return params;
@@ -322,13 +344,39 @@ void ConstraintPage::invalidateWellFactors(bool markStale) {
   updateFactorActionStates();
 }
 void ConstraintPage::refreshAnalysisUnit() {
+  auto *selection=qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>());
+  auto *horizon=child<QComboBox>(this,"horizonCombo");
+  auto *label=child<QLabel>(this,"factorAnalysisUnit");
+  if(selection&&horizon&&label){
+    const auto unit=selection->activeUnit();
+    // The hidden compatibility control only carries the actual boundary used by legacy view actions.
+    const QSignalBlocker blocked(horizon);horizon->clear();
+    if(unit.isValid()&&!unit.topBoundary.isEmpty())horizon->addItem(unit.topBoundary);
+    horizon->hide();label->show();
+    label->setText(unit.isValid()?(unit.displayName.isEmpty()?paleo::strat::layerToken(unit):unit.displayName):
+        tr("请在顶部选择地震层位单元及 S1–S4 或综合"));
+    child<QLabel>(this,"factorHorizonCaption")->setText(tr("当前地震层段"));
+    auto *factors=child<QTableWidget>(this,"factorTable");
+    for(int row=0;row<factors->rowCount();++row){
+      const auto factor=factorIdOfRow(factors,row);const auto def=factorDefinition(factor);
+      if(interpolantEngine(def.processingAlgId)){
+        const auto text=factor=="strathick"?tr("所选地震层段厚度（MD）"):tr("所选地震层段内的井点数据");
+        factors->item(row,2)->setText(text);factors->item(row,1)->setToolTip(text);
+      }
+    }
+  }
   invalidateWellFactors(false);
+  refreshWellFactorFields();refreshConstraintList();updateEngineRows();
   restoreWellFactorDisplay();
   refreshFactorLayers();
   refreshFactorResults();
 }
 void ConstraintPage::refreshWellFactorGeoHint()
 {
+  if(auto *section=findChild<QWidget *>(QStringLiteral("grSandSection"))){
+    const auto *table=child<QTableWidget>(this,"factorTable");
+    section->setVisible(factorIdOfRow(table,checkedRow(table))==QLatin1String("sandratio")&&wellFactorParams().value("factorMode")==QLatin1String("auto"));
+  }
   auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorGeoHint"));
   if (!hint)
     return;
@@ -365,7 +413,7 @@ void ConstraintPage::updateWellFactorActionState() {
                            : !params.value(QStringLiteral("valueField")).toString().isEmpty()));
   const bool busy = property("paleo.page.runbusy").toBool();
   const auto *horizon = child<QComboBox>(this, "horizonCombo");
-  const bool hasHorizon = horizon && !horizon->currentText().trimmed().isEmpty();
+  const bool hasHorizon = !pageAnalysisKey(this,horizon).trimmed().isEmpty();
   const auto *factors = child<QTableWidget>(this, "factorTable");
   const bool fromWells = interpolantEngine(factorDefinition(factorIdOfRow(factors, checkedRow(factors))).processingAlgId);
   // 井点提取是输入准备，与约束线相互独立（约束只在插值时汇合）。
@@ -391,6 +439,7 @@ void ConstraintPage::refreshWellFactorResults() {
     const auto m = v.toMap(); const int row = table->rowCount(); table->insertRow(row);
     table->setItem(row, 0, new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString()));
     auto *value = new QTableWidgetItem(m.contains(QStringLiteral("value")) ? QString::number(m.value(QStringLiteral("value")).toDouble(), 'g', 8) : QStringLiteral("—"));
+    value->setToolTip(m.value(QStringLiteral("source")).toString());
     value->setFont(PaleoTheme::monoFont()); table->setItem(row, 1, value);
     value->setData(Qt::UserRole, m.value(QStringLiteral("contributing")));
     auto *detail = new QTableWidgetItem(m.value(QStringLiteral("contributing")).toBool() ? m.value(QStringLiteral("source")).toString() : m.value(QStringLiteral("reason")).toString());

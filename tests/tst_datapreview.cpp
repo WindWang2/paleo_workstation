@@ -1035,6 +1035,8 @@ void TestDataPreview::seismicDecodeRunsThroughTaskService()
   QVERIFY(no);
 
   // 换测线 → 第二个解码任务（索引缓存命中，不再 open 全文件）。
+  QTest::qWait(180); // Past the time-slice debounce: a hidden tab must issue no full-plane read.
+  for(auto* task:taskSvc.tasks())QVERIFY(task->title()!=QStringLiteral("读取水平时间切片")&&task->title()!=QStringLiteral("读取地震剖面"));
   no->setValue(1001);
   QTRY_VERIFY_WITH_TIMEOUT([&]() {
     int decodes = 0;

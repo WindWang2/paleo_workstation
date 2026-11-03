@@ -29,6 +29,7 @@ public:
     QString id, name;
     bool hasCoordinates = false;
     double x = qQNaN(), y = qQNaN(); // 井位（视图排序用）
+    QString alignmentStatus;
   };
   struct SeismicSource {
     QString path;
@@ -45,7 +46,8 @@ public:
   // 并按大小写不敏感排序。
   QStringList availableMnemonics(const QStringList &wellIds) const;
   // 共用真实解释/岩屑 provider；不装载曲线或图片。
-  QHash<QString, QVector<wellsection::LithoSegment>> lithologiesFor(const QStringList &wellIds, QStringList *warnings = nullptr) const;
+  QHash<QString, QVector<wellsection::LithoSegment>> lithologiesFor(const QStringList &wellIds, QStringList *warnings = nullptr,
+      QHash<QString,QStringList> *perWellWarnings = nullptr) const;
   // ---- 解释岩性来源仲裁（方向 98：同井多份解释资产显式选择）----
   struct LithoSourceChoice {
     QString assetId;      // 消费指向的资产 id

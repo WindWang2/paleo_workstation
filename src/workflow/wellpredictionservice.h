@@ -54,6 +54,7 @@ private:
   QString m_dir;
   QHash<QString, QString> m_lithoSelections; // #213：剖面页显式岩性资产选择
   RemotePredictionRequest m_request;
+  QHash<int,QVariantMap> m_unitRanges;
   QVector<WellComposite::ComprehensiveWellData> m_data;
   struct Run { int well; WellFaciesRun prediction; };
   QVector<Run> m_runs;

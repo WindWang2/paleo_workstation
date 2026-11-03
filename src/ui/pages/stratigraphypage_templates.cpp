@@ -12,7 +12,7 @@
 #include <algorithm>
 void StratigraphyPage::showAssignments() {
  const auto scope=m_scope->currentData().toString();const auto selected=m_template->currentData().toString();
- if(selected.isEmpty()){m_status->setText(tr("先提取或选择人工标准模板。"));return;}
+ if(selected.isEmpty()){setStatus(tr("先提取或选择人工标准模板。"));return;}
  auto rows=m_workflow->prepareAssignments(scope,selected);if(rows.isEmpty())return;
  QDialog dialog(this);dialog.setObjectName(QStringLiteral("stratigraphyAssignments"));dialog.setWindowTitle(tr("确认各井、各段的标准模板"));paleo::ui_detail::resizeWithinScreen(&dialog,QSize(800,500));auto* layout=new QVBoxLayout(&dialog);
  auto* note=new QLabel(tr("优先推荐同组且具有该段人工解释的标准井。每段可采用不同模板，也可保留本段；标准井自身保留人工解释。"),&dialog);note->setWordWrap(true);layout->addWidget(note);

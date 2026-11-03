@@ -26,6 +26,7 @@ struct RemotePredictionRequest {
   // 可选网格输入（行主序 columns×rows；NaN=缺）。远端服务端可离线重取，
   // 本地 ORT 降级必须有它才不造假——空 = 本地降级不可用（如实失败）。
   QVector<float> samples;
+  QVariantMap unitSelection; // immutable scheme/revision/interval/subinterval identity
 };
 struct RemotePredictionResult {
   RemotePredictionRequest request;

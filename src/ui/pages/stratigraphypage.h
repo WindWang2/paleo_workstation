@@ -15,6 +15,7 @@ public:
 protected:
  void showEvent(QShowEvent *event) override;
 private:
+ void setStatus(const QString& message);
  void refresh();
  void refreshPreview();
  void connectPreview(WellComposite::WellCompositePanel *panel, qlonglong well);

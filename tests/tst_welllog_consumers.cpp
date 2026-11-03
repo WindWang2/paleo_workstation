@@ -17,6 +17,7 @@
 #include "services/petrophyscomputeservice.h"
 #include "workflow/propertymodelworkflow.h"
 #include "workflow/sectionworkbench.h"
+#include "sectionalignmentfixtures.h"
 
 using paleo::petrophys::PetroPhysTaskService;
 
@@ -492,6 +493,7 @@ void TestWellLogConsumers::sectionworkbench_showsNonPrimaryCurve()
                        &err),
            qPrintable(err));
 
+  QVERIFY(addSectionTimeDepthFixture(catalog,QStringLiteral("well-U")));
   SectionWorkbench bench(&catalog);
   const std::vector<seismic::SectionWellInfo> wells = bench.sectionWells();
   QCOMPARE(static_cast<int>(wells.size()), 1);
@@ -615,6 +617,7 @@ void TestWellLogConsumers::unifiedFormatsReachMdConsumers()
     QVERIFY(request.wells.empty());
     QVERIFY2(!error.isEmpty(), "Non-MD or unknown units must produce a visible error");
   }
+  QVERIFY(addSectionTimeDepthFixture(catalog,QStringLiteral("W")));
   SectionWorkbench section(&catalog);
   const auto wells = section.sectionWells();
   QCOMPARE(wells.size(), std::size_t(1));

@@ -1,4 +1,6 @@
 // 层：测试壳
+#include "algorithms/inversion/wavelet.h"
+#include "algorithms/inversion/volume.h"
 // goal/seismic-inversion — 反演编排三段式：DERIVED 登记、并行确定性、取消诚实。
 #include <QtTest>
 #include <QFile>

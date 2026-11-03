@@ -1,9 +1,8 @@
 // 层：功能
 #pragma once
 
-#include "../algorithms/inversion/lowfreq.h"
-#include "../algorithms/inversion/volume.h"
-#include "../algorithms/inversion/wavelet.h"
+#include "domain/inversionmodel.h"
+#include <QByteArray>
 #include "derivedassets.h"
 #include "domain/seismic/sectionwellprojector.h"
 
@@ -65,6 +64,7 @@ public:
         QVariantMap spatialEvidence;
     };
 
+    static QByteArray waveletJson(const WaveletJob& job);
     bool prepareWaveletJob(const WaveletJobRequest &req, WaveletJob *job, QString *error = nullptr) const;
     bool computeWaveletJob(WaveletJob *job,
                            const std::function<bool()> &cancelled = {},

@@ -1,4 +1,5 @@
 // 层：功能
+#include "algorithms/inversion/lowfreq.h"
 #include "inversionnative.h"
 #include "services/seismicdataaccess.h"
 #include "services/seismicwelltrace.h"

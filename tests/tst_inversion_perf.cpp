@@ -1,4 +1,5 @@
 // 层：测试壳
+#include "algorithms/inversion/wavelet.h"
 // goal/seismic-inversion — 性能门：263k 级合成体全量带限反演墙钟预算 + 道并行
 // 加速比。RUN_SERIAL（perf 类本机负载敏感）。真工区实测在
 // tst_inversion_realarea（env 门控）。

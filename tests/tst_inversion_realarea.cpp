@@ -1,4 +1,6 @@
 // 层：测试壳
+#include "algorithms/inversion/wavelet.h"
+#include "algorithms/inversion/volume.h"
 // goal/seismic-inversion — 真工区实测（env 门控）：200P_seismic.sgy（263,451 道
 // ×901 样×2ms）全量带限反演，只读契约（目录前后快照逐项相等），墙钟记账不设
 // 硬门（环境差异大，比率行进 ledger/progress）。未设 env 即 QSKIP。

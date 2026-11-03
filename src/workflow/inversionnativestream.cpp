@@ -1,4 +1,8 @@
 // 层：功能
+#include "algorithms/inversion/volume.h"
+#include "algorithms/inversion/bandlimit.h"
+#include "algorithms/inversion/sparse.h"
+#include "algorithms/inversion/lowfreq.h"
 #include "inversionnative.h"
 #include "services/seismicdataaccess.h"
 #include "services/workerexceptionsink.h"

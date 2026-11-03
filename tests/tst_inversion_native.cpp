@@ -1,4 +1,7 @@
 // 层：测试壳
+#include "algorithms/inversion/lowfreq.h"
+#include "algorithms/inversion/wavelet.h"
+#include "algorithms/inversion/volume.h"
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QElapsedTimer>
@@ -132,7 +135,10 @@ private slots:
   req=f.request();req.lowFreqWells[0].trajectory.clear();QVERIFY(!workflow.prepareInversionJob(req,&job,&f.error));
   DataCatalog catalog;QVERIFY(catalog.open(f.project,&f.error));
   req=f.request();req.projectDirectory.clear();req.timeReference.clear();req.lowFreqWells.clear();
-  QVERIFY2(workflow.prepareInversionJob(req,&job,&f.error),qPrintable(f.error));QVERIFY(job.dataServiceSource);QVERIFY(!job.hasLowFreq);
+  paleo::area_model::registerProject(f.project,&catalog);
+  const bool prepared=workflow.prepareInversionJob(req,&job,&f.error);
+  paleo::area_model::unregisterProject(&catalog);
+  QVERIFY2(prepared,qPrintable(f.error));QVERIFY(job.dataServiceSource);QVERIFY(!job.hasLowFreq);
  }
  void streamRejectsIncompleteAndHeaderReadsWithoutBodyAllocation(){
   QTemporaryDir temp;const auto path=temp.filePath("test.iimp");QString error;

@@ -153,7 +153,7 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
         QTemporaryFile waveletFile(
             QDir::temp().filePath(QStringLiteral("paleo-wavelet-XXXXXX.json")));
         waveletFile.setAutoRemove(false); // 面板路径要在本函数返回后仍可读
-        const QByteArray json = paleo::inversion::waveletToJson(job.wavelet);
+        const QByteArray json = paleo::inv::InversionWorkflow::waveletJson(job);
         if (waveletFile.open() && waveletFile.write(json) == json.size() &&
             waveletFile.flush()) {
             waveletPath = waveletFile.fileName();

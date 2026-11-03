@@ -1,4 +1,7 @@
 // 层：功能
+#include "algorithms/inversion/lowfreq.h"
+#include "algorithms/inversion/wavelet.h"
+#include "algorithms/inversion/volume.h"
 #include "inversionworkflow.h"
 #include "inversionnative.h"
 #include "services/seismicdataaccess.h"
@@ -240,6 +243,10 @@ std::vector<float> resampleToGrid(const std::vector<double> &twt, const std::vec
 
 // ---- 子波作业 ----------------------------------------------------------------
 
+QByteArray InversionWorkflow::waveletJson(const WaveletJob& job) {
+    return paleo::inversion::waveletToJson(job.wavelet,QJsonObject::fromVariantMap(job.spatialEvidence));
+}
+
 bool InversionWorkflow::prepareWaveletJob(const WaveletJobRequest &req, WaveletJob *job,
                                           QString *error) const
 {
@@ -296,6 +303,8 @@ bool InversionWorkflow::computeWaveletJob(WaveletJob *job, const std::function<b
         progress(0.1);
 
     if(!job->req.projectDirectory.isEmpty())return computeRegisteredWavelet(job,cancelled,progress);
+    if(double(QFileInfo(job->req.seismicPath).size())>kInversionMaxPeakBytes/3.)
+        return setError(&job->error,QStringLiteral("外部地震文件超过旧读口预算，请先登记到工区 DataService 沿井取样"));
 
     SegyReader reader;
     QString openErr;
@@ -470,6 +479,8 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
     }
     for(const auto& well:req.lowFreqWells)if(well.requireTrajectory)
         return setError(error,QStringLiteral("空间井约束需要工区 DataService 反演"));
+    if(double(QFileInfo(req.seismicPath).size())>kInversionMaxPeakBytes/3.)
+        return setError(error,QStringLiteral("外部地震文件超过旧读口预算，请先登记到工区 DataService 流式反演"));
 
     SegyReader reader;
     QString openErr;

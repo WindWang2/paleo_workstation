@@ -138,13 +138,26 @@ private slots:
   void realProjectContainsDeviatedWellPaths(){
     const auto project=qEnvironmentVariable("PALEO_DEVIATED_REAL_PROJECT");if(project.isEmpty())QSKIP("Optional external project");
     DataCatalog catalog;catalog.setLockedReadOnly(true);QString error;QVERIFY2(catalog.open(project,&error),qPrintable(error));
+    paleo::data::DataService source;std::string detail;QVERIFY(source.openProjectReadOnly(paleo::area_model::directory(project).toStdString(),detail));
     SectionWorkbench bench(&catalog);const auto wells=bench.sectionWells();int deviated=0,positioned=0;bool anchor=false;
     for(const auto &w:wells){
       if(w.trajectory.size()<2)continue;++positioned;double dx=0,dy=0;const auto &first=w.trajectory.front();
       for(const auto &p:w.trajectory){dx=std::max(dx,std::abs(p.x-first.x));dy=std::max(dy,std::abs(p.y-first.y));}
       if(std::hypot(dx,dy)>.5)++deviated;
-      if(w.wellName=="HZ19-1-1A"){anchor=true;QVERIFY(dy>100);QCOMPARE(w.trajectory.size(),size_t(184));
-        const auto &last=w.trajectory.back();QCOMPARE(last.x,303492.91);QVERIFY(std::isfinite(last.twtMs));}
+      if(!anchor&&std::hypot(dx,dy)>.5&&w.trajectorySource.startsWith("time_depth_xyz:")){
+        paleo::data::TimeDepthTable original;const auto id=w.trajectorySource.section(':',1).toLongLong();
+        QVERIFY2(source.readTimeDepth(id,original,detail),detail.c_str());
+        QCOMPARE(w.trajectory.size(),original.depthTimePairs.size());
+        const double time=(original.timeUnit=="s"?1000.:1.)*(original.timeType=="OWT"?2.:1.);
+        for(size_t i=0;i<w.trajectory.size();++i){
+          const auto &p=w.trajectory[i];const auto &raw=original.depthTimePairs[i];
+          if(std::isfinite(raw.timeValue))QVERIFY(std::abs(p.twtMs-(raw.timeValue*time+w.timeShiftMs))<1e-8);
+          if(original.coordinateUnit=="m"&&(original.coordinateSystem.empty()||original.coordinateSystem==source.projectCrs())){
+            if(std::isfinite(raw.x))QCOMPARE(p.x,raw.x);if(std::isfinite(raw.y))QCOMPARE(p.y,raw.y);
+          }
+        }
+        anchor=true;
+      }
     }
     QVERIFY(anchor);QVERIFY(deviated>0);qInfo()<<"native candidate wells"<<wells.size()<<"positioned"<<positioned<<"with horizontal displacement"<<deviated;
   }

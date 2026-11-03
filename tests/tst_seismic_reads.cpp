@@ -11,11 +11,48 @@
 #include "services/seismicdataaccess.h"
 #include "services/seismictaskservice.h"
 #include "services/paleotaskservice.h"
+#include "services/previewdoc.h"
+#include "services/sectiondoc.h"
 #include "io/areamodel.h"
 
 class TestSeismicReads : public QObject {
   Q_OBJECT
 private slots:
+  void previewDeliversAmplitudeBeforeOverlayAndDropsSupersededResults() {
+    QTemporaryDir temp;const auto path=temp.filePath("native.sgy");
+    QVERIFY(SeismicHorizonFixture::writeFile(path,SeismicHorizonFixture::buildVolume()));
+    PaleoTaskService tasks;PreviewDocService service(nullptr);service.setTaskService(&tasks);
+    QStringList events;QVector<PreviewDocService::SectionDoc> images,complete;
+    connect(&service,&PreviewDocService::seismicSectionImageReady,this,[&](const auto&,const auto& doc){
+      events.append("image");images.append(doc);
+    });
+    connect(&service,&PreviewDocService::seismicSectionReady,this,[&](const auto&,const auto& doc){events.append("overlay");complete.append(doc);});
+    service.requestSection("preview",{},path,true,{},true,100);
+    QTRY_COMPARE_WITH_TIMEOUT(complete.size(),1,5000);
+    QCOMPARE(events,QStringList({"image","overlay"}));QCOMPARE(images.size(),1);
+    QCOMPARE(images[0].traces.size(),4);QCOMPARE(images[0].traces[0].samples.size(),50);
+    QCOMPARE(complete[0].traces[0].samples,images[0].traces[0].samples);QVERIFY(complete[0].horizonsOnly);
+    events.clear();images.clear();complete.clear();
+    const auto supersede=connect(&service,&PreviewDocService::seismicSectionImageReady,this,[&](const auto&,const auto& doc){
+      if(doc.lineNo==100)service.requestSection("preview",{},path,true,{},true,101);
+    });
+    service.requestSection("preview",{},path,true,{},true,100);
+    QTRY_COMPARE_WITH_TIMEOUT(complete.size(),1,5000);
+    QCOMPARE(complete[0].lineNo,101);QVERIFY(complete[0].horizonsOnly);
+    QCOMPARE(images.size(),2);QCOMPARE(images[0].lineNo,100);QCOMPARE(images[1].lineNo,101);
+    QCOMPARE(events,QStringList({"image","image","overlay"}));disconnect(supersede);
+    events.clear();images.clear();complete.clear();
+    const auto release=connect(&service,&PreviewDocService::seismicSectionImageReady,this,[&](const auto&,const auto&){service.releaseSection("preview");});
+    service.requestSection("preview",{},path,true,{},true,102);
+    QTRY_COMPARE_WITH_TIMEOUT(images.size(),1,5000);QTest::qWait(50);
+    QVERIFY(complete.isEmpty());disconnect(release);
+    events.clear();images.clear();complete.clear();
+    const auto cancel=connect(&service,&PreviewDocService::seismicSectionImageReady,this,[&](const auto&,const auto&){tasks.tasks().back()->requestCancel();});
+    service.requestSection("preview",{},path,true,{},true,103);
+    QTRY_COMPARE_WITH_TIMEOUT(complete.size(),1,5000);
+    QVERIFY(complete[0].horizonsOnly);QVERIFY(complete[0].horizons.warnings.contains(QString::fromUtf8("地震层位加载已取消")));
+    QCOMPARE(complete[0].traces[0].samples,images[0].traces[0].samples);disconnect(cancel);
+  }
   void lineCachePreservesValuesWindowsAndSourceChanges() {
     QTemporaryDir temp;const auto path=temp.filePath("native.sgy");
     QVERIFY(SeismicHorizonFixture::writeFile(path,SeismicHorizonFixture::buildVolume()));
@@ -121,6 +158,25 @@ private slots:
     clock.restart();const auto repeatedHorizons=source.sectionHorizons(first);
     qInfo()<<"real horizons_repeat_ms"<<clock.elapsed();QCOMPARE(horizons.curves.size(),repeatedHorizons.curves.size());
     QVERIFY(horizons.warnings.isEmpty());
+  }
+  void realPreviewLine() {
+    const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
+    if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
+    const auto project=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PROJECT");
+    struct Binding {~Binding(){paleo::area_model::unregisterProject(this);}}binding;
+    if(!project.isEmpty())paleo::area_model::registerProject(project,&binding);
+    PaleoTaskService tasks;PreviewDocService service(nullptr);service.setTaskService(&tasks);
+    QElapsedTimer clock;clock.start();qint64 imageMs=-1,overlayMs=-1;int columns=0,samples=0,curves=0;QStringList warnings;bool overlayOnly=false;
+    connect(&service,&PreviewDocService::seismicSectionImageReady,this,[&](const auto&,const auto& doc){
+      imageMs=clock.elapsed();columns=int(doc.traces.size());samples=doc.traces.empty()?0:int(doc.traces[0].samples.size());
+    });
+    connect(&service,&PreviewDocService::seismicSectionReady,this,[&](const auto&,const auto& doc){
+      overlayMs=clock.elapsed();curves=int(doc.horizons.curves.size());warnings=doc.horizons.warnings;overlayOnly=doc.horizonsOnly;
+    });
+    const int line=qEnvironmentVariableIntValue("PALEO_SEISMIC_READ_BENCH_LINE");
+    service.requestSection("real-preview",{},path,true,{},true,line);
+    QTRY_VERIFY_WITH_TIMEOUT(overlayMs>=0,30000);QVERIFY(imageMs>=0&&overlayMs>=imageMs);QVERIFY(overlayOnly);QVERIFY(warnings.isEmpty());
+    qInfo()<<"real preview line"<<line<<columns<<"x"<<samples<<"amplitude_delivery_ms"<<imageMs<<"overlay_delivery_ms"<<overlayMs<<"curves"<<curves;
   }
 };
 QTEST_GUILESS_MAIN(TestSeismicReads)

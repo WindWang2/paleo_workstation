@@ -321,6 +321,8 @@ void DataPreviewTabs::attachDoc(PreviewDocService *doc)
   // 测线解码结果（D1/T23）：陈旧结果已在服务内按世代号丢弃。
   connect(m_doc, &PreviewDocService::seismicSectionReady, this,
           &DataPreviewTabs::onSectionReady);
+  connect(m_doc, &PreviewDocService::seismicSectionImageReady, this,
+          &DataPreviewTabs::onSectionReady);
   connect(m_doc, &PreviewDocService::seismicSectionFailed, this,
           &DataPreviewTabs::onSectionFailed);
   connect(m_doc, &PreviewDocService::seismicSectionCancelled, this,
@@ -737,7 +739,7 @@ void DataPreviewTabs::onSectionReady(const QString &assetId,
     return;
   // SectionPanel 是本 cpp 内聚的预览控件——挂起时存的是它。
   auto *sp = static_cast<SectionPanel *>(pend.panel.data());
-  sp->setTraces(doc.traces, doc.sampleIntervalUs, doc.startTimeMs, doc.readReport.message);
+  if(!doc.horizonsOnly)sp->setTraces(doc.traces, doc.sampleIntervalUs, doc.startTimeMs, doc.readReport.message);
   sp->setHorizons(doc.horizons);
   if (pend.hasTie)
     sp->setTieMarker(pend.tieText, pend.tieMs);

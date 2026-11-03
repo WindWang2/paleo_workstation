@@ -24,6 +24,7 @@ struct PreviewDocService::SectionDoc
   bool isInline = true;
   int lineNo = -1;
   seismic::SectionHorizons horizons;
+  bool horizonsOnly = false; // Complete amplitude was already delivered for this generation.
 };
 
 Q_DECLARE_METATYPE(PreviewDocService::SectionDoc)

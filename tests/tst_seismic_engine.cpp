@@ -933,6 +933,58 @@ private slots:
     }
   }
 
+  void realSf3pGenerationAndRead()
+  {
+    const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
+    if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
+    if(qEnvironmentVariable("PALEO_SEISMIC_WRITE_SF3P")!=QStringLiteral("1"))QSKIP("Explicit opt-in required for external sf3p generation");
+    const QString sf3p=path+QStringLiteral(".sf3p");PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);
+    seismic::SeismicNativeInfo info;bool infoDone=false;
+    service.startDataInfo(path,[&](bool ok,const auto& value,const auto&){infoDone=ok;info=value;});
+    QTRY_VERIFY_WITH_TIMEOUT(infoDone,30000);
+    const int requested=qEnvironmentVariableIntValue("PALEO_SEISMIC_READ_BENCH_SAMPLE");
+    const int sample=requested?requested:info.sampleCount/2;QVERIFY(sample>=0&&sample<info.sampleCount);
+    bool transcodeDone=false,transcodeOk=false;QString transcodeError;
+    const auto probe=service.probePagedWorkspace(sf3p);
+    if(probe.complete){transcodeDone=true;transcodeOk=true;}
+    else {
+      int reported=0;auto* task=service.startPagedTranscodeDetailed(path,sf3p,true,[&](bool ok,const auto&,const auto& error){transcodeDone=true;transcodeOk=ok;transcodeError=error;},
+        [](const seismic::SeismicTranscodeReport& report){qInfo()<<report.summaryLine();});
+      QVERIFY(task);connect(task,&PaleoTask::changed,this,[&]{const int percent=task->percent();if(percent>=reported+10){reported=percent;qInfo()<<"real sf3p transcode percent"<<percent;}});
+    }
+    QTRY_VERIFY_WITH_TIMEOUT(transcodeDone,86400000);QVERIFY2(transcodeOk,qPrintable(transcodeError));
+    std::vector<seismic::SeismicTimeTile> tiles;bool done=false,readOk=false;QString readError;std::shared_ptr<const seismic::SgySliceImage> full;
+    QElapsedTimer clock;clock.start();qint64 firstMs=-1,fullMs=-1;
+    connect(&service,&seismic::SeismicTaskService::timeSliceTileReady,this,[&](const auto& tile){if(firstMs<0){firstMs=clock.elapsed();qInfo()<<"real sf3p first tile ms"<<firstMs;}tiles.push_back(tile);});
+    service.startTimeSliceTiled(sf3p,sample,128,(info.inlineMin+info.inlineMax)/2,(info.xlineMin+info.xlineMax)/2,
+      [&](bool ok,auto image,const auto& error){readOk=ok;full=image;readError=error;fullMs=clock.elapsed();done=true;},77);
+    QTRY_VERIFY_WITH_TIMEOUT(done,1800000);QVERIFY2(readOk,qPrintable(readError));QVERIFY(full);QVERIFY(firstMs>=0&&!tiles.empty());
+    QCOMPARE(full->width,info.xlineCount);QCOMPARE(full->height,info.inlineCount);
+    for(const auto& tile:tiles)QCOMPARE(tile.generation,quint64(77));
+    qInfo()<<"real sf3p read"<<sample<<full->width<<"x"<<full->height<<"first_tile_ms"<<firstMs<<"full_ms"<<fullMs<<"tiles"<<tiles.size()<<"l0_bytes"<<QFileInfo(sf3p).size();
+  }
+
+  void realSf3pFirstTile()
+  {
+    const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
+    if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
+    const QString sf3p=path+QStringLiteral(".sf3p");
+    if(!QFile::exists(sf3p))QSKIP("Existing external sf3p workspace required");
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);seismic::SeismicNativeInfo info;bool infoDone=false;
+    service.startDataInfo(path,[&](bool ok,const auto& value,const auto&){infoDone=ok;info=value;});QTRY_VERIFY_WITH_TIMEOUT(infoDone,30000);
+    const int requested=qEnvironmentVariableIntValue("PALEO_SEISMIC_READ_BENCH_SAMPLE");
+    const int sample=requested?requested:info.sampleCount/2;QVERIFY(sample>=0&&sample<info.sampleCount);
+    QElapsedTimer clock;clock.start();qint64 firstMs=-1;int tileCount=0;bool done=false,readOk=false;QString readError;
+    std::shared_ptr<const seismic::SgySliceImage> full;QPointer<PaleoTask> task;
+    connect(&service,&seismic::SeismicTaskService::timeSliceTileReady,this,[&](const auto& tile){
+      ++tileCount;if(firstMs<0){firstMs=clock.elapsed();if(task)task->requestCancel();}
+      QCOMPARE(tile.generation,quint64(88));QVERIFY(tile.image);});
+    task=service.startTimeSliceTiled(sf3p,sample,128,(info.inlineMin+info.inlineMax)/2,(info.xlineMin+info.xlineMax)/2,
+      [&](bool ok,auto image,const auto& error){readOk=ok;full=image;readError=error;done=true;},88);
+    QTRY_VERIFY_WITH_TIMEOUT(done,300000);QVERIFY(firstMs>=0);QVERIFY(!readOk);QVERIFY(!full);
+    qInfo()<<"real sf3p first tile"<<sample<<firstMs<<"tiles_before_cancel"<<tileCount<<"partial_final"<<bool(full);
+  }
+
   // ---- 时间切片网格尺寸溢出回归：inline×xline 由文件内容决定，int*int 曾回绕成 0 后越界写 ----
   void timeSliceGridOverflowRejected()
   {

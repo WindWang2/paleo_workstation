@@ -67,6 +67,8 @@
 #include "io/areamodel.h"
 #include "services/analysisunitcontext.h"
 #include "workflow/analysisresultsync.h"
+#include "algorithms/singlefactor/curvesandratio.h"
+#include "services/sandratiofromlogs.h"
 #include <paleo_data/service.h>
 
 #include <QCoreApplication>
@@ -368,6 +370,75 @@ class TestFactorWorkflow : public QObject
     }
 
   private slots:
+    void grSandRatioWeightsDepthAndPreservesGaps() {
+      using namespace paleo::singlefactor;
+      GrSandOptions options;options.sandGr=20;options.shaleGr=80;options.maxGapMetres=20;
+      const auto uniform=estimateGrSandRatio({100,110,120,130,140},{20,20,80,80,80},100,140,options);
+      QVERIFY(uniform.ok);QCOMPARE(uniform.ratio,.375);QCOMPARE(uniform.coverage,1.);
+      const auto irregular=estimateGrSandRatio({100,101,110,120,140},{20,20,20,80,80},100,140,options);
+      QVERIFY(irregular.ok);QCOMPARE(irregular.ratio,.375); // 按厚度而非砂样点数。
+      const auto gap=estimateGrSandRatio({100,110,120,130,140},{20,20,qQNaN(),80,80},100,140,options);
+      QVERIFY(gap.ok);QCOMPARE(gap.coveredMetres,20.);QCOMPARE(gap.ratio,.5);QCOMPARE(gap.coverage,.5);
+      const auto clipped=estimateGrSandRatio({100,110,120},{20,20,80},105,115,options);
+      QVERIFY(clipped.ok);QCOMPARE(clipped.ratio,1.);QCOMPARE(clipped.coverage,1.);
+      const auto reverse=estimateGrSandRatio({140,130,120,110,100},{80,80,80,20,20},100,140,options);
+      QCOMPARE(reverse.ratio,uniform.ratio);
+      const auto edge=estimateGrSandRatio({100,110},{20,20},90,120,options);
+      QVERIFY(edge.ok);QCOMPARE(edge.coveredMetres,10.);QCOMPARE(edge.coverage,1./3.);
+      QVERIFY(!estimateGrSandRatio({100,100,120},{20,80,20},100,120,options).ok);
+      QVERIFY(!estimateGrSandRatio({100,120,110},{20,80,20},100,120,options).ok);
+      QVERIFY(!estimateGrSandRatio({100,110,qQNaN(),100,110},{20,80,20,20,80},100,110,options).ok);
+      QVERIFY(!estimateGrSandRatio({100,110},{qQNaN(),-999.25},100,110,options).ok);
+      QVERIFY(!estimateGrSandRatio({100,110},{40,40},100,110).ok); // 不猜常值 GR 的砂泥基线。
+    }
+    void grFallbackReadsAllGroupsAndKeepsUnlocatedWellValues() {
+      Fixture f;QVERIFY(initFixture(f));QString error;std::string detail;paleo::data::DataService ds;
+      const auto root=paleo::area_model::directory(f.dir.path());
+      QVERIFY2(QFileInfo::exists(root+"/data.sqlite")?ds.openProject(root.toStdString(),detail):ds.createProject(root.toStdString(),"test",detail),detail.c_str());
+      const auto raw=f.dir.filePath("gr-source.txt");QFile file(raw);QVERIFY(file.open(QIODevice::WriteOnly));file.write("gr");file.close();
+      paleo::data::ParsedFile parsed;parsed.path=raw.toStdString();parsed.kind="test";parsed.status="parsed";
+      for(int i=0;i<3;++i){
+        paleo::data::WellDataset well;well.wellInfo.wellName="GR-"+std::to_string(i);
+        if(i<2){well.wellInfo.wellheadX=300000+i*1000;well.wellInfo.wellheadY=2350000+i*1000;}
+        well.defaultDepthInfo.depthType="MD";well.defaultDepthInfo.depthUnit="m";
+        paleo::data::LogSet outside;outside.logSetName="long-outside";outside.depthInfo=well.defaultDepthInfo;
+        paleo::data::LogCurve curve;curve.curveName="GR";curve.curveUnit="API";
+        for(int j=0;j<100;++j){outside.samplingAxis.depthValues.push_back(j);curve.sampleValues.push_back(20+j);}
+        outside.logCurves.push_back(curve);well.wellbore.logSets.push_back(outside);
+        paleo::data::LogSet inside;inside.logSetName="inside";inside.depthInfo=well.defaultDepthInfo;
+        inside.samplingAxis.depthValues={100,110,120,130,140};curve.curveName="NGR";curve.sampleValues={20,20,80,80,80};inside.logCurves.push_back(curve);well.wellbore.logSets.push_back(inside);
+        if(i==1){paleo::data::IntervalTrack track;track.trackName="岩性";track.trackType="岩性";track.depthInfo=well.defaultDepthInfo;
+          paleo::data::GeologicalInterval interval;interval.topDepth=100;interval.bottomDepth=260;interval.intervalName="泥岩";track.intervals.push_back(interval);well.wellbore.intervalTracks.push_back(track);}
+        parsed.wells.push_back(well);
+      }
+      long long source=0;QVERIFY2(ds.importPreparedFile(raw.toStdString(),raw.toStdString(),raw.toStdString(),QCryptographicHash::hash("gr",QCryptographicHash::Sha256).toHex().toStdString(),parsed,source,detail),detail.c_str());
+      std::vector<paleo::data::WellSummary> wells;QVERIFY(ds.listWells(wells,detail));QCOMPARE(wells.size(),size_t(3));
+      paleo::strat::WellTopTable tops;
+      for(const auto &native:wells){CatalogEntity entity;entity.id=QString::fromStdString(native.name);entity.name=entity.id;entity.entityType="well";
+        entity.extra.insert("areaModelWellId",native.id);entity.hasSurface=entity.id!="GR-2";entity.coordinateStatus=entity.hasSurface?"untransformed":"missing";
+        entity.surfaceX=entity.id=="GR-0"?300000:301000;entity.surfaceY=entity.id=="GR-0"?2350000:2351000;QVERIFY(f.catalog.addEntity(entity,&error));tops.insert(native.id,{{"TOP",100},{"BASE",260}});}
+      auto draft=paleo::strat::draftScheme("scheme","scheme",{"TOP","BASE"},tops);paleo::data::StratigraphicScheme scheme;std::vector<paleo::data::FrameworkIssue> issues;
+      QVERIFY2(ds.commitStratigraphicScheme(draft,{},scheme,issues,detail),detail.c_str());ds.closeProject();QVERIFY(QFile::remove(raw));
+      const auto unit=paleo::strat::makeSelection(scheme,QString::fromStdString(scheme.intervals.front().id.value),1);
+      ConstraintWorkflow workflow(&f.proc,&f.layers);workflow.setCatalog(&f.catalog,f.dir.path());
+      const QVariantMap params{{"factorMode","auto"},{"unitSelection",paleo::strat::toMap(unit)},{"grSandBaseline",20.},{"grShaleBaseline",80.}};
+      QVERIFY2(workflow.extractWellFactors("TOP","sandratio",params,&error),qPrintable(error));int mapped=0,calculated=0;
+      for(const auto &v:workflow.wellFactorRows()){const auto row=v.toMap();mapped+=row.value("contributing").toBool();calculated+=row.value("calculated").toBool();
+        QCOMPARE(row.value("value").toDouble(),row.value("well_name")=="GR-1"?0.:.375);
+        if(row.value("well_name")!="GR-1"){QVERIFY(row.value("estimated").toBool());QCOMPARE(row.value("coverage").toDouble(),1.);QVERIFY(row.value("grLogSetId").toLongLong()>0);}}
+      QCOMPARE(mapped,2);QCOMPARE(calculated,3);
+      QVERIFY(ds.openProjectReadOnly(root.toStdString(),detail));std::vector<paleo::data::SubIntervalResultBinding> bindings;
+      QVERIFY(ds.listSubIntervalResults(unit.schemeId.toStdString(),{unit.subIntervalId.toStdString()},bindings,detail));
+      QCOMPARE(std::count_if(bindings.begin(),bindings.end(),[](const auto &b){return b.kind=="single_factor";}),3);
+      for(const auto &binding:bindings)if(binding.kind=="single_factor"){
+        const auto payload=QJsonDocument::fromJson(QByteArray::fromStdString(binding.detailJson)).object();
+        QVERIFY(payload.value("acquisition").toObject().contains("valueMethod"));
+      }
+      const auto boundaryId=workflow.ensureProjectBoundary(&error);QVERIFY2(!boundaryId.isEmpty(),qPrintable(error));
+      auto *boundary=qobject_cast<QgsVectorLayer *>(f.layers.layer(boundaryId));QVERIFY(boundary);QCOMPARE(boundary->featureCount(),qint64(1));
+      QCOMPARE(boundary->extent(),QgsRectangle(300000,2350000,301000,2351000));
+      const auto versions=f.catalog.versions().size();QCOMPARE(workflow.ensureProjectBoundary(&error),boundaryId);QCOMPARE(f.catalog.versions().size(),versions);
+    }
     void realProjectSandRatioExtractionToRaster() {
       const auto project=qEnvironmentVariable("PALEO_SINGLEFACTOR_ACCEPTANCE_PROJECT");
       if(project.isEmpty()||qEnvironmentVariable("PALEO_SINGLEFACTOR_ACCEPTANCE_WRITE")!="1")
@@ -377,6 +448,8 @@ class TestFactorWorkflow : public QObject
       PaleoProjectStore store;LayerManifest manifest(project+"/factor-acceptance.sqlite");QVERIFY(manifest.open());
       QgisLayerService layers(&projectSvc,&manifest);QgisProcessingService processing(&store);
       ConstraintWorkflow workflow(&processing,&layers);workflow.setCatalog(&catalog,project);
+      const bool structural=qEnvironmentVariable("PALEO_SINGLEFACTOR_ACCEPTANCE_METHOD")=="structural_idw";
+      if(structural)QVERIFY2(!workflow.ensureProjectBoundary(&error).isEmpty(),qPrintable(error));
       paleo::data::DataService ds;std::string detail;
       QVERIFY2(ds.openProjectReadOnly(paleo::area_model::directory(project).toStdString(),detail),detail.c_str());
       paleo::data::StratigraphicScheme scheme;QVERIFY(ds.readStratigraphicScheme("default",{},scheme,detail));const auto projectCrs=QString::fromStdString(ds.projectCrs());ds.closeProject();
@@ -387,20 +460,24 @@ class TestFactorWorkflow : public QObject
         for(const auto &interval:scheme.intervals){auto candidate=paleo::strat::makeSelection(scheme,QString::fromStdString(interval.id.value),1);if(candidate.topBoundary==top)unit=candidate;}
         QVERIFY2(unit.isValid(),qPrintable(top));const auto key=paleo::strat::analysisLayerKey(unit);
         QVariantMap params{{"factorMode","auto"},{"unitSelection",paleo::strat::toMap(unit)},
-                           {"analysisLayerKey",key},{"constraintHorizon",top},{"cellSize",250.},{"method","idw"}};
+                           {"analysisLayerKey",key},{"constraintHorizon",top},{"cellSize",250.},{"method",structural?"structural_idw":"idw"}};
+        if(structural){params.insert("boundaryLayerId","boundary.project_range");params.insert("extendToBoundary",true);params.insert("gridResolution",96);}
         QString points;QVERIFY2(workflow.extractWellFactors(top,"sandratio",params,&error,&points),qPrintable(error));
         const auto rows=workflow.wellFactorRows();QJsonObject skipped;int valid=0;
         for(const auto &v:rows){const auto row=v.toMap();if(row.value("contributing").toBool()){
           ++valid;const double ratio=row.value("value").toDouble();QVERIFY(std::isfinite(ratio)&&ratio>=0&&ratio<=1);
           QVERIFY(row.value("windowBottomMd").toDouble()>row.value("windowTopMd").toDouble());
         }else{const auto reason=row.value("reason").toString();QVERIFY(!reason.isEmpty());skipped[reason]=skipped[reason].toInt()+1;}}
-        qInfo()<<unit.displayName<<"wells"<<rows.size()<<"valid"<<valid<<"excluded"<<skipped;
+        const auto calculated=std::count_if(rows.begin(),rows.end(),[](const auto &r){return r.toMap().value("calculated").toBool();});
+        const auto estimated=std::count_if(rows.begin(),rows.end(),[](const auto &r){return r.toMap().value("estimated").toBool();});
+        qInfo()<<unit.displayName<<"wells"<<rows.size()<<"valid"<<valid<<"calculated"<<calculated<<"GR estimates"<<estimated<<"excluded"<<skipped;
         QVERIFY(valid>=3);auto *samples=qobject_cast<QgsVectorLayer *>(layers.instantiate(points,&error));QVERIFY2(samples,qPrintable(error));
         QCOMPARE(samples->featureCount(),qint64(valid));QCOMPARE(samples->crs().authid(),projectCrs);
         const auto input=workflow.preparedWellFactorVersion(top,"sandratio",params);QVERIFY(!input.isEmpty());
         QVERIFY2(workflow.generateFactor(key,"sandratio",params,&error),qPrintable(error));
         const auto output=QString("factor.%1.sandratio").arg(key);auto *raster=qobject_cast<QgsRasterLayer *>(layers.instantiate(output,&error));QVERIFY2(raster,qPrintable(error));
         QVERIFY(raster->isValid());QCOMPARE(raster->crs(),samples->crs());
+        if(structural){auto *boundary=layers.layer("boundary.project_range");QVERIFY(boundary);QVERIFY(raster->extent().contains(boundary->extent()));}
         const auto file=QFile::encodeName(raster->source());auto dataset=GDALOpen(file.constData(),GA_ReadOnly);QVERIFY(dataset);
         const int count=GDALGetRasterXSize(dataset)*GDALGetRasterYSize(dataset);std::vector<float> values(size_t(count),0.f);
         const auto band=GDALGetRasterBand(dataset,1);QCOMPARE(GDALRasterIO(band,GF_Read,0,0,GDALGetRasterXSize(dataset),GDALGetRasterYSize(dataset),values.data(),GDALGetRasterXSize(dataset),GDALGetRasterYSize(dataset),GDT_Float32,0,0),CE_None);
@@ -418,7 +495,7 @@ class TestFactorWorkflow : public QObject
         QVERIFY2(restored.restoreWellFactors(top,"sandratio",params,&error),qPrintable(error));QCOMPARE(restored.preparedWellFactorVersion(top,"sandratio",params),input);
         QgsMapSettings map;map.setLayers({samples,contours,raster});map.setDestinationCrs(raster->crs());map.setExtent(raster->extent());map.setOutputSize(QSize(1200,900));
         QgsMapRendererParallelJob render(map);render.start();render.waitForFinished();QVERIFY(render.renderedImage().save(project+"/"+top+"-sandratio.png"));
-        summary.append(QJsonObject{{"unit",unit.displayName},{"rows",rows.size()},{"valid",valid},{"cells",finite},{"contours",double(contours->featureCount())},{"skipped",skipped}});
+        summary.append(QJsonObject{{"unit",unit.displayName},{"rows",rows.size()},{"wellRows",QJsonArray::fromVariantList(rows)},{"valid",valid},{"calculated",double(calculated)},{"estimated",double(estimated)},{"cells",finite},{"contours",double(contours->featureCount())},{"skipped",skipped}});
       }
       QFile report(project+"/sandratio-acceptance.json");QVERIFY(report.open(QIODevice::WriteOnly));report.write(QJsonDocument(summary).toJson());
     }

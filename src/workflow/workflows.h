@@ -211,6 +211,8 @@ class ConstraintWorkflow : public QObject
     void setThicknessSamples(const QVariantList &rows, const QString &message);
     QVariantList thicknessSampleRows() const { return m_thicknessRows; }
     QString thicknessSampleMessage() const { return m_thicknessMessage; }
+    // DataService 井口与地震并集矩形；独立版本，不以参与井点包络代替工区。
+    QString ensureProjectBoundary(QString *error = nullptr);
 
     // L-01：约束快照路径的 typed 镜像，替代 paleo.constraint.snapshot.*
     // 动态属性暗道（ARCH-02/06 家族）。MappingWorkbench 产出/还原快照时

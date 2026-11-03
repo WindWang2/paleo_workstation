@@ -57,11 +57,11 @@ struct BindResult
 
 // 将砂地比单因素绑定写入 Data Service（kind=single_factor）。
 BindResult bindSandRatioFactor( paleo::data::DataService &ds, const UnitSelection &sel, qlonglong wellId,
-                                const SandRatioMetrics &metrics, const QString &assetRef = {} );
+                                const SandRatioMetrics &metrics, const QString &assetRef = {},const QVariantMap &acquisition = {} );
 
 // 将井相分类绑定写入 DS（kind=well_facies）；detail 含砂地比与分类码。
 BindResult bindWellFaciesFromSandRatio( paleo::data::DataService &ds, const UnitSelection &sel, qlonglong wellId,
-                                        const SandRatioMetrics &metrics, const QString &assetRef = {} );
+                                        const SandRatioMetrics &metrics, const QString &assetRef = {},const QVariantMap &acquisition = {} );
 
 // 地震相绑定：scope=slice|interval；interval 必须带 coverage/strategy，禁止切片冒充整段。
 BindResult bindSeismicFaciesResult( paleo::data::DataService &ds, const UnitSelection &sel,

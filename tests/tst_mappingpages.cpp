@@ -1019,6 +1019,9 @@ void FactorPageTests::generateFactorPayload()
   horizons->setCurrentIndex( 0 );
   field->setText( QStringLiteral( "sand_thick" ) );
   cell->setValue( 2.5 );
+  auto *method=page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
+  QCOMPARE(method->currentData().toString(),QStringLiteral("structural_idw"));
+  method->setCurrentIndex(method->findData(QStringLiteral("surfer_idw"))); // 独立载荷测试没有工区边界。
 
   factors->item(0, 0)->setCheckState(Qt::Unchecked);
   // 未勾选 → 生成按钮禁用，点击无信号。
@@ -1211,8 +1214,8 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   auto *save = page.findChild<QPushButton *>( QStringLiteral( "constraintParamSaveButton" ) );
   auto *source = page.findChild<QLabel *>( QStringLiteral( "factorContourSourceLabel" ) );
   QVERIFY( method && coverage && power && advanced && cancel && save && source );
-  QCOMPARE( method->currentData().toString(), QStringLiteral( "surfer_idw" ) );
-  QCOMPARE( coverage->currentData().toString(), QStringLiteral( "well_supported" ) );
+  QCOMPARE( method->currentData().toString(), QStringLiteral( "structural_idw" ) );
+  QCOMPARE( coverage->currentData().toString(), QStringLiteral( "domain_extrapolation" ) );
   QCOMPARE( power->value(), 2.0 );
   QVERIFY( power->toolTip().contains( QStringLiteral( "0.5" ) ) );
   QCOMPARE( power->font().family(), PaleoTheme::monoFont().family() );
@@ -1228,12 +1231,13 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   horizons->addItem( QStringLiteral( "T1" ) );
   horizons->setCurrentIndex( 0 );
   factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  method->setCurrentIndex(method->findData(QStringLiteral("surfer_idw"))); // 无边界夹具显式使用全局 IDW。
   QSignalSpy generated( &page, &ConstraintPage::generateFactorRequested );
   page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
   QCOMPARE( generated.count(), 1 );
   const QVariantMap local = generated.at( 0 ).at( 2 ).toMap();
   QCOMPARE( local.value( QStringLiteral( "method" ) ).toString(), QStringLiteral( "surfer_idw" ) );
-  QCOMPARE( local.value( QStringLiteral( "coverage" ) ).toString(), QStringLiteral( "well_supported" ) );
+  QCOMPARE( local.value( QStringLiteral( "coverage" ) ).toString(), QStringLiteral( "domain_extrapolation" ) );
   QCOMPARE( local.value( QStringLiteral( "power" ) ).toDouble(), 2.0 );
   QCOMPARE( local.value( QStringLiteral( "wellClusterLocality" ) ).toBool(), false );
   method->setCurrentIndex( method->findData( QStringLiteral( "legacy" ) ) );
@@ -1314,10 +1318,10 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
     QVERIFY2( index >= 0, qPrintable( QStringLiteral( "词表策略 %1 未出现在下拉" ).arg( pack.id ) ) );
     QCOMPARE( method->itemText( index ), pack.label );
   }
-  QCOMPARE( method->currentData().toString(), QStringLiteral( "surfer_idw" ) );
+  QCOMPARE( method->currentData().toString(), QStringLiteral( "structural_idw" ) );
   // 默认项参数预览 = 词表 geologicalNote。
   const paleo::singlefactor::SurfaceMethodPack *defaultPack =
-      paleo::singlefactor::surfaceMethodPack( QStringLiteral( "surfer_idw" ) );
+      paleo::singlefactor::surfaceMethodPack( QStringLiteral( "structural_idw" ) );
   QVERIFY( defaultPack );
   QCOMPARE( note->text(), defaultPack->geologicalNote );
 
@@ -1663,10 +1667,14 @@ void FactorPageTests::geologicalAutoModeAndTaskRecommendation()
   auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
   QVERIFY(mode && extract && geo && fields && task && method);
   QCOMPARE(mode->currentData().toString(), QStringLiteral("auto"));
-  QVERIFY(geo->text().contains(QStringLiteral("解释砂厚")));
+  QVERIFY(geo->text().contains(QStringLiteral("岩性解释")));
+  QVERIFY(geo->text().contains(QStringLiteral("GR")));
   QVERIFY(geo->text().contains(QStringLiteral("[0, 1]")));
   QVERIFY(!fields->isVisibleTo(&page));
   QVERIFY(extract->isEnabled());
+  auto *cutoff=page.findChild<QDoubleSpinBox *>(QStringLiteral("grShaleCutoffSpin"));QVERIFY(cutoff);cutoff->setValue(.3);
+  QSignalSpy grRequest(&page,&ConstraintPage::extractWellFactorsRequested);extract->click();QCOMPARE(grRequest.count(),1);
+  QCOMPARE(grRequest.front().at(2).toMap().value("grShaleCutoff").toDouble(),.3);
   mode->setCurrentIndex(mode->findData(QStringLiteral("direct")));
   QVERIFY(fields->isVisibleTo(&page));
   // 任务导向：地统计估计 → 克里金（真实算法 id）
@@ -1695,7 +1703,7 @@ void FactorPageTests::horizonAndFactorSwitchDoNotLeakState()
   h->setCurrentIndex(h->findText(QStringLiteral("D62")));
   QCOMPARE(wells->rowCount(), 0);
   QVERIFY(!hint->text().contains(QStringLiteral("旧层位结果")));
-  QVERIFY(geo->text().contains(QStringLiteral("解释砂厚")));
+  QVERIFY(geo->text().contains(QStringLiteral("岩性解释")));
   // 手动改成 direct 后换因素：回到该因素的推荐口径，地质说明跟随新因素。
   mode->setCurrentIndex(mode->findData(QStringLiteral("direct")));
   wells->setRowCount(2);

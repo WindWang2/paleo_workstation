@@ -121,6 +121,7 @@ class ConstraintPage : public QWidget
     // cellCaption 经构建段返回值 → 参数传递。
     void buildWellFactorSection(QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
                                 QTableWidget *factors);
+    void buildGrSandSection(QWidget *content,QVBoxLayout *lay);
     QLabel *buildFieldAndCellRows(QVBoxLayout *lay); // 返回 cellCaption（约束族段移动用）
     void buildMethodSection(QWidget *content, QVBoxLayout *lay);
     void buildBoundaryRows(QWidget *content, QVBoxLayout *lay);

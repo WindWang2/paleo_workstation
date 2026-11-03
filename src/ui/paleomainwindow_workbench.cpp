@@ -649,8 +649,11 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
           QgisLayerProfileService::pageThemeName(currentPage()));
     // 创建编辑副本或保存版本后的上图保持当前视图；
     // 主动显示图件和新生成成果仍缩放定位。
-    if (!workbench->consumeSuppressedProductZoom())
-      m_canvasCtl->zoomToLayer(id);
+    if (!workbench->consumeSuppressedProductZoom()) {
+      const QString area=QStringLiteral("boundary.project_range");
+      const bool factor=d.group==QLatin1String("04_SingleFactor")||d.group.startsWith(QLatin1String("04_SingleFactor/"));
+      m_canvasCtl->zoomToLayer(factor&&m_layerSvc&&m_layerSvc->layer(area)?area:id);
+    }
     canvas->freeze(wasFrozen);
     if (!wasFrozen) canvas->refresh();
     legend(id);

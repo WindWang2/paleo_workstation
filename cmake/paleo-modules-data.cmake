@@ -51,6 +51,7 @@ add_library(paleo_algorithms STATIC
   src/algorithms/singlefactor/regionalcontours.cpp
   src/algorithms/singlefactor/contouravoidance.cpp
   src/algorithms/singlefactor/wellacquisition.cpp    # 上游 _extract_current_wells 移植
+  src/algorithms/singlefactor/curvesandratio.cpp
   src/algorithms/singlefactor/structural.cpp         # 上游 structural_idw 面核（GEOS C API）
   src/algorithms/singlefactor/constraintparse.cpp    # 约束线 params_json 共享解析
   src/algorithms/singlefactor/structuralalgorithm.cpp
@@ -196,6 +197,7 @@ add_library(paleo_services STATIC
   src/services/previewdoc_survey.cpp                # 工区三视图平面范围（取景用）
   src/services/previewdoc_xml.cpp
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
+  src/services/sandratiofromlogs.cpp
   src/services/faciesdisplaysettings.cpp
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/algorithmspec.cpp                    # algo-atom P0：AlgorithmSpec 静态契约表

@@ -33,4 +33,6 @@ QString attribution(QgsMapCanvas *canvas);
 QgsCoordinateReferenceSystem confirmedSurveyCrs(QgsProject *project);
 QgsVectorLayer *areaRangeLayer(const QgsRectangle &extent,const QgsCoordinateReferenceSystem &crs,
                               const QString &name,const QColor &stroke,QObject *owner);
+bool writeAreaRange(const QString &path,const QgsRectangle &extent,
+                    const QgsCoordinateReferenceSystem &crs,QString *error);
 }

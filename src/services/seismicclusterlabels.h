@@ -6,6 +6,7 @@ struct SeismicClusterWell {
   QString id, versionId;
   double x = 0, y = 0; // already transformed to the output grid CRS
   int code = 0;
+  QString coordinateSource;
 };
 
 // One vote per well. Ties choose the lowest code; unobserved clusters use a

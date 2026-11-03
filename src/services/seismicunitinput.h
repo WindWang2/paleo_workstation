@@ -7,6 +7,11 @@ namespace paleo::data {struct SeismicHorizonWindowResult;}
 #include <functional>
 
 namespace paleo::strat {
+struct SeismicAnalysisSource {
+  UnitSelection unit;
+  QString crs,sourcePath;
+  qlonglong volumeId=0;
+};
 struct SeismicUnitInput {
   UnitSelection unit;
   QVector<float> samples; // native layer-window RMS; NaN is outside coverage
@@ -16,7 +21,7 @@ struct SeismicUnitInput {
 };
 bool readSeismicAnalysisWindow(const QString &project,const UnitSelection &unit,const QString &source,
     paleo::data::SeismicHorizonWindowResult &out,QString *error=nullptr,
-    const std::function<bool()> &cancelled={});
+    const std::function<bool()> &cancelled={},SeismicAnalysisSource *sourceInfo=nullptr);
 SeismicUnitInput prepareSeismicUnitInput(const QString &project,const UnitSelection &unit,const QString &source,
     const std::function<bool()> &cancelled={});
 }

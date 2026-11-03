@@ -16878,12 +16878,12 @@ Crossline: %3 ~ %4</source>
         </message>
         <message>
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="109" />
-            <source>Mock：先保存本层位测井相预测；沿层位提取 ±12 ms 地震反射窗聚类，按簇内测井相多数票定类，无井簇仅从测井已有类别中随机选择。解释需地质复核。</source>
+            <source>Mock：先保存当前层段测井相预测；从所选地震体读取当前 S1–S4 顶底界内的反射特征聚类，按簇内测井相多数票定类，无井簇仅从已有测井类别中随机选择。旧界面工程仍用 ±12 ms 窗。</source>
             <translation type="unfinished" />
         </message>
         <message>
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="119" />
-            <source>地震层位窗聚类 → 微相图（Mock）</source>
+            <source>地震层段窗聚类 → 微相图（Mock）</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -17606,6 +17606,10 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="15" />
             <source>打开参考证据面板</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
+            <translation>The prediction interval does not match the current seismic unit. Select the interval again.</translation>
         </message>
     </context>
     <context>
@@ -36037,6 +36041,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/qgis/qgiscanvascontroller.cpp" line="104" />
             <source>地图画布尚未就绪，不能复制坐标。</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <source>井点成果坐标系无效</source>
+            <translation>The well-point result coordinate reference system is invalid.</translation>
+        </message>
+        <message>
+            <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
+            <translation>The legacy prediction coordinates of well %1 differ from its DataService position and cannot be used for seismic calibration.</translation>
         </message>
     </context>
     <context>

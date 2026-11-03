@@ -161,6 +161,13 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
   return ok;
 }
 bool points(const QString &path, const QVariantList &points, QString *error) {
+  return MappingArtifactWriter::points(path,points,DataCatalog::localGridCrsWkt(),error);
+}
+bool points(const QString &path,const QVariantList &points,const QString &crs,QString *error) {
+  QgsCoordinateReferenceSystem reference;
+  if(!crs.isEmpty()&&!reference.createFromUserInput(crs)){
+    if(error)*error=QObject::tr("井点成果坐标系无效");return false;
+  }
   QJsonArray features;
   for (const auto &v : points) {
     auto props = v.toMap();
@@ -180,7 +187,7 @@ bool points(const QString &path, const QVariantList &points, QString *error) {
       {"crs",
        QJsonObject{{"type", "name"},
                    {"properties",
-                    QJsonObject{{"name", DataCatalog::localGridCrsWkt()}}}}}};
+                    QJsonObject{{"name",crs.isEmpty()?DataCatalog::localGridCrsWkt():crs}}}}}};
   QSaveFile file(path);
   const auto bytes = QJsonDocument(root).toJson();
   if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||

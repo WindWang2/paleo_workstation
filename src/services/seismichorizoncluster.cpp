@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <set>
 
 SeismicClusterResult clusterSeismicHorizon(
     const QString &seismicPath, const QString &horizonPath,
@@ -268,20 +269,27 @@ SeismicClusterResult clusterSeismicStratigraphicWindow(
     return result;
   }
   report(5);
-  paleo::data::SeismicHorizonWindowResult win;
-  if(!paleo::strat::readSeismicAnalysisWindow(projectDir,unit,seismicPath,win,&result.error,cancel))return result;
+  paleo::data::SeismicHorizonWindowResult win;paleo::strat::SeismicAnalysisSource context;
+  if(!paleo::strat::readSeismicAnalysisWindow(projectDir,unit,seismicPath,win,&result.error,cancel,&context))return result;
+  result.crsWkt=context.crs;
+  result.parameters={{"unitSelection",paleo::strat::toMap(context.unit)},{"seismic_volume_id",context.volumeId},
+    {"seismic_source",context.sourcePath},{"sampled_trace_count",qulonglong(win.traces.size())},
+    {"resampled_samples_per_trace",win.fixedSampleCount},{"input_attribute","layer_window_mean_rms_zero_crossings"},
+    {"window_type","stratigraphic_unit"},{"horizon_source_format","dataservice_horizon_window"}};
   report(55);
 
   const int K = std::max(1, win.fixedSampleCount);
   double xmin = std::numeric_limits<double>::infinity(), xmax = -xmin;
   double ymin = xmin, ymax = -xmin;
+  std::set<int> sampledInlines,sampledCrosslines;
   for (const auto &tr : win.traces) {
-    if (tr.status != 1 || !std::isfinite(tr.x) || !std::isfinite(tr.y)) continue;
+    sampledInlines.insert(tr.inlineNumber);sampledCrosslines.insert(tr.crosslineNumber);
+    if (!std::isfinite(tr.x) || !std::isfinite(tr.y)) continue;
     xmin = std::min(xmin, tr.x); xmax = std::max(xmax, tr.x);
     ymin = std::min(ymin, tr.y); ymax = std::max(ymax, tr.y);
   }
-  result.columns = 64;
-  result.rows = 64;
+  result.columns=std::min(64,int(sampledCrosslines.size()));
+  result.rows=std::min(64,int(sampledInlines.size()));
   const double dx = (xmax - xmin) / std::max(1, result.columns - 1);
   const double dy = (ymax - ymin) / std::max(1, result.rows - 1);
   if (!std::isfinite(dx) || !std::isfinite(dy) || dx <= 0 || dy <= 0) {
@@ -304,7 +312,14 @@ SeismicClusterResult clusterSeismicStratigraphicWindow(
       return result;
     }
     const auto &tr = win.traces[idx];
-    if (tr.status != 1 || !std::isfinite(tr.x) || !std::isfinite(tr.y)) continue;
+    if (!std::isfinite(tr.x) || !std::isfinite(tr.y)) continue;
+    const int col = std::clamp(int(std::lround((tr.x-xmin)/dx)),0,result.columns-1);
+    const int row = std::clamp(int(std::lround((ymax-tr.y)/dy)),0,result.rows-1),cell=row*result.columns+col;
+    const double dist=std::hypot((tr.x-xmin)/dx-col,(ymax-tr.y)/dy-row);
+    auto &pick=gridPicks[cell];
+    if(dist>=pick.distance)continue;
+    pick.distance=dist;pick.valid=false; // A nearer missing trace must not borrow a farther valid one.
+    if(tr.status!=1)continue;
     const size_t baseOffset = idx * size_t(K);
     if (baseOffset + size_t(K) > win.amplitudes.size() || K < 2) continue;
     double mean = 0.0, rms = 0.0, changes = 0.0;
@@ -318,15 +333,7 @@ SeismicClusterResult clusterSeismicStratigraphicWindow(
         ++changes;
     }
     if (!finite) continue;
-    const int col = std::clamp(int(std::floor((tr.x - result.extent.left()) / dx)), 0, result.columns - 1);
-    const int row = std::clamp(int(std::floor((result.extent.bottom() - tr.y) / dy)), 0, result.rows - 1);
-    const int cell = row * result.columns + col;
-    const double dist = std::hypot((tr.x - xmin) / dx - col, (ymax - tr.y) / dy - row);
-    if (!gridPicks[cell].valid || dist < gridPicks[cell].distance) {
-      gridPicks[cell].valid = true;
-      gridPicks[cell].distance = dist;
-      gridPicks[cell].feature = {mean / K, std::sqrt(rms / K), changes / (K - 1)};
-    }
+    pick.valid=true;pick.feature={mean/K,std::sqrt(rms/K),changes/(K-1)};
   }
 
   QVector<Feature> features;

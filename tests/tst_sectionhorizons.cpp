@@ -76,6 +76,57 @@ private slots:
     QCOMPARE(image.pixelColor(x+100,175),QColor(Qt::white)); // Missing interior is not bridged.
     QVERIFY(image.pixelColor(x+175,231)!=QColor(Qt::white));
   }
+  void wellTracksAndLinksShareActualSectionTies(){
+    wellsection::Well a,b;a.id="A";b.id="B";a.totalDepth=b.totalDepth=1000;
+    a.tops={{"old formation",10}};b.tops=a.tops;
+    a.correlationTops=QVector<wellsection::Top>{{"T70",25}};b.correlationTops=a.correlationTops;
+    wellsection::TimeDepth td;QVERIFY(td.model.setCheckshots({{0,0},{1000,1000}}));a.timeDepth=td;b.timeDepth=td;b.timeDepth->shiftMs=100;
+    wellsection::SeismicGap gap;gap.columns=5;gap.samples=201;gap.stepMs=5;gap.values.assign(1005,0);
+    gap.horizons=overlay();gap.horizons.curves[0].timesMs={200,250,400,500,600};
+    wellsection::SeismicStrip strip;strip.gaps={gap};auto display=QVector<wellsection::Well>{a,b};
+    wellsection::useSeismicCorrelationTops(display,strip);
+    QCOMPARE(display[0].tops.size(),1);QCOMPARE(display[0].tops.front().name,QString("T70"));
+    QCOMPARE(display[0].tops.front().md,200.);QCOMPARE(display[1].tops.front().md,500.);
+    QCOMPARE(a.tops.front().name,QString("old formation"));QCOMPARE(a.correlationTops->front().md,25.);
+    WellSectionPanel panel(nullptr);panel.setSection({a,b});const double old=panel.topLineY("A","T70");
+    panel.setSeismicStrip(strip);QVERIFY(panel.topLineY("A","T70")>old);QCOMPARE(panel.wells().front().tops.front().md,10.);
+    seismic::SectionWellInfo first,last;first.mdTimeDepth=td.model;last.mdTimeDepth=td.model;last.timeShiftMs=100;last.tracePosition=4;
+    first.tops={{"old formation",25,25,25}};std::vector<seismic::SectionWellInfo> wells={first,last};
+    seismic::projectSectionHorizonTies(wells,gap.horizons);
+    QCOMPARE(wells[0].tops.size(),size_t(1));QCOMPARE(wells[0].tops.front().md,display[0].tops.front().md);
+    QCOMPARE(wells[1].tops.front().md,display[1].tops.front().md);QCOMPARE(wells[1].tops.front().twtMs,600.);
+  }
+  void endpointsUseTheirOwnCheckshotCoverage(){
+    wellsection::Well a,b;wellsection::TimeDepth ta,tb;
+    QVERIFY(ta.model.setCheckshots({{100,100},{500,500}}));QVERIFY(tb.model.setCheckshots({{300,200},{900,800}}));
+    a.timeDepth=ta;b.timeDepth=tb;
+    QCOMPARE(wellsection::gapTwtMs(a,0,b,0,0,150),150.);
+    QCOMPARE(wellsection::gapTwtMs(a,0,b,0,1,650),550.);
+    QVERIFY(std::abs(wellsection::gapDisplayDepthAtTwt(a,0,b,0,0,150,0,1000,wellsection::DepthDomain::MD)-150)<1e-5);
+    QVERIFY(std::abs(wellsection::gapDisplayDepthAtTwt(a,0,b,0,1,550,0,1000,wellsection::DepthDomain::MD)-650)<1e-5);
+    QVERIFY(std::isnan(wellsection::gapDisplayDepthAtTwt(a,0,b,0,0,50,0,1000,wellsection::DepthDomain::MD)));
+  }
+  void reflectorLogLandmarkAndHorizonShareCanvasTime(){
+    paleo::data::SeismicSectionResult section;section.columns=21;section.samples=201;
+    section.amplitudes.assign(size_t(section.columns)*section.samples,0);
+    for(int col=0;col<section.columns;++col)section.amplitudes[size_t(col)*section.samples+50]=6;
+    seismic::SeismicSectionCanvas canvas;canvas.resize(1000,600);canvas.setColorMap(seismic::SectionColorMapType::Grayscale);
+    canvas.setSectionData(paleo::seismicSectionImage(section),2,100);
+    const int x=qRound(canvas.traceToPixelX(12)),peak=qRound(canvas.timeToPixelY(200)),mirror=qRound(canvas.timeToPixelY(400));
+    const auto background=canvas.grabCanvasImage();
+    QVERIFY(std::abs(background.pixelColor(x,peak).lightness()-background.pixelColor(x,mirror).lightness())>70);
+    seismic::SectionWellInfo well;well.wellId="A";well.wellName="A";well.calibrated=true;well.isWithinBuffer=true;well.tracePosition=5;
+    seismic::TimeDepthModel td;QVERIFY(td.setCheckshots({{0,100},{1000,600}}));well.mdTimeDepth=td;well.bottomTwtMs=500;
+    seismic::WellCurveItem gr;gr.curveName="GR";gr.values={20,150,20};gr.depthsM={190,200,210};gr.twtMs={195,200,205};
+    auto rt=gr;rt.curveName="RT";rt.twtMs={395,400,405};well.curves={rt,gr};
+    std::vector<seismic::SectionWellInfo> wells={well};auto horizons=overlay(21);horizons.curves.resize(1);horizons.curves[0].timesMs.assign(21,200);
+    seismic::projectSectionHorizonTies(wells,horizons);QCOMPARE(wells[0].tops[0].md,200.);
+    canvas.setHorizonOverlays(horizons);canvas.setHorizonOverlaysVisible(true);canvas.setWells(wells);canvas.setShowWellCurves(false);
+    const auto noCurve=canvas.grabCanvasImage();canvas.setShowWellCurves(true);const auto aligned=canvas.grabCanvasImage();
+    const int curveX=qRound(canvas.traceToPixelX(5)+40);int changed=0;
+    for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx)changed+=aligned.pixel(curveX+dx,peak+dy)!=noCurve.pixel(curveX+dx,peak+dy);
+    QVERIFY(changed>0);QCOMPARE(aligned.pixel(curveX,mirror),noCurve.pixel(curveX,mirror));
+  }
   void schemeRevisionInvalidatesCorrelationStrip(){
     WellSectionPanel panel(nullptr);wellsection::Well a,b;a.id="A";b.id="B";a.totalDepth=b.totalDepth=1000;
     a.correlationRevision=b.correlationRevision="scheme:r1";panel.setSection({a,b});

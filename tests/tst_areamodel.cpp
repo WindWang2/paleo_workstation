@@ -16,6 +16,7 @@
 #include "workflow/sectionworkbench.h"
 #include <QtEndian>
 #include "services/projectdata.h"
+#include "services/areawellchart.h"
 #include "workflow/xmlpreviewsession.h"
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -36,6 +37,7 @@ private slots:
       w.defaultDepthInfo.depthType="MD";w.defaultDepthInfo.depthUnit="m";
       if(n==0) {paleo::data::TimeDepthTable td;td.relationName="checkshot";td.depthTimePairs={{100,200},{200,300}};w.timeDepthRelations.push_back(td);}
       if(n==1) {paleo::data::LogSet logs;logs.logSetName="logs";logs.depthInfo=w.defaultDepthInfo;logs.samplingAxis.depthValues={100,101};
+        auto missing=logs;missing.logSetName="empty acquisition";paleo::data::LogCurve empty;empty.curveName="GR";empty.curveUnit="API";empty.sampleValues={-999.25,-999.25};missing.logCurves.push_back(empty);w.wellbore.logSets.push_back(missing);
         paleo::data::TimeDepthTable td;td.relationName="usable checkshot";td.depthInfo=w.defaultDepthInfo;
         td.timeUnit="ms";td.timeType="TWT";td.timeReference="synthetic datum";td.depthTimePairs={{100,200},{200,300}};w.timeDepthRelations.push_back(td);
         paleo::data::LogCurve curve;curve.curveName="GR";curve.curveUnit="API";curve.sampleValues={10,20};logs.logCurves.push_back(curve);w.wellbore.logSets.push_back(logs);
@@ -69,6 +71,9 @@ private slots:
     QCOMPARE(sectionReady.size(),1);
     const auto restored=qvariant_cast<QVector<wellsection::Well>>(sectionReady.front().at(1));
     QCOMPARE(restored.size(),1);
+    QVector<wellsection::Curve> selected;
+    QVERIFY(readAreaWellSectionCurves(project,catalog.entityById(restored.front().id).extra.value("areaModelWellId").toLongLong(),{"GR"},selected,&detail));
+    QCOMPARE(selected.size(),1);QCOMPARE(selected.front().values,QVector<float>({10,20}));
     QVERIFY(std::any_of(restored.front().tops.begin(),restored.front().tops.end(),[](const auto &t){return t.name=="F1"&&t.md==100.;}));
     StratigraphyWorkflow stratigraphy(nullptr);stratigraphy.setProject(project,true);
     QCOMPARE(stratigraphy.wells().size(),1);QCOMPARE(stratigraphy.wells().front().name,QString("SYNTH-1"));

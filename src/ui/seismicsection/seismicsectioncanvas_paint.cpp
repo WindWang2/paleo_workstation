@@ -299,7 +299,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     : well.totalDepth > 0.0
                         ? m_tdModel.DepthToTwtMs(well.totalDepth)
                         : (m_t0Ms + m_samples * m_dtMs);
-                const double wellTopY = timeToPixelY(m_t0Ms);
+                const double wellTopY = timeToPixelY(well.mdTimeDepth&&!well.mdTimeDepth->points().empty()?well.mdTimeDepth->points().front().timeMs+well.timeShiftMs:m_t0Ms);
                 const double wellBotY = std::min(
                     timeToPixelY(std::isfinite(bottomTwt) ? bottomTwt : m_t0Ms),
                     static_cast<double>(vp.bottom()));
@@ -348,72 +348,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     }
                 }
 
-                // Formation tops
-                if (m_showTops) {
-                    for (const auto &top : well.tops) {
-                        if (!std::isfinite(top.twtMs))
-                            continue;
-                        const double ty = timeToPixelY(top.twtMs);
-                        if (ty < vp.top() || ty > vp.bottom())
-                            continue;
-
-                        // Horizontal top cross tick
-                        p.setPen(QPen(tok.onPrimary, 4.0));
-                        p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
-                        p.setPen(QPen(top.color.isValid() ? top.color : tok.textMuted, 2.0));
-                        p.drawLine(QPointF(wx - 8.0, ty), QPointF(wx + 8.0, ty));
-
-                        // Marker label
-                        p.setFont(monoFont);
-                        const QString tagText = top.topName;
-                        const QFontMetrics fm(monoFont);
-                        const int tw = fm.horizontalAdvance(tagText);
-                        const QRectF tagRect(wx + 10.0, ty - 8.0, tw + 8.0, 16.0);
-
-                        p.setBrush(tok.surfaceAltRaised);
-                        p.setPen(QPen(tok.border, 1.0));
-                        p.drawRoundedRect(tagRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
-
-                        p.setPen(tok.text);
-                        p.drawText(tagRect, Qt::AlignCenter, tagText);
-                    }
-                }
-
-                // Well log curves
-                if (m_showCurves && !well.curves.empty()) {
-                    const double trackWidth = 36.0;
-                    for (const auto &curve : well.curves) {
-                        if (curve.values.empty() || curve.twtMs.size() != curve.values.size())
-                            continue;
-
-                        const float span = std::max(1e-4f, curve.maxVal - curve.minVal);
-                        QPolygonF poly;
-                        poly.reserve(static_cast<int>(curve.values.size()));
-
-                        for (std::size_t i = 0; i < curve.values.size(); ++i) {
-                            const float val = curve.values[i];
-                            if (!std::isfinite(val) ||
-                                !std::isfinite(curve.twtMs[i])) {
-                              p.setPen(QPen(curve.color, 1.5));
-                              p.drawPolyline(poly);
-                              poly.clear();
-                              continue;
-                            }
-                            const double cy = timeToPixelY(curve.twtMs[i]);
-                            if (cy < vp.top() - 10 || cy > vp.bottom() + 10)
-                                continue;
-                            const double norm = std::clamp(static_cast<double>((val - curve.minVal) / span), 0.0, 1.0);
-                            const double cx = (wx+4.0+trackWidth>vp.right()?wx-4.0-trackWidth:wx+4.0) + norm*trackWidth;
-                            poly.append(QPointF(cx, cy));
-                        }
-
-                        if (poly.size() >= 2) {
-                            p.setPen(QPen(curve.color.isValid() ? curve.color : QColor(QStringLiteral("#43A047")), 1.5));
-                            p.setBrush(Qt::NoBrush);
-                            p.drawPolyline(poly);
-                        }
-                    }
-                }
+                paintWellTracks(p,well,vp,wx);
             }
         }
     }

@@ -359,6 +359,8 @@ struct SeismicStrip {
 // Prefer the actual major horizon samples at both seismic gap endpoints.
 // Missing endpoint/checkshot coverage produces no correlation, never a fallback.
 QVector<Link> correlationLinks(const Well &a,const Well &b,const SeismicGap *gap);
+// Render snapshot only; the workflow's original formation tops stay unchanged.
+void useSeismicCorrelationTops(QVector<Well> &wells,const SeismicStrip &strip);
 
 // 有效缝 |v| 的 percentile 截幅（有限值；跨步抽样至 ≤20 万点，
 // nth_element 选位）；结果 ≤0 或无值 → 1.0。

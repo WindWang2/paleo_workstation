@@ -1,11 +1,27 @@
 // 层：数据
 #include "domain/seismic/sectionwellprojector.h"
+#include "domain/wellnumeric.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
 namespace seismic {
+void projectSectionHorizonTies(std::vector<SectionWellInfo>& wells,const SectionHorizons& horizons){
+    for(auto &well:wells){
+        if(!well.mdTimeDepth)continue;
+        well.tops.clear();
+        for(const auto &curve:horizons.curves){
+            if(curve.internalEdge||curve.timesMs.empty()||!std::isfinite(well.tracePosition)||well.tracePosition<0||well.tracePosition>double(curve.timesMs.size()-1))continue;
+            const auto lo=size_t(std::floor(well.tracePosition)),hi=size_t(std::ceil(well.tracePosition));
+            const double a=curve.timesMs[lo],b=curve.timesMs[hi];if(!std::isfinite(a)||!std::isfinite(b))continue;
+            const double time=a+(b-a)*(well.tracePosition-double(lo));
+            const double md=well.mdTimeDepth->TwtMsToDepth(time-well.timeShiftMs);
+            if(!std::isfinite(md))continue;
+            WellTopItem top;top.topName=curve.name;top.md=md;top.tvd=qQNaN();top.twtMs=time;well.tops.push_back(top);
+        }
+    }
+}
 
 std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
     const std::vector<glm::dvec2> &polylinePoints,
@@ -114,7 +130,7 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
                 float vMin = std::numeric_limits<float>::infinity();
                 float vMax = -std::numeric_limits<float>::infinity();
                 for (float v : curve.values) {
-                    if (std::isfinite(v)) {
+                    if (!paleo::wellnumeric::isNullCurveValue(v)) {
                         vMin = std::min(vMin, v);
                         vMax = std::max(vMax, v);
                     }

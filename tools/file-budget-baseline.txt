@@ -76,13 +76,13 @@ src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:358
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1642
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
-src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:743
+src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:678
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:253
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
 src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228
 src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:339
 src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:262
 src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:256
-src/ui/wellsection/wellsectionpanel.cpp:file:1541
+src/ui/wellsection/wellsectionpanel.cpp:file:1532
 src/ui/wellsection/wellsectionpanel.cpp:fn:WellSectionPanel:455
 src/ui/welltops/welltopseditordialog.cpp:file:1006

@@ -351,6 +351,7 @@ private:
     };
     QVector<WellPinLabel> wellPinLabels() const;
     void paintWellPins(QPainter &p);
+    void paintWellTracks(QPainter& painter,const SectionWellInfo& well,const QRect& viewport,double x);
     void paintHorizonOverlays(QPainter& painter,const QRect& viewport);
     SectionHorizons m_horizons;
     bool m_horizonsVisible=false;

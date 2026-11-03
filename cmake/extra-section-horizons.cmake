@@ -1,5 +1,5 @@
 target_sources(paleo_domain PRIVATE src/domain/wellsection_horizons.cpp)
 target_sources(paleo_services PRIVATE src/services/seismicsectionhorizons.cpp src/services/wellsectioncorrelation.cpp)
-target_sources(paleo_ui PRIVATE src/ui/seismicsection/seismicsection_horizons.cpp src/ui/wellsection/wellsection_horizons.cpp)
+target_sources(paleo_ui PRIVATE src/ui/seismicsection/seismicsection_horizons.cpp src/ui/seismicsection/seismicsection_welltracks.cpp src/ui/wellsection/wellsection_horizons.cpp)
 add_paleo_test(tst_dataservice_sectionhorizons LIBS Paleo::paleo_data_service Qt6::Core)
 add_paleo_test(tst_sectionhorizons LIBS paleo_ui paleo_workflow Paleo::paleo_data_service)

@@ -562,7 +562,8 @@ void WellSectionPanel::setSeismicStrip(const wellsection::SeismicStrip &strip)
 {
   if (strip.gaps.size() != m_wells.size() - 1)
     return; // 与当前井集不符 → 丢弃
-  m_st.strip = strip;updateHorizonOverlayStatus();
+  m_st.strip = strip;
+  rebuildFiltered();applyLayout();updateHorizonOverlayStatus();
   ++m_st.stripVersion;
   syncGapToolTips();
   for (auto *g : m_gapItems)
@@ -966,19 +967,6 @@ bool WellSectionPanel::exportTo(const QString &path) const
   return renderImage(1.0).save(path);
 }
 
-// ---- 测试钩子 ----
-int WellSectionPanel::linkCount() const
-{
-  int n = 0;
-  for (int i = 0; i + 1 < m_st.wells.size(); ++i)
-    for (const wellsection::Link &lk :
-         m_st.linksForGap(i))
-      if (wellsection::linkConnected(m_linkOverrides, m_st.wells[i].id,
-                                     m_st.wells[i + 1].id, lk.name))
-        ++n;
-  return n;
-}
-
 QString WellSectionPanel::highlightedFormation() const
 {
   if (m_st.activeTop.isEmpty())
@@ -1059,6 +1047,7 @@ QString WellSectionPanel::lithoTrackCaption(const QString &wellId) const
 void WellSectionPanel::rebuildFiltered()
 {
   m_st.wells = wellsection::filterTops(m_wells, m_tpl);
+  wellsection::useSeismicCorrelationTops(m_st.wells,m_st.strip);
   m_st.domain = m_domain;
   m_st.offsets.clear();
   for (const auto &w : m_st.wells)
@@ -1070,6 +1059,8 @@ void WellSectionPanel::rebuildFiltered()
   m_st.faultsOn = m_faultsOn;
   m_st.zoneOrder = wellsection::orderedTopNames(m_st.wells);
   m_st.tpl = m_tpl;
+  if(std::any_of(m_st.wells.begin(),m_st.wells.end(),[](const auto &w){return w.correlationTops.has_value();}))
+    for(auto &track:m_st.tpl.tracks)if(track.kind==wellsection::TrackKind::Zone)track.title=QObject::tr("地震层位");
   m_st.seismicOn = m_seismicOn;
   m_st.selected = -1;
   for (int i = 0; i < m_st.wells.size(); ++i)

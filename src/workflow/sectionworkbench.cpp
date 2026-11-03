@@ -360,6 +360,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     if (!readiness.value(w.id).analysisReady())
       continue;
     seismic::SectionWellInfo out;
+    const auto nativeId=m_catalog->entityById(w.id).extra.value("areaModelWellId").toLongLong();
     out.wellId = w.id;
     out.wellName = w.name;
     out.surfaceX = w.surfaceX;
@@ -371,6 +372,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     if((!tvdOk&&!mdOk)||m_data.tdTableFor(w.id).isEmpty())continue;
     const QVariantMap c = calibration(w.id);
     const double shift = c.value("shift").toDouble();
+    if(nativeId>0&&mdOk){out.mdTimeDepth=md;out.timeShiftMs=shift;}
     const double velocity = c.value("velocity").toDouble();
     out.alignmentStatus=c.value("constant").toBool()?tr("常速近似"):tr("时深表");
     bool partial = false;
@@ -419,7 +421,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       }
     }
     WellParseReport topsReport;
-    const auto tops = m_data.topsFor(w.id, &topsReport);
+    const auto tops = nativeId>0?QVector<WellTop>{}:m_data.topsFor(w.id, &topsReport);
     if (!topsReport.issues.isEmpty())
       out.alignmentStatus += tr(" · 分层文件读面：%1").arg(wellParseSummary(topsReport));
     for (const auto &t : tops) {
@@ -451,7 +453,6 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
                               : top.twtMs;
       out.tops.push_back(top);
     }
-    const auto nativeId=m_catalog->entityById(w.id).extra.value("areaModelWellId").toLongLong();
     QVector<WellCurveRef> curveIndex;QHash<QString,LasDoc> nativeDocs;
     if(nativeId>0){
       QVector<wellsection::Curve> curves;QString reason;
@@ -577,7 +578,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         const float sample = static_cast<float>(values.values[i] * valueScale);
         curve.depthsM.push_back(d);
         curve.twtMs.push_back(t);
-        curve.values.push_back(sample);
+        curve.values.push_back(paleo::wellnumeric::isNullCurveValue(sample)?qQNaN():sample);
         // 空值判定走 domain 权威口径（C.4 / #589）：此前这里硬编码第三套
         // 阈值——-9999.0 在 wellnumeric/welllogfacies 链是哨兵（判缺失），
         // 在这里却算合法样值并进 min/max 统计，把曲线量程压成 -9999。

@@ -16,6 +16,12 @@ void WellSectionPanel::setSeismicHorizonsEnabled(bool on){
   if(auto *button=findChild<QToolButton *>("sectionHorizonToggle"))button->setChecked(on);
   m_scene->update();
 }
+int WellSectionPanel::linkCount()const{
+  int count=0;
+  for(int i=0;i+1<m_st.wells.size();++i)for(const auto &link:m_st.linksForGap(i))
+    if(wellsection::linkConnected(m_linkOverrides,m_st.wells[i].id,m_st.wells[i+1].id,link.name))++count;
+  return count;
+}
 void WellSectionPanel::updateHorizonOverlayStatus(){
   seismic::SectionHorizons merged;size_t count=0;
   for(const auto& gap:m_st.strip.gaps){

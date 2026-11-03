@@ -3,6 +3,7 @@
 #include "imagelod.h"
 #include "domain/wellcompositemodel.h"
 #include "domain/welllogfacies.h"
+#include "domain/wellnumeric.h"
 #include "io/lasalias.h"
 #include "io/areamodel.h"
 #include <paleo_data/service.h>
@@ -122,9 +123,13 @@ bool readAreaWellSectionCurves(const QString &project,qlonglong well,const QStri
   }
   if(requested.isEmpty())out=available;
   else for(const auto &name:requested){
-    auto found=std::find_if(available.cbegin(),available.cend(),[&](const auto &curve){return curve.mnemonic.compare(name,Qt::CaseInsensitive)==0;});
-    if(found==available.cend())found=std::find_if(available.cbegin(),available.cend(),[&](const auto &curve){return LasAliasMap::shared().canonicalCurve(curve.mnemonic)==LasAliasMap::shared().canonicalCurve(name);});
-    if(found!=available.cend()){auto curve=*found;curve.mnemonic=name;out.append(curve);}
+    const wellsection::Curve *best=nullptr;qsizetype usable=-1;
+    for(const auto &curve:available){
+      if(LasAliasMap::shared().canonicalCurve(curve.mnemonic)!=LasAliasMap::shared().canonicalCurve(name))continue;
+      const auto count=std::count_if(curve.values.cbegin(),curve.values.cend(),[](float v){return !paleo::wellnumeric::isNullCurveValue(v);});
+      if(count>usable){best=&curve;usable=count;}
+    }
+    if(best){auto curve=*best;curve.mnemonic=name;out.append(curve);}
   }
   if(error)*error=problems.join('\n');return !out.isEmpty();
 }

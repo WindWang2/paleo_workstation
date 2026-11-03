@@ -35,7 +35,10 @@
 #include "services/seismictaskservice.h"
 #include "qgis/wellattributestore.h"
 #include "services/seismicdataaccess.h"
+#include "services/seismicdataprojection.h"
 #include "services/timedepthalignment.h"
+#include "ui/wellsection/wellsectionpanel.h"
+#include "ui/seismicsection/seismicsectioncanvas.h"
 #include "linkage/seismicmaplink.h"
 
 class TestRealProjectAcceptance : public QObject {
@@ -426,7 +429,8 @@ private slots:
     const auto unregister=qScopeGuard([this]{paleo::area_model::unregisterProject(this);});
     DataCatalog catalog;catalog.setLockedReadOnly(true);QString error;QVERIFY2(catalog.open(project,&error),qPrintable(error));
     ProjectDataFacade data;data.setCatalog(&catalog,project);SectionWorkbench workbench(&catalog);QStringList ids;QJsonArray details;
-    for(const auto *name:{"HZ21-7-1","HZ21-8-1"}){
+    const auto requested=qEnvironmentVariable("PALEO_ACCEPTANCE_ALIGNMENT_WELLS","HZ21-7-1,HZ21-8-1").split(',');
+    for(const auto &name:requested){
       const auto matches=catalog.wellsMatchingName(name);QCOMPARE(matches.size(),1);ids<<matches.first();
       const auto rows=data.tdTableFor(ids.last());QVERIFY2(!rows.isEmpty(),qPrintable(data.lastError()));
       seismic::TimeDepthModel model;double shift=0;QString status,reference;
@@ -437,11 +441,18 @@ private slots:
     WellSectionWorkflow section(&catalog);section.setSectionWorkbench(&workbench);QSignalSpy ready(&section,&WellSectionWorkflow::sectionReady);
     section.request(ids,{"GR"});QCOMPARE(ready.size(),1);const auto wells=ready.first()[1].value<QVector<wellsection::Well>>();QCOMPARE(wells.size(),2);
     for(const auto &well:wells){QVERIFY(well.timeDepth);QVERIFY(!well.curves.isEmpty());QVERIFY(well.correlationTops);QVERIFY(!well.correlationTops->isEmpty());}
+    paleo::SeismicDataAccess source;QVERIFY2(source.open(section.seismicSource().path,&error),qPrintable(error));paleo::data::SeismicSectionResult raw;std::string detail;
+    QVERIFY2(source.xySection({{wells[0].x,wells[0].y},{wells[1].x,wells[1].y}},wells[0].timeDepth->timeReference,raw,detail),detail.c_str());
+    qInfo()<<"Actual seismic grid endpoints"<<raw.inlineNumbers.front()<<raw.crosslineNumbers.front()<<raw.inlineNumbers.back()<<raw.crosslineNumbers.back();
     PaleoTaskService tasks;seismic::SeismicTaskService seismicTasks(&tasks);section.setSeismicTaskService(&seismicTasks);
     QSignalSpy extracted(&section,&WellSectionWorkflow::seismicReady);section.requestSeismic(wells,section.seismicSource());
     QTRY_COMPARE_WITH_TIMEOUT(extracted.size(),1,60000);const auto strip=extracted.first()[1].value<wellsection::SeismicStrip>();
     QVERIFY2(strip.anyValid(),qPrintable(strip.gaps.isEmpty()?strip.status:strip.gaps.first().reason));
-    const auto majorLinks=wellsection::correlationLinks(wells[0],wells[1],&strip.gaps.first());QVERIFY(majorLinks.size()>2);
+    const auto majorLinks=wellsection::correlationLinks(wells[0],wells[1],&strip.gaps.first());
+    for(const auto &curve:strip.gaps.first().horizons.curves)if(!curve.internalEdge)
+      qInfo()<<"Section endpoints"<<curve.name<<curve.timesMs.front()<<curve.timesMs.back()<<"finite"<<std::count_if(curve.timesMs.begin(),curve.timesMs.end(),[](double t){return std::isfinite(t);})<<"columns"<<curve.timesMs.size();
+    for(const auto &well:wells)qInfo()<<"Well TD coverage"<<well.name<<well.timeDepth->model.points().front().depthM<<well.timeDepth->model.points().back().depthM<<well.timeDepth->model.points().front().timeMs<<well.timeDepth->model.points().back().timeMs;
+    QVERIFY(majorLinks.size()>2);
     QJsonArray majorNames;
     for(const auto &link:majorLinks){
       majorNames.append(link.name);QVERIFY(!link.name.contains("/S"));
@@ -449,9 +460,41 @@ private slots:
       QVERIFY(found!=strip.gaps.first().horizons.curves.end());QCOMPARE(found->internalEdge,0);
       QVERIFY(std::abs(wells[0].timeDepth->twtAt(link.leftMd)-found->timesMs.front())<1e-7);
       QVERIFY(std::abs(wells[1].timeDepth->twtAt(link.rightMd)-found->timesMs.back())<1e-7);
+      for(int side=0;side<2;++side)for(const auto &top:*wells[side].correlationTops)if(top.name==link.name){
+        const double time=wells[side].timeDepth->twtAt(top.md),sectionTime=side?found->timesMs.back():found->timesMs.front();
+        qInfo()<<"Stored framework comparison"<<wells[side].name<<top.name<<"stored MD"<<top.md<<"TD TWT"<<time<<"section TWT"<<sectionTime<<"MD residual"<<((side?link.rightMd:link.leftMd)-top.md);
+      }
     }
     report.insert("majorSeismicConnections",majorNames);
     const auto overlays=workbench.sectionWells();int visible=0,curvePoints=0;
+    auto displayWells=wells;wellsection::useSeismicCorrelationTops(displayWells,strip);
+    std::vector<seismic::SectionWellInfo> projected;
+    for(int side=0;side<2;++side)for(const auto &well:overlays)if(well.wellId==ids[side]){
+      auto copy=well;copy.tracePosition=side?strip.gaps[0].columns-1:0;copy.isWithinBuffer=true;projected.push_back(copy);
+    }
+    QCOMPARE(projected.size(),size_t(2));seismic::projectSectionHorizonTies(projected,strip.gaps[0].horizons);
+    WellSectionPanel panel(nullptr);panel.setSection(wells);panel.setSeismicStrip(strip);
+    QJsonArray tieRecords;
+    for(const auto &link:majorLinks)for(int side=0;side<2;++side){
+      const auto found=std::find_if(projected[side].tops.begin(),projected[side].tops.end(),[&](const auto &t){return t.topName==link.name;});
+      QVERIFY(found!=projected[side].tops.end());const auto md=side?link.rightMd:link.leftMd;
+      QVERIFY(std::abs(found->md-md)<1e-7);QVERIFY(std::abs(displayWells[side].topMd(link.name)-md)<1e-7);
+      QVERIFY(std::isfinite(panel.topLineY(ids[side],link.name)));
+      tieRecords.append(QJsonObject{{"well",wells[side].name},{"horizon",link.name},{"displayMd",md},{"twt",found->twtMs}});
+    }
+    report.insert("displayedWellSectionTies",tieRecords);
+    const auto preview=qEnvironmentVariable("PALEO_ACCEPTANCE_ALIGNMENT_PREVIEW");
+    if(!preview.isEmpty()){
+      panel.resize(1600,1000);panel.show();QCoreApplication::processEvents();panel.setSeismicEnabled(true);panel.setSeismicHorizonsEnabled(true);panel.setSeismicColorMap(0);panel.fitToView();
+      QVERIFY(panel.renderImage().save(preview+"-md.png"));
+      const auto &gap=strip.gaps[0];paleo::data::SeismicSectionResult samples;samples.columns=gap.columns;samples.samples=gap.samples;
+      samples.amplitudes.resize(gap.values.size());for(int c=0;c<gap.columns;++c)for(int s=0;s<gap.samples;++s)samples.amplitudes[size_t(c)*gap.samples+s]=gap.values[size_t(s)*gap.columns+c];
+      std::vector<float> distances(gap.columnDistancesM.begin(),gap.columnDistancesM.end());
+      seismic::SeismicSectionCanvas canvas;canvas.resize(1600,1000);canvas.setSectionData(paleo::seismicSectionImage(samples),float(gap.stepMs),gap.startMs,distances);
+      auto majors=gap.horizons;std::erase_if(majors.curves,[](const auto &c){return c.internalEdge;});std::erase_if(majors.bands,[](const auto &b){return b.subdivision;});
+      canvas.setColorMap(seismic::SectionColorMapType::Grayscale);canvas.setHorizonOverlays(majors);canvas.setHorizonOverlaysVisible(true);canvas.setWells(projected);canvas.setShowWellCurves(true);
+      QVERIFY(canvas.grabCanvasImage().save(preview+"-twt.png"));
+    }
     for(const auto &well:overlays)if(ids.contains(well.wellId)){
       QVERIFY(well.calibrated);for(const auto &curve:well.curves)for(double time:curve.twtMs)if(std::isfinite(time))++curvePoints;++visible;
     }
@@ -663,5 +706,5 @@ private slots:
     const auto bytes = QJsonDocument(report).toJson(); QCOMPARE(file.write(bytes), bytes.size()); QVERIFY(file.commit());
   }
 };
-QTEST_GUILESS_MAIN(TestRealProjectAcceptance)
+QTEST_MAIN(TestRealProjectAcceptance)
 #include "tst_realprojectacceptance.moc"

@@ -812,13 +812,15 @@ float adaptiveClip(const QVector<SeismicGap> &gaps, double percentile) {
 
 double gapTwtMs(const Well &a, double offA, const Well &b, double offB,
                 double f, double displayDepth, DepthDomain domain) {
-  if (!a.timeDepth || !b.timeDepth)
+  if (!std::isfinite(f)||f<0||f>1||(!a.timeDepth&&f<1)||(!b.timeDepth&&f>0))
     return qQNaN();
   // 显示深 → 域深 → MD（TVD 域经井斜反解；坏表 → NaN）。
   const double mdA = domain == DepthDomain::TVD ? a.mdOf(displayDepth + offA)
                                                 : displayDepth + offA;
   const double mdB = domain == DepthDomain::TVD ? b.mdOf(displayDepth + offB)
                                                 : displayDepth + offB;
+  if(f==0)return a.timeDepth->twtAt(mdA);
+  if(f==1)return b.timeDepth->twtAt(mdB);
   if (!std::isfinite(mdA) || !std::isfinite(mdB))
     return qQNaN();
   const double tA = a.timeDepth->twtAt(mdA);

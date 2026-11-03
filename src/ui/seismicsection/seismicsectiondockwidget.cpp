@@ -537,6 +537,7 @@ void SeismicSectionDockWidget::refreshWellOverlay(
   auto projected = SectionWellProjector::ProjectWells(
       m_route, {}, distances, wells, std::numeric_limits<double>::max(),
       m_canvas->timeDepthModel());
+  projectSectionHorizonTies(projected,m_canvas->horizonOverlays());
   m_canvas->setWells(projected);
 }
 

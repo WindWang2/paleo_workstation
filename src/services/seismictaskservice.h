@@ -40,6 +40,7 @@ struct SeismicNativeInfo {
  std::vector<float> columnDistancesM;
  QString coordinateSystem;
  SectionHorizons horizons;
+ int inlineCount=0,xlineCount=0;
 };
 struct SeismicSectionExtractionStats : SgySectionStats { SectionHorizons horizons; };
 
@@ -68,13 +69,13 @@ struct SeismicQuickPreview
 };
 
 // 渐进瓦片：x/y 为全网格列/行偏移（行 0 = 最大 inline 的显示向，与引擎一致）。
-// sampleIndex + datasetPath 供 UI 丢弃陈旧请求的瓦片：信号是广播的，两个
-// 地震标签页同时开到同一采样号时，只有「工作区身份 + 采样号」都对上的
-// 画布才收这块瓦片（仅按采样号路由会把另一资产的振幅块贴到本画布上）。
+// sampleIndex + datasetPath + generation 供 UI 丢弃陈旧请求的瓦片：信号是广播的，
+// 两个地震标签页同时开到同一采样号时，只有身份与世代都对上的画布才收这块瓦片。
 struct SeismicTimeTile
 {
   int sampleIndex = 0;
-  QString datasetPath; // 产出该瓦片的 .sf3p 分页工作区（请求身份）
+  QString datasetPath; // 产出该瓦片的工作区或原生 SEG-Y 路径（请求身份）
+  quint64 generation = 0;
   int x = 0;
   int y = 0;
   int completed = 0;
@@ -276,7 +277,8 @@ public:
   PaleoTask *startDataSection(const QString& path,const std::vector<std::pair<double,double>>& points,
       const QString& timeReference,std::function<void(bool,std::shared_ptr<const SeismicSectionData>,const QString&)> done);
   PaleoTask *startDataSlice(const QString& path,SgySliceType type,int index,
-      std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done);
+      std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,
+      quint64 tileGeneration = 0);
 
   // 1. 异步索引 SEG-Y：优先读取磁盘缓存；未命中或强制刷新时提交至 PaleoTaskService 异步扫描
   PaleoTask *startIndexing(
@@ -357,7 +359,8 @@ public:
       int tileSize,
       int focusInline,
       int focusXline,
-      std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const QString &error)> onFinished);
+      std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const QString &error)> onFinished,
+      quint64 tileGeneration = 0);
 
   // 9. 三维窗口取数：datasetPath 可为 .sgy（Auto）或显式 .sf3p（paged）。
   PaleoTask *startVoxelWindow(

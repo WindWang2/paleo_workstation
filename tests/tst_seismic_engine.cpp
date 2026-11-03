@@ -719,7 +719,7 @@ private slots:
     const QString l0 = sgy + QStringLiteral(".sf3p");
 
     bool transcoded = false;
-    fix.seismic.startPagedTranscode(sgy, l0, false, [&](bool, const QString &, const QString &) {
+    fix.seismic.startPagedTranscode(sgy, l0, true, [&](bool, const QString &, const QString &) {
       transcoded = true;
     });
     QVERIFY(fix.waitFor([&] { return transcoded; }));
@@ -736,7 +736,7 @@ private slots:
                                        finalOk = ok;
                                        finalImage = img;
                                        done = true;
-                                     });
+                                     },42);
     QVERIFY(fix.waitFor([&] { return done; }));
     QVERIFY(finalOk);
     QVERIFY(finalImage != nullptr);
@@ -746,6 +746,7 @@ private slots:
     for (const auto &tile : tiles)
     {
       QCOMPARE(tile.sampleIndex, 64);
+      QCOMPARE(tile.generation, quint64(42));
       QVERIFY(tile.image != nullptr);
     }
   }

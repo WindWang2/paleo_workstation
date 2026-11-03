@@ -256,10 +256,9 @@ void DataPreviewTabs::setDocService(PreviewDocService *doc)
   attachDoc(doc);
 }
 
-// 瓦片渐进时间片路由（wave/seismic-engine-deep 主线2）：服务信号是广播的，
-// 按「画布 → (工作区, 采样号)」登记表逐项匹配，只贴都对上的那一块画布。
-// 只按采样号路由时，两个地震标签页开到同一采样号，瓦片会贴到后登记的画布上
-// （另一体的振幅块静默上屏）——故工作区身份（.sf3p 路径）一起进路由键。
+// 瓦片渐进时间片路由：服务信号是广播的，按「画布 → (工作区, 采样号, 世代号)」
+// 登记表逐项匹配，只贴都对上的那一块画布。工作区或原生 SEG-Y 路径用于区分资产，
+// 世代号用于拒绝同一采样号重新请求前的迟到瓦片。
 void DataPreviewTabs::connectTiledTileRoute(seismic::SeismicTaskService *tileService)
 {
   if (!tileService || m_tiledSignalService == tileService)
@@ -272,7 +271,7 @@ void DataPreviewTabs::connectTiledTileRoute(seismic::SeismicTaskService *tileSer
             for (const TiledTarget &t : m_tiledTargets)
             {
               if (!t.canvas || t.workspace != tile.datasetPath ||
-                  t.sampleIndex != tile.sampleIndex)
+                  t.sampleIndex != tile.sampleIndex || t.generation != tile.generation)
                 continue;
               auto *canvas = qobject_cast<seismic::SeismicSectionCanvas *>(t.canvas.data());
               if (canvas)
@@ -285,7 +284,7 @@ void DataPreviewTabs::connectTiledTileRoute(seismic::SeismicTaskService *tileSer
 // 登记本次瓦片请求的画布身份：同画布的新请求顶替旧登记，不同画布（另一地震
 // 标签页）各登记一条；已销毁画布的登记顺手回收（迟到瓦片不会误贴）。
 void DataPreviewTabs::registerTiledTarget(QWidget *canvas, const QString &workspace,
-                                          int sampleIndex)
+                                          int sampleIndex, quint64 generation)
 {
   bool registered = false;
   for (TiledTarget &t : m_tiledTargets)
@@ -296,13 +295,21 @@ void DataPreviewTabs::registerTiledTarget(QWidget *canvas, const QString &worksp
     {
       t.workspace = workspace;
       t.sampleIndex = sampleIndex;
+      t.generation = generation;
       registered = true;
     }
   }
   if (!registered)
-    m_tiledTargets.append({canvas, workspace, sampleIndex});
+    m_tiledTargets.append({canvas, workspace, sampleIndex, generation});
   for (int i = m_tiledTargets.size() - 1; i >= 0; --i)
     if (!m_tiledTargets[i].canvas)
+      m_tiledTargets.removeAt(i);
+}
+
+void DataPreviewTabs::unregisterTiledTarget(QWidget *canvas)
+{
+  for (int i = m_tiledTargets.size() - 1; i >= 0; --i)
+    if (!m_tiledTargets[i].canvas || m_tiledTargets[i].canvas == canvas)
       m_tiledTargets.removeAt(i);
 }
 

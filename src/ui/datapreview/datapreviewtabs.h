@@ -239,7 +239,8 @@ class DataPreviewTabs : public QWidget
     // 每服务接一次（m_tiledSignalService 记已接线的服务，门面重挂时自动重接）；
     // registerTiledTarget 在每次瓦片请求前登记/顶替该画布的世代表。
     void connectTiledTileRoute(seismic::SeismicTaskService *tileService);
-    void registerTiledTarget(QWidget *canvas, const QString &workspace, int sampleIndex);
+    void registerTiledTarget(QWidget *canvas, const QString &workspace, int sampleIndex, quint64 generation = 0);
+    void unregisterTiledTarget(QWidget *canvas);
 
   // 视图侧持有的数据门面：一切解析/解码/SHA/PDF 编排都经它（W1 下沉）。
   PreviewDocService *m_doc = nullptr;             // 挂接的门面（非持有）
@@ -284,15 +285,15 @@ class DataPreviewTabs : public QWidget
     QHash<QString, LasPending> m_pendingLas;
 
     // 瓦片渐进时间片（wave/seismic-engine-deep 主线2）：服务信号是广播的，
-    // 这里按「画布 → (工作区, 采样号)」登记世代表逐项匹配——只有工作区
-    // 身份与采样号同时对上的画布才收瓦片；旧请求（同画布被新采样顶替）、
+    // 这里按「画布 → (工作区, 采样号, 世代号)」登记表逐项匹配；旧请求和
     // 其他资产标签的瓦片一律丢弃。m_tiledSignalService 记已接线的服务，
     // 门面重挂（换服务实例）时自动重接。
     struct TiledTarget
     {
       QPointer<QWidget> canvas; // SeismicSectionCanvas（cpp 内 qobject_cast）
-      QString workspace;        // .sf3p 分页工作区路径（请求身份）
+      QString workspace;        // 工作区或原生 SEG-Y 路径（请求身份）
       int sampleIndex = -1;
+      quint64 generation = 0;
     };
     QPointer<QObject> m_tiledSignalService;
     QVector<TiledTarget> m_tiledTargets;

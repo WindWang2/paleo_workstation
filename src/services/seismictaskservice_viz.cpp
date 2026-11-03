@@ -111,7 +111,8 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     int tileSize,
     int focusInline,
     int focusXline,
-    std::function<void(bool, std::shared_ptr<const SgySliceImage>, const QString &)> onFinished)
+    std::function<void(bool, std::shared_ptr<const SgySliceImage>, const QString &)> onFinished,
+    quint64 tileGeneration)
 {
   if (!taskService_)
   {
@@ -138,7 +139,7 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
   const QPointer<SeismicTaskService> self(this); // 仅作瓦片投递目标；条目走 registry
   const auto registry = registry_;
 
-  auto work = [self, registry, sf3pPath, sampleIndex, tileSize, focusInline, focusXline, outImage](
+  auto work = [self, registry, sf3pPath, sampleIndex, tileSize, focusInline, focusXline, outImage, tileGeneration](
                   PaleoTask *task) -> QString {
     const auto entry = datasetEntryFor(registry, sf3pPath, sdk::Backend::Paged);
     if (!entry || !entry->dataset)
@@ -150,7 +151,7 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     // 瓦片在 worker 线程回调里产生：排队投递回服务所在线程发射 timeSliceTileReady；
     // 服务已析构则静默丢弃（UI 侧另有世代号过滤陈旧瓦片）。payload 带
     // datasetPath（请求身份）——广播信号下两个标签页同采样号也不会串画布。
-    auto publish = [self, task, sf3pPath, sampleIndex](int x, int y, engine::Slice2D &&tile,
+    auto publish = [self, task, sf3pPath, sampleIndex, tileGeneration](int x, int y, engine::Slice2D &&tile,
                                                        int completed, int total) -> bool {
       if (task->cancelRequested())
         return false;
@@ -158,6 +159,7 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
       SeismicTimeTile payload;
       payload.sampleIndex = sampleIndex;
       payload.datasetPath = sf3pPath;
+      payload.generation = tileGeneration;
       payload.x = x;
       payload.y = y;
       payload.completed = completed;
@@ -174,6 +176,9 @@ PaleoTask *SeismicTaskService::startTimeSliceTiled(
     engine::Status status;
     {
       QMutexLocker lock(&entry->mutex);
+      const auto lodStatus = entry->dataset->SetActiveLod(0);
+      if (!lodStatus.ok())
+        return QObject::tr("无法切换到分页全分辨率层：%1").arg(QString::fromStdString(lodStatus.message));
       status = entry->dataset->ReadTimeSliceTiled(sampleIndex, tileSize, focusInline,
                                                   focusXline, publish, full, &cancel);
     }

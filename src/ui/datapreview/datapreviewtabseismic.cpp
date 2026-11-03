@@ -771,13 +771,12 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     const double ms=nativeInfo->firstTimeMs+index*nativeInfo->sampleIntervalMs;
     lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms,0,'f',1));
     auto* service=m_doc?m_doc->seismicTaskService():nullptr;
-    if(!service){nativeCanvas->setNoDataReason(tr("后台地震服务未连接"));return;}
-    *nativeRead=service->startDataSlice(abs,seismic::SgySliceType::Time,index,
-      [nativeCanvas,nativeInfo,pendingIdx,index,ms,nativeGeneration,generation](bool ok,std::shared_ptr<const seismic::SgySliceImage> image,const QString& error){
-        if(!nativeCanvas||*pendingIdx!=index||*nativeGeneration!=generation)return;
-        if(!ok||!image){nativeCanvas->clearData();nativeCanvas->setNoDataReason(QObject::tr("时间切片获取失败\n%1").arg(error));return;}
-        nativeCanvas->setTimeSliceData(*image,ms,nativeInfo->inlineMin,nativeInfo->inlineMax,nativeInfo->xlineMin,nativeInfo->xlineMax);
-      });
+    if(!service){nativeCanvas->setNoDataReason(tr("后台地震服务未连接"));return;}connectTiledTileRoute(service);
+    registerTiledTarget(nativeCanvas,abs,index,generation);nativeCanvas->beginTimeSliceTiled(nativeInfo->xlineCount,nativeInfo->inlineCount,ms,nativeInfo->inlineMin,nativeInfo->inlineMax,nativeInfo->xlineMin,nativeInfo->xlineMax);
+    const auto apply=[this,nativeCanvas,nativeInfo,pendingIdx,index,ms,nativeGeneration,generation](bool ok,std::shared_ptr<const seismic::SgySliceImage> image,const QString& error){
+      if(!nativeCanvas||*pendingIdx!=index||*nativeGeneration!=generation)return;unregisterTiledTarget(nativeCanvas);
+      if(!ok||!image){nativeCanvas->clearData();nativeCanvas->setNoDataReason(QObject::tr("时间切片获取失败\n%1").arg(error));return;}nativeCanvas->finishTimeSliceTiled(*image);};
+    *nativeRead=service->startDataSlice(abs,seismic::SgySliceType::Time,index,apply,generation);
   };
   connect(host,&QObject::destroyed,this,[nativeRead]{if(*nativeRead)(*nativeRead)->requestCancel();});
   connect(sliceDebounce,&QTimer::timeout,host,[pendingIdx,requestTimeSlice]{if(*pendingIdx>=0)requestTimeSlice(*pendingIdx);});
@@ -810,8 +809,8 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     });
     connect(host,&QObject::destroyed,service,[infoTask]{if(infoTask)infoTask->requestCancel();});
   }
-  connect(modeTabs, &QTabWidget::currentChanged, host, [ensureVolumeLoaded, panel3d, timeCanvas, updateTimeSlice, sliderTime,nativeRead,nativeGeneration,sliceDebounce](int idx) {
-    if(idx!=2){sliceDebounce->stop();++*nativeGeneration;if(*nativeRead)(*nativeRead)->requestCancel();}
+  connect(modeTabs, &QTabWidget::currentChanged, host, [this,ensureVolumeLoaded, panel3d, timeCanvas, updateTimeSlice, sliderTime,nativeRead,nativeGeneration,sliceDebounce](int idx) {
+    if(idx!=2){sliceDebounce->stop();++*nativeGeneration;unregisterTiledTarget(timeCanvas);if(*nativeRead)(*nativeRead)->requestCancel();}
     if (idx == 1)
     {
       ensureVolumeLoaded();

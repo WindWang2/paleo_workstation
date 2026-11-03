@@ -15,11 +15,15 @@
 #include <QSet>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QtGlobal>
 
 #include <qgscoordinatereferencesystem.h>
 #include <qgsmaplayer.h>
+#include <qgslayertree.h>
+#include <qgslayertreelayer.h>
 #include <qgsproject.h>
+#include <qgsproviderregistry.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 
@@ -53,6 +57,20 @@ void applyConstraintDisplayName(QgsMapLayer *layer, const QString &layerId, cons
     if (svc)
       return svc->project();
     return QgsProject::instance();
+  }
+
+  QString vectorSourceKey(const QString &source)
+  {
+    auto parts = QgsProviderRegistry::instance()->decodeUri(QStringLiteral("ogr"), source);
+    const QFileInfo file(parts.value(QStringLiteral("path")).toString());
+    if (file.filePath().isEmpty()) return {};
+    QString path = file.canonicalFilePath();
+    if (path.isEmpty()) path = file.absoluteFilePath();
+#ifdef Q_OS_WIN
+    path = path.toCaseFolded();
+#endif
+    parts.insert(QStringLiteral("path"), QDir::cleanPath(path));
+    return QString::fromUtf8(QJsonDocument::fromVariant(parts).toJson(QJsonDocument::Compact));
   }
 } // namespace
 
@@ -157,6 +175,13 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
 
 QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *error)
 {
+  if (layerId == QLatin1String("boundary.project_range")) {
+    const auto decl = declaration(layerId);
+    if (!decl.layerId.isEmpty()) {
+      if (auto *existing = reconcileProjectBoundary(decl)) return existing;
+      m_instances.remove(layerId);
+    }
+  }
   if (QgsMapLayer *existing = m_instances.value(layerId).data())
   {
     // Paranoia guard: compare pointer identity against the project's live set
@@ -234,7 +259,6 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     layer->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
   else
     applyConstraintDisplayName(layer.get(), decl->layerId, {});
-  layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
   // P1-C：约束库 GPKG 层无 SRS——按库约定补本地工程网格 CRS，画布按工程
   // 转换上下文显示（配准工程走显式坐标操作），不再把无 CRS 层当画布坐标。
   paleo::constraintcrs::assignStoreCrsIfMissing(layer.get());
@@ -262,6 +286,11 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     if(auto *vector=qobject_cast<QgsVectorLayer *>(layer.get()))vector->setReadOnly(true);
   }
 
+  // QML includes custom properties and can replace them wholesale. Apply the
+  // service identity AFTER styles, before registry/tree signals can observe it.
+  layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
+  trackInstance(layerId, layer.get());
+
   // QgsProject takes ownership; keep only the raw pointer in the instance map.
   QgsMapLayer *added = proj->addMapLayer(layer.get());
   if (!added)
@@ -277,7 +306,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
         QStringLiteral("paleoCreatedAt"),
         QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
 
-  trackInstance(layerId, added);
+  if (layerId == QLatin1String("boundary.project_range")) reconcileProjectBoundary(*decl);
   emit layerInstantiated(layerId);
   return added;
 }
@@ -497,6 +526,44 @@ void QgisLayerService::adoptProjectLayers()
       trackInstance(paleoId, it.value());
     }
   }
+  const auto boundary = declaration(QStringLiteral("boundary.project_range"));
+  if (!boundary.layerId.isEmpty()) reconcileProjectBoundary(boundary);
+}
+
+QgsMapLayer *QgisLayerService::reconcileProjectBoundary(const LayerDeclaration &decl)
+{
+  auto *project = svcProject(m_projectSvc);
+  const auto sourceKey = vectorSourceKey(decl.source);
+  if (!project || sourceKey.isEmpty()) return nullptr;
+  QList<QgsVectorLayer *> copies;
+  QgsVectorLayer *keeper = nullptr;
+  bool checked = false;
+  for (auto *layer : project->mapLayers()) {
+    auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+    if (!vector || vector->providerType() != QLatin1String("ogr")) continue;
+    const auto identity = vector->customProperty(QStringLiteral("paleoLayerId")).toString();
+    const bool sameSource = vectorSourceKey(vector->source()) == sourceKey;
+    if (identity != decl.layerId && !(identity.isEmpty() && sameSource)) continue;
+    copies.append(vector);
+    if (auto *node = project->layerTreeRoot()->findLayer(vector->id()))
+      checked = checked || node->itemVisibilityChecked();
+    if (sameSource && vector->isValid() && (!keeper || vector == m_instances.value(decl.layerId).data()))
+      keeper = vector;
+  }
+  // A replacement must open successfully before any old instances are removed.
+  if (!keeper) return nullptr;
+  keeper->setCustomProperty(QStringLiteral("paleoLayerId"), decl.layerId);
+  applyConstraintDisplayName(keeper, decl.layerId, decl.title);
+  if (!keeper->isEditable()) keeper->setReadOnly(true);
+  if (m_instances.value(decl.layerId).data() != keeper) trackInstance(decl.layerId, keeper);
+  if (auto *node = project->layerTreeRoot()->findLayer(keeper->id())) node->setItemVisibilityChecked(checked);
+  QStringList redundant;
+  for (auto *copy : copies)
+    if (copy != keeper && !copy->isEditable()) redundant.append(copy->id());
+  // Registry removal only: derived files, catalogue versions and manual layers
+  // with another identity are preserved. Editable copies retain their buffers.
+  if (!redundant.isEmpty()) project->removeMapLayers(redundant);
+  return keeper;
 }
 
 QgsMapLayer *QgisLayerService::layer(const QString &layerId) const

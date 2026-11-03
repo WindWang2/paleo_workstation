@@ -75,6 +75,9 @@ class QgisLayerService : public QObject
     // Re-register .qgz-restored layers (paleoLayerId custom property) into
     // m_instances on projectOpened — see .cpp for the full #287 rationale.
     void adoptProjectLayers();
+    // Repair old range instances whose QML erased the stable identity. Only
+    // the declared source (or explicitly tagged range copies) is eligible.
+    QgsMapLayer *reconcileProjectBoundary(const LayerDeclaration &decl);
 
     QgisProjectService *m_projectSvc;
     LayerManifest *m_manifest;

@@ -72,6 +72,9 @@ struct TdSample
   double tvd = qQNaN();       // true vertical depth, meters (NaN = -99999/缺列)
   double md = qQNaN();        // measured depth, meters (NaN = -99999/缺列)
   QString timeReference;     // confirmed datum from data service; empty for legacy unknowns
+  double x = qQNaN(), y = qQNaN(), z = qQNaN(); // source Z retained; XY normalized to positionCrs
+  QString positionCrs, positionSource, positionError;
+  qlonglong timeDepthId = 0;
 };
 
 struct HorizonRasterInfo
@@ -138,8 +141,8 @@ class ProjectDataFacade : public QObject
     // 无深度锚/链接未决不收。综合柱状图图片道与连井剖面图片道共用此查询。
     QVector<WellImageAnchor> imagesFor(const QString &wellId) const;
     // 主 trajectory 链接（primary、非 unresolved）的测斜站表 → 三维轨迹。
-    // 三态（方向 69）：有效站表 → survey；无链接 → nullopt（= 直井，显式
-    // 语义不告警：调用方保持原垂直路径，绝不虚构造斜）；文件不可读/站表
+    // 三态（方向 69）：有效站表 → survey；无资料 → nullopt（不等于直井，
+    // 沿井时深 XYZ 可另行提供轨迹）；文件不可读/站表
     // 无效 → nullopt + 记因。error 出参按本次调用写明（无链接 = 空串；
     // 坏文件/坏表 = 具体原因）——不依赖 lastError 跨调用残留。失败原因
     // 同样记 lastError。

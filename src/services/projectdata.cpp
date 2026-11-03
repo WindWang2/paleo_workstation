@@ -1,5 +1,6 @@
 // 层：数据
 #include "projectdata.h"
+#include "projectdeviationsurvey.h"
 #include "stratigraphymodel.h"
 
 #include "../catalog/datacatalog.h"
@@ -400,8 +401,19 @@ QVector<WellImageAnchor> ProjectDataFacade::imagesFor(const QString &wellId) con
 std::optional<paleo::WellDeviationSurvey>
 ProjectDataFacade::trajectoryFor(const QString &wellId, QString *error) const
 {
+  m_lastError.clear();
   if (error)
     error->clear();
+  const auto entity=m_catalog?m_catalog->entityById(wellId):CatalogEntity{};
+  qlonglong source=0;
+  if(m_catalog)for(const auto& link:m_catalog->linksForEntity(wellId))
+    if(!link.unresolved&&link.isPrimary&&link.role==QLatin1String("trajectory")){
+      source=m_catalog->currentVersion(link.assetId).extra.value("areaModelSourceId").toLongLong();break;
+    }
+  std::optional<paleo::WellDeviationSurvey> nativeSurvey;QString nativeError;
+  const auto nativeState=readProjectDeviation(projectDir(),entity.extra.value("areaModelWellId").toLongLong(),source,nativeSurvey,&nativeError);
+  if(nativeState==ProjectDeviationRead::Failed){m_lastError=nativeError;if(error)*error=nativeError;return std::nullopt;}
+  if(nativeState==ProjectDeviationRead::Ready)return nativeSurvey;
   const QString path = assetFilePathFor(wellId, QStringLiteral("trajectory"));
   if (path.isEmpty() || !QFile::exists(path))
     return std::nullopt; // 无链接 = 直井（显式语义，不告警；与 topsFor/tdTableFor 同口径）

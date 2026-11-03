@@ -66,7 +66,8 @@ signals:
 private:
   PaleoTaskService *m_tasks = nullptr;
   void syncProject();
-  seismic::TimeDepthModel modelFor(const QString &id, bool md, bool *ok) const;
+  seismic::TimeDepthModel modelFor(const QString &id, bool md, bool *ok,
+                                   const QVector<TdSample> *samples = nullptr) const;
   QString projectDir() const;
   bool storeCalibrations(const QVariantMap &calibrations, QString *error) const;
   QPointer<DataCatalog> m_catalog;

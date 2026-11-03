@@ -36034,6 +36034,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>读取测线振幅</source>
         <translation>Reading line amplitudes</translation>
     </message>
+    <message>
+        <source>轨迹坐标系无效，未叠加井轨迹</source>
+        <translation>Invalid trajectory CRS; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>轨迹坐标转换失败，未叠加井轨迹</source>
+        <translation>Trajectory coordinate transformation failed; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>测斜轨迹</source>
+        <translation>Survey trajectory</translation>
+    </message>
+    <message>
+        <source>时深表 X/Y 恒定，缺少可还原斜井的 Survey，未叠加井身</source>
+        <translation>Time-depth X/Y are constant; a Survey is required to reconstruct the deviated well. Wellbore not overlaid</translation>
+    </message>
+    <message>
+        <source>测斜方位未声明为网格北，不能直接投射到地震坐标</source>
+        <translation>Survey azimuth is not declared relative to grid north; direct seismic projection is unavailable</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>

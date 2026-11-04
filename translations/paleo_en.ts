@@ -3758,6 +3758,46 @@
         <source>所选地震层段内的井点数据</source>
         <translation>Well inputs within the selected seismic interval</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="36"/>
+        <source>GR 估算参数（解释不足时使用）</source>
+        <translation>GR estimate parameters (used when interpretation is insufficient)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_generate.cpp" line="918"/>
+        <source>任务完成</source>
+        <translation>Task complete</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39"/>
+        <source>允许的最大采样间隔（米）</source>
+        <translation>Maximum allowed sample interval (m)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38"/>
+        <source>泥岩 GR 基线</source>
+        <translation>Shale GR baseline</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39"/>
+        <source>砂层泥质指标上限</source>
+        <translation>Sand Vshale upper limit</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38"/>
+        <source>砂岩 GR 基线</source>
+        <translation>Sandstone GR baseline</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="42"/>
+        <source>自动（全井 P05 / P95）</source>
+        <translation>Auto (whole-well P05 / P95)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="44"/>
+        <source>自动（典型采样间隔的三倍）</source>
+        <translation>Auto (3× typical sample interval)</translation>
+    </message>
 </context>
     <context>
         <name>ConstraintWorkflow</name>
@@ -5122,7 +5162,22 @@
             <source>未知制图策略 id：%1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <location filename="../src/workflow/constraintwellfactors.cpp" line="646"/>
+        <source>可计算 %1 井，其中 %2 井有坐标参与成图。</source>
+        <translation>%1 wells are computable; %2 of them have coordinates for mapping.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/constraintworkflow.cpp" line="107"/>
+        <source>工区范围不可用：%1</source>
+        <translation>Project extent unavailable: %1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/constraintworkflow.cpp" line="129"/>
+        <source>工区范围（井位与地震）</source>
+        <translation>Project extent (wells and seismic)</translation>
+    </message>
+</context>
     <context>
         <name>CrossplotSources</name>
         <message>
@@ -35945,6 +36000,36 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>地震体或 XY 测网未就绪，不能生成剖面</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="826"/>
+        <source>加载地震层位</source>
+        <translation>Loading seismic horizons</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="860"/>
+        <source>地震层位加载已取消</source>
+        <translation>Seismic horizon load cancelled</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/projectmapreference.cpp" line="44"/>
+        <source>工区范围或坐标系无效</source>
+        <translation>Project extent or CRS is invalid</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/projectmapreference.cpp" line="49"/>
+        <source>工区范围样式保存失败</source>
+        <translation>Failed to save project-extent style</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="825"/>
+        <source>振幅已就绪，正在加载地震层位</source>
+        <translation>Amplitudes ready; loading seismic horizons</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="809"/>
+        <source>读取测线振幅</source>
+        <translation>Reading line amplitudes</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -38974,7 +39059,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>分页工作区断点文件不可读：%1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <location filename="../src/services/seismictaskservice_data.cpp" line="101"/>
+        <source>读取水平时间切片</source>
+        <translation>Reading horizontal time slice</translation>
+    </message>
+</context>
     <context>
         <name>SeismicWellTraceLocate</name>
         <message>

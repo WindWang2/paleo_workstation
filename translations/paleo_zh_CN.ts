@@ -3773,6 +3773,46 @@
         <source>所选地震层段内的井点数据</source>
         <translation>所选地震层段内的井点数据</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="36"/>
+        <source>GR 估算参数（解释不足时使用）</source>
+        <translation>GR 估算参数（解释不足时使用）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_generate.cpp" line="918"/>
+        <source>任务完成</source>
+        <translation>任务完成</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39"/>
+        <source>允许的最大采样间隔（米）</source>
+        <translation>允许的最大采样间隔（米）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38"/>
+        <source>泥岩 GR 基线</source>
+        <translation>泥岩 GR 基线</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39"/>
+        <source>砂层泥质指标上限</source>
+        <translation>砂层泥质指标上限</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38"/>
+        <source>砂岩 GR 基线</source>
+        <translation>砂岩 GR 基线</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="42"/>
+        <source>自动（全井 P05 / P95）</source>
+        <translation>自动（全井 P05 / P95）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="44"/>
+        <source>自动（典型采样间隔的三倍）</source>
+        <translation>自动（典型采样间隔的三倍）</translation>
+    </message>
 </context>
 <context>
     <name>ConstraintWorkflow</name>
@@ -5136,6 +5176,21 @@
         <location filename="../src/workflow/constraintwellfactors.cpp" line="1129"/>
         <source>未知制图策略 id：%1</source>
         <translation>未知制图策略 id：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/constraintwellfactors.cpp" line="646"/>
+        <source>可计算 %1 井，其中 %2 井有坐标参与成图。</source>
+        <translation>可计算 %1 井，其中 %2 井有坐标参与成图。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/constraintworkflow.cpp" line="107"/>
+        <source>工区范围不可用：%1</source>
+        <translation>工区范围不可用：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/constraintworkflow.cpp" line="129"/>
+        <source>工区范围（井位与地震）</source>
+        <translation>工区范围（井位与地震）</translation>
     </message>
 </context>
 <context>
@@ -36100,6 +36155,36 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>地震体或 XY 测网未就绪，不能生成剖面</source>
         <translation>地震体或 XY 测网未就绪，不能生成剖面</translation>
     </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="826"/>
+        <source>加载地震层位</source>
+        <translation>加载地震层位</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="860"/>
+        <source>地震层位加载已取消</source>
+        <translation>地震层位加载已取消</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/projectmapreference.cpp" line="44"/>
+        <source>工区范围或坐标系无效</source>
+        <translation>工区范围或坐标系无效</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/projectmapreference.cpp" line="49"/>
+        <source>工区范围样式保存失败</source>
+        <translation>工区范围样式保存失败</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="825"/>
+        <source>振幅已就绪，正在加载地震层位</source>
+        <translation>振幅已就绪，正在加载地震层位</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="809"/>
+        <source>读取测线振幅</source>
+        <translation>读取测线振幅</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -39141,6 +39226,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>分页工作区断点文件不可读：%1</source>
         <translation type="vanished">分页工作区断点文件不可读：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/services/seismictaskservice_data.cpp" line="101"/>
+        <source>读取水平时间切片</source>
+        <translation>读取水平时间切片</translation>
     </message>
 </context>
 <context>

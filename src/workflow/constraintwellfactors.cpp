@@ -643,7 +643,7 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
               .arg(profile.note);
       if(autoFactorId==QLatin1String("sandratio")){
         const auto computed=std::count_if(result.rows.begin(),result.rows.end(),[](const auto &row){return row.toMap().value("calculated").toBool();});
-        result.message+=ConstraintWorkflow::tr(" 可计算 %1 井，其中 %2 井有坐标参与成图。").arg(computed).arg(okCount);
+        result.message+=ConstraintWorkflow::tr("可计算 %1 井，其中 %2 井有坐标参与成图。").arg(computed).arg(okCount);
       }
     }
     else

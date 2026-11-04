@@ -6,15 +6,33 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QTimer>
+#include <QDataStream>
+#include <QCryptographicHash>
 #include <cmath>
 
 namespace seismic {
 namespace {
 std::string nativePlaneKey(const QString& path,SgySliceType type,int index) {
  const QFileInfo file(path);
+ // SQLite WAL checkpoints and unrelated result publication are not a change of
+ // seismic source. Key amplitudes by the registered volume's actual conventions;
+ // startDataPlane refreshes horizon overlays separately on every request.
+ paleo::SeismicDataAccess source;QString error;QByteArray bytes;QDataStream identity(&bytes,QIODevice::WriteOnly);
+ if(!source.open(path,&error))identity<<error;
+ else if(source.registered()) {
+  paleo::data::SeismicVolume volume;std::string detail;
+  if(!source.volume(volume,detail))identity<<QString::fromStdString(detail);
+  else {const auto &g=volume.geometry;const auto &s=volume.sampling;
+   identity<<source.projectDirectory()<<volume.volumeId<<QString::fromStdString(volume.dataFile)
+     <<g.traceCount<<g.inlineMin<<g.inlineMax<<g.crosslineMin<<g.crosslineMax
+     <<QString::fromStdString(g.coordinateSystem)<<QString::fromStdString(g.coordinateUnit)
+     <<s.sampleCount<<s.firstTime<<s.sampleInterval<<QString::fromStdString(s.timeUnit)
+     <<QString::fromStdString(s.timeType)<<QString::fromStdString(s.timeReference);
+  }
+ }
  return (QStringLiteral("native-plane:%1:%2:%3:%4:%5:%6:%7").arg(file.absoluteFilePath()).arg(int(type)).arg(index)
     .arg(file.size()).arg(file.lastModified().toMSecsSinceEpoch()).arg(file.metadataChangeTime().toMSecsSinceEpoch())
-    .arg(paleo::area_model::cacheToken(path))).toStdString();
+    .arg(QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex()))).toStdString();
 }
 }
 PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType type,int index,

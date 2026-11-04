@@ -263,6 +263,7 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
     const double delta = ( stop - start ) / static_cast<double>( count - 1 );
     for ( int i = 0; i < count; ++i )
       axis[static_cast<std::size_t>( i )] = start + i * delta;
+    axis.back() = stop;
     return axis;
   };
   // Python round() = half-even → std::nearbyint
@@ -302,6 +303,7 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
     for ( std::size_t c = 0; c < xs.size(); ++c )
     {
       const std::size_t idx = r * xs.size() + c;
+      if ( request.includeBoundaryNodes ) result.validMask[idx] = intersectsDomain( xs[c], ys[r] );
       if ( result.validMask[idx] && intersectsDomain( xs[c], ys[r] ) )
         result.regionIds[idx] = 0;
     }

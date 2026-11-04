@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QUuid>
+#include <cmath>
 #include <gdal.h>
 #include <qgsattributetableconfig.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -174,11 +175,14 @@ bool points(const QString &path,const QVariantList &points,const QString &crs,QS
     if (props.value(MappingFeatureIdentity::UidField).toString().trimmed().isEmpty())
       props.insert(MappingFeatureIdentity::UidField,
                    QUuid::createUuid().toString(QUuid::WithoutBraces));
-    const double x = props.take("x").toDouble(), y = props.take("y").toDouble();
+    bool xOk = false, yOk = false;
+    const double x = props.take("x").toDouble(&xOk), y = props.take("y").toDouble(&yOk);
+    QJsonValue geometry(QJsonValue::Null);
+    if (xOk && yOk && std::isfinite(x) && std::isfinite(y))
+      geometry = QJsonObject{{"type", "Point"}, {"coordinates", QJsonArray{x, y}}};
     features.append(QJsonObject{
         {"type", "Feature"},
-        {"geometry",
-         QJsonObject{{"type", "Point"}, {"coordinates", QJsonArray{x, y}}}},
+        {"geometry", geometry},
         {"properties", QJsonObject::fromVariantMap(props)}});
   }
   QJsonObject root{

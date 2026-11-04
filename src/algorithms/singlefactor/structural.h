@@ -64,6 +64,7 @@ struct StructuralRequest
   double power = 2.0;
   int resolution = 339; // 已按 resolvePerformanceGridResolution 封顶后的有效分辨率
   bool extendTrendToBoundary = true;
+  bool includeBoundaryNodes = false; // Explicit whole-survey coverage; legacy reference mask remains the default.
   bool enableBarriers = true;
   bool enableDirections = true;
   double searchRadius = 0;

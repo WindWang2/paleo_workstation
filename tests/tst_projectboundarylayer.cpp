@@ -6,6 +6,7 @@
 #include <qgsproject.h>
 #include <qgsvectorlayer.h>
 #include "../src/metadata/layermanifest.h"
+#include "../src/catalog/datacatalog.h"
 #include "../src/qgis/projectmapreference.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
@@ -36,6 +37,7 @@ private slots:
     const auto path = tmp.filePath("project_range.gpkg");
     QVERIFY2(paleo::mapreference::writeAreaRange(path, QgsRectangle(300000, 2300000, 310000, 2310000),
                                               QgsCoordinateReferenceSystem("EPSG:32650"), &error), qPrintable(error));
+    const auto checksum = DataCatalog::sha256FileHex(path);
     LayerManifest manifest(tmp.filePath("manifest.sqlite")); QVERIFY(manifest.open(&error));
     QgisLayerService service(nullptr, &manifest); const auto d = boundary(path);
     QVERIFY(service.declare(d, &error)); auto *layer = service.instantiate(boundaryId, &error);
@@ -49,6 +51,7 @@ private slots:
     QCOMPARE(service.instantiate(boundaryId)->customProperty("paleoLayerId").toString(), boundaryId);
     QCOMPARE(QgsProject::instance()->mapLayers().size(), 1);
     QgsProject::instance()->clear();
+    QCOMPARE(DataCatalog::sha256FileHex(path), checksum);
   }
   void restoredCopiesCollapseWithoutTouchingOtherLayersOrFiles() {
     QTemporaryDir tmp; QString error; const auto path = tmp.filePath("project_range.gpkg");

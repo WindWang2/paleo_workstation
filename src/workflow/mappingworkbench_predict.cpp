@@ -206,7 +206,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     }
   }
   if (seen.size() != QSet<QString>(ids.cbegin(), ids.cend()).size()) {
-    fail(error, tr("输入缺少可读源文件、测井曲线或有效井坐标，请检查数据管理"));
+    fail(error, tr("输入缺少可读源文件或测井曲线，请检查数据管理"));
     return false;
   }
   request.sourceVersionIds << schemaVersion(h);

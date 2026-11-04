@@ -841,6 +841,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
   runParams.insert( QStringLiteral( "SEARCH_RADIUS" ), params.value( QStringLiteral( "searchRadius" ), 0.0 ) );
   runParams.insert( QStringLiteral( "EXTEND_TO_BOUNDARY" ),
                     params.value( QStringLiteral( "extendToBoundary" ), true ) );
+  runParams.insert( QStringLiteral( "INCLUDE_BOUNDARY_NODES" ), params.value("boundaryLayerId")=="boundary.project_range" && params.value("coverage")=="domain_extrapolation" );
   runParams.insert( QStringLiteral( "ENABLE_BARRIERS" ),
                     params.value( QStringLiteral( "enableBarriers" ), true ) );
   runParams.insert( QStringLiteral( "ENABLE_DIRECTIONS" ),

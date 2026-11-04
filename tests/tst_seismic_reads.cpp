@@ -19,6 +19,26 @@
 class TestSeismicReads : public QObject {
   Q_OBJECT
 private slots:
+  void registeredPlaneSurvivesUnrelatedPublicationButTracksVolumeConventions() {
+    QTemporaryDir temp;const auto project=temp.filePath("project"),path=temp.filePath("native.sgy");
+    QVERIFY(SeismicHorizonFixture::writeFile(path,SeismicHorizonFixture::buildVolume()));
+    paleo::data::DataService ds;std::string detail;
+    QVERIFY(ds.createProject(paleo::area_model::directory(project).toStdString(),"test",detail));
+    paleo::data::ImportReport report;paleo::data::ImportOptions options;options.copySources=false;
+    QVERIFY(ds.importFile(path.toStdString(),options,report,detail));
+    struct Binding{~Binding(){paleo::area_model::unregisterProject(this);}}binding;
+    paleo::area_model::registerProject(project,&binding);
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false,ok=false;
+    service.startDataPlane(path,seismic::SgySliceType::Inline,100,[&](bool success,auto image,const auto&,const auto&){ok=success&&image;done=true;});
+    QVERIFY(ds.setProjectCrs("EPSG:32650","m",detail)); // DB write while the section task is in flight.
+    QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(ok);
+    std::vector<paleo::data::DataEntry> entries;QVERIFY(ds.listData("volumes",0,entries,detail));
+    paleo::data::SeismicVolume volume;QVERIFY(ds.readVolume(entries.front().id,volume,detail));
+    done=false;service.startDataSlice(path,seismic::SgySliceType::Inline,100,[&](bool success,auto,const auto&){ok=success;done=true;});
+    volume.sampling.timeReference="changed during queued delivery";
+    QVERIFY(ds.saveVolume(entries.front().id,volume,detail));
+    QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(!ok);
+  }
   void previewDeliversAmplitudeBeforeOverlayAndDropsSupersededResults() {
     QTemporaryDir temp;const auto path=temp.filePath("native.sgy");
     QVERIFY(SeismicHorizonFixture::writeFile(path,SeismicHorizonFixture::buildVolume()));

@@ -26,12 +26,14 @@
 #include "qgis/qgisprocessingservice.h"
 #include "qgis/mappingartifactwriter.h"
 #include "qgis/seismicwellcalibration.h"
+#include "qgis/factorwellcoordinates.h"
 #include "services/subintervalfactors.h"
 #include "workflow/workflows.h"
 #include "workflow/mappingworkbench.h"
 #include "workflow/derivedassets.h"
 #include "workflow/analysisresultsync.h"
 #include "workflow/mockseismicinputs.h"
+#include "workflow/projectareasummary.h"
 #include "ui/pages/mappingworkbenchpage.h"
 #include "domain/faciescatalog.h"
 #include "io/areamodel.h"
@@ -101,6 +103,32 @@ struct MockUnitFixture {
 class MockSeismicUnitTest:public QObject {
   Q_OBJECT
 private slots:
+  void factorCoordinatesUseNativeWellIdentityAndKeepMissingUnlocated(){
+    MockUnitFixture f;QVERIFY(f.init());FactorWellCoordinates coordinates;
+    QVERIFY2(readFactorWellCoordinates(&f.catalog,f.project,coordinates,&f.error),qPrintable(f.error));
+    QCOMPARE(coordinates.crs.authid(),QString("EPSG:32650"));
+    const auto legacy=QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+    const auto wrong=QgsGeometry::fromPointXY(QgsPointXY(999,999));
+    QCOMPARE(coordinates.resolve("0",wrong,legacy).asPoint(),QgsPointXY(0,40));
+    std::vector<paleo::data::WellSummary> wells;QVERIFY(f.ds.listWells(wells,f.detail));
+    for(const auto &well:wells)if(well.name=="W0"){
+      paleo::data::WellInfo info;QVERIFY(f.ds.readWellInfo(well.id,info,f.detail));
+      info.wellheadX=NAN;info.wellheadY=NAN;QVERIFY(f.ds.saveWellInfo(well.id,info,f.detail));
+    }
+    QVERIFY(readFactorWellCoordinates(&f.catalog,f.project,coordinates,&f.error));
+    QVERIFY(coordinates.resolve("0",wrong,legacy).isEmpty());
+    QVERIFY(coordinates.resolve("unbound",wrong,legacy).isEmpty());
+  }
+  void dashboardIncludesNativeSubintervalProducts(){
+    MockUnitFixture f;QVERIFY(f.init());QVERIFY(!f.saveWells(f.unit()).isEmpty());
+    const auto summary=ProjectAreaSummary::snapshot(&f.catalog);
+    QCOMPARE(summary.value("stage_counts").toMap().value("well").toInt(),1);
+    bool found=false;for(const auto &entry:summary.value("horizons").toList()){
+      const auto row=entry.toMap();if(row.value("horizon")==analysisLayerKey(f.unit())){
+        found=true;QVERIFY(row.value("well").toBool());}
+    }
+    QVERIFY(found);
+  }
   void nativeWindowHasSelectedCrsFullGeometryAndMissingMask(){
     MockUnitFixture f;QVERIFY2(f.init(),qPrintable(f.error+QString::fromStdString(f.detail)));
     const auto grid=clusterSeismicStratigraphicWindow(f.project,f.unit(),f.source,{2,7});
@@ -171,6 +199,14 @@ private slots:
     const auto output=f.temp.filePath("explicit.geojson");
     QVERIFY(MappingArtifactWriter::points(output,{QVariantMap{{"id","W"},{"x",303512.5},{"y",2361325.3}}},crs,&error));
     QgsVectorLayer layer(output,"wells","ogr");QVERIFY(layer.isValid());QCOMPARE(layer.crs().authid(),QString("EPSG:32650"));
+    const auto unlocated=f.temp.filePath("unlocated.geojson");
+    QVERIFY(MappingArtifactWriter::points(unlocated,{QVariantMap{{"id","no-location"},{"facies_code",1}},
+      QVariantMap{{"id","origin"},{"x",0.},{"y",0.}}},crs,&error));
+    QgsVectorLayer table(unlocated,"wells","ogr");QVERIFY(table.isValid());QCOMPARE(table.featureCount(),2);
+    QgsFeature feature;auto features=table.getFeatures();int empty=0,located=0;
+    while(features.nextFeature(feature)){if(feature.attribute("id")=="no-location"){QVERIFY(!feature.hasGeometry());++empty;}
+      else{QVERIFY(feature.hasGeometry());QCOMPARE(feature.geometry().asPoint().x(),0.);++located;}}
+    QCOMPARE(empty,1);QCOMPARE(located,1);
     QVERIFY(!MappingArtifactWriter::points(f.temp.filePath("invalid.geojson"),{},"invalid-crs",&error));
   }
   void cancelledPredictionDoesNotPublish(){

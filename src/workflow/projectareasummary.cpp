@@ -4,9 +4,12 @@
 #include "../domain/mappinghorizons.h"
 #include "../qgis/paleomapsource.h"
 #include "../domain/arearules.h"
+#include "../services/subintervalfactors.h"
+#include "../services/stratigraphicsubintervals.h"
 #include <QFileInfo>
 #include <QSet>
 #include <cmath>
+#include <algorithm>
 namespace ProjectAreaSummary {
 QVariantMap snapshot(const DataCatalog *cat) {
   if (!cat || !cat->isOpen()) return {};
@@ -47,8 +50,18 @@ QVariantMap snapshot(const DataCatalog *cat) {
   const bool configured = !dir.isEmpty() && QFileInfo::exists(AreaRules::configFilePath(dir));
   QVariantList horizons; QVariantMap counts;
   for (const auto &stage : {"well", "seismic", "factor", "map", "output"}) counts.insert(stage, 0);
-  for (const auto &h : mappingHorizons()) {
-    if (!configured && !seen.contains(h.toUpper())) continue;
+  auto horizonOrder = mappingHorizons();
+  paleo::data::StratigraphicScheme scheme;
+  const bool nativeScheme=paleo::strat::loadProjectSchemeFromDir(cat->projectDir(),{},{},scheme);
+  if (nativeScheme) {
+    horizonOrder.clear();
+    for (const auto &sub : scheme.subIntervals)
+      horizonOrder << paleo::strat::layerToken(paleo::strat::makeSelection(scheme,QString::fromStdString(sub.interval.value),sub.index));
+  }
+  auto recorded=seen.values();std::sort(recorded.begin(),recorded.end());
+  for (const auto &h:recorded) if(!horizonOrder.contains(h)) horizonOrder << h;
+  for (const auto &h : horizonOrder) {
+    if (!nativeScheme && !configured && !seen.contains(h.toUpper())) continue;
     QVariantMap row{{"horizon", h}, {"existing_maps", maps.value(h)}};
     for (const auto &stage : {"well", "seismic", "factor", "map", "output"}) {
       const bool present = stages[h].contains(stage); row.insert(stage, present);

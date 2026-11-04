@@ -535,6 +535,24 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void predictionInputsKeepUnlocatedCurveWells() {
+    Fixture fixture;
+    QVERIFY(fixture.init());
+    const auto id = fixture.well("unlocated", 10, 20);
+    QVERIFY(!id.isEmpty());
+    auto well = fixture.catalog.entityById(id);
+    well.hasSurface = false;
+    QVERIFY(fixture.catalog.updateEntity(well));
+    bool found = false;
+    for (const auto &value : fixture.work.inputs("wells")) {
+      const auto row = value.toMap();
+      if (row.value("id") != id) continue;
+      found = true;
+      QVERIFY(!row.contains("x")); QVERIFY(!row.contains("y"));
+      QVERIFY(!row.value("log_version_id").toString().isEmpty());
+    }
+    QVERIFY(found);
+  }
   void editingActionsPreserveMapViewport_data() {
     QTest::addColumn<bool>("contextMenu");
     QTest::newRow("enter-edit-copy") << false;

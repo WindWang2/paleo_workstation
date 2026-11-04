@@ -52,6 +52,18 @@ struct DeviatedFixture {
 class DeviatedSeismicTest:public QObject {
   Q_OBJECT
 private slots:
+  void manualProjectCrsSurvivesConflictingSourceDeclarations(){
+    DeviatedFixture f;QVERIFY(f.init());
+    const auto path=f.temp.filePath("other-crs.txt");QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));file.write("other");file.close();
+    paleo::data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";
+    parsed.coordinateSystems={{"EPSG:32649","m"},{"EPSG:32650","m"}};long long source=0;
+    QVERIFY(f.ds.importPreparedFile(path.toStdString(),path.toStdString(),path.toStdString(),
+      QCryptographicHash::hash("other",QCryptographicHash::Sha256).toHex().toStdString(),parsed,source,f.detail));
+    paleo::data::ProjectCrsInfo crs;QVERIFY(f.ds.readProjectCrsInfo(crs,f.detail));QVERIFY(crs.hasConflict);QCOMPARE(crs.selectionBasis,std::string("manual"));
+    QCOMPARE(paleo::area_model::confirmedProjectCrs(f.project),QString("EPSG:32650"));
+    ProjectDataFacade data;data.setCatalog(&f.catalog,f.project);const auto rows=data.tdTableFor("well-D1");
+    QCOMPARE(rows.size(),4);QCOMPARE(rows[2].x,300040.);QVERIFY(rows[2].positionError.isEmpty());
+  }
   void nativePositionsSurviveFacadeAndWorkbench(){
     DeviatedFixture f;QVERIFY2(f.init(),qPrintable(f.error+QString::fromStdString(f.detail)));
     ProjectDataFacade data;data.setCatalog(&f.catalog,f.project);const auto rows=data.tdTableFor("well-D1");

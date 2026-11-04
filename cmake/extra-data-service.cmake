@@ -43,6 +43,7 @@ if(WIN32)
   add_dependencies(paleo_data_service paleo_freexl_runtime)
 endif()
 target_link_libraries(paleo_store PRIVATE Paleo::paleo_data_service)
+target_link_libraries(paleo_qgis PRIVATE Paleo::paleo_data_service)
 target_sources(paleo_store PRIVATE src/catalog/areawellprojection.cpp src/catalog/areasourceprojection.cpp
   src/catalog/externalsourceverification.cpp src/catalog/wellavailability.cpp)
 add_paleo_test(tst_dataservice LIBS paleo_store paleo_io Paleo::paleo_data_service)

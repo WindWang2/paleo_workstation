@@ -17,6 +17,7 @@
 #include "services/singlefactordef.h"
 #include "derivedassets.h"
 #include "qgis/wellattributestore.h"
+#include "qgis/factorwellcoordinates.h"
 #include <QSet>
 #include <QDir>
 #include <QFile>
@@ -188,10 +189,9 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   paleo::data::StratigraphicScheme scheme;
   if (unitSel.isValid() && !paleo::strat::loadProjectSchemeFromDir(wf->projectDir(), unitSel.schemeId,
       unitSel.revision, scheme, nullptr, error)) return {};
-  if(unitSel.isValid()&&!out.hasMapSource){
-    const auto crs=paleo::strat::analysisProjectCrs(wf->projectDir(),error);if(crs.isEmpty())return {};
-    out.crs=QgsCoordinateReferenceSystem(crs);
-  }
+  const auto mapCrs=out.crs;FactorWellCoordinates nativeCoordinates;
+  if(unitSel.isValid()&&!readFactorWellCoordinates(wf->catalog(),wf->projectDir(),nativeCoordinates,error))return {};
+  if(unitSel.isValid())out.crs=nativeCoordinates.crs;
   QString effectiveTopName = horizon;
   QString effectiveBaseName = baseName;
   if (unitSel.isValid() && !unitSel.topBoundary.isEmpty())
@@ -400,6 +400,11 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   if (layers && !maintainedByWell.isEmpty())
     for (const auto &declaration : layers->declared())
       if (declaration.layerId == WellAttributeStore::factorLayerId()) out.paths << declaration.source.section('|', 0, 0);
+  if(unitSel.isValid())for(auto &row:out.rows){
+    row.geometry=nativeCoordinates.resolve(row.id,row.geometry,mapCrs);
+    row.provenance.insert("coordinate_source",nativeCoordinates.native.contains(row.id)?"dataservice_well_info":"projected_map_point");
+    row.provenance.insert("coordinate_crs",out.crs.authid());
+  }
   out.paths.removeDuplicates();
   return out;
 }
@@ -700,6 +705,7 @@ bool savedFactorInputsCurrent(const DataCatalog *catalog, QgisLayerService *laye
   if(v.extra.value("factor_id")==QLatin1String("sandratio")&&v.extra.value("factorMode")==QLatin1String("auto")&&
      v.extra.value("acquisition_schema").toInt()!=2)return false;
   const auto unit=paleo::strat::fromMap(v.extra.value("unitSelection").toMap());
+  if(unit.isValid()&&v.extra.value("coordinate_schema").toInt()!=1)return false;
   if(unit.isValid()&&!paleo::strat::analysisUnitGeometryCurrent(dir,unit))return false;
   for (const auto &parent : v.parentVersionIds) {
     const auto input = catalog->versionById(parent);
@@ -923,6 +929,7 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     const QString id = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
     QVariantMap extra = params;
     extra.insert("acquisition_schema",2);
+    if(paleo::strat::fromMap(extra.value("unitSelection").toMap()).isValid())extra.insert("coordinate_schema",1);
     extra.insert(QStringLiteral("factor_id"), factorId);
     if(geometryStale)extra.insert("stale",true);
     extra.insert(QStringLiteral("horizon"), horizon);

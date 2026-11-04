@@ -63,9 +63,9 @@ QString directory(const QString &project) { return QDir(project).filePath("artif
 QString confirmedProjectCrs(const QString &project) {
   if (!QFileInfo::exists(directory(project) + QStringLiteral("/data.sqlite"))) return {};
   paleo::data::DataService service; std::string detail;
-  if (!service.openProject(directory(project).toUtf8().toStdString(), detail)) return {};
-  paleo::data::ProjectCrsInfo info;
-  if (!service.readProjectCrsInfo(info, detail) || info.hasConflict || info.coordinateUnit != "m") return {};
+  if (!service.openProjectReadOnly(directory(project).toUtf8().toStdString(), detail)) return {};
+  paleo::data::ProjectCoordinates info;
+  if (!service.readProjectCoordinates(info, detail) || info.coordinateUnit != "m") return {};
   const auto crs = QString::fromUtf8(info.coordinateSystem);
   return paleo::io::isMetricProjectCrs(crs) ? crs : QString();
 }

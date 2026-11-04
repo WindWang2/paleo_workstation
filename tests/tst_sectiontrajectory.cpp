@@ -14,6 +14,7 @@
 #include "services/projectdata.h"
 #include "workflow/sectionworkbench.h"
 #include "workflow/welltrajectorylayer.h"
+#include "sectionalignmentfixtures.h"
 
 #include <cmath>
 #include <numbers>
@@ -30,6 +31,7 @@ class tst_sectiontrajectory : public QObject
 private slots:
   void sectionWellCarriesTrajectory();
   void sectionWellWithoutSurveyStaysVertical();
+  void sectionWellWithoutTimeDepthKeepsOnlyLocation();
   void mapLayerEndpointsAreBottomProjection();
   void mapLayerEmptyWithoutSurveys();
 
@@ -76,7 +78,7 @@ private:
                       "2000.0 30.0 90.0\n");
   }
 
-  bool seed(QTemporaryDir &tmp, bool withDeviation, bool withLog = true)
+  bool seed(QTemporaryDir &tmp, bool withDeviation, bool withLog = true, bool withTimeDepth = true)
   {
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     if (!QDir().mkpath(projectDir))
@@ -150,7 +152,7 @@ private:
       if (!m_cat.addLink(l))
         return false;
     }
-    return true;
+    return !withTimeDepth || addSectionTimeDepthFixture(m_cat, w.id);
   }
 
   DataCatalog m_cat;
@@ -202,6 +204,19 @@ void tst_sectiontrajectory::sectionWellWithoutSurveyStaysVertical()
   QVERIFY(w.trajectory.empty()); // 无测斜：不虚构造斜（垂直简化由视图兜）
   QCOMPARE(w.bottomX, 0.0);      // 老路径未填井底——与迁移前行为一致
   QCOMPARE(w.bottomY, 0.0);
+}
+
+void tst_sectiontrajectory::sectionWellWithoutTimeDepthKeepsOnlyLocation()
+{
+  QTemporaryDir tmp;
+  QVERIFY(seed(tmp, true, true, false));
+  SectionWorkbench bench(&m_cat);
+  const auto wells = bench.sectionWells();
+  QCOMPARE(wells.size(), std::size_t(1));
+  QVERIFY(wells.front().trajectory.empty());
+  QVERIFY(wells.front().curves.empty());
+  QVERIFY(!std::isfinite(wells.front().bottomTwtMs));
+  QVERIFY(!wells.front().alignmentStatus.isEmpty());
 }
 
 void tst_sectiontrajectory::mapLayerEndpointsAreBottomProjection()

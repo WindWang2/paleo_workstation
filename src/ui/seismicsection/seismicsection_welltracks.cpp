@@ -42,19 +42,15 @@ void SeismicSectionCanvas::paintWellPath(QPainter& painter,const SectionWellInfo
     flush();
   }
   for(const auto &syn:m_syntheticOverlays){
-    if(syn.wellId!=well.wellId||syn.twtMs.empty())continue;
-    if(!syn.ok){
-      painter.setFont(PaleoTheme::bodyFont(tokens.labelPt));painter.setPen(tokens.warning);
-      painter.drawText(QRectF(x+8,viewport.top()+4,150,30),Qt::AlignLeft|Qt::TextWordWrap,tr("合成记录不可用：%1").arg(syn.reason));
-      continue;
-    }
+    if(syn.wellId!=well.wellId||!syn.ok||syn.twtMs.empty())continue;
     painter.setPen(QPen(tokens.error,1.4));painter.setBrush(Qt::NoBrush);
     QPolygonF wave;const auto flushWave=[&]{if(wave.size()>1)painter.drawPolyline(wave);wave.clear();};
     for(size_t i=0;i<std::min(syn.twtMs.size(),syn.amplitude.size());++i){
       const auto point=wellPathAtTwt(well,syn.twtMs[i]);
       const double px=well.trajectory.empty()?x:traceToPixelX(point.tracePosition);
       if(!std::isfinite(px)||!std::isfinite(syn.amplitude[i])||(!well.trajectory.empty()&&std::abs(point.offsetDistanceM)>m_bufferDistanceM)){flushWave();continue;}
-      wave.append(QPointF(px+44+syn.amplitude[i]*16,timeToPixelY(syn.twtMs[i])));
+      const double center=px+60>viewport.right()?px-44:px+44;
+      wave.append(QPointF(center+syn.amplitude[i]*16,timeToPixelY(syn.twtMs[i])));
     }
     flushWave();
   }
@@ -62,8 +58,9 @@ void SeismicSectionCanvas::paintWellPath(QPainter& painter,const SectionWellInfo
 void SeismicSectionCanvas::paintWellTracks(QPainter& painter,const SectionWellInfo& well,const QRect& viewport,double x){
   const auto &tokens=PaleoTheme::tokens();
   if(well.requiresSpatialPath&&well.trajectory.empty())return;
+  const bool nativeTracks=well.requiresSpatialPath||well.mdTimeDepth.has_value();
   const WellCurveItem *primary=nullptr;size_t best=0;
-  if(well.mdTimeDepth){
+  if(nativeTracks){
     for(const auto &curve:well.curves){
       size_t usable=0;
       for(size_t i=0;i<std::min(curve.values.size(),curve.twtMs.size());++i)
@@ -74,9 +71,9 @@ void SeismicSectionCanvas::paintWellTracks(QPainter& painter,const SectionWellIn
     }
   }
   if(m_showCurves)for(const auto &curve:well.curves){
-    if(well.mdTimeDepth && &curve!=primary)continue;
+    if(nativeTracks && &curve!=primary)continue;
     if(curve.values.empty()||curve.values.size()!=curve.twtMs.size())continue;
-    const bool gr=well.mdTimeDepth&&baseCurveMnemonic(curve.curveName).compare("GR",Qt::CaseInsensitive)==0;
+    const bool gr=nativeTracks&&baseCurveMnemonic(curve.curveName).compare("GR",Qt::CaseInsensitive)==0;
     const double minimum=gr?20:curve.minVal,span=gr?130:std::max(1e-4f,curve.maxVal-curve.minVal);
     const double width=36;
     QPolygonF path;painter.setPen(QPen(curve.color.isValid()?curve.color:tokens.text,1.5));painter.setBrush(Qt::NoBrush);
@@ -101,7 +98,7 @@ void SeismicSectionCanvas::paintWellTracks(QPainter& painter,const SectionWellIn
     const double mark=std::isfinite(top.tracePosition)?top.tracePosition:point.tracePosition;
     const double topX=well.trajectory.empty()?x:traceToPixelX(mark);
     if(!std::isfinite(topX)||(!well.trajectory.empty()&&std::abs(point.offsetDistanceM)>m_bufferDistanceM))continue;
-    const auto color=well.mdTimeDepth?PaleoTheme::sectionHorizonColor(top.topName):top.color;
+    const auto color=nativeTracks?PaleoTheme::sectionHorizonColor(top.topName):top.color;
     painter.setPen(QPen(tokens.onPrimary,4));painter.drawLine(QPointF(topX-8,y),QPointF(topX+8,y));
     painter.setPen(QPen(color.isValid()?color:tokens.textMuted,2));painter.drawLine(QPointF(topX-8,y),QPointF(topX+8,y));
     painter.setFont(PaleoTheme::monoFont());const int width=painter.fontMetrics().horizontalAdvance(top.topName)+8;

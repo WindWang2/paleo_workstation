@@ -164,6 +164,60 @@ private:
   QTemporaryDir m_settingsDir; // initTestCase 前构造：settings 沙箱路径
 
 private slots:
+  void nativeTvdTracksKeepOneCurve()
+  {
+    PaleoTheme::applyLightTheme();
+    SeismicSectionCanvas canvas;canvas.resize(800,520);
+    canvas.setSectionData(makeSection(64,256),2);
+    SectionWellInfo well;well.wellId="native-tvd";well.wellName="TVD";
+    well.requiresSpatialPath=true;well.isWithinBuffer=true;well.tracePosition=31;
+    for(int i=0;i<3;++i){WellTrajSample p;p.md=100+i*100;p.twtMs=p.md;
+      p.tracePosition=31;p.offsetDistanceM=0;well.trajectory.push_back(p);}
+    WellCurveItem gr;gr.curveName="GR";gr.depthsM={100,200,300};gr.twtMs=gr.depthsM;
+    gr.values={50,100,70};gr.minVal=20;gr.maxVal=150;gr.color=QColor("#43A047");
+    canvas.setWells({well});const auto empty=renderCanvas(canvas);
+    well.curves={gr};canvas.setWells({well});const auto primary=renderCanvas(canvas);
+    QVERIFY(imageDiff(empty,primary)>30);
+    auto density=gr;density.curveName="DEN";density.values={2,3,2};
+    density.minVal=1;density.maxVal=4;density.color=QColor("#744D9B");
+    well.curves.push_back(density);canvas.setWells({well});
+    const auto mixed=renderCanvas(canvas);
+    const auto capture=qEnvironmentVariable("PALEO_REVIEW_CAPTURE");
+    if(!capture.isEmpty()){QDir().mkpath(capture);QVERIFY(mixed.save(capture+"/native-tvd-tracks.png"));}
+    QCOMPARE(imageDiff(primary,mixed),qint64(0));
+  }
+  void syntheticFailureIsExplainedAndRightEndpointVisible()
+  {
+    for(bool dark:{false,true}){
+      PaleoTheme::applyTheme(dark?PaleoTheme::Theme::Dark:PaleoTheme::Theme::Light);
+      SeismicSectionCanvas canvas;canvas.resize(800,520);
+      canvas.setSectionData(makeSection(64,256),2);
+      SectionWellInfo well;well.wellId="endpoint";well.wellName="END";
+      well.requiresSpatialPath=true;well.isWithinBuffer=true;well.tracePosition=63;
+      for(int i=0;i<3;++i){WellTrajSample p;p.md=100+i*100;p.twtMs=p.md;
+        p.tracePosition=63;p.offsetDistanceM=0;well.trajectory.push_back(p);}
+      canvas.setWells({well});const auto empty=renderCanvas(canvas);
+      SeismicSectionCanvas::SyntheticOverlay synthetic;synthetic.wellId=well.wellId;
+      synthetic.reason=QStringLiteral("缺密度曲线 DEN");canvas.setSyntheticOverlays({synthetic});
+      const auto failed=renderCanvas(canvas);
+      const QPoint position(qRound(canvas.traceToPixelX(well.tracePosition))-16,12);
+      QHelpEvent help(QEvent::ToolTip,position,canvas.mapToGlobal(position));
+      QApplication::sendEvent(&canvas,&help);
+      const bool explained=QToolTip::text().contains(synthetic.reason);
+      QToolTip::hideText();
+      synthetic.ok=true;synthetic.twtMs={100,200,300};synthetic.amplitude={-.6f,.6f,-.6f};
+      canvas.setSyntheticOverlays({synthetic});const auto wave=renderCanvas(canvas);
+      const auto capture=qEnvironmentVariable("PALEO_REVIEW_CAPTURE");
+      if(!capture.isEmpty()){
+        QDir().mkpath(capture);const auto theme=dark?QStringLiteral("dark"):QStringLiteral("light");
+        QVERIFY(wave.save(capture+"/synthetic-endpoint-"+theme+".png"));
+      }
+      QVERIFY2(explained,"A failed overlay with no samples must explain the reason in the existing well tooltip");
+      QCOMPARE(imageDiff(empty,failed),qint64(0)); // Diagnostics must not cover the seismic image.
+      QVERIFY2(imageDiff(empty,wave)>30,"A synthetic trace at the right endpoint must face into the viewport");
+    }
+    PaleoTheme::applyLightTheme();
+  }
   void initTestCase()
   {
     PaleoTheme::pinRenderEnvironment();

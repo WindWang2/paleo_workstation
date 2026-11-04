@@ -35,6 +35,7 @@
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
 #include "services/analysisunitcontext.h"
+#include "mockseismicinputs.h"
 #include "wellpredictionservice.h"
 #include "workflows.h"
 #include <QDateTime>
@@ -177,6 +178,11 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     paleo::strat::UnitSelection frozen;
     if(!paleo::strat::freezeAnalysisUnit(m_dir,m_analysisUnit,frozen,error))return false;
     request.unitSelection=paleo::strat::toMap(frozen);
+    if(kind=="wells"){
+      const auto crs=paleo::strat::analysisProjectCrs(m_dir,error);if(crs.isEmpty())return false;
+      QgsCoordinateReferenceSystem reference;reference.createFromUserInput(crs);request.crsWkt=reference.toWkt();
+    }
+    if(mock&&h!=paleo::strat::analysisLayerKey(frozen)){fail(error,tr("预测层段与当前地震层位单元不一致，请重新选择层段"));return false;}
   }
   if (!FaciesTaxonomy::normalize(facies(h), &request.facies, error)) return false;
   const auto choices = inputs(kind);
@@ -200,7 +206,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     }
   }
   if (seen.size() != QSet<QString>(ids.cbegin(), ids.cend()).size()) {
-    fail(error, tr("输入缺少可读源文件、测井曲线或有效井坐标，请检查数据管理"));
+    fail(error, tr("输入缺少可读源文件或测井曲线，请检查数据管理"));
     return false;
   }
   request.sourceVersionIds << schemaVersion(h);
@@ -239,18 +245,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     }
   }
   if (mock) {
-    QVariantList wellSources;
-    const auto versions = m_catalog->versions();
-    for (auto it = versions.crbegin(); it != versions.crend(); ++it) {
-      const auto &extra = it->extra;
-      if (extra.value("horizon").toString() != h ||
-          (extra.value("kind") != QLatin1String("wells_prediction") &&
-           extra.value("result_kind") != QLatin1String("formation_prediction") &&
-           extra.value("result_kind") != QLatin1String("dominant_facies"))) continue;
-      wellSources << QVariantMap{{"version_id", it->id},
-          {"path", DataCatalog::resolvedVersionPath(m_dir, *it)}, {"sha256", it->sha256},
-          {"facies", extra.value("facies")}};
-    }
+    const auto wellSources=mockSeismicCalibrationSources(m_catalog,m_dir,h,paleo::strat::fromMap(request.unitSelection));
     if (wellSources.isEmpty()) {
       fail(error, tr("请先生成并保存当前层位的测井相预测，再运行地震 Mock 聚类"));
       return false;
@@ -258,67 +253,63 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     // 原始层位的道号/TWT 可直接提取；时间栅格只作为已有工程的兼容输入。
     QString horizonPath = horizonFile, horizonVersion;
     auto source = SeismicHorizonSource::Scatter;
-    const QString selectedName = QFileInfo(horizonFile).completeBaseName().toUpper();
-    if (!horizonFile.isEmpty() && isMappingHorizon(selectedName) && selectedName != h) {
-      fail(error, tr("所选文件属于 %1，当前编图层位是 %2，请选择对应层位的文件").arg(selectedName, h));
-      return false;
-    }
-    if (horizonPath.isEmpty()) {
-      QMap<QString, QString> originals;
-      CatalogVersion snapshot;
-      for (const auto &asset : m_catalog->assets()) {
-        if (asset.type != QLatin1String("horizon")) continue;
-        bool linked = false;
-        for (const auto &link : m_catalog->linksForAsset(asset.id))
-          if (!link.unresolved && link.role == QLatin1String("horizon") &&
-              m_catalog->entityById(link.entityId).name.compare(h, Qt::CaseInsensitive) == 0)
-            linked = true;
-        CatalogVersion raw;
-        for (const auto &version : m_catalog->versionsForAsset(asset.id)) {
-          const QString path = DataCatalog::resolvedVersionPath(m_dir, version);
-          if (!QFileInfo(path).isFile()) continue;
-          if (version.extra.value("horizon_input_snapshot").toBool() &&
-              version.extra.value("horizon").toString() == h) {
-            if (snapshot.id.isEmpty() || version.versionNumber > snapshot.versionNumber)
-              snapshot = version;
-          } else if (version.stage == QLatin1String("RAW") &&
-                     (linked || QFileInfo(version.fileName).completeBaseName().compare(h, Qt::CaseInsensitive) == 0) &&
-                     (raw.id.isEmpty() || version.versionNumber > raw.versionNumber)) {
-            raw = version;
-          }
-        }
-        if (!raw.id.isEmpty())
-          originals.insert(DataCatalog::resolvedVersionPath(m_dir, raw), raw.id);
-      }
-      if (originals.size() > 1) {
-        fail(error, tr("%1 有多个原始层位文件，请在「层位文件」选择本次使用的文件").arg(h));
+    const bool useDataServiceWindow=!request.unitSelection.isEmpty();
+    if(!useDataServiceWindow){
+      const QString selectedName = QFileInfo(horizonFile).completeBaseName().toUpper();
+      if (!horizonFile.isEmpty() && isMappingHorizon(selectedName) && selectedName != h) {
+        fail(error, tr("所选文件属于 %1，当前编图层位是 %2，请选择对应层位的文件").arg(selectedName, h));
         return false;
       }
-      if (!originals.isEmpty()) {
-        horizonPath = originals.firstKey(); horizonVersion = originals.first();
-      } else if (!snapshot.id.isEmpty()) {
-        horizonPath = DataCatalog::resolvedVersionPath(m_dir, snapshot);
-        horizonVersion = snapshot.id;
-      } else {
-        source = SeismicHorizonSource::TimeRaster;
-        for (const auto &d : m_layers->declared())
-          if (d.horizon == h && d.type == QLatin1String("raster") &&
-              d.layerId.startsWith(QLatin1String("horizon.")) &&
-              QFileInfo(filePath(d.source)).isFile()) {
-            if (horizonPath.isEmpty() || d.layerId == QStringLiteral("horizon.") + h) {
-              horizonPath = filePath(d.source);
-              horizonVersion = versionForLayer(d.layerId).id;
+      if (horizonPath.isEmpty()) {
+        QMap<QString, QString> originals;
+        CatalogVersion snapshot;
+        for (const auto &asset : m_catalog->assets()) {
+          if (asset.type != QLatin1String("horizon")) continue;
+          bool linked = false;
+          for (const auto &link : m_catalog->linksForAsset(asset.id))
+            if (!link.unresolved && link.role == QLatin1String("horizon") &&
+                m_catalog->entityById(link.entityId).name.compare(h, Qt::CaseInsensitive) == 0)
+              linked = true;
+          CatalogVersion raw;
+          for (const auto &version : m_catalog->versionsForAsset(asset.id)) {
+            const QString path = DataCatalog::resolvedVersionPath(m_dir, version);
+            if (!QFileInfo(path).isFile()) continue;
+            if (version.extra.value("horizon_input_snapshot").toBool() &&
+                version.extra.value("horizon").toString() == h) {
+              if (snapshot.id.isEmpty() || version.versionNumber > snapshot.versionNumber)
+                snapshot = version;
+            } else if (version.stage == QLatin1String("RAW") &&
+                       (linked || QFileInfo(version.fileName).completeBaseName().compare(h, Qt::CaseInsensitive) == 0) &&
+                       (raw.id.isEmpty() || version.versionNumber > raw.versionNumber)) {
+              raw = version;
             }
           }
+          if (!raw.id.isEmpty())
+            originals.insert(DataCatalog::resolvedVersionPath(m_dir, raw), raw.id);
+        }
+        if (originals.size() > 1) {
+          fail(error, tr("%1 有多个原始层位文件，请在「层位文件」选择本次使用的文件").arg(h));
+          return false;
+        }
+        if (!originals.isEmpty()) {
+          horizonPath = originals.firstKey(); horizonVersion = originals.first();
+        } else if (!snapshot.id.isEmpty()) {
+          horizonPath = DataCatalog::resolvedVersionPath(m_dir, snapshot);
+          horizonVersion = snapshot.id;
+        } else {
+          source = SeismicHorizonSource::TimeRaster;
+          for (const auto &d : m_layers->declared())
+            if (d.horizon == h && d.type == QLatin1String("raster") &&
+                d.layerId.startsWith(QLatin1String("horizon.")) &&
+                QFileInfo(filePath(d.source)).isFile()) {
+              if (horizonPath.isEmpty() || d.layerId == QStringLiteral("horizon.") + h) {
+                horizonPath = filePath(d.source);
+                horizonVersion = versionForLayer(d.layerId).id;
+              }
+            }
+        }
       }
     }
-    const bool isSubIntervalTarget =
-        (m_analysisUnit.isValid() && h == paleo::strat::analysisLayerKey(m_analysisUnit)) ||
-        h.contains(QLatin1Char('-'));
-    const bool hasAreaDb =
-        QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"));
-    const bool useDataServiceWindow =
-        hasAreaDb && (!request.unitSelection.isEmpty() || (horizonFile.isEmpty() && isSubIntervalTarget) || horizonPath.isEmpty());
     if (!useDataServiceWindow && (!QFileInfo(horizonPath).isFile() || !QFileInfo(horizonPath).isReadable())) {
       fail(error, tr("未找到 %1 的可读层位数据，请在「层位文件」直接选择 DAT，或在数据管理中导入层位资料").arg(h));
       return false;
@@ -399,6 +390,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
         m_request.sourceVersionIds << st.versionId;
       }
       m_predictionParameters.insert("valid_cells", clustered.validCells);
+      for(auto it=clustered.parameters.cbegin();it!=clustered.parameters.cend();++it)m_predictionParameters.insert(it.key(),it.value());
       m_predictionParameters.insert("cluster_facies_mapping", clustered.clusterMapping);
       // B-06：读取失败的 inline 缩水如实进参数留痕（消费方：版本 extra 与
       // 预测详情）——空 warnings 不写字段，历史结果不受扰。
@@ -420,7 +412,9 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
       result.request = m_request;
       result.cells = clustered.cells;
       result.mock = true;
-      result.method = QStringLiteral("mock-horizon-window-kmeans-well-majority-v2");
+      result.method = clustered.parameters.value("window_type")=="stratigraphic_unit"
+        ? QStringLiteral("mock-stratigraphic-window-kmeans-well-majority-v1")
+        : QStringLiteral("mock-horizon-window-kmeans-well-majority-v2");
       finishPrediction(result);
     });
     emit predictionBusyChanged(true);
@@ -428,7 +422,7 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     watcher->setFuture(QtConcurrent::run(
         paleo::tasks::pool(m_taskSvc),
         [seismicPath, horizonPath, cacheDir, codes, cancelled, source, useDataServiceWindow,
-         projectDir = m_dir, targetUnit = h, unit = paleo::strat::fromMap(request.unitSelection),
+         projectDir = m_dir, unit = paleo::strat::fromMap(request.unitSelection),
          inputSnapshot, wellSources, schema = request.facies, transformContext](QPromise<SeismicClusterResult> &promise) {
           promise.setProgressRange(0, 100);
           QString inputPath = horizonPath;
@@ -910,11 +904,13 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
                         ? MappingArtifactWriter::raster(
                               path, result.cells, request.columns, request.rows,
                               request.extent, request.crsWkt, &error)
-                        : MappingArtifactWriter::points(path, points, &error);
+                        : MappingArtifactWriter::points(path,points,request.crsWkt,&error);
     if (ok) {
       emit predictionProgress(98);
       emit predictionDetailChanged(tr("登记并显示预测图件"));
       auto parameters = m_predictionParameters;
+      if(!request.crsWkt.isEmpty())parameters.insert("result_crs",request.crsWkt);
+      if(result.method.startsWith(QLatin1String("mock-horizon-window-kmeans")))parameters.insert("window_half_ms",12.0);
       if (result.currentFormationOnly) {
         parameters.insert("result_scope", QStringLiteral("current_formation"));
         parameters.insert("result_kind", QStringLiteral("formation_prediction"));
@@ -955,7 +951,6 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
       const QVariantMap common =
              {{"mock", result.mock},
               {"method", result.method},
-              {"window_half_ms", result.method.startsWith(QLatin1String("mock-horizon-window-kmeans")) ? 12.0 : 0.0},
               {"request_id", request.id},
               {"facies", schema}, {"prediction_level", "micro_facies"}, {"facies_schema", "paleo_facies_hierarchy_v1"},
               {"wells", request.wells},

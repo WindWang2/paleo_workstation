@@ -39,8 +39,11 @@ QVector<SeismicClusterWell> readSeismicCalibrationWells(
     }
     QVariantList sourceSchema;
     if (!FaciesTaxonomy::upgrade(source.value("facies").toList(), &sourceSchema, error)) return {};
-    QgsCoordinateTransform transform(layer.crs(), target, context);
-    if (layer.crs() != target && !transform.isValid()) {
+    const auto positions=source.value("native_positions").toMap();
+    const bool legacyLocal=!positions.isEmpty()&&layer.crs()==QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+    QgsCoordinateTransform transform;
+    if(!legacyLocal)transform=QgsCoordinateTransform(layer.crs(),target,context);
+    if (!legacyLocal&&layer.crs() != target && !transform.isValid()) {
       *error = QObject::tr("测井点无法转换到地震网格坐标系，请先完成配准"); return {};
     }
     auto features = layer.getFeatures();
@@ -71,9 +74,19 @@ QVector<SeismicClusterWell> readSeismicCalibrationWells(
         *error = QObject::tr("测井相与当前层位分类不一致，请先统一三级分类归属"); return {};
       }
       try {
-        const auto point = transform.transform(feature.geometry().asPoint());
+        auto point=feature.geometry().asPoint();QString coordinateSource;
+        if(legacyLocal){
+          const auto native=positions.value(id).toMap();const double x=native.value("x",NAN).toDouble(),y=native.value("y",NAN).toDouble();
+          QgsCoordinateReferenceSystem crs;crs.createFromUserInput(native.value("crs").toString());
+          if(native.isEmpty()||native.value("id").toLongLong()<=0||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(point.x())||!std::isfinite(point.y())||!crs.isValid()||std::hypot(point.x()-x,point.y()-y)>1e-6){
+            *error=QObject::tr("井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准").arg(id);return {};
+          }
+          QgsCoordinateTransform nativeTransform(crs,target,context);
+          if(crs!=target&&!nativeTransform.isValid()){*error=QObject::tr("测井点无法转换到地震网格坐标系，请先完成配准");return {};}
+          point=nativeTransform.transform(point);coordinateSource=QStringLiteral("dataservice_verified_legacy:%1").arg(native.value("id").toLongLong());
+        }else point=transform.transform(point);
         if (std::isfinite(point.x()) && std::isfinite(point.y()))
-          result << SeismicClusterWell{id, versionId, point.x(), point.y(), code};
+          result << SeismicClusterWell{id, versionId, point.x(), point.y(), code,coordinateSource};
       } catch (const QgsCsException &) {
         *error = QObject::tr("测井点无法转换到地震网格坐标系，请先完成配准"); return {};
       }

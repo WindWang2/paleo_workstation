@@ -20,6 +20,7 @@ private slots:
   void structuralBarrierAndDirectionProperties();
   void mutationDemonstration_distinctModes();
   void buildSurfaceRejectsNonPositivePowerHonestly();
+  void wholeSurveyIncludesBoundaryNodesAndKeepsHoles();
 };
 
 void TestSingleFactorStructuralUnit::blockModeNormalizationAndPredicates()
@@ -167,6 +168,18 @@ void TestSingleFactorStructuralUnit::buildSurfaceRejectsNonPositivePowerHonestly
   for ( const double value : ok.grid )
     finiteSeen = finiteSeen || std::isfinite( value );
   QVERIFY( finiteSeen );
+}
+
+void TestSingleFactorStructuralUnit::wholeSurveyIncludesBoundaryNodesAndKeepsHoles(){
+  StructuralRequest request;request.resolution=31;request.includeBoundaryNodes=true;
+  const auto full=buildStructuralSurface(threeWells(),{boxBoundary()},{},{},{},request,{});
+  QCOMPARE(full.status,Status::Ok);
+  for(double value:full.grid)QVERIFY(std::isfinite(value));
+  auto polygon=boxBoundary();Ring hole;hole.points={{1,1},{4,1},{4,4},{1,4},{1,1}};polygon.holes.push_back(hole);
+  const auto withHole=buildStructuralSurface(threeWells(),{polygon},{},{},{},request,{});
+  QCOMPARE(withHole.status,Status::Ok);const auto nx=withHole.xAxis.size();
+  QVERIFY(std::isnan(withHole.grid[2*nx+2]));
+  QVERIFY(std::isfinite(withHole.grid.front()));QVERIFY(std::isfinite(withHole.grid.back()));
 }
 
 QTEST_GUILESS_MAIN(TestSingleFactorStructuralUnit)

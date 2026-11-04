@@ -736,7 +736,9 @@ private slots:
   QCOMPARE(rendered->currentData().continuousCurves.front().values.front(),10.f);
   QCOMPARE(rendered->currentData().projectCoordinateSystem,QString("EPSG:32649"));
   const auto *hint=preview.findChild<QLabel *>("xmlPendingHint");QVERIFY(hint);
-  QVERIFY(hint->text().contains("EPSG:32649"));QVERIFY(!hint->isHidden());
+  QVERIFY(hint->isHidden());
+  const auto *name=rendered->findChild<QLabel *>("lblWellName");QVERIFY(name);
+  QVERIFY(name->toolTip().contains("EPSG:32649"));
   QVERIFY(!preview.findChild<QPushButton *>("relocateBtn"));
 }
 

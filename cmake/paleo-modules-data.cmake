@@ -98,6 +98,7 @@ add_library(paleo_qgis STATIC
   src/qgis/wellpointnavigation.cpp
   src/qgis/mappingartifactwriter.cpp
   src/qgis/seismicwellcalibration.cpp
+  src/qgis/factorwellcoordinates.cpp
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
   src/qgis/qgisprojectservice_async.cpp

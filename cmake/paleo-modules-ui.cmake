@@ -202,6 +202,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/datapreviewtabs_overlay.cpp    # 方向97：D2.10 同目录组图析出
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
   src/ui/datapreview/datapreviewtabseismic.cpp     # 方向20 轮4：seismic 预览分支析出
+  src/ui/datapreview/timeslicereadcontrols.cpp
   src/ui/datapreview/datapreviewtabhorizon.cpp      # 方向20 轮4：horizon 预览分支析出
   src/ui/datapreview/datapreviewtabwelllog.cpp      # 方向20 轮4：well_log 预览分支析出
   src/ui/datapreview/datapreviewtabimage.cpp         # 方向20 轮4：image_reference 分支析出

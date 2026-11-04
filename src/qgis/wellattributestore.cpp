@@ -120,6 +120,22 @@ bool faciesCode(const QVariant &code) {
   const double n = code.toDouble(&ok);
   return ok && std::isfinite(n) && n >= 1 && n <= 32767 && n == std::round(n);
 }
+bool hasFaciesInterpretation(const QVariantMap &row) {
+  if (row.value("source").toString() == "manual" || row.value("facies_code").toInt() > 0)
+    return true;
+  // Imported interpretations often carry names without a taxonomy code.
+  for (const auto &field : {"facies", "sub_facies", "micro_facies", "dominant_facies"})
+    if (!row.value(field).toString().trimmed().isEmpty()) return true;
+  return false;
+}
+bool intervalPredictionField(const QString &field) {
+  return field == "predicted_facies" || field == "model" || field == "job_id" ||
+         field == "prediction_status" || field == "prediction_reason";
+}
+bool intervalFaciesField(const QString &field) {
+  return field == "facies" || field == "sub_facies" || field == "micro_facies" ||
+         field == "facies_code" || field == "facies_pattern";
+}
 QgsFeature featureFor(QgsVectorLayer *layer, DataCatalog *catalog,
                       const QVariantMap &row) {
   QgsFeature f(layer->fields());
@@ -545,11 +561,14 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
             missing = true;
             break;
           }
-          for (auto p = next.cbegin(); p != next.cend(); ++p)
+          for (auto p = next.cbegin(); p != next.cend(); ++p) {
+            if (hasFaciesInterpretation(*previous) && intervalFaciesField(p.key())) continue;
             if (p.key() != "top_md" && p.key() != "base_md" &&
                 p.key() != "well_id" && !p.value().isNull() &&
-                previous->value(p.key()).isNull())
+                (previous->value(p.key()).isNull() ||
+                 (intervalPredictionField(p.key()) && previous->value(p.key()) != p.value())))
               missing = true;
+          }
         }
       }
     }
@@ -575,16 +594,14 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
         continue;
       QVariantMap row = a ? *a : QVariantMap();
       if (b) {
-        const bool hasExistingFacies = (row.value("source").toString() == "manual") ||
-                                       (!row.value("facies_code").isNull() && row.value("facies_code").toInt() > 0);
+        const bool hasExistingFacies = hasFaciesInterpretation(row);
         for (auto p = b->cbegin(); p != b->cend(); ++p) {
           const QString &k = p.key();
-          const bool isPredictionMeta = (k == "predicted_facies" || k == "model" ||
-                                         k == "job_id" || k == "prediction_status" ||
-                                         k == "prediction_reason");
-          const bool isFaciesAttribute = (k == "facies" || k == "sub_facies" ||
-                                          k == "micro_facies" || k == "facies_code" ||
-                                          k == "facies_pattern");
+          const bool isPredictionMeta = intervalPredictionField(k);
+          const bool isFaciesAttribute = intervalFaciesField(k);
+          // Keep the whole existing hierarchy, including intentionally empty
+          // levels/patterns; filling them from a model would mix two interpretations.
+          if (onlyMissing && hasExistingFacies && isFaciesAttribute) continue;
           if (!onlyMissing || isPredictionMeta || (!hasExistingFacies && isFaciesAttribute) || row.value(k).isNull() ||
               (row.value(k).typeId() == QMetaType::QString && row.value(k).toString().trimmed().isEmpty()))
             row.insert(k, p.value());
@@ -660,10 +677,7 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
       continue;
     }
     const auto existingFeat = layer->getFeature(found.value());
-    const QString existingSource = existingFeat.attribute("source").toString();
-    const auto existingCode = existingFeat.attribute("facies_code");
-    const bool hasExistingFacies = (existingSource == "manual") ||
-                                   (existingCode.isValid() && !existingCode.isNull() && existingCode.toInt() > 0);
+    const bool hasExistingFacies = hasFaciesInterpretation(attributes(existingFeat));
     for (auto p = row.cbegin(); p != row.cend(); ++p) {
       const int index = layer->fields().indexOf(p.key());
       if (index >= 0 && p.key() != "well_id" && p.key() != "formation" &&

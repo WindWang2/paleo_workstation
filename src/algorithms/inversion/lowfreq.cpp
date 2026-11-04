@@ -38,6 +38,22 @@ void lowCutMovingAverage(const float *x, int n, int half, float *out)
 namespace
 {
 
+bool movingCell(const LowFreqModelInput& in,double x,double y,int* il,int* xl){
+  if(!std::isfinite(x)||!std::isfinite(y))return false;
+  const double dx=x-in.originX,dy=y-in.originY;
+  const double det=in.ilStepX*in.xlStepY-in.ilStepY*in.xlStepX;
+  double a=0,b=0;
+  if(std::abs(det)>1e-12){a=(dx*in.xlStepY-dy*in.xlStepX)/det;b=(in.ilStepX*dy-in.ilStepY*dx)/det;}
+  else {
+    const bool alongInline=in.nIl>1;const double vx=alongInline?in.ilStepX:in.xlStepX,vy=alongInline?in.ilStepY:in.xlStepY;
+    const double length2=vx*vx+vy*vy;
+    if(length2<=1e-12){if(std::hypot(dx,dy)>1e-6)return false;}
+    else {const double f=(dx*vx+dy*vy)/length2;if(std::abs(dx*vy-dy*vx)>length2*.5)return false;if(alongInline)a=f;else b=f;}
+  }
+  if(a<-.5||a>in.nIl-.5||b<-.5||b>in.nXl-.5)return false;
+  *il=std::clamp(int(std::llround(a)),0,in.nIl-1);*xl=std::clamp(int(std::llround(b)),0,in.nXl-1);return true;
+}
+
 double cellCenterX(const LowFreqModelInput &in, int il, int xl)
 {
   return in.originX + double(il) * in.ilStepX + double(xl) * in.xlStepX;
@@ -84,7 +100,7 @@ float idwAt(const std::vector<LowFreqWellTrace> &wells, const std::vector<float>
   float exactVal = kNan;
   for (std::size_t m = 0; m < wells.size(); ++m)
   {
-    if (!std::isfinite(vals[m]))
+    if (!std::isfinite(vals[m])||!std::isfinite(wells[m].x)||!std::isfinite(wells[m].y))
       continue;
     const double dx = wells[m].x - x;
     const double dy = wells[m].y - y;
@@ -148,6 +164,10 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
       r.reason = "井曲线长度与体时间网格不一致";
       return r;
     }
+    if((!w.xSamples.empty()||!w.ySamples.empty())&&
+       (int(w.xSamples.size())!=input.nS||int(w.ySamples.size())!=input.nS)){
+      r.reason="井轨迹坐标长度与体时间网格不一致";return r;
+    }
   }
   for (const HorizonTwtGrid &h : input.horizons)
   {
@@ -199,8 +219,16 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
     std::vector<float> bufA(std::size_t(input.nS));
     for (LowFreqWellTrace &w : r.smoothedWells)
     {
+      std::vector<unsigned char> valid;
+      if(!w.xSamples.empty()){
+        valid.resize(size_t(input.nS));for(int i=0;i<input.nS;++i)valid[size_t(i)]=std::isfinite(w.impedance[size_t(i)]);
+      }
+      if(!w.xSamples.empty())for(int i=0;i<input.nS;++i)
+        if(!valid[size_t(i)]||!std::isfinite(w.xSamples[size_t(i)])||!std::isfinite(w.ySamples[size_t(i)]))w.impedance[size_t(i)]=kNan;
       lowCutMovingAverage(w.impedance.data(), input.nS, half, bufA.data());
       w.impedance = bufA;
+      if(!w.xSamples.empty())for(int i=0;i<input.nS;++i)
+        if(!valid[size_t(i)]||!std::isfinite(w.xSamples[size_t(i)])||!std::isfinite(w.ySamples[size_t(i)]))w.impedance[size_t(i)]=kNan;
     }
     r.ok = true;
     return r;
@@ -217,12 +245,32 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
   const std::size_t nW = input.wells.size();
   std::vector<int> wellIl(nW), wellXl(nW);
   for (std::size_t m = 0; m < nW; ++m)
-    nearestCell(input, input.wells[m].x, input.wells[m].y, &wellIl[m], &wellXl[m]);
+    if(input.wells[m].xSamples.empty())nearestCell(input, input.wells[m].x, input.wells[m].y, &wellIl[m], &wellXl[m]);
 
   // 井 × 层均值：窗 = 该井格上的层位边界 TWT（缺格回退层位平均 TWT）。
   std::vector<float> wellLayer(nW * std::size_t(nL), kNan);
+  std::vector<double> wellLayerX(nW*size_t(nL),NAN),wellLayerY(nW*size_t(nL),NAN);
   for (std::size_t m = 0; m < nW; ++m)
   {
+    const auto& well=input.wells[m];
+    if(!well.xSamples.empty()){
+      std::vector<double> sums(size_t(nL),0),xs(size_t(nL),0),ys(size_t(nL),0);
+      std::vector<int> counts(size_t(nL),0);
+      for(int i=0;i<input.nS;++i){
+        int il=0,xl=0;const auto index=size_t(i);const double x=well.xSamples[index],y=well.ySamples[index];
+        if(!std::isfinite(well.impedance[index])||!movingCell(input,x,y,&il,&xl))continue;
+        const auto c=size_t(il)*size_t(input.nXl)+size_t(xl);const double time=input.t0Ms+i*input.dtMs;
+        int layer=0;double previous=-INFINITY;bool complete=true;
+        for(const auto& boundary:r.boundaries){const double b=boundary.twtMs[c];
+          if(!std::isfinite(b)||b<=previous){complete=false;break;}if(time>b)++layer;previous=b;}
+        if(!complete)continue;
+        sums[size_t(layer)]+=well.impedance[index];xs[size_t(layer)]+=x;ys[size_t(layer)]+=y;++counts[size_t(layer)];
+      }
+      for(int l=0;l<nL;++l)if(counts[size_t(l)]>0){const auto k=m*size_t(nL)+size_t(l);const double count=counts[size_t(l)];
+        wellLayer[k]=float(sums[size_t(l)]/count);wellLayerX[k]=xs[size_t(l)]/count;wellLayerY[k]=ys[size_t(l)]/count;}
+      continue;
+    }
+    for(int l=0;l<nL;++l){wellLayerX[m*size_t(nL)+size_t(l)]=well.x;wellLayerY[m*size_t(nL)+size_t(l)]=well.y;}
     const std::size_t cell = std::size_t(wellIl[m]) * std::size_t(input.nXl) +
                              std::size_t(wellXl[m]);
     // #417：固定 tops[64]/bots[64] 换动态分配——64 层上限是数组尺寸的人为
@@ -281,6 +329,7 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
 
   r.layerImpedance.assign(nCells * std::size_t(nL), kNan);
   std::vector<float> vals(nW);
+  std::vector<LowFreqWellTrace> anchors(nW);
   for (int il = 0; il < input.nIl; ++il)
   {
     for (int xl = 0; xl < input.nXl; ++xl)
@@ -291,8 +340,8 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
       for (int l = 0; l < nL; ++l)
       {
         for (std::size_t m = 0; m < nW; ++m)
-          vals[m] = wellLayer[m * std::size_t(nL) + std::size_t(l)];
-        float v = idwAt(input.wells, vals, cx, cy, input.idwPower);
+        {const auto k=m*size_t(nL)+size_t(l);vals[m]=wellLayer[k];anchors[m].x=wellLayerX[k];anchors[m].y=wellLayerY[k];}
+        float v = idwAt(anchors, vals, cx, cy, input.idwPower);
         if (!std::isfinite(v))
           v = globalLayer[std::size_t(l)]; // 无井控层的全局趋势回退
         r.layerImpedance[cell * std::size_t(nL) + std::size_t(l)] = v;
@@ -333,8 +382,11 @@ void lowFreqTraceAt(const LowFreqModelResult &m, int il, int xl, float *out)
         const float v = w.impedance[std::size_t(i)];
         if (!std::isfinite(v))
           continue;
-        const double dx = w.x - cx;
-        const double dy = w.y - cy;
+        const double wx=w.xSamples.empty()?w.x:w.xSamples[size_t(i)];
+        const double wy=w.ySamples.empty()?w.y:w.ySamples[size_t(i)];
+        if(!std::isfinite(wx)||!std::isfinite(wy))continue;
+        const double dx = wx - cx;
+        const double dy = wy - cy;
         const double d2 = dx * dx + dy * dy;
         if (d2 == 0.0)
         {

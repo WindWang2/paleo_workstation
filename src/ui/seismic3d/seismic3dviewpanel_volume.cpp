@@ -1,4 +1,5 @@
 // 层：视图
+#include <QLabel>
 // seismic3dviewpanel_volume — 换体入口 TU（full-audit-20261020 自 viewpanel
 // 主文件拆出，file 预算纪律 1827 冻结值不涨）：#158 在途切片顶替 +
 // D-05 面板侧派生内容弃置（缓存清空/世代号/回退弹回/§35 reason tooltip）。
@@ -31,6 +32,16 @@ void Seismic3DViewportWidget::restoreCamera(const SeismicCameraController::Camer
     camera_.setState(state);initialFitDone_=true;update();
 }
 
+void Seismic3DViewPanel::updateQualityLabel(const QString &quality) {
+    const auto vol=volume();
+    const QString text = vol&&qint64(vol->InlineCount())*vol->XlineCount()>2000000
+        ?tr("预览：IL/XL ≤128 道，时间面 ≤64×48；完整分辨率见二维视图")
+        :(quality.isEmpty() ? QString() : QStringLiteral("LOD %1").arg(quality));
+    qualityLabel_->setText(text);
+    qualityLabel_->setVisible(!text.isEmpty());
+    emit lodChanged(text);
+}
+
 bool Seismic3DViewPanel::promoteIndexedVolume(std::shared_ptr<SgyVolume> next) {
     const auto previous=volume();
     if(!previous||!next||!previous->IsRuleBased()||next->IsRuleBased()||!next->IsIndexComplete()||previous->Path()!=next->Path())return false;
@@ -53,6 +64,11 @@ void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     // stackExtracting_ 残留 true 会永久挡住新体的堆叠请求；世代号让仍在途
     // 的旧体回调（无槽位句柄可顶替）整体作废。
     ++volumeGeneration_;
+    // Old-generation callbacks intentionally do not touch the new volume.
+    // Release their slot state here so promotion cannot strand all three reads.
+    inlineExtracting_ = crosslineExtracting_ = timeExtracting_ = false;
+    pendingInline_ = pendingCrossline_ = pendingTime_ = -1;
+    slotTasks_.fill(nullptr); slotSuperseded_.fill(false); cachedReady_.fill(false);
     cachedStackReady_.fill(false);
     cachedStackImages_.fill({});
     cachedStackSamples_.fill({});
@@ -128,6 +144,8 @@ void Seismic3DViewPanel::setVolume(std::shared_ptr<SgyVolume> volume) {
     requestSliceUpdate(SeismicSliceSlot::Time, SgySliceType::Time, midTime);
 
     checkMemoryBudget(); // D3.8 体量 > RAM/2 → 提示分页通道
+    if (qint64(volume->InlineCount()) * volume->XlineCount() > 2000000)
+        updateQualityLabel(tr("预览：IL/XL ≤128 道，时间面 ≤64×48；完整分辨率见二维视图"));
 
     // 体积变化时重发体渲染堆叠层
     if (stackMode_)

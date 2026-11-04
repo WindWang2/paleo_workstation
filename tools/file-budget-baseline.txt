@@ -41,7 +41,7 @@ src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:407
 src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:429
 src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:372
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:251
-src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:653
+src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:639
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:284
@@ -71,12 +71,12 @@ src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:224
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:476
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:277
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:426
-src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:295
+src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:289
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:358
-src/ui/seismic3d/seismic3dviewpanel.cpp:file:1642
+src/ui/seismic3d/seismic3dviewpanel.cpp:file:1635
 src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
-src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:678
+src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:602
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:253
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
 src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228

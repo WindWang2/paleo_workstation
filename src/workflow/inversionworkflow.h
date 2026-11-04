@@ -1,16 +1,18 @@
 // 层：功能
 #pragma once
 
-#include "../algorithms/inversion/lowfreq.h"
-#include "../algorithms/inversion/volume.h"
-#include "../algorithms/inversion/wavelet.h"
+#include "domain/inversionmodel.h"
+#include <QByteArray>
 #include "derivedassets.h"
+#include "domain/seismic/sectionwellprojector.h"
 
 #include <QJsonObject>
 #include <QString>
 #include <QStringList>
+#include <QVariantMap>
 
 #include <functional>
+#include <limits>
 #include <vector>
 
 // workflow/inversionworkflow — 确定性叠后反演编排（方向 22）。
@@ -21,7 +23,7 @@
 // 结果模式）；本类无状态，可值语义使用。
 //
 // 诚实口径：产物 extra 必带 lowCutHz 与频段语义（低频模型 0–lowCut + 地震
-// 带限），不标「高分辨率」；井阻抗曲线 TWT 化按垂直井语义（方向 19 递延）。
+// 带限），不标「高分辨率」；工区井按实际轨迹逐样点取道并建立空间低频约束。
 
 namespace paleo::inv {
 
@@ -43,6 +45,9 @@ struct WaveletJobRequest {
     double waveletLengthMs = 128.0;
     QString parentVersionId;      // 可空（地震体版本，父谱系）
     QString sourceUri;
+    QString projectDirectory,timeReference,trajectorySource;
+    std::vector<seismic::WellTrajSample> trajectory;
+    bool requireTrajectory=false;
 };
 
 class InversionWorkflow {
@@ -56,8 +61,10 @@ public:
         paleo::inversion::Wavelet wavelet;               // compute 阶段填
         double fitCorrelation = 0.0;
         QString nearestTraceNote;                        // QC：井旁道定位说明
+        QVariantMap spatialEvidence;
     };
 
+    static QByteArray waveletJson(const WaveletJob& job);
     bool prepareWaveletJob(const WaveletJobRequest &req, WaveletJob *job, QString *error = nullptr) const;
     bool computeWaveletJob(WaveletJob *job,
                            const std::function<bool()> &cancelled = {},
@@ -74,6 +81,9 @@ public:
         double y = 0.0;
         std::vector<double> twtMs;
         std::vector<float> impedance;
+        std::vector<seismic::WellTrajSample> trajectory;
+        QString timeReference,trajectorySource;
+        bool requireTrajectory=false;
     };
 
     struct InversionJobRequest {
@@ -92,6 +102,10 @@ public:
         QString displayName;
         QStringList parentPaths;    // 父版本谱系反查（绝对/工程相对路径）
         QString sourceUri;
+        QString projectDirectory,timeReference;
+        int firstInline=std::numeric_limits<int>::min(),lastInline=std::numeric_limits<int>::max();
+        int firstCrossline=std::numeric_limits<int>::min(),lastCrossline=std::numeric_limits<int>::max();
+        double firstTimeMs=qQNaN(),lastTimeMs=qQNaN(); // explicit crop, never decimation
     };
 
     struct InversionJob {
@@ -118,6 +132,8 @@ public:
         double meanResidualEnergyRatio = 0.0; // sparse
         double meanLowFreqVarianceFraction = 0.0; // bandlimited
         QString tempVolumePath;
+        bool dataServiceSource=false;
+        QVariantMap spatialEvidence;
     };
 
     bool prepareInversionJob(const InversionJobRequest &req, InversionJob *job,

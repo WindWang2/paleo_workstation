@@ -21,6 +21,7 @@ struct SeismicClusterResult {
   QStringList warnings;
   QVariantList clusterMapping, supportingWells;
   QStringList wellVersionIds;
+  QVariantMap parameters; // Actual native volume, frozen unit and feature-window provenance.
 };
 
 // 当前层位 TWT 窗内的真实反射特征 + 确定性聚类；解释类别映射为 Mock。

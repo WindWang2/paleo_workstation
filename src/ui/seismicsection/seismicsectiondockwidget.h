@@ -85,7 +85,7 @@ public:
         const std::vector<glm::ivec2> &pathPoints,
         const QString &lineTitle = QString(),
         const std::vector<glm::dvec2> &mapPolyline = {},
-        const std::vector<SectionWellInfo> &candidateWells = {});
+        const std::vector<SectionWellInfo> &candidateWells = {},const QStringList &selectedWellIds = {});
 
     // D2.12 书签列表（测试与外部驱动用）
     QList<SectionBookmark> bookmarks() const { return m_bookmarks; }
@@ -96,6 +96,7 @@ public:
     // ---- D5 井震与任意线 ----
     void setCandidateWells(const std::vector<SectionWellInfo> &wells); // D5.3/D5.7 候选井（地图链路外亦可注入）
     std::vector<SectionWellInfo> candidateWells() const { return m_candidateWells; }
+    QStringList selectedWellIds() const { return m_selectedWellIds; }
     void showArbitraryLineEditor();                    // D5.1 多段折线路径编辑器
     void showWellSideTrace();                          // D5.6 井旁道小图（最近井）
     // D5.3 井轨迹投影（顶/底到剖面折线的投影）；TD 无实测表 → 返回带原因注记
@@ -307,6 +308,7 @@ private:
 
     // ---- D5 ----
     std::vector<SectionWellInfo> m_candidateWells;
+    QStringList m_selectedWellIds;
     std::vector<glm::dvec2> m_lastMapPolyline;
 
     // ---- D4 解释 ----

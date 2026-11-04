@@ -49,7 +49,7 @@ bool MappingWorkbench::checkWellReadiness(const QString &h, const QStringList &i
     seen.insert(row.value("id").toString());
     request.wells << wellRequestEntry(row, h);
   }
-  // 勾选了但不在可用输入里的井（缺坐标/源文件）同样如实计入不可预测。
+  // 勾选了但不在可用输入里的井（缺曲线/源文件）同样如实计入不可预测。
   m_readinessMissing.clear();
   for (const auto &id : ids)
     if (!seen.contains(id)) m_readinessMissing << id;
@@ -57,7 +57,7 @@ bool MappingWorkbench::checkWellReadiness(const QString &h, const QStringList &i
   m_readinessHorizon = h;
   if (request.wells.isEmpty()) {
     m_readinessId.clear();
-    return reject(tr("所选井均缺少可读源文件、测井曲线或有效井坐标"));
+    return reject(tr("所选井均缺少可读源文件或测井曲线"));
   }
   m_wellRemote->check(request);
   return true;

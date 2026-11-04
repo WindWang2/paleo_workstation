@@ -438,6 +438,12 @@ class TestFactorWorkflow : public QObject
       auto *boundary=qobject_cast<QgsVectorLayer *>(f.layers.layer(boundaryId));QVERIFY(boundary);QCOMPARE(boundary->featureCount(),qint64(1));
       QCOMPARE(boundary->extent(),QgsRectangle(300000,2350000,301000,2351000));
       const auto versions=f.catalog.versions().size();QCOMPARE(workflow.ensureProjectBoundary(&error),boundaryId);QCOMPARE(f.catalog.versions().size(),versions);
+      const auto oldSource=boundary->source().section('|',0,0);
+      QVERIFY(QFile::setPermissions(oldSource,QFile::permissions(oldSource)|QFileDevice::WriteOwner));
+      {QFile damage(oldSource);QVERIFY(damage.open(QIODevice::Append));QVERIFY(damage.write("damaged")>0);}
+      QCOMPARE(workflow.ensureProjectBoundary(&error),boundaryId);
+      QCOMPARE(f.catalog.versions().size(),versions+1);
+      QVERIFY(f.layers.layer(boundaryId)->source().section('|',0,0)!=oldSource);
     }
     void realProjectSandRatioExtractionToRaster() {
       const auto project=qEnvironmentVariable("PALEO_SINGLEFACTOR_ACCEPTANCE_PROJECT");

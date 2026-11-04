@@ -4,6 +4,7 @@
 #include "../paleotheme.h"
 #include "../windowsizing_internal.h"
 #include <QGroupBox>
+#include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -51,12 +52,15 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
   m_text->setPlaceholderText(
       tr("描述井、地震或单因素的具体观察，以及为何支持此次解释；也可填写纯人工依据。"));
   m_text->setMinimumHeight(paleo::ui_detail::lineRows(m_text, 3));
-  layout->addWidget(m_text, 2);
+  auto *form = new QFormLayout;
+  form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+  form->addRow(tr("解释说明"), m_text);
   m_reason = new QLineEdit(group);
   m_reason->setObjectName("editBasisReason");
   m_reason->setAccessibleName(tr("本次修改目的"));
   m_reason->setPlaceholderText(tr("修改目的，例如：根据砂厚高值区调整河道边界"));
-  layout->addWidget(m_reason);
+  form->addRow(tr("修改目的"), m_reason);
+  layout->addLayout(form, 2);
   auto *apply = new QPushButton(tr("启用本次解释依据"), group);
   apply->setObjectName("workbench.setEditEvidence");
   layout->addWidget(apply);

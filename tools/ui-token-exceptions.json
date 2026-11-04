@@ -763,13 +763,6 @@
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
-    "rule": "hex",
-    "source": "p.setPen(QColor(QStringLiteral(\"#F29900\")));",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
-  },
-  {
     "file": "src/ui/seismicsection/seismicsectioncanvas_nav.cpp",
     "rule": "qt-color",
     "source": "img.fill(Qt::white);",
@@ -815,13 +808,6 @@
     "file": "src/ui/seismicsection/seismicsectioncanvas_render.cpp",
     "rule": "rgb",
     "source": "QPen wavePen(QColor(30, 38, 48), 1.0);",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
-  },
-  {
-    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
-    "rule": "rgb",
-    "source": "p.setPen(QPen(QColor(220, 38, 38), 1.4));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },

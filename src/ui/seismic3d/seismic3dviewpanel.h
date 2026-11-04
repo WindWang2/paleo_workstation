@@ -30,6 +30,7 @@ namespace seismic {
 class Seismic3DViewPanel : public QWidget {
     Q_OBJECT
 public:
+    void showInlineWarning(const QString &text);
     explicit Seismic3DViewPanel(QWidget *parent = nullptr);
     ~Seismic3DViewPanel() override = default;
 
@@ -246,7 +247,6 @@ private:
     QLabel *memoryHintLabel_ = nullptr;        // D3.8
     // goal/ui-experience-polish：行内告警通道（切片失败可见化）——与内存
     // 提示共用一条 warning 条。
-    void showInlineWarning(const QString &text);
 
     // D3.5/D3.3 渲染状态
     Seismic3DColorMap cmap_;

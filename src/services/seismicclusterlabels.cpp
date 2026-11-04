@@ -34,7 +34,7 @@ SeismicClusterResult labelSeismicClusters(
       cluster = grid.cells[int(std::floor(row)) * grid.columns + int(std::floor(col))];
     if (cluster != -9999) ++votes[cluster][well.code];
     grid.supportingWells << QVariantMap{{"id", well.id}, {"version_id", well.versionId},
-        {"facies_code", well.code}, {"cluster_id", cluster}, {"voted", cluster != -9999}};
+        {"facies_code", well.code}, {"cluster_id", cluster}, {"voted", cluster != -9999},{"coordinate_source",well.coordinateSource}};
     if (!well.versionId.isEmpty() && !grid.wellVersionIds.contains(well.versionId))
       grid.wellVersionIds << well.versionId;
   }

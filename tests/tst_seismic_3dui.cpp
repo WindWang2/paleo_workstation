@@ -17,6 +17,9 @@
 #include <QSignalSpy>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QComboBox>
+#include <QHBoxLayout>
+#include "ui/datapreview/timeslicereadcontrols.h"
 
 #include <cmath>
 #include <cstring>
@@ -28,6 +31,7 @@
 #include "../src/services/seismictaskservice.h"
 #include "../src/services/fspathutils.h"
 #include "Engine/QuickOpen.h"
+#include "Data/Sgy/SgyIndexCache.h"
 #include "../src/ui/seismic3d/seismic3dcolormap.h"
 #include "../src/ui/seismic3d/seismic3dfallback.h"
 #include "../src/ui/seismic3d/seismiccameracontroller.h"
@@ -137,6 +141,21 @@ class TestSeismic3DUi : public QObject
   QTemporaryDir m_settingsDir; // initTestCase 前构造：settings 沙箱路径
 
 private slots:
+  void timeSliceWorkerControlPersistsSupportedChoices() {
+    QTemporaryDir temp;QSettings settings(temp.filePath("preferences.ini"),QSettings::IniFormat);
+    QWidget first;QHBoxLayout layout(&first);
+    const auto controls=paleo::ui::makeTimeSliceReadControls(&first,&layout,&settings);
+    QCOMPARE(controls.workers->currentData().toInt(),4);QCOMPARE(controls.workers->count(),3);
+    for(int workers:{1,2,4}) {
+      controls.workers->setCurrentIndex(controls.workers->findData(workers));
+      QCOMPARE(settings.value("seismic/timeSliceWorkers").toInt(),workers);
+      QWidget reopened;QHBoxLayout next(&reopened);
+      QCOMPARE(paleo::ui::makeTimeSliceReadControls(&reopened,&next,&settings).workers->currentData().toInt(),workers);
+    }
+    settings.setValue("seismic/timeSliceWorkers",3);
+    QWidget invalid;QHBoxLayout fallback(&invalid);
+    QCOMPARE(paleo::ui::makeTimeSliceReadControls(&invalid,&fallback,&settings).workers->currentData().toInt(),4);
+  }
   void indexedPromotionKeepsCameraAndSelection()
   {
     QTemporaryDir dir;const auto file=dir.filePath("promote.sgy");QVERIFY(writeTestSegy(file,4,8,32));
@@ -148,11 +167,36 @@ private slots:
     auto state=panel.viewport()->camera().state();state.yaw=17;state.pitch=21;state.distance=12;
     panel.viewport()->restoreCamera(state);
     QVERIFY(panel.promoteIndexedVolume(full));QVERIFY(!panel.volume()->IsRuleBased());
+    // Promotion must dispatch before the old generation has drained.
+    QVERIFY(countTasksByTitle(tasks,QStringLiteral("提取地震切片")) >= 6);
     QCOMPARE(panel.currentInline(),1001);QCOMPARE(panel.currentCrossline(),2003);QCOMPARE(panel.currentTimeSample(),7);
     QCOMPARE(panel.viewport()->camera().state().yaw,17.f);QCOMPARE(panel.viewport()->camera().state().distance,12.f);
     QVERIFY(waitForQuiet([&]{for(auto* task:tasks.tasks())if(task->running())return false;return true;}));
     QCOMPARE(panel.currentInline(),1001);QVERIFY(!panel.volume()->IsRuleBased());
     QVERIFY(!panel.promoteIndexedVolume(coarse));
+  }
+
+  void realLargeVolumeOverview()
+  {
+    const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
+    if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
+    QElapsedTimer clock;clock.start();auto vol=std::make_shared<SgyVolume>();std::string error;
+    const auto index=SgyIndexCache::Load(paleo::toFsPath(path),error);
+    QVERIFY2(index,error.c_str());vol->AdoptIndex(index);const auto loadMs=clock.elapsed();
+    PaleoTaskService tasks;SeismicTaskService service(&tasks);int completed=0;QStringList errors;
+    clock.restart();
+    for(auto type:{SgySliceType::Inline,SgySliceType::Xline,SgySliceType::Time}){
+      const int index=type==SgySliceType::Inline?vol->FindNearestInlineValue((vol->InlineMin()+vol->InlineMax())/2.):
+        type==SgySliceType::Xline?vol->FindNearestXlineValue((vol->XlineMin()+vol->XlineMax())/2.):1500;
+      service.startSliceExtraction(vol,type,index,[&,type](bool ok,auto image,const auto &why){
+        if(!ok||!image)errors.append(why);else{
+          qInfo()<<"real 3D slot"<<int(type)<<image->width<<"x"<<image->height<<"ready_ms"<<clock.elapsed();
+          QVERIFY(type==SgySliceType::Time?image->width<=64&&image->height<=48:image->width<=128);
+        }++completed;
+      },{},true);
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(completed,3,60000);QVERIFY2(errors.isEmpty(),qPrintable(errors.join('\n')));
+    qInfo()<<"real 3D index_ms"<<loadMs<<"all_slices_ms"<<clock.elapsed();
   }
 
   void initTestCase()

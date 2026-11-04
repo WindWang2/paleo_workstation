@@ -92,6 +92,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   if (!auxOnly && asset.type == QLatin1String("well_log") && v.stage == QLatin1String("RAW") &&
       v.id == cat->currentVersion(assetId).id && v.extra.value("areaModelSourceId").toLongLong() > 0)
     return buildAuxiliaryXmlContent(abs, assetId, host, lay, {}, false);
+  if (asset.type == QLatin1String("horizon") && v.stage == QLatin1String("RAW") &&
+      v.id == cat->currentVersion(assetId).id && v.extra.value("areaModelSourceId").toLongLong() > 0)
+    return buildHorizonContent(cat, asset, v, assetId, linkedBoundary, host, lay);
 
   // 外链/受管缺失态（§4：「找不到源文件」+路径）。外链版本（wave4）多给一个
   // 「重新定位文件…」出口——服务层流式 SHA-256 复验，内容一致才重接，不一致

@@ -147,7 +147,9 @@ private slots:
     const auto bareWell = std::find_if(placed.begin(), placed.end(), [](const auto &well) {
       return well.wellId == QLatin1String("well-3");
     });
-    QVERIFY(bareWell == placed.end()); // No curve/TD input: never invent a default-velocity overlay.
+    QVERIFY(bareWell != placed.end()); // A selected route may retain this known surface location.
+    QVERIFY(bareWell->requiresSpatialPath&&bareWell->trajectory.empty());
+    QVERIFY(std::isnan(bareWell->bottomTwtMs)); // Still never invent a default-velocity bore.
     QVERIFY(work.setCalibration("well-1", false, 2500, 25, &error));
     data = work.sectionWells();
     QCOMPARE(data[0].bottomTwtMs, 225.0);
@@ -156,14 +158,14 @@ private slots:
     QCOMPARE(route[0].x, 200.0);
     QCOMPARE(route[1].x, 100.0);
     QVERIFY(work.wellRoute({"well-1", "well-1"}, &error).empty());
-    QVERIFY(work.save("A2-A1", route, "/survey.sgy", "H1", &error));
+    QVERIFY(work.save("A2-A1", route, "/survey.sgy", "H1", &error,{"well-2","well-1"}));
     const auto id = work.savedSections().front().toMap().value("id").toString();
     const auto version = catalog.versionById(id);
     QVERIFY(version.parentVersionIds.contains("v-td-1"));
     QVERIFY(
         QFile::exists(DataCatalog::resolvedVersionPath(dir.path(), version)));
     SectionWorkbench reopened(&catalog);
-    QVERIFY(!reopened.restore(id, &error).isEmpty());
+    QCOMPARE(reopened.restore(id, &error).value("well_ids").toStringList(),QStringList({"well-2","well-1"}));
     QCOMPARE(reopened.sectionWells()[0].bottomTwtMs, 225.0);
     QVERIFY(reopened.setCalibration("well-1", true, 2000, -10, &error));
     QCOMPARE(reopened.sectionWells()[0].bottomTwtMs, 340.0);

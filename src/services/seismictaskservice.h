@@ -261,6 +261,8 @@ class SeismicTaskService : public QObject
   Q_OBJECT
 
 public:
+  PaleoTask *startDataHorizonSurfaces(const QString &path,
+      std::function<void(bool,const QStringList&,const std::vector<SeismicHorizonGrid>&,const QString&)> done);
   explicit SeismicTaskService(PaleoTaskService *taskService = nullptr,
                               std::size_t dataCacheBudgetMb = 256,
                               QObject *parent = nullptr);
@@ -278,7 +280,7 @@ public:
       const QString& timeReference,std::function<void(bool,std::shared_ptr<const SeismicSectionData>,const QString&)> done);
   PaleoTask *startDataSlice(const QString& path,SgySliceType type,int index,
       std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,
-      quint64 tileGeneration = 0);
+      quint64 tileGeneration = 0,int previewAxis = 0,int workerCount = 4);
 
   // 1. 异步索引 SEG-Y：优先读取磁盘缓存；未命中或强制刷新时提交至 PaleoTaskService 异步扫描
   PaleoTask *startIndexing(

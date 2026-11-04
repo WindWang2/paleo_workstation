@@ -69,7 +69,8 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
       ":" + paleo::fromFsPath(volume->Path()).toStdString() + (viewer3D?":3d:":":data:") + (volume->IsRuleBased()?"preview":"full")+sourceToken.toStdString();
 
   // 1. 检查内存 LRU 缓存（显式 paged 通道不查直读缓存——两条通道语义独立）
-  if (pagedPath.isEmpty())
+  const bool cacheOverview=pagedPath.isEmpty() || (viewer3D&&qint64(volume->InlineCount())*volume->XlineCount()>2000000);
+  if (cacheOverview)
   {
     if (auto cached = dataCache_.Find(key))
     {
@@ -105,7 +106,10 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
       if(!paleo::readSeismicDataSlice(sgyPath,type,sliceIndex,*outImage,error,[task]{return task->cancelRequested();}))return error;
       return {};
     }
-    if(volume->IsRuleBased()) {
+    // Interactive 3D is an explicitly bounded overview on large volumes.
+    // IL/XL keep every vertical sample; 2D retains native resolution.
+    if(volume->IsRuleBased() ||
+       (viewer3D && qint64(volume->InlineCount())*volume->XlineCount()>2000000)) {
       std::string error;int columns=0,total=0;
       const auto progress=[task](int done,int count){task->reportBytes(done,count);return !task->cancelRequested();};
       const bool ok=type==SgySliceType::Time
@@ -178,10 +182,10 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
 
   // quiet：切片提取是视口交互内嵌取数，不拉起任务中心。
   PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
-  connect(task, &PaleoTask::finished, this, [this, task, key, pagedPath, outImage, onFinished]() {
+  connect(task, &PaleoTask::finished, this, [this, task, key, cacheOverview, outImage, onFinished]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
-      if (pagedPath.isEmpty())
+      if (cacheOverview)
         dataCache_.Store(key, outImage);
       if (onFinished)
         onFinished(true, outImage, QString());

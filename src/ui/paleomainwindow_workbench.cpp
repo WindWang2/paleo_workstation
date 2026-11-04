@@ -294,8 +294,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   const auto compare = makeWorkbenchCompare(workbench);
   if (edit)
     for (auto *action : {edit->actionAddPolygon(), edit->actionPaintFacies()})
-      connect(action, &QAction::triggered, this, [this, compare] {
+      connect(action, &QAction::triggered, this, [this, compare, edit, workbench] {
         if (currentPage() != QLatin1String("compose")) return;
+        if (edit->currentLayer() && workbench->needsEditEvidence(edit->currentLayer()->customProperty("paleoLayerId").toString())) return;
         // 首次绘面给出入口；用户关闭过参考面板后，不因再次绘面反复拉起。
         if (!findChildren<MappingReferencePanel *>().isEmpty()) return;
         QString error;
@@ -472,15 +473,50 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                 [action](int index) { action->setVisible(index == 1); });
       }
   }
+  attachMappingEditBasisEntry(workbench, pages[2]);
+  legend();
+}
+
+void PaleoMainWindow::attachMappingEditBasisEntry(MappingWorkbench *workbench, MappingWorkbenchPage *page) {
+  const auto openBasis = [this, page] {
+    if (currentPage() != QLatin1String("compose")) showPage(QStringLiteral("compose"));
+    if (auto *tabs = findChild<QTabWidget *>("workbenchTabs.compose")) tabs->setCurrentWidget(page);
+    if (m_rightDock) { m_rightDock->show(); m_rightDock->raise(); }
+    page->showEditBasis();
+  };
   if (auto *category = categoryForPage(QStringLiteral("compose")))
     if (auto *panel = category->findChild<SARibbonPanel *>(QStringLiteral("ribbonPanel.compose.chain"))) {
-      auto *action = new QAction(tr("参考证据"), this);
-      action->setObjectName(QStringLiteral("ribbonReferenceEvidence"));
-      PaleoRibbon::mirror(action, pages[2]->commandButton("referencePanel"), false, false);
-      action->setWhatsThis(tr("打开参考证据面板，在面板内添加视图并选择证据，与主图联动对照绘制。"));
-      panel->addSmallAction(action);
+      auto *basis = new QAction(PaleoIcons::qgisTheme("mActionFormAnnotation.svg"), tr("解释依据…"), this);
+      basis->setObjectName(QStringLiteral("ribbonEditBasis"));
+      basis->setToolTip(tr("填写本次解释说明和修改目的，可选取当前参考证据，启用后绘制或修改相面。"));
+      basis->setWhatsThis(basis->toolTip());
+      panel->addSmallAction(basis);
+      connect(basis, &QAction::triggered, this, openBasis);
+      auto *reference = new QAction(tr("参考证据"), this);
+      reference->setObjectName(QStringLiteral("ribbonReferenceEvidence"));
+      PaleoRibbon::mirror(reference, page->commandButton("referencePanel"), false, false);
+      reference->setWhatsThis(tr("打开参考证据面板，在面板内添加视图并选择证据，与主图联动对照绘制。"));
+      panel->addSmallAction(reference);
     }
-  legend();
+  if (auto *edit = findChild<PaleoEditingToolbar *>("editingToolbar")) {
+    const auto missingBasis = [workbench](const QgsVectorLayer *layer) {
+      const auto id = layer ? layer->customProperty("paleoLayerId").toString() : QString();
+      return workbench->isFaciesPolygon(id) && workbench->needsEditEvidence(id);
+    };
+    edit->setMutationGuard([this, page, openBasis, missingBasis](const QgsVectorLayer *layer) {
+      if (!missingBasis(layer)) return true;
+      openBasis();
+      const auto message = tr("请填写右侧的解释说明和修改目的，点击“启用本次解释依据”后，再选择相面编辑工具。未修改图面。");
+      page->showMessage(message);
+      statusBar()->showMessage(message, 15000);
+      return false;
+    });
+    // A tool already armed before a unit/context change still has the workflow
+    // mutation guard; bring its refusal back to the same reachable form.
+    connect(edit, &PaleoEditingToolbar::editRefused, this, [edit, openBasis, missingBasis] {
+      if (missingBasis(edit->currentLayer())) openBasis();
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

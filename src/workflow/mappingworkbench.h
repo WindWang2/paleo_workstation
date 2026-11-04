@@ -56,6 +56,7 @@ public:
   ~MappingWorkbench() override;
   void bindCatalog(DataCatalog *catalog, const QString &projectDir);
   void setAnalysisUnit(const paleo::strat::UnitSelection &unit);
+  paleo::strat::UnitSelection analysisUnit() const { return m_analysisUnit; }
   // 只读目录访问（影响分析/反查等 UI 编排用）。
   DataCatalog *catalog() const { return m_catalog; }
   void setPredictionService(RemotePredictionService *service);
@@ -117,6 +118,7 @@ public:
   QString createBlankMap(const QString &horizon, QString *error);
   bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);
   QVariantMap editEvidence(const QString &horizon) const;
+  bool needsEditEvidence(const QString &layerId) const;
   void clearEditEvidence();
   void setManualEvidenceRequired(bool required);
   bool hasUnpublishedEdits(const QString &id) const;

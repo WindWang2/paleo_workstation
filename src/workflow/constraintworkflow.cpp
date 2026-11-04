@@ -116,7 +116,10 @@ QString ConstraintWorkflow::ensureProjectBoundary(QString *error)
     if(asset.type!="project_planar_range")continue;
     const auto v=catalog()->currentVersion(asset.id);
     const auto stored=DataCatalog::resolvedVersionPath(projectDir(),v);
-    if(v.extra.value("range").toMap()==signature&&QFileInfo::exists(stored)&&QFileInfo::exists(stored+".qml")){path=stored;break;}
+    // Generated ranges are reproducible. Never reuse a damaged historical file
+    // as a current export input, or silently rewrite its registered checksum.
+    if(v.extra.value("range").toMap()==signature&&QFileInfo::exists(stored+".qml")&&
+       !v.sha256.isEmpty()&&DataCatalog::sha256FileHex(stored)==v.sha256){path=stored;break;}
   }
   if(path.isEmpty()){
     const auto st=registrar.stage("project_planar_range",tr("工区范围"),"project_range.gpkg",error);

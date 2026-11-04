@@ -40,6 +40,7 @@
 #include "ui/wellsection/wellsectionpanel.h"
 #include "ui/seismicsection/seismicsectioncanvas.h"
 #include "linkage/seismicmaplink.h"
+#include "workflow/officepreviewsession.h"
 
 class TestRealProjectAcceptance : public QObject {
   Q_OBJECT
@@ -47,6 +48,13 @@ class TestRealProjectAcceptance : public QObject {
   QJsonObject report;
   static std::string u(const QString &s) { return s.toUtf8().toStdString(); }
 private slots:
+  void deployedOfficeComponent() {
+    const auto root=OfficePreviewSession::editorRoot();
+    qInfo()<<"Deployed Office"<<root<<"application"<<QCoreApplication::applicationDirPath();
+    QVERIFY2(!root.isEmpty(),"The deployed application must include its Office component");
+    QVERIFY(QFileInfo::exists(root+"/index.html"));
+    report["officeComponent"]=root;
+  }
   void initTestCase() {
     project = qEnvironmentVariable("PALEO_ACCEPTANCE_PROJECT");
     if (project.isEmpty()) QSKIP("Set PALEO_ACCEPTANCE_PROJECT to an imported project directory.");
@@ -429,7 +437,7 @@ private slots:
     const auto unregister=qScopeGuard([this]{paleo::area_model::unregisterProject(this);});
     DataCatalog catalog;catalog.setLockedReadOnly(true);QString error;QVERIFY2(catalog.open(project,&error),qPrintable(error));
     ProjectDataFacade data;data.setCatalog(&catalog,project);SectionWorkbench workbench(&catalog);QStringList ids;QJsonArray details;
-    const auto requested=qEnvironmentVariable("PALEO_ACCEPTANCE_ALIGNMENT_WELLS","HZ21-7-1,HZ21-8-1").split(',');
+    const auto requested=qEnvironmentVariable("PALEO_ACCEPTANCE_ALIGNMENT_WELLS","HZ19-1-1A,HZ19-6-1D").split(',');
     for(const auto &name:requested){
       const auto matches=catalog.wellsMatchingName(name);QCOMPARE(matches.size(),1);ids<<matches.first();
       const auto rows=data.tdTableFor(ids.last());QVERIFY2(!rows.isEmpty(),qPrintable(data.lastError()));
@@ -468,19 +476,34 @@ private slots:
     report.insert("majorSeismicConnections",majorNames);
     const auto overlays=workbench.sectionWells();int visible=0,curvePoints=0;
     auto displayWells=wells;wellsection::useSeismicCorrelationTops(displayWells,strip);
-    std::vector<seismic::SectionWellInfo> projected;
+    std::vector<seismic::SectionWellInfo> candidates;
     for(int side=0;side<2;++side)for(const auto &well:overlays)if(well.wellId==ids[side]){
-      auto copy=well;copy.tracePosition=side?strip.gaps[0].columns-1:0;copy.isWithinBuffer=true;projected.push_back(copy);
+      qInfo()<<"Actual trajectory"<<well.wellName<<well.trajectory.size()<<well.trajectoryStatus;
+      candidates.push_back(well);
     }
-    QCOMPARE(projected.size(),size_t(2));seismic::projectSectionHorizonTies(projected,strip.gaps[0].horizons);
+    const auto &gap=strip.gaps[0];
+    const std::vector<glm::dvec2> route{{wells[0].x,wells[0].y},{wells[1].x,wells[1].y}};
+    auto projected=seismic::SectionWellProjector::ProjectWells(route,{},gap.columnDistancesM,candidates,100000);
+    QCOMPARE(projected.size(),size_t(2));seismic::projectSectionHorizonTies(projected,gap.horizons);
     WellSectionPanel panel(nullptr);panel.setSection(wells);panel.setSeismicStrip(strip);
     QJsonArray tieRecords;
     for(const auto &link:majorLinks)for(int side=0;side<2;++side){
-      const auto found=std::find_if(projected[side].tops.begin(),projected[side].tops.end(),[&](const auto &t){return t.topName==link.name;});
-      QVERIFY(found!=projected[side].tops.end());const auto md=side?link.rightMd:link.leftMd;
-      QVERIFY(std::abs(found->md-md)<1e-7);QVERIFY(std::abs(displayWells[side].topMd(link.name)-md)<1e-7);
+      const auto md=side?link.rightMd:link.leftMd;
+      QVERIFY(std::abs(displayWells[side].topMd(link.name)-md)<1e-7);
       QVERIFY(std::isfinite(panel.topLineY(ids[side],link.name)));
-      tieRecords.append(QJsonObject{{"well",wells[side].name},{"horizon",link.name},{"displayMd",md},{"twt",found->twtMs}});
+    }
+    // TWT views project every actual XYZ trajectory sample. Their intersection
+    // is not the head-only endpoint used by an unfolded MD fence.
+    for(const auto &well:projected){QVERIFY(!well.tops.empty());
+      for(const auto &top:well.tops){
+        const auto curve=std::find_if(gap.horizons.curves.begin(),gap.horizons.curves.end(),[&](const auto &c){return c.name==top.topName;});
+        QVERIFY(curve!=gap.horizons.curves.end());QVERIFY(std::isfinite(top.tracePosition));
+        const auto lo=size_t(std::floor(top.tracePosition)),hi=size_t(std::ceil(top.tracePosition));
+        const double time=curve->timesMs[lo]+(curve->timesMs[hi]-curve->timesMs[lo])*(top.tracePosition-lo);
+        QVERIFY(std::abs(top.twtMs-time)<1e-7);
+        QVERIFY(std::abs(well.mdTimeDepth->DepthToTwtMs(top.md)+well.timeShiftMs-top.twtMs)<1e-7);
+        tieRecords.append(QJsonObject{{"well",well.wellName},{"horizon",top.topName},{"displayMd",top.md},{"twt",top.twtMs},{"tracePosition",top.tracePosition}});
+      }
     }
     report.insert("displayedWellSectionTies",tieRecords);
     const auto preview=qEnvironmentVariable("PALEO_ACCEPTANCE_ALIGNMENT_PREVIEW");

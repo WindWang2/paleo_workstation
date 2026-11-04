@@ -13,6 +13,7 @@
 // 频谱估计用共享自研 radix-2 FFT（dsp/fft.h）。时间域语义：所有时间均为
 // TWT 毫秒。
 
+#include "domain/inversionmodel.h"
 #include <QByteArray>
 #include <QJsonObject>
 #include <QString>
@@ -23,23 +24,6 @@
 namespace paleo::inversion
 {
 
-// 归一化子波（max|x| = 1）。零相位子波峰对齐 t=0 时 t0Ms = -lengthMs/2。
-struct Wavelet
-{
-  double sampleIntervalMs = 2.0;
-  double t0Ms = 0.0;
-  std::vector<float> samples;
-  // 振幅标定（#141）：地震道振幅 ≈ 反射系数 ⊛ (amplitudeScale · samples)。
-  // 井旁道提取时由最小二乘解的峰值给出（归一化前的尺度）；0 = 未标定
-  //（解析子波 / 旧资产），反演按 1 处理并在结果中标 amplitudeCalibrated=false。
-  double amplitudeScale = 0.0;
-
-  int sampleCount() const { return int(samples.size()); }
-  bool isEmpty() const { return samples.empty(); }
-  double lengthMs() const;       // (n-1)·dt；空 → 0
-  double peakAmplitude() const;  // max|x|；空 → 0
-  double dominantFreqHz() const; // 振幅谱峰值频率（FFT 零填充；空 → 0）
-};
 
 // Ricker（墨西哥帽）零相位子波：w(t) = (1−2π²f²t²)e^{−π²f²t²}，峰对齐
 // t=0，采样数为奇数使 t=0 恰有采样。lengthMs 会吸附到奇数采样步。
@@ -49,12 +33,6 @@ Wavelet makeRicker(double f0Hz, double sampleIntervalMs, double lengthMs);
 // 振幅谱不变，用于混合相位正演对拍与相位扫描。θ=90° 时为零相位→奇对称化。
 Wavelet rotateWaveletPhase(const Wavelet &wavelet, double phaseDeg);
 
-// 单个反射系数尖峰（时间域 TWT ms）。
-struct ReflSpike
-{
-  double twtMs = 0.0;
-  float amplitude = 0.0f;
-};
 
 // 反演递推护栏：|r| 超过此值视为非物理（未标定振幅的典型症状）。
 inline constexpr double kMaxReflectivity = 0.45;

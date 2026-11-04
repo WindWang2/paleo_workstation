@@ -286,6 +286,8 @@ void StructuralIdwAlgorithm::initAlgorithm( const QVariantMap & )
   addParameter( new QgsProcessingParameterBoolean(
       QStringLiteral( "EXTEND_TO_BOUNDARY" ), QStringLiteral( "Extend trend to boundary" ), true ) );
   addParameter( new QgsProcessingParameterBoolean(
+      QStringLiteral( "INCLUDE_BOUNDARY_NODES" ), QStringLiteral( "Include domain boundary nodes" ), false ) );
+  addParameter( new QgsProcessingParameterBoolean(
       QStringLiteral( "ENABLE_BARRIERS" ), QStringLiteral( "Enable barriers" ), true ) );
   addParameter( new QgsProcessingParameterBoolean(
       QStringLiteral( "ENABLE_DIRECTIONS" ), QStringLiteral( "Enable direction lines" ), true ) );
@@ -511,6 +513,7 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
       parameterAsInt( parameters, QStringLiteral( "GRID_RESOLUTION" ), context ) );
 
   sf::StructuralRequest request;
+  request.includeBoundaryNodes = parameterAsBool( parameters, QStringLiteral( "INCLUDE_BOUNDARY_NODES" ), context );
   request.power = power;
   request.resolution = resolution;
   request.extendTrendToBoundary =
@@ -758,6 +761,7 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
   qcParams.insert( QStringLiteral( "grid_resolution" ), resolution );
   qcParams.insert( QStringLiteral( "power" ), request.power );
   qcParams.insert( QStringLiteral( "extend_trend_to_boundary" ), request.extendTrendToBoundary );
+  qcParams.insert( QStringLiteral( "include_boundary_nodes" ), request.includeBoundaryNodes );
   qcParams.insert( QStringLiteral( "well_cluster_locality" ), request.wellClusterLocality );
   qcParams.insert( QStringLiteral( "value_field" ), acquire.valueField );
   qcParams.insert( QStringLiteral( "factor_mode" ), acquire.factorMode );

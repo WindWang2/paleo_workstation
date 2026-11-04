@@ -10,9 +10,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QPlainTextEdit>
+#include <QScrollArea>
 #include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+#include <QTimer>
 #include <cmath>
 #include <limits>
 #include <QSet>
@@ -88,4 +91,22 @@ void MappingWorkbenchPage::buildBaseMapStep(QWidget *body, QVBoxLayout *layout) 
   auto *basis = new MappingEditBasis(m_workbench, body); layout->addWidget(basis);
   connect(this, &MappingWorkbenchPage::horizonChanged, basis, &MappingEditBasis::setHorizon);
   connect(basis, &MappingEditBasis::commandRequested, this, &MappingWorkbenchPage::commandRequested);
+}
+
+void MappingWorkbenchPage::showEditBasis() {
+  auto *basis = findChild<MappingEditBasis *>();
+  if (!basis) return;
+  // Wait for the restored dock/tab layout before bringing the field into view.
+  QTimer::singleShot(0, this, [this, basis] {
+    auto *text = basis->findChild<QPlainTextEdit *>("editBasisText");
+    auto *reason = basis->findChild<QLineEdit *>("editBasisReason");
+    QWidget *field = !text->toPlainText().trimmed().isEmpty() && reason->text().trimmed().isEmpty()
+                         ? static_cast<QWidget *>(reason) : text;
+    field->setFocus(Qt::OtherFocusReason);
+    if (auto *scroll = findChild<QScrollArea *>()) {
+      const auto margin = PaleoTheme::tokens().spacingSm;
+      QWidget *target = basis->height() + 2 * margin <= scroll->viewport()->height() ? basis : field;
+      scroll->ensureWidgetVisible(target, margin, margin);
+    }
+  });
 }

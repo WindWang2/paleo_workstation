@@ -25,20 +25,23 @@ QVector<SeismicSectionCanvas::WellPinLabel> SeismicSectionCanvas::wellPinLabels(
     const QRect vp = viewportRect();
     QVector<int> candidates;
     for (int i = 0; i < static_cast<int>(m_wells.size()); ++i)
-        if (m_wells[i].isWithinBuffer && std::abs(m_wells[i].offsetDistanceM) <= m_bufferDistanceM)
+        if (m_wells[i].selectedForSection||(m_wells[i].isWithinBuffer && std::abs(m_wells[i].offsetDistanceM) <= m_bufferDistanceM))
             candidates.append(i);
-    if (m_maxVisibleWells > 0 && candidates.size() > m_maxVisibleWells) {
+    if (m_maxVisibleWells > 0 && candidates.size() > m_maxVisibleWells&&!m_wells[candidates.front()].selectedForSection) {
         std::partial_sort(candidates.begin(), candidates.begin() + m_maxVisibleWells, candidates.end(), [this](int a, int b) {
             return std::abs(m_wells[a].offsetDistanceM) < std::abs(m_wells[b].offsetDistanceM);
         });
         candidates.resize(m_maxVisibleWells);
     }
     for (int i : candidates) {
-        const double x = traceToPixelX(m_wells[i].tracePosition);
-        if (!std::isfinite(x) || x < vp.left() || x > vp.right()) continue;
+        double x = traceToPixelX(m_wells[i].tracePosition);
+        if (!std::isfinite(x) || x < vp.left()-1.0 || x > vp.right()+1.0) continue;
+        x=std::clamp(x,double(vp.left()),double(vp.right())); // QRect::right is the last pixel, not the subpixel outer edge.
         QString name = m_wells[i].wellName.trimmed();
         if (name.isEmpty()) name = m_wells[i].wellId;
         if (name.isEmpty()) name = tr("未命名井");
+        if(m_wells[i].selectedForSection&&((m_wells[i].requiresSpatialPath&&m_wells[i].trajectory.empty())||
+           !m_wells[i].isWithinBuffer||std::abs(m_wells[i].offsetDistanceM)>m_bufferDistanceM))name=tr("仅井位：%1").arg(name);
         labels.append({i, x, {}, name, {}});
     }
     std::stable_sort(labels.begin(), labels.end(), [](const auto &a, const auto &b) { return a.pinX < b.pinX; });
@@ -255,7 +258,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (well.isWithinBuffer &&
                     std::abs(well.offsetDistanceM) <= m_bufferDistanceM)
                     visible.push_back(&well);
-            if (m_maxVisibleWells > 0 && static_cast<int>(visible.size()) > m_maxVisibleWells) {
+            if (m_maxVisibleWells > 0 && static_cast<int>(visible.size()) > m_maxVisibleWells&&!visible.front()->selectedForSection) {
                 std::partial_sort(visible.begin(), visible.begin() + m_maxVisibleWells, visible.end(),
                                   [](const SectionWellInfo *a, const SectionWellInfo *b) {
                                       return std::abs(a->offsetDistanceM) < std::abs(b->offsetDistanceM);
@@ -270,83 +273,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (wx < vp.left() - 60 || wx > vp.right() + 60)
                     continue;
 
-                // D5.3 井轨迹：底有投影时画斜轨迹线，否则垂直简化；
-                // goal/well-trajectory：测斜折线（≥2 顶点）优先于两点简化。
-                double wxBot = wx;
-                QPolygonF trajPoly;
-                for (const WellTrajectory &t : m_wellTrajectories) {
-                    if (t.wellId != well.wellId)
-                        continue;
-                    wxBot = traceToPixelX(t.bottomTracePos);
-                    if (t.vertices.size() < 2)
-                        break;
-                    const double wellTopYv = timeToPixelY(m_t0Ms);
-                    for (const TrajVertex &v : t.vertices) {
-                        if (!std::isfinite(v.twtMs) || v.twtMs <= 0.0)
-                            continue; // 未对齐顶点不画（诚实面，不猜时间）
-                        const double vy = std::max(
-                            timeToPixelY(v.twtMs),
-                            static_cast<double>(vp.top()) - 5.0);
-                        trajPoly.append(QPointF(traceToPixelX(v.tracePos),
-                                                std::max(vy, wellTopYv)));
-                    }
-                    break;
-                }
-
-                // Draw wellbore trajectory line (halo under neutral ink, 主题 token)
-                const double bottomTwt =
-                    well.calibrated ? well.bottomTwtMs
-                    : well.totalDepth > 0.0
-                        ? m_tdModel.DepthToTwtMs(well.totalDepth)
-                        : (m_t0Ms + m_samples * m_dtMs);
-                const double wellTopY = timeToPixelY(well.mdTimeDepth&&!well.mdTimeDepth->points().empty()?well.mdTimeDepth->points().front().timeMs+well.timeShiftMs:m_t0Ms);
-                const double wellBotY = std::min(
-                    timeToPixelY(std::isfinite(bottomTwt) ? bottomTwt : m_t0Ms),
-                    static_cast<double>(vp.bottom()));
-
-                if (trajPoly.size() >= 2) {
-                    p.setPen(QPen(tok.onPrimary, 4.0));
-                    p.drawPolyline(trajPoly);
-                    p.setPen(QPen(tok.text, 2.0));
-                    p.drawPolyline(trajPoly);
-                } else {
-                    p.setPen(QPen(tok.onPrimary, 4.0));
-                    p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
-
-                    p.setPen(QPen(tok.text, 2.0));
-                    p.drawLine(QPointF(wx, wellTopY), QPointF(wxBot, wellBotY));
-                }
-
-                // D5.4 合成记录 overlay：井位旁的合成道（红波形 + 褶积振幅）
-                for (const SyntheticOverlay &syn : m_syntheticOverlays) {
-                    if (syn.wellId != well.wellId || syn.twtMs.empty())
-                        continue;
-                    if (!syn.ok) {
-                        // 降级注记：写明原因（如「密度曲线缺失」）
-                        p.setFont(PaleoTheme::bodyFont(PaleoTheme::tokens().labelPt));
-                        p.setPen(QColor(QStringLiteral("#F29900")));
-                        p.drawText(QRectF(wx + 8.0, wellTopY + 4.0, 150.0, 30.0),
-                                   Qt::AlignLeft | Qt::TextWordWrap,
-                                   tr("合成记录不可用：%1").arg(syn.reason));
-                        continue;
-                    }
-                    const double halfW = 16.0;
-                    QPolygonF synWave;
-                    // #412：twtMs/amplitude 不等长即坏数据——按短边裁（同文件
-                    // 井曲线路径 :316 同款校验，此处补齐）。
-                    const std::size_t synN = std::min(syn.twtMs.size(), syn.amplitude.size());
-                    for (std::size_t i = 0; i < synN; ++i) {
-                        const double py = timeToPixelY(syn.twtMs[i]);
-                        if (py < vp.top() - 5 || py > vp.bottom() + 5)
-                            continue;
-                        synWave.append(QPointF(wx + 44.0 + syn.amplitude[i] * halfW, py));
-                    }
-                    if (synWave.size() >= 2) {
-                        p.setPen(QPen(QColor(220, 38, 38), 1.4));
-                        p.setBrush(Qt::NoBrush);
-                        p.drawPolyline(synWave);
-                    }
-                }
+                paintWellPath(p,well,vp,wx);
 
                 paintWellTracks(p,well,vp,wx);
             }

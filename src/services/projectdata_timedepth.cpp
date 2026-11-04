@@ -3,6 +3,7 @@
 #include "catalog/datacatalog.h"
 #include "io/areamodel.h"
 #include "io/wellfileparsers.h"
+#include "wellpathpositions.h"
 #include <paleo_data/service.h>
 #include <QFile>
 #include <QDir>
@@ -58,9 +59,10 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
   }
   if(!native&&(!service.verifySource(source,error)||!service.listSourceData("time_depth",source,entries,error))){m_lastError=QString::fromUtf8(error);return {};}
   std::vector<paleo::data::TimeDepthTable> tables;
+  QVector<qlonglong> tableIds;
   for(const auto& entry:entries)if(nativeWell&&entry.wellId==nativeWell) {
     paleo::data::TimeDepthTable table;if(!service.readTimeDepth(entry.id,table,error)){m_lastError=QString::fromUtf8(error);return {};}
-    if(table.depthInfo.depthType=="MD"||table.depthInfo.depthType=="TVD")tables.push_back(std::move(table));
+    if(table.depthInfo.depthType=="MD"||table.depthInfo.depthType=="TVD") { tables.push_back(std::move(table)); tableIds.append(entry.id); }
   }
   const paleo::data::TimeDepthTable *selected=nullptr;
   for(const auto& type:{"MD","TVD"}) {
@@ -86,7 +88,7 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
   for(const auto& pair:table.depthTimePairs) {
     TdSample row;row.timeMs=pair.timeValue*timeScale;row.timeReference=QString::fromUtf8(table.timeReference);
     if(table.depthInfo.depthType=="MD")row.md=pair.depthValue*depthScale;else row.tvd=pair.depthValue*depthScale;
-    out.append(row);
+    row.timeDepthId = tableIds[int(selected-tables.data())]; out.append(row);
   }
   // Preserve a second declared depth axis only for exactly the same time samples/datum.
   int otherAxes=0;for(const auto& other:tables)if(other.depthInfo.depthType!=table.depthInfo.depthType)++otherAxes;
@@ -105,6 +107,7 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const {
       if(other.depthInfo.depthType=="MD")out[i].md=value;else out[i].tvd=value;
     }
   }
+  attachTimeDepthPositions(table, paleo::area_model::confirmedProjectCrs(projectDir()), out);
   return out;
 }
 

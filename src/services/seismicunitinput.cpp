@@ -31,11 +31,17 @@ bool selectVolume(paleo::data::DataService &ds,const QString &source,long long &
 }
 }
 bool readSeismicAnalysisWindow(const QString &project,const UnitSelection &unit,const QString &source,
-    paleo::data::SeismicHorizonWindowResult &out,QString *error,const std::function<bool()> &cancelled){
-  out={};UnitSelection frozen;if(!freezeAnalysisUnit(project,unit,frozen,error))return false;
+    paleo::data::SeismicHorizonWindowResult &out,QString *error,const std::function<bool()> &cancelled,SeismicAnalysisSource *sourceInfo){
+  out={};if(sourceInfo)*sourceInfo={};UnitSelection frozen;if(!freezeAnalysisUnit(project,unit,frozen,error))return false;
   paleo::data::DataService ds;std::string detail;long long volumeId=0;paleo::data::SeismicVolume volume;
   const auto fail=[&]{out={};if(error)*error=QString::fromStdString(detail);return false;};
   if(!ds.openProjectReadOnly(area_model::directory(project).toStdString(),detail)||!selectVolume(ds,source,volumeId,volume,detail))return fail();
+  SeismicAnalysisSource context;context.unit=frozen;context.volumeId=volumeId;context.sourcePath=QString::fromStdString(volume.dataFile);
+  OGRSpatialReference crs;char *wkt=nullptr;
+  if(crs.SetFromUserInput(volume.geometry.coordinateSystem.c_str())!=OGRERR_NONE||crs.exportToWkt(&wkt)!=OGRERR_NONE){
+    detail="地震体坐标系不可用于成果网格";return fail();
+  }
+  context.crs=QString::fromUtf8(wkt);CPLFree(wkt);
   paleo::data::SeismicFileInfo info;if(!ds.inspectSeismic(volumeId,info,detail,cancelled))return fail();
   paleo::data::SeismicHorizonWindowQuery query;query.volumeId=volumeId;
   query.undeclaredTimeUnit="ms";query.undeclaredTimeType="TWT"; // current survey's explicit display convention
@@ -47,23 +53,16 @@ bool readSeismicAnalysisWindow(const QString &project,const UnitSelection &unit,
   if(!ds.readSeismicHorizonWindow(query,out,detail,cancelled))return fail();
   const QFileInfo after(QString::fromStdString(volume.dataFile));
   if(after.size()!=size||after.lastModified()!=modified){detail="地震来源在层段取数过程中已变更，请重新运行";return fail();}
+  if(sourceInfo)*sourceInfo=std::move(context);
   return true;
 }
 SeismicUnitInput prepareSeismicUnitInput(const QString &project,const UnitSelection &unit,const QString &source,
     const std::function<bool()> &cancelled){
   SeismicUnitInput input;input.sourcePath=source;
   if(!freezeAnalysisUnit(project,unit,input.unit,&input.error))return input;
-  paleo::data::SeismicHorizonWindowResult window;
-  if(!readSeismicAnalysisWindow(project,input.unit,source,window,&input.error,cancelled))return input;
-  paleo::data::DataService ds;std::string detail;paleo::data::SeismicVolume volume;
-  if(!ds.openProjectReadOnly(area_model::directory(project).toStdString(),detail)||!ds.readVolume(window.volumeId,volume,detail)){
-    input.error=QString::fromStdString(detail);return input;
-  }
-  OGRSpatialReference crs;char *wkt=nullptr;
-  if(crs.SetFromUserInput(volume.geometry.coordinateSystem.c_str())!=OGRERR_NONE||crs.exportToWkt(&wkt)!=OGRERR_NONE){
-    input.error=QStringLiteral("地震体坐标系不可用于成果网格");return input;
-  }
-  input.crs=QString::fromUtf8(wkt);CPLFree(wkt);input.sourcePath=QString::fromStdString(volume.dataFile);
+  paleo::data::SeismicHorizonWindowResult window;SeismicAnalysisSource context;
+  if(!readSeismicAnalysisWindow(project,input.unit,source,window,&input.error,cancelled,&context))return input;
+  input.crs=context.crs;input.sourcePath=context.sourcePath;
   double xmin=std::numeric_limits<double>::infinity(),xmax=-xmin,ymin=xmin,ymax=-xmin;
   // Include missing/review traces in the grid geometry. Their cells remain NaN.
   for(const auto &trace:window.traces)if(std::isfinite(trace.x)&&std::isfinite(trace.y)){

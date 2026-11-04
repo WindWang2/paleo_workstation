@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <QString>
+#include <QStringList>
 #include <vector>
 #include <optional>
 #include <glm/glm.hpp>
@@ -18,6 +19,7 @@ struct WellTopItem {
     double tvd = 0.0;
     double twtMs = 0.0;
     QColor color = QColor(QStringLiteral("#1B73D0"));
+    double tracePosition = qQNaN(); // actual trajectory/horizon intersection
 };
 
 struct WellCurveItem {
@@ -37,14 +39,15 @@ inline QString baseCurveMnemonic(const QString &name) {
 }
 
 // 测斜轨迹折线顶点（goal/well-trajectory）：井口平移后绝对坐标 + 深度对。
-// twtMs NaN = 未对齐（投影端决定显示口径）；空 trajectory = 无测斜井，
-// 消费面保持垂直简化——直井回退是显式语义。
+// twtMs NaN = 未对齐；原生井空 trajectory 表示缺少空间资料，不是已确认直井。
 struct WellTrajSample {
     double md = 0.0;
     double tvd = 0.0;
     double x = 0.0;   // 井口 X + 东向位移（局部米）
     double y = 0.0;   // 井口 Y + 北向位移
     double twtMs = 0.0;
+    double tracePosition = qQNaN(), offsetDistanceM = qQNaN();
+    double sourceZ = qQNaN(); // never relabel an undeclared Petrel Z as TVD
 };
 
 struct SectionWellInfo {
@@ -65,6 +68,10 @@ struct SectionWellInfo {
     // seismic surface. Original formation picks are not overwritten in storage.
     std::optional<TimeDepthModel> mdTimeDepth;
     double timeShiftMs=0;
+    bool requiresSpatialPath = false; // native wells must not fall back to a fictitious vertical bore
+    bool selectedForSection = false; // retain an explicit route pin even when the bore cannot be projected
+    QString trajectorySource, trajectoryStatus;
+    QString timeReference;
 
     // Projection geometry along the unfolded section line
     double cumulativeDistanceM = 0.0; // Distance from start of section (meters)
@@ -74,8 +81,17 @@ struct SectionWellInfo {
 
     std::vector<WellTopItem> tops;
     std::vector<WellCurveItem> curves;
-    std::vector<WellTrajSample> trajectory; // 测斜站折线（空 = 无测斜，垂直简化）
+    std::vector<WellTrajSample> trajectory; // 沿井检查点或测斜站折线；缺点不跨接
 };
+
+struct SectionPointProjection {
+    double tracePosition=qQNaN(), cumulativeDistanceM=qQNaN(), offsetDistanceM=qQNaN();
+};
+SectionPointProjection projectPointOnSection(const std::vector<glm::dvec2>& line,
+    const std::vector<double>& traceDistancesM, const glm::dvec2& point);
+// Strict, gap-preserving interpolation on the observed path; no end extrapolation.
+WellTrajSample wellPathAtMd(const SectionWellInfo& well, double md);
+WellTrajSample wellPathAtTwt(const SectionWellInfo& well, double twt);
 
 // Projects 2D/3D well locations and trajectory markers onto an arbitrary seismic section polyline.
 class SectionWellProjector {
@@ -86,7 +102,7 @@ public:
         const std::vector<double> &traceDistancesM,
         const std::vector<SectionWellInfo> &wells,
         double bufferDistanceM = 500.0,
-        const TimeDepthModel &tdModel = TimeDepthModel());
+        const TimeDepthModel &tdModel = TimeDepthModel(),const QStringList &selectedWellIds = {});
 };
 void projectSectionHorizonTies(std::vector<SectionWellInfo>& wells,const SectionHorizons& horizons);
 

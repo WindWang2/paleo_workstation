@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QUuid>
+#include <cmath>
 #include <gdal.h>
 #include <qgsattributetableconfig.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -161,17 +162,27 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
   return ok;
 }
 bool points(const QString &path, const QVariantList &points, QString *error) {
+  return MappingArtifactWriter::points(path,points,DataCatalog::localGridCrsWkt(),error);
+}
+bool points(const QString &path,const QVariantList &points,const QString &crs,QString *error) {
+  QgsCoordinateReferenceSystem reference;
+  if(!crs.isEmpty()&&!reference.createFromUserInput(crs)){
+    if(error)*error=QObject::tr("井点成果坐标系无效");return false;
+  }
   QJsonArray features;
   for (const auto &v : points) {
     auto props = v.toMap();
     if (props.value(MappingFeatureIdentity::UidField).toString().trimmed().isEmpty())
       props.insert(MappingFeatureIdentity::UidField,
                    QUuid::createUuid().toString(QUuid::WithoutBraces));
-    const double x = props.take("x").toDouble(), y = props.take("y").toDouble();
+    bool xOk = false, yOk = false;
+    const double x = props.take("x").toDouble(&xOk), y = props.take("y").toDouble(&yOk);
+    QJsonValue geometry(QJsonValue::Null);
+    if (xOk && yOk && std::isfinite(x) && std::isfinite(y))
+      geometry = QJsonObject{{"type", "Point"}, {"coordinates", QJsonArray{x, y}}};
     features.append(QJsonObject{
         {"type", "Feature"},
-        {"geometry",
-         QJsonObject{{"type", "Point"}, {"coordinates", QJsonArray{x, y}}}},
+        {"geometry", geometry},
         {"properties", QJsonObject::fromVariantMap(props)}});
   }
   QJsonObject root{
@@ -180,7 +191,7 @@ bool points(const QString &path, const QVariantList &points, QString *error) {
       {"crs",
        QJsonObject{{"type", "name"},
                    {"properties",
-                    QJsonObject{{"name", DataCatalog::localGridCrsWkt()}}}}}};
+                    QJsonObject{{"name",crs.isEmpty()?DataCatalog::localGridCrsWkt():crs}}}}}};
   QSaveFile file(path);
   const auto bytes = QJsonDocument(root).toJson();
   if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||

@@ -847,9 +847,9 @@ void PaleoEditingToolbar::onEditToolTriggered()
     updateActionStates();
     return;
   }
-  if ( action != mActionSelect && !target->isEditable() && !startEditing() )
+  if ( action != mActionSelect && (!allowMutation() || (!target->isEditable() && !startEditing())) )
   {
-    action->setChecked( false ); // startEditing refused — leave the canvas as-is
+    action->setChecked( false ); // preflight/session refused — no mutation tool
     updateActionStates();
     return;
   }

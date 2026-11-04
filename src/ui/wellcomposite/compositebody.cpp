@@ -494,6 +494,7 @@ void WellCompositeBody::mouseDoubleClickEvent(QMouseEvent *event)
   }
 
   // 双击一键复位缩放
+  m_canvas->setScaleRatio(QStringLiteral("自适应"));
   m_canvas->resetZoom();
   event->accept();
 }

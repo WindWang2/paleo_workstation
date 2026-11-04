@@ -1,5 +1,6 @@
 // 层：功能
 #include "sectionworkbench.h"
+#include "services/sectionwellgeometry.h"
 #include "catalog/wellavailability.h"
 #include "services/wellreadiness.h"
 #include "../domain/wellnumeric.h"
@@ -100,9 +101,7 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
         SectionWorkbench worker(snapshot.get());
         PreviewData data;data.wells=worker.wells(stop);
         if(includeSections) {
-          const auto candidates=worker.sectionWells(stop);
-          QSet<QString> eligible;for(const auto &row:data.wells)eligible.insert(row.toMap().value("id").toString());
-          for(const auto &well:candidates)if(eligible.contains(well.wellId))data.sectionWells.push_back(well);
+          data.sectionWells=worker.sectionWells(stop);
         }
         return data;
       });
@@ -153,14 +152,15 @@ QVariantMap SectionWorkbench::calibration(const QString &id) const {
   return c;
 }
 seismic::TimeDepthModel SectionWorkbench::modelFor(const QString &id, bool md,
-                                                   bool *ok) const {
+                                                   bool *ok,const QVector<TdSample> *samples) const {
   const auto c = calibration(id);
   seismic::TimeDepthModel model(c.value("velocity").toDouble());
   *ok = c.value("constant").toBool();
   if (*ok)
     return model;
   std::vector<seismic::TdPoint> points;
-  for (const auto &p : m_data.tdTableFor(id)) {
+  const auto rows=samples?*samples:m_data.tdTableFor(id);
+  for (const auto &p : rows) {
     double d = md ? p.md : p.tvd;
     // 时间基准面以上的采样（确认 negated 口径后时间为负——海拔在零点之上）
     // 在地震时间域之外（体自 0ms 起，之上无同相轴可对），裁掉域外段再建
@@ -237,9 +237,9 @@ QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &st
     if(!readiness.value(w.id).hasCurves)continue;
     auto c = calibration(w.id);
     bool tvdOk = false, mdOk = false;
-    modelFor(w.id, false, &tvdOk);
-    modelFor(w.id, true, &mdOk);
     const auto samples = m_data.tdTableFor(w.id);
+    modelFor(w.id, false, &tvdOk,&samples);
+    modelFor(w.id, true, &mdOk,&samples);
     QString status =
         c.value("constant").toBool()
             ? tr("常速近似（需复核）")
@@ -252,7 +252,14 @@ QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &st
                                            : tr("仅 MD；TVD 分层不可对齐"))));
     QVariantList table;
     for (const auto &p : samples)
-      table << QVariantMap{{"tvd", p.tvd}, {"md", p.md}, {"time", p.timeMs}};
+      table << QVariantMap{{"tvd", p.tvd}, {"md", p.md}, {"time", p.timeMs}, {"x",p.x},{"y",p.y},{"sourceZ",p.z}};
+    if(m_catalog->entityById(w.id).extra.value("areaModelWellId").toLongLong()>0){
+      if(mdOk&&!c.value("constant").toBool())status=tr("时深表：MD → TWT");
+      seismic::SectionWellInfo geometry;geometry.requiresSpatialPath=true;geometry.surfaceX=w.surfaceX;geometry.surfaceY=w.surfaceY;
+      attachSectionWellGeometry(geometry,samples,m_data.trajectoryFor(w.id),nullptr,nullptr,0);
+      status+=QStringLiteral(" · ")+geometry.trajectoryStatus;c.insert("trajectorySource",geometry.trajectorySource);
+      c.insert("trajectoryStatus",geometry.trajectoryStatus);
+    }
     c.insert("id", w.id);
     c.insert("name", w.name);
     c.insert("status", status);
@@ -351,13 +358,11 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();
   std::vector<seismic::SectionWellInfo> result;
-  // 就绪井口径（见 wells()）：剖面井叠加候选只进双全井。
-  const auto readiness = paleo::analysisReadiness(m_catalog, projectDir());
+  // Spatial tracks need time/depth and position, not a log curve. Curve-only wells
+  // retain their location for explicitly selected routes without inventing TWT.
   for (const auto &w : m_data.wells()) {
     if (stop && stop->load()) return result;
     if (w.coordinateStatus != "ok" && w.coordinateStatus != "untransformed")
-      continue;
-    if (!readiness.value(w.id).analysisReady())
       continue;
     seismic::SectionWellInfo out;
     const auto nativeId=m_catalog->entityById(w.id).extra.value("areaModelWellId").toLongLong();
@@ -367,9 +372,20 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     out.surfaceY = w.surfaceY;
     out.totalDepth = m_catalog->entityById(w.id).td;
     out.calibrated = true;
+    out.requiresSpatialPath=nativeId>0;
     bool tvdOk = false, mdOk = false;
-    auto tvd = modelFor(w.id, false, &tvdOk), md = modelFor(w.id, true, &mdOk);
-    if((!tvdOk&&!mdOk)||m_data.tdTableFor(w.id).isEmpty())continue;
+    const auto timeDepthRows=m_data.tdTableFor(w.id);
+    auto tvd = modelFor(w.id, false, &tvdOk,&timeDepthRows), md = modelFor(w.id, true, &mdOk,&timeDepthRows);
+    if((!tvdOk&&!mdOk)||timeDepthRows.isEmpty()){
+      if(observedMdTimeIsMonotone(timeDepthRows)){
+        out.timeReference=timeDepthRows.first().timeReference;out.alignmentStatus=tr("时深不能唯一反算");
+        attachSectionWellGeometry(out,timeDepthRows,m_data.trajectoryFor(w.id),nullptr,nullptr,calibration(w.id).value("shift").toDouble());
+        result.push_back(std::move(out));continue; // Observed geometry only; no ambiguous inverse ties/curves.
+      }
+      out.alignmentStatus=m_data.lastError().isEmpty()?tr("缺少可用时深关系，仅显示井位"):m_data.lastError();
+      out.requiresSpatialPath=true;out.trajectoryStatus=out.alignmentStatus;result.push_back(std::move(out));continue;
+    }
+    if(!timeDepthRows.isEmpty())out.timeReference=timeDepthRows.first().timeReference;
     const QVariantMap c = calibration(w.id);
     const double shift = c.value("shift").toDouble();
     if(nativeId>0&&mdOk){out.mdTimeDepth=md;out.timeShiftMs=shift;}
@@ -389,37 +405,8 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       partial=true;return qQNaN(); // Never manufacture the missing depth axis with a default velocity.
     };
     out.bottomTwtMs = timeFor(out.totalDepth, true);
-    // goal/well-trajectory：有测斜 → 剖面井轨按真实轨迹（xy = 井口 + 位移，
-    // twt 优先 TVD 校准回退 MD）；无测斜 → trajectory 空，视图保持垂直简化
-    // （不虚构造斜）。井底坐标同步补齐（平面轨迹线/两点简化的数据源）。
     const auto survey = m_data.trajectoryFor(w.id);
-    if (survey)
-    {
-      const auto trajTwt = [&](const paleo::TrajectoryPoint &pt) {
-        const double viaTvd = timeFor(pt.tvd, false);
-        return std::isfinite(viaTvd) ? viaTvd : timeFor(pt.md, true);
-      };
-      for (const paleo::TrajectoryPoint &sp : survey->points())
-      {
-        seismic::WellTrajSample sample;
-        sample.md = sp.md;
-        sample.tvd = sp.tvd;
-        sample.x = w.surfaceX + sp.east;
-        sample.y = w.surfaceY + sp.north;
-        sample.twtMs = trajTwt(sp);
-        out.trajectory.push_back(sample);
-        if (std::isfinite(sample.twtMs))
-          out.bottomTwtMs = std::isfinite(out.bottomTwtMs)
-                                ? std::max(out.bottomTwtMs, sample.twtMs)
-                                : sample.twtMs;
-      }
-      if (out.totalDepth > 0.0)
-      {
-        const paleo::TrajectoryPoint tip = survey->pointAt(out.totalDepth);
-        out.bottomX = w.surfaceX + tip.east;
-        out.bottomY = w.surfaceY + tip.north;
-      }
-    }
+    attachSectionWellGeometry(out,timeDepthRows,survey,mdOk?&md:nullptr,tvdOk?&tvd:nullptr,shift);
     WellParseReport topsReport;
     const auto tops = nativeId>0?QVector<WellTop>{}:m_data.topsFor(w.id, &topsReport);
     if (!topsReport.issues.isEmpty())
@@ -615,7 +602,7 @@ QVariantList SectionWorkbench::savedSections() const {
 bool SectionWorkbench::save(const QString &name,
                             const std::vector<glm::dvec2> &route,
                             const QString &seismicPath, const QString &horizon,
-                            QString *error) {
+                            QString *error,const QStringList &wellIds) {
   syncProject();
   if (!m_catalog || !m_catalog->isOpen() || route.size() < 2 ||
       name.trimmed().isEmpty()) {
@@ -633,6 +620,7 @@ bool SectionWorkbench::save(const QString &name,
     points << QVariantMap{{"x", p.x}, {"y", p.y}};
   QVariantMap data{{"kind", "section_session"},
                    {"route", points},
+                   {"well_ids", wellIds},
                    {"calibrations", m_calibrations},
                    {"seismic_path", seismicPath},
                    {"horizon", horizon},

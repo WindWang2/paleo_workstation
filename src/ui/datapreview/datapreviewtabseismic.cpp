@@ -1,5 +1,6 @@
 // 层：视图
 #include "datapreviewtabs.h"
+#include "timeslicereadcontrols.h"
 #include "ui/common/fitwidth.h"
 #include "datapreviewtabs_internal.h"
 
@@ -110,6 +111,36 @@ using namespace paleo::datapreview_detail;
 // 参数全是 buildContent 已算好的量，本函数不重算、不改语义。
 
 namespace {
+void loadModelHorizonSurfaces(seismic::SeismicTaskService *service,const QString &path,
+                              QWidget *host,seismic::Seismic3DViewPanel *panel)
+{
+  if(!service)return;
+  const QPointer<seismic::Seismic3DViewPanel> guard(panel);
+  const QPointer<PaleoTask> task=service->startDataHorizonSurfaces(path,[guard](bool ok,const auto &names,const auto &grids,const auto &error){
+    if(!guard)return;
+    if(ok&&!grids.empty())guard->setHorizons(names,grids);
+    else if(!ok)guard->showInlineWarning(error);
+  });
+  QObject::connect(host,&QObject::destroyed,service,[task]{if(task)task->requestCancel();});
+}
+void loadLegacyHorizonSurfaces(const QString &abs,seismic::Seismic3DViewPanel *panel3d)
+{
+    seismic::SeismicInterpretationSession session;
+    if (seismic::SeismicTaskService::loadSession(abs, session, nullptr) &&
+        !session.picks.isEmpty()) {
+      QHash<QString, QList<seismic::SeismicPick>> byHorizon;
+      for (const seismic::SeismicPick &p : session.picks)
+        byHorizon[p.horizonName].append(p);
+      QStringList names;
+      std::vector<seismic::SeismicHorizonGrid> grids;
+      for (auto it = byHorizon.constBegin(); it != byHorizon.constEnd(); ++it) {
+        names << (it.key().isEmpty() ? QObject::tr("未命名层位") : it.key());
+        grids.push_back(seismic::SeismicTaskService::gridPicks(it.value()));
+      }
+      if (!grids.empty())
+        panel3d->setHorizons(names, grids);
+    }
+}
 QWidget *makeSeismic2DTab(QWidget *parent, SectionPanel *panel, QWidget *bar, QLabel *tieCaption)
 {
   auto *page = new QWidget(parent);
@@ -283,26 +314,9 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   panel3d->setProperty("fullPrecisionAfterIndex",true);
   panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
   modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
+  loadModelHorizonSurfaces(m_doc?m_doc->seismicTaskService():nullptr,abs,host,panel3d);
 
-  // D7.3 解释层位面上图：伴生解释会话 <sgy>.seispicks.json 有拾取 →
-  // 按层位名分组 IDW 网格化 → 3D 面片（显隐走面板「解释」菜单/信号）。
-  {
-    seismic::SeismicInterpretationSession session;
-    if (seismic::SeismicTaskService::loadSession(abs, session, nullptr) &&
-        !session.picks.isEmpty()) {
-      QHash<QString, QList<seismic::SeismicPick>> byHorizon;
-      for (const seismic::SeismicPick &p : session.picks)
-        byHorizon[p.horizonName].append(p);
-      QStringList names;
-      std::vector<seismic::SeismicHorizonGrid> grids;
-      for (auto it = byHorizon.constBegin(); it != byHorizon.constEnd(); ++it) {
-        names << (it.key().isEmpty() ? tr("未命名层位") : it.key());
-        grids.push_back(seismic::SeismicTaskService::gridPicks(it.value()));
-      }
-      if (!grids.empty())
-        panel3d->setHorizons(names, grids);
-    }
-  }
+  loadLegacyHorizonSurfaces(abs,panel3d);
 
   // D3.2：三维切片拖动/剖面条联动 2D——只拨同页 2D 测线控件（控件自己的
   // decode 链换测线）。不开新标签、不切回 2D 子页签。
@@ -378,6 +392,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   });
   lblTimeMs->setFixedWidth(lblTimeMs->fontMetrics().horizontalAdvance(QStringLiteral("99999.9 ms")) + lblTimeMs->fontMetrics().averageCharWidth()); // #881
   timeBarLay->addWidget(lblTimeMs);
+  const auto timeControls=paleo::ui::makeTimeSliceReadControls(timeBar,timeBarLay);
 
   // 时间片/转码区按钮统一走一份活体样式（原 8.5pt + 浅色字面量收口）。
   PaleoTheme::applyThemedStyleSheet(timeBar, [] {
@@ -734,7 +749,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
               if (ok)
               {
                 if (panel3dGuard)installVolume(vol);
-                if(quickInfoGuard){quickInfoGuard->setText(QObject::tr("索引已就绪 · 3D 原始分辨率交互"));quickInfoGuard->setVisible(true);}
+                if(quickInfoGuard){quickInfoGuard->setText(QObject::tr("索引已就绪 · 三维预览 / 二维完整分辨率"));quickInfoGuard->setVisible(true);}
                 return;
               }
               if (quickInfoGuard && !err.isEmpty())
@@ -764,7 +779,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto nativeRead=std::make_shared<QPointer<PaleoTask>>();
   auto nativeGeneration=std::make_shared<quint64>(0);
   const QPointer<seismic::SeismicSectionCanvas> nativeCanvas(timeCanvas);
-  const auto requestTimeSlice=[this,abs,nativeInfo,nativeRead,nativeCanvas,lblTimeMs,pendingIdx,nativeGeneration,modeTabs](int index){
+  const auto requestTimeSlice=[this,abs,nativeInfo,nativeRead,nativeCanvas,lblTimeMs,pendingIdx,nativeGeneration,modeTabs,timeControls](int index){
     if(!nativeCanvas||modeTabs->currentIndex()!=2||index<0||index>=nativeInfo->sampleCount)return;
     const auto generation=++(*nativeGeneration);
     if(*nativeRead)(*nativeRead)->requestCancel();
@@ -772,12 +787,14 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms,0,'f',1));
     auto* service=m_doc?m_doc->seismicTaskService():nullptr;
     if(!service){nativeCanvas->setNoDataReason(tr("后台地震服务未连接"));return;}connectTiledTileRoute(service);
-    registerTiledTarget(nativeCanvas,abs,index,generation);nativeCanvas->beginTimeSliceTiled(nativeInfo->xlineCount,nativeInfo->inlineCount,ms,nativeInfo->inlineMin,nativeInfo->inlineMax,nativeInfo->xlineMin,nativeInfo->xlineMax);
+    const int limit=timeControls.resolution->currentData().toInt();
+    registerTiledTarget(nativeCanvas,abs,index,generation);nativeCanvas->beginTimeSliceTiled(limit?qMin(limit,nativeInfo->xlineCount):nativeInfo->xlineCount,limit?qMin(limit,nativeInfo->inlineCount):nativeInfo->inlineCount,ms,nativeInfo->inlineMin,nativeInfo->inlineMax,nativeInfo->xlineMin,nativeInfo->xlineMax);
     const auto apply=[this,nativeCanvas,nativeInfo,pendingIdx,index,ms,nativeGeneration,generation](bool ok,std::shared_ptr<const seismic::SgySliceImage> image,const QString& error){
       if(!nativeCanvas||*pendingIdx!=index||*nativeGeneration!=generation)return;unregisterTiledTarget(nativeCanvas);
       if(!ok||!image){nativeCanvas->clearData();nativeCanvas->setNoDataReason(QObject::tr("时间切片获取失败\n%1").arg(error));return;}nativeCanvas->finishTimeSliceTiled(*image);};
-    *nativeRead=service->startDataSlice(abs,seismic::SgySliceType::Time,index,apply,generation);
+    *nativeRead=service->startDataSlice(abs,seismic::SgySliceType::Time,index,apply,generation,limit,timeControls.workers->currentData().toInt());
   };
+  for(auto *choice:{timeControls.resolution,timeControls.workers})connect(choice,&QComboBox::currentIndexChanged,host,[requestTimeSlice,pendingIdx]{requestTimeSlice(*pendingIdx);});
   connect(host,&QObject::destroyed,this,[nativeRead]{if(*nativeRead)(*nativeRead)->requestCancel();});
   connect(sliceDebounce,&QTimer::timeout,host,[pendingIdx,requestTimeSlice]{if(*pendingIdx>=0)requestTimeSlice(*pendingIdx);});
   const auto updateTimeSlice = [pendingIdx, sliceDebounce,modeTabs](int sampleIndex) {

@@ -100,7 +100,33 @@ private slots:
   void missingLayerPropagatesNaN();
   // 退化输入：无井 / 曲线长度不符 / dt<=0 → 显式失败。
   void invalidInputsFail();
+  void movingWellUsesActualSamplePosition();
+  void movingLayerMembershipUsesLocalHorizon();
 };
+
+void TestInversionLowFreq::movingWellUsesActualSamplePosition(){
+ LowFreqModelInput in;in.nIl=1;in.nXl=3;in.nS=100;in.dtMs=2;in.xlStepX=100;
+ LowFreqWellTrace moving;moving.impedance.assign(100,5000);moving.xSamples.assign(100,200);moving.ySamples.assign(100,0);
+ moving.x=0;moving.xSamples[50]=NAN;
+ LowFreqWellTrace fixed;fixed.x=0;fixed.impedance.assign(100,9000);in.wells={moving,fixed};
+ const auto result=lowFreqImpedance(in);QVERIFY(result.ok);std::vector<float> trace(100);
+ lowFreqTraceAt(result,0,2,trace.data());QCOMPARE(trace[40],5000.f);QCOMPARE(trace[50],9000.f);
+ lowFreqTraceAt(result,0,0,trace.data());QCOMPARE(trace[40],9000.f);
+}
+
+void TestInversionLowFreq::movingLayerMembershipUsesLocalHorizon(){
+ LowFreqModelInput in;in.nIl=1;in.nXl=3;in.nS=100;in.dtMs=2;in.xlStepX=100;
+ LowFreqWellTrace moving;moving.x=0;moving.impedance.assign(100,5000);
+ moving.xSamples.assign(100,200);moving.ySamples.assign(100,0);in.wells={moving};
+ // At the surface position the boundary is 40ms; at the observed path it is 160ms.
+ in.horizons.push_back({"tilted",{40,100,160}});
+ for(int i=81;i<100;++i)in.wells[0].impedance[size_t(i)]=8000;
+ auto result=lowFreqImpedance(in);QVERIFY(result.ok);QCOMPARE(result.layersUsed,2);
+ for(int cell=0;cell<3;++cell){QCOMPARE(result.layerImpedance[size_t(cell)*2],5000.f);QCOMPARE(result.layerImpedance[size_t(cell)*2+1],8000.f);}
+ // A missing local boundary must not borrow the boundary under the wellhead.
+ in.horizons[0].twtMs[2]=NAN;result=lowFreqImpedance(in);QVERIFY(result.ok);
+ for(float value:result.layerImpedance)QVERIFY(std::isnan(value));
+}
 
 void TestInversionLowFreq::layeredAtWellMatchesWellLowFreq()
 {

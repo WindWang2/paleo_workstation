@@ -106,7 +106,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     const auto showStatus = [this] {
       if (m_status && m_workbench)
         m_status->setText(m_kind && m_kind->currentData() == "seismic_mock"
-          ? tr("Mock：先保存本层位测井相预测；沿层位提取 ±12 ms 地震反射窗聚类，按簇内测井相多数票定类，无井簇仅从测井已有类别中随机选择。解释需地质复核。")
+          ? tr("Mock：先保存当前层段测井相预测；从所选地震体读取当前 S1–S4 顶底界内的反射特征聚类，按簇内测井相多数票定类，无井簇仅从已有测井类别中随机选择。旧界面工程仍用 ±12 ms 窗。")
           : m_kind && m_kind->currentData() == "wells"
               ? m_workbench->wellPredictionStatusHint() : m_workbench->predictionStatusHint());
     };
@@ -116,7 +116,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind = new QComboBox(body);
     m_kind->setObjectName("predictionKind");
     m_kind->setAccessibleName(tr("预测类型"));
-    m_kind->addItem(tr("地震层位窗聚类 → 微相图（Mock）"), "seismic_mock");
+    m_kind->addItem(tr("地震层段窗聚类 → 微相图（Mock）"), "seismic_mock");
     m_kind->addItem(tr("地震体 → 微相栅格（预测服务）"), "seismic");
     m_kind->addItem(tr("测井 → 当前地层预测微相"), "wells");
     // 井点的相 = 该井在当前层位地层（本层位顶 → 下一层位顶）内厚度最大的相，
@@ -654,7 +654,7 @@ void MappingWorkbenchPage::updateState() {
     m_kind->setToolTip(busy ? readiness : tr("选择预测所用的数据类型"));
   }
   if (m_horizonSourceRow) {
-    m_horizonSourceRow->setVisible(m_kind->currentData() == "seismic_mock");
+    m_horizonSourceRow->setVisible(m_kind->currentData() == "seismic_mock"&&!m_workbench->analysisUnit().isValid());
     m_horizonFile->setEnabled(horizon && !busy);
     m_chooseHorizonFile->setEnabled(horizon && !busy);
     m_chooseHorizonFile->setToolTip(horizon && !busy

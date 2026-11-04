@@ -563,9 +563,9 @@ QWidget *DataPreviewTabs::buildRawHorizonContent(
       status->setText(tr("无法读取层位预览栅格"));
       return;
     }
-    status->setText(tr("原始层位 · %1×%2 · Z %3–%4 · 有效像元 %5 · 拒绝 %6")
+    status->setText(tr("层位预览（装箱）· %1×%2 · %7 %3–%4 · 有效像元 %5 · 拒绝 %6")
         .arg(result.rows).arg(result.columns).arg(result.minimum, 0, 'f', 1)
-        .arg(result.maximum, 0, 'f', 1).arg(result.filled).arg(result.rejected));
+        .arg(result.maximum, 0, 'f', 1).arg(result.filled).arg(result.rejected).arg(result.verticalLabel));
     PreviewRasterAnalysis::applyPseudoColorRenderer(raster.get(), 1, result.minimum, result.maximum,
         *PreviewRasterAnalysis::rampPreset(QStringLiteral("depthBlues")));
     auto *page = new PreviewMapPage(host);

@@ -77,6 +77,72 @@ ComprehensiveWellData data() {
 class TestWellAttributes : public QObject {
   Q_OBJECT
 private slots:
+  void predictionPreservesUncodedSourceFacies_data() {
+    QTest::addColumn<QString>("major");
+    QTest::addColumn<QString>("sub");
+    QTest::addColumn<QString>("micro");
+    QTest::addColumn<int>("code");
+    QTest::newRow("full hierarchy") << QString("湖泊") << QString("滨浅湖") << QString("原始微相") << 0;
+    QTest::newRow("major only") << QString("原始大相") << QString() << QString() << 0;
+    QTest::newRow("sub only") << QString() << QString("原始亚相") << QString() << 0;
+    QTest::newRow("micro only") << QString() << QString() << QString("原始微相") << 0;
+    QTest::newRow("coded hierarchy") << QString("湖泊") << QString("滨浅湖") << QString("原始微相") << 73;
+  }
+  void predictionPreservesUncodedSourceFacies() {
+    QFETCH(QString, major); QFETCH(QString, sub); QFETCH(QString, micro); QFETCH(int, code);
+    WorkflowFixture f; QVERIFY(initFixture(f)); QVERIFY(addWell(f,"W1"));
+    auto source=data(); FaciesInterval observed;
+    observed.topDepth=0; observed.bottomDepth=20;
+    observed.majorFacies=major; observed.subFacies=sub; observed.microFacies=micro;
+    if(code>0)observed.patternType="mudstone";
+    source.faciesIntervals={observed}; QString error;
+    QVERIFY2(WellAttributeStore::seed(&f.catalog,f.dir.path(),&f.layers,"W1",source,&error),qPrintable(error));
+    if(code>0)QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog,f.dir.path(),&f.layers,
+      {QVariantMap{{"well_id","W1"},{"top_md",0.},{"base_md",20.},{"facies_code",code}}},&error));
+    QVariantMap prediction{{"well_id","W1"},{"top_md",3.},{"base_md",17.},
+      {"facies","三角洲"},{"sub_facies","三角洲前缘"},{"micro_facies","河口坝"},
+      {"facies_code",1},{"facies_pattern","sandstone"},{"predicted_facies","河口坝"},
+      {"model","model-v1"},{"job_id","job1"}};
+    for(const auto& job:{QString("job1"),QString("job2")}) {
+      prediction.insert("job_id",job);
+      QVERIFY2(WellAttributeStore::mergeIntervals(&f.catalog,f.dir.path(),&f.layers,{prediction},&error,true),qPrintable(error));
+      const auto saved=WellAttributeStore::rows(f.dir.path(),nullptr,false,"W1");
+      QCOMPARE(saved.size(),4); // Prediction boundaries split the two lithology intervals.
+      for(const auto& item:saved) {
+        const auto row=item.toMap();
+        QCOMPARE(row.value("facies").toString(),major);
+        QCOMPARE(row.value("sub_facies").toString(),sub);
+        QCOMPARE(row.value("micro_facies").toString(),micro);
+        if(code>0)QCOMPARE(row.value("facies_code").toInt(),code);
+        else QVERIFY(row.value("facies_code").isNull());
+        QCOMPARE(row.value("facies_pattern").toString(),observed.patternType);
+        if(row.value("top_md").toDouble()>=3&&row.value("base_md").toDouble()<=17) {
+          QCOMPARE(row.value("predicted_facies").toString(),QString("河口坝"));
+          QCOMPARE(row.value("job_id").toString(),job);
+        }
+      }
+    }
+    auto *layer=WellAttributeStore::open(&f.catalog,f.dir.path(),&f.layers,false,false);
+    QVERIFY(layer); QSignalSpy commits(layer,&QgsVectorLayer::afterCommitChanges);
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog,f.dir.path(),&f.layers,{prediction},&error,true));
+    QCOMPARE(commits.size(),0); // An unchanged prediction must not write protected NULL fields.
+    QCOMPARE(source.faciesIntervals.first().majorFacies,major);
+  }
+  void predictionPreservesUncodedFormationFacies() {
+    WorkflowFixture f; QVERIFY(initFixture(f)); QVERIFY(addWell(f,"W1")); QString error;
+    auto original=formationRow("W1","F1",0,20,"原始优势相");
+    original.remove("predicted_dominant"); original.insert("facies","湖泊");
+    QVERIFY(WellAttributeStore::mergeFormations(&f.catalog,f.dir.path(),&f.layers,{original},&error));
+    auto prediction=formationRow("W1","F1",0,20,"河口坝");
+    prediction.insert("facies_code",1); prediction.insert("facies","三角洲");
+    prediction.insert("sub_facies","三角洲前缘");prediction.insert("micro_facies","河口坝");
+    QVERIFY(WellAttributeStore::mergeFormations(&f.catalog,f.dir.path(),&f.layers,{prediction},&error,true));
+    const auto row=WellAttributeStore::rows(f.dir.path(),nullptr,WellAttributeStore::Table::Formations,"W1").first().toMap();
+    QCOMPARE(row.value("dominant_facies").toString(),QString("原始优势相"));
+    QCOMPARE(row.value("facies").toString(),QString("湖泊"));
+    QVERIFY(row.value("facies_code").isNull());
+    QCOMPARE(row.value("predicted_dominant").toString(),QString("河口坝"));
+  }
   void sourceFaciesSeedIsIdempotentAndKeepsManualClearing() {
     WorkflowFixture f;
     QVERIFY(initFixture(f));

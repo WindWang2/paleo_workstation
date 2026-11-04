@@ -1800,6 +1800,39 @@
     <context>
         <name>ConstraintPage</name>
         <message>
+            <source>任务完成</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>GR 估算参数（解释不足时使用）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>砂岩 GR 基线</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>泥岩 GR 基线</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>砂层泥质指标上限</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>允许的最大采样间隔（米）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>自动（全井 P05 / P95）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>自动（典型采样间隔的三倍）</source>
+            <translation type="unfinished" />
+        </message>
+
+        <message>
             <location filename="../src/ui/pages/constraintpage.cpp" line="70" />
             <source>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</source>
             <translation type="unfinished" />
@@ -3801,6 +3834,23 @@
 </context>
     <context>
         <name>ConstraintWorkflow</name>
+        <message>
+            <source>工区范围不可用：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>工区范围</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>工区范围（井位与地震）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source> 可计算 %1 井，其中 %2 井有坐标参与成图。</source>
+            <translation type="unfinished" />
+        </message>
+
         <message>
             <location filename="../src/workflow/constraintfactorjobs_contours.cpp" line="152" />
             <location filename="../src/workflow/constraintfactorjobs_contours.cpp" line="357" />
@@ -8323,6 +8373,15 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
     </context>
     <context>
         <name>DataPreviewTabs</name>
+        <message>
+            <source>层位预览（装箱）· %1×%2 · %7 %3–%4 · 有效像元 %5 · 拒绝 %6</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>索引已就绪 · 三维预览 / 二维完整分辨率</source>
+            <translation type="unfinished" />
+        </message>
+
         <message>
             <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="121" />
             <source>坐标有效</source>
@@ -13902,6 +13961,14 @@ Crossline: %3 ~ %4</source>
             <source>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>解释说明</source>
+            <translation type="unfinished"></translation>
+        </message>
+        <message>
+            <source>修改目的</source>
+            <translation type="unfinished"></translation>
+        </message>
     </context>
     <context>
         <name>MappingEvidencePanel</name>
@@ -14068,6 +14135,19 @@ Crossline: %3 ~ %4</source>
     </context>
     <context>
         <name>MappingWorkbench</name>
+        <message>
+            <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>输入缺少可读源文件或测井曲线，请检查数据管理</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>所选井均缺少可读源文件或测井曲线</source>
+            <translation type="unfinished" />
+        </message>
+
         <message>
             <location filename="../src/workflow/mappingworkbench.cpp" line="311" />
             <location filename="../src/workflow/mappingworkbench.cpp" line="789" />
@@ -16878,12 +16958,12 @@ Crossline: %3 ~ %4</source>
         </message>
         <message>
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="109" />
-            <source>Mock：先保存本层位测井相预测；沿层位提取 ±12 ms 地震反射窗聚类，按簇内测井相多数票定类，无井簇仅从测井已有类别中随机选择。解释需地质复核。</source>
+            <source>Mock：先保存当前层段测井相预测；从所选地震体读取当前 S1–S4 顶底界内的反射特征聚类，按簇内测井相多数票定类，无井簇仅从已有测井类别中随机选择。旧界面工程仍用 ±12 ms 窗。</source>
             <translation type="unfinished" />
         </message>
         <message>
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="119" />
-            <source>地震层位窗聚类 → 微相图（Mock）</source>
+            <source>地震层段窗聚类 → 微相图（Mock）</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -17607,6 +17687,7 @@ Crossline: %3 ~ %4</source>
             <source>打开参考证据面板</source>
             <translation type="unfinished" />
         </message>
+
     </context>
     <context>
         <name>MappingWorkflow</name>
@@ -23363,6 +23444,18 @@ PDF：%3
             <source>时深来源与地震时间基准已保存，正在刷新连井数据</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>解释依据…</source>
+            <translation type="unfinished"></translation>
+        </message>
+        <message>
+            <source>填写本次解释说明和修改目的，可选取当前参考证据，启用后绘制或修改相面。</source>
+            <translation type="unfinished"></translation>
+        </message>
+        <message>
+            <source>请填写右侧的解释说明和修改目的，点击“启用本次解释依据”后，再选择相面编辑工具。未修改图面。</source>
+            <translation type="unfinished"></translation>
+        </message>
     </context>
     <context>
         <name>PaleoMapBookController</name>
@@ -28066,6 +28159,68 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
+    <message><source>快速预览（≤64×64）</source><translation type="unfinished"></translation></message>
+        <message>
+            <source>未命名层位</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>索引已就绪 · 三维预览 / 二维完整分辨率</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>井点成果坐标系无效</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>无法切换到分页全分辨率层：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>工区范围或坐标系无效</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>工区范围样式保存失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>单因素需要 DataService 已声明的工区米制坐标系</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>读取测线振幅</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>振幅已就绪，正在加载地震层位</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>加载地震层位</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>地震层位加载已取消</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>快速预览（≤128×128）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>完整分辨率</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>预览读取均匀抽样的真实振幅；完整分辨率按原始测网逐点读取，可取消。</source>
+            <translation type="unfinished" />
+        </message>
+
         <message>
             <location filename="../src/io/projectsetupscan.cpp" line="130" />
             <source>%1：仅识别有界预览样本；完整记录与校验在导入时读取。</source>
@@ -36030,6 +36185,54 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>读取测线振幅</source>
         <translation>Reading line amplitudes</translation>
     </message>
+    <message>
+        <source>轨迹坐标系无效，未叠加井轨迹</source>
+        <translation>Invalid trajectory CRS; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>轨迹坐标转换失败，未叠加井轨迹</source>
+        <translation>Trajectory coordinate transformation failed; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>测斜轨迹</source>
+        <translation>Survey trajectory</translation>
+    </message>
+    <message>
+        <source>时深表 X/Y 恒定，缺少可还原斜井的 Survey，未叠加井身</source>
+        <translation>Time-depth X/Y are constant; a Survey is required to reconstruct the deviated well. Wellbore not overlaid</translation>
+    </message>
+    <message>
+        <source>测斜方位未声明为网格北，不能直接投射到地震坐标</source>
+        <translation>Survey azimuth is not declared relative to grid north; direct seismic projection is unavailable</translation>
+    </message>
+    <message>
+        <source>轨迹缺少米或英尺平面坐标，未叠加井轨迹</source>
+        <translation>Trajectory lacks planar coordinates in metres or feet; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>时深轨迹 · %1 点</source>
+        <translation>Time-depth trajectory · %1 points</translation>
+    </message>
+    <message>
+        <source>缺少轨迹坐标或真实测斜，未叠加井身</source>
+        <translation>Trajectory coordinates or an actual survey are missing; wellbore not overlaid</translation>
+    </message>
+    <message>
+        <source>本井有多份测斜资料，请明确采用的 Survey 表</source>
+        <translation>Multiple surveys exist for this well; select the Survey table to use</translation>
+    </message>
+    <message>
+        <source>测斜 MD 缺少米或英尺单位</source>
+        <translation>Survey MD lacks metre or foot units</translation>
+    </message>
+    <message>
+        <source>读取：%1 线程</source>
+        <translation>Read: %1 threads</translation>
+    </message>
+    <message>
+        <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
+        <translation>Concurrent SEG-Y read workers. Changing this setting reloads the current slice; cached slices are reused. Paged workspaces use their own scheduling.</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -36038,6 +36241,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>地图画布尚未就绪，不能复制坐标。</source>
             <translation type="unfinished" />
         </message>
+
+
     </context>
     <context>
         <name>QgisConstraintEditSession</name>
@@ -37553,6 +37758,19 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>SectionSetupDialog</name>
         <message>
+            <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>井点成果坐标系无效</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
+            <translation type="unfinished" />
+        </message>
+
+        <message>
             <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="23" />
             <source>连井剖面与时深对齐</source>
             <translation type="unfinished" />
@@ -37901,6 +38119,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>无时深资料；不叠加井道</source>
         <translation>No time-depth data; well overlay unavailable</translation>
     </message>
+    <message>
+        <source>时深表：MD → TWT</source>
+        <translation>Time-depth table: MD → TWT</translation>
+    </message>
+    <message><source>缺少可用时深关系，仅显示井位</source><translation>No usable time-depth relation; well location only</translation></message>
+    <message><source>时深不能唯一反算</source><translation>Time-depth relation has no unique inverse</translation></message>
 </context>
     <context>
         <name>SegyReader</name>
@@ -50771,6 +50995,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>seismic::Seismic3DViewPanel</name>
         <message>
+            <source>预览：IL/XL ≤128 道，时间面 ≤64×48；完整分辨率见二维视图</source>
+            <translation type="unfinished" />
+        </message>
+
+        <message>
             <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="91" />
             <source>等轴测</source>
             <translation type="unfinished" />
@@ -51794,7 +52023,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>深度(m)</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message><source>仅井位：%1</source><translation>Location only: %1</translation></message>
+</context>
     <context>
         <name>seismic::SeismicSectionDockWidget</name>
         <message>
@@ -52779,9 +53009,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>剖面提取失败：%1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>沿井子波估计</source>
+        <translation>Along-well wavelet estimation</translation>
+    </message>
+    <message>
+        <source>｜拟合相关较低，请复核井震标定后再用于解释</source>
+        <translation> | Low fit correlation; review the well-to-seismic calibration before interpretation</translation>
+    </message>
+</context>
     <context>
         <name>seismic::SeismicTaskService</name>
+        <message>
+            <source>读取水平时间切片</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>读取三维层位预览</source>
+            <translation type="unfinished" />
+        </message>
+
         <message>
             <location filename="../src/services/seismictaskservice_data.cpp" line="21" />
             <location filename="../src/services/seismictaskservice_data.cpp" line="62" />
@@ -53046,6 +53293,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/services/seismictaskservice_viz.cpp" line="449" />
             <source>后端探测已取消</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <source>时间切片读取线程数须为 1、2 或 4</source>
+            <translation>Time-slice read workers must be 1, 2 or 4</translation>
+        </message>
+        <message>
+            <source>读取水平时间切片（%1 线程）</source>
+            <translation>Read time slice (%1 threads)</translation>
         </message>
     </context>
     <context>

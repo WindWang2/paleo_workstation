@@ -53,8 +53,8 @@
 func_qtwidgets_edges: 0
 # 2026-10-31 合并 #830/#831 后全闸复测为 4；同步收缩，不保留可收缩余量。
 ui_qtwidgets_notes: 4
-heavy_edges: 51
-heavy_tus: 49
+heavy_edges: 49
+heavy_tus: 48
 # ---- 2026-10-19 审计第三轮 G1-06（已被 #578 超越）----
 # 本轮曾按 #474 先例带归因 re-pin 87→88（+1 TU 归因 #562 拆分
 # ui/paleomainwindow_paleomaps.cpp，出闸边恒 52）；#578 削掉两条头扇出根后
@@ -65,3 +65,6 @@ heavy_tus: 49
 # ---- 2026-10-31 收口（#825/#831/#832）：mappingreferencepanel.cpp 改经
 #   qgis/referenceview.h 接口拿画布（不再 include qgis/mappingreferencecanvas.h），
 #   同时 #830 删掉 layoutpreview 边——实测 ui_qtwidgets_notes 5→4，只缩下调。----
+
+# ---- 2026-11-04 沿井反演：共享值模型下沉 domain/inversionmodel.h，
+# workflow 门面不再传递算法重头。实测 heavy_edges 51→49 / heavy_tus 49→48。

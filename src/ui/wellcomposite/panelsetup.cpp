@@ -308,7 +308,7 @@ void WellCompositePanel::setupUi()
   // ---- 事件与信号绑定 ----
   connect(m_btnZoomIn, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomIn);
   connect(m_btnZoomOut, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::zoomOut);
-  connect(m_btnResetZoom, &QToolButton::clicked, m_canvas, &WellCompositeCanvas::resetZoom);
+  connect(m_btnResetZoom, &QToolButton::clicked, m_canvas, [this] { m_canvas->setScaleRatio(QStringLiteral("自适应")); m_canvas->resetZoom(); });
   connect(m_btnConfigCurves, &QToolButton::clicked, this, &WellCompositePanel::openCurveConfigDialog);
   connect(m_btnGoto, &QToolButton::clicked, this, &WellCompositePanel::openGotoDepthDialog);
   connect(m_btnSnap, &QToolButton::toggled, m_canvas, &WellCompositeCanvas::setSnapEnabled);

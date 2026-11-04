@@ -131,9 +131,9 @@ void Seismic3DViewPanel::buildUi() {
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     qualityLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    topLay->addWidget(qualityLabel_);
 
     mainLay->addWidget(topBar);
+    mainLay->addWidget(qualityLabel_);
 
     // 2. Center Viewport
     viewport_ = new Seismic3DViewportWidget(this);
@@ -426,13 +426,6 @@ void Seismic3DViewPanel::refreshVisibleSlices(bool onlyStale) {
             continue;
         requestSliceUpdate(wanted[i].slot, wanted[i].type, wanted[i].index);
     }
-}
-
-void Seismic3DViewPanel::updateQualityLabel(const QString &quality) {
-    const QString text = quality.isEmpty() ? QString() : QStringLiteral("LOD %1").arg(quality);
-    qualityLabel_->setText(text);
-    qualityLabel_->setVisible(!text.isEmpty());
-    emit lodChanged(text);
 }
 
 std::shared_ptr<SgyVolume> Seismic3DViewPanel::volume() const {

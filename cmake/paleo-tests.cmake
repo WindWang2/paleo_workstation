@@ -408,6 +408,7 @@ target_compile_definitions(tst_staleness PRIVATE
 # 图层树面板 + 属性对话框 + 页面档案服务（QgsMapThemeCollection 封装）+
 # 档案工具条。QgsLayerTree/主题是唯一图层可见性状态源，Paleo 只做业务接线。
 add_paleo_test(tst_layerplatform LIBS paleo_qgis)     # 档案应用/主题往返 .qgz/生命周期/层位时序
+add_paleo_test(tst_projectboundarylayer LIBS paleo_qgis) # 工区范围单实例/旧工程去重/注册重入
 add_paleo_test(tst_labelzorder LIBS paleo_qgis)     # 标注随图层 z 序：labelsWithLayer 打标 + 像素回归
 add_paleo_test(tst_dragtop_render LIBS paleo_qgis)  # 拖拽到树顶后画布渲染回归（bridge 序+标注带）
 add_paleo_test(tst_layerorganizer LIBS paleo_qgis)  # 图层树布局器：置顶共享/层位组/组秩/树层双绑

@@ -15,10 +15,97 @@
 #include "services/previewdoc.h"
 #include "services/sectiondoc.h"
 #include "io/areamodel.h"
+#include "io/modelhorizonpreview.h"
+#include "io/horizonbinner.h"
+#include "io/areamodel_conventions.h"
 
 class TestSeismicReads : public QObject {
   Q_OBJECT
 private slots:
+  void timeSliceWorkersPreserveValuesCancellationAndCachedResults() {
+    QTemporaryDir temp;const auto path=temp.filePath("workers.sgy");
+    auto bytes=SeismicHorizonFixture::buildVolume();
+    const float missing=std::numeric_limits<float>::quiet_NaN();quint32 bits;std::memcpy(&bits,&missing,4);
+    qToBigEndian(bits,bytes.data()+3600+240+25*4);
+    QVERIFY(SeismicHorizonFixture::writeFile(path,bytes));
+    seismic::SgySliceImage reference;QString error;
+    for(int workers:{1,2,4}) {
+      paleo::data::DataService::clearSeismicSliceCache();seismic::SgySliceImage result;
+      QVERIFY2(paleo::readSeismicDataSlice(path,seismic::SgySliceType::Time,25,result,error,{},{},false,{},0,workers),qPrintable(error));
+      if(workers==1)reference=result;
+      QCOMPARE(result.width,reference.width);QCOMPARE(result.height,reference.height);
+      for(size_t i=0;i<result.values.size();++i) {
+        if(std::isnan(reference.values[i]))QVERIFY(std::isnan(result.values[i]));
+        else QCOMPARE(result.values[i],reference.values[i]);
+      }
+      int tiles=0;
+      QVERIFY(!paleo::readSeismicDataSlice(path,seismic::SgySliceType::Time,25,result,error,[&]{return tiles>0;},{},false,
+        [&](auto,int,int,int,int){++tiles;},0,workers));
+      QCOMPARE(tiles,1);QVERIFY(result.values.empty());
+    }
+    seismic::SgySliceImage rejected;
+    QVERIFY(!paleo::readSeismicDataSlice(path,seismic::SgySliceType::Time,25,rejected,error,{},{},false,{},0,3));
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false,ok=false;
+    std::shared_ptr<const seismic::SgySliceImage> first,second;
+    service.startDataSlice(path,seismic::SgySliceType::Time,25,[&](bool success,auto image,const auto&){ok=success;first=image;done=true;},1,0,1);
+    QTRY_VERIFY_WITH_TIMEOUT(done,5000);QVERIFY(ok&&first);done=false;
+    QVERIFY(!service.startDataSlice(path,seismic::SgySliceType::Time,25,[&](bool success,auto image,const auto&){ok=success;second=image;done=true;},2,0,4));
+    QVERIFY(!done);QTRY_VERIFY(done);QVERIFY(ok);QCOMPARE(first.get(),second.get());done=false;
+    service.startDataSlice(path,seismic::SgySliceType::Time,25,[&](bool success,auto image,const auto&){ok=success;QVERIFY(!image);done=true;},3,0,3);
+    QVERIFY(!done);QTRY_VERIFY(done);QVERIFY(!ok); // Invalid options cannot bypass validation via a cache hit.
+  }
+  void storedHorizonPreviewWorksWithoutExternalFile() {
+    QTemporaryDir temp;const auto project=temp.filePath("project"),path=temp.filePath("surface");
+    paleo::data::DataService ds;std::string detail;
+    QVERIFY(ds.createProject(paleo::area_model::directory(project).toStdString(),"test",detail));
+    QVERIFY(ds.setProjectCrs("EPSG:32650","m",detail));
+    QFile raw(path);QVERIFY(raw.open(QIODevice::WriteOnly));raw.write("test");raw.close();
+    paleo::data::SeismicHorizon horizon;horizon.horizonName="T70";horizon.timeUnit="s";horizon.timeType="OWT";
+    horizon.points={{1,1,300000,2300000,1.2},{2,2,301000,2301000,1.4}};
+    paleo::data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";parsed.horizons.push_back(horizon);
+    long long sourceId=0;const auto hash=QCryptographicHash::hash("test",QCryptographicHash::Sha256).toHex().toStdString();
+    QVERIFY2(ds.importPreparedFile(path.toStdString(),path.toStdString(),path.toStdString(),hash,parsed,sourceId,detail),detail.c_str());
+    struct Binding{~Binding(){paleo::area_model::unregisterProject(this);}}binding;
+    paleo::area_model::registerProject(project,&binding);QVERIFY(QFile::remove(path));
+    BinnedHorizon grid;QString error;
+    QCOMPARE(readModelHorizonPreview(path,grid,&error),paleo::area_model::Read::Ready);
+    QCOMPARE(grid.coordinateSystem,QString("EPSG:32650"));QVERIFY(grid.rows<=512&&grid.cols<=512);
+    QCOMPARE(grid.filledCells,2);QCOMPARE(grid.zMin,2400.);QCOMPARE(grid.zMax,2800.);
+    QCOMPARE(grid.z.count(-9999.f),grid.rows*grid.cols-2); // Unobserved cells remain missing.
+    QCOMPARE(readModelHorizonPreview(path,grid,&error,[]{return true;}),paleo::area_model::Read::Failed);
+  }
+  void previewResolutionHasIndependentCacheAndActualSamples() {
+    QTemporaryDir temp;const auto path=temp.filePath("native.sgy");
+    QVERIFY(SeismicHorizonFixture::writeFile(path,SeismicHorizonFixture::buildVolume()));
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false,ok=false;
+    std::shared_ptr<const seismic::SgySliceImage> preview,native;
+    service.startDataSlice(path,seismic::SgySliceType::Time,25,[&](bool success,auto image,const auto&){ok=success;preview=image;done=true;},1,2);
+    QTRY_VERIFY_WITH_TIMEOUT(done,5000);QVERIFY(ok&&preview);QCOMPARE(preview->width,2);QCOMPARE(preview->height,2);
+    done=false;QVERIFY(service.startDataSlice(path,seismic::SgySliceType::Time,25,[&](bool success,auto image,const auto&){ok=success;native=image;done=true;}));
+    QTRY_VERIFY_WITH_TIMEOUT(done,5000);QVERIFY(ok&&native);QCOMPARE(native->width,4);QCOMPARE(native->height,4);
+    QCOMPARE(preview->values[0],native->values[0]);QCOMPARE(preview->values[1],native->values[3]);
+    QCOMPARE(preview->values[2],native->values[12]);QCOMPARE(preview->values[3],native->values[15]);
+  }
+  void registeredPlaneSurvivesUnrelatedPublicationButTracksVolumeConventions() {
+    QTemporaryDir temp;const auto project=temp.filePath("project"),path=temp.filePath("native.sgy");
+    QVERIFY(SeismicHorizonFixture::writeFile(path,SeismicHorizonFixture::buildVolume()));
+    paleo::data::DataService ds;std::string detail;
+    QVERIFY(ds.createProject(paleo::area_model::directory(project).toStdString(),"test",detail));
+    paleo::data::ImportReport report;paleo::data::ImportOptions options;options.copySources=false;
+    QVERIFY(ds.importFile(path.toStdString(),options,report,detail));
+    struct Binding{~Binding(){paleo::area_model::unregisterProject(this);}}binding;
+    paleo::area_model::registerProject(project,&binding);
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false,ok=false;
+    service.startDataPlane(path,seismic::SgySliceType::Inline,100,[&](bool success,auto image,const auto&,const auto&){ok=success&&image;done=true;});
+    QVERIFY(ds.setProjectCrs("EPSG:32650","m",detail)); // DB write while the section task is in flight.
+    QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(ok);
+    std::vector<paleo::data::DataEntry> entries;QVERIFY(ds.listData("volumes",0,entries,detail));
+    paleo::data::SeismicVolume volume;QVERIFY(ds.readVolume(entries.front().id,volume,detail));
+    done=false;service.startDataSlice(path,seismic::SgySliceType::Inline,100,[&](bool success,auto,const auto&){ok=success;done=true;});
+    volume.sampling.timeReference="changed during queued delivery";
+    QVERIFY(ds.saveVolume(entries.front().id,volume,detail));
+    QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(!ok);
+  }
   void previewDeliversAmplitudeBeforeOverlayAndDropsSupersededResults() {
     QTemporaryDir temp;const auto path=temp.filePath("native.sgy");
     QVERIFY(SeismicHorizonFixture::writeFile(path,SeismicHorizonFixture::buildVolume()));
@@ -147,6 +234,40 @@ private slots:
     QTest::qWait(5);horizon.horizonName="T70 revised";QVERIFY2(ds.saveHorizonInfo(hid,horizon,detail),detail.c_str());
     const auto revised=source.sectionHorizons(line);QCOMPARE(revised.curves.size(),size_t(1));QCOMPARE(revised.curves[0].name,QString("T70 revised"));QCOMPARE(revised.curves[0].timesMs.front(),100.);
     QVERIFY(source.sectionHorizons(line,[]{return true;}).curves.empty());
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false;
+    service.startDataHorizonSurfaces(path,[&](bool ok,const auto &names,const auto &grids,const auto &error){
+      done=true;
+      QVERIFY2(ok,qPrintable(error));QCOMPARE(names,QStringList{"T70 revised"});QCOMPARE(grids.size(),size_t(1));
+      QCOMPARE(grids[0].twtMs.size(),size_t(16));for(double time:grids[0].twtMs)QCOMPARE(time,100.);
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(done,5000);
+    QVERIFY(ds.setProjectCrs("EPSG:32650","m",detail));
+    volume.geometry.coordinateSystem="EPSG:32650";volume.geometry.coordinateUnit="m";
+    QVERIFY(ds.saveVolume(id,volume,detail));horizon.timeUnit.clear();horizon.timeType.clear();
+    QVERIFY(ds.saveHorizonInfo(hid,horizon,detail));
+    QVERIFY2(paleo::area_model::inheritSurveyHorizonConventions(ds,&error),qPrintable(error));
+    QVERIFY(ds.readHorizon(hid,0,1,horizon,detail));QCOMPARE(horizon.points.front().zTime,100.);
+    QCOMPARE(horizon.coordinateSystem,std::string("EPSG:32650"));QCOMPARE(horizon.coordinateUnit,std::string("m"));
+    QCOMPARE(horizon.timeUnit,std::string("ms"));QCOMPARE(horizon.timeType,std::string("TWT"));
+    horizon.parentVolumeId=0;horizon.timeUnit="s";horizon.timeType="OWT";
+    QVERIFY(ds.saveHorizonInfo(hid,horizon,detail));QVERIFY(paleo::area_model::inheritSurveyHorizonConventions(ds,&error));
+    QVERIFY(ds.readHorizon(hid,0,1,horizon,detail));QCOMPARE(horizon.timeUnit,std::string("s"));QCOMPARE(horizon.timeType,std::string("OWT"));
+  }
+  void realFastTimePreview() {
+    const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
+    if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
+    const auto project=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PROJECT");
+    struct Binding{~Binding(){paleo::area_model::unregisterProject(this);}}binding;
+    if(!project.isEmpty())paleo::area_model::registerProject(project,&binding);
+    PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false,ok=false;QString error;
+    qint64 firstMs=0;int width=0,height=0;QElapsedTimer clock;clock.start();
+    service.startDataSlice(path,seismic::SgySliceType::Time,1500,[&](bool success,auto image,const auto &why){
+      ok=success;error=why;if(image){width=image->width;height=image->height;}done=true;
+    },1,64);
+    QTRY_VERIFY_WITH_TIMEOUT(done,60000);QVERIFY2(ok,qPrintable(error));firstMs=clock.elapsed();
+    done=false;clock.restart();service.startDataSlice(path,seismic::SgySliceType::Time,1500,[&](bool success,auto,const auto&){ok=success;done=true;},2,64);
+    QTRY_VERIFY(done);QVERIFY(ok);
+    qInfo()<<"real time overview"<<width<<"x"<<height<<"first_ms"<<firstMs<<"repeat_ms"<<clock.elapsed();
   }
   void realRepeatedLine() {
     const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
@@ -215,6 +336,38 @@ private slots:
       [&](std::shared_ptr<const seismic::SgySliceImage> tile,int,int,int,int){if(tiles++==0){firstMs=clock.elapsed();width=tile->width;height=tile->height;}});
     QVERIFY(!ok);QCOMPARE(tiles,1);QVERIFY(firstMs>=0);QVERIFY(image.values.empty());
     qInfo()<<"real time slice first tile"<<sample<<width<<"x"<<height<<"first_tile_ms"<<firstMs<<"partial_final_values"<<image.values.size();
+  }
+  void realTimeSliceWorkerCounts() {
+    const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
+    if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
+    const auto project=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PROJECT");
+    struct Binding {~Binding(){paleo::area_model::unregisterProject(this);}}binding;
+    if(!project.isEmpty())paleo::area_model::registerProject(project,&binding);
+    paleo::SeismicDataAccess source;QString error;std::string detail;
+    QVERIFY2(source.open(path,&error),qPrintable(error));
+    paleo::data::SeismicFileInfo info;QVERIFY2(source.inspect(info,detail),detail.c_str());
+    paleo::data::TimeSliceReadOptions options;options.fullResolution=true;options.useCache=false;options.tileSize=32;
+    options.maxValues=16384;
+    options.inlineMin=info.inlineMin+qMax(0,info.inlineCount/2-64)*qMax(1,info.inlineStep);
+    options.inlineMax=qMin(info.inlineMax,options.inlineMin+127*qMax(1,info.inlineStep));
+    options.crosslineMin=info.crosslineMin+qMax(0,info.crosslineCount/2-64)*qMax(1,info.crosslineStep);
+    options.crosslineMax=qMin(info.crosslineMax,options.crosslineMin+127*qMax(1,info.crosslineStep));
+    const double time=info.firstTime+(info.sampleCount/2)*info.sampleInterval;
+    paleo::data::SeismicTimeSliceResult reference;
+    for(int workers:{1,2,4}) {
+      options.workerCount=workers;paleo::data::SeismicTimeSliceResult result;QElapsedTimer clock;clock.start();
+      QVERIFY2(source.time(time,options,result,detail,[&]{return clock.elapsed()>30000;}),detail.c_str());
+      if(workers==1)reference=result;
+      QCOMPARE(result.inlineNumbers,reference.inlineNumbers);QCOMPARE(result.crosslineNumbers,reference.crosslineNumbers);
+      QCOMPARE(result.amplitudes.size(),reference.amplitudes.size());
+      for(size_t i=0;i<result.amplitudes.size();++i) {
+        if(std::isnan(reference.amplitudes[i]))QVERIFY(std::isnan(result.amplitudes[i]));
+        else QCOMPARE(result.amplitudes[i],reference.amplitudes[i]);
+      }
+      QCOMPARE(result.statistics.workerCount,workers);
+      qInfo()<<"real time ROI workers"<<workers<<"cells"<<result.amplitudes.size()<<"tiles"<<result.statistics.completedTiles<<"wall_ms"<<clock.elapsed();
+    }
+    qInfo()<<"OS file cache uncontrolled; comparison covers ROI only, not full-slice speedup";
   }
   void realPreviewLine() {
     const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");

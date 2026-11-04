@@ -560,12 +560,14 @@ QVariantList MappingWorkbench::inputs(const QString &kind) const {
               logVersion = v.id;
           }
         }
-      if (well.hasSurface && std::isfinite(well.surfaceX) &&
-          std::isfinite(well.surfaceY))
-        out << QVariantMap{
-            {"id", well.id},      {"name", well.name},
-            {"x", well.surfaceX}, {"y", well.surfaceY},
-            {"parents", parents}, {"log_version_id", logVersion}};
+      QVariantMap input{{"id", well.id}, {"name", well.name},
+                        {"parents", parents}, {"log_version_id", logVersion}};
+      // MD prediction does not require a map location. Keep unlocated wells
+      // in the result table with null geometry rather than inventing (0, 0).
+      if (well.hasSurface && std::isfinite(well.surfaceX) && std::isfinite(well.surfaceY)) {
+        input.insert("x", well.surfaceX); input.insert("y", well.surfaceY);
+      }
+      out << input;
     }
   } else
     for (const auto &a : m_catalog->assets()) {

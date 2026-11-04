@@ -14,6 +14,8 @@
 #include <QString>
 
 #include <vector>
+#include <memory>
+class QSaveFile;
 
 namespace paleo::inversion
 {
@@ -22,5 +24,20 @@ QByteArray writeImpedanceVolumeBlob(const std::vector<float> &volume, const QJso
 
 bool readImpedanceVolumeBlob(const QByteArray &blob, std::vector<float> *volume,
                              QJsonObject *header, QString *error = nullptr);
+bool readImpedanceVolumeHeader(const QString& path,QJsonObject* header,QString* error=nullptr);
+
+// Bounded writer for native bodies. Reserved JSON space allows final QC to be
+// patched without holding or rewriting the volume. Finish atomically commits.
+class ImpedanceVolumeStream {
+public:
+ explicit ImpedanceVolumeStream(const QString& path);
+ ~ImpedanceVolumeStream();
+ bool open(const QJsonObject& header,QString* error);
+ bool append(const float* values,qint64 count,QString* error);
+ bool finish(const QJsonObject& header,QString* error);
+private:
+ std::unique_ptr<QSaveFile> m_file;
+ qint64 m_expected=0,m_written=0;
+};
 
 } // namespace paleo::inversion

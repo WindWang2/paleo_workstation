@@ -73,7 +73,8 @@ inline double interpTwtNoExtrapolate(const std::vector<double> &depthM,
 inline bool wellImpedanceTwt(const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
                              const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
                              const std::vector<double> &tdDepthM, const std::vector<double> &tdTwtMs,
-                             std::vector<double> *twtMs, std::vector<float> *impedance)
+                             std::vector<double> *twtMs, std::vector<float> *impedance,
+                             bool preserveMissing=false)
 {
     if (!twtMs || !impedance || acDepthsM.empty() || acDepthsM.size() != acUsPerM.size() ||
         denDepthsM.empty() || denDepthsM.size() != denValues.size())
@@ -87,14 +88,14 @@ inline bool wellImpedanceTwt(const std::vector<double> &acDepthsM, const std::ve
     std::vector<double> acDepths;
     std::vector<float> acValues;
     for (std::size_t i = 0; i < acDepthsM.size(); ++i)
-        if (std::isfinite(acDepthsM[i]) && std::isfinite(acUsPerM[i])) {
+        if (std::isfinite(acDepthsM[i]) && (preserveMissing||std::isfinite(acUsPerM[i]))) {
             acDepths.push_back(acDepthsM[i]);
             acValues.push_back(acUsPerM[i]);
         }
     std::vector<double> denDepths;
     std::vector<float> denVals;
     for (std::size_t i = 0; i < denDepthsM.size(); ++i)
-        if (std::isfinite(denDepthsM[i]) && std::isfinite(denValues[i])) {
+        if (std::isfinite(denDepthsM[i]) && (preserveMissing||std::isfinite(denValues[i]))) {
             denDepths.push_back(denDepthsM[i]);
             denVals.push_back(denValues[i]);
         }
@@ -104,7 +105,8 @@ inline bool wellImpedanceTwt(const std::vector<double> &acDepthsM, const std::ve
     depths.insert(depths.end(), denDepths.begin(), denDepths.end());
     std::sort(depths.begin(), depths.end());
     depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
-    auto interp = [](const std::vector<double> &xs, const std::vector<float> &ys, double x) -> double {
+    auto interp = [preserveMissing](const std::vector<double> &xs, const std::vector<float> &ys, double x) -> double {
+        if(preserveMissing&&(x<xs.front()||x>xs.back()))return std::numeric_limits<double>::quiet_NaN();
         if (x <= xs.front())
             return ys.front();
         if (x >= xs.back())
@@ -112,13 +114,14 @@ inline bool wellImpedanceTwt(const std::vector<double> &acDepthsM, const std::ve
         const auto it = std::upper_bound(xs.begin(), xs.end(), x);
         const std::size_t hi = std::size_t(it - xs.begin());
         const std::size_t lo = hi - 1;
+        if(x==xs[lo])return ys[lo];
         const double f = (x - xs[lo]) / (xs[hi] - xs[lo]);
         return double(ys[lo]) + f * (double(ys[hi]) - double(ys[lo]));
     };
     for (double d : depths) {
         const double dt = interp(acDepths, acValues, d);
         const double denV = interp(denDepths, denVals, d);
-        if (!(dt > 1e-6) || !(denV > 0.0))
+        if (!preserveMissing&&(!(dt > 1e-6) || !(denV > 0.0)))
             continue;
         const double t = interpTwtNoExtrapolate(tdDepthM, tdTwtMs, d);
         if (!std::isfinite(t))
@@ -126,7 +129,7 @@ inline bool wellImpedanceTwt(const std::vector<double> &acDepthsM, const std::ve
         if (!twtMs->empty() && t <= twtMs->back())
             continue; // 保持严格递增（resampleToGrid 要求有序）
         twtMs->push_back(t);
-        impedance->push_back(float(denV * (1e6 / dt)));
+        impedance->push_back((dt>1e-6&&denV>0&&std::isfinite(dt)&&std::isfinite(denV))?float(denV * (1e6 / dt)):std::numeric_limits<float>::quiet_NaN());
     }
     return twtMs->size() >= 2;
 }

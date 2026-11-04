@@ -29,6 +29,7 @@ public:
   void refresh();
   void selectLayer(const QString &id);
   void showMessage(const QString &message);
+  void showEditBasis();
   QPushButton *commandButton(const QString &name) const;
   QString mode() const { return m_mode; }
   void selectEvidenceSource(const QString &id);

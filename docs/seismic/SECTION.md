@@ -93,7 +93,7 @@ ctest --test-dir build -R tst_seismic_sectionui --output-on-failure  # 16 用例
 | 链路 | 后端 | 空态 | 取消/顶替 | 回落 | 结论 |
 |---|---|---|---|---|---|
 | 数据页时间切片（瓦片通道） | sf3p | NaN 灰底图（未到瓦片不冒充零振幅）；**失败 → clearData + 原因态（本次新增，改前留整幅灰无解释）** | **同路径新请求启动即取消旧在途（服务级 `inFlightTiledTasks_`，本次新增）** + 采样号世代过滤（原有） | 显式 paged 失败如实上报不回落（契约） | 已改（datapreviewtabs + seismictaskservice） |
-| 数据页时间切片（整图通道） | 直读 / sf3c | **失败 → clearData + 原因态（本次新增，改前静默留旧图冒充新采样）** | 120ms 防抖 + 世代过滤（原有）；服务级 startSliceExtraction 不做跨消费方取代——3D 面板与数据页各自持有在途语义，服务层再加一层会双杀（记档不改） | Auto 通道引擎失败 → volume 直读保底（服务层既有） | 已改（空态）；取消维持消费方治理 |
+| 数据页时间切片（原生 DataService 瓦片通道） | 直读 | NaN 灰底图，瓦片到达即局部上色；失败 → clearData + 原因态，不发布局部结果 | 120ms 防抖 + 新请求取消 + 文件/采样号/世代路由；退出页签注销目标 | 完整成功后以整图校验结果替换局部图 | 已改（原生瓦片渐进显示） |
 | 3D 三槽切片 | 三后端（pagedPath_ 透传） | 失败 QgsMessageLog 告警（视口保留旧帧/包围盒；GL 失败另有 2D 回退件）——3D 无文字原因态面，视觉语义由回退件承担（记档不改） | **槽位在途 → 新值 pending + requestCancel 协作中止（本次新增）；本端主动取消免告警（本次新增）** | 同上 Auto 保底 | 已改（A2） |
 | 剖面 dock 任意线 | 三后端 | D2.14 原因态（失败/空线两分支，既有） | m_extraction->requestCancel() + generation 守卫（既有） | ReadSection useReadPlan → 插值模式回落 legacy BuildLineSection（既有） | 无需改 |
 | 剖面 dock IL/XL/Time 切换 | 三后端（经 SeismicTaskService） | D2.14 原因态（既有，迁移后语义不变） | **同型同号在途去抖 + 新请求 requestCancel 顶替（worker 逐线检查点退出，不再占闸）；回调按「世代号+请求号」守卫——被顶替/取消的旧结果静默丢弃（cancelled ≠ failed，不弹误导错误）** | Auto 通道引擎失败 → volume 直读保底（服务层既有）；切片进共享 LRU（换线回头即命中） | **已迁（goal/seismic-runtime-closure）**：TODOS P2 裸 QThreadPool 双轨遗留收口；切体/任意线双向取消对端在途任务（setVolume/extractSectionFromVolumeAsync/extractSliceAsync 互顶替），进度条改任务字节进度驱动 |

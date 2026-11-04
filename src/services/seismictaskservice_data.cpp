@@ -27,7 +27,7 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
   const auto cancel=[task]{return task->cancelRequested();};paleo::data::SeismicFileInfo info;
   if(!source.inspect(info,detail,cancel))return QString::fromUtf8(detail);
   *axis={info.sampleCount,info.inlineMin,info.inlineMax,info.crosslineMin,info.crosslineMax,info.firstTime,info.sampleInterval};
-  axis->coordinateSystem=source.coordinateSystem();
+  axis->coordinateSystem=source.coordinateSystem();axis->inlineCount=info.inlineCount;axis->xlineCount=info.crosslineCount;
   if(type!=SgySliceType::Time) {
    // One native read supplies values, XY and overlay columns together.
    paleo::data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
@@ -47,7 +47,7 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
    if(!metric)axis->columnDistancesM.clear();
    if(!*image)*image=std::make_shared<SgySliceImage>(paleo::seismicSectionImage(section));
   }
-  if(!*image){auto values=std::make_shared<SgySliceImage>();if(!paleo::readSeismicDataSlice(path,type,index,*values,error,cancel))return error;*image=values;}return {};
+  if(!*image){auto values=std::make_shared<SgySliceImage>();if(!paleo::readSeismicDataSlice(path,type,index,*values,error,cancel,{},type!=SgySliceType::Time))return error;*image=values;}return {};
  },{},true);
  connect(task,&PaleoTask::finished,this,[this,task,path,type,index,key,image,axis,done]{
   const bool changed=key!=nativePlaneKey(path,type,index);
@@ -82,13 +82,14 @@ PaleoTask *SeismicTaskService::startDataInfo(const QString& path,std::function<v
  auto *task=startBounded(tr("查询地震元数据"),[path,out](PaleoTask *task)->QString {
   paleo::SeismicDataAccess source;QString error;std::string detail;if(!source.open(path,&error))return error;
   paleo::data::SeismicFileInfo info;if(!source.inspect(info,detail,[task]{return task->cancelRequested();}))return QString::fromUtf8(detail);
-  *out={info.sampleCount,info.inlineMin,info.inlineMax,info.crosslineMin,info.crosslineMax,info.firstTime,info.sampleInterval};return {};
+  *out={info.sampleCount,info.inlineMin,info.inlineMax,info.crosslineMin,info.crosslineMax,info.firstTime,info.sampleInterval};
+  out->inlineCount=info.inlineCount;out->xlineCount=info.crosslineCount;return {};
  },{},true);
  connect(task,&PaleoTask::finished,this,[task,out,done]{if(done)done(task->state()==PaleoTask::State::Succeeded,*out,task->errorText());});
  return task;
 }
 PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType type,int index,
-    std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done) {
+    std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,quint64 tileGeneration) {
  if(!taskService_){if(done)done(false,nullptr,tr("后台地震服务未连接"));return nullptr;}
  const auto key=nativePlaneKey(path,type,index);
  if(const auto hit=dataCache_.Find(key)){
@@ -97,10 +98,17 @@ PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType t
    if(done)done(valid,valid?hit:nullptr,valid?QString():tr("地震来源已变化，请重新加载"));
   });return nullptr;
  }
- auto out=std::make_shared<SgySliceImage>();
- auto *task=startBounded(type==SgySliceType::Time?tr("读取水平时间切片"):tr("读取地震剖面"),[path,type,index,out](PaleoTask *task)->QString {
+ auto out=std::make_shared<SgySliceImage>();const QPointer<SeismicTaskService> self(this);
+ auto *task=startBounded(type==SgySliceType::Time?tr("读取水平时间切片"):tr("读取地震剖面"),[path,type,index,out,self,tileGeneration](PaleoTask *task)->QString {
+  paleo::NativeTimeTileCallback publish;
+  if(type==SgySliceType::Time)publish=[self,path,index,tileGeneration,task](std::shared_ptr<const SgySliceImage> tile,int x,int y,int completed,int total){
+   if(task->cancelRequested()||!self)return;
+   SeismicTimeTile payload;payload.sampleIndex=index;payload.datasetPath=path;payload.generation=tileGeneration;
+   payload.x=x;payload.y=y;payload.completed=completed;payload.total=total;payload.image=std::move(tile);
+   QMetaObject::invokeMethod(self.data(),[self,payload]{if(self)emit self->timeSliceTileReady(payload);},Qt::QueuedConnection);
+  };
   QString error;if(!paleo::readSeismicDataSlice(path,type,index,*out,error,[task]{return task->cancelRequested();},
-      [task](int done,int total){task->reportBytes(done,total);}))return error;return {};
+      [task](int done,int total){task->reportBytes(done,total);},type!=SgySliceType::Time,std::move(publish)))return error;return {};
  },{},true);
  connect(task,&PaleoTask::finished,this,[this,task,out,done,path,type,index,key]{
   const bool changed=key!=nativePlaneKey(path,type,index);

@@ -106,7 +106,7 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
     const std::vector<double> &traceDistancesM,
     const std::vector<SectionWellInfo> &wells,
     double bufferDistanceM,
-    const TimeDepthModel &tdModel)
+    const TimeDepthModel &tdModel,const QStringList &selectedWellIds)
 {
     std::vector<SectionWellInfo> results;
     if (polylinePoints.size() < 2 || wells.empty())
@@ -132,7 +132,9 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
 
     results.reserve(wells.size());
     for (const auto &w : wells) {
+        if(!selectedWellIds.isEmpty()&&!selectedWellIds.contains(w.wellId))continue;
         SectionWellInfo proj = w;
+        proj.selectedForSection=selectedWellIds.contains(w.wellId);
         const glm::dvec2 wellPos(w.surfaceX, w.surfaceY);
 
         double minDistance = std::numeric_limits<double>::infinity();

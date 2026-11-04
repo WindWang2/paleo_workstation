@@ -52,7 +52,7 @@ public:
   // 做最近井吸附（wellsection::Well 只填坐标身份字段）。
   QVector<wellsection::Well> wellSnapWells(bool analysisOnly = false);
   bool save(const QString &name, const std::vector<glm::dvec2> &route,
-            const QString &seismicPath, const QString &horizon, QString *error);
+              const QString &seismicPath, const QString &horizon, QString *error,const QStringList &wellIds = {});
   QVariantMap restore(const QString &versionId, QString *error,
                       const QString &activeSeismicPath = QString());
 

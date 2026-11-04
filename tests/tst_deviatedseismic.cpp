@@ -9,15 +9,18 @@
 #include "services/projectdata.h"
 #include "services/sectionwellgeometry.h"
 #include "services/wellpathpositions.h"
+#include "services/seismicdataaccess.h"
+#include "services/seismicdataprojection.h"
 #include "workflow/sectionworkbench.h"
 #include "ui/seismicsection/seismicsectioncanvas.h"
+#include "ui/paleotheme.h"
 #include <paleo_data/service.h>
 #include <cmath>
 
 struct DeviatedFixture {
   QTemporaryDir temp;QString project,error;std::string detail;
   paleo::data::DataService ds;DataCatalog catalog;long long wellId=0;
-  bool init(bool positions=true,bool survey=false){
+  bool init(bool positions=true,bool survey=false,bool hasCurves=true,bool hasTimeDepth=true,bool moved=true,bool plateau=false){
     project=temp.filePath("project");
     if(!ds.createProject(paleo::area_model::directory(project).toStdString(),"deviated",detail)||
        !ds.setProjectCrs("EPSG:32650","m",detail))return false;
@@ -27,19 +30,19 @@ struct DeviatedFixture {
     paleo::data::WellDataset well;well.wellInfo.wellName="D1";well.wellInfo.wellheadX=300000;well.wellInfo.wellheadY=2300000;
     well.defaultDepthInfo.depthType="MD";well.defaultDepthInfo.depthUnit="m";well.defaultDepthInfo.mdReference="KB";
     paleo::data::LogSet logs;logs.logSetName="logs";logs.depthInfo=well.defaultDepthInfo;
-    logs.samplingAxis.depthValues={0,100,200,300};logs.logCurves.push_back({"GR","API",{20,40,80,120},{}});well.wellbore.logSets.push_back(logs);
+    logs.samplingAxis.depthValues={0,100,200,300};logs.logCurves.push_back({"GR","API",{20,40,80,120},{}});if(hasCurves)well.wellbore.logSets.push_back(logs);
     paleo::data::TimeDepthTable table;table.relationName="TDR";table.depthInfo=well.defaultDepthInfo;
     table.timeType="TWT";table.timeUnit="ms";table.timeReference="shared zero";table.timeSign="negated";table.coordinateUnit="m";
-    for(int i=0;i<4;++i)table.depthTimePairs.push_back({double(i*100),double(-i*100),positions?300000.+i*i*10:qQNaN(),positions?2300000.:qQNaN(),25.-i*90});
-    well.timeDepthRelations.push_back(table);
+    for(int i=0;i<4;++i)table.depthTimePairs.push_back({double(i*100),double(plateau&&i==1?0:-i*100),positions?300000.+(moved?i*i*10:0):qQNaN(),positions?2300000.:qQNaN(),25.-i*90});
+    if(hasTimeDepth)well.timeDepthRelations.push_back(table);
     if(survey){paleo::data::TrajectorySurvey track;track.surveyName="real survey";track.azimuthReference="grid north";
       track.surveyPoints={{0,0,90},{300,30,90}};well.wellbore.trajectories.push_back(track);}
     parsed.wells.push_back(well);long long source=0;
     if(!ds.importPreparedFile(path.toStdString(),path.toStdString(),path.toStdString(),
       QCryptographicHash::hash("fixture",QCryptographicHash::Sha256).toHex().toStdString(),parsed,source,detail))return false;
     std::vector<paleo::data::DataEntry> relations;
-    if(!ds.listData("time_depth",0,relations,detail)||relations.size()!=1||
-       !ds.confirmTimeDepthSemantics(relations[0].id,"ms","TWT","shared zero",true,detail))return false;
+    if(hasTimeDepth&&(!ds.listData("time_depth",0,relations,detail)||relations.size()!=1||
+       !ds.confirmTimeDepthSemantics(relations[0].id,"ms","TWT","shared zero",true,detail)))return false;
     std::vector<paleo::data::WellSummary> wells;if(!ds.listWells(wells,detail)||wells.size()!=1)return false;wellId=wells[0].id;
     if(!catalog.open(project,&error))return false;
     CatalogEntity entity;entity.id="well-D1";entity.name="D1";entity.entityType="well";entity.hasSurface=true;
@@ -52,6 +55,50 @@ struct DeviatedFixture {
 class DeviatedSeismicTest:public QObject {
   Q_OBJECT
 private slots:
+  void initTestCase(){QVERIFY(PaleoTheme::ensureApplicationFonts());qApp->setFont(PaleoTheme::bodyFont());}
+  void repeatedTimeKeepsObservedGeometryButDoesNotInventInverseCalibration(){
+    DeviatedFixture f;QVERIFY(f.init(true,false,true,true,true,true));SectionWorkbench bench(&f.catalog);
+    const auto wells=bench.sectionWells();QCOMPARE(wells.size(),size_t(1));const auto &well=wells[0];
+    QCOMPARE(well.trajectory.size(),size_t(4));QCOMPARE(well.trajectory[0].twtMs,0.);QCOMPARE(well.trajectory[1].twtMs,0.);
+    QCOMPARE(well.trajectory[1].md,100.);QCOMPARE(well.trajectory[1].x,300010.);
+    QVERIFY(!well.mdTimeDepth);QVERIFY(well.curves.empty());QVERIFY(well.tops.empty());
+    QVector<TdSample> reversed{{0,0,0,{}},{100,100,100,{}},{90,200,200,{}}};
+    QVERIFY(!observedMdTimeIsMonotone(reversed));
+  }
+  void timeDepthOnlyWellStillProvidesItsRealBore(){
+    DeviatedFixture f;QVERIFY(f.init(true,false,false));SectionWorkbench bench(&f.catalog);
+    QVERIFY(bench.wells().empty()); // Analysis picker still requires curves.
+    const auto candidates=bench.sectionWells();QCOMPARE(candidates.size(),size_t(1));
+    QVERIFY(candidates[0].curves.empty());QCOMPARE(candidates[0].trajectory.size(),size_t(4));
+    const auto projected=seismic::SectionWellProjector::ProjectWells({{300000,2300000},{300100,2300000}},{},{0,25,50,75,100},candidates,500,{}, {"well-D1"});
+    QCOMPARE(projected.size(),size_t(1));QVERIFY(projected[0].selectedForSection);QVERIFY(projected[0].isWithinBuffer);
+    QCOMPARE(projected[0].trajectory[2].tracePosition,1.6);QCOMPARE(projected[0].trajectory[2].twtMs,200.);
+  }
+  void explicitPinsKeepMissingTimeOrGeometryWithoutInventingBores(){
+    DeviatedFixture missing;QVERIFY(missing.init(true,false,true,false));SectionWorkbench bench(&missing.catalog);
+    auto candidates=bench.sectionWells();QCOMPARE(candidates.size(),size_t(1));QVERIFY(candidates[0].trajectory.empty());
+    QVERIFY(candidates[0].requiresSpatialPath);QVERIFY(!candidates[0].alignmentStatus.isEmpty());
+    DeviatedFixture flat;QVERIFY(flat.init(true,false,true,true,false));SectionWorkbench flatBench(&flat.catalog);
+    auto second=flatBench.sectionWells();QCOMPARE(second.size(),size_t(1));QVERIFY(second[0].trajectory.empty());
+    second[0].wellId="flat";second[0].surfaceX+=100;candidates.push_back(second[0]);
+    seismic::SectionWellInfo unselected=candidates.front();unselected.wellId="unselected";candidates.push_back(unselected);
+    std::vector<double> axis;for(int i=0;i<3000;++i)axis.push_back(100.*i/2999);
+    const auto selected=seismic::SectionWellProjector::ProjectWells({{300000,2300000},{300100,2300000}},{},axis,candidates,500,{}, {"well-D1","flat"});
+    QCOMPARE(selected.size(),size_t(2));for(const auto &well:selected){QVERIFY(well.selectedForSection);QVERIFY(!well.isWithinBuffer);QVERIFY(well.trajectory.empty());}
+    seismic::SeismicSectionCanvas canvas;canvas.resize(900,650);
+    seismic::SgySliceImage image;image.width=3000;image.height=301;image.values.assign(903000,0);image.rgba.assign(3612000,255);
+    image.valueMin=-1;image.valueMax=1;canvas.setSectionData(image,1);canvas.setWells({});const auto background=canvas.grabCanvasImage();
+    canvas.setWells(selected);canvas.setMaxVisibleWells(1);
+    const auto markers=canvas.grabCanvasImage();QVERIFY(markers!=background);
+    // Selected pins change the header, but no bore/curve is fabricated inside the seismic viewport.
+    const QRect vp(QPoint(qRound(canvas.traceToPixelX(0)),qRound(canvas.timeToPixelY(0))),
+                   QPoint(qRound(canvas.traceToPixelX(2999)),qRound(canvas.timeToPixelY(300))));
+    QVERIFY(markers.copy(vp)==background.copy(vp));
+    for(const auto &well:selected){
+      const int x=qRound(canvas.traceToPixelX(well.tracePosition));const QRect pin(x-6,vp.top()-10,13,10);
+      QVERIFY(markers.copy(pin)!=background.copy(pin));
+    }
+  }
   void manualProjectCrsSurvivesConflictingSourceDeclarations(){
     DeviatedFixture f;QVERIFY(f.init());
     const auto path=f.temp.filePath("other-crs.txt");QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));file.write("other");file.close();
@@ -172,6 +219,46 @@ private slots:
       }
     }
     QVERIFY(anchor);QVERIFY(deviated>0);qInfo()<<"native candidate wells"<<wells.size()<<"positioned"<<positioned<<"with horizontal displacement"<<deviated;
+  }
+  void realSelectedRouteKeepsEveryPin(){
+    const auto project=qEnvironmentVariable("PALEO_DEVIATED_REAL_PROJECT");
+    const auto names=qEnvironmentVariable("PALEO_SECTION_SELECTED_NAMES").split(',',Qt::SkipEmptyParts);
+    const auto seismicPath=qEnvironmentVariable("PALEO_SECTION_SELECTED_SEGY");
+    if(project.isEmpty()||names.size()<2||seismicPath.isEmpty())QSKIP("Optional user-supplied project, wells and seismic file");
+    DataCatalog catalog;catalog.setLockedReadOnly(true);QString error;QVERIFY2(catalog.open(project,&error),qPrintable(error));
+    SectionWorkbench bench(&catalog);const auto candidates=bench.sectionWells();
+    QStringList ids;std::vector<glm::dvec2> route;
+    for(const auto &name:names){
+      const auto well=std::find_if(candidates.begin(),candidates.end(),[&](const auto &w){return w.wellName==name;});
+      QVERIFY2(well!=candidates.end(),qPrintable(name));ids.append(well->wellId);route.push_back({well->surfaceX,well->surfaceY});
+    }
+    paleo::SeismicDataAccess source;std::string detail;
+    QVERIFY2(source.openProjectSource(project,seismicPath,&error),qPrintable(error));
+    paleo::data::SeismicVolume volume;QVERIFY2(source.volume(volume,detail),detail.c_str());
+    std::vector<std::pair<double,double>> points;for(const auto &p:route)points.push_back({p.x,p.y});
+    paleo::data::SeismicSectionResult section;QElapsedTimer clock;clock.start();
+    QVERIFY2(source.xySection(points,QString::fromStdString(volume.sampling.timeReference),section,detail,[&]{return clock.elapsed()>60000;}),detail.c_str());
+    auto projected=seismic::SectionWellProjector::ProjectWells(route,{},section.distances,candidates,500,{},ids);
+    QCOMPARE(projected.size(),size_t(ids.size()));int bores=0,locations=0;
+    for(const auto &well:projected){QVERIFY(well.selectedForSection);
+      if(well.trajectory.empty())++locations;else ++bores;
+      qInfo()<<well.wellName<<"path_points"<<well.trajectory.size()<<"curves"<<well.curves.size()<<"status"<<well.alignmentStatus;
+    }
+    seismic::SeismicSectionCanvas canvas;canvas.resize(1600,900);std::vector<float> distances;std::vector<glm::dvec2> coords;
+    for(size_t i=0;i<section.distances.size();++i){distances.push_back(float(section.distances[i]));coords.push_back({section.x[i],section.y[i]});}
+    const auto horizons=source.sectionHorizons(section,[&]{return clock.elapsed()>60000;});
+    seismic::projectSectionHorizonTies(projected,horizons);
+    canvas.setSectionData(paleo::seismicSectionImage(section),float(section.sampleInterval),section.firstTime,distances,coords);
+    canvas.setHorizonOverlays(horizons);
+    const auto background=canvas.grabCanvasImage();
+    canvas.setWells(projected);canvas.setMaxVisibleWells(1);const auto image=canvas.grabCanvasImage();
+    const int headerY=qRound(canvas.timeToPixelY(section.firstTime))-10;
+    for(const auto &well:projected){
+      const QRect pin(qRound(canvas.traceToPixelX(well.tracePosition))-6,headerY,13,10);
+      QVERIFY2(image.copy(pin)!=background.copy(pin),qPrintable(well.wellName));
+    }
+    const auto output=qEnvironmentVariable("PALEO_SECTION_SELECTED_PNG");if(!output.isEmpty())QVERIFY(image.save(output));
+    qInfo()<<"selected"<<ids.size()<<"real bores"<<bores<<"location-only"<<locations<<"section"<<section.columns<<"x"<<section.samples;
   }
 };
 int main(int argc,char **argv){

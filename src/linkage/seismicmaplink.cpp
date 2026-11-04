@@ -131,7 +131,7 @@ void SeismicMapLink::requestSectionCapture()
   emit sectionCaptureRequested();
 }
 
-void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title)
+void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title,const QStringList &wellIds)
 {
   if (mapPoints.size() < 2)
   {
@@ -181,7 +181,7 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
   // 壳订阅：折线已换算成测线序——剖面 dock 走异步提取 + show/raise。
   emit sectionExtractRequested(
       m_volume, pathPoints,
-      title.isEmpty() ? tr("地图折线剖面") : title, mapPolyline);
+      title.isEmpty() ? tr("地图折线剖面") : title, mapPolyline,wellIds);
   emit sectionExtractedFromMap(true, QString());
 }
 
@@ -301,5 +301,5 @@ void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points,
   triggerSectionFromMapPolyline(
       local, wellIds.size() >= 2
                  ? tr("连井剖面 · %1 口井").arg(wellIds.size())
-                 : tr("地图拾取任意剖面"));
+                 : tr("地图拾取任意剖面"),wellIds);
 }

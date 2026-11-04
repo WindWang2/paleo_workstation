@@ -25,20 +25,23 @@ QVector<SeismicSectionCanvas::WellPinLabel> SeismicSectionCanvas::wellPinLabels(
     const QRect vp = viewportRect();
     QVector<int> candidates;
     for (int i = 0; i < static_cast<int>(m_wells.size()); ++i)
-        if (m_wells[i].isWithinBuffer && std::abs(m_wells[i].offsetDistanceM) <= m_bufferDistanceM)
+        if (m_wells[i].selectedForSection||(m_wells[i].isWithinBuffer && std::abs(m_wells[i].offsetDistanceM) <= m_bufferDistanceM))
             candidates.append(i);
-    if (m_maxVisibleWells > 0 && candidates.size() > m_maxVisibleWells) {
+    if (m_maxVisibleWells > 0 && candidates.size() > m_maxVisibleWells&&!m_wells[candidates.front()].selectedForSection) {
         std::partial_sort(candidates.begin(), candidates.begin() + m_maxVisibleWells, candidates.end(), [this](int a, int b) {
             return std::abs(m_wells[a].offsetDistanceM) < std::abs(m_wells[b].offsetDistanceM);
         });
         candidates.resize(m_maxVisibleWells);
     }
     for (int i : candidates) {
-        const double x = traceToPixelX(m_wells[i].tracePosition);
-        if (!std::isfinite(x) || x < vp.left() || x > vp.right()) continue;
+        double x = traceToPixelX(m_wells[i].tracePosition);
+        if (!std::isfinite(x) || x < vp.left()-1.0 || x > vp.right()+1.0) continue;
+        x=std::clamp(x,double(vp.left()),double(vp.right())); // QRect::right is the last pixel, not the subpixel outer edge.
         QString name = m_wells[i].wellName.trimmed();
         if (name.isEmpty()) name = m_wells[i].wellId;
         if (name.isEmpty()) name = tr("未命名井");
+        if(m_wells[i].selectedForSection&&((m_wells[i].requiresSpatialPath&&m_wells[i].trajectory.empty())||
+           !m_wells[i].isWithinBuffer||std::abs(m_wells[i].offsetDistanceM)>m_bufferDistanceM))name=tr("仅井位：%1").arg(name);
         labels.append({i, x, {}, name, {}});
     }
     std::stable_sort(labels.begin(), labels.end(), [](const auto &a, const auto &b) { return a.pinX < b.pinX; });
@@ -255,7 +258,7 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 if (well.isWithinBuffer &&
                     std::abs(well.offsetDistanceM) <= m_bufferDistanceM)
                     visible.push_back(&well);
-            if (m_maxVisibleWells > 0 && static_cast<int>(visible.size()) > m_maxVisibleWells) {
+            if (m_maxVisibleWells > 0 && static_cast<int>(visible.size()) > m_maxVisibleWells&&!visible.front()->selectedForSection) {
                 std::partial_sort(visible.begin(), visible.begin() + m_maxVisibleWells, visible.end(),
                                   [](const SectionWellInfo *a, const SectionWellInfo *b) {
                                       return std::abs(a->offsetDistanceM) < std::abs(b->offsetDistanceM);

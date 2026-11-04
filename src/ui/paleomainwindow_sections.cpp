@@ -228,7 +228,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
           [this, dock, workbench, route, routeHorizon, band, link,
            setup](std::shared_ptr<const seismic::SgyVolume> volume,
                   std::vector<glm::ivec2> points, QString title,
-                  std::vector<glm::dvec2> line) {
+                  std::vector<glm::dvec2> line,QStringList selectedWellIds) {
             *route = line;
             *routeHorizon =
                 m_selection ? m_selection->activeHorizon() : QString();
@@ -239,7 +239,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
                                 link->sourceCrs().isEmpty()?QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()):QgsCoordinateReferenceSystem(link->sourceCrs()));
             band->show();
             dock->extractSectionFromVolumeAsync(volume, points, title, line,
-                                                workbench->sectionWells());
+                                                workbench->sectionWells(),selectedWellIds);
             setup->setMessage(
                 QObject::tr("正在提取剖面；沿线井按各自时深关系叠加。"));
             dock->show();
@@ -309,7 +309,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             for (const auto &p : points)
               line << QgsPointXY(p.x, p.y);
             link->triggerSectionFromMapPolyline(
-                line, QObject::tr("连井剖面 · %1 口井").arg(ids.size()));
+                line, QObject::tr("连井剖面 · %1 口井").arg(ids.size()),ids);
           });
   // 「按空间关系重排」：算法在 workbench（domain 纯函数），结果落回列表。
   connect(setup, &SectionSetupDialog::spatialReorderRequested, this,
@@ -342,7 +342,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             const auto path =
                 dock->volume() ? paleo::fromFsPath(dock->volume()->Path())
                                : QString();
-            if (!workbench->save(name, *route, path, *routeHorizon, &error)) {
+            if (!workbench->save(name, *route, path, *routeHorizon, &error,dock->selectedWellIds())) {
               report(error);
               return;
             }
@@ -371,7 +371,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
                                  p.value("y").toDouble());
             }
             link->triggerSectionFromMapPolyline(line,
-                                                QObject::tr("恢复的剖面版本"));
+                                                QObject::tr("恢复的剖面版本"),state.value("well_ids").toStringList());
             *routeHorizon = state.value("horizon").toString();
           });
   if (link->activeVolume()) {

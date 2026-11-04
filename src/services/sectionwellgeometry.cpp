@@ -3,6 +3,17 @@
 #include <algorithm>
 #include <cmath>
 
+bool observedMdTimeIsMonotone(const QVector<TdSample>& rows){
+  int count=0;double previousMd=0,previousTime=0,firstTime=0;
+  for(const auto &row:rows){
+    if(!std::isfinite(row.md)||!std::isfinite(row.timeMs)||row.timeMs<0)continue;
+    if(row.md<0||(count&&(row.md<=previousMd||row.timeMs<previousTime)))return false;
+    if(!count)firstTime=row.timeMs;
+    previousMd=row.md;previousTime=row.timeMs;++count;
+  }
+  return count>=2&&previousTime>firstTime;
+}
+
 bool requiresSpatialWellSampling(const seismic::SectionWellInfo& well){
   if(well.requiresSpatialPath&&well.trajectory.empty())return true;
   const seismic::WellTrajSample* first=nullptr;

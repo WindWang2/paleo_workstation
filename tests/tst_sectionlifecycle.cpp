@@ -245,7 +245,8 @@ private slots:
     for(int i=0;i<list->count();++i)list->item(i)->setCheckState(Qt::Checked);
     auto *build=setup()->findChild<QPushButton *>("buildWellSection");QVERIFY(build->isEnabled());build->click();
     QTRY_VERIFY_WITH_TIMEOUT(dock()->hasRoute(),20000);QVERIFY(dock()->volume());
-    QVERIFY(workbench()->sectionWells().empty()); // No fabricated time-depth overlay.
+    const auto pins=dock()->canvas()->wells();QCOMPARE(pins.size(),size_t(2));
+    for(const auto &pin:pins){QVERIFY(pin.selectedForSection);QVERIFY(pin.requiresSpatialPath&&pin.trajectory.empty());QVERIFY(std::isnan(pin.bottomTwtMs));}
     setup()->hide();link->setActiveVolume(nullptr);
   }
 

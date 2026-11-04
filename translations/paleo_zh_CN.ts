@@ -38238,6 +38238,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>时深表：MD → TWT</source>
         <translation>时深表：MD → TWT</translation>
     </message>
+    <message><source>缺少可用时深关系，仅显示井位</source><translation>缺少可用时深关系，仅显示井位</translation></message>
+    <message><source>时深不能唯一反算</source><translation>时深不能唯一反算</translation></message>
 </context>
 <context>
     <name>SegyReader</name>
@@ -52195,6 +52197,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>深度(m)</source>
         <translation>深度(m)</translation>
     </message>
+    <message><source>仅井位：%1</source><translation>仅井位：%1</translation></message>
 </context>
 <context>
     <name>seismic::SeismicSectionDockWidget</name>

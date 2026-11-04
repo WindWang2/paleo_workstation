@@ -134,7 +134,7 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
     std::vector<SeismicSectionCanvas::WellTrajectory> trajectories;
     if (mapPolyline.size() >= 2) {
         const std::vector<double> distances(m_distances.begin(), m_distances.end());
-        const auto wells=SectionWellProjector::ProjectWells(mapPolyline,{},distances,m_candidateWells,m_canvas->bufferDistanceM(),m_canvas->timeDepthModel());
+        const auto wells=SectionWellProjector::ProjectWells(mapPolyline,{},distances,m_candidateWells,m_canvas->bufferDistanceM(),m_canvas->timeDepthModel(),m_selectedWellIds);
         for (const SectionWellInfo &well : wells) {
             SeismicSectionCanvas::WellTrajectory t;
             t.wellId = well.wellId;

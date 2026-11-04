@@ -352,7 +352,9 @@ private slots:
         QCOMPARE(grid[1].x,1006);QCOMPARE(grid[1].y,2004);QCOMPARE(route[0].x,200.);QCOMPARE(route[0].y,0.);
         QCOMPARE(route[1].x,600.);QCOMPARE(route[1].y,200.);
       });
-    link.triggerSectionFromMapPolyline({{130,60},{570,190}});QCOMPARE(calls,1);
+    QStringList selected;
+    connect(&link,&SeismicMapLink::sectionExtractRequested,this,[&](auto,auto,auto,auto,QStringList ids){selected=ids;});
+    link.triggerSectionFromMapPolyline({{130,60},{570,190}},"selected",{"one","two"});QCOMPARE(calls,1);QCOMPARE(selected,QStringList({"one","two"}));
     canvas.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:4326"));canvas.setExtent(QgsRectangle(-.01,-.01,.01,.01));link.setSourceCrs("EPSG:3857");
     QgsCoordinateTransform transform(QgsCoordinateReferenceSystem("EPSG:3857"),canvas.mapSettings().destinationCrs(),canvas.mapSettings().transformContext());
     link.onSectionPathCaptured({transform.transform(QgsPointXY(130,60)),transform.transform(QgsPointXY(570,190))});

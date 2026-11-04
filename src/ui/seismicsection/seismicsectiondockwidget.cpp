@@ -536,7 +536,7 @@ void SeismicSectionDockWidget::refreshWellOverlay(
   // re-extraction.
   auto projected = SectionWellProjector::ProjectWells(
       m_route, {}, distances, wells, std::numeric_limits<double>::max(),
-      m_canvas->timeDepthModel());
+      m_canvas->timeDepthModel(),m_selectedWellIds);
   projectSectionHorizonTies(projected,m_canvas->horizonOverlays());
   m_canvas->setWells(projected);
 }
@@ -545,7 +545,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
     std::shared_ptr<const SgyVolume> volume,
     const std::vector<glm::ivec2> &pathPoints, const QString &lineTitle,
     const std::vector<glm::dvec2> &mapPolyline,
-    const std::vector<SectionWellInfo> &candidateWells) {
+    const std::vector<SectionWellInfo> &candidateWells,const QStringList &selectedWellIds) {
   if (!volume || pathPoints.size() < 2 || !m_taskService)
     return;
   if (m_extraction)
@@ -571,6 +571,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
   const auto generation = ++m_generation;
   m_volume = volume;
   m_candidateWells=candidateWells;
+  m_selectedWellIds=selectedWellIds;
   m_canvas->setMajorHorizonsOnly(m_majorHorizonConnectionsNext);m_majorHorizonConnectionsNext=false;
   m_route.clear();
   m_distances.clear();

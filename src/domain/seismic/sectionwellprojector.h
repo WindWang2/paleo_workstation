@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <QString>
+#include <QStringList>
 #include <vector>
 #include <optional>
 #include <glm/glm.hpp>
@@ -68,6 +69,7 @@ struct SectionWellInfo {
     std::optional<TimeDepthModel> mdTimeDepth;
     double timeShiftMs=0;
     bool requiresSpatialPath = false; // native wells must not fall back to a fictitious vertical bore
+    bool selectedForSection = false; // retain an explicit route pin even when the bore cannot be projected
     QString trajectorySource, trajectoryStatus;
     QString timeReference;
 
@@ -100,7 +102,7 @@ public:
         const std::vector<double> &traceDistancesM,
         const std::vector<SectionWellInfo> &wells,
         double bufferDistanceM = 500.0,
-        const TimeDepthModel &tdModel = TimeDepthModel());
+        const TimeDepthModel &tdModel = TimeDepthModel(),const QStringList &selectedWellIds = {});
 };
 void projectSectionHorizonTies(std::vector<SectionWellInfo>& wells,const SectionHorizons& horizons);
 

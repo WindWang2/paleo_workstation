@@ -708,9 +708,9 @@ private slots:
     QVERIFY(errors.first().first().toString().contains(QStringLiteral("MD")));
     QVERIFY(fixture.latest(QStringLiteral("wells_prediction")).isEmpty());
   }
-  void predictionWellWithoutLogFallsBackToMockDepth() {
-    // R2-M1 回归：有坐标、无测井链接的井必须走 depth_mock 合成井段（0/120），
-    // 不以空文件名报「需要 MD 测深」（C-8 重构曾丢 !path.isEmpty() 守卫）。
+  void predictionWellWithoutLogIsRejected() {
+    // A located well still needs measured log samples. Missing curves must not
+    // manufacture a synthetic depth interval or a successful prediction.
     Fixture fixture;
     QVERIFY(fixture.init());
     CatalogEntity e;
@@ -727,9 +727,11 @@ private slots:
         "MOCKW D61 1000 0 0 -1000 1000 -99999\n")));
     QSignalSpy errors(&fixture.work, &MappingWorkbench::errorOccurred);
     QString error;
-    QVERIFY2(fixture.work.predict(QStringLiteral("D61"), QStringLiteral("wells"), {e.id}, &error), qPrintable(error));
-    QTRY_VERIFY(!fixture.work.busy());
+    QVERIFY(!fixture.work.predict(QStringLiteral("D61"), QStringLiteral("wells"), {e.id}, &error));
+    QVERIFY(error.contains(QStringLiteral("测井曲线")));
+    QVERIFY(!fixture.work.busy());
     QCOMPARE(errors.count(), 0);
+    QVERIFY(fixture.latest(QStringLiteral("wells_prediction")).isEmpty());
   }
   void predictionLogAcceptsUnifiedMdAndRejectsOtherAxes() {
     Fixture fixture;

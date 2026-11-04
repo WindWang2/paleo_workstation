@@ -2406,6 +2406,68 @@ private slots:
     }
     page.setHorizon("D62"); QVERIFY(f.work.editEvidence("D61").isEmpty());
   }
+  void editBasisEntryRestoresHiddenPanelBeforeDrawing() {
+    PaleoTheme::ensureApplicationFonts(); PaleoTheme::applyLightTheme();
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation,
+        nullptr, nullptr, &f.processing, &f.store);
+    window.attachWorkbench(&f.work); window.showPage("compose"); selection.setActiveHorizon("D61");
+    window.ribbonBar()->raiseCategory(window.categoryForPage("compose"));
+    window.resize(1440, 960); window.show(); QVERIFY(QTest::qWaitForWindowExposed(&window));
+    qInfo("edit-basis QA: window exposed");
+    QString error; const auto draft = f.work.createBlankMap("D61", &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    qInfo("edit-basis QA: blank map created");
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY(layer);
+    auto *edit = window.findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(edit);
+    edit->refreshFromProject(); edit->setCurrentLayer(layer);
+    edit->partitionCodeCombo()->setCurrentIndex(edit->partitionCodeCombo()->findData(1));
+    auto *tabs = window.findChild<QTabWidget *>("workbenchTabs.compose"); QVERIFY(tabs);
+    auto *page = qobject_cast<MappingWorkbenchPage *>(tabs->widget(0)); QVERIFY(page);
+    auto *dock = window.findChild<QDockWidget *>("pagePanelDock"); QVERIFY(dock);
+    auto *text = page->findChild<QPlainTextEdit *>("editBasisText"); QVERIFY(text);
+    auto *reason = page->findChild<QLineEdit *>("editBasisReason"); QVERIFY(reason);
+    auto *entry = window.findChild<QAction *>("ribbonEditBasis"); QVERIFY(entry); QVERIFY(entry->isEnabled());
+    auto *scroll = page->findChild<QScrollArea *>(); QVERIFY(scroll);
+    scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+    tabs->setCurrentIndex(1); dock->hide(); entry->trigger();
+    qInfo("edit-basis QA: entry triggered");
+    QTRY_VERIFY(dock->isVisible()); QCOMPARE(tabs->currentWidget(), page);
+    QTRY_VERIFY(text->hasFocus());
+    QVERIFY(scroll->viewport()->rect().intersects(QRect(text->mapTo(scroll->viewport(), QPoint(0, 0)), text->size())));
+    QVERIFY(f.work.needsEditEvidence(draft)); QVERIFY(edit->actionPaintFacies()->isEnabled());
+    tabs->setCurrentIndex(1); dock->hide();
+    edit->actionPaintFacies()->trigger();
+    QTRY_VERIFY(dock->isVisible()); QTRY_VERIFY(text->hasFocus());
+    QVERIFY(!qobject_cast<FaciesPartitionTool *>(controller.canvas()->mapTool()));
+    QVERIFY(!edit->actionPaintFacies()->isChecked()); QVERIFY(!layer->isEditable());
+    QCOMPARE(layer->featureCount(), 0);
+    const auto qa = qEnvironmentVariable("PALEO_MAPPING_BASIS_QA_DIR");
+    if (!qa.isEmpty()) { QDir().mkpath(qa); QVERIFY(window.grab().save(qa + "/explanation-entry.png")); }
+    text->setPlainText(QStringLiteral("测试观察：依据当前层位的井相与砂地比调整相界"));
+    entry->trigger(); QTRY_VERIFY(reason->hasFocus());
+    auto *apply = page->commandButton("setEditEvidence"); QVERIFY(apply); QVERIFY(!apply->isEnabled());
+    reason->setText(QStringLiteral("测试工作副本：绘制首个相面"));
+    QVERIFY(apply->isEnabled()); apply->click(); QVERIFY(!f.work.needsEditEvidence(draft));
+    edit->actionPaintFacies()->trigger(); QVERIFY(qobject_cast<FaciesPartitionTool *>(controller.canvas()->mapTool()));
+    QVERIFY2(FaciesPartitionEditor::paint(layer, QgsGeometry::fromRect(QgsRectangle(0, 0, 100, 100)), 1, &error), qPrintable(error));
+    QCOMPARE(layer->featureCount(), 1);
+    const auto evidence = f.work.featureEvidence(draft, layer->selectedFeatureIds().values());
+    QVERIFY(!evidence.value("records").toList().isEmpty());
+    QCOMPARE(evidence.value("records").toList().first().toMap().value("text").toString().section('\n', 0, 0), text->toPlainText());
+    if (!qa.isEmpty()) { QCoreApplication::processEvents(); QVERIFY(window.grab().save(qa + "/explanation-enabled.png")); }
+    f.work.clearEditEvidence();
+    edit->actionVertexEdit()->trigger(); QTRY_VERIFY(text->hasFocus());
+    QVERIFY(!qobject_cast<PaleoVertexTool *>(controller.canvas()->mapTool())); QCOMPARE(layer->featureCount(), 1);
+    QVERIFY(edit->cancelEditing());
+  }
   void analysisUnitBlankMapUsesFrozenSchemeIdentity() {
     Fixture f;QVERIFY(f.init());QString error;std::string detail;paleo::data::DataService ds;
     const auto root=f.dir.path()+"/artifacts/metadata/area-model";

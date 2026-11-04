@@ -71,7 +71,7 @@ src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:224
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:476
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:277
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:426
-src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:295
+src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:289
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:358
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1635

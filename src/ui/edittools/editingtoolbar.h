@@ -71,6 +71,9 @@ class PaleoEditingToolbar : public QWidget
     void setLayerFilter( LayerFilter filter );
     LayerFilter layerFilter() const { return mLayerFilter; }
 
+    // Host preflight for mutations; selection and session controls remain available.
+    void setMutationGuard(LayerFilter guard) { mMutationGuard = std::move(guard); }
+
     // Optional routing of session transitions through the existing
     // QgisEditingService (busy-marking + serialized commit). nullptr →
     // direct startEditing/commitChanges/rollBack.
@@ -157,6 +160,7 @@ class PaleoEditingToolbar : public QWidget
     void uncheckTools();
     void updatePartitionControls(const QString &noEdit);
     void mergePartition();
+    bool allowMutation();
     void installTool( class QgsMapTool *tool ); // teardown-aware swap on the canvas
     void refreshCombo();                        // rebuild from mLayers ∩ filter
     void updateActionStates();                  // enable/disable + reason tooltips
@@ -176,6 +180,7 @@ class PaleoEditingToolbar : public QWidget
     QPointer<QgsMapCanvas> mCanvas;              // not owned（MEM-07：析构期画布可先亡）
     QList<QPointer<QgsVectorLayer>> mLayers;     // not owned candidates
     LayerFilter mLayerFilter;                   // default: accept all
+    LayerFilter mMutationGuard;
     QgisEditingService *mEditingService = nullptr; // not owned, optional
     QPointer<QgsVectorLayer> mEditLayer;       // not owned; layer in session
 

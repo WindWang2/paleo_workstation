@@ -118,6 +118,7 @@ public:
   QString createBlankMap(const QString &horizon, QString *error);
   bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);
   QVariantMap editEvidence(const QString &horizon) const;
+  bool needsEditEvidence(const QString &layerId) const;
   void clearEditEvidence();
   void setManualEvidenceRequired(bool required);
   bool hasUnpublishedEdits(const QString &id) const;

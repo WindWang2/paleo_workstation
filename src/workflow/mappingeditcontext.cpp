@@ -32,6 +32,11 @@ QVariantMap MappingWorkbench::editEvidence(const QString &horizon) const {
   return m_editEvidence.value("horizon").toString() == horizon ? m_editEvidence : QVariantMap{};
 }
 
+bool MappingWorkbench::needsEditEvidence(const QString &layerId) const {
+  return (m_manualEvidenceRequired || versionForLayer(layerId).extra.value("requires_edit_evidence").toBool()) &&
+         editEvidence(declaration(layerId).horizon).isEmpty();
+}
+
 bool MappingWorkbench::setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error) {
   if (!ready(horizon, error))
     return false;

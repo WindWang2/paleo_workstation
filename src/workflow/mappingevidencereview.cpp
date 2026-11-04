@@ -956,7 +956,7 @@ bool MappingWorkbench::appendEditEvidence(const QString &id, qint64 fid, QString
   const auto horizon = declaration(id).horizon;
   const auto context = editEvidence(horizon);
   if (context.isEmpty())
-    return !(m_manualEvidenceRequired || version.extra.value("requires_edit_evidence").toBool()) ||
+    return !needsEditEvidence(id) ||
         reject(error, tr("请先设置本次解释依据和修改目的，再绘制或修改相面"));
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   if (!layer || !layer->isEditable()) return reject(error, tr("解释依据需要当前编辑事务"));

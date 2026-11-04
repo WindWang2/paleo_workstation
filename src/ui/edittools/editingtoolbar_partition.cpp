@@ -83,11 +83,18 @@ void PaleoEditingToolbar::updatePartitionControls(const QString &noEdit) {
   }
 }
 void PaleoEditingToolbar::mergePartition() {
-  if (!mActionMergeFacies->isEnabled() || !startEditing()) return;
+  if (!mActionMergeFacies->isEnabled() || !allowMutation() || !startEditing()) return;
   auto *layer = currentLayer(); QString error;
   if (!FaciesPartitionEditor::merge(layer, mPartitionCode->currentData().toInt(), &error)) emit editRefused(error);
   else { installTool(nullptr); uncheckTools(); emit featureEdited(FaciesPartitionEditor::layerKey(layer)); }
   updateActionStates();
+}
+
+bool PaleoEditingToolbar::allowMutation() {
+  if (!mMutationGuard || mMutationGuard(currentLayer())) return true;
+  installTool(nullptr);
+  uncheckTools();
+  return false;
 }
 
 void PaleoEditingToolbar::bindStatusMessages(QStatusBar *status) {

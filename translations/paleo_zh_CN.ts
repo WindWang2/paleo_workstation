@@ -14020,6 +14020,14 @@ Crossline: %3 ~ %4</source>
         <source>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</source>
         <translation>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</translation>
     </message>
+    <message>
+        <source>解释说明</source>
+        <translation>解释说明</translation>
+    </message>
+    <message>
+        <source>修改目的</source>
+        <translation>修改目的</translation>
+    </message>
 </context>
 <context>
     <name>MappingEvidencePanel</name>
@@ -23534,6 +23542,18 @@ PDF：%3
         <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="16" />
         <source>时深来源与地震时间基准已保存，正在刷新连井数据</source>
         <translation type="unfinished" />
+    </message>
+    <message>
+        <source>解释依据…</source>
+        <translation>解释依据…</translation>
+    </message>
+    <message>
+        <source>填写本次解释说明和修改目的，可选取当前参考证据，启用后绘制或修改相面。</source>
+        <translation>填写本次解释说明和修改目的，可选取当前参考证据，启用后绘制或修改相面。</translation>
+    </message>
+    <message>
+        <source>请填写右侧的解释说明和修改目的，点击“启用本次解释依据”后，再选择相面编辑工具。未修改图面。</source>
+        <translation>请填写右侧的解释说明和修改目的，点击“启用本次解释依据”后，再选择相面编辑工具。未修改图面。</translation>
     </message>
 </context>
 <context>

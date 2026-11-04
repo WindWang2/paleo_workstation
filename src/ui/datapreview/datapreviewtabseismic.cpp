@@ -144,6 +144,7 @@ QComboBox *timeResolutionControl(QWidget *parent,QHBoxLayout *layout)
 {
   auto *choice=new QComboBox(parent);
   choice->setObjectName(QStringLiteral("timeSliceResolution"));
+  choice->addItem(QObject::tr("快速预览（≤64×64）"),64);
   choice->addItem(QObject::tr("快速预览（≤128×128）"),128);
   choice->addItem(QObject::tr("完整分辨率"),0);
   choice->setToolTip(QObject::tr("预览读取均匀抽样的真实振幅；完整分辨率按原始测网逐点读取，可取消。"));

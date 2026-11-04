@@ -28,6 +28,7 @@
 #include "../src/services/seismictaskservice.h"
 #include "../src/services/fspathutils.h"
 #include "Engine/QuickOpen.h"
+#include "Data/Sgy/SgyIndexCache.h"
 #include "../src/ui/seismic3d/seismic3dcolormap.h"
 #include "../src/ui/seismic3d/seismic3dfallback.h"
 #include "../src/ui/seismic3d/seismiccameracontroller.h"
@@ -162,7 +163,8 @@ private slots:
     const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
     if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
     QElapsedTimer clock;clock.start();auto vol=std::make_shared<SgyVolume>();std::string error;
-    QVERIFY2(vol->Load(paleo::toFsPath(path),error),error.c_str());const auto loadMs=clock.elapsed();
+    const auto index=SgyIndexCache::Load(paleo::toFsPath(path),error);
+    QVERIFY2(index,error.c_str());vol->AdoptIndex(index);const auto loadMs=clock.elapsed();
     PaleoTaskService tasks;SeismicTaskService service(&tasks);int completed=0;QStringList errors;
     clock.restart();
     for(auto type:{SgySliceType::Inline,SgySliceType::Xline,SgySliceType::Time}){

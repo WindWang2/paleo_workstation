@@ -28265,6 +28265,7 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message><source>快速预览（≤64×64）</source><translation>快速预览（≤64×64）</translation></message>
     <message>
         <source>未命名层位</source>
         <translation>未命名层位</translation>

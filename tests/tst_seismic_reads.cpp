@@ -16,6 +16,8 @@
 #include "services/sectiondoc.h"
 #include "io/areamodel.h"
 #include "io/modelhorizonpreview.h"
+#include "io/horizonbinner.h"
+#include "io/areamodel_conventions.h"
 
 class TestSeismicReads : public QObject {
   Q_OBJECT
@@ -207,6 +209,17 @@ private slots:
       QCOMPARE(grids[0].twtMs.size(),size_t(16));for(double time:grids[0].twtMs)QCOMPARE(time,100.);
     });
     QTRY_VERIFY_WITH_TIMEOUT(done,5000);
+    QVERIFY(ds.setProjectCrs("EPSG:32650","m",detail));
+    volume.geometry.coordinateSystem="EPSG:32650";volume.geometry.coordinateUnit="m";
+    QVERIFY(ds.saveVolume(id,volume,detail));horizon.timeUnit.clear();horizon.timeType.clear();
+    QVERIFY(ds.saveHorizonInfo(hid,horizon,detail));
+    QVERIFY2(paleo::area_model::inheritSurveyHorizonConventions(ds,&error),qPrintable(error));
+    QVERIFY(ds.readHorizon(hid,0,1,horizon,detail));QCOMPARE(horizon.points.front().zTime,100.);
+    QCOMPARE(horizon.coordinateSystem,std::string("EPSG:32650"));QCOMPARE(horizon.coordinateUnit,std::string("m"));
+    QCOMPARE(horizon.timeUnit,std::string("ms"));QCOMPARE(horizon.timeType,std::string("TWT"));
+    horizon.parentVolumeId=0;horizon.timeUnit="s";horizon.timeType="OWT";
+    QVERIFY(ds.saveHorizonInfo(hid,horizon,detail));QVERIFY(paleo::area_model::inheritSurveyHorizonConventions(ds,&error));
+    QVERIFY(ds.readHorizon(hid,0,1,horizon,detail));QCOMPARE(horizon.timeUnit,std::string("s"));QCOMPARE(horizon.timeType,std::string("OWT"));
   }
   void realFastTimePreview() {
     const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
@@ -218,9 +231,9 @@ private slots:
     qint64 firstMs=0;int width=0,height=0;QElapsedTimer clock;clock.start();
     service.startDataSlice(path,seismic::SgySliceType::Time,1500,[&](bool success,auto image,const auto &why){
       ok=success;error=why;if(image){width=image->width;height=image->height;}done=true;
-    },1,128);
+    },1,64);
     QTRY_VERIFY_WITH_TIMEOUT(done,60000);QVERIFY2(ok,qPrintable(error));firstMs=clock.elapsed();
-    done=false;clock.restart();service.startDataSlice(path,seismic::SgySliceType::Time,1500,[&](bool success,auto,const auto&){ok=success;done=true;},2,128);
+    done=false;clock.restart();service.startDataSlice(path,seismic::SgySliceType::Time,1500,[&](bool success,auto,const auto&){ok=success;done=true;},2,64);
     QTRY_VERIFY(done);QVERIFY(ok);
     qInfo()<<"real time overview"<<width<<"x"<<height<<"first_ms"<<firstMs<<"repeat_ms"<<clock.elapsed();
   }

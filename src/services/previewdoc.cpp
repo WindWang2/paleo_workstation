@@ -10,6 +10,7 @@
 #include "../io/geojsonaffine.h"
 #include "../io/horizonbinner.h"
 #include "../io/modelhorizonpreview.h"
+#include "../io/areamodel.h"
 #include "../io/lascache.h"
 #include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（契约类型；解析入口不再直触）
 #include "../io/outsourceworkbook.h" // readWorkbook（workbookPreviewAt 出参来源）

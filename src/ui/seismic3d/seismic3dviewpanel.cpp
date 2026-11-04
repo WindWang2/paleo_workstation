@@ -131,9 +131,9 @@ void Seismic3DViewPanel::buildUi() {
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     qualityLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    topLay->addWidget(qualityLabel_);
 
     mainLay->addWidget(topBar);
+    mainLay->addWidget(qualityLabel_);
 
     // 2. Center Viewport
     viewport_ = new Seismic3DViewportWidget(this);

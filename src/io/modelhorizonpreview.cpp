@@ -1,5 +1,7 @@
 // 层：数据
 #include "modelhorizonpreview.h"
+#include "areamodel.h"
+#include "horizonbinner.h"
 #include <paleo_data/service.h>
 #include <algorithm>
 #include <cmath>

@@ -5,6 +5,7 @@
 #include "dataimportservice.h"
 #include "importrecovery.h"
 #include "nativemodel.h"
+#include "areamodel_conventions.h"
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/paleoprojectstore.h"
@@ -107,6 +108,8 @@ void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<
   // 目录写锁属于 catalog；先对账上次中断的提交，再清理暂存目录。
   if (m_catalogReady && projectChanged && !m_catalog->isLockedReadOnly())
     m_catalogReady = paleo::dataimport_detail::recoverImportIntents(dir, *m_catalog, &err);
+  if(m_catalogReady&&projectChanged&&!m_catalog->isLockedReadOnly())
+    m_catalogReady=paleo::area_model::inheritProjectHorizonConventions(dir,&err);
   // T20a：记错误面 + 发信号——catalog 已进入拒绝写入态，后续 mutator
   // 都如实失败。状态栏/消息区接线归 paleomainwindow。
   m_catalogOpenError = m_catalogReady ? QString() : err;

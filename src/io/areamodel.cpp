@@ -1,5 +1,6 @@
 // 层：数据
 #include "areamodel.h"
+#include "areamodel_conventions.h"
 #include "../catalog/datacatalog.h"
 #include <paleo_data/service.h>
 #include "projectcoordinates.h"
@@ -76,7 +77,10 @@ bool ensureProject(const QString &project, QString *error) {
   const bool ok = exists ? service.openProject(root, detail)
       : service.createProject(root, QFileInfo(project).fileName().toUtf8().toStdString(), detail);
   if (error) *error = QString::fromUtf8(detail);
-  return ok;
+  return ok && inheritSurveyHorizonConventions(service,error);
+}
+bool inheritProjectHorizonConventions(const QString &project,QString *error) {
+  return !QFileInfo::exists(directory(project)+QStringLiteral("/data.sqlite"))||ensureProject(project,error);
 }
 bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
@@ -119,6 +123,7 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
     if (progress) progress(p.completed, p.total, QString::fromUtf8(p.status) + ": " + QString::fromUtf8(p.file));
   }, cancelled);
   if (!report.cancelled && (ok || report.imported > 0 || report.registered > 0 || report.cached > 0)) {
+    if(!inheritSurveyHorizonConventions(service,error))return false;
     std::vector<paleo::data::DataEntry> horizons;
     std::string hErr;
     if (service.listData("horizons", 0, horizons, hErr) && horizons.size() >= 2) {

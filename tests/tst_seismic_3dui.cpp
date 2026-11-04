@@ -148,11 +148,35 @@ private slots:
     auto state=panel.viewport()->camera().state();state.yaw=17;state.pitch=21;state.distance=12;
     panel.viewport()->restoreCamera(state);
     QVERIFY(panel.promoteIndexedVolume(full));QVERIFY(!panel.volume()->IsRuleBased());
+    // Promotion must dispatch before the old generation has drained.
+    QVERIFY(countTasksByTitle(tasks,QStringLiteral("提取地震切片")) >= 6);
     QCOMPARE(panel.currentInline(),1001);QCOMPARE(panel.currentCrossline(),2003);QCOMPARE(panel.currentTimeSample(),7);
     QCOMPARE(panel.viewport()->camera().state().yaw,17.f);QCOMPARE(panel.viewport()->camera().state().distance,12.f);
     QVERIFY(waitForQuiet([&]{for(auto* task:tasks.tasks())if(task->running())return false;return true;}));
     QCOMPARE(panel.currentInline(),1001);QVERIFY(!panel.volume()->IsRuleBased());
     QVERIFY(!panel.promoteIndexedVolume(coarse));
+  }
+
+  void realLargeVolumeOverview()
+  {
+    const auto path=qEnvironmentVariable("PALEO_SEISMIC_READ_BENCH_PATH");
+    if(path.isEmpty())QSKIP("Optional user-supplied external SEG-Y path");
+    QElapsedTimer clock;clock.start();auto vol=std::make_shared<SgyVolume>();std::string error;
+    QVERIFY2(vol->Load(paleo::toFsPath(path),error),error.c_str());const auto loadMs=clock.elapsed();
+    PaleoTaskService tasks;SeismicTaskService service(&tasks);int completed=0;QStringList errors;
+    clock.restart();
+    for(auto type:{SgySliceType::Inline,SgySliceType::Xline,SgySliceType::Time}){
+      const int index=type==SgySliceType::Inline?vol->FindNearestInlineValue((vol->InlineMin()+vol->InlineMax())/2.):
+        type==SgySliceType::Xline?vol->FindNearestXlineValue((vol->XlineMin()+vol->XlineMax())/2.):1500;
+      service.startSliceExtraction(vol,type,index,[&,type](bool ok,auto image,const auto &why){
+        if(!ok||!image)errors.append(why);else{
+          qInfo()<<"real 3D slot"<<int(type)<<image->width<<"x"<<image->height<<"ready_ms"<<clock.elapsed();
+          QVERIFY(type==SgySliceType::Time?image->width<=64&&image->height<=48:image->width<=128);
+        }++completed;
+      },{},true);
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(completed,3,60000);QVERIFY2(errors.isEmpty(),qPrintable(errors.join('\n')));
+    qInfo()<<"real 3D index_ms"<<loadMs<<"all_slices_ms"<<clock.elapsed();
   }
 
   void initTestCase()

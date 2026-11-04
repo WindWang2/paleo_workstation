@@ -139,7 +139,7 @@ class PreviewDocService : public QObject
     // Read-only RAW horizon preview: bin actual Z samples into a temporary
     // raster. Storage survives background work and the rendered layer.
     struct HorizonPreview {
-      QString path, error;
+      QString path, error, verticalLabel;
       int rows = 0, columns = 0, filled = 0, rejected = 0;
       double minimum = 0, maximum = 0;
       std::shared_ptr<QTemporaryDir> storage;

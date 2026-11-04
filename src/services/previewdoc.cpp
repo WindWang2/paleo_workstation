@@ -9,6 +9,7 @@
 #include "../io/dataimportservice.h"
 #include "../io/geojsonaffine.h"
 #include "../io/horizonbinner.h"
+#include "../io/modelhorizonpreview.h"
 #include "../io/lascache.h"
 #include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（契约类型；解析入口不再直触）
 #include "../io/outsourceworkbook.h" // readWorkbook（workbookPreviewAt 出参来源）
@@ -217,6 +218,11 @@ void PreviewDocService::requestHorizonPreview(
   auto result = std::make_shared<HorizonPreview>();
   result->storage = std::make_shared<QTemporaryDir>();
   const auto work = [source, result](PaleoTask *task) -> QString {
+    BinnedHorizon grid;QString error;
+    const auto model=readModelHorizonPreview(source,grid,&error,[task]{return task&&task->cancelRequested();});
+    if(model==paleo::area_model::Read::Failed)return error;
+    result->verticalLabel=model==paleo::area_model::Read::Ready?QStringLiteral("TWT (ms)"):QStringLiteral("Z");
+    if(model==paleo::area_model::Read::Unbound){
     QFile input(source);
     if (!result->storage->isValid() || !input.open(QIODevice::ReadOnly))
       return QStringLiteral("无法读取原始层位或创建预览目录");
@@ -225,9 +231,8 @@ void PreviewDocService::requestHorizonPreview(
     const auto bytes = input.readAll();
     if (input.error() != QFileDevice::NoError) return input.errorString();
     if (task && task->cancelRequested()) return QStringLiteral("已取消");
-    BinnedHorizon grid;
-    QString error;
     if (!binHorizon(bytes, &grid, &error)) return error;
+    }
     if (!grid.filledCells) return QStringLiteral("层位中没有可显示的有效 Z 值");
     if (task && task->cancelRequested()) return QStringLiteral("已取消");
     result->path = result->storage->filePath(QStringLiteral("horizon.tif"));

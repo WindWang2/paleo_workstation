@@ -11,6 +11,36 @@
 #include <cmath>
 
 namespace seismic {
+PaleoTask *SeismicTaskService::startDataHorizonSurfaces(const QString &path,
+    std::function<void(bool,const QStringList&,const std::vector<SeismicHorizonGrid>&,const QString&)> done) {
+ if(!taskService_){if(done)done(false,{},{},tr("后台地震服务未连接"));return nullptr;}
+ auto names=std::make_shared<QStringList>();auto grids=std::make_shared<std::vector<SeismicHorizonGrid>>();
+ auto *task=startBounded(tr("读取三维层位预览"),[path,names,grids](PaleoTask *task)->QString{
+  paleo::SeismicDataAccess source;QString error;std::string detail;
+  if(!source.open(path,&error))return error;if(!source.registered())return {};
+  paleo::data::SeismicVolume volume;if(!source.volume(volume,detail))return QString::fromStdString(detail);
+  const auto &g=volume.geometry;SeismicHorizonGrid shape;
+  shape.inlineMin=g.inlineMin;shape.xlineMin=g.crosslineMin;
+  shape.inlineStep=qMax(1,(g.inlineMax-g.inlineMin+46)/47);
+  shape.xlineStep=qMax(1,(g.crosslineMax-g.crosslineMin+62)/63);
+  shape.inlineCount=(g.inlineMax-g.inlineMin)/shape.inlineStep+1;
+  shape.xlineCount=(g.crosslineMax-g.crosslineMin)/shape.xlineStep+1;
+  paleo::data::SeismicSectionResult section;section.columns=shape.inlineCount*shape.xlineCount;
+  for(int row=0;row<shape.inlineCount;++row)for(int col=0;col<shape.xlineCount;++col){
+   section.inlineNumbers.push_back(shape.inlineMin+row*shape.inlineStep);
+   section.crosslineNumbers.push_back(shape.xlineMin+col*shape.xlineStep);section.traceIndexes.push_back(0);
+  }
+  const auto horizons=source.sectionHorizons(section,[task]{return task->cancelRequested();});
+  if(horizons.curves.empty()&&!horizons.warnings.isEmpty())return horizons.warnings.join('\n');
+  for(const auto &curve:horizons.curves)if(!curve.internalEdge){
+   auto grid=shape;grid.twtMs=curve.timesMs;grid.confidence.assign(grid.twtMs.size(),1.f);
+   names->append(curve.name);grids->push_back(std::move(grid));
+  }
+  return {};
+ },{},true);
+ connect(task,&PaleoTask::finished,this,[task,names,grids,done]{if(done)done(task->state()==PaleoTask::State::Succeeded,*names,*grids,task->errorText());});
+ return task;
+}
 namespace {
 std::string nativePlaneKey(const QString& path,SgySliceType type,int index) {
  const QFileInfo file(path);
@@ -107,17 +137,17 @@ PaleoTask *SeismicTaskService::startDataInfo(const QString& path,std::function<v
  return task;
 }
 PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType type,int index,
-    std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,quint64 tileGeneration) {
+    std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,quint64 tileGeneration,int previewAxis) {
  if(!taskService_){if(done)done(false,nullptr,tr("后台地震服务未连接"));return nullptr;}
- const auto key=nativePlaneKey(path,type,index);
+ const auto key=nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);
  if(const auto hit=dataCache_.Find(key)){
-  QTimer::singleShot(0,this,[this,path,type,index,key,hit,done]{
-   const bool valid=key==nativePlaneKey(path,type,index);
+  QTimer::singleShot(0,this,[this,path,type,index,key,hit,done,previewAxis]{
+   const bool valid=key==nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);
    if(done)done(valid,valid?hit:nullptr,valid?QString():tr("地震来源已变化，请重新加载"));
   });return nullptr;
  }
  auto out=std::make_shared<SgySliceImage>();const QPointer<SeismicTaskService> self(this);
- auto *task=startBounded(type==SgySliceType::Time?tr("读取水平时间切片"):tr("读取地震剖面"),[path,type,index,out,self,tileGeneration](PaleoTask *task)->QString {
+ auto *task=startBounded(type==SgySliceType::Time?tr("读取水平时间切片"):tr("读取地震剖面"),[path,type,index,out,self,tileGeneration,previewAxis](PaleoTask *task)->QString {
   paleo::NativeTimeTileCallback publish;
   if(type==SgySliceType::Time)publish=[self,path,index,tileGeneration,task](std::shared_ptr<const SgySliceImage> tile,int x,int y,int completed,int total){
    if(task->cancelRequested()||!self)return;
@@ -126,10 +156,10 @@ PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType t
    QMetaObject::invokeMethod(self.data(),[self,payload]{if(self)emit self->timeSliceTileReady(payload);},Qt::QueuedConnection);
   };
   QString error;if(!paleo::readSeismicDataSlice(path,type,index,*out,error,[task]{return task->cancelRequested();},
-      [task](int done,int total){task->reportBytes(done,total);},type!=SgySliceType::Time,std::move(publish)))return error;return {};
+      [task](int done,int total){task->reportBytes(done,total);},type!=SgySliceType::Time,std::move(publish),previewAxis))return error;return {};
  },{},true);
- connect(task,&PaleoTask::finished,this,[this,task,out,done,path,type,index,key]{
-  const bool changed=key!=nativePlaneKey(path,type,index);
+ connect(task,&PaleoTask::finished,this,[this,task,out,done,path,type,index,key,previewAxis]{
+  const bool changed=key!=nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);
   const bool ok=task->state()==PaleoTask::State::Succeeded&&!changed;
   if(ok)dataCache_.Store(key,out);
   if(done)done(ok,ok?out:nullptr,changed?tr("地震来源已变化，请重新加载"):task->errorText());

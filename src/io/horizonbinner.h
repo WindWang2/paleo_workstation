@@ -20,6 +20,7 @@ struct HorizonHeader
 
 struct BinnedHorizon
 {
+  QString coordinateSystem; // explicit model CRS; legacy text keeps the local grid
   int rows = 0, cols = 0;
   QVector<float> z;      // row-major（行=inline 升序），nodata=-9999
   int collisions = 0;    // 同像元多点：保留最后一点，计数进元数据

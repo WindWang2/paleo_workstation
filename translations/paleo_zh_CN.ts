@@ -1814,6 +1814,39 @@
 <context>
     <name>ConstraintPage</name>
     <message>
+        <source>任务完成</source>
+        <translation>任务完成</translation>
+    </message>
+    <message>
+        <source>GR 估算参数（解释不足时使用）</source>
+        <translation>GR 估算参数（解释不足时使用）</translation>
+    </message>
+    <message>
+        <source>砂岩 GR 基线</source>
+        <translation>砂岩 GR 基线</translation>
+    </message>
+    <message>
+        <source>泥岩 GR 基线</source>
+        <translation>泥岩 GR 基线</translation>
+    </message>
+    <message>
+        <source>砂层泥质指标上限</source>
+        <translation>砂层泥质指标上限</translation>
+    </message>
+    <message>
+        <source>允许的最大采样间隔（米）</source>
+        <translation>允许的最大采样间隔（米）</translation>
+    </message>
+    <message>
+        <source>自动（全井 P05 / P95）</source>
+        <translation>自动（全井 P05 / P95）</translation>
+    </message>
+    <message>
+        <source>自动（典型采样间隔的三倍）</source>
+        <translation>自动（典型采样间隔的三倍）</translation>
+    </message>
+
+    <message>
         <location filename="../src/ui/pages/constraintpage.cpp" line="70"/>
         <source>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</source>
         <translation>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</translation>
@@ -3816,6 +3849,23 @@
 </context>
 <context>
     <name>ConstraintWorkflow</name>
+    <message>
+        <source>工区范围不可用：%1</source>
+        <translation>工区范围不可用：%1</translation>
+    </message>
+    <message>
+        <source>工区范围</source>
+        <translation>工区范围</translation>
+    </message>
+    <message>
+        <source>工区范围（井位与地震）</source>
+        <translation>工区范围（井位与地震）</translation>
+    </message>
+    <message>
+        <source> 可计算 %1 井，其中 %2 井有坐标参与成图。</source>
+        <translation> 可计算 %1 井，其中 %2 井有坐标参与成图。</translation>
+    </message>
+
     <message>
         <location filename="../src/workflow/constraintfactorjobs_contours.cpp" line="152"/>
         <location filename="../src/workflow/constraintfactorjobs_contours.cpp" line="357"/>
@@ -8352,6 +8402,8 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
 </context>
 <context>
     <name>DataPreviewTabs</name>
+    <message><source>层位预览（装箱）· %1×%2 · %7 %3–%4 · 有效像元 %5 · 拒绝 %6</source><translation>层位预览（装箱）· %1×%2 · %7 %3–%4 · 有效像元 %5 · 拒绝 %6</translation></message>
+    <message><source>索引已就绪 · 三维预览 / 二维完整分辨率</source><translation>索引已就绪 · 三维预览 / 二维完整分辨率</translation></message>
     <message>
         <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="121"/>
         <source>坐标有效</source>
@@ -14135,6 +14187,19 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>MappingWorkbench</name>
+    <message>
+        <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
+        <translation>预测层段与当前地震层位单元不一致，请重新选择层段</translation>
+    </message>
+    <message>
+        <source>输入缺少可读源文件或测井曲线，请检查数据管理</source>
+        <translation>输入缺少可读源文件或测井曲线，请检查数据管理</translation>
+    </message>
+    <message>
+        <source>所选井均缺少可读源文件或测井曲线</source>
+        <translation>所选井均缺少可读源文件或测井曲线</translation>
+    </message>
+
     <message>
         <location filename="../src/workflow/mappingworkbench.cpp" line="311"/>
         <location filename="../src/workflow/mappingworkbench.cpp" line="789"/>
@@ -28200,6 +28265,58 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <source>未命名层位</source>
+        <translation>未命名层位</translation>
+    </message>
+    <message>
+        <source>索引已就绪 · 三维预览 / 二维完整分辨率</source>
+        <translation>索引已就绪 · 三维预览 / 二维完整分辨率</translation>
+    </message>
+    <message>
+        <source>井点成果坐标系无效</source>
+        <translation>井点成果坐标系无效</translation>
+    </message>
+    <message>
+        <source>无法切换到分页全分辨率层：%1</source>
+        <translation>无法切换到分页全分辨率层：%1</translation>
+    </message>
+    <message>
+        <source>工区范围或坐标系无效</source>
+        <translation>工区范围或坐标系无效</translation>
+    </message>
+    <message>
+        <source>工区范围样式保存失败</source>
+        <translation>工区范围样式保存失败</translation>
+    </message>
+    <message>
+        <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
+        <translation>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</translation>
+    </message>
+    <message>
+        <source>单因素需要 DataService 已声明的工区米制坐标系</source>
+        <translation>单因素需要 DataService 已声明的工区米制坐标系</translation>
+    </message>
+    <message>
+        <source>读取测线振幅</source>
+        <translation>读取测线振幅</translation>
+    </message>
+    <message>
+        <source>振幅已就绪，正在加载地震层位</source>
+        <translation>振幅已就绪，正在加载地震层位</translation>
+    </message>
+    <message>
+        <source>加载地震层位</source>
+        <translation>加载地震层位</translation>
+    </message>
+    <message>
+        <source>地震层位加载已取消</source>
+        <translation>地震层位加载已取消</translation>
+    </message>
+
+    <message><source>快速预览（≤128×128）</source><translation>快速预览（≤128×128）</translation></message>
+    <message><source>完整分辨率</source><translation>完整分辨率</translation></message>
+    <message><source>预览读取均匀抽样的真实振幅；完整分辨率按原始测网逐点读取，可取消。</source><translation>预览读取均匀抽样的真实振幅；完整分辨率按原始测网逐点读取，可取消。</translation></message>
     <message>
         <location filename="../src/io/projectsetupscan.cpp" line="130"/>
         <source>%1：仅识别有界预览样本；完整记录与校验在导入时读取。</source>
@@ -51006,6 +51123,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>seismic::Seismic3DViewPanel</name>
+    <message><source>预览：IL/XL ≤128 道，时间面 ≤64×48；完整分辨率见二维视图</source><translation>预览：IL/XL ≤128 道，时间面 ≤64×48；完整分辨率见二维视图</translation></message>
     <message>
         <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="91"/>
         <source>等轴测</source>
@@ -53050,6 +53168,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>seismic::SeismicTaskService</name>
+    <message>
+        <source>读取水平时间切片</source>
+        <translation>读取水平时间切片</translation>
+    </message>
+
+    <message><source>读取三维层位预览</source><translation>读取三维层位预览</translation></message>
     <message>
         <location filename="../src/services/seismictaskservice_data.cpp" line="21"/>
         <location filename="../src/services/seismictaskservice_data.cpp" line="62"/>

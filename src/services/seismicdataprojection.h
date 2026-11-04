@@ -9,5 +9,5 @@ seismic::SgySliceImage seismicSectionImage(const data::SeismicSectionResult& sec
 bool readSeismicDataSlice(const QString& path,seismic::SgySliceType type,int index,
     seismic::SgySliceImage& image,QString& error,const data::CancelCheck& cancel={},
     const std::function<void(int,int)>& progress={},bool bakeRgba=true,
-    const NativeTimeTileCallback& tileReady={});
+    const NativeTimeTileCallback& tileReady={},int previewAxis=0);
 }

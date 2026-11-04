@@ -15,7 +15,7 @@ seismic::SgySliceImage seismicSectionImage(const data::SeismicSectionResult& sec
 }
 bool readSeismicDataSlice(const QString& path,seismic::SgySliceType type,int index,
     seismic::SgySliceImage& image,QString& error,const data::CancelCheck& cancel,const std::function<void(int,int)>& progress,bool bakeRgba,
-    const NativeTimeTileCallback& tileReady) {
+    const NativeTimeTileCallback& tileReady,int previewAxis) {
  image={};SeismicDataAccess source;if(!source.open(path,&error))return false;std::string detail;
  if(type!=seismic::SgySliceType::Time) {
   data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
@@ -26,6 +26,7 @@ bool readSeismicDataSlice(const QString& path,seismic::SgySliceType type,int ind
  data::SeismicFileInfo info;if(!source.inspect(info,detail,cancel)){error=QString::fromUtf8(detail);return false;}
  if(index<0||index>=info.sampleCount){error=QStringLiteral("时间采样号超出地震体范围");return false;}
  data::TimeSliceReadOptions options;options.fullResolution=true;options.maxValues=64000000;options.workerCount=2;
+ if(previewAxis>0){options.fullResolution=false;options.maxInlineCount=previewAxis;options.maxCrosslineCount=previewAxis;}
  data::SeismicTimeSliceResult slice;
  if(!source.time(info.firstTime+index*info.sampleInterval,options,slice,detail,cancel,
     [&](const data::SeismicTimeSliceTile& tile){

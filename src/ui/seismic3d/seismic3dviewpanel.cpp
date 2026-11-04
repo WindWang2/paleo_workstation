@@ -428,13 +428,6 @@ void Seismic3DViewPanel::refreshVisibleSlices(bool onlyStale) {
     }
 }
 
-void Seismic3DViewPanel::updateQualityLabel(const QString &quality) {
-    const QString text = quality.isEmpty() ? QString() : QStringLiteral("LOD %1").arg(quality);
-    qualityLabel_->setText(text);
-    qualityLabel_->setVisible(!text.isEmpty());
-    emit lodChanged(text);
-}
-
 std::shared_ptr<SgyVolume> Seismic3DViewPanel::volume() const {
     return viewport_->volume();
 }

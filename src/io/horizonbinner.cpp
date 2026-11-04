@@ -414,7 +414,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
       !setIntMetadata("PALEO_COLLISIONS", b.collisions) ||
       !setIntMetadata("PALEO_REJECTED", b.rejected) ||
       !setIntMetadata("PALEO_FILLED_CELLS", b.filledCells) ||
-      GDALSetMetadataItem(ds, "PALEO_CRS_WKT", DataCatalog::localGridCrsWkt().toUtf8().constData(), nullptr) != CE_None ||
+      GDALSetMetadataItem(ds, "PALEO_CRS_WKT", (b.coordinateSystem.isEmpty()?DataCatalog::localGridCrsWkt():b.coordinateSystem).toUtf8().constData(), nullptr) != CE_None ||
       (std::isfinite(b.dtMs) && !setDblMetadata("PALEO_DT_MS", b.dtMs)) ||
       (std::isfinite(b.t0Ms) && !setDblMetadata("PALEO_T0_MS", b.t0Ms)))
   {
@@ -430,7 +430,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   // WKT 并以 LOCAL_CS 落盘；SetFromUserInput 失败时宁可让 GeoTIFF SRS 留空，
   // 也绝不把局部米写成经纬度。
   OGRSpatialReference srs;
-  if (srs.SetFromUserInput(DataCatalog::localGridCrsWkt().toUtf8().constData()) == OGRERR_NONE)
+  if (srs.SetFromUserInput((b.coordinateSystem.isEmpty()?DataCatalog::localGridCrsWkt():b.coordinateSystem).toUtf8().constData()) == OGRERR_NONE)
   {
     char *wkt = nullptr;
     if (srs.exportToWkt(&wkt) == OGRERR_NONE && wkt)

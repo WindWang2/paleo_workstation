@@ -779,7 +779,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto nativeRead=std::make_shared<QPointer<PaleoTask>>();
   auto nativeGeneration=std::make_shared<quint64>(0);
   const QPointer<seismic::SeismicSectionCanvas> nativeCanvas(timeCanvas);
-  const auto requestTimeSlice=[this,abs,sharedPaged,nativeInfo,nativeRead,nativeCanvas,lblTimeMs,pendingIdx,nativeGeneration,modeTabs,timeControls](int index){
+  const auto requestTimeSlice=[this,abs,nativeInfo,nativeRead,nativeCanvas,lblTimeMs,pendingIdx,nativeGeneration,modeTabs,timeControls](int index){
     if(!nativeCanvas||modeTabs->currentIndex()!=2||index<0||index>=nativeInfo->sampleCount)return;
     const auto generation=++(*nativeGeneration);
     if(*nativeRead)(*nativeRead)->requestCancel();
@@ -787,13 +787,12 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     lblTimeMs->setText(QStringLiteral("%1 ms").arg(ms,0,'f',1));
     auto* service=m_doc?m_doc->seismicTaskService():nullptr;
     if(!service){nativeCanvas->setNoDataReason(tr("后台地震服务未连接"));return;}connectTiledTileRoute(service);
-    const int limit=timeControls.resolution->currentData().toInt();const QString pagedPath=limit?QString():*sharedPaged;timeControls.workers->setEnabled(pagedPath.isEmpty());
-    registerTiledTarget(nativeCanvas,pagedPath.isEmpty()?abs:pagedPath,index,generation);nativeCanvas->beginTimeSliceTiled(limit?qMin(limit,nativeInfo->xlineCount):nativeInfo->xlineCount,limit?qMin(limit,nativeInfo->inlineCount):nativeInfo->inlineCount,ms,nativeInfo->inlineMin,nativeInfo->inlineMax,nativeInfo->xlineMin,nativeInfo->xlineMax);
+    const int limit=timeControls.resolution->currentData().toInt();
+    registerTiledTarget(nativeCanvas,abs,index,generation);nativeCanvas->beginTimeSliceTiled(limit?qMin(limit,nativeInfo->xlineCount):nativeInfo->xlineCount,limit?qMin(limit,nativeInfo->inlineCount):nativeInfo->inlineCount,ms,nativeInfo->inlineMin,nativeInfo->inlineMax,nativeInfo->xlineMin,nativeInfo->xlineMax);
     const auto apply=[this,nativeCanvas,nativeInfo,pendingIdx,index,ms,nativeGeneration,generation](bool ok,std::shared_ptr<const seismic::SgySliceImage> image,const QString& error){
       if(!nativeCanvas||*pendingIdx!=index||*nativeGeneration!=generation)return;unregisterTiledTarget(nativeCanvas);
       if(!ok||!image){nativeCanvas->clearData();nativeCanvas->setNoDataReason(QObject::tr("时间切片获取失败\n%1").arg(error));return;}nativeCanvas->finishTimeSliceTiled(*image);};
-    if(!pagedPath.isEmpty())*nativeRead=service->startTimeSliceTiled(pagedPath,index,128,(nativeInfo->inlineMin+nativeInfo->inlineMax)/2,(nativeInfo->xlineMin+nativeInfo->xlineMax)/2,apply,generation);
-    else *nativeRead=service->startDataSlice(abs,seismic::SgySliceType::Time,index,apply,generation,limit,timeControls.workers->currentData().toInt());
+    *nativeRead=service->startDataSlice(abs,seismic::SgySliceType::Time,index,apply,generation,limit,timeControls.workers->currentData().toInt());
   };
   for(auto *choice:{timeControls.resolution,timeControls.workers})connect(choice,&QComboBox::currentIndexChanged,host,[requestTimeSlice,pendingIdx]{requestTimeSlice(*pendingIdx);});
   connect(host,&QObject::destroyed,this,[nativeRead]{if(*nativeRead)(*nativeRead)->requestCancel();});

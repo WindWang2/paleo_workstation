@@ -162,7 +162,7 @@ if(QGIS_PREFIX)
   target_include_directories(paleo_qgis_core_deps INTERFACE "${QGIS_PREFIX}/include")
   # 非 OSGeo4W 布局（本机 vcpkg 依赖根与 QGIS prefix 分离）下这些头在
   # GDAL/GEOS 的 include 根里：qgsstyle.h 直接 #include <sqlite3.h>，任何
-  # 只链 paleo_qgis_iface 的目标（tst_boot / tst_polygonize / selfcheck）
+  # 只链 paleo_qgis_iface 的目标（paleo_selfcheck）
   # 都要跟着拿到，否则编译期报 C1083。
   if(GDAL_INCLUDE_DIR)
     target_include_directories(paleo_qgis_core_deps INTERFACE "${GDAL_INCLUDE_DIR}")
@@ -179,7 +179,7 @@ endif()
 # QGIS 公有头直接 include <sqlite3.h>（qgsstyle.h:19）与 GDAL/GEOS 头，但
 # 「OSGeo4W 把它们放在 prefix include」这一假设在本机不成立——依赖闭包是
 # vcpkg 装的，根在 paleo-qgis-deps/Library/include。只链 paleo_qgis_iface 的
-# 目标（tst_boot / tst_polygonize / paleo_selfcheck）因此拿不到该头。
+# 目标（paleo_selfcheck）因此拿不到该头。
 # 传播已找到的依赖根，与 paleo_deps 的口径对齐。
 if(GDAL_INCLUDE_DIR)
   target_include_directories(paleo_qgis_core_deps INTERFACE "${GDAL_INCLUDE_DIR}")

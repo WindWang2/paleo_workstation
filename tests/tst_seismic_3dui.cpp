@@ -17,6 +17,9 @@
 #include <QSignalSpy>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QComboBox>
+#include <QHBoxLayout>
+#include "ui/datapreview/timeslicereadcontrols.h"
 
 #include <cmath>
 #include <cstring>
@@ -138,6 +141,21 @@ class TestSeismic3DUi : public QObject
   QTemporaryDir m_settingsDir; // initTestCase 前构造：settings 沙箱路径
 
 private slots:
+  void timeSliceWorkerControlPersistsSupportedChoices() {
+    QTemporaryDir temp;QSettings settings(temp.filePath("preferences.ini"),QSettings::IniFormat);
+    QWidget first;QHBoxLayout layout(&first);
+    const auto controls=paleo::ui::makeTimeSliceReadControls(&first,&layout,&settings);
+    QCOMPARE(controls.workers->currentData().toInt(),4);QCOMPARE(controls.workers->count(),3);
+    for(int workers:{1,2,4}) {
+      controls.workers->setCurrentIndex(controls.workers->findData(workers));
+      QCOMPARE(settings.value("seismic/timeSliceWorkers").toInt(),workers);
+      QWidget reopened;QHBoxLayout next(&reopened);
+      QCOMPARE(paleo::ui::makeTimeSliceReadControls(&reopened,&next,&settings).workers->currentData().toInt(),workers);
+    }
+    settings.setValue("seismic/timeSliceWorkers",3);
+    QWidget invalid;QHBoxLayout fallback(&invalid);
+    QCOMPARE(paleo::ui::makeTimeSliceReadControls(&invalid,&fallback,&settings).workers->currentData().toInt(),4);
+  }
   void indexedPromotionKeepsCameraAndSelection()
   {
     QTemporaryDir dir;const auto file=dir.filePath("promote.sgy");QVERIFY(writeTestSegy(file,4,8,32));

@@ -137,8 +137,11 @@ PaleoTask *SeismicTaskService::startDataInfo(const QString& path,std::function<v
  return task;
 }
 PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType type,int index,
-    std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,quint64 tileGeneration,int previewAxis) {
+    std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,quint64 tileGeneration,int previewAxis,int workerCount) {
  if(!taskService_){if(done)done(false,nullptr,tr("后台地震服务未连接"));return nullptr;}
+ if(type==SgySliceType::Time&&workerCount!=1&&workerCount!=2&&workerCount!=4){
+  QTimer::singleShot(0,this,[done]{if(done)done(false,nullptr,tr("时间切片读取线程数须为 1、2 或 4"));});return nullptr;
+ }
  const auto key=nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);
  if(const auto hit=dataCache_.Find(key)){
   QTimer::singleShot(0,this,[this,path,type,index,key,hit,done,previewAxis]{
@@ -147,7 +150,7 @@ PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType t
   });return nullptr;
  }
  auto out=std::make_shared<SgySliceImage>();const QPointer<SeismicTaskService> self(this);
- auto *task=startBounded(type==SgySliceType::Time?tr("读取水平时间切片"):tr("读取地震剖面"),[path,type,index,out,self,tileGeneration,previewAxis](PaleoTask *task)->QString {
+ auto *task=startBounded(type==SgySliceType::Time?tr("读取水平时间切片（%1 线程）").arg(workerCount):tr("读取地震剖面"),[path,type,index,out,self,tileGeneration,previewAxis,workerCount](PaleoTask *task)->QString {
   paleo::NativeTimeTileCallback publish;
   if(type==SgySliceType::Time)publish=[self,path,index,tileGeneration,task](std::shared_ptr<const SgySliceImage> tile,int x,int y,int completed,int total){
    if(task->cancelRequested()||!self)return;
@@ -156,7 +159,7 @@ PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType t
    QMetaObject::invokeMethod(self.data(),[self,payload]{if(self)emit self->timeSliceTileReady(payload);},Qt::QueuedConnection);
   };
   QString error;if(!paleo::readSeismicDataSlice(path,type,index,*out,error,[task]{return task->cancelRequested();},
-      [task](int done,int total){task->reportBytes(done,total);},type!=SgySliceType::Time,std::move(publish),previewAxis))return error;return {};
+      [task](int done,int total){task->reportBytes(done,total);},type!=SgySliceType::Time,std::move(publish),previewAxis,workerCount))return error;return {};
  },{},true);
  connect(task,&PaleoTask::finished,this,[this,task,out,done,path,type,index,key,previewAxis]{
   const bool changed=key!=nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);

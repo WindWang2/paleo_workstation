@@ -36323,6 +36323,34 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>测斜方位未声明为网格北，不能直接投射到地震坐标</source>
         <translation>测斜方位未声明为网格北，不能直接投射到地震坐标</translation>
     </message>
+    <message>
+        <source>轨迹缺少米或英尺平面坐标，未叠加井轨迹</source>
+        <translation>轨迹缺少米或英尺平面坐标，未叠加井轨迹</translation>
+    </message>
+    <message>
+        <source>时深轨迹 · %1 点</source>
+        <translation>时深轨迹 · %1 点</translation>
+    </message>
+    <message>
+        <source>缺少轨迹坐标或真实测斜，未叠加井身</source>
+        <translation>缺少轨迹坐标或真实测斜，未叠加井身</translation>
+    </message>
+    <message>
+        <source>本井有多份测斜资料，请明确采用的 Survey 表</source>
+        <translation>本井有多份测斜资料，请明确采用的 Survey 表</translation>
+    </message>
+    <message>
+        <source>测斜 MD 缺少米或英尺单位</source>
+        <translation>测斜 MD 缺少米或英尺单位</translation>
+    </message>
+    <message>
+        <source>读取：%1 线程</source>
+        <translation>读取：%1 线程</translation>
+    </message>
+    <message>
+        <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
+        <translation>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -38205,6 +38233,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>无时深资料；不叠加井道</source>
         <translation>无时深资料；不叠加井道</translation>
+    </message>
+    <message>
+        <source>时深表：MD → TWT</source>
+        <translation>时深表：MD → TWT</translation>
     </message>
 </context>
 <context>
@@ -53439,6 +53471,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/services/seismictaskservice_viz.cpp" line="449"/>
         <source>后端探测已取消</source>
         <translation>后端探测已取消</translation>
+    </message>
+    <message>
+        <source>时间切片读取线程数须为 1、2 或 4</source>
+        <translation>时间切片读取线程数须为 1、2 或 4</translation>
+    </message>
+    <message>
+        <source>读取水平时间切片（%1 线程）</source>
+        <translation>读取水平时间切片（%1 线程）</translation>
     </message>
 </context>
 <context>

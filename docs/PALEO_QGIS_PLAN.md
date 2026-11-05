@@ -12,6 +12,8 @@
 [文件到模型接口](architecture/FILE_MODEL_IO_CONTRACTS.md)与
 [迁移验收](architecture/MODEL_MIGRATION_AND_VALIDATION.md)。这是分批实施的目标设计，
 不将拟议接口视作已完成，也不改变 QGIS/Paleo 的职责裁决。
+算法与全部业务能力的原子化方向见[能力与 Agent 契约](architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)：
+沿用现有算法/任务基础，UI、批处理和 Agent 共用文档查询/命令，不绕开模型状态和提交边界。
 
 2026-10-29 井道图补充：当前工区 RAW 测井预览按模型来源与井 ID 读取跨文件资料，
 井口坐标、井源 CRS／单位与工程目标 CRS／单位均由 Data_service 提供。原始数值

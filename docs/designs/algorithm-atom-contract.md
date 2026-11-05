@@ -1,5 +1,10 @@
 # 算法原子契约（Algorithm Atom Contract）
 
+2026-11-06 配套目标设计：[原子能力、算法组合与 Agent](../architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)。
+扩展现有 Spec/Adapter/JobRunner，与统一文档模型的版本引用、状态、预算、多输出和持久
+提交配套。下文保留已交付实现记录；路径输入可留内部兼容 adapter，新增公开入口使用
+文档引用。新能力未实施，不由下文 P0–P4 完成状态推定为已支持 Agent 或多输出原子发布。
+
 > 状态：P0 12/12 Spec + P1 发布收口 + **P2 Adapter 扩展（Processing 多路径 + Native OK）** + P4 Spec 起步 + P3 ANISO  
 > 日期：2026-10-20（Asia/Shanghai）  
 > 切片：`algo-atom-p0-spec-constraint-idw`  

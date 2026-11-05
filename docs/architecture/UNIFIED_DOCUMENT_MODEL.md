@@ -6,6 +6,7 @@ Data_service `f892ed1`。本轮交付设计与验收契约，不表示下文拟�
 
 配套：[文件到模型的接口契约](FILE_MODEL_IO_CONTRACTS.md)、
 [迁移与验收](MODEL_MIGRATION_AND_VALIDATION.md)、
+[原子能力与 Agent](ATOMIC_CAPABILITIES_AND_AGENT.md)、
 [实数据与源码依据](../progress/data-model-redesign-20261106.md)。
 
 ## 1. 结论与适用范围
@@ -310,6 +311,10 @@ documentId、expectedControlRevision/对象 heads 及预算/取消。小型控�
 订阅事件携带文档修订、受影响键/facet 和水位；事件队列有上限。断线、溢出或检测到缺口
 返回 ResyncRequired，按有界查询重建当前投影；不无限积压每行信号，也不丢事件后继续
 声称状态最新。视图提交相同 operationId 的重试遵循幂等契约，不能重复导入或重复生成成果。
+
+UI、批处理和 Agent 共用这组查询/命令。算法与业务能力通过版本化描述解析文档引用、
+冻结真实输入并执行；多个必需输出以 OutputSetManifest 成组发布。聊天调用编号与持久
+operationId 分开，关闭会话不抹掉已提交操作。详见[原子能力契约](ATOMIC_CAPABILITIES_AND_AGENT.md)。
 
 ## 9. 扩展和取舍
 

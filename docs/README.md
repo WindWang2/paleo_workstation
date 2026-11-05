@@ -29,6 +29,7 @@
 - [文档关系与对象修订（第二阶段）](progress/document-contexts-20261105.md)
 - [统一文档与数据模型重设计](architecture/UNIFIED_DOCUMENT_MODEL.md)
 - [文件到模型的高性能接口契约](architecture/FILE_MODEL_IO_CONTRACTS.md)
+- [原子能力、算法组合与 Agent 调用](architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)
 - [模型迁移与验收计划](architecture/MODEL_MIGRATION_AND_VALIDATION.md)
 - [本轮数据与源码设计依据](progress/data-model-redesign-20261106.md)
 - [测井资料导入](import-well-logs.md)

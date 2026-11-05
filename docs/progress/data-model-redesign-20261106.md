@@ -107,6 +107,8 @@ VM 统计与时间测试分开，避免 progress handler 干扰计时。临时�
 ## 6. 本轮范围
 
 形成三个互相引用的设计文档，并接入架构入口、数据迁移文档、文档索引与 TODOS。
+随后按用户要求补充[原子能力与 Agent 契约](../architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)，
+与已有算法原子契约回链，扩展内容见 §8。
 源码与数据格式没有变化；预算/时延是待验证目标。既有 32 项回归属于已合并批次，
 不能用来声称新架构已通过性能验收。
 
@@ -120,7 +122,7 @@ VM 统计与时间测试分开，避免 progress handler 干扰计时。临时�
 元数据 image/tombstone，不能等 M4 数值历史，也不能把后一次更新冒充前一批投影。
 累计读写预算与瞬时驻留额度分开，共享块只计一次，并受统一总额度约束。
 
-本轮已执行的独立设计检查：
+模型初稿已执行的独立设计检查：
 
 - 2,051 个原始文件的相对路径、尺寸和纳秒修改时间与分析前清单完全一致；没有做全量内容哈希。
 - 33 处本地文档/代码链接可解析，代码围栏闭合；两个真实 SF3P 页数/目录/bitmap 公式一致。
@@ -129,3 +131,29 @@ VM 统计与时间测试分开，避免 progress handler 干扰计时。临时�
 - 百万行分页实验见上节；未运行应用 C++ 构建或新架构性能测试，因为本批只改设计文档。
 
 合入前 Source gates 结果随 PR 记录；检查脚本和完整输出保留在私有分析目录。
+
+## 8. 算法/功能原子化的配套审查
+
+复用三路只读复核，分别覆盖能力注册/操作恢复、地质算子/语义、地震执行粒度/共享读取。
+本次补充未重新读取 HY 原件载荷；下面的尺寸推导使用已有头部 shape，不是运行时测量。
+
+| 当前事实 | 依据 | 目标契约 |
+|---|---|---|
+| 已有算法端口/参数/engine 表与 Native/Processing adapter | [AlgorithmSpec](../../src/services/algorithmspec.h)、[既有交付记录](../designs/algorithm-atom-contract.md) | 在现有 Spec 上扩展；CapabilitySpec 引用算法或领域查询/命令，不复制参数和运行时 |
+| 通用 publishArtifacts 只择主 OUTPUT/首个路径；部分业务另有自己的多产物处理 | [发布助手](../../src/workflow/algorithmpublish.cpp)、[AI 辅助工作流](../../src/workflow/aiassistworkflow.cpp) | 必需端口完整的 OutputSetManifest、提交凭据与可恢复成组可见性，不能将当前助手名当作多输出事务 |
+| tile 工具 schema 声明 argmax/confidence 数组，runner 实际回 lastProductStats 摘要 | [工具描述](../../src/ai/chat/domaintools.cpp)、[执行器](../../src/workflow/aichattoolrunner.cpp) | 同源生成 schema，校验真实结果；公开面返回摘要/引用 |
+| runner 用 FIFO 防共享最后结果串台；取消增加世代并丢回调 | [执行契约](../../src/workflow/aichattoolrunner.h) | 每 operation 独立输出后才开放并行；聊天编号与持久操作/提交事实分开 |
+| 查询结果 cap 不阻止此前全量枚举/排序；未知算法 ID 有兼容回退 | [查询执行](../../src/workflow/aichattoolrunner.cpp)、[算法 adapter](../../src/workflow/algorithmadapters.cpp) | 文档分页查询；只开放有完整合同/adapter 的能力，兼容回退不自动成为工具 |
+| JobRunner 先结束 worker 再执行 owner commit | [调度合同](../../src/services/jobrunner.h) | compute 完成不等于已提交；记录执行、提交与投影状态 |
+| DepthConversion buildModel 接收路径并解析；部分输入策略仍为旧上下文 | [时深工作流](../../src/workflow/depthconversionworkflow.h) | 在领域计划器固定值/语义/变换后进入数值核，路径解析留兼容 adapter |
+| 层段特征有固定抽样/输出格网策略 | [层段特征输入](../../src/services/seismicunitinput.cpp) | 质量模式与实际分辨率显式化；时间域计算不强加无关 TD |
+| 属性块的 8/32 MiB 是目标，blockIl 最少为 1 | [地震属性作业](../../src/services/seismictaskservice_attr.cpp) | 沿真实可分解维度继续切批，或明确拒绝超预算；最小工作集也纳入硬额度 |
+| 解析信号通过完整输入道的频域运算生成 | [属性数值核](../../src/algorithms/seismicattr.cpp) | WholeTrace 与有限 halo 区分，串联支持域正确合成，融合保持数值/缺测语义 |
+
+HY 单 inline 的 float32 大小为 `3241×4096×4 = 53,100,544B`，约 50.64 MiB。
+因此 8/32 MiB 的目标块不能靠“至少一线”保证硬上限；这还没有计入 halo、FFT scratch、
+输出与共享缓存。新契约要求按最小可运行工作集准入，不能以增加工具/线程数掩盖此成本。
+
+原子化分为计算内核、业务能力、持久提交三个边界；A0–A4 配合原模型 M0–M5 逐步落地。
+每个业务入口必须登记为可调用或有明确理由的 legacy/internal/unavailable，不能把
+“有工具名称”当成功能完成。本轮没有新增生产接口，也没有宣称所有算法已接入 Agent。

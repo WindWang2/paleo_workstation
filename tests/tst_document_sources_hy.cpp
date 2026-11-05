@@ -2,6 +2,8 @@
 #include "fixtures/documentsourcefixture.h"
 #include "io/sourcefingerprint.h"
 #include "services/documentsourceprobe.h"
+#include "services/documentrelationresolver.h"
+#include <paleo_data/object_descriptor.h>
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QRegularExpression>
@@ -50,6 +52,56 @@ private slots:
             QCOMPARE(std::count_if(bindings.begin(),bindings.end(),[](const auto &value){return value.primary;}),1);
         }
         QVERIFY(multiple>0);qInfo("HY checkshot sources=%lld, wells with multiple sources=%d",qint64(sources.size()),multiple);
+    }
+    void typedRelationsKeepActualObjectsIndependentByPurpose() {
+        Fixture f;QVERIFY(f.init());const auto paths=files(QStringLiteral("时深转换"));QVERIFY(paths.size()>=2);
+        for(const auto &path:paths)QVERIFY2(f.importModel(path),qPrintable(f.error));QVERIFY(f.bind());
+        const auto records=f.session.sources();paleo::data::DataService service;std::string error;
+        QVERIFY(service.openProjectReadOnly(paleo::area_model::directory(f.project).toStdString(),error));
+        const auto invoke=[&](SourceCommand command) {
+            QSignalSpy finished(&f.session,&DocumentSession::commandFinished);auto result=f.session.execute(command);
+            if(result.pending) {
+                if(finished.isEmpty())finished.wait(10000);
+                if(finished.isEmpty()){result.ok=false;result.error="HY typed relation timed out";return result;}
+                result=qvariant_cast<SourceCommandResult>(finished.front().front());
+            }
+            return result;
+        };
+        bool verified=false;
+        for(const auto &projected:f.catalog.entities("well")) {
+            const auto well=f.catalog.storedEntityById(projected.id);const auto modelWell=well.extra.value("areaModelWellId").toLongLong();
+            if(modelWell<=0)continue;
+            std::vector<paleo::data::DataEntry> entries;QVERIFY(service.listData("time_depth",modelWell,entries,error));
+            if(entries.size()<2)continue;
+            const auto second=std::find_if(entries.begin()+1,entries.end(),[&](const auto &entry){return entry.sourceId!=entries.front().sourceId;});
+            if(second==entries.end())continue;
+            QVector<RelationUseSpec> uses;QVector<ModelObjectRef> objects;
+            for(const auto &entry:{entries.front(),*second}) {
+                const auto record=std::find_if(records.begin(),records.end(),[&](const auto &value){return value.ref.sourceId==entry.sourceId;});
+                QVERIFY(record!=records.end());paleo::data::DataObjectDescriptor descriptor;
+                QVERIFY(service.describeDataObject(paleo::data::DataObjectKind::TimeDepth,entry.id,descriptor,error));QVERIFY(descriptor.revisionKnown);
+                RelationUseSpec use;use.context.documentId=f.session.documentId();use.context.modelStoreId=record->ref.modelStoreId;
+                use.context.purpose=uses.isEmpty()?RelationPurpose::Correlation:RelationPurpose::WellTie;
+                use.wellEntityId=well.id;use.modelWellId=modelWell;
+                ModelObjectRef object{record->ref,ObjectKind::TimeDepth,entry.id,QString::fromStdString(descriptor.revision)};
+                SourceBinding binding;binding.id="hy-typed-"+QString::number(entry.id);QVERIFY(setRelationBinding(binding,use,object,&f.error));
+                auto command=f.session.command(SourceCommand::Kind::RegisterBinding);command.binding=binding;
+                auto result=invoke(command);QVERIFY2(result.ok,qPrintable(result.error));
+                for(const auto kind:{SourceCommand::Kind::ConfirmBinding,SourceCommand::Kind::SelectPrimary}) {
+                    command=f.session.command(kind);command.bindingId=binding.id;result=invoke(command);QVERIFY2(result.ok,qPrintable(result.error));
+                }
+                uses.append(use);objects.append(object);
+            }
+            for(int i=0;i<uses.size();++i) {
+                const auto view=f.session.relationView(uses[i]);QVERIFY(view.selected);QCOMPARE(view.selectedObject,objects[i]);
+                QString detail;const auto request=f.session.relationRequest(uses[i],&detail);QVERIFY2(detail.isEmpty(),qPrintable(detail));
+                const auto resolved=resolveDocumentRelation(request);QVERIFY2(resolved.ok,qPrintable(resolved.error));QCOMPARE(resolved.object,objects[i]);
+            }
+            QVERIFY(objects[0].source!=objects[1].source);QVERIFY(objects[0].id!=objects[1].id);
+            qInfo("HY typed uses isolated by actual objects=%lld/%lld, sources=%lld/%lld",objects[0].id,objects[1].id,objects[0].source.sourceId,objects[1].source.sourceId);
+            verified=true;break;
+        }
+        QVERIFY(verified);
     }
     void worksheetIdentityConflictRemainsUnconfirmed() {
         const QRegularExpression namePattern(QStringLiteral("(?:HZ|XJ)[0-9]+-[0-9]+-[A-Za-z0-9]+"));

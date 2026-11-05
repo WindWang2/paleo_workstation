@@ -18,6 +18,7 @@ add_library(paleo_workflow STATIC
   src/workflow/documentsession_bindings.cpp
   src/workflow/documentsession_jobs.cpp
   src/workflow/documentsession_relocation.cpp
+  src/workflow/documentsession_relations.cpp
   src/workflow/paleomapimport.cpp
   src/workflow/paleomaplibrary.cpp
   src/workflow/projectareasummary.cpp

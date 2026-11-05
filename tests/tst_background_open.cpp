@@ -18,6 +18,9 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/workflow/projectlayerrefresh.h"
+#include "../src/workflow/analysisresultsync.h"
+#include "../src/services/stratigraphicsubintervals.h"
+#include <paleo_data/service.h>
 #include "../src/workflow/sectionworkbench.h"
 #include "../src/io/perffixtures.h"
 #include "../src/workflow/xmlpreviewsession.h"
@@ -160,6 +163,61 @@ private slots:
     QVERIFY2(live.addEntity(entity, &error), qPrintable(error));
     DataCatalog reopened; QVERIFY(reopened.open(directory.path())); QCOMPARE(reopened.entities("well").size(), 2);
     QVERIFY(!live.adoptPrepared(prepared, &error)); // snapshots are consumed once
+  }
+  void layerRefreshCommitsStaleJournalAndRetriesAfterCatalogFailure() {
+    QTemporaryDir directory;DataCatalog catalog;QString error;
+    QVERIFY(catalog.open(directory.path(),&error));
+    paleo::data::DataService service;std::string detail;
+    QVERIFY(service.createProject((directory.path()+"/artifacts/metadata/area-model").toStdString(),"refresh",detail));
+    auto draft=paleo::strat::draftScheme("refresh","refresh",{"A","B"},{});
+    paleo::data::StratigraphicScheme old,next;std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(service.commitStratigraphicScheme(draft,{},old,issues,detail));
+    const auto unit=paleo::strat::makeSelection(old,paleo::strat::selectorOptions(old).first().intervalId,2);
+    CatalogAsset asset;asset.id="factor";asset.type="single_factor";QVERIFY(catalog.addAsset(asset));
+    CatalogVersion version;version.id="factor-v1";version.assetId=asset.id;version.stage="DERIVED";
+    version.extra.insert("unitSelection",paleo::strat::toMap(unit));QVERIFY(catalog.addVersion(version));
+    QCOMPARE(syncAnalysisResults(&catalog,directory.path()),QString());
+    auto edited=old;edited.divisions.front().fractions={.2,.4,.75};
+    QVERIFY(service.commitStratigraphicScheme(edited,old.revision.value,next,issues,detail));
+    ProjectLayerRefreshWorkflow refresh;QSignalSpy ready(&refresh,&ProjectLayerRefreshWorkflow::prepared);
+    const auto violations=DataCatalog::threadViolationCount();
+    catalog.debugAbortJournalAfter(1);refresh.request(&catalog,directory.path());
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(),1,30000);
+    QVERIFY(!catalog.versionById(version.id).extra.value("stale").toBool());
+    QVERIFY(!qvariant_cast<ProjectLayerData>(ready.first().at(2)).warnings.isEmpty());
+    catalog.debugAbortJournalAfter(0);ready.clear();refresh.request(&catalog,directory.path());
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(),1,30000);
+    QVERIFY(catalog.versionById(version.id).extra.value("stale").toBool());
+    QCOMPARE(ready.first().at(1).toULongLong(),catalog.mutationSeq());
+    QCOMPARE(DataCatalog::threadViolationCount(),violations);
+    DataCatalog reopened;QVERIFY(reopened.open(directory.path(),&error));
+    QVERIFY(reopened.versionById(version.id).extra.value("stale").toBool());
+    QCOMPARE(reopened.versionById(version.id).extra.value("unitSelection").toMap(),paleo::strat::toMap(unit));
+  }
+  void newSdkRevisionCannotReuseFinishedRefreshWithSameCatalogSequence() {
+    QTemporaryDir directory;DataCatalog catalog;QVERIFY(catalog.open(directory.path()));
+    paleo::data::DataService service;std::string error;
+    QVERIFY(service.createProject((directory.path()+"/artifacts/metadata/area-model").toStdString(),"refresh",error));
+    auto draft=paleo::strat::draftScheme("generation","generation",{"A","B"},{});
+    paleo::data::StratigraphicScheme old,next;std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(service.commitStratigraphicScheme(draft,{},old,issues,error));
+    const auto unit=paleo::strat::makeSelection(old,paleo::strat::selectorOptions(old).first().intervalId,2);
+    CatalogAsset asset;asset.id="factor";asset.type="single_factor";QVERIFY(catalog.addAsset(asset));
+    CatalogVersion version;version.id="factor-v1";version.assetId=asset.id;version.stage="DERIVED";
+    version.extra.insert("unitSelection",paleo::strat::toMap(unit));QVERIFY(catalog.addVersion(version));
+    QCOMPARE(syncAnalysisResults(&catalog,directory.path()),QString());
+    ProjectLayerRefreshWorkflow refresh;QSignalSpy ready(&refresh,&ProjectLayerRefreshWorkflow::prepared);
+    refresh.request(&catalog,directory.path());
+    auto *watcher=refresh.findChild<QFutureWatcherBase *>("projectLayerRefreshWatcher");QVERIFY(watcher);
+    // Finish the worker without dispatching its queued owner-thread callback.
+    QElapsedTimer timer;timer.start();
+    while(!watcher->isFinished() && timer.elapsed()<30000)QThread::msleep(1);
+    QVERIFY(watcher->isFinished());QCOMPARE(ready.count(),0);
+    const auto sequence=catalog.mutationSeq();auto changed=old;changed.divisions.front().fractions={.2,.4,.75};
+    QVERIFY(service.commitStratigraphicScheme(changed,old.revision.value,next,issues,error));
+    QCOMPARE(catalog.mutationSeq(),sequence);refresh.request(&catalog,directory.path());
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(),1,30000);
+    QVERIFY(catalog.versionById(version.id).extra.value("stale").toBool());
   }
   void cancelBetweenGuiHandoffPhasesDropsLateAssembly() {
     QTemporaryDir directory;

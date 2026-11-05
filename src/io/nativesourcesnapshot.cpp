@@ -77,7 +77,7 @@ std::shared_ptr<NativeSourceSnapshot> NativeSourceSnapshot::prepare(const Native
     result->m_stage=std::make_unique<QTemporaryDir>(QDir(parent).filePath(".stage-XXXXXX"));
     if(!result->m_stage->isValid())return fail(QStringLiteral("无法创建原生模型暂存目录"));
     result->m_database=QDir(result->m_stage->path()).filePath("data.sqlite");
-    if(!reader.snapshotDatabase(result->m_database.toUtf8().toStdString(),detail))return fail(QString::fromUtf8(detail));
+    if(!reader.snapshotDatabaseCancellable(result->m_database.toUtf8().toStdString(),detail,cancelled))return fail(QString::fromUtf8(detail));
     if(stamp!=sourceFileStamp(database))return fail(QStringLiteral("原生模型在准备快照时发生变化"));
     reader.closeProject();
     if(cancelled && cancelled())return fail(QStringLiteral("已取消"));

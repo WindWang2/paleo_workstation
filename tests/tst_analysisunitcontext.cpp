@@ -48,6 +48,24 @@ class AnalysisUnitContextTest:public QObject {
   UnitSelection unit(int index=1)const{return makeSelection(scheme,selectorOptions(scheme).first().intervalId,index);}
  };
 private slots:
+ void geometryGuardsTrackOnlyConsumedWellOrSeismicSurface(){
+  Fixture f;QVERIFY(f.init(true));const auto original=f.unit(2);std::string error;
+  auto edited=f.scheme;
+  for(auto &occurrence:edited.wellOccurrences)if(occurrence.wellId!=17){occurrence.top+=10;occurrence.bottom+=10;}
+  paleo::data::StratigraphicScheme shifted;std::vector<paleo::data::FrameworkIssue> issues;
+  QVERIFY2(f.ds.commitStratigraphicScheme(edited,f.scheme.revision.value,shifted,issues,error),error.c_str());
+  QVERIFY(!analysisUnitGeometryCurrent(f.project,original));
+  QVERIFY(analysisUnitGeometryCurrentFor(f.project,original,AnalysisGeometryDependency::WellRange,17));
+  QVERIFY(analysisUnitGeometryCurrentFor(f.project,original,AnalysisGeometryDependency::SeismicSurface));
+  QVERIFY(!analysisUnitGeometryCurrentFor(f.project,original,AnalysisGeometryDependency::WellRange,0));
+  const auto frozen=makeSelection(shifted,selectorOptions(shifted).first().intervalId,2);
+  edited=shifted;
+  std::swap(edited.boundaries[0].seismicHorizonResourceId,edited.boundaries[1].seismicHorizonResourceId);
+  paleo::data::StratigraphicScheme rebound;
+  QVERIFY2(f.ds.commitStratigraphicScheme(edited,shifted.revision.value,rebound,issues,error),error.c_str());
+  QVERIFY(!analysisUnitGeometryCurrentFor(f.project,frozen,AnalysisGeometryDependency::SeismicSurface));
+  QVERIFY(analysisUnitGeometryCurrentFor(f.project,frozen,AnalysisGeometryDependency::WellRange,17));
+ }
  void scopeDataClipsBeforeValidationAndDoesNotInventSamples(){
   Fixture f;QVERIFY(f.init());WellComposite::ComprehensiveWellData data;
   WellComposite::CurveData curve;curve.name="GR";curve.depths={990,1000,1010,1020,1030,NAN};curve.values={NAN,1,2,3,NAN,5};

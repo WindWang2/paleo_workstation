@@ -81,7 +81,7 @@ struct SourceChangeSet {
     QStringList bindingIds, sourceKeys;
 };
 struct SourceCommand {
-    enum class Kind { RegisterBinding, ConfirmBinding, SelectPrimary, RemoveBinding, Inspect, Relocate };
+    enum class Kind { RegisterBinding, ConfirmBinding, SelectPrimary, RemoveBinding, Inspect, Relocate, ResolveRelation, UpgradeModelMetadata };
     Kind kind = Kind::Inspect;
     quint64 expectedEpoch = 0, expectedRevision = 0;
     SourceBinding binding;
@@ -94,6 +94,7 @@ struct SourceCommandResult {
     bool ok = false, pending = false;
     quint64 revision = 0;
     SourceState state;
+    QVariantMap details;
 };
 QJsonObject sourceRefJson(const SourceRef &ref);
 bool sourceRefFromJson(const QJsonObject &json, SourceRef &ref);

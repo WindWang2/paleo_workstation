@@ -146,7 +146,8 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error, WellComposite::Comprehe
 
 QString WellFaciesWorkflow::publishUnitResult(const WellFaciesResult &result) {
   if (!m_hasAnalysisContext) return {};
-  const bool geometryStale=!paleo::strat::analysisUnitGeometryCurrent(projectDir(),m_analysisUnit);
+  const bool geometryStale=!paleo::strat::analysisUnitGeometryCurrentFor(projectDir(),m_analysisUnit,
+      paleo::strat::AnalysisGeometryDependency::WellRange,m_analysisWellId);
   DerivedAssetRegistrar registrar(m_catalog, projectDir());
   QString error;
   const auto stage = registrar.stage("well_facies_prediction",

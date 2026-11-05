@@ -11,8 +11,16 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSignalBlocker>
 #include <QTemporaryDir>
 #include <QtConcurrent>
+
+namespace {
+struct PreparedRefresh {
+  ProjectLayerData data;
+  QVector<CatalogOp> journal;
+};
+}
 
 ProjectLayerRefreshWorkflow::ProjectLayerRefreshWorkflow(QObject *parent) : QObject(parent) {}
 ProjectLayerData ProjectLayerRefreshWorkflow::prepare(DataCatalog &snapshot, const QString &directory,
@@ -62,45 +70,52 @@ void ProjectLayerRefreshWorkflow::request(DataCatalog *catalog, const QString &d
   m_stop = std::make_shared<std::atomic_bool>(false);
   const auto stop = m_stop;
   const auto boundaries = mappingHorizons();
-  auto *watcher = new QFutureWatcher<ProjectLayerData>(this);
+  const QPointer<DataCatalog> target=catalog;
+  auto *watcher = new QFutureWatcher<PreparedRefresh>(this);
   watcher->setObjectName("projectLayerRefreshWatcher");
   connect(watcher, &QFutureWatcherBase::finished, this,
-          [this, watcher, generation, sequence, directory] {
-            const bool cancelled = watcher->future().isCanceled();
-            const auto data = !cancelled && watcher->future().resultCount()
+          [this, watcher, generation, sequence, directory, target, stop] {
+            const bool cancelled = watcher->future().isCanceled() || stop->load();
+            auto result = !cancelled && watcher->future().resultCount()
                                   ? watcher->result()
-                                  : ProjectLayerData{};
+                                  : PreparedRefresh{};
             watcher->deleteLater();
-            m_running = false;
-            if (!cancelled && generation == m_generation && m_catalog &&
-                sequence == m_catalog->mutationSeq())
-              emit prepared(directory, sequence, data);
-            else if (!cancelled && generation == m_generation && m_catalog)
-              m_pending = true; // changed() 取序号早于 recordOp，不发布旧快照
-            if (m_pending)
-            {
-              // #415：并入的请求拿到的仍是当前目录最新快照（同目录、序号未变）
-              // ——直接交付在飞结果，不再整轮 staging 拷贝 + 重解析。
-              if (!cancelled && m_catalog && m_catalog->isOpen() &&
-                  directory == m_directory && sequence == m_catalog->mutationSeq())
-              {
-                m_pending = false;
-                emit prepared(directory, sequence, data);
+            const bool current=!cancelled && target && target==m_catalog && target->isOpen() &&
+              directory==m_directory && sequence==target->mutationSeq() &&
+              generation==m_generation;
+            if(current) {
+              bool changed=false;
+              if(!result.journal.isEmpty()) {
+                QString error;
+                const QSignalBlocker block(target);
+                if(!target->applyJournal(result.journal,&error))result.data.warnings<<error;
+                else changed=true;
               }
-              else
-                request(m_catalog, m_directory);
+              // Catalog status changes are committed before consumers see the
+              // projection. Block reentrant refreshes until the entire journal lands.
+              const auto publishedSequence=target->mutationSeq();
+              m_running=false;m_pending=false;
+              emit prepared(directory,publishedSequence,result.data);
+              if(changed)QMetaObject::invokeMethod(target,"changed",Qt::QueuedConnection);
+            } else {
+              m_running=false;
+              // changed() can arrive before recordOp advances the sequence.
+              // A rejected/cancelled result never publishes its old journal.
+              if(m_catalog && (m_pending || (!cancelled && generation==m_generation)))
+                request(m_catalog,m_directory);
             }
           });
   const auto future = QtConcurrent::run(
       paleo::tasks::pool(m_tasks), [snapshot, directory, stop, boundaries] {
-        auto data = prepare(*snapshot, directory, stop);
+        PreparedRefresh result;result.data = prepare(*snapshot, directory, stop);
         if (!stop->load()) {
           const auto frameworkError = ensureProjectAnalysisScheme(snapshot.get(), directory, boundaries);
-          if (!frameworkError.isEmpty()) data.warnings << frameworkError;
+          if (!frameworkError.isEmpty()) result.data.warnings << frameworkError;
           const auto error = syncAnalysisResults(snapshot.get(), directory, [stop] { return stop->load(); });
-          if (!error.isEmpty()) data.warnings << error;
+          if (!error.isEmpty()) result.data.warnings << error;
+          else if(!stop->load())result.journal=snapshot->journal();
         }
-        return data;
+        return result;
       });
   auto *task = paleo::tasks::track(m_tasks, watcher, future,
                                    tr("准备井位与井轨迹"), true);

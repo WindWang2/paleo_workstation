@@ -26,15 +26,22 @@ bool DocumentSession::bind(DataCatalog *catalog,const QString &metaPath,const QS
     m_revision=catalog->catalogRevision();m_catalog=catalog;m_projectDir=catalog->projectDir();m_readOnly=readOnly;
     m_inspection=std::make_unique<paleo::jobs::JobRunner<SourceJob>>(this);m_inspection->setTaskService(m_tasks);
     m_relocation=std::make_unique<paleo::jobs::JobRunner<SourceJob>>(this);m_relocation->setTaskService(m_tasks);
+    m_relations=std::make_unique<paleo::jobs::JobRunner<RelationJob>>(this);m_relations->setTaskService(m_tasks);
     connect(catalog,&DataCatalog::changed,this,&DocumentSession::invalidate);
     emit sessionChanged(m_epoch);if(error)error->clear();return true;
 }
 void DocumentSession::close() {
+    SourceCommandResult dropped;dropped.operationId=std::exchange(m_relationOperation,{});dropped.details=std::exchange(m_relationDetails,{});
+    dropped.revision=m_revision;dropped.code="cancelled_or_stale";dropped.error=QStringLiteral("关系操作已取消或文档已关闭");
+    // Destruction cancels the claim and disconnects queued commit/drop callbacks.
+    // Emit the explicit close outcome only after destroying that context.
+    m_relations.reset();
     ++m_epoch;m_inspection.reset();m_relocation.reset();
     if(m_catalog) disconnect(m_catalog,nullptr,this,nullptr);
     m_catalog=nullptr;m_sourceStore.reset();m_operations.clear();m_observations.clear();m_projection={};
     m_projectionSequence=~quint64(0);m_revision=0;m_documentId.clear();m_projectDir.clear();m_loadError.clear();m_readOnly=false;
     m_bindingProjectionRevision=~quint64(0);m_effectiveBindings.clear();m_resourceBindingIds.clear();
+    if(!dropped.operationId.isEmpty())emit commandFinished(dropped);
     emit sessionChanged(m_epoch);
 }
 bool DocumentSession::isOpen() const {return m_catalog && m_catalog->isOpen() && m_sourceStore;}
@@ -120,12 +127,17 @@ bool DocumentSession::check(const SourceCommand &command,bool write,SourceComman
 SourceCommandResult DocumentSession::execute(SourceCommand command) {
     SourceCommandResult result;result.operationId=command.operationId.isEmpty()?QUuid::createUuid().toString(QUuid::WithoutBraces):command.operationId;
     command.operationId=result.operationId;result.revision=m_revision;
-    if(!check(command,command.kind!=SourceCommand::Kind::Inspect,result)) return result;
+    if(!check(command,command.kind!=SourceCommand::Kind::Inspect&&command.kind!=SourceCommand::Kind::ResolveRelation,result)) return result;
     if(command.kind==SourceCommand::Kind::Inspect) return startInspection(command);
     if(command.kind==SourceCommand::Kind::Relocate) return startRelocation(command);
+    if(command.kind==SourceCommand::Kind::ResolveRelation || command.kind==SourceCommand::Kind::UpgradeModelMetadata)return startRelationCommand(command);
     if(command.kind!=SourceCommand::Kind::RegisterBinding && command.kind!=SourceCommand::Kind::ConfirmBinding &&
        command.kind!=SourceCommand::Kind::SelectPrimary && command.kind!=SourceCommand::Kind::RemoveBinding) {
         result.code="unknown_command";result.error=QStringLiteral("不支持的来源命令");return result;
+    }
+    if(command.kind!=SourceCommand::Kind::RemoveBinding) {
+        const auto binding=command.kind==SourceCommand::Kind::RegisterBinding?command.binding:effectiveBindings().value(command.bindingId);
+        if(hasRelationBinding(binding))return startRelationCommand(command);
     }
     return editBindings(command);
 }

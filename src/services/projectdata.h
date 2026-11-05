@@ -6,6 +6,8 @@
 #include <QVector>
 #include <memory>
 #include <optional>
+#include <functional>
+namespace paleo::document {struct RelationResolveRequest;}
 
 #include "../catalog/entityview.h"
 #include "../domain/deviationsurvey.h"
@@ -127,6 +129,10 @@ class ProjectDataFacade : public QObject
     QVector<WellTop> topsForAsset(const QString &wellId, const QString &assetId,
                                   WellParseReport *report = nullptr) const;
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
+    // A request comes from DocumentSession's explicit context/primary choice.
+    // Verify its persisted binding and read only that exact object revision.
+    QVector<TdSample> tdTableFor(const paleo::document::RelationResolveRequest &request,
+        const std::function<bool()> &cancelled={}) const;
     // 人工确认该井主时深来源的时间口径（单位 ms/s、单双程 TWT/OWT、时间基准、
     // negateTimes=原文件按海拔带符号需取反），经工区数据服务落库——作用于该
     // 来源的全部时深关系（一份导出一份口径），原始点值不动。服务侧契约见

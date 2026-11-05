@@ -33,7 +33,7 @@ SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) 
     if(binding.source.documentId!=m_documentId || !source(binding.source).ref.valid()) {
         result.code="source_missing";result.error=QStringLiteral("来源关联不属于当前文档或版本不存在");return result;
     }
-    if(binding.resourceKind=="well" && m_catalog->entityById(binding.resourceId).entityType!="well") {
+    if(binding.resourceKind=="well" && m_catalog->storedEntityById(binding.resourceId).entityType!="well") {
         result.code="resource_missing";result.error=QStringLiteral("关联的井实体不存在");return result;
     }
     binding.revision=m_revision+1;
@@ -56,7 +56,7 @@ SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) 
     const bool saved=queuedWrite([&](QString *error){
         if(!m_sourceStore->ensureIdentity(m_documentId,error))return false;
         const QSignalBlocker block(m_catalog);DataCatalog::BatchSave batch(m_catalog);
-        const bool bridge=binding.scope.isEmpty() && m_catalog->entityById(binding.resourceId).entityType==binding.resourceKind;
+        const bool bridge=binding.scope.isEmpty() && m_catalog->storedEntityById(binding.resourceId).entityType==binding.resourceKind;
         if(bridge && command.kind==SourceCommand::Kind::SelectPrimary) {
             const auto asset=source(binding.source).assetId;int index=-1;const auto links=m_catalog->links();
             for(int i=0;i<links.size();++i)if(links[i].entityType==binding.resourceKind && links[i].entityId==binding.resourceId && links[i].assetId==asset && links[i].role==binding.role){index=i;break;}

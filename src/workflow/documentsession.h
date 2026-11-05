@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include "catalog/documentsourceprojection.h"
+#include "services/documentrelationresolver.h"
 #include <QObject>
 #include <QPointer>
 #include <memory>
@@ -12,6 +13,15 @@ namespace paleo::jobs { template<class T> class JobRunner; }
 namespace paleo::document {
 class DocumentSourceStore;
 struct SourceJob;
+struct RelationJob;
+struct RelationChoiceView {
+    RelationUseSpec use;
+    QVector<SourceBinding> choices;
+    QString selectedBindingId;
+    ModelObjectRef selectedObject;
+    bool selected=false; // Metadata choice only; neither readiness nor physical semantics.
+    QString code,detail;
+};
 // One active project, many consumers. Binding performs metadata-only restoration;
 // source byte access is explicit and goes through the task service.
 class DocumentSession : public QObject {
@@ -37,6 +47,9 @@ public:
     SourceState observedState(const SourceRef &ref) const;
     SourceCommand command(SourceCommand::Kind kind) const;
     SourceCommandResult execute(SourceCommand command);
+    RelationChoiceView relationView(const RelationUseSpec &use) const;
+    RelationResolveRequest relationRequest(const RelationUseSpec &use,QString *error=nullptr) const;
+    SourceCommandResult resolveRelation(const RelationUseSpec &use);
 signals:
     void sessionChanged(quint64 epoch);
     void sourcesInvalidated();
@@ -51,6 +64,8 @@ private:
     SourceCommandResult editBindings(const SourceCommand &command);
     SourceCommandResult startInspection(const SourceCommand &command);
     SourceCommandResult startRelocation(const SourceCommand &requested);
+    SourceCommandResult startRelationCommand(const SourceCommand &command);
+    RelationResolveRequest relationRequestFor(const RelationUseSpec &use,const ModelObjectRef &object,QString *error) const;
     bool commitRelocation(SourceJob &job,QString *error);
     bool queuedWrite(const std::function<bool(QString *)> &write,QString *error);
     void invalidate();
@@ -69,5 +84,8 @@ private:
     QHash<QString,SourceState> m_observations;
     std::unique_ptr<DocumentSourceStore> m_sourceStore;
     std::unique_ptr<paleo::jobs::JobRunner<SourceJob>> m_inspection,m_relocation;
+    std::unique_ptr<paleo::jobs::JobRunner<RelationJob>> m_relations;
+    QString m_relationOperation;
+    QVariantMap m_relationDetails;
 };
 }

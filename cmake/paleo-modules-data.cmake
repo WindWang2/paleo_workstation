@@ -16,6 +16,7 @@ target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 # ---- 数据层 ----
 add_library(paleo_domain STATIC
   src/domain/documentsource.cpp
+  src/domain/documentrelation.cpp
   src/domain/singlefactorrequest.cpp
   src/domain/types.cpp
   src/domain/litholexicon.cpp
@@ -196,6 +197,8 @@ target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
   src/services/documentsourceprobe.cpp
+  src/services/documentrelationresolver.cpp
+  src/services/projectdata_relation.cpp
   src/services/datagraph_layout.cpp
   src/services/dataexport.cpp
   src/services/datagraph.cpp

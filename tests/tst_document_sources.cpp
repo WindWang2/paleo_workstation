@@ -134,6 +134,51 @@ private slots:
         const auto state=qvariant_cast<SourceState>(observed.front().at(1));QCOMPARE(state.code,QString("paged_header_budget"));
         QCOMPARE(state.derivative,DerivativeState::Failed);QCOMPARE(state.bytesRead,qint64(16));QVERIFY(!state.payloadVerified);
     }
+    void sameSourceGroupsKeepIndependentSchemeSelectionsAfterReopen() {
+        Fixture f;QVERIFY(f.init());
+        QVERIFY(f.preparedWellSource("multi.txt",{"A"},{"same-TDR","same-TDR"},{"same-track","same-track"}));QVERIFY(f.bind());
+        const auto well=f.catalog.wellsMatchingName("A").front();const auto source=f.session.sources().front();
+        const auto modelWell=f.catalog.entityById(well).extra.value("areaModelWellId").toLongLong();QVERIFY(modelWell>0);
+        paleo::data::DataService reader;std::string error;
+        QVERIFY(reader.openProjectReadOnly(source.modelDirectory.toStdString(),error));
+        std::vector<paleo::data::DataEntry> relations,tracks;
+        QVERIFY(reader.listData("time_depth",modelWell,relations,error));QCOMPARE(relations.size(),size_t(2));
+        QVERIFY(reader.listData("intervals",modelWell,tracks,error));QCOMPARE(tracks.size(),size_t(2));
+        QCOMPARE(relations[0].name,relations[1].name);QCOMPARE(tracks[0].name,tracks[1].name);
+        paleo::data::TimeDepthTable first,second;
+        QVERIFY(reader.readTimeDepth(relations[0].id,first,error));QVERIFY(reader.readTimeDepth(relations[1].id,second,error));
+        QVERIFY(first.depthTimePairs.front().timeValue!=second.depthTimePairs.front().timeValue);reader.closeProject();
+        const auto scopeA=QStringLiteral("scheme-A@r1/well-tie/volume-1@r1");
+        const auto scopeB=QStringLiteral("scheme-B@r1/well-tie/volume-1@r1");
+        const auto add=[&](const QString &scope,const QString &role,const QString &kind,qlonglong id) {
+            auto command=f.session.command(SourceCommand::Kind::RegisterBinding);
+            command.binding.id=scope+"/"+kind+"/"+QString::number(id);command.binding.resourceKind="well";command.binding.resourceId=well;
+            command.binding.role=role;command.binding.scope=scope;command.binding.source=source.ref;
+            command.binding.locator={LocatorKind::RecordGroup,{{"key",kind+"/"+QString::number(id)}}};
+            if(!f.session.execute(command).ok)return false;
+            const auto bindingId=command.binding.id;command=f.session.command(SourceCommand::Kind::ConfirmBinding);command.bindingId=bindingId;
+            return f.session.execute(command).ok;
+        };
+        for(const auto &scope:{scopeA,scopeB}) {
+            for(const auto &entry:relations) {QCOMPARE(entry.sourceId,source.ref.sourceId);QVERIFY(add(scope,"time_depth","time_depth",entry.id));}
+            for(const auto &entry:tracks) {QCOMPARE(entry.sourceId,source.ref.sourceId);QVERIFY(add(scope,"stratigraphy","intervals",entry.id));}
+        }
+        for(int i=0;i<2;++i)for(const auto &role:QStringList{"time_depth","stratigraphy"}) {
+            const auto scope=i==0?scopeA:scopeB;auto choices=f.session.bindings("well",well,role,scope);QCOMPARE(choices.size(),2);
+            QVERIFY(std::none_of(choices.cbegin(),choices.cend(),[](const auto &v){return v.primary;}));
+            auto command=f.session.command(SourceCommand::Kind::SelectPrimary);command.bindingId=choices[i].id;QVERIFY(f.session.execute(command).ok);
+        }
+        const auto assertSelections=[&] {
+            for(const auto &role:QStringList{"time_depth","stratigraphy"}) {
+                const auto a=f.session.bindings("well",well,role,scopeA),b=f.session.bindings("well",well,role,scopeB);
+                QCOMPARE(a.size(),2);QCOMPARE(b.size(),2);QVERIFY(a[0].primary);QVERIFY(!a[1].primary);QVERIFY(!b[0].primary);QVERIFY(b[1].primary);
+                QVERIFY(a[0].locator.fields.value("key")!=b[1].locator.fields.value("key"));QCOMPARE(a[0].source,b[1].source);
+            }
+            QVERIFY(f.session.bindings("well",well,"time_depth","scheme-A@r2/well-tie/volume-1@r1").isEmpty());
+            QVERIFY(f.session.bindings("well",well,"time_depth","scheme-A@r1/well-tie/volume-2@r1").isEmpty());
+        };
+        assertSelections();f.session.close();QVERIFY(f.bind());assertSelections();
+    }
 };
 QTEST_GUILESS_MAIN(TestDocumentSources)
 #include "tst_document_sources.moc"

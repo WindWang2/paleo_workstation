@@ -68,7 +68,8 @@ struct Fixture {
         service.closeProject();
         return registerAreaWells(catalog,&error) && registerAreaSources(catalog,&error);
     }
-    bool preparedWellSource(const QString &name,const QStringList &wellNames) {
+    bool preparedWellSource(const QString &name,const QStringList &wellNames,
+                            const QStringList &relations={"checks"},const QStringList &tracks={}) {
         const auto path=temp.filePath(name);if(!write(path,name.toUtf8()))return false;
         paleo::data::DataService service;std::string why;const auto root=paleo::area_model::directory(project).toStdString();
         const bool exists=QFileInfo::exists(QString::fromStdString(root)+"/data.sqlite");
@@ -76,9 +77,19 @@ struct Fixture {
         paleo::data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";
         for(const auto &wellName:wellNames) {
             paleo::data::WellDataset well;well.wellInfo.wellName=wellName.toStdString();
-            paleo::data::TimeDepthTable table;table.relationName="checks";table.depthInfo.depthType="MD";table.depthInfo.depthUnit="m";
-            table.timeUnit="ms";table.timeType="TWT";table.timeReference="fixture";table.depthTimePairs={{100,200},{200,300}};
-            well.timeDepthRelations.push_back(table);parsed.wells.push_back(well);
+            for(int i=0;i<relations.size();++i) {
+                paleo::data::TimeDepthTable table;table.relationName=relations[i].toStdString();table.depthInfo.depthType="MD";table.depthInfo.depthUnit="m";
+                table.timeUnit="ms";table.timeType="TWT";table.timeReference="fixture";table.depthTimePairs={{100,double(200+i*20)},{200,double(300+i*20)}};
+                well.timeDepthRelations.push_back(table);
+            }
+            for(int i=0;i<tracks.size();++i) {
+                paleo::data::IntervalTrack track;track.trackName=tracks[i].toStdString();track.trackType="stratigraphy";
+                track.depthInfo.depthType="MD";track.depthInfo.depthUnit="m";
+                paleo::data::GeologicalInterval interval;interval.intervalName="same-unit-name";
+                interval.topDepth=100+i*10;interval.bottomDepth=200+i*10;track.intervals.push_back(interval);
+                well.wellbore.intervalTracks.push_back(track);
+            }
+            parsed.wells.push_back(well);
         }
         const auto sha=QCryptographicHash::hash(name.toUtf8(),QCryptographicHash::Sha256).toHex().toStdString();long long id=0;
         if(!service.importPreparedFile(path.toStdString(),path.toStdString(),path.toStdString(),sha,parsed,id,why)) {error=QString::fromUtf8(why);return false;}

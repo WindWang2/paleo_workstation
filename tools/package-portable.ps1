@@ -29,6 +29,7 @@ if (-not $Executable) {
 }
 if (-not $OfficeEditor) { $OfficeEditor = "$Repo/vendor/ranuts-document" }
 $BuildOut = [IO.Path]::GetFullPath((Split-Path $Executable -Parent))
+$snapshotWorker = Join-Path $BuildOut 'paleo_data_snapshot_worker.exe'
 $Deps = if ($env:PALEO_LOCAL_DEPS) { $env:PALEO_LOCAL_DEPS } else { "$HOME/paleo-qgis-deps" }
 $Qgis = if ($env:PALEO_QGIS_PREFIX) { $env:PALEO_QGIS_PREFIX } else { "$HOME/paleo-qgis-prefix" }
 $Qtpdf = if ($env:PALEO_QTPDF_PREFIX) { $env:PALEO_QTPDF_PREFIX } else { 'C:/deps/Qt/6.11.2/msvc2022_64' }
@@ -42,7 +43,7 @@ function Copy-Tree([string]$Source, [string]$Target, [Parameter(ValueFromRemaini
 }
 
 # ---- 0. 前置检查 + VS 环境（dumpbin 做 DLL 闭包）----
-foreach ($p in @($Executable, "$Deps/Library/bin/Qt6Core.dll", "$Qgis/bin/qgis_core.dll",
+foreach ($p in @($Executable, $snapshotWorker, "$Deps/Library/bin/Qt6Core.dll", "$Qgis/bin/qgis_core.dll",
                  "$Deps/Library/share/proj/proj.db", "$Qgis/resources/srs.db", "$Qgis/resources/symbology-style.xml",
                  "$OfficeEditor/index.html")) {
   if (-not (Test-Path -LiteralPath $p)) { throw "缺少打包输入: $p" }
@@ -61,6 +62,7 @@ $dumpbin = (Get-Command dumpbin.exe -ErrorAction Stop).Source
 # ---- 1. 主程序 + ORT ----
 Info "1/8 paleo.exe + onnxruntime"
 Copy-Item -LiteralPath $Executable -Destination (Join-Path $OutDir "paleo.exe")
+Copy-Item -LiteralPath $snapshotWorker -Destination (Join-Path $OutDir 'paleo_data_snapshot_worker.exe')
 if (Test-Path "$Repo/vendor/onnxruntime/lib/onnxruntime.dll") { Copy-Item "$Repo/vendor/onnxruntime/lib/onnxruntime.dll" $OutDir -Force }
 
 # ---- 2. DLL 闭包（dumpbin BFS；QtWebEngineProcess 的 DLL 面与主程序基本同源，一并覆盖）----
@@ -68,6 +70,7 @@ Info "2/8 DLL 闭包（dumpbin BFS）"
 $searchDirs = @("$Deps/Library/bin", "$Qgis/bin", "$Qtpdf/bin", "$BuildOut") | ForEach-Object { [IO.Path]::GetFullPath($_) }
 $queue = [System.Collections.Generic.Queue[string]]::new()
 $queue.Enqueue([IO.Path]::GetFullPath("$OutDir/paleo.exe"))
+$queue.Enqueue([IO.Path]::GetFullPath("$OutDir/paleo_data_snapshot_worker.exe"))
 $copied = @{}
 while ($queue.Count -gt 0) {
   $pe = $queue.Dequeue()

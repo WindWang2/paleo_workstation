@@ -216,16 +216,17 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 （#748 撤销组：`_undogroup.cpp` 承载 `undoRouter`/`bindUndoGroup`，本 TU 不直连 qgs*；
 `newLayoutShell` 落在已入基线的 `_attach_compose.cpp`。与 #749 迁出 `_workbench_commands.cpp` 相抵后净 +1。）
 
-**实测（2026-11-03，井震时间口径入口）：paleomainwindow.cpp 964 行（家族 32 TU）**
+**实测（2026-11-05，来源会话接线）：paleomainwindow.cpp 964 行（家族 33 TU）**
 新增 `_timedepth.cpp` 只编排共用来源设置视图与 SectionWorkbench，不直连 Qgs。
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 32 TU + 本体 1 行 = 表 33 行，平铺不
+家族全表（`src/ui/paleomainwindow_*.cpp` 33 TU + 本体 1 行 = 表 34 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
 | TU | 行数 | 域（各 TU 头注释口径） |
 |---|---|---|
 | `paleomainwindow.cpp` | 932 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
+| `_sources.cpp` | 26 | 来源命令异步接线；视图仅转发意图和呈现结果（2026-11-05） |
 | `_attach.cpp` | 881 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |
 | `_attach_constraint.cpp` | 800 | 约束与单因素页接线（W4 段；#299 矢量属性维护/#301 realization 异步增量） |
 | `_attach_shell.cpp` | 774 | 壳面与全局组件接线（W4 段） |

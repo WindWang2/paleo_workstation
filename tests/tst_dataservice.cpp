@@ -86,6 +86,8 @@ private slots:
     const QByteArray original("  inline : 10 xline : 20 1000 2000 200\r\nINLINE : 11 XLINE : 21 1010 2010 220\r\n");
     QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
     QCOMPARE(file.write(original), original.size()); file.close();
+    const auto parsed=paleo::data::parseFile(u(path));
+    QCOMPARE(parsed.horizons.size(),size_t(1));QVERIFY(parsed.horizons.front().coordinateSystem.empty());
     const auto project = directory.filePath("model");
     paleo::data::DataService service; std::string error;
     QVERIFY2(service.createProject(u(project), "surface", error), error.c_str());
@@ -102,7 +104,7 @@ private slots:
     QCOMPARE(horizon.points.back().inlineNumber, 11);
     QCOMPARE(horizon.points.back().crosslineNumber, 21);
     QCOMPARE(horizon.points.back().x, 1010.0); QCOMPARE(horizon.points.back().zTime, 220.0);
-    QVERIFY(horizon.coordinateSystem.empty()); QVERIFY(horizon.timeUnit.empty());
+    QCOMPARE(horizon.coordinateSystem,service.projectCrs()); QVERIFY(horizon.timeUnit.empty());
     QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), original);
   }
   void catalogRoundTripsThroughSubmodule() {

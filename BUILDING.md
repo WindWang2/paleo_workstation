@@ -422,6 +422,13 @@ layer-marker 全量判违规（by design，防漏网）；脚本同时打印
 
 ## 常见失败表
 
+模型快照使用随构建生成的 `paleo_data_snapshot_worker`（Windows 带 `.exe`），
+只依赖当前部署的 Qt Core/Sql；应用安装及两套 Windows 便携打包脚本均包含它。
+嵌入 Data_service 时即使关闭 `PDS_BUILD_TOOLS` 也须构建此运行组件。组件位于
+主程序同目录，或其 `../libexec/`，不从系统 PATH 查找可执行文件；缺失时快照明确失败。
+父进程通过取消或超时终止私有快照任务，成功后才发布目标文件。Office 编辑组件仍须
+按上文单独接线。组件部署、取消、WAL 快照和旧库不变的回归见 `tst_dataservice_snapshot`。
+
 | 现象 | 原因 | 修复 |
 |------|------|------|
 | `QDomDocument: No such file` | 缺 Qt6Xml 等模块 dev 包 | 装 qt6 全组 dev（见 CMakeLists find_package 列表） |

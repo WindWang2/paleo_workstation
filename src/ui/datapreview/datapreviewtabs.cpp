@@ -480,6 +480,24 @@ bool DataPreviewTabs::relocateMissingSourceWith(const QString &assetId,
   // 重建时重新过 §3 校验门）并重建标签加载真预览。
   if (!m_doc || assetId.isEmpty())
     return false;
+  if (m_sourceRelocation)
+  {
+    const QPointer<DataPreviewTabs> self(this);
+    const QPointer<QWidget> originalPage(m_pageOfAsset.value(assetId));
+    m_sourceRelocation(versionId, pickedPath,
+        [self, originalPage, assetId, versionId](const QString &newVersion, const QString &error) {
+          if (!self || !originalPage || self->m_pageOfAsset.value(assetId) != originalPage) return;
+          if (newVersion.isEmpty()) {
+            if (auto *label = originalPage->findChild<QLabel *>(QStringLiteral("stateText")))
+              label->setText(tr("找不到源文件\n重新定位失败：%1").arg(error));
+            return;
+          }
+          if (self->m_doc) self->m_doc->resetSha(assetId);
+          self->m_shaFailedOfVersion.remove(versionId);
+          self->rebuildAssetTab(assetId);
+        });
+    return true; // Accepted; publication and UI completion are asynchronous.
+  }
   QString err;
   const QString newVer = m_doc->relocateVersionSource(versionId, pickedPath, &err);
   if (newVer.isEmpty())

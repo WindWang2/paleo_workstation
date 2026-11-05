@@ -16,13 +16,14 @@ if(NOT WIN32)
     "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
     "$ORIGIN/../lib")
   list(REMOVE_DUPLICATES _paleo_install_rpath)
-  set_target_properties(paleo paleo_selfcheck PROPERTIES
+  set_target_properties(paleo paleo_selfcheck paleo_data_snapshot_worker PROPERTIES
     INSTALL_RPATH "${_paleo_install_rpath}"
     INSTALL_RPATH_USE_LINK_PATH FALSE)
 endif()
 
 install(TARGETS paleo paleo_selfcheck
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS paleo_data_snapshot_worker RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 if(WIN32 AND TARGET paleo_freexl_runtime)
   install(FILES "${CMAKE_BINARY_DIR}/paleo_freexl.dll" DESTINATION ${CMAKE_INSTALL_BINDIR})

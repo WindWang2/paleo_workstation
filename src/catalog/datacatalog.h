@@ -323,6 +323,8 @@ class DataCatalog : public QObject
     bool hasEntity(const QString &id) const;
     QVector<CatalogEntity> entities(const QString &entityType = QString()) const;
     CatalogEntity entityById(const QString &id) const;
+    // Stored metadata only, O(1). Does not open the model or infer a well ID by name.
+    CatalogEntity storedEntityById(const QString &id) const;
     QVector<CatalogAsset> assets() const;
     CatalogAsset assetById(const QString &id) const;
     QVector<CatalogVersion> versionsForAsset(const QString &assetId) const;

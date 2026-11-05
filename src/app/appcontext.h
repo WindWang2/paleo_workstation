@@ -51,6 +51,7 @@ class EvidenceInteraction;
 class MapVersionStore;
 class MapVersionController;
 class PaleoTaskService;
+namespace paleo::document {class DocumentSession;}
 
 class AppContext : public QObject
 {
@@ -122,6 +123,7 @@ class AppContext : public QObject
     // pass-2 D1/D2：异步任务注册中心（QThreadPool 执行 + 字节进度 + 10s 窗口
     // ETA + 协作取消），任务页轮询它渲染进度条；长 IO 经它上 worker。
     PaleoTaskService *taskSvc() const { return m_taskSvc; }
+    paleo::document::DocumentSession *documentSession() const { return m_documentSession; }
     ProjectDirLock *projectLock() const { return m_projectLock.get(); }
 
     // 单写实例降级面（T4）：projectOpened 时 tryLock 失败 → 本实例只读。
@@ -224,6 +226,7 @@ class AppContext : public QObject
     FaultSetStore m_faultStore{QString(), nullptr}; // projectOpened 值重绑
     paleo::fault::FaultInterpretationController *m_faultCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
+    paleo::document::DocumentSession *m_documentSession = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;
     std::unique_ptr<ProjectDirLock> m_pendingLock; // 闸门已取、projectOpened 接管
     bool m_pendingLockReuse = false;               // 闸门判定同目录复用现锁

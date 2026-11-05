@@ -2,6 +2,8 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QCryptographicHash>
+#include <cmath>
 #include "catalog/datacatalog.h"
 #include "services/stratigraphicsubintervals.h"
 #include "services/subintervalfactors.h"
@@ -12,6 +14,110 @@
 class AnalysisResultSyncTest : public QObject {
   Q_OBJECT
 private slots:
+  void consumerInvalidationProjectsAtomicallyAndPreservesFrozenInputs() {
+    QTemporaryDir dir;paleo::data::DataService ds;std::string error;QString detail;
+    QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(),"scoped results",error));
+    auto draft=paleo::strat::draftScheme("scoped","scoped",{"A","B"},
+      {{17,{{"A",1000.},{"B",1080.}}},{18,{{"A",2000.},{"B",2080.}}}});
+    draft.boundaries[0].seismicHorizonResourceId=10;draft.boundaries[1].seismicHorizonResourceId=20;
+    paleo::data::StratigraphicScheme head,other;std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},head,issues,error));draft.id="unrelated";
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},other,issues,error));
+    const auto interval=QString::fromStdString(head.intervals.front().id.value);
+    const auto s2=paleo::strat::makeSelection(head,interval,2),s4=paleo::strat::makeSelection(head,interval,4);
+    const auto otherUnit=paleo::strat::makeSelection(other,QString::fromStdString(other.intervals.front().id.value),2);
+    DataCatalog catalog;QVERIFY(catalog.open(dir.path(),&detail));
+    const QByteArray rawBytes="synthetic immutable SEG-Y bytes",cacheBytes="synthetic immutable SF3P bytes";
+    {QFile file(dir.filePath("volume.sgy"));QVERIFY(file.open(QIODevice::WriteOnly));QCOMPARE(file.write(rawBytes),qint64(rawBytes.size()));}
+    {QFile file(dir.filePath("volume.sf3p"));QVERIFY(file.open(QIODevice::WriteOnly));QCOMPARE(file.write(cacheBytes),qint64(cacheBytes.size()));}
+    CatalogAsset raw;raw.id="raw-volume";raw.type="seismic";QVERIFY(catalog.addAsset(raw,&detail));
+    CatalogVersion rawVersion;rawVersion.id="raw-v1";rawVersion.assetId=raw.id;rawVersion.stage="RAW";rawVersion.path="volume.sgy";
+    rawVersion.sha256=QString::fromLatin1(QCryptographicHash::hash(rawBytes,QCryptographicHash::Sha256).toHex());QVERIFY(catalog.addVersion(rawVersion,&detail));
+    const auto add=[&](const QString &id,const QString &type,const paleo::strat::UnitSelection &unit,qlonglong well,const QStringList &parents) {
+      CatalogAsset asset;asset.id=id;asset.type=type;if(!catalog.addAsset(asset,&detail))return false;
+      CatalogVersion version;version.id=id+"-v1";version.assetId=id;version.stage="DERIVED";version.path=id+".json";
+      version.sha256="frozen-result-"+id;version.parentVersionIds=parents;
+      if(unit.isValid())version.extra.insert("unitSelection",paleo::strat::toMap(unit));
+      if(well>0)version.extra.insert("analysisWellId",well);
+      return catalog.addVersion(version,&detail);
+    };
+    QVERIFY(add("well-1","well_facies_prediction",s2,17,{rawVersion.id}));
+    QVERIFY(add("well-2","well_facies_prediction",s2,18,{rawVersion.id}));
+    QVERIFY(add("seismic-s2","prediction_raster",s2,0,{rawVersion.id}));
+    QVERIFY(add("seismic-s4","prediction_raster",s4,0,{rawVersion.id}));
+    QVERIFY(add("other-result","prediction_raster",otherUnit,0,{rawVersion.id}));
+    QVERIFY(add("map-s2","edited_facies",{},0,{"seismic-s2-v1"}));
+    QVERIFY(add("map-child","composed_facies",{},0,{"map-s2-v1"}));
+    const auto originals=catalog.versions();
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    auto changed=head;for(auto &well:changed.wellOccurrences)if(well.wellId==17)well.internal[1]=1048.;
+    paleo::data::StratigraphicScheme wellHead;QVERIFY(ds.commitStratigraphicScheme(changed,head.revision.value,wellHead,issues,error));
+    auto staged=catalog.createStagingCopy(QString());QCOMPARE(syncAnalysisResults(staged.get(),dir.path()),QString());
+    QVERIFY(!staged->journal().isEmpty());QVERIFY(!catalog.versionById("well-1-v1").extra.value("stale").toBool());
+    catalog.debugAbortJournalAfter(1);
+    QVERIFY(!syncAnalysisResults(&catalog,dir.path()).isEmpty());
+    for(const auto &version:catalog.versions())QVERIFY(!version.extra.value("stale").toBool());
+    {DataCatalog disk;QVERIFY(disk.open(dir.path(),&detail));for(const auto &version:disk.versions())QVERIFY(!version.extra.value("stale").toBool());}
+    catalog.debugAbortJournalAfter(0);
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    QVERIFY(catalog.versionById("well-1-v1").extra.value("stale").toBool());
+    QVERIFY(!catalog.versionById("well-2-v1").extra.value("stale").toBool());
+    QVERIFY(!catalog.versionById("seismic-s2-v1").extra.value("stale").toBool());
+    QVERIFY(!catalog.versionById("seismic-s4-v1").extra.value("stale").toBool());
+    changed=wellHead;changed.divisions.front().fractions={.25,.6,.75};paleo::data::StratigraphicScheme divided;
+    QVERIFY(ds.commitStratigraphicScheme(changed,wellHead.revision.value,divided,issues,error));
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    for(const auto &id:{"seismic-s2-v1","map-s2-v1","map-child-v1"})QVERIFY(catalog.versionById(id).extra.value("stale").toBool());
+    for(const auto &id:{"seismic-s4-v1","other-result-v1","raw-v1"})QVERIFY(!catalog.versionById(id).extra.value("stale").toBool());
+    const auto currentUnit=paleo::strat::makeSelection(divided,interval,2);
+    QVERIFY(add("current-well-2","well_facies_prediction",currentUnit,18,{rawVersion.id}));
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    auto rebound=divided;rebound.boundaries.front().seismicHorizonResourceId=99;paleo::data::StratigraphicScheme surface;
+    QVERIFY(ds.commitStratigraphicScheme(rebound,divided.revision.value,surface,issues,error));
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    QVERIFY(catalog.versionById("seismic-s4-v1").extra.value("stale").toBool());
+    QVERIFY(!catalog.versionById("current-well-2-v1").extra.value("stale").toBool());
+    QCOMPARE(catalog.versionById("current-well-2-v1").extra.value("unitSelection").toMap(),paleo::strat::toMap(currentUnit));
+    const auto revision=catalog.catalogRevision();QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());QCOMPARE(catalog.catalogRevision(),revision);
+    for(const auto &old:originals) {
+      const auto version=catalog.versionById(old.id);QCOMPARE(version.path,old.path);QCOMPARE(version.sha256,old.sha256);
+      QCOMPARE(version.parentVersionIds,old.parentVersionIds);QCOMPARE(version.extra.value("unitSelection"),old.extra.value("unitSelection"));
+    }
+    paleo::data::StratigraphicScheme historical;QVERIFY(ds.readStratigraphicScheme(head.id,head.revision.value,historical,error));
+    QCOMPARE(historical.boundaries.front().seismicHorizonResourceId,10LL);QVERIFY(std::isnan(historical.wellOccurrences.front().internal[1]));
+    {QFile file(dir.filePath("volume.sgy"));QVERIFY(file.open(QIODevice::ReadOnly));QCOMPARE(file.readAll(),rawBytes);}
+    {QFile file(dir.filePath("volume.sf3p"));QVERIFY(file.open(QIODevice::ReadOnly));QCOMPARE(file.readAll(),cacheBytes);}
+    QVERIFY(catalog.open(dir.path(),&detail));QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    QVERIFY(catalog.versionById("seismic-s4-v1").extra.value("stale").toBool());
+    QVERIFY(!catalog.versionById("current-well-2-v1").extra.value("stale").toBool());
+  }
+  void batchInvalidationKeepsUnaffectedNativeWellChildrenCurrent() {
+    QTemporaryDir dir;paleo::data::DataService ds;std::string error;QString detail;
+    QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(),"batch isolation",error));
+    auto draft=paleo::strat::draftScheme("batch","batch",{"A","B"},
+      {{17,{{"A",1000.},{"B",1080.}}},{18,{{"A",2000.},{"B",2080.}}}});
+    paleo::data::StratigraphicScheme head;std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY(ds.commitStratigraphicScheme(draft,{},head,issues,error));
+    const auto unit=paleo::strat::makeSelection(head,QString::fromStdString(head.intervals.front().id.value),2);
+    DataCatalog catalog;QVERIFY(catalog.open(dir.path(),&detail));
+    QVariantList supporting;
+    for(int id:{17,18}) {
+      CatalogEntity entity;entity.id=QString::number(id);entity.entityType="well";entity.name=entity.id;entity.extra.insert("areaModelWellId",id);
+      QVERIFY(catalog.addEntity(entity,&detail));supporting.append(QVariantMap{{"entity_id",entity.id}});
+    }
+    CatalogAsset asset;asset.id="batch";asset.type="wells_prediction";QVERIFY(catalog.addAsset(asset,&detail));
+    CatalogVersion version;version.id="batch-v1";version.assetId=asset.id;version.stage="DERIVED";
+    version.extra={{"unitSelection",paleo::strat::toMap(unit)},{"supporting_wells",supporting}};QVERIFY(catalog.addVersion(version,&detail));
+    QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+    auto changed=head;for(auto &well:changed.wellOccurrences)if(well.wellId==17)well.internal[1]=1048.;
+    paleo::data::StratigraphicScheme next;QVERIFY(ds.commitStratigraphicScheme(changed,head.revision.value,next,issues,error));
+    for(int repeat=0;repeat<2;++repeat) {
+      QCOMPARE(syncAnalysisResults(&catalog,dir.path()),QString());
+      std::vector<paleo::data::SubIntervalResultBinding> bindings;QVERIFY(ds.listSubIntervalResults(head.id,{},bindings,error));QCOMPARE(bindings.size(),size_t(3));
+      for(const auto &binding:bindings)QCOMPARE(binding.status,binding.wellId==18?std::string("current"):std::string("stale"));
+    }
+    QVERIFY(catalog.versionById(version.id).extra.value("stale").toBool());
+  }
   void batchWellResultsKeepNativeUnitBindingsAcrossReopenAndInvalidation() {
     QTemporaryDir dir;paleo::data::DataService ds;std::string error;
     QVERIFY(ds.createProject((dir.path()+"/artifacts/metadata/area-model").toStdString(),"test",error));

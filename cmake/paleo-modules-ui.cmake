@@ -14,6 +14,11 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/documentsession.cpp
+  src/workflow/documentsession_bindings.cpp
+  src/workflow/documentsession_jobs.cpp
+  src/workflow/documentsession_relocation.cpp
+  src/workflow/documentsession_relations.cpp
   src/workflow/paleomapimport.cpp
   src/workflow/paleomaplibrary.cpp
   src/workflow/projectareasummary.cpp
@@ -77,6 +82,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/paleomainwindow_sources.cpp
   src/ui/paleostartupscreen.cpp
   src/ui/paleomainwindow_paleomaps.cpp
   src/ui/pages/datalist_paleomaps.cpp

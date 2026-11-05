@@ -253,8 +253,7 @@ void WellPredictionService::prepare() {
     if (!unit.isValid() && modelWellId > 0 && !m_dir.isEmpty() && QFileInfo::exists(m_dir + QStringLiteral("/artifacts/metadata/area-model/data.sqlite"))) {
       paleo::data::WellIntervalLogQuery q;
       q.wellIds = {modelWellId};
-      q.stratigraphy.subIntervalId.value = m_request.horizon.toStdString();
-      q.stratigraphy.intervalId.value = m_request.horizon.toStdString();
+      q.stratigraphy.source = paleo::data::StratigraphicTrackSource::WellIntervalTrack;
       q.stratigraphy.unitName = m_request.horizon.toStdString();
       std::vector<paleo::data::WellStratigraphicLogSlice> slices;
       QString qErr;
@@ -262,8 +261,7 @@ void WellPredictionService::prepare() {
           !slices.empty() && slices.front().resolved &&
           std::isfinite(slices.front().topDepth) && std::isfinite(slices.front().bottomDepth) &&
           slices.front().bottomDepth > slices.front().topDepth &&
-          (slices.front().depthType.empty() || slices.front().depthType == "MD") &&
-          (slices.front().depthUnit.empty() || slices.front().depthUnit == "m") &&
+          slices.front().depthType == "MD" && slices.front().depthUnit == "m" &&
           std::none_of(source.data.formationIntervals.cbegin(), source.data.formationIntervals.cend(),
                        [this](const auto &f) { return f.name.compare(m_request.horizon, Qt::CaseInsensitive) == 0; })) {
         WellComposite::FormationInterval stratFormation;

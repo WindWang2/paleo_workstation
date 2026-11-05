@@ -80,6 +80,19 @@ void dropSqliteSidecars(const QString &sqlite)
   QFile::remove(sqlite + QStringLiteral("-wal"));
   QFile::remove(sqlite + QStringLiteral("-shm"));
 }
+
+CatalogVersion relocatedRawVersion(const CatalogVersion &raw, int number, const QString &path)
+{
+  auto next=raw;
+  next.id=QStringLiteral("ver-relocated");next.versionNumber=number;
+  next.path=path;next.sourceUri=path;next.fileName=QStringLiteral("moved.las");
+  const QVariantMap source{{"documentId","catalog-relocation-test"},{"modelStoreId","catalog:"+raw.assetId},
+    {"sourceId","0"},{"fileRevisionId",raw.sha256}};
+  next.extra.insert("relocatedFrom",raw.id);
+  next.extra.insert("documentSourceOperation","move-raw");
+  next.extra.insert("documentSourceRequest",QVariantMap{{"source",source},{"newPath",path}});
+  return next;
+}
 } // namespace
 
 // plan §3 数据模型：实体—关联—资产—版本。查询走内存，盘上主库是 catalog.sqlite。
@@ -98,6 +111,10 @@ private slots:
   void resolvedLinkStillNeedsEntityId();
   void currentVersionPicksHighestNumber();
   void derivedVersionWithSameAssetParentIsNotBornStale();
+  void rawRelocationPreservesDerivedChain_data();
+  void rawRelocationPreservesDerivedChain();
+  void historicalRawRelocationInvalidatesNewerInputs_data();
+  void historicalRawRelocationInvalidatesNewerInputs();
   void managedPathLayout();
   void unsafePathSegmentsRejected();
   void versionBySha256FindsStored();
@@ -444,6 +461,82 @@ void TestCatalog::derivedVersionWithSameAssetParentIsNotBornStale()
   // 父版本本身也不带 stale（supersede 只标下游 DERIVED 输入，父不是下游）。
   const CatalogVersion rawBack = cat.versionById(QStringLiteral("ver-raw"));
   QVERIFY(!rawBack.extra.value(QStringLiteral("stale")).toBool());
+}
+
+void TestCatalog::rawRelocationPreservesDerivedChain_data()
+{
+  QTest::addColumn<bool>("equivalentNewerRaw");
+  QTest::newRow("original-raw")<<false;
+  QTest::newRow("equivalent-newer-raw")<<true;
+}
+
+void TestCatalog::rawRelocationPreservesDerivedChain()
+{
+  QFETCH(bool,equivalentNewerRaw);
+  QTemporaryDir dir;QVERIFY(dir.isValid());DataCatalog cat;QString error;
+  QVERIFY2(cat.open(dir.path(),&error),qPrintable(error));
+  CatalogAsset asset;asset.id="ast-source";asset.type="well_log";QVERIFY(cat.addAsset(asset));
+  CatalogVersion raw;raw.id="ver-original";raw.assetId=asset.id;raw.stage="RAW";raw.managed=false;
+  raw.path=dir.filePath("original.las");raw.fileName="original.las";raw.sha256=QString(64,'a');
+  raw.extra.insert("depthDomain","MD");QVERIFY(cat.addVersion(raw));
+  CatalogVersion input=raw;
+  if(equivalentNewerRaw)
+  {
+    input.id="ver-equivalent";input.versionNumber=2;input.path=dir.filePath("equivalent.las");
+    QVERIFY(cat.addVersion(input));
+  }
+  auto first=input;first.id="ver-first-derived";first.versionNumber=input.versionNumber+1;
+  first.stage="DERIVED";first.sha256=QString(64,'b');first.parentVersionIds={input.id};
+  QVERIFY(cat.addVersion(first));
+  CatalogAsset output;output.id="ast-output";output.type="well_log";QVERIFY(cat.addAsset(output));
+  auto second=first;second.id="ver-second-derived";second.assetId=output.id;second.versionNumber=1;
+  second.sha256=QString(64,'c');second.parentVersionIds={first.id};QVERIFY(cat.addVersion(second));
+  for(const auto &id:QStringList{first.id,second.id})QVERIFY(!cat.versionById(id).extra.value("stale").toBool());
+  const auto relocated=relocatedRawVersion(raw,first.versionNumber+1,dir.filePath("moved.las"));
+  QVERIFY2(cat.addVersion(relocated,&error),qPrintable(error));
+  QCOMPARE(cat.currentVersion(asset.id).id,relocated.id);
+  for(const auto &id:QStringList{first.id,second.id})
+  {
+    QVERIFY(!cat.versionById(id).extra.value("stale").toBool());
+    QVERIFY(!cat.versionById(id).extra.contains("staleReason"));
+  }
+  QVERIFY(cat.open(dir.path(),&error));
+  QCOMPARE(cat.versionById(first.id).parentVersionIds,QStringList{input.id});
+  QCOMPARE(cat.versionById(second.id).parentVersionIds,QStringList{first.id});
+  for(const auto &id:QStringList{first.id,second.id})QVERIFY(!cat.versionById(id).extra.value("stale").toBool());
+}
+
+void TestCatalog::historicalRawRelocationInvalidatesNewerInputs_data()
+{
+  QTest::addColumn<bool>("differentContent");
+  QTest::newRow("content-changed")<<true;
+  QTest::newRow("interpretation-changed")<<false;
+}
+
+void TestCatalog::historicalRawRelocationInvalidatesNewerInputs()
+{
+  QFETCH(bool,differentContent);
+  QTemporaryDir dir;QVERIFY(dir.isValid());DataCatalog cat;QString error;
+  QVERIFY2(cat.open(dir.path(),&error),qPrintable(error));
+  CatalogAsset asset;asset.id="ast-source";asset.type="well_log";QVERIFY(cat.addAsset(asset));
+  CatalogVersion original;original.id="ver-original";original.assetId=asset.id;original.stage="RAW";
+  original.managed=false;original.path=dir.filePath("original.las");original.fileName="original.las";
+  original.sha256=QString(64,'a');original.extra.insert("depthDomain","MD");QVERIFY(cat.addVersion(original));
+  auto replacement=original;replacement.id="ver-replacement";replacement.versionNumber=2;
+  replacement.path=dir.filePath("replacement.las");
+  if(differentContent)replacement.sha256=QString(64,'b');else replacement.extra.insert("depthDomain","TVD");
+  QVERIFY(cat.addVersion(replacement));
+  auto derived=replacement;derived.id="ver-derived";derived.versionNumber=3;derived.stage="DERIVED";
+  derived.sha256=QString(64,'c');derived.parentVersionIds={replacement.id};QVERIFY(cat.addVersion(derived));
+  QVERIFY(!cat.versionById(derived.id).extra.value("stale").toBool());
+  const auto relocated=relocatedRawVersion(original,4,dir.filePath("moved.las"));
+  QVERIFY2(cat.addVersion(relocated,&error),qPrintable(error));
+  QCOMPARE(cat.currentVersion(asset.id).id,relocated.id);
+  QVERIFY(cat.versionById(derived.id).extra.value("stale").toBool());
+  QVERIFY(!cat.versionById(derived.id).extra.value("staleReason").toString().isEmpty());
+  QVERIFY(cat.open(dir.path(),&error));
+  QCOMPARE(cat.versionById(derived.id).parentVersionIds,QStringList{replacement.id});
+  QVERIFY(cat.versionById(derived.id).extra.value("stale").toBool());
 }
 
 void TestCatalog::managedPathLayout()

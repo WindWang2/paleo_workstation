@@ -27,6 +27,28 @@ bool frozenProvenanceKey(const QString &key) {
     "interpretation_events", "spatial_edit_events"};
   return keys.contains(key);
 }
+bool contentEquivalentRelocation(const CatalogVersion &next, const CatalogVersion &previous) {
+  if(previous.id.isEmpty() || previous.stage != "RAW" || next.stage != "RAW" ||
+     next.assetId != previous.assetId || next.managed || previous.managed ||
+     next.sha256.isEmpty() || next.sha256 != previous.sha256 ||
+     next.parentVersionIds != previous.parentVersionIds ||
+     next.extra.value("documentSourceOperation").toString().isEmpty()) return false;
+  const auto request=next.extra.value("documentSourceRequest").toMap();
+  if(request.value("source").toMap().isEmpty() ||
+     QDir::cleanPath(request.value("newPath").toString()) != QDir::cleanPath(next.path)) return false;
+  const auto content=[](QVariantMap extra) {
+    for(const auto &key:{"relocatedFrom","documentSourceOperation","documentSourceRequest"})extra.remove(key);
+    if(extra.contains("nativeModel")) {
+      auto native=extra.value("nativeModel").toMap();
+      if(!native.contains("storeIdentity"))native.insert("storeIdentity",native.value("path"));
+      // The verified snapshot has a new physical database and hash, but keeps
+      // the same model/source identity and all interpretation metadata.
+      native.remove("path");native.remove("sha256");extra.insert("nativeModel",native);
+    }
+    return extra;
+  };
+  return content(next.extra)==content(previous.extra);
+}
 } // namespace
 
 // 版本族（方向 99 拆分）：addVersion（含 supersede 级联标 stale）、
@@ -119,9 +141,29 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
   // 取代（supersede）——其下游闭包中的 DERIVED 版本输入失效，随本次
   // addVersion 同一原子写落 extra["stale"]/["staleReason"]，不二次落盘。
   QStringList superseded;
-  for (int r : m_idx.versionRowsForAsset(v.assetId)) // D5.1 O(命中集) 非全表
-    if (m_versions.at(r).versionNumber < v.versionNumber)
-      superseded.append(m_versions.at(r).id);
+  const auto relocatedParent=versionById(v.extra.value("relocatedFrom").toString());
+  bool locationOnly=relocatedParent.id!=v.id && relocatedParent.versionNumber<v.versionNumber &&
+    contentEquivalentRelocation(v,relocatedParent);
+  if(locationOnly)
+    for(int r : m_idx.versionRowsForAsset(v.assetId))
+    {
+      const auto &raw=m_versions.at(r);
+      // Re-publishing historical A after a different RAW B restores A as the
+      // current input. B's descendants must become stale even though A itself
+      // has only moved. Equivalent newer RAWs and all DERIVED stages are safe.
+      if(raw.id!=v.id && raw.stage=="RAW" && raw.versionNumber>relocatedParent.versionNumber &&
+         !contentEquivalentRelocation(v,raw))
+      {
+        locationOnly=false;
+        break;
+      }
+    }
+  // A verified locator update changes no computational input. Preserve derived
+  // validity and original parent IDs; a later content replacement still stales them.
+  if(!locationOnly)
+    for (int r : m_idx.versionRowsForAsset(v.assetId)) // D5.1 O(命中集) 非全表
+      if (m_versions.at(r).versionNumber < v.versionNumber)
+        superseded.append(m_versions.at(r).id);
   QVector<QPair<int, CatalogVersion>> staleUndo;
   for (const QString &pid : superseded)
     markStaleDownstreamOf(

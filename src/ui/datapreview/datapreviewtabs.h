@@ -110,6 +110,9 @@ class DataPreviewTabs : public QWidget
     // 如实写到死胡同面上（保留「找不到源文件」前缀与按钮，可换文件再试）。
     bool relocateMissingSourceWith(const QString &assetId, const QString &versionId,
                                    const QString &pickedPath);
+    using RelocationReply = std::function<void(const QString &,const QString &)>;
+    using RelocationHandler = std::function<void(const QString &,const QString &,RelocationReply)>;
+    void setSourceRelocationHandler(RelocationHandler handler) {m_sourceRelocation=std::move(handler);}
 
   signals:
     void graphRequested(const QString &assetId, const QString &versionId);
@@ -129,6 +132,7 @@ class DataPreviewTabs : public QWidget
     void requestShowOnMainCanvas();
 
   private:
+    RelocationHandler m_sourceRelocation;
     void wireWellNavigation(class PreviewMapPage *page, class QgsVectorLayer *layer);
     void syncDetails();
     void clearDetails(const QString &assetId);

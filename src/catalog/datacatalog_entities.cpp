@@ -102,6 +102,14 @@ CatalogEntity DataCatalog::entityById(const QString &id) const
   return row >= 0 ? projectAreaWell(projectDir(), m_entities.at(row)) : CatalogEntity();
 }
 
+CatalogEntity DataCatalog::storedEntityById(const QString &id) const
+{
+  if (!noteRead("storedEntityById"))
+    return {};
+  const int row = m_idx.entityRow(id);
+  return row >= 0 ? m_entities.at(row) : CatalogEntity();
+}
+
 QString DataCatalog::normalizeWellName(const QString &name)
 {
   QString out;

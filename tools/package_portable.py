@@ -66,6 +66,7 @@ PRODUCT_EXES = [
     "paleo_mkproject.exe",         # 工程脚手架
     "paleo_seismic_demo.exe",      # 地震展示 demo
     "paleo_selfcheck.exe",         # 自检（新机排障首选）
+    "paleo_data_snapshot_worker.exe", # 可取消的只读模型快照
 ]
 
 # 延迟加载 / 运行时按名装载的模块：dumpbin 静态 import 表扫不到。
@@ -313,6 +314,8 @@ def main():
 
     if not (QGIS_PREFIX / "resources" / "symbology-style.xml").is_file():
         sys.exit("缺少 QGIS 默认符号与色带库: resources/symbology-style.xml")
+    if not (build / "paleo_data_snapshot_worker.exe").is_file():
+        sys.exit("缺少模型快照组件 paleo_data_snapshot_worker.exe，请先完成应用构建")
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)

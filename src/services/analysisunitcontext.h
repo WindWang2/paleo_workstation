@@ -11,6 +11,9 @@ QString analysisProjectCrs(const QString &project,QString *error=nullptr);
 bool freezeAnalysisUnit(const QString &project,const UnitSelection &requested,UnitSelection &frozen,
                         QString *error=nullptr,bool allowAggregate=false);
 bool analysisUnitGeometryCurrent(const QString &project,const UnitSelection &unit,QString *error=nullptr);
+enum class AnalysisGeometryDependency { LegacyGlobal, WellRange, SeismicSurface };
+bool analysisUnitGeometryCurrentFor(const QString &project,const UnitSelection &unit,
+    AnalysisGeometryDependency dependency,qlonglong wellId=0,QString *error=nullptr);
 // Native DataService well identity wins. Legacy keys apply only when no native occurrence exists.
 paleo::data::WellSubIntervalRange analysisWellRange(const paleo::data::StratigraphicScheme &scheme,
     const UnitSelection &unit,const QString &entityId,qlonglong modelWellId=0);

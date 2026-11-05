@@ -633,7 +633,10 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
   if (result.request.id != m_request.id || !m_catalog || !m_catalog->isOpen())
     return;
   const auto request = m_request;
-  if(!request.unitSelection.isEmpty()&&!paleo::strat::analysisUnitGeometryCurrent(m_dir,paleo::strat::fromMap(request.unitSelection)))
+  const auto geometryUse=request.kind=="seismic"?paleo::strat::AnalysisGeometryDependency::SeismicSurface:
+    paleo::strat::AnalysisGeometryDependency::LegacyGlobal;
+  if(!request.unitSelection.isEmpty()&&!paleo::strat::analysisUnitGeometryCurrentFor(m_dir,
+      paleo::strat::fromMap(request.unitSelection),geometryUse))
     m_predictionParameters.insert("stale",true);
   // Validate the response against the frozen request before publishing any
   // artifact.

@@ -20202,6 +20202,14 @@ Crossline: %3 ~ %4</source>
     <context>
         <name>PaleoMainWindow</name>
         <message>
+            <source>来源文档未打开</source>
+            <translation>Source document is not open</translation>
+        </message>
+        <message>
+            <source>工程会话已变化</source>
+            <translation>Project session has changed</translation>
+        </message>
+        <message>
             <location filename="../src/ui/paleomainwindow_internal.h" line="46" />
             <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="105" />
             <source>数据管理</source>

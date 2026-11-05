@@ -40,6 +40,10 @@ bool freezeAnalysisUnit(const QString &project,const UnitSelection &requested,Un
   return frozen.isValid()&&!frozen.revision.isEmpty();
 }
 bool analysisUnitGeometryCurrent(const QString &project,const UnitSelection &unit,QString *error){
+  return analysisUnitGeometryCurrentFor(project,unit,AnalysisGeometryDependency::LegacyGlobal,0,error);
+}
+bool analysisUnitGeometryCurrentFor(const QString &project,const UnitSelection &unit,
+    AnalysisGeometryDependency dependency,qlonglong wellId,QString *error){
   paleo::data::DataService ds;std::string detail;paleo::data::StratigraphicScheme old,head;
   if(!unit.isValid()||unit.revision.isEmpty()||
      !ds.openProjectReadOnly(area_model::directory(project).toStdString(),detail)||
@@ -47,15 +51,21 @@ bool analysisUnitGeometryCurrent(const QString &project,const UnitSelection &uni
      !ds.readStratigraphicScheme(unit.schemeId.toStdString(),{},head,detail)){
     if(error)*error=QString::fromStdString(detail.empty()?"分析层段身份不完整":detail);return false;
   }
-  bool checked=false;
-  for(const auto *sub:fw::subIntervalsOf(old,{unit.intervalId.toStdString()})){
-    if(!unit.aggregate&&sub->id.value!=unit.subIntervalId.toStdString())continue;
-    checked=true;
-    if(fw::subIntervalFingerprint(old,sub->id)!=fw::subIntervalFingerprint(head,sub->id)){
-      if(error)*error=QStringLiteral("分析层段在计算期间已修改，请重新获取或预测");return false;
-    }
+  const auto *interval=fw::findInterval(old,{unit.intervalId.toStdString()});
+  const auto *sub=fw::findSubInterval(old,{unit.subIntervalId.toStdString()});
+  if(!interval || (!unit.aggregate && (!sub || sub->interval!=interval->id)) ||
+     (dependency==AnalysisGeometryDependency::WellRange && wellId<=0)) {
+    if(error)*error=QStringLiteral("分析依赖缺少有效单元或明确井编号");return false;
   }
-  return checked;
+  paleo::data::SubIntervalResultBinding binding;
+  binding.interval={unit.intervalId.toStdString()};binding.subInterval={unit.subIntervalId.toStdString()};
+  binding.aggregate=unit.aggregate;binding.wellId=wellId;
+  if(dependency==AnalysisGeometryDependency::WellRange)binding.kind="well_facies";
+  else if(dependency==AnalysisGeometryDependency::SeismicSurface)binding.kind="seismic_facies";
+  const auto expected=fw::resultGeometryFingerprint(old,binding);
+  const bool current=!expected.empty() && expected==fw::resultGeometryFingerprint(head,binding);
+  if(!current && error)*error=QStringLiteral("分析实际依赖的层段或地震面在计算期间已修改，请重新获取或预测");
+  return current;
 }
 paleo::data::WellSubIntervalRange analysisWellRange(const paleo::data::StratigraphicScheme &scheme,
     const UnitSelection &unit,const QString &entityId,qlonglong modelWellId){

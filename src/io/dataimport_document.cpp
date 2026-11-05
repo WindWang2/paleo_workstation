@@ -568,6 +568,8 @@ QString DataImportService::relocateVersionSource(const QString &versionId,
                     .arg(v.path));
   if (v.sha256.isEmpty())
     return fail(QStringLiteral("该版本入库时未留 SHA-256，无法核验新文件内容"));
+  if (v.sha256.startsWith(QLatin1String("quick:")))
+    return fail(QStringLiteral("快速指纹来源请通过文档会话的异步来源命令重定位"));
   if (newPath.isEmpty() || !QFile::exists(newPath))
     return fail(QStringLiteral("找不到源文件: %1").arg(newPath));
   const QFileInfo fi(newPath);

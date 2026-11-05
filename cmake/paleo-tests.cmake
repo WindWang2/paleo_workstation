@@ -6,10 +6,20 @@
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见
 # docs/progress/devex.md 对比表；单参 = 伞式旧式契约，保留 5 个作为兼容样本）----
 add_paleo_test(tst_portableenvironment LIBS paleo_app)
+add_paleo_test(tst_document_sources LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_document_relocation LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_document_sources_hy LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_document_relations LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_document_relation_session LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_document_relation_reader LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_prepared_import LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_horizon_semantics LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_objects LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_snapshot LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_basemap_project LIBS paleo_qgis)
-add_paleo_test(tst_background_open LIBS paleo_workflow)
+add_paleo_test(tst_background_open LIBS paleo_workflow Paleo::paleo_data_service)
 add_paleo_test(tst_officepreview LIBS paleo_ui)
 add_paleo_test(tst_identifybrowse LIBS paleo_ui)
 add_paleo_test(tst_layerservice LIBS paleo_qgis paleo_services) # catalog,metadata,qgis,services(#483 refreshBasemaps ErrorHub 断言)

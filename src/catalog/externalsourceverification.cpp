@@ -61,10 +61,8 @@ bool verifyExternalSourceFile(const QString &project, const CatalogVersion &vers
   const auto root = QDir(project).filePath("artifacts/metadata/area-model");
   if (!service.openProjectReadOnly(root.toUtf8().toStdString(), detail))
     return fail(QString::fromUtf8(detail));
-  std::vector<paleo::data::SourceIndexEntry> sources;
-  if (!service.listSourceIndexEntries(sources, detail)) return fail(QString::fromUtf8(detail));
-  for (const auto &source : sources) {
-    if (source.id != sourceId) continue;
+  paleo::data::SourceIndexEntry source;
+  if (!service.readSourceIndexEntry(sourceId, source, detail)) return fail(QString::fromUtf8(detail));
     std::string actualPath;
     if (!service.sourcePath(sourceId, actualPath, detail)) return fail(QString::fromUtf8(detail));
     if (!paleo::domain::shaEquals(QString::fromUtf8(source.sha256), version.sha256) ||
@@ -80,7 +78,5 @@ bool verifyExternalSourceFile(const QString &project, const CatalogVersion &vers
       if (mismatched) *mismatched = why.startsWith(QStringLiteral("来源文件已改变"));
       return fail(why);
     }
-    return true;
-  }
-  return fail(QStringLiteral("工区模型中不存在该资料来源"));
+  return true;
 }

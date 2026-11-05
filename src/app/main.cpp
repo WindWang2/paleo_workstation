@@ -376,6 +376,7 @@ int main(int argc, char *argv[])
   // goal/time-depth-velocity：层树深度域转换入口（壳接线在 AppContext 绑定
   // catalog 之后重绑生效——rebind 随工程打开）。
   window.attachDepthConversion(ctx.depthConversionWf());
+  window.attachDocumentSession(ctx.documentSession());
   new paleo::crossplot::CrossplotController(&ctx, &window);
   // goal/property-modeling：地层格架属性建模编排接线
   window.attachPropertyModel(ctx.propertyModelWf(), ctx.faultCtl());

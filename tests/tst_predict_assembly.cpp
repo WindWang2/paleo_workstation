@@ -8,6 +8,7 @@
 #include "helpers/workflowfixture.h"
 #include <QtTest>
 #include <QApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -19,15 +20,20 @@
 #include <gdal.h>
 #include <cpl_conv.h>
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsmaplayer.h>
 #include <qgsrasterlayer.h>
 
 #include "../src/catalog/datacatalog.h"
+#include "../src/io/areamodel.h"
+#include "../src/linkage/selectioncontext.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/services/paleotaskservice.h"
+#include "../src/services/stratigraphicsubintervals.h"
 #include "../src/ui/pages/pagepanels.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/workflow/workflows.h"
+#include <paleo_data/service.h>
 
 class TestPredictAssembly : public QObject
 {
@@ -45,6 +51,8 @@ private:
       return QString();
     const double gt[6] = {0.0, 1.0, 0.0, static_cast<double>(h), 0.0, -1.0};
     GDALSetGeoTransform(ds, const_cast<double *>(gt));
+    const auto crs=QgsCoordinateReferenceSystem::fromEpsgId(3857).toWkt().toUtf8();
+    GDALSetProjection(ds,crs.constData());
     GDALRasterBandH band = GDALGetRasterBand(ds, 1);
     GDALSetRasterNoDataValue(band, -9999.0);
     const CPLErr err = GDALRasterIO(band, GF_Write, 0, 0, w, h, const_cast<float *>(px.constData()),
@@ -64,6 +72,42 @@ private:
     d.source = source;
     d.group = QStringLiteral("00_Test");
     return d;
+  }
+
+  // The shell requires a persisted analysis unit. The legacy horizon argument
+  // neither selects the unit nor supplies the input raster's analysis identity.
+  static QgsMapLayer *makeScopedInput(Fixture &f, SelectionContext &selection, QString *error)
+  {
+    paleo::data::DataService data;std::string detail;
+    // initFixture's project service already owns and creates this area model.
+    if (!data.openProject(paleo::area_model::directory(f.dir.path()).toStdString(),detail))
+    {
+      if (error)*error=QString::fromStdString(detail);return nullptr;
+    }
+    const auto draft=paleo::strat::draftScheme("prediction-assembly","assembly",{"T1","T2"},{});
+    paleo::data::StratigraphicScheme scheme;std::vector<paleo::data::FrameworkIssue> issues;
+    if (!data.commitStratigraphicScheme(draft,{},scheme,issues,detail))
+    {
+      if (error)*error=QString::fromStdString(detail);return nullptr;
+    }
+    const auto options=paleo::strat::selectorOptions(scheme);
+    if (options.isEmpty())return nullptr;
+    selection.setActiveUnit(paleo::strat::makeSelection(scheme,options.front().intervalId,1));
+    data.closeProject();
+    if (!selection.activeUnit().isValid() || selection.activeUnit().revision.isEmpty())return nullptr;
+    const auto key=paleo::strat::analysisLayerKey(selection.activeUnit());
+    const auto path=makeRaster(f.dir.filePath("coded_in.tif"),3,3,{1,1,1,1,2,1,1,1,1});
+    if (path.isEmpty())return nullptr;
+    CatalogAsset asset;asset.id="ast-input";asset.type="single_factor_raster";
+    if (!f.catalog.addAsset(asset,error))return nullptr;
+    CatalogVersion version;version.id="ver-input";version.assetId=asset.id;version.stage="DERIVED";
+    version.managed=false;version.path=path;version.sourceUri=path;version.fileName="coded_in.tif";
+    QFile file(path);if (!file.open(QIODevice::ReadOnly))return nullptr;
+    version.sha256=QString::fromLatin1(QCryptographicHash::hash(file.readAll(),QCryptographicHash::Sha256).toHex());
+    version.extra.insert("unitSelection",paleo::strat::toMap(selection.activeUnit()));
+    if (!f.catalog.addVersion(version,error) ||
+        !f.layers.declare(decl("input."+key,key,"raster",path),error))return nullptr;
+    return f.layers.instantiate("input."+key,error);
   }
 
   // 轮询任务注册表：标题含 needle 的任务到达终态即返回。
@@ -107,16 +151,10 @@ private slots:
     Fixture f;
     QVERIFY(paleo::tests::initFixture(f));
 
-    const QVector<float> px = {1, 1, 1, 1, 2, 1, 1, 1, 1};
-    const QString inPath = makeRaster(f.dir.filePath(QStringLiteral("coded_in.tif")), 3, 3, px);
-    QVERIFY(!inPath.isEmpty());
-    QString err;
-    QVERIFY2(f.layers.declare(decl(QStringLiteral("input.T1"), QStringLiteral("T1"),
-                                   QStringLiteral("raster"), inPath),
-                              &err),
-             qPrintable(err));
-    QgsMapLayer *input = f.layers.instantiate(QStringLiteral("input.T1"), &err);
+    SelectionContext selection;QString err;
+    QgsMapLayer *input=makeScopedInput(f,selection,&err);
     QVERIFY2(input != nullptr, qPrintable(err));
+    const auto analysisKey=paleo::strat::analysisLayerKey(selection.activeUnit());
 
     PredictionWorkflow wf(&f.proc, &f.layers);
     wf.setCatalog(&f.catalog, f.dir.path());
@@ -124,7 +162,7 @@ private slots:
     const int violationsBefore = DataCatalog::threadViolationCount();
 
     PaleoTaskService taskSvc(&f.store);
-    PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
+    PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, &selection);
     win.attachWorkflows(&wf, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                         nullptr, nullptr, &taskSvc);
     auto *predictPage = win.findChild<PredictPage *>();
@@ -135,6 +173,7 @@ private slots:
     params.insert(QStringLiteral("PASSES"), 1);
     emit predictPage->runRequested(QStringLiteral("T1"),
                                    QStringLiteral("paleo:paleo_geological_smoothing"), params);
+    QVERIFY2(!taskSvc.tasks().isEmpty(),qPrintable(statusTextOf(predictPage)));
 
     PaleoTask *task = waitForTask(taskSvc, QStringLiteral("paleo_geological_smoothing"));
     QVERIFY2(task != nullptr, "预测任务未在超时内结束");
@@ -143,8 +182,11 @@ private slots:
     // publish 段（GUI 线程）：DERIVED 版本 + 图层声明 + predictionDone。
     bool declared = false;
     for (const LayerDeclaration &d : f.layers.declared())
-      if (d.layerId == QStringLiteral("predict.T1.paleo.paleo_geological_smoothing"))
+      if (d.layerId == QStringLiteral("predict.%1.paleo.paleo_geological_smoothing").arg(analysisKey))
+      {
+        QCOMPARE(d.horizon,analysisKey);
         declared = true;
+      }
     QVERIFY2(declared, "预测结果层未声明");
     bool derived = false;
     for (const CatalogAsset &asset : f.catalog.assets())
@@ -153,7 +195,12 @@ private slots:
         continue;
       for (const CatalogVersion &dv : f.catalog.versionsForAsset(asset.id))
         if (dv.stage == QStringLiteral("DERIVED") && !dv.sha256.isEmpty())
+        {
+          QCOMPARE(paleo::strat::fromMap(dv.extra.value("unitSelection").toMap()),selection.activeUnit());
+          QCOMPARE(dv.extra.value("source_horizon").toString(),analysisKey);
+          QVERIFY(dv.parentVersionIds.contains("ver-input"));
           derived = true;
+        }
     }
     QVERIFY2(derived, "预测产物未登记 DERIVED 版本");
     QVERIFY2(statusTextOf(predictPage).contains(QStringLiteral("预测完成")),
@@ -167,19 +214,24 @@ private slots:
   {
     Fixture f;
     QVERIFY(paleo::tests::initFixture(f));
+    SelectionContext selection;QString err;
+    QgsMapLayer *input=makeScopedInput(f,selection,&err);
+    QVERIFY2(input != nullptr,qPrintable(err));
 
     PredictionWorkflow wf(&f.proc, &f.layers);
     wf.setCatalog(&f.catalog, f.dir.path());
     PaleoTaskService taskSvc(&f.store);
-    PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
+    PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, &selection);
     win.attachWorkflows(&wf, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                         nullptr, nullptr, &taskSvc);
     auto *predictPage = win.findChild<PredictPage *>();
     QVERIFY(predictPage);
 
-    // 未注册算法：prepare 只做登记/参数准备，失败发生在 compute。
+    // A scoped input lets preparation finish; the missing algorithm still fails
+    // in compute, so this continues to exercise task error propagation.
     emit predictPage->runRequested(QStringLiteral("T1"), QStringLiteral("paleo:no_such_algorithm"),
-                                   {});
+                                   {{QStringLiteral("INPUT"),QVariant::fromValue(input)}});
+    QVERIFY2(!taskSvc.tasks().isEmpty(),qPrintable(statusTextOf(predictPage)));
 
     PaleoTask *task = waitForTask(taskSvc, QStringLiteral("no_such_algorithm"));
     QVERIFY2(task != nullptr, "预测任务未在超时内结束");

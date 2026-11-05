@@ -165,6 +165,7 @@ target_include_directories(paleo_qgis_attribute_table PUBLIC
 target_link_libraries(paleo_qgis_attribute_table PUBLIC paleo_qgis Qt6::Core5Compat)
 
 add_library(paleo_io STATIC
+  src/io/nativesourcesnapshot.cpp
   src/io/sourcefingerprint.cpp
   src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
   src/io/dataimport_session.cpp                     # 方向57：会话/登记基座（plan/RAW/commit 面）

@@ -6,6 +6,7 @@
 #include <QThread>
 #include <QUuid>
 #include <algorithm>
+#include <utility>
 
 namespace paleo::document {
 DocumentSession::DocumentSession(PaleoProjectStore *store,PaleoTaskService *tasks,QObject *parent)
@@ -52,22 +53,30 @@ void DocumentSession::project() const {
         m_bindingProjectionRevision=~quint64(0);
     }
     if(m_bindingProjectionRevision==m_revision) return;
+    if(!m_projection.error.isEmpty()) {
+        m_effectiveBindings.clear();m_resourceBindingIds.clear();m_bindingProjectionRevision=m_revision;return;
+    }
     m_effectiveBindings=m_projection.bindings;
     QHash<QString,QString> legacySlots;
-    for(const auto &binding:m_projection.bindings) legacySlots.insert(binding.slotKey()+binding.source.key(),binding.id);
+    for(const auto &binding:std::as_const(m_projection.bindings)) {
+        const auto key=binding.slotKey()+binding.source.key();
+        if(!legacySlots.contains(key) || binding.primary)legacySlots.insert(key,binding.id);
+    }
     for(auto it=m_projection.savedBindings.cbegin();it!=m_projection.savedBindings.cend();++it) {
         auto binding=it.value();
         // Default-scope catalog links own primary selection for old and new consumers.
-        const auto legacy=legacySlots.value(binding.slotKey()+binding.source.key());
+        const auto key=binding.slotKey()+binding.source.key();const auto legacy=legacySlots.value(key);
         if(binding.scope.isEmpty() && binding.locator.kind==LocatorKind::File) {
-            binding.primary=binding.decision==BindingDecision::Confirmed && !legacy.isEmpty() && m_projection.bindings.value(legacy).primary;
+            binding.primary=binding.decision==BindingDecision::Confirmed && !legacy.isEmpty() &&
+                m_projection.fileRepresentatives.value(key)==binding.id && m_projection.bindings.value(legacy).primary;
             const auto current=m_projection.bindings.constFind(binding.id);
             if(current!=m_projection.bindings.cend() && current->source!=binding.source && binding.decision==BindingDecision::Confirmed)
                 binding.decision=BindingDecision::Unresolved; // Keep the selected revision; never retarget it silently.
-            if(!legacy.isEmpty() && binding.id!=legacy) m_effectiveBindings.remove(legacy);
         }
         m_effectiveBindings.insert(it.key(),binding);
     }
+    for(auto it=legacySlots.cbegin();it!=legacySlots.cend();++it)
+        if(m_projection.fileRepresentatives.value(it.key())!=it.value())m_effectiveBindings.remove(it.value());
     m_resourceBindingIds.clear();
     for(const auto &binding:m_effectiveBindings) m_resourceBindingIds.insert(binding.resourceKey(),binding.id);
     m_bindingProjectionRevision=m_revision;

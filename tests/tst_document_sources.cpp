@@ -37,6 +37,97 @@ private slots:
         QVERIFY(std::any_of(values.begin(),values.end(),[&](const auto &v){return v.id==chosen.id && v.primary;}));
         QVERIFY(!f.session.execute(command).ok); // A command from the old session cannot mutate the new one.
     }
+    void fileCandidatesPreservePrimaryAndDoNotOwnTheLegacyLink() {
+        Fixture f;QVERIFY(f.init());QVERIFY(f.preparedWellSource("checks.txt",{"A"}));QVERIFY(f.bind());
+        const auto well=f.catalog.wellsMatchingName("A").front();const auto original=f.session.bindings("well",well,"time_depth").front();QVERIFY(original.primary);
+        for(int i=0;i<2;++i) {
+            auto command=f.session.command(SourceCommand::Kind::RegisterBinding);command.binding=original;command.binding.id="candidate"+QString::number(i);
+            if(i)command.binding.identityClaims={{"filename","A"},{"worksheet","B"}};
+            QVERIFY(f.session.execute(command).ok);const auto values=f.session.bindings("well",well,"time_depth");
+            QCOMPARE(std::count_if(values.cbegin(),values.cend(),[](const auto &v){return v.primary;}),1);
+            QVERIFY(std::any_of(values.cbegin(),values.cend(),[&](const auto &v){return v.id==original.id && v.primary;}));
+            const auto candidate=std::find_if(values.cbegin(),values.cend(),[&](const auto &v){return v.id==command.binding.id;});QVERIFY(candidate!=values.cend());
+            QCOMPARE(candidate->decision,i?BindingDecision::Conflict:BindingDecision::Candidate);QVERIFY(!candidate->primary);
+        }
+        auto command=f.session.command(SourceCommand::Kind::RemoveBinding);command.bindingId="candidate0";QVERIFY(f.session.execute(command).ok);
+        const auto links=f.catalog.linksForEntity(well);QCOMPARE(links.size(),1);QVERIFY(links.front().isPrimary);
+        const auto values=f.session.bindings("well",well,"time_depth");
+        QVERIFY(std::any_of(values.cbegin(),values.cend(),[&](const auto &v){return v.id==original.id && v.primary;}));
+    }
+    void confirmedFileAliasesRequireExplicitSelectionAndRemainSinglePrimary() {
+        Fixture f;QVERIFY(f.init());QVERIFY(f.preparedWellSource("checks.txt",{"A"}));QVERIFY(f.bind());
+        const auto well=f.catalog.wellsMatchingName("A").front();const auto original=f.session.bindings("well",well,"time_depth").front();
+        for(const auto &id:QStringList{"copy-a","copy-b"}) {
+            auto command=f.session.command(SourceCommand::Kind::RegisterBinding);command.binding=original;command.binding.id=id;QVERIFY(f.session.execute(command).ok);
+            command=f.session.command(SourceCommand::Kind::ConfirmBinding);command.bindingId=id;QVERIFY(f.session.execute(command).ok);
+        }
+        auto values=f.session.bindings("well",well,"time_depth");QCOMPARE(values.size(),3);
+        QVERIFY(std::any_of(values.cbegin(),values.cend(),[&](const auto &v){return v.id==original.id && v.primary;}));
+        for(const auto &id:QStringList{"copy-a","copy-b"}) {
+            auto command=f.session.command(SourceCommand::Kind::SelectPrimary);command.bindingId=id;QVERIFY(f.session.execute(command).ok);
+            values=f.session.bindings("well",well,"time_depth");QCOMPARE(values.size(),2);
+            QCOMPARE(std::count_if(values.cbegin(),values.cend(),[](const auto &v){return v.primary;}),1);
+            QVERIFY(std::any_of(values.cbegin(),values.cend(),[&](const auto &v){return v.id==id && v.primary;}));
+        }
+        f.session.close();QVERIFY(f.bind());values=f.session.bindings("well",well,"time_depth");
+        QCOMPARE(std::count_if(values.cbegin(),values.cend(),[](const auto &v){return v.primary;}),1);
+        QVERIFY(std::any_of(values.cbegin(),values.cend(),[](const auto &v){return v.id=="copy-b" && v.primary;}));
+        auto command=f.session.command(SourceCommand::Kind::RemoveBinding);command.bindingId="copy-a";QVERIFY(f.session.execute(command).ok);
+        const auto links=f.catalog.linksForEntity(well);QCOMPARE(links.size(),1);QVERIFY(links.front().isPrimary);
+        values=f.session.bindings("well",well,"time_depth");QCOMPARE(values.size(),1);QVERIFY(values.front().primary);
+    }
+    void malformedBindingContainersFailClosed_data() {
+        QTest::addColumn<QVariant>("container");QTest::newRow("string")<<QVariant(QStringLiteral("broken-container"));
+        QTest::newRow("array")<<QVariant(QVariantList{QString("broken-container")});
+        QTest::newRow("null")<<QVariant();
+    }
+    void malformedBindingContainersFailClosed() {
+        QFETCH(QVariant,container);Fixture f;QVERIFY(f.init());QVERIFY(f.preparedWellSource("checks.txt",{"A"}));QVERIFY(f.bind());
+        const auto record=f.session.sources().front();const auto well=f.catalog.wellsMatchingName("A").front();
+        // Invalid QVariant is the public deletion sentinel; use a JSON null value
+        // to exercise a present-but-invalid container instead of deleting the key.
+        if(!container.isValid())container=QVariant::fromValue(nullptr);
+        QVERIFY(f.catalog.updateVersionExtra(record.versionId,"documentSourceBindings",container,&f.error));
+        f.session.close();QVERIFY(f.catalog.open(f.project,&f.error));QVERIFY(f.bind());
+        QVERIFY(!f.session.loadError().isEmpty());QVERIFY(f.session.bindings("well",well,"time_depth").isEmpty());
+        auto command=f.session.command(SourceCommand::Kind::Inspect);command.source=record.ref;
+        QCOMPARE(f.session.execute(command).code,QString("source_metadata_invalid"));
+    }
+    void oldDuplicatePrimaryMetadataGetsOneDeterministicRepresentative() {
+        Fixture f;QVERIFY(f.init());QVERIFY(f.preparedWellSource("checks.txt",{"A"}));QVERIFY(f.bind());
+        const auto well=f.catalog.wellsMatchingName("A").front();const auto original=f.session.bindings("well",well,"time_depth").front();
+        QVariantMap payload;
+        for(const auto &id:QStringList{"copy-b","copy-a"}) {
+            auto binding=original;binding.id=id;binding.primary=true;binding.revision=1;payload.insert(id,sourceBindingJson(binding).toVariantMap());
+        }
+        QVERIFY(f.catalog.updateVersionExtra(f.session.source(original.source).versionId,"documentSourceBindings",payload,&f.error));
+        for(int i=0;i<2;++i) {
+            const auto values=f.session.bindings("well",well,"time_depth");QCOMPARE(values.size(),2);
+            QCOMPARE(std::count_if(values.cbegin(),values.cend(),[](const auto &v){return v.primary;}),1);
+            QVERIFY(std::any_of(values.cbegin(),values.cend(),[](const auto &v){return v.id=="copy-a" && v.primary;}));
+            f.session.close();QVERIFY(f.bind());
+        }
+    }
+    void nativeModelLocationAndStableIdentityAreSeparate() {
+        Fixture f;QVERIFY(f.init());const auto version=f.external("native.txt","data");
+        const QString original="artifacts/raw/original/native-model/data.sqlite",relocated="artifacts/raw/relocated/native-model/data.sqlite";
+        const QVariantMap native{{"schema",1},{"path",relocated},{"storeIdentity",original},{"sourceId",qlonglong(7)},
+            {"sha256",QString(64,'a')},{"sourceSha256",f.catalog.versionById(version).sha256}};
+        QVERIFY(f.catalog.updateVersionExtra(version,"nativeModel",native,&f.error));QVERIFY(f.bind());
+        const auto record=f.session.sourceForVersion(version);QVERIFY(record.ref.valid());QVERIFY(f.session.loadError().isEmpty());
+        QCOMPARE(record.ref.modelStoreId,original);
+        QCOMPARE(record.modelDirectory,QDir(f.project).filePath("artifacts/raw/relocated/native-model"));
+        QVERIFY(!record.modelDirectory.endsWith("data.sqlite"));
+    }
+    void unsafeNativeModelPathsFailBeforeSourceCommands() {
+        Fixture f;QVERIFY(f.init());const auto version=f.external("native.txt","data");
+        const QVariantMap native{{"path","../outside/data.sqlite"},{"sourceId",qlonglong(7)}};
+        QVERIFY(f.catalog.updateVersionExtra(version,"nativeModel",native,&f.error));QVERIFY(f.bind());
+        QVERIFY(!f.session.loadError().isEmpty());const auto record=f.session.sourceForVersion(version);
+        QCOMPARE(record.state.model,ModelAvailability::Failed);QVERIFY(record.modelDirectory.isEmpty());
+        auto command=f.session.command(SourceCommand::Kind::Inspect);command.source=record.ref;
+        QCOMPARE(f.session.execute(command).code,QString("source_metadata_invalid"));
+    }
     void identityConflictNeedsExplicitResolution() {
         Fixture f;QVERIFY(f.init());const auto version=f.external("report.xls","fixture");QVERIFY(!version.isEmpty());
         CatalogEntity well;well.id="well-1";well.entityType="well";well.name="A";QVERIFY(f.catalog.addEntity(well));QVERIFY(f.bind());

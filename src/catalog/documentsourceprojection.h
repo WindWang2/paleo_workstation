@@ -9,6 +9,7 @@ struct SourceProjection {
     QHash<QString,QString> versionKeys;
     QHash<QString,SourceBinding> bindings;
     QHash<QString,SourceBinding> savedBindings;
+    QHash<QString,QString> fileRepresentatives; // slot + source key -> sole legacy-link representative.
     QString error;
 };
 // In-memory catalog projection only: no stat, hashing, model opens or file reads.

@@ -3,12 +3,19 @@
 #include "datacatalog.h"
 #include <QCryptographicHash>
 #include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <utility>
 
 namespace paleo::document {
 namespace {
-SourceRecord recordFor(const CatalogVersion &version,const QString &documentId,const QString &project) {
+bool safeModelPath(const QString &path) {
+    if(path.isEmpty() || QDir::isAbsolutePath(path) || path.contains('\\'))return false;
+    for(const auto &segment:path.split('/'))if(!DataCatalog::isSafePathSegment(segment))return false;
+    return true;
+}
+SourceRecord recordFor(const CatalogVersion &version,const QString &documentId,const QString &project,QString *error) {
     SourceRecord record;record.assetId=version.assetId;record.versionId=version.id;
     record.originalPath=version.sourceUri;record.managed=version.managed;
     record.path=version.managed ? QDir(project).filePath(version.path) : version.path;
@@ -20,10 +27,16 @@ SourceRecord recordFor(const CatalogVersion &version,const QString &documentId,c
         record.ref.modelStoreId="area-model";record.ref.sourceId=source;
         record.modelDirectory=QDir(project).filePath("artifacts/metadata/area-model");
     } else if(native.value("sourceId").toLongLong()>0) {
-        record.ref.modelStoreId=native.value("path").toString();record.ref.sourceId=native.value("sourceId").toLongLong();
-        record.modelDirectory=QDir(project).filePath(record.ref.modelStoreId);
+        const auto database=native.value("path").toString();
+        record.ref.modelStoreId=native.value("storeIdentity",database).toString();record.ref.sourceId=native.value("sourceId").toLongLong();
+        if(!safeModelPath(database) || QFileInfo(database).fileName()!=QLatin1String("data.sqlite") || !safeModelPath(record.ref.modelStoreId)) {
+            if(error)*error=QStringLiteral("原生来源模型路径或身份无效");
+        } else record.modelDirectory=QFileInfo(QDir(project).filePath(database)).absolutePath();
     } else record.ref.modelStoreId="catalog:"+version.assetId;
     record.state.model=record.ref.sourceId>0?ModelAvailability::Registered:ModelAvailability::Unbound;
+    if(record.ref.sourceId>0 && record.modelDirectory.isEmpty()) {
+        record.state.model=ModelAvailability::Failed;record.state.code="model_path_invalid";
+    }
     return record;
 }
 QString bindingId(const EntityAssetLink &link) {
@@ -35,7 +48,10 @@ SourceProjection projectDocumentSources(const DataCatalog &catalog,const QString
     SourceProjection projection;QHash<QString,CatalogVersion> latest;QHash<QString,int> selectedVersions;
     const auto versions=catalog.versions();
     for(const auto &version:versions) {
-        const auto saved=version.extra.value("documentSourceBindings").toMap();
+        const auto container=version.extra.value("documentSourceBindings");
+        if(version.extra.contains("documentSourceBindings") && container.metaType().id()!=QMetaType::QVariantMap)
+            projection.error=QStringLiteral("来源关联集合必须为对象");
+        const auto saved=container.toMap();
         for(auto it=saved.cbegin();it!=saved.cend();++it) {
             SourceBinding binding;QString error;
             if(!sourceBindingFromJson(QJsonObject::fromVariantMap(it.value().toMap()),binding,&error) ||
@@ -45,7 +61,7 @@ SourceProjection projectDocumentSources(const DataCatalog &catalog,const QString
             if(!projection.savedBindings.contains(binding.id) || binding.revision>=projection.savedBindings.value(binding.id).revision)
                 projection.savedBindings.insert(binding.id,binding);
         }
-        auto record=recordFor(version,documentId,catalog.projectDir());
+        auto record=recordFor(version,documentId,catalog.projectDir(),&projection.error);
         record.kind=catalog.assetById(version.assetId).type;
         const auto key=record.ref.key();projection.versionKeys.insert(version.id,key);
         if(!projection.records.contains(key) || version.versionNumber>=selectedVersions.value(key)) {
@@ -63,6 +79,24 @@ SourceProjection projectDocumentSources(const DataCatalog &catalog,const QString
         binding.decision=link.unresolved?BindingDecision::Unresolved:BindingDecision::Confirmed;
         binding.evidence=QStringLiteral("catalog relation");projection.bindings.insert(binding.id,std::move(binding));
     }
+    // The catalog link owns the file choice. A saved alias replaces its display
+    // representative only after SelectPrimary, never merely on registration/confirmation.
+    for(const auto &binding:std::as_const(projection.bindings)) {
+        const auto key=binding.slotKey()+binding.source.key();
+        if(!projection.fileRepresentatives.contains(key) || binding.primary)
+            projection.fileRepresentatives.insert(key,binding.id);
+    }
+    QHash<QString,SourceBinding> selected;
+    for(const auto &binding:std::as_const(projection.savedBindings)) {
+        if(!binding.scope.isEmpty() || binding.locator.kind!=LocatorKind::File ||
+           binding.decision!=BindingDecision::Confirmed || !binding.primary)continue;
+        const auto key=binding.slotKey()+binding.source.key();
+        if(!projection.fileRepresentatives.contains(key))continue;
+        const auto previous=selected.constFind(key);
+        if(previous==selected.cend() || binding.revision>previous->revision ||
+           (binding.revision==previous->revision && binding.id<previous->id))selected.insert(key,binding);
+    }
+    for(auto it=selected.cbegin();it!=selected.cend();++it)projection.fileRepresentatives.insert(it.key(),it->id);
     return projection;
 }
 }

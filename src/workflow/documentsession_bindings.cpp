@@ -64,7 +64,9 @@ SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) 
                 if(!m_catalog->addLink(link,error)){batch.abort();return false;}index=m_catalog->links().size()-1;}
             if(!m_catalog->setLinkPrimary(index,error)){batch.abort();return false;}
         }
-        if(bridge && command.kind==SourceCommand::Kind::RemoveBinding && binding.locator.kind==LocatorKind::File) {
+        const bool ownsLegacy=m_projection.bindings.contains(binding.id) ||
+            m_projection.fileRepresentatives.value(binding.slotKey()+binding.source.key())==binding.id;
+        if(bridge && command.kind==SourceCommand::Kind::RemoveBinding && binding.locator.kind==LocatorKind::File && ownsLegacy) {
             const auto asset=source(binding.source).assetId;const auto links=m_catalog->links();
             for(int i=0;i<links.size();++i)
                 if(links[i].entityType==binding.resourceKind && links[i].entityId==binding.resourceId && links[i].assetId==asset && links[i].role==binding.role)

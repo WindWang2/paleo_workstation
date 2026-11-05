@@ -130,7 +130,7 @@ target_sources(paleo_workflow PRIVATE src/workflow/analysisresultsync.cpp src/wo
 target_sources(paleo_workflow PRIVATE src/workflow/analysisframework.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/seismicresultpublisher.cpp)
 add_paleo_test(tst_analysisresultsync LIBS paleo_workflow Paleo::paleo_data_service)
-add_paleo_test(tst_dataservice_framework LIBS Paleo::paleo_data_service Qt6::Core)
+add_paleo_test(tst_dataservice_framework LIBS Paleo::paleo_data_service Qt6::Core Qt6::Sql)
 add_paleo_test(tst_dataservice_gridtile LIBS Paleo::paleo_data_service Qt6::Core Qt6::Sql)
 target_include_directories(tst_dataservice_gridtile PRIVATE vendor/Data_service/src)
 target_link_libraries(tst_wellfacies PRIVATE Paleo::paleo_data_service)

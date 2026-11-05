@@ -73,8 +73,6 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error, WellComposite::Comprehe
     q.stratigraphy.schemeId = m_stratSchemeId.toStdString();
     q.stratigraphy.trackName = m_stratTrackName.toStdString();
     q.stratigraphy.unitName = m_stratUnitName.toStdString();
-    q.stratigraphy.subIntervalId.value = m_stratUnitName.toStdString();
-    q.stratigraphy.intervalId.value = m_stratUnitName.toStdString();
     std::vector<paleo::data::WellStratigraphicLogSlice> slices;
     QString qErr;
     if (!paleo::strat::queryProjectWellLogsByStratigraphy(projectDir(), q, slices, &qErr) || slices.empty()) {
@@ -87,8 +85,7 @@ bool WellFaciesWorkflow::scopePlanToUnit(QString *error, WellComposite::Comprehe
                                               : QString::fromStdString(slice.unresolvedReason);
       return false;
     }
-    if ((!slice.depthType.empty() && slice.depthType != "MD") ||
-        (!slice.depthUnit.empty() && slice.depthUnit != "m")) {
+    if (slice.depthType != "MD" || slice.depthUnit != "m") {
       *error = tr("所选地层道的深度不是 MD 米制（%1/%2），不能直接截取预测输入")
                    .arg(QString::fromStdString(slice.depthType), QString::fromStdString(slice.depthUnit));
       return false;

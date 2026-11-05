@@ -1,6 +1,7 @@
 // 层：功能
 #include "documentsession_internal.h"
 #include "io/sourcefingerprint.h"
+#include "io/nativesourcesnapshot.h"
 #include "services/documentsourceprobe.h"
 #include <paleo_data/service.h>
 #include <QDir>
@@ -63,11 +64,36 @@ SourceCommandResult DocumentSession::startRelocation(const SourceCommand &reques
        (record.fingerprint.kind==FingerprintKind::SegyQuickV1 && record.ref.modelStoreId!="area-model")) {
         result.code="relocation_invalid";result.error=QStringLiteral("重定位需要有身份指纹的外链来源和新文件路径");return result;
     }
-    if(!m_tasks || m_relocation->busy()) {result.code="busy";result.error=QStringLiteral("来源重定位正在进行或任务服务未配置");return result;}
+    if(!m_operations.contains(journalId))for(const auto &version:m_catalog->versionsForAsset(record.assetId)) {
+        if(version.extra.value("documentSourceOperation").toString()!=command.operationId)continue;
+        SourceRef original;const auto input=version.extra.value("documentSourceRequest").toMap();
+        const bool sameSource=input.isEmpty()?sourceForVersion(version.id).ref==command.source:
+            sourceRefFromJson(QJsonObject::fromVariantMap(input.value("source").toMap()),original) && original==command.source;
+        if(!sameSource || QDir::cleanPath(version.path)!=QDir::cleanPath(command.path) || record.versionId!=version.id) {
+            result.code="operation_conflict";result.error=QStringLiteral("已完成的来源操作不能用于不同输入或较新的来源状态");return result;
+        }
+        result.ok=true;result.code="already_committed";result.versionId=version.id;return result;
+    }
     auto job=std::make_shared<SourceJob>();job->command=command;job->record=record;job->projectDirectory=m_projectDir;
     job->journalId=journalId;job->recovering=m_operations.contains(journalId);
     job->parentVersion=m_catalog->versionById(parentVersion.isEmpty()?record.versionId:parentVersion);
     if(job->parentVersion.id.isEmpty()) {result.code="parent_missing";result.error=QStringLiteral("重定位父版本不存在");return result;}
+    const auto intent=m_operations.value(journalId);
+    if(job->recovering && (intent.value("schema").toInt()!=1 || intent.value("assetId").toString()!=record.assetId ||
+       job->parentVersion.assetId!=record.assetId || sourceForVersion(job->parentVersion.id).ref!=record.ref)) {
+        result.code="operation_conflict";result.error=QStringLiteral("恢复记录与原来源或父版本不一致");return result;
+    }
+    job->expectedCurrentVersion=intent.value("expectedCurrentVersion").toString();
+    if(job->expectedCurrentVersion.isEmpty())job->expectedCurrentVersion=job->recovering?job->parentVersion.id:m_catalog->currentVersion(record.assetId).id;
+    job->nativeRecoveryBinding=intent.value("nativeModel").toObject().toVariantMap();
+    // A catalog commit proves the model publish already completed. Only the
+    // durable journal remains; finishing it must also work with offline inputs.
+    if(job->recovering)for(const auto &version:m_catalog->versionsForAsset(record.assetId)) {
+        if(version.extra.value("documentSourceOperation").toString()!=journalId)continue;
+        result.ok=commitRelocation(*job,&result.error);result.versionId=job->newVersionId;
+        result.code=result.ok?"already_committed":"recovery_required";result.revision=m_revision;return result;
+    }
+    if(!m_tasks || m_relocation->busy()) {result.code="busy";result.error=QStringLiteral("来源重定位正在进行或任务服务未配置");return result;}
     paleo::jobs::JobRunner<SourceJob>::Callbacks callbacks;
     callbacks.compute=[](SourceJob &work,const auto &cancelled,const auto &progress){
         progress(0,QStringLiteral("核验新来源"));
@@ -83,14 +109,19 @@ SourceCommandResult DocumentSession::startRelocation(const SourceCommand &reques
             if(modelPath!=QDir::cleanPath(work.record.path) && !(work.recovering && modelPath==QDir::cleanPath(work.command.path))) {
                 work.error=QStringLiteral("来源模型位置与目录索引不一致，请刷新或恢复未完成操作");return false;
             }
+        } else if(!work.parentVersion.extra.value("nativeModel").toMap().isEmpty()) {
+            NativeSourceRelocationRequest input;input.projectDirectory=work.projectDirectory;input.candidatePath=work.command.path;input.source=work.record;
+            input.originalBinding=work.parentVersion.extra.value("nativeModel").toMap();input.recoveryBinding=work.nativeRecoveryBinding;
+            work.nativeSnapshot=NativeSourceSnapshot::prepare(input,&work.error,cancelled);if(!work.nativeSnapshot)return false;
+            work.stamp=work.nativeSnapshot->candidateStamp();work.verifiedBytes=work.nativeSnapshot->verifiedBytes();
         } else if(!verifySourceFingerprint(work.command.path,work.record.fingerprint,work.stamp,work.verifiedBytes,&work.error,cancelled)) return false;
-        work.computed=true;progress(100,QStringLiteral("准备提交来源位置"));return true;
+        progress(100,QStringLiteral("准备提交来源位置"));work.computed=true;return true;
     };
     callbacks.commit=[this](SourceJob &work,QString *error){
         SourceCommandResult done;done.operationId=work.command.operationId;
         bool ok=check(work.command,true,done);
         if(!ok) work.error=done.error;
-        if(ok && !work.computed) {ok=false;if(work.error.isEmpty())work.error=QStringLiteral("来源核验未完成");}
+        if(ok && (!work.computed || !work.error.isEmpty())) {ok=false;if(work.error.isEmpty())work.error=QStringLiteral("来源核验未完成");}
         if(ok) ok=commitRelocation(work,&work.error);
         done.ok=ok;done.error=work.error;done.code=ok?"committed":m_operations.contains(work.journalId)?"recovery_required":"relocation_failed";
         done.versionId=work.newVersionId;done.revision=m_revision;done.state.bytesRead=work.verifiedBytes;
@@ -101,6 +132,7 @@ SourceCommandResult DocumentSession::startRelocation(const SourceCommand &reques
         SourceCommandResult done;done.operationId=work.command.operationId;done.code="cancelled_or_stale";done.error=QStringLiteral("重定位已取消或工程已切换");
         emit relocationFinished(work.parentVersion.id,{},done.error);emit commandFinished(done);
     };
+    callbacks.cleanup=[](SourceJob &work){work.nativeSnapshot.reset();};
     if(!m_relocation->start(QStringLiteral("重新定位资料来源"),job,std::move(callbacks))) {result.code="start_failed";return result;}
     result.pending=true;result.code="pending";return result;
 }

@@ -10,6 +10,7 @@ add_paleo_test(tst_document_sources LIBS paleo_workflow Paleo::paleo_data_servic
 add_paleo_test(tst_document_relocation LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_document_sources_hy LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_prepared_import LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_horizon_semantics LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_basemap_project LIBS paleo_qgis)

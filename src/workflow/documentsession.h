@@ -50,7 +50,7 @@ private:
     bool check(const SourceCommand &command,bool write,SourceCommandResult &result) const;
     SourceCommandResult editBindings(const SourceCommand &command);
     SourceCommandResult startInspection(const SourceCommand &command);
-    SourceCommandResult startRelocation(const SourceCommand &command);
+    SourceCommandResult startRelocation(const SourceCommand &requested);
     bool commitRelocation(SourceJob &job,QString *error);
     bool queuedWrite(const std::function<bool(QString *)> &write,QString *error);
     void invalidate();

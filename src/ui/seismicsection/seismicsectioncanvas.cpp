@@ -37,6 +37,9 @@ bool SeismicSectionCanvas::event(QEvent *event) {
             const auto &well = m_wells[label.wellIndex];
             QString detail = tr("井名：%1\n偏移距离：%2 m").arg(label.name).arg(well.offsetDistanceM, 0, 'f', 1);
             if (!well.alignmentStatus.isEmpty()) detail += '\n' + well.alignmentStatus;
+            for (const auto &synthetic : m_syntheticOverlays)
+                if (synthetic.wellId == well.wellId && !synthetic.ok && !synthetic.reason.isEmpty())
+                    detail += '\n' + tr("合成记录不可用：%1").arg(synthetic.reason);
             QToolTip::showText(help->globalPos(), QStringLiteral("<qt>%1</qt>")
                 .arg(detail.toHtmlEscaped().replace('\n', QStringLiteral("<br>"))), this, label.badge.toAlignedRect());
             return true;

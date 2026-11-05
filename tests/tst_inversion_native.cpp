@@ -62,6 +62,33 @@ struct Fixture {
 class NativeInversionTest:public QObject {
  Q_OBJECT
 private slots:
+ void nullComputeJobsAreRejected(){
+  paleo::inv::InversionWorkflow workflow;
+  QVERIFY(!workflow.computeWaveletJob(nullptr));
+  QVERIFY(!workflow.computeInversionJob(nullptr));
+ }
+ void unsuccessfulRecomputeCannotPublishOldSuccess(){
+  Fixture f;QVERIFY2(f.init(true),f.detail.c_str());paleo::inv::InversionWorkflow workflow;
+  DataCatalog catalog;QVERIFY(catalog.open(f.project,&f.error));DerivedAssetRegistrar registrar(&catalog,f.project);
+  paleo::inv::InversionWorkflow::WaveletJob wavelet;
+  wavelet.prepared=true;wavelet.req.projectDirectory=f.project;wavelet.req.seismicPath=f.path;
+  wavelet.req.timeReference="shared zero";wavelet.req.trajectory=f.pathPoints();wavelet.req.waveletLengthMs=128;
+  wavelet.spikes={{80,.1f},{320,-.07f}};
+  QVERIFY2(workflow.computeWaveletJob(&wavelet),qPrintable(wavelet.error));QVERIFY(wavelet.ok);
+  QVERIFY(!workflow.computeWaveletJob(&wavelet,[]{return true;}));QVERIFY(!wavelet.ok);
+  QVERIFY(workflow.publishWaveletJob(wavelet,registrar,&f.error).isEmpty());
+  wavelet.ok=true;wavelet.prepared=false;
+  QVERIFY(!workflow.computeWaveletJob(&wavelet));QVERIFY(!wavelet.ok);
+  paleo::inv::InversionWorkflow::InversionJob job;
+  QVERIFY(workflow.prepareInversionJob(f.request(),&job,&f.error));
+  QVERIFY2(workflow.computeInversionJob(&job),qPrintable(job.error));QVERIFY(job.ok);
+  const auto oldPath=job.tempVolumePath;
+  QVERIFY(!workflow.computeInversionJob(&job,[]{return true;}));QVERIFY(!job.ok);
+  QVERIFY(!workflow.publishInversionJob(job,registrar,&f.error).ok);
+  job.ok=true;job.prepared=false;
+  QVERIFY(!workflow.computeInversionJob(&job));QVERIFY(!job.ok);
+  workflow.reclaimTempVolume(oldPath);
+ }
  void strictImpedanceKeepsCurveMissingAndCoverage(){
   std::vector<double> times;std::vector<float> impedance;
   QVERIFY(paleo::inv::wellImpedanceTwt({0,100,200,300,400},{400,400,400,400,400},

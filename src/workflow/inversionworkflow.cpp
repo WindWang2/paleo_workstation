@@ -295,7 +295,11 @@ bool InversionWorkflow::prepareWaveletJob(const WaveletJobRequest &req, WaveletJ
 bool InversionWorkflow::computeWaveletJob(WaveletJob *job, const std::function<bool()> &cancelled,
                                           const std::function<void(double)> &progress) const
 {
-    if (!job || !job->prepared)
+    if (!job)
+        return false;
+    job->ok = false;
+    job->error.clear();
+    if (!job->prepared)
         return setError(&job->error, QStringLiteral("子波作业未 prepare"));
     if (cancelled && cancelled())
         return setError(&job->error, QStringLiteral("已取消"));
@@ -571,7 +575,11 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
 bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::function<bool()> &cancelled,
                                             const std::function<void(double)> &progress) const
 {
-    if (!job || !job->prepared)
+    if (!job)
+        return false;
+    job->ok = false;
+    job->error.clear();
+    if (!job->prepared)
         return setError(&job->error, QStringLiteral("反演作业未 prepare"));
     if (cancelled && cancelled())
         return setError(&job->error, QStringLiteral("已取消"));

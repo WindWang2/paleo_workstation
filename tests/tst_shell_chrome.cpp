@@ -694,11 +694,12 @@ private slots:
     // objectName 是 designerButton，改查 action 本身）。
     const QStringList freeActionNames{
         QStringLiteral("ribbonSaveVersion"), QStringLiteral("ribbonExportPdf"),
-        QStringLiteral("ribbonDesignerAction"), QStringLiteral("ribbonRunPrediction"),
+        QStringLiteral("ribbonDesignerAction"),
         QStringLiteral("ribbonRunValidation")};
-    // owner 管使能（无因素勾选 / 无层位）：开门后仍禁用，但原因不是工程门——
+    // owner 管使能（无预测输入 / 无因素勾选 / 无层位）：开门后仍禁用，但原因不是工程门——
     // 断言 AND 合成：门控只关不放，不覆盖 owner 的禁用理由。
-    const QStringList ownerActionNames{QStringLiteral("ribbonRunIdw"),
+    const QStringList ownerActionNames{QStringLiteral("ribbonRunPrediction"),
+                                       QStringLiteral("ribbonRunIdw"),
                                        QStringLiteral("ribbonThicknessChain")};
     const auto button = [cat](const QString &name) -> QToolButton * {
       for (auto *b : cat->findChildren<QToolButton *>())

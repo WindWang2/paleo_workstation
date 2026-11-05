@@ -15,6 +15,7 @@ target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 
 # ---- 数据层 ----
 add_library(paleo_domain STATIC
+  src/domain/documentsource.cpp
   src/domain/singlefactorrequest.cpp
   src/domain/types.cpp
   src/domain/litholexicon.cpp
@@ -65,6 +66,8 @@ target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
 # catalog + metadata 同库（互依环）
 add_library(paleo_store STATIC
+  src/catalog/documentsourceprojection.cpp
+  src/metadata/documentsourcestore.cpp
   src/catalog/purgelease.cpp
   src/catalog/datacatalog.cpp                       # 生命周期/open/落盘面（方向 99 拆分主 TU）
   src/catalog/datacatalog_entities.cpp              # 实体族：add/查询/井名匹配/前缀 id
@@ -162,6 +165,7 @@ target_include_directories(paleo_qgis_attribute_table PUBLIC
 target_link_libraries(paleo_qgis_attribute_table PUBLIC paleo_qgis Qt6::Core5Compat)
 
 add_library(paleo_io STATIC
+  src/io/sourcefingerprint.cpp
   src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
   src/io/dataimport_session.cpp                     # 方向57：会话/登记基座（plan/RAW/commit 面）
   src/io/dataimport_file.cpp                        # 方向57：单文件导入编排（importOneFile 壳+分派）
@@ -190,6 +194,7 @@ add_library(paleo_io STATIC
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
+  src/services/documentsourceprobe.cpp
   src/services/datagraph_layout.cpp
   src/services/dataexport.cpp
   src/services/datagraph.cpp

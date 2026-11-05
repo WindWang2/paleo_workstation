@@ -20280,6 +20280,14 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>PaleoMainWindow</name>
+        <message>
+            <source>来源文档未打开</source>
+            <translation>来源文档未打开</translation>
+        </message>
+        <message>
+            <source>工程会话已变化</source>
+            <translation>工程会话已变化</translation>
+        </message>
     <message>
         <location filename="../src/ui/paleomainwindow_internal.h" line="46"/>
         <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="105"/>

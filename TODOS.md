@@ -11,6 +11,10 @@
 
 ## P1 — Data_service 类型化数据与版本事务统一（2026-10-28）
 
+文档来源第一批已提供 SourceRef / SourceBinding、状态维度和统一命令，会话与
+预览重定位接入见 [实施记录](docs/progress/document-sources-20261105.md)。继续迁移
+各业务视图的来源选择与直接文件读口，补身份裁定视图、分页父来源匹配和显式页 CRC 任务。
+
 已接入目录四表、新建工程、五类井数据的导入模型快照和主要读取门面；
 标准化及深度补算井表也建立独立模型版本。后续按
 [接入方案](docs/DATA_SERVICE_INTEGRATION.md) 推进：

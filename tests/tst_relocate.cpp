@@ -80,6 +80,7 @@ private slots:
   void managedMissingShowsNoRelocateButton();
   void relocateViaTabsRebuildsPreview();
   void relocateViaTabsMismatchKeepsDeadEndThenRecovers();
+  void asynchronousReplyShowsFailureAndIgnoresClosedPage();
   // document 分支（#597 H4）：重定位后预览锚最高号 RAW，不是表中第一条。
   void relocatedDocumentPreviewAnchorsLatestRaw();
 
@@ -345,6 +346,20 @@ void TestRelocate::relocateViaTabsMismatchKeepsDeadEndThenRecovers()
   // 再挑对文件：恢复。
   QVERIFY(pv.relocateMissingSourceWith(ex.assetId, ex.versionId, right));
   QVERIFY(!pv.isMissingSourceState(ex.assetId));
+}
+
+void TestRelocate::asynchronousReplyShowsFailureAndIgnoresClosedPage()
+{
+  QTemporaryDir tmp;auto st=makeStack(tmp.filePath(QStringLiteral("proj")));QVERIFY(st);
+  const auto ex=makeExternal(*st->importSvc,tmp);QVERIFY(!ex.assetId.isEmpty());QVERIFY(QFile::remove(ex.source));
+  DataPreviewTabs pv;pv.setImportService(st->importSvc.get());pv.openAsset(ex.assetId);
+  QVERIFY(pv.isMissingSourceState(ex.assetId));DataPreviewTabs::RelocationReply reply;
+  pv.setSourceRelocationHandler([&](const QString &version,const QString &,auto done){QCOMPARE(version,ex.versionId);reply=std::move(done);});
+  QVERIFY(pv.relocateMissingSourceWith(ex.assetId,ex.versionId,"candidate"));QVERIFY(bool(reply));
+  reply({},QStringLiteral("injected asynchronous failure"));
+  auto *label=pv.findChild<QLabel *>(QStringLiteral("stateText"));QVERIFY(label && label->text().contains(QStringLiteral("injected asynchronous failure")));
+  QVERIFY(pv.relocateMissingSourceWith(ex.assetId,ex.versionId,"candidate"));
+  pv.closeAllTabs();reply({},QStringLiteral("discarded"));QCOMPARE(pv.tabCount(),0);
 }
 
 // #597 H4：外链 document 资产重定位后，重建的预览必须锚到**新追加**的那条

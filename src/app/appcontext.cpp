@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "workflow/documentsession.h"
 #include "../ai/chat/llmclient.h" // 方向51：LLM 配置 + 助手编排
 #include "../ai/chat/llmkeystore.h"
 #include "../ai/remotepredictconfig.h"
@@ -199,6 +200,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
       });
 
   m_import = new DataImportService(m_store, this);
+  m_documentSession = new paleo::document::DocumentSession(m_store, m_taskSvc, this);
   connect(m_import, &DataImportService::layerDeclared, this,
           [this](const LayerDeclaration &decl) {
             if (m_layerSvc) {
@@ -550,6 +552,7 @@ void AppContext::closeProject()
 
 void AppContext::releaseProjectSession()
 {
+  if (m_documentSession) m_documentSession->close();
   if (m_projectSvc && m_projectSvc->isBackgroundOpenRunning()) {
     // 同目录重开复用当前锁；关闭会话也要等后台读写退出才放锁。
     if (m_pendingLockReuse && !m_pendingLock) m_pendingLock = std::move(m_projectLock);
@@ -744,6 +747,10 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
   }
   m_import->setProjectDir(fi.absolutePath(),
       prepared && prepared->directory == fi.absolutePath() ? prepared->catalog : nullptr);
+  const auto documentFile = readProjectFile(paleoProjectFilePath(fi.absolutePath()));
+  QString sourceError;
+  if (!m_documentSession->bind(m_import->catalog(), metaPath, documentFile.projectId, !writable, &sourceError))
+    qWarning() << "AppContext: document sources unavailable:" << sourceError;
   // 工程级地理配准（project.paleo georeference 节）：导入服务带上
   // 局部网格→WGS84 变换——建井时写 coordinateStatus=ok + extra
   // 经纬度；无配准工程保持 untransformed 现状。

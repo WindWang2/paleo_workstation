@@ -130,6 +130,7 @@ class QgisLayoutService;
 class QgisEditingService;
 class PaleoProjectStore;
 class PaleoTaskService;
+namespace paleo::document {class DocumentSession;}
 class PaleoDecorationManager;
 class PaleoEditingToolbar;
 class DataPage;
@@ -260,6 +261,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 挂本窗口 + 「错误历史」dock（布局与面板菜单唤出）。幂等（已接则忽略）。
     void attachErrorHub(ErrorHub *hub);
     void showErrorHistory();
+    void attachDocumentSession(paleo::document::DocumentSession *session);
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,

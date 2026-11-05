@@ -25,6 +25,7 @@
 
 - [工程文件、新建向导与坐标设置](PROJECT_FILE_DESIGN.md)
 - [工区参数配置](AREA_PARAMETERS.md)
+- [统一文档来源与会话（第一批）](progress/document-sources-20261105.md)
 - [测井资料导入](import-well-logs.md)
 - [测井相预测](WELL_FACIES_PREDICTION.md)
 - [井矢量属性](WELL_VECTOR_ATTRIBUTES.md)

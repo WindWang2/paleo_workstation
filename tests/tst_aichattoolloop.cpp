@@ -316,7 +316,7 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   QCOMPARE(server.requestCount(), 2);
   const QJsonObject body1 = server.body(0);
   const QJsonArray tools = body1.value(QStringLiteral("tools")).toArray();
-  QCOMPARE(tools.size(), 5);
+  QCOMPARE(tools.size(), 8);
   QStringList toolNames;
   for (const QJsonValue &value : tools) {
     const QJsonObject entry = value.toObject();

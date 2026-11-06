@@ -41,6 +41,8 @@ add_library(paleo_algorithms STATIC
   src/algorithms/faciespolygonize.cpp
   src/algorithms/faciessliver.cpp                   # A11：小图斑吸收（并查集 + 小顶堆，可取消）
   src/algorithms/seismicattr.cpp
+  src/algorithms/seisattrgroup.cpp
+  src/algorithms/depthbatch.cpp
   src/algorithms/singlefactor/curvekernel.cpp
   src/algorithms/singlefactor/support.cpp
   src/algorithms/singlefactor/localidw.cpp
@@ -216,6 +218,9 @@ add_library(paleo_services STATIC
   src/services/faciesdisplaysettings.cpp
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/algorithmspec.cpp                    # algo-atom P0：AlgorithmSpec 静态契约表
+  src/services/algorithmspec_pilots.cpp             # 时深/属性组/相图输出契约
+  src/services/algorithmcontract.cpp                # 参数校验与有效默认值
+  src/services/capabilityspec.cpp                   # 能力目录（引用 AlgorithmSpec，不复制默认值）
   src/services/nativerunners.cpp                    # algo-atom：hztrack 等 services 侧 native 包装
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架

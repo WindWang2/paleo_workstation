@@ -1,5 +1,6 @@
 // 层：功能
 #include "aichattoolrunner.h"
+#include "capabilitygateway.h"
 #include <QDir>
 #include <QFileInfo>
 
@@ -171,6 +172,19 @@ void AiChatToolRunner::startNext() {
     runQuery(m_activeCall, args);
   else if (m_activeCall.name == QStringLiteral("paleo.asset_lineage"))
     runLineage(m_activeCall, args);
+  else if (m_activeCall.name == QStringLiteral("paleo.depth_convert_batch") ||
+           m_activeCall.name == QStringLiteral("paleo.seismic_attribute_group") ||
+           m_activeCall.name == QStringLiteral("paleo.constraint_idw")) {
+    if (m_context.projectDir.isEmpty() || m_context.documentId.isEmpty()) {
+      finishActive(false, errorPayload(tr("能力工具须由宿主绑定工程")));
+      return;
+    }
+    const QString operationDir = m_context.projectDir + QStringLiteral("/.paleo/capability-ops");
+    const QJsonObject payload = paleo::capability::runChatTool(
+        m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId, operationDir);
+    const bool ok = payload.value(QStringLiteral("ok")).toBool();
+    finishActive(ok, payload);
+  }
   else
     finishActive(false, errorPayload(tr("未登记的工具 %1").arg(m_activeCall.name)));
 }

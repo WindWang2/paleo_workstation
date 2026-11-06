@@ -268,7 +268,49 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     R"("selection":{"type":"object","properties":{"count":{"type":"integer"},)"
     R"("version_ids":{"type":"array","items":{"type":"string"}}}}}})");
 
-  return {tile, horizon, facies, query, lineage};
+  auto capabilityTool = [](const QString &name, const QString &title, const QString &description) {
+    AiToolSpec spec;
+    spec.name = name;
+    spec.title = title;
+    spec.description = description;
+    spec.requiresLocalOrt = false;
+    spec.parameters = {
+        {QStringLiteral("contract_version"), QStringLiteral("integer"),
+         QObject::tr("能力契约版本；缺省 1"), false},
+        {QStringLiteral("client_request_id"), QStringLiteral("string"),
+         QObject::tr("调用方请求号"), true},
+        {QStringLiteral("binding_mode"), QStringLiteral("string"),
+         QObject::tr("pinned-value、follow-object-head 或 follow-selection"), true,
+         {QStringLiteral("pinned-value"), QStringLiteral("follow-object-head"),
+          QStringLiteral("follow-selection")}},
+        {QStringLiteral("binding_id"), QStringLiteral("string"),
+         QObject::tr("follow-selection 的选择绑定"), false},
+        {QStringLiteral("frozen_head"), QStringLiteral("string"),
+         QObject::tr("冻结时的对象头"), false},
+        {QStringLiteral("current_head"), QStringLiteral("string"),
+         QObject::tr("提交时的对象头"), false},
+        {QStringLiteral("publish_intent"), QStringLiteral("string"),
+         QObject::tr("compute-only 或 publish"), false,
+         {QStringLiteral("compute-only"), QStringLiteral("publish")}},
+        {QStringLiteral("parameters"), QStringLiteral("object"),
+         QObject::tr("算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制"), true},
+        {QStringLiteral("inputs"), QStringLiteral("object"),
+         QObject::tr("显式输入引用与冻结值"), true},
+    };
+    spec.resultSchemaJson = QStringLiteral(
+        "{\"type\":\"object\",\"properties\":{\"code\":{\"type\":\"string\"},\"operationId\":{\"type\":\"string\"}}}");
+    return spec;
+  };
+  const AiToolSpec depth = capabilityTool(
+      QStringLiteral("paleo.depth_convert_batch"), QObject::tr("时深批转换"),
+      QObject::tr("按显式井样、时深语义和模型修订做批转换。不读取当前选中井。"));
+  const AiToolSpec seismic = capabilityTool(
+      QStringLiteral("paleo.seismic_attribute_group"), QObject::tr("地震属性组"),
+      QObject::tr("对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。"));
+  const AiToolSpec constraint = capabilityTool(
+      QStringLiteral("paleo.constraint_idw"), QObject::tr("约束 IDW 计划"),
+      QObject::tr("校验约束 IDW 的显式引用和有效参数。栅格仍由既有 Processing 核发布。"));
+  return {tile, horizon, facies, query, lineage, depth, seismic, constraint};
 }
 
 AiToolSpec aiToolSpec(const QString &name) {
@@ -349,6 +391,14 @@ AiToolDispatch dispatchAiTool(const QString &name,
     // 时执行面如实报错，与 facies 的诚实口径一致）。
     out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr("入口已接线：只读查询，须打开工程（未打开时如实报错）");
+    return out;
+  }
+  if (name == QStringLiteral("paleo.depth_convert_batch") ||
+      name == QStringLiteral("paleo.seismic_attribute_group") ||
+      name == QStringLiteral("paleo.constraint_idw")) {
+    out.target = QStringLiteral("workflow/capabilitygateway.h:runChatTool");
+    out.status = AiToolDispatchStatus::Routed;
+    out.note = QObject::tr("入口已接线：显式引用，不读取当前选择");
     return out;
   }
   if (name == QStringLiteral("paleo.asset_lineage")) {

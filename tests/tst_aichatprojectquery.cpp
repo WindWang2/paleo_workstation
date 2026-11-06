@@ -215,7 +215,7 @@ bool TestAiChatProjectQuery::runTool(AiChatToolRunner &runner,
 
 void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 5);
+  QCOMPARE(tools.size(), 8);
   QStringList names;
   for (const AiToolSpec &spec : tools)
     names.append(spec.name);

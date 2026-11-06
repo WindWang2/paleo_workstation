@@ -38,6 +38,10 @@ add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_faciescatalog LIBS paleo_domain) # #409：formationPrediction 统一口径回归
 add_paleo_test(tst_jobrunner LIBS paleo_services paleo_ui_deps)  # 方向20：JobRunner 三段式框架断言
 add_paleo_test(tst_algorithm_spec LIBS paleo_services)  # algo-atom P0：Spec ↔ initAlgorithm / schema 对齐
+add_paleo_test(tst_algorithm_contract LIBS paleo_services)
+add_paleo_test(tst_depth_batch LIBS paleo_algorithms)
+add_paleo_test(tst_seisattr_group LIBS paleo_algorithms)
+add_paleo_test(tst_capability_gateway LIBS paleo_workflow Paleo::paleo_data_service)
 add_paleo_test(tst_algorithm_adapters LIBS paleo_workflow)  # algo-atom P2：Processing/NativeCpp 适配器契约
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)

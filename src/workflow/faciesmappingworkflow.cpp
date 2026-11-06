@@ -514,11 +514,7 @@ FaciesMappingWorkflow::DraftFaciesComputed FaciesMappingWorkflow::runCompute(
 
 namespace {
 AlgorithmSpec faciesOutputSpec() {
-  AlgorithmSpec spec;spec.id="paleo:facies_draft_mapping";spec.complete=true;spec.engine="native_cpp";
-  for(const QString &id:{QString("OUTPUT"),QString("REPORT")}) {
-    AlgoPort port;port.id=id;port.kind="file";port.required=true;spec.outputs.append(port);
-  }
-  return spec;
+  return AlgorithmSpecRegistry::spec(QStringLiteral("paleo:facies_draft_mapping"));
 }
 }
 bool FaciesMappingWorkflow::stageOutputs(const DraftFaciesRequest &request,

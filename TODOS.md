@@ -16,7 +16,7 @@
 [M0–M5 迁移验收](docs/architecture/MODEL_MIGRATION_AND_VALIDATION.md)。第一批代码已接入
 SF3P 按需页目录/缓存代次、曲线真窗口、薄元数据日志/投影水位、工区发布 CAS 与持久恢复，
 具体消费者、验证及限制见[实施记录](docs/progress/document-model-io-20261106.md)。
-后续按批补控制表/可靠 change_log、水位、真窗口与背压、通用井筒/多体系/分段时深、
+后续补持久 operation/幂等恢复、大旧库的有界窗口迁移与背压、通用井筒/多体系/分段时深、
 实际消费 facet/负依赖、版本化值及视图迁移。实数据与成本推导见
 [本轮依据](docs/progress/data-model-redesign-20261106.md)。
 同步推进[原子能力与 Agent 配套](docs/architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)：

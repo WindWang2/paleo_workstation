@@ -228,6 +228,65 @@ CoherenceTileResult coherenceInterior(const CoherenceTile &tile, CoherenceWeight
   return result;
 }
 
+CoherenceTileResult computeCoherenceTiled(const CoherenceTile &volume, CoherenceWeightMode mode, int interiorXlChunk,
+                                          const std::function<bool()> &cancelled) {
+  if (!volume.volume || interiorXlChunk <= 0)
+    return coherenceInterior(volume, mode);
+  const int i0 = volume.ilHalf;
+  const int i1 = volume.nIl - volume.ilHalf;
+  const int x0 = volume.xlHalf;
+  const int x1 = volume.nXl - volume.xlHalf;
+  if (i1 <= i0 || x1 <= x0)
+    return coherenceInterior(volume, mode);
+  CoherenceTileResult combined;
+  combined.interiorIl = i1 - i0;
+  combined.interiorXl = x1 - x0;
+  combined.nS = volume.nS;
+  combined.interior.assign(static_cast<std::size_t>(combined.interiorIl * combined.interiorXl * volume.nS), kNan);
+  for (int x = x0; x < x1; x += interiorXlChunk) {
+    if (cancelled && cancelled()) {
+      combined.ok = false;
+      combined.code = "cancelled";
+      combined.interior.clear();
+      return combined;
+    }
+    const int xEnd = std::min(x + interiorXlChunk, x1);
+    const int tileXl0 = x - volume.xlHalf;
+    const int tileXl1 = xEnd + volume.xlHalf;
+    const int tileNXl = tileXl1 - tileXl0;
+    std::vector<float> slab(static_cast<std::size_t>(volume.nIl * tileNXl * volume.nS));
+    for (int il = 0; il < volume.nIl; ++il) {
+      for (int xl = tileXl0; xl < tileXl1; ++xl) {
+        const int src = ((il * volume.nXl) + xl) * volume.nS;
+        const int dst = ((il * tileNXl) + (xl - tileXl0)) * volume.nS;
+        std::copy(volume.volume + src, volume.volume + src + volume.nS, slab.begin() + dst);
+      }
+    }
+    CoherenceTile tile = volume;
+    tile.volume = slab.data();
+    tile.nXl = tileNXl;
+    const CoherenceTileResult part = coherenceInterior(tile, mode);
+    if (!part.ok) {
+      combined.ok = false;
+      combined.code = part.code;
+      combined.interior.clear();
+      return combined;
+    }
+    const int localXl = x - x0;
+    for (int il = 0; il < part.interiorIl; ++il) {
+      for (int xl = 0; xl < part.interiorXl; ++xl) {
+        const int src = ((il * part.interiorXl) + xl) * volume.nS;
+        const int dst = ((il * combined.interiorXl) + (localXl + xl)) * volume.nS;
+        std::copy(part.interior.begin() + src, part.interior.begin() + src + volume.nS, combined.interior.begin() + dst);
+      }
+    }
+    combined.samplesRead += part.samplesRead;
+  }
+  combined.ok = true;
+  combined.code = "ok";
+  return combined;
+}
+
 AttributeBudgetPlan planAttributeBudget(int nTraces, int nSamples, int rmsHalf, bool envelope, bool rms,
                                         bool coherence, int nIl, int nXl, int ilHalf, int xlHalf,
                                         std::int64_t budgetBytes, int volumeSamples) {
@@ -258,17 +317,37 @@ AttributeBudgetPlan planAttributeBudget(int nTraces, int nSamples, int rmsHalf, 
       return coherenceTooLarge(budgetBytes);
     coherencePlan.shape = "finite-halo";
     coherencePlan.minimumBytes = std::max(window, xlWindow);
-    // 执行器尚未沿 XL 切块。整幅放不进预算就拒绝，避免返回未执行的 split。
-    if (coherencePlan.minimumBytes > budgetBytes || full > budgetBytes) {
+    if (coherencePlan.minimumBytes > budgetBytes) {
       coherencePlan.code = "budget_exceeded";
       coherencePlan.estimatedBytes = std::max(coherencePlan.minimumBytes, full);
       return coherencePlan;
     }
-    coherencePlan.xlChunk = nXl;
-    coherencePlan.estimatedBytes = full;
-    coherencePlan.code = "ok";
-    if (!envelope && !rms)
-      return coherencePlan;
+    if (full > budgetBytes) {
+      const std::int64_t perXlBytes = cell * static_cast<std::int64_t>(std::max(nIl, 1));
+      int tileXl = perXlBytes > 0 ? static_cast<int>(std::min<std::int64_t>(nXl, budgetBytes / perXlBytes)) : 0;
+      tileXl = std::max(spanXl, tileXl);
+      int interiorChunk = std::max(1, tileXl - 2 * std::max(xlHalf, 0));
+      const int interiorXl = std::max(0, nXl - 2 * std::max(xlHalf, 0));
+      if (interiorXl <= 0 || interiorChunk >= interiorXl) {
+        coherencePlan.code = "budget_exceeded";
+        coherencePlan.estimatedBytes = full;
+        return coherencePlan;
+      }
+      coherencePlan.xlChunk = interiorChunk;
+      std::int64_t tileBytes = 0;
+      if (!checkedMul(perXlBytes, tileXl, &tileBytes))
+        return coherenceTooLarge(budgetBytes);
+      coherencePlan.estimatedBytes = std::max(coherencePlan.minimumBytes, tileBytes);
+      coherencePlan.code = "split";
+      if (!envelope && !rms)
+        return coherencePlan;
+    } else {
+      coherencePlan.xlChunk = std::max(1, nXl - 2 * std::max(xlHalf, 0));
+      coherencePlan.estimatedBytes = full;
+      coherencePlan.code = "ok";
+      if (!envelope && !rms)
+        return coherencePlan;
+    }
   }
   const auto attachCoherence = [&](AttributeBudgetPlan trace) {
     if (!coherence)

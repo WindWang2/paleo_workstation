@@ -315,6 +315,9 @@ void TestCapabilityGateway::constraintPlanAndBarriers() {
   QCOMPARE(planned.summary.value(QStringLiteral("kernel")).toString(),
            QStringLiteral("ConstraintIDWAlgorithm::processAlgorithm"));
   QCOMPARE(planned.commitState, QStringLiteral("not_requested"));
+  QCOMPARE(planned.code, QStringLiteral("prepared"));
+  QVERIFY(!planned.recomputed);
+  QCOMPARE(planned.execution, QStringLiteral("prepared"));
   request.clientRequestId = QStringLiteral("idw-drop");
   request.inputs.insert(QStringLiteral("ignore_barriers"), true);
   const ExecuteResult dropped = paleo::capability::execute(request);
@@ -412,7 +415,7 @@ void TestCapabilityGateway::planAndBudgetClaims() {
   QCOMPARE(order.message, QStringLiteral("depth,seis"));
   QVector<PlanEdge> cycle{{QStringLiteral("depth"), QStringLiteral("DEPTH"), QStringLiteral("seis"), QStringLiteral("RMS")},
                           {QStringLiteral("seis"), QStringLiteral("RMS"), QStringLiteral("depth"), QStringLiteral("DEPTH")}};
-  QCOMPARE(paleo::capability::checkPlan(nodes, cycle).code, QStringLiteral("cycle"));
+  QCOMPARE(paleo::capability::checkPlan(nodes, cycle).code, QStringLiteral("port_type"));
   QCOMPARE(paleo::capability::checkPlan({{QStringLiteral("nope"), QStringLiteral("missing.cap"), 1, {}}}, {}).code,
            QStringLiteral("unknown_capability"));
 

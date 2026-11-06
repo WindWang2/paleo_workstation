@@ -34,6 +34,7 @@ private slots:
   void coherenceTilesMatchFullVolume();
   void budgetLowerBoundIsIndependentOfOutputWindow();
   void mixedCoherenceIsPricedAndShapeCannotOverflow();
+  void tiledCoherenceMatchesFullVolume();
 };
 
 void TestSeisAttrGroup::envelopeAndPhaseShareOneAnalyticCall() {
@@ -219,6 +220,35 @@ void TestSeisAttrGroup::mixedCoherenceIsPricedAndShapeCannotOverflow() {
   QVERIFY(!wide.ok);
   QCOMPARE(QString::fromStdString(wide.code), QStringLiteral("invalid_shape"));
   QCOMPARE(wide.samplesRead, 0);
+}
+
+void TestSeisAttrGroup::tiledCoherenceMatchesFullVolume() {
+  const int nIl = 5;
+  const int nXl = 8;
+  const int nS = 6;
+  std::vector<float> volume(static_cast<std::size_t>(nIl * nXl * nS));
+  for (int i = 0; i < nIl * nXl * nS; ++i)
+    volume[static_cast<std::size_t>(i)] = std::sin(0.17 * i);
+  paleo::seisattr::CoherenceTile tile;
+  tile.volume = volume.data();
+  tile.nIl = nIl;
+  tile.nXl = nXl;
+  tile.nS = nS;
+  tile.ilHalf = 1;
+  tile.xlHalf = 1;
+  tile.timeHalf = 1;
+  tile.ilSpacing = 25;
+  tile.xlSpacing = 12.5;
+  const auto full = paleo::seisattr::coherenceInterior(tile);
+  const auto tiled = paleo::seisattr::computeCoherenceTiled(tile, paleo::seisattr::CoherenceWeightMode::Equal, 2);
+  QVERIFY(full.ok);
+  QVERIFY2(tiled.ok, tiled.code.c_str());
+  QCOMPARE(tiled.interior.size(), full.interior.size());
+  for (std::size_t i = 0; i < full.interior.size(); ++i)
+    QVERIFY(same(full.interior[i], tiled.interior[i]));
+  const auto split = paleo::seisattr::planAttributeBudget(0, nS, 0, false, false, true, nIl, nXl, 1, 1,
+                                                         static_cast<qint64>(nIl * nXl * nS * sizeof(float)), nS);
+  QVERIFY(split.code == "split" || split.code == "budget_exceeded");
 }
 
 QTEST_MAIN(TestSeisAttrGroup)

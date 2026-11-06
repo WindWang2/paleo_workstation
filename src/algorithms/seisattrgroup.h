@@ -5,6 +5,7 @@
 #include "seismicattr.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,11 @@ struct CoherenceTileResult {
 CoherenceTileResult coherenceInterior(const CoherenceTile &tile,
                                      CoherenceWeightMode mode = CoherenceWeightMode::Equal);
 
+// 沿 XL 把内区分成若干块，每块带上 xlHalf 晕再调用 coherenceInterior。
+// interiorXlChunk 是每块内区的 XL 数。结果与一次整幅 coherenceInterior 的 interior 逐元素一致。
+CoherenceTileResult computeCoherenceTiled(const CoherenceTile &volume, CoherenceWeightMode mode, int interiorXlChunk,
+                                          const std::function<bool()> &cancelled = {});
+
 // 三维样点数。任一维非正、乘积溢出 int64、或放不进 int 时返回 false，且不写 *count。
 bool volumeIndexCount(int nIl, int nXl, int nS, int *count);
 
@@ -96,8 +102,9 @@ struct AttributeBudgetPlan {
 };
 
 // 包络按整道计（含 FFT 草稿的下界），可按道批切分。
-// 只要请求相干，就按整幅 nIl*nXl*样数计价；整幅或最小窗超过预算时 budget_exceeded。
-// 执行器不会沿 XL 切块，因此不返回未执行的 split。
+// 只要请求相干，就按整幅计价。最小窗放不进预算时 budget_exceeded。
+// 整幅放不进、但一个带晕的 XL 块放得进时返回 split，xlChunk 是内区 XL 数。
+// computeCoherenceTiled 必须按这个块长执行。
 // volumeSamples > 0 时相干用该样数，否则用 nSamples。与道属性同时请求时，估计值是两者之和。
 AttributeBudgetPlan planAttributeBudget(int nTraces, int nSamples, int rmsHalf, bool envelope, bool rms,
                                         bool coherence, int nIl, int nXl, int ilHalf, int xlHalf,

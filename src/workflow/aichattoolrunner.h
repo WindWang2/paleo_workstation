@@ -8,6 +8,7 @@
 #include "aiassistworkflow.h"
 #include <QJsonObject>
 #include <QObject>
+#include <atomic>
 #include <QPointer>
 #include <QString>
 #include <QVector>
@@ -61,6 +62,7 @@ public:
     DataCatalog *catalog = nullptr;
     QString documentId; // trusted host DocumentSession binding, required by typed queries
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
+    QString authoritativeHead; // 宿主查询到的当前头。模型参数里的 current_head 无效。
   };
 
   explicit AiChatToolRunner(QObject *parent = nullptr);
@@ -116,6 +118,7 @@ private:
   bool m_active = false;
   bool m_activeIsFacies = false;
   int m_generation = 0; // cancel()/析构 ++：作废迟到回调
+  std::atomic<bool> m_cancelCompute{false};
 };
 
 // 装配/测试侧的简称（Context 语义上独立于 runner 实例存在）。

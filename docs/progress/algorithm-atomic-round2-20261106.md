@@ -28,9 +28,16 @@ worktree `paleo_workstation-algo-atomic-r2`，`-j2` 编译，`ctest -j1`，`QT_Q
 - 没有测 p95。没有跑线上 CI，没有跑 Windows。
 - 没有做独立子代理复审。操作恢复没有跨进程测试。
 
+## 复核后补上
+
+- 非数字的点值返回 `invalid_point_value`，不再变成 0。
+- 冻结栅格使用 `DataCatalog::localGridCrsWkt()`，并传给算法的 `LOCAL_GRID_WKT`。`runConstraintIDW` 也注入同一串。输出栅格的 `PALEO_CRS_WKT` 与它对得上。
+- 相干计划为 `split` 时，网关按 XL 块从样值列表取数并写入结果文件，不再先拷一整幅 float。调用方手里的 `QVariantList` 仍不计入账本。
+- 签发的结果路径按 `documentId` 隔开。别的文档拿同一路径做等值线会得到 `untrusted_result_ref`。
+- IDW 发布前先写 `publishing`。聊天工具说明改为：`current_head` 无效，compute-only 会调用已有核。
+
 ## 还没接到
 
-- `runConstraintIDW` / `generateFactor` 仍用活图层进入同一个 `QgisProcessingService::run`，没有改成先快照再走 `execute`。
-- 地震公开计算仍接收调用方给出的样值数组。分块避免了第二份整幅工作缓冲，但调用方数组本身不在账本里。
-- 操作日志仍是目录 JSON，不是跨进程事务。提交后回执丢失的恢复还没有独立子进程测试。
-- 聊天里的大计算仍在调用线程里同步跑。取消标志已经接上，但 UI 没有改成后台任务。
+- `runConstraintIDW` / `generateFactor` 的异步作业仍走 `runFactorAlgorithm`，没有改成 `capability::execute`。
+- 操作日志仍是目录 JSON。提交后回执丢失还没有跨进程恢复测试。
+- 聊天里的大计算仍在调用线程里同步跑。

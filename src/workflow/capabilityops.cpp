@@ -267,14 +267,14 @@ bool cancelRequested(const QString &operationId) {
   return g_cancelledIds.contains(operationId);
 }
 
-void noteIssuedResult(const QString &path) {
+void noteIssuedResult(const QString &documentId, const QString &path) {
   QMutexLocker lock(&g_cancelMutex);
-  g_cancelledIds.insert(QStringLiteral("result:") + path);
+  g_cancelledIds.insert(QStringLiteral("result:") + documentId + QChar(0x1F) + path);
 }
 
-bool isIssuedResult(const QString &path) {
+bool isIssuedResult(const QString &documentId, const QString &path) {
   QMutexLocker lock(&g_cancelMutex);
-  return g_cancelledIds.contains(QStringLiteral("result:") + path);
+  return g_cancelledIds.contains(QStringLiteral("result:") + documentId + QChar(0x1F) + path);
 }
 
 void OperationLog::cachePut(const QString &fingerprint, const QByteArray &summaryJson) {

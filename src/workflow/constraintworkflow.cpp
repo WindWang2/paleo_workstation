@@ -1372,6 +1372,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   params.insert( QStringLiteral( "FIELD" ), field );
   params.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
   params.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+  params.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
 
   QVector<LayerDeclaration> declared;
   QString manifestErr;
@@ -1456,7 +1457,7 @@ namespace paleo::capability {
 namespace {
 
 QgsVectorLayer *memoryPoints(const QVariantList &points, QString *error) {
-  auto *layer = new QgsVectorLayer(QStringLiteral("Point?crs=EPSG:3857&field=z:double&field=well_id:string"),
+  auto *layer = new QgsVectorLayer(QStringLiteral("Point?field=z:double&field=well_id:string"),
                                    QStringLiteral("frozen-points"), QStringLiteral("memory"));
   if (!layer->isValid() || !layer->dataProvider()) {
     if (error)
@@ -1469,11 +1470,18 @@ QgsVectorLayer *memoryPoints(const QVariantList &points, QString *error) {
     const QVariantMap row = value.toMap();
     if (!row.contains(QStringLiteral("x")) || !row.contains(QStringLiteral("y")) || !row.contains(QStringLiteral("z")))
       continue;
-    const double x = row.value(QStringLiteral("x")).toDouble();
-    const double y = row.value(QStringLiteral("y")).toDouble();
-    const double z = row.value(QStringLiteral("z")).toDouble();
-    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
-      continue;
+    bool okX = false;
+    bool okY = false;
+    bool okZ = false;
+    const double x = row.value(QStringLiteral("x")).toDouble(&okX);
+    const double y = row.value(QStringLiteral("y")).toDouble(&okY);
+    const double z = row.value(QStringLiteral("z")).toDouble(&okZ);
+    if (!okX || !okY || !okZ || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+      if (error)
+        *error = QStringLiteral("invalid_point_value");
+      delete layer;
+      return nullptr;
+    }
     QgsFeature feature(layer->fields());
     feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(x, y)));
     feature.setAttribute(0, z);
@@ -1493,7 +1501,7 @@ QgsVectorLayer *memoryPoints(const QVariantList &points, QString *error) {
 QgsVectorLayer *memoryLines(const QVariantList &lines, QString *error) {
   if (lines.isEmpty())
     return nullptr;
-  auto *layer = new QgsVectorLayer(QStringLiteral("LineString?crs=EPSG:3857&field=type:string"),
+  auto *layer = new QgsVectorLayer(QStringLiteral("LineString?field=type:string"),
                                    QStringLiteral("frozen-lines"), QStringLiteral("memory"));
   if (!layer->isValid() || !layer->dataProvider()) {
     if (error)
@@ -1535,7 +1543,18 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
     return result;
   }
   QString built;
+  const QString gridWkt = job.gridWkt;
+  QgsCoordinateReferenceSystem gridCrs;
+  if (!gridWkt.isEmpty()) {
+    gridCrs = QgsCoordinateReferenceSystem::fromWkt(gridWkt);
+    if (!gridCrs.isValid()) {
+      result.code = QStringLiteral("invalid_crs");
+      return result;
+    }
+  }
   QgsVectorLayer *points = memoryPoints(job.points, &built);
+  if (points && gridCrs.isValid())
+    points->setCrs(gridCrs);
   if (!points) {
     result.code = built.isEmpty() ? QStringLiteral("no_usable_points") : built;
     return result;
@@ -1548,6 +1567,8 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
       result.code = built.isEmpty() ? QStringLiteral("constraint_unreadable") : built;
       return result;
     }
+    if (gridCrs.isValid())
+      lines->setCrs(gridCrs);
   }
   QVariantMap params;
   params.insert(QStringLiteral("INPUT"), QVariant::fromValue(static_cast<QgsMapLayer *>(points)));
@@ -1555,6 +1576,8 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
   params.insert(QStringLiteral("CELL_SIZE"), job.cellSize);
   params.insert(QStringLiteral("ANISO_RATIO"), job.aniso);
   params.insert(QStringLiteral("OUTPUT"), job.outputPath);
+  if (!gridWkt.isEmpty())
+    params.insert(QStringLiteral("LOCAL_GRID_WKT"), gridWkt);
   if (lines)
     params.insert(QStringLiteral("CONSTRAINTS"), QVariant::fromValue(static_cast<QgsMapLayer *>(lines)));
   QgisProcessingService service(nullptr);

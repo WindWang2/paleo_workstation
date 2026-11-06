@@ -86,6 +86,14 @@ CoherenceTileResult coherenceInterior(const CoherenceTile &tile,
 
 // 沿 XL 把内区分成若干块，每块带上 xlHalf 晕再调用 coherenceInterior。
 // interiorXlChunk 是每块内区的 XL 数。结果与一次整幅 coherenceInterior 的 interior 逐元素一致。
+struct CoherenceXlSpan {
+  int sourceXl0 = 0;
+  int sourceXl1 = 0; // 不含端点，含两侧晕
+  int interiorXl0 = 0; // 在整幅内区中的 XL 起点
+};
+
+std::vector<CoherenceXlSpan> coherenceXlSpans(int nXl, int xlHalf, int interiorChunk);
+
 CoherenceTileResult computeCoherenceTiled(const CoherenceTile &volume, CoherenceWeightMode mode, int interiorXlChunk,
                                           const std::function<bool()> &cancelled = {});
 

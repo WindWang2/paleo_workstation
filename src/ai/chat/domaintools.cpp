@@ -288,7 +288,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
         {QStringLiteral("frozen_head"), QStringLiteral("string"),
          QObject::tr("冻结时的对象头"), false},
         {QStringLiteral("current_head"), QStringLiteral("string"),
-         QObject::tr("提交时的对象头"), false},
+         QObject::tr("忽略。提交头只来自宿主，模型填写无效"), false},
         {QStringLiteral("publish_intent"), QStringLiteral("string"),
          QObject::tr("compute-only 或 publish"), false,
          {QStringLiteral("compute-only"), QStringLiteral("publish")}},
@@ -308,8 +308,8 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
       QStringLiteral("paleo.seismic_attribute_group"), QObject::tr("地震属性组"),
       QObject::tr("对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。"));
   const AiToolSpec constraint = capabilityTool(
-      QStringLiteral("paleo.constraint_idw"), QObject::tr("约束 IDW 计划"),
-      QObject::tr("校验约束 IDW 的显式引用和有效参数。栅格仍由既有 Processing 核发布。"));
+      QStringLiteral("paleo.constraint_idw"), QObject::tr("约束 IDW"),
+      QObject::tr("prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。"));
   return {tile, horizon, facies, query, lineage, depth, seismic, constraint};
 }
 

@@ -81,6 +81,7 @@ struct FrozenIdwJob {
   double cellSize = 0;
   double aniso = 2;
   QString outputPath;
+  QString gridWkt;
   std::function<bool()> cancelled;
 };
 
@@ -164,7 +165,7 @@ QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, c
                         const QString &hostHead = QString(),
                         const std::function<bool()> &cancelled = {});
 bool cancelRequested(const QString &operationId);
-void noteIssuedResult(const QString &path);
-bool isIssuedResult(const QString &path);
+void noteIssuedResult(const QString &documentId, const QString &path);
+bool isIssuedResult(const QString &documentId, const QString &path);
 
 } // namespace paleo::capability

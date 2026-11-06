@@ -6,6 +6,8 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 
+#include <gdal.h>
+
 #include <qgsapplication.h>
 
 #include "algorithms/velocitymodel.h"
@@ -57,6 +59,9 @@ private slots:
   void idwThenContourPassesTheRaster();
   void runningCancelStopsBeforePublish();
   void contourCycleIsRejected();
+  void badPointValueIsRejected();
+  void rasterUsesLocalGrid();
+  void issuedRasterDoesNotCrossDocuments();
 };
 
 void TestCapabilityRound2::forgedHeadDoesNotAuthorizePublish() {
@@ -182,6 +187,65 @@ void TestCapabilityRound2::contourCycleIsRejected() {
                                                QStringLiteral("NO_SUCH")}})
                .code,
            QStringLiteral("port_type"));
+}
+
+void TestCapabilityRound2::badPointValueIsRejected() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ExecuteRequest request = hostRequest(dir.path(), QStringLiteral("bad-z"));
+  request.capabilityId = QStringLiteral("constraint.idw");
+  request.parameters.insert(QStringLiteral("FIELD"), QStringLiteral("z"));
+  request.parameters.insert(QStringLiteral("CELL_SIZE"), 25.0);
+  request.inputs.insert(QStringLiteral("points_ref"), QStringLiteral("ver-points"));
+  request.inputs.insert(QStringLiteral("subinterval_id"), QStringLiteral("sub-1"));
+  QVariantList points = squarePoints();
+  QVariantMap bad = points.first().toMap();
+  bad.insert(QStringLiteral("z"), QStringLiteral("not-a-number"));
+  points[0] = bad;
+  request.inputs.insert(QStringLiteral("points"), points);
+  QCOMPARE(paleo::capability::execute(request).code, QStringLiteral("invalid_point_value"));
+}
+
+void TestCapabilityRound2::rasterUsesLocalGrid() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ExecuteRequest request = hostRequest(dir.path(), QStringLiteral("crs"));
+  request.capabilityId = QStringLiteral("constraint.idw");
+  request.parameters.insert(QStringLiteral("FIELD"), QStringLiteral("z"));
+  request.parameters.insert(QStringLiteral("CELL_SIZE"), 25.0);
+  request.inputs.insert(QStringLiteral("points_ref"), QStringLiteral("ver-points"));
+  request.inputs.insert(QStringLiteral("subinterval_id"), QStringLiteral("sub-1"));
+  request.inputs.insert(QStringLiteral("points"), squarePoints());
+  const ExecuteResult computed = paleo::capability::execute(request);
+  QVERIFY2(computed.ok, qPrintable(computed.code));
+  GDALAllRegister();
+  GDALDatasetH dataset = GDALOpen(computed.summary.value(QStringLiteral("result_path")).toString().toUtf8().constData(),
+                                  GA_ReadOnly);
+  QVERIFY(dataset);
+  const char *wkt = GDALGetMetadataItem(dataset, "PALEO_CRS_WKT", nullptr);
+  QVERIFY(wkt);
+  QCOMPARE(QString::fromUtf8(wkt), DataCatalog::localGridCrsWkt());
+  GDALClose(dataset);
+}
+
+void TestCapabilityRound2::issuedRasterDoesNotCrossDocuments() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ExecuteRequest request = hostRequest(dir.path(), QStringLiteral("owner"));
+  request.capabilityId = QStringLiteral("constraint.idw");
+  request.parameters.insert(QStringLiteral("FIELD"), QStringLiteral("z"));
+  request.parameters.insert(QStringLiteral("CELL_SIZE"), 25.0);
+  request.inputs.insert(QStringLiteral("points_ref"), QStringLiteral("ver-points"));
+  request.inputs.insert(QStringLiteral("subinterval_id"), QStringLiteral("sub-1"));
+  request.inputs.insert(QStringLiteral("points"), squarePoints());
+  const ExecuteResult computed = paleo::capability::execute(request);
+  QVERIFY2(computed.ok, qPrintable(computed.code));
+  ExecuteRequest other = hostRequest(dir.path() + QStringLiteral("/other"), QStringLiteral("thief"));
+  other.documentId = QStringLiteral("doc-other");
+  other.capabilityId = QStringLiteral("singlefactor.contours");
+  other.parameters.insert(QStringLiteral("CONTOUR_LEVEL"), 5.0);
+  other.inputs.insert(QStringLiteral("raster_path"), computed.summary.value(QStringLiteral("result_path")));
+  QCOMPARE(paleo::capability::execute(other).code, QStringLiteral("untrusted_result_ref"));
 }
 
 int main(int argc, char *argv[]) {

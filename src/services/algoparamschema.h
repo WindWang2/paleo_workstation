@@ -28,8 +28,12 @@ struct AlgorithmParamField
     Double,    // QDoubleSpinBox → double
     String,    // QLineEdit → QString
     FloatList, // QLineEdit 逗号分隔 → QVariantList(float)
-    InList     // QComboBox 词表 → userData
+    InList,    // QComboBox 词表 → userData
+    StringList // 字符串数组；options 非空时每一项必须命中词表
   };
+
+  // false：缺省时不把 defaultValue 写进执行参数（例如 FACIES_CODE 缺席表示不写元数据）。
+  bool applyDefaultWhenAbsent = true;
 
   QString key;   // Processing 参数名（如 "PASSES"），params map 的键
   QString label; // 用户可见标签（tr 由实现侧承载）

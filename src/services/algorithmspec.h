@@ -24,7 +24,31 @@ struct AlgoPort
   QString geometryHint; // point | line | polygon | ""（非矢量可空）
   bool required = true;
   bool hidden = false; // true：编排注入，通常不在 initAlgorithm 登记
+  int cardinalityMin = -1; // -1：由 required 推导
+  int cardinalityMax = 1;
+  QString unit;
+  QString axis;
+  QString verticalDatum;
   QVariantMap constraints;
+
+  int effectiveCardinalityMin() const { return cardinalityMin >= 0 ? cardinalityMin : (required ? 1 : 0); }
+};
+
+enum class AlgorithmExecutionShape {
+  Unspecified = 0,
+  Scalar,
+  Batch,
+  FiniteHalo,
+  WholeTrace,
+  Reduction,
+  GlobalNode
+};
+
+enum class AlgorithmReproducibility {
+  Unspecified = 0,
+  Deterministic,
+  Tolerance,
+  Nondeterministic
 };
 
 // 执行上下文形状（P1+ 执行面使用；P0 仅声明）。
@@ -63,7 +87,14 @@ struct AlgorithmSpec
   QVector<AlgoPort> inputs;
   QVector<AlgoPort> outputs;
   QVector<AlgorithmParamField> params; // 复用 schema 字段类型
-  bool complete = false;               // false = TODO/桩，仅占位 id
+  bool complete = false;               // false = TODO/桩，仅占位 id。不等于 Agent 可调用。
+  int contractVersion = 1;
+  QString implementationVersion = QStringLiteral("1");
+  int paramSchemaVersion = 1;
+  AlgorithmExecutionShape executionShape = AlgorithmExecutionShape::Unspecified;
+  AlgorithmReproducibility reproducibility = AlgorithmReproducibility::Unspecified;
+  bool cancelSupported = false;
+  bool resumeSupported = false;
 
   // 应 ⊆ initAlgorithm(addParameter) 参数名的键：
   // 非 hidden 输入 + params.key + 目的地型输出（raster/vector/file/table）。
@@ -81,6 +112,8 @@ class AlgorithmSpecRegistry
   public:
     static bool knows( const QString &algorithmId );
     static AlgorithmSpec spec( const QString &algorithmId ); // 未知 → id 空、complete false
+    // 版本不匹配时 id 为空，不回落到最新版。
+    static AlgorithmSpec specAtVersion( const QString &algorithmId, int contractVersion );
     static QStringList knownIds();
     // complete==true 的 id（12 Processing + P4 native 入口）
     static QStringList completeIds();

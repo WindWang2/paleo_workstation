@@ -132,6 +132,25 @@ AlgorithmRunResult ProcessingAlgorithmAdapter::runById(
   return run( spec, paramValues, error, hooks );
 }
 
+AlgorithmRunResult ProcessingAlgorithmAdapter::runRegisteredById(
+    const QString &algorithmId, int contractVersion, const QVariantMap &paramValues, QString *error,
+    const QgisProcessingService::ProcessingHooks &hooks )
+{
+  const AlgorithmSpec spec = AlgorithmSpecRegistry::specAtVersion( algorithmId, contractVersion );
+  AlgorithmRunResult rejected;
+  rejected.ok = false;
+  if ( spec.id.isEmpty() )
+  {
+    rejected.error = AlgorithmSpecRegistry::knows( algorithmId ) ? QStringLiteral( "unsupported_version" )
+                                                                : QStringLiteral( "unknown_algorithm" );
+    rejected.diagnostics.insert( QStringLiteral( "code" ), rejected.error );
+    if ( error )
+      *error = rejected.error;
+    return rejected;
+  }
+  return run( spec, paramValues, error, hooks );
+}
+
 AlgorithmRunResult NativeCppAdapter::run( const AlgorithmSpec &spec, const QVariantMap &paramValues,
                                           QString *error )
 {

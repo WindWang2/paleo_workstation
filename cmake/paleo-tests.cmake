@@ -41,6 +41,7 @@ add_paleo_test(tst_algorithm_spec LIBS paleo_services)  # algo-atom P0：Spec �
 add_paleo_test(tst_algorithm_contract LIBS paleo_services)
 add_paleo_test(tst_depth_batch LIBS paleo_algorithms)
 add_paleo_test(tst_seisattr_group LIBS paleo_algorithms)
+add_paleo_test(tst_capability_gateway LIBS paleo_workflow Paleo::paleo_data_service)
 add_paleo_test(tst_algorithm_adapters LIBS paleo_workflow)  # algo-atom P2：Processing/NativeCpp 适配器契约
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)

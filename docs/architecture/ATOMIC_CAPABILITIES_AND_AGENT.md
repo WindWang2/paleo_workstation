@@ -1,6 +1,9 @@
 # 原子能力、算法组合与 Agent 调用契约
 
-状态：2026-11-06 目标设计，未实现。本页扩展[统一文档模型](UNIFIED_DOCUMENT_MODEL.md)、
+状态：2026-11-06 目标设计。本页仍是目标，不是实现清单。试点接线见
+[algorithm-atomic-20261106](../progress/algorithm-atomic-20261106.md)：时深批转换、地震属性组和约束 IDW
+参数契约已接到现有核上；其余能力保持 internal / legacy-adapter / unavailable。
+本页扩展[统一文档模型](UNIFIED_DOCUMENT_MODEL.md)、
 [文件到模型接口](FILE_MODEL_IO_CONTRACTS.md)与[迁移验收](MODEL_MIGRATION_AND_VALIDATION.md)。
 现有算法接线见[算法原子契约](../designs/algorithm-atom-contract.md)；其已交付能力保持，
 本页新增的 CapabilitySpec、执行计划、持久操作和成组发布不能从旧 Spec.complete 推定为已实现。

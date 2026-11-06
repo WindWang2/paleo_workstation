@@ -1,6 +1,7 @@
 // 层：功能
 #include "../qgis/layervocabulary.h"
 #include "../services/paleotaskservice.h"
+#include "capabilitygateway.h"
 #include "workflows.h"
 #include "closureeditstack.h" // #742 会话外绘制撤销
 #include <QPointer>
@@ -1356,7 +1357,16 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   }
   QStringList parentPaths{ points->source().section( QLatin1Char( '|' ), 0, 0 ) };
 
-  QVariantMap params;
+  QString paramCode;
+  const QVariantMap effective = paleo::capability::effectiveScalarParams(
+      QStringLiteral("paleo:paleo_constraint_idw"), 1,
+      {{QStringLiteral("FIELD"), field}, {QStringLiteral("CELL_SIZE"), cellSize}}, &paramCode);
+  if (paramCode != QLatin1String("ok"))
+  {
+    paleo::workflow_detail::setError(error, paramCode);
+    return false;
+  }
+  QVariantMap params = effective;
   params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
   params.insert( QStringLiteral( "FIELD" ), field );
   params.insert( QStringLiteral( "CELL_SIZE" ), cellSize );

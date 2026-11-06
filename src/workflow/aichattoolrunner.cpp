@@ -21,6 +21,7 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/welllogfacies.h"
 #include "../services/derivationgraph.h"
+#include "../services/artifactversioncapability.h"
 #include "../services/paleotaskservice.h"
 
 // workflow/ — 聊天工具执行器实现（方向61；方向77 增只读查询/血缘两工具）。
@@ -494,6 +495,17 @@ void AiChatToolRunner::runQuery(const ChatToolCall &call,
   }
   const DataCatalog *catalog = m_context.catalog;
   const QString topic = args.value(QStringLiteral("topic")).toString();
+
+  if (topic == QStringLiteral("version")) {
+    paleo::capability::ArtifactVersionRequest request;
+    request.documentId=m_context.documentId;
+    request.versionId=args.value(QStringLiteral("version_id")).toString();
+    request.expectedCatalogRevision=intArg(args,"catalog_revision",catalog->catalogRevision());
+    const auto result=paleo::capability::ArtifactVersionCapability::describe(catalog,m_context.documentId,request);
+    QJsonObject payload{{"tool",QStringLiteral("paleo.query_project")},{"topic",topic},{"version",result.toJson()}};
+    if (!result.ok) payload.insert("error",result.error);
+    finishActive(result.ok,payload);return;
+  }
 
   QJsonObject payload;
   payload.insert(QStringLiteral("tool"), QStringLiteral("paleo.query_project"));

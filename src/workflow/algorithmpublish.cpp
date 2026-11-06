@@ -50,6 +50,23 @@ AlgorithmRunResult runResultFromOutputPath( const QString &absolutePath,
   return r;
 }
 
+AlgorithmRunResult runResultFromProcessingOutputs(const AlgorithmSpec &spec,const QVariantMap &results) {
+  AlgorithmRunResult run;run.diagnostics=results;
+  for (const auto &port : spec.outputs) {
+    if (port.kind!=QLatin1String("raster") && port.kind!=QLatin1String("vector") &&
+        port.kind!=QLatin1String("table") && port.kind!=QLatin1String("file")) continue;
+    const auto path=paleo::workflow_detail::outputPathOf({{"OUTPUT",results.value(port.id)}});
+    if (path.isEmpty()) {
+      if (port.required) {run.error=QStringLiteral("Processing 结果缺少必需输出：%1").arg(port.id);return run;}
+      continue;
+    }
+    AlgorithmOutputArtifact artifact;artifact.portId=port.id;artifact.absolutePath=path;run.artifacts.append(artifact);
+  }
+  run.ok=!run.artifacts.isEmpty();
+  if (!run.ok) run.error=QStringLiteral("Processing 结果没有已声明的文件输出");
+  return run;
+}
+
 
 QVariantMap processingResultsFromRunResult( const AlgorithmRunResult &result )
 {

@@ -59,6 +59,7 @@ public:
     // 注入；为空时两工具按调用如实报「须打开工程」。指针稳定性由装配根
     // 保证（importSvc 持有、open 原地重绑，不换实例）。
     DataCatalog *catalog = nullptr;
+    QString documentId; // trusted host DocumentSession binding, required by typed queries
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
   };
 

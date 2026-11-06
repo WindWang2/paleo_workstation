@@ -91,10 +91,9 @@ AlgorithmRunResult ProcessingAlgorithmAdapter::run(
     return r;
   }
 
-  r = runResultFromProcessingOutput( results );
+  r = runResultFromProcessingOutputs( spec, results );
   if ( !r.ok )
   {
-    r.error = QStringLiteral( "Processing 结果缺少 OUTPUT 路径" );
     if ( error )
       *error = r.error;
     return r;

@@ -5,6 +5,7 @@
 #include "../algorithms/depthbatch.h"
 #include "../algorithms/seisattrgroup.h"
 #include "../catalog/datacatalog.h"
+#include "../qgis/factorcontour.h"
 #include "algorithmpublish.h"
 #include "derivedassets.h"
 
@@ -509,37 +510,122 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
   if (wantPhase)
     result.summary.insert(QStringLiteral("phaseSha256"), hashFloats(computed.phase));
   std::vector<float> coherenceValues;
+  QString coherencePath;
   if (wantCoherence) {
     const QVariantList values = request.inputs.value(QStringLiteral("volume")).toList();
     if (values.size() != static_cast<qsizetype>(coherenceCount))
       return finish(log, record, rejected(QStringLiteral("invalid_shape"), QStringLiteral("volume")), false, {});
-    std::vector<float> volume(static_cast<std::size_t>(coherenceCount));
-    for (int i = 0; i < coherenceCount; ++i)
-      volume[static_cast<std::size_t>(i)] = values.at(i).isNull()
-                                                ? std::numeric_limits<float>::quiet_NaN()
-                                                : static_cast<float>(values.at(i).toDouble());
-    paleo::seisattr::CoherenceTile tile;
-    tile.volume = volume.data();
-    tile.nIl = nIl;
-    tile.nXl = nXl;
-    tile.nS = volumeSamples;
-    tile.ilHalf = params.effective.value(QStringLiteral("COHERENCE_IL_HALF")).toInt();
-    tile.xlHalf = params.effective.value(QStringLiteral("COHERENCE_XL_HALF")).toInt();
-    tile.timeHalf = params.effective.value(QStringLiteral("COHERENCE_TIME_HALF")).toInt();
-    tile.ilSpacing = params.effective.value(QStringLiteral("IL_SPACING")).toDouble();
-    tile.xlSpacing = params.effective.value(QStringLiteral("XL_SPACING")).toDouble();
+    const auto stopped = [&] {
+      return cancelRequested(record.operationId) || (request.cancelled && request.cancelled());
+    };
+    const auto sampleAt = [&](int index) {
+      const QVariant value = values.at(index);
+      if (value.isNull())
+        return std::numeric_limits<float>::quiet_NaN();
+      bool ok = false;
+      const double number = value.toDouble(&ok);
+      return ok ? static_cast<float>(number) : std::numeric_limits<float>::quiet_NaN();
+    };
+    const int ilHalf = params.effective.value(QStringLiteral("COHERENCE_IL_HALF")).toInt();
+    const int xlHalf = params.effective.value(QStringLiteral("COHERENCE_XL_HALF")).toInt();
     const auto mode = weight == QLatin1String("inverse") ? paleo::seisattr::CoherenceWeightMode::InverseDistance
                                                          : paleo::seisattr::CoherenceWeightMode::Equal;
-    const auto interior = paleo::seisattr::coherenceInterior(tile, mode);
-    if (!interior.ok) {
-      result.ok = false;
-      result.code = QString::fromStdString(interior.code);
-      result.execution = QStringLiteral("failed");
-      return finish(log, record, result, false, {});
+    const int interiorXl = std::max(0, nXl - 2 * std::max(xlHalf, 0));
+    // split 也可能只是包络按道分批。只有 xlChunk 小于整幅内区时才沿 XL 切相干。
+    if (plan.xlChunk > 0 && interiorXl > plan.xlChunk) {
+      const auto spans = paleo::seisattr::coherenceXlSpans(nXl, xlHalf, plan.xlChunk);
+      if (spans.empty())
+        return finish(log, record, rejected(QStringLiteral("budget_exceeded")), false, {});
+      QDir().mkpath(request.operationDir + QStringLiteral("/results"));
+      coherencePath = request.operationDir + QStringLiteral("/results/") + record.operationId +
+                      QStringLiteral("-coherence.f32");
+      QFile out(coherencePath);
+      if (!out.open(QIODevice::WriteOnly))
+        return finish(log, record, rejected(QStringLiteral("result_write_failed")), false, {});
+      QCryptographicHash hasher(QCryptographicHash::Sha256);
+      int samplesWritten = 0;
+      int samplesRead = 0;
+      for (const paleo::seisattr::CoherenceXlSpan &span : spans) {
+        if (stopped()) {
+          out.remove();
+          result.ok = false;
+          result.code = QStringLiteral("cancelled");
+          result.execution = QStringLiteral("cancelled");
+          return finish(log, record, result, false, {});
+        }
+        const int tileNXl = span.sourceXl1 - span.sourceXl0;
+        std::vector<float> slab(static_cast<std::size_t>(nIl * tileNXl * volumeSamples));
+        for (int il = 0; il < nIl; ++il) {
+          for (int xl = span.sourceXl0; xl < span.sourceXl1; ++xl) {
+            for (int s = 0; s < volumeSamples; ++s) {
+              const int src = ((il * nXl) + xl) * volumeSamples + s;
+              const int dst = ((il * tileNXl) + (xl - span.sourceXl0)) * volumeSamples + s;
+              slab[static_cast<std::size_t>(dst)] = sampleAt(src);
+            }
+          }
+        }
+        paleo::seisattr::CoherenceTile tile;
+        tile.volume = slab.data();
+        tile.nIl = nIl;
+        tile.nXl = tileNXl;
+        tile.nS = volumeSamples;
+        tile.ilHalf = ilHalf;
+        tile.xlHalf = xlHalf;
+        tile.timeHalf = params.effective.value(QStringLiteral("COHERENCE_TIME_HALF")).toInt();
+        tile.ilSpacing = params.effective.value(QStringLiteral("IL_SPACING")).toDouble();
+        tile.xlSpacing = params.effective.value(QStringLiteral("XL_SPACING")).toDouble();
+        const auto part = paleo::seisattr::coherenceInterior(tile, mode);
+        if (!part.ok) {
+          out.remove();
+          result.ok = false;
+          result.code = QString::fromStdString(part.code);
+          result.execution = QStringLiteral("failed");
+          return finish(log, record, result, false, {});
+        }
+        const QByteArray bytes(reinterpret_cast<const char *>(part.interior.data()),
+                               static_cast<int>(part.interior.size() * sizeof(float)));
+        if (out.write(bytes) != bytes.size()) {
+          out.remove();
+          return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
+        }
+        hasher.addData(bytes);
+        samplesWritten += static_cast<int>(part.interior.size());
+        samplesRead += part.samplesRead;
+      }
+      if (!out.flush())
+        return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
+      noteIssuedResult(request.documentId, coherencePath);
+      result.summary.insert(QStringLiteral("result_path"), coherencePath);
+      result.summary.insert(QStringLiteral("coherenceSha256"), QString::fromLatin1(hasher.result().toHex()));
+      result.summary.insert(QStringLiteral("coherenceSamplesRead"), samplesRead);
+      result.summary.insert(QStringLiteral("coherenceSamples"), samplesWritten);
+      result.summary.insert(QStringLiteral("tiled"), true);
+    } else {
+      std::vector<float> volume(static_cast<std::size_t>(coherenceCount));
+      for (int i = 0; i < coherenceCount; ++i)
+        volume[static_cast<std::size_t>(i)] = sampleAt(i);
+      paleo::seisattr::CoherenceTile tile;
+      tile.volume = volume.data();
+      tile.nIl = nIl;
+      tile.nXl = nXl;
+      tile.nS = volumeSamples;
+      tile.ilHalf = ilHalf;
+      tile.xlHalf = xlHalf;
+      tile.timeHalf = params.effective.value(QStringLiteral("COHERENCE_TIME_HALF")).toInt();
+      tile.ilSpacing = params.effective.value(QStringLiteral("IL_SPACING")).toDouble();
+      tile.xlSpacing = params.effective.value(QStringLiteral("XL_SPACING")).toDouble();
+      const int chunk = plan.xlChunk > 0 ? plan.xlChunk : tile.nXl;
+      const auto interior = paleo::seisattr::computeCoherenceTiled(tile, mode, chunk, stopped);
+      if (!interior.ok) {
+        result.ok = false;
+        result.code = QString::fromStdString(interior.code);
+        result.execution = interior.code == "cancelled" ? QStringLiteral("cancelled") : QStringLiteral("failed");
+        return finish(log, record, result, false, {});
+      }
+      coherenceValues = interior.interior;
+      result.summary.insert(QStringLiteral("coherenceSha256"), hashFloats(interior.interior));
+      result.summary.insert(QStringLiteral("coherenceSamplesRead"), interior.samplesRead);
     }
-    coherenceValues = interior.interior;
-    result.summary.insert(QStringLiteral("coherenceSha256"), hashFloats(interior.interior));
-    result.summary.insert(QStringLiteral("coherenceSamplesRead"), interior.samplesRead);
   }
   if (request.publishIntent != QLatin1String("publish"))
     return finish(log, record, result, true, QJsonDocument(QJsonObject::fromVariantMap(result.summary)).toJson(QJsonDocument::Compact));
@@ -595,8 +681,16 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
     add(QStringLiteral("ENVELOPE"), floatBytes(computed.envelope));
   if (wantPhase)
     add(QStringLiteral("PHASE"), floatBytes(computed.phase));
-  if (wantCoherence)
+  if (wantCoherence && coherenceValues.empty() && !coherencePath.isEmpty()) {
+    QFile tiled(coherencePath);
+    if (tiled.open(QIODevice::ReadOnly)) {
+      const QByteArray bytes = tiled.readAll();
+      if (bytes.size() == tiled.size() && !bytes.isEmpty())
+        add(QStringLiteral("COHERENCE"), bytes);
+    }
+  } else if (wantCoherence) {
     add(QStringLiteral("COHERENCE"), floatBytes(coherenceValues));
+  }
   QString receipt;
   const QString committed = publishFiles(request.catalog, request.projectDir, spec, artifacts, {}, &receipt);
   result.commitState = committed == QLatin1String("committed") ? QStringLiteral("committed") : QStringLiteral("failed");
@@ -612,35 +706,155 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
   return finish(log, record, result, true, {});
 }
 
-ExecuteResult executeConstraint(const ExecuteRequest &request, const ValidatedParams &params, OperationLog *log,
-                                OperationLog::Record record) {
-  const QString points = request.inputs.value(QStringLiteral("points_ref")).toString();
-  const QString subinterval = request.inputs.value(QStringLiteral("subinterval_id")).toString();
-  if (points.isEmpty() || subinterval.isEmpty())
-    return finish(log, record, rejected(QStringLiteral("missing_required"), points.isEmpty() ? QStringLiteral("points_ref")
-                                                                                            : QStringLiteral("subinterval_id")),
-                  false, {});
-  if (request.inputs.value(QStringLiteral("ignore_barriers")).toBool())
-    return finish(log, record, rejected(QStringLiteral("barrier_downgrade_refused")), false, {});
+ExecuteResult executeContour(const ExecuteRequest &request, const ValidatedParams &params, OperationLog *log,
+                             OperationLog::Record record) {
+  const QString raster = request.inputs.value(QStringLiteral("raster_path")).toString();
+  if (!isIssuedResult(request.documentId, raster))
+    return finish(log, record, rejected(QStringLiteral("untrusted_result_ref"), QStringLiteral("raster_path")), false, {});
+  const double level = params.effective.value(QStringLiteral("CONTOUR_LEVEL")).toDouble();
+  if (!std::isfinite(level))
+    return finish(log, record, rejected(QStringLiteral("missing_required"), QStringLiteral("CONTOUR_LEVEL")), false, {});
+  QDir().mkpath(request.operationDir + QStringLiteral("/results"));
+  const QString gpkg = request.operationDir + QStringLiteral("/results/") + record.operationId + QStringLiteral("-contours.gpkg");
+  QString error;
+  const bool drew = FactorContourService::generateFixedContours(
+      raster, gpkg, QVector<double>{level}, &error,
+      [&] { return cancelRequested(record.operationId) || (request.cancelled && request.cancelled()); });
+  if (!drew) {
+    ExecuteResult failed;
+    failed.ok = false;
+    failed.code = error.isEmpty() ? QStringLiteral("contour_failed") : error;
+    failed.execution = QStringLiteral("failed");
+    failed.commitState = QStringLiteral("not_requested");
+    failed.presentation = QStringLiteral("not_requested");
+    return finish(log, record, failed, false, {});
+  }
+  QFile file(gpkg);
+  if (!file.open(QIODevice::ReadOnly) || file.size() <= 0) {
+    ExecuteResult failed;
+    failed.ok = false;
+    failed.code = QStringLiteral("contour_unreadable");
+    failed.execution = QStringLiteral("failed");
+    return finish(log, record, failed, false, {});
+  }
+  noteIssuedResult(request.documentId, gpkg);
   ExecuteResult result;
   result.ok = true;
   result.recomputed = true;
-  result.code = QStringLiteral("prepared");
+  result.code = QStringLiteral("computed");
   result.execution = QStringLiteral("succeeded");
   result.commitState = QStringLiteral("not_requested");
   result.presentation = QStringLiteral("not_requested");
+  result.summary.insert(QStringLiteral("result_path"), gpkg);
+  result.summary.insert(QStringLiteral("bytes"), static_cast<qlonglong>(file.size()));
+  return finish(log, record, result, true, {});
+}
+
+ExecuteResult executeConstraint(const ExecuteRequest &request, const ValidatedParams &params, OperationLog *log,
+                                OperationLog::Record record) {
+  const QString pointsRef = request.inputs.value(QStringLiteral("points_ref")).toString();
+  const QString subinterval = request.inputs.value(QStringLiteral("subinterval_id")).toString();
+  const QVariantList pointRows = request.inputs.value(QStringLiteral("points")).toList();
+  if (pointsRef.isEmpty() && pointRows.isEmpty())
+    return finish(log, record, rejected(QStringLiteral("missing_required"), QStringLiteral("points_ref")), false, {});
+  if (subinterval.isEmpty())
+    return finish(log, record, rejected(QStringLiteral("missing_required"), QStringLiteral("subinterval_id")), false, {});
+  if (request.inputs.value(QStringLiteral("ignore_barriers")).toBool())
+    return finish(log, record, rejected(QStringLiteral("barrier_downgrade_refused")), false, {});
+  const QString intent = request.publishIntent.isEmpty() ? QStringLiteral("prepare") : request.publishIntent;
+  ExecuteResult result;
   result.summary.insert(QStringLiteral("effective"), params.effective);
-  result.summary.insert(QStringLiteral("points_ref"), points);
+  result.summary.insert(QStringLiteral("points_ref"), pointsRef);
   result.summary.insert(QStringLiteral("subinterval_id"), subinterval);
   result.summary.insert(QStringLiteral("constraints_ref"), request.inputs.value(QStringLiteral("constraints_ref")).toString());
   result.summary.insert(QStringLiteral("kernel"), QStringLiteral("ConstraintIDWAlgorithm::processAlgorithm"));
-  if (request.publishIntent == QLatin1String("publish")) {
-    result.ok = false;
-    result.code = QStringLiteral("publish_via_processing_workflow");
-    result.execution = QStringLiteral("failed");
-    result.summary.insert(QStringLiteral("note"),
-                          QStringLiteral("grid publish stays on the existing Processing workflow"));
+  result.commitState = QStringLiteral("not_requested");
+  result.presentation = QStringLiteral("not_requested");
+  if (intent == QLatin1String("prepare")) {
+    result.ok = true;
+    result.recomputed = false;
+    result.code = QStringLiteral("prepared");
+    result.execution = QStringLiteral("prepared");
+    return finish(log, record, result, false, {});
   }
+  if (intent != QLatin1String("compute-only") && intent != QLatin1String("publish"))
+    return finish(log, record, rejected(QStringLiteral("unsupported_intent")), false, {});
+  if (pointRows.isEmpty())
+    return finish(log, record, rejected(QStringLiteral("revision_not_a_value_store"), QStringLiteral("points")), false, {});
+  QDir().mkpath(request.operationDir + QStringLiteral("/results"));
+  FrozenIdwJob job;
+  job.points = pointRows;
+  job.lines = request.inputs.value(QStringLiteral("lines")).toList();
+  job.field = params.effective.value(QStringLiteral("FIELD")).toString();
+  job.cellSize = params.effective.value(QStringLiteral("CELL_SIZE")).toDouble();
+  job.aniso = params.effective.value(QStringLiteral("ANISO_RATIO")).toDouble();
+  job.outputPath = request.operationDir + QStringLiteral("/results/") + record.operationId + QStringLiteral("-idw.tif");
+  job.gridWkt = request.inputs.value(QStringLiteral("grid_wkt")).toString();
+  if (job.gridWkt.isEmpty())
+    job.gridWkt = DataCatalog::localGridCrsWkt();
+  job.cancelled = [&] { return cancelRequested(record.operationId) || (request.cancelled && request.cancelled()); };
+  const FrozenIdwResult idw = runFrozenConstraintIdw(job);
+  if (!idw.ok) {
+    result.ok = false;
+    result.recomputed = false;
+    result.code = idw.code;
+    const bool stopped = idw.code.contains(QStringLiteral("Canceled")) || idw.code.contains(QStringLiteral("取消"));
+    result.execution = stopped ? QStringLiteral("cancelled") : QStringLiteral("failed");
+    if (stopped)
+      result.code = QStringLiteral("cancelled");
+    return finish(log, record, result, false, {});
+  }
+  noteIssuedResult(request.documentId, idw.rasterPath);
+  result.ok = true;
+  result.recomputed = true;
+  result.code = QStringLiteral("computed");
+  result.execution = QStringLiteral("succeeded");
+  result.summary.insert(QStringLiteral("result_path"), idw.rasterPath);
+  result.summary.insert(QStringLiteral("width"), idw.width);
+  result.summary.insert(QStringLiteral("height"), idw.height);
+  result.summary.insert(QStringLiteral("constraint_receipts"), idw.receipts);
+  if (intent != QLatin1String("publish"))
+    return finish(log, record, result, true, {});
+  if (request.currentHead != request.frozenHead) {
+    result.ok = false;
+    result.code = QStringLiteral("stale_revision");
+    result.commitState = QStringLiteral("failed");
+    result.execution = QStringLiteral("failed");
+    return finish(log, record, result, false, {});
+  }
+  if (cancelRequested(record.operationId) || (request.cancelled && request.cancelled())) {
+    result.ok = false;
+    result.code = QStringLiteral("cancelled");
+    result.execution = QStringLiteral("cancelled");
+    return finish(log, record, result, false, {});
+  }
+  if (!notePublishing(log, &record)) {
+    result.ok = false;
+    result.code = QStringLiteral("persist_failed");
+    result.commitState = QStringLiteral("not_requested");
+    result.execution = QStringLiteral("failed");
+    return finish(log, record, result, false, {});
+  }
+  QFile raster(idw.rasterPath);
+  if (!raster.open(QIODevice::ReadOnly))
+    return finish(log, record, rejected(QStringLiteral("raster_unreadable")), false, {});
+  const QByteArray bytes = raster.readAll();
+  if (bytes.size() != raster.size() || bytes.isEmpty())
+    return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
+  if (!request.catalog)
+    return finish(log, record, rejected(QStringLiteral("publish_unavailable")), true, {});
+  AlgorithmSpec spec = AlgorithmSpecRegistry::specAtVersion(QStringLiteral("paleo:paleo_constraint_idw"), 1);
+  AlgorithmOutputArtifact artifact;
+  artifact.portId = QStringLiteral("OUTPUT");
+  artifact.extra.insert(QStringLiteral("bytes"), bytes);
+  artifact.extra.insert(QStringLiteral("operationId"), record.operationId);
+  QString receipt;
+  const QStringList parents = request.inputs.value(QStringLiteral("parent_version_ids")).toStringList();
+  const QString committed = publishFiles(request.catalog, request.projectDir, spec, {artifact}, parents, &receipt);
+  result.commitState = committed == QLatin1String("committed") ? QStringLiteral("committed") : QStringLiteral("failed");
+  result.ok = result.commitState == QLatin1String("committed");
+  result.code = result.ok ? QStringLiteral("committed") : committed;
+  result.summary.insert(QStringLiteral("receipt"), receipt);
   return finish(log, record, result, false, {});
 }
 
@@ -701,7 +915,7 @@ ContractIssue checkPlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> 
     const CapabilitySpec source = CapabilityRegistry::spec(byId.value(edge.from).capabilityId, byId.value(edge.from).contractVersion);
     const AlgorithmSpec algorithm =
         AlgorithmSpecRegistry::specAtVersion(source.algorithmId, source.algorithmContractVersion);
-    bool portOk = edge.fromPort.isEmpty();
+    bool portOk = !edge.fromPort.isEmpty();
     for (const AlgoPort &port : algorithm.outputs) {
       if (port.id == edge.fromPort)
         portOk = true;
@@ -709,6 +923,35 @@ ContractIssue checkPlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> 
     if (!portOk) {
       issue.code = QStringLiteral("port_type");
       issue.field = edge.fromPort;
+      return issue;
+    }
+    const CapabilitySpec targetCap =
+        CapabilityRegistry::spec(byId.value(edge.to).capabilityId, byId.value(edge.to).contractVersion);
+    const AlgorithmSpec targetAlgorithm =
+        AlgorithmSpecRegistry::specAtVersion(targetCap.algorithmId, targetCap.algorithmContractVersion);
+    const AlgoPort *fromPort = nullptr;
+    const AlgoPort *toPort = nullptr;
+    for (const AlgoPort &port : algorithm.outputs) {
+      if (port.id == edge.fromPort)
+        fromPort = &port;
+    }
+    for (const AlgoPort &port : targetAlgorithm.inputs) {
+      if (port.id == edge.toPort)
+        toPort = &port;
+    }
+    if (edge.toPort.isEmpty() || !toPort) {
+      issue.code = QStringLiteral("port_type");
+      issue.field = edge.toPort;
+      return issue;
+    }
+    if (fromPort && !fromPort->kind.isEmpty() && fromPort->kind != toPort->kind) {
+      issue.code = QStringLiteral("port_type");
+      issue.field = edge.toPort;
+      return issue;
+    }
+    if (fromPort && !fromPort->unit.isEmpty() && !toPort->unit.isEmpty() && fromPort->unit != toPort->unit) {
+      issue.code = QStringLiteral("unit_mismatch");
+      issue.field = edge.toPort;
       return issue;
     }
     incoming[edge.from].append(edge.to);
@@ -803,7 +1046,9 @@ ExecuteResult execute(const ExecuteRequest &request) {
   record.execution = QStringLiteral("running");
   record.computeCount += 1;
   log.save(record);
-  if (request.cancelled && request.cancelled()) {
+  if (request.onRunning)
+    request.onRunning(record.operationId);
+  if (cancelRequested(record.operationId) || (request.cancelled && request.cancelled())) {
     record.execution = QStringLiteral("cancelled");
     record.code = QStringLiteral("cancelled");
     log.save(record);
@@ -818,15 +1063,61 @@ ExecuteResult execute(const ExecuteRequest &request) {
     return executeSeismic(request, params, &log, record);
   if (capability.capabilityId == QLatin1String("constraint.idw"))
     return executeConstraint(request, params, &log, record);
+  if (capability.capabilityId == QLatin1String("singlefactor.contours"))
+    return executeContour(request, params, &log, record);
   return rejected(QStringLiteral("not_callable"));
 }
 
+ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges) {
+  if (nodes.size() > 32 || edges.size() > 64)
+    return rejected(QStringLiteral("plan_too_large"));
+  const ContractIssue issue = checkPlan(nodes, edges);
+  if (issue.code != QLatin1String("ok"))
+    return rejected(issue.code, issue.field);
+  QHash<QString, PlanNode> byId;
+  for (const PlanNode &node : nodes)
+    byId.insert(node.id, node);
+  QHash<QString, QString> produced;
+  ExecuteResult last;
+  const QStringList order = issue.message.split(QLatin1Char(','), Qt::SkipEmptyParts);
+  for (const QString &id : order) {
+    const PlanNode node = byId.value(id);
+    ExecuteRequest request = host;
+    request.capabilityId = node.capabilityId;
+    request.contractVersion = node.contractVersion;
+    request.clientRequestId = host.clientRequestId + QStringLiteral("/") + node.id;
+    request.publishIntent = node.intent.isEmpty() ? QStringLiteral("compute-only") : node.intent;
+    request.parameters = node.parameters;
+    request.inputs = node.inputs;
+    request.onRunning = {};
+    for (const PlanEdge &edge : edges) {
+      if (edge.to != id)
+        continue;
+      const QString path = produced.value(edge.from + QStringLiteral("|") + edge.fromPort);
+      if (path.isEmpty())
+        return rejected(QStringLiteral("missing_edge_value"), edge.toPort);
+      const QString key = edge.toPort == QLatin1String("RASTER") ? QStringLiteral("raster_path") : edge.toPort;
+      request.inputs.insert(key, path);
+    }
+    last = execute(request);
+    if (!last.ok)
+      return last;
+    produced.insert(id + QStringLiteral("|") + node.outputPort, last.summary.value(QStringLiteral("result_path")).toString());
+  }
+  last.summary.insert(QStringLiteral("plan_order"), issue.message);
+  return last;
+}
+
 QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
-                        const QString &documentId, const QString &operationDir) {
+                        const QString &documentId, const QString &operationDir, const QString &hostHead,
+                        const std::function<bool()> &cancelled) {
   if (arguments.contains(QStringLiteral("actor")) || arguments.contains(QStringLiteral("approved")) ||
       arguments.contains(QStringLiteral("caller_scope"))) {
     return QJsonObject{{QStringLiteral("code"), QStringLiteral("untrusted_authority")}};
   }
+  const QString intent = arguments.value(QStringLiteral("publish_intent")).toString(QStringLiteral("compute-only"));
+  if (intent == QLatin1String("publish") && hostHead.isEmpty())
+    return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("code"), QStringLiteral("host_head_required")}};
   ExecuteRequest request;
   request.capabilityId = toolName;
   request.contractVersion = arguments.value(QStringLiteral("contract_version")).toInt(1);
@@ -836,12 +1127,16 @@ QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, c
   request.bindingMode = arguments.value(QStringLiteral("binding_mode")).toString();
   request.bindingId = arguments.value(QStringLiteral("binding_id")).toString();
   request.frozenHead = arguments.value(QStringLiteral("frozen_head")).toString();
-  request.currentHead = arguments.value(QStringLiteral("current_head")).toString();
-  request.publishIntent = arguments.value(QStringLiteral("publish_intent")).toString(QStringLiteral("compute-only"));
+  request.currentHead = hostHead;
+  request.publishIntent = intent;
   request.parameters = arguments.value(QStringLiteral("parameters")).toObject().toVariantMap();
   request.inputs = arguments.value(QStringLiteral("inputs")).toObject().toVariantMap();
+  request.inputs.remove(QStringLiteral("parent_version_ids"));
+  request.inputs.remove(QStringLiteral("drop_output_port"));
+  request.inputs.remove(QStringLiteral("grid_wkt"));
   request.operationDir = operationDir;
   request.presentOk = true;
+  request.cancelled = cancelled;
   const ExecuteResult result = execute(request);
   const QJsonObject payload = QJsonDocument::fromJson(result.responseJson).object();
   return payload.isEmpty() ? QJsonObject{{QStringLiteral("code"), result.code},

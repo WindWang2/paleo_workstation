@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QMutex>
 #include <QString>
+#include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
 
@@ -30,9 +31,11 @@ struct ExecuteRequest {
   QString currentHead;
   QVariantMap parameters;
   QVariantMap inputs;
-  QString publishIntent; // compute-only | publish
+  QString publishIntent; // prepare | compute-only | publish。空表示 prepare（约束）或既有计算（时深/地震）
   bool presentOk = true;
   std::function<bool()> cancelled;
+  // 宿主在运行标记落下之后调用，便于把取消打进正在跑的循环。不是模型参数。
+  std::function<void(const QString &operationId)> onRunning;
   QString operationDir;
   DataCatalog *catalog = nullptr;
   QString projectDir;
@@ -58,6 +61,9 @@ struct PlanNode {
   QString capabilityId;
   int contractVersion = 1;
   QString outputPort;
+  QString intent; // prepare | compute-only | publish
+  QVariantMap parameters;
+  QVariantMap inputs;
 };
 
 struct PlanEdge {
@@ -66,6 +72,29 @@ struct PlanEdge {
   QString to;
   QString toPort;
 };
+
+// 宿主线程上已经冻结的点与约束。不含 Qgs 类型，避免网关再散布 QGIS 头。
+struct FrozenIdwJob {
+  QVariantList points; // x, y, z, well_id
+  QVariantList lines;  // wkt, type
+  QString field = QStringLiteral("z");
+  double cellSize = 0;
+  double aniso = 2;
+  QString outputPath;
+  QString gridWkt;
+  std::function<bool()> cancelled;
+};
+
+struct FrozenIdwResult {
+  bool ok = false;
+  QString code;
+  QString rasterPath;
+  int width = 0;
+  int height = 0;
+  QString receipts;
+};
+
+FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job);
 
 class ProcessBudgetLedger {
 public:
@@ -128,8 +157,15 @@ QVariantMap effectiveScalarParams(const QString &algorithmId, int contractVersio
 
 ExecuteResult execute(const ExecuteRequest &request);
 ContractIssue checkPlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
+ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
 QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes = 64 * 1024);
+// hostHead 由宿主传入。arguments 里的 current_head 不作为提交事实。
 QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
-                        const QString &documentId, const QString &operationDir);
+                        const QString &documentId, const QString &operationDir,
+                        const QString &hostHead = QString(),
+                        const std::function<bool()> &cancelled = {});
+bool cancelRequested(const QString &operationId);
+void noteIssuedResult(const QString &documentId, const QString &path);
+bool isIssuedResult(const QString &documentId, const QString &path);
 
 } // namespace paleo::capability

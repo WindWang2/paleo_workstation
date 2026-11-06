@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QSet>
 #include <QSharedPointer>
 #include <QUuid>
 
@@ -44,6 +45,9 @@ OperationLog::Record recordFromJson(const QJsonObject &object) {
   record.summaryJson = QByteArray::fromBase64(object.value(QStringLiteral("summary")).toString().toLatin1());
   return record;
 }
+
+QMutex g_cancelMutex;
+QSet<QString> g_cancelledIds;
 
 QMutex &directoryMutex(const QString &path) {
   static QMutex gate;
@@ -169,7 +173,7 @@ OperationLog::Accept OperationLog::accept(const QString &documentId, const QStri
   QMutexLocker lock(&directoryMutex(m_path));
   load();
   Accept result;
-  const QString key = documentId + QLatin1Char('|') + callerScope + QLatin1Char('|') + clientRequestId;
+  const QString key = QString::fromUtf8(QJsonDocument(QJsonArray{documentId, callerScope, clientRequestId}).toJson(QJsonDocument::Compact));
   if (m_byKey.contains(key)) {
     result.record = m_byKey.value(key);
     result.code = result.record.requestHash == requestHash ? QStringLiteral("replay") : QStringLiteral("conflict");
@@ -240,6 +244,10 @@ QString OperationLog::cancel(const QString &operationId) {
     persist();
     return record.code;
   }
+  {
+    QMutexLocker cancelLock(&g_cancelMutex);
+    g_cancelledIds.insert(operationId);
+  }
   record.execution = QStringLiteral("cancelled");
   record.code = QStringLiteral("cancelled");
   record.commitState = QStringLiteral("not_requested");
@@ -252,6 +260,21 @@ QByteArray OperationLog::cacheGet(const QString &fingerprint) {
   QMutexLocker lock(&directoryMutex(m_path));
   load();
   return m_cache.value(fingerprint);
+}
+
+bool cancelRequested(const QString &operationId) {
+  QMutexLocker lock(&g_cancelMutex);
+  return g_cancelledIds.contains(operationId);
+}
+
+void noteIssuedResult(const QString &documentId, const QString &path) {
+  QMutexLocker lock(&g_cancelMutex);
+  g_cancelledIds.insert(QStringLiteral("result:") + documentId + QChar(0x1F) + path);
+}
+
+bool isIssuedResult(const QString &documentId, const QString &path) {
+  QMutexLocker lock(&g_cancelMutex);
+  return g_cancelledIds.contains(QStringLiteral("result:") + documentId + QChar(0x1F) + path);
 }
 
 void OperationLog::cachePut(const QString &fingerprint, const QByteArray &summaryJson) {

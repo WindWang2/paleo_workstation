@@ -47,6 +47,7 @@
 #include <QUuid>
 #include <QVariantList>
 
+#include <qgsapplication.h>
 #include <qgscoordinatereferencesystem.h>
 #include <qgsfield.h>
 #include <qgsfeature.h>
@@ -1371,6 +1372,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   params.insert( QStringLiteral( "FIELD" ), field );
   params.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
   params.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+  params.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
 
   QVector<LayerDeclaration> declared;
   QString manifestErr;
@@ -1450,3 +1452,163 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
       },
       error);
 }
+
+namespace paleo::capability {
+namespace {
+
+QgsVectorLayer *memoryPoints(const QVariantList &points, QString *error) {
+  auto *layer = new QgsVectorLayer(QStringLiteral("Point?field=z:double&field=well_id:string"),
+                                   QStringLiteral("frozen-points"), QStringLiteral("memory"));
+  if (!layer->isValid() || !layer->dataProvider()) {
+    if (error)
+      *error = QStringLiteral("points_layer_invalid");
+    delete layer;
+    return nullptr;
+  }
+  QList<QgsFeature> features;
+  for (const QVariant &value : points) {
+    const QVariantMap row = value.toMap();
+    if (!row.contains(QStringLiteral("x")) || !row.contains(QStringLiteral("y")) || !row.contains(QStringLiteral("z")))
+      continue;
+    bool okX = false;
+    bool okY = false;
+    bool okZ = false;
+    const double x = row.value(QStringLiteral("x")).toDouble(&okX);
+    const double y = row.value(QStringLiteral("y")).toDouble(&okY);
+    const double z = row.value(QStringLiteral("z")).toDouble(&okZ);
+    if (!okX || !okY || !okZ || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+      if (error)
+        *error = QStringLiteral("invalid_point_value");
+      delete layer;
+      return nullptr;
+    }
+    QgsFeature feature(layer->fields());
+    feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(x, y)));
+    feature.setAttribute(0, z);
+    feature.setAttribute(1, row.value(QStringLiteral("well_id")).toString());
+    features.append(feature);
+  }
+  if (features.isEmpty() || !layer->dataProvider()->addFeatures(features)) {
+    if (error)
+      *error = QStringLiteral("no_usable_points");
+    delete layer;
+    return nullptr;
+  }
+  layer->updateExtents();
+  return layer;
+}
+
+QgsVectorLayer *memoryLines(const QVariantList &lines, QString *error) {
+  if (lines.isEmpty())
+    return nullptr;
+  auto *layer = new QgsVectorLayer(QStringLiteral("LineString?field=type:string"),
+                                   QStringLiteral("frozen-lines"), QStringLiteral("memory"));
+  if (!layer->isValid() || !layer->dataProvider()) {
+    if (error)
+      *error = QStringLiteral("constraint_layer_invalid");
+    delete layer;
+    return nullptr;
+  }
+  QList<QgsFeature> features;
+  for (const QVariant &value : lines) {
+    const QVariantMap row = value.toMap();
+    const QgsGeometry geometry = QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString());
+    if (geometry.isEmpty() || QgsWkbTypes::geometryType(geometry.wkbType()) != Qgis::GeometryType::Line)
+      continue;
+    QgsFeature feature(layer->fields());
+    feature.setGeometry(geometry);
+    feature.setAttribute(0, row.value(QStringLiteral("type"), QStringLiteral("break_line")).toString());
+    features.append(feature);
+  }
+  if (features.isEmpty() || !layer->dataProvider()->addFeatures(features)) {
+    if (error)
+      *error = QStringLiteral("constraint_unreadable");
+    delete layer;
+    return nullptr;
+  }
+  layer->updateExtents();
+  return layer;
+}
+
+} // namespace
+
+FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
+  FrozenIdwResult result;
+  if (!(job.cellSize > 0.0) || !std::isfinite(job.cellSize)) {
+    result.code = QStringLiteral("missing_required");
+    return result;
+  }
+  if (!QgsApplication::instance() || !QgsApplication::processingRegistry()) {
+    result.code = QStringLiteral("qgis_unavailable");
+    return result;
+  }
+  QString built;
+  const QString gridWkt = job.gridWkt;
+  QgsCoordinateReferenceSystem gridCrs;
+  if (!gridWkt.isEmpty()) {
+    gridCrs = QgsCoordinateReferenceSystem::fromWkt(gridWkt);
+    if (!gridCrs.isValid()) {
+      result.code = QStringLiteral("invalid_crs");
+      return result;
+    }
+  }
+  QgsVectorLayer *points = memoryPoints(job.points, &built);
+  if (points && gridCrs.isValid())
+    points->setCrs(gridCrs);
+  if (!points) {
+    result.code = built.isEmpty() ? QStringLiteral("no_usable_points") : built;
+    return result;
+  }
+  QgsVectorLayer *lines = nullptr;
+  if (!job.lines.isEmpty()) {
+    lines = memoryLines(job.lines, &built);
+    if (!lines) {
+      delete points;
+      result.code = built.isEmpty() ? QStringLiteral("constraint_unreadable") : built;
+      return result;
+    }
+    if (gridCrs.isValid())
+      lines->setCrs(gridCrs);
+  }
+  QVariantMap params;
+  params.insert(QStringLiteral("INPUT"), QVariant::fromValue(static_cast<QgsMapLayer *>(points)));
+  params.insert(QStringLiteral("FIELD"), job.field.isEmpty() ? QStringLiteral("z") : job.field);
+  params.insert(QStringLiteral("CELL_SIZE"), job.cellSize);
+  params.insert(QStringLiteral("ANISO_RATIO"), job.aniso);
+  params.insert(QStringLiteral("OUTPUT"), job.outputPath);
+  if (!gridWkt.isEmpty())
+    params.insert(QStringLiteral("LOCAL_GRID_WKT"), gridWkt);
+  if (lines)
+    params.insert(QStringLiteral("CONSTRAINTS"), QVariant::fromValue(static_cast<QgsMapLayer *>(lines)));
+  QgisProcessingService service(nullptr);
+  QString error;
+  QgisProcessingService::ProcessingHooks hooks;
+  hooks.cancelled = job.cancelled;
+  const QVariantMap outputs = service.run(QStringLiteral("paleo:paleo_constraint_idw"), params, &error, hooks);
+  delete lines;
+  delete points;
+  if (outputs.isEmpty()) {
+    result.code = error.isEmpty() ? QStringLiteral("idw_failed") : error;
+    return result;
+  }
+  result.rasterPath = outputs.value(QStringLiteral("OUTPUT")).toString();
+  result.receipts = outputs.value(QStringLiteral("CONSTRAINT_RECEIPTS")).toString();
+  GDALAllRegister();
+  GDALDatasetH dataset = GDALOpen(result.rasterPath.toUtf8().constData(), GA_ReadOnly);
+  if (!dataset) {
+    result.code = QStringLiteral("raster_unreadable");
+    return result;
+  }
+  result.width = GDALGetRasterXSize(dataset);
+  result.height = GDALGetRasterYSize(dataset);
+  GDALClose(dataset);
+  if (result.width <= 0 || result.height <= 0) {
+    result.code = QStringLiteral("raster_empty");
+    return result;
+  }
+  result.ok = true;
+  result.code = QStringLiteral("computed");
+  return result;
+}
+
+} // namespace paleo::capability

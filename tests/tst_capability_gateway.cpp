@@ -85,6 +85,7 @@ private slots:
   void replayConflictAndRestart();
   void cancelPublishAndPresentation();
   void seismicGroupBudgetAndCache();
+  void envelopeBatchDoesNotRejectCoherence();
   void constraintPlanAndBarriers();
   void intervalsStaySplit();
   void toolProtocol();
@@ -286,6 +287,49 @@ void TestCapabilityGateway::seismicGroupBudgetAndCache() {
   QCOMPARE(budget.code, QStringLiteral("budget_exceeded"));
 }
 
+void TestCapabilityGateway::envelopeBatchDoesNotRejectCoherence() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LimitGuard guard(1000);
+  ExecuteRequest request;
+  request.capabilityId = QStringLiteral("seismic.attributes.compute");
+  request.contractVersion = 1;
+  request.documentId = QStringLiteral("doc-mix");
+  request.callerScope = QStringLiteral("host-test");
+  request.clientRequestId = QStringLiteral("mix-batch");
+  request.bindingMode = QStringLiteral("pinned-value");
+  request.frozenHead = QStringLiteral("h");
+  request.currentHead = QStringLiteral("h");
+  request.publishIntent = QStringLiteral("compute-only");
+  request.operationDir = dir.path();
+  request.parameters.insert(QStringLiteral("ATTRIBUTES"),
+                            QStringList{QStringLiteral("envelope"), QStringLiteral("coherence")});
+  request.parameters.insert(QStringLiteral("SAMPLE_INTERVAL_MS"), 4.0);
+  request.parameters.insert(QStringLiteral("COHERENCE_IL_HALF"), 0);
+  request.parameters.insert(QStringLiteral("COHERENCE_XL_HALF"), 0);
+  QVariantList traces;
+  for (int t = 0; t < 4; ++t) {
+    QVariantList trace;
+    for (int i = 0; i < 8; ++i)
+      trace.append(std::sin(0.3 * (t + i)));
+    traces.append(QVariant(trace));
+  }
+  QVariantList volume;
+  for (int i = 0; i < 16; ++i)
+    volume.append(std::sin(0.2 * i));
+  request.inputs.insert(QStringLiteral("traces"), traces);
+  request.inputs.insert(QStringLiteral("full_trace"), true);
+  request.inputs.insert(QStringLiteral("volume"), volume);
+  request.inputs.insert(QStringLiteral("nIl"), 2);
+  request.inputs.insert(QStringLiteral("nXl"), 2);
+  request.inputs.insert(QStringLiteral("nS"), 4);
+  const ExecuteResult result = paleo::capability::execute(request);
+  QVERIFY2(result.ok, qPrintable(result.code));
+  QCOMPARE(result.code, QStringLiteral("computed"));
+  QVERIFY(!result.summary.value(QStringLiteral("coherenceSha256")).toString().isEmpty());
+  QCOMPARE(result.summary.value(QStringLiteral("plan")).toString(), QStringLiteral("split"));
+}
+
 void TestCapabilityGateway::constraintPlanAndBarriers() {
   QTemporaryDir dir;
   QVariantMap user;
@@ -315,6 +359,9 @@ void TestCapabilityGateway::constraintPlanAndBarriers() {
   QCOMPARE(planned.summary.value(QStringLiteral("kernel")).toString(),
            QStringLiteral("ConstraintIDWAlgorithm::processAlgorithm"));
   QCOMPARE(planned.commitState, QStringLiteral("not_requested"));
+  QCOMPARE(planned.code, QStringLiteral("prepared"));
+  QVERIFY(!planned.recomputed);
+  QCOMPARE(planned.execution, QStringLiteral("prepared"));
   request.clientRequestId = QStringLiteral("idw-drop");
   request.inputs.insert(QStringLiteral("ignore_barriers"), true);
   const ExecuteResult dropped = paleo::capability::execute(request);
@@ -412,7 +459,7 @@ void TestCapabilityGateway::planAndBudgetClaims() {
   QCOMPARE(order.message, QStringLiteral("depth,seis"));
   QVector<PlanEdge> cycle{{QStringLiteral("depth"), QStringLiteral("DEPTH"), QStringLiteral("seis"), QStringLiteral("RMS")},
                           {QStringLiteral("seis"), QStringLiteral("RMS"), QStringLiteral("depth"), QStringLiteral("DEPTH")}};
-  QCOMPARE(paleo::capability::checkPlan(nodes, cycle).code, QStringLiteral("cycle"));
+  QCOMPARE(paleo::capability::checkPlan(nodes, cycle).code, QStringLiteral("port_type"));
   QCOMPARE(paleo::capability::checkPlan({{QStringLiteral("nope"), QStringLiteral("missing.cap"), 1, {}}}, {}).code,
            QStringLiteral("unknown_capability"));
 

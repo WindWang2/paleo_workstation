@@ -140,4 +140,36 @@ void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs) {
   facies.reproducibility = AlgorithmReproducibility::Deterministic;
   facies.outputs = {filePort(QStringLiteral("OUTPUT"), true), filePort(QStringLiteral("REPORT"), true)};
   specs->append(facies);
+
+  AlgorithmSpec contour;
+  contour.id = QStringLiteral("native:factor_contour");
+  contour.displayName = QStringLiteral("Fixed-level contours");
+  contour.engine = QStringLiteral("native_cpp");
+  contour.complete = true;
+  contour.contractVersion = 1;
+  contour.implementationVersion = QStringLiteral("1");
+  contour.paramSchemaVersion = 1;
+  contour.executionShape = AlgorithmExecutionShape::GlobalNode;
+  contour.reproducibility = AlgorithmReproducibility::Deterministic;
+  contour.cancelSupported = true;
+  contour.resumeSupported = false;
+  AlgoPort raster;
+  raster.id = QStringLiteral("RASTER");
+  raster.kind = QStringLiteral("raster");
+  raster.required = true;
+  contour.inputs = {raster};
+  AlgoPort lines;
+  lines.id = QStringLiteral("LINES");
+  lines.kind = QStringLiteral("vector");
+  lines.required = true;
+  contour.outputs = {lines};
+  AlgoPort prior;
+  prior.id = QStringLiteral("LINES");
+  prior.kind = QStringLiteral("vector");
+  prior.required = false;
+  prior.cardinalityMin = 0;
+  contour.inputs.append(prior);
+  contour.params = {numberParam(QStringLiteral("CONTOUR_LEVEL"), AlgorithmParamField::Double, QVariant(), true, false, 0,
+                                false, 0)};
+  specs->append(contour);
 }

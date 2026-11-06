@@ -118,6 +118,7 @@ void AiChatToolRunner::run(const ChatToolCall &call) {
 void AiChatToolRunner::cancel() {
   // 取消 = 作废（口径见头文件）：在途结果不再 emit；tile 任务协作取消
   // （不写产品）；层位任务算完但丢弃；测井相 HTTP 中止。
+  m_cancelCompute.store(true);
   ++m_generation;
   m_queue.clear();
   if (m_activeTask)
@@ -180,8 +181,10 @@ void AiChatToolRunner::startNext() {
       return;
     }
     const QString operationDir = m_context.projectDir + QStringLiteral("/.paleo/capability-ops");
+    m_cancelCompute.store(false);
     const QJsonObject payload = paleo::capability::runChatTool(
-        m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId, operationDir);
+        m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId, operationDir,
+        m_context.authoritativeHead, [this] { return m_cancelCompute.load(); });
     const bool ok = payload.value(QStringLiteral("ok")).toBool();
     finishActive(ok, payload);
   }

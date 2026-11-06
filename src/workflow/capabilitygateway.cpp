@@ -530,7 +530,9 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
     const int xlHalf = params.effective.value(QStringLiteral("COHERENCE_XL_HALF")).toInt();
     const auto mode = weight == QLatin1String("inverse") ? paleo::seisattr::CoherenceWeightMode::InverseDistance
                                                          : paleo::seisattr::CoherenceWeightMode::Equal;
-    if (plan.code == "split") {
+    const int interiorXl = std::max(0, nXl - 2 * std::max(xlHalf, 0));
+    // split 也可能只是包络按道分批。只有 xlChunk 小于整幅内区时才沿 XL 切相干。
+    if (plan.xlChunk > 0 && interiorXl > plan.xlChunk) {
       const auto spans = paleo::seisattr::coherenceXlSpans(nXl, xlHalf, plan.xlChunk);
       if (spans.empty())
         return finish(log, record, rejected(QStringLiteral("budget_exceeded")), false, {});

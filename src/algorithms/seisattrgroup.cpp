@@ -374,6 +374,7 @@ AttributeBudgetPlan planAttributeBudget(int nTraces, int nSamples, int rmsHalf, 
     }
     trace.estimatedBytes = sum;
     trace.minimumBytes = std::max(trace.minimumBytes, coherencePlan.minimumBytes);
+    trace.xlChunk = coherencePlan.xlChunk;
     return trace;
   };
   if (envelope) {

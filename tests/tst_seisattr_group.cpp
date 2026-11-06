@@ -35,6 +35,7 @@ private slots:
   void budgetLowerBoundIsIndependentOfOutputWindow();
   void mixedCoherenceIsPricedAndShapeCannotOverflow();
   void tiledCoherenceMatchesFullVolume();
+  void envelopeSplitKeepsCoherenceChunk();
 };
 
 void TestSeisAttrGroup::envelopeAndPhaseShareOneAnalyticCall() {
@@ -249,6 +250,15 @@ void TestSeisAttrGroup::tiledCoherenceMatchesFullVolume() {
   const auto split = paleo::seisattr::planAttributeBudget(0, nS, 0, false, false, true, nIl, nXl, 1, 1,
                                                          static_cast<qint64>(nIl * nXl * nS * sizeof(float)), nS);
   QVERIFY(split.code == "split" || split.code == "budget_exceeded");
+}
+
+void TestSeisAttrGroup::envelopeSplitKeepsCoherenceChunk() {
+  const auto mixed = paleo::seisattr::planAttributeBudget(4, 8, 0, true, false, true, 2, 2, 0, 0, 1000, 4);
+  QVERIFY(mixed.code != "budget_exceeded");
+  QCOMPARE(mixed.xlChunk, 2);
+  QVERIFY(mixed.estimatedBytes <= 1000);
+  QVERIFY(mixed.traceBatch > 0);
+  QVERIFY(mixed.traceBatch < 4);
 }
 
 QTEST_MAIN(TestSeisAttrGroup)

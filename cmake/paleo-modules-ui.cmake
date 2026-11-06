@@ -14,6 +14,8 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/derivedassets_set.cpp
+  src/workflow/algorithmpublish_prepare.cpp
   src/workflow/documentsession.cpp
   src/workflow/documentsession_bindings.cpp
   src/workflow/documentsession_jobs.cpp

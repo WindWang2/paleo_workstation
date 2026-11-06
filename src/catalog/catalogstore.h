@@ -33,6 +33,8 @@ class CatalogStore
       int backupKeep = 3;
       bool hasMutationSeq = false;
       bool hasBackupKeep = false;
+      QJsonObject projectionCheckpoints;
+      bool projectionCheckpointsValid = true;
     };
 
     struct Tables

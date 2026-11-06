@@ -12365,6 +12365,18 @@ Crossline: %3 ~ %4</source>
         <source>草稿相图图层声明失败：%1</source>
         <translation>草稿相图图层声明失败：%1</translation>
     </message>
+    <message>
+      <source>工作流未绑定数据目录</source>
+      <translation>工作流未绑定数据目录</translation>
+    </message>
+    <message>
+      <source>相图输出目标无效</source>
+      <translation>相图输出目标无效</translation>
+    </message>
+    <message>
+      <source>输出准备已取消</source>
+      <translation>输出准备已取消</translation>
+    </message>
 </context>
 <context>
     <name>FaciesPartitionTool</name>
@@ -36378,6 +36390,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
         <translation>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</translation>
+    </message>
+    <message>
+      <source>catalog_revision 须为整数</source>
+      <translation>catalog_revision 须为整数</translation>
+    </message>
+    <message>
+      <source>topic=version 须给精确 version_id</source>
+      <translation>topic=version 须给精确 version_id</translation>
+    </message>
+    <message>
+      <source>目录修订条件（topic=version；缺省使用本次宿主目录修订）</source>
+      <translation>目录修订条件（topic=version；缺省使用本次宿主目录修订）</translation>
+    </message>
+    <message>
+      <source>精确目录版本标识（topic=version 时必填，不按名称回退）</source>
+      <translation>精确目录版本标识（topic=version 时必填，不按名称回退）</translation>
     </message>
 </context>
 <context>

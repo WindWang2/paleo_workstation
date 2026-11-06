@@ -44,6 +44,7 @@ struct AlgorithmOutputArtifact
   QString suggestedAssetType;
   QString suggestedDisplayName;
   QVariantMap extra;
+  QStringList parentPortIds; // dependencies inside the same atomic output set
 };
 
 struct AlgorithmRunResult

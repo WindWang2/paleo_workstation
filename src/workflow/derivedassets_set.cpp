@@ -36,6 +36,20 @@ QString evidenceError(const QVariantMap &extra) {
       return finding.toMap().value("message").toString();
   return {};
 }
+bool validateDependencies(const DerivedPreparedSet &set,QHash<QString,QString> &versions,QStringList &order) {
+  QHash<QString,QStringList> edges;
+  for(const auto &member:set.members) {versions.insert(member.portId,member.staging.versionId);edges.insert(member.portId,member.parentPortIds);}
+  QHash<QString,int> state;
+  std::function<bool(const QString &)> visit=[&](const QString &port) {
+    if(!edges.contains(port) || state.value(port)==1)return false;
+    if(state.value(port)==2)return true;
+    state[port]=1;
+    for(const auto &parent:edges.value(port))if(!visit(parent))return false;
+    state[port]=2;order.append(port);return true;
+  };
+  for(const auto &port:edges.keys())if(!visit(port))return false;
+  return true;
+}
 }
 
 bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPreparedSet &prepared,
@@ -43,10 +57,10 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
     const QVariantMap &extra, DerivedOutputSetReceipt &receipt) {
   receipt={};receipt.id=prepared.id;receipt.algorithmId=prepared.algorithmId;
   const auto fail=[&](const QString &code,const QString &error){receipt.ready=false;receipt.members.clear();receipt.code=code;receipt.error=error;return false;};
+  if (m_catalog && m_catalog->isStaging()) return fail("staging_catalog",QStringLiteral("内存试算目录不能发布持久输出集"));
   if (!m_catalog || !m_catalog->isOpen() || QThread::currentThread()!=m_catalog->thread())
     return fail("catalog_unavailable",QStringLiteral("输出集登记须使用当前线程的已打开目录"));
   if (m_catalog->refusesWrites()) return fail("read_only",QStringLiteral("目录为只读，输出集未发布"));
-  if (m_catalog->isStaging()) return fail("staging_catalog",QStringLiteral("内存试算目录不能发布持久输出集"));
   if (m_catalog->hasActiveBatch()) return fail("batch_in_progress",QStringLiteral("输出集必须拥有独立提交事务"));
   if (!spec.complete || spec.id!=prepared.algorithmId || prepared.id.isEmpty() || prepared.algorithmId.isEmpty() || prepared.members.isEmpty() || prepared.members.size()>64)
     return fail("invalid_output_set",QStringLiteral("输出集身份、算法或成员数量无效"));
@@ -54,6 +68,10 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
     if (id.isEmpty() || m_catalog->versionById(id).id!=id)
       return fail("input_version_missing",QStringLiteral("输出集输入版本不存在：%1").arg(id));
   QSet<QString> ports,assets,versions,paths;
+  QHash<QString,QString> siblingVersions;
+  QStringList publishOrder;
+  if(!validateDependencies(prepared,siblingVersions,publishOrder))
+    return fail("invalid_output_dependencies",QStringLiteral("输出集依赖端口缺失或存在循环"));
   QSet<QString> knownPorts,requiredPorts;
   for (const auto &port : spec.outputs) {
     if (port.kind!=QLatin1String("raster") && port.kind!=QLatin1String("vector") &&
@@ -79,10 +97,13 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
     CatalogVersion v;v.id=st.versionId;v.assetId=st.assetId;v.versionNumber=st.versionNumber;
     v.stage="DERIVED";v.managed=true;v.path=st.relativePath;v.fileName=QFileInfo(st.absolutePath).fileName();
     v.sha256=member.fingerprint.sha256;v.sourceUri=sourceUri;v.parentVersionIds=parentVersionIds;v.extra=extra;
+    for(const auto &port:member.parentPortIds)v.parentVersionIds.append(siblingVersions.value(port));
+    v.parentVersionIds.removeDuplicates();
     for (auto it=member.extra.cbegin();it!=member.extra.cend();++it) v.extra.insert(it.key(),it.value());
-    if (!v.extra.contains("evidence")) v.extra.insert("evidence",paleo::workflow_detail::evidenceRecord(m_catalog,parentVersionIds,v.extra));
-    const auto why=evidenceError(v.extra);
-    if (!why.isEmpty()) return fail("invalid_evidence",why);
+    if(v.extra.contains("evidence")) {
+      const auto why=evidenceError(v.extra);
+      if(!why.isEmpty())return fail("invalid_evidence",why);
+    }
     pending.append(v);
     receipt.members.append({member.portId,st.assetId,st.versionId,st.relativePath,v.sha256});
   }
@@ -93,12 +114,17 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
   auto manifest=receipt.toVariantMap();manifest["ready"]=true;manifest["code"]="committed";
   DataCatalog::BatchSave transaction(m_catalog);
   QString error;
-  for (qsizetype i=0;i<pending.size();++i) {
+  for (const auto &port:publishOrder) {
+    qsizetype i=0;while(prepared.members[i].portId!=port)++i;
     const auto &st=prepared.members[i].staging;
     if (!st.reservedType.isEmpty()) {
       CatalogAsset a;a.id=st.assetId;a.type=st.reservedType;a.displayName=st.reservedDisplayName;a.format=st.reservedFormat;
       if (!m_catalog->addAsset(a,&error)) {transaction.abort();return fail("catalog_commit_failed",error);}
     }
+    if(!pending[i].extra.contains("evidence"))
+      pending[i].extra.insert("evidence",paleo::workflow_detail::evidenceRecord(m_catalog,pending[i].parentVersionIds,pending[i].extra));
+    const auto why=evidenceError(pending[i].extra);
+    if(!why.isEmpty()){transaction.abort();return fail("invalid_evidence",why);}
     pending[i].extra.insert("outputSet",manifest);
     if (!m_catalog->addVersion(pending[i],&error)) {transaction.abort();return fail("catalog_commit_failed",error);}
   }

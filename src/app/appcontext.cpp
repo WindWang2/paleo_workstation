@@ -1,6 +1,7 @@
 // 层：组装根
 #include "appcontext.h"
 #include "workflow/documentsession.h"
+#include "io/areamodelpublication.h"
 #include "../ai/chat/llmclient.h" // 方向51：LLM 配置 + 助手编排
 #include "../ai/chat/llmkeystore.h"
 #include "../ai/remotepredictconfig.h"
@@ -749,6 +750,8 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
       prepared && prepared->directory == fi.absolutePath() ? prepared->catalog : nullptr);
   const auto documentFile = readProjectFile(paleoProjectFilePath(fi.absolutePath()));
   QString sourceError;
+  if (m_import->catalog() && !paleo::area_model::recoverModelPublication(*m_import->catalog(),&sourceError))
+    qWarning() << "AppContext: model publication needs recovery:" << sourceError;
   if (!m_documentSession->bind(m_import->catalog(), metaPath, documentFile.projectId, !writable, &sourceError))
     qWarning() << "AppContext: document sources unavailable:" << sourceError;
   // 工程级地理配准（project.paleo georeference 节）：导入服务带上
@@ -785,7 +788,7 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
     // targetHorizon，层位名与栅格声明都可能换了；只读工程工具的
     // catalog/projectDir 同步换绑）。无 ORT 构建也重绑（assist 为空）。
     bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
-                       derivedCatalog, fi.absolutePath());
+                       derivedCatalog, fi.absolutePath(), m_documentSession->documentId());
     // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
     // 交错写互覆）——层深转换产物落 artifacts/derived/。
     m_depthWf->rebind(derivedCatalog, fi.absolutePath());

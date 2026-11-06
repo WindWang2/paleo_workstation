@@ -12310,7 +12310,19 @@ Crossline: %3 ~ %4</source>
             <source>草稿相图图层声明失败：%1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+      <source>工作流未绑定数据目录</source>
+      <translation>The workflow is not bound to a data catalog</translation>
+    </message>
+    <message>
+      <source>相图输出目标无效</source>
+      <translation>Invalid facies map output targets</translation>
+    </message>
+    <message>
+      <source>输出准备已取消</source>
+      <translation>Output preparation cancelled</translation>
+    </message>
+</context>
     <context>
         <name>FaciesPartitionTool</name>
         <message>
@@ -36240,6 +36252,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
         <translation>Concurrent SEG-Y read workers. Changing this setting reloads the current slice; cached slices are reused. Paged workspaces use their own scheduling.</translation>
+    </message>
+    <message>
+      <source>catalog_revision 须为整数</source>
+      <translation>catalog_revision must be an integer</translation>
+    </message>
+    <message>
+      <source>topic=version 须给精确 version_id</source>
+      <translation>topic=version requires an exact version_id</translation>
+    </message>
+    <message>
+      <source>目录修订条件（topic=version；缺省使用本次宿主目录修订）</source>
+      <translation>Catalog revision condition (topic=version; defaults to the current host catalog revision)</translation>
+    </message>
+    <message>
+      <source>精确目录版本标识（topic=version 时必填，不按名称回退）</source>
+      <translation>Exact catalog version ID (required for topic=version; no name fallback)</translation>
     </message>
 </context>
     <context>

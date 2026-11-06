@@ -15,6 +15,16 @@ add_paleo_test(tst_document_relation_reader LIBS paleo_workflow Paleo::paleo_dat
 add_paleo_test(tst_dataservice_prepared_import LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_horizon_semantics LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_objects LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_curve_windows LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_model_changes LIBS Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_dataservice_correlation_inputs LIBS Paleo::paleo_data_service Qt6::Sql)
+target_include_directories(tst_dataservice_model_changes PRIVATE ${CMAKE_SOURCE_DIR}/vendor/Data_service/src)
+target_include_directories(tst_dataservice_curve_windows PRIVATE ${CMAKE_SOURCE_DIR}/vendor/Data_service/src)
+add_paleo_test(tst_sf3p_directory LIBS paleo_sbm)
+add_paleo_test(tst_area_model_publication LIBS paleo_io Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_area_source_delta LIBS paleo_store Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_algorithm_output_set LIBS paleo_workflow)
+add_paleo_test(tst_artifact_version_capability LIBS paleo_workflow)
 add_paleo_test(tst_dataservice_snapshot LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis

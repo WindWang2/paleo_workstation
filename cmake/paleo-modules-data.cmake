@@ -67,6 +67,9 @@ target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
 # catalog + metadata 同库（互依环）
 add_library(paleo_store STATIC
+  src/catalog/datacatalog_projection.cpp
+  src/catalog/areasource_delta.cpp
+  src/catalog/areasource_delta_apply.cpp
   src/catalog/documentsourceprojection.cpp
   src/metadata/documentsourcestore.cpp
   src/catalog/purgelease.cpp
@@ -166,6 +169,7 @@ target_include_directories(paleo_qgis_attribute_table PUBLIC
 target_link_libraries(paleo_qgis_attribute_table PUBLIC paleo_qgis Qt6::Core5Compat)
 
 add_library(paleo_io STATIC
+  src/io/areamodelpublication.cpp
   src/io/nativesourcesnapshot.cpp
   src/io/sourcefingerprint.cpp
   src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
@@ -196,6 +200,7 @@ add_library(paleo_io STATIC
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
+  src/services/artifactversioncapability.cpp
   src/services/documentsourceprobe.cpp
   src/services/documentrelationresolver.cpp
   src/services/projectdata_relation.cpp

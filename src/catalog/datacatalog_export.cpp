@@ -38,6 +38,7 @@ bool DataCatalog::exportCatalogJson(const QString &path, QString *error) const
   tables.versions = m_versions;
   tables.links = m_links;
   tables.meta.revision = m_revision;
+  tables.meta.projectionCheckpoints=m_projectionCheckpoints;
   const QByteArray bytes =
       QJsonDocument(CatalogStore::toJson(tables)).toJson(QJsonDocument::Indented);
   QSaveFile f(path);

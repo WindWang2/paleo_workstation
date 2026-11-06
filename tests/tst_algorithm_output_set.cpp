@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <algorithm>
 #include <QFile>
 #include <QFileInfo>
 #include <QSqlDatabase>
@@ -42,6 +43,7 @@ class AlgorithmOutputSetTests : public QObject {
   Q_OBJECT
 private slots:
   void requiredOutputsCommitTogetherAndSurviveReopen();
+  void siblingDependenciesAreAtomicAndAcyclic();
   void missingRequiredAndDuplicatePortsAreRejected();
   void optionalOutputCanBeAbsent();
   void publicationRechecksRequiredPorts();
@@ -73,6 +75,16 @@ void AlgorithmOutputSetTests::missingRequiredAndDuplicatePortsAreRejected() {
   f.result=saved;f.result.artifacts[1].portId="OUTPUT";f.targets.append({"OUTPUT",f.targets.first().staging});
   QVERIFY(!f.prepare(prepared,error));QVERIFY(f.catalog.assets().isEmpty());QVERIFY(f.catalog.versions().isEmpty());
 }
+void AlgorithmOutputSetTests::siblingDependenciesAreAtomicAndAcyclic() {
+  Fixture f;QVERIFY(f.init());f.result.artifacts[1].parentPortIds={"OUTPUT"};
+  DerivedPreparedSet prepared;QString error;QVERIFY(f.prepare(prepared,error));
+  std::reverse(prepared.members.begin(),prepared.members.end());
+  DerivedOutputSetReceipt receipt;QVERIFY2(f.registrar.commitSet(f.spec,prepared,{},f.spec.id,{},receipt),qPrintable(receipt.error));
+  QCOMPARE(f.catalog.versionById(f.targets[1].staging.versionId).parentVersionIds,QStringList{f.targets[0].staging.versionId});
+  Fixture cyclic;QVERIFY(cyclic.init());cyclic.result.artifacts[0].parentPortIds={"QUALITY"};cyclic.result.artifacts[1].parentPortIds={"OUTPUT"};
+  QVERIFY(cyclic.prepare(prepared,error));QVERIFY(!cyclic.registrar.commitSet(cyclic.spec,prepared,{},cyclic.spec.id,{},receipt));
+  QCOMPARE(receipt.code,QStringLiteral("invalid_output_dependencies"));QVERIFY(cyclic.catalog.versions().isEmpty());
+}
 void AlgorithmOutputSetTests::optionalOutputCanBeAbsent() {
   Fixture f;QVERIFY(f.init());f.spec.outputs[1].required=false;f.result.artifacts.removeLast();f.targets.removeLast();
   DerivedPreparedSet prepared;QString error;QVERIFY2(f.prepare(prepared,error),qPrintable(error));DerivedOutputSetReceipt receipt;
@@ -100,8 +112,9 @@ void AlgorithmOutputSetTests::failedSqlFlushRollsBackAndCanRetry() {
     DerivedOutputSetReceipt receipt;
     QVERIFY(!f.registrar.commitSet(f.spec,prepared,{},f.spec.id,{},receipt));QCOMPARE(receipt.code,QString("catalog_commit_failed"));
     QVERIFY(!receipt.ready);QVERIFY(receipt.members.isEmpty());QVERIFY(f.catalog.assets().isEmpty());QVERIFY(f.catalog.versions().isEmpty());
-    DataCatalog reopened;QVERIFY(reopened.open(f.directory.path()));QVERIFY(reopened.assets().isEmpty());QVERIFY(reopened.versions().isEmpty());
+    {DataCatalog reopened;QVERIFY(reopened.open(f.directory.path()));QVERIFY(reopened.assets().isEmpty());QVERIFY(reopened.versions().isEmpty());}
     QVERIFY(sql.exec("DROP TRIGGER reject_output_set"));
+    sql.finish();db.close();
     QVERIFY2(f.registrar.commitSet(f.spec,prepared,{},f.spec.id,{},receipt),qPrintable(receipt.error));QVERIFY(receipt.ready);QCOMPARE(f.catalog.versions().size(),2);
     db.close();
   }

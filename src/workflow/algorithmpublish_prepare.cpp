@@ -101,7 +101,7 @@ bool prepareAlgorithmOutputSet(const AlgorithmSpec &spec,const AlgorithmRunResul
   candidate.id=carrier.versionId; // unique, indexed receipt carrier; not an operation ID
   QStringList createdPaths;
   for (const auto &artifact : result.artifacts) {
-    DerivedPreparedMember member;member.portId=artifact.portId;member.staging=byPort.value(artifact.portId);member.extra=artifact.extra;
+    DerivedPreparedMember member;member.portId=artifact.portId;member.staging=byPort.value(artifact.portId);member.extra=artifact.extra;member.parentPortIds=artifact.parentPortIds;
     bool created=false;
     const bool ok=copyAndAttest(artifact.absolutePath,member.staging.absolutePath,member.fingerprint,why,cancelled,
                               sizes.value(artifact.portId),created);

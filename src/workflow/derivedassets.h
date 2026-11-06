@@ -62,6 +62,7 @@ struct DerivedPreparedMember {
   DerivedStaging staging;
   DerivedFileFingerprint fingerprint;
   QVariantMap extra;
+  QStringList parentPortIds;
 };
 struct DerivedPreparedSet {
   QString id, algorithmId;

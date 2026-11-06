@@ -6,6 +6,15 @@
 适用范围：Paleo Workbench C++ 主程序 / QGIS Vendor 集成层
 核心原则：QGIS 负责 GIS，Paleo Workbench 负责地质业务。
 
+2026-11-06 数据模型重设计：文档统一语义控制、来源/对象引用与视图查询，数值载荷保持
+按窗/按块访问；多体系分层、多时深、修订依赖和跨库存储边界见
+[统一文档模型](architecture/UNIFIED_DOCUMENT_MODEL.md)、
+[文件到模型接口](architecture/FILE_MODEL_IO_CONTRACTS.md)与
+[迁移验收](architecture/MODEL_MIGRATION_AND_VALIDATION.md)。这是分批实施的目标设计，
+不将拟议接口视作已完成，也不改变 QGIS/Paleo 的职责裁决。
+算法与全部业务能力的原子化方向见[能力与 Agent 契约](architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)：
+沿用现有算法/任务基础，UI、批处理和 Agent 共用文档查询/命令，不绕开模型状态和提交边界。
+
 2026-10-29 井道图补充：当前工区 RAW 测井预览按模型来源与井 ID 读取跨文件资料，
 井口坐标、井源 CRS／单位与工程目标 CRS／单位均由 Data_service 提供。原始数值
 文件离线仍可绘图；未知深度约定不混入 MD 米主轴。详见

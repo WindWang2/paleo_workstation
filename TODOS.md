@@ -11,6 +11,18 @@
 
 ## P1 — Data_service 类型化数据与版本事务统一（2026-10-28）
 
+2026-11-06 已形成[统一模型目标设计](docs/architecture/UNIFIED_DOCUMENT_MODEL.md)、
+[高性能接口契约](docs/architecture/FILE_MODEL_IO_CONTRACTS.md)及
+[M0–M5 迁移验收](docs/architecture/MODEL_MIGRATION_AND_VALIDATION.md)，本轮仅设计，
+不关闭代码事项。优先 M0：SF3P 按需页目录、缓存代次身份、工区模型发布基底 CAS 与持久恢复。
+后续按批补控制表/可靠 change_log、水位、真窗口与背压、通用井筒/多体系/分段时深、
+实际消费 facet/负依赖、版本化值及视图迁移。实数据与成本推导见
+[本轮依据](docs/progress/data-model-redesign-20261106.md)。
+同步推进[原子能力与 Agent 配套](docs/architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)：
+盘点完整业务入口，扩展现有 Spec/Adapter/JobRunner，统一有版本的输入输出/效果/预算；
+补多输出集合、持久 operation/恢复及 UI/批处理/Agent 同一路径。地震按窗/批共享读取，
+保留整道/全局算法边界。A0–A4 仍待实施，不以工具登记数量代替功能完成度。
+
 文档来源第一批已提供 SourceRef / SourceBinding、状态维度和统一命令，会话与
 预览重定位接入见 [实施记录](docs/progress/document-sources-20261105.md)。继续迁移
 各业务视图的来源选择与直接文件读口，补身份裁定视图、分页父来源匹配和显式页 CRC 任务。

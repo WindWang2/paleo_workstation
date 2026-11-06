@@ -1,5 +1,11 @@
 # Data_service 接入与全项目数据迁移
 
+2026-11-06 补充目标设计：[统一文档模型](architecture/UNIFIED_DOCUMENT_MODEL.md)、
+[高性能文件/模型接口](architecture/FILE_MODEL_IO_CONTRACTS.md)、
+[分批迁移与验收](architecture/MODEL_MIGRATION_AND_VALIDATION.md)。保留已有三个 store，
+以规范化文档控制、变更日志/水位、真实数值窗口和不可变载荷引用推进；以下内容保留现有
+接入记录，新设计未实现的部分不能从旧交付记录推定为已完成。
+
 ## 工区模型作为预览数据源（本次修正）
 
 井道图通过子模块 `listSourceWells` / `readWellPlotData` 按稳定井 ID 汇集已入库的

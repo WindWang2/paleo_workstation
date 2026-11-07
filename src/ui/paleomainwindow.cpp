@@ -561,6 +561,7 @@ void PaleoMainWindow::updateWindowTitle()
 void PaleoMainWindow::setProjectReadOnly(bool readOnly)
 {
   m_isProjectReadOnly = readOnly;
+  updateUndoProjectGate(readOnly);
   updateWindowTitle();
 
   if (auto *saveAct = findChild<QAction *>(QStringLiteral("saveProjectAction")))
@@ -725,6 +726,7 @@ void PaleoMainWindow::applyProvisionalRegistration(DataImportService *svc,
 
 void PaleoMainWindow::resetProjectScopedState()
 {
+  resetUndoFocus();
   // 属性建模：作业取消（任务已随任务会话取消，这里同步收 UI 忙态的入口；
   // jobCompleted 到达时 finishPropertyModelRun 按「已取消」收尾）。
   m_propModelCancel = true;

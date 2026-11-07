@@ -22,6 +22,7 @@ class QCheckBox;
 class QDialog;
 class QTableWidget;
 class QUndoStack;
+struct PaleoUndoTarget;
 
 namespace paleo::fault {
 class FaultInterpretationController;
@@ -185,9 +186,15 @@ public:
     SeismicPickPanel *pickPanel() const { return m_pickPanel; }
     // #748：剖面/拾取共用的解释撤销栈（主窗口撤销组按焦点切换）。
     QUndoStack *undoStack() const { return m_undoStack; }
+    QUndoStack *interpretationNativeUndoStack() const;
+    PaleoUndoTarget interpretationUndoTarget();
+    void setInterpretationReadOnly(bool readOnly);
+    bool isInterpretationReadOnly() const { return m_interpretationReadOnly; }
     void setPickMode(SectionPickMode mode);
 
 signals:
+    void interpretationUndoScopeChanged();
+    void interpretationUndoStateChanged();
   void setupRequested();
   void sectionExtractionFinished(bool success, const QString &message);
   void pointClickedOnMap(double x, double y);
@@ -314,6 +321,9 @@ private:
     // ---- D4 解释 ----
     SeismicInterpretationSession m_session;
     QUndoStack *m_undoStack = nullptr;
+    void cancelPendingInterpretation();
+    bool m_interpretationReadOnly = false;
+    quint64 m_interpretationEpoch = 0;
     SeismicPickPanel *m_pickPanel = nullptr;
     paleo::fault::FaultInterpretationController *m_faultController = nullptr;
     std::vector<glm::ivec2> m_lastPathPoints; // 任意线剖面身份（IL/XL 点串）

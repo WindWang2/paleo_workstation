@@ -24551,8 +24551,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="97"/>
-        <source>地震拾取面板（焦点内）</source>
-        <translation>地震拾取面板（焦点内）</translation>
+        <source>地震剖面（焦点内）</source>
+        <translation>地震剖面（焦点内）</translation>
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="98"/>
@@ -24566,13 +24566,13 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="108"/>
-        <source>撤销上一次地震拾取变更</source>
-        <translation>撤销上一次地震拾取变更</translation>
+        <source>撤销上一次地震解释变更</source>
+        <translation>撤销上一次地震解释变更</translation>
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="110"/>
-        <source>重做地震拾取变更</source>
-        <translation>重做地震拾取变更</translation>
+        <source>重做地震解释变更</source>
+        <translation>重做地震解释变更</translation>
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="112"/>
@@ -28293,6 +28293,11 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondock_internal.h" line="89"/>
+        <source>添加断层 %1</source>
+        <translation>添加断层 %1</translation>
+    </message>
     <message><source>快速预览（≤64×64）</source><translation>快速预览（≤64×64）</translation></message>
     <message>
         <source>未命名层位</source>
@@ -51798,6 +51803,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>seismic::SeismicPickPanel</name>
     <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
+        <source>撤销：%1</source>
+        <translation>撤销：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
+        <source>重做：%1</source>
+        <translation>重做：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
+        <source>没有可撤销的解释变更</source>
+        <translation>没有可撤销的解释变更</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
+        <source>没有可重做的解释变更</source>
+        <translation>没有可重做的解释变更</translation>
+    </message>
+    <message>
         <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="86"/>
         <source>解释者:</source>
         <translation>解释者:</translation>
@@ -52229,6 +52254,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>seismic::SeismicSectionDockWidget</name>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="312"/>
+        <source>只读工程不能保存地震解释</source>
+        <translation>只读工程不能保存地震解释</translation>
+    </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="21"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="117"/>

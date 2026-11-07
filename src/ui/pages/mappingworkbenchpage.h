@@ -40,8 +40,7 @@ public:
   // meta 携带索引新鲜度（index_state / index_error / total / shown）。
   void setReverseResults(const QVariantList &rows, const QString &error = {},
                          const QVariantMap &meta = {});
-  // G05/G09：影响分析成功后回喂页面——「按最近影响报告受控重算」按钮的
-  // 可用条件（无影响报告时禁用并给 reason，不再让点击后吃错误）。
+  // The command controller checks that the impact report matches this selection.
   void setImpactAvailable(bool ready);
   void markFaciesSaved() { m_faciesDirty = false; m_faciesDrafts.remove(m_horizon); }
   // X9：索引后台同步完成后自动重发最近一次反查（仅存 kind+argument，
@@ -97,7 +96,7 @@ private:
   QLabel *m_status = nullptr;
   QString m_labelLayer;
   bool m_labelModeDirty = false;
-  bool m_impactReady = false; // 最近一次影响分析成功（recompute 按钮门控）
+  bool m_impactReady = false; // 当前层位与图件版本具有匹配的影响报告
   QListWidget *m_inputs = nullptr;
   QTreeWidget *m_results;
   QCheckBox *m_allHorizons = nullptr;

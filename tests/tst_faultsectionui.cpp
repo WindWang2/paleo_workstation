@@ -116,6 +116,7 @@ private slots:
     void ilPickLandsInFaultSetAndRedraws();
     void timeSlicePickRejected();
     void pickUndoRemovesStickAndOverlay();
+    void standaloneFaultSegmentUndo();
     void arbitrarySectionIdentityIsStable();
     void selectionHighlightOnCanvas();
     void panelTreeAndCutIntent();
@@ -212,16 +213,45 @@ void TestFaultSectionUi::timeSlicePickRejected()
 
 void TestFaultSectionUi::pickUndoRemovesStickAndOverlay()
 {
-    auto *dock = makeIlDock();
+    const std::unique_ptr<seismic::SeismicSectionDockWidget> dock(makeIlDock());
+    dock->addPicks({seismic::SeismicPick{}});
+    dock->setPickMode(seismic::SectionPickMode::Fault);
     dock->addFaultFromCanvas(kStickPoints);
     QCOMPARE(dock->canvas()->faultStickOverlays().size(), 1);
-    m_ctl.editStack()->undo(); // 剖面拾取经编排器栈撤销（Oracle #2 剖面腿）
+    dock->show();
+    QApplication::setActiveWindow(dock.get());
+    dock->canvas()->setFocus();
+    QTRY_VERIFY(dock->canvas()->hasFocus());
+    QTest::keyClick(dock->canvas(), Qt::Key_Z, Qt::ControlModifier);
     QCOMPARE(m_ctl.faultSet().faultCount(), 0);
     QCOMPARE(dock->canvas()->faultStickOverlays().size(), 0);
-    m_ctl.editStack()->redo();
+    QCOMPARE(dock->interpretationSession().picks.size(), 1);
+    QTest::keyClick(dock->canvas(), Qt::Key_Y, Qt::ControlModifier);
     QCOMPARE(m_ctl.faultSet().faultCount(), 1);
     QCOMPARE(dock->canvas()->faultStickOverlays().size(), 1);
-    delete dock;
+    dock->setInterpretationReadOnly(true);
+    QTest::keyClick(dock->canvas(), Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(m_ctl.faultSet().faultCount(), 1);
+    QCOMPARE(dock->interpretationSession().picks.size(), 1);
+}
+
+void TestFaultSectionUi::standaloneFaultSegmentUndo()
+{
+    const std::unique_ptr<seismic::SeismicSectionDockWidget> dock(makeIlDock());
+    dock->setFaultController(nullptr);
+    dock->setPickMode(seismic::SectionPickMode::Fault);
+    dock->addFaultFromCanvas(kStickPoints);
+    QCOMPARE(dock->interpretationSession().faults.size(), 1);
+    const int id = dock->interpretationSession().faults.first().id;
+    dock->show();
+    QApplication::setActiveWindow(dock.get());
+    dock->canvas()->setFocus();
+    QTRY_VERIFY(dock->canvas()->hasFocus());
+    QTest::keyClick(dock->canvas(), Qt::Key_Z, Qt::ControlModifier);
+    QVERIFY(dock->interpretationSession().faults.isEmpty());
+    QTest::keyClick(dock->canvas(), Qt::Key_Y, Qt::ControlModifier);
+    QCOMPARE(dock->interpretationSession().faults.size(), 1);
+    QCOMPARE(dock->interpretationSession().faults.first().id, id);
 }
 
 void TestFaultSectionUi::arbitrarySectionIdentityIsStable()

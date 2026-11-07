@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include <gdal.h>
@@ -62,6 +63,7 @@ private slots:
   void badPointValueIsRejected();
   void rasterUsesLocalGrid();
   void issuedRasterDoesNotCrossDocuments();
+  void frozenPointsAndLinesRejectPartialRows();
 };
 
 void TestCapabilityRound2::forgedHeadDoesNotAuthorizePublish() {
@@ -246,6 +248,75 @@ void TestCapabilityRound2::issuedRasterDoesNotCrossDocuments() {
   other.parameters.insert(QStringLiteral("CONTOUR_LEVEL"), 5.0);
   other.inputs.insert(QStringLiteral("raster_path"), computed.summary.value(QStringLiteral("result_path")));
   QCOMPARE(paleo::capability::execute(other).code, QStringLiteral("untrusted_result_ref"));
+}
+
+void TestCapabilityRound2::frozenPointsAndLinesRejectPartialRows() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ExecuteRequest request = hostRequest(dir.path(), QStringLiteral("missing-z"));
+  request.capabilityId = QStringLiteral("constraint.idw");
+  request.parameters.insert(QStringLiteral("FIELD"), QStringLiteral("z"));
+  request.parameters.insert(QStringLiteral("CELL_SIZE"), 25.0);
+  request.inputs.insert(QStringLiteral("points_ref"), QStringLiteral("ver-points"));
+  request.inputs.insert(QStringLiteral("subinterval_id"), QStringLiteral("sub-1"));
+  QVariantList points = squarePoints();
+  QVariantMap incomplete = points.first().toMap();
+  incomplete.remove(QStringLiteral("z"));
+  points[0] = incomplete;
+  request.inputs.insert(QStringLiteral("points"), points);
+  QCOMPARE(paleo::capability::execute(request).code, QStringLiteral("invalid_point_value"));
+
+  request.clientRequestId = QStringLiteral("named-field");
+  request.parameters.insert(QStringLiteral("FIELD"), QStringLiteral("porosity"));
+  request.inputs.insert(QStringLiteral("points"), squarePoints());
+  const ExecuteResult named = paleo::capability::execute(request);
+  QVERIFY2(named.ok, qPrintable(named.code));
+
+  request.clientRequestId = QStringLiteral("field-name");
+  request.parameters.insert(QStringLiteral("FIELD"), QStringLiteral("well_id"));
+  QCOMPARE(paleo::capability::execute(request).code, QStringLiteral("invalid_field"));
+
+  auto lineRequest = [&](const QString &client, const QVariantList &lines) {
+    ExecuteRequest next = hostRequest(dir.path(), client);
+    next.capabilityId = QStringLiteral("constraint.idw");
+    next.parameters.insert(QStringLiteral("FIELD"), QStringLiteral("z"));
+    next.parameters.insert(QStringLiteral("CELL_SIZE"), 25.0);
+    next.inputs.insert(QStringLiteral("points_ref"), QStringLiteral("ver-points"));
+    next.inputs.insert(QStringLiteral("subinterval_id"), QStringLiteral("sub-1"));
+    next.inputs.insert(QStringLiteral("points"), squarePoints());
+    next.inputs.insert(QStringLiteral("lines"), lines);
+    return paleo::capability::execute(next);
+  };
+  QVariantMap good;
+  good.insert(QStringLiteral("wkt"), QStringLiteral("LINESTRING(50 0, 50 100)"));
+  QVariantMap bad = good;
+  bad.insert(QStringLiteral("wkt"), QStringLiteral("not-a-line"));
+  QCOMPARE(lineRequest(QStringLiteral("bad-wkt"), {good, bad}).code, QStringLiteral("constraint_unreadable"));
+
+  const ExecuteResult untyped = lineRequest(QStringLiteral("no-type"), {good});
+  QVERIFY2(untyped.ok, qPrintable(untyped.code));
+  const QJsonArray untypedRows =
+      QJsonDocument::fromJson(untyped.summary.value(QStringLiteral("constraint_receipts")).toString().toUtf8()).array();
+  QVERIFY(!untypedRows.isEmpty());
+  bool untypedBarrier = false;
+  bool untypedHull = false;
+  for (const QJsonValue &value : untypedRows) {
+    const QString role = value.toObject().value(QStringLiteral("role")).toString();
+    untypedBarrier = untypedBarrier || role == QLatin1String("hard_barrier");
+    untypedHull = untypedHull || role == QLatin1String("hull_clip");
+  }
+  QVERIFY(!untypedBarrier);
+  QVERIFY(untypedHull);
+
+  good.insert(QStringLiteral("type"), QStringLiteral("break_line"));
+  const ExecuteResult barrier = lineRequest(QStringLiteral("barrier"), {good});
+  QVERIFY2(barrier.ok, qPrintable(barrier.code));
+  const QJsonArray barrierRows =
+      QJsonDocument::fromJson(barrier.summary.value(QStringLiteral("constraint_receipts")).toString().toUtf8()).array();
+  bool barrierRole = false;
+  for (const QJsonValue &value : barrierRows)
+    barrierRole = barrierRole || value.toObject().value(QStringLiteral("role")).toString() == QLatin1String("hard_barrier");
+  QVERIFY(barrierRole);
 }
 
 int main(int argc, char *argv[]) {

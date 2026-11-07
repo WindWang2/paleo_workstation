@@ -184,7 +184,8 @@ void AiChatToolRunner::startNext() {
     m_cancelCompute.store(false);
     const QJsonObject payload = paleo::capability::runChatTool(
         m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId, operationDir,
-        m_context.authoritativeHead, [this] { return m_cancelCompute.load(); });
+        m_context.authoritativeHead, [this] { return m_cancelCompute.load(); }, m_context.catalog,
+        m_context.projectDir);
     const bool ok = payload.value(QStringLiteral("ok")).toBool();
     finishActive(ok, payload);
   }

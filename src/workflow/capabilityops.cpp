@@ -8,6 +8,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
@@ -50,12 +51,13 @@ QMutex g_cancelMutex;
 QSet<QString> g_cancelledIds;
 
 QMutex &directoryMutex(const QString &path) {
+  const QString canonical = QFileInfo(path).absoluteFilePath();
   static QMutex gate;
   static QHash<QString, QSharedPointer<QMutex>> mutexes;
   QMutexLocker lock(&gate);
-  auto it = mutexes.find(path);
+  auto it = mutexes.find(canonical);
   if (it == mutexes.end())
-    it = mutexes.insert(path, QSharedPointer<QMutex>::create());
+    it = mutexes.insert(canonical, QSharedPointer<QMutex>::create());
   return *it.value();
 }
 

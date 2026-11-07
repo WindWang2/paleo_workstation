@@ -39,5 +39,18 @@ worktree `paleo_workstation-algo-atomic-r2`，`-j2` 编译，`ctest -j1`，`QT_Q
 ## 还没接到
 
 - `runConstraintIDW` / `generateFactor` 的异步作业仍走 `runFactorAlgorithm`，没有改成 `capability::execute`。
-- 操作日志仍是目录 JSON。提交后回执丢失还没有跨进程恢复测试。
+- 操作日志仍是目录 JSON。提交后回执丢失还没有跨进程恢复测试。操作日志和 Catalog 仍是两次提交，`receipt_persist_failed` / `commit_uncertain` 仍在。
 - 聊天里的大计算仍在调用线程里同步跑。
+- 这次不改既有目录问题：`derivedassets.cpp` 名字合并回滚、`areasource_delta.cpp` 序号水位、`faciesmappingworkflow.cpp` 重试写出第二版。
+
+## 评审后提交的修复
+
+#909 已 squash 进 `codex/document-data-io-20261106`（`31c1097f`）。修复在 `feat/grok-algo-review-fixes`，基线是该提交，不进 master。
+
+- 分块相干按 `(il, xl, s)` 定位写入 `.f32`，哈希的是回读字节，和 `computeCoherenceTiled` 的内区一致。文件以读写方式打开。
+- 包络或 RMS 与相干合起来超预算时，缩小道批并保留 `xlChunk`。
+- 道批循环看取消。非数字样值写成 NaN。
+- 发布短写停在暂存，不进入 `commitSet`。`notePublishing` 回读，取消先落盘时不当作 publishing 成功。
+- 操作日志互斥键用绝对路径。
+- 缺 x/y/z 的点、坏的线 WKT 整次拒绝。线缺 `type` 不再默认成 `break_line`。内存点层的数值字段用 `FIELD`。
+- 聊天 `runChatTool` 带上宿主的 catalog 和工程目录。`publish_intent` 接受 `prepare`。截断后的工具页保留 `result_path`。

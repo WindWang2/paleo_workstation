@@ -84,7 +84,13 @@ QJsonObject storedObject(const OperationLog::Record &record) {
 bool notePublishing(OperationLog *log, OperationLog::Record *record) {
   record->commitState = QStringLiteral("publishing");
   record->code = QStringLiteral("publishing");
-  return log->save(*record);
+  if (!log->save(*record))
+    return false;
+  const OperationLog::Record stored = log->recordById(record->operationId);
+  if (stored.commitState != QLatin1String("publishing"))
+    return false;
+  *record = stored;
+  return true;
 }
 
 ExecuteResult fromRecord(const OperationLog::Record &record, const QString &acceptCode) {
@@ -145,7 +151,8 @@ QString publishFiles(DataCatalog *catalog, const QString &projectDir, AlgorithmS
     if (!staging.isValid())
       return QStringLiteral("stage_failed");
     QFile file(staging.absolutePath);
-    if (!file.open(QIODevice::WriteOnly) || file.write(artifact.extra.value(QStringLiteral("bytes")).toByteArray()) < 0)
+    const QByteArray payload = artifact.extra.value(QStringLiteral("bytes")).toByteArray();
+    if (!file.open(QIODevice::WriteOnly) || file.write(payload) != payload.size() || !file.flush())
       return QStringLiteral("stage_failed");
     file.close();
     AlgorithmOutputArtifact stored = artifact;
@@ -435,18 +442,29 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
   paleo::seisattr::TraceGroupResult computed;
   computed.ok = true;
   computed.code = "ok";
+  ExecuteResult result;
   const int traceCount = static_cast<int>(traces.size());
   const int batch = plan.traceBatch > 0 ? plan.traceBatch : std::max(traceCount, 1);
   if ((wantRms || wantEnvelope || wantPhase) && traceCount > 0 && length > 0) {
     for (int start = 0; start < traceCount; start += batch) {
+      if (cancelRequested(record.operationId) || (request.cancelled && request.cancelled())) {
+        result.ok = false;
+        result.code = QStringLiteral("cancelled");
+        result.execution = QStringLiteral("cancelled");
+        result.commitState = QStringLiteral("not_requested");
+        return finish(log, record, result, false, {});
+      }
       const int count = std::min(batch, traceCount - start);
       std::vector<float> buffer(static_cast<std::size_t>(count * length), std::numeric_limits<float>::quiet_NaN());
       for (int i = 0; i < count; ++i) {
         const QVariantList row = traces.at(start + i).toList();
-        for (int s = 0; s < row.size(); ++s) {
+        for (int s = 0; s < row.size() && s < length; ++s) {
           if (row.at(s).isNull())
             continue;
-          buffer[static_cast<std::size_t>(i * length + s)] = static_cast<float>(row.at(s).toDouble());
+          bool ok = false;
+          const double number = row.at(s).toDouble(&ok);
+          buffer[static_cast<std::size_t>(i * length + s)] =
+              ok ? static_cast<float>(number) : std::numeric_limits<float>::quiet_NaN();
         }
       }
       paleo::seisattr::TraceGroupRequest group;
@@ -475,7 +493,6 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
     }
   }
   const bool groupWantEnvelope = attributes.contains(QStringLiteral("envelope"));
-  ExecuteResult result;
   result.recomputed = true;
   if ((wantRms || groupWantEnvelope || wantPhase) && !computed.ok) {
     result.ok = false;
@@ -540,11 +557,22 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
       coherencePath = request.operationDir + QStringLiteral("/results/") + record.operationId +
                       QStringLiteral("-coherence.f32");
       QFile out(coherencePath);
-      if (!out.open(QIODevice::WriteOnly))
+      if (!out.open(QIODevice::ReadWrite | QIODevice::Truncate))
         return finish(log, record, rejected(QStringLiteral("result_write_failed")), false, {});
+      const int interiorIl = std::max(0, nIl - 2 * std::max(ilHalf, 0));
+      const qint64 sampleCount64 = static_cast<qint64>(interiorIl) * interiorXl * volumeSamples;
       QCryptographicHash hasher(QCryptographicHash::Sha256);
-      int samplesWritten = 0;
       int samplesRead = 0;
+      if (sampleCount64 <= 0 ||
+          sampleCount64 > std::numeric_limits<qint64>::max() / static_cast<qint64>(sizeof(float))) {
+        out.remove();
+        return finish(log, record, rejected(QStringLiteral("result_write_failed")), false, {});
+      }
+      const qint64 byteCount = sampleCount64 * static_cast<qint64>(sizeof(float));
+      if (!out.resize(byteCount)) {
+        out.remove();
+        return finish(log, record, rejected(QStringLiteral("result_write_failed")), false, {});
+      }
       for (const paleo::seisattr::CoherenceXlSpan &span : spans) {
         if (stopped()) {
           out.remove();
@@ -582,23 +610,40 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
           result.execution = QStringLiteral("failed");
           return finish(log, record, result, false, {});
         }
-        const QByteArray bytes(reinterpret_cast<const char *>(part.interior.data()),
-                               static_cast<int>(part.interior.size() * sizeof(float)));
-        if (out.write(bytes) != bytes.size()) {
+        const int rowSamples = part.interiorXl * volumeSamples;
+        const std::size_t need = static_cast<std::size_t>(part.interiorIl) * static_cast<std::size_t>(std::max(rowSamples, 0));
+        if (part.interiorIl != interiorIl || rowSamples <= 0 || part.interior.size() < need) {
           out.remove();
-          return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
+          return finish(log, record, rejected(QStringLiteral("invalid_shape"), QStringLiteral("volume")), false, {});
         }
-        hasher.addData(bytes);
-        samplesWritten += static_cast<int>(part.interior.size());
+        for (int il = 0; il < part.interiorIl; ++il) {
+          const qint64 offset = (static_cast<qint64>(il) * interiorXl + span.interiorXl0) * volumeSamples *
+                                static_cast<qint64>(sizeof(float));
+          const char *src = reinterpret_cast<const char *>(
+              part.interior.data() + static_cast<std::size_t>(il) * static_cast<std::size_t>(rowSamples));
+          const qint64 nbytes = static_cast<qint64>(rowSamples) * static_cast<qint64>(sizeof(float));
+          if (!out.seek(offset) || out.write(src, nbytes) != nbytes) {
+            out.remove();
+            return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
+          }
+        }
         samplesRead += part.samplesRead;
       }
-      if (!out.flush())
+      if (!out.flush() || !out.seek(0)) {
+        out.remove();
         return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
+      }
+      const QByteArray written = out.readAll();
+      if (written.size() != byteCount) {
+        out.remove();
+        return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
+      }
       noteIssuedResult(request.documentId, coherencePath);
+      hasher.addData(written);
       result.summary.insert(QStringLiteral("result_path"), coherencePath);
       result.summary.insert(QStringLiteral("coherenceSha256"), QString::fromLatin1(hasher.result().toHex()));
       result.summary.insert(QStringLiteral("coherenceSamplesRead"), samplesRead);
-      result.summary.insert(QStringLiteral("coherenceSamples"), samplesWritten);
+      result.summary.insert(QStringLiteral("coherenceSamples"), static_cast<int>(sampleCount64));
       result.summary.insert(QStringLiteral("tiled"), true);
     } else {
       std::vector<float> volume(static_cast<std::size_t>(coherenceCount));
@@ -882,6 +927,9 @@ QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes) {
   const QString receipt = object.value(QStringLiteral("receipt")).toString();
   if (!receipt.isEmpty())
     page.insert(QStringLiteral("resultRef"), receipt);
+  const QString resultPath = object.value(QStringLiteral("result_path")).toString();
+  if (!resultPath.isEmpty())
+    page.insert(QStringLiteral("result_path"), resultPath);
   return QJsonDocument(page).toJson(QJsonDocument::Compact);
 }
 
@@ -1110,7 +1158,7 @@ ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &n
 
 QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
                         const QString &documentId, const QString &operationDir, const QString &hostHead,
-                        const std::function<bool()> &cancelled) {
+                        const std::function<bool()> &cancelled, DataCatalog *catalog, const QString &projectDir) {
   if (arguments.contains(QStringLiteral("actor")) || arguments.contains(QStringLiteral("approved")) ||
       arguments.contains(QStringLiteral("caller_scope"))) {
     return QJsonObject{{QStringLiteral("code"), QStringLiteral("untrusted_authority")}};
@@ -1135,6 +1183,8 @@ QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, c
   request.inputs.remove(QStringLiteral("drop_output_port"));
   request.inputs.remove(QStringLiteral("grid_wkt"));
   request.operationDir = operationDir;
+  request.catalog = catalog;
+  request.projectDir = projectDir;
   request.presentOk = true;
   request.cancelled = cancelled;
   const ExecuteResult result = execute(request);

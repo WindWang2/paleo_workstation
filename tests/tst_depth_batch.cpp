@@ -2,6 +2,7 @@
 #include <QtTest/QtTest>
 
 #include "algorithms/depthbatch.h"
+#include "algorithms/velocitymodel.h"
 
 #include <cmath>
 #include <limits>

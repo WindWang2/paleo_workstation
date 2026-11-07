@@ -1,6 +1,7 @@
 // 层：数据
 // algorithms/seisattrgroup.cpp — 见 seisattrgroup.h。
 #include "seisattrgroup.h"
+#include "seismicattr.h"
 
 #include "dsp/fft.h"
 

@@ -212,9 +212,6 @@ ExecuteResult finish(OperationLog *log, OperationLog::Record record, ExecuteResu
 
 ExecuteResult executeDepth(const ExecuteRequest &request, const ValidatedParams &params, OperationLog *log,
                            OperationLog::Record record) {
-  QJsonObject modelObject = QJsonObject::fromVariantMap(request.inputs.value(QStringLiteral("model")).toMap());
-  QString modelError;
-  const paleo::velmodel::VelocityModel model = paleo::velmodel::VelocityModel::fromJson(modelObject, &modelError);
   paleo::depthbatch::BatchRequest batch;
   const QString timeName = params.effective.value(QStringLiteral("TIME_SEMANTIC")).toString();
   const QString depthName = params.effective.value(QStringLiteral("DEPTH_SEMANTIC")).toString();
@@ -279,8 +276,10 @@ ExecuteResult executeDepth(const ExecuteRequest &request, const ValidatedParams 
     return finish(log, record, rejected(QStringLiteral("budget_exceeded")), false, {});
   if (request.cancelled && request.cancelled())
     return finish(log, record, rejected(QStringLiteral("cancelled")), false, {});
+  const auto model = QJsonObject::fromVariantMap(request.inputs.value(QStringLiteral("model")).toMap());
+  QString modelError;
   const paleo::depthbatch::BatchResult converted =
-      paleo::depthbatch::convertWellBatch(model, batch, request.cancelled);
+      paleo::depthbatch::convertWellBatchFromJson(model, batch, &modelError, request.cancelled);
   ExecuteResult result;
   result.recomputed = true;
   result.code = QString::fromStdString(converted.code);
@@ -519,7 +518,7 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
       return cancelRequested(record.operationId) || (request.cancelled && request.cancelled());
     };
     const auto sampleAt = [&](int index) {
-      const QVariant value = values.at(index);
+      const QVariant &value = values.at(index);
       if (value.isNull())
         return std::numeric_limits<float>::quiet_NaN();
       bool ok = false;

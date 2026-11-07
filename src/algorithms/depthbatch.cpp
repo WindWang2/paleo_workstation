@@ -1,6 +1,7 @@
 // 层：数据
 // algorithms/depthbatch.cpp — 见 depthbatch.h。数值只委托 VelocityModel。
 #include "depthbatch.h"
+#include "velocitymodel.h"
 
 #include <cmath>
 #include <limits>
@@ -60,6 +61,11 @@ BatchResult planIntervals(const BatchRequest &request) {
     result.occurrenceIds.push_back(interval.occurrenceId);
   }
   return result;
+}
+
+BatchResult convertWellBatchFromJson(const QJsonObject &model, const BatchRequest &request,
+                                     QString *modelError, const std::function<bool()> &cancelled) {
+  return convertWellBatch(paleo::velmodel::VelocityModel::fromJson(model, modelError), request, cancelled);
 }
 
 BatchResult convertWellBatch(const paleo::velmodel::VelocityModel &model, const BatchRequest &request,

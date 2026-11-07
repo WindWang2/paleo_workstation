@@ -305,12 +305,17 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
 }
 
 PaleoTask *SeismicTaskService::startVolumeLoad(
-    const QString &path,std::function<void(bool,std::shared_ptr<SgyVolume>,const QString&)> done,bool quiet) {
-  return startIndexing(path,false,[done](bool ok,SgyIndexPtr index,const QString& error){
+    const QString &sgyPath,
+    std::function<void(bool, std::shared_ptr<SgyVolume>, const QString &)> onFinished, bool quiet) {
+  return startIndexing(sgyPath, false, [onFinished](bool ok, SgyIndexPtr index, const QString &error) {
     std::shared_ptr<SgyVolume> volume;
-    if(ok&&index){volume=std::make_shared<SgyVolume>();volume->AdoptIndex(index);}
-    if(done)done(ok&&bool(volume),volume,error);
-  },{},quiet);
+    if (ok && index) {
+      volume = std::make_shared<SgyVolume>();
+      volume->AdoptIndex(index);
+    }
+    if (onFinished)
+      onFinished(ok && bool(volume), volume, error);
+  }, {}, quiet);
 }
 
 // ---- 地震属性（goal/seismic-attributes）------------------------------------

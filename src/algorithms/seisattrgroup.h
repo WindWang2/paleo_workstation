@@ -2,7 +2,7 @@
 // algorithms/seisattrgroup.h — 已有地震属性核的批次门面。不复制 Hilbert / RMS / 相干公式。
 #pragma once
 
-#include "seismicattr.h"
+#include "../domain/seismic/coherenceweightmode.h"
 
 #include <cstdint>
 #include <functional>

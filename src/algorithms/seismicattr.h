@@ -1,5 +1,7 @@
 // 层：数据
 #pragma once
+#include "../domain/seismic/coherenceweightmode.h"
+
 #include <functional>
 
 // seismicattr — 地震属性核函数库（纯数值，无 Qt/GIS 依赖）。
@@ -85,12 +87,6 @@ void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
 // semblanceCoherence 同一累加路径（乘 1 不改浮点值），逐位一致。
 // mode=InverseDistance 而 ilSpacing/xlSpacing ≤ 0：输入不满足 → 全 NaN
 // （调用方负责给道距；诚实失败不静默降级等权）。
-enum class CoherenceWeightMode
-{
-  Equal = 0,
-  InverseDistance = 1
-};
-
 // progress（可空）：每完成一个 inline 行回调 doneIl——供调用方做任务进度
 // 记账（B-4，full-audit-20261021；默认空 = 原行为）。
 void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,

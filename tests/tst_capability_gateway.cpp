@@ -201,7 +201,7 @@ void TestCapabilityGateway::cancelPublishAndPresentation() {
   for (int i = 0; i < 8; ++i)
     trace.append(std::sin(0.3 * i));
   request.inputs.clear();
-  request.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
+  request.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant(trace)});
   request.inputs.insert(QStringLiteral("full_trace"), true);
   QVariantMap parents;
   parents.insert(QStringLiteral("RMS"), QStringList{QStringLiteral("ENVELOPE")});
@@ -243,7 +243,7 @@ void TestCapabilityGateway::seismicGroupBudgetAndCache() {
     raw[static_cast<std::size_t>(i)] = std::sin(0.25 * i);
     trace.append(static_cast<double>(raw[static_cast<std::size_t>(i)]));
   }
-  request.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
+  request.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant(trace)});
   const ExecuteResult first = paleo::capability::execute(request);
   QVERIFY2(first.ok, qPrintable(first.code));
   QCOMPARE(first.summary.value(QStringLiteral("analyticEvaluations")).toInt(), 1);
@@ -622,7 +622,7 @@ void TestCapabilityGateway::secondReviewFixes() {
   QVariantList volume;
   for (int i = 0; i < 128; ++i)
     volume.append(std::sin(0.05 * i));
-  mixed.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
+  mixed.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant(trace)});
   mixed.inputs.insert(QStringLiteral("full_trace"), true);
   mixed.inputs.insert(QStringLiteral("volume"), volume);
   mixed.inputs.insert(QStringLiteral("nIl"), 4);

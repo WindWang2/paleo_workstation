@@ -923,23 +923,38 @@ private slots:
     QCOMPARE(dock.canvas()->pickOverlays().size(), 1);
     const int id = dock.interpretationSession().picks.first().id;
 
-    auto *undo = dock.findChild<QUndoStack *>();
-    QVERIFY(undo);
+    dock.show();
+    QApplication::setActiveWindow(&dock);
+    dock.canvas()->setFocus();
+    QTRY_VERIFY(dock.canvas()->hasFocus());
     dock.removePick(id);
     QCOMPARE(dock.interpretationSession().picks.size(), 0);
     QCOMPARE(dock.canvas()->pickOverlays().size(), 0);
     // 撤销删除 → 会话恢复且画布叠加恢复（旧实现画布不回来，先红）。
-    undo->undo();
+    QTest::keyClick(dock.canvas(), Qt::Key_Z, Qt::ControlModifier);
     QCOMPARE(dock.interpretationSession().picks.size(), 1);
     QCOMPARE(dock.canvas()->pickOverlays().size(), 1);
     // 撤销添加 → 幽灵点必须消失（旧实现残留，先红）。
-    undo->undo();
+    QTest::keyClick(dock.canvas(), Qt::Key_Z, Qt::ControlModifier);
     QCOMPARE(dock.interpretationSession().picks.size(), 0);
     QCOMPARE(dock.canvas()->pickOverlays().size(), 0);
     // 重做添加 → 回来。
-    undo->redo();
+    QTest::keyClick(dock.canvas(), Qt::Key_Y, Qt::ControlModifier);
     QCOMPARE(dock.interpretationSession().picks.size(), 1);
     QCOMPARE(dock.canvas()->pickOverlays().size(), 1);
+
+    dock.setInterpretationReadOnly(true);
+    QTest::keyClick(dock.canvas(), Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+    dock.setInterpretationReadOnly(false);
+
+    auto replacement = dock.interpretationSession();
+    replacement.picks.first().horizonName = QStringLiteral("Reloaded");
+    QVERIFY(SeismicTaskService::saveSession(replacement, nullptr));
+    QVERIFY(dock.loadInterpretationSession());
+    QTest::keyClick(dock.canvas(), Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+    QCOMPARE(dock.interpretationSession().picks.first().horizonName, QStringLiteral("Reloaded"));
   }
 
   // L3.12：断层折线草稿的收笔/清理对任意释放键生效——旧实现只写在左/中键

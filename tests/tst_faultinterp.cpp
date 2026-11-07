@@ -191,6 +191,18 @@ void TestFaultInterp::failedCommitIsNotRecordedOnUndoStack()
 
     QVERIFY(!ctl.renameFault(QStringLiteral("nope"), QStringLiteral("x")));
     QVERIFY(!ctl.setFaultVisible(QStringLiteral("nope"), false));
+
+    broken.setReadOnly(false);
+    const auto faultId = ctl.addFault(QStringLiteral("Retained history"));
+    QVERIFY(!faultId.isEmpty());
+    QVERIFY(ctl.editStack()->undo());
+    const auto redoText = ctl.editStack()->redoText();
+    broken.setReadOnly(true);
+    QVERIFY(ctl.addFault(QStringLiteral("Rejected edit")).isEmpty());
+    QCOMPARE(ctl.editStack()->redoText(), redoText);
+    broken.setReadOnly(false);
+    QVERIFY(ctl.editStack()->redo());
+    QVERIFY(ctl.faultSet().faultById(faultId));
 }
 
 void TestFaultInterp::renameAndVisibilityUndo()

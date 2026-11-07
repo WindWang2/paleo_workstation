@@ -536,6 +536,9 @@ PaleoLayoutDesignerShell *PaleoMainWindow::newLayoutShell(QgsLayout *layout)
   auto *shell = new PaleoLayoutDesignerShell(layout, this);
   shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
   if (PaleoLayoutUndoStack *undo = shell->undoStack(); undo && undo->stack())
+  {
+    undo->setReadOnly(m_isProjectReadOnly);
     undoRouter()->registerScope(shell, undo->stack());
+  }
   return shell;
 }

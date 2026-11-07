@@ -4,6 +4,7 @@
 #include "ui/seismicsection/seismicsectiondock_internal.h"
 #include "ui/seismicsection/inversionpanel.h"
 #include "ui/seismicsection/seismicattrpanel.h"
+#include "ui/faults/faultundotarget.h"
 
 #include "domain/seismic/sectionaxis.h"
 #include "workflow/faultinterpretationcontroller.h"
@@ -33,6 +34,7 @@ void SeismicSectionDockWidget::setInterpretationCatalog(DataCatalog *catalog,
 // 清空、可登记属性结果清空（防登记错配）、书签下拉清空（书签按体 settings
 // 键存，旧体条目不得残留下拉）、属性叠加清除。
 void SeismicSectionDockWidget::resetInterpretationState() {
+    cancelPendingInterpretation();
     if (m_attrTask) {
         m_attrTask->requestCancel();
         m_attrTask.clear();
@@ -79,17 +81,63 @@ void SeismicSectionDockWidget::refreshInterpretationOverlay() {
 }
 
 void SeismicSectionDockWidget::setPickMode(SectionPickMode mode) {
-    m_canvas->setPickMode(mode);
+    m_canvas->setPickMode(m_interpretationReadOnly ? SectionPickMode::None : mode);
     if (m_pickPanel)
         m_pickPanel->setVisible(mode != SectionPickMode::None);
-    if (mode != SectionPickMode::None && m_session.interpreters.isEmpty()) {
+    if (!m_interpretationReadOnly && mode != SectionPickMode::None && m_session.interpreters.isEmpty()) {
         m_session.interpreters << QStringLiteral("解释员A");
         if (m_pickPanel)
             m_pickPanel->refreshFromSession();
     }
+    emit interpretationUndoScopeChanged();
+}
+
+QUndoStack *SeismicSectionDockWidget::interpretationNativeUndoStack() const
+{
+    return m_faultController && m_canvas->pickMode() == SectionPickMode::Fault ? nullptr : m_undoStack;
+}
+
+PaleoUndoTarget SeismicSectionDockWidget::interpretationUndoTarget()
+{
+    const QPointer<SeismicSectionDockWidget> self(this);
+    const QPointer<QUndoStack> native(interpretationNativeUndoStack());
+    const auto fault = paleo::fault::undoTargetForFaultStack(m_faultController ? m_faultController->editStack() : nullptr);
+    return {
+        [self, native, fault](bool undo) -> PaleoUndoStep {
+            if (!self || self->m_interpretationReadOnly)
+                return {};
+            if (native)
+                return undo ? PaleoUndoStep{native->canUndo(), native->undoText()}
+                            : PaleoUndoStep{native->canRedo(), native->redoText()};
+            return fault.describe(undo);
+        },
+        [self, native, fault](bool undo) {
+            if (!self || self->m_interpretationReadOnly)
+                return false;
+            if (!native)
+                return fault.step(undo);
+            if (undo ? !native->canUndo() : !native->canRedo())
+                return false;
+            undo ? native->undo() : native->redo();
+            return true;
+        }
+    };
+}
+
+void SeismicSectionDockWidget::setInterpretationReadOnly(bool readOnly)
+{
+    if (m_interpretationReadOnly == readOnly)
+        return;
+    m_interpretationReadOnly = readOnly;
+    if (readOnly)
+        cancelPendingInterpretation();
+    setPickMode(m_btnFaultMode->isChecked() ? SectionPickMode::Fault
+                : m_btnPickMode->isChecked() ? SectionPickMode::Seed : SectionPickMode::None);
 }
 
 void SeismicSectionDockWidget::addPickFromCanvas(int traceCol, double twtMs) {
+    if (m_interpretationReadOnly)
+        return;
     const SectionRef ref = m_canvas->sectionRef();
     if (!ref.valid || !m_volume || !m_volume->IsLoaded())
         return;
@@ -128,12 +176,14 @@ void SeismicSectionDockWidget::addPickFromCanvas(int traceCol, double twtMs) {
 }
 
 void SeismicSectionDockWidget::addPicks(const QList<SeismicPick> &picks) {
-    if (picks.isEmpty())
+    if (m_interpretationReadOnly || picks.isEmpty())
         return;
     m_undoStack->push(new AddPicksCommand(this, picks));
 }
 
 void SeismicSectionDockWidget::removePick(int id) {
+    if (m_interpretationReadOnly)
+        return;
     const SeismicPick *p = m_session.pickById(id);
     if (!p)
         return;
@@ -141,6 +191,8 @@ void SeismicSectionDockWidget::removePick(int id) {
 }
 
 void SeismicSectionDockWidget::renamePickHorizon(int id, const QString &newName) {
+    if (m_interpretationReadOnly)
+        return;
     const SeismicPick *p = m_session.pickById(id);
     if (!p)
         return;
@@ -148,7 +200,7 @@ void SeismicSectionDockWidget::renamePickHorizon(int id, const QString &newName)
 }
 
 void SeismicSectionDockWidget::addFaultFromCanvas(const QVector<QPair<double, double>> &points) {
-    if (points.size() < 2)
+    if (m_interpretationReadOnly || points.size() < 2)
         return;
     if (m_faultController) {
         // goal/fault-interpretation：拾取落 FaultSet（undo 入编排器栈，
@@ -173,16 +225,19 @@ void SeismicSectionDockWidget::addFaultFromCanvas(const QVector<QPair<double, do
     seg.points = points;
     seg.interpreter = m_pickPanel ? m_pickPanel->currentInterpreter() : QString();
     seg.name = QStringLiteral("F%1").arg(m_session.faults.size() + 1);
-    m_session.faults.append(seg);
-    saveInterpretationSession();
-    refreshInterpretationOverlay();
+    m_undoStack->push(new AddFaultSegmentCommand(this, std::move(seg)));
 }
 
 void SeismicSectionDockWidget::setFaultController(
     paleo::fault::FaultInterpretationController *controller) {
     if (m_faultController == controller)
         return;
+    if (m_faultController) {
+        disconnect(m_faultController, nullptr, this, nullptr);
+        disconnect(m_faultController->editStack(), nullptr, this, nullptr);
+    }
     m_faultController = controller;
+    emit interpretationUndoScopeChanged();
     if (!controller) {
         refreshFaultStickOverlay();
         return;
@@ -191,6 +246,11 @@ void SeismicSectionDockWidget::setFaultController(
             &SeismicSectionDockWidget::refreshFaultStickOverlay);
     connect(controller, &paleo::fault::FaultInterpretationController::faultSelectionChanged, this,
             &SeismicSectionDockWidget::refreshFaultStickOverlay);
+    auto *stack = controller->editStack();
+    connect(stack, &paleo::fault::FaultEditStack::canUndoChanged, this,
+            &SeismicSectionDockWidget::interpretationUndoStateChanged);
+    connect(stack, &paleo::fault::FaultEditStack::canRedoChanged, this,
+            &SeismicSectionDockWidget::interpretationUndoStateChanged);
     refreshFaultStickOverlay();
 }
 
@@ -247,6 +307,11 @@ void SeismicSectionDockWidget::refreshFaultStickOverlay() {
 }
 
 bool SeismicSectionDockWidget::saveInterpretationSession(QString *error) {
+    if (m_interpretationReadOnly) {
+        if (error)
+            *error = tr("只读工程不能保存地震解释");
+        return false;
+    }
     if (m_session.sourceSgyPath.isEmpty())
         return false;
     return SeismicTaskService::saveSession(m_session, error);
@@ -255,13 +320,21 @@ bool SeismicSectionDockWidget::saveInterpretationSession(QString *error) {
 bool SeismicSectionDockWidget::loadInterpretationSession(QString *error) {
     if (m_session.sourceSgyPath.isEmpty())
         return false;
-    return SeismicTaskService::loadSession(m_session.sourceSgyPath, m_session, error);
+    SeismicInterpretationSession loaded;
+    if (!SeismicTaskService::loadSession(m_session.sourceSgyPath, loaded, error))
+        return false;
+    cancelPendingInterpretation();
+    m_session = std::move(loaded);
+    m_undoStack->clear();
+    refreshInterpretationOverlay();
+    return true;
 }
 
 QString SeismicSectionDockWidget::registerCurrentHorizonAsset(QString *error) {
-    if (!m_catalog) {
+    if (m_interpretationReadOnly || !m_catalog) {
         if (error)
-            *error = tr("数据目录未连接，无法登记解释成果");
+            *error = m_interpretationReadOnly ? tr("只读工程不能保存地震解释")
+                                             : tr("数据目录未连接，无法登记解释成果");
         return QString();
     }
     const QString horizon = m_pickPanel ? m_pickPanel->currentHorizon() : QString();
@@ -281,9 +354,10 @@ QString SeismicSectionDockWidget::registerCurrentHorizonAsset(QString *error) {
 }
 
 QString SeismicSectionDockWidget::registerCurrentFaultAsset(QString *error) {
-    if (!m_catalog) {
+    if (m_interpretationReadOnly || !m_catalog) {
         if (error)
-            *error = tr("数据目录未连接，无法登记解释成果");
+            *error = m_interpretationReadOnly ? tr("只读工程不能保存地震解释")
+                                             : tr("数据目录未连接，无法登记解释成果");
         return QString();
     }
     return SeismicTaskService::registerFaultAsset(

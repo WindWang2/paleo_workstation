@@ -80,6 +80,31 @@ private:
     QList<int> m_lastIds; // 最近一次 redo 分配的 id（undo 按此回收）
 };
 
+class AddFaultSegmentCommand : public PickCommandBase
+{
+public:
+    AddFaultSegmentCommand(SeismicSectionDockWidget *dock, SeismicFaultSegment segment)
+        : PickCommandBase(dock), m_segment(std::move(segment))
+    {
+        setText(QObject::tr("添加断层 %1").arg(m_segment.name));
+    }
+    void undo() override
+    {
+        m_dock->mutableSession().faults.removeIf([this](const SeismicFaultSegment &segment) {
+            return segment.id == m_segment.id;
+        });
+        refresh();
+    }
+    void redo() override
+    {
+        m_dock->mutableSession().faults.append(m_segment);
+        refresh();
+    }
+
+private:
+    SeismicFaultSegment m_segment;
+};
+
 class RemovePickCommand : public PickCommandBase
 {
 public:

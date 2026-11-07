@@ -32,6 +32,7 @@
 - [原子能力、算法组合与 Agent 调用](architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)
 - [模型迁移与验收计划](architecture/MODEL_MIGRATION_AND_VALIDATION.md)
 - [本轮数据与源码设计依据](progress/data-model-redesign-20261106.md)
+- [窗口读取、增量投影与发布恢复实施](progress/document-model-io-20261106.md)
 - [测井资料导入](import-well-logs.md)
 - [测井相预测](WELL_FACIES_PREDICTION.md)
 - [井矢量属性](WELL_VECTOR_ATTRIBUTES.md)

@@ -4,6 +4,8 @@
 
 #include <QCoreApplication>
 
+void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs);
+
 namespace
 {
 
@@ -116,6 +118,10 @@ AlgorithmSpec constraintIdwSpec()
                  QCoreApplication::translate( "AlgorithmSpec", "各向异性比（沿方向线）" ), 2.0,
                  true, 0.0, true, 1000.0, 2 ),
   };
+  for (AlgorithmParamField &field : s.params) {
+    if (field.key == QLatin1String("FACIES_CODE"))
+      field.applyDefaultWhenAbsent = false;
+  }
   return s;
 }
 
@@ -564,7 +570,7 @@ AlgorithmSpec wellsitingCoverageSpec()
   return s;
 }
 
-const QVector<AlgorithmSpec> &allSpecs()
+const QVector<AlgorithmSpec> &baseSpecTable()
 {
   static const QVector<AlgorithmSpec> kSpecs = {
     constraintIdwSpec(),
@@ -590,6 +596,16 @@ const QVector<AlgorithmSpec> &allSpecs()
     faciesSynthesizeSpec(),
     wellsitingCoverageSpec(),
   };
+  return kSpecs;
+}
+
+const QVector<AlgorithmSpec> &allSpecs()
+{
+  static const QVector<AlgorithmSpec> kSpecs = [] {
+    QVector<AlgorithmSpec> specs = baseSpecTable();
+    ::appendAtomicPilotSpecs(&specs);
+    return specs;
+  }();
   return kSpecs;
 }
 
@@ -659,6 +675,16 @@ AlgorithmSpec AlgorithmSpecRegistry::spec( const QString &algorithmId )
   for ( const AlgorithmSpec &s : allSpecs() )
   {
     if ( s.id == algorithmId )
+      return s;
+  }
+  return {};
+}
+
+AlgorithmSpec AlgorithmSpecRegistry::specAtVersion( const QString &algorithmId, int contractVersion )
+{
+  for ( const AlgorithmSpec &s : allSpecs() )
+  {
+    if ( s.id == algorithmId && s.contractVersion == contractVersion )
       return s;
   }
   return {};

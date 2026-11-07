@@ -183,3 +183,24 @@ join，紧接着第二次 `Start` 就对它赋值：`std::thread::operator=` 遇
 - 析构路径（`Cancel()` + joinable 判定 join）不变，无新增线程生命周期状态。
 - 无调用方行为变化：本仓无 `SgyIndexJob` 调用点（grep 仅 vendor 自身），
   修复随 `paleo_sbm` 一并编入。
+
+## P16 · 2026-11-06：SF3P 目录/完成位图按需读取
+
+- `Engine/PagedWorkspace.{h,cpp}` 普通 Open 和 metadata-only Open 均只读
+  versioned header；普通模式校验目录总范围确实位于文件内。页目录和 bitmap
+  共用按需 LRU，最多 64KiB/目录块，默认保留 4MiB；预算为 0 时只读当前条目。
+  目录查找按 chunk ordinal 的 ci 连续顺序，避免大时间面反复跨块重读；随后仍按
+  payload offset 合并物理读取，排序比较本身不做 I/O。
+  无格式变化，v6/v7、raw/zstd、真实轴和数值布局保持兼容。
+- 分配/seek 前检查布局乘加溢出、轴端点、page 尺寸/codec、payload 起止范围；
+  读请求检查完成位，未完成 chunk 不读取未提交页。完整 backend 仍拒绝 partial。
+  Reader 每请求最多 64M float 输出/1M planned pages，单页解码上限 64MiB；
+  只规划命中的页，缓存命中/缺失原地划分，失败/取消清空数值输出。
+- cacheSourceKey 改为哈希持有的 header，不再使用 move 后的局部 vector；同路径/
+  大小/mtime 不变的 generation/轴变化也使解码页缓存失效。旧页校验算法/seed 不改。
+- Reader Stats 追加 header、directory/bitmap I/O 及目录缓存 buffer 驻留/峰值统计。
+  原 readBytes/readCalls 仍为 payload 口径；目录缓存字节不是进程 RSS，也不冒充全局
+  内存账本。句柄仍按现有 Dataset 的单线程使用约定。
+- `tst_sf3p_directory` 使用稀疏 1.51GiB 目录证明无全目录预载，覆盖 v6/v7 数值/
+  NaN/方向、raw/zstd、坏目录、布局溢出、完成位、取消和同属性不同代次缓存隔离。
+  `PALEO_SF3P_READONLY_PATH` 可选择只读一个现有文件的 1×1×1 窗，不创建或转码原件。

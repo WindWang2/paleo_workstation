@@ -132,6 +132,11 @@ void absorbMetaRow(CatalogStore::Meta *meta, const QString &key, const QString &
     meta->backupKeep = value.toInt();
     meta->hasBackupKeep = true;
   }
+  else if(key==QLatin1String("projection_checkpoints_v1")) {
+    const auto document=QJsonDocument::fromJson(value.toUtf8());
+    meta->projectionCheckpoints=document.object();
+    meta->projectionCheckpointsValid=document.isObject() && validProjectionCheckpoints(meta->projectionCheckpoints);
+  }
 }
 } // namespace
 
@@ -154,6 +159,7 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
   }
   const auto q = [](const std::string &v) { return QString::fromUtf8(v.data(), qsizetype(v.size())); };
   for (const auto &[key, value] : snapshot.meta) absorbMetaRow(&out->meta, q(key), q(value));
+  if(!out->meta.projectionCheckpointsValid) {setError(error,QStringLiteral("投影水位元数据无效"));return false;}
   for (const auto &row : snapshot.entities) {
     CatalogEntity e;
     e.id = q(row.id);
@@ -277,6 +283,7 @@ QJsonObject CatalogStore::toJson(const Tables &tables)
   QJsonObject root;
   root.insert(QStringLiteral("schema_version"), kJsonSchemaVersion);
   root.insert(QStringLiteral("catalog_revision"), tables.meta.revision);
+  root.insert(QStringLiteral("projection_checkpoints_v1"),tables.meta.projectionCheckpoints);
   QJsonArray ents, asts, vers, lnks;
   for (const CatalogEntity &e : tables.entities)
   {
@@ -372,6 +379,12 @@ bool CatalogStore::fromJson(const QJsonObject &root, Tables *out, QString *error
     return false;
   }
   out->meta.revision = root.value(QStringLiteral("catalog_revision")).toInt();
+  if(root.contains("projection_checkpoints_v1")) {
+    if(!root.value("projection_checkpoints_v1").isObject() || !validProjectionCheckpoints(root.value("projection_checkpoints_v1").toObject())) {
+      setError(error,QStringLiteral("投影水位元数据无效"));return false;
+    }
+    out->meta.projectionCheckpoints=root.value("projection_checkpoints_v1").toObject();
+  }
   for (const auto &v : root.value(QStringLiteral("entities")).toArray())
   {
     const QJsonObject o = v.toObject();

@@ -2,6 +2,7 @@
 #include "projectsetup.h"
 #include "folderimport.h"
 #include "../io/areamodel.h"
+#include "../io/areamodelpublication.h"
 #include "../io/projectcoordinates.h"
 #include "../io/dataimportservice.h"
 #include "../qgis/qgisprojectservice.h"
@@ -36,34 +37,35 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
   const auto stop = m_areaStop;
   const auto generation = ++m_areaGeneration;
   const QString project = QFileInfo(m_project->projectPath()).absolutePath();
+  QString recoveryError;
+  if (auto *catalog=m_imports->importService()->catalog(); catalog &&
+      !paleo::area_model::recoverModelPublication(*catalog,&recoveryError)) {
+    emit finished(recoveryError,false); return;
+  }
   const auto staging = std::make_shared<QTemporaryDir>(
       QDir(QFileInfo(project).absolutePath()).filePath(".paleo-area-XXXXXX"));
   if (!staging->isValid()) { emit finished(QStringLiteral("无法创建工区模型暂存目录"), false); return; }
   const auto modelProblems = std::make_shared<QMap<QString, QString>>();
   const auto modelSummary = std::make_shared<QString>();
   const auto coordinates = std::make_shared<paleo::data::ProjectCrsInfo>();
+  const auto expected = std::make_shared<paleo::data::ModelChangeHead>();
   auto *watcher = new QFutureWatcher<QString>(this);
   auto *modelTask = m_mapTasks ? m_mapTasks->beginExternal(QStringLiteral("导入工区数据模型"), {}, false) : nullptr;
   const auto reportStage = [modelTask](int done, int total, const QString &text) {
     paleo::tasks::reportProgress(modelTask, done, total, text);
   };
   reportStage(0, 0, QStringLiteral("准备工区数据模型"));
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, sources, preview, session, stop, project, staging, generation, modelSummary, modelProblems, coordinates] {
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, sources, preview, session, stop, project, staging, generation, modelSummary, modelProblems, coordinates, expected] {
     const QString error = watcher->future().isCanceled() ? QStringLiteral("工区模型导入已取消") : watcher->result();
     watcher->deleteLater();
     if (generation != m_areaGeneration || !m_project || m_project->sessionId() != session || !m_imports) return;
     if (stop->load() || !error.isEmpty()) { emit finished(error, false); return; }
-    const QString final = paleo::area_model::directory(project);
-    const QString prepared = paleo::area_model::directory(staging->path());
-    const QString backup = final + ".previous-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QDir().mkpath(QFileInfo(final).absolutePath());
-    const bool previous = QFileInfo::exists(final);
-    if (previous && !QDir().rename(final, backup)) { emit finished(QStringLiteral("无法替换正在使用的工区模型"), false); return; }
-    if (!QDir().rename(prepared, final)) {
-      if (previous) QDir().rename(backup, final);
-      emit finished(QStringLiteral("无法发布工区模型"), false); return;
+    staging->setAutoRemove(false);
+    QString publicationError;
+    if (!paleo::area_model::publishPreparedModel(project, staging->path(), *expected, &publicationError)) {
+      if (!paleo::area_model::hasPendingModelPublication(project)) staging->setAutoRemove(true);
+      emit finished(publicationError, false); return;
     }
-    if (previous) QDir(backup).removeRecursively();
     paleo::area_model::registerProject(project, m_imports->importService());
     auto projection = preview;
     const auto crs = QString::fromUtf8(coordinates->coordinateSystem);
@@ -85,19 +87,22 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
   });
   const auto crs = preview.projectCrs;
   const auto crsUnit = preview.pointMapping.value("unit").toString();
-  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, modelSummary, modelProblems, coordinates, reportStage, crs, crsUnit](QPromise<QString> &promise) {
+  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, modelSummary, modelProblems, coordinates, reportStage, crs, crsUnit, expected](QPromise<QString> &promise) {
     promise.setProgressRange(0, 0);
     promise.setProgressValueAndText(0, QStringLiteral("准备工区数据模型"));
     const QString active = paleo::area_model::directory(project);
     const QString prepared = paleo::area_model::directory(staging->path());
-    if (QFileInfo::exists(active + "/data.sqlite")) {
+    {
       promise.setProgressValueAndText(0, QStringLiteral("准备现有工区模型的一致性快照"));
       reportStage(0, 0, QStringLiteral("准备现有工区模型的一致性快照"));
       paleo::data::DataService current;
       std::string detail;
       QDir().mkpath(prepared);
-      if (!current.openProjectReadOnly(active.toUtf8().toStdString(), detail) ||
-          !current.snapshotDatabase((prepared + "/data.sqlite").toUtf8().toStdString(), detail))
+      const bool opened=QFileInfo::exists(active+"/data.sqlite") ? current.openProject(active.toUtf8().toStdString(),detail) :
+          current.createProject(active.toUtf8().toStdString(),QFileInfo(project).fileName().toUtf8().toStdString(),detail);
+      if (!opened ||
+          !current.readModelChangeHead(*expected, detail) || !expected->available ||
+          !current.snapshotDatabaseCancellable((prepared + "/data.sqlite").toUtf8().toStdString(), detail, [stop] { return stop->load(); }))
         { promise.addResult(QString::fromUtf8(detail)); return; }
     }
     for (const auto &root : roots) {
@@ -118,7 +123,10 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
           .arg(report.seen).arg(report.imported).arg(report.registered).arg(report.review).arg(report.skipped).arg(report.failed) + '\n';
     }
     paleo::data::DataService model; std::string detail;
-    if (!model.openProjectReadOnly(prepared.toUtf8().toStdString(), detail) ||
+    paleo::data::ModelChangeHead preparedHead, publicationHead;
+    if (!model.openProject(prepared.toUtf8().toStdString(), detail) ||
+        !model.readModelChangeHead(preparedHead, detail) ||
+        !model.forkModelGeneration(preparedHead, publicationHead, detail) ||
         !model.readProjectCrsInfo(*coordinates, detail)) { promise.addResult(QString::fromUtf8(detail)); return; }
     if (coordinates->hasConflict)
       *modelSummary += ProjectSetupWorkflow::tr("资料中存在坐标系或单位冲突，已在数据模型中保留各来源声明，请核对。") + '\n';

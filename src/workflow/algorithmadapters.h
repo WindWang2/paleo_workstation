@@ -27,6 +27,11 @@ class ProcessingAlgorithmAdapter
                                 QString *error = nullptr,
                                 const QgisProcessingService::ProcessingHooks &hooks = {} );
 
+    // 公开入口：未登记或版本不符直接拒绝，不走 runById 的旧 Processing fallback。
+    AlgorithmRunResult runRegisteredById( const QString &algorithmId, int contractVersion,
+                                          const QVariantMap &paramValues, QString *error = nullptr,
+                                          const QgisProcessingService::ProcessingHooks &hooks = {} );
+
   private:
     QgisProcessingService *m_proc = nullptr;
 };

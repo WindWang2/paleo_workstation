@@ -418,6 +418,11 @@
     <context>
         <name>AiChatToolRunner</name>
         <message>
+            <location filename="../src/workflow/aichattoolrunner.cpp" line="180" />
+            <source>能力工具须由宿主绑定工程</source>
+            <translation>The host must bind a project before running a capability tool.</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichattoolrunner.cpp" line="150" />
             <source>实参不是合法 JSON：%1</source>
             <translation type="unfinished" />
@@ -12310,7 +12315,19 @@ Crossline: %3 ~ %4</source>
             <source>草稿相图图层声明失败：%1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+      <source>工作流未绑定数据目录</source>
+      <translation>The workflow is not bound to a data catalog</translation>
+    </message>
+    <message>
+      <source>相图输出目标无效</source>
+      <translation>Invalid facies map output targets</translation>
+    </message>
+    <message>
+      <source>输出准备已取消</source>
+      <translation>Output preparation cancelled</translation>
+    </message>
+</context>
     <context>
         <name>FaciesPartitionTool</name>
         <message>
@@ -28167,6 +28184,86 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="279" />
+            <source>能力契约版本；缺省 1</source>
+            <translation>Capability contract version. Defaults to 1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="281" />
+            <source>调用方请求号</source>
+            <translation>Caller request ID</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="283" />
+            <source>pinned-value、follow-object-head 或 follow-selection</source>
+            <translation>pinned-value, follow-object-head, or follow-selection</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="287" />
+            <source>follow-selection 的选择绑定</source>
+            <translation>Selection binding for follow-selection</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="289" />
+            <source>冻结时的对象头</source>
+            <translation>Object head at freeze time</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="291" />
+            <source>忽略。提交头只来自宿主，模型填写无效</source>
+            <translation>Ignored. The host supplies the commit head.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="293" />
+            <source>compute-only 或 publish</source>
+            <translation>compute-only or publish</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="296" />
+            <source>算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制</source>
+            <translation>Algorithm parameters. AlgorithmSpec supplies the defaults.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="298" />
+            <source>显式输入引用与冻结值</source>
+            <translation>Explicit input references and frozen values</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="305" />
+            <source>时深批转换</source>
+            <translation>Batch time-depth conversion</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="306" />
+            <source>按显式井样、时深语义和模型修订做批转换。不读取当前选中井。</source>
+            <translation>Convert a batch using explicit well samples, time-depth semantics, and the specified model revision. The current well selection is ignored.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="308" />
+            <source>地震属性组</source>
+            <translation>Seismic attribute group</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="309" />
+            <source>对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。</source>
+            <translation>Compute RMS, envelope, or coherence on the trace buffers provided by the caller. No time-depth inputs are required.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="311" />
+            <source>约束 IDW</source>
+            <translation>Constrained IDW</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="312" />
+            <source>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</source>
+            <translation>prepare validates the inputs. compute-only runs the constrained IDW kernel and returns a raster reference. Publishing uses the host head and ignores current_head.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="401" />
+            <source>入口已接线：显式引用，不读取当前选择</source>
+            <translation>Available through explicit references. The current selection is ignored.</translation>
+        </message>
     <message><source>快速预览（≤64×64）</source><translation type="unfinished"></translation></message>
         <message>
             <source>未命名层位</source>
@@ -36240,6 +36337,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
         <translation>Concurrent SEG-Y read workers. Changing this setting reloads the current slice; cached slices are reused. Paged workspaces use their own scheduling.</translation>
+    </message>
+    <message>
+      <source>catalog_revision 须为整数</source>
+      <translation>catalog_revision must be an integer</translation>
+    </message>
+    <message>
+      <source>topic=version 须给精确 version_id</source>
+      <translation>topic=version requires an exact version_id</translation>
+    </message>
+    <message>
+      <source>目录修订条件（topic=version；缺省使用本次宿主目录修订）</source>
+      <translation>Catalog revision condition (topic=version; defaults to the current host catalog revision)</translation>
+    </message>
+    <message>
+      <source>精确目录版本标识（topic=version 时必填，不按名称回退）</source>
+      <translation>Exact catalog version ID (required for topic=version; no name fallback)</translation>
     </message>
 </context>
     <context>

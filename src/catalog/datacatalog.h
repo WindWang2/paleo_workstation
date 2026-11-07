@@ -12,6 +12,7 @@
 #include "roleregistry.h"
 
 #include "catalogindex.h" // D5 邻接索引（纯派生加速结构，四张 QVector 仍是唯一事实源）
+#include "projectioncheckpoint.h"
 
 #include <cmath>
 #include <memory>
@@ -120,7 +121,8 @@ struct CatalogOp
     UpdateVersionExtra, // 方向 79：版本 extra 就地更新（锚深后补编辑）
     UpdateEntity, // 就地更新既有实体（F5 坐标回填）：追加在末尾——
                   // 中间插入会挪动既有枚举值，陈旧 .obj 与新鲜 obj 混链即错位
-    ClearLinkPrimary // 撤销第一次设主。必须留在枚举末尾，避免旧 obj 错位。
+    ClearLinkPrimary, // 撤销第一次设主。
+    SetProjectionCheckpoint // appended: durable projection and facts share one transaction
   };
   Kind kind = Kind::AddAsset;
   CatalogEntity entity;
@@ -214,6 +216,12 @@ class DataCatalog : public QObject
     // 文件夹导入 ~5N 次全量序列化因此收敛成一次；中途崩溃不留「资产入库但
     // 链接没落盘」的半截状态。嵌套安全（深度计数）。析构 flush 失败只记
     // qWarning——需要错误面的调用方请自己调 flush()。
+    bool hasActiveBatch() const { return m_batchDepth > 0; }
+    CatalogProjectionCheckpoint projectionCheckpoint(const QString &projection) const;
+    bool setProjectionCheckpoint(const QString &projection,const CatalogProjectionCheckpoint &checkpoint,QString *error=nullptr);
+    QVector<CatalogEntity> storedEntities(const QString &entityType={}) const;
+    bool reviewAssetLinks(const QString &assetId,QString *error=nullptr);
+    bool reviewMissingModelLinks(const QString &assetId,const QSet<QString> &available,QString *error=nullptr);
     class BatchSave
     {
       public:
@@ -500,6 +508,7 @@ class DataCatalog : public QObject
     int m_batchDepth = 0;        // >0 时 save() 挂起（BatchSave）
     bool m_batchDirty = false;   // 挂起期间有过变更 → endBatch 落一次盘
     int m_revision = 0;
+    QJsonObject m_projectionCheckpoints;
     QVector<CatalogEntity> m_entities;
     QVector<CatalogAsset> m_assets;
     QVector<CatalogVersion> m_versions;
@@ -534,6 +543,7 @@ class DataCatalog : public QObject
       QVector<CatalogAsset> assets;
       QVector<CatalogVersion> versions;
       QVector<EntityAssetLink> links;
+      QJsonObject projectionCheckpoints;
       int assetSeq = 0, versionSeq = 0;
       CatalogIndex idx;
       QSet<QString> dirtyEntities, dirtyAssets, dirtyVersions;

@@ -1,6 +1,8 @@
 // 层：功能
 #include "depthconversionworkflow.h"
+#include "capabilitygateway.h"
 #include "workflowerrors_internal.h"
+#include "../algorithms/depthbatch.h"
 #include "rastergeo_internal.h"
 
 #include "../catalog/datacatalog.h"
@@ -188,7 +190,7 @@ void collectTdControls(const QStringList &paths, const QHash<QString, WellCoord>
       c.x = coords.value(id).x, c.y = coords.value(id).y;
     for (const TdRow &row : td.rows)
     {
-      const double depth = row.hasTvd ? row.tvd : (row.hasMd ? row.md : qQNaN());
+      const double depth = paleo::depthbatch::legacyControlDepth(row.hasTvd, row.tvd, row.hasMd, row.md);
       if (!(row.timeMs > 0.0) || !(depth > 0.0))
         continue;
       paleo::velmodel::VelocityKnot kn;
@@ -270,6 +272,9 @@ bool convertGridToDepthFile(const paleo::velmodel::VelocityModel &model,
   if (extra)
   {
     extra->insert(QStringLiteral("model_type"), paleo::velmodel::modelTypeId(model.type()));
+    extra->insert(QStringLiteral("capability_id"), QStringLiteral("depth.convert_raster"));
+    extra->insert(QStringLiteral("extrapolation"),
+                  QString::fromLatin1(paleo::depthbatch::rasterExtrapolationPolicy()));
     extra->insert(QStringLiteral("converted_cells"), r.convertedCells);
     extra->insert(QStringLiteral("nodata_cells"), r.nodataCells);
     extra->insert(QStringLiteral("outside_model_cells"), r.outsideModelCells);
@@ -548,6 +553,29 @@ void DepthConversionWorkflow::cancelDepth()
 {
   if (m_depthRunner)
     m_depthRunner->requestCancel();
+}
+
+QVariantMap DepthConversionWorkflow::convertWellSamples(const QVariantMap &parameters, const QVariantMap &inputs,
+                                                       const QString &operationDir, QString *code) const
+{
+  paleo::capability::ExecuteRequest request;
+  request.capabilityId = QStringLiteral("depth.convert_batch");
+  request.contractVersion = 1;
+  request.documentId = QStringLiteral("workflow");
+  request.callerScope = QStringLiteral("depth-workflow");
+  request.clientRequestId = parameters.value(QStringLiteral("client_request_id")).toString();
+  request.bindingMode = QStringLiteral("pinned-value");
+  request.frozenHead = inputs.value(QStringLiteral("frozen_head")).toString();
+  request.currentHead = inputs.value(QStringLiteral("current_head"), request.frozenHead).toString();
+  request.publishIntent = QStringLiteral("compute-only");
+  request.operationDir = operationDir;
+  request.parameters = parameters;
+  request.parameters.remove(QStringLiteral("client_request_id"));
+  request.inputs = inputs;
+  const paleo::capability::ExecuteResult result = paleo::capability::execute(request);
+  if (code)
+    *code = result.code;
+  return result.summary;
 }
 
 bool DepthConversionWorkflow::computeDepth(DepthJob &job, const std::function<bool()> &cancelled)

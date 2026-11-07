@@ -1,5 +1,6 @@
 // 层：视图
 #include "faultmanagerpanel.h"
+#include "faultundotarget.h"
 #include <QShortcut>
 
 #include "qgis/qgiscanvascontroller.h"
@@ -59,25 +60,52 @@ FaultManagerPanel::FaultManagerPanel(FaultInterpretationController *controller,
                 &FaultManagerPanel::onFaultSetChanged);
         connect(m_controller, &FaultInterpretationController::faultSelectionChanged, this,
                 &FaultManagerPanel::onFaultSelectionChanged);
-        if (auto *stack = m_controller->editStack()) {
-            // #869：按钮提示带将撤销/重做的命令名；每次 push/undo/redo 栈都发 can*Changed。
-            const auto sync = [this, stack] {
-                m_btnUndo->setEnabled(stack->canUndo());
-                m_btnRedo->setEnabled(stack->canRedo());
-                const QString u = stack->undoText(), r = stack->redoText();
-                m_btnUndo->setToolTip(!stack->canUndo() ? tr("没有可撤销的断层编辑")
-                                      : u.isEmpty()     ? tr("撤销最近一次断层编辑")
-                                                        : tr("撤销：%1").arg(u));
-                m_btnRedo->setToolTip(!stack->canRedo() ? tr("没有可重做的断层编辑")
-                                      : r.isEmpty()     ? tr("重做被撤销的断层编辑")
-                                                        : tr("重做：%1").arg(r));
-            };
-            connect(stack, &FaultEditStack::canUndoChanged, this, sync);
-            connect(stack, &FaultEditStack::canRedoChanged, this, sync);
-            sync();
-        }
+        auto *stack = m_controller->editStack();
+        connect(stack, &FaultEditStack::canUndoChanged, this, &FaultManagerPanel::refreshUndoActions);
+        connect(stack, &FaultEditStack::canRedoChanged, this, &FaultManagerPanel::refreshUndoActions);
     }
+    refreshUndoActions();
     refreshTree();
+}
+
+PaleoUndoTarget FaultManagerPanel::undoTarget() const
+{
+    const QPointer<const FaultManagerPanel> self(this);
+    const auto target = undoTargetForFaultStack(m_controller ? m_controller->editStack() : nullptr);
+    return {
+        [self, target](bool undo) { return self && !self->mUndoReadOnly ? target.describe(undo) : PaleoUndoStep{}; },
+        [self, target](bool undo) { return self && !self->mUndoReadOnly && target.step(undo); }
+    };
+}
+
+void FaultManagerPanel::setUndoReadOnly(bool readOnly)
+{
+    mUndoReadOnly = readOnly;
+    if (readOnly)
+        cancelCutDraw();
+    m_btnDrawCut->setEnabled(!readOnly);
+    refreshUndoActions();
+}
+
+void FaultManagerPanel::cancelCutDraw()
+{
+    m_btnDrawCut->setChecked(false);
+}
+
+bool FaultManagerPanel::cutDrawActive() const
+{
+    return !m_cutTool.isNull();
+}
+
+void FaultManagerPanel::refreshUndoActions()
+{
+    const auto target = undoTarget();
+    const auto u = target.describe(true), r = target.describe(false);
+    m_btnUndo->setEnabled(u.available);
+    m_btnRedo->setEnabled(r.available);
+    m_btnUndo->setToolTip(u.available ? tr("撤销：%1").arg(u.text) : tr("没有可撤销的断层编辑"));
+    m_btnRedo->setToolTip(r.available ? tr("重做：%1").arg(r.text) : tr("没有可重做的断层编辑"));
+    emit undoStateChanged();
 }
 
 QString FaultManagerPanel::selectedFaultId() const
@@ -163,12 +191,10 @@ void FaultManagerPanel::buildUi()
     connect(paleo::shortcuts::bindShortcut(QStringLiteral("fault.edit.redo"), this),
             &QShortcut::activated, m_btnRedo, &QToolButton::click);
     connect(m_btnUndo, &QToolButton::clicked, this, [this] {
-        if (m_controller && m_controller->editStack())
-            m_controller->editStack()->undo();
+        undoTarget().step(true);
     });
     connect(m_btnRedo, &QToolButton::clicked, this, [this] {
-        if (m_controller && m_controller->editStack())
-            m_controller->editStack()->redo();
+        undoTarget().step(false);
     });
     connect(m_btnDrawCut, &QToolButton::toggled, this, &FaultManagerPanel::onToggleCutDraw);
     connect(m_tree, &QTreeWidget::itemSelectionChanged, this,
@@ -245,7 +271,7 @@ void FaultManagerPanel::onToggleCutDraw(bool checked)
         emit cutDrawToggled(false);
         return;
     }
-    if (!m_controller || !m_canvasCtl) {
+    if (mUndoReadOnly || !m_controller || !m_canvasCtl) {
         m_btnDrawCut->setChecked(false);
         return;
     }
@@ -281,7 +307,7 @@ void FaultManagerPanel::onToggleCutDraw(bool checked)
 
 void FaultManagerPanel::onCutDrawn(const QString &wkt)
 {
-    if (m_controller) {
+    if (!mUndoReadOnly && m_controller) {
         FaultHorizonCut cut;
         cut.wkt = wkt;
         // horizon 留空 → controller 取活动层位（SelectionContext 代理）

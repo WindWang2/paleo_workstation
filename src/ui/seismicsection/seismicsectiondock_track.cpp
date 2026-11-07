@@ -14,7 +14,7 @@ void SeismicSectionDockWidget::runTracking() {
     // goal/horizon-autotrack：多种子异步追踪（原 D4.2 单种子同步升级）。
     // 种子集 = 当前剖面、同层位的手动拾取（conf==1，D4.10 语义）；种子
     // pick 缺席时回落最后一个拾取。
-    if (m_trackTask)
+    if (m_interpretationReadOnly || m_trackTask)
         return; // 在途中不重复触发（取消走 cancelTracking）
     const SeismicPick *seed = m_session.pickById(m_trackSeedPick);
     if (!seed && !m_session.picks.isEmpty())
@@ -65,25 +65,17 @@ void SeismicSectionDockWidget::runTracking() {
     if (m_pickPanel)
         m_pickPanel->setTrackingActive(true);
     QPointer<SeismicSectionDockWidget> guard(this); // 注入共享服务时迟到回调守卫
-    // #285：会话身份快照——换体后 m_session.sourceSgyPath 已指向新体的
-    // 伴生文件，迟到回调必须丢弃（否则 A 体剖面上追出的拾取被并入 B 体
-    // 会话并自动落盘）。按会话路径而非世代号守卫：同体内换线不丢结果。
-    const QString sessionPath = m_session.sourceSgyPath;
+    const quint64 interpretationEpoch = m_interpretationEpoch;
     SeismicTrackOptions trackOptions = m_trackOptions;
     trackOptions.columnLines = ref.colLines; // #147
     trackOptions.startTimeMs = ref.t0Ms;     // #146
     m_trackTask = m_taskService->startHorizonTracking(
         m_lastSlice, ref.type, ref.index, ref.colMin, ref.colMax, seeds,
         trackOptions, interpreter, horizon, dtMs,
-        [this, guard, ref, horizon, colOf, onSection, sessionPath](bool ok, const QList<SeismicPick> &picks,
+        [this, guard, horizon, colOf, onSection, interpretationEpoch](bool ok, const QList<SeismicPick> &picks,
                                                       const SeismicTrackReport &report,
                                                       const QString &error) {
-            if (!guard)
-                return; // dock 已亡（取消后迟到回调）：丢弃
-            // #285：换体后迟到丢弃——m_session 已锚到新体伴生文件，A 体
-            // 追出的拾取不得并入 B 会话并自动落盘；陈旧完成报告同样不得
-            // 闪现面板（结果已丢弃，报了反而误导）。
-            if (m_session.sourceSgyPath != sessionPath)
+            if (!guard || m_interpretationReadOnly || interpretationEpoch != m_interpretationEpoch)
                 return;
             m_trackTask = nullptr;
             m_lastTrackReport = report;
@@ -146,6 +138,20 @@ void SeismicSectionDockWidget::cancelTracking() {
         m_trackTask->requestCancel();
 }
 
+void SeismicSectionDockWidget::cancelPendingInterpretation()
+{
+    // Reloading even the same file invalidates commands prepared for its old IDs.
+    ++m_interpretationEpoch;
+    cancelTracking();
+    cancelVolumePropagation();
+    m_trackTask.clear();
+    m_propTask.clear();
+    if (m_pickPanel) {
+        m_pickPanel->setTrackingActive(false);
+        m_pickPanel->setPropagateActive(false);
+    }
+}
+
 // ---- goal/horizon-3d 层位 3D 体传播 ---------------------------------------
 
 SeismicSectionDockWidget::PropagationReadiness
@@ -179,6 +185,8 @@ SeismicSectionDockWidget::propagationReadiness(QString *reason) const {
 }
 
 void SeismicSectionDockWidget::runVolumePropagation() {
+    if (m_interpretationReadOnly)
+        return;
     // goal/horizon-3d：种子剖面（当前 inline）手动拾取 → IL 全体滑窗扩散
     // → 层位面资产（DERIVED 锚源体版本）+ GeoTIFF 上图声明。结果不进会话
     // 拾取表——全体拾取集是图件级对象，非单剖面编辑对象（QC 走报告/图层）。
@@ -229,18 +237,13 @@ void SeismicSectionDockWidget::runVolumePropagation() {
     if (m_pickPanel)
         m_pickPanel->setPropagateActive(true);
     QPointer<SeismicSectionDockWidget> guard(this); // 迟到回调守卫（同 runTracking）
-    // #285：会话身份快照——换体后迟到丢弃，层位面资产不得登记到旧体谱系。
-    const QString sessionPath = m_session.sourceSgyPath;
+    const quint64 interpretationEpoch = m_interpretationEpoch;
     m_propTask = m_taskService->startVolumePropagation(
         m_volume, req,
-        [this, guard, horizon, sessionPath](bool ok, const QList<SeismicPick> &picks,
+        [this, guard, horizon, interpretationEpoch](bool ok, const QList<SeismicPick> &picks,
                                const SeismicTrackReport &report,
                                const QString &error) {
-            if (!guard)
-                return; // dock 已亡：丢弃
-            // #285：换体后迟到丢弃——层位面资产不得登记到旧体谱系，陈旧
-            // 完成报告同样不得闪现面板（m_propTask 已由 setVolume 摘牌取消）。
-            if (m_session.sourceSgyPath != sessionPath)
+            if (!guard || m_interpretationReadOnly || interpretationEpoch != m_interpretationEpoch)
                 return;
             m_propTask = nullptr;
             if (m_pickPanel) {

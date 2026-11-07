@@ -13,6 +13,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QgsAdvancedDigitizingDockWidget;
 class QgsMapTool;
+struct PaleoUndoTarget;
 
 namespace paleo::fault {
 
@@ -34,10 +35,15 @@ public:
 
     // 当前树中选中的断层（无 → 空串）
     QString selectedFaultId() const;
+    PaleoUndoTarget undoTarget() const;
+    void setUndoReadOnly(bool readOnly);
+    void cancelCutDraw();
+    bool cutDrawActive() const;
 
 signals:
     // 绘制开关状态变化（壳层可据此同步 ribbon 动作）
     void cutDrawToggled(bool active);
+    void undoStateChanged();
 
 private slots:
     void onAddFault();
@@ -56,6 +62,7 @@ private:
     void buildUi();
     void refreshTree();
     void teardownCutTool();
+    void refreshUndoActions();
     QTreeWidgetItem *itemForFault(const QString &faultId) const;
 
     FaultInterpretationController *m_controller = nullptr;
@@ -77,6 +84,7 @@ private:
     QMetaObject::Connection m_toolWatch;
     bool mRefreshing = false;      // 程序化刷新期间屏蔽树信号
     bool mSyncingSelection = false; // 联动回声期间屏蔽选中信号
+    bool mUndoReadOnly = false;
 };
 
 } // namespace paleo::fault

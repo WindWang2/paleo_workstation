@@ -98,11 +98,10 @@ bool PaleoEditingToolbar::allowMutation() {
 }
 
 void PaleoEditingToolbar::bindStatusMessages(QStatusBar *status) {
+  mUndoStatus = status;
   if (!status) return;
   connect(this, &PaleoEditingToolbar::editRefused, status, [status](const QString &reason) {
     status->showMessage(reason, 8000);
   });
   connect(this, &PaleoEditingToolbar::featureEdited, status, [status] { status->clearMessage(); });
-  for (auto *action : {mActionUndo, mActionRedo})
-    connect(action, &QAction::triggered, status, [status] { status->clearMessage(); });
 }

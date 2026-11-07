@@ -37,10 +37,10 @@ FaultEditStack::FaultEditStack(QObject *parent)
 bool FaultEditStack::push(const QString &text, std::function<bool()> undoFn,
                           std::function<bool()> redoFn)
 {
-    truncateRedo();
     Entry entry{text, std::move(undoFn), std::move(redoFn)};
     if (!entry.redoFn()) // push 即执行；失败不入账（#480 P3-4 机制化约定）
         return false;
+    truncateRedo();
     m_done.append(std::move(entry));
     emit canUndoChanged(canUndo());
     emit canRedoChanged(canRedo());

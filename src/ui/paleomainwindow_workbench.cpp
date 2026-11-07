@@ -25,6 +25,7 @@
 #include "decorations/paleodecorations.h"
 #include "faciesdisplaycontrol.h"
 #include "edittools/editingtoolbar.h"
+#include "edittools/undogrouprouter.h"
 #include "horizonchipbar.h"
 #include "notifications/paleonotify.h"
 #include "pages/composepage.h"
@@ -39,7 +40,6 @@
 #include "paleoicons.h"
 #include "paleomainwindow.h"
 #include "paleoribbon.h"
-#include "workbench/mappingworkbenchcommandcontroller.h"
 #include "taskpanel.h" // 智能预测开跑切到任务页
 #include <QAction>
 #include <QDockWidget>
@@ -151,40 +151,41 @@ namespace {
 // #748：画布 Ctrl+Z/Ctrl+Y 路由——会话内要素编辑优先，否则撤销工作台属性栈
 //（固定显示层级 #741、会话外绘制约束 #742），状态栏报命令名。
 void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWorkbench *workbench) {
-  if (self)
-    self->bindUndoGroup(edit); // 停靠面焦点 → QUndoGroup 活动栈；画布回落本路由
   if (!edit || !workbench)
     return;
-  const auto step = [self, workbench](bool undo) {
-    auto *stack = workbench->propertyEditStack();
+  auto *stack = workbench->propertyEditStack();
+  const auto owner = QPointer<MappingWorkbench>(workbench);
+  const auto window = QPointer<PaleoMainWindow>(self);
+  const auto step = [window, owner](bool undo) {
+    if (!window || !owner)
+      return false;
+    auto *stack = owner->propertyEditStack();
     if (undo ? !stack->canUndo() : !stack->canRedo())
       return false;
     const QString text = undo ? stack->undoText() : stack->redoText();
     const bool ok = undo ? stack->undo() : stack->redo();
-    self->statusBar()->showMessage(
-        (ok ? (undo ? PaleoMainWindow::tr("已撤销：%1") : PaleoMainWindow::tr("已重做：%1"))
-            : (undo ? PaleoMainWindow::tr("撤销失败：%1") : PaleoMainWindow::tr("重做失败：%1")))
-            .arg(text), 10000);
+    if (window)
+      window->statusBar()->showMessage(
+          (ok ? (undo ? PaleoMainWindow::tr("已撤销：%1") : PaleoMainWindow::tr("已重做：%1"))
+              : (undo ? PaleoMainWindow::tr("撤销失败：%1") : PaleoMainWindow::tr("重做失败：%1")))
+              .arg(text), 10000);
     return ok;
   };
-  edit->setSecondaryUndo([step] { return step(true); }, [step] { return step(false); });
+  edit->setSecondaryUndo(PaleoUndoTarget{
+      [owner](bool undo) {
+        if (!owner)
+          return PaleoUndoStep{};
+        auto *stack = owner->propertyEditStack();
+        return PaleoUndoStep{undo ? stack->canUndo() : stack->canRedo(),
+                            undo ? stack->undoText() : stack->redoText()};
+      },
+      step});
+  stack->setOnChanged([guard = QPointer<PaleoEditingToolbar>(edit)] {
+    if (guard) guard->refreshUndoActions();
+  });
 }
 bool matchesWorkbenchHorizon(const SelectionContext *selection,const QString &horizon) {
   return selection && (horizon==selection->activeHorizon() || horizon==paleo::strat::analysisLayerKey(selection->activeUnit()));
-}
-// 三页（单井相/地震相 predict、单因素 constraint、编图 compose）统一跟随层段分析
-// UnitSelection：选了子层段（T70-T72/S2）即以其分析键为页内层位；无有效层段时
-// 才回落界限 activeHorizon。此前只有 compose 页接了 activeUnitChanged，predict/
-// constraint 页停在空层位——「请选择编图层位」且「运行预测」恒灰。
-void bindWorkbenchPageHorizon(MappingWorkbenchPage *page,SelectionContext *selection) {
-  const auto apply=[page,selection] {
-    const auto unit=selection->activeUnit();
-    const auto key=paleo::strat::analysisLayerKey(unit);
-    page->setProperty("paleo.unitDisplayName",key.isEmpty()?QString():unit.displayName);
-    page->setHorizon(key.isEmpty()?selection->activeHorizon():key);
-  };
-  apply();QObject::connect(selection,&SelectionContext::activeUnitChanged,page,apply);
-  QObject::connect(selection,&SelectionContext::activeHorizonChanged,page,apply);
 }
 }
 void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
@@ -196,7 +197,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     return;
   setProperty("workbenchAttached", true);
   m_workbench = workbench;
-  attachMappingEditFlow(workbench);
+  bindWorkbenchSelection(workbench);
   // 智能预测在后台执行：开跑即弹出底栏任务中心并切到任务页（底栏原本就
   // 开着也切页），显示任务行与进度；收尾由 syncBottomDockForTasks 恢复。
   connect(workbench, &MappingWorkbench::predictionBusyChanged, this,
@@ -306,10 +307,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   // #473：井预测修订域拆至 attachWorkbenchWells（句柄沿用原局部名）；#748 画布撤销路由。
   routeCanvasUndo(this, edit, workbench);
   const auto wells = attachWorkbenchWells(workbench, edit, pages, legend, show, compare);
-  auto *wellPanel = wells.panel;
   auto *wellDock = wells.dock;
   const auto openWells = wells.openWells;
-  const auto beginEdit = wells.beginEdit;
   workbench->updateDisplayScale(m_canvasCtl->canvas()->scale());
   connect(m_canvasCtl->canvas(), &QgsMapCanvas::scaleChanged, workbench,
           &MappingWorkbench::updateDisplayScale);
@@ -335,18 +334,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
             showConsistencyReport(this, report, m_canvasCtl, m_layerSvc,
                                   m_projectSvc, show);
           });
-  for (auto *page : pages) {
-    bindWorkbenchPageHorizon(page,m_selection);
-    // #749：命令分发链迁出为 MappingWorkbenchCommandController（每页一个，
-    // 随页面析构）；主窗口只装配并委托，捕获面原名原序进 Context。
-    auto *commands = new paleo::workbench::MappingWorkbenchCommandController(
-        this,
-        {workbench, page, edit, constraint, wellPanel, wellDock, legend, show,
-         compare, openWells, beginEdit, shown},
-        page);
-    connect(page, &MappingWorkbenchPage::commandRequested, commands,
-            &paleo::workbench::MappingWorkbenchCommandController::handleCommand);
-  }
+  attachWorkbenchCommands(workbench, pages, edit, constraint, wells, legend, show, compare, shown);
   connect(workbench, &MappingWorkbench::polygonizeFinished, this,
           [this, pages](const QString &, const QString &productId,
                         const QString &error, bool cancelled) {

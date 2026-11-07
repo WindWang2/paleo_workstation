@@ -94,20 +94,20 @@ QList<ShortcutEntry> mapEditUndoEntries()
 // 不冲突）。独立成段以守 catalogEntries 函数预算。
 QList<ShortcutEntry> panelUndoEntries()
 {
-  const char *pick = QT_TRANSLATE_NOOP("PaleoShortcuts", "地震拾取面板（焦点内）");
+  const char *pick = QT_TRANSLATE_NOOP("PaleoShortcuts", "地震剖面（焦点内）");
   const char *fault = QT_TRANSLATE_NOOP("PaleoShortcuts", "断层管理面板（焦点内）");
   const char *strat = QT_TRANSLATE_NOOP("PaleoShortcuts", "地层解释页（焦点内）");
-  const char *pickSrc = "src/ui/seismicsection/seismicpickpanel.cpp";
+  const char *pickSrc = "src/ui/seismicsection/seismicsectiondock_setup.cpp";
   const char *faultSrc = "src/ui/faults/faultmanagerpanel.cpp";
   const char *stratSrc = "src/ui/pages/stratigraphypage_controls.cpp";
   const auto undo = QKeySequence(QKeySequence::StandardKey::Undo);
   const auto redo = QKeySequence(QKeySequence::StandardKey::Redo);
   constexpr auto W = Qt::WidgetWithChildrenShortcut;
   QList<ShortcutEntry> out;
-  out << make("section.pick.undo", undo, "main/seismic-section/pick-panel", S, "sections",
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上一次地震拾取变更"), pick, pickSrc, W)
-      << make("section.pick.redo", redo, "main/seismic-section/pick-panel", S, "sections",
-              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做地震拾取变更"), pick, pickSrc, W)
+  out << make("section.pick.undo", undo, "main/seismic-section", S, "sections",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销上一次地震解释变更"), pick, pickSrc, W)
+      << make("section.pick.redo", redo, "main/seismic-section", S, "sections",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "重做地震解释变更"), pick, pickSrc, W)
       << make("fault.edit.undo", undo, "main/faults", S, "map",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "撤销最近一次断层编辑"), fault, faultSrc, W)
       << make("fault.edit.redo", redo, "main/faults", S, "map",
@@ -391,6 +391,21 @@ QKeySequence keyFor(const QString &id)
   return e.key;
 }
 
+static QList<QKeySequence> bindingKeys(const ShortcutEntry &entry)
+{
+  QList<QKeySequence> keys{entry.key};
+  // Preserve the platform standard and accept the workstation's Ctrl+Y
+  // gesture in the four disjoint undo scopes.
+  if (entry.id == QLatin1String("map.edit.redo") || entry.id == QLatin1String("section.pick.redo") ||
+      entry.id == QLatin1String("fault.edit.redo") || entry.id == QLatin1String("layout.redo"))
+  {
+    const QKeySequence ctrlY(Qt::CTRL | Qt::Key_Y);
+    if (!keys.contains(ctrlY))
+      keys.append(ctrlY);
+  }
+  return keys;
+}
+
 QShortcut *bindShortcut(const QString &id, QWidget *parent)
 {
   const ShortcutEntry e = registry().entry(id);
@@ -398,7 +413,8 @@ QShortcut *bindShortcut(const QString &id, QWidget *parent)
     qCWarning(lcPaleoShortcuts) << "bindShortcut: unregistered id" << id;
   else if (e.binding != Binding::Shortcut)
     qCWarning(lcPaleoShortcuts) << "bindShortcut: id is a key-handler entry" << id;
-  auto *sc = new QShortcut(e.key, parent);
+  auto *sc = new QShortcut(parent);
+  sc->setKeys(bindingKeys(e));
   sc->setContext(e.qtContext);
   sc->setProperty(kShortcutIdProperty, id);
   return sc;
@@ -416,7 +432,7 @@ void setActionShortcutActive(const QString &id, QAction *action, bool active)
   const ShortcutEntry e = registry().entry(id);
   if (e.id.isEmpty())
     qCWarning(lcPaleoShortcuts) << "bindAction: unregistered id" << id;
-  action->setShortcut(active ? e.key : QKeySequence());
+  action->setShortcuts(active ? bindingKeys(e) : QList<QKeySequence>{});
   action->setShortcutContext(e.qtContext);
   action->setProperty(kShortcutIdProperty, id);
 }

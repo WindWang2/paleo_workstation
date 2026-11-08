@@ -50,10 +50,21 @@ public:
     RelationChoiceView relationView(const RelationUseSpec &use) const;
     RelationResolveRequest relationRequest(const RelationUseSpec &use,QString *error=nullptr) const;
     SourceCommandResult resolveRelation(const RelationUseSpec &use);
+    InterpretationSelection interpretationSelection() const;
+    std::shared_ptr<const InterpretationReadPlan> captureInterpretationPlan() const;
+    bool selectInterpretation(const InterpretationContext &context,QString *error=nullptr);
+    bool clearInterpretation(QString *error=nullptr);
+    QVariantMap interpretationOptions(const QStringList &wellIds,QString *error=nullptr) const;
+    QVariantList interpretationRelationOptions(const QString &wellId,QString *error=nullptr) const;
+    SourceCommand chooseRelationCommand(const InterpretationContext &context,const QString &wellId,
+        const ModelObjectRef &object,const QVariantMap &semantics={},QString *error=nullptr) const;
+    RelationInput interpretationRelation(const QString &wellId,RelationKind kind,
+                                         RelationPurpose purpose=RelationPurpose::WellTie) const;
 signals:
     void sessionChanged(quint64 epoch);
     void sourcesInvalidated();
     void sourcesChanged(const paleo::document::SourceChangeSet &change);
+    void interpretationChanged(const QString &wellId={});
     void sourceObserved(const paleo::document::SourceRef &ref,const paleo::document::SourceState &state);
     void commandFinished(const paleo::document::SourceCommandResult &result);
     void relocationFinished(const QString &oldVersionId,const QString &newVersionId,const QString &error);
@@ -87,5 +98,7 @@ private:
     std::unique_ptr<paleo::jobs::JobRunner<RelationJob>> m_relations;
     QString m_relationOperation;
     QVariantMap m_relationDetails;
+    std::optional<InterpretationContext> m_interpretation;
+    QString m_interpretationError;
 };
 }

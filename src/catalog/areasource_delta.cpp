@@ -1,6 +1,7 @@
 // 层：数据
 #include "areasource_delta_internal.h"
 #include "areawellprojection.h"
+#include "domain/documentsource.h"
 #include <paleo_data/service.h>
 #include <QDir>
 #include <QFileInfo>
@@ -55,6 +56,18 @@ bool readBatch(paleo::data::DataService &reader,const ModelChangeHead &head,qint
   } while(true);
 }
 }
+void paleo::area_projection::inheritRelocatedSourceBindings(const CatalogVersion &previous,
+                                                            CatalogVersion &replacement) {
+  const auto sourceId=replacement.extra.value("areaModelSourceId").toLongLong();
+  if (sourceId<=0 || previous.extra.value("areaModelSourceId").toLongLong()!=sourceId)
+    return;
+  const auto fingerprint=paleo::document::SourceFingerprint::fromStored(replacement.sha256);
+  const auto bindings=previous.extra.constFind(QStringLiteral("documentSourceBindings"));
+  if (fingerprint.valid() && fingerprint==paleo::document::SourceFingerprint::fromStored(previous.sha256) &&
+      bindings!=previous.extra.cend())
+    replacement.extra.insert(QStringLiteral("documentSourceBindings"),bindings.value());
+}
+
 bool applyAreaSourceChangeBatch(DataCatalog &catalog,const ModelChangeHead &head,qint64 sequence,
     const std::vector<ModelChangeItem> &items,QString *error) {
   if(error)error->clear();

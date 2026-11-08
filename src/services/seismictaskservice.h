@@ -11,12 +11,14 @@
 #include <QStringList>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <glm/glm.hpp>
 
 #include "Engine/Sdk.h"
 #include "Engine/Types.h"
+#include "domain/documentrelation.h"
 #include "domain/seismic/sgyindex.h"
 #include "domain/seismic/sgyvolume.h"
 #include "domain/seismic/sgydatacache.h"
@@ -28,6 +30,7 @@
 class PaleoTask;
 class PaleoTaskService;
 class DataCatalog;
+namespace paleo::document {struct InterpretationSelection;}
 
 namespace seismic {
 
@@ -43,6 +46,15 @@ struct SeismicNativeInfo {
  int inlineCount=0,xlineCount=0;
 };
 struct SeismicSectionExtractionStats : SgySectionStats { SectionHorizons horizons; };
+
+struct SeismicDataSectionQuery {
+  paleo::document::SourceRecord source;
+  paleo::document::InterpretationContext context;
+  double firstTimeMs=qQNaN(), lastTimeMs=qQNaN();
+  int maxColumns=1000;
+  qlonglong maxValues=8000000;
+  bool fullResolution=false;
+};
 
 // 秒级首屏快照（QuickOpenSegyPreview 的主线程可消费副本）：
 // 网格范围/角点验证结论/中央测线真振幅缩略（未读列 NaN）。
@@ -277,7 +289,8 @@ public:
   PaleoTask *startDataPlane(const QString& path,SgySliceType type,int index,
       std::function<void(bool,std::shared_ptr<const SgySliceImage>,const SeismicNativeInfo&,const QString&)> done);
   PaleoTask *startDataSection(const QString& path,const std::vector<std::pair<double,double>>& points,
-      const QString& timeReference,std::function<void(bool,std::shared_ptr<const SeismicSectionData>,const QString&)> done);
+      const QString& timeReference,std::function<void(bool,std::shared_ptr<const SeismicSectionData>,const QString&)> done,
+      const SeismicDataSectionQuery *query=nullptr);
   PaleoTask *startDataSlice(const QString& path,SgySliceType type,int index,
       std::function<void(bool,std::shared_ptr<const SgySliceImage>,const QString&)> done,
       quint64 tileGeneration = 0,int previewAxis = 0,int workerCount = 4);
@@ -304,7 +317,8 @@ public:
       std::shared_ptr<SgyVolume> volume,
       const std::vector<glm::ivec2> &pathPoints,
       const SgySectionOptions &options,
-      std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const SeismicSectionExtractionStats &stats, const QString &error)> onFinished);
+      std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const SeismicSectionExtractionStats &stats, const QString &error)> onFinished,
+      const paleo::document::InterpretationSelection *selection=nullptr);
 
   // 4. SEG-Y → .sf3c 工作区转码（engine TranscodeJob，可续跑/可取消）。
   //    workspaceBase 为空时按 Auto 约定取 <sgyPath> 本身（产出 <sgy>.sf3c.meta +

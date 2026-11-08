@@ -1,5 +1,6 @@
 // 层：功能
 #pragma once
+#include "services/documentrelationresolver.h"
 #include "../metadata/layermanifest.h"
 #include <QList>
 #include <QObject>
@@ -20,6 +21,7 @@ class ConstraintWorkflow;
 class CompositionWorkflow;
 class QgisLayerService;
 class ProjectDataFacade;
+namespace paleo::document {class DocumentSession;}
 class DataCatalog;
 struct ValidationIssue;
 
@@ -74,6 +76,7 @@ class MappingWorkflow : public QObject
     bool startThicknessChain(const QString &horizon, QString *error = nullptr,
                              const QVariantMap &publishIdentity = {});
     void setProjectData( ProjectDataFacade *projectData );
+    void setDocumentSession(paleo::document::DocumentSession *session);
 
     // T26：厚度链派生产物（等厚栅格 / wells.thickness GeoJSON）的登记通道。
     // catalog 必须是工程里唯一的写实例（app 里由 DataImportService 持有）；
@@ -118,6 +121,12 @@ class MappingWorkflow : public QObject
 
     bool recordThicknessDeclaration(const LayerDeclaration &decl,
                                     QString *error = nullptr);
+    paleo::document::InterpretationSelection interpretation() const;
+    paleo::document::RelationInput timeDepthInput(const QString &wellId) const;
+    QPointer<paleo::document::DocumentSession> m_document;
+    paleo::document::InterpretationSelection m_interpretation;
+    QHash<QString,paleo::document::RelationInput> m_timeDepthInputs;
+    QVariantList m_consumedTimeDepth,m_contributingTimeDepth;
     bool m_deferredDeclarations = false;
     QVector<LayerDeclaration> m_preparedDeclarations;
     std::function<bool()> m_cancel;

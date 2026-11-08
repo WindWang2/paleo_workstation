@@ -2,6 +2,7 @@
 #include "datapreviewtabs.h"
 #include "datapreviewtabs_internal.h"
 #include "../../workflow/xmlpreviewsession.h"
+#include "../../workflow/documentsession.h"
 #include "../wellcomposite/wellcompositepanel.h"
 #include "../paleoviewport.h"
 #include <QStackedWidget>
@@ -24,6 +25,29 @@ QString coordinateSummary(const WellComposite::ComprehensiveWellData& data) {
       .arg(number(data.x),number(data.y),known(data.coordinateSystem),known(data.coordinateUnit),
            known(data.projectCoordinateSystem),known(data.projectCoordinateUnit));
 }
+}
+
+void DataPreviewTabs::setDocumentSession(paleo::document::DocumentSession *session) {
+  m_document=session;
+  if(!session)return;
+  connect(session,&paleo::document::DocumentSession::interpretationChanged,this,[this](const QString &wellId) {
+    const QString focused=assetIdAt(m_tabs->currentIndex());
+    QVector<QPair<qlonglong,QString>> wells;
+    const auto keys=m_pageOfAsset.keys();
+    for(const auto &key:keys) {
+      if(key.startsWith(QLatin1String("model-well:"))) {
+        const auto modelWellId=key.mid(11).toLongLong();
+        if(!wellId.isEmpty() && (!m_doc || m_doc->entityIdForModelWell(modelWellId)!=wellId))continue;
+        wells.append({modelWellId,m_tabs->tabText(m_tabs->indexOf(m_pageOfAsset.value(key)))});
+        closeAssetTab(key);
+      } else if((wellId.isEmpty() || m_wellEntityOfAsset.value(key)==wellId) &&
+                m_pageOfAsset.value(key) && m_pageOfAsset.value(key)->findChild<XmlPreviewSession *>()) {
+        rebuildAssetTab(key);
+      }
+    }
+    for(const auto &[id,name]:wells)openModelWell(id,name);
+    if(auto *page=m_pageOfAsset.value(focused))m_tabs->setCurrentWidget(page);
+  });
 }
 
 QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QString &assetId,
@@ -71,7 +95,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
     if (data.chartOk) {
       chart->loadWellData(data.chart, abs, reference);
       if (data.chart.modelWellId) {
-        chart->setPreviewSummary(coordinateSummary(data.chart));
+        chart->setPreviewSummary(QStringList{coordinateSummary(data.chart),data.interpretationSummary}.join(QChar('\n')).trimmed());
       }
     }
     else {
@@ -88,6 +112,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
       ? version.extra.value("areaModelSourceId").toLongLong() : 0;
   const qlonglong modelWell = catalog
       ? catalog->entityById(m_wellEntityOfAsset.value(assetId)).extra.value("areaModelWellId").toLongLong() : 0;
+  if(modelSource>0 && modelWell>0)session->setDocumentSession(m_document,m_wellEntityOfAsset.value(assetId));
   session->open(abs, expectedSha, catalogProjectDir(catalog), modelSource, modelWell);
   return host;
 }
@@ -163,7 +188,7 @@ void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellNa
             {
               chart->loadWellData(data.chart, QString(), false);
               if (data.chart.modelWellId) {
-                chart->setPreviewSummary(coordinateSummary(data.chart));
+                chart->setPreviewSummary(QStringList{coordinateSummary(data.chart),data.interpretationSummary}.join(QChar('\n')).trimmed());
               }
             }
             else
@@ -176,5 +201,6 @@ void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellNa
               stack->setCurrentIndex(selected);
             }
           });
-  session->openModelWell(project, modelWellId, title);
+  session->setDocumentSession(m_document,m_doc->entityIdForModelWell(modelWellId));
+  session->openModelWell(project,modelWellId,title);
 }

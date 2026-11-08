@@ -3,16 +3,19 @@
 #include "../services/previewdoc.h"
 #include "../domain/wellcompositemodel.h"
 #include <QObject>
+#include <QPointer>
 #include <atomic>
 #include <memory>
 class QTemporaryDir;
 class PaleoTaskService;
+namespace paleo::document {class DocumentSession;}
 
 struct XmlPreviewData {
   WellComposite::ComprehensiveWellData chart;
   PreviewDocService::WorkbookPreview table;
   bool chartOk = false;
   QString chartError;
+  QString interpretationSummary;
 };
 Q_DECLARE_METATYPE(XmlPreviewData)
 
@@ -25,6 +28,7 @@ public:
       m_verificationCancelled->store(true);
   }
   void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
+  void setDocumentSession(paleo::document::DocumentSession *session,const QString &wellId);
   void open(const QString &path, const QString &expectedSha = QString(),
             const QString &modelProject = QString(), qlonglong modelSource = 0,
             qlonglong modelWell = 0);
@@ -34,6 +38,8 @@ signals:
   void ready(const XmlPreviewData &data);
 private:
   PaleoTaskService *m_tasks = nullptr;
+  QPointer<paleo::document::DocumentSession> m_document;
+  QString m_wellId;
   std::shared_ptr<QTemporaryDir> m_directory;
   std::shared_ptr<std::atomic_bool> m_verificationCancelled;
   quint64 m_generation = 0;

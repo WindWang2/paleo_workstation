@@ -2,7 +2,9 @@
 #include "seismicdataaccess.h"
 #include "seismicsource.h"
 #include "seismiclinecache.h"
+#include "domain/documentrelation.h"
 #include "../io/areamodel.h"
+#include <paleo_data/object_descriptor.h>
 #include <QFileInfo>
 #include <QDir>
 
@@ -49,6 +51,26 @@ bool SeismicDataAccess::openProjectSource(const QString& project,const QString& 
  if(!m_volume){if(error)*error=QStringLiteral("当前工区未登记所选地震体");return false;}
  m_file=chosen.dataFile;m_unit=chosen.geometry.coordinateUnit;m_crs=chosen.geometry.coordinateSystem;return true;
 }
+bool SeismicDataAccess::openModelVolume(const document::SourceRecord &source,const document::ModelObjectRef &reference,QString *error) {
+ m_volume=0;m_file.clear();m_unit.clear();m_crs.clear();if(error)error->clear();
+ const auto fail=[&](const QString &reason){if(error)*error=reason;return false;};
+ if(!reference.valid()||reference.kind!=document::ObjectKind::SeismicVolume||source.ref!=reference.source||
+    source.ref.modelStoreId!="area-model"||source.modelDirectory.isEmpty()||
+    !source.fingerprint.valid()||source.fingerprint.stored()!=reference.source.fileRevisionId)
+  return fail(QStringLiteral("无效的文档地震体来源或修订"));
+ std::string detail;data::SourceIndexEntry entry;data::DataObjectDescriptor object;data::SeismicVolume volume;
+ if(!m_service.openProjectReadOnly(source.modelDirectory.toUtf8().toStdString(),detail)||
+    !m_service.readSourceIndexEntry(source.ref.sourceId,entry,detail)||
+    !m_service.describeDataObject(data::DataObjectKind::SeismicVolume,reference.id,object,detail))
+  return fail(QString::fromUtf8(detail));
+ if(!entry.active||QString::fromUtf8(entry.sha256)!=reference.source.fileRevisionId||
+    object.sourceId!=source.ref.sourceId||object.wellId!=0||
+    !object.revisionKnown||QString::fromUtf8(object.revision)!=reference.revision)
+  return fail(QStringLiteral("地震来源或地震体已变化，请重新选择"));
+ if(!m_service.readVolume(reference.id,volume,detail))return fail(QString::fromUtf8(detail));
+ m_volume=reference.id;m_file=volume.dataFile;m_unit=volume.geometry.coordinateUnit;m_crs=volume.geometry.coordinateSystem;
+ return true;
+}
 bool SeismicDataAccess::volume(data::SeismicVolume& result,std::string& error){
  if(!m_volume){error="需要工区已登记地震体";return false;}return m_service.readVolume(m_volume,result,error);
 }
@@ -70,6 +92,12 @@ bool SeismicDataAccess::section(const std::vector<std::pair<int,int>>& path,int 
 }
 bool SeismicDataAccess::xySection(const std::vector<std::pair<double,double>>& path,const QString& timeReference,
     data::SeismicSectionResult& result,std::string& error,const data::CancelCheck& cancel) {
+ data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
+ return xySection(path,timeReference,options,result,error,cancel);
+}
+bool SeismicDataAccess::xySection(const std::vector<std::pair<double,double>>& path,const QString& timeReference,
+    const data::SectionReadOptions &window,data::SeismicSectionResult& result,
+    std::string& error,const data::CancelCheck& cancel) {
  result={};error.clear();
  if(!m_volume){error="连井剖面需要工区数据服务中已登记的地震体";return false;}
  data::SeismicVolume volume;if(!m_service.readVolume(m_volume,volume,error))return false;
@@ -80,9 +108,10 @@ bool SeismicDataAccess::xySection(const std::vector<std::pair<double,double>>& p
  data::SeismicSection section;section.parentVolumeId=m_volume;
  section.coordinateSystem=m_service.projectCrs();section.coordinateUnit=m_service.projectCrsUnit();
  for(const auto& p:path){data::SeismicSectionPoint point;point.x=p.first;point.y=p.second;section.pathPoints.push_back(point);}
- data::SectionReadOptions options;options.fullResolution=true;options.maxValues=64000000;
+ const double factor=volume.sampling.timeUnit=="s"?1000.:1.;
+ data::SectionReadOptions options=window;
+ options.firstTime/=factor;options.lastTime/=factor;
  if(!m_service.extractSection(section,options,result,error,cancel))return false;
- const double factor=result.timeUnit=="s"?1000.:1.;
  result.firstTime*=factor;result.sampleInterval*=factor;result.timeUnit="ms";
  if(volume.geometry.coordinateUnit=="ft")for(auto& distance:result.distances)distance*=0.3048;
  return true;

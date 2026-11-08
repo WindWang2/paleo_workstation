@@ -1,5 +1,6 @@
 // 层：功能
 #include "wellsectionworkflow.h"
+#include "documentsession.h"
 #include "../qgis/wellattributestore.h"
 #include "algorithms/faultsurface/faultsurface.h"
 #include "catalog/datacatalog.h"
@@ -41,6 +42,9 @@
 // 只补曲线数据体（catalog 只在其所属线程触）。
 struct WellSectionWorkflow::Shared {
   QString project;QStringList mnemonics;QHash<int,qlonglong> nativeWells;
+  paleo::document::InterpretationSelection interpretation;
+  std::shared_ptr<DataCatalog> catalog;
+  QHash<int,paleo::document::RelationInput> selectedTimeDepth;
   QVector<wellsection::Well> wells;
   QStringList warnings;
   struct Entry {
@@ -104,6 +108,10 @@ WellSectionWorkflow::WellSectionWorkflow(DataCatalog *catalog,
 }
 
 WellSectionWorkflow::~WellSectionWorkflow() { cancel(); }
+void WellSectionWorkflow::setDocumentSession(paleo::document::DocumentSession *session) {
+  m_document=session;
+  if(session)connect(session,&paleo::document::DocumentSession::interpretationChanged,this,&WellSectionWorkflow::cancel);
+}
 
 void WellSectionWorkflow::setTaskService(PaleoTaskService *svc) {
   m_tasks = svc;
@@ -230,6 +238,10 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
   const QVector<ProjectWell> candidates = m_data.wells();
   const QString dir = projectDir();
   shared->project=dir;shared->mnemonics=mnemonics;
+  if(m_document)shared->interpretation=m_document->interpretationSelection();
+  if(!shared->interpretation.error.isEmpty())shared->warnings<<shared->interpretation.error;
+  const bool pinnedTops=!shared->interpretation.error.isEmpty() ||
+      (shared->interpretation.context && !shared->interpretation.context->schemeId.isEmpty());
   for (const QString &id : wellIds) {
     const ProjectWell *pw = nullptr;
     for (const ProjectWell &w : candidates)
@@ -260,7 +272,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
     WellParseReport topsReport;
     // 分层来源：空 = 各井主 tops 链接（默认）；显式选择时未挂接该资产的井
     // 如实空 tops + 点名（剖面级词表切换，不伪造别的来源）。
-    if (!m_topsSource.isEmpty()) {
+    if (!pinnedTops && !m_topsSource.isEmpty()) {
       bool linked = false;
       for (const EntityAssetLink &l : m_catalog->linksForEntity(pw->id))
         if (l.role == QLatin1String("tops") && !l.unresolved &&
@@ -272,8 +284,9 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
         shared->warnings << tr("井 %1 未挂接所选分层来源，分层留空")
                                 .arg(pw->name);
     }
-    const auto tops = m_topsSource.isEmpty() ? (modelId>0?m_data.topsForMapping(pw->id):m_data.topsFor(pw->id, &topsReport))
-                                           : m_data.topsForAsset(pw->id, m_topsSource, &topsReport);
+    const auto tops = pinnedTops ? QVector<WellTop>{} :
+        m_topsSource.isEmpty() ? (modelId>0?m_data.topsForMapping(pw->id):m_data.topsFor(pw->id,&topsReport))
+                               : m_data.topsForAsset(pw->id,m_topsSource,&topsReport);
     if (!topsReport.issues.isEmpty())
       shared->warnings << tr("井 %1 的分层文件读面：%2")
                               .arg(pw->name, wellParseSummary(topsReport));
@@ -294,7 +307,14 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
     // 时深：逐井校正优先（workbench），否则主时深表 MD 列严格表。失败
     // 路径如实入警告（对照井斜坏表/分层缺 MD 的既有口径），不静默为空；
     // 原因同时记 timeDepthStatus——井间地震缝据此细化「缺少时深关系」。
-    if (m_workbench) {
+    const auto td=m_document?m_document->interpretationRelation(pw->id,paleo::document::RelationKind::TimeDepth):
+        paleo::document::RelationInput{};
+    using TdState=paleo::document::RelationInput::State;
+    if(td.state==TdState::Selected) {
+      shared->selectedTimeDepth.insert(shared->wells.size(),td);
+    } else if(td.state==TdState::Invalid) {
+      applyTimeDepth(well,{},td.error,shared->warnings);
+    } else if (m_workbench) {
       seismic::TimeDepthModel model;
       double shift = 0.0;
       QString status;
@@ -306,42 +326,8 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
         shared->warnings << tr("井 %1 的时深不可用：%2").arg(pw->name, status);
       }
     } else {
-      const QVector<TdSample> td = m_data.tdTableFor(pw->id);
-      if (td.isEmpty()) {
-        // 空表原因（catalog 未挂链 vs 服务拒绝 vs Petrel 整表拒收）如实入
-        // 注记与警告，与 workbench 路径同口径；lastError 空 = 纯未挂链，
-        // 维持原「缺少时深关系」语义，不告警。
-        const QString reason = m_data.lastError();
-        if (!reason.isEmpty()) {
-          well.timeDepthStatus = reason;
-          shared->warnings << tr("井 %1 的时深不可用：%2").arg(pw->name, reason);
-        }
-      }
-      std::vector<seismic::TdPoint> points;
-      bool tvdOnlyRows = false;
-      for (const TdSample &s : td) {
-        // 时间基准面以上（确认 negated 口径后时间为负）的采样在地震时间域
-        // 之外——裁掉域外段建严格表，不改值（与 workbench::modelFor 同口径）。
-        if (std::isfinite(s.md) && std::isfinite(s.timeMs) && s.timeMs >= 0.0)
-          points.push_back({s.md, s.timeMs});
-        else if (!std::isfinite(s.md) && std::isfinite(s.tvd))
-          tvdOnlyRows = true;
-      }
-      seismic::TimeDepthModel model;
-      if (model.setCheckshots(points)) {
-        well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表"),td.front().timeReference};
-      } else if (!td.isEmpty() && tvdOnlyRows && points.empty()) {
-        // TVD-only 表在但连井剖面时深契约是 MD 域——如实告警，不凭空换算。
-        well.timeDepthStatus =
-            tr("时深表只有 TVD 列，连井剖面按 MD 域装配不可用");
-        shared->warnings << tr("井 %1 的时深表只有 TVD 列，连井剖面按 MD 域装配不可用")
-                                .arg(pw->name);
-      } else if (!td.isEmpty()) {
-        well.timeDepthStatus = tr("时深表无效（有效样点不足或非单调）");
-        shared->warnings
-            << tr("井 %1 的时深表无效（有效样点不足或非单调），未参与井间地震")
-                   .arg(pw->name);
-      }
+      const auto rows=m_data.tdTableFor(pw->id);
+      applyTimeDepth(well,rows,m_data.lastError(),shared->warnings);
     }
     // 井斜轨迹（TVD 域换算源）：无链接 = 无测斜——几何恒等按 MD 绘制，
     // TVD 域如实标注不可用；不告警（非数据损坏）。资产在但不可解析 →
@@ -371,6 +357,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
   attachLithoSegments(shared->wells, &shared->warnings);
   collectCoreImages(*shared);
   shared->curves.resize(shared->entries.size());
+  if(!shared->selectedTimeDepth.isEmpty())shared->catalog=m_data.catalogSnapshot();
   if (!m_tasks) {
     loadCurveBodies(*shared, nullptr);
     emit sectionReady(generation, shared->wells, shared->warnings);
@@ -397,9 +384,56 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
   return generation;
 }
 
+void WellSectionWorkflow::applyTimeDepth(wellsection::Well &well,const QVector<TdSample> &rows,
+                                       const QString &error,QStringList &warnings) {
+  if(rows.isEmpty()) {
+    if(!error.isEmpty()) {
+      well.timeDepthStatus=error;
+      warnings<<tr("井 %1 的时深不可用：%2").arg(well.name,error);
+    }
+    return;
+  }
+  std::vector<seismic::TdPoint> points;
+  bool tvdOnlyRows=false;
+  for(const auto &row:rows) {
+    // 地震时间域之外的点保留在原时深表，严格插值模型只取有效的非负时间。
+    if(std::isfinite(row.md) && std::isfinite(row.timeMs) && row.timeMs>=0.)
+      points.push_back({row.md,row.timeMs});
+    else if(!std::isfinite(row.md) && std::isfinite(row.tvd))tvdOnlyRows=true;
+  }
+  seismic::TimeDepthModel model;
+  if(model.setCheckshots(points))well.timeDepth=wellsection::TimeDepth{model,0.,tr("时深表"),rows.front().timeReference};
+  else if(tvdOnlyRows && points.empty()) {
+    well.timeDepthStatus=tr("时深表只有 TVD 列，连井剖面按 MD 域装配不可用");
+    warnings<<tr("井 %1 的时深表只有 TVD 列，连井剖面按 MD 域装配不可用").arg(well.name);
+  } else {
+    well.timeDepthStatus=tr("时深表无效（有效样点不足或非单调）");
+    warnings<<tr("井 %1 的时深表无效（有效样点不足或非单调），未参与井间地震").arg(well.name);
+  }
+}
+
 void WellSectionWorkflow::loadCurveBodies(Shared &shared,
                                           PaleoTask *task) {
-  paleo::loadSeismicCorrelationTops(shared.project,shared.nativeWells,shared.wells,shared.warnings);
+  const auto cancelled=[task]{return task&&task->cancelRequested();};
+  if(!shared.selectedTimeDepth.isEmpty()) {
+    ProjectDataFacade data;
+    data.setCatalog(shared.catalog.get(),shared.project);
+    for(auto it=shared.selectedTimeDepth.cbegin();it!=shared.selectedTimeDepth.cend();++it) {
+      if(cancelled())return;
+      auto &well=shared.wells[it.key()];
+      const auto rows=data.tdTableForSelection(well.id,it.value(),cancelled);
+      applyTimeDepth(well,rows,data.lastError(),shared.warnings);
+    }
+  }
+  if(shared.interpretation.error.isEmpty()) {
+    auto context=shared.interpretation.context;
+    if(context)context->purpose=paleo::document::RelationPurpose::Correlation;
+    paleo::loadSeismicCorrelationTops(shared.project,shared.nativeWells,shared.wells,shared.warnings,
+        context&&!context->schemeId.isEmpty()?&*context:nullptr,cancelled);
+    if(context && !context->schemeId.isEmpty())
+      for(auto &well:shared.wells)
+        if(well.correlationTops)well.tops=*well.correlationTops;
+  }
   if(!shared.mnemonics.isEmpty())for(auto it=shared.nativeWells.cbegin();it!=shared.nativeWells.cend();++it){
     if(task&&task->cancelRequested())return;
     QString reason;QVector<wellsection::Curve> curves;
@@ -1108,9 +1142,32 @@ void WellSectionWorkflow::attachLithoSegments(
 }
 
 WellSectionWorkflow::SeismicSource WellSectionWorkflow::seismicSource(const QString& preferred) const {
-  SeismicSource source;source.path=paleo::seismicProjectSource(projectDir(),preferred,&source.status);return source;
+  SeismicSource source;
+  if(m_document)source.interpretation=m_document->interpretationSelection();
+  source.status=source.interpretation.error;
+  if(!source.status.isEmpty())return source;
+  if(source.interpretation.context && source.interpretation.context->targetVolume)
+    source.path=source.interpretation.volume.path;
+  else if(source.interpretation.context && !source.interpretation.context->schemeId.isEmpty())
+    source.status=tr("请为所选分层方案指定目标地震体");
+  else source.path=paleo::seismicProjectSource(projectDir(),preferred,&source.status);
+  return source;
 }
 
+namespace {
+seismic::SeismicDataSectionQuery sectionQuery(const paleo::document::InterpretationSelection &selection,
+    const wellsection::TimeDepth &a,const wellsection::TimeDepth &b,int gaps) {
+  seismic::SeismicDataSectionQuery query;
+  query.context=*selection.context;query.source=selection.volume;
+  query.maxValues=qMax<qlonglong>(1,query.maxValues/qMax(1,gaps));
+  const auto &left=a.model.points(),&right=b.model.points();
+  if(!left.empty() && !right.empty()) {
+    query.firstTimeMs=qMax(0.0,qMin(left.front().timeMs+a.shiftMs,right.front().timeMs+b.shiftMs));
+    query.lastTimeMs=qMax(left.back().timeMs+a.shiftMs,right.back().timeMs+b.shiftMs);
+  }
+  return query;
+}
+}
 int WellSectionWorkflow::requestSeismic(
     const QVector<wellsection::Well> &wells, const SeismicSource &source) {
   const int generation = ++m_seismicGeneration;
@@ -1132,6 +1189,9 @@ int WellSectionWorkflow::requestSeismic(
     emit seismicReady(generation, *strip);
     return generation;
   };
+  if(m_document && m_document->interpretationSelection().context!=source.interpretation.context)
+    return emitStatus(tr("解释选择已变化，请刷新剖面"));
+  const bool pinned=source.interpretation.context && source.interpretation.context->targetVolume;
   if (source.path.isEmpty())
     return emitStatus(source.status.isEmpty()?tr("未选择数据服务中的地震体"):source.status);
   if (!m_seismicTasks)
@@ -1179,6 +1239,7 @@ int WellSectionWorkflow::requestSeismic(
       gap.reason = tr("%1 / %2 的时深时间基准不一致，请先校正").arg(a.name,b.name);
     if (!gap.reason.isEmpty())
       continue;
+    const auto query=pinned?sectionQuery(source.interpretation,*a.timeDepth,*b.timeDepth,gaps):seismic::SeismicDataSectionQuery{};
     ++batch->pending;
     PaleoTask *task = m_seismicTasks->startDataSection(
         source.path,{{a.x,a.y},{b.x,b.y}},a.timeDepth->timeReference,
@@ -1199,7 +1260,7 @@ int WellSectionWorkflow::requestSeismic(
                     : error;
           }
           finishOne();
-        });
+        },pinned?&query:nullptr);
     if (task)
       m_gapTasks << task;
   }

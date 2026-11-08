@@ -26,6 +26,68 @@
 class TestAreaModel : public QObject {
   Q_OBJECT
 private slots:
+  void selectedCurvesUseOnlyTheirDepthWindowAndShareTheBudget() {
+    QTemporaryDir temp;const auto project=temp.filePath("project"),path=temp.filePath("fixture");
+    QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));QCOMPARE(file.write("fixture"),7LL);file.close();
+    paleo::data::DataService ds;std::string detail;
+    QVERIFY2(ds.createProject(paleo::area_model::directory(project).toStdString(),"synthetic",detail),detail.c_str());
+    paleo::data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";
+    paleo::data::WellDataset well;well.wellInfo.wellName="WINDOW";
+    paleo::data::LogSet logs;logs.logSetName="logs";logs.depthInfo.depthType="MD";logs.depthInfo.depthUnit="m";
+    paleo::data::LogCurve gr,dt;gr.curveName="GR";dt.curveName="DT";
+    for(int i=0;i<9000;++i) {
+      logs.samplingAxis.depthValues.push_back(i);
+      gr.sampleValues.push_back(i+1.);
+      dt.sampleValues.push_back(i+2.);
+    }
+    paleo::data::LogSet later;later.logSetName="other acquisition";later.depthInfo=logs.depthInfo;
+    later.samplingAxis.depthValues={9000,9001};
+    paleo::data::LogCurve other;other.curveName="GR";other.sampleValues={11,12};
+    later.logCurves.push_back(std::move(other));
+    logs.logCurves={gr,dt};well.wellbore.logSets.push_back(std::move(logs));
+    well.wellbore.logSets.push_back(std::move(later));parsed.wells.push_back(std::move(well));
+    const auto sha=QCryptographicHash::hash("fixture",QCryptographicHash::Sha256).toHex().toStdString();
+    long long source=0;
+    QVERIFY2(ds.importPreparedFile(path.toStdString(),path.toStdString(),path.toStdString(),sha,parsed,source,detail),detail.c_str());
+    std::vector<long long> wells;QVERIFY(ds.listSourceWells(source,wells,detail));QCOMPARE(wells.size(),size_t(1));
+    paleo::data::StratigraphicScheme scheme, first, head;scheme.id="alternate";scheme.name="Alternate";
+    for(int i=0;i<2;++i){
+      paleo::data::StratigraphicBoundary boundary;boundary.name=i?"Base":"Top";boundary.order=i;
+      scheme.boundaries.push_back(boundary);
+    }
+    paleo::data::framework::deriveUnits(scheme);
+    paleo::data::WellIntervalOccurrence occurrence;occurrence.wellId=wells.front();
+    occurrence.interval=scheme.intervals.front().id;occurrence.top=8190;occurrence.bottom=8191;
+    scheme.wellOccurrences.push_back(occurrence);
+    std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY2(ds.commitStratigraphicScheme(scheme,{},first,issues,detail),detail.c_str());
+    scheme.wellOccurrences.front().top=8188;
+    QVERIFY2(ds.commitStratigraphicScheme(scheme,first.revision.value,head,issues,detail),detail.c_str());
+    ds.closeProject();QVERIFY(QFile::remove(path)); // The payload lives in the model.
+    AreaWellCurveWindow window;
+    window.topMd=8190;window.bottomMd=8191;window.maxSamples=2;window.maxReadBytes=120000;
+    QVector<wellsection::Curve> curves;QString error;
+    QVERIFY2(readAreaWellSectionCurves(project,wells.front(),{"GR"},curves,&error,{},window),qPrintable(error));
+    QCOMPARE(curves.size(),1);QCOMPARE(curves.front().depths,QVector<float>({8190,8191}));
+    QCOMPARE(curves.front().values,QVector<float>({8191,8192}));
+    QVERIFY(!readAreaWellSectionCurves(project,wells.front(),{"GR","DT"},curves,&error,{},window));
+    QVERIFY(curves.isEmpty());QVERIFY(!error.isEmpty());
+    auto outside=window;outside.topMd=9000;outside.bottomMd=9001;
+    QVERIFY(!readAreaWellSectionCurves(project,wells.front(),{"GR"},curves,&error,{},outside));
+    QVERIFY(curves.isEmpty());QVERIFY(!error.isEmpty());
+    QVERIFY(ds.openProjectReadOnly(paleo::area_model::directory(project).toStdString(),detail));
+    AreaWellChartQuery query;query.curves=window;query.curveNames=QStringList{"GR"};
+    query.context.emplace();query.context->documentId="fixture";query.context->modelStoreId="area-model";
+    query.context->schemeId=QString::fromStdString(first.id);
+    query.context->schemeRevision=QString::fromStdString(first.revision.value);
+    WellComposite::ComprehensiveWellData chart;
+    QVERIFY2(readAreaWellChart(ds,wells.front(),chart,&error,{},&query),qPrintable(error));
+    QCOMPARE(chart.continuousCurves.size(),1);
+    QCOMPARE(chart.formationIntervals.size(),1);QCOMPARE(chart.formationIntervals.front().topDepth,8190.f);
+    query.context->schemeRevision+="-unknown";
+    QVERIFY(!readAreaWellChart(ds,wells.front(),chart,&error,{},&query));
+    QVERIFY(chart.isEmpty());QVERIFY(!error.isEmpty());
+  }
   void timeDepthOnlyWellsStayVisibleButDoNotEnterAnalysisChoices() {
     QTemporaryDir temp; const auto project=temp.filePath("project");
     paleo::data::DataService ds;std::string error;

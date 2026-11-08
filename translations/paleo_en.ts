@@ -5232,7 +5232,42 @@
         <source>工区范围（井位与地震）</source>
         <translation>Project extent (wells and seismic)</translation>
     </message>
-</context>
+        <message>
+            <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="1024" />
+            <source>有 %1 口井落在硬屏障线上，两侧归属不明确——请移动井位或调整屏障几何</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="986" />
+            <source>硬屏障 %1 的几何无法变换到井点坐标系</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="969" />
+            <source>硬屏障 CRS（%1）无法变换到井点坐标系（%2）——请先完成工程网格配准或统一坐标系</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="1062" />
+            <source>硬屏障把计算网格分成了 %1 个区，其中第 %2 个区没有井样本（硬隔断无井闭合区，与局部 IDW 同口径拒绝）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="1013" />
+            <source>硬屏障栅格化失败：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="960" />
+            <source>约束库 CRS 无法解析，不能栅格化硬屏障</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="1327" />
+            <source>约束库缺少坐标系：无法把硬屏障变换到计算域栅格化</source>
+            <translation type="unfinished" />
+        </message>
+    </context>
     <context>
         <name>CrossplotSources</name>
         <message>
@@ -8430,6 +8465,41 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
         <message>
             <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>（原因见明细）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_select.cpp" line="170" />
+            <source>「%1」被当前过滤条件隐藏——未修改过滤</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_filter.cpp" line="200" />
+            <source>已开启，但存在反向条件——两者同时生效时结果为其补集</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_filter.cpp" line="125" />
+            <source>没有匹配的资产 — 当前过滤：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist.cpp" line="781" />
+            <source>过滤器状态串已复制（paleo://dataops-filter?v=2…）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_filter.cpp" line="355" />
+            <source>过滤器链接未应用：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="408" />
+            <source>部分失败：成功 %1、无变化 %2、失败 %3%4</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist.cpp" line="761" />
+            <source>预设「%1」无法读取：%2</source>
             <translation type="unfinished" />
         </message>
     </context>
@@ -17997,6 +18067,26 @@ Crossline: %3 ~ %4</source>
             <source>无法声明等厚图层</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/workflow/mappingworkflow.cpp" line="472" />
+            <source>厚度输入时深关系已变化，请重新计算</source>
+            <translation>The time-depth relation used for thickness has changed. Recompute the result.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkflow.cpp" line="628" />
+            <source>时深关系与所选地震体的时间基准不一致</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkflow.cpp" line="470" />
+            <source>模型写入期间不能发布厚度结果</source>
+            <translation>Thickness results cannot be published while the model is being written.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkflow.cpp" line="462" />
+            <source>解释选择已变化，请重新计算厚度</source>
+            <translation>The interpretation selection has changed. Recompute thickness.</translation>
+        </message>
     </context>
     <context>
         <name>Navigation</name>
@@ -23576,6 +23666,66 @@ PDF：%3
             <source>请填写右侧的解释说明和修改目的，点击“启用本次解释依据”后，再选择相面编辑工具。未修改图面。</source>
             <translation type="unfinished"></translation>
         </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="124" />
+            <source>井关系对象</source>
+            <translation>Well relationship object</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="99" />
+            <source>井道图、连井剖面和编图共享此方案修订。可为每口井保存所选时深关系或分层道。</source>
+            <translation>Well logs, well sections, and mapping share this scheme revision. You can save a time-depth relation or stratigraphic track for each well.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="149" />
+            <source>使用工程默认解释</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="123" />
+            <source>分层方案修订</source>
+            <translation>Stratigraphic scheme revision</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="119" />
+            <source>原方案修订已失效</source>
+            <translation>The previous scheme revision is no longer valid.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="121" />
+            <source>原目标地震体修订已失效</source>
+            <translation>The previous target volume revision is no longer valid.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="94" />
+            <source>文档解释上下文</source>
+            <translation>Document interpretation context</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="194" />
+            <source>文档解释选择已保存</source>
+            <translation>Document interpretation selection saved.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="105" />
+            <source>未固定分层方案</source>
+            <translation>No pinned stratigraphic scheme</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="106" />
+            <source>未固定目标地震体</source>
+            <translation>No pinned target volume</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="191" />
+            <source>正在核验所选关系与对象修订…</source>
+            <translation>Checking the selected relation and object revision…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="123" />
+            <source>目标地震体修订</source>
+            <translation>Target seismic volume revision</translation>
+        </message>
     </context>
     <context>
         <name>PaleoMapBookController</name>
@@ -23644,26 +23794,11 @@ PDF：%3
             <source>地图册导出结束：%1</source>
             <translation type="unfinished" />
         </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
-        <source>产物不存在或已被移动：%1</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
-        <source>无法打开产物：%1</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
-        <source>警告：%1</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
-        <source>（共 %1 个文件）</source>
-        <translation type="unfinished" />
-    </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" line="190" />
+            <source>目录页：%1%2</source>
+            <translation type="unfinished" />
+        </message>
     </context>
     <context>
         <name>PaleoMapBookPanel</name>
@@ -23793,26 +23928,6 @@ PDF：%3
             <source>选择地图册输出目录</source>
             <translation type="unfinished" />
         </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
-        <source>已导出产物</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
-        <source>页 %1 · %2</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
-        <source>目录 %1/%2 · %3</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
-        <source>清单 · manifest.json</source>
-        <translation type="unfinished" />
-    </message>
     </context>
     <context>
         <name>PaleoMapBookQueue::Exporter</name>
@@ -36556,7 +36671,230 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>转移落盘失败（已回滚）：%1</source>
             <translation type="unfinished" />
         </message>
-</context>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" line="364" />
+            <source> · 清单失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" line="362" />
+            <source> · 清单已写</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" line="364" />
+            <source> · 清单未写</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" line="358" />
+            <source> · 目录 %1 文件</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" line="360" />
+            <source> · 目录失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" line="366" />
+            <source> · 警告 %1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="313" />
+            <source>%1（无效模式——已按字面量「%2」匹配）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="70" />
+            <source>MD 起算面</source>
+            <translation>MD reference datum</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="101" />
+            <source>catalog_revision 须为整数</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="293" />
+            <source>prepare、compute-only 或 publish</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="99" />
+            <source>topic=version 须给精确 version_id</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="642" />
+            <source>不支持的状态串版本「%1」（当前支持 v1/v2）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="543" />
+            <source>不是有效的过滤器链接</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="134" />
+            <source>分层 · </source>
+            <translation>Stratigraphy · </translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/xmlpreviewsession.cpp" line="30" />
+            <source>分层方案 %1 · 修订 %2</source>
+            <translation>Stratigraphic scheme %1 · revision %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="105" />
+            <source>列·%1: %2</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/geostatcovariatesampler.cpp" line="82" />
+            <source>协变量栅格 CRS（%1）无法变换到计算 CRS（%2）：坐标变换不可用</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/geostatcovariatesampler.cpp" line="38" />
+            <source>协变量栅格无效</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/geostatcovariatesampler.cpp" line="47" />
+            <source>协变量栅格缺少坐标系：无法把井位/格点变换到栅格域采样，请为协变量声明 CRS（本地工程网格或投影坐标系）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="69" />
+            <source>原值取反</source>
+            <translation>Reverse the original sign</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="68" />
+            <source>原值向下为正</source>
+            <translation>Original values increase downward</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="128" />
+            <source>只保存上下文</source>
+            <translation>Save context only</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="549" />
+            <source>只支持 paleo://dataops-filter 链接（收到 %1://%2）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="134" />
+            <source>时深 · </source>
+            <translation>Time-depth · </translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/xmlpreviewsession.cpp" line="38" />
+            <source>时深关系 #%1</source>
+            <translation>Time-depth relation #%1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="72" />
+            <source>时间类型</source>
+            <translation>Time type</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="73" />
+            <source>时间零点</source>
+            <translation>Time datum</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="321" />
+            <source>标签: %1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="74" />
+            <source>正方向</source>
+            <translation>Positive direction</translation>
+        </message>
+        <message>
+            <location filename="../src/domain/constraintsemantics.cpp" line="487" />
+            <source>消费：硬屏障（网格连通，有限线可绕端——静态井样本与已模拟格邻域同时隔断，各分量独立正态得分）；方向线、软边界不参与；停线/制图绕行只作用于制图，不改模拟场。</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="616" />
+            <source>状态串包含未知列「%1」</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="633" />
+            <source>状态串包含未知字段「%1」，已拒绝应用</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="585" />
+            <source>状态串包含未知过滤维度「%1」</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="625" />
+            <source>状态串的列约束字段损坏</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="604" />
+            <source>状态串的标签字段损坏</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="562" />
+            <source>状态串的组合方式字段损坏（%1）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="579" />
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="590" />
+            <source>状态串的过滤条件字段损坏</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="221" />
+            <source>目录修订条件（topic=version；缺省使用本次宿主目录修订）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="61" />
+            <source>确认所选时深关系的物理口径</source>
+            <translation>Confirm physical conventions for the selected time-depth relation</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="219" />
+            <source>精确目录版本标识（topic=version 时必填，不按名称回退）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/geostatcovariatesampler.cpp" line="19" />
+            <source>自定义 CRS(%1…)</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="66" />
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="67" />
+            <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="68" />
+            <source>请选择</source>
+            <translation>Select an option</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="107" />
+            <source>（空集，无匹配）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkflow.cpp" line="1079" />
+            <source>井不属于当前解释计划</source>
+            <translation>The well is outside the current interpretation plan</translation>
+        </message>
+    </context>
     <context>
         <name>QgisCanvasController</name>
         <message>
@@ -36566,96 +36904,6 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
 
 
-    <message>
-        <location filename="../src/qgis/samplepointstyle.cpp"/>
-        <source>无数据</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/qgis/samplepointstyle.cpp"/>
-        <source>没有可套用样点表达的图层</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/qgis/samplepointstyle.cpp"/>
-        <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/qgis/samplepointstyle.cpp"/>
-        <source>井点因子标注表达式构建失败</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/qgis/mapbooklayout.cpp"/>
-        <source>（本册没有可列条目）</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>用户取消（已出的版保留）</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>预演限额（前 %1 版）</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>未执行</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>目录 %1 文件</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>目录失败</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>清单失败</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>清单已写</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>警告 %1</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>清单未写</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>页账本 ok=%1 与 succeeded=%2 不符</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>页账本 failed=%1 与 failed=%2 不符</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>页账本 cancelled=%1 与 cancelled=%2 不符</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <location filename="../src/workflow/mapbookqueue.cpp"/>
-        <source>登记失败，目录页随整册作废</source>
-        <translation type="unfinished" />
-    </message>
     </context>
     <context>
         <name>QgisConstraintEditSession</name>
@@ -38363,6 +38611,136 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>时深来源与地震时间基准…</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/qgis/samplepointstyle.cpp" />
+            <source>井点因子标注表达式构建失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
+            <source>产物不存在或已被移动：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/samplepointstyle.cpp" />
+            <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookpanel.cpp" />
+            <source>已导出产物</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/samplepointstyle.cpp" />
+            <source>无数据</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
+            <source>无法打开产物：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>未执行</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/samplepointstyle.cpp" />
+            <source>没有可套用样点表达的图层</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookpanel.cpp" />
+            <source>清单 · manifest.json</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>清单失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>清单已写</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>清单未写</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>用户取消（已出的版保留）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>登记失败，目录页随整册作废</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>目录 %1 文件</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookpanel.cpp" />
+            <source>目录 %1/%2 · %3</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>目录失败</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>警告 %1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
+            <source>警告：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookpanel.cpp" />
+            <source>页 %1 · %2</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>页账本 cancelled=%1 与 cancelled=%2 不符</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>页账本 failed=%1 与 failed=%2 不符</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>页账本 ok=%1 与 succeeded=%2 不符</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>预演限额（前 %1 版）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
+            <source>（共 %1 个文件）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/mapbooklayout.cpp" />
+            <source>（本册没有可列条目）</source>
+            <translation type="unfinished" />
+        </message>
     </context>
     <context>
         <name>SectionWorkbench</name>
@@ -38538,7 +38916,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message><source>缺少可用时深关系，仅显示井位</source><translation>No usable time-depth relation; well location only</translation></message>
     <message><source>时深不能唯一反算</source><translation>Time-depth relation has no unique inverse</translation></message>
-</context>
+        <message>
+            <location filename="../src/workflow/sectionworkbench.cpp" line="46" />
+            <source>当前地震视图与文档所选目标地震体不一致</source>
+            <translation>The current seismic view differs from the volume selected in the document</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/sectionworkbench.cpp" line="44" />
+            <source>请为当前解释上下文选择目标地震体</source>
+            <translation>Choose a target seismic volume for this interpretation context</translation>
+        </message>
+    </context>
     <context>
         <name>SegyReader</name>
         <message>
@@ -46629,7 +47017,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>无时深；MD 井道可显示</source>
         <translation>No time-depth data; MD tracks available</translation>
     </message>
-</context>
+        <message>
+            <location filename="../src/workflow/wellsectionworkflow.cpp" line="1181" />
+            <source>解释选择已变化，请刷新剖面</source>
+            <translation>The interpretation selection has changed. Refresh the section.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/wellsectionworkflow.cpp" line="1140" />
+            <source>请为所选分层方案指定目标地震体</source>
+            <translation>Select a target seismic volume for the stratigraphic scheme.</translation>
+        </message>
+    </context>
     <context>
         <name>WellSitingPanel</name>
         <message>
@@ -49234,6 +49632,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message>
             <location filename="../src/ui/pages/dataopswidgets.h" line="191" />
             <source>删除该条件</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/dataopswidgets.h" line="225" />
+            <source>点击清除该列过滤</source>
             <translation type="unfinished" />
         </message>
     </context>
@@ -53740,6 +54143,16 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>读取水平时间切片（%1 线程）</source>
             <translation>Read time slice (%1 threads)</translation>
         </message>
+        <message>
+            <location filename="../src/services/seismictaskservice_data.cpp" line="135" />
+            <source>地震剖面读取已取消</source>
+            <translation>Seismic section reading was cancelled.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/seismictaskservice_data.cpp" line="120" />
+            <source>连井剖面需要明确的文档地震体</source>
+            <translation>The well section requires an explicit document seismic volume.</translation>
+        </message>
     </context>
     <context>
         <name>wellsectionui::HeaderWidget</name>
@@ -53891,6 +54304,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="48" />
             <source>取消</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="48" />
+            <source>选择解释上下文…</source>
+            <translation>Select interpretation context…</translation>
         </message>
     </context>
 

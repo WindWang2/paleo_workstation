@@ -33,6 +33,17 @@ struct RelationUseSpec {
     bool valid() const;
     bool operator==(const RelationUseSpec &) const = default;
 };
+// A result produced from a document selection follows that slot for currentness.
+struct TimeDepthDependency {
+    RelationUseSpec use;
+    ModelObjectRef object;
+    QString assetId;
+    QString slotKey() const;
+    bool valid() const;
+    QVariantMap toVariantMap() const;
+    static std::optional<TimeDepthDependency> fromVariant(const QVariant &value);
+};
+QString timeDepthSelectionKey(const RelationUseSpec &use);
 QJsonObject modelObjectRefJson(const ModelObjectRef &ref);
 bool modelObjectRefFromJson(const QJsonObject &json,ModelObjectRef &ref,QString *error=nullptr);
 QJsonObject interpretationContextJson(const InterpretationContext &context);

@@ -21,7 +21,7 @@ namespace {
 QString text(const std::string &s) { return QString::fromUtf8(s); }
 bool chartFrom(paleo::data::DataService &service, long long source,
                WellComposite::ComprehensiveWellData &out, std::string &error, qlonglong selected,
-               const std::function<bool()> &cancelled) {
+               const std::function<bool()> &cancelled,const AreaWellChartQuery *query) {
   std::vector<long long> wells;
   if (!service.listSourceWells(source, wells, error)) return false;
   if (selected && std::find(wells.begin(), wells.end(), selected) == wells.end()) {
@@ -31,7 +31,7 @@ bool chartFrom(paleo::data::DataService &service, long long source,
     error = "Select a single model well before drawing this source"; return false;
   }
   QString detail;
-  const bool ok = readAreaWellChart(service, selected ? selected : wells.front(), out, &detail, cancelled);
+  const bool ok = readAreaWellChart(service, selected ? selected : wells.front(), out, &detail, cancelled,query);
   error = detail.toUtf8().toStdString(); return ok;
 }
 QString kindLabel(const std::string &kind) {
@@ -49,7 +49,8 @@ QString kindLabel(const std::string &kind) {
 }
 bool fillPreview(paleo::data::DataService &service, qlonglong source,
     PreviewDocService::WorkbookPreview *table, WellComposite::ComprehensiveWellData *chart,
-    bool *chartOk, QString *error, qlonglong selected = 0, const std::function<bool()> &cancelled = {}) {
+    bool *chartOk, QString *error, qlonglong selected = 0, const std::function<bool()> &cancelled = {},
+    const AreaWellChartQuery *query = nullptr) {
   if (table) *table = {};
   if (chart) *chart = {};
   if (chartOk) *chartOk = false;
@@ -112,7 +113,7 @@ bool fillPreview(paleo::data::DataService &service, qlonglong source,
   }
   if (chart) {
     std::string chartError;
-    const bool ok = chartFrom(service, source, *chart, chartError, selected, cancelled);
+    const bool ok = chartFrom(service,source,*chart,chartError,selected,cancelled,query);
     if (!ok) detail = chartError;
     if (chartOk) *chartOk = ok && !chart->isEmpty();
   }
@@ -122,7 +123,7 @@ bool fillPreview(paleo::data::DataService &service, qlonglong source,
 }
 bool PreviewDocService::areaPreviewWell(const QString &project, qlonglong wellId, WorkbookPreview *table,
     WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error,
-    const std::function<bool()> &cancelled) {
+    const std::function<bool()> &cancelled,const AreaWellChartQuery *query) {
   if (table) *table = {};
   if (chart) *chart = {};
   if (chartOk) *chartOk = false;
@@ -160,7 +161,7 @@ bool PreviewDocService::areaPreviewWell(const QString &project, qlonglong wellId
   }
   if (chart) {
     QString chartMessage;
-    const bool drawn = readAreaWellChart(service, wellId, *chart, &chartMessage, cancelled);
+    const bool drawn = readAreaWellChart(service,wellId,*chart,&chartMessage,cancelled,query);
     if (chartOk) *chartOk = drawn;
     if (!drawn && error && error->isEmpty()) *error = chartMessage;
   }
@@ -178,14 +179,14 @@ bool PreviewDocService::areaPreviewAt(const QString &path, WorkbookPreview *tabl
 }
 bool PreviewDocService::areaPreviewSource(const QString &project, qlonglong source, WorkbookPreview *table,
     WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error, qlonglong selected,
-    const std::function<bool()> &cancelled) {
+    const std::function<bool()> &cancelled,const AreaWellChartQuery *query) {
   if(table)*table={};if(chart)*chart={};if(chartOk)*chartOk=false;
   paleo::data::DataService service;std::string detail;
   if(source<=0 || !service.openProjectReadOnly(paleo::area_model::directory(project).toUtf8().toStdString(),detail)) {
     if(error)*error=detail.empty()?QStringLiteral("Invalid model source"):text(detail);
     if(table&&error)table->error=*error;return false;
   }
-  return fillPreview(service,source,table,chart,chartOk,error,selected,cancelled);
+  return fillPreview(service,source,table,chart,chartOk,error,selected,cancelled,query);
 }
 
 bool PreviewDocService::wellCompositeForWell(const QString &areaPath, qlonglong wellId,

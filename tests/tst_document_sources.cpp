@@ -1,6 +1,9 @@
 #include <QtTest>
 #include "fixtures/documentsourcefixture.h"
 #include "metadata/documentsourcestore.h"
+#include "services/timedepthdependencies.h"
+#include "services/timedepthalignment.h"
+#include <paleo_data/object_descriptor.h>
 #include <QJsonDocument>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -8,6 +11,17 @@
 using namespace document_fixture;
 class TestDocumentSources:public QObject {
     Q_OBJECT
+    static SourceCommandResult runCommand(Fixture &f, const SourceCommand &command)
+    {
+        QSignalSpy finished(&f.session,&DocumentSession::commandFinished);
+        auto result=f.session.execute(command);
+        if(!result.pending)return result;
+        if(finished.isEmpty() && !finished.wait(10000)) {
+            result.error=QStringLiteral("relation command timed out");
+            return result;
+        }
+        return qvariant_cast<SourceCommandResult>(finished.first().first());
+    }
 private slots:
     void referencesAndLocatorsAreScopedAndRoundTrip() {
         SourceRef a{"doc","area-model",9007199254740993LL,"quick:"+QString(64,'a')},b=a;
@@ -269,6 +283,169 @@ private slots:
             QVERIFY(f.session.bindings("well",well,"time_depth","scheme-A@r1/well-tie/volume-2@r1").isEmpty());
         };
         assertSelections();f.session.close();QVERIFY(f.bind());assertSelections();
+    }
+
+    void typedTimeDepthDependenciesFollowExactSelectionAndRecoverCommittedSemantics()
+    {
+        Fixture f;
+        QVERIFY(f.init());
+        QVERIFY(f.preparedWellSource("A.txt",{"A"},{"first","second"}));
+        QVERIFY(f.preparedWellSource("B.txt",{"B"}));
+        QVERIFY(f.bind());
+        const auto model=paleo::area_model::directory(f.project);
+        paleo::data::DataService sdk;
+        std::string detail;
+        QVERIFY2(sdk.openProjectReadOnly(model.toStdString(),detail),detail.c_str());
+        const auto useFor=[&](const QString &name,RelationPurpose purpose) {
+            const auto well=f.catalog.storedEntityById(f.catalog.wellsMatchingName(name).value(0));
+            InterpretationContext context;
+            context.documentId=f.session.documentId();
+            context.modelStoreId="area-model";
+            context.purpose=purpose;
+            return RelationUseSpec{context,well.id,well.extra.value("areaModelWellId").toLongLong(),RelationKind::TimeDepth};
+        };
+        const auto mapA=useFor("A",RelationPurpose::Mapping);
+        const auto tieA=useFor("A",RelationPurpose::WellTie);
+        const auto mapB=useFor("B",RelationPurpose::Mapping);
+        QVERIFY(mapA.valid());
+        QVERIFY(tieA.valid());
+        QVERIFY(mapB.valid());
+        const auto refFor=[&](const RelationUseSpec &use,size_t row) {
+            std::vector<paleo::data::DataEntry> tables;
+            paleo::data::DataObjectDescriptor entry;
+            if(!sdk.listData("time_depth",use.modelWellId,tables,detail) || row>=tables.size() ||
+               !sdk.describeDataObject(paleo::data::DataObjectKind::TimeDepth,tables[row].id,entry,detail))
+                return ModelObjectRef{};
+            for(const auto &source:f.session.sources())
+                if(source.ref.sourceId==entry.sourceId)
+                    return ModelObjectRef{source.ref,ObjectKind::TimeDepth,entry.id,QString::fromStdString(entry.revision)};
+            return ModelObjectRef{};
+        };
+        const auto a=refFor(mapA,0),replacement=refFor(mapA,1),b=refFor(mapB,0);
+        QVERIFY(a.valid());
+        QVERIFY(replacement.valid());
+        QVERIFY(b.valid());
+        sdk.closeProject();
+        const auto registerChoice=[&](const QString &id,const RelationUseSpec &use,const ModelObjectRef &ref) {
+            auto command=f.session.command(SourceCommand::Kind::RegisterBinding);
+            command.binding.id=id;
+            if(!setRelationBinding(command.binding,use,ref,&f.error) || !runCommand(f,command).ok)
+                return false;
+            command=f.session.command(SourceCommand::Kind::ConfirmBinding);
+            command.bindingId=id;
+            return runCommand(f,command).ok;
+        };
+        const auto select=[&](const QString &id) {
+            auto command=f.session.command(SourceCommand::Kind::SelectPrimary);
+            command.bindingId=id;
+            return runCommand(f,command);
+        };
+        QVERIFY(registerChoice("map-a",mapA,a));
+        QVERIFY(registerChoice("map-a-alias",mapA,a));
+        QVERIFY(registerChoice("tie-a",tieA,a));
+        QVERIFY(registerChoice("map-b",mapB,b));
+        QVERIFY(select("map-a").ok);
+        QVERIFY(select("tie-a").ok);
+        QVERIFY(select("map-b").ok);
+
+        const auto rawA=f.session.source(a.source).versionId;
+        const auto publish=[&](const QString &parent,const QVariantMap &receipt=QVariantMap{}) {
+            CatalogAsset asset;
+            asset.id=f.catalog.nextAssetId();
+            asset.type="raster";
+            asset.displayName=asset.id;
+            CatalogVersion version;
+            version.id=f.catalog.nextVersionId();
+            version.assetId=asset.id;
+            version.stage="DERIVED";
+            version.parentVersionIds={parent};
+            if(!receipt.isEmpty())version.extra.insert("timeDepthDependencies",QVariantList{receipt});
+            return f.catalog.addAsset(asset,&f.error) && f.catalog.addVersion(version,&f.error)
+                ? version.id : QString();
+        };
+        const auto receiptA=timeDepthDependency(f.session.relationRequest(mapA,&f.error));
+        const auto receiptTie=timeDepthDependency(f.session.relationRequest(tieA,&f.error));
+        const auto receiptB=timeDepthDependency(f.session.relationRequest(mapB,&f.error));
+        QVERIFY(!receiptA.isEmpty());
+        QVERIFY(!receiptTie.isEmpty());
+        QVERIFY(!receiptB.isEmpty());
+        QVERIFY2(validateTimeDepthDependencies(f.catalog,{receiptA,receiptTie,receiptB},&f.error),qPrintable(f.error));
+        const auto productA=publish(rawA,receiptA),productTie=publish(rawA,receiptTie);
+        const auto productB=publish(f.session.source(b.source).versionId,receiptB),child=publish(productA);
+        QVERIFY(!productA.isEmpty() && !productTie.isEmpty() && !productB.isEmpty() && !child.isEmpty());
+        const auto stale=[&](const QString &id){return f.catalog.versionById(id).extra.value("stale").toBool();};
+
+        // The same numerical input selected through an equivalent binding or moved
+        // file locator must keep both the receipt and its derived products current.
+        QVERIFY(select("map-a-alias").ok);
+        const auto oldPath=f.session.source(a.source).path;
+        const auto moved=f.temp.filePath("A-moved.txt");
+        QVERIFY(QFile::rename(oldPath,moved));
+        auto relocate=f.session.command(SourceCommand::Kind::Relocate);
+        relocate.source=a.source;
+        relocate.path=moved;
+        const auto relocated=runCommand(f,relocate);
+        QVERIFY2(relocated.ok,qPrintable(relocated.error));
+        QVERIFY(!stale(productA));
+        QVERIFY2(validateTimeDepthDependencies(f.catalog,{receiptA},&f.error),qPrintable(f.error));
+
+        const auto chooseReplacement=[&] {
+            auto command=f.session.command(SourceCommand::Kind::ChooseRelation);
+            command.binding.id="map-a-replacement";
+            if(!setRelationBinding(command.binding,mapA,replacement,&f.error))return SourceCommandResult{};
+            return runCommand(f,command);
+        };
+        f.catalog.debugAbortJournalAfter(1);
+        const auto rejected=chooseReplacement();
+        QVERIFY(!rejected.ok);
+        QCOMPARE(rejected.code,QString("binding_commit_failed"));
+        QVERIFY(!stale(productA));
+        QVERIFY(!stale(child));
+        QCOMPARE(f.session.relationView(mapA).selectedObject,a);
+        QCOMPARE(f.session.relationView(mapA).choices.size(),2);
+        f.catalog.debugAbortJournalAfter(0);
+        const auto chosen=chooseReplacement();
+        QVERIFY2(chosen.ok,qPrintable(chosen.error));
+        QCOMPARE(f.session.relationView(mapA).selectedObject,replacement);
+        QVERIFY(stale(productA));
+        QVERIFY(stale(child));
+        QVERIFY(!stale(productTie));
+        QVERIFY(!stale(productB));
+        QVERIFY(!stale(rawA));
+        QVERIFY(!validateTimeDepthDependencies(f.catalog,{receiptA},&f.error));
+        QCOMPARE(f.catalog.versionById(productA).extra.value("timeDepthDependencies").toList(),QVariantList{receiptA});
+        QVERIFY(!f.catalog.updateVersionExtra(productA,"timeDepthDependencies",QVariantList{},&f.error));
+
+        // Simulate a Catalog failure after the SDK commits a source-wide change.
+        // Writable reopen uses the persisted object revision to finish the projection.
+        const auto updatedReceipt=timeDepthDependency(f.session.relationRequest(mapA,&f.error));
+        QVERIFY(!updatedReceipt.isEmpty());
+        const auto nextA=publish(rawA,updatedReceipt);
+        QVERIFY(!nextA.isEmpty());
+        f.catalog.debugAbortJournalAfter(1);
+        QVERIFY(paleo::saveTimeDepthAlignment(&f.catalog,{{"sources",QVariantList{a.id}},
+            {"unit","ms"},{"type","TWT"},{"reference","new-datum"}},&f.error));
+        QVERIFY(!f.error.isEmpty());
+        QVERIFY(!stale(nextA));
+        QVERIFY(!stale(productTie));
+        f.catalog.debugAbortJournalAfter(0);
+        f.session.close();
+        QVERIFY(f.catalog.open(f.project,&f.error));
+        QVERIFY(f.bind(true));
+        QVERIFY(!stale(nextA));
+        f.session.close();
+        QVERIFY(f.bind());
+        QVERIFY(stale(nextA));
+        QVERIFY(stale(productTie));
+        QVERIFY(!stale(productB));
+        QVERIFY(!stale(rawA));
+        const auto revision=f.catalog.catalogRevision();
+        QVERIFY(refreshTimeDepthDependencies(f.catalog,&f.error));
+        QCOMPARE(f.catalog.catalogRevision(),revision);
+        auto remove=f.session.command(SourceCommand::Kind::RemoveBinding);
+        remove.bindingId="map-b";
+        QVERIFY(runCommand(f,remove).ok);
+        QVERIFY(stale(productB));
     }
 };
 QTEST_GUILESS_MAIN(TestDocumentSources)

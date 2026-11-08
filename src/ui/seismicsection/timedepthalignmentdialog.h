@@ -14,6 +14,7 @@ public:
   void setMessage(const QString &message);
 signals:
   void saveRequested(const QVariantMap &selection);
+  void interpretationRequested();
 private:
   void updateSave();
   QListWidget *m_sources;

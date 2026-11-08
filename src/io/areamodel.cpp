@@ -46,14 +46,23 @@ bool indexedSource(const QString &root, const QString &wanted, long long &id, QS
     }
   }
   paleo::data::DataService reader; std::string detail;
-  std::vector<paleo::data::SourceEntry> sources;
-  if (!reader.openProjectReadOnly(root.toUtf8().toStdString(), detail) || !reader.listSources(sources, detail)) {
+  std::vector<paleo::data::SourceIndexEntry> sources;
+  if (!reader.openProjectReadOnly(root.toUtf8().toStdString(), detail) || !reader.listSourceIndexEntries(sources, detail)) {
     if (error) *error = QString::fromUtf8(detail); return false;
   }
   SourceIndex index; index.stamp = stamp;
   for (const auto &source : sources) {
-    const QString path = key(QString::fromUtf8(source.path));
-    if (!index.ids.contains(path)) index.ids.insert(path, source.id);
+    if (!source.active || source.status=="failed" || source.status=="ignored") continue;
+    const QString original = QString::fromUtf8(source.path);
+    const QString stored = QString::fromUtf8(source.storedPath);
+    const auto addPath = [&](const QString &path) {
+      if (path.isEmpty()) return;
+      const QString normalized=key(path);
+      if (!index.ids.contains(normalized)) index.ids.insert(normalized,source.id);
+    };
+    addPath(original);
+    if (!stored.isEmpty() && stored!=original)
+      addPath(QFileInfo(stored).isAbsolute() ? stored : QDir(root).filePath(stored));
   }
   id = index.ids.value(wanted);
   if (databaseStamp(root) == stamp) { QMutexLocker lock(&mutex); sourceIndexes.insert(root, std::move(index)); }

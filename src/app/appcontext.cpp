@@ -374,6 +374,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   m_projectData = new ProjectDataFacade(this);
   m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
   m_mappingWf->setTaskService(m_taskSvc);
+  m_mappingWf->setDocumentSession(m_documentSession);
   m_depthWf = new DepthConversionWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
   m_depthWf->setTaskService(m_taskSvc); // facies-ux 6 / UIS-20：建模 + 换算走任务中心
   m_propModelWf = new PropertyModelWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
@@ -381,6 +382,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   m_faciesMappingWf = new FaciesMappingWorkflow(nullptr, QString(), this);
   m_faciesMappingWf->attachLayerService(m_layerSvc);
   m_mappingWf->setProjectData(m_projectData);
+  m_projectData->setInterpretationPlanProvider([document=m_documentSession] {return document->captureInterpretationPlan();});
   m_validationWf->setProjectData(m_projectData); // validate() 增加时间残差
   m_wellsitingWf->setProjectData(m_projectData);   // 方向34：层位井控密度走 tops
   m_validationWf->setResidualThresholdMs(10.0);  // autoplan §5C：D61 残差阈值 10 ms

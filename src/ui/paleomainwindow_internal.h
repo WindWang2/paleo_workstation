@@ -83,7 +83,7 @@ inline void writeRecentProjects(const QStringList &recent)
 }
 
 // 剖面联动换体（定义在 paleomainwindow_sections.cpp）：地震 TU 经此换体而不
-// include linkage/seismicmaplink.h（其传递 services/seismicmapping.h → io 重头）。
+// include linkage/seismicmaplink.h（保持主窗内部头的依赖面）。
 void setSectionLinkVolume(SeismicMapLink *link,
                           std::shared_ptr<const seismic::SgyVolume> volume);
 

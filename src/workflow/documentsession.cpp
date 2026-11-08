@@ -3,6 +3,8 @@
 #include "catalog/datacatalog.h"
 #include "metadata/documentsourcestore.h"
 #include "metadata/paleoprojectstore.h"
+#include "services/timedepthdependencies.h"
+#include <QDebug>
 #include <QThread>
 #include <QUuid>
 #include <algorithm>
@@ -23,6 +25,13 @@ bool DocumentSession::bind(DataCatalog *catalog,const QString &metaPath,const QS
     if(!store->load(documentId,snapshot,&m_loadError)) {if(error)*error=m_loadError;return false;}
     m_documentId=snapshot.documentId.isEmpty()?QUuid::createUuid().toString(QUuid::WithoutBraces):snapshot.documentId;
     m_sourceStore=std::move(store);m_operations=std::move(snapshot.pendingOperations);
+    m_interpretation=std::move(snapshot.interpretation);
+    m_interpretationError=std::move(snapshot.interpretationError);
+    if(!readOnly && !catalog->refusesWrites()) {
+        QString recoveryError;
+        if(!refreshTimeDepthDependencies(*catalog,&recoveryError))
+            qWarning() << "DocumentSession: time-depth result projection needs recovery:" << recoveryError;
+    }
     m_revision=catalog->catalogRevision();m_catalog=catalog;m_projectDir=catalog->projectDir();m_readOnly=readOnly;
     m_inspection=std::make_unique<paleo::jobs::JobRunner<SourceJob>>(this);m_inspection->setTaskService(m_tasks);
     m_relocation=std::make_unique<paleo::jobs::JobRunner<SourceJob>>(this);m_relocation->setTaskService(m_tasks);
@@ -39,6 +48,7 @@ void DocumentSession::close() {
     ++m_epoch;m_inspection.reset();m_relocation.reset();
     if(m_catalog) disconnect(m_catalog,nullptr,this,nullptr);
     m_catalog=nullptr;m_sourceStore.reset();m_operations.clear();m_observations.clear();m_projection={};
+    m_interpretation.reset();m_interpretationError.clear();
     m_projectionSequence=~quint64(0);m_revision=0;m_documentId.clear();m_projectDir.clear();m_loadError.clear();m_readOnly=false;
     m_bindingProjectionRevision=~quint64(0);m_effectiveBindings.clear();m_resourceBindingIds.clear();
     if(!dropped.operationId.isEmpty())emit commandFinished(dropped);
@@ -131,6 +141,7 @@ SourceCommandResult DocumentSession::execute(SourceCommand command) {
     if(command.kind==SourceCommand::Kind::Inspect) return startInspection(command);
     if(command.kind==SourceCommand::Kind::Relocate) return startRelocation(command);
     if(command.kind==SourceCommand::Kind::ResolveRelation || command.kind==SourceCommand::Kind::UpgradeModelMetadata)return startRelationCommand(command);
+    if(command.kind==SourceCommand::Kind::ChooseRelation)return startRelationCommand(command);
     if(command.kind!=SourceCommand::Kind::RegisterBinding && command.kind!=SourceCommand::Kind::ConfirmBinding &&
        command.kind!=SourceCommand::Kind::SelectPrimary && command.kind!=SourceCommand::Kind::RemoveBinding) {
         result.code="unknown_command";result.error=QStringLiteral("不支持的来源命令");return result;

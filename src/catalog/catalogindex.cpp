@@ -1,6 +1,7 @@
 // 层：数据
 #include "catalogindex.h"
 
+#include "domain/documentrelation.h"
 #include "datacatalog.h" // CatalogEntity/… 完整定义（头内只用前置声明防环）
 
 void CatalogIndex::clear()
@@ -14,6 +15,7 @@ void CatalogIndex::clear()
   m_entitiesByType.clear();
   m_childrenByParent.clear();
   m_rowsBySha.clear();
+  clearTimeDepthConsumers();
   m_entitySeqByPrefix.clear();
   m_entityCount.clear();
   m_linkCount = 0;
@@ -86,6 +88,31 @@ void CatalogIndex::versionAdded(int row, const CatalogVersion &v)
   for (const QString &p : v.parentVersionIds)
     if (!p.isEmpty())
       m_childrenByParent[p].append(v.id); // 行序 = 入边发现序（BFS 确定性）
+
+  if (v.stage != QLatin1String("DERIVED"))
+    return;
+  const auto receipts = v.extra.value(QStringLiteral("timeDepthDependencies")).toList();
+  for (const auto &value : receipts)
+  {
+    m_timeDepthConsumers.insert(v.id);
+    const auto dependency = paleo::document::TimeDepthDependency::fromVariant(value);
+    if (!dependency)
+      continue;
+    m_timeDepthBySlot[dependency->slotKey()].insert(v.id);
+    m_timeDepthBySource[dependency->object.source.sourceId].insert(v.id);
+    m_timeDepthByTable[dependency->object.id].insert(v.id);
+    if (dependency->use.context.targetVolume)
+      m_timeDepthByVolume[dependency->use.context.targetVolume->id].insert(v.id);
+  }
+}
+
+void CatalogIndex::clearTimeDepthConsumers()
+{
+  m_timeDepthConsumers.clear();
+  m_timeDepthBySlot.clear();
+  m_timeDepthBySource.clear();
+  m_timeDepthByTable.clear();
+  m_timeDepthByVolume.clear();
 }
 
 void CatalogIndex::indexLinkRow(int row, const EntityAssetLink &l)
@@ -120,6 +147,7 @@ void CatalogIndex::versionsMutated(const QVector<CatalogVersion> &versions)
   m_versionsByAsset.clear();
   m_childrenByParent.clear();
   m_rowsBySha.clear();
+  clearTimeDepthConsumers();
   for (int i = 0; i < versions.size(); ++i)
     versionAdded(i, versions.at(i));
 }

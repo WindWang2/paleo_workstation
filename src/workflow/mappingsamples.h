@@ -10,11 +10,25 @@
 // Validation and the publication gate must use identical depth/point/cell rules.
 namespace MappingSamples
 {
+  class ResidualInputs {
+  public:
+    ResidualInputs(const ProjectDataFacade &data,const QString &horizon,const std::function<bool()> &cancelled={});
+    QVector<WellTop> tops(const QString &well,QString &error) const;
+    QVector<TdSample> timeDepth(const QString &well,bool &mdOnly,QString &error) const;
+  private:
+    const ProjectDataFacade &m_data;
+    ProjectDataFacade::InterpretationPlan m_plan;
+    std::function<bool()> m_cancelled;
+    bool m_pinned=false;
+    QString m_error,m_targetReference;
+    QHash<QString,QVector<WellTop>> m_tops;
+  };
+
   // TD 表 → TIME(ms)：走数据底座的 TimeDepthTool（plan §3：文件顺序、不排序、
   // 不外推）。分层 TVD 有效时查 TVD 列；TVD 空（-99999）改用 MD 对 MD 列。
   // TdResult.status 区分 无时深表/超出时深表/时深表无序，文案经
   // TimeDepthTool::reasonText() 取——剖面标层与残差共用这一个结果。
-  inline TimeDepthTool::TdResult timeForTop( const QVector<TdSample> &td, const WellTop &top )
+  inline TimeDepthTool::TdResult timeForTop( const QVector<TdSample> &td, const WellTop &top, bool mdOnly=false )
   {
     TimeDepthTool::TdResult none; // status=NoTable
     if ( td.isEmpty() )
@@ -31,7 +45,7 @@ namespace MappingSamples
       row.hasMd = !qIsNaN( s.md );
       table.rows.append( row );
     }
-    if ( !qIsNaN( top.tvd ) )
+    if ( !mdOnly && !qIsNaN( top.tvd ) )
       return TimeDepthTool::interpolateTimeMs( table, top.tvd, /*useMd=*/false );
     if ( !qIsNaN( top.md ) ) // 分层 TVD 空 → MD 对 TD 的 MD 列兜底（plan §3）
       return TimeDepthTool::interpolateTimeMs( table, top.md, /*useMd=*/true );

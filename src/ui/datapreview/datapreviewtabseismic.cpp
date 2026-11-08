@@ -314,9 +314,6 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   panel3d->setProperty("fullPrecisionAfterIndex",true);
   panel3d->setObjectName(QStringLiteral("seismic3DPanel"));
   modeTabs->addTab(panel3d, tr("三维立体 (3D)"));
-  loadModelHorizonSurfaces(m_doc?m_doc->seismicTaskService():nullptr,abs,host,panel3d);
-
-  loadLegacyHorizonSurfaces(abs,panel3d);
 
   // D3.2：三维切片拖动/剖面条联动 2D——只拨同页 2D 测线控件（控件自己的
   // decode 链换测线）。不开新标签、不切回 2D 子页签。
@@ -691,11 +688,14 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   };
 
   const auto ensureVolumeLoaded = [this, abs, sharedVol, panel3dGuard, quickInfoGuard, installVolume, host]() {
-    if (*sharedVol != nullptr || abs.isEmpty() || !QFile::exists(abs))
+    if (!panel3dGuard || panel3dGuard->property("paleo.volumeLoading").toBool() ||
+        (*sharedVol && !(*sharedVol)->IsRuleBased()) || abs.isEmpty() || !QFile::exists(abs))
       return;
     auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
-    if (panel3dGuard && svc)
+    if (svc)
       panel3dGuard->setTaskService(svc);
+    loadModelHorizonSurfaces(svc,abs,host,panel3dGuard);
+    loadLegacyHorizonSurfaces(abs,panel3dGuard);
 
     if (!svc)
     {
@@ -708,8 +708,8 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     }
 
     // 第一段：QuickOpen 秒级首屏（网格/角点/中央测线真振幅缩略）
-    svc->startQuickOpen(abs, 128, [quickInfoGuard, installVolume](bool ok, const seismic::SeismicQuickPreview &p) {
-      if (!quickInfoGuard)
+    svc->startQuickOpen(abs, 128, [quickInfoGuard, sharedVol, installVolume](bool ok, const seismic::SeismicQuickPreview &p) {
+      if (!quickInfoGuard || (*sharedVol && !(*sharedVol)->IsRuleBased()))
         return;
       if (!ok)
       {
@@ -739,13 +739,12 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       if(p.ruleVerified&&p.volume)installVolume(p.volume);
     });
 
-    // 第二段：后台体加载（.sgyidx 命中时秒级），完成换装 3D/时间片面板。
-    // 回调连在长寿的 SeismicTaskService 上，不随页签断开——ok 分支的
-    // QPointer 守卫与 installVolume 首行守卫是防「关标签后迟到回调对已
-    // 销毁 3D 面板调 setVolume」的双保险（#280）。
+    // 完整道头索引只为已打开的 3D 视图建立。
+    panel3dGuard->setProperty("paleo.volumeLoading",true);
     if (PaleoTask *volTask = svc->startVolumeLoad(
             abs, [quickInfoGuard, panel3dGuard, installVolume](
                      bool ok, std::shared_ptr<seismic::SgyVolume> vol, const QString &err) {
+              if (panel3dGuard) panel3dGuard->setProperty("paleo.volumeLoading",false);
               if (ok)
               {
                 if (panel3dGuard)installVolume(vol);
@@ -769,8 +768,6 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       });
     }
   };
-  // 工区打开即启动两段式（不等页签切换）；页签切换回调只做幂等兜底与聚焦
-  ensureVolumeLoaded();
 
   // 2D 时间片独立查询 Data_service，不等待、不读取 3D 的索引或分页工作区。
   auto *sliceDebounce=new QTimer(host);sliceDebounce->setSingleShot(true);sliceDebounce->setInterval(120);

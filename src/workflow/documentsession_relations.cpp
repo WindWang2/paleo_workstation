@@ -1,10 +1,14 @@
 // 层：功能
 #include "documentsession.h"
 #include "catalog/datacatalog.h"
+#include "io/areamodel.h"
+#include "metadata/documentsourcestore.h"
 #include "services/jobrunner.h"
+#include "services/timedepthdependencies.h"
 #include <paleo_data/service.h>
 #include <paleo_data/object_descriptor.h>
 #include <QUuid>
+#include <algorithm>
 
 namespace paleo::document {
 struct RelationJob {
@@ -33,6 +37,38 @@ bool upgradeRelationModel(RelationJob &work,const paleo::jobs::CancelFn &cancell
     work.upgraded=paleo::data::upgradeObjectRevisionSchema(record.modelDirectory.toUtf8().toStdString(),error,cancelled);
     if(!work.upgraded){work.error=QString::fromStdString(error);return false;}
     work.details.remove("metadataUpgradeMayHaveCommitted");work.details.insert("upgraded",true);work.computed=true;return true;
+}
+QVariantMap objectOption(const DocumentSession &document,paleo::data::DataService &service,
+                         paleo::data::DataObjectKind kind,qlonglong id) {
+    paleo::data::DataObjectDescriptor item;paleo::data::SourceIndexEntry source;std::string error;
+    if(!service.describeDataObject(kind,id,item,error) || !item.revisionKnown ||
+       !service.readSourceIndexEntry(item.sourceId,source,error) || !source.active)return {};
+    const auto type=kind==paleo::data::DataObjectKind::TimeDepth?ObjectKind::TimeDepth:
+        kind==paleo::data::DataObjectKind::IntervalTrack?ObjectKind::IntervalTrack:ObjectKind::SeismicVolume;
+    ModelObjectRef ref{{document.documentId(),QStringLiteral("area-model"),item.sourceId,QString::fromStdString(source.sha256)},
+        type,item.id,QString::fromStdString(item.revision)};
+    if(!ref.valid() || document.source(ref.source).ref!=ref.source)return {};
+    return {{"label",QStringLiteral("%1 · #%2 · %3").arg(QString::fromStdString(item.name)).arg(item.id)
+                         .arg(QString::fromStdString(source.path))},
+            {"object",modelObjectRefJson(ref).toVariantMap()}};
+}
+bool confirmExactTimeDepth(RelationJob &job) {
+    const auto &semantics=job.command.timeDepthSemantics;
+    if(semantics.isEmpty())return true;
+    paleo::data::DataService service;paleo::data::DataObjectDescriptor updated;std::string error;
+    const auto text=[&](const char *key){return semantics.value(QLatin1String(key)).toString().trimmed().toStdString();};
+    auto &request=job.request;
+    if(!service.openProject(request.selected.modelDirectory.toUtf8().toStdString(),error) ||
+       !service.confirmTimeDepthSemanticsAtRevision(request.object.id,request.object.revision.toStdString(),
+           text("mdReference"),text("unit"),text("type"),text("reference"),
+           semantics.value("negate").toBool(),updated,error)) {
+        job.error=QString::fromStdString(error);return false;
+    }
+    job.details.insert("modelSemanticsCommitted",true);
+    request.object.revision=QString::fromStdString(updated.revision);
+    if(!setRelationBinding(job.command.binding,request.use,request.object,&job.error))return false;
+    job.details.insert("objectRef",modelObjectRefJson(request.object).toVariantMap());
+    return true;
 }
 }
 
@@ -92,6 +128,149 @@ RelationResolveRequest DocumentSession::relationRequest(const RelationUseSpec &u
     return request;
 }
 
+InterpretationSelection DocumentSession::interpretationSelection() const {
+    InterpretationSelection result;
+    result.context=m_interpretation;
+    result.error=m_interpretationError;
+    if(!result.context)return result;
+    result.error=loadError();
+    if(!result.error.isEmpty() || !result.context->targetVolume)return result;
+    result.volume=source(result.context->targetVolume->source);
+    if(result.volume.ref!=result.context->targetVolume->source)
+        result.error=QStringLiteral("所选目标地震体来源已失效，请重新选择");
+    return result;
+}
+std::shared_ptr<const InterpretationReadPlan> DocumentSession::captureInterpretationPlan() const {
+    const auto selection=interpretationSelection();
+    if(!selection.context && selection.error.isEmpty())return {};
+    auto plan=std::make_shared<InterpretationReadPlan>();plan->selection=selection;
+    for(const auto &well:m_catalog->storedEntities("well"))
+        plan->timeDepth.insert(well.id,interpretationRelation(well.id,RelationKind::TimeDepth));
+    return plan;
+}
+
+bool DocumentSession::selectInterpretation(const InterpretationContext &context,QString *error) {
+    if(error)error->clear();
+    if(readOnly() || recoveryRequired() || !context.valid() || context.documentId!=m_documentId ||
+       context.modelStoreId!="area-model" || context.purpose!=RelationPurpose::WellTie) {
+        if(error)*error=QStringLiteral("活动解释上下文无效，或文档当前不可写");
+        return false;
+    }
+    InterpretationSelection selection;
+    selection.context=context;
+    if(context.targetVolume)selection.volume=source(context.targetVolume->source);
+    const auto detail=validateInterpretationSelection(paleo::area_model::directory(m_projectDir),selection);
+    if(!detail.isEmpty()){if(error)*error=detail;return false;}
+    if(m_interpretation==context)return true;
+    if(!queuedWrite([&](QString *why){return m_sourceStore->saveInterpretation(context,why);},error))return false;
+    m_interpretation=context;m_interpretationError.clear();
+    emit interpretationChanged();
+    return true;
+}
+bool DocumentSession::clearInterpretation(QString *error) {
+    if(error)error->clear();
+    if(readOnly() || recoveryRequired()) {
+        if(error)*error=QStringLiteral("解释文档当前不可写");return false;
+    }
+    if(!m_interpretation && m_interpretationError.isEmpty())return true;
+    if(!queuedWrite([&](QString *why){return m_sourceStore->clearInterpretation(m_documentId,why);},error))return false;
+    m_interpretation.reset();m_interpretationError.clear();emit interpretationChanged();return true;
+}
+
+QVariantMap DocumentSession::interpretationOptions(const QStringList &wellIds,QString *error) const {
+    if(error)error->clear();
+    if(!isOpen()){if(error)*error=QStringLiteral("解释文档未打开");return {};}
+    paleo::data::DataService service;std::string detail;
+    const auto fail=[&]{if(error)*error=QString::fromStdString(detail);return QVariantMap{};};
+    if(!service.openProjectReadOnly(paleo::area_model::directory(m_projectDir).toUtf8().toStdString(),detail))return fail();
+    QVariantList wells,schemes,volumes;
+    for(const auto &well:m_catalog->storedEntities("well"))
+        if(well.extra.value("areaModelWellId").toLongLong()>0 && (wellIds.isEmpty() || wellIds.contains(well.id)))
+            wells.append(QVariantMap{{"id",well.id},{"label",well.name}});
+    std::vector<paleo::data::StratigraphicSchemeSummary> summaries;
+    if(!service.listStratigraphicSchemes(summaries,detail))return fail();
+    for(const auto &scheme:summaries) {
+        std::vector<paleo::data::StratigraphicSchemeRevisionSummary> revisions;
+        if(!service.listStratigraphicSchemeRevisions(scheme.id,revisions,detail))return fail();
+        for(const auto &revision:revisions)
+            schemes.append(QVariantMap{{"id",QString::fromStdString(scheme.id)},
+                {"revision",QString::fromStdString(revision.revision.value)},
+                {"label",QStringLiteral("%1 · %2").arg(QString::fromStdString(scheme.name),QString::fromStdString(revision.revision.value))}});
+    }
+    std::vector<paleo::data::DataEntry> entries;
+    if(!service.listData("volumes",0,entries,detail))return fail();
+    for(const auto &entry:entries) {
+        const auto option=objectOption(*this,service,paleo::data::DataObjectKind::SeismicVolume,entry.id);
+        if(!option.isEmpty())volumes.append(option);
+    }
+    return {{"wells",wells},{"schemes",schemes},{"volumes",volumes}};
+}
+
+QVariantList DocumentSession::interpretationRelationOptions(const QString &wellId,QString *error) const {
+    if(error)error->clear();
+    if(!isOpen() || wellId.isEmpty())return {};
+    const auto well=m_catalog->storedEntityById(wellId);
+    const auto id=well.extra.value("areaModelWellId").toLongLong();
+    if(well.entityType!="well" || id<=0)return {};
+    paleo::data::DataService service;std::string detail;
+    const auto fail=[&]{if(error)*error=QString::fromStdString(detail);return QVariantList{};};
+    if(!service.openProjectReadOnly(paleo::area_model::directory(m_projectDir).toUtf8().toStdString(),detail))return fail();
+    QVariantList result;
+    for(const auto kind:{paleo::data::DataObjectKind::TimeDepth,paleo::data::DataObjectKind::IntervalTrack}) {
+        std::vector<paleo::data::DataEntry> entries;
+        if(!service.listData(kind==paleo::data::DataObjectKind::TimeDepth?"time_depth":"intervals",id,entries,detail))return fail();
+        for(const auto &entry:entries) {
+            auto option=objectOption(*this,service,kind,entry.id);
+            if(!option.isEmpty()) {
+                option.insert("timeDepth",kind==paleo::data::DataObjectKind::TimeDepth);
+                result.append(option);
+            }
+        }
+    }
+    return result;
+}
+
+SourceCommand DocumentSession::chooseRelationCommand(const InterpretationContext &context,const QString &wellId,
+        const ModelObjectRef &object,const QVariantMap &semantics,QString *error) const {
+    auto result=command(SourceCommand::Kind::ChooseRelation);
+    if(error)error->clear();
+    if(!isOpen() || (object.kind!=ObjectKind::TimeDepth && object.kind!=ObjectKind::IntervalTrack) ||
+       (!semantics.isEmpty() && object.kind!=ObjectKind::TimeDepth)) {
+        if(error)*error=QStringLiteral("所选井关系或物理口径无效");
+        return result;
+    }
+    const auto kind=object.kind==ObjectKind::TimeDepth?RelationKind::TimeDepth:RelationKind::StratigraphicTrack;
+    auto useContext=context;
+    useContext.purpose=kind==RelationKind::TimeDepth?RelationPurpose::WellTie:RelationPurpose::WellColumn;
+    const auto id=m_catalog->storedEntityById(wellId).extra.value("areaModelWellId").toLongLong();
+    const RelationUseSpec use{useContext,wellId,id,kind};
+    result.note=QStringLiteral("用户已明确选择此井的关系及其用途");
+    result.timeDepthSemantics=semantics;
+    setRelationBinding(result.binding,use,object,error);
+    return result;
+}
+
+RelationInput DocumentSession::interpretationRelation(const QString &wellId,RelationKind kind,
+                                                       RelationPurpose purpose) const {
+    RelationInput result;
+    const auto selection=interpretationSelection();
+    if(!selection.error.isEmpty())return {RelationInput::State::Invalid,{},selection.error};
+    if(!selection.context)return result;
+    auto context=*selection.context;
+    context.purpose=purpose;
+    const auto candidates=bindings("well",wellId,relationRole(kind),context.key(),true);
+    if(std::none_of(candidates.cbegin(),candidates.cend(),hasRelationBinding)) {
+        if(kind==RelationKind::TimeDepth)
+            return {RelationInput::State::Invalid,{},QStringLiteral("当前解释上下文尚未为该井选择时深关系")};
+        return result;
+    }
+    const auto well=m_catalog->storedEntityById(wellId);
+    const RelationUseSpec use{context,wellId,well.extra.value("areaModelWellId").toLongLong(),kind};
+    result.request=relationRequest(use,&result.error);
+    result.state=result.request.object.valid()?RelationInput::State::Selected:RelationInput::State::Invalid;
+    return result;
+}
+
 SourceCommandResult DocumentSession::resolveRelation(const RelationUseSpec &use) {
     const auto view=relationView(use);
     if(!view.selected) {
@@ -116,7 +295,8 @@ SourceCommandResult DocumentSession::startRelationCommand(const SourceCommand &c
         // A close racing its final commit cannot promise that it was rolled back.
         job->details={{"source",sourceRefJson(record.ref).toVariantMap()},{"metadataUpgradeMayHaveCommitted",true}};
     } else {
-        const auto binding=(command.kind==SourceCommand::Kind::RegisterBinding || command.kind==SourceCommand::Kind::ResolveRelation)?
+        const auto binding=(command.kind==SourceCommand::Kind::RegisterBinding || command.kind==SourceCommand::Kind::ResolveRelation ||
+                            command.kind==SourceCommand::Kind::ChooseRelation)?
             command.binding:effectiveBindings().value(command.bindingId);
         RelationUseSpec use;ModelObjectRef object;
         if(!relationBinding(binding,use,object,&result.error)){result.code="relation_binding_invalid";return result;}
@@ -126,15 +306,30 @@ SourceCommandResult DocumentSession::startRelationCommand(const SourceCommand &c
         } else job->request=relationRequestFor(use,object,&result.error);
         if(!result.error.isEmpty() || !job->request.object.valid()){result.code="relation_request_invalid";return result;}
         job->details=resolutionDetails(job->request);
+        if(command.kind==SourceCommand::Kind::ChooseRelation && !command.timeDepthSemantics.isEmpty()) {
+            if(object.kind!=ObjectKind::TimeDepth || command.timeDepthSemantics.value("negate").metaType().id()!=QMetaType::Bool) {
+                result.code="relation_semantics_invalid";result.error=QStringLiteral("时深物理口径不属于所选对象");return result;
+            }
+            job->details.insert("modelSemanticsMayHaveCommitted",true);
+        }
     }
     paleo::jobs::JobRunner<RelationJob>::Callbacks callbacks;
+    const auto refreshCommittedSemantics=[this](const RelationJob &work,SourceCommandResult &done) {
+        if(!work.details.value("modelSemanticsCommitted").toBool() || work.command.expectedEpoch!=m_epoch || readOnly())return;
+        QString detail;
+        if(!queuedWrite([&](QString *why){return refreshTimeDepthObjectDependencies(*m_catalog,work.request.object.id,why);},&detail))
+            done.error+=QStringLiteral(" 成果依赖状态将在重新打开工程时恢复。")+detail;
+        done.revision=m_revision;
+    };
     callbacks.compute=[](RelationJob &work,const auto &cancelled,const auto &) {
         if(work.command.kind==SourceCommand::Kind::UpgradeModelMetadata)return upgradeRelationModel(work,cancelled);
         if(cancelled())return false;
         work.resolution=resolveDocumentRelation(work.request);work.computed=true;work.error=work.resolution.error;
+        if(work.resolution.ok && !cancelled() && work.command.kind==SourceCommand::Kind::ChooseRelation &&
+           !confirmExactTimeDepth(work))return false;
         return work.resolution.ok&&!cancelled();
     };
-    callbacks.commit=[this](RelationJob &work,QString *error) {
+    callbacks.commit=[this,refreshCommittedSemantics](RelationJob &work,QString *error) {
         SourceCommandResult done;done.operationId=work.command.operationId;done.details=work.details;done.revision=m_revision;
         const bool write=work.command.kind!=SourceCommand::Kind::ResolveRelation;
         bool ok=check(work.command,write,done);
@@ -149,17 +344,41 @@ SourceCommandResult DocumentSession::startRelationCommand(const SourceCommand &c
         m_relationOperation.clear();m_relationDetails.clear();
         if(ok && work.command.kind!=SourceCommand::Kind::ResolveRelation && work.command.kind!=SourceCommand::Kind::UpgradeModelMetadata) {
             // editBindings emits its successful completion. Failed edits do not.
-            done=editBindings(work.command);if(!done.ok)emit commandFinished(done);
+            done=editBindings(work.command);
+            if(work.command.kind==SourceCommand::Kind::ChooseRelation) {
+                done.details=work.details;
+                if(done.ok) {
+                    auto context=work.request.use.context;
+                    context.purpose=RelationPurpose::WellTie;
+                    done.ok=selectInterpretation(context,&done.error);
+                    if(!done.ok)done.error.prepend(QStringLiteral("井关系已保存，活动解释未切换。"));
+                } else if(work.details.value("modelSemanticsCommitted").toBool()) {
+                    done.error.prepend(QStringLiteral("时深口径已保存，关系选择未提交。"));
+                    refreshCommittedSemantics(work,done);
+                }
+                emit commandFinished(done);
+            } else if(!done.ok) {
+                emit commandFinished(done);
+            }
             if(error)*error=done.error;return done.ok;
         }
         done.ok=ok;
+        if(!ok && work.details.value("modelSemanticsCommitted").toBool()) {
+            done.error.prepend(QStringLiteral("时深口径已保存，关系选择未提交。"));
+            refreshCommittedSemantics(work,done);
+        }
         if(ok)done.code=work.upgraded?"model_metadata_upgraded":"relation_resolved";
         if(error)*error=done.error;emit commandFinished(done);return ok;
     };
-    callbacks.onDropped=[this](RelationJob &work,paleo::jobs::DropReason) {
+    callbacks.onDropped=[this,refreshCommittedSemantics](RelationJob &work,paleo::jobs::DropReason) {
         m_relationOperation.clear();m_relationDetails.clear();SourceCommandResult done;
         done.operationId=work.command.operationId;done.details=work.details;done.revision=m_revision;
-        done.code="cancelled_or_stale";done.error=QStringLiteral("关系操作已取消或过期");emit commandFinished(done);
+        done.code="cancelled_or_stale";done.error=QStringLiteral("关系操作已取消或过期");
+        if(work.details.value("modelSemanticsCommitted").toBool()) {
+            done.error.prepend(QStringLiteral("时深口径已保存，关系选择未提交。"));
+            refreshCommittedSemantics(work,done);
+        }
+        emit commandFinished(done);
     };
     m_relationOperation=command.operationId;m_relationDetails=job->details;
     if(!m_relations->start(QStringLiteral("核验文档关系"),job,std::move(callbacks),{},true)) {

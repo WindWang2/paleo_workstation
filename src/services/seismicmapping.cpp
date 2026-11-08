@@ -1,5 +1,7 @@
 // 层：数据
 #include "seismicmapping.h"
+#include "io/horizonbinner.h"
+#include "io/timedeptool.h"
 
 #include <QHash>
 #include <QStringList>

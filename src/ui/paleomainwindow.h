@@ -444,6 +444,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void syncSeismicVolumeToDocks(bool includeLargeVolumes = true);
     void attachSections(SeismicMapLink *link);
     void showTimeDepthAlignment(const QStringList &ids);
+    void showInterpretationSelection(const QStringList &ids);
     // 连井剖面（well correlation section）：attachWorkflows 内
     // attachSections 之后、m_seismicTaskSvc 就位后调用。store 供剖面编辑
     // 产物落 project.sqlite（井序/连线改接版本化）。
@@ -456,6 +457,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool bindWellSectionStores(PaleoProjectStore *store, QString *boundPath);
     SeismicMapLink *m_sectionLink = nullptr;
     SectionWorkbench *m_sectionWorkbench = nullptr; // attachSections 持有（this 父子）
+    QPointer<paleo::document::DocumentSession> m_documentSession;
     // 任意剖面捕获工具（R4 信号化，方向 49）：壳持有 SeismicSectionTool——
     // linkage 只发 sectionCaptureRequested 意图。析构在画布存活时先
     // unsetMapTool 再 delete；画布先死则由 destroyed 接线置空（坑序同

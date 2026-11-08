@@ -5,6 +5,7 @@
 #include "domain/wellsection.h" // wellsection::Well（wellSnapWells 吸附井集）
 #include "io/lasdoc.h"
 #include "services/projectdata.h"
+#include "services/documentrelationresolver.h"
 #include <QObject>
 #include <QPointer>
 #include <QVariantList>
@@ -13,6 +14,7 @@
 #include <memory>
 
 class PaleoTaskService;
+namespace paleo::document {class DocumentSession;}
 // Project-bound section interpretation. UI supplies intentions; this layer
 // reads, calibrates and versions well data without holding widgets.
 class SectionWorkbench : public QObject {
@@ -20,6 +22,8 @@ class SectionWorkbench : public QObject {
 public:
   ~SectionWorkbench() override;
   void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
+  void setDocumentSession(paleo::document::DocumentSession *session);
+  paleo::document::InterpretationSelection sectionInterpretation(const QString &volumePath) const;
   explicit SectionWorkbench(DataCatalog *catalog, QObject *parent = nullptr);
   QVariantList wells(const std::shared_ptr<std::atomic_bool> &stop = {});
   QVariantList savedSections() const;
@@ -42,6 +46,7 @@ public:
   bool mdTimeDepth(const QString &wellId, seismic::TimeDepthModel *model,
                    double *shiftMs, QString *status, QString *timeReference = nullptr);
   QString wellForSource(const QString &path, const QString &name);
+  QString wellForModel(qlonglong modelWellId) const;
   std::vector<glm::dvec2> wellRoute(const QStringList &ids, QString *error);
   // 「按空间关系重排」：mode "nearest"=最近邻链 / "pca"=主轴投影（domain
   // orderWellsNearestNeighbor / orderWellsByPosition）；井坐标取工程井实体
@@ -66,11 +71,14 @@ signals:
 private:
   PaleoTaskService *m_tasks = nullptr;
   void syncProject();
+  paleo::document::RelationInput timeDepthInput(const QString &id) const;
   seismic::TimeDepthModel modelFor(const QString &id, bool md, bool *ok,
-                                   const QVector<TdSample> *samples = nullptr) const;
+                                   const QVector<TdSample> &samples,bool allowConstant=true) const;
   QString projectDir() const;
   bool storeCalibrations(const QVariantMap &calibrations, QString *error) const;
   QPointer<DataCatalog> m_catalog;
+  QPointer<paleo::document::DocumentSession> m_document;
+  QHash<QString,paleo::document::RelationInput> m_timeDepthInputs;
   ProjectDataFacade m_data;
   QString m_catalogPath, m_parentVersion;
   QString m_calibrationLoadError;

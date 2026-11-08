@@ -14,6 +14,7 @@ struct Cache {
   QHash<qint64,QString> sources,wells,surveys;
 };
 std::shared_ptr<Cache> cacheFor(DataCatalog &catalog,const QString &generation,AreaSourceProjectionStats *stats);
+void inheritRelocatedSourceBindings(const CatalogVersion &previous,CatalogVersion &replacement);
 bool applyItem(DataCatalog &catalog,Cache &cache,const paleo::data::ModelChangeItem &item,qint64 sequence,QString *error);
 bool prepareItem(DataCatalog &catalog,Cache &cache,const paleo::data::ModelChangeItem &item,QString *error);
 }

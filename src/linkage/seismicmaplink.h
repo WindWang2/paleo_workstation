@@ -10,7 +10,7 @@
 #include <glm/glm.hpp>
 #include <qgspointxy.h>
 
-#include "../services/seismicmapping.h"
+#include "domain/surveygridgeometry.h"
 
 class QgsMapCanvas;
 class QgsVectorLayer;

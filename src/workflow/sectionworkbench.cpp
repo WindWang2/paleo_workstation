@@ -1,5 +1,6 @@
 // 层：功能
 #include "sectionworkbench.h"
+#include "documentsession.h"
 #include "services/sectionwellgeometry.h"
 #include "catalog/wellavailability.h"
 #include "services/wellreadiness.h"
@@ -31,6 +32,23 @@ SectionWorkbench::SectionWorkbench(DataCatalog *catalog, QObject *parent)
     : QObject(parent), m_catalog(catalog) {
   syncProject();
 }
+void SectionWorkbench::setDocumentSession(paleo::document::DocumentSession *session) {
+  m_document=session;
+  if(session)connect(session,&paleo::document::DocumentSession::interpretationChanged,this,[this] {
+    cancelPreviewData();emit alignmentsChanged();
+  });
+}
+paleo::document::InterpretationSelection SectionWorkbench::sectionInterpretation(const QString &volumePath) const {
+  auto result=m_document?m_document->interpretationSelection():paleo::document::InterpretationSelection{};
+  if(!result.context || !result.error.isEmpty())return result;
+  if(!result.context->targetVolume)result.error=tr("请为当前解释上下文选择目标地震体");
+  else if(volumePath.isEmpty() || QDir::cleanPath(result.volume.path)!=QDir::cleanPath(volumePath))
+    result.error=tr("当前地震视图与文档所选目标地震体不一致");
+  return result;
+}
+paleo::document::RelationInput SectionWorkbench::timeDepthInput(const QString &id) const {
+  return m_document?m_document->interpretationRelation(id,paleo::document::RelationKind::TimeDepth):m_timeDepthInputs.value(id);
+}
 QVariantMap SectionWorkbench::timeDepthAlignmentOptions(const QStringList &ids,QString *error) const {
   return paleo::timeDepthAlignmentOptions(m_catalog,ids,error);
 }
@@ -49,6 +67,7 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
   const auto sequence = m_catalog->mutationSeq();
   const QString path = m_catalog->catalogPath();
   auto snapshot = std::shared_ptr<DataCatalog>(m_catalog->createStagingCopy(QString()));
+  const auto plan=m_document?m_document->captureInterpretationPlan():nullptr;
   m_previewStop = std::make_shared<std::atomic_bool>(false);
   const auto stop = m_previewStop;
   auto *watcher = new QFutureWatcher<PreviewData>(this);
@@ -97,8 +116,9 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
             }
           });
   const auto future =
-      QtConcurrent::run(paleo::tasks::pool(m_tasks), [snapshot, stop,includeSections] {
+      QtConcurrent::run(paleo::tasks::pool(m_tasks), [snapshot, stop,includeSections,plan] {
         SectionWorkbench worker(snapshot.get());
+        if(plan)worker.m_timeDepthInputs=plan->timeDepth;
         PreviewData data;data.wells=worker.wells(stop);
         if(includeSections) {
           data.sectionWells=worker.sectionWells(stop);
@@ -152,14 +172,13 @@ QVariantMap SectionWorkbench::calibration(const QString &id) const {
   return c;
 }
 seismic::TimeDepthModel SectionWorkbench::modelFor(const QString &id, bool md,
-                                                   bool *ok,const QVector<TdSample> *samples) const {
+                                                   bool *ok,const QVector<TdSample> &rows,bool allowConstant) const {
   const auto c = calibration(id);
   seismic::TimeDepthModel model(c.value("velocity").toDouble());
-  *ok = c.value("constant").toBool();
+  *ok = allowConstant && c.value("constant").toBool();
   if (*ok)
     return model;
   std::vector<seismic::TdPoint> points;
-  const auto rows=samples?*samples:m_data.tdTableFor(id);
   for (const auto &p : rows) {
     double d = md ? p.md : p.tvd;
     // 时间基准面以上的采样（确认 negated 口径后时间为负——海拔在零点之上）
@@ -227,6 +246,16 @@ QString SectionWorkbench::wellForSource(const QString &path, const QString &name
     }
   return found;
 }
+QString SectionWorkbench::wellForModel(qlonglong modelWellId) const {
+  if(!m_catalog || modelWellId<=0)return {};
+  QString result;
+  for(const auto &well:m_catalog->storedEntities("well"))
+    if(well.extra.value("areaModelWellId").toLongLong()==modelWellId) {
+      if(!result.isEmpty())return {};
+      result=well.id;
+    }
+  return result;
+}
 QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();
   QVariantList result;
@@ -237,9 +266,11 @@ QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &st
     if(!readiness.value(w.id).hasCurves)continue;
     auto c = calibration(w.id);
     bool tvdOk = false, mdOk = false;
-    const auto samples = m_data.tdTableFor(w.id);
-    modelFor(w.id, false, &tvdOk,&samples);
-    modelFor(w.id, true, &mdOk,&samples);
+    const auto input=timeDepthInput(w.id);
+    const auto samples=m_data.tdTableForSelection(w.id,input);
+    const bool allowConstant=input.state==paleo::document::RelationInput::State::Unselected;
+    modelFor(w.id,false,&tvdOk,samples,allowConstant);
+    modelFor(w.id,true,&mdOk,samples,allowConstant);
     QString status =
         c.value("constant").toBool()
             ? tr("常速近似（需复核）")
@@ -278,8 +309,9 @@ bool SectionWorkbench::mdTimeDepth(const QString &wellId,
   syncProject();
   const auto c = calibration(wellId);
   bool ok = false;
-  const auto m = modelFor(wellId, true, &ok);
-  const auto samples=m_data.tdTableFor(wellId);
+  const auto input=timeDepthInput(wellId);
+  const auto samples=m_data.tdTableForSelection(wellId,input);
+  const auto m = modelFor(wellId,true,&ok,samples,input.state==paleo::document::RelationInput::State::Unselected);
   if(timeReference)*timeReference=samples.isEmpty()?QString():samples.front().timeReference;
   if (!ok) {
     if (status)
@@ -291,10 +323,11 @@ bool SectionWorkbench::mdTimeDepth(const QString &wellId,
   if (model)
     *model = m;
   if (shiftMs)
-    *shiftMs = c.value("shift").toDouble();
+    *shiftMs = input.state==paleo::document::RelationInput::State::Unselected?c.value("shift").toDouble():0.;
   if (status)
     *status =
-        c.value("constant").toBool() ? tr("常速校正") : tr("时深表");
+        input.state==paleo::document::RelationInput::State::Unselected && c.value("constant").toBool()
+            ? tr("常速校正") : tr("时深表");
   return true;
 }
 std::vector<glm::dvec2> SectionWorkbench::wellRoute(const QStringList &ids,
@@ -374,12 +407,15 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     out.calibrated = true;
     out.requiresSpatialPath=nativeId>0;
     bool tvdOk = false, mdOk = false;
-    const auto timeDepthRows=m_data.tdTableFor(w.id);
-    auto tvd = modelFor(w.id, false, &tvdOk,&timeDepthRows), md = modelFor(w.id, true, &mdOk,&timeDepthRows);
+    const auto input=timeDepthInput(w.id);
+    const auto timeDepthRows=m_data.tdTableForSelection(w.id,input,[&stop]{return stop && stop->load();});
+    const bool allowConstant=input.state==paleo::document::RelationInput::State::Unselected;
+    auto tvd = modelFor(w.id,false,&tvdOk,timeDepthRows,allowConstant), md = modelFor(w.id,true,&mdOk,timeDepthRows,allowConstant);
     if((!tvdOk&&!mdOk)||timeDepthRows.isEmpty()){
       if(observedMdTimeIsMonotone(timeDepthRows)){
         out.timeReference=timeDepthRows.first().timeReference;out.alignmentStatus=tr("时深不能唯一反算");
-        attachSectionWellGeometry(out,timeDepthRows,m_data.trajectoryFor(w.id),nullptr,nullptr,calibration(w.id).value("shift").toDouble());
+        attachSectionWellGeometry(out,timeDepthRows,m_data.trajectoryFor(w.id),nullptr,nullptr,
+            allowConstant?calibration(w.id).value("shift").toDouble():0.);
         result.push_back(std::move(out));continue; // Observed geometry only; no ambiguous inverse ties/curves.
       }
       out.alignmentStatus=m_data.lastError().isEmpty()?tr("缺少可用时深关系，仅显示井位"):m_data.lastError();
@@ -387,10 +423,10 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     }
     if(!timeDepthRows.isEmpty())out.timeReference=timeDepthRows.first().timeReference;
     const QVariantMap c = calibration(w.id);
-    const double shift = c.value("shift").toDouble();
+    const double shift = allowConstant?c.value("shift").toDouble():0.;
     if(nativeId>0&&mdOk){out.mdTimeDepth=md;out.timeShiftMs=shift;}
     const double velocity = c.value("velocity").toDouble();
-    out.alignmentStatus=c.value("constant").toBool()?tr("常速近似"):tr("时深表");
+    out.alignmentStatus=allowConstant && c.value("constant").toBool()?tr("常速近似"):tr("时深表");
     bool partial = false;
     auto timeFor = [&](double d, bool useMd) {
       if (!std::isfinite(d))
@@ -443,7 +479,13 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     QVector<WellCurveRef> curveIndex;QHash<QString,LasDoc> nativeDocs;
     if(nativeId>0){
       QVector<wellsection::Curve> curves;QString reason;
-      readAreaWellSectionCurves(projectDir(),nativeId,{},curves,&reason,[&]{return stop&&stop->load();});
+      AreaWellCurveWindow window;
+      if(input.state==paleo::document::RelationInput::State::Selected && mdOk) {
+        // Samples outside the selected relation have no time coordinate on this section.
+        window.topMd=md.points().front().depthM;
+        window.bottomMd=md.points().back().depthM;
+      }
+      readAreaWellSectionCurves(projectDir(),nativeId,{},curves,&reason,[&]{return stop&&stop->load();},window);
       if(!reason.isEmpty())out.alignmentStatus+=" · "+reason;
       for(const auto &curve:curves){
         const auto key=QStringLiteral("native:%1:%2").arg(nativeId).arg(nativeDocs.size());

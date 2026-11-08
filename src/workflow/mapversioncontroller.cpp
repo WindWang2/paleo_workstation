@@ -428,6 +428,7 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *proj
     GDALDatasetH ds = raster.valid
                           ? GDALOpen( raster.path.toUtf8().constData(), GA_ReadOnly )
                           : nullptr;
+    const MappingSamples::ResidualInputs inputs(*projectData,horizon);
 
     for ( const ProjectWell &well : projectData->wells() )
     {
@@ -437,14 +438,19 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *proj
       row.insert( QStringLiteral( "name" ), well.name );
       row.insert( QStringLiteral( "kind" ), QStringLiteral( "reason" ) );
 
-      const QVector<WellTop> tops = projectData->topsForMapping( well.id );
+      QString topsError;
+      const QVector<WellTop> tops=inputs.tops(well.id,topsError);
       const WellTop *pick = nullptr;
       for ( const WellTop &top : tops )
         if ( top.horizon == horizon )
           pick = &top;
 
-      const QVector<TdSample> td =
-          pick ? projectData->tdTableFor( well.id ) : QVector<TdSample>();
+      QString tdError;bool mdOnly=false;
+      const QVector<TdSample> td=pick?inputs.timeDepth(well.id,mdOnly,tdError):QVector<TdSample>{};
+      if(!topsError.isEmpty()) {
+        row.insert(QStringLiteral("reason"),topsError);
+        missing.append(well.name);rows.append(row);continue;
+      }
       if ( !pick || ( qIsNaN( pick->tvd ) && qIsNaN( pick->md ) ) )
       {
         row.insert( QStringLiteral( "reason" ),
@@ -452,11 +458,11 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *proj
       }
       else if ( td.isEmpty() )
       {
-        row.insert( QStringLiteral( "reason" ), tr( "无时深表" ) );
+        row.insert(QStringLiteral("reason"),tdError.isEmpty()?tr("无时深表"):tdError);
       }
       else
       {
-        const TimeDepthTool::TdResult tdResult = MappingSamples::timeForTop( td, *pick );
+        const TimeDepthTool::TdResult tdResult=MappingSamples::timeForTop(td,*pick,mdOnly);
         if ( !tdResult.ok() )
         {
           row.insert( QStringLiteral( "reason" ),

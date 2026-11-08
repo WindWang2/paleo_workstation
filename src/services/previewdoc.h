@@ -28,6 +28,7 @@ class QTemporaryDir;
 class DataImportService;
 class PaleoTask;
 class PaleoTaskService;
+struct AreaWellChartQuery;
 struct CatalogEntity;
 struct CatalogVersion;
 struct TimeDepthTable;    // domain/wellrecords.h（timeDepthAt 出参）
@@ -255,11 +256,12 @@ class PreviewDocService : public QObject
     static bool areaPreviewSource(const QString &project, qlonglong source,
         WorkbookPreview *table, WellComposite::ComprehensiveWellData *chart,
         bool *chartOk, QString *error, qlonglong modelWell = 0,
-        const std::function<bool()> &cancelled = {});
+        const std::function<bool()> &cancelled = {}, const AreaWellChartQuery *query = nullptr);
     // 按数据基座井号读取井道图和该井的资料索引，不解析源文件。
     static bool areaPreviewWell(const QString &project, qlonglong wellId,
         WorkbookPreview *table, WellComposite::ComprehensiveWellData *chart,
-        bool *chartOk, QString *error, const std::function<bool()> &cancelled = {});
+        bool *chartOk, QString *error, const std::function<bool()> &cancelled = {},
+        const AreaWellChartQuery *query = nullptr);
     static bool areaPreviewAt(const QString &path, WorkbookPreview *table,
         WellComposite::ComprehensiveWellData *chart, bool *chartOk, QString *error);
     static WorkbookPreview workbookPreviewAt(const QString &absPath);

@@ -2,7 +2,7 @@
 #pragma once
 #include "domain/wellsection.h"
 #include "services/projectdata.h"
-#include "services/seismicmapping.h"
+#include "services/documentrelationresolver.h"
 #include <QObject>
 #include <QHash>
 #include <QPointer>
@@ -14,6 +14,7 @@ class FaultSetStore;
 class PaleoTask;
 class PaleoTaskService;
 class SectionWorkbench;
+namespace paleo::document {class DocumentSession;}
 namespace seismic {
 class SeismicTaskService;
 class SgyVolume;
@@ -34,11 +35,13 @@ public:
   struct SeismicSource {
     QString path;
     QString status;
+    paleo::document::InterpretationSelection interpretation;
   };
   SeismicSource seismicSource(const QString& preferredPath = {}) const;
   explicit WellSectionWorkflow(DataCatalog *catalog, QObject *parent = nullptr);
   ~WellSectionWorkflow() override; // 取消在途任务
   void setTaskService(PaleoTaskService *svc); // null → 同步构建
+  void setDocumentSession(paleo::document::DocumentSession *session);
   void setSeismicTaskService(seismic::SeismicTaskService *svc);
   void setSectionWorkbench(SectionWorkbench *wb); // 可选校正；null → 仅 TD 表
   QVector<WellChoice> wellChoices() const;        // wells() 顺序
@@ -126,6 +129,8 @@ private:
   struct Shared;
   void syncData() const;
   QString projectDir() const;
+  static void applyTimeDepth(wellsection::Well &well,const QVector<TdSample> &rows,
+                             const QString &error,QStringList &warnings);
   static void loadCurveBodies(Shared &shared, PaleoTask *task);
   void attachFaciesSegments(QVector<wellsection::Well> &wells) const;
   void attachLithoSegments(QVector<wellsection::Well> &wells,
@@ -135,6 +140,7 @@ private:
   void collectCoreImages(Shared &shared) const;
 
   QPointer<DataCatalog> m_catalog;
+  QPointer<paleo::document::DocumentSession> m_document;
   mutable ProjectDataFacade m_data;
   QPointer<PaleoTaskService> m_tasks;
   QPointer<seismic::SeismicTaskService> m_seismicTasks;

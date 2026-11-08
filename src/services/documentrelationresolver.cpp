@@ -34,10 +34,18 @@ bool checkObject(data::DataService &service,const ModelObjectRef &object,qlonglo
 }
 bool checkScheme(data::DataService &service,const InterpretationContext &context,QString &error) {
     if(context.schemeId.isEmpty())return true;
-    data::StratigraphicScheme scheme;std::string detail;
+    std::string detail;
+    if(context.intervalId.isEmpty()) {
+        std::vector<data::StratigraphicSchemeRevisionSummary> revisions;
+        if(!service.listStratigraphicSchemeRevisions(context.schemeId.toStdString(),revisions,detail)) {
+            error=QString::fromStdString(detail);return false;
+        }
+        for(const auto &revision:revisions)if(revision.revision.value==context.schemeRevision.toStdString())return true;
+        error=QStringLiteral("所选方案修订已失效");return false;
+    }
+    data::StratigraphicScheme scheme;
     if(!service.readStratigraphicScheme(context.schemeId.toStdString(),context.schemeRevision.toStdString(),scheme,detail)) {error=QString::fromStdString(detail);return false;}
     if(QString::fromStdString(scheme.id)!=context.schemeId || QString::fromStdString(scheme.revision.value)!=context.schemeRevision) {error=QStringLiteral("方案固定修订不匹配");return false;}
-    if(context.intervalId.isEmpty())return true;
     const auto *interval=data::framework::findInterval(scheme,{context.intervalId.toStdString()});
     if(!interval || interval->status!="valid") {error=QStringLiteral("父层间单元不存在或无效");return false;}
     if(context.aggregate)return true;
@@ -45,6 +53,33 @@ bool checkScheme(data::DataService &service,const InterpretationContext &context
     if(!sub || sub->interval!=interval->id || sub->status!="valid") {error=QStringLiteral("子层段不存在、无效或不属于指定父单元");return false;}
     return true;
 }
+}
+QString validateInterpretationSelection(const QString &modelDirectory,const InterpretationSelection &selection,QString *timeReference) {
+    if(timeReference)timeReference->clear();
+    if(!selection.error.isEmpty())return selection.error;
+    if(!selection.context)return {};
+    const auto &context=*selection.context;
+    if(context.schemeId.isEmpty()&&!context.targetVolume)return {};
+    data::DataService service;std::string detail;
+    if(!service.openProjectReadOnly(modelDirectory.toUtf8().toStdString(),detail))return QString::fromStdString(detail);
+    QString code,error;
+    if(!checkScheme(service,context,error))return error;
+    if(context.targetVolume) {
+        if(QDir::cleanPath(selection.volume.modelDirectory)!=QDir::cleanPath(modelDirectory))
+            return QStringLiteral("目标地震体不属于当前工区模型");
+        if(!checkSource(service,selection.volume,*context.targetVolume,code,error) ||
+           !checkObject(service,*context.targetVolume,0,code,error))return error;
+        if(timeReference) {
+            data::SeismicVolume volume;
+            if(!service.readVolume(context.targetVolume->id,volume,detail) ||
+               !checkObject(service,*context.targetVolume,0,code,error))
+                return error.isEmpty()?QString::fromStdString(detail):error;
+            if(volume.sampling.timeType!="TWT" || volume.sampling.timeReference.empty())
+                return QStringLiteral("所选地震体尚未确认双程时间基准");
+            *timeReference=QString::fromStdString(volume.sampling.timeReference);
+        }
+    }
+    return {};
 }
 RelationResolution resolveDocumentRelation(const RelationResolveRequest &request) {
     RelationResolution result;result.object=request.object;

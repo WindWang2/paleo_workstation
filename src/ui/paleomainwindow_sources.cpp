@@ -2,10 +2,16 @@
 #include "paleomainwindow.h"
 #include "datapreview/datapreviewtabs.h"
 #include "workflow/documentsession.h"
+#include "workflow/sectionworkbench.h"
+#include "workflow/wellsectionworkflow.h"
 #include <QUuid>
 
 void PaleoMainWindow::attachDocumentSession(paleo::document::DocumentSession *session) {
     if(!m_previewTabs || !session) return;
+    m_documentSession=session;
+    m_previewTabs->setDocumentSession(session);
+    if(m_sectionWorkbench)m_sectionWorkbench->setDocumentSession(session);
+    if(m_wellSectionWf)m_wellSectionWf->setDocumentSession(session);
     const QPointer<paleo::document::DocumentSession> document(session);
     m_previewTabs->setSourceRelocationHandler([this,document](const QString &version,const QString &path,DataPreviewTabs::RelocationReply done){
         if(!document || !document->isOpen()) {done({},tr("来源文档未打开"));return;}

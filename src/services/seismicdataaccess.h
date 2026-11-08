@@ -4,6 +4,7 @@
 #include "domain/seismic/sectionhorizons.h"
 #include <paleo_data/service.h>
 namespace seismic { struct WellTrajSample; }
+namespace paleo::document { struct SourceRecord; struct ModelObjectRef; struct InterpretationContext; }
 
 namespace paleo {
 struct SeismicWellTrace;
@@ -12,6 +13,7 @@ class SeismicDataAccess {
 public:
  bool open(const QString& path, QString *error);
  bool openProjectSource(const QString& project,const QString& path,QString *error);
+ bool openModelVolume(const document::SourceRecord &source,const document::ModelObjectRef &volume,QString *error);
  bool registered() const { return m_volume>0; }
  bool coordinatesMatchProject() const {return m_unit=="m"&&m_service.projectCrsUnit()=="m"&&m_crs==m_service.projectCrs();}
  bool volume(data::SeismicVolume& result,std::string& error);
@@ -28,11 +30,16 @@ public:
  bool section(const std::vector<std::pair<int,int>>& path,int maxColumns,bool interpolate,bool outside,paleo::data::SeismicSectionResult& result,std::string& error,const paleo::data::CancelCheck& cancel={});
  bool xySection(const std::vector<std::pair<double,double>>& path,const QString& timeReference,
                 paleo::data::SeismicSectionResult& result,std::string& error,const paleo::data::CancelCheck& cancel={});
+ // Section options use milliseconds at this boundary, regardless of the stored axis unit.
+ bool xySection(const std::vector<std::pair<double,double>>& path,const QString& timeReference,
+                const data::SectionReadOptions &window,paleo::data::SeismicSectionResult& result,
+                std::string& error,const paleo::data::CancelCheck& cancel={});
  bool horizonWindow(const paleo::data::SeismicHorizonWindowQuery& query,
                     paleo::data::SeismicHorizonWindowResult& result,
                     std::string& error,const paleo::data::CancelCheck& cancel={});
  seismic::SectionHorizons sectionHorizons(const paleo::data::SeismicSectionResult& section,
-                                         const paleo::data::CancelCheck& cancel={});
+                                         const paleo::data::CancelCheck& cancel={},
+                                         const document::InterpretationContext *context=nullptr);
 private:
  paleo::data::DataService m_service;
  long long m_volume=0;

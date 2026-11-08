@@ -111,4 +111,46 @@ bool relationBinding(const SourceBinding &binding,RelationUseSpec &use,ModelObje
     return (matches(use,object) && binding.resourceKind=="well" && binding.resourceId==use.wellEntityId && binding.role==relationName(use.relation) &&
         binding.source==object.source && binding.scope==use.context.key()) || fail(error,QStringLiteral("绑定与类型化用途或对象身份不一致"));
 }
+
+QString timeDepthSelectionKey(const RelationUseSpec &use)
+{
+    SourceBinding slot;
+    slot.resourceKind = QStringLiteral("well");
+    slot.resourceId = use.wellEntityId;
+    slot.role = QStringLiteral("time_depth");
+    slot.scope = use.context.key();
+    return slot.slotKey();
+}
+
+QString TimeDepthDependency::slotKey() const
+{
+    return timeDepthSelectionKey(use);
+}
+
+bool TimeDepthDependency::valid() const
+{
+    return !assetId.isEmpty() && use.context.modelStoreId == QLatin1String("area-model") &&
+        use.relation == RelationKind::TimeDepth && matches(use, object);
+}
+
+QVariantMap TimeDepthDependency::toVariantMap() const
+{
+    return {{"format", QStringLiteral("time-depth-follow-selection-v1")}, {"assetId", assetId},
+        {"use", relationUseSpecJson(use).toVariantMap()}, {"objectRef", modelObjectRefJson(object).toVariantMap()}};
+}
+
+std::optional<TimeDepthDependency> TimeDepthDependency::fromVariant(const QVariant &value)
+{
+    if (value.metaType().id() != QMetaType::QVariantMap)
+        return std::nullopt;
+    const auto json = QJsonObject::fromVariantMap(value.toMap());
+    TimeDepthDependency dependency;
+    dependency.assetId = json.value("assetId").toString();
+    if (json.size() != 4 || json.value("format").toString() != QLatin1String("time-depth-follow-selection-v1") ||
+        !relationUseSpecFromJson(json.value("use").toObject(), dependency.use) ||
+        !modelObjectRefFromJson(json.value("objectRef").toObject(), dependency.object) || !dependency.valid())
+        return std::nullopt;
+    return dependency;
+}
+
 }

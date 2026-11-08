@@ -31,28 +31,39 @@ SectionSetupDialog *createSectionSetup(QWidget *parent,const std::function<void(
   auto *setup=new SectionSetupDialog(parent);
   QObject::connect(setup,&SectionSetupDialog::timeDepthSettingsRequested,setup,open);return setup;
 }
-void showSectionSetup(SectionSetupDialog *setup,SeismicMapLink *link,
+void ensureSectionSetupVolume(SectionSetupDialog *setup,SeismicMapLink *link,SectionWorkbench *workbench,
                       const std::function<PaleoTask*()> &load) {
-  setup->show();setup->raise();setup->activateWindow();
-  if(link->activeVolume()){
+  const auto selectionForActive=[link,workbench] {
+    const auto volume=link->activeVolume();
+    return workbench->sectionInterpretation(volume?paleo::fromFsPath(volume->Path()):QString());
+  };
+  const auto selection=selectionForActive();
+  if(link->activeVolume()&&selection.error.isEmpty()){
     setup->setSeismicState(link->gridGeometry().valid,link->gridGeometry().valid?QString():QObject::tr("地震体缺少有效 XY 测网几何，请检查道头坐标"));return;
   }
+  if(!selection.error.isEmpty()&&(!selection.context||!selection.context->targetVolume))return;
   setup->setSeismicState(false,QObject::tr("正在加载工区地震体及测网，请稍候…"));
   QPointer<PaleoTask> task=load();
   if(task&&task->running()){
-    QObject::connect(task,&PaleoTask::finished,setup,[setup,link,task]{
-      if(!link->activeVolume())setup->setSeismicState(false,task&&!task->errorText().isEmpty()?task->errorText():QObject::tr("地震体加载未完成，请重新打开连井剖面"));
+    QObject::connect(task,&PaleoTask::finished,setup,[setup,link,task,selectionForActive]{
+      if(!link->activeVolume()||!selectionForActive().error.isEmpty())
+        setup->setSeismicState(false,task&&!task->errorText().isEmpty()?task->errorText():QObject::tr("地震体加载未完成，请重新打开连井剖面"));
     },Qt::SingleShotConnection);
-  }else if(!link->activeVolume())setup->setSeismicState(false,QObject::tr("工区未找到可加载的地震体，请检查数据管理中的来源"));
+  }else if(!link->activeVolume()||!selectionForActive().error.isEmpty())
+    setup->setSeismicState(false,QObject::tr("工区未找到可加载的地震体，请检查数据管理中的来源"));
 }
 std::function<void()> wireSectionSetup(SectionSetupDialog *setup,SeismicMapLink *link,
     SectionWorkbench *workbench,const std::function<void()> &refresh,const std::function<PaleoTask*()> &load){
-  QObject::connect(workbench,&SectionWorkbench::alignmentsChanged,setup,refresh);
+  const auto prepare=[setup,link,workbench,refresh,load]{
+    refresh();
+    if(setup->isVisible())ensureSectionSetupVolume(setup,link,workbench,load);
+  };
+  QObject::connect(workbench,&SectionWorkbench::alignmentsChanged,setup,prepare);
   QObject::connect(link,&SeismicMapLink::sectionVolumeChanged,setup,[setup,link](const auto &volume){
     const bool ready=volume&&link->gridGeometry().valid;
     setup->setSeismicState(ready,ready?QObject::tr("地震体及测网已就绪"):QObject::tr("地震体或 XY 测网未就绪，不能生成剖面"));
   });
-  return [setup,link,refresh,load]{showSectionSetup(setup,link,load);refresh();};
+  return [setup,prepare]{setup->show();setup->raise();setup->activateWindow();prepare();};
 }
 void refreshSectionCandidates(SectionWorkbench *workbench,SectionSetupDialog *setup,
   seismic::SeismicSectionDockWidget *dock,SeismicMapLink *link) {
@@ -60,12 +71,32 @@ void refreshSectionCandidates(SectionWorkbench *workbench,SectionSetupDialog *se
     if(!setup->isVisible()&&!link->activeVolume()) {
       workbench->cancelPreviewData();setup->setWells({});dock->setCandidateWells({});return;
     }
-    workbench->requestPreviewData([setup, dock, link](const SectionWorkbench::PreviewData &data) {
+    const auto volume=link->activeVolume();
+    const auto selection=workbench->sectionInterpretation(volume?paleo::fromFsPath(volume->Path()):QString());
+    const bool sectionAllowed=volume && selection.error.isEmpty();
+    if(!selection.error.isEmpty())setup->setSeismicState(false,selection.error);
+    else if(volume)setup->setSeismicState(link->gridGeometry().valid);
+    workbench->requestPreviewData([setup,dock,link,sectionAllowed](const SectionWorkbench::PreviewData &data) {
       setup->setWells(data.wells);
-      dock->setCandidateWells(link->activeVolume() ? data.sectionWells
+      dock->setCandidateWells(sectionAllowed && link->activeVolume() ? data.sectionWells
                                                  : std::vector<seismic::SectionWellInfo>{});
-    },bool(link->activeVolume()));
+    },sectionAllowed);
   }
+bool extractWithInterpretation(SectionWorkbench *workbench,seismic::SeismicSectionDockWidget *dock,
+    SectionSetupDialog *setup,const std::shared_ptr<const seismic::SgyVolume> &volume,
+    const std::vector<glm::ivec2> &points,const QString &title,const std::vector<glm::dvec2> &line,
+    const QStringList &wellIds) {
+  const auto selection=workbench->sectionInterpretation(volume?paleo::fromFsPath(volume->Path()):QString());
+  if(!selection.error.isEmpty()){setup->setMessage(selection.error);return false;}
+  if(selection.context) {
+    const QPointer<seismic::SeismicSectionDockWidget> guard(dock);
+    workbench->requestPreviewData([guard,volume,points,title,line,wellIds,selection](const auto &data) {
+      if(guard)guard->extractSectionFromVolumeAsync(volume,points,title,line,data.sectionWells,wellIds,&selection);
+    });
+  } else dock->extractSectionFromVolumeAsync(volume,points,title,line,workbench->sectionWells(),wellIds);
+  setup->setMessage(QObject::tr("正在提取剖面；沿线井按各自时深关系叠加。"));
+  return true;
+}
 void wireSectionTraceLocate(SeismicMapLink *link,
                             seismic::SeismicSectionDockWidget *dock) {
   auto locate = [link, dock](bool clicked, int trace, double time, double depth,
@@ -117,7 +148,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     sink->setAlignmentProvider([guarded](WellComposite::WellCompositePanel *panel) {
       if (!guarded || panel->isReferenceWell())
         return;
-      const QString id = guarded->wellForSource(panel->sourceDataPath(), panel->wellName());
+      const QString id=panel->modelWellId()>0?guarded->wellForModel(panel->modelWellId()):guarded->wellForSource(panel->sourceDataPath(),panel->wellName());
       if (id.isEmpty()) {
         panel->applyTimeDepthAlignment(std::nullopt, 0.0, QObject::tr("未关联工程井"));
         return;
@@ -135,6 +166,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             &WellComposite::WellCompositeDerivedSink::refreshAlignments);
   }
   auto *setup = createSectionSetup(this,[this](const QStringList &ids){showTimeDepthAlignment(ids);});
+  connect(workbench,&SectionWorkbench::alignmentsChanged,dock,&seismic::SeismicSectionDockWidget::invalidateInterpretation);
   auto route = std::make_shared<std::vector<glm::dvec2>>();
   auto routeHorizon = std::make_shared<QString>();
   auto *band =
@@ -229,6 +261,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
            setup](std::shared_ptr<const seismic::SgyVolume> volume,
                   std::vector<glm::ivec2> points, QString title,
                   std::vector<glm::dvec2> line,QStringList selectedWellIds) {
+            if(!extractWithInterpretation(workbench,dock,setup,volume,points,title,line,selectedWellIds))return;
             *route = line;
             *routeHorizon =
                 m_selection ? m_selection->activeHorizon() : QString();
@@ -238,10 +271,6 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             band->setToGeometry(QgsGeometry::fromPolylineXY(path),
                                 link->sourceCrs().isEmpty()?QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()):QgsCoordinateReferenceSystem(link->sourceCrs()));
             band->show();
-            dock->extractSectionFromVolumeAsync(volume, points, title, line,
-                                                workbench->sectionWells(),selectedWellIds);
-            setup->setMessage(
-                QObject::tr("正在提取剖面；沿线井按各自时深关系叠加。"));
             dock->show();
             dock->raise();
           });

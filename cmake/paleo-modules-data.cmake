@@ -205,6 +205,7 @@ add_library(paleo_services STATIC
   src/services/artifactversioncapability.cpp
   src/services/documentsourceprobe.cpp
   src/services/documentrelationresolver.cpp
+  src/services/timedepthdependencies.cpp
   src/services/projectdata_relation.cpp
   src/services/datagraph_layout.cpp
   src/services/dataexport.cpp

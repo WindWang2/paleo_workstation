@@ -86,7 +86,9 @@ public:
         const std::vector<glm::ivec2> &pathPoints,
         const QString &lineTitle = QString(),
         const std::vector<glm::dvec2> &mapPolyline = {},
-        const std::vector<SectionWellInfo> &candidateWells = {},const QStringList &selectedWellIds = {});
+        const std::vector<SectionWellInfo> &candidateWells = {},const QStringList &selectedWellIds = {},
+        const paleo::document::InterpretationSelection *selection=nullptr);
+    void invalidateInterpretation();
 
     // D2.12 书签列表（测试与外部驱动用）
     QList<SectionBookmark> bookmarks() const { return m_bookmarks; }

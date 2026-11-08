@@ -232,14 +232,14 @@ QStringList DataQuery::columnCandidates(ColumnKey k,
                                         const QVector<AssetRowInfo> &rows) const
 {
   DataQuery rest = *this;
-  rest.clearColumn(k);
+  rest.clearColumn(k); // 本列不限；组+标签+其他列约束仍生效（复审修正）
   const CompiledQuery compiled = CompiledQuery::compile(rest);
   QSet<QString> found;
   if (const ColumnConstraint *cur = column(k))
     for (const QString &v : cur->values)
       found.insert(v); // 零命中的已选值仍可见、可取消
   for (const AssetRowInfo &row : rows)
-    if (compiled.matchesWithoutColumns(row))
+    if (compiled.matches(row))
       for (const QString &v : columnValuesOf(k, row))
         found.insert(v);
   QStringList out = found.values();
@@ -254,7 +254,7 @@ CompiledQuery CompiledQuery::compile(const DataQuery &q)
   CompiledQuery out;
   out.m_empty = q.isEmpty();
   out.m_orMode = q.group.orMode;
-  out.m_tagNeedle = q.activeTag.trimmed().toLower();
+  out.m_tagNeedle = q.activeTag.trimmed();
   for (const FilterCondition &c : q.group.conditions)
   {
     CompiledCondition cc;
@@ -262,13 +262,14 @@ CompiledQuery CompiledQuery::compile(const DataQuery &q)
     switch (c.dim)
     {
       case FilterDim::Search:
+        cc.needle = c.value.trimmed(); // 旧语义：Search trim，空词 = 命中
+        break;
       case FilterDim::Type:
       case FilterDim::Status:
       case FilterDim::Role:
       case FilterDim::Entity:
       case FilterDim::Tag:
-        cc.needle = c.value.trimmed().toLower();
-        break;
+        break; // 沿用原值 CI 比较（不 trim、空值零命中——逐位对齐旧 matcher）
       case FilterDim::Regex:
         if (!c.value.isEmpty())
         {
@@ -286,7 +287,7 @@ CompiledQuery CompiledQuery::compile(const DataQuery &q)
       case FilterDim::Unlinked:
       case FilterDim::UnknownType:
       case FilterDim::Warned:
-        break; // 开关型：无预规范化
+        break; // 开关型：无准备
     }
     out.m_conds.append(cc);
   }
@@ -295,11 +296,6 @@ CompiledQuery CompiledQuery::compile(const DataQuery &q)
     CompiledColumn cc;
     cc.key = col.key;
     cc.raw = col.values;
-    cc.caseInsensitive = col.key == ColumnKey::Name || col.key == ColumnKey::Type ||
-                         col.key == ColumnKey::Entity || col.key == ColumnKey::Tag ||
-                         col.key == ColumnKey::Status;
-    for (const QString &v : col.values)
-      cc.norm.insert(cc.caseInsensitive ? v.toLower() : v);
     out.m_cols.append(cc);
   }
   // 摘要与匹配共用本次准备（无第二套规则）。
@@ -342,28 +338,30 @@ bool CompiledQuery::matchCondition(const CompiledCondition &c,
   {
     case FilterDim::Search:
     {
-      // 既有契约保留：空搜索词 = 命中；命中范围 displayName/effectiveType/
-      // 关联（逗号拼接）/fileName，大小写不敏感。
-      hit = c.needle.isEmpty() || row.displayName.toLower().contains(c.needle) ||
-            row.effectiveType.toLower().contains(c.needle) ||
-            row.entityNames.join(QLatin1Char(',')).toLower().contains(c.needle) ||
-            row.fileName.toLower().contains(c.needle);
+      // 旧语义逐位对齐：空搜索词 = 命中；命中范围 displayName/effectiveType/
+      // 关联（逗号拼接）/fileName，大小写不敏感 contains。
+      hit = c.needle.isEmpty() ||
+            row.displayName.contains(c.needle, Qt::CaseInsensitive) ||
+            row.effectiveType.contains(c.needle, Qt::CaseInsensitive) ||
+            row.entityNames.join(QLatin1Char(','))
+                .contains(c.needle, Qt::CaseInsensitive) ||
+            row.fileName.contains(c.needle, Qt::CaseInsensitive);
       break;
     }
     case FilterDim::Type:
-      hit = row.effectiveType.toLower() == c.needle;
+      hit = row.effectiveType.compare(c.src.value, Qt::CaseInsensitive) == 0;
       break;
     case FilterDim::Status:
-      hit = row.status.toLower() == c.needle;
+      hit = row.status.compare(c.src.value, Qt::CaseInsensitive) == 0;
       break;
     case FilterDim::Role:
-      hit = c.needle.isEmpty() || row.roles.contains(c.needle, Qt::CaseInsensitive);
+      hit = row.roles.contains(c.src.value, Qt::CaseInsensitive); // 空值零命中（旧口径）
       break;
     case FilterDim::Entity:
-      hit = c.needle.isEmpty() || row.entityNames.contains(c.needle, Qt::CaseInsensitive);
+      hit = row.entityNames.contains(c.src.value, Qt::CaseInsensitive);
       break;
     case FilterDim::Tag:
-      hit = c.needle.isEmpty() || row.tags.contains(c.needle, Qt::CaseInsensitive);
+      hit = row.tags.contains(c.src.value, Qt::CaseInsensitive);
       break;
     case FilterDim::Regex:
     {
@@ -389,7 +387,24 @@ bool CompiledQuery::matchCondition(const CompiledCondition &c,
   return c.src.negate ? !hit : hit;
 }
 
-bool CompiledQuery::matchesWithoutColumns(const AssetRowInfo &row) const
+bool CompiledQuery::matchColumns(const AssetRowInfo &row) const
+{
+  for (const CompiledColumn &col : m_cols)
+  {
+    bool any = false;
+    for (const QString &raw : col.raw)
+      if (columnRowHasValue(col.key, row, raw))
+      {
+        any = true;
+        break;
+      }
+    if (!any)
+      return false; // 空集：无 any → 不匹配（显式空集合语义）
+  }
+  return true;
+}
+
+bool CompiledQuery::matches(const AssetRowInfo &row) const
 {
   if (m_empty)
     return true;
@@ -417,29 +432,7 @@ bool CompiledQuery::matchesWithoutColumns(const AssetRowInfo &row) const
   if (!m_tagNeedle.isEmpty() &&
       !row.tags.contains(m_tagNeedle, Qt::CaseInsensitive))
     return false;
-  return true;
-}
-
-bool CompiledQuery::matchColumns(const AssetRowInfo &row) const
-{
-  for (const CompiledColumn &col : m_cols)
-  {
-    bool any = false;
-    for (const QString &raw : col.raw)
-      if (columnRowHasValue(col.key, row, raw))
-      {
-        any = true;
-        break;
-      }
-    if (!any)
-      return false; // 空集：无 any → 不匹配（显式空集合语义）
-  }
-  return true;
-}
-
-bool CompiledQuery::matches(const AssetRowInfo &row) const
-{
-  return matchesWithoutColumns(row) && matchColumns(row);
+  return matchColumns(row);
 }
 
 QList<CompiledQuery::ConditionSummary> CompiledQuery::summaries() const
@@ -474,37 +467,34 @@ bool filterDimFromKey(const QString &key, FilterDim *out)
     }
   return false;
 }
-// 载荷转义：只处理 '%' 与 '~'——分隔符安全，其余字符（含 !、中文、空格、
-// #、&、+）原样交给 QUrlQuery 的 percent-编码，往返保真。
+// 载荷编码：base64url（字母表 [A-Za-z0-9_-]，QUrl 查询值零干预往返）。
+// 复审修正：原先的 '%'/'~' 手工转义会被 QUrlQuery 的 percent-语义二次
+// 解码（值含 %XX 形子串损坏）、col 载荷含 '~' 被分隔符拆散——base64url
+// 彻底绕开两层编码的相互作用，任意值（字面 !/中文/空格/#/&/%/+/~/空串）
+// 逐字节保真。
 QString encodePart(const QString &s)
 {
-  QString out = s;
-  out.replace(QLatin1Char('%'), QStringLiteral("%25"));
-  out.replace(QLatin1Char('~'), QStringLiteral("%7E"));
-  return out;
+  return QString::fromLatin1(s.toUtf8().toBase64(
+      QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
 }
-// 单遍 %XX 解码（未识别的 % 序列原样保留）。
 QString decodePart(const QString &s)
 {
-  QString out;
-  out.reserve(s.size());
-  for (int i = 0; i < s.size(); ++i)
+  return QString::fromUtf8(QByteArray::fromBase64(
+      s.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+}
+// 载荷合法性：空串或纯 [A-Za-z0-9_-]。坏载荷拒收（不静默解码成乱码）。
+bool isValidPart(const QString &s)
+{
+  if (s.isEmpty())
+    return true;
+  for (const QChar &ch : s)
   {
-    if (s.at(i) == QLatin1Char('%') && i + 2 < s.size())
-    {
-      const QString hex = s.mid(i + 1, 2);
-      bool ok = false;
-      const int code = hex.toInt(&ok, 16);
-      if (ok && code > 0)
-      {
-        out.append(QChar(code));
-        i += 2;
-        continue;
-      }
-    }
-    out.append(s.at(i));
+    const char16_t u = ch.unicode();
+    if (!((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z') ||
+          (u >= '0' && u <= '9') || u == '-' || u == '_'))
+      return false;
   }
-  return out;
+  return true;
 }
 } // namespace
 
@@ -576,7 +566,8 @@ QueryStateParse parseQueryStateString(const QString &s)
       if (key == QLatin1String("f"))
       {
         const QStringList parts = val.split(QLatin1Char('~'));
-        if (parts.size() < 3)
+        if (parts.size() != 3 || parts.at(1) != QLatin1String("p") &&
+                                     parts.at(1) != QLatin1String("n"))
         {
           out.diagnostic = QObject::tr("状态串的过滤条件字段损坏");
           return out;
@@ -587,15 +578,25 @@ QueryStateParse parseQueryStateString(const QString &s)
           out.diagnostic = QObject::tr("状态串包含未知过滤维度「%1」").arg(parts.at(0));
           return out;
         }
+        if (!isValidPart(parts.at(2)))
+        {
+          out.diagnostic = QObject::tr("状态串的过滤条件字段损坏");
+          return out;
+        }
         FilterCondition c;
         c.dim = d;
         c.negate = parts.at(1) == QLatin1String("n");
-        c.value = decodePart(parts.mid(2).join(QLatin1Char('~')));
+        c.value = decodePart(parts.at(2));
         q.group.conditions.append(c);
         continue;
       }
       if (key == QLatin1String("tag"))
       {
+        if (!isValidPart(val))
+        {
+          out.diagnostic = QObject::tr("状态串的标签字段损坏");
+          return out;
+        }
         q.activeTag = decodePart(val);
         continue;
       }
@@ -611,7 +612,14 @@ QueryStateParse parseQueryStateString(const QString &s)
         }
         QStringList values;
         for (int i = 1; i < parts.size(); ++i)
+        {
+          if (!isValidPart(parts.at(i)))
+          {
+            out.diagnostic = QObject::tr("状态串的列约束字段损坏");
+            return out;
+          }
           values << decodePart(parts.at(i));
+        }
         q.setColumnValues(k, values); // 空表 = 显式空集合，语义保真
         continue;
       }

@@ -339,16 +339,23 @@ private slots:
     QVERIFY(panel);
     // 320 资产 → 分页模式（>200）。
     QVERIFY(panel->findChild<QWidget *>(QStringLiteral("assetPager"))->isVisible());
-    // 名字约束到单资产 → 当前页只有 1 行可见。
+    // 无约束时类型候选 = 完整逻辑全集的值（分页只显示当前页 ~20 行——
+    // horizon/custom-type-x 只出现在其他页，仍全部列出）。
+    {
+      const QStringList all =
+          panel->columnCandidatesFor(paleo::dataops::query::ColumnKey::Type);
+      for (const char *t : {"well_log", "tops", "seismic", "horizon",
+                            "custom-type-x"})
+        QVERIFY2(all.contains(QLatin1String(t)), t);
+    }
+    // 兄弟列收窄（复审修正语义）：名字约束到单资产后，类型候选只剩该行的
+    // 类型（不再列出与并列约束组合不可达的值）。
     panel->setColumnConstraint(paleo::dataops::query::ColumnKey::Name,
                                {assetName(0)});
     QCOMPARE(visibleCountFromLabel(panel), 1);
-    // 类型候选 = 完整逻辑资产集（应用其他条件、排除本列约束）：四种类型都在，
-    // 且含零命中的已选值（ghost-type）。
-    const QStringList types =
-        panel->columnCandidatesFor(paleo::dataops::query::ColumnKey::Type);
-    for (const char *t : {"well_log", "tops", "seismic", "horizon"})
-      QVERIFY2(types.contains(QLatin1String(t)), t);
+    QCOMPARE(panel->columnCandidatesFor(paleo::dataops::query::ColumnKey::Type),
+             QStringList({effectiveType(0)}));
+    panel->clearColumnConstraint(paleo::dataops::query::ColumnKey::Name);
     panel->setColumnConstraint(paleo::dataops::query::ColumnKey::Type,
                                {QStringLiteral("ghost-type")});
     QCOMPARE(visibleCountFromLabel(panel), 0);

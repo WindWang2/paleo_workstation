@@ -144,6 +144,31 @@
 保留兼容）、`dataopswidgets.h`（列约束 chip / 快捷态同步）、`CMakeLists.txt`
 （manifest 登记一行）、`tools/file-budget-baseline.txt`（两行下调）。
 
+## 独立复审与修复（第 8 轮）
+
+独立 reviewer 对实际 head 做了静态审读 + 新测试/闸门实跑 + 自写探针
+（新旧 matcher 3100 组合对比、状态串边界值往返）。8 项主审 5 项直接 PASS
+（W1 编辑规则/反馈环、五视图一致、oracle 独立性、层合规与 P1 边界、资源
+安全）；3 项提出问题，已全部修复并补回归：
+
+1. **v2 载荷双重解码/col `~` 拆散**（值含 `%XX` 形子串、col 值含 `~` 往返
+   损坏）→ 载荷编码改 base64url（[A-Za-z0-9_-]，QUrl 查询值零干预），
+   字符集校验坏载荷拒收；`v2RoundTripPercentShapedAndTildeInColumnValues`
+   `v2RejectsBadPolarityAndBadPayloadCharset` 锁死。
+2. **列漏斗候选未应用兄弟列约束**（与 Excel 惯例/头文件自述矛盾）→
+   `columnCandidates` 按「组+标签+其他列约束、排除本列」计算；
+   `candidatesNarrowedBySiblingColumnConstraints` + UI 用例（名字约束后
+   类型候选收窄到该行类型）锁死；跨页断言改为「无约束时其他页的值全列出」。
+3. **matcher 边缘语义对齐旧实现**：Type/Status 不再 trim、Role/Entity/Tag
+   空值回零命中（旧口径）、极性标记非 p/n 拒收；
+   `emptyRoleEntityTagValuesKeepLegacyZeroHitSemantics` 锁死。同时移除
+   `CompiledColumn::norm` 死代码与 `matchesWithoutColumns`（语义并入
+   rest-query 全量 matches）。
+
+修复后：tst_dataquery 23/23、tst_dataquery_ui 13/13、闸门全绿、
+tst_panels_dataops 仅剩已知基线红（importledgerdialog setSizes）、
+tst_assetpaging 全过。
+
 ## 闸门与回归状态（本机）
 
 - 源码闸门 26 项全绿（layering 族/file_budget 族/ui_size/ui_invariants/

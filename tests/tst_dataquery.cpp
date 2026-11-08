@@ -318,6 +318,91 @@ private slots:
     QCOMPARE(idsMatching(back.query, fixtureRows()), idsMatching(q, fixtureRows()));
   }
 
+  void v2RoundTripPercentShapedAndTildeInColumnValues()
+  {
+    // 复审修正回归：值含 %XX 形子串 / 列约束值含 '~'——base64url 载荷下
+    // 逐字节保真（原 '%'/'~' 手工转义会被 QUrlQuery 二次解码/拆散）。
+    DataQuery q;
+    q.group.add({FilterDim::Type, QStringLiteral("%25"), false});
+    q.group.add({FilterDim::Entity, QStringLiteral("%41%7E"), true});
+    q.group.add({FilterDim::Tag, QStringLiteral("a~b%c"), false});
+    q.setColumnValues(ColumnKey::Type,
+                      {QStringLiteral("%25"), QStringLiteral("a~b%c"),
+                       QStringLiteral("100%")});
+    q.setColumnValues(ColumnKey::Name, {QStringLiteral("~tilde~")});
+    const QueryStateParse back = parseQueryStateString(serializeQuery(q));
+    QVERIFY(back.valid);
+    QCOMPARE(back.query.group.conditions.size(), 3);
+    QCOMPARE(back.query.group.conditions.at(0).value, QStringLiteral("%25"));
+    QCOMPARE(back.query.group.conditions.at(1).value, QStringLiteral("%41%7E"));
+    QCOMPARE(back.query.group.conditions.at(1).negate, true);
+    QCOMPARE(back.query.group.conditions.at(2).value, QStringLiteral("a~b%c"));
+    QCOMPARE(back.query.columns.size(), 2);
+    QCOMPARE(back.query.columns.at(0).values,
+             QStringList({QStringLiteral("%25"), QStringLiteral("100%"),
+                          QStringLiteral("a~b%c")})); // 码点序：% < 1 < a
+    QCOMPARE(back.query.columns.at(1).values, QStringList{QStringLiteral("~tilde~")});
+    QCOMPARE(idsMatching(back.query, fixtureRows()), idsMatching(q, fixtureRows()));
+  }
+
+  void v2RejectsBadPolarityAndBadPayloadCharset()
+  {
+    // 极性标记非 p/n：拒收（不再静默按正向）。
+    QVERIFY(!parseQueryStateString(QStringLiteral(
+                 "paleo://dataops-filter?v=2&f=type~x~dG9wcw"))
+                  .valid);
+    // 载荷字符集坏（非 base64url）：拒收且带诊断。
+    const QueryStateParse bad = parseQueryStateString(
+        QStringLiteral("paleo://dataops-filter?v=2&f=type~p~to*ps"));
+    QVERIFY(!bad.valid);
+    QVERIFY(!bad.diagnostic.isEmpty());
+    QVERIFY(!parseQueryStateString(
+                QStringLiteral("paleo://dataops-filter?v=2&col=type~a~b%25"))
+                 .valid);
+    QVERIFY(!parseQueryStateString(
+                QStringLiteral("paleo://dataops-filter?v=2&tag=%2A"))
+                 .valid);
+  }
+
+  void emptyRoleEntityTagValuesKeepLegacyZeroHitSemantics()
+  {
+    // 旧 matcher 口径：Role/Entity/Tag 空值 = 零命中（不是全命中）；v2 空串
+    // 载荷（OmitTrailingEquals 下空 b64 = 空串）往返后语义一致。
+    const QueryStateParse p = parseQueryStateString(
+        QStringLiteral("paleo://dataops-filter?v=2&f=role~p~"));
+    QVERIFY(p.valid);
+    QCOMPARE(p.query.group.conditions.size(), 1);
+    QVERIFY(p.query.group.conditions.at(0).value.isEmpty());
+    // 手推：roles.contains("") = false → 无命中；取反则为全命中。
+    QCOMPARE(idsMatching(p.query, fixtureRows()), set({}));
+    const QueryStateParse n = parseQueryStateString(
+        QStringLiteral("paleo://dataops-filter?v=2&f=role~n~"));
+    QVERIFY(n.valid);
+    QCOMPARE(idsMatching(n.query, fixtureRows()),
+             set({"a1", "a2", "a3", "a4", "a5", "a6", "a7"}));
+    // 与旧 FilterCondition::matches 逐位一致。
+    FilterCondition legacy;
+    legacy.dim = FilterDim::Role;
+    QVERIFY(!legacy.matches(fixtureRows().at(0)));
+  }
+
+  void candidatesNarrowedBySiblingColumnConstraints()
+  {
+    // 复审修正回归：候选 = 应用其他条件（含其他列约束）、排除本列约束。
+    // Type 约束 {tops,seismic} + Entity 约束 {W1} → Type 候选 = 含 W1 资产的
+    // 类型 ∪ 本列已选值：a1（well_log,W1）、a2（tops,W1/W2）→ {tops,well_log}；
+    // a4（seismic,W2）被 Entity 约束排除，但 seismic 是已选值 → 保留可见；
+    // horizon（a5 无实体）被排除——兄弟列约束确实收窄候选。
+    DataQuery q;
+    q.setColumnValues(ColumnKey::Type,
+                      {QStringLiteral("tops"), QStringLiteral("seismic")});
+    q.setColumnValues(ColumnKey::Entity, {QStringLiteral("W1")});
+    const QStringList cand = q.columnCandidates(ColumnKey::Type, fixtureRows());
+    QCOMPARE(cand, QStringList({QStringLiteral("seismic"), QStringLiteral("tops"),
+                                QStringLiteral("well_log")}));
+    QVERIFY(!cand.contains(QStringLiteral("horizon")));
+  }
+
   void v2ExplicitEmptySetRoundTrip()
   {
     DataQuery q;

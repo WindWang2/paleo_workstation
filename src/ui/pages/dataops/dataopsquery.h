@@ -89,15 +89,18 @@ struct DataQuery
   const ColumnConstraint *column(ColumnKey k) const;
   void setColumnValues(ColumnKey k, const QStringList &values); // 空表=显式空集合
   void clearColumn(ColumnKey k);                                // 回到「不限」
-  // 逻辑候选值：按「应用其他条件、排除本列当前约束」计算，并并入本列
-  // 当前已选值（零命中的已选值仍可见可取消）；不触发任何求值副作用。
+  // 逻辑候选值：按「应用其他条件（组+标签+其他列约束）、排除本列当前约束」
+  // 计算，并并入本列当前已选值（零命中的已选值仍可见可取消）；不触发任何
+  // 求值副作用。
   QStringList columnCandidates(ColumnKey k, const QVector<AssetRowInfo> &rows) const;
 };
 
 // ---- 编译查询（W2）-----------------------------------------------------------
-// 一次编译、多行消费：正则只编译一次/条件，比较值预规范化；匹配零磁盘、
-// 零 catalog 回查。诊断/摘要与匹配共用同一准备过程——界面写的与执行的
-// 是同一套规则。
+// 一次编译、多行消费：正则只编译一次/条件；文本维度沿用既有
+// FilterCondition::matches 的大小写不敏感比较口径（Search 保留 trim、其余
+// 维度不 trim、Role/Entity/Tag 空值 = 零命中——逐位对齐旧语义）。匹配零
+// 磁盘、零 catalog 回查。诊断/摘要与匹配共用同一准备过程——界面写的与
+// 执行的是同一套规则。
 class CompiledQuery
 {
 public:
@@ -111,8 +114,6 @@ public:
 
   // 完整语义匹配（组 ∧ 标签 ∧ 列约束）。
   bool matches(const AssetRowInfo &row) const;
-  // 仅组+标签（列约束候选值计算用——排除本列约束后其余仍生效）。
-  bool matchesWithoutColumns(const AssetRowInfo &row) const;
 
   // 条件说明（含列约束/标签），供空态解释与状态呈现。
   QList<ConditionSummary> summaries() const;
@@ -124,15 +125,13 @@ private:
   struct CompiledCondition
   {
     FilterCondition src;
-    QString needle;              // Search/Type/Status/Role/Entity/Tag 预规范化
+    QString needle;              // Search 维 trim 后原串（空 = 命中，同旧语义）
     QRegularExpression re;       // Regex 维预编译
     bool regexLiteral = false;   // 无效模式退字面量
   };
   struct CompiledColumn
   {
     ColumnKey key = ColumnKey::Type;
-    QSet<QString> norm;          // 大小写不敏感键（ci 列）；精确列存原串
-    bool caseInsensitive = true;
     QStringList raw;             // 展示顺序（排序去重）
   };
 
@@ -142,7 +141,7 @@ private:
   QVector<CompiledCondition> m_conds;
   bool m_orMode = false;
   bool m_empty = true;
-  QString m_tagNeedle;           // 预规范化（空 = 不限）
+  QString m_tagNeedle;           // trim 后原串（空 = 不限）
   QVector<CompiledColumn> m_cols;
   int m_regexCompiles = 0;
   QList<ConditionSummary> m_summaries;

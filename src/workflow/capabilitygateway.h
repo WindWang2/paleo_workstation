@@ -163,7 +163,8 @@ QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes = 64 * 1
 QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
                         const QString &documentId, const QString &operationDir,
                         const QString &hostHead = QString(),
-                        const std::function<bool()> &cancelled = {});
+                        const std::function<bool()> &cancelled = {},
+                        DataCatalog *catalog = nullptr, const QString &projectDir = QString());
 bool cancelRequested(const QString &operationId);
 void noteIssuedResult(const QString &documentId, const QString &path);
 bool isIssuedResult(const QString &documentId, const QString &path);

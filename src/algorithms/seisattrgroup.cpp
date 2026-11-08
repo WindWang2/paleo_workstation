@@ -1,7 +1,6 @@
 // 层：数据
 // algorithms/seisattrgroup.cpp — 见 seisattrgroup.h。
 #include "seisattrgroup.h"
-#include "seismicattr.h"
 
 #include "dsp/fft.h"
 
@@ -368,6 +367,18 @@ AttributeBudgetPlan planAttributeBudget(int nTraces, int nSamples, int rmsHalf, 
       return trace;
     std::int64_t sum = 0;
     if (!checkedAdd(trace.estimatedBytes, coherencePlan.estimatedBytes, &sum) || sum > budgetBytes) {
+      if (trace.minimumBytes > 0 && coherencePlan.estimatedBytes < budgetBytes) {
+        const int fitted = static_cast<int>(std::min<std::int64_t>(
+            std::max(nTraces, 1), (budgetBytes - coherencePlan.estimatedBytes) / trace.minimumBytes));
+        if (fitted >= 1) {
+          trace.traceBatch = fitted;
+          trace.estimatedBytes = trace.minimumBytes * static_cast<std::int64_t>(fitted) + coherencePlan.estimatedBytes;
+          trace.minimumBytes = std::max(trace.minimumBytes, coherencePlan.minimumBytes);
+          trace.xlChunk = coherencePlan.xlChunk;
+          trace.code = nTraces > fitted ? "split" : "ok";
+          return trace;
+        }
+      }
       trace.code = "budget_exceeded";
       trace.estimatedBytes = sum > 0 ? sum : coherencePlan.estimatedBytes;
       trace.minimumBytes = std::max(trace.minimumBytes, coherencePlan.minimumBytes);

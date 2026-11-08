@@ -2,14 +2,11 @@
 // algorithms/depthbatch.h — 时深批转换门面。公式只调用 paleo::velmodel，不另写一套。
 #pragma once
 
+#include "velocitymodel.h"
+
 #include <functional>
 #include <string>
-#include <utility>
 #include <vector>
-
-class QJsonObject;
-class QString;
-namespace paleo::velmodel { class VelocityModel; }
 
 namespace paleo::depthbatch {
 
@@ -83,7 +80,5 @@ BatchResult planIntervals(const BatchRequest &request);
 
 BatchResult convertWellBatch(const paleo::velmodel::VelocityModel &model, const BatchRequest &request,
                              const std::function<bool()> &cancelled = {});
-BatchResult convertWellBatchFromJson(const QJsonObject &model, const BatchRequest &request,
-                                     QString *modelError, const std::function<bool()> &cancelled = {});
 
 } // namespace paleo::depthbatch

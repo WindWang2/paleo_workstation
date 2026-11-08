@@ -2,11 +2,16 @@
 #include <QtTest/QtTest>
 
 #include <QDir>
+#include <QFile>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <atomic>
 #include <cmath>
+#include <limits>
 #include <thread>
+#include <vector>
+
+#include "ai/chat/domaintools.h"
 
 #include "algorithms/seisattrgroup.h"
 #include "catalog/datacatalog.h"
@@ -92,6 +97,8 @@ private slots:
   void planAndBudgetClaims();
   void reviewFixes();
   void secondReviewFixes();
+  void splitCoherenceFileMatchesTiledInterior();
+  void chatHostCatalogPublishes();
 };
 
 void TestCapabilityGateway::threeDepthEntriesMatch() {
@@ -201,7 +208,7 @@ void TestCapabilityGateway::cancelPublishAndPresentation() {
   for (int i = 0; i < 8; ++i)
     trace.append(std::sin(0.3 * i));
   request.inputs.clear();
-  request.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant(trace)});
+  request.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
   request.inputs.insert(QStringLiteral("full_trace"), true);
   QVariantMap parents;
   parents.insert(QStringLiteral("RMS"), QStringList{QStringLiteral("ENVELOPE")});
@@ -243,7 +250,7 @@ void TestCapabilityGateway::seismicGroupBudgetAndCache() {
     raw[static_cast<std::size_t>(i)] = std::sin(0.25 * i);
     trace.append(static_cast<double>(raw[static_cast<std::size_t>(i)]));
   }
-  request.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant(trace)});
+  request.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
   const ExecuteResult first = paleo::capability::execute(request);
   QVERIFY2(first.ok, qPrintable(first.code));
   QCOMPARE(first.summary.value(QStringLiteral("analyticEvaluations")).toInt(), 1);
@@ -622,13 +629,130 @@ void TestCapabilityGateway::secondReviewFixes() {
   QVariantList volume;
   for (int i = 0; i < 128; ++i)
     volume.append(std::sin(0.05 * i));
-  mixed.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant(trace)});
+  mixed.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
   mixed.inputs.insert(QStringLiteral("full_trace"), true);
   mixed.inputs.insert(QStringLiteral("volume"), volume);
   mixed.inputs.insert(QStringLiteral("nIl"), 4);
   mixed.inputs.insert(QStringLiteral("nXl"), 4);
   mixed.inputs.insert(QStringLiteral("nS"), 8);
   QCOMPARE(paleo::capability::execute(mixed).code, QStringLiteral("budget_exceeded"));
+}
+
+void TestCapabilityGateway::splitCoherenceFileMatchesTiledInterior() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LimitGuard guard(1000);
+  const int nIl = 5;
+  const int nXl = 8;
+  const int nS = 6;
+  const int count = nIl * nXl * nS;
+  std::vector<float> volume(static_cast<std::size_t>(count));
+  QVariantList values;
+  for (int i = 0; i < count; ++i) {
+    if (i == 7) {
+      volume[static_cast<std::size_t>(i)] = std::numeric_limits<float>::quiet_NaN();
+      values.append(QStringLiteral("nope"));
+    } else {
+      volume[static_cast<std::size_t>(i)] = std::sin(0.17 * i);
+      values.append(volume[static_cast<std::size_t>(i)]);
+    }
+  }
+  const auto plan = paleo::seisattr::planAttributeBudget(0, nS, 0, false, false, true, nIl, nXl, 1, 1, 1000, nS);
+  QCOMPARE(QString::fromStdString(plan.code), QStringLiteral("split"));
+  QVERIFY(plan.xlChunk > 0);
+  QVERIFY(plan.xlChunk < nXl - 2);
+
+  ExecuteRequest request;
+  request.capabilityId = QStringLiteral("seismic.attributes.compute");
+  request.contractVersion = 1;
+  request.documentId = QStringLiteral("doc-tile");
+  request.callerScope = QStringLiteral("host-test");
+  request.clientRequestId = QStringLiteral("tile-file");
+  request.bindingMode = QStringLiteral("pinned-value");
+  request.frozenHead = QStringLiteral("h");
+  request.currentHead = QStringLiteral("h");
+  request.publishIntent = QStringLiteral("compute-only");
+  request.operationDir = dir.path();
+  request.parameters.insert(QStringLiteral("ATTRIBUTES"), QStringList{QStringLiteral("coherence")});
+  request.parameters.insert(QStringLiteral("SAMPLE_INTERVAL_MS"), 4.0);
+  request.parameters.insert(QStringLiteral("COHERENCE_IL_HALF"), 1);
+  request.parameters.insert(QStringLiteral("COHERENCE_XL_HALF"), 1);
+  request.parameters.insert(QStringLiteral("COHERENCE_TIME_HALF"), 1);
+  request.parameters.insert(QStringLiteral("IL_SPACING"), 25.0);
+  request.parameters.insert(QStringLiteral("XL_SPACING"), 12.5);
+  request.inputs.insert(QStringLiteral("volume"), values);
+  request.inputs.insert(QStringLiteral("nIl"), nIl);
+  request.inputs.insert(QStringLiteral("nXl"), nXl);
+  request.inputs.insert(QStringLiteral("nS"), nS);
+  const ExecuteResult result = paleo::capability::execute(request);
+  QVERIFY2(result.ok, qPrintable(result.code));
+  QCOMPARE(result.summary.value(QStringLiteral("tiled")).toBool(), true);
+
+  paleo::seisattr::CoherenceTile tile;
+  tile.volume = volume.data();
+  tile.nIl = nIl;
+  tile.nXl = nXl;
+  tile.nS = nS;
+  tile.ilHalf = 1;
+  tile.xlHalf = 1;
+  tile.timeHalf = 1;
+  tile.ilSpacing = 25;
+  tile.xlSpacing = 12.5;
+  const auto tiled = paleo::seisattr::computeCoherenceTiled(tile, paleo::seisattr::CoherenceWeightMode::Equal, plan.xlChunk);
+  QVERIFY2(tiled.ok, tiled.code.c_str());
+  QFile file(result.summary.value(QStringLiteral("result_path")).toString());
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const QByteArray bytes = file.readAll();
+  QCOMPARE(bytes.size(), static_cast<int>(tiled.interior.size() * sizeof(float)));
+  QCOMPARE(bytes, QByteArray(reinterpret_cast<const char *>(tiled.interior.data()), bytes.size()));
+}
+
+void TestCapabilityGateway::chatHostCatalogPublishes() {
+  QJsonObject pageObject;
+  pageObject.insert(QStringLiteral("ok"), true);
+  pageObject.insert(QStringLiteral("code"), QStringLiteral("computed"));
+  pageObject.insert(QStringLiteral("operationId"), QStringLiteral("op-1"));
+  pageObject.insert(QStringLiteral("result_path"), QStringLiteral("/tmp/owned.f32"));
+  pageObject.insert(QStringLiteral("padding"), QString(8000, QLatin1Char('x')));
+  const QByteArray page = paleo::capability::boundToolResponse(pageObject, 128);
+  const QJsonObject trimmed = QJsonDocument::fromJson(page).object();
+  QCOMPARE(trimmed.value(QStringLiteral("code")).toString(), QStringLiteral("response_budget_exceeded"));
+  QCOMPARE(trimmed.value(QStringLiteral("result_path")).toString(), QStringLiteral("/tmp/owned.f32"));
+  QCOMPARE(trimmed.value(QStringLiteral("operationId")).toString(), QStringLiteral("op-1"));
+
+  QJsonObject prepare;
+  prepare.insert(QStringLiteral("client_request_id"), QStringLiteral("prep"));
+  prepare.insert(QStringLiteral("binding_mode"), QStringLiteral("pinned-value"));
+  prepare.insert(QStringLiteral("parameters"), QJsonObject());
+  prepare.insert(QStringLiteral("inputs"), QJsonObject());
+  prepare.insert(QStringLiteral("publish_intent"), QStringLiteral("prepare"));
+  const AiToolDispatch dispatch = dispatchAiTool(QStringLiteral("paleo.constraint_idw"), prepare);
+  QCOMPARE(dispatch.status, AiToolDispatchStatus::Routed);
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  ExecuteRequest batch = depthRequest(dir.path() + QStringLiteral("/ops"), QStringLiteral("chat-pub"));
+  QJsonObject arguments;
+  arguments.insert(QStringLiteral("client_request_id"), QStringLiteral("chat-pub"));
+  arguments.insert(QStringLiteral("binding_mode"), QStringLiteral("pinned-value"));
+  arguments.insert(QStringLiteral("frozen_head"), QStringLiteral("h1"));
+  arguments.insert(QStringLiteral("current_head"), QStringLiteral("forged-by-model"));
+  arguments.insert(QStringLiteral("publish_intent"), QStringLiteral("publish"));
+  arguments.insert(QStringLiteral("parameters"), QJsonObject::fromVariantMap(batch.parameters));
+  arguments.insert(QStringLiteral("inputs"), QJsonObject::fromVariantMap(batch.inputs));
+  const QJsonObject bare = paleo::capability::runChatTool(
+      QStringLiteral("paleo.depth_convert_batch"), arguments, QStringLiteral("host-test"), QStringLiteral("doc-1"),
+      dir.path() + QStringLiteral("/ops"), QStringLiteral("h1"));
+  QCOMPARE(bare.value(QStringLiteral("code")).toString(), QStringLiteral("publish_unavailable"));
+  const int before = catalog.versions().size();
+  arguments.insert(QStringLiteral("client_request_id"), QStringLiteral("chat-pub-hosted"));
+  const QJsonObject hosted = paleo::capability::runChatTool(
+      QStringLiteral("paleo.depth_convert_batch"), arguments, QStringLiteral("host-test"), QStringLiteral("doc-1"),
+      dir.path() + QStringLiteral("/ops"), QStringLiteral("h1"), {}, &catalog, dir.path());
+  QCOMPARE(hosted.value(QStringLiteral("code")).toString(), QStringLiteral("committed"));
+  QCOMPARE(catalog.versions().size(), before + 1);
 }
 
 QTEST_MAIN(TestCapabilityGateway)

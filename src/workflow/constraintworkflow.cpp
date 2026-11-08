@@ -1456,20 +1456,41 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
 namespace paleo::capability {
 namespace {
 
-QgsVectorLayer *memoryPoints(const QVariantList &points, QString *error) {
-  auto *layer = new QgsVectorLayer(QStringLiteral("Point?field=z:double&field=well_id:string"),
-                                   QStringLiteral("frozen-points"), QStringLiteral("memory"));
+QgsVectorLayer *memoryPoints(const QVariantList &points, const QString &fieldName, QString *error) {
+  auto *layer = new QgsVectorLayer(QStringLiteral("Point"), QStringLiteral("frozen-points"), QStringLiteral("memory"));
   if (!layer->isValid() || !layer->dataProvider()) {
     if (error)
       *error = QStringLiteral("points_layer_invalid");
     delete layer;
     return nullptr;
   }
+  const QString valueField = fieldName.trimmed().isEmpty() ? QStringLiteral("z") : fieldName.trimmed();
+  if (valueField == QLatin1String("well_id") ||
+      !layer->dataProvider()->addAttributes({QgsField(valueField, QMetaType::Type::Double),
+                                             QgsField(QStringLiteral("well_id"), QMetaType::Type::QString)})) {
+    if (error)
+      *error = QStringLiteral("invalid_field");
+    delete layer;
+    return nullptr;
+  }
+  layer->updateFields();
+  const int valueIndex = layer->fields().indexFromName(valueField);
+  const int wellIndex = layer->fields().indexFromName(QStringLiteral("well_id"));
+  if (valueIndex < 0 || wellIndex < 0) {
+    if (error)
+      *error = QStringLiteral("invalid_field");
+    delete layer;
+    return nullptr;
+  }
   QList<QgsFeature> features;
   for (const QVariant &value : points) {
     const QVariantMap row = value.toMap();
-    if (!row.contains(QStringLiteral("x")) || !row.contains(QStringLiteral("y")) || !row.contains(QStringLiteral("z")))
-      continue;
+    if (!row.contains(QStringLiteral("x")) || !row.contains(QStringLiteral("y")) || !row.contains(QStringLiteral("z"))) {
+      if (error)
+        *error = QStringLiteral("invalid_point_value");
+      delete layer;
+      return nullptr;
+    }
     bool okX = false;
     bool okY = false;
     bool okZ = false;
@@ -1484,8 +1505,8 @@ QgsVectorLayer *memoryPoints(const QVariantList &points, QString *error) {
     }
     QgsFeature feature(layer->fields());
     feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(x, y)));
-    feature.setAttribute(0, z);
-    feature.setAttribute(1, row.value(QStringLiteral("well_id")).toString());
+    feature.setAttribute(valueIndex, z);
+    feature.setAttribute(wellIndex, row.value(QStringLiteral("well_id")).toString());
     features.append(feature);
   }
   if (features.isEmpty() || !layer->dataProvider()->addFeatures(features)) {
@@ -1513,11 +1534,15 @@ QgsVectorLayer *memoryLines(const QVariantList &lines, QString *error) {
   for (const QVariant &value : lines) {
     const QVariantMap row = value.toMap();
     const QgsGeometry geometry = QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString());
-    if (geometry.isEmpty() || QgsWkbTypes::geometryType(geometry.wkbType()) != Qgis::GeometryType::Line)
-      continue;
+    if (geometry.isEmpty() || QgsWkbTypes::geometryType(geometry.wkbType()) != Qgis::GeometryType::Line) {
+      if (error)
+        *error = QStringLiteral("constraint_unreadable");
+      delete layer;
+      return nullptr;
+    }
     QgsFeature feature(layer->fields());
     feature.setGeometry(geometry);
-    feature.setAttribute(0, row.value(QStringLiteral("type"), QStringLiteral("break_line")).toString());
+    feature.setAttribute(0, row.value(QStringLiteral("type")).toString());
     features.append(feature);
   }
   if (features.isEmpty() || !layer->dataProvider()->addFeatures(features)) {
@@ -1544,6 +1569,7 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
   }
   QString built;
   const QString gridWkt = job.gridWkt;
+  const QString fieldName = job.field.trimmed().isEmpty() ? QStringLiteral("z") : job.field.trimmed();
   QgsCoordinateReferenceSystem gridCrs;
   if (!gridWkt.isEmpty()) {
     gridCrs = QgsCoordinateReferenceSystem::fromWkt(gridWkt);
@@ -1552,7 +1578,7 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
       return result;
     }
   }
-  QgsVectorLayer *points = memoryPoints(job.points, &built);
+  QgsVectorLayer *points = memoryPoints(job.points, fieldName, &built);
   if (points && gridCrs.isValid())
     points->setCrs(gridCrs);
   if (!points) {
@@ -1572,7 +1598,7 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
   }
   QVariantMap params;
   params.insert(QStringLiteral("INPUT"), QVariant::fromValue(static_cast<QgsMapLayer *>(points)));
-  params.insert(QStringLiteral("FIELD"), job.field.isEmpty() ? QStringLiteral("z") : job.field);
+  params.insert(QStringLiteral("FIELD"), fieldName);
   params.insert(QStringLiteral("CELL_SIZE"), job.cellSize);
   params.insert(QStringLiteral("ANISO_RATIO"), job.aniso);
   params.insert(QStringLiteral("OUTPUT"), job.outputPath);

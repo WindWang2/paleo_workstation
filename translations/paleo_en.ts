@@ -418,6 +418,11 @@
     <context>
         <name>AiChatToolRunner</name>
         <message>
+            <location filename="../src/workflow/aichattoolrunner.cpp" line="180" />
+            <source>能力工具须由宿主绑定工程</source>
+            <translation>The host must bind a project before running a capability tool.</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichattoolrunner.cpp" line="150" />
             <source>实参不是合法 JSON：%1</source>
             <translation type="unfinished" />
@@ -8405,27 +8410,27 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
         <message>
             <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>未执行：%1</source>
-            <translation type="unfinished" /</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>未执行（%1 项被拒绝）</source>
-            <translation type="unfinished" /</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>阶段：%1</source>
-            <translation type="unfinished" /</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>（%1）</source>
-            <translation type="unfinished" /</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>（原因见明细）</source>
-            <translation type="unfinished" /</translation>
+            <translation type="unfinished" />
         </message>
     </context>
     <context>
@@ -11335,7 +11340,7 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/ui/pages/entitypanel_crud.cpp" line="0"/>
             <source>实体值未变化</source>
-            <translation type="unfinished" /</translation>
+            <translation type="unfinished" />
         </message>
     </context>
     <context>
@@ -12405,7 +12410,19 @@ Crossline: %3 ~ %4</source>
             <source>草稿相图图层声明失败：%1</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+      <source>工作流未绑定数据目录</source>
+      <translation>The workflow is not bound to a data catalog</translation>
+    </message>
+    <message>
+      <source>相图输出目标无效</source>
+      <translation>Invalid facies map output targets</translation>
+    </message>
+    <message>
+      <source>输出准备已取消</source>
+      <translation>Output preparation cancelled</translation>
+    </message>
+</context>
     <context>
         <name>FaciesPartitionTool</name>
         <message>
@@ -23627,6 +23644,26 @@ PDF：%3
             <source>地图册导出结束：%1</source>
             <translation type="unfinished" />
         </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>产物不存在或已被移动：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>无法打开产物：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>警告：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>（共 %1 个文件）</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>PaleoMapBookPanel</name>
@@ -23756,6 +23793,26 @@ PDF：%3
             <source>选择地图册输出目录</source>
             <translation type="unfinished" />
         </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>已导出产物</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>页 %1 · %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>目录 %1/%2 · %3</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>清单 · manifest.json</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>PaleoMapBookQueue::Exporter</name>
@@ -28263,6 +28320,84 @@ PDF：%3
     <context>
         <name>QObject</name>
         <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="279" />
+            <source>能力契约版本；缺省 1</source>
+            <translation>Capability contract version. Defaults to 1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="281" />
+            <source>调用方请求号</source>
+            <translation>Caller request ID</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="283" />
+            <source>pinned-value、follow-object-head 或 follow-selection</source>
+            <translation>pinned-value, follow-object-head, or follow-selection</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="287" />
+            <source>follow-selection 的选择绑定</source>
+            <translation>Selection binding for follow-selection</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="289" />
+            <source>冻结时的对象头</source>
+            <translation>Object head at freeze time</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="291" />
+            <source>忽略。提交头只来自宿主，模型填写无效</source>
+            <translation>Ignored. The host supplies the commit head.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="293" />
+            <source>compute-only 或 publish</source>
+            <translation>compute-only or publish</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="296" />
+            <source>算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制</source>
+            <translation>Algorithm parameters. AlgorithmSpec supplies the defaults.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="298" />
+            <source>显式输入引用与冻结值</source>
+            <translation>Explicit input references and frozen values</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="305" />
+            <source>时深批转换</source>
+            <translation>Batch time-depth conversion</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="306" />
+            <source>按显式井样、时深语义和模型修订做批转换。不读取当前选中井。</source>
+            <translation>Convert a batch using explicit well samples, time-depth semantics, and the specified model revision. The current well selection is ignored.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="308" />
+            <source>地震属性组</source>
+            <translation>Seismic attribute group</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="309" />
+            <source>对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。</source>
+            <translation>Compute RMS, envelope, or coherence on the trace buffers provided by the caller. No time-depth inputs are required.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="311" />
+            <source>约束 IDW</source>
+            <translation>Constrained IDW</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="312" />
+            <source>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</source>
+            <translation>prepare validates the inputs. compute-only runs the constrained IDW kernel and returns a raster reference. Publishing uses the host head and ignores current_head.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="401" />
+            <source>入口已接线：显式引用，不读取当前选择</source>
+            <translation>Available through explicit references. The current selection is ignored.</translation>
             <location filename="../src/ui/seismicsection/seismicsectiondock_internal.h" line="89"/>
             <source>添加断层 %1</source>
             <translation>Add fault %1</translation>
@@ -36431,6 +36566,96 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
 
 
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>无数据</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>没有可套用样点表达的图层</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>井点因子标注表达式构建失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/mapbooklayout.cpp"/>
+        <source>（本册没有可列条目）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>用户取消（已出的版保留）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>预演限额（前 %1 版）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>未执行</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录 %1 文件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单已写</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>警告 %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单未写</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 ok=%1 与 succeeded=%2 不符</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 failed=%1 与 failed=%2 不符</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 cancelled=%1 与 cancelled=%2 不符</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>登记失败，目录页随整册作废</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>QgisConstraintEditSession</name>

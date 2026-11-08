@@ -624,65 +624,53 @@ private:
   QListWidget *m_list = nullptr;
 };
 
-// ---- D7.8 列内联过滤（excel 风列头漏斗）--------------------------------------
-// 列头右键 → 该列的取值清单（勾选保留）；QTableWidget 形态按 setRowHidden
-// 落地（与既有 applyListFilter 同一机制，条件并入 FilterGroup 维度之外
-// 的「列面」——这里独立保存，应用时 AND）。
-class ColumnFunnel
+// ---- D7.8/P2 W3 列头漏斗 ------------------------------------------------------
+// P2 起，生产列头漏斗不再扫当前 QTableWidget 页面 + setRowHidden（那会把
+// 过滤范围截断在本页且不进 m_visibleAssetIds）。候选值与提交由
+// DataListPanel 统一查询状态管理（datalist_filter.cpp openColumnFunnel），
+// 这里只保留值选择弹层与旧静态辅助（兼容测试直调）。
+class ColumnValuePicker
 {
 public:
-  // 打开漏斗菜单（在 header 上）；返回是否应用了新过滤。
-  static bool execForColumn(QTableWidget *table, int column, QWidget *parent)
+  // 值选择弹层（QMenu：键盘可达——方向键/空格勾选/Esc 取消）。candidates
+  // 是逻辑候选全集（含零命中已选值）；checked 为回显勾选集。取消时
+  // *accepted=false（不提交，保留已激活过滤）。
+  static QStringList exec(const QStringList &candidates, const QStringList &checked,
+                          QWidget *parent, bool *accepted)
   {
-    if (!table || column < 0)
-      return false;
-    // 收集该列去重值（跳过空态指引行）。
-    QStringList values;
-    for (int r = 0; r < table->rowCount(); ++r)
-    {
-      const QTableWidgetItem *name = table->item(r, 0);
-      const QTableWidgetItem *it = table->item(r, column);
-      if (!name || name->data(Qt::UserRole).toString().isEmpty() || !it)
-        continue;
-      if (!values.contains(it->text()))
-        values << it->text();
-    }
-    values.sort();
+    QStringList out;
+    if (accepted)
+      *accepted = false;
+    if (candidates.isEmpty())
+      return out;
     QMenu menu(parent);
     menu.setObjectName(QStringLiteral("columnFunnelMenu"));
+    menu.setAccessibleName(QObject::tr("列过滤"));
     menu.setWindowTitle(QObject::tr("列过滤"));
-    // finding-131：回显当前过滤态——该列任一可见数据行含此值即勾选，已激活的
-    // 列过滤不再被「全勾」静默重置。
-    QSet<QString> visibleValues;
-    for (int r = 0; r < table->rowCount(); ++r)
-    {
-      const QTableWidgetItem *name = table->item(r, 0);
-      const QTableWidgetItem *it = table->item(r, column);
-      if (!name || name->data(Qt::UserRole).toString().isEmpty() || !it)
-        continue;
-      if (!table->isRowHidden(r))
-        visibleValues.insert(it->text());
-    }
     QList<QAction *> acts;
-    for (const QString &v : values)
+    for (const QString &v : candidates)
     {
       QAction *a = menu.addAction(v);
       a->setCheckable(true);
-      a->setChecked(visibleValues.contains(v));
+      a->setChecked(checked.contains(v));
       acts.append(a);
     }
-    if (acts.isEmpty())
-      return false;
-    // finding-131：Esc/点击外部取消（exec 返回 nullptr）→ 不提交，保留已激活过滤。
     if (!menu.exec(QCursor::pos()))
-      return false;
-    QSet<QString> keep;
+      return out;
+    if (accepted)
+      *accepted = true;
     for (QAction *a : acts)
       if (a->isChecked())
-        keep.insert(a->text());
-    applyColumnFilter(table, column, keep);
-    return true;
+        out << a->text();
+    return out;
   }
+};
+
+// 旧静态辅助（D7.8 兼容面：tst 直调的行隐藏应用器）。生产路径已改走统一
+// 查询状态，勿再从产品代码调用。
+class ColumnFunnel
+{
+public:
   // 纯应用面（测试直调）：keep 集 → 行隐藏。数据行身份看第 0 列的
   // UserRole（空态指引行不动）；过滤值取目标列文本。
   static void applyColumnFilter(QTableWidget *table, int column, const QSet<QString> &keep)

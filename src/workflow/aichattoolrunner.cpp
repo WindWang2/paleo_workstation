@@ -1,5 +1,6 @@
 // 层：功能
 #include "aichattoolrunner.h"
+#include "capabilitygateway.h"
 #include <QDir>
 #include <QFileInfo>
 
@@ -21,6 +22,7 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/welllogfacies.h"
 #include "../services/derivationgraph.h"
+#include "../services/artifactversioncapability.h"
 #include "../services/paleotaskservice.h"
 
 // workflow/ — 聊天工具执行器实现（方向61；方向77 增只读查询/血缘两工具）。
@@ -116,6 +118,7 @@ void AiChatToolRunner::run(const ChatToolCall &call) {
 void AiChatToolRunner::cancel() {
   // 取消 = 作废（口径见头文件）：在途结果不再 emit；tile 任务协作取消
   // （不写产品）；层位任务算完但丢弃；测井相 HTTP 中止。
+  m_cancelCompute.store(true);
   ++m_generation;
   m_queue.clear();
   if (m_activeTask)
@@ -170,6 +173,22 @@ void AiChatToolRunner::startNext() {
     runQuery(m_activeCall, args);
   else if (m_activeCall.name == QStringLiteral("paleo.asset_lineage"))
     runLineage(m_activeCall, args);
+  else if (m_activeCall.name == QStringLiteral("paleo.depth_convert_batch") ||
+           m_activeCall.name == QStringLiteral("paleo.seismic_attribute_group") ||
+           m_activeCall.name == QStringLiteral("paleo.constraint_idw")) {
+    if (m_context.projectDir.isEmpty() || m_context.documentId.isEmpty()) {
+      finishActive(false, errorPayload(tr("能力工具须由宿主绑定工程")));
+      return;
+    }
+    const QString operationDir = m_context.projectDir + QStringLiteral("/.paleo/capability-ops");
+    m_cancelCompute.store(false);
+    const QJsonObject payload = paleo::capability::runChatTool(
+        m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId, operationDir,
+        m_context.authoritativeHead, [this] { return m_cancelCompute.load(); }, m_context.catalog,
+        m_context.projectDir);
+    const bool ok = payload.value(QStringLiteral("ok")).toBool();
+    finishActive(ok, payload);
+  }
   else
     finishActive(false, errorPayload(tr("未登记的工具 %1").arg(m_activeCall.name)));
 }
@@ -494,6 +513,17 @@ void AiChatToolRunner::runQuery(const ChatToolCall &call,
   }
   const DataCatalog *catalog = m_context.catalog;
   const QString topic = args.value(QStringLiteral("topic")).toString();
+
+  if (topic == QStringLiteral("version")) {
+    paleo::capability::ArtifactVersionRequest request;
+    request.documentId=m_context.documentId;
+    request.versionId=args.value(QStringLiteral("version_id")).toString();
+    request.expectedCatalogRevision=intArg(args,"catalog_revision",catalog->catalogRevision());
+    const auto result=paleo::capability::ArtifactVersionCapability::describe(catalog,m_context.documentId,request);
+    QJsonObject payload{{"tool",QStringLiteral("paleo.query_project")},{"topic",topic},{"version",result.toJson()}};
+    if (!result.ok) payload.insert("error",result.error);
+    finishActive(result.ok,payload);return;
+  }
 
   QJsonObject payload;
   payload.insert(QStringLiteral("tool"), QStringLiteral("paleo.query_project"));

@@ -427,6 +427,11 @@
 <context>
     <name>AiChatToolRunner</name>
     <message>
+        <location filename="../src/workflow/aichattoolrunner.cpp" line="180"/>
+        <source>能力工具须由宿主绑定工程</source>
+        <translation>能力工具须由宿主绑定工程</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/aichattoolrunner.cpp" line="150"/>
         <source>实参不是合法 JSON：%1</source>
         <translation>实参不是合法 JSON：%1</translation>
@@ -12459,6 +12464,18 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/workflow/faciesmappingworkflow.cpp" line="628"/>
         <source>草稿相图图层声明失败：%1</source>
         <translation>草稿相图图层声明失败：%1</translation>
+    </message>
+    <message>
+      <source>工作流未绑定数据目录</source>
+      <translation>工作流未绑定数据目录</translation>
+    </message>
+    <message>
+      <source>相图输出目标无效</source>
+      <translation>相图输出目标无效</translation>
+    </message>
+    <message>
+      <source>输出准备已取消</source>
+      <translation>输出准备已取消</translation>
     </message>
 </context>
 <context>
@@ -28389,6 +28406,84 @@ PDF：%3
 <context>
     <name>QObject</name>
     <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="279"/>
+        <source>能力契约版本；缺省 1</source>
+        <translation>能力契约版本；缺省 1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="281"/>
+        <source>调用方请求号</source>
+        <translation>调用方请求号</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="283"/>
+        <source>pinned-value、follow-object-head 或 follow-selection</source>
+        <translation>pinned-value、follow-object-head 或 follow-selection</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="287"/>
+        <source>follow-selection 的选择绑定</source>
+        <translation>follow-selection 的选择绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="289"/>
+        <source>冻结时的对象头</source>
+        <translation>冻结时的对象头</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="291"/>
+        <source>忽略。提交头只来自宿主，模型填写无效</source>
+        <translation>忽略。提交头只来自宿主，模型填写无效</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="293"/>
+        <source>compute-only 或 publish</source>
+        <translation>compute-only 或 publish</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="296"/>
+        <source>算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制</source>
+        <translation>算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="298"/>
+        <source>显式输入引用与冻结值</source>
+        <translation>显式输入引用与冻结值</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="305"/>
+        <source>时深批转换</source>
+        <translation>时深批转换</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="306"/>
+        <source>按显式井样、时深语义和模型修订做批转换。不读取当前选中井。</source>
+        <translation>按显式井样、时深语义和模型修订做批转换。不读取当前选中井。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="308"/>
+        <source>地震属性组</source>
+        <translation>地震属性组</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="309"/>
+        <source>对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。</source>
+        <translation>对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="311"/>
+        <source>约束 IDW</source>
+        <translation>约束 IDW</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="312"/>
+        <source>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</source>
+        <translation>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="401"/>
+        <source>入口已接线：显式引用，不读取当前选择</source>
+        <translation>入口已接线：显式引用，不读取当前选择</translation>
         <location filename="../src/ui/seismicsection/seismicsectiondock_internal.h" line="89"/>
         <source>添加断层 %1</source>
         <translation>添加断层 %1</translation>
@@ -38273,6 +38368,136 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
             <translation>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</translation>
         </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>无数据</source>
+        <translation>无数据</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>没有可套用样点表达的图层</source>
+        <translation>没有可套用样点表达的图层</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
+        <translation>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>井点因子标注表达式构建失败</source>
+        <translation>井点因子标注表达式构建失败</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/mapbooklayout.cpp"/>
+        <source>（本册没有可列条目）</source>
+        <translation>（本册没有可列条目）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>用户取消（已出的版保留）</source>
+        <translation>用户取消（已出的版保留）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>预演限额（前 %1 版）</source>
+        <translation>预演限额（前 %1 版）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>未执行</source>
+        <translation>未执行</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录 %1 文件</source>
+        <translation>目录 %1 文件</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录失败</source>
+        <translation>目录失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单失败</source>
+        <translation>清单失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单已写</source>
+        <translation>清单已写</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>警告 %1</source>
+        <translation>警告 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>已导出产物</source>
+        <translation>已导出产物</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>页 %1 · %2</source>
+        <translation>页 %1 · %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>目录 %1/%2 · %3</source>
+        <translation>目录 %1/%2 · %3</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>清单 · manifest.json</source>
+        <translation>清单 · manifest.json</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>产物不存在或已被移动：%1</source>
+        <translation>产物不存在或已被移动：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>无法打开产物：%1</source>
+        <translation>无法打开产物：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>警告：%1</source>
+        <translation>警告：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>（共 %1 个文件）</source>
+        <translation>（共 %1 个文件）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单未写</source>
+        <translation>清单未写</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 ok=%1 与 succeeded=%2 不符</source>
+        <translation>页账本 ok=%1 与 succeeded=%2 不符</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 failed=%1 与 failed=%2 不符</source>
+        <translation>页账本 failed=%1 与 failed=%2 不符</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 cancelled=%1 与 cancelled=%2 不符</source>
+        <translation>页账本 cancelled=%1 与 cancelled=%2 不符</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>登记失败，目录页随整册作废</source>
+        <translation>登记失败，目录页随整册作废</translation>
+    </message>
     </context>
 <context>
     <name>SectionWorkbench</name>

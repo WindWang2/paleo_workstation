@@ -79,6 +79,7 @@ DerivedStaging DerivedAssetRegistrar::stage( const QString &assetType, const QSt
   // 已有版本资产的下一版 = 当前最大 +1；本注册器里已 stage 未 commit 的版本
   // 也占号（同资产连续 stage 不重号）。
   const CatalogVersion current = m_catalog->currentVersion( assetId );
+  st.expectedVersionId = current.id;
   const int catalogMax = current.id.isEmpty() ? 0 : current.versionNumber;
   st.versionNumber = qMax( catalogMax, m_pending.value( assetId, 0 ) ) + 1;
   m_pending.insert( assetId, st.versionNumber );

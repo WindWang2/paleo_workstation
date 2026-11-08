@@ -12,6 +12,7 @@
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyio.h"
 #include "algorithms/seismicattr.h"
+#include "algorithms/seisattrgroup.h"
 #include "io/sattrio.h"
 
 #include <QDateTime>
@@ -304,12 +305,17 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
 }
 
 PaleoTask *SeismicTaskService::startVolumeLoad(
-    const QString &path,std::function<void(bool,std::shared_ptr<SgyVolume>,const QString&)> done,bool quiet) {
-  return startIndexing(path,false,[done](bool ok,SgyIndexPtr index,const QString& error){
+    const QString &sgyPath,
+    std::function<void(bool, std::shared_ptr<SgyVolume>, const QString &)> onFinished, bool quiet) {
+  return startIndexing(sgyPath, false, [onFinished](bool ok, SgyIndexPtr index, const QString &error) {
     std::shared_ptr<SgyVolume> volume;
-    if(ok&&index){volume=std::make_shared<SgyVolume>();volume->AdoptIndex(index);}
-    if(done)done(ok&&bool(volume),volume,error);
-  },{},quiet);
+    if (ok && index) {
+      volume = std::make_shared<SgyVolume>();
+      volume->AdoptIndex(index);
+    }
+    if (onFinished)
+      onFinished(ok && bool(volume), volume, error);
+  }, {}, quiet);
 }
 
 // ---- 地震属性（goal/seismic-attributes）------------------------------------
@@ -643,44 +649,24 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
           trace[static_cast<std::size_t>(height - 1 - row)] =
               src.values[static_cast<std::size_t>(row * width + x)];
 
-        switch (kind)
+        if (kind != SeismicAttrKind::Coherence)
         {
-        case SeismicAttrKind::Envelope:
-        case SeismicAttrKind::InstPhase:
-        case SeismicAttrKind::InstFreq:
-        case SeismicAttrKind::InstQ:
-        case SeismicAttrKind::Sweetness:
-        {
-          const paleo::seisattr::ComplexTraceResult ct =
-              paleo::seisattr::complexTraceAnalysis(trace.data(), height, dtMs);
-          if (kind == SeismicAttrKind::Envelope)
-            attr = ct.envelope;
-          else if (kind == SeismicAttrKind::InstPhase)
-            attr = ct.phaseDeg;
-          else if (kind == SeismicAttrKind::InstFreq)
-            attr = ct.freqHz;
-          else if (kind == SeismicAttrKind::InstQ)
-            attr = ct.quality;
-          else
-            paleo::seisattr::sweetness(ct.envelope.data(), ct.freqHz.data(),
-                                       height, attr.data());
-          break;
-        }
-        case SeismicAttrKind::Rms:
-          paleo::seisattr::windowedRms(trace.data(), height,
-                                       params.windowHalfSamples, attr.data());
-          break;
-        case SeismicAttrKind::MaxAbs:
-          paleo::seisattr::windowedMaxAbs(trace.data(), height,
-                                          params.windowHalfSamples, attr.data());
-          break;
-        case SeismicAttrKind::MeanEnergy:
-          paleo::seisattr::windowedMeanEnergy(trace.data(), height,
-                                              params.windowHalfSamples,
-                                              attr.data());
-          break;
-        case SeismicAttrKind::Coherence:
-          break; // 已在上面整体处理
+          using A = paleo::seisattr::TraceAttribute;
+          A mapped = A::Envelope;
+          switch (kind)
+          {
+          case SeismicAttrKind::Envelope: mapped = A::Envelope; break;
+          case SeismicAttrKind::InstPhase: mapped = A::Phase; break;
+          case SeismicAttrKind::InstFreq: mapped = A::Frequency; break;
+          case SeismicAttrKind::InstQ: mapped = A::Quality; break;
+          case SeismicAttrKind::Sweetness: mapped = A::Sweetness; break;
+          case SeismicAttrKind::Rms: mapped = A::Rms; break;
+          case SeismicAttrKind::MaxAbs: mapped = A::MaxAbs; break;
+          case SeismicAttrKind::MeanEnergy: mapped = A::MeanEnergy; break;
+          case SeismicAttrKind::Coherence: break;
+          }
+          paleo::seisattr::computeTraceAttribute(mapped, trace.data(), height, params.windowHalfSamples, dtMs,
+                                                attr.data());
         }
 
         for (int row = 0; row < height; ++row)

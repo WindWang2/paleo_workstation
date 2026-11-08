@@ -2,6 +2,7 @@
 // 方向57：从 constraintfactorjobs.cpp 按函数族析出。方法定义逐字搬迁，
 // 类契约仍在 workflows.h（公共 API 零改动）；族间共享辅助经
 // constraintfactorjobs_internal.h。
+#include "capabilitygateway.h"
 #include "../algorithms/ensemblestats.h" // StatsRequest（方向47 集合统计派生）
 #include "../algorithms/geostat/kriging.h" // KrigingParams / KrigingResult（方向18）
 #include "../algorithms/geostat/sgs.h"       // SgsParams / SgsResult（方向18）
@@ -222,7 +223,16 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   }
   QStringList parentPaths{ points->source().section( QLatin1Char( '|' ), 0, 0 ) };
 
-  QVariantMap runParams;
+  QString paramCode;
+  const QVariantMap effective = paleo::capability::effectiveScalarParams(
+      QStringLiteral( "paleo:paleo_constraint_idw" ), 1,
+      { { QStringLiteral( "FIELD" ), field }, { QStringLiteral( "CELL_SIZE" ), cellSize } }, &paramCode );
+  if ( paramCode != QLatin1String( "ok" ) )
+  {
+    paleo::workflow_detail::setError( error, paramCode );
+    return false;
+  }
+  QVariantMap runParams = effective;
   runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
   runParams.insert( QStringLiteral( "FIELD" ), field );
   runParams.insert( QStringLiteral( "CELL_SIZE" ), cellSize );

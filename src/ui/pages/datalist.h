@@ -15,6 +15,7 @@
 #include "dataops/dataopsfilter.h"
 #include "dataops/dataopsfuzzy.h"
 #include "dataops/dataopsmodel.h"
+#include "dataops/dataopsquery.h"
 #include "dataops/dataopsselection.h"
 #include "dataopsundo.h"
 #include "datanavtree.h"
@@ -24,6 +25,7 @@
 
 class PreviewDocService;
 class CatalogAsset;
+class QComboBox;
 class QHBoxLayout;
 class QVBoxLayout;
 class QStackedWidget;
@@ -103,11 +105,25 @@ class DataListPanel : public QWidget
     paleo::dataops::SelectionMix currentSelectionMix() const;
 
     // ---- D2 过滤面 ----
-    paleo::dataops::FilterGroup filterGroup() const { return m_filter; }
-    void applyFilterGroup(const paleo::dataops::FilterGroup &g); // 替换并应用
-    QString filterStateString() const { return m_filter.toStateString(); }
-    void setFilterFromStateString(const QString &s);
-    QString activeTagFilter() const { return m_activeTag; }
+    paleo::dataops::FilterGroup filterGroup() const { return m_query.group; }
+    void applyFilterGroup(const paleo::dataops::FilterGroup &g); // 替换条件组并应用
+    // P2：filterStateString 升级为 v2 全量分享串（条件+标签+列约束）。
+    QString filterStateString() const { return paleo::dataops::query::serializeQuery(m_query); }
+    // 诊断入口：坏串不替换当前查询，返回诊断供状态条呈现。
+    paleo::dataops::query::QueryStateParse tryApplyQueryStateString(const QString &s);
+    void setFilterFromStateString(const QString &s); // 兼容面：仅有效串才替换
+    QString activeTagFilter() const { return m_query.activeTag; }
+
+    // ---- P2 统一查询面（单一事实源：条件组 + 活动标签 + 列约束）----
+    paleo::dataops::query::DataQuery currentQuery() const { return m_query; }
+    void applyQuery(const paleo::dataops::query::DataQuery &q);   // 整组替换（含列/标签）
+    // 列约束（漏斗提交面）：values 空表 = 显式空集合（零命中）。
+    void setColumnConstraint(paleo::dataops::query::ColumnKey k, const QStringList &values);
+    void clearColumnConstraint(paleo::dataops::query::ColumnKey k);
+    // 漏斗候选（逻辑全集：应用其他条件、排除本列约束；含零命中已选值）。
+    QStringList columnCandidatesFor(paleo::dataops::query::ColumnKey k) const;
+    // 生产列头漏斗入口（表列 0/1/2 → 名称/类型/关联）。
+    void openColumnFunnel(int tableColumn);
 
     // ---- 树排序（D2.5）----
     void setTreeSort(paleo::dataops::TreeSortKind kind);
@@ -308,9 +324,10 @@ class DataListPanel : public QWidget
   private:
     void showAssetContextMenu(QObject *source, const QPoint &pos);              // D1.3
     void loadStoresForCatalog();   // catalog 会话变化 → stores 重载 + 栈清空
-    // 旧搜索/类型控件 → FilterGroup 同步（兼容面：assetSearchEdit/assetTypeFilter
-    // 仍是 Search/Type 维度的输入口）。
-    void syncLegacyControlsIntoFilter();
+    // 旧搜索/类型控件 ↔ 查询状态镜像（P2：控件只是编辑器/镜像——用户编辑
+    // 走 setPositiveValue 只动正向条件；刷新时按状态回写控件，信号阻断防环）。
+    void mirrorQueryIntoLegacyControls();
+    void wireLegacyFilterControls(QLineEdit *search, QComboBox *typeFilter);
 
     PreviewDocService *m_doc = nullptr;
     paleo::dataops::DataNavTree *m_tree = nullptr;
@@ -333,8 +350,8 @@ class DataListPanel : public QWidget
     paleo::dataops::EntityOverrideStore m_entityOv;    // D4.1/D4.2
     paleo::dataops::RecycleBin m_recycle;              // D1.6
     class WellAttachmentPanel *m_attachments = nullptr; // 方向 79（按需建）
-    paleo::dataops::FilterGroup m_filter;              // D2
-    QString m_activeTag;                               // D2.4 标签云激活
+    paleo::dataops::query::DataQuery m_query;          // P2 单一事实源（D2 条件+标签+列约束）
+    void commitQuery();                                // 状态变更 → 镜像+过滤+chip/词表刷新
     bool m_treeWasFiltering = false;                   // 「清空搜索即收拢」只在过滤态退出那一跳执行
     QVector<paleo::dataops::AssetRowInfo> m_rows;      // 行快照（过滤输入）
     paleo::dataops::SelectionKeeper m_selKeep;         // D1.10

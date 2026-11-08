@@ -21,6 +21,7 @@
 #include <qgsmaprendererparalleljob.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
+#include <qgscoordinatereferencesystem.h>
 #include <qgssinglebandpseudocolorrenderer.h>
 #include <qgsvectorlayer.h>
 #include <qgssinglesymbolrenderer.h>
@@ -3018,6 +3019,9 @@ class TestFactorWorkflow : public QObject
         return QString();
       const double gt[6] = { originX, pixelSize, 0.0, originY, 0.0, -pixelSize };
       GDALSetGeoTransform( ds, const_cast<double *>( gt ) );
+      // P3：协变量必须声明 CRS（井同 EPSG:3857）——无 CRS 栅格不再被当同域直采。
+      const QString wkt = QgsCoordinateReferenceSystem( QStringLiteral( "EPSG:3857" ) ).toWkt();
+      GDALSetProjection( ds, wkt.toUtf8().constData() );
       QVector<float> px( cols * rows );
       for ( int r = 0; r < rows; ++r )
       {

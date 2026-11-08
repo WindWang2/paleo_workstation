@@ -155,6 +155,7 @@ std::unique_ptr<DataCatalog> DataCatalog::createStagingCopy(const QString &overl
   copy->m_openError = m_openError;
   copy->m_lockedReadOnly = m_lockedReadOnly;
   copy->m_revision = m_revision;
+  copy->m_projectionCheckpoints=m_projectionCheckpoints;
   copy->m_mutationSeq = m_mutationSeq;
   copy->m_entities = m_entities; // COW：worker 首次写才 detach
   copy->m_assets = m_assets;
@@ -189,6 +190,7 @@ public:
   QVector<CatalogAsset> assets;
   QVector<CatalogVersion> versions;
   QVector<EntityAssetLink> links;
+  QJsonObject projectionCheckpoints;
   int assetSeq = 0, versionSeq = 0;
   quint64 mutationSeq = 0;
   CatalogIndex idx;
@@ -210,6 +212,7 @@ DataCatalog::StagingCheckpoint DataCatalog::checkpointStaging() const
   st->assets = m_assets;
   st->versions = m_versions;
   st->links = m_links;
+  st->projectionCheckpoints=m_projectionCheckpoints;
   st->assetSeq = m_assetSeq;
   st->versionSeq = m_versionSeq;
   st->mutationSeq = m_mutationSeq;
@@ -238,6 +241,7 @@ void DataCatalog::rollbackStaging(const StagingCheckpoint &cp)
   m_assets = st.assets;
   m_versions = st.versions;
   m_links = st.links;
+  m_projectionCheckpoints=st.projectionCheckpoints;
   m_assetSeq = st.assetSeq;
   m_versionSeq = st.versionSeq;
   m_mutationSeq = st.mutationSeq;
@@ -276,6 +280,7 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
   const QVector<CatalogAsset> assets0 = m_assets;
   const QVector<CatalogVersion> versions0 = m_versions;
   const QVector<EntityAssetLink> links0 = m_links;
+  const auto projectionCheckpoints0=m_projectionCheckpoints;
   const int assetSeq0 = m_assetSeq, versionSeq0 = m_versionSeq;
   const CatalogIndex idx0 = m_idx;
   const int depth0 = m_batchDepth;
@@ -289,6 +294,7 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
     m_assets = assets0;
     m_versions = versions0;
     m_links = links0;
+    m_projectionCheckpoints=projectionCheckpoints0;
     m_assetSeq = assetSeq0;
     m_versionSeq = versionSeq0;
     m_idx = idx0;
@@ -324,6 +330,12 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
       case CatalogOp::Kind::UpdateVersionExtra:
         ok = updateVersionExtra(op.id, op.extraKey, op.extraValue, &opErr);
         break;
+      case CatalogOp::Kind::SetProjectionCheckpoint: {
+        CatalogProjectionCheckpoint checkpoint;
+        ok=CatalogProjectionCheckpoint::fromJson(QJsonObject::fromVariantMap(op.extraValue.toMap()),checkpoint) &&
+            setProjectionCheckpoint(op.id,checkpoint,&opErr);
+        break;
+      }
     }
     if (!ok)
     {
@@ -385,6 +397,7 @@ bool DataCatalog::adoptPrepared(const std::shared_ptr<DataCatalog> &prepared, QS
   m_primaryCorruptOnDisk = prepared->m_primaryCorruptOnDisk;
   m_forceFullSave = prepared->m_forceFullSave;
   m_revision = prepared->m_revision;
+  m_projectionCheckpoints=std::move(prepared->m_projectionCheckpoints);
   m_mutationSeq = qMax(m_mutationSeq + 1, prepared->m_mutationSeq);
   m_entities = std::move(prepared->m_entities);
   m_assets = std::move(prepared->m_assets);
@@ -427,6 +440,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_batchSnapshot.reset();
   m_dir = projectDir.trimmed().isEmpty() ? QString() : projectDir;
   m_revision = 0;
+  m_projectionCheckpoints={};
   m_entities.clear();
   m_assets.clear();
   m_versions.clear();
@@ -495,6 +509,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_versions = std::move(tables.versions);
   m_links = std::move(tables.links);
   m_revision = tables.meta.revision;
+  m_projectionCheckpoints=std::move(tables.meta.projectionCheckpoints);
   m_assetSeq = qMax(m_assetSeq, tables.meta.assetSeq);
   m_versionSeq = qMax(m_versionSeq, tables.meta.versionSeq);
   {
@@ -580,6 +595,7 @@ bool DataCatalog::commitStore(QString *error)
 
   CatalogStore::Meta meta;
   meta.revision = m_revision + 1;
+  meta.projectionCheckpoints=m_projectionCheckpoints;
   meta.mutationSeq = m_mutationSeq; // recordOp 在 save 成功之后才 +1
   meta.assetSeq = m_assetSeq;
   meta.versionSeq = m_versionSeq;
@@ -683,6 +699,7 @@ void DataCatalog::beginBatch()
     snap->assets = m_assets;
     snap->versions = m_versions;
     snap->links = m_links;
+    snap->projectionCheckpoints=m_projectionCheckpoints;
     snap->assetSeq = m_assetSeq;
     snap->versionSeq = m_versionSeq;
     snap->idx = m_idx;
@@ -720,6 +737,7 @@ bool DataCatalog::endBatch(QString *error)
     m_assets = std::move(snap->assets);
     m_versions = std::move(snap->versions);
     m_links = std::move(snap->links);
+    m_projectionCheckpoints=std::move(snap->projectionCheckpoints);
     m_assetSeq = snap->assetSeq;
     m_versionSeq = snap->versionSeq;
     m_idx = std::move(snap->idx);

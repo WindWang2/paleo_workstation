@@ -98,6 +98,11 @@ public:
   };
   static bool computeDepth(DepthJob &job, const std::function<bool()> &cancelled);
 
+  // 显式井样批转换。与 capability::execute("depth.convert_batch") 同一路径。
+  // 不读当前选中井，也不把 MD 当成 TVD。
+  QVariantMap convertWellSamples(const QVariantMap &parameters, const QVariantMap &inputs,
+                                 const QString &operationDir, QString *code = nullptr) const;
+
   // 绑定实例的便捷面（壳层不重复持有 catalog/projectDir）。
   QString latestModelPath() const;
   VelocityModelBuildRequest requestFromCatalog() const;

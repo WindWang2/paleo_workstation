@@ -3,6 +3,7 @@
 #include "layervocabulary.h"
 #include "constraintcrs.h"
 #include "factorstylewriter.h"
+#include "samplepointstyle.h"
 #include "qgiserrors_internal.h"
 
 #include "qgisprojectservice.h"
@@ -281,6 +282,16 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   if (decl->layerId.startsWith(QStringLiteral("contours.")) ||
       (decl->layerId.startsWith(QStringLiteral("cartographic.")) && decl->layerId.endsWith(QStringLiteral(".contours"))))
     FactorStyleWriter::applyContours(qobject_cast<QgsVectorLayer *>(layer.get()));
+  // P5-W2：井点因子样点表达（井名+实际值双行）。samples./wellfactor. 声明
+  // 前缀只是入口，身份核对以字段为准（isWellFactorPoints：factor_value +
+  // 井识别字段），字段不齐不套用；声明带显式 styleRef 时让位给既有
+  // QgisStyleService::applyStyle 消费链（用户/版本化样式优先）。
+  if (decl->styleRef.isEmpty() &&
+      (decl->layerId.startsWith(QStringLiteral("samples.")) ||
+       decl->layerId.startsWith(QStringLiteral("wellfactor."))))
+    if (auto *sampleVector = qobject_cast<QgsVectorLayer *>(layer.get());
+        sampleVector && PaleoSamplePointStyle::isWellFactorPoints(sampleVector))
+      PaleoSamplePointStyle::applyWellFactorLabels(sampleVector);
   if(decl->layerId==QLatin1String("boundary.project_range")){
     bool loaded=false;layer->loadNamedStyle(decl->styleRef,loaded);
     if(auto *vector=qobject_cast<QgsVectorLayer *>(layer.get()))vector->setReadOnly(true);

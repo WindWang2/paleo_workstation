@@ -163,6 +163,17 @@ void DataListPanel::selectAssetInViews(const QString &assetId)
   bool liveAsset = false;
   for (const auto &row : m_rows) if (row.assetId == assetId) { liveAsset = true; break; }
   if (!liveAsset) return;
+  // P2 W5：外部定位到被过滤资产 → 如实说明被隐藏，保持用户查询不暗中放宽；
+  // 该身份仍进记忆选区（过滤解除后可恢复），但 currentAssetSelection 因
+  // m_visibleAssetIds 不含它而排除——批操作收不到隐藏 ID。
+  if (!m_visibleAssetIds.contains(assetId))
+    emit statusMessage(tr("「%1」被当前过滤条件隐藏——未修改过滤")
+                           .arg([this, assetId] {
+                             for (const auto &row : m_rows)
+                               if (row.assetId == assetId)
+                                 return row.displayName;
+                             return assetId;
+                           }()));
   // A single navigation target must replace selections in every view. Otherwise
   // graph commands could silently apply to a previously selected icon/tree row.
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));

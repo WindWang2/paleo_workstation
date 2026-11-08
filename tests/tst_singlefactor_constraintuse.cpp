@@ -365,10 +365,11 @@ private slots:
     }
   }
 
-  // 验收：地统 kriging/sgs/cokriging 不读约束，逐条标未使用。
+  // 验收：地统 kriging/cokriging 不读约束，逐条标未使用；P3 起 SGS 消费
+  // 硬屏障（静态井与已模拟格邻域同时隔断），方向线/软边界仍不参与。
   void geostatFlagsConstraintsUnused()
   {
-    for ( const QString method : { QStringLiteral( "kriging" ), QStringLiteral( "sgs" ), QStringLiteral( "cokriging" ) } )
+    for ( const QString method : { QStringLiteral( "kriging" ), QStringLiteral( "cokriging" ) } )
     {
       QVERIFY( !methodReadsConstraints( method ) );
       QVERIFY( !methodConstraintCapabilityNote( method ).isEmpty() );
@@ -379,6 +380,22 @@ private slots:
         QCOMPARE( d.reason, QStringLiteral( "method_does_not_read_line_constraints" ) );
       }
     }
+    QVERIFY( methodReadsConstraints( QStringLiteral( "sgs" ) ) );
+    QVERIFY( !methodConstraintCapabilityNote( QStringLiteral( "sgs" ) ).isEmpty() );
+    {
+      const ConstraintUseDecision barrier = decide( QStringLiteral( "break_line" ), QString(),
+                                                    QStringLiteral( "sgs" ) );
+      QVERIFY( barrier.consumed );
+      QCOMPARE( barrier.role, QStringLiteral( "hard_barrier" ) );
+      QVERIFY( !barrier.cartographicOnly );
+    }
+    QCOMPARE( decide( QStringLiteral( "direction_line" ), QString(), QStringLiteral( "sgs" ) ).reason,
+              QStringLiteral( "unsupported_by_method" ) );
+    const ConstraintUseDecision shown = decide(
+        QStringLiteral( "break_line" ), QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"display_only"})" ),
+        QStringLiteral( "sgs" ) );
+    QVERIFY( !shown.consumed ); // display_only 重分类为 contour_stop，不隔断模拟场
+    QVERIFY( shown.cartographicOnly );
     QVERIFY( methodReadsConstraints( QStringLiteral( "idw" ) ) );
     QCOMPARE( canonicalConstraintMethod( QStringLiteral( "idw" ) ), QStringLiteral( "legacy" ) );
   }

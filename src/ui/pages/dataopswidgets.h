@@ -25,6 +25,7 @@
 #include "../paleotheme.h"
 #include "dataops/dataopsfilter.h"
 #include "dataops/dataopsmodel.h"
+#include "dataops/dataopsquery.h"
 
 namespace paleo::dataops
 {
@@ -155,16 +156,11 @@ public:
     lay->addWidget(m_clear);
   }
 
-  // 渲染条件集 + AND/OR 模式标记。
+  // 渲染条件集 + AND/OR 模式标记（只管条件 chip；列约束 chip 由
+  // setColumnConstraints 追加——refreshChipBar 固定先后调用两者）。
   void setConditions(const FilterGroup &g)
   {
-    while (m_chipsLay->count() > 0)
-    {
-      QLayoutItem *it = m_chipsLay->takeAt(0);
-      if (it->widget())
-        it->widget()->deleteLater();
-      delete it;
-    }
+    clearAllChips();
     for (const FilterCondition &c : g.conditions)
     {
       auto *chip = new QPushButton(c.display(), m_chips);
@@ -197,16 +193,69 @@ public:
               });
       m_chipsLay->addWidget(chip);
     }
-    setVisible(!g.conditions.isEmpty());
-    m_clear->setVisible(g.conditions.size() > 1);
+    refreshChipBarVisibility();
+  }
+
+  // P2 W3：列约束 chip（objectName 区分于条件 chip；点击 = 清除该列约束）。
+  void setColumnConstraints(const QVector<paleo::dataops::query::ColumnConstraint> &cols)
+  {
+    // 只摘旧列 chip（条件 chip 不动——setConditions 已渲染）。
+    for (int i = m_chipsLay->count() - 1; i >= 0; --i)
+    {
+      QWidget *w = m_chipsLay->itemAt(i)->widget();
+      if (w && w->objectName() == QLatin1String("columnChip"))
+      {
+        m_chipsLay->removeWidget(w);
+        w->deleteLater();
+      }
+    }
+    for (const auto &col : cols)
+    {
+      auto *chip = new QPushButton(col.display(), m_chips);
+      chip->setObjectName(QStringLiteral("columnChip"));
+      chip->setFlat(true);
+      PaleoTheme::applyThemedStyleSheet(chip, [] {
+        const auto &t = PaleoTheme::tokens();
+        return PaleoTheme::metricStyleSheet(QStringLiteral("background: %1; color: %2; border: 1px solid %3;"
+                              "border-radius: %4px; padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt;"))
+            .arg(t.surface.name().toUpper(), t.textMuted.name().toUpper(),
+                 t.border.name().toUpper())
+            .arg(PaleoTheme::chipRadius(PaleoTheme::bodyFont(t.labelPt)));
+      });
+      chip->setToolTip(tr("点击清除该列过滤"));
+      connect(chip, &QPushButton::clicked, this,
+              [this, k = col.key] { emit columnChipRemoved(k); });
+      m_chipsLay->addWidget(chip);
+    }
+    refreshChipBarVisibility();
   }
 
 signals:
   void chipRemoved(const paleo::dataops::FilterCondition &c); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void chipToggled(const paleo::dataops::FilterCondition &c); // NOLINT(readability-inconsistent-declaration-parameter-name)
+  void columnChipRemoved(paleo::dataops::query::ColumnKey key);
   void clearAllRequested();
 
 private:
+  void clearAllChips()
+  {
+    while (m_chipsLay->count() > 0)
+    {
+      QLayoutItem *it = m_chipsLay->takeAt(0);
+      if (it->widget())
+        it->widget()->deleteLater();
+      delete it;
+    }
+  }
+  void refreshChipBarVisibility()
+  {
+    int chips = 0;
+    for (int i = 0; i < m_chipsLay->count(); ++i)
+      if (m_chipsLay->itemAt(i)->widget())
+        ++chips;
+    setVisible(chips > 0);
+    m_clear->setVisible(chips > 1);
+  }
   QWidget *m_chips = nullptr;
   QLayout *m_chipsLay = nullptr;
   QPushButton *m_clear = nullptr;
@@ -476,6 +525,18 @@ public:
   {
     for (auto &b : m_buttons)
       b.first->setChecked(false);
+  }
+  // P2 W6：勾选态随查询同步（预设/分享串替换后不再残留旧态）。阻断信号——
+  // 状态回写不是用户编辑，不触发 quickToggled 回环（随后的 chip/计数刷新
+  // 由 commitQuery 统一做）。
+  void setActiveStates(bool unlinked, bool unknown, bool warned)
+  {
+    const QList<bool> on = {unlinked, unknown, warned};
+    for (int i = 0; i < m_buttons.size() && i < on.size(); ++i)
+    {
+      const QSignalBlocker b(m_buttons.at(i).first);
+      m_buttons[i].first->setChecked(on.at(i));
+    }
   }
 
 signals:

@@ -76,6 +76,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-io-perf.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-mamcl.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-mapping.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-p5-mapbook-delivery.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-petrophys.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-property-modeling.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
@@ -86,6 +87,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic-inversion.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-p3-geostat-inputs.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-shell-lifecycle.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sf-kriging.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sf-completion.cmake"
@@ -106,6 +108,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-service.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-ui.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-p1-data-commands.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-p2-data-query.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
   if(EXISTS "${_f}")

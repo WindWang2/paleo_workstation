@@ -70,10 +70,9 @@ bool loadSnapshot(const QString &root, paleo::data::DataService &service, ModelS
   }
   std::vector<SourceIndexEntry> sources;
   if (!service.listSourceIndexEntries(sources, detail)) { *error = q(detail); return false; }
-  for (const auto &source : sources) {
-    if (!source.active || source.status == "failed" || source.status == "ignored") continue;
-    out.sources.append(source);
-  }
+  // Bootstrap is a full inventory: unavailable entries and absent old IDs must
+  // be reconciled before its head can become a durable projection watermark.
+  for (const auto &source : sources) out.sources.append(source);
   for (const auto &kind : {"curves", "intervals", "time_depth", "trajectories", "core_photos",
                            "samples", "attachments", "markers", "volumes", "horizons"}) {
     std::vector<DataEntry> rows;
@@ -247,15 +246,27 @@ bool addModelLinks(DataCatalog &catalog, paleo::data::DataService &service,
   }
   QHash<qlonglong, QString> surveyIds;
   for (const auto &row : model.volumes) {
+    if (!versions.contains(row.sourceId)) continue;
     if (!ensureSurvey(catalog, service, row, surveyIds, error)) return false;
     if (!addLink(catalog, versions, row.sourceId, QStringLiteral("seismic_survey"),
                  surveyIds.value(row.id), QStringLiteral("seismic_volume"), error)) return false;
   }
   for (const auto &row : model.horizons) {
+    if (!versions.contains(row.sourceId)) continue;
     if (!addLink(catalog, versions, row.sourceId, QStringLiteral("seismic_survey"),
                  surveyIds.value(row.parentId), QStringLiteral("horizon"), error)) return false;
   }
   return true;
+}
+
+bool retireBootstrapSource(DataCatalog &catalog,const CatalogVersion &version,
+                           const QString &generation,const QString &status,
+                           const QString &message,QString *error) {
+  const QVariantMap observation{{"active",false},{"status",status},{"message",message.left(4096)},{"bootstrap",true}};
+  if(!catalog.updateVersionExtra(version.id,{{"areaModelGeneration",generation},{"areaModelObservation",observation}},error))return false;
+  // An older source can share an asset's history with a newer live source or
+  // a derived result. Only its current representative owns the active links.
+  return catalog.currentVersion(version.assetId).id!=version.id || catalog.reviewAssetLinks(version.assetId,error);
 }
 }
 
@@ -264,7 +275,7 @@ bool applyAreaPointMapping(const QString &project, const QString &sourcePath,
   return applyPointMapping(project, sourcePath, mapping, error);
 }
 
-bool registerAreaSources(DataCatalog &catalog, QString *error) {
+bool bootstrapAreaSources(DataCatalog &catalog, const QString &generation, bool allowLegacy, QString *error) {
   if (error) error->clear();
   const QString root = areaRoot(catalog.projectDir());
   if (!QFileInfo::exists(root + "/data.sqlite")) return true;
@@ -276,27 +287,44 @@ bool registerAreaSources(DataCatalog &catalog, QString *error) {
   QHash<qlonglong, CatalogVersion> bySource;
   QHash<QString, QVector<CatalogVersion>> byPath;
   for (const auto &version : catalog.versions()) {
+    if (version.stage!=QLatin1String("RAW")) continue;
     const auto sourceId = version.extra.value("areaModelSourceId").toLongLong();
-    if (sourceId) bySource.insert(sourceId, version);
+    if (sourceId && (version.extra.value("areaModelGeneration").toString()==generation || allowLegacy)) bySource.insert(sourceId, version);
     byPath[QDir::cleanPath(version.sourceUri)].append(version);
   }
+  QSet<qlonglong> present;
   for (const auto &source : model.sources) {
+    present.insert(source.id);
     const QString path = sourcePath(source);
     CatalogVersion previous = bySource.value(source.id);
+    if(!source.active || source.status=="failed" || source.status=="ignored") {
+      if(!previous.id.isEmpty() && !retireBootstrapSource(catalog,previous,generation,q(source.status),q(source.message),error)) {
+        batch.abort();return false;
+      }
+      bySource.remove(source.id);
+      continue;
+    }
     if (previous.id.isEmpty()) {
       const auto candidates = byPath.value(path);
       for (auto it = candidates.crbegin(); it != candidates.crend(); ++it) {
+        const auto claimed = it->extra.value("areaModelSourceId").toLongLong();
+        if (claimed && claimed != source.id) continue;
         if (previous.id.isEmpty() && paleo::domain::shaEquals(it->sha256, q(source.sha256))) previous = *it;
       }
-      if (previous.id.isEmpty() && !candidates.isEmpty()) previous = candidates.last();
     }
-    if (!previous.id.isEmpty() && paleo::domain::shaEquals(previous.sha256, q(source.sha256))) {
-      if (previous.extra.value("areaModelSourceId").toLongLong() != source.id) {
-        if (!catalog.updateVersionExtra(previous.id, "areaModelSourceId", qlonglong(source.id), error)) {
-          batch.abort(); return false;
-        }
-        previous.extra.insert("areaModelSourceId", qlonglong(source.id));
+    if (!previous.id.isEmpty() && previous.extra.value("areaModelSourceId").toLongLong()==source.id &&
+        (paleo::domain::shaEquals(previous.sha256, q(source.sha256)) ||
+         (previous.sha256.isEmpty() && source.sha256.empty())) &&
+        QDir::cleanPath(catalog.versionFilePath(previous))==QDir::cleanPath(readablePath(root,source)) &&
+        QDir::cleanPath(previous.sourceUri)==path) {
+      const QVariantMap observation{{"active",true},{"status",q(source.status)},
+          {"message",q(source.message).left(4096)},{"bootstrap",true}};
+      const QVariantMap patch{{"areaModelGeneration",generation},{"areaModelObservation",observation}};
+      if (!catalog.updateVersionExtra(previous.id,patch,error)) {
+        batch.abort(); return false;
       }
+      previous.extra.insert("areaModelGeneration", generation);
+      previous.extra.insert("areaModelObservation",observation);
       bySource.insert(source.id, previous);
       continue;
     }
@@ -313,15 +341,29 @@ bool registerAreaSources(DataCatalog &catalog, QString *error) {
     version.sourceUri = q(source.path); version.sha256 = q(source.sha256);
     version.fileName = QFileInfo(q(source.path)).fileName();
     version.extra.insert("areaModelSourceId", qlonglong(source.id));
+    version.extra.insert("areaModelGeneration", generation);
     version.extra.insert("areaModelSourceKind", q(source.kind));
+    version.extra.insert("areaModelObservation",QVariantMap{{"active",true},{"status",q(source.status)},
+        {"message",q(source.message).left(4096)},{"bootstrap",true}});
     if (!previous.id.isEmpty()) {
       const auto current = catalog.currentVersion(asset.id);
       version.versionNumber = current.versionNumber + 1;
-      version.parentVersionIds = QStringList{current.id};
+      version.parentVersionIds = QStringList{previous.id};
     }
     if (!catalog.addVersion(version, error)) { batch.abort(); return false; }
     bySource.insert(source.id, version); byPath[path].append(version);
   }
+  for(auto it=bySource.begin();it!=bySource.end();) {
+    if(present.contains(it.key())) {++it;continue;}
+    if(!retireBootstrapSource(catalog,it.value(),generation,QStringLiteral("deleted"),{},error)) {batch.abort();return false;}
+    it=bySource.erase(it);
+  }
   if (!addModelLinks(catalog, service, model, bySource, error)) { batch.abort(); return false; }
+  for (auto entity : catalog.storedEntities()) {
+    if (!entity.extra.contains("areaModelWellId") && !entity.extra.contains("areaModelVolumeId")) continue;
+    if (entity.extra.value("areaModelGeneration").toString()==generation) continue;
+    entity.extra.insert("areaModelGeneration", generation);
+    if (!catalog.updateEntity(entity,error)) { batch.abort(); return false; }
+  }
   return batch.flush(error);
 }

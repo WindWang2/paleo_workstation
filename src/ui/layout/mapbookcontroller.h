@@ -62,6 +62,8 @@ class PaleoMapBookController : public QObject
   private:
     void onExporterFinished( quint64 generation, PaleoMapBookQueue::Exporter *exporter,
                              const PaleoMapBookQueue::Result &result );
+    //! 打开已导出产物（打开前现校验存在性；P5-W7）。
+    void openArtifact( const QString &path );
 
     QPointer<PaleoMapBookPanel> m_panel;
     PaleoTaskService *m_tasks = nullptr;

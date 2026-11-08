@@ -10,12 +10,15 @@
 #include "../algorithms/geostat/variogram.h" // 变差函数模型（方向18）
 #include "../algorithms/rasterout.h" // PaleoRasterOut / createFloatRaster
 #include "../algorithms/singlefactor/cartographicworkfile.h"
+#include "../algorithms/singlefactor/sgsbarrier.h" // P3：BarrierGrid → SgsBarrierInput
+#include "../algorithms/singlefactor/support.h"    // P3：labelHardBarriers（grid_connectivity_v1）
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
 #include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/factorcontour.h"
+#include "../qgis/geostatcovariatesampler.h" // P3：协变量跨 CRS 采样（井位/格点同实现）
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
@@ -59,6 +62,7 @@
 #include <gdal.h>
 #include <ogr_spatialref.h>
 #include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransform.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
@@ -176,7 +180,7 @@ bool writeJsonFile( const QString &path, const QVariantMap &payload )
 // ConstraintWorkflow::tr（与原静态成员内裸 tr 同一翻译上下文）。
 
 // 建模段共享上下文：网格/变差函数/网格变换/进度控制/邻域参数（字段与原
-// 局部变量同名）。
+// 局部变量同名）。P3：barrier 非空时 sgs 走分量隔断路径（物化段产出）。
 struct GeostatRunContext
 {
   ConstraintWorkflow::GeostatJob *job = nullptr;
@@ -189,6 +193,8 @@ struct GeostatRunContext
   int maxPoints = 16;
   double searchRadius = 0.0;
   int minPoints = 4;
+  paleo::geostat::SgsBarrierInput barrier; // method==sgs 且实际有落格屏障时有效
+  bool barrierActive = false;
 };
 
 // 建模段产物——QC 落盘的原料（字段与原局部变量同名，初值同原声明）。
@@ -343,7 +349,15 @@ bool runDegradedGeostatIdw( QgisProcessingService *proc, ConstraintWorkflow::Geo
   qc.insert( QStringLiteral( "cross_validation" ),
              QVariantMap{ { QStringLiteral( "status" ), QStringLiteral( "not_computed" ) },
                           { QStringLiteral( "reason" ), QStringLiteral( "degraded_to_idw_insufficient_samples" ) } } );
-  // 降级 IDW 不传 CONSTRAINTS：约束同样一条未用。
+  // 降级 IDW 不传 CONSTRAINTS：约束同样一条未用——计划侧 consumed 的硬屏障
+  // 也如实转 unused（降级引擎不读约束），不留「既不在 consumed 也不在 unused」
+  // 的黑洞行（P3 回执完整性）。
+  QVariantList degradedUnused = job->constraintsUnused;
+  for ( const QString &planned : job->plannedBarrierIds )
+    degradedUnused << QVariantMap{ { QStringLiteral( "id" ), planned },
+                                   { QStringLiteral( "reason" ),
+                                     QStringLiteral( "degraded_idw_does_not_read_constraints" ) } };
+  job->constraintsUnused = degradedUnused; // 发布段 extra 与 QC 同源
   qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
   qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
   qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
@@ -676,18 +690,45 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
     return false;
   }
 
+  // P3：井位/格点两类位置统一经协变量采样器——位置从计算 CRS 变换到栅格
+  // CRS 后采样（相同 CRS 时经 QgsCoordinateTransform 短路直采；栅格无 CRS
+  // 或变换不可用明确失败，不静默当同域错位采样）。
+  const auto samplingNode = []( const paleo::geostat::CovariateSampleDiagnostics &diag ) {
+    QVariantMap node;
+    node.insert( QStringLiteral( "requested" ), diag.requested );
+    node.insert( QStringLiteral( "sampled" ), diag.sampled );
+    node.insert( QStringLiteral( "nodata" ), diag.nodata );
+    node.insert( QStringLiteral( "out_of_extent" ), diag.outOfExtent );
+    node.insert( QStringLiteral( "non_finite" ), diag.nonFinite );
+    node.insert( QStringLiteral( "transform_failed" ), diag.transformFailed );
+    node.insert( QStringLiteral( "crs_compute" ), diag.computeCrs );
+    node.insert( QStringLiteral( "crs_raster" ), diag.rasterCrs );
+    node.insert( QStringLiteral( "transform_mode" ), diag.transformMode );
+    return node;
+  };
+  std::vector<QgsPointXY> wellPoints;
+  wellPoints.reserve( samples.size() );
+  for ( const paleo::geostat::Sample &s : samples )
+    wellPoints.push_back( QgsPointXY( s.x, s.y ) );
+  std::vector<double> wellValues;
+  paleo::geostat::CovariateSampleDiagnostics wellDiag;
+  QString sampleErr;
+  if ( !paleo::geostat::sampleCovariateRaster( covRaster, crs, wellPoints, cancelled,
+                                               &wellValues, &wellDiag, &sampleErr ) )
+  {
+    job->error = sampleErr;
+    return false;
+  }
   std::vector<double> primaryZ;
   std::vector<double> secondaryZ;
   primaryZ.reserve( samples.size() );
   secondaryZ.reserve( samples.size() );
-  for ( const paleo::geostat::Sample &s : samples )
+  for ( std::size_t i = 0; i < samples.size(); ++i )
   {
-    bool ok = false;
-    const double v2 = covRaster->dataProvider()->sample( QgsPointXY( s.x, s.y ), 1, &ok );
-    if ( ok && std::isfinite( v2 ) )
+    if ( std::isfinite( wellValues[i] ) )
     {
-      primaryZ.push_back( s.value );
-      secondaryZ.push_back( v2 );
+      primaryZ.push_back( samples[i].value );
+      secondaryZ.push_back( wellValues[i] );
     }
   }
 
@@ -754,18 +795,23 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
   const int totalCells = grid.cols * grid.rows;
   const int maxSec = job->params.value( QStringLiteral( "covariateMaxSamples" ), 2048 ).toInt();
   const int step = std::max( 1, static_cast<int>( std::ceil( std::sqrt( static_cast<double>( totalCells ) / std::max( 64, maxSec ) ) ) ) );
+  std::vector<QgsPointXY> gridPoints;
   for ( int r = 0; r < grid.rows; r += step )
-  {
     for ( int c = 0; c < grid.cols; c += step )
-    {
-      const double gx = grid.cellCenterX( c );
-      const double gy = grid.cellCenterY( r );
-      bool ok = false;
-      const double gv = covRaster->dataProvider()->sample( QgsPointXY( gx, gy ), 1, &ok );
-      if ( ok && std::isfinite( gv ) )
-        secondarySamples.push_back( paleo::geostat::Sample{ gx, gy, gv } );
-    }
+      gridPoints.push_back( QgsPointXY( grid.cellCenterX( c ), grid.cellCenterY( r ) ) );
+  std::vector<double> gridValues;
+  paleo::geostat::CovariateSampleDiagnostics gridDiag;
+  if ( !paleo::geostat::sampleCovariateRaster( covRaster, crs, gridPoints, cancelled,
+                                               &gridValues, &gridDiag, &sampleErr ) )
+  {
+    job->error = sampleErr;
+    return false;
   }
+  // secondary 坐标保留计算 CRS（变换只用于采样定位，核内不换坐标域）。
+  for ( std::size_t i = 0; i < gridPoints.size(); ++i )
+    if ( std::isfinite( gridValues[i] ) )
+      secondarySamples.push_back(
+          paleo::geostat::Sample{ gridPoints[i].x(), gridPoints[i].y(), gridValues[i] } );
   if ( secondarySamples.empty() )
   {
     job->error = ConstraintWorkflow::tr( "协变量栅格在计算网格范围内无有效数据" );
@@ -777,6 +823,11 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
   secondarySamples = paleo::geostat::rescaleSecondaryToPrimary( secondarySamples, primaryZ, secondaryZ,
                                                                 &covariateRescaled );
   cokrigingNode.insert( QStringLiteral( "secondary_rescaled_to_primary" ), covariateRescaled );
+  // P3：协变量采样两类位置（井位/格点）的实际 CRS 与成功/失败分类计数——
+  // 「有图层」不等于「协变量有效」，数量对得上才算数。
+  cokrigingNode.insert( QStringLiteral( "covariate_sampling" ),
+                        QVariantMap{ { QStringLiteral( "wells" ), samplingNode( wellDiag ) },
+                                     { QStringLiteral( "grid" ), samplingNode( gridDiag ) } } );
 
   paleo::geostat::CoKrigingModel coModel;
   coModel.primary = model;
@@ -864,6 +915,188 @@ bool runGeostatCokriging( const GeostatRunContext &ctx, const std::vector<paleo:
   return true;
 }
 
+// P3：SGS 硬屏障物化段——把 prepare 冻结的屏障部件（store CRS）变换到
+// 计算/井域并经既有分区核（grid_connectivity_v1：supercover 栅格化 + 4 连通，
+// 有限端点可绕行）产生格/样本分量归属。consumed 以引擎实际落格为准
+//（BarrierGrid.consumedIds），计划 consumed 但未落格的线如实转 unused。
+// 返回 true 且 *active=false 表示「计划有线但无一落格/无屏障线」——沿原
+// 数值路径执行（golden anchor 契约），不绕一遍新流程。失败返回 false 并写
+// job->error（运行前明确拒绝，不留被标记成功的输出）。
+bool materializeSgsBarrier( ConstraintWorkflow::GeostatJob *job,
+                            const std::vector<paleo::geostat::Sample> &samples,
+                            const paleo::geostat::GridSpec &grid,
+                            const QgsCoordinateReferenceSystem &sampleCrs,
+                            const std::function<bool()> &cancelled,
+                            paleo::geostat::SgsBarrierInput *barrierInput, bool *active )
+{
+  *active = false;
+  if ( job->barrierLines.empty() )
+    return true;
+  if ( cancelled && cancelled() )
+  {
+    job->error = ConstraintWorkflow::tr( "已取消" );
+    return false;
+  }
+  // 幂等防御：同一 job 重复物化时不重复累计引擎回执（此前追加的
+  // planned 相关条目先清掉，prepare 侧的 unused 原因保留）。
+  if ( !job->constraintsConsumed.isEmpty() )
+  {
+    job->constraintsConsumed.clear();
+    QVariantList kept;
+    for ( const QVariant &item : job->constraintsUnused )
+      if ( !job->plannedBarrierIds.contains(
+               item.toMap().value( QStringLiteral( "id" ) ).toString() ) )
+        kept << item;
+    job->constraintsUnused = kept;
+    job->barrierStats.clear();
+  }
+
+  // store CRS（本地工程网格约定）→ 计算 CRS：栅格化必须与井样本同域。
+  std::vector<paleo::singlefactor::ConstraintLine> lines = job->barrierLines;
+  const QgsCoordinateReferenceSystem barrierCrs =
+      QgsCoordinateReferenceSystem::fromWkt( job->barrierCrsWkt );
+  if ( !barrierCrs.isValid() )
+  {
+    job->error = ConstraintWorkflow::tr( "约束库 CRS 无法解析，不能栅格化硬屏障" );
+    return false;
+  }
+  if ( barrierCrs.toWkt() != sampleCrs.toWkt() )
+  {
+    const QgsCoordinateTransform transform( barrierCrs, sampleCrs,
+                                            QgsCoordinateTransformContext() );
+    if ( !transform.isValid() )
+    {
+      job->error = ConstraintWorkflow::tr( "硬屏障 CRS（%1）无法变换到井点坐标系（%2）——"
+                                           "请先完成工程网格配准或统一坐标系" )
+                       .arg( barrierCrs.userFriendlyIdentifier(), sampleCrs.userFriendlyIdentifier() );
+      return false;
+    }
+    for ( paleo::singlefactor::ConstraintLine &line : lines )
+    {
+      for ( paleo::singlefactor::Point2 &point : line.points )
+      {
+        try
+        {
+          const QgsPointXY mapped = transform.transform( QgsPointXY( point.x, point.y ) );
+          point.x = mapped.x();
+          point.y = mapped.y();
+        }
+        catch ( const QgsException & )
+        {
+          job->error = ConstraintWorkflow::tr( "硬屏障 %1 的几何无法变换到井点坐标系" )
+                           .arg( QString::fromStdString( line.stableId ) );
+          return false;
+        }
+      }
+    }
+  }
+
+  std::vector<paleo::singlefactor::Sample> barrierSamples;
+  barrierSamples.reserve( samples.size() );
+  for ( const paleo::geostat::Sample &sample : samples )
+  {
+    paleo::singlefactor::Sample mapped;
+    mapped.x = sample.x;
+    mapped.y = sample.y;
+    mapped.value = sample.value;
+    barrierSamples.push_back( mapped );
+  }
+  const double span =
+      std::max( grid.cols * grid.pixelWidth, -grid.pixelHeight * grid.rows );
+  paleo::singlefactor::Control barrierControl;
+  barrierControl.cancelled = cancelled;
+  const paleo::singlefactor::BarrierGrid labeled = paleo::singlefactor::labelHardBarriers(
+      paleo::singlefactor::toSinglefactorGrid( grid ), lines, barrierSamples, span * 1e-9,
+      &barrierControl );
+  if ( !labeled.error.empty() )
+  {
+    job->error = ConstraintWorkflow::tr( "硬屏障栅格化失败：%1" )
+                     .arg( QString::fromStdString( labeled.error ) );
+    return false;
+  }
+  if ( labeled.barrierCells < 0 )
+  {
+    job->error = ConstraintWorkflow::tr( "已取消" ); // #417 取消哨兵（barrierCells<0）
+    return false;
+  }
+  if ( !labeled.ambiguous.empty() )
+  {
+    job->error = ConstraintWorkflow::tr( "有 %1 口井落在硬屏障线上，两侧归属不明确——"
+                                         "请移动井位或调整屏障几何" )
+                     .arg( labeled.ambiguous.size() );
+    return false;
+  }
+
+  *barrierInput =
+      paleo::singlefactor::toSgsBarrierInput( labeled, barrierSamples, "grid_connectivity_v1" );
+
+  // 引擎回执对账：实际落格的屏障才进 consumed；计划侧 consumed 但未落格的
+  // 部件如实转 unused（线在计算域外/对网格未生效——不冒充已消费）。
+  // consumed 结构与 localdirection 血缘同口径 {id, role}。
+  QStringList consumedIds;
+  for ( const std::string &id : labeled.consumedIds )
+    consumedIds << QString::fromStdString( id );
+  QVariantList consumed;
+  for ( const QString &id : consumedIds )
+    consumed << QVariantMap{ { QStringLiteral( "id" ), id },
+                             { QStringLiteral( "role" ), QStringLiteral( "hard_barrier" ) } };
+  job->constraintsConsumed = consumed;
+  for ( const QString &planned : job->plannedBarrierIds )
+    if ( !consumedIds.contains( planned ) )
+      job->constraintsUnused << QVariantMap{ { QStringLiteral( "id" ), planned },
+                                             { QStringLiteral( "reason" ),
+                                               QStringLiteral( "rasterized_no_cells" ) } };
+
+  // 分量统计 + 无样本分量预检（数值核在分配大数组前还有兜底拒绝；此处
+  // 先给中文事实——与 localidw「硬隔断无井闭合区」同口径）。
+  QVariantList componentSamples;
+  QVariantList componentCells;
+  std::vector<int> sampleCount( static_cast<std::size_t>( barrierInput->componentCount ), 0 );
+  for ( int label : barrierInput->sampleComponent )
+    if ( label >= 0 )
+      ++sampleCount[static_cast<std::size_t>( label )];
+  for ( int component = 0; component < barrierInput->componentCount; ++component )
+  {
+    if ( sampleCount[static_cast<std::size_t>( component )] == 0 )
+    {
+      job->error = ConstraintWorkflow::tr( "硬屏障把计算网格分成了 %1 个区，其中第 %2 个区"
+                                           "没有井样本（硬隔断无井闭合区，与局部 IDW 同口径拒绝）" )
+                       .arg( barrierInput->componentCount )
+                       .arg( component + 1 );
+      return false;
+    }
+    componentSamples << sampleCount[static_cast<std::size_t>( component )];
+  }
+  std::vector<int> cellCount( static_cast<std::size_t>( barrierInput->componentCount ), 0 );
+  for ( int label : barrierInput->cellComponent )
+    if ( label >= 0 )
+      ++cellCount[static_cast<std::size_t>( label )];
+  for ( int count : cellCount )
+    componentCells << count;
+
+  QVariantMap stats;
+  stats.insert( QStringLiteral( "model" ), QStringLiteral( "grid_connectivity_v1" ) );
+  stats.insert( QStringLiteral( "components" ), barrierInput->componentCount );
+  stats.insert( QStringLiteral( "barrier_cells" ), labeled.barrierCells );
+  stats.insert( QStringLiteral( "component_samples" ), componentSamples );
+  stats.insert( QStringLiteral( "component_cells" ), componentCells );
+  // W4 口径：分量内去重样本各自的正态得分表；变差模型全场共享（显式或
+  // 自动拟合），不冒充每断块独立拟合。
+  stats.insert( QStringLiteral( "normal_scores" ), QStringLiteral( "per_component" ) );
+  stats.insert( QStringLiteral( "variogram_shared_across_components" ), true );
+  job->barrierStats = stats;
+
+  *active = !consumedIds.isEmpty();
+  if ( !*active )
+  {
+    // 计划有线但无一落格：已逐条转 unused（rasterized_no_cells），沿原
+    // 数值路径执行，不把空分量配置送进核。
+    job->barrierStats.clear();
+    job->constraintsConsumed.clear();
+  }
+  return true;
+}
+
 // 方法执行段（sgs）：顺序高斯模拟 + 均值/标准差栅格 + 成员栅格持久化。
 bool runGeostatSgs( const GeostatRunContext &ctx, const std::vector<paleo::geostat::Sample> &samples,
                     GeostatQcParts *parts )
@@ -886,6 +1119,10 @@ bool runGeostatSgs( const GeostatRunContext &ctx, const std::vector<paleo::geost
   sgsParams.seed = static_cast<std::uint64_t>( job->params.value( QStringLiteral( "seed" ), 42 ).toLongLong() );
   sgsParams.maxPoints = maxPoints;
   sgsParams.searchRadius = searchRadius;
+  // P3：实际落格的硬屏障进数值核（静态井 + 已模拟格邻域同时隔断；无屏障
+  // 时 barrier 为空 → 原数值路径，golden anchor 契约不变）。
+  if ( ctx.barrierActive )
+    sgsParams.barrier = ctx.barrier;
   job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "std.tif" ) );
   paleo::SgsInputs sgsIn;
   sgsIn.samples = samples;
@@ -923,6 +1160,8 @@ bool runGeostatSgs( const GeostatRunContext &ctx, const std::vector<paleo::geost
                   sgsRun.diagnostics.value( QStringLiteral( "sample_mean" ) ) );
   sgsNode.insert( QStringLiteral( "sample_std" ),
                   sgsRun.diagnostics.value( QStringLiteral( "sample_std" ) ) );
+  if ( !job->barrierStats.isEmpty() )
+    sgsNode.insert( QStringLiteral( "barrier" ), job->barrierStats );
   // 随机模拟成果是实现集合的均值/标准差，不是最优估值：不做 LOO，也不冒充。
   cvNode.insert( QStringLiteral( "status" ), QStringLiteral( "not_computed" ) );
   cvNode.insert( QStringLiteral( "reason" ), QStringLiteral( "stochastic_simulation_use_realization_spread" ) );
@@ -951,7 +1190,9 @@ bool writeGeostatQc( const GeostatRunContext &ctx, const std::vector<paleo::geos
   qc.insert( QStringLiteral( "schema" ), QStringLiteral( "paleo_geostat_qc_v1" ) );
   qc.insert( QStringLiteral( "method" ), job->method );
   qc.insert( QStringLiteral( "method_actual" ), job->method );
-  qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
+  // P3：SGS 的硬屏障 consumed 以引擎实际落格回执为准（物化段对账后写入
+  // job->constraintsConsumed）；kriging/cokriging/降级 IDW 保持空列表。
+  qc.insert( QStringLiteral( "constraints_consumed" ), job->constraintsConsumed );
   qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
   qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
   qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
@@ -1048,6 +1289,47 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
         paleo::singlefactor::planConstraintUse( store->load( horizon ), useContext );
     job->constraintsUnused = plan.summary.value( QStringLiteral( "unused" ) ).toList();
     job->constraintCapability = plan.capabilityNote;
+    // P3：SGS 冻结计划判定消费的硬屏障部件几何（store CRS 值对象——主线程
+    // 物化一次，compute 不再向 live store 取几何；kriging/cokriging 计划侧
+    // 仍逐条 unused，不冻结任何线）。
+    if ( method == QLatin1String( "sgs" ) )
+    {
+      for ( int i = 0; i < plan.decisions.size() && i < plan.partGeometries.size(); ++i )
+      {
+        const paleo::singlefactor::ConstraintUseDecision &decision = plan.decisions.at( i );
+        if ( !decision.consumed || decision.role != QLatin1String( "hard_barrier" ) )
+          continue;
+        const QgsGeometry part = plan.partGeometries.at( i );
+        if ( part.isNull() || part.isEmpty() )
+          continue;
+        paleo::singlefactor::ConstraintLine line;
+        line.stableId = decision.id.toStdString();
+        line.semantic = paleo::singlefactor::Semantic::HardBarrier;
+        line.enabled = true;
+        for ( const QgsPointXY &point : part.asPolyline() )
+          line.points.push_back( paleo::singlefactor::Point2{ point.x(), point.y() } );
+        if ( line.points.size() < 2 )
+          continue; // 计划已过滤短/零长部件；防御保持（不静默进核）
+        job->barrierLines.push_back( line );
+        job->plannedBarrierIds << decision.id;
+      }
+      if ( !job->barrierLines.empty() )
+      {
+        // 部件几何的坐标系：约束 store GPKG 的约定 SRS（本地工程网格）。
+        // compute 时变换到井/计算域后再栅格化——CRS 缺失即明确失败，不猜。
+        const QgsVectorLayer storeLayer(
+            store->gpkgPath() + QStringLiteral( "|layername=constraints" ),
+            QStringLiteral( "constraints" ), QStringLiteral( "ogr" ) );
+        if ( storeLayer.isValid() && storeLayer.crs().isValid() )
+          job->barrierCrsWkt = storeLayer.crs().toWkt();
+        if ( job->barrierCrsWkt.isEmpty() )
+        {
+          paleo::workflow_detail::setError( error, tr( "约束库缺少坐标系：无法把硬屏障变换到计算域栅格化" ) );
+          return false;
+        }
+        job->parentPaths << store->gpkgPath();
+      }
+    }
   }
 
   QgisProcessingService *proc = m_proc.data();
@@ -1230,6 +1512,19 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
     return false;
   }
 
+  // ---- P3：SGS 硬屏障物化（计划 consumed 部件 → 引擎落格 → 分量归属）----
+  paleo::geostat::SgsBarrierInput barrierInput;
+  bool barrierActive = false;
+  if ( job->method == QLatin1String( "sgs" ) )
+  {
+    if ( !materializeSgsBarrier( job, samples, grid, sampleCrs, cancelled, &barrierInput,
+                                 &barrierActive ) )
+    {
+      cleanupTemp();
+      return false;
+    }
+  }
+
   // ---- 变差函数：显式参数或自动拟合（可选方向各向异性） ----
   paleo::geostat::VariogramModel model;
   GeostatQcParts parts;
@@ -1252,6 +1547,8 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   ctx.maxPoints = job->params.value( QStringLiteral( "maxPoints" ), 16 ).toInt();
   ctx.searchRadius = std::max( 0.0, job->params.value( QStringLiteral( "searchRadius" ), 0.0 ).toDouble() );
   ctx.minPoints = job->params.value( QStringLiteral( "minPoints" ), 4 ).toInt();
+  ctx.barrier = barrierInput;
+  ctx.barrierActive = barrierActive;
   collectGeostatQcInputs( job, model, ctx, &parts );
 
   // ---- 方法执行：kriging / cokriging / sgs 三选一 ----
@@ -1444,7 +1741,7 @@ bool ConstraintWorkflow::publishGeostatJob( GeostatJob &job, QString *error )
   extra.insert( QStringLiteral( "method" ), job.method );
   extra.insert( QStringLiteral( "method_actual" ), methodActual );
   extra.insert( QStringLiteral( "algorithm_id" ), algorithmId );
-  extra.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
+  extra.insert( QStringLiteral( "constraints_consumed" ), job.constraintsConsumed );
   extra.insert( QStringLiteral( "constraints_unused" ), job.constraintsUnused );
   if ( !job.constraintCapability.isEmpty() )
     extra.insert( QStringLiteral( "constraint_capability" ), job.constraintCapability );

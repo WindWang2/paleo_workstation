@@ -25,17 +25,16 @@ void DataListPanel::applyListFilter()
   if (!table || !m_doc)
     return;
   const QScopedValueRollback<bool> restoring(m_restoringSelection, true);
-  syncLegacyControlsIntoFilter();
-  // 可见集 = 行快照 × FilterGroup × 激活标签（D2.2/D2.4）。
+  // P2 W2：一次编译、逐行消费——正则/比较值准备与匹配分离，五种视图共用
+  // 同一份逻辑结果（不再各写一套过滤器）。
+  const query::CompiledQuery compiled = query::CompiledQuery::compile(m_query);
   QSet<QString> visibleIds;
   int shown = 0;
   {
     const paleo::pagesinternal::PagePerfStage perf("filter-pass");
     for (const AssetRowInfo &row : m_rows)
     {
-      if (!m_activeTag.isEmpty() && !row.tags.contains(m_activeTag, Qt::CaseInsensitive))
-        continue;
-      if (!m_filter.matches(row))
+      if (!compiled.matches(row))
         continue;
       visibleIds.insert(row.assetId);
       ++shown;
@@ -93,37 +92,38 @@ void DataListPanel::applyListFilter()
     count->setText(shown == total ? tr("共 %1 条").arg(total)
                                   : tr("显示 %1 / 共 %2 条").arg(shown).arg(total));
 
-  // D2.7 高亮 needle（搜索词来自 Search 条件或旧搜索框）。
+  // D2.7 高亮 needle（首个正向 Search 条件；旧搜索框是该条件的镜像编辑器）。
   if (m_delegate)
   {
     QString needle;
-    for (const FilterCondition &c : m_filter.conditions)
+    for (const FilterCondition &c : m_query.group.conditions)
       if (c.dim == FilterDim::Search && !c.negate)
+      {
         needle = c.value;
+        break;
+      }
     m_delegate->setNeedle(needle);
-    if (m_delegate->needle().isEmpty())
-    {
-      const auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
-      m_delegate->setNeedle(search ? search->text().trimmed() : QString());
-    }
   }
 
   // 树形视图过滤（P3：按可见 id 集 + 文本匹配递归）。
-  const bool filtering = !m_filter.conditions.isEmpty() || !m_activeTag.isEmpty();
+  const bool filtering = !m_query.isEmpty();
   if (!m_viewStack || m_viewStack->currentIndex() == 0)
     applyFilterToTree(visibleIds, filtering);
 
-  // D2.9 空结果态：有过滤而零命中 → 放宽/清除快捷钮（空态指引行仍显示）。
+  // D2.9/P2 W6 空结果态：有过滤而零命中 → 空态 + 实际生效条件说明（含
+  // 列约束/标签/正则字面量回退——解释的与执行的同一份准备产物）。
   if (m_emptyState)
   {
     const bool noHits = filtering && shown == 0 && total > 0;
     m_emptyState->setVisible(noHits);
     if (noHits)
+    {
+      QStringList parts;
+      for (const auto &s : compiled.summaries())
+        parts << s.text;
       m_emptyState->setMessage(
-          tr("没有匹配的资产 — 试试放宽条件（当前 %1 个条件%2）")
-              .arg(m_filter.conditions.size())
-              .arg(m_activeTag.isEmpty() ? QString()
-                                         : tr(" + 标签「%1」").arg(m_activeTag)));
+          tr("没有匹配的资产 — 当前过滤：%1").arg(parts.join(QStringLiteral("；"))));
+    }
   }
 
   // D7 新视图页同口径重灌（图标/分组；虚拟模型给全量行——fetchMore 自管）。
@@ -171,10 +171,38 @@ void DataListPanel::setUnresolvedFilter(bool on)
 void DataListPanel::refreshChipBar()
 {
   if (m_chipBar)
-    m_chipBar->setConditions(m_filter);
+  {
+    m_chipBar->setConditions(m_query.group);
+    m_chipBar->setColumnConstraints(m_query.columns); // P2 W3：列约束可清除
+  }
+  if (m_quickBar)
+  {
+    // P2 W6：快捷按钮勾选态随查询（预设/分享串替换后不再残留旧态）；同维
+    // 存在否定条件时 tooltip 明示「显示开但被反向条件排除」。
+    m_quickBar->setActiveStates(m_query.hasPositive(paleo::dataops::FilterDim::Unlinked),
+                                m_query.hasPositive(paleo::dataops::FilterDim::UnknownType),
+                                m_query.hasPositive(paleo::dataops::FilterDim::Warned));
+    const struct
+    {
+      paleo::dataops::FilterDim d;
+      const char *btn;
+    } kQuick[] = {{paleo::dataops::FilterDim::Unlinked, "quickUnlinked"},
+                  {paleo::dataops::FilterDim::UnknownType, "quickUnknownType"},
+                  {paleo::dataops::FilterDim::Warned, "quickWarned"}};
+    for (const auto &q : kQuick)
+      if (auto *btn = m_quickBar->findChild<QPushButton *>(QLatin1String(q.btn)))
+      {
+        bool negated = false;
+        for (const auto &c : m_query.group.conditions)
+          if (c.dim == q.d && c.negate)
+            negated = true;
+        if (negated)
+          btn->setToolTip(tr("已开启，但存在反向条件——两者同时生效时结果为其补集"));
+      }
+  }
   if (m_filterBar)
   {
-    // 维度词表（下拉候选）。
+    // 维度词表（下拉候选）——行快照 effectiveType 口径（覆盖类型可选）。
     QSet<QString> types, statuses, roles, entities, tags;
     for (const paleo::dataops::AssetRowInfo &r : m_rows)
     {
@@ -206,7 +234,7 @@ void DataListPanel::refreshChipBar()
 void DataListPanel::refreshTagCloud()
 {
   if (m_tagCloud)
-    m_tagCloud->setCloud(m_tags.tagCloud(), m_activeTag);
+    m_tagCloud->setCloud(m_tags.tagCloud(), m_query.activeTag);
 }
 
 void DataListPanel::updatePendingCounts()
@@ -228,78 +256,163 @@ void DataListPanel::updatePendingCounts()
   m_quickBar->setCounts(unlinked, unknown, warned);
 }
 
-void DataListPanel::syncLegacyControlsIntoFilter()
+// ---- P2 W1：旧控件 = 编辑器/镜像（不再当第二事实源）--------------------------
+// 用户编辑（textChanged/currentIndexChanged）→ setPositiveValue 只动首个正向
+// 条件；本镜像只在刷新/替换后把状态写回控件（QSignalBlocker 防回环），控件
+// 为空时绝不删除否定/其他来源条件（原 clearDim 路径的语义缺口）。
+void DataListPanel::mirrorQueryIntoLegacyControls()
 {
   using namespace paleo::dataops;
-  // Search/Type 两维有双输入面：旧控件（assetSearchEdit/assetTypeFilter，
-  // 兼容面）与 FilterBar/预设/状态串。reconcile 双向：
-  //   1) FilterGroup 已有该维条件 → 写回旧控件（镜像一致）；
-  //   2) 控件有值而条件缺 → 从控件带入条件。
-  // 旧测试（直接打字/选类型）与新路径（FilterBar/预设/状态串）互不覆盖。
   auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"));
   auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"));
-  const auto condValue = [this](FilterDim d) {
-    for (const FilterCondition &c : m_filter.conditions)
+  const auto firstPositive = [this](FilterDim d) {
+    for (const FilterCondition &c : m_query.group.conditions)
       if (c.dim == d && !c.negate)
         return c.value;
     return QString();
   };
   if (search)
   {
-    const QString inFilter = condValue(FilterDim::Search);
-    if (!inFilter.isEmpty() && inFilter != search->text().trimmed())
+    const QString v = firstPositive(FilterDim::Search);
+    if (search->text().trimmed() != v)
     {
       const QSignalBlocker b(search);
-      search->setText(inFilter);
+      search->setText(v);
     }
-    else if (inFilter.isEmpty() && !search->text().trimmed().isEmpty())
-    {
-      m_filter.clearDim(FilterDim::Search);
-      m_filter.conditions.prepend(
-          {FilterDim::Search, search->text().trimmed(), false});
-    }
-    else if (inFilter.isEmpty() && search->text().trimmed().isEmpty())
-      m_filter.clearDim(FilterDim::Search);
   }
   if (typeFilter)
   {
-    const QString inFilter = condValue(FilterDim::Type);
-    const QString combo = typeFilter->currentData().toString();
-    if (!inFilter.isEmpty() && inFilter != combo)
+    const QString v = firstPositive(FilterDim::Type);
+    if (typeFilter->currentData().toString() != v)
     {
       const QSignalBlocker b(typeFilter);
-      const int idx = typeFilter->findData(inFilter);
+      const int idx = typeFilter->findData(v);
       typeFilter->setCurrentIndex(idx >= 0 ? idx : 0);
     }
-    else if (inFilter.isEmpty() && !combo.isEmpty())
-    {
-      m_filter.clearDim(FilterDim::Type);
-      m_filter.conditions.prepend({FilterDim::Type, combo, false});
-    }
-    else if (inFilter.isEmpty() && combo.isEmpty())
-      m_filter.clearDim(FilterDim::Type);
   }
+}
+
+void DataListPanel::wireLegacyFilterControls(QLineEdit *search, QComboBox *typeFilter)
+{
+  if (!search || !typeFilter)
+    return;
+  connect(search, &QLineEdit::textChanged, this, [this](const QString &text) {
+    // 只编辑首个正向 Search 条件；否定条件/其他维度/同维度多值保留。刷新
+    // 期间的镜像回写走 QSignalBlocker，不会进本处理器（无反馈环）。
+    if (m_query.setPositiveValue(paleo::dataops::FilterDim::Search, text.trimmed()))
+      commitQuery();
+  });
+  connect(typeFilter, &QComboBox::currentIndexChanged, this, [this] {
+    auto *tf = qobject_cast<QComboBox *>(sender());
+    if (!tf)
+      return;
+    if (m_query.setPositiveValue(paleo::dataops::FilterDim::Type,
+                                 tf->currentData().toString()))
+      commitQuery();
+  });
+}
+
+void DataListPanel::commitQuery()
+{
+  // 统一提交面：镜像（防被删条件从旧输入框回填）→ AND/OR/快捷态同步 →
+  // 过滤 → chip/词表刷新。
+  mirrorQueryIntoLegacyControls();
+  if (m_filterBar)
+    m_filterBar->setOrMode(m_query.group.orMode);
+  applyListFilter();
+  refreshChipBar();
+  refreshTagCloud();
 }
 
 void DataListPanel::applyFilterGroup(const paleo::dataops::FilterGroup &g)
 {
-  m_filter = g;
-  // 这是替换整组条件（含空组），旧输入框不能把已删除的条件带回来。
-  if (auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit"))) {
-    const QSignalBlocker block(search);
-    search->clear();
+  // 兼容面：替换条件组（FilterGroup 不含列约束 → 一并清除；活动标签保留，
+  // 与旧实现语义一致）。镜像后旧输入框不会把已删除的条件带回来。
+  m_query.group = g;
+  m_query.columns.clear();
+  commitQuery();
+}
+
+void DataListPanel::applyQuery(const paleo::dataops::query::DataQuery &q)
+{
+  m_query = q;
+  commitQuery();
+}
+
+paleo::dataops::query::QueryStateParse
+DataListPanel::tryApplyQueryStateString(const QString &s)
+{
+  // P2 W4：先解析、看诊断，再决定是否替换——坏串不清空当前查询/选区，
+  // 且失败要被看见（不能看起来像成功应用了原意）。
+  auto parsed = paleo::dataops::query::parseQueryStateString(s);
+  if (parsed.valid)
+  {
+    m_query = parsed.query;
+    commitQuery();
   }
-  if (auto *type = findChild<QComboBox *>(QStringLiteral("assetTypeFilter"))) {
-    const QSignalBlocker block(type);
-    type->setCurrentIndex(0);
+  else
+  {
+    emit statusMessage(tr("过滤器链接未应用：%1").arg(parsed.diagnostic));
   }
-  if (m_filterBar)
-    m_filterBar->setOrMode(g.orMode);
-  applyListFilter();
-  refreshChipBar();
+  return parsed;
 }
 
 void DataListPanel::setFilterFromStateString(const QString &s)
 {
-  applyFilterGroup(paleo::dataops::FilterGroup::fromStateString(s));
+  // 兼容面：合法旧串/新串照常整组替换；坏串保持现状（旧行为会清空过滤）。
+  tryApplyQueryStateString(s);
+}
+
+// ---- P2 W3：列漏斗提交面 ------------------------------------------------------
+void DataListPanel::setColumnConstraint(paleo::dataops::query::ColumnKey k,
+                                        const QStringList &values)
+{
+  m_query.setColumnValues(k, values);
+  commitQuery();
+}
+
+void DataListPanel::clearColumnConstraint(paleo::dataops::query::ColumnKey k)
+{
+  if (!m_query.column(k))
+    return;
+  m_query.clearColumn(k);
+  commitQuery();
+}
+
+QStringList
+DataListPanel::columnCandidatesFor(paleo::dataops::query::ColumnKey k) const
+{
+  return m_query.columnCandidates(k, m_rows);
+}
+
+void DataListPanel::openColumnFunnel(int tableColumn)
+{
+  using namespace paleo::dataops::query;
+  ColumnKey k;
+  if (tableColumn == 0)
+    k = ColumnKey::Name;
+  else if (tableColumn == 1)
+    k = ColumnKey::Type;
+  else if (tableColumn == 2)
+    k = ColumnKey::Entity;
+  else
+    return;
+  const QStringList candidates = m_query.columnCandidates(k, m_rows);
+  if (candidates.isEmpty())
+    return;
+  QStringList checked;
+  if (const ColumnConstraint *cur = m_query.column(k))
+    checked = cur->values;
+  else
+    checked = candidates;
+  bool accepted = false;
+  // 键盘可达（QMenu 原生导航/空格勾选/Esc 取消）；取消不提交。
+  const QStringList keep =
+      paleo::dataops::ColumnValuePicker::exec(candidates, checked, this, &accepted);
+  if (!accepted)
+    return;
+  if (keep == candidates)
+    clearColumnConstraint(k); // 全选 = 不限（确定行为，规范化）
+  else
+    setColumnConstraint(k, keep); // 空集 = 显式零命中
 }

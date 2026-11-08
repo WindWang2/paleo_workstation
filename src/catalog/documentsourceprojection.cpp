@@ -34,6 +34,15 @@ SourceRecord recordFor(const CatalogVersion &version,const QString &documentId,c
         } else record.modelDirectory=QFileInfo(QDir(project).filePath(database)).absolutePath();
     } else record.ref.modelStoreId="catalog:"+version.assetId;
     record.state.model=record.ref.sourceId>0?ModelAvailability::Registered:ModelAvailability::Unbound;
+    const auto observation=version.extra.value("areaModelObservation").toMap();
+    if(source>0 && observation.contains("active")) {
+        const auto status=observation.value("status").toString();
+        if(!observation.value("active").toBool()) {
+            record.state.model=ModelAvailability::Failed;record.state.code="model_source_inactive";
+            record.state.detail=observation.value("message").toString();
+        } else if(status==QLatin1String("review"))record.state.model=ModelAvailability::Review;
+        else if(status==QLatin1String("parsed"))record.state.model=ModelAvailability::Ready;
+    }
     if(record.ref.sourceId>0 && record.modelDirectory.isEmpty()) {
         record.state.model=ModelAvailability::Failed;record.state.code="model_path_invalid";
     }

@@ -6,6 +6,8 @@
 #include "ui/seismicsection/seismicattrpanel.h"
 #include "ui/seismicsection/seismicpickpanel.h"
 #include "ui/seismicsection/inversionpanel.h"
+#include "ui/edittools/undogrouprouter.h"
+#include "ui/shortcuts/shortcutcatalog.h"
 
 #include "ui/paleotheme.h"
 #include "ui/paleoviewport.h"
@@ -23,6 +25,7 @@
 #include <QLineEdit>
 #include <QProgressBar>
 #include <QRegularExpression>
+#include <QShortcut>
 #include <QSlider>
 #include <QSpinBox>
 #include <QTextEdit>
@@ -765,10 +768,13 @@ void SeismicSectionDockWidget::setupInterpretationUi(QWidget *parent) {
     addScrollablePanelRow(parent, m_pickPanel);
 
     m_undoStack = new QUndoStack(this);
-    m_pickPanel->setUndoStack(m_undoStack);
-    connect(m_undoStack, &QUndoStack::canUndoChanged, this, [this](bool can) {
-        Q_UNUSED(can);
-    });
+    connect(m_undoStack, &QUndoStack::indexChanged,
+            this, &SeismicSectionDockWidget::interpretationUndoStateChanged);
+    connect(paleo::shortcuts::bindShortcut(QStringLiteral("section.pick.undo"), this),
+            &QShortcut::activated, this, [this] { interpretationUndoTarget().step(true); });
+    connect(paleo::shortcuts::bindShortcut(QStringLiteral("section.pick.redo"), this),
+            &QShortcut::activated, this, [this] { interpretationUndoTarget().step(false); });
+    emit interpretationUndoStateChanged();
     connect(m_pickPanel, &SeismicPickPanel::sessionChanged, this, [this]() {
         refreshInterpretationOverlay();
     });

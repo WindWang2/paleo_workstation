@@ -240,8 +240,6 @@ PaleoEditingToolbar::PaleoEditingToolbar( QgsMapCanvas *canvas, QWidget *parent 
   buildUi();
 
   mUndoStack = std::make_unique<PaleoUndoStack>( this );
-  connect( mUndoStack.get(), &PaleoUndoStack::canUndoChanged, mActionUndo, &QAction::setEnabled );
-  connect( mUndoStack.get(), &PaleoUndoStack::canRedoChanged, mActionRedo, &QAction::setEnabled );
   // Layer-switch refusals (dirty native stack) surface as editRefused reasons.
   connect( mUndoStack.get(), &PaleoUndoStack::switchRefused, this,
            [this]( const QString &, const QString &reason ) { emit editRefused( reason ); } );
@@ -777,7 +775,7 @@ void PaleoEditingToolbar::updateActionStates()
   mActionCancel->setEnabled( editing );
   mActionCancel->setToolTip( editing ? mActionCancel->property( "hint" ).toString() : noSession );
 
-  applyUndoActionStates(); // #748：活动组栈优先，见 editingtoolbar_shortcuts.cpp
+  refreshUndoActions();
 
   updatePartitionControls(noEdit);
   updateStateLabel();

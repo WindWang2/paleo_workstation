@@ -18,25 +18,23 @@ PaleoLayoutUndoStack::PaleoLayoutUndoStack( QgsLayout *layout, QObject *parent )
   if ( layout && layout->undoStack() )
     m_stack = layout->undoStack()->stack();
 
+  m_undoAction = new QAction( this );
+  m_redoAction = new QAction( this );
+  connect( m_undoAction, &QAction::triggered, this, &PaleoLayoutUndoStack::undo );
+  connect( m_redoAction, &QAction::triggered, this, &PaleoLayoutUndoStack::redo );
   if ( m_stack )
   {
-    // QUndoStack-created actions keep enabled/text in sync with the stack and
-    // trigger it directly — no Paleo-side state to keep up to date.
-    m_undoAction = m_stack->createUndoAction( this, tr( "撤销(&U)" ) );
-    m_redoAction = m_stack->createRedoAction( this, tr( "重做(&R)" ) );
-    connect( m_stack, &QUndoStack::canUndoChanged, this, &PaleoLayoutUndoStack::canUndoChanged );
-    connect( m_stack, &QUndoStack::canRedoChanged, this, &PaleoLayoutUndoStack::canRedoChanged );
-  }
-  else
-  {
-    // Null layout (or degenerate layout without a stack): uniform, permanently
-    // disabled actions so UI wiring never sees a null action.
-    m_undoAction = new QAction( tr( "撤销(&U)" ), this );
-    m_redoAction = new QAction( tr( "重做(&R)" ), this );
-    m_undoAction->setEnabled( false );
-    m_redoAction->setEnabled( false );
-    connect( m_undoAction, &QAction::triggered, this, &PaleoLayoutUndoStack::undo );
-    connect( m_redoAction, &QAction::triggered, this, &PaleoLayoutUndoStack::redo );
+    connect( m_stack, &QUndoStack::canUndoChanged, this, [this] {
+      refreshActions();
+      emit canUndoChanged( canUndo() );
+    } );
+    connect( m_stack, &QUndoStack::canRedoChanged, this, [this] {
+      refreshActions();
+      emit canRedoChanged( canRedo() );
+    } );
+    connect( m_stack, &QUndoStack::undoTextChanged, this, &PaleoLayoutUndoStack::refreshActions );
+    connect( m_stack, &QUndoStack::redoTextChanged, this, &PaleoLayoutUndoStack::refreshActions );
+    connect( m_stack, &QObject::destroyed, this, &PaleoLayoutUndoStack::refreshActions );
   }
 
   m_undoAction->setObjectName( QStringLiteral( "mActionUndo" ) );
@@ -44,6 +42,7 @@ PaleoLayoutUndoStack::PaleoLayoutUndoStack( QgsLayout *layout, QObject *parent )
   // 方向63：键序登记在 shortcuts/shortcutcatalog（layout.undo/redo，StandardKey 求值）。
   paleo::shortcuts::bindAction( QStringLiteral( "layout.undo" ), m_undoAction );
   paleo::shortcuts::bindAction( QStringLiteral( "layout.redo" ), m_redoAction );
+  refreshActions();
 }
 
 void PaleoLayoutUndoStack::attachMenu( QMenu *menu )
@@ -83,22 +82,42 @@ void PaleoLayoutUndoStack::attachWidget( QWidget *widget )
 
 bool PaleoLayoutUndoStack::canUndo() const
 {
-  return m_stack && m_stack->canUndo();
+  return !m_readOnly && m_stack && m_stack->canUndo();
 }
 
 bool PaleoLayoutUndoStack::canRedo() const
 {
-  return m_stack && m_stack->canRedo();
+  return !m_readOnly && m_stack && m_stack->canRedo();
 }
 
 void PaleoLayoutUndoStack::undo()
 {
-  if ( m_stack && m_stack->canUndo() )
+  if ( canUndo() )
     m_stack->undo();
 }
 
 void PaleoLayoutUndoStack::redo()
 {
-  if ( m_stack && m_stack->canRedo() )
+  if ( canRedo() )
     m_stack->redo();
+}
+
+void PaleoLayoutUndoStack::setReadOnly( bool readOnly )
+{
+  if ( m_readOnly == readOnly )
+    return;
+  m_readOnly = readOnly;
+  refreshActions();
+  emit canUndoChanged( canUndo() );
+  emit canRedoChanged( canRedo() );
+}
+
+void PaleoLayoutUndoStack::refreshActions()
+{
+  const auto sync = [](QAction *action, bool available, const QString &label, const QString &text) {
+    action->setEnabled( available );
+    action->setText( text.isEmpty() ? label : label + QLatin1Char( ' ' ) + text );
+  };
+  sync( m_undoAction, canUndo(), tr( "撤销(&U)" ), m_stack ? m_stack->undoText() : QString{} );
+  sync( m_redoAction, canRedo(), tr( "重做(&R)" ), m_stack ? m_stack->redoText() : QString{} );
 }

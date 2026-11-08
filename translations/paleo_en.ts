@@ -24469,8 +24469,8 @@ PDF：%3
         </message>
         <message>
             <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="97" />
-            <source>地震拾取面板（焦点内）</source>
-            <translation type="unfinished" />
+            <source>地震剖面（焦点内）</source>
+            <translation>Seismic section (when focused)</translation>
         </message>
         <message>
             <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="98" />
@@ -24484,13 +24484,13 @@ PDF：%3
         </message>
         <message>
             <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="108" />
-            <source>撤销上一次地震拾取变更</source>
-            <translation type="unfinished" />
+            <source>撤销上一次地震解释变更</source>
+            <translation>Undo the last seismic interpretation edit</translation>
         </message>
         <message>
             <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="110" />
-            <source>重做地震拾取变更</source>
-            <translation type="unfinished" />
+            <source>重做地震解释变更</source>
+            <translation>Redo a seismic interpretation edit</translation>
         </message>
         <message>
             <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="112" />
@@ -28263,6 +28263,9 @@ PDF：%3
             <location filename="../src/ai/chat/domaintools.cpp" line="401" />
             <source>入口已接线：显式引用，不读取当前选择</source>
             <translation>Available through explicit references. The current selection is ignored.</translation>
+            <location filename="../src/ui/seismicsection/seismicsectiondock_internal.h" line="89"/>
+            <source>添加断层 %1</source>
+            <translation>Add fault %1</translation>
         </message>
     <message><source>快速预览（≤64×64）</source><translation type="unfinished"></translation></message>
         <message>
@@ -51726,6 +51729,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>seismic::SeismicPickPanel</name>
         <message>
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
+            <source>撤销：%1</source>
+            <translation>Undo: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
+            <source>重做：%1</source>
+            <translation>Redo: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
+            <source>没有可撤销的解释变更</source>
+            <translation>No interpretation edit to undo</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
+            <source>没有可重做的解释变更</source>
+            <translation>No interpretation edit to redo</translation>
+        </message>
+        <message>
             <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="86" />
             <source>解释者:</source>
             <translation type="unfinished" />
@@ -52148,6 +52171,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
     <context>
         <name>seismic::SeismicSectionDockWidget</name>
+        <message>
+            <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="312"/>
+            <source>只读工程不能保存地震解释</source>
+            <translation>Cannot save seismic interpretation in a read-only project</translation>
+        </message>
         <message>
             <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="21" />
             <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="117" />

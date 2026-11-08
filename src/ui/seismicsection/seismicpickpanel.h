@@ -15,7 +15,6 @@ class QLineEdit;
 class QSpinBox;
 class QTableWidget;
 class QToolButton;
-class QUndoStack;
 
 namespace seismic {
 
@@ -31,7 +30,6 @@ public:
     explicit SeismicPickPanel(SeismicSectionDockWidget *dock, QWidget *parent = nullptr);
 
     void refreshFromSession();
-    void setUndoStack(QUndoStack *stack);
     QString currentInterpreter() const;
     QString currentHorizon() const;
     // goal/horizon-autotrack — 追踪在途态（按钮切「取消追踪」）与 QC 行
@@ -51,6 +49,7 @@ signals:
 
 private:
     void buildUi();
+    void refreshUndoActions();
     void onAddInterpreter();
     void onExportCsv();
     void onRegisterHorizon();
@@ -75,7 +74,6 @@ private:
     QLabel *lblTrackSummary_ = nullptr;    // goal/horizon-autotrack：覆盖率/置信度/停因
     QToolButton *btnUndo_ = nullptr;
     QToolButton *btnRedo_ = nullptr;
-    QUndoStack *undoStack_ = nullptr;
 };
 
 } // namespace seismic

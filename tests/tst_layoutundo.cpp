@@ -1,8 +1,10 @@
 #include <QtTest>
+#include <QApplication>
 #include <QCoreApplication>
 #include <QMenu>
 #include <QToolBar>
 #include <QWidget>
+#include <QVBoxLayout>
 
 #include "../src/ui/layout/layoutundostack.h"
 #include "../src/qgis/qgisruntime.h"
@@ -407,6 +409,40 @@ class TestLayoutUndo : public QObject
       undo.redoAction()->trigger();
       QCOMPARE( labelCount( layout ), 1 );
       QVERIFY( undo.undoAction()->isEnabled() );
+    }
+
+    void keyboardUndoFollowsLayoutWriteGate()
+    {
+      QgsProject project;
+      QgsPrintLayout layout(&project);
+      PaleoLayoutUndoStack undo(&layout);
+      layout.addLayoutItem(new QgsLayoutItemLabel(&layout));
+
+      QWidget window;
+      QVBoxLayout rows(&window);
+      QToolBar toolbar(&window);
+      QWidget view(&window);
+      rows.addWidget(&toolbar);
+      rows.addWidget(&view);
+      undo.attachWidget(&toolbar);
+      view.setFocusPolicy(Qt::StrongFocus);
+      window.show();
+      QApplication::setActiveWindow(&window);
+      view.setFocus();
+      QTRY_VERIFY(view.hasFocus());
+      QTest::keyClick(&view, Qt::Key_Z, Qt::ControlModifier);
+      QCOMPARE(labelCount(layout), 0);
+      QTest::keyClick(&view, Qt::Key_Y, Qt::ControlModifier);
+      QCOMPARE(labelCount(layout), 1);
+
+      undo.setReadOnly(true);
+      QVERIFY(!undo.undoAction()->isEnabled());
+      QTest::keyClick(&view, Qt::Key_Z, Qt::ControlModifier);
+      undo.undo();
+      QCOMPARE(labelCount(layout), 1);
+      undo.setReadOnly(false);
+      QTest::keyClick(&view, Qt::Key_Z, Qt::ControlModifier);
+      QCOMPARE(labelCount(layout), 0);
     }
 
     // --- null-safety -----------------------------------------------------------

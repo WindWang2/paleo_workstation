@@ -399,15 +399,32 @@ QString DataListPanel::receiptStatusText(const paleo::dataops::BatchReceipt &r) 
         .arg(r.failureLines().join(QLatin1String("；")));
   if (r.anyFailure())
   {
-    const QString head = tr("部分失败：成功 %1、无变化 %2、失败 %3（%4）")
-                             .arg(r.changedCount())
-                             .arg(r.noChangeCount())
-                             .arg(r.failedCount())
-                             .arg(r.failureStage.isEmpty() ? tr("原因见明细") : r.failureStage);
-    return head;
+    // 阶段 token 映射为中文（不把内部标识直接拼给用户）。
+    QString stage;
+    for (const char *k : {"guard", "prepare", "catalog-write", "catalog-commit",
+                          "catalog-abort", "sidecar-write", "compensation",
+                          "compensated", "no-stack"})
+      if (r.failureStage == QLatin1String(k))
+      {
+        stage = tr("阶段：%1").arg(QString::fromLatin1(k));
+        break;
+      }
+    return tr("部分失败：成功 %1、无变化 %2、失败 %3%4")
+        .arg(r.changedCount())
+        .arg(r.noChangeCount())
+        .arg(r.failedCount())
+        .arg(stage.isEmpty() ? tr("（原因见明细）") : tr("（%1）").arg(stage));
+  }
+  if (r.rejectedCount() > 0)
+  {
+    // 拒绝≠幂等命中：如实给守卫/分类原因（不呈现为「已满足」）。
+    for (const paleo::dataops::ReceiptItem &it : r.items)
+      if (it.outcome == OpOutcome::Rejected && !it.reason.isEmpty())
+        return tr("未执行：%1").arg(it.reason);
+    return tr("未执行（%1 项被拒绝）").arg(r.rejectedCount());
   }
   if (r.changedCount() == 0)
-    return tr("未发生变化（%1 项已满足）").arg(r.noChangeCount() + r.rejectedCount());
+    return tr("未发生变化（%1 项已满足）").arg(r.noChangeCount());
   const QString undo = r.undoable ? tr("（可撤销）") : QString();
   return tr("成功 %1 项%2").arg(r.changedCount()).arg(undo);
 }

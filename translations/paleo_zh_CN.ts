@@ -8431,6 +8431,31 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
             <source>；转移可撤销，新挂关联不可撤销</source>
             <translation>；转移可撤销，新挂关联不可撤销</translation>
         </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>未执行：%1</source>
+            <translation>未执行：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>未执行（%1 项被拒绝）</source>
+            <translation>未执行（%1 项被拒绝）</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>阶段：%1</source>
+            <translation>阶段：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>（%1）</source>
+            <translation>（%1）</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>（原因见明细）</source>
+            <translation>（原因见明细）</translation>
+        </message>
 </context>
 <context>
     <name>DataPage</name>
@@ -11358,6 +11383,11 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>未知原因</source>
             <translation>未知原因</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/entitypanel_crud.cpp" line="0"/>
+            <source>实体值未变化</source>
+            <translation>实体值未变化</translation>
         </message>
 </context>
 <context>

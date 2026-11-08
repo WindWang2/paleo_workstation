@@ -168,8 +168,8 @@ void mergeReceiptItems(BatchReceipt *agg, const BatchReceipt &part)
   for (const ReceiptItem &it : part.items)
     agg->items.append(it);
   agg->requested += part.requested;
-  if (part.failureStage.isEmpty() && agg->failureStage.isEmpty())
-    agg->failureStage = part.failureStage;
+  if (agg->failureStage.isEmpty() && !part.failureStage.isEmpty())
+    agg->failureStage = part.failureStage; // 子回执的失败阶段向聚合面传播
 }
 } // namespace
 
@@ -462,7 +462,7 @@ bool TransferLinkCmd::apply(const QString &from, const QString &to)
   if (resolved && !m_ctx.cat->setLinkUnresolved(idx, &m_error))
   {
     batch.abort();
-    m_receipt.failureStage = QStringLiteral("catalog-commit");
+    m_receipt.failureStage = QStringLiteral("catalog-write");
     m_receipt.addItem(m_assetId, op, OpOutcome::FailedRecovered, m_error);
     return false;
   }
@@ -1654,9 +1654,11 @@ BatchReceipt DataOpsCommandService::detachLinks(const QStringList &assetIds)
         finishWithStack(new DetachLinkCmd(m_ctx, id, l.role, l.entityId),
                         QStringLiteral("detach"), &r);
         r.undoable = r.changedCount() > 0 && !r.anyFailure();
-        return r; // 单操作语义：首个选中资产的第一条已决链接
+        r.requested = 1; // 单操作语义：实际意图只有这一条（计数与条目互核）
+        return r; // 首个选中资产的第一条已决链接
       }
   }
+  r.requested = 1; // 单操作语义：无可操作项 = 这一条意图被拒
   r.addItem(ordered.isEmpty() ? QString() : ordered.first(),
             QStringLiteral("detach"), OpOutcome::Rejected,
             QObject::tr("选中资产没有已决关联"));
@@ -1684,9 +1686,11 @@ BatchReceipt DataOpsCommandService::setPrimary(const QStringList &assetIds)
         finishWithStack(new SetPrimaryCmd(m_ctx, id, l.role, l.entityId, prevPrimary),
                         QStringLiteral("primary"), &r);
         r.undoable = r.changedCount() > 0 && !r.anyFailure();
+        r.requested = 1; // 单操作语义：实际意图只有这一条
         return r;
       }
   }
+  r.requested = 1; // 单操作语义：无可操作项 = 这一条意图被拒
   r.addItem(ordered.isEmpty() ? QString() : ordered.first(),
             QStringLiteral("primary"), OpOutcome::Rejected,
             QObject::tr("选中资产没有可提升的非主关联"));

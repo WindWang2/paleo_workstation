@@ -26,6 +26,8 @@ void DataListPanel::renameSelectedAsset()
     return;
   // P1-W6：重命名走命令服务（守卫+回执确认后再报成功）。
   const paleo::dataops::BatchReceipt r = m_cmdSvc.renameAsset(id, next);
+  refreshAssetTable(); // 单操作同样收口刷新（原 pushCommand 附带）
+  emit entityRefreshRequested();
   if (r.changedCount() > 0)
   {
     if (m_history)

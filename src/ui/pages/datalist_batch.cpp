@@ -163,10 +163,13 @@ void DataListPanel::removeAssetsSoft(const QStringList &assetIds)
   emit entityRefreshRequested();
   if (r.changedCount() > 0 && m_history)
     m_history->push(tr("批量移除 %1 项（软删）").arg(r.changedCount()));
-  emit statusMessage(r.anyFailure() || r.historyInvalidated
-                         ? receiptStatusText(r)
-                         : tr("已移除 %1 个资产到可回收清单（可撤销）")
-                               .arg(r.changedCount()));
+  // 成功文案仅在确有变更且无任何失败/拒绝时出现（守卫整批拒绝不得报「已移除」）。
+  if (r.changedCount() > 0 && !r.anyFailure() && !r.historyInvalidated &&
+      r.rejectedCount() == 0)
+    emit statusMessage(tr("已移除 %1 个资产到可回收清单（可撤销）")
+                           .arg(r.changedCount()));
+  else
+    emit statusMessage(receiptStatusText(r));
 }
 
 // 井附件管理面板（方向 79）：树「岩心照片 (N)」双击跳转入口。面板按需
@@ -377,13 +380,18 @@ void DataListPanel::detachSingleAssetLink()
   const QSet<QString> ids = currentAssetSelection();
   if (ids.isEmpty() || !m_ctx.valid())
     return;
-  // 单操作语义：首个选中资产的第一条已决链接（先冻结文案素材，执行后确认）。
-  for (const QString &id : ids)
+  // 单操作语义：排序后首个选中资产的第一条已决链接（与服务侧确定序一致，
+  // 多选时文案素材与实际操作对象不漂移）。
+  QStringList ordered(ids.constBegin(), ids.constEnd());
+  ordered.sort();
+  for (const QString &id : ordered)
     for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(id))
       if (!l.unresolved)
       {
         const QString asset = id, entity = l.entityId;
         const BatchReceipt r = m_cmdSvc.detachLinks(QStringList(ids.constBegin(), ids.constEnd()));
+        refreshAssetTable(); // 单操作同样收口刷新（原 pushCommand 附带）
+        emit entityRefreshRequested();
         if (r.changedCount() > 0)
           emit statusMessage(tr("已解挂 %1→%2（可撤销）").arg(asset, entity));
         else
@@ -401,6 +409,8 @@ void DataListPanel::setPrimaryForSelection()
     return;
   // 前主关联的冻结与恢复由服务/命令侧承担（跨资产）。
   const BatchReceipt r = m_cmdSvc.setPrimary(QStringList(ids.constBegin(), ids.constEnd()));
+  refreshAssetTable(); // 单操作同样收口刷新（原 pushCommand 附带）
+  emit entityRefreshRequested();
   if (r.changedCount() > 0)
   {
     const QString id = r.items.isEmpty() ? QString() : r.items.first().targetId;

@@ -109,7 +109,7 @@ void EntityPanel::beginCreateEntity()
   {
     // P1-W6：走命令服务（守卫/回执确认后再报成功）。
     const BatchReceipt r = m_cmdSvc->createEntity(e);
-    if (r.changedCount() <= 0)
+    if (r.anyFailure() || r.historyInvalidated || r.changedCount() == 0)
     {
       emit statusMessage(tr("新建实体失败：%1")
                              .arg(r.items.isEmpty() ? tr("未知原因")
@@ -187,11 +187,19 @@ void EntityPanel::beginRenameEntity(const QString &entityId)
         m_ctx.entityOverrides ? m_ctx.entityOverrides->overrideFor(e.id)
                               : EntityOverride(),
         false);
-    if (r.changedCount() <= 0)
+    if (r.anyFailure() || r.historyInvalidated)
     {
       emit statusMessage(tr("实体更新失败：%1")
                              .arg(r.items.isEmpty() ? tr("未知原因")
                                                     : r.items.first().reason));
+      return;
+    }
+    if (r.changedCount() == 0)
+    {
+      // 幂等命中≠失败：如实提示未变化（旧路径误报成功，两代都不准确）。
+      emit statusMessage(tr("实体值未变化"));
+      refresh();
+      emit entityRefreshRequested();
       return;
     }
     if (m_history)

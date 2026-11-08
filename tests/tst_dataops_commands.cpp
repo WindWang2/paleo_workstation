@@ -330,7 +330,9 @@ void TestDataOpsCommands::transferCatalogCommitFailureRollsBackAndSecondOpSuccee
   TransferLinkCmd cmd(ctx, m_f.a1, m_f.role, m_f.well1, m_f.well2);
   QVERIFY(!cmd.redo());
   QCOMPARE(cmd.receipt().count(OpOutcome::FailedRecovered), 1);
-  QCOMPARE(cmd.receipt().failureStage, QStringLiteral("catalog-commit"));
+  // 阶段一 mutator 写拒绝（尚无提交）：catalog-write（与 flush 失败的
+  // catalog-commit 区分——两条路径都整批回滚）。
+  QCOMPARE(cmd.receipt().failureStage, QStringLiteral("catalog-write"));
   QCOMPARE(linkCount(m_f.a1, m_f.well1), 1); // 内存已滚回（未留半途态）
   QCOMPARE(m_f.stack.depth(), 0);            // 不追加成功历史
   // 独立重开：盘上同样未动。

@@ -403,6 +403,39 @@ private slots:
     QVERIFY(!cand.contains(QStringLiteral("horizon")));
   }
 
+  void v2RejectsUndecodableAndNonUtf8Payloads()
+  {
+    // 复审残留 (a) 收口：字符集合法但 base64 长度/UTF-8 非法的载荷拒收
+    //（不静默解码成乱码）。'abcde' 长度 %4==1 不可解码；'YuI' 解出非法
+    // UTF-8 序列（0x62 0xE5…截断的多字节头）。
+    QVERIFY(!parseQueryStateString(QStringLiteral(
+                 "paleo://dataops-filter?v=2&f=type~p~abcde"))
+                  .valid);
+    const QueryStateParse bad = parseQueryStateString(
+        QStringLiteral("paleo://dataops-filter?v=2&f=type~p~YuI"));
+    QVERIFY(!bad.valid);
+    QVERIFY(!bad.diagnostic.isEmpty());
+    // 合法 3 字节 UTF-8（「中」= 5Lit in b64url）照常往返。
+    const QueryStateParse ok = parseQueryStateString(
+        QStringLiteral("paleo://dataops-filter?v=2&f=type~p~5Lit"));
+    QVERIFY(ok.valid);
+    QCOMPARE(ok.query.group.conditions.at(0).value, QStringLiteral("中"));
+  }
+
+  void activeTagComparesOnOriginalValue()
+  {
+    // 复审残留 (b) 收口：活动标签按原值比较（旧 applyListFilter 口径，
+    // 不 trim）——带空白的标签串不再宽容命中。
+    DataQuery q;
+    q.activeTag = QStringLiteral(" 核心 ");
+    const CompiledQuery c = CompiledQuery::compile(q);
+    bool any = false;
+    for (const AssetRowInfo &r : fixtureRows())
+      if (c.matches(r))
+        any = true;
+    QVERIFY(!any); // 夹具行只有「核心」（无空白），原值口径不命中
+  }
+
   void v2ExplicitEmptySetRoundTrip()
   {
     DataQuery q;

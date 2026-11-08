@@ -254,7 +254,7 @@ CompiledQuery CompiledQuery::compile(const DataQuery &q)
   CompiledQuery out;
   out.m_empty = q.isEmpty();
   out.m_orMode = q.group.orMode;
-  out.m_tagNeedle = q.activeTag.trimmed();
+  out.m_tagNeedle = q.activeTag; // 原值比较（旧 applyListFilter 口径）
   for (const FilterCondition &c : q.group.conditions)
   {
     CompiledCondition cc;
@@ -482,7 +482,8 @@ QString decodePart(const QString &s)
   return QString::fromUtf8(QByteArray::fromBase64(
       s.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
 }
-// 载荷合法性：空串或纯 [A-Za-z0-9_-]。坏载荷拒收（不静默解码成乱码）。
+// 载荷合法性：可 base64url 解码（字符集 + 长度）且解码结果为合法 UTF-8。
+// 坏载荷拒收（不静默解码成乱码——复审残留 (a) 收口）。
 bool isValidPart(const QString &s)
 {
   if (s.isEmpty())
@@ -494,7 +495,13 @@ bool isValidPart(const QString &s)
           (u >= '0' && u <= '9') || u == '-' || u == '_'))
       return false;
   }
-  return true;
+  const auto decoded = QByteArray::fromBase64Encoding(
+      s.toLatin1(), QByteArray::Base64UrlEncoding |
+                        QByteArray::OmitTrailingEquals |
+                        QByteArray::AbortOnBase64DecodingErrors);
+  if (decoded.decodingStatus != QByteArray::Base64DecodingStatus::Ok)
+    return false;
+  return QString::fromUtf8(decoded.decoded).toUtf8() == decoded.decoded;
 }
 } // namespace
 

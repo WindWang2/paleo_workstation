@@ -107,6 +107,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-som.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-service.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-ui.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-p1-data-commands.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-p2-data-query.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)

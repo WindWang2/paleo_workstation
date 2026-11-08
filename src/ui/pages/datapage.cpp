@@ -91,7 +91,8 @@ void DataPage::wireDataOps()
   // 共享栈：列表侧拥有（stores + DataOpsUndoStack + OperationsHistory），
   // 实体侧写操作进同一条栈。
   m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
-                              m_listPanel->operationsHistory());
+                              m_listPanel->operationsHistory(),
+                              m_listPanel->commandService());
 
   // 状态反馈（D5.4/D8）与外部导入意图（D3.2）直转。
   connect(m_listPanel, &DataListPanel::statusMessage, this, &DataPage::statusMessage);
@@ -258,7 +259,8 @@ bool DataPage::event(QEvent *event)
       // 门面变化（新工程/重开）→ 实体侧共享 ops 重新下发（ctx 指针随列表侧
       // refreshAssetTable 重载，这里保证面板构造后就有栈可用）。
       m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
-                                  m_listPanel->operationsHistory());
+                                  m_listPanel->operationsHistory(),
+                                  m_listPanel->commandService());
     }
   }
   return QWidget::event(event);
@@ -282,7 +284,8 @@ void DataPage::refreshAssetTable()
   if (m_entityPanel)
   {
     m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
-                                m_listPanel->operationsHistory());
+                                m_listPanel->operationsHistory(),
+                                m_listPanel->commandService());
     m_entityPanel->refresh();
   }
   // A model-well tree node has no asset ID. Rebuilding the asset list must not

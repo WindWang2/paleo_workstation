@@ -8376,6 +8376,91 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <source>缺时深</source>
         <translation>缺时深</translation>
     </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>原因见明细</source>
+            <translation>原因见明细</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>恢复结果</source>
+            <translation>恢复结果</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>成功 %1 项%2</source>
+            <translation>成功 %1 项%2</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>批量恢复 %1 项</source>
+            <translation>批量恢复 %1 项</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>挂接到「%1」：新挂 %2、转移 %3、跳过 %4%5</source>
+            <translation>挂接到「%1」：新挂 %2、转移 %3、跳过 %4%5</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>挂接结果</source>
+            <translation>挂接结果</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>操作失败且留有部分变化，撤销历史已作废：%1</source>
+            <translation>操作失败且留有部分变化，撤销历史已作废：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>未发生变化（%1 项已满足）</source>
+            <translation>未发生变化（%1 项已满足）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>部分失败：成功 %1、无变化 %2、失败 %3（%4）</source>
+            <translation>部分失败：成功 %1、无变化 %2、失败 %3（%4）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>（可撤销）</source>
+            <translation>（可撤销）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>（新挂关联不可撤销）</source>
+            <translation>（新挂关联不可撤销）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>；转移可撤销，新挂关联不可撤销</source>
+            <translation>；转移可撤销，新挂关联不可撤销</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>未执行：%1</source>
+            <translation>未执行：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>未执行（%1 项被拒绝）</source>
+            <translation>未执行（%1 项被拒绝）</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>阶段：%1</source>
+            <translation>阶段：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>（%1）</source>
+            <translation>（%1）</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
+            <source>（原因见明细）</source>
+            <translation>（原因见明细）</translation>
+        </message>
 </context>
 <context>
     <name>DataPage</name>
@@ -11299,6 +11384,16 @@ Crossline: %3 ~ %4</source>
         <source>衍生血缘</source>
         <translation>衍生血缘</translation>
     </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>未知原因</source>
+            <translation>未知原因</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/entitypanel_crud.cpp" line="0"/>
+            <source>实体值未变化</source>
+            <translation>实体值未变化</translation>
+        </message>
 </context>
 <context>
     <name>ErrorHistoryPanel</name>
@@ -36479,22 +36574,86 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
         <translation>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</translation>
     </message>
-    <message>
-      <source>catalog_revision 须为整数</source>
-      <translation>catalog_revision 须为整数</translation>
-    </message>
-    <message>
-      <source>topic=version 须给精确 version_id</source>
-      <translation>topic=version 须给精确 version_id</translation>
-    </message>
-    <message>
-      <source>目录修订条件（topic=version；缺省使用本次宿主目录修订）</source>
-      <translation>目录修订条件（topic=version；缺省使用本次宿主目录修订）</translation>
-    </message>
-    <message>
-      <source>精确目录版本标识（topic=version 时必填，不按名称回退）</source>
-      <translation>精确目录版本标识（topic=version 时必填，不按名称回退）</translation>
-    </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>不在可回收清单</source>
+            <translation>不在可回收清单</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>回收状态未变化</source>
+            <translation>回收状态未变化</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>实体改写未变化</source>
+            <translation>实体改写未变化</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>工程会话已变更（数据目录已切换），请重新操作</source>
+            <translation>工程会话已变更（数据目录已切换），请重新操作</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>工程会话已变更，请重新操作</source>
+            <translation>工程会话已变更，请重新操作</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>已在可回收清单</source>
+            <translation>已在可回收清单</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>批量失败已整体回滚：%1</source>
+            <translation>批量失败已整体回滚：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>批量失败已补偿恢复</source>
+            <translation>批量失败已补偿恢复</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>批量提交失败（已整体回滚）：%1</source>
+            <translation>批量提交失败（已整体回滚）：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>数据目录未打开</source>
+            <translation>数据目录未打开</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>标签未变化（已存在或不存在）</source>
+            <translation>标签未变化（已存在或不存在）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>目标实体相同</source>
+            <translation>目标实体相同</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>类型已是目标值</source>
+            <translation>类型已是目标值</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>补偿失败：%1</source>
+            <translation>补偿失败：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>转移第二步失败（已回滚）：%1</source>
+            <translation>转移第二步失败（已回滚）：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>转移落盘失败（已回滚）：%1</source>
+            <translation>转移落盘失败（已回滚）：%1</translation>
+        </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -53936,4 +54095,151 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
 </context>
 
+    <context>
+        <name>BatchTagCmd</name>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>去标签「%1」（%2 项）</source>
+            <translation>去标签「%1」（%2 项）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>打标签「%1」（%2 项）</source>
+            <translation>打标签「%1」（%2 项）</translation>
+        </message>
+    </context>
+    <context>
+        <name>BatchTypeOverrideCmd</name>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>批量改类型 %1 项→%2</source>
+            <translation>批量改类型 %1 项→%2</translation>
+        </message>
+    </context>
+    <context>
+        <name>DataOpsCommandService</name>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>%1（实体已写入目录但可见性未恢复）</source>
+            <translation>%1（实体已写入目录但可见性未恢复）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>名称不能为空</source>
+            <translation>名称不能为空</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>名称未变化</source>
+            <translation>名称未变化</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>工程为只读，数据操作不可用</source>
+            <translation>工程为只读，数据操作不可用</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>已挂到目标实体</source>
+            <translation>已挂到目标实体</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>批量挂接 %1 项：%2</source>
+            <translation>批量挂接 %1 项：%2</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>挂接失败（已回滚）：%1</source>
+            <translation>挂接失败（已回滚）：%1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>挂接目标不完整</source>
+            <translation>挂接目标不完整</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>撤销栈不可用</source>
+            <translation>撤销栈不可用</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>新建关联（不可撤销）</source>
+            <translation>新建关联（不可撤销）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>标签不存在</source>
+            <translation>标签不存在</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>标签名不能为空</source>
+            <translation>标签名不能为空</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>标签名含非法字符</source>
+            <translation>标签名含非法字符</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>标签名过长（至多 40 字符）</source>
+            <translation>标签名过长（至多 40 字符）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>标签已存在</source>
+            <translation>标签已存在</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>目标实体不存在（工程已变化，请重新选择）</source>
+            <translation>目标实体不存在（工程已变化，请重新选择）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>类型不能为空</source>
+            <translation>类型不能为空</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>类型已是 %1</source>
+            <translation>类型已是 %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>记录已清空，不可恢复</source>
+            <translation>记录已清空，不可恢复</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>资产不存在</source>
+            <translation>资产不存在</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>资产已在可回收清单</source>
+            <translation>资产已在可回收清单</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>选中资产没有可提升的非主关联</source>
+            <translation>选中资产没有可提升的非主关联</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>选中资产没有已决关联</source>
+            <translation>选中资产没有已决关联</translation>
+        </message>
+    </context>
+    <context>
+        <name>DataOpsUndoStack</name>
+        <message>
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
+            <source>操作未能完成</source>
+            <translation>操作未能完成</translation>
+        </message>
+    </context>
 </TS>

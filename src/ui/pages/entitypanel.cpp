@@ -486,15 +486,6 @@ void EntityPanel::buildD4Ui()
     });
 }
 
-void EntityPanel::setSharedOps(const paleo::dataops::DataOpsContext &ctx,
-                               paleo::dataops::DataOpsUndoStack *stack,
-                               paleo::dataops::OperationsHistory *history)
-{
-  m_ctx = ctx;
-  m_stack = stack;
-  m_history = history;
-}
-
 void EntityPanel::setMultiContext(const QStringList &entityIds,
                                   const QStringList &assetIds)
 {

@@ -51,7 +51,8 @@ class EntityPanel : public QWidget
     // P3 共享命令面（DataPage 接线：栈与 stores 与列表侧同源）。
     void setSharedOps(const paleo::dataops::DataOpsContext &ctx,
                       paleo::dataops::DataOpsUndoStack *stack,
-                      paleo::dataops::OperationsHistory *history);
+                      paleo::dataops::OperationsHistory *history,
+                      paleo::dataops::DataOpsCommandService *service = nullptr);
     // D4.1：树内 F2 / 菜单「重命名实体」意图落点（壳转发到本方法）。
     void beginRenameEntity(const QString &entityId);
     void beginDeleteEntity(const QString &entityId);
@@ -101,6 +102,8 @@ class EntityPanel : public QWidget
     QHash<QString, PreviewDocService::GeoJsonSummary> m_geoSummaryCache; // 路径→统计
     paleo::dataops::DataOpsContext m_ctx;
     paleo::dataops::DataOpsUndoStack *m_stack = nullptr;
+    // P1（data-commands）：命令服务（可空——未接线时走既有直推路径）。
+    paleo::dataops::DataOpsCommandService *m_cmdSvc = nullptr;
     paleo::dataops::OperationsHistory *m_history = nullptr;
     paleo::dataops::VersionTimeline *m_timeline = nullptr;
     paleo::dataops::TopologyGraph *m_topology = nullptr;

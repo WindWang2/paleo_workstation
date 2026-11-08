@@ -80,42 +80,25 @@ void DataListPanel::batchChangeType()
   const QString newType = dlg.chosenType();
   if (newType.isEmpty())
     return;
+  // P1-W4/W6：不再「先改 store 再包装命令」——服务先保存前态、一次侧车提交，
+  // 回执确认后界面才更新与报成功。
+  const paleo::dataops::BatchReceipt receipt = m_cmdSvc.setTypeOverrides(
+      QStringList(ids.constBegin(), ids.constEnd()), newType);
   QStringList failures;
   QVector<AssetRowInfo> updatedRows;
-  QList<paleo::dataops::DataOpCommand *> typeCmds;
-  for (const QString &id : ids)
+  for (const paleo::dataops::ReceiptItem &it : receipt.items)
   {
-    const QString prev = m_typeOv.overriddenType(id);
-    if (!m_typeOv.setType(id, newType))
-    {
-      // 幂等跳过不算失败。
-      continue;
-    }
-    if (!m_typeOv.save())
-      failures << tr("%1：sidecar 写入失败").arg(id);
-    else
-    {
-      // PW-049：收集为一条宏命令，循环后一次入栈。
-      typeCmds.append(new TypeOverrideCmd(m_ctx, id, newType, prev));
-      for (AssetRowInfo &r : m_rows)
-      {
-        if (r.assetId == id)
+    if (it.outcome == paleo::dataops::OpOutcome::FailedRecovered ||
+        it.outcome == paleo::dataops::OpOutcome::FailedPartial)
+      failures << QStringLiteral("%1: %2").arg(it.targetId, it.reason);
+    if (it.outcome == paleo::dataops::OpOutcome::Changed)
+      for (const AssetRowInfo &r : m_rows)
+        if (r.assetId == it.targetId)
         {
-          r.effectiveType = newType;
-          updatedRows.append(r);
+          AssetRowInfo updated = r;
+          updated.effectiveType = newType;
+          updatedRows.append(updated);
         }
-      }
-    }
-  }
-  if (!typeCmds.isEmpty())
-  {
-    if (!m_opStack)
-      qDeleteAll(typeCmds);
-    else if (typeCmds.size() == 1)
-      m_opStack->push(typeCmds.first());
-    else
-      m_opStack->push(new paleo::dataops::DataOpMacro(
-          tr("批量改类型 %1 项→%2").arg(typeCmds.size()).arg(newType), typeCmds));
   }
 
   // 方向 52 B 线：增量通道更新——若虚拟视图在用，走 updateRows 增量发射
@@ -137,12 +120,19 @@ void DataListPanel::batchChangeType()
   }
 
   const QString typeLabel = PaleoFolderConfirm::folderTypeLabel(newType);
-  if (m_history)
-    m_history->push(tr("批量改类型 → %1（%2 项）").arg(typeLabel).arg(ids.size()));
+  if (receipt.changedCount() > 0 && m_history)
+    m_history->push(tr("批量改类型 → %1（%2 项）").arg(typeLabel).arg(receipt.changedCount()));
   if (!failures.isEmpty())
+  {
     showBatchFailureDetail(this, tr("批量改类型"), failures);
+    emit statusMessage(receiptStatusText(receipt));
+  }
+  else if (receipt.changedCount() > 0)
+    emit statusMessage(tr("已把 %1 个资产类型改为 %2（可撤销）")
+                           .arg(receipt.changedCount())
+                           .arg(typeLabel));
   else
-    emit statusMessage(tr("已把 %1 个资产类型改为 %2（可撤销）").arg(ids.size()).arg(typeLabel));
+    emit statusMessage(receiptStatusText(receipt));
 }
 
 void DataListPanel::batchRemoveSoft()
@@ -165,23 +155,21 @@ void DataListPanel::batchRemoveSoft()
 void DataListPanel::removeAssetsSoft(const QStringList &assetIds)
 {
   using namespace paleo::dataops;
-  if (assetIds.isEmpty() || !m_ctx.valid() || m_ctx.cat->refusesWrites())
+  if (assetIds.isEmpty())
     return;
-  QVector<std::pair<QString, RecycleEntry>> entries;
-  for (const QString &id : assetIds)
-  {
-    const CatalogAsset a = m_ctx.cat->assetById(id);
-    RecycleEntry e;
-    e.assetId = id;
-    e.type = a.type;
-    e.displayName = a.displayName;
-    entries.append({id, e});
-  }
-  pushCommand(new BatchRemoveCmd(m_ctx, assetIds, entries, tr("批量移除")));
-  if (m_history)
-    m_history->push(tr("批量移除 %1 项（软删）").arg(assetIds.size()));
-  emit statusMessage(tr("已移除 %1 个资产到可回收清单（可撤销）")
-                         .arg(assetIds.size()));
+  // P1-W6：软删走命令服务——提交失败/只读不再谎报「已移除（可撤销）」。
+  const BatchReceipt r = m_cmdSvc.softRemove(assetIds, tr("批量移除"));
+  refreshAssetTable(); // 批次一次收口（原 pushCommand 附带刷新，不能丢）
+  emit entityRefreshRequested();
+  if (r.changedCount() > 0 && m_history)
+    m_history->push(tr("批量移除 %1 项（软删）").arg(r.changedCount()));
+  // 成功文案仅在确有变更且无任何失败/拒绝时出现（守卫整批拒绝不得报「已移除」）。
+  if (r.changedCount() > 0 && !r.anyFailure() && !r.historyInvalidated &&
+      r.rejectedCount() == 0)
+    emit statusMessage(tr("已移除 %1 个资产到可回收清单（可撤销）")
+                           .arg(r.changedCount()));
+  else
+    emit statusMessage(receiptStatusText(r));
 }
 
 // 井附件管理面板（方向 79）：树「岩心照片 (N)」双击跳转入口。面板按需
@@ -347,20 +335,43 @@ void DataListPanel::batchAddTag()
                                             QLineEdit::Normal, QString(), &ok);
   if (!ok)
     return;
-  int n = 0;
-  QVector<paleo::dataops::DataOpCommand *> cmds;
-  for (const QString &id : ids)
-    if (m_tags.addTag(id, tag))
-    {
-      m_tags.save();
-      cmds.append(new paleo::dataops::TagCmd(m_ctx, id, tag, true));
-      ++n;
-    }
-  pushCommands(cmds); // N 项一次收口刷新
-  if (n > 0 && m_history)
-    m_history->push(tr("打标签「%1」（%2 项）").arg(tag).arg(n));
-  emit statusMessage(n > 0 ? tr("已给 %1 个资产打标签「%2」").arg(n).arg(tag)
-                           : tr("标签未变化（已存在或为空）"));
+  // P1-W4：预写 store + N 次落盘已移除——服务先保存前态、单次侧车提交，
+  // 回执确认后再报成功与「可撤销」。
+  const paleo::dataops::BatchReceipt r =
+      m_cmdSvc.addTags(QStringList(ids.constBegin(), ids.constEnd()), tag);
+  refreshAssetTable();   // N 项一次收口刷新
+  emit entityRefreshRequested();
+  if (r.changedCount() > 0 && m_history)
+    m_history->push(tr("打标签「%1」（%2 项）").arg(tag).arg(r.changedCount()));
+  if (r.anyFailure() || r.historyInvalidated)
+    emit statusMessage(receiptStatusText(r));
+  else if (r.changedCount() > 0)
+    emit statusMessage(tr("已给 %1 个资产打标签「%2」（可撤销）")
+                           .arg(r.changedCount())
+                           .arg(tag));
+  else
+    emit statusMessage(tr("标签未变化（已存在或为空）"));
+}
+
+// P1-W6：拖到标签（树拖放意图）——与批量打标签同一服务路径：单次侧车提交、
+// 回执确认后再报成功与「可撤销」（失败不再谎报）。
+void DataListPanel::handleAssetsDroppedOnTag(const QStringList &assetIds,
+                                             const QString &tag)
+{
+  using namespace paleo::dataops;
+  const BatchReceipt r = m_cmdSvc.addTags(assetIds, tag);
+  refreshAssetTable(); // 多选打标签一次收口刷新
+  emit entityRefreshRequested();
+  if (r.changedCount() > 0 && m_history)
+    m_history->push(tr("打标签「%1」（%2 项）").arg(tag).arg(r.changedCount()));
+  if (r.anyFailure() || r.historyInvalidated)
+    emit statusMessage(receiptStatusText(r));
+  else if (r.changedCount() > 0)
+    emit statusMessage(tr("已给 %1 个资产打标签「%2」（可撤销）")
+                           .arg(r.changedCount())
+                           .arg(tag));
+  else
+    emit statusMessage(tr("标签未变化（已存在或为空）"));
 }
 
 void DataListPanel::detachSingleAssetLink()
@@ -369,13 +380,23 @@ void DataListPanel::detachSingleAssetLink()
   const QSet<QString> ids = currentAssetSelection();
   if (ids.isEmpty() || !m_ctx.valid())
     return;
-  for (const QString &id : ids)
+  // 单操作语义：排序后首个选中资产的第一条已决链接（与服务侧确定序一致，
+  // 多选时文案素材与实际操作对象不漂移）。
+  QStringList ordered(ids.constBegin(), ids.constEnd());
+  ordered.sort();
+  for (const QString &id : ordered)
     for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(id))
       if (!l.unresolved)
       {
-        pushCommand(new DetachLinkCmd(m_ctx, id, l.role, l.entityId));
-        emit statusMessage(tr("已解挂 %1→%2（可撤销）").arg(id, l.entityId));
-        return; // 单操作语义：首个选中资产的第一条已决链接
+        const QString asset = id, entity = l.entityId;
+        const BatchReceipt r = m_cmdSvc.detachLinks(QStringList(ids.constBegin(), ids.constEnd()));
+        refreshAssetTable(); // 单操作同样收口刷新（原 pushCommand 附带）
+        emit entityRefreshRequested();
+        if (r.changedCount() > 0)
+          emit statusMessage(tr("已解挂 %1→%2（可撤销）").arg(asset, entity));
+        else
+          emit statusMessage(receiptStatusText(r));
+        return;
       }
   emit statusMessage(tr("选中资产没有已决关联"));
 }
@@ -386,23 +407,17 @@ void DataListPanel::setPrimaryForSelection()
   const QSet<QString> ids = currentAssetSelection();
   if (ids.isEmpty() || !m_ctx.valid())
     return;
-  for (const QString &id : ids)
+  // 前主关联的冻结与恢复由服务/命令侧承担（跨资产）。
+  const BatchReceipt r = m_cmdSvc.setPrimary(QStringList(ids.constBegin(), ids.constEnd()));
+  refreshAssetTable(); // 单操作同样收口刷新（原 pushCommand 附带）
+  emit entityRefreshRequested();
+  if (r.changedCount() > 0)
   {
-    const QVector<EntityAssetLink> links = m_ctx.cat->linksForAsset(id);
-    for (const EntityAssetLink &l : links)
-      if (!l.unresolved && !l.isPrimary)
-      {
-        // 前主关联可能在另一个资产上，不能只在本资产的链接里找。
-        QString prevPrimary;
-        for (const EntityAssetLink &o : m_ctx.cat->linksForEntity(l.entityId))
-          if (!o.unresolved && o.isPrimary && o.role == l.role)
-            prevPrimary = o.assetId;
-        pushCommand(new SetPrimaryCmd(m_ctx, id, l.role, l.entityId, prevPrimary));
-        emit statusMessage(tr("已把 %1 设为主关联（可撤销）").arg(id));
-        return;
-      }
+    const QString id = r.items.isEmpty() ? QString() : r.items.first().targetId;
+    emit statusMessage(tr("已把 %1 设为主关联（可撤销）").arg(id));
   }
-  emit statusMessage(tr("选中资产没有可提升的非主关联"));
+  else
+    emit statusMessage(receiptStatusText(r));
 }
 
 void DataListPanel::editDepthAnchorForSelection()

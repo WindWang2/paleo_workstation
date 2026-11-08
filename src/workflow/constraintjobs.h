@@ -88,7 +88,14 @@ struct ConstraintWorkflow::GeostatJob
   QString qcPath;
   // P1-A：地统方法不读约束线——准备段按统一计划逐条记「未使用」与原因，
   // 计算段写进 QC，发布段写进血缘 extra（降级 IDW 也不带约束）。
+  // P3：SGS 真实消费硬屏障——prepare 冻结计划判定消费的部件几何（store CRS），
+  // compute 物化成分量归属进数值核；consumed 回执以引擎实际落格为准。
   QVariantList constraintsUnused;
+  QVariantList constraintsConsumed; // 引擎回执（BarrierGrid.consumedIds，非计划照抄）
+  std::vector<paleo::singlefactor::ConstraintLine> barrierLines; // 冻结的硬屏障部件（store CRS）
+  QString barrierCrsWkt;   // 约束 store 的 CRS（compute 时变换到井/计算域）
+  QStringList plannedBarrierIds; // 计划侧 consumed 的部件 id（与引擎回执对账）
+  QVariantMap barrierStats; // 分量/样本/屏障格统计 + 未落格线原因（QC/血缘）
   QString constraintCapability;
 };
 

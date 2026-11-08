@@ -38,8 +38,8 @@ namespace
   }
 
   // P5-W3：owner/调用线程上冻结输入说明（图层顺序 = Request.layers 顺序）。
-  // catalog 非空时补解析 asset/version/sha（best-effort：解析不到如实留空，
-  // managed=false——不伪造受管身份）。
+  // managed 口径 = 图层带可用的 paleoVersionId 声明（记录的是图层声明身份）；
+  // catalog 缺席或解析不到对应版本时 sha 如实留空，不伪造内容摘要。
   FrozenInputs captureInputs( const QList<QgsMapLayer *> &layers, QgsProject *project,
                               const DataCatalog *catalog )
   {
@@ -128,8 +128,8 @@ namespace
                       QString *pathOut, QString *error )
   {
     // P5-W4：页状态以 Result::pages 为单一事实源（不再从文件列表反推——
-    // 取消页曾被写成 failed）。守恒在此处即时复核，数量对不上宁可写明
-    // 也不静默出账。
+    // 取消页曾被写成 failed）。计数从页账本汇总并与 Result 计数交叉复核，
+    // 对不上宁可写明（root 记账以页账本为准 + mismatch 警示行）也不静默出账。
     QJsonArray pages;
     int okCount = 0, failedCount = 0, cancelledCount = 0;
     for ( const PageRecord &page : result.pages )
@@ -142,6 +142,16 @@ namespace
         case PageStatus::Cancelled: ++cancelledCount; break;
       }
     }
+    QStringList accountingMismatches;
+    if ( okCount != result.succeeded )
+      accountingMismatches << QObject::tr( "页账本 ok=%1 与 succeeded=%2 不符" )
+                               .arg( okCount ).arg( result.succeeded );
+    if ( failedCount != result.failed )
+      accountingMismatches << QObject::tr( "页账本 failed=%1 与 failed=%2 不符" )
+                               .arg( failedCount ).arg( result.failed );
+    if ( cancelledCount != result.cancelled )
+      accountingMismatches << QObject::tr( "页账本 cancelled=%1 与 cancelled=%2 不符" )
+                               .arg( cancelledCount ).arg( result.cancelled );
 
     QJsonArray failures;
     for ( const Failure &f : result.failures )
@@ -220,9 +230,10 @@ namespace
     root.insert( QStringLiteral( "format" ), extensionFor( request.format ) );
     root.insert( QStringLiteral( "dpi" ), request.dpi );
     root.insert( QStringLiteral( "tiles" ), request.tiles.size() );
-    root.insert( QStringLiteral( "succeeded" ), result.succeeded );
-    root.insert( QStringLiteral( "failed" ), result.failed );
-    root.insert( QStringLiteral( "cancelled" ), result.cancelled );
+    // 计数以页账本汇总为准（单一事实源），与 Result 计数不符时 warnings 钉明。
+    root.insert( QStringLiteral( "succeeded" ), okCount );
+    root.insert( QStringLiteral( "failed" ), failedCount );
+    root.insert( QStringLiteral( "cancelled" ), cancelledCount );
     root.insert( QStringLiteral( "pages" ), pages );
     root.insert( QStringLiteral( "failures" ), failures );
     // 兼容旧字段：indexPage 仍是主索引文件相对路径（未出为空串）。
@@ -235,12 +246,14 @@ namespace
     manifestStatus.insert( QStringLiteral( "status" ), QStringLiteral( "ok" ) );
     root.insert( QStringLiteral( "manifest" ), manifestStatus );
     root.insert( QStringLiteral( "inputs" ), inputs );
-    if ( !result.warnings.isEmpty() )
     {
       QJsonArray warnings;
       for ( const QString &warning : result.warnings )
         warnings << warning;
-      root.insert( QStringLiteral( "warnings" ), warnings );
+      for ( const QString &mismatch : accountingMismatches )
+        warnings << mismatch;
+      if ( !warnings.isEmpty() )
+        root.insert( QStringLiteral( "warnings" ), warnings );
     }
 
     const QString path = manifestPath( request );
@@ -330,6 +343,8 @@ QString Result::summary() const
 QString Result::deliverySummary() const
 {
   // P5-W7：交付视角一行——部分可用显式呈现（页成功 ≠ 索引/清单成功）。
+  // 清单状态以 manifest 是否真写出来为准（prepare 阶段失败的册从未写过
+  // manifest，failures 里只有 prepare 项——不能反推出「已写」）。
   QString line = summary();
   bool indexFailed = false, manifestFailed = false;
   for ( const Failure &f : failures )
@@ -343,7 +358,10 @@ QString Result::deliverySummary() const
     line += QObject::tr( " · 目录 %1 文件" ).arg( indexFiles.size() );
   else if ( indexFailed )
     line += QObject::tr( " · 目录失败" );
-  line += manifestFailed ? QObject::tr( " · 清单失败" ) : QObject::tr( " · 清单已写" );
+  if ( !manifest.isEmpty() )
+    line += QObject::tr( " · 清单已写" );
+  else
+    line += manifestFailed ? QObject::tr( " · 清单失败" ) : QObject::tr( " · 清单未写" );
   if ( !warnings.isEmpty() )
     line += QObject::tr( " · 警告 %1" ).arg( warnings.size() );
   return line;
@@ -412,10 +430,25 @@ PaleoTask *Exporter::start(const Request &request) {
   auto *task = m_tasks->start(
       tr("地图册批量导出：%1").arg(request.book),
       [job](PaleoTask *task) -> QString {
+        const auto failWholeRun = [&job]( const QString &message ) {
+          // 与 prepareRun 的 bail 同口径：整批 failed + 页账本同步（M3）。
+          auto &result = job->state.result;
+          result.total = job->request.tiles.size();
+          result.failed = result.total;
+          result.failures.append( { -1, QStringLiteral( "*" ),
+                                    QStringLiteral( "prepare" ), message } );
+          result.pages.resize( job->request.tiles.size() );
+          for ( int i = 0; i < job->request.tiles.size(); ++i )
+          {
+            PageRecord &page = result.pages[i];
+            page.index = job->request.tiles.at( i ).index;
+            page.tile = job->request.tiles.at( i ).name;
+            page.status = PageStatus::Failed;
+            page.reason = message;
+          }
+        };
         if (!job->error.isEmpty()) {
-          job->state.result.total = job->request.tiles.size();
-          job->state.result.failed = job->state.result.total;
-          job->state.result.failures.append({-1, "*", "prepare", job->error});
+          failWholeRun( job->error );
           return job->error;
         }
         QStringList snapshotWarnings;
@@ -424,9 +457,7 @@ PaleoTask *Exporter::start(const Request &request) {
         auto projectHandle = PaleoLayoutExport::rebuildProjectHandle(
             job->snapshot, &job->error, &snapshotWarnings);
         if (!projectHandle) {
-          job->state.result.total = job->request.tiles.size();
-          job->state.result.failed = job->state.result.total;
-          job->state.result.failures.append({-1, "*", "prepare", job->error});
+          failWholeRun( job->error );
           return job->error;
         }
         // 快照层缺源不阻断地图册导出，但产物少层必须可见（warning 档入账
@@ -498,6 +529,11 @@ PaleoTask *Exporter::start(const Request &request) {
     }
     if (!error.isEmpty()) {
       result.failures.append({-1, "*", "register", error});
+      // 已渲染的目录页随整册作废：manifest 的 index 段必须显式 failed，
+      // 不能落回 skipped（复审 L：降级语义如实）。
+      if (!result.indexFiles.isEmpty())
+        result.failures.append({-1, "*", "index",
+                                tr("登记失败，目录页随整册作废")});
       result.failed += result.succeeded;
       result.succeeded = 0;
       result.registered.clear();
@@ -508,6 +544,7 @@ PaleoTask *Exporter::start(const Request &request) {
       result.files.clear();
       result.indexPage.clear();
       result.indexFiles.clear();
+      result.manifest.clear();
       for (PageRecord &page : result.pages) {
         if (page.status == PageStatus::Ok) {
           page.status = PageStatus::Failed;
@@ -517,7 +554,11 @@ PaleoTask *Exporter::start(const Request &request) {
           page.reason = error;
         }
       }
-      writeManifest(job->request, result, &result.manifest, nullptr);
+      // 降级后重写账本；重写失败也要入账——磁盘残留旧账（页标 ok）与新
+      // Result 矛盾，不能静默（复审 L）。
+      QString rewriteError;
+      if (!writeManifest(job->request, result, &result.manifest, &rewriteError))
+        result.failures.append({-1, "*", "manifest", rewriteError});
     }
     m_last = result;
     m_async.reset();
@@ -546,9 +587,27 @@ bool Exporter::prepareRun( RunState &state, PaleoTask *task )
   result = Result();
   result.total = request.tiles.size();
 
+  // P5-W4：逐页账本先立（任何失败路径也逐页有账，与 tiles 同序同量）。
+  result.pages.resize( request.tiles.size() );
+  for ( int i = 0; i < request.tiles.size(); ++i )
+  {
+    PageRecord &page = result.pages[i];
+    page.index = request.tiles.at( i ).index;
+    page.tile = request.tiles.at( i ).name;
+    page.status = PageStatus::Cancelled;
+    page.reason = QObject::tr( "未执行" );
+  }
+
+  // bail：整批失败——failed=total 且页账本同步置 Failed（reason 带原因），
+  // 不留「计数全 failed、页账本全 cancelled」的自相矛盾（#P5 复审 M3）。
   const auto bail = [&result, task]( const QString &stage, const QString &message ) {
     result.failed = result.total;
     result.failures.append( Failure{ -1, QStringLiteral( "*" ), stage, message } );
+    for ( PageRecord &page : result.pages )
+    {
+      page.status = PageStatus::Failed;
+      page.reason = message;
+    }
     if ( task )
       task->reportDetail( message );
     return false;
@@ -569,17 +628,6 @@ bool Exporter::prepareRun( RunState &state, PaleoTask *task )
     return bail( QStringLiteral( "prepare" ), QObject::tr( "未指定输出目录" ) );
   if ( request.tiles.isEmpty() )
     return bail( QStringLiteral( "prepare" ), QObject::tr( "格序列为空（先生成 AOI 网格）" ) );
-
-  // P5-W4：逐页账本先立（取消/失败路径也逐页有账）。
-  result.pages.resize( request.tiles.size() );
-  for ( int i = 0; i < request.tiles.size(); ++i )
-  {
-    PageRecord &page = result.pages[i];
-    page.index = request.tiles.at( i ).index;
-    page.tile = request.tiles.at( i ).name;
-    page.status = PageStatus::Cancelled;
-    page.reason = QObject::tr( "未执行" );
-  }
 
   // P5-W3：同步入口没带冻结说明时，在调用线程按同一规则补齐（与 start()
   // 的 owner 线程捕获同一函数，同一语义）。

@@ -36361,6 +36361,31 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>警告 %1</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单未写</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 ok=%1 与 succeeded=%2 不符</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 failed=%1 与 failed=%2 不符</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>页账本 cancelled=%1 与 cancelled=%2 不符</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>登记失败，目录页随整册作废</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>QgisConstraintEditSession</name>

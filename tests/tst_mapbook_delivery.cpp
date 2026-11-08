@@ -170,6 +170,38 @@ class TestMapBookDelivery : public QObject
       assertPageAccounting( manifest, result );
     }
 
+    // P5-W4（复审 M3）：prepare 阶段整批失败 → 页账本与计数不矛盾——
+    // pages 同序同量且全部 Failed 带原因；prepare 失败的册从未写 manifest，
+    // 交付摘要必须说「清单未写」而不是「清单已写」（复审 M1）。
+    void prepareFailureKeepsPageLedgerConsistent()
+    {
+      QTemporaryDir dir;
+      QgsProject project;
+      PaleoTaskService tasks;
+      PaleoMapBookQueue::Exporter exporter( &tasks, &project );
+
+      PaleoMapBookQueue::Request request;
+      request.book = QStringLiteral( "book_preparefail" );
+      request.outputDir = dir.path();
+      request.tiles = grid( 2, 2 );
+      request.dpi = 96.0;
+      request.titlePattern = QStringLiteral( "%{not_a_variable}" ); // prepare 即拒
+
+      const PaleoMapBookQueue::Result result = exporter.run( nullptr, request );
+      QCOMPARE( result.failed, 4 );
+      QCOMPARE( result.succeeded, 0 );
+      QCOMPARE( result.cancelled, 0 );
+      QCOMPARE( result.pages.size(), 4 );
+      for ( const PaleoMapBookQueue::PageRecord &page : result.pages )
+      {
+        QCOMPARE( page.status, PaleoMapBookQueue::PageStatus::Failed );
+        QVERIFY( !page.reason.isEmpty() );
+      }
+      QVERIFY( result.manifest.isEmpty() );
+      QVERIFY2( result.deliverySummary().contains( QStringLiteral( "清单未写" ) ),
+                qPrintable( result.deliverySummary() ) );
+    }
+
     // P5-W4 验收：某页失败（退化范围）→ 页失败与装配成功并存，已成功页不丢；
     // 失败页 reason 可查。
     void failedPageKeepsOthersAndCarriesReason()

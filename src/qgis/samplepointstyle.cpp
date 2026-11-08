@@ -1,8 +1,9 @@
 // 层：QGIS 封装
 #include "samplepointstyle.h"
 
+#include "standardelements.h" // 图件字体单一事实源（figureTextFormat 回退链）
+
 #include <QColor>
-#include <QFont>
 #include <QObject>
 #include <QStringList>
 
@@ -164,8 +165,10 @@ bool applyWellFactorLabels( QgsVectorLayer *layer, QString *error )
   settings.isExpression = true;
   settings.fieldName = expression;
   settings.placement = Qgis::LabelPlacement::OrderedPositionsAroundPoint;
-  QgsTextFormat format;
-  format.setFont( QFont( QStringLiteral( "IBM Plex Sans SC" ), 9 ) );
+  // 字体族走 standardelements 图件字体单一事实源（IBM Plex → Noto Sans SC →
+  // CJK 回退链）——硬编码族名在 vendored 字体缺失环境下 PDF 文本无保证
+  //（mapbooklayout 同口径，复审 M4）。
+  QgsTextFormat format = PaleoStandardElements::figureTextFormat( 9.0 );
   format.setSize( 9 );
   format.setSizeUnit( Qgis::RenderUnit::Points );
   format.setColor( QColor( QStringLiteral( "#24303E" ) ) );

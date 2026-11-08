@@ -56,7 +56,7 @@
 - `mapbookqueue.cpp` 移除全部 qgs*.h include（QgsPrintLayout/QgsRectangle
   /QgsProject/QgsMapLayer 不再进功能层）；失败阶段 layout/export 语义保留。
 - `tools/qgs-audit-baseline.txt` 删 `src/workflow/mapbookqueue.cpp` 行
-  （163→162，只缩不涨）。
+  （在册条目 136→135，只缩不涨；此前记的 163/162 为文件总行数口径，订正）。
 
 ### W7 原生面板交付反馈
 - mapbookpanel：交付摘要行（deliverySummary：进度 + 装配状态 + 警告数）+
@@ -83,7 +83,7 @@
     /非点层拒绝）；**表达式同源**（QgsExpression 逐 feature 求值与 C++ 契约
     一致，含 w2 只剩 well_id、w4/w5 NULL 值→无数据）；只读性（重读 feature
     数值不变）+ 幂等；真实 A4 PNG 导出（1122×793 = 297×210mm@96dpi 精确）。
-  - `tst_mapbook_delivery` 10/10：预演 3/9 → 3 ok + 6 cancelled（manifest 页
+  - `tst_mapbook_delivery` 11/11：预演 3/9 → 3 ok + 6 cancelled（manifest 页
     reason=预演、sha256 与落盘文件重算一致）；开跑前取消 → 9 cancelled 不谎报；
     退化范围页失败 → 8 成 1 败 reason 入账、其余保留；冻结输入（受管层
     asset/version/sha 与 catalog 事实一致、未受管层 managed=false+source、
@@ -96,7 +96,7 @@
   `tst_layoutexport` ✓、`tst_layerproperties`（instantiate 改动面）✓。
 - Source gates：`ctest -R "layering|qgis_spread|file_budget|ui_size|
   ui_invariants|i18n|ui_tokens|docs_drift|cpp_mainline|qgis_versions"` 29/29
-  绿（--strict 口径）；qgs-audit 基线 163→162（mapbookqueue.cpp 删行）；
+  绿（--strict 口径）；基数按实际条目数订正见下（mapbookqueue.cpp 删行）；
   file_budget 冻结值 372→355（真拆分后下调，无新增超标）。
 - 图件检查记录（渲染级）：
   - 井点标注真实渲染像素证据：4 井位（按版面几何推导 x=201/365/529/693）

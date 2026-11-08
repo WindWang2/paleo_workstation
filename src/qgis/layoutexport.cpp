@@ -12,6 +12,9 @@
 #include <QObject>
 #include <QPointer>
 #include <QSet>
+
+#include <algorithm>
+#include <limits>
 #include <QSaveFile>
 #include <QVBoxLayout>
 
@@ -358,7 +361,19 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
       if ( abs != path )
         siblings << abs;
     }
-    siblings.sort();
+    // P5-W5 复审 L：按页号数值排序——字典序会让 _10 排到 _2 前，>9 页的
+    // 多页导出兄弟文件错位（目录索引 i/N 编号与 manifest index.files 依赖此序）。
+    std::sort( siblings.begin(), siblings.end(),
+               [ &base ]( const QString &a, const QString &b ) {
+                 const auto pageNo = [ &base ]( const QString &path ) {
+                   const QString token = QFileInfo( path ).completeBaseName()
+                                           .mid( base.length() + 1 );
+                   bool numeric = false;
+                   const int number = token.toInt( &numeric );
+                   return numeric ? number : std::numeric_limits<int>::max();
+                 };
+                 return pageNo( a ) < pageNo( b );
+               } );
     outcome.files << siblings;
     if (options.worldFile && (format == Format::Png || format == Format::Tiff)) {
       for (const auto &image : outcome.files) {

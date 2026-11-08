@@ -5,10 +5,12 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSpinBox>
@@ -131,16 +133,34 @@ void PaleoMapBookPanel::buildUi()
   m_log->setReadOnly( true );
   m_log->setPlaceholderText( tr( "逐版结果与失败明细" ) );
 
+  // P5-W7：交付回显——整册摘要一行 + 已产出文件入口（键盘：↑↓ 选中后
+  // Enter/双击发 artifactActivated；窄窗横向滚动 + tooltip 全路径）。
+  m_delivery = new QLabel( this );
+  m_delivery->setObjectName( QStringLiteral( "mapbookDelivery" ) );
+  m_delivery->setTextInteractionFlags( Qt::TextSelectableByMouse );
+  m_delivery->setWordWrap( true );
+  m_artifacts = new QListWidget( this );
+  m_artifacts->setObjectName( QStringLiteral( "mapbookArtifacts" ) );
+  m_artifacts->setAccessibleName( tr( "已导出产物" ) );
+
   auto *root = new QVBoxLayout( this );
   root->addLayout( form );
   root->addLayout( buttons );
   root->addWidget( m_status );
   root->addWidget( m_progress );
   root->addWidget( m_log, 1 );
+  root->addWidget( m_delivery );
+  root->addWidget( m_artifacts );
 
   connect( m_start, &QPushButton::clicked, this, &PaleoMapBookPanel::onStart );
   connect( m_cancel, &QPushButton::clicked, this, &PaleoMapBookPanel::onCancel );
   connect( pick, &QPushButton::clicked, this, &PaleoMapBookPanel::onPickDir );
+  connect( m_artifacts, &QListWidget::activated, this,
+           [this]( const QModelIndex &index ) {
+             const QString path = index.data( Qt::UserRole ).toString();
+             if ( !path.isEmpty() )
+               emit artifactActivated( path );
+           } );
   connect( m_extent, &PaleoMapExtentWidget::canvasVisibilityRequested,
            this, &PaleoMapBookPanel::canvasVisibilityRequested );
 }
@@ -251,6 +271,39 @@ void PaleoMapBookPanel::setProgress( int done, int total )
 void PaleoMapBookPanel::appendLog( const QString &line ) { m_log->append( line ); }
 
 void PaleoMapBookPanel::clearLog() { m_log->clear(); }
+
+void PaleoMapBookPanel::setDeliveryResult( const PaleoMapBookQueue::Result &result )
+{
+  if ( result.total == 0 )
+  {
+    // 空结果 = 回待命/工程重置：清交付区，不留上一册的摘要与入口。
+    m_delivery->clear();
+    m_artifacts->clear();
+    return;
+  }
+  m_delivery->setText( result.deliverySummary() );
+  m_artifacts->clear();
+  const auto addArtifact = [this]( const QString &label, const QString &path ) {
+    auto *item = new QListWidgetItem( label, m_artifacts );
+    item->setData( Qt::UserRole, path );
+    item->setToolTip( path );
+  };
+  for ( const PaleoMapBookQueue::PageRecord &page : result.pages )
+  {
+    if ( page.status != PaleoMapBookQueue::PageStatus::Ok || page.file.isEmpty() )
+      continue;
+    addArtifact( tr( "页 %1 · %2" ).arg( page.tile, QFileInfo( page.file ).fileName() ),
+                 page.file );
+  }
+  for ( int i = 0; i < result.indexFiles.size(); ++i )
+    addArtifact( tr( "目录 %1/%2 · %3" )
+                   .arg( i + 1 )
+                   .arg( result.indexFiles.size() )
+                   .arg( QFileInfo( result.indexFiles.at( i ) ).fileName() ),
+                 result.indexFiles.at( i ) );
+  if ( !result.manifest.isEmpty() )
+    addArtifact( tr( "清单 · manifest.json" ), result.manifest );
+}
 
 void PaleoMapBookPanel::onStart()
 {

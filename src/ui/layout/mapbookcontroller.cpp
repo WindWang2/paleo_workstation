@@ -2,6 +2,9 @@
 #include "mapbookcontroller.h"
 
 #include <QDate>
+#include <QDesktopServices>
+#include <QFileInfo>
+#include <QUrl>
 
 #include "mapbookpanel.h"
 #include "../../services/paleotaskservice.h"
@@ -14,6 +17,10 @@ PaleoMapBookController::PaleoMapBookController( PaleoMapBookPanel *panel, PaleoT
   {
     connect( panel, &PaleoMapBookPanel::batchRequested, this, [this] { startBatch(); } );
     connect( panel, &PaleoMapBookPanel::cancelRequested, this, &PaleoMapBookController::cancelBatch );
+    // P5-W7：打开产物——打开前现校验存在性与预期路径（产物可能在导出后被
+    // 移动/删除），失败如实回报，不静默。
+    connect( panel, &PaleoMapBookPanel::artifactActivated, this,
+             [this]( const QString &path ) { openArtifact( path ); } );
   }
 }
 
@@ -148,6 +155,8 @@ void PaleoMapBookController::resetProject()
   {
     m_panel->setBusy( false );
     m_panel->clearLog();
+    // P5-W7：交付区随工程重置——旧工程的摘要与文件入口不得残留给新工程。
+    m_panel->setDeliveryResult( PaleoMapBookQueue::Result() );
   }
 }
 
@@ -165,12 +174,38 @@ void PaleoMapBookController::onExporterFinished( quint64 generation,
     return;
   m_panel->setBusy( false );
   m_panel->appendLog( result.summary() );
+  m_panel->setDeliveryResult( result );
   for ( const PaleoMapBookQueue::Failure &failure : result.failures )
     m_panel->appendLog( tr( "失败 [%1/%2] %3" ).arg( failure.tile, failure.stage, failure.error ) );
+  // P5-W3/W7：缺源/降级 warning 单独点名——产物少层的册必须看得见原因。
+  for ( const QString &warning : result.warnings )
+    m_panel->appendLog( tr( "警告：%1" ).arg( warning ) );
   if ( !result.manifest.isEmpty() )
     m_panel->appendLog( tr( "清单：%1" ).arg( result.manifest ) );
   if ( !result.indexPage.isEmpty() )
-    m_panel->appendLog( tr( "目录页：%1" ).arg( result.indexPage ) );
+  {
+    const QString extra = result.indexFiles.size() > 1
+                              ? tr( "（共 %1 个文件）" ).arg( result.indexFiles.size() )
+                              : QString();
+    m_panel->appendLog( tr( "目录页：%1%2" ).arg( result.indexPage, extra ) );
+  }
   emit statusMessage( tr( "地图册导出结束：%1" ).arg( result.summary() ) );
   emit batchFinished( result );
+}
+
+void PaleoMapBookController::openArtifact( const QString &path )
+{
+  auto log = [this]( const QString &line ) {
+    if ( m_panel )
+      m_panel->appendLog( line );
+    emit statusMessage( line );
+  };
+  const QFileInfo info( path );
+  if ( !info.exists() || !info.isFile() )
+  {
+    log( tr( "产物不存在或已被移动：%1" ).arg( path ) );
+    return;
+  }
+  if ( !QDesktopServices::openUrl( QUrl::fromLocalFile( info.absoluteFilePath() ) ) )
+    log( tr( "无法打开产物：%1" ).arg( path ) );
 }

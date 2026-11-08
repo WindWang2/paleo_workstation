@@ -6,7 +6,12 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QFontMetricsF>
 #include <QObject>
+#include <QVector>
+
+#include <algorithm>
+#include <cmath>
 
 #include <qgslayout.h>
 #include <qgslayoutitemlabel.h>
@@ -83,6 +88,53 @@ namespace
     if ( QgsLayoutItemPage *page = layout->pageCollection()->page( 0 ) )
       page->setPageSize( QStringLiteral( "A4" ),
                          landscape ? QgsLayoutItemPage::Landscape : QgsLayoutItemPage::Portrait );
+  }
+
+  // P5-W5 目录分页参数：正文区自标题下 26mm 起、到下边距 12mm 止；8pt 条目
+  // 行距 4.6mm（≥1.6 倍字高，长名换行后仍可读）。不缩字号塞页。
+  constexpr double kIndexBodyTopMm = 26.0;
+  constexpr double kIndexBottomMarginMm = 12.0;
+  constexpr double kIndexLinePitchMm = 4.6;
+  constexpr double kIndexEntrySizePt = 8.0;
+
+  // 单条目占行数：按可用宽度与字体度量估算换行（长中文/长文件名占多行）。
+  int indexEntryLines( const QFontMetricsF &metrics, const QString &entry, double availWidthPt )
+  {
+    if ( entry.isEmpty() )
+      return 1;
+    const qreal advance = metrics.horizontalAdvance( entry );
+    return std::max( 1, int( std::ceil( advance / availWidthPt ) ) );
+  }
+
+  // 分页主体：全部条目按次序装进页块，每页 ≤ 按行距算出的行容量；空目录
+  // 也出一页（标题页带「无可列条目」说明，调用方通常已在上游避免）。
+  QVector<QStringList> paginateIndexEntries( const QStringList &entries, bool landscape )
+  {
+    const double ph = pageHeight( landscape );
+    const double pw = pageWidth( landscape );
+    const int maxLines = std::max( 1, int( ( ph - kIndexBodyTopMm - kIndexBottomMarginMm ) /
+                                           kIndexLinePitchMm ) );
+    const QFontMetricsF metrics( PaleoStandardElements::figureTextFormat( kIndexEntrySizePt ).font() );
+    const double availWidthPt = ( pw - 20.0 ) * 72.0 / 25.4;
+
+    QVector<QStringList> pages;
+    QStringList current;
+    int usedLines = 0;
+    for ( const QString &entry : entries )
+    {
+      const int lines = indexEntryLines( metrics, entry, availWidthPt );
+      if ( usedLines + lines > maxLines && !current.isEmpty() )
+      {
+        pages << current;
+        current.clear();
+        usedLines = 0;
+      }
+      current << entry;
+      usedLines += lines;
+    }
+    if ( !current.isEmpty() || pages.isEmpty() )
+      pages << current;
+    return pages;
   }
 } // namespace
 
@@ -270,60 +322,81 @@ QgsPrintLayout *buildIndexLayout( QgsProject *project, const IndexSpec &spec, QS
   const double pw = pageWidth( spec.landscape );
   const double ph = pageHeight( spec.landscape );
 
+  // 分页：按纸面/行高/条目占行实算（P5-W5），全部条目入册、次序不变，
+  // 不靠缩字号塞页、不截断。
+  const QVector<QStringList> chunks = paginateIndexEntries( spec.entries, spec.landscape );
+
   auto *layout = new QgsPrintLayout( project );
   setupPage( layout, QStringLiteral( "mapbook_index" ), spec.landscape );
-  addLabel( layout, QStringLiteral( "title" ), spec.title, 14.0, 10.0, 8.0, pw - 20.0, 12.0 );
+  if ( QgsLayoutItemPage *firstPage = layout->pageCollection()->page( 0 ) )
+    firstPage->setPageSize( QStringLiteral( "A4" ),
+                            spec.landscape ? QgsLayoutItemPage::Landscape
+                                           : QgsLayoutItemPage::Portrait );
+  for ( int p = 1; p < chunks.size(); ++p )
+  {
+    auto *page = new QgsLayoutItemPage( layout );
+    page->setPageSize( QStringLiteral( "A4" ),
+                       spec.landscape ? QgsLayoutItemPage::Landscape
+                                      : QgsLayoutItemPage::Portrait );
+    layout->pageCollection()->addPage( page );
+  }
 
-  // 目录正文：一行一条，条目过多时只印前 60 行并附省略说明（版面不溢出）。
-  QStringList lines = spec.entries;
-  const int maxLines = 60;
-  if ( lines.size() > maxLines )
-    lines = lines.mid( 0, maxLines ) + QStringList(
-              QObject::tr( "… 其余 %1 条见 manifest.json" ).arg( spec.entries.size() - maxLines ) );
-
-  addLabel( layout, QStringLiteral( "entries" ), lines.join( QLatin1Char( '\n' ) ), 8.0,
-            10.0, 26.0, pw - 20.0, ph - 40.0 );
+  const int pageCount = chunks.size();
+  for ( int p = 0; p < pageCount; ++p )
+  {
+    const QString pageTitle = pageCount > 1
+        ? QStringLiteral( "%1 · 第 %2/%3 页" ).arg( spec.title ).arg( p + 1 ).arg( pageCount )
+        : spec.title;
+    auto *titleLabel = addLabel( layout, QStringLiteral( "title_%1" ).arg( p ), pageTitle, 14.0,
+                                 10.0, 8.0, pw - 20.0, 12.0 );
+    titleLabel->attemptMove( QgsLayoutPoint( 10.0, 8.0, Qgis::LayoutUnit::Millimeters ),
+                             true, false, p );
+    const QStringList &lines = chunks.at( p );
+    const QString body = lines.isEmpty()
+                             ? QObject::tr( "（本册没有可列条目）" )
+                             : lines.join( QLatin1Char( '\n' ) );
+    auto *bodyLabel = addLabel( layout, QStringLiteral( "entries_%1" ).arg( p ), body, 8.0,
+                                10.0, 26.0, pw - 20.0, ph - 38.0 );
+    bodyLabel->attemptMove( QgsLayoutPoint( 10.0, 26.0, Qgis::LayoutUnit::Millimeters ),
+                            true, false, p );
+  }
   return layout;
+}
+
+int indexPageCount( const QStringList &entries, bool landscape )
+{
+  return paginateIndexEntries( entries, landscape ).size();
 }
 
 RenderOutcome renderLayout( QgsPrintLayout *layout, const QString &outPath,
                             PaleoLayoutExport::Format format, double dpi )
 {
   RenderOutcome outcome;
+  const auto failExport = [&outcome]( const QString &message ) {
+    outcome.ok = false;
+    outcome.stage = QStringLiteral( "export" );
+    outcome.error = message;
+    return outcome;
+  };
   if ( !layout )
-  {
-    outcome.error = QObject::tr( "没有可导出的版面" );
-    return outcome;
-  }
+    return failExport( QObject::tr( "没有可导出的版面" ) );
   if ( outPath.isEmpty() )
-  {
-    outcome.error = QObject::tr( "没有给出落盘路径" );
-    return outcome;
-  }
+    return failExport( QObject::tr( "没有给出落盘路径" ) );
 
   const auto exported = PaleoLayoutExport::exportLayout( layout, outPath, format, dpi,
                                                           PaleoLayoutExport::PageRange() );
   if ( !exported.ok )
-  {
-    outcome.error = exported.error.isEmpty() ? QObject::tr( "版面导出失败" ) : exported.error;
-    return outcome;
-  }
+    return failExport( exported.error.isEmpty() ? QObject::tr( "版面导出失败" ) : exported.error );
   if ( exported.files.isEmpty() )
-  {
-    outcome.error = QObject::tr( "版面导出未产出文件" );
-    return outcome;
-  }
+    return failExport( QObject::tr( "版面导出未产出文件" ) );
 
   const QString path = exported.files.first();
   const QFileInfo info( path );
   if ( !info.exists() || info.size() <= 0 )
-  {
-    outcome.error = QObject::tr( "导出产物为空或不存在：%1" ).arg( path );
-    return outcome;
-  }
+    return failExport( QObject::tr( "导出产物为空或不存在：%1" ).arg( path ) );
 
-  // PNG 期望像素 = 首页毫米规格 × dpi/25.4（多页导出的 _N 兄弟页同版
-  // 同尺寸，校验首页即代表）；页面非毫米单位时跳过尺寸校验（防御）。
+  // PNG 期望像素 = 页面毫米规格 × dpi/25.4（多页导出的 _N 兄弟页同版
+  // 同尺寸）；页面非毫米单位时跳过尺寸校验（防御）。
   double expectedW = -1.0, expectedH = -1.0;
   if ( format == PaleoLayoutExport::Format::Png && layout->pageCollection() &&
        layout->pageCollection()->pageCount() > 0 &&
@@ -336,11 +409,18 @@ RenderOutcome renderLayout( QgsPrintLayout *layout, const QString &outPath,
       expectedH = pageSize.height() * dpi / 25.4;
     }
   }
-  QString validationError;
-  if ( !validateExportedFile( path, format, expectedW, expectedH, &validationError ) )
+  // P5-W5：逐文件回读校验——首页存在不代表整册完整；每个兄弟文件都要过
+  // 头校验/可解码/尺寸核对，任一失败即整次渲染失败（文件集不完整不可用）。
+  qint64 totalBytes = 0;
+  for ( const QString &file : exported.files )
   {
-    outcome.error = validationError;
-    return outcome;
+    const QFileInfo fileInfo( file );
+    if ( !fileInfo.exists() || fileInfo.size() <= 0 )
+      return failExport( QObject::tr( "导出产物为空或不存在：%1" ).arg( file ) );
+    QString validationError;
+    if ( !validateExportedFile( file, format, expectedW, expectedH, &validationError ) )
+      return failExport( validationError );
+    totalBytes += fileInfo.size();
   }
   if ( format == PaleoLayoutExport::Format::Png )
   {
@@ -351,7 +431,9 @@ RenderOutcome renderLayout( QgsPrintLayout *layout, const QString &outPath,
 
   outcome.ok = true;
   outcome.path = path;
+  outcome.files = exported.files;
   outcome.bytes = info.size();
+  outcome.totalBytes = totalBytes;
   return outcome;
 }
 

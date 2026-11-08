@@ -91,10 +91,9 @@ AlgorithmRunResult ProcessingAlgorithmAdapter::run(
     return r;
   }
 
-  r = runResultFromProcessingOutput( results );
+  r = runResultFromProcessingOutputs( spec, results );
   if ( !r.ok )
   {
-    r.error = QStringLiteral( "Processing 结果缺少 OUTPUT 路径" );
     if ( error )
       *error = r.error;
     return r;
@@ -129,6 +128,25 @@ AlgorithmRunResult ProcessingAlgorithmAdapter::runById(
     o.kind = QStringLiteral( "raster" );
     fallback.outputs = { o };
     return run( fallback, paramValues, error, hooks );
+  }
+  return run( spec, paramValues, error, hooks );
+}
+
+AlgorithmRunResult ProcessingAlgorithmAdapter::runRegisteredById(
+    const QString &algorithmId, int contractVersion, const QVariantMap &paramValues, QString *error,
+    const QgisProcessingService::ProcessingHooks &hooks )
+{
+  const AlgorithmSpec spec = AlgorithmSpecRegistry::specAtVersion( algorithmId, contractVersion );
+  AlgorithmRunResult rejected;
+  rejected.ok = false;
+  if ( spec.id.isEmpty() )
+  {
+    rejected.error = AlgorithmSpecRegistry::knows( algorithmId ) ? QStringLiteral( "unsupported_version" )
+                                                                : QStringLiteral( "unknown_algorithm" );
+    rejected.diagnostics.insert( QStringLiteral( "code" ), rejected.error );
+    if ( error )
+      *error = rejected.error;
+    return rejected;
   }
   return run( spec, paramValues, error, hooks );
 }

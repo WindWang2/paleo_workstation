@@ -57,4 +57,4 @@ class DataCatalog;
 void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
                         QgisLayerService *layers,
                         DataCatalog *catalog = nullptr,
-                        const QString &projectDir = QString());
+                        const QString &projectDir = QString(), const QString &documentId = QString());

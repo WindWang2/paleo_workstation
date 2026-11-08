@@ -38,6 +38,7 @@ private slots:
   void routerWithoutTransportFailsHonestlyNotSilently();
   void statusHintIsHonestInEveryMode();
   void chatToolCatalogBindsWithoutAssistWorkflow();
+  void exactVersionUsesBoundDocumentIdentity();
   void chatToolCatalogRebindsOnProjectSwitch();
   void chatToolRebindsOntoMkprojectFixtureProject();
 
@@ -165,6 +166,21 @@ bool TestAiWiring::queryProject(AiChatController &chat, const QString &topic,
 
 bool TestAiWiring::queryWells(AiChatController &chat, QJsonObject *payload) {
   return queryProject(chat, QStringLiteral("wells"), payload);
+}
+void TestAiWiring::exactVersionUsesBoundDocumentIdentity() {
+  QTemporaryDir dir;DataCatalog catalog;QVERIFY(catalog.open(dir.path()));
+  CatalogAsset asset;asset.id=catalog.nextAssetId();asset.type="document";asset.displayName="Exact version";
+  QVERIFY(catalog.addAsset(asset));CatalogVersion version;version.id=catalog.nextVersionId();version.assetId=asset.id;
+  version.stage="RAW";version.managed=false;version.versionNumber=1;version.path=dir.filePath("offline.dat");version.fileName="offline.dat";
+  QString error;QVERIFY2(catalog.addVersion(version,&error),qPrintable(error));
+  AiChatController chat;bindChatToolRunner(&chat,nullptr,nullptr,&catalog,dir.path(),"wired-document");
+  auto *runner=chat.toolRunner();QSignalSpy results(runner,&AiChatToolRunner::toolFinished);
+  ChatToolCall call;call.id="exact-version";call.name="paleo.query_project";
+  call.argumentsJson=QString::fromUtf8(QJsonDocument(QJsonObject{{"topic","version"},{"version_id",version.id}}).toJson());
+  runner->run(call);QVERIFY(spinUntil([&]{return !results.isEmpty();}));QVERIFY(results.first()[1].toBool());
+  const auto result=QJsonDocument::fromJson(results.first()[2].toString().toUtf8()).object().value("version").toObject();
+  QCOMPARE(result.value("documentId").toString(),QStringLiteral("wired-document"));
+  QCOMPARE(result.value("version").toObject().value("id").toString(),version.id);
 }
 
 // 方向77：catalog 经装配根注入 chat 工具上下文——assist 为空（无 ORT 构建

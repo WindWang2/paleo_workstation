@@ -6,9 +6,11 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <QVector>
 #include <functional>
 
 class DataCatalog;
+struct AlgorithmSpec;
 
 // workflow/ — 派生产物落位 + DERIVED 版本登记（T26；PROJECT_AREA_PLAN L1057）。
 // 厚度栅格 / wells.thickness GeoJSON / ONNX 预测 / 约束 IDW / 融合 / 相多边形
@@ -30,6 +32,7 @@ struct DerivedStaging
   QString assetId;
   QString versionId;
   int versionNumber = 0;
+  QString expectedVersionId; // strict set publication CAS; legacy commit is unchanged
   // 延迟建资产的预留信息随 staging 本体走（跨注册器实例可见）：任务中心
   // 作业 prepare 阶段用局部 registrar stage、publish 阶段用另一实例 commit
   //（constraintfactorjobs_localdirection/_geostat 先例）——预留态不能只放
@@ -53,6 +56,27 @@ struct DerivedFileFingerprint {
   bool matches(const QString &path) const;
 };
 Q_DECLARE_METATYPE(DerivedFileFingerprint)
+
+struct DerivedPreparedMember {
+  QString portId;
+  DerivedStaging staging;
+  DerivedFileFingerprint fingerprint;
+  QVariantMap extra;
+  QStringList parentPortIds;
+};
+struct DerivedPreparedSet {
+  QString id, algorithmId;
+  QVector<DerivedPreparedMember> members;
+};
+struct DerivedPublishedMember {
+  QString portId, assetId, versionId, relativePath, sha256;
+};
+struct DerivedOutputSetReceipt {
+  bool ready = false;
+  QString id, algorithmId, code, error;
+  QVector<DerivedPublishedMember> members;
+  QVariantMap toVariantMap() const;
+};
 
 class DerivedAssetRegistrar
 {
@@ -83,6 +107,13 @@ class DerivedAssetRegistrar
                         const QString &sourceUri, const QVariantMap &extra,
                         QString *error = nullptr,
                         const DerivedFileFingerprint *fingerprint = nullptr);
+
+    // Strict, single-Catalog output set. All worker-prepared files and parents
+    // are validated before mutation; ready is returned only after outer flush.
+    // No copying/hashing or implicit name-based target merging on this path.
+    bool commitSet(const AlgorithmSpec &spec, const DerivedPreparedSet &prepared,
+                   const QStringList &parentVersionIds, const QString &sourceUri,
+                   const QVariantMap &extra, DerivedOutputSetReceipt &receipt);
 
     // 绝对/工程相对路径 → catalog 版本 id（父版本 provenance 用）。
     // 无匹配的路径不出现在结果里（缺父版本不伪造）。

@@ -6,6 +6,7 @@
 #include "services/paleotaskservice.h"
 
 #include "algorithms/seismicattr.h"
+#include "algorithms/seisattrgroup.h"
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "io/attrgridout.h"
 #include "io/sattrio.h"
@@ -129,54 +130,37 @@ QString readProvSidecarHash(const QString &provPath)
 
 // 时间切片逐道属性计算（瞬时族整道谱 / 时窗族垂向窗）——与剖面路径同一
 // 核心序列（列 → 时间序 → 核 → 取样位），仅输出采样位而非整列。
+paleo::seisattr::TraceAttribute traceAttributeKind(seismic::SeismicTaskService::SeismicAttrKind kind)
+{
+  using K = seismic::SeismicTaskService::SeismicAttrKind;
+  using A = paleo::seisattr::TraceAttribute;
+  switch (kind)
+  {
+  case K::Envelope: return A::Envelope;
+  case K::InstPhase: return A::Phase;
+  case K::InstFreq: return A::Frequency;
+  case K::InstQ: return A::Quality;
+  case K::Sweetness: return A::Sweetness;
+  case K::Rms: return A::Rms;
+  case K::MaxAbs: return A::MaxAbs;
+  case K::MeanEnergy: return A::MeanEnergy;
+  case K::Coherence: break;
+  }
+  return A::Envelope;
+}
+
 float attrSampleOfTrace(seismic::SeismicTaskService::SeismicAttrKind kind,
                         const float *trace, int n,
                         const seismic::SeismicTaskService::SeismicAttrParams &params,
                         double dtMs, int sampleIndex)
 {
   using K = seismic::SeismicTaskService::SeismicAttrKind;
-  std::vector<float> out;
-  switch (kind)
-  {
-  case K::Envelope:
-  case K::InstPhase:
-  case K::InstFreq:
-  case K::InstQ:
-  case K::Sweetness:
-  {
-    const paleo::seisattr::ComplexTraceResult ct =
-        paleo::seisattr::complexTraceAnalysis(trace, n, dtMs);
-    switch (kind)
-    {
-    case K::Envelope: return ct.envelope[std::size_t(sampleIndex)];
-    case K::InstPhase: return ct.phaseDeg[std::size_t(sampleIndex)];
-    case K::InstFreq: return ct.freqHz[std::size_t(sampleIndex)];
-    case K::InstQ: return ct.quality[std::size_t(sampleIndex)];
-    default: break;
-    }
-    out.assign(std::size_t(n), std::numeric_limits<float>::quiet_NaN());
-    paleo::seisattr::sweetness(ct.envelope.data(), ct.freqHz.data(), n,
-                               out.data());
-    return out[std::size_t(sampleIndex)];
-  }
-  case K::Rms:
-    out.assign(std::size_t(n), std::numeric_limits<float>::quiet_NaN());
-    paleo::seisattr::windowedRms(trace, n, params.windowHalfSamples, out.data());
-    return out[std::size_t(sampleIndex)];
-  case K::MaxAbs:
-    out.assign(std::size_t(n), std::numeric_limits<float>::quiet_NaN());
-    paleo::seisattr::windowedMaxAbs(trace, n, params.windowHalfSamples,
-                                    out.data());
-    return out[std::size_t(sampleIndex)];
-  case K::MeanEnergy:
-    out.assign(std::size_t(n), std::numeric_limits<float>::quiet_NaN());
-    paleo::seisattr::windowedMeanEnergy(trace, n, params.windowHalfSamples,
+  if (kind == K::Coherence || n <= 0 || sampleIndex < 0 || sampleIndex >= n)
+    return std::numeric_limits<float>::quiet_NaN();
+  std::vector<float> out(static_cast<std::size_t>(n), std::numeric_limits<float>::quiet_NaN());
+  paleo::seisattr::computeTraceAttribute(traceAttributeKind(kind), trace, n, params.windowHalfSamples, dtMs,
                                         out.data());
-    return out[std::size_t(sampleIndex)];
-  case K::Coherence:
-    break; // 相干走采样 slab 三维窗，不在逐道路径
-  }
-  return std::numeric_limits<float>::quiet_NaN();
+  return out[static_cast<std::size_t>(sampleIndex)];
 }
 
 // 整道属性计算（体扫描逐道全样）：结果写满 attr（长度 n，时间序）。
@@ -186,41 +170,14 @@ void attrTraceOfTrace(seismic::SeismicTaskService::SeismicAttrKind kind,
                       double dtMs, float *attr)
 {
   using K = seismic::SeismicTaskService::SeismicAttrKind;
-  switch (kind)
+  if (!attr || n <= 0)
+    return;
+  if (kind == K::Coherence)
   {
-  case K::Envelope:
-  case K::InstPhase:
-  case K::InstFreq:
-  case K::InstQ:
-  case K::Sweetness:
-  {
-    const paleo::seisattr::ComplexTraceResult ct =
-        paleo::seisattr::complexTraceAnalysis(trace, n, dtMs);
-    switch (kind)
-    {
-    case K::Envelope: std::copy(ct.envelope.begin(), ct.envelope.end(), attr); break;
-    case K::InstPhase: std::copy(ct.phaseDeg.begin(), ct.phaseDeg.end(), attr); break;
-    case K::InstFreq: std::copy(ct.freqHz.begin(), ct.freqHz.end(), attr); break;
-    case K::InstQ: std::copy(ct.quality.begin(), ct.quality.end(), attr); break;
-    default:
-      paleo::seisattr::sweetness(ct.envelope.data(), ct.freqHz.data(), n, attr);
-      break;
-    }
+    std::fill(attr, attr + n, std::numeric_limits<float>::quiet_NaN());
     return;
   }
-  case K::Rms:
-    paleo::seisattr::windowedRms(trace, n, params.windowHalfSamples, attr);
-    return;
-  case K::MaxAbs:
-    paleo::seisattr::windowedMaxAbs(trace, n, params.windowHalfSamples, attr);
-    return;
-  case K::MeanEnergy:
-    paleo::seisattr::windowedMeanEnergy(trace, n, params.windowHalfSamples, attr);
-    return;
-  case K::Coherence:
-    break; // 相干按滑窗分块处理，不走逐道路径
-  }
-  std::fill(attr, attr + n, std::numeric_limits<float>::quiet_NaN());
+  paleo::seisattr::computeTraceAttribute(traceAttributeKind(kind), trace, n, params.windowHalfSamples, dtMs, attr);
 }
 
 // NaN 感知统计累积。

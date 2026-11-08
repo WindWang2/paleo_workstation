@@ -512,110 +512,101 @@ FaciesMappingWorkflow::DraftFaciesComputed FaciesMappingWorkflow::runCompute(
   return computed;
 }
 
-bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
-                                            DraftFaciesComputed *computed )
-{
-  auto fail = [this, computed]( const QString &message ) {
-    // #415：computed 可为 null（null 检查只在下行消息里，解引用无守卫）。
-    if ( computed )
-      computed->error = message;
-    emit draftFailed( message );
-    return false;
-  };
-  if ( !computed || !computed->ok )
-    return fail( computed ? computed->error : tr( "无计算结果" ) );
-  if ( m_layers.isNull() )
-    return fail( tr( "草稿相图工作流未绑定图层服务" ) );
-
-  DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
-  if ( !registrar.isBound() )
-    return fail( tr( "工作流未绑定数据目录（catalog）——草稿相图无法登记" ) );
-
-  const QString h = request.horizon;
-  // 层位名来自工程级配置：拼受管文件名与图层 id 前统一净化，非法路径
-  // 字符不再让整个分析失败（图层 id 亦保持定形）（#192）。
-  const QString hSeg = paleo::safeFileNameComponent( h );
-
-  // ---- 草稿相图 GPKG：DERIVED 资产 + 版本 --------------------------------
-  QString regErr;
-  const DerivedStaging draftStaging = registrar.stage(
-    QStringLiteral( "facies_draft_map" ), tr( "%1 草稿相图" ).arg( h ),
-    QStringLiteral( "FACIES_DRAFT_%1.gpkg" ).arg( hSeg ), &regErr );
-  if ( !draftStaging.isValid() )
-    return fail( regErr );
-  QString gpkgErr;
-  if ( !writeDraftGpkg( draftStaging.absolutePath, request.crsWkt, computed->regions,
-                        computed->synthesis, &gpkgErr ) )
-  {
-    // stage 已建、写盘失败：清掉已产生的 staging 文件，不在受管目录留
-    // 「既未登记、catalog 又不引用」的孤儿字节（faciesclassify 口径，#193）。
-    QFile::remove( draftStaging.absolutePath );
-    return fail( gpkgErr );
+namespace {
+AlgorithmSpec faciesOutputSpec() {
+  return AlgorithmSpecRegistry::spec(QStringLiteral("paleo:facies_draft_mapping"));
+}
+}
+bool FaciesMappingWorkflow::stageOutputs(const DraftFaciesRequest &request,
+    QVector<paleo::AlgorithmOutputTarget> &targets,QString *error) {
+  targets.clear();DerivedAssetRegistrar registrar(m_catalog,m_projectDir);
+  if(!registrar.isBound()){if(error)*error=tr("工作流未绑定数据目录");return false;}
+  const auto segment=paleo::safeFileNameComponent(request.horizon);
+  const auto draft=registrar.stage("facies_draft_map",tr("%1 草稿相图").arg(request.horizon),
+      QStringLiteral("FACIES_DRAFT_%1.gpkg").arg(segment),error);
+  if(!draft.isValid())return false;
+  targets.append({"OUTPUT",draft});
+  const auto report=registrar.stage("facies_qa_report",tr("%1 编图 QA 报告").arg(request.horizon),
+      QStringLiteral("FACIES_QA_%1.json").arg(segment),error);
+  if(!report.isValid())return false;
+  targets.append({"REPORT",report});return true;
+}
+bool FaciesMappingWorkflow::prepareComputedOutputs(const DraftFaciesRequest &request,
+    DraftFaciesComputed &computed,const QVector<paleo::AlgorithmOutputTarget> &targets,
+    const std::function<bool()> &cancelled) {
+  const bool computedValid=computed.ok;computed.ok=false;computed.preparedOutputs={};
+  if(!computedValid || computed.outputsPublished || targets.size()!=2 || targets[0].portId!="OUTPUT" || targets[1].portId!="REPORT") {
+    computed.error=tr("相图输出目标无效");return false;
   }
-  const QStringList parents = computed->parentPaths.isEmpty()
-                                ? QStringList()
-                                : registrar.parentVersionIdsFor( computed->parentPaths );
-  QVariantMap draftExtra = computed->extra;
-  draftExtra.insert( QStringLiteral( "asset_role" ), QStringLiteral( "draft" ) );
-  QString commitErr;
-  // algo-atom：草稿已写在 staging 路径 → publishArtifacts ≡ commit
-  AlgorithmRunResult draftRun =
-      paleo::runResultFromOutputPath( draftStaging.absolutePath, QStringLiteral( "OUTPUT" ) );
-  draftRun.diagnostics.insert( QStringLiteral( "algorithm_id" ),
-                               QStringLiteral( "paleo:facies_draft_mapping" ) );
-  if ( !paleo::publishArtifacts( registrar, draftStaging, draftRun, parents,
-                                 QStringLiteral( "paleo:facies_draft_mapping" ), draftExtra,
-                                 &commitErr ) )
-    return fail( commitErr );
-
-  // ---- QA 报告 JSON：DERIVED 资产 + 版本 ---------------------------------
-  const DerivedStaging reportStaging = registrar.stage(
-    QStringLiteral( "facies_qa_report" ), tr( "%1 编图 QA 报告" ).arg( h ),
-    QStringLiteral( "FACIES_QA_%1.json" ).arg( hSeg ), &regErr );
-  if ( !reportStaging.isValid() )
-    return fail( regErr );
+  const auto &draftStaging=targets[0].staging,&reportStaging=targets[1].staging;
+  if(cancelled && cancelled()){computed.error=tr("输出准备已取消");return false;}
+  if(!writeDraftGpkg(draftStaging.absolutePath,request.crsWkt,computed.regions,computed.synthesis,&computed.error)) {
+    QFile::remove(draftStaging.absolutePath);return false;
+  }
+  const auto h=request.horizon;
   QJsonObject report;
   report.insert( QStringLiteral( "horizon" ), h );
   report.insert( QStringLiteral( "semantic_profile" ),
                  QStringLiteral( "facies_draft_mapping_v1" ) );
   report.insert( QStringLiteral( "params" ),
-                 QJsonObject::fromVariantMap( computed->extra ) );
+                 QJsonObject::fromVariantMap( computed.extra ) );
   report.insert( QStringLiteral( "dominant_diagnostics" ),
-                 QJsonObject::fromVariantMap( computed->dominantDiagnostics ) );
+                 QJsonObject::fromVariantMap( computed.dominantDiagnostics ) );
   report.insert( QStringLiteral( "boundary_diagnostics" ),
-                 QJsonObject::fromVariantMap( computed->boundaryDiagnostics ) );
+                 QJsonObject::fromVariantMap( computed.boundaryDiagnostics ) );
   report.insert( QStringLiteral( "qa_diagnostics" ),
-                 QJsonObject::fromVariantMap( computed->qaDiagnostics ) );
+                 QJsonObject::fromVariantMap( computed.qaDiagnostics ) );
   report.insert( QStringLiteral( "dominant_rows" ),
-                 static_cast<int>( computed->dominantRows.size() ) );
+                 static_cast<int>( computed.dominantRows.size() ) );
   QJsonArray issues;
-  for ( const paleo::faciesmapping::FaciesQaIssue &issue : computed->qaIssues )
+  for ( const paleo::faciesmapping::FaciesQaIssue &issue : computed.qaIssues )
     issues.append( issueToJson( issue ) );
   report.insert( QStringLiteral( "issues" ), issues );
   // 原子整写 + 校验 write()==size（旧实现只查 <0，短写会放行）。
   if ( !paleo::writeJsonAtomic( reportStaging.absolutePath, QJsonDocument( report ) ) )
   {
     QFile::remove( reportStaging.absolutePath );
-    return fail( tr( "QA 报告写入失败：%1" ).arg( reportStaging.absolutePath ) );
+    computed.error = tr( "QA 报告写入失败：%1" ).arg( reportStaging.absolutePath );
+    QFile::remove(draftStaging.absolutePath); return false;
   }
   QVariantMap reportExtra;
   reportExtra.insert( QStringLiteral( "asset_role" ), QStringLiteral( "qa_report" ) );
   reportExtra.insert( QStringLiteral( "issue_count" ),
-                      static_cast<int>( computed->qaIssues.size() ) );
+                      static_cast<int>( computed.qaIssues.size() ) );
   reportExtra.insert( QStringLiteral( "param_hash" ),
-                      computed->extra.value( QStringLiteral( "param_hash" ) ) );
+                      computed.extra.value( QStringLiteral( "param_hash" ) ) );
   reportExtra.insert( QStringLiteral( "draft_asset_id" ), draftStaging.assetId );
   reportExtra.insert( QStringLiteral( "draft_version_id" ), draftStaging.versionId );
-  AlgorithmRunResult reportRun =
-      paleo::runResultFromOutputPath( reportStaging.absolutePath, QStringLiteral( "OUTPUT" ) );
-  reportRun.diagnostics.insert( QStringLiteral( "algorithm_id" ),
-                                QStringLiteral( "paleo:facies_draft_mapping" ) );
-  if ( !paleo::publishArtifacts( registrar, reportStaging, reportRun,
-                                 QStringList{ draftStaging.versionId },
-                                 QStringLiteral( "paleo:facies_draft_mapping" ), reportExtra,
-                                 &commitErr ) )
-    return fail( commitErr );
 
+  AlgorithmRunResult result;result.ok=true;
+  AlgorithmOutputArtifact draft;draft.portId="OUTPUT";draft.absolutePath=draftStaging.absolutePath;
+  draft.extra=computed.extra;draft.extra.insert("asset_role","draft");result.artifacts.append(draft);
+  AlgorithmOutputArtifact reportArtifact;reportArtifact.portId="REPORT";reportArtifact.absolutePath=reportStaging.absolutePath;
+  reportArtifact.extra=reportExtra;reportArtifact.parentPortIds={"OUTPUT"};result.artifacts.append(reportArtifact);
+  if(!paleo::prepareAlgorithmOutputSet(faciesOutputSpec(),result,targets,computed.preparedOutputs,&computed.error,cancelled)) {
+    QFile::remove(draftStaging.absolutePath);QFile::remove(reportStaging.absolutePath);return false;
+  }
+  computed.ok=true;return true;
+}
+bool FaciesMappingWorkflow::commitComputed(const DraftFaciesRequest &request,DraftFaciesComputed *computed) {
+  const auto fail=[this,computed](const QString &message) {
+    if(computed) {
+      computed->error=message;
+      if(!computed->outputsPublished)for(const auto &member:computed->preparedOutputs.members)QFile::remove(member.staging.absolutePath);
+    }
+    emit draftFailed(message);return false;
+  };
+  if(!computed || !computed->ok)return fail(computed?computed->error:tr("无计算结果"));
+  if(m_layers.isNull())return fail(tr("草稿相图工作流未绑定图层服务"));
+  DerivedAssetRegistrar registrar(m_catalog,m_projectDir);
+  if(computed->preparedOutputs.members.size()!=2)return fail(tr("相图输出目标无效"));
+  DerivedOutputSetReceipt receipt;
+  if(!registrar.commitSet(faciesOutputSpec(),computed->preparedOutputs,computed->parentVersionIds,
+      "paleo:facies_draft_mapping",computed->extra,receipt))return fail(receipt.error);
+  computed->outputsPublished=true;
+  const auto &draftStaging=computed->preparedOutputs.members[0].staging;
+  const auto &reportStaging=computed->preparedOutputs.members[1].staging;
+  const auto h=request.horizon,hSeg=paleo::safeFileNameComponent(h);
   // ---- declare：正常图层管线（不产游离图层） -----------------------------
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "facies_draft.%1" ).arg( hSeg );
@@ -636,6 +627,7 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
   return true;
 }
 
+
 bool FaciesMappingWorkflow::run( const DraftFaciesRequest &request, QString *error )
 {
   DraftFaciesComputed computed = runCompute( request );
@@ -645,6 +637,11 @@ bool FaciesMappingWorkflow::run( const DraftFaciesRequest &request, QString *err
     emit draftFailed( computed.error );
     return false;
   }
+  QVector<paleo::AlgorithmOutputTarget> targets;
+  if(!stageOutputs(request,targets,&computed.error) || !prepareComputedOutputs(request,computed,targets)) {
+    paleo::workflow_detail::setError(error,computed.error);emit draftFailed(computed.error);return false;
+  }
+  computed.parentVersionIds=DerivedAssetRegistrar(m_catalog,m_projectDir).parentVersionIdsFor(computed.parentPaths);
   if ( !commitComputed( request, &computed ) )
   {
     paleo::workflow_detail::setError( error, computed.error );
@@ -664,7 +661,7 @@ PaleoTask *FaciesMappingWorkflow::startJob( paleo::jobs::JobRunner<DraftFaciesJo
 
   JobRunner<DraftFaciesJob>::Callbacks cb;
   // prepare：owner 线程——输入快照已由调用方在 owner 线程抓成纯数据。
-  cb.prepare = []( DraftFaciesJob &, QString * ) { return true; };
+  cb.prepare = [this](DraftFaciesJob &j,QString *error) { return stageOutputs(j.request,j.targets,error); };
   // compute：worker 线程纯计算（四阶段算法核，不碰 catalog/UI）。#235：
   // 静态、不捕获 this（对齐 PropertyModelWorkflow 的 #163 形态）；进度走框架
   // ProgressFn → PaleoTask::changed——任务对象属服务，生命周期由服务排空保证，
@@ -677,11 +674,15 @@ PaleoTask *FaciesMappingWorkflow::startJob( paleo::jobs::JobRunner<DraftFaciesJo
         report( fraction * 100.0, stage );
       return !( cancel && cancel() );
     } );
-    return j.computed.ok;
+    return j.computed.ok && prepareComputedOutputs(j.request,j.computed,j.targets,cancel);
   };
   // commit：owner 线程登记（#106 owner-thread 写守卫面）。
-  cb.commit = [this]( DraftFaciesJob &j, QString * ) {
-    return commitComputed( j.request, &j.computed );
+  cb.commit = [this]( DraftFaciesJob &j, QString *error ) {
+    const bool ok=commitComputed( j.request, &j.computed );
+    if(!ok && error)*error=j.computed.error;return ok;
+  };
+  cb.cleanup=[](DraftFaciesJob &j) {
+    if(!j.computed.outputsPublished)for(const auto &target:j.targets)QFile::remove(target.staging.absolutePath);
   };
   // 取消/陈旧不进 commit（发布是临界区）；staging 由 registrar 托管。
 

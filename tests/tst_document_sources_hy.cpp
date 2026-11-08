@@ -140,6 +140,16 @@ private slots:
         QFile original(logs.front());QVERIFY(original.open(QIODevice::ReadOnly));const auto bytes=original.readAll();original.close();
         const auto digest=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);
         Fixture f;QVERIFY(f.init());const auto copy=f.temp.filePath("private.las");QVERIFY(write(copy,bytes));QVERIFY2(f.importModel(copy),qPrintable(f.error));QVERIFY(f.bind());
+        {
+            paleo::data::DataService reader;std::string detail;
+            QVERIFY(reader.openProjectReadOnly(paleo::area_model::directory(f.project).toStdString(),detail));
+            std::vector<paleo::data::DataEntry> curves;QVERIFY(reader.listData("curves",0,curves,detail));QVERIFY(!curves.empty());
+            paleo::data::CurveWindowQuery query;query.curveId=curves.front().id;query.sampleCount=1;
+            paleo::data::CurveWindowResult window;paleo::data::CurveReadStats usage;
+            QVERIFY2(reader.readCurveWindow(query,window,detail,{},&usage),detail.c_str());
+            QVERIFY(usage.chunked);QCOMPARE(usage.legacyBytesMaterialized,0LL);QCOMPARE(window.curve.values.size(),size_t(1));
+            qInfo("HY curve first sample: SQL payload=%lld axis blocks=%lld value blocks=%lld",usage.payloadBytesRead,usage.axisBlocksRead,usage.valueBlocksRead);
+        }
         const auto record=f.session.sources().front();const auto moved=f.temp.filePath("relocated/private.las");
         QVERIFY(QDir().mkpath(QFileInfo(moved).absolutePath()));QVERIFY(QFile::rename(copy,moved));
         auto command=f.session.command(SourceCommand::Kind::Relocate);command.source=record.ref;command.path=moved;

@@ -41,6 +41,8 @@ add_library(paleo_algorithms STATIC
   src/algorithms/faciespolygonize.cpp
   src/algorithms/faciessliver.cpp                   # A11：小图斑吸收（并查集 + 小顶堆，可取消）
   src/algorithms/seismicattr.cpp
+  src/algorithms/seisattrgroup.cpp
+  src/algorithms/depthbatch.cpp
   src/algorithms/singlefactor/curvekernel.cpp
   src/algorithms/singlefactor/support.cpp
   src/algorithms/singlefactor/localidw.cpp
@@ -67,6 +69,9 @@ target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 
 # catalog + metadata 同库（互依环）
 add_library(paleo_store STATIC
+  src/catalog/datacatalog_projection.cpp
+  src/catalog/areasource_delta.cpp
+  src/catalog/areasource_delta_apply.cpp
   src/catalog/documentsourceprojection.cpp
   src/metadata/documentsourcestore.cpp
   src/catalog/purgelease.cpp
@@ -166,6 +171,7 @@ target_include_directories(paleo_qgis_attribute_table PUBLIC
 target_link_libraries(paleo_qgis_attribute_table PUBLIC paleo_qgis Qt6::Core5Compat)
 
 add_library(paleo_io STATIC
+  src/io/areamodelpublication.cpp
   src/io/nativesourcesnapshot.cpp
   src/io/sourcefingerprint.cpp
   src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
@@ -196,6 +202,7 @@ add_library(paleo_io STATIC
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
+  src/services/artifactversioncapability.cpp
   src/services/documentsourceprobe.cpp
   src/services/documentrelationresolver.cpp
   src/services/projectdata_relation.cpp
@@ -211,6 +218,9 @@ add_library(paleo_services STATIC
   src/services/faciesdisplaysettings.cpp
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/algorithmspec.cpp                    # algo-atom P0：AlgorithmSpec 静态契约表
+  src/services/algorithmspec_pilots.cpp             # 时深/属性组/相图输出契约
+  src/services/algorithmcontract.cpp                # 参数校验与有效默认值
+  src/services/capabilityspec.cpp                   # 能力目录（引用 AlgorithmSpec，不复制默认值）
   src/services/nativerunners.cpp                    # algo-atom：hztrack 等 services 侧 native 包装
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架

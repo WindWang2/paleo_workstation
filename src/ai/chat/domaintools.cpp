@@ -2,11 +2,13 @@
 #include "domaintools.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 
 #include <cmath>
 #include <limits>
 
 #include "../../catalog/catalogroles.h"
+#include "../../services/artifactversioncapability.h"
 
 // ai/chat — 领域工具表实现（方向51）。
 //
@@ -77,6 +79,9 @@ QJsonObject AiToolSpec::toJsonSchema() const {
   if (!required.isEmpty())
     schema.insert(QStringLiteral("required"), required);
   schema.insert(QStringLiteral("additionalProperties"), false);
+  if (name==QLatin1String("paleo.query_project"))
+    schema.insert("allOf",QJsonArray{QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","version"}}}}}}},
+        {"then",QJsonObject{{"required",QJsonArray{"version_id"}}}}}});
   return schema;
 }
 
@@ -89,6 +94,12 @@ QJsonObject AiToolSpec::toChatFunction() const {
 }
 
 QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
+  if (name==QLatin1String("paleo.query_project") && arguments.value("topic").toString()==QLatin1String("version")) {
+    if (!arguments.value("version_id").isString() || arguments.value("version_id").toString().isEmpty())
+      return QObject::tr("topic=version 须给精确 version_id");
+    if (arguments.contains("catalog_revision") && !arguments.value("catalog_revision").isDouble())
+      return QObject::tr("catalog_revision 须为整数");
+  }
   for (const AiToolParamSpec &parameter : parameters) {
     const bool present = arguments.contains(parameter.name);
     if (parameter.required && !present)
@@ -142,7 +153,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
      QObject::tr("tile 四周冗余像素（缺省 8，用于消缝合接缝）"), false},
   };
   tile.resultSchemaJson = QStringLiteral(
-    R"({"type":"object","properties":{"rows":{"type":"integer"},"columns":{"type":"integer"},"classes":{"type":"integer"},"argmax":{"type":"array","items":{"type":"integer"}},"confidence":{"type":"array","items":{"type":"number"}}}})");
+    R"({"type":"object","required":["tool","horizon","rows","columns","classes","layer_ids"],"properties":{"tool":{"type":"string"},"horizon":{"type":"string"},"note":{"type":"string"},"rows":{"type":"integer"},"columns":{"type":"integer"},"classes":{"type":"integer"},"tiles_done":{"type":"integer"},"inference_ms":{"type":"number"},"classified_pixels":{"type":"integer"},"nodata_pixels":{"type":"integer"},"mean_confidence":{"type":"number"},"class_histogram":{"type":"object","additionalProperties":{"type":"integer"}},"layer_ids":{"type":"array","items":{"type":"string"}}}})");
 
   // 2) 层位自动追踪建议
   AiToolSpec horizon;
@@ -203,7 +214,11 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
                  "资产清单；assets=资产清单；well_details=单井关联明细"),
      true,
      {QStringLiteral("summary"), QStringLiteral("wells"), QStringLiteral("horizons"),
-      QStringLiteral("assets"), QStringLiteral("well_details")}},
+      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("version")}},
+    {QStringLiteral("version_id"),QStringLiteral("string"),
+     QObject::tr("精确目录版本标识（topic=version 时必填，不按名称回退）"),false},
+    {QStringLiteral("catalog_revision"),QStringLiteral("integer"),
+     QObject::tr("目录修订条件（topic=version；缺省使用本次宿主目录修订）"),false},
     {QStringLiteral("well_name"), QStringLiteral("string"),
      QObject::tr("井名（topic=well_details 时必填；按目录规范化匹配）"), false},
     {QStringLiteral("role"), QStringLiteral("string"),
@@ -222,6 +237,11 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     R"("horizons":{"type":"array","items":{"type":"object"}},"assets":{"type":"array","items":{"type":"object"}},)"
     R"("links":{"type":"array","items":{"type":"object"}},"entities":{"type":"object"},)"
     R"("assets_by_type":{"type":"object"},"revision":{"type":"integer"}}})");
+  auto querySchema=QJsonDocument::fromJson(query.resultSchemaJson.toUtf8()).object();
+  auto queryProperties=querySchema.value("properties").toObject();
+  queryProperties.insert("version",paleo::capability::ArtifactVersionCapability::resultSchema());
+  querySchema.insert("properties",queryProperties);
+  query.resultSchemaJson=QString::fromUtf8(QJsonDocument(querySchema).toJson(QJsonDocument::Compact));
 
   // 5) 派生血缘闭包（方向77：只读——「这个图件是从哪些源来的」）。
   AiToolSpec lineage;
@@ -248,7 +268,49 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     R"("selection":{"type":"object","properties":{"count":{"type":"integer"},)"
     R"("version_ids":{"type":"array","items":{"type":"string"}}}}}})");
 
-  return {tile, horizon, facies, query, lineage};
+  auto capabilityTool = [](const QString &name, const QString &title, const QString &description) {
+    AiToolSpec spec;
+    spec.name = name;
+    spec.title = title;
+    spec.description = description;
+    spec.requiresLocalOrt = false;
+    spec.parameters = {
+        {QStringLiteral("contract_version"), QStringLiteral("integer"),
+         QObject::tr("能力契约版本；缺省 1"), false},
+        {QStringLiteral("client_request_id"), QStringLiteral("string"),
+         QObject::tr("调用方请求号"), true},
+        {QStringLiteral("binding_mode"), QStringLiteral("string"),
+         QObject::tr("pinned-value、follow-object-head 或 follow-selection"), true,
+         {QStringLiteral("pinned-value"), QStringLiteral("follow-object-head"),
+          QStringLiteral("follow-selection")}},
+        {QStringLiteral("binding_id"), QStringLiteral("string"),
+         QObject::tr("follow-selection 的选择绑定"), false},
+        {QStringLiteral("frozen_head"), QStringLiteral("string"),
+         QObject::tr("冻结时的对象头"), false},
+        {QStringLiteral("current_head"), QStringLiteral("string"),
+         QObject::tr("忽略。提交头只来自宿主，模型填写无效"), false},
+        {QStringLiteral("publish_intent"), QStringLiteral("string"),
+         QObject::tr("compute-only 或 publish"), false,
+         {QStringLiteral("compute-only"), QStringLiteral("publish")}},
+        {QStringLiteral("parameters"), QStringLiteral("object"),
+         QObject::tr("算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制"), true},
+        {QStringLiteral("inputs"), QStringLiteral("object"),
+         QObject::tr("显式输入引用与冻结值"), true},
+    };
+    spec.resultSchemaJson = QStringLiteral(
+        "{\"type\":\"object\",\"properties\":{\"code\":{\"type\":\"string\"},\"operationId\":{\"type\":\"string\"}}}");
+    return spec;
+  };
+  const AiToolSpec depth = capabilityTool(
+      QStringLiteral("paleo.depth_convert_batch"), QObject::tr("时深批转换"),
+      QObject::tr("按显式井样、时深语义和模型修订做批转换。不读取当前选中井。"));
+  const AiToolSpec seismic = capabilityTool(
+      QStringLiteral("paleo.seismic_attribute_group"), QObject::tr("地震属性组"),
+      QObject::tr("对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。"));
+  const AiToolSpec constraint = capabilityTool(
+      QStringLiteral("paleo.constraint_idw"), QObject::tr("约束 IDW"),
+      QObject::tr("prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。"));
+  return {tile, horizon, facies, query, lineage, depth, seismic, constraint};
 }
 
 AiToolSpec aiToolSpec(const QString &name) {
@@ -329,6 +391,14 @@ AiToolDispatch dispatchAiTool(const QString &name,
     // 时执行面如实报错，与 facies 的诚实口径一致）。
     out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr("入口已接线：只读查询，须打开工程（未打开时如实报错）");
+    return out;
+  }
+  if (name == QStringLiteral("paleo.depth_convert_batch") ||
+      name == QStringLiteral("paleo.seismic_attribute_group") ||
+      name == QStringLiteral("paleo.constraint_idw")) {
+    out.target = QStringLiteral("workflow/capabilitygateway.h:runChatTool");
+    out.status = AiToolDispatchStatus::Routed;
+    out.note = QObject::tr("入口已接线：显式引用，不读取当前选择");
     return out;
   }
   if (name == QStringLiteral("paleo.asset_lineage")) {

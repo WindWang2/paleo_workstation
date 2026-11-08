@@ -1,5 +1,6 @@
 // 层：功能
 #include "projectsetup.h"
+#include "../io/areamodelpublication.h"
 #include "../services/futuretask.h"
 #include "folderimport.h"
 #include "../io/projectsetupscan.h"
@@ -314,7 +315,7 @@ void ProjectSetupWorkflow::importCatalogSources(const ProjectSetupSources &sourc
       const bool registered = applyAreaPointMapping(project, sources.points, sources.pointMapping, &registryError) &&
           registerModelWells(m_imports, &registryError) && service && service->catalog() &&
           registerAreaSources(*service->catalog(), &registryError);
-      const bool saved = registered && m_project->writeProject();
+      const bool saved = registered && paleo::area_model::recoverModelPublication(*service->catalog(),&registryError) && m_project->writeProject();
       QString summary = tr("工程资料索引已根据工区数据模型更新，未重复读取原始文件。") + scanSummary;
       if (!registryError.isEmpty()) summary += '\n' + registryError;
       if (!saved) summary += '\n' + m_project->lastErrors().join('\n');

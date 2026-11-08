@@ -63,7 +63,7 @@ RemotePredictionAssembly installRemotePrediction(MappingWorkbench *bench,
 
 void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
                         QgisLayerService *layers, DataCatalog *catalog,
-                        const QString &projectDir) {
+                        const QString &projectDir, const QString &documentId) {
   if (!chat)
     return;
   // assist 可为空（无 ORT 构建）：只绑只读工程工具；tile/horizon 执行面
@@ -79,6 +79,7 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   // 方向77：只读工程上下文（catalog 指针稳定性由 importSvc 保证）。
   context.catalog = catalog;
   context.projectDir = projectDir;
+  context.documentId = documentId;
   chat->toolRunner()->setContext(context);
   chat->setProjectBrief(AiChatToolRunner::projectBrief(catalog, projectDir));
 }

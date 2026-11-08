@@ -178,7 +178,8 @@ bool CatalogStore::writeMeta(const Meta &meta, QString *error)
       {"mutation_seq", std::to_string(meta.mutationSeq)},
       {"asset_seq", std::to_string(meta.assetSeq)},
       {"version_seq", std::to_string(meta.versionSeq)},
-      {"backup_keep", std::to_string(meta.backupKeep)}};
+      {"backup_keep", std::to_string(meta.backupKeep)},
+      {"projection_checkpoints_v1",utf8(QString::fromUtf8(QJsonDocument(meta.projectionCheckpoints).toJson(QJsonDocument::Compact)))}};
   const bool ok = store.writeMeta(rows, detail);
   return finishDataCall(ok, detail, error);
 }

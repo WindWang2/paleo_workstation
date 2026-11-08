@@ -186,6 +186,7 @@ class TestFaciesMappingWorkflow : public QObject
     void jobRunnerThreeStageCommits();
     void qaReportJsonReadable();
     void failurePathProducesNoSideEffects();
+    void failedPreparationCannotRetryOnOwner();
 
   private:
     const LayerDeclaration *findDecl( QgisLayerService &layers, const QString &layerId ) const
@@ -198,6 +199,15 @@ class TestFaciesMappingWorkflow : public QObject
     }
 };
 
+void TestFaciesMappingWorkflow::failedPreparationCannotRetryOnOwner() {
+  Fixture f;QVERIFY(initFixture(f));FaciesMappingWorkflow workflow(&f.catalog,f.projectDir());
+  workflow.attachLayerService(&f.layers);const auto request=standardRequest();
+  const auto versions=f.catalog.versions().size(),layers=f.layers.declared().size();
+  auto computed=FaciesMappingWorkflow::runCompute(request);QVERIFY(computed.ok);
+  QVERIFY(!FaciesMappingWorkflow::prepareComputedOutputs(request,computed,{}));
+  QVERIFY(!computed.ok);QVERIFY(!workflow.commitComputed(request,&computed));
+  QCOMPARE(f.catalog.versions().size(),versions);QCOMPARE(f.layers.declared().size(),layers);
+}
 // oracle 4 主链：catalog 版本/SHA + declare + organizer 落层位组。
 void TestFaciesMappingWorkflow::draftRegistersCatalogVersionsAndDeclaresLayer()
 {

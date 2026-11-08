@@ -6,6 +6,7 @@
 #include "algorithms/faciesmapping/evidencesynthesis.h"
 #include "algorithms/faciesmapping/faciesqa.h"
 #include "services/jobrunner.h"
+#include "algorithmpublish.h"
 
 #include <QPointer>
 #include <QString>
@@ -23,7 +24,7 @@ class ConstraintStore;
 // 多源证据合成（阶段3，权重持久化进 catalog 版本 extra）→ QA 检测（阶段4）
 // → 草稿相图 GPKG + QA 报告 JSON 双 DERIVED 资产 + declare「facies_draft.<h>」
 // 进 05_PaleoMap（organizer 按层位归组）。三段式协议与 PropertyModelWorkflow
-// 同构：compute 纯数据（不碰 catalog/UI），commit 在 owner 线程登记。
+// 同构：compute 计算并写受管私有产物（不碰 catalog/UI），commit 在 owner 线程登记。
 // 全部产物走 catalog 版本 + declare/instantiate 正常图层管线，不产游离图层。
 class FaciesMappingWorkflow : public QObject
 {
@@ -96,7 +97,7 @@ class FaciesMappingWorkflow : public QObject
     // 没有约束库形态，仍由调用方显式给——不在这里伪造。
     bool assembleConstraintInputs( DraftFaciesRequest *request, QString *error = nullptr ) const;
 
-    // ---- compute 段产物（纯数据，GPKG/JSON 序列化字段在 commit 段落位） ----
+    // ---- compute 段产物（纯数据及已准备的受管输出；owner 只登记） ----
     struct DraftFaciesComputed
     {
       bool ok = false;
@@ -110,6 +111,9 @@ class FaciesMappingWorkflow : public QObject
       std::vector<paleo::faciesmapping::DominantFaciesRow> dominantRows;
       QVariantMap extra; // catalog 版本 extra（权重/阈值/param_hash/计数）
       QStringList parentPaths;
+      QStringList parentVersionIds;
+      DerivedPreparedSet preparedOutputs;
+      bool outputsPublished = false;
       int wellVoters = 0;
     };
 
@@ -117,6 +121,7 @@ class FaciesMappingWorkflow : public QObject
     {
       DraftFaciesRequest request;
       DraftFaciesComputed computed;
+      QVector<paleo::AlgorithmOutputTarget> targets;
     };
 
     // 同步直跑（无任务池的壳/测试）；内部仍是 compute→commit 两段。
@@ -126,6 +131,9 @@ class FaciesMappingWorkflow : public QObject
     static DraftFaciesComputed runCompute(
       const DraftFaciesRequest &request,
       const std::function<bool( double, const QString & )> &progress = {} );
+    static bool prepareComputedOutputs(const DraftFaciesRequest &request,
+      DraftFaciesComputed &computed,const QVector<paleo::AlgorithmOutputTarget> &targets,
+      const std::function<bool()> &cancelled = {});
     // owner 线程：登记双资产 + declare + stamp；成功 emit draftReady。
     bool commitComputed( const DraftFaciesRequest &request, DraftFaciesComputed *computed );
 
@@ -142,6 +150,8 @@ class FaciesMappingWorkflow : public QObject
     void draftFailed( const QString &reason );
 
   private:
+    bool stageOutputs(const DraftFaciesRequest &request,
+                      QVector<paleo::AlgorithmOutputTarget> &targets,QString *error);
     QPointer<DataCatalog> m_catalog;
     QPointer<QgisLayerService> m_layers;
     ConstraintStore *m_constraints = nullptr; // 非 QObject：裸指针，注入方保证生命周期

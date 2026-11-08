@@ -58,7 +58,8 @@ void DataListPanel::refreshAssetTable()
   for (const auto &row : m_rows)
     live.insert(row.assetId);
   m_pageSelection.intersect(live);
-  // 类型下拉按当前资产类型集重建（保留原选择）。
+  // 类型下拉按当前资产类型集重建（保留原选择）。P2 W6：词表 = catalog 原型 ∪
+  // 行快照 effectiveType——仅存在于覆盖值的类型仍可选；过滤/显示同口径。
   if (auto *typeFilter = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
   {
     const QString keep = typeFilter->currentData().toString();
@@ -66,6 +67,9 @@ void DataListPanel::refreshAssetTable()
     for (const CatalogAsset &a : cat->assets())
       if (!a.type.isEmpty() && !types.contains(a.type))
         types << a.type;
+    for (const auto &row : m_rows)
+      if (!row.effectiveType.isEmpty() && !types.contains(row.effectiveType))
+        types << row.effectiveType;
     types.sort();
     const QSignalBlocker block(typeFilter);
     typeFilter->clear();

@@ -53,8 +53,8 @@ src/ui/pages/composepage.cpp:fn:ComposePage:422
 src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:357
 src/ui/pages/constraintpage_interpolation.cpp:fn:buildAdvancedSection:207
 src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:219
-src/ui/pages/datalist.cpp:fn:DataListPanel:442
-src/ui/pages/datalist.cpp:fn:buildDataOpsUi:332
+src/ui/pages/datalist.cpp:fn:DataListPanel:438
+src/ui/pages/datalist.cpp:fn:buildDataOpsUi:308
 src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
 src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:556
 src/ui/pages/entitypanel.cpp:file:1462

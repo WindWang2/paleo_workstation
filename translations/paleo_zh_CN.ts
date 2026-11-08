@@ -38098,6 +38098,111 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
             <translation>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</translation>
         </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>无数据</source>
+        <translation>无数据</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>没有可套用样点表达的图层</source>
+        <translation>没有可套用样点表达的图层</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
+        <translation>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>井点因子标注表达式构建失败</source>
+        <translation>井点因子标注表达式构建失败</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/mapbooklayout.cpp"/>
+        <source>（本册没有可列条目）</source>
+        <translation>（本册没有可列条目）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>用户取消（已出的版保留）</source>
+        <translation>用户取消（已出的版保留）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>预演限额（前 %1 版）</source>
+        <translation>预演限额（前 %1 版）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>未执行</source>
+        <translation>未执行</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录 %1 文件</source>
+        <translation>目录 %1 文件</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录失败</source>
+        <translation>目录失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单失败</source>
+        <translation>清单失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单已写</source>
+        <translation>清单已写</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>警告 %1</source>
+        <translation>警告 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>已导出产物</source>
+        <translation>已导出产物</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>页 %1 · %2</source>
+        <translation>页 %1 · %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>目录 %1/%2 · %3</source>
+        <translation>目录 %1/%2 · %3</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>清单 · manifest.json</source>
+        <translation>清单 · manifest.json</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>产物不存在或已被移动：%1</source>
+        <translation>产物不存在或已被移动：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>无法打开产物：%1</source>
+        <translation>无法打开产物：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>警告：%1</source>
+        <translation>警告：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>（共 %1 个文件）</source>
+        <translation>（共 %1 个文件）</translation>
+    </message>
     </context>
 <context>
     <name>SectionWorkbench</name>

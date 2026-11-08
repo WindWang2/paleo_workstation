@@ -39,7 +39,7 @@ src/ui/correlation/petrophyspanel.cpp:fn:buildUi:220
 src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:239
 src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:407
 src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:429
-src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:372
+src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:355
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:251
 src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:639
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238

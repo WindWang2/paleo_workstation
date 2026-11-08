@@ -23532,6 +23532,26 @@ PDF：%3
             <source>地图册导出结束：%1</source>
             <translation type="unfinished" />
         </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>产物不存在或已被移动：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>无法打开产物：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>警告：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookcontroller.cpp"/>
+        <source>（共 %1 个文件）</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>PaleoMapBookPanel</name>
@@ -23661,6 +23681,26 @@ PDF：%3
             <source>选择地图册输出目录</source>
             <translation type="unfinished" />
         </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>已导出产物</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>页 %1 · %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>目录 %1/%2 · %3</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/layout/mapbookpanel.cpp"/>
+        <source>清单 · manifest.json</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>PaleoMapBookQueue::Exporter</name>
@@ -36256,6 +36296,71 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
 
 
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>无数据</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>没有可套用样点表达的图层</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/samplepointstyle.cpp"/>
+        <source>井点因子标注表达式构建失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/qgis/mapbooklayout.cpp"/>
+        <source>（本册没有可列条目）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>用户取消（已出的版保留）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>预演限额（前 %1 版）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>未执行</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录 %1 文件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>目录失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>清单已写</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mapbookqueue.cpp"/>
+        <source>警告 %1</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>QgisConstraintEditSession</name>

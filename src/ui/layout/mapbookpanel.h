@@ -11,6 +11,7 @@ class QComboBox;
 class PaleoMapExtentWidget;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QProgressBar;
 class QPushButton;
 class QSpinBox;
@@ -59,12 +60,19 @@ class PaleoMapBookPanel : public QWidget
     void setProgress( int done, int total );
     void appendLog( const QString &line );
     void clearLog();
+    // P5-W7：整册交付回显——逐页状态摘要（deliverySummary）、可打开的已产出
+    // 文件入口（逐页成品 + 全部目录页 + manifest，激活即发 artifactActivated；
+    // 打开前的存在性/路径校验在接线层，视图不碰文件系统）。
+    void setDeliveryResult( const PaleoMapBookQueue::Result &result );
 
   signals:
     // 视图只发信号：批量参数已配好，请功能层编排（参数走 getter/previewTiles）。
     void batchRequested();
     void cancelRequested();
     void canvasVisibilityRequested( bool visible );
+    // 用户请求打开某个已导出产物（绝对路径在 Result 里登记过；接线层负责
+    // 存在性校验与实际打开）。
+    void artifactActivated( const QString &path );
 
   private:
     void buildUi();
@@ -89,4 +97,6 @@ class PaleoMapBookPanel : public QWidget
     QLabel *m_status = nullptr;
     QProgressBar *m_progress = nullptr;
     QTextEdit *m_log = nullptr;
+    QLabel *m_delivery = nullptr;   // P5-W7：整册交付摘要（含装配状态）
+    QListWidget *m_artifacts = nullptr; // P5-W7：已产出文件入口（键盘可操作）
 };

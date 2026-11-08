@@ -23,6 +23,7 @@
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgisstyleservice.h"
+#include "../qgis/samplepointstyle.h"
 #include "../qgis/wellattributestore.h"
 #include "../services/futuretask.h"
 #include "../services/jobrunner.h"
@@ -1203,6 +1204,17 @@ void MappingWorkbench::styleLayer(const QString &id) {
   if (analysisRaster || cartographic)
     FactorStyleWriter::applyTo(qobject_cast<QgsRasterLayer *>(layer),
                                v.extra.value("factor_id").toString());
+  // P5-W2：井点因子成果层（product.<versionId> 历史成果与工程重开同路）——
+  // 井名 + factor_value 实际值双行标注。语义核对不过（缺 factor_value 等）
+  // 如实报错，不借其他字段冒充因子值；套用后即返回，不走相显示。
+  if (styledKind == QLatin1String("well_factor_points")) {
+    if (auto *sampleVector = qobject_cast<QgsVectorLayer *>(layer)) {
+      QString sampleError;
+      if (!PaleoSamplePointStyle::applyWellFactorLabels(sampleVector, &sampleError))
+        emit errorOccurred(sampleError);
+    }
+    return;
+  }
   if (!supportsFaciesDisplay(id)) {
     // 分析与制图绕行等值线共用双描边和数字 halo，兼容 ELEV/level。
     if ((styledKind == QLatin1String("contour_lines") ||

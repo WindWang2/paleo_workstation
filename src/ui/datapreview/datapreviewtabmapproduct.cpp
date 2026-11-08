@@ -32,6 +32,7 @@ LayerT *pinPreviewCrsToLayer(PreviewMapPage *page, LayerT *layer)
 #include "../../qgis/mappingartifactwriter.h"
 #include "../../qgis/previewrasteranalysis.h"
 #include "../../qgis/qgisstyleservice.h"
+#include "../../qgis/samplepointstyle.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsrasterlayer.h>
@@ -50,6 +51,40 @@ LayerT *pinPreviewCrsToLayer(PreviewMapPage *page, LayerT *layer)
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
+
+namespace
+{
+  // 非相类点/面层的通用呈现（P5-W2 起 #538 规模闸口径下从
+  // buildMapProductContent 拆出）：井点因子层走样点表达（井名 + factor_value
+  // 双行实际值，与主图/历史成果/导出同一契约），不落入 name/NAME/id/fid/
+  // 首字段回退——那会把 well_id 当标签且丢因子值；其余矢量维持原有回退。
+  void applyNonFaciesVectorPresentation(QgsVectorLayer *vlayer)
+  {
+    if (!vlayer)
+      return;
+    if (PaleoSamplePointStyle::isWellFactorPoints(vlayer))
+    {
+      PaleoSamplePointStyle::applyWellFactorLabels(vlayer);
+      return;
+    }
+    QString labelField;
+    for (const QString &cand : {QStringLiteral("相"), QStringLiteral("微相"), QStringLiteral("亚相"),
+                                QStringLiteral("facies"), QStringLiteral("name"), QStringLiteral("NAME"),
+                                QStringLiteral("id"), QStringLiteral("fid")})
+    {
+      if (vlayer->fields().indexOf(cand) >= 0)
+      {
+        labelField = cand;
+        break;
+      }
+    }
+    if (labelField.isEmpty() && !vlayer->fields().isEmpty())
+      labelField = vlayer->fields().at(0).name();
+
+    if (!labelField.isEmpty())
+      applyFaciesRendererToLayer(vlayer, labelField);
+  }
+} // namespace
 
 QWidget *DataPreviewTabs::buildMapProductContent(
     DataCatalog *cat, const CatalogAsset &asset, const CatalogVersion &v,
@@ -363,24 +398,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
       }
       else
       {
-        QString labelField;
-        for (const QString &cand : {QStringLiteral("相"), QStringLiteral("微相"), QStringLiteral("亚相"),
-                                    QStringLiteral("facies"), QStringLiteral("name"), QStringLiteral("NAME"),
-                                    QStringLiteral("id"), QStringLiteral("fid")})
-        {
-          if (vlayer->fields().indexOf(cand) >= 0)
-          {
-            labelField = cand;
-            break;
-          }
-        }
-        if (labelField.isEmpty() && !vlayer->fields().isEmpty())
-          labelField = vlayer->fields().at(0).name();
-
-        if (!labelField.isEmpty())
-        {
-          applyFaciesRendererToLayer(vlayer.get(), labelField);
-        }
+        applyNonFaciesVectorPresentation(vlayer.get());
       }
     }
 

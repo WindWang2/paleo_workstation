@@ -135,7 +135,6 @@ src/workflow/faciesmappingworkflow.cpp
 src/workflow/faultinterpretationcontroller.cpp
 src/workflow/horizonbatchexport.cpp
 src/workflow/layouttemplatelibrary.cpp
-src/workflow/mapbookqueue.cpp
 src/workflow/mapexport.cpp
 src/workflow/mappingevidencereview.cpp
 src/workflow/mappinghierarchy.cpp

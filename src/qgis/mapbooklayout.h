@@ -54,12 +54,21 @@ struct MontageSpec
     bool landscape = true;
 };
 
+// 目录索引页规格（P5-W5 分页口径）：条目超出单页容量时按实际纸面/字号/
+// 行高/长名占行自动分页（多页版面，一页一条目块），不再截断到 60 行。
+// 页容量 = (页高 − 标题区 − 下边距) / 行距，条目占行按可用宽度与字体
+// 度量估算换行；渲染后多页 PNG/PDF 的全部兄弟文件经 RenderOutcome::files
+// 回传并逐文件校验。
 struct IndexSpec
 {
-    QString title;            //!< 索引页标题
-    QStringList entries;      //!< 每行一条（格号 + 范围 + 文件名）
+    QString title;            //!< 索引页标题（多页时各页附「第 i/N 页」）
+    QStringList entries;      //!< 每行一条（格号 + 范围 + 文件名），次序保留
     bool landscape = false;   //!< 目录页默认竖版
 };
+
+// 目录分页的纯计算面（buildIndexLayout 同一事实源；测试断言页数用）。
+// 返回给定条目在指定版式下占的页数（≥1——空目录也出一页标题页）。
+int indexPageCount( const QStringList &entries, bool landscape );
 
 // 返回堆对象，调用方负责 delete（与 PaleoLayoutExport::buildHorizonMapLayout
 // 同纪律）；失败 → nullptr + *error。
@@ -73,14 +82,19 @@ QgsPrintLayout *buildIndexLayout( QgsProject *project, const IndexSpec &spec,
 struct RenderOutcome
 {
     bool ok = false;
-    QString error;    //!< 人读，成功时为空
-    QString path;     //!< 实际落盘文件（导出核心可能补扩展名）
-    qint64 bytes = 0; //!< 文件大小（断言非空）
-    int width = 0;    //!< 像素宽（PNG；PDF 为 0）
-    int height = 0;   //!< 像素高（PNG；PDF 为 0）
+    QString error;      //!< 人读，成功时为空
+    QString stage;      //!< 失败阶段提示：layout=建版失败；export=渲染/校验失败；成功为空
+    QString path;       //!< 主产物（多页导出的首页；导出核心可能补扩展名）
+    QStringList files;  //!< P5-W5：全部落盘文件（含 _2.. 兄弟页），主产物在前
+    qint64 bytes = 0;   //!< 主产物大小（断言非空）
+    qint64 totalBytes = 0; //!< 全部文件合计（与 files 一一对应求和）
+    int width = 0;      //!< 主产物像素宽（PNG；PDF 为 0）
+    int height = 0;     //!< 主产物像素高（PNG；PDF 为 0）
 };
 
-// 导出 + 回读校验。format/dpi 语义与 PaleoLayoutExport::exportLayout 一致。
+// 导出 + 回读校验（P5-W5 起逐文件校验：多页导出的每个兄弟文件都要过
+// validateExportedFile，首页存在不等于全部成功）。format/dpi 语义与
+// PaleoLayoutExport::exportLayout 一致。
 RenderOutcome renderLayout( QgsPrintLayout *layout, const QString &outPath,
                             PaleoLayoutExport::Format format, double dpi );
 

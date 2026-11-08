@@ -86,6 +86,8 @@ class DataListPanel : public QWidget
 
     // ---- D1/D5 共享面（DataPage 转发给 EntityPanel，实体侧操作共用栈/存储） ----
     paleo::dataops::DataOpsUndoStack *opStack() const { return m_opStack; }
+    // P1（data-commands）：命令服务（批量操作的守卫/准备/执行/回执编排）。
+    paleo::dataops::DataOpsCommandService *commandService() { return &m_cmdSvc; }
     // B2（wave/deepen-perf）：导入队列面板——壳接生产 runner
     //（FolderImportQueueAdapter）用；队列未建时为 nullptr。
     paleo::dataops::ImportQueuePanel *importQueuePanel() const { return m_importQueue; }
@@ -161,6 +163,8 @@ class DataListPanel : public QWidget
     void batchExportManifest();          // D1.7 CSV/JSON
     void batchOpenPreview();             // D1.8 前几项进标签
     void batchAddTag();                  // D2.4 选中打标签
+    // P1-W6：树拖放「拖到标签」意图（datalist_batch.cpp）。
+    void handleAssetsDroppedOnTag(const QStringList &assetIds, const QString &tag);
     void showRecycleBin();               // D1.6 可回收清单对话框
     // ---- 方向 30：工区数据管线与健康管理 ----
     void showImportLedger();             // 导入台账查看器（批次 + 行级结局）
@@ -289,6 +293,8 @@ class DataListPanel : public QWidget
     void registerCommands();        // D6.2 命令登记
     QTreeWidgetItem *treeItemForAsset(const QString &assetId) const;
     void refreshUndoButtons();      // D5.2 撤销/重做按钮文案与可用态
+    // P1-W6：回执 → 状态栏文案（成功/无变化/失败/可撤销范围同一事实源）。
+    QString receiptStatusText(const paleo::dataops::BatchReceipt &r) const;
 
     // ---- 方向 30：体检/版本面辅助 ----
     QVector<paleo::dataops::VersionRow> versionRowsForAsset(const QString &assetId) const;
@@ -315,6 +321,9 @@ class DataListPanel : public QWidget
     bool m_treeStale = false;
     // D5 视图命令栈（挂接/标签/改型/软删…；壳订阅 stackChanged 刷按钮态）。
     paleo::dataops::DataOpsUndoStack *m_opStack = nullptr;
+    // P1（data-commands）：命令服务 + 会话代数（loadStoresForCatalog 绑定）。
+    paleo::dataops::DataOpsCommandService m_cmdSvc;
+    paleo::dataops::DataOpsSession m_opsSession;
 
     // ---- P3 dataops 状态 ----
     paleo::dataops::DataOpsContext m_ctx;              // catalog + stores 指针包

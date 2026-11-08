@@ -258,6 +258,10 @@ void DataListPanel::loadStoresForCatalog()
   m_ctx.assetOverrides = &m_typeOv;
   m_ctx.entityOverrides = &m_entityOv;
   m_ctx.recycle = &m_recycle;
+  // P1：命令服务绑定同一会话（cat 对象/路径换人 → bump 代数并清栈——旧命令
+  // 不写入新会话；同 cat 同路径的每次刷新零副作用）。
+  m_cmdSvc.bindSession(cat, &m_tags, &m_typeOv, &m_entityOv, &m_recycle, m_opStack,
+                       &m_opsSession);
   // 面板跨工程复用。对象换了才改绑；原地 open 的目录由 refresh 现查。
   if (m_attachments)
     m_attachments->setCatalog(cat);
@@ -384,6 +388,30 @@ void DataListPanel::pushCommands(const QVector<paleo::dataops::DataOpCommand *> 
   emit entityRefreshRequested();
 }
 
+// P1-W6：回执 → 状态栏文案。成功/无变化/拒绝/失败只陈述执行结果确认过的
+// 事实；「可撤销」仅在 receipt.undoable（一条历史覆盖全部变更项）时出现；
+// 部分失败先报失败概要，明细交失败对话框（failureLines 同源）。
+QString DataListPanel::receiptStatusText(const paleo::dataops::BatchReceipt &r) const
+{
+  using paleo::dataops::OpOutcome;
+  if (r.historyInvalidated)
+    return tr("操作失败且留有部分变化，撤销历史已作废：%1")
+        .arg(r.failureLines().join(QLatin1String("；")));
+  if (r.anyFailure())
+  {
+    const QString head = tr("部分失败：成功 %1、无变化 %2、失败 %3（%4）")
+                             .arg(r.changedCount())
+                             .arg(r.noChangeCount())
+                             .arg(r.failedCount())
+                             .arg(r.failureStage.isEmpty() ? tr("原因见明细") : r.failureStage);
+    return head;
+  }
+  if (r.changedCount() == 0)
+    return tr("未发生变化（%1 项已满足）").arg(r.noChangeCount() + r.rejectedCount());
+  const QString undo = r.undoable ? tr("（可撤销）") : QString();
+  return tr("成功 %1 项%2").arg(r.changedCount()).arg(undo);
+}
+
 void DataListPanel::showRecycleBin()
 {
   using namespace paleo::dataops;
@@ -424,29 +452,33 @@ void DataListPanel::showRecycleBin()
           [&](const QStringList &assetIds) {
             if (assetIds.isEmpty())
               return;
-            // 方向 30：单命令批量恢复（一次落盘、整组可撤销）。
-            QVector<std::pair<QString, RecycleEntry>> entries;
-            for (const QString &id : assetIds)
-              for (const RecycleEntry &x : m_recycle.entries())
-                if (x.assetId == id)
-                  entries.append({id, x});
-            pushCommand(new BatchRestoreCmd(m_ctx, assetIds, entries));
+            // P1：恢复走命令服务——回执确认后再报成功（失败不再谎报已恢复）。
+            const paleo::dataops::BatchReceipt r =
+                m_cmdSvc.restoreFromRecycle(assetIds);
+            if (r.changedCount() > 0 && m_history)
+              m_history->push(tr("批量恢复 %1 项").arg(r.changedCount()));
             reload();
-            emit statusMessage(tr("已恢复 %1 个资产（可整组撤销）").arg(assetIds.size()));
+            if (r.anyFailure() || r.historyInvalidated)
+              PaleoNotify::warning(&dlg, tr("恢复结果"), receiptStatusText(r) +
+                                                  QLatin1Char('\n') +
+                                                  r.failureLines().join(QLatin1Char('\n')));
+            else if (r.changedCount() > 0)
+              emit statusMessage(tr("已恢复 %1 个资产（可整组撤销）")
+                                     .arg(r.changedCount()));
+            else
+              emit statusMessage(receiptStatusText(r));
           });
   connect(&dlg, &RecycleBinDialog::restoreAllRequested, this, [&] {
     QStringList ids;
-    QVector<std::pair<QString, RecycleEntry>> entries;
     for (const RecycleEntry &e : m_recycle.entries())
-    {
       ids << e.assetId;
-      entries.append({e.assetId, e});
-    }
     if (ids.isEmpty())
       return;
-    pushCommand(new BatchRestoreCmd(m_ctx, ids, entries));
+    const paleo::dataops::BatchReceipt r = m_cmdSvc.restoreFromRecycle(ids);
+    if (r.changedCount() > 0 && m_history)
+      m_history->push(tr("批量恢复 %1 项").arg(r.changedCount()));
     reload();
-    emit statusMessage(tr("已全部恢复（%1 项，可整组撤销）").arg(ids.size()));
+    emit statusMessage(receiptStatusText(r));
   });
   connect(&dlg, &RecycleBinDialog::purgeAllRequested, this, [&] {
     m_recycle.clearAll();

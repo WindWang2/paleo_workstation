@@ -414,15 +414,10 @@ DataListPanel::DataListPanel(QWidget *parent)
           [this](const QStringList &assetIds, const QString &entityId) {
             applyEntityDrop(assetIds, entityId);
           });
+  // P1-W6：拖标签意图 → handleAssetsDroppedOnTag（datalist_batch.cpp，
+  // 与批量打标签同一服务路径；构造函数函数体规模闸）。
   connect(m_tree, &paleo::dataops::DataNavTree::assetsDroppedOnTag, this,
-          [this](const QStringList &assetIds, const QString &tag) {
-            QVector<paleo::dataops::DataOpCommand *> cmds;
-            for (const QString &id : assetIds)
-              cmds.append(new paleo::dataops::TagCmd(m_ctx, id, tag, true));
-            pushCommands(cmds); // 多选打标签一次收口刷新
-            emit statusMessage(tr("已给 %1 个资产打标签「%2」（可撤销）")
-                                   .arg(assetIds.size()).arg(tag));
-          });
+          &DataListPanel::handleAssetsDroppedOnTag);
   connect(m_tree, &paleo::dataops::DataNavTree::externalFilesDropped, this,
           &DataListPanel::handleExternalFiles);
   connect(m_tree, &paleo::dataops::DataNavTree::searchFocusRequested, this, [this] {

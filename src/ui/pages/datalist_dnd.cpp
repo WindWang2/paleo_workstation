@@ -12,68 +12,48 @@ void DataListPanel::applyEntityDrop(const QStringList &assetIds, const QString &
   using namespace paleo::dataops;
   if (!m_ctx.valid() || entityId.isEmpty())
     return;
+  // P1-W3/W6：编排走命令服务——准备阶段冻结每项去向，addLink 段与可撤销段
+  // 分别落提交边界；回执按 新挂（不可撤销）/转移（可撤销）/跳过/失败 如实
+  // 汇报，不再整批误标「可撤销」。
   const CatalogEntity target = m_ctx.cat->entityById(entityId);
+  const BatchReceipt r =
+      m_cmdSvc.attachOrTransfer(assetIds, entityId, QStringLiteral("reference"));
+  refreshAssetTable(); // 批次一次收口刷新
+  emit entityRefreshRequested();
   int attached = 0, transferred = 0, skipped = 0;
-  QVector<paleo::dataops::DataOpCommand *> cmds;
-  for (const QString &id : assetIds)
+  for (const ReceiptItem &it : r.items)
   {
-    const QVector<EntityAssetLink> links = m_ctx.cat->linksForAsset(id);
-    if (links.isEmpty())
-    {
-      // 无链接资产：直接建链接挂到目标实体（addLink——不可撤销路径，
-      // D5.5 语义由确认对话框承担；这里作为拖放主路径不弹额外确认，
-      // 失败明细走状态栏）。
-      EntityAssetLink l;
-      l.entityType = target.entityType;
-      l.entityId = entityId;
-      l.assetId = id;
-      l.role = QStringLiteral("reference");
-      QString err;
-      if (!m_ctx.cat->addLink(l, &err))
-      {
-        emit statusMessage(tr("挂接失败：%1").arg(err));
-        continue;
-      }
+    if (it.outcome == OpOutcome::Changed && it.op == QLatin1String("addlink"))
       ++attached;
-      continue;
-    }
-    bool acted = false;
-    for (const EntityAssetLink &l : links)
-    {
-      if (l.unresolved)
-      {
-        cmds.append(new paleo::dataops::AttachLinkCmd(m_ctx, id, l.role, entityId,
-                                                      target.entityType));
-        ++attached;
-        acted = true;
-        break; // 每资产处理第一条未决链接（与既有行内控件口径一致）
-      }
-    }
-    if (acted)
-      continue;
-    for (const EntityAssetLink &l : links)
-    {
-      if (!l.unresolved && l.entityId != entityId)
-      {
-        cmds.append(new paleo::dataops::TransferLinkCmd(m_ctx, id, l.role, l.entityId,
-                                                        entityId));
-        ++transferred;
-        acted = true;
-        break;
-      }
-    }
-    if (!acted)
-      ++skipped; // 已挂到目标实体的资产
+    else if (it.outcome == OpOutcome::Changed &&
+             (it.op == QLatin1String("attach") || it.op == QLatin1String("transfer")))
+      ++transferred;
+    else if (it.outcome == OpOutcome::NoChange)
+      ++skipped;
   }
-  // N 条命令一次收口刷新（拖多选资产不再 N 次整表重建）。
-  pushCommands(cmds);
-  if (m_history)
+  if (m_history && (attached + transferred) > 0)
     m_history->push(tr("批量挂接 %1（挂 %2 / 转移 %3 / 跳过 %4）")
                         .arg(entityId).arg(attached).arg(transferred).arg(skipped));
-  // D3.1 确认 toast（非模态反馈 + 可撤销提示）。
-  emit statusMessage(tr("挂接到「%1」：新挂 %2、转移 %3、跳过 %4（可撤销）")
-                         .arg(target.name.isEmpty() ? entityId : target.name)
-                         .arg(attached).arg(transferred).arg(skipped));
+  const QString name = target.name.isEmpty() ? entityId : target.name;
+  if (r.anyFailure() || r.historyInvalidated)
+  {
+    // 失败概要 + 明细（同一回执事实源）。
+    PaleoNotify::warning(this, tr("挂接结果"), receiptStatusText(r) +
+                                       QLatin1Char('\n') +
+                                       r.failureLines().join(QLatin1Char('\n')));
+    return;
+  }
+  // 可撤销范围只覆盖转移/挂未决段；纯 addLink 批次明示不可撤销。
+  const QString undoNote = transferred > 0
+                               ? (attached > 0 ? tr("；转移可撤销，新挂关联不可撤销")
+                                               : tr("（可撤销）"))
+                               : (attached > 0 ? tr("（新挂关联不可撤销）") : QString());
+  emit statusMessage(tr("挂接到「%1」：新挂 %2、转移 %3、跳过 %4%5")
+                         .arg(name)
+                         .arg(attached)
+                         .arg(transferred)
+                         .arg(skipped)
+                         .arg(undoNote));
 }
 
 void DataListPanel::handleExternalFiles(const QStringList &paths)

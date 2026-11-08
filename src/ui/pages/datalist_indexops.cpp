@@ -24,10 +24,16 @@ void DataListPanel::renameSelectedAsset()
                                              QLineEdit::Normal, prev, &ok).trimmed();
   if (!ok || next.isEmpty() || next == prev)
     return;
-  pushCommand(new RenameAssetCmd(m_ctx, id, prev, next));
-  if (m_history)
-    m_history->push(tr("重命名 %1 → %2").arg(prev, next));
-  emit statusMessage(tr("已重命名为「%1」（可撤销）").arg(next));
+  // P1-W6：重命名走命令服务（守卫+回执确认后再报成功）。
+  const paleo::dataops::BatchReceipt r = m_cmdSvc.renameAsset(id, next);
+  if (r.changedCount() > 0)
+  {
+    if (m_history)
+      m_history->push(tr("重命名 %1 → %2").arg(prev, next));
+    emit statusMessage(tr("已重命名为「%1」（可撤销）").arg(next));
+  }
+  else
+    emit statusMessage(receiptStatusText(r));
 }
 
 void DataListPanel::removeFromCatalogKeepFiles()

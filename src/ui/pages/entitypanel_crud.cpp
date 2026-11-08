@@ -47,6 +47,19 @@
 
 using namespace paleo::pagesinternal;
 
+// P1（data-commands）：共享操作面绑定（含命令服务指针，可空——未接线时
+// CRUD 走既有直推路径）。自 entitypanel.cpp 移入（file-budget 只缩不涨）。
+void EntityPanel::setSharedOps(const paleo::dataops::DataOpsContext &ctx,
+                               paleo::dataops::DataOpsUndoStack *stack,
+                               paleo::dataops::OperationsHistory *history,
+                               paleo::dataops::DataOpsCommandService *service)
+{
+  m_ctx = ctx;
+  m_stack = stack;
+  m_history = history;
+  m_cmdSvc = service;
+}
+
 void EntityPanel::beginCreateEntity()
 {
   using namespace paleo::dataops;
@@ -92,7 +105,21 @@ void EntityPanel::beginCreateEntity()
                                  : e.entityType == QLatin1String("planned")
                                      ? QStringLiteral("planned")
                                      : QStringLiteral("aux"));
-  if (m_stack)
+  if (m_cmdSvc)
+  {
+    // P1-W6：走命令服务（守卫/回执确认后再报成功）。
+    const BatchReceipt r = m_cmdSvc->createEntity(e);
+    if (r.changedCount() <= 0)
+    {
+      emit statusMessage(tr("新建实体失败：%1")
+                             .arg(r.items.isEmpty() ? tr("未知原因")
+                                                    : r.items.first().reason));
+      return;
+    }
+    if (m_history)
+      m_history->push(tr("新建实体 %1").arg(name));
+  }
+  else if (m_stack)
   {
     // finding-130：接住 push() 失败——命令未入栈时不再谎报「已新建（可撤销）」。
     if (!m_stack->push(new EntityCreateCmd(m_ctx, e)))
@@ -152,7 +179,25 @@ void EntityPanel::beginRenameEntity(const QString &entityId)
   next.surfaceX = dlg.editedX();
   next.surfaceY = dlg.editedY();
   next.note = dlg.editedNote();
-  if (m_stack)
+  if (m_cmdSvc)
+  {
+    // P1-W6：走命令服务（守卫/回执确认后再报成功）。
+    const BatchReceipt r = m_cmdSvc->editEntityOverride(
+        e.id, next,
+        m_ctx.entityOverrides ? m_ctx.entityOverrides->overrideFor(e.id)
+                              : EntityOverride(),
+        false);
+    if (r.changedCount() <= 0)
+    {
+      emit statusMessage(tr("实体更新失败：%1")
+                             .arg(r.items.isEmpty() ? tr("未知原因")
+                                                    : r.items.first().reason));
+      return;
+    }
+    if (m_history)
+      m_history->push(tr("编辑实体 %1").arg(newName));
+  }
+  else if (m_stack)
   {
     // finding-130：接住 push() 失败——不谎报「已更新（可撤销）」。
     if (!m_stack->push(new EntityEditCmd(m_ctx, e.id, next,

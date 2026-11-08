@@ -420,6 +420,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
   {
     editTb = new PaleoEditingToolbar(m_canvasCtl->canvas(), this);
     editTb->setObjectName(QStringLiteral("editingToolbar"));
+    bindUndoGroup(editTb);
     if (editSvc)
       editTb->setEditingService(editSvc);
     if (m_projectSvc)
@@ -513,7 +514,6 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       qab->addAction(editTb->actionRedo());
     }
   }
-
   attachMapBookSurface();
 
   // 图件设计 entry (wave/layout-designer): create a print layout via the

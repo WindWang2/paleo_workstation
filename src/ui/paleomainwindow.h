@@ -153,7 +153,6 @@ class QCloseEvent;
 class QShowEvent;
 class QContextMenuEvent;
 class QPoint;
-namespace paleo::workbench { class MappingWorkbenchCommandController; }
 
 // ui/ — PaleoMainWindow: the six-page workflow shell (§42), Ribbon 形态。
 // 顶部 = SARibbon：「文件」应用按钮 + 六个页签（数据管理 | 地层对比 | 智能预测 | 单因素图 |
@@ -166,8 +165,6 @@ namespace paleo::workbench { class MappingWorkbenchCommandController; }
 class PaleoMainWindow : public SARibbonMainWindow
 {
   Q_OBJECT
-    // #749：制图工作台命令控制器读宿主画布/服务/编辑流私有面（逐字迁出前即同面）。
-    friend class paleo::workbench::MappingWorkbenchCommandController;
   public:
     PaleoMainWindow(QgisCanvasController *canvasCtl,
                     QgisProjectService *projectSvc,
@@ -323,7 +320,9 @@ class PaleoMainWindow : public SARibbonMainWindow
                                              PaleoTaskService *taskSvc);
     // #748：主窗口撤销组（QUndoGroup 焦点路由，paleomainwindow_undogroup.cpp）。
     PaleoUndoGroupRouter *undoRouter();
-    void bindUndoGroup(PaleoEditingToolbar *edit);  // 编辑条动作接组 + 画布回落作用域
+    void bindUndoGroup(PaleoEditingToolbar *edit);
+    void updateUndoProjectGate(bool readOnly);
+    void resetUndoFocus();
     PaleoLayoutDesignerShell *newLayoutShell(QgsLayout *layout); // 新建并登记撤销作用域
     void attachMapBookSurface();
     // 底栏「发布」页：库路径/当前清单/只读态（§6）三面均从工程存储注入。
@@ -545,7 +544,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     // rebindRealization 同口径）；按值捕获会得到永久空串/旧工程路径。
     PaleoProjectStore *m_projectStore = nullptr; // attachWorkflows 注入
     QgisEditingService *m_editSvc = nullptr; // attachShellSurfaces 注入；closeEvent 保存/放弃走它
-    QVariantMap m_lastImpact; // G09：最近一次影响分析报告（受控重算入口用）
     // #282：脏工程「保存/放弃/取消」询问 seam（nullptr = 模态；测试替身）。
     ProjectSaveAsk m_projectSaveAsk;
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
@@ -627,10 +625,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     using WorkbenchOpenWellsFn = std::function<void(const QString &)>;
     using WorkbenchBeginEditFn = std::function<bool(const QString &)>;
     // 证据面板/图谱联动接线（_evidence.cpp）。
-    void attachMappingEditFlow(MappingWorkbench *workbench);
+    void bindWorkbenchSelection(MappingWorkbench *workbench);
     void attachMappingEditBasisEntry(MappingWorkbench *workbench, MappingWorkbenchPage *page);
-    bool runMappingEditFlow(MappingWorkbenchPage *page, const QString &action, const QVariantMap &parameters,
-                            const WorkbenchShowFn &show);
     void attachWorkbenchEvidence(EvidenceInteraction *evidence,
                                  const QList<MappingWorkbenchPage *> &pages);
     // 井预测修订域（_wells.cpp）：面板 dock、修订副本自动保存、画布右键
@@ -642,6 +638,12 @@ class PaleoMainWindow : public SARibbonMainWindow
         WorkbenchOpenWellsFn openWells;
         WorkbenchBeginEditFn beginEdit;
     };
+    void attachWorkbenchCommands(MappingWorkbench *workbench,
+                                 const QList<MappingWorkbenchPage *> &pages,
+                                 PaleoEditingToolbar *edit, ConstraintPage *constraint,
+                                 const WorkbenchWells &wells, const WorkbenchLegendFn &legend,
+                                 const WorkbenchShowFn &show, const WorkbenchShowFn &compare,
+                                 const std::shared_ptr<QHash<QString, QString>> &shown);
     WorkbenchWells attachWorkbenchWells(MappingWorkbench *workbench,
                                         PaleoEditingToolbar *edit,
                                         const QList<MappingWorkbenchPage *> &pages,

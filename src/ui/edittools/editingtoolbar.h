@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "editingundostack.h"
+#include "undogrouprouter.h"
 
 class QgsMapCanvas;
 class QgsProject;
@@ -21,7 +22,7 @@ class QSpinBox;
 class QgsRubberBand;
 class QgsAdvancedDigitizingDockWidget;
 class QToolButton;
-class QUndoGroup;
+class QStatusBar;
 
 // ui/edittools/ — PaleoEditingToolbar: the 「编辑」 toolbar host.
 //
@@ -78,7 +79,7 @@ class PaleoEditingToolbar : public QWidget
     // QgisEditingService (busy-marking + serialized commit). nullptr →
     // direct startEditing/commitChanges/rollBack.
     void setEditingService( QgisEditingService *service );
-    void bindStatusMessages(class QStatusBar *status);
+    void bindStatusMessages(QStatusBar *status);
 
     QgsVectorLayer *currentLayer() const;
     // Selects \a layer in the combo (null clears; otherwise a listed candidate) and makes
@@ -115,17 +116,10 @@ class PaleoEditingToolbar : public QWidget
     QAction *actionCancel() const { return mActionCancel; }
     QAction *actionUndo() const { return mActionUndo; }
     QAction *actionRedo() const { return mActionRedo; }
-    // #748：画布 Ctrl+Z/Ctrl+Y 的次级撤销栈（工作台图层属性/会话外约束绘制）。
-    // 路由口径：要素编辑撤销栈可用时优先（会话内修改），否则落次级栈；
-    // 回调返回 false = 无可撤销/重做。空函数即解除。
-    void setSecondaryUndo( std::function<bool()> undo, std::function<bool()> redo )
-    {
-      mSecondaryUndo = std::move( undo );
-      mSecondaryRedo = std::move( redo );
-    }
-    // #748：主窗口撤销组。组内有活动栈（焦点在已登记停靠面）时撤销/重做与
-    // 按钮状态走该栈；无活动栈时维持上面的会话栈 → 次级栈口径。
-    void setUndoGroup( QUndoGroup *group );
+    void setSecondaryUndo( PaleoUndoTarget target );
+    void setUndoRouter( PaleoUndoGroupRouter *router );
+    void refreshUndoActions();
+    PaleoUndoTarget canvasUndoTarget();
 
     QSpinBox *snapToleranceSpin() const { return mSnapTolerance; }
     QSpinBox *undoDepthSpin() const { return mUndoDepth; }
@@ -211,10 +205,12 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionCancel = nullptr;
     QAction *mActionUndo = nullptr;
     QAction *mActionRedo = nullptr;
-    std::function<bool()> mSecondaryUndo, mSecondaryRedo; // #748
-    QPointer<QUndoGroup> mUndoGroup;                       // #748，不持有
-    void routeUndo( bool undo );     // 动作触发：活动组栈优先
-    void applyUndoActionStates();    // 撤销/重做按钮 enabled + 提示
+    PaleoUndoTarget mSecondaryUndo;
+    QPointer<PaleoUndoGroupRouter> mUndoRouter;
+    QPointer<QStatusBar> mUndoStatus;
+    void routeUndo( bool undo );
+    PaleoUndoStep describeCanvasUndo( bool undo ) const;
+    bool stepCanvasUndo( bool undo );
     QPointer<class QgsMapTool> mActiveEditTool; // installed tool, not owned
     std::unique_ptr<PaleoUndoStack> mUndoStack;
     QPointer<QgsProject> mProject;

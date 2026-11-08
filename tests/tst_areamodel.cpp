@@ -8,6 +8,7 @@
 #include "domain/wellcompositemodel.h"
 #include "catalog/areawellprojection.h"
 #include "catalog/areasourceprojection.h"
+#include "catalog/documentsourceprojection.h"
 #include "catalog/externalsourceverification.h"
 #include "services/cataloghealth.h"
 #include "catalog/wellavailability.h"
@@ -86,10 +87,14 @@ private slots:
     QVERIFY2(paleo::area_model::importDirectory(project,input,report,&error),qPrintable(error));
     DataCatalog catalog; QVERIFY(catalog.open(project,&error));
     QVERIFY(registerAreaWells(catalog,&error)); QVERIFY(registerAreaSources(catalog,&error));
+    QCOMPARE(catalog.versions().size(),1);
+    const auto original=catalog.versions().front();
+    QVERIFY(!catalog.linksForAsset(original.assetId).isEmpty());
     paleo::data::DataService ds; std::string detail;
     QVERIFY(ds.openProject(paleo::area_model::directory(project).toStdString(),detail));
     std::vector<paleo::data::SourceEntry> sources; QVERIFY(ds.listSources(sources,detail)); QCOMPARE(sources.size(),size_t(1));
     const auto old=sources.front().id;
+    QCOMPARE(original.extra.value("areaModelSourceId").toLongLong(),old);
     QVERIFY2(ds.reimportSource(old,{},report,detail),detail.c_str());
     QVERIFY(ds.listSources(sources,detail)); QCOMPARE(sources.size(),size_t(2));
     qlonglong current=0;
@@ -97,11 +102,37 @@ private slots:
     QVERIFY(current>old);
     std::vector<paleo::data::SourceIndexEntry> index; QVERIFY(ds.listSourceIndexEntries(index,detail));
     for(const auto &s:index) QCOMPARE(s.active,s.id==current);
+    QString replacementId;
     for(int retry=0;retry<3;++retry) {
       QVERIFY2(registerAreaSources(catalog,&error),qPrintable(error));
-      QCOMPARE(catalog.versions().size(),1);
-      QCOMPARE(catalog.versions().front().extra.value("areaModelSourceId").toLongLong(),current);
+      const auto versions=catalog.versions();
+      QCOMPARE(versions.size(),2);
+      const auto retired=catalog.versionById(original.id);
+      QCOMPARE(retired.extra.value("areaModelSourceId").toLongLong(),old);
+      const auto observation=retired.extra.value("areaModelObservation").toMap();
+      QVERIFY(observation.contains("active"));
+      QVERIFY(!observation.value("active").toBool());
+      const auto retiredLinks=catalog.linksForAsset(original.assetId);
+      QVERIFY(!retiredLinks.isEmpty());
+      for(const auto &link:retiredLinks) QVERIFY(link.unresolved && !link.isPrimary);
+
+      const auto &replacement=versions.front().id==original.id ? versions.back() : versions.front();
+      QVERIFY(replacement.id!=original.id);
+      QCOMPARE(replacement.extra.value("areaModelSourceId").toLongLong(),current);
+      QVERIFY(replacement.extra.value("areaModelObservation").toMap().value("active").toBool());
+      QVERIFY(!catalog.linksForAsset(replacement.assetId).isEmpty());
+      if(retry==0) replacementId=replacement.id;
+      QCOMPARE(replacement.id,replacementId);
     }
+    const auto projection=paleo::document::projectDocumentSources(catalog,"fixture");
+    QVERIFY2(projection.error.isEmpty(),qPrintable(projection.error));
+    const auto retired=projection.records.value(projection.versionKeys.value(original.id));
+    const auto replacement=projection.records.value(projection.versionKeys.value(replacementId));
+    QCOMPARE(retired.ref.sourceId,old);
+    QCOMPARE(retired.state.code,QStringLiteral("model_source_inactive"));
+    QCOMPARE(replacement.ref.sourceId,current);
+    QCOMPARE(replacement.state.model,paleo::document::ModelAvailability::Ready);
+    QVERIFY(QFileInfo::exists(path));
   }
   void seismicQuickFingerprintUsesModelVerification() {
     QTemporaryDir temp; const auto input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));

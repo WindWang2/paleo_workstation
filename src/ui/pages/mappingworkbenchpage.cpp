@@ -696,14 +696,12 @@ void MappingWorkbenchPage::updateState() {
        tr("勾选单因素图、测井相或地震相后，在参考面板的视图中显示"));
   gate("compose", horizon && !checkedInputs().isEmpty(),
        readiness);
-  // G05/G09 证据命令门控（full-audit F6）：影响分析需要「层位 + 不在运行 +
-  // 已选图件」（无选中时误报「只有单一版本」）；受控重算需要最近一次影响
-  // 报告；反查的层位范围类需要层位（无层位时伪报「无匹配结果」）。
+  // Impact and recompute are scoped to the current layer selection.
   gate("impactAnalysis", horizon && !busy && selected,
        !horizon ? tr("请先选择层位")
                 : busy ? readiness
                        : tr("请先在结果列表选择一个图件"));
-  gate("recompute", !busy && m_impactReady,
+  gate("recompute", horizon && selected && !busy && m_impactReady,
        busy ? readiness : tr("请先运行影响分析，再按其结果受控重算"));
   {
     const auto reverseKind = m_reverseKind
@@ -1018,6 +1016,8 @@ void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
   updateState();
 }
 void MappingWorkbenchPage::setImpactAvailable(bool ready) {
+  if (m_impactReady == ready)
+    return;
   m_impactReady = ready;
   updateState();
 }

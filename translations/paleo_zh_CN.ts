@@ -427,6 +427,11 @@
 <context>
     <name>AiChatToolRunner</name>
     <message>
+        <location filename="../src/workflow/aichattoolrunner.cpp" line="180"/>
+        <source>能力工具须由宿主绑定工程</source>
+        <translation>能力工具须由宿主绑定工程</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/aichattoolrunner.cpp" line="150"/>
         <source>实参不是合法 JSON：%1</source>
         <translation>实参不是合法 JSON：%1</translation>
@@ -24563,8 +24568,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="97"/>
-        <source>地震拾取面板（焦点内）</source>
-        <translation>地震拾取面板（焦点内）</translation>
+        <source>地震剖面（焦点内）</source>
+        <translation>地震剖面（焦点内）</translation>
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="98"/>
@@ -24578,13 +24583,13 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="108"/>
-        <source>撤销上一次地震拾取变更</source>
-        <translation>撤销上一次地震拾取变更</translation>
+        <source>撤销上一次地震解释变更</source>
+        <translation>撤销上一次地震解释变更</translation>
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="110"/>
-        <source>重做地震拾取变更</source>
-        <translation>重做地震拾取变更</translation>
+        <source>重做地震解释变更</source>
+        <translation>重做地震解释变更</translation>
     </message>
     <message>
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="112"/>
@@ -28305,6 +28310,89 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="279"/>
+        <source>能力契约版本；缺省 1</source>
+        <translation>能力契约版本；缺省 1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="281"/>
+        <source>调用方请求号</source>
+        <translation>调用方请求号</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="283"/>
+        <source>pinned-value、follow-object-head 或 follow-selection</source>
+        <translation>pinned-value、follow-object-head 或 follow-selection</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="287"/>
+        <source>follow-selection 的选择绑定</source>
+        <translation>follow-selection 的选择绑定</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="289"/>
+        <source>冻结时的对象头</source>
+        <translation>冻结时的对象头</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="291"/>
+        <source>忽略。提交头只来自宿主，模型填写无效</source>
+        <translation>忽略。提交头只来自宿主，模型填写无效</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="293"/>
+        <source>compute-only 或 publish</source>
+        <translation>compute-only 或 publish</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="296"/>
+        <source>算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制</source>
+        <translation>算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="298"/>
+        <source>显式输入引用与冻结值</source>
+        <translation>显式输入引用与冻结值</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="305"/>
+        <source>时深批转换</source>
+        <translation>时深批转换</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="306"/>
+        <source>按显式井样、时深语义和模型修订做批转换。不读取当前选中井。</source>
+        <translation>按显式井样、时深语义和模型修订做批转换。不读取当前选中井。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="308"/>
+        <source>地震属性组</source>
+        <translation>地震属性组</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="309"/>
+        <source>对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。</source>
+        <translation>对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="311"/>
+        <source>约束 IDW</source>
+        <translation>约束 IDW</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="312"/>
+        <source>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</source>
+        <translation>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="401"/>
+        <source>入口已接线：显式引用，不读取当前选择</source>
+        <translation>入口已接线：显式引用，不读取当前选择</translation>
+        <location filename="../src/ui/seismicsection/seismicsectiondock_internal.h" line="89"/>
+        <source>添加断层 %1</source>
+        <translation>添加断层 %1</translation>
+    </message>
     <message><source>快速预览（≤64×64）</source><translation>快速预览（≤64×64）</translation></message>
     <message>
         <source>未命名层位</source>
@@ -51826,6 +51914,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>seismic::SeismicPickPanel</name>
     <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
+        <source>撤销：%1</source>
+        <translation>撤销：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
+        <source>重做：%1</source>
+        <translation>重做：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
+        <source>没有可撤销的解释变更</source>
+        <translation>没有可撤销的解释变更</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
+        <source>没有可重做的解释变更</source>
+        <translation>没有可重做的解释变更</translation>
+    </message>
+    <message>
         <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="86"/>
         <source>解释者:</source>
         <translation>解释者:</translation>
@@ -52257,6 +52365,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>seismic::SeismicSectionDockWidget</name>
+    <message>
+        <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="312"/>
+        <source>只读工程不能保存地震解释</source>
+        <translation>只读工程不能保存地震解释</translation>
+    </message>
     <message>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="21"/>
         <location filename="../src/ui/seismicsection/seismicsectiondock_attr.cpp" line="117"/>

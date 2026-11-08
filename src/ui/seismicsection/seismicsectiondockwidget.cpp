@@ -112,14 +112,7 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
   // 一并协作取消，迟到回调由会话身份守卫丢弃（track TU）。
   if (m_undoStack)
     m_undoStack->clear();
-  if (m_trackTask) {
-    m_trackTask->requestCancel();
-    m_trackTask.clear();
-  }
-  if (m_propTask) {
-    m_propTask->requestCancel();
-    m_propTask.clear();
-  }
+  cancelPendingInterpretation();
   if (m_invTask) {
     m_invTask->requestCancel();
     m_invTask.clear();
@@ -129,10 +122,6 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
     ++m_invGeneration;
     if (m_invPanel)
       m_invPanel->setBusy(false);
-  }
-  if (m_pickPanel) { // 在途被取消：面板活跃态复位（同取消按钮语义）
-    m_pickPanel->setTrackingActive(false);
-    m_pickPanel->setPropagateActive(false);
   }
   m_sliceIndex = -1; // 去抖键随体身份作废（同号线也不再等价）
   ++m_generation;

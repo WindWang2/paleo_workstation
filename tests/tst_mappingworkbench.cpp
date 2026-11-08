@@ -57,6 +57,7 @@
 #include <QRegularExpression>
 #include "../src/ui/workbenchcommandregistry.h"
 #include "../src/ui/workbench/mappingworkbenchcommandcontroller.h"
+#include "../src/ui/workbench/mappingreferencecontroller.h"
 #include <QScopeGuard>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -1197,12 +1198,10 @@ private slots:
       QVERIFY2(isKnownAction(action), qPrintable("unregistered workbench action: " + action));
     QSet<QString> dispatched;
     const QRegularExpression literal(QStringLiteral(R"re(action == "([A-Za-z]+)")re"));
-    for (const auto *file : {"workbench/mappingworkbenchcommandcontroller.cpp", "paleomainwindow_workbench_editflow.cpp"}) {
-      QFile source(QStringLiteral(PALEO_SOURCE_DIR "/src/ui/") + QLatin1String(file));
-      QVERIFY2(source.open(QIODevice::ReadOnly), file);
-      auto it = literal.globalMatch(QString::fromUtf8(source.readAll()));
-      while (it.hasNext()) dispatched.insert(it.next().captured(1));
-    }
+    QFile source(QStringLiteral(PALEO_SOURCE_DIR "/src/ui/workbench/mappingworkbenchcommandcontroller.cpp"));
+    QVERIFY2(source.open(QIODevice::ReadOnly), qPrintable(source.fileName()));
+    auto it = literal.globalMatch(QString::fromUtf8(source.readAll()));
+    while (it.hasNext()) dispatched.insert(it.next().captured(1));
     for (const auto &action : knownActions())
       QVERIFY2(dispatched.contains(action), qPrintable("registered action without dispatch branch: " + action));
     for (const auto &action : std::as_const(dispatched))
@@ -1270,6 +1269,84 @@ private slots:
     QCOMPARE(raised.count(), 1);
     QVERIFY(raised.first().first().value<ErrorHub::Entry>().historyOnly);
   }
+  void workbenchControllerUsesInjectedNavigationAndEditFlow() {
+    Fixture f; QVERIFY(f.init());
+    const auto asset = f.input("command-graph", "well_log");
+    QVERIFY(!asset.isEmpty());
+    const auto version = f.catalog.currentVersion(asset).id;
+    QVERIFY(!version.isEmpty());
+    QWidget parent;
+    QStatusBar status(&parent);
+    MappingWorkbenchPage page("compose", &f.work, &parent);
+    page.setHorizon("D61");
+    using paleo::workbench::MappingWorkbenchCommandController;
+    MappingWorkbenchCommandController::Context context;
+    context.dialogParent = &parent;
+    context.statusBar = &status;
+    context.page = &page;
+    context.workbench = &f.work;
+    QStringList opened;
+    context.navigation.openGraph = [&opened](const QString &a, const QString &v) { opened = QStringList{a, v}; };
+    MappingWorkbenchCommandController handler(context, &page);
+    handler.handleCommand("graph", {{"layer", "product." + version}});
+    QCOMPARE(opened, (QStringList{asset, version}));
+    handler.handleCommand("captureEditEvidence", {{"horizon", "D61"}});
+    QVERIFY(status.currentMessage().contains(QStringLiteral("当前没有本层位已保存的可见参考图")));
+  }
+  void workbenchRecomputeUsesSelectedVersionAndProject() {
+    QObject owner;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&owner);
+    QString error;
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto publish = [&]() -> QString {
+      const auto staged = registrar.stage("impact_input", "impact-input", "points.geojson", &error);
+      if (!staged.isValid() || !MappingArtifactWriter::points(staged.absolutePath,
+          {QVariantMap{{"x", 1}, {"y", 1}, {"z", 2}}}, &error) ||
+          !registrar.commit(staged, {}, "fixture",
+              {{"mapping_product", true}, {"layer_type", "vector"}, {"horizon", "D61"}}, &error))
+        return {};
+      return staged.versionId;
+    };
+    const auto before = publish(), after = publish();
+    QVERIFY2(!before.isEmpty() && !after.isEmpty() && before != after, qPrintable(error));
+    const auto earlierLayer = "product." + before, reportLayer = "product." + after;
+    QTRY_VERIFY(!f.work.declaration(earlierLayer).layerId.isEmpty());
+    QTRY_VERIFY(!f.work.declaration(reportLayer).layerId.isEmpty());
+    QgisCanvasController controller(&owner);
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkbench(&f.work);
+    MappingWorkbenchPage *page = nullptr;
+    for (auto *candidate : window.findChildren<MappingWorkbenchPage *>())
+      if (candidate->mode() == "compose") page = candidate;
+    QVERIFY(page);
+    auto *recompute = page->commandButton("recompute"); QVERIFY(recompute);
+    page->selectLayer(reportLayer); QCOMPARE(page->selectedLayer(), reportLayer);
+    emit f.work.impactAnalysisReady({{"kind", "input_version"}, {"horizon", "D61"},
+        {"source_before_version", before}, {"source_after_version", after}}, {});
+    QVERIFY(recompute->isEnabled());
+    page->selectLayer(earlierLayer); QCOMPARE(page->selectedLayer(), earlierLayer);
+    QVERIFY(!recompute->isEnabled());
+    // Direct command delivery must reject a report from another selected version too.
+    emit page->commandRequested("recompute", {{"horizon", "D61"}, {"layer", reportLayer}});
+    QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("请先运行影响分析")));
+    page->selectLayer(reportLayer); QVERIFY(recompute->isEnabled());
+    selection.setActiveHorizon("D62"); QVERIFY(!recompute->isEnabled());
+    selection.setActiveHorizon("D61"); page->selectLayer(reportLayer); QVERIFY(recompute->isEnabled());
+    QDockWidget referenceDock(&window);
+    paleo::workbench::MappingReferenceController references(
+        referenceDock, f.work, controller, f.layers, &f.project, selection);
+    referenceDock.show();
+    QVERIFY2(references.showSource(reportLayer, &error), qPrintable(error));
+    auto *panel = qobject_cast<MappingEvidencePanel *>(referenceDock.widget());
+    QVERIFY(panel && !panel->views().isEmpty());
+    auto *view = panel->views().first();
+    QCOMPARE(view->property("paleo.referenceVersion").toString(), after);
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QVERIFY(!recompute->isEnabled());
+    QVERIFY(!view->hasReference());
+    QVERIFY(referenceDock.isHidden());
+  }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;
     QVERIFY(f.init());
@@ -1295,9 +1372,9 @@ private slots:
     QVERIFY(reverse->isEnabled());
     QVERIFY(!impact->isEnabled());
     QVERIFY(!recompute->isEnabled());
-    // 影响分析成功回喂 → 受控重算解禁；回喂失败 → 重新禁用。
+    // 即使收到成功反馈，也必须选中该报告对应的图件。
     page.setImpactAvailable(true);
-    QVERIFY(recompute->isEnabled());
+    QVERIFY(!recompute->isEnabled());
     page.setImpactAvailable(false);
     QVERIFY(!recompute->isEnabled());
   }

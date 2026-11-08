@@ -17,9 +17,8 @@ class QgsLayout;
 //  - Wraps the layout-owned stack. It never creates a second stack and never
 //    clears it: constructing the wrapper over a layout with existing history
 //    preserves that history.
-//  - undoAction()/redoAction() are QUndoStack::createUndoAction/createRedoAction
-//    actions (Ctrl+Z / Ctrl+Y), so their enabled/text state automatically
-//    tracks the stack.
+//  - The menu, toolbar and keyboard share actions that track native history
+//    and the owning project's write gate.
 //  - The undo stack belongs to the layout, not to any QgsLayoutView: it stays
 //    usable and correct while the designer view switches pages.
 //  - A null layout is tolerated: the actions exist but stay disabled and
@@ -48,6 +47,7 @@ class PaleoLayoutUndoStack : public QObject
 
     bool canUndo() const;
     bool canRedo() const;
+    void setReadOnly( bool readOnly );
 
     //! The wrapped, layout-owned stack (null for a null layout). Escape hatch
     //! for macro commands etc. — never a Paleo-created stack.
@@ -68,10 +68,12 @@ class PaleoLayoutUndoStack : public QObject
     void canRedoChanged( bool canRedo );
 
   private:
+    void refreshActions();
     // Layout-owned QUndoStack (owned by QgsLayoutUndoStack, not by us)。
     // QPointer：版面销毁时自动置空——壳只 hide 未 delete 的路径下
     // undo/redo 退化为安全 no-op，不触悬垂栈（#413）。
     QPointer<QUndoStack> m_stack;
     QAction *m_undoAction = nullptr;
     QAction *m_redoAction = nullptr;
+    bool m_readOnly = false;
 };

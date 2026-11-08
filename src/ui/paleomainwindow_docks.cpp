@@ -607,7 +607,19 @@ void PaleoMainWindow::buildPageDocks()
   // ---- seismic section dock (Phase 4: 2D arbitrary line & well section dock) ----
   m_seismicSectionDock = new seismic::SeismicSectionDockWidget(tr("地震剖面 / 井震综合"), this);
   m_seismicSectionDock->setObjectName(QStringLiteral("seismicSectionDock"));
-  undoRouter()->registerScope(m_seismicSectionDock, m_seismicSectionDock->undoStack()); // #748 剖面/拾取
+  auto *router = undoRouter();
+  const auto bindSectionUndo = [dock = m_seismicSectionDock, router] {
+    router->registerScope(dock, dock->interpretationNativeUndoStack(), dock->interpretationUndoTarget());
+  };
+  bindSectionUndo();
+  connect(m_seismicSectionDock, &seismic::SeismicSectionDockWidget::interpretationUndoScopeChanged,
+          router, bindSectionUndo);
+  connect(m_seismicSectionDock, &seismic::SeismicSectionDockWidget::interpretationUndoStateChanged,
+          router, &PaleoUndoGroupRouter::targetChanged);
+  connect(m_seismicSectionDock, &QDockWidget::visibilityChanged, router, [dock = m_seismicSectionDock, router](bool visible) {
+    if (!visible)
+      router->clearScopeFocus(dock);
+  });
   addDockWidget(Qt::BottomDockWidgetArea, m_seismicSectionDock);
   tabifyDockWidget(m_bottomDock, m_seismicSectionDock);
   m_seismicSectionDock->hide();

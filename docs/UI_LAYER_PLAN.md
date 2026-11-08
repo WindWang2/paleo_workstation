@@ -219,6 +219,15 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 **实测（2026-11-05，来源会话接线）：paleomainwindow.cpp 964 行（家族 33 TU）**
 新增 `_timedepth.cpp` 只编排共用来源设置视图与 SectionWorkbench，不直连 Qgs。
 
+撤销作用域由当前窗口内的焦点和编辑模式决定。Qt 原生历史由 `QUndoGroup` 管理，
+断层和工作台属性历史通过同一路由查询可用性和执行结果。项目切换、只读状态和
+隐藏编辑面会撤销相关入口的操作权限（#748）。
+
+编图工作台的预测、约束和编图命令由 `MappingWorkbenchCommandController`
+接收，宿主注入导航和任务服务。`MappingWorkbenchImpactFeedback` 依据当前项目、
+层位和成果版本决定重算是否可用。参考窗口的证据加载由
+`MappingReferenceController` 维护，主窗口装配停靠面和导航入口（#749）。
+
 家族全表（`src/ui/paleomainwindow_*.cpp` 33 TU + 本体 1 行 = 表 34 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：

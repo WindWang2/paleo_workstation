@@ -4,72 +4,82 @@
 #include "../shortcuts/shortcutcatalog.h"
 #include <QAction>
 #include <QShortcut>
-#include <QUndoGroup>
-#include <QUndoStack>
+#include <QStatusBar>
 
-// PW-118：Ctrl+Z / Ctrl+Y 在地图画布焦点内驱动编辑撤销栈（走动作以复用
-// enabled 状态与提示）。
 void PaleoEditingToolbar::installCanvasUndoShortcuts(QWidget *canvas)
 {
   if ( canvas )
   {
     auto *scUndo = paleo::shortcuts::bindShortcut( QStringLiteral( "map.edit.undo" ), canvas );
     scUndo->setObjectName( QStringLiteral( "scMapEditUndo" ) );
-    connect( scUndo, &QShortcut::activated, mActionUndo, [this] {
-      if ( mActionUndo->isEnabled() )
-        mActionUndo->trigger();
-      else if ( mSecondaryUndo )
-        mSecondaryUndo(); // #748：无会话内可撤销时落工作台撤销栈
-    } );
+    connect( scUndo, &QShortcut::activated, mActionUndo, &QAction::trigger );
     auto *scRedo = paleo::shortcuts::bindShortcut( QStringLiteral( "map.edit.redo" ), canvas );
     scRedo->setObjectName( QStringLiteral( "scMapEditRedo" ) );
-    connect( scRedo, &QShortcut::activated, mActionRedo, [this] {
-      if ( mActionRedo->isEnabled() )
-        mActionRedo->trigger();
-      else if ( mSecondaryRedo )
-        mSecondaryRedo();
-    } );
+    connect( scRedo, &QShortcut::activated, mActionRedo, &QAction::trigger );
   }
 }
 
-// #748：主窗口撤销组接线。组的活动栈/栈状态变化都刷新按钮。
-void PaleoEditingToolbar::setUndoGroup( QUndoGroup *group )
+void PaleoEditingToolbar::setSecondaryUndo( PaleoUndoTarget target )
 {
-  if ( mUndoGroup )
-    disconnect( mUndoGroup, nullptr, this, nullptr );
-  mUndoGroup = group;
-  if ( group )
+  mSecondaryUndo = std::move( target );
+  refreshUndoActions();
+}
+
+void PaleoEditingToolbar::setUndoRouter( PaleoUndoGroupRouter *router )
+{
+  if ( mUndoRouter )
+    disconnect( mUndoRouter, nullptr, this, nullptr );
+  mUndoRouter = router;
+  if ( router )
+    connect( router, &PaleoUndoGroupRouter::targetChanged, this, &PaleoEditingToolbar::refreshUndoActions );
+  refreshUndoActions();
+}
+
+PaleoUndoTarget PaleoEditingToolbar::canvasUndoTarget()
+{
+  const QPointer<PaleoEditingToolbar> self(this);
+  return { [self]( bool undo ) { return self ? self->describeCanvasUndo( undo ) : PaleoUndoStep{}; },
+           [self]( bool undo ) { return self && self->stepCanvasUndo( undo ); } };
+}
+
+PaleoUndoStep PaleoEditingToolbar::describeCanvasUndo( bool undo ) const
+{
+  if ( mUndoStack && ( undo ? mUndoStack->canUndo() : mUndoStack->canRedo() ) )
+    return { true, undo ? mUndoStack->undoText() : mUndoStack->redoText() };
+  return mSecondaryUndo.describe ? mSecondaryUndo.describe( undo ) : PaleoUndoStep{};
+}
+
+bool PaleoEditingToolbar::stepCanvasUndo( bool undo )
+{
+  if ( mUndoStack && ( undo ? mUndoStack->canUndo() : mUndoStack->canRedo() ) )
   {
-    connect( group, &QUndoGroup::activeStackChanged, this, &PaleoEditingToolbar::updateActionStates );
-    connect( group, &QUndoGroup::indexChanged, this, &PaleoEditingToolbar::updateActionStates );
-    connect( group, &QUndoGroup::canUndoChanged, this, &PaleoEditingToolbar::updateActionStates );
-    connect( group, &QUndoGroup::canRedoChanged, this, &PaleoEditingToolbar::updateActionStates );
+    undo ? mUndoStack->undo() : mUndoStack->redo();
+    return true;
   }
-  updateActionStates();
+  return mSecondaryUndo.step && mSecondaryUndo.describe &&
+         mSecondaryUndo.describe( undo ).available && mSecondaryUndo.step( undo );
 }
 
 void PaleoEditingToolbar::routeUndo( bool undo )
 {
-  if ( QUndoStack *active = mUndoGroup ? mUndoGroup->activeStack() : nullptr )
-  {
-    if ( undo ? active->canUndo() : active->canRedo() )
-      undo ? active->undo() : active->redo();
-    return; // 焦点停靠面自有栈：不越界撤销画布会话
-  }
-  if ( mUndoStack )
-    undo ? mUndoStack->undo() : mUndoStack->redo();
+  if ( mUndoStatus )
+    mUndoStatus->clearMessage();
+  if ( mUndoRouter )
+    mUndoRouter->step( undo );
+  else
+    stepCanvasUndo( undo );
 }
 
-void PaleoEditingToolbar::applyUndoActionStates()
+void PaleoEditingToolbar::refreshUndoActions()
 {
-  QUndoStack *active = mUndoGroup ? mUndoGroup->activeStack() : nullptr;
-  const bool canU = active ? active->canUndo() : ( mUndoStack && mUndoStack->canUndo() );
-  const bool canR = active ? active->canRedo() : ( mUndoStack && mUndoStack->canRedo() );
-  const QString undoText = active ? active->undoText() : ( mUndoStack ? mUndoStack->undoText() : QString() );
-  const QString redoText = active ? active->redoText() : ( mUndoStack ? mUndoStack->redoText() : QString() );
-  const auto stepTip = [this]( QAction *a, const QString &n, const QString &v ) { return n.isEmpty() ? a->property( "hint" ).toString() : tr( "%1：%2" ).arg( v, n ); }; // #869：提示带命令名
-  mActionUndo->setEnabled( canU );
-  mActionUndo->setToolTip( canU ? stepTip( mActionUndo, undoText, tr( "撤销" ) ) : tr( "没有可撤销的编辑" ) );
-  mActionRedo->setEnabled( canR );
-  mActionRedo->setToolTip( canR ? stepTip( mActionRedo, redoText, tr( "重做" ) ) : tr( "没有可重做的编辑" ) );
+  const auto sync = [this]( QAction *action, bool undo, const QString &verb, const QString &unavailable ) {
+    const auto step = mUndoRouter ? mUndoRouter->describe( undo ) : describeCanvasUndo( undo );
+    const auto hint = step.text.isEmpty() ? action->property( "hint" ).toString() : tr( "%1：%2" ).arg( verb, step.text );
+    action->setToolTip( step.available ? hint : unavailable );
+    action->setEnabled( step.available );
+  };
+  // Disabling a focused button can move focus synchronously. Query each action
+  // immediately before updating it so redo reflects any new scope.
+  sync( mActionUndo, true, tr( "撤销" ), tr( "没有可撤销的编辑" ) );
+  sync( mActionRedo, false, tr( "重做" ), tr( "没有可重做的编辑" ) );
 }

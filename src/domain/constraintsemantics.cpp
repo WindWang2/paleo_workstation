@@ -441,8 +441,9 @@ QString canonicalConstraintMethod( const QString &methodId )
 bool methodReadsConstraints( const QString &methodId )
 {
   const QString m = canonicalConstraintMethod( methodId );
-  return !m.isEmpty() && m != QLatin1String( "kriging" ) && m != QLatin1String( "sgs" ) &&
-         m != QLatin1String( "cokriging" );
+  // P3：SGS 真实消费硬屏障（静态井与已模拟格邻域同时隔断）；kriging/
+  // cokriging 仍不读逐线约束。
+  return !m.isEmpty() && m != QLatin1String( "kriging" ) && m != QLatin1String( "cokriging" );
 }
 
 bool methodRejectsInvalidParams( const QString &methodId )
@@ -482,7 +483,11 @@ QString methodConstraintCapabilityNote( const QString &methodId )
   if ( m == QLatin1String( "legacy" ) )
     return QObject::tr( "消费：完全阻断打断线（网格连通+凸包裁剪）、方向线（全域长度加权平均方向，"
                         "逐线比值/半径不参与）；软边界/停线/制图绕行不参与。" );
-  if ( m == QLatin1String( "kriging" ) || m == QLatin1String( "sgs" ) || m == QLatin1String( "cokriging" ) )
+  if ( m == QLatin1String( "sgs" ) )
+    return QObject::tr( "消费：硬屏障（网格连通，有限线可绕端——静态井样本与已模拟格邻域"
+                        "同时隔断，各分量独立正态得分）；方向线、软边界不参与；"
+                        "停线/制图绕行只作用于制图，不改模拟场。" );
+  if ( m == QLatin1String( "kriging" ) || m == QLatin1String( "cokriging" ) )
     return QObject::tr( "地统计方法不读取逐线约束：方向线、打断线、软边界均不参与本次数值计算。" );
   return QString();
 }
@@ -553,7 +558,29 @@ void decideByMethod( ConstraintUseDecision &d, const ConstraintSemantics &s, con
 {
   const QString &sem = d.semantic;
   const bool cartographic = sem == QLatin1String( "contour_stop" ) || sem == QLatin1String( "cartographic_detour" );
-  if ( method == QLatin1String( "kriging" ) || method == QLatin1String( "sgs" ) || method == QLatin1String( "cokriging" ) )
+  // P3：SGS 消费硬屏障（grid_connectivity_v1：静态井与已模拟格两类邻域都
+  // 只在本分量内取）。domainKnown 时域外线在计划侧即拒；引擎侧以实际落格
+  // 为准（BarrierGrid.consumedIds），两侧回执在 QC 汇合。display_only 的
+  // 硬屏障已在语义解析阶段重分类为 contour_stop，到达此处必为完全阻断。
+  if ( method == QLatin1String( "sgs" ) )
+  {
+    if ( sem == QLatin1String( "hard_barrier" ) )
+    {
+      d.supported = true;
+      if ( d.domainKnown && !d.inDomain )
+      {
+        reject( d, QStringLiteral( "outside_compute_domain" ) );
+        return;
+      }
+      consume( d, QStringLiteral( "hard_barrier" ) );
+      return;
+    }
+    d.cartographicOnly = cartographic;
+    reject( d, cartographic ? QStringLiteral( "cartographic_only" )
+                            : QStringLiteral( "unsupported_by_method" ) );
+    return;
+  }
+  if ( method == QLatin1String( "kriging" ) || method == QLatin1String( "cokriging" ) )
   {
     d.cartographicOnly = cartographic;
     reject( d, QStringLiteral( "method_does_not_read_line_constraints" ) );

@@ -186,12 +186,8 @@ DataListPanel::DataListPanel(QWidget *parent)
     if (m_tree)
       m_tree->collapseAll();
   });
-  connect(search, &QLineEdit::textChanged, this, [this] {
-    m_filter.clearDim(paleo::dataops::FilterDim::Search); applyListFilter();
-  });
-  connect(typeFilter, &QComboBox::currentIndexChanged, this, [this] {
-    m_filter.clearDim(paleo::dataops::FilterDim::Type); applyListFilter();
-  });
+  // P2 W1：旧搜索/类型框 = 首个正向条件的编辑器（接线体在 datalist_filter.cpp）。
+  wireLegacyFilterControls(search, typeFilter);
 
   // T31「查看未决」过滤条：过滤开启时露出一行，带「清除过滤」。
   auto *filterBar = new QWidget(listSection);
@@ -281,7 +277,7 @@ DataListPanel::DataListPanel(QWidget *parent)
           [this, table](const QPoint &pos) {
             const int col = table->horizontalHeader()->logicalIndexAt(pos);
             if (col >= 0)
-              paleo::dataops::ColumnFunnel::execForColumn(table, col, this);
+              openColumnFunnel(col); // P2：漏斗进统一查询状态（不再 setRowHidden）
           });
   table->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
   table->installEventFilter(this);
@@ -750,23 +746,27 @@ void DataListPanel::buildDataOpsUi()
   listLay->insertWidget(searchRowIdx >= 0 ? searchRowIdx + 1 : listLay->count(),
                         filterWrap);
 
-  // 过滤条信号接线。
+  // 过滤条信号接线（P2：全部编辑走 m_query 单一事实源 + commitQuery 统一提交）。
   connect(m_filterBar, &FilterBar::conditionAdded, this, [this](const FilterCondition &c) {
-    m_filter.add(c);
-    applyListFilter();
-    refreshChipBar();
+    if (m_query.addCondition(c))
+      commitQuery();
   });
   connect(m_filterBar, &FilterBar::modeChanged, this, [this](bool or_) {
-    m_filter.orMode = or_;
-    applyListFilter();
-    refreshChipBar();
+    if (m_query.group.orMode == or_)
+      return;
+    m_query.group.orMode = or_;
+    commitQuery();
   });
   connect(m_filterBar, &FilterBar::presetChosen, this, [this](const QString &name) {
-    const FilterGroup g = loadFilterPreset(name);
-    m_filter = g;
-    m_filterBar->setOrMode(g.orMode);
-    applyListFilter();
-    refreshChipBar();
+    // P2 W4：预设按 v2 全量恢复（列约束/标签随预设回来）；坏预设诊断上报，
+    // 当前查询保持不变。
+    const auto parsed = paleo::dataops::query::loadQueryPreset(name);
+    if (!parsed.valid)
+    {
+      emit statusMessage(tr("预设「%1」无法读取：%2").arg(name, parsed.diagnostic));
+      return;
+    }
+    applyQuery(parsed.query);
     emit statusMessage(tr("已应用过滤器预设「%1」").arg(name));
   });
   connect(m_filterBar, &FilterBar::savePresetRequested, this, [this] {
@@ -774,89 +774,61 @@ void DataListPanel::buildDataOpsUi()
     const QString name = QInputDialog::getText(this, tr("保存过滤器"),
                                                tr("预设名称:"), QLineEdit::Normal,
                                                QString(), &ok);
-    if (ok && saveFilterPreset(name, m_filter))
+    if (ok && paleo::dataops::query::saveQueryPreset(name, m_query))
     {
       m_filterBar->reloadPresets();
       emit statusMessage(tr("过滤器已存为预设「%1」").arg(name));
     }
   });
   connect(m_filterBar, &FilterBar::shareStateRequested, this, [this] {
-    // D2.10：状态串复制到剪贴板（可粘贴分享/恢复）。
-    QGuiApplication::clipboard()->setText(m_filter.toStateString());
-    emit statusMessage(tr("过滤器状态串已复制（paleo://dataops-filter?…）"));
+    // P2 W4：v2 全量状态串（条件+标签+列约束）复制到剪贴板。
+    QGuiApplication::clipboard()->setText(paleo::dataops::query::serializeQuery(m_query));
+    emit statusMessage(tr("过滤器状态串已复制（paleo://dataops-filter?v=2…）"));
   });
   connect(m_chipBar, &FilterChipBar::chipRemoved, this, [this](const FilterCondition &c) {
-    m_filter.removeOne(c);
-    applyListFilter();
-    refreshChipBar();
+    if (m_query.removeFirstMatching(c))
+      commitQuery();
   });
   connect(m_chipBar, &FilterChipBar::chipToggled, this, [this](const FilterCondition &c) {
-    for (FilterCondition &cc : m_filter.conditions)
-      if (cc == c)
-        cc.negate = !cc.negate;
-    applyListFilter();
-    refreshChipBar();
+    // 只取反首个匹配——同值多条件不再被一次点击全部翻转（W1）。
+    if (m_query.toggleFirstMatching(c))
+      commitQuery();
   });
+  connect(m_chipBar, &FilterChipBar::columnChipRemoved, this,
+          [this](paleo::dataops::query::ColumnKey k) { clearColumnConstraint(k); });
   connect(m_chipBar, &FilterChipBar::clearAllRequested, this, [this] {
-    m_filter.conditions.clear();
-    m_filter.orMode = false;
-    m_activeTag.clear();
-    m_quickBar->clearAll();
-    if (auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
-      search->clear();
-    if (auto *tf = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
-      tf->setCurrentIndex(0);
-    applyListFilter();
-    refreshChipBar();
+    m_query.clearAll();
+    commitQuery();
     emit statusMessage(tr("已清除全部过滤条件"));
   });
   connect(m_quickBar, &PendingQuickBar::quickToggled, this,
           [this](FilterDim d, bool on) {
-            if (on)
-              m_filter.add({d, QString(), false});
-            else
-              m_filter.clearDim(d);
-            applyListFilter();
-            refreshChipBar();
+            // on=补正向条件（去重）；off=只移除正向（否定同维条件保留）。
+            if (m_query.setSwitch(d, on))
+              commitQuery();
           });
   connect(m_tagCloud, &TagCloudWidget::tagClicked, this, [this](const QString &t, bool) {
     // 开关态由处理器现算（点击的 chip 可能在重建 deleteLater 队列里——
     // 其捕获的 active 态不作真相源）。
-    const bool on = m_activeTag != t;
-    m_activeTag = on ? t : QString();
-    applyListFilter();
-    refreshTagCloud();
+    const bool on = m_query.activeTag != t;
+    m_query.activeTag = on ? t : QString();
+    commitQuery();
     emit statusMessage(on ? tr("按标签「%1」过滤").arg(t) : tr("已取消标签过滤"));
   });
   connect(m_emptyState, &FilterEmptyState::relaxRequested, this, [this] {
-    // 逐级放宽：去掉最后一个条件（旧控件持有的维度同步清空，防 sync 回填）。
-    if (!m_filter.conditions.isEmpty())
-    {
-      const FilterCondition last = m_filter.conditions.last();
-      m_filter.conditions.removeLast();
-      if (last.dim == FilterDim::Search)
-        if (auto *search = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
-        {
-          const QSignalBlocker b(search);
-          search->clear();
-        }
-      if (last.dim == FilterDim::Type)
-        if (auto *tf = findChild<QComboBox *>(QStringLiteral("assetTypeFilter")))
-        {
-          const QSignalBlocker b(tf);
-          tf->setCurrentIndex(0);
-        }
-    }
-    else if (!m_activeTag.isEmpty())
-      m_activeTag.clear();
-    applyListFilter();
-    refreshChipBar();
+    // 逐级放宽：最后一个条件 → 活动标签 → 最后一个列约束（镜像统一由
+    // commitQuery 回写，被删条件不会从旧输入框回填）。
+    if (!m_query.group.conditions.isEmpty())
+      m_query.group.conditions.removeLast();
+    else if (!m_query.activeTag.isEmpty())
+      m_query.activeTag.clear();
+    else if (!m_query.columns.isEmpty())
+      m_query.columns.removeLast();
+    commitQuery();
   });
   connect(m_emptyState, &FilterEmptyState::clearRequested, this, [this] {
-    m_filter.conditions.clear();
-    m_activeTag.clear();
-    applyListFilter();
-    refreshChipBar();
+    m_query.clearAll();
+    commitQuery();
   });
 
   // ---- D8 导入队列面板（挂在列表段底）----

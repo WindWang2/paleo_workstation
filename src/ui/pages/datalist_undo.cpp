@@ -199,22 +199,18 @@ void DataListPanel::registerCommands()
       [this] { showRecycleBin(); });
   reg("dataops.clearFilter", QT_TR_NOOP("清除全部过滤"), QT_TR_NOOP("过滤"),
       [this] {
-        m_filter.conditions.clear();
-        m_activeTag.clear();
-        applyListFilter();
-        refreshChipBar();
+        m_query.clearAll();
+        commitQuery();
       });
   reg("dataops.filterUnlinked", QT_TR_NOOP("过滤：未挂接"), QT_TR_NOOP("过滤"),
       [this] {
-        m_filter.add({FilterDim::Unlinked, QString(), false});
-        applyListFilter();
-        refreshChipBar();
+        m_query.setSwitch(FilterDim::Unlinked, true);
+        commitQuery();
       });
   reg("dataops.filterPending", QT_TR_NOOP("过滤：有警告"), QT_TR_NOOP("过滤"),
       [this] {
-        m_filter.add({FilterDim::Warned, QString(), false});
-        applyListFilter();
-        refreshChipBar();
+        m_query.setSwitch(FilterDim::Warned, true);
+        commitQuery();
       });
   reg("dataops.viewTree", QT_TR_NOOP("视图：树形"), QT_TR_NOOP("视图"),
       [this] { setViewMode(0); });

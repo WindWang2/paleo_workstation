@@ -62,7 +62,7 @@ struct BatchReceipt
   QList<ReceiptItem> items;       // 每条请求的去向（含拒绝项——请求→计划映射）
   bool undoable = false;          // 一条历史覆盖全部 Changed 项且可整组撤销
   bool historyInvalidated = false;// 失败留有部分变化 → 撤销栈已整栈作废
-  QString failureStage;           // guard/prepare/catalog-commit/catalog-abort/sidecar-write/compensation/…
+  QString failureStage;           // guard/prepare/catalog-write/catalog-commit/catalog-abort/sidecar-write/compensation/…
 
   int count(OpOutcome o) const
   {

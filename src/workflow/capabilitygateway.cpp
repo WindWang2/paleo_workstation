@@ -1,6 +1,7 @@
 // 层：功能
 // workflow/capabilitygateway.cpp — 试点能力的准备与执行。发布复用 commitSet。
 #include "capabilitygateway.h"
+#include "capabilityseismicjob.h"
 
 #include "../algorithms/depthbatch.h"
 #include "../algorithms/seisattrgroup.h"
@@ -82,15 +83,27 @@ QJsonObject storedObject(const OperationLog::Record &record) {
 }
 
 bool notePublishing(OperationLog *log, OperationLog::Record *record) {
-  record->commitState = QStringLiteral("publishing");
-  record->code = QStringLiteral("publishing");
-  if (!log->save(*record))
+  auto publishing = *record;
+  publishing.commitState = QStringLiteral("publishing");
+  publishing.code = QStringLiteral("publishing");
+  OperationLog::Record current;
+  if (!log->save(publishing, &current))
     return false;
-  const OperationLog::Record stored = log->recordById(record->operationId);
-  if (stored.commitState != QLatin1String("publishing"))
-    return false;
-  *record = stored;
-  return true;
+  *record = current;
+  return current.commitState == QLatin1String("publishing");
+}
+
+void setResponse(ExecuteResult &result, QJsonObject summary, int computeCount) {
+  summary.insert(QStringLiteral("ok"), result.ok);
+  summary.insert(QStringLiteral("code"), result.code);
+  summary.insert(QStringLiteral("operationId"), result.operationId);
+  summary.insert(QStringLiteral("execution"), result.execution);
+  summary.insert(QStringLiteral("cacheHit"), result.cacheHit);
+  summary.insert(QStringLiteral("commitState"), result.commitState);
+  summary.insert(QStringLiteral("presentation"), result.presentation);
+  summary.insert(QStringLiteral("computeCount"), computeCount);
+  result.summary = summary.toVariantMap();
+  result.responseJson = boundToolResponse(summary);
 }
 
 ExecuteResult fromRecord(const OperationLog::Record &record, const QString &acceptCode) {
@@ -105,8 +118,7 @@ ExecuteResult fromRecord(const OperationLog::Record &record, const QString &acce
   result.requestHash = record.requestHash;
   result.cacheHit = summary.value(QStringLiteral("cacheHit")).toBool();
   result.recomputed = false;
-  result.summary = summary.toVariantMap();
-  result.responseJson = boundToolResponse(summary);
+  setResponse(result, summary, record.computeCount);
   return result;
 }
 
@@ -183,33 +195,27 @@ ExecuteResult finish(OperationLog *log, OperationLog::Record record, ExecuteResu
                      const QByteArray &cacheBody) {
   result.operationId = record.operationId;
   result.requestHash = record.requestHash;
-  record.execution = result.ok ? QStringLiteral("succeeded") : result.execution;
-  if (result.execution.isEmpty())
-    record.execution = result.ok ? QStringLiteral("succeeded") : QStringLiteral("failed");
+  if (result.code == QLatin1String("cancelled"))
+    result.execution = QStringLiteral("cancelled");
+  else if (!result.ok && result.execution == QLatin1String("succeeded"))
+    result.execution = QStringLiteral("failed");
+  else if (result.execution.isEmpty())
+    result.execution = result.ok ? QStringLiteral("succeeded") : QStringLiteral("failed");
+  if (record.commitState == QLatin1String("publishing") && result.commitState == QLatin1String("not_requested"))
+    result.commitState = QStringLiteral("failed");
+  record.execution = result.execution;
   record.commitState = result.commitState;
   record.presentation = result.presentation;
   record.code = result.code;
-  QJsonObject summary = QJsonObject::fromVariantMap(result.summary);
-  summary.insert(QStringLiteral("ok"), result.ok);
-  summary.insert(QStringLiteral("code"), result.code);
-  summary.insert(QStringLiteral("operationId"), record.operationId);
-  summary.insert(QStringLiteral("cacheHit"), result.cacheHit);
-  summary.insert(QStringLiteral("commitState"), result.commitState);
-  summary.insert(QStringLiteral("presentation"), result.presentation);
-  summary.insert(QStringLiteral("computeCount"), record.computeCount);
-  record.summaryJson = QJsonDocument(summary).toJson(QJsonDocument::Compact);
-  result.summary = summary.toVariantMap();
-  result.responseJson = boundToolResponse(summary);
-  if (!log->save(record)) {
-    if (result.ok || result.commitState == QLatin1String("committed")) {
-      result.ok = false;
-      result.code = QStringLiteral("receipt_persist_failed");
-      summary.insert(QStringLiteral("ok"), false);
-      summary.insert(QStringLiteral("code"), result.code);
-      summary.insert(QStringLiteral("commitState"), result.commitState);
-      result.summary = summary.toVariantMap();
-      result.responseJson = boundToolResponse(summary);
-    }
+  setResponse(result, QJsonObject::fromVariantMap(result.summary), record.computeCount);
+  record.summaryJson = QJsonDocument(QJsonObject::fromVariantMap(result.summary)).toJson(QJsonDocument::Compact);
+  OperationLog::Record current;
+  if (!log->save(record, &current)) {
+    if (current.execution == QLatin1String("cancelled") && result.commitState != QLatin1String("committed"))
+      return fromRecord(current, QString());
+    result.ok = false;
+    result.code = QStringLiteral("receipt_persist_failed");
+    setResponse(result, QJsonObject::fromVariantMap(result.summary), record.computeCount);
     return result;
   }
   if (cacheable && result.ok)
@@ -921,6 +927,9 @@ QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes) {
   page.insert(QStringLiteral("ok"), object.value(QStringLiteral("ok")));
   page.insert(QStringLiteral("status"), object.value(QStringLiteral("code")));
   page.insert(QStringLiteral("operationId"), object.value(QStringLiteral("operationId")));
+  for (const auto &key : {QStringLiteral("execution"), QStringLiteral("commitState"), QStringLiteral("presentation")})
+    if (object.contains(key))
+      page.insert(key, object.value(key));
   page.insert(QStringLiteral("code"), QStringLiteral("response_budget_exceeded"));
   page.insert(QStringLiteral("byteSize"), bytes.size());
   page.insert(QStringLiteral("budgetBytes"), budgetBytes);
@@ -1059,20 +1068,39 @@ ExecuteResult execute(const ExecuteRequest &request) {
   ExecuteResult bindingResult;
   if (!bindingOk(request, &bindingResult))
     return bindingResult;
-  const ValidatedParams params =
+  auto parameters = request.parameters;
+  if (request.seismicTrace) {
+    if (capability.capabilityId != QLatin1String("seismic.attributes.compute") || !request.inputs.isEmpty())
+      return rejected(QStringLiteral("mixed_seismic_inputs"));
+    if (request.publishIntent != QLatin1String("prepare") && request.publishIntent != QLatin1String("compute-only"))
+      return rejected(QStringLiteral("unsupported_intent"));
+    // The numerical contract requires this field. The resolved volume supplies
+    // its authoritative value before the request fingerprint is calculated.
+    if (!parameters.contains(QStringLiteral("SAMPLE_INTERVAL_MS")))
+      parameters.insert(QStringLiteral("SAMPLE_INTERVAL_MS"), 1.0);
+  }
+  ValidatedParams params =
       capability.algorithmId.isEmpty()
           ? ValidatedParams{}
-          : validateAndFillParams(capability.algorithmId, capability.algorithmContractVersion, request.parameters);
+          : validateAndFillParams(capability.algorithmId, capability.algorithmContractVersion, parameters);
   if (!capability.algorithmId.isEmpty() && !params.ok) {
     ExecuteResult result = rejected(params.code, params.issues.isEmpty() ? QString() : params.issues.first().field);
     result.issues = params.issues;
     return result;
+  }
+  SeismicTraceExecutionPlan tracePlan;
+  if (request.seismicTrace) {
+    const auto error = prepareSeismicTraceJob(request, params, tracePlan);
+    if (!error.isEmpty())
+      return rejected(error);
   }
   QJsonObject frozen = QJsonObject::fromVariantMap(request.inputs);
   frozen.remove(QStringLiteral("path"));
   frozen.insert(QStringLiteral("bindingMode"), request.bindingMode);
   frozen.insert(QStringLiteral("frozenHead"), request.frozenHead);
   frozen.insert(QStringLiteral("publishIntent"), request.publishIntent);
+  if (request.seismicTrace)
+    frozen.insert(QStringLiteral("seismicTrace"), seismicTraceIdentity(*request.seismicTrace));
   const QString hash = fingerprint(capability.capabilityId, capability.contractVersion, params.effective, frozen);
   OperationLog log(request.operationDir);
   const OperationLog::Accept accepted = log.accept(request.documentId, request.callerScope, request.clientRequestId, hash);
@@ -1084,25 +1112,54 @@ ExecuteResult execute(const ExecuteRequest &request) {
       uncertain.ok = false;
       uncertain.code = QStringLiteral("commit_uncertain");
       uncertain.commitState = QStringLiteral("publishing");
+      setResponse(uncertain, storedObject(accepted.record), accepted.record.computeCount);
       return uncertain;
     }
-    return fromRecord(accepted.record, QStringLiteral("replay"));
+    auto replay = fromRecord(accepted.record, QStringLiteral("replay"));
+    if (request.seismicTrace && replay.ok && replay.execution == QLatin1String("succeeded")) {
+      if (!restoreSeismicTraceResult(request, replay)) {
+        replay.ok = false;
+        replay.code = QStringLiteral("result_unavailable");
+        replay.summary.remove(QStringLiteral("result_path"));
+        replay.summary.remove(QStringLiteral("resultRef"));
+      }
+      setResponse(replay, QJsonObject::fromVariantMap(replay.summary), accepted.record.computeCount);
+    }
+    return replay;
   }
   if (accepted.code != QLatin1String("created"))
     return rejected(accepted.code.isEmpty() ? QStringLiteral("persist_failed") : accepted.code);
   OperationLog::Record record = accepted.record;
   record.execution = QStringLiteral("running");
   record.computeCount += 1;
-  log.save(record);
+  OperationLog::Record current;
+  if (!log.save(record, &current)) {
+    if (current.execution == QLatin1String("cancelled"))
+      return fromRecord(current, QString());
+    if (current.execution == QLatin1String("queued"))
+      return finish(&log, current, rejected(QStringLiteral("persist_failed")), false, {});
+    ExecuteResult result = fromRecord(accepted.record, QString());
+    result.code = QStringLiteral("persist_failed");
+    setResponse(result, {}, accepted.record.computeCount);
+    return result;
+  }
   if (request.onRunning)
     request.onRunning(record.operationId);
-  if (cancelRequested(record.operationId) || (request.cancelled && request.cancelled())) {
-    record.execution = QStringLiteral("cancelled");
-    record.code = QStringLiteral("cancelled");
-    log.save(record);
-    ExecuteResult result = rejected(QStringLiteral("cancelled"));
-    result.operationId = record.operationId;
-    result.execution = QStringLiteral("cancelled");
+  if (cancelRequested(record.operationId) || (request.cancelled && request.cancelled()))
+    return finish(&log, record, rejected(QStringLiteral("cancelled")), false, {});
+  if (request.seismicTrace) {
+    const auto stop = [&] { return cancelRequested(record.operationId) || (request.cancelled && request.cancelled()); };
+    auto staged = executeSeismicTraceJob(request, tracePlan, record.operationId, stop);
+    const auto path = staged.summary.value(QStringLiteral("result_path")).toString();
+    if (staged.ok && stop())
+      staged = rejected(QStringLiteral("cancelled"));
+    auto result = finish(&log, record, std::move(staged), false, {});
+    if (!result.ok && !path.isEmpty())
+      QFile::remove(path);
+    // A transient final write failure must not leave an operation marked as
+    // running with no worker or record a reference to the discarded stage.
+    if (result.code == QLatin1String("receipt_persist_failed"))
+      return finish(&log, record, rejected(result.code), false, {});
     return result;
   }
   if (capability.capabilityId == QLatin1String("depth.convert_batch"))
@@ -1156,9 +1213,10 @@ ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &n
   return last;
 }
 
-QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
-                        const QString &documentId, const QString &operationDir, const QString &hostHead,
-                        const std::function<bool()> &cancelled, DataCatalog *catalog, const QString &projectDir) {
+QJsonObject prepareChatToolRequest(ExecuteRequest &request, const QString &toolName, const QJsonObject &arguments,
+                                   const QString &hostScope, const QString &documentId, const QString &operationDir,
+                                   const QString &hostHead) {
+  request = {};
   if (arguments.contains(QStringLiteral("actor")) || arguments.contains(QStringLiteral("approved")) ||
       arguments.contains(QStringLiteral("caller_scope"))) {
     return QJsonObject{{QStringLiteral("code"), QStringLiteral("untrusted_authority")}};
@@ -1166,7 +1224,6 @@ QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, c
   const QString intent = arguments.value(QStringLiteral("publish_intent")).toString(QStringLiteral("compute-only"));
   if (intent == QLatin1String("publish") && hostHead.isEmpty())
     return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("code"), QStringLiteral("host_head_required")}};
-  ExecuteRequest request;
   request.capabilityId = toolName;
   request.contractVersion = arguments.value(QStringLiteral("contract_version")).toInt(1);
   request.documentId = documentId;
@@ -1183,15 +1240,30 @@ QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, c
   request.inputs.remove(QStringLiteral("drop_output_port"));
   request.inputs.remove(QStringLiteral("grid_wkt"));
   request.operationDir = operationDir;
+  return {};
+}
+
+QJsonObject chatToolResponse(const ExecuteResult &result) {
+  auto payload = QJsonObject::fromVariantMap(result.summary);
+  payload.remove(QStringLiteral("result_path"));
+  payload.insert(QStringLiteral("code"), result.code);
+  payload.insert(QStringLiteral("ok"), result.ok);
+  if (!result.operationId.isEmpty())
+    payload.insert(QStringLiteral("operationId"), result.operationId);
+  return QJsonDocument::fromJson(boundToolResponse(payload)).object();
+}
+
+QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
+                        const QString &documentId, const QString &operationDir, const QString &hostHead,
+                        const std::function<bool()> &cancelled, DataCatalog *catalog, const QString &projectDir) {
+  ExecuteRequest request;
+  const auto error = prepareChatToolRequest(request, toolName, arguments, hostScope, documentId, operationDir, hostHead);
+  if (!error.isEmpty())
+    return error;
   request.catalog = catalog;
   request.projectDir = projectDir;
-  request.presentOk = true;
   request.cancelled = cancelled;
-  const ExecuteResult result = execute(request);
-  const QJsonObject payload = QJsonDocument::fromJson(result.responseJson).object();
-  return payload.isEmpty() ? QJsonObject{{QStringLiteral("code"), result.code},
-                                         {QStringLiteral("operationId"), result.operationId}}
-                           : payload;
+  return chatToolResponse(execute(request));
 }
 
 } // namespace paleo::capability

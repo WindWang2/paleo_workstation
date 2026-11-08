@@ -1563,7 +1563,7 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
     result.code = QStringLiteral("missing_required");
     return result;
   }
-  if (!QgsApplication::instance() || !QgsApplication::processingRegistry()) {
+  if (!QgsApplication::instance()) {
     result.code = QStringLiteral("qgis_unavailable");
     return result;
   }
@@ -1606,11 +1606,10 @@ FrozenIdwResult runFrozenConstraintIdw(const FrozenIdwJob &job) {
     params.insert(QStringLiteral("LOCAL_GRID_WKT"), gridWkt);
   if (lines)
     params.insert(QStringLiteral("CONSTRAINTS"), QVariant::fromValue(static_cast<QgsMapLayer *>(lines)));
-  QgisProcessingService service(nullptr);
   QString error;
   QgisProcessingService::ProcessingHooks hooks;
   hooks.cancelled = job.cancelled;
-  const QVariantMap outputs = service.run(QStringLiteral("paleo:paleo_constraint_idw"), params, &error, hooks);
+  const QVariantMap outputs = QgisProcessingService::runFrozenConstraintIdw(params, &error, hooks);
   delete lines;
   delete points;
   if (outputs.isEmpty()) {

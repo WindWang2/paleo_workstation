@@ -45,6 +45,11 @@ class QgisProcessingService : public QObject
     QVariantMap run(const QString &algorithmId, const QVariantMap &parameters, QString *error = nullptr,
                     const ProcessingHooks &hooks = {});
 
+    // Inputs are private layers built on the calling thread with an explicit
+    // common CRS. This path does not bind a project or consult the registry.
+    static QVariantMap runFrozenConstraintIdw(const QVariantMap &parameters, QString *error,
+                                             const ProcessingHooks &hooks);
+
     // List available paleo:* algorithm ids.
     QStringList paleoAlgorithmIds() const;
 
@@ -93,6 +98,9 @@ class QgisProcessingService : public QObject
     // 真正干活的同步 run（在调用者线程执行）；run() 只负责线程路由。
     QVariantMap runBlocking(const QString &algorithmId, const QVariantMap &parameters, QString *error,
                             const ProcessingHooks &hooks);
+    static QVariantMap runAlgorithm(const QgsProcessingAlgorithm &algorithm, const QString &algorithmId,
+                                    const QVariantMap &parameters, const QgsCoordinateTransformContext &transform,
+                                    QString *error, const ProcessingHooks &hooks);
 
     QMutex m_contextMutex;
     mutable QMutex m_registryMutex;

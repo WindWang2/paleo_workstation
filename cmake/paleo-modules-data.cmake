@@ -222,6 +222,7 @@ add_library(paleo_services STATIC
   src/services/algorithmspec_pilots.cpp             # 时深/属性组/相图输出契约
   src/services/algorithmcontract.cpp                # 参数校验与有效默认值
   src/services/capabilityspec.cpp                   # 能力目录（引用 AlgorithmSpec，不复制默认值）
+  src/services/capabilityseismicinput.cpp           # 固定来源与修订的地震道窗口
   src/services/nativerunners.cpp                    # algo-atom：hztrack 等 services 侧 native 包装
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架

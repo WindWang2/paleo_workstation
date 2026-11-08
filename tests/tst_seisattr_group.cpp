@@ -2,6 +2,7 @@
 #include <QtTest/QtTest>
 
 #include "algorithms/seisattrgroup.h"
+#include "algorithms/seismicattr.h"
 
 #include <cmath>
 #include <cstdint>

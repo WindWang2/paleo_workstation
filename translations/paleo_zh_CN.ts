@@ -28632,8 +28632,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="312"/>
-        <source>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</source>
-        <translation>prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。</translation>
+        <source>prepare 只校验。compute-only 调用已有约束 IDW 核并返回暂存栅格引用。</source>
+        <translation>prepare 只校验。compute-only 调用已有约束 IDW 核并返回暂存栅格引用。</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="401"/>

@@ -1,11 +1,15 @@
 // 层：测试壳
 #include <QtTest/QtTest>
 
+#include <QCryptographicHash>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <cmath>
+#include <cstring>
 
 #include <gdal.h>
 
@@ -13,7 +17,11 @@
 
 #include "algorithms/velocitymodel.h"
 #include "catalog/datacatalog.h"
+#include "fixtures/documentsourcefixture.h"
+#include "services/capabilityseismicinput.h"
 #include "workflow/capabilitygateway.h"
+#include "workflow/capabilitytaskrunner.h"
+#include <paleo_data/object_descriptor.h>
 
 namespace {
 
@@ -56,6 +64,7 @@ class TestCapabilityRound2 : public QObject {
   Q_OBJECT
 private slots:
   void forgedHeadDoesNotAuthorizePublish();
+  void idwComputesReadableRaster_data();
   void idwComputesReadableRaster();
   void idwThenContourPassesTheRaster();
   void runningCancelStopsBeforePublish();
@@ -64,6 +73,8 @@ private slots:
   void rasterUsesLocalGrid();
   void issuedRasterDoesNotCrossDocuments();
   void frozenPointsAndLinesRejectPartialRows();
+  void documentTraceWindowStagesPortReceipt_data();
+  void documentTraceWindowStagesPortReceipt();
 };
 
 void TestCapabilityRound2::forgedHeadDoesNotAuthorizePublish() {
@@ -108,7 +119,14 @@ void TestCapabilityRound2::forgedHeadDoesNotAuthorizePublish() {
   QCOMPARE(forged.value(QStringLiteral("code")).toString(), QStringLiteral("stale_revision"));
 }
 
+void TestCapabilityRound2::idwComputesReadableRaster_data() {
+  QTest::addColumn<bool>("background");
+  QTest::newRow("direct") << false;
+  QTest::newRow("background") << true;
+}
+
 void TestCapabilityRound2::idwComputesReadableRaster() {
+  QFETCH(bool, background);
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   ExecuteRequest request = hostRequest(dir.path(), QStringLiteral("idw"));
@@ -118,7 +136,16 @@ void TestCapabilityRound2::idwComputesReadableRaster() {
   request.inputs.insert(QStringLiteral("points_ref"), QStringLiteral("ver-points"));
   request.inputs.insert(QStringLiteral("subinterval_id"), QStringLiteral("sub-1"));
   request.inputs.insert(QStringLiteral("points"), squarePoints());
-  const ExecuteResult computed = paleo::capability::execute(request);
+  ExecuteResult computed;
+  if (background) {
+    PaleoTaskService tasks;
+    bool done = false;
+    QVERIFY(paleo::capability::startCapabilityTask(&tasks, this, QStringLiteral("IDW"), request,
+        [&](ExecuteResult result) { computed = std::move(result); done = true; }));
+    QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+  } else {
+    computed = paleo::capability::execute(request);
+  }
   QVERIFY2(computed.ok, qPrintable(computed.code));
   QCOMPARE(computed.code, QStringLiteral("computed"));
   QVERIFY(computed.recomputed);
@@ -317,6 +344,122 @@ void TestCapabilityRound2::frozenPointsAndLinesRejectPartialRows() {
   for (const QJsonValue &value : barrierRows)
     barrierRole = barrierRole || value.toObject().value(QStringLiteral("role")).toString() == QLatin1String("hard_barrier");
   QVERIFY(barrierRole);
+}
+
+void TestCapabilityRound2::documentTraceWindowStagesPortReceipt_data() {
+  QTest::addColumn<QString>("externalPath");
+  QTest::newRow("synthetic") << QString();
+  const auto external = qEnvironmentVariable("PALEO_CAPABILITY_SEGY_READONLY");
+  if (!external.isEmpty())
+    QTest::newRow("read-only-segy") << external;
+}
+
+void TestCapabilityRound2::documentTraceWindowStagesPortReceipt() {
+  using namespace paleo::capability;
+  QFETCH(QString, externalPath);
+  document_fixture::Fixture fixture;
+  QVERIFY(fixture.init());
+  const QString path = externalPath.isEmpty() ? fixture.temp.filePath(QStringLiteral("traces.sgy")) : externalPath;
+  if (externalPath.isEmpty())
+    QVERIFY(document_fixture::write(path, document_fixture::smallSegy()));
+  const QFileInfo original(path);
+  QVERIFY(original.isFile());
+  const auto originalSize = original.size();
+  const auto originalTime = original.lastModified();
+  QVERIFY2(fixture.importModel(path), qPrintable(fixture.error));
+  QVERIFY(fixture.bind());
+  const auto sources = fixture.session.sources();
+  QCOMPARE(sources.size(), 1);
+  const auto source = sources.front();
+  paleo::data::DataService sdk;
+  std::string error;
+  QVERIFY2(sdk.openProjectReadOnly(source.modelDirectory.toUtf8().toStdString(), error), error.c_str());
+  std::vector<paleo::data::DataEntry> volumes;
+  QVERIFY2(sdk.listSourceData("volumes", source.ref.sourceId, volumes, error), error.c_str());
+  QCOMPARE(volumes.size(), size_t(1));
+  paleo::data::DataObjectDescriptor descriptor;
+  QVERIFY2(sdk.describeDataObject(paleo::data::DataObjectKind::SeismicVolume, volumes.front().id, descriptor, error), error.c_str());
+  const SeismicTraceSelection window{{source.ref, paleo::document::ObjectKind::SeismicVolume, descriptor.id,
+                                      QString::fromStdString(descriptor.revision)}, 1, 3, 2};
+
+  auto request = hostRequest(fixture.temp.filePath(QStringLiteral("trace-operations")), QStringLiteral("plan"));
+  request.publishIntent = QStringLiteral("prepare");
+  request.parameters = {{QStringLiteral("ATTRIBUTES"), QStringList{QStringLiteral("rms")}}, {QStringLiteral("WINDOW_HALF"), 1}};
+  QCOMPARE(bindSeismicTrace(request, fixture.session, window), QString());
+  const auto prepared = execute(request);
+  QVERIFY2(prepared.ok, qPrintable(prepared.code));
+  QCOMPARE(prepared.summary.value(QStringLiteral("firstReadSample")).toInt(), 2);
+  QCOMPARE(prepared.summary.value(QStringLiteral("readSampleCount")).toInt(), 4);
+  OperationLog log(request.operationDir);
+  QCOMPARE(log.recordById(prepared.operationId).execution, QStringLiteral("prepared"));
+  QVERIFY(!QDir(request.operationDir).exists(QStringLiteral("results")));
+
+  request.clientRequestId = QStringLiteral("run");
+  request.publishIntent = QStringLiteral("compute-only");
+  ExecuteResult computed;
+  bool done = false;
+  QVERIFY(startCapabilityTask(&fixture.tasks, this, QStringLiteral("Seismic window"), request,
+      [&](ExecuteResult result) { computed = std::move(result); done = true; }));
+  QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+  QVERIFY2(computed.ok, qPrintable(computed.code));
+  QCOMPARE(computed.summary.value(QStringLiteral("samplesRead")).toInt(), 4);
+  const auto ref = computed.summary.value(QStringLiteral("resultRef")).toMap();
+  QCOMPARE(ref.value(QStringLiteral("operationId")).toString(), computed.operationId);
+  const auto ports = ref.value(QStringLiteral("ports")).toList();
+  QCOMPARE(ports.size(), 1);
+  const auto port = ports.front().toMap();
+  QCOMPARE(port.value(QStringLiteral("portId")).toString(), QStringLiteral("RMS"));
+  QCOMPARE(port.value(QStringLiteral("sampleCount")).toInt(), 2);
+  QFile resultFile(computed.summary.value(QStringLiteral("result_path")).toString());
+  QVERIFY(resultFile.open(QIODevice::ReadOnly));
+  QCOMPARE(resultFile.size(), qint64(2 * sizeof(float)));
+  const auto bytes = resultFile.readAll();
+  resultFile.close();
+  QCOMPARE(port.value(QStringLiteral("sha256")).toByteArray(), QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+  if (externalPath.isEmpty()) {
+    float first = 0;
+    std::memcpy(&first, bytes.constData(), sizeof(first));
+    QVERIFY(std::abs(first - std::sqrt((12.0 * 12.0 + 13.0 * 13.0 + 14.0 * 14.0) / 3.0)) < 1e-5);
+  }
+  const auto replayed = execute(request);
+  QCOMPARE(replayed.code, QStringLiteral("replay"));
+  QCOMPARE(replayed.operationId, computed.operationId);
+  QCOMPARE(replayed.summary.value(QStringLiteral("resultRef")).toMap(), ref);
+  QVERIFY(!chatToolResponse(computed).contains(QStringLiteral("result_path")));
+
+  const QString relocatedDir = fixture.temp.filePath(QStringLiteral("relocated-trace-operations"));
+  QVERIFY(QDir().rename(request.operationDir, relocatedDir));
+  request.operationDir = relocatedDir;
+  const auto rebased = execute(request);
+  QVERIFY2(rebased.ok, qPrintable(rebased.code));
+  QCOMPARE(rebased.summary.value(QStringLiteral("resultRef")).toMap(), ref);
+  const auto newPath = rebased.summary.value(QStringLiteral("result_path")).toString();
+  QCOMPARE(QFileInfo(newPath).absolutePath(), QDir(relocatedDir).filePath(QStringLiteral("results")));
+  QFile oversized(newPath);
+  QVERIFY(oversized.open(QIODevice::ReadWrite));
+  QVERIFY(oversized.resize(bytes.size() + 1));
+  oversized.close();
+  const auto wrongSize = execute(request);
+  QCOMPARE(wrongSize.code, QStringLiteral("result_unavailable"));
+  QVERIFY(!wrongSize.ok);
+  QVERIFY(QFile::remove(newPath));
+  const auto missing = execute(request);
+  QCOMPARE(missing.code, QStringLiteral("result_unavailable"));
+  QVERIFY(!missing.ok);
+  QVERIFY(!missing.summary.contains(QStringLiteral("resultRef")));
+  QVERIFY(!missing.summary.contains(QStringLiteral("result_path")));
+
+  request.clientRequestId = QStringLiteral("receipt-failure");
+  request.onRunning = [](const QString &) { OperationLog::armOperationFileWriteFault(0); };
+  const auto failed = execute(request);
+  QVERIFY(!failed.ok);
+  QCOMPARE(failed.code, QStringLiteral("receipt_persist_failed"));
+  QVERIFY(!failed.summary.contains(QStringLiteral("resultRef")));
+  QCOMPARE(OperationLog(relocatedDir).recordById(failed.operationId).execution, QStringLiteral("failed"));
+  QVERIFY(!QFileInfo::exists(QDir(relocatedDir).filePath(QStringLiteral("results/") + failed.operationId + QStringLiteral("-trace.f32"))));
+
+  QCOMPARE(QFileInfo(path).size(), originalSize);
+  QCOMPARE(QFileInfo(path).lastModified(), originalTime);
 }
 
 int main(int argc, char *argv[]) {

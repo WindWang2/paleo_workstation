@@ -49,6 +49,7 @@ struct AiToolSpec {
 QVector<AiToolSpec> builtinAiToolSpecs();
 // 按名查表；未登记返回空 spec（name 为空）。
 AiToolSpec aiToolSpec(const QString &name);
+bool isAiCapabilityTool(const QString &name);
 
 // ---------------------------------------------------------------------------
 // 分发（可路由性判定——不执行；执行在 workflow/aichattoolrunner）

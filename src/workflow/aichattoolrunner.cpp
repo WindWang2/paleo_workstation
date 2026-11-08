@@ -1,8 +1,7 @@
 // 层：功能
 #include "aichattoolrunner.h"
-#include "capabilitygateway.h"
+#include "capabilitytaskrunner.h"
 #include <QDir>
-#include <QFileInfo>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -15,6 +14,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <utility>
 
 #include "../ai/chat/domaintools.h"
 #include "../ai/tileinference.h"
@@ -107,18 +107,41 @@ void AiChatToolRunner::setFaciesConfig(const WellFaciesConfig &config) {
 }
 
 void AiChatToolRunner::setContext(const Context &context) {
+  if (context.catalog != m_context.catalog || context.documentId != m_context.documentId ||
+      context.projectDir != m_context.projectDir)
+    invalidateContext();
   m_context = context;
 }
 
+void AiChatToolRunner::setTaskService(PaleoTaskService *service) {
+  if (m_taskService == service)
+    return;
+  invalidateContext();
+  m_taskService = service;
+}
+
+void AiChatToolRunner::invalidateContext() {
+  ++m_contextGeneration;
+  if (m_activeTask)
+    m_activeTask->requestCancel();
+}
+
+quint64 AiChatToolRunner::taskSession() const {
+  return m_taskService ? m_taskService->session() : 0;
+}
+
+bool AiChatToolRunner::activeContextIsCurrent() const {
+  return m_activeContextGeneration == m_contextGeneration && m_activeTaskSession == taskSession();
+}
+
 void AiChatToolRunner::run(const ChatToolCall &call) {
-  m_queue.append(call);
+  m_queue.append({call, m_contextGeneration, taskSession()});
   startNext();
 }
 
 void AiChatToolRunner::cancel() {
   // 取消 = 作废（口径见头文件）：在途结果不再 emit；tile 任务协作取消
   // （不写产品）；层位任务算完但丢弃；测井相 HTTP 中止。
-  m_cancelCompute.store(true);
   ++m_generation;
   m_queue.clear();
   if (m_activeTask)
@@ -135,16 +158,29 @@ void AiChatToolRunner::cancel() {
 void AiChatToolRunner::startNext() {
   if (m_active || m_queue.isEmpty())
     return;
-  m_activeCall = m_queue.takeFirst();
+  const QueuedCall next = m_queue.takeFirst();
+  m_activeCall = next.call;
+  m_activeContextGeneration = next.contextGeneration;
+  m_activeTaskSession = next.taskSession;
   m_active = true;
   m_activeIsFacies = false;
+  const int generation = m_generation;
   emit toolStarted(m_activeCall);
+  if (generation != m_generation)
+    return;
+  if (!activeContextIsCurrent()) {
+    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("stale_session")}});
+    return;
+  }
+  if (!m_activeCall.argumentsWithinBudget()) {
+    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("request_budget_exceeded")}});
+    return;
+  }
 
   QJsonParseError parseError;
   const QJsonDocument document =
     QJsonDocument::fromJson(m_activeCall.argumentsJson.toUtf8(), &parseError);
   const QJsonObject args = document.object();
-  const AiToolDispatch dispatch = dispatchAiTool(m_activeCall.name, args);
   // 表驱动诚实态：未登记 / 本构建不可用 / 实参不合格 → 错误结果回灌
   // （不冒充成功，也不静默丢帧）。注：fromJson 失败必返回 null 文档，
   // 只看 parseError 即可（旧实现的 !isNull() 使该分支永不触发，坏 JSON
@@ -154,6 +190,7 @@ void AiChatToolRunner::startNext() {
                                        .arg(parseError.errorString())));
     return;
   }
+  const AiToolDispatch dispatch = dispatchAiTool(m_activeCall.name, args);
   if (dispatch.status != AiToolDispatchStatus::Routed) {
     const QString text = aiToolDispatchLabel(dispatch.status) +
                          (dispatch.note.isEmpty()
@@ -173,24 +210,50 @@ void AiChatToolRunner::startNext() {
     runQuery(m_activeCall, args);
   else if (m_activeCall.name == QStringLiteral("paleo.asset_lineage"))
     runLineage(m_activeCall, args);
-  else if (m_activeCall.name == QStringLiteral("paleo.depth_convert_batch") ||
-           m_activeCall.name == QStringLiteral("paleo.seismic_attribute_group") ||
-           m_activeCall.name == QStringLiteral("paleo.constraint_idw")) {
-    if (m_context.projectDir.isEmpty() || m_context.documentId.isEmpty()) {
-      finishActive(false, errorPayload(tr("能力工具须由宿主绑定工程")));
-      return;
-    }
-    const QString operationDir = m_context.projectDir + QStringLiteral("/.paleo/capability-ops");
-    m_cancelCompute.store(false);
-    const QJsonObject payload = paleo::capability::runChatTool(
-        m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId, operationDir,
-        m_context.authoritativeHead, [this] { return m_cancelCompute.load(); }, m_context.catalog,
-        m_context.projectDir);
-    const bool ok = payload.value(QStringLiteral("ok")).toBool();
-    finishActive(ok, payload);
-  }
+  else if (isAiCapabilityTool(m_activeCall.name))
+    runCapability(dispatch.spec.title, args);
   else
     finishActive(false, errorPayload(tr("未登记的工具 %1").arg(m_activeCall.name)));
+}
+
+void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &args) {
+  using namespace paleo::capability;
+  if (m_context.projectDir.isEmpty() || m_context.documentId.isEmpty()) {
+    finishActive(false, errorPayload(tr("能力工具须由宿主绑定工程")));
+    return;
+  }
+  if (m_context.catalog && m_context.catalog->refusesWrites()) {
+    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("project_read_only")}});
+    return;
+  }
+  ExecuteRequest request;
+  const auto rejected = prepareChatToolRequest(
+      request, m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId,
+      m_context.projectDir + QStringLiteral("/.paleo/capability-ops"));
+  if (!rejected.isEmpty()) {
+    finishActive(false, rejected);
+    return;
+  }
+  const int generation = m_generation;
+  const QString callId = m_activeCall.id;
+  QString rejectionCode;
+  auto *task = startCapabilityTask(m_taskService, this, title, std::move(request),
+      [this, generation, callId](ExecuteResult result) {
+        if (generation != m_generation || !m_active || m_activeCall.id != callId)
+          return;
+        finishActive(result.ok, chatToolResponse(result));
+      }, &rejectionCode);
+  if (generation != m_generation) {
+    if (task)
+      task->requestCancel();
+    return;
+  }
+  m_activeTask = task;
+  // taskAdded can rebind the host synchronously before the task is assigned.
+  if (task && !activeContextIsCurrent())
+    task->requestCancel();
+  if (!task)
+    finishActive(false, QJsonObject{{QStringLiteral("code"), rejectionCode}});
 }
 
 QJsonObject AiChatToolRunner::errorPayload(const QString &message) const {
@@ -204,7 +267,6 @@ void AiChatToolRunner::finishActive(bool ok, const QJsonObject &payload) {
   const ChatToolCall call = m_activeCall;
   const bool wasFacies = m_activeIsFacies;
   const int generation = m_generation;
-  m_active = false;
   m_activeIsFacies = false;
   m_activeTask.clear();
   if (wasFacies)
@@ -219,9 +281,12 @@ void AiChatToolRunner::finishActive(bool ok, const QJsonObject &payload) {
     [this, generation, call, ok, payload]() {
       if (generation != m_generation)
         return; // 已取消/作废：在途结果不再回灌
-      emit toolFinished(call, ok,
-                        QString::fromUtf8(QJsonDocument(payload).toJson(
-                          QJsonDocument::Compact)));
+      const bool current = activeContextIsCurrent();
+      const QJsonObject result = current ? payload
+          : QJsonObject{{QStringLiteral("code"), QStringLiteral("stale_session")}};
+      m_active = false;
+      emit toolFinished(call, current && ok,
+                        QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact)));
       startNext();
     },
     Qt::QueuedConnection);

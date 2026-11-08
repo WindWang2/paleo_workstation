@@ -8,7 +8,6 @@
 #include "aiassistworkflow.h"
 #include <QJsonObject>
 #include <QObject>
-#include <atomic>
 #include <QPointer>
 #include <QString>
 #include <QVector>
@@ -62,7 +61,6 @@ public:
     DataCatalog *catalog = nullptr;
     QString documentId; // trusted host DocumentSession binding, required by typed queries
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
-    QString authoritativeHead; // 宿主查询到的当前头。模型参数里的 current_head 无效。
   };
 
   explicit AiChatToolRunner(QObject *parent = nullptr);
@@ -73,6 +71,7 @@ public:
   // 测试：loopback 假端点）——不隐藏读盘。
   void setFaciesConfig(const WellFaciesConfig &config);
   void setContext(const Context &context);
+  void setTaskService(PaleoTaskService *service);
 
   bool busy() const { return m_active || !m_queue.isEmpty(); }
 
@@ -99,6 +98,7 @@ signals:
 private:
   void startNext();
   void finishActive(bool ok, const QJsonObject &payload);
+  void runCapability(const QString &title, const QJsonObject &args);
   void runTile(const ChatToolCall &call, const QJsonObject &args);
   void runHorizon(const ChatToolCall &call, const QJsonObject &args);
   void runFacies(const ChatToolCall &call, const QJsonObject &args);
@@ -107,18 +107,30 @@ private:
   void runQuery(const ChatToolCall &call, const QJsonObject &args);
   void runLineage(const ChatToolCall &call, const QJsonObject &args);
   QJsonObject errorPayload(const QString &message) const;
+  void invalidateContext();
+  quint64 taskSession() const;
+  bool activeContextIsCurrent() const;
+
+  struct QueuedCall {
+    ChatToolCall call;
+    quint64 contextGeneration;
+    quint64 taskSession;
+  };
 
   AiAssistWorkflow *m_workflow = nullptr;
   Context m_context;
+  QPointer<PaleoTaskService> m_taskService;
   WellFaciesService *m_facies = nullptr; // 私有（本类拥有）
   WellFaciesConfig m_faciesConfig;       // 注入快照（预检端点/密钥齐不齐）
-  QVector<ChatToolCall> m_queue;
+  QVector<QueuedCall> m_queue;
   ChatToolCall m_activeCall;
   QPointer<PaleoTask> m_activeTask;
   bool m_active = false;
   bool m_activeIsFacies = false;
   int m_generation = 0; // cancel()/析构 ++：作废迟到回调
-  std::atomic<bool> m_cancelCompute{false};
+  quint64 m_contextGeneration = 0;
+  quint64 m_activeContextGeneration = 0;
+  quint64 m_activeTaskSession = 0;
 };
 
 // 装配/测试侧的简称（Context 语义上独立于 runner 实例存在）。

@@ -3,6 +3,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <atomic>
@@ -89,6 +90,9 @@ private slots:
   void threeDepthEntriesMatch();
   void replayConflictAndRestart();
   void cancelPublishAndPresentation();
+  void operationTransitionsRemainMonotonic();
+  void numericCacheAndOperationReceiptsAreIndependent();
+  void runningReceiptFailureSkipsExecution();
   void seismicGroupBudgetAndCache();
   void envelopeBatchDoesNotRejectCoherence();
   void constraintPlanAndBarriers();
@@ -208,7 +212,7 @@ void TestCapabilityGateway::cancelPublishAndPresentation() {
   for (int i = 0; i < 8; ++i)
     trace.append(std::sin(0.3 * i));
   request.inputs.clear();
-  request.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
+  request.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant::fromValue(trace)});
   request.inputs.insert(QStringLiteral("full_trace"), true);
   QVariantMap parents;
   parents.insert(QStringLiteral("RMS"), QStringList{QStringLiteral("ENVELOPE")});
@@ -250,7 +254,7 @@ void TestCapabilityGateway::seismicGroupBudgetAndCache() {
     raw[static_cast<std::size_t>(i)] = std::sin(0.25 * i);
     trace.append(static_cast<double>(raw[static_cast<std::size_t>(i)]));
   }
-  request.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
+  request.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant::fromValue(trace)});
   const ExecuteResult first = paleo::capability::execute(request);
   QVERIFY2(first.ok, qPrintable(first.code));
   QCOMPARE(first.summary.value(QStringLiteral("analyticEvaluations")).toInt(), 1);
@@ -508,6 +512,138 @@ void TestCapabilityGateway::planAndBudgetClaims() {
   QCOMPARE(replayed.load(), 1);
 }
 
+void TestCapabilityGateway::operationTransitionsRemainMonotonic() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  OperationLog first(dir.path()), second(dir.path());
+  auto accepted = first.accept("doc", "scope", "cancel", "hash-cancel");
+  QCOMPARE(accepted.code, QStringLiteral("created"));
+  auto running = accepted.record;
+  running.execution = QStringLiteral("running");
+  ++running.computeCount;
+  QVERIFY(first.save(running));
+  OperationLog::Record current;
+  QVERIFY(!second.save(running, &current));
+  QVERIFY(current == running);
+  {
+    OperationWriteFault fault(0);
+    QCOMPARE(second.cancel(running.operationId), QStringLiteral("persist_failed"));
+    QVERIFY(!paleo::capability::cancelRequested(running.operationId));
+    QVERIFY(first.recordById(running.operationId) == running);
+  }
+  QCOMPARE(second.cancel(running.operationId), QStringLiteral("cancelled"));
+  auto stalePublisher = running;
+  stalePublisher.commitState = QStringLiteral("publishing");
+  QVERIFY(!first.save(stalePublisher, &current));
+  QCOMPARE(current.execution, QStringLiteral("cancelled"));
+  OperationLog reopened(dir.path());
+  const auto replay = reopened.accept("doc", "scope", "cancel", "hash-cancel");
+  QCOMPARE(replay.code, QStringLiteral("replay"));
+  QVERIFY(replay.record == current);
+
+  accepted = first.accept("doc", "scope", "publish", "hash-publish");
+  QCOMPARE(accepted.code, QStringLiteral("created"));
+  running = accepted.record;
+  running.execution = QStringLiteral("running");
+  ++running.computeCount;
+  QVERIFY(first.save(running));
+  auto publishing = running;
+  publishing.commitState = QStringLiteral("publishing");
+  QVERIFY(first.save(publishing));
+  QVERIFY(!second.save(publishing, &current));
+  QCOMPARE(second.cancel(running.operationId), QStringLiteral("commit_uncertain"));
+  QVERIFY(first.recordById(running.operationId) == publishing);
+  auto published = publishing;
+  published.execution = QStringLiteral("succeeded");
+  published.commitState = QStringLiteral("committed");
+  published.code = QStringLiteral("committed");
+  QVERIFY(first.save(published));
+  QCOMPARE(second.cancel(running.operationId), QStringLiteral("cancel_after_commit"));
+  QVERIFY(!second.save(running, &current));
+  QVERIFY(current == published);
+
+  accepted = first.accept("doc", "scope", "read", "hash-read");
+  auto prepared = accepted.record;
+  prepared.execution = QStringLiteral("prepared");
+  prepared.code = QStringLiteral("prepared");
+  QVERIFY(first.save(prepared));
+  QCOMPARE(second.cancel(prepared.operationId), QStringLiteral("already_terminal"));
+  QVERIFY(first.recordById(prepared.operationId) == prepared);
+}
+
+void TestCapabilityGateway::numericCacheAndOperationReceiptsAreIndependent() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const auto operations = dir.filePath(QStringLiteral("operations.json"));
+  const auto numericCache = dir.filePath(QStringLiteral("numeric-cache.json"));
+  const QByteArray oldCache = "{ \"legacy\" : \"cGF5bG9hZA==\" }\n";
+  {
+    QFile file(numericCache);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(oldCache), oldCache.size());
+  }
+  OperationLog log(dir.path());
+  QCOMPARE(log.cacheGet("legacy"), QByteArray("payload"));
+  QVERIFY(!QFileInfo::exists(operations));
+  const auto accepted = log.accept("doc", "scope", "request", "hash");
+  QCOMPARE(accepted.code, QStringLiteral("created"));
+  auto running = accepted.record;
+  running.execution = QStringLiteral("running");
+  ++running.computeCount;
+  QVERIFY(log.save(running));
+  QVERIFY(log.recordById(running.operationId) == running);
+  {
+    QFile file(numericCache);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), oldCache);
+  }
+  {
+    OperationWriteFault fault(0);
+    log.cachePut("new", "result");
+    QCOMPARE(log.cacheGet("new"), QByteArray("result"));
+    QCOMPARE(log.cacheGet("legacy"), QByteArray("payload"));
+    QCOMPARE(log.cancel(running.operationId), QStringLiteral("persist_failed"));
+  }
+  const QByteArray corrupt = "[{\"operationId\":";
+  {
+    QFile file(operations);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(file.write(corrupt), corrupt.size());
+  }
+  QCOMPARE(log.accept("doc", "scope", "new-request", "hash").code, QStringLiteral("operation_log_unavailable"));
+  {
+    QFile file(operations);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), corrupt);
+  }
+}
+
+void TestCapabilityGateway::runningReceiptFailureSkipsExecution() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  auto request = depthRequest(dir.path(), QStringLiteral("cannot-start"));
+  int starts = 0;
+  request.onRunning = [&](const QString &) { ++starts; };
+  ExecuteResult result;
+  {
+    OperationWriteFault fault(1);
+    result = paleo::capability::execute(request);
+  }
+  QVERIFY(!result.ok);
+  QCOMPARE(result.code, QStringLiteral("persist_failed"));
+  QCOMPARE(result.execution, QStringLiteral("failed"));
+  QVERIFY(!result.operationId.isEmpty());
+  QCOMPARE(starts, 0);
+  const auto stored = OperationLog(dir.path()).recordById(result.operationId);
+  QCOMPARE(stored.computeCount, 0);
+  QCOMPARE(stored.execution, QStringLiteral("failed"));
+  const auto replay = paleo::capability::execute(request);
+  QCOMPARE(replay.code, QStringLiteral("replay"));
+  QVERIFY(!replay.ok);
+  QCOMPARE(replay.operationId, result.operationId);
+  QCOMPARE(starts, 0);
+}
+
 void TestCapabilityGateway::reviewFixes() {
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
@@ -629,7 +765,7 @@ void TestCapabilityGateway::secondReviewFixes() {
   QVariantList volume;
   for (int i = 0; i < 128; ++i)
     volume.append(std::sin(0.05 * i));
-  mixed.inputs.insert(QStringLiteral("traces"), QVariantList{trace});
+  mixed.inputs.insert(QStringLiteral("traces"), QVariantList{QVariant::fromValue(trace)});
   mixed.inputs.insert(QStringLiteral("full_trace"), true);
   mixed.inputs.insert(QStringLiteral("volume"), volume);
   mixed.inputs.insert(QStringLiteral("nIl"), 4);

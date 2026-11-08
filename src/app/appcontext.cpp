@@ -313,6 +313,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   // 方向51：AI 对话助手编排。端点/模型从用户配置读，密钥由系统钥匙串异步
   // 补齐——补齐前是禁用态（UI 显示禁用原因），不静默跑假回答。
   m_aiChat = new AiChatController(this);
+  m_aiChat->toolRunner()->setTaskService(m_taskSvc);
   // 方向61/77：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
   // 只读工程工具（query/lineage）不依赖 ORT——无 ORT 构建也绑（assist 为空
   // 时 tile/horizon 由执行器按调用如实报错）。
@@ -408,6 +409,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   });
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
     m_projectLayerRefresh->cancel();
+    if (m_aiChat)
+      m_aiChat->cancel();
     if (m_versionCtl)
       m_versionCtl->abandonForProjectClose();
     if (m_taskSvc)

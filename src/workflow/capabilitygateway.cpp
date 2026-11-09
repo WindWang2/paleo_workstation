@@ -1119,7 +1119,8 @@ ExecuteResult execute(const ExecuteRequest &request) {
     if (request.seismicTrace && replay.ok && replay.execution == QLatin1String("succeeded")) {
       if (!restoreSeismicTraceResult(request, replay)) {
         replay.ok = false;
-        replay.code = QStringLiteral("result_unavailable");
+        replay.code = request.cancelled && request.cancelled() ? QStringLiteral("cancelled")
+                                                               : QStringLiteral("result_unavailable");
         replay.summary.remove(QStringLiteral("result_path"));
         replay.summary.remove(QStringLiteral("resultRef"));
       }

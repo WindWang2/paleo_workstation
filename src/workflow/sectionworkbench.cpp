@@ -73,8 +73,8 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
   auto *watcher = new QFutureWatcher<PreviewData>(this);
   watcher->setObjectName("sectionWellPreviewWatcher");
   connect(watcher, &QFutureWatcherBase::finished, this,
-          [this, watcher, generation, sequence, path,includeSections] {
-            const bool cancelled = watcher->future().isCanceled();
+          [this, watcher, generation, sequence, path, includeSections, stop] {
+            const bool cancelled = stop->load() || watcher->future().isCanceled();
             const auto data = !cancelled && watcher->future().resultCount()
                                   ? watcher->result()
                                   : PreviewData{};
@@ -91,6 +91,8 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
                        m_catalog && m_catalog->catalogPath() == path &&
                        m_previewReady) {
               m_previewPending = true; // 同目录数据已更新，重读最新快照
+            } else if (cancelled && generation == m_previewGeneration) {
+              m_previewReady = {};
             }
             if (m_previewPending)
             {

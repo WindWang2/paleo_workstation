@@ -1,5 +1,6 @@
 // 层：数据
 #include "areasource_delta_internal.h"
+#include "areawellprojection.h"
 #include "../domain/projectclassifier.h"
 #include "../domain/shaequals.h"
 #include <QDir>
@@ -24,9 +25,16 @@ std::shared_ptr<Cache> cacheFor(DataCatalog &catalog,const QString &generation,A
     if(id>0 && version.stage==QLatin1String("RAW") && version.extra.value("areaModelGeneration").toString()==generation)entry->sources.insert(id,version.id);
   }
   for(const auto &entity:catalog.storedEntities()) {
-    if(entity.extra.value("areaModelGeneration").toString()!=generation)continue;
-    if(entity.entityType==QLatin1String("well"))entry->wells.insert(entity.extra.value("areaModelWellId").toLongLong(),entity.id);
-    if(entity.entityType==QLatin1String("seismic_survey"))entry->surveys.insert(entity.extra.value("areaModelVolumeId").toLongLong(),entity.id);
+    const auto entityGeneration=entity.extra.value("areaModelGeneration").toString();
+    const bool currentGeneration=entityGeneration==generation;
+    if(entity.entityType==QLatin1String("well")) {
+      // Independent well registration may create the card before journal replay.
+      const auto wellId=entity.extra.value("areaModelWellId").toLongLong();
+      if(wellId>0 && (currentGeneration || (entityGeneration.isEmpty() && !entry->wells.contains(wellId))))
+        entry->wells.insert(wellId,entity.id);
+    }
+    if(currentGeneration && entity.entityType==QLatin1String("seismic_survey"))
+      entry->surveys.insert(entity.extra.value("areaModelVolumeId").toLongLong(),entity.id);
   }
   entry->mutationSequence=catalog.mutationSeq();if(stats)++stats->cacheBuilds;
   return entry;
@@ -79,14 +87,17 @@ bool applyWell(DataCatalog &catalog,Cache &cache,const QJsonObject &image,bool d
   }
   const auto value=image.value("value").toObject();
   if(!ensureWell(catalog,cache,modelId,value.value("name").toString(),error))return false;
-  auto entity=catalog.storedEntityById(cache.wells.value(modelId));
-  entity.name=value.value("name").toString();entity.hasSurface=value.value("x").isDouble() && value.value("y").isDouble();
-  entity.surfaceX=value.value("x").toDouble();entity.surfaceY=value.value("y").toDouble();entity.coordinateStatus=entity.hasSurface?"untransformed":"missing";
-  entity.td=value.value("totalDepth").toDouble(qQNaN());
-  entity.extra["areaModelWellActive"]=true;entity.extra["wellCoordinatesCrs"]=value.value("crs").toString();
-  entity.extra["wellCoordinateUnit"]=value.value("unit").toString();entity.extra["wellType"]=value.value("wellType").toString();
-  entity.extra["fieldName"]=value.value("fieldName").toString();entity.extra["wellRemark"]=value.value("remark").toString();
-  return catalog.updateEntity(entity,error);
+  CatalogEntity model;
+  model.name=value.value("name").toString();
+  model.hasSurface=value.value("x").isDouble() && value.value("y").isDouble();
+  model.surfaceX=value.value("x").toDouble();model.surfaceY=value.value("y").toDouble();
+  model.coordinateStatus=model.hasSurface?"untransformed":"missing";
+  model.td=value.value("totalDepth").toDouble(qQNaN());
+  model.extra={{"areaModelGeneration",cache.generation},{"areaModelWellActive",true},
+      {"wellCoordinatesCrs",value.value("crs").toString()},{"wellCoordinateUnit",value.value("unit").toString()},
+      {"wellType",value.value("wellType").toString()},{"fieldName",value.value("fieldName").toString()},
+      {"wellRemark",value.value("remark").toString()}};
+  return catalog.updateEntity(overlayAreaWell(catalog.storedEntityById(cache.wells.value(modelId)),model),error);
 }
 bool ensureSurvey(DataCatalog &catalog,Cache &cache,const QJsonObject &row,QString *error) {
   const auto modelId=id(row.value("id"));if(modelId<=0)return reject(error,QStringLiteral("测区日志标识无效"));

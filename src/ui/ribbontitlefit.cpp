@@ -25,6 +25,12 @@ namespace
 {
   const char *kFitter = "paleoTitleRowFitter";
 
+  struct FoldedAction
+  {
+    QPointer<QAction> action;
+    QPointer<QAction> next;
+  };
+
   class TitleRowFitter : public QObject
   {
     public:
@@ -101,24 +107,14 @@ namespace
         if (deficit > 0)
         {
           const auto candidates = foldable();
+          const auto order = m_right->actions();
           m_moreAction->setVisible(true);
           for (auto it = candidates.rbegin(); it != candidates.rend() && groupWidth() > budget(); ++it)
           {
-            // addAction 进来的按钮以 action 为 defaultAction：action 一改可见性，按钮就从
-            // action 回写 whatsThis/statusTip——先把按钮上已回填的说明落到 action 上。
-            if (!qobject_cast<QWidgetAction *>(*it))
-              if (auto *b = qobject_cast<QToolButton *>(m_right->widgetForAction(*it)))
-              {
-                if ((*it)->whatsThis().isEmpty() && !b->whatsThis().isEmpty())
-                  (*it)->setWhatsThis(b->whatsThis());
-                if ((*it)->statusTip().isEmpty() && !b->statusTip().isEmpty())
-                  (*it)->setStatusTip(b->statusTip());
-              }
-            (*it)->setVisible(false);
-            m_folded.insert(m_folded.begin(), *it);
+            foldAction(*it, order.value(order.indexOf(*it) + 1));
           }
-          // 5. 仍不够：快速访问栏也让位，其命令并入「更多」
-          if (groupWidth() > budget())
+          // 紧凑布局中快速访问栏和页签同行，收起它才有空间可让。
+          if (m_bar->isCompactStyle() && groupWidth() > budget())
             if (QWidget *qab = m_bar->quickAccessBar(); qab && qab->isVisibleTo(m_bar))
             {
               qab->setVisible(false);
@@ -311,6 +307,26 @@ namespace
         return out;
       }
 
+      void foldAction(QAction *action, QAction *next)
+      {
+        if (qobject_cast<QWidgetAction *>(action))
+          action->setVisible(false);
+        else
+        {
+          // QAction::setVisible(false) 也会让命令从菜单消失并禁用。只移出工具栏。
+          if (auto *button = qobject_cast<QToolButton *>(m_right->widgetForAction(action)))
+          {
+            const QString status = button->statusTip();
+            if (action->whatsThis().isEmpty() && !button->whatsThis().isEmpty())
+              action->setWhatsThis(button->whatsThis());
+            if (action->statusTip().isEmpty() && !status.isEmpty())
+              action->setStatusTip(status);
+          }
+          m_right->removeAction(action);
+        }
+        m_folded.insert(m_folded.begin(), {action, next});
+      }
+
       void fillMoreMenu(QMenu *menu)
       {
         menu->clear();
@@ -322,14 +338,22 @@ namespace
                 menu->addAction(a);
             menu->addSeparator();
           }
-        for (QAction *a : m_folded)
+        for (const auto &folded : m_folded)
         {
-          auto *b = qobject_cast<QToolButton *>(m_right->widgetForAction(a));
+          QAction *action = folded.action;
+          if (!action)
+            continue;
+          if (!qobject_cast<QWidgetAction *>(action))
+          {
+            menu->addAction(action);
+            continue;
+          }
+          auto *b = qobject_cast<QToolButton *>(m_right->widgetForAction(action));
           if (!b)
             continue;
-          if (!qobject_cast<QWidgetAction *>(a))
+          if (auto *command = b->defaultAction())
           {
-            menu->addAction(a); // addAction 进来的（如 dock 显隐）：原 action 直接复用
+            menu->addAction(command);
             continue;
           }
           QString text = b->text();
@@ -337,6 +361,9 @@ namespace
             text = b->accessibleName();
           QAction *proxy = menu->addAction(b->icon(), text);
           proxy->setToolTip(b->toolTip());
+          proxy->setEnabled(b->isEnabled());
+          proxy->setCheckable(b->isCheckable());
+          proxy->setChecked(b->isChecked());
           if (b->menu())
             proxy->setMenu(b->menu());
           else
@@ -351,9 +378,18 @@ namespace
           if (QWidget *qab = m_bar->quickAccessBar())
             qab->setVisible(true);
         m_qabHidden = false;
-        for (QAction *a : m_folded)
-          if (a)
-            a->setVisible(true);
+        // 从右到左恢复，保证命令原先的后一项已在工具栏中。
+        for (auto it = m_folded.rbegin(); it != m_folded.rend(); ++it)
+          if (QAction *action = it->action)
+          {
+            if (qobject_cast<QWidgetAction *>(action))
+              action->setVisible(true);
+            else
+            {
+              QAction *next = it->next;
+              m_right->insertAction(m_right->actions().contains(next) ? next : m_moreAction.data(), action);
+            }
+          }
         m_folded.clear();
         for (QToolButton *b : m_iconified)
           if (b)
@@ -432,7 +468,7 @@ namespace
       QPointer<QWidget> m_slot;
       QPointer<QWidget> m_search;
       QPointer<QAction> m_slotAction, m_searchBtnAction, m_moreAction;
-      std::vector<QPointer<QAction>> m_folded;
+      std::vector<FoldedAction> m_folded;
       std::vector<QPointer<QToolButton>> m_iconified;
       bool m_fitting = false, m_scheduled = false, m_searchCollapsed = false, m_expanded = false, m_qabHidden = false;
   };

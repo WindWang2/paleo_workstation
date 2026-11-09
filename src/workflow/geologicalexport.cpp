@@ -26,12 +26,46 @@ namespace PaleoGeologicalExport {
 namespace {
 struct Job {
   PaleoLayoutExport::LayoutSnapshot capture; // 工程快照 + 版面 XML + 图面图层 id（#531）
-  QVariantMap description;
+  QVariantMap description, metadata;
   std::unique_ptr<QTemporaryDir> output, managed;
   std::unique_ptr<DataCatalog> catalog;
   QVector<CatalogOp> journal;
   Result result;
 };
+
+bool writeMetadata(const Job &job, QString *error) {
+  const auto bytes = QJsonDocument::fromVariant(job.metadata).toJson(QJsonDocument::Indented);
+  QSaveFile file(job.output->filePath("metadata.json"));
+  if (file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit())
+    return true;
+  *error = QObject::tr("无法写出图件说明");
+  return false;
+}
+
+bool publish(Job &job, const Request &request, DataCatalog *catalog,
+             const QString &projectDirectory, QHash<QString, QString> &idMap) {
+  const auto placementError = QObject::tr("无法提交图件目录，目标可能已存在");
+  if (!request.registerInProject) {
+    if (QDir().rename(job.output->path(), request.destination))
+      return true;
+    job.result.error = placementError;
+    return false;
+  }
+  const MapExportPackage package{job.output->path(), request.destination, placementError,
+      [&job](const QHash<QString, QString> &remapped, QString *error) {
+        auto products = job.metadata.value("products").toList();
+        for (auto &item : products) {
+          auto product = item.toMap();
+          const auto id = product.value("asset_id").toString();
+          product.insert("asset_id", remapped.value(id, id));
+          item = std::move(product);
+        }
+        job.metadata.insert("products", std::move(products));
+        return writeMetadata(job, error);
+      }};
+  return publishMapExportJournal(catalog, projectDirectory, job.managed->path(), job.journal,
+                                 &job.result.error, &idMap, &package);
+}
 }
 PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, PaleoTaskService *tasks,
     const Request &request, QObject *receiver, std::function<void(const Result &)> done, QString *error) {
@@ -182,15 +216,14 @@ PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, 
     }
     auto context = job->description;
     for (auto i = request.context.begin(); i != request.context.end(); ++i) context.insert(i.key(), i.value());
-    const auto bytes = QJsonDocument::fromVariant(QVariantMap{{"schema", "paleo_map_export_v1"},
+    job->metadata = {{"schema", "paleo_map_export_v1"},
         {"registered_in_project", request.registerInProject}, {"exported_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"qgis_version", PaleoLayoutExport::qgisVersion()},
         {"dpi", request.dpi}, {"world_file", request.options.worldFile}, {"geo_pdf", request.options.geoPdf},
         {"text_as_paths", request.options.textAsPaths}, {"transparent_background", request.options.transparentBackground}, {"context", context}, {"input_versions", request.sourceVersionIds},
         {"source_package_requested", request.includeSources},
         {"source_coverage_complete", request.includeSources && unbound.isEmpty()},
-        {"input_metadata", inputMetadata}, {"files", files}, {"layer_data", layerData}, {"products", registered}, {"warnings", job->result.warnings}}).toJson(QJsonDocument::Indented);
-    QSaveFile metadata(job->output->filePath("metadata.json"));
-    if (!metadata.open(QIODevice::WriteOnly) || metadata.write(bytes) != bytes.size() || !metadata.commit()) return fail(QObject::tr("无法写出图件说明"));
+        {"input_metadata", inputMetadata}, {"files", files}, {"layer_data", layerData}, {"products", registered}, {"warnings", job->result.warnings}};
+    if (!writeMetadata(*job, &error)) return fail(error);
     job->result.files << "metadata.json";
     // Keep the same immutable context on each registered image/PDF without
     // inventing computational parentage for a cartographic rendering.
@@ -215,10 +248,7 @@ PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, 
     if (stale) task->discardPublication();
     if (!job->result.cancelled && task->state() == PaleoTask::State::Succeeded) {
       QHash<QString, QString> idMap;
-      if (!QDir().rename(job->output->path(), request.destination)) job->result.error = QObject::tr("无法提交图件目录，目标可能已存在");
-      else if (request.registerInProject && !publishMapExportJournal(owner, projectDirectory, job->managed->path(), job->journal, &job->result.error, &idMap))
-        QDir(request.destination).removeRecursively();
-      else {
+      if (publish(*job, request, owner, projectDirectory, idMap)) {
         if (const auto it = idMap.constFind(job->result.pdfAssetId); it != idMap.constEnd())
           job->result.pdfAssetId = it.value();
         for (auto &id : job->result.assetIds) {
@@ -237,6 +267,7 @@ PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, 
     // staging trees. No live project files reside in these two private roots.
     job->catalog.reset();
     job->output.reset(); job->managed.reset();
+    job->metadata.clear();
     job->capture = {}; // 旧 Job 的 project/layout 两成员已并为 capture（#531）
     if (target && done) done(job->result);
   });

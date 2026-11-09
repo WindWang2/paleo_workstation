@@ -62,10 +62,12 @@ Snapshot snapshot(const QString &project) {
   { QMutexLocker lock(&cacheMutex); if (cache.size() >= 64) cache.clear(); cache.insert(root, out); }
   return out;
 }
-CatalogEntity overlay(CatalogEntity stored, const CatalogEntity &model) {
+}
+CatalogEntity overlayAreaWell(CatalogEntity stored, const CatalogEntity &model) {
   const bool keepTransform = stored.hasSurface && model.hasSurface && stored.surfaceX == model.surfaceX
       && stored.surfaceY == model.surfaceY && stored.coordinateStatus == "ok"
-      && stored.extra.value("wellCoordinatesCrs") == model.extra.value("wellCoordinatesCrs");
+      && stored.extra.value("wellCoordinatesCrs") == model.extra.value("wellCoordinatesCrs")
+      && stored.extra.value("wellCoordinateUnit") == model.extra.value("wellCoordinateUnit");
   stored.name = model.name; stored.surfaceX = model.surfaceX; stored.surfaceY = model.surfaceY;
   stored.hasSurface = model.hasSurface; stored.td = model.td;
   stored.coordinateStatus = keepTransform ? "ok" : model.coordinateStatus;
@@ -73,6 +75,7 @@ CatalogEntity overlay(CatalogEntity stored, const CatalogEntity &model) {
   for (auto it = model.extra.cbegin(); it != model.extra.cend(); ++it) stored.extra.insert(it.key(), it.value());
   return stored;
 }
+namespace {
 CatalogEntity catalogRecord(CatalogEntity value) {
   // Legacy catalog columns are NOT NULL. hasSurface carries absence there;
   // public reads restore the domain model's NaNs instead of exposing these placeholders.
@@ -81,14 +84,12 @@ CatalogEntity catalogRecord(CatalogEntity value) {
   if (!std::isfinite(value.td)) value.td = 0;
   return value;
 }
-}
-namespace {
 CatalogEntity resolve(const Snapshot &data, const CatalogEntity &stored) {
   if (stored.entityType != "well") return stored;
   const auto id = stored.extra.value("areaModelWellId").toLongLong();
   if (!data.exists && !id) return stored;
   const int index = id ? data.ids.value(id, -1) : data.names.value(stored.name, -1);
-  if (index >= 0) return overlay(stored, data.rows[index]);
+  if (index >= 0) return overlayAreaWell(stored, data.rows[index]);
   if (id || !data.error.isEmpty()) {
     auto result = stored; result.hasSurface = false; result.surfaceX = result.surfaceY = qQNaN();
     result.extra.remove("projectLon"); result.extra.remove("projectLat");
@@ -128,7 +129,7 @@ bool registerAreaWells(DataCatalog &catalog, QString *error) {
       batch.abort(); return false;
     }
     if (match >= 0) {
-      if (!catalog.updateEntity(catalogRecord(overlay(existing[match], model)), error)) { batch.abort(); return false; }
+      if (!catalog.updateEntity(catalogRecord(overlayAreaWell(existing[match], model)), error)) { batch.abort(); return false; }
       continue;
     }
     auto entity = catalogRecord(model); entity.id = catalog.nextEntityId("well");

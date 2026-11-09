@@ -737,7 +737,9 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_visualizationTabs = new QTabBar(visualizations);
   m_visualizationTabs->setObjectName(QStringLiteral("visualizationTabs"));
   m_visualizationTabs->setAccessibleName(tr("可视化视图"));
+  m_visualizationTabs->setDocumentMode(true);
   m_visualizationTabs->setExpanding(false);
+  m_visualizationTabs->setUsesScrollButtons(true);
   m_visualizationTabs->setTabsClosable(true);
   connect(m_visualizationTabs, &QTabBar::tabCloseRequested, this, [this](int index) {
     if (m_visualizationTabs->tabData(index).toMap().value(QStringLiteral("surface")) == QStringLiteral("compose")) return;

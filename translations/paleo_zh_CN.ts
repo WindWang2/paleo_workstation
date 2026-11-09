@@ -20875,6 +20875,28 @@ Crossline: %3 ~ %4</source>
         <translation>古地理编图</translation>
     </message>
     <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="133"/>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="136"/>
+        <source>视图</source>
+        <translation>视图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="139"/>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="144"/>
+        <source>分析任务</source>
+        <translation>分析任务</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="253"/>
+        <source>展开功能区</source>
+        <translation>展开功能区</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="253"/>
+        <source>折叠功能区</source>
+        <translation>折叠功能区</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="130"/>
         <source>打开数据视图</source>
         <translation>打开数据视图</translation>
@@ -30217,6 +30239,11 @@ PDF：%3
         <location filename="../src/workflow/mapexport.cpp" line="328"/>
         <source>无法提交导出成果：%1</source>
         <translation>无法提交导出成果：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapexport.cpp" line="341"/>
+        <source>无法撤回导出目录：%1</source>
+        <translation>无法撤回导出目录：%1</translation>
     </message>
     <message>
         <location filename="../src/workflow/mapexport.cpp" line="349"/>

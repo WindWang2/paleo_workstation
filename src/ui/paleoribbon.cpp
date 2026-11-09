@@ -200,6 +200,12 @@ namespace PaleoRibbon
     win->setStyleSheet(win->styleSheet() + QLatin1Char('\n') +
                        PaleoTheme::ribbonStyleSheet() + QLatin1Char('\n') +
                        shellQss);
+    // SARibbon 缓存已绘制的图标，调色板变化不会刷新该缓存。
+    for (auto *button : win->findChildren<SARibbonToolButton *>())
+    {
+      button->invalidateIconCache();
+      button->update();
+    }
   }
 
   void nameScrollButtons(QWidget *root)

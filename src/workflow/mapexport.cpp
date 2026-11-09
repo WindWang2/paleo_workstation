@@ -300,7 +300,8 @@ QVector<CatalogOp> remapCollidingJournalIds(DataCatalog *live,
 bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
                              const QString &stagingRoot,
                              const QVector<CatalogOp> &ops, QString *error,
-                             QHash<QString, QString> *idMap) {
+                             QHash<QString, QString> *idMap,
+                             const MapExportPackage *package) {
   QStringList moved;
   const auto fail = [&](const QString &why) {
     for (const auto &path : moved) {
@@ -329,8 +330,17 @@ bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
     moved.append(target);
   }
   QString why;
-  if (!catalog || !catalog->applyJournal(replay, &why))
+  if (package) {
+    if (!remapped.isEmpty() && package->updateManifest && !package->updateManifest(remapped, &why))
+      return fail(why);
+    if (!QDir().rename(package->staging, package->destination))
+      return fail(package->placementError);
+  }
+  if (!catalog || !catalog->applyJournal(replay, &why)) {
+    if (package && !QDir().rename(package->destination, package->staging))
+      why += QLatin1Char('\n') + QObject::tr("无法撤回导出目录：%1").arg(package->destination);
     return fail(why);
+  }
   if (idMap)
     *idMap = remapped;
   return true;

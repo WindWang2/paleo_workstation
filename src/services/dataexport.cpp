@@ -29,8 +29,33 @@ bool isStagingRootName(const QString &name) {
     const auto suffix = name.mid(prefix.size());
     if (suffix.size() != 6) continue;
     bool alphanumeric = true;
-    for (const QChar &ch : suffix) if (!ch.isLetterOrNumber()) { alphanumeric = false; break; }
+    for (const QChar &ch : suffix) {
+      const auto code = ch.unicode();
+      if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') ||
+          (code >= '0' && code <= '9')) continue;
+      alphanumeric = false;
+      break;
+    }
     if (alphanumeric) return true;
+  }
+  return false;
+}
+bool redirectsPath(const QFileInfo &entry) {
+  // Qt does not report NTFS junctions as symbolic links.
+  return entry.isSymbolicLink() || entry.isJunction();
+}
+bool containsRedirect(const QString &root) {
+  // Inspect hidden and system entries too, because recursive removal visits them.
+  QStringList directories{root};
+  while (!directories.isEmpty()) {
+    const auto path = directories.takeLast();
+    if (redirectsPath(QFileInfo(path))) return true;
+    const auto entries = QDir(path).entryInfoList(
+        QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System, QDir::NoSort);
+    for (const auto &entry : entries) {
+      if (redirectsPath(entry)) return true;
+      if (entry.isDir()) directories.append(entry.absoluteFilePath());
+    }
   }
   return false;
 }
@@ -133,9 +158,12 @@ void sweepStaleStagingRoots(const QString &parentDirectory) {
   if (!parent.exists()) return;
   const auto now = QDateTime::currentDateTime();
   for (const auto &entry : parent.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
-    if (!isStagingRootName(entry.fileName())) continue;
+    if (!isStagingRootName(entry.fileName()) || redirectsPath(entry)) continue;
     const auto ageHours = entry.lastModified().secsTo(now) / 3600.0;
     if (ageHours > kStaleStagingHours) {
+      if (containsRedirect(entry.absoluteFilePath())) continue;
+      const QFileInfo current(entry.absoluteFilePath());
+      if (!current.isDir() || redirectsPath(current) || current.lastModified() != entry.lastModified()) continue;
       if (QDir(entry.absoluteFilePath()).removeRecursively())
         qWarning("exporting: swept stale staging root: %s", qPrintable(entry.absoluteFilePath()));
       else

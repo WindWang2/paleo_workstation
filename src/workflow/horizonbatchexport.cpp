@@ -38,6 +38,32 @@
 
 namespace
 {
+  bool writeMetadata(const QTemporaryDir &directory, const QVariantMap &metadata, QString *error)
+  {
+    const auto bytes = QJsonDocument::fromVariant(metadata).toJson();
+    QSaveFile file(directory.filePath("metadata.json"));
+    if (file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit())
+      return true;
+    *error = QObject::tr("无法写出批量图件清单");
+    return false;
+  }
+
+  bool updateMetadata(const QTemporaryDir &directory, QVariantMap &metadata,
+                      const QHash<QString, QString> &remapped, QString *error)
+  {
+    auto horizons = metadata.value("horizons").toList();
+    for (auto &item : horizons) {
+      auto horizon = item.toMap();
+      auto assets = horizon.value("assets").toStringList();
+      for (auto &id : assets)
+        id = remapped.value(id, id);
+      horizon.insert("assets", std::move(assets));
+      item = std::move(horizon);
+    }
+    metadata.insert("horizons", std::move(horizons));
+    return writeMetadata(directory, metadata, error);
+  }
+
   // 文件名段消毒：路径非法字符与空白替换为 '_'，空段回 "untitled"。
   QString safeSegment( const QString &raw )
   {
@@ -390,6 +416,7 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
     std::unique_ptr<QTemporaryDir> staging, external;
     std::unique_ptr<DataCatalog> catalog;
     QVector<CatalogOp> journal;
+    QVariantMap metadata;
     Result result;
     QString error;
   };
@@ -511,12 +538,10 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
           }
           // 清单先于任何早退落盘（#541）：写入失败/取消的批次，暂存目录里同样
           // 留下带 error / cancelled 字段的清单——发布门只放行完整成功的批次。
-          const auto bytes = QJsonDocument::fromVariant(QVariantMap{{"schema", "paleo_horizon_export_v1"},
+          job->metadata = {{"schema", "paleo_horizon_export_v1"},
               {"format", extensionFor(job->request.format)}, {"dpi", job->request.dpi},
-              {"cancelled", task->cancelRequested()}, {"error", job->error}, {"horizons", outcomes}}).toJson();
-          QSaveFile metadata(job->external->filePath("metadata.json"));
-          if (!metadata.open(QIODevice::WriteOnly) || metadata.write(bytes) != bytes.size() || !metadata.commit())
-            job->error = QObject::tr("无法写出批量图件清单");
+              {"cancelled", task->cancelRequested()}, {"error", job->error}, {"horizons", outcomes}};
+          writeMetadata(*job->external, job->metadata, &job->error);
         }
         job->journal = job->catalog->journal();
         if (job->error.isEmpty() && job->result.failed && !task->cancelRequested())
@@ -545,16 +570,16 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
                                             : task->errorText();
       why = job->error;
     } else {
-      bool externalPlaced = false;
+      MapExportPackage package;
       if (job->external) {
-        externalPlaced = QDir().rename(job->external->path(), job->request.outputDirectory);
-        if (!externalPlaced) why = QObject::tr("无法提交批量图件目录");
+        package = {job->external->path(), job->request.outputDirectory, QObject::tr("无法提交批量图件目录"),
+            [&job](const QHash<QString, QString> &remapped, QString *error) {
+              return updateMetadata(*job->external, job->metadata, remapped, error);
+            }};
       }
       QHash<QString, QString> idMap;
-      if (why.isEmpty() && !publishMapExportJournal(job->ownerCatalog, job->request.projectDir,
-                                                   job->staging->path(), job->journal, &why, &idMap)) {
-        if (externalPlaced) QDir(job->request.outputDirectory).removeRecursively();
-      } else {
+      if (publishMapExportJournal(job->ownerCatalog, job->request.projectDir, job->staging->path(),
+                                  job->journal, &why, &idMap, job->external ? &package : nullptr)) {
         // C-3：撞号重映射——结果里的资产 id 换成发布实际入库的新号。
         for (auto &outcome : job->result.horizons) {
           if (!outcome.ok) continue;
@@ -567,7 +592,7 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
         }
       }
       if (!why.isEmpty()) task->failPublication(why);
-      else if (externalPlaced) job->result.directory = job->request.outputDirectory;
+      else if (job->external) job->result.directory = job->request.outputDirectory;
     }
     if (job->result.horizons.isEmpty() && !job->error.isEmpty()) {
       for (const auto &horizon : job->layerIds.keys())
@@ -595,6 +620,7 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
       }
     }
     job->catalog.reset(); job->external.reset(); job->staging.reset();
+    job->metadata.clear();
     job->project = {}; job->layout.clear();
     if (done)
       done(job->result, task->cancelRequested() || stale);

@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QImage>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCheckBox>
@@ -432,6 +433,36 @@ private slots:
       QCOMPARE(version.extra.value("horizon").toString(), QString("D61"));
       QVERIFY(QFileInfo::exists(cat.versionFilePath(version)));
     }
+    QFile metadata(QDir(result.directory).filePath("metadata.json"));
+    QVERIFY(metadata.open(QIODevice::ReadOnly));
+    const auto products = QJsonDocument::fromJson(metadata.readAll()).object().value("products").toArray();
+    QCOMPARE(products.size(), 2);
+    QSet<QString> recorded;
+    for (const auto &entry : products) {
+      const auto product = entry.toObject();
+      const auto id = product.value("asset_id").toString();
+      recorded.insert(id);
+      QCOMPARE(product.value("sha256").toString(), cat.currentVersion(id).sha256);
+    }
+    QCOMPARE(recorded, QSet<QString>(result.assetIds.cbegin(), result.assetIds.cend()));
+  }
+  void journalFailureRetractsDeliveredPackage() {
+    QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
+    QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings;
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings);
+    QVERIFY(layout);
+    PaleoGeologicalExport::Request request;
+    request.destination = tmp.filePath("rollback"); request.dpi = 72;
+    request.formats = {PaleoLayoutExport::Format::Png}; request.registerInProject = true;
+    cat.debugAbortJournalAfter(1);
+    bool called = false; PaleoGeologicalExport::Result result;
+    auto *task = PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this,
+        [&](const auto &r) { result = r; called = true; });
+    QVERIFY(task); QTRY_VERIFY_WITH_TIMEOUT(called, 30000);
+    QCOMPARE(task->state(), PaleoTask::State::Failed);
+    QVERIFY(!result.error.isEmpty()); QVERIFY(result.directory.isEmpty());
+    QVERIFY(cat.assets().isEmpty()); QVERIFY(cat.versions().isEmpty());
+    QVERIFY(!QFileInfo::exists(request.destination));
   }
 };
 int main(int argc, char **argv) {

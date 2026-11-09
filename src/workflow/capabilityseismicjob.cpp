@@ -6,6 +6,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QSaveFile>
@@ -101,19 +102,39 @@ bool restoreSeismicTraceResult(const ExecuteRequest &request, ExecuteResult &res
     return false;
   const int count = request.seismicTrace->selection.sampleCount;
   QStringList remaining{QStringLiteral("RMS"), QStringLiteral("ENVELOPE"), QStringLiteral("PHASE")};
-  qint64 bytes = 0;
+  if (count <= 0 || ports.size() > remaining.size())
+    return false;
+  const qint64 portBytes = qint64(count) * sizeof(float);
+  const qint64 expectedBytes = portBytes * ports.size();
+  const QFileInfo info(traceResultPath(request.operationDir, id));
+  QFile file(info.absoluteFilePath());
+  if (!info.isFile() || info.isSymLink() || !file.open(QIODevice::ReadOnly) || file.size() != expectedBytes)
+    return false;
+  QByteArray buffer(64 * 1024, Qt::Uninitialized);
+  qint64 offset = 0;
   for (const auto &value : ports) {
     const auto port = value.toObject();
     if (!remaining.removeOne(port.value(QStringLiteral("portId")).toString()) ||
-        port.value(QStringLiteral("byteOffset")).toInteger(-1) != bytes ||
+        port.value(QStringLiteral("byteOffset")).toInteger(-1) != offset ||
         port.value(QStringLiteral("sampleCount")).toInteger(-1) != count)
       return false;
-    bytes += qint64(count) * sizeof(float);
+    QCryptographicHash digest(QCryptographicHash::Sha256);
+    for (qint64 left = portBytes; left > 0;) {
+      if (request.cancelled && request.cancelled())
+        return false;
+      const qint64 read = file.read(buffer.data(), qMin<qint64>(left, buffer.size()));
+      if (read <= 0)
+        return false;
+      digest.addData(QByteArrayView(buffer.constData(), read));
+      left -= read;
+    }
+    if (digest.result().toHex() != port.value(QStringLiteral("sha256")).toString().toLatin1())
+      return false;
+    offset += portBytes;
   }
-  const QFileInfo file(traceResultPath(request.operationDir, id));
-  if (!file.isFile() || file.isSymLink() || file.size() != bytes)
+  if (file.size() != expectedBytes)
     return false;
-  result.summary.insert(QStringLiteral("result_path"), file.absoluteFilePath());
+  result.summary.insert(QStringLiteral("result_path"), info.absoluteFilePath());
   return true;
 }
 

@@ -73,13 +73,15 @@ else()
         COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_paleo_office_src}" "${_paleo_office_dst}"
         RESULT_VARIABLE _paleo_office_link)
     else()
-      # cmd /c 直传内嵌引号会被 CMake 转义成 \"（cmd 报「卷标语法不正确」），
-      # 借中转批处理把引号握在自己手里——路径含空格也稳。
+      # 固定批处理命令，路径由环境变量一次展开。空格与 cmd 元字符保留原样。
       set(_paleo_office_batch "${CMAKE_BINARY_DIR}/.paleo-office-mklink.cmd")
       file(WRITE "${_paleo_office_batch}"
-        "@echo off\r\nmklink /J \"${_paleo_office_dst}\" \"${_paleo_office_src}\"\r\n")
+        "@echo off\r\nmklink /J \"%PALEO_OFFICE_LINK%\" \"%PALEO_OFFICE_TARGET%\"\r\n")
       execute_process(
-        COMMAND cmd /d /c "${_paleo_office_batch}"
+        COMMAND "${CMAKE_COMMAND}" -E env
+          "PALEO_OFFICE_LINK=${_paleo_office_dst}" "PALEO_OFFICE_TARGET=${_paleo_office_src}"
+          cmd /d /v:off /c .paleo-office-mklink.cmd
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
         RESULT_VARIABLE _paleo_office_link OUTPUT_QUIET ERROR_QUIET)
     endif()
     if(NOT _paleo_office_link EQUAL 0)
@@ -94,6 +96,12 @@ else()
     message(WARNING "office-editor: <build>/office-editor 未就绪——Office 预览将报「未安装」，"
       "请按上一条警告接线")
   endif()
-  # 安装树走 <exe>/../libexec/office-editor 候选（同组件，许可文件随树携带）。
+endif()
+
+# 已接线的构建树再次 configure 时仍须生成安装规则。
+# 安装树走 <exe>/../libexec/office-editor 候选，许可文件随树携带。
+if(EXISTS "${_paleo_office_src}/index.html")
   install(DIRECTORY "${_paleo_office_src}/" DESTINATION libexec/office-editor)
+elseif(EXISTS "${_paleo_office_dst}/index.html")
+  install(DIRECTORY "${_paleo_office_dst}/" DESTINATION libexec/office-editor)
 endif()

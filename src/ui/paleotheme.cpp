@@ -489,14 +489,23 @@ namespace PaleoTheme
     const ThemeTokens &t = tokens(theme);
     return metricStyleSheet(QStringLiteral(
                "QMainWindow { background: %1; }"
-               "QMainWindow::separator { width: 6px; height: 6px; background: %4; }"
-               "QMainWindow::separator:hover { background: %3; }"
-               "QDockWidget::title { background: %1; color: %2; padding: {spacing.sm}px {spacing.md}px; }"
+               "QMainWindow::separator { width: 6px; height: 6px; background: %1; }"
+               "QMainWindow::separator:hover { background: %4; }"
+               "QDockWidget::title { background: %5; color: %2; font-weight: 500;"
+               " border-bottom: 1px solid %4; padding: {spacing.xs}px {spacing.sm}px; }"
                "QStatusBar { background: %1; color: %3; }"
+               "QStatusBar::item { border: none; }"
+               "QTabBar#visualizationTabs { background: %1; border-bottom: 1px solid %4; }"
+               "QTabBar#visualizationTabs::tab { background: transparent; color: %3;"
+               " border: 1px solid transparent; padding: {spacing.xs}px {spacing.sm}px;"
+               " border-top-left-radius: {rounded.sm}px; border-top-right-radius: {rounded.sm}px; }"
+               "QTabBar#visualizationTabs::tab:hover:!selected { background: %6; color: %2; }"
+               "QTabBar#visualizationTabs::tab:selected { background: %5; color: %2;"
+               " border-color: %4; border-bottom-color: %5; }"
                "QWidget#mapInteractionContext { background: %1; color: %3;"
                " border-bottom: 1px solid %4; }"))
                .arg(qssHex(t.surfaceAlt), qssHex(t.text), qssHex(t.textMuted),
-                    qssHex(t.border))
+                    qssHex(t.border), qssHex(t.surface), qssHex(t.surfaceAltRaised))
         // 条目视图三件套（选中/hover/斑马纹/密度 padding）统一出口——
         // goal/ui-experience-polish：三类列表控件不再各写选中态。
         + controlStyleSheet(theme) + itemViewStyleSheet(theme);
@@ -746,10 +755,21 @@ namespace PaleoTheme
                "SARibbonPanelLabel { font-size: {typography.label}pt; color: %8; }"
                "SARibbonSeparatorWidget { color: %6; background: transparent;"
                " border: none; border-left: 1px solid %6; margin: {spacing.xs}px 0; }"
-               "SARibbonTabBar::tab { font-size: {typography.body}pt; color: %8;"
-               " border: none; border-bottom: 2px solid transparent; }"
-               "SARibbonTabBar::tab:selected { color: %5; border-bottom: 2px solid %5; }"
-               "SARibbonButtonGroupWidget > QToolButton { padding: 0 {spacing.sm}px; }"
+               "SARibbonStackedWidget#objSARibbonStackedContainerWidget { background: %7;"
+               " border: 1px solid %6; border-radius: {rounded.sm}px; }"
+               // 焦点描边落在活动页签，避免给页签之后的留白也画蓝框。
+               "SARibbonTabBar#workflowTabs { border: none; }"
+               "SARibbonTabBar#workflowTabs::tab { font-size: {typography.body}pt; color: %8;"
+               " border: 2px solid transparent;"
+               " border-top-left-radius: {rounded.sm}px; border-top-right-radius: {rounded.sm}px; }"
+               "SARibbonTabBar#workflowTabs::tab:hover:!selected { color: %1; background: %3; }"
+               "SARibbonTabBar#workflowTabs::tab:selected { background: %7;"
+               " color: %5; border-bottom-color: %5; }"
+               "SARibbonTabBar#workflowTabs::tab:selected:focus { border-color: %5; }"
+               "SARibbonButtonGroupWidget > QToolButton { border: 1px solid transparent;"
+               " border-radius: {rounded.sm}px; padding: 0 {spacing.xs}px; }"
+               "SARibbonButtonGroupWidget > QToolButton:hover,"
+               "SARibbonButtonGroupWidget > QToolButton:checked { background: %7; border-color: %6; }"
                // 固定高度标题行的搜索框不能叠加正文输入框的纵向 padding。
                "QWidget#locatorSlot QLineEdit { padding: 0 {spacing.sm}px; }"
                "SARibbonPanel QComboBox { border: 1px solid %6; border-radius: {rounded.sm}px;"

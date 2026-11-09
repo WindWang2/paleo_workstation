@@ -14,10 +14,15 @@
 #include <QVector>
 
 #include <functional>
+#include <memory>
 
 class DataCatalog;
+namespace paleo::document { class DocumentSession; }
 
 namespace paleo::capability {
+
+struct ResolvedSeismicTraceInput;
+struct SeismicTraceSelection;
 
 struct ExecuteRequest {
   QString capabilityId;
@@ -39,6 +44,7 @@ struct ExecuteRequest {
   QString operationDir;
   DataCatalog *catalog = nullptr;
   QString projectDir;
+  std::shared_ptr<const ResolvedSeismicTraceInput> seismicTrace;
 };
 
 struct ExecuteResult {
@@ -124,6 +130,7 @@ public:
     QString code;
     int computeCount = 0;
     QByteArray summaryJson;
+    bool operator==(const Record &) const = default;
   };
   struct Accept {
     QString code;
@@ -137,28 +144,38 @@ public:
   Accept accept(const QString &documentId, const QString &callerScope, const QString &clientRequestId,
                 const QString &requestHash);
   Record recordById(const QString &operationId);
-  bool save(const Record &record);
+  // current receives the persisted record, including on a rejected transition.
+  bool save(const Record &record, Record *current = nullptr);
   QString cancel(const QString &operationId);
   QByteArray cacheGet(const QString &fingerprint);
   void cachePut(const QString &fingerprint, const QByteArray &summaryJson);
 
 private:
-  void load();
-  bool persist() const;
+  bool loadOperations();
+  bool persistOperations() const;
   QString m_path;
   QString m_cachePath;
   QHash<QString, Record> m_byKey;
   QHash<QString, QString> m_idToKey;
-  QHash<QString, QByteArray> m_cache;
 };
 
 QVariantMap effectiveScalarParams(const QString &algorithmId, int contractVersion, const QVariantMap &user,
                                   QString *code);
 
 ExecuteResult execute(const ExecuteRequest &request);
+// Resolve the document's source on the owner thread and retain only immutable
+// value references for the computation worker.
+QString bindSeismicTrace(ExecuteRequest &request, const document::DocumentSession &document,
+                        const SeismicTraceSelection &selection);
 ContractIssue checkPlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
 ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
 QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes = 64 * 1024);
+// Converts a chat request without reading model data or starting work.
+// An empty object indicates that the host can dispatch the returned value.
+QJsonObject prepareChatToolRequest(ExecuteRequest &out, const QString &toolName, const QJsonObject &arguments,
+                                   const QString &hostScope, const QString &documentId, const QString &operationDir,
+                                   const QString &hostHead = QString());
+QJsonObject chatToolResponse(const ExecuteResult &result);
 // hostHead 由宿主传入。arguments 里的 current_head 不作为提交事实。
 QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
                         const QString &documentId, const QString &operationDir,

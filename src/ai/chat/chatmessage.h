@@ -29,6 +29,7 @@ struct ChatToolCall {
   QString id;            // 协议要求的调用 id（tool call id）
   QString name;          // 领域工具名（domaintools.h 的注册表 key）
   QString argumentsJson; // 实参 JSON 原文（不解析——本方向不执行）
+  bool argumentsWithinBudget() const;
   bool hasValidArguments() const; // 空串 = 无参工具，视为合法
   QJsonObject toJson() const;
   static ChatToolCall fromJson(const QJsonObject &object);

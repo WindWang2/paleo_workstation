@@ -72,6 +72,7 @@ add_library(paleo_workflow STATIC
   src/workflow/atomicjob.cpp                       # algo-atom：Processing run+publish 薄助手
   src/workflow/algorithmadapters.cpp               # algo-atom P2：Processing/NativeCpp 适配器
   src/workflow/capabilitygateway.cpp               # 试点能力准备/执行
+  src/workflow/capabilityseismicjob.cpp             # 文档固定地震体的有界单道能力
   src/workflow/capabilityops.cpp                   # operation 身份与进程预算
   src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
   src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）

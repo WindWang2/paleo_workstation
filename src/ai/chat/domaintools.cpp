@@ -274,6 +274,9 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     spec.title = title;
     spec.description = description;
     spec.requiresLocalOrt = false;
+    QStringList intents{QStringLiteral("compute-only")};
+    if (name == QLatin1String("paleo.constraint_idw"))
+      intents.prepend(QStringLiteral("prepare"));
     spec.parameters = {
         {QStringLiteral("contract_version"), QStringLiteral("integer"),
          QObject::tr("能力契约版本；缺省 1"), false},
@@ -289,9 +292,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
          QObject::tr("冻结时的对象头"), false},
         {QStringLiteral("current_head"), QStringLiteral("string"),
          QObject::tr("忽略。提交头只来自宿主，模型填写无效"), false},
-        {QStringLiteral("publish_intent"), QStringLiteral("string"),
-         QObject::tr("prepare、compute-only 或 publish"), false,
-         {QStringLiteral("prepare"), QStringLiteral("compute-only"), QStringLiteral("publish")}},
+        {QStringLiteral("publish_intent"), QStringLiteral("string"), {}, false, intents},
         {QStringLiteral("parameters"), QStringLiteral("object"),
          QObject::tr("算法参数。默认值只来自 AlgorithmSpec，不在工具描述里复制"), true},
         {QStringLiteral("inputs"), QStringLiteral("object"),
@@ -309,7 +310,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
       QObject::tr("对调用方给出的道缓冲计算 RMS、包络或相干。不附带无关时深依赖。"));
   const AiToolSpec constraint = capabilityTool(
       QStringLiteral("paleo.constraint_idw"), QObject::tr("约束 IDW"),
-      QObject::tr("prepare 只校验。compute-only 调用已有约束 IDW 核并返回栅格引用。发布使用宿主头，不使用 current_head。"));
+      QObject::tr("prepare 只校验。compute-only 调用已有约束 IDW 核并返回暂存栅格引用。"));
   return {tile, horizon, facies, query, lineage, depth, seismic, constraint};
 }
 
@@ -318,6 +319,12 @@ AiToolSpec aiToolSpec(const QString &name) {
     if (spec.name == name)
       return spec;
   return AiToolSpec();
+}
+
+bool isAiCapabilityTool(const QString &name) {
+  return name == QLatin1String("paleo.depth_convert_batch") ||
+         name == QLatin1String("paleo.seismic_attribute_group") ||
+         name == QLatin1String("paleo.constraint_idw");
 }
 
 QString aiToolDispatchLabel(AiToolDispatchStatus status) {
@@ -393,9 +400,7 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.note = QObject::tr("入口已接线：只读查询，须打开工程（未打开时如实报错）");
     return out;
   }
-  if (name == QStringLiteral("paleo.depth_convert_batch") ||
-      name == QStringLiteral("paleo.seismic_attribute_group") ||
-      name == QStringLiteral("paleo.constraint_idw")) {
+  if (isAiCapabilityTool(name)) {
     out.target = QStringLiteral("workflow/capabilitygateway.h:runChatTool");
     out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr("入口已接线：显式引用，不读取当前选择");

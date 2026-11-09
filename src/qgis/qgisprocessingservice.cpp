@@ -637,7 +637,27 @@ QVariantMap QgisProcessingService::runBlocking(const QString &algorithmId, const
     setError(error, tr("no processing algorithm registered as '%1'").arg(algorithmId));
     return QVariantMap();
   }
+  // Workers use an owner-thread snapshot, even when the project has since changed.
+  QgsCoordinateTransformContext transform;
+  {
+    QMutexLocker lock(&m_contextMutex);
+    transform = m_transformSnapshot;
+  }
+  return runAlgorithm(*alg, algorithmId, parameters, transform, error, hooks);
+}
 
+QVariantMap QgisProcessingService::runFrozenConstraintIdw(const QVariantMap &parameters, QString *error,
+                                                         const ProcessingHooks &hooks)
+{
+  const ConstraintIDWAlgorithm algorithm;
+  return runAlgorithm(algorithm, QStringLiteral("paleo:paleo_constraint_idw"), parameters, {}, error, hooks);
+}
+
+QVariantMap QgisProcessingService::runAlgorithm(const QgsProcessingAlgorithm &algorithm,
+                                                const QString &algorithmId, const QVariantMap &parameters,
+                                                const QgsCoordinateTransformContext &transform, QString *error,
+                                                const ProcessingHooks &hooks)
+{
   // create() (not createInstance()): it additionally runs initAlgorithm(),
   // which is what installs the parameter definitions we inspect below.
   // #419：initAlgorithm() 可抛异常——与下方 run() 同口径捕获，不穿透进
@@ -645,7 +665,7 @@ QVariantMap QgisProcessingService::runBlocking(const QString &algorithmId, const
   std::unique_ptr<QgsProcessingAlgorithm> instance;
   try
   {
-    instance.reset(alg->create());
+    instance.reset(algorithm.create());
   }
   catch (const QgsProcessingException &e)
   {
@@ -685,11 +705,7 @@ QVariantMap QgisProcessingService::runBlocking(const QString &algorithmId, const
   }
 
   QgsProcessingContext context;
-  // Workers read a value snapshot; live QgsProject access stays on its owner.
-  {
-    QMutexLocker lock(&m_contextMutex);
-    context.setTransformContext(m_transformSnapshot);
-  }
+  context.setTransformContext(transform);
   HookFeedback feedback(hooks);
   if (hooks.cancelled && hooks.cancelled())
   {

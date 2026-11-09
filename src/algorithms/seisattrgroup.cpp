@@ -3,6 +3,7 @@
 #include "seisattrgroup.h"
 
 #include "dsp/fft.h"
+#include "seismicattr.h"
 
 #include <algorithm>
 #include <cmath>

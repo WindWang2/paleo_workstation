@@ -37,10 +37,14 @@ AiChatController::AiChatController(QObject *parent)
             if (!m_session.messages.isEmpty() &&
                 m_session.messages.last().role == ChatRole::Assistant)
               m_session.messages.last().toolCalls.append(call);
-            const AiToolDispatch dispatch =
-              dispatchAiTool(call.name,
-                             QJsonDocument::fromJson(call.argumentsJson.toUtf8())
-                               .object());
+            AiToolDispatch dispatch;
+            if (call.argumentsWithinBudget()) {
+              dispatch = dispatchAiTool(call.name,
+                                        QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object());
+            } else {
+              dispatch.status = AiToolDispatchStatus::Disabled;
+              dispatch.note = QStringLiteral("request_budget_exceeded");
+            }
             // 卡片文案 = 分类标签 + 入口 + 原因（诚实：能不能路由、缺什么都
             // 写明；执行状态由 toolExecutionStarted/toolResultReady 后续更新）。
             const QString text =

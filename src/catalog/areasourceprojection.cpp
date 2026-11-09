@@ -1,6 +1,6 @@
 // 层：数据
 #include "domain/shaequals.h"
-#include "areasourceprojection.h"
+#include "areasource_delta_internal.h"
 #include "../domain/projectclassifier.h"
 #include <paleo_data/service.h>
 #include <QDir>
@@ -350,6 +350,7 @@ bool bootstrapAreaSources(DataCatalog &catalog, const QString &generation, bool 
       version.versionNumber = current.versionNumber + 1;
       version.parentVersionIds = QStringList{previous.id};
     }
+    paleo::area_projection::inheritRelocatedSourceBindings(previous,version);
     if (!catalog.addVersion(version, error)) { batch.abort(); return false; }
     bySource.insert(source.id, version); byPath[path].append(version);
   }

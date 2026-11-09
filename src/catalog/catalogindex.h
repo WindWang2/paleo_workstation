@@ -2,6 +2,7 @@
 #pragma once
 #include <QHash>
 #include <QPair>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -73,6 +74,12 @@ class CatalogIndex
       return m_childrenByParent.value(versionId);
     }
 
+    const QSet<QString> &timeDepthConsumers() const { return m_timeDepthConsumers; }
+    QSet<QString> timeDepthConsumersForSlot(const QString &slot) const { return m_timeDepthBySlot.value(slot); }
+    QSet<QString> timeDepthConsumersForSource(qlonglong source) const { return m_timeDepthBySource.value(source); }
+    QSet<QString> timeDepthConsumersForTable(qlonglong table) const { return m_timeDepthByTable.value(table); }
+    QSet<QString> timeDepthConsumersForVolume(qlonglong volume) const { return m_timeDepthByVolume.value(volume); }
+
     // ---- WP2：写路径线性化的两个派生查询 ----
     // sha256（小写归一）→ 命中行集（升序——首行即表序最先，保证
     // versionBySha256 的「第一个匹配」语义）。空 sha 恒空集。
@@ -106,6 +113,11 @@ class CatalogIndex
   private:
     void indexLinkRow(int row, const EntityAssetLink &l);
     void indexEntitySeq(const QString &id); // WP2：<prefix>-N 序号登记
+
+    void clearTimeDepthConsumers();
+    QSet<QString> m_timeDepthConsumers;
+    QHash<QString, QSet<QString>> m_timeDepthBySlot;
+    QHash<qlonglong, QSet<QString>> m_timeDepthBySource, m_timeDepthByTable, m_timeDepthByVolume;
 
     QHash<QString, int> m_entityRow;
     QHash<QString, int> m_assetRow;

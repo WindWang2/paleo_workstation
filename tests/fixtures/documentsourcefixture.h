@@ -59,17 +59,19 @@ struct Fixture {
         version.sha256=QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());
         return catalog.addVersion(version,&error)?version.id:QString();
     }
-    bool importModel(const QString &path) {
+    bool importModel(const QString &path,bool comprehensiveWellMetreDepth=false) {
         paleo::data::DataService service;std::string why;const auto root=paleo::area_model::directory(project).toStdString();
         const bool exists=QFileInfo::exists(QString::fromStdString(root)+"/data.sqlite");
         if(!(exists?service.openProject(root,why):service.createProject(root,"fixture",why))) {error=QString::fromUtf8(why);return false;}
-        paleo::data::ImportOptions options;options.copySources=false;paleo::data::ImportReport report;
+        paleo::data::ImportOptions options;options.copySources=false;
+        options.parsing.comprehensiveWellMetreDepth=comprehensiveWellMetreDepth;
+        paleo::data::ImportReport report;
         if(!service.importFile(path.toUtf8().toStdString(),options,report,why)) {error=QString::fromUtf8(why);return false;}
         service.closeProject();
         return registerAreaWells(catalog,&error) && registerAreaSources(catalog,&error);
     }
     bool preparedWellSource(const QString &name,const QStringList &wellNames,
-                            const QStringList &relations={"checks"},const QStringList &tracks={}) {
+                            const QStringList &relations={"checks"},const QStringList &tracks={},bool withSurvey=false) {
         const auto path=temp.filePath(name);if(!write(path,name.toUtf8()))return false;
         paleo::data::DataService service;std::string why;const auto root=paleo::area_model::directory(project).toStdString();
         const bool exists=QFileInfo::exists(QString::fromStdString(root)+"/data.sqlite");
@@ -77,6 +79,10 @@ struct Fixture {
         paleo::data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";
         for(const auto &wellName:wellNames) {
             paleo::data::WellDataset well;well.wellInfo.wellName=wellName.toStdString();
+            if(withSurvey) {
+                well.defaultDepthInfo.depthType="MD";well.defaultDepthInfo.depthUnit="m";well.defaultDepthInfo.mdReference="KB";
+                well.wellbore.trajectories.push_back({"vertical test survey","grid north",{{0,0,0},{250,0,0}}});
+            }
             for(int i=0;i<relations.size();++i) {
                 paleo::data::TimeDepthTable table;table.relationName=relations[i].toStdString();table.depthInfo.depthType="MD";table.depthInfo.depthUnit="m";
                 table.timeUnit="ms";table.timeType="TWT";table.timeReference="fixture";table.depthTimePairs={{100,double(200+i*20)},{200,double(300+i*20)}};

@@ -44,6 +44,10 @@ TimeDepthAlignmentDialog::TimeDepthAlignmentDialog(const QVariantMap &options,QW
   m_message=new QLabel(this);m_message->setWordWrap(true);m_message->setObjectName("timeDepthMessage");layout->addWidget(m_message);
   if(sources.isEmpty())setMessage(tr("所选井没有数据服务时深来源"));else if(!m_writable)setMessage(tr("工程为只读，不能保存"));
   auto *buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,this);layout->addWidget(buttons);
+  if(options.value("interpretationAvailable").toBool()) {
+    auto *interpretation=buttons->addButton(tr("选择解释上下文…"),QDialogButtonBox::ActionRole);
+    connect(interpretation,&QPushButton::clicked,this,&TimeDepthAlignmentDialog::interpretationRequested);
+  }
   m_save=buttons->button(QDialogButtonBox::Save);m_save->setObjectName("saveTimeDepthSemantics");m_save->setText(tr("保存来源与时间基准"));
   buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));connect(buttons,&QDialogButtonBox::rejected,this,&QDialog::reject);
   connect(buttons,&QDialogButtonBox::accepted,this,[this]{

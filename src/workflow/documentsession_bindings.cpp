@@ -2,6 +2,7 @@
 #include "documentsession.h"
 #include "catalog/datacatalog.h"
 #include "metadata/documentsourcestore.h"
+#include "services/timedepthdependencies.h"
 #include <QUuid>
 #include <QJsonDocument>
 #include <QSignalBlocker>
@@ -10,11 +11,15 @@ namespace paleo::document {
 SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) {
     SourceCommandResult result;result.operationId=command.operationId;result.revision=m_revision;
     const auto all=effectiveBindings();QVector<SourceBinding> changed;SourceBinding binding;
-    if(command.kind==SourceCommand::Kind::RegisterBinding) {
+    const bool choose=command.kind==SourceCommand::Kind::ChooseRelation;
+    const bool select=choose || command.kind==SourceCommand::Kind::SelectPrimary;
+    if(choose || command.kind==SourceCommand::Kind::RegisterBinding) {
         binding=command.binding;if(binding.id.isEmpty()) binding.id=QUuid::createUuid().toString(QUuid::WithoutBraces);
         if(all.contains(binding.id)) {result.code="binding_exists";result.error=QStringLiteral("来源关联标识已存在");return result;}
-        binding.primary=false;binding.resolution.clear();
-        binding.decision=binding.conflictingIdentities()?BindingDecision::Conflict:BindingDecision::Candidate;
+        binding.primary=false;
+        binding.resolution=choose?command.note:QString();
+        binding.decision=choose?BindingDecision::Confirmed:
+            binding.conflictingIdentities()?BindingDecision::Conflict:BindingDecision::Candidate;
     } else {
         if(!all.contains(command.bindingId)) {result.code="binding_missing";result.error=QStringLiteral("来源关联不存在");return result;}
         binding=all.value(command.bindingId);
@@ -22,12 +27,14 @@ SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) 
             binding.resolution=command.note;binding.decision=BindingDecision::Confirmed;
         } else if(command.kind==SourceCommand::Kind::RemoveBinding) {
             binding.primary=false;binding.decision=BindingDecision::Rejected;binding.resolution=command.note;
-        } else if(command.kind==SourceCommand::Kind::SelectPrimary) {
-            if(binding.decision!=BindingDecision::Confirmed) {result.code="binding_unconfirmed";result.error=QStringLiteral("请先确认来源关联");return result;}
-            binding.primary=true;
-            for(auto other:all) if(other.id!=binding.id && other.slotKey()==binding.slotKey() && other.primary) {
-                other.primary=false;other.revision=m_revision+1;changed.append(other);
-            }
+        }
+    }
+    if(select) {
+        if(binding.decision!=BindingDecision::Confirmed) {result.code="binding_unconfirmed";result.error=QStringLiteral("请先确认来源关联");return result;}
+        binding.primary=true;
+        const auto slot=binding.slotKey();
+        for(auto other:all) if(other.id!=binding.id && other.slotKey()==slot && other.primary) {
+            other.primary=false;other.revision=m_revision+1;changed.append(other);
         }
     }
     if(binding.source.documentId!=m_documentId || !source(binding.source).ref.valid()) {
@@ -42,6 +49,19 @@ SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) 
         result.code="source_revision_changed";result.error=QStringLiteral("当前文件版本已变化，请重新确认来源关联");return result;
     }
     if(!binding.valid(&result.error)) {result.code="binding_invalid";return result;}
+    RelationUseSpec use;ModelObjectRef object;
+    const bool typed=relationBinding(binding,use,object);
+    if(choose && !typed) {
+        result.code="relation_binding_invalid";result.error=QStringLiteral("必须明确选择有效的类型化关系");return result;
+    }
+    const bool relationSelectionChanged=typed && (select ||
+        (command.kind==SourceCommand::Kind::RemoveBinding && all.value(binding.id).primary));
+    bool activeSelectionChanged=false;
+    if(relationSelectionChanged && m_interpretation) {
+        auto active=*m_interpretation;
+        active.purpose=use.context.purpose;
+        activeSelectionChanged=active==use.context;
+    }
     changed.append(binding);
     QHash<QString,QVariantMap> payloads;
     for(const auto &value:changed) {
@@ -74,6 +94,14 @@ SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) 
         }
         for(auto it=payloads.cbegin();it!=payloads.cend();++it)
             if(!m_catalog->updateVersionExtra(it.key(),"documentSourceBindings",it.value(),error)){batch.abort();return false;}
+        if(relationSelectionChanged && use.relation==RelationKind::TimeDepth &&
+           !invalidateTimeDepthSelection(*m_catalog,use,binding.primary?&object:nullptr,error)) {
+            batch.abort();return false;
+        }
+        if(choose && use.relation==RelationKind::TimeDepth && !command.timeDepthSemantics.isEmpty() &&
+           !refreshTimeDepthObjectDependencies(*m_catalog,object.id,error)) {
+            batch.abort();return false;
+        }
         return batch.flush(error);
     },&result.error);
     if(!saved) {
@@ -83,6 +111,9 @@ SourceCommandResult DocumentSession::editBindings(const SourceCommand &command) 
     SourceChangeSet change;change.epoch=m_epoch;change.revision=m_revision;change.operationId=command.operationId;
     for(const auto &value:changed) {change.bindingIds.append(value.id);change.sourceKeys.append(value.source.key());}
     result.ok=true;result.revision=m_revision;result.code="committed";
-    emit sourcesChanged(change);emit commandFinished(result);return result;
+    emit sourcesChanged(change);
+    if(activeSelectionChanged)emit interpretationChanged(binding.resourceId);
+    if(!choose)emit commandFinished(result);
+    return result;
 }
 }

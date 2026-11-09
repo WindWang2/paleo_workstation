@@ -5,7 +5,7 @@
 #include "seismicdataaccess.h"
 #include "seismichorizonscatter.h"
 #include "io/segyreader.h"
-#include "services/seismicmapping.h"
+#include "domain/surveygridgeometry.h"
 #include "services/subintervalfactors.h"
 #include <algorithm>
 #include <array>

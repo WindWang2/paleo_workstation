@@ -136,6 +136,7 @@ bool applySource(DataCatalog &catalog,Cache &cache,const paleo::data::ModelChang
     version.extra={{"areaModelSourceId",qlonglong(modelId)},{"areaModelGeneration",cache.generation},{"areaModelSourceKind",source.value("kind").toString()},
       {"areaModelObservation",observation}};
     if(!previous.id.isEmpty()){version.versionNumber=catalog.currentVersion(asset.id).versionNumber+1;version.parentVersionIds={previous.id};}
+    inheritRelocatedSourceBindings(previous,version);
     if(!catalog.addVersion(version,error))return false;cache.sources.insert(modelId,version.id);
   } else if(!catalog.updateVersionExtra(previous.id,"areaModelObservation",observation,error))return false;
   QSet<QString> available;

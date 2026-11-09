@@ -115,3 +115,68 @@ bool DataCatalog::markDownstreamStale(const QString &versionId, const QString &r
     m_versions[undo[i].first] = undo[i].second; // 落盘失败回滚内存
   return false;
 }
+
+QSet<QString> DataCatalog::timeDepthConsumers() const
+{
+  return noteRead("timeDepthConsumers") ? m_idx.timeDepthConsumers() : QSet<QString>{};
+}
+
+QSet<QString> DataCatalog::timeDepthConsumersForSlot(const QString &slot) const
+{
+  return noteRead("timeDepthConsumersForSlot") ? m_idx.timeDepthConsumersForSlot(slot) : QSet<QString>{};
+}
+
+QSet<QString> DataCatalog::timeDepthConsumersForTable(qlonglong tableId) const
+{
+  return noteRead("timeDepthConsumersForTable") ? m_idx.timeDepthConsumersForTable(tableId) : QSet<QString>{};
+}
+
+QSet<QString> DataCatalog::timeDepthConsumersForObjects(const QSet<qlonglong> &sourceIds, qlonglong volumeId) const
+{
+  if (!noteRead("timeDepthConsumersForObjects"))
+    return {};
+  QSet<QString> out = m_idx.timeDepthConsumersForVolume(volumeId);
+  for (const auto sourceId : sourceIds)
+    out.unite(m_idx.timeDepthConsumersForSource(sourceId));
+  return out;
+}
+
+bool DataCatalog::markDerivedInputsStale(const QSet<QString> &seeds, const QString &reason, QString *error)
+{
+  if (seeds.isEmpty())
+    return true;
+  if (!checkWriteThread("markDerivedInputsStale", error) || !ensureOpen(error))
+    return false;
+
+  QSet<QString> seen = seeds;
+  QStringList frontier = seeds.values();
+  QVector<CatalogOp> ops;
+  for (qsizetype i = 0; i < frontier.size(); ++i)
+  {
+    const QString id = frontier.at(i);
+    for (const auto &child : m_idx.childVersionIds(id))
+      if (!seen.contains(child))
+      {
+        seen.insert(child);
+        frontier.append(child);
+      }
+
+    const int row = m_idx.versionRow(id);
+    if (row < 0)
+      continue;
+    const auto &version = m_versions.at(row);
+    if (version.stage != QLatin1String("DERIVED") || version.extra.value("stale").toBool())
+      continue;
+
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::UpdateVersionExtra;
+    op.id = id;
+    op.extraKey = QStringLiteral("stale");
+    op.extraValue = true;
+    ops.append(op);
+    op.extraKey = QStringLiteral("staleReason");
+    op.extraValue = reason;
+    ops.append(op);
+  }
+  return ops.isEmpty() || applyJournal(ops, error);
+}

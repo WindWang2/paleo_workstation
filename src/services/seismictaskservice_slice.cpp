@@ -1,6 +1,7 @@
 // 层：数据
 #include "workerexceptionsink.h"
 #include "seismicdataprojection.h"
+#include "documentrelationresolver.h"
 #include "../io/areamodel.h"
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
@@ -210,7 +211,8 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
     std::shared_ptr<SgyVolume> volume,
     const std::vector<glm::ivec2> &pathPoints,
     const SgySectionOptions &options,
-    std::function<void(bool, std::shared_ptr<const SgySliceImage>, const SeismicSectionExtractionStats &, const QString &)> onFinished)
+    std::function<void(bool, std::shared_ptr<const SgySliceImage>, const SeismicSectionExtractionStats &, const QString &)> onFinished,
+    const paleo::document::InterpretationSelection *selection)
 {
   if (!volume || !volume->IsIndexComplete())
   {
@@ -227,10 +229,11 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   }
 
   const QString title = tr("提取任意测线/过井剖面 (%1 节点)").arg(pathPoints.size());
+  const auto pinned=selection?*selection:paleo::document::InterpretationSelection{};
 
   // D5.2 任意线缓存：同体同路径同选项重复提取即出（缓存查询+命中回调走事件循环）
   SeismicSectionExtractionStats hitStats;
-  if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume, options, &hitStats))
+  if (std::shared_ptr<const SgySliceImage> hit = selection?nullptr:cachedSection(pathPoints, volume, options, &hitStats))
   {
     // B-2（full-audit-20261021）：删除「命中但 distances 为空 → 按线号总长
     // 均匀重采样」的合成分支——直接违反头注「绝不合成近似值」，且产物是
@@ -252,12 +255,42 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   auto outStats = std::make_shared<SeismicSectionExtractionStats>();
 
   const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
-  auto work = [sgyPath, pathPoints, options, outImage, outStats](PaleoTask *task) -> QString {
-    paleo::SeismicDataAccess source;QString error;if(!source.open(sgyPath,&error))return error;
+  auto work = [sgyPath,pathPoints,options,outImage,outStats,pinned](PaleoTask *task) -> QString {
+    if(!pinned.error.isEmpty())return pinned.error;
+    paleo::SeismicDataAccess source;QString error;std::string detail;
+    paleo::data::SeismicVolume selectedVolume;
+    const auto cancelled=[task]{return task->cancelRequested();};
+    const auto sameAxis=[&](int samples,double firstTime,double interval) {
+      const auto &axis=selectedVolume.sampling;
+      const double scale=axis.timeUnit=="s"?1000.:axis.timeUnit=="ms"?1.:qQNaN();
+      return samples==axis.sampleCount && std::abs(firstTime-axis.firstTime*scale)<=1e-6 &&
+          std::abs(interval-axis.sampleInterval*scale)<=1e-6;
+    };
+    const auto axisMismatch=QStringLiteral("地震文件采样轴与所选地震体修订不一致");
+    int columns=options.maxColumns;
+    if(pinned.context) {
+      if(!pinned.context->targetVolume)return QStringLiteral("请为当前解释上下文选择目标地震体");
+      if(!source.openModelVolume(pinned.volume,*pinned.context->targetVolume,&error))return error;
+      QString timeReference;
+      error=paleo::document::validateInterpretationSelection(pinned.volume.modelDirectory,pinned,&timeReference);
+      if(!error.isEmpty())return error;
+      if(!source.volume(selectedVolume,detail))return QString::fromStdString(detail);
+      const auto path=QFileInfo(QString::fromUtf8(selectedVolume.dataFile)).canonicalFilePath();
+      if(path.isEmpty() || path!=QFileInfo(sgyPath).canonicalFilePath())
+        return QStringLiteral("当前地震视图与文档所选目标地震体不一致");
+      paleo::data::SeismicFileInfo observed;
+      if(!source.inspect(observed,detail,cancelled))return QString::fromUtf8(detail);
+      const auto samples=observed.sampleCount;
+      if(!sameAxis(samples,observed.firstTime,observed.sampleInterval))return axisMismatch;
+      if(samples<=0 || 8000000/samples<2)return QStringLiteral("所选地震体采样轴未知或超出剖面预算");
+      columns=std::min(columns,8000000/samples);
+    } else if(!source.open(sgyPath,&error))return error;
     std::vector<std::pair<int,int>> path;for(const auto& p:pathPoints)path.push_back({p.x,p.y});
-    paleo::data::SeismicSectionResult result;std::string detail;
-    if(!source.section(path,options.maxColumns,options.interpolate,options.keepOutsideColumns,result,detail,[task]{return task->cancelRequested();}))return QString::fromUtf8(detail);
-    outStats->horizons=source.sectionHorizons(result,[task]{return task->cancelRequested();});
+    paleo::data::SeismicSectionResult result;
+    if(!source.section(path,columns,options.interpolate,options.keepOutsideColumns,result,detail,cancelled))return QString::fromUtf8(detail);
+    if(pinned.context && !sameAxis(result.samples,result.firstTime,result.sampleInterval))return axisMismatch;
+    outStats->horizons=source.sectionHorizons(result,cancelled,
+        pinned.context?&*pinned.context:nullptr);
     *outImage=paleo::seismicSectionImage(result);outStats->columns=result.columns;
     outStats->firstTimeMs=result.firstTime;outStats->sampleIntervalMs=result.sampleInterval;
     outStats->coordinateSystem=source.coordinateSystem().toStdString();
@@ -282,10 +315,10 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   // quiet：剖面条拖动是交互内嵌取数，不拉起任务中心。
   PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this,
-          [this, task, outImage, outStats, onFinished, volume, pathPoints, options]() {
+          [this, task, outImage, outStats, onFinished, volume, pathPoints, options,pinned]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
-      cacheSection(pathPoints, volume, outImage, outStats, options); // D5.2 成功入 LRU
+      if(!pinned.context)cacheSection(pathPoints, volume, outImage, outStats, options);
       if (onFinished)
         onFinished(true, outImage, *outStats, QString());
     }

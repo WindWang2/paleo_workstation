@@ -43,6 +43,7 @@
 #include "../services/toolavailability.h" // 全局门控（无工程置灰导入命令）
 #include "../services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "../workflow/registration.h"
+#include "../workflow/documentsession.h"
 #include "../workflow/sectionworkbench.h" // cancelPreviewData 解引用需完整类型（#156；resetProjectScopedState 同款）
 #include "domain/seismic/sgyvolume.h"
 #include "metadata/paleoprojectstore.h"
@@ -70,11 +71,21 @@ void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
   DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
   if (!cat || !cat->isOpen() || !m_seismicTaskSvc)
     return;
-  for (const CatalogAsset &asset : cat->assets())
+  const auto selection=m_documentSession ? m_documentSession->interpretationSelection()
+                                         : paleo::document::InterpretationSelection{};
+  const bool pinned=selection.context.has_value();
+  const auto &target=selection.volume;
+  if ((pinned || !selection.error.isEmpty()) && m_seismicOpenTask && m_seismicOpenTask->running() &&
+      (target.path.isEmpty() || QDir::cleanPath(target.path)!=QDir::cleanPath(m_seismicOpenPath)))
+    m_seismicOpenTask->requestCancel();
+  if (!selection.error.isEmpty() || (pinned && !selection.context->targetVolume))
+    return;
+  const auto assets=pinned ? QVector<CatalogAsset>{cat->assetById(target.assetId)} : cat->assets();
+  for (const CatalogAsset &asset : assets)
   {
     if (asset.type != QLatin1String("seismic"))
       continue;
-    const auto version = cat->currentVersion(asset.id);
+    const auto version = pinned ? cat->versionById(target.versionId) : cat->currentVersion(asset.id);
     // #226：解释登记链生产接线——dock 注入 catalog + 源体资产/版本 +
     // 解释产物目录（工程受管 artifacts/derived/interpretation：拾取 CSV/
     // 断层/属性扫描产物全部落此并登记 DERIVED，对 catalog/治理/版本溯源
@@ -92,18 +103,18 @@ void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
               : QDir(projDir).filePath(
                     QStringLiteral("artifacts/derived/interpretation")));
     }
-    const QString path = m_previewDoc->absolutePathForVersion(version);
+    const QString path = pinned ? target.path : m_previewDoc->absolutePathForVersion(version);
     if (path.isEmpty() || !QFile::exists(path))
       continue;
     if (!includeLargeVolumes && QFileInfo(path).size() > 2LL * 1024 * 1024 * 1024)
       continue;
     const auto matches = [&path](const auto &volume) {
-      return volume && paleo::fromFsPath(volume->Path()) == path;
+      return volume && QDir::cleanPath(paleo::fromFsPath(volume->Path()))==QDir::cleanPath(path);
     };
     const bool need3d = m_seismic3dPanel && !matches(m_seismic3dPanel->volume());
     const bool needSection = m_seismicSectionDock && !matches(m_seismicSectionDock->volume());
     // #481 P3-3：已就位/已记账/在途的体 continue 跳过（旧 return 吞后续体）；余体由终态回调串行推进。
-    if ((!need3d && !needSection) || m_seismicAutoLoadedPaths.contains(path) ||
+    if ((!need3d && !needSection) || ((!pinned || !includeLargeVolumes) && m_seismicAutoLoadedPaths.contains(path)) ||
         (m_seismicOpenPath == path && m_seismicOpenTask && m_seismicOpenTask->running()))
       continue;
     if (m_seismicOpenTask)
@@ -137,7 +148,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
     const QPointer<QLabel> statusGuard(status);
     const QPointer<QProgressBar> progressGuard(progress);
     m_seismicOpenTask = m_seismicTaskSvc->startVolumeLoad(path,
-        [guard, generation, session, origin, statusGuard, progressGuard, includeLargeVolumes](bool ok,
+        [guard, generation, session, origin, statusGuard, progressGuard, includeLargeVolumes, path](bool ok,
               std::shared_ptr<seismic::SgyVolume> volume, const QString &error) {
       if (!guard || generation != guard->m_seismicOpenGeneration ||
           (guard->m_projectSvc && session != guard->m_projectSvc->sessionId()))
@@ -145,9 +156,15 @@ void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
       if (statusGuard) statusGuard->hide();
       if (progressGuard) progressGuard->hide();
       guard->m_seismicOpenPath.clear();
+      const auto current=guard->m_documentSession ? guard->m_documentSession->interpretationSelection()
+                                                 : paleo::document::InterpretationSelection{};
+      if (!current.error.isEmpty() || (current.context &&
+          (!current.context->targetVolume || QDir::cleanPath(current.volume.path)!=QDir::cleanPath(path))))
+        return;
       if (!ok || !volume) {
         guard->statusBar()->showMessage(error, 10000);
-        guard->syncSeismicVolumeToDocks(includeLargeVolumes); // #481 P3-8：失败终态同样推进余体
+        if (!current.context)
+          guard->syncSeismicVolumeToDocks(includeLargeVolumes); // #481 P3-8：失败终态同样推进余体
         return;
       }
       if (guard->m_seismic3dPanel) {
@@ -167,7 +184,8 @@ void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
       }
       guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
       // #481 P3-8 后半：终态后重扫余体（多体串行装载，已记账路径不重试）；循环尾 return 保单在途体。
-      guard->syncSeismicVolumeToDocks(includeLargeVolumes);
+      if (!current.context)
+        guard->syncSeismicVolumeToDocks(includeLargeVolumes);
     }, /*quiet=*/true); // 状态栏已有进度；自动加载不反复展开/收起底栏。
     if (m_seismicOpenTask) {
       QPointer<PaleoTask> task = m_seismicOpenTask;

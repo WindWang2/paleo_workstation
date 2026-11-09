@@ -22,6 +22,7 @@
 #include "services/wellsectioncorrelation.h"
 #include "ui/wellsection/wellsectionscene.h"
 #include "seismichorizonfixture.h"
+#include <paleo_data/object_descriptor.h>
 #include <cmath>
 
 class SectionHorizonsTest:public QObject {
@@ -278,6 +279,32 @@ private slots:
     QVERIFY(!correlationWells[0].correlationRevision.isEmpty());
     QCOMPARE(correlationWells[0].correlationTops->size(),2);QCOMPARE(correlationWells[0].correlationTops->front().name,QString("T70"));
     QCOMPARE(correlationWells[0].tops.front().name,QString("old formation"));QVERIFY(correlationWells[1].correlationTops->isEmpty());
+    QVERIFY(ds.openProject(paleo::area_model::directory(project).toStdString(),detail));
+    auto changed=stored;changed.wellOccurrences.front().top=120;
+    paleo::data::StratigraphicScheme updated;
+    QVERIFY2(ds.commitStratigraphicScheme(changed,stored.revision.value,updated,issues,detail),detail.c_str());
+    QVERIFY(updated.revision!=stored.revision);
+    paleo::data::SourceIndexEntry sourceIndex;
+    paleo::data::DataObjectDescriptor volumeDescriptor;
+    QVERIFY(ds.readSourceIndexEntry(volumes.front().sourceId,sourceIndex,detail));
+    QVERIFY(ds.describeDataObject(paleo::data::DataObjectKind::SeismicVolume,volumes.front().id,volumeDescriptor,detail));
+    QVERIFY(volumeDescriptor.revisionKnown);
+    ds.closeProject();
+    using namespace paleo::document;
+    seismic::SeismicDataSectionQuery selected;
+    selected.source.ref={"test-document","area-model",sourceIndex.id,QString::fromStdString(sourceIndex.sha256)};
+    selected.source.fingerprint=SourceFingerprint::fromStored(selected.source.ref.fileRevisionId);
+    selected.source.modelDirectory=paleo::area_model::directory(project);
+    selected.context.documentId=selected.source.ref.documentId;selected.context.modelStoreId="area-model";
+    selected.context.purpose=RelationPurpose::Correlation;
+    selected.context.schemeId=QString::fromStdString(stored.id);
+    selected.context.schemeRevision=QString::fromStdString(stored.revision.value);
+    selected.context.targetVolume=ModelObjectRef{selected.source.ref,ObjectKind::SeismicVolume,
+         volumeDescriptor.id,QString::fromStdString(volumeDescriptor.revision)};
+    selected.firstTimeMs=88;selected.lastTimeMs=96;selected.maxColumns=2;selected.maxValues=6;
+    paleo::loadSeismicCorrelationTops(project,{{0,42}},correlationWells,warnings,&selected.context);
+    QVERIFY(warnings.isEmpty());QCOMPARE(correlationWells[0].correlationTops->front().md,100.);
+    QCOMPARE(correlationWells[0].correlationRevision,selected.context.schemeId+":"+selected.context.schemeRevision);
     paleo::area_model::registerProject(project,this);
     struct Unregister{const void *owner;~Unregister(){paleo::area_model::unregisterProject(owner);}} unregister{this};
     PaleoTaskService tasks;seismic::SeismicTaskService service(&tasks);bool done=false,ok=false;
@@ -298,6 +325,18 @@ private slots:
     done=false;std::shared_ptr<const seismic::SeismicSectionData> gap;
     service.startDataSection(path,{{0,0},{30,60}},"synthetic datum",[&](bool success,auto section,const auto&){ok=success;gap=section;done=true;});
     QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(ok);QVERIFY(gap);QCOMPARE(gap->horizons.curves.size(),size_t(5));
+    done=false;
+    service.startDataSection(QString(),{{0,0},{30,60}},"synthetic datum",[&](bool success,auto section,const auto& why){
+      ok=success;gap=section;error=why;done=true;
+    },&selected);
+    QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY2(ok,qPrintable(error));QVERIFY(gap);
+    QCOMPARE(gap->samples,3);QCOMPARE(gap->columns,2);QCOMPARE(gap->firstTimeMs,88.);
+    QCOMPARE(gap->values.size(),size_t(6));QCOMPARE(gap->horizons.revision,selected.context.schemeRevision);
+    done=false;selected.context.targetVolume->revision+="-stale";
+    service.startDataSection(path,{{0,0},{30,60}},"synthetic datum",[&](bool success,auto section,const auto& why){
+      ok=success;gap=section;error=why;done=true;
+    },&selected);
+    QTRY_VERIFY_WITH_TIMEOUT(done,10000);QVERIFY(!ok);QVERIFY(!gap);QVERIFY(!error.isEmpty());
     DataImportService imports(nullptr);imports.setProjectDir(project);PreviewDocService preview(&imports);
     QSignalSpy ready(&preview,&PreviewDocService::seismicSectionReady);
     preview.requestSection("synthetic",{},path,false,{},true,101);QCOMPARE(ready.size(),1);

@@ -3,10 +3,19 @@
 #include "io/sourcefingerprint.h"
 #include "services/documentsourceprobe.h"
 #include "services/documentrelationresolver.h"
+#include "services/areawellchart.h"
+#include "services/projectdata.h"
+#include "services/seismicdataaccess.h"
+#include "services/stratigraphicsubintervals.h"
+#include "workflow/sectionworkbench.h"
+#include "workflow/wellsectionworkflow.h"
+#include "domain/wellcompositemodel.h"
 #include <paleo_data/object_descriptor.h>
+#include <paleo_data/parser.h>
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QRegularExpression>
+#include <cmath>
 
 using namespace document_fixture;
 class TestDocumentSourcesHy:public QObject {
@@ -30,6 +39,37 @@ class TestDocumentSourcesHy:public QObject {
         CatalogVersion version;version.id=fixture.catalog.nextVersionId();version.assetId=asset.id;version.stage="RAW";
         version.managed=false;version.path=path;version.sourceUri=path;version.fileName=QFileInfo(path).fileName();version.sha256=digest;
         return fixture.catalog.addVersion(version,&fixture.error)?version.id:QString();
+    }
+    static SourceCommandResult invoke(Fixture &fixture,SourceCommand command) {
+        QSignalSpy finished(&fixture.session,&DocumentSession::commandFinished);
+        auto result=fixture.session.execute(command);
+        if(!result.pending)return result;
+        if(finished.isEmpty() && !finished.wait(15000)) {
+            result.error="HY source operation timed out";
+            return result;
+        }
+        return qvariant_cast<SourceCommandResult>(finished.first().first());
+    }
+    static bool importWellCheckshots(const QString &copy,const QString &wellName,
+                                     paleo::data::DataService &service,std::string &error) {
+        const auto path=copy.toUtf8().toStdString();
+        const auto canonical=paleo::data::canonicalWellName(wellName.toStdString());
+        const auto parsed=paleo::data::parseFile(path);
+        paleo::data::ParsedFile selected;
+        selected.kind=parsed.kind;selected.status="parsed";selected.coordinateSystems=parsed.coordinateSystems;
+        for(const auto &well:parsed.wells)
+            if(paleo::data::canonicalWellName(well.wellInfo.wellName)==canonical)selected.wells.push_back(well);
+        if(selected.wells.size()!=1 || selected.wells.front().timeDepthRelations.size()!=1) {
+            error="HY fixture needs exactly one assigned relation for the selected well";return false;
+        }
+        QFile file(copy);
+        QCryptographicHash digest(QCryptographicHash::Sha256);
+        if(!file.open(QIODevice::ReadOnly) || !digest.addData(&file)) {
+            error=file.errorString().toStdString();return false;
+        }
+        file.close();
+        long long source=0;
+        return service.importPreparedFile(path,path,path,digest.result().toHex().toStdString(),selected,source,error);
     }
 private slots:
     void initTestCase() {
@@ -132,6 +172,152 @@ private slots:
         QVERIFY(f.session.execute(command).ok);const auto bindings=f.session.bindings("well",well.id);
         QCOMPARE(bindings.size(),1);QCOMPARE(bindings.front().decision,BindingDecision::Conflict);QVERIFY(!bindings.front().primary);
         qInfo().noquote()<<"HY identity conflict retained:"<<fileNameClaim<<claimed;
+    }
+    void selectedWellSeismicInterpretationReadsBoundedWindowsAfterRelocation() {
+        const QString wellName="HZ19-6-1D";
+        Fixture f;QVERIFY(f.init());
+        const auto logs=files(QStringLiteral("单井数据"),{wellName+".xml"});
+        const auto checkshots=files(QStringLiteral("时深转换"));
+        const auto seismicFiles=files(QStringLiteral("地震数据"),{"*.sgy"});
+        QCOMPARE(logs.size(),1);QVERIFY(checkshots.size()>=2);QVERIFY(!seismicFiles.isEmpty());
+        // Match the comprehensive-well import contract used by the application.
+        QVERIFY2(f.importModel(logs.front(),true),qPrintable(f.error));
+        QVERIFY2(f.importModel(seismicFiles.front()),qPrintable(f.error));
+        paleo::data::DataService service;std::string detail;
+        QVERIFY2(service.openProject(paleo::area_model::directory(f.project).toStdString(),detail),detail.c_str());
+        // The other HY cases cover unresolved and conflicting wells. Here only
+        // the explicitly identified well's original samples enter the fixture.
+        for(const auto &path:checkshots) {
+            const auto copy=f.temp.filePath(QFileInfo(path).fileName());
+            QVERIFY(QFile::copy(path,copy));
+            QVERIFY2(importWellCheckshots(copy,wellName,service,detail),detail.c_str());
+        }
+        QVERIFY2(registerAreaWells(f.catalog,&f.error),qPrintable(f.error));
+        QVERIFY2(registerAreaSources(f.catalog,&f.error),qPrintable(f.error));
+        QVERIFY(f.bind());
+        const auto ids=f.catalog.wellsMatchingName(wellName);
+        QCOMPARE(ids.size(),1);
+        const auto well=f.catalog.storedEntityById(ids.front());
+        const auto modelWell=well.extra.value("areaModelWellId").toLongLong();
+        QVERIFY(modelWell>0);
+        std::vector<paleo::data::DataEntry> tables,curves,volumes;
+        QVERIFY(service.listData("time_depth",modelWell,tables,detail));QCOMPARE(tables.size(),size_t(2));
+        QVERIFY(service.listData("curves",modelWell,curves,detail));QVERIFY(!curves.empty());
+        QVERIFY(service.listData("volumes",0,volumes,detail));QVERIFY(!volumes.empty());
+
+        const auto log=std::find_if(curves.begin(),curves.end(),[](const auto &entry){return entry.name=="GR";});
+        QVERIFY(log!=curves.end());
+        paleo::data::CurveWindowQuery query;query.curveId=log->id;query.firstSample=log->count/2;query.sampleCount=4;
+        paleo::data::CurveWindowResult samples;paleo::data::CurveReadStats bytes;
+        QVERIFY2(service.readCurveWindow(query,samples,detail,{},&bytes),detail.c_str());
+        QVERIFY(bytes.chunked);QCOMPARE(bytes.legacyBytesMaterialized,0LL);QCOMPARE(samples.curve.depths.size(),size_t(4));
+        QVERIFY(log->count>10000);QVERIFY(bytes.valueBlocksRead>=1 && bytes.valueBlocksRead<=2);
+        const auto &depths=samples.curve.depths;
+        QVERIFY(std::isfinite(depths.front()) && depths.back()>depths.front());
+        const double scale=samples.depthInfo.depthUnit=="ft"?0.3048:1.;
+        AreaWellCurveWindow window;window.topMd=depths.front()*scale;window.bottomMd=depths.back()*scale;
+        window.maxSamples=32;window.maxReadBytes=1024*1024;
+        QVector<wellsection::Curve> resultCurves;
+        QVERIFY2(readAreaWellSectionCurves(f.project,modelWell,{"GR"},resultCurves,&f.error,{},window),qPrintable(f.error));
+        QCOMPARE(resultCurves.size(),1);QCOMPARE(resultCurves.front().depths.size(),qsizetype(4));
+        for(qsizetype i=0;i<4;++i)
+            QCOMPARE(resultCurves.front().values[i],float(samples.curve.values[i]));
+
+        const auto draft=paleo::strat::draftScheme("hy-test","HY test-only revision",{"TOP","BASE"},
+            {{modelWell,{{"TOP",window.topMd},{"BASE",window.bottomMd}}}});
+        paleo::data::StratigraphicScheme scheme;std::vector<paleo::data::FrameworkIssue> issues;
+        QVERIFY2(service.commitStratigraphicScheme(draft,{},scheme,issues,detail),detail.c_str());
+        const auto sourceFor=[&](long long id) {
+            for(const auto &record:f.session.sources())if(record.ref.sourceId==id)return record;
+            return SourceRecord{};
+        };
+        const auto volumeSource=sourceFor(volumes.front().sourceId);
+        const auto tableSource=sourceFor(tables.back().sourceId);
+        QVERIFY(volumeSource.ref.valid() && tableSource.ref.valid());
+        // Explicit fixture conventions in the private model. The original files
+        // do not declare these datums and remain unchanged.
+        QVERIFY(service.confirmTimeDepthAlignment({tables.back().id},"ms","TWT","HY-test-TWT",true,volumes.front().id,detail));
+        paleo::data::DataObjectDescriptor unconfirmed,table,volume;
+        QVERIFY(service.describeDataObject(paleo::data::DataObjectKind::TimeDepth,tables.back().id,unconfirmed,detail));
+        QVERIFY2(service.confirmTimeDepthSemanticsAtRevision(unconfirmed.id,unconfirmed.revision,
+            "HY-test-MD","ms","TWT","HY-test-TWT",true,table,detail),detail.c_str());
+        QVERIFY(service.describeDataObject(paleo::data::DataObjectKind::SeismicVolume,volumes.front().id,volume,detail));
+        InterpretationContext context;
+        context.documentId=f.session.documentId();context.modelStoreId="area-model";context.purpose=RelationPurpose::WellTie;
+        context.schemeId=QString::fromStdString(scheme.id);context.schemeRevision=QString::fromStdString(scheme.revision.value);
+        context.targetVolume=ModelObjectRef{volumeSource.ref,ObjectKind::SeismicVolume,volume.id,QString::fromStdString(volume.revision)};
+        QVERIFY2(f.session.selectInterpretation(context,&f.error),qPrintable(f.error));
+        RelationUseSpec use{context,well.id,modelWell,RelationKind::TimeDepth};
+        const ModelObjectRef tableRef{tableSource.ref,ObjectKind::TimeDepth,table.id,QString::fromStdString(table.revision)};
+        SourceBinding binding;binding.id="hy-selected-relation";QVERIFY(setRelationBinding(binding,use,tableRef,&f.error));
+        auto command=f.session.command(SourceCommand::Kind::RegisterBinding);command.binding=binding;
+        const auto registered=invoke(f,command);QVERIFY2(registered.ok,qPrintable(registered.error));
+        for(const auto kind:{SourceCommand::Kind::ConfirmBinding,SourceCommand::Kind::SelectPrimary}) {
+            command=f.session.command(kind);command.bindingId=binding.id;
+            const auto selected=invoke(f,command);QVERIFY2(selected.ok,qPrintable(selected.error));
+        }
+        ProjectDataFacade facade;facade.setCatalog(&f.catalog,f.project);
+        const auto selected=f.session.interpretationRelation(well.id,RelationKind::TimeDepth);
+        QCOMPARE(selected.state,RelationInput::State::Selected);QCOMPARE(selected.request.object,tableRef);
+        const auto values=facade.tdTableForSelection(well.id,selected);
+        QVERIFY2(values.size()>100,qPrintable(facade.lastError()));
+        const auto tops=facade.pinnedMappingTops(context,{"TOP","BASE"},&f.error).value(well.id);
+        QVERIFY2(f.error.isEmpty(),qPrintable(f.error));
+        const auto mappingTop=std::find_if(tops.begin(),tops.end(),[](const auto &top){return top.horizon=="TOP";});
+        QVERIFY(mappingTop!=tops.end());QCOMPARE(mappingTop->md,window.topMd);
+        AreaWellChartQuery chartQuery;
+        chartQuery.curves=window;chartQuery.curveNames=QStringList{"GR"};chartQuery.context=context;
+        chartQuery.context->purpose=RelationPurpose::WellColumn;
+        WellComposite::ComprehensiveWellData chart;
+        QVERIFY2(readAreaWellChart(service,modelWell,chart,&f.error,{},&chartQuery),qPrintable(f.error));
+        QVERIFY(!chart.formationIntervals.isEmpty());
+        QCOMPARE(chart.formationIntervals.front().topDepth,float(window.topMd));
+        SectionWorkbench section(&f.catalog);section.setDocumentSession(&f.session);
+        seismic::TimeDepthModel model;double shift=0;QString status;
+        QVERIFY2(section.mdTimeDepth(well.id,&model,&shift,&status),qPrintable(status));
+        WellSectionWorkflow sectionWorkflow(&f.catalog);
+        sectionWorkflow.setSectionWorkbench(&section);
+        sectionWorkflow.setDocumentSession(&f.session);
+        QSignalSpy drawn(&sectionWorkflow,&WellSectionWorkflow::sectionReady);
+        sectionWorkflow.request({well.id},{"GR"});
+        QTRY_COMPARE(drawn.size(),1);
+        const auto sectionWells=drawn.front().at(1).value<QVector<wellsection::Well>>();
+        QCOMPARE(sectionWells.size(),1);QVERIFY(sectionWells.front().timeDepth);
+        QCOMPARE(sectionWells.front().correlationRevision,context.schemeId+":"+context.schemeRevision);
+
+        const auto moved=f.temp.filePath("moved-checkshot");
+        QVERIFY(QFile::rename(tableSource.path,moved));
+        command=f.session.command(SourceCommand::Kind::Relocate);command.source=tableSource.ref;command.path=moved;
+        const auto relocated=invoke(f,command);QVERIFY2(relocated.ok,qPrintable(relocated.error));
+        const auto movedSelection=f.session.interpretationRelation(well.id,RelationKind::TimeDepth);
+        QCOMPARE(movedSelection.request.object,tableRef);
+        QCOMPARE(movedSelection.request.selected.path,moved);
+        const auto after=facade.tdTableForSelection(well.id,movedSelection);
+        QCOMPARE(after.size(),values.size());
+        for(qsizetype i=0;i<values.size();++i) {
+            QCOMPARE(after[i].md,values[i].md);
+            QCOMPARE(after[i].timeMs,values[i].timeMs);
+        }
+        seismic::TimeDepthModel movedModel;double movedShift=0;
+        QVERIFY2(section.mdTimeDepth(well.id,&movedModel,&movedShift,&status),qPrintable(status));
+        QCOMPARE(movedModel.points().size(),model.points().size());
+        QCOMPARE(movedModel.points().back().timeMs,model.points().back().timeMs);
+        QCOMPARE(movedShift,shift);
+
+        paleo::SeismicDataAccess seismic;
+        QVERIFY2(seismic.openModelVolume(volumeSource,*context.targetVolume,&f.error),qPrintable(f.error));
+        paleo::data::SeismicFileInfo info;
+        QVERIFY2(seismic.inspect(info,detail),detail.c_str());
+        paleo::data::SectionReadOptions options;
+        options.firstTime=info.firstTime;options.lastTime=info.firstTime+2*info.sampleInterval;
+        options.maxColumns=8;options.maxValues=24;
+        paleo::data::SeismicSectionResult slice;
+        QElapsedTimer elapsed;elapsed.start();
+        QVERIFY2(seismic.line(true,info.inlineMin,options,slice,detail),detail.c_str());
+        QVERIFY(slice.columns>0 && slice.columns<=8 && slice.samples>0 && slice.samples<=3);
+        QVERIFY(std::any_of(slice.amplitudes.cbegin(),slice.amplitudes.cend(),[](float v){return std::isfinite(v);}));
+        qInfo()<<"HY selected samples"<<values.size()<<"curve SQL bytes"<<bytes.payloadBytesRead
+               <<"seismic window"<<slice.columns<<slice.samples<<"elapsed ms"<<elapsed.elapsed();
     }
     void relocationUsesOnlyAPrivateCopyOfRealLogData() {
         auto logs=files(QStringLiteral("岩心"),{"*.las"});QVERIFY(!logs.isEmpty());

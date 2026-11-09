@@ -2,12 +2,13 @@
 #pragma once
 #include "../metadata/layermanifest.h"
 #include <QObject>
+#include <QHash>
 #include <QString>
 #include <QVector>
 #include <memory>
 #include <optional>
 #include <functional>
-namespace paleo::document {struct RelationResolveRequest;}
+namespace paleo::document {struct InterpretationContext;struct InterpretationReadPlan;struct RelationInput;struct RelationResolveRequest;}
 
 #include "../catalog/entityview.h"
 #include "../domain/deviationsurvey.h"
@@ -121,6 +122,8 @@ class ProjectDataFacade : public QObject
     // 不回退更早修订/旧 tops 文件——与「模型里没有这口井的分层」区分开，
     // 调用方必须把 error 报出去。
     QVector<WellTop> topsForMapping(const QString &wellId, QString *error) const;
+    QHash<QString,QVector<WellTop>> pinnedMappingTops(const paleo::document::InterpretationContext &context,
+        const QStringList &horizons,QString *error,const std::function<bool()> &cancelled={}) const;
     // topsForMapping 实际读的资产；回落主 tops 时也是那个资产。无分层则空。
     QString mappingTopsAssetId(const QString &wellId) const;
     // 指定 tops 资产的分层（连井剖面「分层来源」切换）：assetId 空 = 主 tops
@@ -129,6 +132,8 @@ class ProjectDataFacade : public QObject
     QVector<WellTop> topsForAsset(const QString &wellId, const QString &assetId,
                                   WellParseReport *report = nullptr) const;
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
+    QVector<TdSample> tdTableForSelection(const QString &wellId,const paleo::document::RelationInput &input,
+                                        const std::function<bool()> &cancelled={}) const;
     // A request comes from DocumentSession's explicit context/primary choice.
     // Verify its persisted binding and read only that exact object revision.
     QVector<TdSample> tdTableFor(const paleo::document::RelationResolveRequest &request,
@@ -160,6 +165,9 @@ class ProjectDataFacade : public QObject
     std::shared_ptr<DataCatalog> catalogSnapshot() const;
     QString projectDirectory() const { return projectDir(); }
     void setDeclarationSnapshot(const QVector<LayerDeclaration> &declarations);
+    using InterpretationPlan=std::shared_ptr<const paleo::document::InterpretationReadPlan>;
+    void setInterpretationPlanProvider(std::function<InterpretationPlan()> provider);
+    InterpretationPlan interpretationPlan() const;
 
     // EntityView 查询面直通（data/entity-view）：注册表全角色槽 + primary/成员/
     // 未决分桶 + 下游产物 + 悬空源诊断——DataPage 与派生链消费的稳定出口。
@@ -183,5 +191,6 @@ class ProjectDataFacade : public QObject
     QString m_projectDirOverride;
     LayerManifest *m_manifest = nullptr;
     std::optional<QVector<LayerDeclaration>> m_declarationSnapshot;
+    std::function<InterpretationPlan()> m_interpretationPlan;
     mutable QString m_lastError; // const readers may record lookup failures
 };

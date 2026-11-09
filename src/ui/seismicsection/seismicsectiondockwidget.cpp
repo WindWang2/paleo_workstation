@@ -90,6 +90,12 @@ void SeismicSectionDockWidget::clearRoute() {
   m_route.clear();
   m_distances.clear();
 }
+void SeismicSectionDockWidget::invalidateInterpretation() {
+  ++m_generation;
+  if(m_extraction){m_extraction->requestCancel();m_extraction.clear();m_progressBar->hide();}
+  m_canvas->setHorizonOverlays({});
+  setCandidateWells({});
+}
 
 void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume) {
   if (m_extraction)
@@ -534,7 +540,8 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
     std::shared_ptr<const SgyVolume> volume,
     const std::vector<glm::ivec2> &pathPoints, const QString &lineTitle,
     const std::vector<glm::dvec2> &mapPolyline,
-    const std::vector<SectionWellInfo> &candidateWells,const QStringList &selectedWellIds) {
+    const std::vector<SectionWellInfo> &candidateWells,const QStringList &selectedWellIds,
+    const paleo::document::InterpretationSelection *selection) {
   if (!volume || pathPoints.size() < 2 || !m_taskService)
     return;
   if (m_extraction)
@@ -622,7 +629,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
         // FaultSet 棒按新身份重新过滤回显（goal/fault-interpretation）。
         guard->refreshInterpretationOverlay();
         emit guard->sectionExtractionFinished(true, QString());
-      });
+      },selection);
 }
 
 } // namespace seismic

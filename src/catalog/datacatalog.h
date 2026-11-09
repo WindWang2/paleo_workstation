@@ -360,6 +360,11 @@ class DataCatalog : public QObject
     // 不含种子本身）。空 id → 空集；未知 id 如实回空集（下游按链接表存在性
     // 判定，种子是否在库不影响边扫描）。
     QVector<CatalogVersion> downstreamClosure(const QString &versionId) const;
+    QSet<QString> timeDepthConsumers() const;
+    QSet<QString> timeDepthConsumersForSlot(const QString &slot) const;
+    QSet<QString> timeDepthConsumersForTable(qlonglong tableId) const;
+    QSet<QString> timeDepthConsumersForObjects(const QSet<qlonglong> &sourceIds, qlonglong volumeId) const;
+    bool markDerivedInputsStale(const QSet<QString> &seeds, const QString &reason, QString *error);
 
     // 下游失效标记（staleness-lite）：versionId 下游闭包中的 DERIVED 版本
     // 记 extra["stale"]=true + extra["staleReason"]=reason（reason 空 →

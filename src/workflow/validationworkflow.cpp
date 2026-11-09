@@ -7,6 +7,7 @@
 #include "../qgis/qgislayerservice.h"   // LayerDeclaration / QgisLayerService
 #include "../services/projectdata.h"
 #include "mappingworkflow.h"          // TimeResidualRow / computeTimeResiduals
+#include "services/documentrelationresolver.h"
 
 #include "../catalog/datacatalog.h"
 #include "../services/paleotaskservice.h"
@@ -281,6 +282,7 @@ bool ValidationWorkflow::startValidation() {
       }
     }
   const auto data = m_projectData;
+  const auto interpretation=data?data->interpretationPlan():nullptr;
   auto catalog = data ? data->catalogSnapshot() : nullptr;
   const QString dir = data ? data->projectDirectory() : QString();
   const auto sequence = catalog ? catalog->mutationSeq() : 0;
@@ -289,11 +291,12 @@ bool ValidationWorkflow::startValidation() {
   auto rows = std::make_shared<QVariantList>();
   auto *task = m_tasks->start(
       tr("验证工程与井上时间残差"), [catalog, dir, declarations, initial,
-                                     threshold, issues, rows](PaleoTask *task) {
+                                     threshold, issues, rows,interpretation](PaleoTask *task) {
         ProjectDataFacade facade;
         if (catalog) {
           facade.setCatalog(catalog.get(), dir);
           facade.setDeclarationSnapshot(declarations);
+          facade.setInterpretationPlanProvider([interpretation]{return interpretation;});
         }
         ValidationWorkflow worker(nullptr, nullptr);
         worker.m_snapshotDeclarations = declarations;
@@ -309,13 +312,17 @@ bool ValidationWorkflow::startValidation() {
       });
   m_validationTask = task;
   connect(task, &PaleoTask::finished, this,
-          [this, task, data, sequence, issues, rows] {
+          [this, task, data, sequence, issues, rows,interpretation] {
             bool completed = task->state() == PaleoTask::State::Succeeded &&
                              task->session() == m_tasks->session() &&
                              data == m_projectData;
             if (completed && data) {
               const auto fresh = data->catalogSnapshot();
               completed = fresh && fresh->mutationSeq() == sequence;
+              const auto current=data->interpretationPlan();
+              completed=completed && bool(current)==bool(interpretation) &&
+                  (!current || (current->selection.context==interpretation->selection.context &&
+                                current->selection.error==interpretation->selection.error));
             }
             if (completed) {
               m_lastIssues = *issues;

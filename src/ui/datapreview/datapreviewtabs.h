@@ -25,6 +25,7 @@ struct EntityAssetLink;
 class QgsProject;
 class QgsMapCanvas;
 class PreviewMapPage;
+namespace paleo::document {class DocumentSession;}
 namespace seismic
 {
 class SeismicTaskService;
@@ -113,6 +114,7 @@ class DataPreviewTabs : public QWidget
     using RelocationReply = std::function<void(const QString &,const QString &)>;
     using RelocationHandler = std::function<void(const QString &,const QString &,RelocationReply)>;
     void setSourceRelocationHandler(RelocationHandler handler) {m_sourceRelocation=std::move(handler);}
+    void setDocumentSession(paleo::document::DocumentSession *session);
 
   signals:
     void graphRequested(const QString &assetId, const QString &versionId);
@@ -133,6 +135,7 @@ class DataPreviewTabs : public QWidget
 
   private:
     RelocationHandler m_sourceRelocation;
+    QPointer<paleo::document::DocumentSession> m_document;
     void wireWellNavigation(class PreviewMapPage *page, class QgsVectorLayer *layer);
     void syncDetails();
     void clearDetails(const QString &assetId);

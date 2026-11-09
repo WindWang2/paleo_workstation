@@ -81,13 +81,14 @@ struct SourceChangeSet {
     QStringList bindingIds, sourceKeys;
 };
 struct SourceCommand {
-    enum class Kind { RegisterBinding, ConfirmBinding, SelectPrimary, RemoveBinding, Inspect, Relocate, ResolveRelation, UpgradeModelMetadata };
+    enum class Kind { RegisterBinding, ConfirmBinding, SelectPrimary, RemoveBinding, Inspect, Relocate, ResolveRelation, UpgradeModelMetadata, ChooseRelation };
     Kind kind = Kind::Inspect;
     quint64 expectedEpoch = 0, expectedRevision = 0;
     SourceBinding binding;
     SourceRef source;
     QString bindingId, note, path, operationId;
     bool verify = false;
+    QVariantMap timeDepthSemantics;
 };
 struct SourceCommandResult {
     QString operationId, code, error, versionId;

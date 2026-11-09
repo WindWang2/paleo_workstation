@@ -25,7 +25,8 @@ bool schema(QSqlDatabase &db,const QString &documentId,QString *error) {
     }
     const QStringList statements{
         "CREATE TABLE IF NOT EXISTS document_source_meta(id INTEGER PRIMARY KEY CHECK(id=1),format INTEGER NOT NULL,document_id TEXT NOT NULL,revision INTEGER NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS document_source_operations(id TEXT PRIMARY KEY,payload TEXT NOT NULL)"};
+        "CREATE TABLE IF NOT EXISTS document_source_operations(id TEXT PRIMARY KEY,payload TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS document_interpretation(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)"};
     for(const auto &statement:statements) if(!sql(db,statement,{},error)) return false;
     return sql(db,"INSERT OR IGNORE INTO document_source_meta VALUES(1,1,?,0)",{documentId},error);
 }
@@ -79,7 +80,45 @@ bool DocumentSourceStore::load(const QString &documentId,SourceStoreSnapshot &sn
             ok=failure(error,QStringLiteral("来源恢复记录损坏或超过预算"));
         else snapshot.pendingOperations.insert(rows.value(0).toString(),json.object());
     }
-    rows.finish();return complete(db,ok,error);
+    rows.finish();
+    if(ok && db.tables().contains("document_interpretation")) {
+        QSqlQuery context(db);
+        ok=context.exec("SELECT payload FROM document_interpretation WHERE id=1");
+        if(!ok) failure(error,context.lastError().text());
+        if(ok && context.next()) {
+            const auto bytes=context.value(0).toByteArray();
+            InterpretationContext value;
+            const bool valid=bytes.size()<=65536 &&
+                interpretationContextFromJson(QJsonDocument::fromJson(bytes).object(),value) &&
+                value.documentId==snapshot.documentId && value.modelStoreId=="area-model" &&
+                value.purpose==RelationPurpose::WellTie;
+            if(valid)snapshot.interpretation=value;
+            else snapshot.interpretationError=QStringLiteral("活动解释上下文损坏或不属于该文档");
+        }
+    }
+    return complete(db,ok,error);
+}
+bool DocumentSourceStore::saveInterpretation(const InterpretationContext &context,QString *error) {
+    if(error) error->clear();
+    if(!owner(error)) return false;
+    const auto payload=QJsonDocument(interpretationContextJson(context)).toJson(QJsonDocument::Compact);
+    if(payload.size()>65536) return failure(error,QStringLiteral("解释上下文超出预算"));
+    auto db=writable(m_path,m_connection,context.documentId,error);
+    if(!db.isValid() || !begin(db,error)) return false;
+    quint64 revision=0;
+    const bool ok=metadata(db,context.documentId,&revision,error) &&
+        sql(db,"INSERT OR REPLACE INTO document_interpretation VALUES(1,?)",{QString::fromUtf8(payload)},error);
+    return complete(db,ok,error);
+}
+bool DocumentSourceStore::clearInterpretation(const QString &documentId,QString *error) {
+    if(error)error->clear();
+    if(!owner(error))return false;
+    auto db=writable(m_path,m_connection,documentId,error);
+    if(!db.isValid() || !begin(db,error))return false;
+    quint64 revision=0;
+    const bool ok=metadata(db,documentId,&revision,error) &&
+        sql(db,"DELETE FROM document_interpretation WHERE id=1",{},error);
+    return complete(db,ok,error);
 }
 bool DocumentSourceStore::ensureIdentity(const QString &documentId,QString *error) {
     if(error)error->clear();if(!owner(error))return false;

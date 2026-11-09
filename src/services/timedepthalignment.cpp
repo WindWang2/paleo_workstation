@@ -1,8 +1,10 @@
 // 层：数据
 #include "timedepthalignment.h"
+#include "timedepthdependencies.h"
 #include "catalog/datacatalog.h"
 #include "io/areamodel.h"
 #include <paleo_data/service.h>
+#include <paleo_data/object_descriptor.h>
 #include <QSet>
 #include <cmath>
 
@@ -48,9 +50,28 @@ bool saveTimeDepthAlignment(DataCatalog *catalog,const QVariantMap &selection,QS
     if(error)*error=QString::fromStdString(detail);return false;
   }
   std::vector<long long> ids;for(const auto &id:selection.value("sources").toList())ids.push_back(id.toLongLong());
-  const bool ok=service.confirmTimeDepthAlignment(ids,selection.value("unit").toString().toStdString(),
-    selection.value("type").toString().toStdString(),selection.value("reference").toString().trimmed().toStdString(),
-    selection.value("negate").toBool(),selection.value("volume").toLongLong(),detail);
-  if(!ok&&error)*error=QString::fromStdString(detail);return ok;
+  const auto volumeId=selection.value("volume").toLongLong();
+  QSet<qlonglong> sources;
+  if(!catalog->timeDepthConsumers().isEmpty()) {
+    for(const auto id:ids) {
+      data::DataObjectDescriptor object;
+      if(!service.describeDataObject(data::DataObjectKind::TimeDepth,id,object,detail)) {
+        if(error)*error=QString::fromStdString(detail);
+        return false;
+      }
+      sources.insert(object.sourceId);
+    }
+  }
+  if(!service.confirmTimeDepthAlignment(ids,selection.value("unit").toString().toStdString(),
+      selection.value("type").toString().toStdString(),selection.value("reference").toString().trimmed().toStdString(),
+      selection.value("negate").toBool(),volumeId,detail)) {
+    if(error)*error=QString::fromStdString(detail);
+    return false;
+  }
+  service.closeProject();
+  QString projectionError;
+  if(!document::refreshTimeDepthDependencies(*catalog,sources,volumeId,&projectionError) && error)
+    *error=QStringLiteral("时深口径已保存，成果状态将在重新打开文档时恢复（%1）").arg(projectionError);
+  return true;
 }
 }

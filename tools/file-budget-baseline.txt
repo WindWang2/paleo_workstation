@@ -41,7 +41,7 @@ src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:407
 src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:429
 src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:355
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:251
-src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:639
+src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:636
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:284
@@ -69,7 +69,7 @@ src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:368
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:646
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:224
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:476
-src/ui/paleomainwindow_sections.cpp:fn:attachSections:277
+src/ui/paleomainwindow_sections.cpp:fn:attachSections:275
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:426
 src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:276
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255

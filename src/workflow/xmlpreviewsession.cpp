@@ -1,6 +1,8 @@
 // 层：功能
 #include "xmlpreviewsession.h"
+#include "documentsession.h"
 #include "../catalog/datacatalog.h"
+#include "../services/areawellchart.h"
 #include "../services/futuretask.h"
 #include <QDir>
 #include <QFile>
@@ -9,6 +11,46 @@
 #include <QTemporaryDir>
 #include <QtConcurrent>
 
+namespace {
+struct ChartSelection {
+  AreaWellChartQuery query;
+  QString error,summary;
+  const AreaWellChartQuery *request() const {return query.context?&query:nullptr;}
+};
+ChartSelection chartSelection(const paleo::document::DocumentSession *session,const QString &wellId) {
+  using namespace paleo::document;
+  ChartSelection result;
+  if(!session || wellId.isEmpty())return result;
+  const auto selection=session->interpretationSelection();
+  result.error=selection.error;
+  if(!selection.context)return result;
+  auto context=*selection.context;
+  context.purpose=RelationPurpose::WellColumn;
+  result.query.context=context;
+  if(!context.schemeId.isEmpty())result.summary=QObject::tr("分层方案 %1 · 修订 %2")
+      .arg(context.schemeId,context.schemeRevision);
+  const auto track=session->interpretationRelation(wellId,RelationKind::StratigraphicTrack,RelationPurpose::WellColumn);
+  if(track.state==RelationInput::State::Selected)result.query.intervalTrack=track.request;
+  else if(track.state==RelationInput::State::Invalid)result.error=track.error;
+  const auto td=session->interpretationRelation(wellId,RelationKind::TimeDepth);
+  if(td.state!=RelationInput::State::Unselected) {
+    const auto note=td.state==RelationInput::State::Selected?
+        QObject::tr("时深关系 #%1").arg(td.request.object.id):td.error;
+    if(!result.summary.isEmpty())result.summary+=QStringLiteral(" · ");
+    result.summary+=note;
+  }
+  return result;
+}
+}
+void XmlPreviewSession::setDocumentSession(paleo::document::DocumentSession *session,const QString &wellId) {
+  m_document=session;m_wellId=wellId;
+  if(session)connect(session,&paleo::document::DocumentSession::interpretationChanged,this,[this](const QString &changedWell) {
+    if(!changedWell.isEmpty() && changedWell!=m_wellId)return;
+    ++m_generation;
+    if(m_verificationCancelled)m_verificationCancelled->store(true);
+  });
+}
+
 void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
                              const QString &modelProject, qlonglong modelSource, qlonglong modelWell)
 {
@@ -16,6 +58,7 @@ void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
   m_verificationCancelled = std::make_shared<std::atomic_bool>(false);
   const auto cancelled = m_verificationCancelled;
   const auto generation = ++m_generation;
+  const auto interpretation=chartSelection(m_document,m_wellId);
   // 会话独占副本：摘要和解析都只看这份，不回读调用方路径。
   m_directory = std::make_shared<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-xml-XXXXXX"));
   const auto directory = m_directory;
@@ -31,7 +74,7 @@ void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
               emit ready(data);
           });
   const auto future = QtConcurrent::run(
-      paleo::tasks::pool(m_tasks), [path, expectedSha, cancelled, directory, modelProject, modelSource, modelWell] {
+      paleo::tasks::pool(m_tasks), [path, expectedSha, cancelled, directory, modelProject, modelSource, modelWell,interpretation] {
         XmlPreviewData data;
         const auto refuse = [&data](const QString &reason) {
           data.chartError = reason;
@@ -39,8 +82,11 @@ void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
           return data;
         };
         if (modelSource > 0) {
+          data.interpretationSummary=interpretation.summary;
           PreviewDocService::areaPreviewSource(modelProject, modelSource, &data.table,
-              &data.chart, &data.chartOk, &data.chartError, modelWell, [cancelled]{return cancelled->load();});
+              interpretation.error.isEmpty()?&data.chart:nullptr,&data.chartOk,&data.chartError,modelWell,
+              [cancelled]{return cancelled->load();},interpretation.request());
+          if(!interpretation.error.isEmpty())data.chartError=interpretation.error;
           return cancelled->load() ? XmlPreviewData{} : data;
         }
         if (PreviewDocService::areaPreviewAt(path, &data.table, &data.chart,
@@ -92,6 +138,7 @@ void XmlPreviewSession::openModelWell(const QString &modelProject, qlonglong mod
   m_verificationCancelled = std::make_shared<std::atomic_bool>(false);
   const auto cancelled = m_verificationCancelled;
   const auto generation = ++m_generation;
+  const auto interpretation=chartSelection(m_document,m_wellId);
   auto *watcher = new QFutureWatcher<XmlPreviewData>(this);
   connect(watcher, &QFutureWatcherBase::finished, this,
           [this, watcher, generation] {
@@ -103,11 +150,13 @@ void XmlPreviewSession::openModelWell(const QString &modelProject, qlonglong mod
               emit ready(data);
           });
   const auto future = QtConcurrent::run(
-      paleo::tasks::pool(m_tasks), [modelProject, modelWell, cancelled] {
+      paleo::tasks::pool(m_tasks), [modelProject, modelWell, cancelled,interpretation] {
         XmlPreviewData data;
-        PreviewDocService::areaPreviewWell(modelProject, modelWell, &data.table, &data.chart,
-                                            &data.chartOk, &data.chartError,
-                                            [cancelled] { return cancelled->load(); });
+        data.interpretationSummary=interpretation.summary;
+        PreviewDocService::areaPreviewWell(modelProject,modelWell,&data.table,
+            interpretation.error.isEmpty()?&data.chart:nullptr,&data.chartOk,&data.chartError,
+            [cancelled]{return cancelled->load();},interpretation.request());
+        if(!interpretation.error.isEmpty())data.chartError=interpretation.error;
         return cancelled->load() ? XmlPreviewData{} : data;
       });
   auto *task = paleo::tasks::track(m_tasks, watcher, future,

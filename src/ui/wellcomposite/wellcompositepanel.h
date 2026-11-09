@@ -90,6 +90,7 @@ public:
   // 设置并显示井名；reference=true 时徽章标识为参考井（辅助资料内的井，非测区井序列）
   void setWellName(const QString &name, bool reference = false);
   QString wellName() const { return m_wellName; }
+  qlonglong modelWellId() const {return m_data.modelWellId;}
   bool isReferenceWell() const { return m_referenceWell; }
 
   // D1.8 会话键的项目段（未设置时 "default"）

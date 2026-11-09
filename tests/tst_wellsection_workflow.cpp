@@ -1,6 +1,7 @@
 #include "catalog/datacatalog.h"
 #include "domain/faultset.h"
 #include "domain/seismic/sgyvolume.h"
+#include "domain/surveygridgeometry.h"
 #include "domain/welllogfacies.h"
 #include "metadata/faultsetstore.h"
 #include "metadata/wellsectionstore.h"
@@ -2020,11 +2021,16 @@ private slots:
     QVERIFY(wells[0].timeDepth);QCOMPARE(wells[0].timeDepth->twtAt(1500),130.);QVERIFY(!wells[1].timeDepth);
     QVERIFY(!wells[1].timeDepthStatus.isEmpty());
     SectionWorkbench workbench(&catalog);QCOMPARE(workbench.wells().size(),2);
-    const auto overlay=workbench.sectionWells();QCOMPARE(overlay.size(),size_t(1));QVERIFY(!overlay.front().curves.empty());
+    const auto overlay=workbench.sectionWells();QCOMPARE(overlay.size(),size_t(2));QVERIFY(!overlay.front().curves.empty());
     QCOMPARE(overlay.front().curves.front().twtMs[1],130.);
+    QCOMPARE(overlay.back().wellId,QStringLiteral("N2"));
+    QVERIFY(overlay.back().curves.empty());
+    QVERIFY(!overlay.back().mdTimeDepth);
+    QVERIFY(!overlay.back().alignmentStatus.isEmpty());
     SectionWorkbench::PreviewData preview;bool ready=false;
     workbench.requestPreviewData([&](const auto &value){preview=value;ready=true;});QTRY_VERIFY(ready);
-    QCOMPARE(preview.wells.size(),2);QCOMPARE(preview.sectionWells.size(),size_t(1));
+    QCOMPARE(preview.wells.size(),2);QCOMPARE(preview.sectionWells.size(),size_t(2));
+    QVERIFY(preview.sectionWells.back().curves.empty());
   }
 
   // ---- 时深口径确认（HY 验收 2026-10-31：Merge_TDR 型来源解锁链路）----

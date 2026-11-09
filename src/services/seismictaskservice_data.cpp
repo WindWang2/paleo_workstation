@@ -106,19 +106,36 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
  return task;
 }
 PaleoTask *SeismicTaskService::startDataSection(const QString& path,const std::vector<std::pair<double,double>>& points,
-    const QString& reference,std::function<void(bool,std::shared_ptr<const SeismicSectionData>,const QString&)> done) {
+    const QString& reference,std::function<void(bool,std::shared_ptr<const SeismicSectionData>,const QString&)> done,
+    const SeismicDataSectionQuery *query) {
  if(!taskService_){if(done)done(false,nullptr,tr("后台地震服务未连接"));return nullptr;}
  auto out=std::make_shared<SeismicSectionData>();
- auto *task=startBounded(tr("读取连井地震剖面"),[path,points,reference,out](PaleoTask *task)->QString {
-  paleo::SeismicDataAccess source;QString error;std::string detail;if(!source.open(path,&error))return error;
+ const auto selection=query?std::optional<SeismicDataSectionQuery>(*query):std::nullopt;
+ auto *task=startBounded(tr("读取连井地震剖面"),[path,points,reference,out,selection](PaleoTask *task)->QString {
+  paleo::SeismicDataAccess source;QString error;std::string detail;
   paleo::data::SeismicSectionResult section;
-  if(!source.xySection(points,reference,section,detail,[task]{return task->cancelRequested();}))return QString::fromUtf8(detail);
-  out->horizons=source.sectionHorizons(section,[task]{return task->cancelRequested();});
+  const auto cancel=[task]{return task->cancelRequested();};
+  if(selection) {
+   const auto &context=selection->context;
+   if(!context.valid()||!context.targetVolume)return tr("连井剖面需要明确的文档地震体");
+   if(!source.openModelVolume(selection->source,*context.targetVolume,&error))return error;
+   paleo::data::SectionReadOptions options;
+   options.firstTime=selection->firstTimeMs;options.lastTime=selection->lastTimeMs;
+   options.maxColumns=selection->maxColumns;options.maxValues=selection->maxValues;options.fullResolution=selection->fullResolution;
+   if(!source.xySection(points,reference,options,section,detail,cancel))return QString::fromUtf8(detail);
+  } else {
+   if(!source.open(path,&error))return error;
+   if(!source.xySection(points,reference,section,detail,cancel))return QString::fromUtf8(detail);
+  }
+  out->horizons=source.sectionHorizons(section,cancel,selection?&selection->context:nullptr);
   out->columns=section.columns;out->samples=section.samples;out->firstTimeMs=section.firstTime;
   out->sampleIntervalMs=section.sampleInterval;out->timeReference=reference;out->distancesM=std::move(section.distances);
   out->values.resize(section.amplitudes.size());
-  for(int sample=0;sample<section.samples;++sample)for(int col=0;col<section.columns;++col)
+  for(int sample=0;sample<section.samples;++sample){
+   if(cancel())return tr("地震剖面读取已取消");
+   for(int col=0;col<section.columns;++col)
    out->values[size_t(sample)*section.columns+col]=section.amplitudes[size_t(col)*section.samples+sample];
+  }
   task->reportBytes(section.columns,section.columns);return {};
  },{},true);
  connect(task,&PaleoTask::finished,this,[task,out,done]{const bool ok=task->state()==PaleoTask::State::Succeeded;if(done)done(ok,ok?out:nullptr,task->errorText());});

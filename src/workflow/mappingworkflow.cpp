@@ -1,5 +1,9 @@
 // 层：功能
 #include "mappingworkflow.h"
+#include "documentsession.h"
+#include "services/timedepthdependencies.h"
+#include "io/areamodel.h"
+#include <paleo_data/model_changes.h>
 #include "workflowerrors_internal.h"
 #include "rastergeo_internal.h"
 #include "mappingsamples.h"
@@ -395,11 +399,15 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
     std::unique_ptr<DataCatalog> catalog;
     QVector<LayerDeclaration> inputs, outputs;
     QVector<CatalogOp> journal;
-    QVariantList rows;
+    QVariantList rows,receipts;
+    paleo::document::InterpretationSelection interpretation;
+    QHash<QString,paleo::document::RelationInput> timeDepthInputs;
     QString message, error;
     bool ok = false;
   };
   auto job = std::make_shared<Job>();
+  const auto plan=m_document?m_document->captureInterpretationPlan():nullptr;
+  if(plan){job->interpretation=plan->selection;job->timeDepthInputs=plan->timeDepth;}
   job->staging =
       std::make_unique<QTemporaryDir>(m_projectDir + "/.thickness-XXXXXX");
   if (!job->staging->isValid())
@@ -416,6 +424,8 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
         facade.setCatalog(job->catalog.get(), directory);
         facade.setDeclarationSnapshot(job->inputs);
         MappingWorkflow worker(nullptr, nullptr, nullptr);
+        worker.m_interpretation=job->interpretation;
+        worker.m_timeDepthInputs=job->timeDepthInputs;
         worker.m_deferredDeclarations = true;
         worker.m_cancel = [task] { return task->cancelRequested(); };
         worker.m_progress = [task](double p) {
@@ -428,6 +438,7 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
         job->outputs = worker.m_preparedDeclarations;
         job->rows = worker.thicknessSampleRows();
         job->message = worker.thicknessSampleMessage();
+        job->receipts=worker.m_consumedTimeDepth;
         if (job->ok)
           job->journal = job->catalog->journal();
         return job->error;
@@ -446,15 +457,27 @@ bool MappingWorkflow::startThicknessChain(const QString &horizon,
             }
             if (task->state() == PaleoTask::State::Cancelled)
               return;
-            m_thicknessRows = job->rows;
-            m_thicknessMessage = job->message;
-            if (m_constraints)
-              m_constraints->setThicknessSamples(job->rows, job->message);
+            if(interpretation().context!=job->interpretation.context) {
+              const auto detail=tr("解释选择已变化，请重新计算厚度");
+              task->failPublication(detail);emit chainFailed(horizon,detail);return;
+            }
             QString error = job->error;
+            std::string leaseError;
+            paleo::data::ModelWriteLease lease;
+            if(job->ok && !job->receipts.isEmpty()) {
+              lease=paleo::data::tryAcquireModelWriteLease(paleo::area_model::directory(directory).toStdString(),0,leaseError);
+              if(!lease)error=leaseError.empty()?tr("模型写入期间不能发布厚度结果"):QString::fromStdString(leaseError);
+              else if(!paleo::document::validateTimeDepthDependencies(*catalog,job->receipts,&error) && error.isEmpty())
+                error=tr("厚度输入时深关系已变化，请重新计算");
+            }
+            if(!job->ok || error.isEmpty()) {
+              m_thicknessRows=job->rows;m_thicknessMessage=job->message;
+              if(m_constraints)m_constraints->setThicknessSamples(job->rows,job->message);
+            }
             QHash<QString, QString> idMap; // R2-SF-1：撞号重映射表
             const QString publishKey =
                 publishIdentity.value( QStringLiteral( "source_horizon" ), horizon ).toString();
-            if (job->ok && publishMapExportJournal(catalog, directory,
+            if (job->ok && error.isEmpty() && publishMapExportJournal(catalog, directory,
                                                    job->staging->path(),
                                                    job->journal, &error, &idMap)) {
               for (auto decl : job->outputs) {
@@ -501,6 +524,14 @@ void MappingWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDi
   m_projectDir = projectDir;
 }
 
+void MappingWorkflow::setDocumentSession(paleo::document::DocumentSession *session) {m_document=session;}
+paleo::document::InterpretationSelection MappingWorkflow::interpretation() const {
+  return m_document?m_document->interpretationSelection():m_interpretation;
+}
+paleo::document::RelationInput MappingWorkflow::timeDepthInput(const QString &wellId) const {
+  return m_document?m_document->interpretationRelation(wellId,paleo::document::RelationKind::TimeDepth):m_timeDepthInputs.value(wellId);
+}
+
 // ---------------------------------------------------------------------------
 // 厚度样本 — 逐井评估（约束页面板渲染源）
 // ---------------------------------------------------------------------------
@@ -521,6 +552,18 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
   }
 
   QVector<ThicknessSample> out;
+  m_consumedTimeDepth.clear();
+  m_contributingTimeDepth.clear();
+  const auto selection=interpretation();
+  QString targetReference;
+  const auto contextError=paleo::document::validateInterpretationSelection(
+      paleo::area_model::directory(m_projectData->projectDirectory()),selection,&targetReference);
+  if(!contextError.isEmpty()){setError(error,contextError);return {};}
+  const bool pinned=selection.context && !selection.context->schemeId.isEmpty();
+  QString schemeError;
+  const auto pinnedTops=pinned?m_projectData->pinnedMappingTops(*selection.context,{horizon,baseHorizon},&schemeError,m_cancel):
+      QHash<QString,QVector<WellTop>>{};
+  if(!schemeError.isEmpty()){setError(error,schemeError);return {};}
   for ( const ProjectWell &well : m_projectData->wells() )
   {
     if (m_cancel && m_cancel()) {
@@ -532,7 +575,7 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
     s.wellName = well.name;
 
     QString topsError;
-    const QVector<WellTop> tops = m_projectData->topsForMapping( well.id, &topsError );
+    const QVector<WellTop> tops = pinned?pinnedTops.value(well.id):m_projectData->topsForMapping(well.id,&topsError);
     if ( !topsError.isEmpty() )
     {
       // #826：模型分层读不出时必须失败，不能拿旧修订/旧文件的厚度继续出图。
@@ -573,16 +616,24 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
     else
     {
       s.thickness = s.tvdBase - s.tvdTop;
-      const QVector<TdSample> td = m_projectData->tdTableFor( well.id );
-      const TimeDepthTool::TdResult rt = MappingSamples::timeForTop( td, *top );
-      const TimeDepthTool::TdResult rb = MappingSamples::timeForTop( td, *base );
-      if ( !rt.ok() )
+      const auto input=timeDepthInput(well.id);
+      const bool typed=input.state==paleo::document::RelationInput::State::Selected;
+      const auto td=m_projectData->tdTableForSelection(well.id,input,m_cancel);
+      const auto rt=MappingSamples::timeForTop(td,*top,typed);
+      const auto rb=MappingSamples::timeForTop(td,*base,typed);
+      if(!m_projectData->lastError().isEmpty())
+        s.reason=m_projectData->lastError();
+      else if(!targetReference.isEmpty() && !td.isEmpty() && td.front().timeReference!=targetReference)
+        s.reason=tr("时深关系与所选地震体的时间基准不一致");
+      else if ( !rt.ok() )
         s.reason = TimeDepthTool::reasonText( rt.status );
       else if ( !rb.ok() )
         s.reason = TimeDepthTool::reasonText( rb.status );
       else
       {
         s.dtMs = rb.timeMs - rt.timeMs;
+        const auto receipt=typed?paleo::document::timeDepthDependency(input.request):QVariantMap{};
+        if(!receipt.isEmpty())m_consumedTimeDepth.append(receipt);
         if ( !( s.dtMs > 0.0 ) )
           s.reason = tr( "两层时间差非正（dt=%1ms）" ).arg( s.dtMs, 0, 'f', 1 );
         else if ( !( s.thickness > 0.0 ) )
@@ -593,6 +644,7 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
         {
           s.vint = s.thickness / ( s.dtMs / 2000.0 ); // m/s（autoplan §5C）
           s.contributing = true;
+          if(!receipt.isEmpty())m_contributingTimeDepth.append(receipt);
         }
       }
     }
@@ -702,6 +754,7 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   mergePublishIdentity( &wellsRun.diagnostics, publishKey );
   for ( auto it = publishIdentity.constBegin(); it != publishIdentity.constEnd(); ++it )
     wellsRun.diagnostics.insert( it.key(), it.value() );
+  if(!m_contributingTimeDepth.isEmpty())wellsRun.diagnostics.insert(QStringLiteral("timeDepthDependencies"),m_contributingTimeDepth);
   if ( !paleo::publishArtifacts( registrar, st, wellsRun, {},
                                  QStringLiteral( "mappingworkflow/thickness_wells" ),
                                  wellsRun.diagnostics, &commitErr ) )
@@ -780,6 +833,21 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
   const HorizonRasterInfo rasterTop = m_projectData->horizonRasterDecl( horizon );
   const HorizonRasterInfo rasterBase = m_projectData->horizonRasterDecl( base );
 
+  // Staged jobs validate on the owner at replay. The direct path takes the
+  // same lease after interpolation and keeps it until both publications finish.
+  paleo::data::ModelWriteLease lease;
+  const auto validateDirectPublication = [&] {
+    if (m_deferredDeclarations || m_contributingTimeDepth.isEmpty())
+      return true;
+    std::string leaseError;
+    lease=paleo::data::tryAcquireModelWriteLease(paleo::area_model::directory(m_projectDir).toStdString(),0,leaseError);
+    if (!lease)
+      return fail(leaseError.empty()?tr("模型写入期间不能发布厚度结果"):QString::fromStdString(leaseError));
+    QString detail;
+    return paleo::document::validateTimeDepthDependencies(*m_catalog,m_contributingTimeDepth,&detail) ||
+           fail(detail.isEmpty()?tr("厚度输入时深关系已变化，请重新计算"):detail);
+  };
+
   // ---- 退回路径：任一层位栅格缺失 → 对井点厚度本身做 power-2 IDW（无约束线）--
   if ( !rasterTop.valid || !rasterBase.valid )
   {
@@ -854,6 +922,8 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
     }
     if (m_cancel && m_cancel())
       return fail(tr("已取消"));
+    if (!validateDirectPublication())
+      return false;
     // 退回路径产物同样登记（无栅格输入 → 无父版本；井点 tops 是间接来源）。
     QString stageErr;
     const DerivedStaging st = registrar.stage(
@@ -954,6 +1024,8 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
 
   if (m_cancel && m_cancel())
     return fail(tr("已取消"));
+  if (!validateDirectPublication())
+    return false;
   // 主产物：等厚栅格落 artifacts/derived + DERIVED 版本（T26），父版本 =
   // D61/D62 时间栅格版本（provenance：这份厚度由哪两版栅格算出）。
   QString stageErr;
@@ -972,6 +1044,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
   mergePublishIdentity( &extra, publishKey );
   for ( auto it = identity.constBegin(); it != identity.constEnd(); ++it )
     extra.insert( it.key(), it.value() );
+  if(!m_contributingTimeDepth.isEmpty())extra.insert(QStringLiteral("timeDepthDependencies"),m_contributingTimeDepth);
   const QStringList parents = registrar.parentVersionIdsFor(
       QStringList{ rasterTop.path, rasterBase.path } );
   // algo-atom：主等厚栅格经 publishArtifacts（独立 staging，非多端口单 RunResult——
@@ -1005,6 +1078,33 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error,
 // 时间残差 — 阶段C验证（autoplan §5C）
 // ---------------------------------------------------------------------------
 
+MappingSamples::ResidualInputs::ResidualInputs(const ProjectDataFacade &data,const QString &horizon,
+    const std::function<bool()> &cancelled)
+    :m_data(data),m_plan(data.interpretationPlan()),m_cancelled(cancelled) {
+  if(!m_plan)return;
+  m_error=paleo::document::validateInterpretationSelection(
+      paleo::area_model::directory(data.projectDirectory()),m_plan->selection,&m_targetReference);
+  const auto &context=m_plan->selection.context;
+  m_pinned=context && !context->schemeId.isEmpty();
+  if(m_error.isEmpty() && m_pinned)m_tops=data.pinnedMappingTops(*context,{horizon},&m_error,cancelled);
+}
+QVector<WellTop> MappingSamples::ResidualInputs::tops(const QString &well,QString &error) const {
+  error=m_error;
+  if(!error.isEmpty())return {};
+  return m_pinned?m_tops.value(well):m_data.topsForMapping(well,&error);
+}
+QVector<TdSample> MappingSamples::ResidualInputs::timeDepth(const QString &well,bool &mdOnly,QString &error) const {
+  using namespace paleo::document;
+  const auto input=m_plan?m_plan->timeDepth.value(well,{RelationInput::State::Invalid,{},QObject::tr("井不属于当前解释计划")}):RelationInput{};
+  mdOnly=input.state==RelationInput::State::Selected;
+  auto samples=m_data.tdTableForSelection(well,input,m_cancelled);
+  error=m_data.lastError();
+  if(!m_targetReference.isEmpty() && !samples.isEmpty() && samples.front().timeReference!=m_targetReference) {
+    error=QObject::tr("时深关系与所选地震体的时间基准不一致");return {};
+  }
+  return samples;
+}
+
 QList<TimeResidualRow>
 computeTimeResiduals(const ProjectDataFacade *projectData,
                      const QString &horizon, double thresholdMs,
@@ -1024,6 +1124,7 @@ computeTimeResiduals(const ProjectDataFacade *projectData,
 
   const bool hasInline = raster.inlineMin >= 0 && raster.inlineMax > raster.inlineMin &&
                          raster.ymax > raster.ymin;
+  const MappingSamples::ResidualInputs inputs(*projectData,horizon,cancelled);
   for ( const ProjectWell &well : projectData->wells() )
   {
     if (cancelled && cancelled()) {
@@ -1035,7 +1136,7 @@ computeTimeResiduals(const ProjectDataFacade *projectData,
     row.wellName = well.name;
 
     QString topsError;
-    const QVector<WellTop> tops = projectData->topsForMapping( well.id, &topsError );
+    const QVector<WellTop> tops=inputs.tops(well.id,topsError);
     if ( !topsError.isEmpty() )
     {
       // #826：读失败不能记成「无分层」——报告里必须区分资料缺失与读取失败。
@@ -1059,12 +1160,13 @@ computeTimeResiduals(const ProjectDataFacade *projectData,
 
     MappingSamples::pickSamplePoint( well, pick, &row.x, &row.y );
 
-    const QVector<TdSample> td = projectData->tdTableFor( well.id );
-    const TimeDepthTool::TdResult tdResult = MappingSamples::timeForTop( td, *pick );
+    QString tdError;bool mdOnly=false;
+    const QVector<TdSample> td=inputs.timeDepth(well.id,mdOnly,tdError);
+    const TimeDepthTool::TdResult tdResult=MappingSamples::timeForTop(td,*pick,mdOnly);
     if ( !tdResult.ok() )
     {
       // 无时深表/超出时深表/时深表无序（TimeDepthTool::reasonText）。
-      row.reason = TimeDepthTool::reasonText( tdResult.status );
+      row.reason=tdError.isEmpty()?TimeDepthTool::reasonText(tdResult.status):tdError;
       rows.append( row );
       continue;
     }

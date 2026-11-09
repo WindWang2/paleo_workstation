@@ -158,19 +158,19 @@ namespace
 
 namespace PaleoRibbon
 {
-  void scrollIntoView(QWidget *btn)
+  void scrollIntoView(QWidget *button)
   {
-    if (!btn)
+    if (!button)
       return;
     SARibbonCategory *cat = nullptr;
-    for (QWidget *p = btn->parentWidget(); p && !cat; p = p->parentWidget())
+    for (QWidget *p = button->parentWidget(); p && !cat; p = p->parentWidget())
       cat = qobject_cast<SARibbonCategory *>(p);
     // categoryLayout() 是 protected——同一对象经公有 layout() 也能拿到
     //（vendor 内部也用 qobject_cast 这条等价路径）。
     auto *lay = cat ? qobject_cast<SARibbonCategoryLayout *>(cat->layout()) : nullptr;
     if (!lay)
       return;
-    const QRect r(btn->mapTo(cat, QPoint(0, 0)), btn->size());
+    const QRect r(button->mapTo(cat, QPoint(0, 0)), button->size());
     // 可见的滚动钮压住类别边缘，预留它的宽度免得焦点件藏在按钮底下。
     int marginL = 0, marginR = 0;
     for (auto *tb : cat->findChildren<QToolButton *>())

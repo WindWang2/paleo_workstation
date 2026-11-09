@@ -20796,6 +20796,28 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="133" />
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="136" />
+            <source>视图</source>
+            <translation>View</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="139" />
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="144" />
+            <source>分析任务</source>
+            <translation>Analysis</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247" />
+            <source>展开功能区</source>
+            <translation>Expand Ribbon</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247" />
+            <source>折叠功能区</source>
+            <translation>Collapse Ribbon</translation>
+        </message>
+        <message>
             <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="130" />
             <source>打开数据视图</source>
             <translation type="unfinished" />

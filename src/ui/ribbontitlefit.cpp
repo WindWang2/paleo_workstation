@@ -117,8 +117,8 @@ namespace
             (*it)->setVisible(false);
             m_folded.insert(m_folded.begin(), *it);
           }
-          // 5. 仍不够：快速访问栏也让位，其命令并入「更多」
-          if (groupWidth() > budget())
+          // 紧凑布局中快速访问栏和页签同行，收起它才有空间可让。
+          if (m_bar->isCompactStyle() && groupWidth() > budget())
             if (QWidget *qab = m_bar->quickAccessBar(); qab && qab->isVisibleTo(m_bar))
             {
               qab->setVisible(false);

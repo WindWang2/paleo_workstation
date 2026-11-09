@@ -103,8 +103,7 @@ using paleo::mainwindow_internal::readRecentProjects;
 using paleo::mainwindow_internal::writeRecentProjects;
 
   // SARibbonMainWindow 构造参数：顺带在基类构造前备好库（qrc + 关掉跟随
-  // 系统暗色）。原生边框：Linux X11/Wayland 与 offscreen 测试同一路径，
-  // SARibbon 此时自动用紧凑三行布局（页签与右侧按钮同一行）。
+  // 系统暗色）。保留原生边框，buildRibbon 负责选择工具带布局。
   SARibbonMainWindowStyles ribbonWindowStyle()
   {
     PaleoRibbon::prepareLibrary();

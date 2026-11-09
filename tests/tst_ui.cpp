@@ -2555,6 +2555,42 @@ class TestUiShell : public QObject
       visuals->setCurrentIndex(map);QCOMPARE(workspace->currentIndex(),0);
     }
 
+    void ribbonQuickAccessAndDisplayMode()
+    {
+      m_win->showPage(QStringLiteral("data"));
+      m_win->resize(1100, 700);
+      m_win->show();
+      auto *bar = m_win->ribbonBar();
+      auto *quickAccess = bar->quickAccessBar();
+      auto *file = m_win->findChild<QMenu *>(QStringLiteral("fileMenu"));
+      auto *visuals = m_win->findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+      QVERIFY(file);
+      QVERIFY(visuals && visuals->documentMode());
+      const auto fileActions = file->actions();
+      const auto quickActions = quickAccess->actions();
+      QVERIFY(quickActions.size() >= 2);
+      QCOMPARE(quickActions.at(0), fileActions.at(0));
+      QCOMPARE(quickActions.at(1), fileActions.at(1));
+      QTRY_VERIFY(quickAccess->geometry().bottom() < bar->ribbonTabBar()->geometry().top());
+
+      auto *mode = bar->minimumModeAction();
+      QVERIFY(mode && mode->isVisible());
+      const int view = visuals->currentIndex();
+      const int expandedHeight = bar->height();
+      mode->trigger();
+      QVERIFY(bar->isMinimumMode());
+      QTRY_VERIFY(bar->height() < expandedHeight);
+      QCOMPARE(visuals->currentIndex(), view);
+      mode->trigger();
+      QVERIFY(!bar->isMinimumMode());
+      QTRY_COMPARE(bar->height(), expandedHeight);
+
+      m_win->resize(640, 700);
+      auto *tabs = bar->ribbonTabBar();
+      QTRY_VERIFY(quickAccess->isVisible());
+      QTRY_VERIFY(tabs->tabRect(tabs->count() - 1).right() < tabs->width());
+    }
+
     void ribbonSelectionKeepsVisualization() {
       m_win->showPage(QStringLiteral("data"));
       auto *workspace=m_win->findChild<QStackedWidget *>(QStringLiteral("workspaceStack"));

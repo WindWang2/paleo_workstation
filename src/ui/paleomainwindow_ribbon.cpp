@@ -85,7 +85,10 @@ void PaleoMainWindow::buildRibbon()
   SARibbonBar *bar = ribbonBar();
   if (!bar)
     return;
-  bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
+  // 快速访问放在页签上方，窄窗优先把空间留给工作流。
+  bar->setRibbonStyle(SARibbonBar::RibbonStyleLooseThreeRow);
+  auto *quickAccess = bar->quickAccessBar();
+  quickAccess->setIconSize(QSize(16, 16));
   // R6 #860：字换行让按钮按固定列宽折行（不再被长标签撑宽），组间距收紧；
   // 窄窗下的 Office 式「大→小→仅图标→下拉」逐组折叠见 ribboncollapse.h。
   bar->setPanelSpacing(PaleoTheme::tokens().spacingXs); // R7 #888：token，不写裸 px
@@ -109,11 +112,10 @@ void PaleoMainWindow::buildRibbon()
     cat->setObjectName(QStringLiteral("ribbonCategory.") + ribbonIds.at(i));
     cat->setProperty("paleo.pageId", ribbonIds.at(i));
   }
-  const auto addTask = [this](const QString &category, const QString &label, const QString &page,
+  const auto addTask = [this](SARibbonPanel *panel, const QString &category,
+                             const QString &label, const char *iconName, const QString &page,
                              const QString &help, const QString &type = {}) {
-    auto *panel = categoryForPage(category)->addPanel(label);
-    auto *action = new QAction(label, panel);
-    action->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionFileOpen.svg")));
+    auto *action = new QAction(PaleoIcons::qgisTheme(QLatin1String(iconName)), label, panel);
     action->setObjectName(QStringLiteral("ribbonOpenTask.") + category + QLatin1Char('.') + page + type);
     action->setToolTip(help);
     action->setWhatsThis(help);
@@ -127,11 +129,20 @@ void PaleoMainWindow::buildRibbon()
       if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("workbenchTabs.") + page)) tabs->setCurrentIndex(0);
     });
   };
-  addTask("data", tr("打开数据视图"), "data", tr("打开当前工程的数据列表与资料预览。"));
-  addTask("correlation", tr("打开地层对比"), "correlation", tr("打开原生连井曲线与分层结果，使用当前工区的数据服务。"));
-  addTask("predict", tr("井预测"), "predict", tr("按当前地层预测井的相分类并保存井预测结果。"), "well_log_facies");
-  addTask("predict", tr("编制单因素图"), "constraint", tr("按当前地层选择单因素方法，编制对应图件。"));
-  addTask("seismic", tr("地震相预测"), "predict", tr("预测地震相并生成面状结果。"), "seismic_facies");
+  addTask(categoryForPage("data")->addPanel(tr("视图")), "data",
+          tr("打开数据视图"), "mActionOpenTable.svg", "data",
+          tr("打开当前工程的数据列表与资料预览。"));
+  addTask(categoryForPage("correlation")->addPanel(tr("视图")), "correlation",
+          tr("打开地层对比"), "mActionElevationProfile.svg", "correlation",
+          tr("打开原生连井曲线与分层结果，使用当前工区的数据服务。"));
+  auto *wellTasks = categoryForPage("predict")->addPanel(tr("分析任务"));
+  addTask(wellTasks, "predict", tr("井预测"), "mIconPointLayer.svg", "predict",
+          tr("按当前地层预测井的相分类并保存井预测结果。"), "well_log_facies");
+  addTask(wellTasks, "predict", tr("编制单因素图"), "mActionNewMap.svg", "constraint",
+          tr("按当前地层选择单因素方法，编制对应图件。"));
+  addTask(categoryForPage("seismic")->addPanel(tr("分析任务")), "seismic",
+          tr("地震相预测"), "mIconRasterLayer.svg", "predict",
+          tr("预测地震相并生成面状结果。"), "seismic_facies");
   // W5 键盘可达 + 页循环快捷键（方向63 注册表）——paleomainwindow_shortcuts.cpp。
   registerPageShortcuts();
   connect(bar, &SARibbonBar::currentRibbonTabChanged, this, [this, bar](int idx) {
@@ -156,9 +167,10 @@ void PaleoMainWindow::buildRibbon()
         if (auto *b = findChild<QPushButton *>(QLatin1String(buttonName)))
           b->click();
       });
+      return a;
     };
-    viaStartup(tr("新建工程(&N)…"), "mActionFileNew.svg", "newProjectButton");
-    viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton");
+    quickAccess->addAction(viaStartup(tr("新建工程(&N)…"), "mActionFileNew.svg", "newProjectButton"));
+    quickAccess->addAction(viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton"));
     viaStartup(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "importFromFolderButton");
     attachProjectSetupAction(menu);
     menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
@@ -227,7 +239,19 @@ void PaleoMainWindow::buildRibbon()
   }
 
   buildRibbonRightGroup(bar);
-
+  bar->showMinimumModeButton();
+  QAction *ribbonMode = bar->minimumModeAction();
+  ribbonMode->setObjectName(QStringLiteral("ribbonDisplayMode"));
+  auto *modeButton = qobject_cast<QToolButton *>(bar->rightButtonGroup()->widgetForAction(ribbonMode));
+  const auto syncRibbonMode = [this, bar, ribbonMode, modeButton] {
+    ribbonMode->setText(bar->isMinimumMode() ? tr("展开功能区") : tr("折叠功能区"));
+    if (modeButton)
+      modeButton->setArrowType(bar->isMinimumMode() ? Qt::DownArrow : Qt::UpArrow);
+  };
+  connect(bar, &SARibbonBar::ribbonModeChanged, this, syncRibbonMode);
+  syncRibbonMode();
+  if (modeButton)
+    modeButton->setFocusPolicy(Qt::TabFocus);
 
   // vendor SARibbon 把命令钮设成 NoFocus：补 TabFocus + 聚焦滚入；滚动按钮
   // 是匿名图标件，命名一轮。两处都是幂等，attachWorkflows 后再补一轮。
@@ -242,8 +266,9 @@ void PaleoMainWindow::buildRibbonRightGroup(SARibbonBar *bar)
   // ---- 右侧全局按钮组：[搜索][处理算法][面板][Web 服务] ----
   // 搜索（QGIS locator 控件）与处理算法依赖服务，attachWorkflows 里补进来。
   SARibbonButtonGroupWidget *right = bar->rightButtonGroup();
-  // R6 #860：右侧全局钮改纯图标，把横向空间让给分类面板
+  // 布局入口保留文字，窄窗由 TitleRowFitter 统一收为图标。
   right->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  right->setIconSize(QSize(16, 16));
   auto *locatorSlot = new QWidget(right);
   locatorSlot->setObjectName(QStringLiteral("locatorSlot"));
   auto *slotLay = new QHBoxLayout(locatorSlot);
@@ -256,8 +281,9 @@ void PaleoMainWindow::buildRibbonRightGroup(SARibbonBar *bar)
   panelsBtn->setObjectName(QStringLiteral("panelsMenuButton"));
   panelsBtn->setText(tr("布局"));
   panelsBtn->setAccessibleName(tr("布局与面板管理"));
+  panelsBtn->setToolTip(panelsBtn->accessibleName());
   panelsBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionShowAllLayers.svg")));
-  panelsBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  panelsBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   connect(panelsBtn, &QToolButton::clicked, this, [this, panelsBtn] {
     showPanelMenu(panelsBtn->mapToGlobal(QPoint(0, panelsBtn->height())));
   });

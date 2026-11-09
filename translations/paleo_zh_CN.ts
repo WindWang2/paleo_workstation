@@ -20875,6 +20875,28 @@ Crossline: %3 ~ %4</source>
         <translation>古地理编图</translation>
     </message>
     <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="133"/>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="136"/>
+        <source>视图</source>
+        <translation>视图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="139"/>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="144"/>
+        <source>分析任务</source>
+        <translation>分析任务</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247"/>
+        <source>展开功能区</source>
+        <translation>展开功能区</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247"/>
+        <source>折叠功能区</source>
+        <translation>折叠功能区</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="130"/>
         <source>打开数据视图</source>
         <translation>打开数据视图</translation>

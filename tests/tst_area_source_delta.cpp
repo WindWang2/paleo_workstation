@@ -1,5 +1,6 @@
 #include <QtTest>
 #include "catalog/areasourceprojection.h"
+#include "catalog/areawellprojection.h"
 #include "catalog/documentsourceprojection.h"
 #include <paleo_data/service.h>
 #include "../vendor/Data_service/src/store/project_store.h"
@@ -76,6 +77,68 @@ private slots:
     const auto mutation=f.catalog.mutationSeq();
     QVERIFY(applyAreaSourceChangeBatch(f.catalog,b3,b2.sequence,items,&f.error));QCOMPARE(f.catalog.mutationSeq(),mutation);
     DataCatalog reopened;QVERIFY(reopened.open(f.project,&f.error));QCOMPARE(reopened.projectionCheckpoint("area-sources").sequence,b3.sequence);
+  }
+  void replayReusesIndependentlyRegisteredWell() {
+    Fixture f;
+    QVERIFY2(f.init(), qPrintable(f.error + QString::fromStdString(f.detail)));
+    WellInfo model;
+    model.wellName = "NEW-WELL";
+    long long wellId = 0;
+    QVERIFY2(f.service.createWell(model, wellId, f.detail), f.detail.c_str());
+    QVERIFY2(registerAreaWells(f.catalog, &f.error), qPrintable(f.error));
+    const auto initialIds = f.catalog.wellsMatchingName("NEW-WELL");
+    QCOMPARE(initialIds.size(), 1);
+
+    QVERIFY2(registerAreaSources(f.catalog, &f.error), qPrintable(f.error));
+    QCOMPARE(f.catalog.wellsMatchingName("NEW-WELL"), initialIds);
+    QCOMPARE(f.catalog.storedEntities("well").size(), 2);
+    const auto well = f.catalog.storedEntityById(initialIds.front());
+    QCOMPARE(well.extra.value("areaModelWellId").toLongLong(), wellId);
+    QCOMPARE(well.extra.value("areaModelGeneration").toString(),
+             QString::fromStdString(f.head().generation));
+  }
+  void replayKeepsProjectionUntilPositionChanges_data() {
+    QTest::addColumn<bool>("changeUnit");
+    QTest::newRow("coordinate") << false;
+    QTest::newRow("unit") << true;
+  }
+  void replayKeepsProjectionUntilPositionChanges() {
+    QFETCH(bool, changeUnit);
+    Fixture f;
+    QVERIFY2(f.init(), qPrintable(f.error + QString::fromStdString(f.detail)));
+    WellInfo model;
+    QVERIFY(f.service.readWellInfo(f.wellId, model, f.detail));
+    model.wellheadX = 500000;
+    model.wellheadY = 3200000;
+    model.coordinateSystem = "EPSG:32650";
+    model.coordinateUnit = "m";
+    QVERIFY2(f.service.saveWellInfo(f.wellId, model, f.detail), f.detail.c_str());
+    QVERIFY2(registerAreaSources(f.catalog, &f.error), qPrintable(f.error));
+    auto well = f.storedWell();
+    well.coordinateStatus = "ok";
+    well.extra.insert("projectLon", 117.0);
+    well.extra.insert("projectLat", 28.9);
+    QVERIFY2(f.catalog.updateEntity(well, &f.error), qPrintable(f.error));
+
+    QVERIFY(f.rename("RENAMED-WELL"));
+    QVERIFY2(registerAreaSources(f.catalog, &f.error), qPrintable(f.error));
+    well = f.storedWell();
+    QCOMPARE(well.name, QStringLiteral("RENAMED-WELL"));
+    QCOMPARE(well.coordinateStatus, QStringLiteral("ok"));
+    QCOMPARE(well.extra.value("projectLon").toDouble(), 117.0);
+    QCOMPARE(well.extra.value("projectLat").toDouble(), 28.9);
+
+    QVERIFY(f.service.readWellInfo(f.wellId, model, f.detail));
+    if (changeUnit)
+      model.coordinateUnit = "ft";
+    else
+      model.wellheadX += 25;
+    QVERIFY2(f.service.saveWellInfo(f.wellId, model, f.detail), f.detail.c_str());
+    QVERIFY2(registerAreaSources(f.catalog, &f.error), qPrintable(f.error));
+    well = f.storedWell();
+    QCOMPARE(well.coordinateStatus, QStringLiteral("untransformed"));
+    QVERIFY(!well.extra.contains("projectLon"));
+    QVERIFY(!well.extra.contains("projectLat"));
   }
   void checkpointFailureRollsBackAllFacts() {
     Fixture f;QVERIFY2(f.init(),qPrintable(f.error+QString::fromStdString(f.detail)));

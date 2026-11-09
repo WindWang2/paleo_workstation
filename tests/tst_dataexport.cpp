@@ -4,6 +4,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDir>
+#ifdef Q_OS_WIN
+#include <QProcess>
+#include <chrono>
+#include <filesystem>
+#endif
 #include <gdal.h>
 #include <ogr_api.h>
 #include "../src/services/dataexport.h"
@@ -32,6 +37,51 @@ class TestDataExport : public QObject {
     return cat.addVersion(v) ? v.id : QString();
   }
 private slots:
+#ifdef Q_OS_WIN
+  void staleSweepDoesNotTraverseJunctions() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const auto outside = tmp.filePath("keep");
+    const auto exportRoot = tmp.filePath("export");
+    const auto redirectedStage = QDir(exportRoot).filePath(".paleo-export-ABC123");
+    const auto ordinaryStage = QDir(exportRoot).filePath(".paleo-export-DEF456");
+    QVERIFY(QDir().mkpath(outside));
+    QVERIFY(QDir().mkpath(redirectedStage));
+    QVERIFY(QDir().mkpath(ordinaryStage));
+    QFile sentinel(QDir(outside).filePath("sentinel.txt"));
+    QVERIFY(sentinel.open(QIODevice::WriteOnly));
+    QCOMPARE(sentinel.write("retained"), qint64(8));
+    sentinel.close();
+
+    const auto redirect = QDir(redirectedStage).filePath("redirect");
+    QProcess junction;
+    junction.setProgram(QDir(qEnvironmentVariable("SystemRoot")).filePath("System32/cmd.exe"));
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert("PALEO_TEST_JUNCTION_LINK", QDir::toNativeSeparators(redirect));
+    environment.insert("PALEO_TEST_JUNCTION_TARGET", QDir::toNativeSeparators(outside));
+    junction.setProcessEnvironment(environment);
+    junction.setNativeArguments(QStringLiteral(
+        "/d /v:off /s /c \"mklink /J \"%PALEO_TEST_JUNCTION_LINK%\" \"%PALEO_TEST_JUNCTION_TARGET%\"\""));
+    junction.start();
+    QVERIFY2(junction.waitForFinished(), qPrintable(junction.errorString()));
+    QCOMPARE(junction.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(junction.exitCode(), 0);
+    QVERIFY(QFileInfo(redirect).isJunction());
+
+    using FileClock = std::filesystem::file_time_type::clock;
+    const auto past = FileClock::now() - std::chrono::hours(48);
+    for (const auto &path : {redirectedStage, ordinaryStage}) {
+      std::error_code error;
+      std::filesystem::last_write_time(std::filesystem::path(path.toStdWString()), past, error);
+      QVERIFY2(!error, error.message().c_str());
+      QVERIFY(QFileInfo(path).lastModified().secsTo(QDateTime::currentDateTime()) > 24 * 3600);
+    }
+    sweepStaleStagingRoots(exportRoot);
+    QVERIFY(sentinel.exists());
+    QVERIFY(QFileInfo(redirect).isJunction());
+    QVERIFY(!QFileInfo::exists(ordinaryStage));
+  }
+#endif
   void interpretationSourcesComeFromTheGeoPackage() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path()));
     const auto raw = add(cat, "calculation.dat", "calculation input");

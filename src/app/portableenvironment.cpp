@@ -52,17 +52,25 @@ namespace
 
   bool createDirectoryJunction(const QString &link, const QString &target)
   {
-    // mklink 是 cmd 内建命令；junction 不需要管理员权限。QProcess 参数走
-    // Unicode 通道，中文目标路径可正确传递；mklink 的两个路径实参都必须用
-    // 反斜杠——正斜杠会被 cmd 当作开关解析（实测报「无效开关」）。
     if (QFileInfo::exists(link) && !QDir().rmdir(link))
       return false;
-    const int code = QProcess::execute(
-        QStringLiteral("cmd"),
-        {QStringLiteral("/d"), QStringLiteral("/c"), QStringLiteral("mklink"),
-         QStringLiteral("/J"), QDir::toNativeSeparators(link),
-         QDir::toNativeSeparators(target)});
-    return code == 0;
+    wchar_t systemDirectory[MAX_PATH];
+    const auto length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
+    if (!length || length >= MAX_PATH)
+      return false;
+    QProcess command;
+    const QDir system(QString::fromWCharArray(systemDirectory, int(length)));
+    command.setProgram(system.filePath(QStringLiteral("cmd.exe")));
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("PALEO_JUNCTION_LINK"), QDir::toNativeSeparators(link));
+    environment.insert(QStringLiteral("PALEO_JUNCTION_TARGET"), QDir::toNativeSeparators(target));
+    command.setProcessEnvironment(environment);
+    // cmd /c 的命令固定，路径经一次环境变量替换进入引号，避免解释路径中的 &、% 或 !。
+    command.setNativeArguments(QStringLiteral(
+        "/d /v:off /s /c \"mklink /J \"%PALEO_JUNCTION_LINK%\" \"%PALEO_JUNCTION_TARGET%\"\""));
+    command.start();
+    return command.waitForFinished() && command.exitStatus() == QProcess::NormalExit &&
+           command.exitCode() == 0;
   }
 
   // 返回可用于环境变量的纯 ASCII 安装根：优先 8.3 短路径（本身就纯

@@ -180,11 +180,17 @@ private slots:
     QList<QgsLocatorResult> results;
     const QMetaObject::Connection c = connect(filter, &QgsLocatorFilter::resultFetched, this,
                                               [&results](const QgsLocatorResult &r) { results << r; });
-    filter->fetchResults(QString(), QgsLocatorContext(), nullptr);
+    QgsLocatorContext ctx;
+    ctx.usingPrefix = true; // 前缀 "c"：空余串列出全部命令（无前缀空查询保持沉默，免得 Tab 困在定位器）
+    filter->fetchResults(QString(), ctx, nullptr);
     disconnect(c); // results 是局部量：不断开会让后续用例的抓取写到悬空引用
     QCOMPARE(results.size(), CommandRegistry::forSurface(SurfaceLocator).size());
+    QList<QgsLocatorResult> listed = results;
+    results.clear();
+    filter->fetchResults(QString(), QgsLocatorContext(), nullptr); // usingPrefix=false：空闲沉默
+    QCOMPARE(results.size(), 0);
     bool sawReason = false;
-    for (const QgsLocatorResult &r : results)
+    for (const QgsLocatorResult &r : listed)
     {
       QVERIFY(!r.displayString.isEmpty());
       if (r.description.startsWith(QStringLiteral("不可用：")))

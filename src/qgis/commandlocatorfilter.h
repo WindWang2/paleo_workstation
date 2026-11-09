@@ -34,7 +34,7 @@ public:
   void fetchResults(const QString &string, const QgsLocatorContext &context, QgsFeedback *feedback) override;
   void triggerResult(const QgsLocatorResult &result) override;
 
-  // 纯函数（测试用）：按查询串过滤并打分，空串 = 全部（按标题序）。
+  // 纯函数（测试用）：按查询串过滤并打分；空串 = 全部（供前缀 "c" 下列清单）。
   static QVector<QPair<Entry, double>> match(const QVector<Entry> &entries, const QString &query);
 
 private:

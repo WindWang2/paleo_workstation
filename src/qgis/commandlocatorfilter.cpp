@@ -48,8 +48,12 @@ QVector<QPair<CommandLocatorFilter::Entry, double>> CommandLocatorFilter::match(
 void CommandLocatorFilter::fetchResults(const QString &string, const QgsLocatorContext &context,
                                         QgsFeedback *feedback)
 {
-  Q_UNUSED(context)
   if (!m_list)
+    return;
+  // 空闲定位器（无前缀、查询为空）不倾倒全部命令——否则结果列表常驻，
+  // Tab 被 QGIS 当成「下一条结果」，键盘焦点出不去（tst_shell_chrome）。
+  // 用户键入前缀 "c" 时 usingPrefix=true，空余串仍列出全部命令。
+  if (string.trimmed().isEmpty() && !context.usingPrefix)
     return;
   for (const auto &[e, score] : match(m_list(), string))
   {

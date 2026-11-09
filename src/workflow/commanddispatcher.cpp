@@ -145,8 +145,8 @@ PreparedPlan CommandDispatcher::prepare(const QString &commandId, const CommandC
     QString code;
     plan.effectiveParameters = capability::effectiveScalarParams(
         plan.capability.algorithmId, plan.capability.algorithmContractVersion, params, &code);
-    if (!code.isEmpty()) {
-      plan.code = code;
+    if (code != QLatin1String("ok")) { // 网关约定：成功码为 "ok"
+      plan.code = code.isEmpty() ? QStringLiteral("parameter_invalid") : code;
       return plan;
     }
   }

@@ -14,7 +14,7 @@ Ctrl+K、快捷键、面板右键菜单，以及以后的 AI / 批处理，都�
 
 | 层 | 文件 | 作用 |
 |---|---|---|
-| 数据层 | `src/services/commandspec.{h,cpp}` | `CommandSpec` 登记表（88 条）+ `CommandRegistry::validate()` 自检 |
+| 数据层 | `src/services/commandspec.{h,cpp}` | `CommandSpec` 登记表（94 条）+ `CommandRegistry::validate()` 自检 |
 | 功能层 | `src/workflow/commanddispatcher.{h,cpp}` | 绑定处理器 / 状态（禁用必带原因）/ 触发；Compute → `PreparedPlan` → 网关 |
 | QGIS 封装 | `src/qgis/commandlocatorfilter.{h,cpp}`、`commandlocatorentry.h` | Ctrl+K 过滤器 `paleo_commands`（前缀 `c`） |
 | 视图层 | `src/ui/commandactionbinder.{h,cpp}` | QAction ↔ 命令：`route` / `bindMirror` / `bindNative` |

@@ -38,7 +38,10 @@ void collect(QAction *a, const QString &where, QVector<QPair<QAction *, QString>
 {
   if (!a || a->isSeparator() || qobject_cast<QWidgetAction *>(a) || depth > 4)
     return;
-  out.append({a, where});
+  // 纯子菜单标题（QMenu::menuAction，如「网络底图预设」）本身不是命令，只收其子项。
+  const bool submenuTitle = a->menu() && a == a->menu()->menuAction();
+  if (!submenuTitle)
+    out.append({a, where});
   if (QMenu *m = a->menu())
     for (QAction *sub : m->actions())
       collect(sub, where + QStringLiteral(" > ") + a->text(), out, depth + 1);
@@ -122,6 +125,9 @@ private slots:
     {
       if (s.kind == CommandKind::Compute && !(s.surfaces & ~int(SurfaceAgent)))
         continue; // 纯 Agent 计算命令：由网关桥直接执行，不需 UI 接线
+      // 随编图工作台装配接线（attachMappingEditBasisEntry）；工作台未装配时入口本身也不存在。
+      if (s.commandId == QLatin1String("compose.editBasis") || s.commandId == QLatin1String("compose.references"))
+        continue;
       if (!m_win->commandDispatcher()->isBound(s.commandId))
         unbound << s.commandId;
     }

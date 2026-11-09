@@ -153,6 +153,10 @@ class QCloseEvent;
 class QShowEvent;
 class QContextMenuEvent;
 class QPoint;
+class CommandActionBinder;
+namespace paleo::command {
+class CommandDispatcher;
+}
 
 // ui/ — PaleoMainWindow: the six-page workflow shell (§42), Ribbon 形态。
 // 顶部 = SARibbon：「文件」应用按钮 + 六个页签（数据管理 | 地层对比 | 智能预测 | 单因素图 |
@@ -218,6 +222,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool saveProjectThroughStore(PaleoProjectStore *store = nullptr, QString *error = nullptr);
     // 打开工程文件（.paleo / .qgz）或工区目录（已有工程则打开，全新工区则建工程并唤起导入）。
     bool openPath(const QString &path);
+
+    // UI 重设计 U1：统一命令注册表的宿主侧（paleomainwindow_commands.cpp）。Ribbon /
+    // 文件菜单 / 起始页 / Ctrl+K / 右键菜单 / 页快捷键都经这一个分派器（首次调用时建）。
+    paleo::command::CommandDispatcher *commandDispatcher();
+    CommandActionBinder *commandBinder();
 
     // §42 shell persistence — geometry/dock layout/last page in QSettings;
     // canvas extent is per-project and lives inside the .qgz (paleo props).
@@ -388,6 +397,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 单因素图页的显示设置与编辑参数保留溢出菜单快捷入口。
     void addEditingSettingsMenu(QMenu *menu, PaleoEditingToolbar *editTb);
     void addDataImportRibbon(SARibbonCategory *category, DataPage *data);
+    void bindSeismicViewCommands();
+    void bindEditingCommands(PaleoEditingToolbar *editTb);
     void addFaciesDisplayPanel(SARibbonCategory *category);
     void attachFaciesDisplayControls(MappingWorkbench *workbench);
     // 面板显隐菜单（QMainWindow::createPopupMenu 列出全部 dock 的
@@ -419,6 +430,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void runFolderImport(DataImportService *svc);
     void runNewProject(const QString &sourceRoot = {}, bool supplement = false);
     void attachProjectSetupAction(QMenu *menu);
+    void buildFileMenu(QToolButton *appBtn, SARibbonQuickAccessBar *quickAccess);
     // 已知目录的入口变体（「从工区文件夹新建」复用同一确认框流程）。
     void runFolderImportAt(DataImportService *svc, const QString &dir, const QString &kind = {});
     // 「多选文件导入」：与文件夹导入同一确认表/两阶段导入语义，数据源是
@@ -658,4 +670,17 @@ class PaleoMainWindow : public SARibbonMainWindow
                                       const WorkbenchLegendFn &legend,
                                       const std::shared_ptr<QHash<QString, QString>> &shown);
     WorkbenchShowFn makeWorkbenchCompare(MappingWorkbench *workbench);
+
+    // ---- U1 命令宿主（paleomainwindow_commands.cpp）----
+    // handler 收触发参数（可勾选动作带 "checked"）；disabledReason 空串 = 可用。
+    void bindCommand(const QString &commandId, std::function<void(const QVariantMap &)> handler,
+                     std::function<QString()> disabledReason = {});
+    QAction *routeCommand(QAction *action, const QString &commandId, const QVariantMap &params = {});
+    bool triggerCommand(const QString &commandId, const QVariantMap &params = {});
+    void bindProjectCommands();      // 文件菜单 / 起始页 / 右键菜单 / 页快捷键的处理器
+    void promptOpenProject();        // 起始页「打开工程」与文件菜单同一实现
+    void promptNewProjectFromFolder();
+    void applyOnlineBasemapPreset(const QString &presetId);
+    paleo::command::CommandDispatcher *m_commands = nullptr;
+    CommandActionBinder *m_commandBinder = nullptr;
 };

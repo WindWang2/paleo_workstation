@@ -10,8 +10,9 @@
 #include "paleotheme.h"
 #include "paleodockmanager.h" // showPanelMenu 的布局菜单出口
 #include "paleoribbon.h"     // 滚动按钮命名 / 镜像重同步
+#include "commandactionbinder.h" // U1：文件菜单/任务/右键菜单动作 → 命令
+#include "../workflow/commanddispatcher.h"
 #include "ribboncollapse.h"  // #860 分组自适应折叠
-#include "dialogs/projectmapsettingsdialog.h"
 #include "help/helpsurface.h" // 方向63 帮助面（菜单 + F1 总表挂主窗）
 #include "pages/pageshared.h" // kPageIds（页签序）
 #include "datapreview/datapreviewtabs.h" // mapConfigurationChanged 重开测区标签
@@ -37,8 +38,10 @@
 using paleo::mainwindow_internal::pageLabels;
 
 namespace {
+// 网络底图预设：每个预设一颗动作，统一路由到 project.basemap.online（参数 presetId；
+// 实现见 paleomainwindow_commands.cpp applyOnlineBasemapPreset）。
 void addOnlineBasemapMenu(QMenu *fileMenu, QgisProjectService *projectService,
-                          QgisCanvasController *canvasController, QMainWindow *window)
+                          QgisCanvasController *canvasController, CommandActionBinder *binder)
 {
   auto *menu = fileMenu->addMenu(QObject::tr("网络底图预设"));
   menu->setObjectName(QStringLiteral("onlineBasemapPresetsMenu"));
@@ -48,26 +51,7 @@ void addOnlineBasemapMenu(QMenu *fileMenu, QgisProjectService *projectService,
     action->setObjectName(QStringLiteral("onlineBasemapPreset.") + source.id);
     action->setToolTip(source.description + QLatin1Char('\n') + source.attribution +
                        QLatin1Char('\n') + source.termsUrl);
-    QObject::connect(action, &QAction::triggered, window,
-                     [projectService, canvasController, window, id = source.id] {
-      for (auto *preview : window->findChildren<DataPreviewTabs *>())
-        if (preview->applyBasemapToCurrentMap(id)) return;
-      if (!projectService || projectService->isOpening() || projectService->projectPath().isEmpty()) return;
-      QString error;
-      auto *layer = paleo::onlinebasemap::addPresetToProject(projectService->project(), id, &error);
-      if (!layer) {
-        PaleoNotify::warning(window, QObject::tr("在线底图未加载"), error);
-        return;
-      }
-      window->statusBar()->showMessage(QObject::tr("在线底图已加入图层树，正在按当前视图范围加载"), 5000);
-      if (canvasController) {
-        QPointer<QMainWindow> guard(window);
-        paleo::onlinebasemap::watchFailures(canvasController->canvas(), layer, 15000,
-                                            [guard](const QString &message) {
-          if (guard) guard->statusBar()->showMessage(message, 10000);
-        });
-      }
-    });
+    binder->route(action, QStringLiteral("project.basemap.online"), {{QStringLiteral("presetId"), source.id}});
   }
   QObject::connect(fileMenu, &QMenu::aboutToShow, menu, [menu, projectService, canvasController] {
     QString reason;
@@ -112,7 +96,8 @@ void PaleoMainWindow::buildRibbon()
     cat->setObjectName(QStringLiteral("ribbonCategory.") + ribbonIds.at(i));
     cat->setProperty("paleo.pageId", ribbonIds.at(i));
   }
-  const auto addTask = [this](SARibbonPanel *panel, const QString &category,
+  // 「视图 / 分析任务」组：打开任务视图的 View 命令（处理器即原 triggered 实现）。
+  const auto addTask = [this](SARibbonPanel *panel, const QString &category, const QString &commandId,
                              const QString &label, const char *iconName, const QString &page,
                              const QString &help, const QString &type = {}) {
     auto *action = new QAction(PaleoIcons::qgisTheme(QLatin1String(iconName)), label, panel);
@@ -120,7 +105,7 @@ void PaleoMainWindow::buildRibbon()
     action->setToolTip(help);
     action->setWhatsThis(help);
     panel->addLargeAction(action);
-    connect(action, &QAction::triggered, this, [this, page, type] {
+    bindCommand(commandId, [this, page, type](const QVariantMap &) {
       showPage(page);
       if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictTypeCombo")))
         combo->setCurrentIndex(combo->findData(type));
@@ -128,19 +113,20 @@ void PaleoMainWindow::buildRibbon()
         combo->setCurrentIndex(combo->findData(type == "well_log_facies" ? "wells" : "seismic"));
       if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("workbenchTabs.") + page)) tabs->setCurrentIndex(0);
     });
+    routeCommand(action, commandId);
   };
-  addTask(categoryForPage("data")->addPanel(tr("视图")), "data",
+  addTask(categoryForPage("data")->addPanel(tr("视图")), "data", "view.open.data",
           tr("打开数据视图"), "mActionOpenTable.svg", "data",
           tr("打开当前工程的数据列表与资料预览。"));
-  addTask(categoryForPage("correlation")->addPanel(tr("视图")), "correlation",
+  addTask(categoryForPage("correlation")->addPanel(tr("视图")), "correlation", "view.open.correlation",
           tr("打开地层对比"), "mActionElevationProfile.svg", "correlation",
           tr("打开原生连井曲线与分层结果，使用当前工区的数据服务。"));
   auto *wellTasks = categoryForPage("predict")->addPanel(tr("分析任务"));
-  addTask(wellTasks, "predict", tr("井预测"), "mIconPointLayer.svg", "predict",
+  addTask(wellTasks, "predict", "view.open.wellPrediction", tr("井预测"), "mIconPointLayer.svg", "predict",
           tr("按当前地层预测井的相分类并保存井预测结果。"), "well_log_facies");
-  addTask(wellTasks, "predict", tr("编制单因素图"), "mActionNewMap.svg", "constraint",
+  addTask(wellTasks, "predict", "view.open.singleFactor", tr("编制单因素图"), "mActionNewMap.svg", "constraint",
           tr("按当前地层选择单因素方法，编制对应图件。"));
-  addTask(categoryForPage("seismic")->addPanel(tr("分析任务")), "seismic",
+  addTask(categoryForPage("seismic")->addPanel(tr("分析任务")), "seismic", "view.open.seismicFacies",
           tr("地震相预测"), "mIconRasterLayer.svg", "predict",
           tr("预测地震相并生成面状结果。"), "seismic_facies");
   // W5 键盘可达 + 页循环快捷键（方向63 注册表）——paleomainwindow_shortcuts.cpp。
@@ -152,90 +138,13 @@ void PaleoMainWindow::buildRibbon()
     setProperty("paleo.ribbonPage", id);
   });
 
-  // ---- 「文件」应用按钮：工程级动作。起始页按钮是同一批动作的另一入口
-  // （点它们的按钮 = 同一条代码路径，offscreen 下同样惰性）。----
+  // ---- 「文件」应用按钮：工程级动作。每项都是登记过的命令；起始页按钮是同一批
+  // 命令的另一入口（U1：不再 findChild 起始页/数据页按钮再 click()）。----
   if (auto *appBtn = qobject_cast<QToolButton *>(bar->applicationButton()))
   {
     appBtn->setText(tr("文件"));
     appBtn->setAccessibleName(tr("文件菜单"));
-    auto *menu = new SARibbonMenu(appBtn);
-    menu->setObjectName(QStringLiteral("fileMenu"));
-    const auto viaStartup = [this, menu](const QString &text, const char *iconName,
-                                         const char *buttonName) {
-      QAction *a = menu->addAction(PaleoIcons::qgisTheme(QLatin1String(iconName)), text);
-      connect(a, &QAction::triggered, this, [this, buttonName] {
-        if (auto *b = findChild<QPushButton *>(QLatin1String(buttonName)))
-          b->click();
-      });
-      return a;
-    };
-    quickAccess->addAction(viaStartup(tr("新建工程(&N)…"), "mActionFileNew.svg", "newProjectButton"));
-    quickAccess->addAction(viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton"));
-    viaStartup(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "importFromFolderButton");
-    attachProjectSetupAction(menu);
-    menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
-    auto *exportMap = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionSaveAsPDF.svg")), tr("导出工程地图／地质图…"));
-    exportMap->setObjectName(QStringLiteral("fileExportGeologicalMap"));
-    exportMap->setEnabled(false);
-    connect(menu, &QMenu::aboutToShow, this, [this, exportMap] {
-      exportMap->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening() &&
-          m_canvasCtl && m_canvasCtl->hasLayers());
-    });
-    connect(exportMap, &QAction::triggered, this, [this] {
-      if (auto *button = findChild<QPushButton *>(QStringLiteral("exportPdfButton"))) button->click();
-    });
-
-    auto *offline = menu->addAction(tr("导入工程离线底图…")); offline->setObjectName("projectOfflineBasemapAction");
-    connect(menu, &QMenu::aboutToShow, this, [this, offline] { auto *button = findChild<QPushButton *>("importOfflineBasemap"); offline->setEnabled(button && button->isEnabled()); });
-    connect(offline, &QAction::triggered, this, [this] { if (auto *button = findChild<QPushButton *>("importOfflineBasemap")) button->click(); });
-    auto *mapSettings = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")), tr("工程坐标与底图…"));
-    mapSettings->setObjectName(QStringLiteral("projectMapSettingsAction"));
-    connect(menu, &QMenu::aboutToShow, this, [this, mapSettings] {
-      mapSettings->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening());
-    });
-    connect(mapSettings, &QAction::triggered, this, [this] {
-      if (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) return;
-      auto *dialog = new ProjectMapSettingsDialog(m_projectSvc->mapConfiguration(), this);
-      dialog->setAttribute(Qt::WA_DeleteOnClose);
-      const auto session = m_projectSvc->sessionId();
-      connect(dialog, &ProjectMapSettingsDialog::saveRequested, this, [this, dialog, session] {
-        QString error;
-        if (session != m_projectSvc->sessionId()) error = tr("工程已切换，请重新打开设置");
-        else if (m_projectSvc->updateMapConfiguration(dialog->configuration(), &error)) {
-          dialog->accept();
-          statusBar()->showMessage(tr("工程坐标与底图设置已保存"), 5000);
-          return;
-        }
-        dialog->showError(error);
-      });
-      dialog->open();
-    });
-    auto *coordinateTools = menu->addAction(
-        PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")), tr("QGIS 坐标工具…"));
-    coordinateTools->setObjectName(QStringLiteral("fileCoordinateToolsAction"));
-    connect(coordinateTools, &QAction::triggered, this, [this] {
-      if (auto *action = findChild<QAction *>(QStringLiteral("statusCoordinateToolsAction"))) action->trigger();
-    });
-    if (m_projectSvc)
-      connect(m_projectSvc, &QgisProjectService::mapConfigurationChanged, this, [this] {
-        if (m_previewTabs) {
-          bool surveyOpen = false;
-          for (int i = 0; i < m_previewTabs->tabCount(); ++i)
-            surveyOpen |= m_previewTabs->assetIdAt(i) == QLatin1String("survey_area");
-          if (surveyOpen) { m_previewTabs->closeAssetTab(QStringLiteral("survey_area")); m_previewTabs->openSurveyArea(); }
-        }
-        if (m_canvasCtl) QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
-      });
-    addOnlineBasemapMenu(menu, m_projectSvc, m_canvasCtl, this);
-    QAction *home =
-        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderHome.svg")), tr("起始页(&H)"));
-    connect(home, &QAction::triggered, this, [this] { showStartup(); });
-    menu->addSeparator();
-    QAction *quit =
-        menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileExit.svg")), tr("退出(&X)"));
-    connect(quit, &QAction::triggered, this, &QWidget::close);
-    appBtn->setMenu(menu);
-    appBtn->setPopupMode(QToolButton::InstantPopup);
+    buildFileMenu(appBtn, quickAccess);
   }
 
   buildRibbonRightGroup(bar);
@@ -261,6 +170,61 @@ void PaleoMainWindow::buildRibbon()
   PaleoRibbon::makeKeyboardReachable(this);
   PaleoRibbon::nameScrollButtons(this);
   PaleoRibbon::enableAdaptiveCollapse(bar);
+}
+
+// 「文件」菜单（自 buildRibbon 拆出）：objectName/文案/顺序不变；每项路由到登记命令。
+void PaleoMainWindow::buildFileMenu(QToolButton *appBtn, SARibbonQuickAccessBar *quickAccess)
+{
+  auto *menu = new SARibbonMenu(appBtn);
+  menu->setObjectName(QStringLiteral("fileMenu"));
+  const auto item = [this, menu](const QString &text, const char *iconName, const char *name,
+                                 const char *commandId) {
+    QAction *a = iconName ? menu->addAction(PaleoIcons::qgisTheme(QLatin1String(iconName)), text)
+                          : menu->addAction(text);
+    a->setObjectName(QLatin1String(name));
+    return routeCommand(a, QLatin1String(commandId));
+  };
+  quickAccess->addAction(item(tr("新建工程(&N)…"), "mActionFileNew.svg", "fileNewProjectAction", "project.new"));
+  quickAccess->addAction(item(tr("打开工程(&O)…"), "mActionFileOpen.svg", "fileOpenProjectAction", "project.open"));
+  item(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "fileNewFromFolderAction", "project.newFromFolder");
+  attachProjectSetupAction(menu);
+  menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
+  auto *exportMap = item(tr("导出工程地图／地质图…"), "mActionSaveAsPDF.svg", "fileExportGeologicalMap",
+                         "compose.export.pdf");
+  exportMap->setEnabled(false);
+  connect(menu, &QMenu::aboutToShow, this, [this, exportMap] {
+    exportMap->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening() &&
+        m_canvasCtl && m_canvasCtl->hasLayers());
+  });
+  auto *offline = item(tr("导入工程离线底图…"), nullptr, "projectOfflineBasemapAction", "data.import.offlineBasemap");
+  // 与数据页「导入离线底图」同一命令：使能 = 命令状态（镜像源按钮 + 工程门）。
+  connect(menu, &QMenu::aboutToShow, this, [this, offline] {
+    offline->setEnabled(commandDispatcher()
+                            ->state(QStringLiteral("data.import.offlineBasemap"), commandDispatcher()->currentContext())
+                            .enabled);
+  });
+  auto *mapSettings = item(tr("工程坐标与底图…"), "mActionMapSettings.svg", "projectMapSettingsAction",
+                           "project.mapSettings");
+  connect(menu, &QMenu::aboutToShow, this, [this, mapSettings] {
+    mapSettings->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening());
+  });
+  item(tr("QGIS 坐标工具…"), "mActionMapSettings.svg", "fileCoordinateToolsAction", "project.coordinateTools");
+  if (m_projectSvc)
+    connect(m_projectSvc, &QgisProjectService::mapConfigurationChanged, this, [this] {
+      if (m_previewTabs) {
+        bool surveyOpen = false;
+        for (int i = 0; i < m_previewTabs->tabCount(); ++i)
+          surveyOpen |= m_previewTabs->assetIdAt(i) == QLatin1String("survey_area");
+        if (surveyOpen) { m_previewTabs->closeAssetTab(QStringLiteral("survey_area")); m_previewTabs->openSurveyArea(); }
+      }
+      if (m_canvasCtl) QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
+    });
+  addOnlineBasemapMenu(menu, m_projectSvc, m_canvasCtl, commandBinder());
+  item(tr("起始页(&H)"), "mIconFolderHome.svg", "fileStartPageAction", "project.home");
+  menu->addSeparator();
+  item(tr("退出(&X)"), "mActionFileExit.svg", "fileQuitAction", "app.quit");
+  appBtn->setMenu(menu);
+  appBtn->setPopupMode(QToolButton::InstantPopup);
 }
 
 // 右侧全局按钮组（从 buildRibbon 拆出，守 file_budget 单函数 ≤200 行）。
@@ -341,19 +305,18 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
     {
       QAction *history = menu->addAction(tr("错误历史"));
       history->setObjectName(QStringLiteral("errorHistoryAction"));
-      connect(history, &QAction::triggered, this, &PaleoMainWindow::showErrorHistory);
+      routeCommand(history, QStringLiteral("view.errorHistory"));
     }
     QAction *dark = menu->addAction(tr("深色模式"));
     dark->setObjectName(QStringLiteral("themeToggleAction"));
     dark->setCheckable(true);
     dark->setChecked(PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark);
-    connect(dark, &QAction::toggled, this, &PaleoMainWindow::setDarkThemeEnabled);
+    routeCommand(dark, QStringLiteral("view.theme.dark")); // 带 checked 参数
     QAction *compact = menu->addAction(tr("紧凑密度"));
     compact->setObjectName(QStringLiteral("densityToggleAction"));
     compact->setCheckable(true);
     compact->setChecked(PaleoTheme::currentDensity() == PaleoTheme::Density::Compact);
-    connect(compact, &QAction::toggled, this,
-            &PaleoMainWindow::setCompactDensityEnabled);
+    routeCommand(compact, QStringLiteral("view.density.compact"));
     menu->popup(globalPos);
   }
 }

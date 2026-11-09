@@ -56,7 +56,6 @@
 #include <QDockWidget>
 #include <QScrollArea>
 #include <QScrollBar>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -75,7 +74,6 @@
 
 namespace
 {
-using paleo::ui_detail::isOffscreen;
 using paleo::mainwindow_internal::pageLabels;
 using paleo::mainwindow_internal::pageDockTitles;
 using paleo::mainwindow_internal::readRecentProjects;
@@ -414,44 +412,13 @@ void PaleoMainWindow::buildCenterArea()
 
   // Startup-page actions: dialogs only exist when a real platform is present;
   // offscreen the buttons exist but stay inert (no modal QFileDialog).
-  if (auto *openBtn = startup->findChild<QPushButton *>(QStringLiteral("openProjectButton")))
-    connect(openBtn, &QPushButton::clicked, this, [this] {
-      if (isOffscreen() || !m_projectSvc)
-        return;
-      const QString p = QFileDialog::getOpenFileName(
-          this, tr("打开工程"), QString(),
-          tr("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
-      if (p.isEmpty())
-        return;
-      // #282：切换工程前先问当前工程脏状态（取消则原地不动）。
-      if (!maybeSaveProject())
-        return;
-      // §38 blocking-error contract: a failed open surfaces as a dialog, not
-      // a silent no-op on the startup page.
-      openPath(p);
-    });
-  if (auto *newBtn = startup->findChild<QPushButton *>(QStringLiteral("newProjectButton")))
-    connect(newBtn, &QPushButton::clicked, this, [this] {
-      if (isOffscreen() || !m_projectSvc)
-        return;
-      runNewProject();
-    });
-  // PROJECT_FILE_DESIGN：从工区文件夹新建——选目录后
-  //   已有 project.paleo → 直接打开（幂等，不重建）；
-  //   已有 *.qgz → 打开收养（openProject 自动写 project.paleo）；
-  //   否则     → 在目录内建 <目录名>.qgz + project.paleo，再跑工区导入。
-  if (auto *fromBtn =
-          startup->findChild<QPushButton *>(QStringLiteral("importFromFolderButton")))
-    connect(fromBtn, &QPushButton::clicked, this, [this] {
-      if (isOffscreen() || !m_projectSvc)
-        return;
-      const QString dir =
-          QFileDialog::getExistingDirectory(this, tr("从工区文件夹新建工程"));
-      if (!dir.isEmpty()) {
-        if (ProjectSetupWorkflow::containsProject(dir)) openPath(dir);
-        else runNewProject(dir);
-      } // 脏状态检查在 openPath 内（#282）
-    });
+  // U1：起始页三钮与文件菜单是同一批命令的两个入口（处理器见 paleomainwindow_commands.cpp）。
+  for (const auto &[button, command] : {std::pair{"openProjectButton", "project.open"},
+                                        std::pair{"newProjectButton", "project.new"},
+                                        std::pair{"importFromFolderButton", "project.newFromFolder"}})
+    if (auto *btn = startup->findChild<QPushButton *>(QLatin1String(button)))
+      connect(btn, &QPushButton::clicked, this,
+              [this, id = QLatin1String(command)] { triggerCommand(id); });
   if (auto *list = startup->findChild<QListWidget *>(QStringLiteral("recentProjectsList")))
     connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
       const QString p = item ? item->data(Qt::UserRole).toString() : QString();

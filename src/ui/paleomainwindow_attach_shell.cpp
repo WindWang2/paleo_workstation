@@ -2,6 +2,7 @@
 // paleomainwindow_attach_shell — 壳面与全局组件接线（W4 拆分段）
 #include "ribbontitlefit.h"
 #include "paleomainwindow.h"
+#include "commandactionbinder.h"
 
 #include "paleoicons.h"
 #include "paleoribbon.h"
@@ -179,11 +180,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       };
       locatorWidget->locator()->registerFilter(
           new HorizonLocatorFilter(horizonProvider, activate));
-
-      // Note: no IssueLocatorFilter registration — the validation workflow
-      // keeps no queryable issue store, so the filter could only ever sit on
-      // a permanently-empty provider. Issue navigation lives on the
-      // validation page's issueTable → ThreeWayLocator path instead.
+      // Note: no IssueLocatorFilter registration — the validation workflow keeps no queryable issue
+      // store (permanently-empty provider); issue navigation lives on issueTable → ThreeWayLocator.
 
       topBar->layout()->addWidget(locatorWidget);
       auto *focus = paleo::shortcuts::bindShortcut(QStringLiteral("main.locator.focus"), this);
@@ -232,6 +230,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
           PaleoNotify::critical(this, tr("保存工程失败"), res.error);
       };
       connect(saveAct, &QAction::triggered, this, saveFn);
+      commandBinder()->bindNative(saveAct, QStringLiteral("project.save")); // U1：Ctrl+K/Agent 同一入口
       if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
       {
         qab->addAction(saveAct);

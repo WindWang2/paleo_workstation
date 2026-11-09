@@ -33,9 +33,12 @@ namespace
       {
         setObjectName(QStringLiteral("paleoButtonMirror"));
         button->installEventFilter(this);
+        // U1：接进命令注册表的动作（带 paleoCommandId）由 CommandDispatcher 经
+        // activateMirror 激活——这里不再自己转调，免得一次点击跑两遍。
         QObject::connect(action, &QAction::triggered, this, [this] {
-          if (m_button && m_button->isEnabled())
-            m_button->click();
+          if (!m_action || m_action->property("paleoCommandId").isValid())
+            return;
+          activate();
         });
         if (button->isCheckable())
           QObject::connect(button, &QAbstractButton::toggled, action, &QAction::setChecked);
@@ -43,6 +46,13 @@ namespace
       }
 
       void resync() { sync(); } // whatsThis 变化无事件，由 syncMirrors 显式调
+      bool activate()
+      {
+        if (!m_button || !m_button->isEnabled())
+          return false;
+        m_button->click();
+        return true;
+      }
 
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
@@ -232,6 +242,12 @@ namespace PaleoRibbon
       // ButtonMirror 不带 Q_OBJECT，findChild 只能到 QObject*——名字即类型契约。
       if (auto *m = a->findChild<QObject *>(QStringLiteral("paleoButtonMirror")))
         static_cast<ButtonMirror *>(m)->resync();
+  }
+
+  bool activateMirror(QAction *action)
+  {
+    auto *m = action ? action->findChild<QObject *>(QStringLiteral("paleoButtonMirror")) : nullptr;
+    return m && static_cast<ButtonMirror *>(m)->activate();
   }
 
   void applyGate(QAction *action, const QString &reason)

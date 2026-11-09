@@ -9,3 +9,6 @@ target_sources(paleo_workflow PRIVATE
 
 add_paleo_test(tst_commandregistry LIBS paleo_services)                                # 登记表自检
 add_paleo_test(tst_commanddispatcher LIBS paleo_workflow Paleo::paleo_data_service)  # 分派 + 网关桥
+target_sources(paleo_ui PRIVATE
+  src/ui/commandactionbinder.cpp          # 视图层：QAction ↔ 命令（route / mirror / native 三种绑定）
+)

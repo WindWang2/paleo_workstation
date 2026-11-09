@@ -3,5 +3,9 @@
 target_sources(paleo_services PRIVATE
   src/services/commandspec.cpp            # 数据层：CommandSpec 登记表（U0 盘点）+ 自检
 )
+target_sources(paleo_workflow PRIVATE
+  src/workflow/commanddispatcher.cpp      # 功能层：状态/触发/Compute→CapabilityGateway 桥
+)
 
 add_paleo_test(tst_commandregistry LIBS paleo_services)                                # 登记表自检
+add_paleo_test(tst_commanddispatcher LIBS paleo_workflow Paleo::paleo_data_service)  # 分派 + 网关桥

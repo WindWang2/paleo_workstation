@@ -18,14 +18,20 @@ QVector<QPair<CommandLocatorFilter::Entry, double>> CommandLocatorFilter::match(
   QVector<QPair<Entry, double>> out;
   for (const Entry &e : entries)
   {
+    // 标题类候选：显示标题 + 别名（中文源串 / 英文标题）+ 命令 id，取最强匹配档。
+    QStringList names{e.title, e.commandId};
+    names += e.aliases;
+    const auto any = [&names, &q](auto pred) {
+      return std::any_of(names.cbegin(), names.cend(), [&](const QString &n) { return !n.isEmpty() && pred(n); });
+    };
     double score = 0;
     if (q.isEmpty())
       score = 0.5;
-    else if (e.title.compare(q, Qt::CaseInsensitive) == 0 || e.commandId.compare(q, Qt::CaseInsensitive) == 0)
+    else if (any([&q](const QString &n) { return n.compare(q, Qt::CaseInsensitive) == 0; }))
       score = 1.0;
-    else if (e.title.startsWith(q, Qt::CaseInsensitive) || e.commandId.startsWith(q, Qt::CaseInsensitive))
+    else if (any([&q](const QString &n) { return n.startsWith(q, Qt::CaseInsensitive); }))
       score = 0.9;
-    else if (e.title.contains(q, Qt::CaseInsensitive) || e.commandId.contains(q, Qt::CaseInsensitive))
+    else if (any([&q](const QString &n) { return n.contains(q, Qt::CaseInsensitive); }))
       score = 0.8;
     else if (e.tooltip.contains(q, Qt::CaseInsensitive) || e.group.contains(q, Qt::CaseInsensitive))
       score = 0.6;

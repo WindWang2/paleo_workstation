@@ -14,6 +14,7 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTranslator>
 #include <QToolButton>
 #include <QWidgetAction>
 
@@ -73,6 +74,30 @@ private:
       for (QAction *a : app->menu()->actions())
         collect(a, QStringLiteral("fileMenu"), out);
     return out;
+  }
+
+  CommandLocatorFilter *commandFilter() const
+  {
+    auto *lw = m_win->findChild<QgsLocatorWidget *>();
+    if (!lw)
+      return nullptr;
+    for (QgsLocatorFilter *f : lw->locator()->filters())
+      if (f->name() == QLatin1String("paleo_commands"))
+        return qobject_cast<CommandLocatorFilter *>(f);
+    return nullptr;
+  }
+
+  QStringList locatorIds(const QString &query)
+  {
+    CommandLocatorFilter *filter = commandFilter();
+    QStringList ids;
+    if (!filter)
+      return ids;
+    QMetaObject::Connection c = connect(filter, &QgsLocatorFilter::resultFetched, this,
+                                        [&ids](const QgsLocatorResult &r) { ids << r.userData().toString(); });
+    filter->fetchResults(query, QgsLocatorContext(), nullptr);
+    disconnect(c);
+    return ids;
   }
 
 private slots:
@@ -151,9 +176,10 @@ private slots:
         filter = qobject_cast<CommandLocatorFilter *>(f);
     QVERIFY(filter);
     QList<QgsLocatorResult> results;
-    connect(filter, &QgsLocatorFilter::resultFetched, this,
-            [&results](const QgsLocatorResult &r) { results << r; });
+    const QMetaObject::Connection c = connect(filter, &QgsLocatorFilter::resultFetched, this,
+                                              [&results](const QgsLocatorResult &r) { results << r; });
     filter->fetchResults(QString(), QgsLocatorContext(), nullptr);
+    disconnect(c); // results 是局部量：不断开会让后续用例的抓取写到悬空引用
     QCOMPARE(results.size(), CommandRegistry::forSurface(SurfaceLocator).size());
     bool sawReason = false;
     for (const QgsLocatorResult &r : results)
@@ -166,6 +192,41 @@ private slots:
       }
     }
     QVERIFY2(sawReason, "未开工程时应至少有一条命令带禁用原因");
+  }
+
+  // 审查 P2#3：英文标题可搜（任意界面语言）——PaleoCommands 上下文进了 en 目录且内嵌 qm。
+  void englishCatalogCoversEveryCommand()
+  {
+    QTranslator en;
+    QVERIFY(en.load(QStringLiteral(":/i18n/paleo_en.qm")));
+    QStringList missing;
+    for (const CommandSpec &s : CommandRegistry::all())
+    {
+      const QString t = en.translate("PaleoCommands", s.title);
+      if (t.isEmpty() || t == QString::fromUtf8(s.title))
+        missing << s.commandId;
+      if (*s.tooltip && en.translate("PaleoCommands", s.tooltip).isEmpty())
+        missing << s.commandId + QStringLiteral("(tooltip)");
+    }
+    QVERIFY2(missing.isEmpty(), qPrintable(missing.join(QStringLiteral(", "))));
+  }
+
+  void locatorMatchesEnglishAndSourceTitles()
+  {
+    QVERIFY(commandFilter());
+    QCOMPARE(locatorIds(QStringLiteral("Open project")).value(0), QStringLiteral("project.open"));
+    QCOMPARE(locatorIds(QStringLiteral("open PROJECT")).value(0), QStringLiteral("project.open"));
+    QCOMPARE(locatorIds(QStringLiteral("打开工程")).value(0), QStringLiteral("project.open"));
+    QVERIFY(locatorIds(QStringLiteral("Add point")).contains(QStringLiteral("edit.addPoint")));
+    // 纯函数：别名参与匹配，且与显示标题同档打分。
+    CommandLocatorEntry e;
+    e.commandId = QStringLiteral("x.y");
+    e.title = QStringLiteral("打开工程");
+    e.aliases = {QStringLiteral("Open project")};
+    e.enabled = true;
+    const auto hit = CommandLocatorFilter::match({e}, QStringLiteral("open pro"));
+    QCOMPARE(hit.size(), 1);
+    QCOMPARE(hit.first().second, 0.9);
   }
 
   void triggerViewCommand()

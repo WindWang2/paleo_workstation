@@ -23,6 +23,7 @@
 #include <QFileDialog>
 #include <QPointer>
 #include <QStatusBar>
+#include <QTranslator>
 
 using paleo::command::CommandContext;
 using paleo::command::CommandDispatcher;
@@ -208,6 +209,19 @@ void PaleoMainWindow::bindProjectCommands()
   });
 }
 
+// 英文命令标题：私有加载内嵌 :/i18n/paleo_en.qm（PaleoCommands 上下文），不全局安装——
+// 英文骨架大多 unfinished，全局装会让界面中英混排；这里只给 Ctrl+K 当匹配别名。
+static QString englishCommandTitle(const char *source)
+{
+  static QTranslator *en = [] {
+    auto *t = new QTranslator(QCoreApplication::instance());
+    if (!t->load(QStringLiteral(":/i18n/paleo_en.qm")))
+      qWarning("paleo: :/i18n/paleo_en.qm missing; Ctrl+K English command titles unavailable");
+    return t;
+  }();
+  return en->translate("PaleoCommands", source);
+}
+
 // Ctrl+K：命令过滤器数据面（CommandRegistry 中带 Locator 入口的命令 + 当前状态/禁用原因）。
 // 过滤器本体在 src/qgis/commandlocatorfilter（QGIS 封装层），由 attachShellSurfaces 注册。
 QVector<CommandLocatorEntry> PaleoMainWindow::commandLocatorEntries()
@@ -221,6 +235,7 @@ QVector<CommandLocatorEntry> PaleoMainWindow::commandLocatorEntries()
     CommandLocatorEntry e;
     e.commandId = spec.commandId;
     e.title = QCoreApplication::translate("PaleoCommands", spec.title);
+    e.aliases = {QString::fromUtf8(spec.title), englishCommandTitle(spec.title)};
     e.tooltip = QCoreApplication::translate("PaleoCommands", spec.tooltip);
     e.group = spec.ribbonGroup;
     const CommandState st = d->state(spec.commandId, ctx);

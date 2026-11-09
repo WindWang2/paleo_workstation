@@ -20887,12 +20887,12 @@ Crossline: %3 ~ %4</source>
         <translation>分析任务</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247"/>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="253"/>
         <source>展开功能区</source>
         <translation>展开功能区</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247"/>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="253"/>
         <source>折叠功能区</source>
         <translation>折叠功能区</translation>
     </message>
@@ -30239,6 +30239,11 @@ PDF：%3
         <location filename="../src/workflow/mapexport.cpp" line="328"/>
         <source>无法提交导出成果：%1</source>
         <translation>无法提交导出成果：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mapexport.cpp" line="341"/>
+        <source>无法撤回导出目录：%1</source>
+        <translation>无法撤回导出目录：%1</translation>
     </message>
     <message>
         <location filename="../src/workflow/mapexport.cpp" line="349"/>

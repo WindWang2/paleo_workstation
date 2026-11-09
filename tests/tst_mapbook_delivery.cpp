@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 
 #include <QPdfDocument>
@@ -90,6 +91,75 @@ class TestMapBookDelivery : public QObject
     }
 
   private slots:
+    void asyncManifestRetainsSnapshotWarnings()
+    {
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+      QgsProject project;
+      auto *valid = new QgsVectorLayer( QStringLiteral( "Point?crs=epsg:32650" ),
+                                        QStringLiteral( "Valid layer" ), QStringLiteral( "memory" ) );
+      auto *missing = new QgsVectorLayer( dir.filePath( QStringLiteral( "missing.gpkg" ) ),
+                                          QStringLiteral( "Missing layer" ), QStringLiteral( "ogr" ) );
+      QVERIFY( valid->isValid() );
+      QVERIFY( !missing->isValid() );
+      project.addMapLayers( { valid, missing } );
+      project.setCrs( valid->crs() );
+      PaleoTaskService tasks;
+      PaleoMapBookQueue::Exporter exporter( &tasks, &project );
+      QSignalSpy finished( &exporter, &PaleoMapBookQueue::Exporter::finished );
+
+      PaleoMapBookQueue::Request request;
+      request.book = QStringLiteral( "book_snapshot_warning" );
+      request.outputDir = dir.path();
+      request.tiles = grid( 1, 1 );
+      request.dpi = 96.0;
+      request.layers = { valid, missing };
+      QVERIFY( exporter.start( request ) );
+      QTRY_COMPARE_WITH_TIMEOUT( finished.count(), 1, 60000 );
+
+      const auto result = exporter.lastResult();
+      QCOMPARE( result.succeeded, 1 );
+      QCOMPARE( result.warnings.size(), 1 );
+      QVERIFY( result.warnings.first().contains( missing->name() ) );
+      const auto warnings = readManifest( result.manifest ).value( QStringLiteral( "warnings" ) ).toArray();
+      QCOMPARE( warnings.size(), 1 );
+      QCOMPARE( warnings.first().toString(), result.warnings.first() );
+    }
+
+    void queuedCancellationRetainsPageAccounting()
+    {
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+      QgsProject project;
+      PaleoTaskService tasks;
+      // taskAdded is synchronous and emitted before the runnable is submitted.
+      connect( &tasks, &PaleoTaskService::taskAdded, &tasks,
+               []( PaleoTask *task ) { task->requestCancel(); } );
+      PaleoMapBookQueue::Exporter exporter( &tasks, &project );
+      QSignalSpy finished( &exporter, &PaleoMapBookQueue::Exporter::finished );
+
+      PaleoMapBookQueue::Request request;
+      request.book = QStringLiteral( "book_queued_cancel" );
+      request.outputDir = dir.path();
+      request.tiles = grid( 2, 1 );
+      PaleoTask *task = exporter.start( request );
+      QVERIFY( task );
+      QTRY_COMPARE( finished.count(), 1 );
+
+      QCOMPARE( task->state(), PaleoTask::State::Cancelled );
+      const auto result = exporter.lastResult();
+      QCOMPARE( result.total, 2 );
+      QCOMPARE( result.cancelled, 2 );
+      QCOMPARE( result.pages.size(), 2 );
+      for ( const auto &page : result.pages )
+      {
+        QCOMPARE( page.status, PaleoMapBookQueue::PageStatus::Cancelled );
+        QVERIFY( !page.reason.isEmpty() );
+      }
+      QVERIFY( result.manifest.isEmpty() );
+      QVERIFY( !QFileInfo::exists( PaleoMapBookQueue::bookRoot( request ) ) );
+    }
+
     // P5-W4 验收：9 版 3 成后预演停 → 3 成功、6 取消，manifest/Result 同源，
     // 取消页带人读原因（不再被写成 failed）。
     void manifestPreservesCancelledPages()

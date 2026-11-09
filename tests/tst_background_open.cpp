@@ -17,6 +17,7 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/workflow/projectlayerrefresh.h"
 #include "../src/workflow/analysisresultsync.h"
 #include "../src/services/stratigraphicsubintervals.h"
@@ -54,7 +55,9 @@ private slots:
     EntityAssetLink link; link.entityType = "well"; link.entityId = well.id; link.assetId = asset.id; link.role = "well_log";
     QVERIFY(catalog.addLink(link));
     QVERIFY(addSectionTimeDepthFixture(catalog,well.id));
+    PaleoTaskService tasks;
     SectionWorkbench work(&catalog);
+    work.setTaskService(&tasks);
     int ticks = 0; QTimer heartbeat; heartbeat.setInterval(2);
     connect(&heartbeat, &QTimer::timeout, this, [&] { ++ticks; }); heartbeat.start();
     bool ready = false; SectionWorkbench::PreviewData result;
@@ -73,6 +76,21 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT((!namedWatcherBusy(&work, previewName)), 30000);
     QCoreApplication::processEvents();
     QVERIFY(!ready);
+
+    // Cancel a queued snapshot and immediately ask for the same preview.
+    // The old callback must be dropped and its empty data must not be reused.
+    tasks.setMaxWorkerThreads(1);
+    auto gate = std::make_shared<QSemaphore>();
+    const auto blocker = QtConcurrent::run(tasks.workerPool(), [gate] { gate->acquire(); });
+    bool staleReady = false;
+    work.requestPreviewData([&](const auto &) { staleReady = true; }, false);
+    work.cancelPreviewData();
+    work.requestPreviewData([&](const auto &data) { result = data; ready = true; }, false);
+    gate->release();
+    QTRY_VERIFY_WITH_TIMEOUT(ready, 30000);
+    QVERIFY(blocker.isFinished());
+    QVERIFY(!staleReady);
+    QCOMPARE(result.wells.size(), 1);
     QCOMPARE(DataCatalog::threadViolationCount(), 0);
   }
   void xmlPreviewIsDeferredAndGenericListIsBounded() {

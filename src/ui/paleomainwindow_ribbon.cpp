@@ -242,16 +242,19 @@ void PaleoMainWindow::buildRibbon()
   bar->showMinimumModeButton();
   QAction *ribbonMode = bar->minimumModeAction();
   ribbonMode->setObjectName(QStringLiteral("ribbonDisplayMode"));
-  auto *modeButton = qobject_cast<QToolButton *>(bar->rightButtonGroup()->widgetForAction(ribbonMode));
+  auto *right = bar->rightButtonGroup();
+  right->removeAction(ribbonMode);
+  auto *modeButton = new QToolButton(right);
+  modeButton->setDefaultAction(ribbonMode);
+  modeButton->setAutoRaise(true);
+  modeButton->setFocusPolicy(Qt::TabFocus);
+  right->addWidget(modeButton);
   const auto syncRibbonMode = [this, bar, ribbonMode, modeButton] {
     ribbonMode->setText(bar->isMinimumMode() ? tr("展开功能区") : tr("折叠功能区"));
-    if (modeButton)
-      modeButton->setArrowType(bar->isMinimumMode() ? Qt::DownArrow : Qt::UpArrow);
+    modeButton->setArrowType(bar->isMinimumMode() ? Qt::DownArrow : Qt::UpArrow);
   };
   connect(bar, &SARibbonBar::ribbonModeChanged, this, syncRibbonMode);
   syncRibbonMode();
-  if (modeButton)
-    modeButton->setFocusPolicy(Qt::TabFocus);
 
   // vendor SARibbon 把命令钮设成 NoFocus：补 TabFocus + 聚焦滚入；滚动按钮
   // 是匿名图标件，命名一轮。两处都是幂等，attachWorkflows 后再补一轮。
@@ -309,12 +312,12 @@ void PaleoMainWindow::buildRibbonRightGroup(SARibbonBar *bar)
   {
     QAction *webAct = webDock->toggleViewAction();
     webAct->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionAddWmsLayer.svg")));
-    right->addAction(webAct);
-    if (auto *webToggle = qobject_cast<QToolButton *>(right->widgetForAction(webAct)))
-    {
-      webToggle->setObjectName(QStringLiteral("webServiceButton"));
-      webToggle->setAccessibleName(tr("Web 服务面板"));
-    }
+    auto *webToggle = new QToolButton(right);
+    webToggle->setDefaultAction(webAct);
+    webToggle->setAutoRaise(true);
+    webToggle->setObjectName(QStringLiteral("webServiceButton"));
+    webToggle->setAccessibleName(tr("Web 服务面板"));
+    right->addWidget(webToggle);
   }
 }
 

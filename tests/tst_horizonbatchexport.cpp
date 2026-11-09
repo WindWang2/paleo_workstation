@@ -400,6 +400,11 @@ class TestHorizonBatchExport : public QObject
             doneCalled = true;
           } );
       QVERIFY2( task != nullptr, "startAsync rejected a valid request" );
+      CatalogAsset noise;
+      noise.id = QStringLiteral( "ast-1" ); // 冻结目录的首个图件 id 被占用。
+      noise.type = QStringLiteral( "well_log" );
+      noise.format = QStringLiteral( "las" );
+      QVERIFY( catalog.addAsset( noise ) );
       QSignalSpy finished( task, &PaleoTask::finished );
       QVERIFY2( finished.wait( 60000 ), "async batch export never finished" );
       QTRY_VERIFY_WITH_TIMEOUT( doneCalled, 5000 );
@@ -426,10 +431,16 @@ class TestHorizonBatchExport : public QObject
       const auto horizons = root.value( QStringLiteral( "horizons" ) ).toArray();
       QCOMPARE( horizons.size(), 2 );
       QStringList recorded;
-      for ( const auto &entry : horizons )
+      for ( qsizetype i = 0; i < horizons.size(); ++i )
       {
-        const auto horizon = entry.toObject();
+        const auto horizon = horizons.at( i ).toObject();
+        QCOMPARE( horizon.value( QStringLiteral( "horizon" ) ).toString(), result.horizons.at( i ).horizon );
         QCOMPARE( horizon.value( QStringLiteral( "ok" ) ).toBool(), true );
+        QStringList assets;
+        for ( const auto &id : horizon.value( QStringLiteral( "assets" ) ).toArray() )
+          assets << id.toString();
+        QCOMPARE( assets, result.horizons.at( i ).assetIds );
+        QVERIFY( !assets.contains( noise.id ) );
         for ( const auto &file : horizon.value( QStringLiteral( "files" ) ).toArray() )
           recorded << file.toString();
       }

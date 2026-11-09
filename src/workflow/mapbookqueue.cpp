@@ -31,6 +31,23 @@ namespace PaleoMapBookQueue
 
 namespace
 {
+  Result initialResult( const Request &request )
+  {
+    Result result;
+    result.total = request.tiles.size();
+    result.pages.reserve( request.tiles.size() );
+    for ( const auto &tile : request.tiles )
+    {
+      PageRecord page;
+      page.index = tile.index;
+      page.tile = tile.name;
+      page.status = PageStatus::Cancelled;
+      page.reason = QObject::tr( "未执行" );
+      result.pages.append( page );
+    }
+    return result;
+  }
+
   QString defaultTitlePattern() { return QStringLiteral( "%{book} · %{tile_label}" ); }
   QString defaultFooterPattern()
   {
@@ -433,16 +450,12 @@ PaleoTask *Exporter::start(const Request &request) {
         const auto failWholeRun = [&job]( const QString &message ) {
           // 与 prepareRun 的 bail 同口径：整批 failed + 页账本同步（M3）。
           auto &result = job->state.result;
-          result.total = job->request.tiles.size();
+          result = initialResult( job->request );
           result.failed = result.total;
           result.failures.append( { -1, QStringLiteral( "*" ),
                                     QStringLiteral( "prepare" ), message } );
-          result.pages.resize( job->request.tiles.size() );
-          for ( int i = 0; i < job->request.tiles.size(); ++i )
+          for ( PageRecord &page : result.pages )
           {
-            PageRecord &page = result.pages[i];
-            page.index = job->request.tiles.at( i ).index;
-            page.tile = job->request.tiles.at( i ).name;
             page.status = PageStatus::Failed;
             page.reason = message;
           }
@@ -462,7 +475,6 @@ PaleoTask *Exporter::start(const Request &request) {
         }
         // 快照层缺源不阻断地图册导出，但产物少层必须可见（warning 档入账
         // ——P5-W3 起同时进 Result.warnings/manifest，不只进任务 detail）。
-        job->state.result.warnings = snapshotWarnings;
         paleo::workflow_detail::reportSnapshotWarnings(snapshotWarnings);
         Request work = job->request;
         for (const auto &id : job->layerIds)
@@ -474,7 +486,9 @@ PaleoTask *Exporter::start(const Request &request) {
         }
         Exporter worker(nullptr, projectHandle->project());
         job->state.request = work;
-        if (worker.prepareRun(job->state, task)) {
+        const bool ready = worker.prepareRun(job->state, task);
+        job->state.result.warnings = snapshotWarnings;
+        if (ready) {
           for (int i = 0; i < work.tiles.size(); ++i)
             if (!worker.exportTileAt(job->state, i, task))
               break;
@@ -505,6 +519,11 @@ PaleoTask *Exporter::start(const Request &request) {
          (!job->ownerCatalog ||
           job->ownerCatalog->projectDir() != job->request.projectDir));
     auto &result = job->state.result;
+    // TaskRunner skips the work callback when cancellation happens in the queue.
+    if (task->state() == PaleoTask::State::Cancelled && result.pages.isEmpty()) {
+      result = initialResult(job->request);
+      result.cancelled = result.total;
+    }
     QString error;
     QHash<QString, QString> idMap; // C-3：撞号重映射表
     if (stale) {
@@ -544,6 +563,7 @@ PaleoTask *Exporter::start(const Request &request) {
       result.files.clear();
       result.indexPage.clear();
       result.indexFiles.clear();
+      const bool manifestWritten = !result.manifest.isEmpty();
       result.manifest.clear();
       for (PageRecord &page : result.pages) {
         if (page.status == PageStatus::Ok) {
@@ -557,7 +577,7 @@ PaleoTask *Exporter::start(const Request &request) {
       // 降级后重写账本；重写失败也要入账——磁盘残留旧账（页标 ok）与新
       // Result 矛盾，不能静默（复审 L）。
       QString rewriteError;
-      if (!writeManifest(job->request, result, &result.manifest, &rewriteError))
+      if (manifestWritten && !writeManifest(job->request, result, &result.manifest, &rewriteError))
         result.failures.append({-1, "*", "manifest", rewriteError});
     }
     m_last = result;
@@ -584,19 +604,8 @@ bool Exporter::prepareRun( RunState &state, PaleoTask *task )
 {
   const Request &request = state.request;
   Result &result = state.result;
-  result = Result();
-  result.total = request.tiles.size();
-
   // P5-W4：逐页账本先立（任何失败路径也逐页有账，与 tiles 同序同量）。
-  result.pages.resize( request.tiles.size() );
-  for ( int i = 0; i < request.tiles.size(); ++i )
-  {
-    PageRecord &page = result.pages[i];
-    page.index = request.tiles.at( i ).index;
-    page.tile = request.tiles.at( i ).name;
-    page.status = PageStatus::Cancelled;
-    page.reason = QObject::tr( "未执行" );
-  }
+  result = initialResult( request );
 
   // bail：整批失败——failed=total 且页账本同步置 Failed（reason 带原因），
   // 不留「计数全 failed、页账本全 cancelled」的自相矛盾（#P5 复审 M3）。

@@ -7,6 +7,7 @@
 #include <QHBoxLayout>
 #include <QStyle>
 #include <QToolButton>
+#include <QWidgetAction>
 
 #include <SARibbon.h>
 
@@ -49,8 +50,10 @@ class TestRibbonTitleFit : public QObject
       {
         const QRect r = tb->tabRect(i);
         if (r.width() < static_cast<HintTabBar *>(static_cast<QTabBar *>(tb))->tabSizeHint(i).width() || r.right() > tb->width() || r.left() < 0)
-          return QStringLiteral("tab %1 '%2' clipped: %3..%4 of %5").arg(i).arg(tb->tabText(i))
-              .arg(r.left()).arg(r.right()).arg(tb->width());
+          return QStringLiteral("tab %1 '%2' clipped: %3..%4 of %5 (bar %6, tab x %7, right group %8, quick access %9)")
+              .arg(i).arg(tb->tabText(i)).arg(r.left()).arg(r.right()).arg(tb->width())
+              .arg(bar()->width()).arg(tb->x()).arg(right->width())
+              .arg(bar()->quickAccessBar()->isVisible() ? bar()->quickAccessBar()->width() : 0);
       }
       return {};
     }
@@ -168,7 +171,67 @@ class TestRibbonTitleFit : public QObject
       QVERIFY(!menu->actions().isEmpty());
       for (QAction *a : menu->actions())
         if (!a->isSeparator())
+        {
+          QVERIFY(a->isVisible());
           QVERIFY2(!a->text().isEmpty(), "folded entry without a label");
+        }
+    }
+
+    void foldedCommandsKeepLiveState_data()
+    {
+      QTest::addColumn<bool>("wrap");
+      QTest::newRow("direct") << false;
+      QTest::newRow("wrapped") << true;
+    }
+
+    void foldedCommandsKeepLiveState()
+    {
+      QFETCH(bool, wrap);
+      auto *right = bar()->rightButtonGroup();
+      QAction command(m_win->style()->standardIcon(QStyle::SP_DialogSaveButton),
+                      QStringLiteral("Folded test command"));
+      command.setCheckable(true);
+      command.setChecked(true);
+      // 保持一段不可折叠的占位，避免依赖平台字体度量或折回后重建的按钮尺寸。
+      QWidgetAction filler(nullptr);
+      auto *spacer = new QWidget;
+      spacer->setFixedWidth(640);
+      filler.setDefaultWidget(spacer);
+      right->addAction(&filler);
+      QWidgetAction wrapper(nullptr);
+      if (wrap)
+      {
+        auto *button = new QToolButton;
+        button->setDefaultAction(&command);
+        wrapper.setDefaultWidget(button);
+      }
+      QAction *entry = wrap ? &wrapper : &command;
+      right->addAction(entry);
+      QAction following(QStringLiteral("Following folded command"));
+      right->addAction(&following);
+      setWidth(640);
+      auto *more = named<QToolButton>("titleMoreButton");
+      QVERIFY(more && more->isVisible());
+      auto *menu = more->menu();
+      QVERIFY(QMetaObject::invokeMethod(menu, "aboutToShow"));
+      QVERIFY(menu->actions().contains(&command));
+      QVERIFY(command.isVisible());
+      QVERIFY(command.isChecked());
+      QVERIFY(command.isEnabled());
+      QSignalSpy triggered(&command, &QAction::triggered);
+      command.trigger();
+      QCOMPARE(triggered.count(), 1);
+      QVERIFY(!command.isChecked());
+      command.setEnabled(false);
+      QVERIFY(!command.isEnabled());
+      command.trigger();
+      QCOMPARE(triggered.count(), 1);
+      right->removeAction(&filler);
+      setWidth(1600);
+      const auto restored = right->actions();
+      QVERIFY(restored.indexOf(entry) >= 0);
+      QCOMPARE(restored.indexOf(&following), restored.indexOf(entry) + 1);
+      QCOMPARE(right->widgetForAction(restored.constLast()), more);
     }
 
     void restoresWhenWideAgain()

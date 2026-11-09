@@ -435,6 +435,18 @@ void TestCapabilityRound2::documentTraceWindowStagesPortReceipt() {
   QCOMPARE(rebased.summary.value(QStringLiteral("resultRef")).toMap(), ref);
   const auto newPath = rebased.summary.value(QStringLiteral("result_path")).toString();
   QCOMPARE(QFileInfo(newPath).absolutePath(), QDir(relocatedDir).filePath(QStringLiteral("results")));
+  {
+    QFile tampered(newPath);
+    QVERIFY(tampered.open(QIODevice::ReadWrite));
+    const char changed = static_cast<char>(bytes.at(0) ^ 1);
+    QCOMPARE(tampered.write(&changed, 1), 1);
+  }
+  QCOMPARE(QFileInfo(newPath).size(), bytes.size());
+  const auto wrongDigest = execute(request);
+  QCOMPARE(wrongDigest.code, QStringLiteral("result_unavailable"));
+  QVERIFY(!wrongDigest.ok);
+  QVERIFY(!wrongDigest.summary.contains(QStringLiteral("resultRef")));
+  QVERIFY(!wrongDigest.summary.contains(QStringLiteral("result_path")));
   QFile oversized(newPath);
   QVERIFY(oversized.open(QIODevice::ReadWrite));
   QVERIFY(oversized.resize(bytes.size() + 1));

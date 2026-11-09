@@ -1025,12 +1025,12 @@ void Seismic3DViewPanel::buildViewControls(QHBoxLayout *lay, QWidget *bar) {
     int padded = 0, extraIgnored = 0, skipped = 0;
     const SeismicCameraController::CameraState defaults{};
     for (const QString &e : entries) {
-        const auto kv = e.split(QLatin1Char('|'));
-        if (kv.size() != 2 || kv[0].isEmpty()) {
+        const qsizetype separator = e.lastIndexOf(QLatin1Char('|'));
+        if (separator <= 0) {
             ++skipped;
             continue;
         }
-        const auto nums = kv[1].split(QLatin1Char(','));
+        const auto nums = e.mid(separator + 1).split(QLatin1Char(','));
         bool numOk = nums.size() >= kLegacyNumericFields;
         float fields[kNumericFields] = {defaults.yaw, defaults.pitch, defaults.distance,
                                         defaults.target.x, defaults.target.y, defaults.target.z};
@@ -1046,7 +1046,7 @@ void Seismic3DViewPanel::buildViewControls(QHBoxLayout *lay, QWidget *bar) {
             ++extraIgnored; // 未来新增字段（降级读旧版二进制）——忽略未知尾部
         }
         CamBookmark bm;
-        bm.name = kv[0];
+        bm.name = e.left(separator);
         bm.state.yaw = fields[0];
         bm.state.pitch = fields[1];
         bm.state.distance = fields[2];

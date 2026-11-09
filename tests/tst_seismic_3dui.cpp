@@ -355,7 +355,7 @@ private slots:
         panel.viewport()->camera().SetPitch(21.0f + 9.5f * float(i));
         panel.viewport()->camera().SetDistance(6.5f + 3.25f * float(i));
         panel.viewport()->camera().SetTarget(targets[i]);
-        panel.saveCameraBookmark(QStringLiteral("视角%1").arg(i));
+        panel.saveCameraBookmark(QStringLiteral("视角%1|主测线").arg(i));
         states.push_back(panel.viewport()->camera().state());
       }
       return states;
@@ -366,7 +366,7 @@ private slots:
       Seismic3DViewPanel restored;
       restored.resize(800, 600);
       restored.setVolume(volume);
-      const QStringList expected{QStringLiteral("视角0"), QStringLiteral("视角1")};
+      const QStringList expected{QStringLiteral("视角0|主测线"), QStringLiteral("视角1|主测线")};
       QCOMPARE(restored.cameraBookmarkNames(), expected);
       for (int i = 0; i < int(saved.size()); ++i) {
         restored.applyCameraBookmark(i);
@@ -385,7 +385,7 @@ private slots:
     {
       settings.setValue(QStringLiteral("seismic/3dCamBookmarks"),
                         QStringList{QStringLiteral("旧1|-30.5,48.25,12.75,1.5,2.5"),
-                                    QStringLiteral("旧2|10,-20.75,7.5,-1.25,0.75")});
+                                    QStringLiteral("旧2|主测线|10,-20.75,7.5,-1.25,0.75")});
       static int warnings = 0;
       warnings = 0;
       const auto oldHandler = qInstallMessageHandler(
@@ -395,7 +395,7 @@ private slots:
           });
       Seismic3DViewPanel legacy;
       qInstallMessageHandler(oldHandler);
-      const QStringList legacyNames{QStringLiteral("旧1"), QStringLiteral("旧2")};
+      const QStringList legacyNames{QStringLiteral("旧1"), QStringLiteral("旧2|主测线")};
       QCOMPARE(legacy.cameraBookmarkNames(), legacyNames);
       QCOMPARE(warnings, 1);
       legacy.applyCameraBookmark(0);
@@ -423,6 +423,7 @@ private slots:
                         QStringList{QStringLiteral("好|1,2,3,4,5,6,7,8"),
                                     QStringLiteral("坏|1,2"),
                                     QStringLiteral("没竖线"),
+                                    QStringLiteral("没参数|"),
                                     QStringLiteral("|1,2,3,4,5,6")});
       static int warnings = 0;
       warnings = 0;

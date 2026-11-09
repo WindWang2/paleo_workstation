@@ -20808,12 +20808,12 @@ Crossline: %3 ~ %4</source>
             <translation>Analysis</translation>
         </message>
         <message>
-            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247" />
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="253" />
             <source>展开功能区</source>
             <translation>Expand Ribbon</translation>
         </message>
         <message>
-            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="247" />
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="253" />
             <source>折叠功能区</source>
             <translation>Collapse Ribbon</translation>
         </message>
@@ -30114,6 +30114,11 @@ PDF：%3
             <location filename="../src/workflow/mapexport.cpp" line="328" />
             <source>无法提交导出成果：%1</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapexport.cpp" line="341" />
+            <source>无法撤回导出目录：%1</source>
+            <translation>Could not retract the export directory: %1</translation>
         </message>
         <message>
             <location filename="../src/workflow/mapexport.cpp" line="349" />

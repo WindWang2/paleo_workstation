@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QAction>
 #include <QApplication>
 #include <QComboBox>
 #include <QDialog>
@@ -20,6 +21,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QProgressBar>
+#include <QScopeGuard>
 #include <QPainter>
 #include <QPalette>
 #include <QSettings>
@@ -796,6 +798,40 @@ class TestUxTheme : public QObject
       const auto preserved = PaleoIcons::tintForDarkTheme(QIcon(colored)).pixmap(8, 8).toImage();
       QCOMPARE(preserved.pixelColor(4, 4), QColor(20, 100, 220));
       PaleoTheme::applyLightTheme();
+    }
+
+    void mountedRibbonIconRetintsAfterThemeSwitch()
+    {
+      const auto restoreTheme = qScopeGuard([] { PaleoTheme::applyLightTheme(); });
+      PaleoTheme::applyLightTheme();
+      PaleoRibbon::prepareLibrary();
+      SARibbonMainWindow window;
+      auto *panel = window.ribbonBar()->addCategoryPage(QStringLiteral("Data"))->addPanel(QStringLiteral("Preview"));
+      // 纯图标按钮让颜色断言只采样图标墨色，不把按钮文字算进去。
+      auto *action = new QAction(PaleoIcons::maximize(), QString(), panel);
+      panel->addLargeAction(action);
+      auto *button = PaleoRibbon::buttonFor(panel, action);
+      QVERIFY(button);
+      window.resize(480, 240);
+      window.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&window));
+      QVERIFY(button->isVisible() && button->isEnabled());
+
+      for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark,
+                               PaleoTheme::Theme::Light})
+      {
+        PaleoTheme::applyTheme(theme);
+        PaleoRibbon::applyTheme(&window, PaleoTheme::shellStyleSheet());
+        QApplication::processEvents();
+        const QImage image = button->grab().toImage();
+        const QColor ink = PaleoTheme::tokens(theme).text;
+        int inkPixels = 0;
+        for (int y = 0; y < image.height(); ++y)
+          for (int x = 0; x < image.width(); ++x)
+            if (image.pixelColor(x, y) == ink)
+              ++inkPixels;
+        QVERIFY2(inkPixels > 0, qPrintable(QStringLiteral("Ribbon icon missing ink %1").arg(ink.name())));
+      }
     }
 
     void itemTextRolesFollowThemeWithoutBusinessSignals()

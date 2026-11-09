@@ -12,4 +12,5 @@ add_paleo_test(tst_commanddispatcher LIBS paleo_workflow Paleo::paleo_data_servi
 target_sources(paleo_ui PRIVATE
   src/ui/commandactionbinder.cpp          # 视图层：QAction ↔ 命令（route / mirror / native 三种绑定）
   src/ui/paleomainwindow_commands.cpp     # 视图层：主窗命令处理器（工程/视图）+ Ctrl+K 命令过滤器挂接
+  src/ui/locator/commandlocatorfilter.cpp # 视图层：Ctrl+K 命令搜索（禁用带原因）
 )

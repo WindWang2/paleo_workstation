@@ -681,6 +681,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void promptOpenProject();        // 起始页「打开工程」与文件菜单同一实现
     void promptNewProjectFromFolder();
     void applyOnlineBasemapPreset(const QString &presetId);
+    void registerCommandLocator(class QgsLocator *locator); // Ctrl+K 命令过滤器
     paleo::command::CommandDispatcher *m_commands = nullptr;
     CommandActionBinder *m_commandBinder = nullptr;
 };

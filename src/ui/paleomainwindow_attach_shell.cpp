@@ -180,6 +180,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       };
       locatorWidget->locator()->registerFilter(
           new HorizonLocatorFilter(horizonProvider, activate));
+      registerCommandLocator(locatorWidget->locator()); // U1：Ctrl+K 搜命令（含禁用原因）
       // Note: no IssueLocatorFilter registration — the validation workflow keeps no queryable issue
       // store (permanently-empty provider); issue navigation lives on issueTable → ThreeWayLocator.
 

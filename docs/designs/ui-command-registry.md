@@ -39,6 +39,23 @@ Agent 入口只给 `Callable` 能力（与 `CapabilityRegistry::callableIds()` �
 * **原生（native）**：QAction 自身即实现（QGIS 地图工具、停靠开关、编辑工具条），
   状态取自 action，可勾选动作按 `checked` 参数幂等。
 
+### 勾选与子菜单（PR #920 审查修正）
+
+* 勾选类命令：参数给了 `checked` 就按目标态（幂等）；没给（Ctrl+K、Agent 等无状态入口）就取反当前态
+  （`CommandActionBinder::targetChecked`）。镜像型可勾选命令同理：源按钮已在目标态则不点击。
+* 子菜单型父动作（添加要素、相面分区操作、更多）：分派器弹出与 ribbon 工具按钮相同的子菜单，
+  弹在可见按钮下方，按钮不可见时弹在活动窗口中央；没有可用子项时命令禁用并带原因。
+  子项（edit.addPoint / addLine / addPolygon、edit.facies.split / paint / merge）另有独立命令，
+  Ctrl+K 可以直接选。
+* 处理器型 ribbon 动作（`bindActionCommand`）的状态跟随动作本身，禁用时带原因。
+
+### 英文搜索
+
+登记表的标题和说明逐条写成 `QT_TRANSLATE_NOOP("PaleoCommands", …)`，lupdate 能抽取，已并入
+`translations/paleo_zh_CN.ts` 和 `paleo_en.ts`。lrelease 同时生成 `paleo_en.qm`，嵌入
+`:/i18n/paleo_en.qm`。Ctrl+K 的匹配范围是显示标题，加上中文源串和英文标题两个别名。
+英文目录只给命令搜索私下加载，不全局安装。
+
 ## 禁用原因
 
 `CommandDispatcher::state()` 对每种禁用情形都给原因：未登记、未接线、入口不允许、

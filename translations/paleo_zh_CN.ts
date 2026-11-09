@@ -28599,6 +28599,10 @@ PDF：%3
 <context>
     <name>QObject</name>
     <message>
+        <source>当前没有可用的子项</source>
+        <translation>当前没有可用的子项</translation>
+    </message>
+    <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="279"/>
         <source>能力契约版本；缺省 1</source>
         <translation>能力契约版本；缺省 1</translation>

@@ -5,7 +5,13 @@
 #include "paleoribbon.h"
 #include "../workflow/commanddispatcher.h"
 
+#include <algorithm>
+
 #include <QAction>
+#include <QApplication>
+#include <QCursor>
+#include <QMenu>
+#include <QWidget>
 #include <QLoggingCategory>
 
 using paleo::command::CommandContext;
@@ -27,6 +33,22 @@ CommandState actionState(const QPointer<QAction> &a)
   st.checked = a->isChecked();
   if (!st.enabled)
     st.reason = a->toolTip();
+  // 子菜单型动作：命令 = 弹出子菜单，至少要有一个可用子项，否则禁用并说明。
+  if (st.enabled && a->menu())
+  {
+    const QList<QAction *> items = a->menu()->actions();
+    const bool any = std::any_of(items.cbegin(), items.cend(), [](const QAction *i) {
+      return !i->isSeparator() && i->isVisible() && i->isEnabled();
+    });
+    if (!any)
+    {
+      st.enabled = false;
+      const auto first = std::find_if(items.cbegin(), items.cend(), [](const QAction *i) {
+        return !i->isSeparator() && !i->toolTip().isEmpty();
+      });
+      st.reason = first != items.cend() ? (*first)->toolTip() : QObject::tr("当前没有可用的子项");
+    }
+  }
   return st;
 }
 } // namespace
@@ -104,6 +126,11 @@ QAction *CommandActionBinder::bindNative(QAction *action, const QString &command
           [a](const CommandContext &, const QVariantMap &params) {
             if (!a)
               return;
+            if (a->menu())
+            {
+              popupMenuFor(a); // 子菜单型：与 ribbon 工具按钮同一菜单，由用户挑子项
+              return;
+            }
             // 可勾选动作（dock 显隐、地图工具）：给了目标态且已在该态则不动，
             // 否则 trigger——toggleViewAction 只认 triggered，setChecked 不会显隐 dock。
             if (a->isCheckable() && params.contains(QStringLiteral("checked")) &&
@@ -114,4 +141,25 @@ QAction *CommandActionBinder::bindNative(QAction *action, const QString &command
           [a](const CommandContext &) { return actionState(a); }, &error))
     qCWarning(lcCommands) << error;
   return action;
+}
+
+QMenu *CommandActionBinder::popupMenuFor(QAction *action)
+{
+  QMenu *menu = action ? action->menu() : nullptr;
+  if (!menu)
+    return nullptr;
+  for (QObject *o : action->associatedObjects())
+  {
+    auto *w = qobject_cast<QWidget *>(o);
+    if (w && w != menu && !qobject_cast<QMenu *>(w) && w->isVisible())
+    {
+      menu->popup(w->mapToGlobal(QPoint(0, w->height())));
+      return menu;
+    }
+  }
+  if (QWidget *win = QApplication::activeWindow())
+    menu->popup(win->mapToGlobal(win->rect().center()));
+  else
+    menu->popup(QCursor::pos());
+  return menu;
 }

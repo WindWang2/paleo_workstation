@@ -301,6 +301,47 @@ private slots:
     QCOMPARE(action->isChecked(), button->isChecked());
   }
 
+  // 审查 P2#2：子菜单型父动作（添加要素 / 相面分区操作 / 更多）从 Ctrl+K 选中 = 弹出同一子菜单；
+  // 没有可用子项时命令禁用并带原因——不再「看着可用、选了没反应」。子项本身另有独立命令。
+  void menuParentCommandsPopTheirMenu()
+  {
+    CommandDispatcher *d = m_win->commandDispatcher();
+    for (const char *id : {"edit.addFeature", "edit.faciesOperations", "view.more.constraint"})
+    {
+      const QString cid = QLatin1String(id);
+      QAction *parent = nullptr;
+      for (QAction *a : m_win->findChildren<QAction *>())
+        if (CommandActionBinder::commandIdOf(a) == cid && a->menu())
+          parent = a;
+      QVERIFY2(parent, id);
+      QMenu *menu = parent->menu();
+      const CommandState st = d->state(cid, d->currentContext());
+      QString reason;
+      if (!st.enabled)
+      {
+        QVERIFY2(!st.reason.isEmpty(), id);
+        QVERIFY(!d->trigger(cid, d->currentContext(), {}, &reason));
+        QVERIFY(!menu->isVisible());
+        // 强制一个可用子项，验证弹出路径本身。
+        parent->setEnabled(true);
+        QAction *child = nullptr;
+        for (QAction *c : menu->actions())
+          if (!c->isSeparator() && !child)
+            child = c;
+        QVERIFY2(child, id);
+        child->setVisible(true);
+        child->setEnabled(true);
+      }
+      QVERIFY2(d->trigger(cid, d->currentContext(), {}, &reason), qPrintable(cid + QLatin1Char(' ') + reason));
+      QTRY_VERIFY2(menu->isVisible(), id);
+      menu->hide();
+    }
+    // 子项也是独立命令（Ctrl+K 可直达）。
+    for (const char *id : {"edit.addPoint", "edit.addLine", "edit.addPolygon", "edit.facies.split",
+                           "edit.facies.paint", "edit.facies.merge"})
+      QVERIFY2(d->isBound(QLatin1String(id)), id);
+  }
+
   void triggerViewCommand()
   {
     CommandDispatcher *d = m_win->commandDispatcher();

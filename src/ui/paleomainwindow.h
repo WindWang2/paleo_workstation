@@ -13,6 +13,7 @@
 
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
 #include "notifications/paleonotify.h" // #282 maybeSaveProject 询问三选一（SaveChoice）
+#include "../qgis/commandlocatorentry.h"   // Ctrl+K 命令过滤器数据行（无 QGIS 依赖）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
 
 class PaleoDockManager;
@@ -681,7 +682,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     void promptOpenProject();        // 起始页「打开工程」与文件菜单同一实现
     void promptNewProjectFromFolder();
     void applyOnlineBasemapPreset(const QString &presetId);
-    void registerCommandLocator(class QgsLocator *locator); // Ctrl+K 命令过滤器
+    QVector<CommandLocatorEntry> commandLocatorEntries(); // Ctrl+K 命令过滤器数据面
+    void triggerCommandFromLocator(const QString &commandId);
     paleo::command::CommandDispatcher *m_commands = nullptr;
     CommandActionBinder *m_commandBinder = nullptr;
 };

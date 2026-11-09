@@ -219,6 +219,10 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 **实测（2026-11-05，来源会话接线）：paleomainwindow.cpp 964 行（家族 33 TU）**
 新增 `_timedepth.cpp` 只编排共用来源设置视图与 SectionWorkbench，不直连 Qgs。
 
+**实测（2026-11-09，UI 重设计 U1 命令注册表）：paleomainwindow.cpp 965 行（家族 34 TU）**
+新增 `_commands.cpp` 承载主窗命令处理器（工程/视图命令，经 CommandDispatcher 登记），
+Ctrl+K 命令过滤器本体在 `src/qgis/commandlocatorfilter`，本 TU 不直连 Qgs。
+
 撤销作用域由当前窗口内的焦点和编辑模式决定。Qt 原生历史由 `QUndoGroup` 管理，
 断层和工作台属性历史通过同一路由查询可用性和执行结果。项目切换、只读状态和
 隐藏编辑面会撤销相关入口的操作权限（#748）。
@@ -228,7 +232,7 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 层位和成果版本决定重算是否可用。参考窗口的证据加载由
 `MappingReferenceController` 维护，主窗口装配停靠面和导航入口（#749）。
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 33 TU + 本体 1 行 = 表 34 行，平铺不
+家族全表（`src/ui/paleomainwindow_*.cpp` 34 TU + 本体 1 行 = 表 35 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
@@ -268,6 +272,7 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 | `_seismic.cpp` | 183 | 地震体→停靠面板同步（syncSeismicVolumeToDocks；PW 深审批 file-budget 拆分） |
 | `_undogroup.cpp` | 22 | 撤销组域（#748）：QUndoGroup 路由器懒建与编辑工具条/画布作用域登记 |
 | `_faults.cpp` | 27 | 断层解释壳接线（方向 7）：剖面 dock 编排器 + 管理面板 dock |
+| `_commands.cpp` | 240 | 命令域（UI 重设计 U1）：工程/视图命令处理器 + Ctrl+K 命令数据面（2026-11-09） |
 
 （`paleoribbon.cpp`/`ribbonpanels.cpp` 是 ribbon 命令组构建与镜像绑定的
 独立文件，不属 `paleomainwindow_*` 家族——W4 的「迁出主窗」落点在彼处。）

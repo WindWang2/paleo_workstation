@@ -22,7 +22,7 @@
 #include "../src/app/appcontext.h"
 #include "../src/services/commandspec.h"
 #include "../src/ui/commandactionbinder.h"
-#include "../src/ui/locator/commandlocatorfilter.h"
+#include "../src/qgis/commandlocatorfilter.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/shortcuts/shortcutcatalog.h"
 #include "../src/workflow/commanddispatcher.h"

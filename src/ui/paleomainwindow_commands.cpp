@@ -7,7 +7,6 @@
 #include "paleomainwindow.h"
 
 #include "commandactionbinder.h"
-#include "locator/commandlocatorfilter.h"
 #include "uienv_internal.h"
 #include "dialogs/projectmapsettingsdialog.h"
 #include "datapreview/datapreviewtabs.h"
@@ -19,8 +18,6 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/onlinebasemap.h"
-
-#include <qgslocator.h>
 
 #include <QCoreApplication>
 #include <QFileDialog>
@@ -211,40 +208,33 @@ void PaleoMainWindow::bindProjectCommands()
   });
 }
 
-// Ctrl+K：命令过滤器（CommandRegistry 中带 Locator 入口的命令 + 当前状态/禁用原因）。
-void PaleoMainWindow::registerCommandLocator(QgsLocator *locator)
+// Ctrl+K：命令过滤器数据面（CommandRegistry 中带 Locator 入口的命令 + 当前状态/禁用原因）。
+// 过滤器本体在 src/qgis/commandlocatorfilter（QGIS 封装层），由 attachShellSurfaces 注册。
+QVector<CommandLocatorEntry> PaleoMainWindow::commandLocatorEntries()
 {
-  if (!locator)
-    return;
-  QPointer<PaleoMainWindow> self(this);
-  auto list = [self]() {
-    QVector<CommandLocatorFilter::Entry> out;
-    if (!self)
-      return out;
-    CommandDispatcher *d = self->commandDispatcher();
-    const CommandContext ctx = d->currentContext();
-    for (const paleo::command::CommandSpec &spec :
-         paleo::command::CommandRegistry::forSurface(paleo::command::SurfaceLocator))
-    {
-      CommandLocatorFilter::Entry e;
-      e.commandId = spec.commandId;
-      e.title = QCoreApplication::translate("PaleoCommands", spec.title);
-      e.tooltip = QCoreApplication::translate("PaleoCommands", spec.tooltip);
-      e.group = spec.ribbonGroup;
-      const CommandState st = d->state(spec.commandId, ctx);
-      e.enabled = st.enabled;
-      e.reason = st.reason;
-      out << e;
-    }
-    return out;
-  };
-  auto trigger = [self](const QString &id) {
-    if (!self)
-      return;
-    CommandDispatcher *d = self->commandDispatcher();
-    QString reason;
-    if (!d->trigger(id, d->currentContext(), {}, &reason))
-      self->statusBar()->showMessage(tr("命令不可用：%1").arg(reason), 6000);
-  };
-  locator->registerFilter(new CommandLocatorFilter(list, trigger));
+  QVector<CommandLocatorEntry> out;
+  CommandDispatcher *d = commandDispatcher();
+  const CommandContext ctx = d->currentContext();
+  for (const paleo::command::CommandSpec &spec :
+       paleo::command::CommandRegistry::forSurface(paleo::command::SurfaceLocator))
+  {
+    CommandLocatorEntry e;
+    e.commandId = spec.commandId;
+    e.title = QCoreApplication::translate("PaleoCommands", spec.title);
+    e.tooltip = QCoreApplication::translate("PaleoCommands", spec.tooltip);
+    e.group = spec.ribbonGroup;
+    const CommandState st = d->state(spec.commandId, ctx);
+    e.enabled = st.enabled;
+    e.reason = st.reason;
+    out << e;
+  }
+  return out;
+}
+
+void PaleoMainWindow::triggerCommandFromLocator(const QString &commandId)
+{
+  CommandDispatcher *d = commandDispatcher();
+  QString reason;
+  if (!d->trigger(commandId, d->currentContext(), {}, &reason))
+    statusBar()->showMessage(tr("命令不可用：%1").arg(reason), 6000);
 }

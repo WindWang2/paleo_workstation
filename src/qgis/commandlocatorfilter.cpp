@@ -1,5 +1,5 @@
-// 层：视图
-// ui/locator/commandlocatorfilter.cpp — 见 commandlocatorfilter.h。
+// 层：QGIS 封装
+// qgis/commandlocatorfilter.cpp — 见 commandlocatorfilter.h。
 #include "commandlocatorfilter.h"
 
 #include <qgsfeedback.h>

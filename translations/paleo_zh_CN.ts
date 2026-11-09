@@ -20483,6 +20483,22 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoMainWindow</name>
         <message>
+            <source>命令不可用：%1</source>
+            <translation>命令不可用：%1</translation>
+        </message>
+        <message>
+            <source>工程处于只读模式</source>
+            <translation>工程处于只读模式</translation>
+        </message>
+        <message>
+            <source>工程正在打开，请稍候</source>
+            <translation>工程正在打开，请稍候</translation>
+        </message>
+        <message>
+            <source>错误历史面板未就绪</source>
+            <translation>错误历史面板未就绪</translation>
+        </message>
+        <message>
             <source>来源文档未打开</source>
             <translation>来源文档未打开</translation>
         </message>
@@ -54687,4 +54703,15 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>操作未能完成</translation>
         </message>
     </context>
+<context>
+        <name>CommandLocatorFilter</name>
+        <message>
+            <source>命令</source>
+            <translation>命令</translation>
+        </message>
+        <message>
+            <source>不可用：%1</source>
+            <translation>不可用：%1</translation>
+        </message>
+</context>
 </TS>

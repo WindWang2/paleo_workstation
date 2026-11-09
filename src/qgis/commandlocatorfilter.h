@@ -1,10 +1,12 @@
-// 层：视图
-// ui/locator/commandlocatorfilter — Ctrl+K 命令搜索（UI 重设计 U1）。
+// 层：QGIS 封装
+// qgis/commandlocatorfilter — Ctrl+K 命令搜索（UI 重设计 U1）。
 //
 // 列出 CommandRegistry 里带 Locator 入口的全部命令：可用的按匹配度排前，禁用的
 // 照样列出并在说明里写原因（§35 禁用必带原因）；选中即经 CommandDispatcher 触发。
 // 前缀 "c"（与 w 井位 / h 层位 同族）；不带前缀时也参与搜索。
 #pragma once
+
+#include "commandlocatorentry.h"
 
 #include <qgslocatorfilter.h>
 
@@ -18,15 +20,7 @@ class CommandLocatorFilter : public QgsLocatorFilter
 {
   Q_OBJECT
 public:
-  struct Entry
-  {
-    QString commandId;
-    QString title;
-    QString tooltip;
-    QString group;   // ribbonGroup 或阶段名
-    bool enabled = false;
-    QString reason;  // 禁用原因（enabled 时为空）
-  };
+  using Entry = CommandLocatorEntry;
   using ListFn = std::function<QVector<Entry>()>;
   using TriggerFn = std::function<void(const QString &commandId)>;
 

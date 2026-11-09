@@ -3,6 +3,7 @@
 #include "ribbontitlefit.h"
 #include "paleomainwindow.h"
 #include "commandactionbinder.h"
+#include "../qgis/commandlocatorfilter.h"
 
 #include "paleoicons.h"
 #include "paleoribbon.h"
@@ -180,7 +181,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       };
       locatorWidget->locator()->registerFilter(
           new HorizonLocatorFilter(horizonProvider, activate));
-      registerCommandLocator(locatorWidget->locator()); // U1：Ctrl+K 搜命令（含禁用原因）
+      locatorWidget->locator()->registerFilter(new CommandLocatorFilter( // U1：Ctrl+K 搜命令（禁用带原因）
+          [this] { return commandLocatorEntries(); }, [this](const QString &id) { triggerCommandFromLocator(id); }));
       // Note: no IssueLocatorFilter registration — the validation workflow keeps no queryable issue
       // store (permanently-empty provider); issue navigation lives on issueTable → ThreeWayLocator.
 

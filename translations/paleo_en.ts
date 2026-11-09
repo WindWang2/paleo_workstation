@@ -20404,6 +20404,22 @@ Crossline: %3 ~ %4</source>
     <context>
         <name>PaleoMainWindow</name>
         <message>
+            <source>命令不可用：%1</source>
+            <translation>Command unavailable: %1</translation>
+        </message>
+        <message>
+            <source>工程处于只读模式</source>
+            <translation>The project is read-only</translation>
+        </message>
+        <message>
+            <source>工程正在打开，请稍候</source>
+            <translation>The project is opening, please wait</translation>
+        </message>
+        <message>
+            <source>错误历史面板未就绪</source>
+            <translation>The error history panel is not ready</translation>
+        </message>
+        <message>
             <source>来源文档未打开</source>
             <translation>Source document is not open</translation>
         </message>
@@ -54484,6 +54500,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>操作未能完成</source>
             <translation type="unfinished" />
+        </message>
+    </context>
+    <context>
+        <name>CommandLocatorFilter</name>
+        <message>
+            <source>命令</source>
+            <translation>Commands</translation>
+        </message>
+        <message>
+            <source>不可用：%1</source>
+            <translation>Unavailable: %1</translation>
         </message>
     </context>
 </TS>

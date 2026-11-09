@@ -126,7 +126,7 @@ QString CurveTrack::headerUnitText() const
 QString CurveTrack::trackToolTip(double depth) const
 {
   if (m_curves.isEmpty())
-    return title();
+    return m_windowStatus.isEmpty() ? title() : title() + QLatin1Char('\n') + m_windowStatus;
   QStringList rows;
   rows.reserve(m_curves.size() + 1);
   rows << title();
@@ -166,6 +166,17 @@ void CurveTrack::paintHeader(QPainter &painter, const QRectF &headerRect, double
   painter.setFont(fTitle);
   painter.drawText(QRectF(headerRect.left() + 2, headerRect.top() + 2, headerRect.width() - 4, 16),
                    Qt::AlignCenter, title());
+
+  if (m_curves.isEmpty() && !m_windowStatus.isEmpty()) {
+    painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
+    QFont statusFont = painter.font();
+    statusFont.setPointSize(PaleoTheme::tokens().labelPt);
+    statusFont.setBold(false);
+    painter.setFont(statusFont);
+    const QRectF statusRect = headerRect.adjusted(4, 20, -4, -2);
+    const auto status = painter.fontMetrics().elidedText(m_windowStatus, Qt::ElideRight, statusRect.width());
+    painter.drawText(statusRect, Qt::AlignHCenter | Qt::AlignTop, status);
+  }
 
   // 绘制 1 至 4 根曲线的标头（色标、刻度范围 [min-max] 及实时光标读数）
   const int count = m_curves.size();

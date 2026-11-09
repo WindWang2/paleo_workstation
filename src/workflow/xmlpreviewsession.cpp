@@ -15,7 +15,7 @@ namespace {
 struct ChartSelection {
   AreaWellChartQuery query;
   QString error,summary;
-  const AreaWellChartQuery *request() const {return query.context?&query:nullptr;}
+  const AreaWellChartQuery *request() const {return query.context || query.allowSourceTrackFallback ? &query : nullptr;}
 };
 ChartSelection chartSelection(const paleo::document::DocumentSession *session,const QString &wellId) {
   using namespace paleo::document;
@@ -138,7 +138,11 @@ void XmlPreviewSession::openModelWell(const QString &modelProject, qlonglong mod
   m_verificationCancelled = std::make_shared<std::atomic_bool>(false);
   const auto cancelled = m_verificationCancelled;
   const auto generation = ++m_generation;
-  const auto interpretation=chartSelection(m_document,m_wellId);
+  auto interpretation=chartSelection(m_document,m_wellId);
+  if (m_document && !m_wellId.isEmpty()) {
+    interpretation.query.allowSourceTrackFallback = true;
+    interpretation.query.maxDefaultPlotValues = 1'000'000;
+  }
   auto *watcher = new QFutureWatcher<XmlPreviewData>(this);
   connect(watcher, &QFutureWatcherBase::finished, this,
           [this, watcher, generation] {

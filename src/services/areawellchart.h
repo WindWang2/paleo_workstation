@@ -18,6 +18,8 @@ struct AreaWellChartQuery {
   QStringList curveNames;
   std::optional<paleo::document::InterpretationContext> context;
   std::optional<paleo::document::RelationResolveRequest> intervalTrack;
+  bool allowSourceTrackFallback=false;
+  qlonglong maxDefaultPlotValues=8'000'000;
 };
 bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
                       WellComposite::ComprehensiveWellData &out, QString *error,

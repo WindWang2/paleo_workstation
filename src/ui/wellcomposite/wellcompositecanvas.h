@@ -178,6 +178,7 @@ signals:
   void trackWidthChanged(int trackIndex);
   void trackVisibilityChanged(int trackIndex);
   void trackRemoved(int trackIndex);
+  void documentTrackRemovalRequested(const QString &id);
   void trackConfigRequested(int trackIndex);
   void trackCsvRequested(int trackIndex);
   void trackDuplicationRequested(int trackIndex);

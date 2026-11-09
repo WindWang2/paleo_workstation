@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QToolButton>
+#include <cmath>
 
 namespace WellComposite
 {
@@ -58,7 +59,9 @@ void WellCompositePanel::applyComprehensiveData(const ComprehensiveWellData &dat
 bool WellCompositePanel::loadWellData(const ComprehensiveWellData &data, const QString &sourcePath, bool reference)
 {
   ++m_xmlLoadSeq;
-  if (data.isEmpty()) return false;
+  const bool hasModelExtent = data.modelWellId > 0 && std::isfinite(data.minDepth) &&
+                              std::isfinite(data.maxDepth) && data.minDepth < data.maxDepth;
+  if (data.isEmpty() && !hasModelExtent) return false;
   applyComprehensiveData(data, sourcePath, reference);
   return true;
 }

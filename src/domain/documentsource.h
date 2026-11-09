@@ -55,6 +55,14 @@ struct SourceBinding {
     bool valid(QString *error = nullptr) const;
     bool operator==(const SourceBinding &) const = default;
 };
+inline constexpr char kWellCurveTrackRole[] = "well_curve_track";
+struct WellCurveTrackBinding {
+    QString id, wellEntityId, title;
+    SourceRef source;
+    qlonglong modelWellId = 0, logSetId = 0, curveId = 0;
+    quint64 revision = 0;
+    bool operator==(const WellCurveTrackBinding &) const = default;
+};
 enum class FileAvailability { Unknown, Present, Missing, Unreadable };
 enum class Verification { Unverified, FastVerified, HashVerified, Changed, Failed };
 enum class ModelAvailability { Unbound, Registered, Ready, Review, Failed };
@@ -81,7 +89,7 @@ struct SourceChangeSet {
     QStringList bindingIds, sourceKeys;
 };
 struct SourceCommand {
-    enum class Kind { RegisterBinding, ConfirmBinding, SelectPrimary, RemoveBinding, Inspect, Relocate, ResolveRelation, UpgradeModelMetadata, ChooseRelation };
+    enum class Kind { RegisterBinding, ConfirmBinding, SelectPrimary, RemoveBinding, Inspect, Relocate, ResolveRelation, UpgradeModelMetadata, ChooseRelation, CreateWellCurveTrack };
     Kind kind = Kind::Inspect;
     quint64 expectedEpoch = 0, expectedRevision = 0;
     SourceBinding binding;

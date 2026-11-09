@@ -583,6 +583,7 @@ void WellCompositeBody::openTrackContextMenu(const QPoint &pos, int trackIndex)
 {
   m_lastContextMenuTrack = trackIndex;
   const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：tracks() 按值返回，后续跨 exec()
+  const QString documentTrackId = track->documentTrackId();
   QMenu menu(this);
   menu.setObjectName(QStringLiteral("wellCompositeTrackMenu"));
   ImageDepthItem image;
@@ -594,14 +595,19 @@ void WellCompositeBody::openTrackContextMenu(const QPoint &pos, int trackIndex)
   }
 
   QAction *actHide = menu.addAction(tr("隐藏该道"));
+  actHide->setEnabled(documentTrackId.isEmpty());
   QAction *actDuplicate = menu.addAction(tr("复制该道"));
+  actDuplicate->setEnabled(documentTrackId.isEmpty());
   QAction *actCsv = menu.addAction(tr("导出该道 CSV…"));
+  actCsv->setEnabled(documentTrackId.isEmpty());
   menu.addSeparator();
   QAction *actGoto = menu.addAction(tr("跳转到深度…"));
   QAction *actConfig = menu.addAction(tr("道配置…"));
+  actConfig->setEnabled(documentTrackId.isEmpty());
   menu.addSeparator();
   QAction *actRemove = menu.addAction(tr("删除该道"));
-  actRemove->setEnabled(track->type() != TrackType::DepthScale); // 标尺道不可删
+  actRemove->setEnabled(track->type() != TrackType::DepthScale &&
+                        (documentTrackId.isEmpty() || track->documentTrackEditable()));
 
   QAction *picked = menu.exec(pos);
   if (!picked)
@@ -636,7 +642,10 @@ void WellCompositeBody::openTrackContextMenu(const QPoint &pos, int trackIndex)
   }
   else if (picked == actRemove)
   {
-    m_canvas->removeTrack(trackIndex);
+    if (documentTrackId.isEmpty())
+      m_canvas->removeTrack(trackIndex);
+    else
+      emit m_canvas->documentTrackRemovalRequested(documentTrackId);
   }
 }
 

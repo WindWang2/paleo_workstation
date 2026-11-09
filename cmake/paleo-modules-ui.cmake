@@ -33,6 +33,7 @@ add_library(paleo_workflow STATIC
   src/workflow/officepreviewsession.cpp
   src/workflow/projectlayerrefresh.cpp
   src/workflow/xmlpreviewsession.cpp
+  src/workflow/welltracksourcesession.cpp
   src/workflow/mappingworkbench.cpp
   src/workflow/mappingworkbench_readiness.cpp     # 预测专项：测井批量准备检查（干跑）
   src/workflow/mappingworkbench_predict.cpp       # 预测管线（predict/finish/任务行）——core-deepening A-R2 拆分

@@ -53,6 +53,8 @@ public:
   explicit WellCompositePanel(QWidget *parent = nullptr, PredictionScope scope = PredictionScope::SelectedUnit);
   void addPreviewAction(const QString &text, std::function<void()> action);
   void setPreviewSummary(const QString &text);
+  void setDocumentCurveTracks(const QList<QPair<QString, QString>> &tracks, bool editable);
+  void setDocumentCurveWindow(const QString &id, const CurveData &curve, const QString &error);
   ~WellCompositePanel() override;
   // 组装根注入功能层；面板只发意图、接收可用性与绘图数据。
   using FaciesWorkflowFactory = std::function<WellFaciesWorkflow *(QObject *)>;
@@ -227,7 +229,7 @@ private:
   void updateDefaultLayoutButton();
   void connectDefaultLayoutButton();
   void setupLayoutButtons(QWidget *topBar, QBoxLayout *topLay, const std::function<QString()> &style);
-  QList<TrackSpec> currentSpecs() const;
+  QList<TrackSpec> currentSpecs(bool includeDocumentTracks = true) const;
   void applySpecsIncrementally(const QList<TrackSpec> &specs);
 
   // sidecar

@@ -307,6 +307,8 @@ void WellCompositePanel::onTrackConfigRequested(int trackIndex)
     return;
 
   const auto track = m_canvas->tracks().at(trackIndex); // 拷贝 shared_ptr：后续跨 exec()
+  if (!track->documentTrackId().isEmpty())
+    return;
   TrackSpec initial = TrackRegistry::instance().captureSpec(track);
   if (initial.typeId.isEmpty())
     initial.typeId = TrackRegistry::typeIdForEnum(track->type());
@@ -403,21 +405,23 @@ void WellCompositePanel::onTrackOrderOrWidthChanged()
 {
   updateDefaultLayoutButton();
   // D1.8 会话记忆（道序/宽度/显隐/打印开关）
-  WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs());
+  WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs(false));
 
   // D1.4 宽度集合独立记忆（标题键）
   QVariantMap widths;
   for (const auto &t : m_canvas->tracks())
-    if (t)
+    if (t && t->documentTrackId().isEmpty())
       widths.insert(t->title(), t->width());
   WellCompositeStore::saveWidthSet(m_projectName, m_wellName, widths);
 }
 
-QList<TrackSpec> WellCompositePanel::currentSpecs() const
+QList<TrackSpec> WellCompositePanel::currentSpecs(bool includeDocumentTracks) const
 {
   QList<TrackSpec> specs;
   for (const auto &t : m_canvas->tracks())
   {
+    if (!includeDocumentTracks && t && !t->documentTrackId().isEmpty())
+      continue;
     TrackSpec spec = TrackRegistry::instance().captureSpec(t);
     if (spec.typeId.isEmpty() && t)
       spec.typeId = TrackRegistry::typeIdForEnum(t->type());
@@ -505,7 +509,7 @@ void WellCompositePanel::saveSessionState() const
 {
   if (m_wellName.isEmpty())
     return;
-  WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs());
+  WellCompositeStore::saveSessionTracks(m_projectName, m_wellName, currentSpecs(false));
 }
 
 namespace
@@ -524,7 +528,8 @@ bool WellCompositePanel::isDefaultLayout() const
   QList<TrackSpec> current;
   for (const auto &t : m_canvas->tracks())
   {
-    if (!t || isResultTrack(t, m_predictionTrack, m_confidenceTrack, m_dominantTracks)) continue;
+    if (!t || !t->documentTrackId().isEmpty() ||
+        isResultTrack(t, m_predictionTrack, m_confidenceTrack, m_dominantTracks)) continue;
     TrackSpec spec = TrackRegistry::instance().captureSpec(t);
     if (spec.typeId.isEmpty()) spec.typeId = TrackRegistry::typeIdForEnum(t->type());
     current << spec;
@@ -551,8 +556,9 @@ void WellCompositePanel::restoreDefaultLayout()
   const ComprehensiveWellData doc = m_editSession ? m_editSession->document() : m_data;
   auto tracks = TrackOps::defaultLayoutTracks(doc, m_scaleCombo->currentText());
   for (const auto &t : m_canvas->tracks())
-    if (isResultTrack(t, m_predictionTrack, m_confidenceTrack, m_dominantTracks))
-      tracks << t; // 预测结果道不属于模板，原样保留
+    if (t && (!t->documentTrackId().isEmpty() ||
+              isResultTrack(t, m_predictionTrack, m_confidenceTrack, m_dominantTracks)))
+      tracks << t; // 文档绑定与预测结果独立于布局模板。
   m_canvas->setTracks(tracks);
   m_canvas->setScaleRatio(m_scaleCombo->currentText());
   m_canvas->setDepthUnitLabel(m_depthFeet ? QStringLiteral("ft") : QString());

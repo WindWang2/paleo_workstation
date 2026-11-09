@@ -12,6 +12,8 @@ add_paleo_test(tst_document_sources_hy LIBS paleo_workflow Paleo::paleo_data_ser
 add_paleo_test(tst_document_relations LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_document_relation_session LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_document_relation_reader LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
+add_paleo_test(tst_welltracksource LIBS paleo_services Paleo::paleo_data_service)
+add_paleo_test(tst_welltracksourcesession LIBS paleo_workflow Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_prepared_import LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_horizon_semantics LIBS Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_dataservice_objects LIBS Paleo::paleo_data_service Qt6::Sql)

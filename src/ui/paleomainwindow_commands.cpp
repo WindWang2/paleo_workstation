@@ -71,6 +71,17 @@ void PaleoMainWindow::bindCommand(const QString &commandId, std::function<void(c
       commandId, [handler](const CommandContext &, const QVariantMap &params) { handler(params); }, state);
 }
 
+// 处理器型动作：处理器在分派器里，状态跟随动作本身（禁用 + tooltip 原因）——
+// Ctrl+K / Agent 看到的可用性与 ribbon 按钮一致，不会把禁用的列成可用。
+QAction *PaleoMainWindow::bindActionCommand(QAction *action, const QString &commandId,
+                                            std::function<void(const QVariantMap &)> handler)
+{
+  bindCommand(commandId, std::move(handler), [a = QPointer<QAction>(action)]() -> QString {
+    return !a || a->isEnabled() ? QString() : (a->toolTip().isEmpty() ? a->text() : a->toolTip());
+  });
+  return routeCommand(action, commandId);
+}
+
 QAction *PaleoMainWindow::routeCommand(QAction *action, const QString &commandId, const QVariantMap &params)
 {
   return commandBinder()->route(action, commandId, params);
@@ -199,13 +210,11 @@ void PaleoMainWindow::bindProjectCommands()
   bindCommand(QStringLiteral("view.errorHistory"), [this](const QVariantMap &) { showErrorHistory(); },
               [this]() -> QString { return m_errorHistoryPanelDock ? QString() : tr("错误历史面板未就绪"); });
   bindCommand(QStringLiteral("view.theme.dark"), [this](const QVariantMap &p) {
-    setDarkThemeEnabled(p.contains(QStringLiteral("checked")) ? p.value(QStringLiteral("checked")).toBool()
-                                                             : PaleoTheme::currentTheme() != PaleoTheme::Theme::Dark);
+    setDarkThemeEnabled(CommandActionBinder::targetChecked(p, PaleoTheme::currentTheme() == PaleoTheme::Theme::Dark));
   });
   bindCommand(QStringLiteral("view.density.compact"), [this](const QVariantMap &p) {
-    setCompactDensityEnabled(p.contains(QStringLiteral("checked"))
-                                 ? p.value(QStringLiteral("checked")).toBool()
-                                 : PaleoTheme::currentDensity() != PaleoTheme::Density::Compact);
+    setCompactDensityEnabled(
+        CommandActionBinder::targetChecked(p, PaleoTheme::currentDensity() == PaleoTheme::Density::Compact));
   });
 }
 

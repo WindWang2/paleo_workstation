@@ -40,6 +40,8 @@ public:
   QAction *bindNative(QAction *action, const QString &commandId);
 
   static QString commandIdOf(const QObject *action);
+  // 勾选类处理器的目标态：给了 checked 就照办；没给（Ctrl+K / Agent 等无状态入口）就取反当前态。
+  static bool targetChecked(const QVariantMap &params, bool current);
 
 private:
   QPointer<paleo::command::CommandDispatcher> m_dispatcher;

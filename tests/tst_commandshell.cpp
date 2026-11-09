@@ -10,6 +10,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QMenu>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSignalSpy>
@@ -25,6 +26,7 @@
 #include "../src/ui/commandactionbinder.h"
 #include "../src/qgis/commandlocatorfilter.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/ui/paleoribbon.h"
 #include "../src/ui/shortcuts/shortcutcatalog.h"
 #include "../src/workflow/commanddispatcher.h"
 
@@ -227,6 +229,76 @@ private slots:
     const auto hit = CommandLocatorFilter::match({e}, QStringLiteral("open pro"));
     QCOMPARE(hit.size(), 1);
     QCOMPARE(hit.first().second, 0.9);
+  }
+
+  // 审查 P2#1：勾选类命令缺 checked（Ctrl+K / Agent）= 取反当前态；显式 checked 照旧幂等。
+  void targetCheckedSemantics()
+  {
+    QVERIFY(CommandActionBinder::targetChecked({}, false));
+    QVERIFY(!CommandActionBinder::targetChecked({}, true));
+    QVERIFY(CommandActionBinder::targetChecked({{QStringLiteral("checked"), true}}, true));
+    QVERIFY(!CommandActionBinder::targetChecked({{QStringLiteral("checked"), false}}, false));
+  }
+
+  void unresolvedFilterTogglesFromLocator()
+  {
+    CommandDispatcher *d = m_win->commandDispatcher();
+    auto *act = m_win->findChild<QAction *>(QStringLiteral("ribbonUnresolvedFilter"));
+    QVERIFY(act);
+    QVERIFY(!act->isChecked());
+    QString reason;
+    QVERIFY2(d->trigger(QStringLiteral("data.list.unresolved"), d->currentContext(), {}, &reason), qPrintable(reason));
+    QVERIFY(act->isChecked()); // 从关到开（原先缺 checked 当 false：无效果）
+    QVERIFY(d->trigger(QStringLiteral("data.list.unresolved"), d->currentContext(), {}));
+    QVERIFY(!act->isChecked()); // 再选一次 = 关
+    const QVariantMap on{{QStringLiteral("checked"), true}};
+    QVERIFY(d->trigger(QStringLiteral("data.list.unresolved"), d->currentContext(), on));
+    QVERIFY(d->trigger(QStringLiteral("data.list.unresolved"), d->currentContext(), on));
+    QVERIFY(act->isChecked()); // 显式目标态幂等
+    QVERIFY(d->trigger(QStringLiteral("data.list.unresolved"), d->currentContext(), {{QStringLiteral("checked"), false}}));
+    QVERIFY(!act->isChecked());
+  }
+
+  void previewMaximizeTogglesAndGatesFromLocator()
+  {
+    CommandDispatcher *d = m_win->commandDispatcher();
+    auto *act = m_win->findChild<QAction *>(QStringLiteral("ribbonPreviewMaximize"));
+    auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("previewMaxButton"));
+    QVERIFY(act && btn);
+    // 没有打开的预览：动作禁用 → 命令也禁用且带同一原因（不再「看着可用、选了没反应」）。
+    act->setEnabled(false);
+    const CommandState off = d->state(QStringLiteral("data.preview.maximize"), d->currentContext());
+    QVERIFY(!off.enabled);
+    QCOMPARE(off.reason, act->toolTip());
+    act->setEnabled(true);
+    const bool before = btn->isChecked();
+    QVERIFY(d->trigger(QStringLiteral("data.preview.maximize"), d->currentContext(), {}));
+    QCOMPARE(btn->isChecked(), !before);
+    QVERIFY(d->trigger(QStringLiteral("data.preview.maximize"), d->currentContext(), {}));
+    QCOMPARE(btn->isChecked(), before);
+  }
+
+  // 镜像型可勾选命令：显式 checked 不再一律 click 翻转；缺 checked = 翻转。
+  void checkableMirrorHonoursTargetState()
+  {
+    CommandDispatcher d;
+    CommandActionBinder binder(&d);
+    QWidget host;
+    auto *button = new QPushButton(QStringLiteral("src"), &host);
+    button->setCheckable(true);
+    auto *action = new QAction(QStringLiteral("mirror"), &host);
+    PaleoRibbon::mirror(action, button, false, false);
+    binder.bindMirror(action, QStringLiteral("constraint.breakLine"));
+    const QVariantMap on{{QStringLiteral("checked"), true}};
+    QVERIFY(d.trigger(QStringLiteral("constraint.breakLine"), CommandContext{}, on));
+    QVERIFY(button->isChecked());
+    QVERIFY(d.trigger(QStringLiteral("constraint.breakLine"), CommandContext{}, on));
+    QVERIFY(button->isChecked());
+    QVERIFY(d.trigger(QStringLiteral("constraint.breakLine"), CommandContext{}, {}));
+    QVERIFY(!button->isChecked());
+    action->trigger(); // ribbon 点击：动作先翻转，再按新态驱动源按钮
+    QVERIFY(button->isChecked());
+    QCOMPARE(action->isChecked(), button->isChecked());
   }
 
   void triggerViewCommand()

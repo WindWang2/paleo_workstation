@@ -46,10 +46,13 @@ namespace
       }
 
       void resync() { sync(); } // whatsThis 变化无事件，由 syncMirrors 显式调
-      bool activate()
+      bool activate(int targetChecked = -1)
       {
         if (!m_button || !m_button->isEnabled())
           return false;
+        // 可勾选源按钮 + 显式目标态：已在目标态就不点（click 会翻转）；没给目标态 = 翻转。
+        if (targetChecked >= 0 && m_button->isCheckable() && m_button->isChecked() == bool(targetChecked))
+          return true;
         m_button->click();
         return true;
       }
@@ -244,10 +247,10 @@ namespace PaleoRibbon
         static_cast<ButtonMirror *>(m)->resync();
   }
 
-  bool activateMirror(QAction *action)
+  bool activateMirror(QAction *action, int targetChecked)
   {
     auto *m = action ? action->findChild<QObject *>(QStringLiteral("paleoButtonMirror")) : nullptr;
-    return m && static_cast<ButtonMirror *>(m)->activate();
+    return m && static_cast<ButtonMirror *>(m)->activate(targetChecked);
   }
 
   void applyGate(QAction *action, const QString &reason)

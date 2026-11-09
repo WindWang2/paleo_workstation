@@ -676,6 +676,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     // handler 收触发参数（可勾选动作带 "checked"）；disabledReason 空串 = 可用。
     void bindCommand(const QString &commandId, std::function<void(const QVariantMap &)> handler,
                      std::function<QString()> disabledReason = {});
+    QAction *bindActionCommand(QAction *action, const QString &commandId,
+                               std::function<void(const QVariantMap &)> handler);
     QAction *routeCommand(QAction *action, const QString &commandId, const QVariantMap &params = {});
     bool triggerCommand(const QString &commandId, const QVariantMap &params = {});
     void bindProjectCommands();      // 文件菜单 / 起始页 / 右键菜单 / 页快捷键的处理器

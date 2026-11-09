@@ -41,6 +41,12 @@ QString CommandActionBinder::commandIdOf(const QObject *action)
   return action ? action->property(kCommandIdProperty).toString() : QString();
 }
 
+bool CommandActionBinder::targetChecked(const QVariantMap &params, bool current)
+{
+  const auto it = params.constFind(QStringLiteral("checked"));
+  return it != params.constEnd() ? it->toBool() : !current;
+}
+
 QAction *CommandActionBinder::route(QAction *action, const QString &commandId, const QVariantMap &params)
 {
   if (!action || !m_dispatcher)
@@ -76,7 +82,8 @@ QAction *CommandActionBinder::bindMirror(QAction *action, const QString &command
               return;
             if (before)
               before(params);
-            PaleoRibbon::activateMirror(a);
+            const auto it = params.constFind(QStringLiteral("checked"));
+            PaleoRibbon::activateMirror(a, it != params.constEnd() ? int(it->toBool()) : -1);
           },
           [a](const CommandContext &) { return actionState(a); }, &error))
     qCWarning(lcCommands) << error;

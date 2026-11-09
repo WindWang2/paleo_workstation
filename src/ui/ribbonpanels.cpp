@@ -134,10 +134,8 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   }
   auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
   // 命令动作：处理器登记到 commandId，动作只路由（同一命令可有多颗动作）。
-  const auto commandAction = [this](QAction *a, const char *commandId,
-                                    std::function<void(const QVariantMap &)> handler) {
-    bindCommand(QLatin1String(commandId), std::move(handler));
-    return routeCommand(a, QLatin1String(commandId));
+  const auto commandAction = [this](QAction *a, const char *id, std::function<void(const QVariantMap &)> h) {
+    return bindActionCommand(a, QLatin1String(id), std::move(h)); // 状态跟随动作（禁用带原因）
   };
   const auto bottomAction = [this, bottomTabs, &newAction, &commandAction](
                                 QWidget *tab, const char *commandId, const QString &text, const QIcon &ic,
@@ -238,8 +236,9 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       QAction *unresolved = newAction(tr("只看未决"), icon("mActionFilter2.svg"),
                                       tr("只显示还有未决关联的数据"), "ribbonUnresolvedFilter");
       unresolved->setCheckable(true);
-      commandAction(unresolved, "data.list.unresolved", [data = QPointer<DataPage>(data)](const QVariantMap &p) {
-        if (data) data->setUnresolvedFilter(p.value(QStringLiteral("checked")).toBool());
+      commandAction(unresolved, "data.list.unresolved",
+                    [data = QPointer<DataPage>(data), unresolved](const QVariantMap &p) { // 缺 checked = 取反
+        if (data) data->setUnresolvedFilter(CommandActionBinder::targetChecked(p, unresolved->isChecked()));
       });
       // 过滤条显隐（「清除过滤」、导入确认框的「查看未决」）回写勾选态。
       if (auto *filterBar = data->findChild<QWidget *>(QStringLiteral("unresolvedFilterBar")))
@@ -273,7 +272,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       maxAct->setCheckable(true);
       maxAct->setWhatsThis(tr("预览占满数据面（数据列表与右侧面板隐藏）"));
       commandAction(maxAct, "data.preview.maximize", [maxBtn = QPointer<QToolButton>(maxBtn)](const QVariantMap &p) {
-        if (maxBtn) maxBtn->setChecked(p.value(QStringLiteral("checked")).toBool());
+        if (maxBtn) maxBtn->setChecked(CommandActionBinder::targetChecked(p, maxBtn->isChecked())); // 缺 checked = 取反
       });
       connect(maxBtn, &QAbstractButton::toggled, maxAct, [maxAct](bool on) {
         maxAct->setChecked(on);

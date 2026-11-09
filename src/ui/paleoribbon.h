@@ -56,7 +56,7 @@ namespace PaleoRibbon
 
   // 激活镜像源按钮（源按钮可用时 click，返回是否激活）。命令处理器专用——
   // 未登记命令的镜像动作仍在自己的 triggered 里转调。
-  bool activateMirror(QAction *action);
+  bool activateMirror(QAction *action, int targetChecked = -1); // -1 = 不限目标态（可勾选源按钮即翻转）
 
   // 门控只服务镜像 action（带 "paleoButtonMirror" 子件的）：把原因存进
   // action 的动态属性 "paleoGateReason"（空串=放行）并手动补一轮同步——

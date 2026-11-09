@@ -14,3 +14,5 @@ target_sources(paleo_ui PRIVATE
   src/ui/paleomainwindow_commands.cpp     # 视图层：主窗命令处理器（工程/视图）+ Ctrl+K 命令过滤器挂接
   src/ui/locator/commandlocatorfilter.cpp # 视图层：Ctrl+K 命令搜索（禁用带原因）
 )
+add_paleo_test(tst_commandshell)                                                      # 真实主窗：入口全收编 + Ctrl+K + 源码闸
+target_compile_definitions(tst_commandshell PRIVATE PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

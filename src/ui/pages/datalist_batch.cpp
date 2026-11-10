@@ -109,6 +109,20 @@ void DataListPanel::batchChangeType()
   if (m_virtualView && !updatedRows.isEmpty())
   {
     m_virtualView->updateRows(updatedRows);
+    // 增量路径必须把 effectiveType 写回 m_rows。表体类型列走 m_typeOv，
+    // 会显示新类型；applyListFilter 若仍读旧快照，筛 well_log 时改成 tops
+    // 的行会继续可见。
+    for (const AssetRowInfo &u : updatedRows)
+    {
+      for (AssetRowInfo &row : m_rows)
+      {
+        if (row.assetId == u.assetId)
+        {
+          row.effectiveType = u.effectiveType;
+          break;
+        }
+      }
+    }
     m_tableDirty = true; // 类型列文案按新行快照重灌（samePage 不挡脏标记）
     applyListFilter();
     emit entityRefreshRequested();

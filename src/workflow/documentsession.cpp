@@ -130,7 +130,8 @@ bool DocumentSession::check(const SourceCommand &command,bool write,SourceComman
     if(QThread::currentThread()!=thread() || !isOpen()) {result.code="document_unavailable";result.error=QStringLiteral("来源文档未打开或线程不符");return false;}
     project();
     if(!m_projection.error.isEmpty()) {result.code="source_metadata_invalid";result.error=m_projection.error;return false;}
-    if(command.expectedEpoch!=m_epoch || command.expectedRevision!=m_revision) {result.code="stale_command";result.error=QStringLiteral("来源文档或关联已变化，请刷新后重试");return false;}
+    if(command.expectedEpoch!=m_epoch || command.expectedRevision!=m_revision ||
+       command.expectedRevision!=m_catalog->catalogRevision()) {result.code="stale_command";result.error=QStringLiteral("来源文档或关联已变化，请刷新后重试");return false;}
     if(write && readOnly()) {result.code="read_only";result.error=QStringLiteral("来源文档为只读");return false;}
     return true;
 }
@@ -142,14 +143,16 @@ SourceCommandResult DocumentSession::execute(SourceCommand command) {
     if(command.kind==SourceCommand::Kind::Relocate) return startRelocation(command);
     if(command.kind==SourceCommand::Kind::ResolveRelation || command.kind==SourceCommand::Kind::UpgradeModelMetadata)return startRelationCommand(command);
     if(command.kind==SourceCommand::Kind::ChooseRelation)return startRelationCommand(command);
+    if(command.kind==SourceCommand::Kind::CreateWellCurveTrack)return editBindings(command);
     if(command.kind!=SourceCommand::Kind::RegisterBinding && command.kind!=SourceCommand::Kind::ConfirmBinding &&
        command.kind!=SourceCommand::Kind::SelectPrimary && command.kind!=SourceCommand::Kind::RemoveBinding) {
         result.code="unknown_command";result.error=QStringLiteral("不支持的来源命令");return result;
     }
-    if(command.kind!=SourceCommand::Kind::RemoveBinding) {
-        const auto binding=command.kind==SourceCommand::Kind::RegisterBinding?command.binding:effectiveBindings().value(command.bindingId);
-        if(hasRelationBinding(binding))return startRelationCommand(command);
+    const auto binding=command.kind==SourceCommand::Kind::RegisterBinding?command.binding:effectiveBindings().value(command.bindingId);
+    if(binding.role==QLatin1String(kWellCurveTrackRole)) {
+        result.code="track_command_required";result.error=QStringLiteral("请使用井曲线道命令修改该关联");return result;
     }
+    if(command.kind!=SourceCommand::Kind::RemoveBinding && hasRelationBinding(binding))return startRelationCommand(command);
     return editBindings(command);
 }
 bool DocumentSession::queuedWrite(const std::function<bool(QString *)> &write,QString *error) {

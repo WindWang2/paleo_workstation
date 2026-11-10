@@ -7,8 +7,10 @@
 #include "io/lasalias.h"
 #include "io/areamodel.h"
 #include <paleo_data/service.h>
+#include <QCoreApplication>
 #include <QDir>
 #include <QHash>
+#include <QSet>
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -61,6 +63,73 @@ bool readCurvePayload(data::DataService &service, const data::DataEntry &entry,
   budget.maxReadBytes-=stats.payloadBytesRead;
   budget.maxSamples-=static_cast<long long>(result.curve.depths.size());
   return true;
+}
+
+struct ChartDepthExtent {
+  double top, bottom, scale;
+};
+
+std::optional<ChartDepthExtent> sourceTrackExtent(data::DataService &service,
+    const data::WellPlotData &model, const std::function<bool()> &cancelled) {
+  const double wellScale=metreScale(model.defaultDepthInfo);
+  const double total=model.well.totalDrilledDepth*wellScale;
+  if (std::isfinite(total) && total>0)
+    return ChartDepthExtent{0,total,wellScale};
+
+  std::string detail;
+  std::vector<data::DataEntry> entries;
+  if ((cancelled && cancelled()) || !service.listData("curves",model.wellId,entries,detail))
+    return std::nullopt;
+
+  // Charge every payload read, including unsuccessful candidates. Each request
+  // fetches one sample, with the SDK's small compatibility ceiling for legacy blobs.
+  data::CurveReadOptions budget;
+  budget.maxSamples=1;
+  budget.maxReadBytes=2*1024*1024;
+  budget.cancelled=cancelled;
+  QSet<qlonglong> seenLogSets;
+  for (const auto &entry:entries) {
+    if ((cancelled && cancelled()) || budget.maxReadBytes<=0)
+      break;
+    if (entry.count<2 || entry.parentId<=0 || seenLogSets.contains(entry.parentId))
+      continue;
+    seenLogSets.insert(entry.parentId);
+    data::SourceIndexEntry source;
+    if (!service.readSourceIndexEntry(entry.sourceId,source,detail) || !source.active)
+      continue;
+
+    data::CurveWindowQuery query;
+    query.curveId=entry.id;
+    query.sampleCount=0;
+    query.processed=false;
+    query.includeAuxiliaryAxes=false;
+    data::CurveWindowResult metadata;
+    if (!service.readCurveWindow(query,metadata,detail,budget) || metadata.totalSamples<2)
+      continue;
+    const double scale=metreScale(metadata.depthInfo);
+    if (!std::isfinite(scale))
+      continue;
+    const auto endpoint=[&](qlonglong index) {
+      if (budget.maxReadBytes<=0) return qQNaN();
+      query.firstSample=index;
+      query.sampleCount=1;
+      data::CurveWindowResult sample;
+      data::CurveReadStats stats;
+      const bool ok=service.readCurveWindow(query,sample,detail,budget,&stats);
+      budget.maxReadBytes-=stats.payloadBytesRead;
+      if (!ok || sample.totalSamples!=metadata.totalSamples || sample.curve.depths.size()!=1 ||
+          metreScale(sample.depthInfo)!=scale)
+        return qQNaN();
+      return sample.curve.depths.front()*scale;
+    };
+    const double first=endpoint(0);
+    if (!std::isfinite(first))
+      continue;
+    const double last=endpoint(metadata.totalSamples-1);
+    if (std::isfinite(last) && last!=first && std::isfinite(last-first))
+      return ChartDepthExtent{std::min(first,last),std::max(first,last),scale};
+  }
+  return std::nullopt;
 }
 
 bool readCurveWindows(data::DataService &service, qlonglong well, const QStringList &requested,
@@ -351,7 +420,19 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
   if (depthWindow) {
     options.includeMarkers=false;options.includePhotos=false;
   }
-  if (!service.readWellPlotData(well,options,model,detail,cancelled)) { if(error)*error=text(detail); return false; }
+  const bool allowSourceTrackFallback=query && query->allowSourceTrackFallback && !curveWindow;
+  if (allowSourceTrackFallback) options.maxValues=query->maxDefaultPlotValues;
+  bool sourceTrackFallback=false;
+  if (!service.readWellPlotData(well,options,model,detail,cancelled)) {
+    if (!allowSourceTrackFallback || detail!="Well plot exceeds value budget") {
+      if(error)*error=text(detail);return false;
+    }
+    options.includeLogs=false;
+    if (!service.readWellPlotData(well,options,model,detail,cancelled)) {
+      if(error)*error=text(detail);return false;
+    }
+    sourceTrackFallback=true;
+  }
   if (selectedTrack) {
     data::WellPlotIntervals selected;
     if (!readChartTrack(service,well,*query,selected,error)) return false;
@@ -366,6 +447,15 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
   double lo=std::numeric_limits<double>::infinity(), hi=-lo;
   const auto depth=[&](double d){if(std::isfinite(d)){lo=qMin(lo,d);hi=qMax(hi,d);}};
   double wellScale=qQNaN();
+  if (sourceTrackFallback) {
+    wellScale=metreScale(model.defaultDepthInfo);
+    if (const auto extent=sourceTrackExtent(service,model,cancelled)) {
+      depth(extent->top);depth(extent->bottom);
+      if (!std::isfinite(wellScale)) wellScale=extent->scale;
+    }
+    if (cancelled && cancelled()) { if(error)*error=QStringLiteral("Cancelled");return false; }
+    next.dataWarnings << QCoreApplication::translate("AreaWellChart", "整井曲线超出读取预算。可从来源选择曲线，按深度窗加载。");
+  }
   if (selectedScheme) {
     if(!appendSchemeIntervals(service,well,*query,next,error))return false;
     for(const auto &interval:next.formationIntervals){depth(interval.topDepth);depth(interval.bottomDepth);}
@@ -448,6 +538,7 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
     }
   }
   if(std::isfinite(lo)){next.minDepth=lo;next.maxDepth=hi;}
-  if(error)*error=next.isEmpty()?(next.dataWarnings.isEmpty()?QStringLiteral("No drawable MD well data in model"):next.dataWarnings.join('\n')):QString();
-  out=std::move(next);return !out.isEmpty();
+  const bool displayable=!next.isEmpty() || (sourceTrackFallback && lo<hi && std::isfinite(hi-lo));
+  if(error)*error=displayable?QString():(next.dataWarnings.isEmpty()?QStringLiteral("No drawable MD well data in model"):next.dataWarnings.join('\n'));
+  out=std::move(next);return displayable;
 }

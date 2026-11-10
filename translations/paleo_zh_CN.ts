@@ -9645,7 +9645,43 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <source>正在后台从数据基座读取 %1 的井道图…</source>
         <translation>正在后台从数据基座读取 %1 的井道图…</translation>
     </message>
-</context>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="141" />
+        <source>曲线道操作失败</source>
+        <translation>曲线道操作失败</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="54" />
+        <source>来源文件</source>
+        <translation>来源文件</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="57" />
+        <source>正在读取工区模型的测井曲线目录…</source>
+        <translation>正在读取工区模型的测井曲线目录…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="97" />
+        <source>此井没有登记在工区模型中的可用 LAS 曲线。</source>
+        <translation>此井没有登记在工区模型中的可用 LAS 曲线。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="45" />
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="63" />
+        <source>添加曲线道</source>
+        <translation>添加曲线道</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="128" />
+        <source>添加曲线道…</source>
+        <translation>添加曲线道…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="54" />
+        <source>曲线</source>
+        <translation>曲线</translation>
+    </message>
+  </context>
 <context>
     <name>DataServiceImportWizard</name>
     <message>
@@ -44914,7 +44950,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>地质图例</source>
         <translation type="unfinished">地质图例</translation>
     </message>
-    </context>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelpreviewchrome.cpp" line="66" />
+        <source>当前测深范围没有曲线样点</source>
+        <translation>当前测深范围没有曲线样点</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/wellcomposite/panelpreviewchrome.cpp" line="47" />
+        <source>正在读取曲线…</source>
+        <translation>正在读取曲线…</translation>
+    </message>
+  </context>
 <context>
     <name>WellComposite::WellLegendDialog</name>
     <message>
@@ -55373,4 +55419,122 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>RMS、包络与相干属性计算</translation>
     </message>
 </context>
+
+  <context>
+      <name>WellTrackSource</name>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="101" />
+          <source>井的曲线选项超出上限（%1 条）。</source>
+          <translation>井的曲线选项超出上限（%1 条）。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="64" />
+          <location filename="../src/services/welltracksource.cpp" line="79" />
+          <location filename="../src/services/welltracksource.cpp" line="109" />
+          <source>已取消读取曲线目录。</source>
+          <translation>已取消读取曲线目录。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="124" />
+          <location filename="../src/services/welltracksource.cpp" line="144" />
+          <location filename="../src/services/welltracksource.cpp" line="169" />
+          <location filename="../src/services/welltracksource.cpp" line="179" />
+          <location filename="../src/services/welltracksource.cpp" line="189" />
+          <source>已取消读取测井曲线。</source>
+          <translation>已取消读取测井曲线。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="141" />
+          <source>所选曲线与井、来源或曲线组不匹配。</source>
+          <translation>所选曲线与井、来源或曲线组不匹配。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="201" />
+          <source>所选曲线在当前深度窗没有有效样点。</source>
+          <translation>所选曲线在当前深度窗没有有效样点。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="160" />
+          <source>曲线需要已声明的 MD 测深及米或英尺单位。</source>
+          <translation>曲线需要已声明的 MD 测深及米或英尺单位。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="128" />
+          <source>测井曲线引用或读取窗口无效。</source>
+          <translation>测井曲线引用或读取窗口无效。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="175" />
+          <location filename="../src/services/welltracksource.cpp" line="203" />
+          <source>测井曲线样点数据不完整。</source>
+          <translation>测井曲线样点数据不完整。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="164" />
+          <source>测井曲线读取窗口超出深度范围。</source>
+          <translation>测井曲线读取窗口超出深度范围。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="131" />
+          <location filename="../src/services/welltracksource.cpp" line="138" />
+          <location filename="../src/services/welltracksource.cpp" line="171" />
+          <source>测井来源版本已变更，请重新选择。</source>
+          <translation>测井来源版本已变更，请重新选择。</translation>
+      </message>
+      <message>
+          <location filename="../src/services/welltracksource.cpp" line="66" />
+          <source>需要已登记的井和工区模型。</source>
+          <translation>需要已登记的井和工区模型。</translation>
+      </message>
+  </context>
+
+  <context>
+      <name>paleo::welltrack::WellTrackSourceSession</name>
+      <message>
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="90" />
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="103" />
+          <source>工程资料已变化，请重新选择曲线</source>
+          <translation>工程资料已变化，请重新选择曲线</translation>
+      </message>
+      <message>
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="115" />
+          <source>当前井最多可添加 %1 条来源曲线道</source>
+          <translation>当前井最多可添加 %1 条来源曲线道</translation>
+      </message>
+      <message>
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="72" />
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="132" />
+          <source>当前井的来源曲线道不可编辑</source>
+          <translation>当前井的来源曲线道不可编辑</translation>
+      </message>
+      <message>
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="110" />
+          <source>所选曲线不属于当前井的来源列表</source>
+          <translation>所选曲线不属于当前井的来源列表</translation>
+      </message>
+      <message>
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="79" />
+          <source>查询测井文件与曲线</source>
+          <translation>查询测井文件与曲线</translation>
+      </message>
+      <message>
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="213" />
+          <source>读取测井曲线窗</source>
+          <translation>读取测井曲线窗</translation>
+      </message>
+      <message>
+          <location filename="../src/workflow/welltracksourcesession.cpp" line="92" />
+          <source>读取已取消</source>
+          <translation>读取已取消</translation>
+      </message>
+  </context>
+
+  <context>
+      <name>AreaWellChart</name>
+      <message>
+          <location filename="../src/services/areawellchart.cpp" line="457" />
+          <source>整井曲线超出读取预算。可从来源选择曲线，按深度窗加载。</source>
+          <translation>整井曲线超出读取预算。可从来源选择曲线，按深度窗加载。</translation>
+      </message>
+  </context>
 </TS>

@@ -44,6 +44,11 @@ public:
     SourceRecord sourceForVersion(const QString &versionId) const;
     QVector<SourceBinding> bindings(const QString &resourceKind,const QString &resourceId,
                                   const QString &role={},const QString &scope={},bool includeRejected=false) const;
+    QVector<WellCurveTrackBinding> wellCurveTracks(const QString &wellEntityId) const;
+    // The caller verifies the SDK curve and its owning log set before asking the session to commit.
+    SourceCommandResult createWellCurveTrack(WellCurveTrackBinding track,quint64 expectedEpoch,quint64 expectedRevision);
+    SourceCommandResult removeWellCurveTrack(const QString &wellEntityId,const QString &trackId,
+                                             quint64 expectedEpoch,quint64 expectedRevision);
     SourceState observedState(const SourceRef &ref) const;
     SourceCommand command(SourceCommand::Kind kind) const;
     SourceCommandResult execute(SourceCommand command);
@@ -72,6 +77,7 @@ private:
     void project() const;
     const QHash<QString,SourceBinding> &effectiveBindings() const;
     bool check(const SourceCommand &command,bool write,SourceCommandResult &result) const;
+    bool checkWellCurveTrack(const SourceBinding &binding,SourceCommandResult &result) const;
     SourceCommandResult editBindings(const SourceCommand &command);
     SourceCommandResult startInspection(const SourceCommand &command);
     SourceCommandResult startRelocation(const SourceCommand &requested);

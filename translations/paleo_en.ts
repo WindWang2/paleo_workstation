@@ -9609,6 +9609,42 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <source>正在后台从数据基座读取 %1 的井道图…</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="141" />
+            <source>曲线道操作失败</source>
+            <translation>Curve track operation failed</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="54" />
+            <source>来源文件</source>
+            <translation>Source File</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="57" />
+            <source>正在读取工区模型的测井曲线目录…</source>
+            <translation>Loading the project model’s well log curves…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="97" />
+            <source>此井没有登记在工区模型中的可用 LAS 曲线。</source>
+            <translation>This well has no available LAS curves registered in the project model.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="45" />
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="63" />
+            <source>添加曲线道</source>
+            <translation>Add Curve Track</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="128" />
+            <source>添加曲线道…</source>
+            <translation>Add Curve Track…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabxml.cpp" line="54" />
+            <source>曲线</source>
+            <translation>Curve</translation>
+        </message>
     </context>
     <context>
         <name>DataServiceImportWizard</name>
@@ -44746,6 +44782,16 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>地质图例</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/wellcomposite/panelpreviewchrome.cpp" line="66" />
+            <source>当前测深范围没有曲线样点</source>
+            <translation>No curve samples in the current measured-depth range</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/wellcomposite/panelpreviewchrome.cpp" line="47" />
+            <source>正在读取曲线…</source>
+            <translation>Loading curve…</translation>
+        </message>
     </context>
     <context>
         <name>WellComposite::WellLegendDialog</name>
@@ -55170,6 +55216,124 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message>
             <source>RMS、包络与相干属性计算</source>
             <translation>RMS, envelope and coherence attribute computation</translation>
+        </message>
+    </context>
+
+    <context>
+        <name>WellTrackSource</name>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="101" />
+            <source>井的曲线选项超出上限（%1 条）。</source>
+            <translation>The well has more than %1 selectable curves.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="64" />
+            <location filename="../src/services/welltracksource.cpp" line="79" />
+            <location filename="../src/services/welltracksource.cpp" line="109" />
+            <source>已取消读取曲线目录。</source>
+            <translation>Curve listing cancelled.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="124" />
+            <location filename="../src/services/welltracksource.cpp" line="144" />
+            <location filename="../src/services/welltracksource.cpp" line="169" />
+            <location filename="../src/services/welltracksource.cpp" line="179" />
+            <location filename="../src/services/welltracksource.cpp" line="189" />
+            <source>已取消读取测井曲线。</source>
+            <translation>Well log read cancelled.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="141" />
+            <source>所选曲线与井、来源或曲线组不匹配。</source>
+            <translation>The selected curve does not match the well, source, or log set.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="201" />
+            <source>所选曲线在当前深度窗没有有效样点。</source>
+            <translation>The selected curve has no valid samples in the current depth window.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="160" />
+            <source>曲线需要已声明的 MD 测深及米或英尺单位。</source>
+            <translation>The curve requires measured depth declared in metres or feet.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="128" />
+            <source>测井曲线引用或读取窗口无效。</source>
+            <translation>The well log reference or read window is invalid.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="175" />
+            <location filename="../src/services/welltracksource.cpp" line="203" />
+            <source>测井曲线样点数据不完整。</source>
+            <translation>The well log samples are incomplete.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="164" />
+            <source>测井曲线读取窗口超出深度范围。</source>
+            <translation>The well log window is outside the depth range.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="131" />
+            <location filename="../src/services/welltracksource.cpp" line="138" />
+            <location filename="../src/services/welltracksource.cpp" line="171" />
+            <source>测井来源版本已变更，请重新选择。</source>
+            <translation>The well log source revision has changed. Select it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/services/welltracksource.cpp" line="66" />
+            <source>需要已登记的井和工区模型。</source>
+            <translation>A registered well and project model are required.</translation>
+        </message>
+    </context>
+
+    <context>
+        <name>paleo::welltrack::WellTrackSourceSession</name>
+        <message>
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="90" />
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="103" />
+            <source>工程资料已变化，请重新选择曲线</source>
+            <translation>Project data changed. Select the curve again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="115" />
+            <source>当前井最多可添加 %1 条来源曲线道</source>
+            <translation>This well supports up to %1 source-bound curve tracks</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="72" />
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="132" />
+            <source>当前井的来源曲线道不可编辑</source>
+            <translation>Source-bound tracks for this well are read-only</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="110" />
+            <source>所选曲线不属于当前井的来源列表</source>
+            <translation>The selected curve is outside this well’s source list</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="79" />
+            <source>查询测井文件与曲线</source>
+            <translation>Query well log files and curves</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="213" />
+            <source>读取测井曲线窗</source>
+            <translation>Read well log window</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/welltracksourcesession.cpp" line="92" />
+            <source>读取已取消</source>
+            <translation>Read cancelled</translation>
+        </message>
+    </context>
+
+    <context>
+        <name>AreaWellChart</name>
+        <message>
+            <location filename="../src/services/areawellchart.cpp" line="457" />
+            <source>整井曲线超出读取预算。可从来源选择曲线，按深度窗加载。</source>
+            <translation>The full well log exceeds the read budget. Select a source curve to load it by depth window.</translation>
         </message>
     </context>
 </TS>

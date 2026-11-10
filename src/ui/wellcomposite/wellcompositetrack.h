@@ -92,6 +92,13 @@ public:
   bool isPrintIncluded() const { return m_printIncluded; }
   void setPrintIncluded(bool on) { m_printIncluded = on; }
 
+  const QString &documentTrackId() const { return m_documentTrackId; }
+  bool documentTrackEditable() const { return m_documentTrackEditable; }
+  void setDocumentTrack(const QString &id, bool editable) {
+    m_documentTrackId = id;
+    m_documentTrackEditable = editable;
+  }
+
   // D1.11 道头三行区（标题|刻度|单位）——道宽自适应截断由 paintHeaderChrome 统一处理。
   // 返回空串表示该行不展示（如非曲线道无独立刻度行）。
   virtual QString headerScaleText() const { return QString(); }
@@ -106,6 +113,10 @@ public:
   // 绘制道体（bodyRect 对应可见视口区域，topDepth/bottomDepth 为当前视口深度跨度）
   virtual void paintBody(QPainter &painter, const QRectF &bodyRect,
                          double topDepth, double bottomDepth, double pxPerMeter) = 0;
+
+private:
+  QString m_documentTrackId;
+  bool m_documentTrackEditable = false;
 
 protected:
   // D1.11 标准道头三行区绘制：背景/边框/标题(截断)/刻度行/单位行。
@@ -338,6 +349,7 @@ public:
   void clearCurves() { m_curves.clear(); }
   QVector<CurveData> curves() const { return m_curves; }
   int curveCount() const { return m_curves.size(); }
+  void setWindowStatus(const QString &status) { m_windowStatus = status; }
   // D1.7 多曲线组合编辑器：替换单根曲线（量程/单位/色独立可改）；索引越界返回 false
   bool setCurveAt(int idx, const CurveData &curve);
   bool removeCurveAt(int idx);
@@ -365,6 +377,7 @@ public:
 private:
   qreal m_width = 170.0;
   QVector<CurveData> m_curves; // 最多 4 根曲线
+  QString m_windowStatus;
   bool m_showGrid = true;
   bool m_standardLayout = true;
   int m_gridDensity = 3;

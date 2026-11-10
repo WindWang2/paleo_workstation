@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QJsonArray>
 #include <QFile>
+#include <QHash>
 #include <QPainter>
 #include <QTableWidget>
 #include <QToolButton>
@@ -35,6 +36,50 @@ class TestWellCompositeFramework : public QObject
 
 private slots:
   void initTestCase() { PaleoTheme::pinRenderEnvironment(); }
+  void testModelDepthExtentCanOpenWithoutCurvePayload()
+  {
+    WellCompositePanel panel;
+    ComprehensiveWellData shell;
+    shell.modelWellId = 1;
+    shell.wellName = QStringLiteral("WindowedModelWell");
+    shell.minDepth = 100;
+    shell.maxDepth = 900;
+    QVERIFY(shell.isEmpty());
+    QVERIFY(panel.loadWellData(shell));
+    QCOMPARE(panel.canvas()->minDepth(), 100.0);
+    QCOMPARE(panel.canvas()->maxDepth(), 900.0);
+  }
+
+  void testDocumentCurveTracksKeepIndependentWindowsAndSurviveLayoutEdits()
+  {
+    WellCompositePanel panel;
+    CurveData base;
+    base.name = QStringLiteral("GR");
+    base.depths = {100, 101};
+    base.values = {10, 11};
+    QVERIFY(panel.loadLasCurves(QStringLiteral("DocumentCurveTrackTest"), {base}, {}));
+    const auto ordinaryTracks = panel.canvas()->trackCount();
+    const QString first = QStringLiteral("source-track-a");
+    const QString second = QStringLiteral("source-track-b");
+    panel.setDocumentCurveTracks({{first, QStringLiteral("GR · a.las")},
+                                  {second, QStringLiteral("GR · b.las")}}, true);
+    QCOMPARE(panel.canvas()->trackCount(), ordinaryTracks + 2);
+    auto alternate = base;
+    alternate.values = {40, 41};
+    panel.setDocumentCurveWindow(first, base, {});
+    panel.setDocumentCurveWindow(second, alternate, {});
+    CurveConfigDialog config(panel.canvas());
+    config.applyConfiguration();
+    QHash<QString, QVector<float>> values;
+    for (const auto &track : panel.canvas()->tracks())
+      if (!track->documentTrackId().isEmpty())
+        values.insert(track->documentTrackId(), std::static_pointer_cast<CurveTrack>(track)->curves().front().values);
+    QCOMPARE(values.value(first), base.values);
+    QCOMPARE(values.value(second), alternate.values);
+    panel.setDocumentCurveTracks({{second, QStringLiteral("GR · b.las")}}, true);
+    QCOMPARE(panel.canvas()->trackCount(), ordinaryTracks + 1);
+  }
+
   void testStandardLayoutKeepsAuxiliaryCurvesAvailable()
   {
     QVector<CurveData> curves;

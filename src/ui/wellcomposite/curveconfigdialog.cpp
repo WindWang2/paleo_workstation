@@ -255,7 +255,7 @@ void CurveConfigDialog::loadFromCanvas()
 
   for (const auto &t : m_canvas->tracks())
   {
-    if (!t)
+    if (!t || !t->documentTrackId().isEmpty())
       continue;
 
     WellTrackConfigItem item;
@@ -800,6 +800,9 @@ void CurveConfigDialog::applyConfiguration()
     }
   }
 
+  for (const auto &track : m_canvas->tracks())
+    if (track && !track->documentTrackId().isEmpty())
+      assembledTracks.append(track);
   m_canvas->setTracks(assembledTracks);
 }
 

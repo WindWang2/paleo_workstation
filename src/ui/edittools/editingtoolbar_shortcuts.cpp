@@ -64,22 +64,16 @@ void PaleoEditingToolbar::routeUndo( bool undo )
 {
   if ( mUndoStatus )
     mUndoStatus->clearMessage();
-  // 撤销组按焦范围选择目标。测试和未把焦点放到画布时 mActiveScope 为空，
-  // router->step 会直接返回；工具栏自己的撤销按钮仍应回退到当前编辑图层栈
-  //（canvasUndoTarget / mUndoStack），否则覆盖绘制后撤销是空操作。
-  if ( mUndoRouter && mUndoRouter->step( undo ) )
-    return;
-  stepCanvasUndo( undo );
+  if ( mUndoRouter )
+    mUndoRouter->step( undo );
+  else
+    stepCanvasUndo( undo );
 }
 
 void PaleoEditingToolbar::refreshUndoActions()
 {
   const auto sync = [this]( QAction *action, bool undo, const QString &verb, const QString &unavailable ) {
-    // 与 routeUndo 一致：撤销组无焦点范围（describe 不可用）时，回退到
-    // 当前编辑图层栈，否则按钮会被禁用，QAction::trigger 在禁用时直接返回。
-    auto step = mUndoRouter ? mUndoRouter->describe( undo ) : describeCanvasUndo( undo );
-    if ( mUndoRouter && !step.available )
-      step = describeCanvasUndo( undo );
+    const auto step = mUndoRouter ? mUndoRouter->describe( undo ) : describeCanvasUndo( undo );
     const auto hint = step.text.isEmpty() ? action->property( "hint" ).toString() : tr( "%1：%2" ).arg( verb, step.text );
     action->setToolTip( step.available ? hint : unavailable );
     action->setEnabled( step.available );

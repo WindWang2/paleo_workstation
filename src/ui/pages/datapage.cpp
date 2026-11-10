@@ -12,6 +12,7 @@
 #include "dataopsviews.h"
 
 #include <QDynamicPropertyChangeEvent>
+#include <QScopedValueRollback>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -140,16 +141,9 @@ void DataPage::wireDataOps()
   connect(m_listPanel, &DataListPanel::shortcutsDialogRequested, this,
           &DataPage::openShortcutsDialog);
 
-  // D1.2/D4.9：用户多选资产 → 实体面板批量概要（>1 资产时）。
-  // 实体上下文（点选一口井看角色槽）会由 selectAssetsForEntities 同步高亮
-  // 该井全部已决资产，selectionCountChanged 也会 >1，但不能把角色表改成
-  // 批量概要（tst_welllog_ui 与注释「表建好后再选会清掉角色表」的约定）。
+  // 实体联动高亮保留角色表，手动多选仍显示批量概要。
   connect(m_listPanel, &DataListPanel::selectionCountChanged, this, [this](int assets, int) {
-    const bool entityContext = property("paleo.page.assetId").toString().isEmpty() &&
-                               !property("paleo.page.entityId").toString().isEmpty();
-    if (entityContext)
-      return;
-    if (assets > 1)
+    if (!m_preservingEntitySelection && assets > 1)
       m_entityPanel->setMultiContext({}, m_listPanel->currentAssetSelection().values());
   });
 
@@ -286,8 +280,10 @@ void DataPage::refreshAssetTable()
   // p5a：catalog.changed() 接到本槽——实体视图一并重取（口径与旧同件实现
   // 一致：先实体后列表）。P3：共享 ops 上下文随刷新重下发（列表侧
   // loadStoresForCatalog 之后的 ctx 才带有效 catalog/store 指针）。
-  if (m_listPanel)
+  if (m_listPanel) {
+    const QScopedValueRollback preserve(m_preservingEntitySelection, m_preservingEntitySelection || entityContext);
     m_listPanel->refreshAssetTable();
+  }
   if (m_entityPanel)
   {
     m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
@@ -335,8 +331,10 @@ void DataPage::selectAssetsForEntities(const QStringList &entityIds)
         entityIds.isEmpty() ? QString() : entityIds.front(), QString());
     m_entityPanel->refresh();
   }
-  if (m_listPanel)
+  if (m_listPanel) {
+    const QScopedValueRollback preserve(m_preservingEntitySelection, m_preservingEntitySelection || entityIds.size() == 1);
     m_listPanel->selectAssetsForEntities(entityIds);
+  }
 }
 
 void DataPage::selectAsset(const QString &assetId)

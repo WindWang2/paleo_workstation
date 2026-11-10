@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -15,6 +16,7 @@
 #include "io/dataimportservice.h"
 #include "services/crossplotsources.h"
 #include "services/previewdoc.h"
+#include "ui/pages/datalist.h"
 #include "ui/pages/datapage.h"
 
 namespace
@@ -301,10 +303,9 @@ void TestWellLogUi::wellLogPrimaryButtonPromotesLink()
   DataPage page;
   auto *doc = new PreviewDocService(&svc, &page);
   page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(doc));
-  // 表还是空的时候先定实体上下文。表建好后再选会一次选中多条已决资产，
-  // 实体面板改画批量概要，角色表被清掉。
-  page.selectAssetsForEntities({well.id});
   page.refreshAssetTable();
+  // 实体联动高亮多个资产时，仍保留该井的角色表。
+  page.selectAssetsForEntities({well.id});
 
   auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
   QVERIFY(tree);
@@ -421,6 +422,11 @@ void TestWellLogUi::wellLogPrimaryButtonPromotesLink()
   auto *moved = qobject_cast<QPushButton *>(roleTable->cellWidget(logRows.at(0), 2));
   QVERIFY(moved);
   QCOMPARE(moved->objectName(), QStringLiteral("setWellLogPrimaryButton"));
+
+  page.listPanel()->selectAllVisibleAssets();
+  auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+  QVERIFY(header);
+  QVERIFY(header->text().contains(QStringLiteral("批量概要")));
 }
 
 int main(int argc, char *argv[])

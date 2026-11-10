@@ -67,6 +67,25 @@ private slots:
     QVERIFY2(err.contains(QStringLiteral("escapes")), qPrintable(err));
   }
 
+  void escapingBasemapMembersRejected_data()
+  {
+    escapingMembersRejected_data();
+  }
+  void escapingBasemapMembersRejected()
+  {
+    QFETCH(QByteArray, member);
+    QTemporaryDir dir;
+    for (const QByteArray &role : {QByteArray("topo"), QByteArray("hillshade")}) {
+      const QString path = write(dir, R"({"format":"paleo-project","formatVersion":1,"members":{},)"
+                                      R"("map":{"basemap":{")" + role + R"(":")" + member + R"("}}})");
+      bool ok = true;
+      QString error;
+      readProjectFile(path, &ok, &error);
+      QVERIFY(!ok);
+      QVERIFY2(error.contains(QStringLiteral("escapes")), qPrintable(error));
+    }
+  }
+
   void missingVersionIsNotNewer()
   {
     QTemporaryDir dir;

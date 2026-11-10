@@ -74,6 +74,7 @@ class DataPage : public QWidget
     PreviewDocService *docService() const;
     void wireDataOps();      // P3：dataops 信号/共享栈接线（幂等）
     bool m_dataopsWired = false;
+    bool m_preservingEntitySelection = false;
 
     DataListPanel *m_listPanel = nullptr;
     EntityPanel *m_entityPanel = nullptr;

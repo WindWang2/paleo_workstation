@@ -375,29 +375,17 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.basemapEnabled = basemap.value(QStringLiteral("enabled")).toBool(true);
   f.basemapTopo = basemap.value(QStringLiteral("topo")).toString();
   f.basemapHillshade = basemap.value(QStringLiteral("hillshade")).toString();
-  // PW-075：qgz/catalog/manifest/gpkg/areaRules 必须是项目内相对路径，
-  // 绝对路径/盘符/「..」会让共享包指向项目外可写库。底图两个成员允许
-  // 遗留绝对路径（ordinary save 会收养进 basemap/）；相对路径仍禁止「..」。
+  // PW-075：成员必须是项目内相对路径——绝对路径/盘符/「..」段会让共享工程包
+  // 把应用指向项目外任意文件（gpkg/sqlite 会被读写打开）。底图两个成员也
+  // 必须在赋值之后接受同一道检查（此前解析晚于本循环，检查恒对空串跑，
+  // PW-075 防线对 basemap 完全失效）。
   for (const QString *member :
-       {&f.qgz, &f.catalog, &f.manifest, &f.gpkg, &f.areaRules})
+       {&f.qgz, &f.catalog, &f.manifest, &f.gpkg, &f.areaRules, &f.basemapTopo, &f.basemapHillshade})
   {
     if (!isSafeProjectMemberPath(*member))
     {
       setErr(error, QStringLiteral("project file member path escapes the project: %1")
                         .arg(*member));
-      if (ok)
-        *ok = false;
-      return PaleoProjectFile{};
-    }
-  }
-  for (const QString *basemap : {&f.basemapTopo, &f.basemapHillshade})
-  {
-    if (basemap->isEmpty() || QDir::isAbsolutePath(*basemap))
-      continue;
-    if (!isSafeProjectMemberPath(*basemap))
-    {
-      setErr(error, QStringLiteral("project file member path escapes the project: %1")
-                        .arg(*basemap));
       if (ok)
         *ok = false;
       return PaleoProjectFile{};

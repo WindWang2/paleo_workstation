@@ -413,7 +413,10 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     const auto timeDepthRows=m_data.tdTableForSelection(w.id,input,[&stop]{return stop && stop->load();});
     const bool allowConstant=input.state==paleo::document::RelationInput::State::Unselected;
     auto tvd = modelFor(w.id,false,&tvdOk,timeDepthRows,allowConstant), md = modelFor(w.id,true,&mdOk,timeDepthRows,allowConstant);
-    if((!tvdOk&&!mdOk)||timeDepthRows.isEmpty()){
+    // #916 在无时深表时一律提前返回，把已 setCalibration 的常速近似也裁掉，
+    // 剖面工作台读不到曲线、也发不出「深度单位未知」。常速模型已就绪时
+    // 应继续走曲线/分层加载（测试 unitFilesReachSectionWorkbench 覆盖此路径）。
+    if ((!tvdOk && !mdOk) || (timeDepthRows.isEmpty() && !allowConstant)) {
       if(observedMdTimeIsMonotone(timeDepthRows)){
         out.timeReference=timeDepthRows.first().timeReference;out.alignmentStatus=tr("时深不能唯一反算");
         attachSectionWellGeometry(out,timeDepthRows,m_data.trajectoryFor(w.id),nullptr,nullptr,

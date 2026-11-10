@@ -285,6 +285,11 @@ private slots:
       overrideRows << mutated;
     }
     ps->page->setProperty("paleo.page.constraintrows", overrideRows);
+    // #905 后默认方法已是 structural_idw；对同一项 setCurrentIndex 不会发
+    // currentIndexChanged，覆盖行得不到重算。先切走再切回，走既有联动。
+    const int localDir = method->findData(QStringLiteral("local_direction_idw"));
+    QVERIFY(localDir >= 0);
+    method->setCurrentIndex(localDir);
     method->setCurrentIndex(structural);
     QString text = constraintItemText(ps->page.get(), idBarrier);
     QVERIFY2(!text.contains(QStringLiteral("other_horizon")),

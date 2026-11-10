@@ -83,6 +83,30 @@ bool addLink(DataCatalog &cat, const QString &wellId, const QString &assetId,
   return cat.addLink(link, err);
 }
 
+// 交会图 inventory 只收「曲线 + 可用时深」双全的井（wellreadiness，HY 2026-11-01）。
+// 本夹具补一条可插值的主时深链接，让断言仍检验重复 GR 的消歧，而不是空清单。
+QString writeTdFile(const QString &path)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+    return QString();
+  QTextStream ts(&f);
+  ts << "# Well : W1\n";
+  ts << "1000.0 1000.0 1000.0 1000.0\n";
+  ts << "2000.0 2000.0 2000.0 2000.0\n";
+  f.close();
+  return path;
+}
+
+bool addTimeDepth(DataCatalog &cat, const QString &wellId, const QString &path, QString *err)
+{
+  if (!addExternal(cat, QStringLiteral("ast-td"), QStringLiteral("ver-td"),
+                   QStringLiteral("time_depth"), path, QStringLiteral("sha-td"), err))
+    return false;
+  return addLink(cat, wellId, QStringLiteral("ast-td"), QStringLiteral("time_depth"),
+                 0, true, false, err);
+}
+
 const paleo::crossplot::SourceSpec *findCurve(const QVector<paleo::crossplot::SourceSpec> &specs,
                                               const QString &curve)
 {
@@ -177,6 +201,9 @@ void TestWellLogUi::inventoryDisambiguatesDuplicateGr()
   QVERIFY2(addLink(cat, well.id, QStringLiteral("ast-tops"), QStringLiteral("tops"),
                    0, false, false, &err),
            qPrintable(err));
+  const QString tdPath = writeTdFile(dir.filePath(QStringLiteral("w1_td.dat")));
+  QVERIFY(!tdPath.isEmpty());
+  QVERIFY2(addTimeDepth(cat, well.id, tdPath, &err), qPrintable(err));
 
   const QString secondaryMnemonic =
       QStringLiteral("GR@") + QFileInfo(pathSecondary).completeBaseName();

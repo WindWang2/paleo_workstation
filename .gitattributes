@@ -8,3 +8,6 @@ resources/fonts/*.otf -text
 resources/fonts/*.ttf -text
 # 上游许可有原始行尾空格；保留原字节以匹配锁定哈希，仅该文件不做空白检查。
 resources/fonts/OFL-IBMPlex.txt -text -whitespace
+
+# The Windows bootstrap runs this script through Git Bash.
+vendor/fetch-ranuts-document.sh text eol=lf

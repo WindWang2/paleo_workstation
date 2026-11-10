@@ -370,6 +370,16 @@ add_test(NAME cpp_mainline_selftest COMMAND ${CMAKE_COMMAND}
          -P ${CMAKE_SOURCE_DIR}/cmake/verify-cpp-mainline.cmake)
 set_tests_properties(cpp_mainline cpp_mainline_selftest
                      PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_test(NAME portable_package_selftest COMMAND ${PALEO_PYTHON3}
+         ${CMAKE_SOURCE_DIR}/tools/test_package_portable.py)
+set_tests_properties(portable_package_selftest PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+if(UNIX)
+  add_test(NAME ci_ctest_gate_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/test_ci_ctest_gate.py)
+  set_tests_properties(ci_ctest_gate_selftest PROPERTIES
+    TIMEOUT 150 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+endif()
+
 # ---- 新 worktree 首次 configure 早失败护栏（goal/perf-maintenance-20261027）----
 # cmake/verify-first-configure.cmake（cmake -P）：依赖存在（stub prefix 全链
 # 首配 + 四条 vendor include 落进 compile_commands——TODOS P2 原症状断言）/

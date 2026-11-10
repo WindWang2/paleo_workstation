@@ -399,6 +399,18 @@ switch ($Verb) {
     if ($Arg -eq 'fetch-only') {
       Write-Host "== fetch-only: skip build/selfcheck (run 'build' then 'selfcheck') =="
     } else {
+      $office = if ($env:PALEO_OFFICE_EDITOR) { $env:PALEO_OFFICE_EDITOR } else { Join-Path $Vendor 'ranuts-document' }
+      $missingOffice = @(Get-Content -LiteralPath (Join-Path $Vendor 'office-editor-required.txt') | Where-Object {
+        $asset = Get-Item -LiteralPath (Join-Path $office $_) -ErrorAction SilentlyContinue
+        -not $asset -or $asset.PSIsContainer -or $asset.Length -eq 0
+      })
+      if ($missingOffice.Count) {
+        if ($env:PALEO_OFFICE_EDITOR) { throw "PALEO_OFFICE_EDITOR 缺少组件文件：$($missingOffice -join ', ')" }
+        $gitBash = Join-Path $env:ProgramFiles 'Git/bin/bash.exe'
+        if (-not (Test-Path -LiteralPath $gitBash)) { throw 'Office 组件需要 Git Bash 或已就绪的 PALEO_OFFICE_EDITOR' }
+        & $gitBash (Join-Path $Vendor 'fetch-ranuts-document.sh') --ensure
+        if ($LASTEXITCODE -ne 0) { throw 'Office editor bootstrap failed' }
+      }
       & $PSCommandPath build
       if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap build failed' }
       & $PSCommandPath selfcheck
@@ -408,17 +420,18 @@ switch ($Verb) {
   'build' {
     Enter-MsvcEnvironment
     Enter-DependencyEnvironment
+    $buildType = if ($env:PALEO_CMAKE_BUILD_TYPE) { $env:PALEO_CMAKE_BUILD_TYPE } else { 'RelWithDebInfo' }
     # localdeps：configure 显式钉统一链四元组（cache 粘住，防无 env 的
     # shell 重配时静默丢前缀——与 QGIS_PREFIX 进 cache 同一纪律）。
     if ($script:DepsRoute -eq 'localdeps') {
-      cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" `
         "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH" `
         "-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH=$env:QT_ADDITIONAL_PACKAGES_PREFIX_PATH" `
         "-DQGIS_PREFIX=$script:LocalQgis" `
         "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH" `
         "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
     } else {
-      cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
+      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
     }
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     Repair-NinjaMsvcDependencyPrefix $Build

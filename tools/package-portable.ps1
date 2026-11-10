@@ -17,7 +17,7 @@
 param(
   [string]$OutDir = "C:/Users/wangj.KEVIN/paleo-portable",
   [string]$Executable,            # 缺省 build/paleo.exe；worktree 布局回退 build/setup/out/paleo.exe
-  [string]$OfficeEditor,          # 缺省 vendor/ranuts-document（worktree 无 vendor 时可指主仓库）
+  [string]$OfficeEditor,          # 缺省 PALEO_OFFICE_EDITOR / <build>/office-editor / vendor
   [switch]$SkipPython
 )
 $ErrorActionPreference = 'Stop'
@@ -27,8 +27,23 @@ if (-not $Executable) {
     Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
   if (-not $Executable) { throw "找不到构建产物 paleo.exe（build/ 或 build/setup/out/），请用 -Executable 指定" }
 }
-if (-not $OfficeEditor) { $OfficeEditor = "$Repo/vendor/ranuts-document" }
 $BuildOut = [IO.Path]::GetFullPath((Split-Path $Executable -Parent))
+$officeAssets = Get-Content -LiteralPath "$Repo/vendor/office-editor-required.txt"
+function Get-MissingOfficeAssets([string]$Directory) {
+  foreach ($relative in $officeAssets) {
+    $asset = Get-Item -LiteralPath (Join-Path $Directory $relative) -ErrorAction SilentlyContinue
+    if (-not $asset -or $asset.PSIsContainer -or $asset.Length -eq 0) { $relative }
+  }
+}
+if (-not $OfficeEditor) { $OfficeEditor = $env:PALEO_OFFICE_EDITOR }
+if (-not $OfficeEditor) {
+  $OfficeEditor = Join-Path $BuildOut 'office-editor'
+  if (@(Get-MissingOfficeAssets $OfficeEditor).Count) { $OfficeEditor = "$Repo/vendor/ranuts-document" }
+}
+$missingOfficeAssets = @(Get-MissingOfficeAssets $OfficeEditor)
+if ($missingOfficeAssets.Count) {
+  throw "Office 编辑组件缺失或不完整：$OfficeEditor（$($missingOfficeAssets -join ', ')）。请运行 vendor/fetch-ranuts-document.sh 或设置 -OfficeEditor"
+}
 $snapshotWorker = Join-Path $BuildOut 'paleo_data_snapshot_worker.exe'
 $Deps = if ($env:PALEO_LOCAL_DEPS) { $env:PALEO_LOCAL_DEPS } else { "$HOME/paleo-qgis-deps" }
 $Qgis = if ($env:PALEO_QGIS_PREFIX) { $env:PALEO_QGIS_PREFIX } else { "$HOME/paleo-qgis-prefix" }
@@ -44,8 +59,7 @@ function Copy-Tree([string]$Source, [string]$Target, [Parameter(ValueFromRemaini
 
 # ---- 0. 前置检查 + VS 环境（dumpbin 做 DLL 闭包）----
 foreach ($p in @($Executable, $snapshotWorker, "$Deps/Library/bin/Qt6Core.dll", "$Qgis/bin/qgis_core.dll",
-                 "$Deps/Library/share/proj/proj.db", "$Qgis/resources/srs.db", "$Qgis/resources/symbology-style.xml",
-                 "$OfficeEditor/index.html")) {
+                 "$Deps/Library/share/proj/proj.db", "$Qgis/resources/srs.db", "$Qgis/resources/symbology-style.xml")) {
   if (-not (Test-Path -LiteralPath $p)) { throw "缺少打包输入: $p" }
 }
 $OutDir = [IO.Path]::GetFullPath($OutDir)

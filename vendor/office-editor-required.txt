@@ -1,0 +1,5 @@
+index.html
+editor.html
+sw.js
+web-apps/apps/api/documents/api.js
+sdkjs/common/libfont/engine/fonts.wasm

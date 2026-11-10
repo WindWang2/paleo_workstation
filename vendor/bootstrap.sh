@@ -98,6 +98,8 @@ if [ "$FETCH_ONLY" = 1 ]; then
   exit 0
 fi
 
+bash vendor/fetch-ranuts-document.sh --ensure
+
 echo "== selfcheck (tail of bootstrap per §44.1) =="
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
 # #230：AGENTS.md -j8 上限（PALEO_JOBS 可调低）。

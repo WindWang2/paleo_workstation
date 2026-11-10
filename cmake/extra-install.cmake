@@ -4,6 +4,97 @@
 # 或用 QGIS_PREFIX_PATH 指向——QgisRuntime::defaultPrefixPath() 会优先识别
 # <exe>/../share/qgis/resources/srs.db 布局。
 include(GNUInstallDirs)
+# ---- Office 编辑组件布线（构建树即跑即用）----
+# 运行时仍由 OfficePreviewSession 按既有候选序查找。CI 的依赖准备和
+# 夹具测试可在组件缺失时配置，安装树在写入任何应用文件前检查真实组件。
+set(PALEO_OFFICE_EDITOR "" CACHE PATH "ranuts/document editor directory (empty = env or vendor)")
+set(_paleo_office_src "${PALEO_OFFICE_EDITOR}")
+if(NOT _paleo_office_src)
+  set(_paleo_office_src "$ENV{PALEO_OFFICE_EDITOR}")
+endif()
+set(_paleo_office_override "${_paleo_office_src}")
+if(NOT _paleo_office_src)
+  set(_paleo_office_src "${CMAKE_SOURCE_DIR}/vendor/ranuts-document")
+endif()
+get_filename_component(_paleo_office_src "${_paleo_office_src}" ABSOLUTE
+                       BASE_DIR "${CMAKE_SOURCE_DIR}")
+set(_paleo_office_dst "${CMAKE_BINARY_DIR}/office-editor")
+file(STRINGS "${CMAKE_SOURCE_DIR}/vendor/office-editor-required.txt" _paleo_office_assets)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_SOURCE_DIR}/vendor/office-editor-required.txt")
+
+function(_paleo_office_ready root out)
+  set(${out} FALSE PARENT_SCOPE)
+  foreach(asset IN LISTS _paleo_office_assets)
+    set(path "${root}/${asset}")
+    if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+      return()
+    endif()
+    file(SIZE "${path}" size)
+    if(size EQUAL 0)
+      return()
+    endif()
+  endforeach()
+  set(${out} TRUE PARENT_SCOPE)
+endfunction()
+
+_paleo_office_ready("${_paleo_office_src}" _paleo_office_src_ready)
+_paleo_office_ready("${_paleo_office_dst}" _paleo_office_dst_ready)
+if(NOT _paleo_office_dst_ready AND _paleo_office_src_ready)
+  if(NOT EXISTS "${_paleo_office_dst}")
+    if(NOT WIN32)
+      execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_paleo_office_src}" "${_paleo_office_dst}"
+        RESULT_VARIABLE _paleo_office_link)
+    else()
+      # 固定批处理命令，路径由环境变量一次展开。空格与 cmd 元字符保留原样。
+      set(_paleo_office_batch "${CMAKE_BINARY_DIR}/.paleo-office-mklink.cmd")
+      file(WRITE "${_paleo_office_batch}"
+        "@echo off\r\nmklink /J \"%PALEO_OFFICE_LINK%\" \"%PALEO_OFFICE_TARGET%\"\r\n")
+      execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env
+          "PALEO_OFFICE_LINK=${_paleo_office_dst}" "PALEO_OFFICE_TARGET=${_paleo_office_src}"
+          cmd /d /v:off /c .paleo-office-mklink.cmd
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        RESULT_VARIABLE _paleo_office_link OUTPUT_QUIET ERROR_QUIET)
+    endif()
+    if(NOT _paleo_office_link EQUAL 0)
+      message(WARNING "office-editor: 自动接线失败——请手动执行 "
+        "mklink /J \"${_paleo_office_dst}\" \"${_paleo_office_src}\"，"
+        "或设 PALEO_OFFICE_EDITOR 指向组件目录")
+    endif()
+  endif()
+  _paleo_office_ready("${_paleo_office_dst}" _paleo_office_dst_ready)
+endif()
+if(_paleo_office_dst_ready)
+  message(STATUS "office-editor: <build>/office-editor 已就绪")
+elseif(NOT _paleo_office_src_ready)
+  message(WARNING
+    "office-editor 组件缺失或不完整。请运行 bash vendor/fetch-ranuts-document.sh，"
+    "或设置 PALEO_OFFICE_EDITOR 指向完整的编辑器目录。")
+else()
+  message(WARNING "office-editor: <build>/office-editor 未就绪，请接入完整组件目录。")
+endif()
+
+set(_paleo_office_install_src "${_paleo_office_src}")
+if(NOT _paleo_office_src_ready AND NOT _paleo_office_override AND _paleo_office_dst_ready)
+  set(_paleo_office_install_src "${_paleo_office_dst}")
+endif()
+string(CONFIGURE [=[
+  foreach(asset IN ITEMS @_paleo_office_assets@)
+    set(path "@_paleo_office_install_src@/${asset}")
+    if(NOT EXISTS "${path}" OR IS_DIRECTORY "${path}")
+      message(FATAL_ERROR "office-editor: missing ${path}. Prepare the editor before installing.")
+    endif()
+    file(SIZE "${path}" size)
+    if(size EQUAL 0)
+      message(FATAL_ERROR "office-editor: empty ${path}. Prepare the editor before installing.")
+    endif()
+  endforeach()
+]=] _paleo_office_install_guard @ONLY)
+install(CODE "${_paleo_office_install_guard}")
+install(DIRECTORY "${_paleo_office_install_src}/" DESTINATION libexec/office-editor)
+
 # 字体已嵌入程序；安装树同时保留可独立阅读的许可与来源清单。
 install(FILES resources/fonts/OFL-IBMPlex.txt resources/fonts/OFL.txt
               resources/fonts/README.md resources/fonts/ibm-plex.lock.json
@@ -40,68 +131,4 @@ if(PALEO_HAVE_ORT AND NOT WIN32)
   install(FILES ${_paleo_ort_libs} DESTINATION ${CMAKE_INSTALL_LIBDIR})
 elseif(PALEO_HAVE_ORT AND WIN32)
   install(FILES "${ORT_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
-endif()
-
-# ---- Office 编辑组件布线（构建树即跑即用）----
-# OfficePreviewSession::editorRoot() 的候选序：PALEO_OFFICE_EDITOR 环境变量 →
-# <exe>/office-editor → <exe>/../vendor/ranuts-document → <exe>/../libexec/office-editor。
-# 组件是 gitignored 的 vendored 静态编辑器（ranuts/document v0.0.6，OnlyOffice
-# WASM，AGPL-3.0——vendor/fetch-ranuts-document.sh 钉版构建，勿移 ONLYOFFICE
-# 标识）。构建树直跑 build/paleo.exe 原先只剩相对回退 <exe>/../vendor/
-# ranuts-document 可命中——worktree/独立构建目录没有它，应用报「Office 编辑
-# 组件未安装」。configure 期把组件接进 <build>/office-editor（环境变量之下
-# 的首位候选）：Unix 符号链接；Windows 免特权用目录 junction（cmd 整命令
-# 单参传递，规避 CMake 参数转义把引号变 \" 的坑；本树 459MB/深路径，不做
-# 整树复制兜底——复制在 MAX_PATH 上必翻车）。组件缺失不阻断构建（可选件），
-# 但警告给出抓取指引；tst_officepreview 用 PALEO_OFFICE_EDITOR 自带夹具，
-# 不依赖本接线。
-set(_paleo_office_src "${CMAKE_SOURCE_DIR}/vendor/ranuts-document")
-set(_paleo_office_dst "${CMAKE_BINARY_DIR}/office-editor")
-if(EXISTS "${_paleo_office_dst}/index.html")
-  message(STATUS "office-editor: <build>/office-editor 已就绪")
-elseif(NOT EXISTS "${_paleo_office_src}/index.html")
-  message(WARNING
-    "office-editor 组件缺失：应用内 Office 预览将报「未安装」。抓取："
-    "bash vendor/fetch-ranuts-document.sh（钉版 ranuts/document v0.0.6，AGPL-3.0）；"
-    "或设 PALEO_OFFICE_EDITOR 指向已就绪的组件目录。worktree 开发请 symlink "
-    "主仓 vendor/ranuts-document（见 BUILDING.md「独立 worktree 开发」）。")
-else()
-  if(NOT EXISTS "${_paleo_office_dst}")
-    set(_paleo_office_link 1)
-    if(NOT WIN32)
-      execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_paleo_office_src}" "${_paleo_office_dst}"
-        RESULT_VARIABLE _paleo_office_link)
-    else()
-      # 固定批处理命令，路径由环境变量一次展开。空格与 cmd 元字符保留原样。
-      set(_paleo_office_batch "${CMAKE_BINARY_DIR}/.paleo-office-mklink.cmd")
-      file(WRITE "${_paleo_office_batch}"
-        "@echo off\r\nmklink /J \"%PALEO_OFFICE_LINK%\" \"%PALEO_OFFICE_TARGET%\"\r\n")
-      execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E env
-          "PALEO_OFFICE_LINK=${_paleo_office_dst}" "PALEO_OFFICE_TARGET=${_paleo_office_src}"
-          cmd /d /v:off /c .paleo-office-mklink.cmd
-        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-        RESULT_VARIABLE _paleo_office_link OUTPUT_QUIET ERROR_QUIET)
-    endif()
-    if(NOT _paleo_office_link EQUAL 0)
-      message(WARNING "office-editor: 自动接线失败——请手动执行 "
-        "mklink /J \"${_paleo_office_dst}\" \"${_paleo_office_src}\"，"
-        "或设 PALEO_OFFICE_EDITOR 指向组件目录")
-    endif()
-  endif()
-  if(EXISTS "${_paleo_office_dst}/index.html")
-    message(STATUS "office-editor: 已接入 <build>/office-editor（来源 ${_paleo_office_src}）")
-  else()
-    message(WARNING "office-editor: <build>/office-editor 未就绪——Office 预览将报「未安装」，"
-      "请按上一条警告接线")
-  endif()
-endif()
-
-# 已接线的构建树再次 configure 时仍须生成安装规则。
-# 安装树走 <exe>/../libexec/office-editor 候选，许可文件随树携带。
-if(EXISTS "${_paleo_office_src}/index.html")
-  install(DIRECTORY "${_paleo_office_src}/" DESTINATION libexec/office-editor)
-elseif(EXISTS "${_paleo_office_dst}/index.html")
-  install(DIRECTORY "${_paleo_office_dst}/" DESTINATION libexec/office-editor)
 endif()

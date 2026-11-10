@@ -23,11 +23,12 @@
 5. **GDAL/PROJ 数据**：share/gdal + share/proj 随包，启动器设
    GDAL_DATA / PROJ_LIB / PROJ_DATA——缺省时 GDAL 找不到 tms json、
    PROJ 报 CRS 无大地基准（paleo-dev.ps1 同款口径）。
-6. **禁止污染**：只读源目录，全部写进 build/portable/。
+6. **禁止污染**：只读源目录，写入新的输出目录，默认 build/portable/。
 7. **--verify**：打包后用净环境（PATH 只含包目录 + System32）跑包内
    paleo_selfcheck.exe，模拟新机器首启；GUI 冒烟用 paleo.exe --help。
 """
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -257,7 +258,7 @@ VERIFY_PY = (
     "from pathlib import Path\n"
     "root = Path(__file__).parent\n"
     "expected = {}\n"
-    "for line in (root / 'SHA256SUMS.txt').read_text().splitlines():\n"
+    "for line in (root / 'SHA256SUMS.txt').read_text(encoding='utf-8').splitlines():\n"
     "    h, _, name = line.partition('  ')\n"
     "    expected[name] = h\n"
     "bad = []\n"
@@ -290,11 +291,40 @@ CHECK_BAT = (
 )
 
 
+def write_integrity_manifest(out: Path):
+    # 0xc0000007b 在目标机多为拷贝/解压损坏——SHA256SUMS + 包内 python 校验器
+    # 秒级定位坏文件；python 自身若起不来也直接说明损坏位置。
+    sums = []
+    for f in sorted(out.rglob("*")):
+        if f.is_file() and "verify-tmp" not in f.parts and f.name not in (
+                "SHA256SUMS.txt", "verify_package.py", "校验包.bat"):
+            sums.append(hashlib.sha256(f.read_bytes()).hexdigest() + "  "
+                        + f.relative_to(out).as_posix())
+    (out / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8")
+    (out / "verify_package.py").write_text(VERIFY_PY, encoding="utf-8")
+    (out / "校验包.bat").write_text(CHECK_BAT, encoding="ascii")
+    print(f"      SHA256SUMS.txt（{len(sums)} 个文件）+ 校验包.bat")
+
+
+def office_editor_dir(build: Path, override: str | None) -> Path:
+    required = (REPO_ROOT / "vendor" / "office-editor-required.txt").read_text(encoding="utf-8").splitlines()
+    candidates = [Path(override).resolve()] if override else [
+        build / "office-editor",
+        REPO_ROOT / "vendor" / "ranuts-document",
+    ]
+    for root in candidates:
+        if all((root / asset).is_file() and (root / asset).stat().st_size for asset in required):
+            return root
+    sys.exit("Office 编辑组件缺失或不完整。请先运行 vendor/fetch-ranuts-document.sh，"
+             "或用 --office-editor 指定完整的组件目录。")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-dir", required=True, help="构建目录（含产物 exe）")
-    ap.add_argument("--out", default=None, help="输出目录，默认 <build>/portable")
-    ap.add_argument("--zip", action="store_true", help="额外产出 zip")
+    ap.add_argument("--out", default=None, help="新输出目录，默认 <build>/portable（必须不存在）")
+    ap.add_argument("--zip", action="store_true", help="额外产出新的 zip（拒绝覆盖现有压缩包）")
+    ap.add_argument("--office-editor", help="Office 编辑组件目录，默认从构建树或 vendor 查找")
     ap.add_argument("--conda", default=None, help="conda.exe 路径")
     ap.add_argument("--skip-python", action="store_true", help="不打 Python 运行时")
     ap.add_argument("--verify", action="store_true",
@@ -302,8 +332,11 @@ def main():
     args = ap.parse_args()
 
     build = Path(args.build_dir).resolve()
-    out = Path(args.out).resolve() if args.out else build / "portable"
+    out = Path(os.path.abspath(args.out)) if args.out else build / "portable"
     src_root = build.parent
+    archive = build / "paleo-portable.zip"
+    if args.zip and (archive.exists() or archive.is_symlink() or out == archive):
+        sys.exit(f"压缩包路径已占用，请另存现有文件再打包：{archive}")
 
     if args.conda:
         global CONDA
@@ -314,11 +347,14 @@ def main():
 
     if not (QGIS_PREFIX / "resources" / "symbology-style.xml").is_file():
         sys.exit("缺少 QGIS 默认符号与色带库: resources/symbology-style.xml")
-    if not (build / "paleo_data_snapshot_worker.exe").is_file():
-        sys.exit("缺少模型快照组件 paleo_data_snapshot_worker.exe，请先完成应用构建")
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
+    for exe in ("paleo.exe", "paleo_data_snapshot_worker.exe"):
+        if not (build / exe).is_file():
+            sys.exit(f"缺少构建产物 {exe}，请先完成应用构建")
+    office = office_editor_dir(build, args.office_editor or os.environ.get("PALEO_OFFICE_EDITOR"))
+    try:
+        out.mkdir(parents=True)
+    except FileExistsError:
+        sys.exit(f"输出目录已存在，为保留原有内容请另选 --out: {out}")
 
     # 1) 产品 exe
     print("[1/8] 收集产品 exe …")
@@ -415,19 +451,14 @@ def main():
             print(f"      {target}/  {dir_size(out / target)}")
     # Office 原件编辑页（ranuts/document，OnlyOffice WASM 静态页）——应用按
     # 「同目录 office-editor/」解析（vendor/fetch-ranuts-document.sh 产物）。
-    office = REPO_ROOT / "vendor" / "ranuts-document"
-    if office.is_dir() and (office / "index.html").is_file():
-        shutil.copytree(office, out / "office-editor", dirs_exist_ok=True)
-        print(f"      office-editor/  {dir_size(out / 'office-editor')}")
-        (out / "office-editor-NOTICE.txt").write_text(
-            "office-editor/ 是 ranuts/document（github.com/ranuts/document，"
-            "tag v0.0.6，commit 82cb9f68617383c1b3a00865a5880069cbdf2d92）的"
-            "构建产物，含 ONLYOFFICE 的 AGPL-3.0 派生作品。\r\n"
-            "对外分发本包时须按 AGPL-3.0 提供对应源码（上述仓库该提交即为源），\r\n"
-            "并保留编辑页中的 ONLYOFFICE 标识。\r\n", encoding="utf-8")
-    else:
-        print("      ! vendor/ranuts-document 未安装——Office 预览将不可用"
-              "（先运行 vendor/fetch-ranuts-document.sh 再打包）")
+    shutil.copytree(office, out / "office-editor")
+    print(f"      office-editor/  {dir_size(out / 'office-editor')}")
+    (out / "office-editor-NOTICE.txt").write_text(
+        "office-editor/ 是 ranuts/document（github.com/ranuts/document，"
+        "tag v0.0.6，commit 82cb9f68617383c1b3a00865a5880069cbdf2d92）的"
+        "构建产物，含 ONLYOFFICE 的 AGPL-3.0 派生作品。\r\n"
+        "对外分发本包时须按 AGPL-3.0 提供对应源码（上述仓库该提交即为源），\r\n"
+        "并保留编辑页中的 ONLYOFFICE 标识。\r\n", encoding="utf-8")
 
     # 7) Python 运行时（脚本台面；不依赖外部地层项目）
     print("[7/8] Python 3.10 运行时（conda create，数分钟）…")
@@ -442,31 +473,18 @@ def main():
     print("[8/8] 生成启动器、说明与完整性校验 …")
     (out / "启动-paleo.bat").write_text(LAUNCHER_BAT, encoding="utf-8")
     (out / "使用说明.txt").write_text(README_TXT, encoding="utf-8")
-    # 0xc0000007b 在目标机多为拷贝/解压损坏——SHA256SUMS + 包内 python 校验器
-    # 秒级定位坏文件；python 自身若起不来也直接说明损坏位置。
-    import hashlib
-    sums = []
-    for f in sorted(out.rglob("*")):
-        if f.is_file() and "verify-tmp" not in f.parts and f.name not in (
-                "SHA256SUMS.txt", "verify_package.py", "校验包.bat"):
-            sums.append(hashlib.sha256(f.read_bytes()).hexdigest() + "  "
-                        + f.relative_to(out).as_posix())
-    (out / "SHA256SUMS.txt").write_bytes(("\n".join(sums) + "\n").encode("ascii", "replace"))
-    (out / "verify_package.py").write_text(VERIFY_PY, encoding="utf-8")
-    (out / "校验包.bat").write_text(CHECK_BAT, encoding="ascii")
-    print(f"      SHA256SUMS.txt（{len(sums)} 个文件）+ 校验包.bat")
+    write_integrity_manifest(out)
 
     print(f"\n完成。输出目录：{out}")
     print(f"总体积：{dir_size(out)}")
 
     if args.zip:
-        zp = build / "paleo-portable.zip"
-        print(f"\n压缩中 → {zp.name} …")
-        with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        print(f"\n压缩中 → {archive.name} …")
+        with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             for f in out.rglob("*"):
                 if f.is_file():
                     z.write(f, f.relative_to(out.parent))
-        print(f"      {zp.stat().st_size/1e6:.1f} MB")
+        print(f"      {archive.stat().st_size/1e6:.1f} MB")
 
     if args.verify:
         verify(out)

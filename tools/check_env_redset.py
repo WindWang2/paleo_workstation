@@ -165,6 +165,8 @@ def results_from_junit(path):
     out = {}
     for tc in ET.parse(path).getroot().iter("testcase"):
         name = tc.get("name")
+        if not name or "\n" in name or "\r" in name or name in out:
+            raise Fail(f"JUnit 测试名称无效或重复：{name!r}")
         status = (tc.get("status") or "").lower()
         if tc.find("failure") is not None or tc.find("error") is not None or status == "fail":
             failures = [*tc.findall("failure"), *tc.findall("error")]
@@ -274,6 +276,11 @@ def run(argv):
                     help="文档化红项名单路径（#475 分诊；selftest 注入合成名单用）")
     ap.add_argument("--build")
     ap.add_argument("--junit")
+    evidence = ap.add_mutually_exclusive_group()
+    evidence.add_argument("--failed-tests", action="store_true",
+                          help="从当前 JUnit 输出失败测试名，每行一个")
+    evidence.add_argument("--require-pass", nargs="+",
+                          help="要求当前 JUnit 包含给定测试的通过记录")
     ap.add_argument("--compare-build")
     ap.add_argument("--route", default="unknown")
     ap.add_argument("--emit-unexpected")
@@ -283,6 +290,22 @@ def run(argv):
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
+    if a.failed_tests or a.require_pass:
+        if not a.junit:
+            raise Fail("检查本轮结果需要 --junit")
+        results = results_from_junit(a.junit)
+        if a.require_pass:
+            missing = [name for name in a.require_pass if results.get(name) != "pass"]
+            if missing:
+                raise Fail(f"重跑缺少通过记录：{', '.join(missing)}")
+        else:
+            unsafe = [name for name, result in results.items() if result == "unsafe"]
+            if unsafe:
+                raise Fail(f"本轮出现崩溃或超时：{', '.join(unsafe)}")
+            for name, result in results.items():
+                if result == "fail":
+                    print(name)
+        return 0
     entries = load_list(a.list)
     documented = load_documented(a.doc_list)
     if a.validate:
@@ -347,7 +370,7 @@ def run(argv):
 def main(argv=None):
     try:
         return run(sys.argv[1:] if argv is None else argv)
-    except Fail as e:
+    except (Fail, OSError, ET.ParseError) as e:
         print(f"FAIL {e}", file=sys.stderr)
         return 1
 

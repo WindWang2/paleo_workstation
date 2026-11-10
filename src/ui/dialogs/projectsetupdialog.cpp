@@ -181,6 +181,7 @@ ProjectSetupSources ProjectSetupDialog::sources() const
     ProjectSetupSources s; s.root = m_root->text().trimmed(); s.projectCrs = m_projectCrs->text().trimmed(); return s;
   }
   ProjectSetupSources s; s.root = m_root->text().trimmed(); s.points = m_points->text().trimmed(); s.wells = m_wells->text().trimmed(); s.seismic = m_seismic->text().trimmed(); s.horizons = m_horizons->text().trimmed(); s.references = m_references->text().trimmed(); s.boundary = m_boundary->text().trimmed();
+  s.importRootDirectory = m_existingPath.isEmpty();
   s.paleomaps = m_paleomaps->text().trimmed(); s.normalizeMaps = m_normalizeMaps->isChecked(); s.mapChoices = m_mapChoices;
   for (auto it = m_fields.cbegin(); it != m_fields.cend(); ++it) if (!it.value()->currentText().isEmpty()) s.pointMapping.insert(it.key(), it.value()->currentText());
   if (s.pointMapping.isEmpty()) s.pointMapping = m_initialMapping;

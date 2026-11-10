@@ -848,7 +848,14 @@ private slots:
     QCOMPARE(count, 1); QCOMPARE(service.catalog()->entities("well").size(), 1);
     QVERIFY(project.mapConfiguration().sourceStats.value("sourceProblems").toMap().isEmpty());
   }
+  void supplementalFileDoesNotImportItsParentDirectory_data() {
+    QTest::addColumn<QString>("savedRootMode");
+    QTest::newRow("explicit-file-and-directory") << QStringLiteral("none");
+    QTest::newRow("missing-saved-root") << QStringLiteral("missing");
+    QTest::newRow("existing-root-in-advanced-supplement") << QStringLiteral("existing");
+  }
   void supplementalFileDoesNotImportItsParentDirectory() {
+    QFETCH(QString, savedRootMode);
     QTemporaryDir dir;
     const auto selected = dir.filePath("explicit/points.csv");
     const auto ignored = dir.filePath("explicit/other-work-area/B2.las");
@@ -875,9 +882,28 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
     QVERIFY2(finished.takeFirst()[1].toBool(), qPrintable(error));
 
-    ProjectSetupSources sources;
+    const auto savedRoot = savedRootMode == "none" ? QString() : dir.filePath("remembered-root");
+    if (savedRootMode == "existing")
+      QVERIFY(write(savedRoot + "/unselected/B4.las", QByteArray(las).replace("%1", "B4")));
+    if (!savedRoot.isEmpty()) {
+      const auto output = QFileInfo(target).absolutePath();
+      bool ok = false;
+      auto settings = readProjectFile(paleoProjectFilePath(output), &ok, &error);
+      QVERIFY2(ok, qPrintable(error));
+      settings.sourceAreaRoot = savedRoot;
+      QVERIFY2(writeProjectFile(output, settings, &error), qPrintable(error));
+    }
+    auto sources = workflow.currentSources();
+    QCOMPARE(sources.root, savedRoot);
     sources.points = selected;
     sources.wells = directory;
+    if (savedRootMode == "existing") {
+      ProjectSetupDialog dialog(&workflow);
+      dialog.setExistingProject(target, sources);
+      sources = dialog.sources();
+      QCOMPARE(sources.root, savedRoot);
+      QVERIFY(!sources.importRootDirectory);
+    }
     const auto preview = scanProjectSources(sources);
     QCOMPARE(preview.paths, QStringList({selected, nested}));
     QVERIFY2(workflow.applySources(sources, preview, &error), qPrintable(error));

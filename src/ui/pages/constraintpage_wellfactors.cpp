@@ -349,9 +349,12 @@ void ConstraintPage::refreshAnalysisUnit() {
   auto *label=child<QLabel>(this,"factorAnalysisUnit");
   if(selection&&horizon&&label){
     const auto unit=selection->activeUnit();
-    // The hidden compatibility control only carries the actual boundary used by legacy view actions.
-    const QSignalBlocker blocked(horizon);horizon->clear();
-    if(unit.isValid()&&!unit.topBoundary.isEmpty())horizon->addItem(unit.topBoundary);
+    // 兼容下拉仍承担词表与 legacy generate 的 currentText，不得 clear 成
+    // 仅一条 topBoundary（或空）。有 SelectionContext 时只是隐藏下拉、
+    // 改用顶部单元标签；若清空，工程打开后 count 变为 0，意图携带空层位。
+    const QSignalBlocker blocked(horizon);
+    if(unit.isValid()&&!unit.topBoundary.isEmpty())
+      horizon->setCurrentText(unit.topBoundary);
     horizon->hide();label->show();
     label->setText(unit.isValid()?(unit.displayName.isEmpty()?paleo::strat::layerToken(unit):unit.displayName):
         tr("请在顶部选择地震层位单元及 S1–S4 或综合"));

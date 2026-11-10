@@ -25,6 +25,7 @@
 
 #include <gdal.h>
 #include <cpl_string.h>
+#include <ogr_srs_api.h>
 
 #include <cmath>
 #include <limits>
@@ -39,6 +40,7 @@ struct DcGridSpec
 {
   int cols = 0, rows = 0;
   double gt[6] = {0, 0, 0, 0, 0, 0};
+  QString coordinateSystem;
   bool hasNodata = false;
   double nodata = 0.0;
   QVector<float> px;
@@ -80,6 +82,13 @@ bool readDcGrid(const QString &path, DcGridSpec *g)
   g->px.resize(static_cast<qsizetype>(cells));
   const CPLErr err = GDALRasterIO(band, GF_Read, 0, 0, g->cols, g->rows,
                                    g->px.data(), g->cols, g->rows, GDT_Float32, 0, 0);
+  g->coordinateSystem = QString::fromUtf8(GDALGetProjectionRef(ds));
+  // GeoTIFF can lose the named engineering datum. Keep Paleo's exact local CRS
+  // when the input declares it, while retaining any projected raster's own SRS.
+  const auto srs = GDALGetSpatialRef(ds);
+  const auto storedCrs = QString::fromUtf8(GDALGetMetadataItem(ds, "PALEO_CRS_WKT", nullptr));
+  if ((!srs || OSRIsLocal(srs)) && storedCrs == DataCatalog::localGridCrsWkt())
+    g->coordinateSystem = storedCrs;
   // PALEO_INLINE_*/PALEO_XLINE_* 测网号域透传（验证→地震剖面导航依赖）。
   CSLConstList meta = GDALGetMetadata(ds, nullptr);
   const auto intMeta = [&meta](const char *key) -> int {
@@ -232,6 +241,7 @@ bool convertGridToDepthFile(const paleo::velmodel::VelocityModel &model,
     return fail(QStringLiteral("已取消")); // 半途深度场不落盘、不进统计
 
   BinnedHorizon b;
+  b.coordinateSystem = g.coordinateSystem;
   b.rows = g.rows;
   b.cols = g.cols;
   b.dx = g.gt[1];

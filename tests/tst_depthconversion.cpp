@@ -1,5 +1,6 @@
 // 层：测试壳
 #include <QtTest>
+#include <QJsonDocument>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -19,6 +20,7 @@
 #include <atomic>
 
 #include <gdal.h>
+#include <ogr_srs_api.h>
 
 #include <qgsproject.h>
 
@@ -94,10 +96,89 @@ class TestDepthConversion : public QObject
 
 private slots:
   void fullChainBuildsModelAndConvertsHorizon();
+  void preservesHorizontalReference_data();
+  void preservesHorizontalReference();
   void repeatedBuildAndConversionAreIdempotent();
   void latestModelPathUsesCommitOrderAcrossAssets();
   void backgroundConversionRunsInTaskCenter();
 };
+
+void TestDepthConversion::preservesHorizontalReference_data()
+{
+  QTest::addColumn<bool>("projected");
+  QTest::newRow("projected-epsg") << true;
+  QTest::newRow("legacy-local-fallback") << false;
+}
+
+void TestDepthConversion::preservesHorizontalReference()
+{
+  QFETCH(bool, projected);
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog catalog;
+  QString error;
+  QVERIFY2(catalog.open(tmp.path(), &error), qPrintable(error));
+
+  const double x = projected ? 500000.0 : 0.0;
+  const double y = projected ? 4000000.0 : 1000.0;
+  const paleo::velmodel::VelocityWellControl control{"A1", x, y, {{100.0, 150.0, {}}, {300.0, 450.0, {}}}};
+  const auto model = paleo::velmodel::VelocityModel::fit({control}, paleo::velmodel::ModelType::IntervalAverage, &error);
+  QVERIFY2(model.isValid(), qPrintable(error));
+  const auto modelPath = tmp.filePath("velocity.json");
+  QFile modelFile(modelPath);
+  QVERIFY(modelFile.open(QIODevice::WriteOnly));
+  const auto modelBytes = QJsonDocument(model.toJson()).toJson();
+  QCOMPARE(modelFile.write(modelBytes), modelBytes.size());
+  modelFile.close();
+
+  const auto input = tmp.filePath("time.tif");
+  GDALAllRegister();
+  auto *driver = GDALGetDriverByName("GTiff");
+  QVERIFY(driver);
+  std::unique_ptr<void, decltype(&GDALClose)> raster(
+      GDALCreate(driver, input.toUtf8().constData(), 1, 1, 1, GDT_Float32, nullptr), &GDALClose);
+  QVERIFY(raster);
+  double gt[] = {x, 25.0, 0.0, y, 0.0, -25.0};
+  QCOMPARE(GDALSetGeoTransform(raster.get(), gt), CE_None);
+  if (projected) {
+    const auto srs = OSRNewSpatialReference(nullptr);
+    const auto imported = OSRImportFromEPSG(srs, 32650);
+    const auto applied = GDALSetSpatialRef(raster.get(), srs);
+    OSRDestroySpatialReference(srs);
+    QCOMPARE(imported, OGRERR_NONE);
+    QCOMPARE(applied, CE_None);
+  }
+  float twt = 200.0f;
+  QCOMPARE(GDALRasterIO(GDALGetRasterBand(raster.get(), 1), GF_Write, 0, 0, 1, 1,
+                        &twt, 1, 1, GDT_Float32, 0, 0), CE_None);
+  raster.reset();
+
+  DepthConversionWorkflow workflow(&catalog, tmp.path());
+  QVERIFY2(workflow.convertRasterToDepth("D61", input, modelPath, nullptr, &error), qPrintable(error));
+  const auto versions = catalog.versions();
+  QCOMPARE(versions.size(), 1);
+  const auto output = catalog.versionFilePath(versions.first());
+  raster.reset(GDALOpen(output.toUtf8().constData(), GA_ReadOnly));
+  QVERIFY(raster);
+  const auto srs = GDALGetSpatialRef(raster.get());
+  QVERIFY(srs);
+  const auto storedCrs = QString::fromUtf8(GDALGetMetadataItem(raster.get(), "PALEO_CRS_WKT", nullptr));
+  if (projected) {
+    QCOMPARE(QByteArray(OSRGetAuthorityCode(srs, nullptr)), QByteArray("32650"));
+    QVERIFY(storedCrs.contains(QStringLiteral("32650")));
+  } else {
+    QVERIFY(OSRIsLocal(srs));
+    QCOMPARE(storedCrs, DataCatalog::localGridCrsWkt());
+  }
+  double resultGt[6];
+  QCOMPARE(GDALGetGeoTransform(raster.get(), resultGt), CE_None);
+  for (int i = 0; i < 6; ++i)
+    QCOMPARE(resultGt[i], gt[i]);
+  float depth = 0.0f;
+  QCOMPARE(GDALRasterIO(GDALGetRasterBand(raster.get(), 1), GF_Read, 0, 0, 1, 1,
+                        &depth, 1, 1, GDT_Float32, 0, 0), CE_None);
+  QCOMPARE(depth, 300.0f);
+}
 
 void TestDepthConversion::fullChainBuildsModelAndConvertsHorizon()
 {

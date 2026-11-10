@@ -4,11 +4,19 @@
 #include "wellpositionlegendwidget.h"
 #include "../paleotheme.h"
 #include <QBoxLayout>
+#include <QEvent>
 #include <QHash>
 #include <QMenu>
 #include <QWidgetAction>
 
 namespace WellComposite {
+bool WellCompositePanel::event(QEvent *event) {
+  const bool handled = QWidget::event(event);
+  if (event->type() == QEvent::Show || event->type() == QEvent::Hide)
+    emit previewVisibilityChanged(event->type() == QEvent::Show);
+  return handled;
+}
+
 void WellCompositePanel::addPreviewAction(const QString &text,std::function<void()> action) {
   auto *more=findChild<QToolButton *>(QStringLiteral("wellPreviewOptions"));
   if (!more || !more->menu()) return;

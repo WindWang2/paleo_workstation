@@ -115,8 +115,8 @@ void chooseDocumentCurve(WellComposite::WellCompositePanel *chart,
   session->requestChoices();
 }
 
-void wireDocumentCurveTracks(WellComposite::WellCompositePanel *chart, QTabWidget *tabs,
-                             QStackedWidget *stack, paleo::document::DocumentSession *document,
+void wireDocumentCurveTracks(WellComposite::WellCompositePanel *chart,
+                             paleo::document::DocumentSession *document,
                              PaleoTaskService *tasks, const QString &project,
                              const QString &wellEntityId, qlonglong modelWellId) {
   using namespace paleo::welltrack;
@@ -154,8 +154,13 @@ void wireDocumentCurveTracks(WellComposite::WellCompositePanel *chart, QTabWidge
   };
   // Canvas geometry stays in metres MD. Feet and TWT are display labels.
   QObject::connect(canvas, &WellComposite::WellCompositeCanvas::viewportChanged, chart, requestWindow);
-  QObject::connect(tabs, &QTabWidget::currentChanged, chart, requestWindow, Qt::QueuedConnection);
-  QObject::connect(stack, &QStackedWidget::currentChanged, chart, requestWindow, Qt::QueuedConnection);
+  QObject::connect(chart, &WellComposite::WellCompositePanel::previewVisibilityChanged, session,
+                   [requestWindow, session](bool visible) {
+    if (visible)
+      requestWindow();
+    else
+      session->requestWindow(qQNaN(), qQNaN());
+  });
   QTimer::singleShot(0, chart, requestWindow);
 }
 }
@@ -321,7 +326,7 @@ void DataPreviewTabs::openModelWell(qlonglong modelWellId, const QString &wellNa
             buildWorkbookTable(data.table, tableHost, tableLayout);
             if (data.chartOk && chart->loadWellData(data.chart, QString(), false))
             {
-              wireDocumentCurveTracks(chart, m_tabs, stack, m_document, m_doc->taskService(),
+              wireDocumentCurveTracks(chart, m_document, m_doc->taskService(),
                                       project, wellEntityId, modelWellId);
               if (data.chart.modelWellId) {
                 QStringList summary{coordinateSummary(data.chart), data.interpretationSummary};

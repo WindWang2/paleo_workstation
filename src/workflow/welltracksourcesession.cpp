@@ -198,12 +198,13 @@ void WellTrackSourceSession::readWindow() {
   struct Read {
     document::WellCurveTrackBinding track;
     document::SourceRecord source;
+    DepthWindow window;
     CurveReadResult result;
   };
   auto reads = std::make_shared<QVector<Read>>();
   for (const auto &binding : m_tracks) {
     if (needsRead(binding.id))
-      reads->append({binding, m_document->source(binding.source), {}});
+      reads->append({binding, m_document->source(binding.source), {}, {}});
     if (reads->size() == MaxTracks)
       break;
   }
@@ -216,13 +217,22 @@ void WellTrackSourceSession::readWindow() {
   const auto requested = m_inFlight;
   const auto viewport = m_requested;
   const auto revision = m_readRevision;
-  auto *task = m_tasks->start(tr("读取测井曲线窗"), [reads, window](PaleoTask *running) {
+  auto *task = m_tasks->start(tr("读取测井曲线窗"), [reads, window, requested, viewport](PaleoTask *running) {
     const auto cancelled = [running] { return running->cancelRequested(); };
     for (auto &read : *reads) {
       if (cancelled())
         break;
+      read.window = requested;
       read.result = readCurve(read.source, read.track.modelWellId, read.track.logSetId,
                               read.track.curveId, window, cancelled);
+      const auto remaining = window.maxReadBytes - read.result.stats.payloadBytesRead;
+      if (read.result.budgetExceeded && requested != viewport && remaining > 0 && !cancelled()) {
+        // Prefetch is optional, so use the remaining budget for the visible interval.
+        const AreaWellCurveWindow visible{viewport.top, viewport.bottom, window.maxSamples, remaining};
+        read.window = viewport;
+        read.result = readCurve(read.source, read.track.modelWellId, read.track.logSetId,
+                                read.track.curveId, visible, cancelled);
+      }
     }
     return QString();
   }, {}, true);
@@ -242,9 +252,11 @@ void WellTrackSourceSession::readWindow() {
       return;
     }
     for (const auto &read : *reads) {
+      if (!read.window.covers(m_requested))
+        continue;
       if (read.result.ok()) {
         m_failedWindows.remove(read.track.id);
-        m_loaded.insert(read.track.id, requested);
+        m_loaded.insert(read.track.id, read.window);
       } else {
         m_loaded.remove(read.track.id);
         // A rejected broad window must still allow a later, narrower request.

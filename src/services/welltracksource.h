@@ -26,6 +26,7 @@ struct CurveReadResult {
   WellComposite::CurveData curve;
   data::CurveReadStats stats;
   QString error;
+  bool budgetExceeded = false;
   bool ok() const { return error.isEmpty() && !curve.isEmpty(); }
 };
 

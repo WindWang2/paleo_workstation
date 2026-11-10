@@ -163,8 +163,10 @@ CurveReadResult readCurve(const document::SourceRecord &source, qlonglong wellId
   if (std::isinf(top) || std::isinf(bottom))
     return fail(QCoreApplication::translate("WellTrackSource", "测井曲线读取窗口超出深度范围。"));
   data::CurveSlice slice;
-  if (!service.readCurveSlice(curveId, top, bottom, true, slice, detail, options, &result.stats))
+  if (!service.readCurveSlice(curveId, top, bottom, true, slice, detail, options, &result.stats)) {
+    result.budgetExceeded = detail.starts_with("CurveWindowBudgetExceeded:");
     return fail(QString::fromUtf8(detail));
+  }
   if (stopped())
     return fail(QCoreApplication::translate("WellTrackSource", "已取消读取测井曲线。"));
   if (!matchingSource(service, source.ref))

@@ -99,6 +99,20 @@ void TestWellTrackSourceSession::exactFileWindowAndPersistence() {
     QTRY_COMPARE(reads, 4);
     QVERIFY2(error.isEmpty(), qPrintable(error));
     QCOMPARE(curve.values, (QVector<float>{21000, 21001, 21002}));
+
+    controller.requestWindow(1000.0, 26000.0);
+    QTRY_COMPARE(reads, 5);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(curve.depths.size(), 25001);
+    QCOMPARE(curve.depths.front(), 1000.0f);
+    QCOMPARE(curve.depths.back(), 26000.0f);
+    QCOMPARE(curve.values.front(), 2000.0f);
+    QCOMPARE(curve.values.back(), 27000.0f);
+
+    controller.requestWindow(900.0, 1100.0);
+    QTRY_COMPARE(reads, 6);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(curve.depths.front(), 850.0f);
   }
 
   fixture.session.close();

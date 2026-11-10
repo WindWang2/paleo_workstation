@@ -165,6 +165,7 @@ public:
   QLabel *readoutLabel() const { return m_lblReadout; }
 
 signals:
+  void previewVisibilityChanged(bool visible);
   void boundaryDepthEdited(const QString &name, double md);
   void faciesDataChanged(const WellComposite::ComprehensiveWellData &data);
   void faciesPredictionRequested();
@@ -193,6 +194,9 @@ public slots:
 public:
   // 当前道布局是否与默认模板一致（「恢复默认」按钮据此启用）
   bool isDefaultLayout() const;
+
+protected:
+  bool event(QEvent *event) override;
 
 private slots:
   void exportCurrent(ExportEngine::Format format);      // D4.5/D4.6/D4.7

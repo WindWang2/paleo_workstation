@@ -62,8 +62,11 @@ follow Paleo `grid_connectivity_v1` and are covered by `tst_singlefactor_kernel`
 dialog's adaptive levels) and writes one JSON golden: accepted wells, skip
 reasons, the node-centred analysis grid, the valid mask, resolved constraints,
 the field-only contours and the final (local-detour) contours. Its docstring
-lists the three deliberate deviations (no first-numeric-column fallback, the
-PyQt-only preview stub, the pinned grid-cell budget).
+lists the deliberate deviations (no first-numeric-column fallback, the
+PyQt-only preview stub, the pinned grid-cell budget, and Paleo #725: after
+the dialog's spin rounding, adaptive start is raised to the smallest integer
+multiple of step that is not below valueMin, matching
+``contourlevels.cpp`` ``finalizePlan``).
 
 The contour stage depends on GEOS noding/polygonize/triangulation order. The
 shapely wheel bundles GEOS 3.13.1; Paleo links GEOS 3.15.0 (system and

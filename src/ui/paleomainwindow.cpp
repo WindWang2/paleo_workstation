@@ -152,10 +152,11 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
     // 层位也拨完，档案的层位过滤才读到新值。
     connect(m_selection, &SelectionContext::activeHorizonChanged, this,
             [this](const QString &h) {
-              // 层位选择真源是顶部 chip：预测/单因素页的层位下拉跟随
-              //（setCurrentText 同值不触发信号，无回环；两页 combo 各一份）。
+              // 已选层段时，单因素兼容框继续指向该层段上界。
+              auto *constraint = m_selection->activeUnit().isValid() ? findChild<ConstraintPage *>() : nullptr;
               for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo")))
-                combo->setCurrentText(h);
+                if (!constraint || !constraint->isAncestorOf(combo))
+                  combo->setCurrentText(h);
               QMetaObject::invokeMethod(
                   this, [this] { applyCurrentPageProfile(); }, Qt::QueuedConnection);
             });
@@ -492,11 +493,13 @@ void PaleoMainWindow::onProjectOpened()
     const QStringList horizonWords = mappingHorizons();
     if (auto *pp = findChild<PredictPage *>())
       pp->setHorizons(horizonWords);
-    if (auto *cp = findChild<ConstraintPage *>())
+    auto *cp = findChild<ConstraintPage *>();
+    if (cp)
       cp->setHorizons(horizonWords);
     if (m_selection && !m_selection->activeHorizon().isEmpty())
       for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo")))
-        combo->setCurrentText(m_selection->activeHorizon());
+        if (!m_selection->activeUnit().isValid() || !cp || !cp->isAncestorOf(combo))
+          combo->setCurrentText(m_selection->activeHorizon());
   }
   {
     const QString tgt = AreaRules::active().targetHorizon;

@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -15,6 +16,7 @@
 #include "io/dataimportservice.h"
 #include "services/crossplotsources.h"
 #include "services/previewdoc.h"
+#include "ui/pages/datalist.h"
 #include "ui/pages/datapage.h"
 
 namespace
@@ -81,6 +83,30 @@ bool addLink(DataCatalog &cat, const QString &wellId, const QString &assetId,
   link.isPrimary = primary;
   link.unresolved = unresolved;
   return cat.addLink(link, err);
+}
+
+// 交会图 inventory 只收「曲线 + 可用时深」双全的井（wellreadiness，HY 2026-11-01）。
+// 本夹具补一条可插值的主时深链接，让断言仍检验重复 GR 的消歧，而不是空清单。
+QString writeTdFile(const QString &path)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+    return QString();
+  QTextStream ts(&f);
+  ts << "# Well : W1\n";
+  ts << "1000.0 1000.0 1000.0 1000.0\n";
+  ts << "2000.0 2000.0 2000.0 2000.0\n";
+  f.close();
+  return path;
+}
+
+bool addTimeDepth(DataCatalog &cat, const QString &wellId, const QString &path, QString *err)
+{
+  if (!addExternal(cat, QStringLiteral("ast-td"), QStringLiteral("ver-td"),
+                   QStringLiteral("time_depth"), path, QStringLiteral("sha-td"), err))
+    return false;
+  return addLink(cat, wellId, QStringLiteral("ast-td"), QStringLiteral("time_depth"),
+                 0, true, false, err);
 }
 
 const paleo::crossplot::SourceSpec *findCurve(const QVector<paleo::crossplot::SourceSpec> &specs,
@@ -177,6 +203,9 @@ void TestWellLogUi::inventoryDisambiguatesDuplicateGr()
   QVERIFY2(addLink(cat, well.id, QStringLiteral("ast-tops"), QStringLiteral("tops"),
                    0, false, false, &err),
            qPrintable(err));
+  const QString tdPath = writeTdFile(dir.filePath(QStringLiteral("w1_td.dat")));
+  QVERIFY(!tdPath.isEmpty());
+  QVERIFY2(addTimeDepth(cat, well.id, tdPath, &err), qPrintable(err));
 
   const QString secondaryMnemonic =
       QStringLiteral("GR@") + QFileInfo(pathSecondary).completeBaseName();
@@ -274,10 +303,9 @@ void TestWellLogUi::wellLogPrimaryButtonPromotesLink()
   DataPage page;
   auto *doc = new PreviewDocService(&svc, &page);
   page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(doc));
-  // 表还是空的时候先定实体上下文。表建好后再选会一次选中多条已决资产，
-  // 实体面板改画批量概要，角色表被清掉。
-  page.selectAssetsForEntities({well.id});
   page.refreshAssetTable();
+  // 实体联动高亮多个资产时，仍保留该井的角色表。
+  page.selectAssetsForEntities({well.id});
 
   auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
   QVERIFY(tree);
@@ -394,6 +422,11 @@ void TestWellLogUi::wellLogPrimaryButtonPromotesLink()
   auto *moved = qobject_cast<QPushButton *>(roleTable->cellWidget(logRows.at(0), 2));
   QVERIFY(moved);
   QCOMPARE(moved->objectName(), QStringLiteral("setWellLogPrimaryButton"));
+
+  page.listPanel()->selectAllVisibleAssets();
+  auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
+  QVERIFY(header);
+  QVERIFY(header->text().contains(QStringLiteral("批量概要")));
 }
 
 int main(int argc, char *argv[])

@@ -23825,7 +23825,7 @@ PDF：%3
 <message>
         <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="16" />
         <source>时深来源与地震时间基准已保存，正在刷新连井数据</source>
-        <translation type="unfinished" />
+        <translation>时深来源与地震时间基准已保存，正在刷新连井数据</translation>
     </message>
     <message>
         <source>解释依据…</source>
@@ -38815,7 +38815,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <message>
         <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="81" />
         <source>时深来源与地震时间基准…</source>
-        <translation type="unfinished" />
+        <translation>时深来源与地震时间基准…</translation>
     </message>
         <message>
             <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
@@ -44938,17 +44938,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <message>
         <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="182" />
         <source>请在顶部选择地震层段</source>
-        <translation type="unfinished">请在顶部选择地震层段</translation>
+        <translation>请在顶部选择地震层段</translation>
     </message>
     <message>
         <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="184" />
         <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
-        <translation type="unfinished">预测范围跟随顶部地震层段选择，成果保存到同一方案修订</translation>
+        <translation>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</translation>
     </message>
     <message>
         <location filename="../src/ui/wellcomposite/panelpreviewchrome.cpp" line="31" />
         <source>地质图例</source>
-        <translation type="unfinished">地质图例</translation>
+        <translation>地质图例</translation>
     </message>
     <message>
         <location filename="../src/ui/wellcomposite/panelpreviewchrome.cpp" line="66" />
@@ -47028,7 +47028,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <message>
         <location filename="../src/ui/wellsection/wellsectiondialogs.cpp" line="160" />
         <source>时深对齐设置…</source>
-        <translation type="unfinished" />
+        <translation>时深对齐设置…</translation>
     </message>
     </context>
 <context>
@@ -54497,107 +54497,107 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="15" />
         <source>时深来源与地震时间基准</source>
-        <translation type="unfinished" />
+        <translation>时深来源与地震时间基准</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="18" />
         <source>按来源保存，影响同一导出中的全部井。保留原始点值；取反仅用于读取换算。地震体共用所填时间零点，采样间隔和振幅不变。</source>
-        <translation type="unfinished" />
+        <translation>按来源保存，影响同一导出中的全部井。保留原始点值；取反仅用于读取换算。地震体共用所填时间零点，采样间隔和振幅不变。</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="23" />
         <source>%1 · %2 份井时深关系 · 示例 %3 点，时间 %4～%5（负值 %6 点）</source>
-        <translation type="unfinished" />
+        <translation>%1 · %2 份井时深关系 · 示例 %3 点，时间 %4～%5（负值 %6 点）</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="29" />
         <source>选择时间单位</source>
-        <translation type="unfinished" />
+        <translation>选择时间单位</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="29" />
         <source>时深时间单位</source>
-        <translation type="unfinished" />
+        <translation>时深时间单位</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
         <source>选择单／双程</source>
-        <translation type="unfinished" />
+        <translation>选择单／双程</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
         <source>双程 TWT</source>
-        <translation type="unfinished" />
+        <translation>双程 TWT</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
         <source>单程 OWT</source>
-        <translation type="unfinished" />
+        <translation>单程 OWT</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="30" />
         <source>时深时间类型</source>
-        <translation type="unfinished" />
+        <translation>时深时间类型</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
         <source>选择时间正方向</source>
-        <translation type="unfinished" />
+        <translation>选择时间正方向</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
         <source>原值已向下为正</source>
-        <translation type="unfinished" />
+        <translation>原值已向下为正</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
         <source>原值取反，转为向下为正</source>
-        <translation type="unfinished" />
+        <translation>原值取反，转为向下为正</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="31" />
         <source>时深符号换算</source>
-        <translation type="unfinished" />
+        <translation>时深符号换算</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="32" />
         <source>填写共同时间零点名称，如工区地震时间零点</source>
-        <translation type="unfinished" />
+        <translation>填写共同时间零点名称，如工区地震时间零点</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="32" />
         <source>共同时间基准</source>
-        <translation type="unfinished">共同时间基准</translation>
+        <translation>共同时间基准</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="33" />
         <source>仅保存时深来源，不修改地震体</source>
-        <translation type="unfinished" />
+        <translation>仅保存时深来源，不修改地震体</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="35" />
         <source>同时关联 TWT 地震体</source>
-        <translation type="unfinished" />
+        <translation>同时关联 TWT 地震体</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="45" />
         <source>所选井没有数据服务时深来源</source>
-        <translation type="unfinished" />
+        <translation>所选井没有数据服务时深来源</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="45" />
         <source>工程为只读，不能保存</source>
-        <translation type="unfinished" />
+        <translation>工程为只读，不能保存</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="47" />
         <source>保存来源与时间基准</source>
-        <translation type="unfinished" />
+        <translation>保存来源与时间基准</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="48" />
         <source>取消</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="48" />

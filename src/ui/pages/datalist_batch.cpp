@@ -85,21 +85,24 @@ void DataListPanel::batchChangeType()
   const paleo::dataops::BatchReceipt receipt = m_cmdSvc.setTypeOverrides(
       QStringList(ids.constBegin(), ids.constEnd()), newType);
   QStringList failures;
-  QVector<AssetRowInfo> updatedRows;
+  QSet<QString> changedIds;
   for (const paleo::dataops::ReceiptItem &it : receipt.items)
   {
     if (it.outcome == paleo::dataops::OpOutcome::FailedRecovered ||
         it.outcome == paleo::dataops::OpOutcome::FailedPartial)
       failures << QStringLiteral("%1: %2").arg(it.targetId, it.reason);
     if (it.outcome == paleo::dataops::OpOutcome::Changed)
-      for (const AssetRowInfo &r : m_rows)
-        if (r.assetId == it.targetId)
-        {
-          AssetRowInfo updated = r;
-          updated.effectiveType = newType;
-          updatedRows.append(updated);
-        }
+      changedIds.insert(it.targetId);
   }
+
+  QVector<AssetRowInfo> updatedRows;
+  // 先写回行快照，类型过滤和虚拟视图才能读取同一个有效类型。
+  if (m_virtualView && !changedIds.isEmpty())
+    for (AssetRowInfo &row : m_rows)
+      if (changedIds.contains(row.assetId)) {
+        row.effectiveType = newType;
+        updatedRows.append(row);
+      }
 
   // 方向 52 B 线：增量通道更新——若虚拟视图在用，走 updateRows 增量发射
   // dataChanged 保留滚动；但改型会改变类型过滤/按类型排序下的行集与表视图

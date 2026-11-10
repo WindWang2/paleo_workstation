@@ -75,7 +75,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   horizons->setObjectName( QStringLiteral( "horizonCombo" ) );
   horizons->setAccessibleName( tr( "单因素图层位" ) );
   horizons->setToolTip( tr( "[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。" ) );
-  horizons->setWhatsThis( tr( "<b>层位（legacy）</b><p>旧工程按单一界面名取输入。启用层段分析后，输入仍取父单元上界面，成果写入对应子层段。</p>" ) );
+  // whatsThis 留给 help::applyWhatsThis 目录回填（tst_shortcuts_shell 校验目录全文）；
+  // 此处写入会让 applyWhatsThis 因非空而跳过，目录文案永远落不到控件上。
   lay->addWidget( horizons );
 
   // ---- m2(B)：单因素清单 + 生成 双区（§10 词表驱动）------------------------
@@ -294,18 +295,21 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
 
 void ConstraintPage::setHorizons( const QStringList &horizons )
 {
-  if(qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>())){
-    refreshAnalysisUnit();return;
-  }
+  // 已接线 SelectionContext 时分析身份走 UnitSelection，但仍须填充
+  // 兼容下拉：生成/就绪检查仍读 horizonCombo，#905 在有 selection 时直接
+  // return 导致壳打开工程后词表为空、意图携带空层位。
   auto *combo = child<QComboBox>( this, "horizonCombo" );
-  if ( !combo )
-    return;
-  const QString keep = combo->currentText();
-  combo->clear();
-  combo->addItems( horizons ); // clear/addItems 触发 currentIndexChanged → 约束列表/井因子随层位刷新
-  if ( !keep.isEmpty() )
-    if ( const int idx = combo->findText( keep ); idx >= 0 && idx != combo->currentIndex() )
-      combo->setCurrentIndex( idx );
+  if ( combo )
+  {
+    const QString keep = combo->currentText();
+    combo->clear();
+    combo->addItems( horizons ); // clear/addItems 触发 currentIndexChanged → 约束列表/井因子随层位刷新
+    if ( !keep.isEmpty() )
+      if ( const int idx = combo->findText( keep ); idx >= 0 && idx != combo->currentIndex() )
+        combo->setCurrentIndex( idx );
+  }
+  if ( qobject_cast<SelectionContext *>( property( "paleo.selection" ).value<QObject *>() ) )
+    refreshAnalysisUnit();
 }
 
 void ConstraintPage::refreshThicknessSamples()

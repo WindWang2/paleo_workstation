@@ -98,7 +98,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   auto *chain = new QPushButton(tr("生成等厚图"), this);
   chain->setObjectName(QStringLiteral("thicknessChainButton"));
   chain->setEnabled(false);
-  chain->setToolTip(tr("[legacy] 编图厚度链仍跟顶部界面 chip；层段分析请用画布「层段分析」选择器（UnitSelection）。"));
+  chain->setToolTip(tr("先在顶部层位 chip 选择层位"));
   chain->setAccessibleName(tr("生成等厚图"));
   connect(chain, &QPushButton::clicked, this, [this] { emit thicknessChainRequested(); });
   markPrimaryButton(chain);

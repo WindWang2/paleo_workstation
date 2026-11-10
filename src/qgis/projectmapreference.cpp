@@ -259,6 +259,11 @@ QgsCoordinateReferenceSystem confirmedSurveyCrs(QgsProject *project)
     if (declared.isValid() && !declared.isGeographic())
       return declared;
   }
+  // 无已确认配准记录时，测区画布必须跟随工程 CRS。原先直接回落到
+  // EPSG:32650，局部工程网格（ENGCRS）被当成可叠加在线底图的投影，
+  // 测区「在线底图」下拉不会禁用。tst_previewmap_assets 覆盖此约定。
+  if (project->crs().isValid())
+    return project->crs();
   return fallback;
 }
 }

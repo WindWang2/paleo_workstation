@@ -2633,14 +2633,27 @@ private slots:
         assetId = a.id;
     QVERIFY2(!assetId.isEmpty(), "linkExternal 导入的资产未按 sourceUri 找到");
     const CatalogVersion v = cat->currentVersion(assetId);
-    QVERIFY(!v.managed);                                  // 外链，不复制
+    QVERIFY(!v.managed);                                  // 外链，不复制源文件
     QCOMPARE(QDir::cleanPath(v.path), srcAbs);            // 路径指回源
     QVERIFY(!v.sha256.isEmpty());                         // 入库时冻结摘要
     QCOMPARE(v.sha256, sha256OfFile(src));
-    // 工程受管区没有该资产的字节目录。
-    QVERIFY(!QDir(QDir(projectDir).filePath(
-                      QStringLiteral("artifacts/raw/") + assetId))
-                 .exists());
+    // 外链不得把源字节复制进受管区。独立 LAS 仍会在
+    // artifacts/raw/<asset>/<version>/native-model/ 写解析缓存（prepare
+    // 在「尚未属于工区模型」时的明确口径），目录存在本身不再表示复制了源文件。
+    const QString rawRoot = QDir(projectDir).filePath(
+        QStringLiteral("artifacts/raw/") + assetId);
+    if (QDir(rawRoot).exists())
+    {
+      QDirIterator it(rawRoot, QDir::Files, QDirIterator::Subdirectories);
+      while (it.hasNext())
+      {
+        const QString path = it.next();
+        QVERIFY2(path.contains(QStringLiteral("/native-model/")),
+                 qPrintable(QStringLiteral("外链复制了源字节：%1").arg(path)));
+        QVERIFY(QFileInfo(path).fileName() != QFileInfo(src).fileName());
+        QVERIFY(sha256OfFile(path) != v.sha256);
+      }
+    }
     QCOMPARE(cat->assets().size(), 1);
   }
 

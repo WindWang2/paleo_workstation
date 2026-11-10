@@ -8,6 +8,7 @@
 
 #include <QByteArray>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringList>
@@ -93,6 +94,11 @@ bool generateWithOption(const QString &rasterPath, const QString &outputGpkg,
   if ( outputGpkg.isEmpty() )
   {
     setError( error, QStringLiteral( "contour output path is empty" ) );
+    return false;
+  }
+  if ( QFileInfo( outputGpkg ).isDir() )
+  {
+    setError( error, QStringLiteral( "contour output path is a directory: %1" ).arg( outputGpkg ) );
     return false;
   }
 
@@ -544,6 +550,11 @@ bool generateStructuralContours( const QString &rasterPath,
     setError( error, QStringLiteral( "contour output path is empty" ) );
     return false;
   }
+  if ( QFileInfo( outputGpkg ).isDir() )
+  {
+    setError( error, QStringLiteral( "contour output path is a directory: %1" ).arg( outputGpkg ) );
+    return false;
+  }
   // D8：阶段边界轮询——栅格读取（GDALRasterIO 单次调用）无法打断，读取完成
   // 后立即给取消一个退出点，不再等到整条提线链结束才丢弃产物。
   if ( cancelled && cancelled() )
@@ -691,6 +702,11 @@ bool generateAnalysisFieldContours( const QString &rasterPath, const QString &ou
   if ( outputGpkg.isEmpty() )
   {
     setError( error, QStringLiteral( "contour output path is empty" ) );
+    return false;
+  }
+  if ( QFileInfo( outputGpkg ).isDir() )
+  {
+    setError( error, QStringLiteral( "contour output path is a directory: %1" ).arg( outputGpkg ) );
     return false;
   }
   if ( cancelled && cancelled() )

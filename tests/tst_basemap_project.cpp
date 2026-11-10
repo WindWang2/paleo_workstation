@@ -3,6 +3,8 @@
 #include <QDir>
 #include <QFile>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
@@ -153,18 +155,19 @@ private slots:
   {
     QTemporaryDir source, dir;
     const QString map = source.filePath("legacy.mbtiles");
+    const QString qgz = dir.filePath("area.qgz");
     QVERIFY(makeTiles(map, qRgb(120, 120, 120)));
     {
-      QgisProjectService project;
-      QVERIFY(project.createProject(dir.filePath("area.qgz")));
-      auto file = project.mapConfiguration();
-      file.basemapEnabled = false;
-      file.basemapTopo = map;
-      QVERIFY(writeProjectFile(dir.path(), file));
+      QgsProject legacy;
+      const QJsonObject basemap{{"topo", map}, {"enabled", false}};
+      legacy.writeEntry("paleo", "mapConfiguration",
+                        QString::fromUtf8(QJsonDocument(basemap).toJson(QJsonDocument::Compact)));
+      QVERIFY(legacy.write(qgz));
     }
     QgisProjectService project;
-    QVERIFY(project.openProject(dir.filePath("project.paleo")));
-    QVERIFY(project.writeProject());
+    QVERIFY2(project.openProject(qgz), qPrintable(project.lastErrors().join(';')));
+    QCOMPARE(project.mapConfiguration().basemapTopo, map);
+    QVERIFY2(project.writeProject(), qPrintable(project.lastErrors().join(';')));
     const auto file = readProjectFile(dir.filePath("project.paleo"));
     QVERIFY(file.basemapTopo.startsWith("basemap/"));
     QCOMPARE(contents(dir.filePath(file.basemapTopo)), contents(map));

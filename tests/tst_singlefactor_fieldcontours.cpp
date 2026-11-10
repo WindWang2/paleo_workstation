@@ -609,7 +609,7 @@ void tst_singlefactor_fieldcontours::structuralContoursEndToEnd()
                                 QStringLiteral( "detour_applied" ) } )
     QVERIFY2( vectorLayer->fields().indexOf( name ) >= 0, qPrintable( name ) );
 
-  // 合成 golden 的 final contours 总条数 = 16；detour 已触发。
+  // 合成 golden 的 final contours 总条数 = 17（#725 级别上锚后）；detour 已触发。
   const QJsonObject golden =
       readJson( fixturePath( QStringLiteral( "structural_synthetic_golden.json" ) ) );
   const QJsonObject expectedContours =

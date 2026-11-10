@@ -1563,9 +1563,10 @@ class TestUiShell : public QObject
         auto *panel = category->findChild<SARibbonPanel *>("ribbonFaciesPartitionPanel"); QVERIFY(panel && !panel->isHidden());
         QCOMPARE(category->findChild<QComboBox *>("ribbonPartitionFaciesCode")->currentData().toInt(), 2);
       }
+      m_win->findChild<QStackedWidget *>("centerStack")->setCurrentIndex(1);
+      m_win->show();
       auto *canvas = m_ctx->canvasCtl()->canvas(); canvas->setDestinationCrs(layer->crs());
       canvas->setLayers({layer}); canvas->setExtent(QgsRectangle(-20, -20, 220, 120)); canvas->refresh();
-      m_win->findChild<QStackedWidget *>("centerStack")->setCurrentIndex(1);
       if (!qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty()) {
         m_win->resize(1400, 900); m_win->show();
         QSignalSpy rendered(canvas, &QgsMapCanvas::mapCanvasRefreshed); canvas->refresh();
@@ -1603,6 +1604,10 @@ class TestUiShell : public QObject
       clickMap(-5,-5,Qt::LeftButton); clickMap(-5,-5,Qt::RightButton);
       QVERIFY(m_win->statusBar()->currentMessage().contains("有效区域"));
       QCOMPARE(layer->featureCount(), 4); QVERIFY(snapshot("05-rejected-overlay"));
+      // Direct map-tool calls bypass the focus change of a real canvas click.
+      QApplication::setActiveWindow(m_win);
+      canvas->setFocus();
+      QTRY_VERIFY(canvas->hasFocus());
       editor->actionUndo()->trigger(); QCOMPARE(layer->featureCount(), 3);
       editor->actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
       QVERIFY(m_win->statusBar()->currentMessage().isEmpty());

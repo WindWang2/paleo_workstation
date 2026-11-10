@@ -39,6 +39,7 @@
 #include "pages/wellpredictionpanel.h"
 #include "paleoicons.h"
 #include "paleomainwindow.h"
+#include "commandactionbinder.h"
 #include "paleoribbon.h"
 #include "taskpanel.h" // 智能预测开跑切到任务页
 #include <QAction>
@@ -479,10 +480,12 @@ void PaleoMainWindow::attachMappingEditBasisEntry(MappingWorkbench *workbench, M
       basis->setToolTip(tr("填写本次解释说明和修改目的，可选取当前参考证据，启用后绘制或修改相面。"));
       basis->setWhatsThis(basis->toolTip());
       panel->addSmallAction(basis);
-      connect(basis, &QAction::triggered, this, openBasis);
+      bindCommand(QStringLiteral("compose.editBasis"), [openBasis](const QVariantMap &) { openBasis(); });
+      routeCommand(basis, QStringLiteral("compose.editBasis"));
       auto *reference = new QAction(tr("参考证据"), this);
       reference->setObjectName(QStringLiteral("ribbonReferenceEvidence"));
       PaleoRibbon::mirror(reference, page->commandButton("referencePanel"), false, false);
+      commandBinder()->bindMirror(reference, QStringLiteral("compose.references"));
       reference->setWhatsThis(tr("打开参考证据面板，在面板内添加视图并选择证据，与主图联动对照绘制。"));
       panel->addSmallAction(reference);
     }

@@ -33,9 +33,12 @@ namespace
       {
         setObjectName(QStringLiteral("paleoButtonMirror"));
         button->installEventFilter(this);
+        // U1：接进命令注册表的动作（带 paleoCommandId）由 CommandDispatcher 经
+        // activateMirror 激活——这里不再自己转调，免得一次点击跑两遍。
         QObject::connect(action, &QAction::triggered, this, [this] {
-          if (m_button && m_button->isEnabled())
-            m_button->click();
+          if (!m_action || m_action->property("paleoCommandId").isValid())
+            return;
+          activate();
         });
         if (button->isCheckable())
           QObject::connect(button, &QAbstractButton::toggled, action, &QAction::setChecked);
@@ -43,6 +46,16 @@ namespace
       }
 
       void resync() { sync(); } // whatsThis 变化无事件，由 syncMirrors 显式调
+      bool activate(int targetChecked = -1)
+      {
+        if (!m_button || !m_button->isEnabled())
+          return false;
+        // 可勾选源按钮 + 显式目标态：已在目标态就不点（click 会翻转）；没给目标态 = 翻转。
+        if (targetChecked >= 0 && m_button->isCheckable() && m_button->isChecked() == bool(targetChecked))
+          return true;
+        m_button->click();
+        return true;
+      }
 
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
@@ -145,19 +158,19 @@ namespace
 
 namespace PaleoRibbon
 {
-  void scrollIntoView(QWidget *btn)
+  void scrollIntoView(QWidget *button)
   {
-    if (!btn)
+    if (!button)
       return;
     SARibbonCategory *cat = nullptr;
-    for (QWidget *p = btn->parentWidget(); p && !cat; p = p->parentWidget())
+    for (QWidget *p = button->parentWidget(); p && !cat; p = p->parentWidget())
       cat = qobject_cast<SARibbonCategory *>(p);
     // categoryLayout() 是 protected——同一对象经公有 layout() 也能拿到
     //（vendor 内部也用 qobject_cast 这条等价路径）。
     auto *lay = cat ? qobject_cast<SARibbonCategoryLayout *>(cat->layout()) : nullptr;
     if (!lay)
       return;
-    const QRect r(btn->mapTo(cat, QPoint(0, 0)), btn->size());
+    const QRect r(button->mapTo(cat, QPoint(0, 0)), button->size());
     // 可见的滚动钮压住类别边缘，预留它的宽度免得焦点件藏在按钮底下。
     int marginL = 0, marginR = 0;
     for (auto *tb : cat->findChildren<QToolButton *>())
@@ -232,6 +245,12 @@ namespace PaleoRibbon
       // ButtonMirror 不带 Q_OBJECT，findChild 只能到 QObject*——名字即类型契约。
       if (auto *m = a->findChild<QObject *>(QStringLiteral("paleoButtonMirror")))
         static_cast<ButtonMirror *>(m)->resync();
+  }
+
+  bool activateMirror(QAction *action, int targetChecked)
+  {
+    auto *m = action ? action->findChild<QObject *>(QStringLiteral("paleoButtonMirror")) : nullptr;
+    return m && static_cast<ButtonMirror *>(m)->activate(targetChecked);
   }
 
   void applyGate(QAction *action, const QString &reason)

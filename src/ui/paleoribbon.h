@@ -13,8 +13,10 @@ class SARibbonToolButton;
 //
 // 命令与状态的分工：页面板（pages/pagepanels）的 QPushButton 仍是命令的
 // 状态源——门控 enabled、reason tooltip（§35）、动态文案都由面板/壳写在
-// 按钮上；ribbon 动作只做镜像并把触发转成 button->click()。一条命令只有
-// 一条代码路径，面板单测照旧直接点按钮。
+// 按钮上；ribbon 动作只做镜像。U1 起镜像动作登记进统一命令注册表
+// （CommandActionBinder::bindMirror）：触发经 CommandDispatcher 再由
+// activateMirror 激活按钮——一条命令只有一条代码路径，Ctrl+K/文件菜单与
+// ribbon 同源；面板单测照旧直接点按钮。U3 检查器接管参数面板后按钮退役。
 namespace PaleoRibbon
 {
   // 必须在 SARibbonMainWindow 构造前调用：注册静态库 qrc，关掉「跟随系统
@@ -51,6 +53,10 @@ namespace PaleoRibbon
   void makeKeyboardReachable(QWidget *root);
   // 把（已聚焦的）类别命令钮横向滚入可见区；折叠重排后复位滚动时也要补滚。
   void scrollIntoView(QWidget *button);
+
+  // 激活镜像源按钮（源按钮可用时 click，返回是否激活）。命令处理器专用——
+  // 未登记命令的镜像动作仍在自己的 triggered 里转调。
+  bool activateMirror(QAction *action, int targetChecked = -1); // -1 = 不限目标态（可勾选源按钮即翻转）
 
   // 门控只服务镜像 action（带 "paleoButtonMirror" 子件的）：把原因存进
   // action 的动态属性 "paleoGateReason"（空串=放行）并手动补一轮同步——

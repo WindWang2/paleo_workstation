@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleomainwindow.h"
+#include "commandactionbinder.h"
 
 #include "paleoicons.h"
 #include "paleotheme.h"
@@ -30,6 +31,8 @@ void PaleoMainWindow::buildCoordinateTools(QLabel *coordLabel)
       PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")),
       tr("坐标定位与转换…"));
   toolsAction->setObjectName(QStringLiteral("statusCoordinateToolsAction"));
+  // U1：本动作即实现；文件菜单「QGIS 坐标工具…」经命令 project.coordinateTools 调它。
+  commandBinder()->bindNative(toolsAction, QStringLiteral("project.coordinateTools"));
   auto *copyMapAction = menu->addAction(
       PaleoIcons::qgisTheme(QStringLiteral("mActionEditCopy.svg")), tr("复制地图坐标"));
   copyMapAction->setObjectName(QStringLiteral("statusCopyMapCoordinates"));

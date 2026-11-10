@@ -20404,6 +20404,22 @@ Crossline: %3 ~ %4</source>
     <context>
         <name>PaleoMainWindow</name>
         <message>
+            <source>命令不可用：%1</source>
+            <translation>Command unavailable: %1</translation>
+        </message>
+        <message>
+            <source>工程处于只读模式</source>
+            <translation>The project is read-only</translation>
+        </message>
+        <message>
+            <source>工程正在打开，请稍候</source>
+            <translation>The project is opening, please wait</translation>
+        </message>
+        <message>
+            <source>错误历史面板未就绪</source>
+            <translation>The error history panel is not ready</translation>
+        </message>
+        <message>
             <source>来源文档未打开</source>
             <translation>Source document is not open</translation>
         </message>
@@ -28456,6 +28472,10 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
+        <message>
+            <source>当前没有可用的子项</source>
+            <translation>No sub-item is currently available</translation>
+        </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="279" />
             <source>能力契约版本；缺省 1</source>
@@ -54484,6 +54504,672 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>操作未能完成</source>
             <translation type="unfinished" />
+        </message>
+    </context>
+    <context>
+        <name>CommandLocatorFilter</name>
+        <message>
+            <source>命令</source>
+            <translation>Commands</translation>
+        </message>
+        <message>
+            <source>不可用：%1</source>
+            <translation>Unavailable: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>PaleoCommands</name>
+        <message>
+            <source>新建工程</source>
+            <translation>New project</translation>
+        </message>
+        <message>
+            <source>新建空白工程并设置资料来源</source>
+            <translation>Create a blank project and set its data sources</translation>
+        </message>
+        <message>
+            <source>打开工程</source>
+            <translation>Open project</translation>
+        </message>
+        <message>
+            <source>打开 .paleo / QGIS 工程</source>
+            <translation>Open a .paleo / QGIS project</translation>
+        </message>
+        <message>
+            <source>从工区文件夹新建</source>
+            <translation>New project from work-area folder</translation>
+        </message>
+        <message>
+            <source>选择工区目录：已有工程直接打开，否则在目录内建工程并导入</source>
+            <translation>Choose a work-area folder: open its project if one exists, otherwise create one there and import</translation>
+        </message>
+        <message>
+            <source>保存工程</source>
+            <translation>Save project</translation>
+        </message>
+        <message>
+            <source>保存当前工程</source>
+            <translation>Save the current project</translation>
+        </message>
+        <message>
+            <source>工程资料设置</source>
+            <translation>Project data sources</translation>
+        </message>
+        <message>
+            <source>补充或调整当前工程的资料来源</source>
+            <translation>Add or adjust the data sources of the current project</translation>
+        </message>
+        <message>
+            <source>工程坐标与底图</source>
+            <translation>Project CRS and basemap</translation>
+        </message>
+        <message>
+            <source>设置工程坐标参考与底图</source>
+            <translation>Set the project coordinate reference system and basemap</translation>
+        </message>
+        <message>
+            <source>坐标定位与转换</source>
+            <translation>Coordinate locate and convert</translation>
+        </message>
+        <message>
+            <source>QGIS 坐标定位、格式转换与基准操作</source>
+            <translation>QGIS coordinate locating, format conversion and datum operations</translation>
+        </message>
+        <message>
+            <source>加入网络底图预设</source>
+            <translation>Add online basemap preset</translation>
+        </message>
+        <message>
+            <source>把选定的在线底图加入图层树（参数 presetId）</source>
+            <translation>Add the selected online basemap to the layer tree (parameter presetId)</translation>
+        </message>
+        <message>
+            <source>起始页</source>
+            <translation>Start page</translation>
+        </message>
+        <message>
+            <source>回到起始页</source>
+            <translation>Return to the start page</translation>
+        </message>
+        <message>
+            <source>退出</source>
+            <translation>Quit</translation>
+        </message>
+        <message>
+            <source>退出应用</source>
+            <translation>Quit the application</translation>
+        </message>
+        <message>
+            <source>切到「数据管理」页签</source>
+            <translation>Switch to the Data Management tab</translation>
+        </message>
+        <message>
+            <source>切到「地层对比」页签</source>
+            <translation>Switch to the Stratigraphic Correlation tab</translation>
+        </message>
+        <message>
+            <source>切到「单井相分析」页签</source>
+            <translation>Switch to the Well Facies Analysis tab</translation>
+        </message>
+        <message>
+            <source>切到「地震相分析」页签</source>
+            <translation>Switch to the Seismic Facies Analysis tab</translation>
+        </message>
+        <message>
+            <source>切到「古地理编图」页签</source>
+            <translation>Switch to the Paleogeographic Mapping tab</translation>
+        </message>
+        <message>
+            <source>打开数据视图</source>
+            <translation>Open data view</translation>
+        </message>
+        <message>
+            <source>打开当前工程的数据列表与资料预览。</source>
+            <translation>Open the data list and preview of the current project.</translation>
+        </message>
+        <message>
+            <source>打开地层对比</source>
+            <translation>Open stratigraphic correlation</translation>
+        </message>
+        <message>
+            <source>打开原生连井曲线与分层结果，使用当前工区的数据服务。</source>
+            <translation>Open native well-correlation curves and tops using the current work area's data service.</translation>
+        </message>
+        <message>
+            <source>井预测</source>
+            <translation>Well prediction</translation>
+        </message>
+        <message>
+            <source>按当前地层预测井的相分类并保存井预测结果。</source>
+            <translation>Predict well facies for the current interval and save the well prediction results.</translation>
+        </message>
+        <message>
+            <source>编制单因素图</source>
+            <translation>Compile single-factor map</translation>
+        </message>
+        <message>
+            <source>按当前地层选择单因素方法，编制对应图件。</source>
+            <translation>Choose a single-factor method for the current interval and compile the map.</translation>
+        </message>
+        <message>
+            <source>地震相预测</source>
+            <translation>Seismic facies prediction</translation>
+        </message>
+        <message>
+            <source>预测地震相并生成面状结果。</source>
+            <translation>Predict seismic facies and generate polygon results.</translation>
+        </message>
+        <message>
+            <source>送交验证</source>
+            <translation>Send to validation</translation>
+        </message>
+        <message>
+            <source>切到验证页，用井点残差检查当前成果</source>
+            <translation>Switch to validation and check the current result against well residuals</translation>
+        </message>
+        <message>
+            <source>参数面板</source>
+            <translation>Parameters panel</translation>
+        </message>
+        <message>
+            <source>显示/隐藏右侧参数面板</source>
+            <translation>Show/hide the right-hand parameters panel</translation>
+        </message>
+        <message>
+            <source>属性表</source>
+            <translation>Attribute table</translation>
+        </message>
+        <message>
+            <source>在底部面板打开图层属性表</source>
+            <translation>Open the layer attribute table in the bottom panel</translation>
+        </message>
+        <message>
+            <source>发布记录</source>
+            <translation>Release history</translation>
+        </message>
+        <message>
+            <source>在底部面板查看已发布的版本</source>
+            <translation>View published versions in the bottom panel</translation>
+        </message>
+        <message>
+            <source>连井剖面</source>
+            <translation>Well correlation section</translation>
+        </message>
+        <message>
+            <source>按地层连井：多井对比、分层连线与井间地震</source>
+            <translation>Correlate wells by interval: multi-well comparison, top connections and inter-well seismic</translation>
+        </message>
+        <message>
+            <source>井震剖面</source>
+            <translation>Well-seismic section</translation>
+        </message>
+        <message>
+            <source>打开井震剖面工作台</source>
+            <translation>Open the well-seismic section workbench</translation>
+        </message>
+        <message>
+            <source>三维视口</source>
+            <translation>3D viewport</translation>
+        </message>
+        <message>
+            <source>打开三维地震体立体视口</source>
+            <translation>Open the 3D seismic volume viewport</translation>
+        </message>
+        <message>
+            <source>地震剖面</source>
+            <translation>Seismic section</translation>
+        </message>
+        <message>
+            <source>打开二维地震与井震标定剖面</source>
+            <translation>Open the 2D seismic and well-tie section</translation>
+        </message>
+        <message>
+            <source>错误历史</source>
+            <translation>Error history</translation>
+        </message>
+        <message>
+            <source>打开错误历史面板</source>
+            <translation>Open the error history panel</translation>
+        </message>
+        <message>
+            <source>深色模式</source>
+            <translation>Dark mode</translation>
+        </message>
+        <message>
+            <source>切换浅色/深色主题</source>
+            <translation>Toggle light/dark theme</translation>
+        </message>
+        <message>
+            <source>紧凑密度</source>
+            <translation>Compact density</translation>
+        </message>
+        <message>
+            <source>切换舒适/紧凑界面密度</source>
+            <translation>Toggle comfortable/compact density</translation>
+        </message>
+        <message>
+            <source>单因素图更多工具</source>
+            <translation>More single-factor map tools</translation>
+        </message>
+        <message>
+            <source>连井剖面、井震剖面、地图导航、相图显示、捕捉与撤销</source>
+            <translation>Well section, well-seismic section, map navigation, facies display, snapping and undo</translation>
+        </message>
+        <message>
+            <source>平移</source>
+            <translation>Pan</translation>
+        </message>
+        <message>
+            <source>拖动平移地图</source>
+            <translation>Drag to pan the map</translation>
+        </message>
+        <message>
+            <source>放大</source>
+            <translation>Zoom in</translation>
+        </message>
+        <message>
+            <source>点击或框选放大</source>
+            <translation>Click or drag a box to zoom in</translation>
+        </message>
+        <message>
+            <source>缩小</source>
+            <translation>Zoom out</translation>
+        </message>
+        <message>
+            <source>点击或框选缩小</source>
+            <translation>Click or drag a box to zoom out</translation>
+        </message>
+        <message>
+            <source>全图</source>
+            <translation>Zoom to full extent</translation>
+        </message>
+        <message>
+            <source>缩放到全部图层</source>
+            <translation>Zoom to all layers</translation>
+        </message>
+        <message>
+            <source>识别</source>
+            <translation>Identify</translation>
+        </message>
+        <message>
+            <source>指针落到要素上时显示悬浮信息，多个命中可切换</source>
+            <translation>Show hover info for features under the pointer; cycle through multiple hits</translation>
+        </message>
+        <message>
+            <source>导入现有古地理图</source>
+            <translation>Import existing paleogeographic maps</translation>
+        </message>
+        <message>
+            <source>按层位管理古地理图，Shapefile 配套文件作为一项</source>
+            <translation>Manage paleogeographic maps by horizon; Shapefile sidecar files count as one item</translation>
+        </message>
+        <message>
+            <source>导入离线底图</source>
+            <translation>Import offline basemap</translation>
+        </message>
+        <message>
+            <source>将 MBTiles、GeoTIFF 等底图及配套文件复制进工程，供地图离线显示</source>
+            <translation>Copy MBTiles, GeoTIFF and other basemaps with sidecar files into the project for offline display</translation>
+        </message>
+        <message>
+            <source>导入图件文件夹</source>
+            <translation>Import map folder</translation>
+        </message>
+        <message>
+            <source>递归导入并识别图件层位</source>
+            <translation>Import recursively and detect map horizons</translation>
+        </message>
+        <message>
+            <source>导入文件</source>
+            <translation>Import files</translation>
+        </message>
+        <message>
+            <source>选择一个或多个资料文件导入</source>
+            <translation>Choose one or more data files to import</translation>
+        </message>
+        <message>
+            <source>导入工区文件夹</source>
+            <translation>Import work-area folder</translation>
+        </message>
+        <message>
+            <source>确认每个文件的类型后整目录入库</source>
+            <translation>Confirm each file's type, then import the whole folder</translation>
+        </message>
+        <message>
+            <source>导入井数据</source>
+            <translation>Import well data</translation>
+        </message>
+        <message>
+            <source>选择一个或多个井位/分层文件入库</source>
+            <translation>Choose one or more well location / tops files to import</translation>
+        </message>
+        <message>
+            <source>导入测井数据</source>
+            <translation>Import well logs</translation>
+        </message>
+        <message>
+            <source>选择 LAS、DLIS、LIS、XML 或 CSV/TXT/TSV 测井数据</source>
+            <translation>Choose LAS, DLIS, LIS, XML or CSV/TXT/TSV well-log data</translation>
+        </message>
+        <message>
+            <source>导入地震数据</source>
+            <translation>Import seismic data</translation>
+        </message>
+        <message>
+            <source>选择 SEG-Y 等地震数据文件入库</source>
+            <translation>Choose SEG-Y or other seismic files to import</translation>
+        </message>
+        <message>
+            <source>导入边界数据</source>
+            <translation>Import boundary data</translation>
+        </message>
+        <message>
+            <source>选择边界矢量文件入库</source>
+            <translation>Choose boundary vector files to import</translation>
+        </message>
+        <message>
+            <source>只看未决</source>
+            <translation>Show unresolved only</translation>
+        </message>
+        <message>
+            <source>只显示还有未决关联的数据</source>
+            <translation>Show only data with unresolved links</translation>
+        </message>
+        <message>
+            <source>刷新列表</source>
+            <translation>Refresh list</translation>
+        </message>
+        <message>
+            <source>按数据目录重建列表</source>
+            <translation>Rebuild the list from the data catalog</translation>
+        </message>
+        <message>
+            <source>资料图谱</source>
+            <translation>Data graph</translation>
+        </message>
+        <message>
+            <source>查看文件资料关联、版本与成果来源</source>
+            <translation>View file links, versions and result provenance</translation>
+        </message>
+        <message>
+            <source>最大化预览</source>
+            <translation>Maximize preview</translation>
+        </message>
+        <message>
+            <source>预览占满数据面（数据列表与右侧面板隐藏）</source>
+            <translation>Let the preview fill the data page (hides the data list and right panel)</translation>
+        </message>
+        <message>
+            <source>运行预测</source>
+            <translation>Run prediction</translation>
+        </message>
+        <message>
+            <source>按当前参数运行井相或地震相预测</source>
+            <translation>Run well or seismic facies prediction with the current parameters</translation>
+        </message>
+        <message>
+            <source>获取单因素</source>
+            <translation>Acquire single factor</translation>
+        </message>
+        <message>
+            <source>从井数据获取当前层段的单因素值</source>
+            <translation>Acquire single-factor values for the current interval from well data</translation>
+        </message>
+        <message>
+            <source>生成等值图</source>
+            <translation>Generate contour map</translation>
+        </message>
+        <message>
+            <source>获取单因素并生成等值图</source>
+            <translation>Acquire the single factor and generate a contour map</translation>
+        </message>
+        <message>
+            <source>生成单因素图</source>
+            <translation>Generate single-factor map</translation>
+        </message>
+        <message>
+            <source>约束 IDW 插值生成单因素图</source>
+            <translation>Generate a single-factor map by constrained IDW interpolation</translation>
+        </message>
+        <message>
+            <source>绘制约束</source>
+            <translation>Draw constraint</translation>
+        </message>
+        <message>
+            <source>按参数面板当前形状绘制约束线</source>
+            <translation>Draw a constraint line with the shape set in the parameters panel</translation>
+        </message>
+        <message>
+            <source>间隔线</source>
+            <translation>Barrier line</translation>
+        </message>
+        <message>
+            <source>绘制间隔线</source>
+            <translation>Draw a barrier line</translation>
+        </message>
+        <message>
+            <source>方向线</source>
+            <translation>Direction line</translation>
+        </message>
+        <message>
+            <source>绘制方向线</source>
+            <translation>Draw a direction line</translation>
+        </message>
+        <message>
+            <source>导入间隔线</source>
+            <translation>Import barrier lines</translation>
+        </message>
+        <message>
+            <source>从矢量文件导入间隔线</source>
+            <translation>Import barrier lines from a vector file</translation>
+        </message>
+        <message>
+            <source>导入方向线</source>
+            <translation>Import direction lines</translation>
+        </message>
+        <message>
+            <source>从矢量文件导入方向线</source>
+            <translation>Import direction lines from a vector file</translation>
+        </message>
+        <message>
+            <source>提取等值线</source>
+            <translation>Extract contours</translation>
+        </message>
+        <message>
+            <source>从已发布的单因素栅格提取等值线</source>
+            <translation>Extract contours from the published single-factor raster</translation>
+        </message>
+        <message>
+            <source>生成等厚图</source>
+            <translation>Generate isopach map</translation>
+        </message>
+        <message>
+            <source>按当前层位运行编图厚度链</source>
+            <translation>Run the mapping thickness chain for the current horizon</translation>
+        </message>
+        <message>
+            <source>合成编图</source>
+            <translation>Fuse map</translation>
+        </message>
+        <message>
+            <source>融合依据生成相图</source>
+            <translation>Fuse the evidence into a facies map</translation>
+        </message>
+        <message>
+            <source>转为相多边形</source>
+            <translation>Convert to facies polygons</translation>
+        </message>
+        <message>
+            <source>把相栅格转为相多边形</source>
+            <translation>Convert the facies raster to facies polygons</translation>
+        </message>
+        <message>
+            <source>导出地质图</source>
+            <translation>Export geological map</translation>
+        </message>
+        <message>
+            <source>把当前层位图导出为 PDF。</source>
+            <translation>Export the current horizon map as PDF.</translation>
+        </message>
+        <message>
+            <source>图件设计器</source>
+            <translation>Layout designer</translation>
+        </message>
+        <message>
+            <source>打开图件设计器</source>
+            <translation>Open the layout designer</translation>
+        </message>
+        <message>
+            <source>地图册</source>
+            <translation>Atlas</translation>
+        </message>
+        <message>
+            <source>打开地图册批量导出</source>
+            <translation>Open atlas batch export</translation>
+        </message>
+        <message>
+            <source>保存版本</source>
+            <translation>Save version</translation>
+        </message>
+        <message>
+            <source>把当前图件登记为新版本</source>
+            <translation>Register the current map as a new version</translation>
+        </message>
+        <message>
+            <source>发布</source>
+            <translation>Publish</translation>
+        </message>
+        <message>
+            <source>发布当前图件版本</source>
+            <translation>Publish the current map version</translation>
+        </message>
+        <message>
+            <source>编辑依据</source>
+            <translation>Edit basis</translation>
+        </message>
+        <message>
+            <source>打开编图依据编辑</source>
+            <translation>Open mapping basis editing</translation>
+        </message>
+        <message>
+            <source>参考资料</source>
+            <translation>References</translation>
+        </message>
+        <message>
+            <source>打开编图参考资料面板</source>
+            <translation>Open the mapping references panel</translation>
+        </message>
+        <message>
+            <source>运行验证</source>
+            <translation>Run validation</translation>
+        </message>
+        <message>
+            <source>用井点残差检查当前成果</source>
+            <translation>Check the current result against well residuals</translation>
+        </message>
+        <message>
+            <source>看这条剖面</source>
+            <translation>View this section</translation>
+        </message>
+        <message>
+            <source>打开验证问题所在的地震剖面</source>
+            <translation>Open the seismic section where the validation issue lies</translation>
+        </message>
+        <message>
+            <source>选择要素</source>
+            <translation>Select features</translation>
+        </message>
+        <message>
+            <source>添加要素</source>
+            <translation>Add feature</translation>
+        </message>
+        <message>
+            <source>添加点</source>
+            <translation>Add point</translation>
+        </message>
+        <message>
+            <source>添加线</source>
+            <translation>Add line</translation>
+        </message>
+        <message>
+            <source>添加面</source>
+            <translation>Add polygon</translation>
+        </message>
+        <message>
+            <source>整形</source>
+            <translation>Reshape</translation>
+        </message>
+        <message>
+            <source>移动要素</source>
+            <translation>Move features</translation>
+        </message>
+        <message>
+            <source>删除要素</source>
+            <translation>Delete features</translation>
+        </message>
+        <message>
+            <source>节点编辑</source>
+            <translation>Vertex editing</translation>
+        </message>
+        <message>
+            <source>相面分区操作</source>
+            <translation>Facies partition operations</translation>
+        </message>
+        <message>
+            <source>分割所选相面</source>
+            <translation>Split selected facies polygon</translation>
+        </message>
+        <message>
+            <source>新建 / 覆盖相面</source>
+            <translation>New / overlay facies polygon</translation>
+        </message>
+        <message>
+            <source>合并所选相面</source>
+            <translation>Merge selected facies polygons</translation>
+        </message>
+        <message>
+            <source>拓扑编辑</source>
+            <translation>Topological editing</translation>
+        </message>
+        <message>
+            <source>跨图层拓扑</source>
+            <translation>Cross-layer topology</translation>
+        </message>
+        <message>
+            <source>编辑模式</source>
+            <translation>Edit mode</translation>
+        </message>
+        <message>
+            <source>保存编辑</source>
+            <translation>Save edits</translation>
+        </message>
+        <message>
+            <source>取消编辑</source>
+            <translation>Cancel edits</translation>
+        </message>
+        <message>
+            <source>撤销</source>
+            <translation>Undo</translation>
+        </message>
+        <message>
+            <source>重做</source>
+            <translation>Redo</translation>
+        </message>
+        <message>
+            <source>时深批量转换</source>
+            <translation>Batch time-depth conversion</translation>
+        </message>
+        <message>
+            <source>按速度模型批量转换井样点深度</source>
+            <translation>Batch-convert well sample depths with the velocity model</translation>
+        </message>
+        <message>
+            <source>地震属性计算</source>
+            <translation>Seismic attribute computation</translation>
+        </message>
+        <message>
+            <source>RMS、包络与相干属性计算</source>
+            <translation>RMS, envelope and coherence attribute computation</translation>
         </message>
     </context>
 </TS>

@@ -48,11 +48,24 @@ if(PALEO_LRELEASE_EXECUTABLE)
     VERBATIM
   )
 
+  # 英文目录 paleo_en.qm（UI 重设计 U1）：应用仍不全局安装英文目录（英文骨架大多 unfinished），
+  # 只供 Ctrl+K 命令搜索按英文标题匹配（PaleoCommands 上下文，见 paleomainwindow_commands.cpp）。
+  set(PALEO_EN_TS "${CMAKE_SOURCE_DIR}/translations/paleo_en.ts")
+  set(PALEO_EN_QM "${CMAKE_CURRENT_BINARY_DIR}/translations/paleo_en.qm")
+  add_custom_command(
+    OUTPUT "${PALEO_EN_QM}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/translations"
+    COMMAND ${PALEO_LRELEASE_EXECUTABLE} "${PALEO_EN_TS}" -qm "${PALEO_EN_QM}"
+    DEPENDS "${PALEO_EN_TS}"
+    COMMENT "Compiling translations/paleo_en.ts -> paleo_en.qm via lrelease"
+    VERBATIM
+  )
+
   # 显式构建目标：
   #   ninja paleo_lrelease   - 编译翻译 .qm
   #   ninja translations     - 标准别名（与 QGIS/Qt 生态习惯对齐）
   # 挂 ALL 保证 cmake --build build 默认构建时自动产出 .qm 无需手动步骤
-  add_custom_target(paleo_lrelease ALL DEPENDS "${PALEO_ZH_CN_QM}")
+  add_custom_target(paleo_lrelease ALL DEPENDS "${PALEO_ZH_CN_QM}" "${PALEO_EN_QM}")
   add_custom_target(translations DEPENDS paleo_lrelease)
   add_custom_target(paleo_qm DEPENDS paleo_lrelease)
 
@@ -61,12 +74,16 @@ if(PALEO_LRELEASE_EXECUTABLE)
     GENERATED TRUE
     QT_RESOURCE_ALIAS "paleo_zh_CN.qm"
   )
+  set_source_files_properties("${PALEO_EN_QM}" PROPERTIES
+    GENERATED TRUE
+    QT_RESOURCE_ALIAS "paleo_en.qm"
+  )
   # FE-005：这里是 :/i18n/paleo_zh_CN.qm 的**唯一**嵌入点（main.cpp 的
   # Q_INIT_RESOURCE(translations) 初始化的正是本目标）——不要另建 qrc 双轨
   #（resources/translations.qrc 曾是引用不存在源树文件的死清单，已删除）。
   qt6_add_resources(paleo_ui "translations"
     PREFIX "/i18n"
-    FILES "${PALEO_ZH_CN_QM}"
+    FILES "${PALEO_ZH_CN_QM}" "${PALEO_EN_QM}"
   )
 else()
   message(WARNING "lrelease 未找到（请安装 qt6-tools-dev / qttools）——无法编译 translations/*.qm")

@@ -52,5 +52,5 @@ void PaleoMainWindow::attachProjectSetupAction(QMenu *menu)
   connect(menu, &QMenu::aboutToShow, this, [this, action] {
     action->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening() && !isProjectReadOnly());
   });
-  connect(action, &QAction::triggered, this, [this] { runNewProject({}, true); });
+  routeCommand(action, QStringLiteral("project.sources")); // 处理器见 paleomainwindow_commands.cpp
 }

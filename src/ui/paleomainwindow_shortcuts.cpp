@@ -20,8 +20,9 @@ void PaleoMainWindow::registerPageShortcuts()
     auto *sc = paleo::shortcuts::bindShortcut(
         QStringLiteral("main.page.") + paleo::pagesinternal::kRibbonIds.at(i), this);
     sc->setObjectName(QStringLiteral("pageShortcut.") + paleo::pagesinternal::kRibbonIds.at(i));
+    // U1：快捷键 = 命令 view.stage.<页 id> 的又一入口（处理器在 paleomainwindow_commands.cpp）。
     connect(sc, &QShortcut::activated, this, [this, i] {
-      ribbonBar()->raiseCategory(categoryForPage(paleo::pagesinternal::kRibbonIds.at(i)));
+      triggerCommand(QStringLiteral("view.stage.") + paleo::pagesinternal::kRibbonIds.at(i));
     });
   }
   // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切中央视图页签

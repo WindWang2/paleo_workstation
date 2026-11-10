@@ -23,6 +23,7 @@
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QToolButton>
 #include <QtTest>
 #include <QListWidget>
 
@@ -660,6 +661,46 @@ private slots:
     m_ctx->closeProject();
   }
 
+  void nestedManifestUsesQgisDirectoryLockAndDoesNotAdoptReadOnly()
+  {
+    m_ctx->closeProject();
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto child = directory.filePath(QStringLiteral("child"));
+    QVERIFY(QDir().mkpath(child));
+    const auto qgz = QDir(child).filePath(QStringLiteral("nested.qgz"));
+    QgsProject source;
+    QVERIFY(source.write(qgz));
+    auto manifest = projectFileForQgz(qgz);
+    manifest.qgz = QStringLiteral("child/nested.qgz");
+    QVERIFY(writeProjectFile(directory.path(), manifest));
+
+    ProjectDirLock writer(child);
+    QVERIFY(writer.tryLock());
+    auto *service = m_ctx->projectSvc();
+    QSignalSpy finished(service, &QgisProjectService::openFinished);
+    QVERIFY(service->openProjectAsync(paleoProjectFilePath(directory.path())));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 60000);
+    QVERIFY(finished.first().first().toBool());
+    QCOMPARE(service->projectPath(), qgz);
+    QVERIFY(service->isReadOnly());
+    QVERIFY(!QFileInfo::exists(paleoProjectFilePath(child)));
+
+    // The same directory is used by synchronous opening of the bare file.
+    m_ctx->closeProject();
+    QVERIFY(service->openProject(qgz));
+    QVERIFY(service->isReadOnly());
+    QVERIFY(!QFileInfo::exists(paleoProjectFilePath(child)));
+    m_ctx->closeProject();
+
+    // A subsequent writable open can still adopt a legacy bare QGIS file.
+    writer.unlock();
+    QVERIFY(service->openProject(qgz));
+    QVERIFY(!service->isReadOnly());
+    QVERIFY(QFileInfo::exists(paleoProjectFilePath(child)));
+    m_ctx->closeProject();
+  }
+
   void cancelledOpenKeepsDirectoryLockedUntilWorkerExits()
   {
     QTemporaryDir directory;
@@ -676,6 +717,11 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(entered->load(), 10000);
     ProjectDirLock competitor(directory.path());
     QVERIFY(!competitor.tryLock());
+    m_win->show();
+    auto *cancel = m_win->findChild<QToolButton *>(QStringLiteral("cancelProjectOpenButton"));
+    QVERIFY(cancel && cancel->isEnabled());
+    QTest::mouseClick(cancel, Qt::LeftButton);
+    QVERIFY(m_ctx->projectSvc()->lastOpenCancelled());
     m_ctx->closeProject();
     QVERIFY(!competitor.tryLock());
     release->release();
@@ -683,27 +729,46 @@ private slots:
     QVERIFY(competitor.tryLock());
     QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
   }
-  void handoffBlocksEditingInputAndRestoresItOnCancel()
+  void backgroundOpenBlocksEditingInputAndRestoresItOnCancel()
   {
     QTemporaryDir directory;
     const auto path = directory.filePath("handoff.qgz");
     QVERIFY(m_ctx->projectSvc()->createProject(path));
     m_ctx->closeProject();
-    QPushButton probe("input probe", m_win); probe.show();
+    m_win->show();
+    QPushButton probe("input probe", m_win);
+    probe.show();
+    QDialog floating(m_win);
+    QPushButton floatingProbe("modeless input probe", &floating);
+    floating.show();
     QSignalSpy clicks(&probe, &QPushButton::clicked);
+    QSignalSpy floatingClicks(&floatingProbe, &QPushButton::clicked);
     QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
-    bool blocked = false;
+    bool blockedDuringRead = false;
+    bool blockedDuringHandoff = false;
     const auto connection = connect(m_ctx->projectSvc(), &QgisProjectService::openProgress, this,
         [&](int percent, const QString &) {
-      if (percent != 85) return;
-      QTest::mouseClick(&probe, Qt::LeftButton); blocked = clicks.isEmpty();
-      QTimer::singleShot(0, m_ctx->projectSvc(), &QgisProjectService::cancelOpen);
+      if (percent == 0) {
+        QTest::mouseClick(&probe, Qt::LeftButton);
+        QTest::mouseClick(&floatingProbe, Qt::LeftButton);
+        blockedDuringRead = clicks.isEmpty() && floatingClicks.isEmpty();
+      }
+      if (percent == 85) {
+        QTest::mouseClick(&probe, Qt::LeftButton);
+        blockedDuringHandoff = clicks.isEmpty();
+        QTimer::singleShot(0, m_ctx->projectSvc(), &QgisProjectService::cancelOpen);
+      }
     });
     const auto disconnect = qScopeGuard([connection] { QObject::disconnect(connection); });
     QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
-    QTRY_COMPARE(finished.count(), 1); QVERIFY(blocked);
+    QTRY_COMPARE(finished.count(), 1);
+    QVERIFY(blockedDuringRead);
+    QVERIFY(blockedDuringHandoff);
     QVERIFY(m_ctx->projectSvc()->lastOpenCancelled());
-    QTest::mouseClick(&probe, Qt::LeftButton); QCOMPARE(clicks.count(), 1);
+    QTest::mouseClick(&probe, Qt::LeftButton);
+    QTest::mouseClick(&floatingProbe, Qt::LeftButton);
+    QCOMPARE(clicks.count(), 1);
+    QCOMPARE(floatingClicks.count(), 1);
   }
 
   void realProjectBackgroundResponsiveness()

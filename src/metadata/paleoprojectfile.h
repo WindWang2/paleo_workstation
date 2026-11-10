@@ -108,7 +108,7 @@ bool writeProjectFile(const QString &projectDir, const PaleoProjectFile &file,
 // 读清单。JSON 坏/非对象/format 不对/version>实现 → ok=false + error。
 // opId/id 字段缺失不视为损坏（老清单兼容）——name/qgz 缺席才报成员缺失。
 PaleoProjectFile readProjectFile(const QString &path, bool *ok = nullptr,
-                                 QString *error = nullptr);
+                                 QString *error = nullptr, qint64 maximumBytes = 0);
 
 // 束校验：返回缺失的成员文件清单（人类可读 "catalog: artifacts/…"）。
 // 只查存在的成员声明；空串成员跳过（工程早期没建不算缺失）。

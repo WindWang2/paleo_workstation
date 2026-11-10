@@ -530,6 +530,9 @@ void PaleoMainWindow::onProjectOpened()
 
 void PaleoMainWindow::closeEvent(QCloseEvent *event)
 {
+  // Stop the pending switch before asking how to handle edits in the old project.
+  if (m_projectSvc && m_projectSvc->isOpening())
+    m_projectSvc->cancelOpen();
   // C1 关窗数据保护 + #282（UIS-09）工程级脏状态：maybeSaveProject 先查
   // 编辑缓冲（resolveDirtyLayerEdits）再查 QgsProject::isDirty（版面/样式/
   // 图层树/主题只存 .qgz）——保存/放弃/取消三选一，取消（含 Esc/窗口 ✕）

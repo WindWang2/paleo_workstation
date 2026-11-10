@@ -84,8 +84,9 @@ class QgisProjectService : public QObject
     // 保留（不发 projectAboutToClose，不动 m_path）；*cancelled = true 表示
     // 用户主动取消（调用方据 lastOpenCancelled() 不弹错误框）。
     // creating = createProject 路径（锁冲突时不提供只读降级）。
+    // *readOnly 描述即将打开的工程，由服务在成功接管时应用。
     using OpenGate = std::function<bool( const QString &projectDir, bool creating,
-                                         QString *error, bool *cancelled )>;
+                                         QString *error, bool *cancelled, bool *readOnly )>;
     void setOpenGate( const OpenGate &gate ) { m_openGate = gate; }
     bool lastOpenCancelled() const { return m_lastOpenCancelled; }
 
@@ -114,7 +115,7 @@ class QgisProjectService : public QObject
 
   private:
     void adoptBackgroundOpen(const std::shared_ptr<ProjectLoadState> &state, quint64 generation, int phase);
-    bool runGate( const QString &projectDir, bool creating );
+    bool runGate( const QString &projectDir, bool creating, bool &readOnly );
     void notifyAboutToClose();
     void failAfterClose();
     void applyMapConfiguration();

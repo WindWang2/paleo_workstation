@@ -404,8 +404,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   //     清工程作用域状态（PaleoMainWindow::resetProjectScopedState）；
   //   * projectClosed：释放锁与 sqlite 句柄、回落可写默认。
   m_projectSvc->setOpenGate([this](const QString &projectDir, bool creating, QString *error,
-                                   bool *cancelled) {
-    return acquireProjectLock(projectDir, creating, error, cancelled);
+                                   bool *cancelled, bool *readOnly) {
+    if (!acquireProjectLock(projectDir, creating, error, cancelled))
+      return false;
+    *readOnly = m_pendingLock && !m_pendingLock->isHeld();
+    return true;
   });
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
     m_projectLayerRefresh->cancel();

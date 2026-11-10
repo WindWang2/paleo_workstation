@@ -105,13 +105,15 @@ QgsProject *QgisProjectService::project() const
   return m_project;
 }
 
-bool QgisProjectService::runGate( const QString &projectDir, bool creating )
+bool QgisProjectService::runGate( const QString &projectDir, bool creating, bool &readOnly )
 {
+  readOnly = m_readOnly;
   if ( !m_openGate )
     return true;
   QString err;
   bool cancelled = false;
-  if ( m_openGate( projectDir, creating, &err, &cancelled ) )
+  readOnly = false;
+  if ( m_openGate( projectDir, creating, &err, &cancelled, &readOnly ) )
     return true;
   m_lastOpenCancelled = cancelled;
   m_errors << ( err.isEmpty() ? ( cancelled ? tr( "打开已取消" )
@@ -206,7 +208,8 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 
   // #152：锁/只读决策在任何落盘（清单收养）与 read() 之前——拒绝或用户
   // 取消时当前工程、路径、锁全部原样保留。
-  if ( !runGate( QFileInfo( qgzFile ).absolutePath(), false ) )
+  bool readOnly = false;
+  if ( !runGate( QFileInfo( qgzFile ).absolutePath(), false, readOnly ) )
     return false;
   // 闸门已过、确定要换工程：此刻才把新工程的配准/版面配置落到成员
   // （#82——早于闸门的话，被拒后旧工程的状态已被抹掉）。
@@ -248,6 +251,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
   }
 
   m_path = qgzFile;
+  m_readOnly = readOnly;
 
   // 配准兜底链：清单（已取）→ .qgz 内嵌副本。取到后回写属性，保证
   // read() 清空过的 QgsProject 里副本与清单一致。
@@ -277,7 +281,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 
   // 成功读完后才收养裸 QGZ，并将其已恢复的配准/底图一起写入权威清单。
   const QString directory = QFileInfo(m_path).absolutePath();
-  if (!QFile::exists(paleoProjectFilePath(directory))) {
+  if (!m_readOnly && !QFile::exists(paleoProjectFilePath(directory))) {
     auto adopted = projectFileForQgz(m_path);
     adopted.georeference = m_georeference;
     adopted.mapCrs = m_mapConfiguration.mapCrs;
@@ -312,14 +316,17 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   }
 
   const QString projectDir = QFileInfo( qgzPath ).absolutePath();
-  if ( m_openGate )
+  bool readOnly = m_readOnly;
+  // AppContext owns the lock through projectOpened; standalone tools use the
+  // original collision check below.
+  if (m_openGate && !runGate(projectDir, true, readOnly))
+    return false;
+  if (readOnly)
   {
-    // 闸门（AppContext）负责取锁并在 projectOpened 时接管——不在这里
-    // 取锁再放，避免「检查-释放-再取」之间被别的实例抢走。
-    if ( !runGate( projectDir, true ) )
-      return false;
+    m_errors << tr("工程以只读模式打开，不能保存工程");
+    return false;
   }
-  else
+  if (!m_openGate)
   {
     ProjectDirLock lockCheck( projectDir );
     QString lockErr;
@@ -344,6 +351,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   notifyAboutToClose();
   m_project->clear();
   m_path = qgzPath;
+  m_readOnly = readOnly;
   m_georeference.reset();
   m_mapConfiguration = {};
   applyMapConfiguration();

@@ -591,7 +591,7 @@ private slots:
     QSignalSpy about( &svc, &QgisProjectService::projectAboutToClose );
     QSignalSpy opened( &svc, &QgisProjectService::projectOpened );
     QStringList gateDirs;
-    svc.setOpenGate( [&gateDirs]( const QString &dir, bool, QString *, bool *cancelled ) {
+    svc.setOpenGate( [&gateDirs]( const QString &dir, bool, QString *, bool *cancelled, bool * ) {
       gateDirs << dir;
       *cancelled = true;
       return false;
@@ -612,7 +612,7 @@ private slots:
     } );
     connect( &svc, &QgisProjectService::projectOpened, this,
              [&]( const QString &p ) { order << QStringLiteral( "opened:" ) + p; } );
-    svc.setOpenGate( []( const QString &, bool, QString *, bool * ) { return true; } );
+    svc.setOpenGate( []( const QString &, bool, QString *, bool *, bool * ) { return true; } );
     QVERIFY( svc.openProject( qgzB ) );
     QVERIFY( !svc.lastOpenCancelled() );
     QCOMPARE( order, ( QStringList{ QStringLiteral( "about:" ) + qgzA,

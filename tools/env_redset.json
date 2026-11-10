@@ -12,8 +12,6 @@
   "entries": [
     {"test": "tst_runtime", "category": "srsdb", "status": "fixed",
      "fix": "tools/ensure_qgis_resources.py（deb-closure.lock 同源）+ paleo-dev.ps1 ensure-resources（localdeps test/selfcheck 缺 srs.db 自动调用）"},
-    {"test": "boot", "category": "srsdb", "status": "fixed",
-     "fix": "同 tst_runtime；另含 pidprobe 一因（tst_metastore 同修）"},
     {"test": "tst_metastore", "category": "pidprobe", "status": "fixed",
      "fix": "src/metadata/processprobe + ProjectLock::reclaimIfOwnerGone（同机判定按 hostid/NetBIOS/DNS 名，pid 死亡即回收）"},
     {"test": "tst_ui", "category": "qsettings", "status": "fixed",

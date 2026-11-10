@@ -10,7 +10,7 @@ class QgisLayerService;
 
 // workflow/registration — D11 临时配准编排（W3：从主窗下沉）。
 //
-// 手工仿射参数 → GeoAffineParams → DERIVED GeoJSON 版本登记（catalog 写）
+// 手工仿射参数 → GeoAffineParams → DERIVED GeoPackage 版本登记（catalog 写）
 // → 「临时配准 · 名」矢量图层实例化（告警橙虚线样式）→ 计数信号。
 // 壳只接信号做视图动作：状态栏文案、画布水印开关、zoomToLayer。
 // 本类不碰控件、不弹窗。

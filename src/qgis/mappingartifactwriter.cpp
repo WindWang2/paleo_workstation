@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "mappingartifactwriter.h"
 #include "mappingfeatureidentity.h"
+#include "../algorithms/projectgeotiff.h"
 #include "../catalog/datacatalog.h"
 #include "../metadata/atomicfile.h"
 #include "../domain/faciescatalog.h"
@@ -10,8 +11,12 @@
 #include <QSaveFile>
 #include <QFile>
 #include <QFileInfo>
+#include <QTemporaryDir>
 #include <QUuid>
 #include <cmath>
+#include <limits>
+#include <memory>
+#include <cpl_string.h>
 #include <gdal.h>
 #include <qgsattributetableconfig.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -96,8 +101,8 @@ void restoreVectorCrs(QgsMapLayer *layer) {
   auto *vector = qobject_cast<QgsVectorLayer *>(layer);
   if (!vector)
     return;
-  // 矢量无 PALEO_CRS_WKT 元数据通道（GPKG srs_def 只能写 WKT1 LOCAL_CS，
-  // EDATUM 名必丢），只能按图层名恢复。已是规范 WKT 时跳过 setCrs——
+  // 老 GeoPackage 的 WKT1 LOCAL_CS 丢失 EDATUM 名称，按规范网格名称恢复。
+  // 已是规范 WKT 时跳过 setCrs——
   // QgsMapLayer::setCrs 无条件发 crsChanged，重复调用会多余触发下游重算。
   const auto canonical = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
   if (vector->crs().type() == Qgis::CrsType::Engineering &&
@@ -119,13 +124,10 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
     return false;
   }
   GDALAllRegister();
-  auto *driver = GDALGetDriverByName("GTiff");
   // L-10（#588 B.13 同族）：GTiff 建库即截断既有产物——先写 .partial 再
   // 原子落名；中途失败（磁盘满/IO 错）保持旧产物原样，不留半截文件。
   const QString partial = path + QStringLiteral(".partial");
-  GDALDatasetH ds = driver ? GDALCreate(driver, partial.toUtf8().constData(), cols,
-                                        rows, 1, GDT_Int32, nullptr)
-                           : nullptr;
+  GDALDatasetH ds = ProjectGeoTiff::create(partial, cols, rows, GDT_Int32);
   if (!ds) {
     if (error)
       *error = QObject::tr("无法创建预测栅格");
@@ -146,11 +148,11 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
                            effectiveCrs.toUtf8().constData(),
                            nullptr) == CE_None;
   auto band = GDALGetRasterBand(ds, 1);
-  GDALSetRasterNoDataValue(band, -9999);
+  ok = ok && GDALSetRasterNoDataValue(band, -9999) == CE_None;
   ok = ok && GDALRasterIO(band, GF_Write, 0, 0, cols, rows,
                           const_cast<int *>(cells.constData()), cols, rows,
                           GDT_Int32, 0, 0) == CE_None;
-  GDALClose(ds);
+  ok = GDALClose(ds) == CE_None && ok;
   if (ok && !paleoReplaceFile(partial, path))
     ok = false;
   // 写中途失败（GeoTransform/投影/RasterIO/落名）不留半截 .partial——目录
@@ -202,6 +204,173 @@ bool points(const QString &path,const QVariantList &points,const QString &crs,QS
   }
   return true;
 }
+
+namespace {
+enum class PointFieldType { Unknown, Boolean, Integer, LongInteger, Real, Text, Json };
+
+PointFieldType pointFieldType(const QVariant &value) {
+  if (value.isNull())
+    return PointFieldType::Unknown;
+  switch (value.typeId()) {
+    case QMetaType::Bool: return PointFieldType::Boolean;
+    case QMetaType::Int: return PointFieldType::Integer;
+    case QMetaType::UInt:
+    case QMetaType::LongLong: return PointFieldType::LongInteger;
+    case QMetaType::ULongLong:
+      return value.toULongLong() <= qulonglong(std::numeric_limits<qlonglong>::max())
+                 ? PointFieldType::LongInteger : PointFieldType::Text;
+    case QMetaType::Float:
+    case QMetaType::Double: return PointFieldType::Real;
+    case QMetaType::QVariantMap:
+    case QMetaType::QVariantList:
+    case QMetaType::QStringList: return PointFieldType::Json;
+    default: return PointFieldType::Text;
+  }
+}
+
+QMap<QString, PointFieldType> pointFields(const QVariantList &points) {
+  QMap<QString, PointFieldType> types{{MappingFeatureIdentity::UidField, PointFieldType::Text}};
+  for (const auto &value : points) {
+    const auto point = value.toMap();
+    for (auto it = point.cbegin(); it != point.cend(); ++it) {
+      if (it.key() == "x" || it.key() == "y" || it.key() == MappingFeatureIdentity::UidField)
+        continue;
+      auto &type = types[it.key()];
+      const auto next = pointFieldType(it.value());
+      if (type == PointFieldType::Unknown)
+        type = next;
+      else if (next != PointFieldType::Unknown && next != type)
+        type = type <= PointFieldType::Real && next <= PointFieldType::Real
+                   ? qMax(type, next) : PointFieldType::Text;
+    }
+  }
+  return types;
+}
+
+bool createPointFields(OGRLayerH layer, const QMap<QString, PointFieldType> &fields) {
+  for (auto it = fields.cbegin(); it != fields.cend(); ++it) {
+    const auto type = it.value();
+    OGRFieldType ogrType = OFTString;
+    if (type == PointFieldType::Boolean || type == PointFieldType::Integer)
+      ogrType = OFTInteger;
+    else if (type == PointFieldType::LongInteger)
+      ogrType = OFTInteger64;
+    else if (type == PointFieldType::Real)
+      ogrType = OFTReal;
+    const auto field = OGR_Fld_Create(it.key().toUtf8().constData(), ogrType);
+    if (type == PointFieldType::Boolean)
+      OGR_Fld_SetSubType(field, OFSTBoolean);
+    else if (type == PointFieldType::Json)
+      OGR_Fld_SetSubType(field, OFSTJSON);
+    const auto result = OGR_L_CreateField(layer, field, false);
+    OGR_Fld_Destroy(field);
+    if (result != OGRERR_NONE)
+      return false;
+  }
+  return true;
+}
+
+void setPointField(OGRFeatureH feature, int index, PointFieldType type, const QVariant &value) {
+  if (value.isNull() || (pointFieldType(value) == PointFieldType::Real && !std::isfinite(value.toDouble())))
+    return;
+  switch (type) {
+    case PointFieldType::Boolean:
+    case PointFieldType::Integer:
+      OGR_F_SetFieldInteger(feature, index, value.toInt());
+      break;
+    case PointFieldType::LongInteger:
+      OGR_F_SetFieldInteger64(feature, index, value.toLongLong());
+      break;
+    case PointFieldType::Real:
+      OGR_F_SetFieldDouble(feature, index, value.toDouble());
+      break;
+    default: {
+      const auto json = QJsonDocument::fromVariant(value);
+      const auto text = json.isNull() ? value.toString().toUtf8() : json.toJson(QJsonDocument::Compact);
+      OGR_F_SetFieldString(feature, index, text.constData());
+    }
+  }
+}
+
+bool appendPoint(OGRLayerH layer, QVariantMap point, const QMap<QString, PointFieldType> &fields) {
+  std::unique_ptr<void, decltype(&OGR_F_Destroy)> feature(OGR_F_Create(OGR_L_GetLayerDefn(layer)), &OGR_F_Destroy);
+  if (!feature)
+    return false;
+  bool xOk = false, yOk = false;
+  const double x = point.value("x").toDouble(&xOk), y = point.value("y").toDouble(&yOk);
+  // QgsVectorFileWriter substitutes POINT EMPTY for absent geometry. Keep the
+  // SQL NULL so consumers still recognize a prediction for an unlocated well.
+  if (xOk && yOk && std::isfinite(x) && std::isfinite(y)) {
+    const auto geometry = OGR_G_CreateGeometry(wkbPoint);
+    if (!geometry)
+      return false;
+    OGR_G_SetPoint_2D(geometry, 0, x, y);
+    if (OGR_F_SetGeometryDirectly(feature.get(), geometry) != OGRERR_NONE)
+      return false;
+  }
+  auto uid = point.value(MappingFeatureIdentity::UidField).toString();
+  if (uid.trimmed().isEmpty())
+    uid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  point.insert(MappingFeatureIdentity::UidField, uid);
+  int index = 0;
+  for (auto it = fields.cbegin(); it != fields.cend(); ++it)
+    setPointField(feature.get(), index++, it.value(), point.value(it.key()));
+  return OGR_L_CreateFeature(layer, feature.get()) == OGRERR_NONE;
+}
+} // namespace
+
+bool pointGeoPackage(const QString &path, const QVariantList &points,
+                     const QString &crs, QString *error) {
+  QgsCoordinateReferenceSystem reference;
+  if (!reference.createFromUserInput(crs.isEmpty() ? DataCatalog::localGridCrsWkt() : crs)) {
+    if (error) *error = QObject::tr("井点成果坐标系无效");
+    return false;
+  }
+  QTemporaryDir staging(QFileInfo(path).absolutePath() + QStringLiteral("/.points-XXXXXX"));
+  if (!staging.isValid()) {
+    if (error) *error = staging.errorString();
+    return false;
+  }
+  const auto tempPath = staging.filePath(QStringLiteral("features.gpkg"));
+  const auto fields = pointFields(points);
+  GDALAllRegister();
+  const auto driver = GDALGetDriverByName("GPKG");
+  char **creationOptions = CSLSetNameValue(nullptr, "CRS_WKT_EXTENSION", "YES");
+  const auto ds = driver ? GDALCreate(driver, tempPath.toUtf8().constData(), 0, 0, 0, GDT_Unknown, creationOptions)
+                         : nullptr;
+  CSLDestroy(creationOptions);
+  if (!ds) {
+    if (error) *error = QObject::tr("无法创建井点 GeoPackage：%1").arg(path);
+    return false;
+  }
+
+  const auto names = fields.keys();
+  QString fid = QStringLiteral("fid"), geom = QStringLiteral("geom");
+  while (names.contains(fid, Qt::CaseInsensitive)) fid.prepend(QLatin1Char('_'));
+  while (names.contains(geom, Qt::CaseInsensitive)) geom.prepend(QLatin1Char('_'));
+  char **layerOptions = CSLSetNameValue(nullptr, "FID", fid.toUtf8().constData());
+  layerOptions = CSLSetNameValue(layerOptions, "GEOMETRY_NAME", geom.toUtf8().constData());
+  const auto srs = OSRNewSpatialReference(nullptr);
+  const auto wkt = reference.toWkt(Qgis::CrsWktVariant::Wkt2_2019).toUtf8();
+  const auto layer = srs && OSRSetFromUserInput(srs, wkt.constData()) == OGRERR_NONE
+                         ? GDALDatasetCreateLayer(ds, "features", srs, wkbPoint, layerOptions) : nullptr;
+  if (srs) OSRDestroySpatialReference(srs);
+  CSLDestroy(layerOptions);
+
+  bool written = layer && GDALDatasetStartTransaction(ds, false) == OGRERR_NONE && createPointFields(layer, fields);
+  for (const auto &point : points) {
+    if (!written)
+      break;
+    written = appendPoint(layer, point.toMap(), fields);
+  }
+  written = written && GDALDatasetCommitTransaction(ds) == OGRERR_NONE;
+  if (GDALClose(ds) != CE_None || !written || !paleoReplaceFile(tempPath, path)) {
+    if (error) *error = QObject::tr("无法保存井点 GeoPackage：%1").arg(path);
+    return false;
+  }
+  return true;
+}
+
 bool vectorSnapshot(QgsVectorLayer *layer, const QString &path,
                     QString *error) {
   if (!layer || !layer->isValid()) {

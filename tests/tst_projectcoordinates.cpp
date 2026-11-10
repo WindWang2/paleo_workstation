@@ -305,8 +305,10 @@ private slots:
     GDALSetProjection(ds, paleo::io::coordinateWkt("EPSG:32649").toUtf8().constData()); GDALClose(ds);
     QVERIFY2(paleo::io::projectRasterFile(path,"EPSG:3857",&error),qPrintable(error));
     ds = GDALOpen(path.toUtf8().constData(),GA_ReadOnly); QVERIFY(ds);
+    const QByteArray compression = GDALGetMetadataItem(ds, "COMPRESSION", "IMAGE_STRUCTURE");
     QVERIFY(sameNativeCrs(QString::fromUtf8(GDALGetProjectionRef(ds)),"EPSG:3857"));
     GDALGetGeoTransform(ds,gt); QVERIFY(gt[0]>10000000); GDALClose(ds);
+    QCOMPARE(compression, QByteArray("DEFLATE"));
   }
 };
 QTEST_GUILESS_MAIN(TestProjectCoordinates)

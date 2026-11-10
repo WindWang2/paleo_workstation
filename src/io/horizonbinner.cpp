@@ -2,6 +2,7 @@
 #include "horizonbinner.h"
 #include "horizonnativegrid.h"
 #include "ioerrors_internal.h"
+#include "algorithms/projectgeotiff.h"
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/atomicfile.h"
@@ -388,7 +389,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
     return false;
   }
   GDALAllRegister();
-  GDALDriverH drv = GDALGetDriverByName("GTiff");
+  GDALDriverH drv = ProjectGeoTiff::driver();
   if (!drv)
   {
     setError(error, QStringLiteral("GTiff driver unavailable"));
@@ -397,8 +398,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   // #588 B.13 同族：先写 .partial 再原子落名——直接 GDALCreate 目标路径
   // 在进程中途崩溃/掉电会留半成品 GeoTIFF（带不完整 PALEO_* 元数据）占位。
   const QString partial = destPath + QStringLiteral(".partial");
-  GDALDatasetH ds = GDALCreate(drv, partial.toUtf8().constData(), b.cols, b.rows, 1, GDT_Float32,
-                               nullptr);
+  GDALDatasetH ds = ProjectGeoTiff::create(partial, b.cols, b.rows, GDT_Float32, drv);
   if (!ds)
   {
     setError(error, QStringLiteral("cannot create %1: %2").arg(destPath, QString::fromUtf8(CPLGetLastErrorMsg())));
@@ -457,8 +457,8 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   const CPLErr err = GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Write, 0, 0, b.cols, b.rows,
                                   const_cast<float *>(b.z.constData()), b.cols, b.rows, GDT_Float32,
                                   0, 0);
-  GDALClose(ds);
-  if (err != CE_None)
+  const CPLErr closeError = GDALClose(ds);
+  if (err != CE_None || closeError != CE_None)
   {
     QFile::remove(partial); // #233：像元不全的残件不占缓存位
     setError(error, QStringLiteral("raster write failed for %1").arg(destPath));

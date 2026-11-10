@@ -901,13 +901,13 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &response) 
   const auto stageDir = QDir(m_dir).filePath("artifacts/staging/" + request.id);
   QDir().mkpath(stageDir);
   const auto path = QDir(stageDir).filePath(
-      request.kind == "seismic" ? "prediction.tif" : "prediction.geojson");
+      request.kind == "seismic" ? "prediction.tif" : "prediction.gpkg");
   if (error.isEmpty()) {
     const bool ok = request.kind == "seismic"
                         ? MappingArtifactWriter::raster(
                               path, result.cells, request.columns, request.rows,
                               request.extent, request.crsWkt, &error)
-                        : MappingArtifactWriter::points(path,points,request.crsWkt,&error);
+                        : MappingArtifactWriter::pointGeoPackage(path, points, request.crsWkt, &error);
     if (ok) {
       emit predictionProgress(98);
       emit predictionDetailChanged(tr("登记并显示预测图件"));

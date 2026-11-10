@@ -6,6 +6,7 @@
 #include "singlefactor/structuralalgorithm.h"
 #include "domain/singlefactorrequest.h"
 #include "domain/constraintsemantics.h"
+#include "projectgeotiff.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingoutputs.h>
@@ -128,10 +129,7 @@ GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALData
                           const QString &canonicalCrsWkt )
 {
   GDALAllRegister(); // idempotent — safe under an already-initialized QGIS runtime
-  GDALDriverH drv = GDALGetDriverByName( "GTiff" );
-  if ( !drv )
-    return nullptr;
-  PaleoRasterOut::GdalDatasetPtr ds( GDALCreate( drv, outPath.toUtf8().constData(), nCols, nRows, 1, type, nullptr ) );
+  PaleoRasterOut::GdalDatasetPtr ds( ProjectGeoTiff::create( outPath, nCols, nRows, type ) );
   if ( !ds )
     return nullptr;
   if ( GDALSetGeoTransform( ds.get(), const_cast<double *>( geoTransform ) ) != CE_None )

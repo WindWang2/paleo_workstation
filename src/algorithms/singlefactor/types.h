@@ -1,6 +1,8 @@
 // 层：数据
 #pragma once
 
+#include "../../domain/planarpoint.h"
+
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -13,12 +15,6 @@
 // 层：数据
 namespace paleo::singlefactor
 {
-
-struct Point2
-{
-  double x = 0;
-  double y = 0;
-};
 
 struct Sample
 {

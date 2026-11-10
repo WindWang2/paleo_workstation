@@ -705,6 +705,11 @@ class TestMapping : public QObject
         QVERIFY2( wells != nullptr, "井点层未声明" );
         QVERIFY( wells->source.startsWith(
             f.dir.filePath( QStringLiteral( "artifacts/derived/" ) ) ) );
+        QCOMPARE( QFileInfo( wells->source ).suffix(), QStringLiteral( "gpkg" ) );
+        auto *wellLayer = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( wells->layerId, &err ) );
+        QVERIFY2( wellLayer, qPrintable( err ) );
+        QCOMPARE( wellLayer->crs(), QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() ) );
+        QCOMPARE( wellLayer->fields().field( QStringLiteral( "thickness_m" ) ).type(), QMetaType::Double );
         bool wellsVersionRegistered = false;
         for ( const CatalogAsset &a : f.catalog.assets() )
         {

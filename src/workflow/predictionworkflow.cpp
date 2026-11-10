@@ -2,6 +2,10 @@
 #include "workflows.h"
 #include "workflows_internal.h"
 
+#if PALEO_HAVE_ORT
+#include "algorithms/projectgeotiff.h"
+#endif
+
 #include "../ai/onnxpredictionservice.h" // ORT-free header；符号引用受 PALEO_HAVE_ORT 守卫
 #include "../catalog/datacatalog.h"      // localGridCrsWkt — ONNX 栅格落在局部测网
 #include "../domain/arearules.h"         // AreaRules::active().targetHorizon（本文件直接用）
@@ -22,6 +26,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
 
@@ -38,11 +44,164 @@
 #include <cpl_conv.h>
 
 #include <cmath>
+#include <cstring>
 
 // 预测工作流（①智能预测）。
 // 方向20 轮4：按类边界从 workflows.cpp 析出。头文件契约不动。
-// 注：ORT 辅助（onnxAreaGrid/resolveOnnxGrid/writeOnnxRaster）与本段同迁——
-// 它们是 Prediction 独占（实测跨类使用 0 次），留在本文件即可。
+
+#if PALEO_HAVE_ORT
+// 把通过门禁的 411×641 结果写成 Float32 GeoTIFF，geotransform/SRS 用
+// OnnxAreaGrid（D61 声明优先，否则 §3 常量 + 局部测网 CRS）。
+QString paleo::workflow_detail::writeOnnxRaster( const QString &path, const QVector<float> &values,
+                                                int rows, int cols, const OnnxAreaGrid &grid,
+                                                const QVariantMap &params, const QString &model,
+                                                const QVector<int64_t> &outShape, QString *error )
+{
+  GDALAllRegister();
+  GDALDriverH drv = ProjectGeoTiff::driver();
+  if ( !drv )
+  {
+    paleo::workflow_detail::setError( error, QObject::tr( "GTiff driver is not available" ) );
+    return QString();
+  }
+  if ( QFile::exists( path ) )
+    QFile::remove( path );
+  GDALDatasetH ds = ProjectGeoTiff::create( path, cols, rows, GDT_Float32, drv );
+  if ( !ds )
+  {
+    paleo::workflow_detail::setError( error, QObject::tr( "cannot create prediction raster %1" ).arg( path ) );
+    return QString();
+  }
+  double gt[6];
+  std::memcpy( gt, grid.gt, sizeof( gt ) );
+  GDALSetGeoTransform( ds, gt );
+  // SRS 优先级：显式参数 > D61 栅格自身投影 > 局部测网 CRS（与 horizonbinner
+  // 一致；绝不把局部米写成经纬度）。
+  const QString auth = params.value( QStringLiteral( "crs" ) ).toString();
+  if ( !auth.isEmpty() )
+  {
+    const QgsCoordinateReferenceSystem crs( auth );
+    if ( crs.isValid() )
+    {
+      const QByteArray wkt = crs.toWkt( Qgis::CrsWktVariant::Wkt1Gdal ).toUtf8();
+      GDALSetProjection( ds, wkt.constData() );
+    }
+  }
+  else if ( !grid.projection.isEmpty() )
+  {
+    GDALSetProjection( ds, grid.projection.toUtf8().constData() );
+  }
+  else
+  {
+    OGRSpatialReference srs;
+    if ( srs.SetFromUserInput( DataCatalog::localGridCrsWkt().toUtf8().constData() ) == OGRERR_NONE )
+    {
+      char *wkt = nullptr;
+      if ( srs.exportToWkt( &wkt ) == OGRERR_NONE && wkt )
+        GDALSetProjection( ds, wkt );
+      CPLFree( wkt );
+    }
+  }
+  QVector<qint64> dims;
+  for ( qint64 d : outShape )
+  {
+    if ( d != 1 )
+      dims.append( d );
+  }
+  const int pixels = rows * cols;
+  QVector<float> writeBuffer;
+  const float *dataPtr = values.constData();
+  if ( dims.size() == 3 && dims[0] > 1 && dims[0] * pixels == static_cast<qint64>( values.size() ) )
+  {
+    const int C = static_cast<int>( dims[0] );
+    writeBuffer.resize( pixels );
+    for ( int p = 0; p < pixels; ++p )
+    {
+      bool finite = true;
+      for ( int c = 0; c < C; ++c )
+      {
+        if ( !std::isfinite( values[c * pixels + p] ) )
+        {
+          finite = false;
+          break;
+        }
+      }
+      if ( !finite )
+      {
+        writeBuffer[p] = -9999.0f;
+        continue;
+      }
+      int bestC = 0;
+      float maxVal = values[p];
+      for ( int c = 1; c < C; ++c )
+      {
+        const float v = values[c * pixels + p];
+        if ( v > maxVal )
+        {
+          maxVal = v;
+          bestC = c;
+        }
+      }
+      writeBuffer[p] = static_cast<float>( bestC );
+    }
+    dataPtr = writeBuffer.constData();
+  }
+  else
+  {
+    bool hasNonFinite = false;
+    for ( float v : values )
+    {
+      if ( !std::isfinite( v ) )
+      {
+        hasNonFinite = true;
+        break;
+      }
+    }
+    if ( hasNonFinite )
+    {
+      writeBuffer = values;
+      for ( float &v : writeBuffer )
+      {
+        if ( !std::isfinite( v ) )
+          v = -9999.0f;
+      }
+      dataPtr = writeBuffer.constData();
+    }
+  }
+
+  GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+  GDALSetRasterNoDataValue( band, -9999.0 );
+  QJsonObject prov;
+  prov.insert( QStringLiteral( "model" ), model );
+  prov.insert( QStringLiteral( "rows" ), rows );
+  prov.insert( QStringLiteral( "cols" ), cols );
+  prov.insert( QStringLiteral( "geotransform_source" ),
+               grid.fromDecl ? QStringLiteral( "horizon.%1" ).arg(
+                                   AreaRules::active().targetHorizon )
+                             : QStringLiteral( "project_area" ) );
+  QJsonArray gtJson;
+  for ( int i = 0; i < 6; ++i )
+    gtJson.append( gt[i] );
+  prov.insert( QStringLiteral( "geotransform" ), gtJson );
+  QJsonArray shapeJson;
+  for ( qint64 d : outShape )
+    shapeJson.append( static_cast<double>( d ) );
+  prov.insert( QStringLiteral( "output_shape" ), shapeJson );
+  const QByteArray json = QJsonDocument( prov ).toJson( QJsonDocument::Compact );
+  GDALSetMetadataItem( ds, "PALEO_MODEL", model.toUtf8().constData(), nullptr );
+  GDALSetMetadataItem( ds, "PALEO_PROVENANCE", json.constData(), nullptr );
+  const CPLErr writeError = GDALRasterIO( band, GF_Write, 0, 0, cols, rows,
+                                        const_cast<float *>( dataPtr ), cols, rows, GDT_Float32, 0, 0 );
+  const CPLErr closeError = GDALClose( ds );
+  if ( writeError != CE_None || closeError != CE_None )
+  {
+    QFile::remove( path );
+    paleo::workflow_detail::setError( error, QObject::tr( "failed to write prediction raster %1" ).arg( path ) );
+    return QString();
+  }
+  return path;
+}
+#endif
 
 
 // ---------------------------------------------------------------------------

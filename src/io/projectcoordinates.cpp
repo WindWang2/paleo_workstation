@@ -1,6 +1,7 @@
 // 层：数据
 #include "projectcoordinates.h"
 #include "../metadata/atomicfile.h" // paleoReplaceFile：发布用替换语义（不预删目标）
+#include "algorithms/projectgeotiff.h"
 #include "segyreader.h"
 #include <QFile>
 #include <QtEndian>
@@ -117,11 +118,13 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
   // GDAL 3.13 按扩展名选驱动，裸 .partial 配不到 GTiff 会返回空。
   // .partial.tif 含 .partial，提交扫描会跳过；失败分支删掉它，不进工程。
   const auto destination = path + QStringLiteral(".partial.tif");
-  QByteArray encoded = target.toUtf8();
-  char *args[] = {const_cast<char *>("-t_srs"), encoded.data(),
-                  const_cast<char *>("-of"), const_cast<char *>("GTiff"),
-                  const_cast<char *>("-r"), const_cast<char *>("bilinear"), nullptr};
-  auto *options = GDALWarpAppOptionsNew(args, nullptr);
+  CPLStringList args;
+  args.AddString("-t_srs").AddString(target.toUtf8().constData())
+      .AddString("-of").AddString(ProjectGeoTiff::kDriver)
+      .AddString("-r").AddString("bilinear");
+  for (const char *option : ProjectGeoTiff::kCreationOptions)
+    args.AddString("-co").AddString(option);
+  auto *options = GDALWarpAppOptionsNew(args.List(), nullptr);
   int usage = 0;
   const auto output = GDALWarp(destination.toUtf8().constData(), nullptr, 1,
                                &input, options, &usage);
@@ -134,7 +137,10 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
     QFile::remove(destination);
     return fail(error, QStringLiteral("无法保存工程坐标系声明"));
   }
-  GDALClose(output);
+  if (GDALClose(output) != CE_None) {
+    QFile::remove(destination);
+    return fail(error, QStringLiteral("无法保存转换后的工程栅格"));
+  }
   // Both files are private staged outputs; never replace external source files.
   // issue-810：先 rename 到 .old（腾位）再发布——先删后 rename 一旦失败，
   // 原文件已失、新文件也没上线，私有暂存栅格两头空。腾位失败即现场不动；

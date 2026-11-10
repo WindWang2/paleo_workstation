@@ -206,12 +206,20 @@ void TestHorizonBinner::projectedGeoTiffKeepsSampleCenters()
   QVERIFY2(writeHorizonGeoTiff(grid, path, &error), qPrintable(error));
   GDALDatasetH dataset = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
   QVERIFY(dataset);
+  const QByteArray driver = GDALGetDriverShortName(GDALGetDatasetDriver(dataset));
+  const QByteArray compression = GDALGetMetadataItem(dataset, "COMPRESSION", "IMAGE_STRUCTURE");
+  GDALRasterBandH band = GDALGetRasterBand(dataset, 1);
+  int blockWidth = 0, blockHeight = 0;
+  GDALGetBlockSize(band, &blockWidth, &blockHeight);
   double gt[6]{};
   const auto transformStatus = GDALGetGeoTransform(dataset, gt);
   float timeMs = 0;
-  const auto readStatus = GDALRasterIO(GDALGetRasterBand(dataset, 1), GF_Read,
+  const auto readStatus = GDALRasterIO(band, GF_Read,
                                       0, 0, 1, 1, &timeMs, 1, 1, GDT_Float32, 0, 0);
   GDALClose(dataset);
+  QCOMPARE(driver, QByteArray("GTiff"));
+  QCOMPARE(compression, QByteArray("DEFLATE"));
+  QVERIFY(blockWidth > grid.cols && blockHeight > grid.rows);
   QCOMPARE(transformStatus, CE_None);
   QCOMPARE(readStatus, CE_None);
   QCOMPARE(timeMs, 1020.0f);

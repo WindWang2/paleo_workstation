@@ -92,26 +92,22 @@ QWidget *DataPreviewTabs::buildMapProductContent(
 {
   const QString layerType = v.extra.value(QStringLiteral("source_type"), v.extra.value(QStringLiteral("layer_type"))).toString();
   bool isRaster = false;
-  if (layerType == QLatin1String("raster"))
-    isRaster = true;
-  else if (layerType == QLatin1String("vector"))
-    isRaster = false;
-  else if (asset.format == QLatin1String("tif") || asset.format == QLatin1String("tiff") ||
-           abs.endsWith(QLatin1String(".tif"), Qt::CaseInsensitive) ||
-           abs.endsWith(QLatin1String(".tiff"), Qt::CaseInsensitive))
-    isRaster = true;
-  else if (asset.format == QLatin1String("gpkg") || asset.format == QLatin1String("geojson") ||
-           abs.endsWith(QLatin1String(".gpkg"), Qt::CaseInsensitive) ||
-           abs.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive))
-    isRaster = false;
+  // 资产格式来自首版，旧工程的同一资产可以同时有多种版本格式。
+  const QString suffix = QFileInfo(abs).suffix().toLower();
+  const QStringList rasterFormats{QStringLiteral("tif"), QStringLiteral("tiff")};
+  const QStringList vectorFormats{QStringLiteral("gpkg"), QStringLiteral("geojson")};
+  if (layerType == QLatin1String("raster") || layerType == QLatin1String("vector"))
+    isRaster = layerType == QLatin1String("raster");
+  else if (rasterFormats.contains(suffix) || vectorFormats.contains(suffix))
+    isRaster = rasterFormats.contains(suffix);
+  else if (rasterFormats.contains(asset.format) || vectorFormats.contains(asset.format))
+    isRaster = rasterFormats.contains(asset.format);
   else if (asset.type == QLatin1String("seismic_prediction") ||
            asset.type == QLatin1String("composed_facies") ||
            asset.type == QLatin1String("single_factor_raster") ||
            asset.type == QLatin1String("single_factor_cartographic_work") ||
            asset.type == QLatin1String("facies_fusion_raster"))
     isRaster = true;
-  else
-    isRaster = false;
 
   const QString title = v.extra.value(QStringLiteral("title"), asset.displayName).toString();
 
@@ -137,6 +133,9 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     page->setRenderCacheIdentity(assetId, v.id);
     page->mapCanvas()->canvas()->setObjectName(QStringLiteral("mapProductCanvas"));
     page->decorations()->setObjectName(QStringLiteral("mapProductDecorManager"));
+
+    if (v.extra.value(QStringLiteral("provisional")).toBool())
+      page->decorations()->setWatermarkEnabled(true);
 
     const QString styledKind = v.extra.value(QStringLiteral("kind"), asset.type).toString();
     const QString styledSource = v.extra.value(QStringLiteral("value_source")).toString();
@@ -402,6 +401,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
       }
     }
 
+    MappingArtifactWriter::restoreVectorCrs(vlayer.get());
     QgsVectorLayer *rawVector = vlayer.release();
     rawVector->setParent(host);
     page->addMapLayer(pinPreviewCrsToLayer(page, rawVector), title, abs);

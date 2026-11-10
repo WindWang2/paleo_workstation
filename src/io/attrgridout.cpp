@@ -1,6 +1,7 @@
 // 层：数据
 #include "io/attrgridout.h"
 #include "ioerrors_internal.h"
+#include "algorithms/projectgeotiff.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -79,14 +80,13 @@ bool writeTimeSliceGeoTiff(const QString &path, const AttrTimeSliceGrid &grid,
     return false;
   }
   GDALAllRegister();
-  GDALDriverH drv = GDALGetDriverByName("GTiff");
+  GDALDriverH drv = ProjectGeoTiff::driver();
   if (!drv)
   {
     setError(error, QStringLiteral("GTiff driver 不可用"));
     return false;
   }
-  GDALDatasetH ds = GDALCreate(drv, path.toUtf8().constData(), grid.nXl,
-                               grid.nIl, 1, GDT_Float32, nullptr);
+  GDALDatasetH ds = ProjectGeoTiff::create(path, grid.nXl, grid.nIl, GDT_Float32, drv);
   if (!ds)
   {
     setError(error, QStringLiteral("无法创建 %1：%2")
@@ -189,7 +189,12 @@ bool writeTimeSliceGeoTiff(const QString &path, const AttrTimeSliceGrid &grid,
       return false;
     }
   }
-  GDALClose(ds);
+  if (GDALClose(ds) != CE_None)
+  {
+    QFile::remove(path);
+    setError(error, QStringLiteral("栅格落盘失败：%1").arg(path));
+    return false;
+  }
   return true;
 }
 

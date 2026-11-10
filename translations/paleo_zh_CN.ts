@@ -28635,6 +28635,46 @@ PDF：%3
 <context>
     <name>QObject</name>
     <message>
+        <source>临时配准源超过 500 MB，或目标文件已存在</source>
+        <translation>临时配准源超过 500 MB，或目标文件已存在</translation>
+    </message>
+    <message>
+        <source>工程矢量图层的结构不匹配：%1</source>
+        <translation>工程矢量图层的结构不匹配：%1</translation>
+    </message>
+    <message>
+        <source>无法保存井点 GeoPackage：%1</source>
+        <translation>无法保存井点 GeoPackage：%1</translation>
+    </message>
+    <message>
+        <source>无法写入工程矢量图层 %1：%2</source>
+        <translation>无法写入工程矢量图层 %1：%2</translation>
+    </message>
+    <message>
+        <source>无法创建临时配准图件</source>
+        <translation>无法创建临时配准图件</translation>
+    </message>
+    <message>
+        <source>无法创建井点 GeoPackage：%1</source>
+        <translation>无法创建井点 GeoPackage：%1</translation>
+    </message>
+    <message>
+        <source>无法创建图层目录 %1</source>
+        <translation>无法创建图层目录 %1</translation>
+    </message>
+    <message>
+        <source>无法变换临时配准要素的坐标</source>
+        <translation>无法变换临时配准要素的坐标</translation>
+    </message>
+    <message>
+        <source>无法读取临时配准的源矢量</source>
+        <translation>无法读取临时配准的源矢量</translation>
+    </message>
+    <message>
+        <source>矢量没有要素</source>
+        <translation>矢量没有要素</translation>
+    </message>
+    <message>
         <source>当前没有可用的子项</source>
         <translation>当前没有可用的子项</translation>
     </message>
@@ -47679,6 +47719,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>WellSitingWorkflow</name>
+    <message>
+        <source>井网覆盖空洞层写入失败</source>
+        <translation>井网覆盖空洞层写入失败</translation>
+    </message>
+    <message>
+        <source>计划井层写入失败</source>
+        <translation>计划井层写入失败</translation>
+    </message>
     <message>
         <location filename="../src/workflow/wellsitingworkflow.cpp" line="362"/>
         <source>工区边界约束</source>

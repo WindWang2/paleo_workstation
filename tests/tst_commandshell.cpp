@@ -183,11 +183,11 @@ private slots:
     QgsLocatorContext ctx;
     ctx.usingPrefix = true; // 前缀 "c"：空余串列出全部命令（无前缀空查询保持沉默，免得 Tab 困在定位器）
     filter->fetchResults(QString(), ctx, nullptr);
-    disconnect(c); // results 是局部量：不断开会让后续用例的抓取写到悬空引用
-    QCOMPARE(results.size(), CommandRegistry::forSurface(SurfaceLocator).size());
-    QList<QgsLocatorResult> listed = results;
+    const QList<QgsLocatorResult> listed = results;
     results.clear();
     filter->fetchResults(QString(), QgsLocatorContext(), nullptr); // usingPrefix=false：空闲沉默
+    disconnect(c); // results 是局部量：不断开会让后续用例的抓取写到悬空引用
+    QCOMPARE(listed.size(), CommandRegistry::forSurface(SurfaceLocator).size());
     QCOMPARE(results.size(), 0);
     bool sawReason = false;
     for (const QgsLocatorResult &r : listed)
@@ -205,6 +205,9 @@ private slots:
   // 审查 P2#3：英文标题可搜（任意界面语言）——PaleoCommands 上下文进了 en 目录且内嵌 qm。
   void englishCatalogCoversEveryCommand()
   {
+#ifndef PALEO_TEST_HAS_TRANSLATIONS
+    QSKIP("lrelease is unavailable in this build");
+#endif
     QTranslator en;
     QVERIFY(en.load(QStringLiteral(":/i18n/paleo_en.qm")));
     QStringList missing;
@@ -222,10 +225,12 @@ private slots:
   void locatorMatchesEnglishAndSourceTitles()
   {
     QVERIFY(commandFilter());
+#ifdef PALEO_TEST_HAS_TRANSLATIONS
     QCOMPARE(locatorIds(QStringLiteral("Open project")).value(0), QStringLiteral("project.open"));
     QCOMPARE(locatorIds(QStringLiteral("open PROJECT")).value(0), QStringLiteral("project.open"));
-    QCOMPARE(locatorIds(QStringLiteral("打开工程")).value(0), QStringLiteral("project.open"));
     QVERIFY(locatorIds(QStringLiteral("Add point")).contains(QStringLiteral("edit.addPoint")));
+#endif
+    QCOMPARE(locatorIds(QStringLiteral("打开工程")).value(0), QStringLiteral("project.open"));
     // 纯函数：别名参与匹配，且与显示标题同档打分。
     CommandLocatorEntry e;
     e.commandId = QStringLiteral("x.y");
@@ -315,6 +320,7 @@ private slots:
     for (const char *id : {"edit.addFeature", "edit.faciesOperations", "view.more.constraint"})
     {
       const QString cid = QLatin1String(id);
+      QVERIFY2(locatorIds(cid).contains(cid), id);
       QAction *parent = nullptr;
       for (QAction *a : m_win->findChildren<QAction *>())
         if (CommandActionBinder::commandIdOf(a) == cid && a->menu())
@@ -394,6 +400,9 @@ private slots:
 
 int main(int argc, char *argv[])
 {
+#ifdef PALEO_TEST_HAS_TRANSLATIONS
+  Q_INIT_RESOURCE(translations);
+#endif
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   static QTemporaryDir settingsDir;

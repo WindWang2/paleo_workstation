@@ -18,3 +18,6 @@ target_sources(paleo_ui PRIVATE
 )
 add_paleo_test(tst_commandshell)                                                      # 真实主窗：入口全收编 + Ctrl+K + 源码闸
 target_compile_definitions(tst_commandshell PRIVATE PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(TARGET paleo_lrelease)
+  target_compile_definitions(tst_commandshell PRIVATE PALEO_TEST_HAS_TRANSLATIONS)
+endif()

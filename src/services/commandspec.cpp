@@ -93,7 +93,7 @@ const Row kRows[] = {
     {"view.density.compact", CommandKind::View, "view", QT_TRANSLATE_NOOP("PaleoCommands", "紧凑密度"), QT_TRANSLATE_NOOP("PaleoCommands", "切换舒适/紧凑界面密度"),
      SurfaceContextMenu | SurfaceLocator},
     {"view.more.constraint", CommandKind::View, "well", QT_TRANSLATE_NOOP("PaleoCommands", "单因素图更多工具"),
-     QT_TRANSLATE_NOOP("PaleoCommands", "连井剖面、井震剖面、地图导航、相图显示、捕捉与撤销"), SurfaceRibbon},
+     QT_TRANSLATE_NOOP("PaleoCommands", "连井剖面、井震剖面、地图导航、相图显示、捕捉与撤销"), kUi},
 
     // ---- 地图导航（QGIS 原生工具）----
     {"map.pan", CommandKind::View, "map", QT_TRANSLATE_NOOP("PaleoCommands", "平移"), QT_TRANSLATE_NOOP("PaleoCommands", "拖动平移地图"), kUi},

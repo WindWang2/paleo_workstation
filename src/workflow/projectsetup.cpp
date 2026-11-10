@@ -312,7 +312,9 @@ void ProjectSetupWorkflow::importCatalogSources(const ProjectSetupSources &sourc
       QString registryError;
       auto *service = m_imports->importService();
       const QString project = QFileInfo(m_project->projectPath()).absolutePath();
-      const bool registered = applyAreaPointMapping(project, sources.points, sources.pointMapping, &registryError) &&
+      const QString pointFile = QFileInfo(sources.points).absoluteFilePath();
+      const bool mapPoints = !sources.points.isEmpty() && preview.paths.contains(pointFile);
+      const bool registered = (!mapPoints || applyAreaPointMapping(project, pointFile, sources.pointMapping, &registryError)) &&
           registerModelWells(m_imports, &registryError) && service && service->catalog() &&
           registerAreaSources(*service->catalog(), &registryError);
       const bool saved = registered && paleo::area_model::recoverModelPublication(*service->catalog(),&registryError) && m_project->writeProject();

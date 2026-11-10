@@ -55,7 +55,6 @@ class ImportLedgerDialog : public QDialog
       split->addWidget(m_rows);
       split->setStretchFactor(0, 0);
       split->setStretchFactor(1, 1);
-      split->setSizes({260, 600});
       lay->addWidget(split, 1);
       auto *row = new QWidget(this);
       auto *rl = new QHBoxLayout(row);

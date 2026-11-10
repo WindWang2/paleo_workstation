@@ -8,6 +8,7 @@
 #include <QTableWidget>
 #include <QToolButton>
 #include "helpers/workflowfixture.h"
+#include "linkage/selectioncontext.h"
 #include "workflow/workflows.h"
 #include "qgis/qgisruntime.h"
 #include "ui/paleotheme.h"
@@ -17,6 +18,33 @@
 class TestGeologyUx : public QObject {
   Q_OBJECT
 private slots:
+  void constraintLegacyHorizonTracksUnitOutsideVocabulary() {
+    SelectionContext selection;
+    ConstraintPage page(nullptr);
+    page.setProperty("paleo.selection", QVariant::fromValue<QObject *>(&selection));
+    selection.setActiveHorizon("T1");
+    page.setHorizons({"T1", "T2"});
+    auto *combo = page.findChild<QComboBox *>("horizonCombo");
+    QVERIFY(combo);
+    QCOMPARE(combo->currentText(), QStringLiteral("T1"));
+
+    paleo::strat::UnitSelection unit;
+    unit.schemeId = "scheme";
+    unit.intervalId = "unit";
+    unit.aggregate = true;
+    unit.topBoundary = "legacy-top";
+    selection.setActiveUnit(unit);
+    page.refreshAnalysisUnit();
+    QCOMPARE(combo->currentText(), unit.topBoundary);
+    QCOMPARE(combo->count(), 3);
+    QVERIFY(combo->findText("T2") >= 0);
+
+    selection.clearActiveUnit();
+    page.refreshAnalysisUnit();
+    QCOMPARE(combo->currentText(), QStringLiteral("T1"));
+    QCOMPARE(combo->count(), 2);
+  }
+
   void cellSizeFollowsSamplesUntilUserOverridesIt() {
     paleo::tests::WorkflowFixture fixture; QVERIFY(paleo::tests::initFixture(fixture));
     const auto path = fixture.dir.filePath("wells.geojson"); QString error;

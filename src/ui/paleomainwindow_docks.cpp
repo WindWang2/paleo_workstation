@@ -30,6 +30,7 @@
 #include "layers/layertreepanel.h"
 #include "../workflow/mappingworkbench.h"
 #include "layers/layerpropertiesdialog.h"
+#include "pages/constraintpage.h"
 #include "pages/pageshared.h"
 #include "pages/stratigraphypage.h"
 #include "../workflow/stratigraphyworkflow.h"
@@ -728,10 +729,13 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
       unit->reloadFromProject(dir, horizons);
     }
     // horizonCombo：历史兼容刷新名单；分析身份走 SubIntervalSelectorBar → UnitSelection。
+    auto *constraint = findChild<ConstraintPage *>();
     for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo"))) {
+      if (constraint && constraint->isAncestorOf(combo)) continue;
       const auto selected = combo->currentText(); combo->clear(); combo->addItems(horizons);
       if (horizons.contains(selected)) combo->setCurrentText(selected);
     }
+    if (constraint) constraint->setHorizons(horizons);
     if (m_selection && !horizons.isEmpty() && !horizons.contains(m_selection->activeHorizon())) {
       m_selection->setActiveHorizon(horizons.first());
       if (m_layerSvc) m_layerSvc->setActiveHorizon(horizons.first());

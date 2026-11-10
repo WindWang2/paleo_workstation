@@ -294,18 +294,21 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
 
 void ConstraintPage::setHorizons( const QStringList &horizons )
 {
-  if(qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>())){
-    refreshAnalysisUnit();return;
-  }
+  // 已接线 SelectionContext 时分析身份走 UnitSelection，但仍须填充
+  // 兼容下拉：生成/就绪检查仍读 horizonCombo，#905 在有 selection 时直接
+  // return 导致壳打开工程后词表为空、意图携带空层位。
   auto *combo = child<QComboBox>( this, "horizonCombo" );
-  if ( !combo )
-    return;
-  const QString keep = combo->currentText();
-  combo->clear();
-  combo->addItems( horizons ); // clear/addItems 触发 currentIndexChanged → 约束列表/井因子随层位刷新
-  if ( !keep.isEmpty() )
-    if ( const int idx = combo->findText( keep ); idx >= 0 && idx != combo->currentIndex() )
-      combo->setCurrentIndex( idx );
+  if ( combo )
+  {
+    const QString keep = combo->currentText();
+    combo->clear();
+    combo->addItems( horizons ); // clear/addItems 触发 currentIndexChanged → 约束列表/井因子随层位刷新
+    if ( !keep.isEmpty() )
+      if ( const int idx = combo->findText( keep ); idx >= 0 && idx != combo->currentIndex() )
+        combo->setCurrentIndex( idx );
+  }
+  if ( qobject_cast<SelectionContext *>( property( "paleo.selection" ).value<QObject *>() ) )
+    refreshAnalysisUnit();
 }
 
 void ConstraintPage::refreshThicknessSamples()

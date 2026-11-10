@@ -1135,15 +1135,34 @@ private slots:
     QCOMPARE(bytesAt(path), original);
   }
 
+  void explicitReimportRefreshesLegacyHorizonRaster_data()
+  {
+    QTest::addColumn<bool>("mappedSingleFile");
+    QTest::newRow("force-duplicate-batch") << false;
+    QTest::newRow("single-file-source-crs") << true;
+  }
+
   void explicitReimportRefreshesLegacyHorizonRaster()
   {
+    QFETCH(bool, mappedSingleFile);
     Harness h;
     const QString path = h.source(QStringLiteral("层位/D61.dat"),
-        "# Grid_size:2x2\n# P1: 1,1,0,0\n# P2: 1,2,20,0\n# P3: 2,2,20,40\n"
-        "# Z_units: s\n0 0 1.25 1 1\n20 0 1.50 1 2\n0 40 1.75 2 1\n20 40 2.0 2 2\n");
+        "# Grid_size:2x2\n# P1: 1,1,230000,4000000\n# P2: 1,2,230020,4000000\n"
+        "# P3: 2,2,230020,4000040\n# Z_units: s\n"
+        "230000 4000000 1.25 1 1\n230020 4000000 1.50 1 2\n"
+        "230000 4000040 1.75 2 1\n230020 4000040 2.0 2 2\n");
     QVERIFY(!path.isEmpty());
+    DataImportService::ImportOptions options;
+    if (mappedSingleFile)
+    {
+      PaleoGeoreference reference;
+      reference.kind = QStringLiteral("crs");
+      reference.sourceCrs = QStringLiteral("EPSG:32649");
+      h.service->setGeoreference(reference);
+      options.tableMapping.insert(QStringLiteral("crs"), reference.sourceCrs);
+    }
     QString error;
-    const auto imported = h.service->importProjectFile(path, &error);
+    const auto imported = h.service->importProjectFile(path, options, &error);
     QVERIFY2(!imported.isEmpty(), qPrintable(error));
     const auto previous = h.catalog()->currentVersion(imported);
     QCOMPARE(previous.stage, QStringLiteral("DERIVED"));
@@ -1160,10 +1179,26 @@ private slots:
     QCOMPARE(skipped.first().outcome, RowOutcome::Skipped);
     QCOMPARE(h.catalog()->currentVersion(imported).id, previous.id);
 
-    const auto refreshed = h.service->importFiles({path}, &error, {}, {path});
-    QCOMPARE(refreshed.size(), 1);
-    QVERIFY2(refreshed.first().outcome == RowOutcome::Imported, qPrintable(refreshed.first().message));
-    QCOMPARE(refreshed.first().assetId, imported);
+    if (mappedSingleFile)
+    {
+      auto invalid = options;
+      invalid.tableMapping.insert(QStringLiteral("crs"), QStringLiteral("invalid-crs"));
+      const auto rejected = h.service->importProjectFileEx(path, invalid, &error);
+      QCOMPARE(rejected.outcome, Outcome::Failed);
+      QVERIFY(!error.isEmpty());
+      QCOMPARE(h.catalog()->currentVersion(imported).id, previous.id);
+      QCOMPARE(bytesAt(previousPath), previousBytes);
+      const auto refreshed = h.service->importProjectFileEx(path, options, &error);
+      QVERIFY2(refreshed.outcome == Outcome::AlreadyStored, qPrintable(error));
+      QCOMPARE(refreshed.assetId, imported);
+    }
+    else
+    {
+      const auto refreshed = h.service->importFiles({path}, &error, {}, {path});
+      QCOMPARE(refreshed.size(), 1);
+      QVERIFY2(refreshed.first().outcome == RowOutcome::Imported, qPrintable(refreshed.first().message));
+      QCOMPARE(refreshed.first().assetId, imported);
+    }
     const auto current = h.catalog()->currentVersion(imported);
     QCOMPARE(current.versionNumber, previous.versionNumber + 1);
     QCOMPARE(current.parentVersionIds, previous.parentVersionIds);
@@ -1171,7 +1206,10 @@ private slots:
     QCOMPARE(bytesAt(previousPath), previousBytes);
     QVERIFY(QFileInfo::exists(h.service->absolutePathForVersion(current)));
 
-    h.service->importFiles({path}, &error, {}, {path});
+    if (mappedSingleFile)
+      h.service->importProjectFileEx(path, options, &error);
+    else
+      h.service->importFiles({path}, &error, {}, {path});
     QVERIFY2(error.isEmpty(), qPrintable(error));
     QCOMPARE(h.catalog()->currentVersion(imported).id, current.id);
   }

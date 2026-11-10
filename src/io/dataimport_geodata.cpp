@@ -471,7 +471,7 @@ QString importAuxReferenceFamily(FamilyContext &ctx)
 // return fail(X) → return X）。返回错误文案；空串 = 无事可做或成功。
 QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
                              const CatalogVersion &existing, const QString &sourcePath,
-                             QString *error)
+                             const QString &inputCrs, QString *error)
 {
       const QString horizon = QFileInfo(existing.fileName.isEmpty() ? sourcePath : existing.fileName)
                                   .completeBaseName().toUpper();
@@ -502,9 +502,7 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
               QStringLiteral("derived"), existing.assetId, derived.id, derived.fileName);
           derived.sourceUri = sourcePath;
           derived.parentVersionIds = QStringList{existing.id};
-          const QString derr = deriveHorizonRaster(
-              s, sourcePath, s.tableMappings.value(sourcePath).value("crs").toString(),
-              &derived, nullptr, error);
+          const QString derr = deriveHorizonRaster(s, sourcePath, inputCrs, &derived, nullptr, error);
           if (!derr.isEmpty())
             return derr;
           if (!cat->addVersion(derived, error))

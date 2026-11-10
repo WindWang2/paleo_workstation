@@ -238,6 +238,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   }
 
   const qint64 validationMs = timer.elapsed() - hashMs;
+  const QString inputCrs = options.tableMapping.value(QStringLiteral("crs")).toString();
   // 重导据此走全新导入（issue #5）。
   const CatalogVersion existing =
       cat->versionBySha256(sourceSha);
@@ -253,7 +254,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     if (existingAsset.type == QLatin1String("horizon"))
     {
       const QString rerr = paleo::dataimport_detail::dedupHorizonRederive(
-          cat, s, existing, sourcePath, error);
+          cat, s, existing, sourcePath, inputCrs, error);
       if (!rerr.isEmpty())
         return fail(rerr);
     }
@@ -398,7 +399,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   ctx.parsedDev = std::move(parsedDev);
   ctx.logWellName = logInfo.header.wellName;
   ctx.targetWellId = options.targetWellId;
-  ctx.inputCrs = options.tableMapping.value("crs").toString();
+  ctx.inputCrs = inputCrs;
   if (cls.type == "seismic" && !paleo::dataimport_detail::prepareSeismicCoordinates(ctx, options.tableMapping.value("crs").toString())) return fail(*error);
   QString branchErr;
   if (cls.type == QLatin1String("well_head") && !fixedAux)

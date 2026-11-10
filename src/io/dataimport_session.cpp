@@ -304,6 +304,7 @@ bool DataImportService::moveStagedFiles(ImportSession &s, QStringList *moved,
     return true;
   const QDir root(s.stagingRoot);
   const QDir project(s.projectDir);
+  const auto versionPaths = paleo::dataimport_detail::stagedManagedVersionPaths(s);
   QDirIterator it(s.stagingRoot, QDir::Files | QDir::Hidden | QDir::System,
                   QDirIterator::Subdirectories);
   QStringList files;
@@ -320,11 +321,7 @@ bool DataImportService::moveStagedFiles(ImportSession &s, QStringList *moved,
       setError(error, QStringLiteral("暂存文件路径非法: %1").arg(rel));
       return false;
     }
-    // 后缀判定而非子串：合法文件名恰含 ".partial"（如 draft.partial.las）
-    // 不能整文件静默丢弃——否则已入册版本指向不存在的受管字节。
-    if (rel.endsWith(QLatin1String(".partial")) ||
-        rel.endsWith(QLatin1String(".partial.tif")))
-      continue; // 半截产物，含 .partial.tif（produce 失败分支已删；兜底不提交）
+    if (paleo::dataimport_detail::isImportScratchPath(rel, versionPaths)) continue;
     const QString dst = project.absoluteFilePath(rel);
     if (QFileInfo::exists(dst))
     {

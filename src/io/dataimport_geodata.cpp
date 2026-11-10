@@ -57,6 +57,9 @@ using paleo::dataimport_detail::setError;
 
 namespace
 {
+  const auto kHorizonBinningRevisionKey = QStringLiteral("horizon_binning_revision");
+  constexpr int kHorizonBinningRevision = 1;
+
   // 编图层序界面集合（plan §3/§5E）。名单经 AreaRules（本工区默认
   // C3/C6/D53/D61/D62/D63/D71/D72；第二工区经 project_area.json 换名单）。
   bool isKnownSequenceBoundary(const QString &stem)
@@ -158,6 +161,7 @@ QString deriveHorizonRaster(ImportSession &s, const QString &sourcePath,
   err->clear();
   if (!binHorizon(horizonText, &binned, err))
     return fail(QStringLiteral("horizon binning failed"));
+  derived->extra.insert(kHorizonBinningRevisionKey, kHorizonBinningRevision);
   derived->extra.insert(QStringLiteral("collisions"), binned.collisions);
   derived->extra.insert(QStringLiteral("rejected"), binned.rejected);
   derived->extra.insert(QStringLiteral("grid_rows"), binned.rows);
@@ -479,6 +483,7 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
         for (const CatalogVersion &v : siblings)
           if (v.stage.compare(QStringLiteral("DERIVED"), Qt::CaseInsensitive) == 0 &&
               v.parentVersionIds.contains(existing.id) &&
+              v.extra.value(kHorizonBinningRevisionKey).toInt() >= kHorizonBinningRevision &&
               QFileInfo::exists(cat->versionFilePath(v))) // 同批新增派生件在暂存根
           {
             derived = v;

@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDir>
+#include <cmath>
 
 #include "../src/io/horizonbinner.h"
 
@@ -25,6 +26,8 @@ private slots:
   void countsCollisions();
   void rejectsMalformedHeaders();
   void rejectsExtremeLineNumbersWithoutOverflow(); // #595 L4.1
+  void normalizesHorizonTimeUnits();
+  void projectedGeoTiffKeepsSampleCenters();
   void writesGeoTiffWithGeotransform();
   void writesPaleoSurveyMetadata();
   void benchmarkLocalHorizons();
@@ -153,6 +156,68 @@ void TestHorizonBinner::countsCollisions()
   QCOMPARE(b.z.at(0 * 2 + 1), 333.0f);
   QCOMPARE(b.z.at(0 * 2 + 0), -9999.0f);
   QCOMPARE(b.z.at(1 * 2 + 1), -9999.0f);
+}
+
+void TestHorizonBinner::normalizesHorizonTimeUnits()
+{
+  const QByteArray header(
+      "# Grid_size:2x2\n"
+      "# P1: 1,1,0,0\n"
+      "# P2: 1,2,20,0\n"
+      "# P3: 2,2,20,40\n");
+  const QByteArray rows("0 0 1.25 1 1\n20 0 -9999 1 2\n0 40 1.75 2 1\n");
+  BinnedHorizon grid;
+  QString error;
+  QVERIFY2(binHorizon(header + "# Z_units: s\n" + rows, &grid, &error), qPrintable(error));
+  QCOMPARE(grid.z, QVector<float>({1750.f, -9999.f, 1250.f, -9999.f}));
+  QCOMPARE(grid.zMin, 1250.0);
+  QCOMPARE(grid.zMax, 1750.0);
+  QCOMPARE(grid.filledCells, 2);
+
+  QVERIFY2(binHorizon(header + rows, &grid, &error), qPrintable(error));
+  QCOMPARE(grid.z.at(2), 1.25f);
+  QVERIFY2(binHorizon(header + "# Z_units: MS\n" + rows, &grid, &error), qPrintable(error));
+  QCOMPARE(grid.z.at(2), 1.25f);
+  QVERIFY(!binHorizon(header + "# Z_units: m\n" + rows, &grid, &error));
+  QVERIFY2(error.contains("unsupported horizon time unit"), qPrintable(error));
+  QVERIFY(!binHorizon(header + "# Z_units: s\n0 0 -9.999 1 1\n", &grid, &error));
+  QVERIFY2(error.contains("cannot be stored"), qPrintable(error));
+}
+
+void TestHorizonBinner::projectedGeoTiffKeepsSampleCenters()
+{
+  const QByteArray text(
+      "# Grid_size:2x2\n"
+      "# P1: 1,1,0,0\n"
+      "# P2: 1,2,20,0\n"
+      "# P3: 2,2,20,40\n"
+      "# Projection: UTM Zone 49N (WGS84)\n"
+      "# Z_units: s\n"
+      "230000 4000000 1.00 1 1\n"
+      "230020 4000001 1.01 1 2\n"
+      "230002 4000040 1.02 2 1\n"
+      "230022 4000041 1.03 2 2\n");
+  BinnedHorizon grid;
+  QString error;
+  QVERIFY2(binHorizon(text, &grid, &error), qPrintable(error));
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+  const QString path = temp.filePath(QStringLiteral("projected.tif"));
+  QVERIFY2(writeHorizonGeoTiff(grid, path, &error), qPrintable(error));
+  GDALDatasetH dataset = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
+  QVERIFY(dataset);
+  double gt[6]{};
+  const auto transformStatus = GDALGetGeoTransform(dataset, gt);
+  float timeMs = 0;
+  const auto readStatus = GDALRasterIO(GDALGetRasterBand(dataset, 1), GF_Read,
+                                      0, 0, 1, 1, &timeMs, 1, 1, GDT_Float32, 0, 0);
+  GDALClose(dataset);
+  QCOMPARE(transformStatus, CE_None);
+  QCOMPARE(readStatus, CE_None);
+  QCOMPARE(timeMs, 1020.0f);
+  QVERIFY(std::abs(gt[0] + 0.5 * (gt[1] + gt[2]) - 230002.0) < 1e-6);
+  QVERIFY(std::abs(gt[3] + 0.5 * (gt[4] + gt[5]) - 4000040.0) < 1e-6);
+  QVERIFY(grid.geometryResidualM < 1e-6);
 }
 
 // T21：P1/P2/P3 是网格几何唯一来源——缺角/非数值/与 Grid_size 不自洽/

@@ -686,7 +686,10 @@ private slots:
     QTemporaryDir dir; QString error;
     const QByteArray bytes("# Grid_size:2x2\n# P1: 1,1,0,0\n# P2: 1,2,20,0\n# P3: 2,2,20,40\n# Projection: UTM Zone 49N (WGS84)\n# Z_units: ms\n230000 4000000 100 1 1\n230020 4000001 101 1 2\n230002 4000040 102 2 1\n230022 4000041 103 2 2\n");
     BinnedHorizon grid; QVERIFY2(binHorizon(bytes, &grid, &error), qPrintable(error));
-    QVERIFY(std::abs(grid.originX - 230002) < 1e-6); QVERIFY(std::abs(grid.originY - 4000040) < 1e-6); QVERIFY(std::abs(grid.columnY - 1) < 1e-8); QVERIFY(grid.geometryResidualM < 1e-6);
+    QVERIFY(std::abs(grid.originX + 0.5 * (grid.dx + grid.rowX) - 230002) < 1e-6);
+    QVERIFY(std::abs(grid.originY + 0.5 * (grid.columnY - grid.dy) - 4000040) < 1e-6);
+    QVERIFY(std::abs(grid.columnY - 1) < 1e-8);
+    QVERIFY(grid.geometryResidualM < 1e-6);
     const auto path = dir.filePath("boundary.geojson");
     QVERIFY(write(path, R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[0,0],[10,0],[5,8],[0,0]]]}}]})"));
     PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(dir.filePath("project")); DataImportService::ImportOptions options; options.forceType = "boundary";

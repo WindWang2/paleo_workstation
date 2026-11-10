@@ -67,23 +67,41 @@ bool recoverOne(const QString &intent, const QString &projectDir,
 }
 }
 
+QSet<QString> stagedManagedVersionPaths(const ImportSession &session)
+{
+  QSet<QString> paths;
+  if (session.cat)
+    for (const auto &op : session.cat->journal())
+      if (op.kind == CatalogOp::Kind::AddVersion && op.version.managed)
+        paths.insert(op.version.path);
+  return paths;
+}
+
+bool isImportScratchPath(const QString &relativePath, const QSet<QString> &versionPaths)
+{
+  // A source file may itself have one of the suffixes used for scratch files.
+  return (relativePath.endsWith(QLatin1String(".partial")) ||
+          relativePath.endsWith(QLatin1String(".partial.tif"))) &&
+         !versionPaths.contains(relativePath);
+}
+
 bool writeImportIntent(ImportSession &session, QString *error)
 {
   if (!QDir(session.stagingRoot).exists()) { session.intentPrepared = true; return true; }
+  const auto versionPaths = stagedManagedVersionPaths(session);
+  const QDir staging(session.stagingRoot);
   QJsonArray records;
-  QDirIterator files(session.stagingRoot + QStringLiteral("/artifacts"), QDir::Files,
+  QDirIterator files(staging.filePath(QStringLiteral("artifacts")),
+                     QDir::Files | QDir::Hidden | QDir::System,
                      QDirIterator::Subdirectories);
   while (files.hasNext())
   {
     const QString path = files.next();
-    // 与 dataimport_session::moveStagedFiles 同口径：后缀判定，避免误杀
-    // 文件名中段恰含 ".partial" 的合法资产。
-    if (path.endsWith(QLatin1String(".partial")) ||
-        path.endsWith(QLatin1String(".partial.tif")))
-      continue;
+    const QString relative = staging.relativeFilePath(path);
+    if (isImportScratchPath(relative, versionPaths)) continue;
     const QString sha = hashFile(path);
     if (sha.isEmpty()) return fail(error, path);
-    records.append(QJsonObject{{QStringLiteral("path"), QDir(session.stagingRoot).relativeFilePath(path)},
+    records.append(QJsonObject{{QStringLiteral("path"), relative},
                                {QStringLiteral("sha256"), sha}});
   }
   if (records.isEmpty()) { session.intentPrepared = true; return true; }

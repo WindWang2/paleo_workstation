@@ -6,6 +6,7 @@
 #include <cmath>
 #include <memory>
 #include <algorithm>
+#include <gdal.h>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
@@ -1073,6 +1074,106 @@ private slots:
     QVERIFY(h.catalog()->assets().isEmpty());
     QVERIFY2(!h.service->importProjectFile(path, &error).isEmpty(), qPrintable(error));
     QCOMPARE(h.curves().size(), 1);
+  }
+
+  void managedTiffWithPartialSuffix_data()
+  {
+    QTest::addColumn<bool>("interrupted");
+    QTest::newRow("commit") << false;
+    QTest::newRow("recover") << true;
+  }
+
+  void managedTiffWithPartialSuffix()
+  {
+    QFETCH(bool, interrupted);
+    Harness h;
+    const QString path = h.temporary.filePath(QStringLiteral("survey.partial.tif"));
+    GDALAllRegister();
+    const auto driver = GDALGetDriverByName("GTiff");
+    QVERIFY(driver);
+    const auto image = GDALCreate(driver, path.toUtf8().constData(), 1, 1, 1, GDT_Byte, nullptr);
+    QVERIFY(image);
+    const auto fillStatus = GDALFillRaster(GDALGetRasterBand(image, 1), 31, 0);
+    GDALClose(image);
+    QCOMPARE(fillStatus, CE_None);
+    const QByteArray original = bytesAt(path);
+    QVERIFY(!original.isEmpty());
+
+    auto session = h.service->beginImport();
+    DataImportService::produceFile(*session, path, {});
+    QCOMPARE(session->fileResult.outcome, Outcome::Imported);
+    const auto version = session->cat->currentVersion(session->fileResult.assetId);
+    QVERIFY(version.managed);
+    const QString final = DataCatalog::resolvedVersionPath(h.project, version);
+    QVERIFY(!final.isEmpty());
+    const QString scratchSuffix = QStringLiteral(".partial.tif");
+    const QString scratch = session->cat->versionFilePath(version) + scratchSuffix;
+    QVERIFY(ImportUxFixtures::write(scratch, "unfinished output"));
+
+    QString error;
+    if (interrupted)
+    {
+      QStringList moved;
+      QVERIFY2(interruptAfterMove(*session, moved, &error), qPrintable(error));
+      QCOMPARE(moved, QStringList{final});
+      QCOMPARE(bytesAt(final), original);
+      session.reset();
+      h.reopen();
+      QVERIFY2(h.service->catalogWritable(), qPrintable(h.service->catalogOpenError()));
+      QVERIFY(h.catalog()->versions().isEmpty());
+      QVERIFY(!QFileInfo::exists(final));
+    }
+    else
+    {
+      QVERIFY2(paleo::dataimport_detail::writeImportIntent(*session, &error), qPrintable(error));
+      QCOMPARE(h.service->commitImport(*session, &error), Commit::Committed);
+      QVERIFY2(error.isEmpty(), qPrintable(error));
+      QCOMPARE(bytesAt(final), original);
+      QCOMPARE(h.catalog()->versionById(version.id).id, version.id);
+    }
+    QVERIFY(!QFileInfo::exists(final + scratchSuffix));
+    QCOMPARE(bytesAt(path), original);
+  }
+
+  void explicitReimportRefreshesLegacyHorizonRaster()
+  {
+    Harness h;
+    const QString path = h.source(QStringLiteral("层位/D61.dat"),
+        "# Grid_size:2x2\n# P1: 1,1,0,0\n# P2: 1,2,20,0\n# P3: 2,2,20,40\n"
+        "# Z_units: s\n0 0 1.25 1 1\n20 0 1.50 1 2\n0 40 1.75 2 1\n20 40 2.0 2 2\n");
+    QVERIFY(!path.isEmpty());
+    QString error;
+    const auto imported = h.service->importProjectFile(path, &error);
+    QVERIFY2(!imported.isEmpty(), qPrintable(error));
+    const auto previous = h.catalog()->currentVersion(imported);
+    QCOMPARE(previous.stage, QStringLiteral("DERIVED"));
+    QCOMPARE(previous.extra.value("z_units").toString(), QStringLiteral("ms"));
+    QCOMPARE(previous.extra.value("z_min").toDouble(), 1250.0);
+    const auto previousPath = h.service->absolutePathForVersion(previous);
+    const auto previousBytes = bytesAt(previousPath);
+    QVERIFY(!previousBytes.isEmpty());
+    QVERIFY2(h.catalog()->updateVersionExtra(previous.id, QStringLiteral("horizon_binning_revision"),
+                                            QVariant(), &error), qPrintable(error));
+
+    const auto skipped = h.service->importFiles({path}, &error);
+    QCOMPARE(skipped.size(), 1);
+    QCOMPARE(skipped.first().outcome, RowOutcome::Skipped);
+    QCOMPARE(h.catalog()->currentVersion(imported).id, previous.id);
+
+    const auto refreshed = h.service->importFiles({path}, &error, {}, {path});
+    QCOMPARE(refreshed.size(), 1);
+    QVERIFY2(refreshed.first().outcome == RowOutcome::Imported, qPrintable(refreshed.first().message));
+    QCOMPARE(refreshed.first().assetId, imported);
+    const auto current = h.catalog()->currentVersion(imported);
+    QCOMPARE(current.versionNumber, previous.versionNumber + 1);
+    QCOMPARE(current.parentVersionIds, previous.parentVersionIds);
+    QCOMPARE(current.extra.value("z_min").toDouble(), 1250.0);
+    QCOMPARE(bytesAt(previousPath), previousBytes);
+    QVERIFY(QFileInfo::exists(h.service->absolutePathForVersion(current)));
+
+    h.service->importFiles({path}, &error, {}, {path});
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(h.catalog()->currentVersion(imported).id, current.id);
   }
 
   void interruptedRegisteredBytesSurviveReopen()

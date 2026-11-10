@@ -22,7 +22,7 @@ struct BinnedHorizon
 {
   QString coordinateSystem; // explicit model CRS; legacy text keeps the local grid
   int rows = 0, cols = 0;
-  QVector<float> z;      // row-major（行=inline 升序），nodata=-9999
+  QVector<float> z;      // 毫秒，row-major（行=inline 降序），nodata=-9999
   int collisions = 0;    // 同像元多点：保留最后一点，计数进元数据
   int rejected = 0;      // 越界点不写入，只计入拒绝数（plan §3）
   double dx = 0, dy = 0; // 像元尺寸（米）
@@ -61,7 +61,7 @@ struct HorizonScatter
 };
 HorizonScatter parseHorizonScatter(const QByteArray &text);
 
-// 装箱：行=inline-p1Inline（0..rows-1），列=crossline-p1Xline。
+// 装箱为毫秒。旧文件未声明 Z 单位时沿用毫秒，显式单位只接受 ms 或 s。
 bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error = nullptr);
 
 // 写北向上 Float32 GeoTIFF（geotransform/nodata/局部测网 CRS）+ PALEO_INLINE_*/

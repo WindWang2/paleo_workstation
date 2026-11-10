@@ -41,8 +41,9 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       }), inputs.end());
     inputs.append({path, directory});
   };
-  if (!sources.root.isEmpty())
-    addInput(QFileInfo(sources.root).absoluteFilePath(), true);
+  const QFileInfo root(sources.root);
+  if (sources.importRootDirectory && root.isDir())
+    addInput(root.absoluteFilePath(), true);
   for (const auto &path : {sources.points, sources.wells, sources.seismic, sources.horizons, sources.references}) {
     if (path.isEmpty()) continue;
     const QFileInfo source(path);
@@ -133,6 +134,7 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       promise.setProgressValueAndText(done, text);
     };
     for (const auto &input : inputs) {
+      if (input.directory && !QFileInfo(input.path).isDir()) continue;
       paleo::data::ImportReport report;
       QString error;
       const bool imported = input.directory

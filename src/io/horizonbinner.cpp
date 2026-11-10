@@ -275,6 +275,14 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
   HorizonHeader h;
   if (!parseHorizonHeader(text, &h, error))
     return false;
+  // Older SMI files without a unit use the legacy millisecond convention.
+  const bool seconds = h.zUnits.compare(QLatin1String("s"), Qt::CaseInsensitive) == 0;
+  if (!seconds && !h.zUnits.isEmpty() &&
+      h.zUnits.compare(QLatin1String("ms"), Qt::CaseInsensitive) != 0)
+  {
+    setError(error, QStringLiteral("unsupported horizon time unit '%1' (expected ms or s)").arg(h.zUnits));
+    return false;
+  }
 
   BinnedHorizon b;
   b.rows = h.gridRows;
@@ -319,8 +327,8 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
     bool okInl = false, okXl = false, okZ = false;
     const int inl = t.at(3).toInt(&okInl);
     const int xl = t.at(4).toInt(&okXl);
-    const float z = t.at(2).toFloat(&okZ);
-    if (!okInl || !okXl || !okZ || !std::isfinite(z) || z == kNoData)
+    const double inputZ = seconds ? t.at(2).toDouble(&okZ) : t.at(2).toFloat(&okZ);
+    if (!okInl || !okXl || !okZ || !std::isfinite(inputZ) || inputZ == kNoData)
       continue;
     // 北向上：行 0 是最大 y（inline 最大侧）；inline=p1Inline 落在末行。
     // L4.1：inl/xl 是数据行里的任意 32 位取值（文件内容，非头段校验过的），
@@ -334,6 +342,14 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
       ++b.rejected; // 越界的点不写入，只计入拒绝数（§3）
       continue;
     }
+    const double timeMs = seconds ? inputZ * 1000.0 : inputZ;
+    if (std::abs(timeMs) > std::numeric_limits<float>::max() ||
+        static_cast<float>(timeMs) == kNoData)
+    {
+      setError(error, QStringLiteral("horizon time cannot be stored as Float32 milliseconds"));
+      return false;
+    }
+    const float z = static_cast<float>(timeMs);
     const int idx = static_cast<int>(row * b.cols + col);
     if (filled.at(idx))
       ++b.collisions; // 同像元多点：保留最后一点（下方覆盖）

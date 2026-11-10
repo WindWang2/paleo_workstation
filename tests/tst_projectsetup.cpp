@@ -686,7 +686,10 @@ private slots:
     QTemporaryDir dir; QString error;
     const QByteArray bytes("# Grid_size:2x2\n# P1: 1,1,0,0\n# P2: 1,2,20,0\n# P3: 2,2,20,40\n# Projection: UTM Zone 49N (WGS84)\n# Z_units: ms\n230000 4000000 100 1 1\n230020 4000001 101 1 2\n230002 4000040 102 2 1\n230022 4000041 103 2 2\n");
     BinnedHorizon grid; QVERIFY2(binHorizon(bytes, &grid, &error), qPrintable(error));
-    QVERIFY(std::abs(grid.originX - 230002) < 1e-6); QVERIFY(std::abs(grid.originY - 4000040) < 1e-6); QVERIFY(std::abs(grid.columnY - 1) < 1e-8); QVERIFY(grid.geometryResidualM < 1e-6);
+    QVERIFY(std::abs(grid.originX + 0.5 * (grid.dx + grid.rowX) - 230002) < 1e-6);
+    QVERIFY(std::abs(grid.originY + 0.5 * (grid.columnY - grid.dy) - 4000040) < 1e-6);
+    QVERIFY(std::abs(grid.columnY - 1) < 1e-8);
+    QVERIFY(grid.geometryResidualM < 1e-6);
     const auto path = dir.filePath("boundary.geojson");
     QVERIFY(write(path, R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[0,0],[10,0],[5,8],[0,0]]]}}]})"));
     PaleoProjectStore store; DataImportService service(&store); service.setProjectDir(dir.filePath("project")); DataImportService::ImportOptions options; options.forceType = "boundary";
@@ -845,7 +848,14 @@ private slots:
     QCOMPARE(count, 1); QCOMPARE(service.catalog()->entities("well").size(), 1);
     QVERIFY(project.mapConfiguration().sourceStats.value("sourceProblems").toMap().isEmpty());
   }
+  void supplementalFileDoesNotImportItsParentDirectory_data() {
+    QTest::addColumn<QString>("savedRootMode");
+    QTest::newRow("explicit-file-and-directory") << QStringLiteral("none");
+    QTest::newRow("missing-saved-root") << QStringLiteral("missing");
+    QTest::newRow("existing-root-in-advanced-supplement") << QStringLiteral("existing");
+  }
   void supplementalFileDoesNotImportItsParentDirectory() {
+    QFETCH(QString, savedRootMode);
     QTemporaryDir dir;
     const auto selected = dir.filePath("explicit/points.csv");
     const auto ignored = dir.filePath("explicit/other-work-area/B2.las");
@@ -872,9 +882,28 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
     QVERIFY2(finished.takeFirst()[1].toBool(), qPrintable(error));
 
-    ProjectSetupSources sources;
+    const auto savedRoot = savedRootMode == "none" ? QString() : dir.filePath("remembered-root");
+    if (savedRootMode == "existing")
+      QVERIFY(write(savedRoot + "/unselected/B4.las", QByteArray(las).replace("%1", "B4")));
+    if (!savedRoot.isEmpty()) {
+      const auto output = QFileInfo(target).absolutePath();
+      bool ok = false;
+      auto settings = readProjectFile(paleoProjectFilePath(output), &ok, &error);
+      QVERIFY2(ok, qPrintable(error));
+      settings.sourceAreaRoot = savedRoot;
+      QVERIFY2(writeProjectFile(output, settings, &error), qPrintable(error));
+    }
+    auto sources = workflow.currentSources();
+    QCOMPARE(sources.root, savedRoot);
     sources.points = selected;
     sources.wells = directory;
+    if (savedRootMode == "existing") {
+      ProjectSetupDialog dialog(&workflow);
+      dialog.setExistingProject(target, sources);
+      sources = dialog.sources();
+      QCOMPARE(sources.root, savedRoot);
+      QVERIFY(!sources.importRootDirectory);
+    }
     const auto preview = scanProjectSources(sources);
     QCOMPARE(preview.paths, QStringList({selected, nested}));
     QVERIFY2(workflow.applySources(sources, preview, &error), qPrintable(error));

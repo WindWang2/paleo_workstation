@@ -13,6 +13,7 @@ struct ProjectSetupSources
   QVariantMap mapChoices; // path -> { included, horizon }
   QVariantMap pointMapping; // sheet / well / x / y / kb / td / crs
   QMap<QString, QString> wellTargets; // path -> name:<well>, empty keeps file identity
+  bool importRootDirectory = true; // Advanced supplements keep root as provenance only.
 };
 struct ProjectSetupMap
 {

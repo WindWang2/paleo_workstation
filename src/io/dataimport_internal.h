@@ -82,6 +82,6 @@ bool prepareSeismicCoordinates(FamilyContext &ctx, const QString &sourceCrs);
 QString importAuxReferenceFamily(FamilyContext &ctx);
 QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
                              const CatalogVersion &existing, const QString &sourcePath,
-                             QString *error);
+                             const QString &inputCrs, QString *error);
 
 } // namespace paleo::dataimport_detail

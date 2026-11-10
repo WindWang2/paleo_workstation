@@ -22,6 +22,10 @@ formula change):
 * ``resolve_performance_grid_resolution`` reads machine compute settings; the
   reference pins ``max_cells`` to the upstream fallback (200 000) so the
   golden does not depend on the host.
+* Adaptive contour levels apply Paleo #725 after the dialog's spin rounding:
+  start is raised to the smallest integer multiple of step that is not below
+  ``valueMin``. This keeps the same step across maps comparable; it is a
+  product decision, not an upstream dialog formula change.
 
 Parent packages are registered empty so ``drawing/__init__.py`` (PyQt6) is not
 executed. NumPy, SciPy and Shapely are real imports (see requirements.lock).
@@ -157,10 +161,21 @@ class Reference:
         start_s, end_s, step_s = spin(start), spin(end), spin(step)
         if end_s < start_s:
             start_s, end_s = end_s, start_s
+        # #725：级别锚点取「不小于 valueMin 的 step 整数倍」，与
+        # src/algorithms/singlefactor/contourlevels.cpp finalizePlan 同源。
+        # 数据最小值随图幅浮动时，同 step 的级别集在跨图间对齐。
+        start_before_anchor = start_s
+        if step_s > 0:
+            quotient = lo / step_s
+            eps = 1e-9 * max(1.0, abs(quotient))
+            anchor = math.ceil(quotient - eps) * step_s
+            if math.isfinite(anchor) and anchor > start_s and anchor <= end_s:
+                start_s = float(f"{anchor:.{decimals}f}")
         count = int(math.floor(max(0.0, end_s - start_s) / step_s + 1e-10))
         levels = [float(f"{start_s + i * step_s:.{decimals}f}") for i in range(count + 1)]
         return dict(value_range=[lo, hi], start=start, end=end, step=step, decimals=decimals,
-                    spin=[start_s, end_s, step_s], levels=levels)
+                    spin=[start_before_anchor, end_s, step_s], start_anchored=start_s,
+                    level_anchor="#725 step multiples not below valueMin", levels=levels)
 
     def run(self, paths, overrides=None, *, keep_numeric_fallback=False, levels=None):
         wf = self.wf
@@ -287,7 +302,9 @@ def provenance(ref: Reference):
                 python=sys.version.split()[0], platform=platform.platform(),
                 packages=dict(numpy=numpy.__version__, scipy=scipy.__version__, shapely=shapely.__version__,
                               geos=shapely.geos_version_string),
-                sources=[dict(path=p, sha256=_sha256(ref.root / p)) for p in SOURCE_FILES])
+                sources=[dict(path=p, sha256=_sha256(ref.root / p)) for p in SOURCE_FILES],
+                # 自适应级别在 dialog spin 之后按 Paleo #725 上锚（见 dialog_levels）。
+                level_anchor="#725 step multiples not below valueMin")
 
 
 def package_paths(package: Path):

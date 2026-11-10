@@ -28,8 +28,9 @@
 #include <qgsvectorlayer.h>
 
 struct ProjectLoadState {
-  QString input, path, error;
+  QString path, error;
   QStringList warnings;
+  bool readOnly = false;
   std::optional<PaleoGeoreference> georeference;
   PaleoProjectFile mapConfiguration;
   std::unique_ptr<QgsProject> project;
@@ -97,13 +98,38 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     m_errors << tr("工程文件不存在：%1").arg(input);
     return false;
   }
-  // 锁/用户决策保持在 GUI，拒绝时不碰现有工程。
-  if (!runGate(source.absolutePath(), false))
-    return false;
   auto state = std::make_shared<ProjectLoadState>();
-  state->input = source.absoluteFilePath();
+  state->path = source.absoluteFilePath();
+  const QString manifestDir = source.absolutePath();
+  std::optional<PaleoProjectFile> selectedManifest;
+  if (input.endsWith(QLatin1String(".paleo"), Qt::CaseInsensitive))
+  {
+    bool ok = false;
+    QString error;
+    // Resolve the small manifest on the owner thread before acquiring the lock.
+    constexpr qint64 maximumManifestBytes = 16 * 1024 * 1024;
+    selectedManifest = readProjectFile(state->path, &ok, &error, maximumManifestBytes);
+    if (!ok)
+    {
+      m_errors << error;
+      return false;
+    }
+    state->path = QDir(manifestDir).absoluteFilePath(selectedManifest->qgz);
+  }
+
+  // Use the adopted QGIS directory for both locking and data preparation.
+  // The worker keeps the same manifest snapshot that selected this path.
+  const QFileInfo projectFile(state->path);
+  if (!projectFile.isFile())
+  {
+    m_errors << tr("工程 QGIS 成员不存在");
+    return false;
+  }
+  const QString projectDir = projectFile.absolutePath();
+  if (!runGate(projectDir, false, state->readOnly))
+    return false;
   const auto prepareData = m_openPreparation
-                               ? m_openPreparation(source.absolutePath())
+                               ? m_openPreparation(projectDir)
                                : std::function<void(const std::function<bool()> &)>();
   m_pendingLoad = state;
   const quint64 generation = ++m_openGeneration;
@@ -139,7 +165,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
   // promise 取消与工程切换联动：cancelOpen()/closeProject() 取消 future，
   // worker 在阶段之间自查 cancelled()。
   m_openFuture = QtConcurrent::run(paleo::tasks::pool(m_taskService),
-                                   [state, ownerThread, prepareData](
+                                   [state, ownerThread, prepareData, manifestDir, selectedManifest](
                                        QPromise<void> &promise) {
     state->started.store(true);
     const auto cancelled = [&promise, state] {
@@ -147,28 +173,24 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     };
     if (cancelled()) return;
     promise.setProgressRange(0, 100);
-    state->path = state->input;
-    const QString dir = QFileInfo(state->input).absolutePath();
-    const QString manifest = state->input.endsWith(".paleo", Qt::CaseInsensitive)
-                                 ? state->input : paleoProjectFilePath(dir);
-    if (QFile::exists(manifest)) {
-      bool ok = false; QString error;
-      const auto pf = readProjectFile(manifest, &ok, &error);
-      if (!ok && state->input.endsWith(".paleo", Qt::CaseInsensitive)) {
-        state->error = error;
-        return;
-      }
-      if (!ok)
+    auto configuration = selectedManifest;
+    const QString manifest = paleoProjectFilePath(manifestDir);
+    if (!configuration && QFile::exists(manifest)) {
+      bool ok = false;
+      QString error;
+      auto adjacent = readProjectFile(manifest, &ok, &error);
+      if (ok)
+        configuration = std::move(adjacent);
+      else
         state->warnings << tr("工程清单无法读取：%1").arg(error);
-      if (ok) {
-        state->georeference = pf.georeference;
-        state->mapConfiguration = pf;
-        if (!pf.georeferenceError.isEmpty()) state->warnings << pf.georeferenceError;
-        if (state->input.endsWith(".paleo", Qt::CaseInsensitive))
-          state->path = QDir(dir).filePath(pf.qgz);
-        for (const auto &member : missingMembers(dir, pf))
-          state->warnings << tr("工程成员缺失：%1").arg(member);
-      }
+    }
+    if (configuration) {
+      state->georeference = configuration->georeference;
+      state->mapConfiguration = *configuration;
+      if (!configuration->georeferenceError.isEmpty())
+        state->warnings << configuration->georeferenceError;
+      for (const auto &member : missingMembers(manifestDir, *configuration))
+        state->warnings << tr("工程成员缺失：%1").arg(member);
     }
     const QFileInfo file(state->path);
     if (!file.isFile()) { state->error = tr("工程 QGIS 成员不存在"); return; }
@@ -352,9 +374,10 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
     else m_project->removeEntry("paleo", "georeference");
     // 清单收养在主线程/锁决策之后。
     const QString dir = QFileInfo(state->path).absolutePath();
+    m_readOnly = state->readOnly;
     adoptConfirmedGeoreference(dir);
     applyMapConfiguration();
-    if (!QFile::exists(paleoProjectFilePath(dir))) {
+    if (!m_readOnly && !QFile::exists(paleoProjectFilePath(dir))) {
       auto adopted = projectFileForQgz(state->path);
       adopted.georeference = m_georeference;
       adopted.mapCrs = m_mapConfiguration.mapCrs;

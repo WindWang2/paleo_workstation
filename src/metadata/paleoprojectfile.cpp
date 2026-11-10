@@ -296,7 +296,8 @@ bool writeProjectFile(const QString &projectDir, const PaleoProjectFile &file,
   return true;
 }
 
-PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
+PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error,
+                                 qint64 maximumBytes)
 {
   PaleoProjectFile f;
   QFile in(path);
@@ -307,8 +308,17 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
       *ok = false;
     return f;
   }
+  const auto bytes = maximumBytes > 0 ? in.read(maximumBytes) : in.readAll();
+  if (maximumBytes > 0 && !in.atEnd())
+  {
+    setErr(error, QStringLiteral("project file %1 exceeds the %2-byte metadata limit")
+                      .arg(path).arg(maximumBytes));
+    if (ok)
+      *ok = false;
+    return f;
+  }
   QJsonParseError pe;
-  const QJsonDocument doc = QJsonDocument::fromJson(in.readAll(), &pe);
+  const QJsonDocument doc = QJsonDocument::fromJson(bytes, &pe);
   if (pe.error != QJsonParseError::NoError || !doc.isObject())
   {
     setErr(error, QStringLiteral("project file %1 is not valid JSON").arg(path));

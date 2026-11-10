@@ -2,6 +2,7 @@
 #include "metadata/paleoprojectfile.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -44,6 +45,21 @@ private slots:
     const PaleoProjectFile f = readProjectFile(p, &ok, &err);
     QVERIFY2(ok, qPrintable(err));
     QCOMPARE(f.gpkg, QStringLiteral("a.gpkg"));
+  }
+
+  void boundedReadRejectsOversizedManifest()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(writeProjectFile(dir.path(), projectFileForQgz(dir.filePath(QStringLiteral("test.qgz")))));
+    const QString path = paleoProjectFilePath(dir.path());
+    bool ok = false;
+    QString error;
+    readProjectFile(path, &ok, &error, 16);
+    QVERIFY(!ok);
+    QVERIFY(error.contains(QStringLiteral("16-byte")));
+    readProjectFile(path, &ok, &error, QFileInfo(path).size());
+    QVERIFY2(ok, qPrintable(error));
   }
 
   void escapingMembersRejected_data()

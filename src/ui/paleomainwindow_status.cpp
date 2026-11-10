@@ -27,11 +27,12 @@
 #include <QToolButton>
 
 namespace {
-// 短暂的 QGIS 接管期拦住编辑输入，保留绘制、计时器与关闭事件。
-// 不逐个禁用整窗控件，避免全树 EnabledChange 引发重排/重绘风暴。
-class ProjectHandoffInputGuard final : public QObject {
+// 保存确认后直到工程接管结束，阻止旧工程收到新的编辑输入。
+// 绘制、计时器、关闭事件和仍可用的取消按钮保持响应。
+class ProjectOpenInputGuard final : public QObject {
 public:
-  explicit ProjectHandoffInputGuard(QWidget *window) : QObject(window), m_window(window) {}
+  ProjectOpenInputGuard(QWidget *window, QWidget *cancel)
+    : QObject(window), m_window(window), m_cancel(cancel) {}
   void setActive(bool active) { m_active = active; }
 protected:
   bool eventFilter(QObject *receiver, QEvent *event) override {
@@ -47,9 +48,14 @@ protected:
       break;
     default: return false;
     }
-    auto *widget = qobject_cast<QWidget *>(receiver);
-    if ((widget && (widget == m_window || m_window->isAncestorOf(widget))) ||
-        (event->type() == QEvent::Shortcut && QApplication::activeWindow() == m_window)) {
+    // QObject ownership also reaches modeless project dialogs and their shortcuts.
+    QObject *owner = receiver;
+    while (owner && owner != m_window.data()) {
+      if (owner == m_cancel.data() && m_cancel->isEnabled())
+        return false;
+      owner = owner->parent();
+    }
+    if (owner || (event->type() == QEvent::Shortcut && QApplication::activeWindow() == m_window)) {
       event->accept();
       return true;
     }
@@ -57,6 +63,7 @@ protected:
   }
 private:
   QPointer<QWidget> m_window;
+  QPointer<QWidget> m_cancel;
   bool m_active = false;
 };
 }
@@ -169,25 +176,28 @@ void PaleoMainWindow::buildStatusBar()
     statusBar()->addPermanentWidget(openProgress);
     statusBar()->addPermanentWidget(cancelOpen);
     openStatus->hide(); openProgress->hide(); cancelOpen->hide();
-    auto *handoffGuard = new ProjectHandoffInputGuard(this);
-    qApp->installEventFilter(handoffGuard);
+    auto *inputGuard = new ProjectOpenInputGuard(this, cancelOpen);
+    qApp->installEventFilter(inputGuard);
     connect(cancelOpen, &QToolButton::clicked, m_projectSvc, &QgisProjectService::cancelOpen);
     connect(m_projectSvc, &QgisProjectService::openActiveChanged, this,
-            [this, openStatus, openProgress, cancelOpen, handoffGuard](bool active) {
-      if (!active) handoffGuard->setActive(false);
+            [this, openStatus, openProgress, cancelOpen, inputGuard](bool active) {
+      inputGuard->setActive(active);
       openStatus->setVisible(active); openProgress->setVisible(active); cancelOpen->setVisible(active);
-      if (active) openProgress->setValue(0);
+      if (active) {
+        openProgress->setValue(0);
+        cancelOpen->setEnabled(true);
+        cancelOpen->setFocus(Qt::OtherFocusReason);
+      }
       for (const auto &name : {"openProjectButton", "newProjectButton", "importFromFolderButton"})
         if (auto *button = findChild<QPushButton *>(QString::fromLatin1(name)))
           button->setEnabled(!active);
     });
     connect(m_projectSvc, &QgisProjectService::openProgress, this,
-            [openStatus, openProgress, cancelOpen, handoffGuard](int percent, const QString &status) {
+            [openStatus, openProgress, cancelOpen](int percent, const QString &status) {
       openProgress->setValue(percent);
       openStatus->setText(status);
       openStatus->setToolTip(status);
       cancelOpen->setEnabled(percent < 85);
-      handoffGuard->setActive(percent >= 85);
     });
     connect(m_projectSvc, &QgisProjectService::openFinished, this, [this](bool success) {
       statusBar()->showMessage(success ? tr("工程打开完成") : m_projectSvc->lastOpenCancelled()

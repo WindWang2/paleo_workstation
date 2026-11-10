@@ -101,11 +101,7 @@ void PaleoMainWindow::promptOpenProject()
                                                  tr("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
   if (p.isEmpty())
     return;
-  // #282：切换工程前先问当前工程脏状态（取消则原地不动）。
-  if (!maybeSaveProject())
-    return;
-  // §38 blocking-error contract: a failed open surfaces as a dialog, not
-  // a silent no-op on the startup page.
+  // openPath checks unsaved changes once before starting the switch.
   openPath(p);
 }
 

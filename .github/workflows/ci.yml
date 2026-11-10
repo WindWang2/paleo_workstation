@@ -573,6 +573,10 @@ jobs:
       - name: Build (MSVC + vendored QGIS)
         id: build
         shell: pwsh
+        env:
+          # All targets still build on every shard. Release omits the per-test
+          # PDB and incremental-link files that exhausted runner disk space.
+          PALEO_CMAKE_BUILD_TYPE: Release
         run: ./paleo-dev.ps1 build
       - name: Selfcheck
         if: matrix.shard == 1

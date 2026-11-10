@@ -104,6 +104,13 @@ superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同
 vendor/fetch-ranuts-document.sh
 ```
 
+完整的 `paleo-dev bootstrap` / `paleo-dev.ps1 bootstrap` 会准备这个组件。
+已有组件时，可用 `PALEO_OFFICE_EDITOR` 环境变量或 CMake 参数
+`-DPALEO_OFFICE_EDITOR=<目录>` 指向其所在位置。构建树会接入
+`office-editor/`，安装树把组件放到 `libexec/office-editor/`。
+`cmake --install` 与 Windows 两套便携打包工具在缺少编辑器入口或 JS/WASM
+运行文件时会失败。仅取依赖的 `bootstrap fetch-only` 可供 CI 夹具测试使用。
+
 `vendor/fetch-calligra.sh` 仍可源码构建 Calligra 26.08.2，但 Office 预览不再调用它。
 其消费的 `cmake/CalligraRenderer.cmake` 由该脚本注入 Calligra 构建、本树零引用属有意且无 CI 车道——改动须手跑该脚本验证（见 `cmake/README.md`，#874）。
 旧 `vendor/fetch-libreoffice.sh` 仅服务显式调用的历史转换 API。
@@ -453,7 +460,11 @@ tools/measure_incremental.sh build src/app/appcontext.cpp build/incremental-base
 CI Linux 在 Selfcheck 后执行该测量，并上传 `incremental-baseline-linux` 产物。
 它是非阻断的趋势观察项；比较时保留提交、工具链和构建配置，绝对时长不作跨机判定。
 
-### CI Linux 的调试信息体积
+### CI 调试信息体积
+
+Windows 必过车道通过 `PALEO_CMAKE_BUILD_TYPE=Release` 构建全部目标，
+省去全量测试链接的 PDB 和增量链接文件。各分片仍执行原有的串行测试范围，
+本机 `paleo-dev.ps1 build` 默认仍使用 RelWithDebInfo。
 
 Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和源码行位置，
 减少全量测试可执行文件的 DWARF 磁盘占用，防止链接末期耗尽 runner 磁盘。

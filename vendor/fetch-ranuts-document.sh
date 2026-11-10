@@ -6,6 +6,27 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 dest="$root/vendor/ranuts-document"
 source_dir="$root/vendor/build/ranuts-document/src"
+
+editor_ready() {
+  local dir="$1" asset
+  while IFS= read -r asset; do
+    asset="${asset%$'\r'}"
+    [[ -f "$dir/$asset" && -s "$dir/$asset" ]] || return 1
+  done < "$root/vendor/office-editor-required.txt"
+}
+
+case "${1:-}" in
+  --ensure)
+    if [[ -n "${PALEO_OFFICE_EDITOR:-}" ]]; then
+      editor_ready "$PALEO_OFFICE_EDITOR" || { echo 'PALEO_OFFICE_EDITOR is missing required editor assets' >&2; exit 1; }
+      exit 0
+    fi
+    if editor_ready "$dest"; then exit 0; fi
+    ;;
+  '') ;;
+  *) echo 'Usage: fetch-ranuts-document.sh [--ensure]' >&2; exit 2 ;;
+esac
+
 # v0.0.6 includes the embedded-WebView Editor.bin fix.
 pin_repo="https://github.com/ranuts/document.git"
 pin_tag="v0.0.6"
@@ -36,8 +57,9 @@ fi
 git -C "$source_dir" rev-parse HEAD | grep -qx "$pin_sha"
 "${pnpm_bin[@]}" -C "$source_dir" install --frozen-lockfile
 "${pnpm_bin[@]}" -C "$source_dir" run build
+editor_ready "$source_dir/dist" || { echo 'ranuts/document build is missing required editor assets' >&2; exit 1; }
 rm -rf "$dest"
 mkdir -p "$dest"
 cp -a "$source_dir/dist/." "$dest/"
-test -f "$dest/index.html"
+editor_ready "$dest"
 echo "ranuts/document $pin_sha installed at $dest"

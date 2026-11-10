@@ -30,13 +30,26 @@
 # 用法：tools/ci_ctest_gate.sh <ctest 选择参数...>（如 -LE 'core|perf' / -L core -LE perf）
 set -uo pipefail
 
-build_dir="${BUILD_DIR:-build}"
-log="$(mktemp -t ctest-gate.XXXXXX.log)"
+build_dir=build
+log="$(mktemp -t ctest-gate.XXXXXX.log)" || exit 1
+trap 'rm -f -- "$log"' EXIT
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 ledger="$script_dir/flaky-ledger.jsonl"
+junit="$build_dir/Testing/ctest-junit.xml"
+first_failed_log="$build_dir/Testing/Temporary/FirstRunFailed.log"
+last_failed_log="$build_dir/Testing/Temporary/LastTestsFailed.log"
+first_run_dir="$build_dir/Testing/qtest-first-run"
+unexpected_file="$build_dir/Testing/env-redset-unexpected.txt"
+redset="$script_dir/check_env_redset.py"
+
+# 只用本轮结果作为豁免和重跑的证据。CTest 启动失败时会留下上轮文件。
+rm -f -- "$junit" "$unexpected_file" || exit 1
+if [ -d "$first_run_dir" ]; then
+  find "$first_run_dir" -maxdepth 1 -type f -name '*.txt' -delete || exit 1
+fi
 
 # #230：并行度交给 paleo-dev 的 min(核数, 8) 缺省（AGENTS.md -j8 上限）。
-./paleo-dev test "$@" 2>&1 | tee "$log"
+./paleo-dev test "$@" --no-tests=error 2>&1 | tee "$log"
 rc=${PIPESTATUS[0]}
 # goal/perf-maintenance-20261027：选择器命中 0 个测试时 ctest 退出 0——
 # 「没跑任何测试」不等于「通过」（注册/发现漂移会静默变绿）。正常注册的
@@ -45,8 +58,9 @@ if grep -q "No tests were found" "$log"; then
   echo "::error::ctest 选中 0 个测试（选择参数：$*）——测试注册或选择器漂移，不是通过"
   exit 1
 fi
-if [ "$rc" -eq 0 ]; then
-  exit 0
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 8 ]; then
+  echo "::error::CTest 执行失败（退出码 $rc）"
+  exit "$rc"
 fi
 
 # ctest 结果行形如：
@@ -69,14 +83,25 @@ if grep -E "$result_line_re" "$log" | grep -E "$crash_re"; then
   exit 1
 fi
 
-# ---- #501(2)：env_redset 分类（--strict 口径；只读 junit，不改变重跑裁决）----
-junit="$build_dir/Testing/ctest-junit.xml"
+# 从本轮 JUnit 取失败全集，不依赖 CTest 文本输出的序号对齐空格。
+if ! failed_names="$(python3 "$redset" --junit "$junit" --failed-tests)"; then
+  echo "::error::缺少有效的本轮 CTest 测试记录"
+  exit 1
+fi
+if [ "$rc" -eq 0 ]; then
+  if [ -z "$failed_names" ]; then exit 0; fi
+  echo "::error::CTest 返回成功，但本轮记录包含失败测试"
+  exit 1
+fi
+if [ -z "$failed_names" ]; then
+  echo "::error::CTest 返回失败，但本轮记录没有失败测试"
+  exit "$rc"
+fi
+
+# ---- #501(2)：env_redset 分类（--strict 口径）----
 redset_out=""
-redset_rc=0
-redset_ran=0
-unexpected_file="$build_dir/Testing/env-redset-unexpected.txt"
-if command -v python3 >/dev/null 2>&1 && [ -f "$junit" ]; then
-  redset_ran=1
+redset_rc=1
+if [ -f "$junit" ]; then
   route="${PALEO_REDSET_ROUTE:-}"
   if [ -z "$route" ]; then
     if [ -d vendor/prefix/usr ] || [ -d vendor/superbuild/prefix ]; then
@@ -87,8 +112,7 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$junit" ]; then
   fi
   # #760：--emit-unexpected 把不放行集合（REGRESSED|UNEXPECTED，--strict 下含
   # STALE）落盘，供下方重跑集过滤用（与 paleo-dev.ps1 同口径）。
-  rm -f "$unexpected_file"
-  redset_out="$(python3 "$script_dir/check_env_redset.py" \
+  redset_out="$(python3 "$redset" \
     --build "$build_dir" --junit "$junit" --route "$route" --strict \
     --emit-unexpected "$unexpected_file" 2>&1)"
   redset_rc=$?
@@ -107,21 +131,8 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$junit" ]; then
   fi
 fi
 
-# ---- #501(1)：记账准备——重跑前先留下失败项名单（--rerun-failed 读的就是它）----
-failed_names="$(ctest --test-dir "$build_dir" -N --rerun-failed -LE perf 2>/dev/null \
-  | sed -nE 's/^ *Test #[0-9]+: *([^ ]+).*/\1/p' | sort -u)"
-
-echo "::warning::并行轮有断言/超时失败，串行重跑失败项一次以排除负载抖动（重跑通过仍留痕——记入 tools/flaky-ledger.jsonl）"
-# 保留第一轮 QtTest 输出；串行 ctest 会覆盖同名 -o 文件。
-first_run_dir="$build_dir/Testing/qtest-first-run"
-if [ -d "$first_run_dir" ]; then
-  rm -rf "$build_dir/Testing/qtest-first-run-initial"
-  cp -a "$first_run_dir" "$build_dir/Testing/qtest-first-run-initial"
-fi
-# #501：串行重跑会覆盖 LastTestsFailed.log，先把首轮失败名单留住——重跑通过
-# 的项即「本轮 flaky 放行集合」，必须写台账（此前只有一行 warning，无从复审）。
-first_failed_log="$build_dir/Testing/Temporary/FirstRunFailed.log"
-cp -f "$build_dir/Testing/Temporary/LastTestsFailed.log" "$first_failed_log" 2>/dev/null || true
+# #501：重跑会覆盖结果，先保留首轮证据。
+cp -f -- "$last_failed_log" "$first_failed_log" 2>/dev/null || true
 
 # ---- #760：重跑集 = env_redset 不放行集合（与 Windows paleo-dev.ps1 同口径）----
 # EXEMPT（已登记环境债）与 DOCUMENTED（#475 文档化红项）按设计分诊放行：既不重跑
@@ -130,7 +141,7 @@ cp -f "$build_dir/Testing/Temporary/LastTestsFailed.log" "$first_failed_log" 2>/
 # 豁免在 Linux 侧形同虚设。python/junit 缺位、或检查器非零退出却没给出不放行
 # 名单（异常/解析失败）时不过滤——退化到 #760 前的全量重跑，而不是放行。
 rerun_names="$failed_names"
-if [ "$redset_ran" -eq 1 ] && { [ "$redset_rc" -eq 0 ] || [ -s "$unexpected_file" ]; }; then
+if [ -f "$unexpected_file" ] && { [ "$redset_rc" -eq 0 ] || [ -s "$unexpected_file" ]; }; then
   keep_file="$build_dir/Testing/env-redset-keep.txt"
   if [ "$redset_rc" -eq 0 ]; then
     # 无 REGRESSED/UNEXPECTED/STALE → 本轮失败项全部按设计放行
@@ -155,16 +166,30 @@ if [ -z "$rerun_names" ]; then
   echo "env_redset: 本轮失败项均为名单内豁免/文档化放行——不进重跑集、不记 flaky 台账（#760）"
   exit 0
 fi
-rerun_re="^($(printf '%s\n' "$rerun_names" | paste -sd'|' -))$"
+echo "::warning::本轮有非豁免失败，串行重跑一次以排除负载抖动"
+if [ -d "$first_run_dir" ]; then
+  rm -rf -- "$build_dir/Testing/qtest-first-run-initial" || exit 1
+  cp -a -- "$first_run_dir" "$build_dir/Testing/qtest-first-run-initial" || exit 1
+fi
+cp -- "$junit" "$build_dir/Testing/ctest-junit-initial.xml" || exit 1
+rm -- "$junit" || exit 1
+rerun_re="^($(printf '%s\n' "$rerun_names" | sed -E 's/[][\\.^$*+?(){}|]/\\&/g' | paste -sd'|' -))$"
 # #136：perf 标签（墙钟预算）不重跑——确定性超限串行重跑只会再烧 200 s 后
 # 照样红；perf 在独立的非阻断 linux-perf job 里跑（tools/ci_perf.sh）。
 # #397：串行重跑也走 ./paleo-dev test——裸 ctest 丢失 vendored 环境注入
 #（QGIS_PREFIX_PATH/deb 库路径/GDAL_DRIVER_PATH），重跑裁决与第一轮
 # 不同条件：加载 flake 变硬红、栅格类静默丢驱动。
 # #760：用 -R 显式点名（替代 --rerun-failed）——重跑集 = 非豁免的失败项，
-# 豁免项既不重跑也不入台账；名单与 --rerun-failed 同源（同一次 -N 抽取）。
-./paleo-dev test -j1 -R "$rerun_re" -LE perf
+# 豁免项既不重跑也不入台账。
+./paleo-dev test -j1 -R "$rerun_re" -LE perf --no-tests=error
 rc2=$?
+if [ "$rc2" -eq 0 ]; then
+  mapfile -t selected_tests <<< "$rerun_names"
+  if ! python3 "$redset" --junit "$junit" --require-pass "${selected_tests[@]}"; then
+    echo "::error::CTest 重跑未提供全部选中测试的通过证据"
+    exit 1
+  fi
+fi
 # #501：放行必须留痕——持久 JSONL 台账（累计命中
 # 由 check_flaky_ledger.py 聚合点名）+ 逐项 annotation / step summary /
 # 构建目录台账（PR 评审面可见）。首轮红、重跑绿 = flaky，反复入账升硬红。
@@ -174,7 +199,7 @@ if [ "$rc2" -eq 0 ] && [ -n "$rerun_names" ]; then
   # 真红，而 flaky 汇总又因它仍在失败集里而漏掉该项。重跑放行即删，让 artifact
   # 反映真实结论（triage 侧另有 FirstRunFailed.log + 最新 tag Test.xml 口径兜底，
   # 见 tools/ci_triage_reds.py 的 E-7）。
-  rm -f "$build_dir/Testing/Temporary/LastTestsFailed.log"
+  rm -f -- "$last_failed_log"
   utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   lane="$(printf '%s' "$*" | tr -d '"\\')"
   n=0

@@ -1064,7 +1064,19 @@ void TestDataPreview::seismicVolumeLoadCancelledOnTabClose()
   QVERIFY(!ids.sgy.isEmpty());
   st->preview->openAsset(ids.sgy);
 
-  // 体加载任务是 buildSeismicContent 里同步登记的——openAsset 返回即存在。
+  // 完整道头索引只为已打开的 3D 视图建立（buildSeismicContent 在
+  // seismicSubTabs 切到「三维立体」时才 startVolumeLoad）。标题现为
+  //「加载地震体索引: …」，仍以「加载地震体」为前缀。
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  QWidget *page = tabs->widget(tabs->currentIndex());
+  auto *modeTabs = page->findChild<QTabWidget *>(QStringLiteral("seismicSubTabs"));
+  QVERIFY(modeTabs);
+  const int tab3d = modeTabs->indexOf(page->findChild<QWidget *>(QStringLiteral("seismic3DPanel")));
+  QVERIFY(tab3d >= 0);
+  modeTabs->setCurrentIndex(tab3d);
+  QCoreApplication::processEvents();
+
   // QPointer：终态任务会被服务 deleteLater 回收，裸指针跨事件泵会悬空。
   QPointer<PaleoTask> volTask;
   for (PaleoTask *t : taskSvc.tasks())

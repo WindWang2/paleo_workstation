@@ -170,8 +170,16 @@ private slots:
     PaleoDecorationManager dashDecor(dashCanvas);
     dashDecor.setScaleBarEnabled(true);
     DashboardSurveyMap::update(dashMap, {}, nullptr, nullptr);
+    // 未实现的画布可能不立刻发出 extentsChanged，夹持钩子依赖该信号。
+    host.show();
+    dashMap->show();
+    QCoreApplication::processEvents();
     dashCanvas->setExtent(QgsRectangle(-20332272.727273, -6067015.584416, 20332272.727273, 6067015.584416));
-    QVERIFY2(dashCanvas->extent().width() < 200000.0, "dashboard survey map must clamp extreme zoom-out");
+    QCoreApplication::processEvents();
+    QVERIFY2(dashCanvas->extent().width() < 200000.0,
+             qPrintable(QStringLiteral("dashboard survey map must clamp extreme zoom-out, width=%1 home=%2")
+                            .arg(dashCanvas->extent().width())
+                            .arg(dashMap->property("paleoHomeExtent").toRectF().width())));
 
     // Now create a brand-new Data_service workspace and import UTM Zone 50N wells.
     const QString input = temp.filePath("hy_synth");

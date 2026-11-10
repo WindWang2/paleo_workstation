@@ -97,7 +97,7 @@ bool importDirectory(const QString &project, const QString &source,
                      const std::function<void(int, int, const QString &)> &progress) {
   return importDirectoryWithCrs(project, source, report, error, cancelled, excluded, progress, {}, {});
 }
-bool importDirectoryWithCrs(const QString &project, const QString &source,
+static bool importWithCrs(const QString &project, const QString &source, bool singleFile,
                      paleo::data::ImportReport &report, QString *error,
                      const std::function<bool()> &cancelled, const QStringList &excluded,
                      const std::function<void(int, int, const QString &)> &progress,
@@ -128,9 +128,16 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
     return false;
   }
   for (const auto &path : excluded) options.excludedDirectories.push_back(path.toUtf8().toStdString());
-  const bool ok = service.importDirectory(source.toUtf8().toStdString(), options, report, detail, [&progress](const paleo::data::ImportProgress &p) {
-    if (progress) progress(p.completed, p.total, QString::fromUtf8(p.status) + ": " + QString::fromUtf8(p.file));
-  }, cancelled);
+  bool ok;
+  if (singleFile) {
+    if (progress) progress(0, 1, source);
+    ok = service.importFile(source.toUtf8().toStdString(), options, report, detail, cancelled);
+    if (progress && !report.cancelled) progress(1, 1, source);
+  } else {
+    ok = service.importDirectory(source.toUtf8().toStdString(), options, report, detail, [&progress](const paleo::data::ImportProgress &p) {
+      if (progress) progress(p.completed, p.total, QString::fromUtf8(p.status) + ": " + QString::fromUtf8(p.file));
+    }, cancelled);
+  }
   if (!report.cancelled && (ok || report.imported > 0 || report.registered > 0 || report.cached > 0)) {
     if(!inheritSurveyHorizonConventions(service,error))return false;
     std::vector<paleo::data::DataEntry> horizons;
@@ -159,6 +166,20 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
           << "pending_bytes=" << options.maxPendingBytes << "copy_sources=false";
   if (error) *error = QString::fromUtf8(detail);
   return !report.cancelled && (ok || report.failed > 0);
+}
+bool importDirectoryWithCrs(const QString &project, const QString &source,
+                            paleo::data::ImportReport &report, QString *error,
+                            const std::function<bool()> &cancelled, const QStringList &excluded,
+                            const std::function<void(int, int, const QString &)> &progress,
+                            const QString &crs, const QString &crsUnit) {
+  return importWithCrs(project, source, false, report, error, cancelled, excluded, progress, crs, crsUnit);
+}
+bool importFileWithCrs(const QString &project, const QString &source,
+                       paleo::data::ImportReport &report, QString *error,
+                       const std::function<bool()> &cancelled,
+                       const std::function<void(int, int, const QString &)> &progress,
+                       const QString &crs, const QString &crsUnit) {
+  return importWithCrs(project, source, true, report, error, cancelled, {}, progress, crs, crsUnit);
 }
 void registerProject(const QString &project, const void *owner) {
   QMutexLocker lock(&mutex);

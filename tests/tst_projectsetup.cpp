@@ -845,6 +845,52 @@ private slots:
     QCOMPARE(count, 1); QCOMPARE(service.catalog()->entities("well").size(), 1);
     QVERIFY(project.mapConfiguration().sourceStats.value("sourceProblems").toMap().isEmpty());
   }
+  void supplementalFileDoesNotImportItsParentDirectory() {
+    QTemporaryDir dir;
+    const auto selected = dir.filePath("explicit/points.csv");
+    const auto ignored = dir.filePath("explicit/other-work-area/B2.las");
+    const auto directory = dir.filePath("selected-directory");
+    const auto nested = directory + "/nested/B3.las";
+    const QByteArray las = "~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nWELL. %1 :\nNULL. -9999.25 :\n"
+                           "~Curve\nDEPT.M :\nGR.API :\n~A\n100 60\n101 70\n";
+    QVERIFY(write(selected, "WELL,X,Y\nA1,10,20\n"));
+    QVERIFY(write(ignored, QByteArray(las).replace("%1", "B2")));
+    QVERIFY(write(nested, QByteArray(las).replace("%1", "B3")));
+
+    QgisProjectService project;
+    PaleoProjectStore store;
+    DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &p) {
+      service.setProjectDir(QFileInfo(p).absolutePath());
+    });
+    FolderImportWorkflow imports(&service, nullptr);
+    ProjectSetupWorkflow workflow(&project, &imports);
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto target = dir.filePath("output/project.qgz");
+    QString error;
+    QVERIFY2(workflow.create(target, {}, {}, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    QVERIFY2(finished.takeFirst()[1].toBool(), qPrintable(error));
+
+    ProjectSetupSources sources;
+    sources.points = selected;
+    sources.wells = directory;
+    const auto preview = scanProjectSources(sources);
+    QCOMPARE(preview.paths, QStringList({selected, nested}));
+    QVERIFY2(workflow.applySources(sources, preview, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    QVERIFY2(finished.first()[1].toBool(), qPrintable(finished.first()[0].toString()));
+
+    QSet<QString> rawSources;
+    for (const auto &version : service.catalog()->versions()) {
+      if (version.stage != QLatin1String("RAW") || version.extra.value("areaModelSourceId").toLongLong() <= 0)
+        continue;
+      QVERIFY(!version.managed);
+      QCOMPARE(QDir::cleanPath(version.path), QDir::cleanPath(version.sourceUri));
+      rawSources.insert(QDir::cleanPath(version.sourceUri));
+    }
+    QCOMPARE(rawSources, QSet<QString>({selected, nested}));
+  }
   void unknownPointCrsDoesNotBlockOtherSources() {
     QTemporaryDir dir;
     const auto heads = dir.filePath("points.csv"); QVERIFY(write(heads, "WELL,X,Y\nB1,10,20\n"));

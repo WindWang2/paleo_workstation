@@ -15,23 +15,44 @@
 #include <QUuid>
 #include <QPromise>
 #include <QtConcurrent>
+#include <algorithm>
+
+namespace {
+bool insideImportRoot(const QString &root, const QString &path) {
+  const QString relative = QDir(root).relativeFilePath(path);
+  return relative != QStringLiteral("..") && !relative.startsWith(QStringLiteral("../")) &&
+         !QDir::isAbsolutePath(relative);
+}
+}
 
 void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
     const ProjectSetupPreview &preview, quint64 session)
 {
-  QStringList roots;
-  if (!sources.root.isEmpty()) roots << sources.root;
+  struct Input { QString path; bool directory; };
+  QVector<Input> inputs;
+  const auto addInput = [&](const QString &path, bool directory) {
+    if (std::any_of(inputs.cbegin(), inputs.cend(), [&](const Input &input) {
+          return input.directory ? insideImportRoot(input.path, path) : input.path == path;
+        }))
+      return;
+    if (directory)
+      inputs.erase(std::remove_if(inputs.begin(), inputs.end(), [&](const Input &input) {
+        return insideImportRoot(path, input.path);
+      }), inputs.end());
+    inputs.append({path, directory});
+  };
+  if (!sources.root.isEmpty())
+    addInput(QFileInfo(sources.root).absoluteFilePath(), true);
   for (const auto &path : {sources.points, sources.wells, sources.seismic, sources.horizons, sources.references}) {
     if (path.isEmpty()) continue;
-    const QString root = QFileInfo(path).isDir() ? path : QFileInfo(path).absolutePath();
-    bool contained = false;
-    for (const auto &parent : roots) {
-      const QString relative = QDir(parent).relativeFilePath(root);
-      if (relative == "." || (!relative.startsWith("../") && !QDir::isAbsolutePath(relative))) contained = true;
-    }
-    if (!contained) roots << root;
+    const QFileInfo source(path);
+    const QString absolute = source.absoluteFilePath();
+    if (preview.paths.contains(absolute))
+      addInput(absolute, false);
+    else if (source.isDir())
+      addInput(absolute, true);
   }
-  if (roots.isEmpty()) { importCatalogSources(sources, preview, session); return; }
+  if (inputs.isEmpty()) { importCatalogSources(sources, preview, session); return; }
   if (m_areaStop) m_areaStop->store(true);
   m_areaStop = std::make_shared<std::atomic_bool>(false);
   const auto stop = m_areaStop;
@@ -87,7 +108,7 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
   });
   const auto crs = preview.projectCrs;
   const auto crsUnit = preview.pointMapping.value("unit").toString();
-  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [roots, project, stop, staging, modelSummary, modelProblems, coordinates, reportStage, crs, crsUnit, expected](QPromise<QString> &promise) {
+  const auto future = QtConcurrent::run(paleo::tasks::pool(m_mapTasks.data()), [inputs, project, stop, staging, modelSummary, modelProblems, coordinates, reportStage, crs, crsUnit, expected](QPromise<QString> &promise) {
     promise.setProgressRange(0, 0);
     promise.setProgressValueAndText(0, QStringLiteral("准备工区数据模型"));
     const QString active = paleo::area_model::directory(project);
@@ -105,20 +126,25 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
           !current.snapshotDatabaseCancellable((prepared + "/data.sqlite").toUtf8().toStdString(), detail, [stop] { return stop->load(); }))
         { promise.addResult(QString::fromUtf8(detail)); return; }
     }
-    for (const auto &root : roots) {
-      if (!QFileInfo(root).isDir()) continue;
+    const auto cancelled = [stop] { return stop->load(); };
+    const auto progress = [&promise, reportStage](int done, int total, const QString &text) {
+      reportStage(done, total, text);
+      promise.setProgressRange(0, total);
+      promise.setProgressValueAndText(done, text);
+    };
+    for (const auto &input : inputs) {
       paleo::data::ImportReport report;
       QString error;
-      if (!paleo::area_model::importDirectoryWithCrs(staging->path(), root, report, &error,
-          [stop] { return stop->load(); }, {QDir(project).filePath("artifacts"), staging->path(),
-           QDir(root) == QDir(project) ? QDir(project).filePath("artifacts") : project},
-          [&promise, reportStage](int done, int total, const QString &text) {
-            reportStage(done, total, text);
-            promise.setProgressRange(0, total);
-            promise.setProgressValueAndText(done, text);
-          }, crs, crsUnit))
+      const bool imported = input.directory
+          ? paleo::area_model::importDirectoryWithCrs(staging->path(), input.path, report, &error,
+                cancelled, {QDir(project).filePath("artifacts"), staging->path(),
+                QDir(input.path) == QDir(project) ? QDir(project).filePath("artifacts") : project},
+                progress, crs, crsUnit)
+          : paleo::area_model::importFileWithCrs(staging->path(), input.path, report, &error,
+                cancelled, progress, crs, crsUnit);
+      if (!imported)
         { promise.addResult(error.isEmpty() ? QStringLiteral("工区模型导入失败") : error); return; }
-      if (report.failed > 0) modelProblems->insert(root, error);
+      if (report.failed > 0) modelProblems->insert(input.path, error);
       *modelSummary += ProjectSetupWorkflow::tr("工区模型：扫描 %1，导入 %2，登记 %3，待核对 %4，跳过 %5，失败 %6。")
           .arg(report.seen).arg(report.imported).arg(report.registered).arg(report.review).arg(report.skipped).arg(report.failed) + '\n';
     }

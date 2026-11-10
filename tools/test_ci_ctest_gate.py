@@ -76,7 +76,15 @@ def main():
         broken = run_gate(root)
         assert broken.returncode != 0, broken.stdout
         assert not junit.exists() or "sample_130" not in junit.read_text(encoding="utf-8"), broken.stdout
-        print("CI CTest gate: mixed failures, flaky rerun, and failed test discovery verified")
+        empty_report = '<testsuite tests="0" failures="0"/>'
+        (root / "paleo-dev").write_text(
+            f"#!/bin/sh\nprintf '%s\\n' '{empty_report}' > build/Testing/ctest-junit.xml\n",
+            encoding="utf-8",
+        )
+        empty = run_gate(root)
+        assert junit.read_text(encoding="utf-8").strip() == empty_report, empty.stdout
+        assert empty.returncode != 0, empty.stdout
+        print("CI CTest gate: mixed failures, flaky rerun, failed discovery, and empty JUnit verified")
 
 
 if __name__ == "__main__":

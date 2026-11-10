@@ -154,10 +154,7 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_schemeCombo->setAccessibleName( tr( "地层方案" ) );
   m_schemeCombo->setToolTip( tr( "地层解释方案。可输入关键字过滤；列表超过一页时可翻页。"
                                  "切换后分析选择写入该方案稳定 ID；无提交方案时显示工程草稿。" ) );
-  m_schemeCombo->setWhatsThis( tr( "<b>地层方案</b><p>选择解释方案并写入 UnitSelection.schemeId。"
-                                   "输入关键字可过滤；超多方案时分页浏览（每页 %1 条）。"
-                                   "</p>" )
-                                   .arg( paleo::strat::kSchemeRevisionPageSize ) );
+  // whatsThis 留给 help::applyWhatsThis 目录回填，避免构造期文案遮蔽目录真值。
   m_schemeCombo->setMinimumContentsLength( 10 ); // 可编辑+清除钮占位，留足中文方案名
   m_schemeCombo->setIconSize( PaleoIcons::toolbarSize() );
   m_schemeCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );
@@ -200,10 +197,7 @@ SubIntervalSelectorBar::SubIntervalSelectorBar( SelectionContext *selection, QWi
   m_revisionCombo->setAccessibleName( tr( "解释修订" ) );
   m_revisionCombo->setToolTip( tr( "方案修订快照（不可变）。可输入关键字过滤；超多修订时分页。"
                                    "选择后 UnitSelection.revision 写入该修订；分析成果按修订对齐。" ) );
-  m_revisionCombo->setWhatsThis( tr( "<b>解释修订</b><p>选择修订快照并写入 UnitSelection.revision。"
-                                     "输入关键字可按修订号/备注/时间过滤；超过 %1 条时分页。"
-                                     "</p>" )
-                                     .arg( paleo::strat::kSchemeRevisionPageSize ) );
+  // whatsThis 留给 help::applyWhatsThis 目录回填，避免构造期文案遮蔽目录真值。
   m_revisionCombo->setMinimumContentsLength( 10 );
   m_revisionCombo->setIconSize( PaleoIcons::toolbarSize() );
   m_revisionCombo->setSizeAdjustPolicy( QComboBox::AdjustToContents );

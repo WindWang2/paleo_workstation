@@ -61,7 +61,7 @@ private slots:
     auto *run = page.findChild<QPushButton *>("factorOneClickButton"); QVERIFY(run && run->isVisibleTo(&page));
     auto *manual = page.findChild<QPushButton *>("generateFactorButton"); QVERIFY(manual && !manual->isVisibleTo(&page));
     QCOMPARE(page.findChild<QDoubleSpinBox *>("factorCellSizeSpin")->value(), 50.);
-    QCOMPARE(page.findChild<QComboBox *>("factorMethodCombo")->currentData().toString(), QString("surfer_idw"));
+    QCOMPARE(page.findChild<QComboBox *>("factorMethodCombo")->currentData().toString(), QString("structural_idw"));
     const auto capture = qEnvironmentVariable("PALEO_GEOLOGY_QA_DIR");
     if (!capture.isEmpty()) QVERIFY(page.grab().save(capture + "/simple-factor.png"));
     page.setWellFactorFields({QVariantMap{{"id", "poro"}, {"label", "porosity"}}});

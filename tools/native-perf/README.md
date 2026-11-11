@@ -29,3 +29,14 @@ current source. The snapshot worker is placed beside those executables.
 Tests run serially, retain their first-run assertions on stdout and in CTest's
 logs, and receive individual XDG configuration/data directories. Performance
 limits and numerical assertions are the same as in the main test suite.
+
+When a hosted runner cannot resolve the three Ubuntu archive hostnames, the
+workflow may query the authenticated [Cloudflare DoH JSON API](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/).
+It validates the question, successful status, CNAME chain and public IPv4
+addresses before adding mappings only to that ephemeral runner's hosts file.
+TLS and APT signature validation remain enabled. Provisioning errors fail before
+tests, and cancelled infrastructure runs are not successful test evidence.
+
+The optional `PALEO_NATIVE_GEOSTAT_PROFILE=ON` target reports component timings
+and independent sorting probes, checking their outputs against the public CV
+calculation. It is a development diagnostic, not an additional passing test.

@@ -53,3 +53,8 @@ SHA256、长度和修改时间未变。数据自带的 review 状态照实保留
   本机未运行整个应用级 UI 测试套件。
 
 私有原件、数据库、详细测量结果和 native 构建产物仅留本地验证目录，不进入仓库。
+
+旧 HEAD `bb31f1d7` 的 lint/linux 已通过，Windows 停在 OSGeo4W 安装器下载超时，
+ASAN 链接时磁盘耗尽。perf 观察车道有两个真实失败（geostat/welllogset），
+现有产物缺 QtTest 详细输出，无法认定原因或排除回归；补充上传
+`Testing/qtest-first-run/`，不改变阈值或隐藏失败。

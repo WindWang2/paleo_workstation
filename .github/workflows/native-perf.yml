@@ -61,18 +61,32 @@ jobs:
       # same production translation units and original test sources directly,
       # so a GIS archive download cannot prevent their regression diagnostics.
       - name: Install Qt build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-5compat-dev zlib1g-dev libzstd-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache qt6-base-dev qt6-5compat-dev zlib1g-dev libzstd-dev
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-native-perf-${{ matrix.test }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-native-perf-${{ matrix.test }}-
       - name: Configure focused production tests
         run: cmake -S tools/native-perf -B build-native-perf -G Ninja
           -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE='-O2 -DNDEBUG'
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DPALEO_NATIVE_GEOSTAT_PROFILE=ON
           -DPALEO_NATIVE_PERF_TESTS=${{ matrix.test }}
       - name: Build
+        id: build
         run: cmake --build build-native-perf --parallel 2
       - name: Run serially and retain assertions
         env:
           QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build-native-perf -j1 --no-tests=error --output-on-failure
           --output-junit "$PWD/build-native-perf/results.xml"
+      - name: Profile cross-validation components
+        if: ${{ always() && matrix.test == 'geostat' && steps.build.outcome == 'success' }}
+        run: |
+          ./build-native-perf/geostat_phase_profile > build-native-perf/geostat-profile.json
+          cat build-native-perf/geostat-profile.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -80,4 +94,5 @@ jobs:
           if-no-files-found: ignore
           path: |
             build-native-perf/results.xml
+            build-native-perf/geostat-profile.json
             build-native-perf/Testing/

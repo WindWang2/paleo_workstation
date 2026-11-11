@@ -6,6 +6,7 @@ project(paleo_native_perf LANGUAGES CXX)
 set(PALEO_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "Paleo source checkout")
 get_filename_component(PALEO_SOURCE_ROOT "${PALEO_SOURCE_ROOT}" ABSOLUTE)
 set(PALEO_NATIVE_PERF_TESTS "geostat" CACHE STRING "Native performance tests to build")
+option(PALEO_NATIVE_GEOSTAT_PROFILE "Build the development-only geostat component timing probe" OFF)
 if(NOT PALEO_NATIVE_PERF_TESTS)
   message(FATAL_ERROR "PALEO_NATIVE_PERF_TESTS must select at least one native performance test")
 endif()
@@ -42,6 +43,17 @@ if("geostat" IN_LIST PALEO_NATIVE_PERF_TESTS)
     set_tests_properties(tst_geostat_${_geostat_test} PROPERTIES TIMEOUT 300)
   endforeach()
   set_tests_properties(tst_geostat_perf PROPERTIES LABELS perf)
+  if(PALEO_NATIVE_GEOSTAT_PROFILE)
+    # kriging.cpp is included by the probe to expose private components. It is
+    # deliberately not linked a second time through paleo_native_geostat.
+    add_executable(geostat_phase_profile geostat_phase_profile.cpp
+      "${PALEO_SOURCE_ROOT}/src/algorithms/geostat/variogram.cpp"
+      "${PALEO_SOURCE_ROOT}/src/algorithms/geostat/linsolve.cpp"
+      "${PALEO_SOURCE_ROOT}/src/algorithms/geostat/crossvalidation.cpp"
+      "${PALEO_SOURCE_ROOT}/src/algorithms/geostat/faultpath.cpp")
+    target_include_directories(geostat_phase_profile PRIVATE "${PALEO_SOURCE_ROOT}/src")
+    target_link_libraries(geostat_phase_profile PRIVATE Qt6::Core)
+  endif()
 endif()
 
 if("welllogset" IN_LIST PALEO_NATIVE_PERF_TESTS)
@@ -95,7 +107,7 @@ if("welllogset" IN_LIST PALEO_NATIVE_PERF_TESTS)
   foreach(_test IN ITEMS prepared_import_tests import_performance_tests spreadsheet_xml_tests model_change_tests curve_window_tests)
     add_executable(native_${_test} "${PALEO_SOURCE_ROOT}/vendor/Data_service/tests/${_test}.cpp")
     target_include_directories(native_${_test} PRIVATE "${PALEO_SOURCE_ROOT}/vendor/Data_service/src")
-    target_link_libraries(native_${_test} PRIVATE Paleo::paleo_data_service Qt6::Test)
+    target_link_libraries(native_${_test} PRIVATE Paleo::paleo_data_service Qt6::Core Qt6::Sql Qt6::Test)
     add_test(NAME native_${_test} COMMAND native_${_test})
     set_tests_properties(native_${_test} PROPERTIES TIMEOUT 300)
   endforeach()

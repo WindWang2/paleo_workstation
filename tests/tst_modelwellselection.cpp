@@ -33,7 +33,13 @@ private slots:
     paleo::strat::UnitSelection unit;unit.schemeId="scheme";unit.revision="r1";unit.intervalId="T70-T72";
     unit.subIntervalId="S2";unit.subIndex=2;unit.topBoundary="T70";unit.bottomBoundary="T72";unit.displayName=QStringLiteral("T70–T72/S2");
     selection.setActiveUnit(unit);page.refreshAnalysisUnit();page.setHorizons({"C3","D61"});
-    QCOMPARE(label->text(),unit.displayName);QCOMPARE(legacy->currentText(),QString("T70"));QCOMPARE(legacy->count(),1);
+    QCOMPARE(label->text(),unit.displayName);
+    QCOMPARE(legacy->currentText(),QString("T70"));
+    QCOMPARE(legacy->count(),3);
+    QCOMPARE(legacy->itemText(0),QString("C3"));
+    QCOMPARE(legacy->itemText(1),QString("D61"));
+    page.refreshAnalysisUnit();
+    QCOMPARE(legacy->count(),3);
     QCOMPARE(page.wellFactorParams().value("unitSelection").toMap(),paleo::strat::toMap(unit));
     auto *factors=page.findChild<QTableWidget *>("factorTable");
     for(int row=0;row<factors->rowCount();++row)factors->item(row,0)->setCheckState(factors->item(row,0)->data(Qt::UserRole).toString()=="sandthick"?Qt::Checked:Qt::Unchecked);
@@ -42,7 +48,9 @@ private slots:
     QCOMPARE(extraction.first()[1].toString(),QString("T70"));QCOMPARE(extraction.first()[2].toMap().value("unitSelection").toMap(),paleo::strat::toMap(unit));
     unit.aggregate=true;unit.subIntervalId.clear();unit.subIndex=0;unit.displayName=QStringLiteral("T70–T72/综合");
     selection.setActiveUnit(unit);page.refreshAnalysisUnit();QCOMPARE(label->text(),unit.displayName);
-    selection.clearActiveUnit();page.refreshAnalysisUnit();QCOMPARE(legacy->count(),0);
+    selection.clearActiveUnit();page.refreshAnalysisUnit();
+    QCOMPARE(legacy->count(),2);
+    QCOMPARE(legacy->currentIndex(),-1);
     QVERIFY(!page.findChild<QPushButton *>("extractWellFactorsButton")->isEnabled());
   }
   void inventoryShowsExistingUnconfirmedTimeDepthAsPresent() {

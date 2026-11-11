@@ -133,6 +133,7 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       promise.setProgressRange(0, total);
       promise.setProgressValueAndText(done, text);
     };
+    bool finalizationNeeded = false;
     for (const auto &input : inputs) {
       if (input.directory && !QFileInfo(input.path).isDir()) continue;
       paleo::data::ImportReport report;
@@ -141,15 +142,19 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
           ? paleo::area_model::importDirectoryWithCrs(staging->path(), input.path, report, &error,
                 cancelled, {QDir(project).filePath("artifacts"), staging->path(),
                 QDir(input.path) == QDir(project) ? QDir(project).filePath("artifacts") : project},
-                progress, crs, crsUnit)
+                progress, crs, crsUnit, paleo::area_model::ImportFinalization::Deferred)
           : paleo::area_model::importFileWithCrs(staging->path(), input.path, report, &error,
-                cancelled, progress, crs, crsUnit);
+                cancelled, progress, crs, crsUnit, paleo::area_model::ImportFinalization::Deferred);
       if (!imported)
         { promise.addResult(error.isEmpty() ? QStringLiteral("工区模型导入失败") : error); return; }
+      finalizationNeeded |= report.failed == 0 || report.imported > 0 || report.registered > 0 || report.cached > 0;
       if (report.failed > 0) modelProblems->insert(input.path, error);
       *modelSummary += ProjectSetupWorkflow::tr("工区模型：扫描 %1，导入 %2，登记 %3，待核对 %4，跳过 %5，失败 %6。")
           .arg(report.seen).arg(report.imported).arg(report.registered).arg(report.review).arg(report.skipped).arg(report.failed) + '\n';
     }
+    QString finalizationError;
+    if (finalizationNeeded && !paleo::area_model::finalizeImport(staging->path(), &finalizationError, cancelled, progress))
+      { promise.addResult(finalizationError); return; }
     paleo::data::DataService model; std::string detail;
     paleo::data::ModelChangeHead preparedHead, publicationHead;
     if (!model.openProject(prepared.toUtf8().toStdString(), detail) ||

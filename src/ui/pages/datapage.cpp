@@ -143,7 +143,9 @@ void DataPage::wireDataOps()
 
   // 实体联动高亮保留角色表，手动多选仍显示批量概要。
   connect(m_listPanel, &DataListPanel::selectionCountChanged, this, [this](int assets, int) {
-    if (!m_preservingEntitySelection && assets > 1)
+    if (!m_preservingEntitySelection &&
+        (!m_listPanel->isRestoringAssetSelection() || m_entityPanel->isMultiContext()) &&
+        assets > 1)
       m_entityPanel->setMultiContext({}, m_listPanel->currentAssetSelection().values());
   });
 
@@ -276,7 +278,8 @@ PreviewDocService *DataPage::docService() const
 void DataPage::refreshAssetTable()
 {
   const QString entity = property("paleo.page.entityId").toString();
-  const bool entityContext = property("paleo.page.assetId").toString().isEmpty() && !entity.isEmpty();
+  const bool entityContext = !m_entityPanel->isMultiContext() &&
+      property("paleo.page.assetId").toString().isEmpty() && !entity.isEmpty();
   // p5a：catalog.changed() 接到本槽——实体视图一并重取（口径与旧同件实现
   // 一致：先实体后列表）。P3：共享 ops 上下文随刷新重下发（列表侧
   // loadStoresForCatalog 之后的 ctx 才带有效 catalog/store 指针）。

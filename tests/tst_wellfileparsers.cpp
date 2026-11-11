@@ -112,6 +112,8 @@ private slots:
   void csvQuotedFieldsFollowRfc4180();
   // finding-58：分层表之后的纯井口页也要并入 heads（不再静默整表丢弃）
   void stratificationThenWellHeadSheetKeepsHeads();
+  void combinedTopsAndBases_data();
+  void combinedTopsAndBases();
   // issue-796 / finding-61：.dat 分层底界按井名+层名哈希匹配（O(N²) → 索引）
   void layerIntervalDatBasesMatchByKey();
   void diagnosticSummaryIsBoundedWithoutDiscardingReport();
@@ -685,6 +687,51 @@ void WellFileParserTests::topDepthComesFromMdNotBaseMd()
   QCOMPARE(reversed.size(), 1);
   QVERIFY(reversed[0].hasMd);
   QCOMPARE(reversed[0].md, 100.0);
+}
+
+void WellFileParserTests::combinedTopsAndBases_data()
+{
+  QTest::addColumn<bool>("workbook");
+  QTest::newRow("csv") << false;
+  QTest::newRow("xlsx") << true;
+}
+
+void WellFileParserTests::combinedTopsAndBases()
+{
+  QFETCH(bool, workbook);
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const auto path = dir.filePath(workbook ? QStringLiteral("layers.xlsx") : QStringLiteral("layers.csv"));
+  const QVector<QStringList> rows{{"WELL", "TOP", "MD", "TVD", "BASE_MD", "BASE_TVD"},
+                                {QStringLiteral("井甲"), "D61", "100", "90", "120", "108"},
+                                {QStringLiteral("井甲"), "D62", "-99999", "108", "-99999", "126"}};
+  if (workbook)
+    QVERIFY(!writeXlsxMulti(path, {{QStringLiteral("分层"), rows}}).isEmpty());
+  else {
+    QByteArray text;
+    for (const auto &row : rows) text += row.join(',').toUtf8() + '\n';
+    QVERIFY(writeCsv(path, text));
+  }
+  QVector<WellTopRecord> bases(1);
+  const auto combined = paleo::io::readWellTable(path, {}, &bases);
+  QVERIFY2(combined.error.isEmpty(), qPrintable(combined.error));
+  QCOMPARE(combined.tops.size(), 2);
+  QCOMPARE(bases.size(), 2);
+  QCOMPARE(bases[0].wellName, QStringLiteral("井甲"));
+  QCOMPARE(bases[0].topName, QStringLiteral("D61"));
+  QCOMPARE(bases[0].md, 120.0);
+  QCOMPARE(bases[0].tvd, 108.0);
+  QVERIFY(!bases[1].hasMd);
+  QVERIFY(bases[1].hasTvd);
+  QCOMPARE(bases[1].tvd, 126.0);
+  const auto oldTable = paleo::io::readWellTable(path);
+  const auto oldBases = paleo::io::readWellTableBases(path);
+  QCOMPARE(combined.normalized, oldTable.normalized);
+  QCOMPARE(paleo::io::writeWellLayerTable(combined.tops, bases),
+           paleo::io::writeWellLayerTable(oldTable.tops, oldBases));
+  const auto missing = paleo::io::readWellTable(dir.filePath("missing.csv"), {}, &bases);
+  QVERIFY(!missing.error.isEmpty());
+  QVERIFY(bases.isEmpty());
 }
 
 // finding-58：分层表（无坐标列）之后的纯井口页，井口坐标此前被静默整表

@@ -403,6 +403,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             build/perf-results/
+            build/Testing/qtest-first-run/
             build/Testing/Temporary/LastTest*.log
 
   # 方向70：sanitizer 常态化观察档（devex.md build-asan 手动轮 → CI 化）。

@@ -57,6 +57,17 @@ constexpr double kDeg2RadRef = kPi / 180.0;
 // 后文定义（refArcFrame 之前），refSegmentIncrement 的 β≈π 分支要用。
 void refUnitTangent(double incDeg, double aziDeg, double out[3]);
 
+// Match the deliberate numerical fix in the cached implementation. The uncached
+// reference still verifies lookup/caching equivalence, including exact endpoints.
+double refDoglegAngle(const double a[3], const double b[3])
+{
+  const double x = a[1] * b[2] - a[2] * b[1];
+  const double y = a[2] * b[0] - a[0] * b[2];
+  const double z = a[0] * b[1] - a[1] * b[0];
+  const double dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  return std::atan2(std::sqrt(x * x + y * y + z * z), dot);
+}
+
 void refSegmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
                          double a2Deg, double *dTvd, double *dNorth,
                          double *dEast)
@@ -66,18 +77,15 @@ void refSegmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
   const double a1 = a1Deg * kDeg2RadRef;
   const double a2 = a2Deg * kDeg2RadRef;
 
-  double cosBeta = std::cos(i1) * std::cos(i2) +
-                   std::sin(i1) * std::sin(i2) * std::cos(a2 - a1);
-  cosBeta = std::min(1.0, std::max(-1.0, cosBeta));
-  const double beta = std::acos(cosBeta);
+  double t1[3], t2[3];
+  refUnitTangent(i1Deg, a1Deg, t1);
+  refUnitTangent(i2Deg, a2Deg, t2);
+  const double beta = refDoglegAngle(t1, t2);
 
   // 与治本版逐字一致（finding-30）：β 距 π 不足 1e-9 的退化带走弦式极限，
   // 不用发散的 RF 式（β<1e-9 的直线段仍走下方 rf=1 的原路径）。
   if (beta > kPi - 1e-9)
   {
-    double t1[3], t2[3];
-    refUnitTangent(i1Deg, a1Deg, t1);
-    refUnitTangent(i2Deg, a2Deg, t2);
     const double sx = t1[0] + t2[0], sy = t1[1] + t2[1], sz = t1[2] + t2[2];
     const double len = std::sqrt(sx * sx + sy * sy + sz * sz);
     if (len > 0.0)
@@ -139,7 +147,7 @@ RefFrame refArcFrame(const DeviationStation &a, const DeviationStation &b)
   refUnitTangent(b.inclinationDeg, b.azimuthDeg, t2);
   double c = f.t1[0] * t2[0] + f.t1[1] * t2[1] + f.t1[2] * t2[2];
   c = std::min(1.0, std::max(-1.0, c));
-  f.beta = std::acos(c);
+  f.beta = refDoglegAngle(f.t1, t2);
   const double sb = std::sin(f.beta);
   if (f.beta < 1e-9)
   {
@@ -447,6 +455,8 @@ private slots:
   // finding-30/31：β≈π 对径掉头段——RF 发散被 0·∞ 放大成 O(ΔMD) 噪声；掉头
   // 段内部垂深极值由 i1 与 90° 的关系定，不按端点净垂深符号定向。
   void antipodalReversalStaysBounded();
+  void nearAntipodalArcsStayContinuous_data();
+  void nearAntipodalArcsStayContinuous();
   // #126：上翘井（井斜>90°）TVD→MD 反解满足正向换算，多解取首次到达。
   void tvdToMdUpDipWell();
   // 方向 98 治本逐位对拍：pointAt/tvdToMd 与治本前基准（RefSurvey）在
@@ -774,6 +784,47 @@ void tst_deviation::antipodalReversalStaysBounded()
                                  (vb.tvd - va.tvd) * (vb.tvd - va.tvd));
   QVERIFY2(std::fabs(vdisp - 2.0 * 800.0 / kPi) < 1e-9 * vdisp,
            qPrintable(QString::number(vdisp)));
+}
+
+void tst_deviation::nearAntipodalArcsStayContinuous_data()
+{
+  QTest::addColumn<double>("azimuthOffset");
+  QTest::newRow("east-near") << -1e-6;
+  QTest::newRow("west-near") << 1e-6;
+  QTest::newRow("east") << -1e-4;
+  QTest::newRow("west") << 1e-4;
+}
+
+void tst_deviation::nearAntipodalArcsStayContinuous()
+{
+  QFETCH(double, azimuthOffset);
+  constexpr double span = 1000.0;
+  const DeviationStation a = st(0.0, 60.0, 0.0);
+  const DeviationStation b = st(span, 120.0, 180.0 + azimuthOffset);
+  QString error;
+  const auto forward = WellDeviationSurvey::fromStations({a, b}, &error);
+  const auto reverse = WellDeviationSurvey::fromStations(
+      {st(0.0, b.inclinationDeg, b.azimuthDeg),
+       st(span, a.inclinationDeg, a.azimuthDeg)}, &error);
+  QVERIFY2(forward.has_value() && reverse.has_value(), qPrintable(error));
+
+  // For these symmetric inclinations, the small departure from a reversal is
+  // 2 asin(sin(60 degrees) |sin(offset/2)|), without subtracting a dot from -1.
+  const double offset = azimuthOffset * kPi / 180.0;
+  const double beta = kPi - 2.0 * std::asin(std::sin(kPi / 3.0) * std::fabs(std::sin(offset * 0.5)));
+  const double chord = 2.0 * span * std::sin(beta * 0.5) / beta;
+  const auto end = forward->points().constLast();
+  const double displacement = std::sqrt(end.north * end.north + end.east * end.east + end.tvd * end.tvd);
+  QVERIFY2(std::fabs(displacement - chord) < 1e-4, qPrintable(QString::number(displacement, 'g', 16)));
+  QVERIFY(end.east * azimuthOffset < 0.0);
+  for (double md : {1e-7, 250.0, 500.0, 750.0, span - 1e-7})
+  {
+    const auto point = forward->pointAt(md);
+    const auto reflected = reverse->pointAt(span - md);
+    QVERIFY(std::fabs(point.north + reflected.north - end.north) < 1e-4);
+    QVERIFY(std::fabs(point.east + reflected.east - end.east) < 1e-4);
+    QVERIFY(std::fabs(point.tvd + reflected.tvd - end.tvd) < 1e-4);
+  }
 }
 
 void tst_deviation::tvdToMdParityWithLegacy()

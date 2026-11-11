@@ -11,6 +11,11 @@ namespace paleo::area_model {
 bool ensureProject(const QString &project, QString *error);
 QString directory(const QString &project);
 QString confirmedProjectCrs(const QString &project);
+enum class ImportFinalization { Immediate, Deferred };
+// Complete derived-model work once after all inputs in a prepared batch.
+bool finalizeImport(const QString &project, QString *error,
+                    const std::function<bool()> &cancelled = {},
+                    const std::function<void(int, int, const QString &)> &progress = {});
 bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
                      const std::function<bool()> &cancelled = {}, const QStringList &excluded = {},
@@ -19,12 +24,14 @@ bool importDirectoryWithCrs(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
                      const std::function<bool()> &cancelled, const QStringList &excluded,
                      const std::function<void(int, int, const QString &)> &progress,
-                     const QString &crs, const QString &crsUnit);
+                     const QString &crs, const QString &crsUnit,
+                     ImportFinalization finalization = ImportFinalization::Immediate);
 bool importFileWithCrs(const QString &project, const QString &source,
                       paleo::data::ImportReport &report, QString *error,
                       const std::function<bool()> &cancelled,
                       const std::function<void(int, int, const QString &)> &progress,
-                      const QString &crs, const QString &crsUnit);
+                      const QString &crs, const QString &crsUnit,
+                      ImportFinalization finalization = ImportFinalization::Immediate);
 void registerProject(const QString &project, const void *owner);
 void registerAliases(const DataCatalog &catalog, const void *owner);
 void unregisterProject(const void *owner);

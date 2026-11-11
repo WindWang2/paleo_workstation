@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QCryptographicHash>
+#include <cmath>
 #include <paleo_data/service.h>
 #include "io/areamodel.h"
 #include "io/welllogread.h"
@@ -348,6 +349,72 @@ private slots:
     info.wellheadX=paleo::data::Missing; info.wellheadY=paleo::data::Missing;
     QVERIFY(model.saveWellInfo(id, info, detail)); QVERIFY(!catalog.entityById(old.id).hasSurface);
     QVERIFY(catalog.entityById(old.id).coordinateStatus == "missing");
+  }
+  void wellRegistrationOnlyPersistsChanges() {
+    QTemporaryDir temp; const auto project = temp.filePath("project"); QString error;
+    DataCatalog catalog; QVERIFY2(catalog.open(project, &error), qPrintable(error));
+    paleo::data::DataService model; std::string detail;
+    QVERIFY2(model.createProject(paleo::area_model::directory(project).toStdString(), "registration", detail), detail.c_str());
+    paleo::data::WellInfo info; info.wellName="SYNTH-1"; info.wellheadX=100; info.wellheadY=200;
+    info.totalDrilledDepth=1000; info.coordinateSystem="EPSG:32650"; info.coordinateUnit="m";
+    long long modelId=0; QVERIFY2(model.createWell(info, modelId, detail), detail.c_str());
+    paleo::data::WellInfo missing; missing.wellName="SYNTH-MISSING";
+    long long missingId=0; QVERIFY2(model.createWell(missing, missingId, detail), detail.c_str());
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    const auto ids=catalog.wellsMatchingName("SYNTH-1"); QCOMPARE(ids.size(), 1);
+    const auto missingIds=catalog.wellsMatchingName("SYNTH-MISSING"); QCOMPARE(missingIds.size(), 1);
+    const auto sequence=catalog.mutationSeq();
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    QCOMPARE(catalog.mutationSeq(), sequence);
+    const auto absent=catalog.storedEntityById(missingIds.front());
+    QVERIFY(!absent.hasSurface); QCOMPARE(absent.surfaceX, 0.0); QCOMPARE(absent.surfaceY, 0.0);
+    QVERIFY(std::isnan(catalog.entityById(missingIds.front()).surfaceX));
+
+    auto transformed=catalog.storedEntityById(ids.front()); transformed.coordinateStatus="ok";
+    transformed.extra.insert("projectLon", 110.0); transformed.extra.insert("projectLat", 30.0);
+    transformed.extra.insert("retained", "custom"); transformed.kb=42;
+    QVERIFY(catalog.updateEntity(transformed, &error));
+    const auto transformedSequence=catalog.mutationSeq();
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    QCOMPARE(catalog.mutationSeq(), transformedSequence);
+    QCOMPARE(catalog.storedEntityById(ids.front()).extra.value("projectLon").toDouble(), 110.0);
+
+    info.wellName="SYNTH-RENAMED"; info.wellheadX=300; info.wellheadY=400;
+    info.totalDrilledDepth=2000; info.coordinateSystem="EPSG:32649"; info.coordinateUnit="ft";
+    info.wellType="development"; info.fieldName="field"; info.remark="changed";
+    QVERIFY2(model.saveWellInfo(modelId, info, detail), detail.c_str());
+    QCOMPARE(catalog.entityById(ids.front()).name, QString("SYNTH-RENAMED"));
+    QCOMPARE(catalog.entityById(ids.front()).surfaceX, 300.0); // Public overlay is already current.
+    QCOMPARE(catalog.storedEntityById(ids.front()).surfaceX, 100.0);
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    QCOMPARE(catalog.mutationSeq(), transformedSequence+1);
+    const auto updated=catalog.storedEntityById(ids.front());
+    QCOMPARE(updated.name, QString("SYNTH-RENAMED")); QCOMPARE(updated.surfaceX, 300.0); QCOMPARE(updated.surfaceY, 400.0);
+    QCOMPARE(updated.td, 2000.0); QCOMPARE(updated.kb, 42.0); QCOMPARE(updated.coordinateStatus, QString("untransformed"));
+    QCOMPARE(updated.extra.value("wellCoordinatesCrs").toString(), QString("EPSG:32649"));
+    QCOMPARE(updated.extra.value("wellCoordinateUnit").toString(), QString("ft"));
+    QCOMPARE(updated.extra.value("wellType").toString(), QString("development"));
+    QCOMPARE(updated.extra.value("fieldName").toString(), QString("field"));
+    QCOMPARE(updated.extra.value("wellRemark").toString(), QString("changed"));
+    QCOMPARE(updated.extra.value("retained").toString(), QString("custom"));
+    QVERIFY(!updated.extra.contains("projectLon")); QVERIFY(!updated.extra.contains("projectLat"));
+    const auto changedSequence=catalog.mutationSeq();
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error)); QCOMPARE(catalog.mutationSeq(), changedSequence);
+
+    info.wellheadX=paleo::data::Missing; info.wellheadY=paleo::data::Missing; info.totalDrilledDepth=paleo::data::Missing;
+    QVERIFY2(model.saveWellInfo(modelId, info, detail), detail.c_str());
+    QVERIFY(!catalog.entityById(ids.front()).hasSurface);
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    const auto normalized=catalog.storedEntityById(ids.front());
+    QVERIFY(!normalized.hasSurface); QCOMPARE(normalized.surfaceX, 0.0); QCOMPARE(normalized.surfaceY, 0.0);
+    QCOMPARE(normalized.td, 0.0); QCOMPARE(normalized.coordinateStatus, QString("missing"));
+    const auto missingSequence=catalog.mutationSeq();
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error)); QCOMPARE(catalog.mutationSeq(), missingSequence);
+    DataCatalog reopened; QVERIFY2(reopened.open(project, &error), qPrintable(error));
+    const auto persisted=reopened.storedEntityById(ids.front());
+    QCOMPARE(persisted.name, QString("SYNTH-RENAMED")); QVERIFY(!persisted.hasSurface);
+    QCOMPARE(persisted.surfaceX, 0.0); QCOMPARE(persisted.surfaceY, 0.0);
+    QCOMPARE(persisted.extra.value("retained").toString(), QString("custom"));
   }
   void directoryModelDrivesBothPreviews() {
     QTemporaryDir temp;

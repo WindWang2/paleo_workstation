@@ -84,6 +84,13 @@ CatalogEntity catalogRecord(CatalogEntity value) {
   if (!std::isfinite(value.td)) value.td = 0;
   return value;
 }
+bool sameWellProjection(const CatalogEntity &stored, const CatalogEntity &updated) {
+  // overlayAreaWell copies every other field from the stored record unchanged.
+  return stored.name == updated.name && stored.surfaceX == updated.surfaceX
+      && stored.surfaceY == updated.surfaceY && stored.hasSurface == updated.hasSurface
+      && stored.td == updated.td && stored.coordinateStatus == updated.coordinateStatus
+      && stored.extra == updated.extra;
+}
 CatalogEntity resolve(const Snapshot &data, const CatalogEntity &stored) {
   if (stored.entityType != "well") return stored;
   const auto id = stored.extra.value("areaModelWellId").toLongLong();
@@ -114,7 +121,8 @@ bool registerAreaWells(DataCatalog &catalog, QString *error) {
   if (!data.exists) return true;
   if (!data.error.isEmpty()) { if (error) *error = data.error; return false; }
   DataCatalog::BatchSave batch(&catalog);
-  const auto existing = catalog.entities("well");
+  // Public reads already overlay the latest model and can hide stale persisted values.
+  const auto existing = catalog.storedEntities("well");
   QHash<qlonglong, int> byId; QHash<QString, int> byName;
   for (int i = 0; i < existing.size(); ++i) {
     const auto id = existing[i].extra.value("areaModelWellId").toLongLong();
@@ -129,7 +137,8 @@ bool registerAreaWells(DataCatalog &catalog, QString *error) {
       batch.abort(); return false;
     }
     if (match >= 0) {
-      if (!catalog.updateEntity(catalogRecord(overlayAreaWell(existing[match], model)), error)) { batch.abort(); return false; }
+      const auto updated = catalogRecord(overlayAreaWell(existing[match], model));
+      if (!sameWellProjection(existing[match], updated) && !catalog.updateEntity(updated, error)) { batch.abort(); return false; }
       continue;
     }
     auto entity = catalogRecord(model); entity.id = catalog.nextEntityId("well");

@@ -11,6 +11,8 @@
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/previewdoc.h"
+#include "../src/services/previewwellbases.h"
+#include "../src/services/projectdata.h"
 #include "../src/services/welllogset.h"
 #include "../src/domain/wellrecords.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
@@ -86,6 +88,42 @@ class TestImportPreview : public QObject
   Q_OBJECT
 private slots:
   void initTestCase() { QVERIFY(QgisRuntime::isInitialized()); PaleoTheme::pinRenderEnvironment(); }
+  void legacyTopAndBasePreviewRejectsChangedSource()
+  {
+    PreviewStack stack;
+    const auto path = stack.source("legacy-tops.csv", "WELL,TOP,MD,BASE_MD\nA1,D61,100,120\nA1,D62,120,140\n");
+    QVERIFY(!path.isEmpty());
+    CatalogEntity well;
+    well.id = "legacy-well"; well.name = "A1"; well.entityType = "well";
+    CatalogAsset asset;
+    asset.id = "ast-40"; asset.type = "well_stratification"; asset.format = "csv";
+    CatalogVersion version;
+    version.id = "ver-40"; version.assetId = asset.id; version.stage = "RAW";
+    version.managed = false; version.path = path; version.fileName = "legacy-tops.csv";
+    version.sha256 = DataCatalog::sha256FileHex(path);
+    EntityAssetLink link;
+    link.assetId = asset.id; link.entityId = well.id; link.entityType = "well"; link.role = "tops";
+    auto *catalog = stack.imports->catalog();
+    QString error;
+    QVERIFY2(catalog->addEntity(well, &error), qPrintable(error));
+    QVERIFY2(catalog->addAsset(asset, &error), qPrintable(error));
+    QVERIFY2(catalog->addVersion(version, &error), qPrintable(error));
+    QVERIFY2(catalog->addLink(link, &error), qPrintable(error));
+    QVector<WellTop> current{{"D61", 100}, {"D62", 120}};
+    QStringList warnings;
+    auto bases = previewWellBases(catalog, well.id, current, &warnings);
+    QCOMPARE(bases.size(), 2);
+    QCOMPARE(bases[0].md, 120.0);
+    QCOMPARE(bases[1].md, 140.0);
+    QVERIFY(warnings.isEmpty());
+    current[0].md = 101;
+    bases = previewWellBases(catalog, well.id, current, &warnings);
+    QCOMPARE(bases.size(), 1);
+    QCOMPARE(bases[0].topName, QStringLiteral("D62"));
+    QVERIFY(ImportUxFixtures::write(path, "WELL,TOP,MD,BASE_MD\nA1,D61,100,121\nA1,D62,120,140\n"));
+    QVERIFY(previewWellBases(catalog, well.id, current, &warnings).isEmpty());
+    QVERIFY(warnings.join(' ').contains(QStringLiteral("内容已变化")));
+  }
   void newCompositeViewDoesNotReplaceLegacyView()
   {
     PreviewStack stack; QString error;

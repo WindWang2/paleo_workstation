@@ -101,6 +101,7 @@ class DataListPanel : public QWidget
 
     // ---- D1 选中面 ----
     QSet<QString> currentAssetSelection() const;      // 统一身份选区，限当前过滤集
+    bool isRestoringAssetSelection() const { return m_restoringSelection; }
     QStringList currentEntitySelection() const;       // 树中井节点
     paleo::dataops::SelectionMix currentSelectionMix() const;
 

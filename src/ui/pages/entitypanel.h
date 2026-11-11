@@ -48,6 +48,7 @@ class EntityPanel : public QWidget
     void setVersionContext(const QString &assetId, const QString &versionId);
     // D4.9 多选态：批量概要（类型/状态/标签分布 + 共同实体）。
     void setMultiContext(const QStringList &entityIds, const QStringList &assetIds);
+    bool isMultiContext() const { return m_multiAssetIds.size() > 1; }
     // P3 共享命令面（DataPage 接线：栈与 stores 与列表侧同源）。
     void setSharedOps(const paleo::dataops::DataOpsContext &ctx,
                       paleo::dataops::DataOpsUndoStack *stack,

@@ -1,7 +1,9 @@
 #include "io/areamodel.h"
 #include "services/previewdoc.h"
 #include "services/paleotaskservice.h"
+#include <paleo_data/service.h>
 #include <QtTest>
+#include <QCryptographicHash>
 #include <QThread>
 #include <QSemaphore>
 #include <cmath>
@@ -847,6 +849,61 @@ private slots:
     int count = 0; for (const auto &asset : service.catalog()->assets()) if (asset.type == "well_log") ++count;
     QCOMPARE(count, 1); QCOMPARE(service.catalog()->entities("well").size(), 1);
     QVERIFY(project.mapConfiguration().sourceStats.value("sourceProblems").toMap().isEmpty());
+  }
+  void failedAreaBatchKeepsTheExistingStratigraphicRevision() {
+    QTemporaryDir dir; QString error;
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&service](const QString &path) {
+      service.setProjectDir(QFileInfo(path).absolutePath());
+    });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto target=dir.filePath("output/project.qgz");
+    QVERIFY2(workflow.create(target, {}, {}, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    QVERIFY2(finished.takeFirst()[1].toBool(), qPrintable(error));
+
+    const auto modelRoot=paleo::area_model::directory(QFileInfo(target).absolutePath());
+    const auto seed=dir.filePath("horizon-seed.txt"); const QByteArray bytes("synthetic horizons");
+    QVERIFY(write(seed, bytes));
+    paleo::data::DataService model; std::string detail;
+    QVERIFY2(model.createProject(modelRoot.toUtf8().toStdString(), "test", detail), detail.c_str());
+    paleo::data::ParsedFile parsed; parsed.kind="synthetic"; parsed.status="parsed";
+    for(int i=0;i<2;++i) {
+      paleo::data::SeismicHorizon horizon; horizon.horizonName=i ? "T2" : "T1";
+      horizon.coordinateSystem="EPSG:32650"; horizon.coordinateUnit="m";
+      horizon.timeUnit="ms"; horizon.timeType="TWT"; horizon.timeReference="fixture";
+      horizon.points.push_back({100,200,500000,4000000,1000.+100.*i});
+      parsed.horizons.push_back(horizon);
+    }
+    const auto source=seed.toUtf8().toStdString(); long long sourceId=0;
+    const auto sha=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().toStdString();
+    QVERIFY2(model.importPreparedFile(source,source,source,sha,parsed,sourceId,detail), detail.c_str());
+    paleo::data::SeismicStratigraphyBuildReport report;
+    QVERIFY2(model.buildSeismicStratigraphicFramework({},report,detail), detail.c_str());
+    std::vector<paleo::data::StratigraphicSchemeSummary> schemes;
+    QVERIFY2(model.listStratigraphicSchemes(schemes,detail), detail.c_str()); QCOMPARE(schemes.size(),size_t(1));
+    const auto before=schemes.front();
+    std::vector<paleo::data::StratigraphicSchemeRevisionSummary> revisions;
+    QVERIFY2(model.listStratigraphicSchemeRevisions(before.id,revisions,detail), detail.c_str());
+    QCOMPARE(revisions.size(),size_t(1)); model.closeProject();
+
+    const auto broken=dir.filePath("invalid-logs/broken.las"); QVERIFY(write(broken,"broken log without curves"));
+    ProjectSetupSources sources; sources.wells=QFileInfo(broken).absolutePath();
+    const auto preview=scanProjectSources(sources); QVERIFY(preview.errors.isEmpty());
+    QVERIFY2(workflow.applySources(sources,preview,&error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(),1,20000);
+    QVERIFY(!finished.first()[1].toBool());
+    QVERIFY2(model.openProjectReadOnly(modelRoot.toUtf8().toStdString(),detail), detail.c_str());
+    std::vector<paleo::data::SourceIndexEntry> imported;
+    QVERIFY2(model.listSourceIndexEntries(imported,detail), detail.c_str());
+    bool failureSaved=false;for(const auto &entry:imported)
+      if(entry.path==broken.toUtf8().toStdString()&&entry.status=="failed")failureSaved=true;
+    QVERIFY(failureSaved); // The actual model import ran; an early wizard rejection is insufficient.
+    QVERIFY2(model.listStratigraphicSchemes(schemes,detail), detail.c_str()); QCOMPARE(schemes.size(),size_t(1));
+    QCOMPARE(schemes.front().id,before.id); QCOMPARE(schemes.front().headRevision.value,before.headRevision.value);
+    QVERIFY2(model.listStratigraphicSchemeRevisions(before.id,revisions,detail), detail.c_str());
+    QCOMPARE(revisions.size(),size_t(1));
   }
   void supplementalFileDoesNotImportItsParentDirectory_data() {
     QTest::addColumn<QString>("savedRootMode");

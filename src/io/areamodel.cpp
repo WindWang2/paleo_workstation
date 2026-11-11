@@ -1,6 +1,5 @@
 // 层：数据
 #include "areamodel.h"
-#include "areamodel_conventions.h"
 #include "../catalog/datacatalog.h"
 #include <paleo_data/service.h>
 #include "projectcoordinates.h"
@@ -10,8 +9,6 @@
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
-#include <QDebug>
-#include <algorithm>
 
 namespace paleo::area_model {
 namespace {
@@ -69,7 +66,6 @@ bool indexedSource(const QString &root, const QString &wanted, long long &id, QS
   return true;
 }
 }
-QString directory(const QString &project) { return QDir(project).filePath("artifacts/metadata/area-model"); }
 QString confirmedProjectCrs(const QString &project) {
   if (!QFileInfo::exists(directory(project) + QStringLiteral("/data.sqlite"))) return {};
   paleo::data::DataService service; std::string detail;
@@ -78,108 +74,6 @@ QString confirmedProjectCrs(const QString &project) {
   if (!service.readProjectCoordinates(info, detail) || info.coordinateUnit != "m") return {};
   const auto crs = QString::fromUtf8(info.coordinateSystem);
   return paleo::io::isMetricProjectCrs(crs) ? crs : QString();
-}
-bool ensureProject(const QString &project, QString *error) {
-  paleo::data::DataService service; std::string detail;
-  const auto root = directory(project).toUtf8().toStdString();
-  const bool exists = QFileInfo::exists(directory(project) + "/data.sqlite");
-  const bool ok = exists ? service.openProject(root, detail)
-      : service.createProject(root, QFileInfo(project).fileName().toUtf8().toStdString(), detail);
-  if (error) *error = QString::fromUtf8(detail);
-  return ok && inheritSurveyHorizonConventions(service,error);
-}
-bool inheritProjectHorizonConventions(const QString &project,QString *error) {
-  return !QFileInfo::exists(directory(project)+QStringLiteral("/data.sqlite"))||ensureProject(project,error);
-}
-bool importDirectory(const QString &project, const QString &source,
-                     paleo::data::ImportReport &report, QString *error,
-                     const std::function<bool()> &cancelled, const QStringList &excluded,
-                     const std::function<void(int, int, const QString &)> &progress) {
-  return importDirectoryWithCrs(project, source, report, error, cancelled, excluded, progress, {}, {});
-}
-static bool importWithCrs(const QString &project, const QString &source, bool singleFile,
-                     paleo::data::ImportReport &report, QString *error,
-                     const std::function<bool()> &cancelled, const QStringList &excluded,
-                     const std::function<void(int, int, const QString &)> &progress,
-                     const QString &crs, const QString &crsUnit) {
-  if (progress) progress(0, 0, QStringLiteral("初始化工区数据模型"));
-  paleo::data::DataService service;
-  std::string detail;
-  const auto root = directory(project).toUtf8().toStdString();
-  const bool exists = QFileInfo::exists(directory(project) + "/data.sqlite");
-  if (!(exists ? service.openProject(root, detail)
-               : service.createProject(root, QFileInfo(project).fileName().toUtf8().toStdString(), detail))) {
-    if (error) *error = QString::fromUtf8(detail);
-    return false;
-  }
-  paleo::data::ImportOptions options;
-  options.copySources = false;
-  bool threadsConfigured = false;
-  const int threads = qEnvironmentVariableIntValue("PALEO_IMPORT_PARSER_THREADS", &threadsConfigured);
-  options.parserThreads = std::clamp(threadsConfigured ? threads : 4, 1, 4);
-  bool pendingConfigured = false;
-  const int pendingMb = qEnvironmentVariableIntValue("PALEO_IMPORT_PENDING_MB", &pendingConfigured);
-  options.maxPendingBytes = qint64(std::clamp(pendingConfigured ? pendingMb : 256, 8, 1024)) * 1024 * 1024;
-  options.parsing.comprehensiveWellMetreDepth = true;
-  // A computation target is not a declaration of every input's source CRS.
-  // Data_service collects explicit source declarations during parsing.
-  if (!crs.isEmpty() && !service.setProjectCrs(crs.toUtf8().toStdString(), crsUnit.toUtf8().toStdString(), detail)) {
-    if (error) *error = QString::fromUtf8(detail);
-    return false;
-  }
-  for (const auto &path : excluded) options.excludedDirectories.push_back(path.toUtf8().toStdString());
-  bool ok;
-  if (singleFile) {
-    if (progress) progress(0, 1, source);
-    ok = service.importFile(source.toUtf8().toStdString(), options, report, detail, cancelled);
-    if (progress && !report.cancelled) progress(1, 1, source);
-  } else {
-    ok = service.importDirectory(source.toUtf8().toStdString(), options, report, detail, [&progress](const paleo::data::ImportProgress &p) {
-      if (progress) progress(p.completed, p.total, QString::fromUtf8(p.status) + ": " + QString::fromUtf8(p.file));
-    }, cancelled);
-  }
-  if (!report.cancelled && (ok || report.imported > 0 || report.registered > 0 || report.cached > 0)) {
-    if(!inheritSurveyHorizonConventions(service,error))return false;
-    std::vector<paleo::data::DataEntry> horizons;
-    std::string hErr;
-    if (service.listData("horizons", 0, horizons, hErr) && horizons.size() >= 2) {
-      if (progress) progress(report.seen, report.seen, QStringLiteral("分析地震层位与时深关系，生成井震四等分小层"));
-      paleo::data::SeismicStratigraphyBuildOptions stratOpts;
-      paleo::data::SeismicStratigraphyBuildReport stratReport;
-      std::string stratErr;
-      if (service.buildSeismicStratigraphicFramework(stratOpts, stratReport, stratErr, cancelled)) {
-        qInfo() << "area-seismic-stratigraphy: scheme=" << QString::fromUtf8(stratReport.schemeId)
-                << "horizons=" << stratReport.horizonCount
-                << "intervals=" << stratReport.intervalCount
-                << "sub_intervals=" << stratReport.subIntervalCount
-                << "matched_wells=" << stratReport.matchedWellCount
-                << "skipped_wells=" << stratReport.skippedWellCount;
-      } else {
-        qWarning() << "area-seismic-stratigraphy skipped:" << QString::fromUtf8(stratErr);
-      }
-    }
-  }
-  qInfo() << "area-import: files=" << report.seen << "elapsed_ms=" << report.elapsedMs
-          << "hash_ms=" << report.hashMs << "parse_ms=" << report.parseMs
-          << "copy_ms=" << report.copyMs << "store_ms=" << report.storeMs
-          << "hashed_bytes=" << report.hashedBytes << "workers=" << report.workerCount
-          << "pending_bytes=" << options.maxPendingBytes << "copy_sources=false";
-  if (error) *error = QString::fromUtf8(detail);
-  return !report.cancelled && (ok || report.failed > 0);
-}
-bool importDirectoryWithCrs(const QString &project, const QString &source,
-                            paleo::data::ImportReport &report, QString *error,
-                            const std::function<bool()> &cancelled, const QStringList &excluded,
-                            const std::function<void(int, int, const QString &)> &progress,
-                            const QString &crs, const QString &crsUnit) {
-  return importWithCrs(project, source, false, report, error, cancelled, excluded, progress, crs, crsUnit);
-}
-bool importFileWithCrs(const QString &project, const QString &source,
-                       paleo::data::ImportReport &report, QString *error,
-                       const std::function<bool()> &cancelled,
-                       const std::function<void(int, int, const QString &)> &progress,
-                       const QString &crs, const QString &crsUnit) {
-  return importWithCrs(project, source, true, report, error, cancelled, {}, progress, crs, crsUnit);
 }
 void registerProject(const QString &project, const void *owner) {
   QMutexLocker lock(&mutex);

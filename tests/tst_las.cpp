@@ -35,6 +35,8 @@ class TestLas : public QObject
     void depthRangeNullDepthRowDoesNotStopScan();
     // issue-810：头段超长无换行行如实拒收
     void headerLineGateRejectsGiantLine();
+    void headerLineGateBoundaries_data();
+    void headerLineGateBoundaries();
 
   private:
     QTemporaryDir m_tempDir;
@@ -906,6 +908,55 @@ void TestLas::headerLineGateRejectsGiantLine()
   // readWellInfo 同一入口同口径。
   QString well;
   QVERIFY2(!LasParser::readWellInfo(path, well, &err), "readWellInfo 同受行长闸");
+}
+
+void TestLas::headerLineGateBoundaries_data()
+{
+  QTest::addColumn<QByteArray>("ending");
+  QTest::addColumn<int>("payloadBytes");
+  QTest::addColumn<bool>("accepted");
+  constexpr int limit = 4 * 1024 * 1024;
+  QTest::newRow("lf-limit") << QByteArray("\n") << limit << true;
+  QTest::newRow("lf-over") << QByteArray("\n") << limit + 1 << false;
+  // The guard counts every byte before LF, including CR.
+  QTest::newRow("crlf-limit") << QByteArray("\r\n") << limit - 1 << true;
+  QTest::newRow("crlf-over") << QByteArray("\r\n") << limit << false;
+  QTest::newRow("eof-limit") << QByteArray() << limit << true;
+  QTest::newRow("eof-over") << QByteArray() << limit + 1 << false;
+}
+
+void TestLas::headerLineGateBoundaries()
+{
+  QFETCH(QByteArray, ending);
+  QFETCH(int, payloadBytes);
+  QFETCH(bool, accepted);
+  const auto path = m_tempDir.filePath("header-boundary.las");
+  QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write("~V\nVERS. 2.0 :\n");
+  const QByteArray definitions("~W\nWELL. BOUNDARY :\n~C\nDEPT.M :\nGR.API :\n");
+  if (ending.isEmpty()) file.write(definitions);
+  QByteArray comment(payloadBytes, 'x'); comment[0] = '#';
+  QCOMPARE(file.write(comment), qint64(payloadBytes)); file.write(ending);
+  if (!ending.isEmpty()) {
+    file.write(definitions); file.write("~A\n");
+    // A header query must not parse this deliberately invalid, large body.
+    file.write(QByteArray(1024 * 1024, 'x'));
+  }
+  file.close();
+  LasHeaderInfo header; QString error;
+  QCOMPARE(LasParser::parseHeader(path, header, &error), accepted);
+  if (accepted) {
+    QCOMPARE(header.wellName, QString("BOUNDARY"));
+    QCOMPARE(header.curveNames, QStringList({"DEPT", "GR"}));
+    QCOMPARE(header.sawAscii, !ending.isEmpty());
+  } else {
+    QVERIFY2(error.contains(QStringLiteral("无换行")), qPrintable(error));
+  }
+  if (!ending.isEmpty()) {
+    QString well;
+    QCOMPARE(LasParser::readWellInfo(path, well, &error), accepted);
+    if (accepted) QCOMPARE(well, QString("BOUNDARY"));
+  }
 }
 
 QTEST_MAIN(TestLas)

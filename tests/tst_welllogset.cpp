@@ -115,7 +115,47 @@ private slots:
   void readsCurrentVersionOnly();
   void doesNotElectPrimaryWhenMarkedFileIsMissing();
   void mdAxisRejectsUnknownLegacyUnitAndScalesFeet();
+  void cachedHeaderFormatFollowsChangedSource();
 };
+
+void TestWellLogSet::cachedHeaderFormatFollowsChangedSource()
+{
+  QTemporaryDir dir; QVERIFY(dir.isValid());
+  // A misleading suffix must never override a source-declared format.
+  const auto path = writeLas(dir.filePath("changing.las"), {"DEPT", "GR"}, 1000, 2);
+  QVERIFY(!path.isEmpty());
+  DataCatalog catalog; QString error;
+  QVERIFY2(catalog.open(dir.path(), &error), qPrintable(error));
+  QVERIFY(addWell(catalog, "well-1", "W1", &error));
+  QVERIFY(seedLog(catalog, "well-1", "asset-1", "version-1", path, 0, true, 1,
+                  false, true, "well_log", &error));
+  const auto beforeSequence = catalog.mutationSeq();
+  WellLogSet::warmHeaderCache({path});
+  auto curves = WellLogSet::wellCurveIndex(&catalog, dir.path(), "well-1");
+  QCOMPARE(curves.size(), 1); QCOMPARE(curves.front().format, QString("las"));
+  QCOMPARE(curves.front().mnemonic, QString("GR"));
+  const QFileInfo original(path);
+  const auto originalSize = original.size();
+  const auto originalMtime = original.lastModified();
+  QTest::qWait(2); // Make the metadata-time change observable at Qt's millisecond precision.
+  QFile source(path); QVERIFY(source.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  QByteArray text("# Well: W1\nMD[m],POR[%]\n1000,10\n1001,20\n");
+  QVERIFY(originalSize >= text.size() + 2);
+  text += '#' + QByteArray(originalSize - text.size() - 2, ' ') + '\n';
+  QCOMPARE(source.write(text), originalSize); QVERIFY(source.flush());
+  QVERIFY(source.setFileTime(originalMtime, QFileDevice::FileModificationTime)); source.close();
+  const QFileInfo replaced(path);
+  QCOMPARE(replaced.size(), originalSize); QCOMPARE(replaced.lastModified(), originalMtime);
+  curves = WellLogSet::wellCurveIndex(&catalog, dir.path(), "well-1");
+  QCOMPARE(curves.size(), 1); QCOMPARE(curves.front().format, QString("text"));
+  QCOMPARE(curves.front().mnemonic, QString("POR"));
+  QCOMPARE(curves.front().column, 1); QCOMPARE(curves.front().indexBasis, QString("MD"));
+  // The refreshed format and header must also survive subsequent cache hits.
+  curves = WellLogSet::wellCurveIndex(&catalog, dir.path(), "well-1");
+  QCOMPARE(curves.size(), 1); QCOMPARE(curves.front().format, QString("text"));
+  QCOMPARE(curves.front().mnemonic, QString("POR"));
+  QCOMPARE(catalog.mutationSeq(), beforeSequence);
+}
 
 void TestWellLogSet::oracle1_ordersFilesAndUnionsCurvesWithoutDepth()
 {

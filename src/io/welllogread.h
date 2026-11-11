@@ -59,6 +59,11 @@ class WellLogRead
     static bool parseHeader(const QString &path, LasHeaderInfo &out,
                             QString *error = nullptr,
                             QList<LasIssue> *issues = nullptr);
+    // Reuse an existing content sniff, retaining native-model priority and the
+    // same complete XML/text validation as the ordinary header entry point.
+    static bool parseHeader(const QString &path, WellLogFormat format, LasHeaderInfo &out,
+                            QString *error = nullptr,
+                            QList<LasIssue> *issues = nullptr);
 
     // 整文件数据读（welllogset readCurveTvd 等）。
     static bool parseCurves(const QString &path, QStringList &curveNames,

@@ -16,9 +16,12 @@ private slots:
     void dedupeNonAdjacentNearDuplicates();
   void coincidentToleranceCheck();
   void dedupeSamplesAveraging();
+  void dedupePreservesOriginalTieOrderAndMapping();
   void neighborIndexEmptyAndSingle();
   void neighborIndexKNearestOrder();
   void neighborIndexCutoffFiltering();
+  void neighborIndexPreservesBucketOrderAtDistanceTies();
+  void neighborIndexOwnsMovedAndCopiedSamples();
   void mutationDemonstration_ascendingDistanceOrder();
 };
 
@@ -60,11 +63,14 @@ void TestGeostatNeighborhood::dedupeSamplesAveraging()
 
 void TestGeostatNeighborhood::neighborIndexEmptyAndSingle()
 {
+  std::vector<std::uint32_t> out{99};
+  const auto empty = NeighborIndex::build({});
+  empty.queryNearest(0, 0, 1, 0, &out);
+  QVERIFY(out.empty());
   std::vector<Sample> pts = {{5.0, 5.0, 42.0}};
   NeighborIndex idx = NeighborIndex::build(pts);
   QCOMPARE(idx.size(), 1);
 
-  std::vector<std::uint32_t> out;
   idx.queryNearest(5.0, 5.0, 1, 0.0, &out);
   QCOMPARE(out.size(), 1);
   QCOMPARE(out[0], 0U);
@@ -72,6 +78,35 @@ void TestGeostatNeighborhood::neighborIndexEmptyAndSingle()
   // cutoff 过滤：查询点在 (10, 10)，距离约 7.07，cutoff 设为 2.0 -> 应过滤为空
   idx.queryNearest(10.0, 10.0, 1, 2.0, &out);
   QVERIFY(out.empty());
+}
+
+void TestGeostatNeighborhood::dedupePreservesOriginalTieOrderAndMapping()
+{
+  const double missing = std::numeric_limits<double>::quiet_NaN();
+  const std::vector<Sample> input = {
+    {missing, 0, 0}, {500000.0002, 4000000, 30}, {10, 20, 1e16},
+    {missing, 20, 1}, {500000, 4000000, 10}, {10, 20, -1e16},
+    {10, 20, 1}, {500000.0001, 4000100, 20}, {1, 2, missing}
+  };
+  int merged = 0;
+  std::vector<std::uint32_t> mapping;
+  const auto result = dedupeSamples(input, &merged, &mapping);
+  QCOMPARE(merged, 3);
+  QCOMPARE(result.size(), std::size_t(3));
+  QCOMPARE(result[0].value, 1. / 3.); // (1e16 - 1e16 + 1) / 3, in original tie order.
+  QCOMPARE(result[1].value, 20.);
+  QCOMPARE(result[2].value, 20.);
+  const auto invalid = std::numeric_limits<std::uint32_t>::max();
+  QCOMPARE(mapping, (std::vector<std::uint32_t>{invalid, 1, 0, invalid, 1, 0, 0, 2, invalid}));
+  int withoutMappingMerged = 0;
+  const auto withoutMapping = dedupeSamples(input, &withoutMappingMerged);
+  QCOMPARE(withoutMappingMerged, merged);
+  QCOMPARE(withoutMapping.size(), result.size());
+  for (std::size_t i = 0; i < result.size(); ++i) {
+    QCOMPARE(withoutMapping[i].x, result[i].x);
+    QCOMPARE(withoutMapping[i].y, result[i].y);
+    QCOMPARE(withoutMapping[i].value, result[i].value);
+  }
 }
 
 void TestGeostatNeighborhood::neighborIndexKNearestOrder()
@@ -110,6 +145,54 @@ void TestGeostatNeighborhood::neighborIndexCutoffFiltering()
   QCOMPARE(out.size(), 2);
   QCOMPARE(out[0], 0U);
   QCOMPARE(out[1], 1U);
+}
+
+void TestGeostatNeighborhood::neighborIndexPreservesBucketOrderAtDistanceTies()
+{
+  // The distant anchors put all four unit-distance points in the same bucket.
+  // Its first K candidates must remain selected when later distances tie.
+  const std::vector<Sample> points = {
+    {1, 0, 10}, {0, 1, 20}, {-1, 0, 30}, {0, -1, 40},
+    {-1000, -1000, 50}, {100, 100, 60}
+  };
+  const auto index = NeighborIndex::build(points);
+  std::vector<std::uint32_t> result;
+  index.queryNearest(0, 0, 2, 0, &result);
+  QCOMPARE(result, (std::vector<std::uint32_t>{0, 1}));
+  index.queryNearest(0, 0, 2, .99, &result);
+  QVERIFY(result.empty());
+}
+
+void TestGeostatNeighborhood::neighborIndexOwnsMovedAndCopiedSamples()
+{
+  const std::vector<Sample> expected = {{1, 0, 10}, {0, 1, 20}, {-1, 0, 30}, {0, -1, 40}};
+  auto source = expected;
+  const auto copied = NeighborIndex::build(source);
+  source[0] = {100, 100, 99};
+  source.clear();
+
+  auto compact = expected;
+  const auto moved = NeighborIndex::build(std::move(compact));
+  std::vector<Sample> duplicates(4096, expected[0]);
+  int merged = 0;
+  auto deduped = dedupeSamples(duplicates, &merged);
+  QCOMPARE(merged, 4095);
+  const auto duplicateHeavy = NeighborIndex::build(std::move(deduped));
+  QCOMPARE(duplicateHeavy.size(), std::size_t(1));
+  QCOMPARE(duplicateHeavy.point(0).value, expected[0].value);
+
+  for (const auto *index : {&copied, &moved}) {
+    QCOMPARE(index->size(), expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+      QCOMPARE(index->point(static_cast<std::uint32_t>(i)).x, expected[i].x);
+      QCOMPARE(index->point(static_cast<std::uint32_t>(i)).y, expected[i].y);
+      QCOMPARE(index->point(static_cast<std::uint32_t>(i)).value, expected[i].value);
+    }
+  }
+  std::vector<std::uint32_t> copiedNearest, movedNearest;
+  copied.queryNearest(0, 0, 2, 0, &copiedNearest);
+  moved.queryNearest(0, 0, 2, 0, &movedNearest);
+  QCOMPARE(movedNearest, copiedNearest);
 }
 
 void TestGeostatNeighborhood::mutationDemonstration_ascendingDistanceOrder()

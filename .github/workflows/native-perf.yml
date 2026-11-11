@@ -1,0 +1,118 @@
+name: Native performance regressions
+
+on:
+  push:
+    branches: [master, codex/ingest-ci-performance]
+    paths:
+      - .github/workflows/native-perf.yml
+      - tools/native-perf/**
+      - tests/tst_geostat_*.cpp
+      - tests/threadcputimer.h
+      - tests/tst_welllog*.cpp
+      - tests/tst_las.cpp
+      - tests/tst_dlisparser.cpp
+      - tests/tst_lisparser.cpp
+      - src/algorithms/geostat/**
+      - src/services/welllogset*
+      - src/io/**
+      - src/catalog/**
+      - src/metadata/**
+      - src/domain/**
+      - vendor/Data_service
+  pull_request:
+    paths:
+      - .github/workflows/native-perf.yml
+      - tools/native-perf/**
+      - tests/tst_geostat_*.cpp
+      - tests/threadcputimer.h
+      - tests/tst_welllog*.cpp
+      - tests/tst_las.cpp
+      - tests/tst_dlisparser.cpp
+      - tests/tst_lisparser.cpp
+      - src/algorithms/geostat/**
+      - src/services/welllogset*
+      - src/io/**
+      - src/catalog/**
+      - src/metadata/**
+      - src/domain/**
+      - vendor/Data_service
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-perf-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  native-perf:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [geostat, welllogset]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      # These tests exercise Qt/data/algorithm code without QGIS. Compile the
+      # same production translation units and original test sources directly,
+      # so a GIS archive download cannot prevent their regression diagnostics.
+      - name: Install Qt build dependencies
+        timeout-minutes: 6
+        run: |
+          # Broken runner DNS must fail provisioning rather than spend minutes
+          # trying every package with stale indexes. No test ran in that case.
+          python3 tools/native-perf/dns_hosts.py --selftest
+          for ubuntu_host in archive.ubuntu.com security.ubuntu.com azure.archive.ubuntu.com; do
+            if ! timeout 15 getent ahostsv4 "$ubuntu_host"; then
+              # Resolve only these Ubuntu hosts over authenticated HTTPS when
+              # this runner's resolver fails. TLS and APT signatures stay on;
+              # the temporary VM is the only machine whose hosts file changes.
+              curl --fail --silent --show-error --connect-timeout 10 --max-time 20 \
+                --resolve cloudflare-dns.com:443:1.1.1.1 -H 'accept: application/dns-json' \
+                "https://cloudflare-dns.com/dns-query?name=$ubuntu_host&type=A" > "$RUNNER_TEMP/ubuntu-dns.json"
+              python3 tools/native-perf/dns_hosts.py "$ubuntu_host" "$RUNNER_TEMP/ubuntu-dns.json" > "$RUNNER_TEMP/ubuntu-hosts"
+              sudo tee -a /etc/hosts < "$RUNNER_TEMP/ubuntu-hosts"
+              timeout 15 getent ahostsv4 "$ubuntu_host"
+            fi
+          done
+          apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          sudo apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
+          sudo apt-get "${apt_options[@]}" -o DPkg::Lock::Timeout=60 install -y cmake ninja-build ccache qt6-base-dev qt6-5compat-dev zlib1g-dev libzstd-dev
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-native-perf-${{ matrix.test }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-native-perf-${{ matrix.test }}-
+      - name: Configure focused production tests
+        run: cmake -S tools/native-perf -B build-native-perf -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE='-O2 -DNDEBUG'
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DPALEO_NATIVE_GEOSTAT_PROFILE=ON
+          -DPALEO_NATIVE_PERF_TESTS=${{ matrix.test }}
+      - name: Build
+        id: build
+        run: cmake --build build-native-perf --parallel 2
+      - name: Run serially and retain assertions
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build-native-perf -j1 --no-tests=error --output-on-failure
+          --output-junit "$PWD/build-native-perf/results.xml"
+      - name: Profile cross-validation components
+        if: ${{ always() && matrix.test == 'geostat' && steps.build.outcome == 'success' }}
+        run: |
+          ./build-native-perf/geostat_phase_profile > build-native-perf/geostat-profile.json
+          cat build-native-perf/geostat-profile.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-perf-${{ matrix.test }}
+          if-no-files-found: ignore
+          path: |
+            build-native-perf/results.xml
+            build-native-perf/geostat-profile.json
+            build-native-perf/Testing/

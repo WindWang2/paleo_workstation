@@ -8,6 +8,8 @@
 #include "io/welllogread.h"     // 方向44：LAS/DLIS/LIS 统一分派（无感格式差异）
 
 #include <QFileInfo>
+#include <QFile>
+#include <QDir>
 #include <QHash>
 #include <QCoreApplication>
 #include <QMutex>
@@ -16,6 +18,13 @@
 
 #include <algorithm>
 #include <cmath>
+#ifdef Q_OS_WIN
+#pragma push_macro("small")
+#include <qt_windows.h>
+#pragma pop_macro("small")
+#elif defined(Q_OS_UNIX)
+#include <sys/stat.h>
+#endif
 
 // 已决 well_log 的只读并集。目录优先使用受管版本元数据，缺失时由
 // WellLogRead 读取格式表头；旧 XML/文本回退可能读取数据体，但不写 catalog。
@@ -24,16 +33,52 @@
 
 namespace
 {
+  struct ChangeStamp
+  {
+    qint64 value = 0, fraction = 0;
+    bool valid = false;
+    bool operator==(const ChangeStamp &) const = default;
+  };
+  ChangeStamp sourceChangeStamp(const QFileInfo &info)
+  {
+#ifdef Q_OS_WIN
+    // QFileInfo's Windows change time aliases mtime in Qt 6.11. Use the
+    // filesystem's actual 100 ns ChangeTime so restoring mtime cannot hide edits.
+    const auto path = QDir::toNativeSeparators(info.absoluteFilePath());
+    const HANDLE file = CreateFileW(reinterpret_cast<LPCWSTR>(path.utf16()), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return {};
+    FILE_BASIC_INFO basic{};
+    const bool ok = GetFileInformationByHandleEx(file, FileBasicInfo, &basic, sizeof(basic));
+    CloseHandle(file);
+    return ok && basic.ChangeTime.QuadPart > 0 ? ChangeStamp{basic.ChangeTime.QuadPart, 0, true} : ChangeStamp{};
+#elif defined(Q_OS_UNIX)
+    struct stat value;
+    const auto path = QFile::encodeName(info.absoluteFilePath());
+    if (::stat(path.constData(), &value) != 0) return {};
+#ifdef Q_OS_DARWIN
+    return {value.st_ctimespec.tv_sec, value.st_ctimespec.tv_nsec, true};
+#else
+    return {value.st_ctim.tv_sec, value.st_ctim.tv_nsec, true};
+#endif
+#else
+    const auto changed = info.metadataChangeTime();
+    return changed.isValid() ? ChangeStamp{changed.toMSecsSinceEpoch(), 0, true} : ChangeStamp{};
+#endif
+  }
   // 外链文件（managed=false、无 logCurveNames）每次 wellCurveIndex 都要走
   // WellLogRead::parseHeader——SpreadsheetML 需整本流式解析，几十个文件即
-  // 分钟级。此缓存按 (path, size, mtime) 记住解析结果，同一版本会话内免重扫；
+  // 分钟级。此缓存按路径、长度及修改/变更/创建时间记住头和格式；
   // warmHeaderCache 允许调用方在后台线程先行填满。
   struct CachedHeader
   {
     qint64 size = -1;
     qint64 mtimeMs = -1;
+    ChangeStamp changed;
+    qint64 birthTimeMs = -1;
     bool ok = false;
     LasHeaderInfo header;
+    QString format;
     QString error;
   };
   QMutex &headerCacheMutex()
@@ -47,17 +92,23 @@ namespace
     return cache;
   }
 
-  bool parseHeaderCached(const QString &path, LasHeaderInfo &header, QString *error)
+  bool parseHeaderCached(const QFileInfo &info, LasHeaderInfo &header, QString *error,
+                         QString *format = nullptr)
   {
-    const QFileInfo info(path);
+    const auto path = info.filePath();
     const qint64 size = info.exists() ? info.size() : -1;
     const qint64 mtimeMs = info.exists() ? info.lastModified().toMSecsSinceEpoch() : -1;
+    const auto changed = sourceChangeStamp(info);
+    const qint64 birthTimeMs = info.exists() ? info.birthTime().toMSecsSinceEpoch() : -1;
     {
       QMutexLocker lock(&headerCacheMutex());
       const auto found = headerCache().constFind(path);
-      if (found != headerCache().constEnd() && found->size == size && found->mtimeMs == mtimeMs)
+      if (changed.valid && found != headerCache().constEnd() && found->size == size && found->mtimeMs == mtimeMs
+          && found->changed == changed && found->birthTimeMs == birthTimeMs)
       {
         header = found->header;
+        if (format)
+          *format = found->format;
         if (error)
           *error = found->error;
         return found->ok;
@@ -66,7 +117,12 @@ namespace
     CachedHeader entry;
     entry.size = size;
     entry.mtimeMs = mtimeMs;
-    entry.ok = WellLogRead::parseHeader(path, entry.header, &entry.error);
+    entry.changed = changed;
+    entry.birthTimeMs = birthTimeMs;
+    const auto detected = WellLogRead::detect(path);
+    entry.format = WellLogRead::formatTag(detected);
+    entry.ok = WellLogRead::parseHeader(path, detected, entry.header, &entry.error);
+    if (changed.valid)
     {
       QMutexLocker lock(&headerCacheMutex());
       if (headerCache().size() >= 4096)
@@ -74,6 +130,8 @@ namespace
       headerCache().insert(path, entry);
     }
     header = entry.header;
+    if (format)
+      *format = entry.format;
     if (error)
       *error = entry.error;
     return entry.ok;
@@ -222,7 +280,8 @@ namespace
         continue;
       const CatalogVersion version = catalog->currentVersion(link.assetId);
       const QString path = DataCatalog::resolvedVersionPath(projectDir, version);
-      const bool missing = version.id.isEmpty() || path.isEmpty() || !QFileInfo(path).isFile();
+      const QFileInfo source(path);
+      const bool missing = version.id.isEmpty() || path.isEmpty() || !source.isFile();
       if (missing)
       {
         const QString shown = !path.isEmpty() ? path
@@ -232,8 +291,10 @@ namespace
         continue;
       }
       LasHeaderInfo header;
-      QString error;
-      if (!WellLogSet::storedHeader(version, &header) && !parseHeaderCached(path, header, &error))
+      QString error, format;
+      if (WellLogSet::storedHeader(version, &header))
+        format = WellLogRead::formatTag(WellLogRead::detect(path));
+      else if (!parseHeaderCached(source, header, &error, &format))
       {
         addWarning(warnings, QStringLiteral("%1: %2").arg(path, error));
         continue;
@@ -246,7 +307,7 @@ namespace
       row.file.ordinal = link.ordinal;
       row.file.curveNames = header.curveNames;
       row.file.indexBasis = header.indexBasis;
-      row.file.format = WellLogRead::formatTag(WellLogRead::detect(path));
+      row.file.format = format;
       row.versionNumber = version.versionNumber;
       rows.append(row);
     }
@@ -318,7 +379,7 @@ void WellLogSet::warmHeaderCache(const QStringList &paths)
   {
     LasHeaderInfo header;
     QString error;
-    parseHeaderCached(path, header, &error);
+    parseHeaderCached(QFileInfo(path), header, &error);
   }
 }
 

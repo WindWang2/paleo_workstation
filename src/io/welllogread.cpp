@@ -30,17 +30,40 @@ bool parseAdditional(const QString &path, WellLogFormat format, LasHeaderInfo &h
   if (issues) issues->append({LasIssue::Severity::Error, LasIssue::Category::Format, 0, message});
   return false;
 }
+bool parseHeaderForFormat(const QString &path, WellLogFormat format, LasHeaderInfo &out,
+                          QString *error, QList<LasIssue> *issues)
+{
+  switch (format)
+  {
+    case WellLogFormat::Dlis:
+      return DlisParser::parseHeader(path, out, error, issues);
+    case WellLogFormat::Lis:
+      return LisParser::parseHeader(path, out, error, issues);
+    case WellLogFormat::Las:
+      return LasParser::parseHeader(path, out, error);
+    case WellLogFormat::SpreadsheetXml:
+    case WellLogFormat::Text:
+    case WellLogFormat::Unknown:
+    {
+      QList<LasCurve> curves;
+      return parseAdditional(path, format, out, curves, error, issues);
+    }
+  }
+  return false;
+}
 }
 
 WellLogFormat WellLogRead::detect(const QString &path)
 {
   // 内容嗅探优先：SUL/磁带标头是格式自声明，扩展名只是弱信号。
-  if (DlisParser::sniff(path))
-    return WellLogFormat::Dlis;
-  if (LisParser::sniff(path))
-    return WellLogFormat::Lis;
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) return WellLogFormat::Unknown;
+  if (DlisParser::sniff(file))
+    return WellLogFormat::Dlis;
+  if (!file.seek(0)) return WellLogFormat::Unknown;
+  if (LisParser::sniff(file))
+    return WellLogFormat::Lis;
+  if (!file.seek(0)) return WellLogFormat::Unknown;
   const QByteArray content = file.read(64 * 1024);
   if (WellLogText::sniffSpreadsheetXml(content)) return WellLogFormat::SpreadsheetXml;
   QString text = QString::fromUtf8(content);
@@ -140,24 +163,16 @@ bool WellLogRead::parseHeader(const QString &path, LasHeaderInfo &out,
     error->clear();
   const auto native = paleo::native_model::logHeader(path, out, error);
   if (native != paleo::native_model::Read::Unbound) return native == paleo::native_model::Read::Ready;
-  const auto format = detect(path);
-  switch (format)
-  {
-    case WellLogFormat::Dlis:
-      return DlisParser::parseHeader(path, out, error, issues);
-    case WellLogFormat::Lis:
-      return LisParser::parseHeader(path, out, error, issues);
-    case WellLogFormat::Las:
-      break;
-    case WellLogFormat::SpreadsheetXml:
-    case WellLogFormat::Text:
-    case WellLogFormat::Unknown:
-    {
-      QList<LasCurve> curves;
-      return parseAdditional(path, format, out, curves, error, issues);
-    }
-  }
-  return LasParser::parseHeader(path, out, error);
+  return parseHeaderForFormat(path, detect(path), out, error, issues);
+}
+
+bool WellLogRead::parseHeader(const QString &path, WellLogFormat format, LasHeaderInfo &out,
+                              QString *error, QList<LasIssue> *issues)
+{
+  if (error) error->clear();
+  const auto native = paleo::native_model::logHeader(path, out, error);
+  if (native != paleo::native_model::Read::Unbound) return native == paleo::native_model::Read::Ready;
+  return parseHeaderForFormat(path, format, out, error, issues);
 }
 
 bool WellLogRead::parse(const QString &path, LasHeaderInfo &header,

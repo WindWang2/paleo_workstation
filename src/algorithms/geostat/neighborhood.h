@@ -53,7 +53,8 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
       sorted.push_back( static_cast<std::uint32_t>( inputIndex ) );
     }
   }
-  std::sort( sorted.begin(), sorted.end(),
+  // Merge sorting reduces comparisons and moves while preserving the same total order.
+  std::stable_sort( sorted.begin(), sorted.end(),
              [&samples]( std::uint32_t a, std::uint32_t b ) {
                if ( samples[a].x != samples[b].x )
                  return samples[a].x < samples[b].x;
@@ -109,8 +110,19 @@ class NeighborIndex
 public:
   static NeighborIndex build( const std::vector<Sample> &points )
   {
+    return build( std::vector<Sample>( points ) );
+  }
+
+  static NeighborIndex build( std::vector<Sample> &&ownedPoints )
+  {
     NeighborIndex index;
-    index.m_points = points;
+    // Dedupe reserves the raw finite count; a duplicate-heavy result can be
+    // much smaller. Keep only its live points instead of retaining that reserve.
+    if ( ownedPoints.capacity() == ownedPoints.size() )
+      index.m_points = std::move( ownedPoints );
+    else
+      index.m_points = ownedPoints;
+    const auto &points = index.m_points;
     double minX = std::numeric_limits<double>::max();
     double minY = std::numeric_limits<double>::max();
     double maxX = std::numeric_limits<double>::lowest();

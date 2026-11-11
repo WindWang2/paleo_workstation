@@ -110,9 +110,9 @@ QJsonObject run(int columns, int rows) {
         auto deduped = detail::dedupeSamples(rest, &merged);
         phases.dedupe += elapsed(start);
         start = Clock::now();
-        core.index = detail::NeighborIndex::build(deduped);
+        core.index = detail::NeighborIndex::build(std::move(deduped));
         phases.index += elapsed(start);
-        core.merged = merged; core.valid = !deduped.empty();
+        core.merged = merged; core.valid = core.index.size() > 0;
         releaseStart = Clock::now();
       }
       phases.release += elapsed(releaseStart);

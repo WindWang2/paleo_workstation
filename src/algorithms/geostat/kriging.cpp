@@ -152,7 +152,7 @@ struct SolverCore
     std::vector<Sample> deduped = detail::dedupeSamples( samples, &merged );
     if ( deduped.empty() || !modelUsable( model ) )
       return;
-    index = detail::NeighborIndex::build( deduped );
+    index = detail::NeighborIndex::build( std::move( deduped ) );
     valid = true;
     buildGlobalFactor();
   }

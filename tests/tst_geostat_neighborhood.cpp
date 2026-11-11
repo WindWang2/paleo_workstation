@@ -21,6 +21,7 @@ private slots:
   void neighborIndexKNearestOrder();
   void neighborIndexCutoffFiltering();
   void neighborIndexPreservesBucketOrderAtDistanceTies();
+  void neighborIndexOwnsMovedAndCopiedSamples();
   void mutationDemonstration_ascendingDistanceOrder();
 };
 
@@ -160,6 +161,38 @@ void TestGeostatNeighborhood::neighborIndexPreservesBucketOrderAtDistanceTies()
   QCOMPARE(result, (std::vector<std::uint32_t>{0, 1}));
   index.queryNearest(0, 0, 2, .99, &result);
   QVERIFY(result.empty());
+}
+
+void TestGeostatNeighborhood::neighborIndexOwnsMovedAndCopiedSamples()
+{
+  const std::vector<Sample> expected = {{1, 0, 10}, {0, 1, 20}, {-1, 0, 30}, {0, -1, 40}};
+  auto source = expected;
+  const auto copied = NeighborIndex::build(source);
+  source[0] = {100, 100, 99};
+  source.clear();
+
+  auto compact = expected;
+  const auto moved = NeighborIndex::build(std::move(compact));
+  std::vector<Sample> duplicates(4096, expected[0]);
+  int merged = 0;
+  auto deduped = dedupeSamples(duplicates, &merged);
+  QCOMPARE(merged, 4095);
+  const auto duplicateHeavy = NeighborIndex::build(std::move(deduped));
+  QCOMPARE(duplicateHeavy.size(), std::size_t(1));
+  QCOMPARE(duplicateHeavy.point(0).value, expected[0].value);
+
+  for (const auto *index : {&copied, &moved}) {
+    QCOMPARE(index->size(), expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+      QCOMPARE(index->point(static_cast<std::uint32_t>(i)).x, expected[i].x);
+      QCOMPARE(index->point(static_cast<std::uint32_t>(i)).y, expected[i].y);
+      QCOMPARE(index->point(static_cast<std::uint32_t>(i)).value, expected[i].value);
+    }
+  }
+  std::vector<std::uint32_t> copiedNearest, movedNearest;
+  copied.queryNearest(0, 0, 2, 0, &copiedNearest);
+  moved.queryNearest(0, 0, 2, 0, &movedNearest);
+  QCOMPARE(movedNearest, copiedNearest);
 }
 
 void TestGeostatNeighborhood::mutationDemonstration_ascendingDistanceOrder()

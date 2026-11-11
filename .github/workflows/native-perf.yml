@@ -1,0 +1,66 @@
+name: Native performance regressions
+
+on:
+  push:
+    branches: [master, codex/ingest-ci-performance]
+    paths:
+      - .github/workflows/native-perf.yml
+      - tools/native-perf/**
+      - tests/tst_geostat_perf.cpp
+      - tests/tst_welllogset_perf.cpp
+      - src/algorithms/geostat/**
+      - src/services/welllogset*
+      - src/io/welllog*
+      - src/catalog/**
+      - vendor/Data_service
+  pull_request:
+    paths:
+      - .github/workflows/native-perf.yml
+      - tools/native-perf/**
+      - tests/tst_geostat_perf.cpp
+      - tests/tst_welllogset_perf.cpp
+      - src/algorithms/geostat/**
+      - src/services/welllogset*
+      - src/io/welllog*
+      - src/catalog/**
+      - vendor/Data_service
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-perf-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  native-perf:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      # These tests exercise Qt/data/algorithm code without QGIS. Compile the
+      # same production translation units and original test sources directly,
+      # so a GIS archive download cannot prevent their regression diagnostics.
+      - name: Install Qt build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-5compat-dev zlib1g-dev libzstd-dev
+      - name: Configure focused production tests
+        run: cmake -S tools/native-perf -B build-native-perf -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE='-O2 -DNDEBUG'
+          -DPALEO_NATIVE_PERF_TESTS='geostat;welllogset'
+      - name: Build
+        run: cmake --build build-native-perf --parallel 2
+      - name: Run serially and retain assertions
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build-native-perf -j1 --no-tests=error --output-on-failure --output-junit results.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-perf-results
+          if-no-files-found: ignore
+          path: |
+            build-native-perf/results.xml
+            build-native-perf/Testing/

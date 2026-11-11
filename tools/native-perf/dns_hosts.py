@@ -84,7 +84,8 @@ if __name__ == "__main__":
     else:
         if not args.host or not args.response:
             parser.error("host and response are required")
-        raw = args.response.read_bytes()
+        with args.response.open("rb") as stream:
+            raw = stream.read(65537)
         if len(raw) > 65536:
             raise ValueError("DNS response exceeds the bounded input size")
         print(entries(args.host, json.loads(raw)), end="")

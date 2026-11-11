@@ -220,6 +220,9 @@ private slots:
     QList<LasIssue> issues;
     const auto doc = WellLogRead::parseDoc(path, &issues);
     QVERIFY(!doc.ok);
+    LasHeaderInfo header; QString headerError;
+    QVERIFY(!WellLogRead::parseHeader(path, WellLogFormat::Text, header, &headerError));
+    QVERIFY(!headerError.isEmpty()); QVERIFY(header.curveNames.isEmpty());
     QVERIFY(doc.curves.isEmpty());
     QVERIFY(doc.error.contains(path));
     QVERIFY(!issues.isEmpty());
@@ -372,6 +375,9 @@ private slots:
     QVERIFY(!doc.ok);
     QVERIFY(!doc.error.isEmpty());
     QVERIFY(doc.curves.isEmpty());
+    LasHeaderInfo header; QString headerError;
+    QVERIFY(!WellLogRead::parseHeader(path, WellLogFormat::SpreadsheetXml, header, &headerError));
+    QVERIFY(!headerError.isEmpty()); QVERIFY(header.curveNames.isEmpty());
   }
 
   void unknownAndSizeBudget()

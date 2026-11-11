@@ -54,7 +54,8 @@ using paleo::io_detail::setError;
 
     item.mnem = left.left(dot).trimmed().toUpper();
     const QString rest = left.mid(dot + 1);
-    const int sp = rest.indexOf(QRegularExpression(QStringLiteral("\\s")));
+    thread_local const QRegularExpression whitespace(QStringLiteral("\\s"));
+    const int sp = rest.indexOf(whitespace);
     item.unit = (sp < 0 ? rest : rest.left(sp)).trimmed();
     item.value = (sp < 0 ? QString() : rest.mid(sp + 1)).trimmed();
     return !item.mnem.isEmpty();
@@ -250,20 +251,25 @@ namespace
 
   // issue-810：行长闸。QIODevice::readLine() 对无换行的病态输入会把其后
   // 全部字节读进内存（头段扫描只该读头部；缺 ~A 的文件更会一路读到尾）。
-  // peek 探不到换行即判超限——调用方如实拒收，不静默当 EOF。上限与
+  // 有界分块读取，超限即如实拒收，不静默当 EOF。上限与
   // scanHeaderFromFile 的 4MB 头段预算同量级（parseDoc 能解的头行这里也能）。
   constexpr qint64 kMaxHeaderLineBytes = 4 * 1024 * 1024;
 
   QByteArray readHeaderLine(LasLineSource &src, qint64 maxBytes, bool *tooLong)
   {
     *tooLong = false;
-    const QByteArray head = src.dev->peek(maxBytes + 1);
-    if (head.size() > maxBytes && !head.contains('\n'))
+    QByteArray line;
+    char chunk[4097];
+    while (line.size() <= maxBytes)
     {
-      *tooLong = true;
-      return {};
+      const auto limit = std::min<qint64>(sizeof(chunk), maxBytes + 2 - line.size());
+      const auto count = src.dev->readLine(chunk, limit);
+      if (count <= 0) break;
+      line.append(chunk, count);
+      if (chunk[count - 1] == '\n') return line;
     }
-    return src.dev->readLine();
+    *tooLong = line.size() > maxBytes;
+    return *tooLong ? QByteArray() : line;
   }
 } // namespace
 

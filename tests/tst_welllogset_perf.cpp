@@ -9,6 +9,7 @@
 #include <QTemporaryDir>
 
 #include <algorithm>
+#include <array>
 
 #include "catalog/datacatalog.h"
 #include "io/lasparser.h"
@@ -65,10 +66,10 @@ void TestWellLogSetPerf::wellCurveIndex_100x3_under500ms_and_linearRatio()
   QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
 
   QStringList wellIds;
-  wellIds.reserve(100);
+  wellIds.reserve(111);
   {
     DataCatalog::BatchSave batch(&cat);
-    for (int w = 0; w < 100; ++w)
+    for (int w = 0; w < 111; ++w)
     {
       const QString wellId = QStringLiteral("well-%1").arg(w, 3, 10, QLatin1Char('0'));
       wellIds.append(wellId);
@@ -113,23 +114,28 @@ void TestWellLogSetPerf::wellCurveIndex_100x3_under500ms_and_linearRatio()
     QVERIFY2(batch.flush(&err), qPrintable(err));
   }
 
-  QElapsedTimer clock;
-  clock.start();
+  // Initialize process-wide parser machinery using a separate well. The two
+  // measured groups remain absent from the session header cache.
+  QCOMPARE(WellLogSet::wellCurveIndex(&cat, dir.path(), wellIds.at(110)).size(), 6);
+  const auto measure = [&](int first, int count, int repeats, int &curves) {
+    QElapsedTimer clock; clock.start(); curves = 0;
+    for (int repeat = 0; repeat < repeats; ++repeat)
+      for (int i = first; i < first + count; ++i)
+        curves += WellLogSet::wellCurveIndex(&cat, dir.path(), wellIds.at(i)).size();
+    return clock.nsecsElapsed() / 1.0e6;
+  };
   int curves = 0;
-  for (const QString &wellId : wellIds)
-    curves += WellLogSet::wellCurveIndex(&cat, dir.path(), wellId, nullptr).size();
-  const double ms100 = clock.nsecsElapsed() / 1.0e6;
+  const double ms100 = measure(0, 100, 1, curves);
   qInfo("BASELINE wellCurveIndex_100x3_ms = %.3f", ms100);
   QCOMPARE(curves, 100 * 6);
   const QString slow =
       QStringLiteral("wellCurveIndex 100x3 took %1 ms").arg(ms100, 0, 'f', 3);
   QVERIFY2(ms100 < 500.0, qPrintable(slow));
 
-  clock.restart();
   int curves10 = 0;
-  for (int i = 0; i < 10; ++i)
-    curves10 += WellLogSet::wellCurveIndex(&cat, dir.path(), wellIds.at(i), nullptr).size();
-  const double ms10 = clock.nsecsElapsed() / 1.0e6;
+  // These ten wells were not part of the 100-well scan. Comparing the cold
+  // 100-well scan with a hot subset measured cache benefit instead of scaling.
+  const double ms10 = measure(100, 10, 1, curves10);
   const double denom = ms10 < 1.0 ? 1.0 : ms10;
   const double ratio = ms100 / denom;
   qInfo("BASELINE wellCurveIndex_ratio_100_over_10 = %.3f", ratio);
@@ -140,6 +146,34 @@ void TestWellLogSetPerf::wellCurveIndex_100x3_under500ms_and_linearRatio()
           .arg(ms100, 0, 'f', 3)
           .arg(ms10, 0, 'f', 3);
   QVERIFY2(ratio < 20.0, qPrintable(ratioMsg));
+
+  // Both groups are now cached. Amortize timer noise with equal repeat counts
+  // and alternate order; retain the same linearity bound for the hot path.
+  constexpr int repeats = 32;
+  std::array<double, 3> hot100, hot10;
+  for (int sample = 0; sample < 3; ++sample)
+  {
+    if (sample % 2)
+    {
+      hot10[sample] = measure(100, 10, repeats, curves10);
+      hot100[sample] = measure(0, 100, repeats, curves);
+    }
+    else
+    {
+      hot100[sample] = measure(0, 100, repeats, curves);
+      hot10[sample] = measure(100, 10, repeats, curves10);
+    }
+    QCOMPARE(curves, 100 * 6 * repeats);
+    QCOMPARE(curves10, 10 * 6 * repeats);
+  }
+  std::sort(hot100.begin(), hot100.end());
+  std::sort(hot10.begin(), hot10.end());
+  const double hotRatio = hot100[1] / std::max(hot10[1], 1.0);
+  qInfo("BASELINE wellCurveIndex_hot_100x3_ms = %.3f", hot100[1] / repeats);
+  qInfo("BASELINE wellCurveIndex_hot_ratio_100_over_10 = %.3f", hotRatio);
+  QVERIFY2(hotRatio < 20.0,
+           qPrintable(QStringLiteral("hot ratio %1 (100 wells %2 ms, 10 wells %3 ms, %4 repeats)")
+               .arg(hotRatio).arg(hot100[1]).arg(hot10[1]).arg(repeats)));
 }
 
 // 真工区只读：未设 PALEO_REAL_PROJECT_AREA 时 QSKIP。只登记外部 LAS 路径，

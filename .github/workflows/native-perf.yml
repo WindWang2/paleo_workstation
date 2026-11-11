@@ -6,23 +6,35 @@ on:
     paths:
       - .github/workflows/native-perf.yml
       - tools/native-perf/**
-      - tests/tst_geostat_perf.cpp
-      - tests/tst_welllogset_perf.cpp
+      - tests/tst_geostat_*.cpp
+      - tests/threadcputimer.h
+      - tests/tst_welllog*.cpp
+      - tests/tst_las.cpp
+      - tests/tst_dlisparser.cpp
+      - tests/tst_lisparser.cpp
       - src/algorithms/geostat/**
       - src/services/welllogset*
-      - src/io/welllog*
+      - src/io/**
       - src/catalog/**
+      - src/metadata/**
+      - src/domain/**
       - vendor/Data_service
   pull_request:
     paths:
       - .github/workflows/native-perf.yml
       - tools/native-perf/**
-      - tests/tst_geostat_perf.cpp
-      - tests/tst_welllogset_perf.cpp
+      - tests/tst_geostat_*.cpp
+      - tests/threadcputimer.h
+      - tests/tst_welllog*.cpp
+      - tests/tst_las.cpp
+      - tests/tst_dlisparser.cpp
+      - tests/tst_lisparser.cpp
       - src/algorithms/geostat/**
       - src/services/welllogset*
-      - src/io/welllog*
+      - src/io/**
       - src/catalog/**
+      - src/metadata/**
+      - src/domain/**
       - vendor/Data_service
   workflow_dispatch:
 

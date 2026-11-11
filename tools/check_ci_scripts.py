@@ -129,7 +129,7 @@ def check(root: Path, gate_rules: bool = True):
                          "（#760 门禁共享规则单一真源）")
         else:
             proc = subprocess.run([sys.executable, str(reader), "--check-consistency"],
-                                  cwd=str(root), capture_output=True, text=True)
+                                  cwd=str(root), capture_output=True, text=True, encoding="utf-8")
             for ln in (proc.stdout or "").splitlines():
                 lines.append("  %-14s %s" % ("gate-rules", ln.strip()))
             if proc.returncode != 0:

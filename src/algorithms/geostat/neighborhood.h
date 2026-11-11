@@ -43,22 +43,16 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
 {
   if ( inputToDeduped )
     inputToDeduped->assign( samples.size(), std::numeric_limits<std::uint32_t>::max() );
-  std::vector<Sample> finite;
-  std::vector<std::uint32_t> finiteSource; // finite[i] 的输入下标
-  finite.reserve( samples.size() );
+  std::vector<std::pair<Sample, std::uint32_t>> sorted; // (样本, 原输入下标)
+  sorted.reserve( samples.size() );
   for ( std::size_t inputIndex = 0; inputIndex < samples.size(); ++inputIndex )
   {
     const Sample &sample = samples[inputIndex];
     if ( std::isfinite( sample.x ) && std::isfinite( sample.y ) && std::isfinite( sample.value ) )
     {
-      finite.push_back( sample );
-      finiteSource.push_back( static_cast<std::uint32_t>( inputIndex ) );
+      sorted.push_back( { sample, static_cast<std::uint32_t>( inputIndex ) } );
     }
   }
-  std::vector<std::pair<Sample, std::uint32_t>> sorted; // (样本, finite 下标)
-  sorted.reserve( finite.size() );
-  for ( std::size_t i = 0; i < finite.size(); ++i )
-    sorted.push_back( { finite[i], static_cast<std::uint32_t>( i ) } );
   std::sort( sorted.begin(), sorted.end(),
              []( const std::pair<Sample, std::uint32_t> &a, const std::pair<Sample, std::uint32_t> &b ) {
                if ( a.first.x != b.first.x )
@@ -71,9 +65,8 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
              } );
   std::vector<Sample> merged;
   std::vector<std::size_t> mergedCounts;
-  std::vector<std::uint32_t> finiteToMerged( finite.size(), 0 );
   merged.reserve( sorted.size() );
-  for ( const auto &[sample, finiteIndex] : sorted )
+  for ( const auto &[sample, inputIndex] : sorted )
   {
     // PW-078：按 x 排序后近重合点未必相邻（(0,0)、(1e-12,5)、(2e-12,0)：
     // 中间点 y 不同却插在两者之间）——只比 back() 会漏合并 → 克氏矩阵出现
@@ -101,15 +94,11 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
       mergedCounts.push_back( 1 );
       target = merged.size() - 1;
     }
-    finiteToMerged[finiteIndex] = static_cast<std::uint32_t>( target );
+    if ( inputToDeduped )
+      ( *inputToDeduped )[inputIndex] = static_cast<std::uint32_t>( target );
   }
   for ( std::size_t i = 0; i < merged.size(); ++i )
     merged[i].value /= static_cast<double>( mergedCounts[i] );
-  if ( inputToDeduped )
-  {
-    for ( std::size_t i = 0; i < finite.size(); ++i )
-      ( *inputToDeduped )[finiteSource[i]] = finiteToMerged[i];
-  }
   return merged;
 }
 
@@ -139,13 +128,25 @@ public:
     index.m_bucketSize = span > 0 ? span / side : 1.0;
     index.m_bucketsX = side;
     index.m_bucketsY = side;
-    index.m_buckets.assign( static_cast<std::size_t>( side ) * side, {} );
+    const std::size_t bucketCount = static_cast<std::size_t>( side ) * side;
+    index.m_bucketOffsets.assign( bucketCount + 1, 0 );
+    std::vector<std::size_t> pointBuckets( points.size() );
     for ( std::size_t i = 0; i < points.size(); ++i )
     {
       const std::uint32_t bx = index.bucketX( points[i].x );
       const std::uint32_t by = index.bucketY( points[i].y );
-      index.m_buckets[static_cast<std::size_t>( by ) * index.m_bucketsX + bx].push_back( static_cast<std::uint32_t>( i ) );
+      const std::size_t bucket = static_cast<std::size_t>( by ) * index.m_bucketsX + bx;
+      pointBuckets[i] = bucket;
+      ++index.m_bucketOffsets[bucket + 1];
     }
+    for ( std::size_t i = 1; i < index.m_bucketOffsets.size(); ++i )
+      index.m_bucketOffsets[i] += index.m_bucketOffsets[i - 1];
+    index.m_bucketPoints.resize( points.size() );
+    auto next = index.m_bucketOffsets;
+    // Keep each bucket's original point order: ring visits and distance ties
+    // are part of the kriging/SGS numeric result, not an unordered set.
+    for ( std::size_t i = 0; i < points.size(); ++i )
+      index.m_bucketPoints[next[pointBuckets[i]]++] = static_cast<std::uint32_t>( i );
     return index;
   }
 
@@ -167,8 +168,9 @@ public:
       if ( static_cast<int>( heap.size() ) == k && ringMin * ringMin >= heap.top().first )
         break;
       visitRing( bx, by, ring, [&]( std::uint32_t cell ) {
-        for ( std::uint32_t pointIndex : m_buckets[cell] )
+        for ( std::size_t position = m_bucketOffsets[cell]; position < m_bucketOffsets[cell + 1]; ++position )
         {
+          const std::uint32_t pointIndex = m_bucketPoints[position];
           const Sample &sample = m_points[pointIndex];
           const double dx = sample.x - x;
           const double dy = sample.y - y;
@@ -244,7 +246,8 @@ private:
   }
 
   std::vector<Sample> m_points;
-  std::vector<std::vector<std::uint32_t>> m_buckets;
+  std::vector<std::size_t> m_bucketOffsets;
+  std::vector<std::uint32_t> m_bucketPoints;
   double m_bucketSize = 1;
   double m_minX = 0;
   double m_minY = 0;

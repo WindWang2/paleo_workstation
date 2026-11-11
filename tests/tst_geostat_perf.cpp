@@ -1,5 +1,6 @@
 // 层：数据（测试壳位于 tests/，被测对象为克里金/SGS 核的规模线性度）
 #include <QtTest/QtTest>
+#include "threadcputimer.h"
 
 #include "algorithms/geostat/crossvalidation.h"
 #include "algorithms/geostat/kriging.h"
@@ -64,10 +65,34 @@ class GeostatPerfTests : public QObject
 {
   Q_OBJECT
 private slots:
+  void threadCpuClockCountsWorkAndExcludesSuspension();
   void krigingScalesLinearlyWithCells();
   void sgsScalesLinearlyWithCells();
   void crossValidationCapBoundsCost(); // P4：LOO 在 2000 井上限处的耗时与上限之上的线性度
 };
+
+void GeostatPerfTests::threadCpuClockCountsWorkAndExcludesSuspension()
+{
+  ThreadCpuTimer cpu;
+  QVERIFY2(cpu.start(), "Current-thread CPU clock is unavailable");
+  QElapsedTimer wall; wall.start();
+  QTest::qSleep(80);
+  std::int64_t suspendedNs = 0;
+  QVERIFY2(cpu.nsecsElapsed(suspendedNs), "Current-thread CPU clock read failed");
+  QVERIFY2(suspendedNs < wall.nsecsElapsed() / 2, "Suspended wall time was counted as CPU work");
+
+  QVERIFY(cpu.start()); wall.restart();
+  std::uint64_t checksum = 17;
+  std::int64_t workNs = 0;
+  do {
+    for (int i = 0; i < 100000; ++i) {
+      checksum ^= checksum << 13; checksum ^= checksum >> 7; checksum ^= checksum << 17;
+    }
+    QVERIFY(cpu.nsecsElapsed(workNs));
+  } while (workNs < 20000000 && wall.elapsed() < 2000);
+  QVERIFY2(workNs >= 20000000, "Busy numeric work did not advance the CPU clock");
+  QVERIFY(checksum != 17);
+}
 
 void GeostatPerfTests::krigingScalesLinearlyWithCells()
 {
@@ -77,13 +102,18 @@ void GeostatPerfTests::krigingScalesLinearlyWithCells()
   params.maxPoints = 16;
 
   QElapsedTimer timer;
+  ThreadCpuTimer cpu;
+  QVERIFY2(cpu.start(), "Current-thread CPU clock is unavailable");
   timer.start();
   const KrigingResult small = ordinaryKriging( samples, gridOver( 1000, 256 ), model, params );
   const qint64 smallMs = timer.elapsed();
+  std::int64_t smallCpuNs = 0; QVERIFY(cpu.nsecsElapsed(smallCpuNs));
   QCOMPARE( small.status, Status::Ok );
   timer.restart();
+  QVERIFY(cpu.start());
   const KrigingResult big = ordinaryKriging( samples, gridOver( 1000, 1024 ), model, params );
   const qint64 bigMs = timer.elapsed();
+  std::int64_t bigCpuNs = 0; QVERIFY(cpu.nsecsElapsed(bigCpuNs));
   QCOMPARE( big.status, Status::Ok );
   QCOMPARE( big.finiteCells, 1024 * 1024 );
   QCOMPARE( big.solverFailures, 0 );
@@ -93,6 +123,9 @@ void GeostatPerfTests::krigingScalesLinearlyWithCells()
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_kriging_ms_256 = %1" ).arg( smallMs ) ) );
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_kriging_scale_ratio = %1" ).arg( ratio, 0, 'f', 2 ) ) );
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_kriging_samples = %1" ).arg( samples.size() ) ) );
+  QVERIFY(smallCpuNs > 0 && bigCpuNs > 0);
+  const double cpuRatio = double(bigCpuNs) / double(smallCpuNs);
+  qWarning("BASELINE geostat_kriging_cpu_scale_ratio = %.3f", cpuRatio);
   QVERIFY2( ratio <= 16.0 * 1.5,
             qPrintable( QStringLiteral( "kriging scale ratio %1 exceeds linear bound 24" ).arg( ratio ) ) );
 }
@@ -107,13 +140,18 @@ void GeostatPerfTests::sgsScalesLinearlyWithCells()
   params.maxPoints = 16;
 
   QElapsedTimer timer;
+  ThreadCpuTimer cpu;
+  QVERIFY2(cpu.start(), "Current-thread CPU clock is unavailable");
   timer.start();
   const SgsResult small = sgs( samples, gridOver( 1000, 256 ), model, params );
   const qint64 smallMs = timer.elapsed();
+  std::int64_t smallCpuNs = 0; QVERIFY(cpu.nsecsElapsed(smallCpuNs));
   QCOMPARE( small.status, Status::Ok );
   timer.restart();
+  QVERIFY(cpu.start());
   const SgsResult big = sgs( samples, gridOver( 1000, 512 ), model, params );
   const qint64 bigMs = timer.elapsed();
+  std::int64_t bigCpuNs = 0; QVERIFY(cpu.nsecsElapsed(bigCpuNs));
   QCOMPARE( big.status, Status::Ok );
   QCOMPARE( big.solverFailures, 0 );
 
@@ -121,6 +159,9 @@ void GeostatPerfTests::sgsScalesLinearlyWithCells()
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_sgs_ms_512 = %1" ).arg( bigMs ) ) );
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_sgs_ms_256 = %1" ).arg( smallMs ) ) );
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_sgs_scale_ratio = %1" ).arg( ratio, 0, 'f', 2 ) ) );
+  QVERIFY(smallCpuNs > 0 && bigCpuNs > 0);
+  const double cpuRatio = double(bigCpuNs) / double(smallCpuNs);
+  qWarning("BASELINE geostat_sgs_cpu_scale_ratio = %.3f", cpuRatio);
   QVERIFY2( ratio <= 4.0 * 1.5,
             qPrintable( QStringLiteral( "sgs scale ratio %1 exceeds linear bound 6" ).arg( ratio ) ) );
 }
@@ -137,20 +178,23 @@ void GeostatPerfTests::crossValidationCapBoundsCost()
     const KrigingPointResult point = ordinaryKrigingAt( x, y, rest, model, params );
     return CvPrediction{ point.ok, point.estimate, point.variance };
   };
-  const auto run = [&]( int columns, int rows, QVariantMap *node ) {
+  const auto run = [&]( int columns, int rows, QVariantMap *node, std::int64_t *cpuNs ) {
     const std::vector<Sample> samples = syntheticWells( columns, rows, 20.0 );
     bool cancelled = false;
     QElapsedTimer timer;
+    ThreadCpuTimer cpu;
+    if (!cpu.start()) return qint64(-1);
     timer.start();
     *node = leaveOneOut( samples, QStringLiteral( "ordinary_kriging" ), predict, {}, &cancelled );
     const qint64 ms = timer.elapsed();
-    if ( cancelled )
+    if ( cancelled || !cpu.nsecsElapsed(*cpuNs) )
       return qint64( -1 );
     return ms;
   };
   QVariantMap atCap, aboveCap;
-  const qint64 capMs = run( 50, 40, &atCap );     // 2000 口 = 上限，stride 1
-  const qint64 aboveMs = run( 100, 80, &aboveCap ); // 8000 口，stride 4
+  std::int64_t capCpuNs = 0, aboveCpuNs = 0;
+  const qint64 capMs = run( 50, 40, &atCap, &capCpuNs );     // 2000 口 = 上限，stride 1
+  const qint64 aboveMs = run( 100, 80, &aboveCap, &aboveCpuNs ); // 8000 口，stride 4
   QVERIFY( capMs >= 0 && aboveMs >= 0 );
   QCOMPARE( atCap.value( "samples_total" ).toInt(), 2000 );
   QCOMPARE( atCap.value( "stride" ).toInt(), 1 );
@@ -163,6 +207,11 @@ void GeostatPerfTests::crossValidationCapBoundsCost()
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_loo_ms_2000 = %1" ).arg( capMs ) ) );
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_loo_ms_8000 = %1" ).arg( aboveMs ) ) );
   qWarning( "%s", qPrintable( QStringLiteral( "BASELINE geostat_loo_cap_ratio = %1" ).arg( ratio, 0, 'f', 2 ) ) );
+  QVERIFY2(capCpuNs > 0 && aboveCpuNs > 0, "Current-thread CPU timing failed");
+  const double cpuRatio = double(aboveCpuNs) / double(capCpuNs);
+  qWarning("BASELINE geostat_loo_cpu_ms_2000 = %.3f", double(capCpuNs) / 1e6);
+  qWarning("BASELINE geostat_loo_cpu_ms_8000 = %.3f", double(aboveCpuNs) / 1e6);
+  qWarning("BASELINE geostat_loo_cpu_cap_ratio = %.3f", cpuRatio);
   QVERIFY2( ratio <= 4.0 * 1.5,
             qPrintable( QStringLiteral( "LOO cost above cap grew %1x for 4x wells (bound 6)" ).arg( ratio ) ) );
 }

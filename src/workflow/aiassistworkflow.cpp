@@ -1,5 +1,6 @@
 // 层：功能
 #include "aiassistworkflow.h"
+#include "algorithms/projectgeotiff.h"
 
 #include <memory>
 #include <mutex>
@@ -118,7 +119,7 @@ bool writeBandRaster( const QString &path, int rows, int cols, GDALDataType dt,
                       const QByteArray &provenanceJson, QString *error )
 {
   GDALAllRegister();
-  GDALDriverH drv = GDALGetDriverByName( "GTiff" );
+  GDALDriverH drv = ProjectGeoTiff::driver();
   if ( !drv )
   {
     if ( error )
@@ -127,7 +128,7 @@ bool writeBandRaster( const QString &path, int rows, int cols, GDALDataType dt,
   }
   if ( QFile::exists( path ) )
     QFile::remove( path );
-  GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), cols, rows, 1, dt, nullptr );
+  GDALDatasetH ds = ProjectGeoTiff::create( path, cols, rows, dt, drv );
   if ( !ds )
   {
     if ( error )
@@ -138,20 +139,18 @@ bool writeBandRaster( const QString &path, int rows, int cols, GDALDataType dt,
   applyGridSrs( ds, grid );
   GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
   GDALSetRasterNoDataValue( band, nodata );
-  if ( GDALRasterIO( band, GF_Write, 0, 0, cols, rows, const_cast<void *>( data ), cols, rows,
-                     dt, 0, 0 ) != CE_None )
+  if ( !provenanceJson.isEmpty() )
+    GDALSetMetadataItem( ds, "PALEO_PROVENANCE", provenanceJson.constData(), nullptr );
+  const CPLErr writeError = GDALRasterIO( band, GF_Write, 0, 0, cols, rows,
+                                        const_cast<void *>( data ), cols, rows, dt, 0, 0 );
+  const CPLErr closeError = GDALClose( ds );
+  if ( writeError != CE_None || closeError != CE_None )
   {
-    GDALClose( ds );
     QFile::remove( path );
     if ( error )
       *error = QObject::tr( "栅格写入失败 %1" ).arg( path );
     return false;
   }
-  if ( !provenanceJson.isEmpty() )
-  {
-    GDALSetMetadataItem( ds, "PALEO_PROVENANCE", provenanceJson.constData(), nullptr );
-  }
-  GDALClose( ds );
   return true;
 }
 

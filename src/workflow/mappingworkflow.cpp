@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkflow.h"
+#include "../algorithms/projectgeotiff.h"
 #include "documentsession.h"
 #include "services/timedepthdependencies.h"
 #include "io/areamodel.h"
@@ -9,11 +10,11 @@
 #include "mappingsamples.h"
 
 #include "../catalog/datacatalog.h"
-#include "../io/atomicwrite.h"
 #include "../domain/mappinghorizons.h"
 #include "../io/timedeptool.h"
 #include "../io/wellfileparsers.h"
 #include "../metadata/layermanifest.h"
+#include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgislayerservice.h"
 #include "../services/paleotaskservice.h"
 #include "../services/projectdata.h"
@@ -25,16 +26,9 @@
 
 #include <QDateTime>
 #include <QDir>
-#include <QFile>
 #include <QVariantMap>
 
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-
 #include <gdal.h>
-#include <ogr_spatialref.h>
-#include <cpl_conv.h>
 
 #include <algorithm>
 #include <cmath>
@@ -234,35 +228,30 @@ using paleo::workflow_detail::raiseToErrorHub;
                          const QVector<float> &px, QString *error )
   {
     GDALAllRegister();
-    GDALDriverH drv = GDALGetDriverByName( "GTiff" );
+    GDALDriverH drv = ProjectGeoTiff::driver();
     if ( !drv )
     {
       setError( error, QObject::tr( "GTiff 驱动不可用" ) );
       return false;
     }
-    GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), cols, rows, 1,
-                                  GDT_Float32, nullptr );
+    GDALDatasetH ds = ProjectGeoTiff::create( path, cols, rows, GDT_Float32, drv );
     if ( !ds )
     {
       setError( error, QObject::tr( "无法创建栅格 %1" ).arg( path ) );
       return false;
     }
-    GDALSetGeoTransform( ds, const_cast<double *>( gt ) );
-    GDALSetRasterNoDataValue( GDALGetRasterBand( ds, 1 ), kNoData );
-    OGRSpatialReference srs;
-    if ( srs.SetFromUserInput( DataCatalog::localGridCrsWkt().toUtf8().constData() ) == OGRERR_NONE )
+    const auto band = GDALGetRasterBand( ds, 1 );
+    const QByteArray wkt = DataCatalog::localGridCrsWkt().toUtf8();
+    const bool written = GDALSetGeoTransform( ds, const_cast<double *>( gt ) ) == CE_None &&
+                         GDALSetRasterNoDataValue( band, kNoData ) == CE_None &&
+                         GDALSetProjection( ds, wkt.constData() ) == CE_None &&
+                         GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wkt.constData(), nullptr ) == CE_None &&
+                         GDALRasterIO( band, GF_Write, 0, 0, cols, rows,
+                                       const_cast<float *>( px.constData() ), cols, rows,
+                                       GDT_Float32, 0, 0 ) == CE_None;
+    if ( GDALClose( ds ) != CE_None || !written )
     {
-      char *wkt = nullptr;
-      if ( srs.exportToWkt( &wkt ) == OGRERR_NONE && wkt )
-        GDALSetProjection( ds, wkt );
-      CPLFree( wkt );
-    }
-    const CPLErr err = GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Write, 0, 0, cols, rows,
-                                     const_cast<float *>( px.constData() ), cols, rows,
-                                     GDT_Float32, 0, 0 );
-    GDALClose( ds );
-    if ( err != CE_None )
-    {
+      QFile::remove( path );
       setError( error, QObject::tr( "栅格写入失败：%1" ).arg( path ) );
       return false;
     }
@@ -309,52 +298,20 @@ using paleo::workflow_detail::raiseToErrorHub;
   }
 
   // 厚度样本井点层（wells.thickness.<h>）——PDF 上的井位/井名标注源。
-  // GeoJSON 内嵌 "crs" 成员写工程米制 WKT（OGR 仍认 legacy crs 写法），
-  // 不落到 4326 假设。只写有坐标的井；贡献井带 thickness_m 属性。
-  bool writeThicknessWellsGeoJson( const QVector<ThicknessSample> &samples,
-                                   const QString &path, QString *error )
+  QVariantList thicknessWellPoints( const QVector<ThicknessSample> &samples )
   {
-    QJsonArray feats;
+    QVariantList points;
     for ( const ThicknessSample &s : samples )
     {
       if ( !std::isfinite( s.x ) || !std::isfinite( s.y ) )
         continue;
-      QJsonObject props;
-      props.insert( QStringLiteral( "well_name" ), s.wellName );
+      QVariantMap point{ { QStringLiteral( "x" ), s.x }, { QStringLiteral( "y" ), s.y },
+                         { QStringLiteral( "well_name" ), s.wellName } };
       if ( s.contributing && std::isfinite( s.thickness ) )
-        props.insert( QStringLiteral( "thickness_m" ), s.thickness );
-      QJsonObject geom;
-      geom.insert( QStringLiteral( "type" ), QStringLiteral( "Point" ) );
-      geom.insert( QStringLiteral( "coordinates" ), QJsonArray{ s.x, s.y } );
-      QJsonObject f;
-      f.insert( QStringLiteral( "type" ), QStringLiteral( "Feature" ) );
-      f.insert( QStringLiteral( "properties" ), props );
-      f.insert( QStringLiteral( "geometry" ), geom );
-      feats.append( f );
+        point.insert( QStringLiteral( "thickness_m" ), s.thickness );
+      points.append( point );
     }
-    if ( feats.isEmpty() )
-      return true; // 没有可定位的井——不写空文件，也不算失败
-
-    QJsonObject root;
-    root.insert( QStringLiteral( "type" ), QStringLiteral( "FeatureCollection" ) );
-    QJsonObject crsProps;
-    crsProps.insert( QStringLiteral( "name" ), DataCatalog::localGridCrsWkt() );
-    QJsonObject crs;
-    crs.insert( QStringLiteral( "type" ), QStringLiteral( "name" ) );
-    crs.insert( QStringLiteral( "properties" ), crsProps );
-    root.insert( QStringLiteral( "crs" ), crs );
-    root.insert( QStringLiteral( "features" ), feats );
-
-    // 原子整写并校验：旧实现忽略 write() 返回值——磁盘满时返回 true 却留下
-    // 半截 GeoJSON，被下游当作有效井点消费。
-    QString writeErr;
-    if ( !paleo::writeJsonAtomic( path, QJsonDocument( root ), &writeErr,
-                                  QJsonDocument::Compact ) )
-    {
-      setError( error, QObject::tr( "井点 GeoJSON 写入失败：%1（%2）" ).arg( path, writeErr ) );
-      return false;
-    }
-    return true;
+    return points;
   }
 } // namespace
 
@@ -720,12 +677,15 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
 {
   if ( !m_catalog )
     return; // 无登记通道：链路主栅格已产出，井点层按旧语义只跳过（见调用序）
+  const QVariantList points = thicknessWellPoints( samples );
+  if ( points.isEmpty() )
+    return; // 没有可定位的井
   const QString publishKey =
       publishIdentity.value( QStringLiteral( "source_horizon" ), horizon ).toString();
   DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
   const DerivedStaging st = registrar.stage(
       QStringLiteral( "thickness_wells" ), tr( "%1 厚度井位" ).arg( publishKey ),
-      QStringLiteral( "WELLS_THICKNESS_%1.geojson" ).arg( publishKey ) );
+      QStringLiteral( "WELLS_THICKNESS_%1.gpkg" ).arg( publishKey ) );
   if ( !st.isValid() )
   {
     qWarning() << "thickness wells layer staging failed";
@@ -736,7 +696,8 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
     return;
   }
   QString writeErr;
-  if ( !writeThicknessWellsGeoJson( samples, st.absolutePath, &writeErr ) )
+  if ( !MappingArtifactWriter::pointGeoPackage( st.absolutePath, points,
+                                               DataCatalog::localGridCrsWkt(), &writeErr ) )
   {
     qWarning() << "thickness wells layer write failed:" << writeErr;
     raiseToErrorHub( ErrorHub::Level::Error, QStringLiteral( "mapping" ),
@@ -744,8 +705,6 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
                      tr( "层位 %1：%2" ).arg( horizon, writeErr ) );
     return;
   }
-  if ( !QFile::exists( st.absolutePath ) )
-    return; // 没有可定位的井
   // algo-atom：厚度井位层经 publishArtifacts（staging 路径 ≡ commit）
   QString commitErr;
   AlgorithmRunResult wellsRun =

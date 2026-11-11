@@ -3,6 +3,7 @@
 #include "algorithms/cluster/som.h"
 #include "crossplotsamples.h"
 #include "faciestraining.h"
+#include "algorithms/projectgeotiff.h"
 #include "metadata/paleoprojectstore.h"
 #include <QCryptographicHash>
 #include <QFile>
@@ -402,8 +403,7 @@ bool FaciesClassificationService::writeRaster(const QString &path,
   }
   GDALAllRegister();
   std::unique_ptr<void, decltype(&GDALClose)> ds(
-      GDALCreate(GDALGetDriverByName("GTiff"), path.toUtf8().constData(),
-                 s.grid.cols, s.grid.rows, 1, GDT_Byte, nullptr),
+      ProjectGeoTiff::create(path, s.grid.cols, s.grid.rows, GDT_Byte),
       GDALClose);
   if (!ds)
     return error(e, QStringLiteral("无法创建分类栅格"));
@@ -418,8 +418,8 @@ bool FaciesClassificationService::writeRaster(const QString &path,
     removePartialGtiff(ds, path);
     return error(e, QStringLiteral("分类像元写入失败"));
   }
-  if (GDALFlushCache(ds.get()) != CE_None) {
-    removePartialGtiff(ds, path);
+  if (GDALClose(ds.release()) != CE_None) {
+    QFile::remove(path);
     return error(e, QStringLiteral("分类栅格落盘失败"));
   }
   return true;
@@ -447,8 +447,7 @@ bool FaciesClassificationService::writeConfidenceRaster(const QString &path,
   }
   GDALAllRegister();
   std::unique_ptr<void, decltype(&GDALClose)> ds(
-      GDALCreate(GDALGetDriverByName("GTiff"), path.toUtf8().constData(),
-                 s.grid.cols, s.grid.rows, 1, GDT_Float32, nullptr),
+      ProjectGeoTiff::create(path, s.grid.cols, s.grid.rows, GDT_Float32),
       GDALClose);
   if (!ds)
     return error(e, QStringLiteral("无法创建置信度栅格"));
@@ -475,8 +474,8 @@ bool FaciesClassificationService::writeConfidenceRaster(const QString &path,
     removePartialGtiff(ds, path);
     return error(e, QStringLiteral("置信度像元写入失败"));
   }
-  if (GDALFlushCache(ds.get()) != CE_None) {
-    removePartialGtiff(ds, path);
+  if (GDALClose(ds.release()) != CE_None) {
+    QFile::remove(path);
     return error(e, QStringLiteral("置信度栅格落盘失败"));
   }
   return true;
@@ -510,8 +509,7 @@ bool FaciesClassificationService::writeMaskedRaster(const QString &path,
   }
   GDALAllRegister();
   std::unique_ptr<void, decltype(&GDALClose)> ds(
-      GDALCreate(GDALGetDriverByName("GTiff"), path.toUtf8().constData(),
-                 s.grid.cols, s.grid.rows, 1, GDT_Byte, nullptr),
+      ProjectGeoTiff::create(path, s.grid.cols, s.grid.rows, GDT_Byte),
       GDALClose);
   if (!ds)
     return error(e, QStringLiteral("无法创建掩膜栅格"));
@@ -526,8 +524,8 @@ bool FaciesClassificationService::writeMaskedRaster(const QString &path,
     removePartialGtiff(ds, path);
     return error(e, QStringLiteral("掩膜像元写入失败"));
   }
-  if (GDALFlushCache(ds.get()) != CE_None) {
-    removePartialGtiff(ds, path);
+  if (GDALClose(ds.release()) != CE_None) {
+    QFile::remove(path);
     return error(e, QStringLiteral("掩膜栅格落盘失败"));
   }
   return true;

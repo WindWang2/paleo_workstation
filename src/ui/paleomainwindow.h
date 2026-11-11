@@ -443,7 +443,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // PROJECT_FILE_DESIGN：文件夹导入完成后把来源+统计回填 project.paleo
     // 的 sourceArea。只在「工程目录==导入目录」（从文件夹新建的工程）时写。
     void stampSourceArea(const QString &dir, const QVariantMap &stats);
-    // D11 临时配准：手工仿射 → DERIVED GeoJSON 版本登记 → 「临时配准 · 名」
+    // D11 临时配准：手工仿射 → DERIVED 版本登记 → 「临时配准 · 名」
     // 矢量图层实例化 + 画布水印；失败走状态栏文案，不弹框。
     void applyProvisionalRegistration(DataImportService *svc,
                                       const QString &assetId,

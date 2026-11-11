@@ -115,6 +115,7 @@
 #include <QUndoStack>
 #include <QtTest>
 #include <atomic>
+#include <memory>
 #include <gdal.h>
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
@@ -4686,6 +4687,57 @@ private slots:
   QCOMPARE(f.latest("seismic_prediction"), before); // 未登记任何新产品
 }
 
+  void pointGeoPackagePreservesCrsAndFieldValues() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath(QStringLiteral("points.gpkg"));
+    const auto crs = QgsCoordinateReferenceSystem(QStringLiteral("EPSG:32650"));
+    const QStringList parents{QStringLiteral("v1"), QStringLiteral("v2")};
+    const QVariantList rows{
+        QVariantMap{{"id", "located"}, {"x", 0.0}, {"y", 10.0}, {"value", 1},
+                    {"parents", parents}, {"details", QVariantMap{{"name", "A"}}},
+                    {"paleo_feature_uid", "fixed"}},
+        QVariantMap{{"id", "unlocated"}, {"value", 2.5}},
+        QVariantMap{{"id", "null-value"}, {"value", QVariant()}}};
+    QString error;
+    QVERIFY2(MappingArtifactWriter::pointGeoPackage(path, rows, crs.toWkt(), &error), qPrintable(error));
+    {
+      QgsVectorLayer layer(path + QStringLiteral("|layername=features"), QStringLiteral("wells"), QStringLiteral("ogr"));
+      QVERIFY(layer.isValid());
+      QCOMPARE(layer.crs(), crs);
+      QCOMPARE(layer.featureCount(), 3);
+      QCOMPARE(layer.fields().field(QStringLiteral("value")).type(), QMetaType::Double);
+      QMap<QString, QgsFeature> byId;
+      QgsFeature feature;
+      auto features = layer.getFeatures();
+      while (features.nextFeature(feature)) byId.insert(feature.attribute("id").toString(), feature);
+      const auto located = byId.value(QStringLiteral("located"));
+      QCOMPARE(located.geometry().asPoint(), QgsPointXY(0.0, 10.0));
+      QCOMPARE(located.attribute("paleo_feature_uid").toString(), QStringLiteral("fixed"));
+      const auto unlocated = byId.value(QStringLiteral("unlocated"));
+      QVERIFY(!unlocated.hasGeometry());
+      QCOMPARE(unlocated.attribute("value").toDouble(), 2.5);
+      QVERIFY(byId.value(QStringLiteral("null-value")).attribute("value").isNull());
+    }
+    {
+      std::unique_ptr<void, decltype(&GDALClose)> ds(
+          GDALOpenEx(path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr), &GDALClose);
+      QVERIFY(ds);
+      const auto layer = GDALDatasetGetLayerByName(ds.get(), "features");
+      QVERIFY(layer);
+      std::unique_ptr<void, decltype(&OGR_F_Destroy)> feature(OGR_L_GetNextFeature(layer), &OGR_F_Destroy);
+      QVERIFY(feature);
+      const auto jsonField = [&](const char *name) {
+        return QJsonDocument::fromJson(OGR_F_GetFieldAsString(feature.get(), OGR_F_GetFieldIndex(feature.get(), name)));
+      };
+      QCOMPARE(jsonField("parents").toVariant().toStringList(), parents);
+      QCOMPARE(jsonField("details").object().value("name").toString(), QStringLiteral("A"));
+    }
+    const auto sha = DataCatalog::sha256FileHex(path);
+    QVERIFY(!MappingArtifactWriter::pointGeoPackage(path, rows, QStringLiteral("invalid-crs"), &error));
+    QCOMPARE(DataCatalog::sha256FileHex(path), sha);
+  }
+
   void wellsPredictionWritesFormationDominanceTable() {
     // #346 后：地层优势相写入 Formations 表；点要素只保留 facies_label。
     // 用 Well API 夹具（真实 tops + 深度对齐），避免 mock 的 depth_mock 0–120
@@ -4712,6 +4764,7 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
     const auto original = f.latest("wells_prediction");
     QVERIFY(!original.isEmpty());
+    QCOMPARE(QFileInfo(f.work.versionForLayer(original).path).suffix(), QStringLiteral("gpkg"));
     const auto schema = f.work.facies("D61");
 
     // B 没有 tops：没有地层可组织，不出行（不拿整井冒充地层）。
@@ -4767,6 +4820,7 @@ private slots:
     while (pit.nextFeature(point)) {
       if (point.attribute("id") == "A") {
         sawA = true;
+        QVERIFY(!point.attribute("paleo_feature_uid").toString().isEmpty());
         QCOMPARE(point.attribute("facies_scope").toString(), QString("formation"));
         QCOMPARE(point.attribute("formation").toString(), QString("D61"));
         QCOMPARE(point.attribute("formation_top").toDouble(), 1000.0);

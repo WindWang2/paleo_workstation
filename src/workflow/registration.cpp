@@ -5,6 +5,7 @@
 #include "../io/dataimportservice.h"
 #include "../io/geojsonaffine.h"
 #include "../metadata/layermanifest.h"
+#include "../qgis/provisionalvector.h"
 #include "../qgis/qgislayerservice.h"
 
 #include <QDir>
@@ -54,7 +55,7 @@ void RegistrationWorkflow::applyProvisionalRegistration(
 
   // BIZ-07（方向58）：参数闸前置到建目录/读源之前——非数值字符串（toDouble
   // 静默回 0）、NaN/Inf、零缩放一律拒绝，原因走 registrationFailed 错误通道，
-  // 不留空派生目录、不产出 [null,null] 或塌缩几何的 GeoJSON。
+  // 不留空派生目录、不产出非有限坐标或塌缩几何。
   GeoAffineParams p;
   QStringList unparsable;
   const auto num = [&params, &unparsable](const char *key, double fallback) {
@@ -84,7 +85,7 @@ void RegistrationWorkflow::applyProvisionalRegistration(
     return;
   }
 
-  // 工程目录：catalogPath() = <projectDir>/artifacts/metadata/catalog.json。
+  // 目录位于工程的 artifacts/metadata 下。
   const QDir projectDir = QFileInfo(cat->catalogPath())
                               .absoluteDir()
                               .absoluteFilePath(QStringLiteral("../.."));
@@ -98,10 +99,11 @@ void RegistrationWorkflow::applyProvisionalRegistration(
     return;
   }
   const QString outName = QFileInfo(src.fileName).completeBaseName() +
-                          QStringLiteral(".provisional.geojson");
+                          QStringLiteral(".provisional.gpkg");
   const QString outAbs = QDir(outDir).filePath(outName);
+  const QString layerSuffix = QStringLiteral("|layername=features");
 
-  // 派生 GeoJSON 已写出即置只读；其后任一环节失败都必须把这份「无目录
+  // 派生文件已写出即置只读；其后任一环节失败都必须把这份「无目录
   // 记录」的受管字节收掉——否则每次重试再落一份，artifacts/derived 下
   // 孤儿累积（#588 B.9；对照 mapexport.cpp:147-153 显式 remove）。
   // outAbs 刚被 setPermissions 为只读，Windows 删只读文件会失败，先恢复
@@ -123,9 +125,11 @@ void RegistrationWorkflow::applyProvisionalRegistration(
 
   QString terr;
   int featureCount = 0;
-  double bounds[4] = {0, 0, 0, 0};
-  if (!geoAffineTransformFile(srcAbs, outAbs, p, &terr, &featureCount, bounds))
+  const QString source = srcAbs + src.extra.value(QStringLiteral("source_suffix")).toString();
+  if (!ProvisionalVector::write(source, outAbs, p, &featureCount, &terr))
   {
+    if (QDir(outDir).isEmpty())
+      discardDerived();
     fail(terr);
     return;
   }
@@ -141,10 +145,17 @@ void RegistrationWorkflow::applyProvisionalRegistration(
   d.path = relDir + QLatin1Char('/') + outName;
   d.sourceUri = srcAbs;
   d.sha256 = DataCatalog::sha256FileHex(outAbs, &terr);
+  if (d.sha256.isEmpty())
+  {
+    discardDerived();
+    fail(terr);
+    return;
+  }
   d.fileName = outName;
   d.parentVersionIds = QStringList{src.id};
   d.extra.insert(QStringLiteral("provisional"), true);
   d.extra.insert(QStringLiteral("affine"), geoAffineToMap(p));
+  d.extra.insert(QStringLiteral("source_suffix"), layerSuffix);
   QString verr;
   if (!cat->addVersion(d, &verr))
   {
@@ -157,7 +168,7 @@ void RegistrationWorkflow::applyProvisionalRegistration(
   LayerDeclaration decl;
   decl.layerId = QStringLiteral("provisional.%1").arg(assetId);
   decl.type = QStringLiteral("vector");
-  decl.source = outAbs;
+  decl.source = outAbs + layerSuffix;
   decl.group = QStringLiteral("00_Data");
   decl.title =
       tr("临时配准 · %1").arg(cat->assetById(assetId).displayName);

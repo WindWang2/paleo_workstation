@@ -28509,6 +28509,46 @@ PDF：%3
     <context>
         <name>QObject</name>
         <message>
+            <source>临时配准源超过 500 MB，或目标文件已存在</source>
+            <translation>The provisional registration source exceeds 500 MB, or the destination already exists.</translation>
+        </message>
+        <message>
+            <source>工程矢量图层的结构不匹配：%1</source>
+            <translation>The project vector layer schema does not match: %1</translation>
+        </message>
+        <message>
+            <source>无法保存井点 GeoPackage：%1</source>
+            <translation>Could not save the well point GeoPackage: %1</translation>
+        </message>
+        <message>
+            <source>无法写入工程矢量图层 %1：%2</source>
+            <translation>Could not write project vector layer %1: %2</translation>
+        </message>
+        <message>
+            <source>无法创建临时配准图件</source>
+            <translation>Could not create the provisional registration layer.</translation>
+        </message>
+        <message>
+            <source>无法创建井点 GeoPackage：%1</source>
+            <translation>Could not create the well point GeoPackage: %1</translation>
+        </message>
+        <message>
+            <source>无法创建图层目录 %1</source>
+            <translation>Could not create layer directory %1.</translation>
+        </message>
+        <message>
+            <source>无法变换临时配准要素的坐标</source>
+            <translation>Could not transform the coordinates of a provisional registration feature.</translation>
+        </message>
+        <message>
+            <source>无法读取临时配准的源矢量</source>
+            <translation>Could not read the source vector for provisional registration.</translation>
+        </message>
+        <message>
+            <source>矢量没有要素</source>
+            <translation>The vector layer contains no features.</translation>
+        </message>
+        <message>
             <source>当前没有可用的子项</source>
             <translation>No sub-item is currently available</translation>
         </message>
@@ -47508,6 +47548,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </context>
     <context>
         <name>WellSitingWorkflow</name>
+        <message>
+            <source>井网覆盖空洞层写入失败</source>
+            <translation>Could not write the well coverage gaps layer.</translation>
+        </message>
+        <message>
+            <source>计划井层写入失败</source>
+            <translation>Could not write the planned wells layer.</translation>
+        </message>
         <message>
             <location filename="../src/workflow/wellsitingworkflow.cpp" line="362" />
             <source>工区边界约束</source>

@@ -8,6 +8,7 @@
 
 #include "../catalog/datacatalog.h"
 #include "../domain/wellsitingplan.h"
+#include "../io/wellsitinglayerstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/wellsitingstore.h"
 #include "../qgis/qgislayerservice.h"
@@ -24,9 +25,6 @@
 #include <QFutureWatcher>
 #include <QHash>
 #include <QImage>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QPainter>
 #include <QSaveFile>
 #include <QSet>
@@ -100,16 +98,6 @@ QString boundaryWkt( const std::vector<std::vector<Point2>> &parts )
   if ( polys.size() == 1 )
     return QStringLiteral( "POLYGON%1" ).arg( polys.first() );
   return QStringLiteral( "MULTIPOLYGON(%1)" ).arg( polys.join( QStringLiteral( "," ) ) );
-}
-
-QJsonArray ringToJson( const std::vector<Point2> &ring )
-{
-  QJsonArray coords;
-  for ( const Point2 &p : ring )
-    coords.append( QJsonArray{ p.x, p.y } );
-  if ( !ring.empty() )
-    coords.append( QJsonArray{ ring.front().x, ring.front().y } ); // GeoJSON 闭合
-  return coords;
 }
 
 paleo::wellsiting::Polygon ringFromQgs( const QgsPolylineXY &pts )
@@ -519,77 +507,27 @@ bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *
 
 void WellSitingWorkflow::writeHolesLayer( const paleo::wellsiting::CoverageReport &report )
 {
-  if ( d->projectDir.isEmpty() || !d->layers )
+  if ( d->projectDir.isEmpty() || !d->layers || ( d->catalog && d->catalog->isLockedReadOnly() ) )
     return; // 无工程落图面（纯计算用法）——报告仍有效
+  const QString layerId = QStringLiteral( "wellsiting_holes" );
   const QString path = QDir( d->projectDir ).filePath(
-      QStringLiteral( "artifacts/layers/wellsiting_holes.geojson" ) );
-  const bool hadFile = QFile::exists( path );
-  if ( report.regions.empty() && !hadFile )
+      QStringLiteral( "artifacts/layers/wellsiting_holes.gpkg" ) );
+  if ( report.regions.empty() && !QFile::exists( path ) && d->layers->declaration( layerId ).layerId.isEmpty() )
     return; // 无空洞且从未声明——不造空图层（wells 层同一约定）
 
-  QJsonArray features;
-  for ( const paleo::wellsiting::HoleRegion &region : report.regions )
+  QString writeError;
+  if ( !paleo::wellsiting::writeCoverageHolesLayer( path, report.regions, &writeError ) )
   {
-    if ( region.boundaryParts.empty() )
-      continue;
-    QJsonObject geometry;
-    if ( region.boundaryParts.size() == 1 )
-    {
-      geometry.insert( QStringLiteral( "type" ), QStringLiteral( "Polygon" ) );
-      geometry.insert( QStringLiteral( "coordinates" ), ringToJson( region.boundaryParts.front() ) );
-    }
-    else
-    {
-      QJsonArray polys;
-      for ( const std::vector<Point2> &ring : region.boundaryParts )
-      {
-        QJsonArray one;
-        one.append( ringToJson( ring ) );
-        polys.append( one );
-      }
-      geometry.insert( QStringLiteral( "type" ), QStringLiteral( "MultiPolygon" ) );
-      geometry.insert( QStringLiteral( "coordinates" ), polys );
-    }
-    QJsonObject props;
-    props.insert( QStringLiteral( "hole_id" ), region.id );
-    props.insert( QStringLiteral( "area_m2" ), region.area );
-    props.insert( QStringLiteral( "max_distance_m" ),
-                  std::isfinite( region.maxDistance ) ? QJsonValue( region.maxDistance )
-                                                      : QJsonValue() );
-    QJsonObject feature;
-    feature.insert( QStringLiteral( "type" ), QStringLiteral( "Feature" ) );
-    feature.insert( QStringLiteral( "properties" ), props );
-    feature.insert( QStringLiteral( "geometry" ), geometry );
-    features.append( feature );
-  }
-
-  QJsonObject root;
-  root.insert( QStringLiteral( "type" ), QStringLiteral( "FeatureCollection" ) );
-  // 与 wells.geojson 同口径：legacy "crs" 成员写工程米制 WKT（OGR 认它，
-  // 不落到 4326）。
-  QJsonObject crsProps;
-  crsProps.insert( QStringLiteral( "name" ), DataCatalog::localGridCrsWkt() );
-  QJsonObject crs;
-  crs.insert( QStringLiteral( "type" ), QStringLiteral( "name" ) );
-  crs.insert( QStringLiteral( "properties" ), crsProps );
-  root.insert( QStringLiteral( "crs" ), crs );
-  root.insert( QStringLiteral( "features" ), features );
-
-  QDir().mkpath( QFileInfo( path ).absolutePath() );
-  {
-    QSaveFile file( path );
-    file.setDirectWriteFallback( false );
-    if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-      return;
-    const QByteArray bytes = QJsonDocument( root ).toJson();
-    if ( !( file.write( bytes ) == bytes.size() && file.commit() ) )
-      return;
+    paleo::workflow_detail::raiseToErrorHub( ErrorHub::Level::Error,
+                                             QStringLiteral( "wellsiting" ),
+                                             tr( "井网覆盖空洞层写入失败" ), writeError );
+    return;
   }
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "wellsiting_holes" );
+  decl.layerId = layerId;
   decl.type = QStringLiteral( "vector" );
-  decl.source = path;
+  decl.source = path + QStringLiteral( "|layername=" ) + layerId;
   decl.group = QStringLiteral( "07_Validation" ); // canonical 组：验证页档案可见
   decl.title = tr( "井网覆盖空洞" );
   QString declareError;
@@ -602,10 +540,11 @@ void WellSitingWorkflow::writeHolesLayer( const paleo::wellsiting::CoverageRepor
     return;
   }
   QString instantiateError;
-  auto *layer = qobject_cast<QgsVectorLayer *>(
-      d->layers->instantiate( QStringLiteral( "wellsiting_holes" ), &instantiateError ) );
+  auto *layer = qobject_cast<QgsVectorLayer *>( d->layers->instantiate( layerId, &instantiateError ) );
   if ( layer )
   {
+    layer->reload();
+    layer->updateExtents( true );
     QgisStyleService::applyHoleLayerStyle( layer );
     layer->triggerRepaint();
   }
@@ -992,57 +931,28 @@ bool WellSitingWorkflow::saveScenarioSet( QString *error ) const
 
 void WellSitingWorkflow::refreshPlannedLayer()
 {
-  if ( d->projectDir.isEmpty() || !d->layers || !d->catalog )
+  if ( d->projectDir.isEmpty() || !d->layers || !d->catalog || d->catalog->isLockedReadOnly() )
     return;
+  const QString layerId = QStringLiteral( "planned_wells" );
   const QString path = QDir( d->projectDir ).filePath(
-      QStringLiteral( "artifacts/layers/planned_wells.geojson" ) );
+      QStringLiteral( "artifacts/layers/planned_wells.gpkg" ) );
   const QList<QVariantMap> wells = plannedWells();
-  const bool hadFile = QFile::exists( path );
-  if ( wells.isEmpty() && !hadFile )
+  if ( wells.isEmpty() && !QFile::exists( path ) && d->layers->declaration( layerId ).layerId.isEmpty() )
     return;
 
-  QJsonArray features;
-  for ( const QVariantMap &w : wells )
+  QString writeError;
+  if ( !paleo::wellsiting::writePlannedWellsLayer( path, wells, &writeError ) )
   {
-    QJsonObject props;
-    props.insert( QStringLiteral( "id" ), w.value( QStringLiteral( "id" ) ).toString() );
-    props.insert( QStringLiteral( "name" ), w.value( QStringLiteral( "name" ) ).toString() );
-    QJsonObject geometry;
-    geometry.insert( QStringLiteral( "type" ), QStringLiteral( "Point" ) );
-    geometry.insert( QStringLiteral( "coordinates" ),
-                     QJsonArray{ w.value( QStringLiteral( "x" ) ).toDouble(),
-                                 w.value( QStringLiteral( "y" ) ).toDouble() } );
-    QJsonObject feature;
-    feature.insert( QStringLiteral( "type" ), QStringLiteral( "Feature" ) );
-    feature.insert( QStringLiteral( "properties" ), props );
-    feature.insert( QStringLiteral( "geometry" ), geometry );
-    features.append( feature );
-  }
-  QJsonObject root;
-  root.insert( QStringLiteral( "type" ), QStringLiteral( "FeatureCollection" ) );
-  QJsonObject crsProps;
-  crsProps.insert( QStringLiteral( "name" ), DataCatalog::localGridCrsWkt() );
-  QJsonObject crs;
-  crs.insert( QStringLiteral( "type" ), QStringLiteral( "name" ) );
-  crs.insert( QStringLiteral( "properties" ), crsProps );
-  root.insert( QStringLiteral( "crs" ), crs );
-  root.insert( QStringLiteral( "features" ), features );
-
-  QDir().mkpath( QFileInfo( path ).absolutePath() );
-  {
-    QSaveFile file( path );
-    file.setDirectWriteFallback( false );
-    if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-      return;
-    const QByteArray bytes = QJsonDocument( root ).toJson();
-    if ( !( file.write( bytes ) == bytes.size() && file.commit() ) )
-      return;
+    paleo::workflow_detail::raiseToErrorHub( ErrorHub::Level::Error,
+                                             QStringLiteral( "wellsiting" ),
+                                             tr( "计划井层写入失败" ), writeError );
+    return;
   }
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "planned_wells" );
+  decl.layerId = layerId;
   decl.type = QStringLiteral( "vector" );
-  decl.source = path;
+  decl.source = path + QStringLiteral( "|layername=" ) + layerId;
   decl.group = QStringLiteral( "00_Data" ); // 与 wells 同组：所有编图页档案可见
   decl.title = tr( "计划井（布井候选）" );
   QString declareError;
@@ -1055,10 +965,11 @@ void WellSitingWorkflow::refreshPlannedLayer()
     return;
   }
   QString instantiateError;
-  auto *layer = qobject_cast<QgsVectorLayer *>(
-      d->layers->instantiate( QStringLiteral( "planned_wells" ), &instantiateError ) );
+  auto *layer = qobject_cast<QgsVectorLayer *>( d->layers->instantiate( layerId, &instantiateError ) );
   if ( layer )
   {
+    layer->reload();
+    layer->updateExtents( true );
     QgisStyleService::applyPlannedWellLayerStyle( layer );
     layer->triggerRepaint();
   }

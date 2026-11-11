@@ -103,6 +103,7 @@ target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 # ---- QGIS 封装层 ----
 add_library(paleo_qgis STATIC
   src/qgis/paleomapfacies.cpp
+  src/qgis/provisionalvector.cpp
   src/qgis/paleomapsource.cpp
   src/qgis/wellpointnavigation.cpp
   src/qgis/mappingartifactwriter.cpp
@@ -189,6 +190,7 @@ add_library(paleo_io STATIC
   src/io/sourceprobe.cpp                           # Bounded scan-only identity candidates
   src/io/segyreader.cpp                             # wave/segy
   src/io/constraintstore.cpp                        # wave/constraint-gpkg
+  src/io/wellsitinglayerstore.cpp
   src/io/wellfileparsers.cpp                        # well head / tops / TD text parsers
   src/io/horizonbinner.cpp                          # horizon scatter -> binned time raster
   src/io/sattrio.cpp                                # goal/attr-volume：SATR/SATV 属性容器读写

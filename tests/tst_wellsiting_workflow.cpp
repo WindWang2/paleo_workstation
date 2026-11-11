@@ -12,6 +12,7 @@
 #include "../src/workflow/wellsitingworkflow.h"
 
 #include <qgsapplication.h>
+#include <qgsvectorlayer.h>
 
 #include <QDir>
 #include <QFile>
@@ -88,6 +89,7 @@ class TestWellSitingWorkflow : public QObject
     void plannedIsolation();
     void plannedCrudLifecycle();
     void diagnosisEndToEnd();
+    void legacyHoleLayerOnReadOnlyOpen();
     void domainFallbackNote();
     void candidatesEndToEnd();
     void evaluationImprovement();
@@ -184,7 +186,14 @@ void TestWellSitingWorkflow::plannedCrudLifecycle()
   const QString id1 = s.wf.addPlannedWell( QStringLiteral( "P1" ), 9000, 9000, &error );
   QVERIFY( !id1.isEmpty() );
   QCOMPARE( s.wf.plannedWells().size(), 1 );
-  QVERIFY( QFileInfo::exists( s.f.dir.filePath( QStringLiteral( "artifacts/layers/planned_wells.geojson" ) ) ) );
+  const QString layerId = QStringLiteral( "planned_wells" );
+  const QString path = s.f.dir.filePath( QStringLiteral( "artifacts/layers/planned_wells.gpkg" ) );
+  QVERIFY( QFileInfo::exists( path ) );
+  QCOMPARE( s.f.layers.declaration( layerId ).source, path + QStringLiteral( "|layername=planned_wells" ) );
+  auto *layer = qobject_cast<QgsVectorLayer *>( s.f.layers.instantiate( layerId, &error ) );
+  QVERIFY2( layer, qPrintable( error ) );
+  QCOMPARE( layer->featureCount(), 1 );
+  QCOMPARE( layer->crs().mapUnits(), Qgis::DistanceUnit::Meters );
 
   // 实体类型与 id 前缀（catalog 词表登记面）。
   const CatalogEntity entity = s.f.catalog.entityById( id1 );
@@ -197,6 +206,9 @@ void TestWellSitingWorkflow::plannedCrudLifecycle()
   QCOMPARE( s.wf.plannedWells().first().value( QStringLiteral( "name" ) ).toString(),
             QStringLiteral( "替补井A" ) );
   QCOMPARE( s.f.catalog.entityById( id1 ).name, QStringLiteral( "P1" ) );
+  QgsFeature feature;
+  QVERIFY( layer->getFeatures().nextFeature( feature ) );
+  QCOMPARE( feature.attribute( QStringLiteral( "name" ) ).toString(), QStringLiteral( "替补井A" ) );
 
   // 移动 = 弃旧建新（catalog 实体不可变）：新 id 新坐标，旧 id retired。
   QVERIFY( s.wf.movePlannedWell( id1, 9500, 9500, &error ) );
@@ -206,11 +218,15 @@ void TestWellSitingWorkflow::plannedCrudLifecycle()
   QVERIFY( id2 != id1 );
   QCOMPARE( moved.first().value( QStringLiteral( "x" ) ).toDouble(), 9500.0 );
   QCOMPARE( s.f.catalog.entityById( id1 ).id, id1 ); // 审计痕迹仍在
+  QVERIFY( layer->getFeatures().nextFeature( feature ) );
+  QCOMPARE( feature.attribute( QStringLiteral( "id" ) ).toString(), id2 );
+  QCOMPARE( feature.geometry().asPoint().x(), 9500.0 );
 
   // 删除 = retired：列表清空，catalog 实体保留。
   QVERIFY( s.wf.removePlannedWell( id2, &error ) );
   QCOMPARE( s.wf.plannedWells().size(), 0 );
   QCOMPARE( s.f.catalog.entities( QStringLiteral( "planned" ) ).size(), 2 ); // 审计痕迹
+  QCOMPARE( layer->featureCount(), 0 );
 
   // 坏输入如实失败。
   QVERIFY( s.wf.addPlannedWell( QStringLiteral( "  " ), 0, 0, &error ).isEmpty() );
@@ -245,9 +261,9 @@ void TestWellSitingWorkflow::diagnosisEndToEnd()
   QVERIFY( holes.first().value( QStringLiteral( "deepest_x" ) ).toDouble() > 9800 );
 
   // 诊断图层：文件落地 + 声明（07_Validation 组，horizon 无关）。
-  const QString geojson =
-      s.f.dir.filePath( QStringLiteral( "artifacts/layers/wellsiting_holes.geojson" ) );
-  QVERIFY( QFileInfo::exists( geojson ) );
+  const QString path =
+      s.f.dir.filePath( QStringLiteral( "artifacts/layers/wellsiting_holes.gpkg" ) );
+  QVERIFY( QFileInfo::exists( path ) );
   QVector<LayerDeclaration> decls;
   QVERIFY( s.f.layers.tryDeclared( &decls, &error ) );
   const LayerDeclaration *holeDecl = nullptr;
@@ -257,7 +273,22 @@ void TestWellSitingWorkflow::diagnosisEndToEnd()
   QVERIFY( holeDecl != nullptr );
   QCOMPARE( holeDecl->group, QStringLiteral( "07_Validation" ) );
   QCOMPARE( holeDecl->horizon, QString() );
-  QCOMPARE( holeDecl->source, geojson );
+  QCOMPARE( holeDecl->source, path + QStringLiteral( "|layername=wellsiting_holes" ) );
+  auto *layer = qobject_cast<QgsVectorLayer *>( s.f.layers.instantiate( holeDecl->layerId, &error ) );
+  QVERIFY2( layer, qPrintable( error ) );
+  QCOMPARE( layer->featureCount(), 1 );
+  QCOMPARE( layer->crs().mapUnits(), Qgis::DistanceUnit::Meters );
+  QgsFeature feature;
+  QVERIFY( layer->getFeatures().nextFeature( feature ) );
+  QVERIFY( feature.geometry().isMultipart() );
+  QCOMPARE( feature.attribute( QStringLiteral( "area_m2" ) ).toDouble(),
+            holes.first().value( QStringLiteral( "area_m2" ) ).toDouble() );
+  QVERIFY( feature.attribute( QStringLiteral( "max_distance_m" ) ).toDouble() > 3500.0 );
+
+  auto noHoles = holeParams();
+  noHoles.controlRadius = 15000;
+  QVERIFY( s.wf.runDiagnosis( noHoles, &error ) );
+  QCOMPARE( layer->featureCount(), 0 );
 
   // 无实井时如实失败，不造域。
   WorkflowFixture empty;
@@ -268,6 +299,47 @@ void TestWellSitingWorkflow::diagnosisEndToEnd()
   emptyWf.setSitingStore( &emptyStore );
   QVERIFY( !emptyWf.runDiagnosis( holeParams(), &error ) );
   QVERIFY( !error.isEmpty() );
+}
+
+void TestWellSitingWorkflow::legacyHoleLayerOnReadOnlyOpen()
+{
+  SitingStack s;
+  const QString layerId = QStringLiteral( "wellsiting_holes" );
+  const QString legacyPath = s.f.dir.filePath( QStringLiteral( "artifacts/layers/wellsiting_holes.geojson" ) );
+  QVERIFY( QDir().mkpath( QFileInfo( legacyPath ).absolutePath() ) );
+  const QByteArray legacyData =
+      R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"hole_id":1},"geometry":{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}}]})";
+  QFile legacy( legacyPath );
+  QVERIFY( legacy.open( QIODevice::WriteOnly ) );
+  QCOMPARE( legacy.write( legacyData ), legacyData.size() );
+  legacy.close();
+
+  LayerDeclaration declaration;
+  declaration.layerId = layerId;
+  declaration.type = QStringLiteral( "vector" );
+  declaration.source = legacyPath;
+  QString error;
+  QVERIFY2( s.f.layers.declare( declaration, &error ), qPrintable( error ) );
+  auto *layer = qobject_cast<QgsVectorLayer *>( s.f.layers.instantiate( layerId, &error ) );
+  QVERIFY2( layer, qPrintable( error ) );
+  QCOMPARE( layer->featureCount(), 1 );
+
+  s.f.catalog.setLockedReadOnly( true );
+  QVERIFY( s.wf.runDiagnosis( holeParams(), &error ) );
+  QCOMPARE( s.f.layers.declaration( layerId ).source, legacyPath );
+  const QString path = s.f.dir.filePath( QStringLiteral( "artifacts/layers/wellsiting_holes.gpkg" ) );
+  QVERIFY( !QFile::exists( path ) );
+
+  s.f.catalog.setLockedReadOnly( false );
+  auto noHoles = holeParams();
+  noHoles.controlRadius = 15000;
+  QVERIFY( s.wf.runDiagnosis( noHoles, &error ) );
+  QCOMPARE( s.f.layers.declaration( layerId ).source, path + QStringLiteral( "|layername=wellsiting_holes" ) );
+  auto *empty = qobject_cast<QgsVectorLayer *>( s.f.layers.instantiate( layerId, &error ) );
+  QVERIFY2( empty, qPrintable( error ) );
+  QCOMPARE( empty->featureCount(), 0 );
+  QVERIFY( legacy.open( QIODevice::ReadOnly ) );
+  QCOMPARE( legacy.readAll(), legacyData );
 }
 
 void TestWellSitingWorkflow::domainFallbackNote()

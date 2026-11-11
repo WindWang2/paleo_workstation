@@ -183,6 +183,10 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     return buildOutsourceWorkbookContent(abs, host, lay);
   }
 
+  if (v.extra.value(QStringLiteral("provisional")).toBool() &&
+      abs.endsWith(QLatin1String(".gpkg"), Qt::CaseInsensitive))
+    return buildMapProductContent(cat, asset, v, abs, assetId, host, lay);
+
   if (asset.type == QLatin1String("geojson") ||
       (asset.type == QLatin1String("boundary") &&
        asset.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive)))

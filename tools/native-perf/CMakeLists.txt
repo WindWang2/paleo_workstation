@@ -69,6 +69,7 @@ if("welllogset" IN_LIST PALEO_NATIVE_PERF_TESTS)
     "${PALEO_SOURCE_ROOT}/vendor/glm" "${PALEO_SOURCE_ROOT}/vendor/sbm/src")
   target_link_libraries(tst_welllogset_perf PRIVATE Paleo::paleo_data_service
     Qt6::Core Qt6::Gui Qt6::Test Qt6::Sql ZLIB::ZLIB)
+  target_compile_definitions(tst_welllogset_perf PRIVATE PALEO_HAVE_ZLIB=1)
   # The numeric/header paths do not call GIS transforms. Keep the exact source
   # TUs and discard their unrelated function sections rather than providing stubs.
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE)

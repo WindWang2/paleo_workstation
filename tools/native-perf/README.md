@@ -15,7 +15,8 @@ cmake -S tools/native-perf -B build-native-perf -G Ninja \
   -DPALEO_NATIVE_PERF_TESTS='geostat;welllogset'
 cmake --build build-native-perf --parallel 2
 QT_QPA_PLATFORM=offscreen ctest --test-dir build-native-perf \
-  -j1 --no-tests=error --output-on-failure --output-junit results.xml
+  -j1 --no-tests=error --output-on-failure \
+  --output-junit "$PWD/build-native-perf/results.xml"
 ```
 
 `PALEO_SOURCE_ROOT` may point at a separate checkout for comparison. Empty and

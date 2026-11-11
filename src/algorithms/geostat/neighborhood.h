@@ -43,31 +43,32 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
 {
   if ( inputToDeduped )
     inputToDeduped->assign( samples.size(), std::numeric_limits<std::uint32_t>::max() );
-  std::vector<std::pair<Sample, std::uint32_t>> sorted; // (样本, 原输入下标)
+  std::vector<std::uint32_t> sorted; // 原输入下标，避免排序时复制样点
   sorted.reserve( samples.size() );
   for ( std::size_t inputIndex = 0; inputIndex < samples.size(); ++inputIndex )
   {
     const Sample &sample = samples[inputIndex];
     if ( std::isfinite( sample.x ) && std::isfinite( sample.y ) && std::isfinite( sample.value ) )
     {
-      sorted.push_back( { sample, static_cast<std::uint32_t>( inputIndex ) } );
+      sorted.push_back( static_cast<std::uint32_t>( inputIndex ) );
     }
   }
   std::sort( sorted.begin(), sorted.end(),
-             []( const std::pair<Sample, std::uint32_t> &a, const std::pair<Sample, std::uint32_t> &b ) {
-               if ( a.first.x != b.first.x )
-                 return a.first.x < b.first.x;
-               if ( a.first.y != b.first.y )
-                 return a.first.y < b.first.y;
+             [&samples]( std::uint32_t a, std::uint32_t b ) {
+               if ( samples[a].x != samples[b].x )
+                 return samples[a].x < samples[b].x;
+               if ( samples[a].y != samples[b].y )
+                 return samples[a].y < samples[b].y;
                // 完全重合点互为等价：合并求值的累加序是实现定义（末位 bit
                // 跨标准库漂移）——用输入下标次键钉死（full-audit F8）。
-               return a.second < b.second;
+               return a < b;
              } );
   std::vector<Sample> merged;
   std::vector<std::size_t> mergedCounts;
   merged.reserve( sorted.size() );
-  for ( const auto &[sample, inputIndex] : sorted )
+  for ( std::uint32_t inputIndex : sorted )
   {
+    const Sample &sample = samples[inputIndex];
     // PW-078：按 x 排序后近重合点未必相邻（(0,0)、(1e-12,5)、(2e-12,0)：
     // 中间点 y 不同却插在两者之间）——只比 back() 会漏合并 → 克氏矩阵出现
     // 重复行。代表点 x 单调不减，向回扫描 x 容差窗内的全部代表点。

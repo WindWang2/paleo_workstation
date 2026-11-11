@@ -18,7 +18,12 @@ qint64 elapsed(Clock::time_point start) {
 struct Phases {
   qint64 dedupe = 0, index = 0, query = 0, solve = 0, release = 0;
   qint64 sortProbeCollect = 0, sortProbeSort = 0;
+  qint64 indexSortProbeCollect = 0, indexSortProbeSort = 0;
+  qint64 stableSortProbeCollect = 0, stableSortProbeSort = 0;
   std::uint64_t sortProbeChecksum = 0;
+  std::uint64_t sortProbeComparisons = 0;
+  std::uint64_t indexSortProbeComparisons = 0;
+  std::uint64_t stableSortProbeComparisons = 0;
   int calls = 0;
 };
 std::vector<Sample> wells(int columns, int rows) {
@@ -41,7 +46,8 @@ void sortProbe(const std::vector<Sample> &rest, Phases &phases) {
       sorted.push_back({rest[i], std::uint32_t(i)});
   phases.sortProbeCollect += elapsed(start);
   start = Clock::now();
-  std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
+  std::sort(sorted.begin(), sorted.end(), [&phases](const auto &a, const auto &b) {
+    ++phases.sortProbeComparisons;
     if (a.first.x != b.first.x) return a.first.x < b.first.x;
     if (a.first.y != b.first.y) return a.first.y < b.first.y;
     return a.second < b.second;
@@ -50,6 +56,42 @@ void sortProbe(const std::vector<Sample> &rest, Phases &phases) {
   // Observe the entire permutation outside the timed sort.
   for (const auto &entry : sorted)
     phases.sortProbeChecksum = phases.sortProbeChecksum * 1099511628211ULL + entry.second;
+
+  start = Clock::now();
+  std::vector<std::uint32_t> indices;
+  indices.reserve(rest.size());
+  for (std::size_t i = 0; i < rest.size(); ++i)
+    if (std::isfinite(rest[i].x) && std::isfinite(rest[i].y) && std::isfinite(rest[i].value))
+      indices.push_back(std::uint32_t(i));
+  phases.indexSortProbeCollect += elapsed(start);
+  start = Clock::now();
+  std::sort(indices.begin(), indices.end(), [&rest, &phases](auto a, auto b) {
+    ++phases.indexSortProbeComparisons;
+    if (rest[a].x != rest[b].x) return rest[a].x < rest[b].x;
+    if (rest[a].y != rest[b].y) return rest[a].y < rest[b].y;
+    return a < b;
+  });
+  phases.indexSortProbeSort += elapsed(start);
+  if (indices.size() != sorted.size()) throw std::runtime_error("sort probes disagree on finite input");
+  for (std::size_t i = 0; i < indices.size(); ++i)
+    if (indices[i] != sorted[i].second) throw std::runtime_error("index sort changed point order");
+
+  start = Clock::now();
+  std::vector<std::uint32_t> stableIndices;
+  stableIndices.reserve(rest.size());
+  for (std::size_t i = 0; i < rest.size(); ++i)
+    if (std::isfinite(rest[i].x) && std::isfinite(rest[i].y) && std::isfinite(rest[i].value))
+      stableIndices.push_back(std::uint32_t(i));
+  phases.stableSortProbeCollect += elapsed(start);
+  start = Clock::now();
+  std::stable_sort(stableIndices.begin(), stableIndices.end(), [&rest, &phases](auto a, auto b) {
+    ++phases.stableSortProbeComparisons;
+    if (rest[a].x != rest[b].x) return rest[a].x < rest[b].x;
+    if (rest[a].y != rest[b].y) return rest[a].y < rest[b].y;
+    return a < b;
+  });
+  phases.stableSortProbeSort += elapsed(start);
+  if (stableIndices != indices) throw std::runtime_error("stable index sort changed point order");
 }
 QJsonObject run(int columns, int rows) {
   const auto samples = wells(columns, rows);
@@ -106,6 +148,15 @@ QJsonObject run(int columns, int rows) {
       {"independent_sort_probe_collect_ms", phases.sortProbeCollect / 1e6},
       {"independent_sort_probe_sort_ms", phases.sortProbeSort / 1e6},
       {"sort_probe_checksum", QString::number(phases.sortProbeChecksum)},
+      {"sort_probe_comparisons", double(phases.sortProbeComparisons)},
+      {"independent_index_sort_probe_collect_ms", phases.indexSortProbeCollect / 1e6},
+      {"independent_index_sort_probe_sort_ms", phases.indexSortProbeSort / 1e6},
+      {"index_sort_probe_comparisons", double(phases.indexSortProbeComparisons)},
+      {"index_sort_preserves_pair_order", true},
+      {"independent_stable_index_sort_probe_collect_ms", phases.stableSortProbeCollect / 1e6},
+      {"independent_stable_index_sort_probe_sort_ms", phases.stableSortProbeSort / 1e6},
+      {"stable_index_sort_probe_comparisons", double(phases.stableSortProbeComparisons)},
+      {"stable_index_sort_preserves_pair_order", true},
       {"matches_public_cv", true}, {"rmse", result.value("rmse").toDouble()}};
 }
 }

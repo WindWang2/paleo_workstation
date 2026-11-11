@@ -61,7 +61,15 @@ jobs:
       # same production translation units and original test sources directly,
       # so a GIS archive download cannot prevent their regression diagnostics.
       - name: Install Qt build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache qt6-base-dev qt6-5compat-dev zlib1g-dev libzstd-dev
+        timeout-minutes: 6
+        run: |
+          # Broken runner DNS must fail provisioning rather than spend minutes
+          # trying every package with stale indexes. No test ran in that case.
+          timeout 30 getent ahostsv4 archive.ubuntu.com
+          timeout 30 getent ahostsv4 security.ubuntu.com
+          apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          sudo apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
+          sudo apt-get "${apt_options[@]}" -o DPkg::Lock::Timeout=60 install -y cmake ninja-build ccache qt6-base-dev qt6-5compat-dev zlib1g-dev libzstd-dev
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ccache

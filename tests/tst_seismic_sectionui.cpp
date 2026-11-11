@@ -760,6 +760,71 @@ private slots:
     QVERIFY2(imageDiff(g0, g4) > 500, "增益变化必须同时重烘 A/B");
   }
 
+  void curtainRowsMatchSection()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    SgySliceImage section = makeSection(17, 47);
+    section.rgba.assign(section.values.size() * 4, 203);
+    section.values[std::size_t(12) * section.width + 12] =
+        std::numeric_limits<float>::quiet_NaN();
+    const auto originalValues = section.values;
+    const auto originalRgba = section.rgba;
+    canvas.setSectionData(section, 2.0f);
+    canvas.setZoom(32.0, 8.0); // Keep sample centers on an integer pixel grid.
+    const QRect left(QPoint(qRound(canvas.traceToPixelX(2)), qRound(canvas.timeToPixelY(16))),
+                     QPoint(qRound(canvas.traceToPixelX(5)), qRound(canvas.timeToPixelY(70))));
+    const QRect right(QPoint(qRound(canvas.traceToPixelX(11)), qRound(canvas.timeToPixelY(16))),
+                      QPoint(qRound(canvas.traceToPixelX(14)), qRound(canvas.timeToPixelY(70))));
+    for (const bool inverted : {false, true}) {
+      canvas.setCompareEnabled(false);
+      canvas.setPolarityInverted(inverted);
+      canvas.setColorMapInverted(inverted);
+      canvas.setGain(inverted ? 2.0f : 0.75f);
+      const QImage baseline = renderCanvas(canvas);
+      canvas.setCompareData(section, QStringLiteral("same samples"));
+      canvas.setCompareEnabled(true);
+      canvas.setCurtainPos(0.5);
+      const QImage compared = renderCanvas(canvas);
+      // Qt's clipped redraw may round an interpolated channel by one even
+      // with the same source image. A row, scale or missing-value mismatch
+      // must still fail across both halves.
+      for (const auto &area : {left, right})
+        for (int y = area.top(); y <= area.bottom(); ++y)
+          for (int x = area.left(); x <= area.right(); ++x) {
+            const auto actual = compared.pixel(x, y), expected = baseline.pixel(x, y);
+            QVERIFY(std::abs(qRed(actual) - qRed(expected)) <= 1);
+            QVERIFY(std::abs(qGreen(actual) - qGreen(expected)) <= 1);
+            QVERIFY(std::abs(qBlue(actual) - qBlue(expected)) <= 1);
+            QCOMPARE(qAlpha(actual), qAlpha(expected));
+          }
+    }
+    QCOMPARE(std::memcmp(section.values.data(), originalValues.data(),
+                         section.values.size() * sizeof(float)), 0);
+    QCOMPARE(section.rgba, originalRgba);
+  }
+
+  void curtainIncompleteRowsPreserveAvailableSamples()
+  {
+    const auto section = makeSection(17, 47);
+    auto partial = section;
+    partial.values.resize(partial.values.size() - 5);
+    auto reference = section;
+    for (int y = 0; y < section.height; ++y)
+      for (int x = 0; x < section.width; ++x)
+        reference.values[std::size_t(section.height - 1 - y) * section.width + x] =
+            partial.Value(x, y); // Legacy incomplete input is read without reversing rows.
+    SeismicSectionCanvas actual, expected;
+    for (auto *canvas : {&actual, &expected}) {
+      canvas->resize(800, 600);
+      canvas->setSectionData(section, 2.0f);
+      canvas->setCompareEnabled(true);
+    }
+    actual.setCompareData(partial, QStringLiteral("partial"));
+    expected.setCompareData(reference, QStringLiteral("partial"));
+    QCOMPARE(renderCanvas(actual), renderCanvas(expected));
+  }
+
   // #482：卷帘 A/B 标签文案——A 侧恒为「当前」（死三元两分支同串，
   // 与 B 标签无关）；B 侧标签缺失回落「对比」而非渲染尾随空（"B · "）。
   // 文本不可直接断言，用「空标签渲染 == 显式回落文案渲染」钉住回落值，

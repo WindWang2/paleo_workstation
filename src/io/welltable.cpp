@@ -282,12 +282,15 @@ bool isWellTableContainer(const QString &path)
 {
   return QStringList{"xlsx", "gpkg", "shp", "geojson", "csv", "tsv", "txt"}.contains(QFileInfo(path).suffix().toLower());
 }
-static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantMap &mapping)
+static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantMap &mapping,
+                                   QVector<WellTopRecord> *bases = nullptr)
 {
   WellTable out;
+  if (bases) bases->clear();
   if (!wb.ok) { out.error = wb.error; return out; }
   // 分层表的底界记录（与顶界同一趟行解析产出，见 parseSheet 的 basesOut）。
   QVector<WellTopRecord> layerBases;
+  auto &parsedBases = bases ? *bases : layerBases;
   out.crs = mapping.value("crs").toString();
   if (!QStringList{"xlsx", "headerless", ""}.contains(wb.format) && out.crs.isEmpty()) out.crs = wb.format;
   for (const auto &sheet : wb.sheets) {
@@ -304,7 +307,7 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
     if (out.columns.isEmpty()) out.columns = sheet.headers;
     // issue-796：底界与顶界在同一趟行解析里产出——此前分层表在这里解析一遍
     // 取 tops、下面再对全表解析一遍取 bases（两次全表扫描）。
-    parseSheet(out, sheet, mapping, &layerBases);
+    parseSheet(out, sheet, mapping, &parsedBases);
   }
   out.mapping.insert("crs", out.crs);
   if (wb.format == QLatin1String("headerless")) out.mapping.insert(QStringLiteral("headerless"), true);
@@ -318,7 +321,7 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
       !projectWellCoordinates(&out.heads, out.crs, mapping.value("projectCrs").toString(), &out.error)) return out;
   if (out.type.isEmpty()) out.error = QStringLiteral("未识别到井名与坐标，或层位与深度列，请调整字段对应关系");
   if (out.type == QLatin1String("well_stratification")) {
-    out.normalized = writeWellLayerTable(out.tops, layerBases);
+    out.normalized = writeWellLayerTable(out.tops, parsedBases);
   }
   else {
     QTextStream stream(&out.normalized);
@@ -329,9 +332,13 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
 }
 WellTable readWellTable(const QString &path, const QVariantMap &mapping)
 {
+  return readWellTable(path, mapping, nullptr);
+}
+WellTable readWellTable(const QString &path, const QVariantMap &mapping, QVector<WellTopRecord> *bases)
+{
   const auto ext = QFileInfo(path).suffix().toLower();
   return tableFromWorkbook(ext == "xlsx" ? readWorkbook(path) :
-      QStringList{"csv", "tsv", "txt", "dat"}.contains(ext) ? readWellDelimitedTable(path) : vectorOrText(path), mapping);
+      QStringList{"csv", "tsv", "txt", "dat"}.contains(ext) ? readWellDelimitedTable(path) : vectorOrText(path), mapping, bases);
 }
 WellTable previewWellTable(const QString &path, const QVariantMap &mapping)
 {

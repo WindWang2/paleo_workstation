@@ -423,10 +423,30 @@ void TestWellLogUi::wellLogPrimaryButtonPromotesLink()
   QVERIFY(moved);
   QCOMPARE(moved->objectName(), QStringLiteral("setWellLogPrimaryButton"));
 
-  page.listPanel()->selectAllVisibleAssets();
   auto *header = page.findChild<QLabel *>(QStringLiteral("entityViewHeader"));
   QVERIFY(header);
+  QVERIFY(!header->text().contains(QStringLiteral("批量概要")));
+  const int roleRows = roleTable->rowCount();
+  page.listPanel()->refreshAssetTable();
+  QCOMPARE(roleTable->rowCount(), roleRows);
+  page.listPanel()->undoOp();
+  QVERIFY(resolvedWellLogPrimary(*cat, QStringLiteral("ast-primary")));
+  QCOMPARE(roleTable->rowCount(), roleRows);
+  page.listPanel()->redoOp();
+  QVERIFY(resolvedWellLogPrimary(*cat, QStringLiteral("ast-secondary")));
+  QCOMPARE(roleTable->rowCount(), roleRows);
+
+  page.listPanel()->selectAllVisibleAssets();
   QVERIFY(header->text().contains(QStringLiteral("批量概要")));
+  page.listPanel()->setColumnConstraint(paleo::dataops::query::ColumnKey::Name,
+                                       {QStringLiteral("primary.las"), QStringLiteral("secondary.las")});
+  QCOMPARE(page.listPanel()->currentAssetSelection().size(), 2);
+  QVERIFY(header->text().contains(QStringLiteral("已选 2 个资产")));
+  page.listPanel()->clearColumnConstraint(paleo::dataops::query::ColumnKey::Name);
+  QCOMPARE(page.listPanel()->currentAssetSelection().size(), 4);
+  QVERIFY(header->text().contains(QStringLiteral("已选 4 个资产")));
+  page.refreshAssetTable();
+  QVERIFY(header->text().contains(QStringLiteral("已选 4 个资产")));
 }
 
 int main(int argc, char *argv[])

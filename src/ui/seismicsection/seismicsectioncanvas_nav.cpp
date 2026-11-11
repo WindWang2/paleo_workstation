@@ -2,7 +2,6 @@
 // 方向 65：画布导航与坐标变换 TU——D2.10 卷帘、缩放/平移、D2.9 导出抓图、
 // 像素↔道号/时间/线号换算与视口矩形。
 #include "ui/seismicsection/seismicsectioncanvas.h"
-#include "ui/seismicsection/seismicsectioncanvas_internal.h"
 
 #include <QPainter>
 
@@ -25,14 +24,16 @@ void SeismicSectionCanvas::setCompareData(const SgySliceImage &image, const QStr
             rebuildColorLut();
         // B 图按当前显示参数上色（复用 LUT 路径；字节级写 RGBA）；
         // 行序与 A 图同契约：vendor 行 0=最深 → 翻转对齐升序画布。
-        const SgySliceImage img = ToAscendingSampleRows(image);
-        m_compareImage = QImage(img.width, img.height, QImage::Format_ARGB32_Premultiplied);
-        const float absMax = std::max(std::abs(img.valueMin), std::abs(img.valueMax));
+        m_compareImage = QImage(image.width, image.height, QImage::Format_ARGB32_Premultiplied);
+        const float absMax = std::max(std::abs(image.valueMin), std::abs(image.valueMax));
         const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
-        for (int y = 0; y < img.height; ++y) {
+        const bool complete = image.values.size() >= std::size_t(image.width) * std::size_t(image.height);
+        for (int y = 0; y < image.height; ++y) {
             auto *scan = reinterpret_cast<QRgb *>(m_compareImage.scanLine(y));
-            for (int x = 0; x < img.width; ++x) {
-                float raw = img.Value(x, y);
+            const int sourceY = complete ? image.height - 1 - y : y;
+            const float *row = complete ? image.values.data() + std::size_t(sourceY) * image.width : nullptr;
+            for (int x = 0; x < image.width; ++x) {
+                float raw = row ? row[x] : image.Value(x, sourceY);
                 if (!std::isfinite(raw)) {
                     scan[x] = qRgba(48, 49, 49, 255);
                     continue;

@@ -22,6 +22,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScopedValueRollback>
 #include <QSignalBlocker>
 #include <QStackedLayout>
 #include <QStackedWidget>
@@ -47,6 +48,8 @@ void DataListPanel::refreshAssetTable()
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
   if (!table || !m_doc)
     return;
+  // 重建保留原选区，计数通知仍更新按钮，但不表示用户重新多选。
+  const QScopedValueRollback restoring(m_restoringSelection, true);
   const paleo::pagesinternal::PagePerfStage perf("refreshAssetTable");
   loadStoresForCatalog();
   DataCatalog *cat = m_doc->catalog();

@@ -3,6 +3,7 @@
 // dock 全链 offscreen（面板参数 → 服务任务 → 叠加上图）、资产登记闭环。
 #include <QtTest>
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QPainter>
 #include <QtEndian>
 #include <QFile>
@@ -11,6 +12,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -231,6 +233,105 @@ private slots:
   }
 
   // ---- 画布：叠加生命周期 + 渲染可辨 + 几何失配防线 ----
+  void canvasOverlayRowsMatchReference()
+  {
+    constexpr int traces = 19, samples = 37;
+    SgySliceImage attr = makeAttr(traces, samples);
+    attr.rgba.assign(attr.values.size() * 4, 117);
+    const auto originalValues = attr.values;
+    const auto originalRgba = attr.rgba;
+    SgySliceImage zone = attr;
+    for (int y = 0; y < samples; ++y)
+      std::copy_n(attr.values.data() + std::size_t(samples - 1 - y) * traces,
+                  traces, zone.values.data() + std::size_t(y) * traces);
+
+    SeismicSectionCanvas fromVendor, fromGrid;
+    for (auto *canvas : {&fromVendor, &fromGrid}) {
+      canvas->resize(640, 480);
+      canvas->setSectionData(makeSection(traces, samples), 2.0f);
+    }
+    for (const auto colorMap : {SectionColorMapType::RedWhiteBlue, SectionColorMapType::Grayscale}) {
+      for (const bool inverted : {false, true}) {
+        for (auto *canvas : {&fromVendor, &fromGrid}) {
+          canvas->setColorMap(colorMap);
+          canvas->setColorMapInverted(inverted);
+        }
+        fromVendor.setAttrOverlay(attr); // Vendor rows are deepest first.
+        fromGrid.setZoneOverlay(zone);  // Grid rows already run shallow to deep.
+        QCOMPARE(renderCanvas(fromVendor), renderCanvas(fromGrid));
+      }
+    }
+    QCOMPARE(std::memcmp(attr.values.data(), originalValues.data(),
+                         attr.values.size() * sizeof(float)), 0);
+    QCOMPARE(attr.rgba, originalRgba);
+
+    fromVendor.clearAttrOverlay();
+    const QImage baseline = renderCanvas(fromVendor);
+    attr.values.assign(attr.values.size(), std::numeric_limits<float>::quiet_NaN());
+    fromVendor.setAttrOverlay(attr);
+    QCOMPARE(renderCanvas(fromVendor), baseline);
+
+    attr.values.assign(attr.values.size(), 0.0f);
+    attr.valueMin = attr.valueMax = 0.0f;
+    fromVendor.setAttrOverlayAlpha(1.0);
+    fromVendor.setAttrOverlay(attr);
+    const QPoint center(qRound(fromVendor.traceToPixelX(traces / 2)),
+                        qRound(fromVendor.timeToPixelY((samples / 2) * 2.0)));
+    QCOMPARE(renderCanvas(fromVendor).pixel(center),
+             SampleColorMap(SectionColorMapType::Grayscale, 1.0f)); // Inverted LUT entry zero.
+  }
+
+  void canvasOverlayUpdateBenchmark()
+  {
+    if (!qEnvironmentVariableIsSet("PALEO_SEISMIC_OVERLAY_BENCHMARK"))
+      QSKIP("Set PALEO_SEISMIC_OVERLAY_BENCHMARK to measure overlay and curtain updates");
+    constexpr int traces = 2048, samples = 4096;
+    auto image = makeSection(traces, samples);
+    image.rgba.assign(image.values.size() * 4, 123);
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setSectionData(image, 2.0f);
+    canvas.setCompareEnabled(true);
+    const auto measure = [&](const char *name, auto update) {
+      std::vector<double> timings;
+      for (int repeat = 0; repeat < 11; ++repeat) {
+        QElapsedTimer clock;
+        clock.start();
+        update();
+        const double elapsedMs = clock.nsecsElapsed() / 1e6;
+        if (repeat >= 2)
+          timings.push_back(elapsedMs);
+      }
+      std::sort(timings.begin(), timings.end());
+      qInfo("PERF-BENCH seismic-%s %.3f ms (2048x4096, median of 9)", name,
+            timings[timings.size() / 2]);
+    };
+    measure("attribute-overlay", [&] { canvas.setAttrOverlay(image); });
+    canvas.clearAttrOverlay();
+    measure("zone-overlay", [&] { canvas.setZoneOverlay(image); });
+    canvas.clearZoneOverlay();
+    measure("curtain", [&] { canvas.setCompareData(image, QStringLiteral("benchmark")); });
+  }
+
+  void canvasOverlayRejectsIncompleteValues()
+  {
+    constexpr int traces = 19, samples = 37;
+    SeismicSectionCanvas canvas;
+    canvas.resize(640, 480);
+    canvas.setSectionData(makeSection(traces, samples), 2.0f);
+    const QImage baseline = renderCanvas(canvas);
+    auto image = makeAttr(traces, samples);
+    image.rgba.assign(image.values.size() * 4, 117);
+    for (const auto size : {std::size_t(traces) * samples - 1, std::size_t(0)}) {
+      image.values.resize(size);
+      canvas.setAttrOverlay(image);
+      QVERIFY(!canvas.hasAttrOverlay());
+      canvas.setZoneOverlay(image);
+      QVERIFY(!canvas.hasZoneOverlay());
+      QCOMPARE(renderCanvas(canvas), baseline);
+    }
+  }
+
   void canvasOverlayLifecycle()
   {
     SeismicSectionCanvas canvas;

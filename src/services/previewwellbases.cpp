@@ -39,7 +39,7 @@ QVector<WellTopRecord> previewWellBases(DataCatalog *catalog, const QString &wel
     return {};
   };
   // 遗留 P3：原实现前置+后置双份全量哈希（大表开预览卡 UI 数百 ms）——改
-  // 为单次前置验身：错版/无 sha 的文件在两次全表解析之前快失败（后置版
+  // 为单次前置验身：错版/无 sha 的文件在全表解析之前快失败（后置版
   // 让快路径退化成「两次全量解析+哈希后才失败」）。读取期间的改写以
   // stat（大小+mtime）监测——变了才复哈希一次，常态仍只哈希一次。基线
   // 取值必须发生在解析之前：QFileInfo 惰性缓存（构造不落盘取值，首个
@@ -48,8 +48,8 @@ QVector<WellTopRecord> previewWellBases(DataCatalog *catalog, const QString &wel
   const QDateTime preMtime = QFileInfo(path).lastModified();
   if (version.sha256.isEmpty() || !paleo::domain::shaEquals(DataCatalog::sha256FileHex(path), version.sha256))
     return unavailable();
-  const auto originals = paleo::io::readWellTable(path).tops;
-  const auto bases = paleo::io::readWellTableBases(path);
+  QVector<WellTopRecord> bases;
+  const auto originals = paleo::io::readWellTable(path, {}, &bases).tops;
   const QFileInfo postInfo(path);
   if (postInfo.size() != preSize || postInfo.lastModified() != preMtime)
     if (!paleo::domain::shaEquals(DataCatalog::sha256FileHex(path), version.sha256))

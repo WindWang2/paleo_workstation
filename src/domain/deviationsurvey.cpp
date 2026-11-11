@@ -22,6 +22,16 @@ void fail(QString *error, const QString &text)
 // 后文定义（arcFrame 之前），segmentIncrement 的 β≈π 退化分支要用。
 void unitTangent(double incDeg, double aziDeg, double out[3]);
 
+double doglegAngle(const double a[3], const double b[3])
+{
+  const double x = a[1] * b[2] - a[2] * b[1];
+  const double y = a[2] * b[0] - a[0] * b[2];
+  const double z = a[0] * b[1] - a[1] * b[0];
+  const double dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  // acos(dot) loses angular precision near both parallel and antipodal tangents.
+  return std::atan2(std::sqrt(x * x + y * y + z * z), dot);
+}
+
 // 段增量（最小曲率）：自 (md, i1, A1) 到角度 (i2, A2)、弧长 dMd 的位置增量。
 // dogleg 只用角度差——弧长由调用方给（整段=ΔMD，站间查询=子段弧长）。
 void segmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
@@ -32,10 +42,10 @@ void segmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
   const double a1 = a1Deg * kDeg2Rad;
   const double a2 = a2Deg * kDeg2Rad;
 
-  double cosBeta = std::cos(i1) * std::cos(i2) +
-                   std::sin(i1) * std::sin(i2) * std::cos(a2 - a1);
-  cosBeta = std::min(1.0, std::max(-1.0, cosBeta));
-  const double beta = std::acos(cosBeta);
+  double t1[3], t2[3];
+  unitTangent(i1Deg, a1Deg, t1);
+  unitTangent(i2Deg, a2Deg, t2);
+  const double beta = doglegAngle(t1, t2);
 
   // β 距 π 不足 1e-9 的退化带（与 arcFrame 的 reversal 判定同阈：那边先判
   // β<1e-9 直线、再判 sinβ<1e-9 掉头，故 sinβ<1e-9 在 arcFrame 里等价于
@@ -50,9 +60,6 @@ void segmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
   // 2ΔMD/π，不再发散）。两端切向严格对径且向量和为零时净位移取 0（防 1/0）。
   if (beta > kPi - 1e-9)
   {
-    double t1[3], t2[3];
-    unitTangent(i1Deg, a1Deg, t1);
-    unitTangent(i2Deg, a2Deg, t2);
     const double sx = t1[0] + t2[0], sy = t1[1] + t2[1], sz = t1[2] + t2[2];
     const double len = std::sqrt(sx * sx + sy * sy + sz * sz);
     if (len > 0.0)
@@ -110,7 +117,7 @@ detail::DeviationSegment arcFrame(const DeviationStation &a,
   unitTangent(b.inclinationDeg, b.azimuthDeg, t2);
   double c = f.t1[0] * t2[0] + f.t1[1] * t2[1] + f.t1[2] * t2[2];
   c = std::min(1.0, std::max(-1.0, c));
-  f.beta = std::acos(c);
+  f.beta = doglegAngle(f.t1, t2);
   const double sb = std::sin(f.beta);
   if (f.beta < 1e-9)
   {

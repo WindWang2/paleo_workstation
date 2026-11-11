@@ -167,19 +167,22 @@ void SeismicSectionCanvas::clearAttrOverlay() {
 //  - zone 层段叠加：属性建模 IJK 投影（stratgrid ZoneGrid）k=0 是最浅层
 //    → 本就是升序，直通不翻（翻转会把相带垂直镜像）。
 QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src, bool flipRows) {
-    if (src.values.empty() || src.width <= 0 || src.height <= 0)
+    if (src.width <= 0 || src.height <= 0 ||
+        src.values.size() < std::size_t(src.width) * std::size_t(src.height))
         return {};
     if (m_colorLut.empty())
         rebuildColorLut();
-    const SgySliceImage img = flipRows ? ToAscendingSampleRows(src) : src;
-    QImage image(img.width, img.height, QImage::Format_ARGB32_Premultiplied);
-    const double lo = img.valueMin;
-    const double hi = img.valueMax;
+    QImage image(src.width, src.height, QImage::Format_ARGB32_Premultiplied);
+    const double lo = src.valueMin;
+    const double hi = src.valueMax;
     const double span = (hi > lo) ? (hi - lo) : 1.0; // 退化值域：中档色
-    for (int y = 0; y < img.height; ++y) {
+    for (int y = 0; y < src.height; ++y) {
         auto *scan = reinterpret_cast<QRgb *>(image.scanLine(y));
-        const float *row = img.values.data() + std::size_t(y) * img.width;
-        for (int x = 0; x < img.width; ++x) {
+        // Select the display row directly. The overlay needs scalar values,
+        // so copying and flipping its value/RGBA arrays adds no rendered data.
+        const int sourceY = flipRows ? src.height - 1 - y : y;
+        const float *row = src.values.data() + std::size_t(sourceY) * src.width;
+        for (int x = 0; x < src.width; ++x) {
             const float v = row[x];
             if (std::isnan(v)) {
                 scan[x] = 0; // 缺失=透明（不盖底图）

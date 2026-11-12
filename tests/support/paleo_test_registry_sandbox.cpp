@@ -24,6 +24,8 @@
 //     Software\paleo-test-sandbox\<exe>（运行前后各整树删除；仍不碰 Software\paleo）。
 //   · 生效标志：环境变量 PALEO_TEST_REGISTRY_SANDBOX_ACTIVE=<hive 路径|hkcu-key:...>
 //     ——tst_test_sandbox 据此与 HKEY_USERS\<SID>（真实用户 hive）双向断言。
+//   · QGIS 配置根：保留显式 QGIS_CUSTOM_CONFIG_PATH；直跑未提供时在 hive
+//     旁创建每个 exe 独立的 .qgis 目录，避免 HKCU 已重映射却仍走默认配置解析。
 //   · 同一测试拉起的自身子进程（如 tst_metastore 的死 pid 夹具）继承同一 hive
 //     路径：删除因占用失败、按共享方式挂同一 hive——不影响父进程。
 // 非 Windows 平台本文件为空 TU。
@@ -34,6 +36,7 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace
@@ -48,6 +51,22 @@ std::wstring envVar( const wchar_t *name )
   const DWORD m = ::GetEnvironmentVariableW( name, &v[0], n );
   v.resize( m );
   return v;
+}
+
+void setProcessEnvironment( const wchar_t *name, const wchar_t *value )
+{
+  // QGIS reads getenv(), Qt reads _wgetenv_s(), and child processes inherit
+  // the Win32 block. SetEnvironmentVariableW alone leaves the CRT copies stale.
+  const bool remove = !value || !*value;
+  const int crtError = ::_wputenv_s( name, remove ? L"" : value );
+  const bool osOk = ::SetEnvironmentVariableW( name, remove ? nullptr : value ) != 0;
+  const DWORD osError = osOk ? ERROR_SUCCESS : ::GetLastError();
+  if ( crtError == 0 && ( osOk || ( remove && osError == ERROR_ENVVAR_NOT_FOUND ) ) )
+    return;
+  std::fwprintf( stderr, L"[paleo-test-sandbox] cannot update %ls (CRT %d, Win32 %lu)\n",
+                 name, crtError, static_cast<unsigned long>( osError ) );
+  std::fflush( stderr );
+  ::ExitProcess( ERROR_ACCESS_DENIED );
 }
 
 std::wstring exeBaseName()
@@ -81,6 +100,28 @@ void deleteHiveFiles( const std::wstring &hive )
 {
   for ( const wchar_t *suffix : { L"", L".LOG", L".LOG1", L".LOG2" } )
     ::DeleteFileW( ( hive + suffix ).c_str() );
+}
+
+void ensureQgisConfig( const std::wstring &hive )
+{
+  if ( !envVar( L"QGIS_CUSTOM_CONFIG_PATH" ).empty() )
+    return;
+  // Use the resolved file path, including the default path used by direct runs.
+  // Both registry tiers use it; the hkcu-key: diagnostic is not a filesystem path.
+  const std::wstring config = hive.empty() ? std::wstring() : hive + L".qgis";
+  if ( !config.empty() )
+  {
+    ::CreateDirectoryW( config.c_str(), nullptr );
+    const DWORD attributes = ::GetFileAttributesW( config.c_str() );
+    if ( attributes != INVALID_FILE_ATTRIBUTES && ( attributes & FILE_ATTRIBUTE_DIRECTORY ) )
+    {
+      setProcessEnvironment( L"QGIS_CUSTOM_CONFIG_PATH", config.c_str() );
+      return;
+    }
+  }
+  std::fwprintf( stderr, L"[paleo-test-sandbox] QGIS config unavailable; stopping before application startup\n" );
+  std::fflush( stderr );
+  ::ExitProcess( ERROR_ACCESS_DENIED );
 }
 
 void seedKey( HKEY sandboxRoot, const wchar_t *subKey )
@@ -125,10 +166,10 @@ struct RegistrySandbox
 
   RegistrySandbox()
   {
+    setProcessEnvironment( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", nullptr );
     std::wstring hive = envVar( L"PALEO_TEST_REGISTRY_HIVE" );
     if ( hive == L"native" || hive == L"off" )
       return;
-    ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", nullptr );
     const bool requiredHive = !hive.empty(); // ctest 显式路径必须第一档成功
     if ( hive.empty() )
       hive = defaultHivePath();
@@ -143,7 +184,8 @@ struct RegistrySandbox
       const LSTATUS rc = ::RegLoadAppKeyW( hive.c_str(), &root, KEY_ALL_ACCESS, 0, 0 );
       if ( rc == ERROR_SUCCESS && activate( root ) )
       {
-        ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", hive.c_str() );
+        ensureQgisConfig( hive );
+        setProcessEnvironment( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", hive.c_str() );
         return;
       }
       if ( rc != ERROR_SUCCESS )
@@ -169,8 +211,9 @@ struct RegistrySandbox
          activate( root ) )
     {
       fallbackKey = key;
+      ensureQgisConfig( hive );
       const std::wstring active = L"hkcu-key:HKCU\\" + key;
-      ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", active.c_str() );
+      setProcessEnvironment( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", active.c_str() );
       return;
     }
     if ( root )

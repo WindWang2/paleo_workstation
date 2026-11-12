@@ -1,6 +1,7 @@
 // 层：数据
 #include "mapsnapshot.h"
 #include "managedpath.h"
+#include "domain/shaequals.h"
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -110,10 +111,10 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
         if (writer.write(bytes) != bytes.size()) { out.error = writer.errorString(); return out; }
         digest.addData(bytes);
       }
-      if (QString::fromLatin1(digest.result().toHex()) != expected) { out.error = QStringLiteral("快照复制期间来源内容变化：%1").arg(source); return out; }
+      if (!paleo::domain::shaEquals(QString::fromLatin1(digest.result().toHex()), expected)) { out.error = QStringLiteral("快照复制期间来源内容变化：%1").arg(source); return out; }
       if (!writer.commit()) { out.error = writer.errorString(); return out; }
       const auto verified = paleo::managedpath::sha256FileHex(destination, &out.error, cancelled);
-      if (verified != expected || stop()) { if (out.error.isEmpty()) out.error = QStringLiteral("目标快照指纹不一致"); return out; }
+      if (!paleo::domain::shaEquals(verified, expected) || stop()) { if (out.error.isEmpty()) out.error = QStringLiteral("目标快照指纹不一致"); return out; }
       QFile::setPermissions(destination, QFileDevice::ReadOwner | QFileDevice::ReadUser | QFileDevice::ReadGroup | QFileDevice::ReadOther);
       const QFileInfo info(destination);
       out.attestations << QVariantMap{{"path", destination}, {"sha256", expected}, {"size", info.size()}, {"modified", info.lastModified().toMSecsSinceEpoch()}};

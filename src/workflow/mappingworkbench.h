@@ -122,6 +122,8 @@ public:
   void clearEditEvidence();
   void setManualEvidenceRequired(bool required);
   bool hasUnpublishedEdits(const QString &id) const;
+  // Actual buffer or unregistered feature changes; an empty edit session is not a change.
+  bool hasUnpublishedChanges(const QString &id) const;
   bool checkEditingTopology(const QString &id, QString *error);
   bool saveEditingVersion(const QString &draftId, QString *error);
   // 编辑副本创建过程及保存版本后的上图保持视图；主动显示图件仍缩放定位。

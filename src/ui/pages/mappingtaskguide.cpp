@@ -290,9 +290,10 @@ void MappingTaskGuide::refreshCompose() {
       if (!rowInHorizon(row, horizon))
         continue;
       const auto id = row.value("id").toString();
-      const bool copy = row.value("draft").toBool() && id.startsWith(QLatin1String("draft."));
+      const bool copy = row.value("draft").toBool() && id.startsWith(QLatin1String("draft.")) &&
+                        !m_workbench->isWellPrediction(id);
       workCopy = workCopy || copy;
-      if (copy && m_workbench->hasUnpublishedEdits(id))
+      if (copy && m_workbench->hasUnpublishedChanges(id))
         pendingSave = true;
     }
   }
@@ -364,6 +365,8 @@ void MappingWorkbenchPage::installTaskGuide(QVBoxLayout *outer) {
   outer->insertWidget(0, guide);
   outer->setSpacing(PaleoTheme::tokens().spacingXs);
   connect(m_workbench, &MappingWorkbench::editEvidenceChanged, guide, &MappingTaskGuide::refresh);
+  connect(m_workbench, &MappingWorkbench::displayChanged, guide, &MappingTaskGuide::refresh);
+  connect(m_workbench, &MappingWorkbench::faciesEdited, guide, &MappingTaskGuide::refresh);
   connect(m_workbench, &MappingWorkbench::predictionBusyChanged, guide,
           [guide](bool) { guide->refresh(); });
   if (auto *inputs = findChild<QListWidget *>(QStringLiteral("workbenchInputs")))

@@ -2470,6 +2470,17 @@ private slots:
     QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
              QStringLiteral("editBasisText"));
 
+    // The real newMap command enters editing before the user enables evidence.
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(layer, qPrintable(error));
+    QVERIFY(layer->startEditing());
+    QVERIFY(f.work.hasUnpublishedEdits(draft)); // An open session still blocks export.
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    page.selectLayer(draft);
+    QCOMPARE(page.selectedLayer(), draft);
+    QVERIFY(!f.work.versionForLayer(draft).id.isEmpty());
+    QVERIFY(!page.findChild<QPushButton *>("workbench.exportVector")->isEnabled());
+    QVERIFY(!page.findChild<QPushButton *>("workbench.exportMap")->isEnabled());
     const QString text = QStringLiteral("砂厚高值区与井相支持河道展布");
     const QString reason = QStringLiteral("调整河道边界");
     page.findChild<QPlainTextEdit *>("editBasisText")->setPlainText(text);
@@ -2488,17 +2499,143 @@ private slots:
     page.findChild<QLineEdit *>("editBasisReason")->setText(reason);
     QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 2);
 
-    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
-    QVERIFY2(layer, qPrintable(error));
-    QVERIFY(layer->startEditing());
     const auto outline = QgsGeometry::fromWkt("POLYGON((0 0,100 0,100 100,0 100,0 0))");
     QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
-    page.refresh();
+    QVERIFY(f.work.hasUnpublishedChanges(draft));
     hint = page.findChild<QLabel *>("mappingTaskHint");
     QVERIFY2(hint->text().contains(QStringLiteral("检查")), qPrintable(hint->text()));
     QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 3);
     QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
              QStringLiteral("workbench.checkTopology"));
+    auto *guide = page.findChild<QWidget *>("mappingTaskGuide");
+    layer->undoStack()->undo();
+    QTRY_COMPARE(guide->property("stage").toInt(), 2);
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QVERIFY(f.work.hasUnpublishedEdits(draft));
+    layer->undoStack()->redo();
+    QTRY_COMPARE(guide->property("stage").toInt(), 3);
+    QVERIFY(layer->rollBack());
+    QTRY_COMPARE(guide->property("stage").toInt(), 2);
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+  }
+  void taskGuideIgnoresWellPredictionDrafts() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QVERIFY2(f.work.predict("D61", "wells", {"A"}, &error), qPrintable(error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto product = f.latest("wells_prediction"); QVERIFY(!product.isEmpty());
+    const auto draft = f.work.copyForEditing(product, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    QVERIFY(!f.layers.isInstantiated(draft));
+    QVERIFY(f.work.isWellPrediction(draft));
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    auto *guide = page.findChild<QWidget *>("mappingTaskGuide"); QVERIFY(guide);
+    QCOMPARE(guide->property("stage").toInt(), 0);
+    QVERIFY(!f.layers.isInstantiated(draft));
+    auto *points = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(points, qPrintable(error));
+    QCOMPARE(points->geometryType(), Qgis::GeometryType::Point);
+    page.selectLayer(draft);
+    QCOMPARE(guide->property("stage").toInt(), 0);
+    QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
+             QString("mappingBaseMapSelector"));
+  }
+  void taskGuideTracksDisplayLocksAndRollback() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61"); page.selectLayer(draft);
+    page.findChild<QPlainTextEdit *>("editBasisText")->setPlainText("Observed facies");
+    page.findChild<QLineEdit *>("editBasisReason")->setText("Refine boundary");
+    QVERIFY2(f.work.setEditEvidence("D61", {{"text", "Observed facies"},
+        {"reason", "Refine boundary"}}, &error), qPrintable(error));
+    QVERIFY(f.work.setDisplayMode(draft, "micro_facies", &error));
+    auto *guide = page.findChild<QWidget *>("mappingTaskGuide"); QVERIFY(guide);
+    QCOMPARE(guide->property("stage").toInt(), 2);
+    const auto originalLegend = f.work.displayLegend(draft);
+    QgsFeature feature; auto features = layer->getFeatures(); QVERIFY(features.nextFeature(feature)); features.close();
+    QVERIFY2(f.work.setFeatureDisplayMode(draft, {feature.id()}, "facies", &error), qPrintable(error));
+    QCOMPARE(guide->property("stage").toInt(), 3);
+    QVERIFY(f.work.displayLegend(draft) != originalLegend);
+    layer->undoStack()->undo();
+    QTRY_COMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(f.work.displayLegend(draft), originalLegend);
+    layer->undoStack()->redo();
+    QTRY_COMPARE(guide->property("stage").toInt(), 3);
+    QVERIFY(layer->rollBack());
+    QTRY_COMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(f.work.displayLegend(draft), originalLegend);
+  }
+  void committedDisplayLocksStayPendingUntilVersionRegistration() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61"); page.selectLayer(draft);
+    page.findChild<QPlainTextEdit *>("editBasisText")->setPlainText("Observed facies");
+    page.findChild<QLineEdit *>("editBasisReason")->setText("Lock regional context");
+    QVERIFY2(f.work.setEditEvidence("D61", {{"text", "Observed facies"},
+        {"reason", "Lock regional context"}}, &error), qPrintable(error));
+    auto *guide = page.findChild<QWidget *>("mappingTaskGuide"); QVERIFY(guide);
+    auto *exportVector = page.commandButton("exportVector"); QVERIFY(exportVector);
+    auto *exportMap = page.commandButton("exportMap"); QVERIFY(exportMap);
+    const auto previous = f.work.versionForLayer(draft);
+    QVERIFY(layer->startEditing());
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
+    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QCOMPARE(guide->property("stage").toInt(), 2);
+
+    QgsFeature feature; auto features = layer->getFeatures(); QVERIFY(features.nextFeature(feature)); features.close();
+    QVERIFY2(f.work.setFeatureDisplayMode(draft, {feature.id()}, "facies", &error), qPrintable(error));
+    QVERIFY2(layer->commitChanges(false), qPrintable(layer->commitErrors().join(';')));
+    QVERIFY(layer->isEditable()); QVERIFY(f.work.hasUnpublishedChanges(draft));
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
+    QVERIFY(!layer->isEditable());
+    QVERIFY(f.work.hasUnpublishedEdits(draft));
+    QVERIFY(f.work.hasUnpublishedChanges(draft));
+    QCOMPARE(guide->property("stage").toInt(), 3);
+    QVERIFY(!exportVector->isEnabled()); QVERIFY(!exportMap->isEnabled());
+
+    // Switching the selected copy must not lose the committed publication state.
+    const auto other = f.work.createBlankMap("D61", &error); QVERIFY2(!other.isEmpty(), qPrintable(error));
+    page.selectLayer(other); QCOMPARE(page.selectedLayer(), other);
+    QVERIFY(exportVector->isEnabled());
+    page.selectLayer(draft); QCOMPARE(page.selectedLayer(), draft);
+    QVERIFY(!exportVector->isEnabled()); QVERIFY(!exportMap->isEnabled());
+    // Only the later buffer is discarded; the first committed lock still needs a version.
+    QVERIFY(f.work.setFeatureDisplayMode(draft, {feature.id()}, "sub_facies", &error));
+    QVERIFY(layer->rollBack());
+    QCOMPARE(f.work.featureDisplayMode(draft, feature.id()), QString("facies"));
+    QVERIFY(f.work.hasUnpublishedChanges(draft));
+    QCOMPARE(guide->property("stage").toInt(), 3);
+
+    const auto staging = f.dir.filePath("artifacts/staging");
+    QVERIFY(QDir(staging).removeRecursively());
+    QFile blocker(staging); QVERIFY(blocker.open(QIODevice::WriteOnly)); blocker.close();
+    QVERIFY(!f.work.saveEditingVersion(draft, &error));
+    QVERIFY2(error.contains(QStringLiteral("暂存目录")), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, previous.id);
+    QCOMPARE(f.work.featureDisplayMode(draft, feature.id()), QString("facies"));
+    QVERIFY(f.work.hasUnpublishedEdits(draft));
+    QCOMPARE(guide->property("stage").toInt(), 3);
+    QVERIFY(!exportVector->isEnabled()); QVERIFY(!exportMap->isEnabled());
+    QVERIFY(blocker.remove()); error.clear();
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto saved = f.work.versionForLayer(draft); QVERIFY(saved.id != previous.id);
+    QCOMPARE(saved.extra.value("spatial_edit_events").toList(), previous.extra.value("spatial_edit_events").toList());
+    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QCOMPARE(guide->property("stage").toInt(), 2);
+    QVERIFY(exportVector->isEnabled()); QVERIFY(exportMap->isEnabled());
+    QgsVectorLayer snapshot(DataCatalog::resolvedVersionPath(f.dir.path(), saved) + "|layername=features", "saved", "ogr");
+    QVERIFY(snapshot.isValid());
+    const auto published = MappingFeatureIdentity::find(&snapshot, MappingFeatureIdentity::uid(feature));
+    QCOMPARE(published.attribute("facies_display_level").toString(), QString("facies"));
   }
   void taskGuideDistinguishesSavedVersionsFromLazyDrafts() {
     Fixture f; QVERIFY(f.init()); QString error;

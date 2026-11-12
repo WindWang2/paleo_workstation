@@ -298,15 +298,26 @@ Observer::Observer(QgsVectorLayer *layer) : QObject(layer), m_layer(layer) {
     m_historyOwner = m_sessionHistoryOwner; m_historyUids = m_sessionHistoryUids;
     m_fidOwner.clear(); m_known.clear(); m_before.clear(); rebuildIds();
   });
-  connect(layer, &QgsVectorLayer::editingStopped, this, [this] { m_known.clear(); rebuildIds(); });
+  connect(layer, &QgsVectorLayer::editingStopped, this, [this] {
+    m_known.clear(); rebuildIds(); emit publicationStateChanged();
+  });
   connect(layer, &QgsVectorLayer::beforeCommitChanges, this, [this] {
     if (!m_layer) return;
+    m_committingChanges = m_layer->isModified();
     rebuildIds();
     bool valid = !m_ids.contains(QString());
     for (auto it = m_ids.cbegin(); it != m_ids.cend(); ++it) valid &= it.value().size() == 1;
     if (!valid) {
       reportFailure(tr("图元身份缺失或重复，请在工作副本中修复后保存；历史版本未改变"));
     }
+  });
+  connect(layer, &QgsVectorLayer::afterCommitChanges, this, [this] {
+    // Attribute-only commits do not enter the geometry audit. Keep their
+    // publication state until registration succeeds, including across rollback
+    // of a later session or commitChanges(false) from attribute autosave.
+    m_unpublishedCommit |= m_committingChanges;
+    m_committingChanges = false;
+    emit publicationStateChanged();
   });
   rebuildIds();
 }
@@ -589,6 +600,11 @@ void Observer::acknowledge() {
   m_sessionInitial.clear(); m_sessionRecentBefore.clear();
   m_historyOwner.clear(); m_historyUids.clear(); m_fidOwner.clear();
   m_sessionHistoryOwner.clear(); m_sessionHistoryUids.clear();
+  m_unpublishedCommit = false;
+  emit publicationStateChanged();
+}
+bool Observer::hasUnpublishedChanges() const {
+  return m_unpublishedCommit || !changes().isEmpty();
 }
 QVariantMap Observer::editBefore(QgsFeatureId fid) const {
   return snapshot(m_before.value(fid, m_recentBefore.value(m_fidOwner.value(fid))));

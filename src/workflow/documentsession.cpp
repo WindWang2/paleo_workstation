@@ -74,10 +74,12 @@ void DocumentSession::project() const {
         m_effectiveBindings.clear();m_resourceBindingIds.clear();m_bindingProjectionRevision=m_revision;return;
     }
     m_effectiveBindings=m_projection.bindings;
-    QHash<QString,QString> legacySlots;
+    QHash<QString,QString> legacySlots,currentFileSources;
     for(const auto &binding:std::as_const(m_projection.bindings)) {
         const auto key=binding.slotKey()+binding.source.key();
         if(!legacySlots.contains(key) || binding.primary)legacySlots.insert(key,binding.id);
+        const auto asset=m_projection.records.value(binding.source.key()).assetId;
+        currentFileSources.insert(binding.slotKey()+asset,binding.source.key());
     }
     for(auto it=m_projection.savedBindings.cbegin();it!=m_projection.savedBindings.cend();++it) {
         auto binding=it.value();
@@ -86,8 +88,10 @@ void DocumentSession::project() const {
         if(binding.scope.isEmpty() && binding.locator.kind==LocatorKind::File) {
             binding.primary=binding.decision==BindingDecision::Confirmed && !legacy.isEmpty() &&
                 m_projection.fileRepresentatives.value(key)==binding.id && m_projection.bindings.value(legacy).primary;
-            const auto current=m_projection.bindings.constFind(binding.id);
-            if(current!=m_projection.bindings.cend() && current->source!=binding.source && binding.decision==BindingDecision::Confirmed)
+            // Aliases have their own binding IDs; compare the same asset and slot's source identity.
+            const auto asset=m_projection.records.value(binding.source.key()).assetId;
+            const auto current=currentFileSources.constFind(binding.slotKey()+asset);
+            if(current!=currentFileSources.cend() && *current!=binding.source.key() && binding.decision==BindingDecision::Confirmed)
                 binding.decision=BindingDecision::Unresolved; // Keep the selected revision; never retarget it silently.
         }
         m_effectiveBindings.insert(it.key(),binding);

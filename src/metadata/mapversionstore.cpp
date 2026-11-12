@@ -869,7 +869,7 @@ bool MapVersionStore::validatePublishGates(const MapVersion &latestV, const QStr
   }
   // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
   if (frozen && latestV.pdfSha256.size() == 64 &&
-      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
+      !paleo::domain::shaEquals(provenance.value("saved_pdf").toObject().value("sha256").toString(), latestV.pdfSha256)) {
     setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return false;
   }
   // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct

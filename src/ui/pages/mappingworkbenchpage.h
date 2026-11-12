@@ -66,6 +66,7 @@ private:
   void buildComposeAdvanced(QWidget *body, QVBoxLayout *layout);
   void buildDeliveryStep(QWidget *body, QVBoxLayout *layout);
   void buildBaseMapStep(QWidget *body, QVBoxLayout *layout);
+  void installTaskGuide(QVBoxLayout *outer);
   void refreshInputs();
   void buildFaciesSchema(QWidget *schemaBody);
   void wireFaciesUpdates();

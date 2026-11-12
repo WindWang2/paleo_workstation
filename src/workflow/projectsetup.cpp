@@ -264,6 +264,10 @@ bool ProjectSetupWorkflow::applySources(const ProjectSetupSources &sources, cons
       {"horizons", sources.horizons}, {"references", sources.references}, {"boundary", sources.boundary},
       {"pointMapping", preview.pointMapping}, {"files", preview.paths.size()}};
   QVariantMap mapChoices;
+  // 从原始 input 落盘（非净化后的 preview）：mapChoices 记录的是用户勾选
+  // 意图，被否决的图（无有效层位/带 problem）仍记 included=true，与
+  // sourceProblems 配对构成「修正后通过工程资料设置重试」机制
+  // （tst_projectsetup::unresolvedMapDoesNotPreventProjectCreation 固化）。
   for (const auto &map : input.maps) mapChoices.insert(map.path, QVariantMap{{"included", map.included}, {"horizon", map.horizon}});
   file.sourceStats.insert("paleomaps", sources.paleomaps);
   file.sourceStats.insert("normalizeMaps", sources.normalizeMaps);

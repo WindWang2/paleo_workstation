@@ -2436,6 +2436,131 @@ private slots:
     toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
     QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
   }
+  void taskGuideWalksPredictAndCompose() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    MappingWorkbenchPage predict("predict", &f.work);
+    predict.setHorizon("D61");
+    predict.show();
+    QCoreApplication::processEvents();
+    auto *predictGuide = predict.findChild<QWidget *>("mappingTaskGuide");
+    QVERIFY(predictGuide);
+    QCOMPARE(predictGuide->property("stage").toInt(), 0);
+    QVERIFY(predict.findChild<QLabel *>("mappingTaskHint")->text().contains(QStringLiteral("输入")));
+    QVERIFY(predict.findChild<QPushButton *>("mappingTaskStep.prepare"));
+    QVERIFY(predict.findChild<QPushButton *>("mappingTaskStep.run"));
+    QVERIFY(predict.findChild<QPushButton *>("mappingTaskStep.analyze"));
+    QVERIFY(!predict.findChild<QPushButton *>("mappingTaskNext")->isEnabled());
+
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.show();
+    QCoreApplication::processEvents();
+    auto *hint = page.findChild<QLabel *>("mappingTaskHint");
+    QVERIFY(hint->text().contains(QStringLiteral("基础图")));
+    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 0);
+
+    const auto draft = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    page.refresh();
+    hint = page.findChild<QLabel *>("mappingTaskHint");
+    QVERIFY2(hint->text().contains(QStringLiteral("分割")), qPrintable(hint->text()));
+    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 1);
+    auto *editStep = page.findChild<QPushButton *>("mappingTaskStep.edit");
+    QVERIFY(editStep->property("taskBlocked").toBool());
+    QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
+             QStringLiteral("editBasisText"));
+
+    const QString text = QStringLiteral("砂厚高值区与井相支持河道展布");
+    const QString reason = QStringLiteral("调整河道边界");
+    page.findChild<QPlainTextEdit *>("editBasisText")->setPlainText(text);
+    page.findChild<QLineEdit *>("editBasisReason")->setText(reason);
+    QVERIFY2(f.work.setEditEvidence("D61", {{"text", text}, {"reason", reason}}, &error),
+             qPrintable(error));
+    hint = page.findChild<QLabel *>("mappingTaskHint");
+    QVERIFY2(hint->text().contains(QStringLiteral("可以分割")), qPrintable(hint->text()));
+    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 2);
+    QVERIFY(!editStep->property("taskBlocked").toBool());
+
+    page.findChild<QLineEdit *>("editBasisReason")->setText(QStringLiteral("改了但还没启用"));
+    hint = page.findChild<QLabel *>("mappingTaskHint");
+    QVERIFY2(hint->text().contains(QStringLiteral("重新启用")), qPrintable(hint->text()));
+    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 1);
+    page.findChild<QLineEdit *>("editBasisReason")->setText(reason);
+    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 2);
+
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(layer, qPrintable(error));
+    QVERIFY(layer->startEditing());
+    const auto outline = QgsGeometry::fromWkt("POLYGON((0 0,100 0,100 100,0 100,0 0))");
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    page.refresh();
+    hint = page.findChild<QLabel *>("mappingTaskHint");
+    QVERIFY2(hint->text().contains(QStringLiteral("检查")), qPrintable(hint->text()));
+    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 3);
+    QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
+             QStringLiteral("workbench.checkTopology"));
+  }
+  void taskGuideDistinguishesSavedVersionsFromLazyDrafts() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    const auto declaration = f.layers.declaration(draft);
+    const auto version = f.work.versionForLayer(draft);
+    QVERIFY(!version.id.isEmpty());
+    QCOMPARE(version.extra.value("kind").toString(), QString("edited_facies"));
+    QVERIFY(!f.layers.isInstantiated(draft));
+    const auto workingPath = declaration.source.section('|', 0, 0);
+    const auto parkedPath = f.dir.filePath("parked-working.gpkg");
+    QVERIFY(QFile::rename(workingPath, parkedPath));
+    QVERIFY(f.layers.removeDeclaration(draft, &error));
+    QCoreApplication::processEvents();
+    QVERIFY(f.layers.declaration(draft).layerId.isEmpty());
+
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    auto *guide = page.findChild<QWidget *>("mappingTaskGuide");
+    QVERIFY(guide);
+    QVERIFY(!f.layers.declaration("product." + version.id).layerId.isEmpty());
+    QCOMPARE(guide->property("stage").toInt(), 0);
+    QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
+             QString("mappingBaseMapSelector"));
+
+    // A restored declaration is a real working copy even before its layer is loaded.
+    QVERIFY(QFile::rename(parkedPath, workingPath));
+    QVERIFY(f.layers.declare(declaration, &error));
+    page.refresh();
+    QVERIFY(!f.layers.isInstantiated(draft));
+    QCOMPARE(guide->property("stage").toInt(), 1);
+    QVERIFY(page.findChild<QPushButton *>("mappingTaskStep.edit")->property("taskBlocked").toBool());
+  }
+  void taskGuideTracksReferenceReplacementAndClear() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY2(!f.work.createBlankMap("D61", &error).isEmpty(), qPrintable(error));
+    const auto asset = f.input("guide-reference", "well_log");
+    QVERIFY(!asset.isEmpty());
+    const auto version = f.catalog.currentVersion(asset).id;
+    QVERIFY(!version.isEmpty());
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    auto *basis = page.findChild<MappingEditBasis *>(); QVERIFY(basis);
+    auto *guide = page.findChild<QWidget *>("mappingTaskGuide"); QVERIFY(guide);
+    const QVariantList references{QVariantMap{{"name", "reference"}, {"version_id", version}}};
+    basis->setReferences(references);
+    page.findChild<QPlainTextEdit *>("editBasisText")->setPlainText("Observed facies");
+    page.findChild<QLineEdit *>("editBasisReason")->setText("Refine boundary");
+    QVERIFY2(f.work.setEditEvidence("D61", {{"text", "Observed facies"},
+        {"reason", "Refine boundary"}, {"source_versions", QStringList{version}}}, &error), qPrintable(error));
+    QCOMPARE(guide->property("stage").toInt(), 2);
+
+    // setReferences inserts each item before assigning its version ID. The final
+    // dataChanged must restore the ready state when the same evidence is captured.
+    basis->setReferences(references);
+    QCOMPARE(guide->property("stage").toInt(), 2);
+    basis->setReferences({});
+    QCOMPARE(guide->property("stage").toInt(), 1);
+    basis->setReferences(references);
+    QCOMPARE(guide->property("stage").toInt(), 2);
+  }
   // #541 子项 2：零要素相面（从零手绘的起点）建不出编辑副本——此前
   // copyForEditing 被 footprint() 的「无法建立相图覆盖范围」堵死。
   void mappingFlowOffersBlankBasisAndDelivery() {

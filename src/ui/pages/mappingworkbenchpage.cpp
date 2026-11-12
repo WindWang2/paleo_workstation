@@ -61,11 +61,6 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
   layout->setSpacing(PaleoTheme::tokens().spacingSm);
   m_heading = new QLabel(body);
-  QFont title = m_heading->font();
-  title.setPointSize(PaleoTheme::tokens().titlePt);
-  title.setBold(true);
-  m_heading->setFont(title);
-  m_heading->setTextFormat(Qt::PlainText);
   layout->addWidget(m_heading);
   auto label = [body, layout](const QString &text) {
     auto *w = new QLabel(text, body);
@@ -288,7 +283,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_message->hide();
   m_message->setTextInteractionFlags(Qt::TextSelectableByMouse);
   layout->addSpacing(PaleoTheme::tokens().spacingSm);
-  layout->addWidget(paleo::pagesinternal::caption(mode == "compose" ? tr("3 · 当前编图与编辑") : tr("图件与版本"), body));
+  layout->addWidget(paleo::pagesinternal::caption(mode == "compose" ? tr("3 · 相面编辑")
+                         : mode == "predict" ? tr("3 · 查看与分析") : tr("图件与版本"), body));
   m_results = new QTreeWidget(body);
   m_results->setObjectName("workbenchResults");
   m_results->setHeaderLabels({tr("图件"), tr("版本")});
@@ -424,6 +420,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
           &MappingWorkbenchPage::scheduleRefresh);
   wireFaciesUpdates();
   paleo::pagesinternal::shrinkComboBoxesToDock(body);
+  installTaskGuide(outer);
   refresh();
 }
 QPushButton *MappingWorkbenchPage::commandButton(const QString &name) const {
@@ -566,6 +563,8 @@ void MappingWorkbenchPage::refresh() {
   }
   refreshInputs();
   updateState();
+  if (auto *guide = findChild<QObject *>(QStringLiteral("mappingTaskGuide")))
+    QMetaObject::invokeMethod(guide, "refresh");
 }
 void MappingWorkbenchPage::showMessage(const QString &message) {
   m_message->setText(message);

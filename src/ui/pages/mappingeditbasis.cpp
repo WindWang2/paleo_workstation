@@ -22,11 +22,12 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
   layout->setSpacing(PaleoTheme::tokens().spacingSm);
   root->addWidget(group, 1);
   auto *hint = new QLabel(tr("选择正在参考的证据，补充解释说明及修改目的后启用。"
-                             "随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。"),
+                             "随后新建、分割、改类和共边修改会自动记录这些依据；"
+                             "没启用依据时这些编辑无法完成。修改说明后需重新启用。"),
                           group);
   hint->setWordWrap(true);
   hint->setToolTip(hint->text());
-  hint->setText(tr("填写解释说明和修改目的，启用后开始绘制。"));
+  hint->setText(tr("填写说明和修改目的。未启用时，分割相面无法完成。"));
   layout->addWidget(hint);
   auto *capture = new QPushButton(tr("选取当前显示的参考证据"), group);
   capture->setObjectName("workbench.captureEditEvidence");
@@ -132,8 +133,9 @@ void MappingEditBasis::updateState() {
                     current.value("text").toString() == m_text->toPlainText().trimmed() &&
                     current.value("reason").toString() == m_reason->text().trimmed() &&
                     current.value("source_versions").toStringList() == versions;
-  m_state->setText(current.isEmpty() ? tr("尚未启用依据；请先启用，再绘制或修改元素。")
+  m_state->setText(current.isEmpty()
+                       ? tr("尚未启用依据。分割相面、覆盖绘制和合并都要先启用，否则无法完成。")
                    : same ? tr("已启用：%1 个参考版本及人工说明。解释仍需复核，参考图不自动视为地质支持。 ")
                                 .arg(current.value("references").toList().size())
-                          : tr("表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。"));
+                          : tr("表单已改动；当前编辑仍采用上一次启用的依据。请重新启用后再分割或修改相面。"));
 }

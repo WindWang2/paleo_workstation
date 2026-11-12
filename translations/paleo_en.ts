@@ -14105,14 +14105,14 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="23" />
-            <source>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。</source>
-            <translation type="unfinished" />
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="24" />
+            <source>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、分割、改类和共边修改会自动记录这些依据；没启用依据时这些编辑无法完成。修改说明后需重新启用。</source>
+            <translation>Select the evidence you are using, add your interpretation and the purpose of the changes, then enable it. Subsequent creation, splitting, reclassification, and shared-boundary edits record this evidence automatically; these edits cannot be completed until it is enabled. Enable it again after changing the explanation.</translation>
         </message>
         <message>
-            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="28" />
-            <source>填写解释说明和修改目的，启用后开始绘制。</source>
-            <translation type="unfinished" />
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="30" />
+            <source>填写说明和修改目的。未启用时，分割相面无法完成。</source>
+            <translation>Enter an explanation and the purpose of the changes. Enable the evidence before splitting facies polygons.</translation>
         </message>
         <message>
             <location filename="../src/ui/pages/mappingeditbasis.cpp" line="30" />
@@ -14165,9 +14165,9 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="131" />
-            <source>尚未启用依据；请先启用，再绘制或修改元素。</source>
-            <translation type="unfinished" />
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="137" />
+            <source>尚未启用依据。分割相面、覆盖绘制和合并都要先启用，否则无法完成。</source>
+            <translation>Evidence is not enabled. Enable it before splitting, overpainting, or merging facies polygons; these edits cannot be completed otherwise.</translation>
         </message>
         <message>
             <location filename="../src/ui/pages/mappingeditbasis.cpp" line="132" />
@@ -14175,9 +14175,9 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="134" />
-            <source>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</source>
-            <translation type="unfinished" />
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="140" />
+            <source>表单已改动；当前编辑仍采用上一次启用的依据。请重新启用后再分割或修改相面。</source>
+            <translation>The form has changed; current edits still use the previously enabled evidence. Enable it again before splitting or modifying facies polygons.</translation>
         </message>
         <message>
             <source>解释说明</source>
@@ -14349,6 +14349,259 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="243" />
             <source>将关闭最后一个证据视图（可随时再添加）</source>
             <translation type="unfinished" />
+        </message>
+    </context>
+    <context>
+        <name>MappingTaskGuide</name>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="103" />
+            <source>任务向导</source>
+            <translation>Task guide</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="117" />
+            <source>编图步骤</source>
+            <translation>Mapping steps</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="117" />
+            <source>预测步骤</source>
+            <translation>Prediction steps</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="161" />
+            <source>1 基础图</source>
+            <translation>1 Base map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="162" />
+            <source>选择已有图件，或新建空白相图</source>
+            <translation>Choose an existing map or create a blank facies map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="163" />
+            <source>2 依据</source>
+            <translation>2 Evidence</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="164" />
+            <source>填写解释说明和修改目的后启用。分割相面、覆盖绘制和合并都要先完成这一步</source>
+            <translation>Enter the interpretation and purpose of the changes, then enable the evidence. Complete this step before splitting, overpainting, or merging facies polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="165" />
+            <source>3 相编辑</source>
+            <translation>3 Edit facies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="166" />
+            <source>先在画布选中相面，再分割、覆盖绘制或合并</source>
+            <translation>Select a facies polygon on the canvas before splitting, overpainting, or merging</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="167" />
+            <source>4 保存</source>
+            <translation>4 Save</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="168" />
+            <source>检查三级相面拓扑，保存新版本后再导出</source>
+            <translation>Check polygon topology across all three facies levels, then save a new version before exporting</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="170" />
+            <source>1 准备</source>
+            <translation>1 Prepare</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="171" />
+            <source>选择预测类型，并勾选井或地震体</source>
+            <translation>Choose a prediction type and select wells or a seismic volume</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="172" />
+            <source>2 运行</source>
+            <translation>2 Run</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="173" />
+            <source>按当前层位运行预测</source>
+            <translation>Run the prediction for the current horizon</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="174" />
+            <source>3 分析</source>
+            <translation>3 Analyze</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="175" />
+            <source>把图件显示到画布，对照井道或一致性</source>
+            <translation>Show the map on the canvas, compare well tracks, or check consistency</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="192" />
+            <source>请先完成上一步</source>
+            <translation>Complete the previous step first</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="195" />
+            <source>滚到这一步的控件</source>
+            <translation>Scroll to the controls for this step</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="242" />
+            <source>请先在画布上方选择层位，再准备井或地震输入。</source>
+            <translation>Select a horizon above the canvas, then prepare the well or seismic inputs.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="245" />
+            <source>预测进行中，可以取消。完成后图件会出现在分析和画布上。</source>
+            <translation>Prediction is running and can be canceled. The resulting maps will appear in Analyze and on the canvas.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="246" />
+            <source>看进度</source>
+            <translation>View progress</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="249" />
+            <source>已选中图件。显示到画布后，测井结果可打开井道修订，地震相可做一致性对照。</source>
+            <translation>A map is selected. Show it on the canvas, then open well tracks to revise well-log results or check seismic facies consistency.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="250" />
+            <source>显示图件</source>
+            <translation>Show map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="253" />
+            <source>本层已有图件。选中后显示到画布，测井结果可打开井道，地震相可做一致性对照。要重跑，先勾选输入再运行。</source>
+            <translation>This horizon already has maps. Select one to show on the canvas, then open well tracks for well-log results or check seismic facies consistency. To rerun, select the inputs first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="254" />
+            <source>去分析</source>
+            <translation>Go to Analyze</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="257" />
+            <source>暂无可用输入。请先在数据管理导入并关联地震体或测井，再回来勾选。</source>
+            <translation>No inputs are available. Import and associate a seismic volume or well logs in Data Management, then return to select them.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="261" />
+            <source>勾选本层位的井。每口井得到当前地层的预测微相，分析时可打开井道。</source>
+            <translation>Select wells for this horizon. Each well receives predicted microfacies for the current stratum; open the well tracks to analyze them.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="263" />
+            <source>勾选一个地震体。Mock 会沿层位窗聚类，结果需要地质复核。</source>
+            <translation>Select a seismic volume. Mock clusters within the horizon window; the results require geological review.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="264" />
+            <source>勾选一个地震体，按当前层位调用预测服务。</source>
+            <translation>Select a seismic volume to call the prediction service for the current horizon.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="265" />
+            <source>去勾选</source>
+            <translation>Select inputs</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="268" />
+            <source>输入已齐。运行后到「分析」：显示图件、对照井道，或看地震相和测井相是否一致。</source>
+            <translation>The inputs are ready. Run the prediction, then go to Analyze to show maps, compare well tracks, or check consistency between seismic and well-log facies.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="269" />
+            <source>去运行</source>
+            <translation>Go to Run</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="302" />
+            <source>分割相面、覆盖绘制和合并都要先启用解释依据，否则这些编辑无法完成</source>
+            <translation>Enable interpretation evidence before splitting, overpainting, or merging facies polygons; these edits cannot be completed without it</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="308" />
+            <source>请先在画布上方选择层位。</source>
+            <translation>Select a horizon above the canvas first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="311" />
+            <source>先在基础图里选择已有图件，或新建空白相图。建好后必须启用解释依据，分割相面才能完成。</source>
+            <translation>Choose an existing base map or create a blank facies map. Then enable interpretation evidence before splitting facies polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="312" />
+            <source>去选基础图</source>
+            <translation>Choose a base map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="315" />
+            <source>解释依据已启用。建立相图之后就可以绘制，并用分割切开相面。</source>
+            <translation>Interpretation evidence is enabled. Create a facies map to start drawing and splitting facies polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="316" />
+            <source>去建图</source>
+            <translation>Create a map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="319" />
+            <source>还不能完成相面编辑。分割、覆盖绘制和合并都要先启用解释依据，否则改动落不成。</source>
+            <translation>Facies edits cannot be completed yet. Enable interpretation evidence before splitting, overpainting, or merging polygons so that the changes can be applied.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="320" />
+            <source>去启用依据</source>
+            <translation>Enable evidence</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="323" />
+            <source>依据表单已改，还没重新启用。现在分割仍按上一次的依据记录，新说明不会写上。</source>
+            <translation>The evidence form has changed but has not been enabled again. Splits still record the previously enabled evidence, without the new explanation.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="324" />
+            <source>重新启用</source>
+            <translation>Enable again</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="327" />
+            <source>相面已改。先检查拓扑，再保存新版本。导出要等保存之后。</source>
+            <translation>Facies polygons have changed. Check their topology, then save a new version before exporting.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="328" />
+            <source>去检查</source>
+            <translation>Check topology</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="331" />
+            <source>依据已启用，可以分割相面：先在画布选中相面，再画一条穿过该面的分割线。新面继承原来的三级归属。</source>
+            <translation>Evidence is enabled. To split a facies polygon, select it on the canvas and draw a split line through it. The new polygons inherit its classification at all three levels.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="332" />
+            <source>去编相面</source>
+            <translation>Edit facies polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="337" />
+            <source>启用后，随后的分割和改类会自动记下这些依据</source>
+            <translation>Once enabled, this evidence is recorded automatically for subsequent splits and reclassifications</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="341" />
+            <source>依据已启用。先选中相面，再画分割线；新面继承原来的三级归属</source>
+            <translation>Evidence is enabled. Select a facies polygon and draw a split line; the new polygons inherit its classification at all three levels</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="342" />
+            <source>先完成基础图和解释依据，再分割相面</source>
+            <translation>Prepare the base map and interpretation evidence before splitting facies polygons</translation>
         </message>
     </context>
     <context>
@@ -17241,9 +17494,9 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="291" />
-            <source>3 · 当前编图与编辑</source>
-            <translation type="unfinished" />
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="286" />
+            <source>3 · 相面编辑</source>
+            <translation>3 · Edit facies polygons</translation>
         </message>
         <message>
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="296" />
@@ -17906,6 +18159,16 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
 
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="287" />
+            <source>3 · 查看与分析</source>
+            <translation>3 · View and analyze</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="387" />
+            <source>按上面的步骤准备输入、运行，再对照图件分析。</source>
+            <translation>Follow the steps above to prepare inputs, run the prediction, and compare the resulting maps.</translation>
+        </message>
     </context>
     <context>
         <name>MappingWorkflow</name>

@@ -46,7 +46,7 @@ Office、XML 和工区导航用例均完成。测试维持原 300 秒预算，�
 `taskGuideIgnoresWellPredictionDrafts` 和 `taskGuideTracksDisplayLocksAndRollback`，
 使用实际开启编辑、绘制、锁定及撤销／回滚操作验证状态转换。
 
-## 修后验证记录
+## 第一轮修后验证记录
 
 应用 `paleo` 和下列测试目标通过 `cmake --build build -j8 --target ...` 构建，
 Office 编辑组件链接保持可用。使用 `./paleo-dev test -j4 -R ...` 运行 12 项 CTest，
@@ -78,6 +78,52 @@ QtTest 明细在 `build/Testing/qtest-first-run/`。最后一次 `git fetch orig
 `git rebase origin/master` 后重跑 Source gates，33/33 通过，未增加任何基线；
 完整记录在 `/tmp/paleo-followup-source-gates.log`。CRT 同步修订后的沙箱重跑也通过，
 日志为 `/tmp/paleo-followup-sandbox-test.log`（Linux 3 通过、4 个 Windows 场景跳过）。
+
+## 追加问题修复
+
+继续排查时，GitHub 没有开放 issue；本轮依据实现和回归用例确认并修复以下遗漏：
+
+- **已提交工作文件的未发布状态。** 相面锁定等纯属性修改不产生几何审计事件。
+  原生提交结束后，旧查询只检查编辑缓冲与几何审计，误把修改视为已发布。
+  Observer 现在单独记录成功提交后的未登记状态，只在新版本登记成功后确认；
+  后续空会话、切换编辑副本和回滚不会丢失先前已提交的修改。登记失败后向导仍提示
+  检查保存，地图和矢量导出仍禁用，排除故障后可重试保存。状态沿用现有 Observer
+  的会话生命周期，本轮不新增工程重开后的持久差异追踪格式。
+- **来源别名随内容换版失效。** 旧逻辑按绑定 ID 查询当前来源，遗漏用户创建的
+  文件别名。投影现在用资产与用途槽建立来源索引，内容变化时保留旧 SourceRef、
+  取消主选并降为 Unresolved。同内容重定位继续有效；同井同用途的其他资产不受影响。
+  该判定仅作只读投影，不改目录修订，也不按名称或路径重绑。
+- **PDF 摘要大小写。** 发布门、快照复制和目标复核三处统一使用现有
+  `shaEquals()`，使原生与 prepared 保存／发布对大小写等价的 SHA 采用相同口径。
+  真正不同的摘要仍拒绝，准备失败清理暂存目录，不推进版本或发布状态。
+
+新增回归分别为 `committedDisplayLocksStayPendingUntilVersionRegistration`、
+`fileAliasSelectionTracksSourceRevision`（两数据行）、
+`frozenPdfBindingUsesCaseInsensitiveSha` 和 `preparedSnapshotUsesCaseInsensitiveSha`
+（合计八数据行）。它们检查实际提交、失败、重试、重开和输出文件内容。
+
+应用及相关测试目标以 `-j8` 重建成功。追加修复后的六个功能套件逐项通过：
+
+| 套件 | 通过 / 失败 / 跳过 |
+|---|---|
+| `tst_mappingworkbench` | 138 / 0 / 1 |
+| `tst_featureidentity` | 34 / 0 / 0 |
+| `tst_document_sources` | 25 / 0 / 0 |
+| `tst_document_relations` | 18 / 0 / 0 |
+| `tst_document_relation_session` | 10 / 0 / 0 |
+| `tst_versions` | 46 / 0 / 0 |
+
+编图 CTest 耗时 213 秒；相关测试使用 `-j2`、编图使用 `-j1`，未增加超时。
+最后一次 rebase 后 Source gates 33/33 通过，基线未增长。日志分别为
+`/tmp/paleo-issues-build.log`、`/tmp/paleo-issues-mapping-test.log`、
+`/tmp/paleo-issues-related-tests.log`、`/tmp/paleo-issues-source-gates.log`。
+
+额外的 `tst_mapsnapshot_scale` 不计入上述通过结果：坏解释拒绝用例和
+`10k-short` 完成，后者两次保存的 worker 耗时分别为 38,910 / 127,691 ms。
+运行到 `10k-long` 时主动终止整个额外规模测试，因此相关 CTest 命令以非零退出，
+该项记录为 `Subprocess terminated`；长历史和两个 100k 行均未完成。
+GDB 附加被系统 ptrace 策略拒绝，不能仅凭高 CPU 推断热点或死锁。
+本轮不宣称规模性能通过或提速；待进一步阶段计时与调用栈定位。
 
 ## 仍未覆盖
 

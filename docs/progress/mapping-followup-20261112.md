@@ -37,6 +37,8 @@ Office、XML 和工区导航用例均完成。测试维持原 300 秒预算，�
   `displayChanged` / `faciesEdited` 更新向导，不依赖调用者手动刷新界面。
 - **Windows 测试直跑隔离。** `paleo_test_registry_sandbox.cpp` 在沙箱成功激活后，
   为未指定配置目录的直跑补上各测试独立的 `QGIS_CUSTOM_CONFIG_PATH`，保留显式路径。
+  配置目录和沙箱生效标记同时同步 CRT 与 Win32 环境块，分别覆盖 QGIS 的 `getenv`、
+  Qt 的宽字符读取和子进程继承；不再仅依赖 `SetEnvironmentVariableW`。
   `tst_test_sandbox` 通过清除继承的沙箱环境后启动子进程，覆盖默认直跑入口；
   `tst_runtime` 按实际 `PALEO_TEST_REGISTRY_SANDBOX_ACTIVE` 状态判断配置路径约定。
 
@@ -46,9 +48,36 @@ Office、XML 和工区导航用例均完成。测试维持原 300 秒预算，�
 
 ## 修后验证记录
 
-待统一构建和测试后补齐。修复前两套件的通过结果不重复记为修后验收。
-合入前需更新基线、重跑 Source gates，构建和测试并行度均不超过 8；
-Windows 运行时行为须有该平台证据，Linux 编译或源码检查不能代替。
+应用 `paleo` 和下列测试目标通过 `cmake --build build -j8 --target ...` 构建，
+Office 编辑组件链接保持可用。使用 `./paleo-dev test -j4 -R ...` 运行 12 项 CTest，
+全部成功退出，总耗时 213.89 秒；没有提高原有测试超时。QtTest 细分如下：
+
+| 套件 | 通过 / 失败 / 跳过 |
+|---|---|
+| `tst_mappingworkbench` | 137 / 0 / 1 |
+| `tst_datapreview` | 43 / 0 / 1 |
+| `tst_projectsetup` | 46 / 0 / 7 |
+| `tst_shell_projectlifecycle` | 19 / 0 / 1 |
+| `tst_document_sources` | 23 / 0 / 0 |
+| `tst_document_relations` | 18 / 0 / 0 |
+| `tst_document_relation_session` | 10 / 0 / 0 |
+| `tst_document_relation_reader` | 6 / 0 / 0 |
+| `tst_document_sources_hy` | 0 / 0 / 1 |
+| `tst_runtime` | 13 / 0 / 0 |
+| `tst_startupdatabases` | 8 / 0 / 0 |
+| `tst_test_sandbox` | 3 / 0 / 4 |
+
+新增编图用例及原有任务向导用例全部通过。`tst_document_sources_hy` 因未设置外部
+HY 数据路径整套跳过；工程设置等已有 opt-in 实数据／截图用例继续跳过。
+本机为 Linux，沙箱套件的 4 个 Windows 场景未执行，不能把它们计为 Windows
+修复实证。最后一轮 CRT 同步变更后另行重建、复跑 `tst_test_sandbox`。
+
+构建与运行日志：`/tmp/paleo-followup-build.log`、
+`/tmp/paleo-followup-related-build.log`、`/tmp/paleo-followup-tests.log`；
+QtTest 明细在 `build/Testing/qtest-first-run/`。最后一次 `git fetch origin`、
+`git rebase origin/master` 后重跑 Source gates，33/33 通过，未增加任何基线；
+完整记录在 `/tmp/paleo-followup-source-gates.log`。CRT 同步修订后的沙箱重跑也通过，
+日志为 `/tmp/paleo-followup-sandbox-test.log`（Linux 3 通过、4 个 Windows 场景跳过）。
 
 ## 仍未覆盖
 

@@ -36,6 +36,7 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace
@@ -50,6 +51,22 @@ std::wstring envVar( const wchar_t *name )
   const DWORD m = ::GetEnvironmentVariableW( name, &v[0], n );
   v.resize( m );
   return v;
+}
+
+void setProcessEnvironment( const wchar_t *name, const wchar_t *value )
+{
+  // QGIS reads getenv(), Qt reads _wgetenv_s(), and child processes inherit
+  // the Win32 block. SetEnvironmentVariableW alone leaves the CRT copies stale.
+  const bool remove = !value || !*value;
+  const int crtError = ::_wputenv_s( name, remove ? L"" : value );
+  const bool osOk = ::SetEnvironmentVariableW( name, remove ? nullptr : value ) != 0;
+  const DWORD osError = osOk ? ERROR_SUCCESS : ::GetLastError();
+  if ( crtError == 0 && ( osOk || ( remove && osError == ERROR_ENVVAR_NOT_FOUND ) ) )
+    return;
+  std::fwprintf( stderr, L"[paleo-test-sandbox] cannot update %ls (CRT %d, Win32 %lu)\n",
+                 name, crtError, static_cast<unsigned long>( osError ) );
+  std::fflush( stderr );
+  ::ExitProcess( ERROR_ACCESS_DENIED );
 }
 
 std::wstring exeBaseName()
@@ -96,9 +113,11 @@ void ensureQgisConfig( const std::wstring &hive )
   {
     ::CreateDirectoryW( config.c_str(), nullptr );
     const DWORD attributes = ::GetFileAttributesW( config.c_str() );
-    if ( attributes != INVALID_FILE_ATTRIBUTES && ( attributes & FILE_ATTRIBUTE_DIRECTORY ) &&
-         ::SetEnvironmentVariableW( L"QGIS_CUSTOM_CONFIG_PATH", config.c_str() ) )
+    if ( attributes != INVALID_FILE_ATTRIBUTES && ( attributes & FILE_ATTRIBUTE_DIRECTORY ) )
+    {
+      setProcessEnvironment( L"QGIS_CUSTOM_CONFIG_PATH", config.c_str() );
       return;
+    }
   }
   std::fwprintf( stderr, L"[paleo-test-sandbox] QGIS config unavailable; stopping before application startup\n" );
   std::fflush( stderr );
@@ -147,10 +166,10 @@ struct RegistrySandbox
 
   RegistrySandbox()
   {
+    setProcessEnvironment( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", nullptr );
     std::wstring hive = envVar( L"PALEO_TEST_REGISTRY_HIVE" );
     if ( hive == L"native" || hive == L"off" )
       return;
-    ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", nullptr );
     const bool requiredHive = !hive.empty(); // ctest 显式路径必须第一档成功
     if ( hive.empty() )
       hive = defaultHivePath();
@@ -166,7 +185,7 @@ struct RegistrySandbox
       if ( rc == ERROR_SUCCESS && activate( root ) )
       {
         ensureQgisConfig( hive );
-        ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", hive.c_str() );
+        setProcessEnvironment( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", hive.c_str() );
         return;
       }
       if ( rc != ERROR_SUCCESS )
@@ -194,7 +213,7 @@ struct RegistrySandbox
       fallbackKey = key;
       ensureQgisConfig( hive );
       const std::wstring active = L"hkcu-key:HKCU\\" + key;
-      ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", active.c_str() );
+      setProcessEnvironment( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", active.c_str() );
       return;
     }
     if ( root )

@@ -15,6 +15,7 @@
 #include <QProcessEnvironment>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <cstdlib>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -60,9 +61,17 @@ private slots:
   void qgisConfigIsAvailableForActiveSandbox()
   {
 #ifdef Q_OS_WIN
-    QVERIFY(!qEnvironmentVariable("PALEO_TEST_REGISTRY_SANDBOX_ACTIVE").isEmpty());
+    const auto active = qEnvironmentVariable("PALEO_TEST_REGISTRY_SANDBOX_ACTIVE");
+    QVERIFY(!active.isEmpty());
+    const char *activeCrt = std::getenv("PALEO_TEST_REGISTRY_SANDBOX_ACTIVE");
+    QVERIFY(activeCrt && *activeCrt);
+    QCOMPARE(QString::fromLocal8Bit(activeCrt), active);
     const auto config = qEnvironmentVariable("QGIS_CUSTOM_CONFIG_PATH");
     QVERIFY2(!config.isEmpty(), "active registry sandbox must provide a QGIS configuration root");
+    // QGIS 4.2 consumes getenv(), whereas Qt's QString accessor reads _wenviron.
+    const char *configCrt = std::getenv("QGIS_CUSTOM_CONFIG_PATH");
+    QVERIFY2(configCrt && *configCrt, "QGIS configuration must also be visible to the narrow CRT");
+    QCOMPARE(QString::fromLocal8Bit(configCrt), config);
     QVERIFY2(QFileInfo(config).isDir(), qPrintable(config));
     const auto expected = qEnvironmentVariable("PALEO_TEST_EXPECT_QGIS_CONFIG");
     if (!expected.isEmpty()) QCOMPARE(QDir(config).absolutePath(), QDir(expected).absolutePath());

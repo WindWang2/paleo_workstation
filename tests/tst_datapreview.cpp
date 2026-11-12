@@ -1267,16 +1267,11 @@ void TestDataPreview::officeFormatsUseOfflinePreview()
   const QString id = st->importSvc->importProjectFile(source, &error);
   QVERIFY2(!id.isEmpty(), qPrintable(error));
   const int versionsBefore = st->importSvc->catalog()->versionsForAsset(id).size();
-  QSignalSpy pdfReady(st->importSvc.get(), &DataImportService::documentPdfReady);
-  QSignalSpy xlsxReady(st->importSvc.get(), &DataImportService::workbookXlsxReady);
   st->preview->openAsset(id);
   QVERIFY(st->preview->findChild<QWidget *>("officePreview"));
   QVERIFY(!st->preview->findChild<QPdfView *>());
   QVERIFY(!st->preview->findChild<QTableWidget *>("workbookSheetTable"));
-  QCOMPARE(st->importSvc->documentPdfState(id), DataImportService::DocPdfState::None);
-  QCOMPARE(st->importSvc->workbookXlsxState(id), DataImportService::WorkbookXlsxState::None);
   QCoreApplication::processEvents();
-  QCOMPARE(pdfReady.count(), 0); QCOMPARE(xlsxReady.count(), 0);
   QCOMPARE(st->importSvc->catalog()->versionsForAsset(id).size(), versionsBefore);
 }
 

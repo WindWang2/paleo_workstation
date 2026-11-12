@@ -15,7 +15,7 @@
 | `horizon`（层位散点） | 元数据卡 + 派生栅格就地 `QgsMapCanvas` 伪彩预览（私有层不进 QgsProject） | **是** | D1.x 框架化；D2.1 等值线 overlay；D2.2 拉伸/色带控制；D2.3 直方图小图；D2.9 版本切换；D5.1–5.8 剖面/统计/极值/直方图 |
 | `seismic`（SEG-Y） | 二维测线剖面 + 三维立体 + 水平时间切片（转码双通道） | （P5 领地） | **本分支函数体不动**（并行任务持有）；仅其外围（quickInfo/modeTabs 容器之外）不受影响 |
 | `image_reference`（PNG/JPG） | QLabel 图片查看器 + 「未配准，不加入地图」 | **是（有配准时）** | D2.7：world file/四参数配准 → 栅格上图；未配准 → 查看器 + 「去配准」引导 |
-| `document`（PDF/office） | QPdfView 渲染（office 经 soffice 转 PDF） | 否 | 无画布缺口 |
+| `document`（PDF/office） | PDF 走 QPdfView；Office 原件走离线页面预览（不转 PDF） | 否 | 无画布缺口 |
 | `geojson` / boundary.geojson | `QgsVectorLayer` + 分类渲染（相字段）+ 画布 + 属性表（双视图） | **是** | D2.4 图例侧栏；D2.5 identify；D4.x TOC/符号快调；D3.x 工具 |
 | 辅助/参考/未知 | 文件名 + 类型 + 系统打开 + 「未配准」；XML 走综合柱状图 | 部分 | D2.12 统一「不支持预览」态 + 可支持类型列表 |
 | （测区全景）`openSurveyArea` | 自建 `QgsMapCanvas` + 工区边界橡皮带 + 装饰件 + 工具条 | **是** | D1.x 框架化（保 objectName 兼容面） |

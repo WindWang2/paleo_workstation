@@ -92,7 +92,7 @@ superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同
 编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
 （ABI floor，无法 vendored）、ONNX Runtime（官方 release SHA256 pin，
 与 QGIS 路线正交）。Office 原件使用钉死提交的 **ranuts/document**
-静态编辑页（OnlyOffice WASM，无文档服务器），不依赖 LibreOffice，也不把原件转成 PDF。
+静态编辑页（OnlyOffice WASM，无文档服务器），也不把原件转成 PDF。
 `vendor/fetch-ranuts-document.sh` 把构建结果装到 `vendor/ranuts-document/`（gitignored）。
 该目录是 AGPL-3.0 派生作品，分发应用时必须带上对应源码，并保留编辑器里的 ONLYOFFICE 标识。
 运行时先查 `PALEO_OFFICE_EDITOR`（指向含 `index.html` 的目录），再查应用同目录
@@ -113,28 +113,9 @@ vendor/fetch-ranuts-document.sh
 
 `vendor/fetch-calligra.sh` 仍可源码构建 Calligra 26.08.2，但 Office 预览不再调用它。
 其消费的 `cmake/CalligraRenderer.cmake` 由该脚本注入 Calligra 构建、本树零引用属有意且无 CI 车道——改动须手跑该脚本验证（见 `cmake/README.md`，#874）。
-旧 `vendor/fetch-libreoffice.sh` 仅服务显式调用的历史转换 API。
 Qt6 与 KDE Frameworks 6 开发依赖优先由 `PALEO_KF6_PREFIX` 指定前缀，系统开发包
 为兜底；Qt/KF6 必须与主程序保持 ABI 一致。当前 Linux 构建使用 Qt 6.11.2、
 KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是 Calligra 上游最低要求，与 Office 编辑页无关。
-
-#### LibreOffice vendored（双平台，legacy 转换 API 专用）
-
-`vendor/fetch-libreoffice.sh` 双平台同一布局 `vendor/libreoffice/`（resolver 从应用
-目录向上探测 `program/soffice[.exe]`，三级序 env `PALEO_SOFFICE` > vendored > PATH）：
-
-| 平台 | 官方包 | 解包 | 剪裁后体量 |
-|---|---|---|---|
-| Linux x64 | deb tarball（`deps.libreoffice` pin） | ar+tar 解 12 个 headless 子集 deb | ~550MB |
-| Windows x64 | MSI（`deps.libreoffice_win` pin） | `msiexec /a` administrative extract（无需提权） | ~920MB |
-
-两平台钉同一上游版本 26.2.6.3（`tools/check_lo_pin.py` ctest 门禁看守版本对齐 +
-url/sha256/layout 口径）。Windows 段剪掉 dict-*/语言 res/python/help/shell 扩展
-（Linux 白名单本就不取的面），并在解包后做 `icacls /setintegritylevel medium`
-归一——Low 完整性标签的工作区（沙箱防护）会让 soffice 的 user-installation 引导
-以 exit 77 失败（方向 94 R0 实测，详见 PR 描述）。Windows bootstrap
-（`paleo-dev.ps1 bootstrap`）自动补这条腿；产物 DERIVED 版本带
-`converterVersion`/`converterPlatform` 血统（跨平台转换差异可追溯）。
 
 ### glibc 三档口径（显式分层，非混乱）
 

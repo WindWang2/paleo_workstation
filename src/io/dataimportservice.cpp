@@ -17,13 +17,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QProcess>
-#include <QThread>
-
-#ifdef Q_OS_UNIX
-#include <csignal>
-#include <unistd.h>
-#endif
 
 // ---------------------------------------------------------------------------
 // project_area 导入契约（plan §3）：
@@ -49,45 +42,11 @@ DataImportService::DataImportService(PaleoProjectStore *store, QObject *parent)
 DataImportService::~DataImportService()
 {
   paleo::native_model::unregisterCatalog(this);
-  // 方向57 阻塞解除：析构不再同步等待转换进程至多 2s（主线程事件循环冻结）。
-  // 语义保留：kill() 照旧强杀；QProcess 交 deleteLater 异步回收（与
-  // setProjectDir 的工程切换清理同一模式）。2s 等待上限的取消是本方向显式
-  // 授权的行为变更——进程终止由 OS 异步完成，资源回收不阻塞析构。
-  abortInflightConversion();
-}
-
-// #555：在途转换的即刻回收（析构/工程切换）——整组 SIGKILL（setsid 进程组
-// 连坐 soffice.bin 孙进程，不留孤儿占 profile 锁）+ 看门狗停表 + QProcess
-// 异步回收。不发失败信号：两条调用路径都把队列/状态整体作废。
-void DataImportService::abortInflightConversion()
-{
-  if (!m_convProc)
-    return;
-#ifdef Q_OS_UNIX
-  const qint64 pid = m_convProc->processId();
-  if (pid > 0)
-    ::kill(-pid, SIGKILL);
-#endif
-  stopConversionTimers();
-  m_convProc->disconnect(this);
-  m_convProc->kill();
-  m_convProc->deleteLater();
-  m_convProc = nullptr;
 }
 
 void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared)
 {
   paleo::native_model::unregisterCatalog(this);
-  // 工程切换时丢弃在途/排队转换——它们写向旧工程目录，且状态随之失效。
-  abortInflightConversion();
-  m_convQueue.clear();
-  m_convCurrent.clear();
-  m_convCurrentExt.clear();
-  m_convRawVersionId.clear(); // A-04：跨工程脏血统值一并清
-  m_convCurrentVersionId.clear();
-  m_convPending.clear();
-  m_convErrors.clear();
-
   const bool projectChanged = QDir::cleanPath(m_projectDir) != QDir::cleanPath(dir);
   m_projectDir = dir;
   ++m_catalogEpoch; // 在途 session 的产出不得提交进新工程

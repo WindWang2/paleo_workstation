@@ -32,13 +32,11 @@
 | QGIS / GDAL / PROJ / GEOS（deb 闭包） | `vendor/deb-closure.lock`、`vendor/fetch-deps.sh` | GPL-2.0+ / LGPL / MIT / GPL-3.0（各随包） |
 | QGIS 栈（OSGeo4W） | `vendor/manifest.json` `deps.osgeo4w`、`vendor/fetch-deps.sh` | 同上 |
 | ONNX Runtime | `vendor/onnxruntime/`（不入库归档） | MIT |
-| LibreOffice（legacy 转换兜底） | `vendor/fetch-libreoffice.sh` | MPL-2.0 / LGPL-3.0 |
 | Qt6（系统/发行版包，政策例外） | CI apt / 本机 deps | LGPL-3.0 / GPL-2.0+ / 商业 |
 | QtKeychain（QGIS 既有依赖） | `cmake/extra-well-facies.cmake` | LGPL / BSD |
 
 外部依赖的版本钉子在 `vendor/manifest.json`、`vendor/deb-closure.lock` 与
-`vendor/osgeo4w` 安装树；一致性由 `tools/check_qgis_versions.py`、
-`tools/check_lo_pin.py`、`tools/check_mamcl_lock.py` 逐轮看守。
+`vendor/osgeo4w` 安装树；一致性由 `tools/check_qgis_versions.py`、`tools/check_mamcl_lock.py` 逐轮看守。
 
 ## 维护纪律
 

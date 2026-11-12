@@ -293,13 +293,6 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_docs_drift.py)
   add_test(NAME docs_drift_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_docs_drift.py --selftest)
-  # 方向 94：LibreOffice vendored pin 双平台（libreoffice/libreoffice_win）
-  # 一致性——版本对齐 + url/sha/layout 口径 + fetch 脚本引用面；selftest
-  # 合成 manifest 验证各漂移形态能打红。
-  add_test(NAME lo_pin COMMAND ${PALEO_PYTHON3}
-           ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py)
-  add_test(NAME lo_pin_selftest COMMAND ${PALEO_PYTHON3}
-           ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py --selftest)
   # #642：角色双表一致性——catalogroles（UI 树面）与 roleregistry（链接
   # 词表）的 key 集合必须相等；selftest 合成夹具验证漏登形态能打红。
   add_test(NAME role_tables COMMAND ${PALEO_PYTHON3}
@@ -318,12 +311,10 @@ if(PALEO_PYTHON3)
                        qgis_versions qgis_versions_selftest
                        qgis_resources_selftest env_redset_validate env_redset_selftest
                        pin_osgeo4w_selftest docs_drift docs_drift_selftest
-                       lo_pin lo_pin_selftest
                        role_tables role_tables_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(qgis_resources_selftest env_redset_validate env_redset_selftest
                        pin_osgeo4w_selftest docs_drift docs_drift_selftest
-                       lo_pin lo_pin_selftest
                        role_tables role_tables_selftest
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
   # #767：Python 闸门项此前会在源码树留下字节码（tools/__pycache__/…、
@@ -347,7 +338,6 @@ if(PALEO_PYTHON3)
       qgis_versions qgis_versions_selftest
       qgis_resources_selftest env_redset_validate env_redset_selftest
       pin_osgeo4w_selftest docs_drift docs_drift_selftest
-      lo_pin lo_pin_selftest
       role_tables role_tables_selftest)
   set_tests_properties(${_paleo_py_gates}
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1;PYTHONDONTWRITEBYTECODE=1")

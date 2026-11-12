@@ -25,6 +25,7 @@ class MappingWorkbenchPage : public QWidget {
 public:
   MappingWorkbenchPage(const QString &mode, MappingWorkbench *workbench,
                        QWidget *parent = nullptr);
+  ~MappingWorkbenchPage() override;
   void setHorizon(const QString &horizon);
   void refresh();
   void selectLayer(const QString &id);

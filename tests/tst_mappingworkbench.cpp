@@ -2561,6 +2561,24 @@ private slots:
     basis->setReferences(references);
     QCOMPARE(guide->property("stage").toInt(), 2);
   }
+  void taskGuideDisconnectsBeforePageChildrenAreDestroyed() {
+    Fixture f; QVERIFY(f.init());
+    auto *page = new MappingWorkbenchPage("compose", &f.work);
+    page->setHorizon("D61");
+    auto *basis = page->findChild<MappingEditBasis *>(); QVERIFY(basis);
+    basis->setReferences({QVariantMap{{"name", "reference"}, {"version_id", "saved-version"}}});
+    QPointer<QWidget> guide = page->findChild<QWidget *>("mappingTaskGuide");
+    QVERIFY(guide);
+    auto *sources = page->findChild<QListWidget *>("editBasisSources"); QVERIFY(sources);
+    bool safeDuringModelReset = true;
+    connect(sources->model(), &QAbstractItemModel::modelReset, this, [&] {
+      safeDuringModelReset &= guide.isNull();
+    });
+    delete page;
+    QVERIFY(guide.isNull());
+    QVERIFY(safeDuringModelReset);
+    QCoreApplication::processEvents();
+  }
   // #541 子项 2：零要素相面（从零手绘的起点）建不出编辑副本——此前
   // copyForEditing 被 footprint() 的「无法建立相图覆盖范围」堵死。
   void mappingFlowOffersBlankBasisAndDelivery() {

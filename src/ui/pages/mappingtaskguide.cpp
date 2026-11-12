@@ -344,6 +344,12 @@ void MappingTaskGuide::refreshCompose() {
   apply(stage, hint, nextText, anchor, enabled);
 }
 
+MappingWorkbenchPage::~MappingWorkbenchPage() {
+  // Item models emit reset signals while their widgets are being destroyed.
+  // Disconnect the guide before QWidget starts tearing down the page's children.
+  delete findChild<MappingTaskGuide *>();
+}
+
 void MappingWorkbenchPage::installTaskGuide(QVBoxLayout *outer) {
   if (m_heading) {
     QFont title = m_heading->font();

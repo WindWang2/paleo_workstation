@@ -349,20 +349,30 @@ void ConstraintPage::refreshAnalysisUnit() {
   auto *label=child<QLabel>(this,"factorAnalysisUnit");
   if(selection&&horizon&&label){
     const auto unit=selection->activeUnit();
-    // 所选方案的上界可能尚未进入工程词表。保留词表，仅临时补这一项。
+    // 有效分析单元：兼容下拉只承载该单元上界（生成/就绪检查仍读
+    // currentText）。工程词表不能与分析单元混排。
+    // 单元无效：若下拉已被替换成单元上界则清空（clearActiveUnit 后
+    // count==0）；否则保留 setHorizons 填入的词表，并跟随 activeHorizon
+    // （打开工程 / 层位 chip，tst_shell_horizonstate）。
     const QSignalBlocker blocked(horizon);
-    constexpr int unitBoundaryRole = Qt::UserRole + 1;
-    const int last = horizon->count() - 1;
-    if (last >= 0 && horizon->itemData(last, unitBoundaryRole).toBool())
-      horizon->removeItem(last);
-    const QString boundary = unit.isValid() ? unit.topBoundary : selection->activeHorizon();
-    int index = boundary.isEmpty() ? -1 : horizon->findText(boundary);
-    if (unit.isValid() && index < 0 && !boundary.isEmpty()) {
-      index = horizon->count();
-      horizon->addItem(boundary);
-      horizon->setItemData(index, true, unitBoundaryRole);
+    constexpr int unitOnlyRole = Qt::UserRole + 1;
+    if (unit.isValid()) {
+      const QString boundary = unit.topBoundary;
+      horizon->clear();
+      if (!boundary.isEmpty()) {
+        horizon->addItem(boundary);
+        horizon->setItemData(0, true, unitOnlyRole);
+        horizon->setCurrentIndex(0);
+      }
+    } else {
+      const bool unitOnly = horizon->count() == 1 && horizon->itemData(0, unitOnlyRole).toBool();
+      if (unitOnly)
+        horizon->clear();
+      else {
+        const QString name = selection->activeHorizon();
+        horizon->setCurrentIndex(name.isEmpty() ? -1 : horizon->findText(name));
+      }
     }
-    horizon->setCurrentIndex(index);
     horizon->hide();label->show();
     label->setText(unit.isValid()?(unit.displayName.isEmpty()?paleo::strat::layerToken(unit):unit.displayName):
         tr("请在顶部选择地震层位单元及 S1–S4 或综合"));

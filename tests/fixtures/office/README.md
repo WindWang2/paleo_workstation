@@ -4,9 +4,9 @@ Synthetic documents used by `tst_officepreview`. Session tests use a local
 editor stub, or `PALEO_OFFICE_EDITOR` when it points at a ranuts/document
 build with `index.html`. The DOCX source is `testdata/project_area/mini_report.docx`; XLSX is
 `tests/fixtures/outsource/coordinates.xlsx`. `sample.fodp` is a minimal synthetic
-slide. DOC, XLS, PPT and PPTX were originally saved from those sources using
-LibreOffice solely to prepare valid input fixtures; the application preview
-excludes LibreOffice. `long.xlsx` replaces the first worksheet with 250 numeric
+slide. DOC, XLS, PPT and PPTX were originally saved from those sources as the
+corresponding binary and Office Open XML formats; they are input fixtures only.
+`long.xlsx` replaces the first worksheet with 250 numeric
 rows to verify pagination and navigation beyond the first page. `inline.xlsx`
 contains inline text without a styles part. The Office XLSX fixtures declare
 worksheet/shared-string content types explicitly, as required by OOXML.

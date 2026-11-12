@@ -592,6 +592,8 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_DEBUG_PLUGINS: "1"
+          # 无缓冲的 QgisRuntime::initialize 分步痕迹，挂死时能看到停在哪一步。
+          PALEO_QGIS_INIT_TRACE: "1"
           # run 41103414173 两处挂点都进探针：shard3 tst_runtime、shard1
           # tst_basemap_project（后者只读本地 mbtiles 夹具、不走网络——挂死不是
           # 底图联网，同为进程启动期，故同探针覆盖而非加离线 mock）。

@@ -2,8 +2,12 @@
 #include "qgisruntime.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QSet>
+#include <cstdio>
 #include <memory>
 #include <cmath>
 #include <ogr_spatialref.h>
@@ -37,6 +41,34 @@
 namespace
 {
   QgsApplication *s_app = nullptr;
+
+  // #872：Windows 测试把 HKCU 重映射到私有 hive 后，QgsApplication 若再经
+  // Known Folders / QStandardPaths 解析用户配置，会在 init()/createDatabase()
+  // 处挂死且无输出（#698 起；run 41103238639 / 43019234038）。显式配置目录
+  // 让这条路径不再碰 HKCU。ctest 由 paleo_test_sandbox 注入
+  // QGIS_CUSTOM_CONFIG_PATH；此处是直跑与漏注入时的进程内兜底。
+  QString testProfileFolder()
+  {
+    const QString existing = qEnvironmentVariable( "QGIS_CUSTOM_CONFIG_PATH" );
+    if ( !existing.isEmpty() )
+      return existing;
+    if ( !qEnvironmentVariableIsSet( "PALEO_TEST_REGISTRY_HIVE" ) )
+      return {};
+    const QString hive = qEnvironmentVariable( "PALEO_TEST_REGISTRY_HIVE" );
+    const QString cfg = QFileInfo( hive ).dir().filePath( QStringLiteral( "qgis-config" ) );
+    if ( !QDir().mkpath( cfg ) )
+      return {};
+    qputenv( "QGIS_CUSTOM_CONFIG_PATH", QFile::encodeName( cfg ) );
+    return cfg;
+  }
+
+  void initTrace( const char *msg )
+  {
+    if ( !qEnvironmentVariableIsSet( "PALEO_QGIS_INIT_TRACE" ) )
+      return;
+    std::fprintf( stderr, "[qgisruntime] %s\n", msg );
+    std::fflush( stderr );
+  }
 }
 
 bool QgisRuntime::initialize( const QString &prefixPath,
@@ -58,25 +90,40 @@ bool QgisRuntime::initialize( const QString &prefixPath,
 
   // GUIenabled=true：这是 GUI 工作站进程——false 会让 QgsApplication 进入
   // 无界面模式，window.show() 不生效、exec() 立即返回（进程静默退出）。
-  // 测试路径不经过这里（各自直接构造 QgsApplication），不受影响。
+  // 测试也走本函数（tst_runtime 等）；无显示时由 QT_QPA_PLATFORM=offscreen
+  // 承担，不要改成 false。
+  if ( qEnvironmentVariableIsSet( "PALEO_QGIS_INIT_TRACE" ) )
+    setvbuf( stderr, nullptr, _IONBF, 0 );
+  // 只通过 QGIS_CUSTOM_CONFIG_PATH 指配置根（其下 profiles/default），
+  // 不把该路径传给 QgsApplication 构造函数 / init(profileFolder)——后者的
+  // 参数是「已经选好的 profile 目录」，语义不同（#872 / tst_startupdatabases）。
+  const QString profileRoot = testProfileFolder();
+  initTrace( profileRoot.isEmpty() ? "ctor (default profile)" : "ctor (custom config path)" );
   s_app = new QgsApplication( s_argc, s_argv, /*GUIenabled=*/true );
   QgsApplication::setPrefixPath(
       resolvePrefixPath( prefixPath, qEnvironmentVariable( "QGIS_PREFIX_PATH" ) ),
       /*useDefaultPaths=*/true );
   // 嵌入模式构造函数尚未解析 profile；先 init，否则用户库路径只是相对
   // qgis.db。initQgis() 加载 provider，不负责创建/迁移用户库。
+  // init() 无参：空参时 QGIS 读 QGIS_CUSTOM_CONFIG_PATH 作为配置根。
+  initTrace( "init begin" );
   QgsApplication::init();
+  initTrace( "init done" );
   // 在主题、面板或 provider 首次查询用户 CRS 前，使用 QGIS 原生迁移保留自定义 CRS。
   QString databaseError;
+  initTrace( "createDatabase begin" );
   if (!QgsApplication::createDatabase(&databaseError)) {
     qCritical().noquote() << "QGIS user database initialization failed:"
                           << QgsApplication::qgisUserDatabaseFilePath() << databaseError;
     delete s_app; s_app = nullptr;
     return false;
   }
+  initTrace( "createDatabase done" );
   if ( applicationCreated )
     applicationCreated();
+  initTrace( "initQgis begin" );
   QgsApplication::initQgis();
+  initTrace( "initQgis done" );
   // QGIS 4.2 CRS cache entries can outlive the worker which owns their PROJ
   // master object. Its TLS cleanup leaves shared entries valid but without a
   // projection (empty WKT), breaking later imports and map rendering. Keep

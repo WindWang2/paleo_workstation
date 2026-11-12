@@ -2535,10 +2535,9 @@ private slots:
   }
   void taskGuideTracksReferenceReplacementAndClear() {
     Fixture f; QVERIFY(f.init()); QString error;
-    QVERIFY2(!f.work.createBlankMap("D61", &error).isEmpty(), qPrintable(error));
-    const auto asset = f.input("guide-reference", "well_log");
-    QVERIFY(!asset.isEmpty());
-    const auto version = f.catalog.currentVersion(asset).id;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft).id;
     QVERIFY(!version.isEmpty());
     MappingWorkbenchPage page("compose", &f.work);
     page.setHorizon("D61");

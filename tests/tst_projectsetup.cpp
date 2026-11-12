@@ -867,7 +867,10 @@ private slots:
     const auto seed=dir.filePath("horizon-seed.txt"); const QByteArray bytes("synthetic horizons");
     QVERIFY(write(seed, bytes));
     paleo::data::DataService model; std::string detail;
-    QVERIFY2(model.createProject(modelRoot.toUtf8().toStdString(), "test", detail), detail.c_str());
+    // Creating the application project already initializes its shared area model.
+    // Seed that same model so the failed import exercises its existing revision.
+    QVERIFY(QFileInfo::exists(modelRoot + "/data.sqlite"));
+    QVERIFY2(model.openProject(modelRoot.toUtf8().toStdString(), detail), detail.c_str());
     paleo::data::ParsedFile parsed; parsed.kind="synthetic"; parsed.status="parsed";
     for(int i=0;i<2;++i) {
       paleo::data::SeismicHorizon horizon; horizon.horizonName=i ? "T2" : "T1";

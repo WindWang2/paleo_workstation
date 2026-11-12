@@ -14164,14 +14164,14 @@ Crossline: %3 ~ %4</source>
         <translation>2 · 本次解释依据</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="23"/>
-        <source>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。</source>
-        <translation>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、改类和共边修改会自动记录这些依据；修改说明后需重新启用。</translation>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="24"/>
+        <source>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、分割、改类和共边修改会自动记录这些依据；没启用依据时这些编辑无法完成。修改说明后需重新启用。</source>
+        <translation>选择正在参考的证据，补充解释说明及修改目的后启用。随后新建、分割、改类和共边修改会自动记录这些依据；没启用依据时这些编辑无法完成。修改说明后需重新启用。</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="28"/>
-        <source>填写解释说明和修改目的，启用后开始绘制。</source>
-        <translation>填写解释说明和修改目的，启用后开始绘制。</translation>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="30"/>
+        <source>填写说明和修改目的。未启用时，分割相面无法完成。</source>
+        <translation>填写说明和修改目的。未启用时，分割相面无法完成。</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingeditbasis.cpp" line="30"/>
@@ -14224,9 +14224,9 @@ Crossline: %3 ~ %4</source>
         <translation>请先选择层位，填写解释说明和修改目的，合计不超过 9000 字</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="131"/>
-        <source>尚未启用依据；请先启用，再绘制或修改元素。</source>
-        <translation>尚未启用依据；请先启用，再绘制或修改元素。</translation>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="137"/>
+        <source>尚未启用依据。分割相面、覆盖绘制和合并都要先启用，否则无法完成。</source>
+        <translation>尚未启用依据。分割相面、覆盖绘制和合并都要先启用，否则无法完成。</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingeditbasis.cpp" line="132"/>
@@ -14234,9 +14234,9 @@ Crossline: %3 ~ %4</source>
         <translation>已启用：%1 个参考版本及人工说明。解释仍需复核，参考图不自动视为地质支持。 </translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="134"/>
-        <source>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</source>
-        <translation>表单已改动；当前编辑仍采用上一次启用的依据，请重新启用。</translation>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="140"/>
+        <source>表单已改动；当前编辑仍采用上一次启用的依据。请重新启用后再分割或修改相面。</source>
+        <translation>表单已改动；当前编辑仍采用上一次启用的依据。请重新启用后再分割或修改相面。</translation>
     </message>
     <message>
         <source>解释说明</source>
@@ -14409,6 +14409,259 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="243"/>
         <source>将关闭最后一个证据视图（可随时再添加）</source>
         <translation>将关闭最后一个证据视图（可随时再添加）</translation>
+    </message>
+</context>
+<context>
+    <name>MappingTaskGuide</name>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="103"/>
+        <source>任务向导</source>
+        <translation>任务向导</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="117"/>
+        <source>编图步骤</source>
+        <translation>编图步骤</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="117"/>
+        <source>预测步骤</source>
+        <translation>预测步骤</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="161"/>
+        <source>1 基础图</source>
+        <translation>1 基础图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="162"/>
+        <source>选择已有图件，或新建空白相图</source>
+        <translation>选择已有图件，或新建空白相图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="163"/>
+        <source>2 依据</source>
+        <translation>2 依据</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="164"/>
+        <source>填写解释说明和修改目的后启用。分割相面、覆盖绘制和合并都要先完成这一步</source>
+        <translation>填写解释说明和修改目的后启用。分割相面、覆盖绘制和合并都要先完成这一步</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="165"/>
+        <source>3 相编辑</source>
+        <translation>3 相编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="166"/>
+        <source>先在画布选中相面，再分割、覆盖绘制或合并</source>
+        <translation>先在画布选中相面，再分割、覆盖绘制或合并</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="167"/>
+        <source>4 保存</source>
+        <translation>4 保存</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="168"/>
+        <source>检查三级相面拓扑，保存新版本后再导出</source>
+        <translation>检查三级相面拓扑，保存新版本后再导出</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="170"/>
+        <source>1 准备</source>
+        <translation>1 准备</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="171"/>
+        <source>选择预测类型，并勾选井或地震体</source>
+        <translation>选择预测类型，并勾选井或地震体</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="172"/>
+        <source>2 运行</source>
+        <translation>2 运行</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="173"/>
+        <source>按当前层位运行预测</source>
+        <translation>按当前层位运行预测</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="174"/>
+        <source>3 分析</source>
+        <translation>3 分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="175"/>
+        <source>把图件显示到画布，对照井道或一致性</source>
+        <translation>把图件显示到画布，对照井道或一致性</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="192"/>
+        <source>请先完成上一步</source>
+        <translation>请先完成上一步</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="195"/>
+        <source>滚到这一步的控件</source>
+        <translation>滚到这一步的控件</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="242"/>
+        <source>请先在画布上方选择层位，再准备井或地震输入。</source>
+        <translation>请先在画布上方选择层位，再准备井或地震输入。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="245"/>
+        <source>预测进行中，可以取消。完成后图件会出现在分析和画布上。</source>
+        <translation>预测进行中，可以取消。完成后图件会出现在分析和画布上。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="246"/>
+        <source>看进度</source>
+        <translation>看进度</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="249"/>
+        <source>已选中图件。显示到画布后，测井结果可打开井道修订，地震相可做一致性对照。</source>
+        <translation>已选中图件。显示到画布后，测井结果可打开井道修订，地震相可做一致性对照。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="250"/>
+        <source>显示图件</source>
+        <translation>显示图件</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="253"/>
+        <source>本层已有图件。选中后显示到画布，测井结果可打开井道，地震相可做一致性对照。要重跑，先勾选输入再运行。</source>
+        <translation>本层已有图件。选中后显示到画布，测井结果可打开井道，地震相可做一致性对照。要重跑，先勾选输入再运行。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="254"/>
+        <source>去分析</source>
+        <translation>去分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="257"/>
+        <source>暂无可用输入。请先在数据管理导入并关联地震体或测井，再回来勾选。</source>
+        <translation>暂无可用输入。请先在数据管理导入并关联地震体或测井，再回来勾选。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="261"/>
+        <source>勾选本层位的井。每口井得到当前地层的预测微相，分析时可打开井道。</source>
+        <translation>勾选本层位的井。每口井得到当前地层的预测微相，分析时可打开井道。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="263"/>
+        <source>勾选一个地震体。Mock 会沿层位窗聚类，结果需要地质复核。</source>
+        <translation>勾选一个地震体。Mock 会沿层位窗聚类，结果需要地质复核。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="264"/>
+        <source>勾选一个地震体，按当前层位调用预测服务。</source>
+        <translation>勾选一个地震体，按当前层位调用预测服务。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="265"/>
+        <source>去勾选</source>
+        <translation>去勾选</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="268"/>
+        <source>输入已齐。运行后到「分析」：显示图件、对照井道，或看地震相和测井相是否一致。</source>
+        <translation>输入已齐。运行后到「分析」：显示图件、对照井道，或看地震相和测井相是否一致。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="269"/>
+        <source>去运行</source>
+        <translation>去运行</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="302"/>
+        <source>分割相面、覆盖绘制和合并都要先启用解释依据，否则这些编辑无法完成</source>
+        <translation>分割相面、覆盖绘制和合并都要先启用解释依据，否则这些编辑无法完成</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="308"/>
+        <source>请先在画布上方选择层位。</source>
+        <translation>请先在画布上方选择层位。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="311"/>
+        <source>先在基础图里选择已有图件，或新建空白相图。建好后必须启用解释依据，分割相面才能完成。</source>
+        <translation>先在基础图里选择已有图件，或新建空白相图。建好后必须启用解释依据，分割相面才能完成。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="312"/>
+        <source>去选基础图</source>
+        <translation>去选基础图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="315"/>
+        <source>解释依据已启用。建立相图之后就可以绘制，并用分割切开相面。</source>
+        <translation>解释依据已启用。建立相图之后就可以绘制，并用分割切开相面。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="316"/>
+        <source>去建图</source>
+        <translation>去建图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="319"/>
+        <source>还不能完成相面编辑。分割、覆盖绘制和合并都要先启用解释依据，否则改动落不成。</source>
+        <translation>还不能完成相面编辑。分割、覆盖绘制和合并都要先启用解释依据，否则改动落不成。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="320"/>
+        <source>去启用依据</source>
+        <translation>去启用依据</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="323"/>
+        <source>依据表单已改，还没重新启用。现在分割仍按上一次的依据记录，新说明不会写上。</source>
+        <translation>依据表单已改，还没重新启用。现在分割仍按上一次的依据记录，新说明不会写上。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="324"/>
+        <source>重新启用</source>
+        <translation>重新启用</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="327"/>
+        <source>相面已改。先检查拓扑，再保存新版本。导出要等保存之后。</source>
+        <translation>相面已改。先检查拓扑，再保存新版本。导出要等保存之后。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="328"/>
+        <source>去检查</source>
+        <translation>去检查</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="331"/>
+        <source>依据已启用，可以分割相面：先在画布选中相面，再画一条穿过该面的分割线。新面继承原来的三级归属。</source>
+        <translation>依据已启用，可以分割相面：先在画布选中相面，再画一条穿过该面的分割线。新面继承原来的三级归属。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="332"/>
+        <source>去编相面</source>
+        <translation>去编相面</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="337"/>
+        <source>启用后，随后的分割和改类会自动记下这些依据</source>
+        <translation>启用后，随后的分割和改类会自动记下这些依据</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="341"/>
+        <source>依据已启用。先选中相面，再画分割线；新面继承原来的三级归属</source>
+        <translation>依据已启用。先选中相面，再画分割线；新面继承原来的三级归属</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="342"/>
+        <source>先完成基础图和解释依据，再分割相面</source>
+        <translation>先完成基础图和解释依据，再分割相面</translation>
     </message>
 </context>
 <context>
@@ -17312,9 +17565,9 @@ Crossline: %3 ~ %4</source>
         <translation>图件与版本</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="291"/>
-        <source>3 · 当前编图与编辑</source>
-        <translation>3 · 当前编图与编辑</translation>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="286"/>
+        <source>3 · 相面编辑</source>
+        <translation>3 · 相面编辑</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="296"/>
@@ -17984,6 +18237,16 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="15"/>
         <source>打开参考证据面板</source>
         <translation>打开参考证据面板</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="287"/>
+        <source>3 · 查看与分析</source>
+        <translation>3 · 查看与分析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="387"/>
+        <source>按上面的步骤准备输入、运行，再对照图件分析。</source>
+        <translation>按上面的步骤准备输入、运行，再对照图件分析。</translation>
     </message>
 </context>
 <context>

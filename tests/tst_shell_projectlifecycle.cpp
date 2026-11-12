@@ -5,6 +5,7 @@
 // 「工程生命周期 × 组装根接线」边界：入口调用时现取 projectDir/gpkg（#275）、
 // 关窗/切工程检查 QgsProject 脏状态（#282）、切工程状态残留（#236）。
 #include <QApplication>
+#include <QAction>
 #include <QAbstractButton>
 #include <QDateTime>
 #include <QDialog>
@@ -474,6 +475,42 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzB, 5000);
     QCOMPARE(askCount, 0); // 不脏不问
     m_win->setProjectSaveAskForTesting(nullptr);
+  }
+
+  void projectSourcesAsksOnceBeforeOpeningDialog()
+  {
+    QVERIFY(m_ctx->projectSvc()->createProject(m_dirB.filePath(QStringLiteral("sources.qgz"))));
+    QApplication::processEvents();
+    const auto projectPath = m_ctx->projectSvc()->projectPath();
+    auto *project = m_ctx->projectSvc()->project();
+    project->setDirty(true);
+    int askCount = 0;
+    m_win->setProjectSaveAskForTesting([&askCount](const QString &, const QString &) {
+      ++askCount;
+      return PaleoNotify::SaveChoice::Discard;
+    });
+    const auto cleanup = qScopeGuard([this, project] {
+      m_win->setProjectSaveAskForTesting(nullptr);
+      project->setDirty(false);
+    });
+    auto *action = m_win->findChild<QAction *>(QStringLiteral("projectSourcesAction"));
+    QVERIFY(action);
+    QVERIFY(action->isEnabled());
+    bool sawSourcesDialog = false;
+    QTimer closer;
+    connect(&closer, &QTimer::timeout, this, [&] {
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+        sawSourcesDialog = dialog->objectName() == QStringLiteral("projectSetupDialog");
+        dialog->reject();
+      }
+    });
+    closer.start(10);
+    action->trigger();
+    closer.stop();
+    QVERIFY(sawSourcesDialog);
+    QCOMPARE(askCount, 1);
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), projectPath);
+    QVERIFY(project->isDirty()); // Discard authorizes continuation; it does not save the project.
   }
 
   // #282：关窗同样查工程脏状态——取消不关、保存关且落盘。

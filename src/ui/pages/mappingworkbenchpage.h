@@ -25,6 +25,7 @@ class MappingWorkbenchPage : public QWidget {
 public:
   MappingWorkbenchPage(const QString &mode, MappingWorkbench *workbench,
                        QWidget *parent = nullptr);
+  ~MappingWorkbenchPage() override;
   void setHorizon(const QString &horizon);
   void refresh();
   void selectLayer(const QString &id);
@@ -66,6 +67,7 @@ private:
   void buildComposeAdvanced(QWidget *body, QVBoxLayout *layout);
   void buildDeliveryStep(QWidget *body, QVBoxLayout *layout);
   void buildBaseMapStep(QWidget *body, QVBoxLayout *layout);
+  void installTaskGuide(QVBoxLayout *outer);
   void refreshInputs();
   void buildFaciesSchema(QWidget *schemaBody);
   void wireFaciesUpdates();

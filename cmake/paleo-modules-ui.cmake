@@ -113,6 +113,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingworkbenchpage_flow.cpp
   src/ui/pages/mappingworkbenchpage_references.cpp
   src/ui/pages/mappingworkbenchpage_schema.cpp
+  src/ui/pages/mappingtaskguide.cpp
   src/ui/pages/mappingreferencepanel.cpp
   src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp

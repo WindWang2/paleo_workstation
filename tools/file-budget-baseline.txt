@@ -60,8 +60,8 @@ src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:556
 src/ui/pages/entitypanel.cpp:file:1453
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:778
-src/ui/pages/mappingworkbenchpage.cpp:file:1189
-src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:383
+src/ui/pages/mappingworkbenchpage.cpp:file:1188
+src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:380
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:275
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:223
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:404

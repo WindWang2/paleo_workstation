@@ -24,6 +24,23 @@ private slots:
               qPrintable( QString::number( QgisRuntime::providerCount() ) ) );
     QVERIFY2( QFile::exists( QgisRuntime::srsDbPath() ),
               qPrintable( QgisRuntime::srsDbPath() ) );
+#ifdef Q_OS_WIN
+    // #872：ctest 注入 PALEO_TEST_REGISTRY_HIVE 时，用户库必须落在
+    // QGIS_CUSTOM_CONFIG_PATH 下，不得再走 HKCU Known Folders。
+    if ( qEnvironmentVariableIsSet( "PALEO_TEST_REGISTRY_HIVE" ) )
+    {
+      const QString cfg = qEnvironmentVariable( "QGIS_CUSTOM_CONFIG_PATH" );
+      QVERIFY2( !cfg.isEmpty(),
+                "QGIS_CUSTOM_CONFIG_PATH must be set with PALEO_TEST_REGISTRY_HIVE (#872)" );
+      const QString userDb = QgisRuntime::coordinateRuntimeReport()
+                                 .value( QStringLiteral( "userDatabase" ) )
+                                 .toString();
+      const QString cfgN = QDir::cleanPath( QDir::fromNativeSeparators( cfg ) );
+      const QString dbN = QDir::cleanPath( QDir::fromNativeSeparators( userDb ) );
+      QVERIFY2( dbN.startsWith( cfgN, Qt::CaseInsensitive ),
+                qPrintable( QStringLiteral( "user db %1 not under %2" ).arg( userDb, cfg ) ) );
+    }
+#endif
   }
 
   void initializeReturnsFalseWhenAlreadyUp()

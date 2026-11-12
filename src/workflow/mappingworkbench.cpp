@@ -1122,6 +1122,8 @@ void MappingWorkbench::styleLayer(const QString &id) {
           connect(this, &QObject::destroyed, observer, [observer] {
             FaciesPartitionState::setWorkbenchBinding(observer, nullptr);
           });
+          connect(observer, &MappingFeatureIdentity::Observer::publicationStateChanged,
+                  this, [this, id] { emit displayChanged(id); });
           connect(observer, &MappingFeatureIdentity::Observer::businessEdit, this,
                   [this, safeVector, id](qint64 fid, const QString &kind) {
             if (!safeVector) return;

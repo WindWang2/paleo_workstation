@@ -1001,12 +1001,12 @@ bool MappingWorkbench::hasUnpublishedEdits(const QString &id) const {
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   if (layer && layer->isEditable()) return true;
   const auto *observer = layer ? MappingFeatureIdentity::Observer::of(layer) : nullptr;
-  return observer && !observer->changes().isEmpty();
+  return observer && observer->hasUnpublishedChanges();
 }
 
 bool MappingWorkbench::hasUnpublishedChanges(const QString &id) const {
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   if (layer && layer->isModified()) return true;
   const auto *observer = layer ? MappingFeatureIdentity::Observer::of(layer) : nullptr;
-  return observer && !observer->changes().isEmpty();
+  return observer && observer->hasUnpublishedChanges();
 }

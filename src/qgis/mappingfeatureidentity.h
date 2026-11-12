@@ -38,12 +38,14 @@ public:
   static Observer *attach(QgsVectorLayer *layer, QString *error = nullptr);
   static Observer *of(QgsVectorLayer *layer);
   QVariantList changes() const; // owner-thread read; resolves provider FID remaps by UID
+  bool hasUnpublishedChanges() const;
   QVariantMap editBefore(QgsFeatureId fid) const;
   int identityIndexBuildCount() const { return m_indexBuilds; }
   void acknowledge(); // only after the new immutable version was registered
 signals:
   void failed(const QString &reason);
   void businessEdit(qint64 featureId, const QString &kind);
+  void publicationStateChanged();
 private:
   friend bool setParents(QgsVectorLayer *, QgsFeatureId, const QStringList &, QString *);
   explicit Observer(QgsVectorLayer *layer);
@@ -80,6 +82,7 @@ private:
   int m_commandDepth = 0;
   int m_indexBuilds = 0;
   bool m_idsDirty = false;
+  bool m_committingChanges = false, m_unpublishedCommit = false;
   QUndoCommand *m_wrapper = nullptr;
   struct NestedCommand {
     QUndoCommand *command = nullptr;

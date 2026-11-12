@@ -186,6 +186,42 @@ private slots:
         QCOMPARE(values.front().source,selected.source);QVERIFY(!values.front().primary);QCOMPARE(values.front().decision,BindingDecision::Unresolved);
         command=f.session.command(SourceCommand::Kind::SelectPrimary);command.bindingId=selected.id;QVERIFY(!f.session.execute(command).ok);
     }
+    void fileAliasSelectionTracksSourceRevision_data() {
+        QTest::addColumn<bool>("changedContent");
+        QTest::newRow("same-content-relocation")<<false;
+        QTest::newRow("different-content")<<true;
+    }
+    void fileAliasSelectionTracksSourceRevision() {
+        QFETCH(bool,changedContent);
+        Fixture f;QVERIFY(f.init());QVERIFY(f.preparedWellSource("checks.txt",{"A"}));QVERIFY(f.bind());
+        const auto well=f.catalog.wellsMatchingName("A").front();
+        const auto original=f.session.bindings("well",well,"time_depth").front();
+        QVERIFY(f.preparedWellSource("other.txt",{"A"}));
+        auto command=f.session.command(SourceCommand::Kind::RegisterBinding);
+        command.binding=original;command.binding.id="copy-a";QVERIFY(f.session.execute(command).ok);
+        command=f.session.command(SourceCommand::Kind::ConfirmBinding);command.bindingId="copy-a";QVERIFY(f.session.execute(command).ok);
+        command=f.session.command(SourceCommand::Kind::SelectPrimary);command.bindingId="copy-a";QVERIFY(f.session.execute(command).ok);
+        const auto before=f.session.bindings("well",well,"time_depth");
+        const auto other=std::find_if(before.cbegin(),before.cend(),[&](const auto &value){return value.source!=original.source;});
+        QVERIFY(other!=before.cend());
+        auto version=f.catalog.currentVersion(f.session.source(original.source).assetId);
+        version.id=f.catalog.nextVersionId();++version.versionNumber;
+        version.path=f.temp.filePath("moved-checks.txt");version.sourceUri=version.path;
+        if(changedContent)version.sha256=QString(64,'a');
+        QVERIFY(f.catalog.addVersion(version));
+        const auto revision=f.catalog.catalogRevision();
+        for(int pass=0;pass<2;++pass) {
+            const auto values=f.session.bindings("well",well,"time_depth");
+            const auto alias=std::find_if(values.cbegin(),values.cend(),[](const auto &value){return value.id=="copy-a";});
+            QVERIFY(alias!=values.cend());QCOMPARE(alias->source,original.source);
+            QCOMPARE(alias->primary,!changedContent);
+            QCOMPARE(alias->decision,changedContent?BindingDecision::Unresolved:BindingDecision::Confirmed);
+            const auto unrelated=std::find_if(values.cbegin(),values.cend(),[&](const auto &value){return value.id==other->id;});
+            QVERIFY(unrelated!=values.cend());QCOMPARE(*unrelated,*other);
+            QCOMPARE(f.catalog.catalogRevision(),revision); // Projection never writes a binding decision.
+            if(pass==0) {f.session.close();QVERIFY(f.catalog.open(f.project,&f.error));QVERIFY(f.bind());}
+        }
+    }
     void failedBindingTransactionRollsBackLegacyPrimary() {
         Fixture f;QVERIFY(f.init());QVERIFY(f.preparedWellSource("a.txt",{"A"}));QVERIFY(f.preparedWellSource("b.txt",{"A"}));QVERIFY(f.bind());
         const auto well=f.catalog.wellsMatchingName("A").front();const auto before=f.session.bindings("well",well,"time_depth");

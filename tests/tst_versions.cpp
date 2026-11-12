@@ -1580,6 +1580,158 @@ class TestVersions : public QObject
     }
 
 
+    void frozenPdfBindingUsesCaseInsensitiveSha_data()
+    {
+        QTest::addColumn<bool>("prepared");
+        QTest::addColumn<bool>("differentDigest");
+        QTest::newRow("native-equivalent-case") << false << false;
+        QTest::newRow("prepared-equivalent-case") << true << false;
+        QTest::newRow("native-different-digest") << false << true;
+        QTest::newRow("prepared-different-digest") << true << true;
+    }
+
+    // #890：保存已接受大写摘要，冻结文件的摘要仍为小写；两条发布路径须同口径。
+    void frozenPdfBindingUsesCaseInsensitiveSha()
+    {
+        QFETCH(bool, prepared);
+        QFETCH(bool, differentDigest);
+        Fixture f;
+        QVERIFY(f.init());
+        QString error;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("sha-binding.gpkg"));
+        QVERIFY(!gpkg.isEmpty());
+        LayerDeclaration decl;
+        decl.layerId = "facies.D61"; decl.horizon = "D61"; decl.type = "vector";
+        decl.source = gpkg + "|layername=facies_polygons";
+        const auto pdf = makePdf(f.dir.filePath("sha-binding.pdf"));
+        QVERIFY(!pdf.isEmpty());
+        const QString actualSha = DataCatalog::sha256FileHex(pdf);
+        const QString registeredSha = actualSha.toUpper();
+        QCOMPARE(actualSha.size(), 64);
+        QVERIFY(registeredSha != actualSha);
+        QVERIFY2(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", registeredSha, &error),
+                 qPrintable(error));
+        const auto saved = f.versions.saveVersion("D61", "{}", &error, {decl});
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        QCOMPARE(saved.pdfSha256, registeredSha);
+        const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        QCOMPARE(manifest.value("saved_pdf").toObject().value("sha256").toString(), actualSha);
+
+        if (differentDigest) {
+            // 损坏版本行绑定而不改冻结清单，必须由发布门拒绝，不能被大小写兼容放行。
+            QString otherSha = registeredSha;
+            otherSha[0] = otherSha[0] == QLatin1Char('0') ? QLatin1Char('1') : QLatin1Char('0');
+            const QString connection = "pdf-hash-binding-corruption";
+            const auto cleanup = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(f.metaPath());
+            QVERIFY(db.open());
+            QSqlQuery update(db);
+            update.prepare("UPDATE map_versions SET pdf_sha256=? WHERE id=?");
+            update.addBindValue(otherSha); update.addBindValue(saved.id);
+            QVERIFY(update.exec());
+            QCOMPARE(update.numRowsAffected(), 1);
+        }
+
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QString published;
+        if (prepared) {
+            const auto input = f.versions.snapshotInputForPublish("D61", {decl}, summary, &error);
+            if (differentDigest)
+                QVERIFY(!input.valid);
+            else {
+                QVERIFY2(input.valid, qPrintable(error));
+                auto snapshot = prepareMapSnapshot(input);
+                const auto cleanup = qScopeGuard([&] { discardPreparedMapSnapshot(snapshot); });
+                QVERIFY2(snapshot.isValid(), qPrintable(snapshot.error));
+                published = f.versions.commitPreparedPublication(snapshot, &error);
+            }
+        } else
+            published = f.versions.publish("D61", {decl}, summary, &error);
+
+        QCOMPARE(f.versions.latest("D61").provenance, saved.provenance);
+        if (differentDigest) {
+            QVERIFY(published.isEmpty());
+            QVERIFY2(error.contains(QStringLiteral("PDF 指纹与成果版本绑定不一致")), qPrintable(error));
+            QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+            QVERIFY(!QFileInfo::exists(f.dir.filePath("result/D61")));
+        } else {
+            QVERIFY2(!published.isEmpty(), qPrintable(error));
+            QVERIFY(f.versions.isPublished("D61"));
+            QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath("layout.pdf")), actualSha);
+        }
+    }
+
+    void preparedSnapshotUsesCaseInsensitiveSha_data()
+    {
+        QTest::addColumn<bool>("publish");
+        QTest::addColumn<bool>("differentDigest");
+        QTest::newRow("save-equivalent-case") << false << false;
+        QTest::newRow("legacy-publish-equivalent-case") << true << false;
+        QTest::newRow("save-different-digest") << false << true;
+        QTest::newRow("legacy-publish-different-digest") << true << true;
+    }
+
+    void preparedSnapshotUsesCaseInsensitiveSha()
+    {
+        QFETCH(bool, publish);
+        QFETCH(bool, differentDigest);
+        Fixture f;
+        QVERIFY(f.init());
+        QString error;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("prepared-sha.gpkg"));
+        QVERIFY(!gpkg.isEmpty());
+        LayerDeclaration decl;
+        decl.layerId = "facies.D61"; decl.horizon = "D61"; decl.type = "vector";
+        decl.source = gpkg + "|layername=facies_polygons";
+        const auto pdf = makePdf(f.dir.filePath("prepared-sha.pdf"));
+        QVERIFY(!pdf.isEmpty());
+        const QString actualSha = DataCatalog::sha256FileHex(pdf);
+        QString registeredSha = actualSha.toUpper();
+        QCOMPARE(actualSha.size(), 64);
+        QVERIFY(registeredSha != actualSha);
+        if (differentDigest)
+            registeredSha[0] = registeredSha[0] == QLatin1Char('0') ? QLatin1Char('1') : QLatin1Char('0');
+        QVERIFY2(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", registeredSha, &error),
+                 qPrintable(error));
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        if (publish) {
+            // 不传图层的旧式保存没有冻结清单，发布准备阶段须核对登记的 PDF 摘要。
+            const auto saved = f.versions.saveVersion("D61", "{}", &error);
+            QVERIFY2(saved.version > 0, qPrintable(error));
+            QVERIFY(!QJsonDocument::fromJson(saved.provenance.toUtf8()).object().contains("snapshot_schema"));
+        }
+        const auto input = publish
+            ? f.versions.snapshotInputForPublish("D61", {decl}, summary, &error)
+            : f.versions.snapshotInputForSave("D61", "{}", {decl}, &error);
+        QVERIFY2(input.valid, qPrintable(error));
+        QCOMPARE(input.pdfSha256, registeredSha);
+        auto snapshot = prepareMapSnapshot(input);
+        const auto cleanup = qScopeGuard([&] { discardPreparedMapSnapshot(snapshot); });
+        if (differentDigest) {
+            QVERIFY(!snapshot.isValid());
+            QVERIFY2(snapshot.error.contains(QStringLiteral("来源内容变化")), qPrintable(snapshot.error));
+            QVERIFY(!QFileInfo::exists(snapshot.directory));
+            QCOMPARE(f.versions.currentVersion("D61"), publish ? 1 : 0);
+            QVERIFY(!f.versions.isPublished("D61"));
+        } else {
+            QVERIFY2(snapshot.isValid(), qPrintable(snapshot.error));
+            QString placed = snapshot.directory;
+            if (publish) {
+                placed = f.versions.commitPreparedPublication(snapshot, &error);
+                QVERIFY2(!placed.isEmpty(), qPrintable(error));
+                QVERIFY(f.versions.isPublished("D61"));
+            } else {
+                const auto saved = f.versions.commitPreparedVersion(snapshot, &error);
+                QVERIFY2(saved.version > 0, qPrintable(error));
+                QCOMPARE(saved.pdfSha256, registeredSha);
+                QCOMPARE(saved.state, QString("Editing"));
+            }
+            QCOMPARE(DataCatalog::sha256FileHex(QDir(placed).filePath("layout.pdf")), actualSha);
+        }
+        QCOMPARE(DataCatalog::sha256FileHex(pdf), actualSha);
+    }
+
     // #476：native publish() 与 prepared snapshotInputForPublish() 的发布门禁
     // 同源（validatePublishGates 单一实现）——同一损坏状态下两者拒绝文案
     // 逐字一致（此前两处约 90 行逐字复制，漏改一份即门禁分叉）。

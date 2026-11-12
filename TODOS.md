@@ -45,23 +45,23 @@ A0–A4 的全面迁移仍待实施，不以工具登记数量代替功能完成
 - 迁移岩性、样品、地震及附件的专用读口；共享外部路径应通过版本 ID 消歧。
 - 地质编辑、约束、版本发布通过专用模型扩展接入；QGIS 继续管理空间文件。
 
-## P2 — 完整编图套件的界面断言排查（2026-10-24）
+## P2 — 编图与数据预览的真实桌面及高 DPI 验收（2026-11-12 更新）
 
-本机 `tst_mappingworkbench` 完整运行为96通过、4失败、1跳过。失败项为
-`hierarchyPanelShowsAndPreservesTheTree`（异步树尚为空）、
-`evidencePanelAddsViewsAndPreservesOtherSelections`（旧横排断言与当前两列布局）、
-`wellReadinessAbortedByCatalogRebindRecoversPanel`（重绑后摘要状态）、
-`panelSelectionAndBusyFollowActualState`（跨层结果列表）。需按DESIGN与异步刷新契约
-核实实现/断言，保留有意义的交互验收，不靠跳过用例转绿。测井协议、准备检查、结果落库及
-合成来源证据链的专项运行通过；详见 `docs/progress/well-facies-data-support-20261024.md`。
+2026-11-12 完整复测：PR #932 合并前工作分支 `e4dc51b8` 的 `tst_mappingworkbench`
+为 135 通过、0 失败、1 个既有可选跳过（179.061 秒）；合并后主线 `d8aa8aed` 的
+`tst_datapreview` 为 43 通过、0 失败、1 个既有可选跳过（CTest 59.62 秒）。
+两套分别在上述提交、原 300 秒预算内完成，旧失败与超时
+本轮未复现；不据此声称已经定位历史超时根因。基线证据和后续修复记录见
+[编图后续验证](docs/progress/mapping-followup-20261112.md)。
 
-2026-11-05 阶段审查更新：本轮完整 `tst_mappingworkbench` 在 300 秒超时前记录
-102 通过、1 个旧契约失败；无曲线井应拒绝预测的契约已修正，与后台多边形取消专项一起通过，
-但完整套件尚未完成。`tst_datapreview` 在初始化与空态通过后也达到 300 秒超时。
-需保留调用栈/阶段计时再定位，不直接套用历史环境根因或延长预算转绿。
-真实桌面流程及高 DPI 验收还受窗口采集工具阻断；需后续补齐。
-本次 16 个完整套件通过和视图修前/修后证据见
-[阶段审查记录](docs/progress/staged-review-20261105.md)。
+2026-10-24 的四项编图界面断言失败保留在
+[测井相支持记录](docs/progress/well-facies-data-support-20261024.md)，2026-11-05
+两套件未完成的快照保留在[阶段审查记录](docs/progress/staged-review-20261105.md)。
+这些历史结果不再代表当前套件状态；若再次超时，先保留调用栈和阶段计时，不能
+沿用未经验证的环境归因或增加超时预算。
+
+仍须补齐五个工作流工具页的真实桌面操作、高 DPI 与浅深主题验收。上次人工验收
+受窗口采集工具阻断；本轮 offscreen 自动测试不代替可用的桌面截图及逐步操作证据。
 
 ## 整体审查后续：任务与操作模型（2026-10-23）
 

@@ -57,6 +57,60 @@ class TestTestSandbox : public QObject
   Q_OBJECT
 
 private slots:
+  void qgisConfigIsAvailableForActiveSandbox()
+  {
+#ifdef Q_OS_WIN
+    QVERIFY(!qEnvironmentVariable("PALEO_TEST_REGISTRY_SANDBOX_ACTIVE").isEmpty());
+    const auto config = qEnvironmentVariable("QGIS_CUSTOM_CONFIG_PATH");
+    QVERIFY2(!config.isEmpty(), "active registry sandbox must provide a QGIS configuration root");
+    QVERIFY2(QFileInfo(config).isDir(), qPrintable(config));
+    const auto expected = qEnvironmentVariable("PALEO_TEST_EXPECT_QGIS_CONFIG");
+    if (!expected.isEmpty()) QCOMPARE(QDir(config).absolutePath(), QDir(expected).absolutePath());
+#else
+    QSKIP("Windows QGIS configuration contract");
+#endif
+  }
+
+  void directRunProvidesQgisConfig_data()
+  {
+    QTest::addColumn<bool>("explicitConfig");
+    QTest::newRow("default-profile") << false;
+    QTest::newRow("preserve-explicit-profile") << true;
+  }
+
+  void directRunProvidesQgisConfig()
+  {
+#ifdef Q_OS_WIN
+    QFETCH(bool, explicitConfig);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto env = QProcessEnvironment::systemEnvironment();
+    env.remove(QStringLiteral("PALEO_TEST_REGISTRY_HIVE"));
+    env.remove(QStringLiteral("PALEO_TEST_REGISTRY_SANDBOX_ACTIVE"));
+    env.remove(QStringLiteral("QGIS_CUSTOM_CONFIG_PATH"));
+    env.remove(QStringLiteral("PALEO_TEST_EXPECT_QGIS_CONFIG"));
+    // The static hook resolves the default hive through GetTempPathW.
+    env.insert(QStringLiteral("TEMP"), QDir::toNativeSeparators(dir.path()));
+    env.insert(QStringLiteral("TMP"), QDir::toNativeSeparators(dir.path()));
+    if (explicitConfig) {
+      const auto config = dir.filePath(QStringLiteral("explicit-profile"));
+      QVERIFY(QDir().mkpath(config));
+      env.insert(QStringLiteral("QGIS_CUSTOM_CONFIG_PATH"), config);
+      env.insert(QStringLiteral("PALEO_TEST_EXPECT_QGIS_CONFIG"), config);
+    }
+    QProcess child;
+    child.setProcessEnvironment(env);
+    child.start(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("qgisConfigIsAvailableForActiveSandbox")});
+    QVERIFY(child.waitForStarted(10000));
+    QVERIFY(child.waitForFinished(10000));
+    const auto output = child.readAllStandardOutput() + child.readAllStandardError();
+    QVERIFY2(child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0, output.constData());
+#else
+    QSKIP("Windows direct-run registry sandbox contract");
+#endif
+  }
+
   void unavailableHiveStopsBeforeTests()
   {
 #ifdef Q_OS_WIN

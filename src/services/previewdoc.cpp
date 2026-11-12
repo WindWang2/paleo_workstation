@@ -72,19 +72,6 @@ PreviewDocService::PreviewDocService(DataImportService *svc, QObject *parent)
   qRegisterMetaType<QList<LasCurve>>("QList<LasCurve>");
   if (m_svc)
   {
-    // 文档 PDF 转换信号转发——UI 只订阅本门面，不直连 io 服务。
-    connect(m_svc, &DataImportService::documentPdfReady, this,
-            [this](const QString &assetId) { emit documentPdfReady(assetId); });
-    connect(m_svc, &DataImportService::documentPdfFailed, this,
-            [this](const QString &assetId, const QString &error) {
-              emit documentPdfFailed(assetId, error);
-            });
-    connect(m_svc, &DataImportService::workbookXlsxReady, this,
-            [this](const QString &assetId) { emit workbookXlsxReady(assetId); });
-    connect(m_svc, &DataImportService::workbookXlsxFailed, this,
-            [this](const QString &assetId, const QString &error) {
-              emit workbookXlsxFailed(assetId, error);
-            });
     // 壳侧转发：catalog 打开失败 / .bak 恢复告警 / 资产入库（主窗不直连
     // io 服务）。
     connect(m_svc, &DataImportService::catalogOpenFailed, this,
@@ -553,74 +540,6 @@ bool PreviewDocService::markDownstreamStale(const QString &versionId,
     return false;
   }
   return cat->markDownstreamStale(versionId, reason, error);
-}
-
-void PreviewDocService::ensureDocumentPdf(const QString &assetId)
-{
-  if (m_svc)
-    m_svc->ensureDocumentPdf(assetId);
-}
-
-PreviewDocService::DocPdfState
-PreviewDocService::documentPdfState(const QString &assetId) const
-{
-  if (!m_svc)
-    return DocPdfState::None;
-  switch (m_svc->documentPdfState(assetId))
-  {
-    case DataImportService::DocPdfState::Pending:
-      return DocPdfState::Pending;
-    case DataImportService::DocPdfState::Ready:
-      return DocPdfState::Ready;
-    case DataImportService::DocPdfState::Failed:
-      return DocPdfState::Failed;
-    default:
-      return DocPdfState::None;
-  }
-}
-
-QString PreviewDocService::documentPdfPath(const QString &assetId) const
-{
-  return m_svc ? m_svc->documentPdfPath(assetId) : QString();
-}
-
-QString PreviewDocService::documentPdfError(const QString &assetId) const
-{
-  return m_svc ? m_svc->documentPdfError(assetId) : QString();
-}
-
-void PreviewDocService::ensureWorkbookXlsx(const QString &assetId)
-{
-  if (m_svc)
-    m_svc->ensureWorkbookXlsx(assetId);
-}
-
-PreviewDocService::WorkbookXlsxState
-PreviewDocService::workbookXlsxState(const QString &assetId) const
-{
-  if (!m_svc)
-    return WorkbookXlsxState::None;
-  switch (m_svc->workbookXlsxState(assetId))
-  {
-    case DataImportService::WorkbookXlsxState::Pending:
-      return WorkbookXlsxState::Pending;
-    case DataImportService::WorkbookXlsxState::Ready:
-      return WorkbookXlsxState::Ready;
-    case DataImportService::WorkbookXlsxState::Failed:
-      return WorkbookXlsxState::Failed;
-    default:
-      return WorkbookXlsxState::None;
-  }
-}
-
-QString PreviewDocService::workbookXlsxPath(const QString &assetId) const
-{
-  return m_svc ? m_svc->workbookXlsxPath(assetId) : QString();
-}
-
-QString PreviewDocService::workbookXlsxError(const QString &assetId) const
-{
-  return m_svc ? m_svc->workbookXlsxError(assetId) : QString();
 }
 
 PreviewDocService::WorkbookPreview

@@ -182,7 +182,7 @@ add_library(paleo_io STATIC
   src/io/dataimport_geodata.cpp                     # 方向57：地物族分支（horizon/seismic/辅助参考）
   src/io/dataimport_folder.cpp                      # 方向57：文件夹导入/预览/plan 执行面
   src/io/dataimport_pyramids.cpp                    # 方向57：栅格金字塔/概览族
-  src/io/dataimport_document.cpp                    # 方向57：文档 PDF 转换 + 外链重定位
+  src/io/dataimport_document.cpp                    # 外链源重定位（relocateVersionSource）
   src/io/lasparser.cpp
   src/io/dlisparser.cpp                            # 方向44：DLIS (RP66 v1) 读口
   src/io/lisparser.cpp                             # 方向44：LIS79 读口（含 TIF）

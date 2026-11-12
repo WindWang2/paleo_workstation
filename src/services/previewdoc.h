@@ -221,19 +221,6 @@ class PreviewDocService : public QObject
     bool markDownstreamStale(const QString &versionId, const QString &reason,
                              QString *error);
 
-    // ---- 文档 PDF 预览（原件 pdf 直接用；office 格式经 soffice 懒转换）----
-    enum class DocPdfState { None, Pending, Ready, Failed };
-    void ensureDocumentPdf(const QString &assetId);
-    DocPdfState documentPdfState(const QString &assetId) const;
-    QString documentPdfPath(const QString &assetId) const;
-    QString documentPdfError(const QString &assetId) const;
-    // ---- 二进制 .xls 工作簿预览（soffice 懒转 DERIVED .xlsx 供表格渲染）----
-    enum class WorkbookXlsxState { None, Pending, Ready, Failed };
-    void ensureWorkbookXlsx(const QString &assetId);
-    WorkbookXlsxState workbookXlsxState(const QString &assetId) const;
-    QString workbookXlsxPath(const QString &assetId) const;   // Ready 时有效
-    QString workbookXlsxError(const QString &assetId) const;  // Failed 时有效
-
     // ---- 外委工作簿预览（io/outsourceworkbook 的视图侧出口）----
     // 方向59 头文件卫生：WorkbookReadResult 是 io 类型不出闸——镜像为
     // 纯 Qt 结构，字段语义与 io/outsourceworkbook.h 一致。
@@ -362,11 +349,6 @@ class PreviewDocService : public QObject
     // 解码失败（原因如实；SHA 失配的下游标过时已在服务内做完）。
     void seismicSectionFailed(const QString &assetId, const QString &reason);
     void seismicSectionCancelled(const QString &assetId);
-    // DataImportService 文档 PDF / 工作簿 XLSX 转换信号的转发（UI 重建对应标签）。
-    void documentPdfReady(const QString &assetId);
-    void documentPdfFailed(const QString &assetId, const QString &error);
-    void workbookXlsxReady(const QString &assetId);
-    void workbookXlsxFailed(const QString &assetId, const QString &error);
     // DataImportService 信号的壳侧转发（主窗只认门面）。
     void catalogOpenFailed(const QString &error);
     // catalog open() 经 .bak 回退恢复（T5）——「已从备份恢复，主文件损坏」

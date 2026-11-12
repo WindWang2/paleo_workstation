@@ -6345,32 +6345,6 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
 <context>
     <name>DataImportService</name>
     <message>
-        <location filename="../src/io/dataimport_document.cpp" line="255"/>
-        <source>找不到 LibreOffice（vendor/libreoffice 或 PATH 上的 soffice）——无法生成 %1 预览</source>
-        <translation>找不到 LibreOffice（vendor/libreoffice 或 PATH 上的 soffice）——无法生成 %1 预览</translation>
-    </message>
-    <message>
-        <location filename="../src/io/dataimport_document.cpp" line="269"/>
-        <location filename="../src/io/dataimport_document.cpp" line="324"/>
-        <source>原始文件缺失，无法转换</source>
-        <translation>原始文件缺失，无法转换</translation>
-    </message>
-    <message>
-        <location filename="../src/io/dataimport_document.cpp" line="488"/>
-        <source>LibreOffice 转换超时（上限 %1 秒），已强制结束——请检查文档是否损坏或过大后重试</source>
-        <translation>LibreOffice 转换超时（上限 %1 秒），已强制结束——请检查文档是否损坏或过大后重试</translation>
-    </message>
-    <message>
-        <location filename="../src/io/dataimport_document.cpp" line="493"/>
-        <source>无法创建输出目录</source>
-        <translation>无法创建输出目录</translation>
-    </message>
-    <message>
-        <location filename="../src/io/dataimport_document.cpp" line="495"/>
-        <source>soffice 退出码 %1，未产出 %2</source>
-        <translation>soffice 退出码 %1，未产出 %2</translation>
-    </message>
-    <message>
         <location filename="../src/io/dataimport_file.cpp" line="179"/>
         <source>无法读取或哈希源文件：%1</source>
         <translation>无法读取或哈希源文件：%1</translation>

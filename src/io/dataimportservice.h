@@ -19,8 +19,6 @@
 #include <optional>
 
 class PaleoProjectStore;
-class QProcess;
-class QTimer; // #555：转换挂死看门狗（两段式终止计时）
 struct PlannedItem; // io/ingestplan.h（前向声明——C 包 plan 项按引用传）
 struct IngestPlan;  // io/ingestplan.h（planFor 返回值；定义侧 include）
 struct ImportSession; // 见文件尾：produce-then-commit 的一次导入（审计 02 M-8）
@@ -205,30 +203,6 @@ class DataImportService : public QObject
     // DERIVED 转换件）。
     QString absolutePathForVersion(const CatalogVersion &version) const;
 
-    // ---- 文档/工作簿转换预览（§4 升级：soffice headless → DERIVED 版本，懒转换）----
-    // document 资产（doc/docx/ppt/pptx）首次预览时调用 ensureDocumentPdf：
-    // LibreOffice headless 转出的 PDF 落为受管 DERIVED 版本（parent=RAW）。
-    // 二进制 .xls 工作簿（outsource_workbook）经 ensureWorkbookXlsx 转 DERIVED
-    // .xlsx——原生读取面不覆盖二进制格式，转换后走同一表格预览。
-    // 幂等——已就绪/在途/已败（会话内缓存）时不动；结果经 documentPdf*/
-    // workbookXlsx* 信号。
-    enum class DocPdfState { None, Pending, Ready, Failed };
-    void ensureDocumentPdf(const QString &assetId);
-    DocPdfState documentPdfState(const QString &assetId) const;
-    QString documentPdfPath(const QString &assetId) const;   // Ready 时有效
-    QString documentPdfError(const QString &assetId) const;  // Failed 时有效
-    enum class WorkbookXlsxState { None, Pending, Ready, Failed };
-    void ensureWorkbookXlsx(const QString &assetId);
-    WorkbookXlsxState workbookXlsxState(const QString &assetId) const;
-    QString workbookXlsxPath(const QString &assetId) const;   // Ready 时有效
-    QString workbookXlsxError(const QString &assetId) const;  // Failed 时有效
-    // 部署/测试注入：替代 PATH 上的 soffice/libreoffice 探测（可指向 stub）。
-    // 空串 = 强制不可用（走 Failed 降级）。
-    void setDocumentConverterProgram(const QString &program);
-    // resolveDocumentConverter 的探测结果（未解析时先解析）。三级序
-    // env > vendored > PATH 的可观测面——vendored 探测命中测试用。
-    QString documentConverterProgram();
-
     // ---- 兼容面（bottom-dock 面板仍在用）----
     QStringList assets(const QString &type = QString()) const;   // asset ids（按分类类型过滤）
     QString assetSource(const QString &assetId) const;           // 当前版本路径（外链绝对）
@@ -253,10 +227,6 @@ class DataImportService : public QObject
     // catalog open() 经 .bak 回退恢复成功（T5）——主文件损坏原因随行，UI
     // 状态面据此告警。catalog 本身可用（读面正常、可续存）。
     void catalogRecoveredFromBackup(const QString &reason);
-    void documentPdfReady(const QString &assetId);
-    void documentPdfFailed(const QString &assetId, const QString &error);
-    void workbookXlsxReady(const QString &assetId);
-    void workbookXlsxFailed(const QString &assetId, const QString &error);
 
   public:
     // ---- 审计 02 M-8：produce-then-commit 导入模型 ----
@@ -354,23 +324,6 @@ class DataImportService : public QObject
     static int attachResolvableLinks(DataCatalog *cat, const CatalogAsset &asset,
                                      const QString &sourcePath, QString *error = nullptr);
 
-    // 文档/工作簿转换：LibreOffice 单实例在共享 UserInstallation 下不可靠，
-    // 一律串行（队列）。soffice 把输出写到 --outdir/<stem>.<outExt>。
-    void resolveDocumentConverter();
-    void queueConversion(const QString &assetId, const QString &outExt);
-    void startNextConversion();
-    void finishConversion(int exitCode);
-    // #555：soffice 挂死两段式回收（口径同 services/scriptrunner.cpp 的
-    // terminateGracefully——就近复制模式而非抽公共助手：两侧进程生命周期
-    // 模型不同，Run 结构体 vs 单槽位成员，抽离强造间接层不抵改动面）。
-    // 超时 → SIGTERM 整组（setsid 进程组连坐 soffice.bin 孙进程）→
-    // 2s 优雅窗口 → SIGKILL 整组。
-    void terminateConversionGracefully();
-    void stopConversionTimers();
-    // 析构/工程切换共用：在途转换整组强杀 + 看门狗停表（不发失败信号——
-    // 队列/状态由调用方整体作废）。
-    void abortInflightConversion();
-
     PaleoProjectStore *m_store;
     QString m_projectDir;
     DataCatalog *m_catalog = nullptr;
@@ -378,25 +331,6 @@ class DataImportService : public QObject
     QString m_catalogOpenError;   // 最近一次 catalog open 失败原因（成功则空）
     quint64 m_catalogEpoch = 0;   // setProjectDir 每次 +1——session 跨工程切换不提交
     std::optional<PaleoGeoreference> m_georeference; // 建井配准（空=不应用）
-
-    QString m_converter;            // "" 未解析/不可用
-    bool m_converterResolved = false;
-    QProcess *m_convProc = nullptr; // 非空即转换在途
-    QTimer *m_convTimeoutTimer = nullptr; // #555 挂死看门狗（超时触发两段式终止）
-    QTimer *m_convKillTimer = nullptr;    // 优雅退出窗口计时（SIGTERM→SIGKILL 递进）
-    bool m_convTimedOut = false;          // 本次转换已超时（失败文案区分）
-    // FE-004：LibreOffice 独立 UserInstallation 目录——随机名（防多用户机
-    // 预布设 symlink）+ 服务存续期保活 + 析构自动清理（旧实现是固定名
-    // /tmp/paleo-lo-profile-<pid> 且全仓无清理，跨会话在 /tmp 永久累积）。
-    std::unique_ptr<QTemporaryDir> m_convProfileDir;
-    QList<QPair<QString, QString>> m_convQueue; // (assetId, outExt)："pdf"|"xlsx"
-    QString m_convCurrent;          // 在途 assetId
-    QString m_convCurrentExt;       // 在途输出扩展名
-    QString m_convCurrentVersionId;
-    QString m_convRawVersionId;
-    QString m_convOutFile;          // 期望产物绝对路径
-    QSet<QString> m_convPending;
-    QHash<QString, QString> m_convErrors;
 };
 
 // ---------------------------------------------------------------------------

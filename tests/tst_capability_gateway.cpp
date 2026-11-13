@@ -463,14 +463,20 @@ void TestCapabilityGateway::toolProtocol() {
 }
 
 void TestCapabilityGateway::planAndBudgetClaims() {
-  QVector<PlanNode> nodes{{QStringLiteral("depth"), QStringLiteral("depth.convert_batch"), 1, QStringLiteral("DEPTH")},
-                          {QStringLiteral("seis"), QStringLiteral("seismic.attributes.compute"), 1, QStringLiteral("RMS")}};
-  const auto order = paleo::capability::checkPlan(nodes, {});
-  QCOMPARE(order.code, QStringLiteral("ok"));
-  QCOMPARE(order.message, QStringLiteral("depth,seis"));
-  QVector<PlanEdge> cycle{{QStringLiteral("depth"), QStringLiteral("DEPTH"), QStringLiteral("seis"), QStringLiteral("RMS")},
-                          {QStringLiteral("seis"), QStringLiteral("RMS"), QStringLiteral("depth"), QStringLiteral("DEPTH")}};
-  QCOMPARE(paleo::capability::checkPlan(nodes, cycle).code, QStringLiteral("port_type"));
+  const QVariantList points{QVariantMap{{QStringLiteral("x"), 0.0}, {QStringLiteral("y"), 0.0},
+                                       {QStringLiteral("z"), 1.0}}};
+  QVector<PlanNode> nodes{{QStringLiteral("idw"), QStringLiteral("constraint.idw"), 1, QStringLiteral("OUTPUT"),
+                          {}, {}, {{QStringLiteral("points"), points},
+                                   {QStringLiteral("subinterval_id"), QStringLiteral("S1")}}},
+                         {QStringLiteral("contours"), QStringLiteral("singlefactor.contours"), 1,
+                          QStringLiteral("LINES"), {}, {{QStringLiteral("CONTOUR_LEVEL"), 0.5}}, {}}};
+  QVector<PlanEdge> edges{{QStringLiteral("idw"), QStringLiteral("OUTPUT"), QStringLiteral("contours"),
+                           QStringLiteral("RASTER")}};
+  const auto plan = paleo::capability::validatePlan(nodes, edges);
+  QVERIFY(plan.ok);
+  QCOMPARE(plan.order, QStringList({QStringLiteral("idw"), QStringLiteral("contours")}));
+  edges[0].fromPort = QStringLiteral("ANY_NONEMPTY_NAME");
+  QCOMPARE(paleo::capability::checkPlan(nodes, edges).code, QStringLiteral("port_type"));
   QCOMPARE(paleo::capability::checkPlan({{QStringLiteral("nope"), QStringLiteral("missing.cap"), 1, {}}}, {}).code,
            QStringLiteral("unknown_capability"));
 

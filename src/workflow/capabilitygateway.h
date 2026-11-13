@@ -5,6 +5,7 @@
 
 #include "../services/algorithmcontract.h"
 #include "../services/capabilityspec.h"
+#include "capabilityplan.h"
 
 #include <QJsonObject>
 #include <QMutex>
@@ -60,23 +61,6 @@ struct ExecuteResult {
   QVariantMap summary;
   QVector<ContractIssue> issues;
   QByteArray responseJson;
-};
-
-struct PlanNode {
-  QString id;
-  QString capabilityId;
-  int contractVersion = 1;
-  QString outputPort;
-  QString intent; // prepare | compute-only | publish
-  QVariantMap parameters;
-  QVariantMap inputs;
-};
-
-struct PlanEdge {
-  QString from;
-  QString fromPort;
-  QString to;
-  QString toPort;
 };
 
 // 宿主线程上已经冻结的点与约束。不含 Qgs 类型，避免网关再散布 QGIS 头。
@@ -167,7 +151,6 @@ ExecuteResult execute(const ExecuteRequest &request);
 // value references for the computation worker.
 QString bindSeismicTrace(ExecuteRequest &request, const document::DocumentSession &document,
                         const SeismicTraceSelection &selection);
-ContractIssue checkPlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
 ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
 QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes = 64 * 1024);
 // Converts a chat request without reading model data or starting work.

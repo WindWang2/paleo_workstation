@@ -223,6 +223,7 @@ add_library(paleo_services STATIC
   src/services/algorithmspec.cpp                    # algo-atom P0：AlgorithmSpec 静态契约表
   src/services/algorithmspec_pilots.cpp             # 时深/属性组/相图输出契约
   src/services/algorithmcontract.cpp                # 参数校验与有效默认值
+  src/services/algorithmportcontract.cpp            # 端口类型/基数/显式语义兼容
   src/services/capabilityspec.cpp                   # 能力目录（引用 AlgorithmSpec，不复制默认值）
   src/services/capabilityseismicinput.cpp           # 固定来源与修订的地震道窗口
   src/services/welltracksource.cpp

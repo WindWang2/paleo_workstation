@@ -161,14 +161,9 @@ void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs) {
   AlgoPort lines;
   lines.id = QStringLiteral("LINES");
   lines.kind = QStringLiteral("vector");
+  lines.geometryHint = QStringLiteral("line");
   lines.required = true;
   contour.outputs = {lines};
-  AlgoPort prior;
-  prior.id = QStringLiteral("LINES");
-  prior.kind = QStringLiteral("vector");
-  prior.required = false;
-  prior.cardinalityMin = 0;
-  contour.inputs.append(prior);
   contour.params = {numberParam(QStringLiteral("CONTOUR_LEVEL"), AlgorithmParamField::Double, QVariant(), true, false, 0,
                                 false, 0)};
   specs->append(contour);

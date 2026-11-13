@@ -3,6 +3,10 @@
 基线：`dd7baa1f`；对应 [Agent 调用可靠性整改计划](../planning/AGENT_CALL_READINESS_PLAN.md) W2。
 状态：W2 实施与相关生产链验收完成。2026-11-14 补齐完整依赖编译和 QGIS/GDAL 回归。
 
+交付采用叠加 PR：本批基于已提交的 [W0/W1 #936](https://github.com/WindWang2/paleo_workstation/pull/936)。
+叠加后重新 configure，编译上述三个真实生产 target，并串行运行三套 CTest，全部通过
+（3.16 秒）；重新运行完整 32 条源码闸门，32/32 通过，未增加任何基线。
+
 `validatePlan` 在任何子操作前返回规范节点、类型化边、实际请求字段映射、结构化拓扑顺序
 和 issues。执行入口自行重新校验，不把可变 `ValidatedPlan.ok` 当成宿主许可。
 `checkPlan` 保留错误查询接口，message 不再承载逗号拼接的拓扑结果；执行结果的

@@ -114,7 +114,12 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   appendMessage(tool);
   // The UI summary remains independent of the model's transport contract.
   const auto native = QJsonDocument::fromJson(resultJson.toUtf8()).object();
-  const QString summary = ok ? resultJson.left(160) : native.value("error").toString(resultJson);
+  QString summary = ok ? resultJson : native.value("error").toString(resultJson);
+  if (ok && resultJson.size() > 160) {
+    int end = 160;
+    if (resultJson[end - 1].isHighSurrogate() && resultJson[end].isLowSurrogate()) --end;
+    summary = resultJson.left(end) + QStringLiteral("…");
+  }
   emit toolResultReady(call, ok, summary);
   if (!m_streaming || m_pendingToolResults > 0) return;
   if (m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens) {

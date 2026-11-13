@@ -180,6 +180,8 @@ private slots:
     auto mixed = request; mixed.inputs["samples"] = QVariantList{1}; mixed.clientRequestId = "mixed";
     QCOMPARE(service.prepare(mixed, host::Caller::Agent).code, QStringLiteral("mixed_seismic_inputs"));
     mixed = request; mixed.capabilityId = "depth.convert_batch";
+    QCOMPARE(service.prepare(mixed, host::Caller::Agent).code, QStringLiteral("idempotency_conflict"));
+    mixed.clientRequestId = "mixed-depth";
     QCOMPARE(service.prepare(mixed, host::Caller::Agent).code, QStringLiteral("mixed_seismic_inputs"));
   }
 
@@ -236,11 +238,11 @@ private slots:
       {"parameters",QJsonObject::fromVariantMap(request.parameters)},{"inputs",QJsonObject::fromVariantMap(request.inputs)}};
     QSignalSpy done(chat.toolRunner(),&AiChatToolRunner::toolFinished);
     const auto run=[&](const QString &call){chat.toolRunner()->run({call,"paleo.depth_convert_batch",QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))});};
-    run("publish");QTRY_COMPARE_WITH_TIMEOUT(done.size(),1,10000);QVERIFY(done[0][1].toBool());
+    run("publish");QTRY_COMPARE_WITH_TIMEOUT(done.size(),1,10000);QVERIFY2(done[0][1].toBool(),qPrintable(done[0][2].toString()));
     const auto first=QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object();
     QCOMPARE(first.value("commitState").toString(),QString("committed"));QCOMPARE(first.value("contract").toString(),QString("paleo.operation.v2"));
     const int versions=f.catalog.versions().size();f.catalog.setLockedReadOnly(true);run("replay");
-    QTRY_COMPARE_WITH_TIMEOUT(done.size(),2,10000);QVERIFY(done[1][1].toBool());
+    QTRY_COMPARE_WITH_TIMEOUT(done.size(),2,10000);QVERIFY2(done[1][1].toBool(),qPrintable(done[1][2].toString()));
     const auto replay=QJsonDocument::fromJson(done[1][2].toString().toUtf8()).object();
     QCOMPARE(replay.value("operationId"),first.value("operationId"));QCOMPARE(replay.value("commitState").toString(),QString("committed"));
     QCOMPARE(f.catalog.versions().size(),versions);

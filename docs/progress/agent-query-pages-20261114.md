@@ -1,8 +1,8 @@
 # Agent 查询分页实施（W4a/W4b）
 
 基线：master `dd7baa1f`，从计划/入口清单分支独立实现；后续由父任务堆叠到 W1–W3。
-对应[整改计划 W4](../planning/AGENT_CALL_READINESS_PLAN.md)。**SDK 与基础目录回归已过；
-客户端 12 个相关测试目标正在增量编译，主仓 W4 尚未提 PR。**
+对应[整改计划 W4](../planning/AGENT_CALL_READINESS_PLAN.md)。**SDK 与客户端独立批次已
+完成真实产品编译、12 套回归和源码门禁；主仓 PR 待累计接入 W1–W3 验证后发布。**
 
 ## 查询边界
 
@@ -67,7 +67,7 @@ journal 触发器，避免误报整库重建或 unmanaged。
 保持原渲染，字体/颜色/布局不变。未知井提示只列有界完整井名示例；错误 JSON 同样
 遵守 `max_bytes`。跨平台读库时，Windows/UNC 外部绝对路径同样仅暴露文件名。
 
-## 验证记录（客户端整体验收进行中）
+## 验证记录
 
 - 已完成基础 `paleo_store` 的真实 Qt 6.11.2/QGIS 4.2.3/SDK 生产编译。
 - 六个新增生产 query/runner TU 的原生产编译参数 `-fsyntax-only` 通过；不代替链接或测试。
@@ -76,11 +76,13 @@ journal 触发器，避免误报整库重建或 unmanaged。
 - 新增场景后优先重编并实际运行 `tst_project_query`，16/16、0 skip（6.34s）。
   300 分支验收曾测到 324 次邻接读取，定位为边数页满后才探测下一邻接；已把计数
   检查移到取数前，仍按原断言精确 300 次通过，没有放宽阈值。
+- 最后一次完整增量重扫构建真实 `paleo` 产品与 12 个相关测试目标，全部编译/链接
+  成功。串行 CTest 12/12（38.59s）；QtTest 总计 183 通过（含 fixture）、0 失败、
+  0 skip。新增跨线程先拒绝后读状态的回归后，query 为 17/17，结果卡 11/11。
 - 新 `tst_project_query` 已写：一万条/超过128小页完整读回、无全量 accessor、重放/
   筛选/字节预算、批次/回滚/重开/预备收养、400父引用、方向/环/兄弟分支、有效模型井
   与 head 失效、TTL；后来增加的 300 分支/零深度/重放零读取、260 有效井名候选续查与
-  归一化歧义、便携路径和错误预算测试也已实际通过。旧聊天查询回归改为验证续页
-  完整性，仍待本次 12 靶整体验收。
+  归一化歧义、便携路径和错误预算测试也已实际通过。旧聊天查询回归验证续页完整性。
 - 独立 SDK 真实配置/编译/链接后，`well_query_contract`、`model_change_contract`、
   `seismic_service_tests` 三套 CTest 全过（1.18s，0 skip）：Unicode、负 TD/NaN、
   点读缺失/预算、复合索引查询计划、写失败回滚、旧写者 dirty、只读不迁移、旧触发器
@@ -92,8 +94,10 @@ journal 触发器，避免误报整库重建或 unmanaged。
   noteRead；新增文案缺 TS 与一次合并误删均已修复并重跑全闸。未通过提高基线转绿。
 
 整体验收包含 `tst_aichatprojectquery`、`tst_aiwiring`、`tst_aitoolresultview`、严格
-版本描述和原 CatalogIndex/目录/角色/血缘回归；最终结果将在完成后补记。父任务堆叠
-与 rebase 后仍须重跑 Source gates。
+版本描述和原 CatalogIndex/目录/角色/血缘回归；启用既有 ledger 截图场景，表格、
+关联、血缘和兜底四张均实际生成并检查，旧历史布局与原契约保持。新页还验证空节点、
+超小图上限、父引用续页仍显示本页/未知/后续；SDK 井深保留原值，不固定标成米。
+父任务堆叠与 rebase 后仍须重跑 Source gates。
 
 临时脚本/完整编译日志位于 worktree `local/query-validation` 及 WSL 独立 build，
 不提交额外运行框架。构建总并行遵守全队上限；本批未新增或提高任何源码闸门基线。

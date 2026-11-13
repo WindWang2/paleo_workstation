@@ -55,7 +55,15 @@ QString CapabilityRecovery::reportExternal(const QString &scope,const QString &i
   }
   if(r.execution==QLatin1String("succeeded") || r.execution==QLatin1String("failed")) {
     if(r.externalOutcome!=outcome)return "external_outcome_conflict";
-    if(!proof.isEmpty() && r.remoteCompletionProof.isEmpty()) {r.remoteCompletionProof=proof;return recovery_detail::store(log,r);}
+    if(!proof.isEmpty() && r.remoteCompletionProof.isEmpty()) {
+      r.remoteCompletionProof=proof;const auto saved=recovery_detail::store(log,r);if(saved!="ok")return saved;
+    }
+    if(outcome=="succeeded" && retainOwnershipForResults && r.artifactManifest.isEmpty()) {
+      const auto allowed=host::checkContext(h.context,h.context,host::Read|host::PrivateStage);
+      if(!allowed.isEmpty())return allowed;
+      if(!log.ownsWrites())return "project_write_ownership_required";
+      m_externalHosts.insert(id,h);
+    }
     return "ok";
   }
   if(outcome=="unknown" && r.remoteJobId.isEmpty() && !jobId.isEmpty() && jobId.toUtf8().size()<=1024)r.remoteJobId=jobId;

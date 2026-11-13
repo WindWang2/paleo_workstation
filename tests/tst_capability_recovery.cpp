@@ -141,6 +141,11 @@ private slots:
     auto changed=proof;changed["responseHash"]=QString(64,'c');
     QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",changed),QString("external_completion_conflict"));
     QCOMPARE(h.recovery.lookup(p.callerScope,p.clientRequestId).record.remoteCompletionProof,proof);
+    QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",proof,true),QString("ok"));
+    h.documentId="another-document";++h.epoch;bool done=false;QString error;ExecuteResult result;
+    QVERIFY2(h.recovery.attachExternalResults(p.callerScope,id,worker(),this,[&](ExecuteResult r){result=r;done=true;},&error),qPrintable(error));
+    QTRY_VERIFY(done);QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(h.catalog.versions().size(),0);
+
   }
   void phaseInheritanceSurvivesRestartWithoutLivePlan() {
     QTemporaryDir root;QString sourceId;QJsonObject target;

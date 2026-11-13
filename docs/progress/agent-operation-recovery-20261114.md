@@ -1,4 +1,4 @@
-# Agent operation recovery — W5a
+# Agent operation recovery — W5
 
 W5a provides host-owned immutable schema-2 publication receipts in the existing Catalog SQL transaction, keyed by document/operation and unique output-set ID. Every member version carries the same manifest hash. Healthy rewrites preserve receipts and the store generation; corrupt-primary recovery rotates the generation, so missing evidence in a restored store cannot prove an operation never committed.
 
@@ -6,7 +6,7 @@ W5a provides host-owned immutable schema-2 publication receipts in the existing 
 
 Real linked native verification uses the locked SDK and actual Catalog/DerivedAsset implementations, without storage or publication stubs. `tst_publication_receipt`, existing `tst_catalogstore`, `tst_operation_control` and `tst_algorithm_output_set` all pass. Coverage includes actual subprocess termination/reacquisition, two-process lock denial, receipt/member transaction rollback, replay without another version, corrupted evidence, store rewrite generations, immutable prepared intent and stale-attempt CAS. The 32 CI Source gates plus selftests pass with QGIS 4.2.3 headers; no baselines increased.
 
-W5b remains required: connect this foundation to the production worker/owner commit path, reconcile a lost post-commit response from SQL evidence, and expose scoped operation/result APIs. Publication must remain closed until that path and its crash tests are verified.
+The production orchestration below connects this foundation to worker computation, owner publication, SQL-driven reconciliation and scoped operation/result APIs. Native publication is opened through that verified host path.
 
 
 ## W5b production orchestration
@@ -29,20 +29,20 @@ Six native suites pass: `tst_publication_receipt`, `tst_catalogstore`, `tst_oper
 
 The recovery suite terminates actual child processes at accepted, running, partial output, prepared, publishing and Catalog-committed boundaries. It verifies explicit interrupted resume, preserved prepared output, one final Catalog version and no post-prepare recomputation. Other regressions cover journal-write loss after commit, read-only projection with a retained physical claim, read-only cancel denial, scoped/bounded reads, event paging, phase inheritance after restart, external no-resend/direct response proof, superseded presentation, source validation before prepared resume and release of claims while finished task rows remain. The native host suite checks actual depth JSON, all three requested seismic float outputs, readable IDW→contour publication, publishing existing output with the provider offline, chat isolation and parent DAG identity conflicts before child work.
 
-The W5 cumulative worktree now owns the final full-application build and stack rebase gates before the W5 PR; the focused native compile/test logs are `local/recovery-native/build.log` and `/home/kevin/build-agent-recovery-native/Testing/Temporary/LastTest.log`. Source gates use the CI scripts and locked QGIS headers, without increasing a baseline.
+The cumulative validation uses the normal production CMake targets. Focused logs are `local/recovery-native/build.log` and `/home/kevin/build-agent-recovery-stack-native/Testing/Temporary/LastTest.log`; production logs are `local/recovery-stack/full-build.log`, `local/recovery-stack/full-test.log` and `/home/kevin/build-paleo-agent-recovery-stack/Testing/qtest-first-run/*.txt`. Source gates use the CI scripts and locked QGIS headers, without increasing a baseline.
 
 
 ### Cumulative Host and cleanup follow-up
 
 The native operation response has the stable `paleo.operation.v2` contract. The central chat adapter preserves independent execution, commit and presentation facts, request identity and opaque operation/receipt references. A response exceeding its JSON byte budget retains those business facts and reports a separate incomplete transport code. The W1 zero-capacity cache regression verifies committed/presentation-pending results and known-receipt replay through the real Host, central adapter and model encoder.
 
-Modern chat requests decode input only before the trusted Host prepares them; publication no longer requires a missing legacy host-head argument. The Host receives the persisted chat-session identity. Known committed replay remains available when the Catalog is read-only. Replay tickets enforce capacity and expire with the document epoch. Full production runner coverage is included in the cumulative build rather than claimed by the focused harness.
+Modern chat requests decode input only before the trusted Host prepares them; publication no longer requires a missing legacy host-head argument. The Host receives the persisted chat-session identity. Known committed replay remains available when the Catalog is read-only. Replay tickets enforce capacity and expire with the document epoch. The integrated production host suite verifies publication and read-only replay through the actual chat runner.
 
 External response proofs are immutable for both direct synchronous completion and accepted jobs. A completed result can retain the original host/write claim through private artifact attachment even after the live document changes. Actual remote facts are stored without publishing into the newly active document.
 
 OperationLog v2 supplies conservative GC roots for exact staging outputs, prepared manifests, private result bytes, parent/expected-head versions and frozen source paths, including compound sidecars. The cleanup scan, preview, validation, metadata deletion and each unlink recheck those roots. Unknown schemas, malformed metadata, changed plan hashes, unsafe paths and excessive journal size refuse cleanup. The shared four-field plan hash is verified by both recovery and retention; new operations cannot add roots during a Catalog purge lease. A real native publication regression removes the committed row from a scan snapshot and verifies that durable operation roots still prevent the file becoming an orphan.
 
-Focused verification after these changes: eight real linked suites, 125 QtTest cases passed with no failures or skips, including the opt-in 10,000-file scale case (`PALEO_CATALOG_SCALE=10000`). All 32 Source gates passed. The actual `paleo` target and 23 cumulative suites are now compiling at `-j1` in `/home/kevin/build-paleo-agent-recovery-stack`; final application and production-runner results will be recorded after that build completes. No baseline increased.
+Final cumulative validation on Linux/WSL (Qt 6.11.2, locked QGIS 4.2.3/GDAL 3.12.2, SDK pin `5da59402`): the actual `paleo` application and 23 related production test targets compiled successfully. Serial CTest passed 23/23 suites in 101.79 seconds: 382 QtTest cases, zero failures and zero skips. `PALEO_CATALOG_SCALE=10000` enabled the real directory-scale case. Office editor configuration resolved the required component. Focused verification also passed eight real linked suites with 125 cases and no failures/skips. All 32 Source gates passed; no baseline increased. The branch was fetched/rebased against `origin/master` before the final gates (no base change).
 
 External-tail follow-up also verifies accepted-job GET recovery across a live document change, immutable completion proof replay after restart, and physical claim release when a terminal result attachment is abandoned. Returning `Query` retains the original authorized host; terminal `retainOwnershipForResults=false` explicitly releases that retention.
 

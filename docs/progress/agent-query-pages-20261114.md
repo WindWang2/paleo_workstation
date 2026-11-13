@@ -85,8 +85,8 @@ journal 触发器，避免误报整库重建或 unmanaged。
   `seismic_service_tests` 三套 CTest 全过（1.18s，0 skip）：Unicode、负 TD/NaN、
   点读缺失/预算、复合索引查询计划、写失败回滚、旧写者 dirty、只读不迁移、旧触发器
   修复重开，以及真实非 unit IL/XL/缺道/实际 ordinal/窗口/预算/取消。
-- 最新完整 Source gates 32/32，通过锁版 QGIS 头的全传递检查。TS 中英键各 10821，
-  missing/extra 均 0，10798 个未修改英文键的既有翻译逐条保持。
+- 最新完整 Source gates 32/32，通过锁版 QGIS 头的全传递检查。TS 中英键各 10822，
+  missing/extra 均 0，10797 个未修改英文键的既有翻译逐条保持。
 - 首轮失败保留日志：SDK journal after-image 错取顶层 name 导致 SQL NOT NULL，已改
   为读取 value.name 的类型化参数；访问 hook 接错写线程检查被一万条验收抓到，已移回
   noteRead；新增文案缺 TS 与一次合并误删均已修复并重跑全闸。未通过提高基线转绿。

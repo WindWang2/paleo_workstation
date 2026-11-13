@@ -740,9 +740,9 @@
     <message>
         <location filename="../src/ui/ai/aitoolresultview.cpp" line="477"/>
         <source>
-…（显示前 %1 字符，原始 %2 字符；全文已回传模型）</source>
+…（显示前 %1 字符，原始 %2 字符；此处仅为显示摘要）</source>
         <translation>
-…（显示前 %1 字符，原始 %2 字符；全文已回传模型）</translation>
+…（显示前 %1 字符，原始 %2 字符；此处仅为显示摘要）</translation>
     </message>
     <message>
         <location filename="../src/ui/ai/aitoolresultview.cpp" line="72" />
@@ -798,6 +798,11 @@
         <location filename="../src/ui/ai/aitoolresultview.cpp" line="309" />
         <source>状态</source>
         <translation>状态</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="487" />
+        <source> · 本页节点超过小图上限 %1，已按 JSON 折叠</source>
+        <translation> · 本页节点超过小图上限 %1，已按 JSON 折叠</translation>
     </message>
 </context>
 <context>

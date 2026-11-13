@@ -731,8 +731,9 @@
         <message>
             <location filename="../src/ui/ai/aitoolresultview.cpp" line="477" />
             <source>
-…（显示前 %1 字符，原始 %2 字符；全文已回传模型）</source>
-            <translation type="unfinished" />
+…（显示前 %1 字符，原始 %2 字符；此处仅为显示摘要）</source>
+            <translation>
+… (showing the first %1 characters of %2; this is a display summary only)</translation>
         </message>
         <message>
             <location filename="../src/ui/ai/aitoolresultview.cpp" line="72" />
@@ -788,6 +789,11 @@
             <location filename="../src/ui/ai/aitoolresultview.cpp" line="309" />
             <source>状态</source>
             <translation>Status</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="487" />
+            <source> · 本页节点超过小图上限 %1，已按 JSON 折叠</source>
+            <translation> · This page exceeds the mini graph limit (%1 nodes); shown as collapsed JSON</translation>
         </message>
     </context>
     <context>

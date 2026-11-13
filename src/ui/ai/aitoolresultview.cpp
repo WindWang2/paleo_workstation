@@ -475,15 +475,26 @@ void AiToolResultView::buildFallback(const QJsonObject &payload) {
 
   // 血缘超限降级时注记如实（节点数在 payload 里，可复核）。
   const QJsonArray nodes = payload.value(QStringLiteral("nodes")).toArray();
-  if (payload.value(QStringLiteral("tool")).toString() ==
+  const bool paged = payload.value(QStringLiteral("contract")).toString().endsWith(QLatin1String(".page.v1")) &&
+      payload.contains(QStringLiteral("returnedCount")) && payload.contains(QStringLiteral("hasMore"));
+  QString explanation;
+  if (paged) {
+    explanation = pageNote(payload);
+    if (nodes.size() > kAiLineageMiniNodeCap)
+      explanation += tr(" · 本页节点超过小图上限 %1，已按 JSON 折叠").arg(kAiLineageMiniNodeCap);
+    else if (nodes.isEmpty() && !payload.value(QStringLiteral("edges")).toArray().isEmpty())
+      explanation += tr(" · 跨页关联暂不绘制");
+  } else if (payload.value(QStringLiteral("tool")).toString() ==
         QLatin1String("paleo.asset_lineage") &&
       nodes.size() > kAiLineageMiniNodeCap) {
-    auto *note = new QLabel(
-      tr("闭包 %1 节点超过小图上限 %2，已按 JSON 折叠——「在血缘页打开」"
+    explanation = tr("闭包 %1 节点超过小图上限 %2，已按 JSON 折叠——「在血缘页打开」"
          "前的完整事实都在下方出参里")
         .arg(nodes.size())
-        .arg(kAiLineageMiniNodeCap),
-      this);
+        .arg(kAiLineageMiniNodeCap);
+  }
+  if (!explanation.isEmpty()) {
+    auto *note = new QLabel(explanation, this);
+    if (paged) note->setObjectName(QStringLiteral("aiResultPageNote"));
     note->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
     note->setWordWrap(true);
     PaleoTheme::applyThemedStyleSheet(
@@ -511,7 +522,7 @@ void AiToolResultView::buildFallback(const QJsonObject &payload) {
     QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Indented));
   if (text.size() > kFallbackCharCap)
     text = text.left(kFallbackCharCap) +
-           tr("\n…（显示前 %1 字符，原始 %2 字符；全文已回传模型）")
+           tr("\n…（显示前 %1 字符，原始 %2 字符；此处仅为显示摘要）")
              .arg(kFallbackCharCap)
              .arg(text.size());
   json->setText(text);

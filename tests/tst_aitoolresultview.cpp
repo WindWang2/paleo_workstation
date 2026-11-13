@@ -344,6 +344,27 @@ void TestAiToolResultView::pagedCardsDistinguishPageUnknownTotalsAndCrossPageEdg
       QString::fromUtf8(QJsonDocument(resolving).toJson(QJsonDocument::Compact)));
   auto *head = searchCard.findChild<QTableWidget *>(QStringLiteral("aiResultKeyValue")); QVERIFY(head);
   QVERIFY(head->item(0,1)->text().contains(QStringLiteral("候选页")));
+  payload.insert(QStringLiteral("nodes"),QJsonArray{});payload.insert(QStringLiteral("returnedCount"),0);
+  AiToolResultView emptyGraph(QStringLiteral("paleo.asset_lineage"),true,
+      QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+  QCOMPARE(emptyGraph.kind(),AiToolResultViewKind::Fallback);
+  note=emptyGraph.findChild<QLabel *>(QStringLiteral("aiResultPageNote"));QVERIFY(note);
+  QVERIFY(note->text().contains(QStringLiteral("本页 0")));QVERIFY(note->text().contains(QStringLiteral("后续")));
+  QVERIFY(note->text().contains(QStringLiteral("跨页")));QVERIFY(!note->text().contains(QStringLiteral("闭包")));
+  payload=parse(overCapLineagePayload()).object();payload.insert(QStringLiteral("contract"),QStringLiteral("paleo.lineage.page.v1"));
+  payload.insert(QStringLiteral("returnedCount"),payload.value(QStringLiteral("nodes")).toArray().size());
+  payload.insert(QStringLiteral("totalCount"),QJsonValue::Null);payload.insert(QStringLiteral("hasMore"),true);
+  AiToolResultView largeGraph(QStringLiteral("paleo.asset_lineage"),true,
+      QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+  note=largeGraph.findChild<QLabel *>(QStringLiteral("aiResultPageNote"));QVERIFY(note);
+  QVERIFY(note->text().contains(QStringLiteral("本页")));QVERIFY(note->text().contains(QStringLiteral("未知")));
+  QVERIFY(note->text().contains(QStringLiteral("上限")));QVERIFY(!note->text().contains(QStringLiteral("闭包")));
+  const QJsonObject parents{{"tool","paleo.query_project"},{"topic","version_parents"},
+    {"contract","catalog.version.parents.page.v1"},{"returnedCount",2},{"totalCount",400},{"hasMore",true}};
+  AiToolResultView parentsCard(QStringLiteral("paleo.query_project"),true,
+      QString::fromUtf8(QJsonDocument(parents).toJson(QJsonDocument::Compact)));
+  note=parentsCard.findChild<QLabel *>(QStringLiteral("aiResultPageNote"));QVERIFY(note);
+  QVERIFY(note->text().contains(QStringLiteral("400")));QVERIFY(note->text().contains(QStringLiteral("后续")));
 }
 
 // ---- Oracle 1 兜底：折叠块默认收起；超限降级注记如实 ----

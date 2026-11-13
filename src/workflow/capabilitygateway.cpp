@@ -1119,6 +1119,7 @@ ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &n
     produced[index] = last.summary.value(QStringLiteral("result_path")).toString();
   }
   last.summary.insert(QStringLiteral("plan_order"), plan.order);
+  last.responseJson = boundToolResponse(QJsonObject::fromVariantMap(last.summary));
   return last;
 }
 

@@ -180,6 +180,8 @@ void TestCapabilityRound2::idwThenContourPassesTheRaster() {
   QVERIFY(lines.endsWith(QStringLiteral(".gpkg")));
   QVERIFY(QFileInfo(lines).size() > 0);
   QCOMPARE(result.summary.value(QStringLiteral("plan_order")).toStringList(), QStringList({idw.id, contour.id}));
+  QCOMPARE(QJsonDocument::fromJson(result.responseJson).object().value(QStringLiteral("plan_order")).toArray(),
+           QJsonArray({idw.id, contour.id}));
 }
 
 void TestCapabilityRound2::runningCancelStopsBeforePublish() {

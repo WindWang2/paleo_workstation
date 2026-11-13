@@ -2,7 +2,11 @@
 #pragma once
 #include "capabilityrecovery.h"
 #include <QSet>
+#include <QHash>
 namespace paleo::capability::publication_detail {
+// Reserves durable UUID targets without advancing Catalog counters or mutation sequence.
+DerivedStaging reserveTarget(DataCatalog *catalog,const QString &root,const QString &type,const QString &name,
+                             const QString &fileName,QHash<QString,DerivedStaging> &reservations,QString *error);
 QJsonObject specJson(const AlgorithmSpec &spec);
 bool specFromJson(const QJsonObject &json, AlgorithmSpec &spec);
 QJsonObject targetsJson(const QVector<AlgorithmOutputTarget> &targets);

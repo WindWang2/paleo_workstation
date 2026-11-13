@@ -10,8 +10,35 @@
 #include <QSet>
 #include <QFile>
 #include <QCryptographicHash>
+#include <QUuid>
+#include <limits>
 
 namespace paleo::capability::publication_detail {
+DerivedStaging reserveTarget(DataCatalog *catalog,const QString &root,const QString &type,const QString &name,
+                             const QString &fileName,QHash<QString,DerivedStaging> &reservations,QString *error) {
+  const auto fail=[&](const QString &code){if(error)*error=code;return DerivedStaging{};};
+  if(!catalog || !catalog->isOpen())return fail("catalog_unavailable");
+  if(!DataCatalog::isSafePathSegment(fileName))return fail("unsafe_output_name");
+  const auto key=QString::fromUtf8(QJsonDocument(QJsonArray{type,name}).toJson(QJsonDocument::Compact));
+  const auto previous=reservations.value(key);DerivedStaging staged;
+  if(!previous.assetId.isEmpty())staged=previous;
+  else {
+    for(const auto &asset:catalog->assets())if(asset.type==type && asset.displayName==name){staged.assetId=asset.id;break;}
+    if(staged.assetId.isEmpty()) {
+      staged.assetId="ast-"+QUuid::createUuid().toString(QUuid::WithoutBraces);
+      staged.reservedType=type;staged.reservedDisplayName=name;staged.reservedFormat=QFileInfo(fileName).suffix().toLower();
+    }
+  }
+  const auto current=catalog->currentVersion(staged.assetId);
+  const int maximum=qMax(current.id.isEmpty()?0:current.versionNumber,previous.versionNumber);
+  if(maximum==std::numeric_limits<int>::max())return fail("version_number_exhausted");
+  staged.versionId="ver-"+QUuid::createUuid().toString(QUuid::WithoutBraces);staged.versionNumber=maximum+1;
+  staged.expectedVersionId=current.id;
+  staged.relativePath="artifacts/"+DataCatalog::managedPath("derived",staged.assetId,staged.versionId,fileName);
+  staged.absolutePath=managedpath::resolveManagedPath(root,staged.relativePath);
+  if(staged.absolutePath.isEmpty() || !QDir().mkpath(QFileInfo(staged.absolutePath).absolutePath()))return fail("stage_failed");
+  reservations.insert(key,staged);return staged;
+}
 namespace {
 DerivedFileFingerprint fingerprintBounded(const QString &path,qint64 maxBytes,QString *error,const std::function<bool()> &cancelled) {
   DerivedFileFingerprint result;const QFileInfo before(path);QFile file(path);

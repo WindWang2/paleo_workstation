@@ -137,6 +137,10 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
         m_catalog->currentVersion(st.assetId).id!=st.expectedVersionId)
       return fail("target_conflict",QStringLiteral("输出目标版本已变化，请重新准备"));
     const auto asset=m_catalog->assetById(st.assetId);
+    if(prepared.publicationSchema==2 && !st.reservedType.isEmpty())
+      for(const auto &known:m_catalog->assets())
+        if(known.type==st.reservedType && known.displayName==st.reservedDisplayName && known.id!=st.assetId)
+          return fail("target_conflict",QStringLiteral("输出目标资产已变化，请重新准备"));
     if ((st.reservedType.isEmpty() && asset.id.isEmpty()) || (!st.reservedType.isEmpty() && !asset.id.isEmpty()))
       return fail("target_conflict",QStringLiteral("输出目标资产已变化，请重新准备"));
     CatalogVersion v;v.id=st.versionId;v.assetId=st.assetId;v.versionNumber=st.versionNumber;

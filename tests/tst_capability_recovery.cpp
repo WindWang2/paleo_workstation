@@ -109,6 +109,31 @@ private slots:
     QCOMPARE(page.value("nextOffset").toString(),QString("4"));QVERIFY(page.value("hasMore").toBool());
     QVERIFY(!h.recovery.read("agent:chat2",a.record.operationId,"OUTPUT",0,4,this,{},&error));QCOMPARE(error,QString("operation_not_found"));
   }
+  void durableReservationLeavesCatalogUnchangedAndPreservesHeadCas() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto initial=h.catalog.mutationSeq();
+    const auto first=h.recovery.accept(plan("reserved-first"));QVERIFY(first.ok);QCOMPARE(h.catalog.mutationSeq(),initial);
+    QCOMPARE(h.catalog.assets().size(),0);QCOMPARE(h.catalog.versions().size(),0);
+    bool done=false;QString error;ExecuteResult result;
+    const auto run=[&](const OperationLog::Record &record){done=false;return h.recovery.start(record.callerScope,record.operationId,this,"reserved",[&](ExecuteResult r){result=r;done=true;},false,&error);};
+    QVERIFY(run(first.record));QTRY_VERIFY(done);QVERIFY(result.ok);const auto current=h.catalog.versions().first();
+    const auto sequence=h.catalog.mutationSeq();const auto stale=h.recovery.accept(plan("reserved-stale"));QVERIFY(stale.ok);
+    const auto newer=h.recovery.accept(plan("reserved-newer"));QVERIFY(newer.ok);QCOMPARE(h.catalog.mutationSeq(),sequence);
+    const auto staged=stale.record.stagePlan.value("targets").toArray().first().toObject().value("staging").toObject();
+    QCOMPARE(staged.value("assetId").toString(),current.assetId);QCOMPARE(staged.value("expectedHead").toString(),current.id);
+    QVERIFY(staged.value("versionId").toString()!=current.id);QCOMPARE(staged.value("versionNumber").toInt(),current.versionNumber+1);
+    QVERIFY(run(newer.record));QTRY_VERIFY(done);QVERIFY(result.ok);QCOMPARE(h.catalog.assets().size(),1);QCOMPARE(h.catalog.versions().size(),2);
+    QVERIFY(run(stale.record));QTRY_VERIFY(done);QVERIFY(!result.ok);QVERIFY(result.commitState!="committed");QCOMPARE(h.catalog.versions().size(),2);
+  }
+  void concurrentAbsentNameReservationsCannotForkTheLogicalTarget() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto initial=h.catalog.mutationSeq();
+    const auto a=h.recovery.accept(plan("absent-first")),b=h.recovery.accept(plan("absent-second"));
+    QVERIFY(a.ok);QVERIFY(b.ok);QCOMPARE(h.catalog.mutationSeq(),initial);
+    bool done=false;QString error;ExecuteResult result;
+    const auto run=[&](const OperationLog::Record &r){done=false;return h.recovery.start(r.callerScope,r.operationId,this,"absent target",[&](ExecuteResult out){result=out;done=true;},false,&error);};
+    QVERIFY(run(a.record));QTRY_VERIFY(done);QVERIFY(result.ok);QCOMPARE(h.catalog.assets().size(),1);
+    QVERIFY(run(b.record));QTRY_VERIFY(done);QVERIFY(!result.ok);QCOMPARE(result.code,QString("target_conflict"));
+    QCOMPARE(h.catalog.assets().size(),1);QCOMPARE(h.catalog.versions().size(),1);
+  }
   void externalSendIsDurableAndUnknownNeverResends() {
     QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));auto p=plan("remote");p.phase="compute-only";
     p.outputSpec={};p.outputPorts.clear();p.externalRequest={{"requestHash",QString(64,'a')},{"modelVersion","model-v1"}};

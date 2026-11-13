@@ -114,14 +114,14 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
   seed.callerScope=plan.callerScope;seed.clientRequestId=plan.clientRequestId;seed.requestHash=hash;
   seed.capabilityId=plan.capabilityId;seed.contractVersion=plan.contractVersion;
   seed.implementationVersion=plan.implementationVersion;seed.storeGeneration=proof.storeGeneration;
-  QVector<AlgorithmOutputTarget> targets; DerivedAssetRegistrar registrar(h.catalog,h.projectDir);
+  QVector<AlgorithmOutputTarget> targets;QHash<QString,DerivedStaging> reservations;
   if(!source.operationId.isEmpty()) {
     if(!publication_detail::targetsFromJson(h.projectDir,source.stagePlan,targets))return {false,"source_operation_mismatch",{}};
   } else for(const auto &port:plan.outputSpec.outputs) {
     if(!plan.outputPorts.contains(port.id))continue;
     QString extension=port.constraints.value("fileExtension").toString();
     if(extension.isEmpty())extension=port.kind==QLatin1String("raster")?"tif":port.kind==QLatin1String("vector")?"gpkg":"bin";
-    const auto staging=registrar.stage("agent_result",plan.targetNames.value(port.id,plan.capabilityId+"_"+port.id),port.id+'.'+extension,&code);
+    const auto staging=publication_detail::reserveTarget(h.catalog,h.projectDir,"agent_result",plan.targetNames.value(port.id,plan.capabilityId+"_"+port.id),port.id+'.'+extension,reservations,&code);
     if(!staging.isValid())return {false,code,{}}; targets.append({port.id,staging});
   }
   if(plan.phase!=QLatin1String("prepare") && targets.isEmpty() && plan.externalRequest.isEmpty())return {false,"output_contract_required",{}};

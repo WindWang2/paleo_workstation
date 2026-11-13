@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QSet>
 #include <cmath>
+#include <limits>
 
 namespace paleo::capability {
 namespace {
@@ -290,6 +291,19 @@ bool checkInputs(ValidatedPlan &plan, int index) {
 }
 
 bool checkParameters(ValidatedPlan &plan, ValidatedPlanNode &entry) {
+  for (const auto &field : entry.algorithm.params) {
+    if (!entry.node.parameters.contains(field.key))
+      continue;
+    const auto value = entry.node.parameters.value(field.key);
+    if (field.type == AlgorithmParamField::String && value.userType() != QMetaType::QString)
+      return fail(plan, QStringLiteral("type_mismatch"), field.key);
+    if (field.type == AlgorithmParamField::Int) {
+      const double number = value.toDouble();
+      if (!isNumber(value) || std::floor(number) != number || number < std::numeric_limits<int>::min() ||
+          number > std::numeric_limits<int>::max())
+        return fail(plan, QStringLiteral("type_mismatch"), field.key);
+    }
+  }
   const auto parameters = validateAndFillParams(entry.algorithm.id, entry.algorithm.contractVersion,
                                                entry.node.parameters);
   if (!parameters.ok) {

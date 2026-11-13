@@ -168,6 +168,8 @@ void TestCapabilityPlan::allNodesArePreflighted_data() {
   QTest::newRow("publish") << QStringLiteral("publish") << QStringLiteral("unsupported_plan_intent");
   QTest::newRow("prepare") << QStringLiteral("prepare") << QStringLiteral("unsupported_plan_intent");
   QTest::newRow("authority-input") << QStringLiteral("authority-input") << QStringLiteral("unknown_input");
+  QTest::newRow("fractional-integer") << QStringLiteral("fractional-integer") << QStringLiteral("type_mismatch");
+  QTest::newRow("boolean-string") << QStringLiteral("boolean-string") << QStringLiteral("type_mismatch");
 }
 
 void TestCapabilityPlan::allNodesArePreflighted() {
@@ -186,6 +188,8 @@ void TestCapabilityPlan::allNodesArePreflighted() {
   if (mutation == QLatin1String("missing-subinterval")) a.inputs.remove(QStringLiteral("subinterval_id"));
   if (mutation == QLatin1String("publish") || mutation == QLatin1String("prepare")) a.intent = mutation;
   if (mutation == QLatin1String("authority-input")) b.inputs.insert(QStringLiteral("approved"), true);
+  if (mutation == QLatin1String("fractional-integer")) a.parameters.insert(QStringLiteral("FACIES_CODE"), 1.5);
+  if (mutation == QLatin1String("boolean-string")) a.parameters.insert(QStringLiteral("FIELD"), true);
   QCOMPARE(code({a, b}, {rasterEdge()}), expected);
   QCOMPARE(code({contour()}), QStringLiteral("missing_required"));
 }
@@ -229,6 +233,7 @@ void TestCapabilityPlan::portSemantics_data() {
   QTest::newRow("cardinality") << QStringLiteral("cardinality") << QStringLiteral("cardinality_mismatch");
   QTest::newRow("optional-output") << QStringLiteral("optional-output") << QStringLiteral("cardinality_mismatch");
   QTest::newRow("unknown-kind") << QStringLiteral("unknown-kind") << QStringLiteral("port_type");
+  QTest::newRow("datum-placeholder") << QStringLiteral("datum-placeholder") << QStringLiteral("datum_unknown");
 }
 
 void TestCapabilityPlan::portSemantics() {
@@ -248,8 +253,16 @@ void TestCapabilityPlan::portSemantics() {
   if (dimension == QLatin1String("unknown-kind")) source.kind.clear();
   if (dimension == QLatin1String("cardinality")) source.cardinalityMax = 2;
   if (dimension == QLatin1String("optional-output")) source.required = false;
+  if (dimension == QLatin1String("datum-placeholder")) {
+    source.verticalDatum = QStringLiteral("explicit");
+    target.verticalDatum = QStringLiteral("explicit");
+  }
   QCOMPARE(checkPortCompatibility(source, target).code, expected);
   source = target;
+  if (dimension == QLatin1String("datum-placeholder")) {
+    source.verticalDatum = QStringLiteral("MSL");
+    target.verticalDatum = QStringLiteral("MSL");
+  }
   QCOMPARE(checkPortCompatibility(source, target).code, QStringLiteral("ok"));
   source.unit = QStringLiteral("m");
   target.unit.clear();

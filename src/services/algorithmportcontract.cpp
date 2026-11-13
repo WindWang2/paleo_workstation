@@ -21,7 +21,10 @@ ContractIssue checkPortCompatibility(const AlgoPort &source, const AlgoPort &tar
     const QString expected = semantic.second.second;
     if (expected.isEmpty())
       continue;
-    if (semantic.second.first.isEmpty())
+    // "explicit" is a declaration that a concrete datum must be bound. Two
+    // such placeholders are not evidence that the actual frames agree.
+    if (semantic.second.first.isEmpty() || semantic.second.first == QLatin1String("explicit") ||
+        expected == QLatin1String("explicit"))
       return error(semantic.first + QStringLiteral("_unknown"));
     if (semantic.second.first != expected)
       return error(semantic.first + QStringLiteral("_mismatch"));

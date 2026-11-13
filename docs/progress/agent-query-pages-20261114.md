@@ -73,11 +73,14 @@ journal 触发器，避免误报整库重建或 unmanaged。
 - 六个新增生产 query/runner TU 的原生产编译参数 `-fsyntax-only` 通过；不代替链接或测试。
 - 基础真实 CTest 四靶全部通过：`tst_project_query`（当时 13/13，0 skip）、
   `tst_wellref`、`tst_catalogstore`、`tst_datacatalog_sqlite`。
+- 新增场景后优先重编并实际运行 `tst_project_query`，16/16、0 skip（6.34s）。
+  300 分支验收曾测到 324 次邻接读取，定位为边数页满后才探测下一邻接；已把计数
+  检查移到取数前，仍按原断言精确 300 次通过，没有放宽阈值。
 - 新 `tst_project_query` 已写：一万条/超过128小页完整读回、无全量 accessor、重放/
   筛选/字节预算、批次/回滚/重开/预备收养、400父引用、方向/环/兄弟分支、有效模型井
-  与 head 失效、TTL；后来增加 300 分支/零深度/重放零读取、260 有效井名候选续查与
-  归一化歧义、便携路径和错误预算测试，尚待本次 12 靶整体验收。旧聊天查询回归改为
-  验证续页完整性。
+  与 head 失效、TTL；后来增加的 300 分支/零深度/重放零读取、260 有效井名候选续查与
+  归一化歧义、便携路径和错误预算测试也已实际通过。旧聊天查询回归改为验证续页
+  完整性，仍待本次 12 靶整体验收。
 - 独立 SDK 真实配置/编译/链接后，`well_query_contract`、`model_change_contract`、
   `seismic_service_tests` 三套 CTest 全过（1.18s，0 skip）：Unicode、负 TD/NaN、
   点读缺失/预算、复合索引查询计划、写失败回滚、旧写者 dirty、只读不迁移、旧触发器

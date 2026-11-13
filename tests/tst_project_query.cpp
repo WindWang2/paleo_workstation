@@ -131,7 +131,8 @@ private slots:
       const auto page=service.query(args); QVERIFY2(page.value("ok").toBool(),qPrintable(QJsonDocument(page).toJson()));
       QCOMPARE(page.value("contract").toString(),QStringLiteral("catalog.version.parents.page.v1"));
       for(const auto &value:page.value("parents").toArray())actual.append(value.toObject().value("version_id").toString());
-      if(!page.value("hasMore").toBool())break;args["cursor"]=cursor(page);
+      if(!page.value("hasMore").toBool())break;
+      args["cursor"]=cursor(page);
     }while(true);
     QCOMPARE(actual,parents); QVERIFY(!descriptor.version.contains("nextCursor"));
   }
@@ -171,7 +172,8 @@ private slots:
     QJsonObject args{{"topic","well_details"},{"well_id","well"},{"role","well_log"},{"page_size",50},{"max_bytes",4096}};QSet<QString> ids;
     do{const auto page=service.query(args);QVERIFY2(page.value("ok").toBool(),qPrintable(QJsonDocument(page).toJson()));QCOMPARE(page.value("totalCount").toInt(),45);
       for(const auto &value:page.value("links").toArray()){const auto id=value.toObject().value("asset_id").toString();QVERIFY(!ids.contains(id));ids.insert(id);}
-      if(!page.value("hasMore").toBool())break;args["cursor"]=cursor(page);
+      if(!page.value("hasMore").toBool())break;
+      args["cursor"]=cursor(page);
     }while(true);QCOMPARE(ids.size(),45);
   }
 
@@ -184,7 +186,8 @@ private slots:
     QJsonObject args{{"asset","V"},{"upstream_depth",2},{"downstream_depth",1},{"page_size",1}};QSet<QString> ids;
     do {const auto page=service.lineage(args);QVERIFY2(page.value("ok").toBool(),qPrintable(QJsonDocument(page).toJson()));ids|=nodeIds(page);
       QCOMPARE(page.value("selection").toObject().value("count").toInt(),page.value("nodes").toArray().size());
-      if(!page.value("hasMore").toBool())break;args["cursor"]=cursor(page);
+      if(!page.value("hasMore").toBool())break;
+      args["cursor"]=cursor(page);
     }while(true);
     QCOMPARE(ids,QSet<QString>({"P","A","V","C"}));QCOMPARE(reads.value("versions"),0);QCOMPARE(reads.value("assets"),0);
     Fixture cycle;QVERIFY(cycle.open());for(const auto &id:QStringList{"a","p","v","c"})QVERIFY(cycle.asset(id));
@@ -192,7 +195,8 @@ private slots:
     QVERIFY(cycle.version("V","v",{"A"}));QVERIFY(cycle.version("C","c",{"A"}));
     service.bind(&cycle.catalog,{"cycle",1,1});args={{"asset","V"},{"upstream_depth",1},{"downstream_depth",3},{"page_size",1}};ids.clear();
     do {const auto page=service.lineage(args);QVERIFY2(page.value("ok").toBool(),qPrintable(QJsonDocument(page).toJson()));ids|=nodeIds(page);
-      if(!page.value("hasMore").toBool())break;args["cursor"]=cursor(page);
+      if(!page.value("hasMore").toBool())break;
+      args["cursor"]=cursor(page);
     }while(true);
     QCOMPARE(ids,QSet<QString>({"A","P","V","C"}));
   }
@@ -204,7 +208,7 @@ private slots:
     paleo::data::WellInfo info;info.wellName="A-1";info.totalDrilledDepth=123.0;long long first=0,second=0;
     QVERIFY2(model.createWell(info,first,error),error.c_str());info.wellName="中文井";info.totalDrilledDepth=456.0;
     QVERIFY2(model.createWell(info,second,error),error.c_str());
-    for(const auto pair:QVector<QPair<QString,qlonglong>>{{"well-1",first},{"well-2",second}}) {
+    for(const auto &pair:QVector<QPair<QString,qlonglong>>{{"well-1",first},{"well-2",second}}) {
       CatalogEntity row;row.id=pair.first;row.entityType="well";row.name="stale";row.td=9;
       row.extra["areaModelWellId"]=pair.second;QVERIFY(f.catalog.addEntity(row,&f.error));
     }

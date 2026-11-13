@@ -9,7 +9,7 @@ namespace paleo::query {
 struct Scope {
   QString documentId;
   quint64 epoch = 0, contextGeneration = 0;
-  QString chatSessionId;
+  QString chatSessionId{};
   bool operator==(const Scope &) const = default;
 };
 struct QueryPolicy {

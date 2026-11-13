@@ -63,6 +63,7 @@ QJsonObject ProjectQueryCapability::Impl::graphPage(QueryState &state, int rows,
     }
     const int limit = item.direction < 0 ? state.upstream : state.downstream;
     if (item.depth >= limit) continue;
+    if (edges.size() >= rows * 4) {state.frontier.prepend(item); break;}
     const auto adjacent = item.direction < 0 ? catalog->versionParentsPage(item.id, item.after, 1) :
                                               catalog->versionChildrenPage(item.id, item.after, 1);
     if (adjacent.items.isEmpty()) continue;
@@ -71,7 +72,7 @@ QJsonObject ProjectQueryCapability::Impl::graphPage(QueryState &state, int rows,
     const auto edge = item.direction < 0 ? qMakePair(nextId, item.id) : qMakePair(item.id, nextId);
     if (!state.emittedEdges.contains(edge)) {
       if (state.emittedEdges.size() >= policy.maxTraversalNodes * 4) return queryFailure("lineage_state_budget_exceeded");
-      if (edges.size() >= rows * 4 || !appendWithinBudget(edges, QJsonObject{{"parent",edge.first},{"child",edge.second}}, bytes,
+      if (!appendWithinBudget(edges, QJsonObject{{"parent",edge.first},{"child",edge.second}}, bytes,
             1792 + QJsonDocument(nodes).toJson(QJsonDocument::Compact).size())) {
         state.frontier.prepend(item); break;
       }

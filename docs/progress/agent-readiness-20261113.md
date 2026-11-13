@@ -7,9 +7,9 @@
 | 批次 | 状态 | PR / 证据 |
 |---|---|---|
 | W0 入口基线 | 清单已写；随 W1 验证交付 | [迁移清单](../architecture/AGENT_CAPABILITY_MIGRATION.md) |
-| W1 结果协议 | 编译、5 套回归及 rebase 后 34 项门禁通过；待 PR | [72 业务/82 含 fixture，0 失败/跳过](agent-results-20261114.md) |
-| W2 DAG 预检 | 独立分支 81 项/32 闸绿；待叠 W1 复验及 PR | 未完成累计分支验收 |
-| W3 可信宿主 | 实施中，独立分支 | 未完成批次验收 |
+| W1 结果协议 | 已提 [PR #936](https://github.com/WindWang2/paleo_workstation/pull/936) | [72 业务/82 含 fixture，0 失败/跳过](agent-results-20261114.md) |
+| W2 DAG 预检 | 已提 [PR #937](https://github.com/WindWang2/paleo_workstation/pull/937)；叠加复验通过 | [81 项/32 闸](agent-dag-preflight-20261113.md) |
+| W3 可信宿主 | 实际应用编译、累计 13 套回归及 32 闸通过；随本批 PR 交付 | [237 含 fixture，0 失败/跳过](agent-host-context-20261114.md) |
 | W4a/W4b 真分页 | 实施中，独立分支 | 未完成批次验收 |
 | W5a/W5b 凭证与恢复 | 实施中，独立分支 | 未完成批次验收 |
 | W6 效果及 provider | 实施中，独立分支 | 未完成批次验收 |

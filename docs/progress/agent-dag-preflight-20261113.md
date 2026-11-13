@@ -1,8 +1,7 @@
 # Agent DAG 预检（W2）
 
 基线：`dd7baa1f`；对应 [Agent 调用可靠性整改计划](../planning/AGENT_CALL_READINESS_PLAN.md) W2。
-状态：代码和专项预检回归、源码门禁已完成；完整生产依赖链编译/集成回归进行中。
-未以本记录替代后续真实 QGIS/GDAL 回归。
+状态：W2 实施与相关生产链验收完成。2026-11-14 补齐完整依赖编译和 QGIS/GDAL 回归。
 
 `validatePlan` 在任何子操作前返回规范节点、类型化边、实际请求字段映射、结构化拓扑顺序
 和 issues。执行入口自行重新校验，不把可变 `ValidatedPlan.ok` 当成宿主许可。
@@ -29,15 +28,20 @@ IDW `INPUT/CONSTRAINTS/LOCAL_GRID_WKT` 对应 `points/lines/grid_wkt`，contour 
   覆盖未知端口、精确版本、图冲突/循环、语义缺失/冲突、预算、必填与后续节点参数、
   特殊字符身份、真实请求映射和唯一默认值来源。
 - 修改后的 `capabilitygateway.cpp` 完整生产 TU 独立编译通过。
-- 完整生产 CMake configure/generate 通过，使用独立 QGIS 4.2.3 / GDAL 3.12.2 闭包；
-  `office-editor` 接线就绪。三个真实 target 的编译与回归仍在进行。
+- 完整生产 CMake configure/generate 及三个真实 target 编译通过（`-j2`），使用独立
+  QGIS 4.2.3 / GDAL 3.12.2 闭包，`office-editor` 接线就绪。
+- 生产 `tst_capability_gateway` 18 项、`tst_capability_plan` 49 项、
+  `tst_capability_round2` 14 项，共 81 项通过，零失败/跳过；CTest 三套全绿。
+  包括真实数值核生成 IDW 栅格、GDAL 提取 GPKG、固定文档来源的地震道窗口，以及无效
+  下游节点/未知源端口在目录中留下零子操作、零输出的反例。工区输入使用可控合成 fixture，
+  不冒充真实工区或 GUI 视觉验收。
 - 当前 CI Source gates 的 28 条命令，以及 qgis_spread 自检、ci_triage validate/自检、
   atomic_kernels 共 32/32 通过；传递门使用锁版 QGIS 4.2.3 头，所有基线未增长。
-  `git diff --check` 通过。
+  `git diff --check` 通过。fetch/rebase origin/master 后复跑上述 32 闸仍全绿。
 
 生产集成验收已加入既有 `tst_capability_round2`：真实 IDW 输出交给 contour 并生成
 可读 GPKG；无效的下游节点/未知源端口拒绝时，目录中零子操作记录和零输出。
-待完整构建完成后记录该回归与 `tst_capability_gateway` 的实际运行结果，再提交 PR。
+对应集成回归已实际通过，可按分批 PR 流程提交。
 
 后续 W5 接缝已核实并交付对应批次：父 DAG 须先登记全图意图/摘要，再接受任何子操作，
 避免同请求号换图后先执行新 child 才撞旧 child 摘要；跨进程 replay 须验证持久暂存的

@@ -64,6 +64,11 @@ Snapshot snapshot(DataCatalog *cat) {
 Report scan(const Snapshot &s, const Progress &progress) {
   Report r; r.source = s;
   if (s.catalogPath.isEmpty()) { r.uncovered << QCoreApplication::translate("StorageGovernance", "工程未打开"); return r; }
+  r.source.retention = operationRetention(s.projectDir);
+  if (!r.source.retention.complete) {
+    r.uncovered << QCoreApplication::translate("StorageGovernance", "操作记录不可验证，不能回收：%1").arg(r.source.retention.code);
+    return r;
+  }
   QHash<QString, CatalogAsset> assets;
   QHash<QString, QSet<QString>> entities;
   for (const auto &a : s.assets) assets.insert(a.id, a);
@@ -184,7 +189,7 @@ Report scan(const Snapshot &s, const Progress &progress) {
       }
       if (!fi.isFile()) continue;
       const FileFact f = fact(candidate, s.projectDir);
-      if (!references.contains(f.canonicalPath)) r.orphans.append(f);
+      if (!references.contains(f.canonicalPath) && !r.source.retention.protectsPath(f.canonicalPath)) r.orphans.append(f);
     }
   }
   r.complete = r.uncovered.isEmpty();
@@ -193,7 +198,18 @@ Report scan(const Snapshot &s, const Progress &progress) {
 Preview preview(const Report &r, const QStringList &versionIds, const QStringList &orphanPaths) {
   Preview p; p.source = r.source;
   if (!r.complete) { p.blocked << QCoreApplication::translate("StorageGovernance", "扫描未完成或存在未覆盖目录，请重新扫描"); return p; }
+  const auto fresh = operationRetention(r.source.projectDir);
+  if (!fresh.complete || !r.source.retention.complete || fresh.revision != r.source.retention.revision) {
+    p.blocked << QCoreApplication::translate("StorageGovernance", "操作保留引用变化，请重新扫描"); return p;
+  }
   QSet<QString> selected(versionIds.begin(), versionIds.end());
+  const QSet<QString> retained(fresh.versionIds.begin(), fresh.versionIds.end());
+  for (const auto &id : selected) {
+    if (retained.contains(id)) p.blocked << QCoreApplication::translate("StorageGovernance", "版本仍被操作引用：%1").arg(id);
+    const auto file = r.versionFiles.value(id);
+    if (!file.canonicalPath.isEmpty() && fresh.protectsPath(file.canonicalPath))
+      p.blocked << QCoreApplication::translate("StorageGovernance", "文件仍被操作引用：%1").arg(file.relativePath);
+  }
   QSet<QString> available;
   for (const auto &v : r.stale) available.insert(v.version.id);
   for (const auto &id : selected)
@@ -242,8 +258,19 @@ Preview preview(const Report &r, const QStringList &versionIds, const QStringLis
 }
 bool validate(const Preview &p, const Progress &progress, QString *error) {
   if (!p.valid) { if (error) *error = QCoreApplication::translate("StorageGovernance", "预览无效"); return false; }
+  const auto fresh = operationRetention(p.source.projectDir);
+  const QSet<QString> retained(fresh.versionIds.begin(), fresh.versionIds.end());
+  if (!fresh.complete || !p.source.retention.complete || fresh.revision != p.source.retention.revision) {
+    if (error) *error = QCoreApplication::translate("StorageGovernance", "操作保留引用变化，请重新扫描"); return false;
+  }
+  for (const auto &id : p.versionIds) if (retained.contains(id)) {
+    if (error) *error = QCoreApplication::translate("StorageGovernance", "版本仍被操作引用：%1").arg(id); return false;
+  }
   int done = 0;
   for (const auto &f : p.files) {
+    if (fresh.protectsPath(f.canonicalPath)) {
+      if (error) *error = QCoreApplication::translate("StorageGovernance", "文件仍被操作引用：%1").arg(f.relativePath); return false;
+    }
     if (progress && !progress(done++, p.files.size(), f.relativePath)) {
       if (error) *error = QCoreApplication::translate("StorageGovernance", "已取消，未执行任何回收动作"); return false;
     }

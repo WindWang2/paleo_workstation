@@ -3,6 +3,10 @@
 // 未决链接批量归位（与导入同一判据：恰一候选才挂）。纯 catalog 栈。
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QSaveFile>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/workflow/assetops.h"
@@ -90,6 +94,27 @@ class TestAssetOps : public QObject
   }
 
 private slots:
+  void operationRootsBlockMetadataAndLastMomentPhysicalDeletion() {
+    QTemporaryDir tmp;DataCatalog cat;QVERIFY(cat.open(tmp.path()));QDir dir(tmp.path());ManagedAsset asset;
+    QVERIFY(makeManagedAsset(cat,dir,"protected-asset",&asset));
+    const auto path=dir.filePath(".paleo/capability-ops/operations.json");QDir().mkpath(QFileInfo(path).absolutePath());
+    auto persist=[&](const QJsonArray &rows){QSaveFile file(path);const auto bytes=QJsonDocument(rows).toJson(QJsonDocument::Compact);
+      return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size()&&file.commit();};
+    // A frozen source without a projected Catalog version still retains bytes.
+    QJsonObject row{{"schemaVersion",2},{"operationId","op-input"},{"stagePlan",QJsonObject{}},
+      {"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},{"stateRevision","1"},{"events",QJsonArray{}},
+      {"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
+      {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},
+      {"frozenRequest",QJsonObject{{"plan",QJsonObject{{"sourceVerification",QJsonObject{{"path",asset.v1Abs},{"versionId",""}}}}}}}};
+    QVERIFY(persist({row}));const auto first=purgeAssets(&cat,tmp.path(),{asset.assetId});
+    QVERIFY(first.purgedAssetIds.isEmpty());QVERIFY(!first.failedAssets.isEmpty());QVERIFY(!cat.assetById(asset.assetId).id.isEmpty());
+    QVERIFY(QFileInfo::exists(asset.v1Abs));
+    const auto direct=purgeManagedFiles(tmp.path(),{asset.v1Abs},{});QCOMPARE(direct.bytesFreed,qint64(0));QVERIFY(!direct.leftoverFiles.isEmpty());
+    QVERIFY(persist({}));const auto empty=purgeManagedFiles(tmp.path(),{asset.v1Abs},{});QVERIFY(empty.leftoverFiles.isEmpty());QVERIFY(!QFileInfo::exists(asset.v1Abs));
+    row["schemaVersion"]=99;QVERIFY(persist({row}));
+    const auto unknown=purgeManagedFiles(tmp.path(),{asset.v2Abs},{});QCOMPARE(unknown.bytesFreed,qint64(0));QVERIFY(QFileInfo::exists(asset.v2Abs));
+    const auto noMetadata=purgeAssets(&cat,tmp.path(),{asset.assetId});QVERIFY(noMetadata.purgedAssetIds.isEmpty());QVERIFY(!cat.assetById(asset.assetId).id.isEmpty());
+  }
   void rollbackManagedPointsNewVersionAtOldContent()
   {
     QTemporaryDir tmp;

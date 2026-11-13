@@ -8,6 +8,9 @@
 
 namespace paleo::storage {
 namespace {
+QSet<QString> versionIdentities(const QVector<CatalogVersion> &versions) {
+  QSet<QString> ids;for(const auto &version:versions)ids.insert(version.id);return ids;
+}
 QString canonicalIdentity(const QString &path, const QString &base = {}) {
   auto result = PathCanon::canonicalize(path, base);
 #ifdef Q_OS_WIN
@@ -65,6 +68,7 @@ Report scan(const Snapshot &s, const Progress &progress) {
   Report r; r.source = s;
   if (s.catalogPath.isEmpty()) { r.uncovered << QCoreApplication::translate("StorageGovernance", "工程未打开"); return r; }
   r.source.retention = operationRetention(s.projectDir);
+  verifyOperationVersions(r.source.retention,versionIdentities(s.versions));
   if (!r.source.retention.complete) {
     r.uncovered << QCoreApplication::translate("StorageGovernance", "操作记录不可验证，不能回收：%1").arg(r.source.retention.code);
     return r;
@@ -198,7 +202,8 @@ Report scan(const Snapshot &s, const Progress &progress) {
 Preview preview(const Report &r, const QStringList &versionIds, const QStringList &orphanPaths) {
   Preview p; p.source = r.source;
   if (!r.complete) { p.blocked << QCoreApplication::translate("StorageGovernance", "扫描未完成或存在未覆盖目录，请重新扫描"); return p; }
-  const auto fresh = operationRetention(r.source.projectDir);
+  auto fresh = operationRetention(r.source.projectDir);
+  verifyOperationVersions(fresh,versionIdentities(r.source.versions));
   if (!fresh.complete || !r.source.retention.complete || fresh.revision != r.source.retention.revision) {
     p.blocked << QCoreApplication::translate("StorageGovernance", "操作保留引用变化，请重新扫描"); return p;
   }
@@ -258,7 +263,8 @@ Preview preview(const Report &r, const QStringList &versionIds, const QStringLis
 }
 bool validate(const Preview &p, const Progress &progress, QString *error) {
   if (!p.valid) { if (error) *error = QCoreApplication::translate("StorageGovernance", "预览无效"); return false; }
-  const auto fresh = operationRetention(p.source.projectDir);
+  auto fresh = operationRetention(p.source.projectDir);
+  verifyOperationVersions(fresh,versionIdentities(p.source.versions));
   const QSet<QString> retained(fresh.versionIds.begin(), fresh.versionIds.end());
   if (!fresh.complete || !p.source.retention.complete || fresh.revision != p.source.retention.revision) {
     if (error) *error = QCoreApplication::translate("StorageGovernance", "操作保留引用变化，请重新扫描"); return false;

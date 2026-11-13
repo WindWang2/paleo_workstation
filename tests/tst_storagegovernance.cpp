@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <algorithm>
 #include "../src/services/storagegovernance.h"
 #include "../src/workflow/storagegovernancecontroller.h"
 #include "../src/io/perffixtures.h"
@@ -57,6 +58,17 @@ class TestStorageGovernance : public QObject {
     return cat.markDownstreamStale(raw.id, "上游源字节改变");
   }
 private slots:
+  void missingConsumedVersionRowsRefuseEveryCleanupProjection() {
+    QTemporaryDir root;DataCatalog cat;QVERIFY(cat.open(root.path()));QVERIFY(seed(cat,root.path()));
+    const QString orphan="artifacts/derived/unrelated/unreferenced.bin";QVERIFY(write(root.filePath(orphan),23));
+    QVERIFY(operations(root.path(),{operation("artifacts/derived/agent/new/output.bin")}));
+    auto source=snapshot(&cat);const auto healthy=scan(source);QVERIFY(healthy.complete);source.retention=healthy.source.retention;
+    auto choice=preview(healthy,{}, {orphan});QVERIFY(choice.valid);QString error;QVERIFY(validate(choice,{},&error));
+    source.versions.erase(std::remove_if(source.versions.begin(),source.versions.end(),[](const CatalogVersion &v){return v.id=="raw";}),source.versions.end());
+    const auto unresolved=scan(source);QVERIFY(!unresolved.complete);QCOMPARE(unresolved.source.retention.code,QString("operation_retention_version_missing"));
+    auto stale=healthy;stale.source=source;QVERIFY(!preview(stale,{}, {orphan}).valid);
+    choice.source.versions=source.versions;QVERIFY(!validate(choice,{},&error));QVERIFY(QFileInfo::exists(root.filePath(orphan)));
+  }
   void storedInputManifestProtectsBodiesAndCompletedResponseCache() {
     QTemporaryDir root;const QString directory=".paleo/capability-ops/well-inputs/frozen-input";
     const auto manifest=root.filePath(directory+"/manifest.json"),body=root.filePath(directory+"/body-0.json"),cache=root.filePath(directory+"/result-0-sha.json");

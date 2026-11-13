@@ -12,7 +12,9 @@
 namespace {
 bool operationRetentionAllows(const QString &root,const QVector<CatalogVersion> &versions,
                               const QStringList &selected,const QVector<paleo::storage::FileFact> &files) {
-  const auto roots=paleo::storage::operationRetention(root);
+  auto roots=paleo::storage::operationRetention(root);
+  QSet<QString> knownVersions;for(const auto &version:versions)knownVersions.insert(version.id);
+  paleo::storage::verifyOperationVersions(roots,knownVersions);
   if(!roots.complete)return false;
   for(const auto &id:selected)if(roots.versionIds.contains(id))return false;
   const QSet<QString> ids(selected.begin(),selected.end());

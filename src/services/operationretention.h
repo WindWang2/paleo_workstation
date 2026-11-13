@@ -18,6 +18,8 @@ struct OperationRetention {
   // Targets own their version/private directory, including compound sidecars.
   bool protectsPath(const QString &absolutePath) const;
 };
+// A missing consumed/expected-head version makes its physical roots unknowable.
+void verifyOperationVersions(OperationRetention &retention,const QSet<QString> &knownVersions);
 // Control metadata only. Every schema-v2 record retains its references,
 // regardless of execution/commit/presentation state. Unknown facts block GC.
 OperationRetention operationRetention(const QString &projectRoot,

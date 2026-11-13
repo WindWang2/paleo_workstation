@@ -21,6 +21,9 @@ namespace
 
 // A compound dataset is one asset; only safe, registered members in its own
 // managed directory may be purged. External originals are never expanded.
+QSet<QString> versionIdentities(const QVector<CatalogVersion> &versions) {
+  QSet<QString> ids;for(const auto &version:versions)ids.insert(version.id);return ids;
+}
 QStringList versionFiles(const QString &project, const CatalogVersion &version)
 {
   const auto primary = DataCatalog::resolvedVersionPath(project, version);
@@ -359,7 +362,8 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
     return out;
   }
 
-  const auto retention = paleo::storage::operationRetention(projectDir);
+  auto retention = paleo::storage::operationRetention(projectDir);
+  paleo::storage::verifyOperationVersions(retention,versionIdentities(cat->versions()));
   if (!retention.complete) {out.failedAssets << retention.code; return out;}
   const QSet<QString> retainedVersions(retention.versionIds.begin(), retention.versionIds.end());
 
@@ -397,7 +401,8 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
     return out;
   if (atomic && !out.failedAssets.isEmpty())
     return out;
-  const auto freshRetention = paleo::storage::operationRetention(projectDir);
+  auto freshRetention = paleo::storage::operationRetention(projectDir);
+  paleo::storage::verifyOperationVersions(freshRetention,versionIdentities(cat->versions()));
   if (!freshRetention.complete || freshRetention.revision != retention.revision) {
     out.failedAssets << QStringLiteral("operation_retention_changed"); return out;
   }
@@ -459,7 +464,9 @@ PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &pat
                                const QVector<PurgeFileExpectation> &expected)
 {
   PurgeOutcome out;
-  const auto retention = paleo::storage::operationRetention(projectDir);
+  auto retention = paleo::storage::operationRetention(projectDir);
+  const auto knownVersions=versionIdentities(retained);
+  paleo::storage::verifyOperationVersions(retention,knownVersions);
   if (!retention.complete) {out.leftoverFiles = paths; out.failedAssets << retention.code; return out;}
   QSet<QString> referenced, seen, prunedDirs;
   for (const auto &v : retained) {
@@ -490,7 +497,8 @@ PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &pat
         out.leftoverFiles << safe; continue;
       }
     }
-    const auto freshRetention = paleo::storage::operationRetention(projectDir);
+    auto freshRetention = paleo::storage::operationRetention(projectDir);
+    paleo::storage::verifyOperationVersions(freshRetention,knownVersions);
     if (!freshRetention.complete || freshRetention.revision != retention.revision) {
       for (const auto &pending : paths) if (QFileInfo::exists(pending) && !out.leftoverFiles.contains(pending)) out.leftoverFiles << pending;
       out.failedAssets << QStringLiteral("operation_retention_changed"); break;

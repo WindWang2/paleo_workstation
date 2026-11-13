@@ -95,6 +95,23 @@ class TestAssetOps : public QObject
   }
 
 private slots:
+  void missingOperationInputVersionRefusesMetadataAndPhysicalPurge() {
+    QTemporaryDir root;DataCatalog cat;QVERIFY(cat.open(root.path()));QDir dir(root.path());ManagedAsset output,input;
+    QVERIFY(makeManagedAsset(cat,dir,"surviving-output",&output));QVERIFY(makeManagedAsset(cat,dir,"lost-input",&input));
+    QJsonObject row{{"schemaVersion",2},{"operationId","op-lost-input"},{"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},
+      {"stateRevision","1"},{"events",QJsonArray{}},{"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
+      {"stagePlan",QJsonObject{{"targets",QJsonArray{}},{"parents",QJsonArray{input.v1}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
+      {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},{"presentationIntent",QJsonObject{}},{"externalRequest",QJsonObject{}},
+      {"frozenRequest",QJsonObject{{"plan",QJsonObject{}}}}};
+    row["planHash"]=paleo::storage::operationPlanHash(row["frozenRequest"].toObject(),row["stagePlan"].toObject(),row["presentationIntent"].toObject(),row["externalRequest"].toObject());
+    const auto path=root.filePath(".paleo/capability-ops/operations.json");QDir().mkpath(QFileInfo(path).absolutePath());QSaveFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));const auto bytes=QJsonDocument(QJsonArray{row}).toJson(QJsonDocument::Compact);QCOMPARE(file.write(bytes),qint64(bytes.size()));QVERIFY(file.commit());
+    QVERIFY(cat.removeAssets({input.assetId})); // Model a restored Catalog that lost the consumed row; bytes survive.
+    const auto metadata=purgeAssets(&cat,root.path(),{output.assetId});QVERIFY(metadata.purgedAssetIds.isEmpty());QVERIFY(!metadata.failedAssets.isEmpty());
+    QVERIFY(!cat.assetById(output.assetId).id.isEmpty());
+    const auto physical=purgeManagedFiles(root.path(),{input.v1Abs},cat.versions());QCOMPARE(physical.bytesFreed,qint64(0));
+    QVERIFY(physical.failedAssets.contains("operation_retention_version_missing"));QVERIFY(QFileInfo::exists(input.v1Abs));QVERIFY(QFileInfo::exists(output.v1Abs));
+  }
   void operationRootsBlockMetadataAndLastMomentPhysicalDeletion() {
     QTemporaryDir tmp;DataCatalog cat;QVERIFY(cat.open(tmp.path()));QDir dir(tmp.path());ManagedAsset asset;
     QVERIFY(makeManagedAsset(cat,dir,"protected-asset",&asset));

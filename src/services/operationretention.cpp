@@ -170,6 +170,12 @@ QString operationPlanHash(const QJsonObject &frozen, const QJsonObject &stage,
   const QJsonObject value{{"frozen",frozen},{"stage",stage},{"presentation",presentation},{"external",external}};
   return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(value).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
 }
+void verifyOperationVersions(OperationRetention &retention,const QSet<QString> &knownVersions) {
+  if(!retention.complete)return;
+  for(const auto &id:retention.versionIds)if(!knownVersions.contains(id)) {
+    retention.complete=false;retention.code="operation_retention_version_missing";return;
+  }
+}
 bool OperationRetention::protectsPath(const QString &absolutePath) const {
   auto candidate = identity(absolutePath);
   while (!candidate.isEmpty()) {

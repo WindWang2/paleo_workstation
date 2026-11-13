@@ -37254,6 +37254,39 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>井不属于当前解释计划</source>
             <translation>The well is outside the current interpretation plan</translation>
         </message>
+
+        <message>
+            <source>读取工具结果</source>
+            <translation>Read tool result</translation>
+        </message>
+        <message>
+            <source>只读会话结果引用。数组/对象按页，长字符串按码点片段；引用过期或作用域改变时明确报错，不重新执行业务。</source>
+            <translation>Read a session result reference. Page arrays/objects or Unicode string fragments. Expired or out-of-scope references report errors without repeating the operation.</translation>
+        </message>
+        <message>
+            <source>chat-result-v1 不透明引用</source>
+            <translation>Opaque chat-result-v1 reference</translation>
+        </message>
+        <message>
+            <source>JSON Pointer；默认根，不携带路径</source>
+            <translation>JSON Pointer; defaults to the root and contains no filesystem path</translation>
+        </message>
+        <message>
+            <source>上一页 nextCursor，须保持相同 selector</source>
+            <translation>Previous nextCursor; keep the same selector</translation>
+        </message>
+        <message>
+            <source>自动分页或字符串片段</source>
+            <translation>Automatic paging or string fragments</translation>
+        </message>
+        <message>
+            <source>每页 1–128 个元素</source>
+            <translation>1–128 entries per page</translation>
+        </message>
+        <message>
+            <source>UTF-8 JSON 预算，768–65536 字节</source>
+            <translation>UTF-8 JSON budget, 768–65536 bytes</translation>
+        </message>
     </context>
     <context>
         <name>QgisCanvasController</name>

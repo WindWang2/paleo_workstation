@@ -6,6 +6,7 @@
 #include "../domain/welllogfacies.h"
 #include "../services/paleotaskservice.h"
 #include "aiassistworkflow.h"
+#include "chatresultstore.h"
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
@@ -60,6 +61,7 @@ public:
     // 保证（importSvc 持有、open 原地重绑，不换实例）。
     DataCatalog *catalog = nullptr;
     QString documentId; // trusted host DocumentSession binding, required by typed queries
+    quint64 documentEpoch = 0;
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
   };
 
@@ -72,6 +74,9 @@ public:
   void setFaciesConfig(const WellFaciesConfig &config);
   void setContext(const Context &context);
   void setTaskService(PaleoTaskService *service);
+  void setResultSession(const QString &session);
+  QJsonObject modelResult(const ChatToolCall &call, const QString &rawJson,
+                         bool ok, int maxBytes);
 
   bool busy() const { return m_active || !m_queue.isEmpty(); }
 
@@ -110,6 +115,7 @@ private:
   void invalidateContext();
   quint64 taskSession() const;
   bool activeContextIsCurrent() const;
+  void refreshResultScope();
 
   struct QueuedCall {
     ChatToolCall call;
@@ -131,6 +137,10 @@ private:
   quint64 m_contextGeneration = 0;
   quint64 m_activeContextGeneration = 0;
   quint64 m_activeTaskSession = 0;
+  paleo::chat::ChatResultStore m_results;
+  QString m_resultSession;
+  quint64 m_resultEpoch = 0;
+  quint64 m_resultTaskSession = 0;
 };
 
 // 装配/测试侧的简称（Context 语义上独立于 runner 实例存在）。

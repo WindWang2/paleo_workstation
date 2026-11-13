@@ -76,17 +76,15 @@ public:
   void sendUserText(const QString &text);
   void cancel();
 
-  // 工具结果回灌前的截断（超长结果截尾 + 如实标记原始长度）。公开静态：
-  // 预算口径的单测面。
-  static QString clampToolResult(const QString &content);
-
   // 上下文预算（估算口径：字符近似，非精确 tokenizer——ASCII 记 0.25
   // token/字符、其余（CJK 为主）记 1 token/字符；只求保守不求对齐词表）。
   static int estimateTokens(const QString &text);
   static constexpr int kMaxHistoryTurns = 12;      // 近 N 轮开窗
   static constexpr int kHistoryTokenBudget = 6000; // 历史估算 token 上限
-  static constexpr int kToolResultCharLimit = 4000; // 单条工具结果字符上限
   static constexpr int kMaxToolRounds = 5;          // 每个用户轮的工具往返上限
+  static constexpr int kMaxCallsPerResponse = 8;
+  static constexpr int kMaxCallsPerTurn = 16;
+  static constexpr int kMaxToolArgumentBytes = 16 * 1024;
 
 signals:
   void sessionChanged();
@@ -112,6 +110,8 @@ private:
   // （reason 说明为何没执行）：取消/出错/往返超限三条停轮路径共用，
   // 保证历史里「每个 tool_call 必有一条应答」的协议完整性。
   void padUnansweredToolCalls(const QString &reason);
+  bool admitToolCalls(const QVector<ChatToolCall> &calls);
+  void rejectToolRound(const QString &code);
 
   LlmConfig m_config;
   LlmClient m_client;
@@ -121,5 +121,9 @@ private:
   bool m_streaming = false;
   int m_pendingToolResults = 0; // 工具相：等待回灌的未应答帧数
   int m_toolRound = 0;          // 本用户轮内已发生的模型↔工具往返数
+  int m_turnCalls = 0;
+  int m_toolTokens = 0;
+  int m_streamToolCalls = 0;
+  bool m_roundRejected = false;
   QVector<ChatToolCall> m_unansweredCalls; // 本轮尚未有 role=tool 应答的帧
 };

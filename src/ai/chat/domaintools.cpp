@@ -1,5 +1,6 @@
 // 层：功能
 #include "domaintools.h"
+#include "../../services/toolresultprotocol.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -91,6 +92,11 @@ QJsonObject AiToolSpec::toChatFunction() const {
   function.insert(QStringLiteral("description"), description);
   function.insert(QStringLiteral("parameters"), toJsonSchema());
   return function;
+}
+
+QJsonObject AiToolSpec::modelResultSchema() const {
+  return paleo::chat::toolResultEnvelopeSchema(
+      QJsonDocument::fromJson(resultSchemaJson.toUtf8()).object());
 }
 
 QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
@@ -311,7 +317,19 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   const AiToolSpec constraint = capabilityTool(
       QStringLiteral("paleo.constraint_idw"), QObject::tr("约束 IDW"),
       QObject::tr("prepare 只校验。compute-only 调用已有约束 IDW 核并返回暂存栅格引用。"));
-  return {tile, horizon, facies, query, lineage, depth, seismic, constraint};
+  AiToolSpec read;
+  read.name = QStringLiteral("paleo.read_result");
+  read.title = QObject::tr("读取工具结果");
+  read.description = QObject::tr("只读会话结果引用。数组/对象按页，长字符串按码点片段；引用过期或作用域改变时明确报错，不重新执行业务。");
+  read.parameters = {
+      {"result_ref", "string", QObject::tr("chat-result-v1 不透明引用"), true},
+      {"selector", "string", QObject::tr("JSON Pointer；默认根，不携带路径"), false},
+      {"cursor", "string", QObject::tr("上一页 nextCursor，须保持相同 selector"), false},
+      {"mode", "string", QObject::tr("自动分页或字符串片段"), false, {"auto", "text_parts"}},
+      {"page_size", "integer", QObject::tr("每页 1–128 个元素"), false},
+      {"max_bytes", "integer", QObject::tr("UTF-8 JSON 预算，768–65536 字节"), false}};
+  read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
+  return {tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
 }
 
 AiToolSpec aiToolSpec(const QString &name) {
@@ -388,6 +406,11 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr(
       "入口已接线：须先配置测井相服务端点与密钥，并绑定井曲线数据上下文");
+    return out;
+  }
+  if (name == QStringLiteral("paleo.read_result")) {
+    out.target = QStringLiteral("workflow/chatresultstore:read");
+    out.status = AiToolDispatchStatus::Routed;
     return out;
   }
   if (name == QStringLiteral("paleo.query_project")) {

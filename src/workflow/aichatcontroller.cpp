@@ -2,11 +2,12 @@
 #include "aichatcontroller.h"
 
 #include "../ai/chat/llmkeystore.h"
+#include "../services/toolresultprotocol.h"
 
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QPointer>
-#include <QSet>
+#include <QUuid>
 
 // workflow/ — AI 对话助手编排实现（方向51 骨架，方向61 工具闭环）。
 //
@@ -34,9 +35,23 @@ AiChatController::AiChatController(QObject *parent)
           });
   connect(&m_client, &LlmClient::toolCallReceived, this,
           [this](const ChatToolCall &call) {
+            ++m_streamToolCalls;
+            if (m_streamToolCalls > kMaxCallsPerResponse ||
+                call.argumentsJson.toUtf8().size() > kMaxToolArgumentBytes ||
+                call.id.size() > 256 || call.name.size() > 128)
+              m_roundRejected = true;
+            if (m_roundRejected)
+              return;
+            ChatToolCall admitted = call;
+            if (admitted.id.isEmpty())
+              admitted.id = QUuid::createUuid().toString(QUuid::Id128);
             if (!m_session.messages.isEmpty() &&
-                m_session.messages.last().role == ChatRole::Assistant)
-              m_session.messages.last().toolCalls.append(call);
+                m_session.messages.last().role == ChatRole::Assistant) {
+              const auto &prior = m_session.messages.last().toolCalls;
+              for (const auto &existing : prior)
+                if (existing.id == admitted.id) return;
+              m_session.messages.last().toolCalls.append(admitted);
+            }
             AiToolDispatch dispatch;
             if (call.argumentsWithinBudget()) {
               dispatch = dispatchAiTool(call.name,
@@ -53,7 +68,7 @@ AiChatController::AiChatController(QObject *parent)
                                          : QStringLiteral(" · %1").arg(dispatch.target)) +
               (dispatch.note.isEmpty() ? QString()
                                        : QStringLiteral(" · %1").arg(dispatch.note));
-            emit toolCallDispatched(call, text);
+            emit toolCallDispatched(admitted, text);
           });
   connect(&m_client, &LlmClient::finished, this,
           [this](const QString &reason, int promptTokens, int completionTokens) {
@@ -100,31 +115,6 @@ AiChatController::AiChatController(QObject *parent)
 // （OpenAI 400，且该会话每轮复现，直到该轮滑出历史窗口）。按 reason 合成
 // 错误应答补齐缺口——取消 / 请求出错 / 往返超限三条停轮路径共用同一补齐，
 // 缺一条都会把协议违规留给后续每一轮。
-void AiChatController::padUnansweredToolCalls(const QString &reason) {
-  if (m_session.messages.isEmpty() ||
-      m_session.messages.last().role != ChatRole::Assistant ||
-      m_session.messages.last().toolCalls.isEmpty())
-    return;
-  QSet<QString> answered;
-  for (const ChatMessage &m : m_session.messages)
-    if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
-      answered.insert(m.toolCallId);
-  for (const ChatToolCall &call : m_session.messages.last().toolCalls) {
-    if (answered.contains(call.id))
-      continue;
-    QJsonObject payload;
-    payload.insert(QStringLiteral("tool"), call.name); // 模型可控：经 JSON 序列化转义
-    payload.insert(QStringLiteral("error"), reason);
-    ChatMessage tool;
-    tool.role = ChatRole::Tool;
-    tool.toolCallId = call.id;
-    tool.content = QString::fromUtf8(
-      QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    tool.timestamp = QDateTime::currentDateTime();
-    appendMessage(tool);
-  }
-}
-
 QString AiChatController::statusText() const {
   if (m_streaming && m_pendingToolResults > 0)
     return tr("正在执行领域工具…");
@@ -175,6 +165,7 @@ void AiChatController::newSession() {
   saveCurrentSession();
   m_session = ChatSession();
   m_session.id = ChatSessionStore::newSessionId();
+  m_runner.setResultSession(m_session.id);
   m_session.model = m_config.model;
   m_session.createdAt = QDateTime::currentDateTime();
   m_session.updatedAt = m_session.createdAt;
@@ -196,6 +187,7 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
     return false;
   }
   m_session = loaded;
+  m_runner.setResultSession(m_session.id);
   emit sessionChanged();
   emit sessionListChanged();
   return true;
@@ -355,6 +347,13 @@ void AiChatController::retryLast() {
   // 与 sendUserText 同口径重置工具往返状态：否则上一轮打满 kMaxToolRounds
   // 后重试，本轮首个工具请求即超限——重试轮被永久禁用工具。
   m_toolRound = 0;
+  m_turnCalls = 0;
+  m_toolTokens = estimateTokens(systemPrompt()) + qMin(m_config.maxTokens, kHistoryTokenBudget / 2);
+  for (int i = m_session.messages.size() - 1; i >= 0; --i)
+    if (m_session.messages[i].role == ChatRole::User) {
+      m_toolTokens += estimateTokens(m_session.messages[i].content);
+      break;
+    }
   m_pendingToolResults = 0;
   m_unansweredCalls.clear();
   setStreaming(true);
@@ -393,13 +392,6 @@ int AiChatController::estimateTokens(const QString &text) {
       ++wide;
   }
   return ascii / 4 + wide;
-}
-
-QString AiChatController::clampToolResult(const QString &content) {
-  if (content.size() <= kToolResultCharLimit)
-    return content;
-  return content.left(kToolResultCharLimit) +
-         tr("…[结果超长已截断：原始 %1 字符]").arg(content.size());
 }
 
 QVector<ChatMessage> AiChatController::requestMessages() const {
@@ -447,11 +439,26 @@ QVector<ChatMessage> AiChatController::requestMessages() const {
     out.append(marker);
   }
   for (const QVector<ChatMessage> &turn : kept)
-    out.append(turn);
+    for (ChatMessage message : turn) {
+      if (message.role == ChatRole::Tool) {
+        const auto value = QJsonDocument::fromJson(message.content.toUtf8()).object();
+        if (!paleo::chat::isResultEnvelope(value)) {
+          const bool valid = !value.isEmpty();
+          paleo::chat::ChatResultStore transient;
+          const auto wrapped = valid ? transient.encode(message.content, !value.contains("error"),
+                                                        paleo::chat::kResultPageBytes, false)
+                                     : paleo::chat::resultError(QStringLiteral("legacy_result_unavailable"));
+          message.content = QString::fromUtf8(paleo::chat::compactJson(wrapped));
+        }
+      }
+      out.append(message);
+    }
   return out;
 }
 
 void AiChatController::sendRound() {
+  m_roundRejected = false;
+  m_streamToolCalls = 0;
   ChatMessage placeholder; // 流式增量往这条上累积
   placeholder.role = ChatRole::Assistant;
   placeholder.timestamp = QDateTime::currentDateTime();
@@ -480,140 +487,17 @@ void AiChatController::sendUserText(const QString &text) {
   appendMessage(user);
 
   m_toolRound = 0;
+  m_turnCalls = 0;
+  m_toolTokens = estimateTokens(systemPrompt()) + qMin(m_config.maxTokens, kHistoryTokenBudget / 2);
+  for (int i = m_session.messages.size() - 1; i >= 0; --i)
+    if (m_session.messages[i].role == ChatRole::User) {
+      m_toolTokens += estimateTokens(m_session.messages[i].content);
+      break;
+    }
   m_pendingToolResults = 0;
   m_unansweredCalls.clear();
   setStreaming(true);
   sendRound();
-}
-
-void AiChatController::onRoundFinished(const QString &reason) {
-  Q_UNUSED(reason)
-  if (!m_streaming)
-    return; // 取消/出错后的迟到收尾：不再驱动状态机
-  const bool wantsTools =
-    !m_session.messages.isEmpty() &&
-    m_session.messages.last().role == ChatRole::Assistant &&
-    !m_session.messages.last().toolCalls.isEmpty();
-  if (!wantsTools) {
-    setStreaming(false);
-    saveCurrentSession(); // 一轮结束即落盘（用户目录，不进工程）
-    return;
-  }
-  if (++m_toolRound > kMaxToolRounds) {
-    // 超限停轮同样要补齐协议：尾部 assistant 的 tool_calls 还没有任何
-    // role=tool 应答（m_unansweredCalls 尚未填充），不带应答就停轮会让
-    // 该会话后续每一轮请求都违反「每个 tool_call 必须有一条 tool 应答」
-    // （OpenAI 400），直到这一轮滑出 kMaxHistoryTurns 历史窗口。
-    padUnansweredToolCalls(tr("工具往返超过 %1 次上限，本调用未执行")
-                             .arg(kMaxToolRounds));
-    setStreaming(false);
-    emit errorOccurred(tr("工具往返超过 %1 次上限，已停止本轮（模型反复点"
-                          "工具不给终答）").arg(kMaxToolRounds));
-    saveCurrentSession();
-    return;
-  }
-  // 工具相：streaming 保持 true（输入框继续锁定，停止按钮可取消），状态行
-  // 切「执行中」；逐帧入队，串行执行（runner 的正确性约束）。
-  // 遗留 P3：后端同帧返回重复 tool_call id 时，两个同 id 应答违反「每
-  // call 恰好一答」协议（OpenAI 400，该会话每轮复现）——入队前按 id 去重
-  //（协议承诺由 controller 兜底，见 aichattoolrunner.h:82）。
-  QSet<QString> distinctCallIds;
-  QVector<ChatToolCall> distinctCalls = m_session.messages.last().toolCalls;
-  distinctCalls.erase(std::remove_if(distinctCalls.begin(), distinctCalls.end(),
-                                     [&distinctCallIds](const ChatToolCall &c) {
-                                       // 空 id 不参与去重：解析边界（fromJson/
-                                       // 流式 flush）允许省略 id 的调用帧，两个
-                                       // 互不相同但 id 均空的合法调用会被误判
-                                       // 重复而静默丢弃——恰好复现本修复要消灭
-                                       // 的「每 call 恰好一答」400。
-                                       if (c.id.isEmpty())
-                                         return false;
-                                       const bool dup = distinctCallIds.contains(c.id);
-                                       distinctCallIds.insert(c.id);
-                                       return dup;
-                                     }),
-                      distinctCalls.end());
-  m_unansweredCalls = distinctCalls;
-  m_pendingToolResults = int(distinctCalls.size());
-  emit statusChanged(statusText());
-  // 遍历快照而非活容器：onToolFinished 会按到达序从 m_unansweredCalls
-  // removeAt——runner 虽已统一异步回报（#281），快照让本循环不再依赖
-  // 「run() 绝不同步回调」这一 runner 内部前提。
-  for (const ChatToolCall &call : distinctCalls)
-    m_runner.run(call);
-}
-
-void AiChatController::onToolFinished(const ChatToolCall &call, bool ok,
-                                      const QString &resultJson) {
-  if (m_pendingToolResults <= 0)
-    return; // 非本轮在途结果（取消/换轮后的迟到帧）：丢弃
-  ChatMessage tool;
-  tool.role = ChatRole::Tool;
-  tool.toolCallId = call.id;
-  tool.content = clampToolResult(resultJson);
-  tool.timestamp = QDateTime::currentDateTime();
-  appendMessage(tool);
-  for (int i = 0; i < m_unansweredCalls.size(); ++i)
-    if (m_unansweredCalls[i].id == call.id)
-    {
-      // 每次应答只摘首条匹配：连续 removeAt 后 ++i 会跳过补位元素（空 id
-      // 同名多条时一次摘不全、m_unansweredCalls 与 pending 计数裂缝）。
-      m_unansweredCalls.removeAt(i);
-      break;
-    }
-  // 卡片摘要：成功给首 160 字符；失败给 error 字段原文（不吞）。
-  QString summary;
-  if (ok) {
-    summary = resultJson.size() > 160 ? resultJson.left(160) + QStringLiteral("…")
-                                      : resultJson;
-  } else {
-    const QJsonObject payload =
-      QJsonDocument::fromJson(resultJson.toUtf8()).object();
-    summary = payload.value(QStringLiteral("error")).toString(resultJson);
-  }
-  emit toolResultReady(call, ok, summary);
-  if (--m_pendingToolResults > 0)
-    return;
-  // 全部应答到齐：续轮（新 assistant 占位 + 带 tools 再发）。
-  sendRound();
-}
-
-void AiChatController::cancel() {
-  if (!m_streaming)
-    return;
-  // 取消 = 作废：先作废执行器（在途结果不再回灌；tile 任务协作取消不写
-  // 产品），再中止 LLM 请求，最后给未应答的帧补「已取消」应答（协议完整
-  // 性，见文件头注释）。
-  m_runner.cancel();
-  m_client.cancel();
-  while (!m_unansweredCalls.isEmpty()) {
-    const ChatToolCall call = m_unansweredCalls.takeFirst();
-    QJsonObject payload;
-    payload.insert(QStringLiteral("tool"), call.name); // 模型可控：经 JSON 序列化转义
-    payload.insert(QStringLiteral("error"),
-                   tr("用户取消：本调用未执行或结果已作废"));
-    ChatMessage tool;
-    tool.role = ChatRole::Tool;
-    tool.toolCallId = call.id;
-    tool.content = QString::fromUtf8(
-      QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    tool.timestamp = QDateTime::currentDateTime();
-    appendMessage(tool);
-  }
-  // 流式中途取消（轮未 finish，m_unansweredCalls 未填充）时尾部 assistant
-  // 可能已带 tool_calls——按「尾部 assistant 的 calls 是否已有应答」补齐
-  // （与 errorOccurred 同口径；只靠 m_unansweredCalls 会漏掉这批帧）。
-  padUnansweredToolCalls(tr("用户取消：本调用未执行或结果已作废"));
-  m_pendingToolResults = 0;
-  setStreaming(false);
-  // 取消后占位消息若仍为空就摘掉——不给用户留一条空白的"助手回答"。
-  // （工具相里占位带 toolCalls，非空，保留——历史需要它对账 tool_call_id。）
-  if (!m_session.messages.isEmpty() &&
-      m_session.messages.last().role == ChatRole::Assistant &&
-      m_session.messages.last().isEmpty())
-    m_session.messages.removeLast();
-  saveCurrentSession();
-  emit errorOccurred(tr("已取消本轮生成"));
 }
 
 void AiChatController::setConfig(const LlmConfig &config) {

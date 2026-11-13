@@ -10,6 +10,14 @@
 #   ② src/ai/remotepredictrouter.{h,cpp} —— 传输改为异步信号链（零 QEventLoop）。
 #   ③ src/ai/chat/* —— 对话域模型 / 会话持久化 / LLM 客户端 / 领域工具表。
 #   ④ src/ui/ai/* + src/workflow/aichatcontroller.* —— 助手 dock 与其编排。
+add_library(paleo_services_toolresults STATIC src/services/toolresultprotocol.cpp)
+target_link_libraries(paleo_services_toolresults PUBLIC Qt6::Core)
+target_include_directories(paleo_services_toolresults PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paleo_services PUBLIC paleo_services_toolresults)
+add_library(paleo_workflow_results STATIC
+  src/workflow/chatresultstore.cpp src/workflow/chatresultstore_pages.cpp)
+target_link_libraries(paleo_workflow_results PUBLIC paleo_services_toolresults)
+target_link_libraries(paleo_workflow PUBLIC paleo_workflow_results)
 target_sources(paleo_ai PRIVATE
   src/ai/remotepredictrouter.cpp
   src/ai/remotepredictconfig.cpp
@@ -25,12 +33,14 @@ if(PALEO_HAVE_ORT)
   target_sources(paleo_ai PRIVATE src/ai/onnxlocalpredictor.cpp)
 endif()
 target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(paleo_ai PUBLIC Qt6::Network)
+target_link_libraries(paleo_ai PUBLIC Qt6::Network paleo_services_toolresults)
 
 # 编排面（功能层）：会话 + 客户端 + 工具分发/执行回路的对外那一层。
 target_sources(paleo_workflow PRIVATE
   src/workflow/aichatcontroller.cpp
   src/workflow/aichattoolrunner.cpp
+  src/workflow/aichattoolrunner_results.cpp
+  src/workflow/aichatcontroller_toolloop.cpp
   src/workflow/capabilitytaskrunner.cpp
 )
 
@@ -45,6 +55,7 @@ target_sources(paleo_ui PRIVATE
 )
 
 # ---- 测试 ----
+add_paleo_test(tst_chatresults LIBS paleo_workflow_results)
 # 刻意不走 ORT 门：异步路由/降级语义用桩 LocalPredictor 即可覆盖，
 # 有无 ONNX 运行库的构建都跑同一套断言。
 add_paleo_test(tst_aichat LIBS paleo_ai)

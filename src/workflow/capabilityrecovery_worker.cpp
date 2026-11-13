@@ -94,6 +94,9 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
   }
   QString code=host::checkContext(h.context,h.context,host::computeEffects(r.frozenRequest.value("phase").toString()));
   if(!code.isEmpty())return reject(code);
+  if(r.commitState==QLatin1String("publishing"))return reject("commit_uncertain");
+  if(r.execution==QLatin1String("external_unknown"))return reject("external_reconciliation_required");
+  if(r.cancelRequested)return reject("cancelled");
   if(r.frozenRequest.value("phase").toString()==QLatin1String("prepare")) {
     r.execution="prepared";r.code="prepared";
     if(recovery_detail::store(log,r)!=QLatin1String("ok"))return reject("persist_failed");
@@ -102,9 +105,6 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
       if(listener && finished)finished(recovery_detail::result(r));task->finishExternal();
     });return task;
   }
-  if(r.commitState==QLatin1String("publishing"))return reject("commit_uncertain");
-  if(r.execution==QLatin1String("external_unknown"))return reject("external_reconciliation_required");
-  if(r.cancelRequested)return reject("cancelled");
   const bool prepared=!r.preparedManifest.isEmpty();
   if(!prepared && r.execution!=QLatin1String("queued") && !(resume && r.execution==QLatin1String("interrupted")))return reject("explicit_resume_required");
   if(h.validateFrozen){code=h.validateFrozen(r);if(!code.isEmpty())return reject(code);}

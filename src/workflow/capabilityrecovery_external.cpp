@@ -20,6 +20,7 @@ CapabilityRecovery::Accepted CapabilityRecovery::beginExternal(const FrozenOpera
   if(!log.ownsWrites())return {false,"project_write_ownership_required",r};
   if(!r.remoteJobId.isEmpty()){m_externalHosts.insert(r.operationId,h);accepted.code="Query";return accepted;}
   if(r.execution!=QLatin1String("queued")){accepted.code="Unknown";return accepted;}
+  if(r.cancelRequested)return {false,"cancelled",r};
   const auto before=r;r.execution="running";r.code="external_sending";
   r.ownerAttempt=QUuid::createUuid().toString(QUuid::WithoutBraces);r.ownerProcess=QString::number(QCoreApplication::applicationPid());++r.computeCount;
   const auto code=log.saveDurable(r,before.stateRevision,before.ownerAttempt,&r);

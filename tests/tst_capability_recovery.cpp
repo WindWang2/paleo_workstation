@@ -116,6 +116,7 @@ private slots:
     const auto first=h.recovery.beginExternal(p);QVERIFY2(first.ok,qPrintable(first.code));QCOMPARE(first.code,QString("Send"));
     const auto repeat=h.recovery.beginExternal(p);QCOMPARE(repeat.code,QString("Unknown"));QCOMPARE(repeat.record.computeCount,1);
     QCOMPARE(h.recovery.noteRemoteAccepted(p.callerScope,first.record.operationId,"job-1"),QString("ok"));
+    QCOMPARE(h.recovery.cancel(p.callerScope,first.record.operationId).value("code").toString(),QString("cancel_requested"));
     QCOMPARE(h.recovery.beginExternal(p).code,QString("Query"));
     QCOMPARE(h.recovery.reportExternal(p.callerScope,first.record.operationId,"wrong-job","succeeded"),QString("remote_job_conflict"));
     QCOMPARE(h.recovery.reportExternal(p.callerScope,first.record.operationId,"job-1","succeeded"),QString("ok"));
@@ -165,6 +166,27 @@ private slots:
     QCOMPARE(saved.documentId,QString("doc"));QCOMPARE(saved.execution,QString("succeeded"));QCOMPARE(saved.computeCount,1);
     QCOMPARE(saved.remoteJobId,QString("original-job"));QCOMPARE(saved.remoteCompletionProof,proof);
     h.lock->unlock();ProjectDirLock next(root.path());QTRY_VERIFY(next.tryLock());
+  }
+  void cancelledQueuedExternalOperationCannotAuthorizeSend() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));h.allowExternal=true;
+    auto p=plan("cancel-external-queue");p.phase="compute-only";p.outputSpec={};p.outputPorts.clear();
+    p.externalRequest={{"requestHash",QString(64,'a')},{"modelVersion","v1"}};
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);QCOMPARE(accepted.record.execution,QString("queued"));
+    QCOMPARE(h.recovery.cancel(p.callerScope,accepted.record.operationId).value("code").toString(),QString("cancel_requested"));
+    const auto before=h.recovery.lookup(p.callerScope,p.clientRequestId).record;
+    const auto denied=h.recovery.beginExternal(p);QVERIFY(!denied.ok);QCOMPARE(denied.code,QString("cancelled"));
+    const auto after=h.recovery.lookup(p.callerScope,p.clientRequestId).record;QCOMPARE(after.computeCount,0);
+    QCOMPARE(after.stateRevision,before.stateRevision);QCOMPARE(after.execution,QString("queued"));QVERIFY(after.cancelRequested);
+  }
+  void cancelledPreparationCannotBeReopenedByStart() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));auto p=plan("cancel-preparation");p.phase="prepare";
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);QCOMPARE(accepted.record.execution,QString("prepared"));
+    QCOMPARE(h.recovery.cancel(p.callerScope,accepted.record.operationId).value("code").toString(),QString("cancel_requested"));
+    const auto before=h.recovery.lookup(p.callerScope,p.clientRequestId).record;QString error;bool done=false;
+    auto *task=h.recovery.start(p.callerScope,accepted.record.operationId,this,"cancelled prepare",[&](ExecuteResult){done=true;},true,&error);
+    if(task)QTRY_VERIFY(done);QVERIFY(!task);QCOMPARE(error,QString("cancelled"));
+    const auto after=h.recovery.lookup(p.callerScope,p.clientRequestId).record;
+    QCOMPARE(after.stateRevision,before.stateRevision);QVERIFY(after.cancelRequested);QCOMPARE(after.code,QString("cancel_requested"));
   }
   void taskCancellationAfterPreparedCannotPublishOnOwner() {
     QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));std::atomic_bool prepared=false;QSemaphore release;

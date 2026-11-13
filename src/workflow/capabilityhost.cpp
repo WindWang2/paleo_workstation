@@ -74,6 +74,7 @@ void CapabilityHost::setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; 
 void CapabilityHost::setCallerScope(host::Caller caller, const QString &scope) { m_callers[int(caller)] = scope; invalidate(); }
 QString CapabilityHost::callerScope(host::Caller caller,const QString &session) const {
   const auto base=m_callers.value(int(caller));
+  if(base.isEmpty())return {};
   return caller==host::Caller::Agent && !session.isEmpty()?base+":chat:"+QString::fromLatin1(QCryptographicHash::hash(session.toUtf8(),QCryptographicHash::Sha256).toHex()):base;
 }
 void CapabilityHost::invalidate() { m_prepared.clear(); }

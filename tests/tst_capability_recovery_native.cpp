@@ -43,6 +43,10 @@ ExecuteRequest depth(const QString &id) {
 class NativeRecoveryTests:public QObject {
   Q_OBJECT
 private slots:
+  void chatInstanceCannotGrantAnUnboundCallerScope() {
+    CapabilityHost unbound;QVERIFY(unbound.callerScope(host::Caller::Agent,"session").isEmpty());
+    QCOMPARE(unbound.prepare(depth("unbound"),host::Caller::Agent,{}, {}, {},"session").code,QString("caller_unbound"));
+  }
   void depthHostPublishesRealValuesAndReplaysOffline() {
     Host h;QVERIFY(h.init());auto r=depth("depth");const auto p=h.service.prepare(r,host::Caller::Agent,{}, {}, {},"chat1");QVERIFY2(p.ok,qPrintable(p.code));
     bool done=false;ExecuteResult result;QString error;

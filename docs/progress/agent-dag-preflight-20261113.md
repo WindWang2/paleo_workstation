@@ -25,7 +25,7 @@ IDW `INPUT/CONSTRAINTS/LOCAL_GRID_WKT` 对应 `points/lines/grid_wkt`，contour 
 
 - 从 `dd7baa1f` 原函数逐字取出的反例：非空未知源端口返回 `ok`，期望 `port_type`，
   本地反例程序退出 1；新生产预检正确拒绝。临时验证壳未纳入产品构建。
-- GCC 16.2.1 / Qt 6.11.2 原生构建成功；`tst_capability_plan` 46 项通过，零失败/跳过。
+- GCC 16.2.1 / Qt 6.11.2 原生构建成功；`tst_capability_plan` 49 项通过，零失败/跳过。
   覆盖未知端口、精确版本、图冲突/循环、语义缺失/冲突、预算、必填与后续节点参数、
   特殊字符身份、真实请求映射和唯一默认值来源。
 - 修改后的 `capabilitygateway.cpp` 完整生产 TU 独立编译通过。
@@ -38,3 +38,8 @@ IDW `INPUT/CONSTRAINTS/LOCAL_GRID_WKT` 对应 `points/lines/grid_wkt`，contour 
 生产集成验收已加入既有 `tst_capability_round2`：真实 IDW 输出交给 contour 并生成
 可读 GPKG；无效的下游节点/未知源端口拒绝时，目录中零子操作记录和零输出。
 待完整构建完成后记录该回归与 `tst_capability_gateway` 的实际运行结果，再提交 PR。
+
+后续 W5 接缝已核实并交付对应批次：父 DAG 须先登记全图意图/摘要，再接受任何子操作，
+避免同请求号换图后先执行新 child 才撞旧 child 摘要；跨进程 replay 须验证持久暂存的
+身份/哈希并重新签发结果读取能力，不能把内存 issued 集合或日志中的任意 path 当凭据。
+W2 本批不声称已完成父计划幂等及重启恢复。

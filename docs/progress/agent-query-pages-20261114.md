@@ -1,8 +1,8 @@
 # Agent 查询分页实施（W4a/W4b）
 
 基线：master `dd7baa1f`，从计划/入口清单分支独立实现；后续由父任务堆叠到 W1–W3。
-对应[整改计划 W4](../planning/AGENT_CALL_READINESS_PLAN.md)。**SDK 与客户端独立批次已
-完成真实产品编译、12 套回归和源码门禁；主仓 PR 待累计接入 W1–W3 验证后发布。**
+对应[整改计划 W4](../planning/AGENT_CALL_READINESS_PLAN.md)。**SDK 与客户端独立批次，
+以及累计接入 W1–W3 的实际产品、14 套回归和源码门禁均已完成验收。**
 
 ## 查询边界
 
@@ -27,6 +27,8 @@ opaque 游标含版本、随机会话/页身份、到期与 HMAC，不含路径�
 快照；筛选、页预算、排序、文档或修订不符明确拒绝，不偷偷重开第一页。
 无持久文档身份的旧只读装配使用显式 `session:<UUID>` 身份，重绑即失效，不把工程
 路径伪装成 documentId，也不放宽严格版本描述或发布的身份要求。
+同一聊天取消计算只取消 worker 与回调，不清除已经发出的只读查询游标；同聊天的
+旧页仍可重放、继续。idle 状态更换聊天身份仍使旧游标明确失效。
 
 默认页最大 50 条、8 KiB，可在 1–256 条及 2–64 KiB 内选定；活动游标最多 128 个、
 状态/缓存预算 8 MiB、TTL 30 分钟。允许重放最近消费的一页；消费其后续页后回收更早的
@@ -89,6 +91,13 @@ journal 触发器，避免误报整库重建或 unmanaged。
   修复重开，以及真实非 unit IL/XL/缺道/实际 ordinal/窗口/预算/取消。
 - 最新完整 Source gates 32/32，通过锁版 QGIS 头的全传递检查。TS 中英键各 10823，
   missing/extra 均 0，10797 个未修改英文键的既有翻译逐条保持。
+- 累计变基到 W3 `66c55a71`（包含 W1/W2）后，重新构建真实 `paleo` 产品和 14 个
+  测试目标，全部编译/链接成功。串行 CTest 14/14（45.13s），QtTest 共 223 通过
+  （含 fixture）、0 失败、0 skip；新增同聊天设值/取消后游标继续、换聊天拒绝的
+  回归通过，`tst_aichatprojectquery` 为 16/16。额外覆盖 W1 `tst_chatresults`
+  （15/15）和 `tst_aichatcontroller`（23/23），原查询 17/17 和严格版本 8/8 保持。
+- 最后再次 fetch 并执行 `git rebase origin/master`，上游 master 与 W3 基底均未变化；
+  完整源码门禁复扫 32/32，通过锁版 QGIS 传递检查。累计 TS 中英键各 10831。
 - 首轮失败保留日志：SDK journal after-image 错取顶层 name 导致 SQL NOT NULL，已改
   为读取 value.name 的类型化参数；访问 hook 接错写线程检查被一万条验收抓到，已移回
   noteRead；新增文案缺 TS 与一次合并误删均已修复并重跑全闸。未通过提高基线转绿。
@@ -97,7 +106,7 @@ journal 触发器，避免误报整库重建或 unmanaged。
 版本描述和原 CatalogIndex/目录/角色/血缘回归；启用既有 ledger 截图场景，表格、
 关联、血缘和兜底四张均实际生成并检查，旧历史布局与原契约保持。新页还验证空节点、
 超小图上限、父引用续页仍显示本页/未知/后续；SDK 井深保留原值，不固定标成米。
-父任务堆叠与 rebase 后仍须重跑 Source gates。
+上述累计验证已完成变基后的 Source gates；后续堆叠改变基底时仍须重新验证。
 
 临时脚本/完整编译日志位于 worktree `local/query-validation` 及 WSL 独立 build，
 不提交额外运行框架。构建总并行遵守全队上限；本批未新增或提高任何源码闸门基线。

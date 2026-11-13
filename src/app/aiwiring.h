@@ -44,6 +44,7 @@ class AiChatController;
 class AiAssistWorkflow;
 class QgisLayerService;
 class DataCatalog;
+namespace paleo::capability {class CapabilityHost;}
 
 // 方向61：聊天助手的工具执行器装配——把 controller 里的 runner 绑到
 // AiAssistWorkflow 执行面 + 应用级数据上下文（活动层位 + 层位栅格取数）。
@@ -57,4 +58,5 @@ class DataCatalog;
 void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
                         QgisLayerService *layers,
                         DataCatalog *catalog = nullptr,
-                        const QString &projectDir = QString(), const QString &documentId = QString());
+                        const QString &projectDir = QString(), const QString &documentId = QString(),
+                        paleo::capability::CapabilityHost *host = nullptr);

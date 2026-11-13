@@ -1,5 +1,6 @@
 // 层：组装根
 #include "aiwiring.h"
+#include "workflow/capabilityhost.h"
 
 #include "../ai/remotepredictrouter.h"
 #include "../domain/arearules.h"
@@ -63,7 +64,8 @@ RemotePredictionAssembly installRemotePrediction(MappingWorkbench *bench,
 
 void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
                         QgisLayerService *layers, DataCatalog *catalog,
-                        const QString &projectDir, const QString &documentId) {
+                        const QString &projectDir, const QString &documentId,
+                        paleo::capability::CapabilityHost *host) {
   if (!chat)
     return;
   // assist 可为空（无 ORT 构建）：只绑只读工程工具；tile/horizon 执行面
@@ -80,6 +82,9 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   context.catalog = catalog;
   context.projectDir = projectDir;
   context.documentId = documentId;
+  context.capabilityHost = host;
+  context.requireCapabilityHost = host != nullptr;
+  context.documentEpoch = host ? host->context().epoch : 0;
   chat->toolRunner()->setContext(context);
   chat->setProjectBrief(AiChatToolRunner::projectBrief(catalog, projectDir));
 }

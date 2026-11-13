@@ -7,8 +7,8 @@
 #include <QUuid>
 
 void PaleoMainWindow::attachDocumentSession(paleo::document::DocumentSession *session) {
-    if(!m_previewTabs || !session) return;
     m_documentSession=session;
+    if(!m_previewTabs || !session) return;
     m_previewTabs->setDocumentSession(session);
     if(m_sectionWorkbench)m_sectionWorkbench->setDocumentSession(session);
     if(m_wellSectionWf)m_wellSectionWf->setDocumentSession(session);

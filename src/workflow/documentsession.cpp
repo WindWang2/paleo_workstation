@@ -5,6 +5,7 @@
 #include "metadata/paleoprojectstore.h"
 #include "services/timedepthdependencies.h"
 #include <QDebug>
+#include <QFileInfo>
 #include <QThread>
 #include <QUuid>
 #include <algorithm>
@@ -23,7 +24,8 @@ bool DocumentSession::bind(DataCatalog *catalog,const QString &metaPath,const QS
     }
     auto store=std::make_unique<DocumentSourceStore>(metaPath);SourceStoreSnapshot snapshot;
     if(!store->load(documentId,snapshot,&m_loadError)) {if(error)*error=m_loadError;return false;}
-    m_documentId=snapshot.documentId.isEmpty()?QUuid::createUuid().toString(QUuid::WithoutBraces):snapshot.documentId;
+    m_persistentIdentity=!snapshot.documentId.isEmpty();
+    m_documentId=m_persistentIdentity?snapshot.documentId:QStringLiteral("session:")+QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_sourceStore=std::move(store);m_operations=std::move(snapshot.pendingOperations);
     m_interpretation=std::move(snapshot.interpretation);
     m_interpretationError=std::move(snapshot.interpretationError);
@@ -50,7 +52,7 @@ void DocumentSession::close() {
     m_catalog=nullptr;m_sourceStore.reset();m_operations.clear();m_observations.clear();m_projection={};
     m_interpretation.reset();m_interpretationError.clear();
     m_projectionSequence=~quint64(0);m_revision=0;m_documentId.clear();m_projectDir.clear();m_loadError.clear();m_readOnly=false;
-    m_bindingProjectionRevision=~quint64(0);m_effectiveBindings.clear();m_resourceBindingIds.clear();
+    m_bindingProjectionRevision=~quint64(0);m_effectiveBindings.clear();m_resourceBindingIds.clear();m_persistentIdentity=false;
     if(!dropped.operationId.isEmpty())emit commandFinished(dropped);
     emit sessionChanged(m_epoch);
 }
@@ -132,6 +134,21 @@ SourceCommand DocumentSession::command(SourceCommand::Kind kind) const {
 }
 bool DocumentSession::check(const SourceCommand &command,bool write,SourceCommandResult &result) const {
     if(QThread::currentThread()!=thread() || !isOpen()) {result.code="document_unavailable";result.error=QStringLiteral("来源文档未打开或线程不符");return false;}
+    if(m_hostContext) {
+        auto live=m_hostContext();auto expected=live;expected.epoch=command.expectedEpoch;
+        expected.catalogRevision=command.expectedRevision;
+        if(command.kind==SourceCommand::Kind::Relocate && live.recoveryRequired) {
+            for(const auto &intent:m_operations) {
+                SourceRef ref;
+                if(sourceRefFromJson(intent.value("source").toObject(),ref) && ref==command.source &&
+                   QFileInfo(intent.value("newPath").toString()).absoluteFilePath()==QFileInfo(command.path).absoluteFilePath()) {
+                    live.recoveryRequired=false;break; // Existing relocation validates the persisted intent.
+                }
+            }
+        }
+        const auto code=host::checkContext(live,expected,write?host::Read|host::CatalogPublish:host::Read,true);
+        if(!code.isEmpty()) {result.code=code;result.error=code;return false;}
+    }
     project();
     if(!m_projection.error.isEmpty()) {result.code="source_metadata_invalid";result.error=m_projection.error;return false;}
     if(command.expectedEpoch!=m_epoch || command.expectedRevision!=m_revision ||

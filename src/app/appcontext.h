@@ -52,6 +52,7 @@ class MapVersionStore;
 class MapVersionController;
 class PaleoTaskService;
 namespace paleo::document {class DocumentSession;}
+namespace paleo::capability {class CapabilityHost;}
 
 class AppContext : public QObject
 {
@@ -124,6 +125,7 @@ class AppContext : public QObject
     // ETA + 协作取消），任务页轮询它渲染进度条；长 IO 经它上 worker。
     PaleoTaskService *taskSvc() const { return m_taskSvc; }
     paleo::document::DocumentSession *documentSession() const { return m_documentSession; }
+    paleo::capability::CapabilityHost *capabilityHost() const { return m_capabilityHost; }
     ProjectDirLock *projectLock() const { return m_projectLock.get(); }
 
     // 单写实例降级面（T4）：projectOpened 时 tryLock 失败 → 本实例只读。
@@ -227,6 +229,7 @@ class AppContext : public QObject
     paleo::fault::FaultInterpretationController *m_faultCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     paleo::document::DocumentSession *m_documentSession = nullptr;
+    paleo::capability::CapabilityHost *m_capabilityHost = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;
     std::unique_ptr<ProjectDirLock> m_pendingLock; // 闸门已取、projectOpened 接管
     bool m_pendingLockReuse = false;               // 闸门判定同目录复用现锁

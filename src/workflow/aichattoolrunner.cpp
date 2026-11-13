@@ -1,5 +1,6 @@
 // 层：功能
 #include "aichattoolrunner.h"
+#include "capabilityhost.h"
 #include "capabilitytaskrunner.h"
 #include <QDir>
 
@@ -191,6 +192,24 @@ void AiChatToolRunner::startNext() {
                                        .arg(parseError.errorString())));
     return;
   }
+  if (m_context.requireCapabilityHost) {
+    QString code;
+    if (!m_context.capabilityHost) code = QStringLiteral("host_unavailable");
+    else {
+      const auto live = m_context.capabilityHost->context();
+      auto expected = live;
+      expected.documentId = m_context.documentId; expected.epoch = m_context.documentEpoch;
+      if (live.documentId != expected.documentId || live.epoch != expected.epoch)
+        code = QStringLiteral("stale_session");
+      else if (m_activeCall.name != QLatin1String("paleo.read_result")) {
+        unsigned effects = paleo::host::Read;
+        if (m_activeCall.name == QLatin1String("paleo.tile_classification"))
+          effects |= paleo::host::PrivateStage | paleo::host::CatalogPublish | paleo::host::Presentation;
+        code = paleo::host::checkContext(live, expected, effects);
+      }
+    }
+    if (!code.isEmpty()) { finishActive(false, QJsonObject{{QStringLiteral("code"), code}}); return; }
+  }
   const AiToolDispatch dispatch = dispatchAiTool(m_activeCall.name, args);
   if (dispatch.status != AiToolDispatchStatus::Routed) {
     const QString text = aiToolDispatchLabel(dispatch.status) +
@@ -223,6 +242,10 @@ void AiChatToolRunner::startNext() {
 
 void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &args) {
   using namespace paleo::capability;
+  if (m_context.requireCapabilityHost && !m_context.capabilityHost) {
+    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("host_unavailable")}});
+    return;
+  }
   if (m_context.projectDir.isEmpty() || m_context.documentId.isEmpty()) {
     finishActive(false, errorPayload(tr("能力工具须由宿主绑定工程")));
     return;
@@ -242,12 +265,22 @@ void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &ar
   const int generation = m_generation;
   const QString callId = m_activeCall.id;
   QString rejectionCode;
-  auto *task = startCapabilityTask(m_taskService, this, title, std::move(request),
-      [this, generation, callId](ExecuteResult result) {
+  const auto finished = [this, generation, callId](ExecuteResult result) {
         if (generation != m_generation || !m_active || m_activeCall.id != callId)
           return;
         finishActive(result.ok, chatToolResponse(result));
-      }, &rejectionCode);
+      };
+  PaleoTask *task = nullptr;
+  if (m_context.capabilityHost) {
+    const auto prepared = m_context.capabilityHost->prepare(request, paleo::host::Caller::Agent);
+    if (!prepared.ok) {
+      finishActive(false, QJsonObject{{QStringLiteral("code"), prepared.code}});
+      return;
+    }
+    task = m_context.capabilityHost->start(prepared.handle, request, this, title, finished, &rejectionCode);
+  } else {
+    task = startCapabilityTask(m_taskService, this, title, std::move(request), finished, &rejectionCode);
+  }
   if (generation != m_generation) {
     if (task)
       task->requestCancel();

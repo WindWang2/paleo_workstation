@@ -164,10 +164,10 @@ private slots:
     QCOMPARE(plan.request.operationDir, QStringLiteral("/ops"));
     QCOMPARE(plan.request.parameters, depthParams()); // 原样交网关
     QVERIFY(plan.effectiveParameters.contains(QStringLiteral("TIME_SEMANTIC")));
-    // 未给 clientRequestId → 生成一个（网关要求非空）。
+    // Agent must retain the request key across reconnects; only UI may create a new one.
     CommandContext noClient = agentCtx(QString());
-    QVERIFY(!d.prepare(QStringLiteral("depth.convert_batch"), noClient, depthParams(), depthInputs())
-                 .request.clientRequestId.isEmpty());
+    QCOMPARE(d.prepare(QStringLiteral("depth.convert_batch"), noClient, depthParams(), depthInputs()).code,
+             QStringLiteral("client_request_id_required"));
   }
 
   void prepareRejections() {

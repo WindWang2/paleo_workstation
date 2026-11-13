@@ -13,6 +13,7 @@
 #include "pages/pageshared.h"
 #include "paleotheme.h"
 #include "../workflow/commanddispatcher.h"
+#include "../workflow/documentsession.h"
 #include "../workflow/projectsetup.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/qgiscanvascontroller.h"
@@ -39,7 +40,7 @@ CommandDispatcher *PaleoMainWindow::commandDispatcher()
   // 宿主上下文：Agent 不可伪造——callerScope 之外的字段只从这里来。
   m_commands->setContextProvider([this] {
     CommandContext ctx;
-    ctx.documentId = m_projectSvc ? m_projectSvc->projectPath() : QString();
+    ctx.documentId = m_documentSession ? m_documentSession->documentId() : QString();
     ctx.activeViewId = m_currentPage;
     ctx.horizon = m_selection ? m_selection->activeHorizon() : QString();
     ctx.callerScope = QStringLiteral("ui");

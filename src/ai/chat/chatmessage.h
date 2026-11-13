@@ -26,6 +26,7 @@ bool chatRoleFromKey(const QString &key, ChatRole *out);
 
 // 一次工具调用请求（assistant 消息携带）。
 struct ChatToolCall {
+  static constexpr int kMaxArgumentBytes = 16 * 1024;
   QString id;            // 协议要求的调用 id（tool call id）
   QString name;          // 领域工具名（domaintools.h 的注册表 key）
   QString argumentsJson; // 实参 JSON 原文（不解析——本方向不执行）

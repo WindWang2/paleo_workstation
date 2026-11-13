@@ -84,7 +84,7 @@ public:
   static constexpr int kMaxToolRounds = 5;          // 每个用户轮的工具往返上限
   static constexpr int kMaxCallsPerResponse = 8;
   static constexpr int kMaxCallsPerTurn = 16;
-  static constexpr int kMaxToolArgumentBytes = 16 * 1024;
+  static constexpr int kMaxToolArgumentBytes = ChatToolCall::kMaxArgumentBytes;
 
 signals:
   void sessionChanged();

@@ -368,6 +368,10 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     QVERIFY(!spec.validateParameters(blank).isEmpty());
   }
   QVERIFY(names.contains(QStringLiteral("paleo.read_result")));
+  ChatToolCall oversized;
+  oversized.name = QStringLiteral("paleo.read_result");
+  oversized.argumentsJson = QString(ChatToolCall::kMaxArgumentBytes + 1, QLatin1Char('x'));
+  QVERIFY(!oversized.argumentsWithinBudget());
   const auto spec = aiToolSpec(QStringLiteral("paleo.query_project"));
   const auto nativeSchema = QJsonDocument::fromJson(spec.resultSchemaJson.toUtf8()).object();
   QCOMPARE(spec.modelResultSchema().value("properties").toObject().value("data").toObject(), nativeSchema);

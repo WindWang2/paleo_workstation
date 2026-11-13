@@ -1,6 +1,5 @@
 // 层：功能
 #include "chatmessage.h"
-#include "domaintools.h"
 
 #include <QJsonValue>
 
@@ -38,10 +37,8 @@ bool chatRoleFromKey(const QString &key, ChatRole *out) {
 }
 
 bool ChatToolCall::argumentsWithinBudget() const {
-  constexpr qsizetype maxCapabilityArgumentBytes = 64 * 1024;
-  return !isAiCapabilityTool(name) ||
-         (argumentsJson.size() <= maxCapabilityArgumentBytes &&
-          argumentsJson.toUtf8().size() <= maxCapabilityArgumentBytes);
+  return argumentsJson.size() <= kMaxArgumentBytes &&
+         argumentsJson.toUtf8().size() <= kMaxArgumentBytes;
 }
 
 bool ChatToolCall::hasValidArguments() const {

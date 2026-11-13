@@ -27,7 +27,7 @@ A0–A4 的全面迁移仍待实施，不以工具登记数量代替功能完成
 
 工具结果 JSON、DAG 校验、宿主入口、查询分页/操作恢复及推理工具效果与接线，
 按 [Agent 调用可靠性整改计划](docs/planning/AGENT_CALL_READINESS_PLAN.md) 的 W0–W6
-分批推进；当前仅形成计划，未实施或关闭这些缺口。
+分批推进；当前已授权实施，各缺口按实际编译、测试和源码门禁结果逐项关闭。
 
 文档来源第一批已提供 SourceRef / SourceBinding、状态维度和统一命令，会话与
 预览重定位接入见 [实施记录](docs/progress/document-sources-20261105.md)。继续迁移

@@ -102,12 +102,26 @@ struct Reader {
     result.canonicalRoots.insert(directory == canonicalRoot ? identity(safe) : directory);
     return true;
   }
+  bool storedInput(const QJsonValue &value) {
+    if(!value.isObject())return false;
+    const auto ref=value.toObject();const auto digest=ref.value("manifestHash").toString();
+    if(digest.size()!=64)return false;
+    for(const auto c:digest)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;
+    QString directory;if(!identifier(ref.value("directory"),directory,false) || QDir::cleanPath(directory)!=directory ||
+        !directory.startsWith(QLatin1String(".paleo/capability-ops/")))return false;
+    const auto relative=directory+"/manifest.json";
+    if(!path(relative,true))return false;
+    const QFileInfo manifest(managedpath::resolveManagedPath(root,relative));
+    // Retain the whole private directory, including future content-addressed responses. No owner hashing.
+    return manifest.isFile() && manifest.isReadable();
+  }
   bool frozenSource(const QJsonValue &value) {
     if (!value.isObject()) return false;
     const auto request = value.toObject();
     if (!request.contains("plan")) return request.isEmpty();
     if (!request.value("plan").isObject()) return false;
     const auto plan = request.value("plan").toObject();
+    if(plan.contains("storedInput") && !storedInput(plan.value("storedInput")))return false;
     for (const auto &field : {"sourceVerification","raster"}) {
       if (!plan.contains(field)) continue;
       if (!plan.value(field).isObject() || !sourcePath(plan.value(field).toObject())) return false;

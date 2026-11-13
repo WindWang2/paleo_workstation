@@ -57,6 +57,23 @@ class TestStorageGovernance : public QObject {
     return cat.markDownstreamStale(raw.id, "上游源字节改变");
   }
 private slots:
+  void storedInputManifestProtectsBodiesAndCompletedResponseCache() {
+    QTemporaryDir root;const QString directory=".paleo/capability-ops/well-inputs/frozen-input";
+    const auto manifest=root.filePath(directory+"/manifest.json"),body=root.filePath(directory+"/body-0.json"),cache=root.filePath(directory+"/result-0-sha.json");
+    QVERIFY(write(manifest,2));QVERIFY(write(body,12));QVERIFY(write(cache,16));
+    const auto rowFor=[&](const QJsonValue &ref){auto row=operation("artifacts/derived/a/v/out.bin");
+      row["frozenRequest"]=QJsonObject{{"plan",QJsonObject{{"storedInput",ref}}}};return seal(row);};
+    const QJsonObject ref{{"directory",directory},{"manifestHash",QString(64,'a')}};
+    QVERIFY(operations(root.path(),{rowFor(ref)}));const auto retained=operationRetention(root.path());
+    QVERIFY2(retained.complete,qPrintable(retained.code));QVERIFY(retained.paths.contains(directory+"/manifest.json"));
+    QVERIFY(retained.protectsPath(body));QVERIFY(retained.protectsPath(cache));
+    for(const QJsonValue invalid:{QJsonValue("path-only"),QJsonValue(QJsonObject{{"directory",directory},{"manifestHash","bad"}}),
+        QJsonValue(QJsonObject{{"directory","../escape"},{"manifestHash",QString(64,'a')}}),
+        QJsonValue(QJsonObject{{"directory",".paleo/capability-ops/missing"},{"manifestHash",QString(64,'a')}})}) {
+      QVERIFY(operations(root.path(),{rowFor(invalid)}));QVERIFY(!operationRetention(root.path()).complete);
+    }
+    QVERIFY(operations(root.path(),{rowFor(ref)}));QVERIFY(QFile::remove(manifest));QVERIFY(!operationRetention(root.path()).complete);
+  }
   void operationRootsProtectPreparedSidecarsSourcesAndPreviewRevisions() {
     QTemporaryDir dir;DataCatalog cat;QVERIFY(cat.open(dir.path()));QVERIFY(seed(cat,dir.path()));
     const QString target="artifacts/derived/agent/v1/output.tif", prepared="artifacts/derived/agent2/v2/output.gpkg";

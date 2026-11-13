@@ -23,17 +23,17 @@ QVector<ChatToolCall> normalizedCalls(const QVector<ChatToolCall> &calls) {
 }
 } // namespace
 
-void AiChatController::rejectToolRound(const QString &code) {
+void AiChatController::rejectToolRound(const QString &code, const QString &message) {
   if (!m_session.messages.isEmpty() && m_session.messages.last().role == ChatRole::Assistant) {
-    auto &message = m_session.messages.last();
+    auto &assistant = m_session.messages.last();
     // This entire frame was refused before execution. It must not enter replay as unpaired calls.
-    message.toolCalls.clear();
-    message.content += QStringLiteral("[%1]").arg(code);
+    assistant.toolCalls.clear();
+    assistant.content += QStringLiteral("[%1]").arg(code);
   }
   m_pendingToolResults = 0;
   m_unansweredCalls.clear();
   setStreaming(false);
-  emit errorOccurred(code);
+  emit errorOccurred(message.isEmpty() ? code : message);
   saveCurrentSession();
   emit sessionChanged();
 }
@@ -72,10 +72,8 @@ void AiChatController::onRoundFinished(const QString &reason) {
   auto calls = normalizedCalls(m_session.messages.last().toolCalls);
   m_session.messages.last().toolCalls = calls;
   if (++m_toolRound > kMaxToolRounds) {
-    padUnansweredToolCalls(tr("工具往返超过 %1 次上限，本调用未执行").arg(kMaxToolRounds));
-    setStreaming(false);
-    emit errorOccurred(tr("工具往返超过 %1 次上限，已停止本轮（模型反复点工具不给终答）").arg(kMaxToolRounds));
-    saveCurrentSession();
+    rejectToolRound(QStringLiteral("tool_round_limit_exceeded"),
+        tr("工具往返超过 %1 次上限，已停止本轮（模型反复点工具不给终答）").arg(kMaxToolRounds));
     return;
   }
   if (!admitToolCalls(calls)) {

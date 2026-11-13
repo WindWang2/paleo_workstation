@@ -16,8 +16,7 @@
 //     · 末条 assistant 带 toolCalls → 工具相：runner 逐帧执行 → 每结果一条
 //       role=tool 消息（toolCallId 对账）→ 全部到齐 → 新 assistant 占位 +
 //       再发一轮（带 tools[]），直到模型不再要工具（终答）。
-//     · 往返数超 kMaxToolRounds → 如实报错停轮（防模型无限点工具），停轮前
-//       给未应答 calls 合成 role=tool 应答（同 cancel 口径）。
+//     · 往返数超 kMaxToolRounds → 准入前整帧拒绝，不执行、不加入后续请求。
 //   cancel → 作废（口径见 aichattoolrunner.h）：在途结果不回灌，未应答的
 //   tool_call_id 合成「已取消」role=tool 应答——否则历史里 assistant 带
 //   calls 而缺应答，下轮请求直接违反协议（OpenAI 400）。

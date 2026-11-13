@@ -632,6 +632,14 @@ void TestAiChatToolLoop::toolRoundCapStopsEndlessLooping() {
   const QString last = errors.last().at(0).toString();
   QVERIFY2(last.contains(QStringLiteral("上限")), qPrintable(last));
   QCOMPARE(server.requestCount(), AiChatController::kMaxToolRounds + 1);
+  int calls = 0, answers = 0;
+  for (const auto &message : controller.messages()) {
+    calls += int(message.toolCalls.size());
+    if (message.role == ChatRole::Tool) ++answers;
+  }
+  // The over-limit frame was never admitted. Keep earlier pairs and discard that whole frame.
+  QCOMPARE(calls, AiChatController::kMaxToolRounds);
+  QCOMPARE(answers, calls);
 }
 
 // 流式进行中再发消息：如实拒绝，不并发改写会话状态。

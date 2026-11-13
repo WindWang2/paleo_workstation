@@ -107,11 +107,11 @@ private:
   void onToolFinished(const ChatToolCall &call, bool ok, const QString &resultJson);
   QVector<ChatMessage> requestMessages() const; // system + 预算窗内历史
   // 给尾部 assistant 的未应答 tool_calls 合成一条 role=tool 错误应答
-  // （reason 说明为何没执行）：取消/出错/往返超限三条停轮路径共用，
+  // （reason 说明为何没执行）：取消/出错两条停轮路径共用，
   // 保证历史里「每个 tool_call 必有一条应答」的协议完整性。
   void padUnansweredToolCalls(const QString &reason);
   bool admitToolCalls(const QVector<ChatToolCall> &calls);
-  void rejectToolRound(const QString &code);
+  void rejectToolRound(const QString &code, const QString &message = {});
 
   LlmConfig m_config;
   LlmClient m_client;

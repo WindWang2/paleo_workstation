@@ -217,7 +217,9 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   query.description = QObject::tr(
     "只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、"
     "单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么"
-    "曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。");
+    "曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。"
+    "清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，"
+    "returnedCount 为本页条目数。");
   query.requiresLocalOrt = false;
   query.parameters = {
     {QStringLiteral("topic"), QStringLiteral("string"),
@@ -260,6 +262,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   auto querySchema=QJsonDocument::fromJson(query.resultSchemaJson.toUtf8()).object();
   auto queryProperties=querySchema.value("properties").toObject();
   queryProperties.insert("version",paleo::capability::ArtifactVersionCapability::resultSchema());
+  queryProperties.insert("contract",QJsonObject{{"type","string"}});
   queryProperties.insert("returnedCount",QJsonObject{{"type","integer"}});
   queryProperties.insert("totalCount",QJsonObject{{"type",QJsonArray{"integer","null"}}});
   queryProperties.insert("hasMore",QJsonObject{{"type","boolean"}});
@@ -274,9 +277,9 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   lineage.name = QStringLiteral("paleo.asset_lineage");
   lineage.title = QObject::tr("资产血缘查询");
   lineage.description = QObject::tr(
-    "只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间"
-      "产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点"
-      "带版本路径与阶段（可追溯）。");
+    "只读分页查询某资产的派生血缘：分别追溯上游与下游版本。节点带版本路径与阶段；"
+    "selection 只含本页节点，跨页边保留版本引用。hasMore=true 时用 nextCursor "
+    "继续，未续完不视为完整闭包。");
   lineage.requiresLocalOrt = false;
   lineage.parameters = {
     {QStringLiteral("asset"), QStringLiteral("string"),
@@ -301,7 +304,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     R"("version_ids":{"type":"array","items":{"type":"string"}}}}}})");
   auto lineageSchema=QJsonDocument::fromJson(lineage.resultSchemaJson.toUtf8()).object();
   auto lineageProperties=lineageSchema.value("properties").toObject();
-  for(const auto &key:QStringList{"returnedCount","totalCount","hasMore","nextCursor","coverage"})
+  for(const auto &key:QStringList{"contract","returnedCount","totalCount","hasMore","nextCursor","coverage"})
     lineageProperties.insert(key,queryProperties.value(key));
   lineageSchema.insert("properties",lineageProperties);
   lineage.resultSchemaJson=QString::fromUtf8(QJsonDocument(lineageSchema).toJson(QJsonDocument::Compact));

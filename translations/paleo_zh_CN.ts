@@ -34728,8 +34728,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="195"/>
-        <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。</source>
-        <translation>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。</translation>
+        <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。</source>
+        <translation>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。</translation>
     </message>
     
     <message>
@@ -34749,8 +34749,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="230"/>
-        <source>只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点带版本路径与阶段（可追溯）。</source>
-        <translation>只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点带版本路径与阶段（可追溯）。</translation>
+        <source>只读分页查询某资产的派生血缘：分别追溯上游与下游版本。节点带版本路径与阶段；selection 只含本页节点，跨页边保留版本引用。hasMore=true 时用 nextCursor 继续，未续完不视为完整闭包。</source>
+        <translation>只读分页查询某资产的派生血缘：分别追溯上游与下游版本。节点带版本路径与阶段；selection 只含本页节点，跨页边保留版本引用。hasMore=true 时用 nextCursor 继续，未续完不视为完整闭包。</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="237"/>

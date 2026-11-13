@@ -4,8 +4,11 @@
 #include <QSet>
 #include <QStringList>
 #include <functional>
+class QJsonObject;
 
 namespace paleo::storage {
+QString operationPlanHash(const QJsonObject &frozen, const QJsonObject &stage,
+    const QJsonObject &presentation, const QJsonObject &external);
 struct OperationRetention {
   bool complete = false;
   QString code;

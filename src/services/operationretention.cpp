@@ -62,7 +62,7 @@ struct Reader {
     return path(object.value("path")) && version(object.value("expectedHead"), true);
   }
   bool stage(const QJsonObject &object) {
-    if (object.isEmpty()) return true;
+    if (object.isEmpty()) return false;
     if (!object.value("targets").isArray() || !object.value("parents").isArray()) return false;
     const auto targets = object.value("targets").toArray(); if (targets.size() > 64) return false;
     for (const auto &value : targets)
@@ -86,16 +86,7 @@ struct Reader {
       if (!value.isObject() || !path(value.toObject().value("path"), true)) return false;
     return true;
   }
-  bool frozenSource(const QJsonValue &value) {
-    if (!value.isObject()) return false;
-    const auto request = value.toObject();
-    if (!request.contains("plan")) return request.isEmpty();
-    if (!request.value("plan").isObject()) return false;
-    const auto plan = request.value("plan").toObject();
-    if (!plan.contains("sourceVerification")) return true;
-    if (!plan.value("sourceVerification").isObject()) return false;
-    const auto source = plan.value("sourceVerification").toObject();
-    if (source.isEmpty()) return true;
+  bool sourcePath(const QJsonObject &source) {
     if (source.contains("versionId") && !version(source.value("versionId"), true)) return false;
     QString path;
     if (!check() || !identifier(source.value("path"), path, false)) return false;
@@ -109,6 +100,18 @@ struct Reader {
     paths.insert(relative);
     const auto directory = identity(QFileInfo(safe).isDir() ? safe : QFileInfo(safe).absolutePath());
     result.canonicalRoots.insert(directory == canonicalRoot ? identity(safe) : directory);
+    return true;
+  }
+  bool frozenSource(const QJsonValue &value) {
+    if (!value.isObject()) return false;
+    const auto request = value.toObject();
+    if (!request.contains("plan")) return request.isEmpty();
+    if (!request.value("plan").isObject()) return false;
+    const auto plan = request.value("plan").toObject();
+    for (const auto &field : {"sourceVerification","raster"}) {
+      if (!plan.contains(field)) continue;
+      if (!plan.value(field).isObject() || !sourcePath(plan.value(field).toObject())) return false;
+    }
     return true;
   }
   bool record(const QJsonValue &value) {
@@ -125,7 +128,12 @@ struct Reader {
     if (key != object.value("key").toString() || keys.contains(key)) return false;
     if (!identifier(object.value("operationId"), id, false) || operations.contains(id) ||
         !object.value("stagePlan").isObject() || !object.value("preparedManifest").isObject() ||
-        !object.value("artifactManifest").isObject() || !object.value("frozenRequest").isObject()) return false;
+        !object.value("artifactManifest").isObject() || !object.value("frozenRequest").isObject() ||
+        !object.value("presentationIntent").isObject() || !object.value("externalRequest").isObject() ||
+        !object.value("planHash").isString() || object.value("planHash").toString().size() != 64) return false;
+    if (object.value("planHash").toString() != operationPlanHash(object.value("frozenRequest").toObject(),
+        object.value("stagePlan").toObject(), object.value("presentationIntent").toObject(),
+        object.value("externalRequest").toObject())) {result.code = "operation_retention_plan_mismatch"; return false;}
     operations.insert(id); keys.insert(key);
     return stage(object.value("stagePlan").toObject()) && prepared(object.value("preparedManifest").toObject()) &&
       artifacts(object.value("artifactManifest").toObject()) && frozenSource(object.value("frozenRequest"));
@@ -142,6 +150,11 @@ struct Reader {
     result.complete = true; result.code = "ok"; return result;
   }
 };
+}
+QString operationPlanHash(const QJsonObject &frozen, const QJsonObject &stage,
+    const QJsonObject &presentation, const QJsonObject &external) {
+  const QJsonObject value{{"frozen",frozen},{"stage",stage},{"presentation",presentation},{"external",external}};
+  return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(value).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
 }
 bool OperationRetention::protectsPath(const QString &absolutePath) const {
   auto candidate = identity(absolutePath);

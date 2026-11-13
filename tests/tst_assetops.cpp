@@ -10,6 +10,7 @@
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/workflow/assetops.h"
+#include "../src/services/operationretention.h"
 
 using namespace paleo::assetops;
 
@@ -101,11 +102,15 @@ private slots:
     auto persist=[&](const QJsonArray &rows){QSaveFile file(path);const auto bytes=QJsonDocument(rows).toJson(QJsonDocument::Compact);
       return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size()&&file.commit();};
     // A frozen source without a projected Catalog version still retains bytes.
-    QJsonObject row{{"schemaVersion",2},{"operationId","op-input"},{"stagePlan",QJsonObject{}},
+    QJsonObject row{{"schemaVersion",2},{"operationId","op-input"},
+      {"stagePlan",QJsonObject{{"targets",QJsonArray{}},{"parents",QJsonArray{}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
       {"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},{"stateRevision","1"},{"events",QJsonArray{}},
       {"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
       {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},
+      {"presentationIntent",QJsonObject{}},{"externalRequest",QJsonObject{}},
       {"frozenRequest",QJsonObject{{"plan",QJsonObject{{"sourceVerification",QJsonObject{{"path",asset.v1Abs},{"versionId",""}}}}}}}};
+    row["planHash"]=paleo::storage::operationPlanHash(row["frozenRequest"].toObject(),row["stagePlan"].toObject(),
+      row["presentationIntent"].toObject(),row["externalRequest"].toObject());
     QVERIFY(persist({row}));const auto first=purgeAssets(&cat,tmp.path(),{asset.assetId});
     QVERIFY(first.purgedAssetIds.isEmpty());QVERIFY(!first.failedAssets.isEmpty());QVERIFY(!cat.assetById(asset.assetId).id.isEmpty());
     QVERIFY(QFileInfo::exists(asset.v1Abs));

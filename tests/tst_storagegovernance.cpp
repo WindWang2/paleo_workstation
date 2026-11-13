@@ -23,13 +23,18 @@ class TestStorageGovernance : public QObject {
     QSaveFile file(path);const auto bytes=QJsonDocument(rows).toJson(QJsonDocument::Compact);
     return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size()&&file.commit();
   }
+  static QJsonObject seal(QJsonObject object) {
+    object["planHash"]=operationPlanHash(object.value("frozenRequest").toObject(),object.value("stagePlan").toObject(),
+      object.value("presentationIntent").toObject(),object.value("externalRequest").toObject());return object;
+  }
   static QJsonObject operation(const QString &path, const QString &head={}) {
-    return {{"schemaVersion",2},{"operationId","op-retained"},
+    return seal({{"schemaVersion",2},{"operationId","op-retained"},
       {"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},{"stateRevision","1"},{"events",QJsonArray{}},
       {"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
       {"stagePlan",QJsonObject{{"targets",QJsonArray{QJsonObject{{"staging",QJsonObject{{"path",path},{"expectedHead",head}}}}}},
-        {"parents",QJsonArray{"raw"}}}},{"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},
-      {"frozenRequest",QJsonObject{{"plan",QJsonObject{}}}}};
+        {"parents",QJsonArray{"raw"}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
+      {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},
+      {"presentationIntent",QJsonObject{}},{"externalRequest",QJsonObject{}},{"frozenRequest",QJsonObject{{"plan",QJsonObject{}}}}});
   }
   static bool seed(DataCatalog &cat, const QString &dir) {
     CatalogEntity e; e.id = "well"; e.name = "A1"; e.entityType = "well";
@@ -57,22 +62,26 @@ private slots:
     const QString target="artifacts/derived/agent/v1/output.tif", prepared="artifacts/derived/agent2/v2/output.gpkg";
     const QString artifact=".paleo/capability-ops/op-retained/private/part.bin", orphan="artifacts/derived/orphan/unreferenced.bin";
     const QString source="raw/legacy-model/input.sgy";
-    for(const auto &path:QStringList{target,target+".aux.xml",prepared,artifact,orphan,source,source+".sidecar"})
+    const QString raster="raw/legacy-tile/input.tif";
+    for(const auto &path:QStringList{target,target+".aux.xml",prepared,artifact,orphan,source,source+".sidecar",raster,raster+".aux.xml"})
       QVERIFY(write(dir.filePath(path),11));
     auto row=operation(target,"child");
     row["preparedManifest"]=QJsonObject{{"schema",2},{"members",QJsonArray{QJsonObject{{"staging",QJsonObject{{"path",prepared},{"expectedHead",""}}}}}}};
     row["artifactManifest"]=QJsonObject{{"schema",1},{"ports",QJsonArray{QJsonObject{{"path",artifact}}}}};
-    row["frozenRequest"]=QJsonObject{{"plan",QJsonObject{{"sourceVerification",QJsonObject{{"path",dir.filePath(source)},{"versionId",""}}}}}};
+    row["frozenRequest"]=QJsonObject{{"plan",QJsonObject{{"sourceVerification",QJsonObject{{"path",dir.filePath(source)},{"versionId",""}}},
+      {"raster",QJsonObject{{"path",dir.filePath(raster)}}}}}};
+    row=seal(row);
     QVERIFY(operations(dir.path(),{row}));const auto roots=operationRetention(dir.path());QVERIFY2(roots.complete,qPrintable(roots.code));
-    QCOMPARE(roots.versionIds,QStringList({"child","raw"}));QCOMPARE(roots.paths.size(),4);
+    QCOMPARE(roots.versionIds,QStringList({"child","raw"}));QCOMPARE(roots.paths.size(),5);
     QVERIFY(roots.protectsPath(dir.filePath(target+".aux.xml")));QVERIFY(roots.protectsPath(dir.filePath(source+".sidecar")));
+    QVERIFY(roots.protectsPath(dir.filePath(raster+".aux.xml")));
     QVERIFY(roots.protectsPath(dir.filePath(artifact)));QVERIFY(!roots.protectsPath(dir.filePath(orphan)));
     const auto report=scan(snapshot(&cat));QVERIFY(report.complete);QCOMPARE(report.orphans.size(),1);
     QCOMPARE(report.orphans.first().relativePath,orphan);QVERIFY(!preview(report,{"child"},{}).valid);
     const auto selected=preview(report,{}, {orphan});QVERIFY(selected.valid);QString error;QVERIFY(validate(selected,{},&error));
     row["execution"]="succeeded";row["commitState"]="committed";QVERIFY(operations(dir.path(),{row}));
     QCOMPARE(operationRetention(dir.path()).revision,roots.revision);QVERIFY(validate(selected,{},&error));
-    auto stage=row["stagePlan"].toObject();stage["parents"]=QJsonArray{"raw","derived"};row["stagePlan"]=stage;
+    auto stage=row["stagePlan"].toObject();stage["parents"]=QJsonArray{"raw","derived"};row["stagePlan"]=stage;row=seal(row);
     QVERIFY(operations(dir.path(),{row}));QVERIFY(!preview(report,{}, {orphan}).valid);QVERIFY(!validate(selected,{},&error));
     QVERIFY(QFileInfo::exists(dir.filePath(orphan)));
   }
@@ -83,9 +92,14 @@ private slots:
     auto row=operation("artifacts/derived/a/v/file.bin");QVERIFY(operations(dir.path(),{row}));QVERIFY(operationRetention(dir.path()).complete);
     auto corrupt=row;corrupt.remove("documentId");QVERIFY(operations(dir.path(),{corrupt}));QVERIFY(!operationRetention(dir.path()).complete);
     QVERIFY(operations(dir.path(),{row,row}));QVERIFY(!operationRetention(dir.path()).complete);
+    auto missingStage=row;missingStage["stagePlan"]=QJsonObject{};missingStage=seal(missingStage);
+    QVERIFY(operations(dir.path(),{missingStage}));QVERIFY(!operationRetention(dir.path()).complete);
+    auto edited=row;auto changed=edited["stagePlan"].toObject();
+    changed["targets"]=QJsonArray{QJsonObject{{"staging",QJsonObject{{"path","artifacts/derived/a/v/secretly-moved.bin"},{"expectedHead",""}}}}};edited["stagePlan"]=changed;
+    QVERIFY(operations(dir.path(),{edited}));QCOMPARE(operationRetention(dir.path()).code,QStringLiteral("operation_retention_plan_mismatch"));
     row["schemaVersion"]=1;QVERIFY(operations(dir.path(),{row}));QVERIFY(!operationRetention(dir.path()).complete);QVERIFY(!scan(snapshot(&cat)).complete);
     row["schemaVersion"]=2;auto stage=row["stagePlan"].toObject();
-    stage["targets"]=QJsonArray{QJsonObject{{"staging",QJsonObject{{"path","../outside.bin"},{"expectedHead",""}}}}};row["stagePlan"]=stage;
+    stage["targets"]=QJsonArray{QJsonObject{{"staging",QJsonObject{{"path","../outside.bin"},{"expectedHead",""}}}}};row["stagePlan"]=stage;row=seal(row);
     QVERIFY(operations(dir.path(),{row}));QVERIFY(!operationRetention(dir.path()).complete);
     const auto path=dir.filePath(".paleo/capability-ops/operations.json");QFile file(path);
     QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Truncate));QCOMPARE(file.write("{broken"),qint64(7));file.close();

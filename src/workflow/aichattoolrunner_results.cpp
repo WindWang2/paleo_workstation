@@ -3,6 +3,10 @@
 
 void AiChatToolRunner::setResultSession(const QString &session) {
   m_resultSession = session;
+  if (m_querySessionId != session) {
+    m_querySessionId = session;
+    rebindQueryScope();
+  }
   refreshResultScope();
 }
 

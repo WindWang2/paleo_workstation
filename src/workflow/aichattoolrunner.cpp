@@ -23,8 +23,6 @@
 #include "../ai/wellfaciesservice.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/welllogfacies.h"
-#include "../services/derivationgraph.h"
-#include "../services/artifactversioncapability.h"
 #include "../services/paleotaskservice.h"
 
 // workflow/ — 聊天工具执行器实现（方向61；方向77 增只读查询/血缘两工具）。

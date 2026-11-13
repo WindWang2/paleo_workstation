@@ -41,6 +41,7 @@ private slots:
   void lineageClosureMatchesDirectComputation();
   void unboundCatalogIsHonestError();
   void unknownWellIsHonestError();
+  void queryCursorsCannotCrossIdleChatSessions();
   void projectBriefSummarizesAndStaysSmall();
   void controllerInjectsBriefIntoSystemPrompt();
   void readResultIsRoutedAndInvalidatedWithHostScope();
@@ -596,6 +597,22 @@ void TestAiChatProjectQuery::controllerInjectsBriefIntoSystemPrompt() {
   QVERIFY(AiChatController::estimateTokens(withBrief) -
             AiChatController::estimateTokens(plain) <
           AiChatController::kHistoryTokenBudget / 10);
+}
+
+void TestAiChatProjectQuery::queryCursorsCannotCrossIdleChatSessions() {
+  Fixture f;QVERIFY(initFixture(f));seedProject(f);
+  AiChatToolRunner runner;AiChatToolContext context;context.catalog=&f.catalog;context.projectDir=f.dir.path();
+  context.documentId=QStringLiteral("document");context.documentEpoch=1;
+  runner.setContext(context);runner.setResultSession(QStringLiteral("chat-a"));
+  QJsonObject args{{"topic","assets"},{"page_size",1}};bool ok=false;QJsonObject page;
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(ok);
+  const auto cursor=page.value(QStringLiteral("nextCursor")).toString();QVERIFY(!cursor.isEmpty());args["cursor"]=cursor;
+  // The same idle chat keeps its cursor, while a new chat cannot reuse it.
+  runner.setResultSession(QStringLiteral("chat-a"));
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(ok);
+  QVERIFY(!runner.busy());runner.setResultSession(QStringLiteral("chat-b"));
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(!ok);
+  QCOMPARE(page.value(QStringLiteral("code")).toString(),QStringLiteral("cursor_scope_mismatch"));
 }
 
 void TestAiChatProjectQuery::readResultIsRoutedAndInvalidatedWithHostScope() {

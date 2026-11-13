@@ -169,7 +169,7 @@ private slots:
     ProjectDirLock lock(f.project); QVERIFY(lock.tryLock()); CapabilityHost service; configure(service, f, lock);
     ExecuteRequest request; request.capabilityId = "seismic.attributes.compute";
     request.clientRequestId = "real-trace"; request.publishIntent = "compute-only";
-    request.parameters = {{"ATTRIBUTES", QStringList{"RMS"}}, {"WINDOW_HALF", 1}};
+    request.parameters = {{"ATTRIBUTES", QStringList{"rms"}}, {"WINDOW_HALF", 1}};
     request.inputs = {{"seismic_selection", QVariantMap{{"volume", document::modelObjectRefJson(volume).toVariantMap()},
       {"traceIndex", "2"}, {"firstSample", 3}, {"sampleCount", 2}}}};
     const auto prepared = service.prepare(request, host::Caller::Agent); QVERIFY2(prepared.ok, qPrintable(prepared.code));

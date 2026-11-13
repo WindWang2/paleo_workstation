@@ -188,6 +188,9 @@ QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes = 64 * 1
 QJsonObject prepareChatToolRequest(ExecuteRequest &out, const QString &toolName, const QJsonObject &arguments,
                                    const QString &hostScope, const QString &documentId, const QString &operationDir,
                                    const QString &hostHead = QString());
+// Parse only. The product caller must submit this value to CapabilityHost;
+// no actor, path, alleged current head or execution permission is supplied here.
+QJsonObject prepareHostedChatToolRequest(ExecuteRequest &out,const QString &toolName,const QJsonObject &arguments);
 QJsonObject chatToolResponse(const ExecuteResult &result);
 // hostHead 由宿主传入。arguments 里的 current_head 不作为提交事实。
 QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,

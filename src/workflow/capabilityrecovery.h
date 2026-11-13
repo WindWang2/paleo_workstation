@@ -12,6 +12,7 @@ class PaleoTask;
 class PaleoTaskService;
 
 namespace paleo::capability {
+inline constexpr char OperationContract[] = "paleo.operation.v2";
 struct OperationWorkContext {
   QString operationId, attemptId, privateDir, projectDir;
   QJsonObject frozenPlan;
@@ -75,7 +76,8 @@ public:
   Accepted beginExternal(const FrozenOperation &plan);
   QString noteRemoteAccepted(const QString &callerScope, const QString &operationId, const QString &jobId);
   QString reportExternal(const QString &callerScope, const QString &operationId, const QString &jobId,
-                         const QString &outcome, const QJsonObject &directCompletionProof = {});
+                         const QString &outcome, const QJsonObject &directCompletionProof = {},
+                         bool retainOwnershipForResults = false);
   PaleoTask *attachExternalResults(const QString &callerScope, const QString &operationId, OperationWorker worker,
                                   QObject *subscriber, std::function<void(ExecuteResult)> finished, QString *error = nullptr);
   OperationLog::Accept lookup(const QString &callerScope, const QString &clientRequestId);

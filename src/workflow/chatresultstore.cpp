@@ -33,6 +33,11 @@ QJsonObject boundedMetadata(const QJsonObject &original, const QJsonObject &part
     candidate.insert(QLatin1String(field), original.value(QLatin1String(field)));
     if (compactJson(candidate).size() <= maxBytes) minimal = candidate;
   }
+  const auto contract=original.value("contractVersion").toString(original.value("contract").toString());
+  if(smallStateTag(QJsonValue(contract))) {
+    auto candidate=minimal;candidate.insert("payloadContract",contract);
+    if(compactJson(candidate).size()<=maxBytes)minimal=candidate;
+  }
   if (smallStateTag(commit)) {
     auto candidate = minimal;
     candidate.insert("commit", QJsonObject{{"state", commit}});

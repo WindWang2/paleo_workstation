@@ -10,6 +10,7 @@ namespace paleo::capability {
 HostPrepared CapabilityHost::preparePlan(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,const QVector<PlanEdge> &edges,
                                         host::Caller caller,const QString &session) {
   HostPrepared out;auto h=binding();
+  prunePrepared(h.context);
   const auto fail=[&](const QString &code){out.code=code;return out;};
   if(!intent.documentId.isEmpty() && intent.documentId!=h.context.documentId)return fail("document_mismatch");
   const auto scope=callerScope(caller,session);if(scope.isEmpty())return fail("caller_unbound");

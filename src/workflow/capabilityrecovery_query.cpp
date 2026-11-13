@@ -14,20 +14,20 @@ QJsonObject CapabilityRecovery::events(const QString &scope,const QString &id,qu
   const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
   const auto r=recovery_detail::authorized(log,h,scope,id);
   if(r.operationId.isEmpty())return publicOperation(r);
-  if(pageSize<1 || pageSize>64 || maxBytes<1024 || maxBytes>32*1024)return {{"ok",false},{"code","invalid_page_budget"}};
+  if(pageSize<1 || pageSize>64 || maxBytes<1024 || maxBytes>32*1024)return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","invalid_page_budget"}};
   const auto first=r.events.isEmpty()?r.stateRevision:r.events.first().toObject().value("revision").toString().toULongLong();
-  if(after && after<first-1)return {{"ok",false},{"code","event_history_expired"},{"firstRevision",QString::number(first)}};
-  if(after>r.stateRevision)return {{"ok",false},{"code","invalid_event_cursor"}};
+  if(after && after<first-1)return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","event_history_expired"},{"firstRevision",QString::number(first)}};
+  if(after>r.stateRevision)return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","invalid_event_cursor"}};
   QJsonArray rows;quint64 next=after;
   for(const auto &entry:r.events) {
     const auto revision=entry.toObject().value("revision").toString().toULongLong();if(revision<=after)continue;
     auto candidate=rows;candidate.append(entry);
     const auto bytes=QJsonDocument(candidate).toJson(QJsonDocument::Compact).size();
-    if(rows.isEmpty() && bytes>maxBytes-512)return {{"ok",false},{"code","event_page_budget_too_small"},{"minimumBytes",bytes+512}};
+    if(rows.isEmpty() && bytes>maxBytes-512)return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","event_page_budget_too_small"},{"minimumBytes",bytes+512}};
     if(candidate.size()>pageSize || bytes>maxBytes-512)break;
     rows=candidate;next=revision;
   }
-  return {{"ok",true},{"code","ok"},{"operationId",id},{"events",rows},{"nextRevision",QString::number(next)},
+  return {{"contract",QLatin1String(OperationContract)},{"ok",true},{"code","ok"},{"operationId",id},{"events",rows},{"nextRevision",QString::number(next)},
     {"hasMore",next<r.stateRevision},{"firstRevision",QString::number(first)},{"historyTruncated",first>1}};
 }
 QJsonObject CapabilityRecovery::cancel(const QString &scope,const QString &id) {
@@ -36,11 +36,11 @@ QJsonObject CapabilityRecovery::cancel(const QString &scope,const QString &id) {
   if(r.operationId.isEmpty())return publicOperation(r);
   if(r.commitState==QLatin1String("committed")){auto out=publicOperation(r);out.insert("code","cancel_after_commit");return out;}
   const auto permitted=host::checkContext(h.context,h.context,host::Read|host::PrivateStage);
-  if(!permitted.isEmpty())return {{"ok",false},{"code",permitted}};
+  if(!permitted.isEmpty())return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code",permitted}};
   if(r.commitState==QLatin1String("publishing")){auto out=publicOperation(r);out.insert("code","commit_uncertain");return out;}
   r.cancelRequested=true;r.code="cancel_requested";
   const auto code=recovery_detail::store(log,r);
-  if(code!=QLatin1String("ok"))return {{"ok",false},{"code",code}};
+  if(code!=QLatin1String("ok"))return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code",code}};
   recovery_detail::cancelActive(h.projectDir,id);return publicOperation(r);
 }
 QJsonObject CapabilityRecovery::results(const QString &scope,const QString &id) {
@@ -56,7 +56,9 @@ QJsonObject CapabilityRecovery::results(const QString &scope,const QString &id) 
       {"unit",descriptor.value("unit")},{"axis",descriptor.value("axis")},{"encoding",descriptor.value("constraints").toObject().value("encoding")},
       {"byteSize",port.value("byteSize")},{"resultRef",QJsonObject{{"kind","operation-result-v2"},{"operationId",id},{"portId",port.value("portId")}}}});
   }
-  out.insert("ports",ports);if(ports.isEmpty())out.insert("code","result_unavailable");return out;
+  out.insert("ports",ports);
+  if(!r.artifactManifest.value("childOperations").toArray().isEmpty())out.insert("childOperations",r.artifactManifest.value("childOperations"));
+  if(ports.isEmpty())out.insert("code","result_unavailable");return out;
 }
 PaleoTask *CapabilityRecovery::read(const QString &scope,const QString &id,const QString &portId,qint64 offset,int maxBytes,
     QObject *subscriber,std::function<void(QJsonObject)> finished,QString *error) {
@@ -73,15 +75,15 @@ PaleoTask *CapabilityRecovery::read(const QString &scope,const QString &id,const
     for(const auto &entry:manifest.value("ports").toArray())if(entry.toObject().value("portId").toString()==portId)selected.append(entry);
     manifest.insert("ports",selected);
     if(!publication_detail::outputsFromManifest(h.projectDir,r.operationId,manifest,artifacts,&code,
-         [task]{return task->cancelRequested();},true,allowed)){*output={{"ok",false},{"code",code.isEmpty()?"result_unavailable":code}};return code;}
+         [task]{return task->cancelRequested();},true,allowed)){*output={{"contract",QLatin1String(OperationContract)},{"ok",false},{"code",code.isEmpty()?"result_unavailable":code}};return code;}
     for(const auto &artifact:artifacts.artifacts)if(artifact.portId==portId) {
       QFile file(artifact.absolutePath);if(!file.open(QIODevice::ReadOnly) || offset>file.size() || !file.seek(offset))break;
       const auto bytes=file.read(maxBytes);const auto next=offset+bytes.size();
-      *output={{"ok",true},{"code","ok"},{"operationId",r.operationId},{"portId",portId},{"encoding","base64"},
+      *output={{"contract",QLatin1String(OperationContract)},{"ok",true},{"code","ok"},{"operationId",r.operationId},{"portId",portId},{"encoding","base64"},
         {"offset",QString::number(offset)},{"nextOffset",QString::number(next)},{"hasMore",next<file.size()},
         {"data",QString::fromLatin1(bytes.toBase64())}};return QString();
     }
-    *output={{"ok",false},{"code","result_unavailable"}};return QStringLiteral("result_unavailable");
+    *output={{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","result_unavailable"}};return QStringLiteral("result_unavailable");
   });
   QObject::connect(task,&PaleoTask::finished,subscriber,[output,finished=std::move(finished)]{if(finished)finished(*output);});return task;
 }

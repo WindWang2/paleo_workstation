@@ -7,6 +7,7 @@
 #include <QUuid>
 #include <cstdlib>
 #include "metadata/projectlock.h"
+#include "catalog/purgelease.h"
 #include "workflow/capabilitygateway.h"
 
 using paleo::capability::OperationLog;
@@ -76,7 +77,21 @@ private slots:
   void realProcessCrashLeavesOneOperation_data();
   void realProcessCrashLeavesOneOperation();
   void aSecondProcessCannotAcceptWhileOwned();
+  void purgeLeaseStopsNewRootsButPreservesExistingFacts();
 };
+
+void TestOperationControl::purgeLeaseStopsNewRootsButPreservesExistingFacts() {
+  QTemporaryDir root;ProjectDirLock owner(root.path());QVERIFY(owner.tryLock());
+  OperationLog log(logDir(root.path()),root.path(),owner.claim());const auto first=log.acceptDurable(seed());
+  QCOMPARE(first.code,QString("created"));
+  auto lease=CatalogPurgeLease::acquire(QDir(root.path()).filePath("artifacts/metadata/catalog.json"));QVERIFY(lease);
+  auto next=seed();next.clientRequestId="next";
+  QCOMPARE(log.acceptDurable(next).code,QString("catalog_purge_in_progress"));
+  QCOMPARE(log.lookup("doc","agent:session-one","same").code,QString("found"));
+  auto existing=first.record;existing.cancelRequested=true;existing.code="cancel_requested";
+  QCOMPARE(update(log,existing),QString("ok"));
+  lease.reset();QCOMPARE(log.acceptDurable(next).code,QString("created"));
+}
 
 void TestOperationControl::writesRequireAnActualProjectClaim() {
   QTemporaryDir root;

@@ -41140,6 +41140,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>预览后文件变化或路径不安全：%1</source>
         <translation>预览后文件变化或路径不安全：%1</translation>
     </message>
+    <message>
+        <source>操作记录不可验证，不能回收：%1</source>
+        <translation>操作记录不可验证，不能回收：%1</translation>
+    </message>
+    <message>
+        <source>操作保留引用变化，请重新扫描</source>
+        <translation>操作保留引用变化，请重新扫描</translation>
+    </message>
+    <message>
+        <source>版本仍被操作引用：%1</source>
+        <translation>版本仍被操作引用：%1</translation>
+    </message>
+    <message>
+        <source>文件仍被操作引用：%1</source>
+        <translation>文件仍被操作引用：%1</translation>
+    </message>
 </context>
 <context>
     <name>StorageGovernanceController</name>
@@ -41212,6 +41228,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/storagegovernancecontroller.cpp" line="297"/>
         <source>回收站物理删除</source>
         <translation>回收站物理删除</translation>
+    </message>
+    <message>
+        <source>持久操作仍需保留这些文件，或其引用尚不能核对；未执行回收。</source>
+        <translation>持久操作仍需保留这些文件，或其引用尚不能核对；未执行回收。</translation>
     </message>
 </context>
 <context>

@@ -73,6 +73,7 @@ private:
   };
   QString check(const Prepared &prepared, const ExecuteRequest &intent, HostBinding &live) const;
   HostBinding binding() const;
+  void prunePrepared(const host::CallContext &context);
   static QByteArray requestDigest(const ExecuteRequest &request);
   BindingProvider m_binding;
   QPointer<PaleoTaskService> m_tasks;

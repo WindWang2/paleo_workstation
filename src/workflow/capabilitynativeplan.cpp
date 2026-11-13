@@ -45,6 +45,10 @@ OperationWorker restoreNativePlan(const QJsonObject &json,QString *error) {
     }
     const auto result=executePlan(request,nodes,edges);OperationWorkResult out;
     out.ok=result.ok;out.code=result.code;out.summary=QJsonObject::fromVariantMap(result.summary);out.summary.remove("result_path");
+    QJsonArray children;for(const auto &entry:out.summary.value("child_operations").toArray()) {
+      auto child=entry.toObject();child.insert("parentOperationId",context.operationId);children.append(child);
+    }
+    if(!children.isEmpty())out.summary.insert("child_operations",children);
     out.outputs.ok=out.ok;
     if(out.ok)out.outputs.artifacts.append({outputPort,result.summary.value("result_path").toString(),{},{},{},{}});
     return out;

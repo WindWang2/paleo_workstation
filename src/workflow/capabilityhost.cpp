@@ -77,6 +77,11 @@ QString CapabilityHost::callerScope(host::Caller caller,const QString &session) 
   return caller==host::Caller::Agent && !session.isEmpty()?base+":chat:"+QString::fromLatin1(QCryptographicHash::hash(session.toUtf8(),QCryptographicHash::Sha256).toHex()):base;
 }
 void CapabilityHost::invalidate() { m_prepared.clear(); }
+void CapabilityHost::prunePrepared(const host::CallContext &context) {
+  const auto now=QDateTime::currentMSecsSinceEpoch();
+  for(auto it=m_prepared.begin();it!=m_prepared.end();)
+    if(it->expiresAt<now || it->context.documentId!=context.documentId || it->context.epoch!=context.epoch)it=m_prepared.erase(it);else ++it;
+}
 HostBinding CapabilityHost::binding() const {
   return QThread::currentThread() == thread() && m_binding ? m_binding() : HostBinding{};
 }
@@ -92,6 +97,7 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   HostPrepared result;
   const auto fail = [&](const QString &code) { result.code = code; return result; };
   auto live = binding();
+  prunePrepared(live.context);
   if (!intent.documentId.isEmpty() && intent.documentId != live.context.documentId)
     return fail(QStringLiteral("document_mismatch"));
   const unsigned effects = host::computeEffects(intent.publishIntent);
@@ -104,6 +110,7 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   if(prior.code==QLatin1String("found")) {
     if(prior.record.schemaVersion!=2)return fail("legacy_unverifiable");
     if(prior.record.requestHash!=operationDigest(nativeIntent(intent)))return fail("idempotency_conflict");
+    if(m_prepared.size()>=128)return fail("prepared_capacity_exceeded");
     Prepared saved;saved.request=intent;saved.request.documentId=live.context.documentId;saved.request.callerScope=scope;
     saved.context=live.context;saved.effects=host::Read;saved.intentDigest=digest(intent);saved.recoveryId=prior.record.operationId;
     saved.commandId=commandId;saved.expiresAt=QDateTime::currentMSecsSinceEpoch()+5*60*1000;

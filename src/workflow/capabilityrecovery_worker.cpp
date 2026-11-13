@@ -1,6 +1,7 @@
 // 层：功能
 // workflow/capabilityrecovery_worker.cpp — 数值/拷贝/校验只在池内；Catalog 只在 owner 提交。
 #include "capabilityrecovery_internal.h"
+#include "services/operationretention.h"
 #include "capabilitypublication_internal.h"
 #include "services/paleotaskservice.h"
 #include <QCoreApplication>
@@ -41,6 +42,7 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
       return fail(error.isEmpty()?"source_result_unavailable":error);
     }
     out.ok=true;
+    if(source.artifactManifest.contains("childOperations"))out.summary.insert("child_operations",source.artifactManifest.value("childOperations"));
   } else if(worker)out=worker(context);else return fail("execution_adapter_unavailable");
   if(out.ok && stop()){out.ok=false;out.code="cancelled";}
   if(out.ok && r.frozenRequest.value("phase").toString()==QLatin1String("publish")) {
@@ -52,7 +54,8 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
     }
   }
   const auto allowed=managedTargets(r,h.projectDir);
-  const auto manifest=out.ok?publication_detail::artifactManifest(h.projectDir,r.operationId,context.privateDir,out.outputs,&error,stop,allowed):QJsonObject{};
+  auto manifest=out.ok?publication_detail::artifactManifest(h.projectDir,r.operationId,context.privateDir,out.outputs,&error,stop,allowed):QJsonObject{};
+  if(!manifest.isEmpty() && !out.summary.value("child_operations").toArray().isEmpty())manifest.insert("childOperations",out.summary.value("child_operations"));
   if(out.ok && manifest.isEmpty()){out.ok=false;out.code=error.isEmpty()?"invalid_artifact_manifest":error;}
   for(int retry=0;retry<3;++retry) {
     auto current=log.recordById(r.operationId);
@@ -79,7 +82,7 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
   auto r=reconcile(h,recovery_detail::authorized(log,h,scope,id));
   const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
   if(r.operationId.isEmpty())return reject("operation_not_found");
-  if(r.planHash!=operationDigest({{"frozen",r.frozenRequest},{"stage",r.stagePlan},{"presentation",r.presentationIntent},{"external",r.externalRequest}}))
+  if(r.planHash!=storage::operationPlanHash(r.frozenRequest,r.stagePlan,r.presentationIntent,r.externalRequest))
     return reject("frozen_plan_corrupt");
   if(!m_tasks || !subscriber)return reject("task_service_unavailable");
   if(r.commitState==QLatin1String("committed") || r.execution==QLatin1String("succeeded")) {
@@ -129,8 +132,12 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
     if(task->cancelRequested())attempt->cancelled=true;
     *output=recovery_detail::run(h,r,worker,validator,attempt,checkpoint);return output->ok?QString():output->code;
   });
-  QObject::connect(task,&PaleoTask::finished,this,[guard,host=RecoveryHost(h),r,output,lease=attempt,listener,finished=std::move(finished)]() mutable {
+  QObject::connect(task,&PaleoTask::finished,this,[guard,task,host=RecoveryHost(h),r,output,lease=attempt,listener,finished=std::move(finished)]() mutable {
     auto result=guard?guard->finish(host,r,*output):ExecuteResult{};
+    if(!result.ok && task->state()==PaleoTask::State::Succeeded) {
+      if(result.code=="stale_session" || result.code=="cancelled")task->discardPublication();
+      else task->failPublication(result.code.isEmpty()?QStringLiteral("operation_failed"):result.code);
+    }
     recovery_detail::release(host.projectDir,r.operationId);
     if(guard) {
       if(result.execution=="prepared")guard->m_frozen[r.operationId].worker={};

@@ -72,6 +72,7 @@ add_library(paleo_workflow STATIC
   src/workflow/algorithmpublish.cpp                # algo-atom P1：publishArtifacts 统一发布面
   src/workflow/atomicjob.cpp                       # algo-atom：Processing run+publish 薄助手
   src/workflow/algorithmadapters.cpp               # algo-atom P2：Processing/NativeCpp 适配器
+  src/workflow/capabilitychatprotocol.cpp          # 原生事实/聊天传输与有界引用
   src/workflow/capabilitygateway.cpp               # 试点能力准备/执行
   src/workflow/capabilityplan.cpp                  # 无副作用 DAG 预检及端口适配
   src/workflow/capabilityseismicjob.cpp             # 文档固定地震体的有界单道能力

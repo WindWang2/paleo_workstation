@@ -3,6 +3,7 @@
 #include "capabilitygateway.h"
 #include "capabilityops_internal.h"
 #include "metadata/projectlock.h"
+#include "catalog/purgelease.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -133,8 +134,11 @@ OperationLog::Record OperationLog::artifactOwner(const QString &documentId,const
 
 OperationLog::Accept OperationLog::acceptDurable(const Record &seed) {
   if (!ownsWrites()) return {QStringLiteral("project_write_ownership_required"), {}};
+  const auto catalogPath=QDir(m_projectDir).absoluteFilePath("artifacts/metadata/catalog.json");
+  if(CatalogPurgeLease::isHeld(catalogPath))return {QStringLiteral("catalog_purge_in_progress"),{}};
   if (!validSeed(seed)) return {QStringLiteral("invalid_operation_intent"), {}};
   QMutexLocker lock(&operation_detail::mutexFor(m_path));
+  if(!ownsWrites() || CatalogPurgeLease::isHeld(catalogPath))return {QStringLiteral("catalog_purge_in_progress"),{}};
   if (!loadOperations()) return {QStringLiteral("operation_log_unavailable"), {}};
   const auto identity = operation_detail::key(seed.documentId, seed.callerScope, seed.clientRequestId);
   if (m_byKey.contains(identity)) {

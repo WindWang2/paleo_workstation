@@ -1,11 +1,27 @@
 // 层：功能
 #include "storagegovernancecontroller.h"
 #include "../catalog/purgelease.h"
+#include "../services/operationretention.h"
 #include "../services/futuretask.h"
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QPromise>
+#include <QSet>
 #include <QtConcurrent>
+
+namespace {
+bool operationRetentionAllows(const QString &root,const QVector<CatalogVersion> &versions,
+                              const QStringList &selected,const QVector<paleo::storage::FileFact> &files) {
+  const auto roots=paleo::storage::operationRetention(root);
+  if(!roots.complete)return false;
+  for(const auto &id:selected)if(roots.versionIds.contains(id))return false;
+  const QSet<QString> ids(selected.begin(),selected.end());
+  for(const auto &version:versions)if(ids.contains(version.id) &&
+      roots.protectsPath(DataCatalog::resolvedVersionPath(root,version)))return false;
+  for(const auto &file:files)if(roots.protectsPath(file.canonicalPath))return false;
+  return true;
+}
+}
 
 StorageGovernanceController::StorageGovernanceController(QObject *parent) : QObject(parent) {}
 StorageGovernanceController::~StorageGovernanceController() { m_work.cancel(); }
@@ -121,6 +137,9 @@ void StorageGovernanceController::confirmPreview() {
   m_work = future; watcher->setFuture(future);
 }
 void StorageGovernanceController::commit(const paleo::storage::Preview &p) {
+  if(!operationRetentionAllows(p.source.projectDir,p.source.versions,p.versionIds,p.files)) {
+    setBusy(false);emit message(tr("持久操作仍需保留这些文件，或其引用尚不能核对；未执行回收。"));return;
+  }
   setBusy(true, false); // Atomic catalog commit begins; cancellation is no longer offered.
   QString error;
   QStringList adopted;
@@ -262,6 +281,11 @@ void StorageGovernanceController::purgeAssets(const QStringList &assetIds) {
   if (m_busy || !m_catalog || !m_catalog->isOpen() || assetIds.isEmpty())
     return;
   const auto source = paleo::storage::snapshot(m_catalog);
+  const QSet<QString> selectedAssets(assetIds.begin(),assetIds.end());QStringList selectedVersions;
+  for(const auto &version:source.versions)if(selectedAssets.contains(version.assetId))selectedVersions.append(version.id);
+  if(!operationRetentionAllows(source.projectDir,source.versions,selectedVersions,{})) {
+    emit message(tr("持久操作仍需保留这些文件，或其引用尚不能核对；未执行回收。"));return;
+  }
   setBusy(true, false);
   auto result = std::make_shared<paleo::assetops::PurgeOutcome>(
       paleo::assetops::purgeAssets(m_catalog, source.projectDir, assetIds,

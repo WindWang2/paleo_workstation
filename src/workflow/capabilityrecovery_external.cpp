@@ -38,31 +38,42 @@ QString CapabilityRecovery::noteRemoteAccepted(const QString &scope,const QStrin
   if(r.execution!=QLatin1String("running") && r.execution!=QLatin1String("external_unknown"))return "invalid_external_state";
   r.remoteJobId=jobId;r.code="remote_accepted";return recovery_detail::store(log,r);
 }
-QString CapabilityRecovery::reportExternal(const QString &scope,const QString &id,const QString &jobId,const QString &outcome,const QJsonObject &proof) {
+QString CapabilityRecovery::reportExternal(const QString &scope,const QString &id,const QString &jobId,const QString &outcome,const QJsonObject &proof,
+                                           bool retainOwnershipForResults) {
   const auto h=m_externalHosts.contains(id)?m_externalHosts.value(id):live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
   auto r=recovery_detail::authorized(log,h,scope,id);
   if(r.operationId.isEmpty())return "operation_not_found";
   if(r.externalRequest.isEmpty() || outcome!="succeeded" && outcome!="failed" && outcome!="unknown")return "invalid_external_outcome";
-  if(r.execution==QLatin1String("succeeded") || r.execution==QLatin1String("failed"))return r.externalOutcome==outcome?"ok":"external_outcome_conflict";
   if(!jobId.isEmpty() && !r.remoteJobId.isEmpty() && jobId!=r.remoteJobId)return "remote_job_conflict";
-  if(outcome=="unknown" && r.remoteJobId.isEmpty() && !jobId.isEmpty() && jobId.toUtf8().size()<=1024)r.remoteJobId=jobId;
-  if(outcome!="unknown" && (jobId.isEmpty() || jobId!=r.remoteJobId)) {
+  if(!proof.isEmpty()) {
     static const QRegularExpression sha("^[0-9a-f]{64}$");
-    if(outcome!="succeeded" || r.execution!="running" || !r.remoteJobId.isEmpty() || !jobId.isEmpty() ||
+    if(outcome!="succeeded" || proof.size()!=3 ||
         proof.value("requestHash")!=r.externalRequest.value("requestHash") || !sha.match(proof.value("requestHash").toString()).hasMatch() ||
         !sha.match(proof.value("responseHash").toString()).hasMatch() || proof.value("modelVersion").toString().isEmpty() ||
         proof.value("modelVersion")!=r.externalRequest.value("modelVersion"))return "remote_job_conflict";
-    r.remoteCompletionProof=proof;
+    if(!r.remoteCompletionProof.isEmpty() && r.remoteCompletionProof!=proof)return "external_completion_conflict";
   }
+  if(r.execution==QLatin1String("succeeded") || r.execution==QLatin1String("failed")) {
+    if(r.externalOutcome!=outcome)return "external_outcome_conflict";
+    if(!proof.isEmpty() && r.remoteCompletionProof.isEmpty()) {r.remoteCompletionProof=proof;return recovery_detail::store(log,r);}
+    return "ok";
+  }
+  if(outcome=="unknown" && r.remoteJobId.isEmpty() && !jobId.isEmpty() && jobId.toUtf8().size()<=1024)r.remoteJobId=jobId;
+  if(outcome!="unknown" && (jobId.isEmpty() || jobId!=r.remoteJobId) &&
+      (outcome!="succeeded" || r.execution!="running" || !r.remoteJobId.isEmpty() || !jobId.isEmpty() || proof.isEmpty()))return "remote_job_conflict";
+  if(!proof.isEmpty())r.remoteCompletionProof=proof;
   r.externalOutcome=outcome;r.execution=outcome=="unknown"?"external_unknown":outcome;
   r.code=outcome=="unknown"?"external_outcome_unknown":"remote_"+outcome;
   const auto code=recovery_detail::store(log,r,OperationLog::Transition::Reconcile);
-  if(code==QLatin1String("ok")){m_externalActive.remove(id);m_externalHosts.remove(id);}
+  if(code==QLatin1String("ok")){
+    m_externalActive.remove(id);
+    if(outcome!="succeeded" || !retainOwnershipForResults || !r.artifactManifest.isEmpty())m_externalHosts.remove(id);
+  }
   return code;
 }
 PaleoTask *CapabilityRecovery::attachExternalResults(const QString &scope,const QString &id,OperationWorker worker,
     QObject *subscriber,std::function<void(ExecuteResult)> finished,QString *error) {
-  const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
+  const auto h=m_externalHosts.contains(id)?m_externalHosts.value(id):live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
   const auto r=recovery_detail::authorized(log,h,scope,id);
   const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
   if(r.operationId.isEmpty())return reject("operation_not_found");
@@ -83,8 +94,9 @@ PaleoTask *CapabilityRecovery::attachExternalResults(const QString &scope,const 
   const QPointer<QObject> listener(subscriber);
   QObject::connect(task,&PaleoTask::finished,this,[this,host=RecoveryHost(h),r,manifest,code,listener,finished=std::move(finished)]() mutable {
     OperationLog journal(host.operationDir,host.projectDir,host.writeClaim);auto current=journal.recordById(r.operationId);
-    if(code->isEmpty() && !manifest->isEmpty() && live().context.documentId==host.context.documentId && live().context.epoch==host.context.epoch) {
+    if(code->isEmpty() && !manifest->isEmpty()) {
       current.artifactManifest=*manifest;*code=recovery_detail::store(journal,current);
+      if(*code=="ok"){m_externalHosts.remove(r.operationId);m_externalActive.remove(r.operationId);}
     }
     auto result=recovery_detail::result(current);if(!code->isEmpty() && *code!="ok"){result.ok=false;result.code=*code;}
     host={};manifest.reset();code.reset();

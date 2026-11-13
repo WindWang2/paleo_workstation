@@ -1,6 +1,7 @@
 // 层：功能
 // workflow/capabilityrecovery.cpp — 先查持久身份，再冻结/分配/运行。
 #include "capabilityrecovery_internal.h"
+#include "services/operationretention.h"
 #include "capabilitypublication_internal.h"
 #include "catalog/datacatalog.h"
 #include "metadata/projectlock.h"
@@ -45,6 +46,7 @@ ExecuteResult result(const OperationLog::Record &r) {
   out.ok=r.execution==QLatin1String("succeeded") || (r.execution==QLatin1String("prepared") &&
       (r.frozenRequest.value("phase").toString()==QLatin1String("prepare") || r.code==QLatin1String("computed")));
   out.summary=QJsonDocument::fromJson(r.summaryJson).object().toVariantMap();
+  out.summary.insert("contract",QString::fromLatin1(OperationContract));
   out.responseJson=QJsonDocument(publicOperation(r)).toJson(QJsonDocument::Compact); return out;
 }
 }
@@ -52,11 +54,15 @@ QString operationDigest(const QJsonObject &value) {
   return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(value).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex());
 }
 QJsonObject publicOperation(const OperationLog::Record &r) {
-  if(r.operationId.isEmpty()) return {{"ok",false},{"code","operation_not_found"}};
-  return {{"ok",true},{"code",r.code},{"operationId",r.operationId},{"execution",r.execution},
+  if(r.operationId.isEmpty()) return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","operation_not_found"}};
+  QJsonObject out{{"contract",QLatin1String(OperationContract)},{"ok",true},{"code",r.code},{"operationId",r.operationId},{"execution",r.execution},
     {"commitState",r.commitState},{"presentation",r.presentation},{"revision",QString::number(r.stateRevision)},
     {"computeCount",r.computeCount},{"cancelRequested",r.cancelRequested},{"requestHash",r.requestHash},
     {"resultRef",QJsonObject{{"kind","operation-result-v2"},{"operationId",r.operationId}}}};
+  const PublicationReceipt receipt{QJsonDocument::fromJson(r.summaryJson).object().value("receipt").toObject()};
+  if(r.commitState==QLatin1String("committed") && receipt.valid() && receipt.operationId()==r.operationId && receipt.requestHash()==r.requestHash)
+    out.insert("commitReceiptRef",receipt.outputSetId());
+  return out;
 }
 CapabilityRecovery::CapabilityRecovery(QObject *parent):QObject(parent) {}
 void CapabilityRecovery::setHostProvider(HostProvider provider){m_host=std::move(provider);}
@@ -103,6 +109,7 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
   const auto proof=h.catalog->publication(h.context.documentId,QUuid::createUuid().toString(QUuid::WithoutBraces),QString(64,'0'));
   if(proof.code!=QLatin1String("not_committed"))return {false,"publication_store_unavailable",{}};
   if(!source.operationId.isEmpty() && source.storeGeneration!=proof.storeGeneration)return {false,"publication_store_changed",{}};
+  for(const auto &id:plan.parentVersionIds)if(id.isEmpty() || h.catalog->versionById(id).id!=id)return {false,"input_version_missing",{}};
   OperationLog::Record seed; seed.schemaVersion=2; seed.documentId=h.context.documentId;
   seed.callerScope=plan.callerScope;seed.clientRequestId=plan.clientRequestId;seed.requestHash=hash;
   seed.capabilityId=plan.capabilityId;seed.contractVersion=plan.contractVersion;
@@ -131,7 +138,7 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
     seed.presentationIntent.insert("members",members);
   }
   seed.externalRequest=plan.externalRequest;
-  seed.planHash=operationDigest({{"frozen",seed.frozenRequest},{"stage",seed.stagePlan},{"presentation",seed.presentationIntent},{"external",seed.externalRequest}});
+  seed.planHash=storage::operationPlanHash(seed.frozenRequest,seed.stagePlan,seed.presentationIntent,seed.externalRequest);
   auto accepted=log.acceptDurable(seed);
   if(accepted.code!=QLatin1String("created"))return {false,accepted.code,accepted.record};
   if(plan.phase==QLatin1String("prepare")) {

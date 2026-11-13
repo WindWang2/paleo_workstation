@@ -30,11 +30,12 @@ struct Host {
   bool writable=true,allowExternal=false,presentationFails=false,retainClaimReadOnly=false;quint64 epoch=1;
   QString slotState="initial";int presentationCalls=0;
   QString ownerError;
+  QString documentId="doc";
   bool open(const QString &root) {
     lock=std::make_unique<ProjectDirLock>(root);if(!lock->tryLock() || !catalog.open(root))return false;
     recovery.setTaskService(&tasks);recovery.setHostProvider([this,root] {
       RecoveryHost h;h.projectDir=root;h.operationDir=root+"/.paleo/capability-ops";h.catalog=&catalog;
-      h.writeClaim=writable || retainClaimReadOnly?lock->claim():nullptr;h.context.documentId="doc";h.context.epoch=epoch;h.context.open=true;
+      h.writeClaim=writable || retainClaimReadOnly?lock->claim():nullptr;h.context.documentId=documentId;h.context.epoch=epoch;h.context.open=true;
       h.context.persistentIdentity=true;h.context.readOnly=!writable;h.context.ownsWrites=bool(h.writeClaim);
       h.context.allowedEffects=host::Read|host::PrivateStage|host::CatalogPublish|host::Presentation;
       if(allowExternal)h.context.allowedEffects|=host::ExternalTransfer;
@@ -99,9 +100,11 @@ private slots:
     QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto a=h.recovery.accept(plan());QVERIFY(a.ok);
     bool done=false;QString error;QVERIFY(h.recovery.start("agent:chat1",a.record.operationId,this,"compute",[&](ExecuteResult){done=true;},false,&error));QTRY_VERIFY(done);
     const auto events=h.recovery.events("agent:chat1",a.record.operationId,0,2,1024);QVERIFY(events.value("hasMore").toBool());QCOMPARE(events.value("events").toArray().size(),2);
+    QCOMPARE(events.value("contract").toString(),QString("paleo.operation.v2"));
     const auto ports=h.recovery.results("agent:chat1",a.record.operationId).value("ports").toArray();QCOMPARE(ports.size(),1);QVERIFY(!ports.first().toObject().contains("path"));
     QJsonObject page;done=false;QVERIFY(h.recovery.read("agent:chat1",a.record.operationId,"OUTPUT",0,4,this,[&](QJsonObject r){page=r;done=true;},&error));
     QTRY_VERIFY(done);QVERIFY(page.value("ok").toBool());QCOMPARE(QByteArray::fromBase64(page.value("data").toString().toLatin1()),QByteArray("real"));
+    QCOMPARE(page.value("contract").toString(),QString("paleo.operation.v2"));
     QCOMPARE(page.value("nextOffset").toString(),QString("4"));QVERIFY(page.value("hasMore").toBool());
     QVERIFY(!h.recovery.read("agent:chat2",a.record.operationId,"OUTPUT",0,4,this,{},&error));QCOMPARE(error,QString("operation_not_found"));
   }
@@ -122,6 +125,22 @@ private slots:
     proof["modelVersion"]="model-v1";
     QCOMPARE(h.recovery.reportExternal(p.callerScope,direct.record.operationId,{},"succeeded",proof),QString("ok"));
     QCOMPARE(h.recovery.beginExternal(p).code,QString("Terminal"));
+  }
+  void remoteCompletionProofPersistsForKnownJobsAndIsSetOnce() {
+    QTemporaryDir root;QString id;auto p=plan("remote-proof");p.phase="compute-only";
+    p.outputSpec={};p.outputPorts.clear();p.externalRequest={{"requestHash",QString(64,'a')},{"modelVersion","model-v1"}};
+    QJsonObject proof{{"requestHash",QString(64,'a')},{"responseHash",QString(64,'b')},{"modelVersion","model-v1"}};
+    {Host h;QVERIFY(h.open(root.path()));h.allowExternal=true;const auto accepted=h.recovery.beginExternal(p);QCOMPARE(accepted.code,QString("Send"));id=accepted.record.operationId;
+      QCOMPARE(h.recovery.noteRemoteAccepted(p.callerScope,id,"job-proof"),QString("ok"));
+      auto invalid=proof;invalid["requestHash"]=QString(64,'c');
+      QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",invalid),QString("remote_job_conflict"));
+      QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",proof),QString("ok"));}
+    Host h;QVERIFY(h.open(root.path()));const auto accepted=h.recovery.beginExternal(p);QCOMPARE(accepted.code,QString("Terminal"));
+    QCOMPARE(accepted.record.remoteCompletionProof,proof);QCOMPARE(accepted.record.remoteJobId,QString("job-proof"));
+    QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",proof),QString("ok"));
+    auto changed=proof;changed["responseHash"]=QString(64,'c');
+    QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",changed),QString("external_completion_conflict"));
+    QCOMPARE(h.recovery.lookup(p.callerScope,p.clientRequestId).record.remoteCompletionProof,proof);
   }
   void phaseInheritanceSurvivesRestartWithoutLivePlan() {
     QTemporaryDir root;QString sourceId;QJsonObject target;
@@ -198,7 +217,8 @@ private slots:
     p.worker=[&h,numeric,computations](const OperationWorkContext &c){++*computations;auto out=numeric(c);
       QMetaObject::invokeMethod(&h.recovery,[&h]{h.ownerError="source_row_changed";},Qt::QueuedConnection);return out;};
     const auto a=h.recovery.accept(p);QVERIFY(a.ok);bool done=false;QString error;ExecuteResult result;
-    QVERIFY(h.recovery.start(p.callerScope,a.record.operationId,this,"compute",[&](ExecuteResult r){result=r;done=true;},false,&error));QTRY_VERIFY(done);
+    auto *task=h.recovery.start(p.callerScope,a.record.operationId,this,"compute",[&](ExecuteResult r){result=r;done=true;},false,&error);
+    QVERIFY(task);QTRY_VERIFY(done);QCOMPARE(task->state(),PaleoTask::State::Failed);
     QVERIFY(!result.ok);QCOMPARE(result.code,QString("source_row_changed"));QCOMPARE(h.catalog.versions().size(),0);
     h.ownerError.clear();*invalid=true;done=false;
     QVERIFY(h.recovery.start(p.callerScope,a.record.operationId,this,"verify",[&](ExecuteResult r){result=r;done=true;},true,&error));QTRY_VERIFY(done);
@@ -211,6 +231,22 @@ private slots:
     QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto a=h.recovery.accept(plan());QVERIFY(a.ok);
     bool done=false;QString error;QVERIFY(h.recovery.start("agent:chat1",a.record.operationId,this,"compute",[&](ExecuteResult){done=true;},false,&error));QTRY_VERIFY(done);
     QVERIFY(!h.tasks.tasks().isEmpty());h.lock->unlock();ProjectDirLock next(root.path());QTRY_VERIFY(next.tryLock());
+  }
+  void ownedExternalResponseAttachesAfterDocumentSwitch() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));h.allowExternal=true;auto p=plan("remote-switch");p.phase="compute-only";
+    p.outputSpec={};p.outputPorts.clear();p.externalRequest={{"requestHash",QString(64,'a')},{"modelVersion","v1"}};
+    const auto a=h.recovery.beginExternal(p);QVERIFY(a.ok);QCOMPARE(a.code,QString("Send"));
+    h.documentId="another-document";++h.epoch;
+    const QJsonObject proof{{"requestHash",QString(64,'a')},{"responseHash",QString(64,'b')},{"modelVersion","v1"}};
+    QCOMPARE(h.recovery.reportExternal(p.callerScope,a.record.operationId,{},"succeeded",proof,true),QString("ok"));
+    QCOMPARE(h.recovery.get(p.callerScope,a.record.operationId).value("code").toString(),QString("operation_not_found"));
+    bool done=false;QString error;ExecuteResult result;
+    QVERIFY2(h.recovery.attachExternalResults(p.callerScope,a.record.operationId,worker(),this,[&](ExecuteResult r){result=r;done=true;},&error),qPrintable(error));
+    QTRY_VERIFY(done);QVERIFY2(result.ok,qPrintable(result.code));
+    OperationLog log(root.path()+"/.paleo/capability-ops");const auto record=log.recordById(a.record.operationId);
+    QCOMPARE(record.documentId,QString("doc"));QCOMPARE(record.execution,QString("succeeded"));QCOMPARE(record.computeCount,1);
+    QCOMPARE(record.artifactManifest.value("ports").toArray().size(),1);QCOMPARE(h.catalog.versions().size(),0);
+    h.lock->unlock();ProjectDirLock next(root.path());QTRY_VERIFY(next.tryLock());
   }
 };
 int main(int argc,char **argv) {

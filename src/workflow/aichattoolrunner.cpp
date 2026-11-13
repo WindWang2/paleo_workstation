@@ -252,12 +252,12 @@ void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &ar
     finishActive(false, errorPayload(tr("能力工具须由宿主绑定工程")));
     return;
   }
-  if (m_context.catalog && m_context.catalog->refusesWrites()) {
+  if (!m_context.capabilityHost && m_context.catalog && m_context.catalog->refusesWrites()) {
     finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("project_read_only")}});
     return;
   }
   ExecuteRequest request;
-  const auto rejected = prepareChatToolRequest(
+  const auto rejected = m_context.capabilityHost?prepareHostedChatToolRequest(request,m_activeCall.name,args):prepareChatToolRequest(
       request, m_activeCall.name, args, QStringLiteral("chat-host"), m_context.documentId,
       m_context.projectDir + QStringLiteral("/.paleo/capability-ops"));
   if (!rejected.isEmpty()) {
@@ -274,7 +274,7 @@ void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &ar
       };
   PaleoTask *task = nullptr;
   if (m_context.capabilityHost) {
-    const auto prepared = m_context.capabilityHost->prepare(request, paleo::host::Caller::Agent);
+    const auto prepared = m_context.capabilityHost->prepare(request, paleo::host::Caller::Agent, {}, {}, {},m_resultSession);
     if (!prepared.ok) {
       finishActive(false, QJsonObject{{QStringLiteral("code"), prepared.code}});
       return;

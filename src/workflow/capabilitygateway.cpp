@@ -938,28 +938,6 @@ QVariantMap effectiveScalarParams(const QString &algorithmId, int contractVersio
   return validated.ok ? validated.effective : QVariantMap();
 }
 
-QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes) {
-  const QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
-  if (bytes.size() <= budgetBytes)
-    return bytes;
-  QJsonObject page;
-  page.insert(QStringLiteral("ok"), object.value(QStringLiteral("ok")));
-  page.insert(QStringLiteral("status"), object.value(QStringLiteral("code")));
-  page.insert(QStringLiteral("operationId"), object.value(QStringLiteral("operationId")));
-  for (const auto &key : {QStringLiteral("execution"), QStringLiteral("commitState"), QStringLiteral("presentation")})
-    if (object.contains(key))
-      page.insert(key, object.value(key));
-  page.insert(QStringLiteral("code"), QStringLiteral("response_budget_exceeded"));
-  page.insert(QStringLiteral("byteSize"), bytes.size());
-  page.insert(QStringLiteral("budgetBytes"), budgetBytes);
-  const QString receipt = object.value(QStringLiteral("receipt")).toString();
-  if (!receipt.isEmpty())
-    page.insert(QStringLiteral("resultRef"), receipt);
-  const QString resultPath = object.value(QStringLiteral("result_path")).toString();
-  if (!resultPath.isEmpty())
-    page.insert(QStringLiteral("result_path"), resultPath);
-  return QJsonDocument(page).toJson(QJsonDocument::Compact);
-}
 
 ExecuteResult execute(const ExecuteRequest &request) {
   QString field;
@@ -1112,6 +1090,7 @@ ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &n
   for (int i = 0; i < plan.nodes.size(); ++i)
     byId.insert(plan.nodes[i].node.id, i);
   QVector<QString> produced(plan.nodes.size());
+  QVariantList children;
   ExecuteResult last;
   for (const auto &id : plan.order) {
     const int index = byId.value(id);
@@ -1136,63 +1115,13 @@ ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &n
     if (!last.ok)
       return last;
     produced[index] = last.summary.value(QStringLiteral("result_path")).toString();
+    children.append(QVariantMap{{"nodeId",node.id},{"operationId",last.operationId},{"requestHash",last.requestHash}});
   }
   last.summary.insert(QStringLiteral("plan_order"), plan.order);
+  last.summary.insert(QStringLiteral("child_operations"), children);
   last.responseJson = boundToolResponse(QJsonObject::fromVariantMap(last.summary));
   return last;
 }
 
-QJsonObject prepareChatToolRequest(ExecuteRequest &request, const QString &toolName, const QJsonObject &arguments,
-                                   const QString &hostScope, const QString &documentId, const QString &operationDir,
-                                   const QString &hostHead) {
-  request = {};
-  if (arguments.contains(QStringLiteral("actor")) || arguments.contains(QStringLiteral("approved")) ||
-      arguments.contains(QStringLiteral("caller_scope"))) {
-    return QJsonObject{{QStringLiteral("code"), QStringLiteral("untrusted_authority")}};
-  }
-  const QString intent = arguments.value(QStringLiteral("publish_intent")).toString(QStringLiteral("compute-only"));
-  if (intent == QLatin1String("publish") && hostHead.isEmpty())
-    return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("code"), QStringLiteral("host_head_required")}};
-  request.capabilityId = toolName;
-  request.contractVersion = arguments.value(QStringLiteral("contract_version")).toInt(1);
-  request.documentId = documentId;
-  request.callerScope = hostScope;
-  request.clientRequestId = arguments.value(QStringLiteral("client_request_id")).toString();
-  request.bindingMode = arguments.value(QStringLiteral("binding_mode")).toString();
-  request.bindingId = arguments.value(QStringLiteral("binding_id")).toString();
-  request.frozenHead = arguments.value(QStringLiteral("frozen_head")).toString();
-  request.currentHead = hostHead;
-  request.publishIntent = intent;
-  request.parameters = arguments.value(QStringLiteral("parameters")).toObject().toVariantMap();
-  request.inputs = arguments.value(QStringLiteral("inputs")).toObject().toVariantMap();
-  request.inputs.remove(QStringLiteral("parent_version_ids"));
-  request.inputs.remove(QStringLiteral("drop_output_port"));
-  request.inputs.remove(QStringLiteral("grid_wkt"));
-  request.operationDir = operationDir;
-  return {};
-}
-
-QJsonObject chatToolResponse(const ExecuteResult &result) {
-  auto payload = QJsonObject::fromVariantMap(result.summary);
-  payload.remove(QStringLiteral("result_path"));
-  payload.insert(QStringLiteral("code"), result.code);
-  payload.insert(QStringLiteral("ok"), result.ok);
-  if (!result.operationId.isEmpty())
-    payload.insert(QStringLiteral("operationId"), result.operationId);
-  return QJsonDocument::fromJson(boundToolResponse(payload)).object();
-}
-
-QJsonObject runChatTool(const QString &toolName, const QJsonObject &arguments, const QString &hostScope,
-                        const QString &documentId, const QString &operationDir, const QString &hostHead,
-                        const std::function<bool()> &cancelled, DataCatalog *catalog, const QString &projectDir) {
-  ExecuteRequest request;
-  const auto error = prepareChatToolRequest(request, toolName, arguments, hostScope, documentId, operationDir, hostHead);
-  if (!error.isEmpty())
-    return error;
-  request.catalog = catalog;
-  request.projectDir = projectDir;
-  request.cancelled = cancelled;
-  return chatToolResponse(execute(request));
-}
 
 } // namespace paleo::capability

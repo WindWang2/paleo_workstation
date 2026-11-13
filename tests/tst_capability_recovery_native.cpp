@@ -2,6 +2,10 @@
 #include <QtTest>
 #include <qgsapplication.h>
 #include "workflow/capabilityhost.h"
+#include "workflow/capabilitynativeoperation.h"
+#include "workflow/chatresultstore.h"
+#include "services/toolresultprotocol.h"
+#include "services/storagegovernance.h"
 #include "catalog/datacatalog.h"
 #include "metadata/projectlock.h"
 #include "services/paleotaskservice.h"
@@ -46,6 +50,10 @@ private slots:
     QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));QCOMPARE(h.catalog.versions().size(),1);
     const auto version=h.catalog.versions().first();QFile output(h.root.path()+'/'+version.path);QVERIFY(output.open(QIODevice::ReadOnly));
     const auto rows=QJsonDocument::fromJson(output.readAll()).array();QCOMPARE(rows.size(),1);QVERIFY(rows.first().toObject().value("depthM").toDouble()>0);
+    const auto roots=storage::operationRetention(h.root.path());QVERIFY2(roots.complete,qPrintable(roots.code));
+    QVERIFY(roots.protectsPath(output.fileName()));
+    auto restored=storage::snapshot(&h.catalog);restored.versions.clear(); // Simulate a Catalog snapshot without the committed row.
+    const auto report=storage::scan(restored);QVERIFY(report.complete);QVERIFY(report.orphans.isEmpty());
     h.providerOnline=false;h.writable=false;++h.epoch;
     const auto replay=h.service.prepare(r,host::Caller::Agent,{}, {}, {},"chat1");QVERIFY2(replay.ok,qPrintable(replay.code));done=false;
     QVERIFY(h.service.start(replay.handle,r,this,"replay",[&](ExecuteResult out){result=out;done=true;},&error));QTRY_VERIFY(done);
@@ -91,9 +99,59 @@ private slots:
     QVERIFY2(h.service.start(p.handle,host,this,"DAG",[&](ExecuteResult out){result=out;done=true;},&error),qPrintable(error));QTRY_VERIFY(done);
     QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));QCOMPARE(h.catalog.versions().size(),1);
     nodes[0].parameters["CELL_SIZE"]=10.0;
+    QCOMPARE(result.summary.value("child_operations").toList().size(),2);
     QCOMPARE(h.service.preparePlan(host,nodes,edges,host::Caller::Agent).code,QString("idempotency_conflict"));
     const auto state=h.service.recovery()->get("agent",result.operationId);QCOMPARE(state.value("computeCount").toInt(),1);
     nodes[0]=idw;h.providerOnline=false;const auto replay=h.service.preparePlan(host,nodes,edges,host::Caller::Agent);QVERIFY(replay.ok);
+  }
+  void replayTicketsStillRespectHostCapacity() {
+    Host h;QVERIFY(h.init());auto r=depth("replay-capacity");const auto p=h.service.prepare(r,host::Caller::Agent);QVERIFY(p.ok);
+    bool done=false;QString error;QVERIFY(h.service.start(p.handle,r,this,"depth",[&](ExecuteResult){done=true;},&error));QTRY_VERIFY(done);
+    for(int i=0;i<128;++i)QVERIFY(h.service.prepare(r,host::Caller::Agent).ok);
+    QCOMPARE(h.service.prepare(r,host::Caller::Agent).code,QString("prepared_capacity_exceeded"));
+    ++h.epoch;QVERIFY(h.service.prepare(r,host::Caller::Agent).ok);
+  }
+  void hostCommitFactsSurviveChatBoundAndModelCacheFailure() {
+    Host h;QVERIFY(h.init());auto request=depth("model-facts");request.documentId="doc-native";
+    request.callerScope=h.service.callerScope(host::Caller::Agent,"chat");request.projectDir=h.root.path();request.bindingMode="pinned-value";
+    QString code;const auto cap=CapabilityRegistry::spec(request.capabilityId,1);
+    request.parameters=effectiveScalarParams(cap.algorithmId,cap.algorithmContractVersion,request.parameters,&code);QCOMPARE(code,QString("ok"));code.clear();
+    auto frozen=freezeNativeOperation(request,nativeIntent(request),&code);QVERIFY(code.isEmpty());
+    frozen.presentationIntent={{"target","layer"},{"expectedState","initial"}};
+    h.service.setPresentationHandlers([](const QJsonObject&){return QString("initial");},
+      [](const QJsonObject&,const PublicationReceipt&){return QString("pending");});
+    const auto accepted=h.service.recovery()->accept(frozen);QVERIFY2(accepted.ok,qPrintable(accepted.code));
+    bool done=false;QString error;ExecuteResult result;
+    QVERIFY(h.service.recovery()->start(request.callerScope,accepted.record.operationId,this,"native publication",[&](ExecuteResult r){result=r;done=true;},false,&error));QTRY_VERIFY(done);
+    QCOMPARE(result.commitState,QString("committed"));QCOMPARE(result.presentation,QString("pending"));QVERIFY(result.ok);
+    const auto check=[&](const ExecuteResult &native,bool oversized) {
+      auto supplied=native;
+      if(oversized) {
+        auto receipt=supplied.summary.value("receipt").toMap();receipt.insert("longDiagnostic",QString(70*1024,'x'));supplied.summary.insert("receipt",receipt);
+        supplied.summary.insert("result_path","C:/private/never-send");
+      }
+      const auto raw=chatToolResponse(supplied);const auto bytes=QJsonDocument(raw).toJson(QJsonDocument::Compact);
+      QVERIFY(bytes.size()<=64*1024);QCOMPARE(raw.value("contract").toString(),QString("paleo.operation.v2"));
+      QCOMPARE(raw.value("code").toString(),native.code);QCOMPARE(raw.value("execution").toString(),QString("succeeded"));
+      QCOMPARE(raw.value("commitState").toString(),QString("committed"));QCOMPARE(raw.value("presentation").toString(),QString("pending"));
+      QCOMPARE(raw.value("requestHash").toString(),native.requestHash);QCOMPARE(raw.value("resultRef").toObject().value("operationId").toString(),native.operationId);
+      QVERIFY(!raw.value("revision").toString().isEmpty());QCOMPARE(raw.value("computeCount").toInt(),1);QVERIFY(!bytes.contains("private/never-send"));
+      if(oversized) {
+        QCOMPARE(raw.value("transport").toObject().value("code").toString(),QString("response_budget_exceeded"));
+        QVERIFY(!raw.value("commitReceiptRef").toString().isEmpty());
+      }
+      chat::ChatResultStore::Limits limits;limits.handles=0;chat::ChatResultStore store(limits);store.setScope("chat","doc-native",1);
+      const auto model=store.encode(QString::fromUtf8(bytes),true,768);
+      QVERIFY(chat::compactJson(model).size()<=768);QCOMPARE(model.value("status").toString(),QString("committed"));
+      QCOMPARE(model.value("code").toString(),native.code);QCOMPARE(model.value("commitState").toString(),QString("committed"));
+      QCOMPARE(model.value("presentation").toString(),QString("pending"));
+      QCOMPARE(model.value("payloadContract").toString(),QString("paleo.operation.v2"));
+      QCOMPARE(model.value("resultRef").toObject().value("operationId").toString(),native.operationId);
+      QVERIFY(!model.value("commitReceiptRef").toString().isEmpty());
+    };
+    check(result,false);check(result,true);h.providerOnline=false;done=false;
+    QVERIFY(h.service.recovery()->start(request.callerScope,result.operationId,this,"replay",[&](ExecuteResult r){result=r;done=true;},false,&error));QTRY_VERIFY(done);
+    check(result,true);QCOMPARE(h.catalog.versions().size(),1);
   }
 };
 int main(int argc,char **argv) {

@@ -6,6 +6,7 @@
 #include "capabilityrecovery_internal.h"
 #include "services/capabilityseismicinput.h"
 #include "io/sourcefingerprint.h"
+#include "catalog/datacatalog.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -53,6 +54,11 @@ FrozenOperation freezeNativeOperation(const ExecuteRequest &r,const QJsonObject 
   p.implementationVersion=p.outputSpec.implementationVersion;p.intent=original;p.frozenPlan=nativeFrozenRequest(r);
   p.phase=r.publishIntent.isEmpty()?(r.capabilityId=="constraint.idw"?"prepare":"compute-only"):r.publishIntent;
   p.sourceOperationId=r.inputs.value("source_operation_id").toString();
+  if(r.seismicTrace && !r.seismicTrace->source.versionId.isEmpty()) {
+    const auto &id=r.seismicTrace->source.versionId;
+    if(!r.catalog || r.catalog->versionById(id).id!=id){if(error)*error="input_version_missing";return {};}
+    p.parentVersionIds.append(id);
+  }
   for(const auto &port:p.outputSpec.outputs) {
     if(port.kind!="file" && port.kind!="raster" && port.kind!="vector" && port.kind!="table")continue;
     if(r.capabilityId=="seismic.attributes.compute" && !r.parameters.value("ATTRIBUTES").toStringList().contains(port.id.toLower()))continue;

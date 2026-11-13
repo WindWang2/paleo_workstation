@@ -46,6 +46,8 @@ void TestChatResults::legalEnvelopeAndSeparateSchema() {
   QCOMPARE(encoded.value("data").toObject(), native);
   QVERIFY(isResultEnvelope(encoded));
   QVERIFY(!isResultEnvelope(native));
+  QCOMPARE(resultEnvelope(QJsonObject{{"contract", "paleo.project.query.page.v1"}}, true)
+      .value("payloadContract"), QJsonValue("paleo.project.query.page.v1"));
   const QJsonObject nativeSchema{{"type", "object"}, {"additionalProperties", false}};
   QCOMPARE(toolResultEnvelopeSchema(nativeSchema).value("properties").toObject().value("data").toObject(), nativeSchema);
   QVERIFY(compactJson(encoded).size() <= 8192);

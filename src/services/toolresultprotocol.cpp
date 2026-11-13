@@ -38,7 +38,8 @@ QJsonObject resultEnvelope(const QJsonValue &value, bool ok) {
   QJsonObject out{{"contractVersion", "paleo.tool-result.v1"},
                   {"status", status},
                   {"code", native.value("code").toString(ok ? "ok" : "tool_failed")},
-                  {"payloadContract", native.value("contractVersion").toString("legacy.unversioned")},
+                  {"payloadContract", native.value("contractVersion").toString(
+                      native.value("contract").toString("legacy.unversioned"))},
                   {"transport", QJsonObject{{"status", "complete"}, {"code", "ok"}}},
                   {"coverage", coverage}, {"data", value}};
   for (const QString &key : {QStringLiteral("operationId"), QStringLiteral("commitReceiptRef"),

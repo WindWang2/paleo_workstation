@@ -119,8 +119,10 @@ private:
             {"type", "function"}, {"function", QJsonObject{{"name", "paleo.well_facies_prediction"},
               {"arguments", QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))}}}});
       }
-      const auto body = QJsonDocument(QJsonObject{{"choices", QJsonArray{QJsonObject{{"delta", QJsonObject{{"tool_calls", calls}}}}}})
-          .toJson(QJsonDocument::Compact);
+      const QJsonObject delta{{"tool_calls", calls}};
+      const QJsonObject choice{{"delta", delta}};
+      const QJsonObject event{{"choices", QJsonArray{choice}}};
+      const auto body = QJsonDocument(event).toJson(QJsonDocument::Compact);
       sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/event-stream\r\n\r\n");
       sock->write("data: " + body + "\n\ndata: [DONE]\n\n");
       sock->disconnectFromHost();
@@ -387,7 +389,8 @@ void TestAiChatController::legacyBrokenResultsAreOnlyAdaptedForTransmission() {
   ChatMessage tool; tool.role = ChatRole::Tool; tool.toolCallId = "old-call";
   tool.content = QStringLiteral("{\"wells\":[…[结果超长已截断]");
   stored.messages = {user, assistant, tool};
-  QVERIFY(ChatSessionStore::save(stored));
+  QString storageError;
+  QVERIFY2(ChatSessionStore::save(stored, &storageError), qPrintable(storageError));
   QVERIFY(controller.loadSession(stored.id));
   controller.sendUserText(QStringLiteral("继续"));
   QVERIFY(spinUntil([&] { return !controller.streaming(); }));

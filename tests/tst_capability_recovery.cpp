@@ -7,6 +7,7 @@
 #include "services/paleotaskservice.h"
 #include <QFile>
 #include <QProcess>
+#include <QSemaphore>
 #include <QTemporaryDir>
 #include <cstdlib>
 using namespace paleo;
@@ -164,6 +165,16 @@ private slots:
     QCOMPARE(saved.documentId,QString("doc"));QCOMPARE(saved.execution,QString("succeeded"));QCOMPARE(saved.computeCount,1);
     QCOMPARE(saved.remoteJobId,QString("original-job"));QCOMPARE(saved.remoteCompletionProof,proof);
     h.lock->unlock();ProjectDirLock next(root.path());QTRY_VERIFY(next.tryLock());
+  }
+  void taskCancellationAfterPreparedCannotPublishOnOwner() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));std::atomic_bool prepared=false;QSemaphore release;
+    h.recovery.setCheckpointHook([&](const QString &point){if(point=="prepared"){prepared=true;release.tryAcquire(1,10000);}});
+    const auto p=plan("cancel-prepared");const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);
+    bool done=false;QString error;ExecuteResult result;
+    auto *task=h.recovery.start(p.callerScope,accepted.record.operationId,this,"cancel prepared",[&](ExecuteResult r){result=r;done=true;},false,&error);
+    QVERIFY2(task,qPrintable(error));QTRY_VERIFY(prepared.load());task->requestCancel();release.release();QTRY_VERIFY(done);
+    QCOMPARE(result.commitState,QString("not_requested"));QCOMPARE(result.code,QString("cancelled"));QCOMPARE(h.catalog.versions().size(),0);
+    const auto saved=h.recovery.lookup(p.callerScope,p.clientRequestId).record;QVERIFY(saved.cancelRequested);QCOMPARE(saved.commitState,QString("not_requested"));
   }
   void phaseInheritanceSurvivesRestartWithoutLivePlan() {
     QTemporaryDir root;QString sourceId;QJsonObject target;

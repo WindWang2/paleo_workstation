@@ -133,6 +133,8 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
     *output=recovery_detail::run(h,r,worker,validator,attempt,checkpoint);return output->ok?QString():output->code;
   });
   QObject::connect(task,&PaleoTask::finished,this,[guard,task,host=RecoveryHost(h),r,output,lease=attempt,listener,finished=std::move(finished)]() mutable {
+    // A task can be cancelled after the worker persisted prepared but before this owner callback.
+    if(guard && (lease->cancelled.load() || task->cancelRequested()))guard->cancel(r.callerScope,r.operationId);
     auto result=guard?guard->finish(host,r,*output):ExecuteResult{};
     if(!result.ok && task->state()==PaleoTask::State::Succeeded) {
       if(result.code=="stale_session" || result.code=="cancelled")task->discardPublication();

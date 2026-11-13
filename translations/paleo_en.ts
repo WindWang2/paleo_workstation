@@ -55621,4 +55621,183 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>The full well log exceeds the read budget. Select a source curve to load it by depth window.</translation>
         </message>
     </context>
+<context>
+    <name>SeismicAttributeFusionClient</name>
+    <message>
+        <source>Attribute fusion cancelled.</source>
+        <translation>Attribute fusion cancelled.</translation>
+    </message>
+    <message>
+        <source>Attribute fusion requires a local HTTP service URL.</source>
+        <translation>Attribute fusion requires a local HTTP service URL.</translation>
+    </message>
+    <message>
+        <source>Attribute fusion service failed or was cancelled.</source>
+        <translation>Attribute fusion service failed or was cancelled.</translation>
+    </message>
+    <message>
+        <source>Attribute fusion timed out.</source>
+        <translation>Attribute fusion timed out.</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion output directory.</source>
+        <translation>Cannot create fusion output directory.</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion output directory: %1</source>
+        <translation>Cannot create fusion output directory: %1</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion request directory.</source>
+        <translation>Cannot create fusion request directory.</translation>
+    </message>
+    <message>
+        <source>Cannot start fusion service: %1</source>
+        <translation>Cannot start fusion service: %1</translation>
+    </message>
+    <message>
+        <source>Cannot write fusion request file.</source>
+        <translation>Cannot write fusion request file.</translation>
+    </message>
+    <message>
+        <source>Fusion process failed (%1): %2</source>
+        <translation>Fusion process failed (%1): %2</translation>
+    </message>
+    <message>
+        <source>Fusion process returned invalid result JSON.</source>
+        <translation>Fusion process returned invalid result JSON.</translation>
+    </message>
+    <message>
+        <source>Fusion process returned no readable result within the JSON size limit: %1</source>
+        <translation>Fusion process returned no readable result within the JSON size limit: %1</translation>
+    </message>
+    <message>
+        <source>Grid spacing and outer pixel extent are inconsistent.</source>
+        <translation>Grid spacing and outer pixel extent are inconsistent.</translation>
+    </message>
+    <message>
+        <source>Input file is not readable: %1</source>
+        <translation>Input file is not readable: %1</translation>
+    </message>
+    <message>
+        <source>Interval fractions must satisfy 0 &lt;= top &lt; bottom &lt;= 1.</source>
+        <translation>Interval fractions must satisfy 0 &lt;= top &lt; bottom &lt;= 1.</translation>
+    </message>
+    <message>
+        <source>Invalid attribute fusion extent.</source>
+        <translation>Invalid attribute fusion extent.</translation>
+    </message>
+    <message>
+        <source>Invalid attribute fusion time or memory budget.</source>
+        <translation>Invalid attribute fusion time or memory budget.</translation>
+    </message>
+    <message>
+        <source>Invalid cluster count, interval or grid spacing.</source>
+        <translation>Invalid cluster count, interval or grid spacing.</translation>
+    </message>
+    <message>
+        <source>Invalid cluster statistics or nodata value.</source>
+        <translation>Invalid cluster statistics or nodata value.</translation>
+    </message>
+    <message>
+        <source>Invalid grid dimensions or raster memory budget exceeded.</source>
+        <translation>Invalid grid dimensions or raster memory budget exceeded.</translation>
+    </message>
+    <message>
+        <source>Invalid north-up grid transform.</source>
+        <translation>Invalid north-up grid transform.</translation>
+    </message>
+    <message>
+        <source>Local fusion service is unavailable. Configure PALEO_FUSION_SCRIPT to enable optional CLI execution.</source>
+        <translation>Local fusion service is unavailable. Configure PALEO_FUSION_SCRIPT to enable optional CLI execution.</translation>
+    </message>
+    <message>
+        <source>Local service HTTP %1: %2</source>
+        <translation>Local service HTTP %1: %2</translation>
+    </message>
+    <message>
+        <source>Local service request timed out.</source>
+        <translation>Local service request timed out.</translation>
+    </message>
+    <message>
+        <source>Local service returned invalid JSON.</source>
+        <translation>Local service returned invalid JSON.</translation>
+    </message>
+    <message>
+        <source>Python executable was not found: %1</source>
+        <translation>Python executable was not found: %1</translation>
+    </message>
+    <message>
+        <source>Raster binary is unreadable or has the wrong size: %1</source>
+        <translation>Raster binary is unreadable or has the wrong size: %1</translation>
+    </message>
+    <message>
+        <source>Raster binary was truncated while reading.</source>
+        <translation>Raster binary was truncated while reading.</translation>
+    </message>
+    <message>
+        <source>Raster contains an invalid cluster code.</source>
+        <translation>Raster contains an invalid cluster code.</translation>
+    </message>
+    <message>
+        <source>Raster data and classification counts are inconsistent.</source>
+        <translation>Raster data and classification counts are inconsistent.</translation>
+    </message>
+    <message>
+        <source>Result file is not readable: %1</source>
+        <translation>Result file is not readable: %1</translation>
+    </message>
+    <message>
+        <source>Seismic data and a horizon or interval window are required.</source>
+        <translation>Seismic data and a horizon or interval window are required.</translation>
+    </message>
+    <message>
+        <source>Service JSON exceeds the size limit.</source>
+        <translation>Service JSON exceeds the size limit.</translation>
+    </message>
+    <message>
+        <source>Service did not return a valid job ID.</source>
+        <translation>Service did not return a valid job ID.</translation>
+    </message>
+    <message>
+        <source>Service job did not succeed.</source>
+        <translation>Service job did not succeed.</translation>
+    </message>
+    <message>
+        <source>Service result did not succeed.</source>
+        <translation>Service result did not succeed.</translation>
+    </message>
+    <message>
+        <source>Service result has no output directory.</source>
+        <translation>Service result has no output directory.</translation>
+    </message>
+    <message>
+        <source>Service result is missing required raster files.</source>
+        <translation>Service result is missing required raster files.</translation>
+    </message>
+    <message>
+        <source>Service returned a different job ID.</source>
+        <translation>Service returned a different job ID.</translation>
+    </message>
+    <message>
+        <source>Service returned an unknown job state.</source>
+        <translation>Service returned an unknown job state.</translation>
+    </message>
+    <message>
+        <source>Service returned invalid progress.</source>
+        <translation>Service returned invalid progress.</translation>
+    </message>
+    <message>
+        <source>Service script is not readable: %1</source>
+        <translation>Service script is not readable: %1</translation>
+    </message>
+    <message>
+        <source>Unknown attribute fusion strategy.</source>
+        <translation>Unknown attribute fusion strategy.</translation>
+    </message>
+    <message>
+        <source>Unsupported raster row order, axes or coordinate unit.</source>
+        <translation>Unsupported raster row order, axes or coordinate unit.</translation>
+    </message>
+</context>
 </TS>

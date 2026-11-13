@@ -55822,4 +55822,183 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
           <translation>整井曲线超出读取预算。可从来源选择曲线，按深度窗加载。</translation>
       </message>
   </context>
+<context>
+    <name>SeismicAttributeFusionClient</name>
+    <message>
+        <source>Attribute fusion cancelled.</source>
+        <translation>已取消属性融合。</translation>
+    </message>
+    <message>
+        <source>Attribute fusion requires a local HTTP service URL.</source>
+        <translation>属性融合需要本机 HTTP 服务地址。</translation>
+    </message>
+    <message>
+        <source>Attribute fusion service failed or was cancelled.</source>
+        <translation>属性融合服务失败或已取消。</translation>
+    </message>
+    <message>
+        <source>Attribute fusion timed out.</source>
+        <translation>属性融合超时。</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion output directory.</source>
+        <translation>无法创建融合输出目录。</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion output directory: %1</source>
+        <translation>无法创建融合输出目录：%1</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion request directory.</source>
+        <translation>无法创建融合请求目录。</translation>
+    </message>
+    <message>
+        <source>Cannot start fusion service: %1</source>
+        <translation>无法启动融合服务：%1</translation>
+    </message>
+    <message>
+        <source>Cannot write fusion request file.</source>
+        <translation>无法写入融合请求文件。</translation>
+    </message>
+    <message>
+        <source>Fusion process failed (%1): %2</source>
+        <translation>融合进程失败（%1）：%2</translation>
+    </message>
+    <message>
+        <source>Fusion process returned invalid result JSON.</source>
+        <translation>融合进程返回的结果 JSON 无效。</translation>
+    </message>
+    <message>
+        <source>Fusion process returned no readable result within the JSON size limit: %1</source>
+        <translation>融合进程未返回大小限制内的可读结果：%1</translation>
+    </message>
+    <message>
+        <source>Grid spacing and outer pixel extent are inconsistent.</source>
+        <translation>网格间距与像元外沿范围不一致。</translation>
+    </message>
+    <message>
+        <source>Input file is not readable: %1</source>
+        <translation>无法读取输入文件：%1</translation>
+    </message>
+    <message>
+        <source>Interval fractions must satisfy 0 &lt;= top &lt; bottom &lt;= 1.</source>
+        <translation>层段比例须满足 0 ≤ 顶比例 &lt; 底比例 ≤ 1。</translation>
+    </message>
+    <message>
+        <source>Invalid attribute fusion extent.</source>
+        <translation>属性融合范围无效。</translation>
+    </message>
+    <message>
+        <source>Invalid attribute fusion time or memory budget.</source>
+        <translation>属性融合时间或内存预算无效。</translation>
+    </message>
+    <message>
+        <source>Invalid cluster count, interval or grid spacing.</source>
+        <translation>聚类数、层段或网格间距无效。</translation>
+    </message>
+    <message>
+        <source>Invalid cluster statistics or nodata value.</source>
+        <translation>聚类统计或空值标记无效。</translation>
+    </message>
+    <message>
+        <source>Invalid grid dimensions or raster memory budget exceeded.</source>
+        <translation>网格维度无效或超出栅格内存预算。</translation>
+    </message>
+    <message>
+        <source>Invalid north-up grid transform.</source>
+        <translation>北向上网格变换无效。</translation>
+    </message>
+    <message>
+        <source>Local fusion service is unavailable. Configure PALEO_FUSION_SCRIPT to enable optional CLI execution.</source>
+        <translation>本机融合服务不可用。可配置 PALEO_FUSION_SCRIPT 启用可选命令行执行。</translation>
+    </message>
+    <message>
+        <source>Local service HTTP %1: %2</source>
+        <translation>本机服务 HTTP %1：%2</translation>
+    </message>
+    <message>
+        <source>Local service request timed out.</source>
+        <translation>本机服务请求超时。</translation>
+    </message>
+    <message>
+        <source>Local service returned invalid JSON.</source>
+        <translation>本机服务返回的 JSON 无效。</translation>
+    </message>
+    <message>
+        <source>Python executable was not found: %1</source>
+        <translation>未找到 Python 解释器：%1</translation>
+    </message>
+    <message>
+        <source>Raster binary is unreadable or has the wrong size: %1</source>
+        <translation>栅格二进制文件不可读或大小不符：%1</translation>
+    </message>
+    <message>
+        <source>Raster binary was truncated while reading.</source>
+        <translation>读取时栅格二进制文件被截断。</translation>
+    </message>
+    <message>
+        <source>Raster contains an invalid cluster code.</source>
+        <translation>栅格包含无效聚类编码。</translation>
+    </message>
+    <message>
+        <source>Raster data and classification counts are inconsistent.</source>
+        <translation>栅格数据与分类计数不一致。</translation>
+    </message>
+    <message>
+        <source>Result file is not readable: %1</source>
+        <translation>无法读取成果文件：%1</translation>
+    </message>
+    <message>
+        <source>Seismic data and a horizon or interval window are required.</source>
+        <translation>需要地震资料及层位或层段时间窗。</translation>
+    </message>
+    <message>
+        <source>Service JSON exceeds the size limit.</source>
+        <translation>服务 JSON 超出大小限制。</translation>
+    </message>
+    <message>
+        <source>Service did not return a valid job ID.</source>
+        <translation>服务未返回有效任务标识。</translation>
+    </message>
+    <message>
+        <source>Service job did not succeed.</source>
+        <translation>服务任务未成功。</translation>
+    </message>
+    <message>
+        <source>Service result did not succeed.</source>
+        <translation>服务结果未成功。</translation>
+    </message>
+    <message>
+        <source>Service result has no output directory.</source>
+        <translation>服务结果缺少输出目录。</translation>
+    </message>
+    <message>
+        <source>Service result is missing required raster files.</source>
+        <translation>服务结果缺少必需的栅格文件。</translation>
+    </message>
+    <message>
+        <source>Service returned a different job ID.</source>
+        <translation>服务返回的任务标识不一致。</translation>
+    </message>
+    <message>
+        <source>Service returned an unknown job state.</source>
+        <translation>服务返回了未知任务状态。</translation>
+    </message>
+    <message>
+        <source>Service returned invalid progress.</source>
+        <translation>服务返回的进度无效。</translation>
+    </message>
+    <message>
+        <source>Service script is not readable: %1</source>
+        <translation>无法读取服务脚本：%1</translation>
+    </message>
+    <message>
+        <source>Unknown attribute fusion strategy.</source>
+        <translation>未知属性融合策略。</translation>
+    </message>
+    <message>
+        <source>Unsupported raster row order, axes or coordinate unit.</source>
+        <translation>不支持的栅格行序、坐标轴或坐标单位。</translation>
+    </message>
+</context>
 </TS>

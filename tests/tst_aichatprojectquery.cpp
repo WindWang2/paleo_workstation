@@ -610,6 +610,8 @@ void TestAiChatProjectQuery::queryCursorsCannotCrossIdleChatSessions() {
   // The same idle chat keeps its cursor, while a new chat cannot reuse it.
   runner.setResultSession(QStringLiteral("chat-a"));
   QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(ok);
+  const auto replay=page;runner.cancel();
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(ok);QCOMPARE(page,replay);
   QVERIFY(!runner.busy());runner.setResultSession(QStringLiteral("chat-b"));
   QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(!ok);
   QCOMPARE(page.value(QStringLiteral("code")).toString(),QStringLiteral("cursor_scope_mismatch"));

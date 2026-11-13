@@ -147,7 +147,6 @@ void AiChatToolRunner::cancel() {
   // 取消 = 作废（口径见头文件）：在途结果不再 emit；tile 任务协作取消
   // （不写产品）；层位任务算完但丢弃；测井相 HTTP 中止。
   ++m_generation;
-  rebindQueryScope();
   m_queue.clear();
   if (m_activeTask)
     m_activeTask->requestCancel();

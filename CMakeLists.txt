@@ -112,23 +112,12 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-p2-data-query.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ui-cmdregistry.cmake"
 )
+# 双向核对：新增文件必须登记，已登记文件不得缺失，重复登记也立即失败。
+# 先验证再 include，避免缺失功能被 EXISTS 静默跳过或半份清单已执行。
+include("${CMAKE_SOURCE_DIR}/cmake/paleo-extra-manifest.cmake")
+paleo_validate_extra_manifest("${CMAKE_SOURCE_DIR}" ${_paleo_extra_manifest})
 foreach(_f IN LISTS _paleo_extra_manifest)
-  if(EXISTS "${_f}")
-    include("${_f}")
-  endif()
-endforeach()
-# 防漏登记对账：磁盘上的 extra-*.cmake 必须全部在清单内（显式清单防的是
-# 构建目录漂移，不是删文件——漏登记的模块会静默丢源文件/测试，曾致
-# mincurvature.cpp 未编译 → vtable 链接失败）。
-file(GLOB _paleo_extra_ondisk CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/extra-*.cmake")
-foreach(_f IN LISTS _paleo_extra_ondisk)
-  if(NOT _f IN_LIST _paleo_extra_manifest)
-    # #420：$(notdir ...) 是 Make 语法，在 message 里会原样输出——
-    # 用 get_filename_component 取文件名。
-    get_filename_component(_fname "${_f}" NAME)
-    message(FATAL_ERROR "cmake/${_fname} 未登记进 _paleo_extra_manifest——"
-      "请补进上面的显式清单（防漂移约定不变：include 仍只走清单）")
-  endif()
+  include("${_f}")
 endforeach()
 
 include("${CMAKE_SOURCE_DIR}/cmake/paleo-test-labels.cmake")

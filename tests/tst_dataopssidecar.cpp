@@ -21,9 +21,7 @@
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/services/jsonsidecar.h"
-#include "../src/ui/pages/dataops/dataopsmodel.h"
-
-using namespace paleo::dataops;
+using namespace paleo;
 
 class TestDataOpsSidecar : public QObject {
   Q_OBJECT
@@ -40,7 +38,7 @@ void TestDataOpsSidecar::missingSidecarIsNormalEmptyState() {
   QTemporaryDir dir;
   DataCatalog cat;
   QVERIFY(cat.open(dir.path(), nullptr));
-  const auto loaded = loadSidecarObject(&cat, QStringLiteral("asset_tags.json"));
+  const auto loaded = dataopsSidecarLoad(&cat, QStringLiteral("asset_tags.json"));
   QVERIFY(loaded.isEmpty()); // 无文件 = 初始态，不是错误
 }
 
@@ -48,7 +46,7 @@ void TestDataOpsSidecar::corruptSidecarWarnsAndLoadsEmpty() {
   QTemporaryDir dir;
   DataCatalog cat;
   QVERIFY(cat.open(dir.path(), nullptr));
-  const QString path = sidecarPath(&cat, QStringLiteral("recycle_bin.json"));
+  const QString path = dataopsSidecarPath(&cat, QStringLiteral("recycle_bin.json"));
   QVERIFY(!path.isEmpty());
   QDir().mkpath(QFileInfo(path).absolutePath());
   QFile broken(path);
@@ -56,13 +54,13 @@ void TestDataOpsSidecar::corruptSidecarWarnsAndLoadsEmpty() {
   broken.write("{\"entries\": [ { \"id\": \"a1\", \"truncat"); // 半截 JSON
   broken.close();
   QTest::ignoreMessage(QtWarningMsg, QRegularExpression("dataops sidecar corrupt.*"));
-  const auto loaded = loadSidecarObject(&cat, QStringLiteral("recycle_bin.json"));
+  const auto loaded = dataopsSidecarLoad(&cat, QStringLiteral("recycle_bin.json"));
   QVERIFY(loaded.isEmpty()); // 损坏按空处理，但必须留痕
   // 损坏文件不挡后续正常保存与读取。
   QJsonObject root;
   root.insert(QStringLiteral("entries"), QJsonArray{});
-  QVERIFY(saveSidecarObject(&cat, QStringLiteral("recycle_bin.json"), root));
-  QVERIFY(!loadSidecarObject(&cat, QStringLiteral("recycle_bin.json")).isEmpty());
+  QVERIFY(dataopsSidecarSave(&cat, QStringLiteral("recycle_bin.json"), root));
+  QVERIFY(!dataopsSidecarLoad(&cat, QStringLiteral("recycle_bin.json")).isEmpty());
 }
 
 void TestDataOpsSidecar::saveRoundTripsWithoutTempLeftovers() {
@@ -72,13 +70,13 @@ void TestDataOpsSidecar::saveRoundTripsWithoutTempLeftovers() {
   QJsonObject root;
   root.insert(QStringLiteral("a"), QStringLiteral("标签值"));
   root.insert(QStringLiteral("n"), 42);
-  QVERIFY(saveSidecarObject(&cat, QStringLiteral("asset_tags.json"), root));
-  const auto back = loadSidecarObject(&cat, QStringLiteral("asset_tags.json"));
+  QVERIFY(dataopsSidecarSave(&cat, QStringLiteral("asset_tags.json"), root));
+  const auto back = dataopsSidecarLoad(&cat, QStringLiteral("asset_tags.json"));
   QCOMPARE(back.value(QStringLiteral("a")).toString(), QStringLiteral("标签值"));
   QCOMPARE(back.value(QStringLiteral("n")).toInt(), 42);
   // 原子写不遗留临时文件。
   const QStringList leftovers =
-      QDir(QFileInfo(sidecarPath(&cat, QStringLiteral("asset_tags.json")))
+      QDir(QFileInfo(dataopsSidecarPath(&cat, QStringLiteral("asset_tags.json")))
                .absolutePath())
           .entryList(QDir::Files);
   QCOMPARE(leftovers, QStringList{QStringLiteral("asset_tags.json")});
@@ -97,15 +95,15 @@ void TestDataOpsSidecar::failedSaveKeepsPreviousContentIntact() {
   const QString name = QStringLiteral("entity_overrides.json");
   QJsonObject root;
   root.insert(QStringLiteral("w1"), QStringLiteral("Well-Alpha"));
-  QVERIFY(saveSidecarObject(&cat, name, root));
-  const QString path = sidecarPath(&cat, name);
+  QVERIFY(dataopsSidecarSave(&cat, name, root));
+  const QString path = dataopsSidecarPath(&cat, name);
   // 只读目录注入提交失败：原内容必须保持完好。
   QFile::Permissions original = QFile::permissions(path);
   QVERIFY(QFile::setPermissions(path, QFileDevice::ReadOwner));
   QJsonObject next;
   next.insert(QStringLiteral("w1"), QStringLiteral("Well-Beta"));
   QTest::ignoreMessage(QtWarningMsg, QRegularExpression("dataops sidecar.*failed.*"));
-  QVERIFY(!saveSidecarObject(&cat, name, next));
+  QVERIFY(!dataopsSidecarSave(&cat, name, next));
   QFile::setPermissions(path, original);
   QFile file(path);
   QVERIFY(file.open(QIODevice::ReadOnly));
@@ -123,7 +121,7 @@ void TestDataOpsSidecar::dataLayerFacadeOwnsPathsAndRoundTrips() {
   const QString path =
       paleo::dataopsSidecarPath(&cat, QStringLiteral("asset_tags.json"));
   QVERIFY(path.endsWith(QStringLiteral(".paleo/asset_tags.json")));
-  QCOMPARE(sidecarPath(&cat, QStringLiteral("asset_tags.json")), path);
+  QCOMPARE(dataopsSidecarPath(&cat, QStringLiteral("asset_tags.json")), path);
   QVERIFY(paleo::dataopsSidecarLoad(&cat, QStringLiteral("asset_tags.json"))
               .isEmpty()); // 无文件 = 初始态，不是错误
   QJsonObject root;

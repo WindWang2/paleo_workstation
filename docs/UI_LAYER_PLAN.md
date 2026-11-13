@@ -167,7 +167,7 @@ src/
 
 | 冻结面 | 现状行为（不可回归） |
 |---|---|
-| 六页 Ribbon 页签 | 数据管理/地层对比/智能预测/单因素图/智能编图/验证；页面 ID 与 objectName 保持稳定 |
+| 五个 Ribbon 工具页（2026-10-29 起，见 DESIGN.md） | 数据管理/地层对比/单井相分析/地震相分析/古地理编图；保留业务页面 ID 与 objectName 的既有兼容契约 |
 | 数据页三栏 | 中央 `dataListHost`（导入行+列表+搜索/筛选）/ `dataListPreviewSplit` / 右 dock 第 0 页「数据属性」 |
 | `folderImportDialog`（T22 确认表） | 提示语→CRS 句→4 列表（路径/类型/实体/结果）→汇总行→确认/取消/查看未决；锁定行、跳过行、行级重试按钮、`folderShowUnresolvedButton` 显隐、`folderCrsNote` |
 | 导入完成后副作用 | 「查看未决」跳数据页 + `setUnresolvedFilter(true)`；刚导入的井头资产自动开预览；`m_folderImportActive` 期间的重试语义 |
@@ -254,7 +254,7 @@ Ctrl+K 命令过滤器本体在 `src/qgis/commandlocatorfilter`，本 TU 不直�
 | `_sections.cpp` | 319 | 地震剖面窗壳接线（sectionsetup/剖面路径橡皮筋） |
 | `_timedepth.cpp` | 20 | 共用时深来源与地震时间零点设置接线（2026-11-03） |
 | `_ribbon.cpp` | 258 | ribbon 骨架域（#312）：buildRibbon 页签/文件菜单/全局按钮组 |
-| `_pages.cpp` | 239 | 页切换域（#312）：showPage 六页编排/dock 保存恢复/底栏自动露出 |
+| `_pages.cpp` | 239 | 页切换域（#312）：showPage 编排/dock 保存恢复/底栏自动露出 |
 | `_project.cpp` | 210 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |
 | `_attach_predict.cpp` | 193 | 智能预测页接线（W4 段；运行/取消/显示结果） |
 | `_attach_predict_seismic.cpp` | 147 | 预测页地震相 DS 发布与工具接线（#829 拆分；无 qgs 直连） |

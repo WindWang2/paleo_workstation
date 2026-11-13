@@ -8,7 +8,7 @@
 #include "../paleotheme.h"
 #include "../paleoicons.h"
 #include "../../catalog/datacatalog.h"
-#include "dataops/dataopscommands.h"
+#include "../../workflow/dataopscommandservice.h"
 #include "dataops/dataopsmodel.h"
 #include "dataops/dataopsselection.h"
 #include "dataopspanelops.h"

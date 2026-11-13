@@ -101,30 +101,6 @@ QString wellSectionConnectionName(const QString &path, bool readOnly)
 // PRAGMA 查缺 + ALTER 补列（mapversionstore 同款口径）。depth_domain 旧行
 // 取列默认 'MD'；spacing 列可空、无默认——旧行 NULL 读回 nullopt
 //（「缺」与「等距」可区分，fence 侧据此回落并如实标注）。
-bool wellSectionEnsureColumn(QSqlDatabase &db, const QString &table,
-                             const QString &name, const QString &type,
-                             QString *error)
-{
-    QSqlQuery info(db);
-    if (!info.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table)))
-    {
-        setError(error, info.lastError().text());
-        return false;
-    }
-    while (info.next())
-        if (info.value(1).toString() == name)
-            return true; // 已有该列
-    info.finish();
-    QSqlQuery alter(db);
-    if (!alter.exec(
-            QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, name, type)))
-    {
-        setError(error, alter.lastError().text());
-        return false;
-    }
-    return true;
-}
-
 // 幂等建表 + 逐列补建（前向升级口径见上）。#736：本函数即 MetaStore 的
 // 迁移步（幂等，可按步重复调用），由 openConnection 在版本落后时于事务内
 // 逐级执行、版本已到位时作 ensure。
@@ -145,11 +121,11 @@ bool wellSectionEnsureSchema(QSqlDatabase &db, QString *error)
         setError(error, schema.lastError().text());
         return false;
     }
-    if (!wellSectionEnsureColumn(db, QStringLiteral("well_section_edits"),
+    if (!MetaStore::ensureColumn(db, QStringLiteral("well_section_edits"),
                       QStringLiteral("depth_domain"),
                       QStringLiteral("TEXT NOT NULL DEFAULT 'MD'"), error))
         return false;
-    if (!wellSectionEnsureColumn(db, QStringLiteral("well_section_edits"),
+    if (!MetaStore::ensureColumn(db, QStringLiteral("well_section_edits"),
                                  QStringLiteral("spacing"),
                                  QStringLiteral("TEXT"), error))
         return false;

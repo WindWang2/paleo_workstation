@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <thread>
 
 using namespace paleo::query;
 int runWellQueryMetadataContract();
@@ -98,6 +99,15 @@ private slots:
     QCOMPARE(ref.documentId,identity);QVERIFY(!ref.modelAvailable);
     args["cursor"]=cursor(page);service.bind(&f.catalog,{{},0,1,"chat-b"});
     QCOMPARE(service.query(args).value("code").toString(),QStringLiteral("cursor_scope_mismatch"));
+  }
+
+  void foreignThreadQueriesRefuseBeforeReadingCatalogFacts() {
+    Fixture f;QVERIFY(f.open());QVERIFY(f.asset("a"));int reads=0;
+    f.catalog.setReadObserver([&](const char*){++reads;});
+    ProjectQueryCapability service;service.bind(&f.catalog,{"doc",1,1});QJsonObject result;
+    std::thread worker([&]{result=service.query({{"topic","assets"}});});worker.join();
+    QCOMPARE(result.value("code").toString(),QStringLiteral("document_unavailable"));QCOMPARE(reads,0);
+    QVERIFY(service.query({{"topic","assets"}}).value("ok").toBool());QVERIFY(reads>0);
   }
 
   void pendingBatchRollbackReopenAndStagingKeepIndexesAccurate() {

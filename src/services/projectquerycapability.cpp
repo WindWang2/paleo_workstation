@@ -134,7 +134,7 @@ QString ProjectQueryCapability::Impl::checkSnapshot(const QueryState &state, con
   return {};
 }
 QJsonObject ProjectQueryCapability::Impl::run(const QJsonObject &args, bool graph) {
-  if (!catalog || !catalog->isOpen() || QThread::currentThread() != catalog->thread()) return queryFailure("document_unavailable");
+  if (!catalog || QThread::currentThread() != catalog->thread() || !catalog->isOpen()) return queryFailure("document_unavailable");
   if (scope.documentId.isEmpty() || scope.documentId.toUtf8().size() > 256 || scope.chatSessionId.toUtf8().size() > 256)
     return queryFailure("query_identity_invalid");
   if (QJsonDocument(args).toJson(QJsonDocument::Compact).size() > 16384) return queryFailure("query_request_budget_exceeded");

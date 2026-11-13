@@ -4,7 +4,7 @@
 `dd7baa1f`；本批只调整结果传输、报告读取及工具轮预算，W4 查询源分页、W5 持久恢复和
 W6 推理发布仍分批实施。
 
-状态：代码已实现；完整生产链编译与相关集成回归正在验证，尚未提 PR。
+状态：生产 CMake 相关目标编译、5 套回归和 fetch/rebase 后 34 项源码门禁均通过，待提 PR。
 
 ## 实现
 
@@ -38,10 +38,45 @@ W6 推理发布仍分批实施。
   已提交/回放形状以及控制字符导致的转义体积膨胀。
 - CI Source gates 及附加 qgis-spread/分诊/门禁规则自检：**34 通过、0 失败**。
   传递检查使用锁版 QGIS 4.2.3 头；未增加或降低任何源码基线。
-- 完整生产 CMake configure 成功，Qt 6.11.2 / QGIS 4.2.3 / ORT 1.30.0；
-  `office-editor` 真实接线，无缺失警告。相关生产目标仍在 `-j2` 编译，
-  完整回归结果及 fetch/rebase 后门禁须在本批提 PR 前补齐。
+- 完整生产 CMake configure 及相关目标编译成功，Qt 6.11.2 / QGIS 4.2.3 / ORT 1.30.0；
+  `office-editor` 真实接线，无缺失警告。5 套 CTest 全部通过：
+
+  | 套件 | 业务/数据行用例 | 含 init/cleanup 的 QtTest 成功计数 |
+  |---|---:|---:|
+  | tst_chatresults | 13 | 15 |
+  | tst_aichat | 13 | 15 |
+  | tst_aichatprojectquery | 13 | 15 |
+  | tst_aichatcontroller | 21 | 23 |
+  | tst_aichattoolloop | 12 | 14 |
+  | 合计 | **72** | **82** |
+
+  以上各套均 0 失败、0 跳过。工具闭环使用真实 QGIS/ORT 夹具与本地 HTTP 端点，
+  包含生产 runner 的 read_result 接线、跨聊天/文档世代失效、完整请求捕获及回包同步取消。
+
+实际验证命令（build 独立于其他分支，构建 `-j2`、测试串行）：
+
+```bash
+git fetch origin && git rebase origin/master
+source ../paleo-agent-plan-20261113/local/agent-build/common-env.sh
+cmake --build /home/kevin/build-paleo-agent-results --target \
+  tst_chatresults tst_aichatcontroller tst_aichat tst_aichatprojectquery tst_aichattoolloop -j2
+ctest --test-dir /home/kevin/build-paleo-agent-results \
+  -R '^(tst_chatresults|tst_aichatcontroller|tst_aichat|tst_aichatprojectquery|tst_aichattoolloop)$' \
+  --output-on-failure -j1
+QGIS_PREFIX="$QGIS_PREFIX_PATH" python local/w1-source-gates.py
+```
+
+配置使用 `configure-agent.sh <本 worktree> /home/kevin/build-paleo-agent-results`；环境脚本是
+本机验证接线，产品依赖/测试布线仍来自仓内 CMake。门禁壳逐项执行 CI Source gates 的
+28 条命令，另加 qgis-spread 自检、红项名单校验/自检、flaky 台账自检和门禁规则校验/自检。
+原始日志：`/home/kevin/paleo-w1-build-final.log`、`/home/kevin/paleo-w1-tests-final.log`、
+构建树 `Testing/qtest-first-run/` 和本 worktree 的 `local/w1-source-gates.json`。
+
+验证边界：本批没有本机 Windows 编译/回归、全应用视觉检查或真实工区/远端数据验收。
+查询源分页及外部操作恢复仍属于 W4/W5，不能以报告缓存分页代替。
 
 首轮已修复证据：测试辅助代码误用了 QJsonArray 的不存在方法；独立复审复现实际
 gateway 提交字段丢失，以及控制字符使 768 字节预算膨胀到 797 字节。两处均加入回归并修复。
 一次附加验证壳写错了分诊脚本名，改为仓内真实 `ci_triage_reds.py` 后全闸通过；未改检查器。
+生产回归首次编译另修复了新增 SSE 夹具的对象构造括号与会话保存错误参数；修复后重新
+构建全部相关目标并跑完上述 5 套回归，不以仅编译新协议文件替代集成验证。

@@ -19,7 +19,10 @@
 | `paleo.well_facies_prediction` | runner → WellFaciesService；要求 faciesInput/精确模型/端点 | 取曲线、向已配置服务传输并预测 | 生产 provider/模型回调未绑；W6 先冻结模型再取数，接线前 unavailable |
 
 原生 `catalog.version.describe.v1` 是 query_project 的 version 主题，不另计第九个工具。
-W1 新增的 `paleo.read_result` 是宿主只读缓存入口，必须在实际注册/测试后登记其就绪性。
+W1 新增 `paleo.read_result`，已实际注册并经生产 runner/控制器回归验证。
+它读取会话级不可变 JSON 报告，不读任意文件路径、不写工程；支持子树、页及 Unicode
+字符串片段，作用域/TTL 失效明确报错。既有 8 工具加此入口共 9 项；新增数量不代表
+其他能力已满足就绪性。[W1 编译/测试与门禁证据](../progress/agent-results-20261114.md)。
 
 ## Capability 与命令接缝
 

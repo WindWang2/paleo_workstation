@@ -9,11 +9,10 @@
 #include "../../services/previewdoc.h"
 #include "../../catalog/datacatalog.h"
 #include "../../workflow/storagegovernancecontroller.h"
-#include "dataops/dataopscommands.h"
+#include "../../workflow/dataopscommandservice.h"
 #include "dataops/dataopsfilter.h"
 #include "dataops/dataopsmodel.h"
 #include "dataops/dataopsselection.h"
-#include "dataopsundo.h"
 #include "dataopspanelops.h"
 #include "dataopsimportui.h"
 #include "dataopsviews.h"
@@ -887,9 +886,6 @@ void DataListPanel::buildDataOpsUi()
 #endif
 #if __has_include("moc_dataopsimportui.cpp")
 #include "moc_dataopsimportui.cpp"
-#endif
-#if __has_include("moc_dataopsundo.cpp")
-#include "moc_dataopsundo.cpp"
 #endif
 #if __has_include("moc_dataopsviews.cpp")
 #include "moc_dataopsviews.cpp"

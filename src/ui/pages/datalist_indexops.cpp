@@ -2,7 +2,7 @@
 // DataListPanel 部分类（datalist_* 拆分先例）：数据对象重命名与索引级删除的
 // 处理器。命令走共享 undo 栈；索引级删除不可撤销（确认文案明示）。
 #include "datalist.h"
-#include "dataops/dataopscommands.h"
+#include "../../workflow/dataopscommandservice.h"
 #include "../../workflow/assetops.h"
 #include "../notifications/paleonotify.h"
 #include <QInputDialog>

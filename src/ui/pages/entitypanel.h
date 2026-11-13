@@ -11,7 +11,7 @@
 class DerivationPanel;
 class DerivationWorkflow;
 
-#include "dataops/dataopscommands.h"
+#include "../../workflow/dataopscommandservice.h"
 #include "dataops/dataopsmodel.h"
 #include "../../services/previewdoc.h" // F3：GeoJsonSummary（异步统计挂起）
 

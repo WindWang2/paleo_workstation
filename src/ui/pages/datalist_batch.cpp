@@ -10,7 +10,7 @@
 #include "../../services/previewdoc.h" // m_doc->… 成员调用需完整类型
 #include "datalistops.h"
 #include "../../catalog/datacatalog.h"
-#include "dataops/dataopscommands.h"
+#include "../../workflow/dataopscommandservice.h"
 #include "dataops/dataopsexport.h"
 #include "dataopspanelops.h"
 #include "dataops/dataopsselection.h"

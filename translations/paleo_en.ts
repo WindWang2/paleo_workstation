@@ -31705,112 +31705,112 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="42" />
+            <location filename="../src/workflow/dataopscommandservice.h" line="156"/>
             <source>数据目录不可用（工程已关闭或切换）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="45" />
+            <location filename="../src/workflow/dataopscommandservice.h" line="159"/>
             <source>找不到 %1 的对应关联（目录已在别处被改动）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="47" />
+            <location filename="../src/workflow/dataopscommandservice.h" line="161"/>
             <source>写入侧车文件失败</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="100" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="10"/>
             <source>挂接 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="138" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="70"/>
             <source>解挂 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="163" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="129"/>
             <source>转移挂接 %1：%2→%3</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="227" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="192"/>
             <source>设为主版本 %1（%2·%3）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="266" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="12"/>
             <source>打标签 %1「%2」</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="267" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="13"/>
             <source>去标签 %1「%2」</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="314" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="149"/>
             <source>改类型 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="355" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="247"/>
             <source>移除 %1（进可回收清单）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="356" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="248"/>
             <source>恢复 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="363" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="243"/>
             <source>批量移除</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="363" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="243"/>
             <source>撤销恢复</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="400" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="302"/>
             <source>批量恢复 %1 项</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="440" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="380"/>
             <source>批量移除 %1 项（软删）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="478" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="13"/>
             <source>改备注 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="481" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="16"/>
             <source>改坐标 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="482" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="17"/>
             <source>重命名实体 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="522" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="117"/>
             <source>新建实体撤销</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="527" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="62"/>
             <source>新建实体 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/dataops/dataopscommands.h" line="559" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="270"/>
             <source>重命名 %1 → %2</source>
             <translation type="unfinished" />
         </message>
@@ -49654,7 +49654,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>paleo::dataops::DataOpsUndoStack</name>
         <message>
-            <location filename="../src/ui/pages/dataopsundo.h" line="212" />
+            <location filename="../src/workflow/dataopscommandservice_undo.cpp" line="30"/>
             <source>操作未能完成</source>
             <translation type="unfinished" />
         </message>

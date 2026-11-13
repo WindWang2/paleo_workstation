@@ -12,6 +12,7 @@
 - [UI 分层契约](UI_LAYER_PLAN.md)
 - [设计系统](../DESIGN.md)
 - [平台与依赖来源](PLATFORM_MATRIX.md)
+- [结构审查与整理记录（2026-11-13）](progress/structure-review-20261113.md)
 
 ## 后续实施规划
 

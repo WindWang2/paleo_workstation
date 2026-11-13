@@ -357,6 +357,9 @@ endif()
 # 检查器自身坏掉不能静默变绿。规则全文与动机见
 # docs/CPP_PRIMARY_BOUNDARY.md；与上方 Python 闸门同口径：无标签 ctest 项
 # + WORKING_DIRECTORY 双保险（AGENTS.md「构建与测试布线」）。
+add_test(NAME extra_manifest_selftest COMMAND ${CMAKE_COMMAND}
+  -DPALEO_EXTRA_MANIFEST_SELFTEST_DIR=${CMAKE_BINARY_DIR}/extra-manifest-selftest
+  -P ${CMAKE_SOURCE_DIR}/cmake/verify-extra-manifest-selftest.cmake)
 add_test(NAME cpp_mainline COMMAND ${CMAKE_COMMAND}
          -DCPP_MAINLINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
          -P ${CMAKE_SOURCE_DIR}/cmake/verify-cpp-mainline.cmake)
@@ -365,7 +368,7 @@ add_test(NAME cpp_mainline_selftest COMMAND ${CMAKE_COMMAND}
          -DCPP_MAINLINE_SELFTEST=ON
          -DCPP_MAINLINE_SELFTEST_DIR=${CMAKE_BINARY_DIR}/cpp-mainline-selftest
          -P ${CMAKE_SOURCE_DIR}/cmake/verify-cpp-mainline.cmake)
-set_tests_properties(cpp_mainline cpp_mainline_selftest
+set_tests_properties(extra_manifest_selftest cpp_mainline cpp_mainline_selftest
                      PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 add_test(NAME portable_package_selftest COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/test_package_portable.py)

@@ -39,31 +39,7 @@ using paleo::store_detail::setError;
            ( readOnly ? QStringLiteral( "_ro" ) : QString() );
   }
 
-  // 逐列补建：PRAGMA table_info 查缺 → ALTER TABLE ADD COLUMN（可空列）。
-  // CREATE TABLE IF NOT EXISTS 对既有表不加列，新 schema 靠这里前向升级。
-  bool ensureColumn( QSqlDatabase &db, const QString &table, const QString &name,
-                     const QString &type, QString *error )
-  {
-    QSqlQuery info( db );
-    if ( !info.exec( QStringLiteral( "PRAGMA table_info(%1)" ).arg( table ) ) )
-    {
-      setError( error, info.lastError().text() );
-      return false;
-    }
-    while ( info.next() )
-      if ( info.value( 1 ).toString() == name )
-        return true; // 已有该列
-    info.finish();
-    QSqlQuery alter( db );
-    if ( !alter.exec( QStringLiteral( "ALTER TABLE %1 ADD COLUMN %2 %3" )
-                          .arg( table, name, type ) ) )
-    {
-      setError( error, alter.lastError().text() );
-      return false;
-    }
-    return true;
-  }
-
+  // 逐列补建通过 MetaStore::ensureColumn 复用共享 schema 迁移逻辑。
   // 幂等建表 + 逐列补建（既有库补列：旧行一律 NULL → 读侧归一为未发布，
   // 不回写）。#736：本函数即 MetaStore 的迁移步（幂等，可按步重复调用），
   // 由 openConnection 在版本落后时于事务内逐级执行、版本已到位时作 ensure。
@@ -106,11 +82,11 @@ using paleo::store_detail::setError;
     for ( const auto &col : { QStringLiteral( "pdf_asset_id" ),
                               QStringLiteral( "pdf_sha256" ),
                               QStringLiteral( "residual_summary" ) } )
-      if ( !ensureColumn( db, QStringLiteral( "map_versions" ), col,
+      if ( !MetaStore::ensureColumn( db, QStringLiteral( "map_versions" ), col,
                           QStringLiteral( "TEXT" ), error ) )
         return false;
     for ( const auto &col : { QStringLiteral( "asset_id" ), QStringLiteral( "sha256" ) } )
-      if ( !ensureColumn( db, QStringLiteral( "map_products" ), col,
+      if ( !MetaStore::ensureColumn( db, QStringLiteral( "map_products" ), col,
                           QStringLiteral( "TEXT" ), error ) )
         return false;
     return true;

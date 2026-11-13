@@ -9,9 +9,8 @@
 #include "../../workflow/assetops.h"
 #include "../../workflow/importledger.h"
 #include "../../workflow/storagegovernancecontroller.h"
-#include "dataops/dataopscommands.h"
+#include "../../workflow/dataopscommandservice.h"
 #include "dataops/dataopsmodel.h"
-#include "dataopsundo.h"
 #include "dataopspanelops.h"
 #include "versiondialog.h"
 #include "pendinglinkdialog.h"
@@ -431,7 +430,7 @@ void DataListPanel::showRecycleBin()
   if (!m_ctx.valid())
     return;
   DataCatalog *cat = m_ctx.cat;
-  const QString pd = projectDirFor(cat);
+  const QString pd = paleo::projectDirForCatalog(cat);
 
   // 方向 30：软删资产的受管字节占用（assetId → bytes；外链源不计）。
   const auto entrySizes = [&]() {
@@ -587,7 +586,7 @@ DataListPanel::versionRowsForAsset(const QString &assetId) const
   DataCatalog *cat = m_ctx.cat;
   if (!cat)
     return rows;
-  const QString pd = projectDirFor(cat);
+  const QString pd = paleo::projectDirForCatalog(cat);
   const CatalogVersion cur = cat->currentVersion(assetId);
   for (const CatalogVersion &v : cat->versionsForAsset(assetId))
   {
@@ -641,7 +640,7 @@ void DataListPanel::showVersionTable()
   const CatalogAsset a = cat->assetById(assetId);
   if (a.id.isEmpty())
     return;
-  const QString pd = projectDirFor(cat);
+  const QString pd = paleo::projectDirForCatalog(cat);
 
   VersionTableDialog dlg(this);
   dlg.setAssetTitle(a.displayName);

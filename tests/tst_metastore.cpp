@@ -3,6 +3,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QScopeGuard>
 
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/mapversionstore.h"
@@ -150,6 +151,36 @@ private:
   }
 
 private slots:
+  void columnEnsurePreservesRowsAndMigrationTransaction()
+  {
+    const QString connection = QStringLiteral("tst_metastore_columns");
+    const auto cleanup = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connection);
+    db.setDatabaseName(QStringLiteral(":memory:"));
+    QVERIFY(db.open());
+    QSqlQuery query(db);
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE example(id INTEGER PRIMARY KEY, value TEXT)")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO example VALUES(7, 'original')")));
+    QString error;
+    QVERIFY2(MetaStore::ensureColumn(db, "example", "added", "TEXT", &error), qPrintable(error));
+    QVERIFY2(MetaStore::ensureColumn(db, "example", "added", "TEXT", &error), qPrintable(error));
+    QVERIFY(query.exec(QStringLiteral("SELECT id, value, added FROM example")));
+    QVERIFY(query.next());
+    QCOMPARE(query.value(0).toInt(), 7);
+    QCOMPARE(query.value(1).toString(), QStringLiteral("original"));
+    QVERIFY(query.value(2).isNull());
+    query.finish();
+    QVERIFY(db.transaction());
+    QVERIFY(MetaStore::ensureColumn(db, "example", "rolled_back", "TEXT", &error));
+    QVERIFY(db.rollback());
+    QVERIFY(!query.exec(QStringLiteral("SELECT rolled_back FROM example")));
+    QVERIFY(!MetaStore::ensureColumn(db, "missing_table", "added", "TEXT", &error));
+    QVERIFY(!error.isEmpty());
+    QVERIFY(query.exec(QStringLiteral("SELECT value FROM example WHERE id=7")));
+    QVERIFY(query.next());
+    QCOMPARE(query.value(0).toString(), QStringLiteral("original"));
+  }
+
   // #476：连接名 = 前缀 + qHash(path)（32 位）——两条不同路径哈希碰撞到同一
   // 连接名时，openConnection 复用已开连接前必须比对 databaseName；静默复用
   // 会把 A 库的连接交给 B 库的 store（串库）。碰撞不可构造，直接用同名连接

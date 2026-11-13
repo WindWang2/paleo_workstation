@@ -174,6 +174,8 @@ jobs:
           cmake -DCPP_MAINLINE_SOURCE_DIR=. -DCPP_MAINLINE_SELFTEST=ON \
                 -DCPP_MAINLINE_SELFTEST_DIR=/tmp/cpp-mainline-selftest \
                 -P cmake/verify-cpp-mainline.cmake
+          cmake -DPALEO_EXTRA_MANIFEST_SELFTEST_DIR=/tmp/paleo-extra-manifest-selftest \
+                -P cmake/verify-extra-manifest-selftest.cmake
       - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
         run: ./vendor/fetch-deps.sh --print-only
 

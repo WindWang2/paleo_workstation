@@ -24,7 +24,7 @@
 #include "../src/ui/datapreview/datapreviewtabs.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/ui/pages/dataopspanelextra.h"   // TopologyGraph / EntityOverrideStore
-#include "../src/ui/pages/dataops/dataopscommands.h"  // SoftDeleteCmd / DataOpsContext
+#include "../src/workflow/dataopscommandservice.h"  // SoftDeleteCmd / DataOpsContext
 #include "../src/ui/pages/dataops/dataopsmodel.h"     // TagStore / OverrideStore / RecycleBin
 #include "../src/ui/pages/entitypanel.h"
 #include "../src/ui/wellcomposite/wellcompositepanel.h"

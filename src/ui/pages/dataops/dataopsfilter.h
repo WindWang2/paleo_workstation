@@ -55,7 +55,7 @@ inline QString filterDimKey(FilterDim d)
 
 inline QString filterDimLabel(FilterDim d)
 {
-  // finding-128：面向用户的维度标签走 QObject::tr（与 dataopscommands.h 自由
+  // finding-128：面向用户的维度标签走 QObject::tr（与 workflow/dataopscommandservice.h 自由
   // 函数同口径）——DESIGN.md「全部用户可见字符串走 tr()」，chip 文案随之可翻译。
   switch (d)
   {

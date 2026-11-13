@@ -67,6 +67,8 @@ struct DerivedPreparedMember {
 struct DerivedPreparedSet {
   QString id, algorithmId;
   QVector<DerivedPreparedMember> members;
+  int publicationSchema = 1;
+  QString documentId, operationId, requestHash, planHash, storeGeneration;
 };
 struct DerivedPublishedMember {
   QString portId, assetId, versionId, relativePath, sha256;
@@ -75,6 +77,7 @@ struct DerivedOutputSetReceipt {
   bool ready = false;
   QString id, algorithmId, code, error;
   QVector<DerivedPublishedMember> members;
+  QVariantMap publication; // v2 immutable receipt; legacy shape remains unchanged
   QVariantMap toVariantMap() const;
 };
 

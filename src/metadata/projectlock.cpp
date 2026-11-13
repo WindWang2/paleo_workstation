@@ -67,6 +67,7 @@ bool reclaimIfOwnerGone( QLockFile &lf, const QString &lockPath )
 
 ProjectDirLock::ProjectDirLock( const QString &projectDir )
   : m_lockPath( QDir( projectDir ).filePath( QStringLiteral( "artifacts/metadata/.project.lock" ) ) )
+  , m_projectDir(QFileInfo(projectDir).absoluteFilePath())
 {
 }
 
@@ -86,7 +87,7 @@ bool ProjectDirLock::tryLock( QString *error )
     return false;
   }
 
-  auto lf = std::make_unique<QLockFile>( m_lockPath );
+  auto lf = std::make_shared<QLockFile>( m_lockPath );
   // 持有者进程已死 → 锁视为陈旧，立即回收（崩溃不留死锁）。
   lf->setStaleLockTime( 0 );
   bool locked = lf->tryLock( 0 );
@@ -120,7 +121,29 @@ void ProjectDirLock::unlock()
 {
   if ( !m_held )
     return;
-  m_lockFile->unlock();
+  // Shared worker claims retain the physical lock. A new project session can
+  // only publish after those claims are gone; stale callbacks have their own CAS.
   m_lockFile.reset();
   m_held = false;
+}
+
+ProjectWriteClaim::ProjectWriteClaim(QString projectDir, std::shared_ptr<QLockFile> file)
+  : m_projectDir(std::move(projectDir)), m_file(std::move(file)) {}
+
+bool ProjectWriteClaim::isHeldFor(const QString &projectDir) const {
+  const auto actual = QFileInfo(projectDir).canonicalFilePath();
+#ifdef Q_OS_WIN
+  constexpr auto sensitivity = Qt::CaseInsensitive;
+#else
+  constexpr auto sensitivity = Qt::CaseSensitive;
+#endif
+  return m_file && m_file->isLocked() && !actual.isEmpty() &&
+         actual.compare(m_projectDir, sensitivity) == 0;
+}
+
+std::shared_ptr<const ProjectWriteClaim> ProjectDirLock::claim() const {
+  if (!m_held || !m_lockFile || !m_lockFile->isLocked()) return {};
+  const auto canonical = QFileInfo(m_projectDir).canonicalFilePath();
+  if (canonical.isEmpty()) return {};
+  return std::shared_ptr<const ProjectWriteClaim>(new ProjectWriteClaim(canonical, m_lockFile));
 }

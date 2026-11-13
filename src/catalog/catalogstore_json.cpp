@@ -150,6 +150,7 @@ namespace paleo::catalog_detail
 bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
 {
   *out = {};
+  if (!loadPublicationRecords(db, &out->publications, &out->publicationGeneration, error)) return false;
   paleo::data::CatalogStorage store(db.connectionName().toUtf8().toStdString());
   paleo::data::CatalogSnapshot snapshot;
   std::string detail;
@@ -351,6 +352,13 @@ QJsonObject CatalogStore::toJson(const Tables &tables)
   root.insert(QStringLiteral("assets"), asts);
   root.insert(QStringLiteral("versions"), vers);
   root.insert(QStringLiteral("entity_asset_links"), lnks);
+  if (!tables.publicationGeneration.isEmpty())
+    root.insert(QStringLiteral("publication_generation_v2"), tables.publicationGeneration);
+  if (!tables.publications.isEmpty()) {
+    QJsonArray receipts;
+    for (const auto &receipt : tables.publications) receipts.append(receipt.value);
+    root.insert(QStringLiteral("operation_publications_v2"), receipts);
+  }
   return root;
 }
 
@@ -370,6 +378,17 @@ bool CatalogStore::fromJson(const QJsonObject &root, Tables *out, QString *error
     return false;
   }
   *out = Tables();
+  out->publicationGeneration = root.value("publication_generation_v2").toString();
+  if (root.contains("operation_publications_v2")) {
+    if (!root.value("operation_publications_v2").isArray()) {
+      setError(error, QStringLiteral("invalid_publication_receipts")); return false;
+    }
+    for (const auto &entry : root.value("operation_publications_v2").toArray()) {
+      PublicationReceipt receipt{entry.toObject()};
+      if (!receipt.valid(error)) return false;
+      out->publications.append(std::move(receipt));
+    }
+  }
   const QString schemaKey = QStringLiteral("schema_version");
   if (root.contains(schemaKey) && root.value(schemaKey).toInt() != kJsonSchemaVersion)
   {

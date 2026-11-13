@@ -6,6 +6,7 @@
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include "../src/catalog/datacatalog.h"
+#include "../src/catalog/catalogstore.h"
 #include "../src/workflow/algorithmpublish.h"
 
 namespace {
@@ -53,7 +54,55 @@ private slots:
   void stagingCatalogCannotProducePersistentReceipt();
   void preparationBudgetAndCancellationPreserveExternalFiles();
   void processingAdapterRetainsDeclaredOutputsAndLegacyIsSingle();
+  void operationReceiptReplaysWithoutAnotherVersion();
+  void operationReceiptRollsBackWithItsMembers();
 };
+
+void AlgorithmOutputSetTests::operationReceiptReplaysWithoutAnotherVersion() {
+  Fixture f; QVERIFY(f.init()); DerivedPreparedSet prepared; QString error;
+  QVERIFY2(f.prepare(prepared, error), qPrintable(error));
+  prepared.publicationSchema = 2; prepared.id = "set-operation-one"; prepared.documentId = "doc";
+  prepared.operationId = "op-one"; prepared.requestHash = QString(64, 'a'); prepared.planHash = QString(64, 'b');
+  prepared.storeGeneration = f.catalog.publication("doc", "op-one", prepared.requestHash).storeGeneration;
+  DerivedOutputSetReceipt receipt;
+  QVERIFY2(f.registrar.commitSet(f.spec, prepared, {}, f.spec.id, {}, receipt), qPrintable(receipt.error));
+  QCOMPARE(receipt.toVariantMap().value("schema").toInt(), 2);
+  QCOMPARE(receipt.toVariantMap().value("outputSetId").toString(), prepared.id);
+  QCOMPARE(f.catalog.publication("doc", "op-one", prepared.requestHash).code, QStringLiteral("committed"));
+  const auto original = receipt.toVariantMap();
+  DerivedAssetRegistrar replay(&f.catalog, f.directory.path());
+  QVERIFY2(replay.commitSet(f.spec, prepared, {}, f.spec.id, {}, receipt), qPrintable(receipt.error));
+  QCOMPARE(receipt.toVariantMap(), original); QCOMPARE(f.catalog.versions().size(), 2);
+  auto changed = prepared; changed.members[0].fingerprint.sha256 = QString(64, 'c');
+  QVERIFY(!replay.commitSet(f.spec, changed, {}, f.spec.id, {}, receipt));
+  QCOMPARE(receipt.code, QStringLiteral("publication_conflict")); QCOMPARE(f.catalog.versions().size(), 2);
+  QVERIFY(!f.catalog.updateVersionExtra(prepared.members[0].staging.versionId, "outputSet", QVariantMap{}, &error));
+  DataCatalog reopened; QVERIFY(reopened.open(f.directory.path()));
+  QCOMPARE(reopened.publication("doc", "op-one", prepared.requestHash).code, QStringLiteral("committed"));
+}
+
+void AlgorithmOutputSetTests::operationReceiptRollsBackWithItsMembers() {
+  Fixture f; QVERIFY(f.init()); DerivedPreparedSet prepared; QString error;
+  QVERIFY(f.prepare(prepared, error));
+  prepared.publicationSchema = 2; prepared.id = "set-operation-rollback"; prepared.documentId = "doc";
+  prepared.operationId = "op-rollback"; prepared.requestHash = QString(64, 'a'); prepared.planHash = QString(64, 'b');
+  prepared.storeGeneration = f.catalog.publication("doc", prepared.operationId, prepared.requestHash).storeGeneration;
+  const auto connection = QStringLiteral("publication-trigger");
+  {
+    auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+    db.setDatabaseName(CatalogStore::sqlitePathFor(f.directory.path())); QVERIFY(db.open());
+    QSqlQuery query(db);
+    QVERIFY(query.exec("CREATE TRIGGER reject_publication BEFORE INSERT ON paleo_operation_publications "
+                       "BEGIN SELECT RAISE(ABORT,'injected publication failure'); END"));
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(connection);
+  DerivedOutputSetReceipt receipt;
+  QVERIFY(!f.registrar.commitSet(f.spec, prepared, {}, f.spec.id, {}, receipt));
+  QVERIFY(!receipt.ready); QVERIFY(f.catalog.versions().isEmpty()); QVERIFY(f.catalog.assets().isEmpty());
+  QCOMPARE(f.catalog.publication("doc", prepared.operationId, prepared.requestHash).code,
+           QStringLiteral("not_committed"));
+}
 void AlgorithmOutputSetTests::requiredOutputsCommitTogetherAndSurviveReopen() {
   Fixture f;QVERIFY(f.init());DerivedPreparedSet prepared;QString error;QVERIFY2(f.prepare(prepared,error),qPrintable(error));
   QCOMPARE(f.catalog.assets().size(),0);

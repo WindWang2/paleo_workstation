@@ -8,6 +8,8 @@
 #include "capabilityplan.h"
 
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QByteArrayView>
 #include <QMutex>
 #include <QString>
 #include <QVariantList>
@@ -18,6 +20,7 @@
 #include <memory>
 
 class DataCatalog;
+class ProjectWriteClaim;
 namespace paleo::document { class DocumentSession; }
 
 namespace paleo::capability {
@@ -45,6 +48,10 @@ struct ExecuteRequest {
   QString operationDir;
   DataCatalog *catalog = nullptr;
   QString projectDir;
+  std::shared_ptr<const ProjectWriteClaim> writeClaim; // host-only, never decoded from JSON
+  // Synchronous worker-only sink for actual numerical values; owns no QObject,
+  // Catalog or presentation callback. Empty means the legacy summary-only path.
+  std::function<QString(const QString &portId, QByteArrayView bytes)> stageBytes;
   std::shared_ptr<const ResolvedSeismicTraceInput> seismicTrace;
 };
 
@@ -105,6 +112,7 @@ private:
 class OperationLog {
 public:
   struct Record {
+    int schemaVersion = 1;
     QString operationId;
     QString key;
     QString requestHash;
@@ -114,6 +122,16 @@ public:
     QString code;
     int computeCount = 0;
     QByteArray summaryJson;
+    QString documentId, callerScope, clientRequestId;
+    QString capabilityId, implementationVersion, planHash, storeGeneration;
+    int contractVersion = 1;
+    quint64 stateRevision = 0;
+    QString ownerAttempt, ownerProcess;
+    bool cancelRequested = false;
+    QJsonObject frozenRequest, stagePlan, preparedManifest, artifactManifest, presentationIntent;
+    QJsonObject externalRequest; // frozen IDs/hashes only, never credentials
+    QString remoteJobId, externalOutcome;
+    QJsonArray events;
     bool operator==(const Record &) const = default;
   };
   struct Accept {
@@ -122,12 +140,20 @@ public:
   };
 
   explicit OperationLog(const QString &directory);
+  OperationLog(const QString &directory, const QString &projectDir,
+               std::shared_ptr<const ProjectWriteClaim> claim);
   // 测试故障注入：先放过 succeedBeforeFail 次 operations.json 写入，再让下一次失败且不改文件。
   // 负数关闭。缓存文件失败不会撤销已经写上的 operation 回执。
   static void armOperationFileWriteFault(int succeedBeforeFail);
   Accept accept(const QString &documentId, const QString &callerScope, const QString &clientRequestId,
                 const QString &requestHash);
   Record recordById(const QString &operationId);
+  Accept lookup(const QString &documentId, const QString &callerScope, const QString &clientRequestId);
+  Accept acceptDurable(const Record &seed);
+  enum class Transition { Advance, Resume, Reconcile };
+  QString saveDurable(const Record &record, quint64 expectedRevision, const QString &expectedAttempt,
+                      Record *current = nullptr, Transition transition = Transition::Advance);
+  bool ownsWrites() const;
   // current receives the persisted record, including on a rejected transition.
   bool save(const Record &record, Record *current = nullptr);
   QString cancel(const QString &operationId);
@@ -139,6 +165,8 @@ private:
   bool persistOperations() const;
   QString m_path;
   QString m_cachePath;
+  QString m_projectDir;
+  std::shared_ptr<const ProjectWriteClaim> m_claim;
   QHash<QString, Record> m_byKey;
   QHash<QString, QString> m_idToKey;
 };

@@ -355,6 +355,7 @@ bool CatalogStore::createEmpty(Tables *out, QString *error)
     return false;
   }
   *out = tables;
+  out->publicationGeneration = publication({}, {}, {}).storeGeneration;
   return true;
 }
 
@@ -409,6 +410,7 @@ bool CatalogStore::migrateFromJson(Tables *out, QString *error)
     m_recoveryReason = QStringLiteral("%1: %2").arg(jsonPath, parseDetail);
   }
 
+  if (fromBak) parsed.publicationGeneration.clear();
   if (!attachWritable(error))
   {
     removeSqliteFamily(m_sqlitePath);
@@ -420,6 +422,7 @@ bool CatalogStore::migrateFromJson(Tables *out, QString *error)
     removeSqliteFamily(m_sqlitePath);
     return false;
   }
+  parsed.publicationGeneration = publication({}, {}, {}).storeGeneration;
 
   if (fromBak)
   {
@@ -592,7 +595,8 @@ bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
     }
     else if (!readOnly && !applyWritablePragmas(db, &stepErr))
       step = Step::Corrupt; // 同上：写盘前置动作失败按损坏走 recover，不硬拒
-    else if (!readOnly && !execScript(db, kSchemaSql, &stepErr))
+    else if (!readOnly && (!execScript(db, kSchemaSql, &stepErr) ||
+                           !paleo::catalog_detail::ensurePublicationSchema(db, &stepErr)))
       step = Step::Corrupt;
     else if (!readOnly)
     {
@@ -779,6 +783,10 @@ bool CatalogStore::openProject(const QString &projectDir, bool readOnly, Tables 
 
 bool CatalogStore::rewritePrimary(const Tables &tables, bool quarantineCorrupt, QString *error)
 {
+  auto rewriteTables = tables;
+  // A recovered old image cannot prove that a later operation never committed.
+  // Rotate the namespace so control records cannot treat its absence as proof.
+  if (quarantineCorrupt) rewriteTables.publicationGeneration.clear();
   const QString path = m_sqlitePath;
   if (path.isEmpty())
   {
@@ -802,7 +810,7 @@ bool CatalogStore::rewritePrimary(const Tables &tables, bool quarantineCorrupt, 
     discardSide();
     return false;
   }
-  if (!replaceAll(tables, error))
+  if (!replaceAll(rewriteTables, error))
   {
     discardSide();
     return false;

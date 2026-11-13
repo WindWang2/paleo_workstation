@@ -4,6 +4,19 @@
 #include <memory>
 
 class QLockFile;
+class ProjectDirLock;
+
+// Non-JSON write ownership. A worker claim keeps the physical project lock alive
+// until its private writes end, even when the UI releases the old project.
+class ProjectWriteClaim {
+public:
+  bool isHeldFor(const QString &projectDir) const;
+private:
+  friend class ProjectDirLock;
+  ProjectWriteClaim(QString projectDir, std::shared_ptr<QLockFile> file);
+  QString m_projectDir;
+  std::shared_ptr<QLockFile> m_file;
+};
 
 // metadata/projectlock — 两实例同开一工程的写互斥（wave3/model-hardening；
 // docs/SCHEMA_MIGRATION.md §6 决议：拒绝第二个写实例）。
@@ -36,9 +49,11 @@ class ProjectDirLock
 
     bool isHeld() const { return m_held; }
     QString lockPath() const { return m_lockPath; }
+    std::shared_ptr<const ProjectWriteClaim> claim() const;
 
   private:
     QString m_lockPath;
-    std::unique_ptr<QLockFile> m_lockFile;
+    QString m_projectDir;
+    std::shared_ptr<QLockFile> m_lockFile;
     bool m_held = false;
 };

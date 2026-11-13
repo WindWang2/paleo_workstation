@@ -13,6 +13,7 @@
 
 #include "catalogindex.h" // D5 邻接索引（纯派生加速结构，四张 QVector 仍是唯一事实源）
 #include "projectioncheckpoint.h"
+#include "publicationreceipt.h"
 
 #include <cmath>
 #include <memory>
@@ -357,6 +358,10 @@ class DataCatalog : public QObject
       return m_versions;
     }
     CatalogVersion versionById(const QString &id) const;
+    PublicationLookup publication(const QString &documentId, const QString &operationId,
+                                  const QString &requestHash) const;
+    // Only inside the output-set batch after its exact member versions exist.
+    bool stagePublication(const PublicationReceipt &receipt, QString *error = nullptr);
     CatalogVersion currentVersion(const QString &assetId) const; // 最高 versionNumber
     // 空 entityId 是调用方 bug（audit row 35）：如实返回空集，不再静默命中
     // 全部未决链接。要未决集合请用 unresolvedLinks()。
@@ -548,6 +553,9 @@ class DataCatalog : public QObject
     QSet<QString> m_dirtyEntities;
     QSet<QString> m_dirtyAssets;
     QSet<QString> m_dirtyVersions;
+    QHash<QString, PublicationReceipt> m_publications;
+    QSet<QString> m_dirtyPublications;
+    QString m_publicationGeneration;
     QSet<int> m_dirtyLinkOrds;
     // 增量删除面（removeAsset）：upsert 之后执行——先重写后删，净效果=已删。
     QSet<QString> m_removedAssets;
@@ -568,6 +576,8 @@ class DataCatalog : public QObject
       QSet<int> dirtyLinkOrds;
       QSet<QString> removedAssets, removedVersions;
       bool linksFullRewrite = false;
+      QHash<QString, PublicationReceipt> publications;
+      QSet<QString> dirtyPublications;
     };
     std::unique_ptr<BatchSnapshot> m_batchSnapshot;
 };

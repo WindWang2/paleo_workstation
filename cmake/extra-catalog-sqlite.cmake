@@ -6,7 +6,9 @@ target_sources(paleo_store PRIVATE
   src/catalog/catalogstore.cpp
   src/catalog/catalogstore_schema.cpp
   src/catalog/catalogstore_crud.cpp
-  src/catalog/catalogstore_json.cpp)
+  src/catalog/catalogstore_json.cpp
+  src/catalog/catalogstore_publications.cpp)
 
 add_paleo_test(tst_catalogstore LIBS paleo_store)
+add_paleo_test(tst_publication_receipt LIBS paleo_store)
 add_paleo_test(tst_datacatalog_sqlite LIBS paleo_store)

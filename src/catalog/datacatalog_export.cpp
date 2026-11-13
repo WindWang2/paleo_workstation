@@ -37,6 +37,8 @@ bool DataCatalog::exportCatalogJson(const QString &path, QString *error) const
   tables.assets = m_assets;
   tables.versions = m_versions;
   tables.links = m_links;
+  tables.publications = m_publications.values().toVector();
+  tables.publicationGeneration = m_publicationGeneration;
   tables.meta.revision = m_revision;
   tables.meta.projectionCheckpoints=m_projectionCheckpoints;
   const QByteArray bytes =

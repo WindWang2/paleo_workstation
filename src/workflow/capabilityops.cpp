@@ -1,6 +1,7 @@
 // 层：功能
 // workflow/capabilityops.cpp — 持久 operation 身份、数值缓存与进程内预算。
 #include "capabilitygateway.h"
+#include "capabilityops_internal.h"
 
 #include <algorithm>
 #include <atomic>
@@ -30,6 +31,21 @@ QJsonObject recordJson(const OperationLog::Record &record) {
   object.insert(QStringLiteral("code"), record.code);
   object.insert(QStringLiteral("computeCount"), record.computeCount);
   object.insert(QStringLiteral("summary"), QString::fromUtf8(record.summaryJson.toBase64()));
+  if (record.schemaVersion == 2) {
+    object.insert("schemaVersion", 2);
+    object.insert("documentId", record.documentId); object.insert("callerScope", record.callerScope);
+    object.insert("clientRequestId", record.clientRequestId); object.insert("capabilityId", record.capabilityId);
+    object.insert("contractVersion", record.contractVersion); object.insert("implementationVersion", record.implementationVersion);
+    object.insert("planHash", record.planHash); object.insert("storeGeneration", record.storeGeneration);
+    object.insert("stateRevision", QString::number(record.stateRevision));
+    object.insert("ownerAttempt", record.ownerAttempt); object.insert("ownerProcess", record.ownerProcess);
+    object.insert("cancelRequested", record.cancelRequested); object.insert("frozenRequest", record.frozenRequest);
+    object.insert("stagePlan", record.stagePlan); object.insert("preparedManifest", record.preparedManifest);
+    object.insert("artifactManifest", record.artifactManifest); object.insert("presentationIntent", record.presentationIntent);
+    object.insert("events", record.events);
+    object.insert("externalRequest", record.externalRequest); object.insert("remoteJobId", record.remoteJobId);
+    object.insert("externalOutcome", record.externalOutcome);
+  }
   return object;
 }
 
@@ -44,6 +60,23 @@ OperationLog::Record recordFromJson(const QJsonObject &object) {
   record.code = object.value(QStringLiteral("code")).toString();
   record.computeCount = object.value(QStringLiteral("computeCount")).toInt();
   record.summaryJson = QByteArray::fromBase64(object.value(QStringLiteral("summary")).toString().toLatin1());
+  record.schemaVersion = object.value("schemaVersion").toInt(1);
+  if (record.schemaVersion == 2) {
+    record.documentId = object.value("documentId").toString(); record.callerScope = object.value("callerScope").toString();
+    record.clientRequestId = object.value("clientRequestId").toString(); record.capabilityId = object.value("capabilityId").toString();
+    record.contractVersion = object.value("contractVersion").toInt(); record.implementationVersion = object.value("implementationVersion").toString();
+    record.planHash = object.value("planHash").toString(); record.storeGeneration = object.value("storeGeneration").toString();
+    bool valid = false;
+    record.stateRevision = object.value("stateRevision").toString().toULongLong(&valid);
+    if (!valid) record.schemaVersion = -1;
+    record.ownerAttempt = object.value("ownerAttempt").toString(); record.ownerProcess = object.value("ownerProcess").toString();
+    record.cancelRequested = object.value("cancelRequested").toBool(); record.frozenRequest = object.value("frozenRequest").toObject();
+    record.stagePlan = object.value("stagePlan").toObject(); record.preparedManifest = object.value("preparedManifest").toObject();
+    record.artifactManifest = object.value("artifactManifest").toObject(); record.presentationIntent = object.value("presentationIntent").toObject();
+    record.events = object.value("events").toArray();
+    record.externalRequest = object.value("externalRequest").toObject(); record.remoteJobId = object.value("remoteJobId").toString();
+    record.externalOutcome = object.value("externalOutcome").toString();
+  }
   return record;
 }
 
@@ -76,6 +109,8 @@ bool readJson(const QString &path, QJsonDocument &document) {
   document = {};
   if (!file.exists())
     return true;
+  if (QFileInfo(path).isSymLink() || file.size() > 128LL * 1024 * 1024)
+    return false;
   if (!file.open(QIODevice::ReadOnly))
     return false;
   QJsonParseError error;
@@ -118,6 +153,11 @@ bool failThisOperationWrite() {
 
 } // namespace
 
+QMutex &operation_detail::mutexFor(const QString &path) { return directoryMutex(path); }
+QString operation_detail::key(const QString &documentId, const QString &callerScope, const QString &clientRequestId) {
+  return QString::fromUtf8(QJsonDocument(QJsonArray{documentId, callerScope, clientRequestId}).toJson(QJsonDocument::Compact));
+}
+
 ProcessBudgetLedger &ProcessBudgetLedger::instance() {
   static ProcessBudgetLedger ledger;
   return ledger;
@@ -155,6 +195,18 @@ OperationLog::OperationLog(const QString &directory)
   : m_path(QDir(directory).absoluteFilePath(QStringLiteral("operations.json"))),
     m_cachePath(QDir(directory).absoluteFilePath(QStringLiteral("numeric-cache.json"))) {}
 
+OperationLog::OperationLog(const QString &directory, const QString &projectDir,
+                           std::shared_ptr<const ProjectWriteClaim> claim)
+  : OperationLog(directory) {
+  m_projectDir = projectDir; m_claim = std::move(claim);
+  const auto relative = QDir(projectDir).relativeFilePath(QFileInfo(directory).absoluteFilePath());
+  const auto root = QFileInfo(projectDir).canonicalFilePath();
+  if (!root.isEmpty() && QDir::cleanPath(relative) == QLatin1String(".paleo/capability-ops")) {
+    m_path = QDir(root).filePath(QStringLiteral(".paleo/capability-ops/operations.json"));
+    m_cachePath = QDir(root).filePath(QStringLiteral(".paleo/capability-ops/numeric-cache.json"));
+  }
+}
+
 bool OperationLog::loadOperations() {
   m_byKey.clear();
   m_idToKey.clear();
@@ -164,7 +216,12 @@ bool OperationLog::loadOperations() {
   const QJsonArray rows = document.array();
   for (const QJsonValue &value : rows) {
     const Record record = recordFromJson(value.toObject());
-    if (record.key.isEmpty() || record.operationId.isEmpty() || m_byKey.contains(record.key) || m_idToKey.contains(record.operationId))
+    if ((record.schemaVersion != 1 && record.schemaVersion != 2) || record.events.size() > 128 ||
+        record.key.isEmpty() || record.operationId.isEmpty() || m_byKey.contains(record.key) || m_idToKey.contains(record.operationId))
+      return false;
+    if (record.schemaVersion == 2 && (record.stateRevision == 0 || record.documentId.isEmpty() ||
+        record.callerScope.isEmpty() || record.clientRequestId.isEmpty() ||
+        record.key != operation_detail::key(record.documentId, record.callerScope, record.clientRequestId)))
       return false;
     m_byKey.insert(record.key, record);
     m_idToKey.insert(record.operationId, record.key);
@@ -236,6 +293,7 @@ bool OperationLog::save(const Record &record, Record *current) {
   if (found == m_byKey.cend() || found->operationId != record.operationId || found->requestHash != record.requestHash)
     return report({}, false);
   const Record existing = *found;
+  if (existing.schemaVersion == 2) return report(existing, false); // v2 requires revision/attempt CAS.
   if (existing == record)
     return report(existing, terminal(existing));
   if (!canAdvance(existing, record))
@@ -256,6 +314,7 @@ QString OperationLog::cancel(const QString &operationId) {
   Record record = m_byKey.value(key);
   if (record.commitState == QLatin1String("committed"))
     return QStringLiteral("cancel_after_commit");
+  if (record.schemaVersion == 2) return QStringLiteral("durable_coordinator_required");
   if (record.commitState == QLatin1String("publishing"))
     return QStringLiteral("commit_uncertain");
   if (record.execution == QLatin1String("cancelled"))

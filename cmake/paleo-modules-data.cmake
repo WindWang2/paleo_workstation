@@ -70,6 +70,8 @@ target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 # catalog + metadata 同库（互依环）
 add_library(paleo_store STATIC
   src/catalog/datacatalog_projection.cpp
+  src/catalog/datacatalog_publications.cpp
+  src/catalog/publicationreceipt.cpp
   src/catalog/areasource_delta.cpp
   src/catalog/areasource_delta_apply.cpp
   src/catalog/documentsourceprojection.cpp

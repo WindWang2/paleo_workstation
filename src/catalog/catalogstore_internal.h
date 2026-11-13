@@ -21,6 +21,9 @@
 // metadata/storeerrors_internal.h（paleo::store_detail）。
 namespace paleo::catalog_detail
 {
+bool ensurePublicationSchema(QSqlDatabase &db, QString *error);
+bool loadPublicationRecords(QSqlDatabase &db, QVector<PublicationReceipt> *out, QString *generation, QString *error);
+bool writePublicationGeneration(QSqlDatabase &db, const QString &generation, QString *error);
 
 using paleo::store_detail::setError;
 

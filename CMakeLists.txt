@@ -86,6 +86,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-section-split.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-seismic-fusion.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic-inversion.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-p3-geostat-inputs.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-shell-lifecycle.cmake"

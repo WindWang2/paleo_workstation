@@ -47,6 +47,7 @@
 - [沉积相编图](FACIES_MAPPING.md)
 - [单井综合柱状图](wellcomposite/USER_GUIDE.md)
 - [地震与剖面架构](seismic/ARCHITECTURE.md)
+- [属性优选与融合客户端](seismic/ATTRIBUTE_FUSION_CLIENT.md)
 - [版本与发布状态](VERSION_PUBLISH_STATE_MACHINE.md)
 - [Schema 迁移](SCHEMA_MIGRATION.md)
 - [Data_service 模型接入与迁移](DATA_SERVICE_INTEGRATION.md)

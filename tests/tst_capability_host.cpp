@@ -52,7 +52,7 @@ private slots:
     f.catalog.setLockedReadOnly(true);
     QCOMPARE(service.prepare(depth("readonly"), host::Caller::Agent).code, QStringLiteral("project_read_only"));
     auto publish = depth("not-opened"); publish.publishIntent = "publish";
-    QCOMPARE(service.prepare(publish, host::Caller::Agent).code, QStringLiteral("publication_not_ready"));
+    QCOMPARE(service.prepare(publish, host::Caller::Agent).code, QStringLiteral("project_read_only"));
   }
 
   void productionQueriesNeedNeitherWriteLockNorWritableProject() {

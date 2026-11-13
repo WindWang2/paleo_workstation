@@ -77,6 +77,15 @@ add_library(paleo_workflow STATIC
   src/workflow/capabilityseismicjob.cpp             # 文档固定地震体的有界单道能力
   src/workflow/capabilityops.cpp                   # operation 身份与进程预算
   src/workflow/capabilityoperationcontrol.cpp       # 持锁 v2 意图/状态 CAS/事件
+  src/workflow/capabilitypublication.cpp
+  src/workflow/capabilitynativeoperation.cpp
+  src/workflow/capabilitynativeplan.cpp
+  src/workflow/capabilityhost_plan.cpp
+  src/workflow/capabilityrecovery.cpp
+  src/workflow/capabilityrecovery_commit.cpp
+  src/workflow/capabilityrecovery_worker.cpp
+  src/workflow/capabilityrecovery_query.cpp
+  src/workflow/capabilityrecovery_external.cpp
   src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
   src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）
   src/workflow/storagegovernancecontroller.cpp

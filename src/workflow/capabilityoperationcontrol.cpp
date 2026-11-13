@@ -40,6 +40,7 @@ bool immutable(const OperationLog::Record &before, const OperationLog::Record &a
       before.storeGeneration == after.storeGeneration && before.frozenRequest == after.frozenRequest &&
       before.stagePlan == after.stagePlan && before.presentationIntent == after.presentationIntent &&
       before.externalRequest == after.externalRequest &&
+      (before.remoteCompletionProof.isEmpty() || before.remoteCompletionProof == after.remoteCompletionProof) &&
       (before.remoteJobId.isEmpty() || before.remoteJobId == after.remoteJobId) &&
       (!before.cancelRequested || after.cancelRequested) &&
       (before.preparedManifest.isEmpty() || before.preparedManifest == after.preparedManifest) &&
@@ -65,13 +66,16 @@ bool transitionAllowed(const OperationLog::Record &before, const OperationLog::R
     return before.execution == QLatin1String("prepared") && after.execution == QLatin1String("prepared") &&
            !after.preparedManifest.isEmpty() && after.computeCount == before.computeCount;
   const bool newAttempt = after.ownerAttempt != before.ownerAttempt;
+  if(before.execution==QLatin1String("queued") && after.execution==before.execution && !newAttempt && after.computeCount==before.computeCount)return true;
   if (newAttempt && reason != Transition::Resume && before.execution != QLatin1String("queued")) return false;
   if (after.execution == QLatin1String("running")) {
     if (before.execution == QLatin1String("running"))
       return !newAttempt && after.computeCount == before.computeCount;
+    const bool copySource=before.frozenRequest.value("phase").toString()==QLatin1String("publish") &&
+        !before.frozenRequest.value("sourceOperationId").toString().isEmpty();
     return (before.execution == QLatin1String("queued") ||
             (before.execution == QLatin1String("interrupted") && reason == Transition::Resume)) &&
-           newAttempt && qint64(after.computeCount) == qint64(before.computeCount) + 1;
+           newAttempt && qint64(after.computeCount) == qint64(before.computeCount) + (copySource?0:1);
   }
   if (before.execution == QLatin1String("succeeded") || before.execution == QLatin1String("failed") ||
       before.execution == QLatin1String("cancelled"))
@@ -81,6 +85,10 @@ bool transitionAllowed(const OperationLog::Record &before, const OperationLog::R
     return after.execution == before.execution ||
         (reason == Transition::Reconcile && !before.remoteJobId.isEmpty() &&
          (after.execution == QLatin1String("succeeded") || after.execution == QLatin1String("failed")));
+  if(before.execution==QLatin1String("running") && !before.externalRequest.isEmpty() &&
+      after.execution==QLatin1String("succeeded") && after.externalOutcome==QLatin1String("succeeded") &&
+      (!after.remoteJobId.isEmpty() || !after.remoteCompletionProof.isEmpty()))
+    return reason==Transition::Reconcile;
   if (after.execution == QLatin1String("external_unknown"))
     return before.execution == QLatin1String("running") && !after.externalRequest.isEmpty();
   if (after.execution == QLatin1String("succeeded"))
@@ -113,6 +121,15 @@ OperationLog::Accept OperationLog::lookup(const QString &documentId, const QStri
   return found == m_byKey.cend() ? Accept{QStringLiteral("not_found"), {}}
                                 : Accept{QStringLiteral("found"), *found};
 }
+OperationLog::Record OperationLog::artifactOwner(const QString &documentId,const QString &scope,const QString &relativePath) {
+  QMutexLocker lock(&operation_detail::mutexFor(m_path));if(!loadOperations())return {};
+  for(const auto &r:m_byKey) {
+    if(r.schemaVersion!=2 || r.documentId!=documentId || r.callerScope!=scope)continue;
+    for(const auto &entry:r.artifactManifest.value("ports").toArray())
+      if(entry.toObject().value("path").toString()==relativePath)return r;
+  }
+  return {};
+}
 
 OperationLog::Accept OperationLog::acceptDurable(const Record &seed) {
   if (!ownsWrites()) return {QStringLiteral("project_write_ownership_required"), {}};
@@ -129,7 +146,7 @@ OperationLog::Accept OperationLog::acceptDurable(const Record &seed) {
   record.schemaVersion = 2; record.key = identity;
   record.operationId = QStringLiteral("op-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
   record.execution = QStringLiteral("queued"); record.commitState = QStringLiteral("not_requested");
-  record.presentation = QStringLiteral("not_requested"); record.code = QStringLiteral("accepted");
+  record.presentation = record.presentationIntent.isEmpty()?QStringLiteral("not_requested"):QStringLiteral("pending"); record.code = QStringLiteral("accepted");
   record.computeCount = 0; record.stateRevision = 1; record.ownerAttempt.clear(); record.ownerProcess.clear();
   record.cancelRequested = false; record.preparedManifest = {}; record.artifactManifest = {};
   record.remoteJobId.clear(); record.externalOutcome.clear();
@@ -156,10 +173,10 @@ QString OperationLog::saveDurable(const Record &input, quint64 expectedRevision,
   if (before.stateRevision != expectedRevision || before.ownerAttempt != expectedAttempt)
     return QStringLiteral("operation_state_conflict");
   if (!immutable(before, proposal) || !transitionAllowed(before, proposal, transition) ||
-      !bounded(proposal.preparedManifest, 64 * 1024) || !bounded(proposal.artifactManifest, 64 * 1024) ||
+      !bounded(proposal.preparedManifest, 64 * 1024) || !bounded(proposal.artifactManifest, 64 * 1024) || proposal.summaryJson.size()>96*1024 ||
       before.stateRevision == std::numeric_limits<quint64>::max()) return QStringLiteral("invalid_operation_transition");
   if (proposal.ownerAttempt.size() > 256 || proposal.ownerProcess.size() > 256 || proposal.remoteJobId.size() > 1024 ||
-      !bounded(proposal.externalRequest, 16 * 1024))
+      !bounded(proposal.externalRequest, 16 * 1024) || !bounded(proposal.remoteCompletionProof, 4096))
     return QStringLiteral("invalid_operation_owner");
   auto record = proposal;
   record.stateRevision = before.stateRevision + 1;

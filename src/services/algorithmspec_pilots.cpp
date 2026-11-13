@@ -70,6 +70,7 @@ void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs) {
     depth.outputs = {filePort(QStringLiteral("DEPTH"), true)};
     depth.outputs[0].unit = QStringLiteral("m");
     depth.outputs[0].axis = QStringLiteral("TVD");
+    depth.outputs[0].constraints = {{"fileExtension","json"},{"encoding","json"}};
   }
   depth.params = {
       textParam(QStringLiteral("TIME_SEMANTIC"), true),
@@ -94,6 +95,7 @@ void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs) {
   seismic.resumeSupported = false;
   seismic.outputs = {filePort(QStringLiteral("RMS"), false), filePort(QStringLiteral("ENVELOPE"), false),
                      filePort(QStringLiteral("PHASE"), false), filePort(QStringLiteral("COHERENCE"), false)};
+  for(auto &port:seismic.outputs)port.constraints={{"fileExtension","f32"},{"encoding","float32le"}};
   {
     AlgoPort volume;
     volume.id = QStringLiteral("VOLUME");

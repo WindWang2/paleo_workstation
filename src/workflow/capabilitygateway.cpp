@@ -327,6 +327,11 @@ ExecuteResult executeDepth(const ExecuteRequest &request, const ValidatedParams 
     result.summary.insert(QStringLiteral("modelError"), modelError);
   if (!converted.ok)
     return finish(log, record, result, false, {});
+  if (request.stageBytes) {
+    const auto bytes = QJsonDocument(QJsonArray::fromVariantList(rows)).toJson(QJsonDocument::Compact);
+    const auto code = request.stageBytes(QStringLiteral("DEPTH"), QByteArrayView(bytes));
+    if (!code.isEmpty()) return finish(log, record, rejected(code), false, {});
+  }
   const bool publish = request.publishIntent == QLatin1String("publish");
   if (!publish)
     return finish(log, record, result, true, {});
@@ -428,7 +433,7 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
   hold.held = ProcessBudgetLedger::instance().tryReserve(hold.bytes);
   if (!hold.held)
     return finish(log, record, rejected(QStringLiteral("budget_exceeded")), false, {});
-  const QByteArray cached = request.publishIntent == QLatin1String("publish")
+  const QByteArray cached = request.publishIntent == QLatin1String("publish") || request.stageBytes
                                 ? QByteArray()
                                 : log->cacheGet(record.requestHash);
   if (!cached.isEmpty()) {
@@ -677,6 +682,20 @@ ExecuteResult executeSeismic(const ExecuteRequest &request, const ValidatedParam
       result.summary.insert(QStringLiteral("coherenceSha256"), hashFloats(interior.interior));
       result.summary.insert(QStringLiteral("coherenceSamplesRead"), interior.samplesRead);
     }
+  }
+  if (request.stageBytes) {
+    const auto emitPort = [&](const QString &port, const std::vector<float> &values) {
+      if (values.empty()) return QString();
+      return request.stageBytes(port, QByteArrayView(reinterpret_cast<const char *>(values.data()),
+                                                     qsizetype(values.size() * sizeof(float))));
+    };
+    QString code;
+    if (wantRms) code = emitPort(QStringLiteral("RMS"), computed.rms);
+    if (code.isEmpty() && groupWantEnvelope) code = emitPort(QStringLiteral("ENVELOPE"), computed.envelope);
+    if (code.isEmpty() && wantPhase) code = emitPort(QStringLiteral("PHASE"), computed.phase);
+    if (code.isEmpty() && wantCoherence && !coherenceValues.empty())
+      code = emitPort(QStringLiteral("COHERENCE"), coherenceValues);
+    if (!code.isEmpty()) return finish(log, record, rejected(code), false, {});
   }
   if (request.publishIntent != QLatin1String("publish"))
     return finish(log, record, result, true, QJsonDocument(QJsonObject::fromVariantMap(result.summary)).toJson(QJsonDocument::Compact));

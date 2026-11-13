@@ -1,6 +1,8 @@
 // 层：功能
 #include "capabilityhost.h"
 #include "capabilitytaskrunner.h"
+#include "capabilitynativeoperation.h"
+#include "capabilitypublication_internal.h"
 #include "services/paleotaskservice.h"
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -24,12 +26,56 @@ ExecuteResult rejected(const QString &code) {
   result.commitState = QStringLiteral("not_requested"); return result;
 }
 } // namespace
+QByteArray CapabilityHost::requestDigest(const ExecuteRequest &request) { return digest(request); }
 
-CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent) {}
+CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(new CapabilityRecovery(this)) {
+  m_recovery->setHostProvider([this] {
+    const auto b=binding();RecoveryHost h;h.context=b.context;h.projectDir=b.projectDir;h.operationDir=b.operationDir;
+    h.catalog=b.catalog;h.writeClaim=b.writeClaim;
+    h.presentationState=m_presentationState;h.present=m_present;
+    h.restoreInputValidator=[this](const OperationLog::Record &r,QString *error) {
+      if(m_restoreInputValidator)if(auto validator=m_restoreInputValidator(r,error))return validator;
+      return nativeInputValidator(r.frozenRequest.value("plan").toObject());
+    };
+    h.validateFrozen=[this,b](const OperationLog::Record &r) {
+      if(m_validateFrozen){const auto code=m_validateFrozen(r);if(!code.isEmpty())return code;}
+      ExecuteRequest request;
+      if(!nativeRequestFromJson(r.frozenRequest.value("plan").toObject(),request))return QString();
+      if(!request.inputs.contains("seismic_selection"))return QString();
+      request.projectDir=b.projectDir;
+      QString code;if(b.freeze)code=b.freeze(request);if(code.isEmpty() && b.validateInputs)code=b.validateInputs(request);
+      if(code.isEmpty() && nativeFrozenRequest(request).value("sourceVerification")!=r.frozenRequest.value("plan").toObject().value("sourceVerification"))code="source_revision_changed";
+      return code;
+    };
+    h.restoreWorker=[this,b](const OperationLog::Record &r,QString *error) {
+      if(m_restoreWorker)if(auto worker=m_restoreWorker(r,error))return worker;
+      if(r.capabilityId==QLatin1String("workflow.plan"))return restoreNativePlan(r.frozenRequest.value("plan").toObject(),error);
+      ExecuteRequest request;
+      if(!nativeRequestFromJson(r.frozenRequest.value("plan").toObject(),request)){if(error)*error="invalid_frozen_plan";return OperationWorker{};}
+      request.projectDir=b.projectDir;request.operationDir=b.operationDir;
+      QString code;if(b.freeze)code=b.freeze(request);if(code.isEmpty() && b.validateInputs)code=b.validateInputs(request);
+      if(!code.isEmpty()){if(error)*error=code;return OperationWorker{};}return nativeWorker(std::move(request));
+    };return h;
+  });
+}
+void CapabilityHost::setWorkerRestorer(std::function<OperationWorker(const OperationLog::Record &,QString*)> restorer) {
+  m_restoreWorker=std::move(restorer);
+}
+void CapabilityHost::setPresentationHandlers(std::function<QString(const QJsonObject&)> state,
+    std::function<QString(const QJsonObject&,const PublicationReceipt&)> present) {
+  m_presentationState=std::move(state);m_present=std::move(present);
+}
+void CapabilityHost::setInputValidatorRestorer(std::function<OperationInputValidator(const OperationLog::Record &,QString*)> restorer) {
+  m_restoreInputValidator=std::move(restorer);
+}
+void CapabilityHost::setFrozenValidator(std::function<QString(const OperationLog::Record&)> validator) {m_validateFrozen=std::move(validator);}
 void CapabilityHost::setBindingProvider(BindingProvider provider) { m_binding = std::move(provider); invalidate(); }
-void CapabilityHost::setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
-void CapabilityHost::setCallerScope(host::Caller caller, const QString &scope) { m_callers[int(caller)] = scope; }
-QString CapabilityHost::callerScope(host::Caller caller) const { return m_callers.value(int(caller)); }
+void CapabilityHost::setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; m_recovery->setTaskService(tasks); }
+void CapabilityHost::setCallerScope(host::Caller caller, const QString &scope) { m_callers[int(caller)] = scope; invalidate(); }
+QString CapabilityHost::callerScope(host::Caller caller,const QString &session) const {
+  const auto base=m_callers.value(int(caller));
+  return caller==host::Caller::Agent && !session.isEmpty()?base+":chat:"+QString::fromLatin1(QCryptographicHash::hash(session.toUtf8(),QCryptographicHash::Sha256).toHex()):base;
+}
 void CapabilityHost::invalidate() { m_prepared.clear(); }
 HostBinding CapabilityHost::binding() const {
   return QThread::currentThread() == thread() && m_binding ? m_binding() : HostBinding{};
@@ -42,7 +88,7 @@ QString CapabilityHost::preparedCommand(const QString &handle) const {
 
 HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller caller,
                                       const QStringList &requiredContext, const QString &commandId,
-                                      std::function<QString()> executionGuard) {
+                                      std::function<QString()> executionGuard, const QString &trustedChatSessionId) {
   HostPrepared result;
   const auto fail = [&](const QString &code) { result.code = code; return result; };
   auto live = binding();
@@ -50,17 +96,24 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
     return fail(QStringLiteral("document_mismatch"));
   const unsigned effects = host::computeEffects(intent.publishIntent);
   if (!effects) return fail(QStringLiteral("unsupported_intent"));
-  // W5 supplies an owner-side receipt/CAS publication path. The old gateway
-  // performs synchronous compute+publish and is not a product-host shortcut.
-  if (intent.publishIntent == QLatin1String("publish"))
-    return fail(QStringLiteral("publication_not_ready"));
-  QString code = host::checkContext(live.context, live.context, effects);
-  if (code.isEmpty()) code = host::checkRequiredContext(live.context, requiredContext);
-  if (!code.isEmpty()) return fail(code);
-  const QString scope = callerScope(caller);
+  const QString scope = callerScope(caller,trustedChatSessionId);
   if (scope.isEmpty()) return fail(QStringLiteral("caller_unbound"));
   if (caller != host::Caller::Ui && intent.clientRequestId.trimmed().isEmpty())
     return fail(QStringLiteral("client_request_id_required"));
+  const auto prior=m_recovery->lookup(scope,intent.clientRequestId);
+  if(prior.code==QLatin1String("found")) {
+    if(prior.record.schemaVersion!=2)return fail("legacy_unverifiable");
+    if(prior.record.requestHash!=operationDigest(nativeIntent(intent)))return fail("idempotency_conflict");
+    Prepared saved;saved.request=intent;saved.request.documentId=live.context.documentId;saved.request.callerScope=scope;
+    saved.context=live.context;saved.effects=host::Read;saved.intentDigest=digest(intent);saved.recoveryId=prior.record.operationId;
+    saved.commandId=commandId;saved.expiresAt=QDateTime::currentMSecsSinceEpoch()+5*60*1000;
+    result.handle=QUuid::createUuid().toString(QUuid::WithoutBraces);m_prepared.insert(result.handle,std::move(saved));
+    result.ok=true;result.code="replay";return result;
+  }
+  if(prior.code!=QLatin1String("not_found"))return fail(prior.code);
+  QString code = host::checkContext(live.context, live.context, effects);
+  if (code.isEmpty()) code = host::checkRequiredContext(live.context, requiredContext);
+  if (!code.isEmpty()) return fail(code);
   const QString id = CapabilityRegistry::resolveAlias(intent.capabilityId, &code);
   const auto spec = CapabilityRegistry::spec(id, intent.contractVersion);
   if (spec.capabilityId.isEmpty() || spec.exposure != CapabilityExposure::Callable)
@@ -77,6 +130,14 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   saved.request.operationDir = live.operationDir;
   saved.request.currentHead.clear(); // Never trust the caller's alleged current state.
   saved.request.cancelled = {}; saved.request.onRunning = {};
+  const auto sourceId=intent.inputs.value("source_operation_id").toString();
+  const bool publishSource=intent.publishIntent==QLatin1String("publish") && !sourceId.isEmpty();
+  if(publishSource) {
+    if(!intent.parameters.isEmpty() || intent.inputs.size()!=1 || intent.seismicTrace)return fail("mixed_source_operation_inputs");
+    OperationLog log(live.operationDir,live.projectDir,live.writeClaim);
+    saved.frozen=freezeSourcePublication(saved.request,nativeIntent(intent),log.recordById(sourceId),&code);
+    if(!code.isEmpty())return fail(code);
+  } else {
   if (live.freeze) code = live.freeze(saved.request); else code.clear();
   if (code.isEmpty() && live.validateInputs) code = live.validateInputs(saved.request);
   if (!code.isEmpty()) return fail(code);
@@ -87,6 +148,11 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   if (code != QLatin1String("ok")) return fail(code);
   // SDK preflight supplies the real interval; do not display a placeholder as a default.
   if (resolvedInterval) result.effectiveParameters.remove(QStringLiteral("SAMPLE_INTERVAL_MS"));
+  saved.request.parameters=result.effectiveParameters;
+  code.clear();
+  saved.frozen=freezeNativeOperation(saved.request,nativeIntent(intent),&code);
+  if(!code.isEmpty())return fail(code);
+  }
   saved.context = live.context; saved.effects = effects; saved.required = requiredContext;
   saved.commandId = commandId;
   saved.executionGuard = std::move(executionGuard);
@@ -109,7 +175,8 @@ QString CapabilityHost::check(const Prepared &saved, const ExecuteRequest &inten
   QString code = host::checkContext(live.context, saved.context, saved.effects);
   if (code.isEmpty() && saved.executionGuard) code = saved.executionGuard();
   if (code.isEmpty()) code = host::checkRequiredContext(live.context, saved.required);
-  if (code.isEmpty() && live.validateInputs) code = live.validateInputs(saved.request);
+  if (code.isEmpty() && saved.recoveryId.isEmpty() && saved.frozen.sourceOperationId.isEmpty() && live.validateInputs)
+    code = live.validateInputs(saved.request);
   return code;
 }
 
@@ -133,18 +200,12 @@ PaleoTask *CapabilityHost::start(const QString &handle, const ExecuteRequest &in
   else code = check(*it, intent, live);
   if (!code.isEmpty()) { if (error) *error = code; return nullptr; }
   const Prepared saved = *it;
-  QPointer<CapabilityHost> guard(this);
-  auto *task = startCapabilityTask(m_tasks, receiver, title, saved.request,
-    [guard, saved, finished = std::move(finished)](ExecuteResult result) {
-      if (!finished) return;
-      if (!guard) { finished(rejected(QStringLiteral("stale_session"))); return; }
-      const auto current = guard->binding();
-      const QString invalid = host::checkContext(current.context, saved.context, saved.effects);
-      if (!invalid.isEmpty() && result.commitState != QLatin1String("committed")) {
-        result.ok = false; result.code = invalid;
-      }
-      finished(std::move(result));
-    }, error);
+  QString operationId=saved.recoveryId;
+  if(operationId.isEmpty()) {
+    const auto accepted=m_recovery->accept(saved.frozen);
+    if(!accepted.ok){if(error)*error=accepted.code;return nullptr;}operationId=accepted.record.operationId;
+  }
+  auto *task=m_recovery->start(saved.request.callerScope,operationId,receiver,title,std::move(finished),false,error);
   if (task) m_prepared.remove(handle);
   return task;
 }

@@ -70,7 +70,9 @@ paleo::capability::HostBinding captureCapabilityBinding(
   ctx.open = true; ctx.documentId = document->documentId(); ctx.epoch = document->epoch();
   ctx.catalogRevision = catalog->catalogRevision(); ctx.mutationSequence = catalog->mutationSeq();
   ctx.persistentIdentity = document->hasPersistentIdentity(); ctx.readOnly = document->readOnly();
-  ctx.recoveryRequired = document->recoveryRequired(); ctx.ownsWrites = writeLock && writeLock->isHeld();
+  ctx.recoveryRequired = document->recoveryRequired();
+  binding.writeClaim = writeLock ? writeLock->claim() : nullptr;
+  ctx.ownsWrites = binding.writeClaim && binding.writeClaim->isHeldFor(catalog->projectDir());
   ctx.allowedEffects = host::Read | host::PrivateStage | host::CatalogPublish | host::Presentation;
   if (selection) {
     ctx.horizon = selection->activeHorizon();

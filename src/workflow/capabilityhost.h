@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include "capabilitygateway.h"
+#include "capabilityrecovery.h"
 #include "services/hostcallcontext.h"
 #include <QObject>
 #include <QHash>
@@ -15,6 +16,7 @@ struct HostBinding {
   host::CallContext context;
   QString projectDir, operationDir;
   DataCatalog *catalog = nullptr;
+  std::shared_ptr<const ProjectWriteClaim> writeClaim;
   // Both callbacks run on the owner thread. They must read actual host state.
   std::function<QString(ExecuteRequest &)> freeze;
   std::function<QString(const ExecuteRequest &)> validateInputs;
@@ -36,12 +38,20 @@ public:
   void setBindingProvider(BindingProvider provider);
   void setTaskService(PaleoTaskService *tasks);
   void setCallerScope(host::Caller caller, const QString &scope);
-  QString callerScope(host::Caller caller) const;
+  QString callerScope(host::Caller caller, const QString &trustedChatSessionId = {}) const;
+  CapabilityRecovery *recovery() const { return m_recovery; }
+  void setWorkerRestorer(std::function<OperationWorker(const OperationLog::Record &, QString *)> restorer);
+  void setPresentationHandlers(std::function<QString(const QJsonObject &)> state,
+      std::function<QString(const QJsonObject &, const PublicationReceipt &)> present);
+  void setInputValidatorRestorer(std::function<OperationInputValidator(const OperationLog::Record &, QString *)> restorer);
+  void setFrozenValidator(std::function<QString(const OperationLog::Record &)> validator);
   host::CallContext context() const;
   QString preparedCommand(const QString &handle) const;
   HostPrepared prepare(const ExecuteRequest &intent, host::Caller caller,
                        const QStringList &requiredContext = {}, const QString &commandId = {},
-                       std::function<QString()> executionGuard = {});
+                       std::function<QString()> executionGuard = {}, const QString &trustedChatSessionId = {});
+  HostPrepared preparePlan(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,const QVector<PlanEdge> &edges,
+                           host::Caller caller,const QString &trustedChatSessionId = {});
   ExecuteResult execute(const QString &handle, const ExecuteRequest &originalIntent);
   PaleoTask *start(const QString &handle, const ExecuteRequest &originalIntent,
                    QObject *receiver, const QString &title,
@@ -51,6 +61,8 @@ public:
 private:
   struct Prepared {
     ExecuteRequest request;
+    FrozenOperation frozen;
+    QString recoveryId;
     host::CallContext context;
     QByteArray intentDigest;
     QStringList required;
@@ -61,10 +73,17 @@ private:
   };
   QString check(const Prepared &prepared, const ExecuteRequest &intent, HostBinding &live) const;
   HostBinding binding() const;
+  static QByteArray requestDigest(const ExecuteRequest &request);
   BindingProvider m_binding;
   QPointer<PaleoTaskService> m_tasks;
   QHash<QString, Prepared> m_prepared;
   QHash<int, QString> m_callers;
+  CapabilityRecovery *m_recovery = nullptr;
+  std::function<OperationWorker(const OperationLog::Record &, QString *)> m_restoreWorker;
+  std::function<QString(const QJsonObject &)> m_presentationState;
+  std::function<QString(const QJsonObject &, const PublicationReceipt &)> m_present;
+  std::function<OperationInputValidator(const OperationLog::Record &, QString *)> m_restoreInputValidator;
+  std::function<QString(const OperationLog::Record &)> m_validateFrozen;
 };
 
 } // namespace paleo::capability

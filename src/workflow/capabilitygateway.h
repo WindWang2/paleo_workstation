@@ -130,6 +130,7 @@ public:
     bool cancelRequested = false;
     QJsonObject frozenRequest, stagePlan, preparedManifest, artifactManifest, presentationIntent;
     QJsonObject externalRequest; // frozen IDs/hashes only, never credentials
+    QJsonObject remoteCompletionProof; // direct synchronous response, bound to frozen request hash
     QString remoteJobId, externalOutcome;
     QJsonArray events;
     bool operator==(const Record &) const = default;
@@ -148,6 +149,7 @@ public:
   Accept accept(const QString &documentId, const QString &callerScope, const QString &clientRequestId,
                 const QString &requestHash);
   Record recordById(const QString &operationId);
+  Record artifactOwner(const QString &documentId, const QString &callerScope, const QString &relativePath);
   Accept lookup(const QString &documentId, const QString &callerScope, const QString &clientRequestId);
   Accept acceptDurable(const Record &seed);
   enum class Transition { Advance, Resume, Reconcile };

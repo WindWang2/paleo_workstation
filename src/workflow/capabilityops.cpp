@@ -45,6 +45,7 @@ QJsonObject recordJson(const OperationLog::Record &record) {
     object.insert("events", record.events);
     object.insert("externalRequest", record.externalRequest); object.insert("remoteJobId", record.remoteJobId);
     object.insert("externalOutcome", record.externalOutcome);
+    object.insert("remoteCompletionProof", record.remoteCompletionProof);
   }
   return object;
 }
@@ -76,6 +77,7 @@ OperationLog::Record recordFromJson(const QJsonObject &object) {
     record.events = object.value("events").toArray();
     record.externalRequest = object.value("externalRequest").toObject(); record.remoteJobId = object.value("remoteJobId").toString();
     record.externalOutcome = object.value("externalOutcome").toString();
+    record.remoteCompletionProof = object.value("remoteCompletionProof").toObject();
   }
   return record;
 }
@@ -99,6 +101,7 @@ bool writeJson(const QString &path, const QJsonDocument &document) {
   if (!file.open(QIODevice::WriteOnly))
     return false;
   const QByteArray bytes = document.toJson(QJsonDocument::Compact);
+  if(bytes.size()>128LL*1024*1024)return false;
   if (file.write(bytes) != bytes.size())
     return false;
   return file.commit();

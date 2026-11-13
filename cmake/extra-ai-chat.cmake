@@ -34,6 +34,16 @@ if(PALEO_HAVE_ORT)
 endif()
 target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(paleo_ai PUBLIC Qt6::Network paleo_services_toolresults)
+add_library(paleo_services_query STATIC
+  src/services/artifactversioncapability.cpp
+  src/services/querywellprojection.cpp
+  src/services/projectquerycapability.cpp
+  src/services/projectquery_lists.cpp
+  src/services/projectquery_wells.cpp
+  src/services/projectquery_lineage.cpp
+)
+target_link_libraries(paleo_services_query PUBLIC paleo_store Paleo::paleo_data_service Qt6::Core Qt6::Sql)
+target_link_libraries(paleo_services PUBLIC paleo_services_query)
 
 # 编排面（功能层）：会话 + 客户端 + 工具分发/执行回路的对外那一层。
 target_sources(paleo_workflow PRIVATE
@@ -41,6 +51,7 @@ target_sources(paleo_workflow PRIVATE
   src/workflow/aichattoolrunner.cpp
   src/workflow/aichattoolrunner_results.cpp
   src/workflow/aichatcontroller_toolloop.cpp
+  src/workflow/aichattoolrunner_query.cpp
   src/workflow/capabilitytaskrunner.cpp
 )
 
@@ -62,6 +73,9 @@ add_paleo_test(tst_aichat LIBS paleo_ai)
 # 方向77：工程上下文只读工具（query_project / asset_lineage）——纯 catalog 面，
 # 无 ORT 依赖，有无运行库的构建都跑同一套断言。
 add_paleo_test(tst_aichatprojectquery LIBS paleo_workflow paleo_ai)
+add_paleo_test(tst_project_query LIBS paleo_services_query Qt6::Sql)
+target_sources(tst_project_query PRIVATE vendor/Data_service/tests/well_query_tests.cpp)
+target_compile_definitions(tst_project_query PRIVATE PALEO_EMBED_WELL_QUERY_TEST)
 add_paleo_test(tst_aichatcapability LIBS paleo_workflow paleo_ai)
 # 装配断言：产品与测试同源（app/aiwiring.cpp）。用 paleo_app 最小链接集，
 # 绕开伞式 paleo_core 在本机的 0xc0000139（见 ledger「宿主红项」）。

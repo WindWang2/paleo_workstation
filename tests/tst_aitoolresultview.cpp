@@ -64,6 +64,7 @@ private slots:
   void tableRowClickEmitsNavigationIntents();
   void keyValueCardsRenderCountsAndWellDetails();
   void lineageGraphMatchesPayloadAndNavigates();
+  void pagedCardsDistinguishPageUnknownTotalsAndCrossPageEdges();
   void fallbackFoldStartsCollapsedAndNotesOverCap();
   void dockIntegrationAttachesStructuredView();
   void captureLedgerScreenshots();
@@ -313,6 +314,36 @@ void TestAiToolResultView::lineageGraphMatchesPayloadAndNavigates() {
   QCOMPARE(spy.size(), 1);
   QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("asset-h1"));
   QCOMPARE(spy.at(0).at(1).toString(), QStringLiteral("ver-3"));
+}
+
+void TestAiToolResultView::pagedCardsDistinguishPageUnknownTotalsAndCrossPageEdges() {
+  auto payload = parse(lineagePayload()).object();
+  payload.insert(QStringLiteral("contract"), QStringLiteral("paleo.lineage.page.v1"));
+  payload.insert(QStringLiteral("nodes"), QJsonArray{payload.value(QStringLiteral("nodes")).toArray().last()});
+  payload.insert(QStringLiteral("selection"), QJsonObject{{"count",1},{"version_ids",QJsonArray{"ver-3"}}});
+  payload.insert(QStringLiteral("returnedCount"), 1); payload.insert(QStringLiteral("totalCount"), QJsonValue::Null);
+  payload.insert(QStringLiteral("hasMore"), true); payload.insert(QStringLiteral("collapsed_upstream"), QJsonValue::Null);
+  payload.insert(QStringLiteral("upstreamDepth"), 3); payload.insert(QStringLiteral("downstreamDepth"), 1);
+  AiToolResultView graphCard(QStringLiteral("paleo.asset_lineage"), true,
+      QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact)));
+  auto *note = graphCard.findChild<QLabel *>(QStringLiteral("aiResultPageNote")); QVERIFY(note);
+  QVERIFY(note->text().contains(QStringLiteral("本页"))); QVERIFY(note->text().contains(QStringLiteral("未知")));
+  QVERIFY(note->text().contains(QStringLiteral("后续"))); QVERIFY(note->text().contains(QStringLiteral("跨页")));
+  QVERIFY(!note->text().contains(QStringLiteral("闭包")));
+  auto *graph = graphCard.findChild<DerivationGraph *>(QStringLiteral("aiResultLineageGraph")); QVERIFY(graph); QCOMPARE(graph->nodeCount(),1);
+  const QJsonObject wells{{"tool","paleo.query_project"},{"topic","wells"},{"count",60},
+    {"wells",QJsonArray{QJsonObject{{"id","well"},{"name","W1"},{"type","well"}}}},
+    {"returnedCount",1},{"totalCount",60},{"hasMore",true},{"truncated","page_available"}};
+  AiToolResultView tableCard(QStringLiteral("paleo.query_project"), true,
+      QString::fromUtf8(QJsonDocument(wells).toJson(QJsonDocument::Compact)));
+  note = tableCard.findChild<QLabel *>(QStringLiteral("aiResultPageNote")); QVERIFY(note);
+  QVERIFY(note->text().contains(QStringLiteral("60"))); QVERIFY(!note->text().contains(QStringLiteral("page_available")));
+  auto resolving = wells; resolving.insert(QStringLiteral("topic"),QStringLiteral("well_details"));
+  resolving.insert(QStringLiteral("resolution"),QStringLiteral("searching")); resolving.insert(QStringLiteral("totalCount"),QJsonValue::Null);
+  AiToolResultView searchCard(QStringLiteral("paleo.query_project"), true,
+      QString::fromUtf8(QJsonDocument(resolving).toJson(QJsonDocument::Compact)));
+  auto *head = searchCard.findChild<QTableWidget *>(QStringLiteral("aiResultKeyValue")); QVERIFY(head);
+  QVERIFY(head->item(0,1)->text().contains(QStringLiteral("候选页")));
 }
 
 // ---- Oracle 1 兜底：折叠块默认收起；超限降级注记如实 ----

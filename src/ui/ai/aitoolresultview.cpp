@@ -9,6 +9,7 @@
 
 #include <QAbstractItemView>
 #include <QClipboard>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFrame>
 #include <QGuiApplication>
@@ -28,6 +29,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QSizePolicy>
+#include <algorithm>
 
 // ui/ai — AI 工具结果结构化视图实现（方向 93）。
 //
@@ -57,6 +59,18 @@ QString cellText(const QJsonObject &entry, const char *key) {
   if (value.isDouble())
     return QString::number(value.toDouble());
   return value.toString();
+}
+QString pageNote(const QJsonObject &payload) {
+  const auto shown = payload.value(QStringLiteral("returnedCount"));
+  const auto total = payload.value(QStringLiteral("totalCount"));
+  const auto unknown = QCoreApplication::translate("AiToolResultView", "未知");
+  QString note = QCoreApplication::translate("AiToolResultView", "本页 %1 条 · 总数 %2")
+      .arg(shown.isDouble() ? QString::number(shown.toInteger()) : unknown)
+      .arg(total.isDouble() ? QString::number(total.toInteger()) : unknown);
+  note += payload.value(QStringLiteral("hasMore")).toBool()
+      ? QCoreApplication::translate("AiToolResultView", " · 尚有后续结果")
+      : QCoreApplication::translate("AiToolResultView", " · 请求范围已读完");
+  return note;
 }
 } // namespace
 
@@ -196,9 +210,13 @@ void AiToolResultView::buildTable(const QJsonObject &payload,
   QStringList notes;
   const QString truncated =
     payload.value(QStringLiteral("truncated")).toString();
-  if (!truncated.isEmpty())
+  if (payload.contains(QStringLiteral("hasMore"))) {
+    footnote->setObjectName(QStringLiteral("aiResultPageNote"));
+    notes << pageNote(payload);
+  } else if (!truncated.isEmpty())
     notes << truncated;
-  notes << tr("共 %1 条").arg(payload.value(QStringLiteral("count")).toInt());
+  if (!payload.contains(QStringLiteral("hasMore")))
+    notes << tr("共 %1 条").arg(payload.value(QStringLiteral("count")).toInt());
   footnote->setText(notes.join(QStringLiteral(" · ")));
   layout->addWidget(footnote);
 
@@ -287,12 +305,18 @@ void AiToolResultView::buildKeyValueWithLinks(const QJsonObject &payload) {
     head->setItem(r, 1, new QTableWidgetItem(value));
   };
   const QJsonArray links = payload.value(QStringLiteral("links")).toArray();
-  addRow(tr("井名"), payload.value(QStringLiteral("well")).toString());
-  addRow(tr("井 ID"), payload.value(QStringLiteral("well_id")).toString());
-  addRow(tr("关联资产"), QString::number(links.size()));
+  if (payload.value(QStringLiteral("resolution")).toString() == QLatin1String("searching"))
+    addRow(tr("状态"), tr("正在查找井名，尚有候选页"));
+  else {
+    addRow(tr("井名"), payload.value(QStringLiteral("well")).toString());
+    addRow(tr("井 ID"), payload.value(QStringLiteral("well_id")).toString());
+  }
+  addRow(payload.contains(QStringLiteral("hasMore")) ? tr("本页关联资产") : tr("关联资产"), QString::number(links.size()));
   const QString truncated =
     payload.value(QStringLiteral("truncated")).toString();
-  if (!truncated.isEmpty())
+  if (payload.contains(QStringLiteral("hasMore")))
+    addRow(tr("分页"), pageNote(payload));
+  else if (!truncated.isEmpty())
     addRow(tr("截断"), truncated);
   layout->addWidget(head);
 
@@ -334,8 +358,10 @@ void AiToolResultView::buildLineageGraph(const QJsonObject &payload) {
   graph.available = payload.value(QStringLiteral("available")).toBool(true);
   const QJsonArray nodeArray = payload.value(QStringLiteral("nodes")).toArray();
   QHash<QString, QString> assetByVersion; // 节点点击导航用
+  int missingMetadata = 0;
   for (const QJsonValue &value : nodeArray) {
     const QJsonObject entry = value.toObject();
+    if (entry.contains(QStringLiteral("available")) && !entry.value(QStringLiteral("available")).toBool()) ++missingMetadata;
     paleo::derivation::Node node;
     node.versionId = cellText(entry, "version_id");
     node.assetId = cellText(entry, "asset_id");
@@ -386,7 +412,18 @@ void AiToolResultView::buildLineageGraph(const QJsonObject &payload) {
   footnote->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(
     footnote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-  footnote->setText(
+  const bool paged = payload.value(QStringLiteral("contract")).toString() == QLatin1String("paleo.lineage.page.v1");
+  if (paged) {
+    footnote->setObjectName(QStringLiteral("aiResultPageNote"));
+    QString note = pageNote(payload) + tr(" · 上游深度 %1 / 下游深度 %2")
+      .arg(payload.value(QStringLiteral("upstreamDepth")).toInt()).arg(payload.value(QStringLiteral("downstreamDepth")).toInt());
+    const bool crossPageEdges = std::any_of(graph.edges.cbegin(), graph.edges.cend(), [&assetByVersion](const auto &edge) {
+      return !assetByVersion.contains(edge.parentId) || !assetByVersion.contains(edge.childId);
+    });
+    if (crossPageEdges) note += tr(" · 跨页关联暂不绘制");
+    if (missingMetadata) note += tr(" · %1 个引用缺少版本元数据").arg(missingMetadata);
+    footnote->setText(note);
+  } else footnote->setText(
     tr("闭包 %1 版本 · 图上 %2 节点 · 已折叠上游 %3 / 下游 %4")
       .arg(payload.value(QStringLiteral("selection"))
              .toObject()

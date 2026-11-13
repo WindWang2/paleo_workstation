@@ -357,10 +357,22 @@ void TestAiChatProjectQuery::queryWellsTruncatesListAtCap() {
   QVERIFY2(ok, qPrintable(payload.value(QStringLiteral("error")).toString()));
   QCOMPARE(payload.value(QStringLiteral("count")).toInt(),
            kWellsListCap + 10); // count 如实报全量
-  QCOMPARE(payload.value(QStringLiteral("wells")).toArray().size(),
-           kWellsListCap);      // 列表截到上限
+  QVERIFY(payload.value(QStringLiteral("wells")).toArray().size() > 0);
+  QVERIFY(payload.value(QStringLiteral("wells")).toArray().size() <= kWellsListCap);
   QVERIFY2(payload.contains(QStringLiteral("truncated")),
            "截断必须如实标记（字段带总数说明）");
+  QSet<QString> ids;
+  do {
+    for (const auto &value : payload.value(QStringLiteral("wells")).toArray()) {
+      const auto id = value.toObject().value(QStringLiteral("id")).toString();
+      QVERIFY(!ids.contains(id)); ids.insert(id);
+    }
+    if (!payload.value(QStringLiteral("hasMore")).toBool()) break;
+    args.insert(QStringLiteral("cursor"), payload.value(QStringLiteral("nextCursor")));
+    QVERIFY(runTool(runner, QStringLiteral("paleo.query_project"), args, &ok, &payload));
+    QVERIFY2(ok, qPrintable(payload.value(QStringLiteral("error")).toString()));
+  } while (true);
+  QCOMPARE(ids.size(), kWellsListCap + 10);
 }
 
 void TestAiChatProjectQuery::querySummaryCountsFreshFromCatalog() {

@@ -1,11 +1,13 @@
 // 层：数据
 #pragma once
 #include <QHash>
+#include <QMap>
 #include <QPair>
 #include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include "catalogpage.h"
 
 struct CatalogEntity;
 struct CatalogAsset;
@@ -40,6 +42,8 @@ class CatalogIndex
     // ---- 增量维护 ----
     void entityAdded(int row, const QString &id, const QString &type);
     void assetAdded(int row, const QString &id, const QString &type);
+    void entityMetadataChanged(int row, const CatalogEntity &entity);
+    void assetMetadataChanged(int row, const CatalogAsset &asset);
     void versionAdded(int row, const CatalogVersion &v);
     void linkAdded(int row, const EntityAssetLink &l);
     // 链接表被就地改写（attachLink/setLinkUnresolved/setLinkPrimary/addLink 的
@@ -102,6 +106,15 @@ class CatalogIndex
     }
     QHash<QString, int> entityCountsByType() const;
     int linkCount() const { return m_linkCount; }
+    CatalogPage<int> entityPage(const QString &type, const QString &after, int limit) const;
+    CatalogPage<int> assetPage(const QString &type, const QString &after, int limit) const;
+    CatalogPage<int> linkPage(const QString &entityId, const QString &role, const QString &after, int limit) const;
+    CatalogPage<QString> childrenPage(const QString &parent, const QString &after, int limit) const;
+    QHash<QString, int> assetCountsByType() const;
+    CatalogPage<int> entityNamePage(const QString &normalizedName, const QString &after, int limit) const;
+    CatalogPage<int> modelWellPage(qlonglong id, const QString &after, int limit) const;
+    CatalogPage<int> assetNamePage(const QString &name, const QString &after, int limit) const;
+    int currentVersionRow(const QString &assetId) const { return m_currentVersionRow.value(assetId, -1); }
 
     // 对账：索引 vs 四表线性扫描（测试/诊断；true = 完全一致）。
     bool verifyAgainst(const QVector<CatalogEntity> &entities,
@@ -132,4 +145,13 @@ class CatalogIndex
     QHash<QString, int> m_entityCount; // 冗余计数（entitiesByType.size() 即是——
                                        // 保字段省一次哈希）
     int m_linkCount = 0;
+    QMap<QString, int> m_entityOrder, m_assetOrder, m_wellLikeOrder;
+    QHash<QString, QMap<QString, int>> m_entitiesOrderedByType, m_assetsOrderedByType;
+    QHash<QPair<QString, QString>, QMap<QString, int>> m_linksOrdered;
+    QHash<QString, QMap<QString, QString>> m_childrenOrdered;
+    QHash<QString, int> m_currentVersionRow, m_currentVersionNumber;
+    QHash<QString, QMap<QString, int>> m_wellsByName, m_assetsByName;
+    QHash<qlonglong, QMap<QString, int>> m_wellsByModelId;
+    QHash<QString, QString> m_wellNameKeys, m_assetNameKeys;
+    QHash<QString, qlonglong> m_modelWellKeys;
 };

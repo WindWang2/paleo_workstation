@@ -461,12 +461,8 @@ CatalogVersion DataCatalog::currentVersion(const QString &assetId) const
 {
   if (!noteRead("currentVersion"))
     return {};
-  CatalogVersion best;
-  const QVector<int> rows = m_idx.versionRowsForAsset(assetId); // D5.1
-  for (int r : rows)
-    if (m_versions.at(r).versionNumber >= best.versionNumber)
-      best = m_versions.at(r);
-  return best;
+  const int row = m_idx.currentVersionRow(assetId);
+  return row < 0 ? CatalogVersion{} : m_versions.at(row);
 }
 
 QString DataCatalog::managedPath(const QString &stage, const QString &assetId,

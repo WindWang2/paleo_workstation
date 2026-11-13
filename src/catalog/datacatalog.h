@@ -333,6 +333,18 @@ class DataCatalog : public QObject
     CatalogEntity entityById(const QString &id) const;
     // Stored metadata only, O(1). Does not open the model or infer a well ID by name.
     CatalogEntity storedEntityById(const QString &id) const;
+    // Stored fact rows, stable ID order. The query service overlays a bounded
+    // page of model values against an independently bound model generation.
+    CatalogPage<CatalogEntity> entityPage(const QString &type, const QString &after, int limit) const;
+    CatalogPage<CatalogAsset> assetPage(const QString &type, const QString &after, int limit) const;
+    CatalogPage<EntityAssetLink> linkPage(const QString &entityId, const QString &role, const QString &after, int limit) const;
+    CatalogPage<QString> versionParentsPage(const QString &id, const QString &after, int limit) const;
+    CatalogPage<QString> versionChildrenPage(const QString &id, const QString &after, int limit) const;
+    QHash<QString, int> assetCountsByType() const;
+    CatalogPage<CatalogEntity> wellNamePage(const QString &normalizedName, const QString &after, int limit) const;
+    CatalogPage<CatalogEntity> modelWellPage(qlonglong id, const QString &after, int limit) const;
+    CatalogPage<CatalogAsset> assetNamePage(const QString &name, const QString &after, int limit) const;
+    void setReadObserver(std::function<void(const char *)> observer) { m_readObserver = std::move(observer); }
     QVector<CatalogAsset> assets() const;
     CatalogAsset assetById(const QString &id) const;
     QVector<CatalogVersion> versionsForAsset(const QString &assetId) const;
@@ -481,6 +493,7 @@ class DataCatalog : public QObject
     // 计数 + qCritical（strict 模式 qFatal）并返回 false——调用方提前返回
     // 空数据（默认拒绝，杜绝 COW 竞态读）。
     bool noteRead(const char *what) const;
+    std::function<void(const char *)> m_readObserver;
     void recordOp(CatalogOp op);
     // 打开工程后，词表已认为合法的链接去掉尾部类型不符后缀。备注中间的同样字样不动。
     void reconcileRoleNotes();

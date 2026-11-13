@@ -80,9 +80,11 @@ QJsonObject AiToolSpec::toJsonSchema() const {
   if (!required.isEmpty())
     schema.insert(QStringLiteral("required"), required);
   schema.insert(QStringLiteral("additionalProperties"), false);
-  if (name==QLatin1String("paleo.query_project"))
-    schema.insert("allOf",QJsonArray{QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","version"}}}}}}},
+  if (name==QLatin1String("paleo.query_project")) {
+    const QJsonObject condition{{"properties",QJsonObject{{"topic",QJsonObject{{"enum",QJsonArray{"version","version_parents"}}}}}}};
+    schema.insert("allOf",QJsonArray{QJsonObject{{"if",condition},
         {"then",QJsonObject{{"required",QJsonArray{"version_id"}}}}}});
+  }
   return schema;
 }
 
@@ -100,10 +102,13 @@ QJsonObject AiToolSpec::modelResultSchema() const {
 }
 
 QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
-  if (name==QLatin1String("paleo.query_project") && arguments.value("topic").toString()==QLatin1String("version")) {
+  if (name==QLatin1String("paleo.query_project") && (arguments.value("topic").toString()==QLatin1String("version") || arguments.value("topic").toString()==QLatin1String("version_parents"))) {
     if (!arguments.value("version_id").isString() || arguments.value("version_id").toString().isEmpty())
-      return QObject::tr("topic=version 须给精确 version_id");
-    if (arguments.contains("catalog_revision") && !arguments.value("catalog_revision").isDouble())
+      return QObject::tr("topic=version/version_parents 须给精确 version_id");
+    const auto revision=arguments.value("catalog_revision");
+    if (arguments.contains("catalog_revision") && (!revision.isDouble() || !std::isfinite(revision.toDouble()) ||
+        std::floor(revision.toDouble())!=revision.toDouble() || revision.toDouble()<0 ||
+        revision.toDouble()>double(std::numeric_limits<int>::max())))
       return QObject::tr("catalog_revision 须为整数");
   }
   for (const AiToolParamSpec &parameter : parameters) {
@@ -217,16 +222,25 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   query.parameters = {
     {QStringLiteral("topic"), QStringLiteral("string"),
      QObject::tr("查询主题：summary=计数摘要；wells=井清单；horizons=层位"
-                 "资产清单；assets=资产清单；well_details=单井关联明细"),
+                 "资产清单；assets=资产清单；well_details=单井关联明细；"
+                 "version=严格版本摘要；version_parents=完整父引用续页"),
      true,
      {QStringLiteral("summary"), QStringLiteral("wells"), QStringLiteral("horizons"),
-      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("version")}},
+      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("version"),QStringLiteral("version_parents")}},
     {QStringLiteral("version_id"),QStringLiteral("string"),
-     QObject::tr("精确目录版本标识（topic=version 时必填，不按名称回退）"),false},
+     QObject::tr("精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）"),false},
     {QStringLiteral("catalog_revision"),QStringLiteral("integer"),
-     QObject::tr("目录修订条件（topic=version；缺省使用本次宿主目录修订）"),false},
+     QObject::tr("目录修订条件（version/version_parents；缺省使用本次宿主目录修订）"),false},
     {QStringLiteral("well_name"), QStringLiteral("string"),
-     QObject::tr("井名（topic=well_details 时必填；按目录规范化匹配）"), false},
+     QObject::tr("井名（well_details 未给 well_id 时使用；按目录规范化匹配）"), false},
+    {QStringLiteral("well_id"), QStringLiteral("string"),
+     QObject::tr("精确井实体标识；well_details 优先使用此字段"), false},
+    {QStringLiteral("cursor"), QStringLiteral("string"),
+     QObject::tr("上一页的 nextCursor；保持主题、筛选及页预算不变"), false},
+    {QStringLiteral("page_size"), QStringLiteral("integer"),
+     QObject::tr("每页最大条目数（1–256，缺省50）"), false},
+    {QStringLiteral("max_bytes"), QStringLiteral("integer"),
+     QObject::tr("完整JSON页的UTF-8字节预算（2048–65536，缺省8192）"), false},
     {QStringLiteral("role"), QStringLiteral("string"),
      // 角色清单单源：catalogRoles() 生成（分组名+清单），不再手写串。
      // 「等」字保留——工程 project_area.json 自定义角色不在词表内。
@@ -246,6 +260,12 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   auto querySchema=QJsonDocument::fromJson(query.resultSchemaJson.toUtf8()).object();
   auto queryProperties=querySchema.value("properties").toObject();
   queryProperties.insert("version",paleo::capability::ArtifactVersionCapability::resultSchema());
+  queryProperties.insert("returnedCount",QJsonObject{{"type","integer"}});
+  queryProperties.insert("totalCount",QJsonObject{{"type",QJsonArray{"integer","null"}}});
+  queryProperties.insert("hasMore",QJsonObject{{"type","boolean"}});
+  queryProperties.insert("nextCursor",QJsonObject{{"type",QJsonArray{"string","null"}}});
+  queryProperties.insert("coverage",QJsonObject{{"type","object"}});
+  queryProperties.insert("parents",QJsonObject{{"type","array"},{"items",QJsonObject{{"type","object"}}}});
   querySchema.insert("properties",queryProperties);
   query.resultSchemaJson=QString::fromUtf8(QJsonDocument(querySchema).toJson(QJsonDocument::Compact));
 
@@ -266,6 +286,12 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
      QObject::tr("上游追溯深度（缺省 3，0-12）"), false},
     {QStringLiteral("downstream_depth"), QStringLiteral("integer"),
      QObject::tr("下游追溯深度（缺省 1，0-12）"), false},
+    {QStringLiteral("cursor"), QStringLiteral("string"),
+     QObject::tr("上一页的 nextCursor；保持主题、筛选及页预算不变"), false},
+    {QStringLiteral("page_size"), QStringLiteral("integer"),
+     QObject::tr("每页最大条目数（1–256，缺省50）"), false},
+    {QStringLiteral("max_bytes"), QStringLiteral("integer"),
+     QObject::tr("完整JSON页的UTF-8字节预算（2048–65536，缺省8192）"), false},
   };
   lineage.resultSchemaJson = QStringLiteral(
     R"({"type":"object","properties":{"tool":{"type":"string"},"asset":{"type":"string"},)"
@@ -273,6 +299,12 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     R"("nodes":{"type":"array","items":{"type":"object"}},"edges":{"type":"array","items":{"type":"object"}},)"
     R"("selection":{"type":"object","properties":{"count":{"type":"integer"},)"
     R"("version_ids":{"type":"array","items":{"type":"string"}}}}}})");
+  auto lineageSchema=QJsonDocument::fromJson(lineage.resultSchemaJson.toUtf8()).object();
+  auto lineageProperties=lineageSchema.value("properties").toObject();
+  for(const auto &key:QStringList{"returnedCount","totalCount","hasMore","nextCursor","coverage"})
+    lineageProperties.insert(key,queryProperties.value(key));
+  lineageSchema.insert("properties",lineageProperties);
+  lineage.resultSchemaJson=QString::fromUtf8(QJsonDocument(lineageSchema).toJson(QJsonDocument::Compact));
 
   auto capabilityTool = [](const QString &name, const QString &title, const QString &description) {
     AiToolSpec spec;

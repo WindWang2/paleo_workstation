@@ -77,6 +77,9 @@ add_library(paleo_store STATIC
   src/catalog/purgelease.cpp
   src/catalog/datacatalog.cpp                       # 生命周期/open/落盘面（方向 99 拆分主 TU）
   src/catalog/datacatalog_entities.cpp              # 实体族：add/查询/井名匹配/前缀 id
+  src/catalog/datacatalog_pages.cpp
+  src/catalog/catalogindex_pages.cpp
+  src/catalog/catalogindex_metadata.cpp
   src/catalog/datacatalog_assets.cpp                # 资产族：add/查询/物理删除/ast-N id
   src/catalog/datacatalog_links.cpp                 # 链接族：mutator×4/查询/role 诊断面
   src/catalog/datacatalog_versions.cpp              # 版本族：add(supersede)/extra 就地更新/sha/路径
@@ -204,7 +207,6 @@ add_library(paleo_io STATIC
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
-  src/services/artifactversioncapability.cpp
   src/services/documentsourceprobe.cpp
   src/services/documentrelationresolver.cpp
   src/services/timedepthdependencies.cpp

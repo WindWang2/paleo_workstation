@@ -142,10 +142,28 @@ private slots:
     QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",changed),QString("external_completion_conflict"));
     QCOMPARE(h.recovery.lookup(p.callerScope,p.clientRequestId).record.remoteCompletionProof,proof);
     QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",proof,true),QString("ok"));
+    h.lock->unlock();ProjectDirLock probe(root.path());QVERIFY(!probe.tryLock());
+    QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",proof,false),QString("ok"));
+    QVERIFY(probe.tryLock());probe.unlock();QVERIFY(h.lock->tryLock());
+    QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"job-proof","succeeded",proof,true),QString("ok"));
     h.documentId="another-document";++h.epoch;bool done=false;QString error;ExecuteResult result;
     QVERIFY2(h.recovery.attachExternalResults(p.callerScope,id,worker(),this,[&](ExecuteResult r){result=r;done=true;},&error),qPrintable(error));
     QTRY_VERIFY(done);QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(h.catalog.versions().size(),0);
 
+  }
+  void restoredRemoteQueryRetainsItsOriginalDocument() {
+    QTemporaryDir root;QString id;auto p=plan("remote-query");p.phase="compute-only";
+    p.outputSpec={};p.outputPorts.clear();p.externalRequest={{"requestHash",QString(64,'a')},{"modelVersion","model-v1"}};
+    {Host h;QVERIFY(h.open(root.path()));h.allowExternal=true;const auto accepted=h.recovery.beginExternal(p);QCOMPARE(accepted.code,QString("Send"));id=accepted.record.operationId;
+      QCOMPARE(h.recovery.noteRemoteAccepted(p.callerScope,id,"original-job"),QString("ok"));}
+    Host h;QVERIFY(h.open(root.path()));h.allowExternal=true;const auto query=h.recovery.beginExternal(p);QCOMPARE(query.code,QString("Query"));
+    QCOMPARE(query.record.remoteJobId,QString("original-job"));h.documentId="another-document";++h.epoch;
+    const QJsonObject proof{{"requestHash",QString(64,'a')},{"responseHash",QString(64,'b')},{"modelVersion","model-v1"}};
+    QCOMPARE(h.recovery.reportExternal(p.callerScope,id,"original-job","succeeded",proof),QString("ok"));
+    OperationLog log(root.path()+"/.paleo/capability-ops");const auto saved=log.recordById(id);
+    QCOMPARE(saved.documentId,QString("doc"));QCOMPARE(saved.execution,QString("succeeded"));QCOMPARE(saved.computeCount,1);
+    QCOMPARE(saved.remoteJobId,QString("original-job"));QCOMPARE(saved.remoteCompletionProof,proof);
+    h.lock->unlock();ProjectDirLock next(root.path());QTRY_VERIFY(next.tryLock());
   }
   void phaseInheritanceSurvivesRestartWithoutLivePlan() {
     QTemporaryDir root;QString sourceId;QJsonObject target;

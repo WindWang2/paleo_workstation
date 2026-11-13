@@ -16,9 +16,10 @@ CapabilityRecovery::Accepted CapabilityRecovery::beginExternal(const FrozenOpera
   const auto h=live();
   const auto permitted=host::checkContext(h.context,h.context,host::Read|host::PrivateStage|host::ExternalTransfer);
   if(!permitted.isEmpty())return {false,permitted,r};
-  if(!r.remoteJobId.isEmpty()){accepted.code="Query";return accepted;}
-  if(r.execution!=QLatin1String("queued")){accepted.code="Unknown";return accepted;}
   OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
+  if(!log.ownsWrites())return {false,"project_write_ownership_required",r};
+  if(!r.remoteJobId.isEmpty()){m_externalHosts.insert(r.operationId,h);accepted.code="Query";return accepted;}
+  if(r.execution!=QLatin1String("queued")){accepted.code="Unknown";return accepted;}
   const auto before=r;r.execution="running";r.code="external_sending";
   r.ownerAttempt=QUuid::createUuid().toString(QUuid::WithoutBraces);r.ownerProcess=QString::number(QCoreApplication::applicationPid());++r.computeCount;
   const auto code=log.saveDurable(r,before.stateRevision,before.ownerAttempt,&r);
@@ -63,7 +64,7 @@ QString CapabilityRecovery::reportExternal(const QString &scope,const QString &i
       if(!allowed.isEmpty())return allowed;
       if(!log.ownsWrites())return "project_write_ownership_required";
       m_externalHosts.insert(id,h);
-    }
+    } else {m_externalHosts.remove(id);m_externalActive.remove(id);}
     return "ok";
   }
   if(outcome=="unknown" && r.remoteJobId.isEmpty() && !jobId.isEmpty() && jobId.toUtf8().size()<=1024)r.remoteJobId=jobId;

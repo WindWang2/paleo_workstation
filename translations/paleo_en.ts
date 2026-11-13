@@ -795,6 +795,11 @@
             <source> · 本页节点超过小图上限 %1，已按 JSON 折叠</source>
             <translation> · This page exceeds the mini graph limit (%1 nodes); shown as collapsed JSON</translation>
         </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="162" />
+            <source>井深</source>
+            <translation>Well depth</translation>
+        </message>
     </context>
     <context>
         <name>AlgorithmSpec</name>
@@ -34602,8 +34607,8 @@ PDF：%3
         </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="195" />
-            <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。</source>
-            <translation>Read-only project catalog queries: wells (including planned wells), horizon assets, assets, well links and counts. Results include version paths and never modify data. Lists are paged: continue with nextCursor while hasMore=true; count is the filtered total and returnedCount is this page size.</translation>
+            <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。井深按来源原值返回，未给出的单位不能推断。</source>
+            <translation>Read-only project catalog queries: wells (including planned wells), horizon assets, assets, well links and counts. Results include version paths and never modify data. Lists are paged: continue with nextCursor while hasMore=true; count is the filtered total and returnedCount is this page size. Well depths retain source values; do not infer units that are not returned.</translation>
         </message>
         
         <message>

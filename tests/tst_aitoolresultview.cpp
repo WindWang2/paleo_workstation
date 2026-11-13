@@ -338,6 +338,8 @@ void TestAiToolResultView::pagedCardsDistinguishPageUnknownTotalsAndCrossPageEdg
       QString::fromUtf8(QJsonDocument(wells).toJson(QJsonDocument::Compact)));
   note = tableCard.findChild<QLabel *>(QStringLiteral("aiResultPageNote")); QVERIFY(note);
   QVERIFY(note->text().contains(QStringLiteral("60"))); QVERIFY(!note->text().contains(QStringLiteral("page_available")));
+  auto *wellTable=tableCard.findChild<QTableWidget *>(QStringLiteral("aiResultTable"));QVERIFY(wellTable);
+  QCOMPARE(wellTable->horizontalHeaderItem(2)->text(),QStringLiteral("井深"));
   auto resolving = wells; resolving.insert(QStringLiteral("topic"),QStringLiteral("well_details"));
   resolving.insert(QStringLiteral("resolution"),QStringLiteral("searching")); resolving.insert(QStringLiteral("totalCount"),QJsonValue::Null);
   AiToolResultView searchCard(QStringLiteral("paleo.query_project"), true,

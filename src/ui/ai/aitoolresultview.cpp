@@ -160,7 +160,7 @@ void AiToolResultView::buildTable(const QJsonObject &payload,
   const bool wellRows = topic == QLatin1String("wells");
   QStringList headers;
   if (wellRows)
-    headers << tr("井名") << tr("类型") << tr("井深(m)");
+    headers << tr("井名") << tr("类型") << (payload.contains(QStringLiteral("hasMore")) ? tr("井深") : tr("井深(m)"));
   else if (topic == QLatin1String("horizons"))
     headers << tr("层位") << tr("版本") << tr("阶段");
   else

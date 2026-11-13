@@ -219,7 +219,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     "单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么"
     "曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。"
     "清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，"
-    "returnedCount 为本页条目数。");
+    "returnedCount 为本页条目数。井深按来源原值返回，未给出的单位不能推断。");
   query.requiresLocalOrt = false;
   query.parameters = {
     {QStringLiteral("topic"), QStringLiteral("string"),

@@ -315,7 +315,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     spec.title = title;
     spec.description = description;
     spec.requiresLocalOrt = false;
-    QStringList intents{QStringLiteral("compute-only")};
+    QStringList intents{QStringLiteral("compute-only"), QStringLiteral("publish")};
     if (name == QLatin1String("paleo.constraint_idw"))
       intents.prepend(QStringLiteral("prepare"));
     spec.parameters = {

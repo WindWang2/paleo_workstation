@@ -5,6 +5,7 @@
 #include "metadata/projectlock.h"
 #include "services/capabilityseismicinput.h"
 #include "workflow/documentsession.h"
+#include "workflow/commanddispatcher.h"
 #include <QCryptographicHash>
 #include <QSysInfo>
 #include <cmath>
@@ -91,4 +92,9 @@ void configureCapabilityCallers(paleo::capability::CapabilityHost *service) {
   service->setCallerScope(paleo::host::Caller::Ui, QStringLiteral("ui:local:") + id);
   service->setCallerScope(paleo::host::Caller::Batch, QStringLiteral("batch:local:") + id);
   service->setCallerScope(paleo::host::Caller::Agent, QStringLiteral("agent:local:") + id);
+}
+
+void bindCapabilityDispatcher(paleo::command::CommandDispatcher *dispatcher,
+                             paleo::capability::CapabilityHost *service) {
+  if (dispatcher) dispatcher->setCapabilityHost(service);
 }

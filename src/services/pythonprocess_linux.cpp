@@ -85,7 +85,12 @@ ProcessResult runPreparedChild(const Launch &request,Prepared &prepared) {
     if(!released) {
       const auto path=cgroupDirectory(prepared);
       if(!path.isEmpty()) {
-        if(const auto code=verifyResourceLimits(path,request.policy);!code.isEmpty()) {result.code=code;break;}
+        if(const auto code=verifyResourceLimits(path,request.policy);!code.isEmpty()) {
+          // systemd can expose the scope before its controller properties settle.
+          // Keep the child behind the barrier until every limit is enforced.
+          if(elapsed.elapsed()>5000) {result.code=code;break;}
+          process.waitForReadyRead(20);continue;
+        }
         cpu.setFileName(path+"/cpu.stat");memory.setFileName(path+"/memory.peak");memoryEvents.setFileName(path+"/memory.events");
         if(!cpu.open(QIODevice::ReadOnly)||!memory.open(QIODevice::ReadOnly)||!memoryEvents.open(QIODevice::ReadOnly)) {
           result.code="python_linux_resource_accounting_unavailable";break;

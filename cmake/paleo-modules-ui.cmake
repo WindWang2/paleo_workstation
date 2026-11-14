@@ -86,6 +86,7 @@ add_library(paleo_workflow STATIC
   src/workflow/capabilityrecovery_commit.cpp
   src/workflow/capabilityrecovery_worker.cpp
   src/workflow/capabilityrecovery_query.cpp
+  src/workflow/capabilityrecovery_read.cpp
   src/workflow/capabilityrecovery_external.cpp
   src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
   src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）

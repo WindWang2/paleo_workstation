@@ -1,9 +1,6 @@
 // 层：功能
-// workflow/capabilityrecovery_query.cpp — 有作用域的查询/事件/取消/有界结果读取。
+// workflow/capabilityrecovery_query.cpp — 有作用域的查询/事件/取消/结果描述。
 #include "capabilityrecovery_internal.h"
-#include "capabilitypublication_internal.h"
-#include "services/paleotaskservice.h"
-#include <QFile>
 #include <QJsonDocument>
 namespace paleo::capability {
 QJsonObject CapabilityRecovery::get(const QString &scope,const QString &id) {
@@ -60,32 +57,5 @@ QJsonObject CapabilityRecovery::results(const QString &scope,const QString &id) 
   out.insert("ports",ports);
   if(!r.artifactManifest.value("childOperations").toArray().isEmpty())out.insert("childOperations",r.artifactManifest.value("childOperations"));
   if(ports.isEmpty())out.insert("code","result_unavailable");return out;
-}
-PaleoTask *CapabilityRecovery::read(const QString &scope,const QString &id,const QString &portId,qint64 offset,int maxBytes,
-    QObject *subscriber,std::function<void(QJsonObject)> finished,QString *error) {
-  const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  const auto r=recovery_detail::authorized(log,h,scope,id);
-  const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
-  if(r.operationId.isEmpty())return reject("operation_not_found");
-  if(offset<0 || maxBytes<1 || maxBytes>24*1024)return reject("invalid_read_budget");
-  if(!m_tasks || !subscriber)return reject("task_service_unavailable");
-  auto output=std::make_shared<QJsonObject>();const auto allowed=recovery_detail::managedTargets(r,h.projectDir);
-  auto *task=m_tasks->start("Read operation result",[h,r,portId,offset,maxBytes,output,allowed](PaleoTask *task){
-    AlgorithmRunResult artifacts;QString code;
-    auto manifest=r.artifactManifest;QJsonArray selected;
-    for(const auto &entry:manifest.value("ports").toArray())if(entry.toObject().value("portId").toString()==portId)selected.append(entry);
-    manifest.insert("ports",selected);
-    if(!publication_detail::outputsFromManifest(h.projectDir,r.operationId,manifest,artifacts,&code,
-         [task]{return task->cancelRequested();},true,allowed)){*output={{"contract",QLatin1String(OperationContract)},{"ok",false},{"code",code.isEmpty()?"result_unavailable":code}};return code;}
-    for(const auto &artifact:artifacts.artifacts)if(artifact.portId==portId) {
-      QFile file(artifact.absolutePath);if(!file.open(QIODevice::ReadOnly) || offset>file.size() || !file.seek(offset))break;
-      const auto bytes=file.read(maxBytes);const auto next=offset+bytes.size();
-      *output={{"contract",QLatin1String(OperationContract)},{"ok",true},{"code","ok"},{"operationId",r.operationId},{"portId",portId},{"encoding","base64"},
-        {"offset",QString::number(offset)},{"nextOffset",QString::number(next)},{"hasMore",next<file.size()},
-        {"data",QString::fromLatin1(bytes.toBase64())}};return QString();
-    }
-    *output={{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","result_unavailable"}};return QStringLiteral("result_unavailable");
-  });
-  QObject::connect(task,&PaleoTask::finished,subscriber,[output,finished=std::move(finished)]{if(finished)finished(*output);});return task;
 }
 } // namespace paleo::capability

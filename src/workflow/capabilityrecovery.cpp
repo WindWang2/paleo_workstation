@@ -6,6 +6,7 @@
 #include "catalog/datacatalog.h"
 #include "metadata/projectlock.h"
 #include "services/paleotaskservice.h"
+#include "services/authenticatedartifactreader.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
@@ -65,8 +66,13 @@ QJsonObject publicOperation(const OperationLog::Record &r) {
   return out;
 }
 CapabilityRecovery::CapabilityRecovery(QObject *parent):QObject(parent) {}
+CapabilityRecovery::~CapabilityRecovery() {
+  if(m_resultReader)m_resultReader->invalidate();
+}
 void CapabilityRecovery::setHostProvider(HostProvider provider){invalidateRuntimeHooks();m_host=std::move(provider);}
 void CapabilityRecovery::invalidateRuntimeHooks() {
+  if(m_resultReader)m_resultReader->invalidate();
+  m_resultReader.reset();
   m_runtimeHooks.clear();m_runtimeDocument.clear();m_runtimeProject.clear();m_runtimeEpoch=0;
 }
 void CapabilityRecovery::setTaskService(PaleoTaskService *tasks){m_tasks=tasks;}

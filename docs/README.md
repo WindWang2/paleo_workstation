@@ -14,6 +14,8 @@
 - [平台与依赖来源](PLATFORM_MATRIX.md)
 - [结构审查与整理记录（2026-11-13）](progress/structure-review-20261113.md)
 - [合并后的平台审查与整理（2026-11-14）](progress/platform-review-20261114.md)
+- [操作结果分页完整性与成本](architecture/OPERATION_RESULT_READ_INTEGRITY.md)
+- [大工件分页整改与验证（2026-11-14）](progress/operation-read-integrity-20261114.md)
 
 ## 后续实施规划
 

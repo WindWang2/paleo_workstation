@@ -1,9 +1,9 @@
 # 受控 Python Agent 环境实施计划
 
 日期：2026-11-14。源码基线：master `3d499a61`（#942）。
-状态：**PY0、PY1 已实现并完成本地编译/测试/门禁验收，等待各批实现 PR 合入；PY2–PY4 尚未在本分支交付**。
+状态：**PY0–PY2 已实现并完成编译/测试/门禁验收，等待各批实现 PR 合入；PY3W/PY3L、PY4 尚未在本分支交付**。
 实际契约和证据见 [PY0 记录](../progress/controlled-python-py0-20261114.md)与
-[PY1 记录](../progress/controlled-python-py1-20261114.md)；其余条目仍是拟议契约。
+[PY1 记录](../progress/controlled-python-py1-20261114.md)、[PY2 记录](../progress/controlled-python-py2-20261114.md)；其余条目仍是拟议契约。
 每批完成编译、测试和源码门禁后分别提 PR，不以计划条目推定功能已可用。
 
 本计划扩展[原子能力与 Agent 契约](../architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)，

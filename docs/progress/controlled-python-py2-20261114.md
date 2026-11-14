@@ -2,7 +2,7 @@
 
 本批依赖 PY1 和 SDK 配套 [Data_service #21](https://github.com/changyanyanchang/Data_service/pull/21)。
 主仓基底为 `17bdfd0f`，SDK 固定为 `9d80d1f6bbe9e1e3a71ff65d608f5290aeb75b14`。
-完整应用和最终原生运行验收在本页分别记录；在原生验收结束前不以 WSL 结果宣称交付。
+完整应用和最终原生运行验收均已完成，WSL 拒绝执行的结果与原生成功结果分别记录。
 
 ## 行为与数据边界
 
@@ -60,11 +60,11 @@ GCC 16.2.1、CMake 4.4.3；默认 ORT 1.30.0，另一套明确关闭 ORT。构�
 
 WSL 两套各运行 45 项。实际执行六套 Python 测试被缺失 CPU controller 拒绝，
 这是负例，不算成功执行验收。另发现旧查询工具精确清单遗漏新增两工具，已修正并
-重编相应目标。原生最终全量结果待下文补录，不以旧清单故障或负例结果充当绿灯。
+重编相应目标。不以旧清单故障或负例结果充当绿灯，最终原生结果见下文。
 
 开 PR 前已 fetch/rebase `origin/master`，CI 清单加补充自检的 Source gates **37/37**；
 显式提供锁版 QGIS 头目录，包含 transitive 全指标、严格分层和规模闸，基线无增长。
-最终文档收口后重新运行同一清单。
+最终文档收口后重新运行同一清单，PR 依赖 PY1 与 SDK #21，未自动合并任何实现批次。
 
 原始证据在本工作树 `local/python-validation/`、`local/review-20261114/source-gates/`，
 完整 build 为 `/home/kevin/build-paleo-python-analysis{,-noort}`。
@@ -80,3 +80,15 @@ CTest 用时 18.78 秒。没有修改生产代码、预算、容差或断言。
 其余 44 个套件保留首轮完整结果，失败套件保留独占重试结果，不把首轮改写为 45/45。
 no-ORT 应用首帧与 startup_screen_closed 已实际出现，Office 组件在位；
 运行后 2143 个运行时文件再次完整 SHA 核验通过。
+
+原生默认配置完整 **45/45**，QtTest **613 通过、0 失败、0 跳过**，CTest **372.73 秒**。
+no-ORT 的 45 个选定套件保留上述首轮及完整失败套件重试证据，最终 QtTest 汇总为
+**607 通过、0 失败、0 跳过**。编译与验证的功能源码为 `4b98bfd9`，其后只有文档收口。
+两套运行均使用实际生产 Host/Recovery、Catalog、Agent runner 和 app provider，
+覆盖 SDK 发现→可信分析→幂等回放→128 B 认证页→重建宿主→原操作发布与父版本。
+六组 `ldd -r`（应用、QtCore、QtGui、WebEngine、QGIS、GDAL）无缺失或未定义符号，
+身份为 UID 1000、零 capabilities，CPU/memory/pids controller 均有效。
+每套运行前后核对干净、只读运行时代际的 2143 文件精确集、大小和 SHA。
+保留默认包 manifest `f076355c37c2793157a60de9c6870bc7dd583a43d533187efe43ef20ecc6cd39`，
+no-ORT 包 manifest `b73fb29ed7ab46dbd88ab5e43b12d14df0a5a2b6989af2caf46cb97dfd3c029a`；
+完整原始证据在 `local/python-validation/native-full/`。

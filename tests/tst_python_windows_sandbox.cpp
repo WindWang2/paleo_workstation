@@ -112,6 +112,14 @@ private slots:
     const auto result=run(code,R"({"unit":"m"})",binary,true);QVERIFY2(result.ok(),qPrintable(result.code+':'+QString::fromUtf8(result.error)));
     const auto object=QJsonDocument::fromJson(result.output).object();QCOMPARE(object.value("bytes").toInt(),24);QCOMPARE(object.value("sum").toDouble(),6.0);QCOMPARE(object.value("unit").toString(),QString("m"));
   }
+  void framedInputIncludesItsLengthPrefixInBudget(){
+    ExecutionPolicy policy;policy.inputBytes=4096;
+    const auto code="import sys\nsys.stdout.buffer.write(str(len(sys.stdin.buffer.read())).encode('ascii'))";
+    const auto oversized=run(code,"{}",QByteArray(4094,'x'),true,policy);
+    QCOMPARE(oversized.code,QString("python_input_budget_exceeded"));QVERIFY(oversized.output.isEmpty());QCOMPARE(oversized.cpuMicros,qint64(0));
+    const auto exact=run(code,"{}",QByteArray(4090,'x'),true,policy);
+    QVERIFY2(exact.ok(),qPrintable(exact.code+':'+QString::fromUtf8(exact.error)));QCOMPARE(exact.output,QByteArray("4096"));
+  }
   void processProfileAndHostWritesAreDenied(){
     QTemporaryDir project(QDir(projects).filePath("host-XXXXXX"));QVERIFY(project.isValid());const auto sentinel=project.filePath("private.txt");
     QFile file(sentinel);QVERIFY(file.open(QIODevice::WriteOnly));QCOMPARE(file.write("private"),qint64(7));file.close();

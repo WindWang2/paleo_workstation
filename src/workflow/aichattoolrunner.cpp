@@ -16,7 +16,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
-#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <utility>
@@ -25,13 +24,12 @@
 #include "../ai/tileinference.h"
 #include "../ai/wellfaciesservice.h"
 #include "../catalog/datacatalog.h"
-#include "../domain/welllogfacies.h"
 #include "../services/paleotaskservice.h"
 
 // workflow/ — 聊天工具执行器实现（方向61；方向77 增只读查询/血缘两工具）。
 //
-// 结果 JSON 契约：成功 = {"tool": <名>, ...摘要}；失败 = {"tool": <名>,
-// "error": <人可读原因>}。两种都按 role=tool 回灌——协议要求每个
+// 结果 JSON 契约：成功给摘要/结果引用；失败给稳定 code 或人可读 error。
+// 两种都按 role=tool 回灌——协议要求每个
 // tool_call_id 有应答，错误也让模型如实转述，不在本地吞掉。
 
 namespace {
@@ -70,18 +68,6 @@ constexpr int kMaxSuggestSeeds = 64;
 constexpr int kMaxSuggestWindow = 4096;
 constexpr int kMaxLineNumberAbs = 10000000; // 线号/样点号合理域，防 ±radius 溢出
 
-double doubleArg(const QJsonObject &args, const char *key) {
-  const QJsonValue value = args.value(QLatin1String(key));
-  if (value.isDouble())
-    return value.toDouble();
-  if (value.isString()) {
-    bool ok = false;
-    const double parsed = value.toString().trimmed().toDouble(&ok);
-    if (ok)
-      return parsed;
-  }
-  return qQNaN(); // 未给
-}
 } // namespace
 
 AiChatToolRunner::AiChatToolRunner(QObject *parent)
@@ -107,8 +93,6 @@ void AiChatToolRunner::setFaciesConfig(const WellFaciesConfig &config) {
   if(m_activeIsFacies&&m_activeTask)m_activeTask->requestCancel();
   m_faciesConfig = config;
   m_facies->configure(config);
-  if(m_activeIsFacies&&m_activeUsesLegacyFacies)
-    finishActive(false,{{"code","facies_config_changed"},{"execution","external_unknown"},{"retryAdvice","do_not_repeat_automatically"}});
 }
 
 void AiChatToolRunner::setContext(const Context &context) {
@@ -165,7 +149,6 @@ void AiChatToolRunner::cancel() {
   }
   m_active = false;
   m_activeIsFacies = false;
-  m_activeUsesLegacyFacies=false;
   m_activeTask.clear();
 }
 
@@ -179,7 +162,6 @@ void AiChatToolRunner::startNext() {
   m_activeFaciesEpoch=next.faciesEpoch;
   m_active = true;
   m_activeIsFacies = false;
-  m_activeUsesLegacyFacies=false;
   const int generation = m_generation;
   emit toolStarted(m_activeCall);
   if (generation != m_generation)
@@ -234,6 +216,9 @@ void AiChatToolRunner::startNext() {
   }
   const AiToolDispatch dispatch = dispatchAiTool(m_activeCall.name, args);
   if (dispatch.status != AiToolDispatchStatus::Routed) {
+    if(m_activeCall.name==QLatin1String("paleo.well_facies_prediction") && !dispatch.note.isEmpty()) {
+      finishActive(false,{{"code",dispatch.note}});return;
+    }
     const QString text = aiToolDispatchLabel(dispatch.status) +
                          (dispatch.note.isEmpty()
                             ? QString()
@@ -257,7 +242,7 @@ void AiChatToolRunner::startNext() {
            QStringLiteral("paleo.horizon_tracking_suggestion"))
     runHorizon(m_activeCall, args);
   else if (m_activeCall.name == QStringLiteral("paleo.well_facies_prediction"))
-    runFacies(m_activeCall, args);
+    runFacies(args);
   else if (m_activeCall.name == QStringLiteral("paleo.query_project"))
     runQuery(m_activeCall, args);
   else if (m_activeCall.name == QStringLiteral("paleo.asset_lineage"))
@@ -334,7 +319,6 @@ void AiChatToolRunner::finishActive(bool ok, const QJsonObject &payload) {
   const bool wasFacies = m_activeIsFacies;
   const int generation = m_generation;
   m_activeIsFacies = false;
-  m_activeUsesLegacyFacies=false;
   m_activeTask.clear();
   if (wasFacies)
     m_facies->disconnect(this); // 单发钩子：用完即拆（串行执行下防堆积）
@@ -456,8 +440,8 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
     s.inlineNo = intArg(seed, "inline", kMaxLineNumberAbs + 1);
     s.xlineNo = intArg(seed, "xline", kMaxLineNumberAbs + 1);
     s.sampleIndex = intArg(seed, "sample_index", -1);
-    if (std::abs(s.inlineNo) > kMaxLineNumberAbs ||
-        std::abs(s.xlineNo) > kMaxLineNumberAbs || s.sampleIndex < 0 ||
+    if (s.inlineNo < -kMaxLineNumberAbs || s.inlineNo > kMaxLineNumberAbs ||
+        s.xlineNo < -kMaxLineNumberAbs || s.xlineNo > kMaxLineNumberAbs || s.sampleIndex < 0 ||
         s.sampleIndex > kMaxLineNumberAbs) {
       finishActive(false, errorPayload(tr("种子点坐标缺失或越界（须为整数线号与非负样点号）")));
       return;
@@ -539,93 +523,6 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
     else
       finishActive(false, errorPayload(m_activeTask->errorText()));
   });
-}
-
-void AiChatToolRunner::runLegacyFacies(const ChatToolCall &call,
-                                 const QJsonObject &args) {
-  Q_UNUSED(call)
-  const QString endpointError =
-    WellFaciesConfig::validateUrl(m_faciesConfig.baseUrl,
-                                  m_faciesConfig.allowInsecureHttp);
-  if (!endpointError.isEmpty() || m_faciesConfig.apiKey.isEmpty()) {
-    finishActive(false,
-                 errorPayload(tr("测井相服务未配置（端点与密钥须显式设置）")));
-    return;
-  }
-  if (!m_context.faciesInput) {
-    finishActive(false,
-                 errorPayload(tr("未绑定井曲线数据上下文（须打开工程并加载井数据）")));
-    return;
-  }
-  const QString modelId = args.value(QStringLiteral("model")).toString();
-  const QString well = args.value(QStringLiteral("well_name")).toString();
-  const double depthFrom = doubleArg(args, "depth_from");
-  const double depthTo = doubleArg(args, "depth_to");
-  if (modelId.isEmpty() || well.isEmpty()) {
-    finishActive(false, errorPayload(tr("模型 id 与井名为必填")));
-    return;
-  }
-  WellFaciesInput input;
-  QString inputError;
-  if (!m_context.faciesInput(well, depthFrom, depthTo, &input, &inputError)) {
-    finishActive(false, errorPayload(inputError));
-    return;
-  }
-  if (!input.ready()) {
-    finishActive(false, errorPayload(input.reason));
-    return;
-  }
-  WellFaciesModel model;
-  if (m_context.faciesModel)
-    model = m_context.faciesModel(modelId);
-  model.id = modelId;
-  m_activeIsFacies = true;
-  m_activeUsesLegacyFacies=true;
-  const int generation = m_generation;
-  const QString callId = m_activeCall.id;
-  connect(m_facies, &WellFaciesService::completed, this,
-          [this, generation, callId, well](const WellFaciesResult &result) {
-            if (generation != m_generation || !m_active ||
-                m_activeCall.id != callId)
-              return;
-            QJsonObject payload;
-            payload.insert(QStringLiteral("tool"),
-                           QStringLiteral("paleo.well_facies_prediction"));
-            payload.insert(QStringLiteral("well"), well);
-            payload.insert(QStringLiteral("model"), result.modelName);
-            payload.insert(QStringLiteral("intervals"),
-                           int(result.intervals.size()));
-            QJsonArray sample;
-            const int kSample = 20; // 摘要上限：全文给模型只会烧上下文
-            for (int i = 0; i < result.intervals.size() && i < kSample; ++i) {
-              const auto &interval = result.intervals[i];
-              QJsonObject entry;
-              entry.insert(QStringLiteral("top"), double(interval.topDepth));
-              entry.insert(QStringLiteral("bottom"),
-                           double(interval.bottomDepth));
-              entry.insert(QStringLiteral("label"), interval.text);
-              const auto hierarchy = result.hierarchyIntervals.value(i);
-              entry.insert(QStringLiteral("facies"), hierarchy.majorFacies);
-              entry.insert(QStringLiteral("subfacies"), hierarchy.subFacies);
-              entry.insert(QStringLiteral("microfacies"), hierarchy.microFacies);
-              sample.append(entry);
-            }
-            payload.insert(QStringLiteral("prediction_level"), QStringLiteral("micro_facies"));
-            payload.insert(QStringLiteral("intervals_sample"), sample);
-            if (result.intervals.size() > kSample)
-              payload.insert(
-                QStringLiteral("truncated"),
-                tr("仅前 %1 段（共 %2 段）").arg(kSample).arg(result.intervals.size()));
-            finishActive(true, payload);
-          });
-  connect(m_facies, &WellFaciesService::failed, this,
-          [this, generation, callId](const QString &reason) {
-            if (generation != m_generation || !m_active ||
-                m_activeCall.id != callId)
-              return;
-            finishActive(false, errorPayload(reason));
-          });
-  m_facies->predict(model, well, input);
 }
 
 QString AiChatToolRunner::projectBrief(const DataCatalog *catalog,

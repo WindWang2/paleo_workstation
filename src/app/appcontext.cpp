@@ -211,6 +211,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
                                       m_aiChat?m_aiChat->toolRunner():nullptr);
   });
   m_documentSession->setHostContextProvider([this] { return m_capabilityHost->context(); });
+  connect(m_documentSession, &paleo::document::DocumentSession::sessionChanged,
+          m_capabilityHost, &paleo::capability::CapabilityHost::invalidate);
   connect(m_import, &DataImportService::layerDeclared, this,
           [this](const LayerDeclaration &decl) {
             if (m_layerSvc) {

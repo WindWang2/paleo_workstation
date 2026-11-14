@@ -136,7 +136,8 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
   if ( radius > kMaxRadius )
     return fail( QObject::tr( "非法参数：radius=%1 超过上限 %2" ).arg( radius ).arg( kMaxRadius ) );
   for ( const TrackingSeed &seed : seeds )
-    if ( std::abs( seed.inlineNo ) > kMaxCoordAbs || std::abs( seed.xlineNo ) > kMaxCoordAbs )
+    if ( seed.inlineNo < -kMaxCoordAbs || seed.inlineNo > kMaxCoordAbs ||
+         seed.xlineNo < -kMaxCoordAbs || seed.xlineNo > kMaxCoordAbs )
       return fail( QObject::tr( "非法种子点坐标 (%1,%2)" ).arg( seed.inlineNo ).arg( seed.xlineNo ) );
 
   OnnxModelMeta meta; // #144：meta 随加载取回，推理绑定模型名

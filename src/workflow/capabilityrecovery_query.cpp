@@ -41,6 +41,7 @@ QJsonObject CapabilityRecovery::cancel(const QString &scope,const QString &id) {
   r.cancelRequested=true;r.code="cancel_requested";
   const auto code=recovery_detail::store(log,r);
   if(code!=QLatin1String("ok"))return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code",code}};
+  m_runtimeHooks.remove(id);
   recovery_detail::cancelActive(h.projectDir,id);return publicOperation(r);
 }
 QJsonObject CapabilityRecovery::results(const QString &scope,const QString &id) {

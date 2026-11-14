@@ -289,10 +289,9 @@ void TestAiChatController::toolCallFramesReachThePanelWithHonestStatus() {
   QVERIFY2(spinUntil([&dispatched] { return dispatched.size() >= 1; }),
            "工具调用帧必须被分发（含路由结论）");
   const QString status = dispatched.at(0).at(1).toString();
-  // 诚实：路由结论如实写出（已路由 + 入口），不冒充"已执行"。
-  QVERIFY2(status.contains(QStringLiteral("已路由")), qPrintable(status));
-  QVERIFY2(status.contains(QStringLiteral("workflow/wellfaciesagentrun:typed-v2 external adapter")),
-           qPrintable(status));
+  // Old well-name payloads are rejected by the same typed parser as the schema.
+  QVERIFY2(status.contains(QStringLiteral("不可用")), qPrintable(status));
+  QVERIFY2(status.contains(QStringLiteral("unknown_well_request_field")),qPrintable(status));
   // The old backend emits a legacy well-name payload. The production v2 route
   // rejects it honestly; a route label must never imply successful prediction.
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }, 20000),

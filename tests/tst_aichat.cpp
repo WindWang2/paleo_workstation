@@ -10,6 +10,7 @@
 #include "../src/ai/chat/chatsession.h"
 #include "../src/ai/chat/domaintools.h"
 #include "../src/ai/chat/llmclient.h"
+#include "../src/domain/wellfaciesrequest.h"
 
 // 方向51：对话域模型 + 会话持久化 + SSE 解析 + 配置校验 + 领域工具表。
 // 全部纯逻辑/本地磁盘（会话落在用户目录），不发网络请求。
@@ -353,7 +354,12 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
     QVERIFY2(!spec.description.isEmpty(), "工具必须有描述");
     QVERIFY2(!spec.title.isEmpty(), "工具必须有显示名");
-    QVERIFY2(!spec.parameters.isEmpty(), "工具必须有入参表");
+    const auto inputSchema=spec.toJsonSchema();
+    const auto properties=inputSchema.value("properties").toObject();
+    QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");
+    const auto required=inputSchema.value("required").toArray();QVERIFY(!required.isEmpty());
+    for(const auto &key:required)QVERIFY(properties.contains(key.toString()));
+    QCOMPARE(inputSchema.value("additionalProperties"),QJsonValue(false));
     names.append(spec.name);
     // 入参 schema 与 function 描述都要是可解析的 JSON object。
     QVERIFY(spec.toJsonSchema().value(QStringLiteral("type")).toString() ==
@@ -379,6 +385,9 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   QVERIFY(names.contains(QStringLiteral("paleo.tile_classification")));
   QVERIFY(names.contains(QStringLiteral("paleo.horizon_tracking_suggestion")));
   QVERIFY(names.contains(QStringLiteral("paleo.well_facies_prediction")));
+  const auto facies=aiToolSpec(QStringLiteral("paleo.well_facies_prediction"));
+  QCOMPARE(facies.toJsonSchema(),paleo::wellfacies::requestJsonSchema());
+  QCOMPARE(facies.validateParameters({{"model","f1"},{"well_name","W-1"}}),QString("unknown_well_request_field"));
   QVERIFY(aiToolSpec(QStringLiteral("paleo.nonexistent")).name.isEmpty());
 
   // PW-060："integer" 参数不接受任意文本/小数/越界值。

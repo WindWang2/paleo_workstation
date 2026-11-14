@@ -37,6 +37,8 @@
 #include "../src/services/paleotaskservice.h"
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/aichattoolrunner.h"
+#include "../src/services/toolresultprotocol.h"
+#include "../src/workflow/chatresultstore.h"
 #include "../src/workflow/aiassistworkflow.h"
 
 // 方向61：AI 工具调用闭环（tools[] 上送 → tool_calls 真执行 → role=tool
@@ -208,7 +210,7 @@ private slots:
   void toolRoundCapStopsEndlessLooping();
   void sendWhileBusyIsRejected();
   void historyWindowTruncatesOldTurnsButKeepsSystemAndRecent();
-  void toolResultClampAndTokenEstimateContract();
+  void toolResultEnvelopeAndTokenEstimateContract();
   // 方向77：工程上下文只读工具（query_project）的端到端闭环 + 预算协同。
   void queryProjectLoopAnswersWithWellNames();
   void projectBriefStaysInSystemPromptWithinBudget();
@@ -316,7 +318,7 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   QCOMPARE(server.requestCount(), 2);
   const QJsonObject body1 = server.body(0);
   const QJsonArray tools = body1.value(QStringLiteral("tools")).toArray();
-  QCOMPARE(tools.size(), 8);
+  QCOMPARE(tools.size(), 9);
   QStringList toolNames;
   for (const QJsonValue &value : tools) {
     const QJsonObject entry = value.toObject();
@@ -369,7 +371,7 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
                                      message.value(QStringLiteral("content"))
                                        .toString()
                                        .toUtf8())
-                                     .object();
+                                     .object().value("data").toObject();
       QCOMPARE(payload.value(QStringLiteral("rows")).toInt(), 32);
       QCOMPARE(payload.value(QStringLiteral("columns")).toInt(), 24);
       QCOMPARE(payload.value(QStringLiteral("layer_ids")).toArray().size(), 3);
@@ -433,7 +435,7 @@ void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
     answeredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
     const QJsonObject payload = QJsonDocument::fromJson(
                                   message.value(QStringLiteral("content")).toString().toUtf8())
-                                  .object();
+                                  .object().value("data").toObject();
     if (payload.contains("error"))
       erroredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
   }
@@ -484,7 +486,7 @@ void TestAiChatToolLoop::syncFailingFirstCallStillDispatchesRestOfRound() {
     answeredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
     const QJsonObject payload = QJsonDocument::fromJson(
                                   message.value(QStringLiteral("content")).toString().toUtf8())
-                                  .object();
+                                  .object().value("data").toObject();
     if (payload.contains("error"))
       erroredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
   }
@@ -520,7 +522,7 @@ void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
   const QVector<ChatMessage> messages = controller.messages();
   QCOMPARE(messages.at(2).role, ChatRole::Tool);
   const QJsonObject payload =
-    QJsonDocument::fromJson(messages.at(2).content.toUtf8()).object();
+    QJsonDocument::fromJson(messages.at(2).content.toUtf8()).object().value("data").toObject();
   QVERIFY2(payload.value(QStringLiteral("error"))
              .toString()
              .contains(QStringLiteral("测井相服务未配置")),
@@ -630,6 +632,14 @@ void TestAiChatToolLoop::toolRoundCapStopsEndlessLooping() {
   const QString last = errors.last().at(0).toString();
   QVERIFY2(last.contains(QStringLiteral("上限")), qPrintable(last));
   QCOMPARE(server.requestCount(), AiChatController::kMaxToolRounds + 1);
+  int calls = 0, answers = 0;
+  for (const auto &message : controller.messages()) {
+    calls += int(message.toolCalls.size());
+    if (message.role == ChatRole::Tool) ++answers;
+  }
+  // The over-limit frame was never admitted. Keep earlier pairs and discard that whole frame.
+  QCOMPARE(calls, AiChatController::kMaxToolRounds);
+  QCOMPARE(answers, calls);
 }
 
 // 流式进行中再发消息：如实拒绝，不并发改写会话状态。
@@ -718,17 +728,16 @@ void TestAiChatToolLoop::historyWindowTruncatesOldTurnsButKeepsSystemAndRecent()
   QVERIFY(userTexts.contains(QStringLiteral("新问题")));
 }
 
-// 预算口径单测：工具结果截断（标记如实带原始长度）+ token 字符近似。
-void TestAiChatToolLoop::toolResultClampAndTokenEstimateContract() {
-  const QString huge(AiChatController::kToolResultCharLimit + 500, QLatin1Char('x'));
-  const QString clamped = AiChatController::clampToolResult(huge);
-  QVERIFY(clamped.size() > AiChatController::kToolResultCharLimit);
-  QVERIFY(clamped.size() < huge.size());
-  QVERIFY2(clamped.contains(QStringLiteral("截断")), "截断标记必须可见");
-  QVERIFY(clamped.contains(QString::number(huge.size()))); // 原始长度如实
-
-  const QString shortResult = QStringLiteral("{\"rows\":32}");
-  QCOMPARE(AiChatController::clampToolResult(shortResult), shortResult);
+// 预算口径：合法 JSON、可读引用和字节上限；token 仍为字符近似。
+void TestAiChatToolLoop::toolResultEnvelopeAndTokenEstimateContract() {
+  paleo::chat::ChatResultStore store;
+  const QJsonObject large{{"text", QString(5000, QChar(0x5ca9))}};
+  const auto encoded = store.encode(QString::fromUtf8(paleo::chat::compactJson(large)), true, 1024);
+  QVERIFY(paleo::chat::compactJson(encoded).size() <= 1024);
+  QVERIFY(paleo::chat::isResultEnvelope(encoded));
+  QVERIFY(!encoded.value("resultRefs").toArray().isEmpty());
+  const auto small = store.encode(QStringLiteral("{\"rows\":32}"), true, 1024);
+  QCOMPARE(small.value("data").toObject().value("rows"), QJsonValue(32));
 
   // 字符近似口径：ASCII ≈ 4 字符/token；CJK ≈ 1 字符/token（保守方向）。
   QCOMPARE(AiChatController::estimateTokens(QStringLiteral("abcd")), 1);
@@ -847,8 +856,8 @@ void TestAiChatToolLoop::projectBriefStaysInSystemPromptWithinBudget() {
   ChatSession stored;
   stored.id = ChatSessionStore::newSessionId();
   stored.createdAt = stored.updatedAt = QDateTime::currentDateTime();
-  const QString hugeResult(AiChatController::kToolResultCharLimit + 500,
-                           QLatin1Char('x'));
+  const QString hugeResult = QString(4500, QLatin1Char('x')) +
+      QStringLiteral("…[结果超长已截断：原始 5000 字符]");
   for (int i = 0; i < 15; ++i) {
     ChatMessage user;
     user.role = ChatRole::User;
@@ -870,7 +879,7 @@ void TestAiChatToolLoop::projectBriefStaysInSystemPromptWithinBudget() {
       ChatMessage tool;
       tool.role = ChatRole::Tool;
       tool.toolCallId = QStringLiteral("call-old-%1").arg(i);
-      tool.content = AiChatController::clampToolResult(hugeResult);
+      tool.content = hugeResult;
       stored.messages.append(tool);
     }
   }

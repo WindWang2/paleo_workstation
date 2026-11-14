@@ -35,17 +35,18 @@ struct AiToolSpec {
   QString title;           // 面板显示名（已翻译）
   QString description;     // 干什么（已翻译）
   QVector<AiToolParamSpec> parameters;
-  QString resultSchemaJson; // 出参 JSON Schema 片段（便于对接/ad hoc 校验）
+  QString resultSchemaJson; // 原生 runner 结果 schema；保持既有 strict v1 契约
   // 是否有本地执行前提（ORT 在否）——没有就是不可用，UI 明说而不是灰eif都不说。
   bool requiresLocalOrt = false;
 
   QJsonObject toJsonSchema() const;   // 入参 object schema
   QJsonObject toChatFunction() const; // OpenAI tools[].function 形状
+  QJsonObject modelResultSchema() const; // 模型边界 envelope，data 引用原生 schema
   // 实参校验：空串 = 通过；非空 = 缺失/类型不符（面向用户，已翻译）。
   QString validateParameters(const QJsonObject &arguments) const;
 };
 
-// 五条工具描述（三条推理能力 + 方向77 两只读工程问答；顺序稳定）。
+// 既有八条工具加 W1 只读结果引用入口；顺序稳定。
 QVector<AiToolSpec> builtinAiToolSpecs();
 // 按名查表；未登记返回空 spec（name 为空）。
 AiToolSpec aiToolSpec(const QString &name);

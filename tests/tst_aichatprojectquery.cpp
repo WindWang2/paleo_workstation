@@ -43,6 +43,7 @@ private slots:
   void unknownWellIsHonestError();
   void projectBriefSummarizesAndStaysSmall();
   void controllerInjectsBriefIntoSystemPrompt();
+  void readResultIsRoutedAndInvalidatedWithHostScope();
 
 private:
   struct Fixture {
@@ -215,7 +216,7 @@ bool TestAiChatProjectQuery::runTool(AiChatToolRunner &runner,
 
 void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 8);
+  QCOMPARE(tools.size(), 9);
   QStringList names;
   for (const AiToolSpec &spec : tools)
     names.append(spec.name);
@@ -583,6 +584,39 @@ void TestAiChatProjectQuery::controllerInjectsBriefIntoSystemPrompt() {
   QVERIFY(AiChatController::estimateTokens(withBrief) -
             AiChatController::estimateTokens(plain) <
           AiChatController::kHistoryTokenBudget / 10);
+}
+
+void TestAiChatProjectQuery::readResultIsRoutedAndInvalidatedWithHostScope() {
+  AiChatToolRunner runner;
+  runner.setResultSession(QStringLiteral("chat-a"));
+  const auto sourceCall = makeCall("source", "paleo.query_project", {{"topic", "wells"}});
+  QJsonArray values;
+  for (int i = 0; i < 500; ++i) values.append(QStringLiteral("well-%1").arg(i));
+  const auto envelope = runner.modelResult(sourceCall,
+      QString::fromUtf8(QJsonDocument(QJsonObject{{"wells", values}}).toJson(QJsonDocument::Compact)), true, 1024);
+  const auto reference = envelope.value("resultRefs").toArray().first().toObject().value("ref").toString();
+  QVERIFY(!reference.isEmpty());
+  bool ok = false;
+  QJsonObject result;
+  QVERIFY(runTool(runner, "paleo.read_result", {{"result_ref", reference}, {"selector", "/wells"}, {"page_size", 3}}, &ok, &result));
+  QVERIFY(ok);
+  QCOMPARE(result.value("returnedCount"), QJsonValue(3));
+  runner.setResultSession(QStringLiteral("chat-b"));
+  QVERIFY(runTool(runner, "paleo.read_result", {{"result_ref", reference}}, &ok, &result));
+  QVERIFY(!ok);
+  QCOMPARE(result.value("code"), QJsonValue("result_scope_changed"));
+  AiChatToolRunner::Context context;
+  context.documentId = QStringLiteral("document");
+  context.documentEpoch = 1;
+  runner.setContext(context);
+  const auto sameDoc = runner.modelResult(sourceCall,
+      QString::fromUtf8(QJsonDocument(QJsonObject{{"wells", values}}).toJson(QJsonDocument::Compact)), true, 1024);
+  const auto oldEpochRef = sameDoc.value("resultRefs").toArray().first().toObject().value("ref").toString();
+  context.documentEpoch = 2;
+  runner.setContext(context);
+  QVERIFY(runTool(runner, "paleo.read_result", {{"result_ref", oldEpochRef}}, &ok, &result));
+  QVERIFY(!ok);
+  QCOMPARE(result.value("code"), QJsonValue("result_scope_changed"));
 }
 
 int main(int argc, char *argv[]) {

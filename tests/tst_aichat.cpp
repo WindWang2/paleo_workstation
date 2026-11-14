@@ -346,7 +346,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 8); // 方向77 两只读工具 + 三个能力工具
+  QCOMPARE(tools.size(), 9); // 方向77 两只读工具 + 三个能力工具
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -367,6 +367,14 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     QJsonObject blank;
     QVERIFY(!spec.validateParameters(blank).isEmpty());
   }
+  QVERIFY(names.contains(QStringLiteral("paleo.read_result")));
+  ChatToolCall oversized;
+  oversized.name = QStringLiteral("paleo.read_result");
+  oversized.argumentsJson = QString(ChatToolCall::kMaxArgumentBytes + 1, QLatin1Char('x'));
+  QVERIFY(!oversized.argumentsWithinBudget());
+  const auto spec = aiToolSpec(QStringLiteral("paleo.query_project"));
+  const auto nativeSchema = QJsonDocument::fromJson(spec.resultSchemaJson.toUtf8()).object();
+  QCOMPARE(spec.modelResultSchema().value("properties").toObject().value("data").toObject(), nativeSchema);
   QVERIFY(names.contains(QStringLiteral("paleo.tile_classification")));
   QVERIFY(names.contains(QStringLiteral("paleo.horizon_tracking_suggestion")));
   QVERIFY(names.contains(QStringLiteral("paleo.well_facies_prediction")));

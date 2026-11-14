@@ -37,8 +37,7 @@ namespace {
 // 工作流面板，不走聊天。
 constexpr double kChatLowConfidenceThreshold = 0.5;
 
-// 方向77 出参列表上限（ledger 定案）：结构化截断优先于全局 4000 字符 clamp
-// ——JSON 保持合法，总数如实另报。
+// 旧查询限额（W4 替换为真分页）；W1 模型边界保证合法 JSON 与明确覆盖范围。
 constexpr int kQueryListCap = 50;
 constexpr int kWellLinksCap = 100;
 // 摘要段硬上限（预算纪律：system prompt 轻注入不喧宾夺主）。
@@ -108,6 +107,7 @@ void AiChatToolRunner::setFaciesConfig(const WellFaciesConfig &config) {
 
 void AiChatToolRunner::setContext(const Context &context) {
   if (context.catalog != m_context.catalog || context.documentId != m_context.documentId ||
+      context.documentEpoch != m_context.documentEpoch ||
       context.projectDir != m_context.projectDir)
     invalidateContext();
   m_context = context;
@@ -122,6 +122,7 @@ void AiChatToolRunner::setTaskService(PaleoTaskService *service) {
 
 void AiChatToolRunner::invalidateContext() {
   ++m_contextGeneration;
+  ++m_resultEpoch;
   if (m_activeTask)
     m_activeTask->requestCancel();
 }
@@ -199,7 +200,11 @@ void AiChatToolRunner::startNext() {
     finishActive(false, errorPayload(text));
     return;
   }
-  if (m_activeCall.name == QStringLiteral("paleo.tile_classification"))
+  if (m_activeCall.name == QStringLiteral("paleo.read_result")) {
+    refreshResultScope();
+    const auto result = m_results.read(args);
+    finishActive(result.value("code").toString() == QLatin1String("ok"), result);
+  } else if (m_activeCall.name == QStringLiteral("paleo.tile_classification"))
     runTile(m_activeCall, args);
   else if (m_activeCall.name ==
            QStringLiteral("paleo.horizon_tracking_suggestion"))

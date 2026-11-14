@@ -47,7 +47,8 @@ const char kToolChunkEmptyIds[] =
 class FakeLlmServer : public QObject {
   Q_OBJECT
 public:
-  enum class Mode { Stream, ToolCalls, ToolCallsEmptyIds, ToolCallsHang, Unauthorized, Slow, PlainJson };
+  enum class Mode { Stream, ToolCalls, ToolCallsEmptyIds, ToolCallsHang, Unauthorized, Slow, PlainJson,
+                    TooManyCalls, HugeArguments, FourCalls };
 
   bool start(Mode mode) {
     m_mode = mode;
@@ -77,7 +78,8 @@ private:
         return;
       const QString header = QString::fromUtf8(buf->left(headerEnd));
       const int contentLength =
-        header.section("Content-Length:", 1, 1).section("\r", 0, 0).trimmed().toInt();
+        header.section("Content-Length:", 1, 1, QString::SectionCaseInsensitiveSeps)
+          .section("\r", 0, 0).trimmed().toInt();
       if (buf->mid(headerEnd + 4).size() < contentLength)
         return;
       m_bodies.append(QByteArray(buf->constData(), headerEnd + 4 + contentLength));
@@ -106,6 +108,24 @@ private:
       sock->write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n"
                   "Content-Type: application/json\r\nContent-Length: " +
                   QByteArray::number(body.size()) + "\r\n\r\n" + body);
+      return;
+    }
+    if (m_mode == Mode::TooManyCalls || m_mode == Mode::HugeArguments || m_mode == Mode::FourCalls) {
+      QJsonArray calls;
+      const int count = m_mode == Mode::TooManyCalls ? 9 : m_mode == Mode::FourCalls ? 4 : 1;
+      for (int i = 0; i < count; ++i) {
+        const QJsonObject args{{"model", "f1"}, {"well_name", m_mode == Mode::HugeArguments ? QString(20000, 'x') : "A"}};
+        calls.append(QJsonObject{{"index", i}, {"id", QStringLiteral("c%1-%2").arg(m_requests).arg(i)},
+            {"type", "function"}, {"function", QJsonObject{{"name", "paleo.well_facies_prediction"},
+              {"arguments", QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))}}}});
+      }
+      const QJsonObject delta{{"tool_calls", calls}};
+      const QJsonObject choice{{"delta", delta}};
+      const QJsonObject event{{"choices", QJsonArray{choice}}};
+      const auto body = QJsonDocument(event).toJson(QJsonDocument::Compact);
+      sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/event-stream\r\n\r\n");
+      sock->write("data: " + body + "\n\ndata: [DONE]\n\n");
+      sock->disconnectFromHost();
       return;
     }
     if (m_mode == Mode::PlainJson) {
@@ -152,6 +172,11 @@ private slots:
   void streamingAssemblesAnswerAndSavesSession();
   void toolCallFramesReachThePanelWithHonestStatus();
   void emptyIdToolCallsAreNotDeduplicated();
+  void toolBudgetRejectsWholeFrameBeforeExecution_data();
+  void toolBudgetRejectsWholeFrameBeforeExecution();
+  void cumulativeToolBudgetStopsWithCompletePairs();
+  void legacyBrokenResultsAreOnlyAdaptedForTransmission();
+  void synchronousCancelOnResultKeepsSingleAnswerAndStops();
   void unauthorizedResponseIsClassifiedAsAuthError();
   // #588 B.14：stream=true 而服务端回普通 JSON——必须解析出内容，不许把
   // 零增量当成功收尾（空答复冒充成功）。
@@ -297,6 +322,109 @@ void TestAiChatController::emptyIdToolCallsAreNotDeduplicated() {
   QVERIFY2(results.size() >= 2,
            qPrintable(QStringLiteral("两个调用都要有执行终态，实际 %1 个")
                         .arg(results.size())));
+}
+
+void TestAiChatController::toolBudgetRejectsWholeFrameBeforeExecution_data() {
+  QTest::addColumn<int>("mode");
+  QTest::newRow("too-many-calls") << int(FakeLlmServer::Mode::TooManyCalls);
+  QTest::newRow("oversized-arguments") << int(FakeLlmServer::Mode::HugeArguments);
+}
+
+void TestAiChatController::toolBudgetRejectsWholeFrameBeforeExecution() {
+  QFETCH(int, mode);
+  FakeLlmServer server;
+  QVERIFY(server.start(static_cast<FakeLlmServer::Mode>(mode)));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  m_createdSessions.append(controller.session().id);
+  QSignalSpy results(&controller, &AiChatController::toolResultReady);
+  QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+  QSignalSpy started(controller.toolRunner(), &AiChatToolRunner::toolStarted);
+  controller.sendUserText(QStringLiteral("拒绝超限模型帧"));
+  QVERIFY(spinUntil([&] { return !controller.streaming(); }));
+  QCOMPARE(results.size(), 0);
+  QCOMPARE(started.size(), 0);
+  QCOMPARE(server.requestCount(), 1);
+  QVERIFY(!errors.isEmpty());
+  for (const auto &message : controller.messages()) {
+    QVERIFY(message.toolCalls.isEmpty());
+    QVERIFY(message.role != ChatRole::Tool);
+  }
+}
+
+void TestAiChatController::cumulativeToolBudgetStopsWithCompletePairs() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::FourCalls));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  m_createdSessions.append(controller.session().id);
+  QSignalSpy results(&controller, &AiChatController::toolResultReady);
+  controller.sendUserText(QStringLiteral("多轮查询"));
+  QVERIFY(spinUntil([&] { return !controller.streaming(); }));
+  QVERIFY(results.size() >= 4);
+  QVERIFY(results.size() <= AiChatController::kMaxCallsPerTurn);
+  QSet<QString> calls, answers;
+  for (const auto &message : controller.messages()) {
+    for (const auto &call : message.toolCalls) calls.insert(call.id);
+    if (message.role == ChatRole::Tool) {
+      QVERIFY(!answers.contains(message.toolCallId));
+      answers.insert(message.toolCallId);
+      const auto value = QJsonDocument::fromJson(message.content.toUtf8()).object();
+      QCOMPARE(value.value("contractVersion"), QJsonValue("paleo.tool-result.v1"));
+    }
+  }
+  QCOMPARE(answers, calls);
+}
+
+void TestAiChatController::legacyBrokenResultsAreOnlyAdaptedForTransmission() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::Stream));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  auto stored = controller.session();
+  m_createdSessions.append(stored.id);
+  ChatMessage user; user.role = ChatRole::User; user.content = "old question";
+  ChatMessage assistant; assistant.role = ChatRole::Assistant;
+  assistant.toolCalls.append({"old-call", "paleo.query_project", "{\"topic\":\"wells\"}"});
+  ChatMessage tool; tool.role = ChatRole::Tool; tool.toolCallId = "old-call";
+  tool.content = QStringLiteral("{\"wells\":[…[结果超长已截断]");
+  stored.messages = {user, assistant, tool};
+  QString storageError;
+  QVERIFY2(ChatSessionStore::save(stored, &storageError), qPrintable(storageError));
+  QVERIFY(controller.loadSession(stored.id));
+  controller.sendUserText(QStringLiteral("继续"));
+  QVERIFY(spinUntil([&] { return !controller.streaming(); }));
+  const auto wire = server.requestBodies().first();
+  const auto body = QJsonDocument::fromJson(wire.mid(wire.indexOf("\r\n\r\n") + 4)).object();
+  bool saw = false;
+  for (const auto &entry : body.value("messages").toArray()) {
+    const auto message = entry.toObject();
+    if (message.value("tool_call_id") != QJsonValue("old-call")) continue;
+    const auto payload = QJsonDocument::fromJson(message.value("content").toString().toUtf8()).object();
+    QCOMPARE(payload.value("code"), QJsonValue("legacy_result_unavailable"));
+    saw = true;
+  }
+  QVERIFY(saw);
+  QCOMPARE(controller.messages()[2].content, tool.content);
+}
+
+void TestAiChatController::synchronousCancelOnResultKeepsSingleAnswerAndStops() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::ToolCalls));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  m_createdSessions.append(controller.session().id);
+  connect(&controller, &AiChatController::messageAppended, &controller,
+          [&controller](const ChatMessage &message) {
+    if (message.role == ChatRole::Tool) controller.cancel();
+  });
+  controller.sendUserText(QStringLiteral("结果到达时取消"));
+  QVERIFY(spinUntil([&] { return !controller.streaming(); }));
+  QCOMPARE(server.requestCount(), 1);
+  int answers = 0;
+  for (const auto &message : controller.messages())
+    if (message.role == ChatRole::Tool) ++answers;
+  QCOMPARE(answers, 1);
 }
 
 void TestAiChatController::unauthorizedResponseIsClassifiedAsAuthError() {

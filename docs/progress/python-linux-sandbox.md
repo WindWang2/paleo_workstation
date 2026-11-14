@@ -18,7 +18,8 @@ Qt < 6.7 由 CMake 选择不可用实现，不降低全项目 Qt 最低版本。
 `request.json` 最多 64 KiB。输入 manifest 必须匹配宿主 reference 的
 `manifestHash`；运行时 manifest 必须匹配宿主 `VerifiedRuntime.manifestSha256`。
 JSON 必须是严格 UTF-8 的 object；JSON 与 data.bin 独立合计不超过 inputBytes，
-不能借用未使用的 codeBytes。输入/代码/manifest 与 output/log 的 broker
+不能借用未使用的 codeBytes；frame 的 4 字节长度头也计入完整传输 inputBytes。
+输入/代码/manifest 与 output/log 的 broker
 保留量另受 diskBytes 限制；运行时私有 tmpfs 计入内存。
 运行时 generation 的 retention 在整个快照与执行阶段保留。
 
@@ -49,6 +50,8 @@ root 所有权、父目录不可被普通用户写入、无 setuid/setgid/file c
 TasksMax 为 8、CPUQuota 为单核 100%。释放执行 barrier 前逐项读取实际
 `memory.max`、`memory.swap.max`、`pids.max`、`cpu.max`，缺项、无界或放宽
 均拒绝执行。CPU 硬限额和 wall timer 覆盖 bubblewrap 准备阶段。
+systemd 属性刚创建时可短暂显示无界值；barrier 在原有 5 秒准备期限内保持关闭，
+只有四项实际限额全部符合才释放，持续缺项或错误值仍失败关闭。
 后端取得或接收 permit 后即开始总 wall deadline，校验、密封和辅助准备均计时，
 同一个期限取消回调传入共同进程泵；超时返回 timeout，保持用户取消优先。
 
@@ -81,38 +84,102 @@ Linux 的 `peakMemoryBytes` 是实际观测峰值，`memoryPeakComplete=false`�
 
 ## 验证口径
 
-WSL 的证据与非 WSL native Linux guest 分开记录。固定运行时为
-CPython 3.14.10、NumPy 2.5.4，共 2,143 个普通文件、249,075,081 字节。
-WSL 使用 Microsoft 6.6.87.2 内核；独立 QEMU/KVM guest 使用 Arch
-7.2.11-arch1-1 内核，普通 UID 1000，无宿主全局安装、提权或策略变更。
+固定运行时 CPython 3.14.10、NumPy 2.5.4，共 2,143 个普通文件、249,075,081 字节；
+manifest SHA 为 `c7315dae25f2b4588e39fbba1f9d9037aa41de7a61c46909d05205d79929c821`。
+Linux 生产文件继承 PY1 的公共 runner，没有复制进程泵或另建调度器。
 
-快照单测覆盖内容 seal、宿主预期 manifest 锚、同长度改写、symlink、部分失败
-FD 释放、输入 frame、协议/预算拒绝和实际 controller 限额的坏值/缺项。
-真实完整探针覆盖 NumPy、4 MiB 双向 IO、宿主文件/网络/SysV IPC/FD 隔离、
-CPU/OOM/wall、输出/日志超限、取消，以及密封后原地改写代码和 NumPy 文件。
-另在 Python worker 已真正 exec 后杀住宿主，核对后代回收与实际限额。
+### 原生完整应用矩阵
 
-每个文件的私有 tmpfs 复制和挂载有可见开销；当前 WSL 完整任务约 9–13 秒，
-会消耗 CPU/wall 预算。fs-verity 在此 native ext4 guest 可无特权启用，而
-WSL ext4 返回 ENOTSUP，因此仅可作为后续优化，不能取代当前通用安全路径。
-本批 guest 验证覆盖 QtCore 后端；应用完整编译、全量测试及源码门禁由主线批次执行。
+2026-11-15 使用独立 QEMU/KVM Arch guest（内核 7.2.11-arch1-1、2 vCPU、4 GiB）。
+测试宿主的 4 GiB 为完整 QGIS/WebEngine 应用留出验证空间，单次 Python cgroup 仍为
+原策略 512 MiB、swap 0、pids 8、CPUQuota 100%，没有放宽 CPU/wall 或测试断言。
+普通 tester UID 1000 在私有 mount namespace 内运行，bounding/inh/ambient capabilities
+均为零；系统 helper 保持真正 root 所有权，16 个文件 SHA 匹配既有 native profile。
 
-2026-11-14 最终独立验证：
+pristine 镜像 SHA `794eb4889b39e1f0ed7d5ae998b2a1ed2137db8cf8c3476cf2962c7437ecb003`，
+仅作只读 backing；独立 snapshot、固件变量、端口和经 serial/20 GiB/空白检查的新数据盘
+均位于专用验证目录。不复用另一台在写的 guest root/data，不修改宿主包、设备 ACL、
+组成员或全机策略。KVM 启动进程保持 UID/GID 1000，只临时补实际设备 GID，全部 cap 为零。
+guest 仅从已验证缓存离线安装签名 bubblewrap 0.13.1，既有 systemd 262 无升级。
 
-| 验证项 | WSL | 非 WSL Linux guest |
+完整 `paleo` 和 44 个 C++ 测试目标在 WSL 分别编译 default/no-ORT，再把同一批 ELF
+连同锁定 QGIS 4.2.3、GDAL 3.12.2、Qt/WebEngine 6.11.2 闭包送入 native guest。
+编译各 lane 使用 `-j1`、`CMAKE_AUTOGEN_PARALLEL=1`，独立构建目录与产物。
+完整应用验证没有用 QtCore 薄壳代替。原依赖闭包 13,934 个文件与两个 lane 的 6,449 个
+文件分别在宿主和 guest 校验 SHA；每轮前后运行时 2,143 文件均精确匹配且保持只读。
+
+| 验证 | default | no-ORT |
 |---|---|---|
-| 快照/协议/controller QtTest | 13 通过，0 失败，0 跳过 | 13 通过，0 失败，0 跳过 |
-| 固定运行时完整强隔离矩阵 | 17/17 | 17/17 |
-| worker exec 后宿主退出 | 所有后代回收 | 所有后代回收 |
-| cgroup memory.max / swap / pids / CPU quota | 512 MiB / 0 / 8 / 单核 | 512 MiB / 0 / 8 / 单核 |
+| 完整 `paleo` 与 44 个 C++ 测试目标编译 | 通过 | 通过 |
+| CTest（44 C++ + runtime/scripts 供货 4 项） | 首轮 47/48；完整失败套件独占重试通过（见下） | 48/48，408.75 秒 |
+| QtTest | 组合 632 通过、0 失败、0 跳过（非单轮） | 626 通过、0 失败、0 跳过 |
+| 正式强隔离 fixture 内部矩阵 | 19/19，47.89 秒 | 19/19，56.78 秒 |
+| app/QtCore/QtGui/WebEngine/QGIS/GDAL 六组 `ldd -r` | 通过 | 通过 |
+| WebEngineWidgets 实际链接、Office 组件、应用首帧 | 通过（独立补验） | 通过 |
 
-矩阵还断言首次 stdout/stderr 溢出保留恰好 cap 大小前缀、非零退出 stdout
-诊断恰好 logBytes、1 MiB stdout 与 4 MiB 输入并发完整传输、32 MiB 大型
-输入被总体宿主预算拒绝，以及准备阶段过期时 CPU 统计为零（没有启动 worker）。
-OS 峰值在 OOM 用例达到 536,870,912 字节；普通 NumPy 用例约 284–285 MB。
-默认小任务宿主保留预算约 487 MB，均独立于子进程峰值。
+Chromium sandbox-disable 环境变量未设置；首帧 trace 同时含 `first_paint` 和
+`startup_screen_closed`。私有 OS 兼容 overlay 复用 PY1 的 native Expat 2.9.0 文件
+（SHA `0755d0589724746da578d47ee23bfa09ecee64d9bf8e6eab0c277e6757895395`），
+没有覆盖系统或锁定 QGIS/Qt 闭包；旧用户 Python 控制台/venv 回归也真实运行。
+首轮 driver 在进入 CTest 前因拷贝测试工具时丢失 execute 位返回 126；只恢复私有
+`controller_probe` 的原 0755，内容 SHA 不变，保留该日志后完整重跑，没有修改产品代码。
 
-`tests/tst_pythonsandbox_linux_native.cpp` 是显式 fixture 驱动的可选验收目标：
-传入运行时根和宿主预期 manifest SHA，不接受外部 clone 路径。它在自有临时
-目录中完整有界复制并再次校验 runtime，只有该副本可被篡改。缺失 fixture
-直接失败；未配置供应的普通构建不注册这项执行。常规 13 项 QtTest 不需供应。
+正式矩阵覆盖 NumPy、二进制 frame、4 MiB 输入与 1 MiB stdout 并发完整传输、宿主文件/
+环境/网络/SysV IPC/FD 隔离、CPU/OOM/wall、取消、输出和日志超限的精确前缀，
+以及密封后同长度改写代码和 NumPy 原文件。4,096 字节完整 frame 可执行，4,097 字节
+在执行前拒绝，CPU 为零；准备阶段到期同样没有启动 worker。OOM 实测峰值为
+536,870,912 字节，普通 NumPy 观测峰值约 283–284 MB，宿主保留预算约 487.1 MB。
+完整性与资源数据区分 host reservation 和 child peak，`memoryPeakComplete=false`。
+
+另在 Python worker 真正 exec 后 SIGKILL 宿主，三个后代全部回收，存活与待 init 回收
+集合均为空；实际限额为 memory 536870912 / swap 0 / pids 8 / cpu 100000 100000。
+早期共享 2 GiB guest 的冷快照负载曾使观察器在 45 秒内没有看到 worker，该轮不算通过；
+此次独立 guest 保持原观察期限与生产策略获得真实回收证据。
+
+### 默认配置首轮 CPU 分类与重试
+
+默认配置首轮 CTest 302.17 秒，47 套件通过，`tst_pythonprocess` 的 CPU 子例
+返回 `python_process_failed` 而非预期的 `python_process_cpu_limit`；其余 17 行通过。
+首轮没有捕获退出信号或最后 CPU 值，不能事后把它确定归因为 CPU/OOM。
+同一原始 ELF、同一 CPU 1 秒和内存 96 MiB / wall 15 秒策略，虚拟机独占完整重跑
+18 行全部通过，8.291 秒。外部 1 ms watcher 观测 CPU scope 累计 1,012,141 µs、
+OOM 事件为零，不能用重试的计数倒推首轮原因。公共 runner 已说明 cgroup FD 不保证
+收集后的统计继续可读；极短任务的末尾统计和退出原因仍可能不完整。
+
+最终组合为首轮其余 47 套件与完整失败套件重试，QtTest 632/0/0；首轮实际为
+631/1/0，没有改写成单轮 48/48。默认 app 首帧单独补验通过。原生产代码、资源限额、
+超时、容差及断言均保持，失败输出仍拒绝作为成果发布。
+
+### WSL 与可选测试注册
+
+当前 WSL Microsoft 6.6.87.2 的 user manager 仅委派 memory/pids，缺少 CPU。
+同一最终后端真实返回 `python_linux_resource_limits_unenforced`，CPU 0、stdout 空；
+没有关闭 required fixture、伪造 CPU 配额或改 WSL 全机策略取得绿灯。WSL 完整编译与
+13/13 快照/协议/controller 单测通过，不能据此宣称当前 WSL 可执行强隔离任务。
+早期不同委派状态的 17 项探针不计入本轮原生完整矩阵。
+
+`tests/tst_pythonsandbox_linux_native.cpp` 通过 `add_paleo_test` 使用最小 QtCore/Test
+链接集注册。默认关闭；显式启用时要求 Linux、Qt >= 6.7、现存 fixture 根与宿主 SHA：
+
+```sh
+cmake -S . -B build -DPALEO_TEST_PYTHON_LINUX_NATIVE=ON \
+  -DPALEO_TEST_PYTHON_LINUX_NATIVE_ROOT="$VERIFIED_RUNTIME_ROOT" \
+  -DPALEO_TEST_PYTHON_LINUX_NATIVE_SHA256="$HOST_MANIFEST_SHA256"
+ctest --test-dir build -R '^tst_pythonsandbox_linux(_native)?$' --output-on-failure -j1
+```
+
+开启配置的 fixture 缺项直接失败，零跳过；未供应的普通构建不注册这项执行。
+测试只在自有临时目录完整有界复制并再次校验 runtime，只有该私有副本可被篡改，
+不接受外部 clone 路径。Qt < 6.7 / 非 Linux 选择明确不可用 stub；当前 Qt 上强制选择
+stub 的 3/3 测试通过，不把这项当作实际 Qt 6.5 编译证据。
+
+每任务重新完整 SHA、memfd 复制和逐文件挂载有明显成本：本轮 cold NumPy 约 10 秒，
+后续任务约 2–6 秒，均消耗实际 CPU/wall。早期资源争用下同任务达到 62 秒，
+不能把最佳时延当保证。fs-verity 在 native ext4 可无特权启用，WSL 返回 ENOTSUP；
+它仅是后续优化方向，当前没有按路径/mtime 命中的校验缓存。
+
+最终基底 `ff2b9b297342e8df5e166747f86afc709d1b6a66`，先 fetch/rebase `origin/master` 后源码门禁 37/37；
+QGIS_PREFIX 使用权威锁定头，含全部 transitive 指标，基线没有扩大。
+原始证据在本 worktree `local/py3l-native/` 和 `local/review-20261114/source-gates/`：
+逐 lane payload/运行时 SHA、身份、六组 ABI、CTest/QTest、matrix、首帧、hostdeath、
+WSL 拒绝与首轮工具权限失败日志均保留。

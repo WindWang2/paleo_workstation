@@ -12,13 +12,17 @@
 using namespace paleo;
 using namespace paleo::capability;
 namespace {
+class ObservedTaskService final:public PaleoTaskService {
+public:
+  int destructionObservers() const {return receivers(SIGNAL(destroyed(QObject*)));}
+};
 struct Fixture {
   QTemporaryDir temp;DataCatalog catalog;QString error;
   std::unique_ptr<ProjectDirLock> lock;
-  std::unique_ptr<PaleoTaskService> tasks;
+  std::unique_ptr<ObservedTaskService> tasks;
   std::unique_ptr<CapabilityHost> host;
   std::atomic_bool blocked{false},entered{false};
-  std::function<void()> onValidate,onBinding;
+  std::function<void()> onValidate,onBinding,onCapture;
   ~Fixture(){host.reset();tasks.reset();}
   HostBinding binding() {
     if(onBinding)onBinding();HostBinding out;out.projectDir=temp.path();out.operationDir=temp.path()+"/.paleo/capability-ops";
@@ -29,6 +33,7 @@ struct Fixture {
   CapabilityExecutionAdapter adapter() {
     CapabilityExecutionAdapter out;
     out.capture=[this](const ExecuteRequest &,const QJsonObject &,QString *code) {
+      if(onCapture)onCapture();
       if(code)code->clear();CapabilityPreparation preparation;
       preparation.worker=[this](const std::function<bool()> &cancelled,QString *error) {
         entered=true;
@@ -41,7 +46,7 @@ struct Fixture {
   }
   bool open() {
     lock=std::make_unique<ProjectDirLock>(temp.path());if(!lock->tryLock(&error) || !catalog.open(temp.path(),&error))return false;
-    tasks=std::make_unique<PaleoTaskService>();host=std::make_unique<CapabilityHost>();
+    tasks=std::make_unique<ObservedTaskService>();host=std::make_unique<CapabilityHost>();
     host->setTaskService(tasks.get());host->setCallerScope(host::Caller::Agent,"agent:test");
     host->setBindingProvider([this]{return binding();});
     host->registerExecutionAdapter(QLatin1String(python::WellQualityCapability),adapter());return true;
@@ -50,12 +55,49 @@ struct Fixture {
     ExecuteRequest out;out.capabilityId=QLatin1String(python::WellQualityCapability);out.clientRequestId="stable-request";
     out.publishIntent="compute-only";return out;
   }
-  void replaceTasks() {tasks=std::make_unique<PaleoTaskService>();host->setTaskService(tasks.get());}
+  void replaceTasks() {tasks=std::make_unique<ObservedTaskService>();host->setTaskService(tasks.get());}
 };
 }
 class TestPythonPreparation:public QObject {
   Q_OBJECT
 private slots:
+  void prepareBindingCannotOutliveHost_data() {
+    QTest::addColumn<bool>("plan");QTest::addColumn<int>("deleteOnCall");
+    QTest::newRow("single-initial-binding")<<false<<1;
+    QTest::newRow("single-lookup-binding")<<false<<2;
+    QTest::newRow("plan-initial-binding")<<true<<1;
+    QTest::newRow("plan-lookup-binding")<<true<<2;
+  }
+  void prepareBindingCannotOutliveHost() {
+    QFETCH(bool,plan);QFETCH(int,deleteOnCall);Fixture f;QVERIFY(f.open());int calls=0;
+    f.onBinding=[&]{if(++calls==deleteOnCall)f.host.reset();};
+    auto *owner=f.host.get();const auto request=f.request();
+    const auto prepared=plan?owner->preparePlan(request,{}, {},host::Caller::Agent):owner->prepare(request,host::Caller::Agent);
+    QVERIFY(!f.host);QVERIFY(!prepared.ok);QCOMPARE(prepared.code,QString("document_unavailable"));
+    QCOMPARE(calls,deleteOnCall);QVERIFY(!f.entered);QVERIFY(f.catalog.versions().isEmpty());
+  }
+  void prepareCaptureCannotOutliveItsBinding_data() {
+    QTest::addColumn<bool>("deleteOwner");QTest::newRow("deleted-owner")<<true;QTest::newRow("invalidated-binding")<<false;
+  }
+  void prepareCaptureCannotOutliveItsBinding() {
+    QFETCH(bool,deleteOwner);Fixture f;QVERIFY(f.open());
+    f.onCapture=[&]{if(deleteOwner)f.host.reset();else f.host->invalidate();};
+    const auto prepared=f.host->prepare(f.request(),host::Caller::Agent);
+    QVERIFY(!prepared.ok);QCOMPARE(prepared.code,deleteOwner?QString("document_unavailable"):QString("stale_session"));
+    QVERIFY(!f.entered);QVERIFY(f.catalog.versions().isEmpty());
+  }
+  void completedPreparationsReleaseServiceLifetimeObservers() {
+    Fixture f;QVERIFY(f.open());const auto observers=f.tasks->destructionObservers();
+    for(int i=0;i<8;++i) {
+      auto request=f.request();request.clientRequestId=QString::number(i);
+      const auto prepared=f.host->prepare(request,host::Caller::Agent);QVERIFY(prepared.ok);bool done=false;ExecuteResult result;
+      QVERIFY(f.host->start(prepared.handle,request,this,"Release preparation",[&](auto value){result=std::move(value);done=true;},&f.error));
+      QTRY_VERIFY_WITH_TIMEOUT(done,5000);
+      QVERIFY(!result.ok);
+      QTRY_COMPARE_WITH_TIMEOUT(f.tasks->destructionObservers(),observers,5000);
+    }
+    QVERIFY(f.catalog.versions().isEmpty());
+  }
   void taskAddedReentrantDeletion_data() {
     QTest::addColumn<QString>("target");
     for(const auto &name:{"host","parent","service","phase-service"})QTest::newRow(name)<<QString::fromLatin1(name);

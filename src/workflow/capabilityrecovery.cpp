@@ -12,6 +12,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QMutex>
+#include <QPointer>
 #include <QThread>
 #include <QUuid>
 namespace paleo::capability {
@@ -84,7 +85,8 @@ void CapabilityRecovery::setTaskService(PaleoTaskService *tasks){m_tasks=tasks;}
 void CapabilityRecovery::setCheckpointHook(std::function<void(const QString&)> hook){m_checkpoint=std::move(hook);}
 RecoveryHost CapabilityRecovery::live() {
   if(QThread::currentThread()!=thread())return {};
-  auto h=m_host?m_host():RecoveryHost{};
+  const QPointer<CapabilityRecovery> guard(this);const auto provider=m_host;
+  auto h=provider?provider():RecoveryHost{};if(!guard)return {};
   const auto document=h.context.open?h.context.documentId:QString();
   const auto project=h.context.open?QFileInfo(h.projectDir).canonicalFilePath():QString();
   if(document!=m_runtimeDocument || project!=m_runtimeProject || h.context.epoch!=m_runtimeEpoch) {

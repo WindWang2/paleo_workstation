@@ -6,6 +6,7 @@
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythontrustedreadiness.h"
 #include "services/pythongenerated.h"
+#include "workflow/pythongeneratedoperation.h"
 #include "workflow/documentsession.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -117,4 +118,76 @@ paleo::capability::CapabilityExecutionAdapter gateTrustedAnalysis(paleo::capabil
     return capture(request,intent,error);
   };
   return adapter;
+}
+
+bool assembleAgentPython(AiChatToolRunner *runner,AiChatToolContext &context,DataCatalog *catalog,
+    paleo::document::DocumentSession *document,paleo::capability::CapabilityHost *host,
+    const std::function<bool()> &bindingIsCurrent) {
+  const QPointer<AiChatToolRunner> owner(runner);
+  const auto current=[&]{return owner && bindingIsCurrent && bindingIsCurrent();};
+  if(!current())return false;
+  paleo::python::RuntimeConfig python;
+  python.root=qEnvironmentVariable("PALEO_AGENT_PYTHON_ROOT");
+  python.manifestSha256=qEnvironmentVariable("PALEO_AGENT_PYTHON_MANIFEST_SHA256");
+  python.enabled=!python.root.isEmpty();
+  paleo::python::ExecutionPolicy policy;
+  policy.allowTrusted=qEnvironmentVariable("PALEO_AGENT_PYTHON_ENABLE_TRUSTED")==QLatin1String("1");
+  policy.allowGenerated=qEnvironmentVariable("PALEO_AGENT_PYTHON_ENABLE_GENERATED")==QLatin1String("1");
+  const auto priorRuntime=runner->pythonRuntime();
+  const bool reuseRuntime=priorRuntime && priorRuntime->configuration().root==python.root &&
+    priorRuntime->configuration().manifestSha256==python.manifestSha256 && priorRuntime->policy().json()==policy.json();
+  context.pythonRuntime=reuseRuntime?priorRuntime:std::make_shared<paleo::python::RuntimeProvider>(std::move(python),policy);
+  const auto priorTrusted=runner->pythonTrusted();const bool reuseTrusted=reuseRuntime && bool(priorTrusted);
+  context.pythonTrusted=reuseTrusted?priorTrusted:std::make_shared<paleo::python::TrustedReadinessProvider>(context.pythonRuntime);
+  const auto priorSandbox=runner->pythonSandbox();const bool reuseSandbox=reuseRuntime && bool(priorSandbox);
+  context.pythonSandbox=reuseSandbox?priorSandbox:std::make_shared<paleo::python::SandboxProvider>(context.pythonRuntime);
+  const auto scripts=qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT");
+  context.runtimeReadiness=[provider=context.pythonRuntime,execution=context.pythonTrusted,sandbox=context.pythonSandbox,scripts](const QString &name,const QJsonObject &args,bool listing) {
+    if(name==QLatin1String(paleo::python::GeneratedTool)) {
+      if(!provider->policy().allowGenerated)return QStringLiteral("python_execution_denied");
+      const auto runtime=provider->snapshot();if(!runtime.ready())return runtime.code;
+      if(!listing && args.value("publish_intent")==QLatin1String("publish"))return QString();
+      const auto status=sandbox->snapshot();return status.value("ready").toBool()?QString():status.value("code").toString("python_sandbox_unavailable");
+    }
+    if(name!=QLatin1String(paleo::python::WellQualityTool) && name!=QLatin1String(paleo::python::CorrelationTool))return QString();
+    if(!provider->policy().allowTrusted)return QStringLiteral("python_execution_denied");
+    const auto runtime=provider->snapshot();if(!runtime.ready())return runtime.code;
+    // Frozen result publication does not need the original template directory.
+    if(!listing && args.value("publish_intent")==QLatin1String("publish"))return QString();
+    const auto id=name==QLatin1String(paleo::python::WellQualityTool)?paleo::python::WellQualityCapability:paleo::python::CorrelationCapability;
+    for(const auto &value:pythonAnalysisReadiness(provider,scripts,execution).value("capabilities").toArray()) {
+      const auto capability=value.toObject();if(capability.value("capabilityId")==QLatin1String(id))
+        return capability.value("ready").toBool()?QString():capability.value("code").toString();
+    }
+    return QStringLiteral("python_template_unavailable");
+  };
+  if(host)for(const auto kind:{paleo::python::AnalysisKind::WellQuality,paleo::python::AnalysisKind::AttributeCorrelation})
+    host->registerExecutionAdapter(paleo::python::analysisCapabilityId(kind),gateTrustedAnalysis(paleo::python::analysisScriptAdapter(kind,
+      context.pythonRuntime,scripts,assemblePythonAnalysisProvider(catalog,document,host)),context.pythonTrusted));
+  if(host)host->registerExecutionAdapter(QLatin1String(paleo::python::GeneratedCapability),
+    paleo::python::generatedScriptAdapter(context.pythonRuntime,context.pythonSandbox,assemblePythonAnalysisProvider(catalog,document,host)));
+  if(!reuseRuntime && context.pythonRuntime->configuration().enabled && runner->taskService()) {
+    const auto provider=context.pythonRuntime;
+    runner->taskService()->start(QObject::tr("Python 环境状态"),[provider](PaleoTask *task) {
+      const auto cancelled=[task]{return task->cancelRequested();};
+      if(provider->policy().allowGenerated)provider->inspectIntegrity(cancelled);
+      else provider->inspect(cancelled);
+      return QString();
+    });
+  }
+  if(!current())return false;
+  if(!reuseTrusted && policy.allowTrusted && context.pythonRuntime->configuration().enabled && runner->taskService()) {
+    const auto execution=context.pythonTrusted;
+    runner->taskService()->start(QObject::tr("Python 环境状态"),[execution](PaleoTask *task) {
+      execution->inspect([task]{return task->cancelRequested();});return QString();
+    });
+  }
+  if(!current())return false;
+  if(!reuseSandbox && policy.allowGenerated && context.pythonRuntime->configuration().enabled && runner->taskService()) {
+    const auto sandbox=context.pythonSandbox;
+    runner->taskService()->start(QObject::tr("Python 隔离状态"),[sandbox](PaleoTask *task) {
+      sandbox->inspect([task]{return task->cancelRequested();});return QString();
+    });
+  }
+  return current();
 }

@@ -9,15 +9,22 @@
 namespace paleo::capability {
 HostPrepared CapabilityHost::preparePlan(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,const QVector<PlanEdge> &edges,
                                         host::Caller caller,const QString &session) {
-  HostPrepared out;auto h=binding();
-  prunePrepared(h.context);
+  HostPrepared out;const QPointer<CapabilityHost> guard(this);const auto invalidated=m_preparationInvalidated;
   const auto fail=[&](const QString &code){out.code=code;return out;};
-  if(!m_nativeAdapterFactory || !m_nativeAdapterFactory(h).freeze)return fail("execution_adapter_unavailable");
+  const auto interrupted=[guard,invalidated] {
+    return !guard?QStringLiteral("document_unavailable"):invalidated->load()?QStringLiteral("stale_session"):QString();
+  };
+  auto h=binding();if(const auto code=interrupted();!code.isEmpty())return fail(code);
+  prunePrepared(h.context);const auto nativeFactory=m_nativeAdapterFactory;
+  const auto native=nativeFactory?nativeFactory(h):CapabilityExecutionAdapter{};
+  if(const auto code=interrupted();!code.isEmpty())return fail(code);
+  if(!native.freeze)return fail("execution_adapter_unavailable");
   if(!intent.documentId.isEmpty() && intent.documentId!=h.context.documentId)return fail("document_mismatch");
   const auto scope=callerScope(caller,session);if(scope.isEmpty())return fail("caller_unbound");
   if(intent.clientRequestId.isEmpty())return fail("client_request_id_required");
   const auto original=nativePlanIntent(intent,nodes,edges);
   const auto prior=m_recovery->lookup(scope,intent.clientRequestId);
+  if(const auto code=interrupted();!code.isEmpty())return fail(code);
   Prepared p;p.request=intent;p.request.documentId=h.context.documentId;p.request.callerScope=scope;
   p.request.projectDir=h.projectDir;p.request.operationDir=h.operationDir;p.request.bindingMode="pinned-value";p.request.catalog=nullptr;
   p.context=h.context;p.effects=host::computeEffects(intent.publishIntent);
@@ -29,7 +36,9 @@ HostPrepared CapabilityHost::preparePlan(const ExecuteRequest &intent,const QVec
   } else {
     if(prior.code!=QLatin1String("not_found"))return fail(prior.code);
     auto code=host::checkContext(h.context,h.context,p.effects);if(!code.isEmpty())return fail(code);
-    p.frozen=freezeNativePlan(p.request,nodes,edges,&code);if(!code.isEmpty())return fail(code);
+    p.frozen=freezeNativePlan(p.request,nodes,edges,&code);
+    if(const auto stopped=interrupted();!stopped.isEmpty())return fail(stopped);
+    if(!code.isEmpty())return fail(code);
     p.frozen.intent=original;
   }
   // The opaque ticket owns the entire graph; start cannot replace its nodes/edges.

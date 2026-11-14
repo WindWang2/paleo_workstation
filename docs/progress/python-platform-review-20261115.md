@@ -36,6 +36,12 @@ Shell、网络、包安装、GPU、持久解释器和任意宿主文件访问继
 回调后也复核绑定世代，避免旧装配覆盖新工程。首次/第二次 binding、capture、预热
 三阶段重入及恢复 hook 均以不运行用户代码的生命周期回归覆盖。
 
+恢复闭包还绑定本次 Host preparation generation，覆盖 owner 存活但已 invalidate 或
+同 context 重绑的情况。Recovery 在 `live()` 正常初始化后保留执行 token，各恢复 hook
+后复核，并把同一个 token 交给 attempt；不能在 hook 后领取新 token 继续旧请求。
+新增 12 组 adapter/member、三类 hook、失效/重绑组合，要求同步拒绝且计算计数为零；
+另有新 Host 首次直接 start 成功正例，防止误伤正常初始化。
+
 Preparation 的 service/parent/owner/receiver 生命周期连接改用弱捕获并集中保存，完成
 交付时断开；先落 delivered 防重入，worker 仍持 state，未结束的准备不提前清 frozen。
 完成任务不再向长寿命 service 线性累积销毁连接。
@@ -66,6 +72,9 @@ RuntimeProvider 仅在同进程、同 canonicalRoot＋manifest 间共享 generat
 ## 验证记录
 
 默认/no-ORT 在各自独立物理 build 配置完成；Office/WebEngine 依赖接线保持。
+功能源码冻结于 `a6b92d6b8803e523827a2f19f1ae8aae286a310d`，SDK 为上列 `9160615d`；
+之后仅补文档。此前 `7d1f3250` 的完整编译与 focused 回归保留为补代次修复前记录，
+不能代替最终冻结版本验收。
 完整编译、功能回归、Windows 原生组件和非 WSL Linux 原生矩阵结果在完成后补录。
 既有 PY4 证据包保持不变，新批次不复用其成功计数。完整源码门禁在最终 fetch/rebase
 之后重跑，基线只缩不涨；不将配置成功当作编译或执行成功。

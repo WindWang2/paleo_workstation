@@ -70,6 +70,11 @@ void metricField(QJsonObject &report,const QString &key,const QJsonValue &value)
 class PythonAnalysisReportTests:public QObject {
   Q_OBJECT
 private slots:
+  void rejectsTruncatedUtf8AtCompleteOutputBoundary() {
+    const auto meta=metadata();const auto valid=envelope(quality(meta));
+    for(const auto &tail:{QByteArray("\xc3",1),QByteArray("\xe2\x82",2),QByteArray("\xf0\x9f\x92",3)})
+      QCOMPARE(validateAnalysisReport(valid+tail,AnalysisKind::WellQuality,meta,{}).code,QString("python_output_encoding_invalid"));
+  }
   void parsedCorrelationCellsHaveValueOwnership_data() {
     QTest::addColumn<int>("channels");QTest::addColumn<int>("count");
     QTest::newRow("dense-redundancy")<<16<<4;QTest::newRow("null-insufficient")<<16<<1;

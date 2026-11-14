@@ -51,7 +51,7 @@ QString scriptBytes(const TrustedProcessRequest &request,QByteArray &bytes,QStri
   if(bytes.size()!=info.size()||!file.atEnd()||file.size()!=info.size())return "python_script_changed";
   if(QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex())!=request.scriptSha256)
     return "python_script_changed";
-  QStringDecoder decoder(QStringDecoder::Utf8);const QString decoded=decoder(bytes);Q_UNUSED(decoded);
+  QStringDecoder decoder(QStringDecoder::Utf8,QStringConverter::Flag::Stateless);const QString decoded=decoder(bytes);Q_UNUSED(decoded);
   if(decoder.hasError())return "python_script_encoding_invalid";
   directory=info.canonicalPath();return {};
 }

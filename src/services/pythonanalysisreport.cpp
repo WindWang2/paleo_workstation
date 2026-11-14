@@ -160,16 +160,16 @@ bool correlationMatrix(const QJsonObject &report,int channels,int count,QJsonArr
     if(!integer(entry,channels-1,index)||index<=previous)return false;constant.insert(index);previous=index;}
   matrix=report.value("matrix").toArray();if(matrix.size()!=channels||(!constant.isEmpty()&&count<2))return false;
   for(int left=0;left<channels;++left){if(!matrix[left].isArray()||matrix[left].toArray().size()!=channels)return false;
-    for(int right=0;right<channels;++right){const auto value=matrix[left].toArray()[right];
+    for(int right=0;right<channels;++right){const QJsonValue value=matrix[left].toArray().at(right);
       if(count<2||constant.contains(left)||constant.contains(right)){if(!value.isNull())return false;continue;}
       double number=0;if(!finite(value,number)||number<-1||number>1||(left==right&&!near(number,1.0)))return false;}}
-  for(int left=0;left<channels;++left)for(int right=left+1;right<channels;++right){const auto a=matrix[left].toArray()[right],b=matrix[right].toArray()[left];
+  for(int left=0;left<channels;++left)for(int right=left+1;right<channels;++right){const QJsonValue a=matrix[left].toArray().at(right),b=matrix[right].toArray().at(left);
     if(a.isNull()!=b.isNull()||(!a.isNull()&&!near(a.toDouble(),b.toDouble())))return false;}
   return true;
 }
 bool pairs(const QJsonValue &value,const QJsonArray &matrix,int channels,int count) {
   if(!value.isArray())return false;const auto array=value.toArray();int index=0;
-  for(int left=0;left<channels;++left)for(int right=left+1;right<channels;++right){const auto coefficient=matrix[left].toArray()[right];
+  for(int left=0;left<channels;++left)for(int right=left+1;right<channels;++right){const QJsonValue coefficient=matrix[left].toArray().at(right);
     if(coefficient.isNull()||std::abs(coefficient.toDouble())<0.95)continue;if(index>=array.size())return false;
     const auto pair=array[index++].toObject();int l=0,r=0,samples=0;double number=0;
     if(!keys(pair,{"left","right","pearson","sampleCount"})||!integer(pair.value("left"),channels-1,l)||l!=left||

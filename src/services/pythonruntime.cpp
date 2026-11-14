@@ -114,7 +114,8 @@ RuntimeResult verifyRuntime(const RuntimeConfig &config,const std::function<bool
   QFile manifest(QDir(root).filePath("runtime-manifest.json"));
   if(link(QFileInfo(manifest)) || !manifest.open(QIODevice::ReadOnly) || manifest.size()>4*1024*1024)
     return fail("python_manifest_invalid");
-  const auto bytes=manifest.readAll();
+  const auto bytes=manifest.read(4*1024*1024+1);
+  if(bytes.size()>4*1024*1024 || manifest.size()!=bytes.size())return fail("python_manifest_invalid");
   if(QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex())!=config.manifestSha256)
     return fail("python_manifest_changed");
   const auto parsed=QJsonDocument::fromJson(bytes);

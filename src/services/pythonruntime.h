@@ -30,7 +30,7 @@ struct ExecutionPolicy {
 struct VerifiedRuntime {
   QString root, interpreter, manifestSha256, runtimeVersion, platform;
   qint64 treeSize = 0;
-  // Kept outside the immutable generation. Releasing the last lease permits GC.
+  // Outside the immutable generation; future GC must also honor persistent operation roots.
   std::shared_ptr<void> retention;
 };
 struct RuntimeResult {

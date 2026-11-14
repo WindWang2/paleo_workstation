@@ -198,7 +198,7 @@ AnalysisReportValidation validateAnalysisReport(const QByteArray &bytes,Analysis
   AnalysisReportValidation out;const auto fail=[&](const QString &code){out.code=code;return out;};
   if(!policy.validate().isEmpty())return fail("python_policy_invalid");
   if(bytes.isEmpty()||bytes.size()>qMin<qint64>(policy.outputBytes,ReportBytes))return fail("python_output_budget_exceeded");
-  QStringDecoder decoder(QStringDecoder::Utf8);const QString decoded=decoder(bytes);Q_UNUSED(decoded);
+  QStringDecoder decoder(QStringDecoder::Utf8,QStringConverter::Flag::Stateless);const QString decoded=decoder(bytes);Q_UNUSED(decoded);
   if(decoder.hasError())return fail("python_output_encoding_invalid");
   QJsonParseError parse;const auto document=QJsonDocument::fromJson(bytes,&parse);
   if(parse.error!=QJsonParseError::NoError||!document.isObject()||!UniqueKeys(bytes).valid())return fail("python_output_invalid");

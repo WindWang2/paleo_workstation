@@ -86,6 +86,13 @@ private slots:
     auto request=requestFor(m_runtime,path,code);QCOMPARE(runTrustedProcess(request).code,QString("python_script_encoding_invalid"));
     request.scriptPath="fixed.py";QCOMPARE(runTrustedProcess(request).code,QString("python_script_invalid"));
   }
+  void rejectsTruncatedUtf8AtTheEndOfCompleteSource() {
+    QTemporaryDir dir;const auto path=dir.filePath("fixed.py");
+    for(const auto &source:{QByteArray("#x\xc3",3),QByteArray("#x\xe2\x82",4),QByteArray("#x\xf0\x9f\x92",5)}) {
+      QVERIFY(write(path,source));const auto request=requestFor(m_runtime,path,source);
+      QCOMPARE(runTrustedProcess(request).code,QString("python_script_encoding_invalid"));
+    }
+  }
   void fixedSourceUsesCleanEnvironmentAndExactInput() {
     QTemporaryDir dir;const auto path=dir.filePath("fixed.py");
     const QByteArray code="import sys,json,os\nraw=sys.stdin.buffer.read()\nsys.stderr.write('diagnostic')\n"

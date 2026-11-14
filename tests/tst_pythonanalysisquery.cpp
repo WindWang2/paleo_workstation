@@ -20,10 +20,11 @@ namespace {
 struct Fixture {
   QTemporaryDir temporary;DataCatalog catalog;data::DataService sdk;QString project,model,error;
   document::WellRef well;document::SourceProjection projection;std::vector<data::DataEntry> entries;
-  bool open(bool inferred=true,bool largeFirst=false) {
+  bool open(bool inferred=true,bool largeFirst=false,bool largeSource=false) {
     project=temporary.path()+"/project";if(!catalog.open(project,&error))return false;model=project+"/artifacts/metadata/area-model";std::string detail;
     if(!sdk.createProject(model.toUtf8().toStdString(),"Query metadata",detail)){error=QString::fromStdString(detail);return false;}
-    data::ParsedFile parsed;parsed.kind="logs";parsed.status="parsed";data::WellDataset dataset;dataset.wellInfo.wellName="DISCOVERY-1";
+    data::ParsedFile parsed;parsed.kind="logs";parsed.status="parsed";if(largeSource)parsed.message=std::string(32768,'x');
+    data::WellDataset dataset;dataset.wellInfo.wellName="DISCOVERY-1";
     data::LogSet log;log.logSetName="Explicit shared MD";log.depthInfo={"MD","m","KB","","",""};
     for(int i=0;i<8192;++i)log.samplingAxis.depthValues.push_back(100+i*0.25);
     for(int i=0;i<2;++i){data::LogCurve curve;curve.curveName=i?"B":largeFirst?std::string(2000,'X'):"A";curve.curveUnit=i?"m/s":"API";
@@ -63,6 +64,10 @@ private slots:
     for(;;){const auto page=service.query(args);QVERIFY2(page.value("ok").toBool(),qPrintable(QJsonDocument(page).toJson()));
       QCOMPARE(page.value("returnedCount").toInt(),1);QCOMPARE(page.value("numericPayloadBytes").toString(),QString("0"));QVERIFY(page.value("metadataOnly").toBool());
       const auto sourceBytes=page.value("sourceMetadataBytes").toString().toLongLong();QVERIFY(sourceBytes>0&&sourceBytes<=8192);
+      const auto metadataBytes=page.value("metadataTextBytes").toString().toLongLong();QVERIFY(metadataBytes>sourceBytes);
+      QVERIFY(metadataBytes<=page.value("metadataReadBudgetBytes").toString().toLongLong());
+      qInfo()<<"QUERY_METADATA page"<<pages+1<<"textBytes"<<metadataBytes<<"sourceBytes"<<sourceBytes
+        <<"budgetBytes"<<page.value("metadataReadBudgetBytes").toString()<<"numericPayloadBytes"<<page.value("numericPayloadBytes").toString();
       const auto bytes=QJsonDocument(page).toJson(QJsonDocument::Compact);QVERIFY(bytes.size()<=8192);QVERIFY(!bytes.contains(f.temporary.path().toUtf8()));QVERIFY(!bytes.contains("\"path\""));
       const auto row=firstCurve(page);const auto id=row.value("curve_id").toString();QVERIFY(!ids.contains(id));ids.insert(id);QCOMPARE(row.value("total_samples").toString(),QString("8192"));
       if(row.value("metadataReady").toBool()){++ready;const auto input=row.value("input_ref").toObject();
@@ -136,13 +141,12 @@ private slots:
       const auto page=service.query(f.arguments());QVERIFY(rebound);QCOMPARE(page.value("code").toString(),QString("cursor_scope_mismatch"));QVERIFY(!page.contains("curves"));QVERIFY(!page.contains("nextCursor"));}
   }
   void oversizedSourceMetadataOnlyMakesTheRowUnavailable() {
-    Fixture f;QVERIFY(f.open(false));const auto connection=QUuid::createUuid().toString();bool changed=false;
-    {auto database=QSqlDatabase::addDatabase("QSQLITE",connection);database.setDatabaseName(f.model+"/data.sqlite");QVERIFY(database.open());QSqlQuery query(database);
-      query.prepare("UPDATE sources SET message=? WHERE id=?");query.addBindValue(QString(32768,'x'));query.addBindValue(qlonglong(f.entries[0].sourceId));changed=query.exec();database.close();}
-    QSqlDatabase::removeDatabase(connection);QVERIFY(changed);query::ProjectQueryCapability service;service.bind(&f.catalog,{"doc",1,1,"chat"});service.setSourceResolver(f.resolver());
+    Fixture f;QVERIFY(f.open(false,false,true));query::ProjectQueryCapability service;service.bind(&f.catalog,{"doc",1,1,"chat"});service.setSourceResolver(f.resolver());
     const auto page=service.query(f.arguments());QVERIFY2(page.value("ok").toBool(),qPrintable(QJsonDocument(page).toJson()));const auto row=firstCurve(page);
     QVERIFY(!row.value("metadataReady").toBool());QCOMPARE(row.value("code").toString(),QString("curve_source_unavailable"));QVERIFY(!row.contains("input_ref"));
     QCOMPARE(page.value("sourceMetadataBytes").toString(),QString("0"));QVERIFY(!QJsonDocument(page).toJson().contains(QByteArray(256,'x')));
+    QVERIFY(row.value("unit").isNull());QVERIFY(row.value("depth_type").isNull());
+    QVERIFY(page.value("metadataTextBytes").toString().toLongLong()<=8192);
   }
   void byteAndRowBudgetsRejectOversizedFirstEntryWithoutPartialRows() {
     Fixture f;QVERIFY(f.open(false,true));query::ProjectQueryCapability service;service.bind(&f.catalog,{"doc",1,1,"chat"});service.setSourceResolver(f.resolver());

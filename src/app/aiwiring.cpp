@@ -227,7 +227,7 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   context.pythonTrusted=reuseTrusted?priorTrusted:std::make_shared<paleo::python::TrustedReadinessProvider>(context.pythonRuntime);
   const auto priorSandbox=chat->toolRunner()->pythonSandbox();
   const bool reuseSandbox=reusePython && bool(priorSandbox);
-  context.pythonSandbox=reuseSandbox?priorSandbox:std::make_shared<paleo::python::SandboxProvider>();
+  context.pythonSandbox=reuseSandbox?priorSandbox:std::make_shared<paleo::python::SandboxProvider>(context.pythonRuntime);
   if(host)host->registerExecutionAdapter(QLatin1String(paleo::python::SummaryCapability),
     paleo::python::trustedScriptAdapter(context.pythonRuntime,qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT")));
   const auto scripts=qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT");

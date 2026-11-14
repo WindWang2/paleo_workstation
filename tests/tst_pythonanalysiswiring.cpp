@@ -157,7 +157,7 @@ private slots:
     auto runtime=std::make_shared<python::RuntimeProvider>(python::RuntimeConfig{
       root,qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),true},policy);
     const auto inspected=runtime->inspect();QVERIFY2(inspected.ready(),qPrintable(inspected.code));
-    auto sandbox=std::make_shared<python::SandboxProvider>();
+    auto sandbox=std::make_shared<python::SandboxProvider>(runtime);
     if(generated) {
       QFutureWatcher<QJsonObject> watcher;QEventLoop wait;
       connect(&watcher,&QFutureWatcherBase::finished,&wait,&QEventLoop::quit);

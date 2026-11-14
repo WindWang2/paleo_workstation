@@ -52,6 +52,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-import-ux.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ai-chat.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-batch.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-capability-host.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-coordinate-inputs.cmake"

@@ -12,6 +12,10 @@
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtEndian>
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <numeric>
 
 using namespace paleo;
 namespace {
@@ -64,10 +68,87 @@ struct Fixture {
   }
 };
 python::ExecutionPolicy policy() {python::ExecutionPolicy value;value.allowTrusted=true;return value;}
+using NumericRows=QVector<QVector<double>>;
+using QualityRows=QVector<QVector<int>>;
+void appendDouble(QByteArray &bytes,double value) {
+  static_assert(sizeof(double)==sizeof(quint64));quint64 bits=0;std::memcpy(&bits,&value,sizeof(bits));
+  const auto offset=bytes.size();bytes.resize(offset+8);qToLittleEndian(bits,bytes.data()+offset);
+}
+QByteArray referenceFrame(python::AnalysisKind kind,const NumericRows &values,const QualityRows &quality={},
+    QVector<double> axis={},int columns=0,const std::function<void(QJsonObject &)> &change={}) {
+  const int rows=int(values.size());if(!columns)columns=rows?int(values.first().size()):2;
+  if(axis.isEmpty())for(int row=0;row<rows;++row)axis.append(100+row*0.5);
+  QByteArray payload;
+  for(const auto value:axis)appendDouble(payload,value);
+  for(const auto &row:values)for(const auto value:row)appendDouble(payload,value);
+  for(int row=0;row<rows;++row)for(int column=0;column<columns;++column)
+    payload.append(char(quality.isEmpty()?0:quality.at(row).at(column)));
+  QJsonArray channels;for(int column=0;column<columns;++column)
+    channels.append(QJsonObject{{"curveId",QString::number(column+1)},{"name","curve-"+QString::number(column)},{"unit","API"}});
+  const QJsonObject declaredAxis{{"kind","MD"},{"unit","m"},{"reference","KB"},{"alignment","exact_shared_axis_v1"}};
+  const QJsonObject sampling{{"method","all_selected_window_v1"},{"seed",0},{"count",rows},
+    {"scope","selected_window_only"},{"random",false},{"extrapolation",false}};
+  QJsonObject metadata{{"contract","paleo.python-analysis-input.v1"},{"analysis",python::analysisKindId(kind)},
+    {"inputProtocol","paleo.python-analysis-frame.v1"},{"sourceKind","well_curve_numeric_attributes"},{"dtype","<f8"},
+    {"shape",QJsonArray{rows,columns}},{"axis",declaredAxis},{"columns",channels},
+    {"layout",QJsonObject{{"axisBytes",rows*8},{"valueBytes",rows*columns*8},{"qualityBytes",rows*columns},
+      {"order","axis_then_row_major_values_then_row_major_quality"}}},
+    {"payload",QJsonObject{{"bytes",payload.size()},{"sha256",QString::fromLatin1(QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex())}}},
+    {"provenance",QJsonObject{{"documentId","fixture"},{"callerScope","agent:test"},{"sampling",sampling},{"axis",declaredAxis}}}};
+  if(change)change(metadata);
+  auto provenance=metadata.value("provenance").toObject();provenance["axis"]=metadata.value("axis");metadata["provenance"]=provenance;
+  const auto header=QJsonDocument(metadata).toJson(QJsonDocument::Compact);
+  QByteArray frame(4,Qt::Uninitialized);qToLittleEndian(quint32(header.size()),frame.data());return frame+header+payload;
+}
+struct TemplateRunner {
+  std::shared_ptr<python::RuntimeProvider> provider;
+  std::shared_ptr<const python::VerifiedRuntime> runtime;
+  QString error;
+  bool open(const QString &root) {
+    provider=std::make_shared<python::RuntimeProvider>(python::RuntimeConfig{
+      root,qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),true},policy());
+    const auto identity=provider->inspectIntegrity();error=identity.code;runtime=identity.runtime;return identity.ready();
+  }
+  bool execute(python::AnalysisKind kind,const QByteArray &input,QJsonObject *report) {
+    const auto templates=qEnvironmentVariable("PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES",QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES));
+    python::TrustedProcessRequest request;request.runtime=runtime;request.policy=policy();
+    request.policy.outputBytes=64*1024;request.policy.wallSeconds=15;
+    request.scriptPath=templates+'/'+python::analysisKindId(kind)+".py";request.scriptSha256=python::analysisTemplateSha256(kind);
+    request.permit=python::claimExecutionPermit();request.input=input;
+    const auto result=python::runTrustedProcess(request);error=result.code+": "+QString::fromUtf8(result.error);
+    if(!report)return result.code=="python_process_failed" && result.exitCode>0 && result.output.isEmpty() && result.outputLog.isEmpty();
+    if(!result.ok() || result.output.size()>=64*1024)return false;
+    QJsonParseError parse;const auto document=QJsonDocument::fromJson(result.output,&parse);
+    if(parse.error!=QJsonParseError::NoError || !document.isObject())return false;
+    *report=document.object().value("ports").toObject().value("REPORT").toObject();return !report->isEmpty();
+  }
+};
 }
 class PythonAnalysisTests:public QObject {
   Q_OBJECT
 private slots:
+  void lockedTemplatesMatchIndependentReferences_data() {
+    QTest::addColumn<QString>("reference");
+    for(const auto name:{"quality","pearson","complete-rows","empty-and-missing","large-magnitude","uppercase-unit","invalid-frames","maximum-window"})
+      QTest::newRow(name)<<QString::fromLatin1(name);
+  }
+  void lockedTemplatesMatchIndependentReferences() {
+    QFETCH(QString,reference);const auto root=qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT");
+    if(root.isEmpty()) {
+      QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_AGENT_PYTHON_EXECUTION")!="1","Required real Python fixture missing");
+      QVERIFY(!python::RuntimeProvider({}).inspectIntegrity().ready());return;
+    }
+    TemplateRunner runner;QVERIFY2(runner.open(root),qPrintable(runner.error));
+    if(reference=="quality")qualityReference(runner);
+    else if(reference=="pearson")pearsonReference(runner);
+    else if(reference=="complete-rows")completeRowsReference(runner);
+    else if(reference=="empty-and-missing")emptyAndMissingReference(runner);
+    else if(reference=="large-magnitude")largeMagnitudeReference(runner);
+    else if(reference=="uppercase-unit")uppercaseUnitReference(runner);
+    else if(reference=="invalid-frames")invalidFramesReference(runner);
+    else if(reference=="maximum-window")maximumWindowReference(runner);
+    else QFAIL("Unknown independent template reference");
+  }
   void boundedSdkWindowsCarryIdentityAndAuthenticateTransport() {
     Fixture fixture;QVERIFY2(fixture.open(),qPrintable(fixture.error));const auto permit=python::claimExecutionPermit();
     const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
@@ -219,6 +300,107 @@ private slots:
     const auto metric=QJsonDocument::fromJson(qualityRun.output).object().value("ports").toObject().value("REPORT").toObject().value("metrics").toArray().first().toObject();
     QCOMPARE(metric.value("validCount").toInt(),100);QCOMPARE(metric.value("mean").toDouble(),149.5);
     QCOMPARE(metric.value("minimum").toDouble(),100.0);QCOMPARE(metric.value("maximum").toDouble(),199.0);
+  }
+private:
+  void qualityReference(TemplateRunner &runner) {
+    const auto nan=std::numeric_limits<double>::quiet_NaN(),inf=std::numeric_limits<double>::infinity();QJsonObject report;
+    QVERIFY2(runner.execute(python::AnalysisKind::WellQuality,referenceFrame(python::AnalysisKind::WellQuality,
+      {{1,5},{2,5},{100,5},{4,5},{nan,5},{inf,5},{7,5}},{{0,0},{4,0},{2,0},{1,0},{0,0},{0,0},{0,0}}),&report),qPrintable(runner.error));
+    const auto metrics=report.value("metrics").toArray();QCOMPARE(metrics.size(),2);
+    const auto first=metrics.at(0).toObject(),second=metrics.at(1).toObject();
+    const QVector<double> accepted{1,2,7};const auto mean=std::accumulate(accepted.begin(),accepted.end(),0.0)/accepted.size();
+    double squared=0;for(const auto value:accepted)squared+=(value-mean)*(value-mean);
+    QCOMPARE(first.value("validCount").toInt(),3);QVERIFY(qAbs(first.value("mean").toDouble()-mean)<1e-13);
+    QVERIFY(qAbs(first.value("populationStdDev").toDouble()-std::sqrt(squared/accepted.size()))<1e-13);
+    QCOMPARE(first.value("missingCount").toInt(),3);QCOMPARE(first.value("sdkAbnormalCount").toInt(),1);
+    QCOMPARE(first.value("editedCount").toInt(),1);QCOMPARE(first.value("nonFiniteCount").toInt(),2);
+    QCOMPARE(second.value("status").toString(),QString("constant"));QCOMPARE(second.value("populationStdDev").toDouble(),0.0);
+  }
+  void pearsonReference(TemplateRunner &runner) {
+    QJsonObject report;const NumericRows values{{1,5,7},{2,4,7},{3,2,7},{4,1,7}};
+    QVERIFY2(runner.execute(python::AnalysisKind::AttributeCorrelation,referenceFrame(python::AnalysisKind::AttributeCorrelation,values),&report),qPrintable(runner.error));
+    double covariance=0,squaredX=0,squaredY=0;
+    const auto meanX=(1.0+2+3+4)/4,meanY=(5.0+4+2+1)/4;
+    for(const auto &row:values) {
+      const auto x=row.at(0)-meanX,y=row.at(1)-meanY;covariance+=x*y;squaredX+=x*x;squaredY+=y*y;
+    }
+    const auto matrix=report.value("matrix").toArray();QCOMPARE(matrix.size(),3);
+    QVERIFY(qAbs(matrix.at(0).toArray().at(1).toDouble()-covariance/std::sqrt(squaredX*squaredY))<1e-13);
+    QCOMPARE(report.value("constantColumns").toArray(),QJsonArray{2});QVERIFY(matrix.at(2).toArray().at(2).isNull());
+    QCOMPARE(report.value("redundantPairs").toArray().size(),1);QCOMPARE(report.value("jointValidCount").toInt(),4);
+  }
+  void completeRowsReference(TemplateRunner &runner) {
+    const auto nan=std::numeric_limits<double>::quiet_NaN(),inf=std::numeric_limits<double>::infinity();QJsonObject report;
+    QVERIFY2(runner.execute(python::AnalysisKind::AttributeCorrelation,referenceFrame(python::AnalysisKind::AttributeCorrelation,
+      {{1,2},{2,4},{nan,3},{3,6},{4,inf}},{{0,0},{0,0},{0,0},{2,0},{0,0}}),&report),qPrintable(runner.error));
+    QCOMPARE(report.value("jointValidCount").toInt(),2);QCOMPARE(report.value("rejectedRows").toInt(),3);
+    QVERIFY(qAbs(report.value("matrix").toArray().at(0).toArray().at(1).toDouble()-1.0)<1e-14);
+  }
+  void emptyAndMissingReference(TemplateRunner &runner) {
+    QJsonObject report;
+    for(const auto kind:{python::AnalysisKind::WellQuality,python::AnalysisKind::AttributeCorrelation}) {
+      QVERIFY2(runner.execute(kind,referenceFrame(kind,{}),&report),qPrintable(runner.error));
+      auto status=report.value("status").toString();
+      if(status.isEmpty()) {
+        const auto metrics=report.value("metrics").toArray();QVERIFY(!metrics.isEmpty());status=metrics.at(0).toObject().value("status").toString();
+      }
+      QCOMPARE(status,QString("empty_window"));
+    }
+    QVERIFY2(runner.execute(python::AnalysisKind::WellQuality,referenceFrame(python::AnalysisKind::WellQuality,
+      {{std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::infinity()}}),&report),qPrintable(runner.error));
+    for(const auto value:report.value("metrics").toArray()) {
+      const auto metric=value.toObject();QCOMPARE(metric.value("status").toString(),QString("all_missing"));QVERIFY(metric.value("mean").isNull());
+    }
+    QVERIFY2(runner.execute(python::AnalysisKind::WellQuality,referenceFrame(python::AnalysisKind::WellQuality,{{1,2}},{{2,2}}),&report),qPrintable(runner.error));
+    for(const auto value:report.value("metrics").toArray()) {
+      const auto metric=value.toObject();QCOMPARE(metric.value("status").toString(),QString("no_valid_samples"));QCOMPARE(metric.value("missingCount").toInt(),0);
+    }
+    QVERIFY2(runner.execute(python::AnalysisKind::AttributeCorrelation,referenceFrame(python::AnalysisKind::AttributeCorrelation,{{1,2}}),&report),qPrintable(runner.error));
+    QCOMPARE(report.value("status").toString(),QString("insufficient_samples"));
+    for(const auto row:report.value("matrix").toArray())for(const auto value:row.toArray())QVERIFY(value.isNull());
+  }
+  void largeMagnitudeReference(TemplateRunner &runner) {
+    const NumericRows values{{1e308,-1e308},{-1e308,1e308},{0,0}};QJsonObject report;
+    QVERIFY2(runner.execute(python::AnalysisKind::WellQuality,referenceFrame(python::AnalysisKind::WellQuality,values),&report),qPrintable(runner.error));
+    for(const auto value:report.value("metrics").toArray()) {
+      const auto deviation=value.toObject().value("populationStdDev");QVERIFY(deviation.isDouble());QVERIFY(std::isfinite(deviation.toDouble()));
+    }
+    QVERIFY2(runner.execute(python::AnalysisKind::AttributeCorrelation,referenceFrame(python::AnalysisKind::AttributeCorrelation,values),&report),qPrintable(runner.error));
+    QVERIFY(qAbs(report.value("matrix").toArray().at(0).toArray().at(1).toDouble()+1.0)<1e-13);
+  }
+  void uppercaseUnitReference(TemplateRunner &runner) {
+    for(const auto kind:{python::AnalysisKind::WellQuality,python::AnalysisKind::AttributeCorrelation}) {
+      QJsonObject report;const auto frame=referenceFrame(kind,{{1,2},{2,3}},{},{},0,[](QJsonObject &metadata) {
+        auto axis=metadata.value("axis").toObject();axis["unit"]="M";metadata["axis"]=axis;
+      });
+      QVERIFY2(runner.execute(kind,frame,&report),qPrintable(runner.error));
+      QCOMPARE(report.value("provenance").toObject().value("axis").toObject().value("unit").toString(),QString("M"));
+    }
+  }
+  void invalidFramesReference(TemplateRunner &runner) {
+    const QVector<std::function<void(QJsonObject &)>> changes{
+      [](QJsonObject &m){m["dtype"]="object";},[](QJsonObject &m){m["shape"]=QJsonArray{8193,2};},
+      [](QJsonObject &m){auto columns=m.value("columns").toArray();auto first=columns.at(0).toObject();first["unit"]="";columns[0]=first;m["columns"]=columns;},
+      [](QJsonObject &m){auto axis=m.value("axis").toObject();axis["reference"]="";m["axis"]=axis;},
+      [](QJsonObject &m){auto p=m.value("provenance").toObject();auto s=p.value("sampling").toObject();s["method"]="implicit_latest";p["sampling"]=s;m["provenance"]=p;},
+      [](QJsonObject &m){auto payload=m.value("payload").toObject();payload["sha256"]=QString(64,'0');m["payload"]=payload;}};
+    for(const auto kind:{python::AnalysisKind::WellQuality,python::AnalysisKind::AttributeCorrelation}) {
+      for(const auto &change:changes)
+        QVERIFY2(runner.execute(kind,referenceFrame(kind,{{1,2}},{},{},0,change),nullptr),qPrintable(runner.error));
+      const auto frame=referenceFrame(kind,{{1,2}});
+      QVERIFY2(runner.execute(kind,frame.first(frame.size()-1),nullptr),qPrintable(runner.error));
+      QVERIFY2(runner.execute(kind,frame+"extra",nullptr),qPrintable(runner.error));
+      QVERIFY2(runner.execute(kind,referenceFrame(kind,{{1,2},{3,4}},{},{1,1}),nullptr),qPrintable(runner.error));
+    }
+  }
+  void maximumWindowReference(TemplateRunner &runner) {
+    NumericRows values(8192,QVector<double>(16));
+    for(int row=0;row<8192;++row)for(int column=0;column<16;++column)values[row][column]=row+column;
+    QJsonObject report;QVERIFY2(runner.execute(python::AnalysisKind::AttributeCorrelation,
+      referenceFrame(python::AnalysisKind::AttributeCorrelation,values),&report),qPrintable(runner.error));
+    QCOMPARE(report.value("sampleCount").toInt(),8192);QCOMPARE(report.value("matrix").toArray().size(),16);
+    QCOMPARE(report.value("sourceKind").toString(),QString("well_curve_numeric_attributes"));
+    QCOMPARE(report.value("scope").toString(),QString("selected_window_only"));
   }
 };
 QTEST_GUILESS_MAIN(PythonAnalysisTests)

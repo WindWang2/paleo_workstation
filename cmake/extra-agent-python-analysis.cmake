@@ -8,7 +8,7 @@ add_library(paleo_services_pythonanalysis STATIC
   src/services/pythonanalysisreport.cpp src/services/pythonanalysisselection.cpp)
 target_include_directories(paleo_services_pythonanalysis PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(paleo_services_pythonanalysis PUBLIC paleo_services_pythonruntime paleo_domain Paleo::paleo_data_service Qt6::Core)
-target_compile_definitions(paleo_services_pythonanalysis PRIVATE
+set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/services/pythonanalysis.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
   PALEO_AGENT_PYTHON_WELL_QUALITY_SHA="${_paleo_python_quality_sha}"
   PALEO_AGENT_PYTHON_ATTRIBUTE_CORRELATION_SHA="${_paleo_python_correlation_sha}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS

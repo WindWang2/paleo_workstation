@@ -34,6 +34,7 @@ OperationLog::Record CapabilityRecovery::reconcile(const RecoveryHost &h,Operati
 }
 
 ExecuteResult CapabilityRecovery::finish(const RecoveryHost &h,OperationLog::Record r,const OperationWorkResult &work) {
+  const QPointer<CapabilityRecovery> guard(this);const auto checkpoint=m_checkpoint;
   OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
   const auto expectedAttempt=r.ownerAttempt;
   r=log.recordById(r.operationId);
@@ -43,19 +44,29 @@ ExecuteResult CapabilityRecovery::finish(const RecoveryHost &h,OperationLog::Rec
   if(!work.ok || work.prepared.members.isEmpty() || publication_detail::preparedJson(work.prepared)!=r.preparedManifest) {
     r.code=work.code.isEmpty()?"prepared_verification_failed":work.code;recovery_detail::store(log,r);return recovery_detail::result(r);
   }
-  const auto current=live(); QString code=host::checkContext(current.context,h.context,host::computeEffects("publish"));
+  const auto current=live();const auto effects=recovery_detail::operationEffects(r);
+  QString code=effects?host::checkContext(current.context,h.context,effects):QStringLiteral("invalid_execution_effects");
   if(code.isEmpty() && current.validateFrozen)code=current.validateFrozen(r);
+  if(!guard)return recovery_detail::result(r);
   if(code.isEmpty() && r.cancelRequested)code="cancelled";
   if(!code.isEmpty()){r.code=code;recovery_detail::store(log,r);return recovery_detail::result(r);}
   AlgorithmSpec spec;
   if(!publication_detail::specFromJson(r.stagePlan.value("outputSpec").toObject(),spec))return {};
   r.commitState="publishing";r.code="publishing";
   if(recovery_detail::store(log,r)!=QLatin1String("ok"))return recovery_detail::result(r);
-  if(m_checkpoint)m_checkpoint("publishing");
+  if(checkpoint)checkpoint("publishing");
+  if(!guard)return recovery_detail::result(r);
+  const auto latest=log.recordById(r.operationId);
+  if(latest.ownerAttempt!=r.ownerAttempt || latest.planHash!=r.planHash || latest.commitState!="publishing")
+    return recovery_detail::result(latest);
+  r=latest;code=r.cancelRequested?QStringLiteral("cancelled"):host::checkContext(live().context,h.context,effects);
+  if(!code.isEmpty()){r.code=code;recovery_detail::store(log,r);return recovery_detail::result(r);}
   QStringList parents;for(const auto &id:r.stagePlan.value("parents").toArray())parents.append(id.toString());
   DerivedAssetRegistrar registrar(current.catalog,current.projectDir);DerivedOutputSetReceipt receipt;
   const bool committed=registrar.commitSet(spec,work.prepared,parents,"agent-operation:"+r.operationId,{},receipt);
-  if(committed && m_checkpoint)m_checkpoint("catalog_committed");
+  if(!guard)return recovery_detail::result(r); // Catalog.changed can synchronously destroy the owner; SQL remains authoritative.
+  if(committed && checkpoint)checkpoint("catalog_committed");
+  if(!guard)return recovery_detail::result(r);
   if(committed) {
     r.commitState="committed";r.execution="succeeded";r.code="committed";
     auto summary=QJsonDocument::fromJson(r.summaryJson).object();summary.insert("receipt",QJsonObject::fromVariantMap(receipt.toVariantMap()));
@@ -70,12 +81,14 @@ ExecuteResult CapabilityRecovery::finish(const RecoveryHost &h,OperationLog::Rec
   return recovery_detail::result(r);
 }
 OperationLog::Record CapabilityRecovery::presentCommitted(const RecoveryHost &h,OperationLog::Record r) {
+  const QPointer<CapabilityRecovery> guard(this);
   if(r.commitState!="committed" || r.presentationIntent.isEmpty() || r.presentation=="presented" || r.presentation=="superseded")return r;
-  if(!host::checkContext(h.context,h.context,host::Read|host::Presentation).isEmpty() || !h.catalog)return r;
+  if(!host::checkContext(live().context,h.context,host::Read|host::Presentation).isEmpty() || !h.catalog)return r;
   if(!h.presentationState || !h.present)return r;
   OperationLog log(h.operationDir,h.projectDir,h.writeClaim);if(!log.ownsWrites())return r;
   auto summary=QJsonDocument::fromJson(r.summaryJson).object();const int count=summary.value("presentationAttempts").toInt();
   const auto state=h.presentationState(r.presentationIntent);
+  if(!guard || !host::checkContext(guard->live().context,h.context,host::Read|host::Presentation).isEmpty())return r;
   if(state.isEmpty() || state.startsWith(QLatin1String("unavailable:")))return r;
   if(state==QLatin1String("presented"))r.presentation="presented";
   else if(state!=r.presentationIntent.value("expectedState").toString())r.presentation="superseded";
@@ -85,6 +98,7 @@ OperationLog::Record CapabilityRecovery::presentCommitted(const RecoveryHost &h,
     if(proof.code!="committed")return r;
     summary.insert("presentationAttempts",count+1);r.summaryJson=QJsonDocument(summary).toJson(QJsonDocument::Compact);
     r.presentation=h.present(r.presentationIntent,proof.receipt);
+    if(!guard)return r;
     if(r.presentation!="presented" && r.presentation!="superseded")r.presentation="pending";
   }
   const auto fact=r;

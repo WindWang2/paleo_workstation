@@ -26,6 +26,7 @@ struct CapabilitySpec {
   bool resumeSupported = false; // 无检查点。可从冻结计划重跑，不算恢复。
   bool restartable = true;
   QStringList operatorShapes;
+  unsigned executionEffects = 0; // Host-owned requirements in addition to phase effects.
 };
 
 class CapabilityRegistry {
@@ -37,6 +38,7 @@ public:
   static QStringList aliasCollisions();
   static CapabilityExposure exposureForAlgorithm(const QString &algorithmId, QString *reason);
   static QStringList callableIds();
+  static unsigned executionEffects(const QString &capabilityId,int contractVersion);
 };
 
 QString capabilityExposureName(CapabilityExposure exposure);

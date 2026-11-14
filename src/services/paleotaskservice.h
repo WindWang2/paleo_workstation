@@ -65,6 +65,10 @@ public:
   }
   Q_INVOKABLE void requestCancel();
   bool cancelRequested() const { return m_cancel.load(); }
+  // Host session/shutdown interruption stops existing workers without recording
+  // a permanent user cancellation. A later requestCancel() upgrades this flag.
+  bool explicitCancelRequested() const { return m_explicitCancel.load(); }
+  void requestInterruption(); // Host-only lifecycle interruption; no invokable UI entry.
 
   // worker 侧上报：非 GUI 线程可直调，内部排队回主线程。
   void reportBytes(qint64 done, qint64 total);
@@ -105,7 +109,7 @@ public:
 signals:
   void changed();
   void finished(); // 终态后读 state()/errorText()
-  // requestCancel() 首次生效时发（任务页「取消」按钮 / 会话切换 / 关停）。池内
+  // 取消或宿主中断首次生效时发（任务页「取消」按钮 / 会话切换 / 关停）。池内
   // 任务靠 worker 自查 cancelRequested()；外部驱动任务靠此信号中止自己的 IO。
   void cancelAsked();
 
@@ -130,6 +134,7 @@ private:
   bool m_quiet = false;
   quint64 m_session = 0;
   std::atomic_bool m_cancel{false};
+  std::atomic_bool m_explicitCancel{false};
   std::atomic_bool m_cancellable{true};
   std::atomic_bool m_started{false}; // 池内 runnable 是否已开跑（外部任务恒真）
   std::atomic<qint64> m_lastStageReport{0};
@@ -173,7 +178,7 @@ public:
   QVector<PaleoTask *> tasks() const { return m_tasks; }
   void clearFinished(); // 移除非运行态行（运行中任务永不删）
 
-  // 关停排空（H-2）：对所有运行中任务 requestCancel、清空排队，再等 worker
+  // 关停排空（H-2）：中断所有运行中任务、清空排队，再等 worker
   // 全部退出（≤timeoutMs；<0 不限时）。pumpEvents=true 且在主线程时等待期间
   // 泵事件，让 worker 排队回主线程的进度/终态回包与其它排队调用落地（导入
   // 链已不再 BlockingQueued 回主线程——旧 catInvoke 已移除；泵事件保留给仍
@@ -191,7 +196,7 @@ public:
   int runningCount() const;
 
   // 任务会话（#153/#124）：工程即将关闭/切换时宿主调 beginNewSession()——
-  // 会话号自增，所有运行中/排队任务 requestCancel（终态必为 Cancelled，
+  // 会话号自增，中断所有运行中/排队任务（终态必为 Cancelled，
   // 下游 JobRunner/finished 槽据此丢弃旧工程结果）；尚未出队的任务出队时
   // 直接跳过 work。返回新会话号。
   quint64 beginNewSession();

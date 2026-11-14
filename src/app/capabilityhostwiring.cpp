@@ -76,6 +76,7 @@ paleo::capability::HostBinding captureCapabilityBinding(
   ctx.ownsWrites = binding.writeClaim && binding.writeClaim->isHeldFor(catalog->projectDir());
   ctx.allowedEffects = host::Read | host::PrivateStage | host::CatalogPublish | host::Presentation;
   if(chatRunner && chatRunner->externalTransferConfigured())ctx.allowedEffects|=host::ExternalTransfer;
+  if(chatRunner && chatRunner->pythonExecutionAllowed())ctx.allowedEffects|=host::LocalExecute;
   if (selection) {
     ctx.selectionIds = selection->selectedIds();
     ctx.horizon = selection->activeHorizon();

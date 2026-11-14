@@ -164,7 +164,7 @@ void AiChatController::newSession() {
   // 不许写进新会话），再落盘——未保存的半轮回答不因「新会话」丢失；
   // 空会话不落盘（saveCurrentSession 内部判空）。
   if (m_streaming)
-    cancel();
+    interrupt();
   saveCurrentSession();
   m_session = ChatSession();
   m_session.id = ChatSessionStore::newSessionId();
@@ -180,7 +180,7 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
   // 切换语义同 newSession：先取消在飞请求（防迟到增量污染目标会话），
   // 再落盘再换，未保存内容不丢。
   if (m_streaming)
-    cancel();
+    interrupt();
   saveCurrentSession();
   ChatSession loaded;
   if (!ChatSessionStore::load(sessionId, &loaded, error)) {

@@ -150,25 +150,31 @@ void AiChatController::padUnansweredToolCalls(const QString &reason) {
 }
 
 void AiChatController::cancel() {
+  stopCurrentRound(true);
+}
+void AiChatController::interrupt() {
+  stopCurrentRound(false);
+}
+void AiChatController::stopCurrentRound(bool explicitRequest) {
   if (!m_streaming) return;
-  m_runner.cancel();
+  if(explicitRequest)m_runner.cancel();else m_runner.interrupt();
   m_client.cancel();
+  const auto reason=explicitRequest?tr("用户取消：本调用未执行或结果已作废"):QStringLiteral("stale_session");
   while (!m_unansweredCalls.isEmpty()) {
     const auto call = m_unansweredCalls.takeFirst();
     ChatMessage tool;
     tool.role = ChatRole::Tool;
     tool.toolCallId = call.id;
-    const auto native = QJsonObject{{"code", "tool_cancelled"},
-        {"error", tr("用户取消：本调用未执行或结果已作废")}};
+    const auto native = QJsonObject{{"code", explicitRequest?"tool_cancelled":"stale_session"}, {"error", reason}};
     tool.content = QString::fromUtf8(paleo::chat::compactJson(paleo::chat::resultEnvelope(native, false)));
     tool.timestamp = QDateTime::currentDateTime();
     appendMessage(tool);
   }
-  padUnansweredToolCalls(tr("用户取消：本调用未执行或结果已作废"));
+  padUnansweredToolCalls(reason);
   m_pendingToolResults = 0;
   setStreaming(false);
   if (!m_session.messages.isEmpty() && m_session.messages.last().role == ChatRole::Assistant &&
       m_session.messages.last().isEmpty()) m_session.messages.removeLast();
   saveCurrentSession();
-  emit errorOccurred(tr("已取消本轮生成"));
+  if(explicitRequest)emit errorOccurred(tr("已取消本轮生成"));
 }

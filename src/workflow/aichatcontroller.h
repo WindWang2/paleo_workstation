@@ -75,6 +75,7 @@ public:
 
   void sendUserText(const QString &text);
   void cancel();
+  void interrupt();
 
   // 上下文预算（估算口径：字符近似，非精确 tokenizer——ASCII 记 0.25
   // token/字符、其余（CJK 为主）记 1 token/字符；只求保守不求对齐词表）。
@@ -100,6 +101,7 @@ signals:
   void errorOccurred(const QString &message);
 
 private:
+  void stopCurrentRound(bool explicitRequest);
   void appendMessage(const ChatMessage &message);
   void setStreaming(bool streaming);
   void sendRound();               // 占位 + 上送（带 tools[]）

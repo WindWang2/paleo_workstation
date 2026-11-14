@@ -1,5 +1,6 @@
 // 层：功能
 #include "domaintools.h"
+#include "pythonanalysistools.h"
 #include "../../services/toolresultprotocol.h"
 
 #include <QJsonArray>
@@ -70,6 +71,7 @@ QJsonObject AiToolParamSpec::toJsonSchema() const {
 }
 
 QJsonObject AiToolSpec::toJsonSchema() const {
+  if(isPythonAnalysisTool(name))return pythonAnalysisToolSchema(name);
   if(name==QLatin1String("paleo.well_facies_prediction"))return paleo::wellfacies::requestJsonSchema();
   QJsonObject schema;
   schema.insert(QStringLiteral("type"), QStringLiteral("object"));
@@ -108,6 +110,9 @@ QJsonObject AiToolSpec::modelResultSchema() const {
       QJsonDocument::fromJson(resultSchemaJson.toUtf8()).object());
 }
 unsigned AiToolSpec::effectsForIntent(const QString &intent) const {
+  if(isPythonAnalysisTool(name)) {
+    const auto phase=paleo::host::computeEffects(intent);return phase?phase|paleo::host::LocalExecute:0u;
+  }
   if (isAiCapabilityTool(name) || name == QLatin1String("paleo.tile_classification_v2"))
     return paleo::host::computeEffects(intent);
   return effects;
@@ -120,6 +125,7 @@ unsigned AiToolSpec::effectsForArguments(const QJsonObject &arguments) const {
 }
 
 QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
+  if(isPythonAnalysisTool(name))return validatePythonAnalysisArguments(name,arguments);
   if(name==QLatin1String("paleo.query_project")&&arguments.value("topic")==QLatin1String("well_curves")) {
     paleo::document::WellRef well;
     if(!arguments.value("well_ref").isObject()||!paleo::document::wellRefFromJson(arguments.value("well_ref").toObject(),well)||!well.modelAvailable)
@@ -310,6 +316,8 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   queryProperties.insert("metadataOnly",QJsonObject{{"type","boolean"}});
   queryProperties.insert("numericPayloadBytes",QJsonObject{{"type","string"}});
   queryProperties.insert("sourceMetadataBytes",QJsonObject{{"type","string"}});
+  queryProperties.insert("metadataTextBytes",QJsonObject{{"type","string"}});
+  queryProperties.insert("metadataReadBudgetBytes",QJsonObject{{"type","string"}});
   querySchema.insert("properties",queryProperties);
   query.resultSchemaJson=QString::fromUtf8(QJsonDocument(querySchema).toJson(QJsonDocument::Compact));
 
@@ -412,6 +420,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   environment.description=QObject::tr("核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。");
   environment.resultSchemaJson=QStringLiteral(R"({"type":"object","required":["contract","code","ready"],"properties":{"contract":{"const":"paleo.python-environment.v1"},"code":{"type":"string"},"ready":{"type":"boolean"},"profile":{"const":"analysis-core"},"generatedCodeAvailable":{"const":false}}})");
   specs.append(environment);
+  appendPythonAnalysisTools(specs);
   for(auto &spec:specs)spec.exposure=spec.legacyAdapter?CapabilityExposure::LegacyAdapter:CapabilityExposure::Callable;
   return specs;
 }
@@ -424,7 +433,7 @@ AiToolSpec aiToolSpec(const QString &name) {
 }
 
 bool isAiCapabilityTool(const QString &name) {
-  return name == QLatin1String("paleo.depth_convert_batch") ||
+  return isPythonAnalysisTool(name) || name == QLatin1String("paleo.depth_convert_batch") ||
          name == QLatin1String("paleo.seismic_attribute_group") ||
          name == QLatin1String("paleo.constraint_idw");
 }

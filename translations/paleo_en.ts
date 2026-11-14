@@ -28824,6 +28824,34 @@ PDF：%3
     <context>
         <name>QObject</name>
     <message>
+        <source>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</source>
+        <translation>Exact WellRef for well_facies_inputs/well_curves. Metadata queries do not read numerical samples; well_curves returns resolvable input_ref values, without certifying numerical input or execution readiness.</translation>
+    </message>
+    <message>
+        <source>先用 query_project 的 well_curves 取得精确 input_ref，再显式选择同井曲线、样点窗、处理状态和 MD 基准。可信 Python 模板只分析所选窗口，报告缺失、异常、覆盖率与统计量；最多16列、8192点。prepare 冻结输入，compute-only 保存私有报告；publish 只能引用原操作并经宿主授权登记成果。不修改原始数据。</source>
+        <translation>Use query_project well_curves to obtain exact input_ref values, then select curves from one well, a sample window, processing state and MD reference. A trusted Python template reports missing and abnormal data, coverage and statistics for the selected window only, up to 16 columns and 8192 samples. prepare freezes inputs; compute-only stores a private report; publish references the original operation and requires host authorization. Original data is unchanged.</translation>
+    </message>
+    <message>
+        <source>分析 well_curves 精确引用的同井数值属性窗口：要求至少2列、完全一致的显式 MD 轴，保留逐列单位，不做插值或隐式换算。可信 Python 模板报告 Pearson 相关、共同有效点数及冗余对；结论仅适用于所选窗口，不代表全体积地震属性优选或融合。prepare、compute-only 和引用原操作的 publish 复用现有成果链路。</source>
+        <translation>Analyze selected numerical attribute windows from exact well_curves references: at least two columns with the same explicit MD axis and declared column units, without interpolation or implicit conversion. A trusted Python template reports Pearson correlation, joint valid counts and redundant pairs for the selected window only. This does not represent seismic volume attribute selection or fusion. prepare, compute-only and publish from an original operation use the existing artifact chain.</translation>
+    </message>
+    <message>
+        <source>所选数值属性相关性</source>
+        <translation>Selected numerical attribute correlation</translation>
+    </message>
+    <message>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>Query topic: summary, wells, horizons, assets, well_details, well_curves (paged exact well curve metadata), version, or version_parents.</translation>
+    </message>
+    <message>
+        <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
+        <translation>Page item budget: catalog 1–256, default 50; well_curves 1–16, default 16; local_models 1–64, default 16.</translation>
+    </message>
+    <message>
+        <source>测井曲线质量报告</source>
+        <translation>Well curve quality report</translation>
+    </message>
+    <message>
         <source>Python 环境状态</source>
         <translation>Python environment status</translation>
     </message>

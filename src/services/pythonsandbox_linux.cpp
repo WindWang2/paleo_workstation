@@ -112,6 +112,7 @@ SandboxResult runLinuxSandbox(const SandboxRequest &request) {
   result.code=strongPrepare(request,native,prepared,*image,input.get());if(!result.code.isEmpty())return result;
   const auto work=process_detail::linux_native::runPreparedChild(native,prepared);
   result.code=work.code;result.output=work.output;result.error=work.error;
+  result.outputLog=work.outputLog;
   result.cpuMicros=work.cpuMicros;result.peakMemoryBytes=work.peakMemoryBytes;
   result.exitCode=work.exitCode;result.memoryPeakComplete=work.memoryPeakComplete;return result;
 }

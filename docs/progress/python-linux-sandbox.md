@@ -68,7 +68,10 @@ data.bin 被保存和转发各一份，因此默认实际单个数据体上限�
 只在当前进程 hard limit 允许时把 soft RLIMIT_NOFILE 提至 4,096；不改全机
 配置。强子进程另把 soft/hard FD 限额固定为 4,096。
 每次执行重新认证并密封内容，没有按路径/时间戳命中的校验缓存。
-stdout/stderr 由共同有界 broker 接收；失败时清空结果输出。
+stdout/stderr 由共同有界 broker 接收；失败时清空数值结果，并把 stdout 的
+前 `logBytes` 字节保留为私有 `outputLog` 诊断，不能作为计算成果发布。
+共同进程泵以 cgroup 累积 CPU 用量核对整个进程树（含准备阶段）的 CPU
+预算，20 ms 轮询超限后回收；同时保留单进程 RLIMIT_CPU 内核硬限与单核 quota。
 Linux 的 `peakMemoryBytes` 是实际观测峰值，`memoryPeakComplete=false`。
 
 ## 验证口径

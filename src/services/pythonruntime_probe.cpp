@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QScopeGuard>
 
 namespace paleo::python {
 QJsonObject ExecutionPolicy::json() const {
@@ -62,9 +63,13 @@ QString probeRuntime(const VerifiedRuntime &runtime,const std::function<bool()> 
   return {};
 }
 RuntimeProvider::RuntimeProvider(RuntimeConfig config,ExecutionPolicy policy):m_config(std::move(config)),m_policy(std::move(policy)) {}
-RuntimeResult RuntimeProvider::snapshot() const {QMutexLocker lock(&m_mutex);return m_last;}
+RuntimeResult RuntimeProvider::snapshot() const {
+  if(!m_mutex.tryLock())return {"python_environment_verifying",{}};
+  const auto unlock=qScopeGuard([this]{m_mutex.unlock();});return m_last;
+}
 RuntimeResult RuntimeProvider::inspect(const std::function<bool()> &cancelled) {
-  QMutexLocker lock(&m_mutex);
+  while(!m_mutex.tryLock(25))if(cancelled && cancelled())return {"cancelled",{}};
+  const auto unlock=qScopeGuard([this]{m_mutex.unlock();});
   const auto policyError=m_policy.validate();
   if(!policyError.isEmpty()){m_last={policyError,{}};return m_last;}
   // One generation lease per provider. Revalidate bytes on every new inspection.

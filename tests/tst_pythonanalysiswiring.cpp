@@ -68,7 +68,8 @@ struct Fixture:document_fixture::Fixture {
 QJsonObject call(AiChatToolRunner &runner,const QString &name,const QJsonObject &args,bool &ok) {
   QSignalSpy done(&runner,&AiChatToolRunner::toolFinished);ok=false;
   runner.run({QUuid::createUuid().toString(QUuid::WithoutBraces),name,QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))});
-  if(done.isEmpty() && !done.wait(30000))return {};
+  // The enforced execution policy allows 120 s, including sandbox snapshots.
+  if(done.isEmpty() && !done.wait(180000))return {};
   ok=done[0][1].toBool();return QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object();
 }
 }

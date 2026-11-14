@@ -27,9 +27,14 @@ A0–A4 的全面迁移仍待实施，不以工具登记数量代替功能完成
 
 工具结果 JSON、DAG 校验、宿主入口、查询分页/操作恢复及推理工具效果与接线，
 已按 [Agent 调用可靠性整改计划](docs/planning/AGENT_CALL_READINESS_PLAN.md) 的 W0–W6
-分批实现并完成编译、测试验收，按 PR 交付；合入状态与源码门禁证据见
+分批实现、验收并合入 master `4fee95dd`；合入状态与源码门禁证据见
 [实施记录](docs/progress/agent-readiness-20261113.md)。本轮支持单 Catalog 凭证和明确契约的
 工具；94 条命令全面迁移、跨 store 全局提交及未支持的深度映射仍按各专项推进。
+
+`operation_read` 大工件续页仍有重复全文件 SHA 的 I/O 放大。保留完整性检查；后续采用
+有界已验证读会话或分块认证，绑定文档/epoch/工件并处理取消、替换与 GC lease，以读取字节
+计数验收线性成本，不能用 size/mtime 缓存替代。依据与本轮清理见
+[平台 review](docs/progress/platform-review-20261114.md)。
 
 文档来源第一批已提供 SourceRef / SourceBinding、状态维度和统一命令，会话与
 预览重定位接入见 [实施记录](docs/progress/document-sources-20261105.md)。继续迁移

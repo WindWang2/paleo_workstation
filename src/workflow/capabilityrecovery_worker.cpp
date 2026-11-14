@@ -248,7 +248,7 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
       } else if(result.execution=="succeeded" || result.execution=="failed" || result.execution=="cancelled")guard->m_runtimeHooks.remove(r.operationId);
     }
     host={};lease.reset();output.reset();r={}; // retained task rows must not retain project ownership or numerical buffers.
-    if(listener && finished)finished(std::move(result));
+    if(guard && listener && finished)finished(std::move(result));
     finished={};
   },Qt::SingleShotConnection);return created;
 }

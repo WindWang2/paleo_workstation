@@ -24,13 +24,14 @@ struct Host {
   bool open(const QString &directory) {
     root=directory;lock=std::make_unique<ProjectDirLock>(root);
     if(!lock->tryLock() || !catalog.open(root))return false;
-    recovery.setTaskService(&tasks);recovery.setHostProvider([this] {
+    recovery.setTaskService(&tasks);recovery.setHostProvider([this]{return binding();});return true;
+  }
+  RecoveryHost binding() {
       RecoveryHost h;h.projectDir=root;h.operationDir=root+"/.paleo/capability-ops";h.catalog=&catalog;h.writeClaim=lock->claim();
       h.context.documentId="doc";h.context.epoch=epoch;h.context.open=true;h.context.persistentIdentity=true;
       h.context.readOnly=false;h.context.ownsWrites=true;h.context.allowedEffects=host::Read|host::PrivateStage|host::CatalogPublish|host::Presentation;
       if(execute)h.context.allowedEffects|=host::LocalExecute;
       h.validateFrozen=adapter.validateFrozen;h.restoreWorker=adapter.restoreWorker;h.restoreInputValidator=adapter.restoreInputValidator;return h;
-    });return true;
   }
 };
 bool run(Host &host,const QString &scope,const QString &id,ExecuteResult &result,QString &error,bool resume=false) {
@@ -116,6 +117,36 @@ private slots:
     freezeSourcePublication(publication,{},journal.recordById(accepted.record.operationId),&error);
     QCOMPARE(error,QString("source_operation_mismatch"));
     QCOMPARE(host.recovery.results("other-caller",accepted.record.operationId).value("code").toString(),QString("operation_not_found"));
+  }
+  void cancellationAtPublishingCheckpointPreventsCommit() {
+    QTemporaryDir project;Host host;QVERIFY(host.open(project.path()));auto plan=controlPlan("cancel-publishing");
+    plan.worker=[](const OperationWorkContext &context) {
+      OperationWorkResult result;QFile file(context.privateDir+"/OUTPUT.bin");
+      result.ok=file.open(QIODevice::WriteOnly)&&file.write("result")==6;file.close();result.outputs.ok=result.ok;
+      result.outputs.artifacts.append({"OUTPUT",file.fileName(),{},{},{},{}});return result;
+    };
+    const auto accepted=host.recovery.accept(plan);QVERIFY(accepted.ok);
+    host.recovery.setCheckpointHook([&](const QString &point){if(point=="publishing")host.recovery.cancel(plan.callerScope,accepted.record.operationId);});
+    ExecuteResult result;QString error;QVERIFY(run(host,plan.callerScope,accepted.record.operationId,result,error));
+    QVERIFY(!result.ok);QCOMPARE(result.code,QString("cancelled"));QCOMPARE(host.catalog.versions().size(),0);
+  }
+  void catalogChangedCanDestroyOwnerWithoutLateDeliveryOrDuplicateCommit() {
+    QTemporaryDir project;Host host;QVERIFY(host.open(project.path()));auto plan=controlPlan("commit-owner");std::atomic_int computes=0;
+    plan.worker=[&](const OperationWorkContext &context) {
+      ++computes;OperationWorkResult result;QFile file(context.privateDir+"/OUTPUT.bin");
+      result.ok=file.open(QIODevice::WriteOnly)&&file.write("result")==6;file.close();result.outputs.ok=result.ok;
+      result.outputs.artifacts.append({"OUTPUT",file.fileName(),{},{},{},{}});return result;
+    };
+    const auto accepted=host.recovery.accept(plan);QVERIFY(accepted.ok);
+    auto *recovery=new CapabilityRecovery;QPointer<CapabilityRecovery> owner(recovery);recovery->setTaskService(&host.tasks);
+    recovery->setHostProvider([&]{auto binding=host.binding();binding.restoreWorker=[&](const auto &,QString *){return plan.worker;};return binding;});
+    connect(&host.catalog,&DataCatalog::changed,&host.tasks,[&]{delete recovery;recovery=nullptr;},Qt::SingleShotConnection);
+    bool delivered=false;QString error;
+    QVERIFY(recovery->start(plan.callerScope,accepted.record.operationId,this,"commit owner",[&](auto){delivered=true;},false,&error));
+    QTRY_VERIFY_WITH_TIMEOUT(!owner,5000);QTRY_COMPARE_WITH_TIMEOUT(host.tasks.runningCount(),0,5000);QVERIFY(!delivered);
+    QCOMPARE(host.catalog.versions().size(),1);QCOMPARE(computes.load(),1);
+    ExecuteResult result;QVERIFY(run(host,plan.callerScope,accepted.record.operationId,result,error,true));
+    QVERIFY(result.ok);QCOMPARE(result.commitState,QString("committed"));QCOMPARE(host.catalog.versions().size(),1);QCOMPARE(computes.load(),1);
   }
   void runningContextInvalidation_data() {
     QTest::addColumn<QString>("change");

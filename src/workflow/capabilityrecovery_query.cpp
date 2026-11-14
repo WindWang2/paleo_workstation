@@ -51,6 +51,7 @@ QJsonObject CapabilityRecovery::results(const QString &scope,const QString &id) 
     for(const auto &value:r.stagePlan.value("outputSpec").toObject().value("outputs").toArray())
       if(value.toObject().value("id")==port.value("portId"))descriptor=value.toObject();
     ports.append(QJsonObject{{"portId",port.value("portId")},{"sha256",port.value("sha256")},{"kind",descriptor.value("kind")},
+      {"diagnostic",descriptor.value("constraints").toObject().value("diagnostic").toBool()},
       {"unit",descriptor.value("unit")},{"axis",descriptor.value("axis")},{"encoding",descriptor.value("constraints").toObject().value("encoding")},
       {"byteSize",port.value("byteSize")},{"resultRef",QJsonObject{{"kind","operation-result-v2"},{"operationId",id},{"portId",port.value("portId")}}}});
   }

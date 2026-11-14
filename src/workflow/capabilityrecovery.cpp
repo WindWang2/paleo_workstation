@@ -67,13 +67,18 @@ QJsonObject publicOperation(const OperationLog::Record &r) {
 }
 CapabilityRecovery::CapabilityRecovery(QObject *parent):QObject(parent) {}
 CapabilityRecovery::~CapabilityRecovery() {
+  m_executionInvalidated->store(true);
   if(m_resultReader)m_resultReader->invalidate();
 }
 void CapabilityRecovery::setHostProvider(HostProvider provider){invalidateRuntimeHooks();m_host=std::move(provider);}
-void CapabilityRecovery::invalidateRuntimeHooks() {
+void CapabilityRecovery::invalidateRuntimeHooks(bool cancelRunning) {
+  if(cancelRunning) {
+    m_executionInvalidated->store(true);m_executionInvalidated=std::make_shared<std::atomic_bool>(false);
+  }
   if(m_resultReader)m_resultReader->invalidate();
   m_resultReader.reset();
-  m_runtimeHooks.clear();m_runtimeDocument.clear();m_runtimeProject.clear();m_runtimeEpoch=0;
+  m_runtimeHooks.clear();
+  if(cancelRunning){m_runtimeDocument.clear();m_runtimeProject.clear();m_runtimeEpoch=0;}
 }
 void CapabilityRecovery::setTaskService(PaleoTaskService *tasks){m_tasks=tasks;}
 void CapabilityRecovery::setCheckpointHook(std::function<void(const QString&)> hook){m_checkpoint=std::move(hook);}
@@ -120,7 +125,11 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
     plan.presentationIntent=source.presentationIntent;
     if(!plan.inputValidator)plan.inputValidator=m_runtimeHooks.value(source.operationId).inputValidator;
   }
-  auto code=host::checkContext(h.context,h.context,host::computeEffects(plan.phase) |
+  if(plan.requiredEffects & ~127U)return {false,"invalid_execution_effects",{}};
+  const auto phaseEffects=host::computeEffects(plan.phase);
+  if(!phaseEffects)return {false,"unsupported_intent",{}};
+  const auto executionEffects=plan.requiredEffects|CapabilityRegistry::executionEffects(plan.capabilityId,plan.contractVersion);
+  auto code=host::checkContext(h.context,h.context,phaseEffects | executionEffects |
       (plan.externalRequest.isEmpty()?0U:unsigned(host::ExternalTransfer)));
   if(!code.isEmpty())return {false,code,{}};
   if(!log.ownsWrites() || !h.catalog)return {false,"project_write_claim_required",{}};
@@ -148,6 +157,7 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
   seed.stagePlan.insert("outputSpec",publication_detail::specJson(plan.outputSpec));
   seed.stagePlan.insert("parents",QJsonArray::fromStringList(plan.parentVersionIds));
   seed.frozenRequest={{"intent",plan.intent},{"plan",plan.frozenPlan},{"phase",plan.phase},{"sourceOperationId",plan.sourceOperationId}};
+  if(executionEffects)seed.frozenRequest.insert("executionEffects",double(executionEffects));
   seed.frozenRequest.insert("inputValidationRequired",bool(plan.inputValidator) || source.frozenRequest.value("inputValidationRequired").toBool());
   seed.presentationIntent=plan.presentationIntent;
   if(!seed.presentationIntent.isEmpty()) {

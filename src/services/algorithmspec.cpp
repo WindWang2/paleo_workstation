@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 
 void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs);
+void appendPythonAlgorithmSpecs(QVector<AlgorithmSpec> *specs);
 
 namespace
 {
@@ -604,6 +605,7 @@ const QVector<AlgorithmSpec> &allSpecs()
   static const QVector<AlgorithmSpec> kSpecs = [] {
     QVector<AlgorithmSpec> specs = baseSpecTable();
     ::appendAtomicPilotSpecs(&specs);
+    ::appendPythonAlgorithmSpecs(&specs);
     return specs;
   }();
   return kSpecs;

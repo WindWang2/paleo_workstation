@@ -34,10 +34,18 @@ CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(ne
     h.catalog=b.catalog;h.writeClaim=b.writeClaim;
     h.presentationState=m_presentationState;h.present=m_present;
     h.restoreInputValidator=[this](const OperationLog::Record &r,QString *error) {
+      if(m_adapters.contains(r.capabilityId)) {
+        const auto adapter=m_adapters.value(r.capabilityId);
+        return adapter.restoreInputValidator?adapter.restoreInputValidator(r,error):OperationInputValidator{};
+      }
       if(m_restoreInputValidator)if(auto validator=m_restoreInputValidator(r,error))return validator;
       return nativeInputValidator(r.frozenRequest.value("plan").toObject());
     };
     h.validateFrozen=[this,b](const OperationLog::Record &r) {
+      if(m_adapters.contains(r.capabilityId)) {
+        const auto adapter=m_adapters.value(r.capabilityId);
+        return adapter.validateFrozen?adapter.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
+      }
       if(m_validateFrozen){const auto code=m_validateFrozen(r);if(!code.isEmpty())return code;}
       ExecuteRequest request;
       if(!nativeRequestFromJson(r.frozenRequest.value("plan").toObject(),request))return QString();
@@ -48,6 +56,11 @@ CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(ne
       return code;
     };
     h.restoreWorker=[this,b](const OperationLog::Record &r,QString *error) {
+      if(m_adapters.contains(r.capabilityId)) {
+        const auto adapter=m_adapters.value(r.capabilityId);
+        if(adapter.restoreWorker)return adapter.restoreWorker(r,error);
+        if(error)*error="execution_adapter_unavailable";return OperationWorker{};
+      }
       if(m_restoreWorker) {
         auto worker=m_restoreWorker(r,error);
         if(worker || (error && !error->isEmpty()))return worker;
@@ -72,9 +85,20 @@ void CapabilityHost::setInputValidatorRestorer(std::function<OperationInputValid
   m_restoreInputValidator=std::move(restorer);
 }
 void CapabilityHost::setFrozenValidator(std::function<QString(const OperationLog::Record&)> validator) {m_validateFrozen=std::move(validator);}
-void CapabilityHost::setBindingProvider(BindingProvider provider) { m_binding = std::move(provider); invalidate(); }
+void CapabilityHost::registerExecutionAdapter(const QString &id,CapabilityExecutionAdapter adapter) {
+  if(!CapabilityRegistry::contains(id))return;
+  m_adapters.insert(id,std::move(adapter));
+  for(auto it=m_prepared.begin();it!=m_prepared.end();)
+    if(it->request.capabilityId==id)it=m_prepared.erase(it);else ++it;
+}
+void CapabilityHost::setBindingProvider(BindingProvider provider) {
+  m_binding=std::move(provider);m_prepared.clear();m_recovery->invalidateRuntimeHooks(false);
+}
 void CapabilityHost::setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; m_recovery->setTaskService(tasks); }
-void CapabilityHost::setCallerScope(host::Caller caller, const QString &scope) { m_callers[int(caller)] = scope; invalidate(); }
+void CapabilityHost::setCallerScope(host::Caller caller,const QString &scope) {
+  if(m_callers.value(int(caller))==scope)return;
+  m_callers[int(caller)]=scope;invalidate();
+}
 QString CapabilityHost::callerScope(host::Caller caller,const QString &session) const {
   const auto base=m_callers.value(int(caller));
   if(base.isEmpty())return {};
@@ -104,8 +128,12 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   prunePrepared(live.context);
   if (!intent.documentId.isEmpty() && intent.documentId != live.context.documentId)
     return fail(QStringLiteral("document_mismatch"));
-  const unsigned effects = host::computeEffects(intent.publishIntent);
-  if (!effects) return fail(QStringLiteral("unsupported_intent"));
+  QString resolutionError;const auto resolved=CapabilityRegistry::resolveAlias(intent.capabilityId,&resolutionError);
+  const auto adapter=m_adapters.value(resolved);
+  const auto original=adapter.intent?adapter.intent(intent):nativeIntent(intent);
+  const unsigned phaseEffects=host::computeEffects(intent.publishIntent);
+  if(!phaseEffects)return fail(QStringLiteral("unsupported_intent"));
+  const unsigned effects=phaseEffects|CapabilityRegistry::executionEffects(resolved,intent.contractVersion);
   const QString scope = callerScope(caller,trustedChatSessionId);
   if (scope.isEmpty()) return fail(QStringLiteral("caller_unbound"));
   if (caller != host::Caller::Ui && intent.clientRequestId.trimmed().isEmpty())
@@ -113,7 +141,7 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   const auto prior=m_recovery->lookup(scope,intent.clientRequestId);
   if(prior.code==QLatin1String("found")) {
     if(prior.record.schemaVersion!=2)return fail("legacy_unverifiable");
-    if(prior.record.requestHash!=operationDigest(nativeIntent(intent)))return fail("idempotency_conflict");
+    if(prior.record.requestHash!=operationDigest(original))return fail("idempotency_conflict");
     if(m_prepared.size()>=128)return fail("prepared_capacity_exceeded");
     Prepared saved;saved.request=intent;saved.request.documentId=live.context.documentId;saved.request.callerScope=scope;
     saved.context=live.context;saved.effects=host::Read;saved.intentDigest=digest(intent);saved.recoveryId=prior.record.operationId;
@@ -146,8 +174,12 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   if(publishSource) {
     if(!intent.parameters.isEmpty() || intent.inputs.size()!=1 || intent.seismicTrace)return fail("mixed_source_operation_inputs");
     OperationLog log(live.operationDir,live.projectDir,live.writeClaim);
-    saved.frozen=freezeSourcePublication(saved.request,nativeIntent(intent),log.recordById(sourceId),&code);
+    saved.frozen=freezeSourcePublication(saved.request,original,log.recordById(sourceId),&code);
     if(!code.isEmpty())return fail(code);
+  } else if(adapter.freeze) {
+    saved.frozen=adapter.freeze(saved.request,original,&code);
+    if(!code.isEmpty())return fail(code);
+    result.effectiveParameters=saved.request.parameters;
   } else {
   if (live.freeze) code = live.freeze(saved.request); else code.clear();
   if (code.isEmpty() && live.validateInputs) code = live.validateInputs(saved.request);
@@ -164,7 +196,7 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   saved.frozen=freezeNativeOperation(saved.request,nativeIntent(intent),&code);
   if(!code.isEmpty())return fail(code);
   }
-  saved.context = live.context; saved.effects = effects; saved.required = requiredContext;
+  saved.context = live.context; saved.effects = effects|saved.frozen.requiredEffects; saved.required = requiredContext;
   saved.commandId = commandId;
   saved.executionGuard = std::move(executionGuard);
   saved.intentDigest = digest(intent);

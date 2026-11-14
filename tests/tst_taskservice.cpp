@@ -233,9 +233,41 @@ private slots:
       return QString(); // returns ok but cancelRequested wins → Cancelled
     });
     QSignalSpy fin(t, &PaleoTask::finished);
+    QVERIFY(!t->explicitCancelRequested());
     t->requestCancel();
+    QVERIFY(t->explicitCancelRequested());
     QVERIFY(fin.wait(5000));
     QCOMPARE(t->state(), PaleoTask::State::Cancelled);
+  }
+
+  void sessionInterruptionIsNotExplicitCancellation()
+  {
+    PaleoTaskService svc;
+    auto *task = svc.beginExternal(QStringLiteral("session interruption"));
+    QSignalSpy asked(task, &PaleoTask::cancelAsked);
+    svc.beginNewSession();
+    QCOMPARE(asked.count(), 1);
+    QVERIFY(task->cancelRequested());
+    QVERIFY(!task->explicitCancelRequested());
+    task->finishExternal();
+    QTRY_COMPARE(task->state(), PaleoTask::State::Cancelled);
+  }
+
+  void shutdownInterruptionCanBeUpgradedToExplicitCancellation()
+  {
+    PaleoTaskService svc;
+    auto *task = svc.beginExternal(QStringLiteral("shutdown interruption"));
+    QSignalSpy asked(task, &PaleoTask::cancelAsked);
+    QVERIFY(svc.shutdown(1000));
+    QVERIFY(task->cancelRequested());
+    QVERIFY(!task->explicitCancelRequested());
+    QCOMPARE(asked.count(), 1);
+    task->requestCancel();
+    QVERIFY(task->explicitCancelRequested());
+    task->requestCancel();
+    QCOMPARE(asked.count(), 1); // An upgrade does not repeat the existing stop signal.
+    task->finishExternal();
+    QTRY_COMPARE(task->state(), PaleoTask::State::Cancelled);
   }
 
   void workerErrorBecomesFailed()

@@ -69,7 +69,7 @@ FrozenOperation freezeNativeOperation(const ExecuteRequest &r,const QJsonObject 
 FrozenOperation freezeSourcePublication(const ExecuteRequest &r,const QJsonObject &original,
                                        const OperationLog::Record &source,QString *error) {
   FrozenOperation p;
-  if(source.schemaVersion!=2 || source.documentId!=r.documentId || source.callerScope!=r.callerScope ||
+  if(source.artifactManifest.value("diagnosticsOnly").toBool() || source.schemaVersion!=2 || source.documentId!=r.documentId || source.callerScope!=r.callerScope ||
       source.capabilityId!=r.capabilityId || source.contractVersion!=r.contractVersion || source.artifactManifest.isEmpty() ||
       !publication_detail::specFromJson(source.stagePlan.value("outputSpec").toObject(),p.outputSpec)) {
     if(error)*error="source_operation_mismatch";return {};

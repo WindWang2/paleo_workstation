@@ -43,7 +43,8 @@ ExecuteResult CapabilityRecovery::finish(const RecoveryHost &h,OperationLog::Rec
   if(!work.ok || work.prepared.members.isEmpty() || publication_detail::preparedJson(work.prepared)!=r.preparedManifest) {
     r.code=work.code.isEmpty()?"prepared_verification_failed":work.code;recovery_detail::store(log,r);return recovery_detail::result(r);
   }
-  const auto current=live(); QString code=host::checkContext(current.context,h.context,host::computeEffects("publish"));
+  const auto current=live();const auto effects=recovery_detail::operationEffects(r);
+  QString code=effects?host::checkContext(current.context,h.context,effects):QStringLiteral("invalid_execution_effects");
   if(code.isEmpty() && current.validateFrozen)code=current.validateFrozen(r);
   if(code.isEmpty() && r.cancelRequested)code="cancelled";
   if(!code.isEmpty()){r.code=code;recovery_detail::store(log,r);return recovery_detail::result(r);}

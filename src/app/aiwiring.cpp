@@ -4,6 +4,8 @@
 #include "ai/onnxpredictionservice.h"
 #include "wellproviderwiring.h"
 #include "services/pythonruntime.h"
+#include "services/pythoncapabilityspec.h"
+#include "workflow/pythonscriptoperation.h"
 #include "workflow/capabilityhost.h"
 #include "workflow/capabilityrecovery.h"
 #include "workflow/tileoperationservice.h"
@@ -195,7 +197,20 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   python.root=qEnvironmentVariable("PALEO_AGENT_PYTHON_ROOT");
   python.manifestSha256=qEnvironmentVariable("PALEO_AGENT_PYTHON_MANIFEST_SHA256");
   python.enabled=!python.root.isEmpty();
-  context.pythonRuntime=std::make_shared<paleo::python::RuntimeProvider>(std::move(python));
+  paleo::python::ExecutionPolicy pythonPolicy;
+  pythonPolicy.allowTrusted=qEnvironmentVariable("PALEO_AGENT_PYTHON_ENABLE_TRUSTED")==QLatin1String("1");
+  const auto priorPython=chat->toolRunner()->pythonRuntime();
+  const bool reusePython=priorPython && priorPython->configuration().root==python.root &&
+    priorPython->configuration().manifestSha256==python.manifestSha256 && priorPython->policy().json()==pythonPolicy.json();
+  context.pythonRuntime=reusePython?priorPython:std::make_shared<paleo::python::RuntimeProvider>(std::move(python),pythonPolicy);
+  if(host)host->registerExecutionAdapter(QLatin1String(paleo::python::SummaryCapability),
+    paleo::python::trustedScriptAdapter(context.pythonRuntime,qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT")));
+  if(!reusePython && context.pythonRuntime->configuration().enabled && chat->toolRunner()->taskService()) {
+    const auto provider=context.pythonRuntime;
+    chat->toolRunner()->taskService()->start(QObject::tr("Python 环境状态"),[provider](PaleoTask *task) {
+      provider->inspect([task]{return task->cancelRequested();});return QString();
+    });
+  }
   // 层位与栅格取数在绑定/重绑时快照；horizonGridFetch 每次取数重解析声明，
   // 换工程后随 appcontext 的重绑刷新 horizon 名。
   context.horizon = AreaRules::active().targetHorizon;

@@ -458,5 +458,10 @@ Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和
 只支持已列明的 Windows/Linux x86-64；不含 PyQGIS、PyQt 或运行期 pip 安装入口。
 离线准备、摘要锚定、许可、系统 ABI 闭包及升级保留约束见
 [供货说明](vendor/agent-python/README.md)。执行前必须由操作者准备可选环境；
-Agent 只能查询状态，不能调用准备工具或决定解释器路径。
+Agent 可查询状态及运行已登记的可信分析，不能调用准备工具或决定解释器路径。
+可信分析还需宿主设置 `PALEO_AGENT_PYTHON_ENABLE_TRUSTED=1` 和经宿主准备的
+`PALEO_AGENT_PYTHON_SCRIPTS_ROOT`；脚本包见[说明](vendor/agent-python/scripts.README.md)。
+运行时 ready、模板 ready 和实际执行后端 ready 分别报告。当前 Linux 执行要求钉版
+辅助程序、用户 manager 与 CPU/memory/pids 委派；WSL 缺控制器时明确拒绝。
+输入限于已登记曲线的精确窗口，输出仅宿主验收的有界报告，正式成果仍需 publish 阶段。
 

@@ -32,8 +32,8 @@ A0–A4 的全面迁移仍待实施，不以工具登记数量代替功能完成
 工具；94 条命令全面迁移、跨 store 全局提交及未支持的深度映射仍按各专项推进。
 
 受控 Python Agent 环境已形成[实施计划](docs/planning/CONTROLLED_PYTHON_AGENT_PLAN.md)，
-PY0 环境/执行契约已实现并完成本地编译/功能验收，等待 PR 合入，见
-[证据](docs/progress/controlled-python-py0-20261114.md)。后续：PY1 可信脚本与持久操作 → PY2 有界取数和业务试点；
+PY0、PY1 已实现并完成编译/测试/门禁，分别提交 #945、#947；PY2 已完成数值取数、
+可信分析和生产接线，正在完成原生全量验收，见[记录](docs/progress/controlled-python-py2-20261114.md)。
 PY3W/PY3L 分别验收 Windows/Linux 隔离后，PY4 才按平台开放生成代码。复用现有任务、
 暂存、校验、成果发布与恢复链路，逐批编译、测试和源码门禁后提 PR。Shell/任意 CLI 后置。
 

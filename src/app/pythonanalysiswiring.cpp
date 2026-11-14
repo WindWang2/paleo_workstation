@@ -4,6 +4,7 @@
 #include "domain/wellref.h"
 #include "services/pythonanalysisselection.h"
 #include "services/pythonanalysiscapabilityspec.h"
+#include "services/pythontrustedreadiness.h"
 #include "workflow/documentsession.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -85,15 +86,32 @@ paleo::python::AnalysisPlanProvider assemblePythonAnalysisProvider(DataCatalog *
     return validate();
   };
 }
-QJsonObject pythonAnalysisReadiness(std::shared_ptr<paleo::python::RuntimeProvider> provider,const QString &root) {
+QJsonObject pythonAnalysisReadiness(std::shared_ptr<paleo::python::RuntimeProvider> provider,const QString &root,
+    std::shared_ptr<paleo::python::TrustedReadinessProvider> execution) {
   QJsonArray capabilities;bool ready=bool(provider);QString code;
   if(!provider)code="python_environment_disabled";
   else if(!provider->policy().allowTrusted)code="python_execution_denied";
   else {const auto runtime=provider->snapshot();if(!runtime.ready())code=runtime.code;}
+  const auto backend=execution?execution->snapshot():QJsonObject{{"executionReady",false},{"code","python_trusted_execution_unprobed"}};
   for(const auto kind:{python::AnalysisKind::WellQuality,python::AnalysisKind::AttributeCorrelation}) {
     auto missing=code;if(missing.isEmpty())missing=templateStatus(root,kind,provider->policy());
+    const bool templateReady=missing.isEmpty();
+    if(missing.isEmpty() && !backend.value("executionReady").toBool())missing=backend.value("code").toString("python_trusted_execution_unprobed");
     ready=ready && missing.isEmpty();capabilities.append(QJsonObject{{"capabilityId",python::analysisCapabilityId(kind)},
-      {"contractVersion",1},{"ready",missing.isEmpty()},{"code",missing.isEmpty()?"ok":missing}});
+      {"contractVersion",1},{"templateReady",templateReady},{"ready",missing.isEmpty()},{"code",missing.isEmpty()?"ok":missing}});
   }
-  return {{"ready",ready},{"capabilities",capabilities}};
+  return {{"ready",ready},{"capabilities",capabilities},{"execution",backend}};
+}
+paleo::capability::CapabilityExecutionAdapter gateTrustedAnalysis(paleo::capability::CapabilityExecutionAdapter adapter,
+    std::shared_ptr<paleo::python::TrustedReadinessProvider> execution) {
+  const auto capture=adapter.capture;
+  adapter.capture=[capture,execution](const auto &request,const auto &intent,QString *error) {
+    if(!capture){if(error)*error="execution_adapter_unavailable";return paleo::capability::CapabilityPreparation{};}
+    const auto state=execution?execution->snapshot():QJsonObject{};
+    if(!state.value("executionReady").toBool()) {
+      if(error)*error=state.value("code").toString("python_trusted_execution_unprobed");return paleo::capability::CapabilityPreparation{};
+    }
+    return capture(request,intent,error);
+  };
+  return adapter;
 }

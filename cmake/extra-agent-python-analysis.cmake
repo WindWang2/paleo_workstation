@@ -1,4 +1,6 @@
 # Bounded numerical input materialization stays outside the QtCore process/runtime library.
+target_sources(paleo_services_pythonruntime PRIVATE src/services/pythontrustedreadiness.cpp)
+add_paleo_test(tst_pythontrustedreadiness LIBS paleo_services_pythonruntime)
 file(SHA256 "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/well_quality.py" _paleo_python_quality_sha)
 file(SHA256 "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/attribute_correlation.py" _paleo_python_correlation_sha)
 add_library(paleo_services_pythonanalysis STATIC

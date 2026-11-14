@@ -62,7 +62,7 @@ Linux 34 个 ELF 的闭包检查零缺失，外部 OS ABI 依赖与 glibc 下限
 并行 build 的运行时夹具各自复制到 build 私有 generation，避免测试抢同一 lease。
 
 Windows MSVC 19.38 / Qt 6.8.0 Core/Test 独立壳最终 18/18，零失败/跳过，
-真实固定环境在该原生进程中验证。生产 CPP 的 Ninja 依赖 155/144、测试 CPP 304，
+真实固定环境在该原生进程中验证。生产 CPP 的 Ninja 依赖 155/144、测试 CPP 305，
 均 VALID 并含真实头；只链接 Core/Test 与 CRT，没有混入 QGIS。这是原生薄库验证，
 本批没有执行 Windows 完整应用构建，也没有以它声称完成 Windows 隔离。
 
@@ -70,6 +70,7 @@ Windows MSVC 19.38 / Qt 6.8.0 Core/Test 独立壳最终 18/18，零失败/跳过
 在各自 XDG 沙箱中以 `PALEO_STARTUP_EXIT_AFTER_FRAME=1` 实际启动并在首帧后正常退出。
 offscreen 的 OpenGL/窗口插件提示记录在日志中，不视为人工视觉验收。
 
+最终 fetch/rebase `origin/master` 后，完整 Source gates **35/35 通过**。
 完整命令与日志保留在 worktree 的 `local/python-validation/`，两个 WSL build 的
 `py0-{final-build,final-tests,counts-report,closure,smoke}` 文件及 Windows
 `local/python-validation/native/`。最终 Source gates 以 CI 注册清单及附加自检执行，

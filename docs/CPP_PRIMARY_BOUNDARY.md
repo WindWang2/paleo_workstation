@@ -25,7 +25,8 @@
 - Agent 可选环境由 `src/services/pythonruntime.*` 以宿主配置的清单 SHA 核验，
   固定探测也在子进程中执行。离线供货位于 `vendor/agent-python/`，不进默认安装，
   不从 PATH 选择解释器。PY2 通过同一 Host/任务/成果链运行已登记的可信分析模板；
-  自由代码须在 PY3 操作系统隔离验收及 PY4 准入后另行开放，Shell 后置。
+  生成数值报告由 PY4 的独立权限和实际强隔离探针准入，仍经同一操作/成果链路。
+  生成路径的身份核验不启动解释器；不内嵌 Python，Shell 后置。
 - superbuild 构建的 QGIS 保持 `WITH_BINDINGS=OFF`
   （`vendor/superbuild/CMakeLists.txt`）——PyQGIS 运行时不进依赖闭包。
 

@@ -66,6 +66,7 @@ AlgorithmSpec 仍唯一拥有默认值/端口；CapabilitySpec 管效果和曝�
 | operation_resume/cancel | 可信 scope、物理写 claim、状态 CAS 和 attempt fence；先核对提交事实。已提交后取消保留成果，未知远端提交不重发。 |
 | python_environment | 宿主固定清单核验、策略与真实 trusted execution 就绪快照；只读诊断，不接收安装或路径覆盖。 |
 | well_curve_quality / attribute_correlation | PY2 固定可信模板；精确 well_curves 引用、已声明 MD 轴和有界窗口，经同一 Host prepare/compute/publish。仅所选井数值窗口，不表示地震体优选/融合已接入 Python。 |
+| python_compute | PY4 独立 Generated 权限，16 KiB 源码和同一精确窗口；身份核验不启动解释器，实际强后端 NumPy 探针成功后开放。只接受有界类型化 REPORT，宿主补来源/代码/运行时身份，标明数值未经独立重算；publish 只引用原操作。 |
 
 `query_project` 的新增主题：
 

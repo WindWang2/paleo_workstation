@@ -56,7 +56,8 @@ DerivedAssetRegistrar 和文档会话。AtomicJob 目前是同步胶合助手，
 后续可选进程外 Python 能力按[受控 Python 实施计划](../planning/CONTROLLED_PYTHON_AGENT_PLAN.md)
 分批推进，复用本页操作/成果链路。PY0 提供环境核验和状态查询，PY1 接入持久操作，
 PY2 新增两项有界可信分析，见[PY2 记录](../progress/controlled-python-py2-20261114.md)。
-生成代码继续受后续平台隔离与准入批次约束，Shell 后置。
+生成代码使用 PY4 的独立权限和实际强隔离准入，见[实现与验收记录](../progress/controlled-python-py4-20261114.md)。
+实际可用性仍按当前宿主状态过滤，Shell 后置。
 
 ## 3. 单一能力目录
 

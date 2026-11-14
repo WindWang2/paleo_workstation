@@ -465,3 +465,9 @@ Agent 可查询状态及运行已登记的可信分析，不能调用准备工�
 辅助程序、用户 manager 与 CPU/memory/pids 委派；WSL 缺控制器时明确拒绝。
 输入限于已登记曲线的精确窗口，输出仅宿主验收的有界报告，正式成果仍需 publish 阶段。
 
+生成数值报告另需宿主设置 `PALEO_AGENT_PYTHON_ENABLE_GENERATED=1`，不因此启用 trusted。
+生成路径只做运行时内容身份核验，版本与 NumPy 运算在实际平台强隔离内验证；
+缺任何后端/资源前提时不开放工具，也不退回普通进程。版本/部署、零子进程磁盘写入、
+Windows 线程与 CPU 限制的精确区别见[平台说明](vendor/agent-python/SANDBOX_SUPPORT.md)。
+已有人工控制台/REPL/MAMCL 保持独立，Shell、GPU、安装包与网络能力仍后置。
+

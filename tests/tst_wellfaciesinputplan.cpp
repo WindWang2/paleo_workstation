@@ -1,6 +1,19 @@
 // 层：测试壳
 #include "wellfaciesagentfixture.h"
 #include "services/areawellmetadata.h"
+#include "../vendor/Data_service/src/store/project_store.h"
+
+namespace {
+bool retireSource(Fixture &fixture,qlonglong id) {
+  fixture.service.closeProject();
+  {
+    paleo::data::detail::ProjectStore writer;
+    if(!writer.open(paleo::area_model::directory(fixture.job.projectDir),false,{},fixture.error)||
+       !writer.exec("UPDATE sources SET active=0 WHERE id=?",{id},fixture.error))return false;
+  }
+  return fixture.service.openProject(paleo::area_model::directory(fixture.job.projectDir).toStdString(),fixture.error);
+}
+}
 class WellFaciesInputPlanTest:public QObject {
   Q_OBJECT
 private slots:
@@ -38,7 +51,8 @@ private slots:
     Fixture f;QVERIFY2(f.init(),f.error.c_str());wf::InputInspectionJob job;
     job.projectDir=f.job.projectDir;job.well=f.job.request.well;job.context=f.job.request.context;
     const auto metadata=wf::inspectInput(job);QVERIFY2(metadata.value("ok").toBool(),qPrintable(metadata.value("code").toString()));
-    QCOMPARE(metadata.value("coverage").toObject().value("scope").toString(),"active_curve_and_interval_metadata");
+    QCOMPARE(metadata.value("coverage").toObject().value("scope").toString(),"active_file_backed_curve_and_interval_metadata");
+    QCOMPARE(metadata.value("coverage").toObject().value("excludedSourceLessIntervalTracks").toInt(-1),0);
     QVERIFY(metadata.value("coverage").toObject().value("complete").toBool());QVERIFY(!metadata.value("hasMore").toBool());
     const auto curve=metadata.value("curves").toArray().first().toObject();QCOMPARE(curve.value("name").toString(),"GR");
     QVERIFY(curve.value("id").isString());QCOMPARE(curve.value("unit").toString(),"API");QCOMPARE(curve.value("mdReference").toString(),"KB");
@@ -94,6 +108,79 @@ private slots:
     const auto curves=metadata.value("curves").toArray();QCOMPARE(curves.size(),2);
     const auto id=curves.last().toObject().value("id").toString().toLongLong();f.job.request.curveIds.insert("GR",id);
     const auto out=wf::prepareInput(f.job);QVERIFY2(out.ok,qPrintable(out.error));QCOMPARE(out.curves.front().curveId,id);
+  }
+  void inactiveSourcesDoNotCreateAutomaticAmbiguity_data() {
+    QTest::addColumn<bool>("retireOriginal");
+    QTest::newRow("older-source-inactive")<<true;
+    QTest::newRow("newer-source-inactive")<<false;
+  }
+  void generatedNonLithologyTracksDoNotRequireAFileSource() {
+    Fixture f;QVERIFY2(f.init(),f.error.c_str());
+    {
+      // The SDK's seismic-stratigraphy builder materializes these tracks with source_id=NULL.
+      paleo::data::detail::ProjectStore writer;
+      QVERIFY2(writer.open(paleo::area_model::directory(f.job.projectDir),false,{},f.error),f.error.c_str());
+      for(const QString type:{QStringLiteral("地震层位"),QStringLiteral("地震小层")})
+        QVERIFY2(writer.exec("INSERT INTO tracks(well_id,source_id,name,type,depth_json,sheet) VALUES(?,NULL,?,?,?,?)",
+          {f.job.request.well.modelWellId,type,type,QStringLiteral(R"({"depthType":"MD","depthUnit":"m","mdReference":"KB"})"),QString()},f.error),f.error.c_str());
+    }
+    std::vector<data::DataEntry> tracks;QVERIFY(f.service.listData("intervals",f.job.request.well.modelWellId,tracks,f.error));
+    QCOMPARE(tracks.size(),size_t(3));QCOMPARE(tracks.back().sourceId,0LL);
+    const auto result=wf::prepareInput(f.job);QVERIFY2(result.ok,qPrintable(result.code+": "+result.error));
+    QCOMPARE(result.segments.size(),2);
+    QCOMPARE(result.sourceManifest.value("lithology").toObject().value("trackId").toString(),QString::number(tracks.front().id));
+    const auto inspected=wf::inspectInput({f.job.projectDir,f.job.request.well,f.job.request.context});
+    QVERIFY2(inspected.value("ok").toBool(),qPrintable(QJsonDocument(inspected).toJson()));
+    QCOMPARE(inspected.value("curves").toArray().size(),1);QCOMPARE(inspected.value("intervalTracks").toArray().size(),1);
+    QCOMPARE(inspected.value("intervalTracks").toArray().first().toObject().value("id").toString(),QString::number(tracks.front().id));
+    const auto coverage=inspected.value("coverage").toObject();QVERIFY(coverage.value("complete").toBool());
+    QCOMPARE(coverage.value("scope").toString(),QString("active_file_backed_curve_and_interval_metadata"));
+    QCOMPARE(coverage.value("excludedSourceLessIntervalTracks").toInt(-1),2);
+  }
+  void inactiveSourcesDoNotCreateAutomaticAmbiguity() {
+    QFETCH(bool,retireOriginal);Fixture f;QVERIFY2(f.init(),f.error.c_str());
+    data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";data::WellDataset well;
+    well.wellInfo.wellName="SYNTH-1";well.defaultDepthInfo={"MD","m","KB"};
+    data::LogSet logs;logs.logSetName="Replacement";logs.depthInfo=well.defaultDepthInfo;
+    data::LogCurve curve;curve.curveName="GR";curve.curveUnit="API";
+    for(int range=0;range<2;++range)for(int i=0;i<=10;++i) {
+      logs.samplingAxis.depthValues.push_back(100.+range*100+i);curve.sampleValues.push_back(77.+i);
+    }
+    logs.logCurves={curve};well.wellbore.logSets={logs};
+    data::IntervalTrack track;track.trackName="Replacement 岩性";track.trackType="岩性";track.depthInfo=well.defaultDepthInfo;
+    for(int range=0;range<2;++range) {
+      data::GeologicalInterval row;row.intervalName="细砂岩";row.topDepth=100.+100*range;row.bottomDepth=111.+100*range;
+      track.intervals.push_back(row);
+    }
+    well.wellbore.intervalTracks={track};parsed.wells={well};
+    const QByteArray bytes("replacement synthetic source");const auto path=f.temp.filePath("replacement");QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));QCOMPARE(file.write(bytes),bytes.size());file.close();long long newSource=0;
+    QVERIFY2(f.service.importPreparedFile(path.toStdString(),path.toStdString(),path.toStdString(),
+      QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().toStdString(),parsed,newSource,f.error),f.error.c_str());
+    std::vector<data::DataEntry>curves,tracks;
+    QVERIFY(f.service.listData("curves",f.job.request.well.modelWellId,curves,f.error));QCOMPARE(curves.size(),size_t(2));
+    QVERIFY(f.service.listData("intervals",f.job.request.well.modelWellId,tracks,f.error));QCOMPARE(tracks.size(),size_t(2));
+    // Two active tracks remain ambiguous even when the curve is explicitly resolved.
+    f.job.request.curveIds={{"GR",curves.front().id}};
+    QCOMPARE(wf::prepareInput(f.job).code,QString("ambiguous_lithology_source"));f.job.request.curveIds.clear();
+    const auto oldSource=curves.front().sourceId;QVERIFY(oldSource!=newSource);
+    const auto inactive=retireOriginal?oldSource:newSource,active=retireOriginal?newSource:oldSource;
+    QVERIFY2(retireSource(f,inactive),f.error.c_str());
+    const auto inspected=wf::inspectInput({f.job.projectDir,f.job.request.well,f.job.request.context});
+    QVERIFY2(inspected.value("ok").toBool(),qPrintable(QJsonDocument(inspected).toJson()));
+    QCOMPARE(inspected.value("curves").toArray().size(),1);QCOMPARE(inspected.value("intervalTracks").toArray().size(),1);
+    QCOMPARE(inspected.value("curves").toArray().first().toObject().value("sourceId").toString(),QString::number(active));
+    const auto prepared=wf::prepareInput(f.job);QVERIFY2(prepared.ok,qPrintable(prepared.code+": "+prepared.error));
+    QCOMPARE(prepared.curves.front().sourceId,active);
+    QCOMPARE(prepared.sourceManifest.value("lithology").toObject().value("sourceId").toString(),QString::number(active));
+    QCOMPARE(prepared.segments.front().rows.first().toObject().value("GR").toDouble(),retireOriginal?77.:20.);
+    const auto inactiveCurve=std::find_if(curves.begin(),curves.end(),[&](const auto &entry){return entry.sourceId==inactive;});
+    const auto inactiveTrack=std::find_if(tracks.begin(),tracks.end(),[&](const auto &entry){return entry.sourceId==inactive;});
+    QVERIFY(inactiveCurve!=curves.end());QVERIFY(inactiveTrack!=tracks.end());
+    f.job.request.curveIds={{"GR",inactiveCurve->id}};
+    const auto badCurve=wf::prepareInput(f.job);QCOMPARE(badCurve.code,QString("curve_source_inactive"));QVERIFY(badCurve.requestBodies.isEmpty());
+    f.job.request.curveIds={{"GR",prepared.curves.front().curveId}};f.job.request.lithologyTrackId=inactiveTrack->id;
+    const auto badTrack=wf::prepareInput(f.job);QCOMPARE(badTrack.code,QString("lithology_source_inactive"));QVERIFY(badTrack.requestBodies.isEmpty());
   }
   void distinctModelFeaturesCanSelectDifferentAliasChannels() {
     Fixture f;QVERIFY2(f.init("MD","m",false,true),f.error.c_str());std::vector<data::DataEntry>curves;

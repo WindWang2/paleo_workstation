@@ -33,8 +33,10 @@ QJsonObject inspectInput(const InputInspectionJob &job,const std::function<bool(
   }
   entries.clear();
   if(!readBoundedAreaWellMetadata(service,"intervals",job.well.modelWellId,128,entries,error,cancelled))return fail(QString::fromStdString(error));
+  int excludedSourceLessIntervalTracks=0;
   for(const auto &entry:entries) {
     if(cancelled&&cancelled())return fail("cancelled");
+    if(entry.sourceId<=0){++excludedSourceLessIntervalTracks;continue;}
     data::IntervalTrack value;data::SourceIndexEntry source;data::DataObjectDescriptor descriptor;
     if(!service.readIntervalTrackInfo(entry.id,value,error)||!service.readSourceIndexEntry(entry.sourceId,source,error)||
        !service.describeDataObject(data::DataObjectKind::IntervalTrack,entry.id,descriptor,error))return fail("track_metadata_unavailable");
@@ -49,7 +51,8 @@ QJsonObject inspectInput(const InputInspectionJob &job,const std::function<bool(
   auto observed=job.well;observed.queryHead=before.sequence;
   QJsonObject result{{"contract","paleo.well-facies.inputs.v2"},{"ok",true},{"well_ref",document::wellRefJson(observed)},
     {"curves",curves},{"intervalTracks",tracks},
-    {"coverage",QJsonObject{{"complete",true},{"scope","active_curve_and_interval_metadata"}}},{"hasMore",false},
+    {"coverage",QJsonObject{{"complete",true},{"scope","active_file_backed_curve_and_interval_metadata"},
+      {"excludedSourceLessIntervalTracks",excludedSourceLessIntervalTracks}}},{"hasMore",false},
     {"wellMdReference",QString::fromStdString(well.defaultDepthInfo.mdReference)},
     {"inputFrameReady",declaredSemanticToken(QString::fromStdString(well.defaultDepthInfo.mdReference))},
     {"inputFrameCode",declaredSemanticToken(QString::fromStdString(well.defaultDepthInfo.mdReference))?"":"input_md_reference_unknown"},

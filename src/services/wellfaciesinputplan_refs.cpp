@@ -9,8 +9,21 @@
 #include <QSet>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 
 namespace paleo::wellfacies::detail {
+namespace {
+const data::SourceIndexEntry *sourceFor(data::DataService &service,qlonglong id,
+    QHash<qlonglong,data::SourceIndexEntry> &cache,std::string &error) {
+  auto found=cache.constFind(id);
+  if(found==cache.cend()) {
+    data::SourceIndexEntry source;
+    if(!service.readSourceIndexEntry(id,source,error))return nullptr;
+    cache.insert(id,std::move(source));found=cache.constFind(id);
+  }
+  return &found.value();
+}
+}
 QString hash(const QByteArray &bytes) {
   return QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());
 }
@@ -88,19 +101,26 @@ bool curveRefs(data::DataService &service,const InputJob &job,QVector<CurveRef> 
   for(auto it=job.request.curveIds.begin();it!=job.request.curveIds.end();++it)
     if(!job.model.curves.contains(it.key())){code="invalid_curve_ref";return false;}
   auto &aliases=LasAliasMap::shared(); QSet<qlonglong> used;
+  QHash<qlonglong,data::SourceIndexEntry> sources;
   for(const auto &feature:job.model.curves) {
     if(cancelled&&cancelled()){code="cancelled";return false;}
     const data::DataEntry *chosen=nullptr;
     for(const auto &entry:entries) {
       if(aliases.canonicalCurve(QString::fromStdString(entry.name))!=aliases.canonicalCurve(feature))continue;
       if(job.request.curveIds.contains(feature)&&job.request.curveIds.value(feature)!=entry.id)continue;
+      if(entry.sourceId<=0){code="curve_source_unavailable";return false;}
+      const auto *source=sourceFor(service,entry.sourceId,sources,error);
+      if(!source){code="curve_source_inactive";return false;}
+      if(!source->active) {
+        if(job.request.curveIds.contains(feature)){code="curve_source_inactive";return false;}
+        continue;
+      }
       if(chosen){code="ambiguous_curve_source";return false;} chosen=&entry;
     }
     if(!chosen||chosen->wellId!=job.request.well.modelWellId||chosen->sourceId<=0||chosen->parentId<=0||used.contains(chosen->id)) {
       code="curve_source_unavailable";return false;
     }
-    used.insert(chosen->id);data::SourceIndexEntry source;
-    if(!service.readSourceIndexEntry(chosen->sourceId,source,error)||!source.active){code="curve_source_inactive";return false;}
+    used.insert(chosen->id);const auto &source=*sources.constFind(chosen->sourceId);
     data::CurveWindowQuery query;query.curveId=chosen->id;query.sampleCount=0;query.includeAuxiliaryAxes=false;
     data::CurveWindowResult metadata;
     if(!service.readCurveWindow(query,metadata,error)){code="curve_metadata_unavailable";return false;}
@@ -127,6 +147,7 @@ bool lithologyRef(data::DataService &service,const InputJob &job,qlonglong &id,Q
     code=QString::fromStdString(error);return false;
   }
   const data::DataEntry *chosen=nullptr;
+  QHash<qlonglong,data::SourceIndexEntry> sources;
   for(const auto &entry:entries) {
     if(cancelled&&cancelled()){code="cancelled";return false;}
     if(job.request.lithologyTrackId>0&&entry.id!=job.request.lithologyTrackId)continue;
@@ -134,13 +155,19 @@ bool lithologyRef(data::DataService &service,const InputJob &job,qlonglong &id,Q
     if(!service.readIntervalTrackInfo(entry.id,track,error)){code="lithology_metadata_unavailable";return false;}
     const auto kind=QString::fromStdString(track.trackType),name=QString::fromStdString(track.trackName);
     if(!kind.contains(QStringLiteral("岩性"))&&!name.contains(QStringLiteral("岩性")))continue;
+    if(entry.sourceId<=0){code="lithology_source_unavailable";return false;}
+    const auto *source=sourceFor(service,entry.sourceId,sources,error);
+    if(!source){code="lithology_source_inactive";return false;}
+    if(!source->active) {
+      if(job.request.lithologyTrackId>0){code="lithology_source_inactive";return false;}
+      continue;
+    }
     if(chosen){code="ambiguous_lithology_source";return false;}chosen=&entry;
   }
   if(!chosen||chosen->wellId!=job.request.well.modelWellId||chosen->sourceId<=0||chosen->count>100000) {
     code="lithology_source_unavailable";return false;
   }
-  data::SourceIndexEntry source;
-  if(!service.readSourceIndexEntry(chosen->sourceId,source,error)||!source.active){code="lithology_source_inactive";return false;}
+  const auto &source=*sources.constFind(chosen->sourceId);
   data::DataObjectDescriptor descriptor;
   if(!service.describeDataObject(data::DataObjectKind::IntervalTrack,chosen->id,descriptor,error)) {
     code="lithology_metadata_unavailable";return false;

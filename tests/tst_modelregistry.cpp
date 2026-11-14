@@ -3,11 +3,15 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
+#include <limits>
 
 #include "../src/ai/modelregistry.h"
 #include "../src/ai/onnxfixture.h"
 #include "../src/ai/onnxpredictionservice.h"
+#include "../src/ai/onnxmodelbytes.h"
 
 // goal/ai-geological-assist 轮4：模型注册表扫描与如实降级。
 // manifest 缺失 = 「未装模型」（非错误）；坏 JSON/缺文件/钉哈希不符逐条如实分类。
@@ -25,6 +29,11 @@ private slots:
   void brokenJsonReportsManifestError();
   void entryWithoutNameIsManifestInvalid();
   void shapeNullBecomesDynamicDim();
+  void invalidShapeDimensions_data();
+  void invalidShapeDimensions();
+  void exactInt64ShapeBoundsArePreserved();
+  void oversizedModelIsRejectedBeforeHashing();
+  void invalidShapeStillReservesTheFirstModelName();
   // #145：注册表门控生产加载路径 + 路径约束
   void traversalAndAbsoluteFileRejected();
   void duplicateNameRejected();
@@ -206,6 +215,73 @@ void TestModelRegistry::shapeNullBecomesDynamicDim()
   "input": { "name": "x", "dtype": "float32", "shape": [1, null] } } ] })" );
   const ModelRegistryScan scan = ModelRegistry::scan( dir.path() );
   QCOMPARE( scan.entries.at( 0 ).inputShape, QVector<int64_t>( { 1, -1 } ) );
+}
+
+void TestModelRegistry::invalidShapeDimensions_data()
+{
+  QTest::addColumn<QByteArray>("shape");
+  QTest::newRow("fraction") << QByteArray("[1,1.5]");
+  QTest::newRow("positive-overflow") << QByteArray("[9223372036854775808]");
+  QTest::newRow("negative-overflow") << QByteArray("[-9223372036854777856]");
+  QTest::newRow("large-exponent") << QByteArray("[1e30]");
+  QTest::newRow("string") << QByteArray("[\"1\"]");
+  QTest::newRow("boolean") << QByteArray("[true]");
+  QTest::newRow("object-dimension") << QByteArray("[{}]");
+  QTest::newRow("not-an-array") << QByteArray("1");
+  QTest::newRow("null-shape") << QByteArray("null");
+}
+
+void TestModelRegistry::invalidShapeDimensions()
+{
+  QFETCH(QByteArray,shape);QTemporaryDir dir;QVERIFY(dir.isValid());
+  // Parsing must reject the declaration before trying to read even a missing model.
+  writeText(dir.filePath("manifest.json"),
+    QByteArray("{\"models\":[{\"name\":\"m\",\"file\":\"missing.onnx\",\"input\":{\"shape\":")+shape+"}}]}");
+  const auto scan=ModelRegistry::scan(dir.path());QCOMPARE(scan.entries.size(),1);
+  QCOMPARE(scan.entries.first().status,ModelRegistryEntry::Status::ManifestInvalid);
+  QCOMPARE(scan.entries.first().detail,QString("model_input_shape_invalid"));
+  QVERIFY(scan.entries.first().sha256Actual.isEmpty());QVERIFY(!scan.anyRunnable());
+}
+
+void TestModelRegistry::exactInt64ShapeBoundsArePreserved()
+{
+  QTemporaryDir dir;QVERIFY(dir.isValid());const auto path=dir.filePath("m.onnx");
+  QVERIFY(OnnxFixtureWriter::writeAddScalar(path));
+  const auto sha=PaleoOnnxService::sha256OfFile(path);
+  writeText(dir.filePath("manifest.json"),
+    QByteArray("{\"models\":[{\"name\":\"m\",\"file\":\"m.onnx\",\"sha256\":\"")+sha.toUtf8()+
+    "\",\"input\":{\"shape\":[-9223372036854775808,9223372036854775807,null,-1,0,1]}}]}");
+  const auto scan=ModelRegistry::scan(dir.path());QCOMPARE(scan.entries.size(),1);
+  QCOMPARE(scan.entries.first().status,ModelRegistryEntry::Status::Ok);
+  QCOMPARE(scan.entries.first().inputShape,QVector<int64_t>({std::numeric_limits<int64_t>::min(),
+    std::numeric_limits<int64_t>::max(),-1,-1,0,1}));
+}
+
+void TestModelRegistry::oversizedModelIsRejectedBeforeHashing()
+{
+  QTemporaryDir dir;QVERIFY(dir.isValid());QFile model(dir.filePath("large.onnx"));
+  QVERIFY(model.open(QIODevice::WriteOnly));QVERIFY(model.resize(paleo::onnx::maxModelBytes+1));model.close();
+  writeText(dir.filePath("manifest.json"),R"({"models":[{"name":"large","file":"large.onnx"}]})");
+  const auto scan=ModelRegistry::scan(dir.path());QCOMPARE(scan.entries.size(),1);
+  QCOMPARE(scan.entries.first().status,ModelRegistryEntry::Status::Unreadable);
+  QCOMPARE(scan.entries.first().detail,QString("model_byte_budget_exceeded"));
+  QVERIFY(scan.entries.first().sha256Actual.isEmpty());QVERIFY(!scan.anyRunnable());
+}
+
+void TestModelRegistry::invalidShapeStillReservesTheFirstModelName()
+{
+  QTemporaryDir dir;QVERIFY(dir.isValid());QVERIFY(OnnxFixtureWriter::writeAddScalar(dir.filePath("m.onnx")));
+  const auto sha=PaleoOnnxService::sha256OfFile(dir.filePath("m.onnx"));
+  writeText(dir.filePath("manifest.json"),QByteArray("{\"models\":[")+
+    "{\"name\":\"m\",\"file\":\"m.onnx\",\"input\":{\"shape\":[1.5]}},"+
+    "{\"name\":\"m\",\"file\":\"m.onnx\",\"sha256\":\""+sha.toUtf8()+"\"}]}");
+  const auto scan=ModelRegistry::scan(dir.path());QCOMPARE(scan.entries.size(),2);
+  QCOMPARE(scan.entries.first().status,ModelRegistryEntry::Status::ManifestInvalid);
+  QCOMPARE(scan.entries.first().detail,QString("model_input_shape_invalid"));
+  QCOMPARE(scan.entries.last().status,ModelRegistryEntry::Status::ManifestInvalid);
+  QVERIFY(scan.entries.last().detail.contains(QStringLiteral("重复的模型名")));
+  QVERIFY(scan.runnableNames().isEmpty());PaleoOnnxService service;service.setModelRoot(dir.path());service.setModelRegistry(scan);
+  QVERIFY(service.availableModels().isEmpty());
 }
 
 void TestModelRegistry::traversalAndAbsoluteFileRejected()

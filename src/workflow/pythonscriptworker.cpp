@@ -1,5 +1,6 @@
 // 层：功能
 #include "pythonscriptoperation.h"
+#include "pythonoperationdiagnostics.h"
 #include "services/pythoninputbundle.h"
 #include "services/pythonprocess.h"
 #include <QDir>
@@ -7,29 +8,11 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QSaveFile>
 #include <QStringDecoder>
 #include <cmath>
 
 namespace paleo::python {
 namespace {
-bool store(const QString &path,QByteArrayView bytes) {
-  QSaveFile file(path);return file.open(QIODevice::WriteOnly) && file.write(bytes.data(),bytes.size())==bytes.size() && file.commit();
-}
-void diagnostics(capability::OperationWorkResult &out,const capability::OperationWorkContext &context,
-                 const ProcessResult &process,const ExecutionPolicy &policy) {
-  out.diagnostics.ok=true;
-  const QJsonObject status{{"contract","paleo.python-execution.v1"},{"code",process.code},
-    {"exitCode",process.exitCode},{"cpuMicros",QString::number(process.cpuMicros)},
-    {"observedPeakMemoryBytes",QString::number(process.peakMemoryBytes)},{"memoryPeakComplete",process.memoryPeakComplete}};
-  const auto add=[&](const QString &port,QByteArrayView bytes) {
-    const auto path=QDir(context.privateDir).filePath(port+".txt");
-    if(store(path,bytes))out.diagnostics.artifacts.append({port,path,{},{},{{"diagnostic",true}}, {}});
-  };
-  add("EXECUTION_LOG",QJsonDocument(status).toJson(QJsonDocument::Compact));
-  if(!process.error.isEmpty())add("STDERR_LOG",QByteArrayView(process.error).first(qMin<qint64>(process.error.size(),policy.logBytes)));
-  if(!process.outputLog.isEmpty())add("STDOUT_LOG",QByteArrayView(process.outputLog).first(qMin<qint64>(process.outputLog.size(),policy.logBytes)));
-}
 QString report(const QByteArray &bytes,QByteArray &output) {
   QStringDecoder decoder(QStringDecoder::Utf8);const QString text=decoder(bytes);Q_UNUSED(text);
   if(decoder.hasError())return "python_output_encoding_invalid";
@@ -68,11 +51,11 @@ capability::OperationWorker trustedScriptWorker(const QJsonObject &plan,std::sha
       out.code="python_input_changed";return out;
     }
     request.policy=provider->policy();request.cancelled=context.cancelled;request.permit=permit;
-    const auto process=runTrustedProcess(request);diagnostics(out,context,process,request.policy);
+    const auto process=runTrustedProcess(request);appendPythonProcessDiagnostics(out,context,process,request.policy);
     if(!process.ok()){out.code=process.code;return out;}
     QByteArray content;out.code=report(process.output,content);if(!out.code.isEmpty())return out;
     const auto path=QDir(context.privateDir).filePath("REPORT.json");
-    if(!store(path,content)){out.code="python_output_write_failed";return out;}
+    if(!storePythonOperationBytes(path,content)){out.code="python_output_write_failed";return out;}
     out.outputs.ok=true;out.outputs.artifacts.append({"REPORT",path,{},{},{{"encoding","utf8"}}, {}});
     out.summary={{"runtimeManifestSha256",runtime.runtime->manifestSha256},{"scriptSha256",request.scriptSha256},
       {"report",QJsonDocument::fromJson(content).object()},{"cpuMicros",QString::number(process.cpuMicros)},

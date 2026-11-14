@@ -69,6 +69,7 @@ private slots:
     Fixture fixture;QVERIFY2(fixture.open(),qPrintable(fixture.error));const auto permit=python::claimExecutionPermit();
     const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
     QVERIFY2(result.ok(),qPrintable(result.code));QCOMPARE(result.io.legacyBytes,0);
+    QCOMPARE(result.io.sourceRows,1);QVERIFY(result.io.metadataTextBytes>0);
     qInfo().noquote()<<"PY2_IO sourceSamplesPerCurve=65536 selectedSamplesPerCurve=8192 channels=2 payloadBytes="
       <<result.io.payloadBytes<<" axisBlocks="<<result.io.axisBlocks<<" valueBlocks="<<result.io.valueBlocks
       <<" legacyBytes="<<result.io.legacyBytes;
@@ -117,6 +118,26 @@ private slots:
     QCOMPARE(changed.code,QString("python_template_changed"));QCOMPARE(changed.io.payloadBytes,0);
     const auto cancelled=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit,[]{return true;});
     QCOMPARE(cancelled.code,QString("cancelled"));QCOMPARE(cancelled.io.payloadBytes,0);
+  }
+  void oversizedSourceTextIsRejectedBeforeArraysOrBundle() {
+    Fixture fixture;QVERIFY(fixture.open());const auto connection=QUuid::createUuid().toString();bool changed=false;
+    {
+      auto db=QSqlDatabase::addDatabase("QSQLITE",connection);db.setDatabaseName(fixture.root+"/data.sqlite");QVERIFY(db.open());
+      QSqlQuery query(db);QVERIFY(query.prepare("UPDATE sources SET message=? WHERE id=?"));
+      query.addBindValue(QString(16*1024*1024,QChar('x')));query.addBindValue(fixture.plan.curves.first().source.ref.sourceId);
+      changed=query.exec();query.finish();db.close();
+    }
+    QSqlDatabase::removeDatabase(connection);QVERIFY(changed);std::string detail;
+    QVERIFY(fixture.service.readModelChangeHead(fixture.plan.expectedHead,detail));const auto permit=python::claimExecutionPermit();
+    const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
+    QCOMPARE(result.code,QString("python_analysis_read_budget"));QCOMPARE(result.io.sourceRows,0);
+    QCOMPARE(result.io.payloadBytes,0);QCOMPARE(result.io.legacyBytes,0);QVERIFY(result.bundle.reference.isEmpty());
+  }
+  void cachedSourceIdentityStillRejectsAnotherRevision() {
+    Fixture fixture;QVERIFY(fixture.open());auto &source=fixture.plan.curves[1].source;
+    source.ref.fileRevisionId=QString(64,'a');source.fingerprint=document::SourceFingerprint::fromStored(source.ref.fileRevisionId);
+    const auto permit=python::claimExecutionPermit();const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
+    QCOMPARE(result.code,QString("python_analysis_source_changed"));QCOMPARE(result.io.sourceRows,1);QVERIFY(result.bundle.reference.isEmpty());
   }
   void modelChangesDuringCaptureRejectTheEntireInput() {
     Fixture fixture;QVERIFY(fixture.open());const auto permit=python::claimExecutionPermit();

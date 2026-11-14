@@ -28,7 +28,7 @@ struct AnalysisReadPlan {
 };
 struct AnalysisReadMetrics {
   qint64 payloadBytes=0, legacyBytes=0, axisBlocks=0, valueBlocks=0, windows=0;
-  qint64 metadataRows=0, metadataTextBytes=0;
+  qint64 metadataRows=0, metadataTextBytes=0, sourceRows=0;
   QJsonObject json() const;
 };
 struct AnalysisMaterialization {

@@ -7,7 +7,7 @@ namespace paleo::python::analysis_detail {
 QString validatePlan(const AnalysisReadPlan &plan,const ExecutionPolicy &policy);
 QString checkHead(const data::DataService &service,const data::ModelChangeHead &expected);
 QString checkSource(const data::DataService &service,const AnalysisCurveSelection &selection,
-                    const AnalysisReadPlan &plan);
+                    const AnalysisReadPlan &plan,AnalysisReadMetrics &metrics);
 QString readColumns(data::DataService &service,const AnalysisReadPlan &plan,
     QVector<data::CurveWindowResult> &columns,AnalysisReadMetrics &metrics,
     const std::function<bool()> &cancelled);

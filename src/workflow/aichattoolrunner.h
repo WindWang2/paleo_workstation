@@ -40,6 +40,7 @@
 //   · 每帧必有终态：run() 的每个调用都会以 toolFinished 收尾（错误也是
 //     结果——协议要求每个 tool_call_id 有应答），除非被 cancel 作废。
 class DataCatalog;
+namespace paleo::capability { class CapabilityHost; }
 
 class AiChatToolRunner : public QObject {
   Q_OBJECT
@@ -61,6 +62,8 @@ public:
     // 保证（importSvc 持有、open 原地重绑，不换实例）。
     DataCatalog *catalog = nullptr;
     QString documentId; // trusted host DocumentSession binding, required by typed queries
+    QPointer<paleo::capability::CapabilityHost> capabilityHost;
+    bool requireCapabilityHost = false;
     quint64 documentEpoch = 0;
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
   };

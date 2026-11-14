@@ -45,7 +45,7 @@ target_sources(paleo_workflow PRIVATE
 )
 
 # 装配根：远端预测装配（唯一的装配入口，产品与测试同源）。
-target_sources(paleo_app PRIVATE src/app/aiwiring.cpp)
+target_sources(paleo_app PRIVATE src/app/aiwiring.cpp src/app/capabilityhostwiring.cpp)
 
 # 视图层：助手 dock + 配置对话框（方向62）+ 工具结果结构化视图（方向93）。
 target_sources(paleo_ui PRIVATE

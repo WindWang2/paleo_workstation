@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "capabilityhostwiring.h"
 #include "workflow/documentsession.h"
 #include "io/areamodelpublication.h"
 #include "../ai/chat/llmclient.h" // 方向51：LLM 配置 + 助手编排
@@ -202,6 +203,13 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
 
   m_import = new DataImportService(m_store, this);
   m_documentSession = new paleo::document::DocumentSession(m_store, m_taskSvc, this);
+  m_capabilityHost = new paleo::capability::CapabilityHost(this);
+  m_capabilityHost->setTaskService(m_taskSvc);
+  configureCapabilityCallers(m_capabilityHost);
+  m_capabilityHost->setBindingProvider([this] {
+    return captureCapabilityBinding(m_documentSession, m_import->catalog(), m_projectLock.get(), m_selection);
+  });
+  m_documentSession->setHostContextProvider([this] { return m_capabilityHost->context(); });
   connect(m_import, &DataImportService::layerDeclared, this,
           [this](const LayerDeclaration &decl) {
             if (m_layerSvc) {
@@ -318,7 +326,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   // 只读工程工具（query/lineage）不依赖 ORT——无 ORT 构建也绑（assist 为空
   // 时 tile/horizon 由执行器按调用如实报错）。
   bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
-                     m_import->catalog(), QString());
+                     m_import->catalog(), QString(), QString(), m_capabilityHost);
   {
     LlmConfig llm = LlmConfig::load();
     LlmKeyStore::read(this, [this, llm](bool ok, const QByteArray &key,
@@ -610,7 +618,7 @@ void AppContext::releaseProjectSession()
   //    重绑——query/lineage 如实报「未绑定工程目录」，brief 回落「未打开」。
   AreaRules::reset();
   if (m_aiChat) {
-    bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc, nullptr, QString());
+    bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc, nullptr, QString(), QString(), m_capabilityHost);
   }
 
   emit projectReadOnlyChanged(false);
@@ -796,7 +804,7 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
     // targetHorizon，层位名与栅格声明都可能换了；只读工程工具的
     // catalog/projectDir 同步换绑）。无 ORT 构建也重绑（assist 为空）。
     bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
-                       derivedCatalog, fi.absolutePath(), m_documentSession->documentId());
+                       derivedCatalog, fi.absolutePath(), m_documentSession->documentId(), m_capabilityHost);
     // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
     // 交错写互覆）——层深转换产物落 artifacts/derived/。
     m_depthWf->rebind(derivedCatalog, fi.absolutePath());

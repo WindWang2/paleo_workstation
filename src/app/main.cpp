@@ -1,5 +1,7 @@
 // 层：组装根
 #include "appcontext.h"
+#include "capabilityhostwiring.h"
+#include "workflow/commanddispatcher.h"
 #include "portableenvironment.h"
 #include <QFile>
 #include <QFileInfo>
@@ -377,6 +379,7 @@ int main(int argc, char *argv[])
   // catalog 之后重绑生效——rebind 随工程打开）。
   window.attachDepthConversion(ctx.depthConversionWf());
   window.attachDocumentSession(ctx.documentSession());
+  bindCapabilityDispatcher(window.commandDispatcher(), ctx.capabilityHost());
   new paleo::crossplot::CrossplotController(&ctx, &window);
   // goal/property-modeling：地层格架属性建模编排接线
   window.attachPropertyModel(ctx.propertyModelWf(), ctx.faultCtl());

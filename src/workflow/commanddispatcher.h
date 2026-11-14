@@ -11,6 +11,7 @@
 #pragma once
 
 #include "capabilitygateway.h"
+#include "capabilityhost.h"
 #include "../services/commandspec.h"
 
 #include <QHash>
@@ -27,6 +28,7 @@ struct PreparedPlan {
   QString code;            // 失败码：unknown_command | not_compute | capability_missing |
                            // capability_not_callable | surface_denied | parameter_invalid
   QString commandId;
+  QString hostHandle;      // Opaque host ticket; the public fields are not authority.
   CapabilitySpec capability;
   capability::ExecuteRequest request;
   QVariantMap effectiveParameters; // AlgorithmSpec 填默认后的有效参数（只读展示）
@@ -61,8 +63,12 @@ public:
                        const QVariantMap &inputs = {},
                        const QString &publishIntent = QStringLiteral("prepare")) const;
   capability::ExecuteResult execute(const PreparedPlan &plan);
+  PaleoTask *start(const PreparedPlan &plan, QObject *receiver, const QString &title,
+                   std::function<void(capability::ExecuteResult)> finished, QString *error = nullptr);
   void setExecutor(Executor executor);    // 缺省 capability::execute（测试注入桩）
   void setHostBinder(HostBinder binder);
+  void setCapabilityHost(capability::CapabilityHost *host, host::Caller caller = host::Caller::Ui);
+  capability::CapabilityHost *capabilityHost() const { return m_host; }
 
   // 宿主上下文（主窗注入；Agent 只能在此之上改 callerScope/clientRequestId）。
   void setContextProvider(std::function<CommandContext()> provider);
@@ -83,6 +89,9 @@ private:
   QHash<QString, Binding> m_bindings;
   Executor m_executor;
   HostBinder m_hostBinder;
+  QPointer<capability::CapabilityHost> m_host;
+  host::Caller m_hostCaller = host::Caller::Ui;
+  bool m_hostRequired = false;
   std::function<CommandContext()> m_context;
 };
 

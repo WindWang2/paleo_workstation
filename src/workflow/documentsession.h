@@ -2,6 +2,7 @@
 #pragma once
 #include "catalog/documentsourceprojection.h"
 #include "services/documentrelationresolver.h"
+#include "services/hostcallcontext.h"
 #include <QObject>
 #include <QPointer>
 #include <memory>
@@ -36,6 +37,8 @@ public:
     quint64 epoch() const {return m_epoch;}
     quint64 revision() const {return m_revision;}
     QString documentId() const {return m_documentId;}
+    bool hasPersistentIdentity() const {return m_persistentIdentity;}
+    void setHostContextProvider(std::function<host::CallContext()> provider) {m_hostContext=std::move(provider);}
     QString loadError() const {project();return m_loadError.isEmpty()?m_projection.error:m_loadError;}
     bool recoveryRequired() const {return !m_operations.isEmpty();}
     QStringList pendingOperations() const {return m_operations.keys();}
@@ -91,6 +94,8 @@ private:
     PaleoTaskService *m_tasks=nullptr;
     QString m_documentId,m_projectDir,m_loadError;
     bool m_readOnly=false;
+    bool m_persistentIdentity=false;
+    std::function<host::CallContext()> m_hostContext;
     quint64 m_epoch=0,m_revision=0;
     mutable quint64 m_projectionSequence=~quint64(0);
     mutable SourceProjection m_projection;

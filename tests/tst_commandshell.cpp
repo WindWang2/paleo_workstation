@@ -1,3 +1,4 @@
+// 层：测试壳
 // UI 重设计 U1：真实主窗（AppContext + PaleoMainWindow + attachWorkflows）上的命令闸——
 //   - Ribbon 各面板 / 快速访问栏 / 文件菜单里每个 QAction 都挂着已登记的 paleoCommandId
 //   - 每个命令 id 都在 CommandRegistry；每个 shortcutId 都在快捷键注册表
@@ -5,6 +6,8 @@
 //   - 经分派器触发 View 命令有效；未接线 / 被拒的命令给出原因
 //   - 源码闸：ribbon 两个构建文件里不再有 findChild<QPushButton…>()->click() 间接调用
 #include <QtTest>
+#include "app/capabilityhostwiring.h"
+#include "workflow/documentsession.h"
 
 #include <QAction>
 #include <QApplication>
@@ -113,6 +116,8 @@ private slots:
                            m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
                            m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
                            m_ctx->layoutSvc(), m_ctx->taskSvc());
+    m_win->attachDocumentSession(m_ctx->documentSession());
+    bindCapabilityDispatcher(m_win->commandDispatcher(), m_ctx->capabilityHost());
     m_win->show();
     QVERIFY(m_win->commandDispatcher());
   }
@@ -124,6 +129,17 @@ private slots:
   }
 
   void registryHealthy() { QVERIFY2(CommandRegistry::validate().isEmpty(), qPrintable(CommandRegistry::validate().join('\n'))); }
+
+  void productionDispatcherHasTheAppHostAndDocumentIdentity()
+  {
+    auto *dispatcher = m_win->commandDispatcher();
+    QVERIFY(m_ctx->capabilityHost());
+    QCOMPARE(dispatcher->capabilityHost(), m_ctx->capabilityHost());
+    QCOMPARE(dispatcher->currentContext().documentId, m_ctx->documentSession()->documentId());
+    const auto plan = dispatcher->prepare(QStringLiteral("constraint.idw"), dispatcher->currentContext(), {});
+    QVERIFY(!plan.ok); // The real unopened AppContext cannot grant a compute ticket.
+    QVERIFY(plan.code == QLatin1String("document_unavailable") || plan.code == QLatin1String("command_disabled"));
+  }
 
   // 收编完整：三类入口上的每个动作都带已登记命令 id，且该命令在分派器上接了线。
   void everySurfaceActionIsACommand()
@@ -408,7 +424,7 @@ int main(int argc, char *argv[])
   static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
   QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
-  AppContext ctx(QStringLiteral("/usr"));
+  AppContext ctx(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")));
   if (!ctx.ready())
     qFatal("AppContext failed to initialize the QGIS runtime");
   TestCommandShell tc(&ctx);

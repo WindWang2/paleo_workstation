@@ -117,6 +117,10 @@ PreparedPlan CommandDispatcher::prepare(const QString &commandId, const CommandC
                                         const QString &publishIntent) const {
   PreparedPlan plan;
   plan.commandId = commandId;
+  if (m_hostRequired && !m_host) {
+    plan.code = QStringLiteral("host_unavailable");
+    return plan;
+  }
   const CommandSpec spec = CommandRegistry::spec(commandId);
   if (!spec.isValid()) {
     plan.code = QStringLiteral("unknown_command");
@@ -157,10 +161,36 @@ PreparedPlan CommandDispatcher::prepare(const QString &commandId, const CommandC
   r.callerScope = ctx.callerScope;
   r.clientRequestId =
       ctx.clientRequestId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : ctx.clientRequestId;
+  if (ctx.isAgent() && ctx.clientRequestId.isEmpty()) {
+    plan.code = QStringLiteral("client_request_id_required");
+    return plan;
+  }
   // 用户原样参数交网关（网关自己再校验/填默认并算指纹，有效参数只作展示）。
   r.parameters = params;
   r.inputs = inputs;
   r.publishIntent = publishIntent;
+  if (m_host) {
+    const auto it = m_bindings.constFind(commandId);
+    if (it != m_bindings.cend() && it->state && !it->state(ctx).enabled) {
+      plan.code = QStringLiteral("command_disabled");
+      return plan;
+    }
+    const QPointer<const CommandDispatcher> self(this);
+    const bool hadBinding = it != m_bindings.cend();
+    auto guard = [self, commandId, hadBinding]() -> QString {
+      if (!self) return QStringLiteral("host_unavailable");
+      const auto current = self->m_bindings.constFind(commandId);
+      if (hadBinding && current == self->m_bindings.cend()) return QStringLiteral("command_unbound");
+      if (current != self->m_bindings.cend() && current->state && !current->state(self->currentContext()).enabled)
+        return QStringLiteral("command_disabled");
+      return {};
+    };
+    const auto prepared = m_host->prepare(r, m_hostCaller, spec.requiredContext, commandId, std::move(guard));
+    plan.code = prepared.code;
+    plan.hostHandle = prepared.handle;
+    plan.ok = prepared.ok;
+    return plan;
+  }
   if (m_hostBinder)
     m_hostBinder(r);
   plan.ok = true;
@@ -168,17 +198,37 @@ PreparedPlan CommandDispatcher::prepare(const QString &commandId, const CommandC
 }
 
 capability::ExecuteResult CommandDispatcher::execute(const PreparedPlan &plan) {
+  if (m_hostRequired && !m_host) {
+    capability::ExecuteResult rejected;
+    rejected.code = QStringLiteral("host_unavailable");
+    return rejected;
+  }
   if (!plan.ok) {
     capability::ExecuteResult rejected;
     rejected.code = plan.code.isEmpty() ? QStringLiteral("plan_not_prepared") : plan.code;
     rejected.execution = QStringLiteral("Rejected");
     return rejected;
   }
-  capability::ExecuteResult result = m_executor(plan.request);
+  if (m_host) {
+    const auto boundCommand = m_host->preparedCommand(plan.hostHandle);
+    if (!boundCommand.isNull() && boundCommand != plan.commandId) {
+      capability::ExecuteResult rejected;
+      rejected.code = QStringLiteral("prepared_tampered");
+      return rejected;
+    }
+    const auto it = m_bindings.constFind(plan.commandId);
+    if (it != m_bindings.cend() && it->state && !it->state(currentContext()).enabled) {
+      capability::ExecuteResult rejected;
+      rejected.code = QStringLiteral("command_disabled");
+      rejected.execution = QStringLiteral("Rejected");
+      return rejected;
+    }
+  }
+  capability::ExecuteResult result = m_host ? m_host->execute(plan.hostHandle, plan.request) : m_executor(plan.request);
   if (!result.operationId.isEmpty())
     emit operationChanged(result.operationId, plan.commandId);
   if (result.ok)
-    emit commandTriggered(plan.commandId, plan.request.callerScope);
+    emit commandTriggered(plan.commandId, m_host ? m_host->callerScope(m_hostCaller) : plan.request.callerScope);
   return result;
 }
 
@@ -188,6 +238,36 @@ void CommandDispatcher::setExecutor(Executor executor) {
 }
 
 void CommandDispatcher::setHostBinder(HostBinder binder) { m_hostBinder = std::move(binder); }
+void CommandDispatcher::setCapabilityHost(capability::CapabilityHost *value, host::Caller caller) {
+  m_host = value;
+  m_hostCaller = caller;
+  m_hostRequired = true;
+}
+
+PaleoTask *CommandDispatcher::start(const PreparedPlan &plan, QObject *receiver, const QString &title,
+                                  std::function<void(capability::ExecuteResult)> finished, QString *error) {
+  QString code;
+  if (!m_host) code = QStringLiteral("host_unavailable");
+  else if (!plan.ok) code = plan.code.isEmpty() ? QStringLiteral("plan_not_prepared") : plan.code;
+  if (code.isEmpty()) {
+    const auto boundCommand = m_host->preparedCommand(plan.hostHandle);
+    if (!boundCommand.isNull() && boundCommand != plan.commandId) code = QStringLiteral("prepared_tampered");
+  }
+  const auto it = m_bindings.constFind(plan.commandId);
+  if (code.isEmpty() && it != m_bindings.cend() && it->state && !it->state(currentContext()).enabled)
+    code = QStringLiteral("command_disabled");
+  if (!code.isEmpty()) { if (error) *error = code; return nullptr; }
+  const QPointer<CommandDispatcher> self(this);
+  return m_host->start(plan.hostHandle, plan.request, receiver, title,
+      [self, commandId = plan.commandId, scope = m_host->callerScope(m_hostCaller),
+       finished = std::move(finished)](capability::ExecuteResult result) {
+        if (self) {
+          if (!result.operationId.isEmpty()) emit self->operationChanged(result.operationId, commandId);
+          if (result.ok) emit self->commandTriggered(commandId, scope);
+        }
+        if (finished) finished(std::move(result));
+      }, error);
+}
 
 void CommandDispatcher::setContextProvider(std::function<CommandContext()> provider) {
   m_context = std::move(provider);

@@ -2,6 +2,7 @@
 #pragma once
 #include <QString>
 #include <QStringList>
+#include <QHash>
 #include <functional>
 #include "domain/wellsection.h"
 #include "documentrelationresolver.h"
@@ -20,11 +21,16 @@ struct AreaWellChartQuery {
   std::optional<paleo::document::RelationResolveRequest> intervalTrack;
   bool allowSourceTrackFallback=false;
   qlonglong maxDefaultPlotValues=8'000'000;
+  QHash<QString, qlonglong> exactCurveIds;
+  QVector<qlonglong> exactIntervalTrackIds;
+  bool requireDeclaredMd = false; // Analytical reads never borrow a well's unit for an undeclared source.
+  QString mdReference;
 };
+struct AreaWellCurveReadUsage { qlonglong samples=0, payloadBytes=0; };
 bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
                       WellComposite::ComprehensiveWellData &out, QString *error,
                       const std::function<bool()> &cancelled = {},
-                      const AreaWellChartQuery *query=nullptr);
+                      const AreaWellChartQuery *query=nullptr, AreaWellCurveReadUsage *usage=nullptr);
 // Interval-only read: no log samples, photos or source-file reparsing.
 bool readAreaWellLithology(const QString &project, qlonglong well,
                           QVector<wellsection::LithoSegment> &out, QString *error);

@@ -194,11 +194,11 @@ bool suggestTrack( PaleoOnnxService *onnx, const QString &model,
                    const QVector<TrackingSeed> &seeds, int windowSamples, int radius,
                    const TraceWindowFetcher &fetch,
                    const std::function<bool()> &cancelled,
-                   QVector<TrackingSuggestion> *out, QString *error )
+                   QVector<TrackingSuggestion> *out, QString *error, QString *modelSha256 = nullptr )
 {
 #if PALEO_HAVE_ORT
   return suggestHorizonTracking( onnx, model, seeds, windowSamples, radius, fetch,
-                                 cancelled, out, error );
+                                 cancelled, out, error, modelSha256 );
 #else
   Q_UNUSED( onnx );
   Q_UNUSED( model );
@@ -208,6 +208,7 @@ bool suggestTrack( PaleoOnnxService *onnx, const QString &model,
   Q_UNUSED( fetch );
   Q_UNUSED( cancelled );
   Q_UNUSED( out );
+  if (modelSha256) modelSha256->clear();
   if ( error )
     *error = QObject::tr( "本构建未编译 ONNX Runtime，AI 层位追踪建议不可用" );
   return false;
@@ -699,7 +700,7 @@ bool AiAssistWorkflow::suggestTracking( const QString &horizon, const QString &m
 PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QString &model,
                                               const QVector<TrackingSeed> &seeds, int windowSamples,
                                               int radius, const TraceWindowFetcher &fetch,
-                                              QString *error )
+                                              QString *error, const std::function<QString()> &ownerValidation )
 {
   if ( error )
     error->clear();
@@ -718,28 +719,35 @@ PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QStr
   // 同 startClassification 范式：池线程只跑纯引擎（onnx 服务线程安全），
   // 建议入队/信号回主线程。取消经任务取消位逐道检查（引擎协作取消）。
   auto *result = new QVector<TrackingSuggestion>;
+  const auto modelFingerprint = std::make_shared<QString>();
   QPointer<AiAssistWorkflow> self( this );
   // #402：同 startClassification——worker 捕服务 QPointer 判活，不捕 this。
   const QPointer<PaleoOnnxService> onnx = m_onnx;
   const QString title = tr( "%1 AI 层位建议 %2" ).arg( horizon, model );
   PaleoTask *task = m_tasks->start(
     title,
-    [onnx, model, seeds, windowSamples, radius, fetch, result]( PaleoTask *t ) -> QString {
+    [onnx, model, seeds, windowSamples, radius, fetch, result, modelFingerprint]( PaleoTask *t ) -> QString {
       if ( !onnx )
         return QStringLiteral( "ONNX 服务已销毁" );
       QString err;
       QVector<TrackingSuggestion> out;
       if ( !suggestTrack( onnx, model, seeds, windowSamples, radius, fetch,
-                          [t]() { return t->cancelRequested(); }, &out, &err ) )
+                          [t]() { return t->cancelRequested(); }, &out, &err, modelFingerprint.get() ) )
         return err;
       *result = out;
       return QString();
     },
     QString(), PaleoTask::Priority::Normal, true );
   // finished 挂 task 上下文：工作流先亡时 result 仍被回收（同上）。
-  connect( task, &PaleoTask::finished, task, [self, task, horizon, result]() {
+  connect( task, &PaleoTask::finished, task, [self, task, horizon, result, ownerValidation, modelFingerprint]() {
     if ( task->state() == PaleoTask::State::Succeeded && self )
     {
+      task->setProperty("paleoModelSha256", *modelFingerprint);
+      const QString inputError = ownerValidation ? ownerValidation() : QString();
+      if (!inputError.isEmpty()) {
+        task->setProperty("paleoTrackingInputError", inputError);
+        task->failPublication(inputError); delete result; return;
+      }
       const QVector<TrackingSuggestion> out = *result;
       QVector<SuggestionState> states;
       states.reserve( out.size() );

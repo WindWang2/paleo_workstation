@@ -16,7 +16,7 @@
 [M0–M5 迁移验收](docs/architecture/MODEL_MIGRATION_AND_VALIDATION.md)。第一批代码已接入
 SF3P 按需页目录/缓存代次、曲线真窗口、薄元数据日志/投影水位、工区发布 CAS 与持久恢复，
 具体消费者、验证及限制见[实施记录](docs/progress/document-model-io-20261106.md)。
-后续补持久 operation/幂等恢复、大旧库的有界窗口迁移与背压、通用井筒/多体系/分段时深、
+后续补尚未迁移业务的持久 operation/幂等恢复、大旧库的有界窗口迁移与背压、通用井筒/多体系/分段时深、
 实际消费 facet/负依赖、版本化值及视图迁移。实数据与成本推导见
 [本轮依据](docs/progress/data-model-redesign-20261106.md)。
 同步推进[原子能力与 Agent 配套](docs/architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)：
@@ -26,8 +26,10 @@ SF3P 按需页目录/缓存代次、曲线真窗口、薄元数据日志/投影�
 A0–A4 的全面迁移仍待实施，不以工具登记数量代替功能完成度。
 
 工具结果 JSON、DAG 校验、宿主入口、查询分页/操作恢复及推理工具效果与接线，
-按 [Agent 调用可靠性整改计划](docs/planning/AGENT_CALL_READINESS_PLAN.md) 的 W0–W6
-分批推进；当前已授权实施，各缺口按实际编译、测试和源码门禁结果逐项关闭。
+已按 [Agent 调用可靠性整改计划](docs/planning/AGENT_CALL_READINESS_PLAN.md) 的 W0–W6
+分批实现并完成编译、测试验收，按 PR 交付；合入状态与源码门禁证据见
+[实施记录](docs/progress/agent-readiness-20261113.md)。本轮支持单 Catalog 凭证和明确契约的
+工具；94 条命令全面迁移、跨 store 全局提交及未支持的深度映射仍按各专项推进。
 
 文档来源第一批已提供 SourceRef / SourceBinding、状态维度和统一命令，会话与
 预览重定位接入见 [实施记录](docs/progress/document-sources-20261105.md)。继续迁移

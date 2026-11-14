@@ -1,7 +1,12 @@
-target_sources(paleo_domain PRIVATE src/domain/welllogfacies.cpp src/domain/wellfaciescontract.cpp src/domain/wellref.cpp)
+target_sources(paleo_domain PRIVATE src/domain/welllogfacies.cpp src/domain/wellfaciescontract.cpp src/domain/wellref.cpp
+  src/domain/wellfaciesrequest.cpp src/domain/wellfaciesrequest_schema.cpp)
 add_paleo_test(tst_wellref LIBS paleo_domain)
-target_sources(paleo_ai PRIVATE src/ai/wellfaciesservice.cpp src/ai/wellfacieskeystore.cpp)
+add_paleo_test(tst_wellfaciesinputplan LIBS paleo_services Paleo::paleo_data_service)
+add_paleo_test(tst_wellfaciesagent LIBS paleo_app Paleo::paleo_data_service)
+target_sources(paleo_ai PRIVATE src/ai/wellfaciesservice.cpp src/ai/wellfaciesservice_frozen.cpp src/ai/wellfacieskeystore.cpp)
 target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_sources(paleo_services PRIVATE src/services/areawellmetadata.cpp src/services/wellfaciesinputplan.cpp src/services/wellfaciesinputplan_refs.cpp
+  src/services/wellfaciesinputstore.cpp src/services/wellfaciesinputinspection.cpp)
 target_link_libraries(paleo_ai PUBLIC paleo_domain Qt6::Network)
 # #133：测井相 API 密钥进系统钥匙串。QtKeychain 是 QGIS 的既有依赖（deb 闭包
 # 已含 libqt6keychain1；OSGeo4W 随 qgis 分发），找到 dev 包即启用；找不到时
@@ -36,7 +41,10 @@ else()
     message(STATUS "well-facies: Qt6Keychain not found — API key falls back to ~/.config/paleo/well-facies.json (0600)")
   endif()
 endif()
-target_sources(paleo_workflow PRIVATE src/workflow/wellfaciesworkflow.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/wellfaciesworkflow.cpp
+  src/workflow/aichattoolrunner_facies.cpp src/workflow/wellfaciesagentrun.cpp
+  src/workflow/wellfaciesagentrun_predict.cpp src/workflow/wellfaciesagentrun_results.cpp src/workflow/aichattoolrunner_faciesinputs.cpp
+  src/workflow/wellfaciesreplay.cpp)
 add_paleo_test(tst_wellfacies LIBS paleo_ui paleo_io)
 add_paleo_test(tst_wellfaciesconfig LIBS paleo_ai)  # #133 https 强制/loopback 例外/密钥不落 JSON
 add_paleo_test(tst_wellfacies_remote LIBS paleo_ai)  # 预测专项：远端服务 mock-HTTP 合同边界

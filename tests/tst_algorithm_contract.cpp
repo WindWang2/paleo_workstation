@@ -91,7 +91,11 @@ void TestAlgorithmContract::aliasesDoNotCollide() {
   QCOMPARE(facies.algorithmId, QStringLiteral("paleo:facies_draft_mapping"));
   QCOMPARE(AlgorithmSpecRegistry::spec(facies.algorithmId).outputs.size(), 2);
   const CapabilitySpec missing = CapabilityRegistry::spec(QStringLiteral("wellfacies.predict"), 1);
-  QCOMPARE(capabilityExposureName(missing.exposure), QStringLiteral("unavailable"));
+  QVERIFY(missing.capabilityId.isEmpty());
+  const auto external=CapabilityRegistry::spec(QStringLiteral("wellfacies.predict"),2);
+  QCOMPARE(external.exposure,CapabilityExposure::LegacyAdapter);
+  QVERIFY(external.resumeSupported);QVERIFY(!external.restartable);QVERIFY(!external.cancelSupported);
+  QVERIFY(!CapabilityRegistry::callableIds().contains(external.capabilityId));
 }
 
 QTEST_MAIN(TestAlgorithmContract)

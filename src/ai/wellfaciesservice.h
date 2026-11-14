@@ -45,18 +45,34 @@ public:
   ~WellFaciesService() override { cancel(); }
   void configure(const WellFaciesConfig &config);
   void fetchModels();
+  void fetchModelContracts(); // Includes unavailable entries with explicit parser/readiness evidence.
   void predict(const WellFaciesModel &model, const QString &wellName,
                const WellFaciesInput &input);
+  // Host/worker prepared bytes and hash; this path never hashes or serializes numeric rows on the owner.
+  void predictFrozen(const WellFaciesModel &model, const QString &wellName,
+                     const WellFaciesInput &input, const QString &requestHash,
+                     const QByteArray &requestBody);
+  // Resume only an already accepted remote job. Never falls back to POST.
+  void queryFrozen(const WellFaciesModel &model, const QString &wellName,
+                   const WellFaciesInput &input, const QString &requestHash, const QString &remoteJobId);
   void cancel();
 signals:
   void modelsReady(const QVector<WellFaciesModel> &models);
   void completed(const WellFaciesResult &result);
   void failed(const QString &reason);
   void progress(int percent, const QString &message);
+  void requestSending(const QString &requestHash);
+  void jobAccepted(const QString &requestHash, const QString &remoteJobId);
+  void remoteFailed(const QString &requestHash,const QString &remoteJobId);
 
 private:
+  bool m_includeUnavailableModels=false;
   void request(const QString &path, const QJsonObject &body, bool post,
-               bool models);
+               bool models, const QByteArray &preparedBody = {});
+  void beginPrediction(const WellFaciesModel &model, const QString &wellName,
+                       const WellFaciesInput &input, const QString &key,
+                       const QByteArray &preparedBody, bool frozen);
+  bool observeJob(const QJsonObject &json);
   void handlePrediction(const QJsonObject &json);
   void fail(const QString &reason);
   // #479：已受理缓存的登记/注销（带上限 FIFO 淘汰，见 kMaxAcceptedJobs）。
@@ -68,7 +84,8 @@ private:
   QElapsedTimer m_elapsed;
   WellFaciesConfig m_config;
   WellFaciesInput m_input;
-  QString m_wellName, m_jobId, m_modelId, m_key;
+  QString m_wellName, m_jobId, m_modelId, m_modelVersion, m_key;
+  bool m_frozenModel = false;
   // 已受理未终态的任务，键 = 模型+井+输入的 SHA-256：逐地层组预测时停掉再点
   // 「预测相」，能续查任一在途地层的任务而不重复提交。
   // #479：任务终态才摘键——中途退出/页面切走会留下永不终结的键，只增不减；

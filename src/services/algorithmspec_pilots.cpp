@@ -42,9 +42,11 @@ AlgoPort filePort(const QString &id, bool required) {
 
 } // namespace
 
+void appendTileInferenceSpec(QVector<AlgorithmSpec> *specs);
 void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs) {
   if (!specs)
     return;
+  appendTileInferenceSpec(specs);
 
   AlgorithmSpec depth;
   depth.id = QStringLiteral("native:depth_batch_convert");

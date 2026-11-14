@@ -51,4 +51,5 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
                              const QVector<TrackingSeed> &seeds, int windowSamples,
                              int radius, const TraceWindowFetcher &fetch,
                              const std::function<bool()> &cancelled,
-                             QVector<TrackingSuggestion> *out, QString *error );
+                             QVector<TrackingSuggestion> *out, QString *error,
+                             QString *modelSha256 = nullptr );

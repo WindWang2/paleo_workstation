@@ -338,17 +338,17 @@
         <location filename="../src/workflow/aichatcontroller.cpp" line="139"/>
         <source>你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/地震解释行业惯例。
 红线（不可越过）：
-  1. 你给出的是**建议**，不是结论——任何落库、改参数、写解释的动作都必须由解释员在工作流里确认后执行，你不能代做。你调用的领域工具同样只产出草稿态结果（派生资产登记为 DERIVED 草稿、追踪建议进待裁决队列），不会自动写任何解释。
+  1. 按用户已授权的意图调用工具。查询只读；prepare 和 compute-only 写私有暂存；publish 会登记成果及呈现图层；测井相预测会向已配置服务传输输入。工具的 execution、commitState、presentation 分别报告执行、数据提交及呈现事实，不能把已提交但呈现待修复说成未提交。追踪建议仍须逐条接受后才写解释。
   2. 数据不足就直说数据不足，不得编造井号、层位、深度或数值；工具报错时如实转述错误，不得虚构结果。
   3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。
-可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：
+当前可调用的领域工具（如实解读结果及副作用）：
 %1</source>
         <translation>你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/地震解释行业惯例。
 红线（不可越过）：
-  1. 你给出的是**建议**，不是结论——任何落库、改参数、写解释的动作都必须由解释员在工作流里确认后执行，你不能代做。你调用的领域工具同样只产出草稿态结果（派生资产登记为 DERIVED 草稿、追踪建议进待裁决队列），不会自动写任何解释。
+  1. 按用户已授权的意图调用工具。查询只读；prepare 和 compute-only 写私有暂存；publish 会登记成果及呈现图层；测井相预测会向已配置服务传输输入。工具的 execution、commitState、presentation 分别报告执行、数据提交及呈现事实，不能把已提交但呈现待修复说成未提交。追踪建议仍须逐条接受后才写解释。
   2. 数据不足就直说数据不足，不得编造井号、层位、深度或数值；工具报错时如实转述错误，不得虚构结果。
   3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。
-可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：
+当前可调用的领域工具（如实解读结果及副作用）：
 %1</translation>
     </message>
     <message>
@@ -422,6 +422,23 @@
         <location filename="../src/workflow/aichatcontroller.cpp" line="612"/>
         <source>已取消本轮生成</source>
         <translation>已取消本轮生成</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/aichatcontroller.cpp" line="139"/>
+        <source>你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/地震解释行业惯例。
+红线（不可越过）：
+  1. 你给出的是**建议**，不是结论——任何落库、改参数、写解释的动作都必须由解释员在工作流里确认后执行，你不能代做。你调用的领域工具同样只产出草稿态结果（派生资产登记为 DERIVED 草稿、追踪建议进待裁决队列），不会自动写任何解释。
+  2. 数据不足就直说数据不足，不得编造井号、层位、深度或数值；工具报错时如实转述错误，不得虚构结果。
+  3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。
+可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：
+%1</source>
+        <translation>你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/地震解释行业惯例。
+红线（不可越过）：
+  1. 你给出的是**建议**，不是结论——任何落库、改参数、写解释的动作都必须由解释员在工作流里确认后执行，你不能代做。你调用的领域工具同样只产出草稿态结果（派生资产登记为 DERIVED 草稿、追踪建议进待裁决队列），不会自动写任何解释。
+  2. 数据不足就直说数据不足，不得编造井号、层位、深度或数值；工具报错时如实转述错误，不得虚构结果。
+  3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。
+可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：
+%1</translation>
     </message>
 </context>
 <context>
@@ -542,7 +559,11 @@
         <source>topic=well_details 须给 well_name（井名）</source>
         <translation>topic=well_details 须给 well_name（井名）</translation>
     </message>
-    
+    <message>
+        <location filename="../src/workflow/aichattoolrunner.cpp" line="628"/>
+        <source>井不存在：%1；工程现有井：%2</source>
+        <translation>井不存在：%1；工程现有井：%2</translation>
+    </message>
     <message>
         <location filename="../src/workflow/aichattoolrunner.cpp" line="638"/>
         <source>井名匹配到多个候选（%1）——请给更精确的井名</source>
@@ -607,6 +628,16 @@
         <location filename="../src/workflow/aichattoolrunner.cpp" line="628" />
         <source>井不存在：%1；工程现有井示例：%2</source>
         <translation>井不存在：%1；工程现有井示例：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/aichattoolrunner_facies.cpp" line="66" />
+        <source>查询测井相模型契约</source>
+        <translation>查询测井相模型契约</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/aichattoolrunner_faciesinputs.cpp" line="24" />
+        <source>查询井相输入元数据</source>
+        <translation>查询井相输入元数据</translation>
     </message>
 </context>
 <context>
@@ -808,6 +839,13 @@
         <location filename="../src/ui/ai/aitoolresultview.cpp" line="162" />
         <source>井深</source>
         <translation>井深</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="477"/>
+        <source>
+…（显示前 %1 字符，原始 %2 字符；全文已回传模型）</source>
+        <translation>
+…（显示前 %1 字符，原始 %2 字符；全文已回传模型）</translation>
     </message>
 </context>
 <context>
@@ -34741,7 +34779,11 @@ PDF：%3
         <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。井深按来源原值返回，未给出的单位不能推断。</source>
         <translation>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。井深按来源原值返回，未给出的单位不能推断。</translation>
     </message>
-    
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="202"/>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细</source>
+        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细</translation>
+    </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="208"/>
         <source>井名（topic=well_details 时必填；按目录规范化匹配）</source>
@@ -37281,7 +37323,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>prepare、compute-only 或 publish</source>
         <translation>prepare、compute-only 或 publish</translation>
     </message>
-    
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="99" />
+        <source>topic=version 须给精确 version_id</source>
+        <translation>topic=version 须给精确 version_id</translation>
+    </message>
     <message>
         <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="642" />
         <source>不支持的状态串版本「%1」（当前支持 v1/v2）</source>
@@ -37413,13 +37459,21 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>状态串的过滤条件字段损坏</source>
         <translation>状态串的过滤条件字段损坏</translation>
     </message>
-    
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="221" />
+        <source>目录修订条件（topic=version；缺省使用本次宿主目录修订）</source>
+        <translation>目录修订条件（topic=version；缺省使用本次宿主目录修订）</translation>
+    </message>
     <message>
         <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="61" />
         <source>确认所选时深关系的物理口径</source>
         <translation>确认所选时深关系的物理口径</translation>
     </message>
-    
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="219" />
+        <source>精确目录版本标识（topic=version 时必填，不按名称回退）</source>
+        <translation>精确目录版本标识（topic=version 时必填，不按名称回退）</translation>
+    </message>
     <message>
         <location filename="../src/qgis/geostatcovariatesampler.cpp" line="19" />
         <source>自定义 CRS(%1…)</source>
@@ -37475,6 +37529,58 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>UTF-8 JSON 预算，768–65536 字节</source>
             <translation>UTF-8 JSON 预算，768–65536 字节</translation>
         </message>
+          <message>
+        <source>版本 2：prepare 以 source_version_id 和 model 冻结源栅格、网格及模型；compute-only 只接受 prepare 的 source_operation_id，生成私有三端口结果；publish 只接受 computed 的 source_operation_id，一次登记三端口并呈现图层。后两阶段不能重新指定来源、模型或参数。</source>
+        <translation>版本 2：prepare 以 source_version_id 和 model 冻结源栅格、网格及模型；compute-only 只接受 prepare 的 source_operation_id，生成私有三端口结果；publish 只接受 computed 的 source_operation_id，一次登记三端口并呈现图层。后两阶段不能重新指定来源、模型或参数。</translation>
+    </message>
+    <message>
+        <source>操作状态</source>
+        <translation>操作状态</translation>
+    </message>
+    <message>
+        <source>读取同一聊天作用域内的持久操作状态；分别报告执行、数据提交与呈现事实。</source>
+        <translation>读取同一聊天作用域内的持久操作状态；分别报告执行、数据提交与呈现事实。</translation>
+    </message>
+    <message>
+        <source>操作事件</source>
+        <translation>操作事件</translation>
+    </message>
+    <message>
+        <source>按 after_revision 十进制字符串读取有界事件页；历史过期明确报错，不回退第一页。</source>
+        <translation>按 after_revision 十进制字符串读取有界事件页；历史过期明确报错，不回退第一页。</translation>
+    </message>
+    <message>
+        <source>恢复操作</source>
+        <translation>恢复操作</translation>
+    </message>
+    <message>
+        <source>恢复原操作：已提交时修复凭证或准确呈现；未提交时按冻结计划恢复。不会创建第二个业务操作。</source>
+        <translation>恢复原操作：已提交时修复凭证或准确呈现；未提交时按冻结计划恢复。不会创建第二个业务操作。</translation>
+    </message>
+    <message>
+        <source>取消操作</source>
+        <translation>取消操作</translation>
+    </message>
+    <message>
+        <source>持久化取消请求；已提交时返回 cancel_after_commit，保留成果。</source>
+        <translation>持久化取消请求；已提交时返回 cancel_after_commit，保留成果。</translation>
+    </message>
+    <message>
+        <source>操作结果</source>
+        <translation>操作结果</translation>
+    </message>
+    <message>
+        <source>列出原操作的准确结果端口、字节数与指纹；结果引用不暴露路径。</source>
+        <translation>列出原操作的准确结果端口、字节数与指纹；结果引用不暴露路径。</translation>
+    </message>
+    <message>
+        <source>读取操作结果</source>
+        <translation>读取操作结果</translation>
+    </message>
+    <message>
+        <source>按准确 operation_id、port_id 和十进制 offset 读取有界二进制页，以 base64 返回。</source>
+        <translation>按准确 operation_id、port_id 和十进制 offset 读取有界二进制页，以 base64 返回。</translation>
+    </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="230" />
         <source>精确井实体标识；well_details 优先使用此字段</source>
@@ -37523,6 +37629,94 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>上一页的 nextCursor；保持主题、筛选及页预算不变</source>
         <translation>上一页的 nextCursor；保持主题、筛选及页预算不变</translation>
     </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="195"/>
+        <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。</source>
+        <translation>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="230"/>
+        <source>只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点带版本路径与阶段（可追溯）。</source>
+        <translation>只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点带版本路径与阶段（可追溯）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="106" />
+        <source>legacy 测井相调用须给井名；生产调用须给 typed v2 引用</source>
+        <translation>legacy 测井相调用须给井名；生产调用须给 typed v2 引用</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="194" />
+        <source>先用 query_project 的 well_facies_models 与 well_facies_inputs 取得精确模型、井和固定层段引用，再将所选真实 SDK 曲线发送到已配置的测井相端点。每次出现和有效连续段分别预测；需要声明特征单位、MD 基准、模型版本和稳定请求键。结果保存在私有操作工件中，不会登记目录成果；取消不能证明远端回滚。未知提交只查询原任务，不重新发送。</source>
+        <translation>先用 query_project 的 well_facies_models 与 well_facies_inputs 取得精确模型、井和固定层段引用，再将所选真实 SDK 曲线发送到已配置的测井相端点。每次出现和有效连续段分别预测；需要声明特征单位、MD 基准、模型版本和稳定请求键。结果保存在私有操作工件中，不会登记目录成果；取消不能证明远端回滚。未知提交只查询原任务，不重新发送。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="204" />
+        <source>legacy adapter 井名</source>
+        <translation>legacy adapter 井名</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="205" />
+        <source>生产契约版本 2</source>
+        <translation>生产契约版本 2</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="206" />
+        <source>调用方稳定幂等键</source>
+        <translation>调用方稳定幂等键</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="207" />
+        <source>well_facies_models 返回的端点身份；防止配置切换后使用另一模型命名空间</source>
+        <translation>well_facies_models 返回的端点身份；防止配置切换后使用另一模型命名空间</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="208" />
+        <source>GET/models 返回的精确版本</source>
+        <translation>GET/models 返回的精确版本</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="209" />
+        <source>工程查询返回的精确 WellRef</source>
+        <translation>工程查询返回的精确 WellRef</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="210" />
+        <source>FaciesAnalysis ContextKey</source>
+        <translation>FaciesAnalysis ContextKey</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="211" />
+        <source>固定方案修订和层段；每次出现分别预测</source>
+        <translation>固定方案修订和层段；每次出现分别预测</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="212" />
+        <source>特征名到精确 SDK 曲线编号字符串；歧义时必填</source>
+        <translation>特征名到精确 SDK 曲线编号字符串；歧义时必填</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="213" />
+        <source>精确岩性道编号字符串；歧义时必填</source>
+        <translation>精确岩性道编号字符串；歧义时必填</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="239" />
+        <source>well_facies_inputs 所属 WellRef；元数据查询不读曲线数值</source>
+        <translation>well_facies_inputs 所属 WellRef；元数据查询不读曲线数值</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="240" />
+        <source>well_facies_models 精确模型详情；缺省只列 id/version/readiness</source>
+        <translation>well_facies_models 精确模型详情；缺省只列 id/version/readiness</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="424" />
+        <source>精确模型和 SDK 输入经宿主授权后调用；原任务和结果可恢复，未知提交不重发</source>
+        <translation>精确模型和 SDK 输入经宿主授权后调用；原任务和结果可恢复，未知提交不重发</translation>
+    </message>
+        <message><source>local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准</source><translation>local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准</translation></message>
+        <message><source>每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16</source><translation>每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16</translation></message>
+        <message><source>完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192</source><translation>完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192</translation></message>
     </context>
 <context>
     <name>QgisCanvasController</name>
@@ -56150,6 +56344,35 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>Unsupported raster row order, axes or coordinate unit.</source>
         <translation>不支持的栅格行序、坐标轴或坐标单位。</translation>
+    </message>
+</context>
+
+<context>
+    <name>WellFaciesAgentRun</name>
+    <message>
+        <location filename="../src/workflow/wellfaciesagentrun.cpp" line="35" />
+        <source>测井相预测</source>
+        <translation>测井相预测</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellfaciesagentrun.cpp" line="113" />
+        <source>准备冻结井曲线</source>
+        <translation>准备冻结井曲线</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellfaciesagentrun.cpp" line="136" />
+        <source>恢复冻结井曲线</source>
+        <translation>恢复冻结井曲线</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellfaciesagentrun_predict.cpp" line="61" />
+        <source>冻结测井相结果</source>
+        <translation>冻结测井相结果</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/wellfaciesagentrun_results.cpp" line="22" />
+        <source>恢复已完成测井相结果</source>
+        <translation>恢复已完成测井相结果</translation>
     </message>
 </context>
 </TS>

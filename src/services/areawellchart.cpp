@@ -1,5 +1,6 @@
 // 层：数据
 #include "areawellchart.h"
+#include "areawellmetadata.h"
 #include "imagelod.h"
 #include "domain/wellcompositemodel.h"
 #include "domain/welllogfacies.h"
@@ -20,10 +21,7 @@ namespace data = paleo::data;
 QString text(const std::string &s) { return QString::fromUtf8(s); }
 double metreScale(const paleo::data::DepthInfo &depth) {
   if (depth.depthType != "MD") return qQNaN();
-  const auto unit = text(depth.depthUnit).trimmed().toLower();
-  if (unit == "m" || unit == "metre" || unit == "meter") return 1;
-  if (unit == "ft" || unit == "feet") return .3048;
-  return qQNaN();
+  return paleo::wellnumeric::depthScaleToMetres(text(depth.depthUnit)).value_or(qQNaN());
 }
 
 bool validCurveWindow(const AreaWellCurveWindow &window) {
@@ -135,22 +133,44 @@ std::optional<ChartDepthExtent> sourceTrackExtent(data::DataService &service,
 bool readCurveWindows(data::DataService &service, qlonglong well, const QStringList &requested,
                       const AreaWellCurveWindow &window, const std::function<bool()> &cancelled,
                       bool stableSelection, QVector<WellComposite::CurveData> &out,
-                      QStringList &warnings, std::string &error) {
+                      QStringList &warnings, std::string &error,
+                      const QHash<QString,qlonglong> &exact={}, bool strictMd=false,
+                      AreaWellCurveReadUsage *usage=nullptr, const QString &mdReference={}) {
   if (!validCurveWindow(window)) { error="Invalid MD window or well curve budget"; return false; }
+  if (strictMd && mdReference.isEmpty()) {error="input_md_reference_unknown";return false;}
   std::vector<data::DataEntry> entries;
-  if (!service.listData("curves",well,entries,error)) return false;
+  if(strictMd) {
+    if(!readBoundedAreaWellMetadata(service,"curves",well,4096,entries,error,cancelled))return false;
+  } else if(!service.listData("curves",well,entries,error))return false;
+  QHash<qlonglong,QString> exactNames;
+  if (!exact.isEmpty()) {
+    if (exact.size()!=requested.size() || requested.isEmpty()) {error="invalid_exact_curve_selection";return false;}
+    QSet<qlonglong> ids;
+    for (const auto &feature:requested) {
+      const auto id=exact.value(feature,0);
+      if(id<=0||ids.contains(id)){error="invalid_exact_curve_selection";return false;}
+      ids.insert(id);exactNames.insert(id,feature);
+    }
+  }
   auto &aliases=LasAliasMap::shared();
+  for(auto it=exactNames.begin();it!=exactNames.end();++it) {
+    const auto entry=std::find_if(entries.begin(),entries.end(),[id=it.key()](const auto &candidate){return candidate.id==id;});
+    if(entry==entries.end()||aliases.canonicalCurve(text(entry->name))!=aliases.canonicalCurve(it.value())) {
+      error="invalid_exact_curve_selection";return false;
+    }
+  }
   QHash<QString,QString> mnemonics;
   for (const auto &name:requested) {
     const auto canonical=aliases.canonicalCurve(name);
     if(!mnemonics.contains(canonical))mnemonics.insert(canonical,name);
   }
   QHash<QString,const data::DataEntry *> selected;
-  const bool fixed=stableSelection && !mnemonics.isEmpty();
-  if (fixed) for (const auto &entry:entries) {
+  const bool fixed=stableSelection && (!mnemonics.isEmpty()||!exactNames.isEmpty());
+  if (fixed && exactNames.isEmpty()) for (const auto &entry:entries) {
     const auto name=text(entry.name), canonical=aliases.canonicalCurve(name);
     const auto mnemonic=mnemonics.constFind(canonical);
     if(mnemonic==mnemonics.cend())continue;
+    if (!exact.isEmpty() && exact.value(*mnemonic, 0) != entry.id) continue;
     const auto *previous=selected.value(canonical);
     const bool exact=name.compare(*mnemonic,Qt::CaseInsensitive)==0;
     const bool previousExact=previous && text(previous->name).compare(*mnemonic,Qt::CaseInsensitive)==0;
@@ -163,7 +183,8 @@ bool readCurveWindows(data::DataService &service, qlonglong well, const QStringL
   for (const auto &entry:entries) {
     if (cancelled && cancelled()) { error="Cancelled"; return false; }
     const auto name=text(entry.name), canonical=aliases.canonicalCurve(name);
-    if ((!mnemonics.isEmpty() && !mnemonics.contains(canonical)) || (fixed && selected.value(canonical)!=&entry)) continue;
+    if(!exactNames.isEmpty()) {if(!exactNames.contains(entry.id))continue;}
+    else if ((!mnemonics.isEmpty() && !mnemonics.contains(canonical)) || (fixed && selected.value(canonical)!=&entry)) continue;
     if(entry.count<=0) {
       if(fixed)warnings.append(QStringLiteral("%1：所选曲线没有样点").arg(name));
       continue;
@@ -171,10 +192,14 @@ bool readCurveWindows(data::DataService &service, qlonglong well, const QStringL
     data::CurveWindowResult source;
     if (!readCurvePayload(service,entry,window,budget,source,error)) return false;
     if (!std::isfinite(metreScale(source.depthInfo))) {
+      if (strictMd) { error="input_depth_semantics_unknown"; return false; }
       warnings.append(QStringLiteral("%1：需要已声明的 MD 米/英尺深度").arg(name)); continue;
     }
+    if (strictMd && (source.depthInfo.mdReference.empty() || text(source.depthInfo.mdReference)!=mdReference)) {
+      error="input_md_reference_mismatch";return false;
+    }
     const auto &axis=source.curve.depths, &values=source.curve.values;
-    if (axis.empty() || (fixed && std::all_of(values.cbegin(),values.cend(),[](double v) {
+    if (axis.empty() || (fixed && !strictMd && std::all_of(values.cbegin(),values.cend(),[](double v) {
           return paleo::wellnumeric::isNullCurveValue(float(v));
         }))) {
       if(fixed)warnings.append(QStringLiteral("%1：所选曲线在当前深度窗无有效样点").arg(name));
@@ -182,13 +207,26 @@ bool readCurveWindows(data::DataService &service, qlonglong well, const QStringL
     }
     WellComposite::CurveData curve;
     QString reason;
-    if (!normalizeDepthCurve(QVector<double>(axis.begin(),axis.end()),QVector<double>(values.begin(),values.end()),
+    QVector<double> preparedValues(values.begin(),values.end());
+    if (strictMd) {
+      if(source.curve.quality.size()!=values.size()){error="input_quality_unknown";return false;}
+      for(qsizetype i=0;i<preparedValues.size();++i) {
+        if(source.curve.quality[size_t(i)]&~7U){error="input_quality_unknown";return false;}
+        if(source.curve.quality[size_t(i)]&3)preparedValues[i]=qQNaN();
+      }
+    }
+    if (!normalizeDepthCurve(QVector<double>(axis.begin(),axis.end()),preparedValues,
                              text(source.depthInfo.depthUnit),&curve,&reason)) {
       warnings.append(reason); continue;
     }
-    curve.name=name; curve.unit=text(source.curve.unit);
+    curve.name=!exactNames.isEmpty()?exactNames.value(entry.id):strictMd?mnemonics.value(canonical,name):name;
+    curve.unit=text(source.curve.unit);
     curve.modelSourceId=entry.sourceId; curve.modelLogSetId=entry.parentId;
     out.append(std::move(curve));
+  }
+  if (usage) {
+    usage->samples += window.maxSamples-budget.maxSamples;
+    usage->payloadBytes += window.maxReadBytes-budget.maxReadBytes;
   }
   if (cancelled && cancelled()) { error="Cancelled"; return false; }
   return true;
@@ -400,7 +438,8 @@ bool readAreaWellLithology(const QString &project, qlonglong well,
 }
 bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
                       WellComposite::ComprehensiveWellData &out, QString *error,
-                      const std::function<bool()> &cancelled,const AreaWellChartQuery *query) {
+                      const std::function<bool()> &cancelled,const AreaWellChartQuery *query,
+                      AreaWellCurveReadUsage *usage) {
   out={}; paleo::data::WellPlotData model; std::string detail;
   if (query && !validCurveWindow(query->curves)) {
     if(error)*error=QStringLiteral("井柱深度窗或曲线预算无效");return false;
@@ -416,7 +455,8 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
   data::WellPlotOptions options;
   // Whole-chart callers still receive the legacy log-set display classifications.
   options.includeLogs=!curveWindow;
-  options.includeIntervals=!selectedTrack&&!selectedScheme&&!depthWindow;
+  options.includeIntervals=!selectedTrack&&!selectedScheme&&!depthWindow&&
+      (!query||query->exactIntervalTrackIds.isEmpty());
   if (depthWindow) {
     options.includeMarkers=false;options.includePhotos=false;
   }
@@ -437,6 +477,32 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
     data::WellPlotIntervals selected;
     if (!readChartTrack(service,well,*query,selected,error)) return false;
     model.intervals.push_back(std::move(selected));
+  }
+  if (query && !query->exactIntervalTrackIds.isEmpty()) {
+    if (query->exactIntervalTrackIds.size()>32) { if(error)*error="interval_track_budget_exceeded";return false; }
+    std::vector<data::DataEntry> entries;
+    if(!readBoundedAreaWellMetadata(service,"intervals",well,128,entries,detail,cancelled)) {
+      if(error)*error=text(detail);return false;
+    }
+    QSet<qlonglong> seen;
+    for (const auto id:query->exactIntervalTrackIds) {
+      const auto found=std::find_if(entries.begin(),entries.end(),[id](const auto &entry){return entry.id==id;});
+      if (seen.contains(id)||found==entries.end()||found->count>100000) {if(error)*error="invalid_interval_track_ref";return false;}
+      seen.insert(id);data::WellPlotIntervals selected;selected.entry=*found;
+      if (!service.readIntervalTrackInfo(id,selected.value,detail)) {if(error)*error=text(detail);return false;}
+      const double scale=metreScale(selected.value.depthInfo);
+      if (!std::isfinite(scale)) {if(error)*error="input_depth_semantics_unknown";return false;}
+      if (query->requireDeclaredMd && (query->mdReference.isEmpty() ||
+          text(selected.value.depthInfo.mdReference)!=query->mdReference)) {
+        if(error)*error="input_md_reference_mismatch";return false;
+      }
+      std::vector<data::IntervalRecord> records;
+      if (!service.readIntervals(id,query->curves.topMd/scale,query->curves.bottomMd/scale,records,detail)) {
+        if(error)*error=text(detail);return false;
+      }
+      for (auto &record:records)selected.value.intervals.push_back(std::move(record.value));
+      model.intervals.push_back(std::move(selected));
+    }
   }
   WellComposite::ComprehensiveWellData next;
   next.modelWellId=well; next.wellName=text(model.well.wellName);
@@ -462,7 +528,8 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
   }
   if (curveWindow) {
     QVector<WellComposite::CurveData> windows;
-    if (!readCurveWindows(service,well,query->curveNames,query->curves,cancelled,true,windows,next.dataWarnings,detail)) {
+    if (!readCurveWindows(service,well,query->curveNames,query->curves,cancelled,true,windows,next.dataWarnings,detail,
+          query->exactCurveIds,query->requireDeclaredMd,usage,query->mdReference)) {
       if(error)*error=text(detail);return false;
     }
     wellScale=metreScale(model.defaultDepthInfo);
@@ -482,14 +549,17 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
     const double scale=metreScale(info);
     if (std::isfinite(scale)) return scale;
     const bool undeclared=info.depthType.empty() && text(info.depthUnit).trimmed().isEmpty();
-    if (useWellDepth && undeclared && std::isfinite(wellScale)) return wellScale;
+    if (useWellDepth && undeclared && std::isfinite(wellScale) && (!query || !query->requireDeclaredMd)) return wellScale;
     next.dataWarnings << QStringLiteral("%1：深度类型或单位未确认为 MD/m 或 MD/ft，未绘制").arg(name);
     return qQNaN();
   };
   for (const auto &group : model.logs) {
     if(cancelled && cancelled()){if(error)*error=QStringLiteral("Cancelled");return false;}
     const auto &logs=group.value; const double scale=scaleFor(logs.depthInfo,text(logs.logSetName),false);
-    if(!std::isfinite(scale))continue;
+    if(!std::isfinite(scale)) {
+      if(query&&query->requireDeclaredMd){if(error)*error="input_depth_semantics_unknown";return false;}
+      continue;
+    }
     for (const auto &curve : logs.logCurves) {
       WellComposite::CurveData value; value.name=text(curve.curveName); value.unit=text(curve.curveUnit);
       value.modelSourceId=group.entry.sourceId; value.modelLogSetId=group.entry.parentId;
@@ -514,7 +584,10 @@ bool readAreaWellChart(paleo::data::DataService &service, qlonglong well,
   for (const auto &group : model.intervals) {
     if(cancelled && cancelled()){if(error)*error=QStringLiteral("Cancelled");return false;}
     const auto &track=group.value; const double scale=scaleFor(track.depthInfo,text(track.trackName),true);
-    if(!std::isfinite(scale))continue;
+    if(!std::isfinite(scale)) {
+      if(query&&query->requireDeclaredMd){if(error)*error="input_depth_semantics_unknown";return false;}
+      continue;
+    }
     for(const auto &row:track.intervals) {
       if(!std::isfinite(row.topDepth)||!std::isfinite(row.bottomDepth))continue;
       depth(row.topDepth*scale);depth(row.bottomDepth*scale);appendInterval(track,row,scale,next);

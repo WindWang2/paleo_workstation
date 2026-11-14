@@ -55,6 +55,10 @@ AiChatController::AiChatController(QObject *parent)
             if (call.argumentsWithinBudget()) {
               dispatch = dispatchAiTool(call.name,
                                         QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object());
+              if(dispatch.status==AiToolDispatchStatus::Routed) {
+                const auto ready=m_runner.readiness(call.name,QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object());
+                if(!ready.ready) {dispatch.status=AiToolDispatchStatus::Disabled;dispatch.note=ready.code;}
+              }
             } else {
               dispatch.status = AiToolDispatchStatus::Disabled;
               dispatch.note = QStringLiteral("request_budget_exceeded");
@@ -127,20 +131,20 @@ QString AiChatController::statusText() const {
 
 QString AiChatController::systemPrompt() const {
   QString tools;
-  for (const AiToolSpec &spec : builtinAiToolSpecs())
+  for (const AiToolSpec &spec : this->tools())
     tools += QStringLiteral("  · %1 — %2\n").arg(spec.name, spec.description);
   QString prompt = tr(
     "你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/"
     "地震解释行业惯例。\n"
     "红线（不可越过）：\n"
-    "  1. 你给出的是**建议**，不是结论——任何落库、改参数、写解释的动作都必须"
-    "由解释员在工作流里确认后执行，你不能代做。你调用的领域工具同样只产出"
-    "草稿态结果（派生资产登记为 DERIVED 草稿、追踪建议进待裁决队列），"
-    "不会自动写任何解释。\n"
+    "  1. 按用户已授权的意图调用工具。查询只读；prepare 和 compute-only 写私有暂存；"
+    "publish 会登记成果及呈现图层；测井相预测会向已配置服务传输输入。"
+    "工具的 execution、commitState、presentation 分别报告执行、数据提交及呈现事实，"
+    "不能把已提交但呈现待修复说成未提交。追踪建议仍须逐条接受后才写解释。\n"
     "  2. 数据不足就直说数据不足，不得编造井号、层位、深度或数值；工具报错时"
     "如实转述错误，不得虚构结果。\n"
     "  3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。\n"
-    "可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：\n%1")
+    "当前可调用的领域工具（如实解读结果及副作用）：\n%1")
     .arg(tools);
   // 方向77：工程概况常驻轻注入（≤3 行，预算口径见 aichattoolrunner 的
   // projectBrief；数据以工具实查为准——这段只是开局的指北针）。

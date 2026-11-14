@@ -6,6 +6,7 @@
 #include "services/capabilityseismicinput.h"
 #include "workflow/documentsession.h"
 #include "workflow/commanddispatcher.h"
+#include "workflow/aichattoolrunner.h"
 #include <QCryptographicHash>
 #include <QSysInfo>
 #include <cmath>
@@ -62,7 +63,7 @@ QString validateInput(const capability::ExecuteRequest &request, document::Docum
 
 paleo::capability::HostBinding captureCapabilityBinding(
     paleo::document::DocumentSession *document, DataCatalog *catalog,
-    ProjectDirLock *writeLock, SelectionContext *selection) {
+    ProjectDirLock *writeLock, SelectionContext *selection,AiChatToolRunner *chatRunner) {
   using namespace paleo;
   capability::HostBinding binding;
   auto &ctx = binding.context;
@@ -74,7 +75,9 @@ paleo::capability::HostBinding captureCapabilityBinding(
   binding.writeClaim = writeLock ? writeLock->claim() : nullptr;
   ctx.ownsWrites = binding.writeClaim && binding.writeClaim->isHeldFor(catalog->projectDir());
   ctx.allowedEffects = host::Read | host::PrivateStage | host::CatalogPublish | host::Presentation;
+  if(chatRunner && chatRunner->externalTransferConfigured())ctx.allowedEffects|=host::ExternalTransfer;
   if (selection) {
+    ctx.selectionIds = selection->selectedIds();
     ctx.horizon = selection->activeHorizon();
     ctx.unitId = strat::layerToken(selection->activeUnit());
   }

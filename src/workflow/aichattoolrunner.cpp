@@ -3,6 +3,7 @@
 #include "capabilityhost.h"
 #include "services/projectquerycapability.h"
 #include "capabilitytaskrunner.h"
+#include "wellfaciesreplay.h"
 #include <QDir>
 
 #include <QJsonArray>
@@ -13,9 +14,11 @@
 #include <QPointer>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <memory>
 #include <utility>
 
 #include "../ai/chat/domaintools.h"
@@ -98,8 +101,14 @@ void AiChatToolRunner::setWorkflow(AiAssistWorkflow *workflow) {
 }
 
 void AiChatToolRunner::setFaciesConfig(const WellFaciesConfig &config) {
+  if(config.baseUrl==m_faciesConfig.baseUrl&&config.apiKey==m_faciesConfig.apiKey&&
+     config.allowInsecureHttp==m_faciesConfig.allowInsecureHttp)return;
+  ++m_faciesEpoch;
+  if(m_activeIsFacies&&m_activeTask)m_activeTask->requestCancel();
   m_faciesConfig = config;
   m_facies->configure(config);
+  if(m_activeIsFacies&&m_activeUsesLegacyFacies)
+    finishActive(false,{{"code","facies_config_changed"},{"execution","external_unknown"},{"retryAdvice","do_not_repeat_automatically"}});
 }
 
 void AiChatToolRunner::setContext(const Context &context) {
@@ -139,7 +148,7 @@ bool AiChatToolRunner::activeContextIsCurrent() const {
 }
 
 void AiChatToolRunner::run(const ChatToolCall &call) {
-  m_queue.append({call, m_contextGeneration, taskSession()});
+  m_queue.append({call, m_contextGeneration, taskSession(),m_faciesEpoch});
   startNext();
 }
 
@@ -156,6 +165,7 @@ void AiChatToolRunner::cancel() {
   }
   m_active = false;
   m_activeIsFacies = false;
+  m_activeUsesLegacyFacies=false;
   m_activeTask.clear();
 }
 
@@ -166,8 +176,10 @@ void AiChatToolRunner::startNext() {
   m_activeCall = next.call;
   m_activeContextGeneration = next.contextGeneration;
   m_activeTaskSession = next.taskSession;
+  m_activeFaciesEpoch=next.faciesEpoch;
   m_active = true;
   m_activeIsFacies = false;
+  m_activeUsesLegacyFacies=false;
   const int generation = m_generation;
   emit toolStarted(m_activeCall);
   if (generation != m_generation)
@@ -193,6 +205,14 @@ void AiChatToolRunner::startNext() {
     finishActive(false, errorPayload(tr("实参不是合法 JSON：%1")
                                        .arg(parseError.errorString())));
     return;
+  }
+  if(m_activeFaciesEpoch!=m_faciesEpoch&&(m_activeCall.name=="paleo.well_facies_prediction"||
+      (m_activeCall.name=="paleo.query_project"&&args.value("topic").toString()=="well_facies_models"))) {
+    if(m_activeCall.name==QLatin1String("paleo.well_facies_prediction")) {
+      QString code;const auto replay=paleo::wellfacies::completedReplay(m_context.capabilityHost,m_resultSession,args,code);
+      if(!replay.isEmpty()){finishActive(true,replay);return;}
+    }
+    finishActive(false,{{"code","facies_config_changed"}});return;
   }
   if (m_context.requireCapabilityHost) {
     QString code;
@@ -221,11 +241,17 @@ void AiChatToolRunner::startNext() {
     finishActive(false, errorPayload(text));
     return;
   }
+  const auto runtime=readiness(m_activeCall.name,args);
+  if(!runtime.ready) {finishActive(false,QJsonObject{{"code",runtime.code}});return;}
   if (m_activeCall.name == QStringLiteral("paleo.read_result")) {
     refreshResultScope();
     const auto result = m_results.read(args);
     finishActive(result.value("code").toString() == QLatin1String("ok"), result);
-  } else if (m_activeCall.name == QStringLiteral("paleo.tile_classification"))
+  } else if(m_activeCall.name.startsWith(QLatin1String("paleo.operation_")))
+    runPersistentOperation(args);
+  else if(m_activeCall.name==QLatin1String("paleo.tile_classification_v2"))
+    runTileV2(args);
+  else if (m_activeCall.name == QStringLiteral("paleo.tile_classification"))
     runTile(m_activeCall, args);
   else if (m_activeCall.name ==
            QStringLiteral("paleo.horizon_tracking_suggestion"))
@@ -308,6 +334,7 @@ void AiChatToolRunner::finishActive(bool ok, const QJsonObject &payload) {
   const bool wasFacies = m_activeIsFacies;
   const int generation = m_generation;
   m_activeIsFacies = false;
+  m_activeUsesLegacyFacies=false;
   m_activeTask.clear();
   if (wasFacies)
     m_facies->disconnect(this); // 单发钩子：用完即拆（串行执行下防堆积）
@@ -404,7 +431,7 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
     finishActive(false, errorPayload(tr("层位建议执行面未绑定（AiAssistWorkflow）")));
     return;
   }
-  if (!m_context.traceFetch) {
+  if (!m_context.traceFetch && !m_context.trackingInput) {
     finishActive(false,
                  errorPayload(tr("层位建议上下文未绑定（须提供道窗取数）")));
     return;
@@ -442,21 +469,45 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
                  errorPayload(tr("模型名、正数窗长/半径与至少一个种子点为必填")));
     return;
   }
+  const qint64 diameter = qint64(radius) * 2 + 1;
+  const qint64 expanded = qint64(seeds.size()) * diameter * diameter;
+  if (expanded > 20000 || expanded * windowSamples > 8'000'000) {
+    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("tracking_expansion_budget")}});
+    return;
+  }
   QString error;
+  auto cancelled = std::make_shared<std::atomic_bool>(false);
+  const int generation = m_generation;
+  const QString callId = m_activeCall.id;
+  TrackingInput input; input.fetch = m_context.traceFetch;
+  if (m_context.trackingInput && !m_context.trackingInput(
+      [cancelled] { return cancelled->load(); }, &input, &error)) {
+    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("tracking_context_unavailable")},
+                                  {QStringLiteral("error"), error}});
+    return;
+  }
+  if (generation != m_generation || !m_active || m_activeCall.id != callId) return;
   PaleoTask *task = m_workflow->startSuggestion(
     m_context.horizon, model, parsed, windowSamples, radius,
-    m_context.traceFetch, &error);
+    input.fetch, &error, input.ownerValidation);
   if (!task) {
     finishActive(false, errorPayload(error));
     return;
   }
+  connect(task, &PaleoTask::cancelAsked, task, [cancelled] { cancelled->store(true); });
+  if (task->cancelRequested()) cancelled->store(true);
+  if (generation != m_generation || !m_active || m_activeCall.id != callId || !activeContextIsCurrent()) {
+    task->requestCancel(); return;
+  }
   m_activeTask = task;
-  const int generation = m_generation;
-  const QString callId = m_activeCall.id;
-  connect(task, &PaleoTask::finished, this, [this, generation, callId]() {
+  connect(task, &PaleoTask::finished, this, [this, generation, callId, identity = input.identity]() {
     if (generation != m_generation || !m_active || m_activeCall.id != callId)
       return;
     const PaleoTask::State state = m_activeTask->state();
+    const QString inputError = m_activeTask->property("paleoTrackingInputError").toString();
+    if (!inputError.isEmpty()) {
+      finishActive(false, QJsonObject{{QStringLiteral("code"), inputError}}); return;
+    }
     if (state == PaleoTask::State::Succeeded) {
       // 建议已入裁决队列（startSuggestion 收尾）：数量从队列侧取——
       // 非种子未裁决 + 已接受（含种子锚点）= 总数。
@@ -473,6 +524,8 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
       payload.insert(QStringLiteral("horizon"), m_context.horizon);
       payload.insert(QStringLiteral("suggestions_total"), pending + accepted);
       payload.insert(QStringLiteral("pending_review"), pending);
+      payload.insert(QStringLiteral("input"), identity);
+      payload.insert(QStringLiteral("model_sha256"), m_activeTask->property("paleoModelSha256").toString());
       payload.insert(QStringLiteral("seed_count"), seeds);
       payload.insert(
         QStringLiteral("note"),
@@ -488,7 +541,7 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
   });
 }
 
-void AiChatToolRunner::runFacies(const ChatToolCall &call,
+void AiChatToolRunner::runLegacyFacies(const ChatToolCall &call,
                                  const QJsonObject &args) {
   Q_UNUSED(call)
   const QString endpointError =
@@ -527,6 +580,7 @@ void AiChatToolRunner::runFacies(const ChatToolCall &call,
     model = m_context.faciesModel(modelId);
   model.id = modelId;
   m_activeIsFacies = true;
+  m_activeUsesLegacyFacies=true;
   const int generation = m_generation;
   const QString callId = m_activeCall.id;
   connect(m_facies, &WellFaciesService::completed, this,

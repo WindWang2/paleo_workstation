@@ -4,6 +4,7 @@
 // 取消后迟到响应被忽略、取消停止轮询、无密钥不发请求。
 #include "ai/wellfaciesservice.h"
 #include "domain/welllogfacies.h"
+#include "domain/wellfaciesrequest.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -83,7 +84,7 @@ public:
   }
   int count(const QByteArray &suffix) const {
     int n = 0;
-    for (const auto &p : paths) n += p.endsWith(suffix) || p.contains(suffix);
+    for (const auto &p : paths) n += p.endsWith(suffix) || (suffix.endsWith('/') && p.contains(suffix));
     return n;
   }
   WellFaciesConfig config(const QByteArray &key = kKey) const {
@@ -173,6 +174,73 @@ class TestWellFaciesRemote : public QObject {
 
 private slots:
   void initTestCase() { qputenv("XDG_DATA_HOME", m_home.path().toUtf8()); }
+
+  void frozenModelRequiresActualUnitsBeforeNetwork() {
+    ScriptServer server;WellFaciesService svc;svc.configure(server.config());
+    QSignalSpy failed(&svc,&WellFaciesService::failed);
+    auto input=prepareWellFaciesInput(well(),model());
+    svc.predictFrozen(model(),"W-1",input,QString(64,'a'),"{}");
+    QCOMPARE(failed.size(),1);QCOMPARE(failed.first().first().toString(),"model_feature_units_unavailable");
+    QTest::qWait(30);QVERIFY(server.paths.isEmpty());
+  }
+  void contractInventoryRetainsUnavailableDeclarations() {
+    ScriptServer server;server.handler=[](const QByteArray &,const QJsonObject &) {
+      auto categorical=schemaModel("unsupported",{"GR"},2,{QStringLiteral("组")});
+      auto missing=schemaModel("window-missing",{"GR"},2);auto input=missing.value("inputSchema").toObject();input.remove("window");missing.insert("inputSchema",input);
+      auto version=schemaModel("version-missing",{"GR"},2);version.remove("version");
+      return Reply{200,json({{"models",QJsonArray{categorical,missing,version}}})};
+    };
+    WellFaciesService service;service.configure(server.config());QSignalSpy ready(&service,&WellFaciesService::modelsReady);
+    service.fetchModelContracts();QTRY_COMPARE(ready.size(),1);
+    const auto models=qvariant_cast<QVector<WellFaciesModel>>(ready.front().first());QCOMPARE(models.size(),3);
+    QCOMPARE(models[0].contractReadinessCode,"model_categorical_schema_unsupported");QCOMPARE(models[1].window,0);QVERIFY(models[2].version.isEmpty());
+    for(const auto &model:models)QVERIFY(!paleo::wellfacies::modelReadiness(model,model.id,model.version).isEmpty());
+  }
+  void frozenVersionMustBeReturnedExactly_data() {
+    QTest::addColumn<QString>("version");
+    QTest::newRow("missing")<<QString();QTest::newRow("different")<<QString("v2");
+  }
+  void frozenVersionMustBeReturnedExactly() {
+    QFETCH(QString,version);ScriptServer server;
+    server.handler=[version](const QByteArray &,const QJsonObject &body){
+      auto response=completed(body.value("wells").toArray().first().toObject().value("rows").toArray());
+      auto m=response.value("model").toObject();m.insert("version",version);response.insert("model",m);
+      return Reply{200,json(response)};
+    };
+    WellFaciesService svc;svc.configure(server.config());auto exact=model();exact.curveUnits={{"GR","API"}};
+    auto input=prepareWellFaciesInput(well(),exact);QString error;QVERIFY(bindWellFaciesClasses(exact,{},&input,&error));
+    const auto body=json({{"modelVersionId",exact.id},{"wells",QJsonArray{QJsonObject{{"wellName","W-1"},{"rows",input.rows}}}}});
+    QSignalSpy failed(&svc,&WellFaciesService::failed),acceptedSpy(&svc,&WellFaciesService::jobAccepted);
+    svc.predictFrozen(exact,"W-1",input,QString(64,'a'),body);
+    QTRY_COMPARE(failed.size(),1);QCOMPARE(failed.first().first().toString(),"remote_model_version_mismatch");
+    QCOMPARE(acceptedSpy.size(),1); // Preserve remote identity even when its result must be quarantined.
+  }
+  void frozenSendRequiresDurableObserverToContinue() {
+    ScriptServer server;WellFaciesService svc;svc.configure(server.config());auto exact=model();exact.curveUnits={{"GR","API"}};
+    auto input=prepareWellFaciesInput(well(),exact);QString error;QVERIFY(bindWellFaciesClasses(exact,{},&input,&error));
+    connect(&svc,&WellFaciesService::requestSending,&svc,[&](const QString &){svc.cancel();});
+    svc.predictFrozen(exact,"W-1",input,QString(64,'a'),"{}");
+    QTest::qWait(50);QVERIFY(server.paths.isEmpty());
+  }
+  void frozenJobRecordingFailureStopsPolling() {
+    ScriptServer server;server.handler=[](const QByteArray &,const QJsonObject &){return Reply{202,json(accepted("durable-job"))};};
+    WellFaciesService svc;svc.configure(server.config());auto exact=model();exact.curveUnits={{"GR","API"}};
+    auto input=prepareWellFaciesInput(well(),exact);QString error;QVERIFY(bindWellFaciesClasses(exact,{},&input,&error));
+    QSignalSpy acceptedSpy(&svc,&WellFaciesService::jobAccepted);
+    connect(&svc,&WellFaciesService::jobAccepted,&svc,[&](const QString &,const QString &){svc.cancel();});
+    svc.predictFrozen(exact,"W-1",input,QString(64,'a'),"{}");
+    QTRY_COMPARE(acceptedSpy.size(),1);QTest::qWait(180);QCOMPARE(server.paths.size(),1);
+  }
+  void frozenRecoveryQueriesOnlyOriginalJob() {
+    ScriptServer server;server.handler=[](const QByteArray &,const QJsonObject &){return Reply{404,"{}"};};
+    WellFaciesService svc;svc.configure(server.config());auto exact=model();exact.curveUnits={{"GR","API"}};
+    auto input=prepareWellFaciesInput(well(),exact);QString error;QVERIFY(bindWellFaciesClasses(exact,{},&input,&error));
+    QSignalSpy failed(&svc,&WellFaciesService::failed);
+    svc.queryFrozen(exact,"W-1",input,QString(64,'a'),"old job/1");
+    QTRY_COMPARE(failed.size(),1);QCOMPARE(server.paths.size(),1);
+    QVERIFY(server.raw.front().startsWith("GET "));QVERIFY(server.paths.front().contains("old%20job%2F1"));
+    QCOMPARE(server.count("/predict"),0);
+  }
 
   void modelListDropsInvalidSchemas() {
     ScriptServer server;
@@ -264,7 +332,7 @@ private slots:
     svc.configure(server.config());
     const QString error = runPredict(svc);
     QVERIFY2(error.isEmpty(), qPrintable(error));
-    QCOMPARE(server.count("/predict"), 3);        // 1 次提交 + 2 次轮询（路径都含 /predict）
+    QCOMPARE(server.count("/predict"), 1);        // Submission endpoint only; polling is counted separately below.
     QCOMPARE(server.count("/predictions/job-1"), 2);
   }
 

@@ -21,7 +21,7 @@
 // 方向77：AI 工程上下文注入——query_project / asset_lineage 两只读工具。
 //
 // 覆盖（Oracle 1/2/4/5 的单测面；端到端假端点在 tst_aichattoolloop）：
-//   · 工具表 3→5：schema（enum 入参）+ 分发 Routed（无 ORT 依赖）。
+//   · 工具描述全集（含恢复/v2 适配面）；query/lineage schema 与无 ORT 路由。
 //   · 假 catalog 下的实体枚举 / 角色过滤 / 列表截断 / 汇总计数。
 //   · 只读红线：工具执行前后 catalog 快照逐字节一致（exportCatalogJson 对拍）。
 //   · 血缘对拍：selectionClosure 出参 == 测试侧直算（同一 Service）。
@@ -217,12 +217,18 @@ bool TestAiChatProjectQuery::runTool(AiChatToolRunner &runner,
 
 void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 9);
   QStringList names;
   for (const AiToolSpec &spec : tools)
     names.append(spec.name);
-  QVERIFY(names.contains(QStringLiteral("paleo.query_project")));
-  QVERIFY(names.contains(QStringLiteral("paleo.asset_lineage")));
+  // The registry includes gated adapters; runtime advertisement is a separate contract.
+  QStringList expected{
+    "paleo.tile_classification", "paleo.horizon_tracking_suggestion", "paleo.well_facies_prediction",
+    "paleo.query_project", "paleo.asset_lineage", "paleo.depth_convert_batch",
+    "paleo.seismic_attribute_group", "paleo.constraint_idw", "paleo.read_result",
+    "paleo.tile_classification_v2", "paleo.operation_get", "paleo.operation_events",
+    "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read"};
+  names.sort();expected.sort();
+  QCOMPARE(names,expected); // Exact membership also rejects duplicate registrations.
 
   const AiToolSpec query = aiToolSpec(QStringLiteral("paleo.query_project"));
   QVERIFY(!query.name.isEmpty());
@@ -237,6 +243,8 @@ void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
   const QJsonArray topicEnum = topic.value(QStringLiteral("enum")).toArray();
   QVERIFY(topicEnum.contains(QLatin1String("wells")));
   QVERIFY(topicEnum.contains(QLatin1String("well_details")));
+  for(const auto &name:{"version_parents","local_models","well_facies_models","well_facies_inputs"})
+    QVERIFY2(topicEnum.contains(QLatin1String(name)),name);
   QJsonObject badTopic;
   badTopic.insert(QStringLiteral("topic"), QStringLiteral("banana"));
   QVERIFY(!query.validateParameters(badTopic).isEmpty());

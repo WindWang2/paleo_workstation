@@ -453,13 +453,15 @@ void TestCapabilityGateway::toolProtocol() {
   const ExecuteResult unavailable = [&] {
     ExecuteRequest blocked = request;
     blocked.capabilityId = QStringLiteral("wellfacies.predict");
+    blocked.contractVersion = 2;
     blocked.clientRequestId = QStringLiteral("wf");
     blocked.parameters.clear();
     blocked.inputs.clear();
     blocked.inputs.insert(QStringLiteral("points_ref"), QStringLiteral("well-1"));
     return paleo::capability::execute(blocked);
   }();
-  QCOMPARE(unavailable.code, QStringLiteral("unavailable"));
+  QCOMPARE(unavailable.code, QStringLiteral("not_callable"));
+  QVERIFY(unavailable.operationId.isEmpty()); // An unsupported adapter must not create a running native operation.
 }
 
 void TestCapabilityGateway::planAndBudgetClaims() {

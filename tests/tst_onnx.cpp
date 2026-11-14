@@ -92,28 +92,11 @@ private slots:
   }
 
 private:
-  // <repo>/spikes/onnx — resolved via vendorRuntimeDir() (=<repo>/vendor/onnxruntime)
-  // so the test passes regardless of the build dir it runs from.
+  // Model fixtures belong to the source tree; the runtime may live in a shared prefix.
   QString spikesDir() const
   {
-    const QString vendor = PaleoOnnxService::vendorRuntimeDir();
-    if ( !vendor.isEmpty() )
-    {
-      QDir d( vendor );
-      if ( d.cdUp() && d.cdUp() &&
-           QFileInfo::exists( d.absoluteFilePath( QStringLiteral( "spikes/onnx/toy.onnx" ) ) ) )
-        return d.absoluteFilePath( QStringLiteral( "spikes/onnx" ) );
-    }
-    // Fallback: walk up from the binary looking for the spike model.
-    QDir d( QCoreApplication::applicationDirPath() );
-    for ( int i = 0; i < 10; ++i )
-    {
-      if ( QFileInfo::exists( d.absoluteFilePath( QStringLiteral( "spikes/onnx/toy.onnx" ) ) ) )
-        return d.absoluteFilePath( QStringLiteral( "spikes/onnx" ) );
-      if ( !d.cdUp() )
-        break;
-    }
-    return QDir::current().absoluteFilePath( QStringLiteral( "spikes/onnx" ) );
+    const QString model = QFINDTESTDATA( "../spikes/onnx/toy.onnx" );
+    return model.isEmpty() ? QString() : QFileInfo( model ).absolutePath();
   }
 };
 

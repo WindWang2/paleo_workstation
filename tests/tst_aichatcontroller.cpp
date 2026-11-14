@@ -291,14 +291,19 @@ void TestAiChatController::toolCallFramesReachThePanelWithHonestStatus() {
   const QString status = dispatched.at(0).at(1).toString();
   // 诚实：路由结论如实写出（已路由 + 入口），不冒充"已执行"。
   QVERIFY2(status.contains(QStringLiteral("已路由")), qPrintable(status));
-  QVERIFY2(status.contains(QStringLiteral("wellfaciesservice")),
+  QVERIFY2(status.contains(QStringLiteral("workflow/wellfaciesagentrun:typed-v2 external adapter")),
            qPrintable(status));
-  // 方向61：工具会真的执行——未配置远端 → 失败结果（不冒充成功）；模型
-  // 反复点工具由往返上限兜底收敛。
+  // The old backend emits a legacy well-name payload. The production v2 route
+  // rejects it honestly; a route label must never imply successful prediction.
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }, 20000),
            "诚实失败轮必须收敛（错误回灌→终答或上限停轮）");
   QVERIFY2(results.size() >= 1, "必须给出执行终态（失败也是终态）");
   QVERIFY(!results.at(0).at(1).toBool());
+  const auto call=results.at(0).at(0).value<ChatToolCall>();
+  QCOMPARE(call.id,QStringLiteral("c1"));
+  QCOMPARE(call.name,QStringLiteral("paleo.well_facies_prediction"));
+  const auto rejected=QJsonDocument::fromJson(results.at(0).at(2).toString().toUtf8()).object();
+  QCOMPARE(rejected.value("code").toString(),QStringLiteral("unknown_well_request_field"));
 }
 
 // F-02（full-audit-20261028）：后端同帧下发两个相异工具调用且均省略 id——

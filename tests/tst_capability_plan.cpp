@@ -76,7 +76,7 @@ void TestCapabilityPlan::exactPortsAndContracts_data() {
   QTest::newRow("unknown-capability") << QStringLiteral("unknown-capability") << QStringLiteral("unknown_capability");
   QTest::newRow("version") << QStringLiteral("version") << QStringLiteral("unsupported_version");
   QTest::newRow("internal") << QStringLiteral("internal") << QStringLiteral("not_callable");
-  QTest::newRow("unavailable") << QStringLiteral("unavailable") << QStringLiteral("unavailable");
+  QTest::newRow("external-adapter") << QStringLiteral("unavailable") << QStringLiteral("not_callable");
   QTest::newRow("multi-port-seismic") << QStringLiteral("multi-port-seismic") << QStringLiteral("unsupported_plan_adapter");
   QTest::newRow("batch-value-depth") << QStringLiteral("batch-value-depth") << QStringLiteral("unsupported_plan_adapter");
 }
@@ -99,7 +99,7 @@ void TestCapabilityPlan::exactPortsAndContracts() {
   if (mutation == QLatin1String("unknown-capability")) a.capabilityId = QStringLiteral("unknown.capability");
   if (mutation == QLatin1String("version")) a.contractVersion = 2;
   if (mutation == QLatin1String("internal")) a.capabilityId = QStringLiteral("facies.draft.publish");
-  if (mutation == QLatin1String("unavailable")) a.capabilityId = QStringLiteral("wellfacies.predict");
+  if (mutation == QLatin1String("unavailable")) {a.capabilityId = QStringLiteral("wellfacies.predict");a.contractVersion=2;}
   if (mutation == QLatin1String("multi-port-seismic")) {
     a.capabilityId = QStringLiteral("seismic.attributes.compute");
     a.outputPort = QStringLiteral("RMS");

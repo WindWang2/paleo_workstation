@@ -26,6 +26,7 @@ target_sources(paleo_ai PRIVATE
   src/ai/chat/llmclient.cpp
   src/ai/chat/llmkeystore.cpp
   src/ai/chat/domaintools.cpp
+  src/ai/chat/operationtools.cpp
   src/ai/chat/markdown.cpp
 )
 # ORT 本地降级引擎：TU 里用到 PaleoOnnxService 的符号，只在 ORT 构建里编。
@@ -33,7 +34,7 @@ if(PALEO_HAVE_ORT)
   target_sources(paleo_ai PRIVATE src/ai/onnxlocalpredictor.cpp)
 endif()
 target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(paleo_ai PUBLIC Qt6::Network paleo_services_toolresults)
+target_link_libraries(paleo_ai PUBLIC Qt6::Network paleo_services_toolresults paleo_services_hostcontext)
 add_library(paleo_services_query STATIC
   src/services/artifactversioncapability.cpp
   src/services/querywellprojection.cpp
@@ -51,12 +52,32 @@ target_sources(paleo_workflow PRIVATE
   src/workflow/aichattoolrunner.cpp
   src/workflow/aichattoolrunner_results.cpp
   src/workflow/aichatcontroller_toolloop.cpp
+  src/workflow/aichattoolrunner_readiness.cpp
+  src/workflow/aichattoolrunner_operations.cpp
+  src/workflow/tileoperationservice.cpp
+  src/workflow/tileoperationservice_prepare.cpp
   src/workflow/aichattoolrunner_query.cpp
+  src/workflow/aichattoolrunner_models.cpp
   src/workflow/capabilitytaskrunner.cpp
 )
 
 # 装配根：远端预测装配（唯一的装配入口，产品与测试同源）。
-target_sources(paleo_app PRIVATE src/app/aiwiring.cpp src/app/capabilityhostwiring.cpp)
+target_sources(paleo_app PRIVATE src/app/aiwiring.cpp src/app/capabilityhostwiring.cpp src/app/wellproviderwiring.cpp)
+add_library(paleo_app_agentproviders STATIC src/app/agentproviderwiring.cpp)
+target_include_directories(paleo_app_agentproviders PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paleo_app_agentproviders PUBLIC paleo_workflow Paleo::paleo_data_service)
+target_link_libraries(paleo_app PUBLIC paleo_app_agentproviders)
+target_sources(paleo_services PRIVATE src/services/trackinginput.cpp)
+add_library(paleo_workflow_tile STATIC src/workflow/tileoperation.cpp src/workflow/tileoperation_compute.cpp)
+target_include_directories(paleo_workflow_tile PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paleo_workflow_tile PUBLIC paleo_services)
+if(PALEO_HAVE_ORT)
+  target_link_libraries(paleo_workflow_tile PUBLIC paleo_ai_onnx)
+else()
+  target_link_libraries(paleo_workflow_tile PUBLIC paleo_ai)
+endif()
+target_link_libraries(paleo_workflow PUBLIC paleo_workflow_tile)
+add_paleo_test(tst_tracking_input LIBS paleo_app_agentproviders paleo_workflow Paleo::paleo_data_service)
 
 # 视图层：助手 dock + 配置对话框（方向62）+ 工具结果结构化视图（方向93）。
 target_sources(paleo_ui PRIVATE
@@ -102,9 +123,20 @@ add_paleo_test(tst_llmconfigdialog LIBS paleo_ui)
 # 真 ORT 执行面（夹具小模型 + catalog 声明断言），只在 ORT 构建跑。
 if(PALEO_HAVE_ORT)
   add_paleo_test(tst_aichattoolloop LIBS paleo_workflow paleo_ai)
+  add_paleo_test(tst_pinned_inference LIBS paleo_ai_onnx)
+  add_paleo_test(tst_modelcontractquery LIBS paleo_ai_onnx)
+  add_paleo_test(tst_tile_operation LIBS paleo_workflow_tile)
+  add_paleo_test(tst_agent_readiness LIBS paleo_workflow paleo_ai_onnx)
+  add_paleo_test(tst_tile_agent LIBS paleo_app paleo_ai_onnx)
   # POSIX 侧 ORT 运行库路径前置（同根 CMakeLists 的 ORT 测试口径；属性放在
   # 本文件是因为测试注册在这里——根文件的 set_tests_properties 先于本 include
   # 执行，放那边会因测试不存在而 configure 失败）。
   set_tests_properties(tst_aichattoolloop PROPERTIES ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+  set_tests_properties(tst_pinned_inference PROPERTIES ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+  set_tests_properties(tst_modelcontractquery PROPERTIES ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+else()
+  add_paleo_test(tst_agent_noort LIBS paleo_workflow)
 endif()

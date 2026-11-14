@@ -172,6 +172,8 @@ QString tileArgs() {
 }
 
 QString faciesArgs() {
+  // Deliberately simulate an old backend: untrusted legacy fields must not
+  // silently select the trusted adapter or bypass the production v2 contract.
   return QStringLiteral(
     "paleo.well_facies_prediction|{\"model\":\"f1\",\"well_name\":\"W-1\"}");
 }
@@ -288,7 +290,7 @@ LlmConfig TestAiChatToolLoop::baseConfig(const QUrl &endpoint) const {
   return config;
 }
 
-// Oracle 1+2：tools[] 三工具 schema 上送 + tool_choice=auto；tool_calls 真跑
+// Oracle 1+2：内部适配夹具的 tools[] schema 上送 + tool_choice=auto；tool_calls 真跑
 // tile 分类（夹具模型）→ role=tool 回灌（rows/layer_ids 对账）→ 终答落会话。
 void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   Fixture f;
@@ -313,12 +315,12 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "全链路（工具执行→回灌→终答）必须收敛");
 
-  // 请求 1：tools[] 上送（五工具 schema——方向77 增 query_project/asset_lineage）
+  // 请求 1：内部适配上下文的工具描述上送（生产 readiness 过滤另有专项）。
   // + tool_choice=auto。
   QCOMPARE(server.requestCount(), 2);
   const QJsonObject body1 = server.body(0);
   const QJsonArray tools = body1.value(QStringLiteral("tools")).toArray();
-  QCOMPARE(tools.size(), 9);
+  QCOMPARE(tools.size(), 16);
   QStringList toolNames;
   for (const QJsonValue &value : tools) {
     const QJsonObject entry = value.toObject();
@@ -401,7 +403,7 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   QCOMPARE(messages.at(3).content, finalText);
 }
 
-// 一帧多工具：tile（可执行）+ facies（未配置 → 诚实错误）都必须有 role=tool
+// 一帧多工具：tile（可执行）+ facies（legacy 实参被 v2 拒绝）都必须有 role=tool
 // 应答，缺一个是协议违规（OpenAI 400）。
 void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
   Fixture f;
@@ -421,6 +423,7 @@ void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
   context.gridFetch = &syntheticFetch;
   controller.toolRunner()->setContext(context);
 
+  QSignalSpy results(&controller,&AiChatController::toolResultReady);
   controller.sendUserText(QStringLiteral("分类并预测测井相"));
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "多工具轮必须收敛");
@@ -433,16 +436,33 @@ void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
     if (message.value(QStringLiteral("role")).toString() != QStringLiteral("tool"))
       continue;
     answeredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
-    const QJsonObject payload = QJsonDocument::fromJson(
-                                  message.value(QStringLiteral("content")).toString().toUtf8())
-                                  .object().value("data").toObject();
-    if (payload.contains("error"))
+    QJsonParseError error;
+    const auto envelope=QJsonDocument::fromJson(message.value("content").toString().toUtf8(),&error).object();
+    QCOMPARE(error.error,QJsonParseError::NoError);
+    QVERIFY(paleo::chat::isResultEnvelope(envelope));
+    const auto id=message.value("tool_call_id").toString();
+    if(envelope.value("status")==QLatin1String("failed"))
       erroredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
+    if(id==QLatin1String("call-a")) {
+      QCOMPARE(envelope.value("status").toString(),QStringLiteral("succeeded"));
+      const auto payload=envelope.value("data").toObject();
+      QCOMPARE(payload.value("rows").toInt(),32);QCOMPARE(payload.value("columns").toInt(),24);
+      QCOMPARE(payload.value("layer_ids").toArray().size(),3);
+    } else {
+      QCOMPARE(id,QStringLiteral("call-b"));
+      QCOMPARE(envelope.value("code").toString(),QStringLiteral("unknown_well_request_field"));
+      QCOMPARE(envelope.value("data").toObject().value("code").toString(),QStringLiteral("unknown_well_request_field"));
+    }
   }
   answeredIds.sort(); // 应答顺序协议不要求（执行串行、到达序任意）：按集合比
   QCOMPARE(answeredIds,
            QStringList({QStringLiteral("call-a"), QStringLiteral("call-b")}));
   QCOMPARE(erroredIds, QStringList{QStringLiteral("call-b")}); // facies 如实报错
+  QCOMPARE(results.size(),2);
+  for(const auto &result:results) {
+    const auto call=result.at(0).value<ChatToolCall>();
+    QCOMPARE(result.at(1).toBool(),call.id==QLatin1String("call-a"));
+  }
 }
 
 // #281（ABA-02 复现形状）：一轮两个调用，**第一个**同步失败（tile 缺必填
@@ -496,7 +516,7 @@ void TestAiChatToolLoop::syncFailingFirstCallStillDispatchesRestOfRound() {
   QCOMPARE(erroredIds, QStringList{QStringLiteral("call-first")}); // 缺实参如实报错
 }
 
-// Oracle 5：未配置的远端工具 → 错误结果回灌 + UI 失败态，不冒充成功；
+// Oracle 5：未绑定的远端工具收到 legacy 实参 → v2 错误回灌 + UI 失败态，不冒充成功；
 // 模型拿到错误后仍能给终答。
 void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
   Fixture f;
@@ -504,7 +524,8 @@ void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
   ScriptedLlmServer server;
   QVERIFY(server.start());
   server.enqueue(toolCallsSse({{QStringLiteral("call-f"), faciesArgs()}}));
-  server.enqueue(textAnswerSse(QStringLiteral("测井相服务未配置，无法预测。")));
+  const auto finalText=QStringLiteral("测井相调用缺少 v2 引用，未执行预测。");
+  server.enqueue(textAnswerSse(finalText));
 
   AiChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
@@ -518,31 +539,38 @@ void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
   QCOMPARE(server.requestCount(), 2);
   QCOMPARE(results.size(), 1);
   QVERIFY(!results.at(0).at(1).toBool()); // ok=false：失败卡片
+  QCOMPARE(results.at(0).at(0).value<ChatToolCall>().id,QStringLiteral("call-f"));
   // 诚实面以回灌原文为准（卡片摘要是它的截断）。
   const QVector<ChatMessage> messages = controller.messages();
+  QCOMPARE(messages.size(),4);
+  QCOMPARE(messages.at(1).toolCalls.size(),1);
+  QCOMPARE(messages.at(1).toolCalls.first().id,QStringLiteral("call-f"));
   QCOMPARE(messages.at(2).role, ChatRole::Tool);
-  const QJsonObject payload =
-    QJsonDocument::fromJson(messages.at(2).content.toUtf8()).object().value("data").toObject();
-  QVERIFY2(payload.value(QStringLiteral("error"))
-             .toString()
-             .contains(QStringLiteral("测井相服务未配置")),
-           qPrintable(messages.at(2).content));
+  QCOMPARE(messages.at(2).toolCallId,QStringLiteral("call-f"));
+  const auto envelope=QJsonDocument::fromJson(messages.at(2).content.toUtf8()).object();
+  QVERIFY(paleo::chat::isResultEnvelope(envelope));
+  QCOMPARE(envelope.value("status").toString(),QStringLiteral("failed"));
+  QCOMPARE(envelope.value("code").toString(),QStringLiteral("unknown_well_request_field"));
+  QCOMPARE(envelope.value("data").toObject().value("code").toString(),QStringLiteral("unknown_well_request_field"));
+  QCOMPARE(messages.last().content,finalText);
+  QVERIFY(f.catalog.versions().isEmpty());QVERIFY(f.wf.lastProductLayerIds().isEmpty());
   // 请求 2 的 role=tool 消息同样携带该错误（模型看得到，才能如实转述）。
   const QJsonArray messages2 =
     server.body(1).value(QStringLiteral("messages")).toArray();
-  bool fed = false;
+  int fed = 0;
   for (const QJsonValue &value : messages2) {
     const QJsonObject message = value.toObject();
     if (message.value(QStringLiteral("role")).toString() == QStringLiteral("tool") &&
         message.value(QStringLiteral("tool_call_id")).toString() ==
           QStringLiteral("call-f")) {
-      QVERIFY(message.value(QStringLiteral("content"))
-                .toString()
-                .contains(QStringLiteral("测井相服务未配置")));
-      fed = true;
+      const auto wire=QJsonDocument::fromJson(message.value("content").toString().toUtf8()).object();
+      QVERIFY(paleo::chat::isResultEnvelope(wire));
+      QCOMPARE(wire.value("status").toString(),QStringLiteral("failed"));
+      QCOMPARE(wire.value("code").toString(),QStringLiteral("unknown_well_request_field"));
+      ++fed;
     }
   }
-  QVERIFY(fed);
+  QCOMPARE(fed,1);
 }
 
 // Oracle 3：在途工具执行时取消——无悬垂回调/无第二条请求；未应答帧补

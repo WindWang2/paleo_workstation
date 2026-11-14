@@ -6,6 +6,7 @@
 #include <QString>
 
 namespace paleo::chat {
+QJsonObject boundedWellResultMetadata(const QJsonObject &native);
 inline constexpr int kResultHardBytes = 64 * 1024;
 inline constexpr int kResultPageBytes = 8 * 1024;
 inline constexpr int kMinimumEnvelopeBytes = 768;

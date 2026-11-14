@@ -15,30 +15,33 @@ namespace {
 QString tr(const char *s) {
   return QCoreApplication::translate("WellFacies", s);
 }
-template <class T> const T *at(const QVector<T> &items, double depth) {
+template <class T> const T *at(const QVector<T> &items, double depth,bool includeBottom=false) {
   const T *best = nullptr;
   for (const auto &i : items)
     if (depth >= i.topDepth && depth < i.bottomDepth &&
         (!best ||
          i.bottomDepth - i.topDepth < best->bottomDepth - best->topDepth))
       best = &i;
+  if(!best&&includeBottom)for(const auto &i:items)
+    if(depth>=i.topDepth&&depth==i.bottomDepth&&
+       (!best||i.bottomDepth-i.topDepth<best->bottomDepth-best->topDepth))best=&i;
   return best;
 }
 // 空值口径统一由 wellnumeric 出（C.4 / #589）：此前这里自带一套「精确三哨兵
 // + 范围带」，与 wellnumeric 的四哨兵精确词表、以及 workflow 消费点的第三套
 // 硬编码阈值各说各话——同一数值在一条链判缺失、另一条链判数据。行为不变
 // （四个精确哨兵都在范围带覆盖内），只是不再有第二份口径。
-bool isNullLogValue(double v) {
-  return paleo::wellnumeric::isNullCurveValue(v);
+bool isNullLogValue(double v,bool declaredValues=false) {
+  return declaredValues?!std::isfinite(v):paleo::wellnumeric::isNullCurveValue(v);
 }
-bool curveValue(const CurveData &c, double d, double *value, double maxGap = -1.0) {
+bool curveValue(const CurveData &c, double d, double *value, double maxGap = -1.0,bool declaredValues=false) {
   const auto it = std::lower_bound(c.depths.cbegin(), c.depths.cend(), d);
   if (it == c.depths.cend())
     return false;
   const auto n = it - c.depths.cbegin();
   if (*it == d) {
     *value = c.values[n];
-    return !isNullLogValue(*value);
+    return !isNullLogValue(*value,declaredValues);
   }
   if (!n)
     return false;
@@ -47,10 +50,10 @@ bool curveValue(const CurveData &c, double d, double *value, double maxGap = -1.
   if (maxGap > 0.0 && (dNext - dPrev > maxGap))
     return false;
   const double a = c.values[n - 1], b = c.values[n];
-  if (isNullLogValue(a) || isNullLogValue(b))
+  if (isNullLogValue(a,declaredValues) || isNullLogValue(b,declaredValues))
     return false;
   *value = a + (b - a) * (d - dPrev) / (dNext - dPrev);
-  return !isNullLogValue(*value);
+  return !isNullLogValue(*value,declaredValues);
 }
 bool isGroupName(const FormationInterval &f) {
   return f.unitType == QStringLiteral("组") ||
@@ -114,7 +117,9 @@ void appendUnique(QStringList &list, const QString &value) {
 }
 } // namespace
 static WellFaciesInput prepareGroupInput(const ComprehensiveWellData &data,
-    const WellFaciesModel &model,const QString &groupName,QVector<WellFaciesInput> *validSegments,QStringList *skipped) {
+    const WellFaciesModel &model,const QString &groupName,QVector<WellFaciesInput> *validSegments,QStringList *skipped,
+    bool includeFinalBottom=false,WellFaciesSourcePolicy sourcePolicy=WellFaciesSourcePolicy::Legacy) {
+  const bool useEachCurveGap=sourcePolicy==WellFaciesSourcePolicy::DeclaredSdkValues;
   if (validSegments) validSegments->clear();
   WellFaciesInput out;
   const auto fail = [&out,validSegments](const QString &s) {
@@ -137,10 +142,12 @@ static WellFaciesInput prepareGroupInput(const ComprehensiveWellData &data,
       if (!exact && !withUnit)
         continue;
       const QString u = c.unit.trimmed().toUpper();
-      if (curve.endsWith(QStringLiteral("_CPS"), Qt::CaseInsensitive) ||
+      const auto declared = model.curveUnits.value(name).trimmed();
+      const bool explicitUnit = !declared.isEmpty() && declared==c.unit.trimmed();
+      if (!explicitUnit && (curve.endsWith(QStringLiteral("_CPS"), Qt::CaseInsensitive) ||
           curve.endsWith(QStringLiteral("_NORM"), Qt::CaseInsensitive) ||
           u == QLatin1String("CPS") || u == QLatin1String("COUNTS/S") ||
-          u == QLatin1String("NORM") || u == QLatin1String("0-1")) {
+          u == QLatin1String("NORM") || u == QLatin1String("0-1"))) {
         continue;
       }
       found = &c;
@@ -216,7 +223,7 @@ static WellFaciesInput prepareGroupInput(const ComprehensiveWellData &data,
   QVector<double> curveSteps;
   curveSteps.reserve(curves.size());
   for (const auto *curve : curves)
-    curveSteps.append(qMax(step, medianStep(*curve)));
+    curveSteps.append(useEachCurveGap?medianStep(*curve):qMax(step, medianStep(*curve)));
   double previous = -std::numeric_limits<double>::infinity();
   int skippedPoints=0, gaps=0;QString firstSkipped;
   const auto flush=[&] {
@@ -243,8 +250,9 @@ static WellFaciesInput prepareGroupInput(const ComprehensiveWellData &data,
     }
     if (!inGroup)
       continue;
-    const auto *segment = at(segments, depth);
-    const auto *lith = at(data.lithologyIntervals, depth);
+    const bool finalBottom=includeFinalBottom&&depth==data.maxDepth;
+    const auto *segment = at(segments, depth,finalBottom);
+    const auto *lith = at(data.lithologyIntervals, depth,finalBottom);
     // 曲线比岩性道长时，岩性范围外的点跳过，不让井口那一段废掉整井。
     // 跳过的点不计入缺口；一旦进入岩性和段都覆盖的连续段，中间再断就拒绝。
     // 「*岩段」（如白云岩段、砂岩段）属于岩性描述分段，不能作为地层分段。
@@ -268,7 +276,7 @@ static WellFaciesInput prepareGroupInput(const ComprehensiveWellData &data,
     for (qsizetype n = 0; n < curves.size(); ++n) {
       double value;
       const double curveGap = curveSteps[n] * 1.5 + 0.001;
-      if (!curveValue(*curves[n], depth, &value, qMax(maxGap, curveGap))) {
+      if (!curveValue(*curves[n], depth, &value, useEachCurveGap?curveGap:qMax(maxGap, curveGap),useEachCurveGap)) {
         rowError=tr("深度 %1 m 的 %2 缺少有效数值").arg(depth).arg(model.curves[n]);break;
       }
       row.insert(model.curves[n], value);
@@ -296,8 +304,8 @@ static WellFaciesInput prepareGroupInput(const ComprehensiveWellData &data,
   return out;
 }
 WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,const WellFaciesModel &model,
-    QVector<WellFaciesInput> *validSegments,QStringList *skipped){
-  return prepareGroupInput(data,model,{},validSegments,skipped);
+    QVector<WellFaciesInput> *validSegments,QStringList *skipped,bool includeFinalBottom,WellFaciesSourcePolicy sourcePolicy){
+  return prepareGroupInput(data,model,{},validSegments,skipped,includeFinalBottom,sourcePolicy);
 }
 bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
                            const WellFaciesInput &input,

@@ -29,6 +29,10 @@ class QgisLayerService : public QObject
     void setEditingService(QgisEditingService *editSvc) { m_editSvc = editSvc; }
 
     bool declare(const LayerDeclaration &decl, QString *error = nullptr);
+    bool declareForPresentation(const LayerDeclaration &decl, QString *error = nullptr);
+    QString nativePresentationToken(const QString &layerId) const;
+    bool nativePresentationMatches(const QString &layerId,const QString &expectedToken,const QString &ownSource) const;
+    bool nativePresentationSourceMatches(const QString &layerId,const QString &source) const;
     bool removeDeclaration(const QString &layerId, QString *error = nullptr);
     bool removeDeclarations(const QStringList &layerIds, QString *error = nullptr);
     LayerDeclaration declaration(const QString &layerId) const;
@@ -66,6 +70,11 @@ class QgisLayerService : public QObject
     void horizonInstantiationFailed(const QString &horizon, const QStringList &failures);
 
   private:
+    bool declareWithPresentationMarker(const LayerDeclaration &,QString *,bool);
+    bool rememberPresentationState(const QString &layerId,const QString &source);
+    bool beginPresentationState(const QString &layerId,const QString &source,bool needsInstance);
+    bool presentationNeedsInstance(const QString &layerId,const QString &source) const;
+    void initializePresentationState(const QString &layerId);
     // The project owns every instantiated layer; project teardown (clear/read)
     // and direct layer removal delete them out from under the cache. These
     // hooks keep m_instances pointer-true so instantiate() never returns a

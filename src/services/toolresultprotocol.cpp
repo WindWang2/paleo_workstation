@@ -2,8 +2,26 @@
 #include "toolresultprotocol.h"
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QStringList>
 
 namespace paleo::chat {
+QJsonObject boundedWellResultMetadata(const QJsonObject &native) {
+  if(native.value("contract")!="paleo.well-facies.result.v2")return {};
+  QJsonObject facts;
+  for(const auto &field:{"inputOperationId","childOperationId"}) {
+    const auto value=native.value(QLatin1String(field));const auto text=value.toString();bool safe=value.isString()&&!text.isEmpty()&&text.size()<=128;
+    for(const auto &ch:text)if(ch.unicode()<0x21||ch.unicode()>0x7e||ch=='"'||ch=='\\')safe=false;
+    if(safe)facts.insert(QLatin1String(field),value);
+  }
+  for(const auto &field:{"executionScope","resultAvailability","remoteOutcome"}) {
+    const auto value=native.value(QLatin1String(field)).toString();
+    const QStringList allowed=QString(field)=="executionScope"?QStringList{"batch_summary"}:
+      QString(field)=="resultAvailability"?QStringList{"reference_unverified","unavailable"}:
+      QStringList{"succeeded","failed","unknown"};
+    if(allowed.contains(value))facts.insert(QLatin1String(field),value);
+  }
+  return facts;
+}
 QByteArray compactJson(const QJsonValue &value) {
   if (value.isObject())
     return QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact);
@@ -48,6 +66,8 @@ QJsonObject resultEnvelope(const QJsonValue &value, bool ok) {
                             QStringLiteral("receipt"), QStringLiteral("resultRef")})
     if (native.contains(key))
       out.insert(key, native.value(key));
+  const auto well=boundedWellResultMetadata(native);
+  for(auto it=well.begin();it!=well.end();++it)out.insert(it.key(),it.value());
   return out;
 }
 
@@ -79,7 +99,9 @@ bool isResultEnvelope(const QJsonObject &value) {
 QJsonObject toolResultEnvelopeSchema(const QJsonObject &nativeSchema) {
   QJsonObject props;
   for (const QString &key : {QStringLiteral("status"), QStringLiteral("code"),
-                            QStringLiteral("payloadContract"), QStringLiteral("operationId")})
+                            QStringLiteral("payloadContract"), QStringLiteral("operationId"),
+                            QStringLiteral("inputOperationId"), QStringLiteral("childOperationId"),
+                            QStringLiteral("executionScope"), QStringLiteral("resultAvailability"), QStringLiteral("remoteOutcome")})
     props.insert(key, QJsonObject{{"type", "string"}});
   props.insert("contractVersion", QJsonObject{{"const", "paleo.tool-result.v1"}});
   props.insert("data", nativeSchema);

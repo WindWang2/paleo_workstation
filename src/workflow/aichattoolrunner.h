@@ -5,6 +5,7 @@
 #include "../ai/wellfaciesservice.h"
 #include "../domain/welllogfacies.h"
 #include "../services/paleotaskservice.h"
+#include "../services/wellfaciesinputplan.h"
 #include "aiassistworkflow.h"
 #include "chatresultstore.h"
 #include <QJsonObject>
@@ -42,7 +43,10 @@ namespace paleo::query {class ProjectQueryCapability;}
 //   · 每帧必有终态：run() 的每个调用都会以 toolFinished 收尾（错误也是
 //     结果——协议要求每个 tool_call_id 有应答），除非被 cancel 作废。
 class DataCatalog;
+struct AiToolSpec;
+class PaleoOnnxService;
 namespace paleo::capability { class CapabilityHost; }
+namespace paleo {class TileOperationService;}
 
 class AiChatToolRunner : public QObject {
   Q_OBJECT
@@ -52,13 +56,30 @@ public:
   using FaciesInputProvider = std::function<bool(
       const QString &wellName, double depthFrom, double depthTo,
       WellFaciesInput *out, QString *error)>;
+  struct TrackingInput {
+    TraceWindowFetcher fetch;
+    QJsonObject identity;
+    std::function<QString()> ownerValidation;
+  };
+  using TrackingInputProvider = std::function<bool(const std::function<bool()> &cancelled,
+      TrackingInput *out, QString *error)>;
+  struct FrozenFaciesInput {
+    paleo::wellfacies::InputJob job;
+    std::function<QString()> ownerValidation;
+  };
+  using FrozenFaciesProvider = std::function<bool(const paleo::wellfacies::Request &,
+      const WellFaciesModel &, FrozenFaciesInput &, QString &)>;
 
   struct Context {
     QString horizon;      // tile 产品归属层位（装配根按活动目标层位注入）
     AiAssistWorkflow::GridFetch gridFetch;   // tile 读域取数（含 halo）
     TraceWindowFetcher traceFetch;           // 层位建议道窗取数
+    TrackingInputProvider trackingInput;     // Captured once per operation by the trusted owner.
     FaciesInputProvider faciesInput;         // 测井相入参组装
     std::function<WellFaciesModel(const QString &modelId)> faciesModel;
+    FrozenFaciesProvider frozenFaciesInput;
+    std::function<std::optional<paleo::document::InterpretationContext>()> faciesContext;
+    bool allowLegacyFaciesInput = false; // Explicit adapter for old embedding/tests; production uses typed v2.
     // 方向77：只读工程上下文（query/lineage 工具）——装配根在工程打开时
     // 注入；为空时两工具按调用如实报「须打开工程」。指针稳定性由装配根
     // 保证（importSvc 持有、open 原地重绑，不换实例）。
@@ -66,6 +87,9 @@ public:
     QString documentId; // trusted host DocumentSession binding, required by typed queries
     QPointer<paleo::capability::CapabilityHost> capabilityHost;
     bool requireCapabilityHost = false;
+    QPointer<PaleoOnnxService> onnx;
+    QPointer<paleo::TileOperationService> tileOperations;
+    std::function<QString(const QString &, const QJsonObject &, bool)> runtimeReadiness;
     quint64 documentEpoch = 0;
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
   };
@@ -77,13 +101,19 @@ public:
   // 测井相服务为本类私有实例；配置显式注入（app: WellFaciesConfig::load()，
   // 测试：loopback 假端点）——不隐藏读盘。
   void setFaciesConfig(const WellFaciesConfig &config);
+  bool externalTransferConfigured() const;
   void setContext(const Context &context);
   void setTaskService(PaleoTaskService *service);
   void setResultSession(const QString &session);
   QJsonObject modelResult(const ChatToolCall &call, const QString &rawJson,
                          bool ok, int maxBytes);
+  PaleoTaskService *taskService() const { return m_taskService; }
 
   bool busy() const { return m_active || !m_queue.isEmpty(); }
+  struct ToolReadiness { bool ready=false; QString code; unsigned effects=0; };
+  ToolReadiness readiness(const QString &name,const QJsonObject &arguments={},bool forListing=false) const;
+  QVector<AiToolSpec> availableTools() const;
+  QString wellFaciesReadiness(const QJsonObject &args={},bool forListing=false) const;
 
   // 方向77：工程摘要段（井数/层位数/资产计数一行式，≤300 字符）——
   // 装配根绑定/重绑时算好交给 AiChatController::setProjectBrief 作 system
@@ -109,9 +139,15 @@ private:
   void startNext();
   void finishActive(bool ok, const QJsonObject &payload);
   void runCapability(const QString &title, const QJsonObject &args);
+  void runPersistentOperation(const QJsonObject &args);
+  void runTileV2(const QJsonObject &args);
   void runTile(const ChatToolCall &call, const QJsonObject &args);
   void runHorizon(const ChatToolCall &call, const QJsonObject &args);
   void runFacies(const ChatToolCall &call, const QJsonObject &args);
+  void runLegacyFacies(const ChatToolCall &call, const QJsonObject &args);
+  void runFaciesModels(const QJsonObject &args);
+  void runFaciesInputs(const QJsonObject &args);
+  void runLocalModels(const QJsonObject &args);
   // 方向77：同步只读查询（内存表直读，无任务池）；仍经 finishActive 异步
   // 回报（#281 统一语义）。
   void runQuery(const ChatToolCall &call, const QJsonObject &args);
@@ -127,6 +163,7 @@ private:
     ChatToolCall call;
     quint64 contextGeneration;
     quint64 taskSession;
+    quint64 faciesEpoch;
   };
 
   AiAssistWorkflow *m_workflow = nullptr;
@@ -141,6 +178,8 @@ private:
   QPointer<PaleoTask> m_activeTask;
   bool m_active = false;
   bool m_activeIsFacies = false;
+  bool m_activeUsesLegacyFacies = false;
+  quint64 m_faciesEpoch=0,m_activeFaciesEpoch=0;
   int m_generation = 0; // cancel()/析构 ++：作废迟到回调
   quint64 m_contextGeneration = 0;
   quint64 m_activeContextGeneration = 0;

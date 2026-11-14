@@ -122,6 +122,7 @@ add_library(paleo_qgis STATIC
   src/qgis/onlinebasemap.cpp
   src/qgis/basemaplayer.cpp
   src/qgis/qgislayerservice.cpp
+  src/qgis/qgislayerservice_presentation.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp
   src/qgis/qgisconstrainteditsession.cpp
@@ -208,6 +209,10 @@ add_library(paleo_io STATIC
 )
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
+add_library(paleo_services_hostcontext STATIC src/services/hostcallcontext.cpp)
+target_include_directories(paleo_services_hostcontext PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paleo_services_hostcontext PUBLIC Qt6::Core)
+
 add_library(paleo_services STATIC
   src/services/documentsourceprobe.cpp
   src/services/documentrelationresolver.cpp
@@ -226,6 +231,8 @@ add_library(paleo_services STATIC
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/algorithmspec.cpp                    # algo-atom P0：AlgorithmSpec 静态契约表
   src/services/algorithmspec_pilots.cpp             # 时深/属性组/相图输出契约
+  src/services/algorithmspec_tile.cpp
+  src/services/frozenrasterinput.cpp
   src/services/algorithmcontract.cpp                # 参数校验与有效默认值
   src/services/algorithmportcontract.cpp            # 端口类型/基数/显式语义兼容
   src/services/capabilityspec.cpp                   # 能力目录（引用 AlgorithmSpec，不复制默认值）
@@ -255,4 +262,4 @@ add_library(paleo_services STATIC
   src/services/imagelod.cpp                         # 方向79：图片道装载 LOD（缩略两级 + EXIF + 原图 LRU）
   src/services/evidenceindex.cpp                    # G08/G12：证据反向索引（可重建检索结构，非第二事实源）
 )
-target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
+target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms paleo_services_hostcontext)

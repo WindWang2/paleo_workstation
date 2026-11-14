@@ -15,6 +15,8 @@ class OnnxFixtureWriter
     // 制造「版本不兼容」失败分类夹具。
     static bool writeAddScalar( const QString &path, float addend = 40.0f,
                                 int64_t irVersion = 8, QString *error = nullptr );
+    static bool writeExternalAddScalar(const QString &path,QString *error=nullptr);
+    static bool writeIdentity(const QString &path,const QVector<int64_t> &shape,QString *error=nullptr);
 
     // NCHW 分类 logits：y[0,c,h,w] = gains[c] * x[0,0,h,w] + biases[c]。
     // 输入 x float32[1,1,H,W]（H/W 动态维），输出 y float32[1,C,H,W]。

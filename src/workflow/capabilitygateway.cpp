@@ -955,11 +955,11 @@ ExecuteResult execute(const ExecuteRequest &request) {
     return rejected(aliasCode);
   const CapabilitySpec capability = CapabilityRegistry::spec(capabilityId, request.contractVersion);
   if (capability.capabilityId.isEmpty())
-    return rejected(CapabilityRegistry::spec(capabilityId, 1).capabilityId.isEmpty() ? QStringLiteral("unknown_capability")
-                                                                                     : QStringLiteral("unsupported_version"));
+    return rejected(CapabilityRegistry::contains(capabilityId) ? QStringLiteral("unsupported_version")
+                                                              : QStringLiteral("unknown_capability"));
   if (capability.exposure == CapabilityExposure::Unavailable)
     return rejected(QStringLiteral("unavailable"));
-  if (capability.exposure == CapabilityExposure::Internal)
+  if (capability.exposure == CapabilityExposure::Internal || capability.exposure == CapabilityExposure::LegacyAdapter)
     return rejected(QStringLiteral("not_callable"));
   ExecuteResult bindingResult;
   if (!bindingOk(request, &bindingResult))

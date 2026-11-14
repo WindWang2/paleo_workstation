@@ -32,6 +32,7 @@ class CapabilityRegistry {
 public:
   static QVector<CapabilitySpec> all();
   static CapabilitySpec spec(const QString &capabilityId, int contractVersion);
+  static bool contains(const QString &capabilityId);
   static QString resolveAlias(const QString &name, QString *code);
   static QStringList aliasCollisions();
   static CapabilityExposure exposureForAlgorithm(const QString &algorithmId, QString *reason);

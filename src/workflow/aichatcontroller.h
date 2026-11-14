@@ -50,7 +50,7 @@ public:
   // AiChatToolRunner::projectBrief 算好送入；空 = 无工程/未注入，不占预算）。
   void setProjectBrief(const QString &brief) { m_projectBrief = brief; }
   QString projectBrief() const { return m_projectBrief; }
-  QVector<AiToolSpec> tools() const { return builtinAiToolSpecs(); }
+  QVector<AiToolSpec> tools() const { return m_runner.availableTools(); }
   // 工具执行器（组合成员；装配根/测试经此绑定执行面与数据上下文）。
   AiChatToolRunner *toolRunner() { return &m_runner; }
 

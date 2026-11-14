@@ -25,7 +25,9 @@ reparse/junction、额外硬链接、设备及超预算树。句柄保持到子�
 | `paleo.python-analysis-frame.v1` | 上述两文件及 `data.bin` | uint32LE JSON 长度、JSON、binary |
 
 框架的数据轴、dtype、单位、质量与来源语义由 PY2 宿主校验；后端不选择任意输入文件，
-也不提供自由 stdin/路径/环境变量覆盖入口。
+也不提供自由 stdin/路径/环境变量覆盖入口。framed 协议的 `inputBytes` 包括 4 字节
+长度头、JSON 和 binary；4096 字节精确边界通过，payload 已达 4096 而帧总长为
+4100 字节时在启动进程前拒绝。修复前的真实失败与修复后的回归日志均保留。
 
 ## OS 强制与资源口径
 
@@ -91,28 +93,30 @@ ctest --test-dir build -R '^tst_python_windows_sandbox$' --output-on-failure -j1
 ```
 
 没有配置供货包的默认安装只运行明确标注的 unavailable 行为测试，不能把它当隔离矩阵。
-当前 Qt 6.8.0 Core/Test 独立 native 壳验证后端，没有加载 QGIS；不能替代 Qt 6.11.2 统一
-依赖链的完整 `paleo` 应用构建、默认/no-ORT 和既有应用回归。完整应用出口由本批最终
-集成验证补齐后记录，未验证的 Windows 版本/文件系统不据此宣称已取得部署支持。
+Qt 6.8.0 Core/Test 独立 native 壳验证 Windows 强后端，没有加载 QGIS。本机没有匹配
+Qt 6.11.2 的 Windows QGIS 开发闭包，完整应用出口使用下述真实 Linux 车道；不据此
+声称 Windows 完整 QGIS 应用或未测试 Windows 版本/文件系统已取得部署支持。
 
 原生中间证据在该 worktree 的 `local/py3w-validation/`（gitignored）：首轮 16/16，
 0 fail/skip；扩展夹具失败日志保留。取消 callback 中同步遍历进程造成准备时间膨胀已改为
 独立稀疏 monitor；SDK 存在的 LPAC token 查询枚举在本机未获支持，改用 AAP-only 读权限
 哨兵的真实拒绝测试，不把枚举存在当成功。活动 child 期间清除 RO 属性后，runtime/code
 写删仍得到 sharing violation，项目祖先目录替换也被拒，定向测试 3/3、0 fail/skip。
-最终 native 全矩阵 21/21，0 failed/0 skipped，89.038 秒；缺环境单独运行
+最终 native 全矩阵 22/22，0 failed/0 skipped，199.068 秒；缺环境单独运行
 unavailable 行为测试 3/3，0 failed/0 skipped，未将其计入平台隔离证据。
-当前基底为 PY0 #945 加 PY1 `3c79eacc`，公共进程原语未在本批复制或分叉。
+当前基底为 PY2 #948 `17317b1b`，SDK 为 `9d80d1f6`，包含最终公共进程 UTF-8
+边界修复；公共进程原语未在本批复制或分叉。最终 rebase 只继承文档变化和已具备的
+registry 成员测试，`src/`、`tests/`、`cmake/` 与验证快照 `5675d50d` 的 diff 为空。
 
 | 实测 | 数值 |
 |---|---:|
-| NumPy dot 任务 user+kernel CPU | 421,875 µs |
-| NumPy child committed peak（完整 Job counter） | 27,168,768 B |
+| NumPy dot 任务 user+kernel CPU | 781,250 µs |
+| NumPy child committed peak（完整 Job counter） | 26,206,208 B |
 | NumPy 宿主保留预算 | 271,589,388 B |
 | 1 秒 CPU 限额实际累计 CPU | 1,015,625 µs |
-| 4 个 native NumPy 线程的同一限额实际累计 CPU | 1,031,250 µs |
+| 4 个 native NumPy 线程的同一限额实际累计 CPU | 1,078,125 µs |
 
-CPU 阈值测试容许 0.5 秒 OS/轮询误差，当前最大实测超额 31.25 ms；此容差没有放大
+CPU 阈值测试容许 0.5 秒 OS/轮询误差，当前最大实测超额 78.125 ms；此容差没有放大
 policy 或 Job 限额。内存用例真实申请 1 GiB 触发 Job memory-limit，写盘耗尽用例尝试
 1024 次写入均失败。host 文件/注册表/跨工作区哨兵保持原字节，监听服务没有连接，
 硬链接/junction 拒绝没有改变目标，宿主崩溃后的 child 已退出且 profile journal 可核对清理。
@@ -120,14 +124,36 @@ policy 或 Job 限额。内存用例真实申请 1 GiB 触发 Job memory-limit�
 独立壳的精确重跑入口为本 worktree
 `local/py3w-validation/run-native.cmd`（MSVC、Qt Core/Test 6.8.0、`-j1`）；完整应用测试
 使用上面的正式 CMake 目标。`configure.log`、`build.log`、`tests.log`、
-`build/sandbox-qtest.txt`、`missing-qtest.txt`、失败前例和 `native-deps.txt` 均保留。
+`build/sandbox-qtest.txt`、`missing-final-qtest.txt`、失败前例和 `native-deps.txt` 均保留。
 实际 Ninja 依赖记录已核对：sandbox 四个生产 TU 分别为 155/155/162/164，公共 Windows
 process 三个 TU 为 152/148/149，均 VALID，实际本地化 include-prefix 夹具成功。
 这些记录避免把错误的 `/showIncludes` 前缀下旧对象误当本轮增量验证。
 
 当前 CI Source gates 加 qgis-spread selftest、known-reds validate/selftest、atomic-kernels
-共 35 项全部通过，日志 `local/py3w-validation/gates.json` 及 `gate-*.log`。显式
+共 37 项（含模板供货两项）全部通过；最终 rebase 后使用同一驱动复核，日志
+`local/review-20261114/source-gates/results.json`。显式
 `QGIS_PREFIX=C:/Users/wangj.KEVIN/projects/paleo-fusion/artifacts/fusion-validation/qgis/usr`
 解析完整外部头，transitive 四指标均参与；功能 QtWidgets 边为 0，视图边记录 4，heavy
 为 36 重头/41 TU。file-budget 51 项基线无新增、回升、可收紧或可收缩，所有基线未改。
-完整应用、默认/no-ORT 及最终 master 基底上的复核仍属于 PR 之前的集成出口。
+默认/no-ORT 的 Qt 6.11.2 / GCC 16.2.1 完整应用、42 个 C++ 测试目标及实际夹具依赖
+`paleo_mkproject`、`paleo_data_snapshot_worker` 已分别编译完成；Office 与 WebEngine
+闭包完整。WSL 没有 CPU controller 委派，未把该环境的真实执行缺项当作通过。
+完整回归在独立普通用户、capabilities 全空且 CPU/memory/pids 委派齐备的真实 Linux
+7.2.11 内核 VM 中串行运行，两种配置首轮均通过：
+
+| 配置 | CTest suites | Qt 通过 / 失败 / 跳过 | CTest 时间 |
+|---|---:|---:|---:|
+| 默认 | 46/46 | 616 / 0 / 0 | 508.68 s |
+| no-ORT | 46/46 | 610 / 0 / 0 | 383.83 s |
+
+每组为 42 个 C++ 目标加运行时与模板供货的 4 项检查。真实 Host、Recovery、Agent
+查询/调用、SDK 输入、报告、分页与恢复链均在本批源码上执行；应用首帧和 Office
+入口成功。app、Qt Core、Qt Gui、WebEngine、QGIS、GDAL 六组 `ldd -r` 全部解析，
+driver 没有关闭 WebEngine sandbox。Windows 强后端的 OS 准入另以上述原生 22 项为准。
+
+VM 包的 10,767 个文件共 3,034,385,696 字节，全部以宿主外部锚定的清单
+`5807aa2e0122c2afa852499819ac15a4479081fb3521d33857c77358d950dfe0` 核对 SHA。
+两组分别持有全新只读运行时副本，执行后重新核对清单锚、2143 个文件的 SHA/大小、
+完整文件集和权限，通过且未新增 pyc。原有受调试器污染的目录留作失败证据，未复用。
+完整记录在 `local/py3w-validation/native-summary.json` 及 VM 的每组
+`py3w-native-{tests,identity,closure,abi-*,smoke}.log`、`py3w-native-post.json`。

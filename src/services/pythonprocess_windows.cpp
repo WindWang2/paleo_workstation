@@ -55,7 +55,9 @@ ProcessResult runChild(const process_detail::Launch &request,const Security *sec
   if(!GetExitCodeProcess(child.process.get(),&exit)){if(result.code.isEmpty())result.code="python_process_failed";}else result.exitCode=int(exit);
   if(result.code.isEmpty()&&exit!=0)result.code="python_process_failed";
   if(result.code.isEmpty()&&writer.error)result.code="python_process_input_failed";
-  if(result.code.isEmpty())result.code="ok";if(!result.ok())result.output.clear();return result;
+  if(result.code.isEmpty())result.code="ok";
+  if(!result.ok()){result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));result.output.clear();}
+  return result;
 }
 } // namespace paleo::python::windows_process
 #else

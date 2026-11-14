@@ -195,4 +195,3 @@ src/linkage/wellmaplink.h
 src/services/crashreport.cpp
 src/ui/paleomainwindow_ribbon.cpp
 src/ui/paleomainwindow_seismic.cpp
-src/workflow/evidencerecord.cpp

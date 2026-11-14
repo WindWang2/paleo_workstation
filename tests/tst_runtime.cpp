@@ -9,6 +9,7 @@
 
 #include "../src/qgis/qgisruntime.h"
 #include "../src/metadata/paleoprojectstore.h"
+#include <qgis.h>
 
 // P0 spine: QgisRuntime owns init-order; PaleoProjectStore is the sole write
 // choke point (§41.2) — serialization, saveAll ordering (gpkg commit -> .qgz
@@ -20,6 +21,7 @@ private slots:
   void runtimeInitialized()
   {
     QVERIFY( QgisRuntime::isInitialized() );
+    QCOMPARE(QCoreApplication::instance()->property("paleo.qgis.version").toString(),Qgis::version());
     QVERIFY2( QgisRuntime::providerCount() > 0,
               qPrintable( QString::number( QgisRuntime::providerCount() ) ) );
     QVERIFY2( QFile::exists( QgisRuntime::srsDbPath() ),

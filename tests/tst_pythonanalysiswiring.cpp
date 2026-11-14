@@ -4,6 +4,8 @@
 #include "services/projectquerycapability.h"
 #include "fixtures/documentsourcefixture.h"
 #include "workflow/capabilityhost.h"
+#include "workflow/aichattoolrunner.h"
+#include "domain/wellref.h"
 #include "workflow/capabilityrecovery.h"
 #include "metadata/projectlock.h"
 #include <QtTest>

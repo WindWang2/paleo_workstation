@@ -52,7 +52,7 @@ public:
   using BindingProvider = std::function<HostBinding()>;
   explicit CapabilityHost(QObject *parent = nullptr);
   // An empty factory is an explicit host profile with no native fallback.
-  explicit CapabilityHost(NativeAdapterFactory nativeFactory, QObject *parent = nullptr);
+  explicit CapabilityHost(NativeAdapterFactory nativeFactory, QObject *parent);
   ~CapabilityHost() override;
   void setBindingProvider(BindingProvider provider);
   void setTaskService(PaleoTaskService *tasks);

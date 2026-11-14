@@ -32,6 +32,7 @@ def frame(kind, values, quality=None, axis=None, channels=None, change=None):
                        "qualityBytes": rows * channels, "order": "axis_then_row_major_values_then_row_major_quality"},
             "payload": {"bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()},
             "provenance": {"documentId": "fixture", "callerScope": "agent:test", "sampling": sampling}}
+    meta["provenance"]["axis"] = meta["axis"]
     if change:
         change(meta)
     header = json.dumps(meta, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -104,6 +105,8 @@ class TemplateTests(unittest.TestCase):
                 self.assertEqual(report.get("status", report.get("metrics", [{}])[0].get("status")), "empty_window")
         report = self.run_template("well_quality", frame("well_quality", [[float("nan"), float("inf")]]))
         self.assertTrue(all(value["status"] == "all_missing" and value["mean"] is None for value in report["metrics"]))
+        report = self.run_template("well_quality", frame("well_quality", [[1.0, 2.0]], [[2, 2]]))
+        self.assertTrue(all(value["status"] == "no_valid_samples" and value["missingCount"] == 0 for value in report["metrics"]))
         report = self.run_template("attribute_correlation", frame("attribute_correlation", [[1.0, 2.0]]))
         self.assertEqual(report["status"], "insufficient_samples")
         self.assertTrue(all(value is None for row in report["matrix"] for value in row))
@@ -114,6 +117,12 @@ class TemplateTests(unittest.TestCase):
         self.assertTrue(all(math.isfinite(item["populationStdDev"]) for item in quality["metrics"]))
         correlation = self.run_template("attribute_correlation", frame("attribute_correlation", values))
         self.assertAlmostEqual(correlation["matrix"][0][1], -1.0, places=13)
+
+    def test_declared_uppercase_depth_unit_is_preserved(self):
+        for kind in ("well_quality", "attribute_correlation"):
+            report = self.run_template(kind, frame(kind, [[1.0, 2.0], [2.0, 3.0]],
+                                                   change=lambda meta: meta["axis"].update(unit="M")))
+            self.assertEqual(report["provenance"]["axis"]["unit"], "M")
 
     def test_bad_frames_semantics_and_budget_fail_before_output(self):
         changes = [lambda m: m.update(dtype="object"), lambda m: m.update(shape=[8193, 2]),

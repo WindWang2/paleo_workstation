@@ -24,19 +24,20 @@ struct Fixture {
   data::DataService service;
   python::AnalysisReadPlan plan;
   QString error;
-  bool open(int samples=65536) {
+  bool open(int samples=65536,bool declared=true) {
     root=temporary.path()+"/project";std::string detail;
     if(!service.createProject(root.toUtf8().toStdString(),"Python bounded analysis",detail))return false;
     data::ParsedFile parsed;parsed.kind="logs";parsed.status="parsed";
     data::WellDataset well;well.wellInfo.wellName="ANALYSIS-1";
     data::LogSet log;log.logSetName="Declared shared axis";log.depthInfo={"MD","m","KB","","",""};
+    if(!declared)log.depthInfo.depthType.clear();
     data::LogCurve first,second;first.curveName="A";first.curveUnit="API";second.curveName="B";second.curveUnit="m/s";
     for(int i=0;i<samples;++i) {
       log.samplingAxis.depthValues.push_back(100+0.25*i);
       first.sampleValues.push_back(double(i));second.sampleValues.push_back(3.0*i+7.0);
     }
     log.logCurves={first,second};well.wellbore.logSets={log};parsed.wells={well};
-    const QByteArray bytes="Typed SDK analysis fixture\n";QFile source(temporary.path()+"/source.data");
+    const QByteArray bytes="Typed SDK analysis fixture\n";QFile source(temporary.path()+(declared?"/source.data":"/source.las"));
     if(!source.open(QIODevice::WriteOnly) || source.write(bytes)!=bytes.size())return false;source.close();
     qlonglong sourceId=0;const auto digest=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex();
     if(!service.importPreparedFile(source.fileName().toUtf8().toStdString(),source.fileName().toUtf8().toStdString(),
@@ -68,6 +69,9 @@ private slots:
     Fixture fixture;QVERIFY2(fixture.open(),qPrintable(fixture.error));const auto permit=python::claimExecutionPermit();
     const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
     QVERIFY2(result.ok(),qPrintable(result.code));QCOMPARE(result.io.legacyBytes,0);
+    qInfo().noquote()<<"PY2_IO sourceSamplesPerCurve=65536 selectedSamplesPerCurve=8192 channels=2 payloadBytes="
+      <<result.io.payloadBytes<<" axisBlocks="<<result.io.axisBlocks<<" valueBlocks="<<result.io.valueBlocks
+      <<" legacyBytes="<<result.io.legacyBytes;
     QCOMPARE(result.io.windows,2);QVERIFY(result.io.payloadBytes>0);QVERIFY(result.io.payloadBytes<1024*1024);
     QVERIFY(result.io.axisBlocks<=6);QVERIFY(result.io.valueBlocks<=6);
     QCOMPARE(result.metadata.value("shape").toArray(),QJsonArray({8192,2}));
@@ -114,6 +118,35 @@ private slots:
     const auto cancelled=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit,[]{return true;});
     QCOMPARE(cancelled.code,QString("cancelled"));QCOMPARE(cancelled.io.payloadBytes,0);
   }
+  void modelChangesDuringCaptureRejectTheEntireInput() {
+    Fixture fixture;QVERIFY(fixture.open());const auto permit=python::claimExecutionPermit();
+    int checks=0;bool changed=false;
+    const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit,[&] {
+      if(++checks==2) {
+        std::string error;changed=fixture.service.updateCurveValue(fixture.plan.curves.first().curveId,101,999.0,error);
+      }
+      return false;
+    });
+    QVERIFY(changed);QCOMPARE(result.code,QString("python_analysis_model_changed"));QVERIFY(result.bundle.reference.isEmpty());
+    QVERIFY(result.metadata.isEmpty());
+  }
+  void inferredLegacyDepthTypeCannotMasqueradeAsDeclaredMd() {
+    Fixture fixture;QVERIFY(fixture.open(1024,false));const auto permit=python::claimExecutionPermit();
+    const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
+    QCOMPARE(result.code,QString("python_analysis_semantics_inferred"));QVERIFY(result.bundle.reference.isEmpty());
+  }
+  void missingChunkStorageNeverMaterializesLegacyArrays() {
+    Fixture fixture;QVERIFY(fixture.open());const auto name=QUuid::createUuid().toString();bool removed=false;
+    {
+      auto db=QSqlDatabase::addDatabase("QSQLITE",name);db.setDatabaseName(fixture.root+"/data.sqlite");
+      QVERIFY(db.open());QSqlQuery query(db);
+      removed=query.exec("DELETE FROM curve_window_curves_v1");db.close();
+    }
+    QSqlDatabase::removeDatabase(name);QVERIFY(removed);const auto permit=python::claimExecutionPermit();
+    const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
+    QCOMPARE(result.code,QString("python_analysis_chunk_storage_required"));QCOMPARE(result.io.legacyBytes,0);
+    QCOMPARE(result.io.payloadBytes,0);QVERIFY(result.bundle.reference.isEmpty());
+  }
   void actualLockedTemplateMatchesIndependentLinearReference() {
     const auto runtimeRoot=qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT");
     if(runtimeRoot.isEmpty()){QVERIFY(!python::RuntimeProvider({}).inspect().ready());return;}
@@ -126,6 +159,8 @@ private slots:
     python::TrustedProcessRequest request;request.runtime=runtime.runtime;request.scriptPath=materialized.bundle.root+"/code.py";
     request.scriptSha256=python::analysisTemplateSha256(fixture.plan.kind);request.input=input.bytes;request.policy=policy();request.permit=permit;
     const auto run=python::runTrustedProcess(request);QVERIFY2(run.ok(),qPrintable(run.code+QString::fromUtf8(run.error)));
+    qInfo().noquote()<<"PY2_PROCESS cpuMicros="<<run.cpuMicros<<" observedPeakMemoryBytes="<<run.peakMemoryBytes
+      <<" memoryPeakComplete="<<run.memoryPeakComplete;
     const auto report=QJsonDocument::fromJson(run.output).object().value("ports").toObject().value("REPORT").toObject();
     QCOMPARE(report.value("jointValidCount").toInt(),100);QVERIFY(qAbs(report.value("matrix").toArray()[0].toArray()[1].toDouble()-1.0)<1e-12);
     QCOMPARE(report.value("sourceKind").toString(),QString("well_curve_numeric_attributes"));

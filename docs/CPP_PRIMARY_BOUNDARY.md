@@ -22,6 +22,9 @@
   `src/services/pythonrepl.*`（REPL 会话桥）、
   `src/services/pythonenv.*`（MAMCL venv 底座）、
   `src/ui/python/`（控制台/REPL 面板）。无内嵌解释器、无 Python C API。
+- Agent 可选环境由 `src/services/pythonruntime.*` 以宿主配置的清单 SHA 核验，
+  固定探测也在子进程中执行。离线供货位于 `vendor/agent-python/`，不进默认安装，
+  不从 PATH 选择解释器；PY0 仅提供环境状态，执行入口按受控 Python 计划后续接入。
 - superbuild 构建的 QGIS 保持 `WITH_BINDINGS=OFF`
   （`vendor/superbuild/CMakeLists.txt`）——PyQGIS 运行时不进依赖闭包。
 
@@ -51,6 +54,9 @@ selfcheck；QGIS/GDAL 运行时闭包不随默认安装复制，MAMCL 外部工�
 `find_program(PALEO_PYTHON3)` 找不到时 configure 直接 FATAL_ERROR）。
 运行期 Python 依赖只在用户启用对应功能时出现（PATH 发现或
 `PALEO_PYTHON`/`PALEO_CORRELATION_PYTHON` 显式指定）。
+上述发现规则属于既有人工控制台。Agent 环境另用宿主配置的
+`PALEO_AGENT_PYTHON_ROOT` 与 `PALEO_AGENT_PYTHON_MANIFEST_SHA256`；缺项拒绝，
+不回退到人工控制台环境。供货与校验见 [Agent Python 清单](../vendor/agent-python/README.md)。
 
 ## 历史 Python 原件归档
 

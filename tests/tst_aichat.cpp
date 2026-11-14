@@ -348,7 +348,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 16); // Legacy descriptors, session reads and durable operation tools.
+  QCOMPARE(tools.size(), 17); // Includes the argument-free, read-only runtime status tool.
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -356,8 +356,12 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     QVERIFY2(!spec.title.isEmpty(), "工具必须有显示名");
     const auto inputSchema=spec.toJsonSchema();
     const auto properties=inputSchema.value("properties").toObject();
-    QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");
-    const auto required=inputSchema.value("required").toArray();QVERIFY(!required.isEmpty());
+    const auto required=inputSchema.value("required").toArray();
+    if(spec.name==QLatin1String("paleo.python_environment")) {
+      QVERIFY(properties.isEmpty());QVERIFY(required.isEmpty());
+    } else {
+      QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");QVERIFY(!required.isEmpty());
+    }
     for(const auto &key:required)QVERIFY(properties.contains(key.toString()));
     QCOMPARE(inputSchema.value("additionalProperties"),QJsonValue(false));
     names.append(spec.name);
@@ -372,7 +376,7 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
              qPrintable(parseError.errorString()));
     // 必填项缺失必须被拒，且拒绝理由带参数名。
     QJsonObject blank;
-    QVERIFY(!spec.validateParameters(blank).isEmpty());
+    QCOMPARE(spec.validateParameters(blank).isEmpty(),required.isEmpty());
   }
   QVERIFY(names.contains(QStringLiteral("paleo.read_result")));
   ChatToolCall oversized;

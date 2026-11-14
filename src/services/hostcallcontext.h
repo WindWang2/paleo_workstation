@@ -7,7 +7,8 @@ namespace paleo::host {
 
 enum Effect : unsigned {
   Read = 1U, PrivateStage = 2U, CatalogPublish = 4U,
-  Presentation = 8U, FileExport = 16U, ExternalTransfer = 32U
+  Presentation = 8U, FileExport = 16U, ExternalTransfer = 32U,
+  LocalExecute = 64U // Host-owned optional runtime policy; never implied by staging.
 };
 enum class Caller { Ui, Batch, Agent };
 

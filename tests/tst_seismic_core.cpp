@@ -7,12 +7,12 @@
 #include <vector>
 #include <filesystem>
 
-#include "domain/seismic/sgyfilereader.h"
-#include "domain/seismic/sgyrulelayout.h"
+#include "Data/Sgy/SgyFileReader.h"
+#include "Data/Sgy/SgyRuleLayout.h"
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
 #include "domain/seismic/sgycoordinatemapper.h"
-#include "domain/seismic/sgyreadplan.h"
+#include "Engine/ReadPlan.h"
 #include "domain/seismic/sgyvolume.h"
 #include "domain/seismic/sgysectionbuilder.h"
 #include "domain/seismic/seismiccolormap.h"

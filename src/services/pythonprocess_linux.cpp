@@ -115,7 +115,8 @@ ProcessResult runPreparedChild(const Launch &request,Prepared &prepared) {
     else if(elapsed.elapsed()>=qint64(request.policy.wallSeconds)*1000)result.code="python_process_timeout";
     else result.code="python_process_failed";
   }
-  if(!result.ok())result.output.clear();return result;
+  if(!result.ok()){result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));result.output.clear();}
+  return result;
 }
 }
 namespace paleo::python::process_detail {

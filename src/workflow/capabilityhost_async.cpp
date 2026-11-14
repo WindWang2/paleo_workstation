@@ -16,6 +16,7 @@ struct PreparationState {
   QPointer<PaleoTask> parent,phase;
   std::shared_ptr<std::atomic_bool> invalidated;
   std::function<void(ExecuteResult)> callback;
+  std::function<void()> release;
   FrozenOperation frozen;
   QString code;
   bool delivered=false;
@@ -29,6 +30,7 @@ ExecuteResult preparationFailure(const QString &code) {
 void completePreparation(const std::shared_ptr<PreparationState> &state,ExecuteResult result) {
   if(state->delivered)return;
   state->delivered=true;if(state->preparationFinished.load())state->frozen={};
+  if(state->release)state->release();state->release={};
   auto callback=std::move(state->callback);
   if(state->parent)state->parent->finishExternal(result.ok?QString():result.code);
   if(state->owner && state->receiver && callback)callback(std::move(result));
@@ -47,6 +49,7 @@ PaleoTask *CapabilityHost::startPreparing(const QString &handle,const Prepared &
   const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
   if(QThread::currentThread()!=thread())return reject("owner_thread_required");
   if(!m_tasks || !receiver)return reject("task_service_unavailable");
+  if(m_tasks->thread()!=thread())return reject("task_service_thread_mismatch");
   if(receiver->thread()!=thread())return reject("subscriber_thread_mismatch");
   const auto key=saved.request.callerScope+QChar(0)+saved.request.clientRequestId;
   if(m_pendingPreparations.contains(key))return reject(m_pendingPreparations.value(key)==saved.intentDigest?
@@ -54,10 +57,26 @@ PaleoTask *CapabilityHost::startPreparing(const QString &handle,const Prepared &
   const QPointer<CapabilityHost> guard(this);const auto tasks=m_tasks;
   auto state=std::make_shared<PreparationState>();state->owner=guard;state->receiver=receiver;
   state->invalidated=m_preparationInvalidated;state->callback=std::move(finished);
+  state->release=[guard,key]{if(guard)guard->m_pendingPreparations.remove(key);};
   m_pendingPreparations.insert(key,saved.intentDigest);m_prepared.remove(handle);
   auto *created=tasks->beginExternal(title);state->parent=created;
+  if(!created) {if(guard)guard->m_pendingPreparations.remove(key);return reject("task_service_unavailable");}
   if(!guard){completePreparation(state,preparationFailure("document_unavailable"));return created;}
   const std::weak_ptr<PreparationState> weak=state;
+  const auto serviceGone=[state] {
+    stopPreparation(state);
+    if(state->owner)QTimer::singleShot(0,state->owner.data(),[state] {
+      completePreparation(state,preparationFailure("task_service_unavailable"));
+    });
+  };
+  connect(tasks.data(),&QObject::destroyed,guard.data(),serviceGone,Qt::SingleShotConnection);
+  connect(created,&QObject::destroyed,guard.data(),[state] {
+    if(state->delivered)return;
+    stopPreparation(state);
+    if(state->owner)QTimer::singleShot(0,state->owner.data(),[state] {
+      completePreparation(state,preparationFailure("preparation_task_unavailable"));
+    });
+  },Qt::SingleShotConnection);
   connect(created,&PaleoTask::cancelAsked,created,[weak]{if(auto state=weak.lock())state->stopped=true;},Qt::DirectConnection);
   connect(created,&PaleoTask::cancelAsked,created,[weak]{if(auto state=weak.lock())stopPreparation(state);},Qt::QueuedConnection);
   connect(guard.data(),&QObject::destroyed,created,[state]{stopPreparation(state);completePreparation(state,preparationFailure("document_unavailable"));},Qt::SingleShotConnection);
@@ -74,12 +93,16 @@ PaleoTask *CapabilityHost::startPreparing(const QString &handle,const Prepared &
     state->frozen=worker(stopped,&state->code);return state->code;
   },QString(),true);
   state->phase=phase;
-  if(!guard){stopPreparation(state);return created;}
+  if(!guard){stopPreparation(state);return state->parent.data();}
+  if(!tasks || !phase){serviceGone();return state->parent.data();}
   if(stopped())stopPreparation(state);
   auto *watch=new QTimer(guard.data());watch->setInterval(25);
-  connect(watch,&QTimer::timeout,guard.data(),[guard,state,saved,intent] {
+  connect(watch,&QTimer::timeout,guard.data(),[guard,state,saved,intent,watch] {
+    if(state->delivered){watch->stop();watch->deleteLater();return;}
     HostBinding live;
-    if(state->invalidated->load() || !guard->check(saved,intent,live).isEmpty()) {
+    const auto code=guard->check(saved,intent,live);
+    if(!guard)return;
+    if(state->invalidated->load() || !code.isEmpty()) {
       stopPreparation(state);if(state->parent)state->parent->requestInterruption();
     }
   });
@@ -90,8 +113,10 @@ PaleoTask *CapabilityHost::startPreparing(const QString &handle,const Prepared &
     const bool explicitCancel=state->parent && state->parent->explicitCancelRequested();
     if(state->stopped || state->invalidated->load())return fail(explicitCancel?"cancelled":"stale_session");
     HostBinding live;auto code=guard->check(saved,intent,live);
+    if(!guard){stopPreparation(state);return;}
     if(code.isEmpty() && saved.preparation.validate)code=saved.preparation.validate();
     if(!guard){stopPreparation(state);return;}
+    if(state->stopped || state->invalidated->load())return fail(explicitCancel?"cancelled":"stale_session");
     if(code.isEmpty())code=state->code;
     if(code.isEmpty() && (!state->phase || state->phase->state()!=PaleoTask::State::Succeeded))code="preparation_failed";
     if(!code.isEmpty())return fail(code);
@@ -110,6 +135,6 @@ PaleoTask *CapabilityHost::startPreparing(const QString &handle,const Prepared &
     if(!running)return fail(code);
     if(state->stopped || state->invalidated->load())stopPreparation(state);
   },Qt::SingleShotConnection);
-  return created;
+  return state->parent.data();
 }
 } // namespace paleo::capability

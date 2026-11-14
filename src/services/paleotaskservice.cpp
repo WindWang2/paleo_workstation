@@ -249,6 +249,10 @@ PaleoTaskService::~PaleoTaskService()
     m_pool = nullptr;
     return;
   }
+  // waitForDone does not deliver queued finished signals during destruction.
+  // No worker remains here, so its busy lease can be released synchronously.
+  if(m_store)for(const auto *task:m_tasks)if(!task->layerId().isEmpty())
+    m_store->releaseLayerBusy(task->layerId(),QStringLiteral("task-%1").arg(task->id()));
   delete m_pool;
   m_pool = nullptr;
 }
@@ -289,9 +293,16 @@ PaleoTask *PaleoTaskService::createTask(const QString &title,
                                         const QString &layerId, bool quiet)
 {
   auto *task = new PaleoTask(m_nextId++, title, layerId, this);
+  const QPointer<PaleoTaskService> service(this);
+  const QPointer<PaleoTask> alive(task);
   task->m_quiet = quiet; // taskAdded 同步发射——必须在 emit 前落位
   task->m_session = m_session;
   m_tasks.append(task);
+  // Observers may destroy a task synchronously before it has entered the pool.
+  connect(task, &QObject::destroyed, this, [this, task, layerId, id=task->id()] {
+    m_tasks.removeAll(task);
+    if(m_store && !layerId.isEmpty())m_store->releaseLayerBusy(layerId,QStringLiteral("task-%1").arg(id));
+  });
   if (m_store && !layerId.isEmpty())
   {
     // L-02：busy 注册表是按 taskId 的多持有表——同层位多个并发任务（批队列
@@ -300,20 +311,26 @@ PaleoTask *PaleoTaskService::createTask(const QString &title,
     m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
                            title);
   }
+  if (!service || !alive)
+    return nullptr;
   connect(task, &PaleoTask::finished, this,
           [this, task]() { onTaskFinished(task); });
   emit taskAdded(task);
+  if (!service || !alive)
+    return nullptr;
   emit tasksChanged();
-  return task;
+  return service ? alive.data() : nullptr;
 }
 
 PaleoTask *PaleoTaskService::beginExternal(const QString &title,
                                            const QString &layerId, bool quiet)
 {
-  PaleoTask *task = createTask(title, layerId, quiet);
+  const QPointer<PaleoTask> task = createTask(title, layerId, quiet);
+  if (!task)
+    return nullptr;
   task->m_started = true; // 外部驱动不占池——shutdown 排队补偿不适用于它
   task->applyProgress(0, 100);
-  return task;
+  return task.data();
 }
 
 PaleoTask *PaleoTaskService::start(const QString &title,
@@ -321,6 +338,8 @@ PaleoTask *PaleoTaskService::start(const QString &title,
                                    const QString &layerId, bool quiet)
 {
   PaleoTask *task = createTask(title, layerId, quiet);
+  if (!task)
+    return nullptr;
   // 头注释口径「3/4 参版默认 Normal」：显式传 Normal（池默认是 0=Low，
   // 不传会把交互任务压到与预取/批量同档）。
   m_pool->start(new TaskRunner(task, std::move(work)),
@@ -334,6 +353,8 @@ PaleoTask *PaleoTaskService::start(const QString &title,
                                    bool quiet)
 {
   PaleoTask *task = createTask(title, layerId, quiet);
+  if (!task)
+    return nullptr;
   // QThreadPool 优先级：数值大者先出队（D4.6 预取 Low 不挡用户点击 High）。
   m_pool->start(new TaskRunner(task, std::move(work)), static_cast<int>(priority));
   return task;

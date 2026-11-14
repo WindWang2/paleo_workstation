@@ -4,8 +4,8 @@ file(SHA256 "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/summary.py" _pale
 add_library(paleo_services_pythonruntime STATIC
   src/services/pythonruntime.cpp
   src/services/pythonruntime_probe.cpp)
-target_sources(paleo_services_pythonruntime PRIVATE
-  src/services/pythoncapabilityspec.cpp src/services/pythoninputbundle.cpp src/services/pythonprocess.cpp)
+target_sources(paleo_services_pythonruntime PRIVATE src/services/pythoninputbundle.cpp src/services/pythonprocess.cpp)
+target_sources(paleo_services PRIVATE src/services/pythoncapabilityspec.cpp)
 if(WIN32)
   target_sources(paleo_services_pythonruntime PRIVATE src/services/pythonprocess_windows.cpp
     src/services/pythonprocess_windows_job.cpp src/services/pythonprocess_windows_launch.cpp)
@@ -20,6 +20,7 @@ target_link_libraries(paleo_services_pythonruntime PUBLIC Qt6::Core)
 target_compile_definitions(paleo_services_pythonruntime PRIVATE
   PALEO_AGENT_PYTHON_SOURCE_LOCK_SHA="${_paleo_python_lock_sha}")
 target_compile_definitions(paleo_services_pythonruntime PRIVATE PALEO_AGENT_PYTHON_SUMMARY_SHA="${_paleo_python_summary_sha}")
+target_compile_definitions(paleo_services PRIVATE PALEO_AGENT_PYTHON_SUMMARY_SHA="${_paleo_python_summary_sha}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/vendor/agent-python/runtime.lock.json"
   "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/summary.py")

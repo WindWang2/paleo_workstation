@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QSet>
 #include <QRegularExpression>
+#include <QStringDecoder>
 #include <QtEndian>
 #include <cmath>
 #include <cerrno>
@@ -160,7 +161,7 @@ std::shared_ptr<SealedRuntimeImage> snapshotLinuxInputs(const InputBundle &input
   if(!frame&&protocol!=QLatin1String(SandboxJsonInputProtocol))return fail("python_input_protocol_invalid");
   if(capacity<raw.size()||capacity>MaxBytes)return fail("python_snapshot_memory_budget");
   auto image=std::make_shared<SealedRuntimeImage>();image->manifestBytes=raw;QSet<QString> names;
-  qint64 declared=raw.size(),stdinSize=frame?4:0,jsonSize=0;
+  qint64 declared=raw.size(),stdinSize=frame?4:0,jsonSize=0,payloadBytes=0;
   static const QRegularExpression allowed("^[a-z][a-z0-9_.-]{0,63}$");
   for(const auto &entry:rows) {
     auto row=entry.toObject();const auto name=row.value("path").toString();const auto number=row.value("size").toDouble(-1);
@@ -169,13 +170,18 @@ std::shared_ptr<SealedRuntimeImage> snapshotLinuxInputs(const InputBundle &input
         number>(name=="code.py"?policy.codeBytes:policy.inputBytes)||
         declared-raw.size()>policy.inputBytes+policy.codeBytes-qint64(number))return fail("python_input_manifest_invalid");
     declared+=qint64(number);
+    if(name!="code.py") {
+      if(payloadBytes>policy.inputBytes-qint64(number))return fail("python_input_budget_exceeded");
+      payloadBytes+=qint64(number);
+    }
     if(name=="request.json") {stdinSize+=qint64(number);jsonSize=qint64(number);}
     if(frame&&name=="data.bin")stdinSize+=qint64(number);
     names.insert(name);
   }
   const QSet<QString> expected=frame?QSet<QString>{"code.py","request.json","data.bin"}:QSet<QString>{"code.py","request.json"};
   if(names!=expected)return fail("python_input_protocol_invalid");
-  if(jsonSize>64*1024)return fail("python_input_budget_exceeded");
+  if(jsonSize<1||jsonSize>64*1024)return fail("python_input_budget_exceeded");
+  if(declared>policy.diskBytes-policy.outputBytes-policy.logBytes)return fail("python_disk_budget_exceeded");
   if(declared>capacity||declared>bufferedCapacity-stdinSize)return fail("python_snapshot_memory_budget");
   for(const auto &entry:rows) {
     auto row=entry.toObject();row.insert("executable",false);
@@ -199,6 +205,10 @@ std::shared_ptr<SealedRuntimeImage> snapshotLinuxInputs(const InputBundle &input
     image->stdinChunks.append(bytes);
   }
   image->bufferedBytes=stdinSize;
+  const auto &json=image->stdinChunks[frame?1:0];QStringDecoder utf8(QStringDecoder::Utf8);
+  const QString decoded=utf8(json);Q_UNUSED(decoded);
+  QJsonParseError jsonError;const auto request=QJsonDocument::fromJson(json,&jsonError);
+  if(utf8.hasError()||jsonError.error!=QJsonParseError::NoError||!request.isObject())return fail("python_input_protocol_invalid");
   // Manifest bytes were already authenticated. Never reopen them after checking SHA.
   ScopedFd source(int(::syscall(SYS_memfd_create,"paleo-input-manifest",MFD_CLOEXEC|MFD_ALLOW_SEALING)));
   if(source.value<0||!writeAll(source.value,raw)||::fchmod(source.value,0444)||::lseek(source.value,0,SEEK_SET)<0||

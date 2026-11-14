@@ -17,6 +17,9 @@ Qt < 6.7 由 CMake 选择不可用实现，不降低全项目 Qt 最低版本。
 
 `request.json` 最多 64 KiB。输入 manifest 必须匹配宿主 reference 的
 `manifestHash`；运行时 manifest 必须匹配宿主 `VerifiedRuntime.manifestSha256`。
+JSON 必须是严格 UTF-8 的 object；JSON 与 data.bin 独立合计不超过 inputBytes，
+不能借用未使用的 codeBytes。输入/代码/manifest 与 output/log 的 broker
+保留量另受 diskBytes 限制；运行时私有 tmpfs 计入内存。
 运行时 generation 的 retention 在整个快照与执行阶段保留。
 
 只读目录绑定不足以防住宿主原地改写。本实现对 manifest 中的每个普通文件
@@ -46,6 +49,8 @@ root 所有权、父目录不可被普通用户写入、无 setuid/setgid/file c
 TasksMax 为 8、CPUQuota 为单核 100%。释放执行 barrier 前逐项读取实际
 `memory.max`、`memory.swap.max`、`pids.max`、`cpu.max`，缺项、无界或放宽
 均拒绝执行。CPU 硬限额和 wall timer 覆盖 bubblewrap 准备阶段。
+后端取得或接收 permit 后即开始总 wall deadline，校验、密封和辅助准备均计时，
+同一个期限取消回调传入共同进程泵；超时返回 timeout，保持用户取消优先。
 
 宿主数据有另一个不超过策略内存值且不超过 512 MiB 的保留预算，包含：
 
@@ -91,3 +96,23 @@ CPU/OOM/wall、输出/日志超限、取消，以及密封后原地改写代码�
 会消耗 CPU/wall 预算。fs-verity 在此 native ext4 guest 可无特权启用，而
 WSL ext4 返回 ENOTSUP，因此仅可作为后续优化，不能取代当前通用安全路径。
 本批 guest 验证覆盖 QtCore 后端；应用完整编译、全量测试及源码门禁由主线批次执行。
+
+2026-11-14 最终独立验证：
+
+| 验证项 | WSL | 非 WSL Linux guest |
+|---|---|---|
+| 快照/协议/controller QtTest | 13 通过，0 失败，0 跳过 | 13 通过，0 失败，0 跳过 |
+| 固定运行时完整强隔离矩阵 | 17/17 | 17/17 |
+| worker exec 后宿主退出 | 所有后代回收 | 所有后代回收 |
+| cgroup memory.max / swap / pids / CPU quota | 512 MiB / 0 / 8 / 单核 | 512 MiB / 0 / 8 / 单核 |
+
+矩阵还断言首次 stdout/stderr 溢出保留恰好 cap 大小前缀、非零退出 stdout
+诊断恰好 logBytes、1 MiB stdout 与 4 MiB 输入并发完整传输、32 MiB 大型
+输入被总体宿主预算拒绝，以及准备阶段过期时 CPU 统计为零（没有启动 worker）。
+OS 峰值在 OOM 用例达到 536,870,912 字节；普通 NumPy 用例约 284–285 MB。
+默认小任务宿主保留预算约 487 MB，均独立于子进程峰值。
+
+`tests/tst_pythonsandbox_linux_native.cpp` 是显式 fixture 驱动的可选验收目标：
+传入运行时根和宿主预期 manifest SHA，不接受外部 clone 路径。它在自有临时
+目录中完整有界复制并再次校验 runtime，只有该副本可被篡改。缺失 fixture
+直接失败；未配置供应的普通构建不注册这项执行。常规 13 项 QtTest 不需供应。

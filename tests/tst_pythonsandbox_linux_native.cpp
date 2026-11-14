@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QScopeGuard>
 #include <cstdio>
 #include <cerrno>
@@ -81,6 +82,9 @@ int main(int argc,char **argv) {
   const auto checked=verifyRuntime({app.arguments()[1],app.arguments()[2],true});
   if(!checked.ready()) {fprintf(stderr,"fixture: %s\n",qPrintable(checked.code));return 3;}
   const auto runtime=checked.runtime;const auto select=app.arguments().value(3);
+  const QSet<QString> cases{"numpy","frame","isolation","duplex","host-budget","payload-budget","disk-budget","invalid-json",
+    "stdout","stderr","failed-stdout","memory","cpu","wall","prepare-wall","cancel","toctou","hostdeath"};
+  if(!select.isEmpty()&&!cases.contains(select))return 2;
   const auto temporary=QFileInfo(QDir::tempPath()).canonicalFilePath();
   if(temporary==runtime->root||temporary.startsWith(runtime->root+'/'))return 4;
   QTemporaryDir inputs;if(!inputs.isValid())return 4;
@@ -107,7 +111,7 @@ int main(int argc,char **argv) {
   protocol="paleo.python-analysis-frame.v1";stdinBytes="{\"count\":2}";data=QByteArray::fromHex("0000803f00000040");
   run("frame","import sys,json,numpy as np\nn=int.from_bytes(sys.stdin.buffer.read(4),'little')\np=json.loads(sys.stdin.buffer.read(n))\na=np.frombuffer(sys.stdin.buffer.read(),dtype='<f4')\nassert a.size==p['count'] and float(a.sum())==3\nprint('frame-ok')\n","ok");
   protocol="paleo.python-json.v1";data.clear();
-  stdinBytes.clear();
+  stdinBytes="{}";
   const int shm=::shmget(IPC_PRIVATE,4096,IPC_CREAT|0600);if(shm<0)return 7;
   void *ipc=::shmat(shm,nullptr,0);
   if(ipc==reinterpret_cast<void*>(-1)) {::shmctl(shm,IPC_RMID,nullptr);return 7;}
@@ -149,12 +153,25 @@ print('isolation-ok')
 )";
   isolation.replace("HOST_SHMID",QByteArray::number(shm));run("isolation",isolation,"ok");
   protocol="paleo.python-analysis-frame.v1";stdinBytes="{}";data=QByteArray(4*1024*1024,'x');
-  run("duplex","import os,sys\nos.write(1,b'A'*1048576)\nn=int.from_bytes(sys.stdin.buffer.read(4),'little')\nsys.stdin.buffer.read(n)\na=sys.stdin.buffer.read()\nassert len(a)==4194304\n","ok");
-  stdinBytes.clear();data.clear();protocol="paleo.python-json.v1";
+  const auto duplex=run("duplex","import os,sys\nos.write(1,b'A'*1048576)\nn=int.from_bytes(sys.stdin.buffer.read(4),'little')\nsys.stdin.buffer.read(n)\na=sys.stdin.buffer.read()\nassert len(a)==4194304\n","ok");
+  if(select.isEmpty()||select=="duplex")all=all&&duplex.output.size()==1048576&&duplex.output.count('A')==1048576;
+  data=QByteArray(32*1024*1024,'x');
+  run("host-budget","raise AssertionError('must not execute')\n","python_snapshot_memory_budget");
+  request.policy.inputBytes=4096;data=QByteArray(4096,'x');
+  run("payload-budget","raise AssertionError('must not execute')\n","python_input_budget_exceeded");
+  request.policy.inputBytes=256*1024*1024;data.clear();protocol="paleo.python-json.v1";stdinBytes="{}";
+  request.policy.diskBytes=4096;
+  run("disk-budget","raise AssertionError('must not execute')\n","python_disk_budget_exceeded");request.policy.diskBytes=512*1024*1024;
+  stdinBytes=QByteArray::fromHex("7b2278223a22ff227d");
+  run("invalid-json","raise AssertionError('must not execute')\n","python_input_protocol_invalid");stdinBytes="{}";
   request.policy.outputBytes=4096;
-  run("stdout","import os\nwhile True: os.write(1,b'x'*4096)\n","python_process_output_limit");request.policy.outputBytes=64*1024*1024;
+  const auto stdoutLimit=run("stdout","import os\nwhile True: os.write(1,b'x'*4096)\n","python_process_output_limit");
+  if(select.isEmpty()||select=="stdout")all=all&&stdoutLimit.output.isEmpty()&&stdoutLimit.outputLog==QByteArray(4096,'x');
+  request.policy.outputBytes=64*1024*1024;
   request.policy.logBytes=4096;
-  run("stderr","import os\nwhile True: os.write(2,b'x'*4096)\n","python_process_log_limit");request.policy.logBytes=1024*1024;
+  const auto stderrLimit=run("stderr","import os\nwhile True: os.write(2,b'x'*4096)\n","python_process_log_limit");
+  if(select.isEmpty()||select=="stderr")all=all&&stderrLimit.error==QByteArray(4096,'x');
+  request.policy.logBytes=1024*1024;
   request.policy.logBytes=64;
   const auto failed=run("failed-stdout","import os,sys\nos.write(1,b'A'*128)\nsys.exit(7)\n","python_process_failed");
   if(select.isEmpty()||select=="failed-stdout")all=all&&failed.output.isEmpty()&&failed.outputLog==QByteArray(64,'A');
@@ -164,6 +181,12 @@ print('isolation-ok')
   run("cpu","while True: pass\n","python_process_cpu_limit");request.policy.cpuSeconds=60;
   request.policy.wallSeconds=1;
   run("wall","import time\ntime.sleep(30)\n","python_process_timeout");request.policy.wallSeconds=120;
+  if(select.isEmpty()||select=="prepare-wall") {
+    bool delayed=false;request.policy.wallSeconds=1;request.permit=claimExecutionPermit();
+    request.cancelled=[&]{if(!delayed){QThread::msleep(1100);delayed=true;}return false;};
+    const auto expired=run("prepare-wall","raise AssertionError('must not execute')\n","python_process_timeout");
+    all=all&&expired.cpuMicros==0;request.cancelled={};request.permit.reset();request.policy.wallSeconds=120;
+  }
   QElapsedTimer cancel;cancel.start();request.cancelled=[&]{return cancel.elapsed()>2000;};
   run("cancel","import time\ntime.sleep(30)\n","cancelled");request.cancelled={};
   request.runtime=cloned;

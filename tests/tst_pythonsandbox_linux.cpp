@@ -99,6 +99,27 @@ private slots:
     const auto oversized=inputs(dir.path(),"paleo.python-json.v1",QByteArray(65537,'x'));QVERIFY(oversized.ok());
     QVERIFY(!snapshotLinuxInputs(oversized,policy,1024*1024,1024*1024,{},code));QCOMPARE(code,QString("python_input_budget_exceeded"));
   }
+  void requiresUtf8JsonObject_data() {
+    QTest::addColumn<QByteArray>("bytes");QTest::addColumn<QString>("expected");
+    QTest::newRow("empty")<<QByteArray()<<QString("python_input_budget_exceeded");
+    QTest::newRow("array")<<QByteArray("[]")<<QString("python_input_protocol_invalid");
+    QTest::newRow("malformed")<<QByteArray("{bad}")<<QString("python_input_protocol_invalid");
+    QTest::newRow("invalid-utf8")<<QByteArray::fromHex("7b2278223a22ff227d")<<QString("python_input_protocol_invalid");
+  }
+  void requiresUtf8JsonObject() {
+    QFETCH(QByteArray,bytes);QFETCH(QString,expected);QTemporaryDir dir;QString code;ExecutionPolicy policy;
+    const auto source=inputs(dir.path(),"paleo.python-json.v1",bytes);QVERIFY(source.ok());
+    QVERIFY(!snapshotLinuxInputs(source,policy,1024*1024,1024*1024,{},code));QCOMPARE(code,expected);
+  }
+  void payloadCannotBorrowCodeAllowanceAndDiskIsBounded() {
+    QTemporaryDir dir;QString code;ExecutionPolicy policy;policy.inputBytes=4096;
+    const auto excessive=inputs(dir.path(),"paleo.python-analysis-frame.v1","{}",QByteArray(4096,'x'));
+    QVERIFY(!snapshotLinuxInputs(excessive,policy,1024*1024,1024*1024,{},code));QCOMPARE(code,QString("python_input_budget_exceeded"));
+    const auto exact=inputs(dir.path(),"paleo.python-analysis-frame.v1","{}",QByteArray(4094,'x'));
+    QVERIFY2(snapshotLinuxInputs(exact,policy,1024*1024,1024*1024,{},code),qPrintable(code));
+    policy.diskBytes=4096;
+    QVERIFY(!snapshotLinuxInputs(exact,policy,1024*1024,1024*1024,{},code));QCOMPARE(code,QString("python_disk_budget_exceeded"));
+  }
 };
 QTEST_GUILESS_MAIN(PythonSandboxLinuxTest)
 #include "tst_pythonsandbox_linux.moc"

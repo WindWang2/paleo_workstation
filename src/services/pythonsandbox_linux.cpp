@@ -4,6 +4,7 @@
 #include "pythonsandbox_linux_image.h"
 #include "services/pythonprocess_linux_internal.h"
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QLibrary>
@@ -90,31 +91,46 @@ SandboxResult runLinuxSandbox(const SandboxRequest &request) {
   result.childMemoryLimitBytes=request.policy.memoryBytes;
   if(!request.policy.allowGenerated) {result.code="python_generated_execution_denied";return result;}
   if(const auto code=request.policy.validate();!code.isEmpty()) {result.code=code;return result;}
-  process_detail::Launch native;native.policy=request.policy;native.cancelled=request.cancelled;
+  process_detail::Launch native;native.policy=request.policy;
   native.permit=request.permit?request.permit:process_detail::acquireProcessPermit(request.cancelled);
   if(!native.permit) {result.code="cancelled";return result;}
+  QElapsedTimer clock;clock.start();bool userCancelled=false,timedOut=false;
+  const auto cancelled=[&] {
+    if(request.cancelled&&request.cancelled())userCancelled=true;
+    if(clock.elapsed()>=qint64(request.policy.wallSeconds)*1000)timedOut=true;
+    return userCancelled||timedOut;
+  };
+  native.cancelled=cancelled;
+  const auto finish=[&] {
+    cancelled();
+    if(userCancelled||timedOut) {
+      if(result.outputLog.isEmpty())result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));
+      result.output.clear();result.code=userCancelled?"cancelled":"python_process_timeout";
+    }
+    return result;
+  };
   if(!request.runtime||!request.input) {result.code="python_sandbox_identity_required";return result;}
   constexpr qint64 metadataReservation=32*1024*1024;
   const qint64 fixedReservation=metadataReservation+3*(request.policy.outputBytes+request.policy.logBytes);
   const auto hostCapacity=qMin<qint64>(512*1024*1024,request.policy.memoryBytes)-fixedReservation;
   if(hostCapacity<0||request.runtime->treeSize>hostCapacity) {result.code="python_snapshot_memory_budget";return result;}
-  const auto image=snapshotLinuxRuntime(request.runtime,hostCapacity,request.cancelled,result.code);
-  if(!image)return result;
+  const auto image=snapshotLinuxRuntime(request.runtime,hostCapacity,cancelled,result.code);
+  if(!image)return finish();
   std::shared_ptr<SealedRuntimeImage> input;
   if(request.input) {
     const auto capacity=qMin<qint64>(512*1024*1024,request.policy.memoryBytes-64*1024*1024)-image->bytes;
-    input=snapshotLinuxInputs(*request.input,request.policy,capacity,hostCapacity-image->bytes,request.cancelled,result.code);
-    if(!input)return result;
+    input=snapshotLinuxInputs(*request.input,request.policy,capacity,hostCapacity-image->bytes,cancelled,result.code);
+    if(!input)return finish();
   }
   result.hostSnapshotReservedBytes=fixedReservation+image->bytes+input->bytes+input->bufferedBytes;
   native.inputChunks=input->stdinChunks;
   process_detail::linux_native::Prepared prepared;
-  result.code=strongPrepare(request,native,prepared,*image,input.get());if(!result.code.isEmpty())return result;
+  result.code=strongPrepare(request,native,prepared,*image,input.get());if(!result.code.isEmpty())return finish();
   const auto work=process_detail::linux_native::runPreparedChild(native,prepared);
   result.code=work.code;result.output=work.output;result.error=work.error;
   result.outputLog=work.outputLog;
   result.cpuMicros=work.cpuMicros;result.peakMemoryBytes=work.peakMemoryBytes;
-  result.exitCode=work.exitCode;result.memoryPeakComplete=work.memoryPeakComplete;return result;
+  result.exitCode=work.exitCode;result.memoryPeakComplete=work.memoryPeakComplete;return finish();
 }
 QString linuxSandboxReadiness() {
   using namespace process_detail::linux_native;

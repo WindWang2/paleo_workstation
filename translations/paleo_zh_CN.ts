@@ -37663,7 +37663,19 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message><source>local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准</source><translation>local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准</translation></message>
         <message><source>每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16</source><translation>每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16</translation></message>
         <message><source>完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192</source><translation>完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192</translation></message>
-    </context>
+        <message>
+        <source>受控 Python 计算</source>
+        <translation>受控 Python 计算</translation>
+    </message>
+    <message>
+        <source>对 well_curves 精确引用的同井窗口执行有界生成代码，限16列、8192点及16KiB UTF-8源码。必须启用独立生成代码权限并通过当前平台隔离探测；缺项拒绝执行。源码、输入、运行时及策略按内容身份冻结，每次使用新进程。只接收有界指标、表格和说明，宿主补来源证据；脚本的数值与单位声明未经独立重算。compute-only 不登记正式成果；publish 仅引用原操作并单独授权。</source>
+        <translation>对 well_curves 精确引用的同井窗口执行有界生成代码，限16列、8192点及16KiB UTF-8源码。必须启用独立生成代码权限并通过当前平台隔离探测；缺项拒绝执行。源码、输入、运行时及策略按内容身份冻结，每次使用新进程。只接收有界指标、表格和说明，宿主补来源证据；脚本的数值与单位声明未经独立重算。compute-only 不登记正式成果；publish 仅引用原操作并单独授权。</translation>
+    </message>
+    <message>
+        <source>Python 隔离状态</source>
+        <translation>Python 隔离状态</translation>
+    </message>
+</context>
 <context>
     <name>QgisCanvasController</name>
     <message>

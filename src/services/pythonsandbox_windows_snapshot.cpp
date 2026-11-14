@@ -44,13 +44,15 @@ bool transport(const SandboxRequest &request,const InputBundle &input,Authentica
   if(names!=expected){*error="python_input_protocol_invalid";return false;}
   const auto jsonRow=row(input,"request.json"),binaryRow=framed?row(input,"data.bin"):QJsonObject();
   const auto jsonSize=jsonRow.value("size").toInteger(-1),binarySize=framed?binaryRow.value("size").toInteger(-1):0;
-  if(jsonSize<1||jsonSize>JsonBytes||binarySize<0||jsonSize>request.policy.inputBytes-binarySize){*error="python_input_budget_exceeded";return false;}
-  snapshot.reservedBytes=hostBaseReservation(request.policy)+jsonSize+binarySize+8192;
+  const qint64 prefixBytes=framed?4:0;
+  if(jsonSize<1||jsonSize>JsonBytes||binarySize<0||request.policy.inputBytes<prefixBytes||
+      binarySize>request.policy.inputBytes-prefixBytes||jsonSize>request.policy.inputBytes-prefixBytes-binarySize){*error="python_input_budget_exceeded";return false;}
+  snapshot.reservedBytes=hostBaseReservation(request.policy)+prefixBytes+jsonSize+binarySize+8192;
   if(snapshot.reservedBytes>request.policy.memoryBytes){*error="python_snapshot_memory_budget";return false;}
   QByteArray json,binary;if(!readAuthenticated(input.root,jsonRow,JsonBytes,request,json,error))return false;
   QJsonParseError parse;const auto document=QJsonDocument::fromJson(json,&parse);
   if(parse.error!=QJsonParseError::NoError||!document.isObject()){*error="python_input_protocol_invalid";return false;}
-  if(framed){if(!readAuthenticated(input.root,binaryRow,request.policy.inputBytes-jsonSize,request,binary,error))return false;
+  if(framed){if(!readAuthenticated(input.root,binaryRow,request.policy.inputBytes-prefixBytes-jsonSize,request,binary,error))return false;
     QByteArray header(4,Qt::Uninitialized);qToLittleEndian<quint32>(quint32(json.size()),header.data());snapshot.inputChunks={header,json,binary};}
   else snapshot.inputChunks={json};
   snapshot.program=request.runtime->interpreter;snapshot.codePath=QDir(input.root).filePath("code.py");return true;

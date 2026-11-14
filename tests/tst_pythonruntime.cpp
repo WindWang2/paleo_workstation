@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QScopeGuard>
+#include <QSemaphore>
 #include <QTemporaryDir>
 #include <atomic>
 #include <thread>
@@ -97,20 +98,18 @@ private slots:
     QCOMPARE(policy.validate(),QString("python_policy_invalid"));
   }
   void snapshotsAndQueuedCancellationDoNotWaitForAnInspection() {
-    Fixture fixture;RuntimeProvider provider(fixture.config());std::atomic_bool entered=false,released=false;
+    Fixture fixture;RuntimeProvider provider(fixture.config());std::atomic_bool blocked=false;
+    QSemaphore entered,release;
     std::thread worker([&]{provider.inspect([&]{
-      if(!entered.exchange(true)) {
-        QElapsedTimer deadline;deadline.start();
-        while(!released.load() && deadline.elapsed()<2000)QThread::msleep(1);
-      }
+      if(!blocked.exchange(true)){entered.release();release.acquire();}
       return false;
     });});
-    const auto cleanup=qScopeGuard([&]{released=true;worker.join();});
-    QTRY_VERIFY_WITH_TIMEOUT(entered.load(),1000);
+    const auto cleanup=qScopeGuard([&]{release.release();worker.join();});
+    QVERIFY(entered.tryAcquire(1,2000));
     QElapsedTimer elapsed;elapsed.start();
     QCOMPARE(provider.snapshot().code,QString("python_environment_verifying"));
     QCOMPARE(provider.inspect([]{return true;}).code,QString("cancelled"));
-    QVERIFY(elapsed.elapsed()<500);released=true;
+    QVERIFY(elapsed.elapsed()<500);
   }
   void realPinnedRuntimeWhenConfigured() {
     const auto root=qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT");

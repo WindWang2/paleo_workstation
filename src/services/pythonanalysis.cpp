@@ -27,7 +27,8 @@ QJsonObject AnalysisReadMetrics::json() const {
   return {{"payloadBytes",QString::number(payloadBytes)},{"legacyBytes",QString::number(legacyBytes)},
     {"axisBlocks",QString::number(axisBlocks)},{"valueBlocks",QString::number(valueBlocks)},
     {"windows",QString::number(windows)},{"metadataRows",QString::number(metadataRows)},
-    {"metadataTextBytes",QString::number(metadataTextBytes)},{"measurement","sdk_array_payload_and_returned_metadata_not_physical_disk"}};
+    {"metadataTextBytes",QString::number(metadataTextBytes)},{"sourceRows",QString::number(sourceRows)},
+    {"measurement","sdk_array_payload_and_returned_metadata_not_physical_disk"}};
 }
 namespace analysis_detail {
 QString hash(QByteArrayView bytes) {return QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());}

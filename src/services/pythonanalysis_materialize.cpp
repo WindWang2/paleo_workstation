@@ -1,6 +1,7 @@
 // 层：数据
 #include "pythonanalysis_internal.h"
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <cmath>
@@ -13,16 +14,29 @@ QString checkHead(const data::DataService &service,const data::ModelChangeHead &
     return "python_analysis_model_changed";
   return {};
 }
-QString checkSource(const data::DataService &service,const AnalysisCurveSelection &selection,const AnalysisReadPlan &plan) {
+QString checkSource(const data::DataService &service,const AnalysisCurveSelection &selection,const AnalysisReadPlan &plan,
+                    AnalysisReadMetrics &metrics) {
   const auto &source=selection.source;data::SourceIndexEntry registered;std::string error;
+  const auto remaining=plan.readByteBudget-metrics.payloadBytes-metrics.metadataTextBytes;
+  if(remaining<1)return "python_analysis_read_budget";
+  data::SourceIndexReadOptions options;options.maxFieldBytes=qMin<qint64>(8192,remaining);options.maxTextBytes=qMin<qint64>(8192,remaining);
+  data::SourceIndexReadStats usage;
+  if(!service.readSourceIndexEntry(source.ref.sourceId,registered,error,options,&usage)) {
+    if(error.starts_with("SourceIndexValueBudgetExceeded"))return "python_analysis_read_budget";
+    if(error.starts_with("SourceIndexValueBudgetUnavailable"))return "python_analysis_source_metadata_unavailable";
+    return "python_analysis_source_changed";
+  }
+  if(usage.textBytesRead<0 || usage.textBytesRead>remaining)return "python_analysis_read_budget";
+  metrics.metadataTextBytes+=usage.textBytesRead;++metrics.sourceRows;
   if(source.ref.documentId!=plan.documentId || source.versionId!=selection.sourceVersionId ||
-      !service.readSourceIndexEntry(source.ref.sourceId,registered,error) || !registered.active ||
+      !registered.active ||
       QString::fromStdString(registered.sha256)!=source.ref.fileRevisionId)return "python_analysis_source_changed";
   return {};
 }
 namespace {
 void charge(AnalysisReadMetrics &total,const data::CurveReadStats &part) {
   total.payloadBytes+=part.payloadBytesRead;total.legacyBytes+=part.legacyBytesMaterialized;
+  total.metadataTextBytes+=part.metadataBytesRead;
   total.axisBlocks+=part.axisBlocksRead;total.valueBlocks+=part.valueBlocksRead;++total.windows;
 }
 QString axis(const data::CurveWindowResult &window,const AnalysisCurveSelection &selection,
@@ -50,22 +64,35 @@ QString axis(const data::CurveWindowResult &window,const AnalysisCurveSelection 
 }
 QString readColumns(data::DataService &service,const AnalysisReadPlan &plan,QVector<data::CurveWindowResult> &columns,
                     AnalysisReadMetrics &metrics,const std::function<bool()> &cancelled) {
-  columns.clear();std::string error;
+  columns.clear();std::string error;QHash<qlonglong,QString> sourceRevisions;
   for(const auto &selection:plan.curves) {
     if(cancelled && cancelled())return "cancelled";
     // An exact keyset seek proves ownership without enumerating the well's other curves.
     // Reserve the SDK's maximum returned name/detail bytes before its metadata query.
     if(plan.readByteBudget-metrics.payloadBytes-metrics.metadataTextBytes<8192)return "python_analysis_read_budget";
     std::vector<data::DataEntry> entries;bool more=false;
-    if(!service.listDataPage("curves",selection.wellId,selection.curveId-1,1,entries,more,error))
+    data::MetadataReadOptions metadataBudget;metadataBudget.maxFieldBytes=4096;
+    metadataBudget.maxTextBytes=qMin<qint64>(8192,plan.readByteBudget-metrics.payloadBytes-metrics.metadataTextBytes);
+    data::MetadataReadStats metadataUsage;
+    if(!service.listDataPage("curves",selection.wellId,selection.curveId-1,1,entries,more,error,metadataBudget,&metadataUsage)) {
+      if(error.starts_with("DataPageValueBudgetExceeded"))return "python_analysis_read_budget";
       return "python_analysis_metadata_unavailable";
-    for(const auto &entry:entries){++metrics.metadataRows;metrics.metadataTextBytes+=entry.name.size()+entry.detail.size();}
-    const auto sourceCode=checkSource(service,selection,plan);if(!sourceCode.isEmpty())return sourceCode;
+    }
+    metrics.metadataRows+=entries.size();metrics.metadataTextBytes+=metadataUsage.textBytesRead;
+    const auto sourceId=selection.source.ref.sourceId;
+    if(sourceRevisions.contains(sourceId)) {
+      if(sourceRevisions.value(sourceId)!=selection.source.ref.fileRevisionId)return "python_analysis_source_changed";
+    } else {
+      const auto sourceCode=checkSource(service,selection,plan,metrics);if(!sourceCode.isEmpty())return sourceCode;
+      sourceRevisions.insert(sourceId,selection.source.ref.fileRevisionId);
+    }
     if(entries.size()!=1 || entries.front().id!=selection.curveId || entries.front().wellId!=selection.wellId ||
         entries.front().parentId!=selection.logSetId || entries.front().sourceId!=selection.source.ref.sourceId)
       return "python_analysis_curve_mismatch";
     data::CurveReadOptions budget;budget.maxSamples=selection.sampleCount;budget.maxLegacyBytes=0;
     budget.maxReadBytes=plan.readByteBudget-metrics.payloadBytes-metrics.metadataTextBytes;budget.cancelled=cancelled;
+    if(budget.maxReadBytes<1)return "python_analysis_read_budget";
+    budget.maxMetadataBytes=qMin<qint64>(65536,budget.maxReadBytes);budget.maxMetadataFieldBytes=8192;
     data::CurveWindowQuery query;query.curveId=selection.curveId;query.firstSample=selection.firstSample;
     query.sampleCount=selection.sampleCount;query.processed=selection.processed;query.includeAuxiliaryAxes=false;
     data::CurveWindowResult window;data::CurveReadStats usage;

@@ -12,6 +12,7 @@
 #include <QUrl>
 #include <QScopeGuard>
 #include "services/paleotaskservice.h"
+#include "services/pythonruntime.h"
 
 #include "../src/ai/chat/chatmessage.h"
 #include "../src/ai/remotepredictconfig.h"

@@ -75,10 +75,58 @@ RuntimeProvider 仅在同进程、同 canonicalRoot＋manifest 间共享 generat
 功能源码冻结于 `a6b92d6b8803e523827a2f19f1ae8aae286a310d`，SDK 为上列 `9160615d`；
 之后仅补文档。此前 `7d1f3250` 的完整编译与 focused 回归保留为补代次修复前记录，
 不能代替最终冻结版本验收。
-完整编译、功能回归、Windows 原生组件和非 WSL Linux 原生矩阵结果在完成后补录。
-既有 PY4 证据包保持不变，新批次不复用其成功计数。完整源码门禁在最终 fetch/rebase
-之后重跑，基线只缩不涨；不将配置成功当作编译或执行成功。
+最终默认/no-ORT 各完整编译 `paleo` 与 49 个 C++ 目标通过。最终 WSL focused 为
+12 套 C++ 回归＋4 供货检查，各 **16/16**，**41.73/41.98 秒**；强后端明确验证
+缺 CPU controller 时拒绝，不将该负例算作 Linux 成功执行。两套 WebEngine 实际链接、
+Office 组件与应用首帧通过。旧 PY4 证据包保持不变，新批次不复用其成功计数。
+
+Windows MSVC/Qt 6.8 原生六套 CTest 首轮 **75/0/0**，CTest **117.26 秒**：
+
+| 套件 | QtTest 通过/失败/跳过 |
+|---|---|
+| Runtime | 25/0/0 |
+| 强后端就绪 | 8/0/0 |
+| 生成操作 | 9/0/0 |
+| 真实模板分析，含 8 组迁移参考 | 27/0/0 |
+| Linux unsupported 真实 stub/fixture | 3/0/0 |
+| Core evidence | 3/0/0 |
+
+显式 require execution、expected strong=ok，无 registry/execute/submit 替身。12 个关键
+对象的 Ninja 依赖均 VALID 且非零，源/头早于对象，原始换行、LF 归一与 Git blob 关联
+一致。SDK 库原编译身份 9d80 与当前 916 的整树等价单独核验。这是原生 Core Host/SDK/
+LPAC 与模板执行证据，不是 Windows GUI 完整构建。
+
+非 WSL Arch/KVM 的两套完整矩阵均首轮通过，零失败/跳过、无重跑：
+
+| 配置 | CTest | QtTest 通过/失败/跳过 | CTest / wrapper 秒数 |
+|---|---|---|---|
+| 默认 | 53/53 | 732/0/0 | 339.93 / 352.24 |
+| no-ORT | 53/53 | 726/0/0 | 360.02 / 381.557 |
+
+各套 Runtime 25、强就绪 8、生成
+操作 9、真实 App wiring 10（含 generated-numeric Agent 全链路）通过；实际 Linux
+child 矩阵 **19/19**，不与其外层 QtTest 行数混用。三次运行时 2143 文件精确集合/
+完整 SHA/只读、六组 ABI、Office 与完整应用首帧均通过。两包各 6479 文件在执行前
+逐 SHA 核验，52 个 ELF 每配置（49 C++ 测试、应用和两个辅助程序）只在完整构建
+退出后复制并核对稳定。所有正式资源测试串行，无编译、传包、压缩或后台大散列并发。
+
+最终 fetch/rebase `origin/master`（仍为 `c756cdbe`）后完整 Source gates **37/37**，
+显式锁版 QGIS_PREFIX、transitive 全指标及配套自检均包含。基线未增长或放宽，
+源/测试/构建文件与 a6b 冻结内容相同；后续验收记录只改文档。
 
 本机可复现入口为整理工作树 `local/python-validation/` 的 `mount-matrix.sh`、
 `matrix.sh`、`source-gates.py` 和 `check-anchor-scope.py`；原生验收另存独立目录。
 构建总并行不超过 8，Windows 测试串行，强隔离资源用例独占运行。
+Source gates 逐项输出为 `local/python-review-20261115/source-gates/`。
+
+最终完整证据包为整理工作树 ignored 目录
+`local/python-review-validation/native-full-review/review-native-evidence-complete.tar.gz`，
+1,524,133 B，SHA256
+`2e1ddcd2bad68e37f79a8ee09761823a49f8746d1a2c29215baab40a5b480477`。
+202 文件逐条解压读取并核内部 SHA，包含两套原生首轮完整结果与全部资源/ABI/Office/
+运行时核验、Windows 六套原始日志与 12 对象依赖/源码关联、SDK 树等价、两套生产宏
+scope/source-target 证明、编译/配置/focused 日志及 VM 保留盘恢复/16 helper 证明。
+本批没有失败或重跑，也没有提高预算或放宽断言；旧 PY4 与补修前记录原样保留。
+临时 VM 在取证后正常关闭，原数据盘与证据保留，其他 VM 未操作。
+
+SDK 与实施 PR 已合入 master；本轮整理作为单独 PR 待审，Shell 继续后置。

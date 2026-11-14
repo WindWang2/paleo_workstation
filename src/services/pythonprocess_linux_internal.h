@@ -25,6 +25,7 @@ QJsonObject verifiedHelpers();
 QProcessEnvironment helperEnvironment();
 QStringList scopeArguments(const QString &unit,const ExecutionPolicy &policy);
 QString prepareEnvelope(const Launch &request,Prepared &prepared);
+QString verifyResourceLimits(const QString &directory,const ExecutionPolicy &policy);
 void configureProcess(QProcess &process,const Prepared &prepared,const ExecutionPolicy &policy);
 ProcessResult runPreparedChild(const Launch &request,Prepared &prepared);
 }

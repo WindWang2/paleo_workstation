@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QScopeGuard>
 #include <atomic>
 using namespace paleo;
 using namespace paleo::capability;
@@ -61,6 +62,15 @@ private slots:
     });
     ExecuteRequest request;request.capabilityId=spec.capabilityId;request.clientRequestId="internal";request.publishIntent="compute-only";
     QCOMPARE(host.prepare(request,host::Caller::Batch).code,QString("capability_not_callable"));
+  }
+  void foreignThreadSubscriberIsRejectedBeforeStartingWork() {
+    QTemporaryDir project;Host host;QVERIFY(host.open(project.path()));auto plan=controlPlan("foreign-subscriber");plan.phase="prepare";
+    const auto accepted=host.recovery.accept(plan);QVERIFY(accepted.ok);
+    QThread worker;auto *subscriber=new QObject;subscriber->moveToThread(&worker);
+    connect(&worker,&QThread::finished,subscriber,&QObject::deleteLater);worker.start();
+    const auto stop=qScopeGuard([&]{worker.quit();worker.wait();});QString error;bool called=false;
+    QVERIFY(!host.recovery.start(plan.callerScope,accepted.record.operationId,subscriber,"foreign",[&](auto){called=true;},false,&error));
+    QCOMPARE(error,QString("subscriber_thread_mismatch"));QCOMPARE(host.tasks.runningCount(),0);QVERIFY(!called);
   }
   void executionPermissionSurvivesPersistenceAndIsRecheckedAtCommit() {
     QTemporaryDir project;Host host;QVERIFY(host.open(project.path()));auto plan=controlPlan("effects");std::atomic_int count=0;
@@ -124,6 +134,8 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(done,5000);QVERIFY(stopped.load());QVERIFY(!result.ok);
     QVERIFY(result.code=="cancelled" || result.code=="stale_session" || result.code=="effect_denied");
     QVERIFY(!QJsonDocument::fromJson(result.responseJson).object().value("ok").toBool());QCOMPARE(host.catalog.versions().size(),0);
+    OperationLog journal(project.path()+"/.paleo/capability-ops",project.path(),host.lock->claim());
+    QCOMPARE(journal.recordById(accepted.record.operationId).execution,QString("interrupted"));
     QVERIFY(!host.recovery.get(plan.callerScope,accepted.record.operationId).value("cancelRequested").toBool());
   }
   void taskAddedCanDeleteSubscriberOnPrepareWithoutAUserCallback() {

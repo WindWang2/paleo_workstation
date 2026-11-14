@@ -111,7 +111,7 @@ QJsonObject SandboxProvider::inspect(const std::function<bool()> &cancelled) {
   // The admission probe itself uses the real strong backend, before any cached
   // readiness exists. No trusted-process mode or widened policy is introduced.
   const auto result=dispatch(request);evidence(state,result);
-  if(!result.error.isEmpty())state["diagnostic"]=QString::fromUtf8(result.error.first(qMin<qint64>(4096,policy.logBytes)));
+  if(!result.error.isEmpty())state["diagnostic"]=QString::fromUtf8(result.error.first(qMin<qint64>(result.error.size(),qMin<qint64>(4096,policy.logBytes))));
   if(stopped())return fail(stoppedCode());if(!result.ok())return fail(result.code);
   if(result.output!=expectedOutput())return fail("python_sandbox_probe_output_invalid");
   state["code"]="ok";state["ready"]=true;state["requiresRuntimeProbe"]=false;state["runtimeProbeVerified"]=true;

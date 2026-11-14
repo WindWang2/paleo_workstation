@@ -5,6 +5,7 @@
 #include "catalog/datacatalog.h"
 #include "metadata/projectlock.h"
 #include <QtTest>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QThread>
 #include <atomic>
@@ -47,13 +48,29 @@ struct Fixture {
   bool open() {
     lock=std::make_unique<ProjectDirLock>(temp.path());if(!lock->tryLock(&error) || !catalog.open(temp.path(),&error))return false;
     tasks=std::make_unique<ObservedTaskService>();host=std::make_unique<CapabilityHost>();
-    host->setTaskService(tasks.get());host->setCallerScope(host::Caller::Agent,"agent:test");
-    host->setBindingProvider([this]{return binding();});
+    configureHost();
     host->registerExecutionAdapter(QLatin1String(python::WellQualityCapability),adapter());return true;
   }
   ExecuteRequest request() {
     ExecuteRequest out;out.capabilityId=QLatin1String(python::WellQualityCapability);out.clientRequestId="stable-request";
     out.publishIntent="compute-only";return out;
+  }
+  void configureHost() {
+    host->setTaskService(tasks.get());host->setCallerScope(host::Caller::Agent,"agent:test");
+    host->setBindingProvider([this]{return binding();});
+  }
+  FrozenOperation restorationPlan(bool registered) {
+    FrozenOperation plan;plan.capabilityId=registered?QString::fromLatin1(python::WellQualityCapability):QStringLiteral("test.restore-hooks");
+    plan.callerScope="agent:test";plan.clientRequestId="restore-lifetime";plan.implementationVersion="test";
+    plan.phase="compute-only";plan.requiredEffects=host::LocalExecute;plan.intent={{"test",true}};plan.frozenPlan={{"test",true}};
+    plan.outputSpec.id="test:restore-hooks";plan.outputSpec.complete=true;AlgoPort port;port.id="REPORT";port.kind="file";
+    plan.outputSpec.outputs={port};plan.outputPorts={"REPORT"};
+    plan.worker=[this](const OperationWorkContext &context) {
+      entered=true;OperationWorkResult result;QFile file(context.privateDir+"/REPORT.json");
+      result.ok=file.open(QIODevice::WriteOnly) && file.write("{}",2)==2;file.close();
+      result.outputs.ok=result.ok;result.outputs.artifacts.append({"REPORT",file.fileName(),{},{},{},{}});return result;
+    };
+    plan.inputValidator=[](const OperationWorkContext &){return QString();};return plan;
   }
   void replaceTasks() {tasks=std::make_unique<ObservedTaskService>();host->setTaskService(tasks.get());}
 };
@@ -75,16 +92,9 @@ private slots:
       f.host=std::make_unique<CapabilityHost>([&](const HostBinding &) {
         f.host.reset();return CapabilityExecutionAdapter{};
       },nullptr);
-      f.host->setTaskService(f.tasks.get());f.host->setCallerScope(host::Caller::Agent,"agent:test");
-      f.host->setBindingProvider([&]{return f.binding();});
+      f.configureHost();
     }
-    const OperationWorker worker=[&](const OperationWorkContext &){f.entered=true;return OperationWorkResult{};};
-    FrozenOperation plan;plan.capabilityId=registered?QString::fromLatin1(python::WellQualityCapability):QStringLiteral("test.restore-hooks");
-    plan.callerScope="agent:test";plan.clientRequestId="restore-lifetime";plan.implementationVersion="test";
-    plan.phase="compute-only";plan.requiredEffects=host::LocalExecute;plan.intent={{"hook",hook}};plan.frozenPlan={{"test",true}};
-    plan.outputSpec.id="test:restore-hooks";plan.outputSpec.complete=true;AlgoPort port;port.id="REPORT";port.kind="file";
-    plan.outputSpec.outputs={port};plan.outputPorts={"REPORT"};plan.worker=worker;
-    plan.inputValidator=[](const OperationWorkContext &){return QString();};
+    auto plan=f.restorationPlan(registered);plan.intent={{"hook",hook}};const auto worker=plan.worker;
     const auto accepted=f.host->recovery()->accept(plan);QVERIFY2(accepted.ok,qPrintable(accepted.code));
     f.host->invalidate(); // Restore from the journal, without cached runtime callbacks.
     const auto validate=[&](const OperationLog::Record &) {if(hook=="validate")f.host.reset();return QString();};
@@ -107,6 +117,48 @@ private slots:
     QCOMPARE(f.tasks->runningCount(),0);QVERIFY(f.catalog.versions().isEmpty());
     OperationLog log(f.temp.path()+"/.paleo/capability-ops",f.temp.path(),f.lock->claim());const auto record=log.recordById(accepted.record.operationId);
     QCOMPARE(record.execution,QString("queued"));QCOMPARE(record.computeCount,0);
+  }
+  void restoringHooksCannotChangeBinding_data() {
+    QTest::addColumn<QString>("hook");QTest::addColumn<bool>("registered");QTest::addColumn<bool>("rebind");
+    for(const auto &hook:{"validate","input-validator","worker"})for(const bool registered:{false,true})for(const bool rebind:{false,true}) {
+      const auto name=QByteArray(registered?"adapter-":"member-")+hook+(rebind?"-rebind":"-invalidate");
+      QTest::newRow(name.constData())<<QString::fromLatin1(hook)<<registered<<rebind;
+    }
+  }
+  void restoringHooksCannotChangeBinding() {
+    QFETCH(QString,hook);QFETCH(bool,registered);QFETCH(bool,rebind);Fixture f;QVERIFY(f.open());
+    auto plan=f.restorationPlan(registered);const auto worker=plan.worker;const auto validator=plan.inputValidator;
+    const auto accepted=f.host->recovery()->accept(plan);QVERIFY2(accepted.ok,qPrintable(accepted.code));f.host->invalidate();
+    const auto change=[&] {if(rebind)f.host->setBindingProvider([&]{return f.binding();});else f.host->invalidate();};
+    const auto validate=[&](const OperationLog::Record &){if(hook=="validate")change();return QString();};
+    const auto input=[&,validator](const OperationLog::Record &,QString *){if(hook=="input-validator")change();return validator;};
+    const auto restore=[&,worker](const OperationLog::Record &,QString *){if(hook=="worker")change();return worker;};
+    if(registered) {
+      CapabilityExecutionAdapter adapter;adapter.validateFrozen=validate;adapter.restoreInputValidator=input;adapter.restoreWorker=restore;
+      f.host->registerExecutionAdapter(plan.capabilityId,std::move(adapter));
+    } else {
+      f.host->setFrozenValidator(validate);f.host->setInputValidatorRestorer(input);f.host->setWorkerRestorer(restore);
+    }
+    int completions=0;
+    QVERIFY(!f.host->recovery()->start(plan.callerScope,accepted.record.operationId,this,"Changed restore binding",[&](auto){++completions;},false,&f.error));
+    QVERIFY(f.host);QCOMPARE(f.error,QString("stale_session"));QCOMPARE(completions,0);QVERIFY(!f.entered);
+    QCOMPARE(f.tasks->runningCount(),0);QVERIFY(f.catalog.versions().isEmpty());
+    OperationLog log(f.temp.path()+"/.paleo/capability-ops",f.temp.path(),f.lock->claim());const auto record=log.recordById(accepted.record.operationId);
+    QCOMPARE(record.execution,QString("queued"));QCOMPARE(record.computeCount,0);
+  }
+  void firstDirectStartAfterRestartAcceptsTheInitializedGeneration() {
+    Fixture f;QVERIFY(f.open());const auto plan=f.restorationPlan(false);
+    const auto accepted=f.host->recovery()->accept(plan);QVERIFY2(accepted.ok,qPrintable(accepted.code));
+    f.host=std::make_unique<CapabilityHost>();f.configureHost();
+    f.host->setFrozenValidator([](const OperationLog::Record &){return QString();});
+    f.host->setInputValidatorRestorer([validator=plan.inputValidator](const OperationLog::Record &,QString *){return validator;});
+    f.host->setWorkerRestorer([worker=plan.worker](const OperationLog::Record &,QString *){return worker;});
+    int completions=0;ExecuteResult result;
+    // No lookup/accept warms this new coordinator before its first direct start.
+    QVERIFY2(f.host->recovery()->start(plan.callerScope,accepted.record.operationId,this,"Cold restore",[&](auto value){result=std::move(value);++completions;},false,&f.error),qPrintable(f.error));
+    QTRY_COMPARE_WITH_TIMEOUT(completions,1,5000);QVERIFY2(result.ok,qPrintable(result.code));QVERIFY(f.entered);
+    OperationLog log(f.temp.path()+"/.paleo/capability-ops",f.temp.path(),f.lock->claim());const auto record=log.recordById(accepted.record.operationId);
+    QCOMPARE(record.execution,QString("succeeded"));QCOMPARE(record.computeCount,1);QVERIFY(f.catalog.versions().isEmpty());
   }
   void prepareBindingCannotOutliveHost_data() {
     QTest::addColumn<bool>("plan");QTest::addColumn<int>("deleteOnCall");

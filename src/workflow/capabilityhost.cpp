@@ -29,59 +29,61 @@ QByteArray CapabilityHost::requestDigest(const ExecuteRequest &request) { return
 CapabilityHost::CapabilityHost(NativeAdapterFactory nativeFactory, QObject *parent)
   : QObject(parent), m_nativeAdapterFactory(std::move(nativeFactory)), m_recovery(new CapabilityRecovery(this)) {
   m_recovery->setHostProvider([this] {
-    const QPointer<CapabilityHost> guard(this);const auto b=binding();RecoveryHost h;
-    if(!guard)return h;
+    const QPointer<CapabilityHost> guard(this);const auto invalidated=m_preparationInvalidated;
+    const auto current=[guard,invalidated]{return guard && !invalidated->load();};
+    const auto b=binding();RecoveryHost h;if(!current())return h;
     h.context=b.context;h.projectDir=b.projectDir;h.operationDir=b.operationDir;
     h.catalog=b.catalog;h.writeClaim=b.writeClaim;
     h.presentationState=m_presentationState;h.present=m_present;
-    h.restoreInputValidator=[guard,b](const OperationLog::Record &r,QString *error) {
-      const auto unavailable=[error]{if(error)*error="document_unavailable";return OperationInputValidator{};};
-      if(!guard)return unavailable();
+    h.restoreInputValidator=[guard,b,current](const OperationLog::Record &r,QString *error) {
+      const auto unavailable=[error,guard]{if(error)*error=guard?"stale_session":"document_unavailable";return OperationInputValidator{};};
+      if(!current())return unavailable();
       if(guard->m_adapters.contains(r.capabilityId)) {
         const auto restore=guard->m_adapters.value(r.capabilityId).restoreInputValidator;
         auto validator=restore?restore(r,error):OperationInputValidator{};
-        return guard?validator:unavailable();
+        return current()?validator:unavailable();
       }
       const auto restore=guard->m_restoreInputValidator;const auto factory=guard->m_nativeAdapterFactory;
       if(restore) {
-        auto validator=restore(r,error);if(!guard)return unavailable();if(validator)return validator;
+        auto validator=restore(r,error);if(!current())return unavailable();if(validator)return validator;
       }
-      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!guard)return unavailable();
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!current())return unavailable();
       if(native.restoreInputValidator) {
-        auto validator=native.restoreInputValidator(r,error);return guard?validator:unavailable();
+        auto validator=native.restoreInputValidator(r,error);return current()?validator:unavailable();
       }
       if(error)*error="execution_adapter_unavailable";return OperationInputValidator{};
     };
-    h.validateFrozen=[guard,b](const OperationLog::Record &r) {
-      if(!guard)return QStringLiteral("document_unavailable");
+    h.validateFrozen=[guard,b,current](const OperationLog::Record &r) {
+      const auto unavailable=[guard]{return guard?QStringLiteral("stale_session"):QStringLiteral("document_unavailable");};
+      if(!current())return unavailable();
       if(guard->m_adapters.contains(r.capabilityId)) {
         const auto validate=guard->m_adapters.value(r.capabilityId).validateFrozen;
         const auto code=validate?validate(r):QStringLiteral("execution_adapter_unavailable");
-        return guard?code:QStringLiteral("document_unavailable");
+        return current()?code:unavailable();
       }
       const auto validate=guard->m_validateFrozen;const auto factory=guard->m_nativeAdapterFactory;
       if(validate) {
-        const auto code=validate(r);if(!guard)return QStringLiteral("document_unavailable");if(!code.isEmpty())return code;
+        const auto code=validate(r);if(!current())return unavailable();if(!code.isEmpty())return code;
       }
-      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!guard)return QStringLiteral("document_unavailable");
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!current())return unavailable();
       const auto code=native.validateFrozen?native.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
-      return guard?code:QStringLiteral("document_unavailable");
+      return current()?code:unavailable();
     };
-    h.restoreWorker=[guard,b](const OperationLog::Record &r,QString *error) {
-      const auto unavailable=[error]{if(error)*error="document_unavailable";return OperationWorker{};};
-      if(!guard)return unavailable();
+    h.restoreWorker=[guard,b,current](const OperationLog::Record &r,QString *error) {
+      const auto unavailable=[error,guard]{if(error)*error=guard?"stale_session":"document_unavailable";return OperationWorker{};};
+      if(!current())return unavailable();
       if(guard->m_adapters.contains(r.capabilityId)) {
         const auto restore=guard->m_adapters.value(r.capabilityId).restoreWorker;
-        if(restore){auto worker=restore(r,error);return guard?worker:unavailable();}
+        if(restore){auto worker=restore(r,error);return current()?worker:unavailable();}
         if(error)*error="execution_adapter_unavailable";return OperationWorker{};
       }
       const auto restore=guard->m_restoreWorker;const auto factory=guard->m_nativeAdapterFactory;
       if(restore) {
-        auto worker=restore(r,error);if(!guard)return unavailable();
+        auto worker=restore(r,error);if(!current())return unavailable();
         if(worker || (error && !error->isEmpty()))return worker;
       }
-      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!guard)return unavailable();
-      if(native.restoreWorker){auto worker=native.restoreWorker(r,error);return guard?worker:unavailable();}
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!current())return unavailable();
+      if(native.restoreWorker){auto worker=native.restoreWorker(r,error);return current()?worker:unavailable();}
       if(error)*error="execution_adapter_unavailable";return OperationWorker{};
     };return h;
   });

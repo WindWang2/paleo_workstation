@@ -85,8 +85,10 @@ Windows 允许的任意原生线程数量没有独立 Job 上限，诊断明确�
 ## 完整应用与依赖资源
 
 默认/no-ORT 各完整编译 `paleo` 与 49 C++ 目标，原生最终测试选择为各 53 项
-（另 4 项供货检查）。WSL 缺 CPU controller 的负例与原生成功验收分列；本批最终
-安全修复后的完整编译及最终原生结果待补录，不使用旧源码结果充当新结果。
+（另 4 项供货检查）。安全修复后两套完整编译均已通过；WSL 选择不依赖成功执行的
+12 套 C++ 回归加 4 供货检查，均 **16/16**，用时 **29.31/32.87 秒**，两套应用首帧
+及 WebEngine/Office 闭包通过。其中强就绪明确断言缺 CPU controller 时拒绝，不将
+该负例算作 Linux 成功执行。最终原生 53 项结果待补录，不使用旧源码结果充当新结果。
 
 新加入完整矩阵的既有 `tst_runtime` 发现私有 QGIS prefix 漏解包 postinst 资源步骤。
 已用仓库现有 `ensure_qgis_resources.py`，从锁版 qgis-providers-common 4.2.3+44 的
@@ -96,3 +98,24 @@ Windows 允许的任意原生线程数量没有独立 Job 上限，诊断明确�
 VM2 用独立 `qgis-srs-supplement.json` 锚 `b92286865f607a85c055e83644c27657b167bd178cfaffa7ee2a05225cada038`，
 不声称原共享闭包清单已包含新增文件。各应用须再次通过六组 ABI、Office 组件、
 首帧及运行时 2143 文件前后 SHA 检查后，才能按计划提交本批 PR。
+
+## 本机验证命令与记录
+
+WSL 两套独立物理 build 使用私有 mount namespace 保留原编译路径别名，随后降为
+UID 1000、清空 capabilities；不会修改主 checkout 或其他验证进程的挂载。
+实际构建入口如下，driver 展开的配置、资源目录及完整目标清单在本工作树
+`local/python-validation/` 和 build 的 `py4-test-names.txt` 中保留。
+
+```powershell
+wsl -d archlinux -u root --exec unshare --mount --propagation private /usr/bin/bash /mnt/c/Users/wangj.KEVIN/.codex/worktrees/python-generated-compute/paleo_workstation/local/python-validation/mount-matrix.sh ort
+wsl -d archlinux -u root --exec unshare --mount --propagation private /usr/bin/bash /mnt/c/Users/wangj.KEVIN/.codex/worktrees/python-generated-compute/paleo_workstation/local/python-validation/mount-matrix.sh noort
+python local/python-validation/source-gates.py
+```
+
+每套 driver 的核心构建命令为 `cmake --build "$build" --target paleo "${tests[@]}" -j3`，
+AUTOGEN 并行为 1，构建总并行上限 8；ctest 串行。Source gates 从当前 CI 文件读取
+完整清单，显式给锁版 QGIS 头目录，包含 transitive 全指标与补充自检。
+原生 Linux 最终 driver 是 `local/python-validation/native-full-py4/`，从已核验供货包
+启动同样的私有挂载、UID/capability 降权和只读运行时绑定；两个配置各执行 53 项，
+不可将 WSL 的预期拒绝替代原生执行。其精确命令、源/SDK/供货清单、首次失败与重试
+均随最终证据包保存。

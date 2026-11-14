@@ -70,6 +70,8 @@ target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 # catalog + metadata 同库（互依环）
 add_library(paleo_store STATIC
   src/catalog/datacatalog_projection.cpp
+  src/catalog/datacatalog_publications.cpp
+  src/catalog/publicationreceipt.cpp
   src/catalog/areasource_delta.cpp
   src/catalog/areasource_delta_apply.cpp
   src/catalog/documentsourceprojection.cpp
@@ -246,6 +248,7 @@ add_library(paleo_services STATIC
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
   src/services/frameworkservice.cpp                 # 方向28：格架读侧门面 + 建议/诊断编排
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
+  src/services/operationretention.cpp
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
   src/services/errorhub.cpp                         # 方向64（方向76 合流后唯一实现）：统一错误通道（去重/聚合/环形历史）

@@ -4,13 +4,17 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/predictionevidence.h"
 #include "../services/algorithmspec.h"
+#include "../catalog/publicationreceipt.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QSet>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QThread>
 
 QVariantMap DerivedOutputSetReceipt::toVariantMap() const {
+  if (!publication.isEmpty()) return publication;
   QVariantList outputs;
   for (const auto &member : members)
     outputs.append(QVariantMap{{"portId",member.portId},{"assetId",member.assetId},
@@ -20,6 +24,25 @@ QVariantMap DerivedOutputSetReceipt::toVariantMap() const {
 }
 
 namespace {
+PublicationReceipt operationReceipt(const AlgorithmSpec &spec, const DerivedPreparedSet &prepared,
+                                    const QStringList &parents) {
+  QJsonArray members;
+  for (const auto &member : prepared.members) {
+    const auto &st = member.staging;
+    members.append(QJsonObject{{"portId", member.portId}, {"assetId", st.assetId}, {"versionId", st.versionId},
+        {"path", st.relativePath}, {"sha256", member.fingerprint.sha256}, {"expectedHead", st.expectedVersionId},
+        {"byteSize", QString::number(member.fingerprint.size)},
+        {"parentPortIds", QJsonArray::fromStringList(member.parentPortIds)}});
+  }
+  PublicationReceipt receipt{{{"schema", 2}, {"ready", true}, {"code", "committed"},
+      {"documentId", prepared.documentId}, {"operationId", prepared.operationId},
+      {"outputSetId", prepared.id}, {"algorithmId", prepared.algorithmId},
+      {"algorithmContractVersion", spec.contractVersion}, {"implementationVersion", spec.implementationVersion},
+      {"requestHash", prepared.requestHash}, {"planHash", prepared.planHash},
+      {"parentVersionIds", QJsonArray::fromStringList(parents)}, {"members", members}}};
+  receipt.value.insert("manifestHash", PublicationReceipt::hash(receipt.value));
+  return receipt;
+}
 bool validManagedTarget(const QString &root, const DerivedStaging &st) {
   if (!DataCatalog::isSafePathSegment(st.assetId) || !DataCatalog::isSafePathSegment(st.versionId)) return false;
   const auto file=QFileInfo(st.absolutePath);
@@ -64,6 +87,28 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
   if (m_catalog->hasActiveBatch()) return fail("batch_in_progress",QStringLiteral("输出集必须拥有独立提交事务"));
   if (!spec.complete || spec.id!=prepared.algorithmId || prepared.id.isEmpty() || prepared.algorithmId.isEmpty() || prepared.members.isEmpty() || prepared.members.size()>64)
     return fail("invalid_output_set",QStringLiteral("输出集身份、算法或成员数量无效"));
+  PublicationReceipt operationProof;
+  if (prepared.publicationSchema == 2) {
+    operationProof = operationReceipt(spec, prepared, parentVersionIds);
+    if (!operationProof.valid()) return fail("invalid_operation_receipt", QStringLiteral("操作提交凭证无效"));
+    const auto existing = m_catalog->publication(prepared.documentId, prepared.operationId, prepared.requestHash);
+    if (existing.code == QLatin1String("committed")) {
+      if (existing.receipt != operationProof) return fail("publication_conflict", QStringLiteral("操作已有不同提交"));
+      receipt.publication = existing.receipt.value.toVariantMap(); receipt.ready = true; receipt.code = "committed";
+      for (const auto &value : existing.receipt.value.value("members").toArray()) {
+        const auto member = value.toObject();
+        receipt.members.append({member.value("portId").toString(), member.value("assetId").toString(),
+            member.value("versionId").toString(), member.value("path").toString(), member.value("sha256").toString()});
+      }
+      return true;
+    }
+    if (existing.code != QLatin1String("not_committed"))
+      return fail("commit_uncertain", QStringLiteral("无法证明操作尚未提交"));
+    if (prepared.storeGeneration.isEmpty() || prepared.storeGeneration != existing.storeGeneration)
+      return fail("publication_store_changed", QStringLiteral("目录恢复世代已变化，不能把缺失凭证视为未提交"));
+  } else if (prepared.publicationSchema != 1) {
+    return fail("invalid_output_set", QStringLiteral("输出集凭证版本不支持"));
+  }
   for (const auto &id : parentVersionIds)
     if (id.isEmpty() || m_catalog->versionById(id).id!=id)
       return fail("input_version_missing",QStringLiteral("输出集输入版本不存在：%1").arg(id));
@@ -92,6 +137,10 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
         m_catalog->currentVersion(st.assetId).id!=st.expectedVersionId)
       return fail("target_conflict",QStringLiteral("输出目标版本已变化，请重新准备"));
     const auto asset=m_catalog->assetById(st.assetId);
+    if(prepared.publicationSchema==2 && !st.reservedType.isEmpty())
+      for(const auto &known:m_catalog->assets())
+        if(known.type==st.reservedType && known.displayName==st.reservedDisplayName && known.id!=st.assetId)
+          return fail("target_conflict",QStringLiteral("输出目标资产已变化，请重新准备"));
     if ((st.reservedType.isEmpty() && asset.id.isEmpty()) || (!st.reservedType.isEmpty() && !asset.id.isEmpty()))
       return fail("target_conflict",QStringLiteral("输出目标资产已变化，请重新准备"));
     CatalogVersion v;v.id=st.versionId;v.assetId=st.assetId;v.versionNumber=st.versionNumber;
@@ -109,9 +158,12 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
   }
   for (const auto &port : requiredPorts)
     if (!ports.contains(port)) return fail("required_output_missing",QStringLiteral("输出集缺少必需端口，未发布：%1").arg(port));
-  if (!versions.contains(prepared.id)) return fail("invalid_output_set",QStringLiteral("输出集必须以其成员版本为身份"));
+  if ((prepared.publicationSchema == 1 && !versions.contains(prepared.id)) ||
+      (prepared.publicationSchema == 2 && versions.contains(prepared.id)))
+    return fail("invalid_output_set",QStringLiteral("输出集身份不符合相应凭证版本"));
   // The identical manifest is durable on every member in the same transaction.
-  auto manifest=receipt.toVariantMap();manifest["ready"]=true;manifest["code"]="committed";
+  auto manifest=prepared.publicationSchema == 2 ? operationProof.value.toVariantMap() : receipt.toVariantMap();
+  manifest["ready"]=true;manifest["code"]="committed";
   DataCatalog::BatchSave transaction(m_catalog);
   QString error;
   for (const auto &port:publishOrder) {
@@ -128,6 +180,9 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
     pending[i].extra.insert("outputSet",manifest);
     if (!m_catalog->addVersion(pending[i],&error)) {transaction.abort();return fail("catalog_commit_failed",error);}
   }
+  if (prepared.publicationSchema == 2 && !m_catalog->stagePublication(operationProof, &error)) {
+    transaction.abort(); return fail("catalog_commit_failed", error);
+  }
   if (!transaction.flush(&error)) return fail("catalog_commit_failed",error);
   for (const auto &member : prepared.members) {
     m_pending.remove(member.staging.assetId);m_reserved.remove(member.staging.assetId);
@@ -135,5 +190,6 @@ bool DerivedAssetRegistrar::commitSet(const AlgorithmSpec &spec,const DerivedPre
     QFile::setPermissions(member.staging.absolutePath,QFileDevice::ReadOwner|QFileDevice::ReadUser|QFileDevice::ReadGroup|QFileDevice::ReadOther);
   }
   receipt.ready=true;receipt.code="committed";
+  if (prepared.publicationSchema == 2) receipt.publication = operationProof.value.toVariantMap();
   return true;
 }

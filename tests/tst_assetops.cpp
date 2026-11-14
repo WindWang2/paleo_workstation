@@ -3,9 +3,14 @@
 // 未决链接批量归位（与导入同一判据：恰一候选才挂）。纯 catalog 栈。
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QSaveFile>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/workflow/assetops.h"
+#include "../src/services/operationretention.h"
 
 using namespace paleo::assetops;
 
@@ -90,6 +95,48 @@ class TestAssetOps : public QObject
   }
 
 private slots:
+  void missingOperationInputVersionRefusesMetadataAndPhysicalPurge() {
+    QTemporaryDir root;DataCatalog cat;QVERIFY(cat.open(root.path()));QDir dir(root.path());ManagedAsset output,input;
+    QVERIFY(makeManagedAsset(cat,dir,"surviving-output",&output));QVERIFY(makeManagedAsset(cat,dir,"lost-input",&input));
+    QJsonObject row{{"schemaVersion",2},{"operationId","op-lost-input"},{"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},
+      {"stateRevision","1"},{"events",QJsonArray{}},{"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
+      {"stagePlan",QJsonObject{{"targets",QJsonArray{}},{"parents",QJsonArray{input.v1}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
+      {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},{"presentationIntent",QJsonObject{}},{"externalRequest",QJsonObject{}},
+      {"frozenRequest",QJsonObject{{"plan",QJsonObject{}}}}};
+    row["planHash"]=paleo::storage::operationPlanHash(row["frozenRequest"].toObject(),row["stagePlan"].toObject(),row["presentationIntent"].toObject(),row["externalRequest"].toObject());
+    const auto path=root.filePath(".paleo/capability-ops/operations.json");QDir().mkpath(QFileInfo(path).absolutePath());QSaveFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));const auto bytes=QJsonDocument(QJsonArray{row}).toJson(QJsonDocument::Compact);QCOMPARE(file.write(bytes),qint64(bytes.size()));QVERIFY(file.commit());
+    QVERIFY(cat.removeAssets({input.assetId})); // Model a restored Catalog that lost the consumed row; bytes survive.
+    const auto metadata=purgeAssets(&cat,root.path(),{output.assetId});QVERIFY(metadata.purgedAssetIds.isEmpty());QVERIFY(!metadata.failedAssets.isEmpty());
+    QVERIFY(!cat.assetById(output.assetId).id.isEmpty());
+    const auto physical=purgeManagedFiles(root.path(),{input.v1Abs},cat.versions());QCOMPARE(physical.bytesFreed,qint64(0));
+    QVERIFY(physical.failedAssets.contains("operation_retention_version_missing"));QVERIFY(QFileInfo::exists(input.v1Abs));QVERIFY(QFileInfo::exists(output.v1Abs));
+  }
+  void operationRootsBlockMetadataAndLastMomentPhysicalDeletion() {
+    QTemporaryDir tmp;DataCatalog cat;QVERIFY(cat.open(tmp.path()));QDir dir(tmp.path());ManagedAsset asset;
+    QVERIFY(makeManagedAsset(cat,dir,"protected-asset",&asset));
+    const auto path=dir.filePath(".paleo/capability-ops/operations.json");QDir().mkpath(QFileInfo(path).absolutePath());
+    auto persist=[&](const QJsonArray &rows){QSaveFile file(path);const auto bytes=QJsonDocument(rows).toJson(QJsonDocument::Compact);
+      return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size()&&file.commit();};
+    // A frozen source without a projected Catalog version still retains bytes.
+    QJsonObject row{{"schemaVersion",2},{"operationId","op-input"},
+      {"stagePlan",QJsonObject{{"targets",QJsonArray{}},{"parents",QJsonArray{}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
+      {"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},{"stateRevision","1"},{"events",QJsonArray{}},
+      {"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
+      {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},
+      {"presentationIntent",QJsonObject{}},{"externalRequest",QJsonObject{}},
+      {"frozenRequest",QJsonObject{{"plan",QJsonObject{{"sourceVerification",QJsonObject{{"path",asset.v1Abs},{"versionId",""}}}}}}}};
+    row["planHash"]=paleo::storage::operationPlanHash(row["frozenRequest"].toObject(),row["stagePlan"].toObject(),
+      row["presentationIntent"].toObject(),row["externalRequest"].toObject());
+    QVERIFY(persist({row}));const auto first=purgeAssets(&cat,tmp.path(),{asset.assetId});
+    QVERIFY(first.purgedAssetIds.isEmpty());QVERIFY(!first.failedAssets.isEmpty());QVERIFY(!cat.assetById(asset.assetId).id.isEmpty());
+    QVERIFY(QFileInfo::exists(asset.v1Abs));
+    const auto direct=purgeManagedFiles(tmp.path(),{asset.v1Abs},{});QCOMPARE(direct.bytesFreed,qint64(0));QVERIFY(!direct.leftoverFiles.isEmpty());
+    QVERIFY(persist({}));const auto empty=purgeManagedFiles(tmp.path(),{asset.v1Abs},{});QVERIFY(empty.leftoverFiles.isEmpty());QVERIFY(!QFileInfo::exists(asset.v1Abs));
+    row["schemaVersion"]=99;QVERIFY(persist({row}));
+    const auto unknown=purgeManagedFiles(tmp.path(),{asset.v2Abs},{});QCOMPARE(unknown.bytesFreed,qint64(0));QVERIFY(QFileInfo::exists(asset.v2Abs));
+    const auto noMetadata=purgeAssets(&cat,tmp.path(),{asset.assetId});QVERIFY(noMetadata.purgedAssetIds.isEmpty());QVERIFY(!cat.assetById(asset.assetId).id.isEmpty());
+  }
   void rollbackManagedPointsNewVersionAtOldContent()
   {
     QTemporaryDir tmp;

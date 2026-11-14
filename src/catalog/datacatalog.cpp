@@ -159,6 +159,8 @@ std::unique_ptr<DataCatalog> DataCatalog::createStagingCopy(const QString &overl
   copy->m_lockedReadOnly = m_lockedReadOnly;
   copy->m_revision = m_revision;
   copy->m_projectionCheckpoints=m_projectionCheckpoints;
+  copy->m_publications = m_publications;
+  copy->m_publicationGeneration = m_publicationGeneration;
   copy->m_mutationSeq = m_mutationSeq;
   copy->m_entities = m_entities; // COW：worker 首次写才 detach
   copy->m_assets = m_assets;
@@ -401,6 +403,9 @@ bool DataCatalog::adoptPrepared(const std::shared_ptr<DataCatalog> &prepared, QS
   m_forceFullSave = prepared->m_forceFullSave;
   m_revision = prepared->m_revision;
   m_projectionCheckpoints=std::move(prepared->m_projectionCheckpoints);
+  m_publications = std::move(prepared->m_publications);
+  m_publicationGeneration = std::move(prepared->m_publicationGeneration);
+  m_dirtyPublications.clear();
   m_mutationSeq = qMax(m_mutationSeq + 1, prepared->m_mutationSeq);
   m_entities = std::move(prepared->m_entities);
   m_assets = std::move(prepared->m_assets);
@@ -444,6 +449,8 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_dir = projectDir.trimmed().isEmpty() ? QString() : projectDir;
   m_revision = 0;
   m_projectionCheckpoints={};
+  m_publications.clear(); m_dirtyPublications.clear();
+  m_publicationGeneration.clear();
   m_entities.clear();
   m_assets.clear();
   m_versions.clear();
@@ -512,6 +519,11 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_versions = std::move(tables.versions);
   m_links = std::move(tables.links);
   m_revision = tables.meta.revision;
+  for (const auto &receipt : tables.publications)
+    m_publications.insert(publicationKey(receipt.documentId(), receipt.operationId()), receipt);
+  m_publicationGeneration = tables.publicationGeneration;
+  if (m_publicationGeneration.isEmpty())
+    m_publicationGeneration = m_store->publication({}, {}, {}).storeGeneration;
   m_projectionCheckpoints=std::move(tables.meta.projectionCheckpoints);
   m_assetSeq = qMax(m_assetSeq, tables.meta.assetSeq);
   m_versionSeq = qMax(m_versionSeq, tables.meta.versionSeq);
@@ -582,6 +594,7 @@ bool DataCatalog::save(QString *error)
 bool DataCatalog::commitStore(QString *error)
 {
   const auto clearDirty = [this] {
+    m_dirtyPublications.clear();
     m_dirtyEntities.clear();
     m_dirtyAssets.clear();
     m_dirtyVersions.clear();
@@ -613,6 +626,8 @@ bool DataCatalog::commitStore(QString *error)
     tables.assets = m_assets;
     tables.versions = m_versions;
     tables.links = m_links;
+    tables.publications = m_publications.values().toVector();
+    tables.publicationGeneration = m_publicationGeneration;
     tables.meta = meta;
     if (!m_store->rewritePrimary(tables, m_primaryCorruptOnDisk, error))
     {
@@ -621,6 +636,7 @@ bool DataCatalog::commitStore(QString *error)
     }
     m_forceFullSave = false;
     m_primaryCorruptOnDisk = false;
+    m_publicationGeneration = m_store->publication({}, {}, {}).storeGeneration;
   }
   else
   {
@@ -680,6 +696,8 @@ bool DataCatalog::commitStore(QString *error)
         return failTxn();
     if (m_linksFullRewrite && !m_store->replaceAllLinks(m_links, error))
       return failTxn();
+    for (const auto &key : m_dirtyPublications)
+      if (!m_store->insertPublication(m_publications.value(key), error)) return failTxn();
     if (!m_store->writeMeta(meta, error))
       return failTxn();
     if (!m_store->commit(error))
@@ -703,6 +721,8 @@ void DataCatalog::beginBatch()
     snap->versions = m_versions;
     snap->links = m_links;
     snap->projectionCheckpoints=m_projectionCheckpoints;
+    snap->publications = m_publications;
+    snap->dirtyPublications = m_dirtyPublications;
     snap->assetSeq = m_assetSeq;
     snap->versionSeq = m_versionSeq;
     snap->idx = m_idx;
@@ -741,6 +761,8 @@ bool DataCatalog::endBatch(QString *error)
     m_versions = std::move(snap->versions);
     m_links = std::move(snap->links);
     m_projectionCheckpoints=std::move(snap->projectionCheckpoints);
+    m_publications = std::move(snap->publications);
+    m_dirtyPublications = std::move(snap->dirtyPublications);
     m_assetSeq = snap->assetSeq;
     m_versionSeq = snap->versionSeq;
     m_idx = std::move(snap->idx);

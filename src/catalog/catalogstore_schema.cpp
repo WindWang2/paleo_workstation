@@ -86,6 +86,8 @@ bool CatalogStore::attachWritable(QString *error)
       opened = false;
     else if (opened && !execScript(db, kSchemaSql, error))
       opened = false;
+    else if (opened && !paleo::catalog_detail::ensurePublicationSchema(db, error))
+      opened = false;
     else if (opened)
       ensureVersionNumberUniqueIndex(db); // #476：宽容唯一索引（存量重复行仅告警）
   }

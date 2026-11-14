@@ -2,6 +2,7 @@
 #pragma once
 
 #include "datacatalog.h"
+#include "publicationreceipt.h"
 
 #include <QJsonObject>
 #include <QString>
@@ -44,6 +45,8 @@ class CatalogStore
       QVector<CatalogVersion> versions;
       QVector<EntityAssetLink> links;
       Meta meta;
+      QVector<PublicationReceipt> publications;
+      QString publicationGeneration;
     };
 
     CatalogStore() = default;
@@ -83,6 +86,10 @@ class CatalogStore
     // upsert 表达不了，只能整表重写（链接表是行数级，成本可接受）。
     bool replaceAllLinks(const QVector<EntityAssetLink> &links, QString *error);
     bool writeMeta(const Meta &meta, QString *error);
+    // Same transaction as member versions; immutable unique operation/set keys.
+    bool insertPublication(const PublicationReceipt &receipt, QString *error);
+    PublicationLookup publication(const QString &documentId, const QString &operationId,
+                                  const QString &requestHash) const;
     bool commit(QString *error);
     void rollback();
     bool inTransaction() const { return m_inTxn; }

@@ -31,6 +31,7 @@ private slots:
   void configRejectsEmptyEndpointModelAndPlainHttp();
   void configBuildsCompletionsUrl();
   void domainToolsEnumerateWithValidSchemas();
+  void nativeCapabilityIntentsMatchSupportedExecutionPhases();
   void toolDispatchIsHonestAboutWiring();
 
 private:
@@ -394,6 +395,17 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   QVERIFY(!tile.validateParameters(withRows(QStringLiteral("abc"))).isEmpty());
   QVERIFY(!tile.validateParameters(withRows(1.5)).isEmpty());
   QVERIFY(!tile.validateParameters(withRows(1e300)).isEmpty());
+}
+
+void TestAiChat::nativeCapabilityIntentsMatchSupportedExecutionPhases() {
+  for(const auto &name:{QString("paleo.depth_convert_batch"),QString("paleo.seismic_attribute_group"),QString("paleo.constraint_idw")}) {
+    const auto spec=aiToolSpec(name);QJsonArray expected{"compute-only","publish"};
+    if(name=="paleo.constraint_idw")expected.prepend("prepare");
+    QCOMPARE(spec.toJsonSchema().value("properties").toObject().value("publish_intent").toObject().value("enum").toArray(),expected);
+    QJsonObject args{{"client_request_id","schema-phase"},{"binding_mode","pinned-value"},{"parameters",QJsonObject{}},{"inputs",QJsonObject{}}};
+    for(const auto &phase:expected){args["publish_intent"]=phase;QVERIFY(spec.validateParameters(args).isEmpty());QCOMPARE(dispatchAiTool(name,args).status,AiToolDispatchStatus::Routed);}
+    args["publish_intent"]="unknown";QVERIFY(!spec.validateParameters(args).isEmpty());
+  }
 }
 
 void TestAiChat::toolDispatchIsHonestAboutWiring() {

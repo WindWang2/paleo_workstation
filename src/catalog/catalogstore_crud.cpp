@@ -226,6 +226,13 @@ bool CatalogStore::replaceAll(const Tables &tables, QString *error)
       return false;
     }
   }
+  for (const auto &receipt : tables.publications) {
+    if (!insertPublication(receipt, error)) { rollback(); return false; }
+  }
+  auto publicationDb = QSqlDatabase::database(m_connectionName, false);
+  if (!paleo::catalog_detail::writePublicationGeneration(publicationDb, tables.publicationGeneration, error)) {
+    rollback(); return false;
+  }
   if (!writeMeta(tables.meta, error))
   {
     rollback();

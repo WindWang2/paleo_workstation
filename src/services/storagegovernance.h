@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include "../catalog/datacatalog.h"
+#include "operationretention.h"
 #include <QDateTime>
 #include <QHash>
 #include <functional>
@@ -15,6 +16,7 @@ struct Snapshot {
   QVector<CatalogEntity> entities;
   QVector<CatalogVersion> versions;
   QVector<EntityAssetLink> links;
+  OperationRetention retention; // Filled by worker scan, never owner snapshot I/O.
 };
 Snapshot snapshot(DataCatalog *catalog);
 struct FileFact {

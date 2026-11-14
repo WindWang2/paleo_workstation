@@ -3,6 +3,7 @@
 #include "../io/pathcanon.h"
 #include "../domain/shaequals.h"
 #include "../io/paleomapfiles.h"
+#include "../services/operationretention.h"
 
 #include "../catalog/datacatalog.h"
 
@@ -20,6 +21,9 @@ namespace
 
 // A compound dataset is one asset; only safe, registered members in its own
 // managed directory may be purged. External originals are never expanded.
+QSet<QString> versionIdentities(const QVector<CatalogVersion> &versions) {
+  QSet<QString> ids;for(const auto &version:versions)ids.insert(version.id);return ids;
+}
 QStringList versionFiles(const QString &project, const CatalogVersion &version)
 {
   const auto primary = DataCatalog::resolvedVersionPath(project, version);
@@ -122,6 +126,7 @@ RollbackOutcome rollbackToVersion(DataCatalog *cat, const QString &projectDir,
     firstError(error, QStringLiteral("工程 catalog 未打开"));
     return out;
   }
+
   const CatalogVersion target = cat->versionById(targetVersionId);
   if (target.id.isEmpty())
   {
@@ -357,6 +362,11 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
     return out;
   }
 
+  auto retention = paleo::storage::operationRetention(projectDir);
+  paleo::storage::verifyOperationVersions(retention,versionIdentities(cat->versions()));
+  if (!retention.complete) {out.failedAssets << retention.code; return out;}
+  const QSet<QString> retainedVersions(retention.versionIds.begin(), retention.versionIds.end());
+
   // 预采集：removeAsset 提交后版本行就没了——文件路径/大小必须先拿到手。
   struct Target
   {
@@ -374,18 +384,28 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
     }
     Target t;
     t.assetId = id;
+    bool protectedByOperation = false;
     for (const CatalogVersion &v : cat->versionsForAsset(id))
     {
+      if (retainedVersions.contains(v.id) || retention.protectsPath(DataCatalog::resolvedVersionPath(projectDir, v))) {
+        protectedByOperation = true; break;
+      }
       if (!v.managed)
         continue; // 外链源在工程外，永不删
       t.managedFiles << versionFiles(projectDir, v);
     }
+    if (protectedByOperation) {out.failedAssets << id + QStringLiteral(": operation_retained"); continue;}
     targets.append(t);
   }
   if (targets.isEmpty())
     return out;
   if (atomic && !out.failedAssets.isEmpty())
     return out;
+  auto freshRetention = paleo::storage::operationRetention(projectDir);
+  paleo::storage::verifyOperationVersions(freshRetention,versionIdentities(cat->versions()));
+  if (!freshRetention.complete || freshRetention.revision != retention.revision) {
+    out.failedAssets << QStringLiteral("operation_retention_changed"); return out;
+  }
 
   // 单事务：全部 removeAsset 并入一个 BatchSave，flush 失败整批回滚零文件动作。
   DataCatalog::BatchSave batch(cat);
@@ -444,6 +464,10 @@ PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &pat
                                const QVector<PurgeFileExpectation> &expected)
 {
   PurgeOutcome out;
+  auto retention = paleo::storage::operationRetention(projectDir);
+  const auto knownVersions=versionIdentities(retained);
+  paleo::storage::verifyOperationVersions(retention,knownVersions);
+  if (!retention.complete) {out.leftoverFiles = paths; out.failedAssets << retention.code; return out;}
   QSet<QString> referenced, seen, prunedDirs;
   for (const auto &v : retained) {
     auto files = versionFiles(projectDir, v);
@@ -472,6 +496,15 @@ PurgeOutcome purgeManagedFiles(const QString &projectDir, const QStringList &pat
       if (bytes != expectedFile.sizeBytes || fi.lastModified() != expectedFile.modified) {
         out.leftoverFiles << safe; continue;
       }
+    }
+    auto freshRetention = paleo::storage::operationRetention(projectDir);
+    paleo::storage::verifyOperationVersions(freshRetention,knownVersions);
+    if (!freshRetention.complete || freshRetention.revision != retention.revision) {
+      for (const auto &pending : paths) if (QFileInfo::exists(pending) && !out.leftoverFiles.contains(pending)) out.leftoverFiles << pending;
+      out.failedAssets << QStringLiteral("operation_retention_changed"); break;
+    }
+    if (freshRetention.protectsPath(canonical)) {
+      out.leftoverFiles << safe; out.failedAssets << QStringLiteral("operation_retained"); continue;
     }
     QFile::setPermissions(safe, QFile::permissions(safe) | QFileDevice::WriteOwner);
     if (QFile::remove(safe)) out.bytesFreed += bytes;

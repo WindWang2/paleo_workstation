@@ -52,7 +52,7 @@ private slots:
     f.catalog.setLockedReadOnly(true);
     QCOMPARE(service.prepare(depth("readonly"), host::Caller::Agent).code, QStringLiteral("project_read_only"));
     auto publish = depth("not-opened"); publish.publishIntent = "publish";
-    QCOMPARE(service.prepare(publish, host::Caller::Agent).code, QStringLiteral("publication_not_ready"));
+    QCOMPARE(service.prepare(publish, host::Caller::Agent).code, QStringLiteral("project_read_only"));
   }
 
   void productionQueriesNeedNeitherWriteLockNorWritableProject() {
@@ -180,6 +180,8 @@ private slots:
     auto mixed = request; mixed.inputs["samples"] = QVariantList{1}; mixed.clientRequestId = "mixed";
     QCOMPARE(service.prepare(mixed, host::Caller::Agent).code, QStringLiteral("mixed_seismic_inputs"));
     mixed = request; mixed.capabilityId = "depth.convert_batch";
+    QCOMPARE(service.prepare(mixed, host::Caller::Agent).code, QStringLiteral("idempotency_conflict"));
+    mixed.clientRequestId = "mixed-depth";
     QCOMPARE(service.prepare(mixed, host::Caller::Agent).code, QStringLiteral("mixed_seismic_inputs"));
   }
 
@@ -226,6 +228,24 @@ private slots:
     const auto payload = QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object();
     QCOMPARE(ui.summary.value("samples"), batch.summary.value("samples"));
     QCOMPARE(QJsonValue::fromVariant(ui.summary.value("samples")), payload.value("samples"));
+  }
+  void productionChatPublishesAndReplaysReadOnlyInTheSameSession() {
+    Fixture f;QVERIFY(f.init());QVERIFY(f.bind());ProjectDirLock lock(f.project);QVERIFY(lock.tryLock());
+    CapabilityHost service;configure(service,f,lock);AiChatController chat;
+    bindChatToolRunner(&chat,nullptr,nullptr,&f.catalog,f.project,f.session.documentId(),&service);
+    chat.toolRunner()->setResultSession("persistent-chat");const auto request=depth("published-chat");
+    const QJsonObject args{{"client_request_id",request.clientRequestId},{"binding_mode","pinned-value"},{"publish_intent","publish"},
+      {"parameters",QJsonObject::fromVariantMap(request.parameters)},{"inputs",QJsonObject::fromVariantMap(request.inputs)}};
+    QSignalSpy done(chat.toolRunner(),&AiChatToolRunner::toolFinished);
+    const auto run=[&](const QString &call){chat.toolRunner()->run({call,"paleo.depth_convert_batch",QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))});};
+    run("publish");QTRY_COMPARE_WITH_TIMEOUT(done.size(),1,10000);QVERIFY2(done[0][1].toBool(),qPrintable(done[0][2].toString()));
+    const auto first=QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object();
+    QCOMPARE(first.value("commitState").toString(),QString("committed"));QCOMPARE(first.value("contract").toString(),QString("paleo.operation.v2"));
+    const int versions=f.catalog.versions().size();f.catalog.setLockedReadOnly(true);run("replay");
+    QTRY_COMPARE_WITH_TIMEOUT(done.size(),2,10000);QVERIFY2(done[1][1].toBool(),qPrintable(done[1][2].toString()));
+    const auto replay=QJsonDocument::fromJson(done[1][2].toString().toUtf8()).object();
+    QCOMPARE(replay.value("operationId"),first.value("operationId"));QCOMPARE(replay.value("commitState").toString(),QString("committed"));
+    QCOMPARE(f.catalog.versions().size(),versions);
   }
 };
 

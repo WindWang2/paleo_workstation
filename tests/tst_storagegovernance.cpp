@@ -2,6 +2,11 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QThread>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <algorithm>
 #include "../src/services/storagegovernance.h"
 #include "../src/workflow/storagegovernancecontroller.h"
 #include "../src/io/perffixtures.h"
@@ -13,6 +18,24 @@ class TestStorageGovernance : public QObject {
   static bool write(const QString &path, int size) {
     QDir().mkpath(QFileInfo(path).absolutePath()); QFile f(path);
     return f.open(QIODevice::WriteOnly) && f.write(QByteArray(size, 'x')) == size;
+  }
+  static bool operations(const QString &root, const QJsonArray &rows) {
+    const auto path=QDir(root).filePath(".paleo/capability-ops/operations.json");QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile file(path);const auto bytes=QJsonDocument(rows).toJson(QJsonDocument::Compact);
+    return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size()&&file.commit();
+  }
+  static QJsonObject seal(QJsonObject object) {
+    object["planHash"]=operationPlanHash(object.value("frozenRequest").toObject(),object.value("stagePlan").toObject(),
+      object.value("presentationIntent").toObject(),object.value("externalRequest").toObject());return object;
+  }
+  static QJsonObject operation(const QString &path, const QString &head={}) {
+    return seal({{"schemaVersion",2},{"operationId","op-retained"},
+      {"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},{"stateRevision","1"},{"events",QJsonArray{}},
+      {"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
+      {"stagePlan",QJsonObject{{"targets",QJsonArray{QJsonObject{{"staging",QJsonObject{{"path",path},{"expectedHead",head}}}}}},
+        {"parents",QJsonArray{"raw"}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
+      {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},
+      {"presentationIntent",QJsonObject{}},{"externalRequest",QJsonObject{}},{"frozenRequest",QJsonObject{{"plan",QJsonObject{}}}}});
   }
   static bool seed(DataCatalog &cat, const QString &dir) {
     CatalogEntity e; e.id = "well"; e.name = "A1"; e.entityType = "well";
@@ -35,6 +58,84 @@ class TestStorageGovernance : public QObject {
     return cat.markDownstreamStale(raw.id, "上游源字节改变");
   }
 private slots:
+  void missingConsumedVersionRowsRefuseEveryCleanupProjection() {
+    QTemporaryDir root;DataCatalog cat;QVERIFY(cat.open(root.path()));QVERIFY(seed(cat,root.path()));
+    const QString orphan="artifacts/derived/unrelated/unreferenced.bin";QVERIFY(write(root.filePath(orphan),23));
+    QVERIFY(operations(root.path(),{operation("artifacts/derived/agent/new/output.bin")}));
+    auto source=snapshot(&cat);const auto healthy=scan(source);QVERIFY(healthy.complete);source.retention=healthy.source.retention;
+    auto choice=preview(healthy,{}, {orphan});QVERIFY(choice.valid);QString error;QVERIFY(validate(choice,{},&error));
+    source.versions.erase(std::remove_if(source.versions.begin(),source.versions.end(),[](const CatalogVersion &v){return v.id=="raw";}),source.versions.end());
+    const auto unresolved=scan(source);QVERIFY(!unresolved.complete);QCOMPARE(unresolved.source.retention.code,QString("operation_retention_version_missing"));
+    auto stale=healthy;stale.source=source;QVERIFY(!preview(stale,{}, {orphan}).valid);
+    choice.source.versions=source.versions;QVERIFY(!validate(choice,{},&error));QVERIFY(QFileInfo::exists(root.filePath(orphan)));
+  }
+  void storedInputManifestProtectsBodiesAndCompletedResponseCache() {
+    QTemporaryDir root;const QString directory=".paleo/capability-ops/well-inputs/frozen-input";
+    const auto manifest=root.filePath(directory+"/manifest.json"),body=root.filePath(directory+"/body-0.json"),cache=root.filePath(directory+"/result-0-sha.json");
+    QVERIFY(write(manifest,2));QVERIFY(write(body,12));QVERIFY(write(cache,16));
+    const auto rowFor=[&](const QJsonValue &ref){auto row=operation("artifacts/derived/a/v/out.bin");
+      row["frozenRequest"]=QJsonObject{{"plan",QJsonObject{{"storedInput",ref}}}};return seal(row);};
+    const QJsonObject ref{{"directory",directory},{"manifestHash",QString(64,'a')}};
+    QVERIFY(operations(root.path(),{rowFor(ref)}));const auto retained=operationRetention(root.path());
+    QVERIFY2(retained.complete,qPrintable(retained.code));QVERIFY(retained.paths.contains(directory+"/manifest.json"));
+    QVERIFY(retained.protectsPath(body));QVERIFY(retained.protectsPath(cache));
+    for(const QJsonValue invalid:{QJsonValue("path-only"),QJsonValue(QJsonObject{{"directory",directory},{"manifestHash","bad"}}),
+        QJsonValue(QJsonObject{{"directory","../escape"},{"manifestHash",QString(64,'a')}}),
+        QJsonValue(QJsonObject{{"directory",".paleo/capability-ops/missing"},{"manifestHash",QString(64,'a')}})}) {
+      QVERIFY(operations(root.path(),{rowFor(invalid)}));QVERIFY(!operationRetention(root.path()).complete);
+    }
+    QVERIFY(operations(root.path(),{rowFor(ref)}));QVERIFY(QFile::remove(manifest));QVERIFY(!operationRetention(root.path()).complete);
+  }
+  void operationRootsProtectPreparedSidecarsSourcesAndPreviewRevisions() {
+    QTemporaryDir dir;DataCatalog cat;QVERIFY(cat.open(dir.path()));QVERIFY(seed(cat,dir.path()));
+    const QString target="artifacts/derived/agent/v1/output.tif", prepared="artifacts/derived/agent2/v2/output.gpkg";
+    const QString artifact=".paleo/capability-ops/op-retained/private/part.bin", orphan="artifacts/derived/orphan/unreferenced.bin";
+    const QString source="raw/legacy-model/input.sgy";
+    const QString raster="raw/legacy-tile/input.tif";
+    for(const auto &path:QStringList{target,target+".aux.xml",prepared,artifact,orphan,source,source+".sidecar",raster,raster+".aux.xml"})
+      QVERIFY(write(dir.filePath(path),11));
+    auto row=operation(target,"child");
+    row["preparedManifest"]=QJsonObject{{"schema",2},{"members",QJsonArray{QJsonObject{{"staging",QJsonObject{{"path",prepared},{"expectedHead",""}}}}}}};
+    row["artifactManifest"]=QJsonObject{{"schema",1},{"ports",QJsonArray{QJsonObject{{"path",artifact}}}}};
+    row["frozenRequest"]=QJsonObject{{"plan",QJsonObject{{"sourceVerification",QJsonObject{{"path",dir.filePath(source)},{"versionId",""}}},
+      {"raster",QJsonObject{{"path",dir.filePath(raster)}}}}}};
+    row=seal(row);
+    QVERIFY(operations(dir.path(),{row}));const auto roots=operationRetention(dir.path());QVERIFY2(roots.complete,qPrintable(roots.code));
+    QCOMPARE(roots.versionIds,QStringList({"child","raw"}));QCOMPARE(roots.paths.size(),5);
+    QVERIFY(roots.protectsPath(dir.filePath(target+".aux.xml")));QVERIFY(roots.protectsPath(dir.filePath(source+".sidecar")));
+    QVERIFY(roots.protectsPath(dir.filePath(raster+".aux.xml")));
+    QVERIFY(roots.protectsPath(dir.filePath(artifact)));QVERIFY(!roots.protectsPath(dir.filePath(orphan)));
+    const auto report=scan(snapshot(&cat));QVERIFY(report.complete);QCOMPARE(report.orphans.size(),1);
+    QCOMPARE(report.orphans.first().relativePath,orphan);QVERIFY(!preview(report,{"child"},{}).valid);
+    const auto selected=preview(report,{}, {orphan});QVERIFY(selected.valid);QString error;QVERIFY(validate(selected,{},&error));
+    row["execution"]="succeeded";row["commitState"]="committed";QVERIFY(operations(dir.path(),{row}));
+    QCOMPARE(operationRetention(dir.path()).revision,roots.revision);QVERIFY(validate(selected,{},&error));
+    auto stage=row["stagePlan"].toObject();stage["parents"]=QJsonArray{"raw","derived"};row["stagePlan"]=stage;row=seal(row);
+    QVERIFY(operations(dir.path(),{row}));QVERIFY(!preview(report,{}, {orphan}).valid);QVERIFY(!validate(selected,{},&error));
+    QVERIFY(QFileInfo::exists(dir.filePath(orphan)));
+  }
+  void operationRetentionRejectsUnknownCorruptUnsafeAndOversizedJournals() {
+    QTemporaryDir dir;DataCatalog cat;QVERIFY(cat.open(dir.path()));
+    const auto absent=operationRetention(dir.path());QVERIFY(absent.complete);QVERIFY(absent.revision.isEmpty());
+    QVERIFY(!operationRetention(dir.path(),[]{return true;}).complete);
+    auto row=operation("artifacts/derived/a/v/file.bin");QVERIFY(operations(dir.path(),{row}));QVERIFY(operationRetention(dir.path()).complete);
+    auto corrupt=row;corrupt.remove("documentId");QVERIFY(operations(dir.path(),{corrupt}));QVERIFY(!operationRetention(dir.path()).complete);
+    QVERIFY(operations(dir.path(),{row,row}));QVERIFY(!operationRetention(dir.path()).complete);
+    auto missingStage=row;missingStage["stagePlan"]=QJsonObject{};missingStage=seal(missingStage);
+    QVERIFY(operations(dir.path(),{missingStage}));QVERIFY(!operationRetention(dir.path()).complete);
+    auto edited=row;auto changed=edited["stagePlan"].toObject();
+    changed["targets"]=QJsonArray{QJsonObject{{"staging",QJsonObject{{"path","artifacts/derived/a/v/secretly-moved.bin"},{"expectedHead",""}}}}};edited["stagePlan"]=changed;
+    QVERIFY(operations(dir.path(),{edited}));QCOMPARE(operationRetention(dir.path()).code,QStringLiteral("operation_retention_plan_mismatch"));
+    row["schemaVersion"]=1;QVERIFY(operations(dir.path(),{row}));QVERIFY(!operationRetention(dir.path()).complete);QVERIFY(!scan(snapshot(&cat)).complete);
+    row["schemaVersion"]=2;auto stage=row["stagePlan"].toObject();
+    stage["targets"]=QJsonArray{QJsonObject{{"staging",QJsonObject{{"path","../outside.bin"},{"expectedHead",""}}}}};row["stagePlan"]=stage;row=seal(row);
+    QVERIFY(operations(dir.path(),{row}));QVERIFY(!operationRetention(dir.path()).complete);
+    const auto path=dir.filePath(".paleo/capability-ops/operations.json");QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Truncate));QCOMPARE(file.write("{broken"),qint64(7));file.close();
+    QVERIFY(!operationRetention(dir.path()).complete);
+    QVERIFY(file.open(QIODevice::WriteOnly));QVERIFY(file.resize(128LL*1024*1024+1));file.close();
+    QCOMPARE(operationRetention(dir.path()).code,QStringLiteral("operation_retention_budget_exceeded"));
+  }
   // #283：shapefile 族附属文件（.shx/.dbf/.prj/.cpg）无 catalog 记录但与主
   // .shp 同生共死——scan 不得列为孤儿；purge 过期版本时成员一并回收、目录
   // 无残留；已单独登记为其他版本的成员不被连带删。

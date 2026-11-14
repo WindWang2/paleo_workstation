@@ -43,7 +43,7 @@ owner 线程只解析身份和冻结宿主上下文。同步 taskAdded 重入删
 
 - SDK Windows 与 Linux 原生各 7/7，含超大元数据、不完整 UTF-8、旧 API、空数组元数据页。
 - 原生数据物化 17/17；两项生产 adapter 的实际运行结果与独立线性参考一致。
-  两通道各 100 样本：payload 34,816 B、元数据 734 B；sourceRows=1、windows=2、
+  两通道各选 100 样本，按 SDK 实际读取块计 payload 34,816 B、元数据 734 B；sourceRows=1、windows=2、
   axisBlocks=2、valueBlocks=2、legacyBytes=0。它们是 SDK 消费字节，不是物理磁盘计数。
 - 元数据曲线页 11/11，三页实际文本分别 340/340/338 B，数值读取始终 0；
   换 SourceResolver 或同一文档重绑会撤销旧游标，初始页中的重入也校验 binding epoch。
@@ -70,3 +70,13 @@ WSL 两套各运行 45 项。实际执行六套 Python 测试被缺失 CPU contr
 完整 build 为 `/home/kevin/build-paleo-python-analysis{,-noort}`。
 原生 Linux 私有验证包复用 PY1 已核验依赖闭包，使用独立工作目录和只读干净运行时代际；
 保留首轮失败日志。该记录不将 QtCore 原生薄库称为 Windows 完整应用构建。
+
+原生 no-ORT 首轮完整 45 项：44 通过，进程资源套件中的内存用例在并发冷快照时
+超时，总计 818.60 秒。该窗口没有观察到 OOM，不能把它改标为内存耗尽。
+同一二进制、同一 96 MiB/15 秒策略在虚拟机独占后单用例 3/3，通过 3.037 秒；
+旁路读取实际 memory.max=100663296、swap=0、pids=8、cpu.max=100000/100000，
+peak=100663296、oom=1、oom_kill=3。随后完整进程套件通过 **18/18**，零失败/跳过，
+CTest 用时 18.78 秒。没有修改生产代码、预算、容差或断言。
+其余 44 个套件保留首轮完整结果，失败套件保留独占重试结果，不把首轮改写为 45/45。
+no-ORT 应用首帧与 startup_screen_closed 已实际出现，Office 组件在位；
+运行后 2143 个运行时文件再次完整 SHA 核验通过。

@@ -12,6 +12,7 @@ HostPrepared CapabilityHost::preparePlan(const ExecuteRequest &intent,const QVec
   HostPrepared out;auto h=binding();
   prunePrepared(h.context);
   const auto fail=[&](const QString &code){out.code=code;return out;};
+  if(!m_nativeAdapterFactory || !m_nativeAdapterFactory(h).freeze)return fail("execution_adapter_unavailable");
   if(!intent.documentId.isEmpty() && intent.documentId!=h.context.documentId)return fail("document_mismatch");
   const auto scope=callerScope(caller,session);if(scope.isEmpty())return fail("caller_unbound");
   if(intent.clientRequestId.isEmpty())return fail("client_request_id_required");

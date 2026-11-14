@@ -1,8 +1,9 @@
 # 受控 Python Agent 环境实施计划
 
 日期：2026-11-14。源码基线：master `3d499a61`（#942）。
-状态：**仅计划，PY0–PY4 均未实施或验收**。本文中的类型、工具名、错误码和预算为拟议契约。
-本次先交付计划；后续每批完成编译、测试和源码门禁后分别提 PR，不以计划条目推定功能已可用。
+状态：**PY0 已实现并完成本地编译/功能验收，等待实现 PR 合入；PY1–PY4 尚未在本分支交付**。
+PY0 的实际契约和证据见[实施记录](../progress/controlled-python-py0-20261114.md)；其余条目仍是拟议契约。
+每批完成编译、测试和源码门禁后分别提 PR，不以计划条目推定功能已可用。
 
 本计划扩展[原子能力与 Agent 契约](../architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)，
 复用已合入的 [W0–W6 操作与宿主链路](AGENT_CALL_READINESS_PLAN.md)，并遵守
@@ -62,9 +63,9 @@ flowchart LR
     PY4 -.另立计划.-> S[Shell / 外部CLI]
 ```
 
-基线时 [#943](https://github.com/WindWang2/paleo_workstation/pull/943) 仍为开放 PR，
-不是 master 已有能力。PY0/PY1 不依赖其新接口；PY2 大结果读取与性能验收依赖它合入
-或有同等已验收实现。只声明依赖，不复制其代码、绕过完整性检查或自行合并 PR。
+计划形成时 [#943](https://github.com/WindWang2/paleo_workstation/pull/943) 尚未合入。
+用户随后明确要求先合并 #943/#944，现均已合入，实施基线为 master `17bdfd0f`。
+PY2 复用 #943 的认证分页接口，不复制其代码或绕过完整性检查。
 PY4 按平台准入：一个平台通过不能代表另一平台已支持；整个计划完成须两平台均取得
 相应验收证据，缺后端的平台明确 unavailable，不能退回普通 QProcess 执行生成代码。
 

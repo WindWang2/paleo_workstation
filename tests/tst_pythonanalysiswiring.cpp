@@ -76,6 +76,18 @@ QJsonObject call(AiChatToolRunner &runner,const QString &name,const QJsonObject 
 class TestPythonAnalysisWiring:public QObject {
   Q_OBJECT
 private slots:
+  void contextCallbackCannotDestroyTheResolvedCatalogBeforeSelectionChecks() {
+    Fixture f;QVERIFY2(f.open(),qPrintable(f.error));
+    auto catalog=std::make_unique<DataCatalog>();QVERIFY(catalog->open(f.project));int calls=0;
+    f.host.setBindingProvider([&] {
+      capability::HostBinding binding;binding.context=f.context;
+      if(++calls==2)catalog.reset();return binding;
+    });
+    const auto provider=assemblePythonAnalysisProvider(catalog.get(),&f.session,&f.host);
+    python::AnalysisReadPlan plan;std::function<QString()> validate;
+    QCOMPARE(provider(f.request(),plan,validate),QString("document_unavailable"));
+    QCOMPARE(calls,2);QVERIFY(!validate);
+  }
   void unprobedBackendCannotAdvertiseOrCaptureNewComputation() {
     bool captured=false;capability::CapabilityExecutionAdapter adapter;
     adapter.capture=[&](const auto &,const auto &,QString*){captured=true;return capability::CapabilityPreparation{};};

@@ -24,6 +24,7 @@ QString checkScope(const Scope &scope,const host::CallContext &expected,const do
   if(!scope.catalog || !scope.catalog->isOpen() || !scope.document || !scope.document->isOpen() || !scope.host)
     return "document_unavailable";
   const auto code=host::checkContext(scope.host->context(),expected,host::Read|host::PrivateStage|host::LocalExecute);
+  if(!scope.catalog || !scope.document || !scope.host)return "document_unavailable";
   if(!code.isEmpty())return code;
   if(scope.document->documentId()!=well.documentId || expected.documentId!=well.documentId)return "well_document_mismatch";
   const auto entity=scope.catalog->storedEntityById(well.catalogEntityId);

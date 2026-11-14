@@ -13,6 +13,7 @@
 - [设计系统](../DESIGN.md)
 - [平台与依赖来源](PLATFORM_MATRIX.md)
 - [结构审查与整理记录（2026-11-13）](progress/structure-review-20261113.md)
+- [合并后的平台审查与整理（2026-11-14）](progress/platform-review-20261114.md)
 
 ## 后续实施规划
 

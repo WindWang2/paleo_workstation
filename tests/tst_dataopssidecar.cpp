@@ -112,8 +112,7 @@ void TestDataOpsSidecar::failedSaveKeepsPreviousContentIntact() {
            QStringLiteral("Well-Alpha"));
 }
 
-// #534：门面自带目录推导（<projectDir>/.paleo/<name>.json）与读写；视图侧
-// sidecarPath/loadSidecarObject/saveSidecarObject 只是同名转发，两边必须同源。
+// 数据门面独占 <projectDir>/.paleo/<name>.json 路径与读写，闭合工程不写盘。
 void TestDataOpsSidecar::dataLayerFacadeOwnsPathsAndRoundTrips() {
   QTemporaryDir dir;
   DataCatalog cat;
@@ -121,7 +120,6 @@ void TestDataOpsSidecar::dataLayerFacadeOwnsPathsAndRoundTrips() {
   const QString path =
       paleo::dataopsSidecarPath(&cat, QStringLiteral("asset_tags.json"));
   QVERIFY(path.endsWith(QStringLiteral(".paleo/asset_tags.json")));
-  QCOMPARE(dataopsSidecarPath(&cat, QStringLiteral("asset_tags.json")), path);
   QVERIFY(paleo::dataopsSidecarLoad(&cat, QStringLiteral("asset_tags.json"))
               .isEmpty()); // 无文件 = 初始态，不是错误
   QJsonObject root;

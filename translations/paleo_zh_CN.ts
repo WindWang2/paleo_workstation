@@ -524,26 +524,6 @@
         <translation>层位建议已取消（建议未入队）</translation>
     </message>
     <message>
-        <location filename="../src/workflow/aichattoolrunner.cpp" line="375"/>
-        <source>测井相服务未配置（端点与密钥须显式设置）</source>
-        <translation>测井相服务未配置（端点与密钥须显式设置）</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichattoolrunner.cpp" line="380"/>
-        <source>未绑定井曲线数据上下文（须打开工程并加载井数据）</source>
-        <translation>未绑定井曲线数据上下文（须打开工程并加载井数据）</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichattoolrunner.cpp" line="388"/>
-        <source>模型 id 与井名为必填</source>
-        <translation>模型 id 与井名为必填</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichattoolrunner.cpp" line="440"/>
-        <source>仅前 %1 段（共 %2 段）</source>
-        <translation>仅前 %1 段（共 %2 段）</translation>
-    </message>
-    <message>
         <location filename="../src/workflow/aichattoolrunner.cpp" line="492"/>
         <source>未绑定工程目录（须先打开工程再查工程数据）</source>
         <translation>未绑定工程目录（须先打开工程再查工程数据）</translation>
@@ -34750,24 +34730,9 @@ PDF：%3
         <translation>关联角色过滤（词表角色按分组：%1 等），作用于 well_details</translation>
     </message>
     <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="179"/>
-        <source>服务端模型 id（取 WellFaciesService::fetchModels 的结果）</source>
-        <translation>服务端模型 id（取 WellFaciesService::fetchModels 的结果）</translation>
-    </message>
-    <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="181"/>
         <source>井名</source>
         <translation>井名</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="183"/>
-        <source>起始深度</source>
-        <translation>起始深度</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="185"/>
-        <source>终止深度</source>
-        <translation>终止深度</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="194"/>
@@ -37640,64 +37605,9 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点带版本路径与阶段（可追溯）。</translation>
     </message>
     <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="106" />
-        <source>legacy 测井相调用须给井名；生产调用须给 typed v2 引用</source>
-        <translation>legacy 测井相调用须给井名；生产调用须给 typed v2 引用</translation>
-    </message>
-    <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="194" />
         <source>先用 query_project 的 well_facies_models 与 well_facies_inputs 取得精确模型、井和固定层段引用，再将所选真实 SDK 曲线发送到已配置的测井相端点。每次出现和有效连续段分别预测；需要声明特征单位、MD 基准、模型版本和稳定请求键。结果保存在私有操作工件中，不会登记目录成果；取消不能证明远端回滚。未知提交只查询原任务，不重新发送。</source>
         <translation>先用 query_project 的 well_facies_models 与 well_facies_inputs 取得精确模型、井和固定层段引用，再将所选真实 SDK 曲线发送到已配置的测井相端点。每次出现和有效连续段分别预测；需要声明特征单位、MD 基准、模型版本和稳定请求键。结果保存在私有操作工件中，不会登记目录成果；取消不能证明远端回滚。未知提交只查询原任务，不重新发送。</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="204" />
-        <source>legacy adapter 井名</source>
-        <translation>legacy adapter 井名</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="205" />
-        <source>生产契约版本 2</source>
-        <translation>生产契约版本 2</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="206" />
-        <source>调用方稳定幂等键</source>
-        <translation>调用方稳定幂等键</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="207" />
-        <source>well_facies_models 返回的端点身份；防止配置切换后使用另一模型命名空间</source>
-        <translation>well_facies_models 返回的端点身份；防止配置切换后使用另一模型命名空间</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="208" />
-        <source>GET/models 返回的精确版本</source>
-        <translation>GET/models 返回的精确版本</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="209" />
-        <source>工程查询返回的精确 WellRef</source>
-        <translation>工程查询返回的精确 WellRef</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="210" />
-        <source>FaciesAnalysis ContextKey</source>
-        <translation>FaciesAnalysis ContextKey</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="211" />
-        <source>固定方案修订和层段；每次出现分别预测</source>
-        <translation>固定方案修订和层段；每次出现分别预测</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="212" />
-        <source>特征名到精确 SDK 曲线编号字符串；歧义时必填</source>
-        <translation>特征名到精确 SDK 曲线编号字符串；歧义时必填</translation>
-    </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="213" />
-        <source>精确岩性道编号字符串；歧义时必填</source>
-        <translation>精确岩性道编号字符串；歧义时必填</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="239" />

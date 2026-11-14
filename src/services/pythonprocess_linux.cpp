@@ -26,7 +26,10 @@ QString drain(QProcess &process,ProcessResult &result,const ExecutionPolicy &pol
     process.setReadChannel(channel.id);
     while(process.bytesAvailable()>0) {
       const auto part=process.read(64*1024);
-      if(channel.data->size()>channel.limit-part.size())return QLatin1String(channel.error);
+      if(channel.data->size()>channel.limit-part.size()) {
+        const auto remaining=qMax<qint64>(0,channel.limit-channel.data->size());
+        channel.data->append(part.constData(),remaining);return QLatin1String(channel.error);
+      }
       channel.data->append(part);
     }
   }

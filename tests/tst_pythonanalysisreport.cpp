@@ -70,6 +70,28 @@ void metricField(QJsonObject &report,const QString &key,const QJsonValue &value)
 class PythonAnalysisReportTests:public QObject {
   Q_OBJECT
 private slots:
+  void parsedCorrelationCellsHaveValueOwnership_data() {
+    QTest::addColumn<int>("channels");QTest::addColumn<int>("count");
+    QTest::newRow("dense-redundancy")<<16<<4;QTest::newRow("null-insufficient")<<16<<1;
+    QTest::newRow("mixed-coefficients")<<3<<4;
+  }
+  void parsedCorrelationCellsHaveValueOwnership() {
+    QFETCH(int,channels);QFETCH(int,count);const auto meta=metadata(AnalysisKind::AttributeCorrelation,4,channels);
+    auto value=correlation(meta,count);
+    if(channels==3) {
+      value["matrix"]=QJsonArray{QJsonArray{1.0,0.99,0.25},QJsonArray{0.99,1.0,0.3},QJsonArray{0.25,0.3,1.0}};
+      value["redundantPairs"]=QJsonArray{QJsonObject{{"left",0},{"right",1},{"pearson",0.99},{"sampleCount",4}}};
+    }
+    const auto bytes=envelope(value);
+    for(int iteration=0;iteration<128;++iteration) {
+      // Parse fresh shared arrays just as the process-output path does. Array
+      // indexing must produce owned QJsonValue copies, never temporary proxies.
+      const auto parsed=QJsonDocument::fromJson(bytes).object();
+      const auto roundTrip=QJsonDocument(parsed).toJson(QJsonDocument::Compact);
+      const auto result=validateAnalysisReport(roundTrip,AnalysisKind::AttributeCorrelation,meta,{});
+      QVERIFY2(result.ok(),qPrintable(result.code));QCOMPARE(QJsonDocument::fromJson(result.bytes).object(),value);
+    }
+  }
   void acceptsRepackagesAndSummarizesBothContracts() {
     for(const auto kind:{AnalysisKind::WellQuality,AnalysisKind::AttributeCorrelation}){const auto meta=metadata(kind);
       const auto report=kind==AnalysisKind::WellQuality?quality(meta):correlation(meta);

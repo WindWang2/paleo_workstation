@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgisruntime.h"
+#include "qgisinitwatchdog.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -14,6 +15,7 @@
 #include <cpl_error.h>
 
 #include <qgsapplication.h>
+#include <qgsproject.h>
 #include <qgscoordinatereferencesystem.h>
 #include <qgscoordinatetransform.h>
 #include <qgsexception.h>
@@ -42,11 +44,11 @@ namespace
 {
   QgsApplication *s_app = nullptr;
 
-  // #872：Windows 测试把 HKCU 重映射到私有 hive 后，QgsApplication 若再经
-  // Known Folders / QStandardPaths 解析用户配置，会在 init()/createDatabase()
-  // 处挂死且无输出（#698 起；run 41103238639 / 43019234038）。显式配置目录
-  // 让这条路径不再碰 HKCU。ctest 由 paleo_test_sandbox 注入
-  // QGIS_CUSTOM_CONFIG_PATH；此处是直跑与漏注入时的进程内兜底。
+  // #872：Windows 测试把 HKCU 重映射到私有 hive；显式配置目录让 QGIS 的
+  // 用户配置解析不再经 Known Folders / QStandardPaths 碰 HKCU。ctest 由
+  // paleo_test_sandbox 注入 QGIS_CUSTOM_CONFIG_PATH；此处是直跑与漏注入时
+  // 的进程内兜底。注意：#930 后的分步痕迹（run 43207555877）显示 init()/
+  // createDatabase() 均已完成，探针挂点在 initQgis() 内部，仍在定位。
   QString testProfileFolder()
   {
     const QString existing = qEnvironmentVariable( "QGIS_CUSTOM_CONFIG_PATH" );
@@ -62,12 +64,26 @@ namespace
     return cfg;
   }
 
-  void initTrace( const char *msg )
+  void initTrace( const char *msg, const char *phase = nullptr )
   {
     if ( !qEnvironmentVariableIsSet( "PALEO_QGIS_INIT_TRACE" ) )
       return;
-    std::fprintf( stderr, "[qgisruntime] %s\n", msg );
+    if ( phase )
+      std::fprintf( stderr, "[qgisruntime] %s %s\n", msg, phase );
+    else
+      std::fprintf( stderr, "[qgisruntime] %s\n", msg );
     std::fflush( stderr );
+  }
+
+  // 一步初始化：trace 行 + 看门狗计时（看门狗仅 Windows + trace 时生效）。
+  template <typename Step>
+  void tracedStep( QgisInitWatchdog &watchdog, const char *name, const Step &step )
+  {
+    initTrace( name, "begin" );
+    watchdog.enter( name );
+    step();
+    watchdog.leave();
+    initTrace( name, "done" );
   }
 }
 
@@ -106,24 +122,38 @@ bool QgisRuntime::initialize( const QString &prefixPath,
   // 嵌入模式构造函数尚未解析 profile；先 init，否则用户库路径只是相对
   // qgis.db。initQgis() 加载 provider，不负责创建/迁移用户库。
   // init() 无参：空参时 QGIS 读 QGIS_CUSTOM_CONFIG_PATH 作为配置根。
-  initTrace( "init begin" );
-  QgsApplication::init();
-  initTrace( "init done" );
+  QgisInitWatchdog watchdog;
+  tracedStep( watchdog, "init", [] { QgsApplication::init(); } );
   // 在主题、面板或 provider 首次查询用户 CRS 前，使用 QGIS 原生迁移保留自定义 CRS。
   QString databaseError;
-  initTrace( "createDatabase begin" );
-  if (!QgsApplication::createDatabase(&databaseError)) {
+  bool databaseReady = false;
+  tracedStep( watchdog, "createDatabase", [&] {
+    databaseReady = QgsApplication::createDatabase( &databaseError );
+  } );
+  if (!databaseReady) {
     qCritical().noquote() << "QGIS user database initialization failed:"
                           << QgsApplication::qgisUserDatabaseFilePath() << databaseError;
     delete s_app; s_app = nullptr;
     return false;
   }
-  initTrace( "createDatabase done" );
   if ( applicationCreated )
     applicationCreated();
-  initTrace( "initQgis begin" );
-  QgsApplication::initQgis();
-  initTrace( "initQgis done" );
+  if ( qEnvironmentVariableIsSet( "PALEO_QGIS_INIT_TRACE" ) )
+  {
+    // #872：Windows 探针停在「initQgis begin」后无输出直到 5 min 步超时
+    // （run 43207555877）。initQgis() 本身没有分步输出；trace 下按 QGIS 4.2.3
+    // QgsApplication::initQgis() 的同一顺序先行调用其前三个子步（皆为单例
+    // 获取，随后 initQgis() 再调时幂等），挂死即可定位到子步。其后剩下的
+    // authManager()->setup()（纯赋值）与 QgsNetworkAccessManager::instance()
+    // 仍由 initQgis() 按原序执行——不提前建 NAM，以免改变它依赖 auth 已
+    // setup 的顺序；看门狗的线程栈足以区分这两者。
+    tracedStep( watchdog, "initQgis.providerRegistry",
+                [] { QgsProviderRegistry::instance( QgsApplication::pluginPath() ); } );
+    tracedStep( watchdog, "initQgis.dataItemProviderRegistry",
+                [] { ( void ) QgsApplication::dataItemProviderRegistry(); } );
+    tracedStep( watchdog, "initQgis.project", [] { ( void ) QgsProject::instance(); } );
+  }
+  tracedStep( watchdog, "initQgis", [] { QgsApplication::initQgis(); } );
   // QGIS 4.2 CRS cache entries can outlive the worker which owns their PROJ
   // master object. Its TLS cleanup leaves shared entries valid but without a
   // projection (empty WKT), breaking later imports and map rendering. Keep

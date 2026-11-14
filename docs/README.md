@@ -20,6 +20,7 @@
 ## 后续实施规划
 
 - [Agent 调用可靠性整改计划](planning/AGENT_CALL_READINESS_PLAN.md)
+- [受控 Python Agent 环境实施计划](planning/CONTROLLED_PYTHON_AGENT_PLAN.md)
 - [Agent 入口迁移清单](architecture/AGENT_CAPABILITY_MIGRATION.md)
 - [实施计划与验收条件](planning/task_plan.md)
 - [现状依据与待核实事项](planning/findings.md)

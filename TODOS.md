@@ -31,6 +31,11 @@ A0–A4 的全面迁移仍待实施，不以工具登记数量代替功能完成
 [实施记录](docs/progress/agent-readiness-20261113.md)。本轮支持单 Catalog 凭证和明确契约的
 工具；94 条命令全面迁移、跨 store 全局提交及未支持的深度映射仍按各专项推进。
 
+受控 Python Agent 环境已形成[实施计划](docs/planning/CONTROLLED_PYTHON_AGENT_PLAN.md)，
+尚未实施：PY0 环境/执行契约 → PY1 可信脚本与持久操作 → PY2 有界取数和业务试点；
+PY3W/PY3L 分别验收 Windows/Linux 隔离后，PY4 才按平台开放生成代码。复用现有任务、
+暂存、校验、成果发布与恢复链路，逐批编译、测试和源码门禁后提 PR。Shell/任意 CLI 后置。
+
 `operation_read` 重复全文件 SHA 整改已实现整 SHA 锚定的有界分块认证，绑定宿主/工件，
 处理取消、替换与回收保护；每页认证返回范围。契约、实际字节计数及合入前验证见
 [分页整改记录](docs/progress/operation-read-integrity-20261114.md)。

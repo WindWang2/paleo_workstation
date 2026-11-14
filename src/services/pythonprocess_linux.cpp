@@ -101,6 +101,7 @@ ProcessResult runPreparedChild(const Launch &request,Prepared &prepared) {
     }
     process.waitForReadyRead(20);
     captureStats(cpu,memory,memoryEvents,result,oom);
+    if(result.cpuMicros>=qint64(request.policy.cpuSeconds)*1000000) {result.code="python_process_cpu_limit";break;}
   }
   if(process.state()!=QProcess::NotRunning) {process.kill();process.waitForFinished(3000);}
   prepared.blockWrite.reset();

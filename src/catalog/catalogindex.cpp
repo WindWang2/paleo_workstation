@@ -19,6 +19,11 @@ void CatalogIndex::clear()
   m_entitySeqByPrefix.clear();
   m_entityCount.clear();
   m_linkCount = 0;
+  m_entityOrder.clear(); m_assetOrder.clear(); m_wellLikeOrder.clear();
+  m_entitiesOrderedByType.clear(); m_assetsOrderedByType.clear(); m_linksOrdered.clear();
+  m_childrenOrdered.clear(); m_currentVersionRow.clear(); m_currentVersionNumber.clear();
+  m_wellsByName.clear(); m_assetsByName.clear(); m_wellsByModelId.clear();
+  m_wellNameKeys.clear(); m_assetNameKeys.clear(); m_modelWellKeys.clear();
 }
 
 void CatalogIndex::rebuild(const QVector<CatalogEntity> &entities,
@@ -28,9 +33,15 @@ void CatalogIndex::rebuild(const QVector<CatalogEntity> &entities,
 {
   clear();
   for (int i = 0; i < entities.size(); ++i)
+  {
     entityAdded(i, entities.at(i).id, entities.at(i).entityType);
+    entityMetadataChanged(i, entities.at(i));
+  }
   for (int i = 0; i < assets.size(); ++i)
+  {
     assetAdded(i, assets.at(i).id, assets.at(i).type);
+    assetMetadataChanged(i, assets.at(i));
+  }
   for (int i = 0; i < versions.size(); ++i)
     versionAdded(i, versions.at(i));
   for (int i = 0; i < links.size(); ++i)
@@ -42,6 +53,9 @@ void CatalogIndex::entityAdded(int row, const QString &id, const QString &type)
   if (id.isEmpty())
     return;
   m_entityRow.insert(id, row);
+  m_entityOrder.insert(id, row);
+  m_entitiesOrderedByType[type].insert(id, row);
+  if (type == QLatin1String("well") || type == QLatin1String("planned")) m_wellLikeOrder.insert(id, row);
   indexEntitySeq(id); // WP2：前缀序号登记（nextEntityId O(1) 面）
   if (!type.isEmpty())
     m_entitiesByType[type].append(row);
@@ -70,10 +84,10 @@ void CatalogIndex::indexEntitySeq(const QString &id)
 
 void CatalogIndex::assetAdded(int row, const QString &id, const QString &type)
 {
-  Q_UNUSED(type);
   if (id.isEmpty())
     return;
   m_assetRow.insert(id, row);
+  m_assetOrder.insert(id, row); m_assetsOrderedByType[type].insert(id, row);
 }
 
 void CatalogIndex::versionAdded(int row, const CatalogVersion &v)
@@ -81,13 +95,20 @@ void CatalogIndex::versionAdded(int row, const CatalogVersion &v)
   if (v.id.isEmpty())
     return;
   m_versionRow.insert(v.id, row);
+  if (!v.assetId.isEmpty() && v.versionNumber >= m_currentVersionNumber.value(v.assetId, 1)) {
+    m_currentVersionNumber[v.assetId] = v.versionNumber;
+    m_currentVersionRow[v.assetId] = row;
+  }
   if (!v.assetId.isEmpty())
     m_versionsByAsset[v.assetId].append(row); // 行号升序（追加语义）
   if (!v.sha256.isEmpty())                    // WP2：sha 命中行集（升序）
     m_rowsBySha[v.sha256.toLower()].append(row);
   for (const QString &p : v.parentVersionIds)
     if (!p.isEmpty())
+    {
       m_childrenByParent[p].append(v.id); // 行序 = 入边发现序（BFS 确定性）
+      m_childrenOrdered[p].insert(v.id, v.id);
+    }
 
   if (v.stage != QLatin1String("DERIVED"))
     return;
@@ -117,6 +138,9 @@ void CatalogIndex::clearTimeDepthConsumers()
 
 void CatalogIndex::indexLinkRow(int row, const EntityAssetLink &l)
 {
+  const QString key = QString::number(row).rightJustified(20, QLatin1Char('0'));
+  m_linksOrdered[qMakePair(l.entityId, QString())].insert(key, row);
+  if (!l.role.isEmpty()) m_linksOrdered[qMakePair(l.entityId, l.role)].insert(key, row);
   if (!l.entityId.isEmpty())
     m_linksByEntity[l.entityId].append(row);
   if (!l.assetId.isEmpty())
@@ -134,6 +158,7 @@ void CatalogIndex::linksMutated(const QVector<EntityAssetLink> &links)
   // 链接行序不变，只重挂 entity/asset 邻接。
   m_linksByEntity.clear();
   m_linksByAsset.clear();
+  m_linksOrdered.clear();
   m_linkCount = links.size();
   for (int i = 0; i < links.size(); ++i)
     indexLinkRow(i, links.at(i));
@@ -147,6 +172,7 @@ void CatalogIndex::versionsMutated(const QVector<CatalogVersion> &versions)
   m_versionsByAsset.clear();
   m_childrenByParent.clear();
   m_rowsBySha.clear();
+  m_childrenOrdered.clear(); m_currentVersionRow.clear(); m_currentVersionNumber.clear();
   clearTimeDepthConsumers();
   for (int i = 0; i < versions.size(); ++i)
     versionAdded(i, versions.at(i));
@@ -245,5 +271,15 @@ bool CatalogIndex::verifyAgainst(const QVector<CatalogEntity> &entities,
     }
   if (m_linkCount != links.size())
     return fail(QStringLiteral("linkCount"));
+  CatalogIndex expected; expected.rebuild(entities, assets, versions, links);
+  if (m_entityOrder != expected.m_entityOrder || m_assetOrder != expected.m_assetOrder ||
+      m_wellLikeOrder != expected.m_wellLikeOrder || m_entitiesOrderedByType != expected.m_entitiesOrderedByType ||
+      m_assetsOrderedByType != expected.m_assetsOrderedByType || m_linksOrdered != expected.m_linksOrdered ||
+      m_childrenOrdered != expected.m_childrenOrdered || m_currentVersionRow != expected.m_currentVersionRow ||
+      m_currentVersionNumber != expected.m_currentVersionNumber || m_wellsByName != expected.m_wellsByName ||
+      m_wellsByModelId != expected.m_wellsByModelId || m_assetsByName != expected.m_assetsByName ||
+      m_wellNameKeys != expected.m_wellNameKeys || m_assetNameKeys != expected.m_assetNameKeys ||
+      m_modelWellKeys != expected.m_modelWellKeys)
+    return fail(QStringLiteral("ordered query indexes"));
   return true;
 }

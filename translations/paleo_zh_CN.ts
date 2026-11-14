@@ -542,11 +542,7 @@
         <source>topic=well_details 须给 well_name（井名）</source>
         <translation>topic=well_details 须给 well_name（井名）</translation>
     </message>
-    <message>
-        <location filename="../src/workflow/aichattoolrunner.cpp" line="628"/>
-        <source>井不存在：%1；工程现有井：%2</source>
-        <translation>井不存在：%1；工程现有井：%2</translation>
-    </message>
+    
     <message>
         <location filename="../src/workflow/aichattoolrunner.cpp" line="638"/>
         <source>井名匹配到多个候选（%1）——请给更精确的井名</source>
@@ -606,6 +602,11 @@
         <location filename="../src/workflow/aichattoolrunner.cpp" line="825"/>
         <source>工程 %1：</source>
         <translation>工程 %1：</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/aichattoolrunner.cpp" line="628" />
+        <source>井不存在：%1；工程现有井示例：%2</source>
+        <translation>井不存在：%1；工程现有井示例：%2</translation>
     </message>
 </context>
 <context>
@@ -739,9 +740,74 @@
     <message>
         <location filename="../src/ui/ai/aitoolresultview.cpp" line="477"/>
         <source>
-…（显示前 %1 字符，原始 %2 字符；全文已回传模型）</source>
+…（显示前 %1 字符，原始 %2 字符；此处仅为显示摘要）</source>
         <translation>
-…（显示前 %1 字符，原始 %2 字符；全文已回传模型）</translation>
+…（显示前 %1 字符，原始 %2 字符；此处仅为显示摘要）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="72" />
+        <source> · 请求范围已读完</source>
+        <translation> · 请求范围已读完</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="424" />
+        <source> · %1 个引用缺少版本元数据</source>
+        <translation> · %1 个引用缺少版本元数据</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="423" />
+        <source> · 跨页关联暂不绘制</source>
+        <translation> · 跨页关联暂不绘制</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="418" />
+        <source> · 上游深度 %1 / 下游深度 %2</source>
+        <translation> · 上游深度 %1 / 下游深度 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="71" />
+        <source> · 尚有后续结果</source>
+        <translation> · 尚有后续结果</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="314" />
+        <source>本页关联资产</source>
+        <translation>本页关联资产</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="67" />
+        <source>本页 %1 条 · 总数 %2</source>
+        <translation>本页 %1 条 · 总数 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="66" />
+        <source>未知</source>
+        <translation>未知</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="318" />
+        <source>分页</source>
+        <translation>分页</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="309" />
+        <source>正在查找井名，尚有候选页</source>
+        <translation>正在查找井名，尚有候选页</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="309" />
+        <source>状态</source>
+        <translation>状态</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="487" />
+        <source> · 本页节点超过小图上限 %1，已按 JSON 折叠</source>
+        <translation> · 本页节点超过小图上限 %1，已按 JSON 折叠</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="162" />
+        <source>井深</source>
+        <translation>井深</translation>
     </message>
 </context>
 <context>
@@ -34672,14 +34738,10 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="195"/>
-        <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。</source>
-        <translation>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。</translation>
+        <source>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。井深按来源原值返回，未给出的单位不能推断。</source>
+        <translation>只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，returnedCount 为本页条目数。井深按来源原值返回，未给出的单位不能推断。</translation>
     </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="202"/>
-        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细</source>
-        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细</translation>
-    </message>
+    
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="208"/>
         <source>井名（topic=well_details 时必填；按目录规范化匹配）</source>
@@ -34697,8 +34759,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="230"/>
-        <source>只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点带版本路径与阶段（可追溯）。</source>
-        <translation>只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点带版本路径与阶段（可追溯）。</translation>
+        <source>只读分页查询某资产的派生血缘：分别追溯上游与下游版本。节点带版本路径与阶段；selection 只含本页节点，跨页边保留版本引用。hasMore=true 时用 nextCursor 继续，未续完不视为完整闭包。</source>
+        <translation>只读分页查询某资产的派生血缘：分别追溯上游与下游版本。节点带版本路径与阶段；selection 只含本页节点，跨页边保留版本引用。hasMore=true 时用 nextCursor 继续，未续完不视为完整闭包。</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="237"/>
@@ -37219,11 +37281,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>prepare、compute-only 或 publish</source>
         <translation>prepare、compute-only 或 publish</translation>
     </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="99" />
-        <source>topic=version 须给精确 version_id</source>
-        <translation>topic=version 须给精确 version_id</translation>
-    </message>
+    
     <message>
         <location filename="../src/ui/pages/dataops/dataopsquery.cpp" line="642" />
         <source>不支持的状态串版本「%1」（当前支持 v1/v2）</source>
@@ -37355,21 +37413,13 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>状态串的过滤条件字段损坏</source>
         <translation>状态串的过滤条件字段损坏</translation>
     </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="221" />
-        <source>目录修订条件（topic=version；缺省使用本次宿主目录修订）</source>
-        <translation>目录修订条件（topic=version；缺省使用本次宿主目录修订）</translation>
-    </message>
+    
     <message>
         <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="61" />
         <source>确认所选时深关系的物理口径</source>
         <translation>确认所选时深关系的物理口径</translation>
     </message>
-    <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="219" />
-        <source>精确目录版本标识（topic=version 时必填，不按名称回退）</source>
-        <translation>精确目录版本标识（topic=version 时必填，不按名称回退）</translation>
-    </message>
+    
     <message>
         <location filename="../src/qgis/geostatcovariatesampler.cpp" line="19" />
         <source>自定义 CRS(%1…)</source>
@@ -37425,6 +37475,54 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>UTF-8 JSON 预算，768–65536 字节</source>
             <translation>UTF-8 JSON 预算，768–65536 字节</translation>
         </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="230" />
+        <source>精确井实体标识；well_details 优先使用此字段</source>
+        <translation>精确井实体标识；well_details 优先使用此字段</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="236" />
+        <location filename="../src/ai/chat/domaintools.cpp" line="287" />
+        <source>完整JSON页的UTF-8字节预算（2048–65536，缺省8192）</source>
+        <translation>完整JSON页的UTF-8字节预算（2048–65536，缺省8192）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="99" />
+        <source>topic=version/version_parents 须给精确 version_id</source>
+        <translation>topic=version/version_parents 须给精确 version_id</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="219" />
+        <source>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</source>
+        <translation>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="228" />
+        <source>井名（well_details 未给 well_id 时使用；按目录规范化匹配）</source>
+        <translation>井名（well_details 未给 well_id 时使用；按目录规范化匹配）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="234" />
+        <location filename="../src/ai/chat/domaintools.cpp" line="285" />
+        <source>每页最大条目数（1–256，缺省50）</source>
+        <translation>每页最大条目数（1–256，缺省50）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="221" />
+        <source>目录修订条件（version/version_parents；缺省使用本次宿主目录修订）</source>
+        <translation>目录修订条件（version/version_parents；缺省使用本次宿主目录修订）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="202" />
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；version=严格版本摘要；version_parents=完整父引用续页</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="232" />
+        <location filename="../src/ai/chat/domaintools.cpp" line="283" />
+        <source>上一页的 nextCursor；保持主题、筛选及页预算不变</source>
+        <translation>上一页的 nextCursor；保持主题、筛选及页预算不变</translation>
+    </message>
     </context>
 <context>
     <name>QgisCanvasController</name>

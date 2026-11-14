@@ -13,6 +13,8 @@
 #include <QString>
 #include <QVector>
 #include <functional>
+#include <memory>
+namespace paleo::query {class ProjectQueryCapability;}
 
 // workflow/ — 聊天领域工具执行器（方向61）。
 //
@@ -116,6 +118,7 @@ private:
   void runLineage(const ChatToolCall &call, const QJsonObject &args);
   QJsonObject errorPayload(const QString &message) const;
   void invalidateContext();
+  void rebindQueryScope();
   quint64 taskSession() const;
   bool activeContextIsCurrent() const;
   void refreshResultScope();
@@ -130,6 +133,8 @@ private:
   Context m_context;
   QPointer<PaleoTaskService> m_taskService;
   WellFaciesService *m_facies = nullptr; // 私有（本类拥有）
+  std::unique_ptr<paleo::query::ProjectQueryCapability> m_query;
+  QString m_querySessionId;
   WellFaciesConfig m_faciesConfig;       // 注入快照（预检端点/密钥齐不齐）
   QVector<QueuedCall> m_queue;
   ChatToolCall m_activeCall;

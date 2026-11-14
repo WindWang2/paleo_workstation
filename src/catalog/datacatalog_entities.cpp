@@ -24,6 +24,7 @@ bool DataCatalog::addEntity(const CatalogEntity &e, QString *error)
   }
   m_entities.append(e);
   m_idx.entityAdded(m_entities.size() - 1, e.id, e.entityType); // D5.2 增量
+  m_idx.entityMetadataChanged(m_entities.size() - 1, e);
   m_dirtyEntities.insert(e.id);
   if (save(error))
   {
@@ -58,6 +59,7 @@ bool DataCatalog::updateEntity(const CatalogEntity &e, QString *error)
   }
   const CatalogEntity old = m_entities.at(row);
   m_entities[row] = e; // 行位不动：m_entityRow/m_entitiesByType 索引无需维护
+  m_idx.entityMetadataChanged(row, e);
   m_dirtyEntities.insert(e.id);
   if (save(error))
   {
@@ -68,6 +70,7 @@ bool DataCatalog::updateEntity(const CatalogEntity &e, QString *error)
     return true;
   }
   m_entities[row] = old; // 回滚
+  m_idx.entityMetadataChanged(row, old);
   return false;
 }
 

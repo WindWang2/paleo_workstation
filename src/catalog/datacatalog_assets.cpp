@@ -35,6 +35,7 @@ bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
   }
   m_assets.append(a);
   m_idx.assetAdded(m_assets.size() - 1, a.id, a.type); // D5.2
+  m_idx.assetMetadataChanged(m_assets.size() - 1, a);
   m_dirtyAssets.insert(a.id);
   if (save(error))
   {
@@ -178,6 +179,7 @@ bool DataCatalog::renameAsset(const QString &assetId, const QString &newName, QS
     return true; // 无操作成功：不落盘不涨 revision
   const QString prev = m_assets.at(row).displayName;
   m_assets[row].displayName = trimmed;
+  m_idx.assetMetadataChanged(row, m_assets.at(row));
   m_dirtyAssets.insert(assetId);
   if (save(error))
   {
@@ -185,6 +187,7 @@ bool DataCatalog::renameAsset(const QString &assetId, const QString &newName, QS
     return true;
   }
   m_assets[row].displayName = prev;
+  m_idx.assetMetadataChanged(row, m_assets.at(row));
   return false;
 }
 

@@ -41,6 +41,7 @@ private slots:
   void lineageClosureMatchesDirectComputation();
   void unboundCatalogIsHonestError();
   void unknownWellIsHonestError();
+  void queryCursorsCannotCrossIdleChatSessions();
   void projectBriefSummarizesAndStaysSmall();
   void controllerInjectsBriefIntoSystemPrompt();
   void readResultIsRoutedAndInvalidatedWithHostScope();
@@ -357,10 +358,22 @@ void TestAiChatProjectQuery::queryWellsTruncatesListAtCap() {
   QVERIFY2(ok, qPrintable(payload.value(QStringLiteral("error")).toString()));
   QCOMPARE(payload.value(QStringLiteral("count")).toInt(),
            kWellsListCap + 10); // count 如实报全量
-  QCOMPARE(payload.value(QStringLiteral("wells")).toArray().size(),
-           kWellsListCap);      // 列表截到上限
+  QVERIFY(payload.value(QStringLiteral("wells")).toArray().size() > 0);
+  QVERIFY(payload.value(QStringLiteral("wells")).toArray().size() <= kWellsListCap);
   QVERIFY2(payload.contains(QStringLiteral("truncated")),
            "截断必须如实标记（字段带总数说明）");
+  QSet<QString> ids;
+  do {
+    for (const auto &value : payload.value(QStringLiteral("wells")).toArray()) {
+      const auto id = value.toObject().value(QStringLiteral("id")).toString();
+      QVERIFY(!ids.contains(id)); ids.insert(id);
+    }
+    if (!payload.value(QStringLiteral("hasMore")).toBool()) break;
+    args.insert(QStringLiteral("cursor"), payload.value(QStringLiteral("nextCursor")));
+    QVERIFY(runTool(runner, QStringLiteral("paleo.query_project"), args, &ok, &payload));
+    QVERIFY2(ok, qPrintable(payload.value(QStringLiteral("error")).toString()));
+  } while (true);
+  QCOMPARE(ids.size(), kWellsListCap + 10);
 }
 
 void TestAiChatProjectQuery::querySummaryCountsFreshFromCatalog() {
@@ -584,6 +597,24 @@ void TestAiChatProjectQuery::controllerInjectsBriefIntoSystemPrompt() {
   QVERIFY(AiChatController::estimateTokens(withBrief) -
             AiChatController::estimateTokens(plain) <
           AiChatController::kHistoryTokenBudget / 10);
+}
+
+void TestAiChatProjectQuery::queryCursorsCannotCrossIdleChatSessions() {
+  Fixture f;QVERIFY(initFixture(f));seedProject(f);
+  AiChatToolRunner runner;AiChatToolContext context;context.catalog=&f.catalog;context.projectDir=f.dir.path();
+  context.documentId=QStringLiteral("document");context.documentEpoch=1;
+  runner.setContext(context);runner.setResultSession(QStringLiteral("chat-a"));
+  QJsonObject args{{"topic","assets"},{"page_size",1}};bool ok=false;QJsonObject page;
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(ok);
+  const auto cursor=page.value(QStringLiteral("nextCursor")).toString();QVERIFY(!cursor.isEmpty());args["cursor"]=cursor;
+  // The same idle chat keeps its cursor, while a new chat cannot reuse it.
+  runner.setResultSession(QStringLiteral("chat-a"));
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(ok);
+  const auto replay=page;runner.cancel();
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(ok);QCOMPARE(page,replay);
+  QVERIFY(!runner.busy());runner.setResultSession(QStringLiteral("chat-b"));
+  QVERIFY(runTool(runner,QStringLiteral("paleo.query_project"),args,&ok,&page));QVERIFY(!ok);
+  QCOMPARE(page.value(QStringLiteral("code")).toString(),QStringLiteral("cursor_scope_mismatch"));
 }
 
 void TestAiChatProjectQuery::readResultIsRoutedAndInvalidatedWithHostScope() {

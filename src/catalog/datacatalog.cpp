@@ -124,7 +124,10 @@ bool DataCatalog::checkWriteThread(const char *what, QString *error) const
 bool DataCatalog::noteRead(const char *what) const
 {
   if (m_staging || !thread() || QThread::currentThread() == thread())
+  {
+    if (m_readObserver) m_readObserver(what);
     return true;
+  }
   // #476：跨线程读不再只告警——QVector/QHash COW 下属主写+他线程读是真实
   // UB，默认拒绝：调用方拿空数据/失败值（strict 模式仍 qFatal 直接暴露）。
   const int n = g_threadViolations.fetch_add(1);

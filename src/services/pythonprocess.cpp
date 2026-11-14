@@ -94,7 +94,10 @@ ProcessResult runTrustedProcess(const TrustedProcessRequest &request) {
 #else
   auto result=fail("python_process_unavailable");
 #endif
-  if(!result.ok())result.output.clear();
+  if(!result.ok()) {
+    result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));
+    result.output.clear();
+  }
   return result;
 }
 } // namespace paleo::python

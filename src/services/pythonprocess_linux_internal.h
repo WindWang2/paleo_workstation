@@ -19,6 +19,7 @@ struct Prepared {
   QString unit;
   QStringList arguments;
   QProcessEnvironment environment;
+  QJsonObject helperProfile;
   std::shared_ptr<Fd> filter, blockRead, blockWrite;
   QVector<int> imageFds;
   qint64 fileBytes=0;

@@ -46,7 +46,7 @@ RuntimeResult verifyRuntime(const RuntimeConfig &config, const std::function<boo
 QString probeRuntime(const VerifiedRuntime &runtime, const std::function<bool()> &cancelled = {});
 
 // Synchronous data service: callers run inspect() through the existing task pool.
-// No user code, PATH discovery, downloads, package installation or global state.
+// No user code, PATH discovery, downloads, package installation or global environment changes.
 class RuntimeProvider {
 public:
   explicit RuntimeProvider(RuntimeConfig config, ExecutionPolicy policy = {});
@@ -59,6 +59,8 @@ public:
   ExecutionPolicy policy() const { return m_policy; }
   RuntimeConfig configuration() const { return m_config; }
 private:
+  enum class Inspection { IntegrityOnly, ImportProbe };
+  RuntimeResult inspectImpl(Inspection inspection, const std::function<bool()> &cancelled);
   RuntimeConfig m_config;
   ExecutionPolicy m_policy;
   mutable QMutex m_mutex;

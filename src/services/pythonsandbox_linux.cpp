@@ -1,5 +1,5 @@
 // 层：数据
-// Candidate PY3 adapter. Reuses PY1's one process-wide permit, pump and cleanup.
+// Reuses the common process-wide permit, pump and cleanup.
 #include "pythonsandbox_linux.h"
 #include "pythonsandbox_linux_image.h"
 #include "services/pythonprocess_linux_internal.h"
@@ -41,7 +41,7 @@ std::shared_ptr<Fd> strongFilter() {
 }
 QString strongPrepare(const SandboxRequest &request,process_detail::Launch &native,
                       process_detail::linux_native::Prepared &prepared,const SealedRuntimeImage &image,
-                      const SealedRuntimeImage *input) {
+                      const SealedRuntimeImage &input) {
   using namespace process_detail::linux_native;
   const auto runtime=image.runtime->root;
   const auto program=image.runtime->interpreter;
@@ -50,13 +50,11 @@ QString strongPrepare(const SandboxRequest &request,process_detail::Launch &nati
   const auto executable=QDir(runtime).relativeFilePath(program);
   bool executablePresent=false;for(const auto &file:image.files)if(file.path==executable&&file.executable)executablePresent=true;
   if(!executablePresent)return "python_manifest_interpreter_missing";
-  if(!input)return "python_sandbox_input_identity_required";
-  const auto inputBytes=input?input->bytes:0;
-  if(image.bytes+inputBytes>512*1024*1024||image.bytes+inputBytes>request.policy.memoryBytes-64*1024*1024)
+  if(image.bytes+input.bytes>512*1024*1024||image.bytes+input.bytes>request.policy.memoryBytes-64*1024*1024)
     return "python_snapshot_memory_budget";
-  if(image.files.size()+(input?input->files.size():0)>4000)return "python_snapshot_fd_budget";
+  if(image.files.size()+input.files.size()>4000)return "python_snapshot_fd_budget";
   if(const auto code=prepareEnvelope(native,prepared);!code.isEmpty())return code;
-  const auto helpers=verifiedHelpers();if(helpers.isEmpty())return "python_linux_helpers_untrusted";
+  const auto &helpers=prepared.helperProfile;
   prepared.filter=strongFilter();if(!prepared.filter)return "python_linux_seccomp_unavailable";
   prepared.fileBytes=0;
   prepared.arguments += {"/usr/bin/bwrap","--unshare-all","--unshare-user","--unshare-cgroup","--disable-userns","--die-with-parent",
@@ -76,7 +74,7 @@ QString strongPrepare(const SandboxRequest &request,process_detail::Launch &nati
    return "";
   };
   if(const auto code=mountImage(image,"/runtime/");*code)return code;
-  if(input)if(const auto code=mountImage(*input,"/input/");*code)return code;
+  if(const auto code=mountImage(input,"/input/");*code)return code;
   if(prepared.arguments.size()>8750)return "python_snapshot_argument_budget";
   prepared.arguments += {"--seccomp","3","--block-fd","4","--remount-ro","/","--chdir","/work","--",
     "/runtime/"+executable,"-I","-u","-B","-X","utf8","/input/code.py"};
@@ -116,37 +114,17 @@ SandboxResult runLinuxSandbox(const SandboxRequest &request) {
   if(hostCapacity<0||request.runtime->treeSize>hostCapacity) {result.code="python_snapshot_memory_budget";return result;}
   const auto image=snapshotLinuxRuntime(request.runtime,hostCapacity,cancelled,result.code);
   if(!image)return finish();
-  std::shared_ptr<SealedRuntimeImage> input;
-  if(request.input) {
-    const auto capacity=qMin<qint64>(512*1024*1024,request.policy.memoryBytes-64*1024*1024)-image->bytes;
-    input=snapshotLinuxInputs(*request.input,request.policy,capacity,hostCapacity-image->bytes,cancelled,result.code);
-    if(!input)return finish();
-  }
+  const auto capacity=qMin<qint64>(512*1024*1024,request.policy.memoryBytes-64*1024*1024)-image->bytes;
+  const auto input=snapshotLinuxInputs(*request.input,request.policy,capacity,hostCapacity-image->bytes,cancelled,result.code);
+  if(!input)return finish();
   result.hostSnapshotReservedBytes=fixedReservation+image->bytes+input->bytes+input->bufferedBytes;
   native.inputChunks=input->stdinChunks;
   process_detail::linux_native::Prepared prepared;
-  result.code=strongPrepare(request,native,prepared,*image,input.get());if(!result.code.isEmpty())return finish();
+  result.code=strongPrepare(request,native,prepared,*image,*input);if(!result.code.isEmpty())return finish();
   const auto work=process_detail::linux_native::runPreparedChild(native,prepared);
   result.code=work.code;result.output=work.output;result.error=work.error;
   result.outputLog=work.outputLog;
   result.cpuMicros=work.cpuMicros;result.peakMemoryBytes=work.peakMemoryBytes;
   result.exitCode=work.exitCode;result.memoryPeakComplete=work.memoryPeakComplete;return finish();
-}
-QString linuxSandboxReadiness(const std::function<bool()> &cancelled) {
-  using namespace process_detail::linux_native;
-  process_detail::Launch native;native.policy.allowTrusted=true;
-  native.policy.memoryBytes=64*1024*1024;native.policy.cpuSeconds=5;native.policy.wallSeconds=5;
-  native.cancelled=cancelled;
-  native.permit=process_detail::acquireProcessPermit(cancelled);
-  if(!native.permit)return QStringLiteral("cancelled");
-  Prepared prepared;if(const auto code=prepareEnvelope(native,prepared);!code.isEmpty())return code;
-  prepared.filter=strongFilter();if(!prepared.filter)return "python_linux_seccomp_unavailable";
-  prepared.fileBytes=0;
-  prepared.arguments += {"/usr/bin/bwrap","--unshare-all","--unshare-user","--unshare-cgroup","--disable-userns",
-    "--die-with-parent","--new-session","--cap-drop","ALL","--clearenv","--ro-bind","/usr","/usr",
-    "--symlink","usr/lib","/lib","--symlink","usr/lib","/lib64","--seccomp","3","--block-fd","4",
-    "--remount-ro","/","--","/usr/bin/bwrap","--version"};
-  const auto result=runPreparedChild(native,prepared);
-  return result.ok()?QStringLiteral("ok"):result.code;
 }
 }

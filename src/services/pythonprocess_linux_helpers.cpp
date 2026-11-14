@@ -78,7 +78,8 @@ QString verifyResourceLimits(const QString &directory,const ExecutionPolicy &pol
 }
 QString prepareEnvelope(const Launch &request,Prepared &prepared) {
   if(const auto code=request.policy.validate();!code.isEmpty())return code;
-  if(verifiedHelpers().isEmpty())return "python_linux_helpers_untrusted";
+  prepared.helperProfile=verifiedHelpers();
+  if(prepared.helperProfile.isEmpty())return "python_linux_helpers_untrusted";
   prepared.environment=helperEnvironment();if(prepared.environment.isEmpty())return "python_linux_user_manager_missing";
   int pipe[2];if(::pipe2(pipe,O_CLOEXEC))return "python_linux_barrier_failed";
   prepared.blockRead=std::make_shared<Fd>(pipe[0]);prepared.blockWrite=std::make_shared<Fd>(pipe[1]);

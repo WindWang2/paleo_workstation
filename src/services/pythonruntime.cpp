@@ -5,6 +5,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLockFile>
@@ -34,6 +35,41 @@ bool link(const QFileInfo &info) {
 #else
   return info.isSymLink();
 #endif
+}
+QString checkedRoot(const RuntimeConfig &config,QString &code) {
+  if(!config.enabled){code="python_environment_disabled";return {};}
+  if(config.root.isEmpty()){code="python_environment_missing";return {};}
+  if(!hexDigest(config.manifestSha256)){code="python_manifest_anchor_required";return {};}
+  if(runtimePlatform().isEmpty()){code="python_platform_unsupported";return {};}
+  const QFileInfo info(config.root);const auto root=info.canonicalFilePath();
+  if(root.isEmpty() || !info.isDir() || link(info)){code="python_environment_missing";return {};}
+  return root;
+}
+std::shared_ptr<void> acquireGenerationLease(const QString &root,const QString &anchor) {
+  const auto path=QDir(root).absoluteFilePath("../.leases/"+anchor+".lock");
+  auto lease=std::make_shared<QLockFile>(path);lease->setStaleLockTime(0);
+  if(!QDir().mkpath(QFileInfo(path).absolutePath()) || !lease->tryLock(0))return {};
+  return lease;
+}
+std::shared_ptr<void> providerLease(const RuntimeConfig &config,const std::function<bool()> &cancelled,QString &code) {
+  const auto root=checkedRoot(config,code);if(root.isEmpty())return {};
+  struct Leases {QMutex mutex;QHash<QString,std::weak_ptr<void>> entries;};
+  static Leases leases;
+  while(!leases.mutex.tryLock(25))if(cancelled && cancelled()){code="cancelled";return {};}
+  const auto unlock=qScopeGuard([&]{leases.mutex.unlock();});
+  // Only lease acquisition is serialized. Hashing and caller callbacks never run
+  // under this mutex; weak entries do not retain an otherwise unused generation.
+  for(auto it=leases.entries.begin();it!=leases.entries.end();)
+    if(it.value().expired())it=leases.entries.erase(it);else ++it;
+#ifdef Q_OS_WIN
+  const auto key=root.toCaseFolded()+QChar(0)+config.manifestSha256;
+#else
+  const auto key=root+QChar(0)+config.manifestSha256;
+#endif
+  if(auto retained=leases.entries.value(key).lock())return retained;
+  auto retained=acquireGenerationLease(root,config.manifestSha256);
+  if(!retained){code="python_runtime_busy";return {};}
+  leases.entries.insert(key,retained);return retained;
 }
 QString fileHash(QFile &file,qint64 expected,const std::function<bool()> &cancelled) {
   QCryptographicHash hash(QCryptographicHash::Sha256);
@@ -100,17 +136,10 @@ QString runtimeSourceLockSha256() { return QString::fromLatin1(PALEO_AGENT_PYTHO
 RuntimeResult verifyRuntime(const RuntimeConfig &config,const std::function<bool()> &cancelled,std::shared_ptr<void> retention) {
   RuntimeResult result;
   const auto fail=[&](const QString &code){result.code=code;return result;};
-  if(!config.enabled)return fail("python_environment_disabled");
-  if(config.root.isEmpty())return result;
-  if(!hexDigest(config.manifestSha256))return fail("python_manifest_anchor_required");
-  if(runtimePlatform().isEmpty())return fail("python_platform_unsupported");
-  const QFileInfo rootInfo(config.root);const auto root=rootInfo.canonicalFilePath();
-  if(root.isEmpty() || !rootInfo.isDir() || link(rootInfo))return fail("python_environment_missing");
+  const auto root=checkedRoot(config,result.code);if(root.isEmpty())return result;
   if(!retention) {
-    const auto leasePath=QDir(root).absoluteFilePath("../.leases/"+config.manifestSha256+".lock");
-    auto lease=std::make_shared<QLockFile>(leasePath);lease->setStaleLockTime(0);
-    if(!QDir().mkpath(QFileInfo(leasePath).absolutePath()) || !lease->tryLock(0))return fail("python_runtime_busy");
-    retention=std::move(lease);
+    retention=acquireGenerationLease(root,config.manifestSha256);
+    if(!retention)return fail("python_runtime_busy");
   }
   QFile manifest(QDir(root).filePath("runtime-manifest.json"));
   if(link(QFileInfo(manifest)) || !manifest.open(QIODevice::ReadOnly) || manifest.size()>4*1024*1024)
@@ -144,15 +173,26 @@ RuntimeResult verifyRuntime(const RuntimeConfig &config,const std::function<bool
   result.runtime=std::move(runtime);result.code="ok";return result;
 }
 RuntimeResult RuntimeProvider::inspectIntegrity(const std::function<bool()> &cancelled) {
+  return inspectImpl(Inspection::IntegrityOnly,cancelled);
+}
+RuntimeResult RuntimeProvider::inspectImpl(Inspection inspection,const std::function<bool()> &cancelled) {
   while(!m_mutex.tryLock(25))if(cancelled && cancelled())return {"cancelled",{}};
   const auto unlock=qScopeGuard([this]{m_mutex.unlock();});
   const auto policyError=m_policy.validate();
   if(!policyError.isEmpty()){m_last={policyError,{}};return m_last;}
-  // Revalidate every byte while sharing this provider's existing generation
-  // lease. No interpreter or native module is loaded in the host context.
+  // Pin the previous lease before clearing the cached result. Sharing this lock
+  // never shares verification: every inspection still hashes the complete tree.
+  auto retention=m_retention.lock();
   m_last={};
-  auto result=verifyRuntime(m_config,cancelled,m_retention.lock());
+  QString code;
+  if(!retention)retention=providerLease(m_config,cancelled,code);
+  if(!retention){m_last={code,{}};return m_last;}
+  auto result=verifyRuntime(m_config,cancelled,std::move(retention));
   if(result.ready())m_retention=result.runtime->retention;
+  if(result.ready() && inspection==Inspection::ImportProbe) {
+    const auto error=probeRuntime(*result.runtime,cancelled);
+    if(!error.isEmpty())result={error,{}};
+  }
   m_last=result;return result;
 }
 } // namespace paleo::python

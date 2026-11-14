@@ -11,8 +11,10 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLockFile>
 #include <QScopeGuard>
 #include <QSemaphore>
 #include <QTemporaryDir>
@@ -77,6 +79,80 @@ private slots:
       QCOMPARE(contents.readAll(),QByteArray("fixture"));
     }
     QVERIFY(verifyRuntime(config).ready());
+  }
+  void providersShareCanonicalGenerationAcrossPolicyRebinding() {
+    Fixture fixture;const auto config=fixture.config();
+    ExecutionPolicy trusted;trusted.allowTrusted=true;
+    ExecutionPolicy generated;generated.allowGenerated=true;
+    auto original=std::make_unique<RuntimeProvider>(config,trusted);
+    auto alias=config;alias.root+="/.";
+    auto rebound=std::make_unique<RuntimeProvider>(alias,generated);
+    RuntimeResult retained;
+    {
+      const auto first=original->inspectIntegrity();QVERIFY2(first.ready(),qPrintable(first.code));
+      const auto second=rebound->inspectIntegrity();QVERIFY2(second.ready(),qPrintable(second.code));
+      QCOMPARE(first.runtime->root,second.runtime->root);
+      QCOMPARE(first.runtime->retention.get(),second.runtime->retention.get());
+      QCOMPARE(original->policy().json(),trusted.json());QCOMPARE(rebound->policy().json(),generated.json());
+      retained=second;
+    }
+    original.reset();QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
+    rebound.reset();QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
+    retained={};QVERIFY(verifyRuntime(config).ready());
+  }
+  void cancellingAReboundProviderKeepsTheOriginalLease() {
+    Fixture fixture;const auto config=fixture.config();
+    auto original=std::make_unique<RuntimeProvider>(config);
+    QVERIFY(original->inspectIntegrity().ready());
+    ExecutionPolicy policy;policy.allowGenerated=true;RuntimeProvider rebound(config,policy);
+    QCOMPARE(rebound.inspectIntegrity([]{return true;}).code,QString("cancelled"));
+    QCOMPARE(rebound.snapshot().code,QString("cancelled"));QVERIFY(original->snapshot().ready());
+    QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
+    original.reset();QVERIFY(verifyRuntime(config).ready());
+    QVERIFY(rebound.inspectIntegrity().ready());
+  }
+  void providersDoNotHoldTheLeaseRegistryWhileHashing() {
+    Fixture fixture;const auto config=fixture.config();RuntimeProvider first(config),second(config);
+    RuntimeResult firstResult,secondResult;QSemaphore entered,release,finished;
+    std::atomic_bool blocked=false;
+    std::thread firstThread([&]{firstResult=first.inspectIntegrity([&]{
+      if(!blocked.exchange(true)){entered.release();release.acquire();}return false;
+    });});
+    std::thread secondThread;
+    const auto cleanup=qScopeGuard([&]{release.release();if(firstThread.joinable())firstThread.join();if(secondThread.joinable())secondThread.join();});
+    QVERIFY(entered.tryAcquire(1,2000));
+    secondThread=std::thread([&]{secondResult=second.inspectIntegrity();finished.release();});
+    QVERIFY(finished.tryAcquire(1,2000));secondThread.join();
+    QVERIFY2(secondResult.ready(),qPrintable(secondResult.code));
+    release.release();firstThread.join();QVERIFY2(firstResult.ready(),qPrintable(firstResult.code));
+    QCOMPARE(firstResult.runtime->retention.get(),secondResult.runtime->retention.get());
+  }
+  void providerLeasesIncludeCanonicalRootAndManifestIdentity() {
+    Fixture firstFixture,otherFixture;const auto firstConfig=firstFixture.config(),otherConfig=otherFixture.config();
+    QCOMPARE(firstConfig.manifestSha256,otherConfig.manifestSha256);
+    RuntimeProvider first(firstConfig),other(otherConfig);
+    QVERIFY(first.inspectIntegrity().ready());QVERIFY(other.inspectIntegrity().ready());
+    QCOMPARE(verifyRuntime(otherConfig).code,QString("python_runtime_busy"));
+    QFile payload(firstFixture.root+'/'+firstFixture.manifest.value("interpreter").toString());
+    QVERIFY(payload.open(QIODevice::WriteOnly));QCOMPARE(payload.write("changed"),qint64(7));payload.close();
+    auto files=firstFixture.manifest.value("files").toArray();auto row=files[0].toObject();
+    row["sha256"]=sha("changed");files[0]=row;firstFixture.manifest["files"]=files;
+    const auto changedConfig=firstFixture.config();QVERIFY(changedConfig.manifestSha256!=firstConfig.manifestSha256);
+    RuntimeProvider changed(changedConfig);QVERIFY(changed.inspectIntegrity().ready());
+    QCOMPARE(verifyRuntime(changedConfig).code,QString("python_runtime_busy"));
+    QCOMPARE(first.inspectIntegrity().code,QString("python_manifest_changed"));
+  }
+  void anExternalLeaseStillExcludesProvidersAndIsReleasedFinally() {
+    Fixture fixture;const auto config=fixture.config();
+    const auto path=QDir(QFileInfo(config.root).canonicalFilePath()).absoluteFilePath("../.leases/"+config.manifestSha256+".lock");
+    QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+    QLockFile external(path);external.setStaleLockTime(0);QVERIFY(external.tryLock(0));
+    {
+      RuntimeProvider provider(config);QCOMPARE(provider.inspectIntegrity().code,QString("python_runtime_busy"));
+      external.unlock();QVERIFY(provider.inspectIntegrity().ready());
+      QVERIFY(!external.tryLock(0));QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
+    }
+    QVERIFY(external.tryLock(0));external.unlock();QVERIFY(verifyRuntime(config).ready());
   }
   void changedFixtureIsReauthenticatedBeforeStrongExecution() {
     Fixture fixture;RuntimeProvider provider(fixture.config());int callbacks=0;bool changed=false;

@@ -68,18 +68,6 @@ RuntimeResult RuntimeProvider::snapshot() const {
   const auto unlock=qScopeGuard([this]{m_mutex.unlock();});return m_last;
 }
 RuntimeResult RuntimeProvider::inspect(const std::function<bool()> &cancelled) {
-  while(!m_mutex.tryLock(25))if(cancelled && cancelled())return {"cancelled",{}};
-  const auto unlock=qScopeGuard([this]{m_mutex.unlock();});
-  const auto policyError=m_policy.validate();
-  if(!policyError.isEmpty()){m_last={policyError,{}};return m_last;}
-  // One generation lease per provider. Revalidate bytes on every new inspection.
-  m_last={};
-  auto result=verifyRuntime(m_config,cancelled,m_retention.lock());
-  if(result.ready())m_retention=result.runtime->retention;
-  if(result.ready()) {
-    const auto code=probeRuntime(*result.runtime,cancelled);
-    if(!code.isEmpty())result={code,{}};
-  }
-  m_last=result;return result;
+  return inspectImpl(Inspection::ImportProbe,cancelled);
 }
 } // namespace paleo::python

@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/xattr.h>
 #include <unistd.h>
+#include <algorithm>
 
 namespace paleo::python::process_detail::linux_native {
 Fd::~Fd() { if(value>=0)::close(value); }
@@ -87,20 +88,32 @@ QString prepareEnvelope(const Launch &request,Prepared &prepared) {
 void configureProcess(QProcess &process,const Prepared &prepared,const ExecutionPolicy &policy) {
   const int filterFd=prepared.filter?prepared.filter->value:-1,blockFd=prepared.blockRead->value;
   const qint64 fileBytes=prepared.fileBytes;
+  auto images=prepared.imageFds;std::sort(images.begin(),images.end());
+  const int highest=images.isEmpty()?4:images.last();
   process.setProcessEnvironment(prepared.environment);process.setProcessChannelMode(QProcess::SeparateChannels);
-  process.setChildProcessModifier([filterFd,blockFd,fileBytes,policy,&process] {
+  process.setChildProcessModifier([filterFd,blockFd,fileBytes,policy,images,highest,&process] {
     // No allocation or Qt logging after fork. Copies prevent descriptor collisions.
     const int filterCopy=filterFd>=0?::fcntl(filterFd,F_DUPFD_CLOEXEC,5):-1;
     const int blockCopy=::fcntl(blockFd,F_DUPFD_CLOEXEC,5);
     if(blockCopy<0||(filterFd>=0&&(filterCopy<0||::dup2(filterCopy,3)<0))||::dup2(blockCopy,4)<0)
       process.failChildProcessModifier("python process descriptors",errno);
     if(filterFd<0)::close(3);
+    qsizetype imageIndex=0;
+    for(int fd=5;fd<=highest;++fd) {
+      const bool retained=imageIndex<images.size()&&images[imageIndex]==fd;
+      if(retained)++imageIndex;
+      if(::fcntl(fd,F_SETFD,retained?0:FD_CLOEXEC)<0&&retained)
+        process.failChildProcessModifier("python image descriptor",errno);
+    }
     const struct rlimit cpu{rlim_t(policy.cpuSeconds),rlim_t(policy.cpuSeconds)},file{rlim_t(fileBytes),rlim_t(fileBytes)},core{0,0};
     if(::setrlimit(RLIMIT_CPU,&cpu)||::setrlimit(RLIMIT_FSIZE,&file)||::setrlimit(RLIMIT_CORE,&core))
       process.failChildProcessModifier("python process limits",errno);
+    const struct rlimit descriptors{4096,4096};
+    if(!images.isEmpty()&&::setrlimit(RLIMIT_NOFILE,&descriptors))
+      process.failChildProcessModifier("python image descriptor limits",errno);
   });
   QProcess::UnixProcessParameters params;
-  params.flags=QProcess::UnixProcessFlag::CloseFileDescriptors;params.lowestFileDescriptorToClose=5;
+  params.flags=QProcess::UnixProcessFlag::CloseFileDescriptors;params.lowestFileDescriptorToClose=highest+1;
   process.setUnixProcessParameters(params);
 }
 }

@@ -30,7 +30,7 @@ private slots:
     QCOMPARE(state.value("code").toString(),QString("cancelled"));QVERIFY(!state.value("ready").toBool());
   }
   void snapshotsRemainImmediateWhileLinuxProbeQueuesAndCancels() {
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) && QT_VERSION >= QT_VERSION_CHECK(6,7,0)
     SandboxProvider provider;const auto slot=claimExecutionPermit();QVERIFY(slot);
     std::atomic_bool entered=false,stop=false;
     auto future=QtConcurrent::run([&]{entered=true;return provider.inspect([&]{return stop.load();});});

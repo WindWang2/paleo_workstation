@@ -11,6 +11,7 @@
 #include <QUuid>
 #include <QTimer>
 #include <QScopeGuard>
+#include <QThread>
 #include <algorithm>
 namespace paleo::capability {
 namespace recovery_detail {
@@ -52,7 +53,8 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
     OperationWorkResult failed;failed.code=code;auto current=log.recordById(r.operationId);
     if(current.ownerAttempt==r.ownerAttempt && current.execution==QLatin1String("running")) {
       current.execution=attempt->cancelled.load()?"cancelled":stop()?"interrupted":"failed";
-      current.code=stop() && !attempt->cancelled.load()?QStringLiteral("interrupted"):code;store(log,current);
+      current.code=stop() && !attempt->cancelled.load()?QStringLiteral("interrupted"):code;
+      store(log,current,current.execution=="interrupted"?OperationLog::Transition::Reconcile:OperationLog::Transition::Advance);
     }
     attempt->workFinished=true;return failed;
   };
@@ -108,13 +110,13 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
     current.cancelRequested=current.cancelRequested || attempt->cancelled.load();
     current.execution=out.ok?(out.prepared.members.isEmpty()?"succeeded":"prepared"):
       current.cancelRequested?"cancelled":stop()?"interrupted":"failed";
-    current.code=out.ok?"computed":(out.code.isEmpty()?error:out.code);
+    current.code=out.ok?"computed":current.execution=="interrupted"?"interrupted":(out.code.isEmpty()?error:out.code);
     if(out.ok || !manifest.isEmpty()){
       current.artifactManifest=manifest;current.summaryJson=QJsonDocument(out.summary).toJson(QJsonDocument::Compact);
       if(current.summaryJson.size()>16*1024)current.summaryJson=QJsonDocument(QJsonObject{{"summaryOmitted",true},{"resultsAvailable",true}}).toJson(QJsonDocument::Compact);
     }
     if(out.ok && !out.prepared.members.isEmpty())current.preparedManifest=publication_detail::preparedJson(out.prepared);
-    const auto code=store(log,current);
+    const auto code=store(log,current,current.execution=="interrupted"?OperationLog::Transition::Reconcile:OperationLog::Transition::Advance);
     if(code==QLatin1String("ok")){attempt->workFinished=true;if(out.ok && checkpoint)checkpoint("prepared");return out;}
     if(code!=QLatin1String("operation_state_conflict")){out.ok=false;out.code=code;return out;}
   }
@@ -124,10 +126,12 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
 
 PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObject *subscriber,const QString &title,
     std::function<void(ExecuteResult)> finished,bool resume,QString *error) {
+  const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
+  if(QThread::currentThread()!=thread())return reject("owner_thread_required");
+  if(subscriber && subscriber->thread()!=thread())return reject("subscriber_thread_mismatch");
   const QPointer<CapabilityRecovery> guard(this);const QPointer<QObject> listener(subscriber);
   const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
   auto r=reconcile(h,recovery_detail::authorized(log,h,scope,id));
-  const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
   if(r.operationId.isEmpty())return reject("operation_not_found");
   if(r.planHash!=storage::operationPlanHash(r.frozenRequest,r.stagePlan,r.presentationIntent,r.externalRequest))
     return reject("frozen_plan_corrupt");

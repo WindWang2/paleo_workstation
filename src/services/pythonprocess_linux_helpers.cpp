@@ -61,6 +61,20 @@ QStringList scopeArguments(const QString &unit,const ExecutionPolicy &p) {
     "-p","CPUQuota=100%","-p","RuntimeMaxSec="+QString::number(p.wallSeconds)+"s",
     "-p","TimeoutStopSec=1s","-p","KillMode=control-group","-p","OOMPolicy=kill"};
 }
+QString verifyResourceLimits(const QString &directory,const ExecutionPolicy &policy) {
+  const auto read=[&](const char *name) {
+    QFile file(directory+'/'+QLatin1String(name));
+    if(!file.open(QIODevice::ReadOnly))return QByteArray();
+    const auto bytes=file.read(129);return bytes.size()>128?QByteArray():bytes.trimmed();
+  };
+  if(read("memory.max")!=QByteArray::number(policy.memoryBytes)||read("memory.swap.max")!="0"||read("pids.max")!="8")
+    return "python_linux_resource_limits_unenforced";
+  const auto cpu=read("cpu.max").simplified().split(' ');bool quotaValid=false,periodValid=false;
+  if(cpu.size()!=2)return "python_linux_resource_limits_unenforced";
+  const auto quota=cpu[0].toULongLong(&quotaValid),period=cpu[1].toULongLong(&periodValid);
+  if(!quotaValid||!periodValid||!quota||!period||quota>period)return "python_linux_resource_limits_unenforced";
+  return {};
+}
 QString prepareEnvelope(const Launch &request,Prepared &prepared) {
   if(const auto code=request.policy.validate();!code.isEmpty())return code;
   if(verifiedHelpers().isEmpty())return "python_linux_helpers_untrusted";

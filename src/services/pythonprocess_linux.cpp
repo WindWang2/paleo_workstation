@@ -82,6 +82,7 @@ ProcessResult runPreparedChild(const Launch &request,Prepared &prepared) {
     if(!released) {
       const auto path=cgroupDirectory(prepared);
       if(!path.isEmpty()) {
+        if(const auto code=verifyResourceLimits(path,request.policy);!code.isEmpty()) {result.code=code;break;}
         cpu.setFileName(path+"/cpu.stat");memory.setFileName(path+"/memory.peak");memoryEvents.setFileName(path+"/memory.events");
         if(!cpu.open(QIODevice::ReadOnly)||!memory.open(QIODevice::ReadOnly)||!memoryEvents.open(QIODevice::ReadOnly)) {
           result.code="python_linux_resource_accounting_unavailable";break;

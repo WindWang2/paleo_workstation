@@ -389,6 +389,11 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
   appendAgentOperationTools(specs);
+  AiToolSpec environment;environment.name="paleo.python_environment";
+  environment.title=QObject::tr("Python 环境状态");
+  environment.description=QObject::tr("核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。");
+  environment.resultSchemaJson=QStringLiteral(R"({"type":"object","required":["contract","code","ready"],"properties":{"contract":{"const":"paleo.python-environment.v1"},"code":{"type":"string"},"ready":{"type":"boolean"},"profile":{"const":"analysis-core"},"generatedCodeAvailable":{"const":false}}})");
+  specs.append(environment);
   for(auto &spec:specs)spec.exposure=spec.legacyAdapter?CapabilityExposure::LegacyAdapter:CapabilityExposure::Callable;
   return specs;
 }
@@ -435,6 +440,9 @@ AiToolDispatch dispatchAiTool(const QString &name,
   }
   if(name.startsWith(QLatin1String("paleo.operation_")) || name==QLatin1String("paleo.tile_classification_v2")) {
     out.target=QStringLiteral("workflow/CapabilityRecovery");out.status=AiToolDispatchStatus::Routed;return out;
+  }
+  if(name==QLatin1String("paleo.python_environment")) {
+    out.target="workflow/RuntimeProvider";out.status=AiToolDispatchStatus::Routed;return out;
   }
   if (name == QStringLiteral("paleo.tile_classification")) {
     out.target = QStringLiteral("ai/tileinference.h:runTileInference + "

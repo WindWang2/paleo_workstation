@@ -28823,6 +28823,14 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
+    <message>
+        <source>Python 环境状态</source>
+        <translation>Python environment status</translation>
+    </message>
+    <message>
+        <source>核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。</source>
+        <translation>Verify the host-configured optional analysis-core Python environment and report missing dependencies and versions. Does not install environments, run user or generated code, or grant publication permissions.</translation>
+    </message>
         <message>
             <source>临时配准源超过 500 MB，或目标文件已存在</source>
             <translation>The provisional registration source exceeds 500 MB, or the destination already exists.</translation>

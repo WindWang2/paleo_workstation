@@ -28956,6 +28956,14 @@ PDF：%3
 <context>
     <name>QObject</name>
     <message>
+        <source>Python 环境状态</source>
+        <translation>Python 环境状态</translation>
+    </message>
+    <message>
+        <source>核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。</source>
+        <translation>核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。</translation>
+    </message>
+    <message>
         <source>临时配准源超过 500 MB，或目标文件已存在</source>
         <translation>临时配准源超过 500 MB，或目标文件已存在</translation>
     </message>

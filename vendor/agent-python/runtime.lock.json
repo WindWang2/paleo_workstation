@@ -1,0 +1,66 @@
+{
+  "schema": "paleo.agent-python.supply.v1",
+  "profile": "analysis-core",
+  "runtimeVersion": "cpython-3.14.10-numpy-2.5.4-1",
+  "pythonVersion": "3.14.10",
+  "numpyVersion": "2.5.4",
+  "limits": {"maxFiles": 16384, "maxTreeBytes": 1073741824},
+  "platforms": {
+    "windows-x86_64": {
+      "interpreter": "python.exe",
+      "osRequirements": ["Windows x64; the runtime does not provide an OS sandbox"],
+      "sources": [
+        {
+          "role": "python", "format": "zip", "prefix": "",
+          "name": "python-3.14.10-embed-amd64.zip",
+          "url": "https://www.python.org/ftp/python/3.14.10/python-3.14.10-embed-amd64.zip",
+          "sha256": "90905e64a840557d8c1bc4f5b74db3d7ee85e3ffb217611cac1c7813acea4159",
+          "size": 12619664, "supplier": "Python Software Foundation", "license": "Python-2.0",
+          "digestEvidence": "https://www.python.org/ftp/python/3.14.10/python-3.14.10-embed-amd64.zip.sigstore"
+        },
+        {
+          "role": "numpy", "format": "zip", "prefix": "",
+          "name": "numpy-2.5.4-cp314-cp314-win_amd64.whl",
+          "url": "https://files.pythonhosted.org/packages/52/9a/e1e512ebc948d5b9dd33b08736760f0ebbed2848fd4eda1f553088a6dcee/numpy-2.5.4-cp314-cp314-win_amd64.whl",
+          "sha256": "2ca144f15135b6212a5c47b1e2aeca6e412f102f95a2d5d88d8aec77eb255de3",
+          "size": 12703552, "supplier": "NumPy project / PyPI", "license": "BSD-3-Clause AND bundled-license-notices",
+          "digestEvidence": "https://pypi.org/pypi/numpy/2.5.4/json"
+        }
+      ],
+      "textFiles": {"python314._pth": "python314.zip\n.\n"},
+      "omitPaths": []
+    },
+    "linux-x86_64": {
+      "interpreter": "bin/python3.14",
+      "osRequirements": ["Linux x86_64", "glibc >= 2.28 (NumPy wheel floor)", "the runtime does not provide an OS sandbox"],
+      "sources": [
+        {
+          "role": "python", "format": "tar.gz", "prefix": "python/",
+          "name": "cpython-3.14.10+20261110-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+          "sha256": "c2ff2e97422f5d3896a16e0317fd212ba977bbf2688d93a6f7a03d817506bd30",
+          "size": 36875876, "supplier": "Astral python-build-standalone (CPython distribution)",
+          "license": "Python-2.0 AND bundled-license-notices",
+          "digestEvidence": "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/20261110"
+        },
+        {
+          "role": "numpy", "format": "zip", "prefix": "",
+          "name": "numpy-2.5.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "url": "https://files.pythonhosted.org/packages/16/d5/928078d2b28f26829b138b4a6c3980045022fb409f570657a224ae60ef4e/numpy-2.5.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "sha256": "d549420b8858885cea8838a727842249218b9c1da24dd517e25c9c7a948310a3",
+          "size": 16721710, "supplier": "NumPy project / PyPI", "license": "BSD-3-Clause AND bundled-license-notices",
+          "digestEvidence": "https://pypi.org/pypi/numpy/2.5.4/json"
+        }
+      ],
+      "numpyDirectory": "lib/python3.14/site-packages",
+      "textFiles": {},
+      "omitPaths": [
+        "share/terminfo",
+        "bin/pip", "bin/pip3", "bin/pip3.14",
+        "lib/python3.14/site-packages/pip", "lib/python3.14/site-packages/pip-26.3.dist-info",
+        "lib/python3.14/site-packages/setuptools", "lib/python3.14/site-packages/setuptools-84.2.1.dist-info",
+        "lib/python3.14/site-packages/_distutils_hack", "lib/python3.14/site-packages/distutils-precedence.pth"
+      ]
+    }
+  }
+}

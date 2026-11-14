@@ -232,7 +232,9 @@ void AiChatToolRunner::startNext() {
     refreshResultScope();
     const auto result = m_results.read(args);
     finishActive(result.value("code").toString() == QLatin1String("ok"), result);
-  } else if(m_activeCall.name.startsWith(QLatin1String("paleo.operation_")))
+  } else if(m_activeCall.name==QLatin1String("paleo.python_environment"))
+    runPythonEnvironment();
+  else if(m_activeCall.name.startsWith(QLatin1String("paleo.operation_")))
     runPersistentOperation(args);
   else if(m_activeCall.name==QLatin1String("paleo.tile_classification_v2"))
     runTileV2(args);

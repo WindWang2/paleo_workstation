@@ -52,7 +52,9 @@ DerivedAssetRegistrar 和文档会话。AtomicJob 目前是同步胶合助手，
 
 新增能力描述放数据服务层，编排与适配放功能层，入口接线在 app；遵循层契约。
 宿主可以继续用 Qt DTO，SDK 公共 ABI 仍为标准 C++ 值类型，序列化只发生在工具/进程边界。
-本阶段不引入额外 HTTP 服务、通用脚本执行器或第二套任务调度系统。
+原子能力迁移本阶段不引入额外 HTTP 服务、通用脚本执行器或第二套任务调度系统。
+后续可选进程外 Python 能力按[受控 Python 实施计划](../planning/CONTROLLED_PYTHON_AGENT_PLAN.md)
+分批推进，复用本页操作/成果链路；该计划尚未实施，不扩大当前 callable 范围，Shell 后置。
 
 ## 3. 单一能力目录
 

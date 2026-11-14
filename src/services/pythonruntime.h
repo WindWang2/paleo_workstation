@@ -51,6 +51,10 @@ class RuntimeProvider {
 public:
   explicit RuntimeProvider(RuntimeConfig config, ExecutionPolicy policy = {});
   RuntimeResult inspect(const std::function<bool()> &cancelled = {});
+  // Verify content identity and retain its generation without executing Python.
+  // ready()/snapshot() then describe integrity only; strong-backend admission
+  // must independently prove execution through SandboxProvider.
+  RuntimeResult inspectIntegrity(const std::function<bool()> &cancelled = {});
   RuntimeResult snapshot() const;
   ExecutionPolicy policy() const { return m_policy; }
   RuntimeConfig configuration() const { return m_config; }

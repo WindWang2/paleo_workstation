@@ -98,7 +98,7 @@ QJsonObject SandboxProvider::inspect(const std::function<bool()> &cancelled) {
     return userStopped || timedOut;
   };
   const auto stoppedCode=[&]{return userStopped?QStringLiteral("cancelled"):QStringLiteral("python_process_timeout");};
-  const auto runtime=m_runtime->inspect(stopped);if(stopped())return fail(stoppedCode());
+  const auto runtime=m_runtime->inspectIntegrity(stopped);if(stopped())return fail(stoppedCode());
   if(!runtime.ready())return fail(runtime.code);
   state["runtimeManifestSha256"]=runtime.runtime->manifestSha256;state["policy"]=policy.json();
   QTemporaryDir project;if(!project.isValid())return fail("python_sandbox_probe_input_unavailable");

@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QLockFile>
 #include <QSet>
+#include <QScopeGuard>
 #include <QSysInfo>
 #include <cmath>
 
@@ -141,5 +142,17 @@ RuntimeResult verifyRuntime(const RuntimeConfig &config,const std::function<bool
   runtime->manifestSha256=config.manifestSha256;runtime->runtimeVersion=object.value("runtimeVersion").toString();
   runtime->platform=runtimePlatform();runtime->treeSize=total;runtime->retention=std::move(retention);
   result.runtime=std::move(runtime);result.code="ok";return result;
+}
+RuntimeResult RuntimeProvider::inspectIntegrity(const std::function<bool()> &cancelled) {
+  while(!m_mutex.tryLock(25))if(cancelled && cancelled())return {"cancelled",{}};
+  const auto unlock=qScopeGuard([this]{m_mutex.unlock();});
+  const auto policyError=m_policy.validate();
+  if(!policyError.isEmpty()){m_last={policyError,{}};return m_last;}
+  // Revalidate every byte while sharing this provider's existing generation
+  // lease. No interpreter or native module is loaded in the host context.
+  m_last={};
+  auto result=verifyRuntime(m_config,cancelled,m_retention.lock());
+  if(result.ready())m_retention=result.runtime->retention;
+  m_last=result;return result;
 }
 } // namespace paleo::python

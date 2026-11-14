@@ -418,7 +418,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   AiToolSpec environment;environment.name="paleo.python_environment";
   environment.title=QObject::tr("Python 环境状态");
   environment.description=QObject::tr("核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。");
-  environment.resultSchemaJson=QStringLiteral(R"({"type":"object","required":["contract","code","ready"],"properties":{"contract":{"const":"paleo.python-environment.v1"},"code":{"type":"string"},"ready":{"type":"boolean"},"profile":{"const":"analysis-core"},"generatedCodeAvailable":{"const":false}}})");
+  environment.resultSchemaJson=QStringLiteral(R"({"type":"object","required":["contract","code","ready"],"properties":{"contract":{"const":"paleo.python-environment.v1"},"code":{"type":"string"},"ready":{"type":"boolean"},"profile":{"const":"analysis-core"},"generatedCodeAvailable":{"type":"boolean"},"sandbox":{"type":"object"}}})");
   specs.append(environment);
   appendPythonAnalysisTools(specs);
   for(auto &spec:specs)spec.exposure=spec.legacyAdapter?CapabilityExposure::LegacyAdapter:CapabilityExposure::Callable;

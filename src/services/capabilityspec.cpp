@@ -4,6 +4,7 @@
 #include "pythoncapabilityspec.h"
 #include "pythonanalysiscapabilityspec.h"
 #include "pythonanalysis.h"
+#include "pythongeneratedspec.h"
 
 namespace {
 
@@ -64,6 +65,7 @@ const QVector<CapabilitySpec> &table() {
       paleo::python::summaryCapabilitySpec(),
       paleo::python::analysisCapabilitySpec(paleo::python::AnalysisKind::WellQuality),
       paleo::python::analysisCapabilitySpec(paleo::python::AnalysisKind::AttributeCorrelation),
+      paleo::python::generatedCapabilitySpec(),
   };
   return specs;
 }

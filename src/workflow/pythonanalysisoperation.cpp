@@ -10,12 +10,7 @@
 namespace paleo::python {
 namespace {
 QStringList parents(const QJsonObject &metadata) {
-  QStringList result;
-  for(const auto &source:metadata.value("provenance").toObject().value("sources").toArray()) {
-    const auto id=source.toObject().value("sourceVersionId").toString();
-    if(!id.isEmpty() && !result.contains(id))result.append(id);
-  }
-  return result;
+  return analysisSourceVersionIds(metadata);
 }
 QString digest(QByteArrayView bytes) {
   return QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());

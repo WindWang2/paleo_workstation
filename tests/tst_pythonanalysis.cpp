@@ -4,6 +4,7 @@
 #include <QtTest>
 #include <QCryptographicHash>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSqlDatabase>
@@ -85,6 +86,7 @@ private slots:
     QCOMPARE(QJsonDocument::fromJson(input.bytes.mid(4,length)).object(),result.metadata);
     const auto matrix=input.bytes.mid(4+length);QCOMPARE(matrix.size(),8192*(8+9*2));
     QCOMPARE(result.metadata.value("provenance").toObject().value("sources").toArray().first().toObject().value("sourceVersionId").toString(),QString("source-v1"));
+    QVERIFY(!result.metadata.value("provenance").toObject().value("readMetrics").toObject().contains("hostNumericPreparationReservedBytes"));
     QCOMPARE(python::loadAnalysisProcessInput(fixture.root,result.bundle.reference,"doc","other",policy(),permit).code,QString("python_input_scope_mismatch"));
     QFile changed(result.bundle.root+"/data.bin");QVERIFY(changed.open(QIODevice::ReadWrite));QVERIFY(changed.seek(12));QCOMPARE(changed.write("x"),1);changed.close();
     QVERIFY(!python::loadAnalysisProcessInput(fixture.root,result.bundle.reference,"doc","agent:test",policy(),permit).ok());
@@ -120,6 +122,35 @@ private slots:
     QCOMPARE(changed.code,QString("python_template_changed"));QCOMPARE(changed.io.payloadBytes,0);
     const auto cancelled=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit,[]{return true;});
     QCOMPARE(cancelled.code,QString("cancelled"));QCOMPARE(cancelled.io.payloadBytes,0);
+  }
+  void generatedNumericPreparationRejectsBeforeSdkIo() {
+    Fixture fixture;QVERIFY(fixture.open(1024));fixture.plan.kind=python::AnalysisKind::Generated;
+    auto limits=policy();limits.allowTrusted=false;limits.allowGenerated=true;limits.memoryBytes=1;
+    const auto permit=python::claimExecutionPermit();
+    const auto result=python::materializeAnalysis(fixture.plan,"print('generated')\n",limits,permit);
+    QCOMPARE(result.code,QString("python_input_memory_budget"));QVERIFY(result.bundle.reference.isEmpty());QVERIFY(result.metadata.isEmpty());
+    QCOMPARE(result.io.payloadBytes,0);QCOMPARE(result.io.legacyBytes,0);QCOMPARE(result.io.axisBlocks,0);
+    QCOMPARE(result.io.valueBlocks,0);QCOMPARE(result.io.windows,0);QCOMPARE(result.io.metadataRows,0);
+    QCOMPARE(result.io.metadataTextBytes,0);QCOMPARE(result.io.sourceRows,0);
+    QVERIFY(!QFileInfo::exists(fixture.root+"/.paleo/capability-ops/inputs"));
+    limits.allowTrusted=true;limits.allowGenerated=false;
+    const auto denied=python::materializeAnalysis(fixture.plan,"print('generated')\n",limits,permit);
+    QCOMPARE(denied.code,QString("python_execution_denied"));QCOMPARE(denied.io.windows,0);QCOMPARE(denied.io.metadataRows,0);
+  }
+  void generatedNumericReservationIsExplicitAndAdmitsItsExactBoundary() {
+    Fixture fixture;QVERIFY(fixture.open(1024));fixture.plan.kind=python::AnalysisKind::Generated;
+    auto limits=policy();limits.allowTrusted=false;limits.allowGenerated=true;
+    const auto permit=python::claimExecutionPermit();const QByteArray source="print('generated')\n";
+    const auto result=python::materializeAnalysis(fixture.plan,source,limits,permit);QVERIFY2(result.ok(),qPrintable(result.code));
+    const auto metrics=result.metadata.value("provenance").toObject().value("readMetrics").toObject();
+    const auto reserved=metrics.value("hostNumericPreparationReservedBytes").toString().toLongLong();
+    QCOMPARE(metrics.value("hostNumericPreparationMeasurement").toString(),QString("reservation_not_process_rss"));
+    QVERIFY(reserved>result.io.payloadBytes);QVERIFY(reserved<limits.memoryBytes);QCOMPARE(result.io.windows,2);
+    QCOMPARE(result.bundle.manifest.value("metadata").toObject().value("provenance"),result.metadata.value("provenance"));
+    limits.memoryBytes=reserved-1;const auto rejected=python::materializeAnalysis(fixture.plan,source,limits,permit);
+    QCOMPARE(rejected.code,QString("python_input_memory_budget"));QCOMPARE(rejected.io.windows,0);QCOMPARE(rejected.io.metadataRows,0);
+    limits.memoryBytes=reserved;const auto exact=python::materializeAnalysis(fixture.plan,source,limits,permit);
+    QVERIFY2(exact.ok(),qPrintable(exact.code));QCOMPARE(exact.metadata,result.metadata);
   }
   void oversizedSourceTextIsRejectedBeforeArraysOrBundle() {
     Fixture fixture;QVERIFY2(fixture.open(1024,true,32768),qPrintable(fixture.error));QVERIFY(fixture.plan.expectedHead.available);

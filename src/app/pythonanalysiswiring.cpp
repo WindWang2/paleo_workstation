@@ -5,6 +5,7 @@
 #include "services/pythonanalysisselection.h"
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythontrustedreadiness.h"
+#include "services/pythongenerated.h"
 #include "workflow/documentsession.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -50,6 +51,7 @@ paleo::python::AnalysisPlanProvider assemblePythonAnalysisProvider(DataCatalog *
     python::AnalysisKind kind;
     if(request.capabilityId==QLatin1String(python::WellQualityCapability))kind=python::AnalysisKind::WellQuality;
     else if(request.capabilityId==QLatin1String(python::CorrelationCapability))kind=python::AnalysisKind::AttributeCorrelation;
+    else if(request.capabilityId==QLatin1String(python::GeneratedCapability))kind=python::AnalysisKind::Generated;
     else return QStringLiteral("execution_adapter_unavailable");
     if(request.bindingMode!="pinned-value" || !request.parameters.isEmpty())return QStringLiteral("invalid_python_analysis_request");
     python::AnalysisSelectionRequest selection;QString code;

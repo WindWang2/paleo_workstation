@@ -7,6 +7,7 @@
 #include "catalog/datacatalog.h"
 #include "tileoperationservice.h"
 #include "services/pythonanalysiscapabilityspec.h"
+#include "services/pythongenerated.h"
 #include <QThread>
 
 bool AiChatToolRunner::externalTransferConfigured() const {
@@ -26,7 +27,8 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpec(const AiToolS
   if(spec.name.isEmpty())return fail("tool_not_found");
   if(spec.exposure==CapabilityExposure::Internal || spec.exposure==CapabilityExposure::Unavailable)
     return fail("tool_not_exposed");
-  const bool python=name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool);
+  const bool python=name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool) ||
+    name==QLatin1String(paleo::python::GeneratedTool);
   if(name==QLatin1String("paleo.python_environment")) {
     if(!m_taskService)return fail("task_service_unavailable");result.ready=true;return result;
   }

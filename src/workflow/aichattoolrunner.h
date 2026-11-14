@@ -15,7 +15,7 @@
 #include <functional>
 #include <memory>
 namespace paleo::query {class ProjectQueryCapability;}
-namespace paleo::python {class RuntimeProvider;class TrustedReadinessProvider;}
+namespace paleo::python {class RuntimeProvider;class TrustedReadinessProvider;class SandboxProvider;}
 namespace paleo::document {struct SourceRef;struct SourceRecord;}
 
 // workflow/ — 聊天领域工具执行器（方向61）。
@@ -89,6 +89,7 @@ public:
     std::function<QString(const QString &, const QJsonObject &, bool)> runtimeReadiness;
     std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime;
     std::shared_ptr<paleo::python::TrustedReadinessProvider> pythonTrusted;
+    std::shared_ptr<paleo::python::SandboxProvider> pythonSandbox;
     quint64 documentEpoch = 0;
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
   };
@@ -104,6 +105,7 @@ public:
   bool pythonExecutionAllowed() const;
   std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime() const { return m_context.pythonRuntime; }
   std::shared_ptr<paleo::python::TrustedReadinessProvider> pythonTrusted() const { return m_context.pythonTrusted; }
+  std::shared_ptr<paleo::python::SandboxProvider> pythonSandbox() const { return m_context.pythonSandbox; }
   void setContext(const Context &context);
   void setTaskService(PaleoTaskService *service);
   void setResultSession(const QString &session);

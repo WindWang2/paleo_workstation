@@ -13,6 +13,7 @@ QString analysisKindId(AnalysisKind kind) {
   switch(kind) {
     case AnalysisKind::WellQuality:return "well_quality";
     case AnalysisKind::AttributeCorrelation:return "attribute_correlation";
+    case AnalysisKind::Generated:return "generated_numeric";
   }
   return {};
 }
@@ -20,6 +21,7 @@ QString analysisTemplateSha256(AnalysisKind kind) {
   switch(kind) {
     case AnalysisKind::WellQuality:return QString::fromLatin1(PALEO_AGENT_PYTHON_WELL_QUALITY_SHA);
     case AnalysisKind::AttributeCorrelation:return QString::fromLatin1(PALEO_AGENT_PYTHON_ATTRIBUTE_CORRELATION_SHA);
+    case AnalysisKind::Generated:return {};
   }
   return {};
 }
@@ -62,7 +64,7 @@ QByteArray exactFile(const InputBundle &bundle,const QString &name,qint64 maximu
 namespace analysis_detail {
 QString validatePlan(const AnalysisReadPlan &plan,const ExecutionPolicy &policy) {
   if(!policy.validate().isEmpty())return "python_policy_invalid";
-  if(!policy.allowTrusted)return "python_execution_denied";
+  if(plan.kind==AnalysisKind::Generated?!policy.allowGenerated:!policy.allowTrusted)return "python_execution_denied";
   if(analysisKindId(plan.kind).isEmpty() || plan.documentId.isEmpty() || plan.callerScope.isEmpty() ||
       plan.projectDir.isEmpty() || plan.modelDirectory.isEmpty())return "python_analysis_scope_required";
   const auto count=plan.curves.size();

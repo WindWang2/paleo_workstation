@@ -1,10 +1,10 @@
 // 层：数据
 #include "pythonanalysisreport.h"
 #include "pythonanalysis.h"
+#include "pythonoutputjson.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
-#include <QStringDecoder>
 #include <cmath>
 
 namespace paleo::python {
@@ -15,7 +15,8 @@ constexpr auto Scope="selected_window_only";
 constexpr auto NullPolicy="sdk_quality_bits_1_missing_2_abnormal_4_edited_and_nonfinite";
 QString kindId(AnalysisKind kind) {
   switch(kind){case AnalysisKind::WellQuality:return "well_quality";
-    case AnalysisKind::AttributeCorrelation:return "attribute_correlation";}return {};
+    case AnalysisKind::AttributeCorrelation:return "attribute_correlation";
+    case AnalysisKind::Generated:return "generated_numeric";}return {};
 }
 bool keys(const QJsonObject &object,std::initializer_list<const char*> names) {
   QStringList expected;for(const auto name:names)expected.append(QString::fromLatin1(name));expected.sort();return object.keys()==expected;
@@ -42,32 +43,6 @@ bool near(double left,double right) {
 bool coverage(const QJsonValue &value,int valid,int rows) {
   if(!rows)return value.isNull();double number=0;return finite(value,number)&&number>=0&&number<=1&&near(number,double(valid)/rows);
 }
-// QJsonDocument deliberately collapses duplicate keys. Check the already parsed
-// JSON token structure as well, including escaped spellings of the same key.
-class UniqueKeys {
-  const QByteArray &data;qsizetype offset=0;int nodes=0;
-  void space(){while(offset<data.size()&&(data[offset]==' '||data[offset]=='\t'||data[offset]=='\n'||data[offset]=='\r'))++offset;}
-  QByteArray string(){const auto begin=offset++;while(offset<data.size()){
-    if(data[offset]=='\\'){offset+=2;continue;}if(data[offset++]=='"')return data.mid(begin,offset-begin);}return {};}
-  bool value(int depth){
-    if(depth>32||++nodes>8192)return false;space();if(offset>=data.size())return false;const auto token=data[offset];
-    if(token=='{') {++offset;QSet<QString> names;space();if(offset<data.size()&&data[offset]=='}'){++offset;return true;}
-      for(;;){space();if(offset>=data.size()||data[offset]!='"')return false;const auto raw=string();
-        const auto name=QJsonDocument::fromJson('['+raw+']').array().first().toString();
-        if(name.toUtf8().size()>256||names.contains(name))return false;names.insert(name);space();
-        if(offset>=data.size()||data[offset++]!=':'||!value(depth+1))return false;space();if(offset>=data.size())return false;
-        if(data[offset]=='}'){++offset;return true;}if(data[offset++]!=',')return false;}
-    }
-    if(token=='['){++offset;space();if(offset<data.size()&&data[offset]==']'){++offset;return true;}
-      for(;;){if(!value(depth+1))return false;space();if(offset>=data.size())return false;if(data[offset]==']'){++offset;return true;}if(data[offset++]!=',')return false;}}
-    if(token=='"')return !string().isEmpty();
-    const auto begin=offset;while(offset<data.size()&&data[offset]!=','&&data[offset]!=']'&&data[offset]!='}'&&data[offset]!=' '&&data[offset]!='\n'&&data[offset]!='\r'&&data[offset]!='\t')++offset;
-    return offset>begin;
-  }
-public:
-  explicit UniqueKeys(const QByteArray &bytes):data(bytes){}
-  bool valid(){const bool ok=value(0);space();return ok&&offset==data.size();}
-};
 struct Expected {int rows=0,channels=0;QJsonArray columns;QJsonObject provenance;};
 bool sources(const Expected &expected) {
   const auto provenance=expected.provenance;
@@ -95,7 +70,7 @@ bool expectedMetadata(const QJsonObject &meta,AnalysisKind kind,Expected &expect
       meta.value("analysis")!=kindId(kind)||kindId(kind).isEmpty()||meta.value("inputProtocol")!="paleo.python-analysis-frame.v1"||
       meta.value("sourceKind")!=QLatin1String(SourceKind)||meta.value("dtype")!="<f8")return false;
   const auto shape=meta.value("shape").toArray();if(shape.size()!=2||!integer(shape[0],AnalysisMaxSamples,expected.rows)||
-      !integer(shape[1],AnalysisMaxChannels,expected.channels)||expected.channels<(kind==AnalysisKind::WellQuality?1:2))return false;
+      !integer(shape[1],AnalysisMaxChannels,expected.channels)||expected.channels<(kind==AnalysisKind::AttributeCorrelation?2:1))return false;
   expected.columns=meta.value("columns").toArray();expected.provenance=meta.value("provenance").toObject();
   if(expected.columns.size()!=expected.channels)return false;QSet<QString> ids;
   for(const auto &entry:expected.columns){const auto column=entry.toObject();qint64 id=0;
@@ -193,16 +168,17 @@ bool correlation(const QJsonObject &report,const Expected &expected,QJsonObject 
     {"redundantPairs",report.value("redundantPairs").toArray().size()},{"status",report.value("status")}};return true;
 }
 } // namespace
+bool validateAnalysisInputMetadata(const QJsonObject &metadata,AnalysisKind kind) {
+  Expected expected;return expectedMetadata(metadata,kind,expected);
+}
 AnalysisReportValidation validateAnalysisReport(const QByteArray &bytes,AnalysisKind kind,
     const QJsonObject &expectedInputMetadata,const ExecutionPolicy &policy) {
   AnalysisReportValidation out;const auto fail=[&](const QString &code){out.code=code;return out;};
   if(!policy.validate().isEmpty())return fail("python_policy_invalid");
-  if(bytes.isEmpty()||bytes.size()>qMin<qint64>(policy.outputBytes,ReportBytes))return fail("python_output_budget_exceeded");
-  QStringDecoder decoder(QStringDecoder::Utf8,QStringConverter::Flag::Stateless);const QString decoded=decoder(bytes);Q_UNUSED(decoded);
-  if(decoder.hasError())return fail("python_output_encoding_invalid");
-  QJsonParseError parse;const auto document=QJsonDocument::fromJson(bytes,&parse);
-  if(parse.error!=QJsonParseError::NoError||!document.isObject()||!UniqueKeys(bytes).valid())return fail("python_output_invalid");
-  const auto envelope=document.object(),ports=envelope.value("ports").toObject();
+  if(kind==AnalysisKind::Generated)return fail("python_output_contract_mismatch");
+  QJsonObject envelope;const auto invalid=parsePythonOutputObject(bytes,qMin<qint64>(policy.outputBytes,ReportBytes),8192,envelope);
+  if(!invalid.isEmpty())return fail(invalid);
+  const auto ports=envelope.value("ports").toObject();
   if(!keys(envelope,{"contract","ports"})||envelope.value("contract")!="paleo.python-output.v1"||ports.keys()!=QStringList{"REPORT"}||
       !ports.value("REPORT").isObject())return fail("python_output_contract_mismatch");
   Expected expected;if(!expectedMetadata(expectedInputMetadata,kind,expected))return fail("python_analysis_input_metadata_invalid");

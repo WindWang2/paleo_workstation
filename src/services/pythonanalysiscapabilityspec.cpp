@@ -5,9 +5,11 @@
 
 namespace paleo::python {
 QString analysisCapabilityId(AnalysisKind kind) {
+  if(kind==AnalysisKind::Generated)return {};
   return kind==AnalysisKind::WellQuality?QLatin1String(WellQualityCapability):QLatin1String(CorrelationCapability);
 }
 AlgorithmSpec analysisAlgorithmSpec(AnalysisKind kind) {
+  if(kind==AnalysisKind::Generated)return {};
   const bool quality=kind==AnalysisKind::WellQuality;
   AlgorithmSpec spec;spec.id=quality?"python:well_curve_quality":"python:attribute_correlation";
   spec.displayName=quality?"Well curve quality report":"Selected well numeric attribute correlation";
@@ -30,6 +32,7 @@ AlgorithmSpec analysisAlgorithmSpec(AnalysisKind kind) {
   return spec;
 }
 CapabilitySpec analysisCapabilitySpec(AnalysisKind kind) {
+  if(kind==AnalysisKind::Generated)return {};
   CapabilitySpec spec;spec.capabilityId=analysisCapabilityId(kind);spec.algorithmId=analysisAlgorithmSpec(kind).id;
   spec.kind=CapabilityKind::Compute;spec.exposure=CapabilityExposure::Callable;
   spec.aliases={kind==AnalysisKind::WellQuality?QLatin1String(WellQualityTool):QLatin1String(CorrelationTool)};

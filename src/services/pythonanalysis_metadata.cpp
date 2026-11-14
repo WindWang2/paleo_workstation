@@ -4,6 +4,16 @@
 #include <QtEndian>
 #include <bit>
 
+namespace paleo::python {
+QStringList analysisSourceVersionIds(const QJsonObject &metadata) {
+  QStringList ids;
+  for(const auto &entry:metadata.value("provenance").toObject().value("sources").toArray()) {
+    const auto id=entry.toObject().value("sourceVersionId").toString();
+    if(!id.isEmpty() && !ids.contains(id))ids.append(id);
+  }
+  return ids;
+}
+}
 namespace paleo::python::analysis_detail {
 namespace {
 void number(QByteArray &bytes,double value) {

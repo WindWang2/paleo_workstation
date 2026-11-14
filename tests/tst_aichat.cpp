@@ -376,7 +376,7 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
              qPrintable(parseError.errorString()));
     // 必填项缺失必须被拒，且拒绝理由带参数名。
     QJsonObject blank;
-    QVERIFY(!spec.validateParameters(blank).isEmpty());
+    QCOMPARE(spec.validateParameters(blank).isEmpty(),required.isEmpty());
   }
   QVERIFY(names.contains(QStringLiteral("paleo.read_result")));
   ChatToolCall oversized;

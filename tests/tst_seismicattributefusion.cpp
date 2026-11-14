@@ -9,7 +9,7 @@
 #include <QtEndian>
 #include <cmath>
 #include <memory>
-#include "../src/services/seismicattributefusionclient.h"
+#include "services/seismicattributefusionclient.h"
 
 using namespace paleo;
 using Client = SeismicAttributeFusionClient;

@@ -209,4 +209,26 @@ bool ensureUserVersion(QSqlDatabase &db, QString *error, int userVersion,
   return true;
 }
 
+bool ensureColumn(QSqlDatabase &db, const QString &table, const QString &name,
+                  const QString &type, QString *error)
+{
+  QSqlQuery info(db);
+  if (!info.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table)))
+  {
+    setError(error, info.lastError().text());
+    return false;
+  }
+  while (info.next())
+    if (info.value(1).toString() == name)
+      return true;
+  info.finish();
+  QSqlQuery alter(db);
+  if (!alter.exec(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, name, type)))
+  {
+    setError(error, alter.lastError().text());
+    return false;
+  }
+  return true;
+}
+
 } // namespace MetaStore

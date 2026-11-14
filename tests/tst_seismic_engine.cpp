@@ -28,7 +28,7 @@
 #include "domain/seismic/sgyindexbuilder.h"
 #include "domain/seismic/sgyindexcache.h"
 #include "domain/seismic/sgyio.h"
-#include "domain/seismic/sgyrulelayout.h"
+#include "Data/Sgy/SgyRuleLayout.h"
 #include "domain/seismic/sgyvolume.h"
 
 #include "services/paleotaskservice.h"

@@ -2,7 +2,7 @@
 
 按 [W0–W6 计划](../planning/AGENT_CALL_READINESS_PLAN.md) 实施，接在 W3、W4 和 W5 之后。
 此批迁移已有工具，不扩大为任意脚本执行、全命令 Agent 化或跨 store 全局事务。
-交付 [PR #941](https://github.com/WindWang2/paleo_workstation/pull/941)，尚未合并。
+交付 [PR #941](https://github.com/WindWang2/paleo_workstation/pull/941)，已于 2026-11-14 合入 master `4fee95dd`。
 
 ## 入口和效果
 
@@ -168,10 +168,10 @@ well 的实际 owner/HTTP/硬退出恢复 20 项通过；SDK 四套独立验证�
 列表逐项执行，另含 qgis_spread 自测、known-reds 校验/自测和原子核检查；日志在 worktree
 `local/review-20261113/source-gates/{01..32}.log` 与 `results.json`。
 
-W6 的审阅基底 `codex/agent-integration-base-20261114@18098285` 仅组合待审的
+W6 初次审阅基底 `codex/agent-integration-base-20261114@18098285` 仅组合当时待审的
 [W4 #939](https://github.com/WindWang2/paleo_workstation/pull/939) 与
-[W5 #940](https://github.com/WindWang2/paleo_workstation/pull/940)，未合并 master。
-先处理 W1→W2→W3，再处理 W4/W5，最后将 W6 重定位到相应已合入基底；不把内部基底当作额外功能 PR。
+[W5 #940](https://github.com/WindWang2/paleo_workstation/pull/940)。后续按 W1→W2→W3→W4/W5
+合入，再将 W6 重定位到 master；文件树仍与本记录验收树相同。内部基底未作为额外功能 PR。
 
 本批使用合成 SDK/栅格/ONNX 数据和 loopback HTTP，没有向真实远端发送工区数据。
 本机 Windows 全应用构建、真实远端服务验收和全应用视觉验收不属于这份 Linux 运行证据。

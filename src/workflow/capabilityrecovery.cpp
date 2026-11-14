@@ -65,10 +65,22 @@ QJsonObject publicOperation(const OperationLog::Record &r) {
   return out;
 }
 CapabilityRecovery::CapabilityRecovery(QObject *parent):QObject(parent) {}
-void CapabilityRecovery::setHostProvider(HostProvider provider){m_host=std::move(provider);}
+void CapabilityRecovery::setHostProvider(HostProvider provider){invalidateRuntimeHooks();m_host=std::move(provider);}
+void CapabilityRecovery::invalidateRuntimeHooks() {
+  m_runtimeHooks.clear();m_runtimeDocument.clear();m_runtimeProject.clear();m_runtimeEpoch=0;
+}
 void CapabilityRecovery::setTaskService(PaleoTaskService *tasks){m_tasks=tasks;}
 void CapabilityRecovery::setCheckpointHook(std::function<void(const QString&)> hook){m_checkpoint=std::move(hook);}
-RecoveryHost CapabilityRecovery::live()const{return QThread::currentThread()==thread() && m_host?m_host():RecoveryHost{};}
+RecoveryHost CapabilityRecovery::live() {
+  if(QThread::currentThread()!=thread())return {};
+  auto h=m_host?m_host():RecoveryHost{};
+  const auto document=h.context.open?h.context.documentId:QString();
+  const auto project=h.context.open?QFileInfo(h.projectDir).canonicalFilePath():QString();
+  if(document!=m_runtimeDocument || project!=m_runtimeProject || h.context.epoch!=m_runtimeEpoch) {
+    invalidateRuntimeHooks();m_runtimeDocument=document;m_runtimeProject=project;m_runtimeEpoch=h.context.epoch;
+  }
+  return h;
+}
 OperationLog::Accept CapabilityRecovery::lookup(const QString &scope,const QString &request) {
   const auto h=live(); if(!h.context.open)return {"document_unavailable",{}};
   OperationLog log(h.operationDir,h.projectDir,h.writeClaim); return log.lookup(h.context.documentId,scope,request);
@@ -100,7 +112,7 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
     auto requestedPresentation=plan.presentationIntent;requestedPresentation.remove("members");
     if(!requestedPresentation.isEmpty() && requestedPresentation!=originalPresentation)return {false,"source_operation_mismatch",{}};
     plan.presentationIntent=source.presentationIntent;
-    if(!plan.inputValidator)plan.inputValidator=m_frozen.value(source.operationId).inputValidator;
+    if(!plan.inputValidator)plan.inputValidator=m_runtimeHooks.value(source.operationId).inputValidator;
   }
   auto code=host::checkContext(h.context,h.context,host::computeEffects(plan.phase) |
       (plan.externalRequest.isEmpty()?0U:unsigned(host::ExternalTransfer)));
@@ -146,7 +158,11 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
     const auto saved=recovery_detail::store(log,accepted.record);
     if(saved!=QLatin1String("ok"))return {false,saved,accepted.record};
   }
-  m_frozen.insert(accepted.record.operationId,plan); if(m_checkpoint)m_checkpoint("accepted");
+  // Plans/specs already live in the journal. Retain only non-serializable hooks;
+  // a prepare-only operation never executes its own numerical worker.
+  RuntimeHooks hooks{plan.phase==QLatin1String("prepare")?OperationWorker{}:plan.worker,plan.inputValidator};
+  if(hooks.worker || hooks.inputValidator)m_runtimeHooks.insert(accepted.record.operationId,std::move(hooks));
+  if(m_checkpoint)m_checkpoint("accepted");
   return {true,"accepted",accepted.record};
 }
 } // namespace paleo::capability

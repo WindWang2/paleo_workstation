@@ -14,10 +14,8 @@
 //     add*/attach/setLink*）——类型改写、实体名/坐标改写、软删走 sidecar
 //     （.paleo/*.json，与 T28 undo vault 同一模式），写回服务层的正路登记
 //     在 docs/dataops/GAPS.md；
-//   · sidecar 路径从 catalogPath() 推导（<projectDir>/.paleo/<name>.json），
-//     与 undo_stack.json 同一函数复刻；catalog 未开 → 所有 store 空转；
-//   · #534：推导与读写本身已下沉数据层门面（services/jsonsidecar.h 的
-//     dataopsSidecar*），本文件只留 sidecar 名与 store 值类型映射。
+//   · sidecar 路径推导与读写由 services/jsonsidecar.h 的 dataopsSidecar*
+//     唯一负责；本文件只装配视图快照，不保留持久化转发入口。
 #pragma once
 
 #include <QDateTime>
@@ -41,34 +39,6 @@
 
 namespace paleo::dataops
 {
-
-// ---- sidecar 路径与读写（视图兼容入口，实际持久化归数据层门面）-------------
-// #534 收敛：目录推导与装载/落盘全部走数据层门面（services/jsonsidecar.h）——
-// 视图只保留这里原有的路径/sidecar 名入口（datalist/entitypanel/datapage 与
-// 测试按名调用），实际持久化时机与原子写时序归数据层
-// （UI_LAYER_PLAN §1「视图不写工程文件」）。
-inline QString projectDirFor(DataCatalog *cat)
-{
-  return paleo::projectDirForCatalog(cat);
-}
-
-inline QString sidecarPath(DataCatalog *cat, const QString &name)
-{
-  return paleo::dataopsSidecarPath(cat, name);
-}
-
-inline QJsonObject loadSidecarObject(DataCatalog *cat, const QString &name)
-{
-  // 数据层门面已带 #482 的原子写 + 损坏留痕清洗契约（警告文案保持
-  // "dataops sidecar ..." 前缀，测试按此断言）。
-  return paleo::dataopsSidecarLoad(cat, name);
-}
-
-inline bool saveSidecarObject(DataCatalog *cat, const QString &name,
-                              const QJsonObject &root)
-{
-  return paleo::dataopsSidecarSave(cat, name, root);
-}
 
 // ---- 资产行快照（过滤/排序/分组/导出的统一输入） ---------------------------
 // 一次从 catalog + 各 sidecar store 装配；视图过滤不再回查 catalog。
@@ -125,7 +95,7 @@ inline AssetRowInfo buildAssetRow(DataCatalog *cat, const CatalogAsset &a,
     QString abs;
     if (v.managed)
     {
-      const QString pd = projectDirFor(cat);
+      const QString pd = paleo::projectDirForCatalog(cat);
       if (!pd.isEmpty())
         abs = DataCatalog::resolvedVersionPath(pd, v);
     }

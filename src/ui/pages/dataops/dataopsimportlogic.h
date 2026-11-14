@@ -263,7 +263,7 @@ struct ImportQueueItem
     static QString stateText(ImportItemState s)
     {
       // finding-128：队列状态文案走 QObject::tr（DESIGN.md「用户可见字符串走
-      // tr()」；与 dataopscommands.h 自由函数同口径）。
+      // tr()」；与 workflow/dataopscommandservice.h 自由函数同口径）。
       switch (s)
       {
         case ImportItemState::Queued: return QObject::tr("排队");

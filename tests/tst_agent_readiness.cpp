@@ -7,11 +7,66 @@
 #include "ai/onnxpredictionservice.h"
 #include "catalog/datacatalog.h"
 #include <QTemporaryDir>
+#include <QTranslator>
+#include <QScopeGuard>
+#include <limits>
 
 using namespace paleo;
+namespace {
+class ToolTitleTranslator : public QTranslator {
+public:
+  QString title;
+  mutable int calls = 0;
+  bool isEmpty() const override { return false; }
+  QString translate(const char *context, const char *source, const char *, int) const override {
+    if (QByteArray(context) == "QObject" && QByteArray(source) == QStringLiteral("工程数据查询").toUtf8()) {
+      ++calls;
+      return title;
+    }
+    return {};
+  }
+};
+}
 class TestAgentReadiness:public QObject {
   Q_OBJECT
 private slots:
+  void toolDirectoryBuildsOneFreshTranslatedTablePerListing() {
+    ToolTitleTranslator translator;translator.title="Project query A";
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    const auto removeTranslator=qScopeGuard([&]{QCoreApplication::removeTranslator(&translator);});
+    AiChatToolRunner runner;
+    for(const auto &title:{QString("Project query A"),QString("Project query B")}) {
+      translator.title=title;translator.calls=0;
+      const auto tools=runner.availableTools();
+      QCOMPARE(translator.calls,1);
+      QString actual;for(const auto &tool:tools)if(tool.name==QLatin1String("paleo.query_project"))actual=tool.title;
+      QCOMPARE(actual,title);
+    }
+  }
+  void extremeTrackingSeedsFailBeforeProvidersModelsOrTasks() {
+    AiAssistWorkflow workflow(nullptr);PaleoTaskService tasks;PaleoOnnxService onnx;
+    workflow.setTaskService(&tasks);workflow.setOnnxService(&onnx);
+    AiChatToolRunner runner;runner.setWorkflow(&workflow);runner.setTaskService(&tasks);
+    int providerCalls=0,fetchCalls=0;
+    AiChatToolContext context;context.onnx=&onnx;
+    context.trackingInput=[&](const auto &,auto *,QString *){++providerCalls;return false;};
+    context.traceFetch=[&](int,int,int,int,QVector<float> &,QString &){++fetchCalls;return false;};
+    runner.setContext(context);QSignalSpy done(&runner,&AiChatToolRunner::toolFinished);
+    int calls=0;
+    for(const int coordinate:{std::numeric_limits<int>::min(),std::numeric_limits<int>::max()}) {
+      for(const bool inlineAxis:{false,true}) {
+        const QJsonObject seed{{"inline",inlineAxis?coordinate:10},{"xline",inlineAxis?20:coordinate},{"sample_index",5}};
+        const QJsonObject args{{"model","absent-model"},{"window_samples",16},{"radius",1},{"seeds",QJsonArray{seed}}};
+        runner.run({QString::number(++calls),"paleo.horizon_tracking_suggestion",
+                    QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))});
+        QTRY_COMPARE(done.size(),calls);QVERIFY(!done.last()[1].toBool());
+        const auto result=QJsonDocument::fromJson(done.last()[2].toString().toUtf8()).object();
+        QCOMPARE(result.value("error").toString(),QCoreApplication::translate("AiChatToolRunner","种子点坐标缺失或越界（须为整数线号与非负样点号）"));
+        QCOMPARE(providerCalls,0);QCOMPARE(fetchCalls,0);QVERIFY(tasks.tasks().isEmpty());
+        QVERIFY(onnx.loadedModel().isEmpty());
+      }
+    }
+  }
   void localModelPagesUseTrustedChatScopeAndNeverLoadAFile() {
     QTemporaryDir temp;DataCatalog catalog;QString error;QVERIFY(catalog.open(temp.path(),&error));
     capability::HostBinding binding;binding.context.open=true;binding.context.documentId="doc";

@@ -64,6 +64,41 @@ int crashChild(const QString &root,const QString &point) {
 class RecoveryTests:public QObject {
   Q_OBJECT
 private slots:
+  void prepareRetainsOnlyItsReusableValidator() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));auto p=plan("prepare-hooks");p.phase="prepare";
+    auto numerical=std::make_shared<QByteArray>(1024,'n'),validation=std::make_shared<QByteArray>(1024,'v');
+    const std::weak_ptr<QByteArray> numericalWeak=numerical,validationWeak=validation;
+    p.worker=[numerical](const OperationWorkContext &c){return worker()(c);};
+    p.inputValidator=[validation](const OperationWorkContext &){return QString();};
+    const auto accepted=h.recovery.accept(p);QVERIFY2(accepted.ok,qPrintable(accepted.code));
+    p.worker={};p.inputValidator={};numerical.reset();validation.reset();
+    QVERIFY(numericalWeak.expired());QVERIFY(!validationWeak.expired());
+    bool done=false;ExecuteResult result;QString error;
+    QVERIFY2(h.recovery.start(p.callerScope,accepted.record.operationId,this,"prepare",
+        [&](ExecuteResult r){result=r;done=true;},false,&error),qPrintable(error));
+    QTRY_VERIFY(done);QVERIFY(result.ok);QCOMPARE(result.execution,QString("prepared"));
+    QCOMPARE(h.recovery.get(p.callerScope,accepted.record.operationId).value("computeCount").toInt(),0);
+    QVERIFY(!validationWeak.expired()); // A compute child can inherit the validator.
+    const auto cancelled=h.recovery.cancel(p.callerScope,accepted.record.operationId);
+    QVERIFY(cancelled.value("cancelRequested").toBool());QVERIFY(validationWeak.expired());
+    QCOMPARE(h.catalog.versions().size(),0);
+  }
+  void documentEpochReleasesQueuedHooksAndRestoresFromTheJournal() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));auto p=plan("restore-hooks");
+    auto numerical=std::make_shared<QByteArray>(1024,'n');const std::weak_ptr<QByteArray> weak=numerical;
+    p.worker=[numerical](const OperationWorkContext &c){return worker()(c);};
+    const auto accepted=h.recovery.accept(p);QVERIFY2(accepted.ok,qPrintable(accepted.code));
+    p.worker={};numerical.reset();QVERIFY(!weak.expired());
+    ++h.epoch;QCOMPARE(h.recovery.lookup(p.callerScope,p.clientRequestId).code,QString("found"));
+    QVERIFY(weak.expired());
+    bool done=false;ExecuteResult result;QString error;
+    QVERIFY2(h.recovery.start(p.callerScope,accepted.record.operationId,this,"restored",
+        [&](ExecuteResult r){result=r;done=true;},false,&error),qPrintable(error));
+    QTRY_VERIFY(done);QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));
+    QCOMPARE(h.catalog.versions().size(),1);
+    const auto record=h.recovery.get(p.callerScope,accepted.record.operationId);
+    QCOMPARE(record.value("computeCount").toInt(),1);
+  }
   void atomicCommitReplayAndScope() {
     QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));auto p=plan();const auto a=h.recovery.accept(p);QVERIFY2(a.ok,qPrintable(a.code));
     ExecuteResult result;bool done=false;QString error;

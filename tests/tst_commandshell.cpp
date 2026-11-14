@@ -15,6 +15,7 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -25,6 +26,9 @@
 #include <SARibbon.h>
 
 #include "../src/app/appcontext.h"
+#include "../src/io/dataimportservice.h"
+#include "../src/metadata/paleoprojectstore.h"
+#include "../src/qgis/qgisprojectservice.h"
 #include "../src/services/commandspec.h"
 #include "../src/ui/commandactionbinder.h"
 #include "../src/qgis/commandlocatorfilter.h"
@@ -411,6 +415,31 @@ private slots:
       QVERIFY2(!re.match(src).hasMatch(), rel);
       QVERIFY2(!src.contains(QStringLiteral("->click()")), rel);
     }
+  }
+
+  void realDocumentRebindReleasesRuntimeHooksWithoutAnotherHostCall()
+  {
+    QTemporaryDir project;QVERIFY(project.isValid());
+    const auto closeProject=qScopeGuard([this]{m_ctx->closeProject();});
+    QVERIFY2(m_ctx->projectSvc()->createProject(project.filePath("hooks.qgz")),
+             qPrintable(m_ctx->projectSvc()->lastErrors().join(';')));
+    auto *session=m_ctx->documentSession();QVERIFY(session->isOpen());
+    const auto documentId=session->documentId(),metaPath=m_ctx->store()->metaDbPath();
+    auto bytes=std::make_shared<QByteArray>(1024,'h');const std::weak_ptr<QByteArray> weak=bytes;
+    paleo::capability::FrozenOperation plan;
+    plan.capabilityId="test.rebind-hooks";plan.implementationVersion="1";
+    plan.callerScope="agent:hooks";plan.clientRequestId="real-document-rebind";
+    plan.intent={{"value",1}};plan.frozenPlan={{"immutable",true}};plan.phase="prepare";
+    plan.inputValidator=[bytes](const paleo::capability::OperationWorkContext &){return QString();};
+    const auto accepted=m_ctx->capabilityHost()->recovery()->accept(plan);
+    QVERIFY2(accepted.ok,qPrintable(accepted.code));
+    plan.inputValidator={};bytes.reset();QVERIFY(!weak.expired());
+    const auto previousEpoch=session->epoch();QString error;
+    QVERIFY2(session->bind(m_ctx->importSvc()->catalog(),metaPath,documentId,false,&error),qPrintable(error));
+    QVERIFY(session->epoch()>previousEpoch);
+    QVERIFY(weak.expired()); // Checked before any recovery API can lazily prune the old scope.
+    const auto restored=m_ctx->capabilityHost()->recovery()->get(plan.callerScope,accepted.record.operationId);
+    QCOMPARE(restored.value("execution").toString(),QString("prepared"));
   }
 };
 

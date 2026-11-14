@@ -29,8 +29,7 @@ QString AiChatToolRunner::wellFaciesReadiness(const QJsonObject &args,bool forLi
   return {};
 }
 
-void AiChatToolRunner::runFacies(const ChatToolCall &call,const QJsonObject &args) {
-  if(!args.contains("contract_version")&&m_context.allowLegacyFaciesInput){runLegacyFacies(call,args);return;}
+void AiChatToolRunner::runFacies(const QJsonObject &args) {
   QString code;const auto replay=paleo::wellfacies::completedReplay(m_context.capabilityHost,m_resultSession,args,code);
   if(!code.isEmpty()){finishActive(false,{{"code",code}});return;}
   if(!replay.isEmpty()){finishActive(true,replay);return;}

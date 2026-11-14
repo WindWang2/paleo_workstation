@@ -129,7 +129,9 @@ void TestAiHorizonSuggest::oversizedRadiusOrSeedRejectedBeforeExpansion()
 {
   // PW-013：radius / 种子坐标越界须在模型加载与候选扩张之前被拒绝。
   PaleoOnnxService svc;
-  TraceWindowFetcher dummy = [](int, int, int, int, QVector<float> &out, QString &) {
+  int fetchCalls = 0;
+  TraceWindowFetcher dummy = [&](int, int, int, int, QVector<float> &out, QString &) {
+    ++fetchCalls;
     out = QVector<float>(64, 0.0f);
     return true;
   };
@@ -142,10 +144,18 @@ void TestAiHorizonSuggest::oversizedRadiusOrSeedRejectedBeforeExpansion()
   QVERIFY(!suggestHorizonTracking(&svc, QStringLiteral("scorer"), {seed}, 16,
                                   100000, dummy, {}, &out, &err));
   QVERIFY(err.contains(QStringLiteral("radius")));
-  seed.inlineNo = std::numeric_limits<int>::max();
-  QVERIFY(!suggestHorizonTracking(&svc, QStringLiteral("scorer"), {seed}, 16, 2,
-                                  dummy, {}, &out, &err));
-  QVERIFY(out.isEmpty());
+  for (const int coordinate : {std::numeric_limits<int>::min(), std::numeric_limits<int>::max()}) {
+    for (const bool inlineAxis : {false, true}) {
+      seed.inlineNo = inlineAxis ? coordinate : 10;
+      seed.xlineNo = inlineAxis ? 20 : coordinate;
+      QVERIFY(!suggestHorizonTracking(&svc, QStringLiteral("scorer"), {seed}, 16, 2,
+                                      dummy, {}, &out, &err));
+      QCOMPARE(err, QObject::tr("非法种子点坐标 (%1,%2)").arg(seed.inlineNo).arg(seed.xlineNo));
+      QVERIFY(out.isEmpty());
+      QVERIFY(svc.loadedModel().isEmpty());
+      QCOMPARE(fetchCalls, 0);
+    }
+  }
 }
 
 void TestAiHorizonSuggest::suggestionFieldsIntegrity()

@@ -6,6 +6,8 @@
 
 ## 归档范围
 
+- [2026-11-13 已完成待办归档](completed-backlog-20261113.md)：R04、R14 与首次 configure 已收口记录。
+
 - 2026-10-27 从根目录迁入 95 份 `.goal-loop-ledger*.md`，统一命名为 `goal-loop-*.md`。
 - [2026-10-17 issue sweep 运行记录](issue-sweep-20261017.md)：原 `GOAL_LEDGER.md`，其运行中状态已过期。
 - [清理前的待办快照](backlog-before-cleanup-20261027.md)：保留已关闭事项和旧轮次证据。

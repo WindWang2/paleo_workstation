@@ -54,6 +54,11 @@ namespace MetaStore
   // 读 user_version；查询失败回 -1 并置 *error。
   int readUserVersion(QSqlDatabase &db, QString *error = nullptr);
 
+  // 幂等补列：查询当前表结构，缺列时 ALTER；不自行提交，沿用调用方迁移事务。
+  // table/name/type 只接受仓库内的固定 schema 常量，不接收用户 SQL 标识符。
+  bool ensureColumn(QSqlDatabase &db, const QString &table, const QString &name,
+                    const QString &type, QString *error);
+
   // 门本体：db 必须已 open。按上述规则检查/推进；拒绝或执行失败 → false +
   // *error（调用方应让 open 整体失败，不得继续建表）。userVersion 语义同上。
   // migrate 语义见 openConnection——版本落后时单事务内逐级迁移后再设版本

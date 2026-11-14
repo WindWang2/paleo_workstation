@@ -360,16 +360,6 @@ QString PaleoOnnxService::resolveModelPathLocked( const QString &name, QString *
   return p;
 }
 
-QString PaleoOnnxService::normalizedModelPath( const QString &name ) const
-{
-  QString root;
-  {
-    QMutexLocker lock( &m_mutex );
-    root = m_modelRoot;
-  }
-  return normalizedModelPathIn( root, name );
-}
-
 QString PaleoOnnxService::normalizedModelPathIn( const QString &root, const QString &name )
 {
   QString file = name;

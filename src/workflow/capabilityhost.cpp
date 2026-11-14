@@ -80,7 +80,7 @@ QString CapabilityHost::callerScope(host::Caller caller,const QString &session) 
   if(base.isEmpty())return {};
   return caller==host::Caller::Agent && !session.isEmpty()?base+":chat:"+QString::fromLatin1(QCryptographicHash::hash(session.toUtf8(),QCryptographicHash::Sha256).toHex()):base;
 }
-void CapabilityHost::invalidate() { m_prepared.clear(); }
+void CapabilityHost::invalidate() { m_prepared.clear();m_recovery->invalidateRuntimeHooks(); }
 void CapabilityHost::prunePrepared(const host::CallContext &context) {
   const auto now=QDateTime::currentMSecsSinceEpoch();
   for(auto it=m_prepared.begin();it!=m_prepared.end();)

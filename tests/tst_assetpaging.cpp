@@ -712,7 +712,7 @@ private slots:
   }
 
   // C1（方向 01）：批量打标签 N 条命令一次收口刷新——旧缺陷 N 项选中即
-  // N 次整表重建（与 dataopsundo.h「刷新由栈信号订阅方统一做」的设计注释
+  // N 次整表重建（与 workflow/dataopscommandservice.h「刷新由栈信号订阅方统一做」的设计注释
   // 相悖）。观察面：entityRefreshRequested 恰一次 + sidecar 功能不变。
   void batchAddTagRefreshesOnce() {
     QTemporaryDir dir;

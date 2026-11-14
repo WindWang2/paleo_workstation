@@ -3,7 +3,6 @@
 #include "../ai/chat/chatmessage.h"
 #include "../ai/horizonsuggest.h"
 #include "../ai/wellfaciesservice.h"
-#include "../domain/welllogfacies.h"
 #include "../services/paleotaskservice.h"
 #include "../services/wellfaciesinputplan.h"
 #include "aiassistworkflow.h"
@@ -20,11 +19,14 @@ namespace paleo::query {class ProjectQueryCapability;}
 // workflow/ — 聊天领域工具执行器（方向61）。
 //
 // 把模型点名的 tool_calls（ChatToolCall）映射到既有执行面并异步执行：
-//   · paleo.tile_classification        → AiAssistWorkflow::startClassification
+//   · paleo.tile_classification_v2     → TileOperationService 三阶段操作
+//   · paleo.tile_classification        → 显式注入的内部 legacy adapter
 //   · paleo.horizon_tracking_suggestion→ AiAssistWorkflow::startSuggestion
-//   · paleo.well_facies_prediction     → WellFaciesService::predict（本类持有）
+//   · paleo.well_facies_prediction     → WellFaciesAgentRun（typed v2 引用）
 //   · paleo.query_project              → runQuery（catalog 只读查询，方向77）
 //   · paleo.asset_lineage              → runLineage（血缘只读服务，方向77）
+//   · paleo.operation_*               → CapabilityRecovery 持久查询/恢复
+//   · paleo.read_result               → 会话级不可变报告读取
 //
 // 分层站位：本类只编排（任务/HTTP + 世代号守卫），不画像素、不弹对话框。
 // 数据上下文（层位名 / 网格取数 / 道窗取数 / 井曲线 / 工程目录）由装配根或
@@ -37,9 +39,8 @@ namespace paleo::query {class ProjectQueryCapability;}
 // 执行语义（钉死）：
 //   · 串行：一次只跑一个工具（FIFO）。lastProductStats 是 workflow 的单例
 //     摘要面，并发跑两个 tile 分类会串台——串行是正确性约束，不是优化。
-//   · 取消 = 作废：cancel() 提世代，在途结果一律不再 emit；tile 任务协作
-//     取消（不写产品，诚实无部分产品）；层位任务算完但作废（引擎无取消
-//     钩子，注释见 aiassistworkflow.h）；测井相 HTTP 中止。
+//   · cancel() 作废当前聊天订阅并请求任务取消。持久协调器仍记录已知提交/
+//     远端完成事实；已提交成果保留，未发送的后续段停止，不能承诺零变化。
 //   · 每帧必有终态：run() 的每个调用都会以 toolFinished 收尾（错误也是
 //     结果——协议要求每个 tool_call_id 有应答），除非被 cancel 作废。
 class DataCatalog;
@@ -51,11 +52,6 @@ namespace paleo {class TileOperationService;}
 class AiChatToolRunner : public QObject {
   Q_OBJECT
 public:
-  // 井曲线提供者：按井名（+可选深度窗，NaN = 未给）组装服务入参。
-  // 返回 false + *error = 如实拒绝（井不存在/曲线缺失）。
-  using FaciesInputProvider = std::function<bool(
-      const QString &wellName, double depthFrom, double depthTo,
-      WellFaciesInput *out, QString *error)>;
   struct TrackingInput {
     TraceWindowFetcher fetch;
     QJsonObject identity;
@@ -75,11 +71,8 @@ public:
     AiAssistWorkflow::GridFetch gridFetch;   // tile 读域取数（含 halo）
     TraceWindowFetcher traceFetch;           // 层位建议道窗取数
     TrackingInputProvider trackingInput;     // Captured once per operation by the trusted owner.
-    FaciesInputProvider faciesInput;         // 测井相入参组装
-    std::function<WellFaciesModel(const QString &modelId)> faciesModel;
     FrozenFaciesProvider frozenFaciesInput;
     std::function<std::optional<paleo::document::InterpretationContext>()> faciesContext;
-    bool allowLegacyFaciesInput = false; // Explicit adapter for old embedding/tests; production uses typed v2.
     // 方向77：只读工程上下文（query/lineage 工具）——装配根在工程打开时
     // 注入；为空时两工具按调用如实报「须打开工程」。指针稳定性由装配根
     // 保证（importSvc 持有、open 原地重绑，不换实例）。
@@ -143,8 +136,7 @@ private:
   void runTileV2(const QJsonObject &args);
   void runTile(const ChatToolCall &call, const QJsonObject &args);
   void runHorizon(const ChatToolCall &call, const QJsonObject &args);
-  void runFacies(const ChatToolCall &call, const QJsonObject &args);
-  void runLegacyFacies(const ChatToolCall &call, const QJsonObject &args);
+  void runFacies(const QJsonObject &args);
   void runFaciesModels(const QJsonObject &args);
   void runFaciesInputs(const QJsonObject &args);
   void runLocalModels(const QJsonObject &args);
@@ -158,6 +150,7 @@ private:
   quint64 taskSession() const;
   bool activeContextIsCurrent() const;
   void refreshResultScope();
+  ToolReadiness readinessForSpec(const AiToolSpec &spec, const QJsonObject &arguments, bool forListing) const;
 
   struct QueuedCall {
     ChatToolCall call;
@@ -178,7 +171,6 @@ private:
   QPointer<PaleoTask> m_activeTask;
   bool m_active = false;
   bool m_activeIsFacies = false;
-  bool m_activeUsesLegacyFacies = false;
   quint64 m_faciesEpoch=0,m_activeFaciesEpoch=0;
   int m_generation = 0; // cancel()/析构 ++：作废迟到回调
   quint64 m_contextGeneration = 0;

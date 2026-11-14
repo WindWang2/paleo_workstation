@@ -15,7 +15,10 @@ bool AiChatToolRunner::externalTransferConfigured() const {
 }
 
 AiChatToolRunner::ToolReadiness AiChatToolRunner::readiness(const QString &name,const QJsonObject &args,bool listing) const {
-  const auto spec=aiToolSpec(name);
+  return readinessForSpec(aiToolSpec(name),args,listing);
+}
+AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpec(const AiToolSpec &spec,const QJsonObject &args,bool listing) const {
+  const auto &name=spec.name;
   ToolReadiness result;result.effects=spec.effectsForArguments(args);
   const auto fail=[&](const QString &code) { result.code=code;return result; };
   if(QThread::currentThread()!=thread())return fail("owner_thread_required");
@@ -102,6 +105,6 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readiness(const QString &name,
 }
 QVector<AiToolSpec> AiChatToolRunner::availableTools() const {
   QVector<AiToolSpec> tools;
-  for(const auto &spec:builtinAiToolSpecs())if(readiness(spec.name,{},true).ready)tools.append(spec);
+  for(const auto &spec:builtinAiToolSpecs())if(readinessForSpec(spec,{},true).ready)tools.append(spec);
   return tools;
 }

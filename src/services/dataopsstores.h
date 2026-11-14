@@ -181,13 +181,13 @@ public:
   bool setType(const QString &assetId, const QString &type)
   {
     if (type.isEmpty())
-      return m_types.remove(assetId) > 0;
+      return m_types.remove(assetId);
     if (m_types.value(assetId) == type)
       return false;
     m_types.insert(assetId, type);
     return true;
   }
-  bool clearType(const QString &assetId) { return m_types.remove(assetId) > 0; }
+  bool clearType(const QString &assetId) { return m_types.remove(assetId); }
 
 private:
   DataCatalog *m_cat = nullptr;

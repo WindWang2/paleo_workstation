@@ -49,11 +49,11 @@ struct AiToolSpec {
   QJsonObject toJsonSchema() const;   // 入参 object schema
   QJsonObject toChatFunction() const; // OpenAI tools[].function 形状
   QJsonObject modelResultSchema() const; // 模型边界 envelope，data 引用原生 schema
-  // 实参校验：空串 = 通过；非空 = 缺失/类型不符（面向用户，已翻译）。
+  // 空串表示通过；非空为验证原因，测井相沿用领域请求的机器错误码。
   QString validateParameters(const QJsonObject &arguments) const;
 };
 
-// 既有八条工具加 W1 只读结果引用入口；顺序稳定。
+// 查询、持久操作与受控执行的内置目录；顺序稳定，宿主另行筛选运行时可用性。
 QVector<AiToolSpec> builtinAiToolSpecs();
 // 按名查表；未登记返回空 spec（name 为空）。
 AiToolSpec aiToolSpec(const QString &name);

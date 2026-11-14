@@ -3,7 +3,7 @@
 // 编排服务化与可信执行回执。原先散在视图层（ui/pages/dataopsundo.h 与
 // ui/pages/dataops/dataopscommands.h）的可执行核心下沉功能层：命令对象、
 // 共享撤销栈、侧车存储绑定与会话守卫在此编排；视图只收集意图并展示回执。
-// 旧头经薄转发保持全部公开类型/入口可用（兼容声明，见两个 ui/ 头）。
+// 公开类型/入口由本头统一声明；ui 与测试直接依赖功能层，不再经视图转发。
 //
 // 关键语义（对应任务 W2–W5）：
 //   · 回执（BatchReceipt）区分 成功变更/无变化/拒绝/失败已恢复/失败留有部分
@@ -95,14 +95,14 @@ struct BatchReceipt
     return out;
   }
   void addItem(QString targetId, QString op, OpOutcome o, QString reason = QString(),
-               bool undoable = false)
+               bool canUndo = false)
   {
     ReceiptItem it;
     it.targetId = std::move(targetId);
     it.op = std::move(op);
     it.outcome = o;
     it.reason = std::move(reason);
-    it.undoable = undoable;
+    it.undoable = canUndo;
     items.append(std::move(it));
   }
 };

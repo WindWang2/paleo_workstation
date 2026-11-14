@@ -1,7 +1,7 @@
 // 层：功能
 #include "modelregistry.h"
 
-#include "onnxpredictionservice.h"
+#include "onnxmodelbytes.h"
 
 #include <QDebug>
 #include <QDir>
@@ -10,22 +10,35 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QObject>
 #include <QSet>
 
 namespace
 {
-// manifest shape 数组元素：整数；null/缺省 → -1（动态维）。
-QVector<int64_t> parseShape( const QJsonArray &arr )
+// Missing shape is allowed; each declared dimension is an exact int64 or null.
+bool parseShape( const QJsonValue &value, QVector<int64_t> &shape )
 {
-  QVector<int64_t> shape;
-  for ( const QJsonValue &v : arr )
+  shape.clear();
+  if ( value.isUndefined() )
+    return true;
+  if ( !value.isArray() )
+    return false;
+  QVector<int64_t> parsed;
+  for ( const QJsonValue &v : value.toArray() )
   {
-    if ( v.isDouble() )
-      shape.append( int64_t( v.toDouble() ) );
-    else
-      shape.append( -1 ); // null → 动态
+    if ( v.isNull() )
+      parsed.append( -1 );
+    else {
+      if ( !v.isDouble() )
+        return false;
+      const qint64 dimension = v.toInteger();
+      if ( v != QJsonValue( dimension ) )
+        return false; // Fractional and out-of-range numbers must not be truncated/cast.
+      parsed.append( dimension );
+    }
   }
-  return shape;
+  shape.swap( parsed );
+  return true;
 }
 
 ModelRegistryEntry parseEntry( const QJsonObject &o )
@@ -40,7 +53,11 @@ ModelRegistryEntry parseEntry( const QJsonObject &o )
   const QJsonObject input = o.value( QStringLiteral( "input" ) ).toObject();
   e.inputName = input.value( QStringLiteral( "name" ) ).toString();
   e.inputDtype = input.value( QStringLiteral( "dtype" ) ).toString();
-  e.inputShape = parseShape( input.value( QStringLiteral( "shape" ) ).toArray() );
+  if ( !parseShape( input.value( QStringLiteral( "shape" ) ), e.inputShape ) ) {
+    e.status = ModelRegistryEntry::Status::ManifestInvalid;
+    e.detail = QStringLiteral("model_input_shape_invalid");
+    return e;
+  }
   e.featureContractVersion = input.value("featureContractVersion").toInt();
   e.features = input.value("features").toArray();
   const QJsonObject outputs = o.value( QStringLiteral( "outputs" ) ).toObject();
@@ -182,6 +199,10 @@ ModelRegistryScan ModelRegistry::scan( const QString &modelsDir )
       continue;
     }
     seenNames.insert( e.name );
+    if ( e.status != ModelRegistryEntry::Status::Ok ) {
+      out.entries.append( e );
+      continue;
+    }
     e.absolutePath = QDir::cleanPath( QDir( modelsDir ).absoluteFilePath( e.file ) );
     if ( !QFileInfo::exists( e.absolutePath ) )
     {
@@ -204,11 +225,13 @@ ModelRegistryScan ModelRegistry::scan( const QString &modelsDir )
       }
       e.absolutePath = fileCanon;
     }
-    e.sha256Actual = PaleoOnnxService::sha256OfFile( e.absolutePath );
+    QString fingerprintError;
+    e.sha256Actual = paleo::onnx::boundedFingerprint( e.absolutePath, &fingerprintError );
     if ( e.sha256Actual.isEmpty() )
     {
       e.status = ModelRegistryEntry::Status::Unreadable;
-      e.detail = QObject::tr( "模型文件不可读: %1" ).arg( e.absolutePath );
+      e.detail = fingerprintError == QLatin1String("model_byte_budget_exceeded")
+          ? fingerprintError : QObject::tr( "模型文件不可读: %1" ).arg( e.absolutePath );
       out.entries.append( e );
       continue;
     }

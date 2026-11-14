@@ -1,15 +1,16 @@
 # 数据管理页撤销/重做（P3 交付文档）
 
-日期：2026-09-29。分支：`wave/data-page-operations`。
-实现：`src/ui/pages/dataopsundo.h`（栈）+ `dataops/dataopscommands.h`
-（命令对象）+ datalist.cpp 接线。
+更新：2026-11-13；初版：2026-09-29（`wave/data-page-operations`）。
+公开类型统一在 `src/workflow/dataopscommandservice.h`；实现按服务编排、
+共享撤销栈、目录命令、侧车命令与实体命令分成五个 TU。视图直接使用功能层，
+原 UI 转发头及旧 moc 接线已移除。
 
 ## 1. 统一接口（D5.7）
 
 ```cpp
 class DataOpCommand {
-  virtual void redo() = 0;             // 应用到 catalog/sidecar（纯操作）
-  virtual void undo() = 0;
+  virtual bool redo() = 0;             // 应用到 catalog/sidecar，失败返回 false
+  virtual bool undo() = 0;
   virtual QString text() const = 0;    // 「挂接 A1.Las→well-A1」主谓宾
   virtual QByteArray id() const;       // 合并键（空 = 不合并）
   virtual bool mergeWith(const DataOpCommand *other);  // 相邻同类吞并

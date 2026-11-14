@@ -71,6 +71,7 @@ public:
   using HostProvider = std::function<RecoveryHost()>;
   explicit CapabilityRecovery(QObject *parent = nullptr);
   void setHostProvider(HostProvider provider);
+  void invalidateRuntimeHooks();
   void setTaskService(PaleoTaskService *tasks);
   Accepted accept(const FrozenOperation &plan);
   Accepted beginExternal(const FrozenOperation &plan);
@@ -96,14 +97,20 @@ public:
   void setCheckpointHook(std::function<void(const QString &)> hook);
 
 private:
-  RecoveryHost live() const;
+  RecoveryHost live();
   OperationLog::Record reconcile(const RecoveryHost &host, OperationLog::Record record);
   ExecuteResult finish(const RecoveryHost &host, OperationLog::Record record,
                        const OperationWorkResult &work);
   OperationLog::Record presentCommitted(const RecoveryHost &host, OperationLog::Record record);
   HostProvider m_host;
   QPointer<PaleoTaskService> m_tasks;
-  QHash<QString, FrozenOperation> m_frozen;
+  struct RuntimeHooks {
+    OperationWorker worker;
+    OperationInputValidator inputValidator;
+  };
+  QHash<QString, RuntimeHooks> m_runtimeHooks;
+  QString m_runtimeDocument, m_runtimeProject;
+  quint64 m_runtimeEpoch = 0;
   QHash<QString, std::shared_ptr<void>> m_externalActive;
   QHash<QString, RecoveryHost> m_externalHosts;
   std::function<void(const QString &)> m_checkpoint;

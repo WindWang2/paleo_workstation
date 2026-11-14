@@ -122,8 +122,10 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
     for(const auto &key:required)if(!arguments.value(key).isString() || arguments.value(key).toString().isEmpty())
       return QStringLiteral("tile_required_input:")+key;
   }
-  if(name==QLatin1String("paleo.well_facies_prediction")&&!arguments.contains("contract_version")&&
-     arguments.value("well_name").toString().isEmpty())return QObject::tr("legacy 测井相调用须给井名；生产调用须给 typed v2 引用");
+  if(name==QLatin1String("paleo.well_facies_prediction")) {
+    paleo::wellfacies::Request request;QString code;
+    return paleo::wellfacies::requestFromJson(arguments,request,&code)?QString():code;
+  }
   if (name==QLatin1String("paleo.query_project") && (arguments.value("topic").toString()==QLatin1String("version") || arguments.value("topic").toString()==QLatin1String("version_parents"))) {
     if (!arguments.value("version_id").isString() || arguments.value("version_id").toString().isEmpty())
       return QObject::tr("topic=version/version_parents 须给精确 version_id");
@@ -223,25 +225,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     "不会登记目录成果；取消不能证明远端回滚。未知提交只查询原任务，不重新发送。");
   facies.requiresLocalOrt = false;
   facies.effects = paleo::host::Read | paleo::host::PrivateStage | paleo::host::ExternalTransfer;
-  facies.parameters = {
-    {QStringLiteral("model"), QStringLiteral("string"),
-     QObject::tr("服务端模型 id（取 WellFaciesService::fetchModels 的结果）"), true},
-    {QStringLiteral("well_name"), QStringLiteral("string"),
-     QObject::tr("legacy adapter 井名"), false},
-    {QStringLiteral("contract_version"),QStringLiteral("integer"),QObject::tr("生产契约版本 2"),false},
-    {QStringLiteral("client_request_id"),QStringLiteral("string"),QObject::tr("调用方稳定幂等键"),false},
-    {QStringLiteral("endpoint_id"),QStringLiteral("string"),QObject::tr("well_facies_models 返回的端点身份；防止配置切换后使用另一模型命名空间"),false},
-    {QStringLiteral("model_version"),QStringLiteral("string"),QObject::tr("GET/models 返回的精确版本"),false},
-    {QStringLiteral("well_ref"),QStringLiteral("object"),QObject::tr("工程查询返回的精确 WellRef"),false},
-    {QStringLiteral("context"),QStringLiteral("object"),QObject::tr("FaciesAnalysis ContextKey"),false},
-    {QStringLiteral("unit_scope"),QStringLiteral("object"),QObject::tr("固定方案修订和层段；每次出现分别预测"),false},
-    {QStringLiteral("curve_ids"),QStringLiteral("object"),QObject::tr("特征名到精确 SDK 曲线编号字符串；歧义时必填"),false},
-    {QStringLiteral("lithology_track_id"),QStringLiteral("string"),QObject::tr("精确岩性道编号字符串；歧义时必填"),false},
-    {QStringLiteral("depth_from"), QStringLiteral("number"),
-     QObject::tr("起始深度"), false},
-    {QStringLiteral("depth_to"), QStringLiteral("number"),
-     QObject::tr("终止深度"), false},
-  };
+  // Input schema and validation both belong to the typed domain request.
   facies.resultSchemaJson = QStringLiteral(
     R"({"type":"object","properties":{"contract":{"const":"paleo.well-facies.result.v2"},"code":{"type":"string"},"status":{"enum":["succeeded","failed","external_unknown","result_unavailable"]},"execution":{"enum":["succeeded","failed","external_unknown","partial"]},"executionScope":{"const":"batch_summary"},"inputOperationId":{"type":"string"},"inputOperation":{"type":"object"},"inputHash":{"type":"string"},"featureSchemaHash":{"type":"string"},"segments":{"type":"array","items":{"type":"object"}},"coverage":{"type":"object"},"retryAdvice":{"type":"string"}}})");
 

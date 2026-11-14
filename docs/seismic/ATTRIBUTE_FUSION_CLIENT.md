@@ -64,7 +64,8 @@ HTTP 取消是服务的合作式请求，不等于确认服务已经停算。若
 
 ## 验证入口
 
-主工程注册 `add_paleo_test(tst_seismicattributefusion LIBS paleo_services)`。
+主工程注册 `add_paleo_test(tst_seismicattributefusion LIBS paleo_services_fusion)`；
+该静态库只依赖 Qt Core/Network，应用服务伞通过链接它保留既有 API。
 无 GIS 依赖时可单独编译同一份生产源和同一 QtTest：
 
 ```sh

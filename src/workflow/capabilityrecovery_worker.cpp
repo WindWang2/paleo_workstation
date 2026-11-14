@@ -108,11 +108,11 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
   const bool prepared=!r.preparedManifest.isEmpty();
   if(!prepared && r.execution!=QLatin1String("queued") && !(resume && r.execution==QLatin1String("interrupted")))return reject("explicit_resume_required");
   if(h.validateFrozen){code=h.validateFrozen(r);if(!code.isEmpty())return reject(code);}
-  OperationInputValidator validator=m_frozen.value(id).inputValidator;
+  OperationInputValidator validator=m_runtimeHooks.value(id).inputValidator;
   if(!validator && h.restoreInputValidator)validator=h.restoreInputValidator(r,&code);
   if(!code.isEmpty())return reject(code);
   if(r.frozenRequest.value("inputValidationRequired").toBool() && !validator)return reject("input_validator_unavailable");
-  OperationWorker worker=m_frozen.value(id).worker;
+  OperationWorker worker=m_runtimeHooks.value(id).worker;
   const bool copySource=r.frozenRequest.value("phase").toString()==QLatin1String("publish") && !r.frozenRequest.value("sourceOperationId").toString().isEmpty();
   if(!prepared && !copySource && !worker && h.restoreWorker)worker=h.restoreWorker(r,&code);
   if(!prepared && !worker && (r.frozenRequest.value("sourceOperationId").toString().isEmpty() ||
@@ -142,8 +142,13 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
     }
     recovery_detail::release(host.projectDir,r.operationId);
     if(guard) {
-      if(result.execution=="prepared")guard->m_frozen[r.operationId].worker={};
-      else if(result.execution=="succeeded" || result.execution=="failed" || result.execution=="cancelled")guard->m_frozen.remove(r.operationId);
+      if(result.execution=="prepared") {
+        const auto hooks=guard->m_runtimeHooks.find(r.operationId);
+        if(hooks!=guard->m_runtimeHooks.end()) {
+          hooks->worker={};
+          if(!hooks->inputValidator)guard->m_runtimeHooks.erase(hooks);
+        }
+      } else if(result.execution=="succeeded" || result.execution=="failed" || result.execution=="cancelled")guard->m_runtimeHooks.remove(r.operationId);
     }
     host={};lease.reset();output.reset();r={}; // retained task rows must not retain project ownership or numerical buffers.
     if(listener && finished)finished(std::move(result));

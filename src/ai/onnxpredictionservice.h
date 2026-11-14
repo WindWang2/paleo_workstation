@@ -136,7 +136,6 @@ class PaleoOnnxService : public QObject
     OnnxTensor runTensorOnImpl(const QString &model, const QString &inputName,
                               const QVector<float> &input, const QVector<int64_t> &shape,
                               const QString &expectedSha256, QString *error);
-    QString normalizedModelPath(const QString &name) const;   // 加锁读 m_modelRoot
     static QString normalizedModelPathIn(const QString &root, const QString &name);
     // 调用方持锁：name → 模型文件绝对路径（注册表优先）；不可用 → 空串 + *reason。
     // *pinnedSha 返回注册表钉哈希（可空）。

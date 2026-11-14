@@ -23,19 +23,21 @@ bool parseShape( const QJsonValue &value, QVector<int64_t> &shape )
     return true;
   if ( !value.isArray() )
     return false;
+  QVector<int64_t> parsed;
   for ( const QJsonValue &v : value.toArray() )
   {
     if ( v.isNull() )
-      shape.append( -1 );
+      parsed.append( -1 );
     else {
       if ( !v.isDouble() )
         return false;
       const qint64 dimension = v.toInteger();
       if ( v != QJsonValue( dimension ) )
         return false; // Fractional and out-of-range numbers must not be truncated/cast.
-      shape.append( dimension );
+      parsed.append( dimension );
     }
   }
+  shape.swap( parsed );
   return true;
 }
 

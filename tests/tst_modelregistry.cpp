@@ -240,6 +240,7 @@ void TestModelRegistry::invalidShapeDimensions()
   const auto scan=ModelRegistry::scan(dir.path());QCOMPARE(scan.entries.size(),1);
   QCOMPARE(scan.entries.first().status,ModelRegistryEntry::Status::ManifestInvalid);
   QCOMPARE(scan.entries.first().detail,QString("model_input_shape_invalid"));
+  QVERIFY(scan.entries.first().inputShape.isEmpty());
   QVERIFY(scan.entries.first().sha256Actual.isEmpty());QVERIFY(!scan.anyRunnable());
 }
 

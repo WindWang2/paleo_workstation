@@ -150,6 +150,7 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
       if(listener && finished)finished(std::move(result));if(task)task->finishExternal(code);
     });return created;
   };
+  if(r.cancelRequested && r.commitState!="committed")return reject("cancelled");
   if(r.commitState==QLatin1String("committed") || r.execution==QLatin1String("succeeded")) {
     if(resume && r.commitState==QLatin1String("committed"))r=presentCommitted(h,r);
     if(!guard)return reject("document_unavailable");
@@ -161,7 +162,6 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
   if(!code.isEmpty())return reject(code);
   if(r.commitState==QLatin1String("publishing"))return reject("commit_uncertain");
   if(r.execution==QLatin1String("external_unknown"))return reject("external_reconciliation_required");
-  if(r.cancelRequested)return reject("cancelled");
   if(r.frozenRequest.value("phase").toString()==QLatin1String("prepare")) {
     r.execution="prepared";r.code="prepared";
     if(recovery_detail::store(log,r)!=QLatin1String("ok"))return reject("persist_failed");

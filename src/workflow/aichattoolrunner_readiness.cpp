@@ -6,6 +6,7 @@
 #include "ai/onnxpredictionservice.h"
 #include "catalog/datacatalog.h"
 #include "tileoperationservice.h"
+#include "services/pythonanalysiscapabilityspec.h"
 #include <QThread>
 
 bool AiChatToolRunner::externalTransferConfigured() const {
@@ -25,11 +26,15 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpec(const AiToolS
   if(spec.name.isEmpty())return fail("tool_not_found");
   if(spec.exposure==CapabilityExposure::Internal || spec.exposure==CapabilityExposure::Unavailable)
     return fail("tool_not_exposed");
+  const bool python=name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool);
+  if(name==QLatin1String("paleo.python_environment")) {
+    if(!m_taskService)return fail("task_service_unavailable");result.ready=true;return result;
+  }
 #if !PALEO_HAVE_ORT
   if(spec.requiresLocalOrt)return fail("ort_unavailable");
 #endif
   // Explicitly injected legacy adapters remain available to existing internal callers.
-  if(!m_context.requireCapabilityHost) {result.ready=true;return result;}
+  if(!m_context.requireCapabilityHost && !python) {result.ready=true;return result;}
   if(spec.legacyAdapter)return fail("legacy_tool_requires_versioned_adapter");
   if(name==QLatin1String("paleo.read_result")) {result.ready=true;return result;}
   if(name==QLatin1String("paleo.python_environment") && !m_taskService)return fail("task_service_unavailable");
@@ -102,6 +107,8 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpec(const AiToolS
     if(!m_context.tileOperations)return fail("tile_provider_unavailable");
     const auto code=m_context.tileOperations->readiness(args,listing);if(!code.isEmpty())return fail(code);
   }
+  if(python && (!m_taskService || !m_context.pythonRuntime || !m_context.runtimeReadiness))
+    return fail("python_analysis_provider_unavailable");
   result.ready=true;return result;
 }
 QVector<AiToolSpec> AiChatToolRunner::availableTools() const {

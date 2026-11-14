@@ -96,13 +96,16 @@ void AiChatToolRunner::setFaciesConfig(const WellFaciesConfig &config) {
 }
 
 void AiChatToolRunner::setContext(const Context &context) {
+  const bool replaceSourceResolver=bool(context.sourceResolver)||bool(m_context.sourceResolver);
   const bool changed = context.catalog != m_context.catalog || context.documentId != m_context.documentId ||
       context.projectDir != m_context.projectDir || context.documentEpoch != m_context.documentEpoch ||
+      bool(context.sourceResolver)!=bool(m_context.sourceResolver) ||
       context.capabilityHost != m_context.capabilityHost || context.requireCapabilityHost != m_context.requireCapabilityHost;
   if (changed)
     invalidateContext();
   m_context = context;
   if (changed) rebindQueryScope();
+  else if(replaceSourceResolver)m_query->setSourceResolver(m_context.sourceResolver);
 }
 
 void AiChatToolRunner::setTaskService(PaleoTaskService *service) {
@@ -124,6 +127,7 @@ quint64 AiChatToolRunner::taskSession() const {
   return m_taskService ? m_taskService->session() : 0;
 }
 void AiChatToolRunner::rebindQueryScope() {
+  m_query->setSourceResolver(m_context.sourceResolver);
   m_query->bind(m_context.catalog, {m_context.documentId, m_context.documentEpoch, m_contextGeneration, m_querySessionId});
 }
 

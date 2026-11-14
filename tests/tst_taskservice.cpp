@@ -20,6 +20,27 @@ class TestTaskService : public QObject
   Q_OBJECT
 private slots:
 
+  void synchronousTaskAddedDeletionDoesNotStartAWorker_data() {
+    QTest::addColumn<int>("mode");QTest::addColumn<bool>("deleteService");
+    for(int mode=0;mode<3;++mode)for(bool service:{false,true})
+      QTest::newRow(qPrintable(QString::number(mode)+(service?"-service":"-task")))<<mode<<service;
+  }
+  void synchronousTaskAddedDeletionDoesNotStartAWorker() {
+    QFETCH(int,mode);QFETCH(bool,deleteService);PaleoProjectStore store;
+    auto *service=new PaleoTaskService(&store);QPointer<PaleoTaskService> alive(service);
+    std::atomic_bool ran=false;
+    connect(service,&PaleoTaskService::taskAdded,this,[&](PaleoTask *task) {
+      if(deleteService){delete service;service=nullptr;}else delete task;
+    });
+    auto worker=[&](PaleoTask*){ran=true;return QString();};PaleoTask *task=nullptr;
+    if(mode==0)task=service->start("Deleted before dispatch",worker,"layer");
+    else if(mode==1)task=service->start("Deleted before dispatch",worker,"layer",PaleoTask::Priority::Normal);
+    else task=service->beginExternal("Deleted before dispatch","layer");
+    QVERIFY(!task);QVERIFY(!ran);QVERIFY(!store.layerBusy("layer"));
+    if(alive){QVERIFY(alive->tasks().isEmpty());QCOMPARE(alive->runningCount(),0);}
+    delete service;
+  }
+
   void runsOnWorkerAndReportsProgress()
   {
     PaleoProjectStore store;

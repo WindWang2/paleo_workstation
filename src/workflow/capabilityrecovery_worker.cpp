@@ -125,7 +125,7 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
 }
 
 PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObject *subscriber,const QString &title,
-    std::function<void(ExecuteResult)> finished,bool resume,QString *error) {
+    std::function<void(ExecuteResult)> finished,bool resume,QString *error,bool quiet) {
   const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
   if(QThread::currentThread()!=thread())return reject("owner_thread_required");
   if(subscriber && subscriber->thread()!=thread())return reject("subscriber_thread_mismatch");
@@ -138,7 +138,7 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
   if(!m_tasks || !subscriber)return reject("task_service_unavailable");
   const auto tasks=m_tasks;
   const auto knownResult=[&](const OperationLog::Record &record)->PaleoTask* {
-    auto *created=tasks->beginExternal(title);const QPointer<PaleoTask> task(created);
+    auto *created=tasks->beginExternal(title,{},quiet);const QPointer<PaleoTask> task(created);
     if(!guard){if(task)task->finishExternal("document_unavailable");return created;}
     QObject::connect(guard.data(),&QObject::destroyed,created,[task]{if(task)task->finishExternal("document_unavailable");},Qt::SingleShotConnection);
     QTimer::singleShot(0,guard.data(),[guard,listener,task,record,expected=h.context,finished=std::move(finished)] {
@@ -199,7 +199,7 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
     QObject::connect(task,&PaleoTask::cancelAsked,task,cancel,Qt::DirectConnection);
     if(task->cancelRequested())cancel();
     *output=recovery_detail::run(h,r,worker,validator,attempt,checkpoint);return output->ok?QString():output->code;
-  });
+  },QString(),quiet);
   const QPointer<PaleoTask> task(created);
   QObject::connect(created,&PaleoTask::finished,created,[guard,root=h.projectDir,id]{
     if(!guard)recovery_detail::release(root,id);

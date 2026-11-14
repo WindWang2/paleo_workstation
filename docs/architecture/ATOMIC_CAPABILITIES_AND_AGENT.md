@@ -54,8 +54,9 @@ DerivedAssetRegistrar 和文档会话。AtomicJob 目前是同步胶合助手，
 宿主可以继续用 Qt DTO，SDK 公共 ABI 仍为标准 C++ 值类型，序列化只发生在工具/进程边界。
 原子能力迁移本阶段不引入额外 HTTP 服务、通用脚本执行器或第二套任务调度系统。
 后续可选进程外 Python 能力按[受控 Python 实施计划](../planning/CONTROLLED_PYTHON_AGENT_PLAN.md)
-分批推进，复用本页操作/成果链路；PY0 仅交付可选环境核验与只读状态查询，
-不扩大计算 callable 范围，Shell 后置。实现与验证见[PY0 记录](../progress/controlled-python-py0-20261114.md)。
+分批推进，复用本页操作/成果链路。PY0 提供环境核验和状态查询，PY1 接入持久操作，
+PY2 新增两项有界可信分析，见[PY2 记录](../progress/controlled-python-py2-20261114.md)。
+生成代码继续受后续平台隔离与准入批次约束，Shell 后置。
 
 ## 3. 单一能力目录
 

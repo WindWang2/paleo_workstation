@@ -2,6 +2,8 @@
 // services/capabilityspec.cpp — 见 capabilityspec.h。算法参数仍只读 AlgorithmSpec。
 #include "capabilityspec.h"
 #include "pythoncapabilityspec.h"
+#include "pythonanalysiscapabilityspec.h"
+#include "pythonanalysis.h"
 
 namespace {
 
@@ -60,6 +62,8 @@ const QVector<CapabilitySpec> &table() {
            {}, {QStringLiteral("global")}),
       wellFaciesAdapter(),
       paleo::python::summaryCapabilitySpec(),
+      paleo::python::analysisCapabilitySpec(paleo::python::AnalysisKind::WellQuality),
+      paleo::python::analysisCapabilitySpec(paleo::python::AnalysisKind::AttributeCorrelation),
   };
   return specs;
 }

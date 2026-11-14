@@ -55,9 +55,12 @@ private slots:
     const auto spec=CapabilityRegistry::spec(QLatin1String(python::SummaryCapability),1);
     QCOMPARE(spec.exposure,CapabilityExposure::Internal);QVERIFY(spec.executionEffects&host::LocalExecute);
     QVERIFY(!CapabilityRegistry::callableIds().contains(spec.capabilityId));
+    QTemporaryDir project;Host storage;QVERIFY(storage.open(project.path()));
     CapabilityHost host;host.setCallerScope(host::Caller::Batch,"batch");
-    host.setBindingProvider([] {
+    host.setBindingProvider([&] {
       HostBinding binding;binding.context.documentId="doc";binding.context.open=true;binding.context.persistentIdentity=true;
+      binding.projectDir=project.path();binding.operationDir=project.path()+"/.paleo/capability-ops";
+      binding.catalog=&storage.catalog;binding.writeClaim=storage.lock->claim();
       binding.context.readOnly=false;binding.context.ownsWrites=true;binding.context.allowedEffects=127;return binding;
     });
     ExecuteRequest request;request.capabilityId=spec.capabilityId;request.clientRequestId="internal";request.publishIntent="compute-only";

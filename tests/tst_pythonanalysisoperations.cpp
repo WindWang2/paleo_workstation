@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
+#include <QFutureWatcher>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTemporaryDir>
@@ -23,11 +24,18 @@
 using namespace paleo;
 using namespace paleo::capability;
 namespace {
-QString templateRoot() {return QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES);}
+QString templateRoot() {
+  return qEnvironmentVariable("PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES",QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES));
+}
 python::ExecutionPolicy allowedPolicy() {python::ExecutionPolicy out;out.allowTrusted=true;return out;}
 std::shared_ptr<python::RuntimeProvider> runtime(const python::ExecutionPolicy &policy=allowedPolicy()) {
   return std::make_shared<python::RuntimeProvider>(python::RuntimeConfig{
     qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT"),qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),true},policy);
+}
+template<class T> T completed(QFuture<T> future) {
+  QFutureWatcher<T> watcher;QEventLoop loop;
+  QObject::connect(&watcher,&QFutureWatcherBase::finished,&loop,&QEventLoop::quit);
+  watcher.setFuture(future);if(!watcher.isFinished())loop.exec();return watcher.result();
 }
 struct Fixture {
   QTemporaryDir temporary;
@@ -193,7 +201,7 @@ private slots:
     const auto name=python::analysisKindId(f.plan.kind)+".py";QVERIFY(QFile::copy(templateRoot()+'/'+name,scripts.path()+'/'+name));f.configure(provider,scripts.path());
     ExecuteRequest request=f.request("restore");request.projectDir=f.project;request.callerScope="agent:test";
     QString error;auto preparation=f.adapter.capture(request,{{"id","restore"}},&error);QVERIFY2(preparation.worker,qPrintable(error));
-    auto future=QtConcurrent::run([&]{return preparation.worker({},&error);});future.waitForFinished();const auto frozen=future.result();QVERIFY2(error.isEmpty(),qPrintable(error));
+    const auto frozen=completed(QtConcurrent::run([&]{return preparation.worker({},&error);}));QVERIFY2(error.isEmpty(),qPrintable(error));
     QVERIFY(preparation.validate().isEmpty());const auto accepted=f.host->recovery()->accept(frozen);QVERIFY2(accepted.ok,qPrintable(accepted.code));
     QVERIFY(QFile::remove(scripts.path()+'/'+name));std::string detail;
     QVERIFY(f.sdk.updateCurveValue(f.plan.curves.first().curveId,100,9999,detail));
@@ -227,7 +235,7 @@ private slots:
     if(!available())return;Fixture f;QVERIFY(f.open());f.configure(provider);
     ExecuteRequest request=f.request("tamper");request.projectDir=f.project;request.callerScope="agent:test";QString error;
     auto preparation=f.adapter.capture(request,{},&error);QVERIFY(preparation.worker);
-    auto future=QtConcurrent::run([&]{return preparation.worker({},&error);});future.waitForFinished();const auto frozen=future.result();QVERIFY(error.isEmpty());
+    const auto frozen=completed(QtConcurrent::run([&]{return preparation.worker({},&error);}));QVERIFY(error.isEmpty());
     const auto accepted=f.host->recovery()->accept(frozen);QVERIFY2(accepted.ok,qPrintable(accepted.code));
     const auto bundle=python::verifyInputBundle(f.project,frozen.frozenPlan.value("storedInput").toObject(),provider->policy());QVERIFY(bundle.ok());
     QFile changed(bundle.root+"/data.bin");QVERIFY(changed.open(QIODevice::ReadWrite));QCOMPARE(changed.write("!"),1);changed.close();

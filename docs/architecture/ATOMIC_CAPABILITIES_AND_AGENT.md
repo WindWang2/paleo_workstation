@@ -162,6 +162,9 @@ JobRunner 的会话世代用于丢弃过期 UI 回包；持久操作由文档协
 聊天而删除提交事实。已提交操作继续恢复；尚未提交、只属于旧会话的工作按明确所有权取消。
 QGIS/SQL 句柄维持所属线程；owner 回调不承担整文件 hash、全库扫描或大数组序列化。
 
+操作结果分页通过[完整性与成本契约](OPERATION_RESULT_READ_INTEGRITY.md)保留整 SHA
+锚定的返回范围认证，续页只认证涉及块，索引预算、宿主失效和持久 GC 引用保持有界。
+
 错误使用可机器处理的 code、detailsRef、retryability、requiredInputs、operationId、
 commitReceipt。StaleRevision/Conflict 不能通过自动改成最新头后悄悄重试；BudgetExceeded
 可提出更小批次或显式近似方案，但不得静默降低精度或换分层/时深。

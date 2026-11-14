@@ -5,9 +5,14 @@
 #include "catalog/datacatalog.h"
 #include "metadata/projectlock.h"
 #include "services/paleotaskservice.h"
+#include "services/operationretention.h"
+#include "workflow/assetops.h"
+#include <QDateTime>
 #include <QFile>
 #include <QProcess>
 #include <QSemaphore>
+#include <QScopeGuard>
+#include <QThread>
 #include <QTemporaryDir>
 #include <cstdlib>
 using namespace paleo;
@@ -28,7 +33,7 @@ FrozenOperation plan(const QString &request="req") {
 }
 struct Host {
   DataCatalog catalog;std::unique_ptr<ProjectDirLock> lock;PaleoTaskService tasks;CapabilityRecovery recovery;
-  bool writable=true,allowExternal=false,presentationFails=false,retainClaimReadOnly=false;quint64 epoch=1;
+  bool writable=true,allowExternal=false,presentationFails=false,retainClaimReadOnly=false,allowRead=true;quint64 epoch=1;
   QString slotState="initial";int presentationCalls=0;
   QString ownerError;
   QString documentId="doc";
@@ -39,6 +44,7 @@ struct Host {
       h.writeClaim=writable || retainClaimReadOnly?lock->claim():nullptr;h.context.documentId=documentId;h.context.epoch=epoch;h.context.open=true;
       h.context.persistentIdentity=true;h.context.readOnly=!writable;h.context.ownsWrites=bool(h.writeClaim);
       h.context.allowedEffects=host::Read|host::PrivateStage|host::CatalogPublish|host::Presentation;
+      if(!allowRead)h.context.allowedEffects&=~host::Read;
       if(allowExternal)h.context.allowedEffects|=host::ExternalTransfer;
       h.restoreWorker=[](const OperationLog::Record&,QString*){return worker();};
       h.validateFrozen=[this](const OperationLog::Record&){return ownerError;};
@@ -143,6 +149,111 @@ private slots:
     QCOMPARE(page.value("contract").toString(),QString("paleo.operation.v2"));
     QCOMPARE(page.value("nextOffset").toString(),QString("4"));QVERIFY(page.value("hasMore").toBool());
     QVERIFY(!h.recovery.read("agent:chat2",a.record.operationId,"OUTPUT",0,4,this,{},&error));QCOMPARE(error,QString("operation_not_found"));
+  }
+  void authenticatedPagesRejectTamperingAndRemainProtectedFromGc() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));auto p=plan("authenticated-pages");
+    p.worker=[](const OperationWorkContext &c){
+      OperationWorkResult out;if(c.targets.isEmpty())return out;
+      QFile file(c.targets.first().staging.absolutePath);const QByteArray bytes(2*64*1024+17,'a');
+      out.ok=file.open(QIODevice::WriteOnly) && file.write(bytes)==bytes.size();file.close();
+      out.outputs.ok=out.ok;out.outputs.artifacts.append({"OUTPUT",file.fileName(),{},{},{},{}});return out;
+    };
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);bool done=false;QString error;ExecuteResult result;
+    QVERIFY(h.recovery.start(p.callerScope,accepted.record.operationId,this,"compute",
+      [&](ExecuteResult r){result=r;done=true;},false,&error));QTRY_VERIFY(done);QVERIFY(result.ok);
+    QJsonObject page;const auto read=[&](qint64 offset){done=false;return h.recovery.read(p.callerScope,
+      accepted.record.operationId,"OUTPUT",offset,8,this,[&](QJsonObject r){page=r;done=true;},&error);};
+    QVERIFY(read(0));QTRY_VERIFY(done);QVERIFY(page.value("ok").toBool());
+    QCOMPARE(QByteArray::fromBase64(page.value("data").toString().toLatin1()),QByteArray(8,'a'));
+    QCOMPARE(page.value("integrity").toObject().value("scope").toString(),QString("returned_bytes"));
+    const auto version=h.catalog.versions().first();const auto path=root.path()+'/'+version.path;
+    OperationLog log(root.path()+"/.paleo/capability-ops");
+    QCOMPARE(log.recordById(accepted.record.operationId).artifactManifest.value("ports").toArray().first()
+      .toObject().value("path").toString(),version.path);
+    QCOMPARE(page.value("integrity").toObject().value("artifactSha256").toString(),version.sha256);
+    const auto retention=storage::operationRetention(root.path());QVERIFY2(retention.complete,qPrintable(retention.code));
+    QVERIFY(retention.protectsPath(path));
+    const auto purge=assetops::purgeManagedFiles(root.path(),{path},{});
+    QCOMPARE(purge.bytesFreed,qint64(0));QVERIFY(QFileInfo::exists(path));
+    const auto modified=QFileInfo(path).lastModified();QFile file(path);
+    QVERIFY(file.setPermissions(QFile::ReadOwner|QFile::WriteOwner));QVERIFY(file.open(QIODevice::ReadWrite));
+    QVERIFY(file.seek(64*1024+3));QCOMPARE(file.write("b"),qint64(1));QVERIFY(file.flush());
+    QVERIFY(file.setFileTime(modified,QFileDevice::FileModificationTime));file.close();
+    QVERIFY(read(0));QTRY_VERIFY(done);QVERIFY(page.value("ok").toBool()); // Only this returned range is authenticated.
+    QVERIFY(read(64*1024));QTRY_VERIFY(done);QVERIFY(!page.value("ok").toBool());
+    QCOMPARE(page.value("code").toString(),QString("artifact_changed"));QVERIFY(!page.contains("data"));
+    h.allowRead=false;QVERIFY(!read(0));QCOMPARE(error,QString("effect_denied"));
+  }
+  void resultReadRechecksItsHostBeforeDelivering_data() {
+    QTest::addColumn<QString>("change");
+    QTest::newRow("epoch")<<QString("epoch");QTest::newRow("document")<<QString("document");
+    QTest::newRow("explicit-invalidation")<<QString("invalidate");
+    QTest::newRow("task-added-invalidation")<<QString("added-invalidate");
+  }
+  void resultReadRechecksItsHostBeforeDelivering() {
+    QFETCH(QString,change);QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto p=plan();
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);bool done=false;QString error;
+    QVERIFY(h.recovery.start(p.callerScope,accepted.record.operationId,this,"compute",
+      [&](ExecuteResult r){QVERIFY(r.ok);done=true;},false,&error));QTRY_VERIFY(done);
+    QJsonObject page;done=false;
+    if(change=="added-invalidate")QObject::connect(&h.tasks,&PaleoTaskService::taskAdded,&h.recovery,
+      [&](PaleoTask*){h.recovery.invalidateRuntimeHooks();},Qt::SingleShotConnection);
+    QVERIFY(h.recovery.read(p.callerScope,accepted.record.operationId,"OUTPUT",0,8,this,
+      [&](QJsonObject r){page=r;done=true;},&error));
+    if(change=="epoch")++h.epoch;
+    else if(change=="document")h.documentId="different-document";
+    else if(change=="invalidate")h.recovery.invalidateRuntimeHooks();
+    QTRY_VERIFY(done);QVERIFY(!page.value("ok").toBool());QVERIFY(!page.contains("data"));
+    QCOMPARE(page.value("code").toString(),QString("stale_session"));
+  }
+  void cancelledResultReadNeverDeliversBytes() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto p=plan();
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);bool done=false;QString error;
+    QVERIFY(h.recovery.start(p.callerScope,accepted.record.operationId,this,"compute",
+      [&](ExecuteResult r){QVERIFY(r.ok);done=true;},false,&error));QTRY_VERIFY(done);
+    QJsonObject page;done=false;
+    auto *task=h.recovery.read(p.callerScope,accepted.record.operationId,"OUTPUT",0,8,this,
+      [&](QJsonObject r){page=r;done=true;},&error);QVERIFY(task);task->requestCancel();
+    QTRY_VERIFY(done);QCOMPARE(page.value("code").toString(),QString("cancelled"));QVERIFY(!page.contains("data"));
+  }
+  void deletedResultSubscriberReceivesNoCallback() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto p=plan();
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);bool done=false;QString error;
+    QVERIFY(h.recovery.start(p.callerScope,accepted.record.operationId,this,"compute",
+      [&](ExecuteResult r){QVERIFY(r.ok);done=true;},false,&error));QTRY_VERIFY(done);
+    auto *listener=new QObject;bool delivered=false;
+    auto *task=h.recovery.read(p.callerScope,accepted.record.operationId,"OUTPUT",0,8,listener,
+      [&](QJsonObject){delivered=true;},&error);QVERIFY(task);
+    QSignalSpy completion(task,&PaleoTask::finished);delete listener;
+    QTRY_COMPARE(completion.count(),1);QVERIFY(!delivered);
+  }
+  void resultSubscriberCanCloseDuringTaskCreation() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto p=plan();
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);bool done=false;QString error;
+    QVERIFY(h.recovery.start(p.callerScope,accepted.record.operationId,this,"compute",
+      [&](ExecuteResult r){QVERIFY(r.ok);done=true;},false,&error));QTRY_VERIFY(done);
+    auto *listener=new QObject;bool delivered=false;
+    QObject::connect(&h.tasks,&PaleoTaskService::taskAdded,&h.recovery,
+      [&](PaleoTask*){delete listener;listener=nullptr;},Qt::SingleShotConnection);
+    auto *task=h.recovery.read(p.callerScope,accepted.record.operationId,"OUTPUT",0,8,listener,
+      [&](QJsonObject){delivered=true;},&error);QVERIFY(task);QVERIFY(!listener);
+    QSignalSpy completion(task,&PaleoTask::finished);
+    QTRY_COMPARE(completion.count(),1);QVERIFY(!delivered);QVERIFY(task->cancelRequested());
+  }
+  void resultReadChecksAndDeliversOnTheOwnerThread() {
+    QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto p=plan();
+    const auto accepted=h.recovery.accept(p);QVERIFY(accepted.ok);bool done=false;QString error;
+    QVERIFY(h.recovery.start(p.callerScope,accepted.record.operationId,this,"compute",
+      [&](ExecuteResult r){QVERIFY(r.ok);done=true;},false,&error));QTRY_VERIFY(done);
+    QThread other;QObject listener;listener.moveToThread(&other);other.start();
+    const auto cleanup=qScopeGuard([&]{
+      QMetaObject::invokeMethod(&listener,[&]{listener.moveToThread(QCoreApplication::instance()->thread());},
+        Qt::BlockingQueuedConnection);other.quit();other.wait();
+    });
+    QJsonObject page;QThread *deliveryThread=nullptr;done=false;
+    QVERIFY(h.recovery.read(p.callerScope,accepted.record.operationId,"OUTPUT",0,8,&listener,
+      [&](QJsonObject r){page=r;deliveryThread=QThread::currentThread();done=true;},&error));
+    QTRY_VERIFY(done);QVERIFY(page.value("ok").toBool());QCOMPARE(deliveryThread,h.recovery.thread());
   }
   void durableReservationLeavesCatalogUnchangedAndPreservesHeadCas() {
     QTemporaryDir root;Host h;QVERIFY(h.open(root.path()));const auto initial=h.catalog.mutationSeq();

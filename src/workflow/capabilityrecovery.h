@@ -10,6 +10,7 @@
 
 class PaleoTask;
 class PaleoTaskService;
+namespace paleo::artifacts { class AuthenticatedArtifactReader; }
 
 namespace paleo::capability {
 inline constexpr char OperationContract[] = "paleo.operation.v2";
@@ -70,6 +71,7 @@ public:
   struct Accepted { bool ok = false; QString code; OperationLog::Record record; };
   using HostProvider = std::function<RecoveryHost()>;
   explicit CapabilityRecovery(QObject *parent = nullptr);
+  ~CapabilityRecovery() override;
   void setHostProvider(HostProvider provider);
   void invalidateRuntimeHooks();
   void setTaskService(PaleoTaskService *tasks);
@@ -90,6 +92,7 @@ public:
                    const QString &title, std::function<void(ExecuteResult)> finished,
                    bool resume, QString *error = nullptr);
   QJsonObject results(const QString &callerScope, const QString &operationId);
+  // Completion is checked/delivered on the recovery owner thread; subscriber bounds its lifetime.
   PaleoTask *read(const QString &callerScope, const QString &operationId, const QString &portId,
                   qint64 offset, int maxBytes, QObject *subscriber,
                   std::function<void(QJsonObject)> finished, QString *error = nullptr);
@@ -114,5 +117,6 @@ private:
   QHash<QString, std::shared_ptr<void>> m_externalActive;
   QHash<QString, RecoveryHost> m_externalHosts;
   std::function<void(const QString &)> m_checkpoint;
+  std::shared_ptr<artifacts::AuthenticatedArtifactReader> m_resultReader;
 };
 } // namespace paleo::capability

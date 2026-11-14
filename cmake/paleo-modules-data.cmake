@@ -213,6 +213,10 @@ add_library(paleo_services_hostcontext STATIC src/services/hostcallcontext.cpp)
 target_include_directories(paleo_services_hostcontext PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(paleo_services_hostcontext PUBLIC Qt6::Core)
 
+add_library(paleo_services_artifactreader STATIC src/services/authenticatedartifactreader.cpp)
+target_include_directories(paleo_services_artifactreader PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paleo_services_artifactreader PUBLIC Qt6::Core)
+
 add_library(paleo_services STATIC
   src/services/documentsourceprobe.cpp
   src/services/documentrelationresolver.cpp
@@ -262,4 +266,4 @@ add_library(paleo_services STATIC
   src/services/imagelod.cpp                         # 方向79：图片道装载 LOD（缩略两级 + EXIF + 原图 LRU）
   src/services/evidenceindex.cpp                    # G08/G12：证据反向索引（可重建检索结构，非第二事实源）
 )
-target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms paleo_services_hostcontext)
+target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms paleo_services_hostcontext paleo_services_artifactreader)

@@ -94,10 +94,11 @@ InputBundle verifyInputBundle(const QString &project,const QJsonObject &referenc
   if(bytes.size()>64*1024 || file.size()!=bytes.size() || digest(bytes)!=sha)return fail("python_input_changed");
   const auto document=QJsonDocument::fromJson(bytes);if(!document.isObject())return fail("python_input_manifest_invalid");
   out.manifest=document.object();const auto code=verifyFiles(out.root,out.manifest,policy,cancelled);
+  if(!code.isEmpty())return fail(code);
   qint64 stagedBytes=bytes.size();
   for(const auto &entry:out.manifest.value("files").toArray())stagedBytes+=qint64(entry.toObject().value("size").toDouble());
-  if(code.isEmpty() && stagedBytes>policy.diskBytes)return fail("python_input_disk_budget_exceeded");
-  return fail(code.isEmpty()?QStringLiteral("ok"):code);
+  if(stagedBytes>policy.diskBytes)return fail("python_input_disk_budget_exceeded");
+  return fail(QStringLiteral("ok"));
 }
 InputBundle freezeInputBundle(const QString &project,const QMap<QString,QByteArray> &files,const QJsonObject &metadata,
                               const ExecutionPolicy &policy,const std::function<bool()> &cancelled) {

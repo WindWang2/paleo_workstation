@@ -594,7 +594,14 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_DEBUG_PLUGINS: "1"
-          # 无缓冲的 QgisRuntime::initialize 分步痕迹，挂死时能看到停在哪一步。
+          # Windows 上 Qt 默认消息处理器在无控制台（GetConsoleWindow()==NULL，
+          # ctest 子进程即如此）时改走 OutputDebugString——run 43207555877 设了
+          # QT_DEBUG_PLUGINS 却一行插件加载日志都没有（连构造期 offscreen QPA
+          # 插件都没打）。强制写 stderr，插件/QLibrary 加载序才进 job 日志。
+          QT_FORCE_STDERR_LOGGING: "1"
+          # 无缓冲的 QgisRuntime::initialize 分步痕迹，挂死时能看到停在哪一步；
+          # 同时启用 Windows 看门狗（src/qgis/qgisinitwatchdog.cpp）：某步停留
+          # ≥30 s 起每 60 s 打一次全线程调用栈与该步新载入的 DLL。
           PALEO_QGIS_INIT_TRACE: "1"
           # run 41103414173 两处挂点都进探针：shard3 tst_runtime、shard1
           # tst_basemap_project（后者只读本地 mbtiles 夹具、不走网络——挂死不是

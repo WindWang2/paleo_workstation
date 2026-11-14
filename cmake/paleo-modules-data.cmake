@@ -115,6 +115,7 @@ add_library(paleo_qgis STATIC
   src/qgis/seismicwellcalibration.cpp
   src/qgis/factorwellcoordinates.cpp
   src/qgis/qgisruntime.cpp
+  src/qgis/qgisinitwatchdog.cpp                      # #872：Windows 初始化分步看门狗（仅 PALEO_QGIS_INIT_TRACE）
   src/qgis/qgisprojectservice.cpp
   src/qgis/qgisprojectservice_async.cpp
   src/qgis/qgisprojectservice_map.cpp
@@ -159,6 +160,10 @@ add_library(paleo_qgis STATIC
   src/qgis/geostatrasterio.cpp                      # algo-atom P2：geostat 适配器 CRS 句柄 + Float32 写口
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io paleo_services) # #483 qgislayerservice→ErrorHub
+if(WIN32)
+  # #872 看门狗：EnumProcessModules/GetModuleInformation（PSAPI_VERSION=1 时不在 kernel32）。
+  target_link_libraries(paleo_qgis PRIVATE psapi)
+endif()
 
 # QGIS 4.2.2 original attribute table dialog, embedded with a small app host.
 # App-only source is vendored because libqgis_app requires a QgisApp singleton.

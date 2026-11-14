@@ -29,6 +29,10 @@ private slots:
     auto unsafe=files;unsafe.insert("../escape","bad");QVERIFY(!freezeInputBundle(project.path(),unsafe,{},policy).ok());
     unsafe=files;unsafe.insert("aux.txt","bad");QCOMPARE(freezeInputBundle(project.path(),unsafe,{},policy).code,QString("python_input_path_unsafe"));
     policy.codeBytes=1;QCOMPARE(freezeInputBundle(project.path(),files,{},policy).code,QString("python_input_budget_exceeded"));
+    policy={};policy.inputBytes=4;auto combined=files;combined.insert("data.bin","123");
+    QCOMPARE(freezeInputBundle(project.path(),combined,{},policy).code,QString("python_input_budget_exceeded"));
+    policy={};policy.diskBytes=8;
+    QCOMPARE(freezeInputBundle(project.path(),files,{},policy).code,QString("python_input_disk_budget_exceeded"));
     policy={};QCOMPARE(freezeInputBundle(project.path(),files,{},policy,[]{return true;}).code,QString("cancelled"));
     QVERIFY(freezeInputBundle(project.path(),files,{},policy).ok());
   }

@@ -48,13 +48,17 @@ QString verifyFiles(const QString &root,const QJsonObject &manifest,const Execut
   if(manifest.value("schema")!="paleo.python-inputs.v1" || !manifest.value("files").isArray() ||
       !manifest.value("metadata").isObject())return "python_input_manifest_invalid";
   const auto files=manifest.value("files").toArray();if(files.size()<2 || files.size()>16)return "python_input_manifest_invalid";
-  QSet<QString> names;qint64 total=0;
+  QSet<QString> names;qint64 total=0,inputTotal=0;
   for(const auto &item:files) {
     if(cancelled && cancelled())return "cancelled";
     const auto row=item.toObject();const auto name=row.value("path").toString();
     const auto number=row.value("size").toDouble(-1);const auto maximum=name=="code.py"?policy.codeBytes:policy.inputBytes;
     if(!nameAllowed(name) || names.contains(name) || !std::isfinite(number) || number<0 || number>maximum || number!=std::floor(number))return "python_input_manifest_invalid";
     const auto size=qint64(number);if(total>policy.inputBytes+policy.codeBytes-size)return "python_input_budget_exceeded";
+    if(name!="code.py") {
+      if(inputTotal>policy.inputBytes-size)return "python_input_budget_exceeded";
+      inputTotal+=size;
+    }
     total+=size;names.insert(name);QFile file(QDir(root).filePath(name));
     if(!regular(QFileInfo(file)) || !file.open(QIODevice::ReadOnly) || file.size()!=size)return "python_input_changed";
     QCryptographicHash hash(QCryptographicHash::Sha256);qint64 remaining=size;
@@ -90,6 +94,9 @@ InputBundle verifyInputBundle(const QString &project,const QJsonObject &referenc
   if(bytes.size()>64*1024 || file.size()!=bytes.size() || digest(bytes)!=sha)return fail("python_input_changed");
   const auto document=QJsonDocument::fromJson(bytes);if(!document.isObject())return fail("python_input_manifest_invalid");
   out.manifest=document.object();const auto code=verifyFiles(out.root,out.manifest,policy,cancelled);
+  qint64 stagedBytes=bytes.size();
+  for(const auto &entry:out.manifest.value("files").toArray())stagedBytes+=qint64(entry.toObject().value("size").toDouble());
+  if(code.isEmpty() && stagedBytes>policy.diskBytes)return fail("python_input_disk_budget_exceeded");
   return fail(code.isEmpty()?QStringLiteral("ok"):code);
 }
 InputBundle freezeInputBundle(const QString &project,const QMap<QString,QByteArray> &files,const QJsonObject &metadata,
@@ -97,15 +104,20 @@ InputBundle freezeInputBundle(const QString &project,const QMap<QString,QByteArr
   InputBundle out;const auto fail=[&](const QString &code){out.code=code;return out;};
   if(!policy.validate().isEmpty())return fail("python_policy_invalid");
   if(files.size()<2 || files.size()>16 || !files.contains("code.py") || !files.contains("request.json"))return fail("python_input_manifest_invalid");
-  QJsonArray entries;qint64 total=0;
+  QJsonArray entries;qint64 total=0,inputTotal=0;
   for(auto it=files.cbegin();it!=files.cend();++it) {
     const auto maximum=it.key()=="code.py"?policy.codeBytes:policy.inputBytes;
     if(!nameAllowed(it.key()))return fail("python_input_path_unsafe");
     if(it.value().size()>maximum || total>policy.inputBytes+policy.codeBytes-it.value().size())return fail("python_input_budget_exceeded");
+    if(it.key()!="code.py") {
+      if(inputTotal>policy.inputBytes-it.value().size())return fail("python_input_budget_exceeded");
+      inputTotal+=it.value().size();
+    }
     total+=it.value().size();entries.append(QJsonObject{{"path",it.key()},{"size",double(it.value().size())},{"sha256",digest(it.value())}});
   }
   const QJsonObject manifest{{"schema","paleo.python-inputs.v1"},{"metadata",metadata},{"files",entries}};
   const auto bytes=QJsonDocument(manifest).toJson(QJsonDocument::Compact);if(bytes.size()>64*1024)return fail("python_input_manifest_invalid");
+  if(total>policy.diskBytes-bytes.size())return fail("python_input_disk_budget_exceeded");
   const auto sha=digest(bytes);const auto parent=privateRoot(project,true);if(parent.isEmpty())return fail("python_input_path_unsafe");
   out.reference={{"directory",".paleo/capability-ops/inputs/"+sha},{"manifestHash",sha}};
   if(QFileInfo::exists(parent+'/'+sha))return verifyInputBundle(project,out.reference,policy,cancelled);

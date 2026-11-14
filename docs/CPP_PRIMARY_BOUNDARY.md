@@ -24,7 +24,8 @@
   `src/ui/python/`（控制台/REPL 面板）。无内嵌解释器、无 Python C API。
 - Agent 可选环境由 `src/services/pythonruntime.*` 以宿主配置的清单 SHA 核验，
   固定探测也在子进程中执行。离线供货位于 `vendor/agent-python/`，不进默认安装，
-  不从 PATH 选择解释器；PY0 仅提供环境状态，执行入口按受控 Python 计划后续接入。
+  不从 PATH 选择解释器。PY2 通过同一 Host/任务/成果链运行已登记的可信分析模板；
+  自由代码须在 PY3 操作系统隔离验收及 PY4 准入后另行开放，Shell 后置。
 - superbuild 构建的 QGIS 保持 `WITH_BINDINGS=OFF`
   （`vendor/superbuild/CMakeLists.txt`）——PyQGIS 运行时不进依赖闭包。
 

@@ -16,6 +16,7 @@
 #include <memory>
 namespace paleo::query {class ProjectQueryCapability;}
 namespace paleo::python {class RuntimeProvider;}
+namespace paleo::document {struct SourceRef;struct SourceRecord;}
 
 // workflow/ — 聊天领域工具执行器（方向61）。
 //
@@ -79,6 +80,8 @@ public:
     // 保证（importSvc 持有、open 原地重绑，不换实例）。
     DataCatalog *catalog = nullptr;
     QString documentId; // trusted host DocumentSession binding, required by typed queries
+    // Pure data lookup owned by the same document/epoch; never accepts tool paths.
+    std::function<paleo::document::SourceRecord(const paleo::document::SourceRef &)> sourceResolver;
     QPointer<paleo::capability::CapabilityHost> capabilityHost;
     bool requireCapabilityHost = false;
     QPointer<PaleoOnnxService> onnx;

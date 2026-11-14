@@ -16,7 +16,7 @@ struct TraversalEntry {
 };
 struct QueryState {
   QString kind, topic, queryDigest, queryId, modelToken, after, target, assetId;
-  quint64 revision = 0, mutation = 0;
+  quint64 revision = 0, mutation = 0,bindingEpoch=0;
   Scope scope;
   QSet<QString> candidates;
   QString wellAfter, modelEntityAfter;
@@ -41,6 +41,8 @@ struct ProjectQueryCapability::Impl {
   QueryPolicy policy;
   QPointer<DataCatalog> catalog;
   Scope scope;
+  ProjectQueryCapability::SourceResolver sourceResolver;
+  quint64 bindingEpoch=0;
   QHash<QString, QuerySlot> cursors;
   qint64 cachedBytes = 0;
   QString sessionId;
@@ -50,6 +52,7 @@ struct ProjectQueryCapability::Impl {
   QJsonObject page(QueryState &state, const QJsonObject &args, int rows, int bytes, bool &more);
   QJsonObject listPage(QueryState &state, const QJsonObject &args, int rows, int bytes, bool &more);
   QJsonObject wellDetails(QueryState &state, const QJsonObject &args, int rows, int bytes, bool &more);
+  QJsonObject wellCurves(QueryState &state,const QJsonObject &args,int rows,int bytes,bool &more);
   QJsonObject graphPage(QueryState &state, int rows, int bytes, bool &more);
   QString resolveSeed(QueryState &state, const QJsonObject &args);
   QString resolveWell(QueryState &state, const QJsonObject &args, WellProjection &model, bool &more);

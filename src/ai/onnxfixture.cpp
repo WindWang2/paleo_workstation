@@ -2,6 +2,8 @@
 #include "onnxfixture.h"
 
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
 
 #include <cstring>
 
@@ -201,6 +203,15 @@ bool OnnxFixtureWriter::writeAddScalar( const QString &path, float addend,
   return writeBytes( path, modelProto( irVersion, graphProto( g ) ), error );
 }
 
+bool OnnxFixtureWriter::writeExternalAddScalar(const QString &path,QString *error) {
+  GraphSpec graph;graph.name="external_add";graph.nodes.append(NodeSpec{"Add",{"x","addend"},{"y"}});
+  Pb tensor;tensor.varintField(2,1);tensor.strField(8,"addend");tensor.varintField(14,1);
+  Pb location;location.strField(1,"location");location.strField(2,"weights.bin");tensor.lenField(13,location.bytes);
+  graph.initializers.append(tensor.bytes);graph.inputs.append({"x",{1}});graph.outputs.append({"y",{1}});
+  return writeBytes(QFileInfo(path).dir().filePath("weights.bin"),rawFloatBytes({40}),error) &&
+    writeBytes(path,modelProto(8,graphProto(graph)),error);
+}
+
 bool OnnxFixtureWriter::writeSeg( const QString &path, const QVector<float> &gains,
                                   const QVector<float> &biases, int64_t irVersion,
                                   QString *error, int64_t fixedH, int64_t fixedW,
@@ -223,6 +234,13 @@ bool OnnxFixtureWriter::writeSeg( const QString &path, const QVector<float> &gai
   g.inputs.append( { "x", { 1, inChannels, fixedH, fixedW } } );
   g.outputs.append( { "y", { 1, c, fixedH, fixedW } } );
   return writeBytes( path, modelProto( irVersion, graphProto( g ) ), error );
+}
+
+bool OnnxFixtureWriter::writeIdentity(const QString &path,const QVector<int64_t> &shape,QString *error) {
+  GraphSpec graph;graph.name="dynamic_identity";
+  graph.nodes.append(NodeSpec{"Identity",{"x"},{"y"}});
+  graph.inputs.append({"x",shape});graph.outputs.append({"y",shape});
+  return writeBytes(path,modelProto(8,graphProto(graph)),error);
 }
 
 bool OnnxFixtureWriter::writeTraceScorer( const QString &path, float gain, float offset,

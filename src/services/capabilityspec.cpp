@@ -23,6 +23,17 @@ CapabilitySpec make(const QString &id, CapabilityKind kind, const QString &algor
   return spec;
 }
 
+CapabilitySpec wellFaciesAdapter() {
+  auto spec=make(QStringLiteral("wellfacies.predict"),CapabilityKind::Compute,{},CapabilityExposure::LegacyAdapter,
+    QStringLiteral("typed v2 external adapter; resume original durable job or cached result only; native DAG unavailable"),
+    {QStringLiteral("paleo.well_facies_prediction")},{});
+  spec.contractVersion=2;
+  spec.cancelSupported=false; // Local cancellation cannot prove rollback at an external endpoint.
+  spec.resumeSupported=true;
+  spec.restartable=false;
+  return spec;
+}
+
 const QVector<CapabilitySpec> &table() {
   static const QVector<CapabilitySpec> specs = {
       make(QStringLiteral("depth.convert_batch"), CapabilityKind::Compute,
@@ -46,9 +57,7 @@ const QVector<CapabilitySpec> &table() {
       make(QStringLiteral("singlefactor.contours"), CapabilityKind::Compute, QStringLiteral("native:factor_contour"),
            CapabilityExposure::Callable, QStringLiteral("reads an issued raster result and extracts fixed-level contours"),
            {}, {QStringLiteral("global")}),
-      make(QStringLiteral("wellfacies.predict"), CapabilityKind::Compute, QString(), CapabilityExposure::Unavailable,
-           QStringLiteral("feature schema and HTTP endpoint stay on the existing tool; no substitute model"),
-           {QStringLiteral("paleo.well_facies_prediction")}, {}),
+      wellFaciesAdapter(),
   };
   return specs;
 }
@@ -97,6 +106,11 @@ CapabilitySpec CapabilityRegistry::spec(const QString &capabilityId, int contrac
       return spec;
   }
   return {};
+}
+
+bool CapabilityRegistry::contains(const QString &capabilityId) {
+  for(const auto &spec:table())if(spec.capabilityId==capabilityId)return true;
+  return false;
 }
 
 QString CapabilityRegistry::resolveAlias(const QString &name, QString *code) {

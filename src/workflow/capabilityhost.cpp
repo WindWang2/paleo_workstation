@@ -48,7 +48,10 @@ CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(ne
       return code;
     };
     h.restoreWorker=[this,b](const OperationLog::Record &r,QString *error) {
-      if(m_restoreWorker)if(auto worker=m_restoreWorker(r,error))return worker;
+      if(m_restoreWorker) {
+        auto worker=m_restoreWorker(r,error);
+        if(worker || (error && !error->isEmpty()))return worker;
+      }
       if(r.capabilityId==QLatin1String("workflow.plan"))return restoreNativePlan(r.frozenRequest.value("plan").toObject(),error);
       ExecuteRequest request;
       if(!nativeRequestFromJson(r.frozenRequest.value("plan").toObject(),request)){if(error)*error="invalid_frozen_plan";return OperationWorker{};}

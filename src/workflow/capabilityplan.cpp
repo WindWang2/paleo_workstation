@@ -100,8 +100,8 @@ bool loadNodes(ValidatedPlan &plan, const QVector<PlanNode> &nodes, QHash<QStrin
       return fail(plan, QStringLiteral("duplicate_node"), node.id);
     const auto capability = CapabilityRegistry::spec(node.capabilityId, node.contractVersion);
     if (capability.capabilityId.isEmpty())
-      return fail(plan, CapabilityRegistry::spec(node.capabilityId, 1).capabilityId.isEmpty()
-                            ? QStringLiteral("unknown_capability") : QStringLiteral("unsupported_version"),
+      return fail(plan, CapabilityRegistry::contains(node.capabilityId)
+                            ? QStringLiteral("unsupported_version") : QStringLiteral("unknown_capability"),
                   node.capabilityId);
     if (capability.exposure != CapabilityExposure::Callable)
       return fail(plan, capability.exposure == CapabilityExposure::Unavailable ? QStringLiteral("unavailable")

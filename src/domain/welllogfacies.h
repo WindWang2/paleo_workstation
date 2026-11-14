@@ -5,12 +5,15 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QVariantList>
+#include <QMap>
 
 struct WellFaciesModel {
   // formationGroup is descriptive metadata, not an applicability constraint.
   QString id, name, version, formationGroup;
   QStringList curves, labels;
   int window = 1;
+  QMap<QString, QString> curveUnits{}; // Exact training feature units when the model contract declares them.
+  QString contractReadinessCode; // Parser evidence for unsupported declared categorical/schema requirements.
 };
 struct WellFaciesInput {
   QJsonArray rows;
@@ -59,13 +62,16 @@ bool normalizeDepthCurve(const QVector<double> &depths, const QVector<double> &v
                          const QString &depthUnit, WellComposite::CurveData *curve,
                          QString *reason);
 
+enum class WellFaciesSourcePolicy { Legacy, DeclaredSdkValues };
 WellFaciesInput
 // validSegments != nullptr: split at nulls/gaps and retain only runs meeting model.window.
 // The strict default rejects discontinuous input; missing data is never filled.
 prepareWellFaciesInput(const WellComposite::ComprehensiveWellData &data,
                        const WellFaciesModel &model,
                        QVector<WellFaciesInput> *validSegments = nullptr,
-                       QStringList *skipped = nullptr);
+                       QStringList *skipped = nullptr,
+                       bool includeFinalBottom = false,
+                       WellFaciesSourcePolicy sourcePolicy = WellFaciesSourcePolicy::Legacy);
 // 在提交或准备检查前冻结全部模型微相的三级归属，点名未知/歧义类别。
 bool bindWellFaciesClasses(const WellFaciesModel &model, const QVariantList &schema,
                            WellFaciesInput *input, QString *error);

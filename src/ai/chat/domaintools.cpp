@@ -10,6 +10,8 @@
 
 #include "../../catalog/catalogroles.h"
 #include "../../services/artifactversioncapability.h"
+void appendAgentOperationTools(QVector<AiToolSpec> &specs);
+#include "../../domain/wellfaciesrequest.h"
 
 // ai/chat — 领域工具表实现（方向51）。
 //
@@ -67,6 +69,7 @@ QJsonObject AiToolParamSpec::toJsonSchema() const {
 }
 
 QJsonObject AiToolSpec::toJsonSchema() const {
+  if(name==QLatin1String("paleo.well_facies_prediction"))return paleo::wellfacies::requestJsonSchema();
   QJsonObject schema;
   schema.insert(QStringLiteral("type"), QStringLiteral("object"));
   QJsonObject properties;
@@ -100,8 +103,27 @@ QJsonObject AiToolSpec::modelResultSchema() const {
   return paleo::chat::toolResultEnvelopeSchema(
       QJsonDocument::fromJson(resultSchemaJson.toUtf8()).object());
 }
+unsigned AiToolSpec::effectsForIntent(const QString &intent) const {
+  if (isAiCapabilityTool(name) || name == QLatin1String("paleo.tile_classification_v2"))
+    return paleo::host::computeEffects(intent);
+  return effects;
+}
+unsigned AiToolSpec::effectsForArguments(const QJsonObject &arguments) const {
+  auto result=effectsForIntent(arguments.value("publish_intent").toString());
+  if(name==QLatin1String("paleo.query_project") && arguments.value("topic")==QLatin1String("well_facies_models"))
+    result|=paleo::host::ExternalTransfer;
+  return result;
+}
 
 QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
+  if(name==QLatin1String("paleo.tile_classification_v2")) {
+    const auto phase=arguments.value("publish_intent").toString();
+    const QStringList required=phase==QLatin1String("prepare")?QStringList{"model","source_version_id"}:QStringList{"source_operation_id"};
+    for(const auto &key:required)if(!arguments.value(key).isString() || arguments.value(key).toString().isEmpty())
+      return QStringLiteral("tile_required_input:")+key;
+  }
+  if(name==QLatin1String("paleo.well_facies_prediction")&&!arguments.contains("contract_version")&&
+     arguments.value("well_name").toString().isEmpty())return QObject::tr("legacy 测井相调用须给井名；生产调用须给 typed v2 引用");
   if (name==QLatin1String("paleo.query_project") && (arguments.value("topic").toString()==QLatin1String("version") || arguments.value("topic").toString()==QLatin1String("version_parents"))) {
     if (!arguments.value("version_id").isString() || arguments.value("version_id").toString().isEmpty())
       return QObject::tr("topic=version/version_parents 须给精确 version_id");
@@ -149,6 +171,8 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     "对给定网格做逐像素/tile 相分类：按 tile 切片读域 → 本地 ONNX 模型推理 → "
     "缝合出等尺寸与请求网格一致的相码图（255 = 无数据）与置信度掩膜。");
   tile.requiresLocalOrt = true;
+  tile.effects = paleo::host::Read | paleo::host::PrivateStage | paleo::host::CatalogPublish | paleo::host::Presentation;
+  tile.legacyAdapter = true;
   tile.parameters = {
     {QStringLiteral("model"), QStringLiteral("string"),
      QObject::tr("模型名（PaleoOnnxService 命名，位于工程 models/ 目录）"), true},
@@ -193,21 +217,33 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   facies.name = QStringLiteral("paleo.well_facies_prediction");
   facies.title = QObject::tr("测井相预测");
   facies.description = QObject::tr(
-    "把一口井的曲线段送到用户自己配置的测井相服务（https 或 loopback http，"
-    "密钥在系统钥匙串里）拿回微相分段及对应的亚相、相归属。端点未配置时不可用——不替抄第三方地址。");
+    "先用 query_project 的 well_facies_models 与 well_facies_inputs 取得精确模型、井和固定层段引用，"
+    "再将所选真实 SDK 曲线发送到已配置的测井相端点。每次出现和有效连续段分别预测；"
+    "需要声明特征单位、MD 基准、模型版本和稳定请求键。结果保存在私有操作工件中，"
+    "不会登记目录成果；取消不能证明远端回滚。未知提交只查询原任务，不重新发送。");
   facies.requiresLocalOrt = false;
+  facies.effects = paleo::host::Read | paleo::host::PrivateStage | paleo::host::ExternalTransfer;
   facies.parameters = {
     {QStringLiteral("model"), QStringLiteral("string"),
      QObject::tr("服务端模型 id（取 WellFaciesService::fetchModels 的结果）"), true},
     {QStringLiteral("well_name"), QStringLiteral("string"),
-     QObject::tr("井名"), true},
+     QObject::tr("legacy adapter 井名"), false},
+    {QStringLiteral("contract_version"),QStringLiteral("integer"),QObject::tr("生产契约版本 2"),false},
+    {QStringLiteral("client_request_id"),QStringLiteral("string"),QObject::tr("调用方稳定幂等键"),false},
+    {QStringLiteral("endpoint_id"),QStringLiteral("string"),QObject::tr("well_facies_models 返回的端点身份；防止配置切换后使用另一模型命名空间"),false},
+    {QStringLiteral("model_version"),QStringLiteral("string"),QObject::tr("GET/models 返回的精确版本"),false},
+    {QStringLiteral("well_ref"),QStringLiteral("object"),QObject::tr("工程查询返回的精确 WellRef"),false},
+    {QStringLiteral("context"),QStringLiteral("object"),QObject::tr("FaciesAnalysis ContextKey"),false},
+    {QStringLiteral("unit_scope"),QStringLiteral("object"),QObject::tr("固定方案修订和层段；每次出现分别预测"),false},
+    {QStringLiteral("curve_ids"),QStringLiteral("object"),QObject::tr("特征名到精确 SDK 曲线编号字符串；歧义时必填"),false},
+    {QStringLiteral("lithology_track_id"),QStringLiteral("string"),QObject::tr("精确岩性道编号字符串；歧义时必填"),false},
     {QStringLiteral("depth_from"), QStringLiteral("number"),
      QObject::tr("起始深度"), false},
     {QStringLiteral("depth_to"), QStringLiteral("number"),
      QObject::tr("终止深度"), false},
   };
   facies.resultSchemaJson = QStringLiteral(
-    R"({"type":"object","properties":{"well":{"type":"string"},"prediction_level":{"type":"string","enum":["micro_facies"]},"intervals_sample":{"type":"array","items":{"type":"object","properties":{"top":{"type":"number"},"bottom":{"type":"number"},"label":{"type":"string"},"facies":{"type":"string"},"subfacies":{"type":"string"},"microfacies":{"type":"string"}}}}}})");
+    R"({"type":"object","properties":{"contract":{"const":"paleo.well-facies.result.v2"},"code":{"type":"string"},"status":{"enum":["succeeded","failed","external_unknown","result_unavailable"]},"execution":{"enum":["succeeded","failed","external_unknown","partial"]},"executionScope":{"const":"batch_summary"},"inputOperationId":{"type":"string"},"inputOperation":{"type":"object"},"inputHash":{"type":"string"},"featureSchemaHash":{"type":"string"},"segments":{"type":"array","items":{"type":"object"}},"coverage":{"type":"object"},"retryAdvice":{"type":"string"}}})");
 
   // 4) 工程数据问答（方向77：只读——catalog 实体/资产/角色/版本摘要，
   // 不做任何推理，不写任何库）。
@@ -228,7 +264,10 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
                  "version=严格版本摘要；version_parents=完整父引用续页"),
      true,
      {QStringLiteral("summary"), QStringLiteral("wells"), QStringLiteral("horizons"),
-      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("version"),QStringLiteral("version_parents")}},
+      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("version"),QStringLiteral("version_parents"),QStringLiteral("well_facies_models"),QStringLiteral("well_facies_inputs"),QStringLiteral("local_models")}},
+    {QStringLiteral("model_name"),QStringLiteral("string"),QObject::tr("local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准"),false},
+    {QStringLiteral("well_ref"),QStringLiteral("object"),QObject::tr("well_facies_inputs 所属 WellRef；元数据查询不读曲线数值"),false},
+    {QStringLiteral("model_id"),QStringLiteral("string"),QObject::tr("well_facies_models 精确模型详情；缺省只列 id/version/readiness"),false},
     {QStringLiteral("version_id"),QStringLiteral("string"),
      QObject::tr("精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）"),false},
     {QStringLiteral("catalog_revision"),QStringLiteral("integer"),
@@ -240,9 +279,9 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     {QStringLiteral("cursor"), QStringLiteral("string"),
      QObject::tr("上一页的 nextCursor；保持主题、筛选及页预算不变"), false},
     {QStringLiteral("page_size"), QStringLiteral("integer"),
-     QObject::tr("每页最大条目数（1–256，缺省50）"), false},
+     QObject::tr("每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16"), false},
     {QStringLiteral("max_bytes"), QStringLiteral("integer"),
-     QObject::tr("完整JSON页的UTF-8字节预算（2048–65536，缺省8192）"), false},
+     QObject::tr("完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192"), false},
     {QStringLiteral("role"), QStringLiteral("string"),
      // 角色清单单源：catalogRoles() 生成（分组名+清单），不再手写串。
      // 「等」字保留——工程 project_area.json 自定义角色不在词表内。
@@ -364,7 +403,10 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
       {"page_size", "integer", QObject::tr("每页 1–128 个元素"), false},
       {"max_bytes", "integer", QObject::tr("UTF-8 JSON 预算，768–65536 字节"), false}};
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
-  return {tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
+  QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
+  appendAgentOperationTools(specs);
+  for(auto &spec:specs)spec.exposure=spec.legacyAdapter?CapabilityExposure::LegacyAdapter:CapabilityExposure::Callable;
+  return specs;
 }
 
 AiToolSpec aiToolSpec(const QString &name) {
@@ -407,6 +449,9 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.note = invalid;
     return out;
   }
+  if(name.startsWith(QLatin1String("paleo.operation_")) || name==QLatin1String("paleo.tile_classification_v2")) {
+    out.target=QStringLiteral("workflow/CapabilityRecovery");out.status=AiToolDispatchStatus::Routed;return out;
+  }
   if (name == QStringLiteral("paleo.tile_classification")) {
     out.target = QStringLiteral("ai/tileinference.h:runTileInference + "
                                 "ai/onnxpredictionservice.h:PaleoOnnxService");
@@ -437,10 +482,10 @@ AiToolDispatch dispatchAiTool(const QString &name,
   }
   if (name == QStringLiteral("paleo.well_facies_prediction")) {
     out.target =
-      QStringLiteral("ai/wellfaciesservice.h:WellFaciesService::predict");
+      QStringLiteral("workflow/wellfaciesagentrun:typed-v2 external adapter");
     out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr(
-      "入口已接线：须先配置测井相服务端点与密钥，并绑定井曲线数据上下文");
+      "精确模型和 SDK 输入经宿主授权后调用；原任务和结果可恢复，未知提交不重发");
     return out;
   }
   if (name == QStringLiteral("paleo.read_result")) {

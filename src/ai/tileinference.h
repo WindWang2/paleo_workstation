@@ -2,9 +2,14 @@
 #pragma once
 #include <QString>
 #include <QVector>
+#include <QJsonArray>
 #include <functional>
 
 class PaleoOnnxService;
+struct OnnxModelMeta;
+
+// Strict v2 checks against the real Session signature before any source fetch.
+QString tileOutputContractCode(const OnnxModelMeta &,int expectedClasses);
 
 // ai/ — tile 批量推理（goal/ai-geological-assist 范围2）。
 // 纯函数（plan/softmax/stitch）无 io 依赖；runTileInference 是同步执行核心
@@ -59,6 +64,9 @@ int sanitizeModelInput( QVector<float> &data, QVector<bool> *valid );
 void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
                   const QVector<bool> &valid, TileClassGrid *out,
                   const QString &outputSemantics = QStringLiteral( "logits" ) );
+// Strict v2 probability contract: no clipping or normalization of invalid predictions.
+bool probabilityGrid(const QVector<float> &,int classes,int rows,int cols,
+                     const QVector<bool> &valid,TileClassGrid *,QString *error);
 
 // 把 tile 结果写入全图（整图坐标）。重叠区域按距离/梯形权重羽化融合概率并归一化，
 // 单次访问区域保持原生预测。
@@ -68,6 +76,12 @@ void stitchTileIntoGrid( const InferenceTile &tile, const TileClassGrid &tileGri
 struct TileInferenceRequest
 {
   QString model;                     // 模型名（PaleoOnnxService 命名）
+  QString expectedModelSha256;        // v2 prepare → compute pin; empty only for legacy callers
+  QString expectedInputSignature, expectedOutputSemantics;
+  int expectedClassCount = 0;
+  int expectedFeatureContractVersion = 0;
+  QJsonArray expectedFeatures;
+  bool requireProbabilityContract = false;
   int gridRows = 0, gridCols = 0;    // 输出网格（如 411×641 工区）
   int tileRows = 64, tileCols = 64;  // tile 内区尺寸
   int halo = 0;                      // 读域 halo（缝合消隐）

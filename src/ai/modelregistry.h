@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QJsonArray>
 
 // ai/ — 模型注册表（goal/ai-geological-assist 范围5）。
 // 「models/ 目录 + manifest.json」约定（appcontext 已按 <工程>/models 钉模型根）：
@@ -55,6 +56,8 @@ struct ModelRegistryEntry
   QVector<int64_t> inputShape; // null → -1（动态维）
   QString outputSemantics;
   int classes = 0;
+  int featureContractVersion = 0;
+  QJsonArray features; // Ordered, explicitly declared feature semantics; never inferred from names.
   QString sha256Pinned;
 
   // 扫描期实测

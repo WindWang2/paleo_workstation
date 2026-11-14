@@ -165,8 +165,13 @@ void WellFaciesService::fail(const QString &reason) {
   emit failed(reason);
 }
 void WellFaciesService::fetchModels() {
+  m_includeUnavailableModels=false;
   cancel();
   request(QStringLiteral("models"), {}, false, true);
+}
+void WellFaciesService::fetchModelContracts() {
+  m_includeUnavailableModels=true;
+  cancel();request(QStringLiteral("models"),{},false,true);
 }
 void WellFaciesService::predict(const WellFaciesModel &model,
                                 const QString &wellName,
@@ -184,11 +189,17 @@ void WellFaciesService::predict(const WellFaciesModel &model,
               .toJson(QJsonDocument::Compact),
           QCryptographicHash::Sha256)
           .toHex());
+  beginPrediction(model,wellName,bound,key,{},false);
+}
+void WellFaciesService::beginPrediction(const WellFaciesModel &model,const QString &wellName,
+    const WellFaciesInput &input,const QString &key,const QByteArray &preparedBody,bool frozen) {
   const QString known = m_accepted.value(key);
   cancel();
   m_elapsed.start();
   m_modelId = model.id;
-  m_input = bound;
+  m_modelVersion = model.version;
+  m_frozenModel = frozen;
+  m_input = input;
   m_wellName = wellName;
   m_key = key;
   if (!known.isEmpty()) {
@@ -207,10 +218,10 @@ void WellFaciesService::predict(const WellFaciesModel &model,
           {{"modelVersionId", model.id},
            {"waitTimeoutSeconds", 30},
            {"wells", QJsonArray{well}}},
-          true, false);
+          true, false, preparedBody);
 }
 void WellFaciesService::request(const QString &path, const QJsonObject &body,
-                                bool post, bool models) {
+                                bool post, bool models, const QByteArray &preparedBody) {
   if (m_config.apiKey.trimmed().isEmpty() || m_config.apiKey.contains('\n') ||
       m_config.apiKey.contains('\r'))
     return fail(tr("尚未配置测井相预测 API 密钥"));
@@ -219,10 +230,10 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
       WellFaciesConfig::validateUrl(url, m_config.allowInsecureHttp);
   if (!urlError.isEmpty())
     return fail(urlError);
-  QString basePath = url.path();
+  QString basePath = url.path(QUrl::FullyEncoded);
   while (basePath.endsWith('/'))
     basePath.chop(1);
-  url.setPath(basePath + '/' + path);
+  url.setPath(basePath + '/' + path,QUrl::StrictMode);
   QNetworkRequest req(url);
   req.setRawHeader("X-API-Key", m_config.apiKey);
   req.setHeader(QNetworkRequest::ContentTypeHeader,
@@ -230,9 +241,14 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
   req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                    QNetworkRequest::ManualRedirectPolicy);
   req.setTransferTimeout(45000);
+  if (post && m_frozenModel) {
+    const auto generation=m_generation;
+    emit requestSending(m_key);
+    if(generation!=m_generation)return;
+  }
   auto *reply =
       post ? m_network.post(req,
-                            QJsonDocument(body).toJson(QJsonDocument::Compact))
+                            preparedBody.isEmpty()?QJsonDocument(body).toJson(QJsonDocument::Compact):preparedBody)
            : m_network.get(req);
   m_reply = reply;
   const int generation = m_generation;
@@ -297,22 +313,29 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
           m.name = j.value("name").toString();
           m.version = j.value("version").toString();
           m.formationGroup = schema.value("formationGroup").toString();
-          m.window = schema.value("window").toInt(1);
+          m.window = schema.value("window").toInt(0);
+          if(!schema.value("window").isDouble()||schema.value("window").toDouble()!=m.window)m.window=0;
           for (const auto &c : schema.value("curves").toArray())
             m.curves.append(c.toString());
           for (const auto &c : schema.value("labels").toArray())
             m.labels.append(c.toString());
+          const auto units=schema.value("curveUnits").toObject();
+          for(const auto &curve:m.curves)
+            if(units.value(curve).isString())m.curveUnits.insert(curve,units.value(curve).toString());
           bool categoriesSupported = true;
+          if(schema.contains("categoricalFields")&&!schema.value("categoricalFields").isArray())categoriesSupported=false;
           for (const auto &c : schema.value("categoricalFields").toArray())
             if (!QStringList{QStringLiteral("段"), QStringLiteral("岩性")}
                      .contains(c.toString()))
               categoriesSupported = false;
+          if(!categoriesSupported)m.contractReadinessCode="model_categorical_schema_unsupported";
+          if(!j.value("inputSchema").isObject())m.contractReadinessCode="model_schema_unavailable";
           QSet<QString> curveNames;
           for (const auto &c : m.curves)
             if (!c.isEmpty())
               curveNames.insert(c);
-          if (!m.id.isEmpty() && m.window > 0 && !m.curves.isEmpty() &&
-              curveNames.size() == m.curves.size() && categoriesSupported)
+          if (m_includeUnavailableModels||(!m.id.isEmpty() && m.window > 0 && !m.curves.isEmpty() &&
+              curveNames.size() == m.curves.size() && categoriesSupported))
             list.append(m);
         }
         emit modelsReady(list);
@@ -337,12 +360,15 @@ void WellFaciesService::forgetAcceptedJob(const QString &key) {
 }
 
 void WellFaciesService::handlePrediction(const QJsonObject &json) {
+  if(m_frozenModel&&!observeJob(json))return;
   const QString status = json.value("status").toString();
   if (status == "completed") {
     const QString modelId =
         json.value("model").toObject().value("id").toString();
     if (!modelId.isEmpty() && modelId != m_modelId)
       return fail(tr("预测结果的模型与所选模型不一致"));
+    if(m_frozenModel&&(modelId!=m_modelId || json.value("model").toObject().value("version").toString()!=m_modelVersion))
+      return fail(QStringLiteral("remote_model_version_mismatch"));
     WellFaciesResult result;
     QString error;
     if (!parseWellFaciesResult(json, m_wellName, m_input, &result, &error))
@@ -353,6 +379,10 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
     return;
   }
   if (status == "failed" || status == "canceled") {
+    if(m_frozenModel&&!m_jobId.isEmpty()) {
+      const auto generation=m_generation;emit remoteFailed(m_key,m_jobId);
+      if(generation!=m_generation)return;
+    }
     forgetAcceptedJob(m_key);
     m_jobId.clear();
     QString error = json.value("error").toString();

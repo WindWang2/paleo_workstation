@@ -32,6 +32,7 @@ class AiAssistWorkflow : public QObject
     explicit AiAssistWorkflow( QgisLayerService *layers, QObject *parent = nullptr );
 
     void setOnnxService( PaleoOnnxService *onnx );
+    PaleoOnnxService *onnxService() const { return m_onnx; }
     // T26 登记通道（同 PredictionWorkflow::setCatalog）。
     void setCatalog( DataCatalog *catalog, const QString &projectDir );
     // 异步批量分类需要任务服务（startClassification 用；不绑仍可同步跑）。
@@ -83,7 +84,8 @@ class AiAssistWorkflow : public QObject
     PaleoTask *startSuggestion( const QString &horizon, const QString &model,
                                 const QVector<TrackingSeed> &seeds, int windowSamples,
                                 int radius, const TraceWindowFetcher &fetch,
-                                QString *error = nullptr );
+                                QString *error = nullptr,
+                                const std::function<QString()> &ownerValidation = {} );
     // 纯内存状态转移（不落盘、不动 catalog）。
     bool acceptSuggestion( const QString &horizon, int inlineNo, int xlineNo );
     bool vetoSuggestion( const QString &horizon, int inlineNo, int xlineNo );

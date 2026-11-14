@@ -41,6 +41,8 @@ ModelRegistryEntry parseEntry( const QJsonObject &o )
   e.inputName = input.value( QStringLiteral( "name" ) ).toString();
   e.inputDtype = input.value( QStringLiteral( "dtype" ) ).toString();
   e.inputShape = parseShape( input.value( QStringLiteral( "shape" ) ).toArray() );
+  e.featureContractVersion = input.value("featureContractVersion").toInt();
+  e.features = input.value("features").toArray();
   const QJsonObject outputs = o.value( QStringLiteral( "outputs" ) ).toObject();
   e.outputSemantics = outputs.value( QStringLiteral( "semantics" ) ).toString();
   e.classes = outputs.value( QStringLiteral( "classes" ) ).toInt();
@@ -110,8 +112,21 @@ ModelRegistryScan ModelRegistry::scan( const QString &modelsDir )
     out.manifestError = QObject::tr( "manifest.json 不可读: %1" ).arg( f.errorString() );
     return out;
   }
+  constexpr qint64 maxManifestBytes = 8 * 1024 * 1024;
+  if ( f.size() > maxManifestBytes )
+  {
+    out.manifestError = QStringLiteral("model_manifest_byte_budget_exceeded");
+    return out;
+  }
+  // Bound the read itself as well: the manifest may grow after the size check.
+  const auto manifestBytes = f.read(maxManifestBytes + 1);
+  if ( manifestBytes.size() > maxManifestBytes || !f.atEnd() || f.error() != QFile::NoError )
+  {
+    out.manifestError = QStringLiteral("model_manifest_byte_budget_exceeded");
+    return out;
+  }
   QJsonParseError parseErr;
-  const QJsonDocument doc = QJsonDocument::fromJson( f.readAll(), &parseErr );
+  const QJsonDocument doc = QJsonDocument::fromJson( manifestBytes, &parseErr );
   if ( parseErr.error != QJsonParseError::NoError || !doc.isObject() )
   {
     out.manifestError = parseErr.error != QJsonParseError::NoError
@@ -120,6 +135,11 @@ ModelRegistryScan ModelRegistry::scan( const QString &modelsDir )
     return out;
   }
   const QJsonArray models = doc.object().value( QStringLiteral( "models" ) ).toArray();
+  if ( models.size() > 4096 )
+  {
+    out.manifestError = QStringLiteral("model_manifest_entry_budget_exceeded");
+    return out;
+  }
   if ( models.isEmpty() )
   {
     // 空 models 数组：结构合法、没有模型——未装模型语义，不是错误。

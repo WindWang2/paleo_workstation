@@ -1,12 +1,15 @@
 // 层：功能
 #pragma once
 #include <QHash>
+#include <QJsonObject>
+#include <QMap>
 #include <QMutex>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QVector>
 #include <QWaitCondition>
+#include <functional>
 
 #include "modelregistry.h"
 
@@ -18,6 +21,8 @@ struct OnnxTensor {
   QVector<float> values;
   QVector<int64_t> shape;
 };
+// Bounds returned float32 values; this does not sandbox a graph's internal allocations.
+constexpr qint64 kMaxOnnxOutputElements = 32LL * 1024 * 1024;
 
 // 失败分类（goal/ai-geological-assist 会话管理）：ORT 异常按语义归类，
 // 原始信息保留在错误链里（不吞）。NotFound 在进 ORT 前自判。
@@ -28,6 +33,17 @@ enum class OnnxLoadStatus {
   UnsupportedIr,  // IR 版本高于运行时支持
   CreateFailed,   // 其它会话构造失败（图不合法/算子缺失/内存…）
 };
+inline QString onnxPublicLoadCode(OnnxLoadStatus status,const QString &detail) {
+  if(detail==QLatin1String("model_bytes_changed") || detail==QLatin1String("model_byte_budget_exceeded"))return detail;
+  switch(status) {
+    case OnnxLoadStatus::Ok:return {};
+    case OnnxLoadStatus::NotFound:return QStringLiteral("model_unavailable");
+    case OnnxLoadStatus::BadFormat:return QStringLiteral("model_invalid");
+    case OnnxLoadStatus::UnsupportedIr:return QStringLiteral("model_runtime_incompatible");
+    case OnnxLoadStatus::CreateFailed:return QStringLiteral("model_load_failed");
+  }
+  return QStringLiteral("model_load_failed");
+}
 
 // 模型指纹 + 输入签名（懒加载后一次取全；池命中直接复用）。
 struct OnnxModelMeta {
@@ -38,10 +54,14 @@ struct OnnxModelMeta {
   QVector<int64_t> inputShape;// 首输入维；-1 = 动态维
   int inputElemType = 1;      // ONNX TensorProto 元素类型（1 = float32）
   QString inputSignature;     // "x:float32[1,1,?,?]"（动态维记 ?）
+  QVector<int64_t> outputShape; // Actual first Session output, never copied from manifest.
+  int outputElemType = 0;
   qint64 warmupMs = -1;       // 首次加载 warmup 推理耗时；-1 = 未执行
   QString warmupError;        // warmup 失败原始错误（空 = 成功）
   QString outputSemantics;    // "logits" | "probabilities" | "classes"
   int classes = 0;
+  int featureContractVersion = 0;
+  QJsonArray features;
 };
 
 class PaleoOnnxService : public QObject
@@ -60,6 +80,11 @@ class PaleoOnnxService : public QObject
     // 须在 setModelRoot 之后调用（同一 models 目录的扫描结果）。
     void setModelRegistry(const ModelRegistryScan &scan);
     QStringList availableModels() const;            // 注册表 Ok 名；无 manifest 时 *.onnx basenames
+    // Declarations from the installed registry only: no model/file reads or runtime
+    // readiness claims. trustedScope must be supplied by the document host.
+    QJsonObject modelContractPage(const QString &name = {}, const QString &cursor = {},
+                                  const QString &trustedScope = {}, int pageSize = 16,
+                                  int maxBytes = 8192);
     // 兼容原签名；内部走会话池（同指纹二次加载瞬时命中）。
     bool loadModel(const QString &name, QString *error = nullptr);
     // 详细版：成功时 *meta 填指纹/输入签名/warmup 计时。
@@ -94,6 +119,9 @@ class PaleoOnnxService : public QObject
     OnnxTensor runTensorOn(const QString &model, const QString &inputName,
                            const QVector<float> &input, const QVector<int64_t> &shape,
                            QString *error = nullptr);
+    OnnxTensor runPinnedTensor(const QString &model, const QString &expectedSha256,
+                              const QString &inputName, const QVector<float> &input,
+                              const QVector<int64_t> &shape, QString *error = nullptr);
 
     static QString vendorRuntimeDir();              // vendor/onnxruntime resolved path
     static bool runtimeAvailable();                 // libonnxruntime found in vendor tree
@@ -105,6 +133,9 @@ class PaleoOnnxService : public QObject
     void inferenceFailed(const QString &model, const QString &error);
 
   private:
+    OnnxTensor runTensorOnImpl(const QString &model, const QString &inputName,
+                              const QVector<float> &input, const QVector<int64_t> &shape,
+                              const QString &expectedSha256, QString *error);
     QString normalizedModelPath(const QString &name) const;   // 加锁读 m_modelRoot
     static QString normalizedModelPathIn(const QString &root, const QString &name);
     // 调用方持锁：name → 模型文件绝对路径（注册表优先）；不可用 → 空串 + *reason。
@@ -113,8 +144,13 @@ class PaleoOnnxService : public QObject
                                    QString *pinnedSha = nullptr) const;
     bool m_registryActive = false;                  // manifest 存在（含损坏）
     QString m_registryError;                        // manifest 损坏原因（非空 → 全拒绝）
-    QHash<QString, ModelRegistryEntry> m_registryOk;   // name → Ok 条目
+    QMap<QString, ModelRegistryEntry> m_registryOk;    // ordered name → Ok 条目
     QHash<QString, QString> m_registryRejected;        // name → 拒绝原因（诚实报错）
+    qsizetype m_registryRejectedCount = 0;             // includes nameless/duplicate records
+    QByteArray m_modelContractCursorKey;
+    // Injectable clock for deterministic expiry tests against the production library.
+    std::function<qint64()> m_modelContractClock;
+    friend class TestModelContractQuery;
     // 模型配置代际：setModelRoot/setModelRegistry 每次真变更 +1（持 m_mutex）。
     // loadModelMeta 在解析路径的同一种际区取快照，收尾/入池段复核——解析与
     // 构建之间换根或换注册表时，旧配置解析出的路径/池条目不得成为活动模型

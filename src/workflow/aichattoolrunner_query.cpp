@@ -7,6 +7,16 @@
 
 void AiChatToolRunner::runQuery(const ChatToolCall &call, const QJsonObject &args) {
   Q_UNUSED(call)
+  const auto topic=args.value("topic").toString();
+  if(topic==QLatin1String("local_models")){runLocalModels(args);return;}
+  if(topic==QLatin1String("well_facies_models") || topic==QLatin1String("well_facies_inputs")) {
+    const QStringList allowed=topic==QLatin1String("well_facies_models")?QStringList{"topic","model_id"}:QStringList{"topic","well_ref"};
+    for(auto it=args.begin();it!=args.end();++it)if(!allowed.contains(it.key())) {
+      finishActive(false,{{"code","unsupported_topic_argument"},{"field",it.key()}});return;
+    }
+    if(topic==QLatin1String("well_facies_models"))runFaciesModels(args);else runFaciesInputs(args);
+    return;
+  }
   if (!m_context.catalog || !m_context.catalog->isOpen()) {
     finishActive(false, errorPayload(tr("未绑定工程目录（须先打开工程再查工程数据）"))); return;
   }

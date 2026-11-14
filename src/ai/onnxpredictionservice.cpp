@@ -1,5 +1,6 @@
 // 层：功能
 #include "onnxpredictionservice.h"
+#include "onnxmodelbytes.h"
 
 #include <QCryptographicHash>
 #include <QCoreApplication>
@@ -11,6 +12,7 @@
 #include <QMutexLocker>
 
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 #include <onnxruntime_cxx_api.h>
@@ -85,6 +87,16 @@ QString loadStatusLabel( OnnxLoadStatus s )
   return QString();
 }
 
+bool outputShapeExceedsBudget(const std::vector<int64_t> &shape) {
+  qint64 count=1;
+  for(const auto dimension:shape) {
+    if(dimension<=0)continue; // Unknown dimensions contribute a lower bound of one.
+    if(dimension>kMaxOnnxOutputElements || count>kMaxOnnxOutputElements/dimension)return true;
+    count*=dimension;
+  }
+  return false;
+}
+
 // 首输出推理（runTensor 与 warmup 共用；调用方持锁）。
 bool runFirstOutput( Ort::Session *session, const QByteArray &inputNameUtf8,
                      const QVector<float> &input, const QVector<int64_t> &shape,
@@ -99,6 +111,9 @@ bool runFirstOutput( Ort::Session *session, const QByteArray &inputNameUtf8,
       return false;
     }
     auto outputName = session->GetOutputNameAllocated( 0, allocator );
+    if(outputShapeExceedsBudget(session->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape())) {
+      *error=QStringLiteral("model_output_budget_exceeded");return false;
+    }
 
     Ort::MemoryInfo memoryInfo =
       Ort::MemoryInfo::CreateCpu( OrtArenaAllocator, OrtMemTypeDefault );
@@ -124,6 +139,9 @@ bool runFirstOutput( Ort::Session *session, const QByteArray &inputNameUtf8,
       return false;
     }
     const size_t n = info.GetElementCount();
+    if(n>size_t(kMaxOnnxOutputElements)) {
+      *error=QStringLiteral("model_output_budget_exceeded");return false;
+    }
     const float *data = outputs[0].GetTensorData<float>();
     out->values.resize( static_cast<qsizetype>( n ) );
     std::memcpy( out->values.data(), data, n * sizeof( float ) );
@@ -269,6 +287,7 @@ void PaleoOnnxService::setModelRoot( const QString &dir )
   m_registryError.clear();
   m_registryOk.clear();
   m_registryRejected.clear();
+  m_registryRejectedCount = 0;
   ++m_modelConfigEpoch; // 配置代际：作废解析与构建窗口内的旧根快照
 }
 
@@ -280,8 +299,11 @@ void PaleoOnnxService::setModelRegistry( const ModelRegistryScan &scan )
   m_registryError = scan.manifestError;
   m_registryOk.clear();
   m_registryRejected.clear();
+  m_registryRejectedCount = 0;
   for ( const ModelRegistryEntry &e : scan.entries )
   {
+    if ( e.status != ModelRegistryEntry::Status::Ok || e.name.isEmpty() )
+      ++m_registryRejectedCount;
     if ( e.name.isEmpty() )
       continue;
     if ( e.status == ModelRegistryEntry::Status::Ok )
@@ -455,11 +477,12 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
 
   if ( !QFileInfo::exists( path ) )
     return finishFail( OnnxLoadStatus::NotFound, tr( "Model not found: %1" ).arg( path ) );
+  if(QFileInfo(path).size()>paleo::onnx::maxModelBytes)
+    return finishFail(OnnxLoadStatus::CreateFailed,QStringLiteral("model_byte_budget_exceeded"));
 
-  const QString sha = sha256OfFile( path );
+  QString fingerprintError;const QString sha = paleo::onnx::boundedFingerprint(path,&fingerprintError);
   if ( sha.isEmpty() )
-    return finishFail( OnnxLoadStatus::NotFound,
-                       tr( "Model not readable: %1" ).arg( path ) );
+    return finishFail( OnnxLoadStatus::NotFound,fingerprintError );
   // #145：加载时复核钉哈希（扫描后文件被替换同样拒绝；池命中也不例外）。
   if ( !pinnedSha.isEmpty() && pinnedSha.compare( sha, Qt::CaseInsensitive ) != 0 )
     return finishFail( OnnxLoadStatus::NotFound,
@@ -517,7 +540,11 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
     // 池命中：同路径 + 同指纹 → 直接换活跃指针（会话不重建、warmup 不重跑）。
     if ( PoolEntry *hit = m_pool.value( path ) )
     {
-      if ( hit->meta.sha256 == sha )
+      if ( hit->meta.sha256 == sha &&
+           hit->meta.outputSemantics == (registryHit ? registryEntry.outputSemantics : QString()) &&
+           hit->meta.classes == (registryHit ? registryEntry.classes : 0) &&
+           hit->meta.featureContractVersion == (registryHit ? registryEntry.featureContractVersion : 0) &&
+           hit->meta.features == (registryHit ? registryEntry.features : QJsonArray()) )
       {
         m_active = hit;
         hit->lru = ++m_lruCounter;
@@ -532,6 +559,7 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
       }
       else
       {
+        // Bytes or declared output contract changed: retire the immutable entry.
         // 文件指纹变了：钉指纹语义——旧会话淘汰，按新文件重建（在飞推理
         // 持引用时由 retire 延迟到归零删除，锁外 Run 不悬垂）。
         retireEntryLocked( hit );
@@ -541,6 +569,8 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
 
   if ( emitName.isEmpty() )
   {
+    QString bytesError;const auto bytes=paleo::onnx::readPinnedBytes(path,sha,&bytesError);
+    if(bytes.isEmpty())return finishFail(OnnxLoadStatus::CreateFailed,bytesError);
     Ort::Session *session = nullptr;
     // ---- 构建段（只持 m_loadMutex，不持 m_mutex）：模型加载期间推理不停摆 ----
     try
@@ -548,15 +578,9 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
       Ort::SessionOptions options;
       options.SetIntraOpNumThreads( 1 );          // 池内会话统一钉 1 线程
       options.SetGraphOptimizationLevel( GraphOptimizationLevel::ORT_ENABLE_BASIC );
-#ifdef _WIN32
-      // Windows 的 Ort::Session 路径参数是 wchar_t（ORTCHAR_T）；toStdWString
-      // 临时量存活到本语句结束，Session 构造期即拷贝路径，安全。
-      const std::wstring pathW = path.toStdWString();
-      session = new Ort::Session( ortEnv(), pathW.c_str(), options );
-#else
-      const QByteArray pathUtf8 = path.toUtf8();
-      session = new Ort::Session( ortEnv(), pathUtf8.constData(), options );
-#endif
+      // One exact byte snapshot supplies both identity and weights. External
+      // initializers have no model path here and are unsupported by this contract.
+      session = new Ort::Session( ortEnv(), bytes.constData(),size_t(bytes.size()),options );
     }
     catch ( const Ort::Exception &e )
     {
@@ -601,6 +625,11 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
       for ( int64_t d : dims )
         nextMeta.inputShape.append( d );
       nextMeta.inputSignature = sig;
+      if(session->GetOutputCount()<1)throw std::runtime_error("model_output_unavailable");
+      auto outputType=session->GetOutputTypeInfo(0);
+      auto outputTensor=outputType.GetTensorTypeAndShapeInfo();
+      nextMeta.outputElemType=int(outputTensor.GetElementType());
+      for(const auto dimension:outputTensor.GetShape())nextMeta.outputShape.append(dimension);
     }
     catch ( const std::exception &e )
     {
@@ -618,6 +647,8 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
     {
       nextMeta.outputSemantics = registryEntry.outputSemantics;
       nextMeta.classes = registryEntry.classes;
+      nextMeta.featureContractVersion = registryEntry.featureContractVersion;
+      nextMeta.features = registryEntry.features;
     }
 
     // warmup：按输入签名零填充跑一次，计时（不伪造——失败如实记录）。
@@ -627,9 +658,16 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
     {
       if ( d <= 0 )
         d = 1;
+      if(d>(qint64(4)<<20) || count>(qint64(4)<<20)/d) {
+        count=(qint64(4)<<20)+1;break;
+      }
       count *= d;
     }
-    if ( count >= 1 && count <= ( qint64( 4 ) << 20 ) )
+    const std::vector<int64_t> outputShape(nextMeta.outputShape.begin(),nextMeta.outputShape.end());
+    if(outputShapeExceedsBudget(outputShape)) {
+      nextMeta.warmupMs=-1;nextMeta.warmupError=QStringLiteral("model_output_budget_exceeded");
+    }
+    else if ( count >= 1 && count <= ( qint64( 4 ) << 20 ) )
     {
       OnnxTensor warm;
       const QVector<float> zeros( int( count ), 0.0f );
@@ -824,6 +862,19 @@ OnnxTensor PaleoOnnxService::runTensorOn( const QString &model, const QString &i
                                           const QVector<float> &input,
                                           const QVector<int64_t> &shape, QString *error )
 {
+  return runTensorOnImpl(model, inputName, input, shape, {}, error);
+}
+
+OnnxTensor PaleoOnnxService::runPinnedTensor(const QString &model, const QString &sha,
+    const QString &inputName, const QVector<float> &input, const QVector<int64_t> &shape, QString *error)
+{
+  if (sha.isEmpty()) { if (error) *error = QStringLiteral("model_fingerprint_required"); return {}; }
+  return runTensorOnImpl(model, inputName, input, shape, sha, error);
+}
+
+OnnxTensor PaleoOnnxService::runTensorOnImpl(const QString &model, const QString &inputName,
+    const QVector<float> &input, const QVector<int64_t> &shape, const QString &expectedSha, QString *error)
+{
   if ( error )
     error->clear();
   QString failMsg;
@@ -846,6 +897,11 @@ OnnxTensor PaleoOnnxService::runTensorOn( const QString &model, const QString &i
         failMsg = !resolveErr.isEmpty()
                     ? resolveErr
                     : tr( "模型 '%1' 的会话不在池中（未加载、已被淘汰或模型目录已切换）" ).arg( model );
+      }
+      else if (!expectedSha.isEmpty() && entry->meta.sha256 != expectedSha)
+      {
+        entry = nullptr;
+        failMsg = QStringLiteral("model_revision_changed");
       }
       else
       {

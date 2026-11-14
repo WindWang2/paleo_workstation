@@ -321,18 +321,22 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
     set_target_properties(ort_vendored PROPERTIES IMPORTED_LOCATION ${ORT_LIB}
       INTERFACE_INCLUDE_DIRECTORIES ${ORT_INCLUDE})
   endif()
-  add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/onnxfixture.cpp
-    src/ai/tileinference.cpp src/ai/horizonsuggest.cpp src/ai/modelregistry.cpp
-    src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
+  add_library(paleo_ai_onnx STATIC src/ai/onnxpredictionservice.cpp src/ai/onnxfixture.cpp
+    src/ai/tileinference.cpp src/ai/tileprobability.cpp src/ai/horizonsuggest.cpp src/ai/modelregistry.cpp src/ai/onnxmodelbytes.cpp
+    src/ai/modelcontractquery.cpp)
+  target_link_libraries(paleo_ai_onnx PUBLIC Qt6::Core ort_vendored)
+  target_include_directories(paleo_ai_onnx PUBLIC ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(paleo_ai_onnx PUBLIC PALEO_HAVE_ORT=1)
+  add_library(paleo_ai STATIC src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
   # 方向 92：domaintools 角色清单单源消费 catalogRoles()（catalogroles.cpp
   # 在 paleo_store）——ai(功能) → store(数据) 属允许的向下依赖（层 DAG 同层
   # 邻接，无环：store 不含 ai）。
-  target_link_libraries(paleo_ai PUBLIC paleo_deps paleo_store ort_vendored)
+  target_link_libraries(paleo_ai PUBLIC paleo_deps paleo_store paleo_ai_onnx)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   # 审计 01 M5：vendorRuntimeDir() 从可执行文件往上找 vendor/onnxruntime，构建目录在
   # 源码树外（-B ../b-asan）时找不到——编译期注入 ORT 根作为向上查找后的回落。
   get_filename_component(_paleo_ort_root "${ORT_INCLUDE}" DIRECTORY)
-  target_compile_definitions(paleo_ai PRIVATE PALEO_ORT_ROOT="${_paleo_ort_root}")
+  target_compile_definitions(paleo_ai_onnx PRIVATE PALEO_ORT_ROOT="${_paleo_ort_root}")
   target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
   # 刻意保持目录级变量（非逐 target BUILD_RPATH）：它对此后定义的全部 target 生效、
   # 对此前的 paleo_mkproject 等不生效——改成逐 target 会改变 RPATH 集合，非纯重构。

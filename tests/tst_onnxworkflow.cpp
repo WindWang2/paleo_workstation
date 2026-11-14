@@ -59,31 +59,11 @@ private:
     PaleoOnnxService onnx;
   };
 
-  // Locates <repo>/spikes/onnx regardless of the directory the test binary is
-  // built into (standalone /tmp builds cannot walk up to the repo, so the
-  // working directory is the last resort — run from the repo root).
+  // Resolve source fixtures independently of the shared runtime and build directory.
   static QString sourceModelDir()
   {
-    const QString vendor = PaleoOnnxService::vendorRuntimeDir();
-    if ( !vendor.isEmpty() )
-    {
-      QDir d( vendor );
-      if ( d.cdUp() && d.cdUp() &&
-           QFileInfo::exists( d.absoluteFilePath( QStringLiteral( "spikes/onnx/toy.onnx" ) ) ) )
-        return d.absoluteFilePath( QStringLiteral( "spikes/onnx" ) );
-    }
-    QDir d( QCoreApplication::applicationDirPath() );
-    for ( int i = 0; i < 10; ++i )
-    {
-      if ( QFileInfo::exists( d.absoluteFilePath( QStringLiteral( "spikes/onnx/toy.onnx" ) ) ) )
-        return d.absoluteFilePath( QStringLiteral( "spikes/onnx" ) );
-      if ( !d.cdUp() )
-        break;
-    }
-    const QString cwd = QDir::current().absoluteFilePath( QStringLiteral( "spikes/onnx" ) );
-    if ( QFileInfo::exists( cwd + QStringLiteral( "/toy.onnx" ) ) )
-      return cwd;
-    return QString();
+    const QString model = QFINDTESTDATA( "../spikes/onnx/toy.onnx" );
+    return model.isEmpty() ? QString() : QFileInfo( model ).absolutePath();
   }
 
   // Returns "" when the spike model cannot be located (callers QSKIP).

@@ -37,6 +37,7 @@ private slots:
   void oversizedIdentityIsNotSliced();
   void escapedMetadataStillRespectsMinimumBudget();
   void actualGatewayCommitReplayFactsSurviveCacheFailure();
+  void wellBatchRecoveryFactsSurviveAllTransportFallbacks();
 };
 
 void TestChatResults::legalEnvelopeAndSeparateSchema() {
@@ -246,6 +247,26 @@ void TestChatResults::actualGatewayCommitReplayFactsSurviveCacheFailure() {
     QCOMPARE(response.value("operationId"), native.value("operationId"));
     QCOMPARE(response.value("transport").toObject().value("code"), QJsonValue("result_cache_full"));
     QVERIFY(compactJson(response).size() <= budget);
+  }
+}
+
+void TestChatResults::wellBatchRecoveryFactsSurviveAllTransportFallbacks() {
+  for(const bool fullCache:{false,true})for(const bool forceMinimal:{false,true}) {
+    ChatResultStore::Limits limits;if(fullCache)limits.handles=0;
+    ChatResultStore store(limits);
+    const QJsonObject native{{"contract","paleo.well-facies.result.v2"},{"status","result_unavailable"},
+      {"code","remote_succeeded_result_unavailable"},{"execution","partial"},{"executionScope","batch_summary"},
+      {"inputOperationId","11111111-1111-1111-1111-111111111111"},
+      {"childOperationId","22222222-2222-2222-2222-222222222222"},
+      {"remoteOutcome","succeeded"},{"resultAvailability","unavailable"},
+      {"receipt",forceMinimal?QJsonValue(QString(2000,'x')):QJsonValue()}, {"rows",rows(100)}};
+    const auto envelope=store.encode(raw(native),false,kMinimumEnvelopeBytes);
+    QVERIFY(compactJson(envelope).size()<=kMinimumEnvelopeBytes);QVERIFY(isResultEnvelope(envelope));
+    for(const auto &field:{"inputOperationId","childOperationId","executionScope","remoteOutcome","resultAvailability"})
+      QCOMPARE(envelope.value(QLatin1String(field)),native.value(QLatin1String(field)));
+    QVERIFY(!envelope.contains("operationId"));QCOMPARE(envelope.value("executionScope").toString(),"batch_summary");
+    QCOMPARE(envelope.value("transport").toObject().value("status").toString(),"incomplete");
+    QVERIFY(!envelope.value("coverage").toObject().value("complete").toBool());
   }
 }
 

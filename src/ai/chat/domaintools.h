@@ -4,6 +4,8 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include "services/hostcallcontext.h"
+#include "services/capabilityspec.h"
 
 // ai/chat — 领域工具描述表（方向51 建立，方向61 接入执行回路）。
 //
@@ -38,6 +40,11 @@ struct AiToolSpec {
   QString resultSchemaJson; // 原生 runner 结果 schema；保持既有 strict v1 契约
   // 是否有本地执行前提（ORT 在否）——没有就是不可用，UI 明说而不是灰eif都不说。
   bool requiresLocalOrt = false;
+  unsigned effects = paleo::host::Read;
+  bool legacyAdapter = false;
+  CapabilityExposure exposure = CapabilityExposure::Internal;
+  unsigned effectsForIntent(const QString &intent) const;
+  unsigned effectsForArguments(const QJsonObject &arguments) const;
 
   QJsonObject toJsonSchema() const;   // 入参 object schema
   QJsonObject toChatFunction() const; // OpenAI tools[].function 形状
@@ -56,7 +63,7 @@ bool isAiCapabilityTool(const QString &name);
 // 分发（可路由性判定——不执行；执行在 workflow/aichattoolrunner）
 // ---------------------------------------------------------------------------
 enum class AiToolDispatchStatus {
-  Routed,    // 入口可达（本构建里有对应的实现面且已接线）
+  Routed,    // Static route exists; runtime provider/model/context readiness is separate.
   NotFound,  // 工具未登记
   Disabled,  // 登记了，但本构建缺依赖（如无 ORT）或实参不合格，入口不可达
   NotImplemented, // 保留值：方向61 后内置三工具均不再返回此态（新工具未接线时用）

@@ -108,7 +108,7 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
                              const QVector<TrackingSeed> &seeds, int windowSamples,
                              int radius, const TraceWindowFetcher &fetch,
                              const std::function<bool()> &cancelled,
-                             QVector<TrackingSuggestion> *out, QString *error )
+                             QVector<TrackingSuggestion> *out, QString *error, QString *modelSha256 )
 {
   const auto fail = [error]( const QString &msg ) {
     if ( error )
@@ -117,6 +117,7 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
   };
   if ( error )
     error->clear();
+  if (modelSha256) modelSha256->clear();
   if ( !out )
     return fail( QStringLiteral( "no output sink" ) );
   out->clear();
@@ -139,9 +140,14 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
       return fail( QObject::tr( "非法种子点坐标 (%1,%2)" ).arg( seed.inlineNo ).arg( seed.xlineNo ) );
 
   OnnxModelMeta meta; // #144：meta 随加载取回，推理绑定模型名
-  if ( onnx->loadModelMeta( model, &meta, error ) != OnnxLoadStatus::Ok )
+  const auto loadStatus=onnx->loadModelMeta(model,&meta,error);
+  if ( loadStatus != OnnxLoadStatus::Ok )
+  {
+    if(modelSha256)return fail(onnxPublicLoadCode(loadStatus,error?*error:QString()));
     return fail( error && !error->isEmpty() ? *error
                                             : QObject::tr( "无法加载模型 '%1'" ).arg( model ) );
+  }
+  if (modelSha256) *modelSha256 = meta.sha256;
   // scorer 契约：[1,1,T] 单通道 1D（NCL 布局）。
   if ( meta.inputShape.size() != 3 || meta.inputShape[0] > 1 || meta.inputShape[1] > 1 )
     return fail( QObject::tr( "trace scorer 模型输入须为 [1,1,T]，实际签名 %1" )
@@ -247,7 +253,7 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
       continue; // 死道：诚实留空（无建议），扩张链继续
 
     QString runErr;
-    const OnnxTensor prob = onnx->runTensorOn( model, meta.inputName, window,
+    const OnnxTensor prob = onnx->runPinnedTensor( model, meta.sha256, meta.inputName, window,
                                              { 1, 1, windowSamples }, &runErr );
     if ( !runErr.isEmpty() )
       return fail( QObject::tr( "道 (%1,%2) 打分失败: %3" ).arg( cand.il ).arg( cand.xl ).arg( runErr ) );

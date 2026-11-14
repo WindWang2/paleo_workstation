@@ -12,6 +12,21 @@
 
 // ai/ — tile 推理核心实现。纯函数（plan/softmax/stitch）先于执行器：缝合
 // 正确性（每格恰好写一次）与 softmax 数值域独立可测。
+QString tileOutputContractCode(const OnnxModelMeta &meta,int expectedClasses) {
+  if(meta.outputElemType!=1)return QStringLiteral("tile_model_output_type_unsupported");
+  if(meta.outputShape.size()!=4 || meta.outputShape[0]!=1)return QStringLiteral("tile_model_output_signature_incompatible");
+  const auto classes=meta.outputShape[1];
+  if(classes<1)return QStringLiteral("tile_model_output_classes_unknown");
+  if(classes>kMaxTileClasses)return QStringLiteral("tile_model_output_classes_out_of_range");
+  if(classes!=expectedClasses)return QStringLiteral("tile_model_output_classes_mismatch");
+  qint64 elements=1;
+  for(const auto dimension:meta.outputShape)if(dimension>0) {
+    if(dimension>kMaxOnnxOutputElements || elements>kMaxOnnxOutputElements/dimension)
+      return QStringLiteral("model_output_budget_exceeded");
+    elements*=dimension;
+  }
+  return {};
+}
 
 QVector<InferenceTile> planInferenceTiles( int gridRows, int gridCols,
                                            int tileRows, int tileCols, int halo )
@@ -407,17 +422,36 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
 
   // #144：加载与元数据一次取全（不读「最近一次加载」的全局 meta），推理绑定模型名。
   OnnxModelMeta meta;
-  if ( onnx->loadModelMeta( req.model, &meta, error ) != OnnxLoadStatus::Ok )
+  const auto loadStatus=onnx->loadModelMeta(req.model,&meta,error);
+  if ( loadStatus != OnnxLoadStatus::Ok )
+  {
+    if(!req.expectedModelSha256.isEmpty())return fail(onnxPublicLoadCode(loadStatus,error?*error:QString()));
     return fail( error && !error->isEmpty()
                    ? *error
                    : QObject::tr( "cannot load ONNX model '%1'" ).arg( req.model ) );
+  }
   result->modelSha256 = meta.sha256;
+  if (!req.expectedModelSha256.isEmpty() && req.expectedModelSha256 != meta.sha256)
+    return fail(QStringLiteral("model_changed_since_prepare"));
+  if ((!req.expectedInputSignature.isEmpty() && req.expectedInputSignature != meta.inputSignature) ||
+      (!req.expectedOutputSemantics.isEmpty() && req.expectedOutputSemantics != meta.outputSemantics) ||
+      (req.expectedClassCount > 0 && req.expectedClassCount != meta.classes))
+    return fail(QStringLiteral("model_contract_changed_since_prepare"));
+  if(req.expectedFeatureContractVersion>0 &&
+     (req.expectedFeatureContractVersion!=meta.featureContractVersion || req.expectedFeatures!=meta.features))
+    return fail(QStringLiteral("model_contract_changed_since_prepare"));
+  if(req.requireProbabilityContract) {
+    const auto code=tileOutputContractCode(meta,req.expectedClassCount>0?req.expectedClassCount:meta.classes);
+    if(!code.isEmpty())return fail(code);
+  }
 
   // 输入签名门：4 维、N=1（或动态）、C=1（或动态）——tile 读域按 H×W 喂入。
   if ( meta.inputShape.size() != 4 ||
        ( meta.inputShape[0] > 1 ) || ( meta.inputShape[1] > 1 ) )
     return fail( QObject::tr( "模型输入须为 [1,1,H,W] 单通道 4 维，实际签名 %1" )
                    .arg( meta.inputSignature ) );
+  if(meta.inputShape[2]>kMaxTileGridSide || meta.inputShape[3]>kMaxTileGridSide)
+    return fail(QStringLiteral("model_input_budget_exceeded"));
 
   TileClassGrid grid;
   grid.rows = req.gridRows;
@@ -470,6 +504,9 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
       needPad = true;
     }
 
+    const qint64 inputPixels=qint64(inferRows)*inferCols;
+    if(inputPixels>4*1024*1024 || (req.expectedClassCount>0 && inputPixels*req.expectedClassCount>32*1024*1024))
+      return fail(QStringLiteral("model_input_budget_exceeded"));
     QVector<bool> valid;
     sanitizeModelInput( data, &valid ); // #143：NaN/Inf 不进 ORT，输出端按掩膜置 255
 
@@ -494,7 +531,7 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
     QElapsedTimer inferClock;
     inferClock.start();
     OnnxTensor out =
-      onnx->runTensorOn( req.model, meta.inputName, inferData, { 1, 1, inferRows, inferCols }, &runErr );
+      onnx->runPinnedTensor( req.model, meta.sha256, meta.inputName, inferData, { 1, 1, inferRows, inferCols }, &runErr );
     const qint64 tileMs = inferClock.elapsed();
     result->inferenceMs += tileMs;
     if ( !runErr.isEmpty() )
@@ -538,6 +575,9 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
     }
 
     const int classes = int( out.shape[1] );
+    if (req.expectedClassCount > 0 && meta.outputSemantics != QLatin1String("classes") &&
+        meta.outputSemantics != QLatin1String("class_index") && classes != req.expectedClassCount)
+      return fail(QStringLiteral("model_output_classes_mismatch"));
     if ( classes > kMaxTileClasses )
       return fail( QObject::tr( "模型输出 %1 类超过上限 %2（类号 255 保留为无数据）" )
                      .arg( classes )
@@ -569,7 +609,16 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
     }
 
     TileClassGrid tileGrid;
-    softmaxGrid( out.values, classes, tile.rows, tile.cols, valid, &tileGrid, meta.outputSemantics );
+    if(req.requireProbabilityContract && meta.outputSemantics==QLatin1String("probabilities")) {
+      QString code;
+      if(!probabilityGrid(out.values,classes,tile.rows,tile.cols,valid,&tileGrid,&code))return fail(code);
+    } else softmaxGrid( out.values, classes, tile.rows, tile.cols, valid, &tileGrid, meta.outputSemantics );
+    const int declaredLabels=req.expectedClassCount==1 &&
+      (meta.outputSemantics==QLatin1String("logits") || meta.outputSemantics==QLatin1String("probabilities"))?2:req.expectedClassCount;
+    if (declaredLabels > 0)
+      for (quint8 label : tileGrid.argmax)
+        if (label != 255 && label >= declaredLabels)
+          return fail(QStringLiteral("model_output_label_out_of_contract"));
     stitchTileIntoGrid( tile, tileGrid, &grid );
 
     result->tilesDone = i + 1;

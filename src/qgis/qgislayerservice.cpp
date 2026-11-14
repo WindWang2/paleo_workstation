@@ -114,6 +114,14 @@ QgisLayerService::QgisLayerService(QgisProjectService *projectSvc, LayerManifest
 
 bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
 {
+  return declareWithPresentationMarker(decl,error,false);
+}
+bool QgisLayerService::declareForPresentation(const LayerDeclaration &decl, QString *error)
+{
+  return declareWithPresentationMarker(decl,error,true);
+}
+bool QgisLayerService::declareWithPresentationMarker(const LayerDeclaration &decl,QString *error,bool capture)
+{
   if (decl.layerId.isEmpty())
   {
     setError(error, QStringLiteral("cannot declare a layer with an empty layerId"));
@@ -138,6 +146,10 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
   }
   if (!m_manifest->upsert(decl, error))
     return false;
+  if(capture && !beginPresentationState(decl.layerId,decl.source,replace)) {
+    setError(error,QStringLiteral("native_presentation_state_unavailable"));return false;
+  }
+  bool reconstructed=replace;
   if (replace && !constraint)
   {
     if (auto *project = svcProject(m_projectSvc))
@@ -146,9 +158,15 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     // 声明（清单已是新 source），但不能把失败文案塞进「成功」返回的 error，
     // 记 warning 留痕。
     QString reErr;
-    if (!instantiate(decl.layerId, &reErr))
+    if (!instantiate(decl.layerId, &reErr)) {
+      if(capture){setError(error,reErr);return false;}
       qWarning("QgisLayerService::declare: re-instantiating '%s' after source change failed: %s",
                qPrintable(decl.layerId), qPrintable(reErr));
+    }
+  }
+  if(capture && !previous && presentationNeedsInstance(decl.layerId,decl.source)) {
+    if(!instantiate(decl.layerId,error))return false;
+    reconstructed=true;
   }
   if (constraint && !constraint->isEditable()) {
     // 同一约束库新增要素时 source 字符串不变，但旧 provider 可能仍是无几何表。
@@ -168,8 +186,12 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     constraint->updateExtents();
     constraint->triggerRepaint();
   }
-  if (QgsMapLayer *live = m_instances.value(decl.layerId).data())
-    applyConstraintDisplayName(live, decl.layerId, decl.title);
+  if(!capture || !reconstructed)
+    if (QgsMapLayer *live = m_instances.value(decl.layerId).data())
+      applyConstraintDisplayName(live, decl.layerId, decl.title);
+  if(capture && !rememberPresentationState(decl.layerId,decl.source)) {
+    setError(error,QStringLiteral("native_presentation_state_unavailable"));return false;
+  }
   emit layerDeclared(decl.layerId);
   return true;
 }
@@ -301,6 +323,9 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   // service identity AFTER styles, before registry/tree signals can observe it.
   layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
   trackInstance(layerId, layer.get());
+  if (!layer->customProperty(QStringLiteral("paleoCreatedAt")).isValid())
+    layer->setCustomProperty(QStringLiteral("paleoCreatedAt"),QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+  initializePresentationState(layerId);
 
   // QgsProject takes ownership; keep only the raw pointer in the instance map.
   QgsMapLayer *added = proj->addMapLayer(layer.get());
@@ -310,13 +335,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     return nullptr;
   }
   layer.release();
-  // 主线5：创建时间元数据——首次实例化时刻落图层自定义属性（QGIS 随 .qgz
-  // 持久化；复用实例不刷新时间）。属性面板业务字段「创建时间」读此值。
-  if (!added->customProperty(QStringLiteral("paleoCreatedAt")).isValid())
-    added->setCustomProperty(
-        QStringLiteral("paleoCreatedAt"),
-        QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-
+  initializePresentationState(layerId);
   if (layerId == QLatin1String("boundary.project_range")) reconcileProjectBoundary(*decl);
   emit layerInstantiated(layerId);
   return added;

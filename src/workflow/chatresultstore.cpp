@@ -33,6 +33,12 @@ QJsonObject boundedMetadata(const QJsonObject &original, const QJsonObject &part
     candidate.insert(QLatin1String(field), original.value(QLatin1String(field)));
     if (compactJson(candidate).size() <= maxBytes) minimal = candidate;
   }
+  const auto well=boundedWellResultMetadata(original);
+  for(const auto &field:{"executionScope","inputOperationId","childOperationId","remoteOutcome","resultAvailability"}) {
+    if(!well.contains(QLatin1String(field)))continue;
+    auto candidate=minimal;candidate.insert(QLatin1String(field),well.value(QLatin1String(field)));
+    if(compactJson(candidate).size()<=maxBytes)minimal=candidate;
+  }
   const auto contract=original.value("contractVersion").toString(original.value("contract").toString());
   if(smallStateTag(QJsonValue(contract))) {
     auto candidate=minimal;candidate.insert("payloadContract",contract);

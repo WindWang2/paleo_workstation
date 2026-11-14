@@ -10,6 +10,8 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <QScopeGuard>
+#include "services/paleotaskservice.h"
 
 #include "../src/ai/chat/chatmessage.h"
 #include "../src/ai/remotepredictconfig.h"
@@ -41,6 +43,7 @@ private slots:
   void exactVersionUsesBoundDocumentIdentity();
   void chatToolCatalogRebindsOnProjectSwitch();
   void chatToolRebindsOntoMkprojectFixtureProject();
+  void reentrantBindDuringPythonPrewarmKeepsTheNewProject();
 
 private:
   static bool spinUntil(const std::function<bool()> &done, int timeoutMs = 10000) {
@@ -57,6 +60,26 @@ private:
   // 兼容旧面：topic=wells（既有两槽的断言路径零改动）。
   static bool queryWells(AiChatController &chat, QJsonObject *payload);
 };
+
+void TestAiWiring::reentrantBindDuringPythonPrewarmKeepsTheNewProject() {
+  const auto previous=qgetenv("PALEO_AGENT_PYTHON_ROOT");
+  const auto restore=qScopeGuard([&]{if(previous.isNull())qunsetenv("PALEO_AGENT_PYTHON_ROOT");else qputenv("PALEO_AGENT_PYTHON_ROOT",previous);});
+  QTemporaryDir oldProject,newProject;DataCatalog oldCatalog,newCatalog;
+  QVERIFY(oldCatalog.open(oldProject.path()));QVERIFY(newCatalog.open(newProject.path()));
+  CatalogEntity well;well.id="well-new";well.entityType="well";well.name="NEW-PROJECT";
+  QVERIFY(newCatalog.addEntity(well));
+  AiChatController chat;PaleoTaskService tasks;chat.toolRunner()->setTaskService(&tasks);bool rebound=false;
+  connect(&tasks,&PaleoTaskService::taskAdded,&chat,[&] {
+    if(rebound)return;rebound=true;qunsetenv("PALEO_AGENT_PYTHON_ROOT");
+    bindChatToolRunner(&chat,nullptr,nullptr,&newCatalog,newProject.path(),"new-document");
+  });
+  qputenv("PALEO_AGENT_PYTHON_ROOT",oldProject.path().toUtf8());
+  bindChatToolRunner(&chat,nullptr,nullptr,&oldCatalog,oldProject.path(),"old-document");
+  QVERIFY(rebound);QJsonObject page;QVERIFY(queryWells(chat,&page));
+  QCOMPARE(page.value("wells").toArray().size(),1);
+  QCOMPARE(page.value("wells").toArray()[0].toObject().value("name").toString(),QString("NEW-PROJECT"));
+  QVERIFY(!chat.toolRunner()->pythonRuntime()->configuration().enabled);
+}
 
 void TestAiWiring::unconfiguredEndpointStillYieldsRouterWithoutTransport() {
   QObject owner;

@@ -6,6 +6,7 @@
 #include "pythonanalysiswiring.h"
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythonruntime.h"
+#include "services/pythontrustedreadiness.h"
 #include "services/pythoncapabilityspec.h"
 #include "workflow/pythonscriptoperation.h"
 #include "workflow/capabilityhost.h"
@@ -210,25 +211,27 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   const bool reusePython=priorPython && priorPython->configuration().root==python.root &&
     priorPython->configuration().manifestSha256==python.manifestSha256 && priorPython->policy().json()==pythonPolicy.json();
   context.pythonRuntime=reusePython?priorPython:std::make_shared<paleo::python::RuntimeProvider>(std::move(python),pythonPolicy);
+  const auto priorTrusted=chat->toolRunner()->pythonTrusted();const bool reuseTrusted=reusePython && bool(priorTrusted);
+  context.pythonTrusted=reuseTrusted?priorTrusted:std::make_shared<paleo::python::TrustedReadinessProvider>(context.pythonRuntime);
   if(host)host->registerExecutionAdapter(QLatin1String(paleo::python::SummaryCapability),
     paleo::python::trustedScriptAdapter(context.pythonRuntime,qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT")));
   const auto scripts=qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT");
-  context.runtimeReadiness=[provider=context.pythonRuntime,scripts](const QString &name,const QJsonObject &args,bool listing) {
+  context.runtimeReadiness=[provider=context.pythonRuntime,execution=context.pythonTrusted,scripts](const QString &name,const QJsonObject &args,bool listing) {
     if(name!=QLatin1String(paleo::python::WellQualityTool) && name!=QLatin1String(paleo::python::CorrelationTool))return QString();
     if(!provider->policy().allowTrusted)return QStringLiteral("python_execution_denied");
     const auto runtime=provider->snapshot();if(!runtime.ready())return runtime.code;
     // Publishing an authenticated frozen result does not require its original supply directory.
-    if(listing || args.value("publish_intent")==QLatin1String("publish"))return QString();
+    if(!listing && args.value("publish_intent")==QLatin1String("publish"))return QString();
     const auto id=name==QLatin1String(paleo::python::WellQualityTool)?paleo::python::WellQualityCapability:paleo::python::CorrelationCapability;
-    for(const auto &value:pythonAnalysisReadiness(provider,scripts).value("capabilities").toArray()) {
+    for(const auto &value:pythonAnalysisReadiness(provider,scripts,execution).value("capabilities").toArray()) {
       const auto capability=value.toObject();if(capability.value("capabilityId")==QLatin1String(id))
         return capability.value("ready").toBool()?QString():capability.value("code").toString();
     }
     return QStringLiteral("python_template_unavailable");
   };
   if(host)for(const auto kind:{paleo::python::AnalysisKind::WellQuality,paleo::python::AnalysisKind::AttributeCorrelation})
-    host->registerExecutionAdapter(paleo::python::analysisCapabilityId(kind),paleo::python::analysisScriptAdapter(kind,
-      context.pythonRuntime,scripts,assemblePythonAnalysisProvider(catalog,document,host)));
+    host->registerExecutionAdapter(paleo::python::analysisCapabilityId(kind),gateTrustedAnalysis(paleo::python::analysisScriptAdapter(kind,
+      context.pythonRuntime,scripts,assemblePythonAnalysisProvider(catalog,document,host)),context.pythonTrusted));
   if(document)context.sourceResolver=[guard=QPointer<paleo::document::DocumentSession>(document)](const auto &ref) {
     return guard && guard->isOpen()?guard->source(ref):paleo::document::SourceRecord{};
   };
@@ -236,6 +239,14 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
     const auto provider=context.pythonRuntime;
     chat->toolRunner()->taskService()->start(QObject::tr("Python 环境状态"),[provider](PaleoTask *task) {
       provider->inspect([task]{return task->cancelRequested();});return QString();
+    });
+  }
+  if(!chatOwner || (host && !hostOwner) || (document && !documentOwner) ||
+      (catalog && !catalogOwner) || (layers && !layerOwner))return;
+  if(!reuseTrusted && pythonPolicy.allowTrusted && context.pythonRuntime->configuration().enabled && chat->toolRunner()->taskService()) {
+    const auto execution=context.pythonTrusted;
+    chat->toolRunner()->taskService()->start(QObject::tr("Python 环境状态"),[execution](PaleoTask *task) {
+      execution->inspect([task]{return task->cancelRequested();});return QString();
     });
   }
   if(!chatOwner || (host && !hostOwner) || (document && !documentOwner) ||

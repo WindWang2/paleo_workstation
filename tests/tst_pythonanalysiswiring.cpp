@@ -68,6 +68,14 @@ QJsonObject call(AiChatToolRunner &runner,const QString &name,const QJsonObject 
 class TestPythonAnalysisWiring:public QObject {
   Q_OBJECT
 private slots:
+  void unprobedBackendCannotAdvertiseOrCaptureNewComputation() {
+    bool captured=false;capability::CapabilityExecutionAdapter adapter;
+    adapter.capture=[&](const auto &,const auto &,QString*){captured=true;return capability::CapabilityPreparation{};};
+    const auto gated=gateTrustedAnalysis(adapter,{});QString code;
+    QVERIFY(!gated.capture({}, {},&code).worker);QVERIFY(!captured);QCOMPARE(code,QString("python_trusted_execution_unprobed"));
+    const auto status=pythonAnalysisReadiness({},{});QVERIFY(!status.value("ready").toBool());
+    QVERIFY(!status.value("execution").toObject().value("executionReady").toBool());
+  }
   void discoveryReferencesResolveToHostOwnedPathsAndFrozenHead() {
     Fixture f;QVERIFY2(f.open(),qPrintable(f.error));auto provider=assemblePythonAnalysisProvider(&f.catalog,&f.session,&f.host);
     python::AnalysisReadPlan plan;std::function<QString()> validate;const auto before=f.catalog.mutationSeq();

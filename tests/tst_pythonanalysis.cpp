@@ -15,7 +15,8 @@
 using namespace paleo;
 namespace {
 QByteArray script(python::AnalysisKind kind) {
-  QFile file(QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES)+'/'+python::analysisKindId(kind)+".py");
+  const auto root=qEnvironmentVariable("PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES",QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES));
+  QFile file(root+'/'+python::analysisKindId(kind)+".py");
   return file.open(QIODevice::ReadOnly)?file.readAll():QByteArray{};
 }
 struct Fixture {
@@ -24,10 +25,11 @@ struct Fixture {
   data::DataService service;
   python::AnalysisReadPlan plan;
   QString error;
-  bool open(int samples=65536,bool declared=true) {
+  bool open(int samples=65536,bool declared=true,int sourceMessageBytes=0) {
     root=temporary.path()+"/project";std::string detail;
     if(!service.createProject(root.toUtf8().toStdString(),"Python bounded analysis",detail))return false;
     data::ParsedFile parsed;parsed.kind="logs";parsed.status="parsed";
+    parsed.message.assign(size_t(sourceMessageBytes),'x');
     data::WellDataset well;well.wellInfo.wellName="ANALYSIS-1";
     data::LogSet log;log.logSetName="Declared shared axis";log.depthInfo={"MD","m","KB","","",""};
     if(!declared)log.depthInfo.depthType.clear();
@@ -42,14 +44,14 @@ struct Fixture {
     qlonglong sourceId=0;const auto digest=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex();
     if(!service.importPreparedFile(source.fileName().toUtf8().toStdString(),source.fileName().toUtf8().toStdString(),
         source.fileName().toUtf8().toStdString(),digest.toStdString(),parsed,sourceId,detail)) {error=QString::fromStdString(detail);return false;}
-    std::vector<data::DataEntry> entries;data::SourceIndexEntry registered;
-    if(!service.listData("curves",0,entries,detail) || entries.size()!=2 || !service.readSourceIndexEntry(sourceId,registered,detail))return false;
+    std::vector<data::DataEntry> entries;
+    if(!service.listData("curves",0,entries,detail) || entries.size()!=2)return false;
     plan.projectDir=root;plan.modelDirectory=root;plan.documentId="doc";plan.callerScope="agent:test";
     plan.kind=python::AnalysisKind::AttributeCorrelation;
-    if(!service.readModelChangeHead(plan.expectedHead,detail) || !plan.expectedHead.available)return false;
+    if(!service.readModelChangeHead(plan.expectedHead,detail) || !plan.expectedHead.available){error=QString::fromStdString(detail);return false;}
     for(const auto &entry:entries) {
       python::AnalysisCurveSelection selection;
-      selection.source.ref={plan.documentId,"area-model",sourceId,QString::fromStdString(registered.sha256)};
+      selection.source.ref={plan.documentId,"area-model",sourceId,QString::fromLatin1(digest)};
       selection.source.fingerprint=document::SourceFingerprint::fromStored(selection.source.ref.fileRevisionId);
       selection.source.modelDirectory=root;selection.source.versionId="source-v1";selection.sourceVersionId="source-v1";
       selection.wellId=entry.wellId;selection.logSetId=entry.parentId;selection.curveId=entry.id;
@@ -120,15 +122,8 @@ private slots:
     QCOMPARE(cancelled.code,QString("cancelled"));QCOMPARE(cancelled.io.payloadBytes,0);
   }
   void oversizedSourceTextIsRejectedBeforeArraysOrBundle() {
-    Fixture fixture;QVERIFY(fixture.open());const auto connection=QUuid::createUuid().toString();bool changed=false;
-    {
-      auto db=QSqlDatabase::addDatabase("QSQLITE",connection);db.setDatabaseName(fixture.root+"/data.sqlite");QVERIFY(db.open());
-      QSqlQuery query(db);QVERIFY(query.prepare("UPDATE sources SET message=? WHERE id=?"));
-      query.addBindValue(QString(16*1024*1024,QChar('x')));query.addBindValue(fixture.plan.curves.first().source.ref.sourceId);
-      changed=query.exec();query.finish();db.close();
-    }
-    QSqlDatabase::removeDatabase(connection);QVERIFY(changed);std::string detail;
-    QVERIFY(fixture.service.readModelChangeHead(fixture.plan.expectedHead,detail));const auto permit=python::claimExecutionPermit();
+    Fixture fixture;QVERIFY2(fixture.open(1024,true,32768),qPrintable(fixture.error));QVERIFY(fixture.plan.expectedHead.available);
+    const auto permit=python::claimExecutionPermit();
     const auto result=python::materializeAnalysis(fixture.plan,script(fixture.plan.kind),policy(),permit);
     QCOMPARE(result.code,QString("python_analysis_read_budget"));QCOMPARE(result.io.sourceRows,0);
     QCOMPARE(result.io.payloadBytes,0);QCOMPARE(result.io.legacyBytes,0);QVERIFY(result.bundle.reference.isEmpty());

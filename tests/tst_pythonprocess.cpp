@@ -128,6 +128,8 @@ private slots:
     QCOMPARE(result.code,QString(stderrChannel?"python_process_log_limit":"python_process_output_limit"));
     QVERIFY(result.output.isEmpty());QVERIFY(result.error.size()<=request.policy.logBytes);
     QVERIFY(result.outputLog.size()<=request.policy.logBytes);
+    if(stderrChannel)QCOMPARE(result.error,QByteArray(request.policy.logBytes,'x'));
+    else QCOMPARE(result.outputLog,QByteArray(request.policy.logBytes,'x'));
   }
   void nonzeroExitAndStartFailure() {
     QTemporaryDir dir;const auto path=dir.filePath("fixed.py");const QByteArray code="import sys\nprint('partial')\nsys.exit(17)\n";

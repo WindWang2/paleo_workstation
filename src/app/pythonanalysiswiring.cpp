@@ -5,6 +5,7 @@
 #include "services/pythonanalysisselection.h"
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythontrustedreadiness.h"
+#include "services/pythongenerated.h"
 #include "workflow/documentsession.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -23,6 +24,7 @@ QString checkScope(const Scope &scope,const host::CallContext &expected,const do
   if(!scope.catalog || !scope.catalog->isOpen() || !scope.document || !scope.document->isOpen() || !scope.host)
     return "document_unavailable";
   const auto code=host::checkContext(scope.host->context(),expected,host::Read|host::PrivateStage|host::LocalExecute);
+  if(!scope.catalog || !scope.document || !scope.host)return "document_unavailable";
   if(!code.isEmpty())return code;
   if(scope.document->documentId()!=well.documentId || expected.documentId!=well.documentId)return "well_document_mismatch";
   const auto entity=scope.catalog->storedEntityById(well.catalogEntityId);
@@ -50,6 +52,7 @@ paleo::python::AnalysisPlanProvider assemblePythonAnalysisProvider(DataCatalog *
     python::AnalysisKind kind;
     if(request.capabilityId==QLatin1String(python::WellQualityCapability))kind=python::AnalysisKind::WellQuality;
     else if(request.capabilityId==QLatin1String(python::CorrelationCapability))kind=python::AnalysisKind::AttributeCorrelation;
+    else if(request.capabilityId==QLatin1String(python::GeneratedCapability))kind=python::AnalysisKind::Generated;
     else return QStringLiteral("execution_adapter_unavailable");
     if(request.bindingMode!="pinned-value" || !request.parameters.isEmpty())return QStringLiteral("invalid_python_analysis_request");
     python::AnalysisSelectionRequest selection;QString code;

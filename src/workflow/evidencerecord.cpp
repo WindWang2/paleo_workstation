@@ -6,7 +6,6 @@
 #include <QCoreApplication>
 #include <QSet>
 #include <QHash>
-#include <qgis.h>
 
 namespace paleo::workflow_detail
 {
@@ -97,12 +96,13 @@ QVariantMap evidenceRecord( const DataCatalog *catalog, const QStringList &paren
     generation.insert(QStringLiteral("supporting_wells"), supporting);
     generation.insert(QStringLiteral("skipped_wells"), skipped);
   }
-  auto result = paleo::evidence::build(
-      inputs, generation,
-      { { QStringLiteral( "application" ), QCoreApplication::applicationName() },
-        { QStringLiteral( "application_version" ), QCoreApplication::applicationVersion() },
-        { QStringLiteral( "qt" ), QString::fromLatin1( qVersion() ) },
-        { QStringLiteral( "qgis" ), Qgis::version() } } );
+  QVariantMap software{{QStringLiteral("application"),QCoreApplication::applicationName()},
+    {QStringLiteral("application_version"),QCoreApplication::applicationVersion()},
+    {QStringLiteral("qt"),QString::fromLatin1(qVersion())}};
+  const auto *application=QCoreApplication::instance();
+  const auto qgisVersion=application?application->property("paleo.qgis.version").toString().trimmed():QString();
+  if(!qgisVersion.isEmpty())software.insert(QStringLiteral("qgis"),qgisVersion);
+  auto result = paleo::evidence::build(inputs,generation,software);
   result.insert(QStringLiteral("interpretation_references"), interpretationReferences);
   result.insert(QStringLiteral("computational_parent_versions"), computationalList);
   // G10b：聚合上游计算回执——对每个计算父版本取其 extra 归一化

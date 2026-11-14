@@ -159,4 +159,3 @@ src/workflow/workflows.cpp
 src/workflow/workflows_internal.h
 src/ui/paleomainwindow_ribbon.cpp
 src/ui/paleomainwindow_seismic.cpp
-src/workflow/evidencerecord.cpp

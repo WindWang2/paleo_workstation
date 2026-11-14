@@ -1,6 +1,11 @@
 // 层：测试壳
 #include "app/pythonanalysiswiring.h"
 #include "services/pythonanalysiscapabilityspec.h"
+#include "workflow/pythongeneratedoperation.h"
+#include "services/pythongenerated.h"
+#include <QtConcurrent>
+#include <QFutureWatcher>
+#include <QEventLoop>
 #include "services/projectquerycapability.h"
 #include "fixtures/documentsourcefixture.h"
 #include "workflow/capabilityhost.h"
@@ -63,13 +68,26 @@ struct Fixture:document_fixture::Fixture {
 QJsonObject call(AiChatToolRunner &runner,const QString &name,const QJsonObject &args,bool &ok) {
   QSignalSpy done(&runner,&AiChatToolRunner::toolFinished);ok=false;
   runner.run({QUuid::createUuid().toString(QUuid::WithoutBraces),name,QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))});
-  if(done.isEmpty() && !done.wait(30000))return {};
+  // The enforced execution policy allows 120 s, including sandbox snapshots.
+  if(done.isEmpty() && !done.wait(180000))return {};
   ok=done[0][1].toBool();return QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object();
 }
 }
 class TestPythonAnalysisWiring:public QObject {
   Q_OBJECT
 private slots:
+  void contextCallbackCannotDestroyTheResolvedCatalogBeforeSelectionChecks() {
+    Fixture f;QVERIFY2(f.open(),qPrintable(f.error));
+    auto catalog=std::make_unique<DataCatalog>();QVERIFY(catalog->open(f.project));int calls=0;
+    f.host.setBindingProvider([&] {
+      capability::HostBinding binding;binding.context=f.context;
+      if(++calls==2)catalog.reset();return binding;
+    });
+    const auto provider=assemblePythonAnalysisProvider(catalog.get(),&f.session,&f.host);
+    python::AnalysisReadPlan plan;std::function<QString()> validate;
+    QCOMPARE(provider(f.request(),plan,validate),QString("document_unavailable"));
+    QCOMPARE(calls,2);QVERIFY(!validate);
+  }
   void unprobedBackendCannotAdvertiseOrCaptureNewComputation() {
     bool captured=false;capability::CapabilityExecutionAdapter adapter;
     adapter.capture=[&](const auto &,const auto &,QString*){captured=true;return capability::CapabilityPreparation{};};
@@ -119,7 +137,15 @@ private slots:
       QVERIFY(!entry.toObject().contains("root"));
     }
   }
+  void agentDiscoveryComputePagedReadRestartAndPublishUseOneChain_data() {
+    QTest::addColumn<bool>("generated");
+    QTest::newRow("trusted-quality")<<false;QTest::newRow("generated-numeric")<<true;
+  }
   void agentDiscoveryComputePagedReadRestartAndPublishUseOneChain() {
+    QFETCH(bool,generated);
+    const auto tool=generated?QLatin1String(python::GeneratedTool):QLatin1String(python::WellQualityTool);
+    const auto capability=generated?QLatin1String(python::GeneratedCapability):QLatin1String(python::WellQualityCapability);
+    const auto contract=generated?QString("paleo.python-generated-report.v1"):QString("paleo.well-quality-report.v1");
     const auto root=qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT");
     if(root.isEmpty()) {
       QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_AGENT_PYTHON_EXECUTION")!="1","Required real Python fixture missing");
@@ -127,16 +153,26 @@ private slots:
     }
     Fixture f;QVERIFY2(f.open(),qPrintable(f.error));
     ProjectDirLock lock(f.project);QVERIFY2(lock.tryLock(&f.error),qPrintable(f.error));
-    python::ExecutionPolicy policy;policy.allowTrusted=true;
+    python::ExecutionPolicy policy;policy.allowTrusted=!generated;policy.allowGenerated=generated;
     auto runtime=std::make_shared<python::RuntimeProvider>(python::RuntimeConfig{
       root,qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),true},policy);
-    const auto inspected=runtime->inspect();QVERIFY2(inspected.ready(),qPrintable(inspected.code));
+    const auto inspected=generated?runtime->inspectIntegrity():runtime->inspect();QVERIFY2(inspected.ready(),qPrintable(inspected.code));
+    auto sandbox=std::make_shared<python::SandboxProvider>(runtime);
+    if(generated) {
+      QFutureWatcher<QJsonObject> watcher;QEventLoop wait;
+      connect(&watcher,&QFutureWatcherBase::finished,&wait,&QEventLoop::quit);
+      watcher.setFuture(QtConcurrent::run([sandbox]{return sandbox->inspect();}));
+      if(!watcher.isFinished())wait.exec();
+      const auto status=watcher.result();QVERIFY2(status.value("ready").toBool(),qPrintable(QJsonDocument(status).toJson()));
+    }
     f.context.allowedEffects|=host::CatalogPublish|host::Presentation;
     const auto binding=[&]{capability::HostBinding h;h.catalog=&f.catalog;h.projectDir=f.project;
       h.operationDir=f.project+"/.paleo/capability-ops";h.writeClaim=lock.claim();h.context=f.context;return h;};
     const auto configure=[&](capability::CapabilityHost &owner,const QString &scripts) {
       owner.setBindingProvider(binding);owner.setTaskService(&f.tasks);owner.setCallerScope(host::Caller::Agent,"agent:production");
-      owner.registerExecutionAdapter(QLatin1String(python::WellQualityCapability),python::analysisScriptAdapter(
+      if(generated)owner.registerExecutionAdapter(capability,python::generatedScriptAdapter(runtime,
+        scripts.isEmpty()?std::shared_ptr<python::SandboxProvider>{}:sandbox,assemblePythonAnalysisProvider(&f.catalog,&f.session,&owner)));
+      else owner.registerExecutionAdapter(capability,python::analysisScriptAdapter(
         python::AnalysisKind::WellQuality,runtime,scripts,assemblePythonAnalysisProvider(&f.catalog,&f.session,&owner)));
     };
     configure(f.host,QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES));
@@ -150,13 +186,39 @@ private slots:
     QVERIFY2(ok,qPrintable(QJsonDocument(query).toJson()));QVERIFY(query.value("metadataOnly").toBool());
     QCOMPARE(query.value("numericPayloadBytes").toString(),QString("0"));
     auto inputs=f.selection;inputs["curves"]=QJsonArray{query.value("curves").toArray()[0].toObject().value("input_ref")};
+    const QByteArray source=R"PY(import sys, struct, json, numpy as np
+stream=sys.stdin.buffer
+n=struct.unpack('<I',stream.read(4))[0]
+meta=json.loads(stream.read(n))
+rows,cols=meta['shape']
+raw=stream.read()
+values=np.frombuffer(raw,dtype='<f8',count=rows*cols,offset=rows*8).reshape(rows,cols)
+quality=np.frombuffer(raw,dtype='u1',count=rows*cols,offset=rows*8+rows*cols*8).reshape(rows,cols)
+valid=np.isfinite(values[:,0]) & ((quality[:,0]&3)==0)
+mean=float(np.mean(values[valid,0])) if np.any(valid) else None
+out={'contract':'paleo.python-output.v1','ports':{'REPORT':{'contract':'paleo.python-generated-report.v1','metrics':[{'id':'mean','unit':'API','value':mean}],'tables':[],'notes':[]}}}
+sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
+)PY";
     QJsonObject args{{"client_request_id","chat-compute"},{"binding_mode","pinned-value"},{"parameters",QJsonObject{}},
       {"inputs",inputs},{"publish_intent","compute-only"}};
-    const auto count=f.catalog.versions().size();const auto computed=call(runner,QLatin1String(python::WellQualityTool),args,ok);
+    if(generated)args["parameters"]=QJsonObject{{"code",QString::fromUtf8(source)}};
+    if(generated) {
+      auto failedArgs=args;failedArgs["client_request_id"]="chat-invalid-code";
+      failedArgs["parameters"]=QJsonObject{{"code","def invalid(:\n"}};
+      const auto before=f.catalog.versions().size();call(runner,tool,failedArgs,ok);
+      QVERIFY(!ok);QCOMPARE(f.catalog.versions().size(),before);
+    }
+    const auto count=f.catalog.versions().size();const auto computed=call(runner,tool,args,ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(computed).toJson()));QCOMPARE(f.catalog.versions().size(),count);
     const auto operation=computed.value("operationId").toString();QVERIFY(!operation.isEmpty());
-    const auto replay=call(runner,QLatin1String(python::WellQualityTool),args,ok);
+    const auto replay=call(runner,tool,args,ok);
     QVERIFY(ok);QCOMPARE(replay.value("operationId").toString(),operation);
+    if(generated) {
+      auto changed=args;changed["parameters"]=QJsonObject{{"code",QString::fromUtf8(source)+"\n# different program\n"}};
+      const auto conflict=call(runner,tool,changed,ok);QVERIFY(!ok);
+      QCOMPARE(conflict.value("code").toString(),QString("idempotency_conflict"));
+      QCOMPARE(f.catalog.versions().size(),count);
+    }
     QByteArray report;QString offset="0";
     for(int i=0;i<64;++i) {
       const auto page=call(runner,"paleo.operation_read",{{"operation_id",operation},{"port_id","REPORT"},{"offset",offset},{"max_bytes",128}},ok);
@@ -164,18 +226,26 @@ private slots:
       QVERIFY(!bytes.isEmpty() && bytes.size()<=128);report+=bytes;offset=page.value("nextOffset").toString();
       if(!page.value("hasMore").toBool())break;
     }
-    QCOMPARE(QJsonDocument::fromJson(report).object().value("contract").toString(),QString("paleo.well-quality-report.v1"));
+    const auto accepted=QJsonDocument::fromJson(report).object();
+    QCOMPARE(accepted.value("contract").toString(),contract);
+    if(generated) {
+      QCOMPARE(accepted.value("codeSha256").toString(),QString::fromLatin1(QCryptographicHash::hash(source,QCryptographicHash::Sha256).toHex()));
+      QCOMPARE(accepted.value("metrics").toArray()[0].toObject().value("value").toDouble(),2.5);
+      QCOMPARE(accepted.value("executionMode").toString(),QString("generated"));
+      QCOMPARE(accepted.value("claims").toString(),QString("agent_generated_values_not_independently_recomputed"));
+      QVERIFY(!policy.allowTrusted);
+    }
     // Reconstruct runtime hooks from durable records; publishing cannot rerun the old source script.
-    capability::CapabilityHost restarted;configure(restarted,"/missing-original-template-generation");
+    capability::CapabilityHost restarted;configure(restarted,generated?QString():QString("/missing-original-template-generation"));
     context.capabilityHost=&restarted;runner.setContext(context);
     args["client_request_id"]="chat-publish";args["publish_intent"]="publish";
-    args["inputs"]=QJsonObject{{"source_operation_id",operation}};
-    const auto published=call(runner,QLatin1String(python::WellQualityTool),args,ok);
+    args["parameters"]=QJsonObject{};args["inputs"]=QJsonObject{{"source_operation_id",operation}};
+    const auto published=call(runner,tool,args,ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(published).toJson()));QCOMPARE(published.value("commitState").toString(),QString("committed"));
     QCOMPARE(f.catalog.versions().size(),count+1);
-    const auto source=inputs.value("curves").toArray()[0].toObject().value("source_version_id").toString();
-    for(const auto &version:f.catalog.versions())if(version.stage=="DERIVED")QCOMPARE(version.parentVersionIds,QStringList{source});
-    call(runner,QLatin1String(python::WellQualityTool),args,ok);QVERIFY(ok);QCOMPARE(f.catalog.versions().size(),count+1);
+    const auto sourceVersion=inputs.value("curves").toArray()[0].toObject().value("source_version_id").toString();
+    for(const auto &version:f.catalog.versions())if(version.stage=="DERIVED")QCOMPARE(version.parentVersionIds,QStringList{sourceVersion});
+    call(runner,tool,args,ok);QVERIFY(ok);QCOMPARE(f.catalog.versions().size(),count+1);
   }
 };
 QTEST_GUILESS_MAIN(TestPythonAnalysisWiring)

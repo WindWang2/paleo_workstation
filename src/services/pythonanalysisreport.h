@@ -15,4 +15,5 @@ struct AnalysisReportValidation {
 };
 AnalysisReportValidation validateAnalysisReport(const QByteArray &bytes,AnalysisKind kind,
     const QJsonObject &expectedInputMetadata,const ExecutionPolicy &policy);
+bool validateAnalysisInputMetadata(const QJsonObject &metadata,AnalysisKind kind);
 } // namespace paleo::python

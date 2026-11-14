@@ -1,8 +1,6 @@
 // 层：功能
 #include "capabilityhost.h"
-#include "capabilitytaskrunner.h"
-#include "capabilitynativeoperation.h"
-#include "capabilitypublication_internal.h"
+#include "capabilitysourcepublication.h"
 #include "services/paleotaskservice.h"
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -28,18 +26,21 @@ ExecuteResult rejected(const QString &code) {
 } // namespace
 QByteArray CapabilityHost::requestDigest(const ExecuteRequest &request) { return digest(request); }
 
-CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(new CapabilityRecovery(this)) {
+CapabilityHost::CapabilityHost(NativeAdapterFactory nativeFactory, QObject *parent)
+  : QObject(parent), m_nativeAdapterFactory(std::move(nativeFactory)), m_recovery(new CapabilityRecovery(this)) {
   m_recovery->setHostProvider([this] {
     const auto b=binding();RecoveryHost h;h.context=b.context;h.projectDir=b.projectDir;h.operationDir=b.operationDir;
     h.catalog=b.catalog;h.writeClaim=b.writeClaim;
     h.presentationState=m_presentationState;h.present=m_present;
-    h.restoreInputValidator=[this](const OperationLog::Record &r,QString *error) {
+    h.restoreInputValidator=[this,b](const OperationLog::Record &r,QString *error) {
       if(m_adapters.contains(r.capabilityId)) {
         const auto adapter=m_adapters.value(r.capabilityId);
         return adapter.restoreInputValidator?adapter.restoreInputValidator(r,error):OperationInputValidator{};
       }
       if(m_restoreInputValidator)if(auto validator=m_restoreInputValidator(r,error))return validator;
-      return nativeInputValidator(r.frozenRequest.value("plan").toObject());
+      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
+      if(native.restoreInputValidator)return native.restoreInputValidator(r,error);
+      if(error)*error="execution_adapter_unavailable";return OperationInputValidator{};
     };
     h.validateFrozen=[this,b](const OperationLog::Record &r) {
       if(m_adapters.contains(r.capabilityId)) {
@@ -47,13 +48,8 @@ CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(ne
         return adapter.validateFrozen?adapter.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
       }
       if(m_validateFrozen){const auto code=m_validateFrozen(r);if(!code.isEmpty())return code;}
-      ExecuteRequest request;
-      if(!nativeRequestFromJson(r.frozenRequest.value("plan").toObject(),request))return QString();
-      if(!request.inputs.contains("seismic_selection"))return QString();
-      request.projectDir=b.projectDir;
-      QString code;if(b.freeze)code=b.freeze(request);if(code.isEmpty() && b.validateInputs)code=b.validateInputs(request);
-      if(code.isEmpty() && nativeFrozenRequest(request).value("sourceVerification")!=r.frozenRequest.value("plan").toObject().value("sourceVerification"))code="source_revision_changed";
-      return code;
+      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
+      return native.validateFrozen?native.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
     };
     h.restoreWorker=[this,b](const OperationLog::Record &r,QString *error) {
       if(m_adapters.contains(r.capabilityId)) {
@@ -65,12 +61,9 @@ CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(ne
         auto worker=m_restoreWorker(r,error);
         if(worker || (error && !error->isEmpty()))return worker;
       }
-      if(r.capabilityId==QLatin1String("workflow.plan"))return restoreNativePlan(r.frozenRequest.value("plan").toObject(),error);
-      ExecuteRequest request;
-      if(!nativeRequestFromJson(r.frozenRequest.value("plan").toObject(),request)){if(error)*error="invalid_frozen_plan";return OperationWorker{};}
-      request.projectDir=b.projectDir;request.operationDir=b.operationDir;
-      QString code;if(b.freeze)code=b.freeze(request);if(code.isEmpty() && b.validateInputs)code=b.validateInputs(request);
-      if(!code.isEmpty()){if(error)*error=code;return OperationWorker{};}return nativeWorker(std::move(request));
+      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
+      if(native.restoreWorker)return native.restoreWorker(r,error);
+      if(error)*error="execution_adapter_unavailable";return OperationWorker{};
     };return h;
   });
 }
@@ -138,7 +131,9 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
     return fail(QStringLiteral("document_mismatch"));
   QString resolutionError;const auto resolved=CapabilityRegistry::resolveAlias(intent.capabilityId,&resolutionError);
   const auto adapter=m_adapters.value(resolved);
-  const auto original=adapter.intent?adapter.intent(intent):nativeIntent(intent);
+  const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(live):CapabilityExecutionAdapter{};
+  if(intent.seismicTrace && !adapter.intent && !native.intent)return fail("execution_adapter_unavailable");
+  const auto original=adapter.intent?adapter.intent(intent):native.intent?native.intent(intent):capabilityIntent(intent);
   const unsigned phaseEffects=host::computeEffects(intent.publishIntent);
   if(!phaseEffects)return fail(QStringLiteral("unsupported_intent"));
   const unsigned effects=phaseEffects|CapabilityRegistry::executionEffects(resolved,intent.contractVersion);
@@ -194,19 +189,10 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
     if(!code.isEmpty())return fail(code);
     result.effectiveParameters=saved.request.parameters;
   } else {
-  if (live.freeze) code = live.freeze(saved.request); else code.clear();
-  if (code.isEmpty() && live.validateInputs) code = live.validateInputs(saved.request);
-  if (!code.isEmpty()) return fail(code);
-  auto parameters = saved.request.parameters;
-  const bool resolvedInterval = saved.request.seismicTrace && !parameters.contains(QStringLiteral("SAMPLE_INTERVAL_MS"));
-  if (resolvedInterval) parameters.insert(QStringLiteral("SAMPLE_INTERVAL_MS"), 1.0);
-  result.effectiveParameters = effectiveScalarParams(spec.algorithmId, spec.algorithmContractVersion, parameters, &code);
-  if (code != QLatin1String("ok")) return fail(code);
-  // SDK preflight supplies the real interval; do not display a placeholder as a default.
-  if (resolvedInterval) result.effectiveParameters.remove(QStringLiteral("SAMPLE_INTERVAL_MS"));
-  saved.request.parameters=result.effectiveParameters;
-  code.clear();
-  saved.frozen=freezeNativeOperation(saved.request,nativeIntent(intent),&code);
+  if(!native.freeze || !native.normalize)return fail("execution_adapter_unavailable");
+  code=native.normalize(saved.request,result.effectiveParameters);
+  if(!code.isEmpty())return fail(code);
+  saved.frozen=native.freeze(saved.request,native.intent?native.intent(intent):original,&code);
   if(!code.isEmpty())return fail(code);
   }
   saved.context = live.context; saved.effects = effects|saved.frozen.requiredEffects; saved.required = requiredContext;

@@ -42,7 +42,7 @@ QJsonObject selectedInputs(AnalysisKind kind) {
     {"log_set_id",decimalSchema(true)},{"curve_id",decimalSchema(true)},{"unit",string()},
     {"depth_type",QJsonObject{{"const","MD"}}},{"depth_unit",QJsonObject{{"type","string"},{"enum",QJsonArray{"m","ft","M","FT"}}}},
     {"depth_reference",string()},{"total_samples",decimalSchema()}});
-  return object({{"well_ref",wellSchema()},{"curves",QJsonObject{{"type","array"},{"minItems",kind==AnalysisKind::WellQuality?1:2},
+  return object({{"well_ref",wellSchema()},{"curves",QJsonObject{{"type","array"},{"minItems",kind==AnalysisKind::AttributeCorrelation?2:1},
     {"maxItems",AnalysisMaxChannels},{"items",curve}}},{"first_sample",decimalSchema()},
     {"sample_count",QJsonObject{{"type","integer"},{"minimum",0},{"maximum",AnalysisMaxSamples}}},
     {"processed",QJsonObject{{"type","boolean"}}},{"alignment",QJsonObject{{"const","exact_shared_axis_v1"}}},
@@ -70,7 +70,7 @@ bool analysisSelectionFromJson(const QJsonObject &inputs,AnalysisKind kind,Analy
   out.alignment="exact_shared_axis_v1";out.sampling="all_selected_window_v1";
   if(!inputs.value("curves").isArray())return fail("python_analysis_selection_invalid");
   const auto curves=inputs.value("curves").toArray();
-  if(curves.size()<(kind==AnalysisKind::WellQuality?1:2) || curves.size()>AnalysisMaxChannels)return fail("python_analysis_channel_budget");
+  if(curves.size()<(kind==AnalysisKind::AttributeCorrelation?2:1) || curves.size()>AnalysisMaxChannels)return fail("python_analysis_channel_budget");
   QSet<qlonglong> seen;
   for(const auto &value:curves) {
     const auto ref=value.toObject();AnalysisCurveSelection selected;qlonglong total=0;

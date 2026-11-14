@@ -2,6 +2,7 @@
 #include "aichattoolrunner.h"
 #include "services/pythonruntime.h"
 #include "services/pythontrustedreadiness.h"
+#include "services/pythonsandboxprovider.h"
 #include <QJsonArray>
 #include <QThread>
 
@@ -15,16 +16,23 @@ void AiChatToolRunner::runPythonEnvironment() {
   if(!m_taskService){finishActive(false,{{"code","task_service_unavailable"}});return;}
   auto provider=m_context.pythonRuntime;
   const auto execution=m_context.pythonTrusted;
+  const auto sandbox=m_context.pythonSandbox;
   if(!provider)provider=std::make_shared<paleo::python::RuntimeProvider>(paleo::python::RuntimeConfig{});
   const auto generation=m_generation;const auto id=m_activeCall.id;
   const QPointer<AiChatToolRunner> guard(this);
   const auto readiness=m_context.runtimeReadiness;
   auto result=std::make_shared<QJsonObject>();
-  auto *task=m_taskService->start(QObject::tr("Python 环境状态"),[provider,execution,result](PaleoTask *task) {
-    const auto inspected=provider->inspect([task]{return task->cancelRequested();});
+  auto *task=m_taskService->start(QObject::tr("Python 环境状态"),[provider,execution,sandbox,result](PaleoTask *task) {
+    const auto cancelled=[task]{return task->cancelRequested();};
+    const auto inspected=provider->policy().allowGenerated?provider->inspectIntegrity(cancelled):provider->inspect(cancelled);
     *result=inspected.json();result->insert("policy",provider->policy().json());
+    result->insert("runtimeVerification",provider->policy().allowGenerated?"content_identity":"runtime_import_probe");
     if(execution && provider->policy().allowTrusted)
       result->insert("trustedExecution",execution->inspect([task]{return task->cancelRequested();}));
+    if(sandbox && provider->policy().allowGenerated) {
+      const auto status=sandbox->inspect([task]{return task->cancelRequested();});result->insert("sandbox",status);
+      result->insert("generatedCodeAvailable",inspected.ready() && status.value("ready").toBool());
+    }
     return QString();
   });
   if(!guard){if(task)task->requestCancel();return;}

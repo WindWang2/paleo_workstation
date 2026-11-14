@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QSet>
+#include <QVariant>
 #include <cstdio>
 #include <memory>
 #include <cmath>
@@ -14,6 +15,7 @@
 #include <cpl_error.h>
 
 #include <qgsapplication.h>
+#include <qgis.h>
 #include <qgscoordinatereferencesystem.h>
 #include <qgscoordinatetransform.h>
 #include <qgsexception.h>
@@ -123,6 +125,7 @@ bool QgisRuntime::initialize( const QString &prefixPath,
     applicationCreated();
   initTrace( "initQgis begin" );
   QgsApplication::initQgis();
+  s_app->setProperty("paleo.qgis.version",Qgis::version());
   initTrace( "initQgis done" );
   // QGIS 4.2 CRS cache entries can outlive the worker which owns their PROJ
   // master object. Its TLS cleanup leaves shared entries valid but without a
@@ -178,6 +181,7 @@ void QgisRuntime::shutdown()
 {
   if ( !s_app )
     return;
+  s_app->setProperty("paleo.qgis.version",QVariant());
   QgsApplication::exitQgis();
   delete s_app;
   s_app = nullptr;

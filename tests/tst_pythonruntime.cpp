@@ -1,5 +1,12 @@
 // 层：测试壳
 #include "services/pythonruntime.h"
+#include "services/pythoninputbundle.h"
+#include "services/pythonsandbox.h"
+#ifdef Q_OS_WIN
+#include "services/pythonsandbox_windows.h"
+#elif defined(Q_OS_LINUX)
+#include "services/pythonsandbox_linux.h"
+#endif
 #include <QtTest>
 #include <QCryptographicHash>
 #include <QDir>
@@ -56,6 +63,54 @@ private slots:
     QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
     auto retained=first.runtime;first={};QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
     retained.reset();QVERIFY(verifyRuntime(config).ready());
+  }
+  void integrityInspectionNeverNeedsARunnableInterpreter() {
+    Fixture fixture;const auto config=fixture.config();
+    {
+      RuntimeProvider provider(config);const auto first=provider.inspectIntegrity();
+      QVERIFY2(first.ready(),qPrintable(first.code));QCOMPARE(first.runtime->treeSize,7);
+      const auto second=provider.inspectIntegrity();QVERIFY2(second.ready(),qPrintable(second.code));
+      QCOMPARE(first.runtime->retention.get(),second.runtime->retention.get());
+      QCOMPARE(provider.snapshot().runtime->manifestSha256,config.manifestSha256);
+      QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
+      QFile contents(first.runtime->interpreter);QVERIFY(contents.open(QIODevice::ReadOnly));
+      QCOMPARE(contents.readAll(),QByteArray("fixture"));
+    }
+    QVERIFY(verifyRuntime(config).ready());
+  }
+  void changedFixtureIsReauthenticatedBeforeStrongExecution() {
+    Fixture fixture;RuntimeProvider provider(fixture.config());int callbacks=0;bool changed=false;
+    // Callback 1 enters the file row, 2 hashes its sole seven-byte chunk, and
+    // 3 traverses the directory after the hashed file handle has closed.
+    const auto identity=provider.inspectIntegrity([&]{
+      if(++callbacks==3) {
+        QFile file(fixture.root+'/'+fixture.manifest.value("interpreter").toString());
+        changed=file.open(QIODevice::WriteOnly) && file.write("changed")==7;
+      }
+      return false;
+    });
+    QVERIFY(changed);QVERIFY2(identity.ready(),qPrintable(identity.code));
+    QTemporaryDir project;QVERIFY(project.isValid());ExecutionPolicy policy;policy.allowGenerated=true;
+    const auto input=freezeInputBundle(project.path(),{{"code.py","pass\n"},{"request.json","{}"}},
+      {{"inputProtocol","paleo.python-json.v1"}},policy);QVERIFY2(input.ok(),qPrintable(input.code));
+    SandboxRequest request;request.runtime=identity.runtime;request.input=std::make_shared<InputBundle>(input);request.policy=policy;
+#ifdef Q_OS_WIN
+    const auto result=runWindowsSandbox(request);
+    const auto expected=windowsSandboxReadiness().value("code")=="ok"?"python_runtime_changed":"python_sandbox_unavailable";
+    QCOMPARE(result.code,QString::fromLatin1(expected));
+#elif defined(Q_OS_LINUX)
+    const auto result=runLinuxSandbox(request);
+#if QT_VERSION >= QT_VERSION_CHECK(6,7,0)
+    QCOMPARE(result.code,QString("python_runtime_changed"));
+#else
+    QCOMPARE(result.code,QString("python_sandbox_qt_unsupported"));
+#endif
+#endif
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    QCOMPARE(result.cpuMicros,qint64(0));QVERIFY(result.output.isEmpty());QVERIFY(result.outputLog.isEmpty());
+#endif
+    QCOMPARE(provider.inspectIntegrity().code,QString("python_runtime_changed"));
+    QVERIFY(!provider.snapshot().ready());
   }
   void tamperingSameSizeAndUnexpectedFile() {
     Fixture f;const auto config=f.config();

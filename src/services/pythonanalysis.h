@@ -7,7 +7,7 @@
 #include <QVector>
 
 namespace paleo::python {
-enum class AnalysisKind { WellQuality, AttributeCorrelation };
+enum class AnalysisKind { WellQuality, AttributeCorrelation, Generated };
 inline constexpr int AnalysisMaxSamples=8192, AnalysisMaxChannels=16;
 struct AnalysisCurveSelection {
   document::SourceRecord source; // Host-resolved source/model location, never a tool path.
@@ -46,9 +46,14 @@ struct AnalysisProcessInput {
 };
 QString analysisKindId(AnalysisKind kind);
 QString analysisTemplateSha256(AnalysisKind kind);
+QStringList analysisSourceVersionIds(const QJsonObject &metadata);
 // Worker-only; the caller claims the shared process permit before any SDK I/O
 // or input allocation and passes the same permit to runTrustedProcess later.
-AnalysisMaterialization materializeAnalysis(const AnalysisReadPlan &plan,const QByteArray &trustedTemplate,
+// Generated input admission requires Generated + allowGenerated; it never grants execution.
+// Generated numeric staging reserves SDK vectors, packed bytes and bounded scratch
+// against memoryBytes before SDK I/O. The reservation is recorded in readMetrics;
+// it is separate from child/snapshot accounting and does not measure process RSS.
+AnalysisMaterialization materializeAnalysis(const AnalysisReadPlan &plan,const QByteArray &sourceCode,
     const ExecutionPolicy &policy,const std::shared_ptr<ExecutionPermit> &permit,
     const std::function<bool()> &cancelled={});
 // Rechecks the exact consumed bytes, then frames metadata + binary on stdin.

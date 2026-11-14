@@ -1,12 +1,23 @@
 # 受控 Python Agent 环境实施计划
 
-日期：2026-11-14。源码基线：master `3d499a61`（#942）。
-状态：**PY0、PY1、PY2、PY3W、PY3L 已实现并完成编译/测试/门禁验收，等待各批实现 PR 合入；PY4 尚未在本分支交付**。
+计划日期：2026-11-14。原计划基线：master `3d499a61`（#942）；实施基线见下文。
+2026-11-15 状态：**PY0–PY4 全部实现并完成各批编译、测试与源码门禁；实现 PR 等待按依赖合入，Shell 后置**。
 实际契约和证据见 [PY0 记录](../progress/controlled-python-py0-20261114.md)与
 [PY1 记录](../progress/controlled-python-py1-20261114.md)、[PY2 记录](../progress/controlled-python-py2-20261114.md)、
 [Windows 隔离记录](../progress/agent-python-windows-sandbox.md)与
-[Linux 隔离记录](../progress/python-linux-sandbox.md)；PY4 条目仍是拟议契约。
+[Linux 隔离记录](../progress/python-linux-sandbox.md)、[PY4 收口记录](../progress/controlled-python-py4-20261114.md)。
 每批完成编译、测试和源码门禁后分别提 PR，不以计划条目推定功能已可用。
+
+已提交 SDK [#21](https://github.com/changyanyanchang/Data_service/pull/21)、PY0
+[#945](https://github.com/WindWang2/paleo_workstation/pull/945)、PY1
+[#947](https://github.com/WindWang2/paleo_workstation/pull/947)、PY2
+[#948](https://github.com/WindWang2/paleo_workstation/pull/948)、PY3W
+[#949](https://github.com/WindWang2/paleo_workstation/pull/949)、PY3L
+[#950](https://github.com/WindWang2/paleo_workstation/pull/950)；PY4 为本分支。
+这些实现尚未合入 master，生产可用范围须按实际合入、供货及
+[平台支持表](../../vendor/agent-python/SANDBOX_SUPPORT.md)判断。Windows 验收是原生 Core
+Host/SDK/LPAC 链路，不宣称完整 Windows GUI 构建；当前 WSL 缺 CPU controller 时
+拒绝生成执行，未验收的 Linux 栈和旧 Qt 不外推支持。
 
 本计划扩展[原子能力与 Agent 契约](../architecture/ATOMIC_CAPABILITIES_AND_AGENT.md)，
 复用已合入的 [W0–W6 操作与宿主链路](AGENT_CALL_READINESS_PLAN.md)，并遵守
@@ -88,9 +99,10 @@ flowchart LR
 
 ### 3.1 执行身份
 
-- 拟议 `PythonRuntimeManifest` 记录运行时/profile ID、契约版本、OS/架构、解释器版本、
-  包/本地依赖闭包、锁文件及内容摘要、供货来源/许可、探测协议。环境 ID 由宿主解析到
-  已验证目录，Agent 不指定解释器路径、PATH、命令行启动选项或 package index。
+- `paleo.python-runtime.v1` 清单记录运行时/profile ID、契约版本、OS/架构、解释器版本、
+  包/本地依赖闭包、锁文件及内容摘要、供货来源/许可、探测协议。源锁、清单与宿主配置
+  的外部 SHA 锚分别核验，不接受清单自报身份作为授权。环境由宿主解析到已验证目录，
+  Agent 不指定解释器路径、PATH、命令行启动选项或 package index。
 - 冻结计划记录脚本内容及 SHA、可信 script ID/版本或 generated 标志、runtime manifest
   摘要、policy 版本/实际预算、输入版本/语义/物化摘要、输出 schema、来源依赖及发布意图。
   使用内容身份，不把绝对解释器路径、mtime 或可编辑的 manifest 自报值作为信任根。
@@ -108,10 +120,12 @@ flowchart LR
   Presentation 分别核验；进程执行或 PrivateStage 不隐含授权其中任何一项。
 - 计算需要私有暂存权限；只读工程遵循现有宿主规则，受理前报告限制，不为运行脚本偷写
   工程/补身份。已授权范围内不逐次弹确认，新增效果返回结构化缺项。
-- PY0 冻结首个 profile 的候选上限：代码 256 KiB、输入总量 256 MiB、输出 64 MiB、
-  stdout/stderr 各 1 MiB、工作区总量 512 MiB、内存 512 MiB、CPU 时间 60 秒、
-  墙钟 120 秒。默认单任务单计算线程、并发 1，宿主可收紧，模型不能调大。
-  数字是待实测的产品限额；更改须版本化并有测试，不能靠增大阈值掩盖失控。
+- 已冻结 `analysis-core.v1` 的策略上限：profile 代码 256 KiB（生成入口另限 16 KiB）、
+  输入总量 256 MiB、stdout 结果通道 64 MiB、stderr 及失败 stdout 私有前缀各 1 MiB、
+  宿主输入/暂存与 broker 保留量 512 MiB、子进程内存 512 MiB、CPU 时间 60 秒、
+  墙钟 120 秒、全局并发 1。各项上限不保证能同时用满；宿主数值与快照预留分别记录，
+  不代表 GUI RSS。Windows 强制单核总 CPU 并行度，任意原生线程数不独立限制；Linux
+  另禁止 clone。宿主可收紧，模型不能调大；更改须版本化并验收，不能增大阈值掩盖失控。
 - 清理继承环境，只传必需白名单；不传模型服务密钥、认证代理、用户 HOME 配置或继承
   的敏感句柄。按实际数值库限制线程；`-I/-u/-B` 和 UTF-8 启动配置属于卫生措施，
   venv、cwd、禁 import、AST 检查、Python audit hook 均不宣称是沙箱。
@@ -125,10 +139,12 @@ flowchart LR
 - 首批冻结一种简单、严格可验证的数值交换格式：类型/shape/轴/单位/空值元数据＋有界
   数组载荷；JSON 用于小控制信息。只支持所需数值类型，拒绝对象数组、pickle、路径型
   外部引用。NumPy 格式如被选用须关闭 pickle 并校验 header/shape/长度。
-- 宿主分配输入/输出槽位和文件名；子进程只写 attempt 工作区，接收的路径不暴露给模型。
+- 宿主分配输入/输出槽位和文件名；生成进程零磁盘写，宿主接管管道结果后写入 attempt，
+  实际路径不暴露给模型。
   不向脚本提供 Catalog/SQL 连接、Qgs 对象、工程写锁或可更新文档的 IPC 能力。
-- stdout/stderr 是不可信日志；进度协议有独立预算。脚本声称成功、SHA 或结果路径均不
-  直接授权发布。日志/脚本文本返回模型时标明数据来源，不能伪装系统指令或执行批准。
+- 生成 stdout 只接受单个 REPORT JSON 结果封套；stderr 和失败 stdout 前缀是有界私有
+  诊断。脚本声称成功、SHA 或结果路径不直接授权发布。宿主验收结构、编码、预算和
+  身份，不独立重算生成指标或证明其单位/地质解释；输出不能伪装系统指令或执行批准。
 - 进程树结束、可写入口关闭并稳定接管成果后，宿主检查必需端口、声明文件集合、格式、
   单位、shape、字节预算与 SHA；
   拒绝目录穿越、链接/重解析点、别名指向宿主文件及未声明输出。避免“检查路径 A 后
@@ -224,8 +240,10 @@ resume 的新 attempt 可追溯，已 committed 的恢复启动计数和版本�
 
 ## 7. PY3W / PY3L：操作系统隔离后端
 
-共同要求：可信模板与生成代码使用同一后端契约；生成代码的文件/网络/进程及资源限制
-须由 OS 强制。后端能力检测与执行参数由宿主决定，模型不能选择更弱的 backend。
+共同要求：复用 PY1 许可、进程泵与生命周期，可信模式保留其明确声明的 OS 权限，
+不因共用基础设施就宣称也有强沙箱。生成代码只走强后端，文件/网络/进程及资源限制
+须由 OS 强制；子进程零磁盘写，输入/运行时只读，结果由宿主有界 broker 接管。
+后端能力检测与执行参数由宿主决定，模型不能选择更弱的 backend。
 这一阶段先通过探测/测试暴露后端状态，PY4 才开放生成代码。
 
 ### PY3W：Windows
@@ -234,7 +252,7 @@ resume 的新 attempt 可追溯，已 committed 的恢复启动计数和版本�
   内存、CPU/进程数量和宿主退出回收。先以真实 CPython/NumPy 做最小可运行验证，
   把 ABI、原生扩展加载、临时目录与可部署性结果写入支持表。
 - 用户代码执行前完成限制，防止创建/分配 Job 之间逃逸；关闭 breakaway，限制继承句柄。
-  只授予运行时/输入只读、独立工作区写入，不授予项目目录、凭据、网络/loopback 或
+  只授予运行时/输入只读，不授予子进程工作区写入、项目目录、凭据、网络/loopback 或
   宿主进程访问。Job Object 单独使用不算文件/网络沙箱。
 - 磁盘上限须有容量受限工作区/配额或等效强制后端；定时统计目录大小不算硬限额。
   实施若无法在普通受支持账户/系统上满足限制，保留具体 unavailable 原因，不自动
@@ -242,7 +260,7 @@ resume 的新 attempt 可追溯，已 committed 的恢复启动计数和版本�
 
 ### PY3L：Linux
 
-- 验证受限 user/mount/PID/network namespace、只读运行时/输入挂载、独立工作区、
+- 验证受限 user/mount/PID/network namespace、只读运行时/输入挂载、子进程零写入、
   no-new-privileges、系统调用约束及 cgroup v2 等资源控制的组合；辅助程序同样钉版。
 - 不暴露宿主 HOME、环境密钥、宿主 `/proc`、桌面/SSH/DBus/Docker socket、网络或
   可写共享运行时。进程/线程/内存/CPU、磁盘/临时区均有可执行上限与退出回收证据。
@@ -257,15 +275,22 @@ hardlink/Windows reparse、子孙进程/脱组、CPU/内存/磁盘/日志耗尽�
 
 ## 8. PY4：Agent 生成 Python 与端到端收口
 
-范围：新增拟议 `paleo.python_compute` 能力，只接受有界代码、已登记 runtime/profile、
-精确输入引用、输出端口和请求 ID；按现有阶段契约 prepare/compute-only/publish。
+范围：交付 `paleo.python_compute` / `python.generated_compute`，只接受有界代码、
+同井曲线精确引用与请求 ID；运行时/profile、解释器、策略和 REPORT 端口由宿主锁定，
+模型不能选择。按现有阶段契约 prepare/compute-only/publish。
+具体契约为 UTF-8 源码最多 16 KiB、同井最多 16 列/8192 点、严格数值报告最多
+256 KiB；这是本批在共用策略上限内进一步收紧的业务范围，不提供任意文件或地震体执行。
+实际接口和平台限制见 [PY4 记录](../progress/controlled-python-py4-20261114.md)与
+[支持表](../../vendor/agent-python/SANDBOX_SUPPORT.md)。
 
 交付：
 
 1. 源码作为独立私有输入工件持久化，冻结内容 SHA；同请求 ID 改代码/输入/预算拒绝。
    生成代码不得冒用可信 script ID；无隔离后端的系统只保留已验收可信工具。
-2. 每次任务新建进程和工作区，文件作为状态；不共享 REPL 内存、变量、模块缓存或秘密。
-   Python 内启动 Shell/子进程同受后端限制，不因没有 Shell 工具而漏检查。
+2. 每次任务新建进程和宿主暂存区，冻结文件作为状态；不共享 REPL 内存、变量、模块缓存
+   或秘密。当前强后端拒绝子进程、网络和子进程磁盘写；输出通过有界管道返回宿主。
+   Windows 不宣称独立限制任意原生线程数量，实际线程共享单核、CPU、提交内存与墙钟
+   硬预算；Linux 另拒绝 clone。普通 QProcess 不作为隔离不可用时的回退。
 3. 代码/环境/输入引用与恢复、日志和成果链路贯通；输出校验执行 PY1/PY2 同一规则。
    发布仍只认可宿主验证的类型化输出，生成代码不能自授效果或绕开领域约束。
 4. 更新能力迁移清单、Optional Scripting 说明、平台/打包支持表、运行诊断与 progress；
@@ -297,9 +322,9 @@ PY0–PY4 每批都执行以下流程，全部通过后提对应 PR；不将本�
 5. 以当时 `.github/workflows/ci.yml` 的 Source gates 为完整清单，显式 `QGIS_PREFIX`
    检查 transitive 的全部指标；包含 layering 严格/自检/符号/Qgs/传递、qgis spread、
    file/UI budget、i18n/tokens/invariants、QGIS versions、docs drift、CI scripts/known
-   reds、C++ mainline 与 extra manifest 等已登记检查。现有基线为 29 条 CI 命令，
-   附加 qgis-spread 自检、known-reds 校验/自检、atomic-kernels 共 33 项；以后以实际
-   CI 注册变化为准，不为维持数字删检查。新增运行时清单/隔离门禁同批接入及自检。
+   reds、C++ mainline 与 extra manifest 等已登记检查。本轮完整 Source gates 共
+   37 项；以后以当前 CI 与配套自检实际清单为准，不为维持数字删检查。新增运行时
+   清单/隔离门禁同批接入及自检。
 6. 各批在 `docs/progress/` 保存源/SDK/运行时/policy 身份、编译器与依赖、完整命令、
    测试数/失败/跳过、日志位置、资源/I/O 计数、故障注入及未覆盖平台/场景。明确区分
    配置成功、编译成功、功能测试、原生隔离和完整应用验证。必要验收缺失时不标完成。

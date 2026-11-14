@@ -37519,7 +37519,19 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message><source>local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准</source><translation>local_models: Exact local model name; omit to page through input features, weight fingerprints and output declarations. Runtime availability is validated by prepare.</translation></message>
         <message><source>每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16</source><translation>Page item budget: catalog 1–256 (default 50); local_models 1–64 (default 16).</translation></message>
         <message><source>完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192</source><translation>Complete JSON page byte budget: catalog 2048–65536; local_models 1024–32768; default 8192.</translation></message>
-    </context>
+        <message>
+        <source>受控 Python 计算</source>
+        <translation>Controlled Python computation</translation>
+    </message>
+    <message>
+        <source>对 well_curves 精确引用的同井窗口执行有界生成代码，限16列、8192点及16KiB UTF-8源码。必须启用独立生成代码权限并通过当前平台隔离探测；缺项拒绝执行。源码、输入、运行时及策略按内容身份冻结，每次使用新进程。只接收有界指标、表格和说明，宿主补来源证据；脚本的数值与单位声明未经独立重算。compute-only 不登记正式成果；publish 仅引用原操作并单独授权。</source>
+        <translation>Execute bounded generated code on exact same-well windows from well_curves: up to 16 columns, 8192 samples and 16 KiB of UTF-8 source. Requires separate generated-code permission and a verified platform sandbox. Freeze code, inputs, runtime and policy by content identity; use a fresh process each time. Accept only bounded metrics, tables and notes; the host adds source evidence. Generated numerical values and declared units are not independently recomputed. compute-only does not register formal results; publish references the original operation and requires separate authorization.</translation>
+    </message>
+    <message>
+        <source>Python 隔离状态</source>
+        <translation>Python sandbox status</translation>
+    </message>
+</context>
     <context>
         <name>QgisCanvasController</name>
         <message>

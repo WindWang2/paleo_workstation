@@ -1,5 +1,6 @@
 // 层：数据
 #include "pythonanalysis_internal.h"
+#include "pythongenerated.h"
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
@@ -112,18 +113,39 @@ QString readColumns(data::DataService &service,const AnalysisReadPlan &plan,QVec
 } // namespace paleo::python::analysis_detail
 
 namespace paleo::python {
+namespace {
+qint64 generatedNumericPreparationBytes(const AnalysisReadPlan &plan,qint64 codeBytes,qint64 payloadBytes) {
+  // Per selected SDK sample: depth + raw + used doubles and one quality byte.
+  // Reserve 2x vector capacity, 2x packed payload, four copies of the bounded
+  // SDK read budget for query/decode scratch, and four 64-KiB JSON buffers.
+  // This is a numeric staging reservation, not GUI/runtime verification RSS.
+  const auto samples=qint64(plan.curves.first().sampleCount)*plan.curves.size();
+  return 2*samples*(3*8+1)+2*payloadBytes+4*plan.readByteBudget+4*65536+2*codeBytes;
+}
+void recordNumericPreparation(QJsonObject &metadata,qint64 reservedBytes) {
+  auto provenance=metadata.value("provenance").toObject();auto metrics=provenance.value("readMetrics").toObject();
+  metrics["hostNumericPreparationReservedBytes"]=QString::number(reservedBytes);
+  metrics["hostNumericPreparationMeasurement"]="reservation_not_process_rss";
+  provenance["readMetrics"]=metrics;metadata["provenance"]=provenance;
+}
+}
 AnalysisMaterialization materializeAnalysis(const AnalysisReadPlan &plan,const QByteArray &trustedTemplate,
     const ExecutionPolicy &policy,const std::shared_ptr<ExecutionPermit> &permit,const std::function<bool()> &cancelled) {
   AnalysisMaterialization out;const auto fail=[&](const QString &code){out.code=code;out.bundle={};out.metadata={};return out;};
   if(!permit)return fail("python_execution_permit_required");
   if(cancelled && cancelled())return fail("cancelled");
   auto code=analysis_detail::validatePlan(plan,policy);if(!code.isEmpty())return fail(code);
-  if(trustedTemplate.isEmpty() || trustedTemplate.size()>policy.codeBytes ||
+  if(plan.kind==AnalysisKind::Generated) {
+    code=validateGeneratedCode(trustedTemplate,policy);if(!code.isEmpty())return fail(code);
+  } else if(trustedTemplate.isEmpty() || trustedTemplate.size()>policy.codeBytes ||
       analysis_detail::hash(trustedTemplate)!=analysisTemplateSha256(plan.kind))return fail("python_template_changed");
   // The accepted shape bounds both SDK allocations and the complete framed transport.
   const qint64 maximumPayload=qint64(plan.curves.first().sampleCount)*(8+9*plan.curves.size());
   if(maximumPayload>policy.inputBytes-65540 || maximumPayload>policy.diskBytes-trustedTemplate.size()-2*65536)
     return fail("python_input_budget_exceeded");
+  const auto reserved=plan.kind==AnalysisKind::Generated?
+    generatedNumericPreparationBytes(plan,trustedTemplate.size(),maximumPayload):0;
+  if(reserved>policy.memoryBytes)return fail("python_input_memory_budget");
   data::DataService service;std::string detail;
   if(!service.openProjectReadOnly(plan.modelDirectory.toUtf8().toStdString(),detail))return fail("python_analysis_model_unavailable");
   code=analysis_detail::checkHead(service,plan.expectedHead);if(!code.isEmpty())return fail(code);
@@ -131,6 +153,7 @@ AnalysisMaterialization materializeAnalysis(const AnalysisReadPlan &plan,const Q
   code=analysis_detail::readColumns(service,plan,columns,out.io,cancelled);if(!code.isEmpty())return fail(code);
   if(cancelled && cancelled())return fail("cancelled");
   const auto bytes=analysis_detail::payload(columns);out.metadata=analysis_detail::metadata(plan,columns,out.io,bytes);
+  if(reserved)recordNumericPreparation(out.metadata,reserved);
   const auto control=QJsonDocument(out.metadata).toJson(QJsonDocument::Compact);
   if(control.size()>64*1024 || qint64(control.size())+bytes.size()+4>policy.inputBytes)return fail("python_input_budget_exceeded");
   const QJsonObject scope{{"documentId",plan.documentId},{"callerScope",plan.callerScope},

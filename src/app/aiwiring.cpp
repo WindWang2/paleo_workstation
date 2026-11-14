@@ -9,6 +9,8 @@
 #include "services/pythontrustedreadiness.h"
 #include "services/pythoncapabilityspec.h"
 #include "workflow/pythonscriptoperation.h"
+#include "workflow/pythongeneratedoperation.h"
+#include "services/pythongenerated.h"
 #include "workflow/capabilityhost.h"
 #include "workflow/capabilityrecovery.h"
 #include "workflow/tileoperationservice.h"
@@ -196,6 +198,15 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   const QPointer<paleo::document::DocumentSession> documentOwner(document);
   const QPointer<DataCatalog> catalogOwner(catalog);
   const QPointer<QgisLayerService> layerOwner(layers);
+  // Task admission emits synchronous signals; a nested project bind wins even
+  // when all original QObjects remain alive.
+  const auto generation=chat->property("_paleoChatToolBindingGeneration").toULongLong()+1;
+  chat->setProperty("_paleoChatToolBindingGeneration",QVariant::fromValue(generation));
+  const auto currentBinding=[=] {
+    return chatOwner && chatOwner->property("_paleoChatToolBindingGeneration").toULongLong()==generation &&
+      (!host || hostOwner) && (!document || documentOwner) && (!catalog || catalogOwner) && (!layers || layerOwner);
+  };
+  if(!currentBinding())return;
   // assist 可为空（无 ORT 构建）：只绑只读工程工具；tile/horizon 执行面
   // 缺席由执行器按调用如实报错（不因装配期缺席而误报「未接线」）。
   if (assist)
@@ -207,16 +218,26 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   python.enabled=!python.root.isEmpty();
   paleo::python::ExecutionPolicy pythonPolicy;
   pythonPolicy.allowTrusted=qEnvironmentVariable("PALEO_AGENT_PYTHON_ENABLE_TRUSTED")==QLatin1String("1");
+  pythonPolicy.allowGenerated=qEnvironmentVariable("PALEO_AGENT_PYTHON_ENABLE_GENERATED")==QLatin1String("1");
   const auto priorPython=chat->toolRunner()->pythonRuntime();
   const bool reusePython=priorPython && priorPython->configuration().root==python.root &&
     priorPython->configuration().manifestSha256==python.manifestSha256 && priorPython->policy().json()==pythonPolicy.json();
   context.pythonRuntime=reusePython?priorPython:std::make_shared<paleo::python::RuntimeProvider>(std::move(python),pythonPolicy);
   const auto priorTrusted=chat->toolRunner()->pythonTrusted();const bool reuseTrusted=reusePython && bool(priorTrusted);
   context.pythonTrusted=reuseTrusted?priorTrusted:std::make_shared<paleo::python::TrustedReadinessProvider>(context.pythonRuntime);
+  const auto priorSandbox=chat->toolRunner()->pythonSandbox();
+  const bool reuseSandbox=reusePython && bool(priorSandbox);
+  context.pythonSandbox=reuseSandbox?priorSandbox:std::make_shared<paleo::python::SandboxProvider>(context.pythonRuntime);
   if(host)host->registerExecutionAdapter(QLatin1String(paleo::python::SummaryCapability),
     paleo::python::trustedScriptAdapter(context.pythonRuntime,qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT")));
   const auto scripts=qEnvironmentVariable("PALEO_AGENT_PYTHON_SCRIPTS_ROOT");
-  context.runtimeReadiness=[provider=context.pythonRuntime,execution=context.pythonTrusted,scripts](const QString &name,const QJsonObject &args,bool listing) {
+  context.runtimeReadiness=[provider=context.pythonRuntime,execution=context.pythonTrusted,sandbox=context.pythonSandbox,scripts](const QString &name,const QJsonObject &args,bool listing) {
+    if(name==QLatin1String(paleo::python::GeneratedTool)) {
+      if(!provider->policy().allowGenerated)return QStringLiteral("python_execution_denied");
+      const auto runtime=provider->snapshot();if(!runtime.ready())return runtime.code;
+      if(!listing && args.value("publish_intent")==QLatin1String("publish"))return QString();
+      const auto status=sandbox->snapshot();return status.value("ready").toBool()?QString():status.value("code").toString("python_sandbox_unavailable");
+    }
     if(name!=QLatin1String(paleo::python::WellQualityTool) && name!=QLatin1String(paleo::python::CorrelationTool))return QString();
     if(!provider->policy().allowTrusted)return QStringLiteral("python_execution_denied");
     const auto runtime=provider->snapshot();if(!runtime.ready())return runtime.code;
@@ -232,25 +253,35 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   if(host)for(const auto kind:{paleo::python::AnalysisKind::WellQuality,paleo::python::AnalysisKind::AttributeCorrelation})
     host->registerExecutionAdapter(paleo::python::analysisCapabilityId(kind),gateTrustedAnalysis(paleo::python::analysisScriptAdapter(kind,
       context.pythonRuntime,scripts,assemblePythonAnalysisProvider(catalog,document,host)),context.pythonTrusted));
+  if(host)host->registerExecutionAdapter(QLatin1String(paleo::python::GeneratedCapability),
+    paleo::python::generatedScriptAdapter(context.pythonRuntime,context.pythonSandbox,assemblePythonAnalysisProvider(catalog,document,host)));
   if(document)context.sourceResolver=[guard=QPointer<paleo::document::DocumentSession>(document)](const auto &ref) {
     return guard && guard->isOpen()?guard->source(ref):paleo::document::SourceRecord{};
   };
   if(!reusePython && context.pythonRuntime->configuration().enabled && chat->toolRunner()->taskService()) {
     const auto provider=context.pythonRuntime;
     chat->toolRunner()->taskService()->start(QObject::tr("Python 环境状态"),[provider](PaleoTask *task) {
-      provider->inspect([task]{return task->cancelRequested();});return QString();
+      const auto cancelled=[task]{return task->cancelRequested();};
+      if(provider->policy().allowGenerated)provider->inspectIntegrity(cancelled);
+      else provider->inspect(cancelled);
+      return QString();
     });
   }
-  if(!chatOwner || (host && !hostOwner) || (document && !documentOwner) ||
-      (catalog && !catalogOwner) || (layers && !layerOwner))return;
+  if(!currentBinding())return;
   if(!reuseTrusted && pythonPolicy.allowTrusted && context.pythonRuntime->configuration().enabled && chat->toolRunner()->taskService()) {
     const auto execution=context.pythonTrusted;
     chat->toolRunner()->taskService()->start(QObject::tr("Python 环境状态"),[execution](PaleoTask *task) {
       execution->inspect([task]{return task->cancelRequested();});return QString();
     });
   }
-  if(!chatOwner || (host && !hostOwner) || (document && !documentOwner) ||
-      (catalog && !catalogOwner) || (layers && !layerOwner))return;
+  if(!currentBinding())return;
+  if(!reuseSandbox && pythonPolicy.allowGenerated && context.pythonRuntime->configuration().enabled && chat->toolRunner()->taskService()) {
+    const auto sandbox=context.pythonSandbox;
+    chat->toolRunner()->taskService()->start(QObject::tr("Python 隔离状态"),[sandbox](PaleoTask *task) {
+      sandbox->inspect([task]{return task->cancelRequested();});return QString();
+    });
+  }
+  if(!currentBinding())return;
   // 层位与栅格取数在绑定/重绑时快照；horizonGridFetch 每次取数重解析声明，
   // 换工程后随 appcontext 的重绑刷新 horizon 名。
   context.horizon = AreaRules::active().targetHorizon;

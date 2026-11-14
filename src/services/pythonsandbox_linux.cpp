@@ -132,11 +132,13 @@ SandboxResult runLinuxSandbox(const SandboxRequest &request) {
   result.cpuMicros=work.cpuMicros;result.peakMemoryBytes=work.peakMemoryBytes;
   result.exitCode=work.exitCode;result.memoryPeakComplete=work.memoryPeakComplete;return finish();
 }
-QString linuxSandboxReadiness() {
+QString linuxSandboxReadiness(const std::function<bool()> &cancelled) {
   using namespace process_detail::linux_native;
   process_detail::Launch native;native.policy.allowTrusted=true;
   native.policy.memoryBytes=64*1024*1024;native.policy.cpuSeconds=5;native.policy.wallSeconds=5;
-  native.permit=process_detail::acquireProcessPermit();
+  native.cancelled=cancelled;
+  native.permit=process_detail::acquireProcessPermit(cancelled);
+  if(!native.permit)return QStringLiteral("cancelled");
   Prepared prepared;if(const auto code=prepareEnvelope(native,prepared);!code.isEmpty())return code;
   prepared.filter=strongFilter();if(!prepared.filter)return "python_linux_seccomp_unavailable";
   prepared.fileBytes=0;

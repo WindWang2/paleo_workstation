@@ -11,3 +11,6 @@ resources/fonts/OFL-IBMPlex.txt -text -whitespace
 
 # The Windows bootstrap runs this script through Git Bash.
 vendor/fetch-ranuts-document.sh text eol=lf
+
+# The optional Agent runtime manifest anchors this lock by its original bytes.
+/vendor/agent-python/runtime.lock.json text eol=lf

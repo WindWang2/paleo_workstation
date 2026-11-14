@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 namespace paleo::query {class ProjectQueryCapability;}
+namespace paleo::python {class RuntimeProvider;}
 
 // workflow/ — 聊天领域工具执行器（方向61）。
 //
@@ -83,6 +84,7 @@ public:
     QPointer<PaleoOnnxService> onnx;
     QPointer<paleo::TileOperationService> tileOperations;
     std::function<QString(const QString &, const QJsonObject &, bool)> runtimeReadiness;
+    std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime;
     quint64 documentEpoch = 0;
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
   };
@@ -140,6 +142,7 @@ private:
   void runFaciesModels(const QJsonObject &args);
   void runFaciesInputs(const QJsonObject &args);
   void runLocalModels(const QJsonObject &args);
+  void runPythonEnvironment();
   // 方向77：同步只读查询（内存表直读，无任务池）；仍经 finishActive 异步
   // 回报（#281 统一语义）。
   void runQuery(const ChatToolCall &call, const QJsonObject &args);

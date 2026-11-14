@@ -32,6 +32,7 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpec(const AiToolS
   if(!m_context.requireCapabilityHost) {result.ready=true;return result;}
   if(spec.legacyAdapter)return fail("legacy_tool_requires_versioned_adapter");
   if(name==QLatin1String("paleo.read_result")) {result.ready=true;return result;}
+  if(name==QLatin1String("paleo.python_environment") && !m_taskService)return fail("task_service_unavailable");
   if(!m_context.capabilityHost)return fail("host_unavailable");
   const auto live=m_context.capabilityHost->context();auto expected=live;
   expected.documentId=m_context.documentId;expected.epoch=m_context.documentEpoch;

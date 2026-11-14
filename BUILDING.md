@@ -451,3 +451,12 @@ Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和
 减少全量测试可执行文件的 DWARF 磁盘占用，防止链接末期耗尽 runner 磁盘。
 只在该 CI job 预置 CMake 缓存，随后仍走 `paleo-dev build` 并运行全部目标及测试；
 本机默认 RelWithDebInfo 和 sanitizer 车道不受影响。
+## 可选 Agent Python 环境
+
+主程序的默认构建、安装和启动不需要该运行时。开发和源码检查依赖的 Python
+工具链仍按原有要求准备。`analysis-core` 单独锁定 CPython 3.14.10 与 NumPy 2.5.4，
+只支持已列明的 Windows/Linux x86-64；不含 PyQGIS、PyQt 或运行期 pip 安装入口。
+离线准备、摘要锚定、许可、系统 ABI 闭包及升级保留约束见
+[供货说明](vendor/agent-python/README.md)。执行前必须由操作者准备可选环境；
+Agent 只能查询状态，不能调用准备工具或决定解释器路径。
+

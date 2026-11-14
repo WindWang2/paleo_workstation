@@ -69,6 +69,7 @@ private slots:
   void idwThenContourPassesTheRaster();
   void runningCancelStopsBeforePublish();
   void contourCycleIsRejected();
+  void invalidPlanStartsNoChildOperation();
   void badPointValueIsRejected();
   void rasterUsesLocalGrid();
   void issuedRasterDoesNotCrossDocuments();
@@ -163,22 +164,24 @@ void TestCapabilityRound2::idwThenContourPassesTheRaster() {
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   ExecuteRequest host = hostRequest(dir.path(), QStringLiteral("dag"));
-  PlanNode idw{QStringLiteral("idw"), QStringLiteral("constraint.idw"), 1, QStringLiteral("OUTPUT"),
+  PlanNode idw{QStringLiteral("idw,|地震"), QStringLiteral("constraint.idw"), 1, QStringLiteral("OUTPUT"),
                QStringLiteral("compute-only"),
                {{QStringLiteral("FIELD"), QStringLiteral("z")}, {QStringLiteral("CELL_SIZE"), 25.0}},
                {{QStringLiteral("points_ref"), QStringLiteral("ver-points")},
                 {QStringLiteral("subinterval_id"), QStringLiteral("sub-1")},
                 {QStringLiteral("points"), squarePoints()}}};
-  PlanNode contour{QStringLiteral("contours"), QStringLiteral("singlefactor.contours"), 1, QStringLiteral("LINES"),
+  PlanNode contour{QStringLiteral("contours|,等值线"), QStringLiteral("singlefactor.contours"), 1, QStringLiteral("LINES"),
                    QStringLiteral("compute-only"), {{QStringLiteral("CONTOUR_LEVEL"), 5.0}}, {}};
-  const QVector<PlanEdge> edges{{QStringLiteral("idw"), QStringLiteral("OUTPUT"), QStringLiteral("contours"),
+  const QVector<PlanEdge> edges{{idw.id, QStringLiteral("OUTPUT"), contour.id,
                                  QStringLiteral("RASTER")}};
   const ExecuteResult result = paleo::capability::executePlan(host, {idw, contour}, edges);
   QVERIFY2(result.ok, qPrintable(result.code));
   const QString lines = result.summary.value(QStringLiteral("result_path")).toString();
   QVERIFY(lines.endsWith(QStringLiteral(".gpkg")));
   QVERIFY(QFileInfo(lines).size() > 0);
-  QCOMPARE(result.summary.value(QStringLiteral("plan_order")).toString(), QStringLiteral("idw,contours"));
+  QCOMPARE(result.summary.value(QStringLiteral("plan_order")).toStringList(), QStringList({idw.id, contour.id}));
+  QCOMPARE(QJsonDocument::fromJson(result.responseJson).object().value(QStringLiteral("plan_order")).toArray(),
+           QJsonArray({idw.id, contour.id}));
 }
 
 void TestCapabilityRound2::runningCancelStopsBeforePublish() {
@@ -207,15 +210,39 @@ void TestCapabilityRound2::runningCancelStopsBeforePublish() {
 }
 
 void TestCapabilityRound2::contourCycleIsRejected() {
-  PlanNode a{QStringLiteral("a"), QStringLiteral("singlefactor.contours"), 1, QStringLiteral("LINES")};
-  PlanNode b{QStringLiteral("b"), QStringLiteral("singlefactor.contours"), 1, QStringLiteral("LINES")};
-  const QVector<PlanEdge> edges{{QStringLiteral("a"), QStringLiteral("LINES"), QStringLiteral("b"), QStringLiteral("LINES")},
-                                {QStringLiteral("b"), QStringLiteral("LINES"), QStringLiteral("a"), QStringLiteral("LINES")}};
+  PlanNode a{QStringLiteral("a"), QStringLiteral("constraint.idw"), 1, QStringLiteral("OUTPUT")};
+  PlanNode b{QStringLiteral("b"), QStringLiteral("constraint.idw"), 1, QStringLiteral("OUTPUT")};
+  const QVector<PlanEdge> edges{{QStringLiteral("a"), QStringLiteral("OUTPUT"), QStringLiteral("b"), QStringLiteral("INPUT")},
+                                {QStringLiteral("b"), QStringLiteral("OUTPUT"), QStringLiteral("a"), QStringLiteral("INPUT")}};
   QCOMPARE(paleo::capability::checkPlan({a, b}, edges).code, QStringLiteral("cycle"));
-  QCOMPARE(paleo::capability::checkPlan({a}, {{QStringLiteral("a"), QStringLiteral("LINES"), QStringLiteral("a"),
+  QCOMPARE(paleo::capability::checkPlan({a}, {{QStringLiteral("a"), QStringLiteral("OUTPUT"), QStringLiteral("a"),
                                                QStringLiteral("NO_SUCH")}})
                .code,
            QStringLiteral("port_type"));
+}
+
+void TestCapabilityRound2::invalidPlanStartsNoChildOperation() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  auto host = hostRequest(dir.path(), QStringLiteral("preflight-all"));
+  PlanNode first{QStringLiteral("first"), QStringLiteral("constraint.idw"), 1, QStringLiteral("OUTPUT"),
+                 {}, {{QStringLiteral("CELL_SIZE"), 25.0}},
+                 {{QStringLiteral("points"), squarePoints()},
+                  {QStringLiteral("subinterval_id"), QStringLiteral("S1")}}};
+  // The first node is valid; a missing downstream scalar must stop the entire
+  // plan before even accepting the first child into operations.json.
+  PlanNode last{QStringLiteral("last"), QStringLiteral("singlefactor.contours"), 1, QStringLiteral("LINES")};
+  const QVector<PlanEdge> edges{{first.id, QStringLiteral("OUTPUT"), last.id, QStringLiteral("RASTER")}};
+  const auto result = paleo::capability::executePlan(host, {first, last}, edges);
+  QCOMPARE(result.code, QStringLiteral("missing_required"));
+  QVERIFY(result.operationId.isEmpty());
+  QCOMPARE(QDir(dir.path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).size(), 0);
+
+  last.parameters.insert(QStringLiteral("CONTOUR_LEVEL"), 5.0);
+  auto badEdges = edges;
+  badEdges[0].fromPort = QStringLiteral("ANY_NONEMPTY_NAME");
+  QCOMPARE(paleo::capability::executePlan(host, {first, last}, badEdges).code, QStringLiteral("port_type"));
+  QCOMPARE(QDir(dir.path()).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).size(), 0);
 }
 
 void TestCapabilityRound2::badPointValueIsRejected() {

@@ -942,107 +942,6 @@ QByteArray boundToolResponse(const QJsonObject &object, int budgetBytes) {
   return QJsonDocument(page).toJson(QJsonDocument::Compact);
 }
 
-ContractIssue checkPlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges) {
-  ContractIssue issue;
-  QHash<QString, PlanNode> byId;
-  for (const PlanNode &node : nodes) {
-    if (node.id.isEmpty() || byId.contains(node.id)) {
-      issue.code = QStringLiteral("duplicate_node");
-      issue.field = node.id;
-      return issue;
-    }
-    const CapabilitySpec capability = CapabilityRegistry::spec(node.capabilityId, node.contractVersion);
-    if (capability.capabilityId.isEmpty()) {
-      issue.code = QStringLiteral("unknown_capability");
-      issue.field = node.capabilityId;
-      return issue;
-    }
-    byId.insert(node.id, node);
-  }
-  QHash<QString, QStringList> incoming;
-  QHash<QString, int> indegree;
-  for (const PlanNode &node : nodes)
-    indegree.insert(node.id, 0);
-  for (const PlanEdge &edge : edges) {
-    if (!byId.contains(edge.from) || !byId.contains(edge.to)) {
-      issue.code = QStringLiteral("unknown_node");
-      issue.field = edge.from;
-      return issue;
-    }
-    const CapabilitySpec source = CapabilityRegistry::spec(byId.value(edge.from).capabilityId, byId.value(edge.from).contractVersion);
-    const AlgorithmSpec algorithm =
-        AlgorithmSpecRegistry::specAtVersion(source.algorithmId, source.algorithmContractVersion);
-    bool portOk = !edge.fromPort.isEmpty();
-    for (const AlgoPort &port : algorithm.outputs) {
-      if (port.id == edge.fromPort)
-        portOk = true;
-    }
-    if (!portOk) {
-      issue.code = QStringLiteral("port_type");
-      issue.field = edge.fromPort;
-      return issue;
-    }
-    const CapabilitySpec targetCap =
-        CapabilityRegistry::spec(byId.value(edge.to).capabilityId, byId.value(edge.to).contractVersion);
-    const AlgorithmSpec targetAlgorithm =
-        AlgorithmSpecRegistry::specAtVersion(targetCap.algorithmId, targetCap.algorithmContractVersion);
-    const AlgoPort *fromPort = nullptr;
-    const AlgoPort *toPort = nullptr;
-    for (const AlgoPort &port : algorithm.outputs) {
-      if (port.id == edge.fromPort)
-        fromPort = &port;
-    }
-    for (const AlgoPort &port : targetAlgorithm.inputs) {
-      if (port.id == edge.toPort)
-        toPort = &port;
-    }
-    if (edge.toPort.isEmpty() || !toPort) {
-      issue.code = QStringLiteral("port_type");
-      issue.field = edge.toPort;
-      return issue;
-    }
-    if (fromPort && !fromPort->kind.isEmpty() && fromPort->kind != toPort->kind) {
-      issue.code = QStringLiteral("port_type");
-      issue.field = edge.toPort;
-      return issue;
-    }
-    if (fromPort && !fromPort->unit.isEmpty() && !toPort->unit.isEmpty() && fromPort->unit != toPort->unit) {
-      issue.code = QStringLiteral("unit_mismatch");
-      issue.field = edge.toPort;
-      return issue;
-    }
-    incoming[edge.from].append(edge.to);
-    indegree[edge.to] += 1;
-  }
-  QStringList ready;
-  for (auto it = indegree.constBegin(); it != indegree.constEnd(); ++it) {
-    if (it.value() == 0)
-      ready.append(it.key());
-  }
-  ready.sort();
-  QStringList order;
-  while (!ready.isEmpty()) {
-    const QString id = ready.takeFirst();
-    order.append(id);
-    QStringList next = incoming.value(id);
-    next.sort();
-    for (const QString &to : next) {
-      indegree[to] -= 1;
-      if (indegree[to] == 0) {
-        ready.append(to);
-        ready.sort();
-      }
-    }
-  }
-  if (order.size() != nodes.size()) {
-    issue.code = QStringLiteral("cycle");
-    return issue;
-  }
-  issue.code = QStringLiteral("ok");
-  issue.message = order.join(QLatin1Char(','));
-  return issue;
-}
-
 ExecuteResult execute(const ExecuteRequest &request) {
   QString field;
   if (forbiddenAuthority(request.parameters, &field) || forbiddenAuthority(request.inputs, &field))
@@ -1175,42 +1074,52 @@ ExecuteResult execute(const ExecuteRequest &request) {
 }
 
 ExecuteResult executePlan(const ExecuteRequest &host, const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges) {
-  if (nodes.size() > 32 || edges.size() > 64)
-    return rejected(QStringLiteral("plan_too_large"));
-  const ContractIssue issue = checkPlan(nodes, edges);
-  if (issue.code != QLatin1String("ok"))
-    return rejected(issue.code, issue.field);
-  QHash<QString, PlanNode> byId;
-  for (const PlanNode &node : nodes)
-    byId.insert(node.id, node);
-  QHash<QString, QString> produced;
+  const auto plan = validatePlan(nodes, edges);
+  if (!plan.ok) {
+    auto result = rejected(plan.issues.first().code, plan.issues.first().field);
+    result.issues = plan.issues;
+    return result;
+  }
+  if (host.documentId.isEmpty() || host.callerScope.isEmpty() || host.clientRequestId.isEmpty() ||
+      host.operationDir.isEmpty())
+    return rejected(QStringLiteral("operation_identity_required"));
+  // Check every literal reference before creating the first child operation.
+  for (const auto &entry : plan.nodes) {
+    const auto raster = entry.node.inputs.value(QStringLiteral("raster_path")).toString();
+    if (!raster.isEmpty() && !isIssuedResult(host.documentId, raster))
+      return rejected(QStringLiteral("untrusted_result_ref"), QStringLiteral("raster_path"));
+  }
+  QHash<QString, int> byId;
+  for (int i = 0; i < plan.nodes.size(); ++i)
+    byId.insert(plan.nodes[i].node.id, i);
+  QVector<QString> produced(plan.nodes.size());
   ExecuteResult last;
-  const QStringList order = issue.message.split(QLatin1Char(','), Qt::SkipEmptyParts);
-  for (const QString &id : order) {
-    const PlanNode node = byId.value(id);
+  for (const auto &id : plan.order) {
+    const int index = byId.value(id);
+    const auto &node = plan.nodes[index].node;
     ExecuteRequest request = host;
     request.capabilityId = node.capabilityId;
     request.contractVersion = node.contractVersion;
-    request.clientRequestId = host.clientRequestId + QStringLiteral("/") + node.id;
-    request.publishIntent = node.intent.isEmpty() ? QStringLiteral("compute-only") : node.intent;
+    const auto identity = QJsonDocument(QJsonArray{host.clientRequestId, node.id}).toJson(QJsonDocument::Compact);
+    request.clientRequestId = QStringLiteral("plan-node:") + shaBytes(identity);
+    request.publishIntent = node.intent;
     request.parameters = node.parameters;
     request.inputs = node.inputs;
     request.onRunning = {};
-    for (const PlanEdge &edge : edges) {
-      if (edge.to != id)
+    for (const auto &edge : plan.edges) {
+      if (edge.toNode != index)
         continue;
-      const QString path = produced.value(edge.from + QStringLiteral("|") + edge.fromPort);
-      if (path.isEmpty())
-        return rejected(QStringLiteral("missing_edge_value"), edge.toPort);
-      const QString key = edge.toPort == QLatin1String("RASTER") ? QStringLiteral("raster_path") : edge.toPort;
-      request.inputs.insert(key, path);
+      if (produced[edge.fromNode].isEmpty())
+        return rejected(QStringLiteral("missing_edge_value"), edge.toPort.id);
+      request.inputs.insert(edge.inputKey, produced[edge.fromNode]);
     }
     last = execute(request);
     if (!last.ok)
       return last;
-    produced.insert(id + QStringLiteral("|") + node.outputPort, last.summary.value(QStringLiteral("result_path")).toString());
+    produced[index] = last.summary.value(QStringLiteral("result_path")).toString();
   }
-  last.summary.insert(QStringLiteral("plan_order"), issue.message);
+  last.summary.insert(QStringLiteral("plan_order"), plan.order);
+  last.responseJson = boundToolResponse(QJsonObject::fromVariantMap(last.summary));
   return last;
 }
 

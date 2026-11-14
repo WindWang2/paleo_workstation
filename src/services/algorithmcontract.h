@@ -24,3 +24,5 @@ struct ValidatedParams {
 // requestedVersion 与登记版本不一致时拒绝，不改叫最新版。
 ValidatedParams validateAndFillParams(const QString &algorithmId, int requestedVersion,
                                       const QVariantMap &params);
+// 端口边的静态兼容性；目标明确要求的语义不能由未知来源满足。
+ContractIssue checkPortCompatibility(const AlgoPort &source, const AlgoPort &target);

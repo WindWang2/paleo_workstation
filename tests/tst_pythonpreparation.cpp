@@ -61,6 +61,53 @@ struct Fixture {
 class TestPythonPreparation:public QObject {
   Q_OBJECT
 private slots:
+  void restoringHooksCannotOutliveHost_data() {
+    QTest::addColumn<QString>("hook");QTest::addColumn<bool>("registered");
+    for(const auto &hook:{"validate","input-validator","worker"}) {
+      const auto name=QByteArray(hook);QTest::newRow(("adapter-"+name).constData())<<QString::fromLatin1(hook)<<true;
+      QTest::newRow(("member-"+name).constData())<<QString::fromLatin1(hook)<<false;
+    }
+    QTest::newRow("native-factory")<<QString("factory")<<false;
+  }
+  void restoringHooksCannotOutliveHost() {
+    QFETCH(QString,hook);QFETCH(bool,registered);Fixture f;QVERIFY(f.open());
+    if(hook=="factory") {
+      f.host=std::make_unique<CapabilityHost>([&](const HostBinding &) {
+        f.host.reset();return CapabilityExecutionAdapter{};
+      },nullptr);
+      f.host->setTaskService(f.tasks.get());f.host->setCallerScope(host::Caller::Agent,"agent:test");
+      f.host->setBindingProvider([&]{return f.binding();});
+    }
+    const OperationWorker worker=[&](const OperationWorkContext &){f.entered=true;return OperationWorkResult{};};
+    FrozenOperation plan;plan.capabilityId=registered?QString::fromLatin1(python::WellQualityCapability):QStringLiteral("test.restore-hooks");
+    plan.callerScope="agent:test";plan.clientRequestId="restore-lifetime";plan.implementationVersion="test";
+    plan.phase="compute-only";plan.requiredEffects=host::LocalExecute;plan.intent={{"hook",hook}};plan.frozenPlan={{"test",true}};
+    plan.outputSpec.id="test:restore-hooks";plan.outputSpec.complete=true;AlgoPort port;port.id="REPORT";port.kind="file";
+    plan.outputSpec.outputs={port};plan.outputPorts={"REPORT"};plan.worker=worker;
+    plan.inputValidator=[](const OperationWorkContext &){return QString();};
+    const auto accepted=f.host->recovery()->accept(plan);QVERIFY2(accepted.ok,qPrintable(accepted.code));
+    f.host->invalidate(); // Restore from the journal, without cached runtime callbacks.
+    const auto validate=[&](const OperationLog::Record &) {if(hook=="validate")f.host.reset();return QString();};
+    const auto input=[&](const OperationLog::Record &,QString *)->OperationInputValidator {
+      if(hook=="input-validator"){f.host.reset();if(!registered)return {};}
+      return [](const OperationWorkContext &){return QString();};
+    };
+    const auto restore=[&,worker](const OperationLog::Record &,QString *)->OperationWorker {
+      if(hook=="worker"){f.host.reset();if(!registered)return {};}return worker;
+    };
+    if(registered) {
+      CapabilityExecutionAdapter adapter;adapter.validateFrozen=validate;adapter.restoreInputValidator=input;adapter.restoreWorker=restore;
+      f.host->registerExecutionAdapter(plan.capabilityId,std::move(adapter));
+    } else {
+      f.host->setFrozenValidator(validate);f.host->setInputValidatorRestorer(input);f.host->setWorkerRestorer(restore);
+    }
+    auto *recovery=f.host->recovery();int completions=0;
+    QVERIFY(!recovery->start(plan.callerScope,accepted.record.operationId,this,"Deleted restore owner",[&](auto){++completions;},false,&f.error));
+    QVERIFY(!f.host);QCOMPARE(f.error,QString("document_unavailable"));QCOMPARE(completions,0);QVERIFY(!f.entered);
+    QCOMPARE(f.tasks->runningCount(),0);QVERIFY(f.catalog.versions().isEmpty());
+    OperationLog log(f.temp.path()+"/.paleo/capability-ops",f.temp.path(),f.lock->claim());const auto record=log.recordById(accepted.record.operationId);
+    QCOMPARE(record.execution,QString("queued"));QCOMPARE(record.computeCount,0);
+  }
   void prepareBindingCannotOutliveHost_data() {
     QTest::addColumn<bool>("plan");QTest::addColumn<int>("deleteOnCall");
     QTest::newRow("single-initial-binding")<<false<<1;

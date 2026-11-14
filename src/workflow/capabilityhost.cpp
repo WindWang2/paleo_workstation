@@ -34,37 +34,54 @@ CapabilityHost::CapabilityHost(NativeAdapterFactory nativeFactory, QObject *pare
     h.context=b.context;h.projectDir=b.projectDir;h.operationDir=b.operationDir;
     h.catalog=b.catalog;h.writeClaim=b.writeClaim;
     h.presentationState=m_presentationState;h.present=m_present;
-    h.restoreInputValidator=[this,b](const OperationLog::Record &r,QString *error) {
-      if(m_adapters.contains(r.capabilityId)) {
-        const auto adapter=m_adapters.value(r.capabilityId);
-        return adapter.restoreInputValidator?adapter.restoreInputValidator(r,error):OperationInputValidator{};
+    h.restoreInputValidator=[guard,b](const OperationLog::Record &r,QString *error) {
+      const auto unavailable=[error]{if(error)*error="document_unavailable";return OperationInputValidator{};};
+      if(!guard)return unavailable();
+      if(guard->m_adapters.contains(r.capabilityId)) {
+        const auto restore=guard->m_adapters.value(r.capabilityId).restoreInputValidator;
+        auto validator=restore?restore(r,error):OperationInputValidator{};
+        return guard?validator:unavailable();
       }
-      if(m_restoreInputValidator)if(auto validator=m_restoreInputValidator(r,error))return validator;
-      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
-      if(native.restoreInputValidator)return native.restoreInputValidator(r,error);
+      const auto restore=guard->m_restoreInputValidator;const auto factory=guard->m_nativeAdapterFactory;
+      if(restore) {
+        auto validator=restore(r,error);if(!guard)return unavailable();if(validator)return validator;
+      }
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!guard)return unavailable();
+      if(native.restoreInputValidator) {
+        auto validator=native.restoreInputValidator(r,error);return guard?validator:unavailable();
+      }
       if(error)*error="execution_adapter_unavailable";return OperationInputValidator{};
     };
-    h.validateFrozen=[this,b](const OperationLog::Record &r) {
-      if(m_adapters.contains(r.capabilityId)) {
-        const auto adapter=m_adapters.value(r.capabilityId);
-        return adapter.validateFrozen?adapter.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
+    h.validateFrozen=[guard,b](const OperationLog::Record &r) {
+      if(!guard)return QStringLiteral("document_unavailable");
+      if(guard->m_adapters.contains(r.capabilityId)) {
+        const auto validate=guard->m_adapters.value(r.capabilityId).validateFrozen;
+        const auto code=validate?validate(r):QStringLiteral("execution_adapter_unavailable");
+        return guard?code:QStringLiteral("document_unavailable");
       }
-      if(m_validateFrozen){const auto code=m_validateFrozen(r);if(!code.isEmpty())return code;}
-      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
-      return native.validateFrozen?native.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
+      const auto validate=guard->m_validateFrozen;const auto factory=guard->m_nativeAdapterFactory;
+      if(validate) {
+        const auto code=validate(r);if(!guard)return QStringLiteral("document_unavailable");if(!code.isEmpty())return code;
+      }
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!guard)return QStringLiteral("document_unavailable");
+      const auto code=native.validateFrozen?native.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
+      return guard?code:QStringLiteral("document_unavailable");
     };
-    h.restoreWorker=[this,b](const OperationLog::Record &r,QString *error) {
-      if(m_adapters.contains(r.capabilityId)) {
-        const auto adapter=m_adapters.value(r.capabilityId);
-        if(adapter.restoreWorker)return adapter.restoreWorker(r,error);
+    h.restoreWorker=[guard,b](const OperationLog::Record &r,QString *error) {
+      const auto unavailable=[error]{if(error)*error="document_unavailable";return OperationWorker{};};
+      if(!guard)return unavailable();
+      if(guard->m_adapters.contains(r.capabilityId)) {
+        const auto restore=guard->m_adapters.value(r.capabilityId).restoreWorker;
+        if(restore){auto worker=restore(r,error);return guard?worker:unavailable();}
         if(error)*error="execution_adapter_unavailable";return OperationWorker{};
       }
-      if(m_restoreWorker) {
-        auto worker=m_restoreWorker(r,error);
+      const auto restore=guard->m_restoreWorker;const auto factory=guard->m_nativeAdapterFactory;
+      if(restore) {
+        auto worker=restore(r,error);if(!guard)return unavailable();
         if(worker || (error && !error->isEmpty()))return worker;
       }
-      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
-      if(native.restoreWorker)return native.restoreWorker(r,error);
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!guard)return unavailable();
+      if(native.restoreWorker){auto worker=native.restoreWorker(r,error);return guard?worker:unavailable();}
       if(error)*error="execution_adapter_unavailable";return OperationWorker{};
     };return h;
   });

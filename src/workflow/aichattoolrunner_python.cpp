@@ -23,8 +23,10 @@ void AiChatToolRunner::runPythonEnvironment() {
   const auto readiness=m_context.runtimeReadiness;
   auto result=std::make_shared<QJsonObject>();
   auto *task=m_taskService->start(QObject::tr("Python 环境状态"),[provider,execution,sandbox,result](PaleoTask *task) {
-    const auto inspected=provider->inspect([task]{return task->cancelRequested();});
+    const auto cancelled=[task]{return task->cancelRequested();};
+    const auto inspected=provider->policy().allowGenerated?provider->inspectIntegrity(cancelled):provider->inspect(cancelled);
     *result=inspected.json();result->insert("policy",provider->policy().json());
+    result->insert("runtimeVerification",provider->policy().allowGenerated?"content_identity":"runtime_import_probe");
     if(execution && provider->policy().allowTrusted)
       result->insert("trustedExecution",execution->inspect([task]{return task->cancelRequested();}));
     if(sandbox && provider->policy().allowGenerated) {

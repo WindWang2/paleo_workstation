@@ -23,7 +23,7 @@ capability::FrozenOperation materialize(const capability::ExecuteRequest &reques
   const auto fail=[&](const QString &code){if(error)*error=code;return capability::FrozenOperation{};};
   auto code=backendStatus(sandbox,identity.value("backend").toString());if(!code.isEmpty())return fail(code);
   const auto permit=claimExecutionPermit(cancelled);if(!permit)return fail("cancelled");
-  const auto runtime=provider->inspect(cancelled);if(!runtime.ready())return fail(runtime.code);
+  const auto runtime=provider->inspectIntegrity(cancelled);if(!runtime.ready())return fail(runtime.code);
   if(runtime.runtime->manifestSha256!=identity.value("runtimeManifestSha256").toString())return fail("python_runtime_changed");
   if(provider->policy().json()!=identity.value("policy").toObject())return fail("python_policy_changed");
   const auto input=materializeAnalysis(readPlan,source,provider->policy(),permit,cancelled);if(!input.ok())return fail(input.code);

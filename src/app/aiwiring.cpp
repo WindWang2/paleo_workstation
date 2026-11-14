@@ -261,7 +261,10 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   if(!reusePython && context.pythonRuntime->configuration().enabled && chat->toolRunner()->taskService()) {
     const auto provider=context.pythonRuntime;
     chat->toolRunner()->taskService()->start(QObject::tr("Python 环境状态"),[provider](PaleoTask *task) {
-      provider->inspect([task]{return task->cancelRequested();});return QString();
+      const auto cancelled=[task]{return task->cancelRequested();};
+      if(provider->policy().allowGenerated)provider->inspectIntegrity(cancelled);
+      else provider->inspect(cancelled);
+      return QString();
     });
   }
   if(!currentBinding())return;

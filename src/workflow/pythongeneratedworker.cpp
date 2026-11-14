@@ -12,7 +12,7 @@ capability::OperationWorker worker(const QJsonObject &plan,std::shared_ptr<Runti
     auto code=checkPlan(plan,provider,sandbox,true);if(!code.isEmpty())return fail(code);
     if(context.frozenPlan!=plan)return fail("invalid_python_generated_plan");
     const auto permit=claimExecutionPermit(context.cancelled);if(!permit)return fail("cancelled");
-    const auto runtime=provider->inspect(context.cancelled);if(!runtime.ready())return fail(runtime.code);
+    const auto runtime=provider->inspectIntegrity(context.cancelled);if(!runtime.ready())return fail(runtime.code);
     if(runtime.runtime->manifestSha256!=plan.value("runtimeManifestSha256").toString())return fail("python_runtime_changed");
     const auto bundle=verifyInputBundle(context.projectDir,plan.value("storedInput").toObject(),provider->policy(),context.cancelled);
     if(!bundle.ok())return fail(bundle.code);code=checkBundle(bundle,plan);if(!code.isEmpty())return fail(code);

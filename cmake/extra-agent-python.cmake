@@ -38,6 +38,8 @@ add_paleo_test(tst_pythoninputbundle LIBS paleo_services_pythonruntime)
 if(WIN32)
   add_paleo_test(tst_python_windows_sandbox LIBS paleo_services_pythonruntime)
   target_link_libraries(tst_python_windows_sandbox PRIVATE ws2_32)
+else()
+  add_paleo_test(tst_python_windows_unavailable LIBS paleo_services_pythonruntime)
 endif()
 add_paleo_test(tst_pythonoperations LIBS paleo_workflow)
 target_compile_definitions(tst_pythonoperations PRIVATE

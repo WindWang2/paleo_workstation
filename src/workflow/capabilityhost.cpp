@@ -74,6 +74,7 @@ CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(ne
     };return h;
   });
 }
+CapabilityHost::~CapabilityHost(){m_preparationInvalidated->store(true);}
 void CapabilityHost::setWorkerRestorer(std::function<OperationWorker(const OperationLog::Record &,QString*)> restorer) {
   m_restoreWorker=std::move(restorer);
 }
@@ -104,7 +105,10 @@ QString CapabilityHost::callerScope(host::Caller caller,const QString &session) 
   if(base.isEmpty())return {};
   return caller==host::Caller::Agent && !session.isEmpty()?base+":chat:"+QString::fromLatin1(QCryptographicHash::hash(session.toUtf8(),QCryptographicHash::Sha256).toHex()):base;
 }
-void CapabilityHost::invalidate() { m_prepared.clear();m_recovery->invalidateRuntimeHooks(); }
+void CapabilityHost::invalidate() {
+  m_prepared.clear();m_recovery->invalidateRuntimeHooks();
+  m_preparationInvalidated->store(true);m_preparationInvalidated=std::make_shared<std::atomic_bool>(false);
+}
 void CapabilityHost::prunePrepared(const host::CallContext &context) {
   const auto now=QDateTime::currentMSecsSinceEpoch();
   for(auto it=m_prepared.begin();it!=m_prepared.end();)
@@ -176,6 +180,11 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
     OperationLog log(live.operationDir,live.projectDir,live.writeClaim);
     saved.frozen=freezeSourcePublication(saved.request,original,log.recordById(sourceId),&code);
     if(!code.isEmpty())return fail(code);
+  } else if(adapter.capture) {
+    if(saved.request.bindingMode.isEmpty())saved.request.bindingMode="pinned-value";
+    saved.preparation=adapter.capture(saved.request,original,&code);
+    if(!code.isEmpty() || !saved.preparation.worker)return fail(code.isEmpty()?QStringLiteral("preparation_adapter_unavailable"):code);
+    result.effectiveParameters=saved.request.parameters;
   } else if(adapter.freeze) {
     saved.frozen=adapter.freeze(saved.request,original,&code);
     if(!code.isEmpty())return fail(code);
@@ -243,6 +252,7 @@ PaleoTask *CapabilityHost::start(const QString &handle, const ExecuteRequest &in
   else code = check(*it, intent, live);
   if (!code.isEmpty()) { if (error) *error = code; return nullptr; }
   const Prepared saved = *it;
+  if(saved.preparation.worker)return startPreparing(handle,saved,intent,receiver,title,std::move(finished),error);
   QString operationId=saved.recoveryId;
   if(operationId.isEmpty()) {
     const auto accepted=m_recovery->accept(saved.frozen);

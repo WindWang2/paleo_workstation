@@ -115,8 +115,11 @@ private slots:
     QTemporaryDir dir;QString code;ExecutionPolicy policy;policy.inputBytes=4096;
     const auto excessive=inputs(dir.path(),"paleo.python-analysis-frame.v1","{}",QByteArray(4096,'x'));
     QVERIFY(!snapshotLinuxInputs(excessive,policy,1024*1024,1024*1024,{},code));QCOMPARE(code,QString("python_input_budget_exceeded"));
-    const auto exact=inputs(dir.path(),"paleo.python-analysis-frame.v1","{}",QByteArray(4094,'x'));
-    QVERIFY2(snapshotLinuxInputs(exact,policy,1024*1024,1024*1024,{},code),qPrintable(code));
+    const auto framingOverflow=inputs(dir.path(),"paleo.python-analysis-frame.v1","{}",QByteArray(4091,'x'));
+    QVERIFY(!snapshotLinuxInputs(framingOverflow,policy,1024*1024,1024*1024,{},code));QCOMPARE(code,QString("python_input_budget_exceeded"));
+    const auto exact=inputs(dir.path(),"paleo.python-analysis-frame.v1","{}",QByteArray(4090,'x'));
+    const auto image=snapshotLinuxInputs(exact,policy,1024*1024,1024*1024,{},code);QVERIFY2(image,qPrintable(code));
+    QCOMPARE(image->bufferedBytes,4096);QCOMPARE(image->stdinChunks[0].size(),4);
     policy.diskBytes=4096;
     QVERIFY(!snapshotLinuxInputs(exact,policy,1024*1024,1024*1024,{},code));QCOMPARE(code,QString("python_disk_budget_exceeded"));
   }

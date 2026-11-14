@@ -13,6 +13,7 @@
 #include <QTemporaryDir>
 #include <QThread>
 #include <QScopeGuard>
+#include <QTest>
 #include <cstdio>
 #include <cerrno>
 #include <fcntl.h>
@@ -77,12 +78,12 @@ std::shared_ptr<InputBundle> bundle(const QString &root,const QByteArray &code,c
   out->reference={{"manifestHash",sha(raw)}};return out;
 }
 }
-int main(int argc,char **argv) {
-  QCoreApplication app(argc,argv);if(app.arguments().size()<3)return 2;
-  const auto checked=verifyRuntime({app.arguments()[1],app.arguments()[2],true});
+int nativeMatrix(const QString &root,const QString &manifestSha,const QString &select={}) {
+  if(root.isEmpty()||manifestSha.isEmpty())return 2;
+  const auto checked=verifyRuntime({root,manifestSha,true});
   if(!checked.ready()) {fprintf(stderr,"fixture: %s\n",qPrintable(checked.code));return 3;}
-  const auto runtime=checked.runtime;const auto select=app.arguments().value(3);
-  const QSet<QString> cases{"numpy","frame","isolation","duplex","host-budget","payload-budget","disk-budget","invalid-json",
+  const auto runtime=checked.runtime;
+  const QSet<QString> cases{"numpy","frame","isolation","duplex","host-budget","payload-budget","transport-boundary","transport-overflow","disk-budget","invalid-json",
     "stdout","stderr","failed-stdout","memory","cpu","wall","prepare-wall","cancel","toctou","hostdeath"};
   if(!select.isEmpty()&&!cases.contains(select))return 2;
   const auto temporary=QFileInfo(QDir::tempPath()).canonicalFilePath();
@@ -159,6 +160,11 @@ print('isolation-ok')
   run("host-budget","raise AssertionError('must not execute')\n","python_snapshot_memory_budget");
   request.policy.inputBytes=4096;data=QByteArray(4096,'x');
   run("payload-budget","raise AssertionError('must not execute')\n","python_input_budget_exceeded");
+  data=QByteArray(4090,'x');
+  run("transport-boundary","import sys\na=sys.stdin.buffer.read()\nassert len(a)==4096 and int.from_bytes(a[:4],'little')==2 and a[4:6]==b'{}' and a[6:]==b'x'*4090\nprint('transport-boundary')\n","ok");
+  data=QByteArray(4091,'x');
+  const auto overflow=run("transport-overflow","raise AssertionError('must not execute')\n","python_input_budget_exceeded");
+  if(select.isEmpty()||select=="transport-overflow")all=all&&overflow.cpuMicros==0&&overflow.output.isEmpty();
   request.policy.inputBytes=256*1024*1024;data.clear();protocol="paleo.python-json.v1";stdinBytes="{}";
   request.policy.diskBytes=4096;
   run("disk-budget","raise AssertionError('must not execute')\n","python_disk_budget_exceeded");request.policy.diskBytes=512*1024*1024;
@@ -207,3 +213,19 @@ print('isolation-ok')
   puts(QJsonDocument(QJsonObject{{"all",all},{"deniedCode",deniedCode},{"toctouChanged",changed},{"rows",rows}}).toJson(QJsonDocument::Compact).constData());
   return all?0:3;
 }
+class TestNativeLinuxSandbox:public QObject {
+  Q_OBJECT
+private slots:
+  void lockedRuntimeIsolationMatrix() {
+    const auto root=qEnvironmentVariable("PALEO_TEST_PYTHON_LINUX_NATIVE_ROOT");
+    const auto anchor=qEnvironmentVariable("PALEO_TEST_PYTHON_LINUX_NATIVE_SHA256");
+    QVERIFY2(!root.isEmpty()&&!anchor.isEmpty(),"Explicit native runtime fixture and host SHA-256 are required");
+    QCOMPARE(nativeMatrix(root,anchor),0);
+  }
+};
+int main(int argc,char **argv) {
+  QCoreApplication app(argc,argv);const auto args=app.arguments();
+  if(args.size()>=3&&!args[1].startsWith('-'))return nativeMatrix(args[1],args[2],args.value(3));
+  TestNativeLinuxSandbox test;return QTest::qExec(&test,argc,argv);
+}
+#include "tst_pythonsandbox_linux_native.moc"

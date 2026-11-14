@@ -180,7 +180,7 @@ std::shared_ptr<SealedRuntimeImage> snapshotLinuxInputs(const InputBundle &input
   }
   const QSet<QString> expected=frame?QSet<QString>{"code.py","request.json","data.bin"}:QSet<QString>{"code.py","request.json"};
   if(names!=expected)return fail("python_input_protocol_invalid");
-  if(jsonSize<1||jsonSize>64*1024)return fail("python_input_budget_exceeded");
+  if(jsonSize<1||jsonSize>64*1024||stdinSize>policy.inputBytes)return fail("python_input_budget_exceeded");
   if(declared>policy.diskBytes-policy.outputBytes-policy.logBytes)return fail("python_disk_budget_exceeded");
   if(declared>capacity||declared>bufferedCapacity-stdinSize)return fail("python_snapshot_memory_budget");
   for(const auto &entry:rows) {

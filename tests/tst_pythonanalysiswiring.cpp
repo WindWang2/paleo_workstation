@@ -243,8 +243,8 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
     const auto published=call(runner,tool,args,ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(published).toJson()));QCOMPARE(published.value("commitState").toString(),QString("committed"));
     QCOMPARE(f.catalog.versions().size(),count+1);
-    const auto source=inputs.value("curves").toArray()[0].toObject().value("source_version_id").toString();
-    for(const auto &version:f.catalog.versions())if(version.stage=="DERIVED")QCOMPARE(version.parentVersionIds,QStringList{source});
+    const auto sourceVersion=inputs.value("curves").toArray()[0].toObject().value("source_version_id").toString();
+    for(const auto &version:f.catalog.versions())if(version.stage=="DERIVED")QCOMPARE(version.parentVersionIds,QStringList{sourceVersion});
     call(runner,tool,args,ok);QVERIFY(ok);QCOMPARE(f.catalog.versions().size(),count+1);
   }
 };

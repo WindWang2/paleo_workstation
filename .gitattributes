@@ -14,3 +14,4 @@ vendor/fetch-ranuts-document.sh text eol=lf
 
 # The optional Agent runtime manifest anchors this lock by its original bytes.
 /vendor/agent-python/runtime.lock.json text eol=lf
+/vendor/agent-python/templates/*.py text eol=lf

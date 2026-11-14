@@ -424,7 +424,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
     m_projectLayerRefresh->cancel();
     if (m_aiChat)
-      m_aiChat->cancel();
+      m_aiChat->interrupt();
     if (m_versionCtl)
       m_versionCtl->abandonForProjectClose();
     if (m_taskSvc)

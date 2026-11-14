@@ -38,6 +38,7 @@ void AiChatToolRunner::runPersistentOperation(const QJsonObject &args) {
        !pageInteger(args,"max_bytes",8192,1024,32768,bytes))return fail("invalid_event_page");
     response=service->events(scope,id,after,size,bytes);
   } else {
+    const QPointer<AiChatToolRunner> guard(this);
     const int generation=m_generation;const auto call=m_activeCall.id;QString code;PaleoTask *task=nullptr;
     if(name==QLatin1String("paleo.operation_resume"))
       task=service->start(scope,id,this,QStringLiteral("Resume operation"),[this,generation,call](auto result) {
@@ -53,7 +54,10 @@ void AiChatToolRunner::runPersistentOperation(const QJsonObject &args) {
         if(generation==m_generation && m_active && m_activeCall.id==call)finishActive(result.value("ok").toBool(),result);
       },&code);
     } else return fail("tool_not_found");
-    if(generation!=m_generation || !activeContextIsCurrent()) {if(task)task->requestCancel();return;}
+    if(!guard){if(task)task->requestInterruption();return;}
+    if(generation!=m_generation || !activeContextIsCurrent()) {
+      if(task){if(m_explicitCancelGeneration>generation)task->requestCancel();else task->requestInterruption();}return;
+    }
     m_activeTask=task;if(!task)fail(code);return;
   }
   finishActive(response.value("ok").toBool(),response);
@@ -64,10 +68,14 @@ void AiChatToolRunner::runTileV2(const QJsonObject &args) {
   }
   const auto scope=m_context.capabilityHost->callerScope(paleo::host::Caller::Agent,m_resultSession);
   const int generation=m_generation;const auto id=m_activeCall.id;QString code;
+  const QPointer<AiChatToolRunner> guard(this);
   auto *task=m_context.tileOperations->start(args,scope,this,[this,generation,id](auto result) {
     if(generation==m_generation && m_active && m_activeCall.id==id)
       finishActive(result.ok,paleo::capability::chatToolResponse(result));
   },&code);
-  if(generation!=m_generation || !activeContextIsCurrent()) {if(task)task->requestCancel();return;}
+  if(!guard){if(task)task->requestInterruption();return;}
+  if(generation!=m_generation || !activeContextIsCurrent()) {
+    if(task){if(m_explicitCancelGeneration>generation)task->requestCancel();else task->requestInterruption();}return;
+  }
   m_activeTask=task;if(!task)finishActive(false,{{"code",code}});
 }

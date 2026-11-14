@@ -96,6 +96,15 @@ QString PaleoTask::etaText() const
 
 void PaleoTask::requestCancel()
 {
+  if (!m_cancellable.load())
+    return;
+  m_explicitCancel.store(true);
+  if (!m_cancel.exchange(true))
+    emit cancelAsked();
+}
+
+void PaleoTask::requestInterruption()
+{
   if (m_cancellable.load() && !m_cancel.exchange(true))
     emit cancelAsked();
 }
@@ -250,7 +259,7 @@ bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
     return true;
   for (PaleoTask *t : m_tasks)
     if (t->running())
-      t->requestCancel();
+      t->requestInterruption();
   m_pool->clear(); // 未出队的任务直接丢弃（其闭包随 QRunnable 析构）
   // #416：被 clear 丢弃的排队任务 runner 永不执行——没有它就没有终态回包，
   // 任务行会永远挂在 Running。补发终态（m_cancel 已置 → Cancelled）；已开跑
@@ -335,7 +344,7 @@ quint64 PaleoTaskService::beginNewSession()
   ++m_session;
   for (PaleoTask *t : m_tasks)
     if (t->running())
-      t->requestCancel();
+      t->requestInterruption();
   return m_session;
 }
 

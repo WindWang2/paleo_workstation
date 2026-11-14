@@ -97,6 +97,8 @@ public:
   // 测试：loopback 假端点）——不隐藏读盘。
   void setFaciesConfig(const WellFaciesConfig &config);
   bool externalTransferConfigured() const;
+  bool pythonExecutionAllowed() const;
+  std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime() const { return m_context.pythonRuntime; }
   void setContext(const Context &context);
   void setTaskService(PaleoTaskService *service);
   void setResultSession(const QString &session);
@@ -120,6 +122,7 @@ public:
   void run(const ChatToolCall &call);
   // 作废在途与排队（见类注释「取消 = 作废」）。
   void cancel();
+  void interrupt(); // Host/session invalidation preserves resumable operation intent.
 
 signals:
   void toolStarted(const ChatToolCall &call);
@@ -131,6 +134,7 @@ signals:
                     const QString &resultJson);
 
 private:
+  void stopCurrentRound(bool explicitRequest);
   void startNext();
   void finishActive(bool ok, const QJsonObject &payload);
   void runCapability(const QString &title, const QJsonObject &args);
@@ -176,6 +180,7 @@ private:
   bool m_activeIsFacies = false;
   quint64 m_faciesEpoch=0,m_activeFaciesEpoch=0;
   int m_generation = 0; // cancel()/析构 ++：作废迟到回调
+  int m_explicitCancelGeneration = -1;
   quint64 m_contextGeneration = 0;
   quint64 m_activeContextGeneration = 0;
   quint64 m_activeTaskSession = 0;

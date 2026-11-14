@@ -1,7 +1,7 @@
 // 层：数据
 #include "pythonsandbox_linux.h"
 namespace paleo::python {
-QString linuxSandboxReadiness() {
+QString linuxSandboxReadiness(const std::function<bool()> &) {
 #ifdef Q_OS_LINUX
   return "python_sandbox_qt_unsupported";
 #else

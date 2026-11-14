@@ -7,3 +7,4 @@ target_sources(paleo_workflow PRIVATE src/workflow/pythongeneratedoperation.cpp 
   src/workflow/capabilityhost_native.cpp src/workflow/capabilitysourcepublication.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/capabilitychatprotocol_native.cpp)
 add_paleo_test(tst_pythongenerated LIBS paleo_services_pythonanalysis)
+add_paleo_test(tst_pythonsandboxreadiness LIBS paleo_services_pythonruntime Qt6::Concurrent)

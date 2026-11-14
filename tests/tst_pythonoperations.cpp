@@ -179,6 +179,8 @@ private slots:
     ExecuteResult result;QString error;QVERIFY(run(host,plan.callerScope,accepted.record.operationId,result,error));
     QVERIFY(!result.ok);QCOMPARE(result.code,QString("cancelled"));QVERIFY(result.summary.isEmpty());
     QVERIFY(!QJsonDocument::fromJson(result.responseJson).object().value("ok").toBool());QCOMPARE(host.catalog.versions().size(),0);
+    ExecuteResult retry;QString retryError;
+    QVERIFY(!run(host,plan.callerScope,accepted.record.operationId,retry,retryError,true));QCOMPARE(retryError,QString("cancelled"));
   }
   void taskAddedCanDeleteRecoveryBeforeStartReturns() {
     QTemporaryDir project;Host host;QVERIFY(host.open(project.path()));auto plan=controlPlan("owner-lifetime");

@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QVector>
 
 namespace paleo::python::process_detail::linux_native {
 struct Fd {
@@ -19,6 +20,7 @@ struct Prepared {
   QStringList arguments;
   QProcessEnvironment environment;
   std::shared_ptr<Fd> filter, blockRead, blockWrite;
+  QVector<int> imageFds;
   qint64 fileBytes=0;
 };
 QJsonObject verifiedHelpers();

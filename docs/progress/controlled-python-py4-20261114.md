@@ -1,8 +1,9 @@
 # 受控 Python PY4：生成数值报告与端到端收口
 
 本批依赖 PY2 #948、Windows 后端 #949、Linux 后端 #950，以及 SDK #21。
-Shell 保持后置。功能源码冻结与最终完整矩阵结果在验收结束后补录，不用此前批次的
-结果代替本批验证。
+Shell 保持后置。功能源码冻结于 `d19cba7f26e6959e432761ec26a31bdbd4089364`，
+SDK 为 `9d80d1f6bbe9e1e3a71ff65d608f5290aeb75b14`；之后只补文档。
+以下结果来自本批构建和执行，不用此前批次的结果代替。
 
 ## 入口与执行身份
 
@@ -77,6 +78,13 @@ Windows MSVC/Qt 6.8 同树真实静态库和 SDK 9d80，没有替代 execute、r
 - 无 GIS 证据单元另有 3/3。上述是原生组件及实际 Core Host 链，不是 Windows GUI
   完整构建；Linux 完整应用另行验收。
 
+最终源码关联核对中，100 个关键源/头摘要的唯一原始字节差异是 GenOps 测试末行的
+混合换行：证据中的前 222 行 LF、末行 CRLF 可由当前 Git 源逐字复原并得到精确原 SHA；
+rebase 后工作树为全 CRLF。Ninja 编译的是 tracked 源，没有替换实现或 Qt 适配。
+独立 EOL 关联记录保留原证据与对象/日志摘要，不改原记录，也不把换行当作代码变化。
+记录为 `local/python-validation/host-native-core/association-eol-check.json`，SHA256
+`6cbc6e6844cfd13875eb63e18f58de5225c89d29daacfbe7235e5bf86fc204e5`。
+
 平台契约、限制和打包说明见 [SANDBOX_SUPPORT](../../vendor/agent-python/SANDBOX_SUPPORT.md)。
 Windows 允许的任意原生线程数量没有独立 Job 上限，诊断明确为 false；全部线程共享
 单核并行度、CPU、提交内存和墙钟硬预算。Linux 还拒绝 clone。两后端子进程均零磁盘写，
@@ -88,7 +96,26 @@ Windows 允许的任意原生线程数量没有独立 Job 上限，诊断明确�
 （另 4 项供货检查）。安全修复后两套完整编译均已通过；WSL 选择不依赖成功执行的
 12 套 C++ 回归加 4 供货检查，均 **16/16**，用时 **29.31/32.87 秒**，两套应用首帧
 及 WebEngine/Office 闭包通过。其中强就绪明确断言缺 CPU controller 时拒绝，不将
-该负例算作 Linux 成功执行。最终原生 53 项结果待补录，不使用旧源码结果充当新结果。
+该负例算作 Linux 成功执行。
+
+非 WSL Arch/KVM 的两套最终完整矩阵均单轮通过，没有重跑：
+
+| 配置 | CTest | QtTest 通过/失败/跳过 | CTest 秒数 |
+|---|---|---|---|
+| 默认 | 53/53 | 689/0/0 | 313.82 |
+| no-ORT | 53/53 | 683/0/0 | 310.26 |
+
+各配置 runtime 20、进程 18、QGIS runtime 13、强后端就绪 8、生成操作 9 全部执行通过。
+实际 Linux 强隔离矩阵 JSON 为 **19/19** child cases，
+不能将它与外层 QtTest 的 3 行混称同一个计数。生产 app 接线 **10/10**，其中
+`agentDiscoveryComputePagedReadRestartAndPublishUseOneChain(generated-numeric)`
+在 allowGenerated=true、allowTrusted=false 下走真实 Agent→取数→计算→128 B 分页→
+重建 Host 后发布；trusted-quality 行也通过。
+
+测试使用普通 UID 1000、capabilities=0 的私有 mount namespace，显式 require execution、
+expected readiness=ok。两配置六组 ABI 均无 missing/undefined，Office 组件与完整应用
+首帧通过；运行前、矩阵后、应用首帧后三次核对运行时精确 2143 文件、完整 SHA 与只读
+权限均通过。没有修改策略上限、断言或产品代码换取通过。
 
 新加入完整矩阵的既有 `tst_runtime` 发现私有 QGIS prefix 漏解包 postinst 资源步骤。
 已用仓库现有 `ensure_qgis_resources.py`，从锁版 qgis-providers-common 4.2.3+44 的
@@ -96,8 +123,16 @@ Windows 允许的任意原生线程数量没有独立 Job 上限，诊断明确�
 `184bb6c53e463becd28b7c3269655ff9098ab7eebecf927ee49c1a3dcd482908`，SQLite 完整性正常，
 13,720 CRS、EPSG 4326/3857 齐全；原 ELF 两配置各 13/13 复验通过。
 VM2 用独立 `qgis-srs-supplement.json` 锚 `b92286865f607a85c055e83644c27657b167bd178cfaffa7ee2a05225cada038`，
-不声称原共享闭包清单已包含新增文件。各应用须再次通过六组 ABI、Office 组件、
-首帧及运行时 2143 文件前后 SHA 检查后，才能按计划提交本批 PR。
+不声称原共享闭包清单已包含新增文件；上列完整应用与 ABI/SHA 验收均在补齐后完成。
+
+运行时清单锚分别为 Linux
+`c7315dae25f2b4588e39fbba1f9d9037aa41de7a61c46909d05205d79929c821`、Windows
+`94446a0c28dc1f2b2b8541f8e0151e964aff5b7ab36f2868742fbd553dc665ad`，源锁为
+`109899e2011cde44e1ed7cab28a962af7e0273ee9eaab38cec34c44da8554014`。
+VM2 共享依赖实用闭包清单为
+`cc9c8bfd325b12f4cb26736f0d0b9eb51f39bf0a79f63634d5c1c53d4c023267`，
+SRS 另以补充清单核验。默认/no-ORT 最终供货各 6477 文件，传输后逐文件 SHA 核对，
+再串行运行矩阵；没有在测试期间传包或做后台全包散列。
 
 ## 本机验证命令与记录
 
@@ -117,5 +152,18 @@ AUTOGEN 并行为 1，构建总并行上限 8；ctest 串行。Source gates 从�
 完整清单，显式给锁版 QGIS 头目录，包含 transitive 全指标与补充自检。
 原生 Linux 最终 driver 是 `local/python-validation/native-full-py4/`，从已核验供货包
 启动同样的私有挂载、UID/capability 降权和只读运行时绑定；两个配置各执行 53 项，
-不可将 WSL 的预期拒绝替代原生执行。其精确命令、源/SDK/供货清单、首次失败与重试
+不可将 WSL 的预期拒绝替代原生执行。其精确命令、源/SDK/供货清单与首次运行结果
 均随最终证据包保存。
+
+最终原生证据包为工作树 ignored 目录
+`local/python-validation/native-full-py4/p4-native-evidence-complete.tar.gz`，
+1,475,169 B，SHA256
+`bf78595dda274429a7c2d2c415d0a8ff804f7a72d6c921f7a1162e67dcecc0ed`。
+169 文件逐一解压读取并核内部 SHA，含本批两次首轮完整结果、实际正向用例、
+源/SDK/52 ELF 每配置的身份、依赖/SRS 补充清单及 ABI/Office/运行时前后核验。
+最终两轮没有失败或重试；此前环境缺项与早期编译诊断保留在本机原日志，不混入最终成功数。
+
+开 PR 前 fetch 并 rebase `origin/master`（`17bdfd0f`），在最终基底重跑完整 Source
+gates **37/37**；显式锁版 QGIS_PREFIX、transitive 全指标与新增供货/隔离自检都包含在内。
+基线只缩不涨，完整逐项命令与输出保留在 `local/review-20261114/source-gates/`。
+PY0–PY4 至此全部按批完成；实现 PR 待依赖合入，主 checkout 仍保持用户指定的 master。

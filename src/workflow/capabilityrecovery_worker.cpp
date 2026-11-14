@@ -230,7 +230,8 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
       auto code=host::checkContext(guard->live().context,host.context,recovery_detail::operationEffects(r));
       if(code.isEmpty() && lease->contextInvalidated && lease->contextInvalidated->load())code="stale_session";
       if(code.isEmpty() && interrupted)code="stale_session";
-      if(code.isEmpty() && cancelled && result.commitState!="committed")code="cancelled";
+      const bool lateCancellation=cancelled || lease->cancelled.load() || (task && task->explicitCancelRequested());
+      if(code.isEmpty() && lateCancellation && result.commitState!="committed")code="cancelled";
       if(!code.isEmpty())result=recovery_detail::invalidDelivery(std::move(result),code);
     }
     if(!result.ok && task && task->state()==PaleoTask::State::Succeeded) {

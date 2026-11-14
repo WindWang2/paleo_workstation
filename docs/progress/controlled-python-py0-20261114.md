@@ -41,12 +41,14 @@ WSL Arch Linux / GCC 16.2.1 / CMake 4.4.3。默认 ORT 为 1.30.0，另建无 OR
 
 | 配置 | CTest | QtTest 通过/失败/跳过 | 最终 CTest 耗时 |
 |---|---|---|---|
-| 默认 ORT | 27/27 | 360 / 0 / 0 | 165.65 s |
-| 无 ORT | 27/27 | 354 / 0 / 0 | 164.08 s |
+| 默认 ORT | 29/29 | 397 / 0 / 0 | 153.16 s |
+| 无 ORT | 29/29 | 391 / 0 / 0 | 152.55 s |
 
 包含新 runtime/environment、原控制台/REPL、宿主/恢复/凭证、保留/清理、聊天与命令
 相关回归。目录规模用例显式启用 `PALEO_CATALOG_SCALE=10000`，没有把跳过计为验收。
 QtTest 总数含初始化、清理与数据行；供货检查及其 11 项自测另计入上述 CTest 套件。
+两套最终配置均实际找到并链接 Qt WebEngine Widgets，包含 OfficePreview/WebViewPanel
+两项回归；没有把只提供编辑组件文件、但退回外部浏览器的早期配置计为最终验收。
 首次完整运行发现旧工具表固定数量假设及定时并发夹具问题；修正后重新运行整组，
 没有只重跑失败项来代替最终整组结果。
 
@@ -70,9 +72,19 @@ Windows MSVC 19.38 / Qt 6.8.0 Core/Test 独立壳最终 18/18，零失败/跳过
 在各自 XDG 沙箱中以 `PALEO_STARTUP_EXIT_AFTER_FRAME=1` 实际启动并在首帧后正常退出。
 offscreen 的 OpenGL/窗口插件提示记录在日志中，不视为人工视觉验收。
 
+内嵌 Office 另以隐藏的 xcb/WSLg QWebEnginePage 实跑生产 OfficePreviewSession，
+Chromium 沙箱保持启用：sample.docx 在 8.054 秒加载完成，收到 `document:ready`，
+`Asc.editor.isDocumentLoadComplete` 为真，读到夹具正文「PALEO fixture 报告正文」，
+文档为一页，字体及 x2t WASM 均实际初始化。该探针验证嵌入式编辑器与生产 HTTP
+会话，未声称人工视觉验收。WebEngine 6.11.2-1 来自官方 Arch 签名包，固定归档
+SHA `80f827d3d4be4b1ea532bc948c5248b8f5ba3570b4a725cc0f7ddbfb0657b766`；
+在私有依赖前缀解包，与已有 Qt 6.11.2 保持同版，无全局安装或沙箱降级。
+五组动态链接闭包均无缺失或未定义符号；包签名、逐项闭包及真实 Office DOM
+证据保存在 `local/webengine-validation/evidence/`。
+
 最终 fetch/rebase `origin/master` 后，完整 Source gates **35/35 通过**。
 完整命令与日志保留在 worktree 的 `local/python-validation/`，两个 WSL build 的
-`py0-{final-build,final-tests,counts-report,closure,smoke}` 文件及 Windows
+`py0-webengine-{configure,build,tests,counts-report,closure,smoke}` 文件及 Windows
 `local/python-validation/native/`。最终 Source gates 以 CI 注册清单及附加自检执行，
 显式提供锁版 QGIS 头目录，结果保存在 `local/review-20261114/source-gates/`；
 没有增加任何基线。后续 PY1–PY4 仍须分别完成相应验收并提 PR，Shell 后置。

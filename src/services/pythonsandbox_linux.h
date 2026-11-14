@@ -3,5 +3,5 @@
 #include "services/pythonsandbox.h"
 namespace paleo::python {
 SandboxResult runLinuxSandbox(const SandboxRequest &request);
-QString linuxSandboxReadiness();
+QString linuxSandboxReadiness(const std::function<bool()> &cancelled = {});
 }

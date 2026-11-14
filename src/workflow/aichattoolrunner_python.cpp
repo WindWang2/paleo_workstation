@@ -23,6 +23,7 @@ void AiChatToolRunner::runPythonEnvironment() {
     *result=inspected.json();result->insert("policy",provider->policy().json());return QString();
   });
   if(!guard){if(task)task->requestCancel();return;}
+  if(!task){finishActive(false,{{"code","task_service_unavailable"}});return;}
   m_activeTask=task;
   const QPointer<PaleoTask> safeTask(task);
   connect(task,&PaleoTask::finished,this,[guard,safeTask,result,generation,id,readiness] {

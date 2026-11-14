@@ -39,6 +39,10 @@ It must prove a fixed NumPy computation through the actual strong backend; API
 presence, ordinary runtime import, and a template's existence are separate facts.
 Tool listing reads a nonblocking cached snapshot. Execution revalidates runtime,
 frozen input and platform limits at each start. Missing prerequisites fail closed.
+Generated-mode preparation and environment checks use the execution-free
+`inspectIntegrity()` API. A generation lease is not an immutable execution
+snapshot: version and NumPy imports are proved inside the locked/sealed strong
+backend, without an ordinary interpreter preflight in the generated path.
 
 | Environment | Backend and required facts | Limit of the claim |
 |---|---|---|

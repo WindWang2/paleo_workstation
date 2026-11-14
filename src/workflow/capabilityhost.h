@@ -47,7 +47,6 @@ using NativeAdapterFactory = std::function<CapabilityExecutionAdapter(const Host
 // One policy/execution seam for product adapters. The host retains immutable
 // requests; a public PreparedPlan::ok or edited JSON is never a permit.
 class CapabilityHost : public QObject {
-  Q_OBJECT
 public:
   using BindingProvider = std::function<HostBinding()>;
   explicit CapabilityHost(QObject *parent = nullptr);

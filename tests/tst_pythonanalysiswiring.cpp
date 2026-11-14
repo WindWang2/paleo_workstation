@@ -189,11 +189,23 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
     QJsonObject args{{"client_request_id","chat-compute"},{"binding_mode","pinned-value"},{"parameters",QJsonObject{}},
       {"inputs",inputs},{"publish_intent","compute-only"}};
     if(generated)args["parameters"]=QJsonObject{{"code",QString::fromUtf8(source)}};
+    if(generated) {
+      auto failedArgs=args;failedArgs["client_request_id"]="chat-invalid-code";
+      failedArgs["parameters"]=QJsonObject{{"code","def invalid(:\n"}};
+      const auto before=f.catalog.versions().size();call(runner,tool,failedArgs,ok);
+      QVERIFY(!ok);QCOMPARE(f.catalog.versions().size(),before);
+    }
     const auto count=f.catalog.versions().size();const auto computed=call(runner,tool,args,ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(computed).toJson()));QCOMPARE(f.catalog.versions().size(),count);
     const auto operation=computed.value("operationId").toString();QVERIFY(!operation.isEmpty());
     const auto replay=call(runner,tool,args,ok);
     QVERIFY(ok);QCOMPARE(replay.value("operationId").toString(),operation);
+    if(generated) {
+      auto changed=args;changed["parameters"]=QJsonObject{{"code",QString::fromUtf8(source)+"\n# different program\n"}};
+      const auto conflict=call(runner,tool,changed,ok);QVERIFY(!ok);
+      QCOMPARE(conflict.value("code").toString(),QString("idempotency_conflict"));
+      QCOMPARE(f.catalog.versions().size(),count);
+    }
     QByteArray report;QString offset="0";
     for(int i=0;i<64;++i) {
       const auto page=call(runner,"paleo.operation_read",{{"operation_id",operation},{"port_id","REPORT"},{"offset",offset},{"max_bytes",128}},ok);

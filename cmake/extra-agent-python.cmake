@@ -4,12 +4,15 @@ file(SHA256 "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/summary.py" _pale
 add_library(paleo_services_pythonruntime STATIC
   src/services/pythonruntime.cpp
   src/services/pythonruntime_probe.cpp)
-target_sources(paleo_services_pythonruntime PRIVATE src/services/pythoninputbundle.cpp src/services/pythonprocess.cpp)
+target_sources(paleo_services_pythonruntime PRIVATE src/services/pythoninputbundle.cpp src/services/pythonprocess.cpp
+  src/services/pythonsandbox_windows.cpp)
 target_sources(paleo_services PRIVATE src/services/pythoncapabilityspec.cpp)
 if(WIN32)
   target_sources(paleo_services_pythonruntime PRIVATE src/services/pythonprocess_windows.cpp
-    src/services/pythonprocess_windows_job.cpp src/services/pythonprocess_windows_launch.cpp)
-  target_link_libraries(paleo_services_pythonruntime PRIVATE advapi32)
+    src/services/pythonprocess_windows_job.cpp src/services/pythonprocess_windows_launch.cpp
+    src/services/pythonsandbox_windows_security.cpp src/services/pythonsandbox_windows_journal.cpp
+    src/services/pythonsandbox_windows_snapshot.cpp)
+  target_link_libraries(paleo_services_pythonruntime PRIVATE advapi32 ole32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND Qt6_VERSION VERSION_GREATER_EQUAL "6.7")
   target_sources(paleo_services_pythonruntime PRIVATE src/services/pythonprocess_linux.cpp src/services/pythonprocess_linux_helpers.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -32,6 +35,10 @@ add_paleo_test(tst_pythonruntime LIBS paleo_services_pythonruntime)
 add_paleo_test(tst_pythonenvironment LIBS paleo_workflow)
 add_paleo_test(tst_pythonprocess LIBS paleo_services_pythonruntime)
 add_paleo_test(tst_pythoninputbundle LIBS paleo_services_pythonruntime)
+if(WIN32)
+  add_paleo_test(tst_python_windows_sandbox LIBS paleo_services_pythonruntime)
+  target_link_libraries(tst_python_windows_sandbox PRIVATE ws2_32)
+endif()
 add_paleo_test(tst_pythonoperations LIBS paleo_workflow)
 target_compile_definitions(tst_pythonoperations PRIVATE
   PALEO_AGENT_PYTHON_TEMPLATE_ROOT="${CMAKE_SOURCE_DIR}/vendor/agent-python/templates")

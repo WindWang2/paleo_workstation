@@ -35,7 +35,8 @@ QJsonObject metadata(const AnalysisReadPlan &plan,const QVector<data::CurveWindo
   }
   const auto &first=plan.curves.first();
   const QJsonObject axis{{"kind",first.depthType},{"unit",first.depthUnit},{"reference",first.depthReference},
-    {"alignment",plan.alignment},{"conversion","none"}};
+    {"alignment",plan.alignment},{"conversion","none"},
+    {"origins",QJsonObject{{"kind","declared"},{"unit","declared"},{"reference","declared"}}}};
   const QJsonObject sampling{{"method",plan.sampling},{"seed",int(plan.seed)},{"count",rows},
     {"scope","selected_window_only"},{"random",false},{"extrapolation",false}};
   const QJsonObject provenance{{"documentId",plan.documentId},{"callerScope",plan.callerScope},{"model",head(plan.expectedHead)},

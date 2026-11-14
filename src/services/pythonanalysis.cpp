@@ -26,7 +26,8 @@ QString analysisTemplateSha256(AnalysisKind kind) {
 QJsonObject AnalysisReadMetrics::json() const {
   return {{"payloadBytes",QString::number(payloadBytes)},{"legacyBytes",QString::number(legacyBytes)},
     {"axisBlocks",QString::number(axisBlocks)},{"valueBlocks",QString::number(valueBlocks)},
-    {"windows",QString::number(windows)},{"measurement","sdk_sql_driver_payload_not_physical_disk"}};
+    {"windows",QString::number(windows)},{"metadataRows",QString::number(metadataRows)},
+    {"metadataTextBytes",QString::number(metadataTextBytes)},{"measurement","sdk_array_payload_and_returned_metadata_not_physical_disk"}};
 }
 namespace analysis_detail {
 QString hash(QByteArrayView bytes) {return QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());}
@@ -76,7 +77,7 @@ QString validatePlan(const AnalysisReadPlan &plan,const ExecutionPolicy &policy)
         curve.firstSample<0 || curve.sampleCount<0 || curve.sampleCount>AnalysisMaxSamples ||
         curve.wellId!=first.wellId || curve.sampleCount!=first.sampleCount)return "python_analysis_selection_invalid";
     ids.insert(curve.curveId);
-    if(!declared(curve.unit) || curve.depthType!="MD" || !QStringList{"m","ft"}.contains(curve.depthUnit) ||
+    if(!declared(curve.unit) || curve.depthType!="MD" || !QStringList{"m","ft","M","FT"}.contains(curve.depthUnit) ||
         !declared(curve.depthReference))return "python_analysis_semantics_required";
     if(curve.depthType!=first.depthType || curve.depthUnit!=first.depthUnit || curve.depthReference!=first.depthReference)
       return "python_analysis_axis_mismatch";

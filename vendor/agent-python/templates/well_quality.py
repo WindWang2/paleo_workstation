@@ -49,8 +49,10 @@ def load_input():
     convention = meta.get("axis", {})
     if type(columns) is not list or len(columns) != channels or any(not c.get("unit") for c in columns):
         raise ValueError("analysis_column_semantics")
-    if convention.get("kind") != "MD" or convention.get("unit") not in ("m", "ft") or not convention.get("reference") or convention.get("alignment") != "exact_shared_axis_v1":
+    if convention.get("kind") != "MD" or convention.get("unit") not in ("m", "ft", "M", "FT") or not convention.get("reference") or convention.get("alignment") != "exact_shared_axis_v1":
         raise ValueError("analysis_axis_semantics")
+    if meta.get("provenance", {}).get("axis") != convention:
+        raise ValueError("analysis_axis_provenance")
     sampling = meta.get("provenance", {}).get("sampling", {})
     if sampling != {"method": "all_selected_window_v1", "seed": 0, "count": rows, "scope": "selected_window_only", "random": False, "extrapolation": False}:
         raise ValueError("analysis_sampling")
@@ -66,14 +68,15 @@ for index in range(channels):
     valid = finite & ((flags & 3) == 0)
     selected = column[valid]
     count = int(selected.size)
+    missing = int(np.count_nonzero(((flags & 1) != 0) | ~finite))
     result = {"curveId": meta["columns"][index]["curveId"], "name": meta["columns"][index]["name"],
               "unit": meta["columns"][index]["unit"], "sampleCount": rows, "validCount": count,
-              "missingCount": int(np.count_nonzero(((flags & 1) != 0) | ~finite)),
+              "missingCount": missing,
               "nonFiniteCount": int(np.count_nonzero(~finite)), "sdkAbnormalCount": int(np.count_nonzero(flags & 2)),
               "editedCount": int(np.count_nonzero(flags & 4)), "coverage": count / rows if rows else None,
               "minimum": None, "maximum": None, "mean": None, "populationStdDev": None,
               "zScoreOutlierCount": 0, "zScoreThreshold": 3.0,
-              "status": "empty_window" if not rows else "all_missing"}
+              "status": "empty_window" if not rows else "all_missing" if missing == rows else "no_valid_samples"}
     if count:
         scale = float(np.max(np.abs(selected)))
         normalized = selected / scale if scale else selected
@@ -86,6 +89,7 @@ for index in range(channels):
     metrics.append(result)
 report = {"contract": "paleo.well-quality-report.v1", "sourceKind": "well_curve_numeric_attributes",
           "scope": "selected_window_only", "metrics": metrics, "provenance": meta["provenance"],
+          "software": {"python": sys.version.split()[0], "numpy": np.__version__, "determinism": "single_thread_fixed_input_order_tolerance"},
           "recommendations": ["Review missing and abnormal samples before interpretation; source curves remain unchanged."],
           "limitations": ["Metrics describe only the declared windows, not the complete well or survey.",
                           "A fixed population z-score threshold is descriptive and does not establish geological validity."]}

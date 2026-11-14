@@ -39,7 +39,10 @@ struct CapabilityExecutionAdapter {
   std::function<OperationInputValidator(const OperationLog::Record &,QString *)> restoreInputValidator;
   std::function<QString(const OperationLog::Record &)> validateFrozen;
   std::function<CapabilityPreparation(const ExecuteRequest &,const QJsonObject &,QString *)> capture;
+  // Native fallback preflight; registered adapters retain their own freeze/capture.
+  std::function<QString(ExecuteRequest &,QVariantMap &)> normalize;
 };
+using NativeAdapterFactory = std::function<CapabilityExecutionAdapter(const HostBinding &)>;
 
 // One policy/execution seam for product adapters. The host retains immutable
 // requests; a public PreparedPlan::ok or edited JSON is never a permit.
@@ -48,6 +51,8 @@ class CapabilityHost : public QObject {
 public:
   using BindingProvider = std::function<HostBinding()>;
   explicit CapabilityHost(QObject *parent = nullptr);
+  // An empty factory is an explicit host profile with no native fallback.
+  explicit CapabilityHost(NativeAdapterFactory nativeFactory, QObject *parent = nullptr);
   ~CapabilityHost() override;
   void setBindingProvider(BindingProvider provider);
   void setTaskService(PaleoTaskService *tasks);
@@ -94,6 +99,7 @@ private:
       QObject *receiver,const QString &title,std::function<void(ExecuteResult)> finished,QString *error);
   static QByteArray requestDigest(const ExecuteRequest &request);
   BindingProvider m_binding;
+  NativeAdapterFactory m_nativeAdapterFactory;
   QPointer<PaleoTaskService> m_tasks;
   QHash<QString, Prepared> m_prepared;
   QHash<int, QString> m_callers;

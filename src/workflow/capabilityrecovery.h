@@ -93,7 +93,7 @@ public:
   QJsonObject cancel(const QString &callerScope, const QString &operationId);
   PaleoTask *start(const QString &callerScope, const QString &operationId, QObject *subscriber,
                    const QString &title, std::function<void(ExecuteResult)> finished,
-                   bool resume, QString *error = nullptr);
+                   bool resume, QString *error = nullptr, bool quiet = false);
   QJsonObject results(const QString &callerScope, const QString &operationId);
   // Completion is checked/delivered on the recovery owner thread; subscriber bounds its lifetime.
   PaleoTask *read(const QString &callerScope, const QString &operationId, const QString &portId,

@@ -27,12 +27,18 @@ struct HostPrepared {
   QString code, handle;
   QVariantMap effectiveParameters;
 };
+using CapabilityPrepareWorker=std::function<FrozenOperation(const std::function<bool()> &,QString *)>;
+struct CapabilityPreparation {
+  CapabilityPrepareWorker worker;
+  std::function<QString()> validate; // Owner-only identity check after materialization.
+};
 struct CapabilityExecutionAdapter {
   std::function<QJsonObject(const ExecuteRequest &)> intent;
   std::function<FrozenOperation(const ExecuteRequest &,const QJsonObject &,QString *)> freeze;
   std::function<OperationWorker(const OperationLog::Record &,QString *)> restoreWorker;
   std::function<OperationInputValidator(const OperationLog::Record &,QString *)> restoreInputValidator;
   std::function<QString(const OperationLog::Record &)> validateFrozen;
+  std::function<CapabilityPreparation(const ExecuteRequest &,const QJsonObject &,QString *)> capture;
 };
 
 // One policy/execution seam for product adapters. The host retains immutable
@@ -42,6 +48,7 @@ class CapabilityHost : public QObject {
 public:
   using BindingProvider = std::function<HostBinding()>;
   explicit CapabilityHost(QObject *parent = nullptr);
+  ~CapabilityHost() override;
   void setBindingProvider(BindingProvider provider);
   void setTaskService(PaleoTaskService *tasks);
   void setCallerScope(host::Caller caller, const QString &scope);
@@ -78,10 +85,13 @@ private:
     std::function<QString()> executionGuard;
     unsigned effects = 0;
     qint64 expiresAt = 0;
+    CapabilityPreparation preparation;
   };
   QString check(const Prepared &prepared, const ExecuteRequest &intent, HostBinding &live) const;
   HostBinding binding() const;
   void prunePrepared(const host::CallContext &context);
+  PaleoTask *startPreparing(const QString &handle,const Prepared &saved,const ExecuteRequest &intent,
+      QObject *receiver,const QString &title,std::function<void(ExecuteResult)> finished,QString *error);
   static QByteArray requestDigest(const ExecuteRequest &request);
   BindingProvider m_binding;
   QPointer<PaleoTaskService> m_tasks;
@@ -94,6 +104,8 @@ private:
   std::function<OperationInputValidator(const OperationLog::Record &, QString *)> m_restoreInputValidator;
   std::function<QString(const OperationLog::Record &)> m_validateFrozen;
   QHash<QString,CapabilityExecutionAdapter> m_adapters;
+  QHash<QString,QByteArray> m_pendingPreparations;
+  std::shared_ptr<std::atomic_bool> m_preparationInvalidated=std::make_shared<std::atomic_bool>(false);
 };
 
 } // namespace paleo::capability

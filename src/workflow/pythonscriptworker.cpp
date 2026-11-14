@@ -28,7 +28,7 @@ void diagnostics(capability::OperationWorkResult &out,const capability::Operatio
   };
   add("EXECUTION_LOG",QJsonDocument(status).toJson(QJsonDocument::Compact));
   if(!process.error.isEmpty())add("STDERR_LOG",QByteArrayView(process.error).first(qMin<qint64>(process.error.size(),policy.logBytes)));
-  if(!process.ok() && !process.output.isEmpty())add("STDOUT_LOG",QByteArrayView(process.output).first(qMin<qint64>(process.output.size(),policy.logBytes)));
+  if(!process.outputLog.isEmpty())add("STDOUT_LOG",QByteArrayView(process.outputLog).first(qMin<qint64>(process.outputLog.size(),policy.logBytes)));
 }
 QString report(const QByteArray &bytes,QByteArray &output) {
   QStringDecoder decoder(QStringDecoder::Utf8);const QString text=decoder(bytes);Q_UNUSED(text);

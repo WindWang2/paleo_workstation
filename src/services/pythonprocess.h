@@ -28,6 +28,7 @@ struct ProcessResult {
   // complete Job peak after exit. This flag distinguishes those two facts.
   bool memoryPeakComplete = false;
   int exitCode = -1;
+  QByteArray outputLog; // Bounded diagnostic prefix on failure; never a numerical result.
   bool ok() const { return code == QLatin1String("ok"); }
 };
 

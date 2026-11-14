@@ -127,11 +127,13 @@ private slots:
     const auto result=runTrustedProcess(request);
     QCOMPARE(result.code,QString(stderrChannel?"python_process_log_limit":"python_process_output_limit"));
     QVERIFY(result.output.isEmpty());QVERIFY(result.error.size()<=request.policy.logBytes);
+    QVERIFY(result.outputLog.size()<=request.policy.logBytes);
   }
   void nonzeroExitAndStartFailure() {
     QTemporaryDir dir;const auto path=dir.filePath("fixed.py");const QByteArray code="import sys\nprint('partial')\nsys.exit(17)\n";
     QVERIFY(write(path,code));auto request=requestFor(m_runtime,path,code);const auto result=runTrustedProcess(request);
     QCOMPARE(result.code,QString("python_process_failed"));QCOMPARE(result.exitCode,17);QVERIFY(result.output.isEmpty());
+    QCOMPARE(result.outputLog.trimmed(),QByteArray("partial"));
     auto absent=std::make_shared<VerifiedRuntime>(*m_runtime);absent->interpreter=dir.filePath("not-python.exe");request.runtime=absent;
     QVERIFY(!runTrustedProcess(request).ok());
   }

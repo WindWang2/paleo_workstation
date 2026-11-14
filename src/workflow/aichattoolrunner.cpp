@@ -77,7 +77,7 @@ AiChatToolRunner::~AiChatToolRunner() {
   ++m_generation; // 作废在途回调
   m_queue.clear();
   if (m_activeTask)
-    m_activeTask->requestCancel();
+    m_activeTask->requestInterruption();
   if (m_activeIsFacies)
     m_facies->cancel();
 }
@@ -117,7 +117,7 @@ void AiChatToolRunner::invalidateContext() {
   ++m_resultEpoch;
   rebindQueryScope();
   if (m_activeTask)
-    m_activeTask->requestCancel();
+    m_activeTask->requestInterruption();
 }
 
 quint64 AiChatToolRunner::taskSession() const {
@@ -137,12 +137,21 @@ void AiChatToolRunner::run(const ChatToolCall &call) {
 }
 
 void AiChatToolRunner::cancel() {
+  stopCurrentRound(true);
+}
+void AiChatToolRunner::interrupt() {
+  stopCurrentRound(false);
+}
+void AiChatToolRunner::stopCurrentRound(bool explicitRequest) {
   // 取消 = 作废（口径见头文件）：在途结果不再 emit；tile 任务协作取消
   // （不写产品）；层位任务算完但丢弃；测井相 HTTP 中止。
   ++m_generation;
+  if(explicitRequest)m_explicitCancelGeneration=m_generation;
   m_queue.clear();
-  if (m_activeTask)
-    m_activeTask->requestCancel();
+  if (m_activeTask) {
+    if(explicitRequest)m_activeTask->requestCancel();
+    else m_activeTask->requestInterruption();
+  }
   if (m_activeIsFacies) {
     m_facies->disconnect(this);
     m_facies->cancel();
@@ -285,6 +294,7 @@ void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &ar
           return;
         finishActive(result.ok, chatToolResponse(result));
       };
+  const QPointer<AiChatToolRunner> guard(this);
   PaleoTask *task = nullptr;
   if (m_context.capabilityHost) {
     const auto prepared = m_context.capabilityHost->prepare(request, paleo::host::Caller::Agent, {}, {}, {},m_resultSession);
@@ -296,15 +306,17 @@ void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &ar
   } else {
     task = startCapabilityTask(m_taskService, this, title, std::move(request), finished, &rejectionCode);
   }
+  if(!guard){if(task)task->requestInterruption();return;}
   if (generation != m_generation) {
-    if (task)
-      task->requestCancel();
+    if (task) {
+      if(m_explicitCancelGeneration>generation)task->requestCancel();else task->requestInterruption();
+    }
     return;
   }
   m_activeTask = task;
   // taskAdded can rebind the host synchronously before the task is assigned.
   if (task && !activeContextIsCurrent())
-    task->requestCancel();
+    task->requestInterruption();
   if (!task)
     finishActive(false, QJsonObject{{QStringLiteral("code"), rejectionCode}});
 }

@@ -1,6 +1,13 @@
 // 层：功能
 #include "aichattoolrunner.h"
 #include "services/pythonruntime.h"
+#include <QThread>
+
+bool AiChatToolRunner::pythonExecutionAllowed() const {
+  if(QThread::currentThread()!=thread() || !m_context.pythonRuntime)return false;
+  const auto policy=m_context.pythonRuntime->policy();
+  return m_context.pythonRuntime->configuration().enabled && (policy.allowTrusted || policy.allowGenerated);
+}
 
 void AiChatToolRunner::runPythonEnvironment() {
   if(!m_taskService){finishActive(false,{{"code","task_service_unavailable"}});return;}
@@ -11,7 +18,7 @@ void AiChatToolRunner::runPythonEnvironment() {
   auto result=std::make_shared<QJsonObject>();
   auto *task=m_taskService->start(QObject::tr("Python 环境状态"),[provider,result](PaleoTask *task) {
     const auto inspected=provider->inspect([task]{return task->cancelRequested();});
-    *result=inspected.json();return QString();
+    *result=inspected.json();result->insert("policy",provider->policy().json());return QString();
   });
   if(!guard){if(task)task->requestCancel();return;}
   m_activeTask=task;

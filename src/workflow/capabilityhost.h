@@ -27,6 +27,13 @@ struct HostPrepared {
   QString code, handle;
   QVariantMap effectiveParameters;
 };
+struct CapabilityExecutionAdapter {
+  std::function<QJsonObject(const ExecuteRequest &)> intent;
+  std::function<FrozenOperation(const ExecuteRequest &,const QJsonObject &,QString *)> freeze;
+  std::function<OperationWorker(const OperationLog::Record &,QString *)> restoreWorker;
+  std::function<OperationInputValidator(const OperationLog::Record &,QString *)> restoreInputValidator;
+  std::function<QString(const OperationLog::Record &)> validateFrozen;
+};
 
 // One policy/execution seam for product adapters. The host retains immutable
 // requests; a public PreparedPlan::ok or edited JSON is never a permit.
@@ -45,6 +52,7 @@ public:
       std::function<QString(const QJsonObject &, const PublicationReceipt &)> present);
   void setInputValidatorRestorer(std::function<OperationInputValidator(const OperationLog::Record &, QString *)> restorer);
   void setFrozenValidator(std::function<QString(const OperationLog::Record &)> validator);
+  void registerExecutionAdapter(const QString &capabilityId,CapabilityExecutionAdapter adapter);
   host::CallContext context() const;
   QString preparedCommand(const QString &handle) const;
   HostPrepared prepare(const ExecuteRequest &intent, host::Caller caller,
@@ -85,6 +93,7 @@ private:
   std::function<QString(const QJsonObject &, const PublicationReceipt &)> m_present;
   std::function<OperationInputValidator(const OperationLog::Record &, QString *)> m_restoreInputValidator;
   std::function<QString(const OperationLog::Record &)> m_validateFrozen;
+  QHash<QString,CapabilityExecutionAdapter> m_adapters;
 };
 
 } // namespace paleo::capability

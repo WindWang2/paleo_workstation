@@ -7,6 +7,7 @@
 #include "catalog/publicationreceipt.h"
 #include <QObject>
 #include <QPointer>
+#include <atomic>
 
 class PaleoTask;
 class PaleoTaskService;
@@ -27,6 +28,7 @@ struct OperationWorkResult {
   QJsonObject summary;
   AlgorithmRunResult outputs;
   DerivedPreparedSet prepared;
+  AlgorithmRunResult diagnostics; // Private, host-created logs; never formal publish members.
 };
 using OperationWorker = std::function<OperationWorkResult(const OperationWorkContext &)>;
 using OperationInputValidator = std::function<QString(const OperationWorkContext &)>;
@@ -45,6 +47,7 @@ struct FrozenOperation {
   QString sourceOperationId; // publish an already computed immutable result, without numerical work
   OperationWorker worker;
   OperationInputValidator inputValidator;
+  unsigned requiredEffects = 0; // Set by trusted adapters, never copied from tool JSON.
 };
 
 struct RecoveryHost {
@@ -73,7 +76,7 @@ public:
   explicit CapabilityRecovery(QObject *parent = nullptr);
   ~CapabilityRecovery() override;
   void setHostProvider(HostProvider provider);
-  void invalidateRuntimeHooks();
+  void invalidateRuntimeHooks(bool cancelRunning = true);
   void setTaskService(PaleoTaskService *tasks);
   Accepted accept(const FrozenOperation &plan);
   Accepted beginExternal(const FrozenOperation &plan);
@@ -114,6 +117,7 @@ private:
   QHash<QString, RuntimeHooks> m_runtimeHooks;
   QString m_runtimeDocument, m_runtimeProject;
   quint64 m_runtimeEpoch = 0;
+  std::shared_ptr<std::atomic_bool> m_executionInvalidated = std::make_shared<std::atomic_bool>(false);
   QHash<QString, std::shared_ptr<void>> m_externalActive;
   QHash<QString, RecoveryHost> m_externalHosts;
   std::function<void(const QString &)> m_checkpoint;

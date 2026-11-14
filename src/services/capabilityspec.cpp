@@ -1,6 +1,7 @@
 // 层：数据
 // services/capabilityspec.cpp — 见 capabilityspec.h。算法参数仍只读 AlgorithmSpec。
 #include "capabilityspec.h"
+#include "pythoncapabilityspec.h"
 
 namespace {
 
@@ -58,6 +59,7 @@ const QVector<CapabilitySpec> &table() {
            CapabilityExposure::Callable, QStringLiteral("reads an issued raster result and extracts fixed-level contours"),
            {}, {QStringLiteral("global")}),
       wellFaciesAdapter(),
+      paleo::python::summaryCapabilitySpec(),
   };
   return specs;
 }
@@ -99,6 +101,7 @@ QString executionShapeName(AlgorithmExecutionShape shape) {
 }
 
 QVector<CapabilitySpec> CapabilityRegistry::all() { return table(); }
+unsigned CapabilityRegistry::executionEffects(const QString &id,int version) { return spec(id,version).executionEffects; }
 
 CapabilitySpec CapabilityRegistry::spec(const QString &capabilityId, int contractVersion) {
   for (const CapabilitySpec &spec : table()) {

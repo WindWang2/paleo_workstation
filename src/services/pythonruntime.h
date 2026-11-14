@@ -53,6 +53,7 @@ public:
   RuntimeResult inspect(const std::function<bool()> &cancelled = {});
   RuntimeResult snapshot() const;
   ExecutionPolicy policy() const { return m_policy; }
+  RuntimeConfig configuration() const { return m_config; }
 private:
   RuntimeConfig m_config;
   ExecutionPolicy m_policy;

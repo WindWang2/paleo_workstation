@@ -227,7 +227,7 @@ void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
     "paleo.seismic_attribute_group", "paleo.constraint_idw", "paleo.read_result",
     "paleo.tile_classification_v2", "paleo.operation_get", "paleo.operation_events",
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
-    "paleo.python_environment"};
+    "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Exact membership also rejects duplicate registrations.
 

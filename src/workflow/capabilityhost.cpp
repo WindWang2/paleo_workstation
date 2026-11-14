@@ -74,6 +74,7 @@ CapabilityHost::CapabilityHost(QObject *parent) : QObject(parent), m_recovery(ne
     };return h;
   });
 }
+CapabilityHost::~CapabilityHost(){m_preparationInvalidated->store(true);}
 void CapabilityHost::setWorkerRestorer(std::function<OperationWorker(const OperationLog::Record &,QString*)> restorer) {
   m_restoreWorker=std::move(restorer);
 }
@@ -87,11 +88,15 @@ void CapabilityHost::setInputValidatorRestorer(std::function<OperationInputValid
 void CapabilityHost::setFrozenValidator(std::function<QString(const OperationLog::Record&)> validator) {m_validateFrozen=std::move(validator);}
 void CapabilityHost::registerExecutionAdapter(const QString &id,CapabilityExecutionAdapter adapter) {
   if(!CapabilityRegistry::contains(id))return;
+  if(m_adapters.contains(id)) {
+    m_preparationInvalidated->store(true);m_preparationInvalidated=std::make_shared<std::atomic_bool>(false);
+  }
   m_adapters.insert(id,std::move(adapter));
   for(auto it=m_prepared.begin();it!=m_prepared.end();)
     if(it->request.capabilityId==id)it=m_prepared.erase(it);else ++it;
 }
 void CapabilityHost::setBindingProvider(BindingProvider provider) {
+  m_preparationInvalidated->store(true);m_preparationInvalidated=std::make_shared<std::atomic_bool>(false);
   m_binding=std::move(provider);m_prepared.clear();m_recovery->invalidateRuntimeHooks(false);
 }
 void CapabilityHost::setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; m_recovery->setTaskService(tasks); }
@@ -104,7 +109,10 @@ QString CapabilityHost::callerScope(host::Caller caller,const QString &session) 
   if(base.isEmpty())return {};
   return caller==host::Caller::Agent && !session.isEmpty()?base+":chat:"+QString::fromLatin1(QCryptographicHash::hash(session.toUtf8(),QCryptographicHash::Sha256).toHex()):base;
 }
-void CapabilityHost::invalidate() { m_prepared.clear();m_recovery->invalidateRuntimeHooks(); }
+void CapabilityHost::invalidate() {
+  m_prepared.clear();m_recovery->invalidateRuntimeHooks();
+  m_preparationInvalidated->store(true);m_preparationInvalidated=std::make_shared<std::atomic_bool>(false);
+}
 void CapabilityHost::prunePrepared(const host::CallContext &context) {
   const auto now=QDateTime::currentMSecsSinceEpoch();
   for(auto it=m_prepared.begin();it!=m_prepared.end();)
@@ -176,6 +184,11 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
     OperationLog log(live.operationDir,live.projectDir,live.writeClaim);
     saved.frozen=freezeSourcePublication(saved.request,original,log.recordById(sourceId),&code);
     if(!code.isEmpty())return fail(code);
+  } else if(adapter.capture) {
+    if(saved.request.bindingMode.isEmpty())saved.request.bindingMode="pinned-value";
+    saved.preparation=adapter.capture(saved.request,original,&code);
+    if(!code.isEmpty() || !saved.preparation.worker)return fail(code.isEmpty()?QStringLiteral("preparation_adapter_unavailable"):code);
+    result.effectiveParameters=saved.request.parameters;
   } else if(adapter.freeze) {
     saved.frozen=adapter.freeze(saved.request,original,&code);
     if(!code.isEmpty())return fail(code);
@@ -212,11 +225,14 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
 }
 
 QString CapabilityHost::check(const Prepared &saved, const ExecuteRequest &intent, HostBinding &live) const {
+  const QPointer<const CapabilityHost> guard(this);
   if (saved.intentDigest != digest(intent)) return QStringLiteral("prepared_tampered");
   if (saved.expiresAt < QDateTime::currentMSecsSinceEpoch()) return QStringLiteral("prepared_expired");
   live = binding();
+  if(!guard)return QStringLiteral("document_unavailable");
   QString code = host::checkContext(live.context, saved.context, saved.effects);
   if (code.isEmpty() && saved.executionGuard) code = saved.executionGuard();
+  if(!guard)return QStringLiteral("document_unavailable");
   if (code.isEmpty()) code = host::checkRequiredContext(live.context, saved.required);
   if (code.isEmpty() && saved.recoveryId.isEmpty() && saved.frozen.sourceOperationId.isEmpty() && live.validateInputs)
     code = live.validateInputs(saved.request);
@@ -236,20 +252,25 @@ ExecuteResult CapabilityHost::execute(const QString &handle, const ExecuteReques
 PaleoTask *CapabilityHost::start(const QString &handle, const ExecuteRequest &intent,
                                 QObject *receiver, const QString &title,
                                 std::function<void(ExecuteResult)> finished, QString *error) {
+  const QPointer<CapabilityHost> guard(this);
   const auto it = m_prepared.constFind(handle);
+  if(it==m_prepared.cend()){if(error)*error="prepared_unknown";return nullptr;}
+  const Prepared saved = *it; // Host callbacks can invalidate the prepared table.
   QString code;
   HostBinding live;
-  if (it == m_prepared.cend()) code = QStringLiteral("prepared_unknown");
-  else code = check(*it, intent, live);
+  code = check(saved, intent, live);
+  if(!guard){if(error)*error="document_unavailable";return nullptr;}
+  if(code.isEmpty() && !m_prepared.contains(handle))code="prepared_unknown";
   if (!code.isEmpty()) { if (error) *error = code; return nullptr; }
-  const Prepared saved = *it;
+  if(saved.preparation.worker)return startPreparing(handle,saved,intent,receiver,title,std::move(finished),error);
   QString operationId=saved.recoveryId;
   if(operationId.isEmpty()) {
     const auto accepted=m_recovery->accept(saved.frozen);
+    if(!guard){if(error)*error="document_unavailable";return nullptr;}
     if(!accepted.ok){if(error)*error=accepted.code;return nullptr;}operationId=accepted.record.operationId;
   }
   auto *task=m_recovery->start(saved.request.callerScope,operationId,receiver,title,std::move(finished),false,error);
-  if (task) m_prepared.remove(handle);
+  if (guard && task) m_prepared.remove(handle);
   return task;
 }
 

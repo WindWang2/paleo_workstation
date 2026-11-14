@@ -1,5 +1,6 @@
 // 层：功能
 #include "domaintools.h"
+#include "pythonanalysistools.h"
 #include "../../services/toolresultprotocol.h"
 
 #include <QJsonArray>
@@ -12,6 +13,7 @@
 #include "../../services/artifactversioncapability.h"
 void appendAgentOperationTools(QVector<AiToolSpec> &specs);
 #include "../../domain/wellfaciesrequest.h"
+#include "../../domain/wellref.h"
 
 // ai/chat — 领域工具表实现（方向51）。
 //
@@ -69,6 +71,7 @@ QJsonObject AiToolParamSpec::toJsonSchema() const {
 }
 
 QJsonObject AiToolSpec::toJsonSchema() const {
+  if(isPythonAnalysisTool(name))return pythonAnalysisToolSchema(name);
   if(name==QLatin1String("paleo.well_facies_prediction"))return paleo::wellfacies::requestJsonSchema();
   QJsonObject schema;
   schema.insert(QStringLiteral("type"), QStringLiteral("object"));
@@ -86,7 +89,10 @@ QJsonObject AiToolSpec::toJsonSchema() const {
   if (name==QLatin1String("paleo.query_project")) {
     const QJsonObject condition{{"properties",QJsonObject{{"topic",QJsonObject{{"enum",QJsonArray{"version","version_parents"}}}}}}};
     schema.insert("allOf",QJsonArray{QJsonObject{{"if",condition},
-        {"then",QJsonObject{{"required",QJsonArray{"version_id"}}}}}});
+        {"then",QJsonObject{{"required",QJsonArray{"version_id"}}}}},
+      QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","well_curves"}}}}}}},
+        {"then",QJsonObject{{"required",QJsonArray{"well_ref"}},
+          {"properties",QJsonObject{{"page_size",QJsonObject{{"type","integer"},{"minimum",1},{"maximum",16}}}}}}}}});
   }
   return schema;
 }
@@ -104,6 +110,9 @@ QJsonObject AiToolSpec::modelResultSchema() const {
       QJsonDocument::fromJson(resultSchemaJson.toUtf8()).object());
 }
 unsigned AiToolSpec::effectsForIntent(const QString &intent) const {
+  if(isPythonAnalysisTool(name)) {
+    const auto phase=paleo::host::computeEffects(intent);return phase?phase|paleo::host::LocalExecute:0u;
+  }
   if (isAiCapabilityTool(name) || name == QLatin1String("paleo.tile_classification_v2"))
     return paleo::host::computeEffects(intent);
   return effects;
@@ -116,6 +125,17 @@ unsigned AiToolSpec::effectsForArguments(const QJsonObject &arguments) const {
 }
 
 QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
+  if(isPythonAnalysisTool(name))return validatePythonAnalysisArguments(name,arguments);
+  if(name==QLatin1String("paleo.query_project")&&arguments.value("topic")==QLatin1String("well_curves")) {
+    paleo::document::WellRef well;
+    if(!arguments.value("well_ref").isObject()||!paleo::document::wellRefFromJson(arguments.value("well_ref").toObject(),well)||!well.modelAvailable)
+      return QStringLiteral("invalid_well_ref");
+    if(arguments.contains("page_size")){const auto size=arguments.value("page_size");
+      if(!size.isDouble()||!std::isfinite(size.toDouble())||size.toDouble()!=std::floor(size.toDouble())||size.toDouble()<1||size.toDouble()>16)
+        return QStringLiteral("query_budget_invalid");}
+    for(auto it=arguments.begin();it!=arguments.end();++it)if(!QStringList{"topic","well_ref","cursor","page_size","max_bytes"}.contains(it.key()))
+      return QStringLiteral("unsupported_topic_argument");
+  }
   if(name==QLatin1String("paleo.tile_classification_v2")) {
     const auto phase=arguments.value("publish_intent").toString();
     const QStringList required=phase==QLatin1String("prepare")?QStringList{"model","source_version_id"}:QStringList{"source_operation_id"};
@@ -244,13 +264,13 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   query.parameters = {
     {QStringLiteral("topic"), QStringLiteral("string"),
      QObject::tr("查询主题：summary=计数摘要；wells=井清单；horizons=层位"
-                 "资产清单；assets=资产清单；well_details=单井关联明细；"
+                 "资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；"
                  "version=严格版本摘要；version_parents=完整父引用续页"),
      true,
      {QStringLiteral("summary"), QStringLiteral("wells"), QStringLiteral("horizons"),
-      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("version"),QStringLiteral("version_parents"),QStringLiteral("well_facies_models"),QStringLiteral("well_facies_inputs"),QStringLiteral("local_models")}},
+      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("well_curves"),QStringLiteral("version"),QStringLiteral("version_parents"),QStringLiteral("well_facies_models"),QStringLiteral("well_facies_inputs"),QStringLiteral("local_models")}},
     {QStringLiteral("model_name"),QStringLiteral("string"),QObject::tr("local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准"),false},
-    {QStringLiteral("well_ref"),QStringLiteral("object"),QObject::tr("well_facies_inputs 所属 WellRef；元数据查询不读曲线数值"),false},
+    {QStringLiteral("well_ref"),QStringLiteral("object"),QObject::tr("well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行"),false},
     {QStringLiteral("model_id"),QStringLiteral("string"),QObject::tr("well_facies_models 精确模型详情；缺省只列 id/version/readiness"),false},
     {QStringLiteral("version_id"),QStringLiteral("string"),
      QObject::tr("精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）"),false},
@@ -263,7 +283,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     {QStringLiteral("cursor"), QStringLiteral("string"),
      QObject::tr("上一页的 nextCursor；保持主题、筛选及页预算不变"), false},
     {QStringLiteral("page_size"), QStringLiteral("integer"),
-     QObject::tr("每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16"), false},
+     QObject::tr("每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16"), false},
     {QStringLiteral("max_bytes"), QStringLiteral("integer"),
      QObject::tr("完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192"), false},
     {QStringLiteral("role"), QStringLiteral("string"),
@@ -292,6 +312,12 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   queryProperties.insert("nextCursor",QJsonObject{{"type",QJsonArray{"string","null"}}});
   queryProperties.insert("coverage",QJsonObject{{"type","object"}});
   queryProperties.insert("parents",QJsonObject{{"type","array"},{"items",QJsonObject{{"type","object"}}}});
+  queryProperties.insert("curves",QJsonObject{{"type","array"},{"items",QJsonObject{{"type","object"}}}});
+  queryProperties.insert("metadataOnly",QJsonObject{{"type","boolean"}});
+  queryProperties.insert("numericPayloadBytes",QJsonObject{{"type","string"}});
+  queryProperties.insert("sourceMetadataBytes",QJsonObject{{"type","string"}});
+  queryProperties.insert("metadataTextBytes",QJsonObject{{"type","string"}});
+  queryProperties.insert("metadataReadBudgetBytes",QJsonObject{{"type","string"}});
   querySchema.insert("properties",queryProperties);
   query.resultSchemaJson=QString::fromUtf8(QJsonDocument(querySchema).toJson(QJsonDocument::Compact));
 
@@ -394,6 +420,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   environment.description=QObject::tr("核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。");
   environment.resultSchemaJson=QStringLiteral(R"({"type":"object","required":["contract","code","ready"],"properties":{"contract":{"const":"paleo.python-environment.v1"},"code":{"type":"string"},"ready":{"type":"boolean"},"profile":{"const":"analysis-core"},"generatedCodeAvailable":{"const":false}}})");
   specs.append(environment);
+  appendPythonAnalysisTools(specs);
   for(auto &spec:specs)spec.exposure=spec.legacyAdapter?CapabilityExposure::LegacyAdapter:CapabilityExposure::Callable;
   return specs;
 }
@@ -406,7 +433,7 @@ AiToolSpec aiToolSpec(const QString &name) {
 }
 
 bool isAiCapabilityTool(const QString &name) {
-  return name == QLatin1String("paleo.depth_convert_batch") ||
+  return isPythonAnalysisTool(name) || name == QLatin1String("paleo.depth_convert_batch") ||
          name == QLatin1String("paleo.seismic_attribute_group") ||
          name == QLatin1String("paleo.constraint_idw");
 }

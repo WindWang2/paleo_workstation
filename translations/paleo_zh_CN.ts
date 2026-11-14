@@ -28956,6 +28956,34 @@ PDF：%3
 <context>
     <name>QObject</name>
     <message>
+        <source>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</source>
+        <translation>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</translation>
+    </message>
+    <message>
+        <source>先用 query_project 的 well_curves 取得精确 input_ref，再显式选择同井曲线、样点窗、处理状态和 MD 基准。可信 Python 模板只分析所选窗口，报告缺失、异常、覆盖率与统计量；最多16列、8192点。prepare 冻结输入，compute-only 保存私有报告；publish 只能引用原操作并经宿主授权登记成果。不修改原始数据。</source>
+        <translation>先用 query_project 的 well_curves 取得精确 input_ref，再显式选择同井曲线、样点窗、处理状态和 MD 基准。可信 Python 模板只分析所选窗口，报告缺失、异常、覆盖率与统计量；最多16列、8192点。prepare 冻结输入，compute-only 保存私有报告；publish 只能引用原操作并经宿主授权登记成果。不修改原始数据。</translation>
+    </message>
+    <message>
+        <source>分析 well_curves 精确引用的同井数值属性窗口：要求至少2列、完全一致的显式 MD 轴，保留逐列单位，不做插值或隐式换算。可信 Python 模板报告 Pearson 相关、共同有效点数及冗余对；结论仅适用于所选窗口，不代表全体积地震属性优选或融合。prepare、compute-only 和引用原操作的 publish 复用现有成果链路。</source>
+        <translation>分析 well_curves 精确引用的同井数值属性窗口：要求至少2列、完全一致的显式 MD 轴，保留逐列单位，不做插值或隐式换算。可信 Python 模板报告 Pearson 相关、共同有效点数及冗余对；结论仅适用于所选窗口，不代表全体积地震属性优选或融合。prepare、compute-only 和引用原操作的 publish 复用现有成果链路。</translation>
+    </message>
+    <message>
+        <source>所选数值属性相关性</source>
+        <translation>所选数值属性相关性</translation>
+    </message>
+    <message>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；version=严格版本摘要；version_parents=完整父引用续页</translation>
+    </message>
+    <message>
+        <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
+        <translation>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</translation>
+    </message>
+    <message>
+        <source>测井曲线质量报告</source>
+        <translation>测井曲线质量报告</translation>
+    </message>
+    <message>
         <source>Python 环境状态</source>
         <translation>Python 环境状态</translation>
     </message>

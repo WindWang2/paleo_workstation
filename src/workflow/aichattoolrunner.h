@@ -15,7 +15,8 @@
 #include <functional>
 #include <memory>
 namespace paleo::query {class ProjectQueryCapability;}
-namespace paleo::python {class RuntimeProvider;}
+namespace paleo::python {class RuntimeProvider;class TrustedReadinessProvider;}
+namespace paleo::document {struct SourceRef;struct SourceRecord;}
 
 // workflow/ — 聊天领域工具执行器（方向61）。
 //
@@ -79,12 +80,15 @@ public:
     // 保证（importSvc 持有、open 原地重绑，不换实例）。
     DataCatalog *catalog = nullptr;
     QString documentId; // trusted host DocumentSession binding, required by typed queries
+    // Pure data lookup owned by the same document/epoch; never accepts tool paths.
+    std::function<paleo::document::SourceRecord(const paleo::document::SourceRef &)> sourceResolver;
     QPointer<paleo::capability::CapabilityHost> capabilityHost;
     bool requireCapabilityHost = false;
     QPointer<PaleoOnnxService> onnx;
     QPointer<paleo::TileOperationService> tileOperations;
     std::function<QString(const QString &, const QJsonObject &, bool)> runtimeReadiness;
     std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime;
+    std::shared_ptr<paleo::python::TrustedReadinessProvider> pythonTrusted;
     quint64 documentEpoch = 0;
     QString projectDir;   // 工程根（出参 project_dir 引用基准）
   };
@@ -99,6 +103,7 @@ public:
   bool externalTransferConfigured() const;
   bool pythonExecutionAllowed() const;
   std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime() const { return m_context.pythonRuntime; }
+  std::shared_ptr<paleo::python::TrustedReadinessProvider> pythonTrusted() const { return m_context.pythonTrusted; }
   void setContext(const Context &context);
   void setTaskService(PaleoTaskService *service);
   void setResultSession(const QString &session);

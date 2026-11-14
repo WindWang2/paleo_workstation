@@ -35,6 +35,7 @@ qint64 stateBytes(const QueryState &state) {
 QueryState replaySnapshot(const QueryState &state) {
   QueryState saved; saved.scope = state.scope; saved.queryDigest = state.queryDigest; saved.queryId = state.queryId;
   saved.revision = state.revision; saved.mutation = state.mutation; saved.modelToken = state.modelToken;
+  saved.bindingEpoch=state.bindingEpoch;
   return saved;
 }
 }
@@ -43,7 +44,7 @@ QJsonObject queryFailure(const QString &code) {
 }
 QString queryDigest(QJsonObject args, bool graph) {
   args.remove("cursor");
-  args.insert("page_size", args.value("page_size").toInt(50));
+  args.insert("page_size", args.value("page_size").toInt(!graph&&args.value("topic")==QLatin1String("well_curves")?16:50));
   args.insert("max_bytes", args.value("max_bytes").toInt(8192));
   args.insert("query_kind", graph ? "lineage" : "project");
   return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(args).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
@@ -87,7 +88,8 @@ ProjectQueryCapability::ProjectQueryCapability(QueryPolicy p) : m(std::make_uniq
   m->cursorSecret = QUuid::createUuid().toRfc4122() + QUuid::createUuid().toRfc4122();
 }
 ProjectQueryCapability::~ProjectQueryCapability() = default;
-void ProjectQueryCapability::clear() { m->cursors.clear(); m->cachedBytes = 0; }
+void ProjectQueryCapability::clear() { ++m->bindingEpoch;m->cursors.clear(); m->cachedBytes = 0; }
+void ProjectQueryCapability::setSourceResolver(SourceResolver resolver) {clear();m->sourceResolver=std::move(resolver);}
 void ProjectQueryCapability::bind(DataCatalog *catalog, Scope scope) {
   clear(); m->catalog = catalog; m->sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
   if (scope.documentId.isEmpty()) scope.documentId = QStringLiteral("session:") + m->sessionId;
@@ -122,7 +124,8 @@ QString ProjectQueryCapability::Impl::validateCursor(const QString &cursor) cons
   return expires < QDateTime::currentMSecsSinceEpoch() ? QStringLiteral("cursor_expired") : QString();
 }
 QString ProjectQueryCapability::Impl::checkSnapshot(const QueryState &state, const QJsonObject &args, bool graph) const {
-  if (state.scope != scope) return QStringLiteral("cursor_scope_mismatch");
+  if(!catalog||!catalog->isOpen()||QThread::currentThread()!=catalog->thread())return QStringLiteral("document_unavailable");
+  if (state.scope != scope||state.bindingEpoch!=bindingEpoch) return QStringLiteral("cursor_scope_mismatch");
   if (state.queryDigest != queryDigest(args, graph)) return QStringLiteral("cursor_query_mismatch");
   if (state.revision != quint64(catalog->catalogRevision()) || state.mutation != catalog->mutationSeq())
     return QStringLiteral("stale_cursor");
@@ -139,7 +142,8 @@ QJsonObject ProjectQueryCapability::Impl::run(const QJsonObject &args, bool grap
     return queryFailure("query_identity_invalid");
   if (QJsonDocument(args).toJson(QJsonDocument::Compact).size() > 16384) return queryFailure("query_request_budget_exceeded");
   if (args.contains("cursor") && !args.value("cursor").isString()) return queryFailure("cursor_invalid");
-  const int rows = integer(args, "page_size", 50, 256);
+  const bool curves=!graph&&args.value("topic")==QLatin1String("well_curves");
+  const int rows = integer(args, "page_size", curves?16:50, curves?16:256);
   const int bytes = integer(args, "max_bytes", 8192, 65536);
   if (rows < 0 || bytes < 2048) return queryFailure("query_budget_invalid");
   QueryState state; const QString cursor = args.value("cursor").toString();
@@ -156,6 +160,7 @@ QJsonObject ProjectQueryCapability::Impl::run(const QJsonObject &args, bool grap
     state.kind = graph ? "lineage" : "project"; state.topic = args.value("topic").toString();
     state.queryId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     state.scope = scope; state.revision = catalog->catalogRevision(); state.mutation = catalog->mutationSeq();
+    state.bindingEpoch=bindingEpoch;
     state.queryDigest = queryDigest(args, graph);
     if (graph) { const auto error = resolveSeed(state, args); if (!error.isEmpty()) return queryFailure(error); }
   }
@@ -205,6 +210,7 @@ QJsonObject ProjectQueryCapability::Impl::run(const QJsonObject &args, bool grap
 QJsonObject ProjectQueryCapability::Impl::page(QueryState &state, const QJsonObject &args, int rows, int bytes, bool &more) {
   if (state.kind == QLatin1String("lineage")) return graphPage(state, rows, bytes, more);
   if (state.topic == QLatin1String("well_details")) return wellDetails(state, args, rows, bytes, more);
+  if (state.topic == QLatin1String("well_curves")) return wellCurves(state,args,rows,bytes,more);
   return listPage(state, args, rows, bytes, more);
 }
 }

@@ -348,7 +348,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 17); // Includes the argument-free, read-only runtime status tool.
+  QCOMPARE(tools.size(), 19); // Runtime status plus the two bounded trusted analysis tools.
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");

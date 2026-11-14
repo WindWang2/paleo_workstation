@@ -169,6 +169,8 @@ jobs:
           python3 tools/check_docs_drift.py --selftest
             python3 tools/check_agent_python_runtime.py
             python3 tools/check_agent_python_runtime.py --selftest
+            python3 tools/check_agent_python_scripts.py
+            python3 tools/check_agent_python_scripts.py --selftest
           # C++ 主线边界护栏（零 Python 依赖的 cmake -P 检查器，ctest 项
           # cpp_mainline/cpp_mainline_selftest 的 CI 权威闸口；规则见
           # docs/CPP_PRIMARY_BOUNDARY.md）。

@@ -3,6 +3,8 @@
 #include <QJsonObject>
 #include <QString>
 #include <memory>
+#include <functional>
+#include "domain/documentsource.h"
 class DataCatalog;
 
 namespace paleo::query {
@@ -23,9 +25,11 @@ struct QueryPolicy {
 // The native version.describe.v1 object is intentionally not modified here.
 class ProjectQueryCapability {
 public:
+  using SourceResolver=std::function<document::SourceRecord(const document::SourceRef &)>;
   explicit ProjectQueryCapability(QueryPolicy policy = {});
   ~ProjectQueryCapability();
   void bind(DataCatalog *catalog, Scope scope);
+  void setSourceResolver(SourceResolver resolver);
   void clear();
   QJsonObject query(const QJsonObject &arguments);
   QJsonObject lineage(const QJsonObject &arguments);

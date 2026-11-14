@@ -82,6 +82,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-python-scripting.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python-analysis.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-qgis-ui-deepening.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-realization.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-section-split.cmake"

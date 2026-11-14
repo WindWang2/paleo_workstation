@@ -9,7 +9,7 @@ void AiChatToolRunner::runPythonEnvironment() {
   const auto generation=m_generation;const auto id=m_activeCall.id;
   const QPointer<AiChatToolRunner> guard(this);
   auto result=std::make_shared<QJsonObject>();
-  auto *task=m_taskService->start(QStringLiteral("Python environment"),[provider,result](PaleoTask *task) {
+  auto *task=m_taskService->start(QObject::tr("Python 环境状态"),[provider,result](PaleoTask *task) {
     const auto inspected=provider->inspect([task]{return task->cancelRequested();});
     *result=inspected.json();return QString();
   });

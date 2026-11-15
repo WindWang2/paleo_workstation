@@ -100,6 +100,14 @@ def load_lock():
               (ROOT / "tools/prepare_pi_agent.py", lock["build"]["preparerSha256"]),
               (ROOT / "tools/pi_supply_common.py", lock["build"]["commonSha256"]),
               (ROOT / "tools/prepare_agent_python.py", lock["build"]["storeLockHelperSha256"])]
+    modules = lock["build"].get("localModules", {})
+    if not isinstance(modules, dict) or set(modules) - {"conversation.mjs"}:
+        raise ValueError("unreviewed local runtime module")
+    for name, expected in modules.items():
+        path = VENDOR / relative(name)
+        if path.stat().st_size > 64 * 1024:
+            raise ValueError("local runtime module byte budget")
+        checks.append((path, expected))
     for notice in lock["notices"]:
         path = VENDOR / relative(notice["path"])
         if path.stat().st_size != notice["size"]:

@@ -40,19 +40,22 @@
     }
   },
   "build": {
-    "bundleSha256": "8cd96e58d8fbf3519709dd07585f25c484445429021e14f75c5135e282931dcd",
-    "bundleSize": 155106,
-    "commonSha256": "1aa9b7c7fec551f23a7f257db4435c5c829f745b6876926ff482968a786692a5",
+    "bundleSha256": "7be6fdb508e1e8f7a1ce717f261a3107b2c9569828d0954169be564865a34bac",
+    "bundleSize": 167017,
+    "commonSha256": "f32ab9e50434f613843d4aed36cde26aebb93aa3e531de71280e1988fbea388d",
     "entry": "vendor/pi/sidecar.mjs",
-    "entrySha256": "32466c6d90a8a23fc09781e92674fb68025a334bbc364803f9706ffb93c2f2fa",
+    "entrySha256": "b504d02ced2caad3c0a0c09595c4aeb18bd50e6d825315122906d7869ebcf13e",
     "esbuildArchive": "esbuild-0.28.2.tgz",
     "esbuildMain": "package/lib/main.js",
     "esbuildVersion": "0.28.2",
     "graph": "bundle-graph.lock.json",
-    "graphSha256": "7523923212d85c95cefc45bc65587a9ae25ced1ffad9393949ed39744d9ba698",
+    "graphSha256": "fe73d1373291067d120d9504376103ee207e4188bb060bcfba5694567a433850",
+    "localModules": {
+      "conversation.mjs": "97bb2bf77c3be7f98d99c558f5dd5643d5b9ba127d43ec75bcb5ba9733ed8a53"
+    },
     "preparerSha256": "ec1444bd74950703cb0d49378084b6a87e55403fd3132c83db63a6502b4a3158",
     "recipe": "tools/pi_supply_build.mjs",
-    "recipeSha256": "1634452bf5c80a5ecdc057b6abaac46d63dcbf914210511d9f156f84c55e9347",
+    "recipeSha256": "116207cf956685b31bf695ac809ad23ec74a6fa204261279a36217d0dd49111e",
     "storeLockHelperSha256": "ca488588a1dbf81ff4875cafce36cc8d1f6b1511537ec5ea2ea1060040e87304"
   },
   "coreVersion": "1.5.2",
@@ -109,7 +112,7 @@
       "programSize": 87077704
     }
   },
-  "runtimeVersion": "pi-core-1.5.2-c3cc91632d0a-node-22.23.5-a1",
+  "runtimeVersion": "pi-core-1.5.2-c3cc91632d0a-node-22.23.5-a2",
   "schema": "paleo.pi-agent.supply.v1",
   "upstream": {
     "archive": "pi-c3cc91632d0a1950fb122605b190233f2aa0006e.tar.gz",

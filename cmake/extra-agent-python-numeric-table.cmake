@@ -16,4 +16,5 @@ add_paleo_test(tst_pythontableoutputoperations LIBS paleo_workflow Qt6::Concurre
 option(PALEO_TEST_PYTHON_NUMERIC_TABLE_NATIVE "Register real managed numeric table and legacy-v1 business acceptance" OFF)
 if(PALEO_TEST_PYTHON_NUMERIC_TABLE_NATIVE)
   add_paleo_test(tst_pythonnumerictable_native LIBS paleo_app_agentproviders Qt6::Concurrent)
+  add_paleo_test(tst_pythontableoutput_native LIBS paleo_app_agentproviders Qt6::Concurrent)
 endif()

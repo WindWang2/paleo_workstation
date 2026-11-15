@@ -94,10 +94,10 @@ struct Fixture:numeric_table_host_fixture::Fixture {
     capability::OperationLog log(project+"/.paleo/capability-ops",project,lock->claim());
     return log.lookup(context.documentId,table.plan.callerScope,id).record;
   }
-  QJsonObject page(const QString &operation,qint64 offset) {
+  QJsonObject page(const QString &operation,qint64 offset,const QString &port="REPORT") {
     QJsonObject out;QObject subscriber;QEventLoop loop;QTimer timer;timer.setSingleShot(true);bool done=false;QString why;
     QObject::connect(&timer,&QTimer::timeout,&loop,&QEventLoop::quit);
-    auto *task=host->recovery()->read(table.plan.callerScope,operation,"REPORT",offset,128,&subscriber,
+    auto *task=host->recovery()->read(table.plan.callerScope,operation,port,offset,128,&subscriber,
       [&](QJsonObject value){out=value;done=true;loop.quit();},&why);
     if(!task)return {{"ok",false},{"code",why}};timer.start(180000);if(!done)loop.exec();
     if(!done){task->requestCancel();return {{"ok",false},{"code","test_timeout"}};}return out;

@@ -18,6 +18,7 @@ constexpr qint64 ReportBytes = 256 * 1024;
 constexpr qint64 TableBytes = 2 * 1024 * 1024;
 constexpr qint64 RgbaBytes = 1024 * 1024 * 4;
 constexpr qsizetype Prefix = 14;
+constexpr int QtPngCompression = 100;
 bool dimensions(const QJsonObject &declaration, qint64 &width, qint64 &height) {
   return fields(declaration, {"contract", "width", "height", "format"}) &&
       declaration.value("contract") == "paleo.python-image-declaration.v1" && declaration.value("format") == "rgba8" &&
@@ -75,7 +76,8 @@ QString encodePng(QByteArrayView rgba, qint64 width, qint64 height, qint64 maxim
                      qsizetype(width * 4), QImage::Format_RGBA8888);
   if (image.isNull() || image.sizeInBytes() != rgba.size()) return "python_image_invalid";
   PngBuffer buffer(&png, maximum, cancelled); if (!buffer.open(QIODevice::WriteOnly | QIODevice::Unbuffered)) return "python_png_encode_failed";
-  QImageWriter writer(&buffer, "png"); writer.setCompression(9);
+  // Qt's PNG compression option is 0..100, not libpng's 0..9 level.
+  QImageWriter writer(&buffer, "png"); writer.setCompression(QtPngCompression);
   writer.setOptimizedWrite(false); writer.setProgressiveScanWrite(false);
   if (!writer.write(image)) { png.clear(); return buffer.code.isEmpty() ? QStringLiteral("python_png_encode_failed") : buffer.code; }
   if (png.isEmpty() || png.size() > maximum) { png.clear(); return "python_png_budget_exceeded"; }
@@ -96,7 +98,7 @@ QString validateImageOutputDeclaration(const QJsonObject &declaration) {
 QJsonObject pngEncoderIdentity() {
   return {{"contract", "paleo.png-encoder.v1"}, {"implementation", "qt.imagewriter.png"},
       {"qtCompileVersion", QLatin1String(QT_VERSION_STR)}, {"qtRuntimeVersion", QString::fromLatin1(qVersion())},
-      {"pixelFormat", "RGBA8888"}, {"compression", 9}, {"optimizedWrite", false}, {"progressiveScanWrite", false}};
+      {"pixelFormat", "RGBA8888"}, {"compression", QtPngCompression}, {"optimizedWrite", false}, {"progressiveScanWrite", false}};
 }
 qint64 imageOutputHostReservation(qint64 frameBytes, const QJsonObject &tableDeclaration,
                                  const QJsonObject &imageDeclaration) {

@@ -166,6 +166,7 @@ private slots:
   void maximumDimensionsAreBoundedAndIncompressiblePngCannotOverrunTheCap() {
     const auto image = declaration(1024, 1024); QByteArray rgba(1024 * 1024 * 4, 0);
     const auto compact = accept(frame(image, rgba), image); QVERIFY2(compact.ok(), qPrintable(compact.code)); roundTrip(compact, image, rgba);
+    QVERIFY(compact.png.size() < 64 * 1024);
     quint64 state = 0x9e3779b97f4a7c15ULL;
     for (qsizetype offset = 0; offset < rgba.size(); offset += 8) {
       state ^= state >> 12; state ^= state << 25; state ^= state >> 27; const auto word = state * 2685821657736338717ULL;

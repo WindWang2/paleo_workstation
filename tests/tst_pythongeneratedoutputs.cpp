@@ -66,11 +66,15 @@ private slots:
   }
   void frozenEncoderIsCheckedForComputeAndStructurallyKeptForPublication() {
     auto profile=python::generatedOutputsProfile(table(),image());python::ExecutionPolicy policy;
+    QCOMPARE(profile.value("pngEncoder").toObject().value("compression").toInt(),100);
     QVERIFY(python::validateGeneratedOutputsProfile(profile,policy,true).isEmpty());
     auto encoder=profile.value("pngEncoder").toObject();encoder["qtCompileVersion"]="6.0.0";encoder["qtRuntimeVersion"]="6.0.0";
     profile["pngEncoder"]=encoder;
     QCOMPARE(python::validateGeneratedOutputsProfile(profile,policy,true),QString("python_output_encoder_changed"));
     QVERIFY(python::validateGeneratedOutputsProfile(profile,policy,false).isEmpty()); // Pure contract check, no fake historical record/upgrade.
+    encoder["compression"]=9;profile["pngEncoder"]=encoder;
+    QVERIFY(python::validateGeneratedOutputsProfile(profile,policy,false).isEmpty());
+    QCOMPARE(python::validateGeneratedOutputsProfile(profile,policy,true),QString("python_output_encoder_changed"));
     encoder["compression"]=0;profile["pngEncoder"]=encoder;
     QCOMPARE(python::validateGeneratedOutputsProfile(profile,policy,false),QString("invalid_python_outputs_profile"));
   }

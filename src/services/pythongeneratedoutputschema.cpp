@@ -20,11 +20,15 @@ QJsonObject imageSchema() {
 }
 bool encoderIdentity(const QJsonObject &encoder) {
   auto fixed=encoder;const auto compile=fixed.take("qtCompileVersion"),runtime=fixed.take("qtRuntimeVersion");
+  const auto compression=fixed.take("compression");
   static const QRegularExpression version("[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,3}([A-Za-z0-9_.+-]{0,32})?");
   const auto valid=[&](const QJsonValue &value){return value.isString()&&!value.toString().isEmpty()&&
     version.match(value.toString()).capturedLength()==value.toString().size();};
-  return valid(compile)&&valid(runtime)&&fixed==QJsonObject{{"contract","paleo.png-encoder.v1"},{"implementation","qt.imagewriter.png"},
-    {"pixelFormat","RGBA8888"},{"compression",9},{"optimizedWrite",false},{"progressiveScanWrite",false}};
+  // Retain the original reviewed setting for authenticated stored output only.
+  // Compute additionally requires the exact current identity below.
+  return valid(compile)&&valid(runtime)&&(compression==9||compression==100)&&
+    fixed==QJsonObject{{"contract","paleo.png-encoder.v1"},{"implementation","qt.imagewriter.png"},
+    {"pixelFormat","RGBA8888"},{"optimizedWrite",false},{"progressiveScanWrite",false}};
 }
 }
 QJsonObject generatedOutputsProfile(const QJsonObject &table,const QJsonObject &image) {

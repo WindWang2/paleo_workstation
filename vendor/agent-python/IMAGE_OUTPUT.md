@@ -54,6 +54,11 @@ versions, pixel format and fixed encoder settings. A compute/resume request with
 a different frozen encoder identity fails instead of silently re-encoding with
 new settings. Publication of an already authenticated output set consumes the
 stored PNG; it must not require the current encoder or rerun the original code.
+The current Qt PNG compression option is `100` on Qt's 0..100 scale. This maps
+to libpng level 9; passing `9` to Qt instead maps to level 0 in the
+[pinned Qt 6.11.2 handler](https://github.com/qt/qtbase/blob/v6.11.2/src/gui/image/qpnghandler.cpp#L953).
+The former reviewed `9` identity remains valid for publication of stored bytes;
+compute/resume rejects it as encoder drift. Neither setting relaxes the PNG cap.
 Image metadata records the frozen declaration, raw RGBA SHA and encoder identity.
 The worker also adds table/image declarations and encoder provenance to its
 host-authored REPORT and rechecks the final 256-KiB REPORT limit.

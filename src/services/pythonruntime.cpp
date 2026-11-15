@@ -46,7 +46,9 @@ QString checkedRoot(const RuntimeConfig &config,QString &code) {
   return root;
 }
 std::shared_ptr<void> acquireGenerationLease(const QString &root,const QString &anchor) {
-  const auto path=QDir(root).absoluteFilePath("../.leases/"+anchor+".lock");
+  // Unlock must not traverse the generation: installation may rename staging
+  // while this lease lives, and Windows extended paths do not collapse "..".
+  const auto path=QFileInfo(root).dir().absoluteFilePath(".leases/"+anchor+".lock");
   auto lease=std::make_shared<QLockFile>(path);lease->setStaleLockTime(0);
   if(!QDir().mkpath(QFileInfo(path).absolutePath()) || !lease->tryLock(0))return {};
   return lease;

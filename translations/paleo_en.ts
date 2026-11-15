@@ -37727,6 +37727,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>使用显式数值表窗口和冻结的输出列声明，生成报告与单张数值表；最多16列、8192行，宿主编码CSV至多4MiB。两项成果整组验收、一次发布。源码、输入和运行时保留来源证据；生成数值和单位未经宿主独立重算。旧REPORT操作保持原有恢复方式。</source>
         <translation>Generate a report and one numeric table from an explicit table window and frozen output columns, up to 16 columns and 8192 rows. The host encodes CSV up to 4 MiB, validates the complete group and publishes once. Source, input and runtime identities are retained; generated values and units are not independently recomputed. Existing REPORT operations keep their original recovery contract.</translation>
     </message>
+    <message>
+        <source>受控 Python 图表成果</source>
+        <translation>Controlled Python chart outputs</translation>
+    </message>
+    <message>
+        <source>显式选择数值表或单道地震窗口，并冻结输出列与图像尺寸。生成报告、单张数值表及单张RGBA图像；宿主编码CSV和PNG，每项至多4MiB，图像至多1024×1024像素。三项整组验收、一次发布；PNG是非空间报告成果，不自动成为GIS图层。保留输入、代码、运行时及编码器来源，生成数值与像素未经独立重算。复用同一权限、隔离、恢复和认证分页链路。</source>
+        <translation>Select an explicit numeric table or single seismic trace window and freeze output columns and image dimensions. Generate one report, one numeric table and one RGBA image; the host encodes CSV and PNG up to 4 MiB each, with images up to 1024 by 1024 pixels. Validate the complete set and publish once. The PNG is a nonspatial report artifact and does not automatically become a GIS layer. Preserve input, code, runtime and encoder provenance; generated values and pixels are not independently recomputed. Reuse host permissions, isolation, recovery and authenticated pagination.</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>

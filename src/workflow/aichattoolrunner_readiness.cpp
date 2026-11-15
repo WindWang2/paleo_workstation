@@ -11,6 +11,7 @@
 #include "services/pythonnumerictable.h"
 #include "services/pythonseismictrace.h"
 #include "services/pythontableoutputspec.h"
+#include "services/pythongeneratedoutputspec.h"
 #include <QThread>
 
 bool AiChatToolRunner::externalTransferConfigured() const {
@@ -32,7 +33,7 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpec(const AiToolS
     return fail("tool_not_exposed");
   const bool python=name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool) ||
     name==QLatin1String(paleo::python::GeneratedTool) || name==QLatin1String(paleo::python::NumericTableTool) ||
-    name==QLatin1String(paleo::python::SeismicTraceTool) || name==QLatin1String(paleo::python::TableOutputsTool);
+    name==QLatin1String(paleo::python::SeismicTraceTool) || name==QLatin1String(paleo::python::TableOutputsTool) || name==QLatin1String(paleo::python::GeneratedOutputsTool);
   if(name==QLatin1String("paleo.python_environment")) {
     if(!m_taskService)return fail("task_service_unavailable");result.ready=true;return result;
   }

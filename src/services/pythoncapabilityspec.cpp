@@ -7,6 +7,7 @@
 #include "pythonnumerictablespec.h"
 #include "pythonseismictracespec.h"
 #include "pythontableoutputspec.h"
+#include "pythongeneratedoutputspec.h"
 
 namespace paleo::python {
 QString summaryScriptSha256() {return QString::fromLatin1(PALEO_AGENT_PYTHON_SUMMARY_SHA);}
@@ -39,4 +40,5 @@ void appendPythonAlgorithmSpecs(QVector<AlgorithmSpec> *specs) {
   specs->append(paleo::python::numericTableAlgorithmSpec());
   specs->append(paleo::python::seismicTraceAlgorithmSpec());
   specs->append(paleo::python::tableOutputsAlgorithmSpec());
+  specs->append(paleo::python::generatedOutputsAlgorithmSpec());
 }

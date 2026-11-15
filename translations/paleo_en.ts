@@ -56033,6 +56033,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>Python 数值表成果计算</source>
             <translation>Python numeric table output computation</translation>
         </message>
+        <message>
+            <location filename="../src/services/commandspec.cpp" line="209"/>
+            <source>Python 表格与图像成果计算</source>
+            <translation>Python table and image output computation</translation>
+        </message>
     </context>
 
     <context>

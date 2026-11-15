@@ -51,8 +51,9 @@ function send(value, done) {
   }));
 }
 function validCounter(value) {
-  return typeof value === "string" && /^(0|[1-9][0-9]{0,19})$/.test(value) && BigInt(value) <= 18446744073709551615n;
+  return matches(/^(0|[1-9][0-9]{0,19})$/, value) && BigInt(value) <= 18446744073709551615n;
 }
+function matches(pattern, value) { return typeof value === "string" && pattern.exec(value)?.[0] === value; }
 function accept(raw) {
   let value;
   try {
@@ -71,8 +72,7 @@ function accept(raw) {
   if (conversation) { conversation.accept(value); return; }
   if (Object.keys(value).sort().join(",") !== "generation,nonce,protocol,sequence,sessionId,type" ||
       value.protocol !== protocol || !validCounter(value.generation) ||
-      typeof value.sessionId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.sessionId) ||
-      typeof value.nonce !== "string" || !/^[0-9a-f]{32}$/.test(value.nonce)) fatal("pi_frame_identity");
+      !matches(/^[a-zA-Z0-9_-]{1,128}$/, value.sessionId) || !matches(/^[0-9a-f]{32}$/, value.nonce)) fatal("pi_frame_identity");
   if (!hello) {
     if (value.type !== "hello" || value.sequence !== "1" || process.versions.node !== nodeVersion) fatal("pi_handshake_invalid");
     agent = new Agent({ streamFn: unavailableStream, toolExecution: "sequential", initialState: { tools: [] } });

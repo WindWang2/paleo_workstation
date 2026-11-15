@@ -8,8 +8,9 @@ export function createConversation({ Agent, AssistantMessageEventStream, send, f
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
   const keys = (value, names) => value && typeof value === "object" && !Array.isArray(value) &&
     Object.keys(value).sort().join(",") === names.split(",").sort().join(",");
-  const safeId = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
-  const counter = value => typeof value === "string" && /^(0|[1-9][0-9]{0,19})$/.test(value) && BigInt(value) <= 18446744073709551615n;
+  const matches = (pattern, value) => typeof value === "string" && pattern.exec(value)?.[0] === value;
+  const safeId = value => matches(/^[a-zA-Z0-9_-]{1,128}$/, value);
+  const counter = value => matches(/^(0|[1-9][0-9]{0,19})$/, value) && BigInt(value) <= 18446744073709551615n;
   const emit = (type, payload = {}) => send({ ...identity, protocol, type, payload, sequence: String(++peerSequence) });
   const partial = value => ({ ...value, content: value.content.map(item => ({ ...item })) });
   function failModel(code) {
@@ -86,7 +87,7 @@ export function createConversation({ Agent, AssistantMessageEventStream, send, f
       current.message.stopReason = current.ids.size ? "toolUse" : payload.reason === "length" ? "length" : "stop";
       model = undefined; current.stream.push({ type: "done", reason: current.message.stopReason, message: partial(current.message) }); current.stream.end();
     } else {
-      if (!keys(payload, "round,code") || typeof payload.code !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(payload.code)) fatal("pi_model_invalid");
+      if (!keys(payload, "round,code") || !safeId(payload.code)) fatal("pi_model_invalid");
       failModel(payload.code);
     }
   }
@@ -96,7 +97,7 @@ export function createConversation({ Agent, AssistantMessageEventStream, send, f
     if (!identity) {
       if (process.versions.node !== versions.nodeVersion) fatal("pi_node_version");
       if (frame.type !== "open" || !keys(frame.payload, "") || !safeId(frame.sessionId) || !safeId(frame.turnId) ||
-          !counter(frame.generation) || typeof frame.nonce !== "string" || !/^[0-9a-f]{32}$/.test(frame.nonce)) fatal("pi_conversation_identity");
+          !counter(frame.generation) || !matches(/^[0-9a-f]{32}$/, frame.nonce)) fatal("pi_conversation_identity");
       identity = { sessionId: frame.sessionId, generation: frame.generation, turnId: frame.turnId, nonce: frame.nonce };
       phase = "configuring";
       void emit("opened", { ...versions, toolExecution: "sequential", modelTransport: "host-only", sandboxed: false }).catch(() => fatal("pi_process_write_failed"));
@@ -113,7 +114,7 @@ export function createConversation({ Agent, AssistantMessageEventStream, send, f
     if (frame.type === "tool_definition") {
       const value = frame.payload;
       if (phase !== "configuring" || !keys(value, "name,description,parametersJson") || typeof value.name !== "string" ||
-          !/^paleo\.[a-zA-Z0-9_]+$/.test(value.name) || typeof value.description !== "string" ||
+          !matches(/^paleo\.[a-zA-Z0-9_]+$/, value.name) || typeof value.description !== "string" ||
           typeof value.parametersJson !== "string" || tools.has(value.name) || tools.size >= 128) fatal("pi_tool_definition_invalid");
       definitionsBytes += Buffer.byteLength(JSON.stringify(value)); if (definitionsBytes > 512 * 1024) fatal("pi_configuration_budget");
       let parameters; try { parameters = JSON.parse(value.parametersJson); } catch { fatal("pi_tool_definition_invalid"); }

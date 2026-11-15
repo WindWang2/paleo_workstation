@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -56,10 +57,24 @@ class DeliveryTests(unittest.TestCase):
         self.output = self.root / "runtime.paleo-python"
 
     def tearDown(self):
-        def retry(function, path, unused):
-            os.chmod(path, 0o700)
-            function(path)
-        shutil.rmtree(self.root, onerror=retry)
+        # Only this test's owned temporary tree may be made writable. Restore
+        # parents before unlinking sealed generations; never follow a link.
+        if self.root != Path(self.temporary.name) or delivery.scripts._linked(self.root.lstat()):
+            raise AssertionError("cleanup escaped the owned test directory")
+        for parent, directories, files in os.walk(self.root, topdown=True, followlinks=False):
+            parent = Path(parent)
+            if not parent.is_relative_to(self.root):
+                raise AssertionError("cleanup escaped the owned test directory")
+            parent.chmod(0o700)
+            directories[:] = [name for name in directories
+                              if not delivery.scripts._linked((parent / name).lstat())]
+            if os.name == "nt":
+                for name in files:
+                    path = parent / name
+                    info = path.lstat()
+                    if not delivery.scripts._linked(info) and stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                        path.chmod(0o600)
+        shutil.rmtree(self.root)
         self.temporary.cleanup()
 
     def _save_manifest(self):

@@ -180,7 +180,7 @@ private slots:
     QVERIFY(registry.activate(fixture.candidate("runtime"), 0).ok()); const auto selected = registry.active(EnvironmentMode::Generated);
     std::atomic_bool entered{false}, release{false}; const auto revision = registry.beginRefresh();
     std::thread verifier([&] { registry.refresh({}, revision, [&] {
-      if (!entered.exchange(true)) {
+      if (selected.runtime->snapshot().code == "python_environment_verifying" && !entered.exchange(true)) {
         QElapsedTimer timer; timer.start();
         while (!release.load() && timer.elapsed() < 3000) QThread::msleep(1);
       }

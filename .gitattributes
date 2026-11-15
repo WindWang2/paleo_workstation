@@ -15,3 +15,8 @@ vendor/fetch-ranuts-document.sh text eol=lf
 # The optional Agent runtime manifest anchors this lock by its original bytes.
 /vendor/agent-python/runtime.lock.json text eol=lf
 /vendor/agent-python/templates/*.py text eol=lf
+# Pi supply pins raw upstream evidence, licenses and generated lock bytes.
+/vendor/pi/** -text
+/tools/pi_supply_build.mjs text eol=lf
+/tools/pi_supply_common.py text eol=lf
+/tools/prepare_pi_agent.py text eol=lf

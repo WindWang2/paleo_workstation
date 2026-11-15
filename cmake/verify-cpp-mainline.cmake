@@ -1,6 +1,6 @@
 # cmake/verify-cpp-mainline.cmake — C++ 主线边界护栏（cmake -P 脚本，零 Python 依赖）
 #
-# 目标：C++ 是主程序与原生业务模块的唯一权威实现。本脚本机械化六条边界
+# 目标：C++ 是主程序与原生业务模块的唯一权威实现。本脚本机械化七条边界
 # （详见 docs/CPP_PRIMARY_BOUNDARY.md），违规即非零退出：
 #
 #   src-python           R1 src/ 出现 Python 应用源码（*.py / *.pyw）。
@@ -28,6 +28,8 @@
 #   superbuild-bindings  R6 vendor/superbuild 的 QGIS 构建失去
 #                        WITH_BINDINGS=OFF——PyQGIS 运行时不得经 superbuild
 #                        回流主程序依赖闭包。
+#   src-javascript       R7 src/ 不放 JS/TS 应用源码。可选 Pi 固定入口只在
+#                        vendor/pi，由单独闭包闸门与 EXCLUDE_FROM_ALL 安装约束。
 #
 # R4 的 target 针串按「add_library(<名> <空格>…」单行形态匹配、R5 的受保护
 # 清单是现状锚点——有意重构（改声明排版/迁移受保护文件）时须同步更新下方
@@ -84,6 +86,18 @@ function(_cpp_ml_read root rel out_var)
     set(_content "")
   endif()
   set(${out_var} "${_content}" PARENT_SCOPE)
+endfunction()
+
+# ---- R7 src/ 零 JavaScript/TypeScript 应用源码 ----
+function(_cpp_ml_check_src_javascript root)
+  set(_v "")
+  file(GLOB_RECURSE _js RELATIVE "${root}"
+       "${root}/src/*.js" "${root}/src/*.mjs" "${root}/src/*.cjs"
+       "${root}/src/*.ts" "${root}/src/*.tsx" "${root}/src/*.jsx")
+  foreach(_f IN LISTS _js)
+    list(APPEND _v "src-javascript: ${_f}——可选 Pi 有源入口只允许 vendor/pi 的显式闭包")
+  endforeach()
+  set(_violations "${_v}" PARENT_SCOPE)
 endfunction()
 
 # ---- R1 src/ 零 Python 应用源码 ----
@@ -217,7 +231,7 @@ function(_cpp_ml_run_all root out_var)
   foreach(_fn IN ITEMS
            _cpp_ml_check_src_python _cpp_ml_check_archive_refs
            _cpp_ml_check_install_py _cpp_ml_check_module_targets
-           _cpp_ml_check_python_ext _cpp_ml_check_superbuild)
+           _cpp_ml_check_python_ext _cpp_ml_check_superbuild _cpp_ml_check_src_javascript)
     cmake_language(CALL ${_fn} "${root}")
     list(APPEND _all ${_violations})
   endforeach()
@@ -393,9 +407,17 @@ add_paleo_test(tst_pythonenv)\n")
        "ExternalProject_Add(qgis ... -DWITH_BINDINGS=ON)\n")
   _cpp_ml_case("superbuild-bindings-on" "${_d}/bindings" "superbuild-bindings")
 
+  _cpp_ml_fixture("${_d}/src-js")
+  file(WRITE "${_d}/src-js/src/services/agent.mjs" "// forbidden application JS\n")
+  _cpp_ml_case("src-javascript-file" "${_d}/src-js" "src-javascript")
+  _cpp_ml_fixture("${_d}/vendor-js")
+  file(MAKE_DIRECTORY "${_d}/vendor-js/vendor/pi")
+  file(WRITE "${_d}/vendor-js/vendor/pi/sidecar.mjs" "// separate explicit closure gate\n")
+  _cpp_ml_case("vendor-javascript-outside-src" "${_d}/vendor-js" "")
+
   get_property(_fails GLOBAL PROPERTY _cpp_ml_st_fail)
   if(_fails STREQUAL "")
-    message(STATUS "cpp-mainline selftest: 11/11 通过")
+    message(STATUS "cpp-mainline selftest: 13/13 通过")
     return()
   endif()
   message(FATAL_ERROR "cpp-mainline selftest 失败用例：${_fails}")

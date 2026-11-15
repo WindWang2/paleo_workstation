@@ -9,7 +9,7 @@
 [AGENTS.md](../AGENTS.md) 的层表与 [docs/UI_LAYER_PLAN.md](UI_LAYER_PLAN.md)
 为准，本文不重复。
 
-## 现状锚点（2026-10-25）
+## 现状锚点（2026-11-15）
 
 - `src/` **零 `.py` 文件**；全仓非 vendor 的 `.py` 不含业务/运行时的
   qgis/PyQt 导入（开发工具的可选导入除外，如 `tools/verify_l10n_offscreen.py`
@@ -33,6 +33,13 @@
   [交付协议](../vendor/agent-python/DELIVERY.md)。
 - superbuild 构建的 QGIS 保持 `WITH_BINDINGS=OFF`
   （`vendor/superbuild/CMakeLists.txt`）——PyQGIS 运行时不进依赖闭包。
+- Pi 的唯一有源 JavaScript 运行例外是 `vendor/pi/sidecar.mjs` 的锁版可选闭包。
+  C++ `piruntime` 逐文件核验宿主信任锚，`piprocess` 只执行固定 hello/close 握手；
+  不加载 coding-agent、工程脚本、默认文件/Shell 工具、扩展或 provider 网络实现。
+  默认构建和启动不发现、安装或运行 Node。A1 尚未接模型/工具，不是可用的第二个
+  聊天引擎；C++ 的会话、权限、密钥、调度与持久提交权威不变。
+  这是可执行 JS 的明确例外，不能按 Office 静态资源处理；供货与有限边界见
+  [Pi 清单](../vendor/pi/README.md)和[协议](../vendor/pi/PROTOCOL.md)。
 
 ## 构建与启动入口
 
@@ -73,6 +80,19 @@ selfcheck；QGIS/GDAL 运行时闭包不随默认安装复制，MAMCL 外部工�
 - 归档件只读保留，不得从中把 Python GUI/业务实现「复活」回主程序
   （见下节闸门）。
 
+## 可选 Pi 有源 JavaScript 边界
+
+`paleo_services_piagent` 只依赖 QtCore；完整 Node 程序和最终单文件 bundle 的 SHA
+由源码锁编入 C++。供货端显式运行 `tools/prepare_pi_agent.py`，以锁版 Node/esbuild
+离线构建，不运行 npm/package scripts；应用 configure/启动均不运行该工具。
+`AgentPiRuntime` 安装组件使用 `EXCLUDE_FROM_ALL`，仅显式安装已准备并外部锚定的
+generation，安装不执行 Node、不切 active、不授执行权限，默认安装无 JS/Node。
+
+Pi 是受信任组件，`isSandbox=false`。A1 的固定入口无模型网络或文件工具，不能据此
+宣称 Node 被 OS 限制为不可联网/读写。短进程的取消、宿主死亡回收与 wall deadline
+独立验收；没有 OS CPU/内存硬上限，不以 V8 heap 参数充当进程限额。A2 的长会话、
+模型与工具桥需单独验收及明确资源能力，不复用 Python 隔离 profile。
+
 ## 新模块/新工具开发规则
 
 - 新 C++ 模块：`scripts/new_module.sh` 脚手架登记词表，遵守分层契约；
@@ -90,7 +110,7 @@ selfcheck；QGIS/GDAL 运行时闭包不随默认安装复制，MAMCL 外部工�
 
 ## 防回退闸门（机械执行）
 
-`cmake/verify-cpp-mainline.cmake`（cmake -P，零 Python 依赖）六条规则，
+`cmake/verify-cpp-mainline.cmake`（cmake -P，零 Python 依赖）七条规则，
 ctest 项 `cpp_mainline` / `cpp_mainline_selftest`（无标签，随
 `ctest -LE 'core|perf'` 跑），CI 侧权威闸口在 lint 车道 Source gates 步：
 
@@ -102,9 +122,12 @@ ctest 项 `cpp_mainline` / `cpp_mainline_selftest`（无标签，随
 | `module-targets` | 必需 C++ 模块库/主程序 target 声明从 CMake 失踪 |
 | `python-ext` | 合法 Python 扩展的源文件/extra 挂点/测试登记、闸门解释器发现被拆除（防「删模块式假纯化」） |
 | `superbuild-bindings` | superbuild 失去 `WITH_BINDINGS=OFF` |
+| `src-javascript` | `src/` 出现 `.js`/`.mjs`/`.cjs`/`.ts`/`.tsx`/`.jsx` 应用源码；Pi 固定入口仅在 `vendor/pi`，另走供货闭包闸门 |
 
-selftest 在合成夹具树上对六条规则做正反向验证（含归档目录存在/不存在
+selftest 在合成夹具树上对七条规则做正反向验证（含归档目录存在/不存在
 两种容忍态），检查器自身坏掉不会静默变绿。
+`pi_agent` / `pi_agent_selftest` 另核对源码/工具链/Node 官方哈希证据、许可证、
+零外部 import 的 bundle 图及可选安装声明；无 Node 即可运行这两个闸门。
 
 ## 质量验证流程（与主仓一致）
 

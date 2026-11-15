@@ -38,6 +38,10 @@ PY0–PY4（#945/#947–#951）已按依赖合入 master `c756cdbe`；逐批验�
 Windows Core/GUI 验证边界。Shell/任意 CLI、网络、在线安装包与持久解释器继续后置，
 后续按实际业务另立 profile、权限与验收，不扩大当前受控数值计算范围。
 
+待实施：[Python 交付、数据成果扩展与 Pi Agent 计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)。
+先完成 E1–E3 的供货/配置/启用诊断，再按依赖推进可选 Pi 编排及类型化输入、CSV/PNG
+成果；复用既有 Host/operation/outputset，Pi 尚未 vendor，Shell 继续后置。
+
 `operation_read` 重复全文件 SHA 整改已实现整 SHA 锚定的有界分块认证，绑定宿主/工件，
 处理取消、替换与回收保护；每页认证返回范围。契约、实际字节计数及合入前验证见
 [分页整改记录](docs/progress/operation-read-integrity-20261114.md)。

@@ -453,6 +453,9 @@ Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和
 本机默认 RelWithDebInfo 和 sanitizer 车道不受影响。
 ## 可选 Agent Python 环境
 
+当前安装方式见本节；供货/配置/诊断产品闭环及可选 Pi 的后续工作见
+[待实施计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)，不是当前已提供的安装功能。
+
 主程序的默认构建、安装和启动不需要该运行时。开发和源码检查依赖的 Python
 工具链仍按原有要求准备。`analysis-core` 单独锁定 CPython 3.14.10 与 NumPy 2.5.4，
 只支持已列明的 Windows/Linux x86-64；不含 PyQGIS、PyQt 或运行期 pip 安装入口。

@@ -4,6 +4,7 @@
 #include "workflow/pythontableoutputoperation.h"
 #include <QFileInfo>
 #include <QtTest>
+#include <atomic>
 using namespace paleo;
 namespace {
 QJsonObject declaration() {
@@ -46,16 +47,24 @@ sys.stdout.buffer.write(packet)
   return source;
 }
 struct Fixture:numeric_table_native_fixture::Fixture {
+  struct FailedWork {std::atomic_bool returned{false},emptyPayload{false},diagnosticsKept{false};};
+  const std::shared_ptr<FailedWork> failedWork=std::make_shared<FailedWork>();
   void configureOutputs(bool breakTableWrite=false) {
     auto adapter=python::environmentTableOutputsAdapter(registry,assemblePythonNumericTableProvider(&catalog,&session,host.get()));
     if(breakTableWrite) {
-      const auto capture=adapter.capture;
-      adapter.capture=[capture](const auto &request,const auto &intent,QString *error) {
+      const auto capture=adapter.capture;const auto observed=failedWork;
+      adapter.capture=[capture,observed](const auto &request,const auto &intent,QString *error) {
         auto preparation=capture(request,intent,error);const auto inner=preparation.worker;
-        if(inner)preparation.worker=[inner](const auto &cancelled,QString *error) {
+        if(inner)preparation.worker=[inner,observed](const auto &cancelled,QString *error) {
           auto frozen=inner(cancelled,error);const auto worker=frozen.worker;
-          if(worker)frozen.worker=[worker](const auto &context) {
-            QDir().mkpath(QDir(context.privateDir).filePath("TABLE.csv"));return worker(context);
+          if(worker)frozen.worker=[worker,observed](const auto &context) {
+            QDir().mkpath(QDir(context.privateDir).filePath("TABLE.csv"));const auto work=worker(context);
+            if(!work.ok) {
+              observed->emptyPayload=!work.outputs.ok&&work.outputs.artifacts.isEmpty()&&
+                work.prepared.id.isEmpty()&&work.prepared.members.isEmpty()&&work.summary.isEmpty();
+              observed->diagnosticsKept=work.diagnostics.ok&&!work.diagnostics.artifacts.isEmpty();observed->returned=true;
+            }
+            return work;
           };return frozen;
         };return preparation;
       };
@@ -124,6 +133,10 @@ private slots:
     QVERIFY2(f.activateRuntime(),qPrintable(f.error));f.configureOutputs(breakWrite);
     const auto response=f.call(QLatin1String(python::TableOutputsTool),f.outputArguments("invalid-group",sourceCode(mode)));
     QVERIFY(!response.result.ok);QVERIFY(f.derived().isEmpty());const auto saved=f.record("invalid-group");
+    if(breakWrite) {
+      QCOMPARE(response.result.code,QString("python_output_write_failed"));QVERIFY(f.failedWork->returned.load());
+      QVERIFY(f.failedWork->emptyPayload.load());QVERIFY(f.failedWork->diagnosticsKept.load());
+    }
     QVERIFY(saved.artifactManifest.value("diagnosticsOnly").toBool());
     for(const auto &entry:saved.artifactManifest.value("ports").toArray()) {
       const auto port=entry.toObject().value("portId").toString();QVERIFY(port!="REPORT"&&port!="TABLE");

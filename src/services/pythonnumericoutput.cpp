@@ -44,7 +44,8 @@ QString validateNumericOutputDeclaration(const QJsonObject &declaration) {
     if (!columns[index].isObject()) return "python_output_declaration_invalid";
     const auto column = columns[index].toObject(); const auto name = column.value("id").toString();
     const auto dtype = column.value("dtype").toString(), role = column.value("role").toString();
-    if (!fields(column, {"id", "label", "unit", "dtype", "role"}) || id.match(name).capturedLength() != name.size() ||
+    const auto identity = id.match(name);
+    if (!fields(column, {"id", "label", "unit", "dtype", "role"}) || !identity.hasMatch() || identity.capturedLength() != name.size() ||
         ids.contains(name) || !boundedText(column.value("label"), 256) || !boundedText(column.value("unit"), 64))
       return "python_output_declaration_invalid";
     const auto unit = column.value("unit").toString().trimmed().toCaseFolded();

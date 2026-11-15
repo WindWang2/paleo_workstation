@@ -10,7 +10,11 @@ namespace paleo::python {
 capability::OperationWorker generatedReportWorker(const QJsonObject &plan,std::shared_ptr<RuntimeProvider> provider,
     std::shared_ptr<SandboxProvider> sandbox,GeneratedWorkerChecks checks) {
   return [plan,provider,sandbox,checks](const capability::OperationWorkContext &context) {
-    capability::OperationWorkResult out;const auto fail=[&](const QString &code){out.code=code;return out;};
+    capability::OperationWorkResult out;const auto fail=[&](const QString &code) {
+      // A late private write or summary failure must not expose an accepted
+      // subset of a multi-port result. Private execution logs remain available.
+      out.ok=false;out.code=code;out.outputs={};out.prepared={};out.summary={};return out;
+    };
     if(!checks.plan||!checks.bundle||(!checks.report&&!checks.outputs))return fail("python_contract_unavailable");
     auto code=checks.plan(plan,provider,sandbox,true);if(!code.isEmpty())return fail(code);
     if(context.frozenPlan!=plan)return fail(checks.invalidPlanCode);

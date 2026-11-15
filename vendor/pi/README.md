@@ -13,6 +13,8 @@ See [the protocol](PROTOCOL.md) for the host-only interfaces and current limits.
 commit also contains the unreleased #9986 abort/tool-result fix. It is not replaced
 by the npm 1.5.2 release. The full upstream archive SHA, selected-source SHA list,
 original npm lock, build recipe, entry source and compiler artifacts are locked.
+The shared `prepare_agent_python.py` import supplying `StoreLock` is pinned as
+part of the producer closure, with LF checkout enforced for cross-host hashes.
 No local upstream source patch is applied.
 
 The supply build resolves the locked agent, ai, schema and telemetry source

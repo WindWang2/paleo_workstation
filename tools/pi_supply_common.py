@@ -98,7 +98,8 @@ def load_lock():
               (ROOT / lock["build"]["entry"], lock["build"]["entrySha256"]),
               (ROOT / lock["build"]["recipe"], lock["build"]["recipeSha256"]),
               (ROOT / "tools/prepare_pi_agent.py", lock["build"]["preparerSha256"]),
-              (ROOT / "tools/pi_supply_common.py", lock["build"]["commonSha256"])]
+              (ROOT / "tools/pi_supply_common.py", lock["build"]["commonSha256"]),
+              (ROOT / "tools/prepare_agent_python.py", lock["build"]["storeLockHelperSha256"])]
     for notice in lock["notices"]:
         path = VENDOR / relative(notice["path"])
         if path.stat().st_size != notice["size"]:

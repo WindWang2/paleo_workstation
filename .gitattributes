@@ -20,3 +20,4 @@ vendor/fetch-ranuts-document.sh text eol=lf
 /tools/pi_supply_build.mjs text eol=lf
 /tools/pi_supply_common.py text eol=lf
 /tools/prepare_pi_agent.py text eol=lf
+/tools/prepare_agent_python.py text eol=lf

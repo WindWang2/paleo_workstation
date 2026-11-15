@@ -42,7 +42,7 @@
   "build": {
     "bundleSha256": "8cd96e58d8fbf3519709dd07585f25c484445429021e14f75c5135e282931dcd",
     "bundleSize": 155106,
-    "commonSha256": "4b75c864a56bc0cd61764beead1829135a7d63b2da8d337e568efe8b6f91271e",
+    "commonSha256": "1aa9b7c7fec551f23a7f257db4435c5c829f745b6876926ff482968a786692a5",
     "entry": "vendor/pi/sidecar.mjs",
     "entrySha256": "32466c6d90a8a23fc09781e92674fb68025a334bbc364803f9706ffb93c2f2fa",
     "esbuildArchive": "esbuild-0.28.2.tgz",
@@ -52,7 +52,8 @@
     "graphSha256": "7523923212d85c95cefc45bc65587a9ae25ced1ffad9393949ed39744d9ba698",
     "preparerSha256": "ec1444bd74950703cb0d49378084b6a87e55403fd3132c83db63a6502b4a3158",
     "recipe": "tools/pi_supply_build.mjs",
-    "recipeSha256": "1634452bf5c80a5ecdc057b6abaac46d63dcbf914210511d9f156f84c55e9347"
+    "recipeSha256": "1634452bf5c80a5ecdc057b6abaac46d63dcbf914210511d9f156f84c55e9347",
+    "storeLockHelperSha256": "ca488588a1dbf81ff4875cafce36cc8d1f6b1511537ec5ea2ea1060040e87304"
   },
   "coreVersion": "1.5.2",
   "limits": {

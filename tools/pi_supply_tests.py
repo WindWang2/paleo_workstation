@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
-from pi_supply_common import VENDOR, MANIFEST, archive_member, canonical, check_archive, digest, read_json, relative, verify_runtime
+from pi_supply_common import VENDOR, MANIFEST, archive_member, canonical, check_archive, digest, load_lock, read_json, relative, verify_runtime
 import prepare_pi_agent as supplier
 
 
@@ -40,6 +40,13 @@ def run(source_lock):
             self.assertEqual(verify_runtime(root, anchor, self.lock)["platform"], "linux-x86_64")
             (root / "bin/node").write_bytes(b"bad!")
             with self.assertRaises(ValueError): verify_runtime(root, anchor, self.lock)
+
+        def test_imported_store_lock_source_is_pinned(self):
+            def altered_digest(path, algorithm="sha256"):
+                return "f" * 64 if Path(path).name == "prepare_agent_python.py" else digest(path, algorithm)
+            with patch("pi_supply_common.digest", side_effect=altered_digest):
+                with self.assertRaisesRegex(ValueError, "hash mismatch: prepare_agent_python.py"):
+                    load_lock()
 
         def test_anchor_and_manifest_metadata_are_not_authorization(self):
             root = self.base / "runtime"; anchor, value = self.fixture(root)

@@ -26,6 +26,7 @@ QString stateText(const QString &state) {
   if (state == "verified") return QObject::tr("校验通过");
   if (state == "ready") return QObject::tr("可执行");
   if (state == "missing") return QObject::tr("未安装");
+  if (state == "unconfigured") return QObject::tr("尚未选择环境");
   if (state == "disabled") return QObject::tr("未启用");
   if (state == "unavailable") return QObject::tr("当前不可执行");
   if (state == "error") return QObject::tr("检查未通过");

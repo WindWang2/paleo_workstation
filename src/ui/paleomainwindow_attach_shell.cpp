@@ -26,13 +26,12 @@
 #include "layout/mapbookcontroller.h"
 #include "layoutdesignershell.h"
 #include "ai/aiassistdock.h"                    // 方向51：AI 助手 dock
-#include "ai/llmconfigdialog.h"                 // 方向62：图形化配置对话框
+#include "ai/aiconfigurationwiring.h"
 #include "pages/datapage.h"                     // 方向93：结果卡导航 → 数据页定位
 #include "../workflow/aichatcontroller.h"
 #include "../workflow/mappingworkbench.h"
 #include "../services/previewdoc.h"
 #include "../catalog/datacatalog.h"
-#include "../ai/chat/llmclient.h"               // LlmConfig（对话框装配面 + path() 配置说明）
 #include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
 
 #include <QMessageBox>
@@ -640,26 +639,7 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
   // 结果回灌对话框（失败停留，成功关窗）。钥匙串回调以对话框为
   // context——对话框先走则回调自然作废，不会悬垂。
   connect(dock, &AiAssistDock::configureRequested, this, [this, dock] {
-    auto *controller = dock->controller();
-    if (!controller)
-      return;
-    LlmConfigDialog dialog(controller->config(), this);
-    connect(&dialog, &LlmConfigDialog::applyRequested, this,
-            [dock, &dialog](const LlmConfig &form, const QByteArray &newKey,
-                            bool clearKey) {
-              auto *current = dock->controller();
-              if (!current) {
-                dialog.onApplyResult(
-                  false, QObject::tr("助手编排器不可用"));
-                return;
-              }
-              current->applyConfig(
-                form, newKey, clearKey, &dialog,
-                [&dialog](bool ok, const QString &error) {
-                  dialog.onApplyResult(ok, error);
-                });
-            });
-    dialog.exec();
+    openAiConfiguration(dock, this);
   });
   // 会话管理（方向62）：dock 只发意图，打开/重命名/删除落编排器；
   // 删除的确认对话框归宿主（面板不管破坏性动作的确认）。

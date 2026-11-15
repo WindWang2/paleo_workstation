@@ -22,13 +22,16 @@ public:
   explicit PythonEnvironmentDialog(QWidget *parent = nullptr);
   void setConfiguration(const QJsonObject &configuration, const QJsonArray &history = {});
   void setDiagnostics(const QJsonObject &status);
+  void setInstalledCandidate(const QJsonObject &installed);
   void setBusy(bool busy);
   void showMessage(const QString &message);
 signals:
   void installRequested(const QString &package, const QString &anchor, const QString &store);
   void activationRequested(const QJsonObject &configuration);
   void probeRequested();
+  void reloadRequested();
   void disableRequested();
+  void revokeRequested(const QString &identityId);
   void rollbackRequested(const QString &identityId);
   void exportRequested(const QString &path);
   void cancelRequested();
@@ -42,14 +45,15 @@ private:
   void buildActions(QVBoxLayout *root);
   void requestClose();
   QJsonObject form() const;
-  QLabel *m_installed = nullptr, *m_integrity = nullptr, *m_trustedStatus = nullptr, *m_generatedStatus = nullptr;
+  QLabel *m_installed = nullptr, *m_integrity = nullptr, *m_templatesIntegrity = nullptr;
+  QLabel *m_trustedStatus = nullptr, *m_generatedStatus = nullptr;
   QLabel *m_source = nullptr, *m_message = nullptr;
   QLineEdit *m_package = nullptr, *m_packageAnchor = nullptr, *m_store = nullptr;
   QLineEdit *m_runtimeRoot = nullptr, *m_runtimeAnchor = nullptr, *m_scriptsRoot = nullptr, *m_scriptsAnchor = nullptr;
   QCheckBox *m_trusted = nullptr, *m_generated = nullptr;
   QComboBox *m_history = nullptr;
   QPushButton *m_install = nullptr, *m_activate = nullptr, *m_probe = nullptr, *m_disable = nullptr;
-  QPushButton *m_rollback = nullptr, *m_export = nullptr;
+  QPushButton *m_rollback = nullptr, *m_export = nullptr, *m_reload = nullptr, *m_revoke = nullptr;
   QGroupBox *m_installForm = nullptr, *m_configurationForm = nullptr;
   QProgressBar *m_progress = nullptr;
   bool m_busy = false, m_closeWhenIdle = false;

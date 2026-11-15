@@ -223,7 +223,7 @@ void PythonEnvironmentController::complete(Kind kind, const QString &code, const
   }
   if (kind == Kind::Install) {
     emit installationCompleted(data);
-    if (guard && generation == m_generation) emit messageChanged(tr("离线环境已安装，尚未启用。请验证并应用所需权限。"));
+    if (guard && generation == m_generation) emit messageChanged(tr("离线包已安装并填入表单；验证并应用后才会使用所选环境。"));
     return;
   }
   publishSnapshot(replaceForm);

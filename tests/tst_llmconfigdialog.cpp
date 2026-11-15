@@ -27,6 +27,7 @@ private slots:
   void initTestCase();
   void cleanupTestCase();
   void validFormEmitsApplyRequestOnceAndGoesBusy();
+  void environmentEntryDoesNotApplyModelDraft();
   void busyBlocksCloseUntilApplyResultReturns();
   void invalidEndpointBlocksApply();
   void missingKeyStillAppliesButKeepsDisabledHint();
@@ -34,6 +35,19 @@ private slots:
   void keyAreaDisabledWithoutKeychain();
   void captureLedgerScreenshot();
 };
+
+void TestLlmConfigDialog::environmentEntryDoesNotApplyModelDraft() {
+  LlmConfigDialog dialog{LlmConfig()};
+  auto *entry = dialog.findChild<QPushButton *>("llmConfigPythonEnvironment"); QVERIFY(entry);
+  QSignalSpy environment(&dialog, &LlmConfigDialog::pythonEnvironmentRequested);
+  QSignalSpy applied(&dialog, &LlmConfigDialog::applyRequested);
+  entry->click(); QCOMPARE(environment.count(), 1); QCOMPARE(applied.count(), 0);
+  dialog.findChild<QLineEdit *>("llmConfigEndpoint")->setText("https://llm.example.com/v1");
+  dialog.findChild<QLineEdit *>("llmConfigModel")->setText("model");
+  dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+  QVERIFY(!entry->isEnabled()); entry->click(); QCOMPARE(environment.count(), 1);
+  dialog.onApplyResult(false, "fixture"); QVERIFY(entry->isEnabled());
+}
 
 void TestLlmConfigDialog::initTestCase() {
   PaleoTheme::pinRenderEnvironment(); // Fusion + 主题 palette 钉死（截图/断言稳定）

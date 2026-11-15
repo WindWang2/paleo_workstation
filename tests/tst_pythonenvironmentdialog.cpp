@@ -11,6 +11,17 @@
 class TestPythonEnvironmentDialog : public QObject {
   Q_OBJECT
 private slots:
+  void installedPackageOnlyUpdatesMatchingCandidateAndPreservesConsent() {
+    PythonEnvironmentDialog dialog;
+    dialog.setConfiguration({{"runtimeRoot", "/old"}, {"scriptsRoot", "/scripts"}, {"allowTrusted", true}});
+    QSignalSpy applied(&dialog, &PythonEnvironmentDialog::activationRequested);
+    dialog.setInstalledCandidate({{"kind", "runtime"}, {"root", "/new"}, {"manifestSha256", QString(64, 'a')}});
+    QCOMPARE(dialog.findChild<QLineEdit *>("pythonRuntimeRoot")->text(), QString("/new"));
+    QCOMPARE(dialog.findChild<QLineEdit *>("pythonScriptsRoot")->text(), QString("/scripts"));
+    QVERIFY(dialog.findChild<QCheckBox *>("pythonAllowTrusted")->isChecked());
+    QVERIFY(!dialog.findChild<QCheckBox *>("pythonAllowGenerated")->isChecked());
+    QCOMPARE(applied.count(), 0);
+  }
   void readinessDoesNotGrantExecutionConsent() {
     PythonEnvironmentDialog dialog;
     dialog.setDiagnostics({{"installed", "installed"}, {"integrity", "verified"},

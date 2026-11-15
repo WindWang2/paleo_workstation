@@ -13,6 +13,9 @@
 #include <QLineEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace {
@@ -42,7 +45,13 @@ PythonEnvironmentDialog::PythonEnvironmentDialog(QWidget *parent) : QDialog(pare
   auto *root = new QVBoxLayout(this);
   root->setContentsMargins(tokens.spacingMd, tokens.spacingMd, tokens.spacingMd, tokens.spacingMd);
   root->setSpacing(tokens.spacingSm);
-  buildStatus(root); buildInstall(root); buildConfiguration(root); buildActions(root);
+  auto *scroll = new QScrollArea(this); scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  auto *contents = new QWidget(scroll); auto *body = new QVBoxLayout(contents);
+  body->setContentsMargins(0, 0, 0, 0); body->setSpacing(tokens.spacingSm);
+  buildStatus(body); buildInstall(body); buildConfiguration(body);
+  scroll->setWidget(contents); root->addWidget(scroll, 1);
+  buildActions(root);
   m_message = new QLabel(this); m_message->setObjectName(QStringLiteral("pythonEnvironmentMessage"));
   m_message->setWordWrap(true); root->addWidget(m_message);
   m_progress = new QProgressBar(this); m_progress->setRange(0, 0); m_progress->setVisible(false);
@@ -50,16 +59,23 @@ PythonEnvironmentDialog::PythonEnvironmentDialog(QWidget *parent) : QDialog(pare
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
   connect(buttons, &QDialogButtonBox::rejected, this, &PythonEnvironmentDialog::reject);
   root->addWidget(buttons);
+  if (const auto *screen = QGuiApplication::primaryScreen()) {
+    const auto available = screen->availableGeometry().size() * 0.85;
+    resize(sizeHint().boundedTo(available));
+  }
 }
 void PythonEnvironmentDialog::buildStatus(QVBoxLayout *root) {
   auto *status = new QFormLayout;
   status->setSpacing(PaleoTheme::tokens().spacingSm);
   m_installed = new QLabel(tr("尚未检查"), this); m_installed->setObjectName(QStringLiteral("pythonInstalledStatus"));
   m_integrity = new QLabel(tr("尚未检查"), this); m_integrity->setObjectName(QStringLiteral("pythonIntegrityStatus"));
+  m_templatesIntegrity = new QLabel(tr("尚未检查"), this);
+  m_templatesIntegrity->setObjectName(QStringLiteral("pythonTemplatesIntegrityStatus"));
   m_trustedStatus = new QLabel(tr("未启用"), this); m_trustedStatus->setObjectName(QStringLiteral("pythonTrustedStatus"));
   m_generatedStatus = new QLabel(tr("未启用"), this); m_generatedStatus->setObjectName(QStringLiteral("pythonGeneratedStatus"));
   m_source = new QLabel(this); m_source->setWordWrap(true);
-  status->addRow(tr("安装"), m_installed); status->addRow(tr("完整性校验"), m_integrity);
+  status->addRow(tr("安装"), m_installed); status->addRow(tr("运行时完整性"), m_integrity);
+  status->addRow(tr("可信模板完整性"), m_templatesIntegrity);
   status->addRow(tr("可信分析"), m_trustedStatus); status->addRow(tr("受控生成计算"), m_generatedStatus);
   status->addRow(tr("配置来源"), m_source); root->addLayout(status);
 }
@@ -77,12 +93,18 @@ void PythonEnvironmentDialog::buildInstall(QVBoxLayout *root) {
   m_packageAnchor->setToolTip(tr("使用独立交付记录中的完整 SHA-256 校验码。"));
   m_store = field(m_installForm, "pythonDeliveryStore");
   m_store->setToolTip(tr("使用专用安装目录；运行时和可信模板分别安装。"));
+  auto *pickStore = new QPushButton(tr("选择目录…"), m_installForm);
+  auto *storeRow = new QHBoxLayout; storeRow->addWidget(m_store, 1); storeRow->addWidget(pickStore);
+  connect(pickStore, &QPushButton::clicked, this, [this] {
+    const auto path = QFileDialog::getExistingDirectory(this, tr("选择专用安装目录"));
+    if (!path.isEmpty()) m_store->setText(path);
+  });
   m_install = new QPushButton(tr("安装"), m_installForm); m_install->setObjectName(QStringLiteral("pythonDeliveryInstall"));
   connect(m_install, &QPushButton::clicked, this, [this] {
     if (!m_busy) emit installRequested(m_package->text(), m_packageAnchor->text(), m_store->text());
   });
   layout->addRow(tr("离线包"), packageRow); layout->addRow(tr("交付校验码"), m_packageAnchor);
-  layout->addRow(tr("专用安装目录"), m_store); layout->addRow(QString(), m_install);
+  layout->addRow(tr("专用安装目录"), storeRow); layout->addRow(QString(), m_install);
   auto *note = new QLabel(tr("安装不会启用计算。请选择受信任的运行时包；可信分析还需模板包。"), m_installForm);
   note->setWordWrap(true); layout->addRow(note); root->addWidget(m_installForm);
 }
@@ -108,6 +130,10 @@ void PythonEnvironmentDialog::buildConfiguration(QVBoxLayout *root) {
 }
 void PythonEnvironmentDialog::buildActions(QVBoxLayout *root) {
   auto *actions = new QHBoxLayout;
+  m_reload = new QPushButton(tr("重新载入配置"), this);
+  m_reload->setObjectName(QStringLiteral("pythonEnvironmentReload"));
+  m_reload->setToolTip(tr("丢弃表单草稿并载入最新配置；其他窗口修改配置后请先重新载入。"));
+  connect(m_reload, &QPushButton::clicked, this, &PythonEnvironmentDialog::reloadRequested);
   m_probe = new QPushButton(tr("检查可执行状态"), this); m_probe->setObjectName(QStringLiteral("pythonEnvironmentProbe"));
   m_disable = new QPushButton(tr("停用计算"), this);
   m_disable->setObjectName(QStringLiteral("pythonEnvironmentDisable"));
@@ -119,14 +145,19 @@ void PythonEnvironmentDialog::buildActions(QVBoxLayout *root) {
     const auto path = QFileDialog::getSaveFileName(this, tr("导出环境诊断"), QString(), tr("JSON 文件 (*.json)"));
     if (!path.isEmpty()) emit exportRequested(path);
   });
-  actions->addWidget(m_probe); actions->addWidget(m_disable); actions->addWidget(m_export); root->addLayout(actions);
+  actions->addWidget(m_reload); actions->addWidget(m_probe); actions->addWidget(m_disable); actions->addWidget(m_export); root->addLayout(actions);
   auto *history = new QHBoxLayout;
   m_history = new QComboBox(this); m_history->setObjectName(QStringLiteral("pythonEnvironmentHistory"));
   m_rollback = new QPushButton(tr("回退到已核验版本"), this);
+  m_revoke = new QPushButton(tr("撤销所选版本"), this);
+  m_revoke->setObjectName(QStringLiteral("pythonEnvironmentRevoke"));
+  connect(m_revoke, &QPushButton::clicked, this, [this] {
+    if (!m_busy && m_history->currentIndex() >= 0) emit revokeRequested(m_history->currentData().toString());
+  });
   connect(m_rollback, &QPushButton::clicked, this, [this] {
     if (!m_busy && m_history->currentIndex() >= 0) emit rollbackRequested(m_history->currentData().toString());
   });
-  history->addWidget(m_history, 1); history->addWidget(m_rollback); root->addLayout(history);
+  history->addWidget(m_history, 1); history->addWidget(m_rollback); history->addWidget(m_revoke); root->addLayout(history);
 }
 QJsonObject PythonEnvironmentDialog::form() const {
   return {{"runtimeRoot", m_runtimeRoot->text()}, {"runtimeManifestSha256", m_runtimeAnchor->text()},
@@ -146,10 +177,21 @@ void PythonEnvironmentDialog::setConfiguration(const QJsonObject &configuration,
     m_history->addItem(identity.value("label").toString(), identity.value("id").toString());
   }
   m_rollback->setEnabled(!m_busy && m_history->count() > 0);
+  m_revoke->setEnabled(!m_busy && m_history->count() > 0);
+}
+void PythonEnvironmentDialog::setInstalledCandidate(const QJsonObject &installed) {
+  const auto kind = installed.value("kind").toString();
+  const auto path = installed.value("root").toString();
+  const auto anchor = installed.value("manifestSha256").toString();
+  if (kind == "runtime") { m_runtimeRoot->setText(path); m_runtimeAnchor->setText(anchor); }
+  else if (kind == "scripts") { m_scriptsRoot->setText(path); m_scriptsAnchor->setText(anchor); }
+  else return;
+  showMessage(tr("离线包已安装并填入表单；验证并应用后才会使用所选环境。"));
 }
 void PythonEnvironmentDialog::setDiagnostics(const QJsonObject &status) {
   m_installed->setText(stateText(status.value("installed").toString()));
   m_integrity->setText(stateText(status.value("integrity").toString()));
+  m_templatesIntegrity->setText(stateText(status.value("templatesIntegrity").toString()));
   m_trustedStatus->setText(stateText(status.value("trusted").toString()));
   m_generatedStatus->setText(stateText(status.value("generated").toString()));
   m_source->setText(status.value("sourceLabel").toString());
@@ -159,8 +201,9 @@ void PythonEnvironmentDialog::showMessage(const QString &message) { m_message->s
 void PythonEnvironmentDialog::setBusy(bool busy) {
   m_busy = busy; m_progress->setVisible(busy);
   m_installForm->setEnabled(!busy); m_configurationForm->setEnabled(!busy);
-  for (auto *button : {m_probe, m_export}) button->setEnabled(!busy);
+  for (auto *button : {m_probe, m_export, m_reload}) button->setEnabled(!busy);
   m_history->setEnabled(!busy); m_rollback->setEnabled(!busy && m_history->count() > 0);
+  m_revoke->setEnabled(!busy && m_history->count() > 0);
   if (!busy && m_closeWhenIdle) QDialog::reject();
 }
 void PythonEnvironmentDialog::requestClose() {

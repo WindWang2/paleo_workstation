@@ -91,7 +91,7 @@ private slots:
     Fixture f(QFINDTESTDATA("../vendor/agent-python/templates")); const auto candidate = f.candidate("runtime", "fixture", false, false);
     const auto cleanup = qScopeGuard([] { for (const auto key : {"PALEO_AGENT_PYTHON_ROOT", "PALEO_AGENT_PYTHON_MANIFEST_SHA256", "PALEO_AGENT_PYTHON_SCRIPTS_ROOT"}) qunsetenv(key); });
     qputenv("PALEO_AGENT_PYTHON_ROOT", candidate.runtimeRoot.toUtf8()); qputenv("PALEO_AGENT_PYTHON_MANIFEST_SHA256", candidate.runtimeSha256.toUtf8());
-    qputenv("PALEO_AGENT_PYTHON_SCRIPTS_ROOT", QFINDTESTDATA("../vendor/agent-python/templates").toUtf8());
+    qputenv("PALEO_AGENT_PYTHON_SCRIPTS_ROOT", QFileInfo(QFINDTESTDATA("../vendor/agent-python/templates")).canonicalFilePath().toUtf8());
     PythonEnvironmentController controller(f.registry, &f.tasks);
     QSignalSpy forms(&controller, &PythonEnvironmentController::configurationChanged), projections(&controller, &PythonEnvironmentController::diagnosticsChanged);
     controller.reload(); QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000); QCOMPARE(forms.size(), 1);

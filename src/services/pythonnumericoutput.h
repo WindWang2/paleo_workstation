@@ -14,6 +14,7 @@ struct NumericOutputValidation {
   QString code = "python_output_invalid";
   QByteArray report, csv;
   QJsonObject tableMetadata, summary;
+  qint64 hostReservedBytes = 0;
   bool ok() const { return code == QLatin1String("ok"); }
 };
 using GeneratedReportValidator = std::function<AnalysisReportValidation(const QByteArray &)>;

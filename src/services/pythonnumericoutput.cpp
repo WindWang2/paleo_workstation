@@ -47,6 +47,9 @@ QString validateNumericOutputDeclaration(const QJsonObject &declaration) {
     if (!fields(column, {"id", "label", "unit", "dtype", "role"}) || id.match(name).capturedLength() != name.size() ||
         ids.contains(name) || !boundedText(column.value("label"), 256) || !boundedText(column.value("unit"), 64))
       return "python_output_declaration_invalid";
+    const auto unit = column.value("unit").toString().trimmed().toCaseFolded();
+    if (QStringList{"unknown", "unspecified", "undefined", "?", "n/a"}.contains(unit) ||
+        (dtype == "|b1" && column.value("unit") != "1")) return "python_output_declaration_invalid";
     if (index == 0) {
       if (role == "source_row") {
         if (name != "source_row" || dtype != "<i8" || column.value("unit") != "1") return "python_output_declaration_invalid";
@@ -82,6 +85,12 @@ NumericOutputValidation validateNumericOutput(const QByteArray &frame, const QJs
   constexpr qsizetype prefix = 14; // ten magic bytes followed by uint32 little endian.
   if (frame.size() > qMin(NumericOutputFrameBytes, policy.outputBytes)) return fail("python_output_budget_exceeded");
   if (frame.size() < prefix || !frame.startsWith("PALEOPYO2\n")) return fail("python_output_frame_invalid");
+  const auto columns = declaration.value("columns").toArray();
+  const qint64 csvReservation = qint64(declaration.value("maxRows").toInt()) * (columns.size() * 28 + 2) + columns.size() * 65 + 2;
+  // Bound the retained stream/copies, CSV, report DOM/identity repacking and
+  // small manifest structures independently of the child's OS memory counter.
+  const qint64 reservation = 2 * frame.size() + csvReservation + 8 * 1024 * 1024 + 128 * 1024;
+  if (reservation > policy.memoryBytes) return fail("python_output_memory_budget");
   const auto headerSize = qFromLittleEndian<quint32>(frame.constData() + 10);
   if (headerSize < 1 || headerSize > 16 * 1024 || headerSize > frame.size() - prefix) return fail("python_output_frame_invalid");
   QJsonObject header;
@@ -114,6 +123,7 @@ NumericOutputValidation validateNumericOutput(const QByteArray &frame, const QJs
       {"claims", "agent_generated_values_not_independently_recomputed"}};
   result.summary = report.summary; result.summary["tableRows"] = rows;
   result.summary["tableColumns"] = declaration.value("columns").toArray().size();
-  result.summary["csvBytes"] = result.csv.size(); result.code = "ok"; return result;
+  result.summary["csvBytes"] = result.csv.size(); result.hostReservedBytes = reservation;
+  result.summary["hostOutputReservedBytes"] = QString::number(reservation); result.code = "ok"; return result;
 }
 }

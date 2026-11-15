@@ -137,6 +137,9 @@ private slots:
     int checks = 0; emptyFailure(validateNumericOutput(bytes, decl, {}, validateReport, [&] { return ++checks > 8; }));
     ExecutionPolicy small; small.outputBytes = 128;
     emptyFailure(validateNumericOutput(bytes, decl, small, validateReport));
+    small = {}; small.memoryBytes = 1;
+    const auto rejected = validateNumericOutput(bytes, decl, small, validateReport);
+    QCOMPARE(rejected.code, QString("python_output_memory_budget")); emptyFailure(rejected);
   }
   void declarationRejectsStringsFormulaIdsUnknownAxesAndOversizedShapes() {
     for (const auto &edit : QVector<std::function<void(QJsonObject &)>>{
@@ -145,6 +148,8 @@ private slots:
       [](auto &d) { auto c = d["columns"].toArray(); auto v = c[1].toObject(); v["dtype"] = "string"; c[1] = v; d["columns"] = c; },
       [](auto &d) { auto c = d["columns"].toArray(); auto v = c[1].toObject(); v["id"] = "=formula"; c[1] = v; d["columns"] = c; },
       [](auto &d) { auto c = d["columns"].toArray(); auto v = c[1].toObject(); v["id"] = "column\n"; c[1] = v; d["columns"] = c; },
+      [](auto &d) { auto c = d["columns"].toArray(); auto v = c[1].toObject(); v["unit"] = "unknown"; c[1] = v; d["columns"] = c; },
+      [](auto &d) { auto c = d["columns"].toArray(); auto v = c[2].toObject(); v["unit"] = "m"; c[2] = v; d["columns"] = c; },
       [](auto &d) { auto c = d["columns"].toArray(); c[1] = c[0]; d["columns"] = c; },
       [](auto &d) { auto c = d["columns"].toArray(); auto v = c[0].toObject(); v["unit"] = "m"; c[0] = v; d["columns"] = c; }
     }) { auto decl = declaration(); edit(decl); QVERIFY(!validateNumericOutputDeclaration(decl).isEmpty()); }

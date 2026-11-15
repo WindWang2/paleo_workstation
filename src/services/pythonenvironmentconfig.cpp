@@ -8,7 +8,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QStandardPaths>
-#include <QPair>
 #include <algorithm>
 #include <cmath>
 
@@ -106,9 +105,11 @@ bool environmentPolicy(const QJsonObject &object, ExecutionPolicy &policy) {
   if (!number("codeBytes", policy.codeBytes) || !number("inputBytes", policy.inputBytes) ||
       !number("outputBytes", policy.outputBytes) || !number("logBytes", policy.logBytes) ||
       !number("diskBytes", policy.diskBytes) || !number("memoryBytes", policy.memoryBytes)) return false;
-  for (const auto &pair : {qMakePair("cpuSeconds", &policy.cpuSeconds), qMakePair("wallSeconds", &policy.wallSeconds),
-                          qMakePair("threads", &policy.threads), qMakePair("concurrent", &policy.concurrent)}) {
-    qint64 value = 0; if (!number(pair.first, value) || value > 86400) return false; *pair.second = int(value);
+  struct IntegerField { const char *name; int *target; };
+  const IntegerField fields[]{{"cpuSeconds", &policy.cpuSeconds}, {"wallSeconds", &policy.wallSeconds},
+                             {"threads", &policy.threads}, {"concurrent", &policy.concurrent}};
+  for (const auto &field : fields) {
+    qint64 value = 0; if (!number(field.name, value) || value > 86400) return false; *field.target = int(value);
   }
   policy.id = object.value("id").toString(); policy.allowTrusted = object.value("allowTrusted").toBool();
   policy.allowGenerated = object.value("allowGenerated").toBool();

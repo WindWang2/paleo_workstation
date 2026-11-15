@@ -41,6 +41,9 @@ Windows Core/GUI 验证边界。Shell/任意 CLI、网络、在线安装包与�
 待实施：[Python 交付、数据成果扩展与 Pi Agent 计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)。
 先完成 E1–E3 的供货/配置/启用诊断，再按依赖推进可选 Pi 编排及类型化输入、CSV/PNG
 成果；复用既有 Host/operation/outputset，Pi 尚未 vendor，Shell 继续后置。
+E1 内部供货及 C++ 离线安装已实现并完成双配置编译、原生客户端与门禁验收，见
+[E1 记录](docs/progress/python-delivery-e1-20261115.md)；持久配置/启用诊断与其余批次继续推进。
+外部分发入口仍关闭，许可状态保持真实，不能将内部验证当作对外发行授权。
 
 `operation_read` 重复全文件 SHA 整改已实现整 SHA 锚定的有界分块认证，绑定宿主/工件，
 处理取消、替换与回收保护；每页认证返回范围。契约、实际字节计数及合入前验证见

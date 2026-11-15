@@ -28,8 +28,8 @@ bool work(PaleoTaskService &tasks, std::function<QString(const std::function<boo
   if (!task) return false;
   QObject::connect(task, &PaleoTask::finished, &wait, [&] { done = true; wait.quit(); });
   deadline.start(180000); if (!done) wait.exec();
-  if (!done) { task->requestInterruption(); tasks.shutdown(15000, true); }
-  code = done ? *result : QStringLiteral("prewarm_timeout"); return done && code.isEmpty();
+  if (!done) { task->requestInterruption(); tasks.shutdown(15000, true); code = "prewarm_timeout"; return false; }
+  code = *result; return code.isEmpty();
 }
 class Model : public QObject {
 public:

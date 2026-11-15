@@ -92,7 +92,14 @@ void PiChatBridge::abort(bool explicitUser) {
 }
 void PiChatBridge::controlTick() {
   if (!m_active) return;
-  const QPointer<PiChatBridge> guard(this); const bool current = m_contextCurrent && m_contextCurrent();
+  const QPointer<PiChatBridge> guard(this);
+  // A service shutdown may delete a queued task without delivering its queued
+  // finished signal. Do not leave the selected engine permanently busy.
+  if (!m_service || !m_task) {
+    fail("pi_task_unavailable"); if (!guard) return;
+    m_timer.stop(); m_task.clear(); m_active = false; emit finished("interrupted"); return;
+  }
+  const bool current = m_contextCurrent && m_contextCurrent();
   if (!guard) return;
   if (!current) fail("interrupted");
   if (!guard) return;
@@ -113,7 +120,10 @@ void PiChatBridge::configureNext() {
 void PiChatBridge::drain() {
   if (!m_channel) return;
   QVector<QJsonObject> frames;
-  if (!m_channel->takePeer(frames)) { QTimer::singleShot(0, this, &PiChatBridge::drain); return; }
+  if (!m_channel->takePeer(frames)) {
+    if (!m_drainScheduled) { m_drainScheduled = true; QTimer::singleShot(0, this, [this] { m_drainScheduled = false; drain(); }); }
+    return;
+  }
   const QPointer<PiChatBridge> guard(this);
   for (const auto &value : frames) { frame(value); if (!guard) return; }
 }

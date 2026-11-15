@@ -11,6 +11,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QThread>
 
 namespace {
 QByteArray reply(bool tools) {
@@ -107,6 +108,17 @@ private slots:
     controller.sendUserText("a save error cannot dispatch side effects"); QVERIFY(!controller.streaming());
     QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains("pi_session_save_failed"));
     QCOMPARE(model.requests, 0); QCOMPARE(calls.size(), 0); QCOMPARE(host.catalog.versions().size(), 0);
+  }
+  void destroyedTaskServiceCannotLeaveAQueuedConversationPermanentlyBusy() {
+    auto tasks = std::make_unique<PaleoTaskService>(); tasks->setMaxWorkerThreads(2); auto running = std::make_shared<std::atomic_int>(0);
+    for (int i = 0; i < 2; ++i) tasks->start("occupy existing worker", [running](PaleoTask *task) {
+      ++*running; while (!task->cancelRequested()) QThread::msleep(1); return QString();
+    });
+    QTRY_COMPARE_WITH_TIMEOUT(running->load(), 2, 10000); PiChatBridge bridge;
+    QSignalSpy finished(&bridge, &PiChatBridge::finished), failed(&bridge, &PiChatBridge::failed);
+    QCOMPARE(bridge.start({true, {}, {}}, tasks.get(), "host-session", "host-turn", {}, [] { return true; }), QString());
+    QVERIFY(bridge.busy()); tasks.reset(); QTRY_VERIFY_WITH_TIMEOUT(!bridge.busy(), 10000);
+    QCOMPARE(finished.size(), 1); QVERIFY(!failed.isEmpty()); QCOMPARE(failed.first().first().toString(), QString("pi_task_unavailable"));
   }
   void cancelPairingPrecedesSessionSwitchOrOwnerDeletion_data() {
     QTest::addColumn<bool>("deleteOwner"); QTest::newRow("switch-session") << false; QTest::newRow("delete-owner") << true;

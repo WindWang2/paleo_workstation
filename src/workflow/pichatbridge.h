@@ -58,5 +58,6 @@ private:
   qsizetype m_pendingTextBytes = 0;
   int m_sentCalls = 0;
   bool m_modelEnding = false;
+  bool m_drainScheduled = false;
   bool m_active = false;
 };

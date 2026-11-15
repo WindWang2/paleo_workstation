@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QSet>
 #include <QThread>
 #include <QtTest>
 #include <future>
@@ -16,6 +17,7 @@
 #endif
 #include <windows.h>
 #include <tlhelp32.h>
+#include <psapi.h>
 #else
 #include <signal.h>
 #include <unistd.h>
@@ -23,6 +25,18 @@
 
 using namespace paleo::pi;
 namespace {
+#ifdef Q_OS_WIN
+QSet<DWORD> processIds() {
+  QVector<DWORD> ids(65536);DWORD bytes=0;
+  if(!K32EnumProcesses(ids.data(),DWORD(ids.size()*sizeof(DWORD)),&bytes)||bytes>=ids.size()*sizeof(DWORD))return {};
+  QSet<DWORD> result;for(DWORD i=0;i<bytes/sizeof(DWORD);++i)if(ids[i])result.insert(ids[i]);return result;
+}
+bool nodeImage(DWORD pid) {
+  const auto process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);if(!process)return false;
+  wchar_t image[4096]{};DWORD length=4096;const bool read=QueryFullProcessImageNameW(process,0,image,&length);
+  CloseHandle(process);return read&&QFileInfo(QString::fromWCharArray(image,int(length))).fileName().compare("node.exe",Qt::CaseInsensitive)==0;
+}
+#endif
 RuntimeConfig config(){return {true,qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT"),qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")};}
 RuntimeInspection identity(){return std::async(std::launch::async,[]{return inspectRuntime(config());}).get();}
 qint64 nodeChild() {
@@ -44,6 +58,9 @@ qint64 nodeChild() {
 }
 struct ChildObserver {
   QElapsedTimer gap;int scans=0;qint64 scanMicros=0;
+#ifdef Q_OS_WIN
+  QSet<DWORD> known=processIds();
+#endif
   ChildObserver(){gap.start();}
   qint64 poll() {
 #ifdef Q_OS_WIN
@@ -52,7 +69,17 @@ struct ChildObserver {
     constexpr int interval=2;
 #endif
     if(gap.elapsed()<interval)return 0;
-    QElapsedTimer cost;cost.start();const auto child=nodeChild();scanMicros+=cost.nsecsElapsed()/1000;++scans;
+    QElapsedTimer cost;cost.start();qint64 child=0;
+#ifdef Q_OS_WIN
+    // K32EnumProcesses obtains only PIDs. Avoid the expensive Toolhelp process
+    // snapshot during full SHA verification; check parent ownership once a new
+    // Node image actually exists. Every successful observation still proves PPID.
+    auto fresh=processIds();fresh.subtract(known);
+    for(const auto pid:fresh)if(nodeImage(pid)){child=nodeChild();known.insert(pid);if(child)break;}
+#else
+    child=nodeChild();
+#endif
+    scanMicros+=cost.nsecsElapsed()/1000;++scans;
     // Enumeration itself can exceed the interval on Windows. Keep an actual gap
     // after the scan instead of enumerating at every runtime hash chunk.
     gap.restart();return child;

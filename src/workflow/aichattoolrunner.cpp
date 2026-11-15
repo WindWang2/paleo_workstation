@@ -362,9 +362,10 @@ void AiChatToolRunner::finishActive(bool ok, const QJsonObject &payload) {
       const QJsonObject result = current ? payload
           : QJsonObject{{QStringLiteral("code"), QStringLiteral("stale_session")}};
       m_active = false;
+      const QPointer<AiChatToolRunner> guard(this);
       emit toolFinished(call, current && ok,
                         QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact)));
-      startNext();
+      if (guard) startNext();
     },
     Qt::QueuedConnection);
 }

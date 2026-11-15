@@ -4,11 +4,14 @@
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QPointer>
+#include <QSignalBlocker>
 #include <QUuid>
 
 AiChatController::~AiChatController() {
   // Disconnect before member destruction: cancellation can synchronously emit,
   // while transcript/session members must still be alive for normal callbacks.
+  const QSignalBlocker notifications(this);
+  stopCurrentRound(false);
   disconnect(&m_client, nullptr, this, nullptr); disconnect(&m_runner, nullptr, this, nullptr);
   disconnect(&m_piBridge, nullptr, this, nullptr);
   m_piBridge.abort(false); m_client.cancel(); m_runner.interrupt();
@@ -55,6 +58,7 @@ void AiChatController::startEngineTurn() {
 void AiChatController::piFailure(const QString &code) {
   if (!m_streaming) return;
   const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence + 1;
   stopCurrentRound(false);
-  if (guard) emit errorOccurred(code);
+  if (guard && sequence == m_turnSequence) emit errorOccurred(code);
 }

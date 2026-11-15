@@ -25,7 +25,8 @@ QByteArray reply(bool tools) {
 }
 class Model : public QObject {
 public:
-  QTcpServer server; int requests = 0; bool firstTools = true, sse = false;
+  QTcpServer server; int requests = 0, fragments = 1; bool firstTools = true, sse = false;
+  QString fragment = "host model completed";
   QVector<QByteArray> bodies;
   Model() {
     connect(&server, &QTcpServer::newConnection, this, [this] {
@@ -44,8 +45,11 @@ public:
           const auto message = QJsonDocument::fromJson(body).object().value("choices").toArray().first().toObject().value("message").toObject();
           QJsonObject delta;
           if (calls) { auto list = message.value("tool_calls").toArray(); for (int i = 0; i < list.size(); ++i) { auto call = list[i].toObject(); call["index"] = i; list[i] = call; } delta["tool_calls"] = list; }
-          else delta["content"] = message.value("content");
-          payload = "data: " + QJsonDocument(QJsonObject{{"choices", QJsonArray{QJsonObject{{"delta", delta}}}}}).toJson(QJsonDocument::Compact) + "\n\ndata: [DONE]\n\n";
+          else delta["content"] = fragment;
+          payload.clear();
+          for (int i = 0; i < (calls ? 1 : fragments); ++i)
+            payload += "data: " + QJsonDocument(QJsonObject{{"choices", QJsonArray{QJsonObject{{"delta", delta}}}}}).toJson(QJsonDocument::Compact) + "\n\n";
+          payload += "data: [DONE]\n\n";
           type = "text/event-stream";
         }
         socket->write("HTTP/1.1 200 OK\r\nContent-Type: " + type + "\r\nContent-Length: " + QByteArray::number(payload.size()) + "\r\nConnection: close\r\n\r\n" + payload);
@@ -125,6 +129,41 @@ private slots:
     });
     controller.sendUserText("cancel before model admission"); QVERIFY(!controller.streaming()); QTest::qWait(30); QCOMPARE(model.requests, 1);
   }
+  void completedToolSubscriberCanDeleteOwnerAndPersistAllPairings() {
+    Host host; Model model; QVERIFY(model.open()); auto *controller = new AiChatController;
+    QPointer<AiChatController> owner(controller); const auto cleanup = qScopeGuard([&] { delete owner.data(); });
+    QVERIFY(host.bind(*controller)); const auto original = controller->session().id; m_sessions.append(original); controller->setConfig(model.config());
+    connect(controller, &AiChatController::messageAppended, this, [owner](const ChatMessage &message) {
+      if (message.role == ChatRole::Tool) delete owner.data();
+    });
+    controller->sendUserText("delete after actual host query completion"); QTRY_VERIFY_WITH_TIMEOUT(!owner, 10000);
+    ChatSession stored; QString error; QVERIFY2(ChatSessionStore::load(original, &stored, &error), qPrintable(error));
+    int calls = 0, replies = 0; for (const auto &message : stored.messages) { calls += message.toolCalls.size(); replies += message.role == ChatRole::Tool; }
+    QCOMPARE(calls, 2); QCOMPARE(replies, 2); QCOMPARE(model.requests, 1); QCOMPARE(host.catalog.versions().size(), 0);
+  }
+  void queuedLateHostResultCannotWriteIntoTheNewSession() {
+    Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
+    const auto original = controller.session().id; m_sessions.append(original); controller.setConfig(model.config());
+    bool scheduled = false, switched = false; QSignalSpy results(&controller, &AiChatController::toolResultReady);
+    connect(&controller, &AiChatController::toolExecutionStarted, this, [&](const auto &) {
+      if (scheduled) return; scheduled = true;
+      QTimer::singleShot(0, &controller, [&] { controller.cancel(); controller.newSession(); m_sessions.append(controller.session().id); switched = true; });
+    });
+    controller.sendUserText("cancel before the queued real query report arrives"); QTRY_VERIFY_WITH_TIMEOUT(switched, 10000);
+    QTest::qWait(30); QVERIFY(controller.messages().isEmpty()); QCOMPARE(results.size(), 0); QCOMPARE(model.requests, 1);
+    ChatSession stored; QString error; QVERIFY2(ChatSessionStore::load(original, &stored, &error), qPrintable(error));
+    int replies = 0; for (const auto &message : stored.messages) replies += message.role == ChatRole::Tool; QCOMPARE(replies, 2);
+  }
+  void sessionSaveObserverCannotLetAnOuterSwitchOverwriteANewerSession() {
+    Host host; Model model; model.firstTools = false; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
+    m_sessions.append(controller.session().id); controller.setConfig(model.config()); controller.sendUserText("saved original turn");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
+    bool switched = false; QString newer;
+    connect(&controller, &AiChatController::sessionListChanged, this, [&] {
+      if (switched) return; switched = true; controller.newSession(); newer = controller.session().id; m_sessions.append(newer);
+    });
+    controller.newSession(); QVERIFY(switched); QCOMPARE(controller.session().id, newer); QVERIFY(controller.messages().isEmpty());
+  }
   void realPiSseRoundUsesHostQueriesAndPreservesHostOnlyBinding() {
     const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
     if (root.isEmpty()) { QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1", "Required actual Pi fixture missing"); return; }
@@ -137,6 +176,22 @@ private slots:
     QCOMPARE(model.requests, 2); QCOMPARE(results.size(), 2); QVERIFY(results.first()[1].toBool());
     QCOMPARE(controller.session().hostToolBindings.size(), 2); QCOMPARE(host.catalog.versions().size(), 0);
     for (const auto &body : model.bodies) { QVERIFY(!body.contains("host_tool_bindings")); QVERIFY(!body.contains("host_turn_id")); }
+  }
+  void realPiHotSseCoalescesWhileTrueOverflowFailsWhole_data() {
+    QTest::addColumn<bool>("overflow"); QTest::newRow("200-small-deltas") << false; QTest::newRow("actual-pending-budget") << true;
+  }
+  void realPiHotSseCoalescesWhileTrueOverflowFailsWhole() {
+    QFETCH(bool, overflow); const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
+    if (root.isEmpty()) { QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1", "Required actual Pi fixture missing"); return; }
+    Host host; Model model; model.firstTools = false; model.sse = true; model.fragments = overflow ? 1 : 200;
+    model.fragment = overflow ? QString(70000, 'x') : QString("hot-delta"); QVERIFY(model.open());
+    AiChatController controller; QVERIFY(host.bind(controller)); m_sessions.append(controller.session().id); controller.setConfig(model.config());
+    controller.setPiRuntime({true, root, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")}); QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+    controller.sendUserText("exercise bounded IPC backpressure"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
+    QCOMPARE(model.requests, 1);
+    if (overflow) { QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains("pi_outgoing_budget")); }
+    else { QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString())); QCOMPARE(controller.messages().last().content, model.fragment.repeated(200)); }
+    QCOMPARE(host.catalog.versions().size(), 0);
   }
 };
 QTEST_GUILESS_MAIN(TestPiChatBridge)

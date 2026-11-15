@@ -40,6 +40,7 @@ private:
   bool send(const QString &, const QJsonObject & = {});
   void fail(const QString &);
   void controlTick();
+  void flushModel();
   std::shared_ptr<paleo::pi::ConversationChannel> m_channel;
   QPointer<PaleoTask> m_task;
   QPointer<PaleoTaskService> m_service;
@@ -53,5 +54,9 @@ private:
   int m_definition = 0, m_nextCall = 0;
   Phase m_phase = Phase::Closed;
   QString m_failure;
+  QString m_pendingText, m_modelReason;
+  qsizetype m_pendingTextBytes = 0;
+  int m_sentCalls = 0;
+  bool m_modelEnding = false;
   bool m_active = false;
 };

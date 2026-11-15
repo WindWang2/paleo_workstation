@@ -12,6 +12,10 @@ namespace paleo::pi {
 inline constexpr char ConversationProtocol[] = "paleo.pi-conversation.v1";
 inline constexpr qsizetype ConversationQueueBytes = 256 * 1024;
 inline constexpr int ConversationQueueFrames = 32;
+// Outgoing ring and owner-side coalesced text each receive half the original
+// 32-frame / 256-KiB mailbox budget; incoming remains 32 / 256 KiB.
+inline constexpr int ConversationOutgoingFrames = 16;
+inline constexpr qsizetype ConversationOutgoingBytes = 128 * 1024;
 struct ConversationIdentity {
   QString sessionId, generation, turnId, nonce;
   bool valid() const;
@@ -23,6 +27,7 @@ public:
   explicit ConversationChannel(ConversationIdentity);
   const ConversationIdentity &identity() const { return m_identity; }
   bool send(const QString &type, const QJsonObject &payload = {});
+  bool trySend(const QString &type, const QJsonObject &payload = {}); // Full is retryable, never truncates.
   bool takePeer(QVector<QJsonObject> &); // false means retry later; never waits.
   void requestStop(bool explicitUser);
   int stopReason() const { return m_stop.load(); } // 0 live, 1 user, 2 host.
@@ -38,7 +43,8 @@ private:
     QByteArray bytes;
     qsizetype reservedBytes = 0;
   };
-  std::array<OutgoingSlot, ConversationQueueFrames> m_outgoing;
+  bool enqueue(const QString &, const QJsonObject &, bool failOnFull);
+  std::array<OutgoingSlot, ConversationOutgoingFrames> m_outgoing;
   std::atomic<quint64> m_writePosition{0};
   quint64 m_readPosition = 0; // Transport is the only consumer.
   std::atomic<qsizetype> m_outgoingBytes{0};

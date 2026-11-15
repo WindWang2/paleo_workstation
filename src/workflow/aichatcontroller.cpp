@@ -159,29 +159,38 @@ QVector<ChatSession> AiChatController::recentSessions(int limit) const {
 
 void AiChatController::newSession() {
   ++m_turnSequence;
+  const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence + (m_streaming ? 1 : 0);
   // 切换语义（方向62 钉死）：弃当前会话前先取消在飞请求（迟到增量
   // 不许写进新会话），再落盘——未保存的半轮回答不因「新会话」丢失；
   // 空会话不落盘（saveCurrentSession 内部判空）。
   if (m_streaming)
     interrupt();
+  if (!guard || sequence != m_turnSequence) return;
   saveCurrentSession();
+  if (!guard || sequence != m_turnSequence) return;
   m_session = ChatSession();
   m_session.id = ChatSessionStore::newSessionId();
   m_runner.setResultSession(m_session.id);
+  if (!guard || sequence != m_turnSequence) return;
   m_session.model = m_config.model;
   m_session.createdAt = QDateTime::currentDateTime();
   m_session.updatedAt = m_session.createdAt;
   emit sessionChanged();
-  emit sessionListChanged();
+  if (guard && sequence == m_turnSequence) emit sessionListChanged();
 }
 
 bool AiChatController::loadSession(const QString &sessionId, QString *error) {
   ++m_turnSequence;
+  const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence + (m_streaming ? 1 : 0);
   // 切换语义同 newSession：先取消在飞请求（防迟到增量污染目标会话），
   // 再落盘再换，未保存内容不丢。
   if (m_streaming)
     interrupt();
+  if (!guard || sequence != m_turnSequence) return false;
   saveCurrentSession();
+  if (!guard || sequence != m_turnSequence) return false;
   ChatSession loaded;
   if (!ChatSessionStore::load(sessionId, &loaded, error)) {
     // 失败也要发列表信号：UI 下拉可能已经把显示切到目标会话，
@@ -191,14 +200,17 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
   }
   m_session = loaded;
   m_runner.setResultSession(m_session.id);
+  if (!guard || sequence != m_turnSequence) return false;
   emit sessionChanged();
-  emit sessionListChanged();
+  if (guard && sequence == m_turnSequence) emit sessionListChanged();
   return true;
 }
 
 bool AiChatController::removeSession(const QString &sessionId, QString *error) {
+  const QPointer<AiChatController> guard(this);
   if (sessionId == m_session.id)
     newSession();
+  if (!guard) return false;
   const bool ok = ChatSessionStore::remove(sessionId, error);
   if (ok)
     emit sessionListChanged();

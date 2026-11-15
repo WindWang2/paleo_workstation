@@ -40,7 +40,7 @@ private slots:
     for (int i = 1; i <= ConversationQueueFrames; ++i) { QVERIFY(channel.acceptPeer(peer(i), notify)); QCOMPARE(notify, i == 1); }
     QVector<QJsonObject> frames; QVERIFY(channel.takePeer(frames)); QCOMPARE(frames.size(), ConversationQueueFrames);
     QVERIFY(channel.acceptPeer(peer(ConversationQueueFrames + 1), notify)); QVERIFY(notify);
-    for (int i = 0; i < ConversationQueueFrames; ++i) QVERIFY(channel.send("model_delta", {{"text", "bounded"}}));
+    for (int i = 0; i < ConversationOutgoingFrames; ++i) QVERIFY(channel.send("model_delta", {{"text", "bounded"}}));
     QVERIFY(!channel.send("model_delta", {{"text", "overflow"}})); QCOMPARE(channel.error(), QString("pi_outgoing_budget"));
     ConversationChannel incoming(identity());
     for (int i = 1; i <= ConversationQueueFrames; ++i) QVERIFY(incoming.acceptPeer(peer(i), notify));
@@ -64,6 +64,17 @@ private slots:
       }
       QVERIFY(channel.takeOutgoing().isEmpty()); QVERIFY(channel.error().isEmpty());
     }
+  }
+  void fullRetryPreservesTheFrameWithoutPoisoningOrConsumingASequence() {
+    ConversationChannel channel(identity());
+    for (int i = 0; i < ConversationOutgoingFrames; ++i) QVERIFY(channel.trySend("model_delta", {{"text", "bounded"}}));
+    QVERIFY(!channel.trySend("model_end")); QVERIFY(channel.error().isEmpty());
+    QVERIFY(!channel.takeOutgoing().isEmpty()); QVERIFY(channel.trySend("model_end"));
+    for (int i = 0; i < ConversationOutgoingFrames - 1; ++i) QVERIFY(!channel.takeOutgoing().isEmpty());
+    auto bytes = channel.takeOutgoing(); bool complete = false; QString error; QJsonObject value;
+    QVERIFY(takeFrame(bytes, value, complete, error)); QVERIFY(complete);
+    QCOMPARE(value.value("type").toString(), QString("model_end"));
+    QCOMPARE(value.value("sequence").toString(), QString::number(ConversationOutgoingFrames + 1));
   }
   void disabledAndOwnerCallsStartNoOptionalRuntime() {
     ConversationRequest request; QCOMPARE(runConversation(request).code, QString("pi_disabled"));

@@ -10,6 +10,9 @@
 
 namespace {
 bool keys(const QJsonObject &value, QStringList expected) { expected.sort(); return value.keys() == expected; }
+qsizetype textBytes(const QString &text) {
+  return QJsonDocument(QJsonObject{{"text", text}}).toJson(QJsonDocument::Compact).size();
+}
 struct Result { paleo::pi::ConversationResult value; std::atomic_bool ready{false}; };
 } // namespace
 
@@ -35,6 +38,7 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
   m_channel = std::make_shared<paleo::pi::ConversationChannel>(identity);
   m_tools = tools; m_calls.clear(); m_completed.clear(); m_contextCurrent = std::move(contextCurrent);
   m_failure.clear(); m_round = 0; m_nextCall = 0; m_definition = 0; m_phase = Phase::Opening;
+  m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false; m_sentCalls = 0;
   m_active = true; m_service = service; m_controlAge.start();
   const QPointer<PiChatBridge> guard(this);
   if (!send("open")) { if (guard) m_active = false; return "pi_outgoing_budget"; }
@@ -79,10 +83,12 @@ bool PiChatBridge::send(const QString &type, const QJsonObject &payload) {
 void PiChatBridge::fail(const QString &code) {
   const bool first = m_failure.isEmpty(); if (first) m_failure = code;
   if (m_channel) m_channel->requestStop(false);
+  m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false;
   if (first) emit failed(code);
 }
 void PiChatBridge::abort(bool explicitUser) {
   if (m_active && m_channel) m_channel->requestStop(explicitUser);
+  m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false;
 }
 void PiChatBridge::controlTick() {
   if (!m_active) return;
@@ -90,8 +96,10 @@ void PiChatBridge::controlTick() {
   if (!guard) return;
   if (!current) fail("interrupted");
   if (!guard) return;
-  if (!m_channel->stopReason() && m_phase != Phase::Model && m_phase != Phase::Tool && m_phase != Phase::Closed && m_controlAge.elapsed() > 15000)
+  if (!m_channel->stopReason() && (m_phase != Phase::Model || m_modelEnding) && m_phase != Phase::Tool && m_phase != Phase::Closed && m_controlAge.elapsed() > 15000)
     fail("pi_control_timeout");
+  if (!guard) return;
+  flushModel();
   if (!guard) return;
   drain();
 }
@@ -152,26 +160,50 @@ void PiChatBridge::frame(const QJsonObject &value) {
   fail("pi_conversation_state");
 }
 bool PiChatBridge::modelDelta(const QString &text) {
-  if (!m_active || m_phase != Phase::Model || m_channel->stopReason()) return false;
-  for (qsizetype offset = 0; offset < text.size();) {
-    qsizetype count = qMin<qsizetype>(4096, text.size() - offset);
-    if (offset + count < text.size() && text[offset + count - 1].isHighSurrogate() && text[offset + count].isLowSurrogate()) --count;
-    if (!send("model_delta", {{"round", QString::number(m_round)}, {"text", text.mid(offset, count)}})) return false;
-    offset += count;
-  }
+  if (!m_active || m_phase != Phase::Model || m_channel->stopReason() || m_modelEnding) return false;
+  if (text.isEmpty()) return true;
+  // At most sixteen <=4096-character chunks and their complete JSON framing.
+  // The second 128-KiB / 16-frame partition belongs exclusively to the ring.
+  const auto bytes = textBytes(text);
+  if (m_pendingText.size() + text.size() > 16 * 4096 ||
+      bytes > paleo::pi::ConversationOutgoingBytes - 16 * 1024 - m_pendingTextBytes) { fail("pi_outgoing_budget"); return false; }
+  m_pendingText += text; m_pendingTextBytes += bytes;
   return true;
 }
 bool PiChatBridge::modelFinished(const QVector<ChatToolCall> &calls, const QString &reason) {
-  if (!m_active || m_phase != Phase::Model || m_channel->stopReason() || calls.size() > 8) return false;
-  m_calls = calls; m_nextCall = 0;
-  for (const auto &call : calls) if (!send("model_call", {{"round", QString::number(m_round)}, {"callId", call.id},
-      {"name", call.name}, {"argumentsJson", call.argumentsJson}})) return false;
-  m_phase = calls.isEmpty() ? Phase::AwaitIdle : Phase::AwaitTool; m_controlAge.restart();
-  return send("model_end", {{"round", QString::number(m_round)}, {"reason", reason}});
+  if (!m_active || m_phase != Phase::Model || m_channel->stopReason() || calls.size() > 8 || m_modelEnding) return false;
+  m_calls = calls; m_nextCall = 0; m_sentCalls = 0; m_modelReason = reason; m_modelEnding = true; m_controlAge.restart();
+  const QPointer<PiChatBridge> guard(this); flushModel(); return guard && m_failure.isEmpty();
+}
+void PiChatBridge::flushModel() {
+  if (!m_active || m_phase != Phase::Model || m_channel->stopReason()) return;
+  const auto queue = [&](const QString &type, const QJsonObject &payload) {
+    if (m_channel->trySend(type, payload)) return true;
+    const auto code = m_channel->error();
+    if (!code.isEmpty() && code != "pi_conversation_busy") fail(code);
+    return false;
+  };
+  while (!m_pendingText.isEmpty()) {
+    qsizetype count = qMin<qsizetype>(4096, m_pendingText.size());
+    if (count < m_pendingText.size() && m_pendingText[count - 1].isHighSurrogate() && m_pendingText[count].isLowSurrogate()) --count;
+    const auto text = m_pendingText.left(count);
+    if (!queue("model_delta", {{"round", QString::number(m_round)}, {"text", text}})) return;
+    m_pendingText.remove(0, count); m_pendingTextBytes = qMax<qsizetype>(0, m_pendingTextBytes - textBytes(text));
+  }
+  m_pendingTextBytes = 0;
+  if (!m_modelEnding) return;
+  while (m_sentCalls < m_calls.size()) {
+    const auto &call = m_calls[m_sentCalls];
+    if (!queue("model_call", {{"round", QString::number(m_round)}, {"callId", call.id}, {"name", call.name}, {"argumentsJson", call.argumentsJson}})) return;
+    ++m_sentCalls;
+  }
+  if (!queue("model_end", {{"round", QString::number(m_round)}, {"reason", m_modelReason}})) return;
+  m_modelEnding = false; m_phase = m_calls.isEmpty() ? Phase::AwaitIdle : Phase::AwaitTool; m_controlAge.restart();
 }
 void PiChatBridge::modelFailed(const QString &code) {
   if (!m_active || m_phase != Phase::Model) { fail(code); return; }
   m_failure = code; m_phase = Phase::AwaitIdle; m_controlAge.restart();
+  m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false;
   send("model_error", {{"round", QString::number(m_round)}, {"code", code}});
 }
 bool PiChatBridge::toolFinished(const ChatToolCall &call, bool ok, const QString &content) {

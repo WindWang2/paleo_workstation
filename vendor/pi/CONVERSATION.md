@@ -59,7 +59,14 @@ Runner twice. Node exit cannot undo or repeat a committed operation.
 
 Transport queues are bounded (256KiB per direction, at most 32 pending frames),
 stderr is independently bounded to 64KiB, and partial frames never become
-partial messages. A full output queue fails closed instead of truncating JSON.
+partial messages. Host text is coalesced before framing: owner pending text and
+the outgoing ring each reserve at most 128KiB and 16 frames, sharing the stated
+256KiB/32-frame ceiling. The text reservation includes conservative JSON framing
+overhead; it is a message budget, not a process RSS claim. A temporarily full ring
+retains the unsent prefix and retries; model calls/end follow all text in order.
+An actual total pending-text overflow fails closed instead of truncating JSON.
+The QProcess write buffer is separately bounded to 256KiB, plus one <=64KiB
+transport frame; neither is an unbounded Qt event queue.
 Configuration is bounded to 512KiB in aggregate. Only one conversation process
 is admitted per application at a time; a second request fails busy instead of
 occupying a TaskService worker waiting for a permit. The host requires at least

@@ -13,9 +13,15 @@ bool ConversationIdentity::valid() const {
       bytes.size() == 32 && QByteArray::fromHex(bytes).toHex() == bytes;
 }
 ConversationChannel::ConversationChannel(ConversationIdentity identity) : m_identity(std::move(identity)) {
-  for (quint64 index = 0; index < ConversationQueueFrames; ++index) m_outgoing[index].sequence = index;
+  for (quint64 index = 0; index < ConversationOutgoingFrames; ++index) m_outgoing[index].sequence = index;
 }
 bool ConversationChannel::send(const QString &type, const QJsonObject &payload) {
+  return enqueue(type, payload, true);
+}
+bool ConversationChannel::trySend(const QString &type, const QJsonObject &payload) {
+  return enqueue(type, payload, false);
+}
+bool ConversationChannel::enqueue(const QString &type, const QJsonObject &payload, bool failOnFull) {
   if (!m_identity.valid() || m_outgoingFailed.load()) return false;
   QJsonObject value{{"protocol", QLatin1String(ConversationProtocol)}, {"type", type}, {"sessionId", m_identity.sessionId},
     {"generation", m_identity.generation}, {"turnId", m_identity.turnId}, {"nonce", m_identity.nonce},
@@ -24,31 +30,31 @@ bool ConversationChannel::send(const QString &type, const QJsonObject &payload) 
   // fixed sequence-numbered ring has bounded storage and no worker-held mutex;
   // owner and transport cancellation may both produce, but only transport reads.
   const auto reserved = encodeFrame(value).size();
-  if (!reserved || m_outgoingBytes.fetch_add(reserved) > ConversationQueueBytes - reserved) {
-    if (reserved) m_outgoingBytes.fetch_sub(reserved);
-    m_outgoingFailed = true; return false;
+  if (!reserved) { m_outgoingFailed = true; return false; }
+  if (m_outgoingBytes.fetch_add(reserved) > ConversationOutgoingBytes - reserved) {
+    m_outgoingBytes.fetch_sub(reserved); if (failOnFull) m_outgoingFailed = true; return false;
   }
   auto position = m_writePosition.load();
   for (;;) {
-    if (position >= std::numeric_limits<quint64>::max() - ConversationQueueFrames) {
+    if (position >= std::numeric_limits<quint64>::max() - ConversationOutgoingFrames) {
       m_outgoingBytes.fetch_sub(reserved); m_outgoingFailed = true; return false;
     }
-    if (m_outgoing[position % ConversationQueueFrames].sequence.load(std::memory_order_acquire) != position) {
+    if (m_outgoing[position % ConversationOutgoingFrames].sequence.load(std::memory_order_acquire) != position) {
       const auto current = m_writePosition.load();
       if (current != position) { position = current; continue; }
-      m_outgoingBytes.fetch_sub(reserved); m_outgoingFailed = true; return false;
+      m_outgoingBytes.fetch_sub(reserved); if (failOnFull) m_outgoingFailed = true; return false;
     }
     if (m_writePosition.compare_exchange_weak(position, position + 1)) break;
   }
-  auto &slot = m_outgoing[position % ConversationQueueFrames];
+  auto &slot = m_outgoing[position % ConversationOutgoingFrames];
   value["sequence"] = QString::number(position + 1); slot.bytes = encodeFrame(value); slot.reservedBytes = reserved;
   slot.sequence.store(position + 1, std::memory_order_release); return true;
 }
 QByteArray ConversationChannel::takeOutgoing() {
-  auto &slot = m_outgoing[m_readPosition % ConversationQueueFrames];
+  auto &slot = m_outgoing[m_readPosition % ConversationOutgoingFrames];
   if (slot.sequence.load(std::memory_order_acquire) != m_readPosition + 1) return {};
   auto frame = std::move(slot.bytes); m_outgoingBytes.fetch_sub(slot.reservedBytes);
-  slot.sequence.store(m_readPosition + ConversationQueueFrames, std::memory_order_release);
+  slot.sequence.store(m_readPosition + ConversationOutgoingFrames, std::memory_order_release);
   ++m_readPosition; return frame;
 }
 bool ConversationChannel::acceptPeer(const QJsonObject &frame, bool &notify) {

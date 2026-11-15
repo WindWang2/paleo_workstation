@@ -16,6 +16,10 @@ bool decimal(const QJsonValue &value,qlonglong &number,bool positive=false) {
   bool valid=false;if(!value.isString())return false;number=value.toString().toLongLong(&valid);
   return valid&&number>=(positive?1:0)&&QString::number(number)==value.toString();
 }
+bool token(const QJsonValue &value) {
+  if(!value.isString())return false;const auto text=value.toString();const auto bytes=text.toUtf8();
+  return !text.trimmed().isEmpty()&&bytes.size()<=256&&!text.contains(QChar(0))&&QString::fromUtf8(bytes)==text;
+}
 QJsonObject object(const QJsonObject &properties) {
   QJsonArray required;for(const auto &key:properties.keys())required.append(key);
   return {{"type","object"},{"properties",properties},{"required",required},{"additionalProperties",false}};
@@ -79,16 +83,14 @@ QJsonObject numericTableToolRequestSchema() {
 QString validateNumericTableToolArguments(const QJsonObject &arguments) {
   const QStringList allowed{"client_request_id","contract_version","binding_mode","publish_intent","inputs","parameters"};
   for(auto it=arguments.begin();it!=arguments.end();++it)if(!allowed.contains(it.key()))return "invalid_python_table_request";
-  const auto id=arguments.value("client_request_id");if(!id.isString()||id.toString().trimmed().isEmpty()||id.toString().toUtf8().size()>256||
-      id.toString().contains(QChar(0))||arguments.value("binding_mode")!="pinned-value"||!arguments.value("parameters").isObject()||
+  if(!token(arguments.value("client_request_id"))||arguments.value("binding_mode")!="pinned-value"||!arguments.value("parameters").isObject()||
       !arguments.value("inputs").isObject())return "invalid_python_table_request";
   if(arguments.contains("contract_version")&&arguments.value("contract_version")!=1)return "unsupported_contract_version";
   const auto phase=arguments.value("publish_intent").toString("compute-only");
   if(arguments.contains("publish_intent")&&!arguments.value("publish_intent").isString())return "unsupported_intent";
   if(phase=="publish") {
     const auto selection=arguments.value("inputs").toObject();const auto operation=selection.value("source_operation_id");
-    return keys(selection,{"source_operation_id"})&&operation.isString()&&!operation.toString().trimmed().isEmpty()&&
-      operation.toString().toUtf8().size()<=256&&!operation.toString().contains(QChar(0))&&arguments.value("parameters").toObject().isEmpty()?
+    return keys(selection,{"source_operation_id"})&&token(operation)&&arguments.value("parameters").toObject().isEmpty()?
       QString():QStringLiteral("source_operation_required");
   }
   if(phase!="prepare"&&phase!="compute-only")return "unsupported_intent";

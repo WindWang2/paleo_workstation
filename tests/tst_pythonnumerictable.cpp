@@ -38,6 +38,8 @@ private slots:
     selected.columnIds={"source_row"};QVERIFY(!python::numericTableSelectionFromJson(python::numericTableSelectionJson(selected),parsed));
     auto publish=args;publish["publish_intent"]="publish";publish["parameters"]=QJsonObject{};
     publish["inputs"]=QJsonObject{{"source_operation_id","existing-operation"}};QVERIFY(python::validateNumericTableToolArguments(publish).isEmpty());
+    auto invalid=args;invalid["client_request_id"]=QString("bad")+QChar(0);QVERIFY(!python::validateNumericTableToolArguments(invalid).isEmpty());
+    invalid=args;invalid["client_request_id"]=QString(QChar(0xd800));QVERIFY(!python::validateNumericTableToolArguments(invalid).isEmpty());
   }
   void floatBooleanNullAndExactReadCutFreezeAsTypedBytes() {
     Model f;QVERIFY2(f.open(),qPrintable(f.error));const auto permit=python::claimExecutionPermit();QVERIFY(permit);
@@ -60,6 +62,14 @@ private slots:
     QCOMPARE(qFromLittleEndian<qint64>(payload.constData()),qint64(2));QCOMPARE(qFromLittleEndian<qint64>(payload.constData()+8),qint64(3));
     const auto columns=result.metadata.value("columns").toArray();QCOMPARE(columns[0].toObject().value("dtype").toString(),QString("u1"));
     QCOMPARE(columns[1].toObject().value("dtype").toString(),QString("<f8"));QCOMPARE(payload.mid(16,4),QByteArray::fromHex("00000001"));
+  }
+  void emptyEndWindowKeepsItsTypedShapeAndCut() {
+    Model f;QVERIFY(f.open());f.plan.selection.firstRow=4;f.plan.selection.rowCount=0;
+    const auto permit=python::claimExecutionPermit();const auto result=python::materializeNumericTable(f.plan,sourceCode(),policy(),permit);
+    QVERIFY2(result.ok(),qPrintable(result.code));QCOMPARE(result.metadata.value("shape").toArray(),QJsonArray({0,2}));
+    QCOMPARE(result.io.cellsRead,qint64(0));QCOMPARE(result.io.outputBytes,qint64(0));QVERIFY(bytes(result.bundle,"data.bin").isEmpty());
+    QVERIFY(python::validateNumericTableInputMetadata(result.metadata));
+    QCOMPARE(result.metadata.value("provenance").toObject().value("readCut"),QJsonValue(python::numericTableReadCutJson(f.descriptor.cut)));
   }
   void physicalRowEncodingNeverPassesThroughDouble() {
     data::NumericTableWindow window;window.descriptor.projection.firstSourceRow=9007199254740993LL;window.sourceRows={9007199254740993LL,9007199254740994LL};

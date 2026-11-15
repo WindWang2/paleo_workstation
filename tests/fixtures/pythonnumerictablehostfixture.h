@@ -13,10 +13,10 @@ struct Fixture:document_fixture::Fixture {
   std::unique_ptr<capability::CapabilityHost> host;
   host::CallContext context;
   ~Fixture(){host.reset();tasks.shutdown(5000,true);}
-  bool open() {
+  bool open(bool withLegacyCurve=false) {
     if(!init())return false;lock=std::make_unique<ProjectDirLock>(project);if(!lock->tryLock(&error))return false;
-    if(!table.open(project,"fixture-document")){error=table.error;return false;}
-    if(!registerAreaSources(catalog,&error)||!bind())return false;
+    if(!table.open(project,"fixture-document",0,"-2.5","1",true,withLegacyCurve)){error=table.error;return false;}
+    if((withLegacyCurve&&!registerAreaWells(catalog,&error))||!registerAreaSources(catalog,&error)||!bind())return false;
     table.plan.source=session.source(table.plan.selection.source);
     if(table.plan.source.versionId.isEmpty()){error="formal table source mapping missing";return false;}
     context.documentId=session.documentId();context.epoch=1;context.open=true;context.persistentIdentity=true;

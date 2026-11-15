@@ -19,7 +19,7 @@ struct Model {
   data::NumericTableDescriptor descriptor;
   python::NumericTableReadPlan plan;
   bool open(const QString &projectDirectory={},const QString &documentId="numeric-doc",int unusedBytes=0,
-            const std::string &firstValue="-2.5",const std::string &lastBoolean="1",bool declared=true) {
+            const std::string &firstValue="-2.5",const std::string &lastBoolean="1",bool declared=true,bool withLegacyCurve=false) {
     project=projectDirectory.isEmpty()?temp.filePath("project"):projectDirectory;
     model=project+"/artifacts/metadata/area-model";std::string detail;QDir().mkpath(project);
     if(!sdk.createProject(model.toUtf8().toStdString(),"Explicit numeric table fixture",detail)){error=QString::fromStdString(detail);return false;}
@@ -30,6 +30,12 @@ struct Model {
     table.sheetName="same name";table.rowCount=4;table.columnCount=3;
     table.cells={{1,1,firstValue},{2,1,"0"},{3,1,"-999.25"},{4,1,"4.5"},{1,2,"1"},{2,2,"0"},{4,2,lastBoolean},{1,3,std::string(size_t(unusedBytes),'x')}};
     parsed.sourceTables={table,table};long long sourceId=0;
+    if(withLegacyCurve) {
+      data::WellDataset well;well.wellInfo.wellName="LEGACY-1";data::LogSet logs;logs.logSetName="Legacy curve v1";
+      logs.depthInfo={"MD","m","KB","","",""};logs.samplingAxis.depthValues={100,101,102};
+      data::LogCurve curve;curve.curveName="LEGACY";curve.curveUnit="API";curve.sampleValues={1,2,3};
+      logs.logCurves={curve};well.wellbore.logSets={logs};parsed.wells={well};
+    }
     if(!sdk.importPreparedFile(file.fileName().toUtf8().toStdString(),file.fileName().toUtf8().toStdString(),
         file.fileName().toUtf8().toStdString(),sha.toStdString(),parsed,sourceId,detail)){error=QString::fromStdString(detail);return false;}
     std::vector<data::DataEntry> tables;

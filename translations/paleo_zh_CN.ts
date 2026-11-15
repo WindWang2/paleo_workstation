@@ -56006,6 +56006,21 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>RMS、包络与相干属性计算</source>
         <translation>RMS、包络与相干属性计算</translation>
     </message>
+    <message>
+        <location filename="../src/services/commandspec.cpp" line="209"/>
+        <source>测井曲线质量分析</source>
+        <translation>测井曲线质量分析</translation>
+    </message>
+    <message>
+        <location filename="../src/services/commandspec.cpp" line="211"/>
+        <source>井曲线属性相关性分析</source>
+        <translation>井曲线属性相关性分析</translation>
+    </message>
+    <message>
+        <location filename="../src/services/commandspec.cpp" line="213"/>
+        <source>Python 井曲线计算</source>
+        <translation>Python 井曲线计算</translation>
+    </message>
 </context>
 
   <context>

@@ -10,6 +10,11 @@
 #include "fixtures/documentsourcefixture.h"
 #include "fixtures/pythonenvironmentfixture.h"
 #include "workflow/capabilityhost.h"
+#include "workflow/commanddispatcher.h"
+#include "workflow/capabilitygateway.h"
+#include <utility>
+#include <QPointer>
+#include <QTimer>
 #include "workflow/aichattoolrunner.h"
 #include "domain/wellref.h"
 #include "workflow/capabilityrecovery.h"
@@ -73,6 +78,17 @@ QJsonObject call(AiChatToolRunner &runner,const QString &name,const QJsonObject 
   // The enforced execution policy allows 120 s, including sandbox snapshots.
   if(done.isEmpty() && !done.wait(180000))return {};
   ok=done[0][1].toBool();return QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object();
+}
+bool runPreparedDispatcher(command::CommandDispatcher &dispatcher,const command::PreparedPlan &plan,
+    capability::ExecuteResult &result,QString &error) {
+  QEventLoop wait;QTimer timeout;QObject receiver;bool finished=false;timeout.setSingleShot(true);
+  QObject::connect(&timeout,&QTimer::timeout,&wait,&QEventLoop::quit);
+  QPointer<PaleoTask> task=dispatcher.start(plan,&receiver,QStringLiteral("Dispatcher Python compute"),
+      [&](capability::ExecuteResult value){result=std::move(value);finished=true;wait.quit();},&error);
+  if(!task)return false;
+  timeout.start(180000);if(!finished)wait.exec();
+  if(!finished){if(task)task->requestInterruption();error="test_dispatch_timeout";}
+  return finished;
 }
 }
 class TestPythonAnalysisWiring:public QObject {
@@ -260,6 +276,55 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
       QCOMPARE(accepted.value("executionMode").toString(),QString("generated"));
       QCOMPARE(accepted.value("claims").toString(),QString("agent_generated_values_not_independently_recomputed"));
       QVERIFY(!policy.allowTrusted);
+    }
+    if(managed) {
+      // The dispatcher owns the base Agent scope; chat-session operations stay isolated.
+      QTRY_COMPARE_WITH_TIMEOUT(f.tasks.runningCount(),0,180000);
+      auto dispatcherArgs=args;dispatcherArgs["client_request_id"]="dispatcher-compute";
+      capability::ExecuteRequest decoded;
+      const auto rejected=capability::prepareHostedChatToolRequest(decoded,tool,dispatcherArgs);
+      QVERIFY2(rejected.isEmpty(),qPrintable(QJsonDocument(rejected).toJson()));
+      QCOMPARE(decoded.capabilityId,QString(capability));
+      if(generated)QCOMPARE(decoded.parameters.value("code").toString(),QString::fromUtf8(source));
+      command::CommandContext commandContext;commandContext.documentId=f.context.documentId;
+      commandContext.callerScope=f.host.callerScope(host::Caller::Agent);commandContext.clientRequestId=decoded.clientRequestId;
+      command::CommandDispatcher dispatcher;dispatcher.setCapabilityHost(&f.host,host::Caller::Agent);
+      dispatcher.setContextProvider([commandContext]{return commandContext;});
+      const auto dispatcherVersions=f.catalog.versions().size();
+      {
+        const auto allowed=f.context.allowedEffects;const auto restore=qScopeGuard([&]{f.context.allowedEffects=allowed;});
+        f.context.allowedEffects&=~unsigned(host::LocalExecute);
+        const auto tasksBefore=f.tasks.tasks().size();QSignalSpy added(&f.tasks,&PaleoTaskService::taskAdded);
+        const auto denied=dispatcher.prepare(capability,commandContext,decoded.parameters,decoded.inputs,decoded.publishIntent);
+        QVERIFY(!denied.ok);QCOMPARE(denied.code,QString("effect_denied"));QVERIFY(denied.hostHandle.isEmpty());
+        QCOMPARE(added.size(),0);QCOMPARE(f.tasks.tasks().size(),tasksBefore);QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
+      }
+      if(generated) {
+        auto invalidParameters=decoded.parameters;invalidParameters["unexpected"]=true;
+        const auto tasksBefore=f.tasks.tasks().size();QSignalSpy added(&f.tasks,&PaleoTaskService::taskAdded);
+        const auto invalid=dispatcher.prepare(capability,commandContext,invalidParameters,decoded.inputs,decoded.publishIntent);
+        QVERIFY(!invalid.ok);QCOMPARE(invalid.code,QString("python_code_required"));QVERIFY(invalid.hostHandle.isEmpty());
+        QCOMPARE(added.size(),0);QCOMPARE(f.tasks.tasks().size(),tasksBefore);QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
+      }
+      const auto prepared=dispatcher.prepare(capability,commandContext,decoded.parameters,decoded.inputs,decoded.publishIntent);
+      QVERIFY2(prepared.ok,qPrintable(prepared.code));QCOMPARE(prepared.request.bindingMode,QString("pinned-value"));
+      QCOMPARE(prepared.effectiveParameters,decoded.parameters);QCOMPARE(prepared.request.parameters,decoded.parameters);
+      capability::ExecuteResult firstResult;QString dispatchError;
+      QVERIFY2(runPreparedDispatcher(dispatcher,prepared,firstResult,dispatchError),qPrintable(dispatchError));
+      const auto firstPayload=capability::chatToolResponse(firstResult);
+      QVERIFY2(firstResult.ok,qPrintable(QJsonDocument(firstPayload).toJson()));
+      const auto dispatcherOperation=firstPayload.value("operationId").toString();
+      QVERIFY(!dispatcherOperation.isEmpty());QVERIFY(dispatcherOperation!=operation);
+      QCOMPARE(firstPayload.value("computeCount").toInt(),1);QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
+      const auto again=dispatcher.prepare(capability,commandContext,decoded.parameters,decoded.inputs,decoded.publishIntent);
+      QVERIFY2(again.ok,qPrintable(again.code));capability::ExecuteResult secondResult;
+      QVERIFY2(runPreparedDispatcher(dispatcher,again,secondResult,dispatchError),qPrintable(dispatchError));
+      const auto secondPayload=capability::chatToolResponse(secondResult);
+      QVERIFY2(secondResult.ok,qPrintable(QJsonDocument(secondPayload).toJson()));
+      QCOMPARE(secondResult.operationId,dispatcherOperation);QCOMPARE(secondPayload.value("computeCount").toInt(),1);
+      const auto hidden=call(runner,"paleo.operation_get",{{"operation_id",dispatcherOperation}},ok);
+      QVERIFY(!ok);QCOMPARE(hidden.value("code").toString(),QString("operation_not_found"));
+      QVERIFY(!hidden.contains("operationId"));QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
     }
     // Reconstruct runtime hooks from durable records; publishing cannot rerun the old source script.
     capability::CapabilityHost restarted;configure(restarted,generated?QString():QString("/missing-original-template-generation"));

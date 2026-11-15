@@ -67,7 +67,7 @@ public:
                    std::function<void(capability::ExecuteResult)> finished, QString *error = nullptr);
   void setExecutor(Executor executor);    // 缺省 capability::execute（测试注入桩）
   void setHostBinder(HostBinder binder);
-  void setCapabilityHost(capability::CapabilityHost *host, host::Caller caller = host::Caller::Ui);
+  void setCapabilityHost(capability::CapabilityHost *value, host::Caller caller = host::Caller::Ui);
   capability::CapabilityHost *capabilityHost() const { return m_host; }
 
   // 宿主上下文（主窗注入；Agent 只能在此之上改 callerScope/clientRequestId）。

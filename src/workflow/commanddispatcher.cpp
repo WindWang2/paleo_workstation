@@ -145,7 +145,7 @@ PreparedPlan CommandDispatcher::prepare(const QString &commandId, const CommandC
     plan.code = QStringLiteral("capability_not_callable");
     return plan;
   }
-  if (!plan.capability.algorithmId.isEmpty()) {
+  if (!m_host && !plan.capability.algorithmId.isEmpty()) {
     QString code;
     plan.effectiveParameters = capability::effectiveScalarParams(
         plan.capability.algorithmId, plan.capability.algorithmContractVersion, params, &code);
@@ -159,6 +159,7 @@ PreparedPlan CommandDispatcher::prepare(const QString &commandId, const CommandC
   r.contractVersion = plan.capability.contractVersion;
   r.documentId = ctx.documentId;
   r.callerScope = ctx.callerScope;
+  r.bindingMode = QStringLiteral("pinned-value");
   r.clientRequestId =
       ctx.clientRequestId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : ctx.clientRequestId;
   if (ctx.isAgent() && ctx.clientRequestId.isEmpty()) {
@@ -186,6 +187,7 @@ PreparedPlan CommandDispatcher::prepare(const QString &commandId, const CommandC
       return {};
     };
     const auto prepared = m_host->prepare(r, m_hostCaller, spec.requiredContext, commandId, std::move(guard));
+    plan.effectiveParameters = prepared.effectiveParameters;
     plan.code = prepared.code;
     plan.hostHandle = prepared.handle;
     plan.ok = prepared.ok;

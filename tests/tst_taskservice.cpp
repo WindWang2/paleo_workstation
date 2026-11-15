@@ -5,6 +5,7 @@
 #include <QThread>
 #include <QElapsedTimer>
 #include <atomic>
+#include <QScopeGuard>
 #include <QTreeWidget>
 
 #include "../src/metadata/paleoprojectstore.h"
@@ -19,10 +20,31 @@ class TestTaskService : public QObject
 {
   Q_OBJECT
 private slots:
+  void applicationScopeSurvivesSessionButSharesShutdownAndCancellation() {
+    PaleoTaskService service; service.setMaxWorkerThreads(1);
+    QSemaphore entered, release;
+    auto *blocking = service.start("document blocker", [&](PaleoTask *) { entered.release(); release.acquire(); return QString(); });
+    const auto cleanup = qScopeGuard([&] { release.release(); service.shutdown(5000, true); });
+    QVERIFY(entered.tryAcquire(1, 3000)); std::atomic_bool documentRan{false}, applicationRan{false};
+    auto *document = service.start("old document", [&](PaleoTask *) { documentRan = true; return QString(); });
+    auto *application = service.startApplication("host deny", [&](PaleoTask *) { applicationRan = true; return QString(); });
+    QCOMPARE(application->scope(), PaleoTask::Scope::Application); QVERIFY(application->layerId().isEmpty());
+    service.beginNewSession(); QVERIFY(document->cancelRequested()); QVERIFY(blocking->cancelRequested());
+    QVERIFY(!application->cancelRequested()); release.release();
+    QTRY_VERIFY_WITH_TIMEOUT(!application->running() && !document->running(), 5000);
+    QVERIFY(!documentRan.load()); QVERIFY(applicationRan.load());
+    QCOMPARE(application->state(), PaleoTask::State::Succeeded); QCOMPARE(document->state(), PaleoTask::State::Cancelled);
+    std::atomic_bool shutdownStarted{false};
+    auto *shutdown = service.startApplication("shutdown still interrupts", [&](PaleoTask *task) {
+      shutdownStarted = true; while (!task->cancelRequested()) QThread::msleep(1); return QString();
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(shutdownStarted.load(), 3000); QVERIFY(service.shutdown(5000, true));
+    QVERIFY(shutdown->cancelRequested()); QVERIFY(!shutdown->explicitCancelRequested());
+  }
 
   void synchronousTaskAddedDeletionDoesNotStartAWorker_data() {
     QTest::addColumn<int>("mode");QTest::addColumn<bool>("deleteService");
-    for(int mode=0;mode<3;++mode)for(bool service:{false,true})
+    for(int mode=0;mode<4;++mode)for(bool service:{false,true})
       QTest::newRow(qPrintable(QString::number(mode)+(service?"-service":"-task")))<<mode<<service;
   }
   void synchronousTaskAddedDeletionDoesNotStartAWorker() {
@@ -35,7 +57,8 @@ private slots:
     auto worker=[&](PaleoTask*){ran=true;return QString();};PaleoTask *task=nullptr;
     if(mode==0)task=service->start("Deleted before dispatch",worker,"layer");
     else if(mode==1)task=service->start("Deleted before dispatch",worker,"layer",PaleoTask::Priority::Normal);
-    else task=service->beginExternal("Deleted before dispatch","layer");
+    else if(mode==2)task=service->beginExternal("Deleted before dispatch","layer");
+    else task=service->startApplication("Deleted before dispatch",worker);
     QVERIFY(!task);QVERIFY(!ran);QVERIFY(!store.layerBusy("layer"));
     if(alive){QVERIFY(alive->tasks().isEmpty());QCOMPARE(alive->runningCount(),0);}
     delete service;

@@ -32,6 +32,8 @@ public:
   // D4.6 优先级（QThreadPool 语义：高优先级先出队）。用户交互路径 High/
   // Normal，预取与后台扫描 Low。
   enum class Priority { Low = 0, Normal = 1, High = 2 };
+  enum class Scope { Document, Application };
+  Scope scope() const { return m_scope; }
 
   qint64 id() const { return m_id; }
   QString title() const { return m_title; }
@@ -132,6 +134,7 @@ private:
   int m_stagePercent = -1;
   State m_state = State::Running;
   bool m_quiet = false;
+  Scope m_scope = Scope::Document;
   quint64 m_session = 0;
   std::atomic_bool m_cancel{false};
   std::atomic_bool m_explicitCancel{false};
@@ -166,6 +169,11 @@ public:
                    std::function<QString(PaleoTask *)> work,
                    const QString &layerId, PaleoTask::Priority priority,
                    bool quiet = false);
+  // Host-wide settings writes only: survives document session changes, uses
+  // the same pool/retention/shutdown, and carries no project/layer binding.
+  // This grants no publication authority; callers must still validate context.
+  PaleoTask *startApplication(const QString &title, std::function<QString(PaleoTask *)> work,
+                   PaleoTask::Priority priority = PaleoTask::Priority::High, bool quiet = false);
 
   // 外部驱动任务：不占线程池，进度/终态由调用方在主线程自行上报（reportBytes
   // /reportDetail/finishExternal）——给 QNetworkAccessManager 这类自带异步
@@ -196,7 +204,7 @@ public:
   int runningCount() const;
 
   // 任务会话（#153/#124）：工程即将关闭/切换时宿主调 beginNewSession()——
-  // 会话号自增，中断所有运行中/排队任务（终态必为 Cancelled，
+  // 会话号自增，中断 Document 运行中/排队任务（终态必为 Cancelled，
   // 下游 JobRunner/finished 槽据此丢弃旧工程结果）；尚未出队的任务出队时
   // 直接跳过 work。返回新会话号。
   quint64 beginNewSession();
@@ -218,7 +226,8 @@ signals:
 private:
   friend class PaleoTask;
   void onTaskFinished(PaleoTask *task);
-  PaleoTask *createTask(const QString &title, const QString &layerId, bool quiet);
+  PaleoTask *createTask(const QString &title, const QString &layerId, bool quiet,
+                       PaleoTask::Scope scope = PaleoTask::Scope::Document);
   void removeTask(PaleoTask *task);
   void pruneFinished();
 

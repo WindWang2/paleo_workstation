@@ -6,6 +6,7 @@
 #include <QPointer>
 #include <functional>
 #include <memory>
+#include <atomic>
 
 class PaleoTask;
 class PaleoTaskService;
@@ -42,12 +43,17 @@ private:
   void start(Kind, const QString &title, Work, bool replaceForm = false);
   void publishSnapshot(bool replaceForm);
   void complete(Kind, const QString &code, const QJsonObject &data, bool replaceForm);
+  void persistDeny(Kind, const QString &identityId);
   std::shared_ptr<paleo::python::PythonEnvironmentRegistry> m_registry;
   QPointer<PaleoTaskService> m_service;
   QPointer<PaleoTask> m_task;
+  std::shared_ptr<std::atomic_bool> m_interrupted;
   quint64 m_generation = 0, m_formRevision = 0;
-  QString m_probeIdentity, m_probeRevision;
   QJsonObject m_trustedProbe, m_generatedProbe;
+  QJsonObject m_probeStatus;
   QJsonObject m_formPolicy;
-  bool m_busy = false, m_formLoaded = false, m_disabling = false;
+  bool m_busy = false, m_formLoaded = false, m_disabling = false, m_persistingDeny = false, m_disposed = false;
 };
+// Fixed-field redaction shared by live projection/export and directly testable
+// without launching a numerical process or injecting a backend substitute.
+QJsonObject redactedPythonEnvironmentStatus(const QJsonObject &);

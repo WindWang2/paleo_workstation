@@ -56126,4 +56126,18 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>Restore completed well facies result</translation>
         </message>
     </context>
+<context>
+    <name>EnvironmentBinding</name>
+    <message>
+        <location filename="../src/app/pythonenvironmentwiring.cpp" line="47" />
+        <location filename="../src/app/pythonenvironmentwiring.cpp" line="68" />
+        <source>Python 环境状态</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/app/pythonenvironmentwiring.cpp" line="68" />
+        <source>Python 隔离状态</source>
+        <translation type="unfinished" />
+    </message>
+</context>
 </TS>

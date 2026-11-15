@@ -58,6 +58,8 @@ DerivedAssetRegistrar 和文档会话。AtomicJob 目前是同步胶合助手，
 PY2 新增两项有界可信分析，见[PY2 记录](../progress/controlled-python-py2-20261114.md)。
 生成代码使用 PY4 的独立权限和实际强隔离准入，见[实现与验收记录](../progress/controlled-python-py4-20261114.md)。
 实际可用性仍按当前宿主状态过滤，Shell 后置。
+后续供货/配置/启用诊断、类型化输入/成果与可选 Pi 编排见
+[待实施计划](../planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)，继续复用同一宿主与操作链路。
 
 ## 3. 单一能力目录
 

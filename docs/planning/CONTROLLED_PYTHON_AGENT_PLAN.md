@@ -8,6 +8,9 @@
 [Linux 隔离记录](../progress/python-linux-sandbox.md)、[PY4 收口记录](../progress/controlled-python-py4-20261114.md)。
 每批完成编译、测试和源码门禁后分别提 PR，不以计划条目推定功能已可用。
 
+供货、配置、启用和诊断的后续闭环，以及数据/成果扩展和可选 vendored Pi，见
+[后续实施计划](PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)；该计划尚待实施，不改变本页已验收范围。
+
 已按依赖合入 SDK [#21](https://github.com/changyanyanchang/Data_service/pull/21)、PY0
 [#945](https://github.com/WindWang2/paleo_workstation/pull/945)、PY1
 [#947](https://github.com/WindWang2/paleo_workstation/pull/947)、PY2

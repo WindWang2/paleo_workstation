@@ -28,7 +28,7 @@ void AiChatController::rejectToolRound(const QString &code, const QString &messa
   const QPointer<AiChatController> guard(this);
   const auto sequence = m_turnSequence;
   if (m_piBridge.busy()) m_piBridge.modelFailed(code);
-  if (!guard) return;
+  if (!guard || sequence != m_turnSequence) return;
   if (!m_session.messages.isEmpty() && m_session.messages.last().role == ChatRole::Assistant) {
     auto &assistant = m_session.messages.last();
     // This entire frame was refused before execution. It must not enter replay as unpaired calls.
@@ -42,7 +42,7 @@ void AiChatController::rejectToolRound(const QString &code, const QString &messa
   emit errorOccurred(message.isEmpty() ? code : message);
   if (!guard || sequence != m_turnSequence) return;
   saveCurrentSession();
-  if (!guard) return;
+  if (!guard || sequence != m_turnSequence) return;
   emit sessionChanged();
 }
 
@@ -77,7 +77,7 @@ void AiChatController::onRoundFinished(const QString &reason) {
   if (!wantsTools) {
     if (m_piBridge.busy()) { m_piBridge.modelFinished({}, reason); return; }
     setStreaming(false);
-    if (!guard) return;
+    if (!guard || sequence != m_turnSequence) return;
     saveCurrentSession();
     return;
   }
@@ -163,9 +163,9 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   if (piBudgetLimit) { piFailure("tool_turn_budget_exceeded"); return; }
   if (m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens) {
     setStreaming(false);
-    if (!guard) return;
+    if (!guard || sequence != m_turnSequence) return;
     emit errorOccurred(QStringLiteral("tool_turn_budget_exceeded"));
-    if (!guard) return;
+    if (!guard || sequence != m_turnSequence) return;
     saveCurrentSession();
     return;
   }

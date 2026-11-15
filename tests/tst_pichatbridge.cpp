@@ -98,6 +98,16 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000); QVERIFY(!errors.isEmpty()); QCOMPARE(model.requests, 0);
     QCOMPARE(host.catalog.versions().size(), 0);
   }
+  void hostSessionSaveFailurePrecedesAnyOptionalProcessOrToolDispatch() {
+    Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
+    m_sessions.append(controller.session().id); controller.setConfig(model.config()); controller.setPiRuntime({true, {}, {}});
+    const auto path = ChatSessionStore::pathFor(controller.session().id); QVERIFY(QDir().mkpath(path));
+    const auto cleanup = qScopeGuard([&] { QDir().rmdir(path); });
+    QSignalSpy errors(&controller, &AiChatController::errorOccurred), calls(&controller, &AiChatController::toolExecutionStarted);
+    controller.sendUserText("a save error cannot dispatch side effects"); QVERIFY(!controller.streaming());
+    QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains("pi_session_save_failed"));
+    QCOMPARE(model.requests, 0); QCOMPARE(calls.size(), 0); QCOMPARE(host.catalog.versions().size(), 0);
+  }
   void cancelPairingPrecedesSessionSwitchOrOwnerDeletion_data() {
     QTest::addColumn<bool>("deleteOwner"); QTest::newRow("switch-session") << false; QTest::newRow("delete-owner") << true;
   }

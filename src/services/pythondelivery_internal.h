@@ -19,6 +19,7 @@ struct Header {
   qint64 treeSize = 0;
 };
 bool digest(const QString &value);
+QJsonObject compiledScriptHashes();
 bool parseHeader(const QByteArray &raw, Header &header);
 bool storeEntries(const Header &header, const QString &store);
 QString validateManifest(const Header &header, const QByteArray &raw);

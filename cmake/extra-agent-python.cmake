@@ -9,6 +9,9 @@ add_library(paleo_services_pythonruntime STATIC
 target_sources(paleo_services_pythonruntime PRIVATE
   src/services/pythondelivery.cpp src/services/pythondelivery_manifest.cpp
   src/services/pythondelivery_files.cpp src/services/pythondelivery_store.cpp)
+target_sources(paleo_services_pythonruntime PRIVATE
+  src/services/pythonenvironmentconfig.cpp src/services/pythonenvironmentconfig_io.cpp
+  src/services/pythonenvironmentconfig_validate.cpp src/services/pythonenvironmentregistry.cpp)
 set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/services/pythondelivery_manifest.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
   PALEO_DELIVERY_SUMMARY_SHA="${_paleo_python_summary_sha}"
   PALEO_DELIVERY_QUALITY_SHA="${_paleo_delivery_quality_sha}"
@@ -50,13 +53,15 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/well_quality.py"
   "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/attribute_correlation.py")
 target_link_libraries(paleo_services PUBLIC paleo_services_pythonruntime)
-target_sources(paleo_workflow PRIVATE src/workflow/aichattoolrunner_python.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/aichattoolrunner_python.cpp src/workflow/pythonenvironmentoperation.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/capabilityoperationeffects.cpp
   src/workflow/pythonscriptoperation.cpp src/workflow/pythonscriptworker.cpp)
 add_paleo_test(tst_pythonruntime LIBS paleo_services_pythonruntime)
 add_paleo_test(tst_pythondelivery LIBS paleo_services_pythonruntime)
 target_compile_definitions(tst_pythondelivery PRIVATE PALEO_DELIVERY_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 add_paleo_test(tst_pythonenvironment LIBS paleo_workflow)
+add_paleo_test(tst_pythonenvironmentconfig LIBS paleo_services_pythonruntime)
+add_paleo_test(tst_pythonenvironmentoperation LIBS paleo_workflow)
 add_paleo_test(tst_pythonprocess LIBS paleo_services_pythonruntime)
 add_paleo_test(tst_pythoninputbundle LIBS paleo_services_pythonruntime)
 if(WIN32)

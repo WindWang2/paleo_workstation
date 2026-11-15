@@ -79,6 +79,12 @@ private slots:
     QVERIFY(operations(root.path(),{rowFor(ref)}));const auto retained=operationRetention(root.path());
     QVERIFY2(retained.complete,qPrintable(retained.code));QVERIFY(retained.paths.contains(directory+"/manifest.json"));
     QVERIFY(retained.protectsPath(body));QVERIFY(retained.protectsPath(cache));
+    auto wrapped=rowFor(ref);auto frozen=wrapped.value("frozenRequest").toObject();
+    frozen["plan"]=QJsonObject{{"schema","paleo.python-environment-operation.v1"},
+      {"environmentIdentityId",QString(64,'a')},{"plan",frozen.value("plan")}};
+    wrapped["frozenRequest"]=frozen;QVERIFY(operations(root.path(),{seal(wrapped)}));
+    const auto environmentRetained=operationRetention(root.path());QVERIFY2(environmentRetained.complete,qPrintable(environmentRetained.code));
+    QVERIFY(environmentRetained.protectsPath(body));QVERIFY(environmentRetained.protectsPath(cache));
     for(const QJsonValue invalid:{QJsonValue("path-only"),QJsonValue(QJsonObject{{"directory",directory},{"manifestHash","bad"}}),
         QJsonValue(QJsonObject{{"directory","../escape"},{"manifestHash",QString(64,'a')}}),
         QJsonValue(QJsonObject{{"directory",".paleo/capability-ops/missing"},{"manifestHash",QString(64,'a')}})}) {

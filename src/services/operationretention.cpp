@@ -120,7 +120,15 @@ struct Reader {
     const auto request = value.toObject();
     if (!request.contains("plan")) return request.isEmpty();
     if (!request.value("plan").isObject()) return false;
-    const auto plan = request.value("plan").toObject();
+    auto plan = request.value("plan").toObject();
+    if(plan.value("schema")=="paleo.python-environment-operation.v1") {
+      if(plan.keys()!=QStringList{"environmentIdentityId","plan","schema"} ||
+          plan.value("environmentIdentityId").toString().size()!=64 || !plan.value("plan").isObject())return false;
+      const auto id=plan.value("environmentIdentityId").toString().toLatin1();
+      if(QByteArray::fromHex(id).toHex()!=id)return false;
+      plan=plan.value("plan").toObject();
+      if(plan.isEmpty() || plan.value("schema")=="paleo.python-environment-operation.v1")return false;
+    }
     if(plan.contains("storedInput") && !storedInput(plan.value("storedInput")))return false;
     for (const auto &field : {"sourceVerification","raster"}) {
       if (!plan.contains(field)) continue;

@@ -8,6 +8,7 @@
 #include <QEventLoop>
 #include "services/projectquerycapability.h"
 #include "fixtures/documentsourcefixture.h"
+#include "fixtures/pythonenvironmentfixture.h"
 #include "workflow/capabilityhost.h"
 #include "workflow/aichattoolrunner.h"
 #include "domain/wellref.h"
@@ -16,6 +17,7 @@
 #include <QtTest>
 #include <QJsonArray>
 #include <QUuid>
+#include <QScopeGuard>
 
 using namespace paleo;
 namespace {
@@ -138,11 +140,16 @@ private slots:
     }
   }
   void agentDiscoveryComputePagedReadRestartAndPublishUseOneChain_data() {
-    QTest::addColumn<bool>("generated");
-    QTest::newRow("trusted-quality")<<false;QTest::newRow("generated-numeric")<<true;
+    QTest::addColumn<bool>("generated");QTest::addColumn<bool>("managed");
+    QTest::newRow("trusted-quality")<<false<<false;QTest::newRow("generated-numeric")<<true<<false;
+    QTest::newRow("managed-trusted-quality")<<false<<true;QTest::newRow("managed-generated-numeric")<<true<<true;
   }
   void agentDiscoveryComputePagedReadRestartAndPublishUseOneChain() {
-    QFETCH(bool,generated);
+    QFETCH(bool,generated);QFETCH(bool,managed);
+    const auto legacy=python::captureLegacyPythonEnvironment();
+    if(managed)for(auto it=legacy.begin();it!=legacy.end();++it)qunsetenv(it.key().toLatin1().constData());
+    const auto restoreEnvironment=qScopeGuard([&] {if(managed)for(auto it=legacy.begin();it!=legacy.end();++it)
+      qputenv(it.key().toLatin1().constData(),it.value().toUtf8());});
     const auto tool=generated?QLatin1String(python::GeneratedTool):QLatin1String(python::WellQualityTool);
     const auto capability=generated?QLatin1String(python::GeneratedCapability):QLatin1String(python::WellQualityCapability);
     const auto contract=generated?QString("paleo.python-generated-report.v1"):QString("paleo.well-quality-report.v1");
@@ -158,7 +165,21 @@ private slots:
       root,qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),true},policy);
     const auto inspected=generated?runtime->inspectIntegrity():runtime->inspect();QVERIFY2(inspected.ready(),qPrintable(inspected.code));
     auto sandbox=std::make_shared<python::SandboxProvider>(runtime);
-    if(generated) {
+    python_environment_fixture::Fixture delivered(QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES));
+    auto registry=std::make_shared<python::PythonEnvironmentRegistry>(delivered.configurationPath());
+    if(managed) {
+      QVERIFY2(delivered.error.isEmpty(),qPrintable(delivered.error));
+      python::EnvironmentCandidate candidate{root,qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),
+        generated?QString():delivered.scriptsRoot,generated?QString():delivered.scriptsSha,policy};
+      const auto activated=registry->activate(candidate,0);QVERIFY2(activated.ok(),qPrintable(activated.code));
+      QFutureWatcher<QJsonObject> watcher;QEventLoop wait;
+      connect(&watcher,&QFutureWatcherBase::finished,&wait,&QEventLoop::quit);
+      const auto id=activated.configuration.activeId;
+      watcher.setFuture(QtConcurrent::run([registry,id,generated] {return registry->probe(id,
+        generated?python::EnvironmentMode::Generated:python::EnvironmentMode::Trusted);}));
+      if(!watcher.isFinished())wait.exec();
+      const auto proof=watcher.result();QVERIFY2(proof.value("ready").toBool(),qPrintable(QJsonDocument(proof).toJson()));
+    } else if(generated) {
       QFutureWatcher<QJsonObject> watcher;QEventLoop wait;
       connect(&watcher,&QFutureWatcherBase::finished,&wait,&QEventLoop::quit);
       watcher.setFuture(QtConcurrent::run([sandbox]{return sandbox->inspect();}));
@@ -170,6 +191,7 @@ private slots:
       h.operationDir=f.project+"/.paleo/capability-ops";h.writeClaim=lock.claim();h.context=f.context;return h;};
     const auto configure=[&](capability::CapabilityHost &owner,const QString &scripts) {
       owner.setBindingProvider(binding);owner.setTaskService(&f.tasks);owner.setCallerScope(host::Caller::Agent,"agent:production");
+      if(managed)return;
       if(generated)owner.registerExecutionAdapter(capability,python::generatedScriptAdapter(runtime,
         scripts.isEmpty()?std::shared_ptr<python::SandboxProvider>{}:sandbox,assemblePythonAnalysisProvider(&f.catalog,&f.session,&owner)));
       else owner.registerExecutionAdapter(capability,python::analysisScriptAdapter(
@@ -181,6 +203,10 @@ private slots:
     context.capabilityHost=&f.host;context.requireCapabilityHost=true;context.pythonRuntime=runtime;
     context.sourceResolver=[&](const auto &ref){return f.session.source(ref);};
     context.runtimeReadiness=[](const QString &,const QJsonObject &,bool){return QString();};
+    if(managed) {
+      runner.setPythonEnvironments(registry);
+      QVERIFY(assembleAgentPython(&runner,context,&f.catalog,&f.session,&f.host,[]{return true;}));
+    }
     runner.setContext(context);runner.setResultSession("python-analysis-chat");bool ok=false;
     const auto query=call(runner,"paleo.query_project",{{"topic","well_curves"},{"well_ref",document::wellRefJson(f.well)}},ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(query).toJson()));QVERIFY(query.value("metadataOnly").toBool());
@@ -237,15 +263,25 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
     }
     // Reconstruct runtime hooks from durable records; publishing cannot rerun the old source script.
     capability::CapabilityHost restarted;configure(restarted,generated?QString():QString("/missing-original-template-generation"));
-    context.capabilityHost=&restarted;runner.setContext(context);
+    context.capabilityHost=&restarted;
+    AiChatToolRunner restartedRunner;auto *publisher=&runner;
+    if(managed) {
+      if(!generated)QVERIFY(QFile::remove(delivered.scriptsRoot+"/scripts-manifest.json"));
+      auto restored=std::make_shared<python::PythonEnvironmentRegistry>(delivered.configurationPath());
+      const auto code=restored->refresh({},restored->beginRefresh());if(generated)QVERIFY2(code.isEmpty(),qPrintable(code));
+      else QVERIFY(!code.isEmpty());
+      restartedRunner.setTaskService(&f.tasks);restartedRunner.setPythonEnvironments(restored);
+      QVERIFY(assembleAgentPython(&restartedRunner,context,&f.catalog,&f.session,&restarted,[]{return true;}));
+      restartedRunner.setContext(context);restartedRunner.setResultSession("python-analysis-chat");publisher=&restartedRunner;
+    } else runner.setContext(context);
     args["client_request_id"]="chat-publish";args["publish_intent"]="publish";
     args["parameters"]=QJsonObject{};args["inputs"]=QJsonObject{{"source_operation_id",operation}};
-    const auto published=call(runner,tool,args,ok);
+    const auto published=call(*publisher,tool,args,ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(published).toJson()));QCOMPARE(published.value("commitState").toString(),QString("committed"));
     QCOMPARE(f.catalog.versions().size(),count+1);
     const auto sourceVersion=inputs.value("curves").toArray()[0].toObject().value("source_version_id").toString();
     for(const auto &version:f.catalog.versions())if(version.stage=="DERIVED")QCOMPARE(version.parentVersionIds,QStringList{sourceVersion});
-    call(runner,tool,args,ok);QVERIFY(ok);QCOMPARE(f.catalog.versions().size(),count+1);
+    call(*publisher,tool,args,ok);QVERIFY(ok);QCOMPARE(f.catalog.versions().size(),count+1);
   }
 };
 QTEST_GUILESS_MAIN(TestPythonAnalysisWiring)

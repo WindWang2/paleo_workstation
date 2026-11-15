@@ -62,6 +62,7 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
   if(stop())return fail("cancelled");
   context.projectDir=h.projectDir;
   context.frozenPlan=r.frozenRequest.value("plan").toObject();context.cancelled=stop;
+  context.requestInterruption=[attempt]{attempt->interrupted=true;};
   context.privateDir=QDir(h.operationDir).filePath(r.operationId+'/'+r.ownerAttempt);
   if(!QDir().mkpath(context.privateDir) || !publication_detail::specFromJson(r.stagePlan.value("outputSpec").toObject(),context.outputSpec) ||
       !publication_detail::targetsFromJson(h.projectDir,r.stagePlan,context.targets)) return fail("invalid_frozen_plan");

@@ -44,7 +44,7 @@ public:
     if (m_task) m_task->requestInterruption();
     const auto registry = m_registry; const auto legacy = captureLegacyPythonEnvironment();
     const QPointer<EnvironmentBinding> guard(this);
-    auto *created = m_owner->taskService()->start(tr("Python 环境状态"), [registry, legacy, revision](PaleoTask *task) {
+    auto *created = m_owner->taskService()->start(QObject::tr("Python 环境状态"), [registry, legacy, revision](PaleoTask *task) {
       const auto code = registry->refresh(legacy, revision, [task] { return task->cancelRequested(); }, false);
       return code == "cancelled" ? code : QString();
     }, QString(), true);
@@ -65,7 +65,7 @@ private:
     const auto selection = m_registry->active(mode); if (!selection.ok()) return;
     if (mode == EnvironmentMode::Trusted && selection.trusted->snapshot().value("executionReady").toBool()) return;
     if (mode == EnvironmentMode::Generated && selection.sandbox->snapshot().value("ready").toBool()) return;
-    const auto registry = m_registry; const auto title = mode == EnvironmentMode::Generated ? tr("Python 隔离状态") : tr("Python 环境状态");
+    const auto registry = m_registry; const auto title = mode == EnvironmentMode::Generated ? QObject::tr("Python 隔离状态") : QObject::tr("Python 环境状态");
     const QPointer<EnvironmentBinding> guard(this);
     auto *task = m_owner->taskService()->start(title, [registry, id = selection.identity.id, mode, token = selection.interrupted,
         global = selection.globalInterruption](PaleoTask *task) {

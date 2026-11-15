@@ -62,11 +62,12 @@ function(paleo_test_sandbox name)
   else()
     # 私有注册表 hive（见上方 paleo_test_link_sandbox）：每次运行先删再挂载。
     string(APPEND _env ";PALEO_TEST_REGISTRY_HIVE=${_home}/registry.hiv")
-    # #872：QgsApplication::init()/createDatabase() 在 Windows 上经 Known
-    # Folders 解析用户配置（读 HKCU）。注册表沙箱重映射 HKCU 后该解析会
-    # 挂死且无输出（#698 加入 init 之后；run 41103238639、43019234038 的
-    # 「Probe first C++ test」5 min 超时）。显式配置目录让 init 不再走
-    # Known Folders。Linux 仍用上方 XDG/HOME，不改路径以免扰动已绿车道。
+    # #872：QgsApplication::init() 在 Windows 上经 Known Folders 解析用户
+    # 配置（读 HKCU，而 HKCU 已被注册表沙箱重映射）。显式配置目录让 init
+    # 不再走 Known Folders。#930 后的分步痕迹（run 43207555877）显示
+    # init()/createDatabase() 均已完成，「Probe first C++ test」的挂点在
+    # initQgis() 内部，仍在定位。Linux 仍用上方 XDG/HOME，不改路径以免
+    # 扰动已绿车道。
     file(MAKE_DIRECTORY "${_home}/qgis-config")
     string(APPEND _env ";QGIS_CUSTOM_CONFIG_PATH=${_home}/qgis-config")
   endif()

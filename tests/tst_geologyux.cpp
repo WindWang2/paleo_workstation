@@ -35,14 +35,20 @@ private slots:
     unit.topBoundary = "legacy-top";
     selection.setActiveUnit(unit);
     page.refreshAnalysisUnit();
+    // #928：有效分析单元时兼容下拉只承载该单元上界，不与工程词表混排。
+    QCOMPARE(combo->count(), 1);
+    QCOMPARE(combo->itemText(0), unit.topBoundary);
+    QCOMPARE(combo->currentIndex(), 0);
     QCOMPARE(combo->currentText(), unit.topBoundary);
-    QCOMPARE(combo->count(), 3);
-    QVERIFY(combo->findText("T2") >= 0);
+    QCOMPARE(combo->findText("T1"), -1);
+    QCOMPARE(combo->findText("T2"), -1);
 
+    // 清单元：下拉此前已被替换为单元上界，按 #928 清空，不回填词表。
     selection.clearActiveUnit();
     page.refreshAnalysisUnit();
-    QCOMPARE(combo->currentText(), QStringLiteral("T1"));
-    QCOMPARE(combo->count(), 2);
+    QCOMPARE(combo->count(), 0);
+    QCOMPARE(combo->currentIndex(), -1);
+    QCOMPARE(combo->currentText(), QString());
   }
 
   void cellSizeFollowsSamplesUntilUserOverridesIt() {

@@ -2,5 +2,5 @@
 #pragma once
 #include "services/pythonsandbox.h"
 namespace paleo::python {
-SandboxResult runLinuxSandbox(const SandboxRequest &request);
+SandboxResult runLinuxSandbox(const SandboxRequest &original);
 }

@@ -3,5 +3,5 @@
 #include "pythonanalysisreport.h"
 namespace paleo::python {
 AnalysisReportValidation validateNumericTableReport(const QByteArray &,const QJsonObject &,
-  const QString &codeSha256,const QString &runtimeManifestSha256,const ExecutionPolicy &);
+  const QString &codeSha,const QString &runtimeSha,const ExecutionPolicy &);
 }

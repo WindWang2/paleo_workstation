@@ -119,7 +119,7 @@ public:
 
   bool busy() const { return m_active || !m_queue.isEmpty(); }
   struct ToolReadiness { bool ready=false; QString code; unsigned effects=0; };
-  ToolReadiness readiness(const QString &name,const QJsonObject &arguments={},bool forListing=false) const;
+  ToolReadiness readiness(const QString &name,const QJsonObject &args={},bool listing=false) const;
   QVector<AiToolSpec> availableTools() const;
   QString wellFaciesReadiness(const QJsonObject &args={},bool forListing=false) const;
 
@@ -168,7 +168,7 @@ private:
   quint64 taskSession() const;
   bool activeContextIsCurrent() const;
   void refreshResultScope();
-  ToolReadiness readinessForSpec(const AiToolSpec &spec, const QJsonObject &arguments, bool forListing) const;
+  ToolReadiness readinessForSpec(const AiToolSpec &spec, const QJsonObject &args, bool listing) const;
 
   struct QueuedCall {
     ChatToolCall call;

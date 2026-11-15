@@ -212,6 +212,7 @@ QJsonObject ProjectQueryCapability::Impl::page(QueryState &state, const QJsonObj
   if (state.topic == QLatin1String("well_details")) return wellDetails(state, args, rows, bytes, more);
   if (state.topic == QLatin1String("well_curves")) return wellCurves(state,args,rows,bytes,more);
   if (state.topic == QLatin1String("numeric_table_projection")) return numericTableProjection(state,args,bytes,more);
+  if (state.topic == QLatin1String("seismic_trace_descriptor")) return seismicTraceDescriptor(state,args,bytes,more);
   return listPage(state, args, rows, bytes, more);
 }
 }

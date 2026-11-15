@@ -28977,8 +28977,8 @@ PDF：%3
         <translation>所选数值属性相关性</translation>
     </message>
     <message>
-        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；version=严格版本摘要；version_parents=完整父引用续页</source>
-        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；version=严格版本摘要；version_parents=完整父引用续页</translation>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；seismic_trace_descriptor=精确地震体的采样声明；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；seismic_trace_descriptor=精确地震体的采样声明；version=严格版本摘要；version_parents=完整父引用续页</translation>
     </message>
     <message>
         <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
@@ -37844,12 +37844,24 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。</translation>
     </message>
     <message>
-        <source>numeric_table_projection 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
-        <translation>numeric_table_projection 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</translation>
+        <source>numeric_table_projection/seismic_trace_descriptor 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
+        <translation>numeric_table_projection/seismic_trace_descriptor 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</translation>
     </message>
     <message>
         <source>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</source>
         <translation>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</translation>
+    </message>
+    <message>
+        <source>受控地震道窗口计算</source>
+        <translation>受控地震道窗口计算</translation>
+    </message>
+    <message>
+        <source>对精确 SourceRef、体修订及零基文件道序号的一段样点执行有界生成 Python，最多8192点。只支持固定道长、big-endian IEEE32 的 SEG-Y rev1，显式 ms TWT/OWT、时间参考与振幅单位；不猜近邻道、不混用 MD、不整卷加载。宿主按正式来源完整 SHA 建立有界分块认证，冷扫描字节与后续范围认证 I/O 分开记录。输入与实际 ReadCut 冻结，仍只输出 REPORT；生成权限、真实隔离及单独 publish 沿现有链路。数值结果未经独立重算。</source>
+        <translation>对精确 SourceRef、体修订及零基文件道序号的一段样点执行有界生成 Python，最多8192点。只支持固定道长、big-endian IEEE32 的 SEG-Y rev1，显式 ms TWT/OWT、时间参考与振幅单位；不猜近邻道、不混用 MD、不整卷加载。宿主按正式来源完整 SHA 建立有界分块认证，冷扫描字节与后续范围认证 I/O 分开记录。输入与实际 ReadCut 冻结，仍只输出 REPORT；生成权限、真实隔离及单独 publish 沿现有链路。数值结果未经独立重算。</translation>
+    </message>
+    <message>
+        <source>seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退</source>
+        <translation>seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退</translation>
     </message>
 </context>
 <context>

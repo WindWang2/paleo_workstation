@@ -5,6 +5,7 @@
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythongenerated.h"
 #include "services/pythonnumerictable.h"
+#include "services/pythonseismictrace.h"
 #include <QObject>
 
 namespace {
@@ -15,13 +16,15 @@ paleo::python::AnalysisKind kind(const QString &name) {
 }
 bool isPythonAnalysisTool(const QString &name) {
   return name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool) ||
-    name==QLatin1String(paleo::python::GeneratedTool) || name==QLatin1String(paleo::python::NumericTableTool);
+    name==QLatin1String(paleo::python::GeneratedTool) || name==QLatin1String(paleo::python::NumericTableTool) || name==QLatin1String(paleo::python::SeismicTraceTool);
 }
 QJsonObject pythonAnalysisToolSchema(const QString &name) {
+  if(name==QLatin1String(paleo::python::SeismicTraceTool))return paleo::python::seismicTraceToolRequestSchema();
   if(name==QLatin1String(paleo::python::NumericTableTool))return paleo::python::numericTableToolRequestSchema();
   return name==QLatin1String(paleo::python::GeneratedTool)?paleo::python::generatedToolRequestSchema():paleo::python::analysisToolRequestSchema(kind(name));
 }
 QString validatePythonAnalysisArguments(const QString &name,const QJsonObject &args) {
+  if(name==QLatin1String(paleo::python::SeismicTraceTool))return paleo::python::validateSeismicTraceToolArguments(args);
   if(name==QLatin1String(paleo::python::NumericTableTool))return paleo::python::validateNumericTableToolArguments(args);
   if(name==QLatin1String(paleo::python::GeneratedTool))return paleo::python::validateGeneratedToolArguments(args);
   return paleo::python::validateAnalysisToolArguments(args,kind(name));
@@ -39,7 +42,10 @@ void appendPythonAnalysisTools(QVector<AiToolSpec> &specs) {
   AiToolSpec table;table.name=QLatin1String(paleo::python::NumericTableTool);
   table.title=QObject::tr("受控数值表计算");
   table.description=QObject::tr("对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。");
-  for(auto spec:{quality,correlation,generated,table}) {
+  AiToolSpec trace;trace.name=QLatin1String(paleo::python::SeismicTraceTool);
+  trace.title=QObject::tr("受控地震道窗口计算");
+  trace.description=QObject::tr("对精确 SourceRef、体修订及零基文件道序号的一段样点执行有界生成 Python，最多8192点。只支持固定道长、big-endian IEEE32 的 SEG-Y rev1，显式 ms TWT/OWT、时间参考与振幅单位；不猜近邻道、不混用 MD、不整卷加载。宿主按正式来源完整 SHA 建立有界分块认证，冷扫描字节与后续范围认证 I/O 分开记录。输入与实际 ReadCut 冻结，仍只输出 REPORT；生成权限、真实隔离及单独 publish 沿现有链路。数值结果未经独立重算。");
+  for(auto spec:{quality,correlation,generated,table,trace}) {
     spec.effects=paleo::host::Read|paleo::host::PrivateStage|paleo::host::LocalExecute;
     spec.resultSchemaJson=QStringLiteral(R"({"type":"object","properties":{"code":{"type":"string"},"operationId":{"type":"string"},"execution":{"type":"string"},"commitState":{"type":"string"},"summary":{"type":"object"}}})");
     specs.append(std::move(spec));

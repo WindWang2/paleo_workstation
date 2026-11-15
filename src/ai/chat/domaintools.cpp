@@ -3,6 +3,7 @@
 #include "pythonanalysistools.h"
 #include "../../services/toolresultprotocol.h"
 #include "../../services/pythonnumerictablequery.h"
+#include "../../services/pythonseismictracequery.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -97,7 +98,9 @@ QJsonObject AiToolSpec::toJsonSchema() const {
         {"then",QJsonObject{{"required",QJsonArray{"well_ref"}},
           {"properties",QJsonObject{{"page_size",QJsonObject{{"type","integer"},{"minimum",1},{"maximum",16}}}}}}}},
       QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","numeric_table_projection"}}}}}}},
-        {"then",QJsonObject{{"required",QJsonArray{"source_ref","table_id"}}}}}});
+        {"then",QJsonObject{{"required",QJsonArray{"source_ref","table_id"}}}}},
+      QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","seismic_trace_descriptor"}}}}}}},
+        {"then",QJsonObject{{"required",QJsonArray{"source_ref","volume_id"}}}}}});
   }
   return schema;
 }
@@ -131,6 +134,10 @@ unsigned AiToolSpec::effectsForArguments(const QJsonObject &arguments) const {
 
 QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
   if(isPythonAnalysisTool(name))return validatePythonAnalysisArguments(name,arguments);
+  if(name==QLatin1String("paleo.query_project")&&arguments.value("topic")==QLatin1String("seismic_trace_descriptor")) {
+    paleo::document::SourceRef source;qlonglong volumeId=0;
+    return paleo::python::seismicTraceDescriptorQueryArguments(arguments,source,volumeId);
+  }
   if(name==QLatin1String("paleo.query_project")&&arguments.value("topic")==QLatin1String("numeric_table_projection")) {
     paleo::document::SourceRef source;qlonglong tableId=0;
     return paleo::python::numericTableProjectionQueryArguments(arguments,source,tableId);
@@ -274,11 +281,12 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     {QStringLiteral("topic"), QStringLiteral("string"),
      QObject::tr("查询主题：summary=计数摘要；wells=井清单；horizons=层位"
                  "资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；"
-                 "numeric_table_projection=精确源表的显式数值投影声明；version=严格版本摘要；version_parents=完整父引用续页"),
+                 "numeric_table_projection=精确源表的显式数值投影声明；seismic_trace_descriptor=精确地震体的采样声明；version=严格版本摘要；version_parents=完整父引用续页"),
      true,
      {QStringLiteral("summary"), QStringLiteral("wells"), QStringLiteral("horizons"),
-      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("well_curves"),QStringLiteral("numeric_table_projection"),QStringLiteral("version"),QStringLiteral("version_parents"),QStringLiteral("well_facies_models"),QStringLiteral("well_facies_inputs"),QStringLiteral("local_models")}},
-    {QStringLiteral("source_ref"),QStringLiteral("object"),QObject::tr("numeric_table_projection 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位"),false},
+      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("well_curves"),QStringLiteral("numeric_table_projection"),QStringLiteral("seismic_trace_descriptor"),QStringLiteral("version"),QStringLiteral("version_parents"),QStringLiteral("well_facies_models"),QStringLiteral("well_facies_inputs"),QStringLiteral("local_models")}},
+    {QStringLiteral("source_ref"),QStringLiteral("object"),QObject::tr("numeric_table_projection/seismic_trace_descriptor 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位"),false},
+    {QStringLiteral("volume_id"),QStringLiteral("string"),QObject::tr("seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退"),false},
     {QStringLiteral("table_id"),QStringLiteral("string"),QObject::tr("numeric_table_projection 的精确源表十进制标识；不按工作表名回退"),false},
     {QStringLiteral("model_name"),QStringLiteral("string"),QObject::tr("local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准"),false},
     {QStringLiteral("well_ref"),QStringLiteral("object"),QObject::tr("well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行"),false},

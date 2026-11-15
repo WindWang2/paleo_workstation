@@ -1,6 +1,7 @@
 // 层：数据
 #include "pythonenvironmentconfig_internal.h"
 #include "pythondelivery_files.h"
+#include "pythondelivery_internal.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QSaveFile>

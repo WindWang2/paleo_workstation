@@ -52,6 +52,7 @@ capability::OperationWorker generatedReportWorker(const QJsonObject &plan,std::s
     out.summary["cpuMicros"]=QString::number(process.cpuMicros);out.summary["observedPeakMemoryBytes"]=QString::number(process.peakMemoryBytes);
     out.summary["memoryPeakComplete"]=process.memoryPeakComplete;out.summary["hostSnapshotReservedBytes"]=QString::number(process.hostSnapshotReservedBytes);
     out.summary["childMemoryLimitBytes"]=QString::number(process.childMemoryLimitBytes);
+    if(request.stdoutLimitBytes)out.summary["hostStdoutLimitBytes"]=QString::number(request.stdoutLimitBytes);
     if(QJsonDocument(out.summary).toJson(QJsonDocument::Compact).size()>4096)return fail("python_output_budget_exceeded");
     out.ok=true;out.code="ok";return out;
   };

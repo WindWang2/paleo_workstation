@@ -7,6 +7,27 @@ custom `streamFn`, and host-proxy tools. It enables no coding-agent tools,
 generated JavaScript, extensions, Shell, filesystem APIs or network providers.
 Node remains trusted optional orchestration code, not an OS sandbox.
 
+## Host selection
+
+The default engine is the existing native C++ loop. App assembly selects Pi only
+when the trusted host provides `PALEO_AGENT_PI_ENABLE=1`,
+`PALEO_AGENT_PI_ROOT=<prepared-generation>` and
+`PALEO_AGENT_PI_MANIFEST_SHA256=<independently-approved-manifest-SHA>` together.
+These are operator configuration, never model/tool/project arguments. No PATH
+lookup, npm installation or provider credentials participate. An explicitly
+selected missing or incompatible runtime reports failure; it does not replay the
+turn through the native engine. Existing model endpoint, key and LlmClient
+configuration continue to live exclusively in C++.
+
+Host session JSON may contain `host_turn_id` and bounded `host_tool_bindings`.
+The latter commits session/turn/call identity, document and canonical admitted
+arguments to a stable host-derived client request ID before dispatch. Neither
+field is sent to the model or accepted from Node as authority. Old sessions
+without these optional fields remain readable. OperationLog and Catalog remain
+the only execution/commit facts; the chat binding is not a second operation log.
+
+## Frames and lifecycle
+
 Each canonical UTF-8 JSON frame uses the A1 uint32LE length codec (1..65536
 bytes). Its exact keys are `protocol`, `type`, `sessionId`, `generation`,
 `turnId`, `nonce`, `sequence`, `payload`. Session and turn are host-created ASCII

@@ -1,6 +1,5 @@
 // 层：组装根
 #include "pythonnumerictablewiring.h"
-#include "workflow/aichattoolrunner.h"
 #include "workflow/documentsession.h"
 #include "catalog/datacatalog.h"
 #include <QDir>
@@ -69,18 +68,4 @@ paleo::python::NumericTablePlanProvider assemblePythonNumericTableProvider(DataC
     };
     return validate();
   };
-}
-void assembleNumericTableAgent(AiChatToolContext &context,DataCatalog *catalog,
-    paleo::document::DocumentSession *document,paleo::capability::CapabilityHost *host) {
-  const auto provider=context.pythonRuntime;const auto sandbox=context.pythonSandbox;const auto previous=context.runtimeReadiness;
-  context.runtimeReadiness=[provider,sandbox,previous](const QString &name,const QJsonObject &arguments,bool listing) {
-    if(name!=QLatin1String(paleo::python::NumericTableTool))return previous?previous(name,arguments,listing):QString();
-    if(!provider||!provider->policy().allowGenerated)return QStringLiteral("python_execution_denied");
-    const auto runtime=provider->snapshot();if(!runtime.ready())return runtime.code;
-    if(!listing&&arguments.value("publish_intent")=="publish")return QString();
-    const auto state=sandbox?sandbox->snapshot():QJsonObject{};
-    return state.value("ready").toBool()?QString():state.value("code").toString("python_sandbox_unavailable");
-  };
-  if(host)host->registerExecutionAdapter(QLatin1String(paleo::python::NumericTableCapability),
-    paleo::python::numericTableScriptAdapter(provider,sandbox,assemblePythonNumericTableProvider(catalog,document,host)));
 }

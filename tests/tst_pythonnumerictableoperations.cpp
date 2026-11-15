@@ -6,6 +6,7 @@
 #include "workflow/pythonnumerictableoperation.h"
 #include "workflow/pythongeneratedoperation.h"
 #include "ai/chat/domaintools.h"
+#include "fixtures/pythonenvironmentfixture.h"
 #include <QtTest>
 using namespace paleo;
 class TestPythonNumericTableOperations:public QObject {
@@ -43,6 +44,25 @@ private slots:
     capability::OperationLog::Record current;current.capabilityId=QLatin1String(python::NumericTableCapability);current.contractVersion=1;
     current.implementationVersion=python::numericTableAlgorithmSpec().implementationVersion;
     QCOMPARE(curves.validateFrozen(current),QString("invalid_python_generated_plan"));
+  }
+  void managedTableRequiresItsIdentityEnvelopeAndActualBackendProof() {
+    python_environment_fixture::Fixture fixture(QFINDTESTDATA("../vendor/agent-python/templates"));QVERIFY2(fixture.error.isEmpty(),qPrintable(fixture.error));
+    auto registry=std::make_shared<python::PythonEnvironmentRegistry>(fixture.configurationPath());
+    const auto activated=registry->activate(fixture.candidate("runtime","fixture",false,true),0);QVERIFY2(activated.ok(),qPrintable(activated.code));
+    const auto selected=registry->active(python::EnvironmentMode::Generated);QVERIFY(selected.ok());QVERIFY(!selected.runtime->policy().allowTrusted);
+    QVERIFY(!selected.sandbox->snapshot().value("ready").toBool());bool called=false;
+    const auto adapter=python::environmentNumericTableAdapter(registry,[&](const auto &,auto &,auto &){called=true;return QString();});
+    capability::ExecuteRequest request;request.capabilityId=QLatin1String(python::NumericTableCapability);request.contractVersion=1;
+    request.documentId="doc";request.callerScope="agent:test";request.projectDir="project";request.clientRequestId="unprobed";QString code;
+    QVERIFY(!adapter.capture(request,{},&code).worker);QVERIFY(!code.isEmpty());QVERIFY(!called);
+    capability::OperationLog::Record record;record.capabilityId=request.capabilityId;record.contractVersion=1;
+    record.frozenRequest={{"plan",QJsonObject{{"schema","paleo.python-numeric-table-operation.v1"}}}};
+    QCOMPARE(adapter.validateFrozen(record),QString("invalid_python_environment_plan"));
+    const QJsonObject inner{{"runtimeManifestSha256",selected.identity.runtimeSha256},{"policy",selected.identity.policy.json()}};
+    record.frozenRequest={{"plan",QJsonObject{{"schema","paleo.python-environment-operation.v1"},
+      {"environmentIdentityId",selected.identity.id},{"plan",inner}}}};
+    registry->denyInMemory(selected.identity.id);QVERIFY(registry->revoke(selected.identity.id,1).ok());
+    QCOMPARE(adapter.validateFrozen(record),QString("python_environment_identity_revoked"));
   }
 };
 QTEST_GUILESS_MAIN(TestPythonNumericTableOperations)

@@ -1,5 +1,6 @@
 // 层：功能
 #include "pythonnumerictableoperation.h"
+#include "pythonnumerictableoperation_internal.h"
 #include "pythongeneratedworker.h"
 #include "services/pythonnumerictablespec.h"
 #include "services/pythonnumerictablereport.h"
@@ -11,7 +12,7 @@
 #include <QSet>
 
 namespace paleo::python {
-namespace {
+namespace numeric_table_operation {
 QString hash(QByteArrayView bytes){return QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());}
 bool digest(const QJsonValue &value) {
   if(!value.isString()||value.toString().size()!=64)return false;
@@ -113,17 +114,19 @@ capability::CapabilityPreparation capture(const std::shared_ptr<RuntimeProvider>
   };
   if(error)error->clear();return prepared;
 }
-QString checkRecord(const capability::OperationLog::Record &record,const std::shared_ptr<RuntimeProvider> &provider,const std::shared_ptr<SandboxProvider> &sandbox) {
+QString checkRecord(const capability::OperationLog::Record &record,const std::shared_ptr<RuntimeProvider> &provider,
+    const std::shared_ptr<SandboxProvider> &sandbox,bool requireBackend) {
   const auto plan=record.frozenRequest.value("plan").toObject();
   if(record.capabilityId!=QLatin1String(NumericTableCapability)||record.contractVersion!=1||record.implementationVersion!=numericTableAlgorithmSpec().implementationVersion||
       plan.value("documentId").toString()!=record.documentId||plan.value("callerScope").toString()!=record.callerScope||
       QJsonArray::fromStringList(analysisSourceVersionIds(plan.value("inputMetadata").toObject()))!=record.stagePlan.value("parents").toArray())return "invalid_python_table_plan";
   const bool publication=record.frozenRequest.value("phase")=="publish"&&!record.frozenRequest.value("sourceOperationId").toString().isEmpty();
-  return checkPlan(plan,provider,sandbox,!publication);
+  return checkPlan(plan,provider,sandbox,requireBackend&&!publication);
 }
 }
 capability::CapabilityExecutionAdapter numericTableScriptAdapter(std::shared_ptr<RuntimeProvider> provider,
     std::shared_ptr<SandboxProvider> sandbox,NumericTablePlanProvider selector) {
+  using namespace numeric_table_operation;
   capability::CapabilityExecutionAdapter out;
   out.capture=[provider,sandbox,selector](const auto &request,const auto &intent,QString *error){return capture(provider,sandbox,selector,request,intent,error);};
   out.validateFrozen=[provider,sandbox](const auto &record){return checkRecord(record,provider,sandbox);};

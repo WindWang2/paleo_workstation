@@ -22,6 +22,12 @@ private slots:
     QCOMPARE(result.value("source_version_id").toString(),f.table.plan.source.versionId);
     QCOMPARE(result.value("readCut").toObject().value("boundary").toString(),QString("observed_sqlite_read_snapshot_not_history_lease"));
     QVERIFY(!result.contains("values"));QVERIFY(!result.contains("payload"));QCOMPARE(f.catalog.mutationSeq(),before);
+    auto large=f.table.declaration;for(auto &column:large.columns) {
+      column.label=std::string(256,'L');column.nullTexts.clear();
+      for(int i=0;i<8;++i)column.nullTexts.push_back(std::to_string(i)+std::string(63,'N'));
+    }
+    std::string detail,revision;data::ModelChangeHead head;QVERIFY(f.table.sdk.readModelChangeHead(head,detail));
+    QVERIFY(f.table.sdk.confirmNumericTableProjection(large,head,f.table.descriptor.revision,revision,detail));
     auto small=args;small["max_bytes"]=2048;QCOMPARE(query.query(small).value("code").toString(),QString("query_response_budget_exceeded"));
     auto invalid=args;invalid["cursor"]="";QCOMPARE(query.query(invalid).value("code").toString(),QString("unsupported_topic_argument"));
     auto foreign=f.table.plan.selection.source;foreign.documentId="other-document";invalid=args;invalid["source_ref"]=document::sourceRefJson(foreign);

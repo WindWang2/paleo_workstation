@@ -51,6 +51,10 @@ private slots:
     QCOMPARE(form.value("runtimeManifestSha256").toString(), malformedAnchor);
     QVERIFY(form.value("allowTrusted").toBool()); QVERIFY(!form.value("allowGenerated").toBool());
   }
+  void generatedOnlyTemplatesAreShownAsUnnecessary() {
+    PythonEnvironmentDialog dialog; dialog.setDiagnostics({{"templatesIntegrity", "not_required"}});
+    QCOMPARE(dialog.findChild<QLabel *>("pythonTemplatesIntegrityStatus")->text(), QStringLiteral("无需安装（生成专用）"));
+  }
   void closeDuringTaskCancelsOnceAndWaitsForCompletion() {
     PythonEnvironmentDialog dialog; dialog.show(); dialog.setBusy(true);
     QSignalSpy cancelled(&dialog, &PythonEnvironmentDialog::cancelRequested);

@@ -37830,6 +37830,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>安装、启用与可执行状态分别检查；启用前不会运行分析。</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
+        <source>无需安装（生成专用）</source>
+        <translation>无需安装（生成专用）</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>

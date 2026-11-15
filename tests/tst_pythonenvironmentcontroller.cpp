@@ -58,6 +58,18 @@ private slots:
     QCOMPARE(f.registry->active(EnvironmentMode::Generated).identity.runtimeSha256, next.runtimeSha256);
     QVERIFY(messages.last().first().toString().contains(QStringLiteral("当前输入仍保留")));
   }
+  void generatedOnlyDoesNotClaimTemplateVerification() {
+    Fixture f(QFINDTESTDATA("../vendor/agent-python/templates")); auto candidate = f.candidate("runtime", "fixture", false, true);
+    candidate.scriptsRoot.clear(); candidate.scriptsSha256.clear();
+    QVERIFY(f.registry->activate(candidate, 0).ok()); PythonEnvironmentController controller(f.registry, &f.tasks);
+    QSignalSpy projections(&controller, &PythonEnvironmentController::diagnosticsChanged);
+    controller.reload(); QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000); QVERIFY(!projections.isEmpty());
+    const auto status = projections.last().first().toJsonObject();
+    QCOMPARE(status.value("integrity").toString(), QString("verified"));
+    QCOMPARE(status.value("templatesIntegrity").toString(), QString("not_required"));
+    QCOMPARE(status.value("trusted").toString(), QString("disabled"));
+    QCOMPARE(status.value("generated").toString(), QString("not_checked"));
+  }
   void taskAddedCanDestroyOwnerBeforeDispatchWithoutActivating() {
     Fixture f(QFINDTESTDATA("../vendor/agent-python/templates")); const auto first = f.candidate("first");
     QVERIFY(f.registry->activate(first, 0).ok());

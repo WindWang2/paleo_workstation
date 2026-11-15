@@ -97,7 +97,8 @@ void PythonEnvironmentController::publishSnapshot(bool replaceForm) {
   const auto installed = id.isEmpty() ? "unconfigured" : runtimeCode == "ok" ? "installed" :
       runtimeCode == "python_environment_missing" ? "missing" : "not_checked";
   QJsonObject projection{{"installed", installed}, {"integrity", integrityState(statusCode == "ok" ? runtimeCode : statusCode)},
-      {"templatesIntegrity", integrityState(fullCode)}, {"sourceLabel", sourceLabel(status.value("source").toString())},
+      {"templatesIntegrity", identity.value("scripts").toObject().value("mode") == "none" ?
+          QStringLiteral("not_required") : integrityState(fullCode)}, {"sourceLabel", sourceLabel(status.value("source").toString())},
       {"trusted", executionState(status.value("allowTrusted").toBool(), m_trustedProbe, true, runtimeBlocked || fullCode != "ok")},
       {"generated", executionState(status.value("allowGenerated").toBool(), m_generatedProbe, false, runtimeBlocked)},
       {"savedEnabled", status.value("enabled")}, {"inMemoryDeny", status.value("inMemoryDeny")},

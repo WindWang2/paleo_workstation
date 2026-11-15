@@ -29,6 +29,7 @@ QLineEdit *field(QWidget *parent, const char *name) {
 QString stateText(const QString &state) {
   if (state == "installed") return QObject::tr("已安装");
   if (state == "verified") return QObject::tr("校验通过");
+  if (state == "not_required") return QObject::tr("无需安装（生成专用）");
   if (state == "ready") return QObject::tr("可执行");
   if (state == "missing") return QObject::tr("未安装");
   if (state == "unconfigured") return QObject::tr("尚未选择环境");

@@ -2,6 +2,7 @@
 #include <QtTest>
 #include <QApplication>
 #include <QClipboard>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -31,6 +32,7 @@
 #include "../src/ui/pages/derivationgraph.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/aichatcontroller.h"
+#include "../src/workflow/chatinvocationbinding.h"
 
 // 方向93：AI 工具结果结构化视图（Oracle 验收面）。
 //   · 分派映射：工具/topic → 视图类型；未知/失败/超限/空闭包 → 兜底折叠。
@@ -497,13 +499,37 @@ void TestAiToolResultView::dockIntegrationAttachesStructuredView() {
                     table->visualRect(table->model()->index(0, 0)).center());
   QCOMPARE(spy.size(), 1);
   QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("ent-a1"));
-  // 协议面零变更证据：role=tool 消息照常回灌（控制器历史含工具应答）。
-  bool hasToolMessage = false;
-  for (const ChatMessage &message : controller.messages())
-    if (message.role == ChatRole::Tool && message.toolCallId ==
-                                            QStringLiteral("cq1"))
-      hasToolMessage = true;
-  QVERIFY(hasToolMessage);
+  // The host admits a stable call ID; provider-local "cq1" is not the reply identity.
+  const auto session = controller.session();
+  QVector<ChatToolCall> admittedCalls;
+  QVector<ChatMessage> replies;
+  QString turn;
+  int userMessages = 0;
+  for (const auto &message : session.messages) {
+    if (message.role == ChatRole::User) { ++userMessages; turn = message.hostTurnId; }
+    if (message.role == ChatRole::Assistant) admittedCalls += message.toolCalls;
+    if (message.role == ChatRole::Tool) replies.append(message);
+  }
+  QCOMPARE(userMessages, 1); QVERIFY(!turn.isEmpty());
+  QCOMPARE(admittedCalls.size(), 1); QCOMPARE(replies.size(), 1);
+  const auto call = admittedCalls.first();
+  QVERIFY(!call.id.isEmpty()); QVERIFY(call.id != QStringLiteral("cq1"));
+  QCOMPARE(call.name, QStringLiteral("paleo.query_project"));
+  const QJsonObject expectedArguments{{"topic", "wells"}};
+  const auto arguments = QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object();
+  QCOMPARE(arguments, expectedArguments);
+  QCOMPARE(replies.first().toolCallId, call.id);
+  QCOMPARE(paleo::chat::validateInvocationBindings(session), QString());
+  QCOMPARE(session.hostToolBindings.size(), 1);
+  const auto binding = session.hostToolBindings.at(0).toObject();
+  QCOMPARE(binding.value("callId").toString(), call.id);
+  QCOMPARE(binding.value("turnId").toString(), turn);
+  QCOMPARE(binding.value("toolName").toString(), call.name);
+  QCOMPARE(binding.value("documentId").toString(), controller.toolRunner()->hostContextIdentity().value("documentId").toString());
+  const QJsonObject canonical{{"name", call.name}, {"arguments", arguments}};
+  const auto admittedHash = QString::fromLatin1(QCryptographicHash::hash(
+      QJsonDocument(canonical).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
+  QCOMPARE(binding.value("admittedSha256").toString(), admittedHash);
   QString error;
   ChatSessionStore::remove(controller.session().id, &error);
 }

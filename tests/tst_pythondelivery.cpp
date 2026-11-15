@@ -97,7 +97,9 @@ private slots:
     QVERIFY(verifyRuntime({first.root, first.manifestSha256, true}).ready());
     const auto second = installDelivery(request); QVERIFY2(second.ready(), qPrintable(second.code));
     QVERIFY(second.alreadyInstalled); QCOMPARE(second.root, first.root);
-    QCOMPARE(QDir(request.storeRoot + "/generations").entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 1);
+    auto directories = QDir(request.storeRoot + "/generations").entryList(QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
+    auto expected = QStringList{".leases", first.manifestSha256}; directories.sort(); expected.sort();
+    QCOMPARE(directories, expected);
     const auto selection = QJsonDocument::fromJson(fileBytes(package.selection(request))).object();
     QCOMPARE(selection.value("generation").toString(), "generations/" + first.manifestSha256);
     QVERIFY(!selection.contains("enabled"));
@@ -219,6 +221,28 @@ private slots:
     QCOMPARE(installDelivery(scriptRequest).code, QString("python_delivery_store_invalid"));
     QCOMPARE(fileBytes(runtime.selection(request)), selection); QVERIFY(!QFileInfo::exists(request.storeRoot + "/.scripts.lock"));
   }
+#ifdef Q_OS_WIN
+  void installsUnderAnOrdinaryLongLocalPath() {
+    Package package; auto request = package.request();
+    while (request.storeRoot.size() < 280) request.storeRoot += '/' + QString(48, 'x');
+    const auto result = installDelivery(request); QVERIFY2(result.ready(), qPrintable(result.code));
+    QVERIFY(result.root.size() > 260); QVERIFY(delivery::directory(result.root, false));
+    QVERIFY(delivery::regular(result.root + "/runtime-manifest.json"));
+    QCOMPARE(fileBytes(result.root + "/runtime-manifest.json"), package.manifest);
+    QVERIFY(installDelivery(request).ready());
+  }
+  void rejectsCallerDeviceAndUncAliases() {
+    Package package; const auto original = package.request();
+    auto device = original;
+    device.storeRoot = "\\\\?\\" + QDir::toNativeSeparators(original.storeRoot);
+    QCOMPARE(installDelivery(device).code, QString("python_delivery_store_invalid"));
+    auto unc = original;
+    unc.storeRoot = "//localhost/" + original.storeRoot.left(1) + "$" + original.storeRoot.mid(2);
+    QCOMPARE(installDelivery(unc).code, QString("python_delivery_store_invalid"));
+    QVERIFY(!QFileInfo::exists(original.storeRoot));
+    QVERIFY(!delivery::regular("\\\\?\\" + QDir::toNativeSeparators(original.packagePath)));
+  }
+#endif
 };
 QTEST_GUILESS_MAIN(TestPythonDelivery)
 #include "tst_pythondelivery.moc"

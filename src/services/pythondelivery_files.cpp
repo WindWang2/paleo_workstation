@@ -35,13 +35,19 @@ QString checkedAbsolute(const QString &path) {
 }
 
 #ifdef Q_OS_WIN
+QString nativePath(const QString &checkedPath) {
+  // Only checked local drive paths reach the native helpers. Prefix internally
+  // so support does not depend on the executable's longPathAware manifest.
+  return QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(checkedPath);
+}
+
 HANDLE nativeHandle(QFile &file) {
   if (!file.isOpen() || file.handle() < 0) return INVALID_HANDLE_VALUE;
   return reinterpret_cast<HANDLE>(_get_osfhandle(file.handle()));
 }
 
 bool plainDirectory(const QString &path) {
-  const auto native = QDir::toNativeSeparators(path);
+  const auto native = nativePath(path);
   const auto attributes = GetFileAttributesW(reinterpret_cast<LPCWSTR>(native.utf16()));
   return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) &&
          !(attributes & FILE_ATTRIBUTE_REPARSE_POINT);
@@ -53,7 +59,7 @@ bool pinParents(const QString &path, QVector<HANDLE> &retained) {
   parts.prepend(QString());
   for (const auto &part : parts) {
     if (!part.isEmpty()) current = QDir(current).filePath(part);
-    const auto native = QDir::toNativeSeparators(current);
+    const auto native = nativePath(current);
     const auto handle = CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()), FILE_READ_ATTRIBUTES,
                                    FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
@@ -70,7 +76,7 @@ bool adopt(QFile &file, const QString &path, bool write) {
   QVector<HANDLE> retained;
   const auto release = qScopeGuard([&] { for (const auto handle : retained) CloseHandle(handle); });
   if (!pinParents(path, retained)) return false;
-  const auto native = QDir::toNativeSeparators(path);
+  const auto native = nativePath(path);
   const DWORD access = GENERIC_READ | (write ? GENERIC_WRITE : 0);
   const auto handle = CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()), access,
                                  FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,

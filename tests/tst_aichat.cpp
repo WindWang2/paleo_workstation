@@ -11,6 +11,7 @@
 #include "../src/ai/chat/domaintools.h"
 #include "../src/ai/chat/llmclient.h"
 #include "../src/domain/wellfaciesrequest.h"
+#include "../src/services/pythonnumerictable.h"
 
 // 方向51：对话域模型 + 会话持久化 + SSE 解析 + 配置校验 + 领域工具表。
 // 全部纯逻辑/本地磁盘（会话落在用户目录），不发网络请求。
@@ -32,6 +33,7 @@ private slots:
   void configRejectsEmptyEndpointModelAndPlainHttp();
   void configBuildsCompletionsUrl();
   void domainToolsEnumerateWithValidSchemas();
+  void pythonWindowToolsKeepSchemasAndEffects();
   void nativeCapabilityIntentsMatchSupportedExecutionPhases();
   void toolDispatchIsHonestAboutWiring();
 
@@ -348,7 +350,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 20); // Runtime status, trusted analyses and platform-gated generated code.
+  QCOMPARE(tools.size(), 21); // Includes the explicitly declared numeric-table input tool.
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -378,7 +380,16 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     QJsonObject blank;
     QCOMPARE(spec.validateParameters(blank).isEmpty(),required.isEmpty());
   }
-  QVERIFY(names.contains(QStringLiteral("paleo.read_result")));
+  QStringList expected{
+    "paleo.tile_classification", "paleo.horizon_tracking_suggestion", "paleo.well_facies_prediction",
+    "paleo.query_project", "paleo.asset_lineage", "paleo.depth_convert_batch",
+    "paleo.seismic_attribute_group", "paleo.constraint_idw", "paleo.read_result",
+    "paleo.tile_classification_v2", "paleo.operation_get", "paleo.operation_events",
+    "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
+    "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
+    "paleo.python_compute", "paleo.python_compute_table"};
+  names.sort();expected.sort();
+  QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;
   oversized.name = QStringLiteral("paleo.read_result");
   oversized.argumentsJson = QString(ChatToolCall::kMaxArgumentBytes + 1, QLatin1Char('x'));
@@ -408,6 +419,28 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   QVERIFY(!tile.validateParameters(withRows(QStringLiteral("abc"))).isEmpty());
   QVERIFY(!tile.validateParameters(withRows(1.5)).isEmpty());
   QVERIFY(!tile.validateParameters(withRows(1e300)).isEmpty());
+}
+
+void TestAiChat::pythonWindowToolsKeepSchemasAndEffects() {
+  QCOMPARE(aiToolSpec("paleo.python_compute_table").toJsonSchema(),
+           paleo::python::numericTableToolRequestSchema());
+  const unsigned compute=paleo::host::Read|paleo::host::PrivateStage|paleo::host::LocalExecute;
+  const unsigned publish=compute|paleo::host::CatalogPublish|paleo::host::Presentation;
+  for(const QString &name:QStringList{"paleo.python_compute_table"}) {
+    const auto spec=aiToolSpec(name);
+    QCOMPARE(spec.effects,compute);
+    QCOMPARE(spec.effectsForIntent("prepare"),compute);
+    QCOMPARE(spec.effectsForIntent("compute-only"),compute);
+    QCOMPARE(spec.effectsForIntent("publish"),publish);
+    QCOMPARE(spec.effectsForIntent("unknown"),0u);
+    QJsonObject arguments{{"client_request_id","inventory"},{"binding_mode","pinned-value"},
+      {"publish_intent","publish"},{"inputs",QJsonObject{{"source_operation_id","computed"}}},
+      {"parameters",QJsonObject{}}};
+    QVERIFY2(spec.validateParameters(arguments).isEmpty(),qPrintable(name));
+    QCOMPARE(spec.effectsForArguments(arguments),publish);
+    arguments["parameters"]=QJsonObject{{"code","print('cannot replace frozen source')"}};
+    QVERIFY(!spec.validateParameters(arguments).isEmpty());
+  }
 }
 
 void TestAiChat::nativeCapabilityIntentsMatchSupportedExecutionPhases() {

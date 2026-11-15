@@ -4,6 +4,7 @@
 #include "services/pythonanalysisselection.h"
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythongenerated.h"
+#include "services/pythonnumerictable.h"
 #include <QObject>
 
 namespace {
@@ -14,12 +15,14 @@ paleo::python::AnalysisKind kind(const QString &name) {
 }
 bool isPythonAnalysisTool(const QString &name) {
   return name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool) ||
-    name==QLatin1String(paleo::python::GeneratedTool);
+    name==QLatin1String(paleo::python::GeneratedTool) || name==QLatin1String(paleo::python::NumericTableTool);
 }
 QJsonObject pythonAnalysisToolSchema(const QString &name) {
+  if(name==QLatin1String(paleo::python::NumericTableTool))return paleo::python::numericTableToolRequestSchema();
   return name==QLatin1String(paleo::python::GeneratedTool)?paleo::python::generatedToolRequestSchema():paleo::python::analysisToolRequestSchema(kind(name));
 }
 QString validatePythonAnalysisArguments(const QString &name,const QJsonObject &args) {
+  if(name==QLatin1String(paleo::python::NumericTableTool))return paleo::python::validateNumericTableToolArguments(args);
   if(name==QLatin1String(paleo::python::GeneratedTool))return paleo::python::validateGeneratedToolArguments(args);
   return paleo::python::validateAnalysisToolArguments(args,kind(name));
 }
@@ -33,7 +36,10 @@ void appendPythonAnalysisTools(QVector<AiToolSpec> &specs) {
   AiToolSpec generated;generated.name=QLatin1String(paleo::python::GeneratedTool);
   generated.title=QObject::tr("受控 Python 计算");
   generated.description=QObject::tr("对 well_curves 精确引用的同井窗口执行有界生成代码，限16列、8192点及16KiB UTF-8源码。必须启用独立生成代码权限并通过当前平台隔离探测；缺项拒绝执行。源码、输入、运行时及策略按内容身份冻结，每次使用新进程。只接收有界指标、表格和说明，宿主补来源证据；脚本的数值与单位声明未经独立重算。compute-only 不登记正式成果；publish 仅引用原操作并单独授权。");
-  for(auto spec:{quality,correlation,generated}) {
+  AiToolSpec table;table.name=QLatin1String(paleo::python::NumericTableTool);
+  table.title=QObject::tr("受控数值表计算");
+  table.description=QObject::tr("对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。");
+  for(auto spec:{quality,correlation,generated,table}) {
     spec.effects=paleo::host::Read|paleo::host::PrivateStage|paleo::host::LocalExecute;
     spec.resultSchemaJson=QStringLiteral(R"({"type":"object","properties":{"code":{"type":"string"},"operationId":{"type":"string"},"execution":{"type":"string"},"commitState":{"type":"string"},"summary":{"type":"object"}}})");
     specs.append(std::move(spec));

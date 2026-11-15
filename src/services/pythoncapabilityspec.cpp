@@ -4,6 +4,7 @@
 #include "pythonanalysiscapabilityspec.h"
 #include "pythonanalysis.h"
 #include "pythongeneratedspec.h"
+#include "pythonnumerictablespec.h"
 
 namespace paleo::python {
 QString summaryScriptSha256() {return QString::fromLatin1(PALEO_AGENT_PYTHON_SUMMARY_SHA);}
@@ -33,4 +34,5 @@ void appendPythonAlgorithmSpecs(QVector<AlgorithmSpec> *specs) {
   specs->append(paleo::python::analysisAlgorithmSpec(paleo::python::AnalysisKind::WellQuality));
   specs->append(paleo::python::analysisAlgorithmSpec(paleo::python::AnalysisKind::AttributeCorrelation));
   specs->append(paleo::python::generatedAlgorithmSpec());
+  specs->append(paleo::python::numericTableAlgorithmSpec());
 }

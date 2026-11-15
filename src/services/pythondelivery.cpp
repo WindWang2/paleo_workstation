@@ -125,8 +125,11 @@ bool updateSelection(const Header &header, const QString &store) {
 QString installPayload(QFile &source, const Header &header, const DeliveryRequest &request,
                        QCryptographicHash &hash, DeliveryResult &result,
                        const std::function<bool()> &cancelled) {
+  // Validate caller spelling before Qt normalization can discard a Windows
+  // device/UNC prefix. Only an already checked local path may be normalized.
+  if (!directory(request.storeRoot, true)) return "python_delivery_store_invalid";
   const auto store = QDir::fromNativeSeparators(request.storeRoot);
-  if (!directory(store, true) || !storeEntries(header, store)) return "python_delivery_store_invalid";
+  if (!storeEntries(header, store)) return "python_delivery_store_invalid";
   StoreLock lock(QDir(store).filePath(header.kind == "runtime" ? ".prepare.lock" : ".scripts.lock"));
   if (!lock.locked()) return "python_delivery_store_busy";
   if (!storeEntries(header, store)) return "python_delivery_store_invalid";

@@ -23,7 +23,15 @@ namespace paleo::python::delivery {
 namespace {
 QString checkedAbsolute(const QString &path) {
   if (path.isEmpty() || path.contains(QChar(0)) || !QDir::isAbsolutePath(path)) return {};
-  auto native = QDir::fromNativeSeparators(path);
+#ifdef Q_OS_WIN
+  // Check the caller's spelling before Qt can normalize a device prefix away.
+  if (path.size() < 3 || !path.at(0).isLetter() || path.at(1) != ':' ||
+      (path.at(2) != '/' && path.at(2) != '\\')) return {};
+  auto native = path;
+  native.replace('\\', '/');
+#else
+  auto native = path;
+#endif
   while (native.size() > 1 && native.endsWith('/') && !QDir(native).isRoot()) native.chop(1);
   if (QDir::cleanPath(native) != native) return {};
 #ifdef Q_OS_WIN

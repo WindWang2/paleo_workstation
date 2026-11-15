@@ -84,7 +84,7 @@ bool scriptRows(const QJsonArray &rows) {
                           QString::fromLatin1(PALEO_DELIVERY_SUMMARY_SHA), QString::fromLatin1(PALEO_DELIVERY_QUALITY_SHA)};
   if (rows.size() != ids.size()) return false;
   for (qsizetype index = 0; index < ids.size(); ++index) {
-    const auto row = rows[index].toObject(); const auto id = ids[index];
+    const auto row = rows[index].toObject(); const auto &id = ids[index];
     const auto size = row.value("size").toDouble(-1);
     if (row.keys() != QStringList{"id", "path", "sha256", "size", "source"} ||
         row.value("id") != id || row.value("path") != id + ".py" || row.value("sha256") != hashes[index] ||

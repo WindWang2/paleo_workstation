@@ -18,6 +18,7 @@
 #include <QScrollArea>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <utility>
 
 namespace {
 QLineEdit *field(QWidget *parent, const char *name) {

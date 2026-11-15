@@ -128,7 +128,7 @@ RuntimeInspection inspectRuntime(const RuntimeConfig &config,const std::function
       const auto next=info.absolutePath();if(next==parent)return fail("pi_runtime_link");parent=next;
     }
     const QFileInfo info(root+'/'+path);if(!info.isFile()||linked(info)||info.size()!=qint64(size))return fail("pi_runtime_file_mismatch");
-    QFile payload(info.absoluteFilePath());if(!payload.open(QIODevice::ReadOnly)||hashFile(payload,qint64(size),stopped())!=sha.toLatin1())return fail("pi_runtime_file_mismatch");
+    QFile payload(info.absoluteFilePath());if(!payload.open(QIODevice::ReadOnly)||hashFile(payload,qint64(size),stopped)!=sha.toLatin1())return fail("pi_runtime_file_mismatch");
     if(path==node){hasNode=true;if(!row.value("executable").toBool()||!info.isExecutable()||sha!=QLatin1String(PALEO_AGENT_PI_NODE_SHA))return fail("pi_manifest_incompatible");}
     if(path=="agent/sidecar.mjs"){hasEntry=true;if(sha!=QLatin1String(PALEO_AGENT_PI_BUNDLE_SHA))return fail("pi_manifest_incompatible");}
   }

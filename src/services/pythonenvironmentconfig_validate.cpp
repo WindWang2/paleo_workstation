@@ -84,9 +84,9 @@ EnvironmentConfigurationResult legacyEnvironment(const LegacyPythonEnvironment &
   const bool trusted = environment.value("PALEO_AGENT_PYTHON_ENABLE_TRUSTED") == "1";
   const bool generated = environment.value("PALEO_AGENT_PYTHON_ENABLE_GENERATED") == "1";
   if (root.isEmpty() && !trusted && !generated) return result;
-  EnvironmentIdentity identity; identity.runtimeRoot = QDir::fromNativeSeparators(root);
+  EnvironmentIdentity identity; identity.runtimeRoot = delivery::checkedAbsolutePath(root);
   identity.runtimeSha256 = environment.value("PALEO_AGENT_PYTHON_MANIFEST_SHA256");
-  identity.scriptsRoot = QDir::fromNativeSeparators(environment.value("PALEO_AGENT_PYTHON_SCRIPTS_ROOT"));
+  identity.scriptsRoot = delivery::checkedAbsolutePath(environment.value("PALEO_AGENT_PYTHON_SCRIPTS_ROOT"));
   identity.legacyTemplates = true; identity.compatibility = environmentCompatibility();
   identity.policy.allowTrusted = trusted; identity.policy.allowGenerated = generated;
   if (!delivery::digest(identity.runtimeSha256) || !QDir::isAbsolutePath(identity.runtimeRoot)) {

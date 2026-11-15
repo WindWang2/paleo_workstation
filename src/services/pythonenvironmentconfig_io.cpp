@@ -52,7 +52,7 @@ bool syncConfigurationFile(QFileDevice &file) {
 }
 } // namespace environment_config
 
-PythonEnvironmentStore::PythonEnvironmentStore(QString path) : m_path(QDir::fromNativeSeparators(std::move(path))) {}
+PythonEnvironmentStore::PythonEnvironmentStore(QString path) : m_path(delivery::checkedAbsolutePath(path)) {}
 EnvironmentConfigurationResult PythonEnvironmentStore::load() const {
   if (!QDir::isAbsolutePath(m_path) || QDir::cleanPath(m_path) != m_path) return failure("python_environment_config_path_invalid");
   const QFileInfo info(m_path);

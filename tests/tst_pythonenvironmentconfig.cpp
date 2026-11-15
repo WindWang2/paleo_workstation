@@ -11,6 +11,26 @@ using namespace python_environment_fixture;
 class TestPythonEnvironmentConfig : public QObject {
   Q_OBJECT
 private slots:
+#ifdef Q_OS_WIN
+  void hostPathsRejectRawDeviceAliasesBeforeNormalization() {
+    Fixture fixture(QFINDTESTDATA("../vendor/agent-python/templates"));
+    const auto path = fixture.configurationPath();
+    const QStringList aliases{"\\\\?\\" + QDir::toNativeSeparators(path),
+                              "//localhost/" + path.left(1) + "$" + path.mid(2)};
+    for (const auto &alias : aliases) {
+      PythonEnvironmentStore rejected(alias);
+      QCOMPARE(rejected.load().code, QString("python_environment_config_path_invalid"));
+      QCOMPARE(rejected.disable(0).code, QString("python_environment_config_path_invalid"));
+      QVERIFY(!QFileInfo::exists(path));
+    }
+    const auto candidate = fixture.candidate("runtime");
+    LegacyPythonEnvironment legacy{{"PALEO_AGENT_PYTHON_ROOT", "\\\\?\\" + QDir::toNativeSeparators(candidate.runtimeRoot)},
+        {"PALEO_AGENT_PYTHON_MANIFEST_SHA256", candidate.runtimeSha256}, {"PALEO_AGENT_PYTHON_ENABLE_GENERATED", "1"}};
+    QCOMPARE(legacyEnvironment(legacy).code, QString("python_environment_legacy_invalid"));
+    PythonEnvironmentStore ordinary(QDir::toNativeSeparators(path));
+    QVERIFY(ordinary.disable(0).ok()); QVERIFY(ordinary.load().ok());
+  }
+#endif
   void completeIdentityIsAtomicPersistentAndNeverStartsFixtureInterpreter() {
     Fixture fixture(QFINDTESTDATA("../vendor/agent-python/templates")); QVERIFY2(fixture.error.isEmpty(), qPrintable(fixture.error));
     const auto candidate = fixture.candidate("runtime"); PythonEnvironmentStore store(fixture.configurationPath());

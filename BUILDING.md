@@ -462,6 +462,19 @@ Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和
 离线准备、摘要锚定、许可、系统 ABI 闭包及升级保留约束见
 [供货说明](vendor/agent-python/README.md)。执行前必须由操作者准备可选环境；
 Agent 可查询状态及运行已登记的可信分析，不能调用准备工具或决定解释器路径。
+已准备 generation 可在供货端封装为[离线交付流](vendor/agent-python/DELIVERY.md)，客户端
+使用 C++ 部署工具安装，无需系统 Python、pip 或解包程序：
+
+```text
+cmake --build <build> --target paleo_python_environment -j3
+<build>/paleo_python_environment --package <offline-package> --sha256 <independent-package-SHA256> --store <absolute-dedicated-store>
+```
+
+该工具不在 Agent 目录中，也不随默认构建/安装交付；确需部署时显式构建，按
+`AgentPythonDeployment` 安装组件安装其原生可执行文件并配套现有 Qt Core 闭包。
+安装只更新完整 generation 的安装选择，不启用可信/生成执行；后续仍按宿主配置准入。
+当前交付包仅用于已授权的内部准备与验证，外部分发入口关闭，许可状态保留原始说明。
+
 可信分析还需宿主设置 `PALEO_AGENT_PYTHON_ENABLE_TRUSTED=1` 和经宿主准备的
 `PALEO_AGENT_PYTHON_SCRIPTS_ROOT`；脚本包见[说明](vendor/agent-python/scripts.README.md)。
 运行时 ready、模板 ready 和实际执行后端 ready 分别报告。当前 Linux 执行要求钉版

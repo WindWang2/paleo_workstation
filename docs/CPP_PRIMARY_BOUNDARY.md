@@ -27,6 +27,10 @@
   不从 PATH 选择解释器。PY2 通过同一 Host/任务/成果链运行已登记的可信分析模板；
   生成数值报告由 PY4 的独立权限和实际强隔离探针准入，仍经同一操作/成果链路。
   生成路径的身份核验不启动解释器；不内嵌 Python，Shell 后置。
+- 可选离线部署入口 `paleo_python_environment` 为 C++/Qt Core 程序，复用同一运行时
+  清单与 generation 契约；无需客户端系统 Python，不启动解释器，不授执行权限。
+  该 target 和 `AgentPythonDeployment` 组件均排除默认构建/安装，见
+  [交付协议](../vendor/agent-python/DELIVERY.md)。
 - superbuild 构建的 QGIS 保持 `WITH_BINDINGS=OFF`
   （`vendor/superbuild/CMakeLists.txt`）——PyQGIS 运行时不进依赖闭包。
 

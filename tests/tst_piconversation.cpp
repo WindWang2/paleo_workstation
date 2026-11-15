@@ -3,6 +3,7 @@
 #include "services/piprotocol.h"
 #include <QtTest>
 #include <QJsonDocument>
+#include <thread>
 
 using namespace paleo::pi;
 namespace {
@@ -49,6 +50,20 @@ private slots:
     ConversationChannel channel(identity()); QVERIFY(!channel.send("model_delta", {{"text", QString(MaxFrameBytes, 'x')}}));
     QVERIFY(channel.takeOutgoing().isEmpty()); channel.requestStop(false); QCOMPARE(channel.stopReason(), 2);
     channel.requestStop(true); QCOMPARE(channel.stopReason(), 1); channel.requestStop(false); QCOMPARE(channel.stopReason(), 1);
+  }
+  void concurrentControlAndModelProducersDoNotLoseFramesOnMutexContention() {
+    ConversationChannel channel(identity()); quint64 expected = 1;
+    for (int batch = 0; batch < 32; ++batch) {
+      std::atomic_bool accepted{true};
+      const auto produce = [&] { for (int i = 0; i < 8; ++i) if (!channel.send("model_delta", {{"text", "bounded"}})) accepted = false; };
+      std::thread model(produce), control(produce); model.join(); control.join(); QVERIFY(accepted.load());
+      for (int index = 0; index < 16; ++index) {
+        auto bytes = channel.takeOutgoing(); bool complete = false; QString error; QJsonObject value;
+        QVERIFY(takeFrame(bytes, value, complete, error)); QVERIFY(complete); QVERIFY(bytes.isEmpty());
+        QCOMPARE(value.value("sequence").toString(), QString::number(expected++));
+      }
+      QVERIFY(channel.takeOutgoing().isEmpty()); QVERIFY(channel.error().isEmpty());
+    }
   }
   void disabledAndOwnerCallsStartNoOptionalRuntime() {
     ConversationRequest request; QCOMPARE(runConversation(request).code, QString("pi_disabled"));

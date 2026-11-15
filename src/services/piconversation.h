@@ -5,6 +5,7 @@
 #include <QMutex>
 #include <QQueue>
 #include <QVector>
+#include <array>
 #include <atomic>
 
 namespace paleo::pi {
@@ -32,10 +33,19 @@ public:
 private:
   ConversationIdentity m_identity;
   mutable QMutex m_mutex;
-  QQueue<QByteArray> m_outgoing;
+  struct OutgoingSlot {
+    std::atomic<quint64> sequence{0};
+    QByteArray bytes;
+    qsizetype reservedBytes = 0;
+  };
+  std::array<OutgoingSlot, ConversationQueueFrames> m_outgoing;
+  std::atomic<quint64> m_writePosition{0};
+  quint64 m_readPosition = 0; // Transport is the only consumer.
+  std::atomic<qsizetype> m_outgoingBytes{0};
+  std::atomic_bool m_outgoingFailed{false};
   QQueue<QJsonObject> m_incoming;
-  qsizetype m_outgoingBytes = 0, m_incomingBytes = 0;
-  quint64 m_hostSequence = 0, m_peerSequence = 0;
+  qsizetype m_incomingBytes = 0;
+  quint64 m_peerSequence = 0;
   bool m_notified = false;
   QString m_error;
   std::atomic_int m_stop{0};

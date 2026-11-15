@@ -12,24 +12,44 @@ bool ConversationIdentity::valid() const {
   return validSession(sessionId) && validSession(turnId) && validCounter(generation) &&
       bytes.size() == 32 && QByteArray::fromHex(bytes).toHex() == bytes;
 }
-ConversationChannel::ConversationChannel(ConversationIdentity identity) : m_identity(std::move(identity)) {}
+ConversationChannel::ConversationChannel(ConversationIdentity identity) : m_identity(std::move(identity)) {
+  for (quint64 index = 0; index < ConversationQueueFrames; ++index) m_outgoing[index].sequence = index;
+}
 bool ConversationChannel::send(const QString &type, const QJsonObject &payload) {
-  if (!m_mutex.tryLock()) return false;
-  const auto unlock = qScopeGuard([this] { m_mutex.unlock(); });
-  if (!m_identity.valid() || !m_error.isEmpty() || m_hostSequence == std::numeric_limits<quint64>::max()) return false;
-  const QJsonObject value{{"protocol", QLatin1String(ConversationProtocol)}, {"type", type}, {"sessionId", m_identity.sessionId},
+  if (!m_identity.valid() || m_outgoingFailed.load()) return false;
+  QJsonObject value{{"protocol", QLatin1String(ConversationProtocol)}, {"type", type}, {"sessionId", m_identity.sessionId},
     {"generation", m_identity.generation}, {"turnId", m_identity.turnId}, {"nonce", m_identity.nonce},
-    {"sequence", QString::number(m_hostSequence + 1)}, {"payload", payload}};
-  const auto bytes = encodeFrame(value);
-  if (bytes.isEmpty() || m_outgoing.size() >= ConversationQueueFrames || bytes.size() > ConversationQueueBytes - m_outgoingBytes) {
-    m_error = "pi_outgoing_budget"; return false;
+    {"sequence", QString::number(std::numeric_limits<quint64>::max())}, {"payload", payload}};
+  // Reserve the longest possible counter encoding before claiming a slot. The
+  // fixed sequence-numbered ring has bounded storage and no worker-held mutex;
+  // owner and transport cancellation may both produce, but only transport reads.
+  const auto reserved = encodeFrame(value).size();
+  if (!reserved || m_outgoingBytes.fetch_add(reserved) > ConversationQueueBytes - reserved) {
+    if (reserved) m_outgoingBytes.fetch_sub(reserved);
+    m_outgoingFailed = true; return false;
   }
-  ++m_hostSequence; m_outgoingBytes += bytes.size(); m_outgoing.enqueue(bytes); return true;
+  auto position = m_writePosition.load();
+  for (;;) {
+    if (position >= std::numeric_limits<quint64>::max() - ConversationQueueFrames) {
+      m_outgoingBytes.fetch_sub(reserved); m_outgoingFailed = true; return false;
+    }
+    if (m_outgoing[position % ConversationQueueFrames].sequence.load(std::memory_order_acquire) != position) {
+      const auto current = m_writePosition.load();
+      if (current != position) { position = current; continue; }
+      m_outgoingBytes.fetch_sub(reserved); m_outgoingFailed = true; return false;
+    }
+    if (m_writePosition.compare_exchange_weak(position, position + 1)) break;
+  }
+  auto &slot = m_outgoing[position % ConversationQueueFrames];
+  value["sequence"] = QString::number(position + 1); slot.bytes = encodeFrame(value); slot.reservedBytes = reserved;
+  slot.sequence.store(position + 1, std::memory_order_release); return true;
 }
 QByteArray ConversationChannel::takeOutgoing() {
-  QMutexLocker lock(&m_mutex);
-  if (m_outgoing.isEmpty()) return {};
-  const auto frame = m_outgoing.dequeue(); m_outgoingBytes -= frame.size(); return frame;
+  auto &slot = m_outgoing[m_readPosition % ConversationQueueFrames];
+  if (slot.sequence.load(std::memory_order_acquire) != m_readPosition + 1) return {};
+  auto frame = std::move(slot.bytes); m_outgoingBytes.fetch_sub(slot.reservedBytes);
+  slot.sequence.store(m_readPosition + ConversationQueueFrames, std::memory_order_release);
+  ++m_readPosition; return frame;
 }
 bool ConversationChannel::acceptPeer(const QJsonObject &frame, bool &notify) {
   QMutexLocker lock(&m_mutex); notify = false;
@@ -53,6 +73,7 @@ bool ConversationChannel::takePeer(QVector<QJsonObject> &frames) {
   m_incomingBytes = 0; m_notified = false; return true;
 }
 QString ConversationChannel::error() const {
+  if (m_outgoingFailed.load()) return "pi_outgoing_budget";
   if (!m_mutex.tryLock()) return "pi_conversation_busy";
   const auto unlock = qScopeGuard([this] { m_mutex.unlock(); }); return m_error;
 }

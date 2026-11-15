@@ -12,6 +12,7 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QProgressBar;
+class QTreeWidget;
 class QVBoxLayout;
 
 // A form and status projection only. Host services own verification, policy,
@@ -56,5 +57,6 @@ private:
   QPushButton *m_rollback = nullptr, *m_export = nullptr, *m_reload = nullptr, *m_revoke = nullptr;
   QGroupBox *m_installForm = nullptr, *m_configurationForm = nullptr;
   QProgressBar *m_progress = nullptr;
+  QTreeWidget *m_details = nullptr;
   bool m_busy = false, m_closeWhenIdle = false;
 };

@@ -16,6 +16,7 @@
 #include <QGuiApplication>
 #include <QScreen>
 #include <QScrollArea>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 
 namespace {
@@ -35,6 +36,14 @@ QString stateText(const QString &state) {
   if (state == "error") return QObject::tr("检查未通过");
   return QObject::tr("尚未检查");
 }
+void addDetails(QTreeWidgetItem *parent, const QJsonObject &object) {
+  for (auto entry = object.begin(); entry != object.end(); ++entry) {
+    auto *item = new QTreeWidgetItem(parent, {entry.key()});
+    if (entry.value().isObject()) addDetails(item, entry.value().toObject());
+    else if (entry.value().isBool()) item->setText(1, entry.value().toBool() ? QObject::tr("是") : QObject::tr("否"));
+    else item->setText(1, entry.value().toVariant().toString());
+  }
+}
 }
 
 PythonEnvironmentDialog::PythonEnvironmentDialog(QWidget *parent) : QDialog(parent) {
@@ -50,6 +59,11 @@ PythonEnvironmentDialog::PythonEnvironmentDialog(QWidget *parent) : QDialog(pare
   auto *contents = new QWidget(scroll); auto *body = new QVBoxLayout(contents);
   body->setContentsMargins(0, 0, 0, 0); body->setSpacing(tokens.spacingSm);
   buildStatus(body); buildInstall(body); buildConfiguration(body);
+  m_details = new QTreeWidget(contents);
+  m_details->setObjectName(QStringLiteral("pythonEnvironmentDiagnostics"));
+  m_details->setHeaderLabels({tr("诊断项"), tr("实际状态")});
+  m_details->setRootIsDecorated(true); m_details->setAlternatingRowColors(false);
+  body->addWidget(m_details);
   scroll->setWidget(contents); root->addWidget(scroll, 1);
   buildActions(root);
   m_message = new QLabel(this); m_message->setObjectName(QStringLiteral("pythonEnvironmentMessage"));
@@ -195,6 +209,16 @@ void PythonEnvironmentDialog::setDiagnostics(const QJsonObject &status) {
   m_trustedStatus->setText(stateText(status.value("trusted").toString()));
   m_generatedStatus->setText(stateText(status.value("generated").toString()));
   m_source->setText(status.value("sourceLabel").toString());
+  m_details->clear();
+  const auto details = status.value("details").toObject();
+  const std::pair<const char *, QString> sections[] = {{"status", tr("宿主配置与完整性")},
+      {"requestedPolicy", tr("已申请的资源上限")}, {"trusted", tr("可信分析实测")}, {"generated", tr("受控生成实测")}};
+  for (const auto &section : sections) {
+    const auto values = details.value(QLatin1String(section.first)).toObject();
+    if (values.isEmpty()) continue;
+    auto *item = new QTreeWidgetItem(m_details, {section.second}); addDetails(item, values);
+    item->setExpanded(true);
+  }
   showMessage(status.value("message").toString());
 }
 void PythonEnvironmentDialog::showMessage(const QString &message) { m_message->setText(message); }

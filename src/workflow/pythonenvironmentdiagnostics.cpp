@@ -102,6 +102,7 @@ void PythonEnvironmentController::publishSnapshot(bool replaceForm) {
       {"generated", executionState(status.value("allowGenerated").toBool(), m_generatedProbe, false, runtimeBlocked)},
       {"savedEnabled", status.value("enabled")}, {"inMemoryDeny", status.value("inMemoryDeny")},
       {"message", guidance(configuration, status, m_trustedProbe, m_generatedProbe)}};
+  projection.insert("details", redactedDiagnostics());
   const QPointer<PythonEnvironmentController> guard(this); const auto generation = m_generation;
   if (replaceForm && consistent) {
     bool valid = false; const auto revision = configuration.value("revision").toString().toULongLong(&valid);

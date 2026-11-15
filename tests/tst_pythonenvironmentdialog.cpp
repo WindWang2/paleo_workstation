@@ -45,6 +45,9 @@ private slots:
     QSignalSpy cancelled(&dialog, &PythonEnvironmentDialog::cancelRequested);
     QSignalSpy rejected(&dialog, &QDialog::rejected);
     QSignalSpy applied(&dialog, &PythonEnvironmentDialog::activationRequested);
+    QSignalSpy disabled(&dialog, &PythonEnvironmentDialog::disableRequested);
+    dialog.findChild<QPushButton *>("pythonEnvironmentDisable")->click();
+    QCOMPARE(disabled.count(), 1);
     auto *buttons = dialog.findChild<QDialogButtonBox *>(); QVERIFY(buttons);
     buttons->button(QDialogButtonBox::Close)->click();
     buttons->button(QDialogButtonBox::Close)->click();

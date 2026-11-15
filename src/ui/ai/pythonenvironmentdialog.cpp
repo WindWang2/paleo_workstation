@@ -109,6 +109,8 @@ void PythonEnvironmentDialog::buildActions(QVBoxLayout *root) {
   auto *actions = new QHBoxLayout;
   m_probe = new QPushButton(tr("检查可执行状态"), this); m_probe->setObjectName(QStringLiteral("pythonEnvironmentProbe"));
   m_disable = new QPushButton(tr("停用计算"), this);
+  m_disable->setObjectName(QStringLiteral("pythonEnvironmentDisable"));
+  m_disable->setToolTip(tr("立即停用 Python 执行，并保存停用配置。"));
   m_export = new QPushButton(tr("导出诊断…"), this);
   connect(m_probe, &QPushButton::clicked, this, &PythonEnvironmentDialog::probeRequested);
   connect(m_disable, &QPushButton::clicked, this, &PythonEnvironmentDialog::disableRequested);
@@ -156,14 +158,14 @@ void PythonEnvironmentDialog::showMessage(const QString &message) { m_message->s
 void PythonEnvironmentDialog::setBusy(bool busy) {
   m_busy = busy; m_progress->setVisible(busy);
   m_installForm->setEnabled(!busy); m_configurationForm->setEnabled(!busy);
-  for (auto *button : {m_probe, m_disable, m_export}) button->setEnabled(!busy);
+  for (auto *button : {m_probe, m_export}) button->setEnabled(!busy);
   m_history->setEnabled(!busy); m_rollback->setEnabled(!busy && m_history->count() > 0);
   if (!busy && m_closeWhenIdle) QDialog::reject();
 }
 void PythonEnvironmentDialog::requestClose() {
   if (!m_busy) { QDialog::reject(); return; }
   if (!m_closeWhenIdle) { m_closeWhenIdle = true; emit cancelRequested(); }
-  showMessage(tr("正在取消当前检查，完成后关闭。"));
+  showMessage(tr("正在结束当前操作，完成后关闭。"));
 }
 void PythonEnvironmentDialog::reject() { requestClose(); }
 void PythonEnvironmentDialog::closeEvent(QCloseEvent *event) {

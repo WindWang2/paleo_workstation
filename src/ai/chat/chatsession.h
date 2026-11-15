@@ -20,6 +20,8 @@ struct ChatSession {
   QDateTime createdAt;
   QDateTime updatedAt;
   QVector<ChatMessage> messages;
+  QJsonArray hostToolBindings; // Host-only tuple/canonical-call commitments, not operation authority.
+  bool hostBindingsValid = true;
 
   bool isEmpty() const { return id.isEmpty() || messages.isEmpty(); }
   // 标题兜底：无标题时取首条用户消息的前 40 个字符。

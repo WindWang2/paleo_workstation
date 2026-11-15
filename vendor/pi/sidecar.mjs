@@ -1,6 +1,7 @@
 // Trusted optional Pi entry point; no generated JavaScript, model providers or coding-agent resources.
 import { Agent } from "@earendil-works/pi-agent-core";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createConversation } from "./conversation.mjs";
 
 const protocol = "paleo.pi-agent.v1";
 const maximum = 64 * 1024;
@@ -11,6 +12,8 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 let buffer = Buffer.alloc(0);
 let hello;
 let closing = false;
+let conversation, selectedProtocol;
+let pendingBytes = 0;
 
 function unavailableStream() {
   const stream = new AssistantMessageEventStream();
@@ -24,9 +27,11 @@ function unavailableStream() {
   return stream;
 }
 
-const agent = new Agent({ streamFn: unavailableStream, toolExecution: "sequential", initialState: { tools: [] } });
+let agent;
 function canonical(value) {
-  return JSON.stringify(Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])));
+  const ordered = item => Array.isArray(item) ? item.map(ordered) : item && typeof item === "object" ?
+    Object.fromEntries(Object.keys(item).sort().map(key => [key, ordered(item[key])])) : item;
+  return JSON.stringify(ordered(value));
 }
 function fatal(code) {
   process.stderr.write(code + "\n");
@@ -36,7 +41,14 @@ function send(value, done) {
   const body = Buffer.from(canonical(value));
   if (body.length > maximum) fatal("pi_frame_budget");
   const header = Buffer.alloc(4); header.writeUInt32LE(body.length);
-  process.stdout.write(Buffer.concat([header, body]), done);
+  const frame = Buffer.concat([header, body]);
+  if (pendingBytes + frame.length > 256 * 1024) fatal("pi_outgoing_budget");
+  pendingBytes += frame.length;
+  return new Promise((resolve, reject) => process.stdout.write(frame, error => {
+    pendingBytes -= frame.length;
+    if (error) { reject(error); return; }
+    if (done) done(); resolve();
+  }));
 }
 function validCounter(value) {
   return typeof value === "string" && /^(0|[1-9][0-9]{0,19})$/.test(value) && BigInt(value) <= 18446744073709551615n;
@@ -47,12 +59,23 @@ function accept(raw) {
     const text = decoder.decode(raw); value = JSON.parse(text);
     if (!value || typeof value !== "object" || Array.isArray(value) || !Buffer.from(canonical(value)).equals(raw)) throw new Error();
   } catch { fatal("pi_frame_invalid"); }
+  if (!selectedProtocol) {
+    selectedProtocol = value.protocol;
+    if (selectedProtocol === "paleo.pi-conversation.v1") {
+      clearTimeout(watchdog);
+      setTimeout(() => fatal("pi_turn_timeout"), 30 * 60 * 1000).unref();
+      conversation = createConversation({ Agent, AssistantMessageEventStream, send, fatal,
+        versions: { upstreamCommit: sourceCommit, coreVersion, nodeVersion } });
+    }
+  }
+  if (conversation) { conversation.accept(value); return; }
   if (Object.keys(value).sort().join(",") !== "generation,nonce,protocol,sequence,sessionId,type" ||
       value.protocol !== protocol || !validCounter(value.generation) ||
       typeof value.sessionId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.sessionId) ||
       typeof value.nonce !== "string" || !/^[0-9a-f]{32}$/.test(value.nonce)) fatal("pi_frame_identity");
   if (!hello) {
     if (value.type !== "hello" || value.sequence !== "1" || process.versions.node !== nodeVersion) fatal("pi_handshake_invalid");
+    agent = new Agent({ streamFn: unavailableStream, toolExecution: "sequential", initialState: { tools: [] } });
     hello = value;
     send({ ...value, type: "hello_result", upstreamCommit: sourceCommit, coreVersion, nodeVersion,
       toolExecution: agent.toolExecution, modelTransport: "host-only-unconnected", sandboxed: false });
@@ -65,16 +88,22 @@ function accept(raw) {
 }
 process.stdin.on("data", data => {
   if (closing) fatal("pi_frame_state");
-  if (buffer.length + data.length > maximum + 4) fatal("pi_frame_budget");
-  buffer = Buffer.concat([buffer, data]);
-  if (buffer.length < 4) return;
-  const length = buffer.readUInt32LE();
-  if (!length || length > maximum) fatal("pi_frame_budget");
-  if (buffer.length < length + 4) return;
-  if (buffer.length !== length + 4) fatal("pi_frame_state");
-  const raw = buffer.subarray(4); buffer = Buffer.alloc(0); accept(raw);
+  let offset = 0;
+  while (offset < data.length) {
+    const count = Math.min(maximum + 4 - buffer.length, data.length - offset);
+    if (count <= 0) fatal("pi_frame_budget");
+    buffer = Buffer.concat([buffer, data.subarray(offset, offset + count)]); offset += count;
+    while (buffer.length >= 4) {
+      const length = buffer.readUInt32LE();
+      if (!length || length > maximum) fatal("pi_frame_budget");
+      if (buffer.length < length + 4) break;
+      const raw = buffer.subarray(4, length + 4); buffer = buffer.subarray(length + 4);
+      accept(raw);
+      if (!conversation && (buffer.length || offset < data.length)) fatal("pi_frame_state");
+    }
+  }
 });
-process.stdin.on("end", () => { agent.abort(); process.exit(buffer.length ? 2 : 0); });
+process.stdin.on("end", () => { agent?.abort(); conversation?.end(); process.exit(buffer.length ? 2 : 0); });
 process.stdin.on("error", () => process.exit(2));
 process.stdout.on("error", () => process.exit(2));
-setTimeout(() => { agent.abort(); fatal("pi_handshake_timeout"); }, 5000).unref();
+const watchdog = setTimeout(() => { agent?.abort(); fatal("pi_handshake_timeout"); }, 5000).unref();

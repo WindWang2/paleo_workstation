@@ -126,6 +126,10 @@ void AiChatToolRunner::invalidateContext() {
 quint64 AiChatToolRunner::taskSession() const {
   return m_taskService ? m_taskService->session() : 0;
 }
+QJsonObject AiChatToolRunner::hostContextIdentity() const {
+  return {{"documentId", m_context.documentId}, {"epoch", QString::number(m_context.documentEpoch)},
+      {"generation", QString::number(m_contextGeneration)}, {"taskSession", QString::number(taskSession())}};
+}
 void AiChatToolRunner::rebindQueryScope() {
   m_query->setSourceResolver(m_context.sourceResolver);
   m_query->bind(m_context.catalog, {m_context.documentId, m_context.documentEpoch, m_contextGeneration, m_querySessionId});
@@ -147,6 +151,7 @@ void AiChatToolRunner::interrupt() {
   stopCurrentRound(false);
 }
 void AiChatToolRunner::stopCurrentRound(bool explicitRequest) {
+  const QPointer<AiChatToolRunner> guard(this);
   // 取消 = 作废（口径见头文件）：在途结果不再 emit；tile 任务协作取消
   // （不写产品）；层位任务算完但丢弃；测井相 HTTP 中止。
   ++m_generation;
@@ -156,10 +161,12 @@ void AiChatToolRunner::stopCurrentRound(bool explicitRequest) {
     if(explicitRequest)m_activeTask->requestCancel();
     else m_activeTask->requestInterruption();
   }
+  if (!guard) return;
   if (m_activeIsFacies) {
     m_facies->disconnect(this);
     m_facies->cancel();
   }
+  if (!guard) return;
   m_active = false;
   m_activeIsFacies = false;
   m_activeTask.clear();
@@ -176,8 +183,9 @@ void AiChatToolRunner::startNext() {
   m_active = true;
   m_activeIsFacies = false;
   const int generation = m_generation;
+  const QPointer<AiChatToolRunner> guard(this);
   emit toolStarted(m_activeCall);
-  if (generation != m_generation)
+  if (!guard || generation != m_generation)
     return;
   if (!activeContextIsCurrent()) {
     finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("stale_session")}});

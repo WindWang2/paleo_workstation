@@ -48,6 +48,7 @@ struct ChatMessage {
   // role==Assistant 且模型要求调用工具：调用帧列表（可多个）。
   QVector<ChatToolCall> toolCalls;
   QDateTime timestamp;
+  QString hostTurnId; // Host-only persistence identity; never sent in model messages.
 
   bool isEmpty() const { return content.isEmpty() && toolCalls.isEmpty(); }
   // 落盘形态（会话文件）：带 timestamp 等本机元数据。

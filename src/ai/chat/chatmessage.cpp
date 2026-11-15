@@ -96,6 +96,7 @@ QJsonObject ChatMessage::toJson() const {
   if (timestamp.isValid())
     object.insert(QStringLiteral("timestamp"),
                   timestamp.toUTC().toString(Qt::ISODateWithMs));
+  if (!hostTurnId.isEmpty()) object.insert(QStringLiteral("host_turn_id"), hostTurnId);
   return object;
 }
 
@@ -123,6 +124,7 @@ ChatMessage ChatMessage::fromJson(const QJsonObject &object) {
     message.role = ChatRole::User; // 未知角色降级为用户（不冒充 assistant）
   message.content = object.value(QStringLiteral("content")).toString();
   message.toolCallId = object.value(QStringLiteral("tool_call_id")).toString();
+  message.hostTurnId = object.value(QStringLiteral("host_turn_id")).toString();
   const QJsonArray calls = object.value(QStringLiteral("tool_calls")).toArray();
   for (const QJsonValue &value : calls)
     message.toolCalls.append(ChatToolCall::fromJson(value.toObject()));

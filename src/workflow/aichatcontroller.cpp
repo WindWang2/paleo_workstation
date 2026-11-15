@@ -1,5 +1,6 @@
 // 层：功能
 #include "aichatcontroller.h"
+#include "chatinvocationbinding.h"
 
 #include "../ai/chat/llmkeystore.h"
 #include "../services/toolresultprotocol.h"
@@ -44,11 +45,11 @@ AiChatController::AiChatController(QObject *parent)
               m_roundRejected = true;
             if (m_roundRejected)
               return;
-            if (m_piBridge.busy() && !call.id.isEmpty()) {
-              if (m_piProviderCalls.contains(call.id)) return;
-              m_piProviderCalls.insert(call.id);
+            if (!call.id.isEmpty()) {
+              if (m_providerCalls.contains(call.id)) return;
+              m_providerCalls.insert(call.id);
             }
-            ChatToolCall admitted = m_piBridge.busy() ? hostPiCall(call) : call;
+            ChatToolCall admitted = hostAdmittedCall(call);
             if (admitted.id.isEmpty())
               admitted.id = QUuid::createUuid().toString(QUuid::Id128);
             if (!m_session.messages.isEmpty() &&
@@ -362,6 +363,8 @@ void AiChatController::retryLast() {
       break;
     }
   }
+  const auto retryCode = paleo::chat::validateInvocationRetry(m_session, lastUser);
+  if (!retryCode.isEmpty()) { emit errorOccurred(retryCode); return; }
   // 截掉旧回答（含其携带的工具帧），历史回到「刚发完这条用户消息」。
   m_session.messages.resize(lastUser + 1);
   emit sessionChanged(); // 历史被截断：整页重画（UI 不做增量反演）
@@ -488,7 +491,7 @@ void AiChatController::sendRound() {
   ++m_modelRound;
   m_roundRejected = false;
   m_streamToolCalls = 0;
-  m_piProviderCalls.clear();
+  m_providerCalls.clear();
   ChatMessage placeholder; // 流式增量往这条上累积
   placeholder.role = ChatRole::Assistant;
   placeholder.timestamp = QDateTime::currentDateTime();

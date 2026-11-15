@@ -14,11 +14,11 @@
 #include <QThread>
 
 namespace {
-QByteArray reply(bool tools) {
+QByteArray reply(bool tools, int request = 0) {
   QJsonObject message{{"role", "assistant"}, {"content", tools ? "" : "host model completed"}};
   if (tools) {
     QJsonArray calls;
-    for (int i = 0; i < 2; ++i) calls.append(QJsonObject{{"id", QString("call-%1").arg(i)}, {"type", "function"},
+    for (int i = 0; i < 2; ++i) calls.append(QJsonObject{{"id", QString("provider-%1-call-%2").arg(request).arg(i)}, {"type", "function"},
       {"function", QJsonObject{{"name", "paleo.query_project"}, {"arguments", "{\"topic\":\"wells\"}"}}}});
     message.insert("tool_calls", calls);
   }
@@ -26,7 +26,7 @@ QByteArray reply(bool tools) {
 }
 class Model : public QObject {
 public:
-  QTcpServer server; int requests = 0, fragments = 1; bool firstTools = true, sse = false;
+  QTcpServer server; int requests = 0, fragments = 1; bool firstTools = true, toolsEveryTurn = false, sse = false;
   QString fragment = "host model completed";
   QVector<QByteArray> bodies;
   Model() {
@@ -40,8 +40,8 @@ public:
         const auto length = QString::fromUtf8(bytes->left(header)).section("Content-Length:", 1, 1, QString::SectionCaseInsensitiveSeps).section('\r', 0, 0).trimmed().toInt();
         if (length < 0 || length > 128 * 1024 || bytes->size() < header + 4 + length) return;
         *served = true; bodies.append(bytes->mid(header + 4, length)); const auto index = requests++;
-        const bool calls = firstTools && index == 0;
-        const auto body = reply(calls); QByteArray payload = body, type = "application/json";
+        const bool calls = firstTools && (toolsEveryTurn ? index % 2 == 0 : index == 0);
+        const auto body = reply(calls, requests); QByteArray payload = body, type = "application/json";
         if (sse) {
           const auto message = QJsonDocument::fromJson(body).object().value("choices").toArray().first().toObject().value("message").toObject();
           QJsonObject delta;
@@ -92,6 +92,45 @@ private slots:
     QCOMPARE(model.requests, 2); QCOMPARE(results.size(), 2); QVERIFY(results.first()[1].toBool());
     QCOMPARE(controller.messages().last().content, QString("host model completed")); QCOMPARE(host.catalog.versions().size(), 0);
   }
+  void nativeRetryUsesTheSameHostBindingsDespiteNewProviderIds() {
+    Host host; Model model; model.toolsEveryTurn = true; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
+    m_sessions.append(controller.session().id); controller.setConfig(model.config()); QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+    controller.sendUserText("query with a stable host-owned turn"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
+    QCOMPARE(controller.session().hostToolBindings.size(), 2); const auto bindings = controller.session().hostToolBindings;
+    controller.retryLast(); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000); QVERIFY(errors.isEmpty());
+    QCOMPARE(model.requests, 4); QCOMPARE(controller.session().hostToolBindings, bindings); QCOMPARE(host.catalog.versions().size(), 0);
+  }
+  void legacyChatFilesRemainReadableButUnboundWritesCannotBeRetried_data() {
+    QTest::addColumn<QString>("tool"); QTest::addColumn<bool>("hasTurn"); QTest::addColumn<bool>("allowed");
+    QTest::newRow("old-write-no-turn") << QString("paleo.python_compute") << false << false;
+    QTest::newRow("old-write-no-binding") << QString("paleo.python_compute") << true << false;
+    QTest::newRow("unknown-tool") << QString("paleo.unknown_write") << false << false;
+    QTest::newRow("old-read-only") << QString("paleo.query_project") << false << true;
+    QTest::newRow("original-operation-read") << QString("paleo.operation_get") << false << true;
+    QTest::newRow("legacy-resume-needs-original-facts") << QString("paleo.operation_resume") << false << false;
+    QTest::newRow("old-text-only") << QString() << false << true;
+  }
+  void legacyChatFilesRemainReadableButUnboundWritesCannotBeRetried() {
+    QFETCH(QString, tool); QFETCH(bool, hasTurn); QFETCH(bool, allowed);
+    ChatSession legacy; legacy.id = ChatSessionStore::newSessionId(); m_sessions.append(legacy.id);
+    ChatMessage user; user.role = ChatRole::User; user.content = "legacy user intent"; if (hasTurn) user.hostTurnId = "old-host-turn";
+    ChatMessage assistant; assistant.role = ChatRole::Assistant; assistant.content = "legacy known answer";
+    if (!tool.isEmpty()) assistant.toolCalls = {{"legacy-provider-id", tool, "{\"client_request_id\":\"previous-explicit-id\"}"}};
+    legacy.messages = {user, assistant};
+    if (!tool.isEmpty()) { ChatMessage result; result.role = ChatRole::Tool; result.toolCallId = "legacy-provider-id";
+      result.content = "{\"ok\":true,\"operationId\":\"original-operation\"}"; legacy.messages.append(result); }
+    QString error; QVERIFY2(ChatSessionStore::save(legacy, &error), qPrintable(error)); ChatSession read;
+    QVERIFY2(ChatSessionStore::load(legacy.id, &read, &error), qPrintable(error)); QCOMPARE(read.messages, legacy.messages);
+    QVERIFY(read.hostToolBindings.isEmpty()); Host host; Model model; model.firstTools = !tool.isEmpty(); QVERIFY(model.open());
+    AiChatController controller; m_sessions.append(controller.session().id); QVERIFY(host.bind(controller));
+    QVERIFY(controller.loadSession(legacy.id, &error)); controller.setConfig(model.config());
+    QSignalSpy errors(&controller, &AiChatController::errorOccurred), dispatched(&controller, &AiChatController::toolExecutionStarted);
+    controller.retryLast(); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
+    if (allowed) { QVERIFY(errors.isEmpty()); QCOMPARE(model.requests, tool.isEmpty() ? 1 : 2); }
+    else { QCOMPARE(model.requests, 0); QCOMPARE(dispatched.size(), 0); QVERIFY(!errors.isEmpty());
+      QCOMPARE(errors.first().first().toString(), QString("chat_legacy_retry_requires_operation_recovery")); QCOMPARE(controller.messages(), legacy.messages); }
+    QCOMPARE(host.catalog.versions().size(), 0);
+  }
   void selectedMissingPiDoesNotFallBackToNativeOrSendProviderKeys() {
     Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config()); controller.setPiRuntime({true, {}, {}});
@@ -99,15 +138,19 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000); QVERIFY(!errors.isEmpty()); QCOMPARE(model.requests, 0);
     QCOMPARE(host.catalog.versions().size(), 0);
   }
+  void hostSessionSaveFailurePrecedesAnyOptionalProcessOrToolDispatch_data() {
+    QTest::addColumn<bool>("pi"); QTest::newRow("pi-before-node") << true; QTest::newRow("native-before-tools") << false;
+  }
   void hostSessionSaveFailurePrecedesAnyOptionalProcessOrToolDispatch() {
+    QFETCH(bool, pi);
     Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
-    m_sessions.append(controller.session().id); controller.setConfig(model.config()); controller.setPiRuntime({true, {}, {}});
+    m_sessions.append(controller.session().id); controller.setConfig(model.config()); controller.setPiRuntime({pi, {}, {}});
     const auto path = ChatSessionStore::pathFor(controller.session().id); QVERIFY(QDir().mkpath(path));
     const auto cleanup = qScopeGuard([&] { QDir().rmdir(path); });
     QSignalSpy errors(&controller, &AiChatController::errorOccurred), calls(&controller, &AiChatController::toolExecutionStarted);
-    controller.sendUserText("a save error cannot dispatch side effects"); QVERIFY(!controller.streaming());
-    QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains("pi_session_save_failed"));
-    QCOMPARE(model.requests, 0); QCOMPARE(calls.size(), 0); QCOMPARE(host.catalog.versions().size(), 0);
+    controller.sendUserText("a save error cannot dispatch side effects"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
+    QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains(pi ? "pi_session_save_failed" : "pi_invocation_save_failed"));
+    QCOMPARE(model.requests, pi ? 0 : 1); QCOMPARE(calls.size(), 0); QCOMPARE(host.catalog.versions().size(), 0);
   }
   void destroyedTaskServiceCannotLeaveAQueuedConversationPermanentlyBusy() {
     auto tasks = std::make_unique<PaleoTaskService>(); tasks->setMaxWorkerThreads(2); auto running = std::make_shared<std::atomic_int>(0);

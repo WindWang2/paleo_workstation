@@ -84,11 +84,9 @@ void AiChatController::onRoundFinished(const QString &reason) {
   auto calls = normalizedCalls(m_session.messages.last().toolCalls);
   const bool pi = m_piBridge.busy();
   auto bound = m_session;
-  if (pi) {
-    if (m_runner.hostContextIdentity() != m_turnContext) { piFailure("interrupted"); return; }
-    const auto code = paleo::chat::bindInvocations(bound, m_hostTurn, m_turnContext.value("documentId").toString(), calls);
-    if (!code.isEmpty()) { rejectToolRound(code); return; }
-  }
+  if (m_runner.hostContextIdentity() != m_turnContext) { piFailure("interrupted"); return; }
+  const auto code = paleo::chat::bindInvocations(bound, m_hostTurn, m_turnContext.value("documentId").toString(), calls);
+  if (!code.isEmpty()) { rejectToolRound(code); return; }
   m_session.messages.last().toolCalls = calls;
   if (++m_toolRound > kMaxToolRounds) {
     rejectToolRound(QStringLiteral("tool_round_limit_exceeded"),
@@ -101,15 +99,12 @@ void AiChatController::onRoundFinished(const QString &reason) {
   }
   m_unansweredCalls = calls;
   m_pendingToolResults = int(calls.size());
-  if (pi) {
-    m_session.hostToolBindings = bound.hostToolBindings;
-    const QPointer<AiChatController> guard(this); const auto session = m_session.id, turn = m_hostTurn; QString error;
-    // Persist the exact admitted calls and tuple commitments atomically before
-    // the sidecar can request dispatch. A failed save executes no tool.
-    if (!saveCurrentSession(&error)) { if (guard) rejectToolRound("pi_invocation_save_failed"); return; }
-    if (!guard || !m_streaming || m_session.id != session || m_hostTurn != turn) return;
-    m_piBridge.modelFinished(calls, reason); return;
-  }
+  m_session.hostToolBindings = bound.hostToolBindings;
+  const auto session = m_session.id, turn = m_hostTurn; QString error;
+  // Both engines use the same durable admitted calls before any tool dispatch.
+  if (!saveCurrentSession(&error)) { if (guard) rejectToolRound("pi_invocation_save_failed"); return; }
+  if (!guard || !m_streaming || sequence != m_turnSequence || m_session.id != session || m_hostTurn != turn) return;
+  if (pi) { m_piBridge.modelFinished(calls, reason); return; }
   emit statusChanged(statusText());
   if (!guard || sequence != m_turnSequence) return;
   // Snapshot: synchronous listeners may cancel/rebind; runner owns serial execution.

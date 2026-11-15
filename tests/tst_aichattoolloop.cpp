@@ -194,6 +194,12 @@ bool hasDecl(QgisLayerService *layers, const QString &id) {
       return true;
   return false;
 }
+QStringList admittedIds(const AiChatController &controller) {
+  for (const auto &message : controller.messages()) if (message.role == ChatRole::Assistant && !message.toolCalls.isEmpty()) {
+    QStringList ids; for (const auto &call : message.toolCalls) ids.append(call.id); return ids;
+  }
+  return {};
+}
 } // namespace
 
 class TestAiChatToolLoop : public QObject {
@@ -352,6 +358,7 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   // 请求 2：assistant 带 tool_calls + role=tool 应答（id 对账 + 结果摘要），
   // 且续轮仍带 tools（模型可继续点工具）。
   const QJsonObject body2 = server.body(1);
+  const auto hostIds = admittedIds(controller); QCOMPARE(hostIds.size(), 1); QVERIFY(hostIds.first().startsWith("host_"));
   QCOMPARE(body2.value(QStringLiteral("tool_choice")).toString(),
            QStringLiteral("auto"));
   const QJsonArray messages2 = body2.value(QStringLiteral("messages")).toArray();
@@ -363,12 +370,12 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
       const QJsonArray calls = message.value(QStringLiteral("tool_calls")).toArray();
       QCOMPARE(calls.size(), 1);
       QCOMPARE(calls.at(0).toObject().value(QStringLiteral("id")).toString(),
-               QStringLiteral("call-1"));
+               hostIds.first());
       sawAssistantCall = true;
     }
     if (role == QStringLiteral("tool")) {
       QCOMPARE(message.value(QStringLiteral("tool_call_id")).toString(),
-               QStringLiteral("call-1"));
+               hostIds.first());
       const QJsonObject payload = QJsonDocument::fromJson(
                                      message.value(QStringLiteral("content"))
                                        .toString()
@@ -399,7 +406,7 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   QCOMPARE(messages.size(), 4);
   QCOMPARE(messages.at(1).toolCalls.size(), 1);
   QCOMPARE(messages.at(2).role, ChatRole::Tool);
-  QCOMPARE(messages.at(2).toolCallId, QStringLiteral("call-1"));
+  QCOMPARE(messages.at(2).toolCallId, hostIds.first());
   QCOMPARE(messages.at(3).content, finalText);
 }
 
@@ -428,6 +435,7 @@ void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "多工具轮必须收敛");
   QCOMPARE(server.requestCount(), 2);
+  const auto hostIds = admittedIds(controller); QCOMPARE(hostIds.size(), 2); QVERIFY(hostIds[0] != hostIds[1]);
   const QJsonArray messages2 =
     server.body(1).value(QStringLiteral("messages")).toArray();
   QStringList answeredIds, erroredIds;
@@ -443,25 +451,24 @@ void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
     const auto id=message.value("tool_call_id").toString();
     if(envelope.value("status")==QLatin1String("failed"))
       erroredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
-    if(id==QLatin1String("call-a")) {
+    if(id==hostIds[0]) {
       QCOMPARE(envelope.value("status").toString(),QStringLiteral("succeeded"));
       const auto payload=envelope.value("data").toObject();
       QCOMPARE(payload.value("rows").toInt(),32);QCOMPARE(payload.value("columns").toInt(),24);
       QCOMPARE(payload.value("layer_ids").toArray().size(),3);
     } else {
-      QCOMPARE(id,QStringLiteral("call-b"));
+      QCOMPARE(id,hostIds[1]);
       QCOMPARE(envelope.value("code").toString(),QStringLiteral("unknown_well_request_field"));
       QCOMPARE(envelope.value("data").toObject().value("code").toString(),QStringLiteral("unknown_well_request_field"));
     }
   }
   answeredIds.sort(); // 应答顺序协议不要求（执行串行、到达序任意）：按集合比
-  QCOMPARE(answeredIds,
-           QStringList({QStringLiteral("call-a"), QStringLiteral("call-b")}));
-  QCOMPARE(erroredIds, QStringList{QStringLiteral("call-b")}); // facies 如实报错
+  auto expectedIds = hostIds; expectedIds.sort(); QCOMPARE(answeredIds, expectedIds);
+  QCOMPARE(erroredIds, QStringList{hostIds[1]}); // facies 如实报错
   QCOMPARE(results.size(),2);
   for(const auto &result:results) {
     const auto call=result.at(0).value<ChatToolCall>();
-    QCOMPARE(result.at(1).toBool(),call.id==QLatin1String("call-a"));
+    QCOMPARE(result.at(1).toBool(),call.id==hostIds[0]);
   }
 }
 
@@ -496,6 +503,7 @@ void TestAiChatToolLoop::syncFailingFirstCallStillDispatchesRestOfRound() {
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "首调同步失败的多工具轮必须收敛（不漏派、不卡死）");
   QCOMPARE(server.requestCount(), 2);
+  const auto hostIds = admittedIds(controller); QCOMPARE(hostIds.size(), 2); QVERIFY(hostIds[0] != hostIds[1]);
   const QJsonArray messages2 =
     server.body(1).value(QStringLiteral("messages")).toArray();
   QStringList answeredIds, erroredIds;
@@ -511,9 +519,8 @@ void TestAiChatToolLoop::syncFailingFirstCallStillDispatchesRestOfRound() {
       erroredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
   }
   answeredIds.sort();
-  QCOMPARE(answeredIds,
-           QStringList({QStringLiteral("call-first"), QStringLiteral("call-second")}));
-  QCOMPARE(erroredIds, QStringList{QStringLiteral("call-first")}); // 缺实参如实报错
+  auto expectedIds = hostIds; expectedIds.sort(); QCOMPARE(answeredIds, expectedIds);
+  QCOMPARE(erroredIds, QStringList{hostIds[0]}); // 缺实参如实报错
 }
 
 // Oracle 5：未绑定的远端工具收到 legacy 实参 → v2 错误回灌 + UI 失败态，不冒充成功；
@@ -539,14 +546,15 @@ void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
   QCOMPARE(server.requestCount(), 2);
   QCOMPARE(results.size(), 1);
   QVERIFY(!results.at(0).at(1).toBool()); // ok=false：失败卡片
-  QCOMPARE(results.at(0).at(0).value<ChatToolCall>().id,QStringLiteral("call-f"));
+  const auto hostIds = admittedIds(controller); QCOMPARE(hostIds.size(), 1);
+  QCOMPARE(results.at(0).at(0).value<ChatToolCall>().id,hostIds.first());
   // 诚实面以回灌原文为准（卡片摘要是它的截断）。
   const QVector<ChatMessage> messages = controller.messages();
   QCOMPARE(messages.size(),4);
   QCOMPARE(messages.at(1).toolCalls.size(),1);
-  QCOMPARE(messages.at(1).toolCalls.first().id,QStringLiteral("call-f"));
+  QCOMPARE(messages.at(1).toolCalls.first().id,hostIds.first());
   QCOMPARE(messages.at(2).role, ChatRole::Tool);
-  QCOMPARE(messages.at(2).toolCallId,QStringLiteral("call-f"));
+  QCOMPARE(messages.at(2).toolCallId,hostIds.first());
   const auto envelope=QJsonDocument::fromJson(messages.at(2).content.toUtf8()).object();
   QVERIFY(paleo::chat::isResultEnvelope(envelope));
   QCOMPARE(envelope.value("status").toString(),QStringLiteral("failed"));
@@ -562,7 +570,7 @@ void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
     const QJsonObject message = value.toObject();
     if (message.value(QStringLiteral("role")).toString() == QStringLiteral("tool") &&
         message.value(QStringLiteral("tool_call_id")).toString() ==
-          QStringLiteral("call-f")) {
+          hostIds.first()) {
       const auto wire=QJsonDocument::fromJson(message.value("content").toString().toUtf8()).object();
       QVERIFY(paleo::chat::isResultEnvelope(wire));
       QCOMPARE(wire.value("status").toString(),QStringLiteral("failed"));
@@ -632,7 +640,7 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
   QCOMPARE(messages.size(), 3); // user + assistant(calls) + tool(取消)
   QCOMPARE(messages.at(1).toolCalls.size(), 1);
   QCOMPARE(messages.at(2).role, ChatRole::Tool);
-  QCOMPARE(messages.at(2).toolCallId, QStringLiteral("call-x"));
+  QCOMPARE(messages.at(2).toolCallId, messages.at(1).toolCalls.first().id);
   QVERIFY2(messages.at(2).content.contains(QStringLiteral("取消")),
            qPrintable(messages.at(2).content));
   // 控制器存活销毁（无 UAF）：本用例结束即析构 controller（先于 fixture）。
@@ -842,7 +850,7 @@ void TestAiChatToolLoop::queryProjectLoopAnswersWithWellNames() {
     if (message.value(QStringLiteral("role")).toString() != QStringLiteral("tool"))
       continue;
     QCOMPARE(message.value(QStringLiteral("tool_call_id")).toString(),
-             QStringLiteral("call-q"));
+             admittedIds(controller).first());
     const QString content = message.value(QStringLiteral("content")).toString();
     if (content.contains(QStringLiteral("W-1")) &&
         content.contains(QStringLiteral("W-2")))

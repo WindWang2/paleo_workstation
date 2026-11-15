@@ -125,7 +125,7 @@ private:
   void rejectToolRound(const QString &code, const QString &message = {});
   void startEngineTurn();
   void piFailure(const QString &);
-  ChatToolCall hostPiCall(const ChatToolCall &) const;
+  ChatToolCall hostAdmittedCall(const ChatToolCall &) const;
 
   LlmConfig m_config;
   LlmClient m_client;
@@ -136,7 +136,7 @@ private:
   quint64 m_modelRound = 0;
   quint64 m_turnSequence = 0;
   QJsonObject m_turnContext;
-  QSet<QString> m_piProviderCalls; // Response-only deduplication; never durable identity.
+  QSet<QString> m_providerCalls; // Response-only deduplication; never durable identity.
   ChatSession m_session;
   QString m_projectBrief; // 方向77：工程概况常驻段（system prompt 尾部轻注入）
   bool m_streaming = false;

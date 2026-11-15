@@ -22,8 +22,8 @@ bool safeId(const QString &value) {
   return true;
 }
 QString requestId(const QString &session, const QJsonObject &row) {
-  auto identity = row; identity.remove("clientRequestId"); identity.insert("sessionId", session);
-  return "pi-" + digest(identity);
+  return "pi-" + digest({{"sessionId", session}, {"turnId", row.value("turnId")},
+      {"callId", row.value("callId")}, {"documentId", row.value("documentId")}});
 }
 QString key(const QJsonObject &row) {
   return row.value("turnId").toString() + ':' + row.value("callId").toString();
@@ -45,6 +45,29 @@ QString validateInvocationBindings(const ChatSession &session) {
   }
   return {};
 }
+QString validateInvocationRetry(const ChatSession &session, qsizetype userIndex) {
+  if (userIndex < 0 || userIndex >= session.messages.size() || session.messages[userIndex].role != ChatRole::User)
+    return "pi_invocation_turn_unavailable";
+  const auto integrity = validateInvocationBindings(session); if (!integrity.isEmpty()) return integrity;
+  const auto turn = session.messages[userIndex].hostTurnId;
+  for (qsizetype index = userIndex + 1; index < session.messages.size(); ++index)
+    for (const auto &call : session.messages[index].toolCalls) {
+      const auto spec = aiToolSpec(call.name);
+      const auto arguments = QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object();
+      const auto effects = spec.effectsForArguments(arguments);
+      // Resume may execute a frozen write even though its listing spec is Read;
+      // without a binding, use the explicit original-operation recovery path.
+      const bool resumes = call.name == QLatin1String("paleo.operation_resume");
+      if (!spec.name.isEmpty() && !resumes && effects == unsigned(paleo::host::Read)) continue;
+      bool found = false;
+      for (const auto &value : session.hostToolBindings) {
+        const auto row = value.toObject();
+        if (!turn.isEmpty() && row.value("turnId") == turn && row.value("callId") == call.id) { found = true; break; }
+      }
+      if (!found) return "chat_legacy_retry_requires_operation_recovery";
+    }
+  return {};
+}
 QString bindInvocations(ChatSession &session, const QString &turn, const QString &document,
                         QVector<ChatToolCall> &calls) {
   const auto code = validateInvocationBindings(session); if (!code.isEmpty()) return code;
@@ -60,7 +83,9 @@ QString bindInvocations(ChatSession &session, const QString &turn, const QString
     const auto parsed = QJsonDocument::fromJson(call.argumentsJson.isEmpty() ? QByteArray("{}") : call.argumentsJson.toUtf8(), &error);
     if (error.error != QJsonParseError::NoError || !parsed.isObject()) return "invalid_tool_arguments";
     auto arguments = parsed.object();
-    const bool operation = isAiCapabilityTool(call.name);
+    // The authoritative host schema owns this field. Future persistent tools
+    // participate without a second name catalogue; control tools have no field.
+    const bool operation = aiToolSpec(call.name).toJsonSchema().value("properties").toObject().contains("client_request_id");
     if (operation) arguments.remove("client_request_id");
     QJsonObject row{{"admittedSha256", digest({{"name", call.name}, {"arguments", arguments}})}, {"callId", call.id},
       {"documentId", document}, {"toolName", call.name}, {"turnId", turn}};

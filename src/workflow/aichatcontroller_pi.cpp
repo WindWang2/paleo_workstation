@@ -23,7 +23,7 @@ void AiChatController::setPiRuntime(const paleo::pi::RuntimeConfig &configuratio
   if (m_streaming) interrupt();
   if (guard) m_piConfiguration = configuration;
 }
-ChatToolCall AiChatController::hostPiCall(const ChatToolCall &source) const {
+ChatToolCall AiChatController::hostAdmittedCall(const ChatToolCall &source) const {
   auto call = source;
   const auto ordinal = !m_session.messages.isEmpty() && m_session.messages.last().role == ChatRole::Assistant ?
       m_session.messages.last().toolCalls.size() + 1 : 1;
@@ -37,7 +37,6 @@ ChatToolCall AiChatController::hostPiCall(const ChatToolCall &source) const {
 }
 void AiChatController::startEngineTurn() {
   m_modelRound = 0; m_hostTurn.clear(); m_turnContext = m_runner.hostContextIdentity();
-  if (!m_piConfiguration.enabled) { sendRound(); return; }
   const auto code = paleo::chat::validateInvocationBindings(m_session);
   if (!code.isEmpty()) { piFailure(code); return; }
   for (qsizetype index = m_session.messages.size(); index > 0; --index) {
@@ -46,6 +45,7 @@ void AiChatController::startEngineTurn() {
     if (message.hostTurnId.isEmpty()) message.hostTurnId = QUuid::createUuid().toString(QUuid::Id128);
     m_hostTurn = message.hostTurnId; break;
   }
+  if (!m_piConfiguration.enabled) { sendRound(); return; }
   const QPointer<AiChatController> guard(this); const auto sessionId = m_session.id, turn = m_hostTurn;
   QString error;
   // Reuse the existing atomic private ChatSessionStore; this is not a second

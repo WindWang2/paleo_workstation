@@ -29,6 +29,19 @@ Host call IDs derive from session, turn, model round and admitted call ordinal.
 Provider-generated call IDs are used only to deduplicate one response. A retry
 therefore retains its original durable identity even when the provider assigns
 fresh IDs; changed content at an existing ordinal conflicts before dispatch.
+This admission/persistence boundary is shared by the native and Pi engines.
+Switching an existing turn from Pi to native does not mint fresh request IDs.
+The client request key depends only on the host tuple/document; the separately
+stored canonical-call digest detects changed content, and OperationLog's request
+hash remains authoritative even when a chat binding is unavailable.
+
+Legacy chats remain readable. A legacy last turn containing unknown or writable
+business calls without its host turn/bindings cannot safely manufacture a new
+identity on retry: `chat_legacy_retry_requires_operation_recovery` keeps that
+transcript intact. Original operation facts can still be read/resumed through
+the existing scoped operation tools. Text-only and read-only legacy turns may be
+retried. The explicit operation tools remain available for a new recovery request
+addressing the original operation ID; legacy retry does not guess that record.
 
 ## Frames and lifecycle
 

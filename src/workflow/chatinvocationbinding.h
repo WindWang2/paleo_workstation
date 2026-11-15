@@ -9,4 +9,5 @@ namespace paleo::chat {
 QString bindInvocations(ChatSession &, const QString &hostTurnId, const QString &documentId,
                         QVector<ChatToolCall> &admittedCalls);
 QString validateInvocationBindings(const ChatSession &);
+QString validateInvocationRetry(const ChatSession &, qsizetype userIndex);
 } // namespace paleo::chat

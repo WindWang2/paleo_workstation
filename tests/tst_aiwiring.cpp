@@ -93,7 +93,7 @@ void TestAiWiring::reentrantBindDuringPythonPrewarmKeepsTheNewProject() {
   });
   qputenv("PALEO_AGENT_PYTHON_ROOT",candidate.runtimeRoot.toUtf8());
   qputenv("PALEO_AGENT_PYTHON_MANIFEST_SHA256",candidate.runtimeSha256.toUtf8());
-  qputenv("PALEO_AGENT_PYTHON_SCRIPTS_ROOT",QFINDTESTDATA("../vendor/agent-python/templates").toUtf8());
+  qputenv("PALEO_AGENT_PYTHON_SCRIPTS_ROOT",QFileInfo(QFINDTESTDATA("../vendor/agent-python/templates")).canonicalFilePath().toUtf8());
   qputenv("PALEO_AGENT_PYTHON_ENABLE_TRUSTED","1");qputenv("PALEO_AGENT_PYTHON_ENABLE_GENERATED","1");
   bindChatToolRunner(&chat,nullptr,nullptr,&oldCatalog,oldProject.path(),"old-document");
   QTRY_VERIFY_WITH_TIMEOUT(rebound,10000);QCOMPARE(admissions,prewarmAdmission);QJsonObject page;QVERIFY(queryWells(chat,&page));

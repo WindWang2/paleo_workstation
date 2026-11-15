@@ -30,7 +30,7 @@ struct Host {
       RecoveryHost host; host.projectDir = project.path(); host.operationDir = project.path() + "/.paleo/capability-ops";
       host.catalog = &catalog; host.writeClaim = lock.claim(); host.context.documentId = "doc";
       host.context.open = true; host.context.persistentIdentity = true; host.context.epoch = 1;
-      host.context.ownsWrites = true; host.context.allowedEffects = 127;
+      host.context.readOnly = false; host.context.ownsWrites = true; host.context.allowedEffects = 127;
       host.validateFrozen = [this](const OperationLog::Record &) {
         return registry->resolve(identity.identity.id, identity.identity.runtimeSha256, identity.identity.policy.json(), EnvironmentMode::Generated).code;
       };

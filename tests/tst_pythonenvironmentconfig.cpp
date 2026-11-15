@@ -86,7 +86,7 @@ private slots:
     Fixture fixture(QFINDTESTDATA("../vendor/agent-python/templates")); const auto candidate = fixture.candidate("runtime");
     const LegacyPythonEnvironment environment{{"PALEO_AGENT_PYTHON_ROOT", candidate.runtimeRoot},
       {"PALEO_AGENT_PYTHON_MANIFEST_SHA256", candidate.runtimeSha256},
-      {"PALEO_AGENT_PYTHON_SCRIPTS_ROOT", QFINDTESTDATA("../vendor/agent-python/templates")},
+      {"PALEO_AGENT_PYTHON_SCRIPTS_ROOT", QFileInfo(QFINDTESTDATA("../vendor/agent-python/templates")).canonicalFilePath()},
       {"PALEO_AGENT_PYTHON_ENABLE_TRUSTED", "1"}};
     PythonEnvironmentRegistry registry(fixture.configurationPath());
     QCOMPARE(registry.refresh(environment, registry.beginRefresh()), QString());

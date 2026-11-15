@@ -56007,6 +56007,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>Python 数值表计算</source>
             <translation>Python numeric table computation</translation>
         </message>
+        <message>
+            <location filename="../src/services/commandspec.cpp" line="209"/>
+            <source>Python 地震道计算</source>
+            <translation>Python seismic trace computation</translation>
+        </message>
     </context>
 
     <context>

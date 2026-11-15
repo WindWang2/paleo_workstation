@@ -83,6 +83,7 @@ add_paleo_test(tst_tracking_input LIBS paleo_app_agentproviders paleo_workflow P
 target_sources(paleo_ui PRIVATE
   src/ui/ai/aiassistdock.cpp
   src/ui/ai/llmconfigdialog.cpp
+  src/ui/ai/pythonenvironmentdialog.cpp
   src/ui/ai/aitoolresultview.cpp
 )
 
@@ -118,6 +119,7 @@ add_paleo_test(tst_aitoolresultview LIBS paleo_ui)
 add_paleo_test(tst_aimarkdown LIBS paleo_ai)
 # 方向62：图形化配置对话框（表单 round-trip / 密钥掩码 / 无钥匙串禁用态）。
 add_paleo_test(tst_llmconfigdialog LIBS paleo_ui)
+add_paleo_test(tst_pythonenvironmentdialog LIBS paleo_ui)
 
 # 方向61：工具调用闭环（tools 上送→tool_calls 执行→role=tool 回灌→终答）。
 # 真 ORT 执行面（夹具小模型 + catalog 声明断言），只在 ORT 构建跑。

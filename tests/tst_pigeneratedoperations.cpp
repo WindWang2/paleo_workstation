@@ -46,7 +46,10 @@ public:
         if (length < 0 || length > 128 * 1024 || bytes->size() < header + 4 + length) return;
         *served = true; ++requests; const bool call = emitTool; emitTool = false;
         QJsonObject message{{"role", "assistant"}, {"content", call ? "" : "completed through host"}};
-        if (call) message["tool_calls"] = QJsonArray{next.toJson()};
+        if (call) {
+          auto requested = next; requested.id = QString("new-provider-call-%1").arg(requests);
+          message["tool_calls"] = QJsonArray{requested.toJson()};
+        }
         const auto body = QJsonDocument(QJsonObject{{"choices", QJsonArray{QJsonObject{{"message", message}, {"finish_reason", call ? "tool_calls" : "stop"}}}}}).toJson(QJsonDocument::Compact);
         socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
         socket->disconnectFromHost();

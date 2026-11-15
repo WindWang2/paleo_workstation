@@ -26,6 +26,7 @@ AiChatController::AiChatController(QObject *parent)
   newSession();
   connect(&m_client, &LlmClient::deltaReceived, this,
           [this](const QString &text) {
+            if (!m_streaming) return;
             if (m_piBridge.busy() && !m_piBridge.modelDelta(text)) return;
             if (m_session.messages.isEmpty() ||
                 m_session.messages.last().role != ChatRole::Assistant)
@@ -35,6 +36,7 @@ AiChatController::AiChatController(QObject *parent)
           });
   connect(&m_client, &LlmClient::toolCallReceived, this,
           [this](const ChatToolCall &call) {
+            if (!m_streaming) return;
             ++m_streamToolCalls;
             if (m_streamToolCalls > kMaxCallsPerResponse ||
                 call.argumentsJson.toUtf8().size() > kMaxToolArgumentBytes ||
@@ -42,6 +44,10 @@ AiChatController::AiChatController(QObject *parent)
               m_roundRejected = true;
             if (m_roundRejected)
               return;
+            if (m_piBridge.busy() && !call.id.isEmpty()) {
+              if (m_piProviderCalls.contains(call.id)) return;
+              m_piProviderCalls.insert(call.id);
+            }
             ChatToolCall admitted = m_piBridge.busy() ? hostPiCall(call) : call;
             if (admitted.id.isEmpty())
               admitted.id = QUuid::createUuid().toString(QUuid::Id128);
@@ -482,6 +488,7 @@ void AiChatController::sendRound() {
   ++m_modelRound;
   m_roundRejected = false;
   m_streamToolCalls = 0;
+  m_piProviderCalls.clear();
   ChatMessage placeholder; // 流式增量往这条上累积
   placeholder.role = ChatRole::Assistant;
   placeholder.timestamp = QDateTime::currentDateTime();

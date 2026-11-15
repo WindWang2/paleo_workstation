@@ -25,8 +25,12 @@ void AiChatController::setPiRuntime(const paleo::pi::RuntimeConfig &configuratio
 }
 ChatToolCall AiChatController::hostPiCall(const ChatToolCall &source) const {
   auto call = source;
+  const auto ordinal = !m_session.messages.isEmpty() && m_session.messages.last().role == ChatRole::Assistant ?
+      m_session.messages.last().toolCalls.size() + 1 : 1;
+  // Provider IDs are freshly generated on a model retry. Durable identity is
+  // host-owned position; changed content at that position conflicts before run.
   const QJsonObject identity{{"session", m_session.id}, {"turn", m_hostTurn}, {"round", QString::number(m_modelRound)},
-    {"providerCallId", source.id.isEmpty() ? QStringLiteral("empty-%1").arg(m_streamToolCalls) : source.id}};
+    {"admittedOrdinal", QString::number(ordinal)}};
   call.id = "host_" + QString::fromLatin1(QCryptographicHash::hash(
       QJsonDocument(identity).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex().left(40));
   return call;

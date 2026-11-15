@@ -25,6 +25,10 @@ arguments to a stable host-derived client request ID before dispatch. Neither
 field is sent to the model or accepted from Node as authority. Old sessions
 without these optional fields remain readable. OperationLog and Catalog remain
 the only execution/commit facts; the chat binding is not a second operation log.
+Host call IDs derive from session, turn, model round and admitted call ordinal.
+Provider-generated call IDs are used only to deduplicate one response. A retry
+therefore retains its original durable identity even when the provider assigns
+fresh IDs; changed content at an existing ordinal conflicts before dispatch.
 
 ## Frames and lifecycle
 

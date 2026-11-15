@@ -273,6 +273,11 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
       restartedRunner.setTaskService(&f.tasks);restartedRunner.setPythonEnvironments(restored);
       QVERIFY(assembleAgentPython(&restartedRunner,context,&f.catalog,&f.session,&restarted,[]{return true;}));
       restartedRunner.setContext(context);restartedRunner.setResultSession("python-analysis-chat");publisher=&restartedRunner;
+      // Production assembly starts its own asynchronous refresh/prewarm. The
+      // synchronous refresh above cannot stand in for that new binding's
+      // completion; pending provider snapshots deliberately fail closed.
+      QTRY_COMPARE_WITH_TIMEOUT(f.tasks.runningCount(), 0, 180000);
+      QCOMPARE(restored->status().value("runtimeIntegrityCode").toString(), QString("ok"));
     } else runner.setContext(context);
     args["client_request_id"]="chat-publish";args["publish_intent"]="publish";
     args["parameters"]=QJsonObject{};args["inputs"]=QJsonObject{{"source_operation_id",operation}};

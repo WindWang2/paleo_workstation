@@ -42,6 +42,22 @@ qint64 nodeChild() {
   return 0;
 #endif
 }
+struct ChildObserver {
+  QElapsedTimer gap;int scans=0;qint64 scanMicros=0;
+  ChildObserver(){gap.start();}
+  qint64 poll() {
+#ifdef Q_OS_WIN
+    constexpr int interval=20;
+#else
+    constexpr int interval=2;
+#endif
+    if(gap.elapsed()<interval)return 0;
+    QElapsedTimer cost;cost.start();const auto child=nodeChild();scanMicros+=cost.nsecsElapsed()/1000;++scans;
+    // Enumeration itself can exceed the interval on Windows. Keep an actual gap
+    // after the scan instead of enumerating at every runtime hash chunk.
+    gap.restart();return child;
+  }
+};
 bool running(qint64 pid) {
 #ifdef Q_OS_WIN
   const auto handle=OpenProcess(SYNCHRONIZE,FALSE,DWORD(pid));if(!handle)return false;
@@ -93,7 +109,7 @@ private slots:
     auto second=identity();QVERIFY2(second.ok(),qPrintable(second.code));
     const auto external=[] {
       QProcess probe;probe.start(QCoreApplication::applicationFilePath(),{"--pi-lease-probe"});
-      if(!probe.waitForFinished(10000))return QByteArray("probe_timeout");return probe.readAllStandardOutput();
+      if(!probe.waitForFinished(10000))return QByteArray("probe_timeout");return probe.readAllStandardOutput().replace("\r\n","\n");
     };
     QCOMPARE(external(),QByteArray("pi_runtime_busy\n"));first.runtime.reset();
     QCOMPARE(external(),QByteArray("pi_runtime_busy\n"));second.runtime.reset();
@@ -105,22 +121,23 @@ private slots:
   }
   void cancellationReapsFixedChild() {
     const auto runtime=identity();QVERIFY2(runtime.ok(),qPrintable(runtime.code));auto value=request(runtime.runtime);
-    qint64 child=0;QElapsedTimer scan;scan.start();value.cancelled=[&]{if(scan.elapsed()<2)return false;scan.restart();child=nodeChild();return child>0;};
-    const auto result=worker(value);QCOMPARE(result.code,QString("cancelled"));QVERIFY(child>0);QVERIFY(result.peer.isEmpty());
+    qint64 child=0;ChildObserver observer;value.cancelled=[&]{if(child)return true;child=observer.poll();return child>0;};
+    const auto result=worker(value);qInfo()<<"observer scans"<<observer.scans<<"micros"<<observer.scanMicros;
+    QCOMPARE(result.code,QString("cancelled"));QVERIFY(child>0);QVERIFY(result.peer.isEmpty());
     QTRY_VERIFY_WITH_TIMEOUT(!running(child),3000);
   }
   void unexpectedExitDoesNotReturnPeer() {
     const auto runtime=identity();QVERIFY2(runtime.ok(),qPrintable(runtime.code));auto value=request(runtime.runtime);
-    qint64 child=0;bool terminated=false;QElapsedTimer scan;scan.start();value.cancelled=[&] {
-      if(child||scan.elapsed()<2)return false;scan.restart();child=nodeChild();if(child)terminated=terminateNode(child);return false;
+    qint64 child=0;bool terminated=false;ChildObserver observer;value.cancelled=[&] {
+      if(child)return false;child=observer.poll();if(child)terminated=terminateNode(child);return false;
     };
     const auto result=worker(value);QVERIFY(child>0);QVERIFY(terminated);QCOMPARE(result.code,QString("pi_process_failed"));QVERIFY(result.peer.isEmpty());
     QTRY_VERIFY_WITH_TIMEOUT(!running(child),3000);
   }
   void deadlineReapsStoppedFixedChild() {
     const auto runtime=identity();QVERIFY2(runtime.ok(),qPrintable(runtime.code));auto value=request(runtime.runtime);
-    qint64 child=0;bool suspended=false;QElapsedTimer scan,total;scan.start();total.start();value.cancelled=[&] {
-      if(child||scan.elapsed()<2)return false;scan.restart();child=nodeChild();if(child)suspended=suspendNode(child);return false;
+    qint64 child=0;bool suspended=false;ChildObserver observer;QElapsedTimer total;total.start();value.cancelled=[&] {
+      if(child)return false;child=observer.poll();if(child)suspended=suspendNode(child);return false;
     };
     const auto result=worker(value);QVERIFY(child>0);QVERIFY(suspended);QCOMPARE(result.code,QString("pi_handshake_timeout"));
     QVERIFY(result.peer.isEmpty());QVERIFY(total.elapsed()<10000);QTRY_VERIFY_WITH_TIMEOUT(!running(child),3000);
@@ -140,8 +157,8 @@ int main(int argc,char** argv) {
   }
   if(arguments.contains("--pi-hostdeath")) {
     const auto found=identity();if(!found.ok()){std::fprintf(stderr,"%s\n",found.code.toUtf8().constData());return 1;}
-    auto value=request(found.runtime);bool notified=false;QElapsedTimer scan;scan.start();value.cancelled=[&] {
-      if(notified||scan.elapsed()<2)return false;scan.restart();const auto child=nodeChild();if(child) {
+    auto value=request(found.runtime);bool notified=false;ChildObserver observer;value.cancelled=[&] {
+      if(notified)return false;const auto child=observer.poll();if(child) {
         notified=true;std::printf("%lld\n",static_cast<long long>(child));std::fflush(stdout);QThread::msleep(300);
       }return false;
     };

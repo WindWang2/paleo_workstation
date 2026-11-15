@@ -21,6 +21,7 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/aichattoolrunner.h"
+#include "workflow/capabilityhost.h"
 #include "fixtures/mkprojectfixture.h" // 方向95：mini 夹具扩散（重绑段）
 
 // 方向51 Oracle①：产品装配（app/aiwiring.cpp）与测试走同一个装配函数，
@@ -44,7 +45,9 @@ private slots:
   void exactVersionUsesBoundDocumentIdentity();
   void chatToolCatalogRebindsOnProjectSwitch();
   void chatToolRebindsOntoMkprojectFixtureProject();
+  void reentrantBindDuringPythonPrewarmKeepsTheNewProject_data();
   void reentrantBindDuringPythonPrewarmKeepsTheNewProject();
+  void hostContextRebindCannotOverwriteTheNewProject();
 
 private:
   static bool spinUntil(const std::function<bool()> &done, int timeoutMs = 10000) {
@@ -62,24 +65,49 @@ private:
   static bool queryWells(AiChatController &chat, QJsonObject *payload);
 };
 
+void TestAiWiring::reentrantBindDuringPythonPrewarmKeepsTheNewProject_data() {
+  QTest::addColumn<int>("prewarmAdmission");QTest::newRow("runtime")<<1;QTest::newRow("trusted")<<2;QTest::newRow("sandbox")<<3;
+}
 void TestAiWiring::reentrantBindDuringPythonPrewarmKeepsTheNewProject() {
-  const auto previous=qgetenv("PALEO_AGENT_PYTHON_ROOT");
-  const auto restore=qScopeGuard([&]{if(previous.isNull())qunsetenv("PALEO_AGENT_PYTHON_ROOT");else qputenv("PALEO_AGENT_PYTHON_ROOT",previous);});
+  QFETCH(int,prewarmAdmission);
+  const QList<QByteArray> names{"PALEO_AGENT_PYTHON_ROOT","PALEO_AGENT_PYTHON_ENABLE_TRUSTED","PALEO_AGENT_PYTHON_ENABLE_GENERATED"};
+  QList<QByteArray> previous;for(const auto &name:names)previous.append(qgetenv(name.constData()));
+  const auto restore=qScopeGuard([&]{for(int i=0;i<names.size();++i) {
+    if(previous[i].isNull())qunsetenv(names[i].constData());else qputenv(names[i].constData(),previous[i]);
+  }});
   QTemporaryDir oldProject,newProject;DataCatalog oldCatalog,newCatalog;
   QVERIFY(oldCatalog.open(oldProject.path()));QVERIFY(newCatalog.open(newProject.path()));
   CatalogEntity well;well.id="well-new";well.entityType="well";well.name="NEW-PROJECT";
   QVERIFY(newCatalog.addEntity(well));
-  AiChatController chat;PaleoTaskService tasks;chat.toolRunner()->setTaskService(&tasks);bool rebound=false;
+  AiChatController chat;PaleoTaskService tasks;chat.toolRunner()->setTaskService(&tasks);bool rebound=false;int admissions=0;
   connect(&tasks,&PaleoTaskService::taskAdded,&chat,[&] {
-    if(rebound)return;rebound=true;qunsetenv("PALEO_AGENT_PYTHON_ROOT");
+    if(rebound || ++admissions!=prewarmAdmission)return;rebound=true;qunsetenv("PALEO_AGENT_PYTHON_ROOT");
     bindChatToolRunner(&chat,nullptr,nullptr,&newCatalog,newProject.path(),"new-document");
   });
   qputenv("PALEO_AGENT_PYTHON_ROOT",oldProject.path().toUtf8());
+  qputenv("PALEO_AGENT_PYTHON_ENABLE_TRUSTED","1");qputenv("PALEO_AGENT_PYTHON_ENABLE_GENERATED","1");
   bindChatToolRunner(&chat,nullptr,nullptr,&oldCatalog,oldProject.path(),"old-document");
-  QVERIFY(rebound);QJsonObject page;QVERIFY(queryWells(chat,&page));
+  QVERIFY(rebound);QCOMPARE(admissions,prewarmAdmission);QJsonObject page;QVERIFY(queryWells(chat,&page));
   QCOMPARE(page.value("wells").toArray().size(),1);
   QCOMPARE(page.value("wells").toArray()[0].toObject().value("name").toString(),QString("NEW-PROJECT"));
   QVERIFY(!chat.toolRunner()->pythonRuntime()->configuration().enabled);
+}
+
+void TestAiWiring::hostContextRebindCannotOverwriteTheNewProject() {
+  const auto previous=qgetenv("PALEO_AGENT_PYTHON_ROOT");qunsetenv("PALEO_AGENT_PYTHON_ROOT");
+  const auto restore=qScopeGuard([&]{if(previous.isNull())qunsetenv("PALEO_AGENT_PYTHON_ROOT");else qputenv("PALEO_AGENT_PYTHON_ROOT",previous);});
+  QTemporaryDir oldProject,newProject;DataCatalog oldCatalog,newCatalog;
+  QVERIFY(oldCatalog.open(oldProject.path()));QVERIFY(newCatalog.open(newProject.path()));
+  CatalogEntity well;well.id="well-new";well.entityType="well";well.name="NEW-PROJECT";QVERIFY(newCatalog.addEntity(well));
+  AiChatController chat;paleo::capability::CapabilityHost host;bool rebound=false;
+  host.setBindingProvider([&] {
+    rebound=true;bindChatToolRunner(&chat,nullptr,nullptr,&newCatalog,newProject.path(),"new-document");
+    return paleo::capability::HostBinding{};
+  });
+  bindChatToolRunner(&chat,nullptr,nullptr,&oldCatalog,oldProject.path(),"old-document",&host);
+  QVERIFY(rebound);QJsonObject page;QVERIFY(queryWells(chat,&page));
+  QCOMPARE(page.value("wells").toArray().size(),1);
+  QCOMPARE(page.value("wells").toArray()[0].toObject().value("name").toString(),QString("NEW-PROJECT"));
 }
 
 void TestAiWiring::unconfiguredEndpointStillYieldsRouterWithoutTransport() {

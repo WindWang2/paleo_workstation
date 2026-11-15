@@ -130,8 +130,16 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
   if(QThread::currentThread()!=thread())return reject("owner_thread_required");
   if(subscriber && subscriber->thread()!=thread())return reject("subscriber_thread_mismatch");
   const QPointer<CapabilityRecovery> guard(this);const QPointer<QObject> listener(subscriber);
-  const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
+  const auto h=live();if(!guard)return reject("document_unavailable");
+  // live() may legitimately initialize the runtime generation. Retain its token
+  // before calling restoration hooks, so a hook cannot substitute a fresh one.
+  const auto invalidated=m_executionInvalidated;
+  const auto interrupted=[guard,invalidated] {
+    return !guard?QStringLiteral("document_unavailable"):invalidated->load()?QStringLiteral("stale_session"):QString();
+  };
+  OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
   auto r=reconcile(h,recovery_detail::authorized(log,h,scope,id));
+  if(const auto stopped=interrupted();!stopped.isEmpty())return reject(stopped);
   if(r.operationId.isEmpty())return reject("operation_not_found");
   if(r.planHash!=storage::operationPlanHash(r.frozenRequest,r.stagePlan,r.presentationIntent,r.externalRequest))
     return reject("frozen_plan_corrupt");
@@ -169,18 +177,20 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
   }
   const bool prepared=!r.preparedManifest.isEmpty();
   if(!prepared && r.execution!=QLatin1String("queued") && !(resume && r.execution==QLatin1String("interrupted")))return reject("explicit_resume_required");
-  if(h.validateFrozen){code=h.validateFrozen(r);if(!code.isEmpty())return reject(code);}
+  if(h.validateFrozen){code=h.validateFrozen(r);if(const auto stopped=interrupted();!stopped.isEmpty())return reject(stopped);if(!code.isEmpty())return reject(code);}
   OperationInputValidator validator=m_runtimeHooks.value(id).inputValidator;
   if(!validator && h.restoreInputValidator)validator=h.restoreInputValidator(r,&code);
+  if(const auto stopped=interrupted();!stopped.isEmpty())return reject(stopped);
   if(!code.isEmpty())return reject(code);
   if(r.frozenRequest.value("inputValidationRequired").toBool() && !validator)return reject("input_validator_unavailable");
   OperationWorker worker=m_runtimeHooks.value(id).worker;
   const bool copySource=r.frozenRequest.value("phase").toString()==QLatin1String("publish") && !r.frozenRequest.value("sourceOperationId").toString().isEmpty();
   if(!prepared && !copySource && !worker && h.restoreWorker)worker=h.restoreWorker(r,&code);
+  if(const auto stopped=interrupted();!stopped.isEmpty())return reject(stopped);
   if(!prepared && !worker && (r.frozenRequest.value("sourceOperationId").toString().isEmpty() ||
       r.frozenRequest.value("phase").toString()!=QLatin1String("publish")))return reject(code.isEmpty()?"execution_adapter_unavailable":code);
   const auto attempt=recovery_detail::acquire(h.projectDir,id);if(!attempt)return reject("operation_running");
-  attempt->contextInvalidated=m_executionInvalidated;
+  attempt->contextInvalidated=invalidated;
   if(!prepared) {
     const auto oldAttempt=r.ownerAttempt;r.ownerAttempt=QUuid::createUuid().toString(QUuid::WithoutBraces);
     r.ownerProcess=QString::number(QCoreApplication::applicationPid());r.execution="running";r.code="running";

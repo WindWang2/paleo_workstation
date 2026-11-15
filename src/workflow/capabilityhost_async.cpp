@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QThread>
 #include <QScopeGuard>
+#include <QVector>
 
 namespace paleo::capability {
 namespace {
@@ -20,6 +21,7 @@ struct PreparationState {
   FrozenOperation frozen;
   QString code;
   bool delivered=false;
+  QVector<QMetaObject::Connection> lifetimeConnections;
 };
 ExecuteResult preparationFailure(const QString &code) {
   ExecuteResult result;result.code=code;result.execution="rejected";result.commitState="not_requested";
@@ -27,9 +29,11 @@ ExecuteResult preparationFailure(const QString &code) {
     {"ok",false},{"code",code},{"execution",result.execution},{"commitState",result.commitState}}).toJson(QJsonDocument::Compact);
   return result;
 }
-void completePreparation(const std::shared_ptr<PreparationState> &state,ExecuteResult result) {
+void completePreparation(std::shared_ptr<PreparationState> state,ExecuteResult result) {
   if(state->delivered)return;
   state->delivered=true;if(state->preparationFinished.load())state->frozen={};
+  for(const auto &connection:state->lifetimeConnections)QObject::disconnect(connection);
+  state->lifetimeConnections.clear();
   if(state->release)state->release();state->release={};
   auto callback=std::move(state->callback);
   if(state->parent)state->parent->finishExternal(result.ok?QString():result.code);
@@ -63,31 +67,34 @@ PaleoTask *CapabilityHost::startPreparing(const QString &handle,const Prepared &
   if(!created) {if(guard)guard->m_pendingPreparations.remove(key);return reject("task_service_unavailable");}
   if(!guard){completePreparation(state,preparationFailure("document_unavailable"));return created;}
   const std::weak_ptr<PreparationState> weak=state;
-  const auto serviceGone=[state] {
+  const auto serviceGone=[weak] {
+    const auto state=weak.lock();if(!state || state->delivered)return;
     stopPreparation(state);
     if(state->owner)QTimer::singleShot(0,state->owner.data(),[state] {
       completePreparation(state,preparationFailure("task_service_unavailable"));
     });
   };
-  connect(tasks.data(),&QObject::destroyed,guard.data(),serviceGone,Qt::SingleShotConnection);
-  connect(created,&QObject::destroyed,guard.data(),[state] {
-    if(state->delivered)return;
+  state->lifetimeConnections.append(connect(tasks.data(),&QObject::destroyed,guard.data(),serviceGone,Qt::SingleShotConnection));
+  state->lifetimeConnections.append(connect(created,&QObject::destroyed,guard.data(),[weak] {
+    const auto state=weak.lock();if(!state || state->delivered)return;
     stopPreparation(state);
     if(state->owner)QTimer::singleShot(0,state->owner.data(),[state] {
       completePreparation(state,preparationFailure("preparation_task_unavailable"));
     });
-  },Qt::SingleShotConnection);
-  connect(created,&PaleoTask::cancelAsked,created,[weak]{if(auto state=weak.lock())state->stopped=true;},Qt::DirectConnection);
-  connect(created,&PaleoTask::cancelAsked,created,[weak]{if(auto state=weak.lock())stopPreparation(state);},Qt::QueuedConnection);
-  connect(guard.data(),&QObject::destroyed,created,[state]{stopPreparation(state);completePreparation(state,preparationFailure("document_unavailable"));},Qt::SingleShotConnection);
-  if(state->receiver)connect(state->receiver.data(),&QObject::destroyed,created,[weak]{
+  },Qt::SingleShotConnection));
+  state->lifetimeConnections.append(connect(created,&PaleoTask::cancelAsked,created,[weak]{if(auto state=weak.lock())state->stopped=true;},Qt::DirectConnection));
+  state->lifetimeConnections.append(connect(created,&PaleoTask::cancelAsked,created,[weak]{if(auto state=weak.lock())stopPreparation(state);},Qt::QueuedConnection));
+  state->lifetimeConnections.append(connect(guard.data(),&QObject::destroyed,created,[weak]{if(auto state=weak.lock()) {
+    stopPreparation(state);completePreparation(state,preparationFailure("document_unavailable"));
+  }},Qt::SingleShotConnection));
+  if(state->receiver)state->lifetimeConnections.append(connect(state->receiver.data(),&QObject::destroyed,created,[weak]{
     if(auto state=weak.lock()){stopPreparation(state);if(state->parent)state->parent->requestInterruption();}
-  },Qt::SingleShotConnection);
+  },Qt::SingleShotConnection));
   if(!state->receiver || (state->parent && state->parent->cancelRequested()))stopPreparation(state);
   const auto stopped=[state] {return state->stopped.load() || state->invalidated->load();};
   auto *phase=tasks->start(title,[state,worker=saved.preparation.worker,stopped](PaleoTask *task) {
     const auto done=qScopeGuard([state]{state->preparationFinished=true;});
-    connect(task,&PaleoTask::cancelAsked,task,[state]{state->stopped=true;},Qt::DirectConnection);
+    connect(task,&PaleoTask::cancelAsked,task,[weak=std::weak_ptr<PreparationState>(state)]{if(auto state=weak.lock())state->stopped=true;},Qt::DirectConnection);
     if(task->cancelRequested())state->stopped=true;
     if(stopped()){state->code="stale_session";return state->code;}
     state->frozen=worker(stopped,&state->code);return state->code;

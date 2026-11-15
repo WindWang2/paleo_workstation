@@ -25,10 +25,10 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR Qt6_VERSION VERSION_LESS "6.7")
 endif()
 target_include_directories(paleo_services_pythonruntime PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(paleo_services_pythonruntime PUBLIC Qt6::Core)
-target_compile_definitions(paleo_services_pythonruntime PRIVATE
+set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/services/pythonruntime.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
   PALEO_AGENT_PYTHON_SOURCE_LOCK_SHA="${_paleo_python_lock_sha}")
-target_compile_definitions(paleo_services_pythonruntime PRIVATE PALEO_AGENT_PYTHON_SUMMARY_SHA="${_paleo_python_summary_sha}")
-target_compile_definitions(paleo_services PRIVATE PALEO_AGENT_PYTHON_SUMMARY_SHA="${_paleo_python_summary_sha}")
+set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/services/pythoncapabilityspec.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
+  PALEO_AGENT_PYTHON_SUMMARY_SHA="${_paleo_python_summary_sha}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/vendor/agent-python/runtime.lock.json"
   "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/summary.py")

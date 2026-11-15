@@ -1,20 +1,21 @@
 # 受控 Python Agent 环境实施计划
 
 计划日期：2026-11-14。原计划基线：master `3d499a61`（#942）；实施基线见下文。
-2026-11-15 状态：**PY0–PY4 全部实现并完成各批编译、测试与源码门禁；实现 PR 等待按依赖合入，Shell 后置**。
+2026-11-15 状态：**SDK 配套及 PY0–PY4 已按依赖合入 master `c756cdbe`，各批编译、测试与源码门禁记录保留；Shell 后置**。
 实际契约和证据见 [PY0 记录](../progress/controlled-python-py0-20261114.md)与
 [PY1 记录](../progress/controlled-python-py1-20261114.md)、[PY2 记录](../progress/controlled-python-py2-20261114.md)、
 [Windows 隔离记录](../progress/agent-python-windows-sandbox.md)与
 [Linux 隔离记录](../progress/python-linux-sandbox.md)、[PY4 收口记录](../progress/controlled-python-py4-20261114.md)。
 每批完成编译、测试和源码门禁后分别提 PR，不以计划条目推定功能已可用。
 
-已提交 SDK [#21](https://github.com/changyanyanchang/Data_service/pull/21)、PY0
+已按依赖合入 SDK [#21](https://github.com/changyanyanchang/Data_service/pull/21)、PY0
 [#945](https://github.com/WindWang2/paleo_workstation/pull/945)、PY1
 [#947](https://github.com/WindWang2/paleo_workstation/pull/947)、PY2
 [#948](https://github.com/WindWang2/paleo_workstation/pull/948)、PY3W
 [#949](https://github.com/WindWang2/paleo_workstation/pull/949)、PY3L
-[#950](https://github.com/WindWang2/paleo_workstation/pull/950)；PY4 为本分支。
-这些实现尚未合入 master，生产可用范围须按实际合入、供货及
+[#950](https://github.com/WindWang2/paleo_workstation/pull/950)、PY4
+[#951](https://github.com/WindWang2/paleo_workstation/pull/951)。合并后的整体 review 与整理见
+[本轮记录](../progress/python-platform-review-20261115.md)。生产可用范围仍须按实际供货及
 [平台支持表](../../vendor/agent-python/SANDBOX_SUPPORT.md)判断。Windows 验收是原生 Core
 Host/SDK/LPAC 链路，不宣称完整 Windows GUI 构建；当前 WSL 缺 CPU controller 时
 拒绝生成执行，未验收的 Linux 栈和旧 Qt 不外推支持。

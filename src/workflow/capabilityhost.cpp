@@ -29,40 +29,61 @@ QByteArray CapabilityHost::requestDigest(const ExecuteRequest &request) { return
 CapabilityHost::CapabilityHost(NativeAdapterFactory nativeFactory, QObject *parent)
   : QObject(parent), m_nativeAdapterFactory(std::move(nativeFactory)), m_recovery(new CapabilityRecovery(this)) {
   m_recovery->setHostProvider([this] {
-    const auto b=binding();RecoveryHost h;h.context=b.context;h.projectDir=b.projectDir;h.operationDir=b.operationDir;
+    const QPointer<CapabilityHost> guard(this);const auto invalidated=m_preparationInvalidated;
+    const auto current=[guard,invalidated]{return guard && !invalidated->load();};
+    const auto b=binding();RecoveryHost h;if(!current())return h;
+    h.context=b.context;h.projectDir=b.projectDir;h.operationDir=b.operationDir;
     h.catalog=b.catalog;h.writeClaim=b.writeClaim;
     h.presentationState=m_presentationState;h.present=m_present;
-    h.restoreInputValidator=[this,b](const OperationLog::Record &r,QString *error) {
-      if(m_adapters.contains(r.capabilityId)) {
-        const auto adapter=m_adapters.value(r.capabilityId);
-        return adapter.restoreInputValidator?adapter.restoreInputValidator(r,error):OperationInputValidator{};
+    h.restoreInputValidator=[guard,b,current](const OperationLog::Record &r,QString *error) {
+      const auto unavailable=[error,guard]{if(error)*error=guard?"stale_session":"document_unavailable";return OperationInputValidator{};};
+      if(!current())return unavailable();
+      if(guard->m_adapters.contains(r.capabilityId)) {
+        const auto restore=guard->m_adapters.value(r.capabilityId).restoreInputValidator;
+        auto validator=restore?restore(r,error):OperationInputValidator{};
+        return current()?validator:unavailable();
       }
-      if(m_restoreInputValidator)if(auto validator=m_restoreInputValidator(r,error))return validator;
-      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
-      if(native.restoreInputValidator)return native.restoreInputValidator(r,error);
+      const auto restore=guard->m_restoreInputValidator;const auto factory=guard->m_nativeAdapterFactory;
+      if(restore) {
+        auto validator=restore(r,error);if(!current())return unavailable();if(validator)return validator;
+      }
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!current())return unavailable();
+      if(native.restoreInputValidator) {
+        auto validator=native.restoreInputValidator(r,error);return current()?validator:unavailable();
+      }
       if(error)*error="execution_adapter_unavailable";return OperationInputValidator{};
     };
-    h.validateFrozen=[this,b](const OperationLog::Record &r) {
-      if(m_adapters.contains(r.capabilityId)) {
-        const auto adapter=m_adapters.value(r.capabilityId);
-        return adapter.validateFrozen?adapter.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
+    h.validateFrozen=[guard,b,current](const OperationLog::Record &r) {
+      const auto unavailable=[guard]{return guard?QStringLiteral("stale_session"):QStringLiteral("document_unavailable");};
+      if(!current())return unavailable();
+      if(guard->m_adapters.contains(r.capabilityId)) {
+        const auto validate=guard->m_adapters.value(r.capabilityId).validateFrozen;
+        const auto code=validate?validate(r):QStringLiteral("execution_adapter_unavailable");
+        return current()?code:unavailable();
       }
-      if(m_validateFrozen){const auto code=m_validateFrozen(r);if(!code.isEmpty())return code;}
-      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
-      return native.validateFrozen?native.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
+      const auto validate=guard->m_validateFrozen;const auto factory=guard->m_nativeAdapterFactory;
+      if(validate) {
+        const auto code=validate(r);if(!current())return unavailable();if(!code.isEmpty())return code;
+      }
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!current())return unavailable();
+      const auto code=native.validateFrozen?native.validateFrozen(r):QStringLiteral("execution_adapter_unavailable");
+      return current()?code:unavailable();
     };
-    h.restoreWorker=[this,b](const OperationLog::Record &r,QString *error) {
-      if(m_adapters.contains(r.capabilityId)) {
-        const auto adapter=m_adapters.value(r.capabilityId);
-        if(adapter.restoreWorker)return adapter.restoreWorker(r,error);
+    h.restoreWorker=[guard,b,current](const OperationLog::Record &r,QString *error) {
+      const auto unavailable=[error,guard]{if(error)*error=guard?"stale_session":"document_unavailable";return OperationWorker{};};
+      if(!current())return unavailable();
+      if(guard->m_adapters.contains(r.capabilityId)) {
+        const auto restore=guard->m_adapters.value(r.capabilityId).restoreWorker;
+        if(restore){auto worker=restore(r,error);return current()?worker:unavailable();}
         if(error)*error="execution_adapter_unavailable";return OperationWorker{};
       }
-      if(m_restoreWorker) {
-        auto worker=m_restoreWorker(r,error);
+      const auto restore=guard->m_restoreWorker;const auto factory=guard->m_nativeAdapterFactory;
+      if(restore) {
+        auto worker=restore(r,error);if(!current())return unavailable();
         if(worker || (error && !error->isEmpty()))return worker;
       }
-      const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(b):CapabilityExecutionAdapter{};
-      if(native.restoreWorker)return native.restoreWorker(r,error);
+      const auto native=factory?factory(b):CapabilityExecutionAdapter{};if(!current())return unavailable();
+      if(native.restoreWorker){auto worker=native.restoreWorker(r,error);return current()?worker:unavailable();}
       if(error)*error="execution_adapter_unavailable";return OperationWorker{};
     };return h;
   });
@@ -112,7 +133,8 @@ void CapabilityHost::prunePrepared(const host::CallContext &context) {
     if(it->expiresAt<now || it->context.documentId!=context.documentId || it->context.epoch!=context.epoch)it=m_prepared.erase(it);else ++it;
 }
 HostBinding CapabilityHost::binding() const {
-  return QThread::currentThread() == thread() && m_binding ? m_binding() : HostBinding{};
+  if(QThread::currentThread()!=thread())return {};
+  const auto provider=m_binding;return provider?provider():HostBinding{};
 }
 host::CallContext CapabilityHost::context() const { return binding().context; }
 QString CapabilityHost::preparedCommand(const QString &handle) const {
@@ -125,15 +147,22 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
                                       std::function<QString()> executionGuard, const QString &trustedChatSessionId) {
   HostPrepared result;
   const auto fail = [&](const QString &code) { result.code = code; return result; };
+  const QPointer<CapabilityHost> guard(this);const auto invalidated=m_preparationInvalidated;
+  const auto interrupted=[guard,invalidated] {
+    return !guard?QStringLiteral("document_unavailable"):invalidated->load()?QStringLiteral("stale_session"):QString();
+  };
   auto live = binding();
+  if(const auto code=interrupted();!code.isEmpty())return fail(code);
   prunePrepared(live.context);
   if (!intent.documentId.isEmpty() && intent.documentId != live.context.documentId)
     return fail(QStringLiteral("document_mismatch"));
   QString resolutionError;const auto resolved=CapabilityRegistry::resolveAlias(intent.capabilityId,&resolutionError);
   const auto adapter=m_adapters.value(resolved);
-  const auto native=m_nativeAdapterFactory?m_nativeAdapterFactory(live):CapabilityExecutionAdapter{};
+  const auto nativeFactory=m_nativeAdapterFactory;const auto native=nativeFactory?nativeFactory(live):CapabilityExecutionAdapter{};
+  if(const auto code=interrupted();!code.isEmpty())return fail(code);
   if(intent.seismicTrace && !adapter.intent && !native.intent)return fail("execution_adapter_unavailable");
   const auto original=adapter.intent?adapter.intent(intent):native.intent?native.intent(intent):capabilityIntent(intent);
+  if(const auto code=interrupted();!code.isEmpty())return fail(code);
   const unsigned phaseEffects=host::computeEffects(intent.publishIntent);
   if(!phaseEffects)return fail(QStringLiteral("unsupported_intent"));
   const unsigned effects=phaseEffects|CapabilityRegistry::executionEffects(resolved,intent.contractVersion);
@@ -142,6 +171,7 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   if (caller != host::Caller::Ui && intent.clientRequestId.trimmed().isEmpty())
     return fail(QStringLiteral("client_request_id_required"));
   const auto prior=m_recovery->lookup(scope,intent.clientRequestId);
+  if(const auto code=interrupted();!code.isEmpty())return fail(code);
   if(prior.code==QLatin1String("found")) {
     if(prior.record.schemaVersion!=2)return fail("legacy_unverifiable");
     if(prior.record.requestHash!=operationDigest(original))return fail("idempotency_conflict");
@@ -182,17 +212,23 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   } else if(adapter.capture) {
     if(saved.request.bindingMode.isEmpty())saved.request.bindingMode="pinned-value";
     saved.preparation=adapter.capture(saved.request,original,&code);
+    if(const auto stopped=interrupted();!stopped.isEmpty())return fail(stopped);
     if(!code.isEmpty() || !saved.preparation.worker)return fail(code.isEmpty()?QStringLiteral("preparation_adapter_unavailable"):code);
     result.effectiveParameters=saved.request.parameters;
   } else if(adapter.freeze) {
     saved.frozen=adapter.freeze(saved.request,original,&code);
+    if(const auto stopped=interrupted();!stopped.isEmpty())return fail(stopped);
     if(!code.isEmpty())return fail(code);
     result.effectiveParameters=saved.request.parameters;
   } else {
   if(!native.freeze || !native.normalize)return fail("execution_adapter_unavailable");
   code=native.normalize(saved.request,result.effectiveParameters);
+  if(const auto stopped=interrupted();!stopped.isEmpty())return fail(stopped);
   if(!code.isEmpty())return fail(code);
-  saved.frozen=native.freeze(saved.request,native.intent?native.intent(intent):original,&code);
+  const auto nativeRequestIntent=native.intent?native.intent(intent):original;
+  if(const auto stopped=interrupted();!stopped.isEmpty())return fail(stopped);
+  saved.frozen=native.freeze(saved.request,nativeRequestIntent,&code);
+  if(const auto stopped=interrupted();!stopped.isEmpty())return fail(stopped);
   if(!code.isEmpty())return fail(code);
   }
   saved.context = live.context; saved.effects = effects|saved.frozen.requiredEffects; saved.required = requiredContext;
@@ -200,10 +236,6 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   saved.executionGuard = std::move(executionGuard);
   saved.intentDigest = digest(intent);
   saved.expiresAt = QDateTime::currentMSecsSinceEpoch() + 5 * 60 * 1000;
-  const qint64 now = QDateTime::currentMSecsSinceEpoch();
-  for (auto it = m_prepared.begin(); it != m_prepared.end(); )
-    if (it->expiresAt < now || it->context.documentId != live.context.documentId ||
-        it->context.epoch != live.context.epoch) it = m_prepared.erase(it); else ++it;
   if (m_prepared.size() >= 128) return fail(QStringLiteral("prepared_capacity_exceeded"));
   result.handle = QUuid::createUuid().toString(QUuid::WithoutBraces);
   m_prepared.insert(result.handle, std::move(saved)); result.ok = true; result.code = QStringLiteral("ok");

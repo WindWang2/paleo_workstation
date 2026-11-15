@@ -31,13 +31,12 @@ A0–A4 的全面迁移仍待实施，不以工具登记数量代替功能完成
 [实施记录](docs/progress/agent-readiness-20261113.md)。本轮支持单 Catalog 凭证和明确契约的
 工具；94 条命令全面迁移、跨 store 全局提交及未支持的深度映射仍按各专项推进。
 
-受控 Python [实施计划](docs/planning/CONTROLLED_PYTHON_AGENT_PLAN.md) 的 PY0–PY4 已全部
-实现并逐批完成编译、测试和源码门禁；SDK #21、主仓 #945/#947/#948/#949/#950 与
-PY4 本分支的实现待按依赖合入，不能视为 master 已具备这些能力。
-真实取数、可信分析、Windows/Linux 强隔离及 Agent 生成报告复用既有任务、暂存、
-认证分页、发布与恢复链路；[最终验收](docs/progress/controlled-python-py4-20261114.md)
-与[支持范围](vendor/agent-python/SANDBOX_SUPPORT.md)区分原生执行、WSL 拒绝及
-Windows Core/GUI 验证边界。Shell/任意 CLI、网络、在线安装包与持久解释器后置。
+受控 Python [实施计划](docs/planning/CONTROLLED_PYTHON_AGENT_PLAN.md) 的 SDK #21 与
+PY0–PY4（#945/#947–#951）已按依赖合入 master `c756cdbe`；逐批验收与
+[合并后整理](docs/progress/python-platform-review-20261115.md)分别保留记录。
+[支持范围](vendor/agent-python/SANDBOX_SUPPORT.md)仍区分原生执行、WSL 拒绝及
+Windows Core/GUI 验证边界。Shell/任意 CLI、网络、在线安装包与持久解释器继续后置，
+后续按实际业务另立 profile、权限与验收，不扩大当前受控数值计算范围。
 
 `operation_read` 重复全文件 SHA 整改已实现整 SHA 锚定的有界分块认证，绑定宿主/工件，
 处理取消、替换与回收保护；每页认证返回范围。契约、实际字节计数及合入前验证见

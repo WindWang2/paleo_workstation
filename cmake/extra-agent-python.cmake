@@ -7,7 +7,8 @@ add_library(paleo_services_pythonruntime STATIC
   src/services/pythonruntime.cpp
   src/services/pythonruntime_probe.cpp)
 target_sources(paleo_services_pythonruntime PRIVATE
-  src/services/pythondelivery.cpp src/services/pythondelivery_manifest.cpp src/services/pythondelivery_files.cpp)
+  src/services/pythondelivery.cpp src/services/pythondelivery_manifest.cpp
+  src/services/pythondelivery_files.cpp src/services/pythondelivery_store.cpp)
 set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/services/pythondelivery_manifest.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
   PALEO_DELIVERY_SUMMARY_SHA="${_paleo_python_summary_sha}"
   PALEO_DELIVERY_QUALITY_SHA="${_paleo_delivery_quality_sha}"

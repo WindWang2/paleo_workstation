@@ -20,6 +20,7 @@ struct Header {
 };
 bool digest(const QString &value);
 bool parseHeader(const QByteArray &raw, Header &header);
+bool storeEntries(const Header &header, const QString &store);
 QString validateManifest(const Header &header, const QByteArray &raw);
 QString verifyInstalled(const Header &header, const QString &root,
                         const std::function<bool()> &cancelled);

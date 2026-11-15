@@ -194,9 +194,30 @@ private slots:
   }
   void refusesLinkedPackage() {
     Package package; auto request = package.request();
+#ifdef Q_OS_WIN
+    const auto link = package.temporary.path() + "/linked-package.lnk";
+#else
     const auto link = package.temporary.path() + "/linked-package";
+#endif
     if (!QFile::link(request.packagePath, link)) QSKIP("Filesystem cannot create a link");
+    QVERIFY(QFileInfo::exists(link));
     request.packagePath = link; QVERIFY(!installDelivery(request).ready());
+  }
+  void unrelatedDirectoryRemainsUntouched() {
+    Package package; const auto request = package.request(); QVERIFY(QDir().mkpath(request.storeRoot));
+    QFile unrelated(request.storeRoot + "/user-document.txt"); QVERIFY(unrelated.open(QIODevice::WriteOnly));
+    unrelated.write("preserve existing user data\n"); unrelated.close();
+    QCOMPARE(installDelivery(request).code, QString("python_delivery_store_invalid"));
+    QCOMPARE(fileBytes(unrelated.fileName()), QByteArray("preserve existing user data\n"));
+    QCOMPARE(QDir(request.storeRoot).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot),
+             QStringList{"user-document.txt"});
+  }
+  void runtimeAndScriptsStoresCannotBeMixed() {
+    Package runtime, scripts; const auto request = runtime.request(); QVERIFY(installDelivery(request).ready());
+    const auto selection = fileBytes(runtime.selection(request));
+    scripts.scripts(); auto scriptRequest = scripts.request(); scriptRequest.storeRoot = request.storeRoot;
+    QCOMPARE(installDelivery(scriptRequest).code, QString("python_delivery_store_invalid"));
+    QCOMPARE(fileBytes(runtime.selection(request)), selection); QVERIFY(!QFileInfo::exists(request.storeRoot + "/.scripts.lock"));
   }
 };
 QTEST_GUILESS_MAIN(TestPythonDelivery)

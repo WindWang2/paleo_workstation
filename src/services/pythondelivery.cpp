@@ -126,9 +126,10 @@ QString installPayload(QFile &source, const Header &header, const DeliveryReques
                        QCryptographicHash &hash, DeliveryResult &result,
                        const std::function<bool()> &cancelled) {
   const auto store = QDir::fromNativeSeparators(request.storeRoot);
-  if (!directory(store, true)) return "python_delivery_store_invalid";
+  if (!directory(store, true) || !storeEntries(header, store)) return "python_delivery_store_invalid";
   StoreLock lock(QDir(store).filePath(header.kind == "runtime" ? ".prepare.lock" : ".scripts.lock"));
   if (!lock.locked()) return "python_delivery_store_busy";
+  if (!storeEntries(header, store)) return "python_delivery_store_invalid";
   const auto generations = QDir(store).filePath("generations");
   if (!directory(generations, true) || !selectionSafe(header, selectionPath(header, store)))
     return "python_delivery_store_invalid";

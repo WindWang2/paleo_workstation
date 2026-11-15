@@ -1,9 +1,10 @@
 # Host PNG codec for output frame v3
 
-This is the bounded data codec for O2. Tool/spec/worker registration and complete
-platform execution acceptance are separate; this document does not claim that an
-Agent tool or an untested platform can run the new profile. O1 frame v2 and its
-existing validator retain their original semantics.
+This is the bounded data codec used by the separate
+[O2 capability](../../docs/PYTHON_GENERATED_OUTPUTS.md). Platform execution
+acceptance is recorded independently; registration alone does not certify that
+an untested platform can run the profile. O1 frame v2 and its validator retain
+their original semantics.
 
 The host freezes a table declaration, an image declaration, an encoder identity
 and the output policy before execution. The image declaration has exactly these

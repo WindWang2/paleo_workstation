@@ -8,6 +8,7 @@ using namespace paleo;
 struct Fixture:numeric_table_native_fixture::Fixture {
   python::SeismicTraceSelection traceSelection;
   data::SeismicWindowDescriptor descriptor;
+  data::SeismicWindowReadStats descriptorIo;
   document::SourceRecord source;
   QByteArray raw;
   bool openTrace() {
@@ -16,9 +17,7 @@ struct Fixture:numeric_table_native_fixture::Fixture {
     const auto sha=QCryptographicHash::hash(raw,QCryptographicHash::Sha256).toHex();std::string detail;long long sourceId=0;
     if(!table.sdk.importPreparedFile(path.toUtf8().toStdString(),path.toUtf8().toStdString(),path.toUtf8().toStdString(),sha.toStdString(),
         seismic_trace_fixture::parsed(path),sourceId,detail)){error=QString::fromStdString(detail);return false;}
-    std::vector<data::DataEntry> volumes;bool more=false;data::MetadataReadOptions budget;data::MetadataReadStats stats;
-    if(!table.sdk.listDataPage("volumes",0,0,1,volumes,more,detail,budget,&stats)||more||volumes.size()!=1||
-        !table.sdk.describeSeismicWindow(volumes.front().id,descriptor,detail)){error=QString::fromStdString(detail);return false;}
+    if(!seismic_trace_fixture::describeImportedVolume(table.sdk,sourceId,sha,descriptor,descriptorIo,error))return false;
     if(!registerAreaSources(catalog,&error))return false;
     traceSelection=seismic_trace_fixture::selection({session.documentId(),"area-model",sourceId,QString::fromLatin1(sha)},descriptor);
     source=session.source(traceSelection.source);if(source.versionId.isEmpty()){error="formal seismic source missing";return false;}return true;

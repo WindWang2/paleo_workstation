@@ -9,6 +9,10 @@ class TestPythonSeismicTraceWiring:public QObject {
 private slots:
   void descriptorQueryReadsOnlyBoundedMetadataAndMakesNoIntegrityClaim() {
     Fixture f;QVERIFY2(f.openTrace(),qPrintable(f.error));query::ProjectQueryCapability query;
+    QCOMPARE(f.descriptor.cut.sourceId,f.traceSelection.source.sourceId);
+    QVERIFY(f.descriptorIo.metadataBytesRead>0);QVERIFY(f.descriptorIo.metadataBytesRead<=8192);
+    QCOMPARE(f.descriptorIo.requestedSourceBytes,qint64(0));QCOMPARE(f.descriptorIo.sourceReadCalls,qint64(0));
+    QCOMPARE(f.descriptorIo.outputBytes,qint64(0));
     query.bind(&f.catalog,{f.session.documentId(),1,0,"trace-query"});
     query.setSourceResolver([&](const auto &ref){return f.session.source(ref);});
     const QJsonObject args{{"topic","seismic_trace_descriptor"},{"source_ref",document::sourceRefJson(f.traceSelection.source)},

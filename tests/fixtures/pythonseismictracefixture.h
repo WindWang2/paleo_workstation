@@ -9,6 +9,7 @@
 #include <QTemporaryDir>
 #include <QtEndian>
 #include <cstring>
+#include <utility>
 namespace seismic_trace_fixture {
 using namespace paleo;
 inline QByteArray sourceBytes(int traces=2,int missing=-1) {
@@ -38,9 +39,33 @@ inline python::SeismicTraceSelection selection(const document::SourceRef &source
   out.amplitudeUnit=QString::fromStdString(descriptor.amplitudeUnit);out.timeUnit=QString::fromStdString(descriptor.timeUnit);
   out.timeType=QString::fromStdString(descriptor.timeType);out.timeReference=QString::fromStdString(descriptor.timeReference);return out;
 }
+inline bool describeImportedVolume(data::DataService &sdk,long long sourceId,const QByteArray &sha,
+    data::SeismicWindowDescriptor &descriptor,data::SeismicWindowReadStats &usage,QString &error) {
+  descriptor={};usage={};error.clear();std::string detail;std::vector<data::DataEntry> volumes;
+  // This synthetic fixture owns one volume per imported source. The SDK's
+  // bounded well-data page API intentionally does not enumerate seismic volumes.
+  if(!sdk.listSourceData("volumes",sourceId,volumes,detail)){error=QString::fromStdString(detail);return false;}
+  if(volumes.size()!=1||volumes.front().id<1||volumes.front().sourceId!=sourceId) {
+    error="fixture_imported_volume_identity_mismatch";return false;
+  }
+  data::SeismicWindowReadOptions budget;budget.maxReadBytes=8192;
+  data::SeismicWindowDescriptor pending;data::ModelChangeHead current;
+  if(!sdk.describeSeismicWindow(volumes.front().id,pending,detail,budget,&usage)||
+      !sdk.readModelChangeHead(current,detail)){error=QString::fromStdString(detail);return false;}
+  const auto &head=pending.cut.model;
+  if(pending.cut.volumeId!=volumes.front().id||pending.cut.sourceId!=sourceId||
+      pending.registeredSourceFingerprint!=sha.toStdString()||pending.cut.volumeRevision.empty()||
+      !head.available||!current.available||head.storeId!=current.storeId||head.generation!=current.generation||head.sequence!=current.sequence||
+      usage.metadataBytesRead<1||usage.metadataBytesRead>budget.metadata.maxTextBytes||
+      usage.requestedSourceBytes!=0||usage.sourceReadCalls!=0||usage.outputBytes!=0) {
+    error="fixture_seismic_descriptor_identity_or_io_mismatch";return false;
+  }
+  descriptor=std::move(pending);return true;
+}
 struct Model {
   QTemporaryDir temp;QString project,model,path,error;data::DataService sdk;QByteArray raw;
   python::SeismicTraceReadPlan plan;data::SeismicWindowDescriptor descriptor;
+  data::SeismicWindowReadStats descriptorIo;
   bool open(int traces=2,int missing=-1,const std::function<void(QByteArray&)> &edit={}) {
     project=temp.filePath("project");model=project+"/artifacts/metadata/area-model";path=temp.filePath("source.sgy");
     std::string detail;if(!sdk.createProject(model.toUtf8().toStdString(),"Exact trace fixture",detail)){error=QString::fromStdString(detail);return false;}
@@ -48,9 +73,7 @@ struct Model {
     if(!file.open(QIODevice::WriteOnly)||file.write(raw)!=raw.size())return false;file.close();
     const auto sha=QCryptographicHash::hash(raw,QCryptographicHash::Sha256).toHex();long long source=0;
     if(!sdk.importPreparedFile(path.toUtf8().toStdString(),path.toUtf8().toStdString(),path.toUtf8().toStdString(),sha.toStdString(),parsed(path,traces),source,detail))return false;
-    std::vector<data::DataEntry> volumes;bool more=false;data::MetadataReadOptions budget;data::MetadataReadStats stats;
-    if(!sdk.listDataPage("volumes",0,0,1,volumes,more,detail,budget,&stats)||more||volumes.size()!=1||
-        !sdk.describeSeismicWindow(volumes.front().id,descriptor,detail)){error=QString::fromStdString(detail);return false;}
+    if(!describeImportedVolume(sdk,source,sha,descriptor,descriptorIo,error))return false;
     const document::SourceRef reference{"seismic-doc","area-model",source,QString::fromLatin1(sha)};
     plan.selection=selection(reference,descriptor);plan.projectDir=project;plan.modelDirectory=model;plan.documentId=reference.documentId;plan.callerScope="agent:trace";
     plan.source.ref=reference;plan.source.path=path;plan.source.assetId="data-only-source-asset";plan.source.versionId="data-only-source-version";

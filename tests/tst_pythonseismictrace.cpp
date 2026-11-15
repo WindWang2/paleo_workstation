@@ -13,6 +13,15 @@ class TestPythonSeismicTrace:public QObject {
 private slots:
   void exactTraceTimeAndActualSourceCutFreezeWithoutGuessing() {
     Model f;QVERIFY2(f.open(),qPrintable(f.error));const auto permit=python::claimExecutionPermit();
+    QCOMPARE(f.descriptor.cut.sourceId,f.plan.selection.source.sourceId);
+    QVERIFY(f.descriptorIo.metadataBytesRead>0);QVERIFY(f.descriptorIo.metadataBytesRead<=8192);
+    QCOMPARE(f.descriptorIo.requestedSourceBytes,qint64(0));QCOMPARE(f.descriptorIo.sourceReadCalls,qint64(0));
+    QCOMPARE(f.descriptorIo.outputBytes,qint64(0));
+    data::SeismicWindowDescriptor missing;data::SeismicWindowReadStats missingIo;QString discoveryError;
+    QVERIFY(!describeImportedVolume(f.sdk,f.plan.selection.source.sourceId+100,
+      f.plan.selection.source.fileRevisionId.toLatin1(),missing,missingIo,discoveryError));
+    QCOMPARE(discoveryError,QString("fixture_imported_volume_identity_mismatch"));
+    QVERIFY(!missing.cut.model.available);QCOMPARE(missingIo.metadataBytesRead,qint64(0));
     const auto result=python::materializeSeismicTrace(f.plan,sourceCode(),policy(),permit);QVERIFY2(result.ok(),qPrintable(result.code));
     QVERIFY(python::validateSeismicTraceInputMetadata(result.metadata));QCOMPARE(result.io.outputBytes,qint64(51));QCOMPARE(result.io.requestedSourceBytes,qint64(652));
     QCOMPARE(result.authentication.fullScans,quint64(1));QCOMPARE(result.authentication.fullHashBytes,quint64(f.raw.size()));

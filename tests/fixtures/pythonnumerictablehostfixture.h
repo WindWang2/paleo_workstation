@@ -20,7 +20,7 @@ struct Fixture:document_fixture::Fixture {
     table.plan.source=session.source(table.plan.selection.source);
     if(table.plan.source.versionId.isEmpty()){error="formal table source mapping missing";return false;}
     context.documentId=session.documentId();context.epoch=1;context.open=true;context.persistentIdentity=true;
-    context.ownsWrites=true;context.allowedEffects=host::Read|host::PrivateStage|host::LocalExecute|host::CatalogPublish|host::Presentation;
+    context.readOnly=false;context.ownsWrites=true;context.allowedEffects=host::Read|host::PrivateStage|host::LocalExecute|host::CatalogPublish|host::Presentation;
     resetHost();return true;
   }
   void resetHost() {

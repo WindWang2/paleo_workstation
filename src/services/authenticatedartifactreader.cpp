@@ -28,11 +28,11 @@ struct Counters {
             cachedEntries.load(), cachedDigestBytes.load()};
   }
 };
-bool validIdentity(const Reader::Identity &identity) {
+bool validIdentity(const Reader::Identity &identity, qint64 maximumBytes) {
   if (identity.scopeKey.isEmpty() || identity.scopeKey.toUtf8().size() > 4096 ||
       identity.path.toUtf8().size() > 32768 || identity.path.contains(QChar::Null) ||
       !QFileInfo(identity.path).isAbsolute() ||
-      identity.byteSize < 0 || identity.byteSize > Reader::MaxArtifactBytes || identity.sha256.size() != 64)
+      identity.byteSize < 0 || identity.byteSize > maximumBytes || identity.sha256.size() != 64)
     return false;
   for (const auto c : identity.sha256) {
     const auto n = c.unicode();
@@ -74,6 +74,12 @@ void appendIntersection(QByteArray &page, const QByteArray &chunk, qint64 chunkO
 }
 
 struct AuthenticatedArtifactReader::Private {
+  const qint64 chunkBytes, maximumBytes;
+  const int pageBytes;
+  explicit Private(Profile profile)
+      : chunkBytes(profile == Profile::SeismicSource ? SeismicChunkBytes : ChunkBytes),
+        maximumBytes(profile == Profile::SeismicSource ? MaxSeismicSourceBytes : MaxArtifactBytes),
+        pageBytes(profile == Profile::SeismicSource ? 64 * 1024 : 24 * 1024) {}
   mutable QMutex mutex;
   std::atomic_bool invalidated{false};
   Counters counts;
@@ -107,14 +113,14 @@ struct AuthenticatedArtifactReader::Private {
   }
   Page scan(QFile &file, const Identity &identity, qint64 offset, qint64 wanted,
             const QByteArray &key, const std::function<bool()> &cancelled) {
-    const auto chunks = (identity.byteSize + ChunkBytes - 1) / ChunkBytes;
+    const auto chunks = (identity.byteSize + chunkBytes - 1) / chunkBytes;
     makeRoom(chunks * digestBytes);
     Index index; index.digests.reserve(static_cast<qsizetype>(chunks * digestBytes));
     QCryptographicHash hash(QCryptographicHash::Sha256); Page page;
     counts.fullScans.fetch_add(1);
-    for (qint64 start = 0; start < identity.byteSize; start += ChunkBytes) {
+    for (qint64 start = 0; start < identity.byteSize; start += chunkBytes) {
       if (stopped(cancelled)) return {"cancelled", {}};
-      const auto length = std::min(ChunkBytes, identity.byteSize - start);
+      const auto length = std::min(chunkBytes, identity.byteSize - start);
       const auto chunk = readChunk(file, start, length, counts);
       if (chunk.size() != length) return {"artifact_read_failed", {}};
       hash.addData(chunk); counts.fullHashBytes.fetch_add(static_cast<quint64>(chunk.size()));
@@ -132,11 +138,11 @@ struct AuthenticatedArtifactReader::Private {
     Page page;
     if (identity.byteSize) {
       // EOF still authenticates its boundary chunk; empty files were fully bound to SHA(empty).
-      const auto first = std::min(offset, identity.byteSize - 1) / ChunkBytes;
-      const auto last = wanted ? (offset + wanted - 1) / ChunkBytes : first;
+      const auto first = std::min(offset, identity.byteSize - 1) / chunkBytes;
+      const auto last = wanted ? (offset + wanted - 1) / chunkBytes : first;
       for (auto n = first; n <= last; ++n) {
         if (stopped(cancelled)) return {"cancelled", {}};
-        const auto start = n * ChunkBytes, length = std::min(ChunkBytes, identity.byteSize - start);
+        const auto start = n * chunkBytes, length = std::min(chunkBytes, identity.byteSize - start);
         const auto chunk = readChunk(file, start, length, counts);
         if (chunk.size() != length) return {"artifact_read_failed", {}};
         if (chunkDigest(chunk, counts) != index.digests.mid(static_cast<qsizetype>(n * digestBytes), digestBytes))
@@ -150,7 +156,8 @@ struct AuthenticatedArtifactReader::Private {
   }
 };
 
-AuthenticatedArtifactReader::AuthenticatedArtifactReader() : d(std::make_unique<Private>()) {}
+AuthenticatedArtifactReader::AuthenticatedArtifactReader() : AuthenticatedArtifactReader(Profile::OutputArtifact) {}
+AuthenticatedArtifactReader::AuthenticatedArtifactReader(Profile profile) : d(std::make_unique<Private>(profile)) {}
 AuthenticatedArtifactReader::~AuthenticatedArtifactReader() = default;
 AuthenticatedArtifactReader::Statistics AuthenticatedArtifactReader::statistics() const { return d->counts.snapshot(); }
 void AuthenticatedArtifactReader::invalidate() {
@@ -160,8 +167,8 @@ void AuthenticatedArtifactReader::invalidate() {
 AuthenticatedArtifactReader::Page AuthenticatedArtifactReader::read(const Identity &identity, qint64 offset,
     int maxBytes, const std::function<bool()> &cancelled) {
   if (d->stopped(cancelled)) return {"cancelled", {}};
-  if (!validIdentity(identity)) return {"invalid_artifact_manifest", {}};
-  if (offset < 0 || offset > identity.byteSize || maxBytes < 1 || maxBytes > 24 * 1024)
+  if (!validIdentity(identity, d->maximumBytes)) return {"invalid_artifact_manifest", {}};
+  if (offset < 0 || offset > identity.byteSize || maxBytes < 1 || maxBytes > d->pageBytes)
     return {"invalid_read_budget", {}};
   while (!d->mutex.tryLock(25)) if (d->stopped(cancelled)) return {"cancelled", {}};
   std::unique_lock<QMutex> lock(d->mutex, std::adopt_lock);

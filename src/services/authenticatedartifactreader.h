@@ -11,6 +11,12 @@ class AuthenticatedArtifactReader {
 public:
   static constexpr qint64 ChunkBytes = 64 * 1024;
   static constexpr qint64 MaxArtifactBytes = 1024LL * 1024 * 1024;
+  static constexpr qint64 SeismicChunkBytes = 1024 * 1024;
+  static constexpr qint64 MaxSeismicSourceBytes = 64LL * 1024 * 1024 * 1024;
+  // Host-only profiles. Artifact tool paging retains its existing size/page
+  // limits; seismic input uses the same proof algorithm with a bounded index
+  // for larger sources. A model/tool request cannot select this profile.
+  enum class Profile { OutputArtifact, SeismicSource };
   struct Identity {
     QString scopeKey, path, sha256;
     qint64 byteSize = -1;
@@ -21,6 +27,7 @@ public:
     quint64 cachedEntries = 0, cachedDigestBytes = 0;
   };
   AuthenticatedArtifactReader();
+  explicit AuthenticatedArtifactReader(Profile profile);
   ~AuthenticatedArtifactReader();
   AuthenticatedArtifactReader(const AuthenticatedArtifactReader &) = delete;
   AuthenticatedArtifactReader &operator=(const AuthenticatedArtifactReader &) = delete;

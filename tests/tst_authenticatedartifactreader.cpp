@@ -60,6 +60,7 @@ private slots:
   void concurrentColdPagesShareOneFullScan();
   void callerAndIdentityChangesDoNotReuseAnotherIndex();
   void leastRecentlyUsedIndexesStayBounded();
+  void seismicSourceProfilePreservesFullAnchorAndAuthenticatesLaterWindows();
 };
 
 void TestAuthenticatedArtifactReader::sequentialPagesHashTheWholeArtifactOnlyOnce() {
@@ -361,6 +362,37 @@ void TestAuthenticatedArtifactReader::leastRecentlyUsedIndexesStayBounded() {
   QCOMPARE(reader.read(inputs[1], 0, 1).code, QStringLiteral("ok"));
   QCOMPARE(reader.statistics().fullScans, quint64(10));
   QCOMPARE(reader.statistics().cachedEntries, quint64(8));
+}
+
+void TestAuthenticatedArtifactReader::seismicSourceProfilePreservesFullAnchorAndAuthenticatesLaterWindows() {
+  QTemporaryDir directory; QVERIFY(directory.isValid());
+  const auto bytes = content(3 * Reader::SeismicChunkBytes + 19);
+  const auto path = directory.filePath("seismic-source.sgy"); QVERIFY(writeFile(path, bytes));
+  const auto frozen = identity(path, bytes, "document:epoch:source:version:caller");
+  Reader reader(Reader::Profile::SeismicSource);
+  const auto first = reader.read(frozen, 3200, 400);
+  QCOMPARE(first.code, QString("ok")); QCOMPARE(first.bytes, bytes.mid(3200, 400));
+  QCOMPARE(reader.statistics().fullScans, quint64(1));
+  QCOMPARE(reader.statistics().fullHashBytes, quint64(bytes.size()));
+  const auto before = reader.statistics();
+  const auto selected = reader.read(frozen, Reader::SeismicChunkBytes - 17, 32768);
+  QCOMPARE(selected.code, QString("ok")); QCOMPARE(selected.bytes, bytes.mid(Reader::SeismicChunkBytes - 17, 32768));
+  const auto after = reader.statistics();
+  QCOMPARE(after.fullScans, quint64(1)); QCOMPARE(after.fullHashBytes, before.fullHashBytes);
+  QCOMPARE(after.readBytes - before.readBytes, quint64(2 * Reader::SeismicChunkBytes));
+  QVERIFY(after.cachedDigestBytes <= quint64(4 * 1024 * 1024));
+  const auto modified = QFileInfo(path).lastModified();
+  QVERIFY(replaceByteKeepingTime(path, Reader::SeismicChunkBytes + 32, char(255), modified));
+  const auto damaged = reader.read(frozen, Reader::SeismicChunkBytes + 32, 1);
+  QCOMPARE(damaged.code, QString("artifact_changed")); QVERIFY(damaged.bytes.isEmpty());
+  Reader artifact;
+  QCOMPARE(artifact.read(frozen, 0, 32768).code, QString("invalid_read_budget"));
+  auto larger = frozen; larger.byteSize = Reader::MaxArtifactBytes + 1;
+  QCOMPARE(artifact.read(larger, 0, 1).code, QString("invalid_artifact_manifest"));
+  QCOMPARE(reader.read(larger, 0, 1).code, QString("artifact_changed"));
+  auto excessive = frozen; excessive.byteSize = Reader::MaxSeismicSourceBytes + 1;
+  QCOMPARE(reader.read(excessive, 0, 1).code, QString("invalid_artifact_manifest"));
+  reader.invalidate(); QCOMPARE(reader.read(frozen, 0, 1).code, QString("cancelled"));
 }
 
 QTEST_GUILESS_MAIN(TestAuthenticatedArtifactReader)

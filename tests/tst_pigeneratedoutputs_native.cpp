@@ -97,7 +97,7 @@ private slots:
   }
   void cleanupTestCase(){for(const auto &id:sessions)ChatSessionStore::remove(id,nullptr);}
   void realPiSseSdkStrongPythonThreePortsAndStableNativeReplay() {
-    Fixture f;QVERIFY2(f.openTrace(),qPrintable(f.error));f.tasks.setMaxWorkerThreads(4);
+    Fixture f;QVERIFY2(f.openTrace(),qPrintable(f.error));f.tasks.setMaxWorkerThreads(2);
     QVERIFY2(f.activateRuntime(),qPrintable(f.error));f.configureOutputs();const auto identity=f.original.identity;Model model;QVERIFY(model.open());
     auto controller=std::make_unique<AiChatController>();bind(f,*controller,model);const auto session=controller->session().id;sessions.append(session);
     QVERIFY(controller->piRuntime().enabled);auto *bridge=controller->findChild<PiChatBridge*>();QVERIFY(bridge);

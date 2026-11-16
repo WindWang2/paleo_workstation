@@ -284,7 +284,8 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
       capability::ExecuteRequest decoded;
       const auto rejected=capability::prepareHostedChatToolRequest(decoded,tool,dispatcherArgs);
       QVERIFY2(rejected.isEmpty(),qPrintable(QJsonDocument(rejected).toJson()));
-      QCOMPARE(decoded.capabilityId,QString(capability));
+      QCOMPARE(decoded.capabilityId,QString(tool));
+      QCOMPARE(CapabilityRegistry::resolveAlias(decoded.capabilityId,nullptr),QString(capability));
       if(generated)QCOMPARE(decoded.parameters.value("code").toString(),QString::fromUtf8(source));
       command::CommandContext commandContext;commandContext.documentId=f.context.documentId;
       commandContext.callerScope=f.host.callerScope(host::Caller::Agent);commandContext.clientRequestId=decoded.clientRequestId;

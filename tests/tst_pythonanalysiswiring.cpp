@@ -332,6 +332,12 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
     context.capabilityHost=&restarted;
     AiChatToolRunner restartedRunner;auto *publisher=&runner;
     if(managed) {
+#ifdef Q_OS_WIN
+      if(!generated) {
+        const auto manifest=delivered.scriptsRoot+"/scripts-manifest.json";
+        QVERIFY(QFile::setPermissions(manifest,QFile::permissions(manifest)|QFileDevice::WriteOwner));
+      }
+#endif
       if(!generated)QVERIFY(QFile::remove(delivered.scriptsRoot+"/scripts-manifest.json"));
       auto restored=std::make_shared<python::PythonEnvironmentRegistry>(delivered.configurationPath());
       const auto code=restored->refresh({},restored->beginRefresh());if(generated)QVERIFY2(code.isEmpty(),qPrintable(code));

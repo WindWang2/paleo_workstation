@@ -1,5 +1,6 @@
 // 层：数据
 #include "pythonsandbox_windows_internal.h"
+#include "pythonsandboxlimits.h"
 #include "services/pythoninputbundle.h"
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -31,8 +32,10 @@ QJsonObject windowsSandboxReadiness() {
     {"maxProcesses",1},{"memoryAccounting","job_committed_bytes"},{"cpuAccounting","user_plus_kernel"},
     {"cpuPollingMilliseconds",10},{"cpuParallelismLimit",1},{"threadCountEnforced",false},{"requiresRuntimeProbe",true}};
 }
-SandboxResult runWindowsSandbox(const SandboxRequest &request) {
+SandboxResult runWindowsSandbox(const SandboxRequest &original) {
   using namespace windows_detail;
+  SandboxRequest request;
+  if (const auto code = constrainSandboxOutput(original, request); !code.isEmpty()) { SandboxResult result; result.code = code; return result; }
   if(!api().ready())return unavailable("required_windows_api_or_build");
   if(!request.policy.validate().isEmpty()){SandboxResult result;result.code="python_policy_invalid";return result;}
   if(!request.policy.allowGenerated){SandboxResult result;result.code="python_execution_denied";return result;}

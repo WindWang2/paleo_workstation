@@ -206,6 +206,8 @@ const Row kRows[] = {
      SurfaceAgent, "stage", "depth.convert_batch"},
     {"seismic.attributes.compute", CommandKind::Compute, "seismic", QT_TRANSLATE_NOOP("PaleoCommands", "地震属性计算"),
      QT_TRANSLATE_NOOP("PaleoCommands", "RMS、包络与相干属性计算"), SurfaceAgent, "stage", "seismic.attributes.compute"},
+    {"python.numeric_table_outputs", CommandKind::Compute, "data", QT_TRANSLATE_NOOP("PaleoCommands", "Python 数值表成果计算"), "",
+     SurfaceAgent, "stage", "python.numeric_table_outputs", "", "", "project"},
     {"python.seismic_trace_compute", CommandKind::Compute, "seismic", QT_TRANSLATE_NOOP("PaleoCommands", "Python 地震道计算"), "",
      SurfaceAgent, "stage", "python.seismic_trace_compute", "", "", "project"},
     {"python.numeric_table_compute", CommandKind::Compute, "data", QT_TRANSLATE_NOOP("PaleoCommands", "Python 数值表计算"), "",

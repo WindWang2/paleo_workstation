@@ -2,6 +2,7 @@
 // Reuses the common process-wide permit, pump and cleanup.
 #include "pythonsandbox_linux.h"
 #include "pythonsandbox_linux_image.h"
+#include "pythonsandboxlimits.h"
 #include "services/pythonprocess_linux_internal.h"
 #include <QDir>
 #include <QElapsedTimer>
@@ -84,8 +85,10 @@ QString strongPrepare(const SandboxRequest &request,process_detail::Launch &nati
   return {};
 }
 }
-SandboxResult runLinuxSandbox(const SandboxRequest &request) {
+SandboxResult runLinuxSandbox(const SandboxRequest &original) {
   SandboxResult result;
+  SandboxRequest request;
+  if (const auto code = constrainSandboxOutput(original, request); !code.isEmpty()) { result.code = code; return result; }
   result.childMemoryLimitBytes=request.policy.memoryBytes;
   if(!request.policy.allowGenerated) {result.code="python_generated_execution_denied";return result;}
   if(const auto code=request.policy.validate();!code.isEmpty()) {result.code=code;return result;}

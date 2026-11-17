@@ -6,6 +6,7 @@ namespace paleo::python {
 struct InputBundle;
 inline constexpr char SandboxJsonInputProtocol[]="paleo.python-json.v1";
 inline constexpr char SandboxAnalysisInputProtocol[]="paleo.python-analysis-frame.v1";
+inline constexpr qint64 SandboxMaxTypedOutputBytes = 12 * 1024 * 1024;
 // Host-owned immutable snapshots. Paths, code/argv and environment overrides are
 // deliberately absent from the tool-facing request and frozen here by the host.
 struct SandboxRequest {
@@ -14,6 +15,9 @@ struct SandboxRequest {
   ExecutionPolicy policy;
   std::function<bool()> cancelled;
   std::shared_ptr<ExecutionPermit> permit;
+  // Host-frozen protocol limit, zero keeps the existing REPORT-only profile.
+  // A nonzero value only lowers the approved collector/pipe output budget.
+  qint64 stdoutLimitBytes = 0;
 };
 struct SandboxResult {
   QString code = "python_sandbox_unavailable";

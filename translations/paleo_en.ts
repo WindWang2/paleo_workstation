@@ -37719,6 +37719,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退</source>
         <translation>Exact decimal volume ID for seismic_trace_descriptor; no name, coordinate or nearest-trace fallback.</translation>
     </message>
+    <message>
+        <source>受控 Python 表格成果</source>
+        <translation>Controlled Python table outputs</translation>
+    </message>
+    <message>
+        <source>使用显式数值表窗口和冻结的输出列声明，生成报告与单张数值表；最多16列、8192行，宿主编码CSV至多4MiB。两项成果整组验收、一次发布。源码、输入和运行时保留来源证据；生成数值和单位未经宿主独立重算。旧REPORT操作保持原有恢复方式。</source>
+        <translation>Generate a report and one numeric table from an explicit table window and frozen output columns, up to 16 columns and 8192 rows. The host encodes CSV up to 4 MiB, validates the complete group and publishes once. Source, input and runtime identities are retained; generated values and units are not independently recomputed. Existing REPORT operations keep their original recovery contract.</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -56011,6 +56019,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/services/commandspec.cpp" line="209"/>
             <source>Python 地震道计算</source>
             <translation>Python seismic trace computation</translation>
+        </message>
+        <message>
+            <location filename="../src/services/commandspec.cpp" line="209"/>
+            <source>Python 数值表成果计算</source>
+            <translation>Python numeric table output computation</translation>
         </message>
     </context>
 

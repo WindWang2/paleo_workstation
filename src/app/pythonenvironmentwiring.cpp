@@ -7,6 +7,8 @@
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythongenerated.h"
 #include "services/pythonnumerictable.h"
+#include "services/pythontableoutputspec.h"
+#include "workflow/pythontableoutputoperation.h"
 #include "catalog/datacatalog.h"
 #include "workflow/documentsession.h"
 #include <QDir>
@@ -44,6 +46,8 @@ public:
         environmentNumericTableAdapter(m_registry,assemblePythonNumericTableProvider(catalog,document,host)));
     host->registerExecutionAdapter(QLatin1String(SeismicTraceCapability),
         environmentSeismicTraceAdapter(m_registry,assemblePythonSeismicTraceProvider(catalog,document,host)));
+    host->registerExecutionAdapter(QLatin1String(TableOutputsCapability),
+        environmentTableOutputsAdapter(m_registry,assemblePythonNumericTableProvider(catalog,document,host)));
   }
   void refresh() {
     if (!m_owner || !m_owner->taskService()) return;
@@ -109,7 +113,8 @@ private:
 };
 QString readiness(const std::shared_ptr<PythonEnvironmentRegistry> &registry, const QString &name,
                   const QJsonObject &arguments, bool listing) {
-  const bool generated = name == QLatin1String(GeneratedTool) || name == QLatin1String(NumericTableTool) || name == QLatin1String(SeismicTraceTool);
+  const bool generated = name == QLatin1String(GeneratedTool) || name == QLatin1String(NumericTableTool) ||
+      name == QLatin1String(SeismicTraceTool) || name == QLatin1String(TableOutputsTool);
   if (!generated && name != QLatin1String(WellQualityTool) && name != QLatin1String(CorrelationTool)) return {};
   const auto selection = registry->active(generated ? EnvironmentMode::Generated : EnvironmentMode::Trusted);
   // Publication uses a frozen historical identity. The stable Host adapter

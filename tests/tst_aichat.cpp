@@ -12,6 +12,7 @@
 #include "../src/ai/chat/llmclient.h"
 #include "../src/domain/wellfaciesrequest.h"
 #include "../src/services/pythonnumerictable.h"
+#include "../src/services/pythonseismictrace.h"
 
 // 方向51：对话域模型 + 会话持久化 + SSE 解析 + 配置校验 + 领域工具表。
 // 全部纯逻辑/本地磁盘（会话落在用户目录），不发网络请求。
@@ -350,7 +351,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 21); // Includes the explicitly declared numeric-table input tool.
+  QCOMPARE(tools.size(), 22); // Includes numeric-table and exact seismic-trace input tools.
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -387,7 +388,7 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.tile_classification_v2", "paleo.operation_get", "paleo.operation_events",
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
-    "paleo.python_compute", "paleo.python_compute_table"};
+    "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;
@@ -424,9 +425,11 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
 void TestAiChat::pythonWindowToolsKeepSchemasAndEffects() {
   QCOMPARE(aiToolSpec("paleo.python_compute_table").toJsonSchema(),
            paleo::python::numericTableToolRequestSchema());
+  QCOMPARE(aiToolSpec("paleo.python_compute_trace").toJsonSchema(),
+           paleo::python::seismicTraceToolRequestSchema());
   const unsigned compute=paleo::host::Read|paleo::host::PrivateStage|paleo::host::LocalExecute;
   const unsigned publish=compute|paleo::host::CatalogPublish|paleo::host::Presentation;
-  for(const QString &name:QStringList{"paleo.python_compute_table"}) {
+  for(const QString &name:QStringList{"paleo.python_compute_table","paleo.python_compute_trace"}) {
     const auto spec=aiToolSpec(name);
     QCOMPARE(spec.effects,compute);
     QCOMPARE(spec.effectsForIntent("prepare"),compute);

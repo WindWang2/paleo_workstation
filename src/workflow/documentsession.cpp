@@ -4,6 +4,7 @@
 #include "metadata/documentsourcestore.h"
 #include "metadata/paleoprojectstore.h"
 #include "services/timedepthdependencies.h"
+#include "services/authenticatedartifactreader.h"
 #include <QDebug>
 #include <QFileInfo>
 #include <QThread>
@@ -35,6 +36,7 @@ bool DocumentSession::bind(DataCatalog *catalog,const QString &metaPath,const QS
             qWarning() << "DocumentSession: time-depth result projection needs recovery:" << recoveryError;
     }
     m_revision=catalog->catalogRevision();m_catalog=catalog;m_projectDir=catalog->projectDir();m_readOnly=readOnly;
+    m_seismicSourceReader=std::make_shared<artifacts::AuthenticatedArtifactReader>(artifacts::AuthenticatedArtifactReader::Profile::SeismicSource);
     m_inspection=std::make_unique<paleo::jobs::JobRunner<SourceJob>>(this);m_inspection->setTaskService(m_tasks);
     m_relocation=std::make_unique<paleo::jobs::JobRunner<SourceJob>>(this);m_relocation->setTaskService(m_tasks);
     m_relations=std::make_unique<paleo::jobs::JobRunner<RelationJob>>(this);m_relations->setTaskService(m_tasks);
@@ -42,6 +44,7 @@ bool DocumentSession::bind(DataCatalog *catalog,const QString &metaPath,const QS
     emit sessionChanged(m_epoch);if(error)error->clear();return true;
 }
 void DocumentSession::close() {
+    if(m_seismicSourceReader)m_seismicSourceReader->invalidate();m_seismicSourceReader.reset();
     SourceCommandResult dropped;dropped.operationId=std::exchange(m_relationOperation,{});dropped.details=std::exchange(m_relationDetails,{});
     dropped.revision=m_revision;dropped.code="cancelled_or_stale";dropped.error=QStringLiteral("关系操作已取消或文档已关闭");
     // Destruction cancels the claim and disconnects queued commit/drop callbacks.
@@ -57,6 +60,9 @@ void DocumentSession::close() {
     emit sessionChanged(m_epoch);
 }
 bool DocumentSession::isOpen() const {return m_catalog && m_catalog->isOpen() && m_sourceStore;}
+std::shared_ptr<artifacts::AuthenticatedArtifactReader> DocumentSession::seismicSourceReader() const {
+    Q_ASSERT(QThread::currentThread()==thread());return isOpen()?m_seismicSourceReader:nullptr;
+}
 bool DocumentSession::readOnly() const {
     return !isOpen() || m_readOnly || m_catalog->refusesWrites() || (m_projectStore && m_projectStore->isReadOnly());
 }

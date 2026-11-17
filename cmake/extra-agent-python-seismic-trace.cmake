@@ -1,0 +1,15 @@
+# Exact trace input uses the existing authenticated range index and controlled REPORT worker.
+target_sources(paleo_services_pythonanalysis PRIVATE
+  src/services/pythonseismictrace_selection.cpp src/services/pythonseismictrace_materialize.cpp
+  src/services/pythonseismictrace_metadata.cpp src/services/pythonseismictracereport.cpp src/services/pythonseismictracequery.cpp)
+target_sources(paleo_services_query PRIVATE src/services/projectquery_seismic_trace.cpp)
+target_link_libraries(paleo_services_pythonanalysis PUBLIC paleo_services_artifactreader)
+target_sources(paleo_services PRIVATE src/services/pythonseismictracespec.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/pythonseismictraceoperation.cpp src/workflow/pythonseismictraceenvironment.cpp)
+target_sources(paleo_app_agentproviders PRIVATE src/app/pythonseismictracewiring.cpp)
+add_paleo_test(tst_pythonseismictrace LIBS paleo_services_pythonanalysis)
+add_paleo_test(tst_pythonseismictracewiring LIBS paleo_app_agentproviders Qt6::Concurrent)
+option(PALEO_TEST_PYTHON_SEISMIC_TRACE_NATIVE "Register real managed authenticated seismic-trace business acceptance" OFF)
+if(PALEO_TEST_PYTHON_SEISMIC_TRACE_NATIVE)
+  add_paleo_test(tst_pythonseismictrace_native LIBS paleo_app_agentproviders Qt6::Concurrent)
+endif()

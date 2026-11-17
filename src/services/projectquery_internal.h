@@ -54,6 +54,7 @@ struct ProjectQueryCapability::Impl {
   QJsonObject wellDetails(QueryState &state, const QJsonObject &args, int rows, int bytes, bool &more);
   QJsonObject wellCurves(QueryState &state,const QJsonObject &args,int rows,int bytes,bool &more);
   QJsonObject numericTableProjection(QueryState &,const QJsonObject &,int bytes,bool &more);
+  QJsonObject seismicTraceDescriptor(QueryState &,const QJsonObject &,int bytes,bool &more);
   QJsonObject graphPage(QueryState &state, int rows, int bytes, bool &more);
   QString resolveSeed(QueryState &state, const QJsonObject &args);
   QString resolveWell(QueryState &state, const QJsonObject &args, WellProjection &model, bool &more);

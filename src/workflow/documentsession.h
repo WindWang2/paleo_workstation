@@ -11,6 +11,7 @@ class DataCatalog;
 class PaleoProjectStore;
 class PaleoTaskService;
 namespace paleo::jobs { template<class T> class JobRunner; }
+namespace paleo::artifacts {class AuthenticatedArtifactReader;}
 namespace paleo::document {
 class DocumentSourceStore;
 struct SourceJob;
@@ -45,6 +46,9 @@ public:
     QVector<SourceRecord> sources() const;
     SourceRecord source(const SourceRef &ref) const;
     SourceRecord sourceForVersion(const QString &versionId) const;
+    // Owner-only, no I/O. Shared across requests for this document binding;
+    // close/rebind permanently invalidates readers retained by in-flight work.
+    std::shared_ptr<artifacts::AuthenticatedArtifactReader> seismicSourceReader() const;
     QVector<SourceBinding> bindings(const QString &resourceKind,const QString &resourceId,
                                   const QString &role={},const QString &scope={},bool includeRejected=false) const;
     QVector<WellCurveTrackBinding> wellCurveTracks(const QString &wellEntityId) const;
@@ -105,6 +109,7 @@ private:
     QHash<QString,QJsonObject> m_operations;
     QHash<QString,SourceState> m_observations;
     std::unique_ptr<DocumentSourceStore> m_sourceStore;
+    std::shared_ptr<artifacts::AuthenticatedArtifactReader> m_seismicSourceReader;
     std::unique_ptr<paleo::jobs::JobRunner<SourceJob>> m_inspection,m_relocation;
     std::unique_ptr<paleo::jobs::JobRunner<RelationJob>> m_relations;
     QString m_relationOperation;

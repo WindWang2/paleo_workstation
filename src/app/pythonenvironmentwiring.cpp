@@ -1,6 +1,7 @@
 // 层：组装根
 #include "pythonenvironmentwiring.h"
 #include "pythonnumerictablewiring.h"
+#include "pythonseismictracewiring.h"
 #include "services/pythonenvironmentregistry.h"
 #include "workflow/pythonenvironmentoperation.h"
 #include "services/pythonanalysiscapabilityspec.h"
@@ -41,6 +42,8 @@ public:
           environmentAnalysisAdapter(kind, m_registry, selector));
     host->registerExecutionAdapter(QLatin1String(NumericTableCapability),
         environmentNumericTableAdapter(m_registry,assemblePythonNumericTableProvider(catalog,document,host)));
+    host->registerExecutionAdapter(QLatin1String(SeismicTraceCapability),
+        environmentSeismicTraceAdapter(m_registry,assemblePythonSeismicTraceProvider(catalog,document,host)));
   }
   void refresh() {
     if (!m_owner || !m_owner->taskService()) return;
@@ -106,7 +109,7 @@ private:
 };
 QString readiness(const std::shared_ptr<PythonEnvironmentRegistry> &registry, const QString &name,
                   const QJsonObject &arguments, bool listing) {
-  const bool generated = name == QLatin1String(GeneratedTool) || name == QLatin1String(NumericTableTool);
+  const bool generated = name == QLatin1String(GeneratedTool) || name == QLatin1String(NumericTableTool) || name == QLatin1String(SeismicTraceTool);
   if (!generated && name != QLatin1String(WellQualityTool) && name != QLatin1String(CorrelationTool)) return {};
   const auto selection = registry->active(generated ? EnvironmentMode::Generated : EnvironmentMode::Trusted);
   // Publication uses a frozen historical identity. The stable Host adapter

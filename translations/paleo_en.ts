@@ -28845,8 +28845,8 @@ PDF：%3
         <translation>Selected numerical attribute correlation</translation>
     </message>
     <message>
-        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；version=严格版本摘要；version_parents=完整父引用续页</source>
-        <translation>Query topic: summary=counts; wells=well list; horizons=horizon assets; assets=asset list; well_details=well links; well_curves=paged exact curve metadata; numeric_table_projection=declared numeric projection for an exact source table; version=strict version summary; version_parents=paged complete parent references</translation>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；seismic_trace_descriptor=精确地震体的采样声明；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>Query topic: summary=counts; wells=well list; horizons=horizon assets; assets=asset list; well_details=well links; well_curves=paged exact curve metadata; numeric_table_projection=declared numeric projection for an exact source table; seismic_trace_descriptor=sampling declaration for an exact seismic volume; version=strict version summary; version_parents=paged complete parent references</translation>
     </message>
     <message>
         <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
@@ -37700,12 +37700,24 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>Run bounded generated Python against a host-confirmed source_tables numeric projection using an exact SourceRef, table ID, projection revision, columns and row window. At most 15 numeric or Boolean columns plus a separate int64 physical row axis, 16 columns in total and 8192 rows. Types, units and nulls are not inferred from display strings. Missing projections or formal source-version mappings are rejected without model upgrades. The actual ReadCut and frozen bytes are retained; output remains a bounded REPORT, with no new CSV or image artifact. Generated-code permission, real isolation, compute-only and publication referencing the original operation use the host chain. Numerical results are not independently recomputed.</translation>
     </message>
     <message>
-        <source>numeric_table_projection 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
-        <translation>Exact SourceRef for numeric_table_projection. Read declared metadata only; do not scan values or infer types or units.</translation>
+        <source>numeric_table_projection/seismic_trace_descriptor 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
+        <translation>Exact SourceRef for numeric_table_projection/seismic_trace_descriptor. Read declared metadata only; do not scan values or infer types or units.</translation>
     </message>
     <message>
         <source>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</source>
         <translation>Exact decimal source-table ID for numeric_table_projection; no worksheet-name fallback.</translation>
+    </message>
+    <message>
+        <source>受控地震道窗口计算</source>
+        <translation>Controlled seismic trace window computation</translation>
+    </message>
+    <message>
+        <source>对精确 SourceRef、体修订及零基文件道序号的一段样点执行有界生成 Python，最多8192点。只支持固定道长、big-endian IEEE32 的 SEG-Y rev1，显式 ms TWT/OWT、时间参考与振幅单位；不猜近邻道、不混用 MD、不整卷加载。宿主按正式来源完整 SHA 建立有界分块认证，冷扫描字节与后续范围认证 I/O 分开记录。输入与实际 ReadCut 冻结，仍只输出 REPORT；生成权限、真实隔离及单独 publish 沿现有链路。数值结果未经独立重算。</source>
+        <translation>Run bounded generated Python for an exact SourceRef, volume revision and zero-based file trace ordinal, with at most 8192 selected samples. Supports fixed-length, big-endian IEEE32 SEG-Y rev1 only, with explicit ms TWT/OWT, time reference and amplitude unit. No nearest-trace guessing, MD substitution or full-volume loading. The host builds a bounded chunk-authentication index anchored to the formal source full SHA; cold scan bytes and subsequent authenticated range I/O are reported separately. Inputs and the actual ReadCut are frozen. Output remains REPORT only; generated-code permission, real isolation and separate publication use the existing chain. Numerical results are not independently recomputed.</translation>
+    </message>
+    <message>
+        <source>seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退</source>
+        <translation>Exact decimal volume ID for seismic_trace_descriptor; no name, coordinate or nearest-trace fallback.</translation>
     </message>
 </context>
     <context>
@@ -55994,6 +56006,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/services/commandspec.cpp" line="209"/>
             <source>Python 数值表计算</source>
             <translation>Python numeric table computation</translation>
+        </message>
+        <message>
+            <location filename="../src/services/commandspec.cpp" line="209"/>
+            <source>Python 地震道计算</source>
+            <translation>Python seismic trace computation</translation>
         </message>
     </context>
 

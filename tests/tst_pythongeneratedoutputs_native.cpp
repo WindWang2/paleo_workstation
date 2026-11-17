@@ -1,6 +1,8 @@
 // 层：测试壳
 #include "fixtures/pythongeneratedoutputsfixture.h"
 #include <QImage>
+#include <QFileInfo>
+#include <memory>
 #include <QtTest>
 #include <cstring>
 using namespace paleo;
@@ -15,11 +17,51 @@ void checkPng(const QByteArray &png,const QString &kind) {
 }
 class TestPythonGeneratedOutputsNative:public QObject {
   Q_OBJECT
+  // These rows keep their own projects and hosts but never mutate environment
+  // configuration. Retain one real activation/probe for their shared lifetime.
+  std::unique_ptr<Fixture> m_runtimeOwner;
+  bool bindSharedRuntime(Fixture &fixture) {
+    const auto fail=[&](const QString &code){fixture.error=code;return false;};
+    if(!m_runtimeOwner) {
+      auto owner=std::make_unique<Fixture>();
+      if(!owner->activateRuntime())return fail(owner->error.isEmpty()?QString("shared_python_runtime_activation_failed"):owner->error);
+      m_runtimeOwner=std::move(owner);
+    }
+    const auto &owner=*m_runtimeOwner;
+    if(!owner.registry)return fail("shared_python_registry_missing");
+    const auto current=owner.registry->active(python::EnvironmentMode::Generated);
+    if(!current.interrupted||current.interrupted->load()||!current.globalInterruption||current.globalInterruption->load())
+      return fail("shared_python_environment_interrupted");
+    if(!current.ok()||!current.sandbox)return fail(current.code.isEmpty()?QString("shared_python_environment_unavailable"):current.code);
+    const auto &candidate=owner.candidate;
+    if(!owner.original.ok()||current.identity.id!=owner.original.identity.id||current.identity.json()!=owner.original.identity.json()||
+        current.runtime!=owner.original.runtime||current.sandbox!=owner.original.sandbox||
+        current.identity.runtimeRoot!=QFileInfo(candidate.runtimeRoot).canonicalFilePath()||
+        current.identity.runtimeSha256!=candidate.runtimeSha256||current.identity.policy.json()!=candidate.policy.json()||
+        current.runtime->policy().json()!=candidate.policy.json())return fail("shared_python_environment_identity_changed");
+    const auto runtime=current.runtime->snapshot();
+    if(!runtime.ready())return fail(runtime.code);
+    if(runtime.runtime->root!=current.identity.runtimeRoot||runtime.runtime->manifestSha256!=candidate.runtimeSha256)
+      return fail("shared_python_runtime_identity_changed");
+    const auto proof=current.sandbox->snapshot();
+    if(!proof.value("ready").toBool()||!proof.value("runtimeProbeVerified").toBool()) {
+      const auto code=proof.value("code").toString();
+      return fail(code.isEmpty()||code=="ok"?QString("shared_python_sandbox_not_ready"):code);
+    }
+    if(proof.value("runtimeManifestSha256")!=candidate.runtimeSha256||proof.value("policy")!=QJsonValue(candidate.policy.json()))
+      return fail("shared_python_sandbox_identity_changed");
+    fixture.registry=owner.registry;fixture.original=current;fixture.candidate=candidate;return true;
+  }
 private slots:
   void initTestCase() {
     QVERIFY2(!qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT").isEmpty(),"Explicit locked Python root required by this opt-in suite");
     const auto sha=qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256");QCOMPARE(sha.size(),64);
     QCOMPARE(QByteArray::fromHex(sha.toLatin1()).toHex(),sha.toLatin1());
+  }
+  void cleanupTestCase() {
+    // Each test's local Fixture has already destroyed its host and drained tasks.
+    // Release the owning configuration and real runtime proof only afterwards.
+    m_runtimeOwner.reset();
   }
   void actualInputThreePortsPagesHistoricalRestartAndOnePublication_data() {
     QTest::addColumn<QString>("kind");QTest::newRow("authenticated-seismic-time-axis")<<QString("seismic_trace");
@@ -91,7 +133,7 @@ private slots:
   }
   void anyBadPortIncompleteFrameOrLatePngWriteHasNoPartialGroup() {
     QFETCH(QByteArray,mode);QFETCH(bool,failWrite);QFETCH(QString,expected);Fixture f;QVERIFY2(f.openTrace(),qPrintable(f.error));
-    QVERIFY2(f.activateRuntime(),qPrintable(f.error));f.configureOutputs(failWrite);
+    QVERIFY2(bindSharedRuntime(f),qPrintable(f.error));f.configureOutputs(failWrite);
     const auto failed=f.call(QLatin1String(python::GeneratedOutputsTool),f.outputArguments("invalid-group",mode));
     QVERIFY(!failed.result.ok);if(!expected.isEmpty())QCOMPARE(failed.result.code,expected);QVERIFY(f.derived().isEmpty());
     const auto record=f.record("invalid-group");QVERIFY(record.artifactManifest.value("diagnosticsOnly").toBool());
@@ -103,7 +145,7 @@ private slots:
     QVERIFY(!publication.result.ok);QVERIFY(f.derived().isEmpty());
   }
   void changedPngFailsWarmAuthenticationAndBlocksTheWholePublication() {
-    Fixture f;QVERIFY2(f.openTrace(),qPrintable(f.error));QVERIFY2(f.activateRuntime(),qPrintable(f.error));f.configureOutputs();
+    Fixture f;QVERIFY2(f.openTrace(),qPrintable(f.error));QVERIFY2(bindSharedRuntime(f),qPrintable(f.error));f.configureOutputs();
     const auto computed=f.call(QLatin1String(python::GeneratedOutputsTool),f.outputArguments("png-integrity"));
     QVERIFY2(computed.result.ok,qPrintable(computed.result.code));const auto record=f.record("png-integrity");
     QVERIFY(f.pageForScope(record.operationId,"IMAGE",0).value("ok").toBool());

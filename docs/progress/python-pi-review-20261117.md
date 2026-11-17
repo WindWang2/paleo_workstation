@@ -21,6 +21,10 @@ Shell、任意路径读取、动态包安装与网络权限继续后置。
 - 将数值表和地震道输入重复的 owner/context、正式 Catalog 父子关系、源 revision
   与模型目录核对收进 app 私有 `pythoninputbinding_internal`。格式解析、错误码、
   地震文件完整 SHA 要求、大小约束及 reader 世代绑定留在各 adapter。
+- 多成果 Native 套件的 7 个坏端口行和 1 个成果篡改行共用 suite 生命周期的
+  真实就绪环境，减少重复激活和 NumPy admission probe；项目、SDK、Host、源 reader、
+  操作、成果和计数仍逐行独立。两个历史恢复行继续独立冷启动及 59→60 策略切换。
+  完整数据行、300 秒整进程时限、每次计算和启动的完整性校验均保留。
 - 保留 v1 报告适配与历史恢复、人工 Console、运行时和模板独立 store。它们仍有
   调用方或不同的版本/授权契约，不能仅因名字相近而删除。
 - 保留 capture 与 launch 两个信任边界的完整性校验、固定工具集、宿主权限判定、

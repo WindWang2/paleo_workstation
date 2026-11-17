@@ -1,0 +1,16 @@
+# Versioned three-port output sets; host alone encodes PNG. Runtime/deploy stays QtCore.
+target_sources(paleo_services_pythonanalysis PRIVATE
+  src/services/pythonimageoutput.cpp src/services/pythongeneratedoutputschema.cpp)
+target_link_libraries(paleo_services_pythonanalysis PRIVATE Qt6::Gui)
+target_sources(paleo_services PRIVATE src/services/pythongeneratedoutputspec.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/pythongeneratedoutputoperation.cpp src/workflow/pythongeneratedoutputworker.cpp)
+add_paleo_test(tst_pythonimageoutput LIBS paleo_services_pythonanalysis Qt6::Gui)
+add_paleo_test(tst_pythongeneratedoutputs LIBS paleo_workflow Qt6::Concurrent)
+option(PALEO_TEST_PYTHON_GENERATED_OUTPUTS_NATIVE "Register real SDK/Python three-port output acceptance" OFF)
+if(PALEO_TEST_PYTHON_GENERATED_OUTPUTS_NATIVE)
+  add_paleo_test(tst_pythongeneratedoutputs_native LIBS paleo_app_agentproviders Qt6::Concurrent Qt6::Gui)
+endif()
+option(PALEO_TEST_PI_GENERATED_OUTPUTS_NATIVE "Register actual Pi/Host/SDK/Python output acceptance" OFF)
+if(PALEO_TEST_PI_GENERATED_OUTPUTS_NATIVE)
+  add_paleo_test(tst_pigeneratedoutputs_native LIBS paleo_app_agentproviders Qt6::Concurrent Qt6::Gui Qt6::Network)
+endif()

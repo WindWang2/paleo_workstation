@@ -1,4 +1,4 @@
-# Agent Python generated numerical reports
+# Controlled Agent Python execution
 
 The optional `analysis-core.v1` runtime remains CPython 3.14.10 plus NumPy 2.5.4.
 The main C++ application does not embed Python or PyQGIS. Runtime and template
@@ -25,6 +25,37 @@ from generated programs are explicitly marked as not independently recomputed.
 stderr and failed stdout prefixes are bounded private diagnostics, not publishable
 report ports. Chat receives a small summary and operation reference; detailed bytes
 use the existing authenticated paging API.
+
+## Independently versioned inputs and outputs
+
+The curve REPORT-only capability above keeps its existing v1 contract. Additional
+capabilities select explicit [numeric-table projections](../../docs/PYTHON_NUMERIC_TABLE_INPUT.md)
+or [authenticated seismic trace windows](../../docs/PYTHON_SEISMIC_TRACE_INPUT.md).
+Table input has at most 16 columns including its row axis and 8192 rows; trace
+input has at most 8192 samples. The host freezes exact source references, units,
+revisions, read evidence and bytes. No path, SQL, inferred alignment or interpreter
+selection is accepted from a tool.
+
+The [numeric-output capability](NUMERIC_OUTPUT.md) accepts REPORT plus a typed
+table that the host encodes as CSV. The [joint-output capability](../../docs/PYTHON_GENERATED_OUTPUTS.md)
+requires REPORT, TABLE and IMAGE together; the host encodes straight RGBA8 into a
+nonspatial PNG. CSV and PNG are each at most 4 MiB; image dimensions are each at
+most 1024. The complete frame and final group also obey their 12-MiB protocol
+ceiling and the smaller approved execution policy. Any member failure rejects
+the group. These are ceilings, not a promise that every maximum-size input or
+incompressible image fits simultaneously.
+
+All variants use the existing Host, TaskService, InputBundle, operation,
+authenticated paging and grouped publication chain. Old operations keep their
+original strict validators and restorers. Generated numerical values and pixels
+are not independently recomputed by the host. No GIS layer is automatically
+created for a PNG.
+
+The [managed environment registry](CONFIGURATION.md) selects a complete approved
+runtime/template/policy identity for new and historical operations. Installation,
+integrity, activation and actual execution readiness are distinct states. Trusted
+and generated permissions remain independent. The legacy variables below apply
+only as the documented complete fallback when no host record exists.
 
 ## Admission and platform limits
 
@@ -54,7 +85,7 @@ backend, without an ordinary interpreter preflight in the generated path.
 
 Both strong backends deny child disk writes, network, new processes and host
 credentials. Host-owned input/staging files remain outside child write authority.
-Reports travel through bounded pipes. This is the enforced zero-write workspace
+Typed input and report/table/image output frames travel through bounded pipes. This is the enforced zero-write workspace
 choice; temporary-file workflows and package installation are outside this profile.
 
 The Windows Job allows one process and at most one core of aggregate CPU
@@ -79,11 +110,17 @@ manifest and policy in the existing private-input and operation records. Reusing
 a client request ID with different source is rejected. There is no persistent
 REPL state shared with generated computations.
 
-prepare/compute-only do not register formal results. The host validates the report
-before storing REPORT. publish references the original operation, keeps exact
+prepare/compute-only do not register formal results. The host validates every declared business port
+before storing the complete private group. publish references the original operation, keeps exact
 parents and uses existing grouped commit, receipts and idempotency. Reconstructing
 the host does not rerun the original code to publish an authenticated result.
 Diagnostic artifacts cannot be promoted as result ports.
+
+The optional [Pi core](../pi/README.md) is a trusted orchestration component,
+not a sandbox. C++ retains model credentials, tool admission, stable invocation
+bindings and durable publication facts. A Pi session uses the same capabilities
+and permissions; installing Node or selecting Pi grants no Python execution
+permission. Default builds and the native conversation engine require no Node.
 
 The existing human console, REPL and MAMCL environment retain their separate
 behavior. Shell, arbitrary CLI, GPU, network, package installation, persistent

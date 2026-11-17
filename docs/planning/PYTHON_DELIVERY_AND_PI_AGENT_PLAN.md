@@ -1,7 +1,8 @@
 # Python 环境交付、数据成果扩展与 Pi Agent 实施计划
 
-计划日期：2026-11-15；代码基线：master `3e104063`。**E1 内部交付已实现并验收，待合入**，见
-[E1 记录](../progress/python-delivery-e1-20261115.md)；E2–O2 继续实施，不表示供货界面、新输入输出或 Pi 已可用。
+计划日期：2026-11-15；本轮实施基线为合入 #953 后的 master `e995a477`。
+E1–O2 的实现分别覆盖离线供货、宿主持久配置、设置与诊断、可选 Pi、类型化输入和联合成果。
+实现、平台实跑及 PR 合入是独立状态，逐批结果以如下记录为准；本节后续的需求表保留原验收要求。
 已有受控 Python SDK #21、PY0–PY4 与合并后整理
 分别见[原计划](CONTROLLED_PYTHON_AGENT_PLAN.md)和[复查记录](../progress/python-platform-review-20261115.md)。
 先补齐 Python 的供货、配置、启用和诊断，再扩展输入与成果；Pi 作为可选编排后端接入。
@@ -11,7 +12,26 @@
 [文件与模型接口](../architecture/FILE_MODEL_IO_CONTRACTS.md)、[C++ 主线边界](../CPP_PRIMARY_BOUNDARY.md)
 及[分层规则](../../AGENTS.md)。需求状态维护在 [TODOS](../../TODOS.md)，逐批证据写入 `docs/progress/`。
 
-## 1. 现状与本轮边界
+## 实施记录
+
+| 批次 | 实现与验收记录 |
+|---|---|
+| E1 | [原生离线安装](../progress/python-delivery-e1-20261115.md) |
+| E2 | [宿主配置与历史身份](../progress/python-delivery-e2-20261115.md) |
+| E3 | [设置、核验和诊断](../progress/python-delivery-e3-20261115.md) |
+| A1 | [Pi 供货与进程边界](../progress/pi-agent-a1-20261115.md) |
+| A2 | [Pi 与既有 Host 编排](../progress/pi-agent-a2-20261115.md) |
+| I1 | [数值表窗口](../progress/python-numeric-table-i1-20261115.md) |
+| I2 | [精确地震道窗口](../progress/python-seismic-trace-i2-20261115.md) |
+| O1 | [宿主 CSV 成果](../progress/python-table-output-o1-20261115.md) |
+| O2 | [报告、表格、图片联合成果](../progress/python-generated-outputs-o2-20261115.md) |
+
+I1、I2 的 SDK 依赖分别为 Data_service #22、#23，主仓 PR 按 E1→E2→E3→A1→A2→I1→I2→O1→O2
+叠放。代码存在或工具登记均不替代实际强隔离验收。运行边界以
+[平台支持表](../../vendor/agent-python/SANDBOX_SUPPORT.md)为准，内部验证不授予外部分发许可。
+Shell 继续后置。
+
+## 1. 计划起点与本轮边界
 
 | 已有能力 | 本轮复用 | 尚待完善 |
 |---|---|---|
@@ -22,12 +42,12 @@
 | Host / TaskService / operation / outputset / Catalog | 输入冻结、私有暂存、成组发布、幂等、恢复、结果引用及认证分页 | 新输入适配器、输出端口和协议版本 |
 | C++ 聊天与工具链 | 模型配置/密钥、工具 schema、调用准入、上下文和轮次预算 | 抽出共享编排边界；可选 Pi 适配，避免两套调度 |
 
-当前输入为同一井最多 16 条曲线、每条 8192 样点，要求明确 MD 轴、单位和精确对齐；
+计划起点的输入为同一井最多 16 条曲线、每条 8192 样点，要求明确 MD 轴、单位和精确对齐；
 生成代码上限 16 KiB，REPORT 上限 256 KiB。现有子进程不写磁盘、不联网、不启动其他
 进程；结果数值未由宿主独立重算。新批次不得将诊断建议变成自动地质解释或修改原始数据。
 
-“已安装”“完整性通过”“已启用”“当前可执行”分别报告。Windows 现有证据是原生
-Core Host/SDK/LPAC 链路，不等于完整 GUI 构建通过；当前 WSL 缺 CPU controller 时必须
+“已安装”“完整性通过”“已启用”“当前可执行”分别报告。Windows 原有 Core Host/SDK/LPAC
+证据不外推为本轮完整 GUI 构建通过；完整应用及新协议逐批另行验收。当前 WSL 缺 CPU controller 时必须
 拒绝生成执行。线程数未独立硬限制时如实报告，不用单核 CPU 配额冒充线程限制。支持口径
 始终以[平台支持表](../../vendor/agent-python/SANDBOX_SUPPORT.md)和新增实测为准。
 
@@ -80,7 +100,7 @@ SDK 公共接口保持标准 C++ 值类型，视图只发信号，工作流负�
 推荐顺序：**E1 → E2 → E3 → A1 → A2 → I1 → I2 → O1 → O2**。
 E3 后 Pi 与数据适配可并行开发，但逐批 rebase/门禁，按上表依赖合入；任一轨道阻塞
 不阻止另一轨道独立交付。最终联合验收归入最后一批实现 PR，不另开空的“宣布完成”PR。
-本次计划 PR 只提交文档，不改变功能状态；后续是否合并实施 PR 按用户当次指令执行。
+计划与实现分批提交；实施 PR 是否合并按用户当次指令执行，不因验收完成自行合并。
 
 ## 4. E1–E3：先把环境交付闭环做实
 
@@ -127,7 +147,7 @@ operation 引用都属于保留依据；锁文件不存在不能证明可删，�
 ### 5.1 上游选择与供货
 
 本次核对的官方 [Pi 仓库](https://github.com/earendil-works/pi)由旧 `badlogic/pi-mono`
-地址重定向而来；当前仓库尚未 vendor Pi。采用 `pi-agent-core` 的核心循环及必要依赖
+地址重定向而来。A1 已按下列精确 source lock 接入 `vendor/pi`；采用 `pi-agent-core` 的核心循环及必要依赖
 （包括 `pi-ai` / `pi-schema`），不接入 coding-agent CLI/RPC 或 `createAgentSession` 的
 默认资源装载、文件/Shell 工具、扩展、MCP、技能及包发现。
 
@@ -137,7 +157,7 @@ operation 引用都属于保留依据；锁文件不存在不能证明可删，�
 [变更记录](https://github.com/earendil-works/pi/blob/c3cc91632d0a1950fb122605b190233f2aa0006e/packages/agent/CHANGELOG.md)
 另含未发布的 #9986：中途 abort 时补齐同批剩余 toolResult；因此不能只写“1.5.2”并假定
 与 release tag 行为一致。A1 要锁定包含该修复的精确 commit，或 release 加审阅补丁，
-记录差异并对拍；上述候选尚未经过本项目构建/供货准入。
+记录差异并对拍；锁定实现、实际供货闭包和进程验收见 A1 记录及 `vendor/pi/README.md`。
 
 Node 选择满足上游下限的确切受支持平台版本，验证官方发行签名/哈希和许可证。
 完整锁定 Pi 源码、补丁、依赖锁、包归档完整性、构建工具链和最终交付文件 SHA，支持离线
@@ -188,12 +208,11 @@ A2 验收包含真实 Pi 进程与真实 Host 工具执行。模型传输可用�
 跨井对齐。I2 的时/深采样轴不得与 MD 混用；不是整卷算法、属性融合或任意空间切片。
 缺稳定窗口/修订证据的 SDK 能力先补 SDK PR，不能退化为全量读取后截取。
 
-当前 SDK `DataTable` 全为字符串，`readTable(offset, limit)` 不是上述类型化读口。
-I1 以既有 `source_tables.id`（`DataEntry.kind == "tables"`）为来源，SDK 前置新增
-拟议 `numeric_table.v1` 显式数值投影；现有 `DataObjectKind` 没有 `Table`，不能假定
-已存在类型化表对象。最小引用为 SourceRef + tableId + projectionRevision，仅支持
+计划起点的 SDK `DataTable` 全为字符串，`readTable(offset, limit)` 不是上述类型化读口。
+I1 以既有 `source_tables.id`（`DataEntry.kind == "tables"`）为来源，SDK #22 新增
+`numeric_table.v1` 显式数值投影；不为此虚构 `DataObjectKind::Table`。最小引用为 SourceRef + tableId + projectionRevision，仅支持
 单表已登记投影的列窗口。SDK PR 明确持久列类型、单位、null mask、稳定行序、
-修订/ReadCut 与字段字节预算，再冻结公共 DTO/读口；这些新增契约目前尚不存在。
+修订/ReadCut 与字段字节预算，再冻结公共 DTO/读口；实际接口与边界见 I1、I2 记录。
 旧 string-only、无投影修订或缺语义的表拒绝，不从展示字符串/Qt 表模型猜测类型，
 不另建通用表存储。
 

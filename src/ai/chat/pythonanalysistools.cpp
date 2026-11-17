@@ -7,6 +7,7 @@
 #include "services/pythonnumerictable.h"
 #include "services/pythonseismictrace.h"
 #include "services/pythontableoutputspec.h"
+#include "services/pythongeneratedoutputspec.h"
 #include <QObject>
 
 namespace {
@@ -18,15 +19,17 @@ paleo::python::AnalysisKind kind(const QString &name) {
 bool isPythonAnalysisTool(const QString &name) {
   return name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool) ||
     name==QLatin1String(paleo::python::GeneratedTool) || name==QLatin1String(paleo::python::NumericTableTool) ||
-    name==QLatin1String(paleo::python::SeismicTraceTool) || name==QLatin1String(paleo::python::TableOutputsTool);
+    name==QLatin1String(paleo::python::SeismicTraceTool) || name==QLatin1String(paleo::python::TableOutputsTool) || name==QLatin1String(paleo::python::GeneratedOutputsTool);
 }
 QJsonObject pythonAnalysisToolSchema(const QString &name) {
+  if(name==QLatin1String(paleo::python::GeneratedOutputsTool))return paleo::python::generatedOutputsToolRequestSchema();
   if(name==QLatin1String(paleo::python::SeismicTraceTool))return paleo::python::seismicTraceToolRequestSchema();
   if(name==QLatin1String(paleo::python::TableOutputsTool))return paleo::python::tableOutputsToolRequestSchema();
   if(name==QLatin1String(paleo::python::NumericTableTool))return paleo::python::numericTableToolRequestSchema();
   return name==QLatin1String(paleo::python::GeneratedTool)?paleo::python::generatedToolRequestSchema():paleo::python::analysisToolRequestSchema(kind(name));
 }
 QString validatePythonAnalysisArguments(const QString &name,const QJsonObject &args) {
+  if(name==QLatin1String(paleo::python::GeneratedOutputsTool))return paleo::python::validateGeneratedOutputsToolArguments(args);
   if(name==QLatin1String(paleo::python::SeismicTraceTool))return paleo::python::validateSeismicTraceToolArguments(args);
   if(name==QLatin1String(paleo::python::TableOutputsTool))return paleo::python::validateTableOutputsToolArguments(args);
   if(name==QLatin1String(paleo::python::NumericTableTool))return paleo::python::validateNumericTableToolArguments(args);
@@ -52,7 +55,10 @@ void appendPythonAnalysisTools(QVector<AiToolSpec> &specs) {
   AiToolSpec outputs;outputs.name=QLatin1String(paleo::python::TableOutputsTool);
   outputs.title=QObject::tr("受控 Python 表格成果");
   outputs.description=QObject::tr("使用显式数值表窗口和冻结的输出列声明，生成报告与单张数值表；最多16列、8192行，宿主编码CSV至多4MiB。两项成果整组验收、一次发布。源码、输入和运行时保留来源证据；生成数值和单位未经宿主独立重算。旧REPORT操作保持原有恢复方式。");
-  for(auto spec:{quality,correlation,generated,table,trace,outputs}) {
+  AiToolSpec image;image.name=QLatin1String(paleo::python::GeneratedOutputsTool);
+  image.title=QObject::tr("受控 Python 图表成果");
+  image.description=QObject::tr("显式选择数值表或单道地震窗口，并冻结输出列与图像尺寸。生成报告、单张数值表及单张RGBA图像；宿主编码CSV和PNG，每项至多4MiB，图像至多1024×1024像素。三项整组验收、一次发布；PNG是非空间报告成果，不自动成为GIS图层。保留输入、代码、运行时及编码器来源，生成数值与像素未经独立重算。复用同一权限、隔离、恢复和认证分页链路。");
+  for(auto spec:{quality,correlation,generated,table,trace,outputs,image}) {
     spec.effects=paleo::host::Read|paleo::host::PrivateStage|paleo::host::LocalExecute;
     spec.resultSchemaJson=QStringLiteral(R"({"type":"object","properties":{"code":{"type":"string"},"operationId":{"type":"string"},"execution":{"type":"string"},"commitState":{"type":"string"},"summary":{"type":"object"}}})");
     specs.append(std::move(spec));

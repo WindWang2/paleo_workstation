@@ -28845,8 +28845,8 @@ PDF：%3
         <translation>Selected numerical attribute correlation</translation>
     </message>
     <message>
-        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；version=严格版本摘要；version_parents=完整父引用续页</source>
-        <translation>Query topic: summary, wells, horizons, assets, well_details, well_curves (paged exact well curve metadata), version, or version_parents.</translation>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>Query topic: summary=counts; wells=well list; horizons=horizon assets; assets=asset list; well_details=well links; well_curves=paged exact curve metadata; numeric_table_projection=declared numeric projection for an exact source table; version=strict version summary; version_parents=paged complete parent references</translation>
     </message>
     <message>
         <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
@@ -37690,6 +37690,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
         <source>无需安装（生成专用）</source>
         <translation>Not required (generated only)</translation>
+    </message>
+    <message>
+        <source>受控数值表计算</source>
+        <translation>Controlled numeric table computation</translation>
+    </message>
+    <message>
+        <source>对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。</source>
+        <translation>Run bounded generated Python against a host-confirmed source_tables numeric projection using an exact SourceRef, table ID, projection revision, columns and row window. At most 15 numeric or Boolean columns plus a separate int64 physical row axis, 16 columns in total and 8192 rows. Types, units and nulls are not inferred from display strings. Missing projections or formal source-version mappings are rejected without model upgrades. The actual ReadCut and frozen bytes are retained; output remains a bounded REPORT, with no new CSV or image artifact. Generated-code permission, real isolation, compute-only and publication referencing the original operation use the host chain. Numerical results are not independently recomputed.</translation>
+    </message>
+    <message>
+        <source>numeric_table_projection 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
+        <translation>Exact SourceRef for numeric_table_projection. Read declared metadata only; do not scan values or infer types or units.</translation>
+    </message>
+    <message>
+        <source>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</source>
+        <translation>Exact decimal source-table ID for numeric_table_projection; no worksheet-name fallback.</translation>
     </message>
 </context>
     <context>
@@ -55973,6 +55989,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/services/commandspec.cpp" line="213"/>
             <source>Python 井曲线计算</source>
             <translation>Python well curve computation</translation>
+        </message>
+        <message>
+            <location filename="../src/services/commandspec.cpp" line="209"/>
+            <source>Python 数值表计算</source>
+            <translation>Python numeric table computation</translation>
         </message>
     </context>
 

@@ -10,6 +10,6 @@ QString validateGeneratedCode(const QByteArray &source,const ExecutionPolicy &po
 QString generatedSourceFromArguments(const QJsonObject &arguments,QByteArray &source);
 QJsonObject generatedToolRequestSchema();
 QString validateGeneratedToolArguments(const QJsonObject &arguments);
-AnalysisReportValidation validateGeneratedReport(const QByteArray &output,const QJsonObject &inputMetadata,
-    const QString &codeSha256,const QString &runtimeManifestSha256,const ExecutionPolicy &policy);
+AnalysisReportValidation validateGeneratedReport(const QByteArray &bytes,const QJsonObject &metadata,
+    const QString &codeSha,const QString &runtimeSha,const ExecutionPolicy &policy);
 }

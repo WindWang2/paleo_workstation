@@ -1,21 +1,24 @@
 // 层：功能
 #include "pythongeneratedoperation_internal.h"
+#include "pythongeneratedworker.h"
 #include "pythonoperationdiagnostics.h"
 #include "services/pythongenerated.h"
 #include <QDir>
 #include <QJsonDocument>
 
-namespace paleo::python::generated_operation {
-capability::OperationWorker worker(const QJsonObject &plan,std::shared_ptr<RuntimeProvider> provider,std::shared_ptr<SandboxProvider> sandbox) {
-  return [plan,provider,sandbox](const capability::OperationWorkContext &context) {
+namespace paleo::python {
+capability::OperationWorker generatedReportWorker(const QJsonObject &plan,std::shared_ptr<RuntimeProvider> provider,
+    std::shared_ptr<SandboxProvider> sandbox,GeneratedWorkerChecks checks) {
+  return [plan,provider,sandbox,checks](const capability::OperationWorkContext &context) {
     capability::OperationWorkResult out;const auto fail=[&](const QString &code){out.code=code;return out;};
-    auto code=checkPlan(plan,provider,sandbox,true);if(!code.isEmpty())return fail(code);
-    if(context.frozenPlan!=plan)return fail("invalid_python_generated_plan");
+    if(!checks.plan||!checks.bundle||!checks.report)return fail("python_contract_unavailable");
+    auto code=checks.plan(plan,provider,sandbox,true);if(!code.isEmpty())return fail(code);
+    if(context.frozenPlan!=plan)return fail(checks.invalidPlanCode);
     const auto permit=claimExecutionPermit(context.cancelled);if(!permit)return fail("cancelled");
     const auto runtime=provider->inspectIntegrity(context.cancelled);if(!runtime.ready())return fail(runtime.code);
     if(runtime.runtime->manifestSha256!=plan.value("runtimeManifestSha256").toString())return fail("python_runtime_changed");
     const auto bundle=verifyInputBundle(context.projectDir,plan.value("storedInput").toObject(),provider->policy(),context.cancelled);
-    if(!bundle.ok())return fail(bundle.code);code=checkBundle(bundle,plan);if(!code.isEmpty())return fail(code);
+    if(!bundle.ok())return fail(bundle.code);code=checks.bundle(bundle,plan);if(!code.isEmpty())return fail(code);
     SandboxRequest request;request.runtime=runtime.runtime;request.input=std::make_shared<InputBundle>(bundle);
     request.policy=provider->policy();request.cancelled=context.cancelled;request.permit=permit;
     const auto process=sandbox->run(request);
@@ -24,7 +27,7 @@ capability::OperationWorker worker(const QJsonObject &plan,std::shared_ptr<Runti
     diagnostics.memoryPeakComplete=process.memoryPeakComplete;diagnostics.exitCode=process.exitCode;diagnostics.outputLog=process.outputLog;
     appendPythonProcessDiagnostics(out,context,diagnostics,request.policy);
     if(!process.ok())return fail(process.code);
-    const auto report=validateGeneratedReport(process.output,plan.value("inputMetadata").toObject(),
+    const auto report=checks.report(process.output,plan.value("inputMetadata").toObject(),
       plan.value("codeSha256").toString(),runtime.runtime->manifestSha256,request.policy);if(!report.ok())return fail(report.code);
     const auto path=QDir(context.privateDir).filePath("REPORT.json");
     if(!storePythonOperationBytes(path,report.bytes))return fail("python_output_write_failed");
@@ -36,5 +39,11 @@ capability::OperationWorker worker(const QJsonObject &plan,std::shared_ptr<Runti
     if(QJsonDocument(out.summary).toJson(QJsonDocument::Compact).size()>4096)return fail("python_output_budget_exceeded");
     out.ok=true;out.code="ok";return out;
   };
+}
+}
+namespace paleo::python::generated_operation {
+capability::OperationWorker worker(const QJsonObject &plan,std::shared_ptr<RuntimeProvider> provider,std::shared_ptr<SandboxProvider> sandbox) {
+  return generatedReportWorker(plan,std::move(provider),std::move(sandbox),
+    {checkPlan,checkBundle,validateGeneratedReport,"invalid_python_generated_plan"});
 }
 }

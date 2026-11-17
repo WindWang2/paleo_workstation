@@ -1,5 +1,6 @@
 // 层：功能
 #include "pythonenvironmentoperation.h"
+#include "pythonenvironmentoperation_internal.h"
 #include "pythonanalysisoperation_internal.h"
 #include "pythongeneratedoperation_internal.h"
 #include "services/pythongenerated.h"
@@ -32,14 +33,14 @@ capability::OperationInputValidator validator(capability::OperationInputValidato
   };
 }
 capability::OperationWorker worker(capability::OperationWorker inner, const EnvironmentSelection &selected,
-    const QJsonObject &plan, AnalysisKind kind, const std::shared_ptr<PythonEnvironmentRegistry> &registry,
+    const QJsonObject &plan, EnvironmentMode executionMode, const std::shared_ptr<PythonEnvironmentRegistry> &registry,
     bool restoring) {
-  return [inner, selected, plan, kind, registry, restoring](const capability::OperationWorkContext &context) {
+  return [inner, selected, plan, executionMode, registry, restoring](const capability::OperationWorkContext &context) {
     capability::OperationWorkResult result;
     auto code = interrupted(selected, &context); if (!code.isEmpty()) { result.code = code; return result; }
     auto view = context; view.frozenPlan = plan; view.cancelled = stopped(selected, context.cancelled, context.requestInterruption);
     if (restoring) {
-      const auto proof = registry->probe(selected.identity.id, mode(kind), view.cancelled);
+      const auto proof = registry->probe(selected.identity.id, executionMode, view.cancelled);
       if (!proof.value("ready").toBool()) {
         result.code = proof.value("code").toString("python_environment_execution_unprobed");
         interrupted(selected, &context); return result;
@@ -57,8 +58,8 @@ struct Resolved {
   QJsonObject plan;
   QString code;
 };
-Resolved resolve(const capability::OperationLog::Record &record, AnalysisKind kind,
-                 const std::shared_ptr<PythonEnvironmentRegistry> &registry) {
+Resolved resolve(const capability::OperationLog::Record &record, EnvironmentMode executionMode,
+                 const std::shared_ptr<PythonEnvironmentRegistry> &registry,const EnvironmentOperationContract &contract) {
   Resolved out; out.view = record; out.plan = record.frozenRequest.value("plan").toObject(); QString id;
   if (out.plan.value("schema") == QLatin1String(Envelope)) {
     if (out.plan.keys() != QStringList{"environmentIdentityId", "plan", "schema"} ||
@@ -67,23 +68,22 @@ Resolved resolve(const capability::OperationLog::Record &record, AnalysisKind ki
     id = out.plan.value("environmentIdentityId").toString(); out.plan = out.plan.value("plan").toObject();
     if (QByteArray::fromHex(id.toLatin1()).toHex() != id.toLatin1()) { out.code = "invalid_python_environment_plan"; return out; }
     out.view.frozenRequest.insert("plan", out.plan);
-  }
+  } else if (!contract.allowLegacyPlans) { out.code = "invalid_python_environment_plan"; return out; }
   if (!registry) { out.code = "python_environment_disabled"; return out; }
-  out.selected = registry->resolve(id, out.plan.value("runtimeManifestSha256").toString(), out.plan.value("policy").toObject(), mode(kind));
+  out.selected = registry->resolve(id, out.plan.value("runtimeManifestSha256").toString(), out.plan.value("policy").toObject(), executionMode);
   if (!out.selected.ok()) { out.code = out.selected.code; return out; }
-  out.code = kind == AnalysisKind::Generated ? generated_operation::checkRecord(out.view, out.selected.runtime, out.selected.sandbox, false) :
-      analysis_operation::checkRecord(out.view, kind, out.selected.runtime);
+  out.code = contract.checkRecord ? contract.checkRecord(out.view,out.selected) : QStringLiteral("python_contract_unavailable");
   return out;
 }
-capability::CapabilityPreparation capture(AnalysisKind kind, const std::shared_ptr<PythonEnvironmentRegistry> &registry,
-    const AnalysisPlanProvider &selector, const capability::ExecuteRequest &request, const QJsonObject &intent, QString *error) {
+capability::CapabilityPreparation capture(EnvironmentMode executionMode, const std::shared_ptr<PythonEnvironmentRegistry> &registry,
+    const EnvironmentOperationContract &contract, const capability::ExecuteRequest &request, const QJsonObject &intent, QString *error) {
   const auto fail = [error](const QString &code) { if (error) *error = code; return capability::CapabilityPreparation{}; };
   if (!registry) return fail("python_environment_disabled");
-  const auto selected = registry->active(mode(kind)); if (!selected.ok()) return fail(selected.code);
-  if (kind != AnalysisKind::Generated && !selected.trusted->snapshot().value("executionReady").toBool())
+  const auto selected = registry->active(executionMode); if (!selected.ok()) return fail(selected.code);
+  if (executionMode != EnvironmentMode::Generated && !selected.trusted->snapshot().value("executionReady").toBool())
     return fail(selected.trusted->snapshot().value("code").toString("python_trusted_execution_unprobed"));
-  auto adapter = kind == AnalysisKind::Generated ? generatedScriptAdapter(selected.runtime, selected.sandbox, selector) :
-      analysisScriptAdapter(kind, selected.runtime, selected.identity.scriptsRoot, selector);
+  if (!contract.captureAdapter) return fail("python_contract_unavailable");
+  auto adapter = contract.captureAdapter(selected); if (!adapter.capture) return fail("execution_adapter_unavailable");
   auto preparation = adapter.capture(request, intent, error); if (!preparation.worker) return preparation;
   const auto validate = preparation.validate;
   preparation.validate = [validate, selected] {
@@ -92,14 +92,14 @@ capability::CapabilityPreparation capture(AnalysisKind kind, const std::shared_p
     const auto revoked = interrupted(selected); return revoked.isEmpty() ? result : revoked;
   };
   const auto materialize = preparation.worker;
-  preparation.worker = [materialize, selected, kind, registry](const auto &cancelled, QString *error) {
+  preparation.worker = [materialize, selected, executionMode, registry](const auto &cancelled, QString *error) {
     auto code = interrupted(selected); if (!code.isEmpty()) { if (error) *error = code; return capability::FrozenOperation{}; }
     auto frozen = materialize(stopped(selected, cancelled), error);
     code = interrupted(selected); if (!code.isEmpty()) { if (error) *error = code; return capability::FrozenOperation{}; }
     if (frozen.capabilityId.isEmpty()) return frozen;
     const auto plan = frozen.frozenPlan;
     frozen.frozenPlan = {{"schema", QLatin1String(Envelope)}, {"environmentIdentityId", selected.identity.id}, {"plan", plan}};
-    frozen.worker = worker(frozen.worker, selected, plan, kind, registry, false);
+    frozen.worker = worker(frozen.worker, selected, plan, executionMode, registry, false);
     frozen.inputValidator = validator(frozen.inputValidator, selected, plan);
     return frozen;
   };
@@ -107,27 +107,46 @@ capability::CapabilityPreparation capture(AnalysisKind kind, const std::shared_p
 }
 } // namespace
 
-capability::CapabilityExecutionAdapter environmentAnalysisAdapter(AnalysisKind kind,
-    std::shared_ptr<PythonEnvironmentRegistry> registry, AnalysisPlanProvider selector) {
+capability::CapabilityExecutionAdapter environmentOperationAdapter(EnvironmentMode executionMode,
+    std::shared_ptr<PythonEnvironmentRegistry> registry,EnvironmentOperationContract contract) {
   capability::CapabilityExecutionAdapter adapter;
-  adapter.capture = [kind, registry, selector](const auto &request, const auto &intent, QString *error) {
-    return capture(kind, registry, selector, request, intent, error);
+  adapter.capture = [executionMode, registry, contract](const auto &request, const auto &intent, QString *error) {
+    return capture(executionMode, registry, contract, request, intent, error);
   };
-  adapter.validateFrozen = [kind, registry](const auto &record) { return resolve(record, kind, registry).code; };
-  adapter.restoreInputValidator = [kind, registry](const auto &record, QString *error) {
-    const auto resolved = resolve(record, kind, registry); if (error) *error = resolved.code;
+  adapter.validateFrozen = [executionMode, registry, contract](const auto &record) { return resolve(record, executionMode, registry, contract).code; };
+  adapter.restoreInputValidator = [executionMode, registry, contract](const auto &record, QString *error) {
+    const auto resolved = resolve(record, executionMode, registry, contract); if (error) *error = resolved.code;
     if (!resolved.code.isEmpty()) return capability::OperationInputValidator{};
-    auto inner = kind == AnalysisKind::Generated ? generated_operation::inputValidator(resolved.plan, resolved.selected.runtime, resolved.selected.sandbox) :
-        analysis_operation::inputValidator(resolved.plan, kind, resolved.selected.runtime);
+    auto inner = contract.inputValidator ? contract.inputValidator(resolved.plan,resolved.selected) : capability::OperationInputValidator{};
     return validator(inner, resolved.selected, resolved.plan);
   };
-  adapter.restoreWorker = [kind, registry](const auto &record, QString *error) {
-    const auto resolved = resolve(record, kind, registry); if (error) *error = resolved.code;
+  adapter.restoreWorker = [executionMode, registry, contract](const auto &record, QString *error) {
+    const auto resolved = resolve(record, executionMode, registry, contract); if (error) *error = resolved.code;
     if (!resolved.code.isEmpty()) return capability::OperationWorker{};
-    auto inner = kind == AnalysisKind::Generated ? generated_operation::worker(resolved.plan, resolved.selected.runtime, resolved.selected.sandbox) :
-        analysis_operation::worker(resolved.plan, kind, resolved.selected.runtime);
-    return worker(inner, resolved.selected, resolved.plan, kind, registry, true);
+    auto inner = contract.worker ? contract.worker(resolved.plan,resolved.selected) : capability::OperationWorker{};
+    return worker(inner, resolved.selected, resolved.plan, executionMode, registry, true);
   };
   return adapter;
+}
+capability::CapabilityExecutionAdapter environmentAnalysisAdapter(AnalysisKind kind,
+    std::shared_ptr<PythonEnvironmentRegistry> registry, AnalysisPlanProvider selector) {
+  EnvironmentOperationContract contract;contract.allowLegacyPlans=true;
+  contract.captureAdapter=[kind,selector](const EnvironmentSelection &selected) {
+    return kind==AnalysisKind::Generated ? generatedScriptAdapter(selected.runtime,selected.sandbox,selector) :
+      analysisScriptAdapter(kind,selected.runtime,selected.identity.scriptsRoot,selector);
+  };
+  contract.checkRecord=[kind](const auto &record,const EnvironmentSelection &selected) {
+    return kind==AnalysisKind::Generated ? generated_operation::checkRecord(record,selected.runtime,selected.sandbox,false) :
+      analysis_operation::checkRecord(record,kind,selected.runtime);
+  };
+  contract.inputValidator=[kind](const auto &plan,const EnvironmentSelection &selected) {
+    return kind==AnalysisKind::Generated ? generated_operation::inputValidator(plan,selected.runtime,selected.sandbox) :
+      analysis_operation::inputValidator(plan,kind,selected.runtime);
+  };
+  contract.worker=[kind](const auto &plan,const EnvironmentSelection &selected) {
+    return kind==AnalysisKind::Generated ? generated_operation::worker(plan,selected.runtime,selected.sandbox) :
+      analysis_operation::worker(plan,kind,selected.runtime);
+  };
+  return environmentOperationAdapter(mode(kind),std::move(registry),std::move(contract));
 }
 } // namespace paleo::python

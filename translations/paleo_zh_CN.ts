@@ -28977,8 +28977,8 @@ PDF：%3
         <translation>所选数值属性相关性</translation>
     </message>
     <message>
-        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；version=严格版本摘要；version_parents=完整父引用续页</source>
-        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；version=严格版本摘要；version_parents=完整父引用续页</translation>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；version=严格版本摘要；version_parents=完整父引用续页</translation>
     </message>
     <message>
         <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
@@ -37834,6 +37834,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
         <source>无需安装（生成专用）</source>
         <translation>无需安装（生成专用）</translation>
+    </message>
+    <message>
+        <source>受控数值表计算</source>
+        <translation>受控数值表计算</translation>
+    </message>
+    <message>
+        <source>对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。</source>
+        <translation>对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。</translation>
+    </message>
+    <message>
+        <source>numeric_table_projection 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
+        <translation>numeric_table_projection 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</translation>
+    </message>
+    <message>
+        <source>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</source>
+        <translation>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</translation>
     </message>
 </context>
 <context>
@@ -56180,6 +56196,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/services/commandspec.cpp" line="213"/>
         <source>Python 井曲线计算</source>
         <translation>Python 井曲线计算</translation>
+    </message>
+    <message>
+        <location filename="../src/services/commandspec.cpp" line="209"/>
+        <source>Python 数值表计算</source>
+        <translation>Python 数值表计算</translation>
     </message>
 </context>
 

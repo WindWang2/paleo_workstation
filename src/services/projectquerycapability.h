@@ -31,8 +31,8 @@ public:
   void bind(DataCatalog *catalog, Scope scope);
   void setSourceResolver(SourceResolver resolver);
   void clear();
-  QJsonObject query(const QJsonObject &arguments);
-  QJsonObject lineage(const QJsonObject &arguments);
+  QJsonObject query(const QJsonObject &args);
+  QJsonObject lineage(const QJsonObject &args);
 private:
   struct Impl;
   std::unique_ptr<Impl> m;

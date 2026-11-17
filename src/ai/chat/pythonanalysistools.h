@@ -6,5 +6,5 @@
 struct AiToolSpec;
 bool isPythonAnalysisTool(const QString &name);
 QJsonObject pythonAnalysisToolSchema(const QString &name);
-QString validatePythonAnalysisArguments(const QString &name,const QJsonObject &arguments);
+QString validatePythonAnalysisArguments(const QString &name,const QJsonObject &args);
 void appendPythonAnalysisTools(QVector<AiToolSpec> &specs);

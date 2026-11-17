@@ -36,11 +36,21 @@ public:
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
     limits.BasicLimitInformation.ActiveProcessLimit = 1;
-    m_available = SetInformationJobObject(m_job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) != 0;
+    if (!SetInformationJobObject(m_job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) return;
+    SIZE_T bytes = 0;
+    InitializeProcThreadAttributeList(nullptr, 1, 0, &bytes);
+    if (!bytes) return;
+    m_attributeMemory = HeapAlloc(GetProcessHeap(), 0, bytes);
+    if (!m_attributeMemory) return;
+    auto attributes = static_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(m_attributeMemory);
+    if (!InitializeProcThreadAttributeList(attributes, 1, 0, &bytes)) return;
+    m_attributes = attributes; m_available = true;
 #endif
   }
   ~ProcessTree() {
 #ifdef Q_OS_WIN
+    if (m_attributes) DeleteProcThreadAttributeList(m_attributes);
+    if (m_attributeMemory) HeapFree(GetProcessHeap(), 0, m_attributeMemory);
     if (m_job) CloseHandle(m_job);
 #endif
   }
@@ -58,7 +68,7 @@ public:
   // A future caller cannot silently skip the required Linux controls.
   void configure(QProcess &) const = delete;
 #else
-  void configure(QProcess &process) const {
+  void configure(QProcess &process) {
 #ifdef Q_OS_LINUX
     const auto parent = ::getpid();
     process.setChildProcessModifier([parent] {
@@ -67,6 +77,10 @@ public:
     QProcess::UnixProcessParameters parameters;
     parameters.flags = QProcess::UnixProcessFlag::CloseFileDescriptors;
     process.setUnixProcessParameters(parameters);
+#elif defined(Q_OS_WIN)
+    process.setCreateProcessArgumentsModifier([this](QProcess::CreateProcessArguments *arguments) {
+      restrictHandles(arguments);
+    });
 #else
     Q_UNUSED(process);
 #endif
@@ -74,6 +88,7 @@ public:
 #endif
   bool attach(QProcess &process) const {
 #ifdef Q_OS_WIN
+    if (!m_startupReady) return false;
     const auto child = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, DWORD(process.processId()));
     const bool assigned = child && AssignProcessToJobObject(m_job, child);
     if (child) CloseHandle(child);
@@ -85,8 +100,36 @@ public:
   }
 private:
 #ifdef Q_OS_WIN
+  void restrictHandles(QProcess::CreateProcessArguments *arguments) {
+    m_startupReady = false;
+    arguments->inheritHandles = false;
+    const auto original = arguments->startupInfo ? *arguments->startupInfo : STARTUPINFOW{};
+    // A Windows modifier has no veto return. Request a failed extended startup
+    // until the entire whitelist succeeds; attach() independently refuses it.
+    m_startup = {}; m_startup.StartupInfo.cb = 0; arguments->startupInfo = &m_startup.StartupInfo;
+    arguments->flags |= EXTENDED_STARTUPINFO_PRESENT;
+    if (!m_available || !(original.dwFlags & STARTF_USESTDHANDLES)) return;
+    m_inherited[0] = original.hStdInput; m_inherited[1] = original.hStdOutput; m_inherited[2] = original.hStdError;
+    for (const auto handle : m_inherited) {
+      DWORD flags = 0;
+      if (!handle || handle == INVALID_HANDLE_VALUE || GetFileType(handle) != FILE_TYPE_PIPE ||
+          !GetHandleInformation(handle, &flags) || !(flags & HANDLE_FLAG_INHERIT)) return;
+    }
+    if (m_inherited[0] == m_inherited[1] || m_inherited[0] == m_inherited[2] || m_inherited[1] == m_inherited[2]) return;
+    if (!UpdateProcThreadAttribute(m_attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                  m_inherited, sizeof(m_inherited), nullptr, nullptr)) return;
+    // Qt supplies a smaller STARTUPINFOW; copy it into our own extended storage.
+    // The list and its handle-value array remain alive until QProcess is gone.
+    m_startup.StartupInfo = original; m_startup.StartupInfo.cb = sizeof(m_startup);
+    m_startup.lpAttributeList = m_attributes;
+    arguments->inheritHandles = true; m_startupReady = true;
+  }
   HANDLE m_job = nullptr;
-  bool m_available = false;
+  void *m_attributeMemory = nullptr;
+  LPPROC_THREAD_ATTRIBUTE_LIST m_attributes = nullptr;
+  STARTUPINFOEXW m_startup{};
+  HANDLE m_inherited[3]{};
+  bool m_available = false, m_startupReady = false;
 #endif
 };
 } // namespace paleo::pi::detail

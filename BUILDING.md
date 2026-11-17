@@ -494,3 +494,19 @@ cmake --build <build> --target paleo_python_environment -j3
 Windows 线程与 CPU 限制的精确区别见[平台说明](vendor/agent-python/SANDBOX_SUPPORT.md)。
 已有人工控制台/REPL/MAMCL 保持独立，Shell、GPU、安装包与网络能力仍后置。
 
+### 可选 Pi 核心供货（A1）
+
+默认 configure、应用启动和安装都不发现或运行 Node。供货端显式执行
+`tools/prepare_pi_agent.py --cache <dedicated-cache> --fetch` 抓取源码锁的闭包，
+再用 `--offline --cache <cache> --store <dedicated-store> --platform <platform>`
+离线准备 generation；不使用系统 Node、npm 或包生命周期脚本。支持的固定发行包与
+源锁见 [Pi 清单](vendor/pi/README.md)。准备结果仍为禁用状态，A1 只提供固定握手，
+模型/工具编排留到 A2。
+
+`PALEO_PI_INSTALL_ROOT=<prepared-generation>` 和 `PALEO_PI_INSTALL_SHA256=<host-SHA>`
+仅为显式 `cmake --install <build> --component AgentPiRuntime` 提供输入；组件从默认
+安装排除，安装时完整校验与暂存发布，不启动 Node、不授执行权限。无 Node 的正常构建
+仍运行 `tst_piprotocol` / `tst_piruntime`。真实固定进程验收显式开启
+`PALEO_TEST_PI_NATIVE` 并提供 `PALEO_TEST_PI_NATIVE_ROOT` / `PALEO_TEST_PI_NATIVE_SHA256`，
+缺夹具直接失败。`tools/probe_pi_agent.py` 的独立 Node 协议证据不替代 C++ 进程验收。
+

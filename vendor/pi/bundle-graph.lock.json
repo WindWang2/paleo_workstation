@@ -1,0 +1,148 @@
+{
+  "schema": "paleo.pi-bundle-graph.v1",
+  "esbuildVersion": "0.28.2",
+  "inputs": {
+    "packages/agent/src/agent-loop.ts": {
+      "bytesInOutput": 20563
+    },
+    "packages/agent/src/agent.ts": {
+      "bytesInOutput": 15008
+    },
+    "packages/agent/src/stream-fn.ts": {
+      "bytesInOutput": 229
+    },
+    "packages/ai/src/utils/event-stream.ts": {
+      "bytesInOutput": 2729
+    },
+    "packages/ai/src/utils/identity.ts": {
+      "bytesInOutput": 478
+    },
+    "packages/ai/src/utils/text.ts": {
+      "bytesInOutput": 466
+    },
+    "packages/ai/src/utils/transcript.ts": {
+      "bytesInOutput": 3117
+    },
+    "packages/ai/src/utils/validation.ts": {
+      "bytesInOutput": 1146
+    },
+    "packages/schema/src/annotations.ts": {
+      "bytesInOutput": 4052
+    },
+    "packages/schema/src/checks.ts": {
+      "bytesInOutput": 13540
+    },
+    "packages/schema/src/coerce.ts": {
+      "bytesInOutput": 20664
+    },
+    "packages/schema/src/compiler.ts": {
+      "bytesInOutput": 20719
+    },
+    "packages/schema/src/explain.ts": {
+      "bytesInOutput": 14805
+    },
+    "packages/schema/src/formats/index.ts": {
+      "bytesInOutput": 571
+    },
+    "packages/schema/src/formats/typebox/date.ts": {
+      "bytesInOutput": 490
+    },
+    "packages/schema/src/formats/typebox/date_time.ts": {
+      "bytesInOutput": 147
+    },
+    "packages/schema/src/formats/typebox/duration.ts": {
+      "bytesInOutput": 208
+    },
+    "packages/schema/src/formats/typebox/email.ts": {
+      "bytesInOutput": 378
+    },
+    "packages/schema/src/formats/typebox/hostname.ts": {
+      "bytesInOutput": 60
+    },
+    "packages/schema/src/formats/typebox/idn_email.ts": {
+      "bytesInOutput": 321
+    },
+    "packages/schema/src/formats/typebox/idn_hostname.ts": {
+      "bytesInOutput": 66
+    },
+    "packages/schema/src/formats/typebox/idna/format/bidi.ts": {
+      "bytesInOutput": 1727
+    },
+    "packages/schema/src/formats/typebox/idna/format/puny.ts": {
+      "bytesInOutput": 3397
+    },
+    "packages/schema/src/formats/typebox/idna/hostname.ts": {
+      "bytesInOutput": 415
+    },
+    "packages/schema/src/formats/typebox/idna/idn-hostname.ts": {
+      "bytesInOutput": 884
+    },
+    "packages/schema/src/formats/typebox/idna/label/ascii.ts": {
+      "bytesInOutput": 148
+    },
+    "packages/schema/src/formats/typebox/idna/label/puny.ts": {
+      "bytesInOutput": 336
+    },
+    "packages/schema/src/formats/typebox/idna/label/unicode.ts": {
+      "bytesInOutput": 1767
+    },
+    "packages/schema/src/formats/typebox/idna/pattern/pattern.ts": {
+      "bytesInOutput": 2107
+    },
+    "packages/schema/src/formats/typebox/ipv4.ts": {
+      "bytesInOutput": 150
+    },
+    "packages/schema/src/formats/typebox/ipv6.ts": {
+      "bytesInOutput": 607
+    },
+    "packages/schema/src/formats/typebox/iri.ts": {
+      "bytesInOutput": 499
+    },
+    "packages/schema/src/formats/typebox/iri_reference.ts": {
+      "bytesInOutput": 271
+    },
+    "packages/schema/src/formats/typebox/json_pointer.ts": {
+      "bytesInOutput": 115
+    },
+    "packages/schema/src/formats/typebox/json_pointer_uri_fragment.ts": {
+      "bytesInOutput": 183
+    },
+    "packages/schema/src/formats/typebox/regex.ts": {
+      "bytesInOutput": 115
+    },
+    "packages/schema/src/formats/typebox/relative_json_pointer.ts": {
+      "bytesInOutput": 162
+    },
+    "packages/schema/src/formats/typebox/time.ts": {
+      "bytesInOutput": 785
+    },
+    "packages/schema/src/formats/typebox/uri.ts": {
+      "bytesInOutput": 1841
+    },
+    "packages/schema/src/formats/typebox/uri_reference.ts": {
+      "bytesInOutput": 3522
+    },
+    "packages/schema/src/formats/typebox/uri_template.ts": {
+      "bytesInOutput": 332
+    },
+    "packages/schema/src/formats/typebox/url.ts": {
+      "bytesInOutput": 56
+    },
+    "packages/schema/src/formats/typebox/uuid.ts": {
+      "bytesInOutput": 115
+    },
+    "packages/schema/src/resolver.ts": {
+      "bytesInOutput": 6539
+    },
+    "packages/schema/src/shared.ts": {
+      "bytesInOutput": 472
+    },
+    "packages/schema/src/validator.ts": {
+      "bytesInOutput": 2728
+    },
+    "paleo/sidecar.mjs": {
+      "bytesInOutput": 3842
+    }
+  },
+  "externalImports": []
+}

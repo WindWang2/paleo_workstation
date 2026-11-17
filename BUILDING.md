@@ -453,7 +453,8 @@ Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和
 本机默认 RelWithDebInfo 和 sanitizer 车道不受影响。
 ## 可选 Agent Python 环境
 
-当前离线安装与宿主持久配置见本节；设置界面、诊断产品闭环及可选 Pi 的后续工作见
+离线安装、宿主持久配置与可选 Pi 接线见本节。设置页通过同一服务核验、探针和导出脱敏诊断；
+已安装、内容完整、已启用与当前可执行分别报告。各批范围和验收见
 [实施计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)。
 
 主程序的默认构建、安装和启动不需要该运行时。开发和源码检查依赖的 Python
@@ -486,9 +487,21 @@ cmake --build <build> --target paleo_python_environment -j3
 `PALEO_AGENT_PYTHON_SCRIPTS_ROOT`；脚本包见[说明](vendor/agent-python/scripts.README.md)。
 运行时 ready、模板 ready 和实际执行后端 ready 分别报告。当前 Linux 执行要求钉版
 辅助程序、用户 manager 与 CPU/memory/pids 委派；WSL 缺控制器时明确拒绝。
-输入限于已登记曲线的精确窗口，输出仅宿主验收的有界报告，正式成果仍需 publish 阶段。
+输入通过独立能力选择曲线、显式数值表或精确地震道的有界窗口；调用者不能传入路径、
+SQL、运行时根或推断的类型／单位。原 REPORT、表格输入 REPORT、地震道 REPORT、
+REPORT+CSV 和 REPORT+CSV+PNG 保持各自 ID 与恢复契约，旧操作不会被静默升级。
+数值表最多 16 列（含轴）、8192 行，单道最多 8192 样点；REPORT ≤256 KiB，CSV／PNG
+各 ≤4 MiB，RGBA8 宽高各 ≤1024，并同时遵守获准 policy 的更小上限。具体选择和协议见
+[表格输入](docs/PYTHON_NUMERIC_TABLE_INPUT.md)、[地震道输入](docs/PYTHON_SEISMIC_TRACE_INPUT.md)
+和[联合成果](docs/PYTHON_GENERATED_OUTPUTS.md)。PNG 是非空间报告工件，生成值与像素未由宿主独立重算。
 
-生成数值报告另需宿主设置 `PALEO_AGENT_PYTHON_ENABLE_GENERATED=1`，不因此启用 trusted。
+prepare 冻结输入和声明，compute-only 只产生私有认证成果；正式成果由独立 publish 使用
+原操作引用成组登记。发布、幂等重试和重启恢复沿用原 Host/operation/outputset 链路，
+不重跑原程序；任一端口验收失败则整组拒绝。
+
+在无宿主记录的兼容环境变量回退路径，生成执行另需
+`PALEO_AGENT_PYTHON_ENABLE_GENERATED=1`，不因此启用 trusted。有宿主记录时按已激活的
+独立权限准入，无需额外设为 `1`；兼容变量显式设为 `0` 仍作为拒绝上限。
 生成路径只做运行时内容身份核验，版本与 NumPy 运算在实际平台强隔离内验证；
 缺任何后端/资源前提时不开放工具，也不退回普通进程。版本/部署、零子进程磁盘写入、
 Windows 线程与 CPU 限制的精确区别见[平台说明](vendor/agent-python/SANDBOX_SUPPORT.md)。

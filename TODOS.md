@@ -38,11 +38,11 @@ PY0–PY4（#945/#947–#951）已按依赖合入 master `c756cdbe`；逐批验�
 Windows Core/GUI 验证边界。Shell/任意 CLI、网络、在线安装包与持久解释器继续后置，
 后续按实际业务另立 profile、权限与验收，不扩大当前受控数值计算范围。
 
-待实施：[Python 交付、数据成果扩展与 Pi Agent 计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)。
-先完成 E1–E3 的供货/配置/启用诊断，再按依赖推进可选 Pi 编排及类型化输入、CSV/PNG
-成果；复用既有 Host/operation/outputset，Pi 尚未 vendor，Shell 继续后置。
-E1 内部供货及 C++ 离线安装已实现并完成双配置编译、原生客户端与门禁验收，见
-[E1 记录](docs/progress/python-delivery-e1-20261115.md)；持久配置/启用诊断与其余批次继续推进。
+[Python 交付、数据成果扩展与 Pi Agent 计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)
+的 E1–O2 实现与逐批验收记录已按依赖整理：复用既有 Host/operation/outputset，接入内部离线
+安装、宿主配置和诊断、可选 vendor Pi、类型化数表／单道输入及 CSV／非空间 PNG 成果。
+验收范围、实际失败及 PR 状态见该计划的实施记录；源码存在不等于任意平台均可运行。
+Shell、在线包管理、通用文件／SQL／HTTP 工具、持久解释器和自动 generation GC 继续后置。
 外部分发入口仍关闭，许可状态保持真实，不能将内部验证当作对外发行授权。
 
 `operation_read` 重复全文件 SHA 整改已实现整 SHA 锚定的有界分块认证，绑定宿主/工件，
@@ -212,6 +212,18 @@ AppContext 的工程打开编排涉及锁、journal、manifest、工区规则和
 - **Context:** `tests/tst_singlefactor_fieldcontours.cpp` / `tst_factorworkflow.cpp`；
   建议补合法但被改写的侧卡拒绝及临时产物清理用例，不放宽原阈值。
 - **Effort:** human: S / CC: S；**Depends on:** 三段作业侧卡快照契约。
+
+## P2 — ONNX 动态库 API 不匹配诊断
+
+`OnnxPredictionService` 当前在构造 `Ort::SessionOptions` 前没有核对 C API 指针，
+`runtimeAvailable()` 也只检查文件存在。Windows 构建目录缺少应用本地 DLL 时，
+实际加载过 System32 的旧 ONNX Runtime；请求 API 30 返回 nullptr 后发生访问异常，
+不能由当前 C++ 异常捕获处理。正确 pinned app-local DLL 部署已单独验证，
+这不等于不匹配诊断已经实现。
+
+后续在任何依赖该指针的 Ort 包装对象构造前核对 C API，缺失时明确报告所需 API 与
+实际加载版本并拒绝执行；不降低请求版本，不回退到不匹配运行时。补返回 nullptr 的
+确定性回归。本轮只整理递延项，未改生产实现或放宽验证条件。
 
 ## P2 — 历史性能与视觉红项复核
 

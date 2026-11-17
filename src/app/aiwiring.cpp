@@ -4,6 +4,7 @@
 #include "ai/onnxpredictionservice.h"
 #include "wellproviderwiring.h"
 #include "pythonanalysiswiring.h"
+#include "pichatwiring.h"
 #include "workflow/capabilityhost.h"
 #include "workflow/capabilityrecovery.h"
 #include "workflow/tileoperationservice.h"
@@ -199,6 +200,8 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
     return chatOwner && chatOwner->property("_paleoChatToolBindingGeneration").toULongLong()==generation &&
       (!host || hostOwner) && (!document || documentOwner) && (!catalog || catalogOwner) && (!layers || layerOwner);
   };
+  if(!currentBinding())return;
+  chat->setPiRuntime(capturePiChatRuntime());
   if(!currentBinding())return;
   // assist 可为空（无 ORT 构建）：只绑只读工程工具；tile/horizon 执行面
   // 缺席由执行器按调用如实报错（不因装配期缺席而误报「未接线」）。

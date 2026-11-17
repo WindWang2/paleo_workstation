@@ -5,7 +5,9 @@
 #include "../ai/chat/domaintools.h"
 #include "../ai/chat/llmclient.h"
 #include "aichattoolrunner.h"
+#include "pichatbridge.h"
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QVector>
 #include <functional>
@@ -29,6 +31,9 @@ class AiChatController : public QObject {
   Q_OBJECT
 public:
   explicit AiChatController(QObject *parent = nullptr);
+  ~AiChatController() override;
+  void setPiRuntime(const paleo::pi::RuntimeConfig &); // Host opt-in; default remains native.
+  paleo::pi::RuntimeConfig piRuntime() const { return m_piConfiguration; }
 
   void setConfig(const LlmConfig &config);
   LlmConfig config() const { return m_config; }
@@ -114,13 +119,24 @@ private:
   // 给尾部 assistant 的未应答 tool_calls 合成一条 role=tool 错误应答
   // （reason 说明为何没执行）：取消/出错两条停轮路径共用，
   // 保证历史里「每个 tool_call 必有一条应答」的协议完整性。
-  void padUnansweredToolCalls(const QString &reason);
+  QVector<ChatMessage> pairUnansweredToolCalls(const QString &reason, const QString &pendingCode);
+  void handleModelError(LlmErrorKind, const QString &message);
   bool admitToolCalls(const QVector<ChatToolCall> &calls);
   void rejectToolRound(const QString &code, const QString &message = {});
+  void startEngineTurn();
+  void piFailure(const QString &);
+  ChatToolCall hostAdmittedCall(const ChatToolCall &) const;
 
   LlmConfig m_config;
   LlmClient m_client;
   AiChatToolRunner m_runner;
+  PiChatBridge m_piBridge;
+  paleo::pi::RuntimeConfig m_piConfiguration;
+  QString m_hostTurn;
+  quint64 m_modelRound = 0;
+  quint64 m_turnSequence = 0;
+  QJsonObject m_turnContext;
+  QSet<QString> m_providerCalls; // Response-only deduplication; never durable identity.
   ChatSession m_session;
   QString m_projectBrief; // 方向77：工程概况常驻段（system prompt 尾部轻注入）
   bool m_streaming = false;

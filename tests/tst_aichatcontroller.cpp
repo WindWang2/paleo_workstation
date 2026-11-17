@@ -303,7 +303,8 @@ void TestAiChatController::toolCallFramesReachThePanelWithHonestStatus() {
   QVERIFY2(results.size() >= 1, "必须给出执行终态（失败也是终态）");
   QVERIFY(!results.at(0).at(1).toBool());
   const auto call=results.at(0).at(0).value<ChatToolCall>();
-  QCOMPARE(call.id,QStringLiteral("c1"));
+  QVERIFY(call.id.startsWith("host_"));
+  QCOMPARE(call.id,dispatched.at(0).at(0).value<ChatToolCall>().id);
   QCOMPARE(call.name,QStringLiteral("paleo.well_facies_prediction"));
   const auto rejected=QJsonDocument::fromJson(results.at(0).at(2).toString().toUtf8()).object();
   QCOMPARE(rejected.value("code").toString(),QStringLiteral("unknown_well_request_field"));

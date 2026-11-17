@@ -31,7 +31,7 @@ def check_sources(lock):
     if set(graph) != {"schema", "esbuildVersion", "inputs", "externalImports"} or graph["schema"] != "paleo.pi-bundle-graph.v1" or graph["esbuildVersion"] != lock["build"]["esbuildVersion"] or graph["externalImports"]:
         raise ValueError("bundle graph is not a closed reviewed build")
     for name, usage in graph["inputs"].items():
-        if name != "paleo/sidecar.mjs" and name not in rows:
+        if name != "paleo/sidecar.mjs" and name not in {"paleo/" + module for module in lock["build"].get("localModules", {})} and name not in rows:
             raise ValueError("bundle input is not source-pinned")
         if set(usage) != {"bytesInOutput"} or type(usage["bytesInOutput"]) is not int or usage["bytesInOutput"] <= 0:
             raise ValueError("invalid retained bundle input")
@@ -46,12 +46,18 @@ def check_sources(lock):
 
 def check_boundary():
     entry = (VENDOR / "sidecar.mjs").read_text("utf-8")
-    for forbidden in ("pi-coding-agent", "createAgentSession", "node:fs", "node:child_process", "process.env", "eval(", "import("):
-        if forbidden in entry:
+    conversation = (VENDOR / "conversation.mjs").read_text("utf-8") if (VENDOR / "conversation.mjs").is_file() else ""
+    active = entry + conversation
+    for forbidden in ("pi-coding-agent", "createAgentSession", "node:fs", "node:child_process", "node:net", "node:http", "node:tls", "node:dns", "node:worker_threads", "process.env", "eval(", "import(", "fetch(", "WebSocket("):
+        if forbidden in active:
             raise ValueError("unreviewed fixed-entry capability: " + forbidden)
     for required in ('toolExecution: "sequential"', 'tools: []', 'pi_model_transport_unconnected'):
         if required not in entry:
             raise ValueError("fixed-entry boundary missing: " + required)
+    if conversation:
+        for required in ('"paleo.pi-conversation.v1"', '"tool_execution_start"', 'toolExecution: "sequential"', '"model_request"', '"tool_request"'):
+            if required not in conversation:
+                raise ValueError("conversation boundary missing: " + required)
     cmake = (ROOT / "cmake/extra-pi-agent.cmake").read_text("utf-8")
     for required in ("paleo_services_piagent", "EXCLUDE_FROM_ALL", "AgentPiRuntime", "pi_agent", "pi_agent_selftest"):
         if required not in cmake:

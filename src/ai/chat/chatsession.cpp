@@ -37,6 +37,7 @@ QJsonObject ChatSession::toJson() const {
   for (const ChatMessage &message : messages)
     array.append(message.toJson());
   object.insert(QStringLiteral("messages"), array);
+  if (!hostToolBindings.isEmpty()) object.insert(QStringLiteral("host_tool_bindings"), hostToolBindings);
   return object;
 }
 
@@ -55,6 +56,8 @@ ChatSession ChatSession::fromJson(const QJsonObject &object) {
   const QJsonArray array = object.value(QStringLiteral("messages")).toArray();
   for (const QJsonValue &value : array)
     session.messages.append(ChatMessage::fromJson(value.toObject()));
+  session.hostBindingsValid = !object.contains("host_tool_bindings") || object.value("host_tool_bindings").isArray();
+  session.hostToolBindings = object.value("host_tool_bindings").toArray();
   return session;
 }
 

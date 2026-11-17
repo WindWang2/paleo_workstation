@@ -14,7 +14,8 @@ else()
 endif()
 string(JSON PALEO_PI_NODE_SHA GET "${_paleo_pi_json}" platforms "${PALEO_PI_PLATFORM}" programSha256)
 add_library(paleo_services_piagent STATIC
-  src/services/piprotocol.cpp src/services/piruntime.cpp src/services/piprocess.cpp)
+  src/services/piprotocol.cpp src/services/piruntime.cpp src/services/piprocess.cpp
+  src/services/piconversation.cpp src/services/piconversation_channel.cpp)
 target_include_directories(paleo_services_piagent PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(paleo_services_piagent PUBLIC Qt6::Core)
 set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/services/piruntime.cpp" APPEND PROPERTY COMPILE_DEFINITIONS
@@ -27,8 +28,16 @@ set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/services/piruntime.cpp" APPEND PROP
   PALEO_AGENT_PI_BUNDLE_SHA="${PALEO_PI_BUNDLE_SHA}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_paleo_pi_lock}")
 target_link_libraries(paleo_services PUBLIC paleo_services_piagent)
+target_sources(paleo_workflow PRIVATE src/workflow/pichatbridge.cpp src/workflow/aichatcontroller_pi.cpp
+  src/workflow/chatinvocationbinding.cpp)
+target_link_libraries(paleo_workflow PUBLIC paleo_services_piagent)
+target_sources(paleo_app PRIVATE src/app/pichatwiring.cpp)
 add_paleo_test(tst_piprotocol LIBS paleo_services_piagent)
 add_paleo_test(tst_piruntime LIBS paleo_services_piagent)
+add_paleo_test(tst_piconversation LIBS paleo_services_piagent)
+add_paleo_test(tst_chatinvocationbinding LIBS paleo_workflow)
+add_paleo_test(tst_pichatbridge LIBS paleo_workflow)
+add_paleo_test(tst_pigeneratedoperations LIBS paleo_workflow)
 if(PALEO_PYTHON3)
   add_test(NAME pi_agent COMMAND ${PALEO_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/check_pi_agent.py)
   add_test(NAME pi_agent_selftest COMMAND ${PALEO_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/check_pi_agent.py --selftest)

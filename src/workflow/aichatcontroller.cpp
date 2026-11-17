@@ -1,5 +1,6 @@
 // 层：功能
 #include "aichatcontroller.h"
+#include "chatinvocationbinding.h"
 
 #include "../ai/chat/llmkeystore.h"
 #include "../services/toolresultprotocol.h"
@@ -22,10 +23,12 @@
 //   calls 而缺应答，下轮请求直接违反协议（OpenAI 400）。
 
 AiChatController::AiChatController(QObject *parent)
-  : QObject(parent), m_client(this), m_runner(this) {
+  : QObject(parent), m_client(this), m_runner(this), m_piBridge(this) {
   newSession();
   connect(&m_client, &LlmClient::deltaReceived, this,
           [this](const QString &text) {
+            if (!m_streaming) return;
+            if (m_piBridge.busy() && !m_piBridge.modelDelta(text)) return;
             if (m_session.messages.isEmpty() ||
                 m_session.messages.last().role != ChatRole::Assistant)
               return; // 没有占位消息就不往历史里写（防御：协议外增量）
@@ -34,6 +37,7 @@ AiChatController::AiChatController(QObject *parent)
           });
   connect(&m_client, &LlmClient::toolCallReceived, this,
           [this](const ChatToolCall &call) {
+            if (!m_streaming) return;
             ++m_streamToolCalls;
             if (m_streamToolCalls > kMaxCallsPerResponse ||
                 call.argumentsJson.toUtf8().size() > kMaxToolArgumentBytes ||
@@ -41,7 +45,11 @@ AiChatController::AiChatController(QObject *parent)
               m_roundRejected = true;
             if (m_roundRejected)
               return;
-            ChatToolCall admitted = call;
+            if (!call.id.isEmpty()) {
+              if (m_providerCalls.contains(call.id)) return;
+              m_providerCalls.insert(call.id);
+            }
+            ChatToolCall admitted = hostAdmittedCall(call);
             if (admitted.id.isEmpty())
               admitted.id = QUuid::createUuid().toString(QUuid::Id128);
             if (!m_session.messages.isEmpty() &&
@@ -81,27 +89,7 @@ AiChatController::AiChatController(QObject *parent)
           });
   connect(&m_client, &LlmClient::errorOccurred, this,
           [this](LlmErrorKind kind, const QString &message) {
-            setStreaming(false);
-            // 协议完整性（与 cancel() 同口径，见文件头注释）：请求出错时
-            // assistant 消息可能已带（部分/全部）tool_calls——m_unansweredCalls
-            // 只在 onRoundFinished（成功收尾）才填充，中段出错时它为空但
-            // 历史里仍挂着未应答帧；下轮请求原样上送即违反协议（OpenAI 400），
-            // 该会话每轮复现。按「尾部 assistant 的 calls 是否已有 role=tool
-            // 应答」补齐缺口，错误应答同样满足「每 call 必答」。
-            padUnansweredToolCalls(tr("请求出错：本调用未执行"));
-            m_pendingToolResults = 0;
-            m_unansweredCalls.clear();
-            // 出错后占位若仍为空就摘掉（同 cancel：工具相占位带 toolCalls
-            // 非空，保留——历史需要它对账 tool_call_id）。
-            if (!m_session.messages.isEmpty() &&
-                m_session.messages.last().role == ChatRole::Assistant &&
-                m_session.messages.last().isEmpty())
-              m_session.messages.removeLast();
-            const QString text = llmErrorLabel(kind).isEmpty()
-                                   ? message
-                                   : QStringLiteral("%1：%2").arg(
-                                       llmErrorLabel(kind), message);
-            emit errorOccurred(text);
+            handleModelError(kind, message);
           });
   connect(&m_runner, &AiChatToolRunner::toolStarted, this,
           [this](const ChatToolCall &call) {
@@ -111,6 +99,23 @@ AiChatController::AiChatController(QObject *parent)
           [this](const ChatToolCall &call, bool ok, const QString &resultJson) {
             onToolFinished(call, ok, resultJson);
           });
+  connect(&m_piBridge, &PiChatBridge::modelRequested, this, [this] { if (m_streaming) sendRound(); else m_piBridge.abort(false); });
+  connect(&m_piBridge, &PiChatBridge::toolRequested, this, [this](const ChatToolCall &call) {
+    if (!m_streaming || !m_unansweredCalls.contains(call)) { m_piBridge.abort(false); return; }
+    bool declared = false; for (const auto &tool : m_piBridge.toolSnapshot()) if (tool.name == call.name) declared = true;
+    if (!declared) {
+      onToolFinished(call, false, QString::fromUtf8(QJsonDocument(QJsonObject{{"code", "tool_not_declared"},
+        {"error", "tool_not_declared"}}).toJson(QJsonDocument::Compact))); return;
+    }
+    m_runner.run(call);
+  });
+  connect(&m_piBridge, &PiChatBridge::failed, this, &AiChatController::piFailure);
+  connect(&m_piBridge, &PiChatBridge::finished, this, [this](const QString &code) {
+    if (!m_streaming) return;
+    if (code != "ok") { piFailure(code); return; }
+    const QPointer<AiChatController> guard(this); const auto sequence = m_turnSequence;
+    setStreaming(false); if (guard && sequence == m_turnSequence) saveCurrentSession();
+  });
 }
 
 // 协议完整性（见文件头注释）：尾部 assistant 的 tool_calls 若没有对应
@@ -160,28 +165,39 @@ QVector<ChatSession> AiChatController::recentSessions(int limit) const {
 }
 
 void AiChatController::newSession() {
+  ++m_turnSequence;
+  const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence + (m_streaming ? 1 : 0);
   // 切换语义（方向62 钉死）：弃当前会话前先取消在飞请求（迟到增量
   // 不许写进新会话），再落盘——未保存的半轮回答不因「新会话」丢失；
   // 空会话不落盘（saveCurrentSession 内部判空）。
   if (m_streaming)
     interrupt();
+  if (!guard || sequence != m_turnSequence) return;
   saveCurrentSession();
+  if (!guard || sequence != m_turnSequence) return;
   m_session = ChatSession();
   m_session.id = ChatSessionStore::newSessionId();
   m_runner.setResultSession(m_session.id);
+  if (!guard || sequence != m_turnSequence) return;
   m_session.model = m_config.model;
   m_session.createdAt = QDateTime::currentDateTime();
   m_session.updatedAt = m_session.createdAt;
   emit sessionChanged();
-  emit sessionListChanged();
+  if (guard && sequence == m_turnSequence) emit sessionListChanged();
 }
 
 bool AiChatController::loadSession(const QString &sessionId, QString *error) {
+  ++m_turnSequence;
+  const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence + (m_streaming ? 1 : 0);
   // 切换语义同 newSession：先取消在飞请求（防迟到增量污染目标会话），
   // 再落盘再换，未保存内容不丢。
   if (m_streaming)
     interrupt();
+  if (!guard || sequence != m_turnSequence) return false;
   saveCurrentSession();
+  if (!guard || sequence != m_turnSequence) return false;
   ChatSession loaded;
   if (!ChatSessionStore::load(sessionId, &loaded, error)) {
     // 失败也要发列表信号：UI 下拉可能已经把显示切到目标会话，
@@ -191,14 +207,17 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
   }
   m_session = loaded;
   m_runner.setResultSession(m_session.id);
+  if (!guard || sequence != m_turnSequence) return false;
   emit sessionChanged();
-  emit sessionListChanged();
+  if (guard && sequence == m_turnSequence) emit sessionListChanged();
   return true;
 }
 
 bool AiChatController::removeSession(const QString &sessionId, QString *error) {
+  const QPointer<AiChatController> guard(this);
   if (sessionId == m_session.id)
     newSession();
+  if (!guard) return false;
   const bool ok = ChatSessionStore::remove(sessionId, error);
   if (ok)
     emit sessionListChanged();
@@ -321,7 +340,7 @@ void AiChatController::applyConfig(
 }
 
 bool AiChatController::canRetry() const {
-  if (m_streaming)
+  if (m_streaming || m_piBridge.busy())
     return false;
   for (int i = m_session.messages.size() - 1; i >= 0; --i)
     if (m_session.messages.at(i).role == ChatRole::User)
@@ -336,6 +355,7 @@ void AiChatController::retryLast() {
     emit errorOccurred(m_config.validate()); // 与 sendUserText 同一诚实口径
     return;
   }
+  const QPointer<AiChatController> guard(this); const auto sequence = ++m_turnSequence; const auto sessionId = m_session.id;
   int lastUser = -1;
   for (int i = m_session.messages.size() - 1; i >= 0; --i) {
     if (m_session.messages.at(i).role == ChatRole::User) {
@@ -343,9 +363,12 @@ void AiChatController::retryLast() {
       break;
     }
   }
+  const auto retryCode = paleo::chat::validateInvocationRetry(m_session, lastUser);
+  if (!retryCode.isEmpty()) { emit errorOccurred(retryCode); return; }
   // 截掉旧回答（含其携带的工具帧），历史回到「刚发完这条用户消息」。
   m_session.messages.resize(lastUser + 1);
   emit sessionChanged(); // 历史被截断：整页重画（UI 不做增量反演）
+  if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
 
   // 与 sendUserText 同口径重置工具往返状态：否则上一轮打满 kMaxToolRounds
   // 后重试，本轮首个工具请求即超限——重试轮被永久禁用工具。
@@ -360,10 +383,11 @@ void AiChatController::retryLast() {
   m_pendingToolResults = 0;
   m_unansweredCalls.clear();
   setStreaming(true);
+  if (!guard || sequence != m_turnSequence || !m_streaming || sessionId != m_session.id) return;
   // C-1（full-audit-20261021）：收编进 sendRound——此前手工复制占位+上送
   // 序列时漏了 tools() 实参，重试轮发出的请求不含领域工具，模型静默失去
   // 工具调用能力（与上方注释自述的「重试轮恢复工具」意图相悖）。
-  sendRound();
+  startEngineTurn();
 }
 
 void AiChatController::appendMessage(const ChatMessage &message) {
@@ -379,7 +403,9 @@ void AiChatController::setStreaming(bool streaming) {
   if (m_streaming == streaming)
     return;
   m_streaming = streaming;
+  const QPointer<AiChatController> guard(this);
   emit streamingChanged(streaming);
+  if (!guard) return;
   emit statusChanged(statusText());
 }
 
@@ -460,14 +486,19 @@ QVector<ChatMessage> AiChatController::requestMessages() const {
 }
 
 void AiChatController::sendRound() {
+  const QPointer<AiChatController> guard(this); const auto session = m_session.id;
+  const auto sequence = m_turnSequence;
+  ++m_modelRound;
   m_roundRejected = false;
   m_streamToolCalls = 0;
+  m_providerCalls.clear();
   ChatMessage placeholder; // 流式增量往这条上累积
   placeholder.role = ChatRole::Assistant;
   placeholder.timestamp = QDateTime::currentDateTime();
   appendMessage(placeholder);
+  if (!guard || !m_streaming || m_session.id != session || sequence != m_turnSequence) return;
   m_client.setConfig(m_config);
-  m_client.send(requestMessages(), tools());
+  m_client.send(requestMessages(), m_piBridge.busy() ? m_piBridge.toolSnapshot() : tools());
 }
 
 void AiChatController::sendUserText(const QString &text) {
@@ -479,15 +510,17 @@ void AiChatController::sendUserText(const QString &text) {
     emit errorOccurred(m_config.validate());
     return;
   }
-  if (m_streaming || m_runner.busy()) {
+  if (m_streaming || m_runner.busy() || m_piBridge.busy()) {
     emit errorOccurred(tr("上一轮仍在进行（生成或工具执行中），请先停止"));
     return;
   }
+  const QPointer<AiChatController> guard(this); const auto sequence = ++m_turnSequence; const auto sessionId = m_session.id;
   ChatMessage user;
   user.role = ChatRole::User;
   user.content = trimmed;
   user.timestamp = QDateTime::currentDateTime();
   appendMessage(user);
+  if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
 
   m_toolRound = 0;
   m_turnCalls = 0;
@@ -500,7 +533,8 @@ void AiChatController::sendUserText(const QString &text) {
   m_pendingToolResults = 0;
   m_unansweredCalls.clear();
   setStreaming(true);
-  sendRound();
+  if (!guard || sequence != m_turnSequence || !m_streaming || sessionId != m_session.id) return;
+  startEngineTurn();
 }
 
 void AiChatController::setConfig(const LlmConfig &config) {

@@ -1,8 +1,9 @@
 # Optional locked Pi core runtime
 
-This is the A1 supply and fixed-handshake boundary from
+This is the locked supply and fixed-process boundary from
 [the implementation plan](../../docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md).
-It does not connect a Pi conversation, model transport, tools or project resources.
+The A1 handshake and optional A2 host-mediated conversation use distinct protocols.
+Model transport, tool execution, authorization and durable facts remain in C++.
 The application remains a C++ application and does not need Node to build or start.
 See [the protocol](PROTOCOL.md) for the host-only interfaces and current limits.
 
@@ -15,6 +16,8 @@ by the npm 1.5.2 release. The full upstream archive SHA, selected-source SHA lis
 original npm lock, build recipe, entry source and compiler artifacts are locked.
 The shared `prepare_agent_python.py` import supplying `StoreLock` is pinned as
 part of the producer closure, with LF checkout enforced for cross-host hashes.
+The fixed `conversation.mjs` source is separately pinned in `build.localModules`
+and compiled into the same single-file bundle; it is not a discovered extension.
 No local upstream source patch is applied.
 
 The supply build resolves the locked agent, ai, schema and telemetry source
@@ -68,22 +71,24 @@ There is no automatic GC, update or online application installation.
 
 The operator must provide the complete root and manifest SHA to trusted host
 configuration and explicitly enable Pi. The source manifest does not authorize
-itself. A1 has no application settings/Agent-selection wiring: actual model and
-tool execution remain unavailable until A2 connects and validates those paths.
+itself. A2 selection uses trusted host configuration; runtime installation alone
+does not select a conversation engine. The native engine remains the default.
 
 ## Execution boundary
 
-The fixed entry only handles `hello` and `close`, constructs an Agent with empty
-tools and explicit sequential scheduling, and supplies a stream function that
-returns `pi_model_transport_unconnected`. It does not create ModelRuntime,
-createAgentSession, a provider auth store or a resource loader. Unknown commands
-fail; no prompt or arbitrary JavaScript is accepted.
+The A1 `hello`/`close` protocol retains empty tools, sequential scheduling and
+`pi_model_transport_unconnected`. The separate
+[A2 conversation protocol](CONVERSATION.md) uses a custom stream function and
+fixed host-proxy tools. C++ supplies admitted calls and bounded results; Node
+does not receive provider keys, endpoints, host scope, paths or commit credentials.
+Neither protocol creates ModelRuntime, createAgentSession, a provider auth store
+or a resource loader. Unknown commands fail; arbitrary JavaScript is unavailable.
 
 Pi is trusted optional application code, **not a sandbox**. The short A1 process
 has bounded IPC, deadlines, cancellation and host-death cleanup mechanisms.
 It does not claim OS memory/CPU/thread hard limits, filesystem or network
-isolation, or the existing Python sandbox profile. Long A2 sessions require their
-own resource/lifetime acceptance. In-flight failures do not trigger a fallback
+isolation, or the existing Python sandbox profile. A2 sessions have their own
+bounded transport, lifetime controls and actual acceptance records. In-flight failures do not trigger a fallback
 engine or replay any operation.
 
 ## Optional installation component
@@ -98,4 +103,4 @@ staging, verifies again, then publishes
 `<prefix>/libexec/pi-agent/generations/<manifestSHA>`. Existing generations are
 verified and retained. Interrupted staging can remain for manual inspection;
 there is no automatic GC. Installation neither executes Node nor writes active
-configuration nor enables Pi. A1 has no user-facing activation/Agent command.
+configuration nor enables Pi. No model or Agent tool can install or enable Pi.

@@ -115,6 +115,7 @@ public:
   QJsonObject modelResult(const ChatToolCall &call, const QString &rawJson,
                          bool ok, int maxBytes);
   PaleoTaskService *taskService() const { return m_taskService; }
+  QJsonObject hostContextIdentity() const; // Host-only, path-free generation binding.
 
   bool busy() const { return m_active || !m_queue.isEmpty(); }
   struct ToolReadiness { bool ready=false; QString code; unsigned effects=0; };

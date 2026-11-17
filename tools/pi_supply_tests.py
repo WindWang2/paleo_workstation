@@ -48,6 +48,17 @@ def run(source_lock):
                 with self.assertRaisesRegex(ValueError, "hash mismatch: prepare_agent_python.py"):
                     load_lock()
 
+        def test_local_conversation_source_is_pinned(self):
+            modules = source_lock["build"].get("localModules", {})
+            if not modules:
+                self.skipTest("handshake-only producer has no conversation module")
+            self.assertEqual(set(modules), {"conversation.mjs"})
+            def altered_digest(path, algorithm="sha256"):
+                return "f" * 64 if Path(path) == VENDOR / "conversation.mjs" else digest(path, algorithm)
+            with patch("pi_supply_common.digest", side_effect=altered_digest):
+                with self.assertRaisesRegex(ValueError, "hash mismatch: conversation.mjs"):
+                    load_lock()
+
         def test_anchor_and_manifest_metadata_are_not_authorization(self):
             root = self.base / "runtime"; anchor, value = self.fixture(root)
             with self.assertRaises(ValueError): verify_runtime(root, "a" * 64, self.lock)

@@ -56658,4 +56658,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>Finishing the current operation. This window will close when it completes.</translation>
     </message>
 </context>
+<context>
+    <name>PiChatBridge</name>
+    <message>
+        <location filename="../src/workflow/pichatbridge.cpp" line="50" />
+        <source>Pi 对话编排</source>
+        <translation>Pi conversation orchestration</translation>
+    </message>
+</context>
 </TS>

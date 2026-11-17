@@ -33,13 +33,16 @@
   [交付协议](../vendor/agent-python/DELIVERY.md)。
 - superbuild 构建的 QGIS 保持 `WITH_BINDINGS=OFF`
   （`vendor/superbuild/CMakeLists.txt`）——PyQGIS 运行时不进依赖闭包。
-- Pi 的唯一有源 JavaScript 运行例外是 `vendor/pi/sidecar.mjs` 的锁版可选闭包。
-  C++ `piruntime` 逐文件核验宿主信任锚，`piprocess` 只执行固定 hello/close 握手；
+- Pi 的有源 JavaScript 运行例外为 `vendor/pi/sidecar.mjs` 及源码锁显式登记的
+  `conversation.mjs`，最终只供货一个锁版 bundle，不允许发现额外模块。
+  C++ `piruntime` 逐文件核验宿主信任锚，`piprocess` 保留固定 hello/close 握手，
+  A2 的独立会话协议仅桥接既有 C++ `LlmClient` 与 Runner/Host；
   不加载 coding-agent、工程脚本、默认文件/Shell 工具、扩展或 provider 网络实现。
-  默认构建和启动不发现、安装或运行 Node。A1 尚未接模型/工具，不是可用的第二个
-  聊天引擎；C++ 的会话、权限、密钥、调度与持久提交权威不变。
+  默认构建和启动不发现、安装或运行 Node。显式选择 Pi 的会话才使用该可选编排；
+  C++ 的会话、权限、密钥、调度与持久提交权威不变。
   这是可执行 JS 的明确例外，不能按 Office 静态资源处理；供货与有限边界见
-  [Pi 清单](../vendor/pi/README.md)和[协议](../vendor/pi/PROTOCOL.md)。
+  [Pi 清单](../vendor/pi/README.md)、[握手](../vendor/pi/PROTOCOL.md)与
+  [会话协议](../vendor/pi/CONVERSATION.md)。
 
 ## 构建与启动入口
 

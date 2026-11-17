@@ -32,6 +32,9 @@ Shell、任意路径读取、动态包安装与网络权限继续后置。
   分页引用校验、单次发布和 `commit_uncertain` 恢复。Pi 仍为可信编排进程，
   生成 Python 仍走原强后端；本轮不扩大工具能力或提高预算。
 
+早期多成果 Native 套件达到原 300 秒整进程时限；本轮减少重复准入准备成本，
+保留全部业务行、冷启动历史恢复行及每次计算/启动的完整校验。
+
 Pi 端到端初次验收出现过 `pi_control_timeout`。临时有界时序观测的完整链路通过，
 未复现原失败，无法据此判断旧失败阶段；因此保留原 15 秒控制规则及认证顺序。
 观测代码仅保存在 ignored 诊断副本，正式源码不携带该临时跟踪。句柄修复独立于
@@ -41,6 +44,50 @@ Pi 端到端初次验收出现过 `pi_control_timeout`。临时有界时序观�
 
 ## 验证
 
-本节在最终冻结源码完成默认/无 ORT 编译、回归、强后端与供货完整性验收后填写。
-旧批次结果仅用于定位可复用缓存，不计为本轮通过。提交 PR 前重新 fetch/rebase
-`origin/master`，再运行完整 Source gates。
+本轮功能源码冻结为 `fcf54e7d2e908d8c2e378a2cba759ecceceb28a1`，SDK gitlink
+保持 `1362a69e61a663aba2b5024bfa83627af0759354`。以下仅计正式冻结源码的新运行；
+临时诊断及旧批次结果不计为通过。
+
+| 平台与配置 | 实际构建 | 实际验收 | 结果 |
+|---|---|---|---|
+| Windows ORT | 82 个目标 | 50 个全新测试进程，Qt 699 PASS | 0 FAIL；2 个可选截图 skip |
+| Windows 无 ORT | 81 个目标 | 49 个全新测试进程，Qt 679 PASS | 0 FAIL；2 个可选截图 skip |
+| Linux ORT | 43 个目标，编译 3343.388 秒 | 39 个 C++ 套件＋8 个供货检查，Qt 523 PASS | 47/47；0 FAIL、0 skip |
+| Linux 无 ORT | 43 个目标，编译 1350.365 秒 | 39 个 C++ 套件＋8 个供货检查，Qt 523 PASS | 47/47；0 FAIL、0 skip |
+
+Linux 两配置各有 13 项新增回归和四项真实 Python 接线业务行通过；实际 Pi 的
+A1 七项与 bridge 七项业务行均齐全，无 skip。各配置完成六个 `ldd -r` ABI 检查、
+一次真实 GUI 的六项必需 marker，以及 Python 2143 项、Pi 全集在执行前、
+执行后和 GUI 后的完整 SHA 与只读状态核对。Python/Pi 的 REQUIRE 均为 1，
+所有测试保持原时限。两配置编译和 Native 原始证据均经过独立复核。
+
+Windows 每配置另外执行真实 Pi 的 bridge 7 项和 A1 9 项业务回归，共 32/32 PASS，
+包含两项 Windows 句柄回归，无 skip。两个可选截图 skip 分别来自未设置
+`PALEO_AI_RESULT_SHOT_DIR` 和 `PALEO_AI_SHOT_DIR`，不影响真实 Native 验收。
+两配置的多成果 Python Native 整体耗时分别为 268.532 秒和 184.229 秒；
+Pi 联合成果 Native 为 75.999 秒和 130.008 秒，均保持原 300 秒整进程时限。
+
+Windows 每配置一次真实 GUI 启动均出现全部六项必需 marker，Office 套件均为
+Qt 10/0/0/0，并核对五项 editor asset SHA。源码 6620 项、两配置物理 EXE、
+依赖 prefix 38823 项、Python runtime 983 项、模板 5 项、Pi 10 项及六项源码/
+已暂存模板文件完成运行前后完整 SHA 核对。无 ORT 的宏、链接与运行依赖已单独检查。
+
+Linux 编译范围明确为应用、三个工具与 39 个受影响测试共 43 个目标，传递覆盖
+各配置全部生产静态库和 SDK（ORT 30 个、无 ORT 29 个）；显式包含默认构建
+不会选择的 snapshot worker。
+完整 39 个 C++ 套件、8 个供货检查、原生 Python/Pi、GUI、ABI 和完整性要求保持。
+最初默认全仓构建的受控中止回执保留，不计为默认目标全部编译成功。
+
+功能冻结版本的完整 Source gates 为 41/41，所有基线保持原值。最终提 PR 前
+再次 fetch/rebase `origin/master`，对文档提交后的 HEAD 重跑同一批 41 项门禁，
+检查功能源码投影与冻结提交一致；执行收据绑定最终 HEAD、SDK 与 master，结果
+写入 PR 描述。
+
+原生验收前，VM2 固件依次尝试数据盘和网络启动项，首次 240 秒 SSH 等待失败。
+同一进程随后自然进入 Linux，固定 host key 的 SSH probe 成功后，原代码、原时限
+的严格环境核验通过；未重启或修改磁盘、固件。首次失败、状态变化和后续核验
+的原始日志分别保留，正式测试在核验通过后开始。
+
+两配置验收后 VM2 已正常 sync/poweroff，全部任务与所属进程退出；停机后重新
+计算 root 和 firmware 完整 SHA，生成 v5 检查点。原数据盘保持只读，VM1 未变。
+旧启动前 root SHA 不再作为下一次恢复锚。

@@ -118,6 +118,8 @@ NumericOutputValidation validateNumericOutput(const QByteArray &frame, const QJs
   QByteArray csv; code = encodeCsv(tableBytes, rows, declaration.value("columns").toArray(), csv, cancelled);
   if (!code.isEmpty()) return fail(code);
   if (stopped()) return fail("cancelled");
+  if (report.bytes.size() + csv.size() > qMin(NumericOutputFrameBytes, policy.outputBytes))
+    return fail("python_output_budget_exceeded");
   NumericOutputValidation result; result.report = report.bytes; result.csv = std::move(csv);
   result.tableMetadata = {{"contract", "paleo.numeric-table-output.v1"}, {"rows", rows},
       {"columns", declaration.value("columns")}, {"encoding", "host-csv.numeric.v1"},

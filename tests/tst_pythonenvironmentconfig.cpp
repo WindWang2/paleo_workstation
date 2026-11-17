@@ -4,6 +4,7 @@
 #include <QtTest>
 #include <QElapsedTimer>
 #include <QScopeGuard>
+#include <QSemaphore>
 #include <thread>
 
 using namespace paleo::python;
@@ -194,6 +195,31 @@ private slots:
     QVERIFY(!selected.trusted->snapshot().value("executionReady").toBool());
     QVERIFY(!selected.sandbox->snapshot().value("ready").toBool());
     QVERIFY2(timer.elapsed() < 500, "Owner snapshots waited for the verifier instead of reporting pending");
+  }
+  void supersededRefreshCannotInvalidateANewerCachedSnapshot() {
+    Fixture fixture(QFINDTESTDATA("../vendor/agent-python/templates")); PythonEnvironmentRegistry registry(fixture.configurationPath());
+    QVERIFY(registry.activate(fixture.candidate("runtime"), 0).ok());
+    const auto selected = registry.active(EnvironmentMode::Generated); QVERIFY(selected.ok());
+    const auto verified = selected.runtime->snapshot(); QVERIFY(verified.ready());
+    QSemaphore entered, release; std::atomic_bool blocked{false}; QString obsoleteCode;
+    const auto obsoleteRevision = registry.beginRefresh();
+    std::thread obsolete([&] {
+      obsoleteCode = registry.refresh({}, obsoleteRevision, [&] {
+        if (!blocked.exchange(true)) { entered.release(); release.acquire(); }
+        return false;
+      });
+    });
+    const auto cleanup = qScopeGuard([&] { release.release(); if (obsolete.joinable()) obsolete.join(); });
+    QVERIFY(entered.tryAcquire(1, 3000));
+    // The newer watcher refresh reuses the authenticated snapshot before the
+    // obsolete worker reaches RuntimeProvider's inspection mutex.
+    QCOMPARE(registry.refresh({}, registry.beginRefresh(), {}, false), QString());
+    release.release(); obsolete.join();
+    QCOMPARE(obsoleteCode, QString("cancelled"));
+    const auto current = registry.active(EnvironmentMode::Generated); QVERIFY2(current.ok(), qPrintable(current.code));
+    const auto snapshot = current.runtime->snapshot(); QVERIFY2(snapshot.ready(), qPrintable(snapshot.code));
+    QCOMPARE(snapshot.runtime.get(), verified.runtime.get());
+    QCOMPARE(registry.status().value("runtimeIntegrityCode").toString(), QString("ok"));
   }
 };
 QTEST_GUILESS_MAIN(TestPythonEnvironmentConfig)

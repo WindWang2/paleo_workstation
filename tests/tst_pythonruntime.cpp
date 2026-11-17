@@ -106,17 +106,42 @@ private slots:
     QVERIFY(original->inspectIntegrity().ready());
     ExecutionPolicy policy;policy.allowGenerated=true;RuntimeProvider rebound(config,policy);
     QCOMPARE(rebound.inspectIntegrity([]{return true;}).code,QString("cancelled"));
-    QCOMPARE(rebound.snapshot().code,QString("cancelled"));QVERIFY(original->snapshot().ready());
+    QCOMPARE(rebound.snapshot().code,QString("python_environment_missing"));QVERIFY(original->snapshot().ready());
     QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
     original.reset();QVERIFY(verifyRuntime(config).ready());
     QVERIFY(rebound.inspectIntegrity().ready());
   }
+  void cancellingBeforeInspectionPreservesVerifiedSnapshot_data() {
+    QTest::addColumn<bool>("importProbe");
+    QTest::newRow("integrity-only")<<false;QTest::newRow("import-probe")<<true;
+  }
+  void cancellingBeforeInspectionPreservesVerifiedSnapshot() {
+    QFETCH(bool,importProbe);Fixture fixture;const auto config=fixture.config();RuntimeProvider provider(config);
+    const auto verified=provider.inspectIntegrity();QVERIFY2(verified.ready(),qPrintable(verified.code));
+    const auto cancelled=[] {return true;};
+    const auto result=importProbe?provider.inspect(cancelled):provider.inspectIntegrity(cancelled);
+    QCOMPARE(result.code,QString("cancelled"));QVERIFY(!result.runtime);
+    const auto snapshot=provider.snapshot();QVERIFY(snapshot.ready());QCOMPARE(snapshot.runtime.get(),verified.runtime.get());
+    QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
+    QFile payload(verified.runtime->interpreter);QVERIFY(payload.open(QIODevice::WriteOnly));
+    QCOMPARE(payload.write("changed"),qint64(7));payload.close();
+    QCOMPARE(provider.inspectIntegrity().code,QString("python_runtime_changed"));QVERIFY(!provider.snapshot().ready());
+  }
+  void cancellingDuringInspectionInvalidatesVerifiedSnapshot() {
+    Fixture fixture;RuntimeProvider provider(fixture.config());QVERIFY(provider.inspectIntegrity().ready());
+    int checks=0;
+    const auto result=provider.inspectIntegrity([&] {return ++checks>1;});
+    QCOMPARE(result.code,QString("cancelled"));QVERIFY(checks>1);
+    QCOMPARE(provider.snapshot().code,QString("cancelled"));QVERIFY(!provider.snapshot().ready());
+    QVERIFY(provider.inspectIntegrity().ready());
+  }
   void providersDoNotHoldTheLeaseRegistryWhileHashing() {
     Fixture fixture;const auto config=fixture.config();RuntimeProvider first(config),second(config);
     RuntimeResult firstResult,secondResult;QSemaphore entered,release,finished;
-    std::atomic_bool blocked=false;
+    int callbacks=0;
     std::thread firstThread([&]{firstResult=first.inspectIntegrity([&]{
-      if(!blocked.exchange(true)){entered.release();release.acquire();}return false;
+      // Skip admission; the file-row poll follows generation lease acquisition.
+      if(++callbacks==2){entered.release();release.acquire();}return false;
     });});
     std::thread secondThread;
     const auto cleanup=qScopeGuard([&]{release.release();if(firstThread.joinable())firstThread.join();if(secondThread.joinable())secondThread.join();});
@@ -180,10 +205,10 @@ private slots:
   }
   void changedFixtureIsReauthenticatedBeforeStrongExecution() {
     Fixture fixture;RuntimeProvider provider(fixture.config());int callbacks=0;bool changed=false;
-    // Callback 1 enters the file row, 2 hashes its sole seven-byte chunk, and
-    // 3 traverses the directory after the hashed file handle has closed.
+    // Callback 1 checks admission, 2 enters the file row, 3 hashes its sole
+    // seven-byte chunk, and 4 traverses after the hashed file handle has closed.
     const auto identity=provider.inspectIntegrity([&]{
-      if(++callbacks==3) {
+      if(++callbacks==4) {
         QFile file(fixture.root+'/'+fixture.manifest.value("interpreter").toString());
         changed=file.open(QIODevice::WriteOnly) && file.write("changed")==7;
       }

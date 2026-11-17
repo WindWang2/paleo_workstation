@@ -4,21 +4,11 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QProcess>
-#include <QProcessEnvironment>
 #include <QScopeGuard>
 #include <QSemaphore>
 #include <QTemporaryDir>
 #include <QThread>
-#ifdef Q_OS_WIN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#elif defined(Q_OS_LINUX)
-#include <signal.h>
-#include <sys/prctl.h>
-#include <unistd.h>
-#endif
+#include "piprocessplatform_p.h"
 
 namespace paleo::pi {
 namespace {
@@ -83,38 +73,17 @@ ConversationResult runConversation(const ConversationRequest &request) {
   if (!verified.ok()) { result.code = verified.code; return result; }
   const auto &runtime = *verified.runtime;
   QTemporaryDir directory; if (!directory.isValid()) { result.code = "pi_work_directory_failed"; return result; }
-  QProcessEnvironment environment; environment.insert("LANG", "C.UTF-8");
-  for (const auto &key : QStringList{"HOME", "USERPROFILE", "TEMP", "TMP", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"})
-    environment.insert(key, directory.path());
-#ifdef Q_OS_WIN
-  environment.insert("SystemRoot", qEnvironmentVariable("SystemRoot"));
-  const auto job = CreateJobObjectW(nullptr, nullptr);
-  if (!job) { result.code = "pi_process_tree_unavailable"; return result; }
-  const auto releaseJob = qScopeGuard([&] { CloseHandle(job); });
-  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-  limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
-  limits.BasicLimitInformation.ActiveProcessLimit = 1;
-  if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) { result.code = "pi_process_tree_unavailable"; return result; }
-#endif
+  const auto environment = detail::isolatedProcessEnvironment(directory.path());
+  detail::ProcessTree tree;
+  if (!tree.available()) { result.code = "pi_process_tree_unavailable"; return result; }
   QProcess process; process.setWorkingDirectory(directory.path()); process.setProcessEnvironment(environment);
   process.setProcessChannelMode(QProcess::SeparateChannels);
-#ifdef Q_OS_LINUX
-  const auto parent = ::getpid();
-  process.setChildProcessModifier([parent] {
-    if (::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) || ::prctl(PR_SET_PDEATHSIG, SIGKILL) || ::getppid() != parent) ::_exit(125);
-  });
-  QProcess::UnixProcessParameters parameters; parameters.flags = QProcess::UnixProcessFlag::CloseFileDescriptors;
-  process.setUnixProcessParameters(parameters);
-#endif
+  tree.configure(process);
   if (stopped()) { result.code = "interrupted"; return result; }
   process.start(runtime.nodeProgram(), {"--no-addons", "--disable-proto=throw", "--no-warnings", runtime.entryPoint()});
   const auto cleanup = qScopeGuard([&] { if (process.state() != QProcess::NotRunning) { process.kill(); process.waitForFinished(2000); } });
   if (!process.waitForStarted(1000)) { result.code = "pi_process_start_failed"; return result; }
-#ifdef Q_OS_WIN
-  const auto child = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, DWORD(process.processId()));
-  const bool assigned = child && AssignProcessToJobObject(job, child); if (child) CloseHandle(child);
-  if (!assigned) { result.code = "pi_process_tree_unavailable"; return result; }
-#endif
+  if (!tree.attach(process)) { result.code = "pi_process_tree_unavailable"; return result; }
   QByteArray buffer, pending; bool started = false, closed = false, abortSent = false; QElapsedTimer abortClock;
   while (process.state() != QProcess::NotRunning) {
     if (request.cancelled && request.cancelled()) request.channel->requestStop(false);

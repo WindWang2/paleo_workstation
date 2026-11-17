@@ -243,20 +243,53 @@ private slots:
     for (const auto &body : model.bodies) { QVERIFY(!body.contains("host_tool_bindings")); QVERIFY(!body.contains("host_turn_id")); }
   }
   void realPiHotSseCoalescesWhileTrueOverflowFailsWhole_data() {
-    QTest::addColumn<bool>("overflow"); QTest::newRow("200-small-deltas") << false; QTest::newRow("actual-pending-budget") << true;
+    QTest::addColumn<bool>("overflow"); QTest::addColumn<int>("fragments"); QTest::addColumn<QString>("fragment");
+    QTest::newRow("200-small-deltas") << false << 200 << QString("hot-delta");
+    QTest::newRow("10000-single-character-deltas") << false << 10000 << QString("x");
+    QTest::newRow("escaped-small-deltas") << false << 2000 << QString("\"\\\n");
+    QTest::newRow("actual-pending-budget") << true << 1 << QString(70000, 'x');
+    QTest::newRow("json-escaping-overflow") << true << 1 << QString(60000, '\\');
   }
   void realPiHotSseCoalescesWhileTrueOverflowFailsWhole() {
-    QFETCH(bool, overflow); const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
+    QFETCH(bool, overflow); QFETCH(int, fragments); QFETCH(QString, fragment);
+    const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
     if (root.isEmpty()) { QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1", "Required actual Pi fixture missing"); return; }
-    Host host; Model model; model.firstTools = false; model.sse = true; model.fragments = overflow ? 1 : 200;
-    model.fragment = overflow ? QString(70000, 'x') : QString("hot-delta"); QVERIFY(model.open());
+    Host host; Model model; model.firstTools = false; model.sse = true; model.fragments = fragments;
+    model.fragment = fragment; QVERIFY(model.open());
     AiChatController controller; QVERIFY(host.bind(controller)); m_sessions.append(controller.session().id); controller.setConfig(model.config());
     controller.setPiRuntime({true, root, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")}); QSignalSpy errors(&controller, &AiChatController::errorOccurred);
     controller.sendUserText("exercise bounded IPC backpressure"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
     QCOMPARE(model.requests, 1);
     if (overflow) { QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains("pi_outgoing_budget")); }
-    else { QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString())); QCOMPARE(controller.messages().last().content, model.fragment.repeated(200)); }
+    else { QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString())); QCOMPARE(controller.messages().last().content, model.fragment.repeated(fragments)); }
     QCOMPARE(host.catalog.versions().size(), 0);
+  }
+  void realPiSingleOwnerCallbackCoalescesEscapedText_data() {
+    QTest::addColumn<QString>("fragment");
+    QTest::newRow("10000-single-ascii-deltas") << QString("x");
+    QTest::newRow("10000-escaped-deltas") << QString("\"");
+  }
+  void realPiSingleOwnerCallbackCoalescesEscapedText() {
+    QFETCH(QString, fragment); const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
+    if (root.isEmpty()) { QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1", "Required actual Pi fixture missing"); return; }
+    PaleoTaskService tasks; tasks.setMaxWorkerThreads(3); PiChatBridge bridge;
+    QSignalSpy finished(&bridge, &PiChatBridge::finished), failed(&bridge, &PiChatBridge::failed);
+    int accepted = 0; bool modelCompleted = false;
+    const auto cleanup = qScopeGuard([&] {
+      disconnect(&bridge, nullptr, &bridge, nullptr); bridge.abort(false); tasks.shutdown(10000, true);
+    });
+    connect(&bridge, &PiChatBridge::modelRequested, &bridge, [&] {
+      // No event-loop turn can flush the pending text inside this callback.
+      // The same 10000 fragments must fit regardless of their delivery count.
+      while (accepted < 10000 && bridge.modelDelta(fragment)) ++accepted;
+      modelCompleted = bridge.modelFinished({}, "stop");
+    });
+    QCOMPARE(bridge.start({true, root, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")}, &tasks,
+      "burst-session", "burst-turn", {}, [] { return true; }), QString());
+    QTRY_VERIFY_WITH_TIMEOUT(!finished.isEmpty(), 180000);
+    QCOMPARE(accepted, 10000); QVERIFY(modelCompleted);
+    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
+    QCOMPARE(finished.first().first().toString(), QString("ok"));
   }
 };
 QTEST_GUILESS_MAIN(TestPiChatBridge)

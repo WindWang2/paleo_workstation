@@ -136,6 +136,8 @@ bool adopt(QFile &file, const QString &path, bool write) {
 #endif
 } // namespace
 
+QString checkedAbsolutePath(const QString &path) { return checkedAbsolute(path); }
+
 bool safeRelative(const QString &path) {
   if (path.isEmpty() || path.size() > 1024 || path.toUcs4().size() > 512 ||
       path.contains('\\') || path.contains(':') || QDir::isAbsolutePath(path)) return false;

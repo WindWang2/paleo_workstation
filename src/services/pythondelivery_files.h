@@ -6,6 +6,7 @@
 namespace paleo::python::delivery {
 
 bool safeRelative(const QString &path);
+QString checkedAbsolutePath(const QString &path);
 bool directory(const QString &absolutePath, bool create);
 bool syncDirectory(const QString &absolutePath);
 bool regular(const QString &absolutePath);

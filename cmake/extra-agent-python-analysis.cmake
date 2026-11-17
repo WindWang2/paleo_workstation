@@ -19,7 +19,7 @@ target_link_libraries(paleo_services PUBLIC paleo_services_pythonanalysis)
 target_link_libraries(paleo_ai PUBLIC paleo_services_pythonanalysis)
 target_sources(paleo_ai PRIVATE src/ai/chat/pythonanalysistools.cpp)
 target_sources(paleo_services_query PRIVATE src/services/projectquery_curves.cpp)
-target_sources(paleo_app_agentproviders PRIVATE src/app/pythonanalysiswiring.cpp)
+target_sources(paleo_app_agentproviders PRIVATE src/app/pythonanalysiswiring.cpp src/app/pythonenvironmentwiring.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/capabilityhost_async.cpp
   src/workflow/pythonanalysisoperation.cpp src/workflow/pythonanalysisworker.cpp src/workflow/pythonoperationdiagnostics.cpp)
 add_paleo_test(tst_pythonanalysis LIBS paleo_services_pythonanalysis)

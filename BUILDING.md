@@ -453,8 +453,8 @@ Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和
 本机默认 RelWithDebInfo 和 sanitizer 车道不受影响。
 ## 可选 Agent Python 环境
 
-当前安装方式见本节；供货/配置/诊断产品闭环及可选 Pi 的后续工作见
-[待实施计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)，不是当前已提供的安装功能。
+当前离线安装与宿主持久配置见本节；设置界面、诊断产品闭环及可选 Pi 的后续工作见
+[实施计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)。
 
 主程序的默认构建、安装和启动不需要该运行时。开发和源码检查依赖的 Python
 工具链仍按原有要求准备。`analysis-core` 单独锁定 CPython 3.14.10 与 NumPy 2.5.4，
@@ -475,7 +475,14 @@ cmake --build <build> --target paleo_python_environment -j3
 安装只更新完整 generation 的安装选择，不启用可信/生成执行；后续仍按宿主配置准入。
 当前交付包仅用于已授权的内部准备与验证，外部分发入口关闭，许可状态保留原始说明。
 
-可信分析还需宿主设置 `PALEO_AGENT_PYTHON_ENABLE_TRUSTED=1` 和经宿主准备的
+同一原生部署工具的 `--activate` 在完整核验后原子保存运行时、模板、权限与兼容身份；
+`--disable`、`--revoke` 和 `--rollback` 复用同一宿主记录与修订号 CAS。生成专用配置
+不要求安装可信模板；回滚不恢复更宽的旧权限。App 从稳定 registry 解析新请求和已授权
+历史操作，普通版本切换保留在途 provider，不重绑文档。命令、来源优先级、紧急撤权与
+持久化失败语义见[宿主配置](vendor/agent-python/CONFIGURATION.md)。激活只验证内容，
+实际可信/强隔离后端执行准入仍需独立探针。
+
+未创建宿主持久记录时，兼容环境变量整组回退；可信分析需设置 `PALEO_AGENT_PYTHON_ENABLE_TRUSTED=1` 和经宿主准备的
 `PALEO_AGENT_PYTHON_SCRIPTS_ROOT`；脚本包见[说明](vendor/agent-python/scripts.README.md)。
 运行时 ready、模板 ready 和实际执行后端 ready 分别报告。当前 Linux 执行要求钉版
 辅助程序、用户 manager 与 CPU/memory/pids 委派；WSL 缺控制器时明确拒绝。

@@ -206,6 +206,12 @@ const Row kRows[] = {
      SurfaceAgent, "stage", "depth.convert_batch"},
     {"seismic.attributes.compute", CommandKind::Compute, "seismic", QT_TRANSLATE_NOOP("PaleoCommands", "地震属性计算"),
      QT_TRANSLATE_NOOP("PaleoCommands", "RMS、包络与相干属性计算"), SurfaceAgent, "stage", "seismic.attributes.compute"},
+    {"python.well_curve_quality", CommandKind::Compute, "well", QT_TRANSLATE_NOOP("PaleoCommands", "测井曲线质量分析"), "",
+     SurfaceAgent, "stage", "python.well_curve_quality", "", "", "project"},
+    {"python.attribute_correlation", CommandKind::Compute, "well", QT_TRANSLATE_NOOP("PaleoCommands", "井曲线属性相关性分析"), "",
+     SurfaceAgent, "stage", "python.attribute_correlation", "", "", "project"},
+    {"python.generated_compute", CommandKind::Compute, "well", QT_TRANSLATE_NOOP("PaleoCommands", "Python 井曲线计算"), "",
+     SurfaceAgent, "stage", "python.generated_compute", "", "", "project"},
 };
 
 QStringList splitList(const char *s) {

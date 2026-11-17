@@ -8,7 +8,13 @@
 #include <QEventLoop>
 #include "services/projectquerycapability.h"
 #include "fixtures/documentsourcefixture.h"
+#include "fixtures/pythonenvironmentfixture.h"
 #include "workflow/capabilityhost.h"
+#include "workflow/commanddispatcher.h"
+#include "workflow/capabilitygateway.h"
+#include <utility>
+#include <QPointer>
+#include <QTimer>
 #include "workflow/aichattoolrunner.h"
 #include "domain/wellref.h"
 #include "workflow/capabilityrecovery.h"
@@ -16,6 +22,7 @@
 #include <QtTest>
 #include <QJsonArray>
 #include <QUuid>
+#include <QScopeGuard>
 
 using namespace paleo;
 namespace {
@@ -71,6 +78,17 @@ QJsonObject call(AiChatToolRunner &runner,const QString &name,const QJsonObject 
   // The enforced execution policy allows 120 s, including sandbox snapshots.
   if(done.isEmpty() && !done.wait(180000))return {};
   ok=done[0][1].toBool();return QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object();
+}
+bool runPreparedDispatcher(command::CommandDispatcher &dispatcher,const command::PreparedPlan &plan,
+    capability::ExecuteResult &result,QString &error) {
+  QEventLoop wait;QTimer timeout;QObject receiver;bool finished=false;timeout.setSingleShot(true);
+  QObject::connect(&timeout,&QTimer::timeout,&wait,&QEventLoop::quit);
+  QPointer<PaleoTask> task=dispatcher.start(plan,&receiver,QStringLiteral("Dispatcher Python compute"),
+      [&](capability::ExecuteResult value){result=std::move(value);finished=true;wait.quit();},&error);
+  if(!task)return false;
+  timeout.start(180000);if(!finished)wait.exec();
+  if(!finished){if(task)task->requestInterruption();error="test_dispatch_timeout";}
+  return finished;
 }
 }
 class TestPythonAnalysisWiring:public QObject {
@@ -138,11 +156,16 @@ private slots:
     }
   }
   void agentDiscoveryComputePagedReadRestartAndPublishUseOneChain_data() {
-    QTest::addColumn<bool>("generated");
-    QTest::newRow("trusted-quality")<<false;QTest::newRow("generated-numeric")<<true;
+    QTest::addColumn<bool>("generated");QTest::addColumn<bool>("managed");
+    QTest::newRow("trusted-quality")<<false<<false;QTest::newRow("generated-numeric")<<true<<false;
+    QTest::newRow("managed-trusted-quality")<<false<<true;QTest::newRow("managed-generated-numeric")<<true<<true;
   }
   void agentDiscoveryComputePagedReadRestartAndPublishUseOneChain() {
-    QFETCH(bool,generated);
+    QFETCH(bool,generated);QFETCH(bool,managed);
+    const auto legacy=python::captureLegacyPythonEnvironment();
+    if(managed)for(auto it=legacy.begin();it!=legacy.end();++it)qunsetenv(it.key().toLatin1().constData());
+    const auto restoreEnvironment=qScopeGuard([&] {if(managed)for(auto it=legacy.begin();it!=legacy.end();++it)
+      qputenv(it.key().toLatin1().constData(),it.value().toUtf8());});
     const auto tool=generated?QLatin1String(python::GeneratedTool):QLatin1String(python::WellQualityTool);
     const auto capability=generated?QLatin1String(python::GeneratedCapability):QLatin1String(python::WellQualityCapability);
     const auto contract=generated?QString("paleo.python-generated-report.v1"):QString("paleo.well-quality-report.v1");
@@ -158,7 +181,21 @@ private slots:
       root,qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),true},policy);
     const auto inspected=generated?runtime->inspectIntegrity():runtime->inspect();QVERIFY2(inspected.ready(),qPrintable(inspected.code));
     auto sandbox=std::make_shared<python::SandboxProvider>(runtime);
-    if(generated) {
+    python_environment_fixture::Fixture delivered(QString::fromUtf8(PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES));
+    auto registry=std::make_shared<python::PythonEnvironmentRegistry>(delivered.configurationPath());
+    if(managed) {
+      QVERIFY2(delivered.error.isEmpty(),qPrintable(delivered.error));
+      python::EnvironmentCandidate candidate{root,qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256"),
+        generated?QString():delivered.scriptsRoot,generated?QString():delivered.scriptsSha,policy};
+      const auto activated=registry->activate(candidate,0);QVERIFY2(activated.ok(),qPrintable(activated.code));
+      QFutureWatcher<QJsonObject> watcher;QEventLoop wait;
+      connect(&watcher,&QFutureWatcherBase::finished,&wait,&QEventLoop::quit);
+      const auto id=activated.configuration.activeId;
+      watcher.setFuture(QtConcurrent::run([registry,id,generated] {return registry->probe(id,
+        generated?python::EnvironmentMode::Generated:python::EnvironmentMode::Trusted);}));
+      if(!watcher.isFinished())wait.exec();
+      const auto proof=watcher.result();QVERIFY2(proof.value("ready").toBool(),qPrintable(QJsonDocument(proof).toJson()));
+    } else if(generated) {
       QFutureWatcher<QJsonObject> watcher;QEventLoop wait;
       connect(&watcher,&QFutureWatcherBase::finished,&wait,&QEventLoop::quit);
       watcher.setFuture(QtConcurrent::run([sandbox]{return sandbox->inspect();}));
@@ -170,6 +207,7 @@ private slots:
       h.operationDir=f.project+"/.paleo/capability-ops";h.writeClaim=lock.claim();h.context=f.context;return h;};
     const auto configure=[&](capability::CapabilityHost &owner,const QString &scripts) {
       owner.setBindingProvider(binding);owner.setTaskService(&f.tasks);owner.setCallerScope(host::Caller::Agent,"agent:production");
+      if(managed)return;
       if(generated)owner.registerExecutionAdapter(capability,python::generatedScriptAdapter(runtime,
         scripts.isEmpty()?std::shared_ptr<python::SandboxProvider>{}:sandbox,assemblePythonAnalysisProvider(&f.catalog,&f.session,&owner)));
       else owner.registerExecutionAdapter(capability,python::analysisScriptAdapter(
@@ -181,6 +219,10 @@ private slots:
     context.capabilityHost=&f.host;context.requireCapabilityHost=true;context.pythonRuntime=runtime;
     context.sourceResolver=[&](const auto &ref){return f.session.source(ref);};
     context.runtimeReadiness=[](const QString &,const QJsonObject &,bool){return QString();};
+    if(managed) {
+      runner.setPythonEnvironments(registry);
+      QVERIFY(assembleAgentPython(&runner,context,&f.catalog,&f.session,&f.host,[]{return true;}));
+    }
     runner.setContext(context);runner.setResultSession("python-analysis-chat");bool ok=false;
     const auto query=call(runner,"paleo.query_project",{{"topic","well_curves"},{"well_ref",document::wellRefJson(f.well)}},ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(query).toJson()));QVERIFY(query.value("metadataOnly").toBool());
@@ -235,17 +277,88 @@ sys.stdout.write(json.dumps(out,allow_nan=False,separators=(',',':')))
       QCOMPARE(accepted.value("claims").toString(),QString("agent_generated_values_not_independently_recomputed"));
       QVERIFY(!policy.allowTrusted);
     }
+    if(managed) {
+      // The dispatcher owns the base Agent scope; chat-session operations stay isolated.
+      QTRY_COMPARE_WITH_TIMEOUT(f.tasks.runningCount(),0,180000);
+      auto dispatcherArgs=args;dispatcherArgs["client_request_id"]="dispatcher-compute";
+      capability::ExecuteRequest decoded;
+      const auto rejected=capability::prepareHostedChatToolRequest(decoded,tool,dispatcherArgs);
+      QVERIFY2(rejected.isEmpty(),qPrintable(QJsonDocument(rejected).toJson()));
+      QCOMPARE(decoded.capabilityId,QString(tool));
+      QCOMPARE(CapabilityRegistry::resolveAlias(decoded.capabilityId,nullptr),QString(capability));
+      if(generated)QCOMPARE(decoded.parameters.value("code").toString(),QString::fromUtf8(source));
+      command::CommandContext commandContext;commandContext.documentId=f.context.documentId;
+      commandContext.callerScope=f.host.callerScope(host::Caller::Agent);commandContext.clientRequestId=decoded.clientRequestId;
+      command::CommandDispatcher dispatcher;dispatcher.setCapabilityHost(&f.host,host::Caller::Agent);
+      dispatcher.setContextProvider([commandContext]{return commandContext;});
+      const auto dispatcherVersions=f.catalog.versions().size();
+      {
+        const auto allowed=f.context.allowedEffects;const auto restore=qScopeGuard([&]{f.context.allowedEffects=allowed;});
+        f.context.allowedEffects&=~unsigned(host::LocalExecute);
+        const auto tasksBefore=f.tasks.tasks().size();QSignalSpy added(&f.tasks,&PaleoTaskService::taskAdded);
+        const auto denied=dispatcher.prepare(capability,commandContext,decoded.parameters,decoded.inputs,decoded.publishIntent);
+        QVERIFY(!denied.ok);QCOMPARE(denied.code,QString("effect_denied"));QVERIFY(denied.hostHandle.isEmpty());
+        QCOMPARE(added.size(),0);QCOMPARE(f.tasks.tasks().size(),tasksBefore);QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
+      }
+      if(generated) {
+        auto invalidParameters=decoded.parameters;invalidParameters["unexpected"]=true;
+        const auto tasksBefore=f.tasks.tasks().size();QSignalSpy added(&f.tasks,&PaleoTaskService::taskAdded);
+        const auto invalid=dispatcher.prepare(capability,commandContext,invalidParameters,decoded.inputs,decoded.publishIntent);
+        QVERIFY(!invalid.ok);QCOMPARE(invalid.code,QString("python_code_required"));QVERIFY(invalid.hostHandle.isEmpty());
+        QCOMPARE(added.size(),0);QCOMPARE(f.tasks.tasks().size(),tasksBefore);QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
+      }
+      const auto prepared=dispatcher.prepare(capability,commandContext,decoded.parameters,decoded.inputs,decoded.publishIntent);
+      QVERIFY2(prepared.ok,qPrintable(prepared.code));QCOMPARE(prepared.request.bindingMode,QString("pinned-value"));
+      QCOMPARE(prepared.effectiveParameters,decoded.parameters);QCOMPARE(prepared.request.parameters,decoded.parameters);
+      capability::ExecuteResult firstResult;QString dispatchError;
+      QVERIFY2(runPreparedDispatcher(dispatcher,prepared,firstResult,dispatchError),qPrintable(dispatchError));
+      const auto firstPayload=capability::chatToolResponse(firstResult);
+      QVERIFY2(firstResult.ok,qPrintable(QJsonDocument(firstPayload).toJson()));
+      const auto dispatcherOperation=firstPayload.value("operationId").toString();
+      QVERIFY(!dispatcherOperation.isEmpty());QVERIFY(dispatcherOperation!=operation);
+      QCOMPARE(firstPayload.value("computeCount").toInt(),1);QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
+      const auto again=dispatcher.prepare(capability,commandContext,decoded.parameters,decoded.inputs,decoded.publishIntent);
+      QVERIFY2(again.ok,qPrintable(again.code));capability::ExecuteResult secondResult;
+      QVERIFY2(runPreparedDispatcher(dispatcher,again,secondResult,dispatchError),qPrintable(dispatchError));
+      const auto secondPayload=capability::chatToolResponse(secondResult);
+      QVERIFY2(secondResult.ok,qPrintable(QJsonDocument(secondPayload).toJson()));
+      QCOMPARE(secondResult.operationId,dispatcherOperation);QCOMPARE(secondPayload.value("computeCount").toInt(),1);
+      const auto hidden=call(runner,"paleo.operation_get",{{"operation_id",dispatcherOperation}},ok);
+      QVERIFY(!ok);QCOMPARE(hidden.value("code").toString(),QString("operation_not_found"));
+      QVERIFY(!hidden.contains("operationId"));QCOMPARE(f.catalog.versions().size(),dispatcherVersions);
+    }
     // Reconstruct runtime hooks from durable records; publishing cannot rerun the old source script.
     capability::CapabilityHost restarted;configure(restarted,generated?QString():QString("/missing-original-template-generation"));
-    context.capabilityHost=&restarted;runner.setContext(context);
+    context.capabilityHost=&restarted;
+    AiChatToolRunner restartedRunner;auto *publisher=&runner;
+    if(managed) {
+#ifdef Q_OS_WIN
+      if(!generated) {
+        const auto manifest=delivered.scriptsRoot+"/scripts-manifest.json";
+        QVERIFY(QFile::setPermissions(manifest,QFile::permissions(manifest)|QFileDevice::WriteOwner));
+      }
+#endif
+      if(!generated)QVERIFY(QFile::remove(delivered.scriptsRoot+"/scripts-manifest.json"));
+      auto restored=std::make_shared<python::PythonEnvironmentRegistry>(delivered.configurationPath());
+      const auto code=restored->refresh({},restored->beginRefresh());if(generated)QVERIFY2(code.isEmpty(),qPrintable(code));
+      else QVERIFY(!code.isEmpty());
+      restartedRunner.setTaskService(&f.tasks);restartedRunner.setPythonEnvironments(restored);
+      QVERIFY(assembleAgentPython(&restartedRunner,context,&f.catalog,&f.session,&restarted,[]{return true;}));
+      restartedRunner.setContext(context);restartedRunner.setResultSession("python-analysis-chat");publisher=&restartedRunner;
+      // Production assembly starts its own asynchronous refresh/prewarm. The
+      // synchronous refresh above cannot stand in for that new binding's
+      // completion; pending provider snapshots deliberately fail closed.
+      QTRY_COMPARE_WITH_TIMEOUT(f.tasks.runningCount(), 0, 180000);
+      QCOMPARE(restored->status().value("runtimeIntegrityCode").toString(), QString("ok"));
+    } else runner.setContext(context);
     args["client_request_id"]="chat-publish";args["publish_intent"]="publish";
     args["parameters"]=QJsonObject{};args["inputs"]=QJsonObject{{"source_operation_id",operation}};
-    const auto published=call(runner,tool,args,ok);
+    const auto published=call(*publisher,tool,args,ok);
     QVERIFY2(ok,qPrintable(QJsonDocument(published).toJson()));QCOMPARE(published.value("commitState").toString(),QString("committed"));
     QCOMPARE(f.catalog.versions().size(),count+1);
     const auto sourceVersion=inputs.value("curves").toArray()[0].toObject().value("source_version_id").toString();
     for(const auto &version:f.catalog.versions())if(version.stage=="DERIVED")QCOMPARE(version.parentVersionIds,QStringList{sourceVersion});
-    call(runner,tool,args,ok);QVERIFY(ok);QCOMPARE(f.catalog.versions().size(),count+1);
+    call(*publisher,tool,args,ok);QVERIFY(ok);QCOMPARE(f.catalog.versions().size(),count+1);
   }
 };
 QTEST_GUILESS_MAIN(TestPythonAnalysisWiring)

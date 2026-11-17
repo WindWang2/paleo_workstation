@@ -21,6 +21,9 @@ struct OperationWorkContext {
   AlgorithmSpec outputSpec;
   QVector<AlgorithmOutputTarget> targets;
   std::function<bool()> cancelled;
+  // Host-only cooperative interruption (e.g. an execution authorization was
+  // revoked). It does not write a permanent user cancelRequested flag.
+  std::function<void()> requestInterruption;
 };
 struct OperationWorkResult {
   bool ok = false;

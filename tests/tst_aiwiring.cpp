@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QScopeGuard>
+#include <QStandardPaths>
 #include "services/paleotaskservice.h"
 #include "services/pythonruntime.h"
 
@@ -23,6 +24,7 @@
 #include "../src/workflow/aichattoolrunner.h"
 #include "workflow/capabilityhost.h"
 #include "fixtures/mkprojectfixture.h" // 方向95：mini 夹具扩散（重绑段）
+#include "fixtures/pythonenvironmentfixture.h"
 
 // 方向51 Oracle①：产品装配（app/aiwiring.cpp）与测试走同一个装配函数，
 // 因此「装配出来的是 router 而不是替身 Mock」是可执行断言。
@@ -37,6 +39,7 @@
 class TestAiWiring : public QObject {
   Q_OBJECT
 private slots:
+  void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
   void unconfiguredEndpointStillYieldsRouterWithoutTransport();
   void configuredEndpointBindsHttpTransport();
   void routerWithoutTransportFailsHonestlyNotSilently();
@@ -70,24 +73,31 @@ void TestAiWiring::reentrantBindDuringPythonPrewarmKeepsTheNewProject_data() {
 }
 void TestAiWiring::reentrantBindDuringPythonPrewarmKeepsTheNewProject() {
   QFETCH(int,prewarmAdmission);
-  const QList<QByteArray> names{"PALEO_AGENT_PYTHON_ROOT","PALEO_AGENT_PYTHON_ENABLE_TRUSTED","PALEO_AGENT_PYTHON_ENABLE_GENERATED"};
+  const QList<QByteArray> names{"PALEO_AGENT_PYTHON_ROOT","PALEO_AGENT_PYTHON_MANIFEST_SHA256","PALEO_AGENT_PYTHON_SCRIPTS_ROOT",
+      "PALEO_AGENT_PYTHON_ENABLE_TRUSTED","PALEO_AGENT_PYTHON_ENABLE_GENERATED"};
   QList<QByteArray> previous;for(const auto &name:names)previous.append(qgetenv(name.constData()));
   const auto restore=qScopeGuard([&]{for(int i=0;i<names.size();++i) {
     if(previous[i].isNull())qunsetenv(names[i].constData());else qputenv(names[i].constData(),previous[i]);
   }});
   QTemporaryDir oldProject,newProject;DataCatalog oldCatalog,newCatalog;
+  python_environment_fixture::Fixture environment(QFINDTESTDATA("../vendor/agent-python/templates"));
+  QVERIFY2(environment.error.isEmpty(),qPrintable(environment.error));const auto candidate=environment.candidate("runtime");
   QVERIFY(oldCatalog.open(oldProject.path()));QVERIFY(newCatalog.open(newProject.path()));
   CatalogEntity well;well.id="well-new";well.entityType="well";well.name="NEW-PROJECT";
   QVERIFY(newCatalog.addEntity(well));
   AiChatController chat;PaleoTaskService tasks;chat.toolRunner()->setTaskService(&tasks);bool rebound=false;int admissions=0;
+  chat.toolRunner()->setPythonEnvironments(std::make_shared<paleo::python::PythonEnvironmentRegistry>(environment.configurationPath()));
   connect(&tasks,&PaleoTaskService::taskAdded,&chat,[&] {
     if(rebound || ++admissions!=prewarmAdmission)return;rebound=true;qunsetenv("PALEO_AGENT_PYTHON_ROOT");
     bindChatToolRunner(&chat,nullptr,nullptr,&newCatalog,newProject.path(),"new-document");
   });
-  qputenv("PALEO_AGENT_PYTHON_ROOT",oldProject.path().toUtf8());
+  qputenv("PALEO_AGENT_PYTHON_ROOT",candidate.runtimeRoot.toUtf8());
+  qputenv("PALEO_AGENT_PYTHON_MANIFEST_SHA256",candidate.runtimeSha256.toUtf8());
+  qputenv("PALEO_AGENT_PYTHON_SCRIPTS_ROOT",QFileInfo(QFINDTESTDATA("../vendor/agent-python/templates")).canonicalFilePath().toUtf8());
   qputenv("PALEO_AGENT_PYTHON_ENABLE_TRUSTED","1");qputenv("PALEO_AGENT_PYTHON_ENABLE_GENERATED","1");
   bindChatToolRunner(&chat,nullptr,nullptr,&oldCatalog,oldProject.path(),"old-document");
-  QVERIFY(rebound);QCOMPARE(admissions,prewarmAdmission);QJsonObject page;QVERIFY(queryWells(chat,&page));
+  QTRY_VERIFY_WITH_TIMEOUT(rebound,10000);QCOMPARE(admissions,prewarmAdmission);QJsonObject page;QVERIFY(queryWells(chat,&page));
+  QTRY_VERIFY_WITH_TIMEOUT(!chat.toolRunner()->pythonRuntime()->configuration().enabled,10000);
   QCOMPARE(page.value("wells").toArray().size(),1);
   QCOMPARE(page.value("wells").toArray()[0].toObject().value("name").toString(),QString("NEW-PROJECT"));
   QVERIFY(!chat.toolRunner()->pythonRuntime()->configuration().enabled);

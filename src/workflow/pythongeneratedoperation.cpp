@@ -68,18 +68,22 @@ capability::CapabilityPreparation capture(const std::shared_ptr<RuntimeProvider>
   };
   if(error)error->clear();return result;
 }
-QString checkRecord(const capability::OperationLog::Record &record,const std::shared_ptr<RuntimeProvider> &runtime,
-                    const std::shared_ptr<SandboxProvider> &sandbox) {
+QString checkRecordImpl(const capability::OperationLog::Record &record,const std::shared_ptr<RuntimeProvider> &runtime,
+                    const std::shared_ptr<SandboxProvider> &sandbox,bool requireBackend) {
   const auto plan=record.frozenRequest.value("plan").toObject();
   if(record.capabilityId!=QLatin1String(GeneratedCapability) || record.contractVersion!=1 ||
       record.implementationVersion!=generatedAlgorithmSpec().implementationVersion || plan.value("documentId").toString()!=record.documentId ||
       plan.value("callerScope").toString()!=record.callerScope || QJsonArray::fromStringList(analysisSourceVersionIds(plan.value("inputMetadata").toObject()))!=record.stagePlan.value("parents").toArray())
     return "invalid_python_generated_plan";
   const bool publication=record.frozenRequest.value("phase")=="publish" && !record.frozenRequest.value("sourceOperationId").toString().isEmpty();
-  return generated_operation::checkPlan(plan,runtime,sandbox,!publication);
+  return generated_operation::checkPlan(plan,runtime,sandbox,requireBackend && !publication);
 }
 }
 namespace generated_operation {
+QString checkRecord(const capability::OperationLog::Record &record,const std::shared_ptr<RuntimeProvider> &runtime,
+    const std::shared_ptr<SandboxProvider> &sandbox,bool requireBackend) {
+  return checkRecordImpl(record,runtime,sandbox,requireBackend);
+}
 QString checkPlan(const QJsonObject &plan,const std::shared_ptr<RuntimeProvider> &provider,
                   const std::shared_ptr<SandboxProvider> &sandbox,bool requireBackend) {
   QStringList fields{"backend","callerScope","capability","codeSha256","documentId","executionMode","inputMetadata","policy","runtimeManifestSha256","schema","storedInput"};fields.sort();
@@ -125,13 +129,13 @@ capability::CapabilityExecutionAdapter generatedScriptAdapter(std::shared_ptr<Ru
     std::shared_ptr<SandboxProvider> sandbox,AnalysisPlanProvider selector) {
   capability::CapabilityExecutionAdapter out;
   out.capture=[runtime,sandbox,selector](const auto &request,const auto &intent,QString *error){return capture(runtime,sandbox,selector,request,intent,error);};
-  out.validateFrozen=[runtime,sandbox](const auto &record){return checkRecord(record,runtime,sandbox);};
+  out.validateFrozen=[runtime,sandbox](const auto &record){return generated_operation::checkRecord(record,runtime,sandbox);};
   out.restoreWorker=[runtime,sandbox](const auto &record,QString *error) {
-    const auto code=checkRecord(record,runtime,sandbox);if(error)*error=code;
+    const auto code=generated_operation::checkRecord(record,runtime,sandbox);if(error)*error=code;
     return code.isEmpty()?generated_operation::worker(record.frozenRequest.value("plan").toObject(),runtime,sandbox):capability::OperationWorker{};
   };
   out.restoreInputValidator=[runtime,sandbox](const auto &record,QString *error) {
-    const auto code=checkRecord(record,runtime,sandbox);if(error)*error=code;
+    const auto code=generated_operation::checkRecord(record,runtime,sandbox);if(error)*error=code;
     return code.isEmpty()?generated_operation::inputValidator(record.frozenRequest.value("plan").toObject(),runtime,sandbox):capability::OperationInputValidator{};
   };
   return out;

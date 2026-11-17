@@ -15,7 +15,7 @@
 #include <functional>
 #include <memory>
 namespace paleo::query {class ProjectQueryCapability;}
-namespace paleo::python {class RuntimeProvider;class TrustedReadinessProvider;class SandboxProvider;}
+namespace paleo::python {class RuntimeProvider;class TrustedReadinessProvider;class SandboxProvider;class PythonEnvironmentRegistry;}
 namespace paleo::document {struct SourceRef;struct SourceRecord;}
 
 // workflow/ — 聊天领域工具执行器（方向61）。
@@ -103,9 +103,12 @@ public:
   void setFaciesConfig(const WellFaciesConfig &config);
   bool externalTransferConfigured() const;
   bool pythonExecutionAllowed() const;
-  std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime() const { return m_context.pythonRuntime; }
-  std::shared_ptr<paleo::python::TrustedReadinessProvider> pythonTrusted() const { return m_context.pythonTrusted; }
-  std::shared_ptr<paleo::python::SandboxProvider> pythonSandbox() const { return m_context.pythonSandbox; }
+  std::shared_ptr<paleo::python::RuntimeProvider> pythonRuntime() const;
+  std::shared_ptr<paleo::python::TrustedReadinessProvider> pythonTrusted() const;
+  std::shared_ptr<paleo::python::SandboxProvider> pythonSandbox() const;
+  std::shared_ptr<paleo::python::PythonEnvironmentRegistry> pythonEnvironments() const { return m_pythonEnvironments; }
+  // Host assembly installs one stable directory; later changes use its mutators.
+  void setPythonEnvironments(std::shared_ptr<paleo::python::PythonEnvironmentRegistry> registry);
   void setContext(const Context &context);
   void setTaskService(PaleoTaskService *service);
   void setResultSession(const QString &session);
@@ -175,6 +178,7 @@ private:
 
   AiAssistWorkflow *m_workflow = nullptr;
   Context m_context;
+  std::shared_ptr<paleo::python::PythonEnvironmentRegistry> m_pythonEnvironments;
   QPointer<PaleoTaskService> m_taskService;
   WellFaciesService *m_facies = nullptr; // 私有（本类拥有）
   std::unique_ptr<paleo::query::ProjectQueryCapability> m_query;

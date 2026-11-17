@@ -126,6 +126,11 @@ bool licenseText(const Header &header, const QString &root) {
 }
 } // namespace
 
+QJsonObject compiledScriptHashes() {
+  return {{"summary", QString::fromLatin1(PALEO_DELIVERY_SUMMARY_SHA)},
+      {"well_quality", QString::fromLatin1(PALEO_DELIVERY_QUALITY_SHA)},
+      {"attribute_correlation", QString::fromLatin1(PALEO_DELIVERY_CORRELATION_SHA)}};
+}
 bool digest(const QString &value) {
   if (value.size() != 64 || value == QString(64, '0')) return false;
   for (const auto c : value)

@@ -3,28 +3,55 @@
 #include "helpers/tileagentfixture.h"
 #include "qgis/qgisruntime.h"
 #include <QApplication>
+#include <QMap>
 #include <qgsmaplayer.h>
 #include <qgsrasterlayer.h>
 #include <qgsrasterrenderer.h>
 
 using namespace tile_agent_fixture;
+namespace {
+using TaskSnapshot = QMap<qint64, QString>;
+TaskSnapshot snapshotTasks(const PaleoTaskService &service) {
+  TaskSnapshot result;
+  for (const auto *task : service.tasks()) if (task)
+    result.insert(task->id(), QStringLiteral("id=%1 title=%2 quiet=%3 layer=%4")
+        .arg(task->id()).arg(task->title()).arg(task->quiet()).arg(task->layerId()));
+  return result;
+}
+QStringList addedTaskDescriptions(const TaskSnapshot &before, const TaskSnapshot &after) {
+  QStringList result;
+  for (auto it = after.cbegin(); it != after.cend(); ++it)
+    if (!before.contains(it.key())) result.append(it.value());
+  return result;
+}
+}
 class TestTileAgent:public QObject {
   Q_OBJECT
 private slots:
   void missingComputeDependenciesRejectBeforeScheduling() {
     Fixture f;QVERIFY(f.init());const auto prepared=f.phase("dependency-prepare","prepare");
     QVERIFY2(prepared.value("toolOk").toBool(),qPrintable(QJsonDocument(prepared).toJson()));
-    const auto source=prepared.value("operationId").toString();const auto tasks=f.data.tasks.tasks().size();
+    const auto source=prepared.value("operationId").toString();
     const auto versions=f.data.catalog.versions().size();f.rebind(false);
+    // Rebinding may register its independent Python environment-status task.
+    // Capture that task before exercising the rejected tile action.
+    const auto providerTasksBefore=snapshotTasks(f.data.tasks);
     const auto noProvider=f.phase("dependency-provider","compute-only",source);
     QCOMPARE(noProvider.value("code").toString(),QString("ort_provider_unavailable"));QVERIFY(!noProvider.value("toolOk").toBool());
-    QCOMPARE(f.data.tasks.tasks().size(),tasks);f.rebind(true);
+    const auto providerTasksAfter=snapshotTasks(f.data.tasks);
+    const auto providerAdded=addedTaskDescriptions(providerTasksBefore,providerTasksAfter);
+    QVERIFY2(providerAdded.isEmpty(),qPrintable(providerAdded.join('\n')));
+    QCOMPARE(providerTasksAfter,providerTasksBefore);f.rebind(true);
     ModelRegistryScan scan;scan.manifestFound=true;ModelRegistryEntry other;other.name="other";
     other.file="model.onnx";other.absolutePath=f.data.temp.filePath(other.file);scan.entries.append(other);f.onnx.setModelRegistry(scan);
     QCOMPARE(f.onnx.availableModels(),QStringList{"other"});
+    const auto modelTasksBefore=snapshotTasks(f.data.tasks);
     const auto noFrozenModel=f.phase("dependency-model","compute-only",source);
     QCOMPARE(noFrozenModel.value("code").toString(),QString("model_unavailable"));QVERIFY(!noFrozenModel.value("toolOk").toBool());
-    QCOMPARE(f.data.tasks.tasks().size(),tasks);QCOMPARE(f.data.catalog.versions().size(),versions);
+    const auto modelTasksAfter=snapshotTasks(f.data.tasks);
+    const auto modelAdded=addedTaskDescriptions(modelTasksBefore,modelTasksAfter);
+    QVERIFY2(modelAdded.isEmpty(),qPrintable(modelAdded.join('\n')));
+    QCOMPARE(modelTasksAfter,modelTasksBefore);QCOMPARE(f.data.catalog.versions().size(),versions);
   }
   void synchronousNativeEditsAtInstantiationCannotBecomeOwnBaseline() {
     Fixture f;QVERIFY(f.init());QVERIFY(f.previousLayer());const auto c=f.compute("native-signal");QVERIFY2(!c.isEmpty(),qPrintable(f.error));
@@ -102,6 +129,7 @@ private slots:
   }
   void productionExternalGrantFollowsTheLiveConfiguredRunner() {
     Fixture f;QVERIFY(f.init());QVERIFY(!(f.host.context().allowedEffects&paleo::host::ExternalTransfer));
+    const auto grantTasksBefore=snapshotTasks(f.data.tasks);
     QCOMPARE(f.chat.toolRunner()->readiness("paleo.well_facies_prediction",{},true).code,QString("well_endpoint_unavailable"));
     WellFaciesConfig config;config.baseUrl=QUrl("http://127.0.0.1:1");config.apiKey="in-memory-only";config.allowInsecureHttp=true;
     f.chat.toolRunner()->setFaciesConfig(config);QVERIFY(f.host.context().allowedEffects&paleo::host::ExternalTransfer);
@@ -112,7 +140,11 @@ private slots:
     config.apiKey="invalid\r\nkey";f.chat.toolRunner()->setFaciesConfig(config);
     QVERIFY(!(f.host.context().allowedEffects&paleo::host::ExternalTransfer));
     config.apiKey="in-memory-only";config.baseUrl=QUrl("file:///tmp/invalid-endpoint");f.chat.toolRunner()->setFaciesConfig(config);
-    QVERIFY(!(f.host.context().allowedEffects&paleo::host::ExternalTransfer));QVERIFY(f.data.tasks.tasks().isEmpty());
+    QVERIFY(!(f.host.context().allowedEffects&paleo::host::ExternalTransfer));
+    const auto grantTasksAfter=snapshotTasks(f.data.tasks);
+    const auto grantAdded=addedTaskDescriptions(grantTasksBefore,grantTasksAfter);
+    QVERIFY2(grantAdded.isEmpty(),qPrintable(grantAdded.join('\n')));
+    QCOMPARE(grantTasksAfter,grantTasksBefore);
   }
   void prepareAndComputeArePrivatePublishCommitsThreeOnce() {
     Fixture f;QVERIFY2(f.init(),qPrintable(f.error));const auto before=f.data.catalog.versions().size();

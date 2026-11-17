@@ -60,6 +60,13 @@ ExecuteResult CapabilityRecovery::finish(const RecoveryHost &h,OperationLog::Rec
   if(latest.ownerAttempt!=r.ownerAttempt || latest.planHash!=r.planHash || latest.commitState!="publishing")
     return recovery_detail::result(latest);
   r=latest;code=r.cancelRequested?QStringLiteral("cancelled"):host::checkContext(live().context,h.context,effects);
+  if(code.isEmpty()) {const auto latestHost=live();if(latestHost.validateFrozen)code=latestHost.validateFrozen(r);}
+  if(!guard)return recovery_detail::result(r);
+  if(code.isEmpty())code=host::checkContext(live().context,h.context,effects);
+  const auto authorized=log.recordById(r.operationId);
+  if(authorized.ownerAttempt!=r.ownerAttempt || authorized.planHash!=r.planHash || authorized.commitState!="publishing")
+    return recovery_detail::result(authorized);
+  r=authorized;if(r.cancelRequested)code="cancelled";
   if(!code.isEmpty()){r.code=code;recovery_detail::store(log,r);return recovery_detail::result(r);}
   QStringList parents;for(const auto &id:r.stagePlan.value("parents").toArray())parents.append(id.toString());
   DerivedAssetRegistrar registrar(current.catalog,current.projectDir);DerivedOutputSetReceipt receipt;

@@ -290,13 +290,14 @@ bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
 }
 
 PaleoTask *PaleoTaskService::createTask(const QString &title,
-                                        const QString &layerId, bool quiet)
+                                        const QString &layerId, bool quiet, PaleoTask::Scope scope)
 {
   auto *task = new PaleoTask(m_nextId++, title, layerId, this);
   const QPointer<PaleoTaskService> service(this);
   const QPointer<PaleoTask> alive(task);
   task->m_quiet = quiet; // taskAdded 同步发射——必须在 emit 前落位
   task->m_session = m_session;
+  task->m_scope = scope;
   m_tasks.append(task);
   // Observers may destroy a task synchronously before it has entered the pool.
   connect(task, &QObject::destroyed, this, [this, task, layerId, id=task->id()] {
@@ -364,9 +365,17 @@ quint64 PaleoTaskService::beginNewSession()
 {
   ++m_session;
   for (PaleoTask *t : m_tasks)
-    if (t->running())
+    if (t->running() && t->scope() == PaleoTask::Scope::Document)
       t->requestInterruption();
   return m_session;
+}
+
+PaleoTask *PaleoTaskService::startApplication(const QString &title,
+    std::function<QString(PaleoTask *)> work, PaleoTask::Priority priority, bool quiet) {
+  auto *task = createTask(title, {}, quiet, PaleoTask::Scope::Application);
+  if (!task) return nullptr;
+  m_pool->start(new TaskRunner(task, std::move(work)), static_cast<int>(priority));
+  return task;
 }
 
 void PaleoTaskService::setRetention(int maxFinished, int quietLingerMs)

@@ -12,9 +12,12 @@
 #include <QTcpSocket>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QTemporaryDir>
 
 #include "../src/ai/chat/llmclient.h"
 #include "../src/workflow/aichatcontroller.h"
+#include "workflow/pythonenvironmentcontroller.h"
+#include "services/pythonenvironmentregistry.h"
 
 // 方向51：AI 对话助手编排（workflow 层）——流式拼接、错误分类、取消语义、
 // 会话落盘、禁用态。端点一律走 127.0.0.1 假服务器（无外网、无第三方 SDK）。
@@ -193,6 +196,7 @@ private slots:
   void exportCurrentSessionWritesMarkdownMatchingSession();
   void applyConfigPersistsFileAndKeepsHonestDisabledState();
   void applyConfigRejectsStructuralProblemsWithoutSaving();
+  void environmentSettingsShareRunnerAuthority();
 
 private:
   static bool spinUntil(const std::function<bool()> &done, int timeoutMs = 15000) {
@@ -771,6 +775,19 @@ void TestAiChatController::applyConfigRejectsStructuralProblemsWithoutSaving() {
   QVERIFY(!doneOk);                 // 结构非法：如实拒绝
   QVERIFY(!doneError.isEmpty());    // 且给出原因
   QVERIFY(!QFile::exists(LlmConfig::path())); // 不落盘
+}
+
+void TestAiChatController::environmentSettingsShareRunnerAuthority() {
+  QTemporaryDir directory; QVERIFY(directory.isValid());
+  auto registry = std::make_shared<paleo::python::PythonEnvironmentRegistry>(directory.filePath("agent-python.json"));
+  AiChatController host; host.toolRunner()->setPythonEnvironments(registry);
+  QObject settingsOwner;
+  auto *first = host.createPythonEnvironmentController(&settingsOwner);
+  auto *second = host.createPythonEnvironmentController(&settingsOwner);
+  QVERIFY(!second->redactedDiagnostics().value("status").toObject().value("emergencyDenied").toBool());
+  first->disable();
+  QVERIFY(second->redactedDiagnostics().value("status").toObject().value("emergencyDenied").toBool());
+  QVERIFY(!QFile::exists(directory.filePath("agent-python.json")));
 }
 
 int main(int argc, char *argv[]) {

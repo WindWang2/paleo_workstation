@@ -110,6 +110,11 @@ LlmConfigDialog::LlmConfigDialog(const LlmConfig &current, QWidget *parent)
   m_note->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
   m_note->setWordWrap(true);
   folderRow->addWidget(openFolder);
+  m_pythonEnvironment = new QPushButton(tr("Python 计算环境…"), this);
+  m_pythonEnvironment->setObjectName(QStringLiteral("llmConfigPythonEnvironment"));
+  connect(m_pythonEnvironment, &QPushButton::clicked, this,
+          &LlmConfigDialog::pythonEnvironmentRequested);
+  folderRow->addWidget(m_pythonEnvironment);
   folderRow->addWidget(m_note, 1);
   root->addLayout(folderRow);
 
@@ -138,6 +143,7 @@ void LlmConfigDialog::note(const QString &text) {
 
 void LlmConfigDialog::setBusy(bool busy) {
   m_busy = busy;
+  m_pythonEnvironment->setEnabled(!busy);
   m_buttons->button(QDialogButtonBox::Ok)->setEnabled(!busy);
   m_buttons->button(QDialogButtonBox::Cancel)->setEnabled(!busy);
 }

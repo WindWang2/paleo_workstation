@@ -38,6 +38,7 @@ public:
   void onApplyResult(bool ok, const QString &error);
 
 signals:
+  void pythonEnvironmentRequested();
   // 确认并通过结构校验后发出（一次提交至多一次；busy 期间再点无效）。
   // newKey 非空 = 写入新密钥；clearKey 且 newKey 空 = 清除；都空 = 不变。
   void applyRequested(const LlmConfig &formConfig, const QByteArray &newKey,
@@ -62,6 +63,7 @@ private:
   QLabel *m_keyState = nullptr;
   QLineEdit *m_keyInput = nullptr;   // 新密钥（留空 = 不变）
   QPushButton *m_keyClear = nullptr; // 勾选 = 清除已存密钥
+  QPushButton *m_pythonEnvironment = nullptr;
   QDialogButtonBox *m_buttons = nullptr;
   QLabel *m_note = nullptr;
   bool m_busy = false;

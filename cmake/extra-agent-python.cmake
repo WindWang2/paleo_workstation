@@ -54,6 +54,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/vendor/agent-python/templates/attribute_correlation.py")
 target_link_libraries(paleo_services PUBLIC paleo_services_pythonruntime)
 target_sources(paleo_workflow PRIVATE src/workflow/aichattoolrunner_python.cpp src/workflow/pythonenvironmentoperation.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/pythonenvironmentcontroller.cpp src/workflow/pythonenvironmentdiagnostics.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/capabilityoperationeffects.cpp
   src/workflow/pythonscriptoperation.cpp src/workflow/pythonscriptworker.cpp)
 add_paleo_test(tst_pythonruntime LIBS paleo_services_pythonruntime)
@@ -62,6 +63,7 @@ target_compile_definitions(tst_pythondelivery PRIVATE PALEO_DELIVERY_SOURCE_ROOT
 add_paleo_test(tst_pythonenvironment LIBS paleo_workflow)
 add_paleo_test(tst_pythonenvironmentconfig LIBS paleo_services_pythonruntime)
 add_paleo_test(tst_pythonenvironmentoperation LIBS paleo_workflow)
+add_paleo_test(tst_pythonenvironmentcontroller LIBS paleo_workflow)
 add_paleo_test(tst_pythonprocess LIBS paleo_services_pythonruntime)
 add_paleo_test(tst_pythoninputbundle LIBS paleo_services_pythonruntime)
 if(WIN32)

@@ -10,6 +10,8 @@
 #include <QVector>
 #include <functional>
 
+class PythonEnvironmentController;
+
 // workflow/ — AI 地质对话助手编排（方向51 骨架，方向61 工具闭环）。
 //
 // 分层站位：视图（src/ui/ai/aiassistdock）只发意图、只渲染；编排在这里——
@@ -53,6 +55,7 @@ public:
   QVector<AiToolSpec> tools() const { return m_runner.availableTools(); }
   // 工具执行器（组合成员；装配根/测试经此绑定执行面与数据上下文）。
   AiChatToolRunner *toolRunner() { return &m_runner; }
+  PythonEnvironmentController *createPythonEnvironmentController(QObject *owner);
 
   ChatSession session() const { return m_session; }
   QVector<ChatMessage> messages() const { return m_session.messages; }

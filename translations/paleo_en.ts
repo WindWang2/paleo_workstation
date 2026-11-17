@@ -13756,7 +13756,12 @@ Crossline: %3 ~ %4</source>
             <source>应用失败</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <location filename="../src/ui/ai/llmconfigdialog.cpp" line="113" />
+        <source>Python 计算环境…</source>
+        <translation>Python Compute Environment…</translation>
+    </message>
+</context>
     <context>
         <name>MamclTool</name>
         <message>
@@ -37531,6 +37536,161 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>Python 隔离状态</source>
         <translation>Python sandbox status</translation>
     </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="30" />
+        <source>已安装</source>
+        <translation>Installed</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="31" />
+        <source>校验通过</source>
+        <translation>Verified</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
+        <source>可执行</source>
+        <translation>Ready to run</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="33" />
+        <source>未安装</source>
+        <translation>Not installed</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="34" />
+        <source>尚未选择环境</source>
+        <translation>No environment selected</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="35" />
+        <source>未启用</source>
+        <translation>Disabled</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="36" />
+        <source>当前不可执行</source>
+        <translation>Not ready to run</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="37" />
+        <source>检查未通过</source>
+        <translation>Check failed</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="38" />
+        <source>尚未检查</source>
+        <translation>Not checked</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="44" />
+        <source>是</source>
+        <translation>Yes</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="44" />
+        <source>否</source>
+        <translation>No</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="19" />
+        <source>操作已取消。</source>
+        <translation>Operation cancelled.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="21" />
+        <source>配置或授权已变更。请重新载入后再应用，当前输入仍保留。</source>
+        <translation>Configuration or permissions have changed. Reload before applying. Your current input has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="23" />
+        <source>配置已变更。请重新载入后再应用，当前输入仍保留。</source>
+        <translation>Configuration has changed. Reload before applying. Your current input has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="25" />
+        <source>交付校验未通过。请核对独立交付记录，并使用与本应用匹配的环境包。</source>
+        <translation>Delivery verification failed. Check the separate delivery record and use an environment package compatible with this application.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="26" />
+        <source>安装空间不足。旧版本已保留，请选择空间充足的专用目录。</source>
+        <translation>Not enough space for installation. The previous version has been kept. Select a dedicated directory with enough free space.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="27" />
+        <source>安装目录不可用。请使用运行时或模板各自的专用目录。</source>
+        <translation>The installation directory is unavailable. Use separate dedicated directories for the runtime and templates.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="28" />
+        <source>此环境未获执行授权。请选择已核验且允许使用的版本。</source>
+        <translation>This environment is not authorized for execution. Select a verified version that is permitted for use.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="29" />
+        <source>持久状态尚未确认。请重新载入并核对实际身份与修订号，再重试。</source>
+        <translation>The saved state has not been confirmed. Reload and check the actual identity and revision before trying again.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="30" />
+        <source>环境操作未完成。请导出诊断检查原因。</source>
+        <translation>The environment operation did not complete. Export diagnostics to investigate.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="27" />
+        <source>宿主持久配置</source>
+        <translation>Saved host configuration</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="28" />
+        <source>兼容环境变量</source>
+        <translation>Compatibility environment variables</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="29" />
+        <source>正在载入</source>
+        <translation>Loading</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="30" />
+        <source>尚未配置</source>
+        <translation>Not configured</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="71" />
+        <source>本次会话已停用相关计算权限，但持久配置仍允许执行。请保存停用或撤销配置。</source>
+        <translation>Related compute permissions have been disabled for this session, but the saved configuration still allows execution. Save the disabled settings or revoke authorization.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="73" />
+        <source>请核对运行时与清单校验码；完整性未通过时不能执行。</source>
+        <translation>Check the runtime and manifest checksums. Execution is blocked until integrity verification passes.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="75" />
+        <source>可信模板完整性未通过；运行时与生成计算状态分别检查。</source>
+        <translation>Trusted template integrity verification failed. Check the runtime and generated computation status separately.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="77" />
+        <source>生成计算当前不可执行。请检查平台隔离与资源条件；不会回退到普通进程。</source>
+        <translation>Generated computation cannot run at present. Check platform isolation and resource requirements. It will not fall back to a regular process.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="79" />
+        <source>可信分析当前不可执行。请核对平台执行后端。</source>
+        <translation>Trusted analysis cannot run at present. Check the platform execution backend.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="80" />
+        <source>安装、启用与可执行状态分别检查；启用前不会运行分析。</source>
+        <translation>Installation, enablement and readiness to run are checked separately. No analysis runs before computation is enabled.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
+        <source>无需安装（生成专用）</source>
+        <translation>Not required (generated only)</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -56141,4 +56301,361 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>Restore completed well facies result</translation>
         </message>
     </context>
+<context>
+    <name>PythonEnvironmentController</name>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="41" />
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="98" />
+        <source>本次会话已停用，但停用配置尚未确认保存。</source>
+        <translation>Disabled for this session, but saving the disabled settings has not been confirmed.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="41" />
+        <source>任务服务已关闭，环境操作已中断。</source>
+        <translation>The task service has shut down. The environment operation was interrupted.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="60" />
+        <source>本次会话已撤销权限，但配置尚未保存。宿主任务服务尚未就绪。</source>
+        <translation>Permissions have been revoked for this session, but the configuration has not been saved. The host task service is not ready.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="60" />
+        <source>宿主环境服务尚未就绪。</source>
+        <translation>The host environment service is not ready.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="62" />
+        <source>已有环境操作正在进行。</source>
+        <translation>An environment operation is already in progress.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="98" />
+        <source>环境操作已中断，未应用过期结果。</source>
+        <translation>The environment operation was interrupted. Stale results were not applied.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="100" />
+        <source>环境操作未产生结果。</source>
+        <translation>The environment operation produced no result.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="115" />
+        <source>载入 Python 环境</source>
+        <translation>Load Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="120" />
+        <source>安装 Python 离线环境</source>
+        <translation>Install Offline Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="129" />
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="191" />
+        <source>请先载入宿主配置。</source>
+        <translation>Load the host configuration first.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="132" />
+        <source>已载入的执行策略无效，请重新载入配置。</source>
+        <translation>The loaded execution policy is invalid. Reload the configuration.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="138" />
+        <source>验证并应用 Python 环境</source>
+        <translation>Verify and Apply Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="144" />
+        <source>检查 Python 可执行状态</source>
+        <translation>Check Python Execution Readiness</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="176" />
+        <source>保存 Python 停用配置</source>
+        <translation>Save Settings with Python Disabled</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="176" />
+        <source>撤销 Python 环境授权</source>
+        <translation>Revoke Python Environment Authorization</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="186" />
+        <source>请选择有效的已批准环境身份。</source>
+        <translation>Select a valid, approved environment identity.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="193" />
+        <source>回退 Python 环境</source>
+        <translation>Roll Back Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="199" />
+        <source>导出 Python 环境诊断</source>
+        <translation>Export Python Environment Diagnostics</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="217" />
+        <source>本次会话已撤销权限，但配置尚未保存。</source>
+        <translation>Permissions have been revoked for this session, but the configuration has not been saved.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="226" />
+        <source>离线包已安装并填入表单；验证并应用后才会使用所选环境。</source>
+        <translation>The offline package has been installed and the form populated. The selected environment will only be used after you verify and apply it.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="231" />
+        <source>Python 计算已停用并保存。</source>
+        <translation>Python computation has been disabled and the settings saved.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="232" />
+        <source>脱敏诊断已导出。</source>
+        <translation>Redacted diagnostics have been exported.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="233" />
+        <source>配置已应用；可执行状态须单独检查。</source>
+        <translation>Configuration applied. Check execution readiness separately.</translation>
+    </message>
+</context>
+<context>
+    <name>PythonEnvironmentDialog</name>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="52" />
+        <source>Python 计算环境</source>
+        <translation>Python Compute Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="65" />
+        <source>诊断项</source>
+        <translation>Diagnostic Item</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="65" />
+        <source>实际状态</source>
+        <translation>Actual Status</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="85" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="86" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="87" />
+        <source>尚未检查</source>
+        <translation>Not checked</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="89" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="90" />
+        <source>未启用</source>
+        <translation>Disabled</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="92" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="117" />
+        <source>安装</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="92" />
+        <source>运行时完整性</source>
+        <translation>Runtime integrity</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="93" />
+        <source>可信模板完整性</source>
+        <translation>Trusted template integrity</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="94" />
+        <source>可信分析</source>
+        <translation>Trusted analysis</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="94" />
+        <source>受控生成计算</source>
+        <translation>Controlled generated computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="95" />
+        <source>配置来源</source>
+        <translation>Configuration source</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="98" />
+        <source>安装离线环境</source>
+        <translation>Install Offline Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="101" />
+        <source>选择包…</source>
+        <translation>Select Package…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="104" />
+        <source>选择离线环境包</source>
+        <translation>Select Offline Environment Package</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="108" />
+        <source>使用独立交付记录中的完整 SHA-256 校验码。</source>
+        <translation>Use the full SHA-256 checksum from the separate delivery record.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="110" />
+        <source>使用专用安装目录；运行时和可信模板分别安装。</source>
+        <translation>Use dedicated installation directories. Install the runtime and trusted templates separately.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="111" />
+        <source>选择目录…</source>
+        <translation>Select Directory…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="114" />
+        <source>选择专用安装目录</source>
+        <translation>Select Dedicated Installation Directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="121" />
+        <source>离线包</source>
+        <translation>Offline package</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="121" />
+        <source>交付校验码</source>
+        <translation>Delivery checksum</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="122" />
+        <source>专用安装目录</source>
+        <translation>Dedicated installation directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="123" />
+        <source>安装不会启用计算。请选择受信任的运行时包；可信分析还需模板包。</source>
+        <translation>Installation does not enable computation. Select a trusted runtime package. Trusted analysis also requires a template package.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="127" />
+        <source>启用计算</source>
+        <translation>Enable Computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="133" />
+        <source>运行时目录</source>
+        <translation>Runtime directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="133" />
+        <source>运行时清单校验码</source>
+        <translation>Runtime manifest checksum</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="134" />
+        <source>可信模板目录</source>
+        <translation>Trusted template directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="134" />
+        <source>模板清单校验码</source>
+        <translation>Template manifest checksum</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="135" />
+        <source>允许已登记的可信分析</source>
+        <translation>Allow registered trusted analyses</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="137" />
+        <source>允许受控生成计算</source>
+        <translation>Allow controlled generated computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="140" />
+        <source>验证并应用</source>
+        <translation>Verify and Apply</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="148" />
+        <source>重新载入配置</source>
+        <translation>Reload Configuration</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="150" />
+        <source>丢弃表单草稿并载入最新配置；其他窗口修改配置后请先重新载入。</source>
+        <translation>Discard the form draft and load the latest configuration. Reload first if another window has changed the configuration.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="152" />
+        <source>检查可执行状态</source>
+        <translation>Check Execution Readiness</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="153" />
+        <source>停用计算</source>
+        <translation>Disable Computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="155" />
+        <source>立即停用 Python 执行，并保存停用配置。</source>
+        <translation>Disable Python execution immediately and save the disabled settings.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="156" />
+        <source>导出诊断…</source>
+        <translation>Export Diagnostics…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="160" />
+        <source>导出环境诊断</source>
+        <translation>Export Environment Diagnostics</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="160" />
+        <source>JSON 文件 (*.json)</source>
+        <translation>JSON files (*.json)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="166" />
+        <source>回退到已核验版本</source>
+        <translation>Roll Back to Verified Version</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="167" />
+        <source>撤销所选版本</source>
+        <translation>Revoke Selected Version</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="204" />
+        <source>离线包已安装并填入表单；验证并应用后才会使用所选环境。</source>
+        <translation>The offline package has been installed and the form populated. The selected environment will only be used after you verify and apply it.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="215" />
+        <source>宿主配置与完整性</source>
+        <translation>Host configuration and integrity</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
+        <source>已申请的资源上限</source>
+        <translation>Requested resource limits</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
+        <source>可信分析实测</source>
+        <translation>Trusted analysis execution check</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
+        <source>受控生成实测</source>
+        <translation>Controlled generated computation execution check</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="237" />
+        <source>正在结束当前操作，完成后关闭。</source>
+        <translation>Finishing the current operation. This window will close when it completes.</translation>
+    </message>
+</context>
 </TS>

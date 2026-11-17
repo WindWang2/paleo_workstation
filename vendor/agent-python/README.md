@@ -5,6 +5,9 @@ The application remains C++; this directory does not install Python in the defau
 application image, add PyQGIS, or change the user's console/REPL interpreter.
 The runtime itself is not a security sandbox.
 
+Prepared generations can be wrapped for a native C++ client installer using the
+[offline delivery protocol](DELIVERY.md); producer Python is not a client dependency.
+
 The Linux payload's 34 ELF objects were checked with a clean-environment `ldd`:
 no missing dependencies. OS-provided ABI libraries are the ELF loader, libc, libm,
 libdl, libpthread, librt, libutil, libgcc_s, libstdc++ and zlib. Their observed symbol

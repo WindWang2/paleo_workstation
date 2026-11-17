@@ -46,7 +46,16 @@ QString checkedRoot(const RuntimeConfig &config,QString &code) {
   return root;
 }
 std::shared_ptr<void> acquireGenerationLease(const QString &root,const QString &anchor) {
-  const auto path=QDir(root).absoluteFilePath("../.leases/"+anchor+".lock");
+  // Unlock must not traverse the generation: installation may rename staging
+  // while this lease lives, and Windows extended paths do not collapse "..".
+  auto path=QFileInfo(root).dir().absoluteFilePath(".leases/"+anchor+".lock");
+#ifdef Q_OS_WIN
+  // QLockFile's native unlock needs the extended form beyond MAX_PATH. Only
+  // transform this internal canonical local-drive path, never a caller path.
+  const auto native=QDir::toNativeSeparators(path);
+  if(native.size()>2 && ((native[0]>='A' && native[0]<='Z') || (native[0]>='a' && native[0]<='z')) &&
+      native[1]==':' && native[2]=='\\')path=QStringLiteral("\\\\?\\")+native;
+#endif
   auto lease=std::make_shared<QLockFile>(path);lease->setStaleLockTime(0);
   if(!QDir().mkpath(QFileInfo(path).absolutePath()) || !lease->tryLock(0))return {};
   return lease;

@@ -144,7 +144,7 @@ private slots:
   }
   void anExternalLeaseStillExcludesProvidersAndIsReleasedFinally() {
     Fixture fixture;const auto config=fixture.config();
-    const auto path=QDir(QFileInfo(config.root).canonicalFilePath()).absoluteFilePath("../.leases/"+config.manifestSha256+".lock");
+    const auto path=fixture.temp.filePath(".leases/"+config.manifestSha256+".lock");
     QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
     QLockFile external(path);external.setStaleLockTime(0);QVERIFY(external.tryLock(0));
     {
@@ -153,6 +153,30 @@ private slots:
       QVERIFY(!external.tryLock(0));QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
     }
     QVERIFY(external.tryLock(0));external.unlock();QVERIFY(verifyRuntime(config).ready());
+  }
+  void renamedGenerationCannotStrandItsExternalLease() {
+    Fixture fixture;auto config=fixture.config();auto verified=verifyRuntime(config);
+    QVERIFY2(verified.ready(),qPrintable(verified.code));
+    const auto lease=fixture.temp.filePath(".leases/"+config.manifestSha256+".lock");
+    QVERIFY(QFileInfo::exists(lease));
+    const auto renamed=fixture.temp.filePath("renamed-generation");
+    QVERIFY(QDir().rename(fixture.root,renamed));verified={};
+    QVERIFY(!QFileInfo::exists(lease));
+    QLockFile external(lease);external.setStaleLockTime(0);QVERIFY(external.tryLock(0));external.unlock();
+    config.root=renamed;QVERIFY2(verifyRuntime(config).ready(),"Renamed generation must not inherit a stranded lock");
+  }
+  void longLocalGenerationLeaseIsReleasedAndReacquired() {
+    Fixture fixture;auto config=fixture.config();auto parent=fixture.temp.path();
+    while(parent.size()<300)parent+="/segment_0123456789012345678901234567890";
+    QVERIFY(QDir().mkpath(parent));const auto root=QDir(parent).filePath("generation");
+    QVERIFY(QDir().rename(fixture.root,root));config.root=root;
+    const auto lease=QDir(parent).filePath(".leases/"+config.manifestSha256+".lock");
+    QVERIFY(lease.size()>260);
+    for(int cycle=0;cycle<2;++cycle) {
+      auto verified=verifyRuntime(config);QVERIFY2(verified.ready(),qPrintable(verified.code));
+      QVERIFY(QFileInfo::exists(lease));QCOMPARE(verifyRuntime(config).code,QString("python_runtime_busy"));
+      verified={};QVERIFY(!QFileInfo::exists(lease));
+    }
   }
   void changedFixtureIsReauthenticatedBeforeStrongExecution() {
     Fixture fixture;RuntimeProvider provider(fixture.config());int callbacks=0;bool changed=false;

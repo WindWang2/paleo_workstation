@@ -910,3 +910,6 @@
 'https://archive.ubuntu.com/ubuntu/pool/main/libb/libbsd/libbsd0_0.12.2-2build2_amd64.deb' libbsd0_0.12.2-2build2_amd64.deb 42312 SHA256:62019928a6baeaba8d12d2d4cb7c1e4c9a9550a1eb4541b8de0cacfeae1d09e3
 'https://archive.ubuntu.com/ubuntu/pool/main/libm/libmd/libmd0_1.1.0-2build4_amd64.deb' libmd0_1.1.0-2build4_amd64.deb 27252 SHA256:da684bb562e167721ae38366586aaee0b4cc580b9ee6d0220128b15ef9c5be75
 'https://archive.ubuntu.com/ubuntu/pool/main/libs/libseccomp/libseccomp2_2.6.0-2ubuntu5_amd64.deb' libseccomp2_2.6.0-2ubuntu5_amd64.deb 53010 SHA256:c5e4b198f251da0ede226fd179830bd8767482821a1773f835358f726795cb16
+'https://archive.ubuntu.com/ubuntu/pool/main/n/ncurses/libtinfo6_6.6%2b20251231-1_amd64.deb' libtinfo6_6.6+20251231-1_amd64.deb 110530 SHA256:42705a701a98d84c203c6f96f08c6fd6a29a1ef978683e1ffbf0e27535b20ddb
+'https://archive.ubuntu.com/ubuntu/pool/main/r/readline/libreadline8t64_8.3-4_amd64.deb' libreadline8t64_8.3-4_amd64.deb 164290 SHA256:260b3333e9f714252593b83fb31d2571097b64d337d0d7100aae7349029821fc
+'https://archive.ubuntu.com/ubuntu/pool/main/r/readline/readline-common_8.3-4_all.deb' readline-common_8.3-4_all.deb 61514 SHA256:53cdc5a963bbdda938f8996496a5e78bcf484e6e41a2ef2c0f8cf566808f71f5

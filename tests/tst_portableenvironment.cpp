@@ -67,6 +67,21 @@ private slots:
     QVERIFY(result.missing.contains(root.filePath("share/proj/proj.db")));
     QVERIFY(result.missing.contains(root.filePath("qgis/resources/srs.db")));
   }
+
+  void packagedRuntimePathsOverrideInheritedValues() {
+    QTemporaryDir root;
+    for (const auto &name : {"RUNTIME_SOURCES.json", "plugins/platforms/qwindows.dll",
+                             "share/proj/proj.db", "qgis/resources/srs.db"})
+      touch(root.filePath(QLatin1String(name)));
+    QProcessEnvironment inherited;
+    inherited.insert("QTWEBENGINE_RESOURCES_PATH", "/old-qt");
+    inherited.insert("SSL_CERT_FILE", "/old-ca-bundle");
+    const auto result = inspectPortableEnvironment(root.path(), inherited);
+    QCOMPARE(result.values.value("QTWEBENGINE_RESOURCES_PATH"), root.filePath("resources"));
+    QCOMPARE(result.values.value("SSL_CERT_FILE"), root.filePath("share/certs/ca-bundle.pem"));
+    QVERIFY(result.missing.contains(root.filePath("share/certs/ca-bundle.pem")));
+    QVERIFY(result.missing.contains(root.filePath("gdalplugins")));
+  }
 };
 QTEST_GUILESS_MAIN(TestPortableEnvironment)
 #include "tst_portableenvironment.moc"

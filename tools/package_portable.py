@@ -1,531 +1,236 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-便携包打包器 —— 产出可在其他 Windows 电脑上直接双击运行的目录/压缩包。
+#!/usr/bin/env python3
+"""Assemble and check a Windows runtime from the locked build inputs."""
 
-设计要点
---------
-1. **依赖闭包靠实测**：从产物 exe 出发做 BFS，逐层 dumpbin 解析 import 表，
-   递归收集传递依赖。只收实际用到的 DLL，不做「整目录复制」——
-   deps/Library/bin 有 400+ 个 dll，整拷会让包体膨胀数倍且混入版本冲突。
-2. **Qt 6.11.2 双源**：主体模块（Core/Gui/Widgets/…）来自 conda deps
-   （Library/bin），Qt6Pdf* 官方 6.11.2 扩展前缀补位（构建即如此链接，
-   见 paleo-dev.ps1 Enter-LocalDepsEnvironment）。同名 DLL 以 deps 优先。
-3. **Qt 插件按需**：platforms/qwindows.dll 是 GUI 必需；imageformats/
-   iconengines/styles/sqldrivers 按名单收，调试变体（*d.dll）排除。
-   插件必须与运行时 Qt 同源（conda），官方前缀的插件不进包。
-4. **QGIS 前缀布局**：qgis/ 子目录即 QGIS prefix（app 便携分支强制
-   QGIS_PREFIX_PATH=<root>/qgis，见 portableenvironment.cpp）——resources/
-   整目录随包
-   （srs.db/qgis.db/符号库/3D 模型，运行时自检硬依赖），
-   启动器设 QGIS_PREFIX_PATH=%~dp0qgis。provider 内建在 qgis_core.dll，
-   本机 prefix 无 plugins 目录也可用，包内同构。
-5. **GDAL/PROJ 数据**：share/gdal + share/proj 随包，启动器设
-   GDAL_DATA / PROJ_LIB / PROJ_DATA——缺省时 GDAL 找不到 tms json、
-   PROJ 报 CRS 无大地基准（paleo-dev.ps1 同款口径）。
-6. **禁止污染**：只读源目录，写入新的输出目录，默认 build/portable/。
-7. **--verify**：打包后用净环境（PATH 只含包目录 + System32）跑包内
-   paleo_selfcheck.exe，模拟新机器首启；GUI 冒烟用 paleo.exe --help。
-"""
 import argparse
-import hashlib
+from collections import deque
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
-import time
+import tempfile
 import zipfile
-from collections import deque
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from portable_manifest import (PackageFiles, REPO_ROOT, load_cmake_cache,
+                               verify, verify_receipt)
 
-# ---- 源位置（可用 --deps/--qgis-prefix/--qt-pdf 覆盖）-------------------------
-DEPS = Path(r"C:\Users\wangj.KEVIN\paleo-qgis-deps")
-DEPS_BIN = DEPS / "Library" / "bin"
-QGIS_PREFIX = Path(r"C:\Users\wangj.KEVIN\paleo-qgis-prefix")
-QT_PDF_BIN = Path(r"C:\deps\Qt\6.11.2\msvc2022_64\bin")
-ORT_LIB = REPO_ROOT / "vendor" / "onnxruntime" / "lib"
 
-# ---- 脚本台面的随包 Python（--conda 可覆盖）----
-CONDA = Path(r"C:/ProgramData/anaconda3/Scripts/conda.exe")
-
-# 搜索根：收集 DLL 时按优先级查找（同名 DLL 前面的根胜出——
-# conda deps 的 Qt 6.11.2 必须压过官方前缀，避免混 ABI）。
-SEARCH_ROOTS = [
-    DEPS_BIN,
-    QGIS_PREFIX / "bin",
-    QT_PDF_BIN,
-    ORT_LIB,
-    Path(r"C:\Windows\System32"),
-]
-
-# 产品级 exe（要进包的）；测试 exe 不进包
-PRODUCT_EXES = [
-    "paleo.exe",                  # 主应用（GUI）
-    "paleo_mkproject.exe",         # 工程脚手架
-    "paleo_seismic_demo.exe",      # 地震展示 demo
-    "paleo_selfcheck.exe",         # 自检（新机排障首选）
-    "paleo_data_snapshot_worker.exe", # 可取消的只读模型快照
-]
-
-# 延迟加载 / 运行时按名装载的模块：dumpbin 静态 import 表扫不到。
-# find_package 面里 paleo.exe 未静态 import 的：SerialPort/Positioning/
-# UiTools/Concurrent；onnxruntime.dll 会延迟拉 providers_shared。
-EXTRA_DLLS = [
-    "Qt6SerialPort.dll", "Qt6Positioning.dll", "Qt6UiTools.dll",
-    "Qt6Concurrent.dll", "Qt6DBus.dll",
-    "onnxruntime_providers_shared.dll",
-]
-
-# 系统 DLL 白名单（目标机 Windows 10/11 自带，不进包）
-SYSTEM_DLL = re.compile(
-    r"^(api-ms-win-|ext-ms-win-|kernel32|kernelbase|ntdll|user32|gdi32|"
-    r"advapi32|shell32|ole32|oleaut32|comdlg32|comctl32|shlwapi|msvcrt|"
-    r"rpcrt4|winmm|ws2_32|crypt32|bcrypt|ncrypt|secur32|wintrust|"
-    r"imm32|version|setupapi|psapi|imagehlp|dbghelp|winhttp|urlmon|"
-    r"dwmapi|uxtheme|uxcore|shcore|propsys|oleacc|uiautomationcore|"
-    r"wininet|mswsock|normaliz|userenv|wtsapi32|netapi32|"
-    r"powrprof|jobapi|memapi|cfgmgr|wevtapi|sechost|taskschd|tasksch)",
-    re.I,
+REQUIRED_EXES = ("paleo.exe", "paleo_selfcheck.exe", "paleo_data_snapshot_worker.exe")
+OPTIONAL_EXES = ("paleo_mkproject.exe", "paleo_seismic_demo.exe")
+OS_DLLS = frozenset("""
+advapi32 authz avrt bcrypt bcryptprimitives bluetoothapis cfgmgr32 combase comctl32
+comdlg32 crypt32 cryptbase cryptui d2d1 d3d9 d3d11 d3d12 dbghelp dcomp devobj
+dhcpcsvc dhcpcsvc6 dnsapi dpapi dsparse dwmapi dwrite dxcore dxgi dxva2
+fontsub gdi32 gdi32full hid icu icuuc iertutil imm32 iphlpapi kernel.appcore kernel32
+kernelbase mf mfplat mfreadwrite mfuuid mmdevapi mpr msimg32 msvcp_win
+msvcrt mswsock ncrypt netapi32 netutils normaliz nsi ntasn1 ntdll odbc32 odbccp32
+ole32 oleacc oleaut32 opengl32 pathcch pdh powrprof profapi propsys psapi
+rpcrt4 runtimeobject secur32 sechost setupapi shcore shell32 shlwapi srvcli
+sspicli strmiids taskschd ucrtbase uiautomationcore umpdc urlmon user32 userenv usp10
+uxtheme version win32u windows.storage winhttp wininet winmm winusb
+wintrust wldap32 ws2_32 wsock32 wtsapi32 xmllite
+""".split())
+OTHER_OS_IMPORTS = {"winspool.drv", "bthprops.cpl"}
+QT_PLUGIN_GROUPS = (
+    "generic", "iconengines", "imageformats", "networkinformation", "platforms",
+    "position", "sqldrivers", "styles", "tls", "vectorimageformats",
 )
-
-# 明确排除（Python 运行时非 GUI 必需且体积大；paleo 的 python 面向
-# QProcess 外部解释器，缺省时相关功能优雅降级，不阻塞主程序）
-EXCLUDE_DLL = {
-    "python3.dll", "python314.dll", "python.exe", "pythonw.exe",
-}
-
-
-def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)
-
-
-def find_dumpbin() -> Path | None:
-    base = Path(r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC")
-    if not base.is_dir():
-        return None
-    for v in sorted(base.iterdir(), reverse=True):
-        p = v / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
-        if p.is_file():
-            return p
-    return None
-
-
-def dumpbin_imports(exe: Path, dumpbin: Path) -> set:
-    r = run([str(dumpbin), "/nologo", "/dependents", str(exe)])
-    if r.returncode != 0:
-        return set()
-    return set(m.group(1) for m in re.finditer(r"^\s{4}(\S+\.dll)\s*$", r.stdout, re.M))
-
-
-def resolve(name: str, roots) -> Path | None:
-    for r in roots:
-        c = r / name
-        if c.is_file():
-            return c
-    return None
-
-
-def collect_dll_closure(entry_exes: list[Path], dumpbin: Path) -> tuple[dict, list]:
-    """BFS 收集 DLL 闭包。返回 (dll名 -> 源路径, 缺失清单)。
-
-    凡只在 C:\\Windows\\System32 命中的依赖视为 Windows 自带（10/11 均随 OS
-    发行），不进包——拷系统 DLL 进包既膨胀又会在目标机上以 exe 目录优先级
-    遮蔽系统版本，属反模式。VC 运行库（msvcp140/vcruntime140*）在 conda
-    bin 先命中，仍正常随包。"""
-    system32 = Path(r"C:\Windows\System32").resolve()
-    roots = [r for r in SEARCH_ROOTS if r.is_dir()]
-    seen: dict[str, Path] = {}
-    missing: list[str] = []
-    queue = deque()
-
-    for e in entry_exes:
-        for d in dumpbin_imports(e, dumpbin):
-            queue.append(d)
-
-    while queue:
-        name = queue.popleft()
-        lname = name.lower()
-        if lname in {s.lower() for s in seen}:
-            continue
-        if SYSTEM_DLL.match(name) or lname in EXCLUDE_DLL:
-            continue
-        src = resolve(name, roots)
-        if not src:
-            missing.append(name)
-            continue
-        if src.resolve().parent == system32:
-            seen[name] = src  # 占位防重扫；复制阶段按 System32 跳过
-            continue
-        seen[name] = src
-        for d in dumpbin_imports(src, dumpbin):
-            if d.lower() not in {s.lower() for s in seen}:
-                queue.append(d)
-    return seen, missing
-
-
-def copy_qt_plugins(dest_root: Path) -> list[str]:
-    """收 Qt 插件。源必须是 Qt 6.11.2 布局——conda 的 qt6-main 把插件放在
-    Library/lib/qt6/plugins（Library/plugins 是 Qt5 遗留，元数据 5.15，
-    混进包会在目标机上以「incompatible Qt library」拒载）。"""
-    copied = []
-    plugin_root = DEPS / "Library" / "lib" / "qt6" / "plugins"
-    if not plugin_root.is_dir():
-        return copied
-    keep = {
-        "platforms": {"qwindows.dll", "qoffscreen.dll"},
-        "styles": {"qmodernwindowsstyle.dll"},
-        "iconengines": {"qsvgicon.dll"},
-        "sqldrivers": {"qsqlite.dll"},
-        "imageformats": None,  # 前缀名单，见下
-    }
-    img_prefixes = ("qjpeg", "qgif", "qico", "qsvg", "qwebp", "qtiff", "qwbmp", "qtga")
-    for sub, names in keep.items():
-        d = plugin_root / sub
-        if not d.is_dir():
-            continue
-        for p in sorted(d.glob("*.dll")):
-            lname = p.name.lower()
-            if lname.endswith("d.dll"):          # 调试变体不进生产包
-                continue
-            if names is not None and lname not in names:
-                continue
-            if names is None and not any(lname.startswith(k) for k in img_prefixes):
-                continue
-            out = dest_root / "plugins" / sub
-            out.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p, out / p.name)
-            copied.append(f"plugins/{sub}/{p.name}")
-    return copied
-
-
-def dir_size(p: Path) -> str:
-    tot = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
-    for unit, div in (("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
-        if tot >= div:
-            return f"{tot/div:.1f} {unit}"
-    return f"{tot} B"
-
-
-LAUNCHER_BAT = (
-    "@echo off\r\n"
-    "chcp 65001 >nul\r\n"
-    "setlocal\r\n"
-    "cd /d \"%~dp0\"\r\n"
-    "rem -- Qt / QGIS / GDAL / PROJ 资源定位（全部指向包内）--\r\n"
-    "set \"QT_PLUGIN_PATH=%~dp0plugins\"\r\n"
-    "set \"QGIS_PREFIX_PATH=%~dp0qgis\"\r\n"
-    "set \"GDAL_DATA=%~dp0share\\gdal\"\r\n"
-    "set \"PROJ_LIB=%~dp0share\\proj\"\r\n"
-    "set \"PROJ_DATA=%~dp0share\\proj\"\r\n"
-    "rem WebEngine：绕系统代理直连本机服务；conda 构建子进程关沙箱/GPU 防断言崩溃；\r\n"
-    "rem Qt Quick 后端钉 OpenGL 与主窗口（QGIS 画布）合成 API 一致。\r\n"
-    "set \"QTWEBENGINE_CHROMIUM_FLAGS=--proxy-server=direct:// --no-sandbox --disable-gpu\"\r\n"
-    "set \"QSG_RHI_BACKEND=opengl\"\r\n"
-    "set \"PYTHONUTF8=1\"\r\n"
-    "set \"PALEO_PYTHON=%~dp0python\\python.exe\"\r\n"
-    "set \"PATH=%~dp0;%~dp0python;%~dp0python\\Library\\bin;%~dp0python\\Scripts;%PATH\"\r\n"
-    "start \"\" \"%~dp0paleo.exe\" %*\r\n"
-)
-
-README_TXT = (
-    "paleo_workstation 便携包\r\n"
-    "========================\r\n\r\n"
-    "双击「启动-paleo.bat」运行主程序。\r\n"
-    "双击 paleo_seismic_demo.exe 运行地震展示 demo。\r\n"
-    "遇到启动/运行问题时，先双击 paleo_selfcheck.exe 查看环境自检。\r\n\r\n"
-    "目录说明：\r\n"
-    "  *.exe            产品可执行文件\r\n"
-    "  *.dll            Qt 6.11.2 / QGIS 4.2 / GDAL / PROJ / onnxruntime 运行时闭包\r\n"
-    "  plugins/         Qt 平台/图像/图标/样式/SQLite 驱动插件（与 exe 同目录的 Qt 配套）\r\n"
-    "  qgis/            QGIS 前缀（resources：srs.db、符号库、3D 模型）\r\n"
-    "  share/gdal,proj  GDAL/PROJ 数据目录（坐标系与栅格驱动元数据）\r\n"
-    "  resources-paleo/ 应用内样式、文档、示例\r\n"
-    "  office-editor/   Office 原件编辑页（OnlyOffice WASM；AGPL——见 office-editor-NOTICE.txt）\r\n"
-    "  python/          Python 3.10 运行时（脚本台面）\r\n"
-    "  testdata/        示例工程与地质夹具（可删）\r\n\r\n"
-    "系统要求：Windows 10/11 x64。无需安装 Python、Qt 或 QGIS。\r\n"
-    "Python 脚本环境已随包（python/），启动器已设 PALEO_PYTHON。\r\n"
-    "地层对比使用原生界面与当前工程数据服务。\r\n"
+LAUNCHER = (
+    '@echo off\r\nsetlocal\r\n'
+    'start "" "%~dp0paleo.exe" %*\r\n'
 )
 
 
-# 目标机完整性校验器（包内 python 执行；内容 ASCII，避免任何码页问题）
-VERIFY_PY = (
-    "import hashlib, sys\n"
-    "from pathlib import Path\n"
-    "root = Path(__file__).parent\n"
-    "expected = {}\n"
-    "for line in (root / 'SHA256SUMS.txt').read_text(encoding='utf-8').splitlines():\n"
-    "    h, _, name = line.partition('  ')\n"
-    "    expected[name] = h\n"
-    "bad = []\n"
-    "for name, h in sorted(expected.items()):\n"
-    "    p = root / name\n"
-    "    if not p.is_file():\n"
-    "        bad.append(('MISSING', name))\n"
-    "        continue\n"
-    "    if hashlib.sha256(p.read_bytes()).hexdigest() != h:\n"
-    "        bad.append(('CORRUPT', name))\n"
-    "print('checked', len(expected), 'files')\n"
-    "if bad:\n"
-    "    for kind, name in bad[:50]:\n"
-    "        print(kind, name)\n"
-    "    print('RESULT: FAIL -', len(bad), 'bad files. Copy/extract is damaged;'\n"
-    "          ' re-extract the whole zip with 7-Zip/Explorer and retry.')\n"
-    "    sys.exit(1)\n"
-    "print('RESULT: OK - package intact. If paleo.exe still shows 0xc0000007b,')\n"
-    "print('check the Windows version (needs Win10 1607+ / Win11) and antivirus quarantine.')\n"
-)
-
-CHECK_BAT = (
-    "@echo off\r\n"
-    "rem Verify package integrity after extraction (0xc0000007b diagnosis)\r\n"
-    "setlocal\r\n"
-    "cd /d \"%~dp0\"\r\n"
-    "\"python\\python.exe\" verify_package.py\r\n"
-    "echo.\r\n"
-    "pause\r\n"
-)
+def checked(command, **kwargs):
+    return subprocess.run(command, check=True, text=True, encoding="utf-8",
+                          errors="replace", capture_output=True, timeout=300, **kwargs).stdout
 
 
-def write_integrity_manifest(out: Path):
-    # 0xc0000007b 在目标机多为拷贝/解压损坏——SHA256SUMS + 包内 python 校验器
-    # 秒级定位坏文件；python 自身若起不来也直接说明损坏位置。
-    sums = []
-    for f in sorted(out.rglob("*")):
-        if f.is_file() and "verify-tmp" not in f.parts and f.name not in (
-                "SHA256SUMS.txt", "verify_package.py", "校验包.bat"):
-            sums.append(hashlib.sha256(f.read_bytes()).hexdigest() + "  "
-                        + f.relative_to(out).as_posix())
-    (out / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8")
-    (out / "verify_package.py").write_text(VERIFY_PY, encoding="utf-8")
-    (out / "校验包.bat").write_text(CHECK_BAT, encoding="ascii")
-    print(f"      SHA256SUMS.txt（{len(sums)} 个文件）+ 校验包.bat")
+def find_dumpbin() -> Path:
+    installer = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
+    location = checked([str(installer), "-latest", "-products", "*", "-requires",
+                        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                        "-property", "installationPath"]).strip()
+    tools = Path(location) / "VC/Tools/MSVC"
+    for version in sorted(tools.iterdir(), reverse=True):
+        path = version / "bin/Hostx64/x64/dumpbin.exe"
+        if path.is_file():
+            return path
+    raise ValueError("MSVC x64 dumpbin was not found through vswhere")
 
 
 def office_editor_dir(build: Path, override: str | None) -> Path:
-    required = (REPO_ROOT / "vendor" / "office-editor-required.txt").read_text(encoding="utf-8").splitlines()
-    candidates = [Path(override).resolve()] if override else [
-        build / "office-editor",
-        REPO_ROOT / "vendor" / "ranuts-document",
-    ]
-    for root in candidates:
-        if all((root / asset).is_file() and (root / asset).stat().st_size for asset in required):
-            return root
-    sys.exit("Office 编辑组件缺失或不完整。请先运行 vendor/fetch-ranuts-document.sh，"
-             "或用 --office-editor 指定完整的组件目录。")
+    lock = REPO_ROOT / "vendor/office-editor-required.txt"
+    candidates = ([Path(override)] if override else
+                  [build / "office-editor", REPO_ROOT / "vendor/ranuts-document"])
+    for directory in candidates:
+        if all((directory / name).is_file() and (directory / name).stat().st_size
+               for name in lock.read_text(encoding="utf-8").splitlines()):
+            return directory.resolve(strict=True)
+    raise ValueError("Office 编辑组件缺失或不完整。请准备 vendor/ranuts-document 或指定 --office-editor")
+
+
+def is_os_import(name: str, system: Path) -> bool:
+    return (name.startswith(("api-ms-win-", "ext-ms-win-"))
+            or ((name.removesuffix(".dll") in OS_DLLS or name in OTHER_OS_IMPORTS)
+                and (system / name).is_file()))
+
+
+def collect_pe_imports(files: PackageFiles, entries, roots, dumpbin: Path, system: Path):
+    pending = deque(entries)
+    found = {entry.name.lower() for entry in entries if entry.parent == files.output}
+    missing = {}
+    while pending:
+        binary = pending.popleft()
+        listing = checked([str(dumpbin), "/nologo", "/dependents", str(binary)])
+        for name in sorted(set(re.findall(r"^ {4}([\w.+-]+\.(?:dll|drv|cpl))\s*$",
+                                          listing.lower(), re.M))):
+            if name in found or is_os_import(name, system):
+                continue
+            match = next(((directory / name, role, root) for directory, role, root in roots
+                          if (directory / name).is_file()), None)
+            if match:
+                pending.append(files.copy(match[0], name, match[1], match[2]))
+                found.add(name)
+            else:
+                missing.setdefault(name, set()).add(binary.name)
+    if missing:
+        details = "\n".join(f"{name} required by {', '.join(sorted(users))}"
+                            for name, users in sorted(missing.items()))
+        raise ValueError(f"Missing locked runtime dependencies:\n{details}")
+
+
+def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin: Path):
+    prefix = Path(cache["QGIS_PREFIX"]).resolve(strict=True)
+    verify_receipt(prefix, ".paleo-osgeo4w-lock.sha256", "vendor/osgeo4w-offline.lock.json")
+    verify_receipt(prefix, ".paleo-opencl-source.sha256", "vendor/opencl-source.lock.json")
+    qt = prefix / "apps/qt6"
+    gis = prefix / "apps/qgis"
+    gdal = prefix / "apps/gdal"
+    products = (*REQUIRED_EXES, *(name for name in OPTIONAL_EXES if (build / name).is_file()))
+    entries = [files.copy(build / name, name, "build", build) for name in products]
+    entries.append(files.copy(qt / "bin/QtWebEngineProcess.exe", "QtWebEngineProcess.exe",
+                              "osgeo4w", prefix))
+    # Runtime loaders reach these plugins without an import from paleo.exe.
+    for group in QT_PLUGIN_GROUPS:
+        source = qt / "plugins" / group
+        if source.is_dir():
+            files.tree(source, f"plugins/{group}", "osgeo4w", prefix, is_release_dll)
+    files.tree(qt / "qml", "qml", "osgeo4w", prefix,
+               lambda path: path.suffix.lower() != ".dll" or is_release_dll(path))
+    files.tree(gis / "plugins", "qgis/plugins", "osgeo4w", prefix,
+               lambda path: is_release_dll(path) and not path.name.startswith("plugin_"))
+    files.tree(gdal / "lib/gdalplugins", "gdalplugins", "osgeo4w", prefix, is_release_dll)
+    entries.extend(files.output.rglob("*.dll"))
+    freexl = build / "paleo_freexl.dll"
+    if freexl.is_file():
+        entries.append(files.copy(freexl, freexl.name, "build", build))
+        files.tree(REPO_ROOT / "vendor/Data_service/vendor/freexl",
+                   "share/paleo/licenses/freexl", "source", REPO_ROOT,
+                   lambda path: path.name in {"NOTICE.txt", "LGPL-2.1.txt", "COPYING"})
+    roots = [(root, "osgeo4w", prefix) for root in (qt / "bin", gis / "bin", prefix / "bin")]
+    ort = Path(cache["CMAKE_HOME_DIRECTORY"]) / "vendor/onnxruntime"
+    if ort.is_dir() and cache.get("PALEO_ONNXRUNTIME") != "OFF" and cache.get("ORT_LIB") != "OFF":
+        for name in ("onnxruntime.dll", "onnxruntime_providers_shared.dll"):
+            entries.append(files.copy(ort / "lib" / name, name, "onnxruntime", ort))
+        for name in ("LICENSE", "ThirdPartyNotices.txt"):
+            files.copy(ort / name, f"share/paleo/licenses/onnxruntime/{name}", "onnxruntime", ort)
+    collect_pe_imports(files, entries, roots, dumpbin, Path(os.environ["SystemRoot"]) / "System32")
+    add_windows_resources(files, prefix, qt, gis, gdal, office)
+
+
+def is_release_dll(path: Path) -> bool:
+    return (path.suffix.lower() == ".dll"
+            and not (path.stem.endswith("d") and path.with_name(path.stem[:-1] + ".dll").exists()))
+
+
+def add_windows_resources(files: PackageFiles, prefix: Path, qt: Path, gis: Path, gdal: Path,
+                          office: Path):
+    for source, destination in ((qt / "resources", "resources"),
+                                (qt / "translations", "translations"),
+                                (gis / "resources", "qgis/resources"),
+                                (gis / "svg", "qgis/svg"),
+                                (gdal / "share/gdal", "share/gdal"),
+                                (prefix / "share/proj", "share/proj")):
+        files.tree(source, destination, "osgeo4w", prefix)
+    files.copy(qt / "certs/rootcerts.pem", "share/certs/ca-bundle.pem", "osgeo4w", prefix)
+    files.tree(gis / "doc", "share/paleo/licenses/qgis", "osgeo4w", prefix,
+               lambda path: path.name.upper() in {"LICENSE", "COPYING"})
+    files.tree(prefix / "share/doc", "share/paleo/licenses/osgeo4w", "osgeo4w", prefix)
+    if (qt / "sbom").is_dir():
+        files.tree(qt / "sbom", "share/paleo/licenses/qt/sbom", "osgeo4w", prefix)
+    files.tree(REPO_ROOT / "resources/fonts", "share/paleo/licenses/fonts", "source", REPO_ROOT,
+               lambda path: path.name.startswith("OFL") or path.name.endswith(".lock.json"))
+    files.tree(office, "office-editor", "office-editor", office)
+    files.copy(REPO_ROOT / "vendor/office-editor-NOTICE.txt",
+               "share/paleo/licenses/office-editor/NOTICE.txt", "source", REPO_ROOT)
+    (files.output / "qt.conf").write_text("[Paths]\nPrefix=.\n", encoding="ascii")
+    (files.output / "启动-paleo.bat").write_bytes(LAUNCHER.encode("ascii"))
+
+
+def verify_windows(package: Path):
+    verify(package)
+    # Build SDK, Qt/GIS prefixes and the caller's Python are absent from PATH.
+    with tempfile.TemporaryDirectory(prefix="paleo-portable-check-") as scratch:
+        system = Path(os.environ["SystemRoot"])
+        env = {"SystemRoot": str(system), "PATH": str(system / "System32"),
+               "TEMP": scratch, "TMP": scratch,
+               "QT_QPA_PLATFORM": "offscreen", "PROJ_NETWORK": "OFF",
+               "QGIS_PREFIX_PATH": str(package / "qgis"),
+               "QGIS_CUSTOM_CONFIG_PATH": scratch,
+               "QT_PLUGIN_PATH": str(package / "plugins"),
+               "PROJ_DATA": str(package / "share/proj"),
+               "GDAL_DATA": str(package / "share/gdal"),
+               "GDAL_DRIVER_PATH": str(package / "gdalplugins")}
+        print(checked([str(package / "paleo_selfcheck.exe")], cwd=scratch, env=env))
+        print(checked([str(package / "paleo.exe"), "--check-runtime"], cwd=scratch, env=env))
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--build-dir", required=True, help="构建目录（含产物 exe）")
-    ap.add_argument("--out", default=None, help="新输出目录，默认 <build>/portable（必须不存在）")
-    ap.add_argument("--zip", action="store_true", help="额外产出新的 zip（拒绝覆盖现有压缩包）")
-    ap.add_argument("--office-editor", help="Office 编辑组件目录，默认从构建树或 vendor 查找")
-    ap.add_argument("--conda", default=None, help="conda.exe 路径")
-    ap.add_argument("--skip-python", action="store_true", help="不打 Python 运行时")
-    ap.add_argument("--verify", action="store_true",
-                    help="净环境跑包内 selfcheck + paleo.exe 冒烟（模拟新机）")
-    args = ap.parse_args()
-
-    build = Path(args.build_dir).resolve()
-    out = Path(os.path.abspath(args.out)) if args.out else build / "portable"
-    src_root = build.parent
-    archive = build / "paleo-portable.zip"
-    if args.zip and (archive.exists() or archive.is_symlink() or out == archive):
-        sys.exit(f"压缩包路径已占用，请另存现有文件再打包：{archive}")
-
-    if args.conda:
-        global CONDA
-        CONDA = Path(args.conda)
-    dumpbin = find_dumpbin()
-    if not dumpbin:
-        sys.exit("找不到 dumpbin（需要 VS2022 Build Tools）")
-
-    if not (QGIS_PREFIX / "resources" / "symbology-style.xml").is_file():
-        sys.exit("缺少 QGIS 默认符号与色带库: resources/symbology-style.xml")
-    for exe in ("paleo.exe", "paleo_data_snapshot_worker.exe"):
-        if not (build / exe).is_file():
-            sys.exit(f"缺少构建产物 {exe}，请先完成应用构建")
-    office = office_editor_dir(build, args.office_editor or os.environ.get("PALEO_OFFICE_EDITOR"))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--build-dir", type=Path)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--office-editor")
+    parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--verify-only", type=Path)
+    parser.add_argument("--zip", action="store_true")
+    parser.add_argument("--skip-python", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
     try:
-        out.mkdir(parents=True)
-    except FileExistsError:
-        sys.exit(f"输出目录已存在，为保留原有内容请另选 --out: {out}")
-
-    # 1) 产品 exe
-    print("[1/8] 收集产品 exe …")
-    exes = []
-    for name in PRODUCT_EXES:
-        p = build / name
-        if p.is_file():
-            shutil.copy2(p, out / name)
-            exes.append(p)
-            print(f"      + {name}  ({p.stat().st_size/1e6:.1f} MB)")
-        else:
-            print(f"      ! 缺失 {name}")
-
-    # 2) DLL 闭包
-    print("[2/8] 解析 DLL 传递依赖闭包（dumpbin BFS）…")
-    closure, missing = collect_dll_closure(exes, dumpbin)
-    print(f"      收集 {len(closure)} 个 DLL；未解析 {len(missing)} 个")
-    for m in sorted(missing)[:20]:
-        print(f"        - {m}")
-
-    print("[3/8] 复制 DLL …")
-    system32 = Path(r"C:\Windows\System32").resolve()
-    skipped_sys = 0
-    for name, src in sorted(closure.items()):
-        if src.resolve().parent == system32:
-            skipped_sys += 1
-            continue
-        shutil.copy2(src, out / name)
-    # 延迟加载补充（按搜索根解析，避免硬编码目录）
-    for name in EXTRA_DLLS:
-        if (out / name).is_file():
-            continue
-        src = resolve(name, SEARCH_ROOTS)
-        if src:
-            shutil.copy2(src, out / name)
-            print(f"      + {name}  (延迟加载)")
-        else:
-            # 运行时动态装载的模块解析失败必须响：vendor 被清时曾静默漏打
-            # onnxruntime（exe 无静态 import，闭包不报缺），新机 AI 推理全灭。
-            sys.exit(f"延迟加载模块缺失，无法进包: {name}")
-    print(f"      DLL 就绪（{dir_size(out)}；跳过 {skipped_sys} 个 System32 系统库）")
-
-    # WebEngine 运行件——闭包只收 DLL；进程 exe/pak/icudtl/语言包须显式落位。
-    # 注意 conda 版 WebEngine 按运行时打印的搜索路径找 <exe目录>/share/qt6/
-    # resources（conda 布局，非官方 Qt 的 <exe>/resources 布局）：
-    #   share/qt6/resources/{icudtl.dat, qtwebengine_resources*.pak}
-    #   share/qt6/translations/qtwebengine_locales/
-    #   QtWebEngineProcess.exe 与 DLL 同目录（root）。
-    we = DEPS / "Library" / "lib" / "qt6" / "QtWebEngineProcess.exe"
-    if we.is_file():
-        shutil.copy2(we, out / "QtWebEngineProcess.exe")
-        res = DEPS / "Library" / "share" / "qt6" / "resources"
-        we_out = out / "share" / "qt6" / "resources"
-        we_out.mkdir(parents=True, exist_ok=True)
-        n_pak = 0
-        for p in list(res.glob("icudtl.dat")) + list(res.glob("v8_context_snapshot.bin")) \
-                 + list(res.glob("qtwebengine_resources*.pak")):
-            if p.name.endswith(".debug.pak"):
-                continue
-            shutil.copy2(p, we_out / p.name)
-            n_pak += 1
-        loc = DEPS / "Library" / "share" / "qt6" / "translations" / "qtwebengine_locales"
-        if loc.is_dir():
-            shutil.copytree(loc, out / "share" / "qt6" / "translations" / "qtwebengine_locales",
-                            dirs_exist_ok=True)
-        print(f"      + WebEngine 运行件（process + {n_pak} resources + locales → share/qt6）")
-
-    # 4) Qt 插件（Qt 6.11.2 conda 布局，与运行时 Qt 同 ABI）
-    print("[4/8] 复制 Qt 插件 …")
-    for c in copy_qt_plugins(out):
-        print(f"      + {c}")
-
-    # 5) QGIS 前缀资源（qgis/ 子目录即 prefix——app 便携分支契约）
-    print("[5/8] 复制 QGIS 运行时资源 …")
-    qres = QGIS_PREFIX / "resources"
-    if qres.is_dir():
-        shutil.copytree(qres, out / "qgis" / "resources", dirs_exist_ok=True)
-        print(f"      qgis/resources/  {dir_size(out / 'qgis' / 'resources')}")
-    else:
-        print(f"      ! 缺失 {qres}")
-
-    # 6) GDAL/PROJ 数据 + 应用资源 + Office 编辑页
-    print("[6/8] 复制 GDAL/PROJ 数据与应用资源 …")
-    for s, name in ((DEPS / "Library" / "share" / "gdal", "share/gdal"),
-                    (DEPS / "Library" / "share" / "proj", "share/proj")):
-        if s.is_dir():
-            shutil.copytree(s, out / name, dirs_exist_ok=True)
-            print(f"      {name}  {dir_size(out / name)}")
-    for d in ("resources", "testdata"):
-        s = src_root / d
-        if s.is_dir():
-            target = "resources-paleo" if d == "resources" else d
-            shutil.copytree(s, out / target, dirs_exist_ok=True)
-            print(f"      {target}/  {dir_size(out / target)}")
-    # Office 原件编辑页（ranuts/document，OnlyOffice WASM 静态页）——应用按
-    # 「同目录 office-editor/」解析（vendor/fetch-ranuts-document.sh 产物）。
-    shutil.copytree(office, out / "office-editor")
-    print(f"      office-editor/  {dir_size(out / 'office-editor')}")
-    (out / "office-editor-NOTICE.txt").write_text(
-        "office-editor/ 是 ranuts/document（github.com/ranuts/document，"
-        "tag v0.0.6，commit 82cb9f68617383c1b3a00865a5880069cbdf2d92）的"
-        "构建产物，含 ONLYOFFICE 的 AGPL-3.0 派生作品。\r\n"
-        "对外分发本包时须按 AGPL-3.0 提供对应源码（上述仓库该提交即为源），\r\n"
-        "并保留编辑页中的 ONLYOFFICE 标识。\r\n", encoding="utf-8")
-
-    # 7) Python 运行时（脚本台面；不依赖外部地层项目）
-    print("[7/8] Python 3.10 运行时（conda create，数分钟）…")
-    if not args.skip_python:
-        if run([str(CONDA), "create", "-y", "-p", str(out / "python"), "python=3.10"]).returncode != 0:
-            sys.exit("conda create 失败")
-        print(f"      python/  {dir_size(out / 'python')}")
-    else:
-        print("      跳过（--skip-python）")
-
-    # 8) 启动器 + 说明 + 完整性校验
-    print("[8/8] 生成启动器、说明与完整性校验 …")
-    (out / "启动-paleo.bat").write_text(LAUNCHER_BAT, encoding="utf-8")
-    (out / "使用说明.txt").write_text(README_TXT, encoding="utf-8")
-    write_integrity_manifest(out)
-
-    print(f"\n完成。输出目录：{out}")
-    print(f"总体积：{dir_size(out)}")
-
-    if args.zip:
-        print(f"\n压缩中 → {archive.name} …")
-        with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-            for f in out.rglob("*"):
-                if f.is_file():
-                    z.write(f, f.relative_to(out.parent))
-        print(f"      {archive.stat().st_size/1e6:.1f} MB")
-
-    if args.verify:
-        verify(out)
-
-
-def verify(out: Path):
-    """净环境（PATH 只含包 + System32）跑包内自检与 GUI 冒烟——
-    本机装的 conda Qt / QGIS 前缀全部从 PATH 里剥掉，模拟全新机器。"""
-    print("\n=== 验证：净环境 selfcheck（真实 windows 平台）===")
-    env = {
-        "PATH": str(out) + os.pathsep + r"C:\Windows\System32",
-        "QGIS_PREFIX_PATH": str(out / "qgis"),
-        "QT_PLUGIN_PATH": str(out / "plugins"),
-        "GDAL_DATA": str(out / "share" / "gdal"),
-        "PROJ_LIB": str(out / "share" / "proj"),
-        "PROJ_DATA": str(out / "share" / "proj"),
-        "QGIS_CUSTOM_CONFIG_PATH": str(out / "verify-tmp" / "config"),
-        "SystemRoot": r"C:\Windows",
-        "TEMP": str(out / "verify-tmp"), "TMP": str(out / "verify-tmp"),
-    }
-    (out / "verify-tmp").mkdir(exist_ok=True)
-    r = run([str(out / "paleo_selfcheck.exe")], env=env, cwd=str(out),
-            timeout=300)
-    tail = "\n".join(r.stdout.strip().splitlines()[-12:])
-    print(tail)
-    if r.returncode != 0:
-        print(f"!! selfcheck 退出码 {r.returncode}")
-
-    print("\n=== 验证：paleo.exe 启动冒烟（offscreen，存活 8s 即过）===")
-    try:
-        p = subprocess.Popen([str(out / "paleo.exe")], env=env,
-                             cwd=str(out), stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True)
-        time.sleep(8)
-        alive = p.poll() is None
-        p.kill()
-        o, _ = p.communicate(timeout=10)
-        print((o or "").strip()[-800:])
-        print("paleo.exe 存活 8s ✓" if alive else f"!! paleo.exe 提前退出，退出码 {p.returncode}")
-    except Exception as e:
-        print(f"!! 启动失败: {e}")
+        if args.verify_only:
+            verify_windows(args.verify_only.resolve(strict=True))
+            return
+        if not args.build_dir:
+            parser.error("--build-dir is required to create a package")
+        build = args.build_dir.resolve(strict=True)
+        output = (args.out or build / "portable").absolute()
+        if output.exists() or output.is_symlink():
+            raise ValueError(f"输出目录已存在，请另选 --out: {output}")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        archive = build / "paleo-portable.zip"
+        if args.zip and (archive.exists() or archive.is_symlink() or output == archive):
+            raise ValueError(f"压缩包路径已占用: {archive}")
+        cache = load_cmake_cache(build)
+        office = office_editor_dir(build, args.office_editor or os.environ.get("PALEO_OFFICE_EDITOR"))
+        with tempfile.TemporaryDirectory(prefix=".paleo-package-", dir=output.parent) as staging:
+            package = Path(staging) / "runtime"
+            package.mkdir()
+            files = PackageFiles(package)
+            stage_windows(files, build, office, cache, find_dumpbin())
+            files.write(["vendor/osgeo4w-offline.lock.json", "vendor/manifest.json",
+                         "vendor/opencl-source.lock.json",
+                         "vendor/office-editor-required.txt", "vendor/fetch-ranuts-document.sh"])
+            if args.verify:
+                verify_windows(package)
+            package.rename(output)
+        if args.zip:
+            with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED, compresslevel=6) as zipped:
+                for path in sorted(output.rglob("*")):
+                    if path.is_file():
+                        zipped.write(path, path.relative_to(output.parent))
+        print(f"Windows portable runtime: {output}")
+    except (KeyError, OSError, ValueError, subprocess.SubprocessError) as error:
+        parser.exit(1, f"{error}\n{getattr(error, 'stderr', '') or ''}")
 
 
 if __name__ == "__main__":

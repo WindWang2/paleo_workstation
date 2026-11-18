@@ -340,6 +340,7 @@ switch ($Verb) {
 
     Enter-MsvcEnvironment
     & "$Vendor/build-osgeo4w-zstd.ps1" -Prefix $osgeo
+    & "$Vendor/build-osgeo4w-opencl.ps1" -Prefix $osgeo
     # Use the host's Python before OSGeo4W puts its python.exe shim on PATH.
     & $py -I (Join-Path $Vendor 'fetch-onnxruntime.py')
     if ($LASTEXITCODE -ne 0) { throw 'ONNX Runtime bootstrap failed' }

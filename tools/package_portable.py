@@ -128,11 +128,10 @@ def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin
     files.tree(gdal_plugins, "gdalplugins", "osgeo4w", prefix, is_release_dll)
     entries.extend(files.output.rglob("*.dll"))
     freexl = build / "paleo_freexl.dll"
-    if freexl.is_file():
-        entries.append(files.copy(freexl, freexl.name, "build", build))
-        files.tree(REPO_ROOT / "vendor/Data_service/vendor/freexl",
-                   "share/paleo/licenses/freexl", "source", REPO_ROOT,
-                   lambda path: path.name in {"NOTICE.txt", "LGPL-2.1.txt", "COPYING"})
+    entries.append(files.copy(freexl, freexl.name, "build", build))
+    freexl_source = REPO_ROOT / "vendor/Data_service/vendor/freexl"
+    for name in ("NOTICE.txt", "LGPL-2.1.txt", "spreadsheet_compat.patch", "freexl-2.0.0/COPYING"):
+        files.copy(freexl_source / name, f"share/paleo/licenses/freexl/{name}", "source", REPO_ROOT)
     roots = [(root, "osgeo4w", prefix) for root in (qt / "bin", gis / "bin", prefix / "bin")]
     ort = Path(cache["CMAKE_HOME_DIRECTORY"]) / "vendor/onnxruntime"
     if ort.is_dir() and cache.get("PALEO_ONNXRUNTIME") != "OFF" and cache.get("ORT_LIB") != "OFF":

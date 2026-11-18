@@ -111,8 +111,8 @@ vendor/fetch-ranuts-document.sh
 
 `vendor/fetch-calligra.sh` 仍可源码构建 Calligra 26.08.2，但 Office 预览不再调用它。
 其消费的 `cmake/CalligraRenderer.cmake` 由该脚本注入 Calligra 构建、本树零引用属有意且无 CI 车道——改动须手跑该脚本验证（见 `cmake/README.md`，#874）。
-Qt6 与 KDE Frameworks 6 开发依赖应通过 `PALEO_KF6_PREFIX` 指定受控前缀；
-现有系统开发包发现路径属于待迁移行为。Qt/KF6 必须与主程序保持 ABI 一致。
+通过 `PALEO_KF6_PREFIX` 为这个独立工具指定受控 Qt6 和 KF6 开发前缀。
+Qt/KF6 必须与主程序保持 ABI 一致。
 当前 Linux 构建使用 Qt 6.11.2、
 KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是 Calligra 上游最低要求，与 Office 编辑页无关。
 
@@ -133,30 +133,21 @@ Debian 13（glibc 2.41）可走源码路线。低于 2.41 的宿主需要独立�
 - **锁生成期**：锁由维护者主机 `apt-get --print-uris` 生成，来源可信度 = 该主机 apt 对 Ubuntu / qgis.org 仓库 `InRelease` 的 GPG 校验。脚本本身不再做签名校验，因此**只在干净、apt 源配置为官方签名仓库的主机/容器（ubuntu-26.04）上刷新锁**，并在 PR 中审阅锁 diff。
 - qgis.org 第三方源没有 snapshot 回退，上游删包会导致锁腐烂；由 `deb-lock.yml` 每周探测发现。
 
-## QGIS prefix 解析顺序（CMakeLists.txt:16 起）
+## 受控依赖前缀
 
-主构建不写死 QGIS 位置，按序解析：
+配置读取 `QGIS_PREFIX`。未指定时，读取 `QGIS_PREFIX_PATH`，再选择仓库中已准备的前缀。
+`PALEO_DEPENDENCY_PREFIX` 若显式设置，须解析到同一前缀。CMake 核对供货锁戳，
+并验证 Qt 配置、工具链提供的 Qt 工具、QGIS/GDAL/GEOS 库与头、QScintilla、zlib 和 Zstd 的位置。
 
-1. `QGIS_PREFIX` CMake 变量；未给则读环境 **`QGIS_PREFIX_PATH`**；
-2. 命中后把它（及 `<prefix>/apps/qt6`，OSGeo4W 布局）前置进
-   `CMAKE_PREFIX_PATH`，再在 `<prefix>/apps/qgis/include`、
-   `<prefix>/include/qgis`、`<prefix>/usr/include/qgis` 等布局里找
-   `qgsapplication.h` 与 `-lqgis_{core,gui,analysis}`；
-3. 都没给时，目前仍可能搜索系统路径（`/usr/include/qgis`、`/usr/lib`）。
-   这是待移除的兼容路径；按策略构建时须明确指定受控前缀。
-
-命中的 `QGIS_PREFIX` 还会编译进二进制（`PALEO_QGIS_PREFIX_DEFAULT`）：
-运行时 `QGIS_PREFIX_PATH` env 未设时，provider/srs.db 默认解析到构建所链的
-prefix（而非硬编码 `/usr`），vendored 库自身带 `$ORIGIN` RUNPATH——裸跑
-`build/paleo` 也是全 vendor 栈。ctest 沙箱同样注入 `QGIS_PREFIX_PATH`。
-
-vendor 路径对照（按策略优先级）：
-
-| 来源 | QGIS_PREFIX_PATH | 由谁准备 |
+| 路线 | CMake `QGIS_PREFIX` | 准备入口 |
 |---|---|---|
-| superbuild 自编译（首选） | `<repo>/vendor/superbuild/prefix` | `vendor/superbuild/`（见其 README） |
-| qgis.org deb 闭包（加速档） | `<repo>/vendor/prefix/usr` | `./vendor/fetch-deps.sh`（lock 锁 SHA256） |
-| OSGeo4W（Windows CI） | bootstrap 注入（`apps/qgis` 布局） | `./paleo-dev.ps1 bootstrap` |
+| Linux 源码路线 | `<repo>/vendor/superbuild/prefix` | [源码依赖闭包](vendor/superbuild/README.md) |
+| Linux 二进制加速档 | `<repo>/vendor/prefix/usr` | `./paleo-dev bootstrap fetch-only` |
+| Windows | `<repo>/vendor/osgeo4w` | `./paleo-dev.ps1 bootstrap fetch-only` |
+
+开发构建将实际 GIS 资源前缀写入 `PALEO_QGIS_PREFIX_DEFAULT`，测试继承同一资源目录。
+`paleo-dev` 和 `paleo-dev.ps1` 接线 Qt、GDAL 和 PROJ 运行路径。
+发布包通过搬移后的相对路径运行，见「便携发行树」。
 
 ## 独立 worktree 开发
 
@@ -274,149 +265,29 @@ ctest --test-dir build-native-perf -j1 --output-on-failure
 `OFF` 构建不含本地推理的配置。默认 `AUTO` 使用 `vendor/onnxruntime`
 中已准备的版本，目录缺席时关闭本地推理。
 
-## Windows 本机开发（localdeps 统一链，方向 72）
-
-Windows 构建会从固定的 `vendor/Data_service/vendor/freexl` 源码编译兼容版
-`paleo_freexl.dll`，放在应用与测试程序同目录，保留 BIFF 内嵌图表等格式修复，避免
-加载 PATH 上未经修补的版本，也不替换 GDAL 自身的 FreeXL。构建按依赖闭包选择
-`iconv-2.dll` 或 `iconv.dll` / `charset.dll`；安装树携带
-FreeXL 的来源、许可和补丁说明。显式 `PALEO_FREEXL_LIBRARY` 仍可用于诊断。
-
-`paleo-dev.ps1 build` 会用实际 MSVC + Ninja 的小型头文件夹具验证依赖前缀，
-修正本地化 `/showIncludes` 与控制台代码页造成的错误匹配。仅设置 `VSLANG`
-不足以解决未安装英文编译器语言包的机器。首次修复会清理生成目标后重建，
-避免新旧类布局混用；以后通过前缀记录保持正常增量构建，不反复清库。
-构建日志不应整屏泄漏 `/showIncludes` 行；可用 `ninja -C build -t deps`
-核对头文件确已登记。手工运行 CMake/Ninja 的本地化环境同样需要验证这项。
-若手工增量构建已在错误前缀下产出对象，仅修正 `rules.ninja` 不能补回丢失的
-依赖记录；即使前缀 stamp 没变化，也须清理后重编，再核对实际对象的 `#deps` 非零。
-`paleo-dev.ps1` 保留 UTF-8 BOM，以便 Windows PowerShell 5.1 正确解析中文字符串。
-
-**背景（历史注记，勿再踩）**：本机曾以 `C:/deps/Qt/6.8.0/msvc2022_64` 编译、
-而 QGIS 前缀与依赖闭包按 Qt 6.11 构建——两版 Qt 同进程混载，全量回归长期
-185 红/293（含 5 个伞式测试 0xc0000139 ENTRYPOINT_NOT_FOUND），只能靠
-「改前/改后红集合 diff」承载验收。「PATH 前置 `paleo-qgis-deps/Library/bin`
-让进程能启动」的旧技巧只解决启动、不解决混链，已废弃。
-
-**统一口径（2026-10-07 起）**：编译与运行同链 Qt 6.11.2，三方来源如下——
-
-| 角色 | 位置 | 内容 |
-|------|------|------|
-| Qt 全家 + GDAL/GEOS/sqlite/keychain 闭包 | `~/paleo-qgis-deps`（conda 环境，qt6-main 6.11.2） | 头 + cmake 配置 + 运行 DLL（`Library/bin`，PATH 前置） |
-| QGIS 4.2.0 前缀 | `~/paleo-qgis-prefix` | qgis_core/gui/analysis，按 Qt 6.11.2 构建 |
-| qtpdf 覆盖层 | `C:/deps/Qt/6.11.2/msvc2022_64` | 官方 Qt 6.11.2 qtpdf 扩展（conda 闭包不含 Qt6Pdf；Qt6Config 只在自身前缀内找组件，故走 `QT_ADDITIONAL_PACKAGES_PREFIX_PATH` 补位） |
-
-日常入口 `./paleo-dev.ps1`（build/test/selfcheck 自动进 localdeps 路线；
-`vendor/osgeo4w` 存在时 vendored 路线优先，CI 口径不变）。等价手工接线：
+## Windows 本机开发
 
 ```powershell
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
-  "-DCMAKE_PREFIX_PATH=$HOME/paleo-qgis-deps/Library" `
-  "-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH=C:/deps/Qt/6.11.2/msvc2022_64" `
-  "-DQGIS_PREFIX=$HOME/paleo-qgis-prefix" `
-  "-DQSCINTILLA_PREFIX=$HOME/paleo-qgis-deps/Library/include/qt6"
-# 构建/测试时 PATH 前置（qt6 工具 lrelease/moc 也依赖它解析 DLL）：
-#   $HOME/paleo-qgis-deps;$HOME/paleo-qgis-deps/Library/bin;$HOME/paleo-qgis-prefix/bin;C:/deps/Qt/6.11.2/msvc2022_64/bin
-# 并设 GDAL_DATA=$HOME/paleo-qgis-deps/Library/share/gdal、
-# PROJ_LIB=$HOME/paleo-qgis-deps/Library/share/proj（./paleo-dev.ps1 已内置）。
-# 测试还需（ps1 test 已内置）：TEMP/TMP 与 SEISMIC_INDEX_CACHE_DIR 指到
-# build/paleo-tmp 内子目录（沙箱监狱对策，见下）。PALEO_PYTHON=
-# $HOME/paleo-qgis-deps/python.exe（conda 布局 python 在根不在 Library/bin）
-# 由 ps1 localdeps 设置（方向 81 起；此前仅终跑脚本有），并经
-# -DPALEO_TEST_PYTHON 进 cache、由 ctest 注入每个测试——手工 configure 时
-# 同样加 "-DPALEO_TEST_PYTHON=$HOME/paleo-qgis-deps/python.exe"。
+./paleo-dev.ps1 bootstrap fetch-only
+$env:PALEO_CMAKE_BUILD_TYPE = 'Release'
+./paleo-dev.ps1 build
+./paleo-dev.ps1 test
+./paleo-dev.ps1 selfcheck
+./paleo-dev.ps1 checkenv
 ```
 
-要点：
-
-- cmake ≥3.28（工程要求；VS 自带 3.27 不够——本机用 `C:/Qt/Tools/CMake_64`
-  的 3.29）。
-- conda 布局里 Qt6 工具在 `Library/lib/qt6[/bin]`，其 DLL 依赖由
-  `Library/bin` 供给——configure/build/test 全程都要 PATH 前置 deps bin，
-  否则 lrelease 段错误式失败、MOC 偶发崩。
-- `Library/bin` 同时住着 qt5 工具（本 env 含 qt5 包）——lrelease 5.15.15
-  与 6.11.2 并存，勿用 PATH 裸调 `lrelease`，CMake 钉的是 qt6 绝对路径。
-- 退役项：`C:/deps/Qt/6.8.0/msvc2022_64` 与 `C:/deps/qscintilla-install`
-  不再进任何 CMAKE_PREFIX_PATH/PATH（QScintilla 头随 conda Qt 走
-  `Library/include/qt6/Qsci`，2.14.1 同版）。
-- 根位置可用 `PALEO_LOCAL_DEPS` / `PALEO_QGIS_PREFIX` / `PALEO_QTPDF_PREFIX`
-  覆盖（paleo-dev.ps1 localdeps 路线）。
-
-qtpdf 覆盖层一次性安装（已在 `C:/deps/Qt/6.11.2/msvc2022_64` 就位的可跳过）：
-官方 extensions 仓库取 6.11.2 msvc2022_64 的 qtpdf 7z（ Updates.xml 里
-`extensions.qtpdf.6112.win64_msvc2022_64`，版本 `6.11.2-0-202608131017`），
-按同目录 `.7z.sha1` 校验后解压覆盖到该前缀。aqtinstall≤3.3 不识别 6.10+
-的新仓库布局，`-m qtpdf` 会 404，需手工取档或升级 aqt。
-
-**防回归自检**：`./paleo-dev.ps1 checkenv`（`tools/check_qt_env.ps1`）比对
-CMakeCache 的编译侧 Qt 与 DLL 搜索序解析到的运行侧 Qt：major.minor 不一致
-即报警退出非零（混链特征）；patch 不一致给警告。构建机换 Qt 后先跑它。
-
-**本机沙箱文件监狱（历代「QTemporaryDir 红脸」真身，2026-10-07 定案）**：
-本机安全策略对**镜像文件位于仓库树内的进程**实施写限制——只能写树内路径；
-`%TEMP%` 在树外 → `QTemporaryDir`/`QFile` 构造即「拒绝访问」（isValid()=FALSE
-无 syscall，cmd.exe 拷入树内同样写不了 %TEMP%，拷出树外全绿——OS 级实证，
-与 Qt/QGIS/混链无关；历代 185 红的主体即此）。junction 伪装出树无效（策略
-解析真实路径）。**对策**：localdeps 路线下 `paleo-dev.ps1 test/selfcheck`
-自动把 `TEMP/TMP` 重定向到 `build/paleo-tmp`（树内、浅层，远离
-CMakeLists 注记的 MAX_PATH 深路径顾虑）。根治需在沙箱策略侧放行本仓库
-的 `%TEMP%` 写——机器配置问题，移交用户决策。
-
-**环境债二期（方向 81）**：方向 72 终态 16 红逐条处置，名单与判定见
-`tools/env_redset.json` / `tools/check_env_redset.py`（`ctest -L envdebt`
-一键重跑 16 项）：
-
-- **srs.db**：`./paleo-dev.ps1 ensure-resources` 按 `vendor/deb-closure.lock`
-  同源取 qgis-providers-common + qgis-common（_all 包）补齐
-  `~/paleo-qgis-prefix/resources/**`，`srs.db = cp srs-template.db`
-  （Debian postinst 同义）；localdeps 的 test/selfcheck 缺 srs.db 时自动调用。
-  Ubuntu pool 失效时按同一 `vendor/deb-closure.snapshot` 回退，摘要仍取锁内值；
-  `PALEO_DEB_SNAPSHOT` 覆盖口径与 `fetch-deps.sh` 一致。
-  解 `data.tar.zst` 需 Python≥3.14、`zstandard` 模块或 PATH 上的 `zstd` 之一
-  （conda deps 的 `Library/bin` 通常带 zstd.exe）。
-- **QSettings**：测试 exe 静态初始化期把本进程 HKCU 重映射到
-  `build/ctest-home/<test>/registry.hiv` 私有 hive（产品仍 NativeFormat，
-  零迁移）；测试不再读写/清空开发者真实的 `HKCU\Software\paleo\paleo`。
-  直跑测试 exe（不经 ctest）时 hive 落 `%TEMP%\paleo-test-registry\`；
-  `PALEO_TEST_REGISTRY_HIVE=native` 可关闭。
-  ctest 指定的 hive 挂载失败时在进入测试前退出；直跑两档沙箱都失败时也退出，
-  避免 `.clear()` 落回真实用户配置。
-- **perf**：tst_cache_las / tst_singlefactor_perf / tst_startup_trace 按名单
-  豁免（只限 localdeps、只认各自预算断言文案，阈值不动）；`paleo-dev.ps1 test`
-  在 ctest 失败后先过检查器，全部为豁免即放行。
-
-本机 Oracle 双遍（完整范围，含 perf，强制串行；每遍保存自己的首轮证据）：
-
-```powershell
-$savedArgs = $env:PALEO_CTEST_ARGS
-$evidence = Join-Path $PWD ("build/envdebt-evidence/" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-try {
-  $env:PALEO_CTEST_ARGS = '-j 1'
-  ./paleo-dev.ps1 checkenv
-  foreach ($i in 1..2) {
-    ./paleo-dev.ps1 test
-    $run = Join-Path $evidence "run$i/Testing"
-    New-Item -ItemType Directory -Force $run | Out-Null
-    Copy-Item build/Testing/ctest-junit.xml $run
-    Copy-Item build/Testing/qtest-first-run $run -Recurse
-  }
-  & $env:PALEO_PYTHON tools/check_env_redset.py --build "$evidence/run2" `
-    --compare-build "$evidence/run1" --route localdeps
-  if ($LASTEXITCODE -ne 0) { throw '环境债双遍结果未满足 Oracle' }
-} finally { $env:PALEO_CTEST_ARGS = $savedArgs }
-```
-
-检查器要求双遍测试名集合相同、16 项齐全、13 个已修项连续通过（至少 10 的
-收敛门），其余只允许三项指定预算豁免。平台与实际全量范围须在 ledger 中
-记录；Linux 报告和 CI 的 `-LE perf` 子集不能替代 Windows localdeps 验收。
+本机和发行包共用 OSGeo4W 供货锁。独立 worktree 可共享经过校验的前缀和下载缓存。
+`PALEO_PYTHON` 可指向用于本地测试的宿主解释器。测试串行执行，`PALEO_CTEST_ARGS`
+可限定本地回归范围。`diagdeps <测试目标>` 输出 MSVC 导入表和实际搜索路径。
+`ensure-resources` 核对 GIS 数据库，缺件时按已锁版本补齐。
 
 ## 平台 × 版本矩阵
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
 | Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | 使用 Ubuntu 26.04 做本地构建、回归及运行时依赖审计 | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行） |
-| Windows x86_64 | CI 配置为 windows-2025 四分片，每片串行；本机支持 localdeps 同链开发 | CI：OSGeo4W 包闭包由 `vendor/manifest.json` 钉版；本机：`~/paleo-qgis-deps` + `~/paleo-qgis-prefix` + 同版 qtpdf 覆盖层（见上节） |
-| 更低 glibc 的 Linux x86_64 宿主 | 在目标最低系统上源码构建后验证，不可直接使用较新 glibc 的二进制闭包 | superbuild-on-oldest-target（ExternalProject） |
+| Windows x86_64 | 本地 MSVC Release，串行 CTest | OSGeo4W 离线归档锁及源码 OpenCL、Zstd 补件 |
+| Debian 13 x86_64，glibc 2.41 | 在目标 ABI 上从锁定底座执行源码构建与回归 | Debian 13 Qt 底座和源码 GIS 闭包 |
 
 ## 依赖（vendor manifest pin）
 
@@ -531,6 +402,12 @@ layer-marker 全量判违规（by design，防漏网）；脚本同时打印
 ## 升级流程
 
 Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的干净环境运行 `./vendor/fetch-deps.sh --update-lock --print-only`，审查并提交新的 `vendor/deb-closure.lock`。正常 bootstrap 只读取锁文件，并仅解包锁内经过大小和 SHA-256 校验的文件。superbuild 升级则同步改 `vendor/superbuild/CMakeLists.txt` 的 `QGIS_URL` 与 `URL_HASH`（补丁文件名随版本重命名，需对目标版本 tarball 重验证 dry-run 干净），`vendor/cache/tarballs/` 缓存与哈希一并更新。**三路版本口径（superbuild 精确 / deb 闭包上游 / manifest `qgis_family` 家族）必须一起动**——`tools/check_qgis_versions.py`（ctest `qgis_versions` + CI lint）不一致即红。ONNX Runtime 升级则更新 `vendor/manifest.json` 的版本和摘要。Windows 同时刷新 `vendor/manifest.json`、离线索引与归档锁，步骤见「Windows OSGeo4W 离线供货」。
+
+升级后在新的依赖目录准备前缀，保留旧目录供尚未切换的构建使用。归档缓存可共享。
+原位解包前，准备脚本会逐个核对锁定大小和 SHA-256；缺失或损坏的文件需按当前锁
+补齐。用 `PALEO_VENDOR_OFFLINE=1` 验证缓存重放，重新配置主项目并运行本地
+编译、测试、源码门禁和发行树自检。取证时记录提交、锁摘要、宿主 ABI，以及
+构建树和搬移后发行树的依赖来源。
 
 ## 性能度量与 CI 产物
 

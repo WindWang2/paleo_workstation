@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Source-built, pinned offline Office renderer. Qt6/KF6 must use the same ABI
-# as Paleo. Prefer PALEO_KF6_PREFIX; system development packages are a fallback.
+# Optional source-built renderer. Provide a prepared Qt6/KF6 development prefix.
 set -euo pipefail
 task_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 task_prefix="$task_root/vendor/calligra"
@@ -8,14 +7,21 @@ task_build="$task_root/vendor/build/calligra"
 task_cache="$task_root/vendor/cache/calligra"
 task_jobs=${PALEO_BUILD_JOBS:-8}
 [[ "$task_jobs" =~ ^[1-8]$ ]] || { echo 'PALEO_BUILD_JOBS must be 1..8' >&2; exit 1; }
+if [ ! -d "${PALEO_KF6_PREFIX:-}" ]; then
+  echo 'Set PALEO_KF6_PREFIX to the prepared Qt6 and KF6 development prefix.' >&2
+  exit 1
+fi
+task_kf6=$(realpath -e -- "$PALEO_KF6_PREFIX")
 mkdir -p "$task_cache" "$task_build" "$task_prefix"
 python3 - "$task_root" <<'PY'
-import hashlib, json, pathlib, subprocess, sys, tarfile
+import hashlib, json, os, pathlib, subprocess, sys, tarfile
 root = pathlib.Path(sys.argv[1])
 dep = json.loads((root / 'vendor/manifest.json').read_text())['deps']['calligra']
 for pin in [dep, *dep['build_deps']]:
     archive = root / 'vendor/cache/calligra' / pin['url'].rsplit('/', 1)[1]
     if not archive.exists():
+        if os.environ.get('PALEO_VENDOR_OFFLINE') == '1':
+            raise SystemExit(f'Missing offline Calligra archive: {archive}')
         subprocess.run(['curl', '-fL', '--retry', '3', '-o', str(archive), pin['url']], check=True)
     if hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest() != pin['sha256']:
         raise SystemExit(f'Checksum mismatch: {archive}; remove this archive and retry')
@@ -36,11 +42,14 @@ for task_patch in "$task_root"/vendor/patches/calligra-26.08.2-*.patch; do
   fi
   patch --batch --forward -p1 -d "$task_source" < "$task_patch"
 done
-task_cmake_prefix="$task_prefix${PALEO_KF6_PREFIX:+;$PALEO_KF6_PREFIX}"
+task_cmake_prefix="$task_prefix;$task_kf6"
 task_launcher=()
 if command -v ccache >/dev/null; then task_launcher=(-DCMAKE_CXX_COMPILER_LAUNCHER=ccache); fi
 task_common=(-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$task_prefix"
-  -DCMAKE_PREFIX_PATH="$task_cmake_prefix" -DBUILD_TESTING=OFF
+  -DCMAKE_PREFIX_PATH="$task_cmake_prefix" -DCMAKE_FIND_ROOT_PATH="$task_cmake_prefix"
+  -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+  -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
+  -DBUILD_TESTING=OFF
   '-DCMAKE_INSTALL_RPATH=$ORIGIN;$ORIGIN/../lib;$ORIGIN/../../..' "${task_launcher[@]}")
 cmake -S "$task_build/extra-cmake-modules-6.30.0" -B "$task_build/ecm" "${task_common[@]}"
 cmake --install "$task_build/ecm"

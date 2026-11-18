@@ -3,50 +3,11 @@
 # 注意：include() 不开新作用域，CMAKE_SOURCE_DIR 仍是仓库根。
 # 文件名刻意不用 extra- 前缀——extra-*.cmake 受 _paleo_extra_manifest 防漏对账。
 
-# QGIS_PREFIX 必须进 cache：CMakeLists 变更时 make 自动重配，若依赖 env
-# 则任何无 QGIS_PREFIX_PATH 的 shell（含并发 agent 会话）重配会静默丢
-# vendor 定位——PALEO_QGIS_PREFIX_DEFAULT/测试 env 注入全失效，回落系统栈。
-set(QGIS_PREFIX "" CACHE PATH "QGIS install prefix（vendor superbuild/deb 闭包；空=系统兜底）")
-if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
-  set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}" CACHE PATH "QGIS install prefix" FORCE)
-elseif(NOT QGIS_PREFIX AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
-       EXISTS "${CMAKE_SOURCE_DIR}/vendor/prefix/.paleo-deb-closure.sha256")
-  set(QGIS_PREFIX "${CMAKE_SOURCE_DIR}/vendor/prefix/usr" CACHE PATH "QGIS install prefix" FORCE)
-endif()
-# 新 worktree 首配早失败（TODOS P2 / goal/perf-maintenance-20261027）：显式
-# 给出的 QGIS_PREFIX（cache 或 env）必须真实存在。此前悬空 prefix 会让下方
-# find_* 静默回落系统包——链接系统库的同时把 PALEO_QGIS_PREFIX_DEFAULT
-# 编译成悬空路径（链接/运行资源栈分裂），故障延迟到运行期才爆。依赖缺失
-# 在 configure 期直接报因并给修复入口，替代「红一轮再重跑」的隐式恢复。
-if(QGIS_PREFIX AND NOT EXISTS "${QGIS_PREFIX}")
-  message(FATAL_ERROR
-    "QGIS_PREFIX='${QGIS_PREFIX}' 不存在（gitignored 依赖不随新 worktree 出现）。"
-    "修复入口：按 BUILDING.md「独立 worktree 开发」对 vendor/superbuild/prefix"
-    "（或 vendor/prefix/usr）建 symlink，或运行 ./paleo-dev bootstrap"
-    "（Windows: paleo-dev.ps1 bootstrap）准备 vendored 依赖；确实要走系统包"
-    "兜底档时显式传 -DQGIS_PREFIX= 置空再配置。")
-endif()
-include("${CMAKE_CURRENT_LIST_DIR}/paleo-deb-prefix.cmake")
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/vendor/Data_service/cmake/PaleoDependencyPrefix.cmake")
   message(FATAL_ERROR "Pinned Data_service is missing. Run: git submodule update --init --recursive -- vendor/Data_service")
 endif()
 include("${CMAKE_SOURCE_DIR}/vendor/Data_service/cmake/PaleoDependencyPrefix.cmake")
-if(PALEO_DEB_PREFIX)
-  set(PALEO_DEPENDENCY_PREFIX "${PALEO_DEB_PREFIX}")
-elseif(WIN32 AND EXISTS "${QGIS_PREFIX}/.paleo-osgeo4w-lock.sha256")
-  set(PALEO_DEPENDENCY_PREFIX "${QGIS_PREFIX}")
-endif()
-if(QGIS_PREFIX)
-  list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
-endif()
-# QGIS 运行时 prefix（QgsApplication::setPrefixPath 用，决定 srs.db/provider 位置）。
-# OSGeo4W 的 QGIS_PREFIX 是 osgeo4w 根，QGIS 真正装在 <根>/apps/qgis——直接拿根
-# 当运行时 prefix，ctest 下 srs.db 找不到（windows tst_runtime/boot 红的根因；
-# paleo-dev.ps1 直跑时设的 QGIS_PREFIX_PATH 本来就是 apps\qgis）。
-set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}")
-if(QGIS_PREFIX AND EXISTS "${QGIS_PREFIX}/apps/qgis/resources")
-  set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}/apps/qgis")
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/paleo-project-prefix.cmake")
 
 # deb 闭包链接期 NEEDED 解析：Debian 库相互 NEEDED 依赖靠系统默认路径 +
 # update-alternatives 顶层链接，解包式 vendored 前缀两者皆无——ld 传递依赖
@@ -70,108 +31,41 @@ if(QGIS_PREFIX AND UNIX AND NOT APPLE AND EXISTS "${QGIS_PREFIX}/lib")
   unset(_pal_linkdirs)
   unset(_pal_n)
 endif()
-# QScintilla：QGIS 的代码编辑器头（qgscodeeditor.h）传递包含它。它有自己的
-# 独立前缀（与 QGIS 分开安装），故也走 cache/env 解析；未显式给出时从既有的
-# CMAKE_PREFIX_PATH 逐个前缀自动发现——与上面 QGIS 的 find_* 同一套 HINTS 风格，
-# 不要求调用方额外记着传一个前缀。
-set(QSCINTILLA_PREFIX "" CACHE PATH "QScintilla install prefix（QGIS 代码编辑器头依赖；空=从 CMAKE_PREFIX_PATH 自动发现）")
-if(NOT QSCINTILLA_PREFIX AND DEFINED ENV{QSCINTILLA_PREFIX_PATH})
-  set(QSCINTILLA_PREFIX "$ENV{QSCINTILLA_PREFIX_PATH}" CACHE PATH "QScintilla install prefix" FORCE)
-endif()
-if(QSCINTILLA_PREFIX)
-  list(PREPEND CMAKE_PREFIX_PATH "${QSCINTILLA_PREFIX}")
-endif()
-
 set(_paleo_qt_modules Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport
-    Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets Core5Compat)
-if(PALEO_DEB_PREFIX)
-  list(APPEND _paleo_qt_modules WebEngineWidgets)
-  find_package(Qt6 REQUIRED CONFIG COMPONENTS ${_paleo_qt_modules} LinguistTools
-    PATHS "${PALEO_DEB_PREFIX}/${PALEO_DEB_MULTIARCH}/cmake/Qt6" NO_DEFAULT_PATH)
-  foreach(module IN LISTS _paleo_qt_modules)
-    paleo_deb_check_import("Qt6::${module}")
-  endforeach()
-  foreach(tool IN ITEMS moc rcc uic lrelease)
-    paleo_deb_check_import("Qt6::${tool}")
-  endforeach()
-else()
-  paleo_find_base_qt(${_paleo_qt_modules})
-  # Other routes may compile the external-browser fallback.
-  find_package(Qt6 QUIET COMPONENTS WebEngineWidgets)
-endif()
+    Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets Core5Compat WebEngineWidgets)
+find_package(Qt6 REQUIRED CONFIG COMPONENTS ${_paleo_qt_modules} LinguistTools
+  PATHS "${PALEO_DEPENDENCY_PREFIX}" "${PALEO_DEPENDENCY_PREFIX}/apps/qt6" NO_DEFAULT_PATH)
+paleo_require_dependency_path("${Qt6_DIR}/Qt6Config.cmake" "Qt6 CMake configuration")
+foreach(_paleo_qt_component IN ITEMS ${_paleo_qt_modules} moc rcc uic lrelease)
+  paleo_require_dependency_import("Qt6::${_paleo_qt_component}")
+endforeach()
 unset(_paleo_qt_modules)
 paleo_find_base_zlib()
 paleo_find_base_zstd(PALEO_ZSTD_TARGET)
 
-# QGIS: distro packages ship no cmake config — locate manually (vendor prefix later overrides these)
-find_path(QGIS_INCLUDE_DIR qgsapplication.h HINTS
-  "${QGIS_PREFIX}/apps/qgis/include" "${QGIS_PREFIX}/include/qgis"
-  "${QGIS_PREFIX}/usr/include/qgis" PATHS /usr/include/qgis REQUIRED)
-find_library(QGIS_CORE_LIB qgis_core HINTS
-  "${QGIS_PREFIX}/apps/qgis/lib" "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
-find_library(QGIS_GUI_LIB qgis_gui HINTS
-  "${QGIS_PREFIX}/apps/qgis/lib" "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
-find_library(QGIS_ANALYSIS_LIB qgis_analysis HINTS
-  "${QGIS_PREFIX}/apps/qgis/lib" "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
-find_path(GDAL_INCLUDE_DIR gdal.h HINTS
-  "${QGIS_PREFIX}/include" "${QGIS_PREFIX}/include/gdal" "${QGIS_PREFIX}/usr/include/gdal"
-  PATHS /usr/include /usr/include/gdal REQUIRED)
-find_library(GDAL_LIB gdal HINTS
-  "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
-find_path(GEOS_INCLUDE_DIR geos_c.h HINTS
-  "${QGIS_PREFIX}/include" "${QGIS_PREFIX}/usr/include" PATHS /usr/include REQUIRED)
-find_library(GEOS_C_LIB geos_c HINTS
-  "${QGIS_PREFIX}/lib" "${QGIS_PREFIX}/usr/lib" PATHS /usr/lib REQUIRED)
-# 显式 prefix 的完整性检查（同 goal/perf-maintenance-20261027）：prefix 存在
-# 但没提供 QGIS 头时，上面的 find_path 会静默命中 PATHS 里的系统路径——与
-# 悬空 prefix 同族的链接/运行栈分裂。显式给定就必须命中在 prefix 之内，
-# 否则报因早失败。顺带把命中的 QGIS 栈明示出来：新 worktree 忘建 symlink
-# 时开发者能直接看到自己构建的是哪条路线，而不是无声走系统兜底。
-if(QGIS_PREFIX)
-  string(FIND "${QGIS_INCLUDE_DIR}" "${QGIS_PREFIX}" _pal_prefix_hit)
-  if(NOT _pal_prefix_hit EQUAL 0)
-    message(FATAL_ERROR
-      "QGIS_PREFIX='${QGIS_PREFIX}' 未提供 QGIS 头（实际命中 ${QGIS_INCLUDE_DIR}）。"
-      "prefix 布局不完整或缺 qgis-devel：重跑 bootstrap 重解包，或按 BUILDING.md"
-      "「QGIS prefix 解析顺序」核对布局；要改走系统包兜底档时显式传 "
-      "-DQGIS_PREFIX= 置空再配置。")
-  endif()
-  unset(_pal_prefix_hit)
-  message(STATUS "QGIS 栈路线: 显式 prefix ${QGIS_PREFIX}（头 ${QGIS_INCLUDE_DIR}）")
-else()
-  message(STATUS "QGIS 栈路线: 系统兜底档（头 ${QGIS_INCLUDE_DIR}）——"
-                  "vendored 优先策略与三路口径见 BUILDING.md「依赖来源策略」")
-endif()
-# QGIS 的 qgscodeeditor.h 传递包含 <Qsci/qsciapis.h>。该包含是「QGIS 头 →
-# QScintilla 头」的形式，不在任何 *_INCLUDE_DIR 探测的范围内，故 QGIS 的
-# include 目录里并没有 Qsci/——头只存在于 QScintilla 自己的前缀里。缺这行时，
-# 任何（哪怕完全不用代码编辑器的）间接包含 qgscodeeditor.h 的 TU 都会报
-# C1083: 无法打开包括文件 "Qsci/qsciapis.h"。
-# 注意只需**头**，不需链库：QgsCodeEditor 继承 QsciScintilla，而 INDIC_MAX 是
-# 编译期常量；只有真正调用其成员函数的 TU 才需要 qscintilla2_qt6.lib。
-set(_qsci_hints "")
-foreach(_pfx IN LISTS CMAKE_PREFIX_PATH)
-  list(APPEND _qsci_hints "${_pfx}/include" "${_pfx}")
+# QGIS packages do not provide a common CMake config across the supported layouts.
+set(_paleo_lib_paths "${PALEO_DEPENDENCY_PREFIX}/lib"
+  "${PALEO_DEPENDENCY_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}")
+set(_paleo_inc "${PALEO_DEPENDENCY_PREFIX}/include")
+find_path(QGIS_INCLUDE_DIR qgsapplication.h PATHS "${_paleo_inc}/qgis"
+  "${PALEO_QGIS_RUNTIME_PREFIX}/include" NO_DEFAULT_PATH REQUIRED)
+find_library(QGIS_CORE_LIB qgis_core PATHS ${_paleo_lib_paths}
+  "${PALEO_QGIS_RUNTIME_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
+find_library(QGIS_GUI_LIB qgis_gui PATHS ${_paleo_lib_paths}
+  "${PALEO_QGIS_RUNTIME_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
+find_library(QGIS_ANALYSIS_LIB qgis_analysis PATHS ${_paleo_lib_paths}
+  "${PALEO_QGIS_RUNTIME_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
+find_path(GDAL_INCLUDE_DIR gdal.h PATHS "${_paleo_inc}" "${_paleo_inc}/gdal" NO_DEFAULT_PATH REQUIRED)
+find_library(GDAL_LIB gdal PATHS ${_paleo_lib_paths} NO_DEFAULT_PATH REQUIRED)
+find_path(GEOS_INCLUDE_DIR geos_c.h PATHS "${_paleo_inc}" NO_DEFAULT_PATH REQUIRED)
+find_library(GEOS_C_LIB geos_c PATHS ${_paleo_lib_paths} NO_DEFAULT_PATH REQUIRED)
+find_path(QSCINTILLA_INCLUDE_DIR Qsci/qsciapis.h PATHS "${_paleo_inc}"
+  "${_paleo_inc}/${CMAKE_LIBRARY_ARCHITECTURE}/qt6" "${PALEO_DEPENDENCY_PREFIX}/apps/qt6/include"
+  NO_DEFAULT_PATH REQUIRED)
+foreach(dependency IN ITEMS QGIS_INCLUDE_DIR QGIS_CORE_LIB QGIS_GUI_LIB QGIS_ANALYSIS_LIB
+                            GDAL_INCLUDE_DIR GDAL_LIB GEOS_INCLUDE_DIR GEOS_C_LIB QSCINTILLA_INCLUDE_DIR)
+  paleo_require_dependency_path("${${dependency}}" "${dependency}")
 endforeach()
-find_path(QSCINTILLA_INCLUDE_DIR Qsci/qsciapis.h HINTS
-  ${_qsci_hints} "${QGIS_PREFIX}/include"
-  "${QGIS_PREFIX}/include/${CMAKE_LIBRARY_ARCHITECTURE}/qt6"
-  "${QGIS_PREFIX}/apps/Qt6/include" "${QGIS_PREFIX}/apps/qt6/include"
-  PATHS /usr/include /usr/local/include)
-unset(_qsci_hints)
-if(QSCINTILLA_INCLUDE_DIR)
-  message(STATUS "QScintilla headers: ${QSCINTILLA_INCLUDE_DIR}")
-else()
-  message(WARNING "QScintilla headers not found — QGIS code editor headers "
-                  "(qgscodeeditor.h) will fail to compile if included transitively")
-endif()
-
-if(PALEO_DEB_PREFIX)
-  foreach(dependency IN ITEMS QGIS_INCLUDE_DIR QGIS_CORE_LIB QGIS_GUI_LIB QGIS_ANALYSIS_LIB
-                              GDAL_INCLUDE_DIR GDAL_LIB GEOS_INCLUDE_DIR GEOS_C_LIB QSCINTILLA_INCLUDE_DIR)
-    paleo_deb_require("${${dependency}}" "${dependency}")
-  endforeach()
-endif()
 
 # ============================================================================
 # 4-Tier Dependency Architecture (ARCH-03 / P1-05)

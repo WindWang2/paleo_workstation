@@ -133,9 +133,8 @@ if(WIN32 AND TARGET paleo_freexl_runtime)
 endif()
 
 if(PALEO_HAVE_ORT AND NOT WIN32)
-  # onnxruntime 是本仓 vendored 的唯一非 QGIS 共享库，随安装树走 lib/。
-  file(GLOB _paleo_ort_libs "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib/libonnxruntime.so*")
+  file(GLOB _paleo_ort_libs "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib/libonnxruntime*.so*")
   install(FILES ${_paleo_ort_libs} DESTINATION ${CMAKE_INSTALL_LIBDIR})
 elseif(PALEO_HAVE_ORT AND WIN32)
-  install(FILES "${ORT_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+  install(FILES ${_paleo_ort_binary} DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

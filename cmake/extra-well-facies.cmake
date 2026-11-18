@@ -8,42 +8,17 @@ target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_sources(paleo_services PRIVATE src/services/areawellmetadata.cpp src/services/wellfaciesinputplan.cpp src/services/wellfaciesinputplan_refs.cpp
   src/services/wellfaciesinputstore.cpp src/services/wellfaciesinputinspection.cpp)
 target_link_libraries(paleo_ai PUBLIC paleo_domain Qt6::Network)
-# #133：测井相 API 密钥进系统钥匙串。QtKeychain 是 QGIS 的既有依赖（deb 闭包
-# 已含 libqt6keychain1；OSGeo4W 随 qgis 分发），找到 dev 包即启用；找不到时
-# 回落 JSON（POSIX 0600）并在 configure 输出里如实提示。
-# #766：单一份口径——Qt6Keychain 必须与构建所链的 Qt 同源。有 vendored 前缀
-# （QGIS_PREFIX 非空）时只认前缀内/QGIS 前缀那一份：apt 的
-# qtkeychain-qt6-dev（0.17，按 Qt 6.11 编）与 vendored Qt 6.10 混链会在链接期
-# 报 qt_version_tag@Qt_6.11 未定义（实测配方见
-# docs/ledger-archive/goal-loop-initial.md 环境坑④），运行时还会出现
-# 「系统与 vendor 各一份 libqt6keychain」的库遮蔽。故用 NO_DEFAULT_PATH 把
-# /usr 这类系统前缀排除出搜索面（CMAKE_PREFIX_PATH 与 PATHS 仍参与，见
-# find_package 搜索序），前缀内没有即回落 JSON，绝不静默吃系统那份；
-# 无 vendored 前缀的系统兜底构建下 Qt 本身就是系统的，保持原全量搜索。
-if(PALEO_DEB_PREFIX)
-  find_package(Qt6Keychain CONFIG REQUIRED NO_DEFAULT_PATH
-    PATHS "${PALEO_DEB_PREFIX}/${PALEO_DEB_MULTIARCH}/cmake/Qt6Keychain")
-  paleo_deb_check_import(Qt6Keychain::Qt6Keychain)
-elseif(QGIS_PREFIX)
-  find_package(Qt6Keychain CONFIG QUIET NO_DEFAULT_PATH
-               PATHS "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6" "${QGIS_PREFIX}/usr")
-else()
-  find_package(Qt6Keychain CONFIG QUIET)
-endif()
+# The optional keychain support uses the application dependency prefix.
+find_package(Qt6Keychain CONFIG QUIET NO_DEFAULT_PATH
+  PATHS "${PALEO_DEPENDENCY_PREFIX}" "${PALEO_DEPENDENCY_PREFIX}/apps/qt6")
 if(TARGET Qt6Keychain::Qt6Keychain)
+  paleo_require_dependency_import(Qt6Keychain::Qt6Keychain)
   target_link_libraries(paleo_ai PRIVATE Qt6Keychain::Qt6Keychain)
   target_compile_definitions(paleo_ai PRIVATE PALEO_HAVE_QTKEYCHAIN)
-  if(QGIS_PREFIX)
-    message(STATUS "well-facies: API key storage = vendored keychain (Qt6Keychain ${Qt6Keychain_VERSION}, prefix ${QGIS_PREFIX})")
-  else()
-    message(STATUS "well-facies: API key storage = system keychain (Qt6Keychain ${Qt6Keychain_VERSION})")
-  endif()
+elseif(PALEO_DEB_PREFIX)
+  message(FATAL_ERROR "The locked deb closure is missing Qt6Keychain development metadata")
 else()
-  if(QGIS_PREFIX)
-    message(STATUS "well-facies: Qt6Keychain not found under vendored prefix ${QGIS_PREFIX} — API key falls back to ~/.config/paleo/well-facies.json (0600)（#766：不吃系统那份，防与 vendored Qt 混链）")
-  else()
-    message(STATUS "well-facies: Qt6Keychain not found — API key falls back to ~/.config/paleo/well-facies.json (0600)")
-  endif()
+  message(STATUS "Well facies API key storage uses the private configuration file")
 endif()
 target_sources(paleo_workflow PRIVATE src/workflow/wellfaciesworkflow.cpp
   src/workflow/aichattoolrunner_facies.cpp src/workflow/wellfaciesagentrun.cpp

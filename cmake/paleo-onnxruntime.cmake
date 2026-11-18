@@ -35,4 +35,12 @@ foreach(required IN ITEMS "${ORT_INCLUDE}/onnxruntime_c_api.h"
     message(FATAL_ERROR "Pinned ONNX Runtime ${_paleo_ort_version} is incomplete at ${required}. Run bootstrap.")
   endif()
 endforeach()
+if(WIN32)
+  # Windows can resolve the system ORT before PATH. Place the locked DLLs
+  # beside the application and test binaries for both supported build entries.
+  foreach(library IN LISTS _paleo_ort_binary)
+    get_filename_component(name "${library}" NAME)
+    configure_file("${library}" "${CMAKE_BINARY_DIR}/${name}" COPYONLY)
+  endforeach()
+endif()
 set(PALEO_LOCKED_ORT TRUE)

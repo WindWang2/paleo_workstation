@@ -18,8 +18,7 @@ class QgisRuntime
     // 1. 可重定位安装（#86）：可执行文件位于 <prefix>/bin 且
     //    <prefix>/share/qgis/resources/srs.db 存在 → 用 <prefix>；
     // 2. CMake 按构建实际链接的 QGIS 位置注入的 PALEO_QGIS_PREFIX_DEFAULT
-    //    （开发构建的绝对 vendor prefix，仅作兜底）；
-    // 3. 无 vendor 构建回落发行版 "/usr"。
+    //    （开发构建的受控依赖路径）。
     static QString relocatablePrefixPath()
     {
       QString exeDir;
@@ -44,7 +43,7 @@ class QgisRuntime
 #ifdef PALEO_QGIS_PREFIX_DEFAULT
       return QStringLiteral(PALEO_QGIS_PREFIX_DEFAULT);
 #else
-      return QStringLiteral("/usr");
+      return QString();
 #endif
     }
     // prefix 解析的唯一事实（#483）：QGIS_PREFIX_PATH env > 显式实参 >

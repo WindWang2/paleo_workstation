@@ -363,10 +363,11 @@ switch ($Verb) {
       if (-not (Test-Path (Join-Path $osgeo $required))) { throw "OSGeo4W closure missing $required" }
     }
 
-    Enter-VendorEnvironment
+    # Use the host's Python before OSGeo4W puts its python.exe shim on PATH.
     $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
-    & $py (Join-Path $Vendor 'fetch-onnxruntime.py')
+    & $py -I (Join-Path $Vendor 'fetch-onnxruntime.py')
     if ($LASTEXITCODE -ne 0) { throw 'ONNX Runtime bootstrap failed' }
+    Enter-VendorEnvironment
     if ($Arg -eq 'fetch-only') {
       Write-Host "== fetch-only: skip build/selfcheck (run 'build' then 'selfcheck') =="
     } else {

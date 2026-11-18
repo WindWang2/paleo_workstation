@@ -6,6 +6,10 @@ on:
     paths:
       - .github/workflows/native-perf.yml
       - tools/native-perf/**
+      - vendor/activate-deb-native.sh
+      - vendor/deb-*.lock
+      - vendor/deb-native-packages.txt
+      - vendor/fetch-deps.sh
       - tests/tst_geostat_*.cpp
       - tests/threadcputimer.h
       - tests/tst_welllog*.cpp
@@ -23,6 +27,10 @@ on:
     paths:
       - .github/workflows/native-perf.yml
       - tools/native-perf/**
+      - vendor/activate-deb-native.sh
+      - vendor/deb-*.lock
+      - vendor/deb-native-packages.txt
+      - vendor/fetch-deps.sh
       - tests/tst_geostat_*.cpp
       - tests/threadcputimer.h
       - tests/tst_welllog*.cpp
@@ -60,7 +68,7 @@ jobs:
       # These tests exercise Qt/data/algorithm code without QGIS. Compile the
       # same production translation units and original test sources directly,
       # so a GIS archive download cannot prevent their regression diagnostics.
-      - name: Install Qt build dependencies
+      - name: Install host build tools
         timeout-minutes: 6
         run: |
           # Broken runner DNS must fail provisioning rather than spend minutes
@@ -81,7 +89,13 @@ jobs:
           done
           apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           sudo apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
-          sudo apt-get "${apt_options[@]}" -o DPkg::Lock::Timeout=60 install -y cmake ninja-build ccache qt6-base-dev qt6-5compat-dev zlib1g-dev libzstd-dev
+          sudo apt-get "${apt_options[@]}" -o DPkg::Lock::Timeout=60 install -y cmake ninja-build ccache pkgconf patchelf
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: vendor/cache/debs
+          key: ${{ runner.os }}-native-debs-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-native-packages.txt') }}
+      - name: Prepare the locked native libraries
+        run: bash vendor/fetch-deps.sh --native
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ccache
@@ -89,22 +103,29 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-native-perf-${{ matrix.test }}-
       - name: Configure focused production tests
-        run: cmake -S tools/native-perf -B build-native-perf -G Ninja
-          -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE='-O2 -DNDEBUG'
-          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          -DPALEO_NATIVE_GEOSTAT_PROFILE=ON
-          -DPALEO_NATIVE_PERF_TESTS=${{ matrix.test }}
+        run: |
+          source vendor/activate-deb-native.sh
+          cmake -S tools/native-perf -B build-native-perf -G Ninja \
+            -DPALEO_DEPENDENCY_PREFIX="$PALEO_NATIVE_PREFIX" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE='-O2 -DNDEBUG' \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DPALEO_NATIVE_GEOSTAT_PROFILE=ON -DPALEO_NATIVE_PERF_TESTS=${{ matrix.test }}
       - name: Build
         id: build
-        run: cmake --build build-native-perf --parallel 2
+        run: |
+          source vendor/activate-deb-native.sh
+          cmake --build build-native-perf --parallel 2
       - name: Run serially and retain assertions
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir build-native-perf -j1 --no-tests=error --output-on-failure
-          --output-junit "$PWD/build-native-perf/results.xml"
+        run: |
+          source vendor/activate-deb-native.sh
+          ctest --test-dir build-native-perf -j1 --no-tests=error --output-on-failure \
+            --output-junit "$PWD/build-native-perf/results.xml"
       - name: Profile cross-validation components
         if: ${{ always() && matrix.test == 'geostat' && steps.build.outcome == 'success' }}
         run: |
+          source vendor/activate-deb-native.sh
           ./build-native-perf/geostat_phase_profile > build-native-perf/geostat-profile.json
           cat build-native-perf/geostat-profile.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

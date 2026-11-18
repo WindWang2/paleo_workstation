@@ -27,6 +27,15 @@ if(QGIS_PREFIX AND NOT EXISTS "${QGIS_PREFIX}")
     "兜底档时显式传 -DQGIS_PREFIX= 置空再配置。")
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/paleo-deb-prefix.cmake")
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/vendor/Data_service/cmake/PaleoDependencyPrefix.cmake")
+  message(FATAL_ERROR "Pinned Data_service is missing. Run: git submodule update --init --recursive -- vendor/Data_service")
+endif()
+include("${CMAKE_SOURCE_DIR}/vendor/Data_service/cmake/PaleoDependencyPrefix.cmake")
+if(PALEO_DEB_PREFIX)
+  set(PALEO_DEPENDENCY_PREFIX "${PALEO_DEB_PREFIX}")
+elseif(WIN32 AND EXISTS "${QGIS_PREFIX}/.paleo-osgeo4w-lock.sha256")
+  set(PALEO_DEPENDENCY_PREFIX "${QGIS_PREFIX}")
+endif()
 if(QGIS_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
 endif()
@@ -86,11 +95,13 @@ if(PALEO_DEB_PREFIX)
     paleo_deb_check_import("Qt6::${tool}")
   endforeach()
 else()
-  find_package(Qt6 REQUIRED COMPONENTS ${_paleo_qt_modules})
+  paleo_find_base_qt(${_paleo_qt_modules})
   # Other routes may compile the external-browser fallback.
   find_package(Qt6 QUIET COMPONENTS WebEngineWidgets)
 endif()
 unset(_paleo_qt_modules)
+paleo_find_base_zlib()
+paleo_find_base_zstd(PALEO_ZSTD_TARGET)
 
 # QGIS: distro packages ship no cmake config — locate manually (vendor prefix later overrides these)
 find_path(QGIS_INCLUDE_DIR qgsapplication.h HINTS
@@ -309,12 +320,9 @@ target_compile_options(paleo_sbm PRIVATE
 target_link_libraries(paleo_sbm PUBLIC paleo_segyio paleo_glm PRIVATE Qt6::Core)
 set_target_properties(paleo_sbm PROPERTIES AUTOMOC OFF AUTORCC OFF AUTOUIC OFF)
 # zstd 块压缩（可选；SEISMIC_HAVE_ZSTD 控制上游开关）
-find_library(SBM_ZSTD_LIB zstd)
-find_path(SBM_ZSTD_INCLUDE zstd.h)
-if(SBM_ZSTD_LIB AND SBM_ZSTD_INCLUDE)
+if(PALEO_ZSTD_TARGET)
   target_compile_definitions(paleo_sbm PUBLIC SEISMIC_HAVE_ZSTD) # PUBLIC：消费方按此选 codec
-  target_include_directories(paleo_sbm SYSTEM PRIVATE ${SBM_ZSTD_INCLUDE})
-  target_link_libraries(paleo_sbm PRIVATE ${SBM_ZSTD_LIB})
+  target_link_libraries(paleo_sbm PRIVATE ${PALEO_ZSTD_TARGET})
 endif()
 
 add_executable(paleo_selfcheck src/selfcheck/main.cpp)
@@ -328,15 +336,8 @@ add_executable(paleo_mkproject src/app/mkproject.cpp)
 target_link_libraries(paleo_mkproject PRIVATE paleo_services paleo_qgis)
 
 # ---- ONNX Runtime (vendored; spike ET4) — 先于模块库定义，paleo_ai 依赖它 ----
-find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
-find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
-if(WIN32)
-  # Windows 上 find_library 命中的是导入库 .lib；SHARED IMPORTED 要求
-  # IMPORTED_LOCATION=DLL、IMPORTED_IMPLIB=.lib，否则 configure 期报
-  # "IMPORTED_IMPLIB not set"。dll 与 .lib 同居 lib/（manifest layout.bin）。
-  find_file(ORT_DLL onnxruntime.dll PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
-endif()
-if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
+include("${CMAKE_CURRENT_LIST_DIR}/paleo-onnxruntime.cmake")
+if(PALEO_LOCKED_ORT)
   set(PALEO_HAVE_ORT TRUE)
   add_library(ort_vendored SHARED IMPORTED)
   if(WIN32)

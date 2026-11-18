@@ -238,6 +238,45 @@ $env:PALEO_CTEST_ARGS = '-j1 -LE perf --no-tests=error'
 
 有意升级时，准备 OSGeo4W 官方 `setup.ini` 中当前范围选中的归档与安装器。先用 `python -B tools/pin_osgeo4w.py --setup-ini <完整索引>` 更新 manifest，再用 `python -B tools/osgeo4w_offline.py generate --cache <镜像根> --installer <安装器> --index <新索引> --lock <新锁>` 生成新文件。镜像根下应有 `x86_64/setup.ini` 及 `x86_64/release`；生成命令写入新文件，避免覆盖当前锁。审查锁差异及上游来源、复跑本地离线验收后替换仓库中的索引与锁。保存按锁验证的缓存，供滚动上游下架历史包后重放。
 
+## 独立 SDK 与原生性能测试
+
+原生前缀复用工作站的归档锁，包含 Qt、压缩、SQLite 和 FreeXL 所需的文件。
+Linux 通过包名清单从完整 deb 锁取子集，Windows 从同一 OSGeo4W 离线索引
+计算 Qt 软件包闭包。Windows 的 Zstd 开发库由固定源码构建，Qt 所用的
+OSGeo4W Zstd DLL 原样保留。两个入口都支持 `PALEO_VENDOR_OFFLINE=1`。
+
+Linux 从工作站仓库根执行以下命令。
+
+```bash
+bash vendor/fetch-deps.sh --native
+source vendor/activate-deb-native.sh
+cmake -S tools/native-perf -B build-native-perf -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DPALEO_DEPENDENCY_PREFIX="$PALEO_NATIVE_PREFIX" \
+  '-DPALEO_NATIVE_PERF_TESTS=geostat;welllogset'
+cmake --build build-native-perf --parallel 8
+QT_QPA_PLATFORM=offscreen ctest --test-dir build-native-perf -j1 --output-on-failure
+```
+
+Windows 从 MSVC x64 开发终端准备并激活这一前缀。
+
+```powershell
+./paleo-dev.ps1 bootstrap-native
+$prefix = (Resolve-Path vendor/osgeo4w-native).Path
+$env:PATH = "$prefix/bin;$prefix/apps/qt6/bin;$env:PATH"
+$env:QT_PLUGIN_PATH = "$prefix/apps/qt6/plugins"
+$env:QT_QPA_PLATFORM = "offscreen"
+cmake -S tools/native-perf -B build-native-perf -G Ninja "-DPALEO_DEPENDENCY_PREFIX=$prefix" -DCMAKE_BUILD_TYPE=Release '-DPALEO_NATIVE_PERF_TESTS=geostat;welllogset'
+cmake --build build-native-perf --parallel 8
+ctest --test-dir build-native-perf -j1 --output-on-failure
+```
+
+独立 SDK 使用相同的环境及 `-DPALEO_DEPENDENCY_PREFIX`，CMake 源码目录
+选择 `vendor/Data_service` 或 SDK 自己的 checkout。
+
+工作站的 `-DPALEO_ONNXRUNTIME=ON` 要求仓库内的固定版本运行时准备完整，
+`OFF` 构建不含本地推理的配置。默认 `AUTO` 使用 `vendor/onnxruntime`
+中已准备的版本，目录缺席时关闭本地推理。
+
 ## Windows 本机开发（localdeps 统一链，方向 72）
 
 Windows 构建会从固定的 `vendor/Data_service/vendor/freexl` 源码编译兼容版

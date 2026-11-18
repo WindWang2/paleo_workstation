@@ -1,7 +1,4 @@
 # Data_service is the shared structured-data and artifact-catalog backend.
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/vendor/Data_service/CMakeLists.txt")
-  message(FATAL_ERROR "Data_service is missing. Run: git submodule update --init --recursive -- vendor/Data_service")
-endif()
 set(PDS_BUILD_DEMO OFF CACHE BOOL "" FORCE)
 set(PDS_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(PDS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -17,13 +14,22 @@ if(WIN32)
   set(_paleo_freexl_source "${CMAKE_SOURCE_DIR}/vendor/Data_service/vendor/freexl")
   # A private name avoids replacing GDAL's own FreeXL dependency/ABI.
   set(_paleo_freexl_runtime "${CMAKE_BINARY_DIR}/paleo_freexl.dll")
-  find_file(PALEO_ICONV_RUNTIME NAMES iconv-2.dll libiconv-2.dll iconv.dll
-    HINTS ${CMAKE_PREFIX_PATH} "${CMAKE_SOURCE_DIR}/vendor/osgeo4w" PATH_SUFFIXES bin REQUIRED)
+  if(PALEO_DEPENDENCY_PREFIX)
+    find_file(PALEO_ICONV_RUNTIME NAMES iconv-2.dll libiconv-2.dll iconv.dll
+      PATHS "${PALEO_DEPENDENCY_PREFIX}/bin" NO_DEFAULT_PATH REQUIRED)
+    paleo_require_dependency_path("${PALEO_ICONV_RUNTIME}" "FreeXL iconv runtime")
+  else()
+    find_file(PALEO_ICONV_RUNTIME NAMES iconv-2.dll libiconv-2.dll iconv.dll
+      HINTS ${CMAKE_PREFIX_PATH} "${CMAKE_SOURCE_DIR}/vendor/osgeo4w" PATH_SUFFIXES bin REQUIRED)
+  endif()
   get_filename_component(_paleo_iconv_name "${PALEO_ICONV_RUNTIME}" NAME)
   get_filename_component(_paleo_iconv_dir "${PALEO_ICONV_RUNTIME}" DIRECTORY)
   set(_paleo_charset_args)
   if(_paleo_iconv_name STREQUAL "iconv.dll")
     find_file(PALEO_CHARSET_RUNTIME NAMES charset.dll HINTS "${_paleo_iconv_dir}" NO_DEFAULT_PATH REQUIRED)
+    if(PALEO_DEPENDENCY_PREFIX)
+      paleo_require_dependency_path("${PALEO_CHARSET_RUNTIME}" "FreeXL charset runtime")
+    endif()
     list(APPEND _paleo_charset_args -CharsetDll charset.dll)
   endif()
   add_custom_command(OUTPUT "${_paleo_freexl_runtime}"
@@ -59,7 +65,8 @@ add_paleo_test(tst_nativeimport LIBS paleo_io paleo_services Paleo::paleo_data_s
 target_sources(paleo_io PRIVATE src/io/nativemodel_prepare.cpp src/io/nativemodel_read.cpp src/io/nativemodel_tables.cpp src/io/wellfileread.cpp)
 target_link_libraries(paleo_io PRIVATE Paleo::paleo_data_service)
 
-target_sources(paleo_io PRIVATE src/io/areamodel.cpp src/io/areamodel_import.cpp src/io/areamodel_log.cpp src/io/modelhorizonpreview.cpp src/io/areamodel_conventions.cpp)
+target_sources(paleo_io PRIVATE src/io/areamodel.cpp src/io/areamodel_crs.cpp
+  src/io/areamodel_import.cpp src/io/areamodel_log.cpp src/io/modelhorizonpreview.cpp src/io/areamodel_conventions.cpp)
 target_sources(paleo_services PRIVATE src/services/previewdoc_area.cpp src/services/areawellchart.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/projectsetup_area.cpp)
 target_sources(paleo_ui PRIVATE src/ui/dialogs/dataserviceimportwizard.cpp)

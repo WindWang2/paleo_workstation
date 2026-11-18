@@ -98,9 +98,11 @@ BatchJobPanel::BatchJobPanel(BatchQueue *queue, QWidget *parent)
     m_list->header()->setSectionResizeMode(4, QHeaderView::Stretch);
     layout->addWidget(m_list);
 
-    // 只观察，不发指令：三个信号是本面板的全部输入面。
+    // 起批时同步整组排队项，随后按项更新状态。
     if (m_queue)
     {
+        connect(m_queue, &BatchQueue::batchStarted, this,
+                &BatchJobPanel::refresh);
         connect(m_queue, &BatchQueue::itemChanged, this,
                 &BatchJobPanel::onItemChanged);
         connect(m_queue, &BatchQueue::batchProgress, this,

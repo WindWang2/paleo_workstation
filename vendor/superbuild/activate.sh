@@ -12,7 +12,9 @@ paleo_activate_source_prefix() {
   multiarch="$prefix/lib/x86_64-linux-gnu"
   export QGIS_PREFIX_PATH="$prefix" PALEO_SOURCE_PREFIX="$prefix"
   export LD_LIBRARY_PATH="$prefix/lib:$multiarch"
-  export PATH="$prefix/bin:$prefix/lib/qt6/bin:$prefix/lib/qt6/libexec:$PATH"
+  # Keep the build tools' Python on PATH. The Debian base may carry a partial Python
+  # through development packages, while Agent Python is provisioned separately.
+  export PATH="$prefix/lib/qt6/bin:$prefix/lib/qt6/libexec:$PATH"
   export CMAKE_PREFIX_PATH="$prefix"
   export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig:$multiarch/pkgconfig:$prefix/share/pkgconfig"
   unset PKG_CONFIG_PATH PKG_CONFIG_SYSROOT_DIR FONTCONFIG_SYSROOT

@@ -527,6 +527,7 @@
 'https://deb.debian.org/debian/pool/main/q/qt6-positioning/qt6-positioning-dev_6.8.2-3_amd64.deb' qt6-positioning-dev_6.8.2-3_amd64.deb 35052 SHA256:5050738e22f9fe5575133347cbf2314efddf362d48b08ab55764eb4b9c4dd37b
 'https://deb.debian.org/debian/pool/main/q/qt6-serialport/qt6-serialport-dev_6.8.2-3_amd64.deb' qt6-serialport-dev_6.8.2-3_amd64.deb 17356 SHA256:964862a087d2fc490587d1e256e9d69cf82697b90a1f323103553b4a914beb16
 'https://deb.debian.org/debian/pool/main/q/qt6-svg/qt6-svg-dev_6.8.2-3_amd64.deb' qt6-svg-dev_6.8.2-3_amd64.deb 22212 SHA256:05c276d233d75f434c6ee2aebaeee526a83c258173031521362f004ee31783be
+'https://deb.debian.org/debian/pool/main/q/qt6-svg/qt6-svg-plugins_6.8.2-3_amd64.deb' qt6-svg-plugins_6.8.2-3_amd64.deb 32992 SHA256:7c1586a7ee2cd6cad3cbefd79a1429cd6ae16a4583b28b12006fad19285f5313
 'https://deb.debian.org/debian/pool/main/q/qt6-tools/qt6-tools-dev-tools_6.8.2-5_amd64.deb' qt6-tools-dev-tools_6.8.2-5_amd64.deb 268172 SHA256:a67765bcf3ec5f3a277433c3dd1612bae8e9a4d438a7c794809d7ada4e5d9abc
 'https://deb.debian.org/debian/pool/main/q/qt6-tools/qt6-tools-dev_6.8.2-5_amd64.deb' qt6-tools-dev_6.8.2-5_amd64.deb 203736 SHA256:95a1673dab939886fb32cb1d8ddce6cd770a287c99373e9ffc865c3e8b8dfffd
 'https://deb.debian.org/debian/pool/main/q/qt6-webchannel/qt6-webchannel-dev_6.8.2-2_amd64.deb' qt6-webchannel-dev_6.8.2-2_amd64.deb 20096 SHA256:d517382a319d9c831c447af0dc7dddd3ada544d3bd5a010fe2be4d117eb04eb9

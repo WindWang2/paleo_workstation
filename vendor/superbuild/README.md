@@ -59,6 +59,7 @@ source vendor/superbuild/activate.sh
 - 依赖顺序为 zlib → Zstd → SQLite → GEOS → PROJ → GDAL → QGIS。QGIS
   版本与锁定的二进制供货路线同步，由 `tools/check_qgis_versions.py` 检查。
 - Qt 的来源和许可说明随归档保存在前缀的 `share/doc`，以共享库链接。
+  `qt6-svg-plugins` 单独锁定，提供 QGIS 主题图标所需的 SVG 图标引擎和图像插件。
 
 ## 补丁（patches/）
 

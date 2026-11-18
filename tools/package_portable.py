@@ -32,7 +32,7 @@ wintrust wldap32 ws2_32 wsock32 wtsapi32 xmllite
 """.split())
 OTHER_OS_IMPORTS = {"winspool.drv", "bthprops.cpl"}
 QT_PLUGIN_GROUPS = (
-    "generic", "iconengines", "imageformats", "networkinformation", "platforms",
+    "crypto", "generic", "iconengines", "imageformats", "networkinformation", "platforms",
     "position", "sqldrivers", "styles", "tls", "vectorimageformats",
 )
 LAUNCHER = (

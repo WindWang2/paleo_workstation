@@ -20,7 +20,7 @@ ld-linux-x86-64.so.2 libanl.so.1 libc.so.6 libdl.so.2 libm.so.6 libmvec.so.1
 libpthread.so.0 libresolv.so.2 librt.so.1 libutil.so.1
 """.split())
 QT_GROUPS = {"crypto", "generic", "iconengines", "imageformats", "networkinformation",
-             "platforms", "position", "sqldrivers", "styles", "tls", "vectorimageformats",
+             "platforms", "position", "printsupport", "sqldrivers", "styles", "tls", "vectorimageformats",
              "xcbglintegrations", "wayland-decoration-client", "wayland-shell-integration"}
 CERT_LOCK = "vendor/runtime-ca-certificates.lock.json"
 LAUNCHER = REPO_ROOT / "tools/paleo-portable-linux.sh"

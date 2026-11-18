@@ -196,8 +196,9 @@ void PreviewMapCanvas::watchLayer( QgsMapLayer *layer )
   // removeLayer）时自动摘除三层记账并同步画布层表——对照 qgislayerservice
   // 的 destroyed 钩子。
   layer->setProperty( "paleoPreviewWatched", true );
-  connect( layer, &QObject::destroyed, this, [this]( QObject *obj ) {
-    forgetLayer( obj );
+  connect( layer, &QObject::destroyed, this, [receiver = static_cast<QObject *>( this )]( QObject *obj ) {
+    if ( auto *canvas = qobject_cast<PreviewMapCanvas *>( receiver ) )
+      canvas->forgetLayer( obj );
   } );
 }
 

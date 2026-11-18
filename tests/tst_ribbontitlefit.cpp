@@ -17,7 +17,7 @@
 
 struct HintTabBar : QTabBar
 {
-  using QTabBar::tabSizeHint;
+  static constexpr auto idealSize = &HintTabBar::tabSizeHint;
 };
 
 class TestRibbonTitleFit : public QObject
@@ -50,7 +50,7 @@ class TestRibbonTitleFit : public QObject
       for (int i = 0; i < tb->count(); ++i)
       {
         const QRect r = tb->tabRect(i);
-        if (r.width() < static_cast<HintTabBar *>(static_cast<QTabBar *>(tb))->tabSizeHint(i).width() || r.right() > tb->width() || r.left() < 0)
+        if (r.width() < (tb->*HintTabBar::idealSize)(i).width() || r.right() > tb->width() || r.left() < 0)
           return QStringLiteral("tab %1 '%2' clipped: %3..%4 of %5 (bar %6, tab x %7, right group %8, quick access %9)")
               .arg(i).arg(tb->tabText(i)).arg(r.left()).arg(r.right()).arg(tb->width())
               .arg(bar()->width()).arg(tb->x()).arg(right->width())

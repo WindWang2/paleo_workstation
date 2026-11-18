@@ -139,12 +139,14 @@ namespace
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
       {
-        if (m_fitting)
+        // QWidget teardown removes actions while the fitter is still installed.
+        auto *bar = qobject_cast<SARibbonBar *>(parent());
+        if (m_fitting || !bar)
           return false;
         switch (ev->type())
         {
           case QEvent::Resize:
-            if (obj == m_bar)
+            if (obj == bar)
               schedule();
             break;
           case QEvent::ActionAdded:
@@ -155,12 +157,12 @@ namespace
                 QTimer::singleShot(0, this, [this] { keepMoreLast(); });
               schedule();
             }
-            else if (obj == m_bar->quickAccessBar())
+            else if (obj == bar->quickAccessBar())
               schedule();
             break;
           case QEvent::ActionRemoved:
           case QEvent::ActionChanged:
-            if (obj == m_bar->quickAccessBar())
+            if (obj == bar->quickAccessBar())
               schedule();
             break;
           case QEvent::FontChange:
@@ -171,7 +173,7 @@ namespace
             schedule();
             break;
           case QEvent::LayoutRequest: // 页签文字 / 增删页签 / QAB 按钮文字改了标题行宽
-            if (obj == m_bar->ribbonTabBar() || obj == m_bar->quickAccessBar())
+            if (obj == bar->ribbonTabBar() || obj == bar->quickAccessBar())
               schedule();
             break;
           default:

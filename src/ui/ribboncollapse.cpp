@@ -224,18 +224,20 @@ namespace
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
       {
-        if (m_applying)
+        // ChildRemoved also arrives after the category's derived destructor.
+        auto *category = qobject_cast<SARibbonCategory *>(parent());
+        if (m_applying || !category)
           return false;
         switch (ev->type())
         {
           case QEvent::Resize:
           case QEvent::Show:
-            if (obj == m_cat)
+            if (obj == category)
               apply();
             break;
           case QEvent::ChildAdded:
           case QEvent::ChildRemoved:
-            if (obj == m_cat)
+            if (obj == category)
               schedule();
             break;
           case QEvent::ActionAdded:
@@ -246,12 +248,12 @@ namespace
 #if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
           case QEvent::DevicePixelRatioChange:
 #endif
-            if (obj == m_cat)
+            if (obj == category)
               for (auto &g : m_groups)
                 g.measured = false;
-            else
+            else if (auto *panel = qobject_cast<SARibbonPanel *>(obj))
               for (auto &g : m_groups)
-                if (g.panel == obj)
+                if (g.panel == panel)
                   g.measured = false;
             schedule();
             break;

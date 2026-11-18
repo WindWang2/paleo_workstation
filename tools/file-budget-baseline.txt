@@ -49,7 +49,7 @@ src/ui/edittools/editingtoolbar.cpp:file:1098
 src/ui/edittools/editingtoolbar.cpp:fn:buildUi:231
 src/ui/edittools/vertexeditortools.cpp:file:1318
 src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245
-src/ui/pages/composepage.cpp:fn:ComposePage:422
+src/ui/pages/composepage.cpp:fn:ComposePage:389
 src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:357
 src/ui/pages/constraintpage_interpolation.cpp:fn:buildAdvancedSection:207
 src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:219

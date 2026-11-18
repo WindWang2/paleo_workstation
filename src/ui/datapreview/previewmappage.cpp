@@ -43,6 +43,8 @@
 #include <qgsmaplayer.h>
 #include <qgsrubberband.h>
 
+#include <utility>
+
 namespace
 {
   QString scaleText( double scale )
@@ -211,8 +213,6 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
     QgsMapCanvas *m_canvas = nullptr;
     QgsRubberBand *m_viewportBand = nullptr;
 };
-
-// ------------------------------------------------------------------- page --
 
 PreviewMapPage::PreviewMapPage( QWidget *parent )
   : QWidget( parent )
@@ -435,8 +435,8 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
 PreviewMapPage::~PreviewMapPage()
 {
   m_toc->saveMemory();
-  // 工具条不再用 QWidgetAction（addWidget）：其析构序在 ~QToolBar 子链里
-  // 会对悬空按钮 releaseWidget（实测 SIGSEGV）；弹出按钮改挂扩展条。
+  // The overview filters canvas events using this page's derived state.
+  delete std::exchange(m_overview, nullptr);
 }
 
 void PreviewMapPage::buildToolBar()

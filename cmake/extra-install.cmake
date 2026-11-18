@@ -123,6 +123,10 @@ install(TARGETS paleo paleo_selfcheck
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(TARGETS paleo_data_snapshot_worker RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+if(WIN32)
+  install(FILES ${PALEO_WINDOWS_RUNTIME_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 if(TARGET paleo_freexl_runtime)
   get_target_property(_paleo_freexl_runtime paleo_freexl_runtime PALEO_RUNTIME_FILE)
   install(FILES "${_paleo_freexl_runtime}" DESTINATION ${CMAKE_INSTALL_BINDIR})

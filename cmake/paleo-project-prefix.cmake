@@ -64,7 +64,24 @@ if(WIN32)
   if(NOT _paleo_opencl_actual STREQUAL _paleo_opencl_expected)
     message(FATAL_ERROR "OpenCL runtime lock mismatch. Run paleo-dev.ps1 bootstrap fetch-only.")
   endif()
-  paleo_require_dependency_path("${PALEO_DEPENDENCY_PREFIX}/bin/OpenCL.dll" "OpenCL runtime")
+  # Windows resolves System32 before PATH, so the build executables need their
+  # pinned CRT and OpenCL loader beside them as well as in the portable package.
+  set(_paleo_runtime_dirs "${CMAKE_BINARY_DIR}")
+  foreach(_paleo_config IN LISTS CMAKE_CONFIGURATION_TYPES)
+    list(APPEND _paleo_runtime_dirs "${CMAKE_BINARY_DIR}/${_paleo_config}")
+  endforeach()
+  set(PALEO_WINDOWS_RUNTIME_DLLS)
+  foreach(_paleo_runtime IN ITEMS OpenCL.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll
+          msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcomp140.dll
+          vcruntime140.dll vcruntime140_1.dll vcruntime140_threads.dll)
+    set(_paleo_runtime_source "${PALEO_DEPENDENCY_PREFIX}/bin/${_paleo_runtime}")
+    paleo_require_dependency_path("${_paleo_runtime_source}" "${_paleo_runtime}")
+    list(APPEND PALEO_WINDOWS_RUNTIME_DLLS "${_paleo_runtime_source}")
+    foreach(_paleo_runtime_dir IN LISTS _paleo_runtime_dirs)
+      file(MAKE_DIRECTORY "${_paleo_runtime_dir}")
+      configure_file("${_paleo_runtime_source}" "${_paleo_runtime_dir}/${_paleo_runtime}" COPYONLY)
+    endforeach()
+  endforeach()
   foreach(asset IN ITEMS plugins/platforms/qoffscreen.dll plugins/platforms/qwindows.dll
                           plugins/sqldrivers/qsqlite.dll bin/QtWebEngineProcess.exe
                           resources/qtwebengine_resources.pak translations/qtwebengine_locales/en-US.pak)

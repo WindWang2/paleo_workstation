@@ -14,6 +14,7 @@ libqt6sql6-sqlite
 libqscintilla2-qt6-dev
 qtkeychain-qt6-dev
 libqca-qt6-dev
+libqca-qt6-plugins
 libsqlite3-dev
 libtiff-dev
 libcurl4-openssl-dev

@@ -407,6 +407,7 @@
 'https://deb.debian.org/debian/pool/main/q/qt6-base/qt6-qpa-plugins_6.8.2%2bdfsg-9%2bdeb13u2_amd64.deb' qt6-qpa-plugins_6.8.2+dfsg-9+deb13u2_amd64.deb 93268 SHA256:889a9ad2ab513fe26b317ac22959b1c372e090e79d165858fba4b036b6278f5e
 'https://deb.debian.org/debian/pool/main/q/qt6-base/qt6-base-dev_6.8.2%2bdfsg-9%2bdeb13u2_amd64.deb' qt6-base-dev_6.8.2+dfsg-9+deb13u2_amd64.deb 1958516 SHA256:63660073c1f113ea2e9370ebf4cb0cbf198195093e4520f958783e20eac163f2
 'https://deb.debian.org/debian/pool/main/q/qca2/libqca-qt6-dev_2.3.10-1_amd64.deb' libqca-qt6-dev_2.3.10-1_amd64.deb 83660 SHA256:6e295cefcba7a4afc9a1b394595faa9ec4c67762547569e830b632e6707ff02d
+'https://deb.debian.org/debian/pool/main/q/qca2/libqca-qt6-plugins_2.3.10-1_amd64.deb' libqca-qt6-plugins_2.3.10-1_amd64.deb 223556 SHA256:63cd2fc67f63ff5c4ed8f33a079bb86bcc6fb3b955a4a003df98bb58233d86ec
 'https://deb.debian.org/debian/pool/main/q/qscintilla2/libqscintilla2-qt6-l10n_2.14.1%2bdfsg-1_all.deb' libqscintilla2-qt6-l10n_2.14.1+dfsg-1_all.deb 104732 SHA256:d439a779fb210e599b99b609c9ce8980c0791d7529cc85ad3e6a4777e65400b2
 'https://deb.debian.org/debian/pool/main/q/qscintilla2/libqscintilla2-qt6-15_2.14.1%2bdfsg-1%2bb4_amd64.deb' libqscintilla2-qt6-15_2.14.1+dfsg-1+b4_amd64.deb 1174108 SHA256:f602a0e6cd815d98ca92f49877e9022511f33e499ab10ce84cf1a604a5ba1d55
 'https://deb.debian.org/debian/pool/main/q/qscintilla2/libqscintilla2-qt6-dev_2.14.1%2bdfsg-1%2bb4_amd64.deb' libqscintilla2-qt6-dev_2.14.1+dfsg-1+b4_amd64.deb 126424 SHA256:0894acff3e7f5fa10a04d88515b1e509920de0e86486431ec7b391eba9b5a78b

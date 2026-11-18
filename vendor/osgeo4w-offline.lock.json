@@ -1,0 +1,706 @@
+{
+  "index": {
+    "path": "x86_64/setup.ini",
+    "sha256": "76faf7e82e54858989a3a2cae108bb66b42bcf023fadbd7f5ae0cfffa16893a0",
+    "size": 48788
+  },
+  "packages": {
+    "arrow-cpp": {
+      "path": "x86_64/release/arrow-cpp/arrow-cpp-26.0.0-1.tar.bz2",
+      "sha256": "959424d644b8fadebe4ad2c6919c81da73d5a296914069379fb1be3db17818e4",
+      "size": 8138868,
+      "version": "26.0.0-1"
+    },
+    "base": {
+      "path": "x86_64/release/base/base-1.0.0-24.tar.bz2",
+      "sha256": "de292e011e9d9ce972cda0c7caf23bb03adcec3633b07354d6099a34a9f47bd5",
+      "size": 366266,
+      "version": "1.0.0-24"
+    },
+    "brotli": {
+      "path": "x86_64/release/brotli/brotli-1.2.1-1.tar.bz2",
+      "sha256": "2b7002ed55f81243f9ce2f6456a01ec6ee93d8885edec24477f27f16593aa189",
+      "size": 373455,
+      "version": "1.2.1-1"
+    },
+    "c-blosc": {
+      "path": "x86_64/release/c-blosc/c-blosc-1.21.6-4.tar.bz2",
+      "sha256": "7696f8ee0af847560457962dcc5fdb6efdba4f350711699206888d6dd59532b0",
+      "size": 37106,
+      "version": "1.21.6-4"
+    },
+    "cairo": {
+      "path": "x86_64/release/cairo/cairo-1.18.4-2.tar.bz2",
+      "sha256": "b1f8649081aa5e0691191547c9cd5643d9c5360acb416d5ac0bf02f24f48a594",
+      "size": 772319,
+      "version": "1.18.4-2"
+    },
+    "curl": {
+      "path": "x86_64/release/curl/curl-8.23.0-1.tar.bz2",
+      "sha256": "bcf86fe9394cab92d1b85d19e1fa41971ac0d1f9eec90503255e82ab5594823c",
+      "size": 481452,
+      "version": "8.23.0-1"
+    },
+    "curl-ca-bundle": {
+      "path": "x86_64/release/curl/curl-ca-bundle/curl-ca-bundle-8.23.0-1.tar.bz2",
+      "sha256": "8371a2dfa3032af8758a2cd4e18bc1c2a7db7b67c654cdd27787808ed6817bf8",
+      "size": 109501,
+      "version": "8.23.0-1"
+    },
+    "curl-devel": {
+      "path": "x86_64/release/curl/curl-devel/curl-devel-8.23.0-1.tar.bz2",
+      "sha256": "a4f13d5dc8036b088dccaea0edf5df3c880e7424169a9e59c998a76ab1dd4353",
+      "size": 64711,
+      "version": "8.23.0-1"
+    },
+    "exiv2": {
+      "path": "x86_64/release/exiv2/exiv2-0.28.8-1.tar.bz2",
+      "sha256": "5da0df9481fc0771aff5d5e19cd53d9edffc3f2a1dcd0ef0390b8460c31835bd",
+      "size": 841522,
+      "version": "0.28.8-1"
+    },
+    "expat": {
+      "path": "x86_64/release/expat/expat-2.10.0-1.tar.bz2",
+      "sha256": "53d46e1a3aac63fee1020f34a33098573d4e15a92d5705ddfc7e237cc3272b95",
+      "size": 75997,
+      "version": "2.10.0-1"
+    },
+    "freetype": {
+      "path": "x86_64/release/freetype/freetype-2.13.3-5.tar.bz2",
+      "sha256": "7affdf506046b2121b58d3aa442f20ad5a2972af944282c126337205005b880f",
+      "size": 399585,
+      "version": "2.13.3-5"
+    },
+    "freexl": {
+      "path": "x86_64/release/freexl/freexl-2.0.0-4.tar.bz2",
+      "sha256": "ce91e90e71ba88e7f9baa339380d395889101fcbea3abd3664dd7c2ab4ad124f",
+      "size": 109471,
+      "version": "2.0.0-4"
+    },
+    "gdal": {
+      "path": "x86_64/release/gdal/gdal-3.13.3-4.tar.bz2",
+      "sha256": "915e93c711aa2b998232e4f57ef683267c5bb0feee3771b1c41d2b18294e5b28",
+      "size": 5699806,
+      "version": "3.13.3-4"
+    },
+    "gdal-devel": {
+      "path": "x86_64/release/gdal/gdal-devel/gdal-devel-3.13.3-4.tar.bz2",
+      "sha256": "a77676cb70a786ed3e4ccf01a987068ef0f7c4c2307872924ef6a766d38ca8b4",
+      "size": 1445891,
+      "version": "3.13.3-4"
+    },
+    "gdal313-runtime": {
+      "path": "x86_64/release/gdal/gdal313-runtime/gdal313-runtime-3.13.3-4.tar.bz2",
+      "sha256": "808ad1fcfbd69d5f5ba14008ab001c82d72b0e795e06bb8f3c4dda313a80ccbe",
+      "size": 13630603,
+      "version": "3.13.3-4"
+    },
+    "geographiclib": {
+      "path": "x86_64/release/geographiclib/geographiclib-2.7-3.tar.bz2",
+      "sha256": "ddac2fb38d5aaa911d55b00da0d24e8ed0f7b4a0aad29801bf831d089ce975f6",
+      "size": 326798,
+      "version": "2.7-3"
+    },
+    "geos": {
+      "path": "x86_64/release/geos/geos-3.15.0-1.tar.bz2",
+      "sha256": "86d9c558b2ca5105d8f86adb0a317f3742b45af1b8465ff4dd363860547660d8",
+      "size": 1283119,
+      "version": "3.15.0-1"
+    },
+    "geos-devel": {
+      "path": "x86_64/release/geos/geos-devel/geos-devel-3.15.0-1.tar.bz2",
+      "sha256": "6d62956b904c0bc5b2825f2eadfbd1dcd2342b82f1881e79aae6561ce1ee2021",
+      "size": 866634,
+      "version": "3.15.0-1"
+    },
+    "gsl": {
+      "path": "x86_64/release/gsl/gsl-2.7.101-1.tar.bz2",
+      "sha256": "1316a42decc76df7419721e529d1debe3331a532006ed646490a124bba692a76",
+      "size": 1502000,
+      "version": "2.7.101-1"
+    },
+    "hdf4": {
+      "path": "x86_64/release/hdf4/hdf4-4.3.1-1.tar.bz2",
+      "sha256": "310c1ddacf8c5a56d09a853c7fab0096b3e5378da2bea68ce428e10345d019fb",
+      "size": 282956,
+      "version": "4.3.1-1"
+    },
+    "hdf5": {
+      "path": "x86_64/release/hdf5/hdf5-1.14.6-1.tar.bz2",
+      "sha256": "0155787df06a1c91cff7573916b1d9db352ab99cfcc864a6a185d392a598fd8b",
+      "size": 1534320,
+      "version": "1.14.6-1"
+    },
+    "laszip": {
+      "path": "x86_64/release/laszip/laszip-3.4.3-4.tar.bz2",
+      "sha256": "677ce59bace890c933ce9e726122c4afecce6eb49bf70b061a09ab1cd29cc537",
+      "size": 110254,
+      "version": "3.4.3-4"
+    },
+    "lcms2": {
+      "path": "x86_64/release/lcms2/lcms2-2.20-1.tar.bz2",
+      "sha256": "ca650079f8cc13c9f246d503b125ab27e7cdc79be7c09e14c4852a0d06bd1a77",
+      "size": 178028,
+      "version": "2.20-1"
+    },
+    "lerc": {
+      "path": "x86_64/release/lerc/lerc-4.2.0-1.tar.bz2",
+      "sha256": "a8704d11c76746272c2b45d17629e6f274a4853e4243132f589d792439100089",
+      "size": 189001,
+      "version": "4.2.0-1"
+    },
+    "libaec": {
+      "path": "x86_64/release/libaec/libaec-1.1.6-1.tar.bz2",
+      "sha256": "9d5e7545a6279b3d9950fd79792b7258c653c2c557babaf93c79fe9381482a52",
+      "size": 22616,
+      "version": "1.1.6-1"
+    },
+    "libarchive": {
+      "path": "x86_64/release/libarchive/libarchive-3.8.7-2.tar.bz2",
+      "sha256": "3f7fb166fadb974d6f5d2dbdb93d7e45be449ef39b6e620f43beaa2877371496",
+      "size": 400244,
+      "version": "3.8.7-2"
+    },
+    "libgeotiff": {
+      "path": "x86_64/release/libgeotiff/libgeotiff-1.7.4-1.tar.bz2",
+      "sha256": "136f916c11d76dffa6e78713179b7aba20e8f6a2fb10cf88b732fb2db442aa2c",
+      "size": 82178,
+      "version": "1.7.4-1"
+    },
+    "libiconv": {
+      "path": "x86_64/release/libiconv/libiconv-1.17-1.tar.bz2",
+      "sha256": "984c1afe8e7a352bba1bca8918f7feebca854bceeb2a58498cfadb4f202cd265",
+      "size": 696966,
+      "version": "1.17-1"
+    },
+    "libjpeg-turbo": {
+      "path": "x86_64/release/libjpeg-turbo/libjpeg-turbo-3.2.1-1.tar.bz2",
+      "sha256": "6ffc9bfec416d43245ca9333218ba6fab35dd5baed22e3f6c3715ce795961c77",
+      "size": 589972,
+      "version": "3.2.1-1"
+    },
+    "libjxl": {
+      "path": "x86_64/release/libjxl/libjxl-0.12.0-1.tar.bz2",
+      "sha256": "c0b37e72728de30f972f180656610ee59d1c5f5aff43b04b2d1270089f77a6de",
+      "size": 1192723,
+      "version": "0.12.0-1"
+    },
+    "libmysql": {
+      "path": "x86_64/release/libmysql/libmysql-8.2.0-2.tar.bz2",
+      "sha256": "bf10691ba7dfa87acf1dc32d7aaf686ec7890347a399f37d8ffa4d2c6d1347de",
+      "size": 1959617,
+      "version": "8.2.0-2"
+    },
+    "libpng": {
+      "path": "x86_64/release/libpng/libpng-1.6.57-2.tar.bz2",
+      "sha256": "260852e288bba41649139f69529dc742d547df6b58952c07b5b9d514b888332a",
+      "size": 103157,
+      "version": "1.6.57-2"
+    },
+    "libpq": {
+      "path": "x86_64/release/libpq/libpq-18.7-1.tar.bz2",
+      "sha256": "bb51038bc23b31751c2df92d9b8a6fd24f4001f617cbeb42e34896941794da85",
+      "size": 883958,
+      "version": "18.7-1"
+    },
+    "librttopo": {
+      "path": "x86_64/release/librttopo/librttopo-1.1.0-18.tar.bz2",
+      "sha256": "bdca29ed785258edfac61fbe61dcd7513a8b9674f20880deb9b790a200b39522",
+      "size": 220868,
+      "version": "1.1.0-18"
+    },
+    "libspatialindex": {
+      "path": "x86_64/release/libspatialindex/libspatialindex-1.9.3-3.tar.bz2",
+      "sha256": "783f3ec40ac4cb05439786fb47e8ffc62b3baeb35c4363682a592927968aa3ec",
+      "size": 381353,
+      "version": "1.9.3-3"
+    },
+    "libspatialite": {
+      "path": "x86_64/release/libspatialite/libspatialite-5.1.0-9.tar.bz2",
+      "sha256": "bed3af53aac0a4f12183c7c99227cd247c8a86c7f8d0f99004b218448108bbbf",
+      "size": 5205825,
+      "version": "5.1.0-9"
+    },
+    "libtiff": {
+      "path": "x86_64/release/libtiff/libtiff-4.7.2rc4-1.tar.bz2",
+      "sha256": "998b160f14936482294dd05e61a6f5fe34d67cec44f75e8c5ed48d94de476899",
+      "size": 191367,
+      "version": "4.7.2rc4-1"
+    },
+    "libwebp": {
+      "path": "x86_64/release/libwebp/libwebp-1.6.0-1.tar.bz2",
+      "sha256": "d16b1fd4cb46cf7a4e4a78840e95126e93f66e3da926b7ccccb15f27372c0e2b",
+      "size": 257893,
+      "version": "1.6.0-1"
+    },
+    "libxml2": {
+      "path": "x86_64/release/libxml2/libxml2-2.12.10-1.tar.bz2",
+      "sha256": "e8e48022ae4150f5540fa93e88e7e55705c280bc8f586b1ca2a7a6eb3068baa5",
+      "size": 615384,
+      "version": "2.12.10-1"
+    },
+    "libxslt": {
+      "path": "x86_64/release/libxslt/libxslt-1.1.39-1.tar.bz2",
+      "sha256": "041c122cef1ce9aa629c15d551f84487acb908d7cb09d7970db41b1a21bf24da",
+      "size": 147022,
+      "version": "1.1.39-1"
+    },
+    "libzip": {
+      "path": "x86_64/release/libzip/libzip-1.10.2really1.7.3-1.tar.bz2",
+      "sha256": "4046e4776b67d543c2a56345bd7978288979ae95b263b89885057a02a10eab58",
+      "size": 84089,
+      "version": "1.10.2really1.7.3-1"
+    },
+    "lz4": {
+      "path": "x86_64/release/lz4/lz4-1.10.0-1.tar.bz2",
+      "sha256": "4f0263a8a6e0242a8530c694a2985f04621c18e8ac251d5949995e92a81aa13e",
+      "size": 54045,
+      "version": "1.10.0-1"
+    },
+    "msodbcsql": {
+      "path": "x86_64/release/msodbcsql/msodbcsql-18.0-2.tar.bz2",
+      "sha256": "a1820e2991dd9bac39e1edf835950d705ae8b2a5ac83fd382783b21c9fd9bf8c",
+      "size": 1647424,
+      "version": "18.0-2"
+    },
+    "msvcrt2019": {
+      "path": "x86_64/release/msvcrt2019/msvcrt2019-14.2-2.tar.bz2",
+      "sha256": "aece614e96bf1fb1752f0b6f698db080c3b60f645594e01c65900c259348b834",
+      "size": 942298,
+      "version": "14.2-2"
+    },
+    "netcdf": {
+      "path": "x86_64/release/netcdf/netcdf-4.10.1-2.tar.bz2",
+      "sha256": "9461ab099f83dea125890de924eccf6d0f8fa0fdce7c285fa1ac6f882ca9ed35",
+      "size": 515802,
+      "version": "4.10.1-2"
+    },
+    "oci": {
+      "path": "x86_64/release/oci/oci-21.13-1.tar.bz2",
+      "sha256": "8eedfb2e7ef23d11c9fabb6b87a66ba44d4d64e1bbd9b7c2d2ee6e8d31f2cbdc",
+      "size": 25237358,
+      "version": "21.13-1"
+    },
+    "ogdi": {
+      "path": "x86_64/release/ogdi/ogdi-4.1.1-2.tar.bz2",
+      "sha256": "52d0f916d94de359d7279108b5c2f057cf23b69bb9cb22590d458547160a5c79",
+      "size": 147797,
+      "version": "4.1.1-2"
+    },
+    "opencl": {
+      "path": "x86_64/release/opencl/opencl-2023.12.14-1.tar.bz2",
+      "sha256": "e611bb0ddcad7531e96055dcb5053a56ac6b4e76d5a7ac28fd631328cb837bbe",
+      "size": 22753,
+      "version": "2023.12.14-1"
+    },
+    "openjpeg": {
+      "path": "x86_64/release/openjpeg/openjpeg-2.5.4-5.tar.bz2",
+      "sha256": "71bd50cbd212ad561cd0ad85823309ffcc8d269b5e48a23b0fd7885801445a8f",
+      "size": 188968,
+      "version": "2.5.4-5"
+    },
+    "openssl": {
+      "path": "x86_64/release/openssl/openssl-3.5.9-1.tar.bz2",
+      "sha256": "d4093d055db9d914b8bc3365876dedfd88da5288dd36f066224f8a14cbca5cb9",
+      "size": 2657632,
+      "version": "3.5.9-1"
+    },
+    "pdal": {
+      "path": "x86_64/release/pdal/pdal-2.10.0-4.tar.bz2",
+      "sha256": "f0770890efb63a85deca8ad25443f2a0c003af21ab9c2307dfe50aefd46d969e",
+      "size": 157111,
+      "version": "2.10.0-4"
+    },
+    "pdal-libs": {
+      "path": "x86_64/release/pdal/pdal-libs/pdal-libs-2.10.0-4.tar.bz2",
+      "sha256": "e8883f55d2fff11e4321bd5c6304b5c3c66e4e3e055ae20660ecc422949de691",
+      "size": 3288936,
+      "version": "2.10.0-4"
+    },
+    "poppler": {
+      "path": "x86_64/release/poppler/poppler-26.06.0-1.tar.bz2",
+      "sha256": "b5a18fc8381b7284363b0f3bab4f4fef1f9249ef762e8e89fcd47c83496cfa0a",
+      "size": 1226567,
+      "version": "26.06.0-1"
+    },
+    "proj": {
+      "path": "x86_64/release/proj/proj-9.8.1-1.tar.bz2",
+      "sha256": "d7814c2cdb913c6307268c2279d2f4a00950bed8b82781d3cfc292aa28d3b8c2",
+      "size": 157112,
+      "version": "9.8.1-1"
+    },
+    "proj-devel": {
+      "path": "x86_64/release/proj/proj-devel/proj-devel-9.8.1-1.tar.bz2",
+      "sha256": "b8a6f4dbb800f019be4f4c45849b53818f2074213b850dfc38681cc99d0e3889",
+      "size": 129595,
+      "version": "9.8.1-1"
+    },
+    "proj-runtime-data": {
+      "path": "x86_64/release/proj/proj-runtime-data/proj-runtime-data-9.8.1-1.tar.bz2",
+      "sha256": "599b2307ed72001ab1b28b9cf4ac007523687571ee0cc1ec54c511a893f74f1d",
+      "size": 1574571,
+      "version": "9.8.1-1"
+    },
+    "proj9-runtime": {
+      "path": "x86_64/release/proj/proj9-runtime/proj9-runtime-9.8.1-1.tar.bz2",
+      "sha256": "eabe72d6fe63b401307e27bfcf7fc3faa3405869138f5ccae2b939a0cb184d49",
+      "size": 1340560,
+      "version": "9.8.1-1"
+    },
+    "python3-certifi": {
+      "path": "x86_64/release/python3/python3-certifi/python3-certifi-2026.10.23-1.tar.bz2",
+      "sha256": "c58e1fe1dc51d22ac374e594cc5c969e33f52dc411f6b91201f22ea270f8c760",
+      "size": 128778,
+      "version": "2026.10.23-1"
+    },
+    "python3-charset-normalizer": {
+      "path": "x86_64/release/python3/python3-charset-normalizer/python3-charset-normalizer-3.5.2-1.tar.bz2",
+      "sha256": "0a31e8de3b7b2d4494f3ac8c6dd98431f49badc6a3262d1b05a992b98ebd3b11",
+      "size": 240750,
+      "version": "3.5.2-1"
+    },
+    "python3-core": {
+      "path": "x86_64/release/python3/python3-core/python3-core-3.12.16-1.tar.bz2",
+      "sha256": "edaccfe8bd502a7705408f49e29ae184bfa2ce9b3b58cab6619b3834b5b06cc7",
+      "size": 16924201,
+      "version": "3.12.16-1"
+    },
+    "python3-future": {
+      "path": "x86_64/release/python3/python3-future/python3-future-1.0.0-1.tar.bz2",
+      "sha256": "7bf6ada94006501a3a6e6ea53cbc7d36aa0ec781a760cae03812b786e57b19c9",
+      "size": 417201,
+      "version": "1.0.0-1"
+    },
+    "python3-gdal": {
+      "path": "x86_64/release/gdal/python3-gdal/python3-gdal-3.13.3-4.tar.bz2",
+      "sha256": "0b9a68e520c97b28f9faf3951c2c60838c44832372deae18a82c4ba4248059a3",
+      "size": 1050109,
+      "version": "3.13.3-4"
+    },
+    "python3-httplib2": {
+      "path": "x86_64/release/python3/python3-httplib2/python3-httplib2-0.32.1-1.tar.bz2",
+      "sha256": "b1fb7133ea2f2e10bffeca9835923b4fd0677428a1e964c4d58460693fb1907b",
+      "size": 89000,
+      "version": "0.32.1-1"
+    },
+    "python3-idna": {
+      "path": "x86_64/release/python3/python3-idna/python3-idna-3.20-1.tar.bz2",
+      "sha256": "410ad7f74a0ff6593fe944855868441e0f0cf3b64a4e5c8a603ef8dd58cb6e65",
+      "size": 112400,
+      "version": "3.20-1"
+    },
+    "python3-jinja2": {
+      "path": "x86_64/release/python3/python3-jinja2/python3-jinja2-3.1.6-1.tar.bz2",
+      "sha256": "465bb1f404b1846ad2dcc20c3264a6ffd41eacae48c6940967e522beec2349aa",
+      "size": 96041,
+      "version": "3.1.6-1"
+    },
+    "python3-lxml": {
+      "path": "x86_64/release/python3/python3-lxml/python3-lxml-6.1.3-1.tar.bz2",
+      "sha256": "644135632bd8e37238b677839d914d86538fbe43a3856f6a2a3a8b0dbe73e629",
+      "size": 3727779,
+      "version": "6.1.3-1"
+    },
+    "python3-markupsafe": {
+      "path": "x86_64/release/python3/python3-markupsafe/python3-markupsafe-3.0.4-1.tar.bz2",
+      "sha256": "f8557a063eb83fbc24a961d9aa7d7090a0e6e5b4b824673346ab85456b45fb16",
+      "size": 13804,
+      "version": "3.0.4-1"
+    },
+    "python3-mock": {
+      "path": "x86_64/release/python3/python3-mock/python3-mock-5.2.0-1.tar.bz2",
+      "sha256": "1917eda90ad5af1fecd9321afa210ed86f9646cc570db4b07dd660e5a5462371",
+      "size": 25963,
+      "version": "5.2.0-1"
+    },
+    "python3-narwhals": {
+      "path": "x86_64/release/python3/python3-narwhals/python3-narwhals-2.28.0-1.tar.bz2",
+      "sha256": "b3311ea2cab565b89ad3373d184abbc767c78fbdb51e005906e7e8de7187cea0",
+      "size": 285352,
+      "version": "2.28.0-1"
+    },
+    "python3-nose2": {
+      "path": "x86_64/release/python3/python3-nose2/python3-nose2-0.16.0-1.tar.bz2",
+      "sha256": "f9181729632f14ec7b59ef777238b7e64314cbf7f5ae1782b7518943244de960",
+      "size": 166142,
+      "version": "0.16.0-1"
+    },
+    "python3-numpy": {
+      "path": "x86_64/release/python3/python3-numpy/python3-numpy-2.5.4-1.tar.bz2",
+      "sha256": "c6cf4e0df0215afc0f359c3df1e2d3e210e9636e2252477fc4dd9b5195582724",
+      "size": 10467969,
+      "version": "2.5.4-1"
+    },
+    "python3-owslib": {
+      "path": "x86_64/release/python3/python3-owslib/python3-owslib-0.36.0-1.tar.bz2",
+      "sha256": "8b51c2be15712a161fdb8dc9bffd3538b49e44ac0e17f6f8e4d207be4a75a063",
+      "size": 151932,
+      "version": "0.36.0-1"
+    },
+    "python3-packaging": {
+      "path": "x86_64/release/python3/python3-packaging/python3-packaging-26.3-1.tar.bz2",
+      "sha256": "3eeabf99ff6da864940e403d817c045b285b787064734fd5204838922655ed1b",
+      "size": 97408,
+      "version": "26.3-1"
+    },
+    "python3-plotly": {
+      "path": "x86_64/release/python3/python3-plotly/python3-plotly-7.1.0-1.tar.bz2",
+      "sha256": "f5ff34a64b9d6befa7dba0e719c34fd0299ae353fc6321206012060392674b7b",
+      "size": 6650718,
+      "version": "7.1.0-1"
+    },
+    "python3-psycopg2": {
+      "path": "x86_64/release/python3/python3-psycopg2/python3-psycopg2-2.9.13-1.tar.bz2",
+      "sha256": "02b429e8de581b486807f59ff66c97f51862c60360fa445c4a2fb7a0981471b1",
+      "size": 126374,
+      "version": "2.9.13-1"
+    },
+    "python3-pygments": {
+      "path": "x86_64/release/python3/python3-pygments/python3-pygments-2.21.0-1.tar.bz2",
+      "sha256": "6ccd896c7ed3a0bccc7a64d5e3d281f4b10b7dbc3fff778a1133431ccf8ff3f1",
+      "size": 979702,
+      "version": "2.21.0-1"
+    },
+    "python3-pyparsing": {
+      "path": "x86_64/release/python3/python3-pyparsing/python3-pyparsing-3.3.3-1.tar.bz2",
+      "sha256": "64c843366c8e5ef3921cde3367e1f72cddcd268e52b0d6ba8af66a18d500afde",
+      "size": 95884,
+      "version": "3.3.3-1"
+    },
+    "python3-pyproj": {
+      "path": "x86_64/release/python3/python3-pyproj/python3-pyproj-3.8.0-1.tar.bz2",
+      "sha256": "0692b0ca6d57a5e96b683d91225d1dc6cb0543757bc16837dba095539eddd088",
+      "size": 1301675,
+      "version": "3.8.0-1"
+    },
+    "python3-pyqt6": {
+      "path": "x86_64/release/python3/python3-pyqt6/python3-pyqt6-6.12.0-1.tar.bz2",
+      "sha256": "8dd164c311a7afb6213ddf024df584f745f5fbe1fbf25db8f4c763ea3153dd3e",
+      "size": 5083658,
+      "version": "6.12.0-1"
+    },
+    "python3-pyqt6-qscintilla": {
+      "path": "x86_64/release/python3/python3-pyqt6-qscintilla/python3-pyqt6-qscintilla-2.14.1-2.tar.bz2",
+      "sha256": "ef0329ea930e885af0df2dc6ffdbab1b32dc4abd48b9e642e44def8aeb679bcf",
+      "size": 312043,
+      "version": "2.14.1-2"
+    },
+    "python3-pyqt6-sip": {
+      "path": "x86_64/release/python3/python3-pyqt6-sip/python3-pyqt6-sip-13.13.0-1.tar.bz2",
+      "sha256": "e19ec0e81096b3e1eb6ad56d2196b6904c4b5dc3474c95e5df78ac6df4cff19c",
+      "size": 52815,
+      "version": "13.13.0-1"
+    },
+    "python3-pyqt6-webengine": {
+      "path": "x86_64/release/python3/python3-pyqt6-webengine/python3-pyqt6-webengine-6.11.0-1.tar.bz2",
+      "sha256": "e5c39626a3d264d63463a01859b0b4499fe764d75fe732116a1fff5c7ed7a460",
+      "size": 171248,
+      "version": "6.11.0-1"
+    },
+    "python3-python-dateutil": {
+      "path": "x86_64/release/python3/python3-python-dateutil/python3-python-dateutil-4.0.0-1.tar.bz2",
+      "sha256": "a84fcc01f32b1f314b6a6df8ba3a3b613b9aa9cc5e5bfe40e96742a04af008ab",
+      "size": 71404,
+      "version": "4.0.0-1"
+    },
+    "python3-pytz": {
+      "path": "x86_64/release/python3/python3-pytz/python3-pytz-2026.6-1.tar.bz2",
+      "sha256": "fa4616d071d4f8df394519aa1c6e9bba7459cd3df667c254f8ee65b73711e05b",
+      "size": 197737,
+      "version": "2026.6-1"
+    },
+    "python3-pywin32": {
+      "path": "x86_64/release/python3/python3-pywin32/python3-pywin32-312-1.tar.bz2",
+      "sha256": "da302369f735018135ec5cde0f50acb40d8cea139ff9e3ddf37376219a19dbca",
+      "size": 6374246,
+      "version": "312-1"
+    },
+    "python3-pyyaml": {
+      "path": "x86_64/release/python3/python3-pyyaml/python3-pyyaml-6.0.3-1.tar.bz2",
+      "sha256": "33b7453612e1e1f328d7b4176aaa8c704943ee641ad64cbc0645fbda7a6a6ae4",
+      "size": 143991,
+      "version": "6.0.3-1"
+    },
+    "python3-requests": {
+      "path": "x86_64/release/python3/python3-requests/python3-requests-2.34.2-1.tar.bz2",
+      "sha256": "8e0e2f7fc18effab9d26d26fe5983192cc7f0e8e9045f29baea5807c212dc657",
+      "size": 53509,
+      "version": "2.34.2-1"
+    },
+    "python3-setuptools": {
+      "path": "x86_64/release/python3/python3-setuptools/python3-setuptools-84.2.1-1.tar.bz2",
+      "sha256": "6b65631a3f7eda0f7477a00ddfedc834b1c15acdea0e0aea15597af263a9b81b",
+      "size": 590322,
+      "version": "84.2.1-1"
+    },
+    "python3-sip": {
+      "path": "x86_64/release/python3/python3-sip/python3-sip-6.17.2-1.tar.bz2",
+      "sha256": "9be0f0fd9c6ad8cef9489f116f7df3da3a7eeca7560d2f91b035b09241900c30",
+      "size": 1712212,
+      "version": "6.17.2-1"
+    },
+    "python3-tzdata": {
+      "path": "x86_64/release/python3/python3-tzdata/python3-tzdata-2026.6-1.tar.bz2",
+      "sha256": "069ae6f1a74f738d278d438aa0442ede3d1fea619e7d290582a380614aa75b65",
+      "size": 124747,
+      "version": "2026.6-1"
+    },
+    "python3-urllib3": {
+      "path": "x86_64/release/python3/python3-urllib3/python3-urllib3-2.8.0-1.tar.bz2",
+      "sha256": "283c2c84e4a1361354a55b026702ea877afcb9d67d79cc04a9034acd77616927",
+      "size": 90710,
+      "version": "2.8.0-1"
+    },
+    "qca-qt6": {
+      "path": "x86_64/release/qca-qt6/qca-qt6-2.3.10-1.tar.bz2",
+      "sha256": "0c8021ceed282f06253b4567d4ad61dbd026a9ede6224a8f5680ba36f4503ebe",
+      "size": 1166106,
+      "version": "2.3.10-1"
+    },
+    "qgis": {
+      "path": "x86_64/release/qgis/qgis/qgis-4.2.3-1.tar.bz2",
+      "sha256": "bdffccba235bb0aadbf83b1c30d29bbcfadab1fb350e7925a40831e60d924af6",
+      "size": 47258408,
+      "version": "4.2.3-1"
+    },
+    "qgis-common": {
+      "path": "x86_64/release/qgis/qgis/qgis-common/qgis-common-4.2.3-1.tar.bz2",
+      "sha256": "12931099d556cdc44a39680f63eb2e7065c73bf61ff0009af69aef07b5cdea45",
+      "size": 42785465,
+      "version": "4.2.3-1"
+    },
+    "qgis-devel": {
+      "path": "x86_64/release/qgis/qgis/qgis-devel/qgis-devel-4.2.3-1.tar.bz2",
+      "sha256": "7e3c659f39720c1c9862521bdc863bf364e6aee70406d56a43d3d871e72ad6ed",
+      "size": 6138121,
+      "version": "4.2.3-1"
+    },
+    "qscintilla-qt6": {
+      "path": "x86_64/release/qt6/qscintilla-qt6/qscintilla-qt6-2.14.1-3.tar.bz2",
+      "sha256": "c435f29d079c499595f687898ad6cd6b9bf2cc586285fdd75cdc5ebe468d38ea",
+      "size": 843616,
+      "version": "2.14.1-3"
+    },
+    "qscintilla-qt6-devel": {
+      "path": "x86_64/release/qt6/qscintilla-qt6/qscintilla-qt6-devel/qscintilla-qt6-devel-2.14.1-3.tar.bz2",
+      "sha256": "e6cffba8d99c6700a00e52c3dc840d7544d8dc4cb142f68f4567d0f6e5a71480",
+      "size": 565110,
+      "version": "2.14.1-3"
+    },
+    "qt6-devel": {
+      "path": "x86_64/release/qt6/qt6-devel/qt6-devel-6.11.3-1.tar.bz2",
+      "sha256": "1fdff339cb7d187246f5256a0efb4b3bcaf429af460827961d73bc7334fd621e",
+      "size": 88977810,
+      "version": "6.11.3-1"
+    },
+    "qt6-libs": {
+      "path": "x86_64/release/qt6/qt6-libs/qt6-libs-6.11.3-1.tar.bz2",
+      "sha256": "f8d8de11f0754fcdb9b67196b6eaacfa31353037368065cd0bf95b7d298d3e0f",
+      "size": 166466117,
+      "version": "6.11.3-1"
+    },
+    "qt6-oci": {
+      "path": "x86_64/release/qt6/qt6-oci/qt6-oci-6.11.3-1.tar.bz2",
+      "sha256": "65bb1caf7e1d31194c2283c6eb303b5d60e78f7c70cc788c8c2f69e9d0ba2b41",
+      "size": 672462,
+      "version": "6.11.3-1"
+    },
+    "qt6-qml": {
+      "path": "x86_64/release/qt6/qt6-qml/qt6-qml-6.11.3-1.tar.bz2",
+      "sha256": "2f9cdf9ba79be315177a2ce70d7232dd652c1c5f774bccb01c80ddb2319b9003",
+      "size": 70655862,
+      "version": "6.11.3-1"
+    },
+    "qt6-tools": {
+      "path": "x86_64/release/qt6/qt6-tools/qt6-tools-6.11.3-1.tar.bz2",
+      "sha256": "ae2fe7f21137d98b8396bf841c32826e668b287a8bae9c7729a951d583d4c5f0",
+      "size": 2194723,
+      "version": "6.11.3-1"
+    },
+    "qtkeychain-qt6-libs": {
+      "path": "x86_64/release/qt6/qtkeychain-qt6/qtkeychain-qt6-libs/qtkeychain-qt6-libs-0.15.0-1.tar.bz2",
+      "sha256": "5fc01e451c6efee0079ac000a85f8a49bd25ddc49455a4a108bd3077b8510d11",
+      "size": 24146,
+      "version": "0.15.0-1"
+    },
+    "qwt-qt6-libs": {
+      "path": "x86_64/release/qt6/qwt-qt6/qwt-qt6-libs/qwt-qt6-libs-6.3.0-3.tar.bz2",
+      "sha256": "379bfa48591352ccbf32bf9ad54145d3dc92b731b555b603b23c93d5ed0826a1",
+      "size": 478148,
+      "version": "6.3.0-3"
+    },
+    "setup": {
+      "path": "x86_64/release/setup/setup-1.1.2-17.tar.bz2",
+      "sha256": "cb111b85848dfc8eec33930a05682d86997be0859afdf004e207658f8117e205",
+      "size": 462041,
+      "version": "1.1.2-17"
+    },
+    "sfcgal": {
+      "path": "x86_64/release/sfcgal/sfcgal-2.3.0-1.tar.bz2",
+      "sha256": "06c70ce814b8f193a10d9374ff371ee2b5d6552a28130a85764b461cc8450fb4",
+      "size": 3463046,
+      "version": "2.3.0-1"
+    },
+    "sqlite3": {
+      "path": "x86_64/release/sqlite3/sqlite3-3.54.1-1.tar.bz2",
+      "sha256": "4436b6f0a022795ae04d990f4f139f171dcf84463d2d096e7596876d060b9fac",
+      "size": 1090325,
+      "version": "3.54.1-1"
+    },
+    "sqlite3-devel": {
+      "path": "x86_64/release/sqlite3/sqlite3-devel/sqlite3-devel-3.54.1-1.tar.bz2",
+      "sha256": "a58e64226e8b92e009ade80de661d32afb44c13d54ac3355a970fdf3fd01e19a",
+      "size": 147495,
+      "version": "3.54.1-1"
+    },
+    "szip": {
+      "path": "x86_64/release/szip/szip-99-1.tar.bz2",
+      "sha256": "908bdc862aa99aa540cda0cfd48b4eb035009c24d691003fdb0f919f01e5a267",
+      "size": 129,
+      "version": "99-1"
+    },
+    "thrift": {
+      "path": "x86_64/release/thrift/thrift-0.25.0-1.tar.bz2",
+      "sha256": "3c225001d4a59cb6640173082e3f80ff7cdee17ed5254c678b8d8bd9edc0b38e",
+      "size": 344776,
+      "version": "0.25.0-1"
+    },
+    "xerces-c": {
+      "path": "x86_64/release/xerces-c/xerces-c-3.2.5-1.tar.bz2",
+      "sha256": "5893c4433319e76640adc040190ea71561b2f2b9a044f328e0ea32327dbc878e",
+      "size": 766682,
+      "version": "3.2.5-1"
+    },
+    "xz": {
+      "path": "x86_64/release/xz/xz-5.4.7-1.tar.bz2",
+      "sha256": "79b563c485cf758feb7ef29324fae865e418170509c88717ba3da3b7b9393bef",
+      "size": 99823,
+      "version": "5.4.7-1"
+    },
+    "zlib": {
+      "path": "x86_64/release/zlib/zlib-1.4-1.tar.bz2",
+      "sha256": "44be0f17f9b7ccb524624c3b5e713f2745bdd510a1bbb628740ce33c6eb14b9a",
+      "size": 55214,
+      "version": "1.4-1"
+    },
+    "zlib-devel": {
+      "path": "x86_64/release/zlib/zlib-devel/zlib-devel-1.4-1.tar.bz2",
+      "sha256": "75a965bdc06806a89f6f5bfaae39c84bf474f8b6acebd872db6f037d030e65e6",
+      "size": 891555,
+      "version": "1.4-1"
+    },
+    "zstd": {
+      "path": "x86_64/release/zstd/zstd-1.5.7-1.tar.bz2",
+      "sha256": "b56668286eda4b5f40c6ff358b1917f23c77f16b11209e33b62232c18b6c5035",
+      "size": 255988,
+      "version": "1.5.7-1"
+    }
+  },
+  "schema": 1,
+  "setup": {
+    "path": "osgeo4w-setup.exe",
+    "sha256": "6746638d273334ffae3f813ce964023c5655fdf33eb82bd4ce1a97340c684798",
+    "size": 1032336
+  },
+  "site": "https://download.osgeo.org/osgeo4w/v2"
+}

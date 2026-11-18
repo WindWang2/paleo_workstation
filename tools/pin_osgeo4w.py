@@ -66,50 +66,28 @@ def parse_setup_ini(text):
     return pkgs
 
 
-_PKG_SUFFIX = re.compile(r"\.tar\.(bz2|xz|gz|zst)$")
+_PKG_SUFFIX = re.compile(r"\.tar\.(bz2|xz|gz|zst|lz4)$")
 
 
 def installed_db_map(text):
-    """OSGeo4W etc/setup/installed.db → {包名: version}（paleo-dev.ps1
-    Read-InstalledDbMap 的同口径参考实现，selftest 钉格式）。
-
-    格式：首行「INSTALLED.DB 2」是格式头（不是包）；其余每行
-    「<名称> <名称>-<version>.tar.bz2 0」——第二列是包文件名，剥掉
-    「<名称>-」前缀与 .tar.* 后缀才是 setup.ini 的 version 口径。
-    """
+    """Return exact installed package versions from an OSGeo4W setup database."""
+    lines = text.splitlines()
+    if not lines or lines[0] != "INSTALLED.DB 2":
+        raise ValueError("missing OSGeo4W installed database header")
     out = {}
-    for line in text.splitlines():
-        f = line.split()
-        if len(f) < 2 or not f[0] or f[0] == "INSTALLED.DB":
+    for line in lines[1:]:
+        fields = line.split()
+        if not fields:
             continue
-        ver = _PKG_SUFFIX.sub("", f[1])
-        if ver.startswith(f[0] + "-"):
-            ver = ver[len(f[0]) + 1:]
-        out[f[0]] = ver
+        if len(fields) != 3:
+            raise ValueError(f"invalid installed package entry: {line!r}")
+        name, filename, _ = fields
+        stem, count = _PKG_SUFFIX.subn("", filename)
+        prefix = name + "-"
+        if count != 1 or not stem.startswith(prefix) or stem == prefix or name in out:
+            raise ValueError(f"invalid or duplicate installed package: {line!r}")
+        out[name] = stem[len(prefix):]
     return out
-
-
-def upstream_version(v):
-    """「上游版本-打包修订号」→ 上游版本（paleo-dev.ps1 Get-UpstreamVersion 同口径）。"""
-    return re.sub(r"-\d+$", "", v)
-
-
-def compare_closure(installed, closure):
-    """paleo-dev.ps1 Compare-PinnedClosure 的同口径参考实现。
-
-    返回 (errors, warnings)：仅打包修订号漂移（上游版本一致）记 warning，
-    上游版本漂移 / 缺包 / 未钉版包装入记 error。
-    """
-    errors, warnings = [], []
-    for name, pinned in closure.items():
-        got = installed.get(name)
-        if got is None:
-            errors.append(f"缺包 {name}")
-        elif got != pinned:
-            (warnings if upstream_version(got) == upstream_version(pinned)
-             else errors).append(f"{name}: {got} / {pinned}")
-    errors.extend(f"未钉版 {k}" for k in installed if k not in closure)
-    return errors, warnings
 
 
 def resolve_closure(pkgs, direct):
@@ -189,17 +167,6 @@ version: 5.1-0
         "python3-core python3-core-3.12.7-1.tar.xz 0\n")
     assert db == {"libb": "4.0-1", "gsl": "2.7.101-1",
                   "python3-core": "3.12.7-1"}, db
-    # 漂移分级（review-fix-ci）：只重打包 → warning；上游版本变/缺/多 → error。
-    pin = {"gdal": "3.13.3-2", "proj": "9.6.0-1", "gsl": "2.7.101-1"}
-    assert upstream_version("3.13.3-3") == "3.13.3"
-    assert upstream_version("2.7.101-1") == "2.7.101"
-    assert compare_closure(dict(pin), pin) == ([], [])
-    e, w = compare_closure({"gdal": "3.13.3-3", "proj": "9.6.0-1", "gsl": "2.7.101-1"}, pin)
-    assert e == [] and len(w) == 1 and "gdal" in w[0], (e, w)
-    e, w = compare_closure({"gdal": "3.13.4-1", "proj": "9.6.0-1", "gsl": "2.7.101-1"}, pin)
-    assert len(e) == 1 and "gdal" in e[0] and w == [], (e, w)
-    e, w = compare_closure({"gdal": "3.13.3-2", "gsl": "2.7.101-1", "x": "1-1"}, pin)
-    assert len(e) == 2 and w == [], (e, w)
     closure = resolve_closure(pkgs, ["app"])
     assert closure == {"app": "3.0-1", "liba": "2.0-1", "libb": "4.0-1",
                        "base": "1.0-1"}, closure

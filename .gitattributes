@@ -21,3 +21,6 @@ vendor/fetch-ranuts-document.sh text eol=lf
 /tools/pi_supply_common.py text eol=lf
 /tools/prepare_pi_agent.py text eol=lf
 /tools/prepare_agent_python.py text eol=lf
+# The offline installer index is checked byte-for-byte against its SHA-256.
+/vendor/osgeo4w-setup.ini text eol=lf
+/vendor/osgeo4w-offline.lock.json text eol=lf

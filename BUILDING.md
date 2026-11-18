@@ -203,6 +203,23 @@ ctest --test-dir build -j8 --output-on-failure
 允许降级；Windows 使用已有 `CMAKE_PREFIX_PATH` 前缀或显式
 `-DQSCINTILLA_INCLUDE_DIR=<安装目录>/include` 提供头，详见任务框架历史账本。
 
+## Windows OSGeo4W 离线供货
+
+在可联网的机器上运行 `./paleo-dev.ps1 bootstrap fetch-only`，准备 Windows x64 缓存并得到一份已校验的安装树。复制 `vendor/cache/osgeo4w-offline` 和 `vendor/cache/onnxruntime` 到离线工作树。构建还需要按独立 worktree 的约定提供已经准备好的 Office 编辑组件 `vendor/ranuts-document`。使用 PowerShell 重放：
+
+```powershell
+$env:PALEO_VENDOR_OFFLINE = '1'
+./paleo-dev.ps1 bootstrap fetch-only
+./paleo-dev.ps1 build
+./paleo-dev.ps1 selfcheck
+$env:PALEO_CTEST_ARGS = '-j1 -LE perf --no-tests=error'
+./paleo-dev.ps1 test
+```
+
+`vendor/osgeo4w-offline.lock.json` 固定安装器、离线索引及每个归档的字节数和 SHA-256。bootstrap 先校验镜像，再以本地安装模式运行安装器，最后逐包校对 `installed.db`（包含 OSGeo4W 的打包修订号）。缺包或坏包会指出文件，原样保留以供诊断。用同一份锁从可信缓存补齐它，再重新运行。已存在的旧安装树或锁变更后的安装树应移到其他目录，由 bootstrap 在目标路径重装。
+
+有意升级时，准备 OSGeo4W 官方 `setup.ini` 中当前范围选中的归档与安装器。先用 `python -B tools/pin_osgeo4w.py --setup-ini <完整索引>` 更新 manifest，再用 `python -B tools/osgeo4w_offline.py generate --cache <镜像根> --installer <安装器> --index <新索引> --lock <新锁>` 生成新文件。镜像根下应有 `x86_64/setup.ini` 及 `x86_64/release`；生成命令写入新文件，避免覆盖当前锁。审查锁差异及上游来源、复跑本地离线验收后替换仓库中的索引与锁。保存按锁验证的缓存，供滚动上游下架历史包后重放。
+
 ## Windows 本机开发（localdeps 统一链，方向 72）
 
 Windows 构建会从固定的 `vendor/Data_service/vendor/freexl` 源码编译兼容版
@@ -433,7 +450,7 @@ layer-marker 全量判违规（by design，防漏网）；脚本同时打印
 
 ## 升级流程
 
-Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的干净环境运行 `./vendor/fetch-deps.sh --update-lock --print-only`，审查并提交新的 `vendor/deb-closure.lock`。正常 bootstrap 只读取锁文件，并仅解包锁内经过大小和 SHA-256 校验的文件。superbuild 升级则同步改 `vendor/superbuild/CMakeLists.txt` 的 `QGIS_URL` 与 `URL_HASH`（补丁文件名随版本重命名，需对目标版本 tarball 重验证 dry-run 干净），`vendor/cache/tarballs/` 缓存与哈希一并更新。**三路版本口径（superbuild 精确 / deb 闭包上游 / manifest `qgis_family` 家族）必须一起动**——`tools/check_qgis_versions.py`（ctest `qgis_versions` + CI lint）不一致即红。ONNX Runtime 升级则更新 `vendor/manifest.json` 的版本和摘要。Windows bootstrap 校验安装器 SHA-256，并核对 manifest 的 `qgis_family`、`packages` 与 `closure`。直接包与依赖闭包版本由 `tools/pin_osgeo4w.py` 刷新后审查提交；升级时复核 CI。
+Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的干净环境运行 `./vendor/fetch-deps.sh --update-lock --print-only`，审查并提交新的 `vendor/deb-closure.lock`。正常 bootstrap 只读取锁文件，并仅解包锁内经过大小和 SHA-256 校验的文件。superbuild 升级则同步改 `vendor/superbuild/CMakeLists.txt` 的 `QGIS_URL` 与 `URL_HASH`（补丁文件名随版本重命名，需对目标版本 tarball 重验证 dry-run 干净），`vendor/cache/tarballs/` 缓存与哈希一并更新。**三路版本口径（superbuild 精确 / deb 闭包上游 / manifest `qgis_family` 家族）必须一起动**——`tools/check_qgis_versions.py`（ctest `qgis_versions` + CI lint）不一致即红。ONNX Runtime 升级则更新 `vendor/manifest.json` 的版本和摘要。Windows 同时刷新 `vendor/manifest.json`、离线索引与归档锁，步骤见「Windows OSGeo4W 离线供货」。
 
 ## 性能度量与 CI 产物
 

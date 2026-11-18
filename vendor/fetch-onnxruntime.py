@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import os
 import platform
 import shutil
 import sys
@@ -25,6 +26,15 @@ def download(pin, archive):
             out.write(chunk)
     if count != expected["size_bytes"] or sha256.hexdigest() != expected["sha256"]:
         raise ValueError("ONNX Runtime archive size or SHA-256 differs from vendor/manifest.json")
+
+
+def validate_archive(archive, expected):
+    sha256 = hashlib.sha256()
+    with archive.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            sha256.update(chunk)
+    if archive.stat().st_size != expected["size_bytes"] or sha256.hexdigest() != expected["sha256"]:
+        raise ValueError(f"ONNX Runtime archive size or SHA-256 mismatch: {archive}")
 
 
 def extract(archive, stage, rid, linux):
@@ -53,7 +63,7 @@ def extract(archive, stage, rid, linux):
                 copy(f"runtimes/{rid}/native/{name}", stage / "lib" / name)
 
 
-def install(vendor, rid):
+def install(vendor, rid, offline):
     pin = json.loads((vendor / "manifest.json").read_text(encoding="utf-8"))["deps"]["onnxruntime"]
     dest = vendor / "onnxruntime"
     required = ["include/onnxruntime_c_api.h", "include/onnxruntime_cxx_api.h"]
@@ -66,12 +76,23 @@ def install(vendor, rid):
             print(f"ONNX Runtime already present: {dest}")
             return
         raise ValueError(f"Incomplete ONNX Runtime prefix: {dest}; move it aside and run bootstrap again")
-    print(f"Fetching ONNX Runtime {pin['version']} ({rid}) from NuGet", flush=True)
+    expected = pin["archive"]
+    cache = vendor / "cache" / "onnxruntime"
+    archive = cache / (expected["sha256"] + ".nupkg")
+    if archive.is_file():
+        validate_archive(archive, expected)
+    elif offline:
+        raise ValueError(f"Missing offline ONNX Runtime archive: {archive}")
+    else:
+        cache.mkdir(parents=True, exist_ok=True)
+        print(f"Fetching ONNX Runtime {pin['version']} ({rid}) from NuGet", flush=True)
+        with tempfile.TemporaryDirectory(prefix=".download-", dir=cache) as tmp:
+            downloaded = Path(tmp) / "runtime.nupkg"
+            download(pin, downloaded)
+            downloaded.replace(archive)
     with tempfile.TemporaryDirectory(prefix=".onnxruntime-", dir=vendor) as tmp:
-        archive = Path(tmp) / "runtime.nupkg"
         stage = Path(tmp) / "install"
         stage.mkdir()
-        download(pin, archive)
         extract(archive, stage, rid, pin.get("linux-x64"))
         if not all((stage / entry).is_file() for entry in required):
             raise ValueError("Pinned ONNX Runtime package is missing native headers or libraries")
@@ -83,6 +104,6 @@ if __name__ == "__main__":
         rid = {"Linux": "linux-x64", "Windows": "win-x64"}.get(platform.system())
         if not rid or platform.machine().lower() not in ("x86_64", "amd64"):
             raise ValueError("ONNX Runtime bootstrap requires x64 Linux or Windows")
-        install(Path(__file__).resolve().parent, rid)
+        install(Path(__file__).resolve().parent, rid, os.environ.get("PALEO_VENDOR_OFFLINE") == "1")
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
         sys.exit(f"ONNX Runtime bootstrap: {error}")

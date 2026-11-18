@@ -571,13 +571,11 @@ jobs:
       - name: Cache vendor artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          # #231：osgeo4w 安装树随包钉版缓存（key 已含 manifest.json 哈希，
-          # 钉版变更自动 bust）；命中时 bootstrap 直接跳过 setup。
+          # Bootstrap verifies the archives and recreates the private prefix from this cache.
           path: |
-            vendor/onnxruntime
-            vendor/cache
-            vendor/osgeo4w
-          key: ${{ runner.os }}-vendor-${{ hashFiles('vendor/manifest.json') }}
+            vendor/cache/osgeo4w-offline
+            vendor/cache/onnxruntime
+          key: ${{ runner.os }}-offline-vendor-${{ hashFiles('vendor/osgeo4w-offline.lock.json', 'vendor/manifest.json') }}
       # #134：Vendor 只取依赖；编译错误落在 Build 步骤（CI 下 ninja -k 0 一次暴露全部错误）。
       - name: Vendor dependencies (OSGeo4W route per docs/phase0/et0-vendor-comparison.md)
         shell: pwsh

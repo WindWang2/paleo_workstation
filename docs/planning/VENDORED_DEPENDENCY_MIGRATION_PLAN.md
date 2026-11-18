@@ -50,10 +50,10 @@ V3 开始取证，但切换验证复用 V3 的依赖目标。每批独立 PR，�
 | 批次 | 范围和交付 | 依赖 | 验收标准 |
 |---|---|---|---|
 | V0 证据与边界 | 为 Linux/Windows 的主构建、SDK、native-perf、superbuild 和发行树输出依赖来源清单。复用 CMake cache/imported target、编译 include、link map、PE/ELF 静态闭包、进程实际加载模块及插件日志。按 `项目前缀 / 工具链 / 宿主基础 ABI / 未解析或系统泄漏` 分类；先收集，不放宽红项。 | #1039、#1040 合并 | 从干净构建目录生成可比较的报告，记录提交、锁摘要、OS/编译器、真实路径、库版本、调用者及 stage。用受控样例验证误装同名库和缺失传递库能被识别。 |
-| V2 Windows 固定供货 | 固定 OSGeo4W 索引和所有选中归档的 URL、大小、SHA-256，按锁生成本地仓库，以离线方式执行经过验证的安装脚本或解包接线；保持现有 provider、Qt 和 ORT 版本。缓存键按锁与平台，不以缓存作为信任根；四分片共享同一份锁定义。将有意支持的 `localdeps` 转成可校验的锁定前缀。 | V0 | 空缓存从可信来源准备一次后，断公网重放得同一包清单；缺、坏档和版本漂移早失败。Windows 四分片、selfcheck、QPA/QSQLITE/Office、QGIS provider 与 CRS 探针通过；不依赖系统 Qt/QGIS。 |
-| V1 Linux CI 同源 Qt/GIS | 复用 deb 锁已有 Qt/GIS 归档，补 QtKeychain 开发件等缺项；锁定 CMake 配置、moc/lrelease、WebEngineProcess、QPA/QSQLITE 等，给 CI 显式受控前缀。清理 apt 安装应用库；关闭 bootstrap 检测系统 QGIS 而跳过供货的路径。 | V0 | 无 apt 应用库的干净 runner 上，lint、linux、linux-perf、linux-asan 完成原有步骤；缓存未命中也能构建；检查 Qt 全套头、工具和运行插件以及 QGIS/GDAL/PROJ/GEOS 来自受控前缀。模拟缺 Qt 模块、缺 provider、损坏归档均早失败。 |
+| V2 Windows 固定供货 | 固定 OSGeo4W 索引和所有选中归档的 URL、大小、SHA-256，按锁生成本地仓库，以离线方式执行经过验证的安装脚本或解包接线；保持现有 provider、Qt 和 ORT 版本。缓存键按锁与平台，不以缓存作为信任根；四分片共享同一份锁定义。将有意支持的 `localdeps` 转成可校验的锁定前缀。 | V0 | 空缓存从可信来源准备一次后，断公网重放得同一包清单；缺、坏档和版本漂移早失败。在本地 Windows 或干净 VM 复跑四分片覆盖的测试范围，验证 selfcheck、QPA/QSQLITE/Office、QGIS provider 与 CRS；不依赖系统 Qt/QGIS。 |
+| V1 Linux 同源 Qt/GIS | 复用 deb 锁已有 Qt/GIS 归档，补 QtKeychain 开发件等缺项；锁定 CMake 配置、moc/lrelease、WebEngineProcess、QPA/QSQLITE 等，给构建入口显式受控前缀。清理工作流里安装应用库的步骤；关闭 bootstrap 检测系统 QGIS 而跳过供货的路径。 | V0 | 本地干净 Linux 环境不预装 apt 应用库，冷缓存完成原有编译、回归、性能及 sanitizer 步骤；检查 Qt 全套头、工具和运行插件以及 QGIS/GDAL/PROJ/GEOS 来自受控前缀。模拟缺 Qt 模块、缺 provider、损坏归档均早失败。 |
 | V3 公共小库、SDK 和 native-perf | 收敛 zlib、zstd、SQLite、FreeXL/iconv 及实际用到的加密/数据配套。复用同一前缀入口并固定 imported targets，给 SDK 独立构建和 native-perf 提供无需 QGIS 安装的最小闭包。ORT 按锁启用或明确关闭，移除系统隐式发现。 | V1、V2；如需 SDK PR，先合 SDK 再提交主仓 gitlink | 两端最小配置、SDK 独立测试及 native-perf 数据/地统分支通过；ORT 开/关、压缩缓存、SQL 和 FreeXL 夹具通过。路径和符号来源可追溯；替换 PATH/系统同名库不得改变选中版本。 |
-| V4 源码路线闭包 | 按底座库 → Qt/配套 → GEOS/PROJ/GDAL → QGIS 顺序扩充 superbuild。小库优先源码，Qt WebEngine 等重件先用匹配的已锁二进制；用明确配置禁用未使用的可选依赖，仅当功能回归验证通过。保留现有 QGIS 补丁和 ABI 口径；Windows 以经过验证的二进制闭包为先，源码支持另按实测扩展。 | V0、V1、V3 | Linux weekly 在最低目标 ABI 的干净环境完成冷构建；各子工程 CMake cache 和运行闭包无未批准系统库。比较 QGIS 版本、补丁、provider/驱动、坐标变换和主项目功能；记录构建时间、峰值磁盘及产物大小。 |
+| V4 源码路线闭包 | 按底座库 → Qt/配套 → GEOS/PROJ/GDAL → QGIS 顺序扩充 superbuild。小库优先源码，Qt WebEngine 等重件先用匹配的已锁二进制；用明确配置禁用未使用的可选依赖，仅当功能回归验证通过。保留现有 QGIS 补丁和 ABI 口径；Windows 以经过验证的二进制闭包为先，源码支持另按实测扩展。 | V0、V1、V3 | 在本地最低目标 ABI 的干净 Linux 环境完成源码冷构建；各子工程 CMake cache 和运行闭包无未批准系统库。比较 QGIS 版本、补丁、provider/驱动、坐标变换和主项目功能；记录构建时间、峰值磁盘及产物大小。 |
 | V5 安装与发布树 | 修正 Linux RUNPATH 与资源、插件布局，收敛 Windows 两套打包入口的依赖来源规则。检查主程序、子进程、Qt/QGIS/GDAL 动态插件、数据库、证书与 Office 静态资源；生成来源、许可证、哈希清单。 | V1、V2、V3、V4 | 从安装树而非源码运行。移到不同绝对路径，用无开发前缀、纯净环境、断网 VM 运行 selfcheck 和代表性 GUI/数据/Agent 任务；无项目 DLL/so 越界、无缺插件和资源。破坏一项库或资源时校验明确失败。 |
 | V6 强制与收口 | 删除默认系统搜索、运行回退和旧兜底文案，统一审计到 CI；将供货锁刷新、缓存失效、离线恢复、取证写入构建文档。Calligra 只在其保留范围内独立验收；用户启用的外部解释器不写入主程序依赖。 | V5 | 无系统项目库的构建/安装/运行端到端通过；从磁盘放入同名系统依赖的反向用例仍拒绝。受控前缀、构建树和发行树可定位；零未说明系统项目库、零依赖基线放宽。 |
 
@@ -61,5 +61,6 @@ V3 开始取证，但切换验证复用 V3 的依赖目标。每批独立 PR，�
 受影响平台的完整非性能套件，涉及包供应时补冷缓存和离线验证。提 PR 前
 `git fetch`、`git rebase origin/master` 后重跑 Source gates，包含带真实 QGIS
 头路径的 transitive 门禁；PR 附实际编译、测试、锁差异和来源审计证据。性能与 ASan
-单列结果，不能用观察档、缓存命中或存在性检查代替必过车道。没有改变供应链的其他
-功能（包括 Agent Shell）不纳入本计划。
+单列本地结果，不能用缓存命中或存在性检查代替实际验证。按 `AGENTS.md` 以本地
+结果作为验收依据；不查询或等待托管 CI。没有改变供应链的其他功能（包括 Agent
+Shell）不纳入本计划。

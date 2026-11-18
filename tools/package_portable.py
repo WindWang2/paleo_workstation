@@ -116,8 +116,11 @@ def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin
         source = qt / "plugins" / group
         if source.is_dir():
             files.tree(source, f"plugins/{group}", "osgeo4w", prefix, is_release_dll)
-    files.tree(qt / "qml", "qml", "osgeo4w", prefix,
-               lambda path: path.suffix.lower() != ".dll" or is_release_dll(path))
+    qml = qt / "qml"
+    files.tree(qml, "qml", "osgeo4w", prefix,
+               lambda path: path.relative_to(qml).parts[0] != "QtTest"
+               and path.suffix.lower() != ".pdb"
+               and (path.suffix.lower() != ".dll" or is_release_dll(path)))
     files.tree(gis / "plugins", "qgis/plugins", "osgeo4w", prefix,
                lambda path: is_release_dll(path) and not path.name.startswith("plugin_"))
     files.tree(gdal / "lib/gdalplugins", "gdalplugins", "osgeo4w", prefix, is_release_dll)

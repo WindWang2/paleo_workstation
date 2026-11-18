@@ -88,9 +88,9 @@ def installable_sources(files, prefix, multiarch):
     qml = multiarch / "qt6/qml"
     if qml.is_dir():
         for path in sorted(qml.rglob("*")):
-            if path.is_file():
-                relative = path.relative_to(qml).as_posix()
-                target = files.copy(path, f"lib/qt6/qml/{relative}", "linux-prefix", prefix)
+            relative = path.relative_to(qml)
+            if path.is_file() and relative.parts[0] != "QtTest":
+                target = files.copy(path, f"lib/qt6/qml/{relative.as_posix()}", "linux-prefix", prefix)
                 if is_elf(path):
                     seeds[path] = target
 

@@ -112,7 +112,8 @@ def installable_sources(files, prefix, multiarch):
 
     web = prefix / "lib/qt6/libexec/QtWebEngineProcess"
     seeds[web] = files.copy(web, "lib/qt6/libexec/QtWebEngineProcess", "linux-prefix", prefix)
-    for relative in ("dri/swrast_dri.so", "dri/kms_swrast_dri.so", "libEGL_mesa.so.0", "libGLX_mesa.so.0"):
+    for relative in ("dri/swrast_dri.so", "dri/kms_swrast_dri.so", "libEGL_mesa.so.0",
+                     "libGLX_mesa.so.0", "libpipewire-0.3.so.0"):
         path = multiarch / relative
         if path.is_file():
             seeds[path] = files.copy(path, f"lib/{relative}", "linux-prefix", prefix)

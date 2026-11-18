@@ -328,8 +328,22 @@ switch ($Verb) {
                      '-P', (($pin.packages.PSObject.Properties.Name) -join ','))
       # The installer detaches when invoked directly; wait for the entire setup
       # process tree before inspecting installed.db or configuring CMake.
-      $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
-      if ($setupProcess.ExitCode -ne 0) { throw "OSGeo4W setup failed: $($setupProcess.ExitCode)" }
+      for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru -WindowStyle Hidden
+        if ($setupProcess.ExitCode -eq 0) { break }
+        # setup is a GUI executable; print and retain its diagnostics in CI.
+        $vendorLogs = Join-Path $Vendor 'logs'
+        New-Item -ItemType Directory -Force $vendorLogs | Out-Null
+        foreach ($name in 'setup.log', 'setup.log.full') {
+          $logPath = Join-Path $osgeo "var/log/$name"
+          if (Test-Path -LiteralPath $logPath) {
+            Copy-Item -LiteralPath $logPath -Destination (Join-Path $vendorLogs "osgeo4w-$attempt-$name")
+            if ($name -eq 'setup.log') { Get-Content -LiteralPath $logPath -Tail 25 | Write-Host }
+          }
+        }
+        if ($attempt -eq 3) { throw "OSGeo4W setup failed after $attempt attempts: $($setupProcess.ExitCode)" }
+        Write-Warning "OSGeo4W setup attempt $attempt failed ($($setupProcess.ExitCode)); retrying with the existing package cache"
+      }
       # 装后校验（#231）：漂移不再静默——逐包比对闭包钉版，不一致即红并给
       # 出机械刷新路径。
       $installed = Read-InstalledDbMap $installedDb

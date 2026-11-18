@@ -115,6 +115,12 @@ function Enter-VendorEnvironment {
   $script:DepsRoute = 'vendored'
   $env:QGIS_PREFIX_PATH = Join-Path $osgeo 'apps\qgis'
   $env:CMAKE_PREFIX_PATH = Join-Path $osgeo 'apps\qt6'
+  # OSGeo4W 的 bin/python.exe 需要其启动脚本设置 PYTHONHOME；CI 测试和源码
+  # 闸门使用原有宿主解释器的绝对路径，不依赖 OSGeo4W Python 环境。
+  if (-not $env:PALEO_PYTHON) {
+    $hostPython = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($hostPython) { $env:PALEO_PYTHON = $hostPython.Source }
+  }
   # vendored onnxruntime 必须排在 OSGeo4W bin 之前——OSGeo4W 自带
   # onnxruntime 1.17.1，我们的头文件是 1.30（ABI 30）；PATH 顺序错了
   # 会加载旧 DLL，会话构造直接段错误（tst_onnx 实锤）。
@@ -403,7 +409,13 @@ switch ($Verb) {
         "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH" `
         "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
     } else {
-      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
+      $pythonArgs = @()
+      if ($env:PALEO_PYTHON) {
+        $pythonArgs += "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
+        $pythonArgs += "-DPALEO_PYTHON3=$env:PALEO_PYTHON"
+        $pythonArgs += "-DPython3_EXECUTABLE=$env:PALEO_PYTHON"
+      }
+      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')" @pythonArgs
     }
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     Repair-NinjaMsvcDependencyPrefix $Build

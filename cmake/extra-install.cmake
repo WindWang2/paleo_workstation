@@ -123,8 +123,12 @@ install(TARGETS paleo paleo_selfcheck
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(TARGETS paleo_data_snapshot_worker RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+if(TARGET paleo_freexl_runtime)
+  get_target_property(_paleo_freexl_runtime paleo_freexl_runtime PALEO_RUNTIME_FILE)
+  install(FILES "${_paleo_freexl_runtime}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 if(WIN32 AND TARGET paleo_freexl_runtime)
-  install(FILES "${CMAKE_BINARY_DIR}/paleo_freexl.dll" DESTINATION ${CMAKE_INSTALL_BINDIR})
   install(FILES vendor/Data_service/vendor/freexl/NOTICE.txt
     vendor/Data_service/vendor/freexl/LGPL-2.1.txt
     vendor/Data_service/vendor/freexl/spreadsheet_compat.patch

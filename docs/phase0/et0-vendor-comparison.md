@@ -15,7 +15,7 @@ TTHW 预算：1 命令 + ≤2h 无人值守（§44.1）。
 | QGIS 4.2.x + dev 头 | qgis.org/ubuntu + qgis.org/debian：`libqgis-dev` + `libqgis-core4.x/gui4.x/analysis4.x`（版本化 .deb，pool 保留旧版）*实现前需验证：`apt-get download libqgis-dev=4.2.*`* | OSGeo4W：`qgis-4.2.2-1` + **`qgis-devel-4.2.0-1`**（headers + import libs，已确认存在） | 版本化 URL + SHA256/SHA512 |
 | Qt6 | 发行版 qt6-base-dev（questing 6.9.2 / trixie 6.8.2）或 aqt 官方二进制 | OSGeo4W qt6-devel 6.11.1（推荐与 vendor 同源）或 aqt `win64_msvc2022_64` | 同上 |
 | GDAL/PROJ/GEOS/其余 | deb 闭包 | OSGeo4W dep 闭包 | 同上 |
-| ONNX Runtime | GitHub 官方 release `onnxruntime-linux-x64`（manylinux_2_28，glibc≥2.28） | `onnxruntime-win-x64`（MSVC） | 自建 SHA256（官方无 sidecar） |
+| ONNX Runtime | 微软 NuGet 包 `Microsoft.ML.OnnxRuntime` 的 linux-x64 原生库（glibc≥2.28） | 同一包的 win-x64 DLL 和 MSVC 导入库 | 下载后按 manifest 核对大小及 SHA-256，再提取指定平台文件 |
 | 运行时资源（srs.db/proj.db/GDAL_DATA/SVG/Qt 插件） | `/usr/lib/qgis`、`/usr/share/qgis` + distro data | `apps/qgis/{resources,svg,plugins}`、`apps/Qt6/plugins` | 随包自带 |
 
 ## ABI / 工具链配对
@@ -58,7 +58,7 @@ TTHW 预算：1 命令 + ≤2h 无人值守（§44.1）。
 |------|--------|-----------------|----------------------|
 | superbuild 源码构建 | 本机首选开发路（`paleo-dev` 见 `vendor/superbuild/prefix` 自动注入 `QGIS_PREFIX_PATH`） | 4.2.2，tarball URL + SHA256（`vendor/superbuild/CMakeLists.txt` 的 `URL_HASH`） | 打（`patches/qgis-4.2.2-labels-with-layer.patch`；打不上 `apply-patch.cmake` FATAL） |
 | qgis.org apt / deb 闭包 | CI lint/linux/linux-perf；Linux 本机 deb 路（`vendor/prefix/usr`） | `1:4.2.3+44resolute`，单一来源 `vendor/deb-closure.lock`（`tools/ci_apt_qgis.sh` 写 apt preferences 钉死；钉版被索引下架时 warning 回退当前版，`QGIS_PIN_STRICT=1` 转红） | 不打（原生二进制包） |
-| OSGeo4W | Windows CI 与本机（`paleo-dev.ps1`） | `4.2.x` 家族；直接包 10 个 + requires 全闭包共 114 个逐版本钉在 `vendor/manifest.json` `deps.osgeo4w`（`tools/pin_osgeo4w.py` 刷新，装后 `installed.db` 双向比对，漂移即红） | 不打 |
+| OSGeo4W | Windows CI 与本机（`paleo-dev.ps1`） | `4.2.x` 家族；直接包 10 个及 requires 全闭包逐版本钉在 `vendor/manifest.json` `deps.osgeo4w`（`tools/pin_osgeo4w.py` 刷新，装后 `installed.db` 双向比对，漂移即红） | 不打 |
 
 - 未打补丁 = 标注层序特性按**可选增强**对待：`src/qgis/qgislabelzorder.cpp` 在缺补丁的构建上打一次 `qInfo` 降级提示；`tst_labelzorder` 的 `labelsStackWithLayer*` 依赖补丁床，在未打补丁的构建上 SKIP。
 - **已知缺口（#138 遗留项）**：CI 尚无构建带补丁 superbuild prefix 的 leg（冷启约 1.5–3h，缓存 key 需含 patch/版本哈希），UI 层暂无降级提示（目前只有日志）。二者落地前，`labelsStackWithLayer*` 在 CI 上保持 SKIP、补丁代码的像素回归只在超级建造本机受保护。

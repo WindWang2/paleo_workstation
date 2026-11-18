@@ -56,32 +56,7 @@ else
 fi
 
 # ONNX Runtime: always vendored (no distro guarantee of dev headers).
-ORT_DIR=vendor/onnxruntime
-if [ -f "$ORT_DIR/lib/libonnxruntime.so" ]; then
-  note "onnxruntime vendored already"
-else
-  # PW-052：按 deps.onnxruntime 键解析 manifest（原 grep|head -1 依赖块顺序）。
-  ort_field() {
-    python3 - "$1" <<'PY'
-import json, sys
-d = json.load(open("vendor/manifest.json"))["deps"].get("onnxruntime", {})
-v = {"version": d.get("version"), "url": d.get("url"),
-     "sha256": (d.get("archive") or {}).get("sha256")}[sys.argv[1]]
-print(v or "")
-PY
-  }
-  ort_ver=$(ort_field version)
-  ort_url=$(ort_field url)
-  ort_sha=$(ort_field sha256)
-  if [ -n "$ort_url" ]; then
-    note "fetching onnxruntime $ort_ver"
-    curl -fSL "$ort_url" -o vendor/ort.tgz
-    echo "$ort_sha  vendor/ort.tgz" | sha256sum -c - || fail "ort sha256 mismatch" "re-pin vendor/manifest.json"
-    mkdir -p "$ORT_DIR" && tar xzf vendor/ort.tgz -C "$ORT_DIR" --strip-components=1 && rm vendor/ort.tgz
-  else
-    echo "  !! no onnxruntime url in vendor/manifest.json — spike3 agent populates it"
-  fi
-fi
+python3 vendor/fetch-onnxruntime.py
 
 if [ "$FETCH_ONLY" = 1 ]; then
   echo "== fetch-only: skip configure/build/selfcheck (deps vendored above) =="

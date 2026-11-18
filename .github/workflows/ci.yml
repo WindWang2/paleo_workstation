@@ -18,7 +18,7 @@ env:
   # #874 并行度口径：全局默认 2（e181da02 起为主编译限并行——MSVC/GCC 编含
   # QGIS 头的 TU 单进程内存峰值高，标准 runner 内存有限）。显式 `--parallel 8` 只出现在
   # 两处且有意为之：lint 的 *_autogen（只跑 moc/uic，不编译，内存可忽略）与
-  # linux-asan Build（独立非阻断 job，-g1 -gz 压调试信息内存）。上限 8 同
+  # linux-asan Build（独立非阻断 job，见下方链接磁盘治理）。上限 8 同
   # AGENTS.md「构建/测试 -j8 以内」。新增 --parallel 须在此处补口径。
   CMAKE_BUILD_PARALLEL_LEVEL: 2
   # #764：flaky 台账 strict 档默认关闭 ⇒ 串行/直跑重跑放行「同一测试累计 ≥3 次」
@@ -86,10 +86,14 @@ jobs:
         with:
           path: |
             vendor/cache/debs
-          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}-mf-${{ hashFiles('vendor/manifest.json') }}
-      # compile_commands 需要 QGIS 头——bootstrap 拉 deb 闭包到 vendor/prefix。
-      # fetch-only：只取依赖不编译（bootstrap 尾部的 build/selfcheck 属
-      # linux job，lint 只要 compile_commands）。
+          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          restore-keys: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}-mf-
+      - name: Cache ONNX Runtime
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
+        with:
+          path: vendor/onnxruntime
+          key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
+      # 只拉依赖，不编译；compile_commands 仍覆盖 ORT 专用翻译单元。
       - name: Vendor dependencies (deb 闭包，QGIS 头来源 #76)
         run: ./paleo-dev bootstrap fetch-only
       - name: Configure (compile_commands.json only)
@@ -231,10 +235,14 @@ jobs:
       - name: Cache vendor artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          path: |
-            vendor/onnxruntime
-            vendor/cache/debs
-          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          path: vendor/cache/debs
+          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          restore-keys: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}-mf-
+      - name: Cache ONNX Runtime
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
+        with:
+          path: vendor/onnxruntime
+          key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap fetch-only
       - name: Build
@@ -375,10 +383,14 @@ jobs:
       - name: Cache vendor artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          path: |
-            vendor/onnxruntime
-            vendor/cache/debs
-          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          path: vendor/cache/debs
+          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          restore-keys: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}-mf-
+      - name: Cache ONNX Runtime
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
+        with:
+          path: vendor/onnxruntime
+          key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap fetch-only
       - name: Configure
@@ -476,19 +488,21 @@ jobs:
       - name: Cache vendor artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          path: |
-            vendor/onnxruntime
-            vendor/cache/debs
-          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          path: vendor/cache/debs
+          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          restore-keys: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}-mf-
+      - name: Cache ONNX Runtime
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
+        with:
+          path: vendor/onnxruntime
+          key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap fetch-only
       # 裸跑 cmake 不经 paleo-dev 顶部的 QGIS_PREFIX_PATH 自动注入（linux
       # 主 job 用 ./paleo-dev build 自带；linux-perf 的 Configure 同样显式给）。
-      # -gz：目标文件与链接产物的调试段 zlib 压缩（调试信息不减，ASan 栈的
-      # 文件:行号符号化不受影响），只作用于本 job，不改 CMakeLists 默认。
-      # review-fix-ci：-gz 仍在 ~2225/2479 链接步磁盘耗尽——再把调试级降到
-      # -g1（仅行号表，ASan/UBSan 栈仍有 文件:行号，丢的是局部变量/类型信息），
-      # 调试段体量约降一个量级。
+      # 仅压缩调试段仍不够：run 44142072503 的 build 在最后一批链接前已占 116G。
+      # GCC 通过运行时调用执行 ASan 检查，减少重复内联检查；链接器丢弃不可达的
+      # 函数和数据段。保留 -g1 行号及两种 sanitizer，继续构建和运行全部测试。
       - name: Configure (ASAN+UBSAN)
         env:
           QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
@@ -496,8 +510,10 @@ jobs:
           -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON
           "-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG" "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG"
           -DPALEO_SANITIZER_DEBUG_FLAG=-g1
-          -DCMAKE_C_FLAGS=-gz -DCMAKE_CXX_FLAGS=-gz
-          -DCMAKE_EXE_LINKER_FLAGS=-gz -DCMAKE_SHARED_LINKER_FLAGS=-gz -DCMAKE_MODULE_LINKER_FLAGS=-gz
+          "-DCMAKE_C_FLAGS=-gz -ffunction-sections -fdata-sections --param=asan-instrumentation-with-call-threshold=0"
+          "-DCMAKE_CXX_FLAGS=-gz -ffunction-sections -fdata-sections --param=asan-instrumentation-with-call-threshold=0"
+          "-DCMAKE_EXE_LINKER_FLAGS=-gz -Wl,--gc-sections"
+          -DCMAKE_SHARED_LINKER_FLAGS=-gz -DCMAKE_MODULE_LINKER_FLAGS=-gz
       - name: Build
         run: cmake --build build --parallel 8
       - name: Disk usage after build

@@ -77,9 +77,10 @@ if("welllogset" IN_LIST PALEO_NATIVE_PERF_TESTS)
     catalog/datacatalog.cpp catalog/datacatalog_entities.cpp catalog/datacatalog_assets.cpp
     catalog/datacatalog_links.cpp catalog/datacatalog_versions.cpp catalog/datacatalog_derivation.cpp
     catalog/datacatalog_projection.cpp catalog/datacatalog_export.cpp
-    catalog/catalogindex.cpp catalog/roleregistry.cpp catalog/purgelease.cpp
+    catalog/catalogindex.cpp catalog/catalogindex_metadata.cpp catalog/roleregistry.cpp catalog/purgelease.cpp
     catalog/catalogstore.cpp catalog/catalogstore_schema.cpp catalog/catalogstore_crud.cpp
-    catalog/catalogstore_json.cpp catalog/areawellprojection.cpp catalog/wellavailability.cpp
+    catalog/catalogstore_json.cpp catalog/catalogstore_publications.cpp catalog/publicationreceipt.cpp
+    catalog/areawellprojection.cpp catalog/wellavailability.cpp
     catalog/externalsourceverification.cpp metadata/managedpath.cpp metadata/metastore.cpp
     domain/documentsource.cpp domain/documentrelation.cpp domain/deviationsurvey.cpp
     io/wellcompositexml.cpp domain/wellcompositemodel.cpp)

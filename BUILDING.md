@@ -90,7 +90,7 @@ Native Runtime 依赖的来源路线：
 例外（不 vendored，沿用系统/官方二进制）：Qt6（体积与构建时长，
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
 编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
-（ABI floor，无法 vendored）、ONNX Runtime（官方 release SHA256 pin，
+（ABI floor，无法 vendored）、ONNX Runtime（微软 NuGet 原生库，校验归档大小和 SHA-256，
 与 QGIS 路线正交）。Office 原件使用钉死提交的 **ranuts/document**
 静态编辑页（OnlyOffice WASM，无文档服务器），也不把原件转成 PDF。
 `vendor/fetch-ranuts-document.sh` 把构建结果装到 `vendor/ranuts-document/`（gitignored）。

@@ -954,7 +954,7 @@ bool PaleoOnnxService::runtimeAvailable()
   if ( libDir.isEmpty() )
     return false;
 #ifdef Q_OS_WIN
-  // manifest.json onnxruntime_win.layout.bin：vendor/onnxruntime/lib/onnxruntime.dll
+  // fetch-onnxruntime.py 保持 vendor/onnxruntime/lib/onnxruntime.dll 布局。
   return QFile::exists( libDir + QStringLiteral( "/onnxruntime.dll" ) );
 #else
   // Accept the versioned soname or the unversioned dev symlink.

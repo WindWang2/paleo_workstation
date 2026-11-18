@@ -115,6 +115,12 @@ function Enter-VendorEnvironment {
   $script:DepsRoute = 'vendored'
   $env:QGIS_PREFIX_PATH = Join-Path $osgeo 'apps\qgis'
   $env:CMAKE_PREFIX_PATH = Join-Path $osgeo 'apps\qt6'
+  # OSGeo4W 的 bin/python.exe 需要其启动脚本设置 PYTHONHOME；CI 测试和源码
+  # 闸门使用原有宿主解释器的绝对路径，不依赖 OSGeo4W Python 环境。
+  if (-not $env:PALEO_PYTHON) {
+    $hostPython = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($hostPython) { $env:PALEO_PYTHON = $hostPython.Source }
+  }
   # vendored onnxruntime 必须排在 OSGeo4W bin 之前——OSGeo4W 自带
   # onnxruntime 1.17.1，我们的头文件是 1.30（ABI 30）；PATH 顺序错了
   # 会加载旧 DLL，会话构造直接段错误（tst_onnx 实锤）。
@@ -322,8 +328,22 @@ switch ($Verb) {
                      '-P', (($pin.packages.PSObject.Properties.Name) -join ','))
       # The installer detaches when invoked directly; wait for the entire setup
       # process tree before inspecting installed.db or configuring CMake.
-      $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
-      if ($setupProcess.ExitCode -ne 0) { throw "OSGeo4W setup failed: $($setupProcess.ExitCode)" }
+      for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru -WindowStyle Hidden
+        if ($setupProcess.ExitCode -eq 0) { break }
+        # setup is a GUI executable; print and retain its diagnostics in CI.
+        $vendorLogs = Join-Path $Vendor 'logs'
+        New-Item -ItemType Directory -Force $vendorLogs | Out-Null
+        foreach ($name in 'setup.log', 'setup.log.full') {
+          $logPath = Join-Path $osgeo "var/log/$name"
+          if (Test-Path -LiteralPath $logPath) {
+            Copy-Item -LiteralPath $logPath -Destination (Join-Path $vendorLogs "osgeo4w-$attempt-$name")
+            if ($name -eq 'setup.log') { Get-Content -LiteralPath $logPath -Tail 25 | Write-Host }
+          }
+        }
+        if ($attempt -eq 3) { throw "OSGeo4W setup failed after $attempt attempts: $($setupProcess.ExitCode)" }
+        Write-Warning "OSGeo4W setup attempt $attempt failed ($($setupProcess.ExitCode)); retrying with the existing package cache"
+      }
       # 装后校验（#231）：漂移不再静默——逐包比对闭包钉版，不一致即红并给
       # 出机械刷新路径。
       $installed = Read-InstalledDbMap $installedDb
@@ -363,24 +383,10 @@ switch ($Verb) {
       if (-not (Test-Path (Join-Path $osgeo $required))) { throw "OSGeo4W closure missing $required" }
     }
 
-    $ortPin = (Get-Content (Join-Path $Vendor 'manifest.json') -Raw | ConvertFrom-Json).deps.onnxruntime_win
-    if ($ortPin) {
-      $ortDest = Join-Path $Vendor 'onnxruntime'
-      if (-not (Test-Path (Join-Path $ortDest 'include\onnxruntime_c_api.h'))) {
-        Write-Host "Fetching ONNX Runtime Windows archive..."
-        $ortZip = Join-Path $Vendor 'onnxruntime-win-x64.zip'
-        Invoke-WebRequest -Uri $ortPin.url -OutFile $ortZip
-        $actualOrt = (Get-FileHash $ortZip -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actualOrt -ne $ortPin.archive.sha256) { throw "ONNX Runtime Windows archive SHA256 mismatch: $actualOrt" }
-        $tmpOrt = Join-Path $Vendor 'tmp-ort'
-        Expand-Archive -Path $ortZip -DestinationPath $tmpOrt -Force
-        $inner = Get-ChildItem -Path $tmpOrt | Select-Object -First 1
-        if (Test-Path $ortDest) { Remove-Item -Recurse -Force $ortDest }
-        Move-Item -Path $inner.FullName -Destination $ortDest -Force
-        Remove-Item -Recurse -Force $tmpOrt, $ortZip
-      }
-    }
-
+    # Use the host's Python before OSGeo4W puts its python.exe shim on PATH.
+    $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+    & $py -I (Join-Path $Vendor 'fetch-onnxruntime.py')
+    if ($LASTEXITCODE -ne 0) { throw 'ONNX Runtime bootstrap failed' }
     Enter-VendorEnvironment
     if ($Arg -eq 'fetch-only') {
       Write-Host "== fetch-only: skip build/selfcheck (run 'build' then 'selfcheck') =="
@@ -417,7 +423,13 @@ switch ($Verb) {
         "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH" `
         "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
     } else {
-      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
+      $pythonArgs = @()
+      if ($env:PALEO_PYTHON) {
+        $pythonArgs += "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
+        $pythonArgs += "-DPALEO_PYTHON3=$env:PALEO_PYTHON"
+        $pythonArgs += "-DPython3_EXECUTABLE=$env:PALEO_PYTHON"
+      }
+      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')" @pythonArgs
     }
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     Repair-NinjaMsvcDependencyPrefix $Build

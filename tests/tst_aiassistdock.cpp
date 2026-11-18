@@ -3,7 +3,6 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
-#include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
@@ -38,8 +37,7 @@ const char kDone[] =
   "data: [DONE]\n\n";
 const char kToolChunk[] =
   "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\","
-  "\"function\":{\"name\":\"paleo.well_facies_prediction\",\"arguments\":\"{\\\"model\\\":\\\"f1\\\","
-  "\\\"well_name\\\":\\\"A\\\"}\"}}]}}]}\n\n"
+  "\"function\":{\"name\":\"paleo.query_project\",\"arguments\":\"{\\\"topic\\\":\\\"well_facies_models\\\"}\"}}]}}]}\n\n"
   "data: [DONE]\n\n";
 // 方向62：markdown 形态回答（表格 + 粗体 + 行内代码），验证流结束后的
 // 定型渲染（流式期间是纯文本，结束后替换为富文本）。
@@ -124,6 +122,7 @@ class TestAiAssistDock : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase();
+  void cleanup();
   void unconfiguredControllerShowsDisabledState();
   void streamingRendersIntoTranscript();
   void toolCallRendersPlaceholderCard();
@@ -152,21 +151,22 @@ private:
     config.apiKey = "sk-test-fixture";
     return config;
   }
-  void dropSession(AiChatController *controller) {
-    if (!controller)
-      return;
-    QString error;
-    ChatSessionStore::remove(controller->session().id, &error);
-  }
 };
 
 void TestAiAssistDock::initTestCase() {
   PaleoTheme::pinRenderEnvironment(); // 字体/主题钉死（渲染断言稳定）
   // 会话存储重定向 .qttest 沙箱：Windows 上 XDG env 不改写 QStandardPaths，
-  // 不重定向的话 combo/列表断言会被本机真实会话存量污染；再清一次目录
-  // 防上轮残留（计数断言要确定态）。
+  // 不重定向的话 combo/列表断言会被本机真实会话存量污染。
   QStandardPaths::setTestModeEnabled(true);
-  QDir(ChatSessionStore::directory()).removeRecursively();
+  cleanup();
+}
+
+void TestAiAssistDock::cleanup() {
+  // QtTest 即使用例提前退出也会调用 cleanup，避免残留会话污染计数断言。
+  for (const QString &id : ChatSessionStore::listIds()) {
+    QString error;
+    QVERIFY2(ChatSessionStore::remove(id, &error), qPrintable(error));
+  }
 }
 
 void TestAiAssistDock::unconfiguredControllerShowsDisabledState() {
@@ -214,7 +214,6 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
   QVERIFY2(text.contains(QStringLiteral("这段是什么岩性？")),
            qPrintable(text)); // 用户那条也要上屏
   QVERIFY(empty->isHidden()); // #870：有对话即隐藏空态
-  dropSession(&controller);
 }
 
 void TestAiAssistDock::toolCallRendersPlaceholderCard() {
@@ -226,7 +225,7 @@ void TestAiAssistDock::toolCallRendersPlaceholderCard() {
   auto *cards = dock.findChild<QWidget *>(QStringLiteral("aiAssistantToolCards"));
   QVERIFY(cards);
   dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))
-    ->setPlainText(QStringLiteral("帮我跑一下测井相"));
+    ->setPlainText(QStringLiteral("查一下有哪些测井相模型"));
   dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"))->click();
   QVERIFY2(spinUntil([&cards] {
              return !cards->findChildren<QFrame *>(
@@ -244,8 +243,8 @@ void TestAiAssistDock::toolCallRendersPlaceholderCard() {
   for (QLabel *label : cardList.first()->findChildren<QLabel *>())
     cardText += label->text() + QLatin1Char('\n');
   QVERIFY2(cardText.contains(QStringLiteral("失败")), qPrintable(cardText));
-  QVERIFY2(cardText.contains(QStringLiteral("未配置")), qPrintable(cardText));
-  dropSession(&controller);
+  QVERIFY2(cardText.contains(QStringLiteral("well_endpoint_unavailable")), qPrintable(cardText));
+  QCOMPARE(server.requestCount(), 2);
 }
 
 void TestAiAssistDock::errorStateIsRenderedWithReason() {
@@ -264,7 +263,6 @@ void TestAiAssistDock::errorStateIsRenderedWithReason() {
            }),
            qPrintable(transcript->toPlainText()));
   QVERIFY(!controller.streaming());
-  dropSession(&controller);
 }
 
 // 方向62：流式期间纯文本，流结束整块替换为 markdown 渲染（表格要成为
@@ -296,7 +294,6 @@ void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
     }
   }
   QVERIFY2(hasTableFrame, "markdown 表格必须渲染成 QTextTable（帧结构）");
-  dropSession(&controller);
 }
 
 // 方向62：会话切换 round-trip——openSessionRequested 真实 emit + 装配侧
@@ -370,10 +367,6 @@ void TestAiAssistDock::sessionSwitchRoundTripsContentAndScroll() {
   controller.loadSession(longSession.id);
   QCOMPARE(scroll->value(), effective);
   QVERIFY(transcript->toPlainText().contains(QStringLiteral("第1层")));
-
-  dropSession(&controller);
-  ChatSessionStore::remove(longSession.id, &error);
-  ChatSessionStore::remove(idA, &error); // 清干净，别污染后续用例的计数断言
 }
 
 // 方向62：重命名/删除后下拉同步（sessionListChanged → refreshSessions）。
@@ -405,7 +398,6 @@ void TestAiAssistDock::renameAndDeleteKeepComboInSync() {
   QVERIFY(!ChatSessionStore::load(idA, &stored, &error));
   QCOMPARE(combo->count(), 1);
   QVERIFY(combo->itemText(0).contains(QStringLiteral("未命名")));
-  dropSession(&controller);
 }
 
 // 方向62：复制——有选区复制选区（单条/局部），无选区复制整段。
@@ -440,7 +432,6 @@ void TestAiAssistDock::copyButtonPutsSelectionOrWholeTranscriptOnClipboard() {
   copy->click();
   QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("你：")
                                                   .left(2));
-  dropSession(&controller);
 }
 
 // 方向62：重发最后一条用户消息——新请求发出（服务器计数 +1），历史不
@@ -472,7 +463,6 @@ void TestAiAssistDock::resendIssuesNewRequestWithoutDuplicatingHistory() {
   QCOMPARE(controller.messages().size(), 2); // user + assistant（无重复 user）
   QCOMPARE(controller.messages().last().content, firstAnswer); // 同源同答
   QCOMPARE(transcript->toPlainText().count(firstAnswer), 1);   // 旧回答被截掉
-  dropSession(&controller);
 }
 
 // 方向62 ledger 截图（无人值守证据）：默认跳过；设 PALEO_AI_SHOT_DIR 时
@@ -498,7 +488,6 @@ void TestAiAssistDock::captureLedgerScreenshots() {
   QVERIFY2(dock.grab()
              .save(dir + QStringLiteral("/ai-ux-dock-markdown.png")),
            "dock 截图落盘失败");
-  dropSession(&controller);
 }
 
 QTEST_MAIN(TestAiAssistDock)

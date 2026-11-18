@@ -123,7 +123,9 @@ def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin
                and (path.suffix.lower() != ".dll" or is_release_dll(path)))
     files.tree(gis / "plugins", "qgis/plugins", "osgeo4w", prefix,
                lambda path: is_release_dll(path) and not path.name.startswith("plugin_"))
-    files.tree(gdal / "lib/gdalplugins", "gdalplugins", "osgeo4w", prefix, is_release_dll)
+    gdal_plugins = gdal / "lib/gdalplugins"
+    files.copy(gdal_plugins / "drivers.ini", "gdalplugins/drivers.ini", "osgeo4w", prefix)
+    files.tree(gdal_plugins, "gdalplugins", "osgeo4w", prefix, is_release_dll)
     entries.extend(files.output.rglob("*.dll"))
     freexl = build / "paleo_freexl.dll"
     if freexl.is_file():
@@ -233,7 +235,9 @@ def main():
                         zipped.write(path, path.relative_to(output.parent))
         print(f"Windows portable runtime: {output}")
     except (KeyError, OSError, ValueError, subprocess.SubprocessError) as error:
-        parser.exit(1, f"{error}\n{getattr(error, 'stderr', '') or ''}")
+        outputs = (getattr(error, "stdout", None), getattr(error, "stderr", None))
+        diagnostics = "\n".join(str(output) for output in outputs if output)
+        parser.exit(1, f"{error}\n{diagnostics}")
 
 
 if __name__ == "__main__":

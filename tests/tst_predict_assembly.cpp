@@ -249,7 +249,7 @@ int main(int argc, char *argv[])
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   QgsApplication::processingRegistry(); // ensure registry alive
   GDALAllRegister();

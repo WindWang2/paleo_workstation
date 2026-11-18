@@ -110,7 +110,7 @@ private slots:
 int main(int argc, char **argv) {
   QTemporaryDir profile; qputenv("QGIS_CUSTOM_CONFIG_PATH", profile.path().toUtf8());
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.init(); app.createDatabase(); app.initQgis(); GDALAllRegister();
   TestFaciesCoverage test; const int result = QTest::qExec(&test, argc, argv);
   QgsApplication::exitQgis(); return result;

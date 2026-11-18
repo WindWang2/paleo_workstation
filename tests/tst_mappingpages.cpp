@@ -2647,7 +2647,7 @@ void WorkbenchPageTests::attributionTargetsListAndActivationPayload()
 int main(int argc, char *argv[])
 {
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
 
   // add_paleo_test 传入单一 -o 路径；多 qExec 会互相覆盖。每类跑完后另存一份

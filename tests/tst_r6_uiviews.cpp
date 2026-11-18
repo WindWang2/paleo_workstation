@@ -184,7 +184,7 @@ void TestR6UiViews::previewCurveSortedAndLasNullDropped() {
 
 int main(int argc, char *argv[]) {
   QgsApplication app(argc, argv, true);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   TestR6UiViews t;
   const int rc = QTest::qExec(&t, argc, argv);

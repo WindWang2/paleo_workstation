@@ -278,7 +278,7 @@ private slots:
 };
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, true);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   const QUrl proxyUrl(qEnvironmentVariable("PALEO_WELL_INPUT_HTTP_PROXY"));
   if (!proxyUrl.host().isEmpty())

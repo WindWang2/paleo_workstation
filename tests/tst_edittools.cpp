@@ -4750,7 +4750,7 @@ void TestEditTools::vertexTopoCrossLayerParticipantDestructionMidDrag()
 int main( int argc, char *argv[] )
 {
   QgsApplication app( argc, argv, false );
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   TestEditTools tc;
   const int rc = QTest::qExec( &tc, argc, argv );

@@ -48,9 +48,7 @@ class QgisRuntime
     }
     // prefix 解析的唯一事实（#483）：QGIS_PREFIX_PATH env > 显式实参 >
     // defaultPrefixPath()。initialize / paleo_mkproject / selfcheck 共用——
-    // 此前各处手工复制「env 或缺省」序列，规则出现多份事实。注意显式实参
-    // 不压 env：数十个测试 main 以 "/usr" 作兜底实参、依赖 CI 注入的 env
-    // 覆盖它；CLI --prefix 想压 env 须在 main() 里 qputenv（见 src/app/main.cpp）。
+    // CTest 注入构建选择的 QGIS 前缀，CLI --prefix 在 main() 里设置同一环境变量。
     // 头内联与 defaultPrefixPath 同款（paleo_selfcheck 只链接口面不链
     // paleo_qgis，体外实现会断链）。
     static QString resolvePrefixPath( const QString &explicitPrefix,

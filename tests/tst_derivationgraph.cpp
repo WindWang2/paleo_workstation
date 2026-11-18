@@ -379,7 +379,7 @@ private slots:
 
 int main(int argc, char *argv[])
 {
-  if (!QgisRuntime::initialize(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")))) return 1;
+  if (!QgisRuntime::initialize(qEnvironmentVariable("QGIS_PREFIX_PATH"))) return 1;
   TestDerivationGraph test; const int rc = QTest::qExec(&test, argc, argv); QgisRuntime::shutdown(); return rc;
 }
 #include "tst_derivationgraph.moc"

@@ -436,7 +436,7 @@ int main(int argc, char *argv[])
   QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
 
   QgsApplication app(argc, argv, true); // GUI-enabled: dialog widgets required
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
 
   TestProcDialog tc;

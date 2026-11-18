@@ -30,6 +30,22 @@
 
 class TestImpactRecompute : public QObject {
   Q_OBJECT
+  class WorkerGate {
+  public:
+    ~WorkerGate() { release(); }
+    void block(PaleoTaskService &tasks, const QString &name) const {
+      tasks.start(name, [released = m_released](PaleoTask *) {
+        while (!released->load())
+          QThread::msleep(5);
+        return QString();
+      });
+    }
+    void release() const { m_released->store(true); }
+
+  private:
+    const std::shared_ptr<std::atomic_bool> m_released = std::make_shared<std::atomic_bool>(false);
+  };
+
   struct Fixture {
     QTemporaryDir dir;
     DataCatalog catalog;
@@ -745,19 +761,15 @@ private slots:
     // 占满唯一 worker 线程 → 影响分析排队（确定性同步点）。返回的闸门由
     // 用例显式放开；启动失败返回空（QVERIFY 留在用例体——非 void lambda
     // 里 QVERIFY 的 return 不可用）。
-    const auto startBlocked = [&f, &tasks, &factorV2](const char *tag) {
-      auto release = std::make_shared<std::atomic_bool>(false);
-      tasks.start(QStringLiteral("blocker-%1").arg(QLatin1String(tag)),
-                  [release](PaleoTask *) {
-                    while (!release->load())
-                      QThread::msleep(5);
-                    return QString();
-                  });
+    const auto startBlocked = [&f, &tasks, &factorV2](const char *tag) -> std::unique_ptr<WorkerGate> {
+      auto gate = std::make_unique<WorkerGate>();
+      gate->block(tasks, QStringLiteral("blocker-%1").arg(QLatin1String(tag)));
       QString err;
-      const bool ok = f.work.startImpactAnalysis(factorV2, "D61", &err);
-      if (!ok)
+      if (!f.work.startImpactAnalysis(factorV2, "D61", &err)) {
         qWarning("startImpactAnalysis failed: %s", qPrintable(err));
-      return ok ? release : nullptr;
+        return {};
+      }
+      return gate;
     };
     {
       const auto release = startBlocked("tick");
@@ -773,7 +785,7 @@ private slots:
       QVERIFY2(queuedTicks >= 4,
                qPrintable(QStringLiteral("排队 %1 ticks——GUI 循环被阻塞")
                               .arg(queuedTicks)));
-      release->store(true);
+      release->release();
       bool busySeenWhileProcessing = false;
       t.restart();
       while (t.elapsed() < 60000 && ready.count() == 0) {
@@ -794,7 +806,7 @@ private slots:
       const auto release = startBlocked("cancel");
       QVERIFY(release);
       f.work.cancelImpactAnalysis();
-      release->store(true);
+      release->release();
       QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
       const auto args = ready.takeFirst();
       QVERIFY(args.at(0).toMap().isEmpty());
@@ -813,7 +825,7 @@ private slots:
       bump.displayName = QStringLiteral("bg-bump");
       QString catError;
       QVERIFY2(f.catalog.addAsset(bump, &catError), qPrintable(catError));
-      release->store(true);
+      release->release();
       QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
       const auto args = ready.takeFirst();
       QVERIFY(args.at(0).toMap().isEmpty());
@@ -827,7 +839,7 @@ private slots:
       const auto release = startBlocked("rebind");
       QVERIFY(release);
       f.work.bindCatalog(&f.catalog, f.dir.path());
-      release->store(true);
+      release->release();
       QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
       const auto args = ready.takeFirst();
       QVERIFY(args.at(0).toMap().isEmpty());
@@ -837,23 +849,19 @@ private slots:
     // 7. 对象销毁：作业在飞时销毁 workbench（连带 runner），worker 经
     //    shared 状态安全收尾，不崩溃、不回调已亡对象。
     {
-      auto *ephemeral = new Fixture;
-      QVERIFY(ephemeral->init());
       PaleoTaskService doomed;
+      auto ephemeral = std::make_unique<Fixture>();
+      QVERIFY(ephemeral->init());
       ephemeral->work.setTaskService(&doomed);
       doomed.setMaxWorkerThreads(1);
-      std::atomic_bool release{false};
-      doomed.start(QStringLiteral("blocker"), [&release](PaleoTask *) {
-        while (!release.load())
-          QThread::msleep(5);
-        return QString();
-      });
+      WorkerGate gate;
+      gate.block(doomed, QStringLiteral("blocker"));
       QString err;
       QVERIFY2(ephemeral->work.startImpactAnalysis(factorV2Of(*ephemeral, err),
                                                    QStringLiteral("D61"), &err),
                qPrintable(err));
-      delete ephemeral; // 在飞作业 + runner + workbench 全部销毁
-      release.store(true);
+      ephemeral.reset(); // 在飞作业 + runner + workbench 全部销毁
+      gate.release();
       for (int i = 0; i < 20; ++i)
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
       QVERIFY(doomed.shutdown());
@@ -954,15 +962,11 @@ private slots:
 
     // 排队期取消：不发布。
     tasks.setMaxWorkerThreads(1);
-    std::atomic_bool release{false};
-    tasks.start(QStringLiteral("blocker"), [&release](PaleoTask *) {
-      while (!release.load())
-        QThread::msleep(5);
-      return QString();
-    });
+    WorkerGate gate;
+    gate.block(tasks, QStringLiteral("blocker"));
     QVERIFY2(f.work.startVersionCompare(polygonsV2, &error), qPrintable(error));
     f.work.cancelVersionCompare();
-    release.store(true);
+    gate.release();
     QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 60000);
     const auto args = ready.takeFirst();
     QVERIFY(args.at(0).toMap().isEmpty());
@@ -1002,7 +1006,7 @@ private slots:
 };
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, true);
-  app.setPrefixPath("/usr", true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   GDALAllRegister();
   TestImpactRecompute test;

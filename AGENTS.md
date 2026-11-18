@@ -67,16 +67,21 @@ Deferred work lives in `TODOS.md`.
 3. **任何基线都只缩不涨**：判红后补登基线转绿（而非收敛代码）视为违约，
    除「上游演进导致的结构性增长」且必须在基线头注写明归因与批次
    （如 #516 的 +2、#474 接闸前 heavy_tus 83→87）——即便如此也优先修代码。
-4. `--transitive` 的 func/ui 两指标需 QGIS 头目录，权威闸口在 CI lint 车道
-   （Source gates 显式给 `QGIS_PREFIX`）；ctest 项 `layering_transitive` 不
-   注入（同一信号不复制进 linux/windows 必过车道），本地全闸命令见
-   CMakeLists.txt 该测试上方注释。
+4. `--transitive` 的 func/ui 两指标需 QGIS 头目录；本地全量源码门禁必须显式
+   给 `QGIS_PREFIX` 执行此项。普通 ctest 项 `layering_transitive` 不注入该
+   前缀，不能代替全量检查。命令见 CMakeLists.txt 该测试上方注释。
 
 已知边界：各层编进 `paleo_<模块>` 分层静态库（`paleo_core` 是 INTERFACE
 兼容伞，不再编代码），护栏只挡 include 层——
 「不带 include 直接 new」挡不住，靠 review 纪律（见 TODOS.md 递延项）。
 
 ## 构建与测试布线
+**以本地验证为准。** 开 PR 或按要求合并前，在对应提交和依赖配置上完成本地
+编译、受影响的测试和源码门禁；纯文档等无编译影响的改动运行相应本地检查。
+记录实际运行的命令、范围、结果和未覆盖项。本地失败或缺少必须验证的结果，
+先修复或补齐。托管 CI 结果、状态和排队进度不作为验收依据；不查询、不等待、
+不为验收重跑托管 CI，也不因它通过或失败改变本地判定。
+
 测试统一走 `add_paleo_test(name [LIBS ...])`（CMakeLists.txt）：单参 = 伞式
 旧式契约（cmake/extra-*.cmake 并行方向零改动可用）；`LIBS` 给最小链接集
 （瘦 relink 面，口径见 docs/progress/devex.md）。每测试自动获得独立
@@ -89,9 +94,9 @@ PALEO_UNITY_BUILD）见 BUILDING.md。
 qgis_spread 族、ui_invariants / ui_size / **file_budget**（#538 函数体规模闸）、
 i18n、ui_tokens、qgis_versions、docs_drift、ci_known_reds 等；另有 C++ 主线
 边界闸 `cpp_mainline`/`cpp_mainline_selftest`（`cmake/verify-cpp-mainline.cmake`，
-cmake -P 零 Python 依赖；口径见 docs/CPP_PRIMARY_BOUNDARY.md）；CI lint 车道
-的 Source gates 步是同一批脚本的权威闸口（见 .github/workflows/ci.yml），
-`--transitive` 的 func/ui 两指标只在该步全闸（QGIS_PREFIX）。
+cmake -P 零 Python 依赖；口径见 docs/CPP_PRIMARY_BOUNDARY.md）。
+本地可按 `.github/workflows/ci.yml` 的 Source gates 步逐条运行同一批脚本；
+`--transitive` 须按上面的 QGIS 头路径要求执行。
 **合入前流程（#863）**：开 PR / 请求合入前先 `git fetch && git rebase origin/master`，
 rebase 后**重跑 Source gates**（至少 `tools/check_file_budget.py --strict` 等上列脚本，
 或 `ctest -LE 'core|perf'` 的无标签闸门项）——基线类闸门（file_budget/layering
@@ -99,8 +104,13 @@ rebase 后**重跑 Source gates**（至少 `tools/check_file_budget.py --strict`
 此条即 checklist。
 并行度上限：构建/测试一律 `-j8` 以内（`cmake --build -j8`、`ctest -j8`）——
 用户要求限制编译资源占用，不要用 `$(nproc)`。
-依赖来源：尽量不依赖系统库，尽量自编译 vendored——superbuild 首选 /
-钉哈希闭包加速档 / 系统包仅兜底（政策全文 BUILDING.md「依赖来源策略」）。
+**依赖来源：项目使用的第三方库必须由仓库管理，包括 QGIS、Qt、GDAL、PROJ、
+GEOS、ONNX Runtime 和传递依赖。** 首选钉版本与哈希的源码自编译（superbuild）；
+无法合理自编译时，使用钉版本并校验完整性的二进制闭包，解包到项目控制的前缀。
+配置、链接、测试及发布运行使用同一套兼容依赖；缺库时报出前缀和补齐方法，
+不回退系统包、不混用系统库。宿主只提供操作系统基础 ABI 及构建工具，
+不能借工具链引入应用库。现有系统库路径是待迁移项，不得新增或扩大。
+依赖选择、迁移与验收见 [BUILDING.md「依赖来源策略」](BUILDING.md#依赖来源策略)。
 Office 编辑组件（gitignored vendored，`vendor/ranuts-document`，ranuts/document
 v0.0.6 / OnlyOffice WASM / AGPL-3.0，`vendor/fetch-ranuts-document.sh` 钉版构建）
 是**构建产物的一部分**：configure 期自动接入 `<build>/office-editor`
@@ -121,8 +131,7 @@ configure 会警告提醒）。
 默认分支前缀 codex/，任务指定名字优先；仅推工作分支、提 PR，不自行合并。
 
 ## PR 合并
-用户要求合并 PR 时直接合并——**默认不等 CI、不要求检查全绿**；
-只有请求明文写明「等 CI / 检查通过再合」才等待。
+用户要求合并 PR 时，按上面的本地验证结果执行。**不以托管 CI 结果为合并条件。**
 required checks 挡路时的既定流程：
 `DELETE branches/master/protection/required_status_checks`
 → `gh pr merge --squash --admin`

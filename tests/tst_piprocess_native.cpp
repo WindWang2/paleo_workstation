@@ -1,5 +1,6 @@
 // 层：测试壳
 #include "services/piprocess.h"
+#include "services/piprocessplatform_p.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -7,6 +8,8 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QSet>
+#include <QScopeGuard>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QtTest>
 #include <future>
@@ -35,6 +38,22 @@ bool nodeImage(DWORD pid) {
   const auto process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);if(!process)return false;
   wchar_t image[4096]{};DWORD length=4096;const bool read=QueryFullProcessImageNameW(process,0,image,&length);
   CloseHandle(process);return read&&QFileInfo(QString::fromWCharArray(image,int(length))).fileName().compare("node.exe",Qt::CaseInsensitive)==0;
+}
+bool ownFixedNode(DWORD pid, HANDLE process, const QString &program, FILETIME &created) {
+  if (!process || GetProcessId(process) != pid) return false;
+  const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snapshot == INVALID_HANDLE_VALUE) return false;
+  PROCESSENTRY32W row{}; row.dwSize = sizeof(row); bool owned = false;
+  if (Process32FirstW(snapshot, &row)) do {
+    if (row.th32ProcessID == pid) { owned = row.th32ParentProcessID == GetCurrentProcessId(); break; }
+  } while (Process32NextW(snapshot, &row));
+  CloseHandle(snapshot);
+  wchar_t image[32768]{}; DWORD length = 32768; FILETIME exit{}, kernel{}, user{};
+  if (!owned || !QueryFullProcessImageNameW(process, 0, image, &length) ||
+      !GetProcessTimes(process, &created, &exit, &kernel, &user)) return false;
+  const auto actual = QFileInfo(QString::fromWCharArray(image, int(length))).canonicalFilePath();
+  return !actual.isEmpty() && actual.compare(QFileInfo(program).canonicalFilePath(), Qt::CaseInsensitive) == 0 &&
+      (created.dwHighDateTime || created.dwLowDateTime);
 }
 #endif
 RuntimeConfig config(){return {true,qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT"),qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")};}
@@ -142,6 +161,75 @@ private slots:
     QCOMPARE(external(),QByteArray("pi_runtime_busy\n"));second.runtime.reset();
     QCOMPARE(external(),QByteArray("ok\n"));
   }
+#ifdef Q_OS_WIN
+  void fixedNodeDoesNotInheritUnrelatedExclusiveHandle() {
+    const auto runtime = identity(); QVERIFY2(runtime.ok(), qPrintable(runtime.code));
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    auto path = QDir::toNativeSeparators(directory.filePath("exclusive-parent-log.txt"));
+    QVERIFY(path.size() > 2 && path[1] == ':'); path.prepend("\\\\?\\");
+    SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
+    HANDLE file = CreateFileW(reinterpret_cast<LPCWSTR>(path.utf16()), GENERIC_READ | GENERIC_WRITE,
+                              0, &security, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    QVERIFY(file != INVALID_HANDLE_VALUE); HANDLE childProcess = nullptr;
+    const auto cleanup = qScopeGuard([&] {
+      if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+      if (childProcess) CloseHandle(childProcess);
+      DeleteFileW(reinterpret_cast<LPCWSTR>(path.utf16()));
+    });
+    DWORD flags = 0; QVERIFY(GetHandleInformation(file, &flags)); QVERIFY(flags & HANDLE_FLAG_INHERIT);
+    const auto blocked = DeleteFileW(reinterpret_cast<LPCWSTR>(path.utf16())); const auto blockedError = GetLastError();
+    QVERIFY(!blocked); QCOMPARE(blockedError, DWORD(ERROR_SHARING_VIOLATION));
+    auto value = request(runtime.runtime); ChildObserver observer; qint64 child = 0;
+    FILETIME created{}; bool owned = false, liveBefore = false, liveAfter = false, closed = false, removed = false;
+    DWORD deletionError = ERROR_SUCCESS;
+    value.cancelled = [&] {
+      if (child) return false;
+      child = observer.poll(); if (!child) return false;
+      childProcess = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, DWORD(child));
+      owned = ownFixedNode(DWORD(child), childProcess, runtime.runtime->nodeProgram(), created);
+      if (!owned) return false;
+      liveBefore = WaitForSingleObject(childProcess, 0) == WAIT_TIMEOUT;
+      if (!liveBefore) return false;
+      closed = CloseHandle(file); if (!closed) return false; file = INVALID_HANDLE_VALUE;
+      removed = DeleteFileW(reinterpret_cast<LPCWSTR>(path.utf16()));
+      if (!removed) deletionError = GetLastError();
+      liveAfter = WaitForSingleObject(childProcess, 0) == WAIT_TIMEOUT;
+      return false; // Keep the production hello/close exchange and deadlines.
+    };
+    const auto result = worker(value);
+    QVERIFY2(result.ok(), qPrintable(result.code + QString::fromUtf8(result.diagnostics)));
+    QVERIFY(child > 0); QVERIFY(owned); QVERIFY(liveBefore); QVERIFY(closed);
+    QVERIFY2(removed, qPrintable(QString("DeleteFile while fixed Node was alive failed: %1").arg(deletionError)));
+    QVERIFY(liveAfter); QCOMPARE(WaitForSingleObject(childProcess, 0), DWORD(WAIT_OBJECT_0));
+  }
+  void invalidStandardHandleFailsFixedNodeStartup() {
+    struct Outcome { bool verified = false, prepared = false, started = false, reaped = false; qint64 pid = -1;
+      QProcess::ProcessError error = QProcess::UnknownError; QString code; };
+    const auto outcome = std::async(std::launch::async, [] {
+      Outcome out; const auto runtime = inspectRuntime(config()); out.verified = runtime.ok(); out.code = runtime.code;
+      if (!runtime.ok()) return out;
+      QTemporaryDir directory; detail::ProcessTree tree; out.prepared = directory.isValid() && tree.available();
+      if (!out.prepared) return out;
+      QProcess process; process.setWorkingDirectory(directory.path());
+      process.setProcessEnvironment(detail::isolatedProcessEnvironment(directory.path()));
+      process.setProcessChannelMode(QProcess::SeparateChannels); tree.configure(process);
+      const auto modifier = process.createProcessArgumentsModifier(); if (!modifier) { out.prepared = false; return out; }
+      STARTUPINFOW invalid{};
+      process.setCreateProcessArgumentsModifier([&invalid, modifier](QProcess::CreateProcessArguments *arguments) {
+        invalid = *arguments->startupInfo; invalid.hStdInput = INVALID_HANDLE_VALUE;
+        arguments->startupInfo = &invalid; modifier(arguments);
+      });
+      process.start(runtime.runtime->nodeProgram(), {"--no-addons", "--disable-proto=throw", "--no-warnings", runtime.runtime->entryPoint()});
+      out.started = process.waitForStarted(1000); out.error = process.error(); out.pid = process.processId();
+      if (out.started) tree.attach(process);
+      if (process.state() != QProcess::NotRunning) { process.kill(); out.reaped = process.waitForFinished(2000); }
+      else out.reaped = true;
+      return out;
+    }).get();
+    QVERIFY2(outcome.verified, qPrintable(outcome.code)); QVERIFY(outcome.prepared);
+    QVERIFY(!outcome.started); QCOMPARE(outcome.error, QProcess::FailedToStart); QCOMPARE(outcome.pid, qint64(0)); QVERIFY(outcome.reaped);
+  }
+#endif
   void retainedIdentityDoesNotEnableLaunch() {
     const auto runtime=identity();QVERIFY2(runtime.ok(),qPrintable(runtime.code));auto value=request(runtime.runtime);value.enabled=false;
     QCOMPARE(worker(value).code,QString("pi_disabled"));

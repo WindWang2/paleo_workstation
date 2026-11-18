@@ -187,6 +187,9 @@ RuntimeResult RuntimeProvider::inspectIntegrity(const std::function<bool()> &can
 RuntimeResult RuntimeProvider::inspectImpl(Inspection inspection,const std::function<bool()> &cancelled) {
   while(!m_mutex.tryLock(25))if(cancelled && cancelled())return {"cancelled",{}};
   const auto unlock=qScopeGuard([this]{m_mutex.unlock();});
+  // A superseded refresh may reach this provider after a newer refresh reused
+  // its verified snapshot. Work cancelled before inspection must not replace it.
+  if(cancelled && cancelled())return {"cancelled",{}};
   const auto policyError=m_policy.validate();
   if(!policyError.isEmpty()){m_last={policyError,{}};return m_last;}
   // Pin the previous lease before clearing the cached result. Sharing this lock

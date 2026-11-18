@@ -10,8 +10,11 @@
 
 namespace {
 bool keys(const QJsonObject &value, QStringList expected) { expected.sort(); return value.keys() == expected; }
-qsizetype textBytes(const QString &text) {
-  return QJsonDocument(QJsonObject{{"text", text}}).toJson(QJsonDocument::Compact).size();
+qsizetype escapedTextBytes(const QString &text) {
+  static const auto wrapperBytes = QJsonDocument(QJsonObject{{"text", QString()}}).toJson(QJsonDocument::Compact).size();
+  // The pending text is coalesced before framing. Count its escaped payload,
+  // reserving JSON/frame overhead once through the existing 16-KiB allowance.
+  return QJsonDocument(QJsonObject{{"text", text}}).toJson(QJsonDocument::Compact).size() - wrapperBytes;
 }
 struct Result { paleo::pi::ConversationResult value; std::atomic_bool ready{false}; };
 } // namespace
@@ -174,7 +177,7 @@ bool PiChatBridge::modelDelta(const QString &text) {
   if (text.isEmpty()) return true;
   // At most sixteen <=4096-character chunks and their complete JSON framing.
   // The second 128-KiB / 16-frame partition belongs exclusively to the ring.
-  const auto bytes = textBytes(text);
+  const auto bytes = escapedTextBytes(text);
   if (m_pendingText.size() + text.size() > 16 * 4096 ||
       bytes > paleo::pi::ConversationOutgoingBytes - 16 * 1024 - m_pendingTextBytes) { fail("pi_outgoing_budget"); return false; }
   m_pendingText += text; m_pendingTextBytes += bytes;
@@ -198,7 +201,7 @@ void PiChatBridge::flushModel() {
     if (count < m_pendingText.size() && m_pendingText[count - 1].isHighSurrogate() && m_pendingText[count].isLowSurrogate()) --count;
     const auto text = m_pendingText.left(count);
     if (!queue("model_delta", {{"round", QString::number(m_round)}, {"text", text}})) return;
-    m_pendingText.remove(0, count); m_pendingTextBytes = qMax<qsizetype>(0, m_pendingTextBytes - textBytes(text));
+    m_pendingText.remove(0, count); m_pendingTextBytes = qMax<qsizetype>(0, m_pendingTextBytes - escapedTextBytes(text));
   }
   m_pendingTextBytes = 0;
   if (!m_modelEnding) return;

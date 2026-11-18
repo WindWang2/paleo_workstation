@@ -141,6 +141,28 @@ private slots:
     const auto rejected = validateNumericOutput(bytes, decl, small, validateReport);
     QCOMPARE(rejected.code, QString("python_output_memory_budget")); emptyFailure(rejected);
   }
+  void encodedOutputGroupHonorsPolicyBudget() {
+    constexpr int rows = 128; const auto decl = declaration(16, rows); QByteArray data;
+    for (const auto &entry : decl.value("columns").toArray()) {
+      const auto type = entry.toObject().value("dtype").toString();
+      for (int row = 0; row < rows; ++row) {
+        if (type == "<i8") integer(data, row + 1);
+        else if (type == "<f8") number(data, std::numeric_limits<double>::max());
+        else data += char(row % 2);
+      }
+      data += QByteArray((rows + 7) / 8, 0);
+    }
+    const auto bytes = frame(decl, data, rows); const auto accepted = accept(bytes, decl);
+    QVERIFY2(accepted.ok(), qPrintable(accepted.code));
+    const qint64 outputBytes = accepted.report.size() + accepted.csv.size();
+    QVERIFY(bytes.size() < outputBytes - 1); // Host CSV expands the authenticated binary values.
+    ExecutionPolicy policy; policy.outputBytes = outputBytes - 1;
+    const auto rejected = validateNumericOutput(bytes, decl, policy, validateReport);
+    QCOMPARE(rejected.code, QString("python_output_budget_exceeded")); emptyFailure(rejected);
+    policy.outputBytes = outputBytes;
+    const auto exact = validateNumericOutput(bytes, decl, policy, validateReport);
+    QVERIFY2(exact.ok(), qPrintable(exact.code)); QCOMPARE(exact.csv, accepted.csv); QCOMPARE(exact.report, accepted.report);
+  }
   void declarationRejectsStringsFormulaIdsUnknownAxesAndOversizedShapes() {
     for (const auto &edit : QVector<std::function<void(QJsonObject &)>>{
       [](auto &d) { d["maxRows"] = 8193; },

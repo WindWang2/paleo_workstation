@@ -7,9 +7,10 @@ URL+SHA256 已回填（QGIS 4.2.3，方向 71 依赖口径统一：与 deb 闭�
 周检承担（#561 起接入：每周日干净 runner 从零 configure+build，PR 触及
 `vendor/superbuild/**` 时增跑；非 required check，首跑状态以 Actions 页
 为准）。**
-2026-10-01 起「尽量不依赖系统库、尽量自编译 vendored」是仓库级依赖策略
-（BUILDING.md「依赖来源策略」），本路线取代 binary vendoring 成为首选；
-`vendor/fetch-deps.sh`（deb 闭包）/ OSGeo4W 降为加速档，发行版系统包仅兜底。
+项目库（含 QGIS、Qt 及传递依赖）由仓库管理，优先自编译；通过
+`vendor/fetch-deps.sh`（deb 闭包）或 OSGeo4W 等渠道提供的受控二进制闭包
+作为加速档。宿主系统包不作为项目库的兜底。具体边界和迁移现状见
+[BUILDING.md「依赖来源策略」](../../BUILDING.md#依赖来源策略)。
 历史对比与旧决策（D7：批准 binary vendoring）见
 `docs/phase0/et0-vendor-comparison.md`（保留作底账，优先级以新政策为准）。
 

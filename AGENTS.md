@@ -99,8 +99,13 @@ rebase 后**重跑 Source gates**（至少 `tools/check_file_budget.py --strict`
 此条即 checklist。
 并行度上限：构建/测试一律 `-j8` 以内（`cmake --build -j8`、`ctest -j8`）——
 用户要求限制编译资源占用，不要用 `$(nproc)`。
-依赖来源：尽量不依赖系统库，尽量自编译 vendored——superbuild 首选 /
-钉哈希闭包加速档 / 系统包仅兜底（政策全文 BUILDING.md「依赖来源策略」）。
+**依赖来源：项目使用的第三方库必须由仓库管理，包括 QGIS、Qt、GDAL、PROJ、
+GEOS、ONNX Runtime 和传递依赖。** 首选钉版本与哈希的源码自编译（superbuild）；
+无法合理自编译时，使用钉版本并校验完整性的二进制闭包，解包到项目控制的前缀。
+配置、链接、测试及发布运行使用同一套兼容依赖；缺库时报出前缀和补齐方法，
+不回退系统包、不混用系统库。宿主只提供操作系统基础 ABI 及构建工具，
+不能借工具链引入应用库。现有系统库路径是待迁移项，不得新增或扩大。
+依赖选择、迁移与验收见 [BUILDING.md「依赖来源策略」](BUILDING.md#依赖来源策略)。
 Office 编辑组件（gitignored vendored，`vendor/ranuts-document`，ranuts/document
 v0.0.6 / OnlyOffice WASM / AGPL-3.0，`vendor/fetch-ranuts-document.sh` 钉版构建）
 是**构建产物的一部分**：configure 期自动接入 `<build>/office-editor`

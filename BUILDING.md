@@ -14,8 +14,8 @@
 - 引导本身（一次性）：binary 加速档 ~10min（OSGeo4W / deb 闭包 / onnxruntime
   pin）；superbuild 首选路 ≤2h、磁盘 ≥60GB（启用步骤见
   `vendor/superbuild/README.md`，政策见下「依赖来源策略」）。
-- 本机已装 QGIS 4.2.x 开发包（如 Arch `qgis 4.2.2`）时 bootstrap 短路 QGIS
-  腿，只剩 onnxruntime 下载——注意这属**兜底档**，见下「依赖来源策略」。
+- 新构建应显式使用仓库控制的 QGIS 前缀。现有 bootstrap 可能因检测到系统 QGIS
+  而跳过下载；这是待迁移的旧行为，不能作为构建验收依据。
 
 ## Data_service 子模块
 
@@ -38,9 +38,12 @@ configure 明确失败并提示上述命令；CI checkout 同样递归初始化�
 [Data_service 接入方案](docs/DATA_SERVICE_INTEGRATION.md)。子模块独立构建与
 使用说明见 `vendor/Data_service/README.md`。
 
-## 依赖来源策略（2026-10-01 起）
+## 依赖来源策略
 
-**原则：尽量不依赖系统库，尽量自编译 vendored。** 优先级：
+**包括 QGIS 在内，项目使用的第三方库及其传递依赖均由仓库管理。**
+这涵盖头文件、开发库、共享库、插件及运行所需资源。仓库固定来源、版本和完整性信息；
+大型归档和构建产物可由引导脚本生成到 gitignored 的项目依赖前缀，不要求提交进 Git。
+编译、链接、测试和发布运行使用同一套兼容依赖，不从宿主系统目录补缺。
 
 ### 依赖按用途分类（C++ 主线口径）
 
@@ -50,7 +53,7 @@ configure 明确失败并提示上述命令；CI checkout 同样递归初始化�
 | 类别 | 内容 | 缺席后果 |
 |------|------|---------|
 | Native Runtime | C++/Qt6/QGIS/GDAL/GEOS/ORT 二进制闭包 | 主程序无法构建/运行 |
-| Development/Validation | python3（源码闸门/ctest/CI）、Ninja、ccache（可选加速）、lrelease（翻译编译）、pwsh（Windows 侧脚本自检） | python3 缺席 configure 直接 FATAL_ERROR（`paleo-test-infra.cmake` 的 `find_program(PALEO_PYTHON3)`，不静默变绿）；其余按各自既有降级行为（lrelease 缺席 WARNING、ccache 缺席直接编译、pwsh 缺席该自检不注册） |
+| Development/Validation | 编译器、SDK、CMake、Ninja、宿主 Python（源码门禁）、ccache、lrelease、pwsh | 宿主工具可以独立供应；随 Qt 等第三方库提供的工具须与项目所用版本一致 |
 | Optional Scripting | 用户显式启用的脚本控制台/REPL/MAMCL 所需解释器与 venv | 对应功能不可用，主程序不受影响（PATH 发现或 `PALEO_PYTHON` 显式指定） |
 
 Native Runtime 依赖的来源路线：
@@ -65,19 +68,20 @@ Native Runtime 依赖的来源路线：
    系统 qgis/cmake 被卸载后，二进制缺 `libqgis_core.so.4.2.2` 无法启动，
    构建工具链同步失踪）；自编译 prefix 把版本、ABI、裁剪面钉进仓库，
    任何机器可复现。
-2. **钉哈希的二进制 vendor 闭包（加速档）**——`vendor/prefix`（deb 闭包）
-   / OSGeo4W（Windows）。仍是仓控 prefix 而非系统库；TTHW 快，作为 CI
-   与新机的务实选择保留。
-3. **系统包（仅兜底）**——发行版 QGIS 4.2.x 开发包只在上述两路都不可用
-   时作临时兜底；CI 与发布构建禁止依赖系统包提供 QGIS/GDAL/PROJ/GEOS。
+2. **锁定的二进制 vendor 闭包（加速档）**——无法合理自编译时，可从上游发行包、
+   deb 包或 OSGeo4W 等渠道取包，按明确版本和完整性信息校验后放入项目控制的
+   前缀。发行包是供货来源，不安装成系统依赖；不能混用宿主机的同名库。
 
-> **#76 状态（方向 71，2026-10-07）**：`.github/workflows/ci.yml` 的 Linux
-> 侧（lint/linux/linux-perf）已从 qgis.org apt 系统 QGIS 迁到 deb 闭包
-> vendored 路（bootstrap 拉 `vendor/prefix`，apt 只装政策例外面 Qt6/
-> qtkeychain/工具链）；`tools/ci_apt_qgis.sh` 已删除。**状态如实：已迁移、
-> 待 CI 实跑验证**（yaml 编写与结构核对在本机完成，GitHub Actions 语义
-> 未在本方向内实跑）。`fetch-deps.sh --check-urls` 可做锁文件可达性冒烟
-> （只 HEAD 探测，不下载）。
+宿主边界限于操作系统自身的基础 ABI（例如 Linux 动态加载器和 glibc、
+Windows 系统 API）及用于构建和校验的工具。工具链的 ABI 兼容要求应明确；
+不能用它作为从系统安装或加载 Qt、QGIS、GDAL 等项目库的理由。
+
+**迁移现状**：Linux CI 已从系统 QGIS 迁到 `vendor/prefix`，仍有 Qt6、QtKeychain
+等发行版包，以及未指定前缀时的系统发现路径。Windows OSGeo4W 已校验安装器哈希
+并比对实装版本，尚不是逐归档哈希固定的离线闭包。这些是待迁移项，不得新增或扩大。
+改动依赖供应或发现路径时，应验证干净机器在没有系统项目库的情况下能构建和测试，
+并检查链接、运行时库及插件解析均来自受控前缀或发布目录。缺失依赖时应报出
+所需前缀和补齐方法。
 >
 > **QGIS 版本口径（方向 71 统一）**：三路同一上游版本 **4.2.3**——
 > superbuild 源码 pin（URL+SHA256）、deb 闭包（4.2.3+44resolute）、
@@ -87,7 +91,8 @@ Native Runtime 依赖的来源路线：
 > `qgis_versions`/`qgis_versions_selftest` + CI lint Source gates）：三处
 > 口径不一致即红，防再分裂。升级 QGIS 时三处一起动，护栏会拦漏改。
 
-例外（不 vendored，沿用系统/官方二进制）：Qt6（体积与构建时长，
+以下是旧构建链的供应记录，不能作为新建系统依赖的依据：
+Qt6（体积与构建时长，
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
 编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
 （ABI floor，无法 vendored）、ONNX Runtime（微软 NuGet 原生库，校验归档大小和 SHA-256，
@@ -113,8 +118,9 @@ vendor/fetch-ranuts-document.sh
 
 `vendor/fetch-calligra.sh` 仍可源码构建 Calligra 26.08.2，但 Office 预览不再调用它。
 其消费的 `cmake/CalligraRenderer.cmake` 由该脚本注入 Calligra 构建、本树零引用属有意且无 CI 车道——改动须手跑该脚本验证（见 `cmake/README.md`，#874）。
-Qt6 与 KDE Frameworks 6 开发依赖优先由 `PALEO_KF6_PREFIX` 指定前缀，系统开发包
-为兜底；Qt/KF6 必须与主程序保持 ABI 一致。当前 Linux 构建使用 Qt 6.11.2、
+Qt6 与 KDE Frameworks 6 开发依赖应通过 `PALEO_KF6_PREFIX` 指定受控前缀；
+现有系统开发包发现路径属于待迁移行为。Qt/KF6 必须与主程序保持 ABI 一致。
+当前 Linux 构建使用 Qt 6.11.2、
 KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是 Calligra 上游最低要求，与 Office 编辑页无关。
 
 ### glibc 三档口径（显式分层，非混乱）
@@ -143,7 +149,8 @@ KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是 Calligra 上游最低要求，与 Office
    `CMAKE_PREFIX_PATH`，再在 `<prefix>/apps/qgis/include`、
    `<prefix>/include/qgis`、`<prefix>/usr/include/qgis` 等布局里找
    `qgsapplication.h` 与 `-lqgis_{core,gui,analysis}`；
-3. 都没给 → 系统路径（`/usr/include/qgis`、`/usr/lib`）——仅兜底档。
+3. 都没给时，目前仍可能搜索系统路径（`/usr/include/qgis`、`/usr/lib`）。
+   这是待移除的兼容路径；按策略构建时须明确指定受控前缀。
 
 命中的 `QGIS_PREFIX` 还会编译进二进制（`PALEO_QGIS_PREFIX_DEFAULT`）：
 运行时 `QGIS_PREFIX_PATH` env 未设时，provider/srs.db 默认解析到构建所链的
@@ -157,7 +164,6 @@ vendor 路径对照（按策略优先级）：
 | superbuild 自编译（首选） | `<repo>/vendor/superbuild/prefix` | `vendor/superbuild/`（见其 README） |
 | qgis.org deb 闭包（加速档） | `<repo>/vendor/prefix/usr` | `./vendor/fetch-deps.sh`（lock 锁 SHA256） |
 | OSGeo4W（Windows CI） | bootstrap 注入（`apps/qgis` 布局） | `./paleo-dev.ps1 bootstrap` |
-| 发行版系统包（仅兜底） | 不需要（系统路径即可） | 发行版包管理器 |
 
 ## 独立 worktree 开发
 
@@ -337,7 +343,7 @@ try {
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
-| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | CI 配置为 Ubuntu 26.04；实际通过情况查看对应提交的 CI 记录 | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行）；发行版 QGIS 4.2.x 仅兜底 |
+| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | CI 配置为 Ubuntu 26.04；实际通过情况查看对应提交的 CI 记录 | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行） |
 | Windows x86_64 | CI 配置为 windows-2025 四分片，每片串行；本机支持 localdeps 同链开发 | CI：OSGeo4W 包闭包由 `vendor/manifest.json` 钉版；本机：`~/paleo-qgis-deps` + `~/paleo-qgis-prefix` + 同版 qtpdf 覆盖层（见上节） |
 | 更低 glibc 的 Linux x86_64 宿主 | 在目标最低系统上源码构建后验证，不可直接使用较新 glibc 的二进制闭包 | superbuild-on-oldest-target（ExternalProject） |
 

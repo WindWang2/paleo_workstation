@@ -114,6 +114,8 @@
 #include <QThread>
 #include <QUndoStack>
 #include <QtTest>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <atomic>
 #include <memory>
 #include <gdal.h>
@@ -2614,17 +2616,27 @@ private slots:
     QVERIFY(f.work.hasUnpublishedChanges(draft));
     QCOMPARE(guide->property("stage").toInt(), 3);
 
-    const auto staging = f.dir.filePath("artifacts/staging");
-    QVERIFY(QDir(staging).removeRecursively());
-    QFile blocker(staging); QVERIFY(blocker.open(QIODevice::WriteOnly)); blocker.close();
+    const auto catalogSql = [&f](const QString &command) {
+      const auto connection = QStringLiteral("mapping-version-fault");
+      const auto cleanup = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+      auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connection);
+      db.setDatabaseName(f.catalog.sqliteCatalogPath());
+      if (!db.open())
+        return false;
+      return QSqlQuery(db).exec(command);
+    };
+    QVERIFY(catalogSql(QStringLiteral(
+        "CREATE TRIGGER reject_version BEFORE INSERT ON versions "
+        "BEGIN SELECT RAISE(ABORT, 'injected version registration failure'); END")));
     QVERIFY(!f.work.saveEditingVersion(draft, &error));
-    QVERIFY2(error.contains(QStringLiteral("暂存目录")), qPrintable(error));
+    QVERIFY2(error.contains(QStringLiteral("injected version registration failure")), qPrintable(error));
     QCOMPARE(f.work.versionForLayer(draft).id, previous.id);
     QCOMPARE(f.work.featureDisplayMode(draft, feature.id()), QString("facies"));
     QVERIFY(f.work.hasUnpublishedEdits(draft));
     QCOMPARE(guide->property("stage").toInt(), 3);
     QVERIFY(!exportVector->isEnabled()); QVERIFY(!exportMap->isEnabled());
-    QVERIFY(blocker.remove()); error.clear();
+    QVERIFY(catalogSql(QStringLiteral("DROP TRIGGER reject_version")));
+    error.clear();
     QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
     const auto saved = f.work.versionForLayer(draft); QVERIFY(saved.id != previous.id);
     QCOMPARE(saved.extra.value("spatial_edit_events").toList(), previous.extra.value("spatial_edit_events").toList());
@@ -2641,14 +2653,16 @@ private slots:
     Fixture f; QVERIFY(f.init()); QString error;
     const auto draft = f.work.createBlankMap("D61", &error);
     QVERIFY2(!draft.isEmpty(), qPrintable(error));
-    const auto declaration = f.layers.declaration(draft);
+    auto declaration = f.layers.declaration(draft);
     const auto version = f.work.versionForLayer(draft);
     QVERIFY(!version.id.isEmpty());
     QCOMPARE(version.extra.value("kind").toString(), QString("edited_facies"));
     QVERIFY(!f.layers.isInstantiated(draft));
-    const auto workingPath = declaration.source.section('|', 0, 0);
-    const auto parkedPath = f.dir.filePath("parked-working.gpkg");
-    QVERIFY(QFile::rename(workingPath, parkedPath));
+    const auto originalPath = declaration.source.section('|', 0, 0);
+    const auto relative = QStringLiteral("artifacts/working/%1/restored.gpkg").arg(draft);
+    const auto restoredPath = f.dir.filePath(relative);
+    QVERIFY(!QFile::exists(restoredPath));
+    QVERIFY2(f.catalog.updateVersionExtra(version.id, "working_path", relative, &error), qPrintable(error));
     QVERIFY(f.layers.removeDeclaration(draft, &error));
     QCoreApplication::processEvents();
     QVERIFY(f.layers.declaration(draft).layerId.isEmpty());
@@ -2663,7 +2677,8 @@ private slots:
              QString("mappingBaseMapSelector"));
 
     // A restored declaration is a real working copy even before its layer is loaded.
-    QVERIFY(QFile::rename(parkedPath, workingPath));
+    QVERIFY(QFile::copy(originalPath, restoredPath));
+    declaration.source = restoredPath + QStringLiteral("|layername=features");
     QVERIFY(f.layers.declare(declaration, &error));
     page.refresh();
     QVERIFY(!f.layers.isInstantiated(draft));

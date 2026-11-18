@@ -68,6 +68,10 @@ add_paleo_test(tst_pythonprocess LIBS paleo_services_pythonruntime)
 add_paleo_test(tst_pythoninputbundle LIBS paleo_services_pythonruntime)
 if(WIN32)
   add_paleo_test(tst_python_windows_sandbox LIBS paleo_services_pythonruntime)
+  # AppContainer profiles are registered in the native user hive by Windows.
+  # These probes use the real profile; neither suite uses application QSettings.
+  set_property(TEST tst_pythonruntime tst_python_windows_sandbox APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION "PALEO_TEST_REGISTRY_HIVE=set:native")
   target_link_libraries(tst_python_windows_sandbox PRIVATE ws2_32)
 else()
   add_paleo_test(tst_python_windows_unavailable LIBS paleo_services_pythonruntime)

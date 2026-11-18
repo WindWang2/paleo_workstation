@@ -75,12 +75,8 @@ jobs:
       # 升级 = 有意变更：改此包名 + 本地同步跑一轮收录新告警。
       - name: Pin clang-tidy
         run: sudo apt-get update && sudo apt-get install -y clang-tidy-20 python3
-      # #76：Qt6 走发行版包（政策例外，superbuild D-QT）；QGIS/GDAL/PROJ/GEOS
-      # 由 deb 闭包 vendored 提供，不 apt 系统 QGIS。
-      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
-        run: sudo apt-get install -y
-          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
-          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ninja-build pkg-config g++ patchelf
+      - name: Install host build tools
+        run: sudo apt-get install -y g++ ninja-build pkg-config patchelf
       - name: Cache vendored deb closure
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
@@ -91,15 +87,13 @@ jobs:
       - name: Cache ONNX Runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          path: vendor/onnxruntime
+          path: vendor/cache/onnxruntime
           key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
       # 只拉依赖，不编译；compile_commands 仍覆盖 ORT 专用翻译单元。
       - name: Vendor dependencies (deb 闭包，QGIS 头来源 #76)
         run: ./paleo-dev bootstrap fetch-only
       - name: Configure (compile_commands.json only)
-        env:
-          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
-        run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        run: ./paleo-dev configure -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       # .cpp 内 Q_OBJECT 类靠 `#include "*.moc"`（AUTOMOC 产物）；只 configure
       # 不 build 时该文件不存在，clang-tidy 报 clang-diagnostic-error。
       # 先生成全部 *_autogen 目标（只跑 moc/uic，不编译，秒级）。
@@ -107,7 +101,7 @@ jobs:
         run: |
           targets=$(cmake --build build --target help | grep -oE '[A-Za-z0-9_-]+_autogen' | sort -u)
           echo "autogen targets: $targets"
-          cmake --build build --target $targets --parallel 8
+          ./paleo-dev build --target $targets --parallel 8
       # #137：直推 master 时 origin/master == HEAD，旧的 --base origin/master
       # 永远「无改动」。push 用 event.before（新分支首推的全零 SHA / 不可达时
       # 回退 HEAD~1），PR 用目标分支；check_tidy.py 自身也在 merge-base==HEAD
@@ -218,13 +212,8 @@ jobs:
             echo "::error::磁盘余量 ${avail_gb}GB < 25GB，linux 全量构建+链接会在链接期 No space left on device——先扩 Free disk space（#498 同口径）"
             exit 1
           fi
-      # #76（方向 71）：QGIS/GDAL/PROJ/GEOS 不再走 apt 系统 QGIS（原 apt
-      # 安装脚本已删）——bootstrap 统一拉 deb 闭包；apt 只装
-      # 政策例外面（Qt6 发行版包/qtkeychain/ccache/工具链）。
-      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
-        run: sudo apt-get update && sudo apt-get install -y
-          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
-          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
+      - name: Install host build tools
+        run: sudo apt-get update && sudo apt-get install -y ccache ninja-build pkg-config patchelf
       - name: Cache ccache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
@@ -241,7 +230,7 @@ jobs:
       - name: Cache ONNX Runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          path: vendor/onnxruntime
+          path: vendor/cache/onnxruntime
           key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap fetch-only
@@ -251,10 +240,7 @@ jobs:
         # Keep optimization and source/line stacks (-g1), without local-variable DWARF.
         # Configure the cache first; paleo-dev retains these flags on its own configure.
         run: |
-          QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr" \
-          LD_LIBRARY_PATH="$PWD/vendor/prefix/usr/lib/x86_64-linux-gnu:$PWD/vendor/prefix/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-            cmake -S . -B build -G Ninja \
-              -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG'
+          ./paleo-dev configure -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG'
           ./paleo-dev build
       # #501 flaky 台账跨 run 持久化：tools/flaky-ledger.jsonl 不入库（gitignore），
       # 此前每次 run 都从空台账起算，「同一测试累计 ≥3 次」永远到不了。restore 取
@@ -270,7 +256,6 @@ jobs:
       - name: Test (headless, isolated-module labels first)
         env:
           QT_QPA_PLATFORM: offscreen
-          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
         # 并行轮失败时串行重跑失败项一次：QGIS 栈建/计时类在 -j 负载下
         # 有环境性抖动（本地串行全绿）；重跑仍挂才算真失败。::warning 留痕。
         # #81：崩溃（SegFault/abort）不重跑，直接判红——见 tools/ci_ctest_gate.sh。
@@ -281,7 +266,6 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           QT_QPA_PLATFORM: offscreen
-          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
         run: tools/ci_ctest_gate.sh -L core -LE perf
       - name: Save flaky ledger
         if: ${{ always() && hashFiles('tools/flaky-ledger.jsonl') != '' }}
@@ -366,12 +350,8 @@ jobs:
             echo "::error::磁盘余量 ${avail_gb}GB < 25GB，linux-perf 全量构建+链接会在链接期 No space left on device——先扩 Free disk space（#498 同口径）"
             exit 1
           fi
-      # #76（方向 71）：同 linux job——QGIS 栈 vendored（deb 闭包），apt 只装
-      # 政策例外面（Qt6 发行版包/qtkeychain/ccache/工具链）。
-      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
-        run: sudo apt-get update && sudo apt-get install -y
-          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
-          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
+      - name: Install host build tools
+        run: sudo apt-get update && sudo apt-get install -y ccache ninja-build pkg-config patchelf
       - name: Cache ccache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
@@ -389,31 +369,21 @@ jobs:
       - name: Cache ONNX Runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          path: vendor/onnxruntime
+          path: vendor/cache/onnxruntime
           key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap fetch-only
       - name: Configure
-        env:
-          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
         # #762：与 linux 主 job 同口径的 -g1（仅行号表，无局部变量 DWARF）——
         # 该 job 仍全量构建（ci_perf.sh 只链 ~32 个 perf 目标，但构建面是全树），
         # 全量 -g 的调试段随静态库在 ~190 个可执行里逐个复制，链接期磁盘耗尽
         # （#498/#505 同款事故）；continue-on-error 只让它「不拖累合并门禁」，
         # 失败仍会静默丢趋势数据。
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: ./paleo-dev configure
           -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG'
       - name: Build + run perf tests (serial)
         env:
           QT_QPA_PLATFORM: offscreen
-          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
-          # ci_perf.sh 走裸 ctest 不经 paleo-dev 注入——deb 闭包的
-          # PROJ/GDAL 数据目录在此显式接线（同 windows paleo-dev.ps1
-          # 口径），否则 proj.db 找不到、写栅格/CRS 用例成片红。
-          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
-          PROJ_DATA: ${{ github.workspace }}/vendor/prefix/usr/share/proj
-          PROJ_LIB: ${{ github.workspace }}/vendor/prefix/usr/share/proj
-          GDAL_DATA: ${{ github.workspace }}/vendor/prefix/usr/share/gdal
         run: tools/ci_perf.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (node24)
         if: always()
@@ -471,11 +441,8 @@ jobs:
             echo "::error::磁盘余量 ${avail_gb}GB < 40GB，ASAN+UBSAN 全量链接必然失败——先扩 Free disk space 再跑构建（#498）"
             exit 1
           fi
-      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
-        run: sudo apt-get update && sudo apt-get install -y
-          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
-          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
-          && sudo apt-get clean
+      - name: Install host build tools
+        run: sudo apt-get update && sudo apt-get install -y ccache ninja-build pkg-config patchelf && sudo apt-get clean
       # 不再回落 restore 非 asan 的 Linux-ccache-*（linux 主 job 产物）：
       # 编译旗标不同零命中，白占 ~3G 下载与磁盘。
       - name: Cache ccache
@@ -494,19 +461,15 @@ jobs:
       - name: Cache ONNX Runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 (node24)
         with:
-          path: vendor/onnxruntime
+          path: vendor/cache/onnxruntime
           key: ${{ runner.os }}-ort-native-${{ hashFiles('vendor/manifest.json', 'vendor/fetch-onnxruntime.py') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap fetch-only
-      # 裸跑 cmake 不经 paleo-dev 顶部的 QGIS_PREFIX_PATH 自动注入（linux
-      # 主 job 用 ./paleo-dev build 自带；linux-perf 的 Configure 同样显式给）。
       # 仅压缩调试段仍不够：run 44142072503 的 build 在最后一批链接前已占 116G。
       # GCC 通过运行时调用执行 ASan 检查，减少重复内联检查；链接器丢弃不可达的
       # 函数和数据段。保留 -g1 行号及两种 sanitizer，继续构建和运行全部测试。
       - name: Configure (ASAN+UBSAN)
-        env:
-          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: ./paleo-dev configure
           -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON
           "-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG" "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG"
           -DPALEO_SANITIZER_DEBUG_FLAG=-g1
@@ -515,7 +478,7 @@ jobs:
           "-DCMAKE_EXE_LINKER_FLAGS=-gz -Wl,--gc-sections"
           -DCMAKE_SHARED_LINKER_FLAGS=-gz -DCMAKE_MODULE_LINKER_FLAGS=-gz
       - name: Build
-        run: cmake --build build --parallel 8
+        run: ./paleo-dev build --parallel 8
       - name: Disk usage after build
         if: always()
         run: |
@@ -530,7 +493,6 @@ jobs:
       - name: Test (serial, LSAN on with suppressions, UBSAN halting)
         env:
           QT_QPA_PLATFORM: offscreen
-          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
           ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/tools/lsan-suppressions.txt:print_suppressions=0
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1

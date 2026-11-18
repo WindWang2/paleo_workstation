@@ -60,10 +60,7 @@ Native Runtime 依赖的来源路线：
 
 1. **自编译 vendor（superbuild，首选）**——GEOS→PROJ→GDAL→QGIS 按源码
    tarball + SHA256 pin（`URL_HASH`）构建进 `vendor/superbuild/prefix`
-   （启用步骤见其 README；周检 CI `.github/workflows/superbuild-weekly.yml`
-   每周日在干净 runner 从零 configure+build 一轮，PR 触及
-   `vendor/superbuild/**` 时增跑，#561 起接入——非 required check，首跑
-   状态以 Actions 页为准）。动机：系统包状态不受本仓
+   （启用步骤见其 README）。系统包状态不受本仓
    控制——发行版升级/卸载即破坏构建与运行（2026-10-01 本机实证：Arch
    系统 qgis/cmake 被卸载后，二进制缺 `libqgis_core.so.4.2.2` 无法启动，
    构建工具链同步失踪）；自编译 prefix 把版本、ABI、裁剪面钉进仓库，
@@ -76,17 +73,17 @@ Native Runtime 依赖的来源路线：
 Windows 系统 API）及用于构建和校验的工具。工具链的 ABI 兼容要求应明确；
 不能用它作为从系统安装或加载 Qt、QGIS、GDAL 等项目库的理由。
 
-**迁移现状**：Linux CI 已从系统 QGIS 迁到 `vendor/prefix`，仍有 Qt6、QtKeychain
-等发行版包，以及未指定前缀时的系统发现路径。Windows OSGeo4W 已校验安装器哈希
-并比对实装版本，尚不是逐归档哈希固定的离线闭包。这些是待迁移项，不得新增或扩大。
+**迁移现状**：Linux 二进制路线从同一份 Ubuntu 26.04 归档锁
+供应 Qt6、QtKeychain、QGIS、GDAL、PROJ、GEOS 及配套工具、资源和插件。
+Windows 二进制路线使用逐归档校验的 OSGeo4W 离线锁。依赖变更以本地构建、
+测试和源码门禁验收。
 改动依赖供应或发现路径时，应验证干净机器在没有系统项目库的情况下能构建和测试，
 并检查链接、运行时库及插件解析均来自受控前缀或发布目录。缺失依赖时应报出
 所需前缀和补齐方法。
 >
 > **QGIS 版本口径（方向 71 统一）**：三路同一上游版本 **4.2.3**——
 > superbuild 源码 pin（URL+SHA256）、deb 闭包（4.2.3+44resolute）、
-> OSGeo4W 家族（4.2.x，installer 只有包名粒度，无法精确 pin——粒度边界
-> 见 `vendor/manifest.json` notes；家族闸正则从 manifest 派生，单一来源）。
+> OSGeo4W 离线归档锁（实际包修订见 `vendor/osgeo4w-offline.lock.json`）。
 > 一致性由 `tools/check_qgis_versions.py` 门禁看守（ctest 项
 > `qgis_versions`/`qgis_versions_selftest` + CI lint Source gates）：三处
 > 口径不一致即红，防再分裂。升级 QGIS 时三处一起动，护栏会拦漏改。
@@ -94,8 +91,7 @@ Windows 系统 API）及用于构建和校验的工具。工具链的 ABI 兼容
 以下是旧构建链的供应记录，不能作为新建系统依赖的依据：
 Qt6（体积与构建时长，
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
-编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
-（ABI floor，无法 vendored）、ONNX Runtime（微软 NuGet 原生库，校验归档大小和 SHA-256，
+编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc（宿主 ABI，构建设最低版本）、ONNX Runtime（微软 NuGet 原生库，校验归档大小和 SHA-256，
 与 QGIS 路线正交）。Office 原件使用钉死提交的 **ranuts/document**
 静态编辑页（OnlyOffice WASM，无文档服务器），也不把原件转成 PDF。
 `vendor/fetch-ranuts-document.sh` 把构建结果装到 `vendor/ranuts-document/`（gitignored）。
@@ -202,6 +198,28 @@ ctest --test-dir build -j8 --output-on-failure
 三情形。QScintilla 缺头 warning 在不包含 QGIS 代码编辑器头的 Linux 构建中
 允许降级；Windows 使用已有 `CMAKE_PREFIX_PATH` 前缀或显式
 `-DQSCINTILLA_INCLUDE_DIR=<安装目录>/include` 提供头，详见任务框架历史账本。
+
+## Linux 同源 Qt 和 GIS 闭包
+
+在 glibc 2.43 或更高的 x86_64 Linux 上，`./paleo-dev bootstrap fetch-only` 按
+`vendor/deb-closure.lock` 校验并解包到 `vendor/prefix`。联网准备一次后，保留
+`vendor/cache/debs` 和 `vendor/cache/onnxruntime`，可在干净工作树离线重放。
+全量 CTest 使用带 `venv` 和 `ensurepip` 的宿主 Python（Ubuntu 的 `python3-venv` 构建测试工具包）。
+
+```bash
+PALEO_VENDOR_OFFLINE=1 ./paleo-dev bootstrap fetch-only
+./paleo-dev configure -DCMAKE_BUILD_TYPE=Release
+./paleo-dev build
+./paleo-dev test -j 4 -LE perf
+./paleo-dev selfcheck
+```
+
+`paleo-dev` 为 Qt 工具、平台和 SQLite 插件、字体配置、WebEngine 子进程及资源、QGIS
+provider、GRASS、GDAL 和 PROJ 设定同一前缀。QGIS 桌面插件存放在
+`lib/qgis/desktop-plugins`，避免嵌入式 provider 扫描初始化桌面程序。
+CMake 会检查锁戳、关键资源与实际 imported
+target 的路径。configure 缓存指向其他前缀时，另用新构建目录。可用
+`BUILD_DIR=build-asan` 配置和运行独立的 sanitizer 构建。
 
 ## Windows OSGeo4W 离线供货
 
@@ -360,7 +378,7 @@ try {
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
-| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | CI 配置为 Ubuntu 26.04；实际通过情况查看对应提交的 CI 记录 | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行） |
+| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | 使用 Ubuntu 26.04 做本地构建、回归及运行时依赖审计 | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行） |
 | Windows x86_64 | CI 配置为 windows-2025 四分片，每片串行；本机支持 localdeps 同链开发 | CI：OSGeo4W 包闭包由 `vendor/manifest.json` 钉版；本机：`~/paleo-qgis-deps` + `~/paleo-qgis-prefix` + 同版 qtpdf 覆盖层（见上节） |
 | 更低 glibc 的 Linux x86_64 宿主 | 在目标最低系统上源码构建后验证，不可直接使用较新 glibc 的二进制闭包 | superbuild-on-oldest-target（ExternalProject） |
 
@@ -442,7 +460,7 @@ layer-marker 全量判违规（by design，防漏网）；脚本同时打印
 
 | 现象 | 原因 | 修复 |
 |------|------|------|
-| `QDomDocument: No such file` | 缺 Qt6Xml 等模块 dev 包 | 装 qt6 全组 dev（见 CMakeLists find_package 列表） |
+| `QDomDocument: No such file` | 项目 Qt 模块或前缀接线缺失 | 用锁重放项目依赖后重新配置 |
 | `defaulted operator==` 报错 | C++ 标准 <20 | CMAKE_CXX_STANDARD=20（已钉） |
 | `providerList() empty` | prefix 未指向 vendor/qgis 资源根 | selfcheck 检查 setPrefixPath + QGIS_PREFIX 环境 |
 | srs.db missing | vendor prefix 缺 share/qgis/resources | 重跑 `paleo-dev bootstrap` |

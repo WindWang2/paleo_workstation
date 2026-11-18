@@ -24,7 +24,8 @@ FILES = (
 
 def run_gate(root):
     env = os.environ.copy()
-    for key in ("PALEO_FLAKY_STRICT", "PALEO_REDSET_STALE", "GITHUB_STEP_SUMMARY"):
+    for key in ("PALEO_FLAKY_STRICT", "PALEO_REDSET_STALE", "GITHUB_STEP_SUMMARY",
+                "BUILD_DIR", "QGIS_PREFIX_PATH"):
         env.pop(key, None)
     return subprocess.run(
         ["bash", "tools/ci_ctest_gate.sh", "-j4", "-LE", "perf"],
@@ -64,6 +65,7 @@ def main():
         register(early_failure=True)
         mixed = run_gate(root)
         assert mixed.returncode != 0, mixed.stdout
+        assert junit.is_file(), mixed.stdout
         assert results_from_junit(junit) == {"sample_002": "fail", "sample_130": "pass"}, mixed.stdout
 
         (build / "started").unlink()

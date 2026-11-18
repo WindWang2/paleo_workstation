@@ -9,6 +9,9 @@
 set(QGIS_PREFIX "" CACHE PATH "QGIS install prefix（vendor superbuild/deb 闭包；空=系统兜底）")
 if(NOT QGIS_PREFIX AND DEFINED ENV{QGIS_PREFIX_PATH})
   set(QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}" CACHE PATH "QGIS install prefix" FORCE)
+elseif(NOT QGIS_PREFIX AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+       EXISTS "${CMAKE_SOURCE_DIR}/vendor/prefix/.paleo-deb-closure.sha256")
+  set(QGIS_PREFIX "${CMAKE_SOURCE_DIR}/vendor/prefix/usr" CACHE PATH "QGIS install prefix" FORCE)
 endif()
 # 新 worktree 首配早失败（TODOS P2 / goal/perf-maintenance-20261027）：显式
 # 给出的 QGIS_PREFIX（cache 或 env）必须真实存在。此前悬空 prefix 会让下方
@@ -23,6 +26,7 @@ if(QGIS_PREFIX AND NOT EXISTS "${QGIS_PREFIX}")
     "（Windows: paleo-dev.ps1 bootstrap）准备 vendored 依赖；确实要走系统包"
     "兜底档时显式传 -DQGIS_PREFIX= 置空再配置。")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/paleo-deb-prefix.cmake")
 if(QGIS_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
 endif()
@@ -69,11 +73,24 @@ if(QSCINTILLA_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QSCINTILLA_PREFIX}")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets Core5Compat)
-# ---- wave3/ux-consistency D14 ----
-# WebEngineWidgets is optional: without it WebViewPanel compiles its
-# external-browser fallback and the build must still succeed.
-find_package(Qt6 QUIET COMPONENTS WebEngineWidgets)
+set(_paleo_qt_modules Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport
+    Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets Core5Compat)
+if(PALEO_DEB_PREFIX)
+  list(APPEND _paleo_qt_modules WebEngineWidgets)
+  find_package(Qt6 REQUIRED CONFIG COMPONENTS ${_paleo_qt_modules} LinguistTools
+    PATHS "${PALEO_DEB_PREFIX}/${PALEO_DEB_MULTIARCH}/cmake/Qt6" NO_DEFAULT_PATH)
+  foreach(module IN LISTS _paleo_qt_modules)
+    paleo_deb_check_import("Qt6::${module}")
+  endforeach()
+  foreach(tool IN ITEMS moc rcc uic lrelease)
+    paleo_deb_check_import("Qt6::${tool}")
+  endforeach()
+else()
+  find_package(Qt6 REQUIRED COMPONENTS ${_paleo_qt_modules})
+  # Other routes may compile the external-browser fallback.
+  find_package(Qt6 QUIET COMPONENTS WebEngineWidgets)
+endif()
+unset(_paleo_qt_modules)
 
 # QGIS: distro packages ship no cmake config — locate manually (vendor prefix later overrides these)
 find_path(QGIS_INCLUDE_DIR qgsapplication.h HINTS
@@ -127,6 +144,7 @@ foreach(_pfx IN LISTS CMAKE_PREFIX_PATH)
 endforeach()
 find_path(QSCINTILLA_INCLUDE_DIR Qsci/qsciapis.h HINTS
   ${_qsci_hints} "${QGIS_PREFIX}/include"
+  "${QGIS_PREFIX}/include/${CMAKE_LIBRARY_ARCHITECTURE}/qt6"
   "${QGIS_PREFIX}/apps/Qt6/include" "${QGIS_PREFIX}/apps/qt6/include"
   PATHS /usr/include /usr/local/include)
 unset(_qsci_hints)
@@ -135,6 +153,13 @@ if(QSCINTILLA_INCLUDE_DIR)
 else()
   message(WARNING "QScintilla headers not found — QGIS code editor headers "
                   "(qgscodeeditor.h) will fail to compile if included transitively")
+endif()
+
+if(PALEO_DEB_PREFIX)
+  foreach(dependency IN ITEMS QGIS_INCLUDE_DIR QGIS_CORE_LIB QGIS_GUI_LIB QGIS_ANALYSIS_LIB
+                              GDAL_INCLUDE_DIR GDAL_LIB GEOS_INCLUDE_DIR GEOS_C_LIB QSCINTILLA_INCLUDE_DIR)
+    paleo_deb_require("${${dependency}}" "${dependency}")
+  endforeach()
 endif()
 
 # ============================================================================

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vendor/fetch-deps.sh — ET1: pinned deb-closure fetch + extract to vendor/prefix.
 #
-# Binary-vendoring leg for hosts WITHOUT a system QGIS 4.2.x (apt-based).
+# Binary-vendoring route for the pinned Ubuntu 26.04 closure.
 # The committed lock is resolved on Ubuntu 26.04 (resolute): its binaries need
 # glibc >= 2.43 at run time — Debian 13 (glibc 2.41) can download/extract it but
 # not execute it (#76). Older hosts: superbuild or a resolute container. Resolves the package closure with apt
@@ -142,38 +142,50 @@ if [ "$PRINT_ONLY" = "1" ]; then
 fi
 
 # --- download + hash-verify ---------------------------------------------------
+verify_archive() {
+  local file="$1" size="$2" expected="$3" name="$4"
+  [ "$(stat -c %s "$file")" = "$size" ] || fail "size mismatch for $name" "replace the cached archive with the pinned package"
+  local actual
+  actual=$(sha256sum "$file" | cut -d' ' -f1)
+  [ "$actual" = "${expected#SHA256:}" ] || fail "sha256 mismatch for $name" "replace the cached archive with the pinned package"
+}
 mkdir -p "$CACHE"
+exec 9>"vendor/cache/.deb-prefix.lock"
+flock 9
 printf '%s\n' "$URIS" | while read -r quoted name size hash; do
   [[ "$quoted" == \'http*\' && "$name" =~ ^[A-Za-z0-9][A-Za-z0-9.+_%:~-]*\.deb$ &&
      "$size" =~ ^[0-9]+$ && "$hash" =~ ^SHA256:[a-f0-9]{64}$ ]] || \
     fail "invalid lock entry" "refresh $LOCK with --update-lock"
   url=${quoted#\'}; url=${url%\'}
   if [ ! -f "$CACHE/$name" ]; then
+    [ "${PALEO_VENDOR_OFFLINE:-0}" != 1 ] ||
+      fail "missing offline archive $name" "populate vendor/cache/debs from the pinned lock"
     echo "  .. fetch $name"
-    if ! curl -fsSL "${CURL_RETRY[@]}" "$url" -o "$CACHE/$name.part"; then
-      rm -f "$CACHE/$name.part"
+    temporary=$(mktemp "$CACHE/.${name}.XXXXXX")
+    trap 'rm -f -- "$temporary"' EXIT
+    if ! curl -fsSL "${CURL_RETRY[@]}" "$url" -o "$temporary"; then
+      rm -f "$temporary"
       # 只对 Ubuntu 官方 pool 回退 snapshot（qgis.org 等第三方源没有快照服务）。
       snap=$(snapshot_url_for "$url")
       [ -n "$snap" ] || fail "cannot download $name from $url" "refresh $LOCK with --update-lock"
       echo "     pool miss — retry from snapshot $DEB_SNAPSHOT"
-      curl -fsSL "${CURL_RETRY[@]}" "$snap" -o "$CACHE/$name.part" || {
-        rm -f "$CACHE/$name.part"
+      curl -fsSL "${CURL_RETRY[@]}" "$snap" -o "$temporary" || {
+        rm -f "$temporary"
         fail "cannot download $name (pool and snapshot $DEB_SNAPSHOT)" \
              "refresh $LOCK with --update-lock on Ubuntu 26.04, or set PALEO_DEB_SNAPSHOT"
       }
     fi
-    mv "$CACHE/$name.part" "$CACHE/$name"
+    verify_archive "$temporary" "$size" "$hash" "$name"
+    mv "$temporary" "$CACHE/$name"
+    trap - EXIT
+  else
+    verify_archive "$CACHE/$name" "$size" "$hash" "$name"
   fi
-  [ "$(stat -c %s "$CACHE/$name")" = "$size" ] || fail "size mismatch for $name" "delete the cached archive and retry"
-  want=${hash#SHA256:}
-  got=$(sha256sum "$CACHE/$name" | cut -d' ' -f1)
-  [ "$got" = "$want" ] || { echo "FAIL sha256 $name: $got != $want" >&2; rm -f "$CACHE/$name"; exit 1; }
 done
 
 # --- extract merged prefix ----------------------------------------------------
-STAGING=${PREFIX}.new
-rm -rf -- "$STAGING"
-mkdir -p "$STAGING"
+STAGING=$(mktemp -d "${PREFIX}.new.XXXXXX")
+trap 'rm -rf -- "$STAGING"' EXIT
 printf '%s\n' "$URIS" | while read -r quoted name size hash; do
   dpkg-deb -x "$CACHE/$name" "$STAGING"
 done
@@ -182,8 +194,22 @@ done
 # 同一工具（Windows localdeps 也用它）在解包前缀上补这一步，不联网。
 python3 tools/ensure_qgis_resources.py --prefix "$STAGING/usr" --layout deb ||
   fail "cannot create srs.db in $STAGING" "check that qgis-providers-common is in $LOCK"
-rm -rf -- "$PREFIX"
-mv "$STAGING" "$PREFIX"
+# The provider registry probes shared objects before checking their entry point.
+# Desktop plugins can initialize libqgis_app (and duplicate settings) in an embed.
+qgis_plugins="$STAGING/usr/lib/qgis/plugins"
+for plugin in "$qgis_plugins"/libplugin_*.so; do
+  [ -f "$plugin" ] || continue
+  mkdir -p "$qgis_plugins/../desktop-plugins"
+  mv -- "$plugin" "$qgis_plugins/../desktop-plugins/"
+done
+# Qt needs resolved font files within the extracted tree; a Fontconfig sysroot
+# still leaves /usr/share/fonts in the matched file names passed to FreeType.
+fontconf="$STAGING/etc/fonts/fonts.conf"
+grep -qF '<dir>/usr/share/fonts</dir>' "$fontconf" ||
+  fail "unexpected Fontconfig layout" "verify the pinned fontconfig-config package"
+sed -i -e 's#<dir>/usr/share/fonts</dir>#<dir prefix="relative">../../usr/share/fonts</dir>#' \
+       -e '\#<dir>/usr/local/share/fonts</dir>#d' \
+       -e '\#<cachedir>/var/cache/fontconfig</cachedir>#d' "$fontconf"
 
 # Debian 库在解包式部署下有两类 NEEDED 断点：
 # 1) RUNPATH 硬编码系统绝对路径（libpulse → /usr/lib/.../pulseaudio，
@@ -195,7 +221,7 @@ mv "$STAGING" "$PREFIX"
 #    LD_LIBRARY_PATH 才能命中（链接期由 CMake 侧 -rpath-link 覆盖）。
 #    只补缺失项、按序取先（确定性、幂等）；限带版本号的 lib*.so.N
 #    避免把插件类 unversioned .so 摊到顶层。
-for ma in "$PREFIX"/usr/lib/*-linux-gnu; do
+for ma in "$STAGING"/usr/lib/*-linux-gnu; do
   [ -d "$ma/pulseaudio" ] || continue
   if command -v patchelf >/dev/null; then
     find "$ma" -maxdepth 1 -name 'libpulse*.so*' -type f -exec \
@@ -207,7 +233,7 @@ done
 #    逐 libdir（usr/lib 与 <ma>）只农场其直下子目录的 .so——SONAME 符号
 #    链接（-type l，如 blas/libblas.so.3 → .so.3.12.1）也必须抬上来，
 #    NEEDED 记的是 SONAME。
-for libdir in "$PREFIX/usr/lib" "$PREFIX"/usr/lib/*-linux-gnu; do
+for libdir in "$STAGING/usr/lib" "$STAGING"/usr/lib/*-linux-gnu; do
   [ -d "$libdir" ] || continue
   find "$libdir" -mindepth 2 -maxdepth 2 \( -type f -o -type l \) -name 'lib*.so*' | \
   sort | while read -r lib; do
@@ -218,14 +244,26 @@ for libdir in "$PREFIX/usr/lib" "$PREFIX"/usr/lib/*-linux-gnu; do
   done
 done
 
-# Record the resolved closure for reproducibility/audit.
-if [ "$UPDATE_LOCK" = 1 ]; then
-  mv "$LOCK.tmp" "$LOCK"
-  date -u +%Y%m%dT%H%M%SZ > "$SNAPSHOT_FILE" # snapshot 回退源的时间点（随锁提交）
+# Publish only after resources, ELF paths and the lock receipt are ready.
+lock_source="$LOCK"
+[ "$UPDATE_LOCK" = 0 ] || lock_source="$LOCK.tmp"
+tr -d '\r' < "$lock_source" | sha256sum | cut -d' ' -f1 > "$STAGING/.paleo-deb-closure.sha256"
+
+chmod "$(umask -S)" "$STAGING"
+if [ -e "$PREFIX" ] || [ -L "$PREFIX" ]; then
+  previous=$(mktemp -d "${PREFIX}.previous.XXXXXX")
+  mv -- "$PREFIX" "$previous/prefix"
+  if ! mv -- "$STAGING" "$PREFIX"; then
+    mv -- "$previous/prefix" "$PREFIX"
+    fail "could not publish prefix" "free disk space and retry"
+  fi
+  rm -rf -- "$previous"
+else
+  mv -- "$STAGING" "$PREFIX"
 fi
-# review-fix-ci：完成戳 = 锁内容哈希。bootstrap 只在戳与当前锁一致时复用
-# 已有 prefix——锁更新（如补 qt6-5compat-dev / libassuan9）后旧 prefix 不再被
-# 静默沿用（本机实锤：10-01 的 prefix 缺 Qt6Core5Compat cmake 配置）。
-tr -d '\r' < "$LOCK" | sha256sum | cut -d' ' -f1 > "$PREFIX/.paleo-deb-closure.sha256"
+if [ "$UPDATE_LOCK" = 1 ]; then
+  mv -- "$LOCK.tmp" "$LOCK"
+  date -u +%Y%m%dT%H%M%SZ > "$SNAPSHOT_FILE"
+fi
 echo "  OK vendored $COUNT debs -> $PREFIX (lock: vendor/deb-closure.lock)"
 echo "  NOTE set QGIS_PREFIX_PATH=$PREFIX/usr and LD_LIBRARY_PATH=$PREFIX/usr/lib/<multiarch>:$PREFIX/usr/lib (./paleo-dev does this)"

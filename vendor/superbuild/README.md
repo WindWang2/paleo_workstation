@@ -1,56 +1,39 @@
-# vendor/superbuild — ExternalProject 自编译路线（策略首选）
+# Linux 源码依赖闭包
 
-状态：**首选依赖路线（2026-10-01 政策升级）——四钉位（GEOS/PROJ/GDAL/QGIS）
-URL+SHA256 已回填（QGIS 4.2.3，方向 71 依赖口径统一：与 deb 闭包
-4.2.3+44resolute 同上游版本；三路一致性由 tools/check_qgis_versions.py
-看守）；端到端干净环境验证由 `.github/workflows/superbuild-weekly.yml`
-周检承担（#561 起接入：每周日干净 runner 从零 configure+build，PR 触及
-`vendor/superbuild/**` 时增跑；非 required check，首跑状态以 Actions 页
-为准）。**
-项目库（含 QGIS、Qt 及传递依赖）由仓库管理，优先自编译；通过
-`vendor/fetch-deps.sh`（deb 闭包）或 OSGeo4W 等渠道提供的受控二进制闭包
-作为加速档。宿主系统包不作为项目库的兜底。具体边界和迁移现状见
-[BUILDING.md「依赖来源策略」](../../BUILDING.md#依赖来源策略)。
-历史对比与旧决策（D7：批准 binary vendoring）见
-`docs/phase0/et0-vendor-comparison.md`（保留作底账，优先级以新政策为准）。
-
-## 启用依据（原回退条款，2026-10-01 重写）
-
-原回退条款要求满足下列任一条件才启用，现已作废为历史记录：
-
-1. `fetch-deps.sh` 的 `apt-get download libqgis-dev=4.2.*` 验证失败（上游
-   包不可得 / SHA256 对不上且无旧档）；
-2. 必须支持比 binary floor 更老的宿主——binary 路（已提交的 deb 闭包锁）
-   要求 glibc ≥ 2.43（Ubuntu 26.04 级；Debian 13 的 glibc 2.41 不够）；
-   superbuild 即 "superbuild-on-oldest-target"。
-
-新政策下本路线即默认路线，无需触发条件；启用动作仍要留决策记录
-（issue/PR body）。
+源码路线面向 Linux x86_64，使用 Debian 13（glibc 2.41）的固定 Qt 和开发库归档
+构建 GIS 栈。本机的编译器、glibc、构建工具和代码生成器提供宿主接口。
+CMake 查找项目库、头文件和包配置时使用项目安装前缀。
 
 ## 启用步骤
 
-1. `CMakeLists.txt` 里四个 `*_URL`（GEOS 3.15.0 / PROJ 9.8.1 / GDAL 3.13.3 /
-   QGIS 4.2.3）与对应 `URL_HASH SHA256=<...>` 已成对钉死；升级版本时两者
-   必须一起改（pin 后 TTHW 不依赖上游 URL 存活），且 `vendor/cache/tarballs/`
-   的缓存 tarball 一并更新。
-2. preflight 追加检查（plan §44.1 superbuild 档）：flex、bison、nasm、python3。
-3. 配置与构建（ninja 增量 = 断点续跑；**不手写 `.done` 标记**，进度即
-   ExternalProject stamp 目录）：
+使用 CMake 3.28+、Ninja、GCC/C++20、Make、dpkg-dev、pkgconf、patchelf、
+Python、Flex、Bison、Tcl 和 curl。在需支持的最旧 glibc 上完成源码编译与验收。
 
-   ```bash
-   cmake -S vendor/superbuild -B vendor/build/superbuild -G Ninja
-   ninja -C vendor/build/superbuild
-   ```
+```bash
+bash vendor/fetch-deps.sh --superbuild-base
+cmake -S vendor/superbuild -B vendor/build/superbuild -G Ninja -DSUPERBUILD_JOBS=4
+source vendor/superbuild/activate.sh
+cmake --build vendor/build/superbuild --parallel 1
+```
 
-4. 主构建指向产物 prefix：
+Debian 归档缓存位于 `vendor/cache/superbuild-debs`，源码归档缓存位于
+`vendor/cache/tarballs`。首次联网准备后，在新工作树共享归档缓存并设置
+`PALEO_VENDOR_OFFLINE=1`，配置时传 `-DSUPERBUILD_OFFLINE=ON`，即可重放归档校验、
+解包和源码构建。ExternalProject 记录每个成功步骤，可从上次成功步骤继续。
+用 `SUPERBUILD_PREFIX` 可隔离不同版本的产物。
 
-   ```bash
-   QGIS_PREFIX_PATH=<repo>/vendor/superbuild/prefix cmake -S . -B build -G Ninja
-   ```
+安装前缀包含 Qt 工具、WebEngine 子进程、插件、字体、GIS 库及资源。主仓由该
+前缀编译，ONNX Runtime 与 Office 组件按各自供货入口准备。
 
-   （`CMakeLists.txt:16` 起的 `QGIS_PREFIX`/`QGIS_PREFIX_PATH` 解析已就位。）
-
-预算：8 核基线机 ≤ 2h 无人值守（plan §44.1）；磁盘 ≥ 60GB。
+```bash
+python3 vendor/fetch-onnxruntime.py
+bash vendor/fetch-ranuts-document.sh --ensure
+source vendor/superbuild/activate.sh
+./paleo-dev configure -DCMAKE_BUILD_TYPE=Release -DPALEO_DEPENDENCY_PREFIX="$PALEO_SOURCE_PREFIX"
+./paleo-dev build
+./paleo-dev test -j 4 -LE perf
+./paleo-dev selfcheck
+```
 
 ## 裁剪决定（依据 = 代码取证，2026-09-26）
 
@@ -62,20 +45,20 @@ URL+SHA256 已回填（QGIS 4.2.3，方向 71 依赖口径统一：与 deb 闭�
 | `WITH_APP` | OFF | Paleo 只链 `qgis_core`/`qgis_gui`/`qgis_analysis`，不装桌面 App；QGIS 4.2.3 无 `WITH_APP` option（4.2.3 tarball 实证：`WITH_DESKTOP` 为真名），本仓开关实际映射其真名 `WITH_DESKTOP=FALSE` |
 | `WITH_GUI` | ON | 嵌入式 GUI（`paleo_qgis_iface` 链 `qgis_gui`） |
 | `WITH_ANALYSIS` | ON | 主 `CMakeLists.txt:37` 链接 `qgis_analysis` |
+| `WITH_PYTHON`、`WITH_BINDINGS`、`WITH_QGIS_PROCESS` | OFF | 部署 QGIS C++ 库和 provider。Paleo Agent Python 使用独立供货。 |
+| `ENABLE_TESTS` | OFF | 本地应用回归和 provider、自检仍通过主项目入口运行。 |
 
-## 依赖清单（plan §39「Vendor 依赖清单」的落地位置）
+## 归档与依赖
 
-- **源码构建**（ExternalProject，按依赖序）：GEOS → PROJ（含 proj.db 数据）
-  → GDAL → QGIS（当前 4.2.3，与 deb 闭包同上游版本——方向 71 统一，
-  升级须三路口径一起动，护栏 `tools/check_qgis_versions.py` 拦漏改）。
-- **发行版提供**：Qt6（qtbase/qttools/svg/imageformats；**禁止**
-  qt-everywhere 整块编译）、X11/GL dev 头、OpenSSL 头、flex/bison/nasm/python
-  （preflight 档）。
-- **运行时数据文件**：proj.db、GDAL data、srs.db、SVG symbols、Qt
-  platform/imageformat 插件（binary 路已随闭包；superbuild 路由各库的
-  install 规则落进同一 prefix）。
-- **ONNX Runtime**：不进 superbuild——`vendor/manifest.json` 的 GitHub release
-  pin（SHA256）与两条 QGIS 路线正交。
+- `debian13-base.lock` 固定 Qt、插件、字体和所需开发库的 Debian 归档。根据
+  `debian13-base.seeds` 在干净 Debian 13 环境用签名包索引解析依赖，对照 SHA-256
+  记录，排除宿主基础 ABI 与由源码替换的 GIS、zlib、Zstd 和 SQLite 归档。
+- `debian-sources.lock` 固定 zlib 与 SQLite 的源码、Debian 补丁和安全更新；
+  Zstd、GEOS 3.15.0、PROJ 9.8.1、GDAL 3.13.3、QGIS 4.2.3 的源码在
+  `CMakeLists.txt` 中钉版本和 SHA-256。
+- 依赖顺序为 zlib → Zstd → SQLite → GEOS → PROJ → GDAL → QGIS。QGIS
+  版本与锁定的二进制供货路线同步，由 `tools/check_qgis_versions.py` 检查。
+- Qt 的来源和许可说明随归档保存在前缀的 `share/doc`，以共享库链接。
 
 ## 补丁（patches/）
 
@@ -100,10 +83,3 @@ URL+SHA256 已回填（QGIS 4.2.3，方向 71 依赖口径统一：与 deb 闭�
   OSGeo4W / 发行版包）的 QGIS **没有**此补丁——Paleo 侧必须
   `#ifdef QGIS_PALEO_LABELS_WITH_LAYER` 探测并对未打补丁的构建优雅降级
   （此时 `rendering/labelsWithLayer` 是无害的空属性，标注回到原生置顶）。
-
-## Qt LGPL 条目（决策 D-QT）
-
-Qt 以动态链接方式使用（发行版共享库 / OSGeo4W 同源），不静态链接、不裁剪
-重分发——LGPL §4(a) 动态链接路径满足合规；对应义务（提供可重链目标文件或
-指明获取方式）由 binary 路的发行版包机制覆盖。manifest 一条记录即可
-（`vendor/manifest.json` 的 OSGeo4W `qt6-devel` 条目即此用途）。

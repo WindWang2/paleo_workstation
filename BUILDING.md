@@ -14,8 +14,8 @@
 - 引导本身（一次性）：binary 加速档 ~10min（OSGeo4W / deb 闭包 / onnxruntime
   pin）；superbuild 首选路 ≤2h、磁盘 ≥60GB（启用步骤见
   `vendor/superbuild/README.md`，政策见下「依赖来源策略」）。
-- 新构建应显式使用仓库控制的 QGIS 前缀。现有 bootstrap 可能因检测到系统 QGIS
-  而跳过下载；这是待迁移的旧行为，不能作为构建验收依据。
+- 新构建使用仓库控制的 QGIS 前缀。自编译路线先按 `vendor/superbuild/README.md`
+  准备并激活前缀，再配置主项目。
 
 ## Data_service 子模块
 
@@ -58,13 +58,10 @@ configure 明确失败并提示上述命令；CI checkout 同样递归初始化�
 
 Native Runtime 依赖的来源路线：
 
-1. **自编译 vendor（superbuild，首选）**——GEOS→PROJ→GDAL→QGIS 按源码
-   tarball + SHA256 pin（`URL_HASH`）构建进 `vendor/superbuild/prefix`
-   （启用步骤见其 README）。系统包状态不受本仓
-   控制——发行版升级/卸载即破坏构建与运行（2026-10-01 本机实证：Arch
-   系统 qgis/cmake 被卸载后，二进制缺 `libqgis_core.so.4.2.2` 无法启动，
-   构建工具链同步失踪）；自编译 prefix 把版本、ABI、裁剪面钉进仓库，
-   任何机器可复现。
+1. **自编译 vendor（superbuild，首选）**——Debian 13 归档锁提供 Qt、插件和配套
+   开发库，zlib → Zstd → SQLite → GEOS → PROJ → GDAL → QGIS 从校验后的源码
+   构建进 `vendor/superbuild/prefix`。启用、离线重放及锁刷新步骤见
+   [源码依赖闭包](vendor/superbuild/README.md)。
 2. **锁定的二进制 vendor 闭包（加速档）**——无法合理自编译时，可从上游发行包、
    deb 包或 OSGeo4W 等渠道取包，按明确版本和完整性信息校验后放入项目控制的
    前缀。发行包是供货来源，不安装成系统依赖；不能混用宿主机的同名库。
@@ -128,7 +125,7 @@ KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是 Calligra 上游最低要求，与 Office
 | ONNX Runtime abi_floor | 2.28 | `vendor/manifest.json` `abi_floor` | 官方 manylinux_2_28 构建；与 QGIS 路线正交 |
 | Calligra | 跟随本机构建的 Qt/KF6 ABI | `vendor/fetch-calligra.sh` | 独立页面渲染进程，不进主程序链接面 |
 
-更低 glibc 宿主走 superbuild（"superbuild-on-oldest-target"）。
+Debian 13（glibc 2.41）可走源码路线。低于 2.41 的宿主需要独立验证的底座锁。
 
 ### deb 闭包锁的信任根（PW-053）
 

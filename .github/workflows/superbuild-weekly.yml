@@ -16,6 +16,7 @@ on:
   pull_request:
     paths:
       - 'vendor/superbuild/**'
+      - 'vendor/fetch-deps.sh'
       - '.github/workflows/superbuild-weekly.yml'
 
 permissions:
@@ -48,32 +49,21 @@ jobs:
             echo "::error::磁盘余量 ${avail_gb}GB < 60GB，superbuild（≥60GB 口径）必然失败——先扩 Free disk space 再跑（同 ci.yml linux-asan #498 口径）"
             exit 1
           fi
-      # Qt6 走发行版包（superbuild 决策 D-QT：禁止 qt-everywhere 整块编译）；
-      # flex/bison/nasm/python3 是 README preflight 追加检查项；其余为
-      # PROJ(curl/sqlite) / GDAL / QGIS(expat/zip/ssl/X11/GL) 的系统开发面。
-      # review-fix-ci：近 3 次 weekly 均在 QGIS configure「Could NOT find Protobuf」
-      # 停住。按 QGIS final-4_2_3 顶层 CMakeLists 的 find_package 面补齐
-      # protobuf / nlohmann_json / exiv2 / GeographicLib / SpatiaLite / ZSTD /
-      # Draco / GSL / tasn1 / QScintilla / Qt6Keychain / QCA / Qt 私有与模块包
-      # （包名均在 resolute apt 索引核对存在；qwt/poly2tri 无 resolute 包，走 QGIS 内置）。
-      - name: Install build deps
+      - name: Install host build tools
         run: sudo apt-get update && sudo apt-get install -y
-          cmake ninja-build g++ pkg-config ccache
-          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-tools-dev qt6-5compat-dev
-          flex bison nasm python3
-          libsqlite3-dev libtiff-dev libcurl4-openssl-dev libssl-dev libexpat1-dev libzip-dev
-          libx11-dev libxkbcommon-dev libgl1-mesa-dev libopengl-dev
-          libprotobuf-dev protobuf-compiler nlohmann-json3-dev zlib1g-dev libzstd-dev
-          libexiv2-dev libgeographiclib-dev libspatialite-dev libdraco-dev libgsl-dev libtasn1-6-dev libpq-dev
-          qt6-base-private-dev qt6-positioning-dev qt6-declarative-dev qt6-multimedia-dev qt6-webengine-dev
-          libqscintilla2-qt6-dev qtkeychain-qt6-dev libqca-qt6-dev
+          cmake ninja-build build-essential dpkg-dev pkgconf patchelf ccache
+          flex bison nasm python3 tcl curl ca-certificates xz-utils
           && sudo apt-get clean
+      - name: Prepare the locked Qt and development base
+        run: bash vendor/fetch-deps.sh --superbuild-base
       - name: Configure superbuild
-        run: cmake -S vendor/superbuild -B "${RUNNER_TEMP}/sb-build" -G Ninja
+        run: cmake -S vendor/superbuild -B "${RUNNER_TEMP}/sb-build" -G Ninja -DSUPERBUILD_JOBS=4
       # 入口命令见 vendor/superbuild/README.md「启用步骤」（ninja 增量即
       # ExternalProject stamp 断点续跑；本 job 每次全新构建树 = 干净口径）。
-      - name: Build superbuild (GEOS → PROJ → GDAL → QGIS)
-        run: cmake --build "${RUNNER_TEMP}/sb-build" -j 4
+      - name: Build the pinned source route
+        run: |
+          source vendor/superbuild/activate.sh
+          cmake --build "${RUNNER_TEMP}/sb-build" --parallel 1
       - name: Prefix sanity probe
         run: |
           prefix="${GITHUB_WORKSPACE}/vendor/superbuild/prefix"
@@ -102,7 +92,7 @@ jobs:
           {
             echo "## superbuild-weekly 失败"
             echo "- run: $RUN_URL"
-            echo "- 处置：看红步（钉位 URL/SHA 腐烂、QGIS 补丁失配或缺 apt 依赖），口径见 vendor/superbuild/README.md；修复后手动关闭追踪 issue"
+            echo "- 处置：核对归档锁、QGIS 补丁和受控前缀。见 vendor/superbuild/README.md。"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Disk usage after build
         if: always()

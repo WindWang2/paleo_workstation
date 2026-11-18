@@ -1,0 +1,7 @@
+sqlite3 https://deb.debian.org/debian/pool/main/s/sqlite3/sqlite3_3.46.1-7%2bdeb13u2.dsc sqlite3_3.46.1-7+deb13u2.dsc 2673 46e1eec171e11108fc436e45309b635b601029726b6ffd3bf435bb474e511638
+sqlite3 https://deb.debian.org/debian/pool/main/s/sqlite3/sqlite3_3.46.1.orig-www.tar.xz sqlite3_3.46.1.orig-www.tar.xz 5861820 648df41a8e532882b1905df45919aae4bafaf74c455f66bc86f1f52f45c8b8f0
+sqlite3 https://deb.debian.org/debian/pool/main/s/sqlite3/sqlite3_3.46.1.orig.tar.xz sqlite3_3.46.1.orig.tar.xz 8456776 d0cdd2ece271b29e7ce18095745d892517ee26d0f270065b3a25c2e9eb11639c
+sqlite3 https://deb.debian.org/debian/pool/main/s/sqlite3/sqlite3_3.46.1-7%2bdeb13u2.debian.tar.xz sqlite3_3.46.1-7+deb13u2.debian.tar.xz 37084 59d33bc436258603702bb051d645743ab03612b82f79e7c7d638c65127c21261
+zlib https://deb.debian.org/debian-security/pool/updates/main/z/zlib/zlib_1.3.dfsg%2breally1.3.1-1%2bdeb13u1.dsc zlib_1.3.dfsg+really1.3.1-1+deb13u1.dsc 3271 7954224611bd043d62c094abf81cefcf9d97276479fc495767fcbc92cc6552f2
+zlib https://deb.debian.org/debian-security/pool/updates/main/z/zlib/zlib_1.3.dfsg%2breally1.3.1.orig.tar.gz zlib_1.3.dfsg+really1.3.1.orig.tar.gz 1325737 60dd315c07f616887caa029408308a018ace66e3d142726a97db164b3b8f69fb
+zlib https://deb.debian.org/debian-security/pool/updates/main/z/zlib/zlib_1.3.dfsg%2breally1.3.1-1%2bdeb13u1.debian.tar.xz zlib_1.3.dfsg+really1.3.1-1+deb13u1.debian.tar.xz 17836 4e99de80447700cf16ecf8ed3e77fabb39f085a5fffc66713466ccf07397cc04

@@ -9,6 +9,7 @@ vendor/prefix
 vendor/native-prefix
 vendor/build
 vendor/superbuild/prefix
+vendor/superbuild/base
 vendor/logs
 vendor/ort.tgz
 vendor/.onnxruntime-*/

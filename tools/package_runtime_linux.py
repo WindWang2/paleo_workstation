@@ -19,7 +19,7 @@ GLIBC_ABI = frozenset("""
 ld-linux-x86-64.so.2 libanl.so.1 libc.so.6 libdl.so.2 libm.so.6 libmvec.so.1
 libpthread.so.0 libresolv.so.2 librt.so.1 libutil.so.1
 """.split())
-QT_GROUPS = {"generic", "iconengines", "imageformats", "networkinformation",
+QT_GROUPS = {"crypto", "generic", "iconengines", "imageformats", "networkinformation",
              "platforms", "position", "sqldrivers", "styles", "tls", "vectorimageformats",
              "xcbglintegrations", "wayland-decoration-client", "wayland-shell-integration"}
 CERT_LOCK = "vendor/runtime-ca-certificates.lock.json"
@@ -83,6 +83,8 @@ def installable_sources(files, prefix, multiarch):
     plugins = multiarch / "qt6/plugins"
     for group in sorted(QT_GROUPS):
         base = plugins / group
+        if group == "crypto" and (multiarch / "qca-qt6/crypto").is_dir():
+            base = multiarch / "qca-qt6/crypto"
         for path in sorted(base.glob("*.so")):
             seeds[path] = files.copy(path, f"lib/qt6/plugins/{group}/{path.name}", "linux-prefix", prefix)
     qml = multiarch / "qt6/qml"

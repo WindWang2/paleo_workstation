@@ -17,6 +17,7 @@ paleo_activate_source_prefix() {
   export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig:$multiarch/pkgconfig:$prefix/share/pkgconfig"
   unset PKG_CONFIG_PATH PKG_CONFIG_SYSROOT_DIR FONTCONFIG_SYSROOT
   export QT_PLUGIN_PATH="$multiarch/qt6/plugins"
+  export QCA_PLUGIN_PATH="$multiarch/qca-qt6"
   export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PLUGIN_PATH/platforms"
   export FONTCONFIG_PATH="$prefix/etc/fonts" FONTCONFIG_FILE="$prefix/etc/fonts/fonts.conf"
   export QTWEBENGINEPROCESS_PATH="$prefix/lib/qt6/libexec/QtWebEngineProcess"

@@ -107,7 +107,7 @@ public:
   struct ConditionSummary
   {
     QString text;                // 用户可读描述
-    bool regexLiteralFallback;   // 无效正则退字面量（如实呈现）
+    bool regexLiteralFallback = false; // 无效正则退字面量（如实呈现）
   };
 
   static CompiledQuery compile(const DataQuery &q);

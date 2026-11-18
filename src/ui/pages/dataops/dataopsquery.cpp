@@ -303,7 +303,6 @@ CompiledQuery CompiledQuery::compile(const DataQuery &q)
   {
     ConditionSummary s;
     s.text = c.display();
-    s.regexLiteralFallback = false;
     if (c.dim == FilterDim::Regex && !c.value.isEmpty())
     {
       QRegularExpression probe(c.value);

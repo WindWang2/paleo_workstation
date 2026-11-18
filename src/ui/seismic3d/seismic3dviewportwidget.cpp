@@ -83,6 +83,9 @@ Seismic3DViewportWidget::Seismic3DViewportWidget(QWidget *parent)
 }
 
 Seismic3DViewportWidget::~Seismic3DViewportWidget() {
+    if (auto *ctx = context())
+        disconnect(ctx, &QOpenGLContext::aboutToBeDestroyed, this,
+                   &Seismic3DViewportWidget::onContextAboutToBeDestroyed);
     if (glInitialized_) {
         makeCurrent();
         sliceRenderer_.Cleanup(this);

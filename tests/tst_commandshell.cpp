@@ -453,7 +453,7 @@ int main(int argc, char *argv[])
   static QTemporaryDir settingsDir;
   QSettings::setDefaultFormat(QSettings::IniFormat);
   QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
-  AppContext ctx(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")));
+  AppContext ctx(qEnvironmentVariable("QGIS_PREFIX_PATH"));
   if (!ctx.ready())
     qFatal("AppContext failed to initialize the QGIS runtime");
   TestCommandShell tc(&ctx);

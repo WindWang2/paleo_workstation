@@ -1403,7 +1403,7 @@ void TestFaciesSupervised::supervisedGate() {
 }
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   GDALAllRegister();
   TestFaciesSupervised test;

@@ -784,7 +784,7 @@ private slots:
 };
 int main(int argc, char **argv) {
   QgsApplication application(argc, argv, false);
-  application.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
+  application.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   application.initQgis();
   TestFeatureIdentity test; const int result = QTest::qExec(&test, argc, argv);
   QgsApplication::exitQgis(); return result;

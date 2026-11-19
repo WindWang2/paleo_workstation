@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the CI wrapper against a minimal CTest project, without QGIS."""
 
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -19,6 +20,7 @@ FILES = (
     "tools/env_redset.json",
     "tools/documented_redset.json",
     "tools/check_flaky_ledger.py",
+    "vendor/deb-closure.lock",
 )
 
 
@@ -37,12 +39,17 @@ def run_gate(root):
 def main():
     with tempfile.TemporaryDirectory(prefix="paleo-ctest-gate-") as temp:
         root = Path(temp)
-        (root / "tools").mkdir()
         build = root / "build"
         build.mkdir()
         for file in FILES:
             target = root / file
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text((ROOT / file).read_text(encoding="utf-8"), encoding="utf-8")
+        prefix = root / "vendor" / "prefix"
+        (prefix / "usr").mkdir(parents=True)
+        lock = (root / "vendor" / "deb-closure.lock").read_bytes()
+        (prefix / ".paleo-deb-closure.sha256").write_text(
+            hashlib.sha256(lock).hexdigest() + "\n", encoding="ascii")
         (root / "paleo-dev").chmod(0o755)
         once = root / "fail-once.sh"
         once.write_text("#!/bin/sh\nif [ ! -e started ]; then touch started; exit 1; fi\n",

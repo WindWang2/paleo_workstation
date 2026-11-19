@@ -34,7 +34,7 @@ private slots:
 };
 void TestController::endToEnd() {
   QTemporaryDir dir;
-  AppContext context(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"));
+  AppContext context(qEnvironmentVariable("QGIS_PREFIX_PATH"));
   QVERIFY(context.ready());
   QVERIFY(context.projectSvc()->createProject(dir.filePath("test.qgz")));
   auto *cat = context.importSvc()->catalog();
@@ -136,7 +136,7 @@ void TestController::endToEnd() {
 // workflow 训练集。
 void TestController::supervisedChain() {
   QTemporaryDir dir;
-  AppContext context(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"));
+  AppContext context(qEnvironmentVariable("QGIS_PREFIX_PATH"));
   QVERIFY(context.ready());
   QVERIFY(context.projectSvc()->createProject(dir.filePath("test.qgz")));
   auto *cat = context.importSvc()->catalog();
@@ -329,7 +329,7 @@ void TestController::supervisedChain() {
 // 故闭矩形内有且仅有一个采样点。
 void TestController::oracleSampleFloor() {
   QTemporaryDir dir;
-  AppContext context(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"));
+  AppContext context(qEnvironmentVariable("QGIS_PREFIX_PATH"));
   QVERIFY(context.ready());
   QVERIFY(context.projectSvc()->createProject(dir.filePath("test.qgz")));
   auto *cat = context.importSvc()->catalog();
@@ -443,7 +443,7 @@ void TestController::oracleSampleFloor() {
 }
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   TestController test;
   const int rc = QTest::qExec(&test, argc, argv);

@@ -154,7 +154,7 @@ private slots:
 int main(int argc, char **argv) {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty()) qputenv("QT_QPA_PLATFORM", "offscreen");
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   QgsApplication::initQgis(); TestNativeEvidenceGuard test;
   const auto result = QTest::qExec(&test, argc, argv); QgsApplication::exitQgis(); return result;
 }

@@ -251,7 +251,7 @@ def stage_linux(files: PackageFiles, build: Path, scratch: Path):
         for path in sorted(grass.rglob("*")):
             if is_elf(path):
                 seeds[path] = files.output / path.relative_to(prefix)
-    for name in ("paleo", "paleo_selfcheck", "paleo_data_snapshot_worker"):
+    for name in ("paleo", "paleo_selfcheck", "paleo_data_snapshot_worker", "libpaleo_freexl.so"):
         path = build / name
         seeds[path] = files.output / "bin" / name
         files.origins[f"bin/{name}"] = {"origin": "build", "source": name, "sourceSha256": digest(path)}

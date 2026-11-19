@@ -1,4 +1,4 @@
-﻿# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
+# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
 # Verbs: bootstrap [fetch-only] | bootstrap-native | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep> | diagdeps <test>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
@@ -8,17 +8,8 @@
 #                          dumpbin /dependents，并在测试同款 PATH 下逐个
 #                          定位（MISSING 即加载器 0xC0000135 的根因候选）。
 #   checkenv             : Qt 编译/运行链一致性自检（方向 72 防回归）。
-#   ensure-resources     : 补齐 QGIS 前缀 resources/**（含 srs.db；方向 81，
-#                          localdeps 的 test/selfcheck 缺 srs.db 时自动调用）。
-# 依赖路线两条（Enter-DependencyEnvironment 自动择一，vendored 优先）：
-#   vendored ：OSGeo4W qgis-devel-4.2.x 闭包（vendor/osgeo4w，CI 口径）。
-#   localdeps：本机 conda 依赖根（默认 ~/paleo-qgis-deps，qt6-main 6.11.2 全家
-#              + GDAL/GEOS 闭包）+ QGIS 4.2.0 前缀（~/paleo-qgis-prefix，按
-#              Qt 6.11.2 构建）+ qtpdf 官方 6.11.2 覆盖层（默认
-#              C:/deps/Qt/6.11.2/msvc2022_64——conda 闭包不带 Qt6Pdf，经
-#              QT_ADDITIONAL_PACKAGES_PREFIX_PATH 补位）。编译与运行同链
-#              6.11.2，治「exe 按 6.8 编、QGIS DLL 按 6.11 载」的混链（方向 72）。
-#              根位置可被 PALEO_LOCAL_DEPS / PALEO_QGIS_PREFIX / PALEO_QTPDF_PREFIX 覆盖。
+#   ensure-resources     : validate or restore the locked QGIS resource database.
+
 param(
   [Parameter(Mandatory=$true, Position=0)][string]$Verb,
   [Parameter(Position=1)][string]$Arg
@@ -157,9 +148,14 @@ function Enter-VendorEnvironment {
   if (!(Test-Path -LiteralPath (Join-Path $osgeo 'apps/qgis/include/qgsapplication.h'))) {
     throw "Incomplete OSGeo4W prefix: $osgeo. Move it aside and run bootstrap again."
   }
-  $script:DepsRoute = 'vendored'
   $env:QGIS_PREFIX_PATH = Join-Path $osgeo 'apps\qgis'
-  $env:CMAKE_PREFIX_PATH = Join-Path $osgeo 'apps\qt6'
+  $qt = Join-Path $osgeo 'apps\qt6'
+  $env:CMAKE_PREFIX_PATH = $qt
+  $env:QT_PLUGIN_PATH = Join-Path $qt 'plugins'
+  $env:QT_QPA_PLATFORM_PLUGIN_PATH = Join-Path $qt 'plugins\platforms'
+  $env:QTWEBENGINEPROCESS_PATH = Join-Path $qt 'bin\QtWebEngineProcess.exe'
+  $env:QTWEBENGINE_RESOURCES_PATH = Join-Path $qt 'resources'
+  $env:QTWEBENGINE_LOCALES_PATH = Join-Path $qt 'translations\qtwebengine_locales'
   # OSGeo4W 的 bin/python.exe 需要其启动脚本设置 PYTHONHOME；CI 测试和源码
   # 闸门使用原有宿主解释器的绝对路径，不依赖 OSGeo4W Python 环境。
   if (-not $env:PALEO_PYTHON) {
@@ -175,51 +171,11 @@ function Enter-VendorEnvironment {
   # GDAL/PROJ 数据目录：缺省时 GDAL 找不到 tms_NZTM2000.json、PROJ
   # 报 CRS 无大地基准（影响坐标变换类用例）。
   $gdalData = Join-Path $osgeo 'apps\gdal\share\gdal'
-  if (Test-Path $gdalData) { $env:GDAL_DATA = $gdalData }
+  $env:GDAL_DATA = $gdalData
+  $env:GDAL_DRIVER_PATH = Join-Path $osgeo 'apps\gdal\lib\gdalplugins'
   $projData = Join-Path $osgeo 'share\proj'
-  if (Test-Path $projData) { $env:PROJ_LIB = $projData }
-  return $true
-}
-
-function Enter-LocalDepsEnvironment {
-  # 方向 72：本机 conda 依赖路线。Qt 6.11.2 编译（deps 头/cmake）与运行
-  # （deps DLL，PATH 前置）同链；QGIS prefix 与 deps 的 Qt 同为 6.11.2 族。
-  # 探测基准：deps 根有 Qt6Core.dll、QGIS 前缀有 qgis_core.lib——都不在则
-  # 静默让位（返回 $false），build/test 会落到系统兜底并保持原报错语义。
-  $deps = if ($env:PALEO_LOCAL_DEPS) { $env:PALEO_LOCAL_DEPS } else { Join-Path $env:USERPROFILE 'paleo-qgis-deps' }
-  $qgis = if ($env:PALEO_QGIS_PREFIX) { $env:PALEO_QGIS_PREFIX } else { Join-Path $env:USERPROFILE 'paleo-qgis-prefix' }
-  $qtpdf = if ($env:PALEO_QTPDF_PREFIX) { $env:PALEO_QTPDF_PREFIX } else { 'C:/deps/Qt/6.11.2/msvc2022_64' }
-  if (-not (Test-Path (Join-Path $deps 'Library\bin\Qt6Core.dll'))) { return $false }
-  if (-not (Test-Path (Join-Path $qgis 'lib\qgis_core.lib'))) { return $false }
-  $script:DepsRoute = 'localdeps'
-  $script:LocalQgis = $qgis; $script:LocalQtpdf = $qtpdf
-  $env:QGIS_PREFIX_PATH = $qgis
-  $env:CMAKE_PREFIX_PATH = Join-Path $deps 'Library'
-  # Qt6Pdf 系不在 conda 闭包里：官方 6.11.2 qtpdf 扩展作为独立前缀补位
-  # （Qt6Config 只在自己前缀内找组件，QT_ADDITIONAL_PACKAGES_PREFIX_PATH
-  # 是 Qt 官方的「模块独立前缀」入口）。
-  $env:QT_ADDITIONAL_PACKAGES_PREFIX_PATH = $qtpdf
-  # QScintilla 头随 conda Qt 走（include/qt6/Qsci）——旧的
-  # C:/deps/qscintilla-install 按 6.8 环境构建，统一链下退役。
-  $env:QSCINTILLA_PREFIX_PATH = Join-Path $deps 'Library\include\qt6'
-  # DLL 搜索序：deps 运行时在前（exe 与 QGIS DLL 共用的 6.11.2），QGIS 前缀
-  # bin 随后（exe 静态导入 qgis_core/gui/analysis），qtpdf 覆盖层补 Qt6Pdf*.dll；
-  # deps 根随后（conda 布局的 python.exe 在根不在 Library/bin——tst_pythonrepl/
-  # tst_scriptrunner 的 QProcess 启动依赖它）；任何 6.8 系目录都不许在前面。
-  $env:PATH = ((Join-Path $deps 'Library\bin'), (Join-Path $qgis 'bin'),
-               (Join-Path $qtpdf 'bin'), $deps, $env:PATH) -join ';'
-  # GDAL/PROJ 数据目录（与 vendored 路线同语义）：缺省时 GDAL 找不到
-  # tms_NZTM2000.json、PROJ 报 CRS 无大地基准。
-  $gdalData = Join-Path $deps 'Library\share\gdal'
-  if (Test-Path $gdalData) { $env:GDAL_DATA = $gdalData }
-  $projData = Join-Path $deps 'Library\share\proj'
-  if (Test-Path $projData) { $env:PROJ_LIB = $projData }
-  # 方向81：PALEO_PYTHON 显式指向 deps 根 python.exe（findBasePython 的最高
-  # 优先）——不靠 PATH 发现（WindowsApps 商店桩会抢先）。build 时它作为
-  # -DPALEO_TEST_PYTHON 进 cache，ctest 对每个测试注入同值并断言。用户已设
-  # 的 PALEO_PYTHON 不覆盖。
-  $depsPython = Join-Path $deps 'python.exe'
-  if (-not $env:PALEO_PYTHON -and (Test-Path $depsPython)) { $env:PALEO_PYTHON = $depsPython }
+  $env:PROJ_LIB = $projData
+  $env:PROJ_DATA = $projData
   return $true
 }
 
@@ -233,43 +189,23 @@ function Assert-NoEnvDebtRegression([string[]]$FailedTests, [string]$ManifestPat
   }
 }
 
-function Invoke-EnsureQgisResources([switch]$Auto) {
-  # 方向81 srs.db 族：localdeps 的 QGIS 前缀只有 bin/include/lib，缺
-  # resources/srs.db（tst_runtime / tst_boot 断言）。按 vendor/deb-closure.lock
-  # 同源取 qgis-providers-common + qgis-common（_all 包）解出 resources/**，
-  # srs.db = cp srs-template.db（Debian postinst 同义）。已齐备即零动作。
-  # -Auto（test/selfcheck 自动调用）：失败只告警不中断，红留给测试本身。
+function Invoke-EnsureQgisResources {
   $prefix = $env:QGIS_PREFIX_PATH
-  if (-not $prefix) {
-    if ($Auto) { return }
-    throw 'ensure-resources: 未探测到 QGIS 前缀（vendored/localdeps 都不在）'
-  }
-  if (Test-Path (Join-Path $prefix 'resources\srs.db')) {
-    if (-not $Auto) { Write-Host ("  OK  srs.db -> {0}" -f (Join-Path $prefix 'resources\srs.db')) }
+  if (-not $prefix) { throw 'A locked QGIS prefix is required. Run ./paleo-dev.ps1 bootstrap fetch-only.' }
+  $database = Join-Path $prefix 'resources\srs.db'
+  if (Test-Path -LiteralPath $database) {
+    Write-Host "  OK  srs.db -> $database"
     return
   }
   $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
-  $rc = 1
-  try {
-    & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win
-    $rc = $LASTEXITCODE
-  } catch { Write-Warning "ensure-resources: 无法运行 $py（$_）" }
-  if ($rc -ne 0) {
-    $msg = "ensure-resources failed（$py tools\ensure_qgis_resources.py --prefix $prefix）"
-    if ($Auto) { Write-Warning $msg } else { throw $msg }
-  }
+  & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win
+  if ($LASTEXITCODE -ne 0) { throw 'QGIS resource recovery failed. Reprepare the locked prefix.' }
 }
 
 function Enter-DependencyEnvironment {
-  # vendored 优先（CI 与本地 vendor 装机一致）；否则本机 localdeps；都缺则
-  # 保持系统兜底（$script:DepsRoute 留空，build 走原 -DQGIS_PREFIX=osgeo4w
-  # 报错语义）。
-  if (Enter-VendorEnvironment) { return }
-  if ($env:PALEO_VENDOR_OFFLINE -eq '1') {
-    throw 'Offline OSGeo4W prefix absent. Run ./paleo-dev.ps1 bootstrap fetch-only with the pinned cache.'
+  if (-not (Enter-VendorEnvironment)) {
+    throw 'Locked OSGeo4W prefix absent. Run ./paleo-dev.ps1 bootstrap fetch-only.'
   }
-  if (Enter-LocalDepsEnvironment) { return }
-  $script:DepsRoute = 'system'
 }
 
 function Preflight {
@@ -370,24 +306,13 @@ switch ($Verb) {
     Enter-MsvcEnvironment
     Enter-DependencyEnvironment
     $buildType = if ($env:PALEO_CMAKE_BUILD_TYPE) { $env:PALEO_CMAKE_BUILD_TYPE } else { 'RelWithDebInfo' }
-    # localdeps：configure 显式钉统一链四元组（cache 粘住，防无 env 的
-    # shell 重配时静默丢前缀——与 QGIS_PREFIX 进 cache 同一纪律）。
-    if ($script:DepsRoute -eq 'localdeps') {
-      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" `
-        "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH" `
-        "-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH=$env:QT_ADDITIONAL_PACKAGES_PREFIX_PATH" `
-        "-DQGIS_PREFIX=$script:LocalQgis" `
-        "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH" `
-        "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
-    } else {
-      $pythonArgs = @()
-      if ($env:PALEO_PYTHON) {
-        $pythonArgs += "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
-        $pythonArgs += "-DPALEO_PYTHON3=$env:PALEO_PYTHON"
-        $pythonArgs += "-DPython3_EXECUTABLE=$env:PALEO_PYTHON"
-      }
-      cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')" @pythonArgs
+    $pythonArgs = @()
+    if ($env:PALEO_PYTHON) {
+      $pythonArgs += "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
+      $pythonArgs += "-DPALEO_PYTHON3=$env:PALEO_PYTHON"
+      $pythonArgs += "-DPython3_EXECUTABLE=$env:PALEO_PYTHON"
     }
+    cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')" @pythonArgs
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     Repair-NinjaMsvcDependencyPrefix $Build
     if ($script:MsvcDependencyPrefixNeedsClean) {
@@ -404,15 +329,6 @@ switch ($Verb) {
     if ($env:PALEO_JOBS -match '^\d+$') { $jobs = [Math]::Max(1, [Math]::Min([int]$env:PALEO_JOBS, 8)) }
     if ($env:CI) { cmake --build $Build --parallel $jobs -- -k 0 } else { cmake --build $Build --parallel $jobs }
     if ($LASTEXITCODE -ne 0) { throw 'CMake build failed' }
-    # vendored onnxruntime.dll 拷进 build（应用目录在 DLL 搜索序中永远
-    # 第一）：PATH 排序压不住 OSGeo4W 自带的 1.17.1（qgis 依赖链的解析
-    # 机制绕过 PATH），ABI 1.30 头对 1.17 运行时即段错误。
-    $ortLib = Join-Path $Vendor 'onnxruntime\lib'
-    if (Test-Path $ortLib) {
-      Copy-Item (Join-Path $ortLib '*.dll') $Build -Force
-      Write-Host ("  ort dll staged -> {0} ({1})" -f $Build,
-        (Get-Item (Join-Path $Build 'onnxruntime.dll')).VersionInfo.FileVersion)
-    }
   }
   'test' {
     Enter-DependencyEnvironment
@@ -426,22 +342,6 @@ switch ($Verb) {
       [void][PaleoDev.Native]::SetErrorMode(0x8003)
     }
     $env:QT_QPA_PLATFORM = 'offscreen'
-    # 方向 72：本机沙箱策略对「镜像位于仓库树内的进程」实施文件监狱——只能
-    # 写树内路径。%TEMP% 默认在树外 → QTemporaryDir/QFile 全线「拒绝访问」
-    # （历代 Windows 环境红的真身）。localdeps 路线下把 TEMP/TMP 重定向到
-    # build 内一层浅目录（比 CMakeLists 避让的 ctest-home 深路径短）。
-    # vendored/CI 路线无此策略，保持原样。
-    if ($script:DepsRoute -eq 'localdeps') {
-      $treeTmp = Join-Path $Build 'paleo-tmp'
-      New-Item -ItemType Directory -Force $treeTmp | Out-Null
-      $env:TEMP = $treeTmp; $env:TMP = $treeTmp
-      # 同一监狱的第二个落点：SgyIndexCache 在 Windows 解析到 %LOCALAPPDATA%
-      # （树外）→「Cannot create cache file」（tst_seismic_* 家族）。其解析链
-      # 的最高优先覆盖是 SEISMIC_INDEX_CACHE_DIR——指到树内。
-      $env:SEISMIC_INDEX_CACHE_DIR = Join-Path $treeTmp 'seismic-index'
-      New-Item -ItemType Directory -Force $env:SEISMIC_INDEX_CACHE_DIR | Out-Null
-      Invoke-EnsureQgisResources -Auto
-    }
     # Python 门禁脚本在 Windows 默认 cp1252 下读写含中文的源码/输出会抛
     # UnicodeEncodeError（ui_invariants_selftest）——统一 UTF-8 模式。
     $env:PYTHONUTF8 = '1'
@@ -498,7 +398,7 @@ switch ($Verb) {
       $redsetText = @()
       try {
         $redsetText = @(& $py (Join-Path $Root 'tools/check_env_redset.py') --build $Build --junit $junit `
-          --route $script:DepsRoute --strict --emit-unexpected $unexpectedFile 2>&1)
+          --route vendored --strict --emit-unexpected $unexpectedFile 2>&1)
         $redsetText | Tee-Object -FilePath $log -Append
         $redsetExit = $LASTEXITCODE
       } catch { "  (env_redset 检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
@@ -684,13 +584,6 @@ switch ($Verb) {
   'selfcheck' {
     Enter-DependencyEnvironment
     $env:QT_QPA_PLATFORM = 'offscreen'
-    if ($script:DepsRoute -eq 'localdeps') {
-      # 同 test：树内进程的 TEMP 重定向（selfcheck 也用 QTemporaryDir）。
-      $treeTmp = Join-Path $Build 'paleo-tmp'
-      New-Item -ItemType Directory -Force $treeTmp | Out-Null
-      $env:TEMP = $treeTmp; $env:TMP = $treeTmp
-      Invoke-EnsureQgisResources -Auto
-    }
     & (Join-Path $Build 'paleo_selfcheck.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Selfcheck failed' }
   }

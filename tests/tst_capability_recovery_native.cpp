@@ -159,7 +159,7 @@ private slots:
   }
 };
 int main(int argc,char **argv) {
-  QgsApplication app(argc,argv,false);app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH","/usr"),true);app.initQgis();
+  QgsApplication app(argc,argv,false);app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"),true);app.initQgis();
   NativeRecoveryTests test;const auto code=QTest::qExec(&test,argc,argv);QgsApplication::exitQgis();return code;
 }
 #include "tst_capability_recovery_native.moc"

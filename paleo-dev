@@ -9,34 +9,25 @@ BUILD_DIR="${BUILD_DIR:-build}"
 paleo_multiarch() {
   dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "$(uname -m)-linux-gnu"
 }
-# deb 闭包里 PROJ/GDAL 是 distro 编译——默认数据路径指向 runner 上不存在的
-# /usr/share/{proj,gdal}，不显式导出则 proj.db 找不到：OSRImportFromEPSG /
-# SetProjection / GPKG SRS 全链静默 fail（写栅格类测试成片红）。按现有
-# GDAL_DRIVER_PATH 的「prefix 在则注入、用户显式给则不抢」同款规则补
-# PROJ_DATA/GDAL_DATA；superbuild/系统包路目录存在时也生效，无害。
-paleo_data_env() {
-  local prefix="$1"
-  [ -n "$prefix" ] || return 0
-  if [ -d "$prefix/share/proj" ]; then
-    [ -z "${PROJ_DATA:-}" ] && export PROJ_DATA="$prefix/share/proj"
-    [ -z "${PROJ_LIB:-}" ] && export PROJ_LIB="$prefix/share/proj"
-  fi
-  [ -z "${GDAL_DATA:-}" ] && [ -d "$prefix/share/gdal" ] && export GDAL_DATA="$prefix/share/gdal"
-  return 0
-}
 paleo_activate_deps() {
-  if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
-    if [ -d vendor/superbuild/prefix/lib ]; then
-      export QGIS_PREFIX_PATH="$PWD/vendor/superbuild/prefix"
-      export LD_LIBRARY_PATH="$QGIS_PREFIX_PATH/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    elif [ -d vendor/prefix/usr ]; then
-      export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+  local prefix="${QGIS_PREFIX_PATH:-}"
+  if [ -z "$prefix" ]; then
+    if [ -s vendor/superbuild/prefix/.paleo-superbuild-base.sha256 ]; then
+      prefix="$PWD/vendor/superbuild/prefix"
+    else
+      prefix="$PWD/vendor/prefix/usr"
     fi
   fi
-
-  local prefix="${QGIS_PREFIX_PATH:-}"
-  [ -d "$prefix" ] || return 0
+  if [ ! -d "$prefix" ]; then
+    echo "Missing prepared dependency prefix $prefix. Run ./paleo-dev bootstrap fetch-only." >&2
+    return 1
+  fi
   prefix=$(cd -P -- "$prefix" && pwd)
+  if [ -s "$prefix/.paleo-superbuild-base.sha256" ]; then
+    source vendor/superbuild/activate.sh "$prefix"
+    return
+  fi
+  export QGIS_PREFIX_PATH="$prefix"
   local receipt="${prefix%/*}/.paleo-deb-closure.sha256"
   if [[ "$prefix" -ef "$PWD/vendor/prefix/usr" || -f "$receipt" ]]; then
     local wanted
@@ -66,17 +57,8 @@ paleo_activate_deps() {
     return 0
   fi
 
-  # Explicit external and source-built prefixes use their own library search path.
-  if [ -z "${GDAL_DRIVER_PATH:-}" ]; then
-    local candidate
-    for candidate in "$prefix/lib/gdalplugins" "$prefix/lib/$(paleo_multiarch)/gdalplugins"; do
-      if [ -d "$candidate" ]; then
-        export GDAL_DRIVER_PATH="$candidate"
-        break
-      fi
-    done
-  fi
-  paleo_data_env "$prefix"
+  echo "QGIS prefix $prefix does not match a Paleo dependency lock. See BUILDING.md." >&2
+  return 1
 }
 
 paleo_configure() {

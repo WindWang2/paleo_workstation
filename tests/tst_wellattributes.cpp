@@ -1011,7 +1011,7 @@ private slots:
 };
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, true);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", "/usr"), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   PaleoTheme::applyLightTheme();
   TestWellAttributes test;

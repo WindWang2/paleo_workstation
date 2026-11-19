@@ -1541,7 +1541,7 @@ void TestPropWorkflow::objectOverrideRegistersInProvenance()
 int main(int argc, char *argv[])
 {
   QgsApplication app(argc, argv, false);
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   app.initQgis();
   GDALAllRegister();
   TestPropWorkflow tc;

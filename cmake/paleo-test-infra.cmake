@@ -386,16 +386,13 @@ if(UNIX)
 endif()
 
 # ---- 新 worktree 首次 configure 早失败护栏（goal/perf-maintenance-20261027）----
-# cmake/verify-first-configure.cmake（cmake -P）：依赖存在（stub prefix 全链
-# 首配 + 四条 vendor include 落进 compile_commands——TODOS P2 原症状断言）/
-# 缺失（显式与 env 两路悬空 prefix 必须 configure 期 FATAL 且报文含修复
-# 入口）/ 幂等（同一命令重跑行为一致，不生成错误栈构建系统）。仅 UNIX
-# 注册：stub 库文件名/分隔符按 POSIX 写死，Windows 首配行为不在本护栏
-# 验收面（PR 如实标注，待 Windows 车道实跑后再放开）。
+# UNIX 使用主构建的受控前缀检查首配和四条 vendor include，
+# 同时覆盖悬空路径、缺收据的前缀和失败后的幂等重试。
 if(UNIX)
   add_test(NAME first_configure COMMAND ${CMAKE_COMMAND}
            -DFIRSTCFG_SOURCE_DIR=${CMAKE_SOURCE_DIR}
            -DFIRSTCFG_BINARY_DIR=${CMAKE_BINARY_DIR}/first-configure-check
+           "-DFIRSTCFG_QGIS_PREFIX=${PALEO_DEPENDENCY_PREFIX}"
            -P ${CMAKE_SOURCE_DIR}/cmake/verify-first-configure.cmake)
   set_tests_properties(first_configure PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()

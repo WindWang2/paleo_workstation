@@ -123,8 +123,16 @@ install(TARGETS paleo paleo_selfcheck
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(TARGETS paleo_data_snapshot_worker RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+if(WIN32)
+  install(FILES ${PALEO_WINDOWS_RUNTIME_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
+if(TARGET paleo_freexl_runtime)
+  get_target_property(_paleo_freexl_runtime paleo_freexl_runtime PALEO_RUNTIME_FILE)
+  install(FILES "${_paleo_freexl_runtime}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 if(WIN32 AND TARGET paleo_freexl_runtime)
-  install(FILES "${CMAKE_BINARY_DIR}/paleo_freexl.dll" DESTINATION ${CMAKE_INSTALL_BINDIR})
   install(FILES vendor/Data_service/vendor/freexl/NOTICE.txt
     vendor/Data_service/vendor/freexl/LGPL-2.1.txt
     vendor/Data_service/vendor/freexl/spreadsheet_compat.patch
@@ -133,9 +141,8 @@ if(WIN32 AND TARGET paleo_freexl_runtime)
 endif()
 
 if(PALEO_HAVE_ORT AND NOT WIN32)
-  # onnxruntime 是本仓 vendored 的唯一非 QGIS 共享库，随安装树走 lib/。
-  file(GLOB _paleo_ort_libs "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib/libonnxruntime.so*")
+  file(GLOB _paleo_ort_libs "${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib/libonnxruntime*.so*")
   install(FILES ${_paleo_ort_libs} DESTINATION ${CMAKE_INSTALL_LIBDIR})
 elseif(PALEO_HAVE_ORT AND WIN32)
-  install(FILES "${ORT_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+  install(FILES ${_paleo_ort_binary} DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

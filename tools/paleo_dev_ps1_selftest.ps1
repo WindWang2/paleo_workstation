@@ -14,7 +14,7 @@ if ($errs.Count) {
   $errs | ForEach-Object { Write-Host ("PARSE ERROR: {0} @ line {1}" -f $_.Message, $_.Extent.StartLineNumber) }
   exit 1
 }
-$want = 'Get-Osgeo4wLockHash', 'Assert-Osgeo4wLockStamp', 'Enter-LocalDepsEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
+$want = 'Get-Osgeo4wLockHash', 'Assert-Osgeo4wLockStamp', 'Enter-VendorEnvironment', 'Enter-DependencyEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
 $fns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
 foreach ($f in $fns) { if ($want -contains $f.Name) { Invoke-Expression $f.Extent.Text } }
 foreach ($n in $want) { if (-not (Get-Command $n -CommandType Function -ErrorAction SilentlyContinue)) { throw "function $n not found in $Script" } }
@@ -27,8 +27,10 @@ function Check([bool]$cond, [string]$what) { if (-not $cond) { $failures.Add($wh
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("paleo-ps1-selftest-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $savedEnv = @{}
-foreach ($k in 'PALEO_LOCAL_DEPS', 'PALEO_QGIS_PREFIX', 'PALEO_QTPDF_PREFIX', 'PALEO_PYTHON', 'QGIS_PREFIX_PATH',
-               'CMAKE_PREFIX_PATH', 'QT_ADDITIONAL_PACKAGES_PREFIX_PATH', 'QSCINTILLA_PREFIX_PATH', 'PATH', 'GDAL_DATA', 'PROJ_LIB') {
+foreach ($k in 'PALEO_PYTHON', 'QGIS_PREFIX_PATH', 'CMAKE_PREFIX_PATH', 'PATH',
+               'GDAL_DATA', 'GDAL_DRIVER_PATH', 'PROJ_LIB', 'PROJ_DATA', 'QT_PLUGIN_PATH',
+               'QT_QPA_PLATFORM_PLUGIN_PATH', 'QTWEBENGINEPROCESS_PATH',
+               'QTWEBENGINE_RESOURCES_PATH', 'QTWEBENGINE_LOCALES_PATH') {
   $savedEnv[$k] = [Environment]::GetEnvironmentVariable($k, 'Process')
 }
 try {
@@ -61,40 +63,30 @@ try {
   try { Assert-Osgeo4wLockStamp $prefix } catch { $ok = $false }
   Check $ok 'OSGeo4W prefix stamped for the current lock must be accepted'
 
-  # 2) localdeps：PALEO_PYTHON 指向 deps 根 python.exe；用户已设值不覆盖。
-  $deps = Join-Path $tmp 'deps'; $qgis = Join-Path $tmp 'qgis'
-  foreach ($p in (Join-Path $deps 'Library/bin/Qt6Core.dll'), (Join-Path $qgis 'lib/qgis_core.lib'), (Join-Path $deps 'python.exe')) {
-    New-Item -ItemType Directory -Force (Split-Path -Parent $p) | Out-Null
-    Set-Content $p -Value 'x'
-  }
-  $env:PALEO_LOCAL_DEPS = $deps; $env:PALEO_QGIS_PREFIX = $qgis; $env:PALEO_QTPDF_PREFIX = (Join-Path $tmp 'qtpdf')
-  $env:PALEO_PYTHON = $null
-  Check ((Enter-LocalDepsEnvironment) -eq $true) 'localdeps fixture not detected'
-  Check ($env:PALEO_PYTHON -eq (Join-Path $deps 'python.exe')) ("PALEO_PYTHON -> '{0}'" -f $env:PALEO_PYTHON)
-  Check ($env:QGIS_PREFIX_PATH -eq $qgis) 'QGIS_PREFIX_PATH not set to localdeps prefix'
+  # The managed route binds Qt, GIS and the caller's explicitly chosen Python.
+  $qgis = Join-Path $prefix 'apps/qgis'
+  $headers = Join-Path $qgis 'include'
+  New-Item -ItemType Directory -Force $headers | Out-Null
+  Set-Content (Join-Path $headers 'qgsapplication.h') 'fixture'
   $env:PALEO_PYTHON = 'C:/custom/python.exe'
-  Enter-LocalDepsEnvironment | Out-Null
+  Enter-DependencyEnvironment
   Check ($env:PALEO_PYTHON -eq 'C:/custom/python.exe') 'user PALEO_PYTHON overwritten'
+  Check ((Get-Item -LiteralPath $env:QGIS_PREFIX_PATH).FullName -eq (Get-Item -LiteralPath $qgis).FullName) 'Qt and QGIS did not use the locked prefix'
+  Check ($env:PROJ_DATA.Replace('\', '/') -eq (Join-Path $prefix 'share/proj').Replace('\', '/')) 'PROJ_DATA selected another prefix'
 
-  # 3) ensure-resources：srs.db 已在 → 零动作（不调用 python）；-Auto 且无前缀 → 静默返回。
   New-Item -ItemType Directory -Force (Join-Path $qgis 'resources') | Out-Null
   Set-Content (Join-Path $qgis 'resources/srs.db') -Value 'x'
-  $env:QGIS_PREFIX_PATH = $qgis
-  $env:PALEO_PYTHON = (Join-Path $tmp 'no-such-python.exe')   # 若被调用即抛
+  $env:PALEO_PYTHON = Join-Path $tmp 'no-such-python.exe'
   $Root = Split-Path -Parent $Script
-  $ok = $true; try { Invoke-EnsureQgisResources -Auto; Invoke-EnsureQgisResources } catch { $ok = $false }
-  Check $ok 'ensure-resources invoked python although srs.db exists'
-  # 解释器不存在 + srs.db 缺：-Auto 只告警不抛（test/selfcheck 不被打断），手动则抛。
-  Remove-Item (Join-Path $qgis 'resources/srs.db') -Force
-  $ok = $true; try { Invoke-EnsureQgisResources -Auto 3>$null } catch { $ok = $false }
-  Check $ok 'ensure-resources -Auto with missing python must only warn'
-  $threw = $false; try { Invoke-EnsureQgisResources 3>$null } catch { $threw = $true }
-  Check $threw 'ensure-resources (manual) with missing python must throw'
-  $env:QGIS_PREFIX_PATH = $null
-  $ok = $true; try { Invoke-EnsureQgisResources -Auto } catch { $ok = $false }
-  Check $ok 'ensure-resources -Auto without prefix must be silent'
+  $ok = $true; try { Invoke-EnsureQgisResources } catch { $ok = $false }
+  Check $ok 'ensure-resources invoked Python although srs.db exists'
+  Remove-Item -LiteralPath (Join-Path $qgis 'resources/srs.db') -Force
   $threw = $false; try { Invoke-EnsureQgisResources } catch { $threw = $true }
-  Check $threw 'ensure-resources (manual) without prefix must throw'
+  Check $threw 'ensure-resources with missing inputs must fail clearly'
+
+  $Vendor = Join-Path $tmp 'absent-vendor'
+  $threw = $false; try { Enter-DependencyEnvironment } catch { $threw = $true }
+  Check $threw 'an unlocked host must be rejected with bootstrap instructions'
 } finally {
   foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k], 'Process') }
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

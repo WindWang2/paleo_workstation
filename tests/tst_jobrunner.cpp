@@ -782,7 +782,7 @@ int main(int argc, char *argv[])
   QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_jobrunner-result.txt";
   {
     QgsApplication app(argc, argv, false);
-    app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true);
+    app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
     app.initQgis();
     GDALAllRegister();
     TestJobRunner tc;

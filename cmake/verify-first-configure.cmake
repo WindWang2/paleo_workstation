@@ -11,23 +11,24 @@
 #
 # 用法（源码根缺省取脚本所在目录的上一级）：
 #   cmake -DFIRSTCFG_SOURCE_DIR=<repo> -DFIRSTCFG_BINARY_DIR=<scratch> \
+#         -DFIRSTCFG_QGIS_PREFIX=<prepared-prefix> \
 #         -P cmake/verify-first-configure.cmake
 #
 # 场景（每轮全新构建目录，不复制任何旧 cache/生成物）：
-#   G1 依赖存在：合成 stub prefix（QGIS/GDAL/GEOS 头 + stub 库）→ 首配成功，
-#      QGIS_INCLUDE_DIR 命中 stub（不静默换栈），compile_commands 含全部四条
+#   G1 依赖存在：使用主构建选择的受控前缀，确认首配成功，
+#      QGIS_INCLUDE_DIR 命中该前缀，compile_commands 含全部四条
 #      vendor include（glm/saribbon/sbm/segyio——原症状的直接断言）。
 #   G2 依赖缺失（显式 -D）：悬空 prefix → 非零退出 + 报文含路径与修复入口。
 #   G3 幂等复用：同一目录重跑 G2 → 同样失败，且无 build.ninja 半生成残留
 #      （防「第二轮魔法恢复」类状态依赖回归）。
 #   G4 依赖缺失（env 路线）：QGIS_PREFIX_PATH 悬空 → 同 G2（覆盖 env→cache
 #      写入路径的早失败）。
+#   G5 前缀存在但缺供货收据：即使有同名 QGIS 头，也应在 configure 期拒绝。
 #
 # 断言一律内联 if()：CMake 的 if() 不把 ${var} 展开值重新分词，把条件串
 # 塞进宏参数会整串变成单个非布尔参数（NOT 恒真），故不使用条件宏。
 #
-# 仅注册在 UNIX 车道（见 paleo-test-infra.cmake）：stub 库文件名/路径分隔符
-# 按 POSIX 写死，Windows 首配行为不在本护栏验收面内（如实记录，不假绿）。
+# 此测试在 UNIX 注册，Windows 的受控前缀由本地 bootstrap 和配置检查覆盖。
 
 cmake_minimum_required(VERSION 3.28)
 
@@ -39,6 +40,13 @@ if(NOT FIRSTCFG_BINARY_DIR)
 endif()
 get_filename_component(FIRSTCFG_SOURCE_DIR "${FIRSTCFG_SOURCE_DIR}" ABSOLUTE)
 get_filename_component(FIRSTCFG_BINARY_DIR "${FIRSTCFG_BINARY_DIR}" ABSOLUTE)
+if(NOT FIRSTCFG_QGIS_PREFIX)
+  set(FIRSTCFG_QGIS_PREFIX "$ENV{QGIS_PREFIX_PATH}")
+endif()
+if(NOT IS_DIRECTORY "${FIRSTCFG_QGIS_PREFIX}")
+  message(FATAL_ERROR "Set FIRSTCFG_QGIS_PREFIX to a prepared QGIS dependency prefix.")
+endif()
+file(REAL_PATH "${FIRSTCFG_QGIS_PREFIX}" _fc_prepared)
 
 set(_fc_fail "")
 macro(_fc_report msg)
@@ -51,25 +59,17 @@ if(EXISTS "${FIRSTCFG_BINARY_DIR}")
 endif()
 file(MAKE_DIRECTORY "${FIRSTCFG_BINARY_DIR}")
 
-set(_fc_stub "${FIRSTCFG_BINARY_DIR}/stub-prefix")
 set(_fc_missing "${FIRSTCFG_BINARY_DIR}/missing-prefix")
 set(_fc_missing2 "${FIRSTCFG_BINARY_DIR}/missing-prefix-2")
-
-# ---- G1：合成 stub prefix（头 + 空 stub 库；find_* 只探存在性不验内容）----
-file(WRITE "${_fc_stub}/include/qgsapplication.h" "/* stub */\n")
-file(WRITE "${_fc_stub}/include/gdal.h" "/* stub */\n")
-file(WRITE "${_fc_stub}/include/geos_c.h" "/* stub */\n")
-foreach(_lib qgis_core qgis_gui qgis_analysis gdal geos_c)
-  file(WRITE "${_fc_stub}/lib/lib${_lib}.so" "")
-endforeach()
+set(_fc_unprepared "${FIRSTCFG_BINARY_DIR}/unprepared-prefix")
 
 set(_fc_common_args -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo)
 
-message(STATUS "G1: 全新目录首配（stub prefix 依赖存在）")
+message(STATUS "G1: 全新目录首配（依赖前缀已准备）")
 set(_fc_g1 "${FIRSTCFG_BINARY_DIR}/g1-build")
 execute_process(
   COMMAND ${CMAKE_COMMAND} "-S${FIRSTCFG_SOURCE_DIR}" "-B${_fc_g1}"
-          ${_fc_common_args} "-DQGIS_PREFIX=${_fc_stub}"
+          ${_fc_common_args} "-DQGIS_PREFIX=${_fc_prepared}"
   RESULT_VARIABLE _fc_g1_rc
   OUTPUT_VARIABLE _fc_g1_out
   ERROR_VARIABLE _fc_g1_err
@@ -78,11 +78,11 @@ if(NOT _fc_g1_rc EQUAL 0)
   _fc_report("G1 首配应成功，实际 rc=${_fc_g1_rc}：\n${_fc_g1_out}\n${_fc_g1_err}")
 endif()
 
-# QGIS_INCLUDE_DIR 必须命中 stub（显式 prefix 不静默换栈）。
+# QGIS_INCLUDE_DIR 必须命中受控前缀。
 file(STRINGS "${_fc_g1}/CMakeCache.txt" _fc_g1_line REGEX "^QGIS_INCLUDE_DIR:PATH=")
-string(FIND "${_fc_g1_line}" "${_fc_stub}" _fc_g1_hit)
+string(FIND "${_fc_g1_line}" "${_fc_prepared}/" _fc_g1_hit)
 if(_fc_g1_hit EQUAL -1)
-  _fc_report("G1 QGIS_INCLUDE_DIR 未命中 stub prefix（cache 行：${_fc_g1_line}）")
+  _fc_report("G1 QGIS_INCLUDE_DIR 未命中受控前缀（cache 行：${_fc_g1_line}）")
 endif()
 
 # 原症状直接断言：四条 vendor include 在首配生成的 compile_commands 里。
@@ -166,7 +166,24 @@ if(_fc_g4_named EQUAL -1)
   _fc_report("G4 报文未点名缺失 env prefix 路径")
 endif()
 
+message(STATUS "G5: 前缀存在且包含同名 QGIS 头，但缺少供货收据")
+file(WRITE "${_fc_unprepared}/include/qgsapplication.h" "/* stub */\n")
+set(_fc_g5 "${FIRSTCFG_BINARY_DIR}/g5-build")
+execute_process(
+  COMMAND ${CMAKE_COMMAND} "-S${FIRSTCFG_SOURCE_DIR}" "-B${_fc_g5}"
+          ${_fc_common_args} "-DQGIS_PREFIX=${_fc_unprepared}"
+  RESULT_VARIABLE _fc_g5_rc
+  OUTPUT_VARIABLE _fc_g5_out
+  ERROR_VARIABLE _fc_g5_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
+if(_fc_g5_rc EQUAL 0 OR EXISTS "${_fc_g5}/build.ninja")
+  _fc_report("G5 缺供货收据的前缀应在生成前被拒绝")
+endif()
+if(NOT "${_fc_g5_out}${_fc_g5_err}" MATCHES "prepared dependency lock")
+  _fc_report("G5 报文未说明供货收据问题")
+endif()
+
 if(_fc_fail)
   message(FATAL_ERROR "verify-first-configure 未通过：\n${_fc_fail}")
 endif()
-message(STATUS "verify-first-configure: G1-G4 全绿（存在/缺失×2/幂等复用）")
+message(STATUS "verify-first-configure: G1-G5 全绿")

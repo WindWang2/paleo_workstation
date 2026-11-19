@@ -8,46 +8,6 @@ set(PDS_SEISMIC_ENGINE_TARGET paleo_sbm CACHE STRING "" FORCE)
 set(PDS_SEISMIC_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/vendor/sbm/src" CACHE PATH "" FORCE)
 add_subdirectory(vendor/Data_service EXCLUDE_FROM_ALL)
 
-# Keep the BIFF compatibility fixes from the pinned Data_service source in the
-# runtime too. Falling through to an unrelated PATH DLL loses those fixes.
-if(WIN32)
-  set(_paleo_freexl_source "${CMAKE_SOURCE_DIR}/vendor/Data_service/vendor/freexl")
-  # A private name avoids replacing GDAL's own FreeXL dependency/ABI.
-  set(_paleo_freexl_runtime "${CMAKE_BINARY_DIR}/paleo_freexl.dll")
-  if(PALEO_DEPENDENCY_PREFIX)
-    find_file(PALEO_ICONV_RUNTIME NAMES iconv-2.dll libiconv-2.dll iconv.dll
-      PATHS "${PALEO_DEPENDENCY_PREFIX}/bin" NO_DEFAULT_PATH REQUIRED)
-    paleo_require_dependency_path("${PALEO_ICONV_RUNTIME}" "FreeXL iconv runtime")
-  else()
-    find_file(PALEO_ICONV_RUNTIME NAMES iconv-2.dll libiconv-2.dll iconv.dll
-      HINTS ${CMAKE_PREFIX_PATH} "${CMAKE_SOURCE_DIR}/vendor/osgeo4w" PATH_SUFFIXES bin REQUIRED)
-  endif()
-  get_filename_component(_paleo_iconv_name "${PALEO_ICONV_RUNTIME}" NAME)
-  get_filename_component(_paleo_iconv_dir "${PALEO_ICONV_RUNTIME}" DIRECTORY)
-  set(_paleo_charset_args)
-  if(_paleo_iconv_name STREQUAL "iconv.dll")
-    find_file(PALEO_CHARSET_RUNTIME NAMES charset.dll HINTS "${_paleo_iconv_dir}" NO_DEFAULT_PATH REQUIRED)
-    if(PALEO_DEPENDENCY_PREFIX)
-      paleo_require_dependency_path("${PALEO_CHARSET_RUNTIME}" "FreeXL charset runtime")
-    endif()
-    list(APPEND _paleo_charset_args -CharsetDll charset.dll)
-  endif()
-  add_custom_command(OUTPUT "${_paleo_freexl_runtime}"
-    COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${_paleo_freexl_source}/build_windows.ps1"
-      -OutputDirectory "${CMAKE_BINARY_DIR}/freexl-runtime"
-      -IconvDll "${_paleo_iconv_name}" ${_paleo_charset_args}
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-      "${CMAKE_BINARY_DIR}/freexl-runtime/freexl.dll" "${_paleo_freexl_runtime}"
-    DEPENDS "${_paleo_freexl_source}/build_windows.ps1"
-      "${_paleo_freexl_source}/freexl-2.0.0/src/freexl.c"
-      "${_paleo_freexl_source}/freexl-2.0.0/headers/freexl.h"
-      "${_paleo_freexl_source}/freexl-2.0.0/headers/freexl_internals.h"
-      "${_paleo_freexl_source}/freexl-2.0.0/config-msvc.h"
-      "${_paleo_freexl_source}/windows/iconv.h" "${_paleo_freexl_source}/windows/iconv.def"
-    VERBATIM)
-  add_custom_target(paleo_freexl_runtime DEPENDS "${_paleo_freexl_runtime}")
-  add_dependencies(paleo_data_service paleo_freexl_runtime)
-endif()
 target_link_libraries(paleo_store PRIVATE Paleo::paleo_data_service)
 target_link_libraries(paleo_qgis PRIVATE Paleo::paleo_data_service)
 target_sources(paleo_store PRIVATE src/catalog/areawellprojection.cpp src/catalog/areasourceprojection.cpp

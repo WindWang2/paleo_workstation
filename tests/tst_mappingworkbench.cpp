@@ -6963,7 +6963,7 @@ int main(int argc, char **argv) {
   QTemporaryDir profile;
   if(!profile.isValid())return 1;
   QgsApplication app(argc, argv, true,profile.path());
-  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH",QStringLiteral("/usr")), true);
+  app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);
   // Match the native runtime order; initQgis alone does not initialize the
   // private profile/database consumed by CAD settings and attribute editors.
   QgsApplication::init(profile.path());

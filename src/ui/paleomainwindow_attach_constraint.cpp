@@ -139,8 +139,13 @@ void runConstraintPageIdw(ConstraintWorkflow *constraint,
   }
 
   QString err;
+  // P3：向分析入口转发完整单元上下文（冻结的 UnitSelection + 分析键 + 约束
+  // 界面键）——引擎据此做 DS 实体核验并统一派生成果/约束双键，不再只收键。
+  QVariantMap idwParams = bind.enrich(QVariantMap());
+  idwParams.insert(QStringLiteral("constraintHorizon"),
+                   !bind.constraintHorizon.isEmpty() ? bind.constraintHorizon : bind.analysisKey);
   // 成果键用 analysisKey（稳定 SubIntervalId）；井点匹配可用父单元上界面。
-  if (!constraint->runConstraintIDW(bind.analysisKey, pointsId, field, cellSize, &err))
+  if (!constraint->runConstraintIDW(bind.analysisKey, pointsId, field, cellSize, &err, idwParams))
     fail(err.isEmpty() ? PaleoMainWindow::tr("约束插值失败") : err);
 }
 

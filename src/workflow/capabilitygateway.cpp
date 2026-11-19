@@ -913,11 +913,29 @@ ExecuteResult executeConstraint(const ExecuteRequest &request, const ValidatedPa
     return finish(log, record, rejected(QStringLiteral("short_write")), false, {});
   if (!request.catalog)
     return finish(log, record, rejected(QStringLiteral("publish_unavailable")), true, {});
+  // P3/W4：正式发布必须携带宿主 freeze 钩子核验过的单元身份（subinterval_
+  // verified + unit_selection）。本遗留 publishFiles 分支生产不可达（chat 走
+  // hosted Recovery 链、后台任务拒 publish、nativeWorker 强制 compute-only），
+  // 仅进程内直调可及——同一验证口径防止绕开 Host 出无归属产物。
+  const QVariantMap frozenUnit = request.inputs.value(QStringLiteral("unit_selection")).toMap();
+  if (frozenUnit.isEmpty() || !request.inputs.value(QStringLiteral("subinterval_verified")).toBool() ||
+      request.inputs.value(QStringLiteral("subinterval_id")).toString() !=
+          frozenUnit.value(QStringLiteral("subIntervalId")).toString())
+    return finish(log, record, rejected(QStringLiteral("subinterval_not_verified")), false, {});
   AlgorithmSpec spec = AlgorithmSpecRegistry::specAtVersion(QStringLiteral("paleo:paleo_constraint_idw"), 1);
   AlgorithmOutputArtifact artifact;
   artifact.portId = QStringLiteral("OUTPUT");
   artifact.extra.insert(QStringLiteral("bytes"), bytes);
   artifact.extra.insert(QStringLiteral("operationId"), record.operationId);
+  // 宿主冻结的单元身份随成员 extra 入册（commitSet 成员 extra 合并语义）。
+  artifact.extra.insert(QStringLiteral("unitSelection"), frozenUnit);
+  artifact.extra.insert(QStringLiteral("subIntervalId"), frozenUnit.value(QStringLiteral("subIntervalId")));
+  artifact.extra.insert(QStringLiteral("intervalId"), frozenUnit.value(QStringLiteral("intervalId")));
+  artifact.extra.insert(QStringLiteral("schemeId"), frozenUnit.value(QStringLiteral("schemeId")));
+  artifact.extra.insert(QStringLiteral("schemeRevision"), frozenUnit.value(QStringLiteral("revision")));
+  artifact.extra.insert(QStringLiteral("algorithm_id"), QStringLiteral("paleo:paleo_constraint_idw"));
+  artifact.extra.insert(QStringLiteral("kind"), QStringLiteral("single_factor_raster"));
+  artifact.extra.insert(QStringLiteral("subinterval_verified"), true);
   QString receipt;
   const QStringList parents = request.inputs.value(QStringLiteral("parent_version_ids")).toStringList();
   const QString committed = publishFiles(request.catalog, request.projectDir, spec, {artifact}, parents, &receipt);

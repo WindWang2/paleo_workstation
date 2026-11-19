@@ -955,6 +955,11 @@ bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
     return false;
   const auto points = params.value("pointsLayerId").toString();
   auto options = params;
+  // P3：正式单因素生成携带冻结单元上下文——引擎入口（ConstraintWorkflow::
+  // generateFactor）已按 DS 实体核验并统一派生成果/约束双键；映射层位界面名
+  // 不再单独驱动成果键。无有效单元时由引擎按工程方案存在性明确拒绝。
+  if (m_analysisUnit.isValid() && h == paleo::strat::analysisLayerKey(m_analysisUnit))
+    options.insert(QStringLiteral("unitSelection"), paleo::strat::toMap(m_analysisUnit));
   if (!points.isEmpty()) {
     auto parent = ensureInputVersion(points, error);
     if (parent.isEmpty())

@@ -7,6 +7,8 @@
 #include <QPointer>
 #include <memory>
 #include "constraintjobs.h" // #558：job 族完整定义（原内嵌 workflows.h）
+#include "constraintanalysisidentity.h" // P3：单因素/插值稳定单元身份
+#include "factorevidenceconfirmation.h" // P3：证据确认收口
 #include "workflows_internal.h"
 
 #include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）
@@ -1304,7 +1306,8 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
 }
 
 bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString &pointsLayerId,
-                                          const QString &field, double cellSize, QString *error )
+                                          const QString &field, double cellSize, QString *error,
+                                          const QVariantMap &inputParams )
 {
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();
@@ -1332,6 +1335,18 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
     paleo::workflow_detail::setError( error, tr( "像元大小必须是正数" ) );
     return false;
   }
+  // P3/W1：正式约束 IDW 入口冻结稳定分析单元（DS 实体核验；拒绝伪造
+  // subinterval/错修订/aggregate；工程已有方案时缺单元直接拒绝）。成果键
+  // =layerToken，约束/井点键=父单元上界面——UI 只传键的旧接缝在此补齐完整
+  // 单元上下文，引擎不再接受任意 horizon 冒充单元身份。
+  QVariantMap params = inputParams;
+  paleo::constraint_identity::FrozenAnalysisIdentity identity;
+  if ( !paleo::constraint_identity::resolveAnalysisIdentity(
+          projectDir(), horizon, params, paleo::constraint_identity::AggregatePolicy::Reject,
+          identity, error ) )
+    return false;
+  const QString analysisKey = identity.analysisLayerKey;
+  const QString constraintKey = identity.constraintHorizon;
 
   // INPUT is a QgsProcessingParameterFeatureSource: it accepts a QgsMapLayer*
   // variant, so resolve the declared points layer through the layer service.
@@ -1349,8 +1364,8 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
     return false;
   }
   const DerivedStaging st = registrar.stage(
-      QStringLiteral( "constraint_idw_raster" ), tr( "%1 约束 IDW" ).arg( horizon ),
-      QStringLiteral( "IDW_%1.tif" ).arg( horizon ), &regErr );
+      QStringLiteral( "constraint_idw_raster" ), tr( "%1 约束 IDW" ).arg( analysisKey ),
+      QStringLiteral( "IDW_%1.tif" ).arg( analysisKey ), &regErr );
   if ( !st.isValid() )
   {
     paleo::workflow_detail::setError( error, regErr );
@@ -1381,7 +1396,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
     paleo::workflow_detail::setError( error, manifestErr.isEmpty() ? tr( "无法读取图层清单" ) : manifestErr );
     return false;
   }
-  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( constraintKey );
   const bool hasConstraints = std::any_of(
       declared.cbegin(), declared.cend(),
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
@@ -1401,7 +1416,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   }
 
   return runFactorAlgorithm(
-      horizon, QStringLiteral("paleo:paleo_constraint_idw"), params,
+      analysisKey, QStringLiteral("paleo:paleo_constraint_idw"), params,
       [=, this](const QVariantMap &results, QString *error) mutable {
         const auto fingerprint = results.value("_derived_fingerprint")
                                      .value<DerivedFileFingerprint>();
@@ -1419,6 +1434,14 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
         idwExtra.insert(QStringLiteral("field"), field);
         idwExtra.insert(QStringLiteral("cell_size"), cellSize);
         idwExtra.insert(QStringLiteral("constrained"), hasConstraints);
+        // P3/W2：冻结单元身份贯穿发布 extra（unitSelection/subIntervalId/
+        // schemeId/schemeRevision/horizon=analysisKey）——证据投影按此绑定。
+        const QVariantMap publishId = identity.publishIdentity();
+        for (auto it = publishId.cbegin(); it != publishId.cend(); ++it)
+          idwExtra.insert(it.key(), it.value());
+        idwExtra.insert(QStringLiteral("manifest_layer_id"),
+                        QStringLiteral("factor.%1.idw").arg(analysisKey));
+        idwExtra.insert(QStringLiteral("kind"), QStringLiteral("single_factor_raster"));
         // algo-atom P1：经统一 publishArtifacts（等价 commitExternal）
         const AlgorithmRunResult runResult =
             paleo::runResultFromProcessingOutput( results );
@@ -1434,9 +1457,12 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
           return false;
         }
 
+        // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
+        finalizeFactorEvidence( st.versionId, params );
+
         LayerDeclaration decl;
-        decl.layerId = QStringLiteral("factor.%1.idw").arg(horizon);
-        decl.horizon = horizon;
+        decl.layerId = QStringLiteral("factor.%1.idw").arg(analysisKey);
+        decl.horizon = analysisKey;
         decl.type = QStringLiteral("raster");
         decl.source = st.absolutePath;
         decl.group = QStringLiteral("04_SingleFactor");
@@ -1447,7 +1473,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
 
         paleo::workflow_detail::stampLayerAssetLink(
             layers, decl.layerId, st.assetId); // C4：已实例化层补盖资产关联
-        emit factorDone(horizon, decl.layerId);
+        emit factorDone(analysisKey, decl.layerId);
         return true;
       },
       error);

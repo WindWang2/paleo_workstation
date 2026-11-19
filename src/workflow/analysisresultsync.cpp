@@ -98,8 +98,25 @@ QString resultKind(const QString &type) {
   if (type == "well_litho_intervals" || type == "well_facies_prediction" || type == "wells_prediction") return "well_facies";
   if (type == "facies_polygons" || type == "edited_facies" || type == "composed_facies") return "map";
   if (type == "facies_fusion_raster") return "composite";
-  if (type.contains("factor") || type.startsWith("thickness_") || type=="contour_lines") return "single_factor";
+  // P3/W5：约束插值主栅格按类型进入单因素证据（成员 extra 带冻结单元，
+  // identity() 过滤无单元历史产物——只读兼容，不补造假身份）。
+  if (type == "constraint_idw_raster" ||
+      type.contains("factor") || type.startsWith("thickness_") || type=="contour_lines") return "single_factor";
   return {};
+}
+// P3/W5：agent_result 里只精确识别「已由 Host freeze 钩子核验单元 + 受信算法
+// 契约」的 constraint.idw 产物——依据 subinterval_verified 标记 + 冻结
+// unitSelection + algorithm_id，不按文件名/任意 extra.kind/displayName 猜类型。
+// 其余 agent_result（无核验标记）维持跳过，不冒充 single_factor。
+QString hostVerifiedConstraintIdwKind(const CatalogVersion &version) {
+  if (!version.extra.value(QStringLiteral("subinterval_verified")).toBool()) return {};
+  if (version.extra.value(QStringLiteral("algorithm_id")).toString() !=
+      QStringLiteral("paleo:paleo_constraint_idw"))
+    return {};
+  const auto unit = paleo::strat::fromMap(version.extra.value(QStringLiteral("unitSelection")).toMap());
+  if (!unit.isValid() || unit.aggregate) return {};
+  if (version.extra.value(QStringLiteral("subIntervalId")).toString() != unit.subIntervalId) return {};
+  return QStringLiteral("single_factor");
 }
 bool stale(DataCatalog *catalog, const CatalogVersion &v, QSet<QString> &seen,const QSet<QString> &projected,bool ignoreOwnGeometry=false) {
   if (v.id.isEmpty() || seen.contains(v.id)) return true;
@@ -206,7 +223,11 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
   if (!error.isEmpty()) return error;
   for (const auto &v : catalog->versions()) {
     if (cancelled && cancelled()) return {};
-    const QString kind = resultKind(catalog->assetById(v.assetId).type);
+    const QString assetType = catalog->assetById(v.assetId).type;
+    // P3/W5：Host 核验的 constraint.idw agent_result 精确识别；其余 agent_result
+    // 不进入任何证据分类（不按文件名/任意 extra 猜类型）。
+    QString kind = resultKind(assetType);
+    if (kind.isEmpty() && assetType == "agent_result") kind = hostVerifiedConstraintIdwKind(v);
     if (kind.isEmpty() || v.stage == "RAW") continue;
     const auto unit = analysisResultUnitSelection(catalog,v);
     if (!unit.isValid() || unit.schemeId.isEmpty() || unit.revision.isEmpty()) continue;

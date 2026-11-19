@@ -58,6 +58,17 @@ FrozenOperation freezeNativeOperation(const ExecuteRequest &r,const QJsonObject 
     if(!r.catalog || r.catalog->versionById(id).id!=id){if(error)*error="input_version_missing";return {};}
     p.parentVersionIds.append(id);
   }
+  // P3/W4：constraint.idw 的父版本来自宿主 freeze 钩子解析并写入 inputs 的
+  // parent_version_ids（capabilityhostwiring 受信覆盖，工具 JSON 不自称版本
+  // 授权）；此处只做存在性核验后进入冻结计划——恢复/后续 source_operation_id
+  // 发布沿 stagePlan.parents 复用同一批父版本。
+  if(r.capabilityId=="constraint.idw") {
+    for(const auto &id:r.inputs.value("parent_version_ids").toStringList()) {
+      if(id.isEmpty())continue;
+      if(!r.catalog || r.catalog->versionById(id).id!=id){if(error)*error="input_version_missing";return {};}
+      if(!p.parentVersionIds.contains(id))p.parentVersionIds.append(id);
+    }
+  }
   for(const auto &port:p.outputSpec.outputs) {
     if(port.kind!="file" && port.kind!="raster" && port.kind!="vector" && port.kind!="table")continue;
     if(r.capabilityId=="seismic.attributes.compute" && !r.parameters.value("ATTRIBUTES").toStringList().contains(port.id.toLower()))continue;
@@ -120,7 +131,26 @@ OperationWorker nativeWorker(ExecuteRequest request) {
     if(child.seismicTrace)out.ok=splitTrace(result,context,out.outputs);
     else if(!path.isEmpty()) {
       const auto port=child.capabilityId=="singlefactor.contours"?"LINES":child.capabilityId=="seismic.attributes.compute"?"COHERENCE":"OUTPUT";
-      out.outputs.artifacts.append({port,path,{},{},{},{}});
+      // P3/W4：constraint.idw 成员 extra 只携带宿主冻结计划里的身份字段
+      //（unit_selection/scheme/父版本摘要）——来自 freeze 钩子受信写入的
+      // inputs，非 worker 运行期可变数据；发布成员据此获得可信单元谱系。
+      QVariantMap artifactExtra;
+      if(child.capabilityId=="constraint.idw") {
+        const auto unit=child.inputs.value("unit_selection").toMap();
+        if(!unit.isEmpty()) {
+          artifactExtra.insert("unitSelection",unit);
+          artifactExtra.insert("subIntervalId",unit.value("subIntervalId"));
+          artifactExtra.insert("intervalId",unit.value("intervalId"));
+          artifactExtra.insert("schemeId",unit.value("schemeId"));
+          artifactExtra.insert("schemeRevision",unit.value("revision"));
+          artifactExtra.insert("subinterval_verified",true);
+        }
+        artifactExtra.insert("algorithm_id","paleo:paleo_constraint_idw");
+        artifactExtra.insert("kind","single_factor_raster");
+        const auto parents=child.inputs.value("parent_version_ids").toStringList();
+        if(!parents.isEmpty())artifactExtra.insert("parent_version_ids",parents);
+      }
+      out.outputs.artifacts.append({port,path,{},{},artifactExtra,{}});
     }
     out.outputs.ok=out.ok;return out;
   };

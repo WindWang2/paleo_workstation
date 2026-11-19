@@ -1,0 +1,6 @@
+The Office editor is built from ranuts/document v0.0.6, pinned by
+vendor/fetch-ranuts-document.sh. It includes the AGPL-3.0 OnlyOffice WASM
+editor. When distributing the editor, provide its corresponding source
+and retain its ONLYOFFICE attribution.
+
+https://github.com/ranuts/document/tree/82cb9f68617383c1b3a00865a5880069cbdf2d92

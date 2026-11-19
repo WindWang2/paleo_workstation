@@ -65,3 +65,5 @@ zlib1g
 libbsd0
 libmd0
 libseccomp2
+libtinfo6
+libreadline8t64

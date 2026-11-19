@@ -33,6 +33,18 @@ namespace
     return bindings;
   }
 
+  const QList<QPair<QString, QString>> &packageEnvBindings()
+  {
+    static const QList<QPair<QString, QString>> bindings{
+      {"GDAL_DRIVER_PATH", "gdalplugins"}, {"QT_QPA_PLATFORM_PLUGIN_PATH", "plugins/platforms"},
+      {"QML_IMPORT_PATH", "qml"},
+      {"QTWEBENGINE_RESOURCES_PATH", "resources"},
+      {"QTWEBENGINE_LOCALES_PATH", "translations/qtwebengine_locales"},
+      {"SSL_CERT_FILE", "share/certs/ca-bundle.pem"},
+      {"CURL_CA_BUNDLE", "share/certs/ca-bundle.pem"}};
+    return bindings;
+  }
+
 #ifdef Q_OS_WIN
   // 环境变量的消费方分属三个互不兼容的编码域：CRT getenv 按本地代码页
   //（中文系统为 GBK）解码、PROJ 把字节当 UTF-8、Qt 再按 local8Bit 读回。
@@ -123,6 +135,13 @@ PortableEnvironment inspectPortableEnvironment(const QString &directory,
   const QDir bindingRoot(anchor.isEmpty() ? directory : anchor);
   for (const auto &entry : portableEnvBindings())
     result.values.insert(entry.first, bindingRoot.absoluteFilePath(entry.second));
+  if (QFileInfo::exists(root.filePath(QStringLiteral("RUNTIME_SOURCES.json")))) {
+    for (const auto &entry : packageEnvBindings()) {
+      const auto path = bindingRoot.absoluteFilePath(entry.second);
+      result.values.insert(entry.first, path);
+      if (!QFileInfo(path).isReadable()) result.missing << path;
+    }
+  }
   for (const auto &file : {"share/proj/proj.db", "qgis/resources/srs.db"}) {
     const auto path = root.absoluteFilePath(QLatin1String(file));
     if (!QFileInfo(path).isReadable()) result.missing << path;
@@ -155,10 +174,16 @@ PortableEnvironment initializePortableEnvironment()
           "ProgramData 联接均不可用），环境变量保留长路径");
   }
 #endif
-  for (const auto &entry : portableEnvBindings())
-    if (result.values.value(entry.first) != qEnvironmentVariable(qPrintable(entry.first)))
-      qputenv(entry.first.toUtf8().constData(),
-              result.values.value(entry.first).toUtf8());
+  const auto applyBindings = [&result](const auto &bindings)
+  {
+    for (const auto &entry : bindings) {
+      const auto value = result.values.value(entry.first);
+      if (!value.isEmpty() && value != qEnvironmentVariable(qPrintable(entry.first)))
+        qputenv(entry.first.toUtf8().constData(), value.toUtf8());
+    }
+  };
+  applyBindings(portableEnvBindings());
+  applyBindings(packageEnvBindings());
   const auto proj = result.values.value(QStringLiteral("PROJ_DATA")).toUtf8();
   const char *paths[] = {proj.constData(), nullptr};
   OSRSetPROJSearchPaths(paths); // GDAL has its own per-thread PROJ contexts.

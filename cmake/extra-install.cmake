@@ -1,8 +1,5 @@
-# ---- 安装/重定位（#86，最小可用面）----
-# 只装主程序与 selfcheck；QGIS/GDAL 等运行时闭包不在此复制（体积与许可面
-# 需单独决策），重定位后的 prefix 需自行放置 <prefix>/share/qgis 与库，
-# 或用 QGIS_PREFIX_PATH 指向——QgisRuntime::defaultPrefixPath() 会优先识别
-# <exe>/../share/qgis/resources/srs.db 布局。
+# Install the application and its assets. The portable packager adds the
+# locked native closure and checks the relocated install tree.
 include(GNUInstallDirs)
 # ---- Office 编辑组件布线（构建树即跑即用）----
 # 运行时仍由 OfficePreviewSession 按既有候选序查找。CI 的依赖准备和
@@ -91,9 +88,19 @@ string(CONFIGURE [=[
       message(FATAL_ERROR "office-editor: empty ${path}. Prepare the editor before installing.")
     endif()
   endforeach()
-]=] _paleo_office_install_guard @ONLY)
-install(CODE "${_paleo_office_install_guard}")
-install(DIRECTORY "${_paleo_office_install_src}/" DESTINATION libexec/office-editor)
+  # Install the children of the editor root. On Windows, installing a directory
+  # junction itself can retain its absolute link to the development checkout.
+  set(editor_destination "${CMAKE_INSTALL_PREFIX}/libexec/office-editor")
+  file(GLOB editor_entries "@_paleo_office_install_src@/*")
+  foreach(entry IN LISTS editor_entries)
+    if(IS_DIRECTORY "${entry}")
+      file(INSTALL DESTINATION "${editor_destination}" TYPE DIRECTORY FILES "${entry}")
+    else()
+      file(INSTALL DESTINATION "${editor_destination}" TYPE FILE FILES "${entry}")
+    endif()
+  endforeach()
+]=] _paleo_office_install_script @ONLY)
+install(CODE "${_paleo_office_install_script}")
 
 # 字体已嵌入程序；安装树同时保留可独立阅读的许可与来源清单。
 install(FILES resources/fonts/OFL-IBMPlex.txt resources/fonts/OFL.txt

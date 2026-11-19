@@ -1,0 +1,13 @@
+{
+  "version": "2026.05.29",
+  "archives": {
+    "OpenCL-Headers": {
+      "size": 89035,
+      "sha256": "d9e6c48357de5002da11ce45de600e0c3ffe6ab4f628a3b9fe2b38603161658a"
+    },
+    "OpenCL-ICD-Loader": {
+      "size": 115091,
+      "sha256": "48fd0c5181db7cd046f4f731d5955694892e10998d49d09ee0d997e7e04fd939"
+    }
+  }
+}

@@ -422,6 +422,32 @@ try {
 
 QGIS 4.2.x（三路口径统一上游 4.2.3，`tools/check_qgis_versions.py` 门禁看守）· Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · libspatialindex · exiv2 · libzip · OpenSSL · sqlite3/spatialite · **ONNX Runtime 1.30.0**（官方 release，sha256 `a5ed5a3c…3b3fd`，manylinux_2_28）。Ubuntu 26.04 的 deb 完整闭包和 SHA-256 在 `vendor/deb-closure.lock`（库解包在 `vendor/prefix/usr/lib/<multiarch>`，`./paleo-dev` 已加入 `LD_LIBRARY_PATH`）；Ubuntu pool 会删除被安全更新取代的旧版本，因此 `fetch-deps.sh` 在 pool 404 时回退到 `https://snapshot.ubuntu.com/ubuntu/<ts>/`，时间戳记录在 `vendor/deb-closure.snapshot`（`--update-lock` 会刷新；可用 `PALEO_DEB_SNAPSHOT` 覆盖），内容仍由锁内 SHA-256 校验；OSGeo4W 安装器摘要在 `vendor/manifest.json`。
 
+## 便携发行树
+
+Windows 使用 MSVC Release 构建，然后从同一 OSGeo4W 供货前缀组装。QGIS 的
+OpenCL 加载器由 bootstrap 从锁定的 Khronos 源码构建。PowerShell 打包入口调用
+同一个 Python 打包器，运行时可直接打开包内的 `paleo.exe`。
+
+```powershell
+./tools/package-portable.ps1 -OutDir ./build/paleo-portable
+python tools/package_portable.py --verify-only ./build/paleo-portable
+```
+
+Linux 打包器先执行 CMake 安装，再收集来自构建前缀的 ELF 闭包、Qt/GIS 插件和
+数据、证书、字体及 Office 组件。需要宿主 `patchelf`、`dpkg-deb` 和 Python 3.11+。
+首次缓存证书归档后，可用 `PALEO_VENDOR_OFFLINE=1` 复跑。
+
+```bash
+python3 tools/package_runtime_linux.py --build-dir build --out build/paleo-portable
+build/paleo-portable/paleo-portable selfcheck
+python3 tools/package_runtime_linux.py --verify-only build/paleo-portable
+```
+
+两端包内的 `RUNTIME_SOURCES.json` 记录文件来源、大小和 SHA-256，
+`share/paleo/supply` 和 `share/paleo/licenses` 保留供货锁及许可。
+搬移到新路径后用 `--verify-only` 复验完整性、GIS 数据库和坐标变换。
+受控 Python 和 Pi 使用各自的可选部署入口。
+
 ## 测试布线约定（devex）
 
 - **注册**：`add_paleo_test(name [LIBS ...])`（CMakeLists.txt）。单参 = 伞式

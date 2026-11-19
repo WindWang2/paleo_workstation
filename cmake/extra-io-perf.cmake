@@ -9,13 +9,10 @@
 #   paleo_selfcheck + perfgroup（perf 组，QCoreApplication 即可）
 #   zstd 可用则 paleo_io 链 zstd（D2.4/D1 压缩；缺失降级未压缩路径）
 
-find_library(PALEO_IOPERF_ZSTD_LIB NAMES zstd)
-find_path(PALEO_IOPERF_ZSTD_INCLUDE NAMES zstd.h)
-if(PALEO_IOPERF_ZSTD_LIB AND PALEO_IOPERF_ZSTD_INCLUDE)
-  message(STATUS "io-perf: zstd found — cache payloads compressed  (${PALEO_IOPERF_ZSTD_LIB})")
+if(PALEO_ZSTD_TARGET)
+  message(STATUS "io-perf: zstd cache compression (${PALEO_ZSTD_TARGET})")
   target_compile_definitions(paleo_io PUBLIC PALEO_HAVE_ZSTD)
-  target_include_directories(paleo_io PRIVATE ${PALEO_IOPERF_ZSTD_INCLUDE})
-  target_link_libraries(paleo_io PRIVATE ${PALEO_IOPERF_ZSTD_LIB})
+  target_link_libraries(paleo_io PRIVATE ${PALEO_ZSTD_TARGET})
 else()
   message(STATUS "io-perf: zstd not found — caches fall back to uncompressed payload")
 endif()

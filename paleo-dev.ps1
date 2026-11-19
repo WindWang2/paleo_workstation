@@ -1,5 +1,5 @@
 ﻿# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
-# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep> | diagdeps <test>
+# Verbs: bootstrap [fetch-only] | bootstrap-native | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep> | diagdeps <test>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
 #   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
@@ -119,6 +119,35 @@ function Assert-Osgeo4wLockStamp([string]$Prefix) {
   if (!(Test-Path -LiteralPath $stamp) -or (Get-Content -LiteralPath $stamp -Raw).Trim() -ne (Get-Osgeo4wLockHash)) {
     throw "OSGeo4W prefix does not match the offline lock: $Prefix. Move it aside and run bootstrap again."
   }
+}
+
+function Install-LockedOsgeo4w([string]$Prefix, [string]$Cache, [string[]]$Packages, [switch]$Native) {
+  $database = Join-Path $Prefix 'etc/setup/installed.db'
+  $python = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+  $tool = Join-Path $Root 'tools/osgeo4w_offline.py'
+  $profile = @()
+  if ($Native) { $profile += '--native' }
+  if (Test-Path -LiteralPath $Prefix) {
+    Assert-Osgeo4wLockStamp $Prefix
+  } else {
+    $prepare = @('prepare', '--cache', $Cache) + $profile
+    if ($env:PALEO_VENDOR_OFFLINE -eq '1') { $prepare += '--offline' }
+    & $python -B $tool @prepare
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the locked local OSGeo4W repository' }
+    $mirror = Join-Path $Cache 'archives'
+    $setupArgs = @('-q','-A','-k','-n','-N','-d','-L',
+                   '-l', ('"' + $mirror + '"'), '-R', ('"' + $Prefix + '"'),
+                   '-P', ($Packages -join ','))
+    $process = Start-Process -FilePath (Join-Path $Cache 'osgeo4w-setup.exe') `
+      -ArgumentList $setupArgs -Wait -PassThru -WindowStyle Hidden
+    if ($process.ExitCode -ne 0) {
+      throw "OSGeo4W local setup failed ($($process.ExitCode)); see logs under $Prefix/var/log"
+    }
+  }
+  & $python -B $tool check-installed $database @profile
+  if ($LASTEXITCODE -ne 0) { throw 'Installed OSGeo4W prefix does not match the lock' }
+  [IO.File]::WriteAllText((Join-Path $Prefix '.paleo-osgeo4w-lock.sha256'),
+                        (Get-Osgeo4wLockHash) + [Environment]::NewLine)
 }
 
 function Enter-VendorEnvironment {
@@ -258,6 +287,16 @@ function Preflight {
 }
 
 switch ($Verb) {
+  'bootstrap-native' {
+    Preflight
+    Enter-MsvcEnvironment
+    $pin = (Get-Content (Join-Path $Vendor 'manifest.json') -Raw | ConvertFrom-Json).deps.osgeo4w
+    $prefix = Join-Path $Vendor 'osgeo4w-native'
+    Install-LockedOsgeo4w -Prefix $prefix -Cache (Join-Path $Vendor 'cache/osgeo4w-native') `
+      -Packages $pin.native_packages -Native
+    & "$Vendor/build-osgeo4w-zstd.ps1" -Prefix $prefix
+    Write-Host "Prepared native Qt and SDK closure: $prefix"
+  }
   'bootstrap' {
     Preflight
     Write-Host "== vendor bootstrap (OSGeo4W route) =="
@@ -269,37 +308,7 @@ switch ($Verb) {
     $cache = Join-Path $Vendor 'cache/osgeo4w-offline'
     $installedDb = Join-Path $osgeo 'etc/setup/installed.db'
     $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
-    $offlineTool = Join-Path $Root 'tools/osgeo4w_offline.py'
-    $stamp = Join-Path $osgeo '.paleo-osgeo4w-lock.sha256'
-    $lockHash = Get-Osgeo4wLockHash
-    if (Test-Path -LiteralPath $osgeo) {
-      Assert-Osgeo4wLockStamp $osgeo
-      & $py -B $offlineTool check-installed $installedDb
-      if ($LASTEXITCODE -ne 0) { throw 'Installed OSGeo4W prefix does not match the lock' }
-    } else {
-      $prepareArgs = @('prepare','--cache',$cache)
-      if ($env:PALEO_VENDOR_OFFLINE -eq '1') { $prepareArgs += '--offline' }
-      & $py -B $offlineTool @prepareArgs
-      if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the locked local OSGeo4W repository' }
-      $setup = Join-Path $cache 'osgeo4w-setup.exe'
-      $mirror = Join-Path $cache 'archives'
-      # -L selects local install. No site URL, mirror selection or live index.
-      $setupArgs = @('-q','-A','-k','-n','-N','-d','-L',
-                     '-l', ('"' + $mirror + '"'), '-R', ('"' + $osgeo + '"'),
-                     '-P', ($pin.packages.PSObject.Properties.Name -join ','))
-      $process = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru -WindowStyle Hidden
-      if ($process.ExitCode -ne 0) {
-        $logs = Join-Path $Vendor 'logs'
-        New-Item -ItemType Directory -Force $logs | Out-Null
-        foreach ($name in 'setup.log','setup.log.full') {
-          $file = Join-Path $osgeo "var/log/$name"
-          if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file -Destination $logs }
-        }
-        throw "OSGeo4W local setup failed ($($process.ExitCode)); see logs under $osgeo/var/log"
-      }
-      & $py -B $offlineTool check-installed $installedDb
-      if ($LASTEXITCODE -ne 0) { throw 'Offline OSGeo4W installed versions differ from the lock' }
-    }
+    Install-LockedOsgeo4w -Prefix $osgeo -Cache $cache -Packages $pin.packages.PSObject.Properties.Name
     # Verify the resources and development layout before marking the prefix ready.
     if ($pin.qgis_family -notmatch '^(\d+\.\d+)(\.x)?$') {
       throw "unparseable qgis_family in vendor/manifest.json: '$($pin.qgis_family)' (expect e.g. '4.2.x')"
@@ -329,7 +338,8 @@ switch ($Verb) {
       if (-not (Test-Path (Join-Path $osgeo $required))) { throw "OSGeo4W closure missing $required" }
     }
 
-    [IO.File]::WriteAllText($stamp, $lockHash + [Environment]::NewLine)
+    Enter-MsvcEnvironment
+    & "$Vendor/build-osgeo4w-zstd.ps1" -Prefix $osgeo
     # Use the host's Python before OSGeo4W puts its python.exe shim on PATH.
     & $py -I (Join-Path $Vendor 'fetch-onnxruntime.py')
     if ($LASTEXITCODE -ne 0) { throw 'ONNX Runtime bootstrap failed' }

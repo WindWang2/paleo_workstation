@@ -81,7 +81,7 @@ void CacheAsyncTests::dedicatedPoolCapsConcurrencyByCores()
 
 void CacheAsyncTests::priorityHighBeatsLow()
 {
-  // D4.6：先排满低优（占住 4 线程），再排高优——高优应在多数低优前开始。
+  // D4.6：占满工作线程后再排高优，验证它先于队列中的低优出队。
   PaleoTaskService svc;
   // 池热身：跑一轮极短任务把工作线程建起来（等终态，不赌墙钟）。
   {
@@ -101,6 +101,7 @@ void CacheAsyncTests::priorityHighBeatsLow()
   std::atomic_int started{0};
   std::atomic_int highOrder{-1};
   std::atomic_int orderSeq{0};
+  std::atomic_bool releaseFirst{false};
   std::atomic_bool releaseLows{false};
   std::array<std::atomic_int, kMaxLowCount> lowOrders;
   for (auto &o : lowOrders)
@@ -108,9 +109,10 @@ void CacheAsyncTests::priorityHighBeatsLow()
   QVector<PaleoTask *> lows;
   for (int i = 0; i < kLowCount; ++i)
     lows.append(svc.start(QStringLiteral("low%1").arg(i), [&, i](PaleoTask *) -> QString {
-      lowOrders[i].store(orderSeq.fetch_add(1)); // 每个 low 都记录自己的开始序号
+      const int order = orderSeq.fetch_add(1);
+      lowOrders[i].store(order); // 每个 low 都记录自己的开始序号
       started.fetch_add(1);
-      while (!releaseLows.load()) // 占住线程直到高优入队——顺序不再赌墙钟
+      while (!releaseLows.load() && (order != 0 || !releaseFirst.load()))
         QThread::msleep(1);
       return QString();
     }, QString(), PaleoTask::Priority::Low));
@@ -120,20 +122,23 @@ void CacheAsyncTests::priorityHighBeatsLow()
   gate.start();
   while (started.load() < svc.maxWorkerThreads() && gate.elapsed() < paleo::perfbudget::relaxedBudgetMs(5000))
     QThread::msleep(1);
-  QVERIFY2(started.load() >= svc.maxWorkerThreads(), "低优未占满线程池");
+  const bool poolOccupied = started.load() >= svc.maxWorkerThreads();
   PaleoTask *high = svc.start(QStringLiteral("high"), [&](PaleoTask *) -> QString {
     highOrder.store(orderSeq.fetch_add(1));
     QThread::msleep(10);
     return QString();
   }, QString(), PaleoTask::Priority::High);
-  releaseLows.store(true);
-
+  // Release one slot so callback preemption cannot reorder observed starts.
+  releaseFirst.store(true);
   spinUntil(high, 10000);
+  const bool usedFirstSlot = highOrder.load() >= 0;
+  releaseLows.store(true);
   for (PaleoTask *l : lows)
     spinUntil(l, 10000);
   QCoreApplication::processEvents();
   // 高优任务先于至少一半低优开始。
-  QVERIFY2(highOrder.load() >= 0, "高优序号未记录");
+  QVERIFY2(poolOccupied, "低优未占满线程池");
+  QVERIFY2(usedFirstSlot, "高优未使用第一个释放的工作线程");
   int lowsAfterHigh = 0;
   for (int i = 0; i < kLowCount; ++i)
   {

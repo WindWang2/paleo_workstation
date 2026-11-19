@@ -120,6 +120,26 @@ def verify_lock(lock, pin, index):
             raise ValueError(f"invalid integrity metadata: {row['path']}")
 
 
+def native_profile(lock, pin, index, profile_index):
+    # Derive the small mirror from the verified full snapshot, sharing every
+    # archive pin. Qt SQL and compression use the same family as the desktop.
+    verify_lock(lock, pin, index)
+    text = index.read_text(encoding="utf-8")
+    parsed = parse_setup_ini(text)
+    roots = pin["native_packages"]
+    expected = resolve_closure(parsed, roots)
+    if "qgis" in expected or "gdal" in expected:
+        raise ValueError("native OSGeo4W packages unexpectedly require GIS")
+    profile_pin = dict(pin, packages={name: expected[name] for name in roots}, closure=expected)
+    blocks = re.split(r"(?m)(?=^@ )", text)
+    selected = blocks[0] + "".join(block for block in blocks[1:]
+                                    if block.splitlines()[0][2:] in expected)
+    profile_index.write_text(selected.rstrip() + "\n", encoding="utf-8", newline="\n")
+    profile_lock = dict(lock, index=entry(INDEX, profile_index),
+                        packages={name: lock["packages"][name] for name in expected})
+    return profile_lock, profile_pin
+
+
 def download(url, path, row):
     with tempfile.TemporaryDirectory(prefix=".osgeo4w-download-", dir=path.parent) as tmp:
         scratch = Path(tmp) / "download"
@@ -207,8 +227,10 @@ def main():
     prepare = commands.add_parser("prepare")
     prepare.add_argument("--cache", required=True, type=Path)
     prepare.add_argument("--offline", action="store_true")
+    prepare.add_argument("--native", action="store_true")
     check = commands.add_parser("check-installed")
     check.add_argument("database", type=Path)
+    check.add_argument("--native", action="store_true")
     args = parser.parse_args()
     pin = manifest()
     try:
@@ -218,9 +240,23 @@ def main():
                 out.write(json.dumps(rows, indent=2, sort_keys=True) + "\n")
         elif args.action == "prepare":
             lock = json.loads(LOCK.read_text(encoding="utf-8"))
-            materialize(lock, pin, REPO / "vendor/osgeo4w-setup.ini", args.cache, args.offline)
+            index = REPO / "vendor/osgeo4w-setup.ini"
+            if args.native:
+                with tempfile.TemporaryDirectory(prefix="paleo-osgeo4w-native-") as directory:
+                    profile_index = Path(directory) / "setup.ini"
+                    profile_lock, profile_pin = native_profile(lock, pin, index, profile_index)
+                    materialize(profile_lock, profile_pin, profile_index, args.cache, args.offline)
+            else:
+                materialize(lock, pin, index, args.cache, args.offline)
         else:
-            check_installed(args.database, pin["closure"])
+            expected = pin["closure"]
+            if args.native:
+                lock = json.loads(LOCK.read_text(encoding="utf-8"))
+                index = REPO / "vendor/osgeo4w-setup.ini"
+                verify_lock(lock, pin, index)
+                expected = resolve_closure(parse_setup_ini(index.read_text(encoding="utf-8")),
+                                           pin["native_packages"])
+            check_installed(args.database, expected)
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.exit(1, f"offline OSGeo4W: {error}\n")
 

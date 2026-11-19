@@ -2,7 +2,6 @@
 #include "areamodel.h"
 #include "../catalog/datacatalog.h"
 #include <paleo_data/service.h>
-#include "projectcoordinates.h"
 #include <QDir>
 #include <QDateTime>
 #include <QFileInfo>
@@ -65,15 +64,6 @@ bool indexedSource(const QString &root, const QString &wanted, long long &id, QS
   if (databaseStamp(root) == stamp) { QMutexLocker lock(&mutex); sourceIndexes.insert(root, std::move(index)); }
   return true;
 }
-}
-QString confirmedProjectCrs(const QString &project) {
-  if (!QFileInfo::exists(directory(project) + QStringLiteral("/data.sqlite"))) return {};
-  paleo::data::DataService service; std::string detail;
-  if (!service.openProjectReadOnly(directory(project).toUtf8().toStdString(), detail)) return {};
-  paleo::data::ProjectCoordinates info;
-  if (!service.readProjectCoordinates(info, detail) || info.coordinateUnit != "m") return {};
-  const auto crs = QString::fromUtf8(info.coordinateSystem);
-  return paleo::io::isMetricProjectCrs(crs) ? crs : QString();
 }
 void registerProject(const QString &project, const void *owner) {
   QMutexLocker lock(&mutex);

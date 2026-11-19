@@ -2,12 +2,19 @@
   "schema": 1,
   "notes": "ONNX Runtime archive and OSGeo4W installer pins. The Ubuntu 26.04 QGIS package closure is pinned separately in deb-closure.lock. See docs/PALEO_QGIS_PLAN.md §39/ET1. qgis_family granularity: the OSGeo4W installer accepts package names only (no per-package version pin), so this field pins the x.y family; paleo-dev.ps1 derives its installed.db family gate from it (single source). Cross-route version consistency (superbuild exact == deb closure upstream == manifest family) is enforced by tools/check_qgis_versions.py.",
   "deps": {
+    "zstd-source": {
+      "version": "1.5.7",
+      "url": "https://github.com/meta/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz",
+      "size_bytes": 2434947,
+      "sha256": "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3"
+    },
     "osgeo4w": {
       "platform": "windows-x64",
       "site": "https://download.osgeo.org/osgeo4w/v2",
       "installer_url": "https://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe",
       "installer_sha256": "6746638d273334ffae3f813ce964023c5655fdf33eb82bd4ce1a97340c684798",
       "qgis_family": "4.2.x",
+      "native_packages": ["qt6-devel", "qt6-oci", "sqlite3-devel", "zlib-devel", "freexl", "libiconv"],
       "packages": {
         "qgis": "4.2.3-1",
         "qgis-devel": "4.2.3-1",

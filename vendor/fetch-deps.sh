@@ -10,7 +10,8 @@
 # vendor/prefix/usr/...).
 #
 # Usage:
-#   ./vendor/fetch-deps.sh [--print-only] [--update-lock] [--check-urls]
+#   ./vendor/fetch-deps.sh [--native] [--print-only] [--update-lock] [--check-urls]
+#   --native       select the Qt/SDK archives and publish vendor/native-prefix
 #   --update-lock  explicitly refresh the committed package closure
 #   --print-only   list the locked URIs/sizes/hashes, no download
 #   --check-urls   HEAD-probe every locked URL (pool, then snapshot fallback);
@@ -28,6 +29,8 @@ PKGFILE=vendor/deb-packages.txt
 PRINT_ONLY=0
 UPDATE_LOCK=0
 CHECK_URLS=0
+NATIVE=0
+LOCK_HASH=0
 LOCK=vendor/deb-closure.lock
 # #76：Ubuntu pool 会在安全更新后删掉旧版本（锁里的 URL 随之 404）。锁内容
 # 由 SHA256 钉死，所以从 snapshot.ubuntu.com 的同一时间点取同一文件是安全的
@@ -40,6 +43,8 @@ while [ $# -gt 0 ]; do
     --print-only) PRINT_ONLY=1; shift ;;
     --update-lock) UPDATE_LOCK=1; shift ;;
     --check-urls) CHECK_URLS=1; PRINT_ONLY=1; shift ;;
+    --native) NATIVE=1; PREFIX=vendor/native-prefix; shift ;;
+    --lock-hash) LOCK_HASH=1; PRINT_ONLY=1; shift ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -68,6 +73,11 @@ if [ "$PRINT_ONLY" != "1" ]; then
   command -v python3 >/dev/null || fail "python3 absent" "install python3 to resolve signed apt SHA256 metadata"
 fi
 
+if [ "$NATIVE" = 1 ]; then
+  [ "$UPDATE_LOCK" = 0 ] ||
+    fail "cannot refresh a subset independently" "refresh the full closure before updating deb-native-packages.txt"
+fi
+
 # --- seed package list -------------------------------------------------------
 if [ ! -f "$PKGFILE" ]; then
   cat > "$PKGFILE" <<'EOF'
@@ -85,7 +95,9 @@ EOF
   echo "  .. wrote default $PKGFILE — edit to pin/remove packages"
 fi
 SEEDS=$(grep -vE '^\s*(#|$)' "$PKGFILE" | tr '\n' ' ')
-echo "== fetch-deps: seeds = $SEEDS"
+if [ "$LOCK_HASH" = 0 ]; then
+  echo "== fetch-deps: seeds = $SEEDS"
+fi
 
 # --- resolve the closure via apt metadata ------------------------------------
 # --print-uris emits lines: 'url' filename size SHA256:hash   (apt>=2.x)
@@ -101,6 +113,35 @@ else
   # Windows 检出（autocrlf）的锁文件行尾带 \r——hash 字段会挂上 \r 打破
   # 格式断言伪红；统一剥掉（锁在索引/CI（LF）语义不变）。
   URIS=$(tr -d '\r' < "$LOCK")
+fi
+
+if [ "$NATIVE" = 1 ]; then
+  if ! URIS=$(awk '
+    NR == FNR {
+      if ($1 !~ /^#/ && NF) wanted[$1]++
+      next
+    }
+    {
+      package = $2
+      sub(/_.*/, "", package)
+      if (package in wanted) { print; found[package]++ }
+    }
+    END {
+      if (!length(wanted)) exit 1
+      for (package in wanted)
+        if (wanted[package] != 1 || found[package] != 1) {
+          print "Invalid native package selection: " package > "/dev/stderr"
+          error = 1
+        }
+      exit error
+    }
+  ' vendor/deb-native-packages.txt - <<< "$URIS"); then
+    fail "cannot select native archives from $LOCK" "check deb-native-packages.txt against the full lock"
+  fi
+fi
+if [ "$LOCK_HASH" = 1 ]; then
+  printf '%s\n' "$URIS" | sha256sum | cut -d' ' -f1
+  exit 0
 fi
 
 COUNT=$(printf '%s\n' "$URIS" | wc -l)
@@ -192,16 +233,18 @@ done
 # 方向 81：dpkg-deb -x 不跑 postinst——qgis-providers-common 的 postinst 才
 # `cp srs-template.db srs.db`，缺了它 tst_runtime/boot 的 srs.db 断言必红。
 # 同一工具（Windows localdeps 也用它）在解包前缀上补这一步，不联网。
-python3 tools/ensure_qgis_resources.py --prefix "$STAGING/usr" --layout deb ||
-  fail "cannot create srs.db in $STAGING" "check that qgis-providers-common is in $LOCK"
-# The provider registry probes shared objects before checking their entry point.
-# Desktop plugins can initialize libqgis_app (and duplicate settings) in an embed.
-qgis_plugins="$STAGING/usr/lib/qgis/plugins"
-for plugin in "$qgis_plugins"/libplugin_*.so; do
-  [ -f "$plugin" ] || continue
-  mkdir -p "$qgis_plugins/../desktop-plugins"
-  mv -- "$plugin" "$qgis_plugins/../desktop-plugins/"
-done
+if [ "$NATIVE" = 0 ]; then
+  python3 tools/ensure_qgis_resources.py --prefix "$STAGING/usr" --layout deb ||
+    fail "cannot create srs.db in $STAGING" "check that qgis-providers-common is in $LOCK"
+  # The provider registry probes shared objects before checking their entry point.
+  # Desktop plugins can initialize libqgis_app (and duplicate settings) in an embed.
+  qgis_plugins="$STAGING/usr/lib/qgis/plugins"
+  for plugin in "$qgis_plugins"/libplugin_*.so; do
+    [ -f "$plugin" ] || continue
+    mkdir -p "$qgis_plugins/../desktop-plugins"
+    mv -- "$plugin" "$qgis_plugins/../desktop-plugins/"
+  done
+fi
 # Qt needs resolved font files within the extracted tree; a Fontconfig sysroot
 # still leaves /usr/share/fonts in the matched file names passed to FreeType.
 fontconf="$STAGING/etc/fonts/fonts.conf"
@@ -245,9 +288,7 @@ for libdir in "$STAGING/usr/lib" "$STAGING"/usr/lib/*-linux-gnu; do
 done
 
 # Publish only after resources, ELF paths and the lock receipt are ready.
-lock_source="$LOCK"
-[ "$UPDATE_LOCK" = 0 ] || lock_source="$LOCK.tmp"
-tr -d '\r' < "$lock_source" | sha256sum | cut -d' ' -f1 > "$STAGING/.paleo-deb-closure.sha256"
+printf '%s\n' "$URIS" | sha256sum | cut -d' ' -f1 > "$STAGING/.paleo-deb-closure.sha256"
 
 chmod "$(umask -S)" "$STAGING"
 if [ -e "$PREFIX" ] || [ -L "$PREFIX" ]; then
@@ -266,4 +307,6 @@ if [ "$UPDATE_LOCK" = 1 ]; then
   date -u +%Y%m%dT%H%M%SZ > "$SNAPSHOT_FILE"
 fi
 echo "  OK vendored $COUNT debs -> $PREFIX (lock: vendor/deb-closure.lock)"
-echo "  NOTE set QGIS_PREFIX_PATH=$PREFIX/usr and LD_LIBRARY_PATH=$PREFIX/usr/lib/<multiarch>:$PREFIX/usr/lib (./paleo-dev does this)"
+if [ "$NATIVE" = 0 ]; then
+  echo "  NOTE set QGIS_PREFIX_PATH=$PREFIX/usr and LD_LIBRARY_PATH=$PREFIX/usr/lib/<multiarch>:$PREFIX/usr/lib (./paleo-dev does this)"
+fi

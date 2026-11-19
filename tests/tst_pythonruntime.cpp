@@ -222,6 +222,7 @@ private slots:
 #ifdef Q_OS_WIN
     const auto result=runWindowsSandbox(request);
     const auto expected=windowsSandboxReadiness().value("code")=="ok"?"python_runtime_changed":"python_sandbox_unavailable";
+    if (result.code != QString::fromLatin1(expected)) qWarning().noquote() << QString::fromUtf8(result.error);
     QCOMPARE(result.code,QString::fromLatin1(expected));
 #elif defined(Q_OS_LINUX)
     const auto result=runLinuxSandbox(request);

@@ -60,7 +60,7 @@ class TestStorageGovernance : public QObject {
 private slots:
   void missingConsumedVersionRowsRefuseEveryCleanupProjection() {
     QTemporaryDir root;DataCatalog cat;QVERIFY(cat.open(root.path()));QVERIFY(seed(cat,root.path()));
-    const QString orphan="artifacts/derived/unrelated/unreferenced.bin";QVERIFY(write(root.filePath(orphan),23));
+    const QString orphan="artifacts/DERIVED/unrelated/unreferenced.bin";QVERIFY(write(root.filePath(orphan),23));
     QVERIFY(operations(root.path(),{operation("artifacts/derived/agent/new/output.bin")}));
     auto source=snapshot(&cat);const auto healthy=scan(source);QVERIFY(healthy.complete);source.retention=healthy.source.retention;
     auto choice=preview(healthy,{}, {orphan});QVERIFY(choice.valid);QString error;QVERIFY(validate(choice,{},&error));
@@ -95,7 +95,7 @@ private slots:
   void operationRootsProtectPreparedSidecarsSourcesAndPreviewRevisions() {
     QTemporaryDir dir;DataCatalog cat;QVERIFY(cat.open(dir.path()));QVERIFY(seed(cat,dir.path()));
     const QString target="artifacts/derived/agent/v1/output.tif", prepared="artifacts/derived/agent2/v2/output.gpkg";
-    const QString artifact=".paleo/capability-ops/op-retained/private/part.bin", orphan="artifacts/derived/orphan/unreferenced.bin";
+    const QString artifact=".paleo/capability-ops/op-retained/private/part.bin", orphan="artifacts/DERIVED/orphan/unreferenced.bin";
     const QString source="raw/legacy-model/input.sgy";
     const QString raster="raw/legacy-tile/input.tif";
     for(const auto &path:QStringList{target,target+".aux.xml",prepared,artifact,orphan,source,source+".sidecar",raster,raster+".aux.xml"})

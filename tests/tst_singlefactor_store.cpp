@@ -449,6 +449,7 @@ void SingleFactorStoreTests::restoreFileFromBackupKeepsSiteIntactWhenMoveFails()
   QFile still( main );
   QVERIFY( still.open( QIODevice::ReadOnly ) );
   QCOMPARE( still.readAll(), QByteArray( "AAAA" ) );
+  still.close();
 
 #ifdef Q_OS_WIN
   CloseHandle( mainLock );

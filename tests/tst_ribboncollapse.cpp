@@ -11,6 +11,7 @@
 #include <SARibbon.h>
 
 #include "../src/ui/paleoribbon.h"
+#include "../src/ui/paleotheme.h"
 #include "../src/ui/ribboncollapse.h"
 
 namespace
@@ -52,6 +53,7 @@ class TestRibbonCollapse : public QObject
   private slots:
     void initTestCase()
     {
+      PaleoTheme::applyLightTheme();
       PaleoRibbon::prepareLibrary();
       m_win = new SARibbonMainWindow;
       SARibbonBar *bar = m_win->ribbonBar();

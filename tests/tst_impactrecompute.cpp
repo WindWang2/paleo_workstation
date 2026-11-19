@@ -678,7 +678,7 @@ private slots:
                             "bg-samples-a.geojson", &error));
     QVERIFY2(f.work.generateFactor(
                   "D61", "sandthick",
-                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
+                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 1.0}},
                   &error),
              qPrintable(error));
     const auto factorV1 = f.latest("single_factor_raster");
@@ -695,7 +695,7 @@ private slots:
                             "bg-samples-b.geojson", &error));
     QVERIFY2(f.work.generateFactor(
                   "D61", "sandthick",
-                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
+                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 1.0}},
                   &error),
              qPrintable(error));
     const auto factorV2 = f.latest("single_factor_raster");

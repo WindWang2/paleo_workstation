@@ -293,6 +293,8 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_env_redset.py --selftest)
   add_test(NAME pin_osgeo4w_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/pin_osgeo4w.py --selftest)
+  add_test(NAME dependency_origins_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/test_audit_dependency_origins.py)
   # 方向 100：文档漂移护栏——任务书份数（期望值只读 goal-loop-prompts/
   # README 的「编号任务书份数：」行，不写死）/ UI_LAYER_PLAN 主窗行数落点
   # （日期戳现状行 ±20% 容差 + 家族 TU 精确数）/ AUDIT_ISSUES 头部计数句
@@ -318,11 +320,11 @@ if(PALEO_PYTHON3)
                        file_budget file_budget_strict file_budget_selftest
                        qgis_versions qgis_versions_selftest
                        qgis_resources_selftest env_redset_validate env_redset_selftest
-                       pin_osgeo4w_selftest docs_drift docs_drift_selftest
+                       pin_osgeo4w_selftest dependency_origins_selftest docs_drift docs_drift_selftest
                        role_tables role_tables_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(qgis_resources_selftest env_redset_validate env_redset_selftest
-                       pin_osgeo4w_selftest docs_drift docs_drift_selftest
+                       pin_osgeo4w_selftest dependency_origins_selftest docs_drift docs_drift_selftest
                        role_tables role_tables_selftest
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
   # #767：Python 闸门项此前会在源码树留下字节码（tools/__pycache__/…、
@@ -345,7 +347,7 @@ if(PALEO_PYTHON3)
       file_budget file_budget_strict file_budget_selftest
       qgis_versions qgis_versions_selftest
       qgis_resources_selftest env_redset_validate env_redset_selftest
-      pin_osgeo4w_selftest docs_drift docs_drift_selftest
+      pin_osgeo4w_selftest dependency_origins_selftest docs_drift docs_drift_selftest
       role_tables role_tables_selftest)
   set_tests_properties(${_paleo_py_gates}
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1;PYTHONDONTWRITEBYTECODE=1")

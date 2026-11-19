@@ -12,6 +12,7 @@
 #include <SARibbon.h>
 
 #include "../src/ui/paleoribbon.h"
+#include "../src/ui/paleotheme.h"
 #include "../src/ui/ribbontitlefit.h"
 
 struct HintTabBar : QTabBar
@@ -62,8 +63,10 @@ class TestRibbonTitleFit : public QObject
     void initTestCase()
     {
       QVERIFY2(qFuzzyCompare(qApp->devicePixelRatio(), 2.0), "test must run at scale 2");
+      PaleoTheme::applyLightTheme();
       PaleoRibbon::prepareLibrary();
-      m_win = new SARibbonMainWindow;
+      m_win = new SARibbonMainWindow(nullptr, SARibbonMainWindowStyleFlag::UseRibbonMenuBar |
+                                                  SARibbonMainWindowStyleFlag::UseNativeFrame);
       SARibbonBar *b = bar();
       b->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
       for (const char *t : {"数据管理", "地层对比", "单井相分析", "地震相分析", "古地理编图"})

@@ -90,16 +90,37 @@
 8. 测试：新增 tst_p3_factor_identity（W1–W3 矩阵）＋扩展
    tst_analysisresultsync / tst_capability_recovery_native / tst_factorworkflow。
 
+## 三点五、实现落点（与设计的差异说明）
+
+1. **「无单元即拒绝」的适用面**：工程存在至少一个已提交地层方案（存在可选
+   单元）时，正式单因素/插值/地统入口缺 UnitSelection 一律拒绝；无任何方案
+   的工程（无可选单元）维持 legacy 键（horizon 直为成果键），与
+   syncAnalysisResults「Legacy projects remain readable」先例同口径。验收
+   矩阵的拒绝行均以「有方案工程」为测试夹具。
+2. **Host 单元权威**：constraint.idw 的单元来自宿主捕获的当前选择
+   （freezeInput 钩子，capabilityhostwiring）；请求自带 subinterval_id 与
+   之不符 → subinterval_mismatch。受信冻结结果（unit_selection/scheme 字段/
+   parent_version_ids）覆盖调用方自带值后进入意图摘要与冻结计划；恢复与
+   source_operation_id 复用沿 stagePlan.parents/成员清单继承原上下文。
+3. **遗留 publishFiles 分支**（生产不可达，仅进程内直调）加同一验证：
+   无宿主核验标记（subinterval_not_verified）拒绝正式发布。
+4. **证据确认协调**（factorevidenceconfirmation）：确认=DS 中存在
+   id="catalog.<versionId>" 的绑定（不把同步函数返回值当确认）；失败沿
+   版本 extra.evidence_pending（updateVersionExtra，与 stale 投影同一接缝）
+   持久化 {step,error,bindingId,unitKey}；retryPendingFactorEvidence 按
+   binding id 幂等补确认。不声称跨存储 ACID。
+
 ## 四、工作包状态
 
-- [ ] W1 引擎入口强制解析稳定分析单元
-- [ ] W2 样点/主结果/旁路证据同一身份
-- [ ] W3 冻结实际消费的输入引用与父版本
-- [ ] W4 真实 constraint.idw Host 路径接完整
-- [ ] W5 既有模型内覆盖单因素证据成员
-- [ ] W6 区分 Catalog 提交与证据确认完成状态
-- [ ] W7 恢复、重试与后台重复投影幂等
-- [ ] W8 跨入口端到端测试与失败注入
+- [x] W1 引擎入口强制解析稳定分析单元（实现完成，验证见下）
+- [x] W2 样点/主结果/旁路证据同一身份
+- [x] W3 冻结实际消费的输入引用与父版本
+- [x] W4 真实 constraint.idw Host 路径接完整
+- [x] W5 既有模型内覆盖单因素证据成员
+- [x] W6 区分 Catalog 提交与证据确认完成状态
+- [x] W7 恢复、重试与后台重复投影幂等
+- [x] W8 跨入口端到端测试与失败注入（新增 tst_p3_factor_identity /
+  tst_p3_factor_evidence；扩展 tst_capability_recovery_native）
 - [ ] 本地验证 + Source gates（见「验证记录」）
 - [ ] 独立复审（见「独立复审」）
 

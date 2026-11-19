@@ -276,11 +276,14 @@ private slots:
     QVERIFY(!v2.parentVersionIds.contains(points1));
     QCOMPARE(paleo::strat::fromMap(v1.extra.value(QStringLiteral("unitSelection")).toMap()), f.s1);
     QCOMPARE(paleo::strat::fromMap(v2.extra.value(QStringLiteral("unitSelection")).toMap()), f.s2);
-    // 样点层键不共用（S1/S2 同顶界 TOP 也不再碰撞）。
-    QVERIFY(v1.extra.value(QStringLiteral("extraction")).toMap()
-                .value(QStringLiteral("pointsLayerId")).toString() !=
-            v2.extra.value(QStringLiteral("extraction")).toMap()
-                .value(QStringLiteral("pointsLayerId")).toString());
+    // 样点层键不共用（S1/S2 同顶界 TOP 也不再碰撞）：井点版本各自登记的
+    // manifest_layer_id 指向各自单元键。
+    const auto wf1 = f.catalog.versionById(points1);
+    const auto wf2 = f.catalog.versionById(points2);
+    QCOMPARE(wf1.extra.value(QStringLiteral("manifest_layer_id")).toString(),
+             QStringLiteral("wellfactor.%1.sandthick").arg(key1));
+    QCOMPARE(wf2.extra.value(QStringLiteral("manifest_layer_id")).toString(),
+             QStringLiteral("wellfactor.%2.sandthick").arg(key2));
     // 投影后各自获得指向真实单元的 single_factor 绑定。
     QVERIFY2(syncAnalysisResults(&f.catalog, f.dir.path()).isEmpty(), "projection must succeed");
     paleo::data::DataService ds;

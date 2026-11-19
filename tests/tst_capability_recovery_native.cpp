@@ -109,11 +109,14 @@ private slots:
     {
       std::string detail;paleo::data::DataService ds;
       QVERIFY(ds.createProject(paleo::area_model::directory(h.root.path()).toStdString(),"p3-host",detail));
-      paleo::data::ParsedFile parsed;parsed.kind="test";parsed.status="parsed";
+      const auto raw=h.root.filePath(QStringLiteral("p3host-source.txt"));
+      {QFile file(raw);QVERIFY(file.open(QIODevice::WriteOnly));file.write("p3host");file.close();}
+      paleo::data::ParsedFile parsed;parsed.path=raw.toStdString();parsed.kind="test";parsed.status="parsed";
       paleo::data::WellDataset well;well.wellInfo.wellName="W-1";well.wellInfo.wellheadX=0;well.wellInfo.wellheadY=0;
       well.defaultDepthInfo.depthType="MD";well.defaultDepthInfo.depthUnit="m";parsed.wells.push_back(well);
       long long sourceId=0;
-      QVERIFY(ds.importPreparedFile("x","x","x",QCryptographicHash::hash(QByteArray("p3host"),QCryptographicHash::Sha256).toHex().toStdString(),parsed,sourceId,detail));
+      QVERIFY(ds.importPreparedFile(raw.toStdString(),raw.toStdString(),raw.toStdString(),
+        QCryptographicHash::hash(QByteArray("p3host"),QCryptographicHash::Sha256).toHex().toStdString(),parsed,sourceId,detail));
       std::vector<paleo::data::WellSummary> wells;QVERIFY(ds.listWells(wells,detail));
       paleo::data::StratigraphicScheme scheme;std::vector<paleo::data::FrameworkIssue> issues;
       QVERIFY(ds.commitStratigraphicScheme(paleo::strat::draftScheme("scheme","scheme",{"TOP","BASE"},

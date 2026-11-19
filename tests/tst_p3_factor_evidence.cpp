@@ -38,7 +38,16 @@ struct EvidenceFixture
     const auto root = area_model::directory(dir.path()).toStdString();
     if (!ds.createProject(root, "evidence-test", detail))
       return false;
+    const auto raw = dir.filePath(QStringLiteral("source.txt"));
+    {
+      QFile file(raw);
+      if (!file.open(QIODevice::WriteOnly))
+        return false;
+      file.write("evidence");
+      file.close();
+    }
     paleo::data::ParsedFile parsed;
+    parsed.path = raw.toStdString();
     parsed.kind = "test";
     parsed.status = "parsed";
     paleo::data::WellDataset well;
@@ -50,7 +59,7 @@ struct EvidenceFixture
     parsed.wells.push_back(well);
     const auto sha = QCryptographicHash::hash(QByteArray("evidence"), QCryptographicHash::Sha256).toHex().toStdString();
     long long sourceId = 0;
-    if (!ds.importPreparedFile("x", "x", "x", sha, parsed, sourceId, detail))
+    if (!ds.importPreparedFile(raw.toStdString(), raw.toStdString(), raw.toStdString(), sha, parsed, sourceId, detail))
       return false;
     std::vector<paleo::data::WellSummary> wells;
     if (!ds.listWells(wells, detail) || wells.empty())

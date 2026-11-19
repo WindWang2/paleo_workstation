@@ -1652,8 +1652,8 @@ void TestEditTools::undoGroupActiveStackFollowsFocusScope()
   QTRY_VERIFY(menu.isVisible());
   QApplication::processEvents();
   QVERIFY(bar.actionRedo()->isEnabled());
-  QTest::mouseClick(&menu, Qt::LeftButton, Qt::NoModifier,
-                    menu.actionGeometry(bar.actionRedo()).center());
+  menu.setActiveAction(bar.actionRedo());
+  QTest::keyClick(&menu, Qt::Key_Return);
   QCOMPARE(lr, 2);
 
   seismicChild->setFocus();

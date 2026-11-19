@@ -10,8 +10,9 @@
 # vendor/prefix/usr/...).
 #
 # Usage:
-#   ./vendor/fetch-deps.sh [--native] [--print-only] [--update-lock] [--check-urls]
+#   ./vendor/fetch-deps.sh [--native|--superbuild-base] [--print-only] [--update-lock] [--check-urls]
 #   --native       select the Qt/SDK archives and publish vendor/native-prefix
+#   --superbuild-base  prepare the Debian 13 Qt/tool/library base for the source route
 #   --update-lock  explicitly refresh the committed package closure
 #   --print-only   list the locked URIs/sizes/hashes, no download
 #   --check-urls   HEAD-probe every locked URL (pool, then snapshot fallback);
@@ -29,7 +30,7 @@ PKGFILE=vendor/deb-packages.txt
 PRINT_ONLY=0
 UPDATE_LOCK=0
 CHECK_URLS=0
-NATIVE=0
+PROFILE=app
 LOCK_HASH=0
 LOCK=vendor/deb-closure.lock
 # #76：Ubuntu pool 会在安全更新后删掉旧版本（锁里的 URL 随之 404）。锁内容
@@ -37,17 +38,29 @@ LOCK=vendor/deb-closure.lock
 # 回退源。时间戳在 --update-lock 时写入 $SNAPSHOT_FILE；可用
 # PALEO_DEB_SNAPSHOT 覆盖。
 SNAPSHOT_FILE=vendor/deb-closure.snapshot
-DEB_SNAPSHOT=${PALEO_DEB_SNAPSHOT:-$( [ -s "$SNAPSHOT_FILE" ] && tr -d '[:space:]' < "$SNAPSHOT_FILE" || echo 20260926T000000Z )}
 while [ $# -gt 0 ]; do
   case "$1" in
     --print-only) PRINT_ONLY=1; shift ;;
     --update-lock) UPDATE_LOCK=1; shift ;;
     --check-urls) CHECK_URLS=1; PRINT_ONLY=1; shift ;;
-    --native) NATIVE=1; PREFIX=vendor/native-prefix; shift ;;
+    --native) PROFILE=native; shift ;;
+    --superbuild-base) PROFILE=superbuild; shift ;;
     --lock-hash) LOCK_HASH=1; PRINT_ONLY=1; shift ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
+
+case "$PROFILE" in
+  native) PREFIX=vendor/native-prefix ;;
+  superbuild)
+    CACHE=vendor/cache/superbuild-debs
+    PREFIX=vendor/superbuild/base
+    PKGFILE=vendor/superbuild/debian13-base.seeds
+    LOCK=vendor/superbuild/debian13-base.lock
+    SNAPSHOT_FILE=vendor/superbuild/debian13-base.snapshot
+    ;;
+esac
+DEB_SNAPSHOT=${PALEO_DEB_SNAPSHOT:-$( [ -s "$SNAPSHOT_FILE" ] && tr -d '[:space:]' < "$SNAPSHOT_FILE" || echo 20260926T000000Z )}
 
 fail() { echo "FAIL fetch-deps: $1" >&2; echo "       fix: $2" >&2; exit 1; }
 
@@ -57,25 +70,33 @@ fail() { echo "FAIL fetch-deps: $1" >&2; echo "       fix: $2" >&2; exit 1; }
 # 覆盖 502/503；404 也会重试几次，代价仅数秒）。
 CURL_RETRY=(--retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 30)
 
-snapshot_url_for() { # 仅 Ubuntu 官方 pool 有 snapshot；其他源回空串
+snapshot_url_for() {
   case "$1" in
     http://archive.ubuntu.com/ubuntu/pool/*|https://archive.ubuntu.com/ubuntu/pool/*|\
     http://security.ubuntu.com/ubuntu/pool/*|https://security.ubuntu.com/ubuntu/pool/*)
       echo "https://snapshot.ubuntu.com/ubuntu/${DEB_SNAPSHOT}/pool/${1#*/ubuntu/pool/}" ;;
+    https://deb.debian.org/debian/pool/*)
+      echo "https://snapshot.debian.org/archive/debian/${DEB_SNAPSHOT}/pool/${1#*/debian/pool/}" ;;
+    https://deb.debian.org/debian-security/pool/*)
+      echo "https://snapshot.debian.org/archive/debian-security/${DEB_SNAPSHOT}/pool/${1#*/debian-security/pool/}" ;;
     *) echo "" ;;
   esac
 }
 
-if [ "$PRINT_ONLY" != "1" ]; then
+if [ "$UPDATE_LOCK" = 1 ]; then
   command -v apt-get >/dev/null || \
-    fail "apt-get absent — deb closure requires an apt-based host (runtime needs Ubuntu 26.04 / glibc>=2.43)" \
-         "on other distros install system qgis>=4.2 or use a Debian container"
-  command -v python3 >/dev/null || fail "python3 absent" "install python3 to resolve signed apt SHA256 metadata"
+    fail "apt-get is required to refresh a lock" "use the distribution's signed package indexes"
+  command -v python3 >/dev/null || fail "python3 absent" "install Python to resolve signed apt SHA-256 metadata"
+fi
+if [ "$PRINT_ONLY" != 1 ]; then
+  command -v dpkg-deb >/dev/null || fail "dpkg-deb absent" "install the archive extraction tool"
+  command -v python3 >/dev/null || fail "python3 absent" "install Python for dependency preparation"
 fi
 
-if [ "$NATIVE" = 1 ]; then
+if [ "$PROFILE" != app ]; then
   [ "$UPDATE_LOCK" = 0 ] ||
-    fail "cannot refresh a subset independently" "refresh the full closure before updating deb-native-packages.txt"
+    fail "this profile has no automatic lock refresh" "resolve its pinned archives using signed distribution metadata"
+  [ -s "$PKGFILE" ] || fail "missing package seeds $PKGFILE" "restore the tracked package seeds"
 fi
 
 # --- seed package list -------------------------------------------------------
@@ -115,7 +136,7 @@ else
   URIS=$(tr -d '\r' < "$LOCK")
 fi
 
-if [ "$NATIVE" = 1 ]; then
+if [ "$PROFILE" = native ]; then
   if ! URIS=$(awk '
     NR == FNR {
       if ($1 !~ /^#/ && NF) wanted[$1]++
@@ -233,7 +254,7 @@ done
 # 方向 81：dpkg-deb -x 不跑 postinst——qgis-providers-common 的 postinst 才
 # `cp srs-template.db srs.db`，缺了它 tst_runtime/boot 的 srs.db 断言必红。
 # 同一工具（Windows localdeps 也用它）在解包前缀上补这一步，不联网。
-if [ "$NATIVE" = 0 ]; then
+if [ "$PROFILE" = app ]; then
   python3 tools/ensure_qgis_resources.py --prefix "$STAGING/usr" --layout deb ||
     fail "cannot create srs.db in $STAGING" "check that qgis-providers-common is in $LOCK"
   # The provider registry probes shared objects before checking their entry point.
@@ -306,7 +327,7 @@ if [ "$UPDATE_LOCK" = 1 ]; then
   mv -- "$LOCK.tmp" "$LOCK"
   date -u +%Y%m%dT%H%M%SZ > "$SNAPSHOT_FILE"
 fi
-echo "  OK vendored $COUNT debs -> $PREFIX (lock: vendor/deb-closure.lock)"
-if [ "$NATIVE" = 0 ]; then
+echo "  OK vendored $COUNT debs -> $PREFIX (lock: $LOCK)"
+if [ "$PROFILE" = app ]; then
   echo "  NOTE set QGIS_PREFIX_PATH=$PREFIX/usr and LD_LIBRARY_PATH=$PREFIX/usr/lib/<multiarch>:$PREFIX/usr/lib (./paleo-dev does this)"
 fi

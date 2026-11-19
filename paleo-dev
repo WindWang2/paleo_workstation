@@ -54,6 +54,7 @@ paleo_activate_deps() {
     export PKG_CONFIG_SYSROOT_DIR="${prefix%/usr}"
     unset PKG_CONFIG_PATH
     export QT_PLUGIN_PATH="$multiarch/qt6/plugins"
+    export QCA_PLUGIN_PATH="$multiarch/qca-qt6"
     export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PLUGIN_PATH/platforms"
     export FONTCONFIG_PATH="${prefix%/usr}/etc/fonts" FONTCONFIG_FILE="${prefix%/usr}/etc/fonts/fonts.conf"
     unset FONTCONFIG_SYSROOT

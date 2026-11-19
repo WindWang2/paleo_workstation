@@ -25,7 +25,9 @@ def available_hashes():
 
 def main():
     hashes = available_hashes()
-    pattern = re.compile(r"^'([^']+)'\s+(\S+\.deb)\s+(\d+)\s+\S+$")
+    # Some Debian security indexes leave the optional checksum column blank.
+    # Every URI is still resolved against the signed Packages SHA-256 below.
+    pattern = re.compile(r"^'([^']+)'\s+(\S+\.deb)\s+(\d+)(?:\s+\S+)?$")
     count = 0
     for line in sys.stdin:
         match = pattern.fullmatch(line.strip())

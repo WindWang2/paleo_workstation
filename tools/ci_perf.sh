@@ -58,14 +58,14 @@ done
 echo "build targets (${#targets[@]}): ${targets[*]}"
 if [ "${#targets[@]}" -gt 0 ]; then
   # AGENTS.md -j8 纪律：不显式限并行时 Ninja 缺省吃满核数
-  cmake --build "$build_dir" --target "${targets[@]}" --parallel "${PALEO_JOBS:-8}" || exit 1
+  BUILD_DIR="$build_dir" ./paleo-dev build --target "${targets[@]}" --parallel "${PALEO_JOBS:-8}" || exit 1
 fi
 
 # 3) 串行跑（计时类不并行）。JUnit 由 paleo-dev test 统一落
 #    $BUILD_DIR/Testing/ctest-junit.xml（这里不再经 "$@" 叠加第二个
 #    --output-junit），跑完拷到 artifact 位并校验。
 QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}" \
-  ./paleo-dev test -L perf -j1 2>&1 |
+  BUILD_DIR="$build_dir" ./paleo-dev test -L perf -j1 2>&1 |
   tee "$out_dir/perf-ctest.log"
 rc=${PIPESTATUS[0]}
 # 计时摘要（ctest 结果行）单独一份，便于肉眼对比

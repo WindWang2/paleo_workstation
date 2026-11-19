@@ -220,8 +220,9 @@ void IoImportLedgerTests::rejectedRowsReachLedgerAndAcceptedTops()
   paleo::imports::ImportLedger ledger;
   ledger.load(importer.catalog());
   QCOMPARE(ledger.count(), 1);
+  const auto batches = ledger.batches();
   bool found = false;
-  for (const auto &row : ledger.batches()[0].rows)
+  for (const auto &row : batches[0].rows)
     if (row.path == topsPath)
     {
       QCOMPARE(row.message, tops->message);

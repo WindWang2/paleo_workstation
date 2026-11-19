@@ -30,7 +30,7 @@
 # 用法：tools/ci_ctest_gate.sh <ctest 选择参数...>（如 -LE 'core|perf' / -L core -LE perf）
 set -uo pipefail
 
-build_dir=build
+build_dir="${BUILD_DIR:-build}"
 log="$(mktemp -t ctest-gate.XXXXXX.log)" || exit 1
 trap 'rm -f -- "$log"' EXIT
 script_dir="$(cd "$(dirname "$0")" && pwd)"

@@ -3,31 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-BUILD_DIR=build
+BUILD_DIR="${BUILD_DIR:-build}"
+[[ "$BUILD_DIR" == /* ]] || BUILD_DIR="$PWD/$BUILD_DIR"
 
-# 依赖来源策略（BUILDING.md「依赖来源策略」）：superbuild 首选 > deb 闭包
-# 加速档 > 系统包兜底。显式 QGIS_PREFIX_PATH 优先，不覆盖；注入后
-# build/test/selfcheck 全部 verb 自动走 vendored prefix，无需手工导出。
-# deb 闭包里 Qt/GDAL 等库落在 multiarch 子目录（usr/lib/x86_64-linux-gnu），
-# 只导出 usr/lib 会让 vendored rcc/moc 回落加载宿主 Qt（#76）。
 paleo_multiarch() {
   dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "$(uname -m)-linux-gnu"
-}
-paleo_deb_libpath() {
-  local p="$PWD/vendor/prefix/usr/lib"
-  local ma="$p/$(paleo_multiarch)"
-  # review-fix-ci：Debian alternatives / 私有子目录（blas、lapack、pulseaudio）
-  # 也入路径——fetch-deps 的顶层符号链接农场之前解包的旧 prefix 没有这些链接，
-  # 运行期 271 项测试 libblas.so.3 / 19 项 libpulsecommon 找不到（本机实锤）。
-  local out="$p"
-  if [ -d "$ma" ]; then
-    out="$ma:$p"
-    local sub
-    for sub in blas lapack pulseaudio; do
-      [ -d "$ma/$sub" ] && out="$out:$ma/$sub"
-    done
-  fi
-  echo "$out"
 }
 # deb 闭包里 PROJ/GDAL 是 distro 编译——默认数据路径指向 runner 上不存在的
 # /usr/share/{proj,gdal}，不显式导出则 proj.db 找不到：OSRImportFromEPSG /
@@ -44,15 +24,67 @@ paleo_data_env() {
   [ -z "${GDAL_DATA:-}" ] && [ -d "$prefix/share/gdal" ] && export GDAL_DATA="$prefix/share/gdal"
   return 0
 }
-if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
-  if [ -d vendor/superbuild/prefix/lib ]; then
-    export QGIS_PREFIX_PATH="$PWD/vendor/superbuild/prefix"
-    export LD_LIBRARY_PATH="$PWD/vendor/superbuild/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  elif [ -d vendor/prefix/usr ]; then
-    export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
-    export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+paleo_activate_deps() {
+  if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
+    if [ -d vendor/superbuild/prefix/lib ]; then
+      export QGIS_PREFIX_PATH="$PWD/vendor/superbuild/prefix"
+      export LD_LIBRARY_PATH="$QGIS_PREFIX_PATH/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    elif [ -d vendor/prefix/usr ]; then
+      export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+    fi
   fi
-fi
+
+  local prefix="${QGIS_PREFIX_PATH:-}"
+  [ -d "$prefix" ] || return 0
+  prefix=$(cd -P -- "$prefix" && pwd)
+  local receipt="${prefix%/*}/.paleo-deb-closure.sha256"
+  if [[ "$prefix" -ef "$PWD/vendor/prefix/usr" || -f "$receipt" ]]; then
+    local wanted
+    wanted=$(tr -d '\r' < vendor/deb-closure.lock | sha256sum | cut -d' ' -f1)
+    if [ "$(cat "$receipt" 2>/dev/null)" != "$wanted" ]; then
+      echo "Deb prefix lock mismatch at $prefix. Run ./paleo-dev bootstrap fetch-only." >&2
+      return 1
+    fi
+    local multiarch="$prefix/lib/$(paleo_multiarch)"
+    export GISBASE="$prefix/lib/grass84"
+    export LD_LIBRARY_PATH="$multiarch:$prefix/lib:$GISBASE/lib:$PWD/vendor/onnxruntime/lib"
+    export PATH="$prefix/lib/qt6/bin:$prefix/lib/qt6/libexec:$PATH"
+    export CMAKE_PREFIX_PATH="$prefix"
+    export PKG_CONFIG_LIBDIR="$multiarch/pkgconfig:$prefix/lib/pkgconfig:$prefix/share/pkgconfig"
+    export PKG_CONFIG_SYSROOT_DIR="${prefix%/usr}"
+    unset PKG_CONFIG_PATH
+    export QT_PLUGIN_PATH="$multiarch/qt6/plugins"
+    export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PLUGIN_PATH/platforms"
+    export FONTCONFIG_PATH="${prefix%/usr}/etc/fonts" FONTCONFIG_FILE="${prefix%/usr}/etc/fonts/fonts.conf"
+    unset FONTCONFIG_SYSROOT
+    export QTWEBENGINEPROCESS_PATH="$prefix/lib/qt6/libexec/QtWebEngineProcess"
+    export QTWEBENGINE_RESOURCES_PATH="$prefix/share/qt6/resources"
+    export QTWEBENGINE_LOCALES_PATH="$prefix/share/qt6/translations/qtwebengine_locales"
+    export PROJ_DATA="$prefix/share/proj" PROJ_LIB="$prefix/share/proj"
+    export GDAL_DATA="$prefix/share/gdal" GDAL_DRIVER_PATH="$multiarch/gdalplugins"
+    return 0
+  fi
+
+  # Explicit external and source-built prefixes use their own library search path.
+  if [ -z "${GDAL_DRIVER_PATH:-}" ]; then
+    local candidate
+    for candidate in "$prefix/lib/gdalplugins" "$prefix/lib/$(paleo_multiarch)/gdalplugins"; do
+      if [ -d "$candidate" ]; then
+        export GDAL_DRIVER_PATH="$candidate"
+        break
+      fi
+    done
+  fi
+  paleo_data_env "$prefix"
+}
+
+paleo_configure() {
+  if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    cmake -S . -B "$BUILD_DIR" "$@"
+  else
+    cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "$@"
+  fi
+}
 
 # 并行度上限（AGENTS.md「构建/测试一律 -j8 以内」，#230）：缺省 min(核数, 8)；
 # PALEO_JOBS 可调低，超过 8 一律钳回 8。用户显式传 -j/--parallel 时照传不抢。
@@ -75,6 +107,7 @@ usage() { awk '/^# paleo-dev —/{print;next} /^# verbs:/{p=1} p&&/^$/{exit} p' 
 # verbs:
 #   bootstrap [fetch-only]  preflight -> vendor fetch/build -> selfcheck (the one-command TTHW path)
 #                           （fetch-only：只取依赖跳过尾部 build/selfcheck，透传 vendor/bootstrap.sh）
+#   configure    prepare a build directory with CMake options
 #   build        incremental build
 #   test         QT_QPA_PLATFORM=offscreen ctest
 #   selfcheck    provider/srs.db/render check -> vendor/logs/map.png
@@ -82,11 +115,17 @@ usage() { awk '/^# paleo-dev —/{print;next} /^# verbs:/{p=1} p&&/^$/{exit} p' 
 
 verb=${1:-}; shift || true
 case "$verb" in
+  configure|build|test|selfcheck) paleo_activate_deps ;;
+esac
+case "$verb" in
   bootstrap)
     bash vendor/bootstrap.sh "$@"
     ;;
+  configure)
+    paleo_configure "$@"
+    ;;
   build)
-    cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    paleo_configure
     if paleo_has_jobs_arg "$@"; then
       cmake --build "$BUILD_DIR" "$@"
     else
@@ -94,57 +133,18 @@ case "$verb" in
     fi
     ;;
   test)
-    # ET1 消费侧：deb 闭包路（vendor/prefix 存在）自动注入 prefix 与动态库
-    # 路径——测试 main() 读 QGIS_PREFIX_PATH（缺省 /usr），无需手工导出。
-    # #761：与 selfcheck 同口径——只在 QGIS_PREFIX_PATH 为空或已等于本地
-    # vendor/prefix/usr 时才接管。此前这里无条件覆盖：外部 QGIS / superbuild
-    # 构建叠加本地 vendor/prefix 残留时，test 会拿 deb 闭包的 QGIS 去跑按别的
-    # Qt/QGIS 编出来的二进制，ABI 不一致的红极难解释（想回系统包 rm -rf
-    # vendor/prefix；想显式指定就给出 QGIS_PREFIX_PATH，由调用方自管运行期库路径）。
-    if [ -d vendor/prefix/usr ]; then
-      case "${QGIS_PREFIX_PATH:-}" in
-        "$PWD"/vendor/prefix/usr|"")
-          [ -n "${QGIS_PREFIX_PATH:-}" ] || export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
-          export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          ;;
-      esac
-    fi
-    # 闭包 GDAL 的格式插件（gdal_PNG/JPEG/...）不在编译期默认搜索路径上：
-    # 不注入则栅格类测试（tst_previewmap_assets 的 world-file 图等）静默
-    # 丢驱动。vendor/prefix 与外部 QGIS_PREFIX_PATH 两种来源都覆盖；用户
-    # 已显式给 GDAL_DRIVER_PATH 时不抢。
-    prefix_lib="${QGIS_PREFIX_PATH:-}"
-    if [ -n "$prefix_lib" ] && [ -z "${GDAL_DRIVER_PATH:-}" ]; then
-      for cand in "$prefix_lib/lib/gdalplugins" "$prefix_lib/lib/x86_64-linux-gnu/gdalplugins"; do
-        if [ -d "$cand" ]; then export GDAL_DRIVER_PATH="$cand"; break; fi
-      done
-    fi
-    paleo_data_env "$prefix_lib"
     # ctest 默认并行 min(核数, 8)（T2：每测试有独立 XDG 沙箱，并行安全；
     # #230：-j8 上限）；传 --parallel/-j 时用户参数照传。
     mkdir -p "$BUILD_DIR/Testing/qtest-first-run"
     if paleo_has_jobs_arg "$@"; then
       QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
-        --output-junit "$PWD/$BUILD_DIR/Testing/ctest-junit.xml" "$@"
+        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" "$@"
     else
       QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
-        --output-junit "$PWD/$BUILD_DIR/Testing/ctest-junit.xml" -j "$(paleo_jobs)" "$@"
+        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" -j "$(paleo_jobs)" "$@"
     fi
     ;;
   selfcheck)
-    # #319：bootstrap.sh 在调子进程前已导出 QGIS_PREFIX_PATH，顶部注入块被跳过，
-    # 直接跑二进制会在 libmeshoptimizer.so.2d 上 exit 127。deb multiarch 必须进
-    # LD_LIBRARY_PATH——CMAKE_BUILD_RPATH 只含 onnxruntime，链接期 -rpath-link
-    # 不进 RUNPATH，覆盖不到传递依赖。
-    if [ -d vendor/prefix/usr ]; then
-      case "${QGIS_PREFIX_PATH:-}" in
-        "$PWD"/vendor/prefix/usr|"")
-          [ -n "${QGIS_PREFIX_PATH:-}" ] || export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
-          export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          ;;
-      esac
-    fi
-    paleo_data_env "${QGIS_PREFIX_PATH:-}"
     mkdir -p vendor/logs
     QT_QPA_PLATFORM=offscreen "$BUILD_DIR/paleo_selfcheck" "$@"
     ;;

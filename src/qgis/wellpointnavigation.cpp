@@ -20,11 +20,13 @@ class Navigation final : public QObject {
 public:
   Navigation(QgsMapCanvas *canvas, QgsVectorLayer *wells, QList<QgsMapTool *> tools,
              std::function<void(const QString &)> openWell)
-      : QObject(canvas), m_canvas(canvas), m_wells(wells), m_tools(std::move(tools)), m_open(std::move(openWell)) {
+      : QObject(canvas), m_wells(wells), m_tools(std::move(tools)), m_open(std::move(openWell)) {
     canvas->viewport()->installEventFilter(this);
   }
   bool eventFilter(QObject *object, QEvent *event) override {
-    if (!m_wells || !m_tools.contains(m_canvas->mapTool())) { m_pressed = false; return false; }
+    // The viewport can still receive events during its parent's QWidget teardown.
+    auto *canvas = qobject_cast<QgsMapCanvas *>(parent());
+    if (!canvas || !m_wells || !m_tools.contains(canvas->mapTool())) { m_pressed = false; return false; }
     if (event->type() == QEvent::MouseButtonPress) {
       auto *mouse = static_cast<QMouseEvent *>(event);
       m_pressed = mouse->button() == Qt::LeftButton && mouse->modifiers() == Qt::NoModifier;
@@ -40,7 +42,7 @@ public:
       if (click) {
         const auto position = mouse->position().toPoint();
         // 使用点击当时的地图坐标，漫游结束或下一帧刷新不能改变这次命中的对象。
-        const auto point = m_canvas->getCoordinateTransform()->toMapCoordinates(position);
+        const auto point = canvas->getCoordinateTransform()->toMapCoordinates(position);
         QTimer::singleShot(0, this, [this, position, point] { pick(position, point); });
       }
     }
@@ -48,16 +50,17 @@ public:
   }
 private:
   void pick(const QPoint &position, const QgsPointXY &point) {
-    if (!m_wells) return;
+    auto *canvas = qobject_cast<QgsMapCanvas *>(parent());
+    if (!canvas || !m_wells) return;
     QMap<QString, QString> ids;
     { // 导航可能重建正文并销毁画布，先结束原生拾取工具的生命周期。
-      WellIdentify identify(m_canvas);
+      WellIdentify identify(canvas);
       // 井位是点目标：显式给 12 px 的地图单位搜索半径。QGIS 默认半径按
       // 画布尺寸比例折算，高分屏/大幅面下折算值偏小，点在井旁不中就像
       // 导航没反应；固定像素半径让「点井附近」稳定命中。
       QgsMapToolIdentify::IdentifyProperties overrides;
       overrides.searchRadiusMapUnits =
-          12.0 * m_canvas->mapSettings().mapUnitsPerPixel();
+          12.0 * canvas->mapSettings().mapUnitsPerPixel();
       identify.setPropertiesOverrides(overrides);
       const auto hits = identify.identify(QgsGeometry::fromPointXY(point), QgsMapToolIdentify::TopDownAll, {m_wells}, QgsMapToolIdentify::VectorLayer);
       for (const auto &hit : hits) {
@@ -68,7 +71,7 @@ private:
     const auto open = m_open;
     if (ids.size() == 1) { open(ids.firstKey()); return; }
     if (ids.isEmpty()) return;
-    auto *menu = new QMenu(m_canvas);
+    auto *menu = new QMenu(canvas);
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->setTitle(tr("选择此位置的井"));
     for (auto it = ids.cbegin(); it != ids.cend(); ++it) {
@@ -77,9 +80,8 @@ private:
         QTimer::singleShot(0, this, [open, id] { open(id); });
       });
     }
-    menu->popup(m_canvas->viewport()->mapToGlobal(position));
+    menu->popup(canvas->viewport()->mapToGlobal(position));
   }
-  QgsMapCanvas *m_canvas;
   QPointer<QgsVectorLayer> m_wells;
   QList<QgsMapTool *> m_tools;
   std::function<void(const QString &)> m_open;

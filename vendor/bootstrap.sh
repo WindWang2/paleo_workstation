@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # vendor/bootstrap.sh — Phase 0 binary-vendoring fetch (§39 spike-0, ET0 结论).
 # Preflight -> download+sha256-verify per vendor/manifest.json -> extract to vendor/prefix.
-# On hosts where qgis is already installed at the exact pin (e.g. Arch pacman 4.2.x),
-# detection short-circuits the QGIS leg. Fallback route (source superbuild) is NOT
-# implemented here — see docs/phase0/et0-vendor-comparison.md fallback clause.
+# The Linux binary route is supplied from the locked project prefix.
 #
 # 用法：bootstrap.sh [fetch-only]
 #   fetch-only  只取依赖（deb 闭包 + ONNX Runtime），跳过尾部的 configure/
@@ -31,28 +29,20 @@ free_gb=$(df -BG --output=avail . | tail -1 | tr -dc 0-9)
 echo "  PASS toolchain (cmake $cmake_ver, glibc $glibc, ${free_gb}GB free)"
 
 echo "== vendor deps =="
-# QGIS+GDAL+Qt6: prefer exact-pin system packages when present (Arch: pacman qgis==4.2.x);
-# otherwise extract qgis.org deb closure into vendor/prefix (resolute/trixie pinned).
-if { pacman -Q qgis 2>/dev/null | grep -qE 'qgis 4\.2\.'; } || \
-   { command -v dpkg-query >/dev/null && dpkg-query -W -f='${Version}' qgis 2>/dev/null | grep -qE '^([0-9]+:)?4\.2\.' && [ -f /usr/include/qgis/qgsapplication.h ]; }; then
-  note "qgis 4.2.x development files already installed system-wide"
-elif [ -f vendor/prefix/usr/include/qgis/qgsapplication.h ] && \
-     [ "$(cat vendor/prefix/.paleo-deb-closure.sha256 2>/dev/null)" = \
-       "$(tr -d '\r' < vendor/deb-closure.lock | sha256sum | cut -d' ' -f1)" ]; then
-  export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+# The Resolute package closure requires the distribution ABI even for a reused tree.
+[ "$(printf '%s\n2.43\n' "$glibc" | sort -V | head -1)" = "2.43" ] ||
+  fail "glibc $glibc < 2.43 (deb closure lock is Ubuntu 26.04)" \
+       "use Ubuntu 26.04 or build the vendor/superbuild route for this host"
+
+export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+lock_sha=$(tr -d '\r' < vendor/deb-closure.lock | sha256sum | cut -d' ' -f1)
+if [[ -f "$QGIS_PREFIX_PATH/include/qgis/qgsapplication.h" &&
+      "$(cat vendor/prefix/.paleo-deb-closure.sha256 2>/dev/null)" == "$lock_sha" ]] &&
+   ! compgen -G "$QGIS_PREFIX_PATH/lib/qgis/plugins/libplugin_*.so" >/dev/null; then
   note "vendored QGIS prefix present at $QGIS_PREFIX_PATH (matches deb-closure.lock)"
 else
-  # review-fix-ci：prefix 存在但完成戳与锁不符（锁已更新/旧版无戳）→ 重新解包。
-  [ -d vendor/prefix/usr ] && echo "  vendored prefix stale vs vendor/deb-closure.lock — re-extracting"
-  echo "  qgis system package absent — deb-closure fetch (ET1):"
   [ "${free_gb:-0}" -ge 15 ] || fail "disk ${free_gb}GB < 15GB" "free space for the vendored QGIS closure"
-  # 已提交的锁是 Ubuntu 26.04 resolute 闭包，库链接到 GLIBC_2.43 符号（#76）：
-  # 更低 glibc 宿主能解包但运行时加载失败，提前拒绝而不是事后崩。
-  [ "$(printf '%s\n2.43\n' "$glibc" | sort -V | head -1)" = "2.43" ] || \
-    fail "glibc $glibc < 2.43 (deb closure lock is Ubuntu 26.04)" \
-         "install QGIS 4.2.x dev packages, or use the vendor/superbuild route"
   bash vendor/fetch-deps.sh
-  export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
 fi
 
 # ONNX Runtime: always vendored (no distro guarantee of dev headers).
@@ -65,16 +55,6 @@ fi
 
 bash vendor/fetch-ranuts-document.sh --ensure
 
-echo "== selfcheck (tail of bootstrap per §44.1) =="
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
-# #230：AGENTS.md -j8 上限（PALEO_JOBS 可调低）。
-_jobs="${PALEO_JOBS:-$(nproc 2>/dev/null || echo 4)}"
-case "$_jobs" in ''|*[!0-9]*) _jobs=4 ;; esac
-[ "$_jobs" -gt 8 ] && _jobs=8
-[ "$_jobs" -lt 1 ] && _jobs=1
-cmake --build build --parallel "$_jobs"
-# paleo-dev 只在启动时看 prefix，且 QGIS_PREFIX_PATH 已被本脚本导出时整块跳过
-# （下面 21-29 行的守卫）——所以这里不能只靠「再进一次 paleo-dev」。selfcheck
-# 动词自己按 deb multiarch 补 LD_LIBRARY_PATH（#319），否则 fresh CI 上
-# paleo_selfcheck 会在 libmeshoptimizer.so.2d 上 exit 127。
+echo "== build and selfcheck =="
+./paleo-dev build
 ./paleo-dev selfcheck

@@ -19,6 +19,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSet>
@@ -65,6 +66,36 @@ namespace
       if (list->item(i)->checkState() == Qt::Checked)
         out.insert(list->item(i)->data(Qt::UserRole).toString());
     return out;
+  }
+
+  void bindFuseGate(QListWidget *list, QPushButton *fuse)
+  {
+    const auto update = [listObject = QPointer<QObject>(list), fuse] {
+      // The internal model can reset after QListWidget's derived destructor.
+      auto *factorList = qobject_cast<QListWidget *>(listObject.data());
+      if (!factorList)
+        return;
+      bool canFuse = false;
+      for (int i = 0; i < factorList->count() && !canFuse; ++i)
+        canFuse = factorList->item(i)->checkState() == Qt::Checked;
+      fuse->setEnabled(canFuse);
+      if (factorList->count() == 0)
+        fuse->setToolTip(ComposePage::tr("还没有单因素图层 — 先在单因素图页生成"));
+      else if (!canFuse)
+        fuse->setToolTip(ComposePage::tr("先在列表勾选要融合的单因素图层"));
+      else
+        fuse->setToolTip(QString());
+    };
+    const auto *model = list->model();
+    QObject::connect(model, &QAbstractItemModel::rowsInserted, fuse, update);
+    QObject::connect(model, &QAbstractItemModel::rowsRemoved, fuse, update);
+    QObject::connect(model, &QAbstractItemModel::modelReset, fuse, update);
+    QObject::connect(model, &QAbstractItemModel::dataChanged, fuse,
+                     [update](const QModelIndex &, const QModelIndex &, const QVector<int> &roles) {
+      if (roles.isEmpty() || roles.contains(Qt::CheckStateRole))
+        update();
+    });
+    update();
   }
 } // namespace
 
@@ -221,40 +252,7 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   auto *fuse = new QPushButton(tr("合成编图"), this);
   fuse->setObjectName(QStringLiteral("fuseButton"));
   lay->addWidget(fuse);
-  // §35：合成编图入口随勾选态门控（禁用时 tooltip 给出原因）。经列表模型
-  // 信号驱动，不侵入 refreshFactors 的重建流程——重建后首条 rowsInserted
-  // 即恢复门控态。
-  const auto gateFuse = [this, list, fuse]() {
-    int checked = 0;
-    for (int i = 0; i < list->count(); ++i)
-      if (list->item(i)->checkState() == Qt::Checked)
-        ++checked;
-    if (list->count() == 0)
-    {
-      fuse->setEnabled(false);
-      fuse->setToolTip(tr("还没有单因素图层 — 先在单因素图页生成"));
-    }
-    else if (checked == 0)
-    {
-      fuse->setEnabled(false);
-      fuse->setToolTip(tr("先在列表勾选要融合的单因素图层"));
-    }
-    else
-    {
-      fuse->setEnabled(true);
-      fuse->setToolTip(QString());
-    }
-  };
-  connect(list->model(), &QAbstractItemModel::rowsInserted, list, gateFuse);
-  connect(list->model(), &QAbstractItemModel::rowsRemoved, list, gateFuse);
-  connect(list->model(), &QAbstractItemModel::modelReset, list, gateFuse);
-  connect(list->model(), &QAbstractItemModel::dataChanged, list,
-          [gateFuse](const QModelIndex &, const QModelIndex &,
-                     const QVector<int> &roles) {
-            if (roles.isEmpty() || roles.contains(Qt::CheckStateRole))
-              gateFuse();
-          });
-  gateFuse();
+  bindFuseGate(list, fuse);
   connect(fuse, &QPushButton::clicked, this, [this, list] {
     QStringList ids;
     for (int i = 0; i < list->count(); ++i)

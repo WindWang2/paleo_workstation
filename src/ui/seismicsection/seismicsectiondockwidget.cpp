@@ -50,6 +50,9 @@ SeismicSectionDockWidget::SeismicSectionDockWidget(const QString &title, QWidget
 // 注入共享服务时（app 装配），排队/在途读取不随 dock 析构消失，
 // 不主动取消会占住 ≤4 闸直到读完。
 SeismicSectionDockWidget::~SeismicSectionDockWidget() {
+    // QUndoStack can emit indexChanged while QWidget destroys its children.
+    if (m_undoStack)
+        disconnect(m_undoStack, nullptr, this, nullptr);
     if (m_sliceTask) {
         m_sliceTask->requestCancel();
         m_sliceTask.clear();

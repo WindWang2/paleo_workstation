@@ -183,7 +183,10 @@ QImage CorrelationTrack::render(int w, int h, float depthMin, float depthMax,
   QgsLineChartPlot plot;
   // NB in QGIS 4.2's standalone (non-layout) render path, Qgs2DPlot::setSize
   // is consumed in painter units — so this passes pixels, not millimeters.
-  plot.setSize(QSizeF(pxW, pxH));
+  // QGIS reserves axis-label space even for a transparent chart. Render
+  // very small strips on a larger surface so their data area stays drawable.
+  const QSize backingSize(qMax(32, pxW), qMax(32, pxH));
+  plot.setSize(QSizeF(backingSize));
   plot.setMargins(QgsMargins()); // the curve fills the strip; chrome draws around
   plot.setXMinimum(xMin);
   plot.setXMaximum(qMax(static_cast<double>(vr.second), xMin + 1e-6));
@@ -229,7 +232,7 @@ QImage CorrelationTrack::render(int w, int h, float depthMin, float depthMax,
   }
 
   // --- render + crop + stretch ------------------------------------------------
-  QImage img(QSize(pxW, pxH), QImage::Format_ARGB32_Premultiplied);
+  QImage img(backingSize, QImage::Format_ARGB32_Premultiplied);
   img.fill(Qt::transparent);
   QRect interior;
   {

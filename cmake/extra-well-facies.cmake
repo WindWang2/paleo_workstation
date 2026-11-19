@@ -20,7 +20,11 @@ target_link_libraries(paleo_ai PUBLIC paleo_domain Qt6::Network)
 # /usr 这类系统前缀排除出搜索面（CMAKE_PREFIX_PATH 与 PATHS 仍参与，见
 # find_package 搜索序），前缀内没有即回落 JSON，绝不静默吃系统那份；
 # 无 vendored 前缀的系统兜底构建下 Qt 本身就是系统的，保持原全量搜索。
-if(QGIS_PREFIX)
+if(PALEO_DEB_PREFIX)
+  find_package(Qt6Keychain CONFIG REQUIRED NO_DEFAULT_PATH
+    PATHS "${PALEO_DEB_PREFIX}/${PALEO_DEB_MULTIARCH}/cmake/Qt6Keychain")
+  paleo_deb_check_import(Qt6Keychain::Qt6Keychain)
+elseif(QGIS_PREFIX)
   find_package(Qt6Keychain CONFIG QUIET NO_DEFAULT_PATH
                PATHS "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6" "${QGIS_PREFIX}/usr")
 else()

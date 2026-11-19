@@ -1053,14 +1053,15 @@ void TestSeismic3DViz::sweepCacheHitRatio() {
 
     // 第一圈（冷缓存暖机）：走满 ilCount 帧
     panel.startSweep(SgySliceType::Inline, 30);
-    QTRY_COMPARE_WITH_TIMEOUT(frames.count(), ilCount, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(frames.count() >= ilCount, 5000);
 
-    // 第二圈起测量（全部应命中）
+    // 按同一采样时点记录帧和命中数，轮询可能已越过第一圈终点。
+    const int frames0 = frames.count();
     const std::size_t hits0 = seismicSvc.dataCache().Hits();
     QTest::qWait(400); // 30fps ≈ 12 帧（≈4 圈）
     panel.stopSweep();
     const std::size_t hits1 = seismicSvc.dataCache().Hits();
-    const int measuredFrames = frames.count() - ilCount;
+    const int measuredFrames = frames.count() - frames0;
     QVERIFY2(measuredFrames >= 6, "测量窗帧数不足");
 
     // 帧路径命中下界：每帧滑杆路径查一次缓存（预取暖过的帧即命中）。

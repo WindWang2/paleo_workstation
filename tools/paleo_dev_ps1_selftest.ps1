@@ -3,8 +3,7 @@
 # AST 抽出被测函数在本进程定义，喂合成夹具断言。Windows PowerShell 5.1 与
 # pwsh 7（含 Linux）都可跑；ctest 在找到 pwsh/powershell 时注册
 # paleo_dev_ps1_selftest（Windows CI 必跑）。
-#   -Mutate：把 Read-InstalledDbMap 换回 #297 的旧实现（头行/文件名当版本），
-#            断言夹具抓到它——自检本身的突变证据。
+# -Mutate：跳过 OSGeo4W 锁戳验证，夹具应拒绝这个实现。
 param([string]$Script, [switch]$Mutate)
 $ErrorActionPreference = 'Stop'
 if (-not $Script) { $Script = Join-Path (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)) 'paleo-dev.ps1' }
@@ -15,26 +14,12 @@ if ($errs.Count) {
   $errs | ForEach-Object { Write-Host ("PARSE ERROR: {0} @ line {1}" -f $_.Message, $_.Extent.StartLineNumber) }
   exit 1
 }
-# #774：Get-UpstreamVersion 必须一起抽进来——Compare-PinnedClosure 的「仅打包
-# 修订号漂移降级为 warning」分支调它，缺了它本自检在 Windows 必过车道上恒红
-# （CommandNotFoundException → $ErrorActionPreference='Stop' 直接终止），
-# 后面 30+ 条断言一条都没跑到。
-$want = 'Read-InstalledDbMap', 'Compare-PinnedClosure', 'Get-UpstreamVersion', 'Enter-LocalDepsEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
+$want = 'Get-Osgeo4wLockHash', 'Assert-Osgeo4wLockStamp', 'Enter-LocalDepsEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
 $fns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
 foreach ($f in $fns) { if ($want -contains $f.Name) { Invoke-Expression $f.Extent.Text } }
 foreach ($n in $want) { if (-not (Get-Command $n -CommandType Function -ErrorAction SilentlyContinue)) { throw "function $n not found in $Script" } }
 if ($Mutate) {
-  # #297 原实现：不跳头行、不剥 name-/.tar.* —— 夹具必须判它失败。
-  function Read-InstalledDbMap([string]$path) {
-    if (-not (Test-Path $path)) { return $null }
-    $map = @{}
-    foreach ($line in (Get-Content $path -Encoding utf8)) {
-      $f = $line -split '\s+'
-      if ($f.Count -ge 2 -and $f[0]) { $map[$f[0]] = $f[1] }
-    }
-    if ($map.Count -eq 0) { return $null }
-    return $map
-  }
+  function Assert-Osgeo4wLockStamp([string]$Prefix) {}
 }
 
 $failures = New-Object System.Collections.Generic.List[string]
@@ -57,24 +42,24 @@ try {
   try { Assert-NoEnvDebtRegression @('tst_cache_las', 'tst_other') $manifest } catch { $ok = $false }
   Check $ok 'perf exemptions/legacy tests must reach their own classifier'
 
-  # 1) installed.db：头行跳过、文件名剥 name- 与 .tar.*（#297 回归）。
-  $db = Join-Path $tmp 'installed.db'
-  Set-Content $db -Encoding utf8 -Value @('INSTALLED.DB 2', 'gsl gsl-2.7.101-1.tar.bz2 0',
-    'arrow-cpp arrow-cpp-25.0.1-1.tar.bz2 0', 'py py-3.12.7-1.tar.xz 0', '')
-  $m = Read-InstalledDbMap $db
-  Check ($null -ne $m) 'installed.db map is null'
-  if ($m) {
-    Check (-not $m.ContainsKey('INSTALLED.DB')) 'header line parsed as package'
-    Check ($m.Count -eq 3) ("map count {0} != 3" -f $m.Count)
-    Check ($m['gsl'] -eq '2.7.101-1') ("gsl -> '{0}'" -f $m['gsl'])
-    Check ($m['arrow-cpp'] -eq '25.0.1-1') ("arrow-cpp -> '{0}'" -f $m['arrow-cpp'])
-    Check ($m['py'] -eq '3.12.7-1') ("py -> '{0}'" -f $m['py'])
-    $closure = [pscustomobject]@{ 'gsl' = '2.7.101-1'; 'arrow-cpp' = '25.0.1-1'; 'py' = '3.12.7-1' }
-    Check (@(Compare-PinnedClosure $m $closure).Count -eq 0) 'pinned closure reported drift on identical set'
-    $drift = [pscustomobject]@{ 'gsl' = '2.7.1-1'; 'arrow-cpp' = '25.0.1-1'; 'py' = '3.12.7-1' }
-    Check (@(Compare-PinnedClosure $m $drift).Count -eq 1) 'version drift not caught'
-  }
-  Check ($null -eq (Read-InstalledDbMap (Join-Path $tmp 'nope.db'))) 'missing installed.db must map to $null'
+  # OSGeo4W 只复用匹配当前锁的前缀。安装数据库解析由 Python 夹具覆盖。
+  $Vendor = Join-Path $tmp 'vendor'
+  $prefix = Join-Path $Vendor 'osgeo4w'
+  $lock = Join-Path $Vendor 'osgeo4w-offline.lock.json'
+  $stamp = Join-Path $prefix '.paleo-osgeo4w-lock.sha256'
+  New-Item -ItemType Directory -Force $prefix | Out-Null
+  Set-Content -LiteralPath $lock -Value '{"schema":1}' -Encoding ascii
+  $threw = $false
+  try { Assert-Osgeo4wLockStamp $prefix } catch { $threw = $true }
+  Check $threw 'OSGeo4W prefix without a receipt must be rejected'
+  Set-Content -LiteralPath $stamp -Value 'stale' -Encoding ascii
+  $threw = $false
+  try { Assert-Osgeo4wLockStamp $prefix } catch { $threw = $true }
+  Check $threw 'OSGeo4W prefix from a different lock must be rejected'
+  Set-Content -LiteralPath $stamp -Value (Get-Osgeo4wLockHash) -Encoding ascii
+  $ok = $true
+  try { Assert-Osgeo4wLockStamp $prefix } catch { $ok = $false }
+  Check $ok 'OSGeo4W prefix stamped for the current lock must be accepted'
 
   # 2) localdeps：PALEO_PYTHON 指向 deps 根 python.exe；用户已设值不覆盖。
   $deps = Join-Path $tmp 'deps'; $qgis = Join-Path $tmp 'qgis'
@@ -116,7 +101,7 @@ try {
 }
 
 if ($Mutate) {
-  if ($failures.Count -eq 0) { Write-Host 'MUTATION SURVIVED: old Read-InstalledDbMap passed the fixtures'; exit 1 }
+  if ($failures.Count -eq 0) { Write-Host 'MUTATION SURVIVED: skipping the OSGeo4W lock check passed the fixtures'; exit 1 }
   Write-Host ("mutation caught ({0} failures, e.g. {1}) — PASS" -f $failures.Count, $failures[0])
   exit 0
 }

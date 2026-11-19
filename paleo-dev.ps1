@@ -109,16 +109,32 @@ function Repair-NinjaMsvcDependencyPrefix([string]$BuildDirectory) {
   Write-Host 'Ninja MSVC include prefix aligned with compiler output bytes.'
 }
 
+function Get-Osgeo4wLockHash {
+  $lock = Join-Path $Vendor 'osgeo4w-offline.lock.json'
+  return (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Assert-Osgeo4wLockStamp([string]$Prefix) {
+  $stamp = Join-Path $Prefix '.paleo-osgeo4w-lock.sha256'
+  if (!(Test-Path -LiteralPath $stamp) -or (Get-Content -LiteralPath $stamp -Raw).Trim() -ne (Get-Osgeo4wLockHash)) {
+    throw "OSGeo4W prefix does not match the offline lock: $Prefix. Move it aside and run bootstrap again."
+  }
+}
+
 function Enter-VendorEnvironment {
   $osgeo = Join-Path $Vendor 'osgeo4w'
-  if (-not (Test-Path (Join-Path $osgeo 'apps\qgis\include\qgsapplication.h'))) { return $false }
+  if (-not (Test-Path -LiteralPath $osgeo)) { return $false }
+  Assert-Osgeo4wLockStamp $osgeo
+  if (!(Test-Path -LiteralPath (Join-Path $osgeo 'apps/qgis/include/qgsapplication.h'))) {
+    throw "Incomplete OSGeo4W prefix: $osgeo. Move it aside and run bootstrap again."
+  }
   $script:DepsRoute = 'vendored'
   $env:QGIS_PREFIX_PATH = Join-Path $osgeo 'apps\qgis'
   $env:CMAKE_PREFIX_PATH = Join-Path $osgeo 'apps\qt6'
   # OSGeo4W 的 bin/python.exe 需要其启动脚本设置 PYTHONHOME；CI 测试和源码
   # 闸门使用原有宿主解释器的绝对路径，不依赖 OSGeo4W Python 环境。
   if (-not $env:PALEO_PYTHON) {
-    $hostPython = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue
+    $hostPython = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($hostPython) { $env:PALEO_PYTHON = $hostPython.Source }
   }
   # vendored onnxruntime 必须排在 OSGeo4W bin 之前——OSGeo4W 自带
@@ -220,6 +236,9 @@ function Enter-DependencyEnvironment {
   # 保持系统兜底（$script:DepsRoute 留空，build 走原 -DQGIS_PREFIX=osgeo4w
   # 报错语义）。
   if (Enter-VendorEnvironment) { return }
+  if ($env:PALEO_VENDOR_OFFLINE -eq '1') {
+    throw 'Offline OSGeo4W prefix absent. Run ./paleo-dev.ps1 bootstrap fetch-only with the pinned cache.'
+  }
   if (Enter-LocalDepsEnvironment) { return }
   $script:DepsRoute = 'system'
 }
@@ -246,120 +265,42 @@ switch ($Verb) {
     if (-not $pin -or -not $pin.packages -or -not $pin.closure) {
       throw 'OSGeo4W pins incomplete in vendor/manifest.json（需 packages+closure）——跑 python3 tools/pin_osgeo4w.py 生成'
     }
-    # #231：包集钉版（packages=直接包 / closure=requires 全闭包快照）。已装的
-    # 安装树与钉版一致时跳过 setup（CI 缓存命中场景，零网络零漂移）；不一致
-    # 才跑安装器，装后逐包校验——上游任何发版不再静默流进，漂移如实打红，
-    # 刷新 = python3 tools/pin_osgeo4w.py 提交（同 deb-closure.lock 口径）。
     $osgeo = Join-Path $Vendor 'osgeo4w'
-    $cache = Join-Path $Vendor 'cache\osgeo4w'
-    New-Item -ItemType Directory -Force $osgeo, $cache | Out-Null
-    $installedDb = Join-Path $osgeo 'etc\setup\installed.db'
-
-    function Read-InstalledDbMap([string]$path) {
-      # installed.db：首行「INSTALLED.DB 2」是格式头（不是包）；其余每行
-      # 「名称 名称-版本.tar.bz2 0」——第二列是包文件名，剥掉「名称-」前缀与
-      # .tar.* 后缀才是 setup.ini/manifest 的 version 口径（方向 81：旧实现把
-      # 文件名当版本、把格式头当包，114 包全报「漂移」+「未钉版包 INSTALLED.DB」，
-      # Windows CI 在 Vendor 步必红）。同口径参考实现与 selftest 见
-      # tools/pin_osgeo4w.py installed_db_map。返回 @{名称=版本}，空/缺返回 $null。
-      if (-not (Test-Path $path)) { return $null }
-      $map = @{}
-      foreach ($line in (Get-Content $path -Encoding utf8)) {
-        $f = @($line.Trim() -split '\s+')
-        if ($f.Count -lt 2 -or -not $f[0] -or $f[0] -eq 'INSTALLED.DB') { continue }
-        $ver = $f[1] -replace '\.tar\.(bz2|xz|gz|zst|lz4)$', ''
-        $prefix = $f[0] + '-'
-        if ($ver.StartsWith($prefix, [System.StringComparison]::Ordinal)) { $ver = $ver.Substring($prefix.Length) }
-        $map[$f[0]] = $ver
-      }
-      if ($map.Count -eq 0) { return $null }
-      return $map
-    }
-
-    function Get-UpstreamVersion([string]$v) {
-      # OSGeo4W version = 「上游版本-打包修订号」（如 3.13.3-2）；剥掉末尾
-      # 「-数字」得上游版本。同口径参考实现见 tools/pin_osgeo4w.py upstream_version。
-      return ($v -replace '-\d+$', '')
-    }
-
-    function Compare-PinnedClosure($installed, $closure, [ref]$warnings) {
-      # 双向比对：装了的必须钉、钉了的必须装且上游版本一致。返回差异描述列表。
-      # review-fix-ci：OSGeo4W 只服务 live 最新包、无法按版本安装，上游只
-      # 重打包（3.13.3-2 → 3.13.3-3，同上游版本）就让 Windows 4 片在 Vendor
-      # 步全红、0 测试跑。仅打包修订号漂移降级为 ::warning（仍逐包列出，
-      # 提示刷新钉版）；上游版本变化/缺包/未钉版包仍是硬错。
-      $diffs = @()
-      foreach ($p in $closure.PSObject.Properties) {
-        $v = $null
-        if ($installed.ContainsKey($p.Name)) { $v = $installed[$p.Name] }
-        if ($null -eq $v) { $diffs += "缺包 $($p.Name)（钉 $($p.Value)）" }
-        elseif ($v -ne $p.Value) {
-          $msg = "版本漂移 $($p.Name)：装 $v / 钉 $($p.Value)"
-          if ((Get-UpstreamVersion $v) -eq (Get-UpstreamVersion $p.Value)) {
-            if ($null -ne $warnings) { $warnings.Value += "仅打包修订号漂移 $($p.Name)：装 $v / 钉 $($p.Value)" }
-          } else { $diffs += $msg }
-        }
-      }
-      foreach ($k in $installed.Keys) {
-        if (-not $closure.PSObject.Properties.Name.Contains($k)) {
-          $diffs += "未钉版包装入 $k $($installed[$k])"
-        }
-      }
-      return $diffs
-    }
-
-    $installed = Read-InstalledDbMap $installedDb
-    $closureMatches = $false
-    if ($null -ne $installed -and $null -ne $pin.closure) {
-      # 跳过 setup 只认精确一致（缓存树带修订号漂移时照跑 setup 再校验）。
-      $preWarn = @()
-      $closureMatches = ((@(Compare-PinnedClosure $installed $pin.closure ([ref]$preWarn))).Count -eq 0) -and ($preWarn.Count -eq 0)
-    }
-
-    if ($closureMatches) {
-      Write-Host "  OSGeo4W 安装树与 manifest 钉版一致（$(@($pin.closure.PSObject.Properties).Count) 包）——跳过 setup"
+    $cache = Join-Path $Vendor 'cache/osgeo4w-offline'
+    $installedDb = Join-Path $osgeo 'etc/setup/installed.db'
+    $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+    $offlineTool = Join-Path $Root 'tools/osgeo4w_offline.py'
+    $stamp = Join-Path $osgeo '.paleo-osgeo4w-lock.sha256'
+    $lockHash = Get-Osgeo4wLockHash
+    if (Test-Path -LiteralPath $osgeo) {
+      Assert-Osgeo4wLockStamp $osgeo
+      & $py -B $offlineTool check-installed $installedDb
+      if ($LASTEXITCODE -ne 0) { throw 'Installed OSGeo4W prefix does not match the lock' }
     } else {
-      $setup = Join-Path $Vendor 'osgeo4w-setup.exe'
-      Invoke-WebRequest -Uri $pin.installer_url -OutFile $setup
-      $actual = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-      if ($actual -ne $pin.installer_sha256) { throw "OSGeo4W installer SHA256 mismatch: $actual" }
-      $setupArgs = @('-q', '-A', '-k', '-n', '-N', '-d', '-O', '-s', $pin.site,
-                     '-R', ('"' + $osgeo + '"'), '-l', ('"' + $cache + '"'),
-                     '-P', (($pin.packages.PSObject.Properties.Name) -join ','))
-      # The installer detaches when invoked directly; wait for the entire setup
-      # process tree before inspecting installed.db or configuring CMake.
-      for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru -WindowStyle Hidden
-        if ($setupProcess.ExitCode -eq 0) { break }
-        # setup is a GUI executable; print and retain its diagnostics in CI.
-        $vendorLogs = Join-Path $Vendor 'logs'
-        New-Item -ItemType Directory -Force $vendorLogs | Out-Null
-        foreach ($name in 'setup.log', 'setup.log.full') {
-          $logPath = Join-Path $osgeo "var/log/$name"
-          if (Test-Path -LiteralPath $logPath) {
-            Copy-Item -LiteralPath $logPath -Destination (Join-Path $vendorLogs "osgeo4w-$attempt-$name")
-            if ($name -eq 'setup.log') { Get-Content -LiteralPath $logPath -Tail 25 | Write-Host }
-          }
+      $prepareArgs = @('prepare','--cache',$cache)
+      if ($env:PALEO_VENDOR_OFFLINE -eq '1') { $prepareArgs += '--offline' }
+      & $py -B $offlineTool @prepareArgs
+      if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the locked local OSGeo4W repository' }
+      $setup = Join-Path $cache 'osgeo4w-setup.exe'
+      $mirror = Join-Path $cache 'archives'
+      # -L selects local install. No site URL, mirror selection or live index.
+      $setupArgs = @('-q','-A','-k','-n','-N','-d','-L',
+                     '-l', ('"' + $mirror + '"'), '-R', ('"' + $osgeo + '"'),
+                     '-P', ($pin.packages.PSObject.Properties.Name -join ','))
+      $process = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru -WindowStyle Hidden
+      if ($process.ExitCode -ne 0) {
+        $logs = Join-Path $Vendor 'logs'
+        New-Item -ItemType Directory -Force $logs | Out-Null
+        foreach ($name in 'setup.log','setup.log.full') {
+          $file = Join-Path $osgeo "var/log/$name"
+          if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file -Destination $logs }
         }
-        if ($attempt -eq 3) { throw "OSGeo4W setup failed after $attempt attempts: $($setupProcess.ExitCode)" }
-        Write-Warning "OSGeo4W setup attempt $attempt failed ($($setupProcess.ExitCode)); retrying with the existing package cache"
+        throw "OSGeo4W local setup failed ($($process.ExitCode)); see logs under $osgeo/var/log"
       }
-      # 装后校验（#231）：漂移不再静默——逐包比对闭包钉版，不一致即红并给
-      # 出机械刷新路径。
-      $installed = Read-InstalledDbMap $installedDb
-      if ($null -eq $installed) { throw "OSGeo4W installed.db 缺失或为空：$installedDb" }
-      $revWarn = @()
-      $diffs = @(Compare-PinnedClosure $installed $pin.closure ([ref]$revWarn))
-      foreach ($w in $revWarn) { Write-Host "::warning::OSGeo4W $w（上游版本一致；跑 python3 tools/pin_osgeo4w.py 刷新钉版）" }
-      if ($diffs.Count -gt 0) {
-        Write-Host "::error::OSGeo4W 包集与 manifest 钉版不符（上游已发版或钉版过期）："
-        foreach ($d in $diffs) { Write-Host "::error::  $d" }
-        throw 'OSGeo4W pin drift — 跑 python3 tools/pin_osgeo4w.py 刷新 vendor/manifest.json 并提交'
-      }
+      & $py -B $offlineTool check-installed $installedDb
+      if ($LASTEXITCODE -ne 0) { throw 'Offline OSGeo4W installed versions differ from the lock' }
     }
-    # 家族闸（方向 71 单一来源 + #231 精确钉版双口径）：qgis_family 正则从
-    # manifest 派生，不硬编码第二份 "4.2"；精确版本由上面的闭包比对覆盖
-    # （装了的必须钉、钉了的必须装且版本一致——比家族闸更严，二者并存是纵深）。
+    # Verify the resources and development layout before marking the prefix ready.
     if ($pin.qgis_family -notmatch '^(\d+\.\d+)(\.x)?$') {
       throw "unparseable qgis_family in vendor/manifest.json: '$($pin.qgis_family)' (expect e.g. '4.2.x')"
     }
@@ -373,7 +314,12 @@ switch ($Verb) {
                            'apps\qgis\lib\qgis_core.lib',
                            'apps\qgis\lib\qgis_gui.lib',
                            'apps\qt6\lib\cmake\Qt6\Qt6Config.cmake',
+                           'apps\qt6\plugins\platforms\qoffscreen.dll',
+                           'apps\qt6\plugins\sqldrivers\qsqlite.dll',
                            'apps\qt6\plugins\sqldrivers\qsqloci.dll',
+                           'apps\qgis\resources\srs.db',
+                           'apps\qgis\plugins\provider_spatialite.dll',
+                           'share\proj\proj.db',
                            # qgscodeeditor.h（qgis-devel 头链）需要 QSci 头，
                            # 由 qscintilla-qt6-devel 提供在 Qt6 include 前缀下
                            'apps\Qt6\include\Qsci\qsciapis.h',
@@ -383,8 +329,8 @@ switch ($Verb) {
       if (-not (Test-Path (Join-Path $osgeo $required))) { throw "OSGeo4W closure missing $required" }
     }
 
+    [IO.File]::WriteAllText($stamp, $lockHash + [Environment]::NewLine)
     # Use the host's Python before OSGeo4W puts its python.exe shim on PATH.
-    $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
     & $py -I (Join-Path $Vendor 'fetch-onnxruntime.py')
     if ($LASTEXITCODE -ne 0) { throw 'ONNX Runtime bootstrap failed' }
     Enter-VendorEnvironment

@@ -52,6 +52,34 @@ paleo-p6 worktree 的 run-target-tests.sh 既有配方）。日期 2026-11-20。
 | 源码闸门 `ctest -R "^(layering.*\|qgis_spread.*\|ui_invariants.*\|ui_size.*\|file_budget.*\|i18n.*\|ui_tokens.*\|qgis_versions.*\|docs_drift.*\|cpp_mainline.*\|ci_known_reds\|well_facies_input_audit)$"` | **30/30 通过** |
 | `layering_transitive`（注入 QGIS_PREFIX） | 通过 |
 
+## 独立复审记录（review → fix → 复核）
+
+独立 reviewer（未参与实现）审阅完整 diff 与证据，结论：#960 半部
+（scriptprocessscope + runner/REPL 集成）执行良好、与仓内已验证模式一致；
+#959 半部阻断合并直至修复。已修复并复核：
+
+| 发现 | 级别 | 修复 |
+|------|------|------|
+| manifest 锁定句柄先读后复制未归零文件指针（句柄级状态）→ 首建视图必失败 | P0 | `rewind()`（SetFilePointerEx→0）进 copyFileAuthenticated 与 manifestFromLockedTree |
+| control .lock 跨 1 GiB 复制/重哈希持有 → 其他宿主 journal 操作 5s 超时 | P1 | 重构 acquire：锁只罩「恢复+准入+存在即取租约」毫秒级临界区；复制/验证/输入构造全部锁外 |
+| 视图复用测试依赖用例次序（前序已建视图→viewReused=true 断言失败） | P1 | 用例先清缓存视图，钉「首建→复用」两段 |
+| 损坏/篡改视图永久堵死 generation（无修复路径） | P2 | 验证失败→quarantineView：无其他活租约时移除（下次重建）；他人持有则保留报错 |
+| rename 竞态路径未验证现有视图且误报 reusedView=false | P2 | 竞态路径补完整 verifyViewTree；reusedView 按实际来源置位 |
+| view.json/staging.json 与 runtime 内容保留名冲突 | P2 | manifest 含保留名即拒绝（python_view_reserved_name，fail-closed） |
+| release 误删本宿主全部租约（非本次 generation） | P2 | removeOwnLease(layout, sha) 定向删除 |
+| 死代码 recoverViewResources 公共包装 | P2 | 移除声明，恢复逻辑仅随 acquire 首段临界区执行 |
+| Windows-only 代码缺 include（<functional>/<QScopeGuard>） | P2 | 已补（Linux 车道编译不到的风险点） |
+| 注入用例 staging 断言空洞 | P3 | 改为断言复制失败后视图目录完全清空 |
+| acquire 失败分支缺 hostSnapshotReservedBytes 诊断 | P3 | 与 authenticate 失败分支对齐 |
+
+未采纳为代码改动的评审意见（如实记录）：GUI 线程有界收敛阻塞（≤2-3s，
+极端后代存活场景）——既有 waitForFinished(1000) 同族取舍，登记为后续
+UX 债；fail-closed 的 owner 未知租约/损坏记录永久阻塞——任务边界要求的
+保守语义（不盲删、不越权），带诊断码暴露。
+
+修复后复核：Linux 全部受影响套件重跑全绿（20/10/12/3/3/13），30 项源码
+闸门 + layering_transitive 通过（见上表下方验证记录同命令）。
+
 ## 已知边界与未验证项
 
 - **Windows 真机验证未执行**（本机 Linux）：创建时 Job 归属竞态、逐节点
@@ -60,7 +88,8 @@ paleo-p6 worktree 的 run-target-tests.sh 既有配方）。日期 2026-11-20。
   Windows 分支——代码已交付、未真机运行，不得据本页宣称 #959/#960 已解决。
 - Windows 代码经不起本地编译验证（Q_OS_WIN 分支本机不编译）：以受控链
   既有模式（piprocessplatform_p.h 的修饰器毒化、journal 的 owner 判活、
-  launcher 的 JOB_LIST/HANDLE_LIST）为蓝本编写，风险如实登记。
+  launcher 的 JOB_LIST/HANDLE_LIST）为蓝本编写并经独立评审逐行核对，
+  风险如实登记。
 - Unix 语义不变项：setsid 进程组、递进停止窗口（2s/1s/1s）、UTF-8 管道、
   半行 1 MiB 上限、队列闸 ≤2、runStarted/runFinished 顺序合同——由 20/10/12
   个既有+新用例回归。

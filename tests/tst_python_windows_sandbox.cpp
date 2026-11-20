@@ -388,6 +388,11 @@ print(json.dumps(d))
     qInfo()<<"ACL/byte snapshot rows"<<runtimeBefore.size()+inputBefore.size()<<"in"<<clock.elapsed()<<"ms";
   }
   void privateViewIsUsedAndReusedAcrossRuns(){
+    // 前序用例可能已构建视图（内容寻址跨用例留存）：先清缓存视图，钉住
+    // 「首建 → 复用」两段，不依赖用例次序。
+    const auto runtimeViewDir=QDir(controlRoot()).filePath("runtime-views");
+    for(const auto &entry:QDir(runtimeViewDir).entryList(QDir::Dirs|QDir::NoDotAndDotDot))
+      QVERIFY(QDir(QDir(runtimeViewDir).filePath(entry)).removeRecursively());
     const auto code="import json,sys,os\nprint(json.dumps({'exe':sys.executable,'cwd':os.getcwd()}))";
     const auto first=run(code);QVERIFY2(first.ok(),qPrintable(first.code+':'+QString::fromUtf8(first.error)));
     QVERIFY(!first.viewReused);QVERIFY(first.viewBytes>0);QVERIFY(first.viewFiles>0);
@@ -426,8 +431,8 @@ print(json.dumps(d))
       QVERIFY(QDir(QDir(runtimeViewDir).filePath(entry)).removeRecursively());
     setFailuresForTest([]{return true;},{},{},{});
     QCOMPARE(run("print('forbidden')").code,QString("python_view_copy_forced"));
-    for(const auto &entry:QDir(runtimeViewDir).entryList(QDir::Dirs|QDir::NoDotAndDotDot))
-      QVERIFY2(entry.endsWith(".staging"),qPrintable(entry)); // 部分复制不得变成 ready 视图
+    // 复制失败连 staging 一并回收：不残留任何（部分复制的）视图目录。
+    QVERIFY(QDir(runtimeViewDir).entryList(QDir::Dirs|QDir::NoDotAndDotDot).isEmpty());
     setFailuresForTest({},[]{return true;},{},{});
     QCOMPARE(run("print('forbidden')").code,QString("python_view_acl_forced"));
     setFailuresForTest({},{},[]{return true;},{});

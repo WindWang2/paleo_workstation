@@ -26,6 +26,9 @@ constexpr auto LeaseSchema = "paleo.python-sandbox-view-lease.v1";
 constexpr int MaxCachedViews = 2;
 // 复制/写入前的最小余量：视图 treeSize + 私有输入之外还要留的空闲盘。
 constexpr qint64 MinFreeDiskBytes = 64LL * 1024 * 1024;
+// 与视图内部记号（marker）保留冲突的 manifest 条目名——存在即拒绝构建
+//（fail-closed：不静默改写记号或漏验证该文件）。
+const QStringList kReservedNames{"view.json","staging.json"};
 
 view_test::FailureHook g_failCopy, g_failAcl, g_failLease, g_failRelease;
 
@@ -53,6 +56,11 @@ bool parseRecord(const QString &path,const QStringList &keys,const QString &sche
 qint64 freeBytes(const QString &root) {
   ULARGE_INTEGER available{};
   return GetDiskFreeSpaceExW((PCWSTR)native(root).c_str(),&available,nullptr,nullptr)?qint64(available.QuadPart):-1;
+}
+// 句柄是共享读锁定的既有持有句柄；读取前先归零文件指针——同一句柄可能
+// 已被读过（manifest 先读后复制），文件指针是句柄级状态。
+bool rewind(HANDLE handle) {
+  LARGE_INTEGER zero{};return SetFilePointerEx(handle,zero,nullptr,FILE_BEGIN)!=FALSE;
 }
 QString relativeUnder(const QString &root,const QString &path) {
   if(!path.startsWith(root+'/',Qt::CaseInsensitive))return {};
@@ -82,18 +90,16 @@ bool ownerRecordAlive(const QJsonObject &record,bool &known) {
   if(!numeric||!started||pid<1||pid>0xffffffffLL){known=false;return false;}
   return !ownerStopped(DWORD(pid),started,known);
 }
-bool removeOwnLeases(const Layout &layout,QString *error) {
-  const auto suffix='.'+hostIdentity()+".json";
-  for(const auto &name:QDir(layout.leases).entryList({"*.json"},QDir::Files|QDir::Hidden|QDir::System)) {
-    if(!name.endsWith(suffix))continue;
-    if(!QFile::remove(QDir(layout.leases).filePath(name))){
-      if(error)*error="python_view_lease_remove";
-      return false;
-    }
+// 归还「本宿主 × 指定 generation」的租约（单宿主单运行合同下唯一在役）。
+bool removeOwnLease(const Layout &layout,const QString &manifestSha,QString *error) {
+  if(!QFile::remove(QDir(layout.leases).filePath(leaseFileName(manifestSha)))&&
+     QFileInfo::exists(QDir(layout.leases).filePath(leaseFileName(manifestSha)))) {
+    if(error)*error="python_view_lease_remove";
+    return false;
   }
   return true;
 }
-// 经锁定句柄读 manifest（树已独占打开，普通 QFile 无法再开）。
+// 经锁定句柄读 manifest（树已共享读锁定；句柄独此一份，先归零指针）。
 bool manifestFromLockedTree(const LockedTree &runtime,QJsonObject &manifest,QString *error) {
   const QString wanted=QDir(runtime.root).filePath("runtime-manifest.json");
   for(int i=0;i<runtime.paths.size();++i) {
@@ -102,7 +108,8 @@ bool manifestFromLockedTree(const LockedTree &runtime,QJsonObject &manifest,QStr
     if(!GetFileSizeEx(runtime.handles.at(size_t(i)).get(),&size)||size.QuadPart<=0||size.QuadPart>4*1024*1024){
       *error="python_view_manifest_size";return false;}
     QByteArray bytes(int(size.QuadPart),Qt::Uninitialized);DWORD read=0;
-    if(!ReadFile(runtime.handles.at(size_t(i)).get(),bytes.data(),DWORD(bytes.size()),&read,nullptr)||
+    if(!rewind(runtime.handles.at(size_t(i)).get())||
+        !ReadFile(runtime.handles.at(size_t(i)).get(),bytes.data(),DWORD(bytes.size()),&read,nullptr)||
         qint64(read)!=size.QuadPart){*error="python_view_manifest_read";return false;}
     QJsonParseError parse;const auto doc=QJsonDocument::fromJson(bytes,&parse);
     if(parse.error!=QJsonParseError::NoError||!doc.isObject()){*error="python_view_manifest_invalid";return false;}
@@ -114,6 +121,7 @@ bool manifestFromLockedTree(const LockedTree &runtime,QJsonObject &manifest,QStr
 bool copyFileAuthenticated(HANDLE source,const QString &destination,qint64 expectedSize,const QString &expectedSha,
                            const SandboxRequest &request,qint64 *hashedBytes,QString *error) {
   if(expectedSize<0||expectedSha!=hexDigestOrEmpty(expectedSha)){*error="python_view_manifest_invalid";return false;}
+  if(!rewind(source)){*error="python_view_read";return false;}
   QFile target(destination);
   if(!target.open(QIODevice::WriteOnly|QIODevice::Truncate)){*error="python_view_copy_open";return false;}
   QCryptographicHash hash(QCryptographicHash::Sha256);
@@ -188,6 +196,20 @@ bool verifyViewTree(const QString &viewRoot,const QJsonObject &manifest,const QS
   if(!expected.isEmpty()){*error="python_view_missing_file";return false;}
   return true;
 }
+// 检疫验证失败的视图：仅当无其他租约时移除（他人运行中不动），下次运行
+// 重建——损坏视图不再永久堵死该 generation。
+bool quarantineView(const Layout &layout,const QString &manifestSha) {
+  QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
+  if(!lock.tryLock(2000))return false;
+  const auto suffix='.'+hostIdentity()+".json";
+  const auto wanted=manifestSha+'.';
+  for(const auto &name:QDir(layout.leases).entryList({"*.json"},QDir::Files|QDir::Hidden|QDir::System))
+    if(name.startsWith(wanted)&&!name.endsWith(suffix))return false; // 他人持有：保留
+  const auto viewRoot=QDir(layout.views).filePath(manifestSha);
+  if(QFileInfo::exists(viewRoot)&&!QDir(viewRoot).removeRecursively())return false;
+  removeOwnLease(layout,manifestSha,nullptr);
+  return true;
+}
 } // namespace
 
 void view_test::setFailuresForTest(FailureHook copy,FailureHook acl,FailureHook lease,FailureHook release) {
@@ -196,10 +218,10 @@ void view_test::setFailuresForTest(FailureHook copy,FailureHook acl,FailureHook 
 
 // 视图构建：staging 复制（根先设 capability 只读可继承 ACL，子项随建随承，
 // 不再逐节点改写安全描述符）→ ready marker → 原子改名。最终目录名出现即
-// 代表完整且逐文件摘要已验证。并发同名视图已就位时改走复用。
+// 代表完整且逐文件摘要已验证。并发同名视图已就位时改走复用（renamed=false）。
 bool buildView(const SandboxRequest &request,const LockedTree &runtime,const Profile &profile,
                const QJsonObject &manifest,const QString &anchorSha,const Layout &layout,
-               const QString &viewRoot,PrivateView &view,QString *error) {
+               const QString &viewRoot,PrivateView &view,bool &renamed,QString *error) {
   const QString staging=viewRoot+'.'+profile.moniker+".staging";
   if(QFileInfo::exists(staging)&&!QDir(staging).removeRecursively()){*error="python_view_staging_busy";return false;}
   if(!QDir().mkpath(staging)){*error="python_view_staging_create";return false;}
@@ -238,7 +260,7 @@ bool buildView(const SandboxRequest &request,const LockedTree &runtime,const Pro
     HANDLE source=sources.value("runtime-manifest.json");
     LARGE_INTEGER size{};
     if(!GetFileSizeEx(source,&size)||size.QuadPart<=0||size.QuadPart>4*1024*1024){*error="python_view_manifest_size";return false;}
-    if(!destination.open(QIODevice::WriteOnly|QIODevice::Truncate)){*error="python_view_copy_open";return false;}
+    if(!rewind(source)||!destination.open(QIODevice::WriteOnly|QIODevice::Truncate)){*error="python_view_copy_open";return false;}
     QCryptographicHash hash(QCryptographicHash::Sha256);
     char buffer[64*1024];qint64 remaining=size.QuadPart;
     while(remaining>0) {
@@ -247,7 +269,7 @@ bool buildView(const SandboxRequest &request,const LockedTree &runtime,const Pro
       if(!ReadFile(source,buffer,want,&got,nullptr)||!got){*error="python_view_read";return false;}
       hash.addData(buffer,got);
       if(destination.write(buffer,got)!=qint64(got)){*error="python_view_write";return false;}
-      remaining-=got;hashed+=got;
+      remaining-=got;
     }
     destination.close();
     if(destination.error()!=QFileDevice::NoError||QString::fromLatin1(hash.result().toHex())!=anchorSha){
@@ -258,12 +280,12 @@ bool buildView(const SandboxRequest &request,const LockedTree &runtime,const Pro
                   {"files",files},{"treeSize",treeSize},
                   {"hostPid",qint64(GetCurrentProcessId())},{"hostCreated100ns",QString::number(started)}})) {
     *error="python_view_record";return false;}
-  if(!QDir(staging).rename(staging,viewRoot)) {
-    // 并发同名视图已就位（另一宿主先完成）：删除自有 staging，改走复用。
-    if(!QFileInfo::exists(viewRoot)){*error="python_view_rename";return false;}
-  } else {
+  renamed=QDir(staging).rename(staging,viewRoot);
+  if(renamed)
     QFile::remove(QDir(viewRoot).filePath("staging.json")); // 复用验证只认 view.json
-  }
+  else if(!QFileInfo::exists(viewRoot)){*error="python_view_rename";return false;}
+  // rename 失败但 viewRoot 已就位 = 并发宿主先完成：staging 由 cleanup 回收，
+  // renamed=false 提示调用方改走复用验证。
   view.viewBytes=treeSize;view.viewFiles=files;
   return true;
 }
@@ -275,7 +297,8 @@ bool takeViewLease(const Layout &layout,const QString &manifestSha,QString *erro
   // 记录相对视图路径（诊断用）；清理一律按 manifestSha 在根内重建路径，
   // 绝不采纳记录文件里的任意绝对路径。
   const QJsonObject record{{"schema",LeaseSchema},{"manifestSha256",manifestSha},
-      {"viewPath","runtime-views/"+manifestSha},{"hostPid",qint64(GetCurrentProcessId())},{"hostCreated100ns",started}};
+      {"viewPath","runtime-views/"+manifestSha},{"hostPid",qint64(GetCurrentProcessId())},
+      {"hostCreated100ns",started}};
   if(!writeRecord(QDir(layout.leases).filePath(leaseFileName(manifestSha)),record)){*error="python_view_lease_write";return false;}
   return true;
 }
@@ -284,16 +307,18 @@ bool releasePrivateView(const PrivateView &view,QString *error) {
   if(g_failRelease&&g_failRelease()){*error="python_view_release_forced";return false;}
   Layout layout;
   if(!layout.create(error))return false;
+  const QString manifestSha=hexDigestOrEmpty(QFileInfo(view.runtimeRoot).fileName());
   QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
   if(!lock.tryLock(5000)){*error="python_view_journal_busy";return false;}
   // 私有输入按 run 清理；失败保留目录与租约记录，由恢复路径按 owner 判活
   // 重试——不删记录掩盖残留（runWindowsSandbox 映射为清理待恢复状态）。
   if(!view.inputRoot.isEmpty()&&QFileInfo::exists(view.inputRoot)&&!QDir(view.inputRoot).removeRecursively()) {
     *error="python_view_input_remove";return false;}
-  return removeOwnLeases(layout,error);
+  if(manifestSha.isEmpty()){*error="python_view_lease_remove";return false;}
+  return removeOwnLease(layout,manifestSha,error);
 }
 
-// 恢复逻辑主体：调用方必须已持有 control .lock（acquire 路径）。
+// 恢复逻辑主体：调用方必须已持有 control .lock。
 bool recoverViewResourcesLocked(const Layout &layout,QString *error) {
   // 1) 租约记录：owner 判活与 profile journal 同口径。解析失败/归属未知 →
   // 保留并按 fail-closed 报告（不盲删、不信任记录内路径）。
@@ -362,53 +387,74 @@ bool recoverViewResourcesLocked(const Layout &layout,QString *error) {
   return true;
 }
 
-bool recoverViewResources(QString *error) {
-  Layout layout;
-  if(!layout.create(error))return false;
-  QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
-  if(!lock.tryLock(5000)){*error="python_view_journal_busy";return false;}
-  return recoverViewResourcesLocked(layout,error);
-}
-
 bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,const LockedTree &input,
                         const AuthenticatedSnapshot &snapshot,const Profile &profile,PrivateView &view,QString *error) {
   Layout layout;
   if(!layout.create(error))return false;
-  QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
-  if(!lock.tryLock(5000)){*error="python_view_journal_busy";return false;}
-  if(!recoverViewResourcesLocked(layout,error))return false;
-  QJsonObject manifest;
-  if(!manifestFromLockedTree(runtime,manifest,error))return false;
   const QString anchorSha=hexDigestOrEmpty(request.runtime->manifestSha256);
+  if(anchorSha.isEmpty()){*error="python_view_manifest_invalid";return false;}
+  // 第一临界区（毫秒级）：恢复 + manifest/预算准入 + 「存在即取租约」。
+  // 复制与完整重哈希都在锁外——GiB 级复制不得饿死其他宿主的 journal 操作。
+  QJsonObject manifest;bool exists=false;
+  {
+    QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
+    if(!lock.tryLock(5000)){*error="python_view_journal_busy";return false;}
+    if(!recoverViewResourcesLocked(layout,error))return false;
+    if(!manifestFromLockedTree(runtime,manifest,error))return false;
+    const qint64 treeSize=manifest.value("treeSize").toInteger(-1);
+    if(treeSize<0||treeSize>1024LL*1024*1024){*error="python_view_manifest_invalid";return false;}
+    for(const auto &value:manifest.value("files").toArray())
+      if(kReservedNames.contains(value.toObject().value("path").toString(),Qt::CaseInsensitive)){
+        *error="python_view_reserved_name";return false;}
+    const qint64 available=freeBytes(layout.control);
+    if(available>=0&&available<treeSize+request.policy.inputBytes+MinFreeDiskBytes){*error="python_view_disk_space";return false;}
+    exists=QFileInfo::exists(QDir(layout.views).filePath(anchorSha));
+    if(exists&&!takeViewLease(layout,anchorSha,error))return false;
+  }
   const qint64 treeSize=manifest.value("treeSize").toInteger(-1);
-  if(anchorSha.isEmpty()||treeSize<0||treeSize>1024LL*1024*1024){*error="python_view_manifest_invalid";return false;}
-  const qint64 available=freeBytes(layout.control);
-  if(available>=0&&available<treeSize+request.policy.inputBytes+MinFreeDiskBytes){*error="python_view_disk_space";return false;}
-  const QString viewRoot=QDir(layout.views).filePath(anchorSha);
-  if(QFileInfo::exists(viewRoot)) {
-    // 复用既有视图：按已验证内容身份索引——完整重哈希防同尺寸篡改；
-    // 校验失败拒绝执行（不静默重建掩盖差异）。
+  if(exists) {
+    // 复用既有视图（租约在手，逐出不会碰）：完整重哈希防同尺寸篡改；失败
+    // 即拒绝执行，且检疫移除（无他租约时）——不静默重建掩盖差异，也不让
+    // 损坏视图永久堵死该 generation。
     qint64 hashed=0;int files=0;
-    if(!verifyViewTree(viewRoot,manifest,anchorSha,request,&files,&hashed,error))return false;
+    if(!verifyViewTree(QDir(layout.views).filePath(anchorSha),manifest,anchorSha,request,&files,&hashed,error)) {
+      quarantineView(layout,anchorSha);
+      return false;}
     view.reusedView=true;view.viewBytes=treeSize;view.viewFiles=files;
   } else {
-    if(!buildView(request,runtime,profile,manifest,anchorSha,layout,viewRoot,view,error))return false;
-    view.reusedView=false;
+    bool renamed=false;
+    if(!buildView(request,runtime,profile,manifest,anchorSha,layout,QDir(layout.views).filePath(anchorSha),view,renamed,error))
+      return false;
+    {
+      QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
+      if(!lock.tryLock(5000)){*error="python_view_journal_busy";return false;}
+      if(!QFileInfo::exists(QDir(layout.views).filePath(anchorSha))){*error="python_view_rename";return false;}
+      if(!takeViewLease(layout,anchorSha,error))return false;
+    }
+    if(!renamed) {
+      // 输给并发宿主：视图非本宿主哈希——按复用口径完整验证后再用。
+      qint64 hashed=0;int files=0;
+      if(!verifyViewTree(QDir(layout.views).filePath(anchorSha),manifest,anchorSha,request,&files,&hashed,error)) {
+        quarantineView(layout,anchorSha);
+        return false;}
+      view.viewFiles=files;
+    }
+    view.reusedView=!renamed;
   }
-  if(!takeViewLease(layout,anchorSha,error))return false;
-  // 私有输入：profile 隔离目录 + 包 SID 只读（继承），TEMP/TMP/LOCALAPPDATA
-  // 都指向这里；写盘按既有 LPAC 合同仍被拒绝。code.py 从锁定句柄流式复制
-  // 并按 manifest 摘要校验；request.json/data.bin 复用已认证内存字节。
+  // 私有输入（锁外）：profile 隔离目录 + 包 SID 只读（继承），TEMP/TMP/
+  // LOCALAPPDATA 都指向这里；写盘按既有 LPAC 合同仍被拒绝。code.py 从锁定
+  // 句柄流式复制并按 manifest 摘要校验；request.json/data.bin 复用已认证
+  // 内存字节。
   const QString inputRoot=QDir(layout.inputs).filePath(profile.moniker);
   if(QFileInfo::exists(inputRoot)&&!QDir(inputRoot).removeRecursively()){*error="python_view_input_busy";return false;}
   bool inputReady=false;
-  // 输入构造失败：清本次输入并归还租约（removeOwnLeases 免锁——本函数
-  // 已持有 control .lock，releasePrivateView 会再锁造成自锁）。
+  // 输入构造失败：清本次输入并归还租约（removeOwnLease 免锁——此处不再持
+  // 有 control .lock）。
   const auto fail=qScopeGuard([&]{
     if(inputReady)return;
     QDir(inputRoot).removeRecursively();
     view.inputRoot.clear();
-    removeOwnLeases(layout,nullptr);
+    removeOwnLease(layout,anchorSha,nullptr);
   });
   if(!QDir().mkpath(inputRoot)){*error="python_view_input_create";return false;}
   if(g_failAcl&&g_failAcl()){*error="python_view_acl_forced";return false;}
@@ -443,7 +489,7 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
     jsonFile.close();
   }
   inputReady=true;
-  view.runtimeRoot=viewRoot;view.inputRoot=inputRoot;
+  view.runtimeRoot=QDir(layout.views).filePath(anchorSha);view.inputRoot=inputRoot;
   return true;
 }
 } // namespace paleo::python::windows_detail

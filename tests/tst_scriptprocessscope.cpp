@@ -1,7 +1,9 @@
 // 层：测试壳
+#include "../src/services/pythonenv.h"
 #include "../src/services/scriptprocessscope.h"
 
 #include <QProcess>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -28,8 +30,8 @@ QString TestScriptProcessScope::python() const
 #ifdef Q_OS_UNIX
   return QStringLiteral("/bin/sh");
 #else
-  return qEnvironmentVariable("PALEO_PYTHON").isEmpty() ? QStringLiteral("python")
-                                                        : qEnvironmentVariable("PALEO_PYTHON");
+  // 与其余 Python 进程级测试同一发现序（PALEO_PYTHON 注入口径一致）。
+  return PythonEnvService::findBasePython();
 #endif
 }
 
@@ -54,6 +56,9 @@ void TestScriptProcessScope::unixContractIsNoOp()
 void TestScriptProcessScope::windowsJobOwnsTreeAtCreation()
 {
 #ifdef Q_OS_WIN
+  const QString program = python();
+  if (program.isEmpty())
+    QSKIP("no base python on PATH for the tree fixture");
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   ScriptProcessScope scope;
@@ -68,7 +73,6 @@ void TestScriptProcessScope::windowsJobOwnsTreeAtCreation()
       "import subprocess,sys,time\n"
       "subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\n"
       "print('SPAWNED',flush=True)\ntime.sleep(60)\n");
-  const QString program = python();
   QSignalSpy startedSpy(&proc, &QProcess::started);
   proc.start(program, {QStringLiteral("-c"), script});
   QVERIFY(startedSpy.wait(15000) || proc.state() != QProcess::NotRunning);

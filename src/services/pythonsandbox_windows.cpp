@@ -75,7 +75,7 @@ SandboxResult runWindowsSandbox(const SandboxRequest &original) {
     // 与 authenticateSnapshots 同口径：视图阶段失败以具体码直报
     //（python_view_* / python_runtime_changed / cancelled …），不折叠成
     // python_sandbox_unavailable 淹没诊断。
-    SandboxResult result;result.code=detail;return result;}
+    SandboxResult result;result.code=detail;result.hostSnapshotReservedBytes=snapshot.reservedBytes;return result;}
   // acquire 之后任何退出路径都必须归还租约/清私有输入：scopeGuard 兜底，
   // 正常路径显式释放并映射「清理待恢复」状态。
   const auto releaseView=qScopeGuard([&]{QString local;releasePrivateView(view,&local);});

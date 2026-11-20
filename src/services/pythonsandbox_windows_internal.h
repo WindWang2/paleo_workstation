@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <userenv.h>
 #include <QVector>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -82,10 +83,9 @@ struct PrivateView {
 bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,const LockedTree &input,
                         const AuthenticatedSnapshot &snapshot,const Profile &profile,PrivateView &view,QString *error);
 // 归还视图租约并清理本次私有输入；失败保留租约记录（下次恢复重试），
-// 返回 false 时 *error 带具体不完整状态。
+// 返回 false 时 *error 带具体不完整状态。残留资源恢复（死宿主租约/
+// staging/输入 + 超额无租约视图回收）随 acquire 的首段临界区执行。
 bool releasePrivateView(const PrivateView &view,QString *error);
-// 恢复残留视图资源：死宿主租约/staging/输入 + 超额无租约视图回收。
-bool recoverViewResources(QString *error);
 
 namespace view_test {
 // 仅测试二进制置位的失败注入（复制/ACL/租约/清理各一档）；生产代码零引用，

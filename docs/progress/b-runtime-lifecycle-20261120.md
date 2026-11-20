@@ -37,7 +37,22 @@
 环境：`QGIS_PREFIX=/home/kevin/projects/paleo-deb-prefix-20261119/usr`（#1046
 闭包，host 无 multiarch 故显式 `-DCMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu`）；
 测试直跑注入 `LD_LIBRARY_PATH/QT_PLUGIN_PATH/PROJ_DATA/GDAL_DATA`（同
-paleo-p6 worktree 的 run-target-tests.sh 既有配方）。日期 2026-11-20。
+paleo-p6 worktree 的 run-target-tests.sh 既有配方）。
+
+### 终验（rebase 到 origin/master@e3f2863e 后，head=4afda5a9，2026-11-21）
+
+rebase 冲突仅 `_paleo_extra_manifest` 一处（#1053 的 p4-onnx 条目与本任务
+条目并存）；#1053 与本任务无源文件交叠。终验命令与结果：
+
+- 13 个受影响套件全绿：`tst_scriptprocessscope 3+2skip`、`tst_scriptrunner 20/0`、
+  `tst_pythonrepl 10/0`、`tst_pythonconsole 12/0`、`tst_python_windows_unavailable 3/0`、
+  `tst_pythonprocess 3/0`、`tst_pythoninputbundle 6/0`、`tst_pythonruntime 30/0`、
+  `tst_pythonsandbox_linux 13/0`、`tst_pythonanalysiswiring 12/0`、
+  `tst_pythongeneratedoperations 9/0`、`tst_pythonsandboxreadiness 8/0`、
+  `tst_pythonseismictracewiring 7/0`
+- 源码闸门 30/30 通过 + `layering_transitive`（QGIS_PREFIX 注入）通过
+
+### 首轮验证（base=1a79b745 时）
 
 | 命令 | 结果 |
 |------|------|
@@ -49,8 +64,7 @@ paleo-p6 worktree 的 run-target-tests.sh 既有配方）。日期 2026-11-20。
 | `./build/tst_python_windows_unavailable` | passed（Linux stub：不授予执行） |
 | 邻接回归：`tst_pythonprocess 3/0`、`tst_pythoninputbundle 6/0`、`tst_pythonruntime 30/0`、`tst_pythonsandbox_linux 13/0`、`tst_pythonenv 10/0`、`tst_pythondelivery 23/0` | 全绿 |
 | 消费者回归：`tst_pythonanalysiswiring 12/0`、`tst_pythongeneratedoperations 9/0`、`tst_pythonsandboxreadiness 8/0`、`tst_pythonseismictracewiring 7/0` | 全绿（SandboxResult 加字段、runner/repl 行为收敛不破坏既有合同） |
-| 源码闸门 `ctest -R "^(layering.*\|qgis_spread.*\|ui_invariants.*\|ui_size.*\|file_budget.*\|i18n.*\|ui_tokens.*\|qgis_versions.*\|docs_drift.*\|cpp_mainline.*\|ci_known_reds\|well_facies_input_audit)$"` | **30/30 通过** |
-| `layering_transitive`（注入 QGIS_PREFIX） | 通过 |
+| 源码闸门 30 项 + `layering_transitive`（注入 QGIS_PREFIX） | 全部通过 |
 
 ## 独立复审记录（review → fix → 复核）
 

@@ -267,10 +267,9 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
     connect(wf, &PredictionWorkflow::predictionFailed, status,
             [status](const QString &, const QString &error) { status->setText(error); });
 #if PALEO_HAVE_ORT
-    // 诚实可用性：服务恒绑定，但运行库缺失时 onnx:* 不会出现在算法列表里；
-    // 在这里写明原因，而不是静默少列。
+    // P4-W1：与任务失败信号同一准入诊断——运行库不可用时写明原因而非静默少列。
     if (!PaleoOnnxService::runtimeAvailable())
-      status->setText(tr("ONNX 运行时不可用（vendor/onnxruntime 缺少运行库）"));
+      status->setText(tr("ONNX 运行时不可用：%1").arg(PaleoOnnxService::runtimeDiagnostics().summaryText()));
 #endif
   }
   refreshHistory();

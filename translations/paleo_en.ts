@@ -24125,6 +24125,10 @@ PDF：%3
             <source>目标地震体修订</source>
             <translation>Target seismic volume revision</translation>
         </message>
+        <message>
+            <source>预测已取消，但成果已提交（版本 %1）——未清理已提交产物，可重试发布恢复展示</source>
+            <translation>Prediction cancelled after the result was committed (version %1). The committed result was retained. Retry publication to restore its display.</translation>
+        </message>
     </context>
     <context>
         <name>PaleoMapBookController</name>
@@ -24565,6 +24569,10 @@ PDF：%3
             <location filename="../src/ai/onnxpredictionservice.cpp" line="863" />
             <source>推理失败（模型 '%1'）</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <source>models/ 无 manifest（开发降级），模型不受注册表管理</source>
+            <translation>The models/ directory has no manifest. The model is not managed by the registry.</translation>
         </message>
     </context>
     <context>
@@ -26598,6 +26606,10 @@ PDF：%3
             <source>可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>ONNX 运行时不可用：%1</source>
+            <translation>ONNX runtime unavailable: %1</translation>
+        </message>
     </context>
     <context>
         <name>PredictionWorkflow</name>
@@ -26747,6 +26759,54 @@ PDF：%3
         <source>算法输出未写入本次任务的成果路径，结果未发布</source>
         <translation>The algorithm did not write to the task output path; results were not published</translation>
     </message>
+        <message>
+            <source>analysisLayerKey（%1）与冻结单元的结果键（%2）不一致——结果键由冻结单元产生，不允许绕过单元身份</source>
+            <translation>analysisLayerKey (%1) does not match the frozen unit result key (%2). The result key must come from the frozen unit.</translation>
+        </message>
+        <message>
+            <source>正式 ONNX 预测需要先冻结分析单元（方案内具体子层段 S1–S4）；未带单元的张量调用不产生工区预测成果</source>
+            <translation>Published ONNX prediction requires a frozen analysis unit with a specific subinterval S1–S4. Tensor calls without a unit do not publish project predictions.</translation>
+        </message>
+        <message>
+            <source>模型 &#x27;%1&#x27; 在当前工程注册表中不可用（未登记/被门控/未钉哈希）</source>
+            <translation>Model &#x27;%1&#x27; is unavailable in the current project registry (unregistered, gated, or missing a pinned hash).</translation>
+        </message>
+        <message>
+            <source>model_revision_changed: 模型 &#x27;%1&#x27; 与准备阶段冻结的身份不一致（冻结 %2，实际 %3）——请重新发起预测</source>
+            <translation>model_revision_changed: Model &#x27;%1&#x27; differs from its identity at preparation (expected %2, actual %3). Start the prediction again.</translation>
+        </message>
+        <message>
+            <source>无法证明预测提交状态（%1）——已阻断以避免重复提交，请重试或检查工程数据后重试发布</source>
+            <translation>Cannot verify the prediction commit state (%1). Publication was stopped to prevent duplicate commits. Retry or inspect the project data.</translation>
+        </message>
+        <message>
+            <source>预测成果已提交（版本 %1），但工程已切换，展示未恢复——成果保留在原工程受管路径，可从成果目录查看</source>
+            <translation>The prediction result was committed (version %1), but the project changed before display was restored. The result remains in the original project&#x27;s managed directory.</translation>
+        </message>
+        <message>
+            <source>预测已取消（提交前终止，产物未发布）</source>
+            <translation>Prediction cancelled before commit. No result was published.</translation>
+        </message>
+        <message>
+            <source>预测已提交但提交凭证核对失败（版本 %1 未在 catalog）——请勿重复执行，检查工程数据后重试发布以恢复展示</source>
+            <translation>The prediction was committed, but its receipt could not be verified (version %1 is absent from the catalog). Inspect the project data and retry publication.</translation>
+        </message>
+        <message>
+            <source>预测已提交（版本 %1），取消发生在提交之后——成果保留，展示未完成，重试发布可恢复展示</source>
+            <translation>The prediction was committed (version %1) before cancellation. The result was retained. Retry publication to restore its display.</translation>
+        </message>
+        <message>
+            <source>成果已提交（版本 %1），展示未完成：%2——重试发布可恢复展示，成果文件保留在 %3</source>
+            <translation>The result was committed (version %1), but display is incomplete: %2. Retry publication to restore display. The result file remains at %3.</translation>
+        </message>
+        <message>
+            <source>图层声明失败</source>
+            <translation>Layer declaration failed</translation>
+        </message>
+        <message>
+            <source>图层声明（%1）与已提交版本路径（%2）不一致——展示未完成，请重试发布</source>
+            <translation>Layer declaration (%1) does not match the committed version path (%2). Display is incomplete. Retry publication.</translation>
+        </message>
 </context>
     <context>
         <name>PreviewBasemapControl</name>
@@ -37740,6 +37800,62 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>显式选择数值表或单道地震窗口，并冻结输出列与图像尺寸。生成报告、单张数值表及单张RGBA图像；宿主编码CSV和PNG，每项至多4MiB，图像至多1024×1024像素。三项整组验收、一次发布；PNG是非空间报告成果，不自动成为GIS图层。保留输入、代码、运行时及编码器来源，生成数值与像素未经独立重算。复用同一权限、隔离、恢复和认证分页链路。</source>
         <translation>Select an explicit numeric table or single seismic trace window and freeze output columns and image dimensions. Generate one report, one numeric table and one RGBA image; the host encodes CSV and PNG up to 4 MiB each, with images up to 1024 by 1024 pixels. Validate the complete set and publish once. The PNG is a nonspatial report artifact and does not automatically become a GIS layer. Preserve input, code, runtime and encoder provenance; generated values and pixels are not independently recomputed. Reuse host permissions, isolation, recovery and authenticated pagination.</translation>
     </message>
+        <message>
+            <source>ONNX Runtime 就绪：API %1，运行库 %2（%3）</source>
+            <translation>ONNX Runtime ready: API %1, runtime %2 (%3)</translation>
+        </message>
+        <message>
+            <source>无法读取版本</source>
+            <translation>Cannot read version</translation>
+        </message>
+        <message>
+            <source>加载位置未知</source>
+            <translation>Load location unknown</translation>
+        </message>
+        <message>
+            <source>本构建未编入 ONNX Runtime（PALEO_HAVE_ORT=0），本地推理不可用</source>
+            <translation>This build does not include ONNX Runtime (PALEO_HAVE_ORT=0). Local inference is unavailable.</translation>
+        </message>
+        <message>
+            <source>ONNX Runtime C API 不可用（OrtGetApiBase 返回空）。进程内可观测的运行库缺失/加载不可用；所需 API %1。实际加载模块：%2；受控前缀：%3。若运行库文件缺失导致操作系统在进程启动前终止加载，本探测无法覆盖——请按 BUILDING.md 重建受控前缀。</source>
+            <translation>ONNX Runtime C API unavailable (OrtGetApiBase returned null). Required API %1. Loaded module: %2. Controlled prefix: %3. If a missing runtime prevents the process from starting, rebuild the controlled prefix as described in BUILDING.md.</translation>
+        </message>
+        <message>
+            <source>ONNX Runtime API 版本不匹配：编译所需 API %1，实际运行库版本 %2。所需 API 在该运行库上返回空，拒绝构造任何运行时对象（不降级所需 API、不回退系统库）。实际加载模块：%3；受控前缀：%4。</source>
+            <translation>ONNX Runtime API version mismatch: required API %1, runtime version %2. The required API returned null, so runtime objects cannot be constructed. Loaded module: %3. Controlled prefix: %4.</translation>
+        </message>
+        <message>
+            <source>无法读取</source>
+            <translation>Cannot read</translation>
+        </message>
+        <message>
+            <source>ONNX Runtime 运行库不兼容</source>
+            <translation>Incompatible ONNX Runtime</translation>
+        </message>
+        <message>
+            <source>预测输出无法回读（GDAL 打开失败）：%1</source>
+            <translation>Cannot reopen prediction output (GDAL open failed): %1</translation>
+        </message>
+        <message>
+            <source>回读尺寸 %1×%2 与计算记录 %3×%4 不符</source>
+            <translation>Reopened dimensions %1×%2 differ from the recorded dimensions %3×%4</translation>
+        </message>
+        <message>
+            <source>回读 geotransform[%1]（%2）与计算记录（%3）不符</source>
+            <translation>Reopened geotransform[%1] (%2) differs from the recorded value (%3)</translation>
+        </message>
+        <message>
+            <source>回读数据集缺少 CRS（计算记录要求 %1）</source>
+            <translation>The reopened dataset has no CRS (the recorded CRS is %1)</translation>
+        </message>
+        <message>
+            <source>回读像元失败（IO 错误）</source>
+            <translation>Failed to read pixels (I/O error)</translation>
+        </message>
+        <message>
+            <source>预测输出验证失败：%1（%2）</source>
+            <translation>Prediction output verification failed: %1 (%2)</translation>
+        </message>
 </context>
     <context>
         <name>QgisCanvasController</name>

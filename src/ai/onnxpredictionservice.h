@@ -12,6 +12,7 @@
 #include <functional>
 
 #include "modelregistry.h"
+#include "onnxruntimeprobe.h"
 
 // ai/ — PaleoOnnxService wraps the vendored ONNX Runtime C++ API (ET4 spike
 // proven: onnxruntime-linux-x64-1.30.0 under vendor/onnxruntime).
@@ -26,12 +27,15 @@ constexpr qint64 kMaxOnnxOutputElements = 32LL * 1024 * 1024;
 
 // 失败分类（goal/ai-geological-assist 会话管理）：ORT 异常按语义归类，
 // 原始信息保留在错误链里（不吞）。NotFound 在进 ORT 前自判。
+// RuntimeIncompatible（P4-W1）：C API 准入探测失败（运行库缺失/API 版本
+// 不匹配）——在任何 Ort 包装对象构造之前判定，错误链带 OnnxRuntimeProbeResult。
 enum class OnnxLoadStatus {
   Ok,             // 会话可用（warmup 可能仍失败，见 OnnxModelMeta::warmupError）
   NotFound,       // 模型文件不存在
   BadFormat,      // 不是合法 onnx（protobuf 解析失败）
   UnsupportedIr,  // IR 版本高于运行时支持
   CreateFailed,   // 其它会话构造失败（图不合法/算子缺失/内存…）
+  RuntimeIncompatible, // 运行库准入失败（ApiUnavailable/ApiVersionMismatch）
 };
 inline QString onnxPublicLoadCode(OnnxLoadStatus status,const QString &detail) {
   if(detail==QLatin1String("model_bytes_changed") || detail==QLatin1String("model_byte_budget_exceeded"))return detail;
@@ -41,6 +45,7 @@ inline QString onnxPublicLoadCode(OnnxLoadStatus status,const QString &detail) {
     case OnnxLoadStatus::BadFormat:return QStringLiteral("model_invalid");
     case OnnxLoadStatus::UnsupportedIr:return QStringLiteral("model_runtime_incompatible");
     case OnnxLoadStatus::CreateFailed:return QStringLiteral("model_load_failed");
+    case OnnxLoadStatus::RuntimeIncompatible:return QStringLiteral("runtime_incompatible");
   }
   return QStringLiteral("model_load_failed");
 }
@@ -124,7 +129,16 @@ class PaleoOnnxService : public QObject
                               const QVector<int64_t> &shape, QString *error = nullptr);
 
     static QString vendorRuntimeDir();              // vendor/onnxruntime resolved path
-    static bool runtimeAvailable();                 // libonnxruntime found in vendor tree
+    // P4-W1：与 runtimeDiagnostics() 同一探测源的布尔兼容入口——文件存在
+    // ≠运行库可用，语义改为 C API 准入结论（Ok 才 true）。
+    static bool runtimeAvailable();
+    // 详细准入诊断（所需 API/实际版本/实测加载模块/受控前缀），供预测页、
+    // 任务详情与失败信号共用同一文案。见 onnxruntimeprobe.h 的部署边界说明。
+    static paleo::onnx::OnnxRuntimeProbeResult runtimeDiagnostics();
+    // 轻量注册表查询（锁内拷贝，无文件 IO、无会话构建）：prepare 阶段冻结
+    // 模型身份（钉 SHA/版本）用。命中 → status==Ok 且 sha256Pinned/absolutePath
+    // 为注册表现值；未命中/manifest 损坏 → 相应状态 + detail。
+    ModelRegistryEntry registryEntryFor( const QString &name ) const;
     // 分块读文件算 SHA256（模型指纹/注册表校验共用；大模型不整读进内存）。
     static QString sha256OfFile(const QString &path);
 

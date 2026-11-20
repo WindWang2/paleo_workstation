@@ -15,6 +15,7 @@
 #include "derivedassets.h"
 #include "algorithmpublish.h"
 #include "algorithmadapters.h"
+#include "predictionpublication.h"
 #include "services/analysisunitcontext.h"
 #include "services/seismicunitinput.h"
 #include "services/seismicdataaccess.h"
@@ -48,6 +49,90 @@
 
 // 预测工作流（①智能预测）。
 // 方向20 轮4：按类边界从 workflows.cpp 析出。头文件契约不动。
+
+#if PALEO_HAVE_ORT
+// P4-W4：输出回读验证——「文件存在」不等于「可发布」。重开 GDAL 数据集
+// 核对尺寸/地理变换/CRS 与计算记录一致，统计有限像元/缺测像元作为覆盖
+// 摘要进 provenance（411×641 Float32 ≈ 1 MiB，worker 线程内代价可忽略）。
+static bool verifyOnnxRasterOutput( const QString &path, int rows, int cols, const double gt[6],
+                                    const QString &crsWkt, QVariantMap *summary, QString *error )
+{
+  GDALDatasetH ds = GDALOpen( path.toUtf8().constData(), GA_ReadOnly );
+  if ( !ds )
+  {
+    paleo::workflow_detail::setError( error, QObject::tr( "预测输出无法回读（GDAL 打开失败）：%1" ).arg( path ) );
+    return false;
+  }
+  bool ok = true;
+  QString reason;
+  if ( GDALGetRasterXSize( ds ) != cols || GDALGetRasterYSize( ds ) != rows )
+  {
+    ok = false;
+    reason = QObject::tr( "回读尺寸 %1×%2 与计算记录 %3×%4 不符" )
+                 .arg( GDALGetRasterXSize( ds ) ).arg( GDALGetRasterYSize( ds ) ).arg( cols ).arg( rows );
+  }
+  double readGt[6] = { 0, 0, 0, 0, 0, 0 };
+  if ( ok && GDALGetGeoTransform( ds, readGt ) == CE_None )
+    for ( int i = 0; i < 6; ++i )
+      if ( std::abs( readGt[i] - gt[i] ) > 1e-9 )
+      {
+        ok = false;
+        reason = QObject::tr( "回读 geotransform[%1]（%2）与计算记录（%3）不符" ).arg( i ).arg( readGt[i] ).arg( gt[i] );
+        break;
+      }
+  if ( ok && !crsWkt.isEmpty() )
+  {
+    const char *proj = GDALGetProjectionRef( ds );
+    if ( !proj || !*proj )
+    {
+      ok = false;
+      reason = QObject::tr( "回读数据集缺少 CRS（计算记录要求 %1）" ).arg( crsWkt );
+    }
+  }
+  int finiteCells = 0;
+  int nodataCells = 0;
+  if ( ok )
+  {
+    GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    QVector<float> px( rows * cols );
+    if ( GDALRasterIO( band, GF_Read, 0, 0, cols, rows, px.data(), cols, rows,
+                       GDT_Float32, 0, 0 ) != CE_None )
+    {
+      ok = false;
+      reason = QObject::tr( "回读像元失败（IO 错误）" );
+    }
+    else
+    {
+      int hasNodata = 0;
+      const double nodata = GDALGetRasterNoDataValue( band, &hasNodata );
+      for ( float v : px )
+      {
+        if ( std::isfinite( v ) )
+          ++finiteCells;
+        else if ( hasNodata && v == static_cast<float>( nodata ) )
+          ++nodataCells;
+        else
+          ++nodataCells; // 非有限且非 nodata 值（writeOnnxRaster 已规范化为
+                         // nodata，此为防御分支）——计入缺测统计
+      }
+    }
+  }
+  GDALClose( ds );
+  if ( !ok )
+  {
+    paleo::workflow_detail::setError( error, QObject::tr( "预测输出验证失败：%1（%2）" ).arg( reason, path ) );
+    return false;
+  }
+  if ( summary )
+  {
+    summary->insert( QStringLiteral( "rows" ), rows );
+    summary->insert( QStringLiteral( "cols" ), cols );
+    summary->insert( QStringLiteral( "finite_cells" ), finiteCells );
+    summary->insert( QStringLiteral( "nodata_cells" ), nodataCells );
+  }
+  return true;
+}
+#endif
 
 #if PALEO_HAVE_ORT
 // 把通过门禁的 411×641 结果写成 Float32 GeoTIFF，geotransform/SRS 用
@@ -276,15 +361,47 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
   *job = PredictionJob();
   job->params=params;
   job->projectGeneration = m_projectGeneration;
-  const QString resultKey = params.value(QStringLiteral("analysisLayerKey"), horizon).toString();
-  job->horizon = resultKey;
-  if(params.contains("unitSelection")){
+
+  // P4-W2（#972 预测入口）：带 unitSelection 的预测先冻结有效分析单元——
+  // 结果键从冻结单元产生，不再采信调用方 analysisLayerKey/horizon 字符串；
+  // Boundary（如 T70）、伪造 S 编号、不支持的 aggregate 由 freezeAnalysisUnit
+  // 的方案校验拒绝，显示名不参与身份。无单元的调用：onnx 引擎在下方分支
+  // 前置拒绝（正式地质预测必须落在 S1–S4 分析单位上；无单元张量调用不经
+  // 正式发布入口，低层 PaleoOnnxService::runTensor* 按原合同独立可用）；
+  // Processing 引擎维持 legacy 可选单元合同（生产 UI 恒带单元；多输入算法
+  // 的单元化语义属因子链，不在本任务改写）。
+  QString resultKey;
+  const QVariantMap requestedUnit = params.value( QStringLiteral( "unitSelection" ) ).toMap();
+  if ( !requestedUnit.isEmpty() )
+  {
     paleo::strat::UnitSelection frozen;
-    if(!paleo::strat::freezeAnalysisUnit(m_projectDir,paleo::strat::fromMap(params.value("unitSelection").toMap()),frozen,error))return false;
-    job->params.insert("unitSelection",paleo::strat::toMap(frozen));
-    job->params.insert("unitProject",m_projectDir);
-    job->commitExtra.insert("unitSelection",paleo::strat::toMap(frozen));
+    QString unitError;
+    if ( !paleo::strat::freezeAnalysisUnit( m_projectDir, paleo::strat::fromMap( requestedUnit ),
+                                            frozen, &unitError ) )
+    {
+      paleo::workflow_detail::setError( error, unitError );
+      emit predictionFailed( horizon, unitError );
+      return false;
+    }
+    resultKey = paleo::strat::analysisLayerKey( frozen );
+    const QString requestedKey = params.value( QStringLiteral( "analysisLayerKey" ) ).toString();
+    if ( !requestedKey.isEmpty() && requestedKey != resultKey )
+    {
+      const QString msg = tr( "analysisLayerKey（%1）与冻结单元的结果键（%2）不一致——结果键由冻结单元产生，不允许绕过单元身份" )
+                              .arg( requestedKey, resultKey );
+      paleo::workflow_detail::setError( error, msg );
+      emit predictionFailed( horizon, msg );
+      return false;
+    }
+    job->params.insert( "unitSelection", paleo::strat::toMap( frozen ) );
+    job->params.insert( "unitProject", m_projectDir );
+    job->commitExtra.insert( "unitSelection", paleo::strat::toMap( frozen ) );
   }
+  else
+  {
+    resultKey = params.value( QStringLiteral( "analysisLayerKey" ), horizon ).toString();
+  }
+  job->horizon = resultKey;
   job->commitExtra.insert(QStringLiteral("source_horizon"), resultKey);
   QVariantMap metadata = job->params;
   metadata.remove("unitProject");
@@ -318,46 +435,57 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
       return fail( tr( "no ONNX service bound; cannot run '%1'" ).arg( algorithmId ) );
     if ( model.isEmpty() )
       return fail( tr( "onnx algorithm id '%1' carries no model name" ).arg( algorithmId ) );
+    // P4-W2：正式 ONNX 地质预测必须冻结有效分析单元——结果键从单元产生、
+    // 数值输入是单元 RMS。无地质单元的张量调用不能经本发布入口默认贴上
+    // 工区网格并产出「某层预测」（低层 runTensor* 按原合同独立可用；历史
+    // 无单元成果保持只读兼容，不迁移）。共享段的空 unitSelection map 走
+    // legacy 路径（不冻结），这里以「冻结结果非空」为准拒绝。
+    if ( job->params.value( QStringLiteral( "unitSelection" ) ).toMap().isEmpty() )
+      return fail( tr( "正式 ONNX 预测需要先冻结分析单元（方案内具体子层段 S1–S4）；"
+                       "未带单元的张量调用不产生工区预测成果" ) );
 
-    if(!job->params.contains("unitSelection")){
-    // Explicit standalone tensor API:
-    // input {0}, shape {1}, inputName "x".
-    const QVariantList inVals = params.value( QStringLiteral( "input" ) ).toList();
-    if ( inVals.isEmpty() )
-      job->onnxInput.append( 0.0f );
-    else
-      for ( const QVariant &v : inVals )
-        job->onnxInput.append( v.toFloat() );
+    // P4-W1：准入探测前置（与 compute/loadModelMeta、预测页同一诊断）——
+    // 运行库不兼容在准备阶段就给出可行动结论，不进 worker 才失败。
+    const paleo::onnx::OnnxRuntimeProbeResult admission = PaleoOnnxService::runtimeDiagnostics();
+    if ( !admission.ok() )
+      return fail( admission.publicCode() + QStringLiteral( ": " ) + admission.summaryText() );
 
-    const QVariantList shapeVals = params.value( QStringLiteral( "shape" ) ).toList();
-    if ( shapeVals.isEmpty() )
-      job->onnxShape.append( 1 );
-    else
-      for ( const QVariant &v : shapeVals )
-        job->onnxShape.append( static_cast<int64_t>( v.toLongLong() ) );
-
-    job->onnxInputName = params.value( QStringLiteral( "inputName" ) ).toString();
-    if ( job->onnxInputName.isEmpty() )
-      job->onnxInputName = QStringLiteral( "x" );
-
+    // P4-W3：模型身份冻结——先取注册表条目（单锁轻查询，无文件 IO/哈希/
+    // 会话构建，不占 GUI 线程）：Ok 即冻结钉 SHA（此后注册表被换不影响
+    // 本任务——compute 复验实测指纹）；条目不可用再以 availableModels 判
+    // 定开发降级（无 manifest）或拒绝，避免「可用性先查、身份后查」交错
+    // 窗口里悄悄退化为不钉身份。
+    const ModelRegistryEntry entry = onnx->registryEntryFor( model );
+    if ( entry.status == ModelRegistryEntry::Status::Ok )
+    {
+      job->expectedModelSha256 = entry.sha256Pinned;
+      QVariantMap modelIdentity;
+      modelIdentity.insert( QStringLiteral( "name" ), entry.name );
+      if ( !entry.version.isEmpty() )
+        modelIdentity.insert( QStringLiteral( "registry_version" ), entry.version );
+      modelIdentity.insert( QStringLiteral( "sha256_pinned" ), entry.sha256Pinned );
+      job->commitExtra.insert( QStringLiteral( "model_registry" ), modelIdentity );
     }
+    else if ( !onnx->availableModels().contains( model ) )
+    {
+      return fail( tr( "模型 '%1' 在当前工程注册表中不可用（未登记/被门控/未钉哈希）" ).arg( model ) );
+    }
+    // 无 manifest 的开发降级：expectedModelSha256 留空（不伪造注册表身份），
+    // compute 仍把实测 SHA 写进 provenance。
+
     job->executionEngine = QStringLiteral( "onnxruntime" );
 
-    // 网格几何（清单 horizon.<target>* 声明）在 GUI 线程解析好，compute 直接用。
-    const paleo::workflow_detail::OnnxAreaGrid grid = paleo::workflow_detail::onnxAreaGrid( layers, horizon );
-    std::memcpy( job->onnxGt, grid.gt, sizeof( grid.gt ) );
-    job->onnxProjection = grid.projection;
-    job->onnxSourcePath = grid.sourcePath;
-    job->onnxFromDecl = grid.fromDecl;
-
-    if(job->params.contains("unitSelection")){
+    // 地震源解析在 prepare（GUI 线程）：单元 RMS 输入实际消费的地震体路径。
+    {
       QString sourceError;
-      const auto source=paleo::seismicProjectSource(m_projectDir,params.value("seismicPath").toString(),&sourceError);
-      if(source.isEmpty())return fail(sourceError);
-      job->params.insert("seismicPath",source);
+      const auto source = paleo::seismicProjectSource( m_projectDir,
+                                                       params.value( "seismicPath" ).toString(),
+                                                       &sourceError );
+      if ( source.isEmpty() )
+        return fail( sourceError );
+      job->params.insert( "seismicPath", source );
     }
-    // T26：预测栅格落 artifacts/derived + DERIVED 版本（父版本 = 提供
-    // geotransform 的时间栅格版本，可溯源时）。
+    // T26：预测栅格落 artifacts/derived + DERIVED 版本。
     QString regErr;
     DerivedAssetRegistrar registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
     if ( !registrar.isBound() )
@@ -368,37 +496,27 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     if ( !job->staging.isValid() )
       return fail( regErr );
     job->sourceUri = QStringLiteral( "onnxworkflow/%1" ).arg( model );
-    job->parentVersionIds = grid.fromDecl && !grid.sourcePath.isEmpty()
-                                ? registrar.parentVersionIdsFor( QStringList{ grid.sourcePath } )
-                                : QStringList();
-    if(job->params.contains("unitSelection"))job->parentVersionIds.append(registrar.parentVersionIdsFor({job->params.value("seismicPath").toString()}));
-    if ( job->parentVersionIds.isEmpty() && m_catalog )
-    {
-      for ( const auto &link : m_catalog->links() )
-      {
-        if ( !link.unresolved && m_catalog->entityById( link.entityId ).name.compare( horizon, Qt::CaseInsensitive ) == 0 )
-        {
-          const auto cur = m_catalog->currentVersion( link.assetId );
-          if ( !cur.id.isEmpty() && !job->parentVersionIds.contains( cur.id ) )
-            job->parentVersionIds << cur.id;
-        }
-      }
-      if ( job->parentVersionIds.isEmpty() )
-      {
-        for ( const auto &a : m_catalog->assets() )
-        {
-          if ( a.displayName.contains( horizon, Qt::CaseInsensitive ) )
-          {
-            const auto cur = m_catalog->currentVersion( a.id );
-            if ( !cur.id.isEmpty() && !job->parentVersionIds.contains( cur.id ) )
-              job->parentVersionIds << cur.id;
-          }
-        }
-      }
-    }
+    // P4-W3（#1008）：精确父引用——单元路径的数值输入是地震源（RMS 由其
+    // 派生），只登记按实际路径解析出的版本；路径不在 catalog 管理范围时
+    // 不伪造父（缺父版本不猜测）。删除按实体名/displayName.contains(horizon)
+    // 搜集 parents 的回退：T7/T70/T71、重名与重命名资产不再污染血缘。
+    job->parentVersionIds = registrar.parentVersionIdsFor( { job->params.value( "seismicPath" ).toString() } );
+    QVariantMap inputSources;
+    inputSources.insert( QStringLiteral( "seismic_path" ), job->params.value( "seismicPath" ).toString() );
+    inputSources.insert( QStringLiteral( "input_attribute" ), QStringLiteral( "layer_window_rms" ) );
+    job->commitExtra.insert( QStringLiteral( "input_sources" ), inputSources );
+
     job->layerId = QStringLiteral( "pred.%1.onnx.%2" ).arg( resultKey, model );
     job->layerGroup = QStringLiteral( "03_Predict" ); // 历史分组保持（m2(A)）
     job->layerTitle = tr( "%1 onnx %2 预测" ).arg( resultKey, model );
+    // P4-W5：冻结展示目标现状——publish 据此识别本任务运行期间 layerId
+    // 声明是否已被另一有效运行更新（并发/重放不覆盖较新展示）。
+    for ( const LayerDeclaration &d : layers->declared() )
+      if ( d.layerId == job->layerId )
+      {
+        job->declaredSourceAtPrepare = d.source;
+        break;
+      }
     job->prepared = true;
     return true;
   }
@@ -506,6 +624,14 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
   job->layerId = QStringLiteral( "predict.%1.%2" ).arg( resultKey, stableResultSuffix( algorithmId ) );
   job->layerGroup = QStringLiteral( "01_Prediction" ); // 历史分组保持（m2(A)：新声明面才用 02_Prediction）
   job->layerTitle = tr( "%1 %2 预测" ).arg( resultKey, algorithmId );
+  // P4-W5：展示目标快照（同 ONNX 分支）——publish 拒绝覆盖运行期间被另一
+  // 有效运行更新的声明。
+  for ( const LayerDeclaration &d : layers->declared() )
+    if ( d.layerId == job->layerId )
+    {
+      job->declaredSourceAtPrepare = d.source;
+      break;
+    }
   job->prepared = true;
   return true;
 }
@@ -541,6 +667,13 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     OnnxModelMeta meta;
     if ( onnx->loadModelMeta( model, &meta, &job->error ) != OnnxLoadStatus::Ok )
       return fail( job->error.isEmpty() ? tr( "加载 ONNX 模型 '%1' 失败" ).arg( model ) : job->error );
+    // P4-W4：冻结契约复验——实际加载模型的指纹必须与 prepare 冻结的注册表
+    // 钉哈希一致。注册表补钉/换文件/并发换活动模型在这里显式拒绝，不悄悄
+    // 换模型推理（runPinnedTensor 在会话层再核一次，双保险）。
+    if ( !job->expectedModelSha256.isEmpty() &&
+         meta.sha256.compare( job->expectedModelSha256, Qt::CaseInsensitive ) != 0 )
+      return fail( tr( "model_revision_changed: 模型 '%1' 与准备阶段冻结的身份不一致（冻结 %2，实际 %3）——请重新发起预测" )
+                       .arg( model, job->expectedModelSha256, meta.sha256 ) );
     job->modelSha256 = meta.sha256;
     job->executionEngine = QStringLiteral( "onnxruntime" );
 
@@ -564,9 +697,14 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
       job->params.insert("crs",scopedInput.crs);job->onnxProjection=scopedInput.crs;
       job->commitExtra.insert("input_attribute","layer_window_rms");job->commitExtra.insert("valid_cells",scopedInput.validCells);
     }
-    // #144：绑定模型名推理，并发任务换活动模型不影响本次。
+    // #144：绑定模型名推理，并发任务换活动模型不影响本次。P4-W4：冻结了
+    // 注册表钉哈希的任务走 runPinnedTensor——会话指纹与期望不符（LRU 期间
+    // 被换/文件被替换重建）在会话层再次拒绝。
     OnnxTensor tensor =
-        onnx->runTensorOn( model, job->onnxInputName, job->onnxInput, job->onnxShape, &job->error );
+        job->expectedModelSha256.isEmpty()
+            ? onnx->runTensorOn( model, job->onnxInputName, job->onnxInput, job->onnxShape, &job->error )
+            : onnx->runPinnedTensor( model, job->expectedModelSha256, job->onnxInputName,
+                                     job->onnxInput, job->onnxShape, &job->error );
     if ( tensor.values.isEmpty() )
       return fail( job->error.isEmpty()
                        ? tr( "ONNX model '%1' produced no output" ).arg( model )
@@ -592,6 +730,8 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
       rows=scopedInput.rows;cols=scopedInput.columns;
       for(qsizetype i=0;i<tensor.values.size();++i)if(!std::isfinite(scopedInput.samples[i%scopedInput.samples.size()]))tensor.values[i]=NAN;
     }
+    // 旧 411×641 工区网格门禁（P4-W2 后 prepare 产出的正式任务恒走单元
+    // 路径——scoped 恒真；本分支只对手工构造的 job 兜底，不再有生产入口）。
     if ( !scoped&&!paleo::workflow_detail::resolveOnnxGrid( tensor.values, tensor.shape, rows, cols,
                                                    &job->error ) )
       return fail( job->error.isEmpty() ? tr( "cannot place ONNX output on a grid" ) : job->error );
@@ -605,6 +745,16 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     if ( outPath.isEmpty() )
       return fail( job->error.isEmpty() ? tr( "failed to write ONNX prediction raster" )
                                         : job->error );
+    // P4-W4：输出回读验证——尺寸/geotransform/CRS 与计算记录一致、覆盖摘要
+    // 进 provenance；「文件存在」不视为可发布。
+    {
+      QVariantMap verified;
+      if ( !verifyOnnxRasterOutput( outPath, rows, cols, grid.gt,
+                                    job->params.value( QStringLiteral( "crs" ) ).toString(),
+                                    &verified, &job->error ) )
+        return fail( job->error );
+      job->commitExtra.insert( QStringLiteral( "verified_output" ), verified );
+    }
     job->outputPath = outPath;
     job->commitExtra.insert( QStringLiteral( "model" ), model );
     job->commitExtra.insert( QStringLiteral( "model_names" ), QStringList{ model } );
@@ -615,8 +765,9 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     job->commitExtra.insert( QStringLiteral( "rows" ), rows );
     job->commitExtra.insert( QStringLiteral( "cols" ), cols );
     job->commitExtra.insert( QStringLiteral( "geotransform_source" ),
-                             grid.fromDecl ? QStringLiteral( "horizon.%1" ).arg( job->horizon )
-                                           : QStringLiteral( "project_area" ) );
+                             scoped ? QStringLiteral( "unit_window_extent" )
+                                    : ( grid.fromDecl ? QStringLiteral( "horizon.%1" ).arg( job->horizon )
+                                                      : QStringLiteral( "project_area" ) ) );
     job->ok = true;
     return true;
   }
@@ -700,10 +851,18 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
   return true;
 }
 
-bool PredictionWorkflow::publishPredictionJob( const PredictionJob &job, QString *error )
+bool PredictionWorkflow::publishPredictionJob( PredictionJob &job, QString *error )
 {
   // publish 回 catalog 所属线程：commitExternal（addVersion 线程闸）、图层
   // 声明（GUI 对象）与 predictionDone 都在这里。
+  //
+  // P4-W5/W6 编排：① 先查「可证明的提交事实」（重复回调/崩溃后重试据此
+  // 幂等，查询不确定即阻断，不把查询失败当未提交）；② 未提交才落位并经
+  // publishArtifacts 提交 Catalog——提交失败只清本任务未提交暂存，旧声明/
+  // 旧文件一律不动（我们尚未声明）；③ 提交成功后才声明展示目标（冲突按
+  // prepare 冻结的声明快照识别：运行期间被另一有效运行更新则不覆盖），
+  // 声明失败如实报「成果已提交、展示未完成」，不删已提交文件、不重提交；
+  // ④ 声明路径必须与 Catalog 记录的同一已验证版本一致才算成功。
   const auto fail = [this, &job, error]( const QString &msg ) {
     paleo::workflow_detail::setError( error, msg );
     emit predictionFailed( job.horizon, msg );
@@ -711,9 +870,24 @@ bool PredictionWorkflow::publishPredictionJob( const PredictionJob &job, QString
   };
   if ( !job.prepared )
     return fail( tr( "预测任务未准备" ) );
-  if (job.projectGeneration && job.projectGeneration != m_projectGeneration) {
-    PaleoWorkflowDiscardPredictionStagingDir(job.staging.versionId, job.staging.absolutePath);
-    return fail(tr("工程已切换，预测结果未发布"));
+
+  // ① 提交事实先行（P4-W6）：已提交的版本必须先于工程代次与产出检查——
+  // 切换工程不能把已发生的提交误判成可丢弃的暂存，重复回调也据此幂等。
+  paleo::workflow::PredictionCommitEvidence commit =
+      paleo::workflow::queryPredictionCommit( m_catalog.data(), job.staging );
+  if ( commit.fact == paleo::workflow::PredictionCommitFact::CommitStateUnknown )
+    return fail( tr( "无法证明预测提交状态（%1）——已阻断以避免重复提交，请重试或检查工程数据后重试发布" )
+                     .arg( commit.detail ) );
+  if ( job.projectGeneration && job.projectGeneration != m_projectGeneration )
+  {
+    if ( commit.fact == paleo::workflow::PredictionCommitFact::Committed )
+    {
+      job.committedVersionId = commit.version.id;
+      return fail( tr( "预测成果已提交（版本 %1），但工程已切换，展示未恢复——成果保留在原工程受管路径，可从成果目录查看" )
+                       .arg( commit.version.id ) );
+    }
+    PaleoWorkflowDiscardPredictionStagingDir( job.staging.versionId, job.staging.absolutePath );
+    return fail( tr( "工程已切换，预测结果未发布" ) );
   }
   if ( !job.ok || job.outputPath.isEmpty() )
     return fail( job.error.isEmpty() ? tr( "预测未返回输出路径" ) : job.error );
@@ -726,47 +900,126 @@ bool PredictionWorkflow::publishPredictionJob( const PredictionJob &job, QString
   if ( !registrar.isBound() )
     return fail( regErr );
 
-  // 事务化发布：先拷贝/暂存文件并进行图层声明；若图层声明失败，删除暂存文件，
-  // 决不向 DataCatalog 提交版本（避免产生无法回滚的孤儿/僵尸版本）。
   const QString stagedPath = job.staging.absolutePath;
-  bool staged = false;
-  if ( job.outputPath != stagedPath )
+  if ( commit.fact == paleo::workflow::PredictionCommitFact::NotCommitted )
   {
-    QDir().mkpath( QFileInfo( stagedPath ).absolutePath() );
-    if ( QFile::exists( stagedPath ) )
-      QFile::remove( stagedPath );
-    if ( !QFile::copy( job.outputPath, stagedPath ) )
-      return fail( tr( "无法将预测输出复制到受管路径" ) );
-    staged = true;
+    // ② 落位 + 提交（先提交后声明——旧序在提交失败时删暂存却留声明，稳定
+    // layerId 指向已删除文件，#1007）。
+    if ( job.outputPath != stagedPath )
+    {
+      QDir().mkpath( QFileInfo( stagedPath ).absolutePath() );
+      if ( QFile::exists( stagedPath ) )
+        QFile::remove( stagedPath );
+      if ( !QFile::copy( job.outputPath, stagedPath ) )
+        return fail( tr( "无法将预测输出复制到受管路径" ) );
+    }
+    // P4-W7：提交前取消检查——此时产物未提交，终止并只清本任务未提交暂存
+    //（committedVersionId 仍为空，调用方守卫语义一致）。
+    if ( job.isCancelled && job.isCancelled() )
+    {
+      PaleoWorkflowDiscardPredictionStagingDir( job.staging.versionId, job.staging.absolutePath );
+      return fail( tr( "预测已取消（提交前终止，产物未发布）" ) );
+    }
+
+    const AlgorithmRunResult predResult = paleo::runResultFromOutputPath( stagedPath );
+    QString commitErr;
+    if ( !paleo::publishArtifacts( registrar, job.staging, predResult, job.parentVersionIds,
+                                   job.sourceUri, job.commitExtra, &commitErr ) )
+    {
+      // 提交失败：产物未入 catalog——只有本任务未提交暂存可清理；旧声明
+      // 未被触碰（声明在提交之后），无悬空引用。
+      if ( QFile::exists( stagedPath ) )
+        QFile::remove( stagedPath );
+      return fail( commitErr );
+    }
+    job.committedVersionId = job.staging.versionId;
+    // 提交后凭证以 catalog 记录为准（延迟建资产归并可能移动受管文件）。
+    // publishArtifacts 的成功返回即提交证明，这里只取版本记录、不重算
+    // 文件摘要（commit 已算过一次；完整 sha 复核留给重放路径的提交事实
+    // 查询），避免 GUI 线程对大栅格二次哈希。
+    commit.fact = paleo::workflow::PredictionCommitFact::Committed;
+    commit.version = m_catalog->versionById( job.staging.versionId );
+    commit.detail.clear();
+    if ( commit.version.id.isEmpty() )
+      return fail( tr( "预测已提交但提交凭证核对失败（版本 %1 未在 catalog）——请勿重复执行，检查工程数据后重试发布以恢复展示" )
+                       .arg( job.staging.versionId ) );
+  }
+  else
+  {
+    job.committedVersionId = commit.version.id;
+  }
+
+  // 提交成功后的产物路径以 catalog 记录为准（归并/受管路径解析），不回读
+  // staging 猜测。
+  const QString committedPath = m_catalog->versionFilePath( commit.version );
+
+  // P4-W7：提交之后发生取消——尊重已持久化的提交凭证，不把已发生的提交
+  // 改写成全部取消，也不触发任何删除；展示步骤按未完成报告。
+  if ( job.isCancelled && job.isCancelled() )
+    return fail( tr( "预测已提交（版本 %1），取消发生在提交之后——成果保留，展示未完成，重试发布可恢复展示" )
+                     .arg( commit.version.id ) );
+
+  // ③ 展示声明（P4-W5 冲突检查）。判定基准是「prepare 冻结的声明快照 +
+  // 声明源文件现状」：
+  //   · 现声明已指向本次提交路径 → 幂等重放，直接进复核；
+  //   · 现声明与 prepare 快照一致（含两者皆空）且旧源文件有效 → 正常重跑
+  //     upsert；旧源已缺失 → 悬空修复，同样声明；
+  //   · 现声明在 prepare 之后出现/被换成另一有效源 → 并发有效运行已更新
+  //     展示目标：拒绝覆盖，本次成果留在 catalog 供查看。
+  LayerDeclaration existing;
+  for ( const LayerDeclaration &d : layers->declared() )
+    if ( d.layerId == job.layerId )
+    {
+      existing = d;
+      break;
+    }
+  const bool alreadyDisplayed =
+      existing.layerId == job.layerId && QDir::cleanPath( existing.source ) == QDir::cleanPath( committedPath );
+  if ( !alreadyDisplayed && existing.layerId == job.layerId )
+  {
+    const bool unchangedSincePrepare = existing.source == job.declaredSourceAtPrepare;
+    const bool winnerAlive = QFile::exists( existing.source );
+    const bool concurrentWinner = winnerAlive && !unchangedSincePrepare;
+    if ( concurrentWinner )
+    {
+      // 拒绝覆盖较新展示；稳定 layerId 当前指向并发运行的有效版本，本任务
+      // 成果在 catalog 可追溯。
+      emit predictionDone( job.horizon, job.layerId );
+      paleo::workflow_detail::setError( error, QString() );
+      return true;
+    }
+    // 其余情形（正常重跑 / 悬空修复 / 首次声明）落到下方 declare。
   }
 
   LayerDeclaration decl;
   decl.layerId = job.layerId;
   decl.horizon = job.horizon;
   decl.type = QStringLiteral( "raster" );
-  decl.source = stagedPath;
+  decl.source = committedPath;
   decl.group = job.layerGroup;
   decl.title = job.layerTitle;
-  if ( !layers->declare( decl, error ) )
+  QString declareErr;
+  if ( !layers->declare( decl, &declareErr ) )
   {
-    if ( QFile::exists( stagedPath ) )
-      QFile::remove( stagedPath );
-    return fail( ( error && !error->isEmpty() )
-                     ? *error
-                     : tr( "failed to declare result layer '%1'" ).arg( decl.layerId ) );
+    // P4-W5：Catalog 已提交、展示未完成——如实报告并保留可恢复引用；不删
+    // 已提交文件、不重提交新版本。重试（再次 publish）经提交事实只补展示。
+    return fail( tr( "成果已提交（版本 %1），展示未完成：%2——重试发布可恢复展示，成果文件保留在 %3" )
+                     .arg( commit.version.id,
+                           declareErr.isEmpty() ? tr( "图层声明失败" ) : declareErr,
+                           committedPath ) );
   }
 
-  // algo-atom P1-extend：预测成果经 publishArtifacts（路径已在 staging → 等价 commit）
-  const AlgorithmRunResult predResult =
-      paleo::runResultFromOutputPath( stagedPath );
-  QString commitErr;
-  if ( !paleo::publishArtifacts( registrar, job.staging, predResult, job.parentVersionIds,
-                                 job.sourceUri, job.commitExtra, &commitErr ) )
-  {
-    if ( QFile::exists( stagedPath ) )
-      QFile::remove( stagedPath );
-    return fail( commitErr );
-  }
+  // ④ 声明与 Catalog 同一已验证版本（P4-W6 成功返回前复核）。
+  QString declaredNow;
+  for ( const LayerDeclaration &d : layers->declared() )
+    if ( d.layerId == job.layerId )
+    {
+      declaredNow = d.source;
+      break;
+    }
+  if ( QDir::cleanPath( declaredNow ) != QDir::cleanPath( committedPath ) )
+    return fail( tr( "图层声明（%1）与已提交版本路径（%2）不一致——展示未完成，请重试发布" )
+                     .arg( declaredNow, committedPath ) );
 
   // m2(A) 3b：算法无置信度输出 → 不声明伴生层（confidenceCompanionAvailable
   // 对当前算法栈恒 false，见 workflows.h 上的调查注释）。真实置信度通道接入
@@ -792,6 +1045,9 @@ bool PredictionWorkflow::runPrediction( const QString &horizon, const QString &a
   {
     paleo::workflow_detail::setError( error, job.error );
     emit predictionFailed( horizon, job.error );
+    // P4-W7：compute 失败只清本任务未提交暂存（此点 committedVersionId 恒
+    // 空——publish 尚未运行；守卫语义与调用方一致）。
+    PaleoWorkflowDiscardPredictionStagingDir( job.staging.versionId, job.staging.absolutePath );
     return false;
   }
   return publishPredictionJob( job, error );

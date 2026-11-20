@@ -24230,6 +24230,10 @@ PDF：%3
         <source>目标地震体修订</source>
         <translation>目标地震体修订</translation>
     </message>
+        <message>
+            <source>预测已取消，但成果已提交（版本 %1）——未清理已提交产物，可重试发布恢复展示</source>
+            <translation>预测已取消，但成果已提交（版本 %1）——未清理已提交产物，可重试发布恢复展示</translation>
+        </message>
   </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -24671,6 +24675,10 @@ PDF：%3
         <source>推理失败（模型 &apos;%1&apos;）</source>
         <translation>推理失败（模型 &apos;%1&apos;）</translation>
     </message>
+        <message>
+            <source>models/ 无 manifest（开发降级），模型不受注册表管理</source>
+            <translation>models/ 无 manifest（开发降级），模型不受注册表管理</translation>
+        </message>
 </context>
 <context>
     <name>PaleoPageFactory</name>
@@ -26707,6 +26715,10 @@ PDF：%3
         <source>可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）</source>
         <translation>可运行：层段 %1 · 算法 %2（输入图层与数据在运行时再次校验）</translation>
     </message>
+        <message>
+            <source>ONNX 运行时不可用：%1</source>
+            <translation>ONNX 运行时不可用：%1</translation>
+        </message>
 </context>
 <context>
     <name>PredictionWorkflow</name>
@@ -26856,6 +26868,54 @@ PDF：%3
         <source>算法输出未写入本次任务的成果路径，结果未发布</source>
         <translation>算法输出未写入本次任务的成果路径，结果未发布</translation>
     </message>
+        <message>
+            <source>analysisLayerKey（%1）与冻结单元的结果键（%2）不一致——结果键由冻结单元产生，不允许绕过单元身份</source>
+            <translation>analysisLayerKey（%1）与冻结单元的结果键（%2）不一致——结果键由冻结单元产生，不允许绕过单元身份</translation>
+        </message>
+        <message>
+            <source>正式 ONNX 预测需要先冻结分析单元（方案内具体子层段 S1–S4）；未带单元的张量调用不产生工区预测成果</source>
+            <translation>正式 ONNX 预测需要先冻结分析单元（方案内具体子层段 S1–S4）；未带单元的张量调用不产生工区预测成果</translation>
+        </message>
+        <message>
+            <source>模型 &#x27;%1&#x27; 在当前工程注册表中不可用（未登记/被门控/未钉哈希）</source>
+            <translation>模型 &#x27;%1&#x27; 在当前工程注册表中不可用（未登记/被门控/未钉哈希）</translation>
+        </message>
+        <message>
+            <source>model_revision_changed: 模型 &#x27;%1&#x27; 与准备阶段冻结的身份不一致（冻结 %2，实际 %3）——请重新发起预测</source>
+            <translation>model_revision_changed: 模型 &#x27;%1&#x27; 与准备阶段冻结的身份不一致（冻结 %2，实际 %3）——请重新发起预测</translation>
+        </message>
+        <message>
+            <source>无法证明预测提交状态（%1）——已阻断以避免重复提交，请重试或检查工程数据后重试发布</source>
+            <translation>无法证明预测提交状态（%1）——已阻断以避免重复提交，请重试或检查工程数据后重试发布</translation>
+        </message>
+        <message>
+            <source>预测成果已提交（版本 %1），但工程已切换，展示未恢复——成果保留在原工程受管路径，可从成果目录查看</source>
+            <translation>预测成果已提交（版本 %1），但工程已切换，展示未恢复——成果保留在原工程受管路径，可从成果目录查看</translation>
+        </message>
+        <message>
+            <source>预测已取消（提交前终止，产物未发布）</source>
+            <translation>预测已取消（提交前终止，产物未发布）</translation>
+        </message>
+        <message>
+            <source>预测已提交但提交凭证核对失败（版本 %1 未在 catalog）——请勿重复执行，检查工程数据后重试发布以恢复展示</source>
+            <translation>预测已提交但提交凭证核对失败（版本 %1 未在 catalog）——请勿重复执行，检查工程数据后重试发布以恢复展示</translation>
+        </message>
+        <message>
+            <source>预测已提交（版本 %1），取消发生在提交之后——成果保留，展示未完成，重试发布可恢复展示</source>
+            <translation>预测已提交（版本 %1），取消发生在提交之后——成果保留，展示未完成，重试发布可恢复展示</translation>
+        </message>
+        <message>
+            <source>成果已提交（版本 %1），展示未完成：%2——重试发布可恢复展示，成果文件保留在 %3</source>
+            <translation>成果已提交（版本 %1），展示未完成：%2——重试发布可恢复展示，成果文件保留在 %3</translation>
+        </message>
+        <message>
+            <source>图层声明失败</source>
+            <translation>图层声明失败</translation>
+        </message>
+        <message>
+            <source>图层声明（%1）与已提交版本路径（%2）不一致——展示未完成，请重试发布</source>
+            <translation>图层声明（%1）与已提交版本路径（%2）不一致——展示未完成，请重试发布</translation>
+        </message>
 </context>
 <context>
     <name>PreviewBasemapControl</name>
@@ -37884,6 +37944,62 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>显式选择数值表或单道地震窗口，并冻结输出列与图像尺寸。生成报告、单张数值表及单张RGBA图像；宿主编码CSV和PNG，每项至多4MiB，图像至多1024×1024像素。三项整组验收、一次发布；PNG是非空间报告成果，不自动成为GIS图层。保留输入、代码、运行时及编码器来源，生成数值与像素未经独立重算。复用同一权限、隔离、恢复和认证分页链路。</source>
         <translation>显式选择数值表或单道地震窗口，并冻结输出列与图像尺寸。生成报告、单张数值表及单张RGBA图像；宿主编码CSV和PNG，每项至多4MiB，图像至多1024×1024像素。三项整组验收、一次发布；PNG是非空间报告成果，不自动成为GIS图层。保留输入、代码、运行时及编码器来源，生成数值与像素未经独立重算。复用同一权限、隔离、恢复和认证分页链路。</translation>
     </message>
+        <message>
+            <source>ONNX Runtime 就绪：API %1，运行库 %2（%3）</source>
+            <translation>ONNX Runtime 就绪：API %1，运行库 %2（%3）</translation>
+        </message>
+        <message>
+            <source>无法读取版本</source>
+            <translation>无法读取版本</translation>
+        </message>
+        <message>
+            <source>加载位置未知</source>
+            <translation>加载位置未知</translation>
+        </message>
+        <message>
+            <source>本构建未编入 ONNX Runtime（PALEO_HAVE_ORT=0），本地推理不可用</source>
+            <translation>本构建未编入 ONNX Runtime（PALEO_HAVE_ORT=0），本地推理不可用</translation>
+        </message>
+        <message>
+            <source>ONNX Runtime C API 不可用（OrtGetApiBase 返回空）。进程内可观测的运行库缺失/加载不可用；所需 API %1。实际加载模块：%2；受控前缀：%3。若运行库文件缺失导致操作系统在进程启动前终止加载，本探测无法覆盖——请按 BUILDING.md 重建受控前缀。</source>
+            <translation>ONNX Runtime C API 不可用（OrtGetApiBase 返回空）。进程内可观测的运行库缺失/加载不可用；所需 API %1。实际加载模块：%2；受控前缀：%3。若运行库文件缺失导致操作系统在进程启动前终止加载，本探测无法覆盖——请按 BUILDING.md 重建受控前缀。</translation>
+        </message>
+        <message>
+            <source>ONNX Runtime API 版本不匹配：编译所需 API %1，实际运行库版本 %2。所需 API 在该运行库上返回空，拒绝构造任何运行时对象（不降级所需 API、不回退系统库）。实际加载模块：%3；受控前缀：%4。</source>
+            <translation>ONNX Runtime API 版本不匹配：编译所需 API %1，实际运行库版本 %2。所需 API 在该运行库上返回空，拒绝构造任何运行时对象（不降级所需 API、不回退系统库）。实际加载模块：%3；受控前缀：%4。</translation>
+        </message>
+        <message>
+            <source>无法读取</source>
+            <translation>无法读取</translation>
+        </message>
+        <message>
+            <source>ONNX Runtime 运行库不兼容</source>
+            <translation>ONNX Runtime 运行库不兼容</translation>
+        </message>
+        <message>
+            <source>预测输出无法回读（GDAL 打开失败）：%1</source>
+            <translation>预测输出无法回读（GDAL 打开失败）：%1</translation>
+        </message>
+        <message>
+            <source>回读尺寸 %1×%2 与计算记录 %3×%4 不符</source>
+            <translation>回读尺寸 %1×%2 与计算记录 %3×%4 不符</translation>
+        </message>
+        <message>
+            <source>回读 geotransform[%1]（%2）与计算记录（%3）不符</source>
+            <translation>回读 geotransform[%1]（%2）与计算记录（%3）不符</translation>
+        </message>
+        <message>
+            <source>回读数据集缺少 CRS（计算记录要求 %1）</source>
+            <translation>回读数据集缺少 CRS（计算记录要求 %1）</translation>
+        </message>
+        <message>
+            <source>回读像元失败（IO 错误）</source>
+            <translation>回读像元失败（IO 错误）</translation>
+        </message>
+        <message>
+            <source>预测输出验证失败：%1（%2）</source>
+            <translation>预测输出验证失败：%1（%2）</translation>
+        </message>
 </context>
 <context>
     <name>QgisCanvasController</name>

@@ -229,15 +229,18 @@ AppContext 的工程打开编排涉及锁、journal、manifest、工区规则和
 
 ## P2 — ONNX 动态库 API 不匹配诊断
 
-`OnnxPredictionService` 当前在构造 `Ort::SessionOptions` 前没有核对 C API 指针，
-`runtimeAvailable()` 也只检查文件存在。Windows 构建目录缺少应用本地 DLL 时，
-实际加载过 System32 的旧 ONNX Runtime；请求 API 30 返回 nullptr 后发生访问异常，
-不能由当前 C++ 异常捕获处理。正确 pinned app-local DLL 部署已单独验证，
-这不等于不匹配诊断已经实现。
-
-后续在任何依赖该指针的 Ort 包装对象构造前核对 C API，缺失时明确报告所需 API 与
-实际加载版本并拒绝执行；不降低请求版本，不回退到不匹配运行时。补返回 nullptr 的
-确定性回归。本轮只整理递延项，未改生产实现或放宽验证条件。
+已交付（P4，2026-11-20）：`src/ai/onnxruntimeprobe.{h,cpp}` 在任何依赖
+OrtApi 指针的 Ort 包装对象（Env/SessionOptions/Session…）构造前核验
+C API——`OrtGetApiBase()` 不可用判 ApiUnavailable、`GetApi(ORT_API_VERSION)`
+返回空判 ApiVersionMismatch，错误链带所需 API 版号、运行库自报版本、
+`/proc/self/maps`（Windows GetModuleHandle）实测加载模块与受控前缀；
+`loadModelMeta` 首行门控（OnnxLoadStatus::RuntimeIncompatible，公开码
+`runtime_incompatible`；错误消息前缀带细分 `runtime_api_unavailable`/
+`runtime_api_mismatch`），`runtimeAvailable()` 改与详细诊断同源。确定性
+负向回归（测试注入，不依赖坏 DLL、不 QSKIP）在
+tests/tst_p4_onnx_prediction.cpp。部署边界如实记录：动态链接缺库时进程在
+main 之前被 OS 终止，进程内 guard 不可覆盖（见 onnxruntimeprobe.h 头注与
+docs/progress/p4-onnx-prediction-20261119.md）。
 
 ## P2 — 历史性能与视觉红项复核
 

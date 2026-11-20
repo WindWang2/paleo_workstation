@@ -189,6 +189,14 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
   // 协作取消。
   job->produce = [produce, cancelled = job->cancelled](ImportSession &s, PaleoTask *t) {
     if (cancelled->load()) { s.cancelled = true; return; }
+    // P1-W5：行内协作取消源注入会话——importOneFile 把它并入井表/工作簿
+    // 解析的行粒度检查（单个大表可中途叫停，不必读完才发现取消）。取任务
+    // 取消与批次取消两个真实信号，不经 progress 回调：progress 是「每项
+    // 一次」的进度/取消契约（调用方按调用次数与 done/total 记账），条目
+    // 中途反复调它会破坏该契约。produce 结束即清理，不把裸 task 指针带出
+    // worker（worker 只见会话，不碰 UI 对象生命周期之外的东西）。
+    if (t)
+      s.cancelCheck = [t, cancelled] { return cancelled->load() || t->cancelRequested(); };
     produce(s, [t, cancelled](int d, int total, const QString &p) {
       if (total > 0)
       {
@@ -208,6 +216,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
       }
       return !cancelled->load() && !t->cancelRequested();
     });
+    s.cancelCheck = nullptr; // worker 结束即失效，不留跨批次谓词
   };
   job->finish = [this, done, ledgerDir, started](ImportSession &s) {
     qInfo() << "catalog-batch: rows=" << s.rows.size()

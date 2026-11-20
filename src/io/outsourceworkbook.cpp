@@ -2,6 +2,7 @@
 #include "boundedread.h" // PW-076
 #include "outsourceworkbook.h"
 
+#include "xmlstreamsafety.h" // P1-W3：统一 DTD/解析错误策略
 #include "ziparchive.h"
 #include "domain/wellnumeric.h"
 
@@ -97,11 +98,17 @@ QString cellText( const QString &raw )
 
 WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &reader,
                                      const SpreadsheetMlRowVisitor &visitor = {},
-                                     qint64 cellLimit = kMaxWorkbookCells )
+                                     qint64 cellLimit = kMaxWorkbookCells,
+                                     const ReadCancelCheck &cancel = {} )
 {
   WorkbookReadResult result;
   result.path = path;
   result.format = QStringLiteral( "spreadsheetml" );
+  const auto cancelledOut = [&]() {
+    result.cancelled = true;
+    result.error = QStringLiteral( "已取消读取：%1" ).arg( path );
+    return result;
+  };
 
   WorkbookSheet sheet;
   bool inSheet = false;
@@ -166,15 +173,16 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
                          .arg( cellLimit );
       return result;
     }
+    // P1-W5：行粒度协作取消——大表整读可被叫停，取消不冒充解析失败。
+    if ( cancel && cancel() )
+      return cancelledOut();
     const QXmlStreamReader::TokenType token = reader.readNext();
-    // L-07：第三方工作簿的 DTD/内部实体声明拒收——QXmlStreamReader 会展开
-    // 内部实体（billion laughs 可把数十 KB 声明展开成 GB 级文本）。合法
-    // SpreadsheetML 不带 DTD；令牌级捕获不依赖头部嗅探、任意位置可命中。
-    if ( token == QXmlStreamReader::DTD )
-    {
-      result.error = QStringLiteral( "工作簿 XML 含 DTD/实体声明，为防实体扩展攻击已拒收：%1" ).arg( path );
+    // L-07（#1023 经 xmlsafe 统一）：第三方工作簿的 DTD/内部实体声明拒收
+    //——QXmlStreamReader 会展开内部实体（billion laughs 可把数十 KB 声明
+    // 展开成 GB 级文本）。合法 SpreadsheetML 不带 DTD；令牌级捕获不依赖
+    // 头部嗅探、任意位置可命中。
+    if ( xmlsafe::rejectDtdToken( token, QStringLiteral( "工作簿 %1" ).arg( path ), &result.error ) )
       return result;
-    }
     if ( token == QXmlStreamReader::StartElement )
     {
       const QString name = reader.name().toString();
@@ -332,9 +340,7 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
   }
   if ( reader.hasError() )
   {
-    result.error = QStringLiteral( "XML 解析错误（行 %1）：%2" )
-                       .arg( reader.lineNumber() )
-                       .arg( reader.errorString() );
+    result.error = xmlsafe::parseErrorMessage( reader, path ); // P1-W3：含源与行列
     return result;
   }
   if ( result.sheets.isEmpty() )
@@ -348,38 +354,73 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
 
 // ---- OOXML（.xlsx）----
 
-QHash<QString, QString> readRelationships( const QByteArray &bytes )
+// P1-W4：OOXML 辅助部件读取结果——区分「完整成功（允许合法空集合）」与
+// 「部件在场但 XML 损坏/含 DTD」。后者不能冒充空集合或部分集合：坏 rels
+// 会以「每张表 r:id 没有目标」的症状级文案出现，坏 sharedStrings 会把整列
+// 单元格当越界置空，坏 styles 会静默改变日期/数值解释。部件缺失（包里没
+// 有该条目）不经过这里——由 readZipEntry 的 false 分支按「合法缺失」处理。
+template <typename T>
+struct PartResult
 {
-  QHash<QString, QString> map;
+  bool ok = false;
+  QString error; // 解析失败/DTD：含部件名与行列，不回显原始内容
+  T value{};
+};
+
+// P1-W4 统一部件读取口径：收集循环内做 DTD 令牌检查（#1023），循环结束
+// 检查 hasError——两者都把「在场但坏」如实报成部件级失败，而不是把已收
+// 集到的部分集合当完整结果交回。
+PartResult<QHash<QString, QString>> readRelationships( const QByteArray &bytes )
+{
+  PartResult<QHash<QString, QString>> out;
+  const QString part = QStringLiteral( "xl/_rels/workbook.xml.rels" );
   QXmlStreamReader reader( bytes );
   while ( !reader.atEnd() )
   {
-    if ( reader.readNext() == QXmlStreamReader::StartElement &&
+    const QXmlStreamReader::TokenType token = reader.readNext();
+    if ( xmlsafe::rejectDtdToken( token, part, &out.error ) )
+      return out;
+    if ( token == QXmlStreamReader::StartElement &&
          reader.name() == QLatin1String( "Relationship" ) &&
          ( reader.namespaceUri() == kRelNs || reader.namespaceUri().isEmpty() ) )
     {
       const QString id = reader.attributes().value( QStringLiteral( "Id" ) ).toString();
       QString target = reader.attributes().value( QStringLiteral( "Target" ) ).toString();
+      // P1-W4：外部关系（链接工作簿/图片/URL）不是归档成员——不解析成
+      // 工作表目标（不触发网络/本地文件读取），用它的表在下面按
+      // 「r:id 没有对应目标」如实报因。
+      const QString mode = reader.attributes().value( QStringLiteral( "TargetMode" ) ).toString();
+      if ( mode.compare( QLatin1String( "External" ), Qt::CaseInsensitive ) == 0 )
+        continue;
       if ( target.startsWith( QLatin1Char( '/' ) ) )
         target = target.mid( 1 );
       else if ( !target.startsWith( QLatin1String( "xl/" ) ) )
         target = QStringLiteral( "xl/" ) + target;
       if ( !id.isEmpty() && !target.isEmpty() )
-        map.insert( id, target );
+        out.value.insert( id, target );
     }
   }
-  return map;
+  if ( reader.hasError() )
+  {
+    out.error = xmlsafe::parseErrorMessage( reader, part );
+    return out;
+  }
+  out.ok = true; // 合法空 rels 也算完整成功
+  return out;
 }
 
-QVector<QString> readSharedStrings( const QByteArray &bytes )
+PartResult<QVector<QString>> readSharedStrings( const QByteArray &bytes )
 {
-  QVector<QString> values;
+  PartResult<QVector<QString>> out;
+  const QString part = QStringLiteral( "xl/sharedStrings.xml" );
   QXmlStreamReader reader( bytes );
   QString current;
   bool inItem = false;
   while ( !reader.atEnd() )
   {
     const QXmlStreamReader::TokenType token = reader.readNext();
+    if ( xmlsafe::rejectDtdToken( token, part, &out.error ) )
+      return out;
     if ( token == QXmlStreamReader::StartElement )
     {
       const QString name = reader.name().toString();
@@ -400,11 +441,17 @@ QVector<QString> readSharedStrings( const QByteArray &bytes )
     }
     else if ( token == QXmlStreamReader::EndElement && reader.name() == QLatin1String( "si" ) )
     {
-      values.append( current );
+      out.value.append( current );
       inItem = false;
     }
   }
-  return values;
+  if ( reader.hasError() )
+  {
+    out.error = xmlsafe::parseErrorMessage( reader, part );
+    return out;
+  }
+  out.ok = true;
+  return out;
 }
 
 // PW-141：numFmt 是否日期/时间格式。内置 14-22、27-36、45-47、50-58；自定义
@@ -438,15 +485,18 @@ bool isBuiltinDateFormat( int id )
 }
 
 // xl/styles.xml → 每个 cellXfs 下标是否日期样式。
-QVector<bool> readDateStyles( const QByteArray &bytes )
+PartResult<QVector<bool>> readDateStyles( const QByteArray &bytes )
 {
+  PartResult<QVector<bool>> out;
+  const QString part = QStringLiteral( "xl/styles.xml" );
   QHash<int, bool> customDate;
-  QVector<bool> xfIsDate;
   QXmlStreamReader reader( bytes );
   bool inCellXfs = false;
   while ( !reader.atEnd() )
   {
     const QXmlStreamReader::TokenType token = reader.readNext();
+    if ( xmlsafe::rejectDtdToken( token, part, &out.error ) )
+      return out;
     if ( token == QXmlStreamReader::StartElement )
     {
       const QStringView name = reader.name();
@@ -458,13 +508,19 @@ QVector<bool> readDateStyles( const QByteArray &bytes )
       else if ( inCellXfs && name == QLatin1String( "xf" ) )
       {
         const int id = reader.attributes().value( QStringLiteral( "numFmtId" ) ).toInt();
-        xfIsDate.append( customDate.contains( id ) ? customDate.value( id ) : isBuiltinDateFormat( id ) );
+        out.value.append( customDate.contains( id ) ? customDate.value( id ) : isBuiltinDateFormat( id ) );
       }
     }
     else if ( token == QXmlStreamReader::EndElement && reader.name() == QLatin1String( "cellXfs" ) )
       inCellXfs = false;
   }
-  return xfIsDate;
+  if ( reader.hasError() )
+  {
+    out.error = xmlsafe::parseErrorMessage( reader, part );
+    return out;
+  }
+  out.ok = true;
+  return out;
 }
 
 // Excel 序列日 → ISO 文本（整数日 yyyy-MM-dd；带小数加 HH:mm:ss）。1900 系
@@ -533,12 +589,18 @@ bool readZipEntry( const QByteArray &archive, const ZipListResult &listing, cons
   return zipExtractEntry( archive, *item, bytes, error );
 }
 
-WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {}, int rowLimit = -1, bool *limited = nullptr )
+WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {}, int rowLimit = -1,
+                             bool *limited = nullptr, const ReadCancelCheck &cancel = {} )
 {
   WorkbookReadResult result;
   result.path = path;
   result.format = QStringLiteral( "xlsx" );
   const QString fileName = QFileInfo( path ).fileName();
+  const auto cancelledOut = [&]() {
+    result.cancelled = true;
+    result.error = QStringLiteral( "已取消读取：%1" ).arg( path );
+    return result;
+  };
 
   QString archiveError;
   const QByteArray archive = provided.isEmpty() ? zipReadArchive( path, &archiveError ) : provided;
@@ -556,13 +618,26 @@ WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {
     result.error = QStringLiteral( "%1 不是 OOXML 工作簿：%2" ).arg( fileName, entryError );
     return result;
   }
+  // P1-W4：三个辅助部件「在场但损坏」→ 整簿拒收（文件级失败），不冒充
+  // 空集合/部分集合：rels 坏则工作表定位不可信；sharedStrings 坏则整批
+  // 字符串格会被当越界置空；styles 坏则日期/数值解释静默改变。部件缺失
+  // 仍按原语义（rels 缺失记 issue，sharedStrings/styles 缺失按空表用）。
   QByteArray relBytes;
   QString relError;
   const bool hasRelationships =
       readZipEntry( archive, listing, QStringLiteral( "xl/_rels/workbook.xml.rels" ), &relBytes, &relError );
-  const QHash<QString, QString> relationships =
-      hasRelationships ? readRelationships( relBytes ) : QHash<QString, QString>();
-  if ( !hasRelationships )
+  QHash<QString, QString> relationships;
+  if ( hasRelationships )
+  {
+    const PartResult<QHash<QString, QString>> rels = readRelationships( relBytes );
+    if ( !rels.ok )
+    {
+      result.error = QStringLiteral( "%1：%2——无法可靠定位工作表，整簿拒收" ).arg( fileName, rels.error );
+      return result;
+    }
+    relationships = rels.value;
+  }
+  else
   {
     // 根因单独列一条：否则后面只剩「每张表 r:id 没有目标」这种症状级文案。
     result.issues.append(
@@ -572,15 +647,33 @@ WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {
   QString sharedError;
   const bool hasSharedStrings =
       readZipEntry( archive, listing, QStringLiteral( "xl/sharedStrings.xml" ), &sharedBytes, &sharedError );
-  const QVector<QString> sharedStrings = hasSharedStrings ? readSharedStrings( sharedBytes ) : QVector<QString>();
+  QVector<QString> sharedStrings;
+  if ( hasSharedStrings )
+  {
+    const PartResult<QVector<QString>> shared = readSharedStrings( sharedBytes );
+    if ( !shared.ok )
+    {
+      result.error = QStringLiteral( "%1：%2——共享字符串表不可信，整簿拒收" ).arg( fileName, shared.error );
+      return result;
+    }
+    sharedStrings = shared.value;
+  }
 
   // PW-141：日期样式表 + 1904 日期系，数值格按样式转 ISO 日期而非留序列号。
   QByteArray stylesBytes;
   QString stylesError;
-  const QVector<bool> dateStyles =
-      readZipEntry( archive, listing, QStringLiteral( "xl/styles.xml" ), &stylesBytes, &stylesError )
-          ? readDateStyles( stylesBytes )
-          : QVector<bool>();
+  QVector<bool> dateStyles;
+  if ( readZipEntry( archive, listing, QStringLiteral( "xl/styles.xml" ), &stylesBytes, &stylesError ) )
+  {
+    const PartResult<QVector<bool>> styles = readDateStyles( stylesBytes );
+    if ( !styles.ok )
+    {
+      result.error = QStringLiteral( "%1：%2——日期样式不可信（数值格可能被静默换算），整簿拒收" )
+                         .arg( fileName, styles.error );
+      return result;
+    }
+    dateStyles = styles.value;
+  }
   bool date1904 = false;
 
   QVector<QPair<QString, QString>> sheetTargets;
@@ -589,6 +682,9 @@ WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {
     while ( !reader.atEnd() )
     {
       const QXmlStreamReader::TokenType wbToken = reader.readNext();
+      if ( xmlsafe::rejectDtdToken( wbToken, QStringLiteral( "%1：xl/workbook.xml" ).arg( fileName ),
+                                    &result.error ) )
+        return result;
       if ( wbToken == QXmlStreamReader::StartElement && reader.name() == QLatin1String( "workbookPr" ) )
       {
         const QString v = reader.attributes().value( QStringLiteral( "date1904" ) ).toString();
@@ -618,9 +714,8 @@ WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {
     }
     if ( reader.hasError() )
     {
-      result.error = QStringLiteral( "xl/workbook.xml 解析错误（行 %1）：%2" )
-                         .arg( reader.lineNumber() )
-                         .arg( reader.errorString() );
+      result.error = xmlsafe::parseErrorMessage(
+          reader, QStringLiteral( "%1：xl/workbook.xml" ).arg( fileName ) );
       return result;
     }
   }
@@ -684,7 +779,14 @@ WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {
                            .arg( kMaxWorkbookCells );
         return result;
       }
+      // P1-W5：行粒度协作取消（单张大表整读可叫停；取消不冒充解析失败）。
+      if ( cancel && cancel() )
+        return cancelledOut();
       const QXmlStreamReader::TokenType token = reader.readNext();
+      if ( xmlsafe::rejectDtdToken( token,
+                                    QStringLiteral( "%1：工作表「%2」" ).arg( fileName, item.second ),
+                                    &result.error ) )
+        return result;
       if ( token == QXmlStreamReader::StartElement )
       {
         const QString name = reader.name().toString();
@@ -832,10 +934,9 @@ WorkbookReadResult readXlsx( const QString &path, const QByteArray &provided = {
     finishRow();
     if ( reader.hasError() )
     {
-      result.issues.append( QStringLiteral( "%1：工作表「%2」XML 解析错误（行 %3）：%4" )
-                                .arg( fileName, sheet.name )
-                                .arg( reader.lineNumber() )
-                                .arg( reader.errorString() ) );
+      // P1-W4：工作表部件损坏保留兄弟表，但来源必须可追溯（表名 + 行列）。
+      result.issues.append( xmlsafe::parseErrorMessage(
+          reader, QStringLiteral( "%1：工作表「%2」" ).arg( fileName, sheet.name ) ) );
       continue;
     }
     if ( sheet.headers.isEmpty() )
@@ -928,7 +1029,8 @@ bool parseNumericCell( const QString &raw, double *value, bool *isPercent )
   return true;
 }
 
-WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes )
+WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes,
+                                               const ReadCancelCheck &cancel )
 {
   if ( bytes.size() > kMaxWorkbookBytes )
   {
@@ -938,7 +1040,7 @@ WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteAr
     return result;
   }
   QXmlStreamReader reader(bytes);
-  return readSpreadsheetMl( path, reader );
+  return readSpreadsheetMl( path, reader, {}, kMaxWorkbookCells, cancel );
 }
 
 WorkbookReadResult streamSpreadsheetMlWorkbook(const QString &path, const SpreadsheetMlRowVisitor &visitor)
@@ -962,15 +1064,22 @@ WorkbookReadResult streamSpreadsheetMlWorkbook(QIODevice *device, const QString 
     return result;
   }
   QXmlStreamReader reader(device);
-  if (!reader.readNextStartElement() || reader.name() != QLatin1String("Workbook") || reader.namespaceUri() != kSsNs) {
-    result.error = QStringLiteral("不是受支持的 SpreadsheetML 工作簿：%1").arg(path);
+  // P1-W3（#1023）：前导 token 统一走 xmlsafe 策略——裸 readNextStartElement()
+  // 会把 DTD 当普通前导 token 静默消耗掉，流式入口（宿主 XML 井曲线/综合柱
+  // 状图）因此从不受 DTD 拒收策略保护。XML 声明/BOM/注释/空白照常跳过。
+  QString leadingError;
+  if (!xmlsafe::advanceToRootElement(reader, path, &leadingError) ||
+      reader.name() != QLatin1String("Workbook") || reader.namespaceUri() != kSsNs) {
+    result.error = leadingError.isEmpty()
+                       ? QStringLiteral("不是受支持的 SpreadsheetML 工作簿：%1").arg(path)
+                       : leadingError;
     return result;
   }
   result = readSpreadsheetMl(path, reader, visitor, kStreamingWellCompositeCells);
   return result;
 }
 
-WorkbookReadResult readWorkbook( const QString &path )
+WorkbookReadResult readWorkbook( const QString &path, const ReadCancelCheck &cancel )
 {
   WorkbookReadResult result;
   result.path = path;
@@ -996,15 +1105,22 @@ WorkbookReadResult readWorkbook( const QString &path )
       return result;
     }
     file.close();
+    // P1-W5：整读前的协作取消点（读大文件前叫停，不留半开句柄）。
+    if ( cancel && cancel() )
+    {
+      result.cancelled = true;
+      result.error = QStringLiteral( "已取消读取：%1" ).arg( path );
+      return result;
+    }
     QByteArray xmlBytes;
     // 与上方 512MB 外闸同口径（kDefaultBoundedReadLimit=500MB 会形成外闸
     // 永不可达的 500-512MB 死区，错误文案还写着 512MB）。
     if ( !paleo::io::readBoundedFile( path, 512LL * 1024 * 1024, &xmlBytes, &result.error ) )
       return result;
-    return readSpreadsheetMlWorkbook( path, xmlBytes );
+    return readSpreadsheetMlWorkbook( path, xmlBytes, cancel );
   }
   if ( suffix == QLatin1String( "xlsx" ) )
-    return readXlsx( path ); // 非 ZIP/OOXML 由读面如实报因（不靠扩展名或 mime 猜测）
+    return readXlsx( path, {}, -1, nullptr, cancel ); // 非 ZIP/OOXML 由读面如实报因（不靠扩展名或 mime 猜测）
   result.error = QStringLiteral( "不支持的工作簿扩展名：.%1（只读 .xml/.xlsx）" ).arg( suffix );
   return result;
 }

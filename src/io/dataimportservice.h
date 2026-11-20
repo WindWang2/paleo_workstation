@@ -42,6 +42,10 @@ class DataImportService : public QObject
       QString targetWellId;      // 显式选择；new:<井名> 新建；name:<井名> 向导确认后按唯一井名解析
       QString expectedSourceSha256; // 用户已确认的预览内容，不得被后续源替换绕过
       QString displayName;       // 非空 → 资产显示名（默认原文件 basename；物理 fileName 恒不动）
+      // P1-W5：可选协作取消（返回 true = 停止解析）；空 = 不取消（旧调用方
+      // 零改动）。取消在井表读取的行粒度生效；导入以「已取消」失败，不伪装
+      // 成格式/内容错误。
+      std::function<bool()> cancelled;
     };
 
     explicit DataImportService(PaleoProjectStore *store = nullptr, QObject *parent = nullptr);
@@ -390,6 +394,11 @@ struct ImportSession
   QStringList previewedPaths;
   bool intentPrepared = false;
   QString commitPreparationError;
+  // P1-W5：批量执行器注入的行内协作取消谓词（executeIngestPlan 逐项设置/
+  // 清理；返回 true = 本项解析应尽快停止）。importOneFile 把它并入
+  // ImportOptions.cancelled 传到井表行粒度；单文件路径（produceFile）无
+  // 取消上下文时为空，行为与旧一致。
+  std::function<bool()> cancelCheck;
 
   bool ensureStagingRoot(QString *error);
   void discardStaging();

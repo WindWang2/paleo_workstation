@@ -171,7 +171,27 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   // 外链留底、预览指纹复核共用这一趟真哈希；命中性能损失由库内复核兜底
   // （versionBySha256 本就真哈希库内副本）。
   QElapsedTimer timer; timer.start();
-  ProjectClassification cls = classifyImportFile(sourcePath);
+  // P1-W5/W6：分类走详情版——批量执行器注入的行内取消谓词并入（分类期的
+  // 整读回退也要可取消）；井表容器「在场但损坏/超预算」的拒收理由随详情
+  // 带回，坏容器不得静默落入通用文件导入获得「有效」状态。
+  const auto effectiveCancel = [&s, &options]() -> std::function<bool()> {
+    if (s.cancelCheck)
+      return [&s]() { return s.cancelCheck(); };
+    if (options.cancelled)
+      return [&options]() { return options.cancelled(); };
+    return nullptr;
+  }();
+  ImportClassificationDetail classification = classifyImportFileDetailed(sourcePath, effectiveCancel);
+  if (classification.cancelled)
+  {
+    s.cancelled = true; // 取消如实标记：提交侧按取消丢弃整批，不伪装解析失败重试
+    return fail(classification.containerError.isEmpty()
+                    ? QStringLiteral("已取消：%1").arg(sourcePath)
+                    : classification.containerError);
+  }
+  if (!classification.containerError.isEmpty())
+    return fail(classification.containerError);
+  ProjectClassification cls = classification.cls;
   cls.type = resolvedProjectImportType(sourcePath, cls.type, options.forceType);
   const QString sourceSha = paleo::dataimport_detail::logFileDigest(sourcePath);
   const qint64 hashMs = timer.elapsed();
@@ -231,7 +251,14 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   if (textWellInput) {
     auto mapping = options.tableMapping;
     if (s.georeference && s.georeference->kind == QLatin1String("crs")) mapping.insert(QStringLiteral("projectCrs"), s.georeference->sourceCrs);
-    if (!paleo::io::readImportWellInput(sourcePath, cls.type, sourceSha, mapping, &tableInput, error)) return fail(*error);
+    if (!paleo::io::readImportWellInput(sourcePath, cls.type, sourceSha, mapping, &tableInput, error, effectiveCancel))
+    {
+      // P1-W5：行粒度取消传导到井表读取——取消标记会话（提交侧丢弃整批），
+      // 回执文案保持「已取消」前缀，不与解析失败混淆。
+      if (error->startsWith(QStringLiteral("已取消")))
+        s.cancelled = true;
+      return fail(*error);
+    }
     parsedHeads = tableInput.heads; parsedTops = tableInput.tops;
     parsedTd = tableInput.td; parsedDev = tableInput.deviation;
     wellReport = tableInput.report; parseSummary = wellParseSummary(wellReport);

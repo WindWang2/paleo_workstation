@@ -95,6 +95,109 @@ std::uint32_t crc32Of( const QByteArray &data )
       crc32( 0, reinterpret_cast<const Bytef *>( data.constData() ), static_cast<uInt>( data.size() ) ) );
 }
 
+// #1028：中央目录条目的 ZIP64 扩展块（extra id 0x0001）按 APPNOTE 6.3.10
+// §4.5.3 的「选择性字段」规则消费：原始大小/压缩大小/本地头偏移各自只在
+// 对应 32 位主字段为哨兵时才出现在块里，且按 (usize, csize, offset, 盘号)
+// 顺序紧排——不能按固定 +4/+12/+20 偏移读（只写部分字段的合法记录会被读
+// 越界或把哨兵残留当真值）。offset 在场时其后是 4 字节盘号（多盘不支持，
+// 非零即拒）。必需字段缺失、块截断、子块长度越界、重复 0x0001 块都确定
+// 失败；失败时 *error 给字段级上下文。
+bool consumeZip64Extra( const QByteArray &archive, int extra, int extraEnd,
+                        std::uint64_t *uncompressed, std::uint64_t *compressed,
+                        std::uint64_t *localHeaderOffset, QString *error )
+{
+  const bool needUncompressed = *uncompressed == kZip64Sentinel;
+  const bool needCompressed = *compressed == kZip64Sentinel;
+  const bool needOffset = *localHeaderOffset == kZip64Sentinel;
+  bool sawZip64 = false;
+  bool gotUncompressed = false;
+  bool gotCompressed = false;
+  bool gotOffset = false;
+  while ( extra + 4 <= extraEnd )
+  {
+    const std::uint16_t headerId = readU16( archive, extra );
+    const std::uint16_t payloadSize = readU16( archive, extra + 2 );
+    if ( extra + 4 + payloadSize > extraEnd )
+    {
+      *error = QStringLiteral( "extra 子块长度越界（id 0x%1，声明 %2 字节）" )
+                   .arg( headerId, 4, 16, QLatin1Char( '0' ) )
+                   .arg( payloadSize );
+      return false;
+    }
+    if ( headerId == kZip64ExtraHeaderId )
+    {
+      if ( sawZip64 )
+      {
+        *error = QStringLiteral( "重复的 0x0001 扩展块（值冲突不可裁定）" );
+        return false;
+      }
+      sawZip64 = true;
+      int cursor = extra + 4;
+      const int payloadEnd = cursor + payloadSize;
+      // 按序消费在场字段；每个所需字段必须完整落在块内。
+      if ( needUncompressed )
+      {
+        if ( payloadEnd - cursor < 8 )
+        {
+          *error = QStringLiteral( "扩展块里原始大小（usize）字段缺失或截断（块载荷 %1 字节）" ).arg( payloadSize );
+          return false;
+        }
+        *uncompressed = readU64( archive, cursor );
+        cursor += 8;
+        gotUncompressed = true;
+      }
+      if ( needCompressed )
+      {
+        if ( payloadEnd - cursor < 8 )
+        {
+          *error = QStringLiteral( "扩展块里压缩大小（csize）字段缺失或截断（块载荷 %1 字节）" ).arg( payloadSize );
+          return false;
+        }
+        *compressed = readU64( archive, cursor );
+        cursor += 8;
+        gotCompressed = true;
+      }
+      if ( needOffset )
+      {
+        if ( payloadEnd - cursor < 8 )
+        {
+          *error = QStringLiteral( "扩展块里本地头偏移字段缺失或截断（块载荷 %1 字节）" ).arg( payloadSize );
+          return false;
+        }
+        *localHeaderOffset = readU64( archive, cursor );
+        cursor += 8;
+        gotOffset = true;
+        // offset 在场时规范要求附带盘号；非零盘号 = 跨盘条目，明确拒绝。
+        if ( payloadEnd - cursor >= 4 )
+        {
+          const std::uint32_t disk = readU32( archive, cursor );
+          cursor += 4;
+          if ( disk != 0 )
+          {
+            *error = QStringLiteral( "条目跨盘（盘号 %1），多盘包不支持" ).arg( disk );
+            return false;
+          }
+        }
+      }
+      // 剩余载荷（对齐填充等）不再消费，也不当失败。
+    }
+    extra += 4 + payloadSize;
+  }
+  if ( !sawZip64 )
+  {
+    *error = QStringLiteral( "缺少 extra field 0x0001" );
+    return false;
+  }
+  if ( ( needUncompressed && !gotUncompressed ) || ( needCompressed && !gotCompressed ) ||
+       ( needOffset && !gotOffset ) )
+  {
+    // 理论不可达（上面的分支已逐一失败），保留兜底防哨兵残留成真值。
+    *error = QStringLiteral( "扩展块未覆盖全部哨兵字段" );
+    return false;
+  }
+  return true;
+}
+
 // raw deflate（ZIP 条目不走 zlib 头，windowBits = -MAX_WBITS）。
 QByteArray deflateRaw( const QByteArray &input, QString *error )
 {
@@ -273,36 +376,21 @@ ZipListResult zipListBytes( const QByteArray &archive )
       result.entries.clear();
       return result;
     }
-    // 条目级 ZIP64：固定字段是哨兵 → extra field 0x0001 里按（usize, csize,
-    // offset）顺序取 64 位真值（本仓写面恒写满 24 字节；他源只写前缀的也兼容）。
+    // 条目级 ZIP64：固定字段是哨兵 → extra field 0x0001 里的 64 位真值按
+    // 选择性字段顺序消费（#1028，见 consumeZip64Extra；本仓写面恒写满
+    // usize+csize+offset+盘号 28 字节，他源只写所需前缀子集的也兼容）。
     if ( compressed == kZip64Sentinel || uncompressed == kZip64Sentinel ||
          localHeaderOffset == kZip64Sentinel )
     {
       int extra = static_cast<int>( offset ) + 46 + nameLength;
       const int extraEnd = extra + extraLength;
-      bool repaired = false;
-      while ( extra + 4 <= extraEnd )
+      QString zip64Error;
+      if ( !consumeZip64Extra( archive, extra, extraEnd, &uncompressed, &compressed,
+                               &localHeaderOffset, &zip64Error ) )
       {
-        const std::uint16_t headerId = readU16( archive, extra );
-        const std::uint16_t payloadSize = readU16( archive, extra + 2 );
-        if ( extra + 4 + payloadSize > extraEnd )
-          break; // extra 字段自身越界：不吞，交给下面的未修复判错
-        if ( headerId == kZip64ExtraHeaderId )
-        {
-          if ( uncompressed == kZip64Sentinel && payloadSize >= 8 )
-            uncompressed = readU64( archive, extra + 4 );
-          if ( compressed == kZip64Sentinel && payloadSize >= 16 )
-            compressed = readU64( archive, extra + 12 );
-          if ( localHeaderOffset == kZip64Sentinel && payloadSize >= 24 )
-            localHeaderOffset = readU64( archive, extra + 20 );
-          repaired = true;
-        }
-        extra += 4 + payloadSize;
-      }
-      if ( !repaired )
-      {
-        result.error = QStringLiteral( "ZIP64 条目「%1」缺少 extra field 0x0001" )
-                           .arg( QString::fromUtf8( archive.mid( static_cast<int>( offset ) + 46, nameLength ) ) );
+        result.error = QStringLiteral( "ZIP64 条目「%1」%2" )
+                           .arg( QString::fromUtf8( archive.mid( static_cast<int>( offset ) + 46, nameLength ) ),
+                                 zip64Error );
         result.entries.clear();
         return result;
       }
@@ -451,7 +539,34 @@ bool zipExtractEntry( const QByteArray &archive, const ZipEntry &entry, QByteArr
     return fail( QStringLiteral( "条目「%1」解压后大小超过上限" ).arg( entryName ) );
   if ( item->uncompressedSize == 0 )
   {
-    out->clear(); // 空条目：inflate 零输出缓冲会返回 Z_BUF_ERROR，这里直接给空
+    // #1029：声明空输出不豁免解码——截断流、损坏流或「声明空但实际有数据」
+    // 的流都必须失败，CRC 契约（空数据 CRC32==0）同样要验。零输出给小探测
+    // 缓冲（不给空表配最大预算缓冲）：合法空流（final 空块）inflate 到
+    // Z_STREAM_END 且零输出；探测缓冲被填或输入耗尽都会以非 Z_STREAM_END
+    // 状态失败。失败时 *out 保持原值（与非空路径约定一致，只在成功时写）。
+    char probe[256];
+    z_stream stream;
+    std::memset( &stream, 0, sizeof( stream ) );
+    if ( inflateInit2( &stream, -MAX_WBITS ) != Z_OK )
+      return fail( QStringLiteral( "条目「%1」zlib 初始化失败" ).arg( entryName ) );
+    stream.next_in = reinterpret_cast<Bytef *>( const_cast<char *>( raw.constData() ) );
+    stream.avail_in = static_cast<uInt>( raw.size() );
+    stream.next_out = reinterpret_cast<Bytef *>( probe );
+    stream.avail_out = static_cast<uInt>( sizeof( probe ) );
+    const int status = inflate( &stream, Z_FINISH );
+    const uInt produced = stream.total_out;
+    inflateEnd( &stream );
+    if ( status != Z_STREAM_END || produced != 0 )
+    {
+      return fail( QStringLiteral( "条目「%1」声明的空解压流校验失败（zlib 状态 %2，得到 %3 字节，期望 0；压缩段 %4 字节）" )
+                       .arg( entryName )
+                       .arg( status )
+                       .arg( produced )
+                       .arg( raw.size() ) );
+    }
+    if ( !verifyCrc( QByteArray() ) )
+      return false; // 空数据 CRC32==0；中央目录声明非零即矛盾，verifyCrc 已报因
+    out->clear();
     return true;
   }
   z_stream stream;

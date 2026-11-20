@@ -2,6 +2,7 @@
 #include "boundedread.h" // PW-076
 #include "wellcompositexml.h"
 #include "outsourceworkbook.h"
+#include "xmlstreamsafety.h" // P1-W3：井斜/时深收集器的 DTD/解析错误策略
 
 #include <QFile>
 #include <QBuffer>
@@ -991,7 +992,10 @@ bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
 
   while (!xml.atEnd())
   {
-    xml.readNext();
+    const auto token = xml.readNext();
+    // P1-W3（#1023）：井斜/时深入口与 SpreadsheetML 主循环同一 DTD 策略。
+    if (paleo::io::xmlsafe::rejectDtdToken(token, filePath, errorMsg))
+      return false;
     if (xml.isStartElement())
     {
       const QString tag = xml.name().toString();
@@ -1065,6 +1069,15 @@ bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
       }
       sheetRows.clear();
     }
+  }
+  // P1-W4：解析错误此前被吞——坏 XML 中途截断时，已收到的部分行会以
+  // found=true 的完整结果交回（井斜/时深表静默缺尾部数据）。
+  if (xml.hasError())
+  {
+    if (errorMsg)
+      *errorMsg = paleo::io::xmlsafe::parseErrorMessage(xml, filePath);
+    rowsOut.clear();
+    return false;
   }
   return found;
 }

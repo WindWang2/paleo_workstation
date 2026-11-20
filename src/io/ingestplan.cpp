@@ -992,6 +992,10 @@ executeIngestPlan(const IngestPlan &plan, ImportSession &session,
     // 资产/行报 Failed 但资产已登记）。撤回同时清掉该行落到暂存根的受管
     // 文件，后续同内容文件也就不会 dedup 命中被撤销的版本（悬挂链接根除）。
     const DataCatalog::StagingCheckpoint rowCheckpoint = session.cat->checkpointStaging();
+    // P1-W5：行内取消源由工作流层经 ImportSession::cancelCheck 注入（任务
+    // 取消/批次取消，folderimport.cpp）——不在此处包 progress：progress 是
+    // 「每项一次」的进度/取消契约（调用方按调用次数与 done/total 记账），
+    // 条目中途反复调它会破坏该契约。
     rows.append(DataImportService::produceItem(session, item, &ierr));
     if (rows.constLast().outcome == FolderRowResult::Outcome::Failed)
       paleo::dataimport_detail::rollbackFailedRow(session, rowCheckpoint);

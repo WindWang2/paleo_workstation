@@ -43,7 +43,10 @@ void xmlIdentity(const QByteArray &prefix, SourceProbe &out)
   QXmlStreamReader xml(prefix);
   QString sheet; QStringList headers; bool curves = false;
   while (!xml.atEnd()) {
-    xml.readNext();
+    const auto token = xml.readNext();
+    // P1-W3（#1023）：身份探测与完整读取同一 DTD 策略——读到 DTD 即停止
+    // 探测（分类保持 classifyProjectImport 的结果），不展开实体取文本。
+    if (token == QXmlStreamReader::DTD) return;
     if (!xml.isStartElement()) continue;
     if (xml.name() == QLatin1String("Worksheet")) {
       sheet.clear(); headers.clear();

@@ -53,7 +53,8 @@ int coordinateColumn(const QStringList &headers, bool horizontal, const QString 
   const int labelled = column(headers, semantic);
   return labelled >= 0 ? labelled : column(headers, horizontal ? QStringList{"__geometry_x", "X"} : QStringList{"__geometry_y", "Y"});
 }
-WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, bool *limited = nullptr)
+WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, bool *limited = nullptr,
+                                const WellTableCancelCheck &cancel = {})
 {
   WorkbookReadResult out;
   int sampledRows = 0;
@@ -86,6 +87,15 @@ WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, boo
     const bool points = wkbFlatten(layer->GetGeomType()) == wkbPoint;
     if (points) sheet.headers << QStringLiteral("__geometry_x") << QStringLiteral("__geometry_y");
     while (auto *f = layer->GetNextFeature()) {
+      // P1-W5：行粒度协作取消——释放已取 feature/数据集后退出，不留半开句柄。
+      if (cancel && cancel()) {
+        OGRFeature::DestroyFeature(f);
+        GDALClose(ds);
+        out.cancelled = true;
+        out.error = QStringLiteral("已取消读取：%1").arg(path);
+        out.sheets.clear();
+        return out;
+      }
       QStringList row;
       for (int c = 0; c < def->GetFieldCount(); ++c) row << QString::fromUtf8(f->GetFieldAsString(c));
       if (points) {
@@ -287,7 +297,17 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
 {
   WellTable out;
   if (bases) bases->clear();
-  if (!wb.ok) { out.error = wb.error; return out; }
+  if (!wb.ok) {
+    out.error = wb.error;
+    // P1-W6：底层工作簿读取失败（损坏/超预算）与「读成功但不是井表」区分
+    //——前者不能静默落入通用文件导入（见 classifyImportFileDetailed）。
+    // 但「打不开的容器」是另一回事：GDAL/OGR 无法识别的坏 shp/dbf/gpkg
+    // 属于「不是井表」，基线语义是继续走通用分类（族导入/外委参考），
+    // 不能因容器拒读就拒收整个文件。容器损坏判定由调用方按扩展名细分。
+    out.cancelled = wb.cancelled;
+    out.containerBroken = !wb.cancelled;
+    return out;
+  }
   // 分层表的底界记录（与顶界同一趟行解析产出，见 parseSheet 的 basesOut）。
   QVector<WellTopRecord> layerBases;
   auto &parsedBases = bases ? *bases : layerBases;
@@ -330,15 +350,16 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
   }
   return out;
 }
-WellTable readWellTable(const QString &path, const QVariantMap &mapping)
+WellTable readWellTable(const QString &path, const QVariantMap &mapping, const WellTableCancelCheck &cancel)
 {
-  return readWellTable(path, mapping, nullptr);
+  return readWellTable(path, mapping, nullptr, cancel);
 }
-WellTable readWellTable(const QString &path, const QVariantMap &mapping, QVector<WellTopRecord> *bases)
+WellTable readWellTable(const QString &path, const QVariantMap &mapping, QVector<WellTopRecord> *bases,
+                        const WellTableCancelCheck &cancel)
 {
   const auto ext = QFileInfo(path).suffix().toLower();
-  return tableFromWorkbook(ext == "xlsx" ? readWorkbook(path) :
-      QStringList{"csv", "tsv", "txt", "dat"}.contains(ext) ? readWellDelimitedTable(path) : vectorOrText(path), mapping, bases);
+  return tableFromWorkbook(ext == "xlsx" ? readWorkbook(path, cancel) :
+      QStringList{"csv", "tsv", "txt", "dat"}.contains(ext) ? readWellDelimitedTable(path) : vectorOrText(path, 1000001, nullptr, cancel), mapping, bases);
 }
 WellTable previewWellTable(const QString &path, const QVariantMap &mapping)
 {

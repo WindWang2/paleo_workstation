@@ -8,6 +8,14 @@
 #include <functional>
 class QIODevice;
 
+namespace paleo::io {
+// P1-W5：可选协作取消谓词——返回 true 表示调用方要求停止读取。默认空 =
+// 行为与旧调用方完全一致（兼容补充，不强制改接口）。读取被取消时
+// WorkbookReadResult::cancelled 置位、error 以「已取消」开头（区别于解析
+// 失败——取消不得伪装成格式/内容错误）。
+using ReadCancelCheck = std::function<bool()>;
+}
+
 // 方向41：外委资料批量读取（上游 Drawing/drawing/single_factor/workflow.py
 // @27fdb998a32d7a7f50d7e6ef0d2ebb3a5d06378f 的扫描口径）。
 //
@@ -42,17 +50,20 @@ struct WorkbookReadResult
   QString format; // "spreadsheetml" | "xlsx"
   QVector<WorkbookSheet> sheets;
   QStringList issues;
+  bool cancelled = false; // P1-W5：取消谓词触发（error 以「已取消」开头），非解析失败
 };
 
-// 按扩展名分派（.xml → SpreadsheetML，.xlsx → OOXML）。不抛异常。
-WorkbookReadResult readWorkbook( const QString &path );
+// 按扩展名分派（.xml → SpreadsheetML，.xlsx → OOXML）。不抛异常。cancel
+// 可选（P1-W5，行粒度协作取消；缺省与旧行为一致）。
+WorkbookReadResult readWorkbook( const QString &path, const ReadCancelCheck &cancel = {} );
 // Scan-only OOXML sample: <=2 MiB archive, <=4 MiB inflated, <=200 rows/sheet.
 // A budget limit sets *limited without falling back to the complete reader.
 WorkbookReadResult previewXlsxWorkbook(const QString &path, bool *limited);
 
 // Content-selected SpreadsheetML adapter; keeps the caller's source identity
 // when the file extension differs. Uses the same cell and XML safety checks.
-WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes );
+WorkbookReadResult readSpreadsheetMlWorkbook( const QString &path, const QByteArray &bytes,
+                                              const ReadCancelCheck &cancel = {} );
 
 // Bounded file streaming for comprehensive well documents (1 GiB /
 // kStreamingWellCompositeCells input cells — 16M, attribution in the .cpp).

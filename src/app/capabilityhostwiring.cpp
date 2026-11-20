@@ -4,6 +4,7 @@
 #include "linkage/selectioncontext.h"
 #include "metadata/projectlock.h"
 #include "services/capabilityseismicinput.h"
+#include "workflow/constraintanalysisidentity.h" // P3：constraint.idw 受信单元冻结
 #include "workflow/documentsession.h"
 #include "workflow/commanddispatcher.h"
 #include "workflow/aichattoolrunner.h"
@@ -15,7 +16,8 @@
 namespace {
 using namespace paleo;
 
-QString freezeInput(capability::ExecuteRequest &request, document::DocumentSession *document) {
+QString freezeInput(capability::ExecuteRequest &request, document::DocumentSession *document,
+                   SelectionContext *selectionContext, DataCatalog *catalog, const QString &projectDir) {
   if (!document || !document->isOpen()) return QStringLiteral("document_unavailable");
   if ((request.seismicTrace || request.inputs.contains(QStringLiteral("seismic_selection"))) &&
       request.capabilityId != QLatin1String("seismic.attributes.compute"))
@@ -25,6 +27,14 @@ QString freezeInput(capability::ExecuteRequest &request, document::DocumentSessi
     return QStringLiteral("binding_resolution_required");
   if (request.seismicTrace)
     return capability::bindSeismicTrace(request, *document, request.seismicTrace->selection);
+  // P3/W4：constraint.idw 的受信输入冻结——单元取宿主当前选择（DS 实体核验，
+  // aggregate 拒绝），请求自带的 subinterval 与之不符即拒绝；points/constraints
+  // 引用只把能解析到真实 catalog 版本的记为父版本。全部逻辑在
+  // workflow/constraintanalysisidentity（组装根只做指针/目录接线，测试共用实现）。
+  if (request.capabilityId == QLatin1String("constraint.idw"))
+    return paleo::constraint_identity::freezeConstraintIdwRequest(
+        request, projectDir, catalog,
+        selectionContext ? selectionContext->activeUnit() : paleo::strat::UnitSelection{});
   if (!request.inputs.contains(QStringLiteral("seismic_selection"))) return {};
   const auto value = QJsonObject::fromVariantMap(request.inputs.value(QStringLiteral("seismic_selection")).toMap());
   capability::SeismicTraceSelection selection;
@@ -85,7 +95,12 @@ paleo::capability::HostBinding captureCapabilityBinding(
   binding.catalog = catalog; binding.projectDir = catalog->projectDir();
   binding.operationDir = binding.projectDir + QStringLiteral("/.paleo/capability-ops");
   const QPointer<document::DocumentSession> guard(document);
-  binding.freeze = [guard](capability::ExecuteRequest &request) { return freezeInput(request, guard); };
+  const QPointer<SelectionContext> selectionGuard(selection);
+  const QPointer<DataCatalog> catalogGuard(catalog);
+  const QString projectDir = binding.projectDir;
+  binding.freeze = [guard, selectionGuard, catalogGuard, projectDir](capability::ExecuteRequest &request) {
+    return freezeInput(request, guard, selectionGuard, catalogGuard, projectDir);
+  };
   binding.validateInputs = [guard](const capability::ExecuteRequest &request) { return validateInput(request, guard); };
   return binding;
 }

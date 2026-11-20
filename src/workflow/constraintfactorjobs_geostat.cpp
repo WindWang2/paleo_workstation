@@ -29,6 +29,8 @@
 #include "../services/singlefactordef.h"
 #include "boundarysemantics.h" // 相界地质语义类型词表
 #include "constraintfactorjobs_internal.h"
+#include "constraintanalysisidentity.h"
+#include "factorevidenceconfirmation.h"
 #include "constraintworkflow_internal.h"
 #include "constraintuseplan.h"
 #include "derivedassets.h"
@@ -1266,17 +1268,32 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     paleo::workflow_detail::setError( error, tr( "缺少地质统计任务" ) );
     return false;
   }
+  // P3/W1：地统准备入口统一解析稳定分析单元（直接调用方/测试同样过闸）；
+  // 拒绝 aggregate 成图（正式新分析按 S1–S4 运行）。成果键=layerToken、
+  // 约束/井点键=父单元上界面；调用方自带的同名键被冻结结果覆盖。
+  paleo::constraint_identity::FrozenAnalysisIdentity identity;
+  if ( !paleo::constraint_identity::resolveAnalysisIdentity(
+           projectDir(), horizon, params, paleo::constraint_identity::AggregatePolicy::Reject,
+           identity, error ) )
+    return false;
+  identity.enrichParams( params );
+  // P3/W3：调用方携带的父版本必须是真实存在的 catalog 版本（伪造 id 数值前拒绝）。
+  if ( !paleo::constraint_identity::callerParentVersionsExist(
+           catalog(), params.value( QStringLiteral( "parentVersionIds" ) ).toStringList(), error ) )
+    return false;
   if ( method != QLatin1String( "kriging" ) && method != QLatin1String( "sgs" ) &&
        method != QLatin1String( "cokriging" ) )
   {
     paleo::workflow_detail::setError( error, tr( "未知地质统计方法：%1" ).arg( method ) );
     return false;
   }
-  if (!prepareFactorInputs(horizon, factorId, params, error))
+  if (!prepareFactorInputs(factorConstraintHorizonKey(horizon, params), factorId, params, error))
     return false;
   *job = GeostatJob();
   job->generation = ++m_publishGeneration;
-  job->horizon = horizon;
+  // P3/W2：job.horizon 承载分析成果键（factor.<key>.<fid>）；约束/井点查找
+  // 一律走 params["constraintHorizon"]（factorConstraintHorizonKey）。
+  job->horizon = identity.analysisLayerKey;
   job->factorId = factorId;
   job->method = method;
   job->params = params;
@@ -1284,9 +1301,9 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
   {
     paleo::singlefactor::ConstraintMethodContext useContext;
     useContext.methodId = method;
-    useContext.horizon = horizon;
+    useContext.horizon = factorConstraintHorizonKey( horizon, params );
     const paleo::singlefactor::ConstraintUsePlan plan =
-        paleo::singlefactor::planConstraintUse( store->load( horizon ), useContext );
+        paleo::singlefactor::planConstraintUse( store->load( factorConstraintHorizonKey( horizon, params ) ), useContext );
     job->constraintsUnused = plan.summary.value( QStringLiteral( "unused" ) ).toList();
     job->constraintCapability = plan.capabilityNote;
     // P3：SGS 冻结计划判定消费的硬屏障部件几何（store CRS 值对象——主线程
@@ -1360,10 +1377,13 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     return false;
   }
   const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
-  const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon ) : overridePoints;
+  const QString pointsId = overridePoints.isEmpty()
+                               ? wellsLayerIdFor( layers, factorConstraintHorizonKey( horizon, params ) )
+                               : overridePoints;
   if ( pointsId.isEmpty() )
   {
-    paleo::workflow_detail::setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
+    paleo::workflow_detail::setError(
+        error, tr( "层位 %1 没有井点图层" ).arg( factorConstraintHorizonKey( horizon, params ) ) );
     return false;
   }
   QVector<LayerDeclaration> declared;
@@ -1421,8 +1441,8 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     bool known = false;
     const auto definition = SingleFactorRegistry::byId(factorId, &known);
     job->staging = registrar.stage(
-        "single_factor_raster", tr("%1·%2").arg(definition.title, horizon),
-        QStringLiteral("FACTOR_%1_%2.tif").arg(factorId, horizon), &stageError);
+        "single_factor_raster", tr("%1·%2").arg(definition.title, identity.analysisLayerKey),
+        QStringLiteral("FACTOR_%1_%2.tif").arg(factorId, identity.analysisLayerKey), &stageError);
     if (!job->staging.isValid()) {
       paleo::workflow_detail::setError(error, stageError);
       return false;
@@ -1790,6 +1810,8 @@ bool ConstraintWorkflow::publishGeostatJob( GeostatJob &job, QString *error )
     return false;
   }
   job.catalogPublished = true; // 已只读入册——后续 declare/集合/统计失败不回删
+  // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
+  finalizeFactorEvidence( st.versionId, job.params );
   if ( !declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
                              st.assetId, error ) )
   {

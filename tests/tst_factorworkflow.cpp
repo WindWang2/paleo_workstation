@@ -430,11 +430,16 @@ class TestFactorWorkflow : public QObject
       QCOMPARE(mapped,2);QCOMPARE(calculated,3);
       QVERIFY(ds.openProjectReadOnly(root.toStdString(),detail));std::vector<paleo::data::SubIntervalResultBinding> bindings;
       QVERIFY(ds.listSubIntervalResults(unit.schemeId.toStdString(),{unit.subIntervalId.toStdString()},bindings,detail));
-      QCOMPARE(std::count_if(bindings.begin(),bindings.end(),[](const auto &b){return b.kind=="single_factor";}),3);
+      // P3/W5：发布尾部即时投影（syncAnalysisResults）按同一权威规则登记证据：
+      // 3 个井级砂地比绑定 + 1 个井点样版本绑定（well_factor_points 资产 type
+      // 含 "factor"，与显式后台同步同口径——只是更早可见）。
+      QCOMPARE(std::count_if(bindings.begin(),bindings.end(),[](const auto &b){return b.kind=="single_factor";}),4);
+      int acquisitionBindings=0;
       for(const auto &binding:bindings)if(binding.kind=="single_factor"){
         const auto payload=QJsonDocument::fromJson(QByteArray::fromStdString(binding.detailJson)).object();
-        QVERIFY(payload.value("acquisition").toObject().contains("valueMethod"));
+        if(payload.value("acquisition").toObject().contains("valueMethod"))++acquisitionBindings;
       }
+      QCOMPARE(acquisitionBindings,3); // 井级绑定仍带提取口径摘要
       const auto boundaryId=workflow.ensureProjectBoundary(&error);QVERIFY2(!boundaryId.isEmpty(),qPrintable(error));
       auto *boundary=qobject_cast<QgsVectorLayer *>(f.layers.layer(boundaryId));QVERIFY(boundary);QCOMPARE(boundary->featureCount(),qint64(1));
       QCOMPARE(boundary->extent(),QgsRectangle(300000,2350000,301000,2351000));

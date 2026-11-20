@@ -24,6 +24,8 @@
 #include "../services/singlefactordef.h"
 #include "boundarysemantics.h" // 相界地质语义类型词表
 #include "constraintfactorjobs_internal.h"
+#include "constraintanalysisidentity.h"
+#include "factorevidenceconfirmation.h"
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "algorithmpublish.h"
@@ -74,11 +76,22 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
     paleo::workflow_detail::setError( error, tr( "缺少本地方向任务" ) );
     return false;
   }
-  if (!prepareFactorInputs(horizon, factorId, params, error))
+  // P3/W1：本地方向族（surfer_idw/local_direction_*）准备入口统一解析稳定分析
+  // 单元；成果键=layerToken，约束/井点键=父单元上界面（冻结结果覆盖调用方键）。
+  paleo::constraint_identity::FrozenAnalysisIdentity identity;
+  if ( !paleo::constraint_identity::resolveAnalysisIdentity(
+           projectDir(), horizon, params, paleo::constraint_identity::AggregatePolicy::Reject,
+           identity, error ) )
+    return false;
+  identity.enrichParams( params );
+  if ( !paleo::constraint_identity::callerParentVersionsExist(
+           catalog(), params.value( QStringLiteral( "parentVersionIds" ) ).toStringList(), error ) )
+    return false;
+  if (!prepareFactorInputs(factorConstraintHorizonKey(horizon, params), factorId, params, error))
     return false;
   *job = LocalDirectionJob();
   job->generation = ++m_publishGeneration;
-  job->horizon = horizon;
+  job->horizon = identity.analysisLayerKey;
   job->factorId = factorId;
   job->params = params;
   job->engineId = params.value(QStringLiteral("method")).toString() == QLatin1String("surfer_idw")
@@ -118,10 +131,13 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
   }
 
   const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
-  const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon ) : overridePoints;
+  const QString pointsId = overridePoints.isEmpty()
+                               ? wellsLayerIdFor( layers, factorConstraintHorizonKey( horizon, params ) )
+                               : overridePoints;
   if ( pointsId.isEmpty() )
   {
-    paleo::workflow_detail::setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
+    paleo::workflow_detail::setError(
+        error, tr( "层位 %1 没有井点图层" ).arg( factorConstraintHorizonKey( horizon, params ) ) );
     return false;
   }
   QVector<LayerDeclaration> declared;
@@ -147,13 +163,13 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
   }
   job->parentPaths << job->wellUri.section( QLatin1Char( '|' ), 0, 0 );
 
-  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( factorConstraintHorizonKey( horizon, params ) );
   job->hasConstraints = std::any_of(
       declared.cbegin(), declared.cend(),
       [&constraintLayerId]( const LayerDeclaration &d ) { return d.layerId == constraintLayerId; } );
   if ( job->hasConstraints )
   {
-    const QString frozen = constraintSnapshotPath( horizon ); // L-01：typed 通道替代动态属性
+    const QString frozen = constraintSnapshotPath( factorConstraintHorizonKey( horizon, params ) ); // L-01：typed 通道替代动态属性
     job->constraintUri = frozen.isEmpty() ? sourceOf( constraintLayerId )
                                            : frozen + QStringLiteral( "|layername=features" );
     if ( job->constraintUri.isEmpty() )
@@ -163,7 +179,7 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
     }
     job->parentPaths << job->constraintUri.section( QLatin1Char( '|' ), 0, 0 );
   }
-  const QString snapshot = constraintSnapshotPath( horizon ); // L-01：typed 通道
+  const QString snapshot = constraintSnapshotPath( factorConstraintHorizonKey( horizon, params ) ); // L-01：typed 通道
   if ( !snapshot.isEmpty() )
     job->parentPaths << snapshot;
   QString stageError;
@@ -570,6 +586,8 @@ bool ConstraintWorkflow::publishLocalDirectionJob( LocalDirectionJob &job, QStri
   }
   discardTemp();
   job.catalogPublished = true; // 已只读入册——后续 declare 失败不回删（悬垂版本防线）
+  // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
+  finalizeFactorEvidence( st.versionId, job.params );
   return declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
                               st.assetId, error );
 }

@@ -278,8 +278,11 @@ class ConstraintWorkflow : public QObject
     // constraintRemoved 刷新。已实例化的 constraints.<horizon> 图层由壳侧重载。
     bool removeConstraint(const QString &constraintId, QString *error = nullptr);
     QVector<QVariantMap> loadConstraints(const QString &horizon = QString());
+    // P3：params 携带完整分析上下文（unitSelection 等；UI 由 AnalysisBinding 转发）。
+    // 引擎入口统一冻结稳定单元——工程已有方案时缺单元/伪造单元在数值前拒绝。
     bool runConstraintIDW(const QString &horizon, const QString &pointsLayerId, const QString &field,
-                          double cellSize, QString *error = nullptr);
+                          double cellSize, QString *error = nullptr,
+                          const QVariantMap &params = {});
 
     // ---- m2(B) 单因素图页（§10 词表驱动）----
     // 注册表项生成链：解析井点图层（原 runIdwRequested 壳里的 wells 查找逻辑
@@ -532,8 +535,17 @@ class ConstraintWorkflow : public QObject
                                        const QString &layerId);
     void constraintLineUpdated(const QString &constraintId);
     void constraintRemoved(const QString &constraintId);
+    // P3/W6：受管成果已提交但权威证据（DS 绑定）未确认——携带精确版本与
+    // 原因；完成判定不得把该状态当作全部成功。
+    void factorEvidencePending(const QString &versionId, const QString &reason);
+
+  public:
+    // P3/W7：定向恢复/重试——按已持久化的 evidence_pending 工作清单补投影与
+    // 绑定核验（幂等，按 catalog.<versionId> 绑定 id 去重），返回仍待确认数。
+    int retryPendingFactorEvidence(QString *error = nullptr);
 
   private:
+    void finalizeFactorEvidence(const QString &versionId, const QVariantMap &params);
     PaleoTaskService *m_factorTasks = nullptr;
     QPointer<PaleoTask> m_factorJobTask;
     QPointer<QgisProcessingService> m_proc;

@@ -119,6 +119,20 @@ Shell、在线包管理、通用文件／SQL／HTTP 工具、持久解释器和�
   提取依据见 `docs/progress/wip-salvage-20261018.md`。实施须覆盖数值、空值、舍入及历史结果，
   不改原始数据。该条为待实现需求，不表示当前已支持。
 
+## P3 — 单因素证据未完成状态的用户呈现（factor publication 收尾，2026-11-20）
+
+- **What:** #972 单因素/插值/constraint.idw 子集的单元身份与证据发布已落地
+  （见 `docs/progress/p3-factor-publication-20261119.md`）：`ConstraintWorkflow::
+  factorEvidencePending(versionId, reason)` 信号与 `retryPendingFactorEvidence()`
+  恢复入口已实现并有测试，但尚无生产连接方——栅格路径的证据未完成状态只持久化
+  在版本 `extra.evidence_pending`（{step,error,bindingId,unitKey}），井点路径已
+  在 `m_wellFactorMessage` 如实追加。待办：在约束页状态栏/任务中心连接该信号
+  （或在恢复入口提供「补确认」动作），使用户可见「已提交但证据未确认」与恢复路径。
+- **边界:** 连接属 UI 装配（`paleomainwindow_attach_constraint.cpp` 的
+  runConstraintPageIdw 之外区域归 P5 装配轮次），本任务不扩 UI seam；
+  持久化契约与幂等重试已就绪，连接只是呈现层工作。
+- **验收:** DS 失败后状态在约束页可见；重试/后台重复投影后状态收敛且不重复。
+
 ## P3 — 快捷键与帮助面
 
 - 解决图层树 Delete 与数据树、顶点工具的键位遮蔽，保留真实交互覆盖。

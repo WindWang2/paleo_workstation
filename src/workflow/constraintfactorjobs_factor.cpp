@@ -27,6 +27,8 @@
 #include "../services/singlefactordef.h"
 #include "boundarysemantics.h" // 相界地质语义类型词表
 #include "constraintfactorjobs_internal.h"
+#include "constraintanalysisidentity.h"
+#include "factorevidenceconfirmation.h"
 #include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "algorithmpublish.h"
@@ -81,11 +83,25 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
   QVariantMap params = inputParams;
-  // UnitSelection 桥接：分析成果键与约束界面键可分离（禁止调用方拆分 T70 字符串）。
-  if ( !params.contains( QStringLiteral( "constraintHorizon" ) ) )
-    params.insert( QStringLiteral( "constraintHorizon" ), horizon );
-  if ( !params.contains( QStringLiteral( "analysisLayerKey" ) ) )
-    params.insert( QStringLiteral( "analysisLayerKey" ), horizon );
+  // P3/W4 卫生：剥离调用方可设的 prepared 信任键（引擎自标记只由引擎产生）。
+  params.remove(QStringLiteral("factorInputPrepared"));
+  params.remove(QStringLiteral("prepared_by_engine"));
+  // P3/W1：正式单因素入口先冻结稳定分析单元（Data Service 实体核验；拒绝
+  // 伪造 subinterval/错修订/aggregate）。成果键=layerToken、约束/井点键=父单元
+  // 上界面，由引擎一次裁决——调用方自带的同名键被冻结结果覆盖，不再回退
+  // horizon。工程无任何已提交方案（无可选单元）时维持 legacy 键。
+  paleo::constraint_identity::FrozenAnalysisIdentity identity;
+  if ( !paleo::constraint_identity::resolveAnalysisIdentity(
+           projectDir(), horizon, params, paleo::constraint_identity::AggregatePolicy::Reject,
+           identity, error ) )
+    return false;
+  identity.enrichParams( params );
+  // P3/W3：调用方携带的 parentVersionIds 必须是真实存在的 catalog 版本
+  //（mappingworkbench 的 ensureInputVersion 快照满足）；伪造 id 在任何数值/
+  // 暂存动作之前拒绝，不允许冒充已核实的血缘凭证进入发布父集合。
+  if ( !paleo::constraint_identity::callerParentVersionsExist( catalog(),
+           params.value( QStringLiteral( "parentVersionIds" ) ).toStringList(), error ) )
+    return false;
   if (factorId == QLatin1String("strathick") && params.contains("factorSource") &&
       params.value("factorSource") != QLatin1String("wells") && params.value("factorSource") != QLatin1String("surfaces")) {
     paleo::workflow_detail::setError(error, tr("未知地层厚度来源，请选择井分层厚度或构造面相减"));
@@ -192,8 +208,9 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   }
 
   const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
-  const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon )
-                                                    : overridePoints;
+  const QString pointsId = overridePoints.isEmpty()
+                               ? wellsLayerIdFor( layers, factorConstraintHorizonKey( horizon, params ) )
+                               : overridePoints;
   if ( pointsId.isEmpty() )
   {
     paleo::workflow_detail::setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
@@ -299,7 +316,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
             "manifest_layer_id",
             QStringLiteral( "factor.%1.%2" ).arg( factorResultHorizonKey( horizon, params ), factorId )); // C4：catalog 侧权威反链（清单 layerId）
         extra.insert("layer_type", "raster");
-        extra.insert("title", tr("%1·%2").arg(def.title, horizon));
+        extra.insert("title", tr("%1·%2").arg(def.title, factorResultHorizonKey( horizon, params )));
         extra.insert("group", "04_SingleFactor");
         extra.insert(QStringLiteral("factor_id"), factorId);
         extra.insert(QStringLiteral("field"), field);
@@ -309,7 +326,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         // 逐条记实际消费/未用原因；"constrained" 只表示传了约束层，不代表被用。
         paleo::constraint_detail::insertConstraintReceiptExtras(results, extra);
         paleo::constraint_detail::insertSampleReceiptExtras(results, extra);
-        extra.insert(QStringLiteral("horizon"), horizon);
+        extra.insert(QStringLiteral("horizon"), factorResultHorizonKey( horizon, params ));
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
         parentPaths.append(
@@ -336,11 +353,13 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
           paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
+        // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
+        finalizeFactorEvidence( st.versionId, params );
 
         // 色带样式落盘
         // <projectDir>/styles/factor_<factorId>.qml（best-effort）与
         // 声明/盖章/通知收尾见 declareFactorResult（三引擎共用）。
-        return declareFactorResult(layers, horizon, factorId, def, outPath,
+        return declareFactorResult(layers, factorResultHorizonKey( horizon, params ), factorId, def, outPath,
                                    registrar.projectDir(), st.assetId, error);
       },
       error);
@@ -451,8 +470,10 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
           paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
+        // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
+        finalizeFactorEvidence( st.versionId, params );
 
-        return declareFactorResult(layers, horizon, factorId, def, outPath,
+        return declareFactorResult(layers, factorResultHorizonKey( horizon, params ), factorId, def, outPath,
                                    registrar.projectDir(), st.assetId, error);
       },
       error);
@@ -489,8 +510,9 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
   }
 
   const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
-  const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon )
-                                                    : overridePoints;
+  const QString pointsId = overridePoints.isEmpty()
+                               ? wellsLayerIdFor( layers, factorConstraintHorizonKey( horizon, params ) )
+                               : overridePoints;
   if ( pointsId.isEmpty() )
   {
     paleo::workflow_detail::setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
@@ -576,7 +598,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
         extra.insert(QStringLiteral("constrained"), hasConstraints);
         // P2：距离变换引擎回执 → 血缘（display_only/停用打断线不隔断，逐条留因）。
         paleo::constraint_detail::insertConstraintReceiptExtras(results, extra);
-        extra.insert(QStringLiteral("horizon"), horizon);
+        extra.insert(QStringLiteral("horizon"), factorResultHorizonKey( horizon, params ));
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
         extra.insert(
@@ -595,10 +617,12 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
           paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
+        // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
+        finalizeFactorEvidence( st.versionId, params );
 
         // 色带样式落盘（welldist 绿→灰预设已备；best-effort）与收尾同 IDW 路径
         // （declareFactorResult，三引擎共用）。
-        return declareFactorResult(layers, horizon, factorId, def, outPath,
+        return declareFactorResult(layers, factorResultHorizonKey( horizon, params ), factorId, def, outPath,
                                    registrar.projectDir(), st.assetId, error);
       },
       error);
@@ -685,8 +709,9 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
   }
 
   const QString overridePoints = params.value( QStringLiteral( "pointsLayerId" ) ).toString();
-  const QString pointsId = overridePoints.isEmpty() ? wellsLayerIdFor( layers, horizon )
-                                                    : overridePoints;
+  const QString pointsId = overridePoints.isEmpty()
+                               ? wellsLayerIdFor( layers, factorConstraintHorizonKey( horizon, params ) )
+                               : overridePoints;
   if ( pointsId.isEmpty() )
   {
     paleo::workflow_detail::setError( error, tr( "层位 %1 没有井点图层" ).arg( horizon ) );
@@ -931,7 +956,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
         QVariantList parentList;
         for (const QString &id : parentIds)
           parentList << id;
-        hashParams.insert(QStringLiteral("horizon"), horizon);
+        hashParams.insert(QStringLiteral("horizon"), factorResultHorizonKey( horizon, params ));
         hashParams.insert(QStringLiteral("factor_id"), factorId);
         hashParams.insert(QStringLiteral("parent_version_ids"), parentList);
         const paleo::singlefactor::ParameterHash hash =
@@ -971,7 +996,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
                      QStringLiteral("factor.%1.%2").arg(factorResultHorizonKey(horizon, params), factorId));
         extra.insert(QStringLiteral("layer_type"), QStringLiteral("raster"));
         extra.insert(QStringLiteral("title"),
-                     tr("%1·%2").arg(def.title, horizon));
+                     tr("%1·%2").arg(def.title, factorResultHorizonKey( horizon, params )));
         extra.insert(QStringLiteral("group"),
                      QStringLiteral("04_SingleFactor"));
         extra.insert(QStringLiteral("factor_id"), factorId);
@@ -981,7 +1006,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
         extra.insert(QStringLiteral("grid_resolution"),
                      runParams.value(QStringLiteral("GRID_RESOLUTION")));
         extra.insert(QStringLiteral("constrained"), hasConstraints);
-        extra.insert(QStringLiteral("horizon"), horizon);
+        extra.insert(QStringLiteral("horizon"), factorResultHorizonKey( horizon, params ));
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
         extra.insert(QStringLiteral("value_source"),
@@ -1028,6 +1053,8 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
           paleo::workflow_detail::setError( error, commitErr );
           return false;
         }
+        // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
+        finalizeFactorEvidence( st.versionId, params );
 
         // 参与井点（非控制点）→ samples.<层位>.<因素>
         // 点图层（样式在后续工作流）。
@@ -1041,9 +1068,9 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
                   : writeStructuralSamples(samplesPath, wells, boundaryCrs,
                                            &samplesErr)) {
             LayerDeclaration sdecl;
-            sdecl.layerId =
-                QStringLiteral("samples.%1.%2").arg(horizon, factorId);
-            sdecl.horizon = horizon;
+            sdecl.layerId = QStringLiteral("samples.%1.%2")
+                                 .arg( factorResultHorizonKey( horizon, params ), factorId );
+            sdecl.horizon = factorResultHorizonKey( horizon, params );
             sdecl.type = QStringLiteral("vector");
             sdecl.source = samplesPath + QStringLiteral("|layername=samples");
             sdecl.group = QStringLiteral("04_SingleFactor");
@@ -1052,7 +1079,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
           }
         }
 
-        return declareFactorResult(layers, horizon, factorId, def,
+        return declareFactorResult(layers, factorResultHorizonKey( horizon, params ), factorId, def,
                                    st.absolutePath, registrar.projectDir(),
                                    st.assetId, error);
       },
@@ -1116,6 +1143,29 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
 // 三个单因素引擎（IDW / paleo_isopach / paleo_distance_transform）共用同一份
 // 收尾：样式 best-effort 落盘（写失败不拦栅格成果）+ factor.<horizon>.<factorId>
 // 栅格声明 + C4 资产关联补盖 + factorGenerated。声明失败不发成功信号。
+// P3/W6：发布尾部证据确认收口——受管版本已提交后，核验权威 DS 绑定是否
+// 存在（复用幂等投影器）；未确认则持久化剩余步骤（版本 extra.evidence_pending）
+// 并发 factorEvidencePending(versionId, reason)。失败不回滚已提交产物，
+// 不把部分成功伪装成完整成功；legacy 工程无冻结单元则无证据可登记。
+void ConstraintWorkflow::finalizeFactorEvidence( const QString &versionId, const QVariantMap &params )
+{
+  if ( versionId.isEmpty() )
+    return;
+  const auto unit = paleo::strat::fromMap( params.value( QStringLiteral( "unitSelection" ) ).toMap() );
+  if ( !unit.isValid() )
+    return;
+  const auto result =
+      paleo::factor_evidence::confirmVersionEvidence( catalog(), projectDir(), versionId, unit );
+  if ( !result.evidenceConfirmed )
+    emit factorEvidencePending( versionId, result.pendingReason );
+}
+
+// P3/W7：按持久化工作清单定向补确认（幂等；不重算、不建新版本）。
+int ConstraintWorkflow::retryPendingFactorEvidence( QString *error )
+{
+  return paleo::factor_evidence::retryPendingEvidence( catalog(), projectDir(), error );
+}
+
 bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
                                               const QString &horizon, const QString &factorId,
                                               const SingleFactorDefinition &def,
@@ -1131,7 +1181,8 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
   }
 
   LayerDeclaration decl;
-  // horizon 入口在分析模式下已是 analysisLayerKey（稳定令牌）；旧路径仍是界面名。
+  // P3：horizon 实参一律为冻结分析键（factorResultHorizonKey=layerToken；
+  // legacy 工程无方案时回落界面名），全部调用方已在发布尾部统一换算。
   decl.layerId = QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId );
   decl.horizon = horizon;
   decl.type = QStringLiteral( "raster" );

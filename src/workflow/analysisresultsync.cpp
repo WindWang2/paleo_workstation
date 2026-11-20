@@ -17,6 +17,9 @@ const QString geometryStaleReason=QStringLiteral("分析层段输入已变化，
 struct CatalogStaleProjection {
   DataCatalog *catalog;
   QSet<QString> versions;
+  // P3/W7：本轮绑定成功的版本——投影收尾时一并清除 evidence_pending（后台
+  // 重复投影自愈；权威证据已由绑定本身证实，标记只是待办记录）。
+  QSet<QString> evidenceConfirmed;
   void include(const QString &versionId) {
     if(versions.contains(versionId))return;
     const auto version=catalog->versionById(versionId);
@@ -33,6 +36,11 @@ struct CatalogStaleProjection {
       for(const auto &patch:{qMakePair(QStringLiteral("stale"),QVariant(true)),qMakePair(QStringLiteral("staleReason"),QVariant(geometryStaleReason))}) {
         CatalogOp op;op.kind=CatalogOp::Kind::UpdateVersionExtra;op.id=id;op.extraKey=patch.first;op.extraValue=patch.second;ops.append(op);
       }
+    }
+    for(const auto &id:evidenceConfirmed) {
+      if(cancelled&&cancelled())return QStringLiteral("分析成果同步已取消");
+      if(!catalog->versionById(id).extra.contains("evidence_pending"))continue;
+      CatalogOp op;op.kind=CatalogOp::Kind::UpdateVersionExtra;op.id=id;op.extraKey="evidence_pending";ops.append(op);
     }
     QString error;
     if(!catalog->isStaging())return catalog->applyJournal(ops,&error)?QString():error;
@@ -98,9 +106,33 @@ QString resultKind(const QString &type) {
   if (type == "well_litho_intervals" || type == "well_facies_prediction" || type == "wells_prediction") return "well_facies";
   if (type == "facies_polygons" || type == "edited_facies" || type == "composed_facies") return "map";
   if (type == "facies_fusion_raster") return "composite";
-  if (type.contains("factor") || type.startsWith("thickness_") || type=="contour_lines") return "single_factor";
+  // P3/W5：约束插值主栅格按类型进入单因素证据（成员 extra 带冻结单元，
+  // identity() 过滤无单元历史产物——只读兼容，不补造假身份）。
+  if (type == "constraint_idw_raster" ||
+      type.contains("factor") || type.startsWith("thickness_") || type=="contour_lines") return "single_factor";
   return {};
 }
+// P3/W5：agent_result 里只精确识别「已由 Host freeze 钩子核验单元 + 受信算法
+// 契约」的 constraint.idw 产物——依据 subinterval_verified 标记 + 冻结
+// unitSelection + algorithm_id，不按文件名/任意 extra.kind/displayName 猜类型。
+// 其余 agent_result（无核验标记）维持跳过，不冒充 single_factor。
+namespace {
+QString hostVerifiedConstraintIdwKind(const CatalogVersion &version) {
+  if (!version.extra.value(QStringLiteral("subinterval_verified")).toBool()) return {};
+  if (version.extra.value(QStringLiteral("algorithm_id")).toString() !=
+      QStringLiteral("paleo:paleo_constraint_idw"))
+    return {};
+  const auto unit = paleo::strat::fromMap(version.extra.value(QStringLiteral("unitSelection")).toMap());
+  if (!unit.isValid() || unit.aggregate) return {};
+  if (version.extra.value(QStringLiteral("subIntervalId")).toString() != unit.subIntervalId) return {};
+  // 与宿主冻结/worker 盖戳同口径：subIntervalId、schemeId、schemeRevision 三字段
+  // 必须与 unitSelection 逐字一致（工具 JSON 无法只改其一混过）。
+  if (version.extra.value(QStringLiteral("schemeId")).toString() != unit.schemeId ||
+      version.extra.value(QStringLiteral("schemeRevision")).toString() != unit.revision)
+    return {};
+  return QStringLiteral("single_factor");
+}
+} // namespace
 bool stale(DataCatalog *catalog, const CatalogVersion &v, QSet<QString> &seen,const QSet<QString> &projected,bool ignoreOwnGeometry=false) {
   if (v.id.isEmpty() || seen.contains(v.id)) return true;
   seen.insert(v.id);
@@ -144,6 +176,7 @@ QString syncWellChildren(paleo::data::DataService &ds,DataCatalog *catalog,const
     detail.insert("topMd",range.top);detail.insert("bottomMd",range.bottom);
     binding.detailJson=QJsonDocument(QJsonObject::fromVariantMap(detail)).toJson(QJsonDocument::Compact).toStdString();
     if(!ds.bindSubIntervalResult(binding,stored,error))return QString::fromStdString(error);registered.insert(id);
+    if(!outdated)projection.evidenceConfirmed.insert(version.id);
   }
   return {};
 }
@@ -206,7 +239,11 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
   if (!error.isEmpty()) return error;
   for (const auto &v : catalog->versions()) {
     if (cancelled && cancelled()) return {};
-    const QString kind = resultKind(catalog->assetById(v.assetId).type);
+    const QString assetType = catalog->assetById(v.assetId).type;
+    // P3/W5：Host 核验的 constraint.idw agent_result 精确识别；其余 agent_result
+    // 不进入任何证据分类（不按文件名/任意 extra 猜类型）。
+    QString kind = resultKind(assetType);
+    if (kind.isEmpty() && assetType == "agent_result") kind = hostVerifiedConstraintIdwKind(v);
     if (kind.isEmpty() || v.stage == "RAW") continue;
     const auto unit = analysisResultUnitSelection(catalog,v);
     if (!unit.isValid() || unit.schemeId.isEmpty() || unit.revision.isEmpty()) continue;
@@ -248,7 +285,7 @@ QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,
     std::string failure;
     if (!ds.bindSubIntervalResult(b, stored, failure)) return QString::fromStdString(failure);
     registered.insert(id);
-    if(outdated)invalidated.insert(id);
+    if(outdated)invalidated.insert(id);else projection.evidenceConfirmed.insert(v.id);
   }
   // A parent can appear after its descendants in catalog storage order. Finish
   // the SDK projection from the indexed downstream closure before publishing.

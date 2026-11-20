@@ -1,6 +1,7 @@
 // 层：测试壳
 #include <QtTest>
 #include <qgsapplication.h>
+#include <paleo_data/service.h>
 #include "workflow/capabilityhost.h"
 #include "workflow/capabilitynativeoperation.h"
 #include "workflow/chatresultstore.h"
@@ -9,6 +10,13 @@
 #include "catalog/datacatalog.h"
 #include "metadata/projectlock.h"
 #include "services/paleotaskservice.h"
+#include "services/subintervalfactors.h"
+#include "io/areamodel.h"
+#include "services/stratigraphicsubintervals.h"
+#include <QCryptographicHash>
+#include "workflow/analysisresultsync.h"
+#include "workflow/constraintanalysisidentity.h"
+#include "workflow/derivedassets.h"
 #include "algorithms/velocitymodel.h"
 #include <QTemporaryDir>
 #include <QFile>
@@ -90,6 +98,99 @@ private slots:
     h.providerOnline=false;const auto q=h.service.prepare(publish,host::Caller::Agent);QVERIFY2(q.ok,qPrintable(q.code));done=false;
     QVERIFY2(h.service.start(q.handle,publish,this,"publish",[&](ExecuteResult out){result=out;done=true;},&error),qPrintable(error));QTRY_VERIFY(done);
     QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));QCOMPARE(h.catalog.versions().size(),2);
+  }
+  // P3/W4+W5：真实宿主冻结（freezeConstraintIdwRequest）的 constraint.idw
+  // compute→publish 全链：单元身份/父版本进入冻结计划与发布成员 extra，
+  // agent_result 版本经通用投影获得指向真实单元的 single_factor 绑定。
+  void constraintIdwHostChainFreezesUnitAndPublishesEvidence()
+  {
+    Host h;QVERIFY(h.init());
+    // DS 方案（单元身份权威）+ 宿主绑定注入真实冻结分支。
+    paleo::strat::UnitSelection s1;
+    {
+      std::string detail;paleo::data::DataService ds;
+      QVERIFY(ds.createProject(paleo::area_model::directory(h.root.path()).toStdString(),"p3-host",detail));
+      const auto raw=h.root.filePath(QStringLiteral("p3host-source.txt"));
+      {QFile file(raw);QVERIFY(file.open(QIODevice::WriteOnly));file.write("p3host");file.close();}
+      paleo::data::ParsedFile parsed;parsed.path=raw.toStdString();parsed.kind="test";parsed.status="parsed";
+      paleo::data::WellDataset well;well.wellInfo.wellName="W-1";well.wellInfo.wellheadX=0;well.wellInfo.wellheadY=0;
+      well.defaultDepthInfo.depthType="MD";well.defaultDepthInfo.depthUnit="m";parsed.wells.push_back(well);
+      long long sourceId=0;
+      QVERIFY(ds.importPreparedFile(raw.toStdString(),raw.toStdString(),raw.toStdString(),
+        QCryptographicHash::hash(QByteArray("p3host"),QCryptographicHash::Sha256).toHex().toStdString(),parsed,sourceId,detail));
+      std::vector<paleo::data::WellSummary> wells;QVERIFY(ds.listWells(wells,detail));
+      paleo::data::StratigraphicScheme scheme;std::vector<paleo::data::FrameworkIssue> issues;
+      QVERIFY(ds.commitStratigraphicScheme(paleo::strat::draftScheme("scheme","scheme",{"TOP","BASE"},
+        {{wells.front().id,{{"TOP",100.},{"BASE",200.}}}}),{},scheme,issues,detail));
+      s1=paleo::strat::makeSelection(scheme,QString::fromStdString(scheme.intervals.front().id.value),1);
+      ds.closeProject();
+    }
+    QVERIFY(s1.isValid());
+    h.service.setBindingProvider([this,&h,&s1] {
+      HostBinding b;b.projectDir=h.root.path();b.operationDir=h.root.path()+"/.paleo/capability-ops";b.catalog=&h.catalog;b.writeClaim=h.lock.claim();
+      b.context.documentId="doc-native";b.context.epoch=h.epoch;b.context.open=true;b.context.persistentIdentity=true;
+      b.context.readOnly=!h.writable;b.context.ownsWrites=h.writable;b.context.allowedEffects=host::Read|host::PrivateStage|host::CatalogPublish|host::Presentation;
+      b.freeze=[this,&h,&s1](ExecuteRequest &r){
+        // 与生产 freezeInput 同序：bindingMode 先定，再走 constraint.idw 受信冻结。
+        // source_operation_id 复用发布（inputs 只含该键）由 Host 的 freezeSourcePublication
+        // 继承原冻结上下文，不重复解析单元——避免覆盖 stagePlan 继承的 parents。
+        if(r.bindingMode.isEmpty())r.bindingMode="pinned-value";
+        const bool reuse=r.publishIntent=="publish" && r.inputs.contains("source_operation_id") && r.inputs.size()==1;
+        if(!reuse && r.capabilityId=="constraint.idw")
+          return paleo::constraint_identity::freezeConstraintIdwRequest(r,h.root.path(),&h.catalog,s1);
+        return QString();};
+      b.validateInputs=[&h](const ExecuteRequest&){return h.providerOnline?QString():QString("provider_offline");};return b;
+    });
+    // 受管井点版本：points_ref 解析为父版本。
+    QString pointsVersion;
+    {
+      DerivedAssetRegistrar registrar(&h.catalog,h.root.path());QString error;
+      const auto st=registrar.stage(QStringLiteral("well_factor_points"),QStringLiteral("p"),QStringLiteral("p.gpkg"),&error);
+      QVERIFY(st.isValid());QFile file(st.absolutePath);QVERIFY(file.open(QIODevice::WriteOnly));file.write("pts");file.close();
+      DerivedFileFingerprint fp=DerivedFileFingerprint::read(st.absolutePath,{},&error);QVERIFY(!fp.sha256.isEmpty());DerivedOutputSetReceipt receipt;
+      QVariantMap extra;extra.insert(QStringLiteral("manifest_layer_id"),QStringLiteral("wellfactor.sample.sandthick"));
+      QVERIFY(registrar.commit(st,{},QStringLiteral(""),extra,&error,&fp));pointsVersion=st.versionId;
+    }
+    ExecuteRequest r;r.capabilityId="constraint.idw";r.clientRequestId="idw-unit";r.publishIntent="compute-only";
+    r.parameters={{"FIELD","z"},{"CELL_SIZE",25.0}};QVariantList points;
+    for(int i=0;i<4;++i)points.append(QVariantMap{{"x",(i%2)*100.0},{"y",(i/2)*100.0},{"z",(i/2)*10.0},{"well_id",QString::number(i)}});
+    r.inputs={{"points",points},{"points_ref",QStringLiteral("catalog:")+pointsVersion},{"subinterval_id",s1.subIntervalId}};
+    const auto p=h.service.prepare(r,host::Caller::Agent);QVERIFY2(p.ok,qPrintable(p.code));
+    bool done=false;ExecuteResult result;QString error;
+    QVERIFY2(h.service.start(p.handle,r,this,"idw-unit",[&](ExecuteResult out){result=out;done=true;},&error),qPrintable(error));
+    QTRY_VERIFY(done);QVERIFY2(result.ok,qPrintable(result.code));
+    QCOMPARE(result.commitState,QString("not_requested")); // compute-only：不发布
+    QCOMPARE(h.catalog.versions().size(),1); // 只有受管井点版本
+    // 私有 compute-only 结果后用 source_operation_id 正式发布：沿用原冻结上下文
+    //（单元/父版本/算法契约不变），不重算数值、不新建重复版本。
+    auto reuse=r;reuse.clientRequestId="idw-reuse";reuse.publishIntent="publish";reuse.parameters.clear();
+    reuse.inputs={{"source_operation_id",result.operationId}};
+    const auto q=h.service.prepare(reuse,host::Caller::Agent);QVERIFY2(q.ok,qPrintable(q.code));done=false;
+    QVERIFY(h.service.start(q.handle,reuse,this,"idw-reuse",[&](ExecuteResult out){result=out;done=true;},&error));QTRY_VERIFY(done);
+    QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));
+    QCOMPARE(h.catalog.versions().size(),2); // 井点 + 复用的 IDW 产物；不重算
+    // 发布成员携带宿主冻结的单元身份 + 实际消费的父版本（成员 extra 合并）。
+    CatalogVersion published;
+    for(const auto &v:h.catalog.versions())
+      if(v.id!=pointsVersion && v.extra.value("algorithm_id").toString()=="paleo:paleo_constraint_idw")published=v;
+    QVERIFY(!published.id.isEmpty());
+    QCOMPARE(published.parentVersionIds,QStringList{pointsVersion});
+    QCOMPARE(published.extra.value(QStringLiteral("subIntervalId")).toString(),s1.subIntervalId);
+    QCOMPARE(published.extra.value(QStringLiteral("schemeRevision")).toString(),s1.revision);
+    QVERIFY(published.extra.value(QStringLiteral("subinterval_verified")).toBool());
+    QCOMPARE(published.extra.value(QStringLiteral("algorithm_id")).toString(),QString("paleo:paleo_constraint_idw"));
+    // 无效请求在数值前拒绝。
+    ExecuteRequest mismatch;mismatch.capabilityId="constraint.idw";mismatch.clientRequestId="idw-mismatch";mismatch.publishIntent="compute-only";
+    mismatch.parameters=r.parameters;mismatch.inputs=r.inputs;mismatch.inputs.insert("subinterval_id",QStringLiteral("S9"));
+    QCOMPARE(h.service.prepare(mismatch,host::Caller::Agent).code,QString("subinterval_mismatch"));
+    // 通用投影把 Host 核验的 agent_result 绑定为指向真实单元的 single_factor。
+    QVERIFY2(syncAnalysisResults(&h.catalog,h.root.path()).isEmpty(),"projection must succeed");
+    paleo::data::DataService ds;std::string detail;
+    QVERIFY(ds.openProjectReadOnly(paleo::area_model::directory(h.root.path()).toStdString(),detail));
+    std::vector<paleo::data::SubIntervalResultBinding> bindings;
+    QVERIFY(ds.listSubIntervalResults(s1.schemeId.toStdString(),paleo::data::SubIntervalId{s1.subIntervalId.toStdString()},bindings,detail));
+    QVERIFY(std::any_of(bindings.begin(),bindings.end(),[&](const auto &b){
+      return b.kind=="single_factor"&&b.id=="catalog."+published.id.toStdString()&&b.assetRef==published.id.toStdString();}));
   }
   void parentGraphIdentityIsCheckedBeforeAnyNewChild() {
     Host h;QVERIFY(h.init());ExecuteRequest host;host.clientRequestId="parent-dag";host.publishIntent="publish";

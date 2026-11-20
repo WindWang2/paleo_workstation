@@ -1,6 +1,8 @@
 // 层：功能
 #include "workflows.h"
 #include "constraintfactorjobs_internal.h"
+#include "constraintanalysisidentity.h"
+#include "factorevidenceconfirmation.h"
 #include "workflows_internal.h"
 #include "wellsectionworkflow.h"
 #include "analysisresultsync.h"
@@ -764,10 +766,15 @@ bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
     if (v.extra.value("horizon") != horizon || v.extra.value("factor_id") != factorId ||
         extractionParams(v.extra) != extractionParams(params))
       continue;
+    // P3/W2：样点层 id 以发布版本登记的 manifest_layer_id 为准（单元身份键），
+    // legacy 版本无该键时回落旧公式。
+    const QString layerId = !v.extra.value("manifest_layer_id").toString().isEmpty()
+                                ? v.extra.value("manifest_layer_id").toString()
+                                : QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
     if (savedFactorInputsCurrent(catalog(), layerService(), projectDir(), v)) {
       // 工程重开后可仅凭已登记版本恢复点图层，不重新读取全部井资料。
       LayerDeclaration declaration;
-      declaration.layerId = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
+      declaration.layerId = layerId;
       declaration.horizon = horizon;
       declaration.type = QStringLiteral("vector");
       declaration.source = DataCatalog::resolvedVersionPath(projectDir(), v) + QStringLiteral("|layername=samples");
@@ -793,7 +800,7 @@ bool ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
         {"factor_id", factorId},
         {"params", extractionParams(params)},
         {"version_id", v.id},
-        {"points_layer_id", QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId)}};
+        {"points_layer_id", layerId}};
     if (preparedWellFactorVersion(horizon, factorId, params).isEmpty()) {
       m_preparedWellFactors = old;
       stale = v;
@@ -840,10 +847,19 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
                                                 const QVariantMap &requestedParams, QString *error,
                                                 bool synchronous) {
   QVariantMap params=requestedParams;
-  if(params.contains("unitSelection")){
-    paleo::strat::UnitSelection frozen;
-    if(!paleo::strat::freezeAnalysisUnit(projectDir(),paleo::strat::fromMap(params.value("unitSelection").toMap()),frozen,error,true))return false;
-    params.insert("unitSelection",paleo::strat::toMap(frozen));
+  // P3/W4 卫生：剥离调用方可设的 prepared 信任键——引擎自标记只由引擎产生，
+  // 调用方（工具 JSON/UI 参数）预设 factorInputPrepared/prepared_by_engine 无效。
+  params.remove(QStringLiteral("factorInputPrepared"));
+  params.remove(QStringLiteral("prepared_by_engine"));
+  // P3/W1：提取入口统一走稳定身份解析（携带 unitSelection 时做 DS 实体核验；
+  // 无单元且工程已有方案 → 拒绝；aggregate 维持显式汇总合同）。冻结结果
+  // 覆盖调用方自带的 analysisLayerKey/constraintHorizon 字符串。
+  {
+    paleo::constraint_identity::FrozenAnalysisIdentity identity;
+    if(!paleo::constraint_identity::resolveAnalysisIdentity(projectDir(),horizon,params,
+         paleo::constraint_identity::AggregatePolicy::Allow,identity,error))
+      return false;
+    identity.enrichParams(params);
   }
   if (factorBusy()) {
     if (error)
@@ -926,7 +942,11 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
         return false;
       }
     }
-    const QString id = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
+    // P3/W2：井点样本身份键取冻结分析单元（subIntervalId / agg-token）；legacy
+    // 工程（无方案）回落入口 horizon，与旧结果兼容。同一父单元 T70 下的 S1/S2
+    // 不再共用同一样点层键；版本谱系仍以 extra.unitSelection 区分。
+    const QString id = QStringLiteral("wellfactor.%1.%2")
+                           .arg(factorResultHorizonKey(horizon, params), factorId);
     QVariantMap extra = params;
     extra.insert("acquisition_schema",2);
     if(paleo::strat::fromMap(extra.value("unitSelection").toMap()).isValid())extra.insert("coordinate_schema",1);
@@ -976,9 +996,23 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     if (factorId == QLatin1String("sandratio")) {
       const auto unitSel = paleo::strat::fromMap(params.value(QStringLiteral("unitSelection")).toMap());
       const auto bind = paleo::strat::autoBindSandRatioExtraction(
-          projectDir(), unitSel, result->rows, id);
+          projectDir(), unitSel, result->rows, st.versionId);
       if (!bind.message.isEmpty())
         m_wellFactorMessage += QLatin1Char(' ') + bind.message;
+    }
+    // P3/W6：受管版本证据确认收口——权威 DS 绑定缺失时持久化剩余步骤
+    //（版本 extra.evidence_pending），消息如实区分「已提交」与「证据已确认」，
+    // 不再只拼一句 warning 后报告完整成功；恢复走 retryPendingFactorEvidence。
+    {
+      const auto unitSel = paleo::strat::fromMap(params.value(QStringLiteral("unitSelection")).toMap());
+      if (unitSel.isValid()) {
+        const auto confirmation = paleo::factor_evidence::confirmVersionEvidence(
+            catalog(), projectDir(), st.versionId, unitSel);
+        if (!confirmation.evidenceConfirmed)
+          m_wellFactorMessage += tr(" 证据发布未完成（已提交 v%1）：%2")
+                                     .arg(st.versionNumber)
+                                     .arg(confirmation.pendingReason);
+      }
     }
     m_preparedWellFactors = {{"horizon", horizon},
                              {"factor_id", factorId},
@@ -1176,7 +1210,20 @@ bool ConstraintWorkflow::maintainWellFactors(const QString &horizon, QString *er
 
 bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QString &factorId,
                                               QVariantMap &params, QString *error) {
-  if (!params.contains(QStringLiteral("factorMode")) || params.value(QStringLiteral("factorInputPrepared")).toBool()) return true;
+  if (!params.contains(QStringLiteral("factorMode"))) return true;
+  // P3/W2：调用方伪造的 factorInputPrepared 不再是凭证——仅当引擎状态里与本
+  // 请求（层位+因子+提取口径，含冻结 unitSelection）完全匹配、版本仍新鲜且
+  // 点层仍指向该版本的快照时才走快路径；伪造/陈旧标志回落到恢复/提取路径。
+  // 引擎自己在同一 generateFactor 链内（surfer→localdirection 二次 prepare）
+  // 已核验并改写过 params（factorMode direct 等），此时快路径键已由引擎核验
+  // 过一次——用引擎自标记（prepared_by_engine）信任本次链内状态，避免对同一
+  // 已冻结输入重复提取/重复累积父版本。调用方无法预设该键（不在任何外部契约里）。
+  if (params.value(QStringLiteral("factorInputPrepared")).toBool()) {
+    const bool engineVerified = params.value(QStringLiteral("prepared_by_engine")).toBool() ||
+                                !preparedWellFactorVersion(horizon, factorId, params).isEmpty();
+    if (engineVerified) return true;
+    params.remove(QStringLiteral("factorInputPrepared"));
+  }
   bool known = false; const auto def = SingleFactorRegistry::byId(factorId, &known, params.value("factorSource").toString());
   if (!known) { paleo::workflow_detail::setError(error, tr("未知单因素 id：%1").arg(factorId)); return false; }
   if (def.processingAlgId != QLatin1String("paleo:paleo_constraint_idw")) return true;
@@ -1219,6 +1266,7 @@ bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QStri
   params.insert(QStringLiteral("factorMode"), QStringLiteral("direct"));
   params.remove(QStringLiteral("numeratorField")); params.remove(QStringLiteral("denominatorField"));
   params.insert(QStringLiteral("factorInputPrepared"), true);
+  params.insert(QStringLiteral("prepared_by_engine"), true); // 链内二次 prepare 信任标记
   return true;
 }
 

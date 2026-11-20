@@ -445,7 +445,19 @@ private slots:
                                          params, &job, &err ) );
       QVERIFY2( err.contains( QStringLiteral( "冻结分析单元" ) ), qPrintable( err ) );
     }
-    QCOMPARE( failSpy.count(), 2 );
+    // 空 unitSelection map（共享段按无单元走 legacy 路径）同样在 ONNX 分支
+    // 前置拒绝——不能靠空 map 既绕过冻结又通过 contains 判定。
+    {
+      PredictionWorkflow::PredictionJob job;
+      QString err;
+      QVariantMap params;
+      params.insert( QStringLiteral( "unitSelection" ), QVariantMap() );
+      QVERIFY( !wf.preparePredictionJob( QStringLiteral( "T70" ), QStringLiteral( "onnx:seg3" ),
+                                         params, &job, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "冻结分析单元" ) ), qPrintable( err ) );
+      QVERIFY( !job.staging.isValid() );
+    }
+    QCOMPARE( failSpy.count(), 3 );
 
     // 低层独立张量 API 保持原合同：不经正式发布入口也能数值验证。
     QString tensorErr;

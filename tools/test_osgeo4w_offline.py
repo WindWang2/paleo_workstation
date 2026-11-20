@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from osgeo4w_prefix import check as check_prefix
 from osgeo4w_offline import build_lock, check_installed, fetch, materialize
 
 
@@ -65,6 +66,24 @@ class OfflinePackagesTest(unittest.TestCase):
         self.assertEqual(get.call_count, 2)
         self.assertEqual(destination.read_bytes(), data)
         self.assertEqual(list(destination.parent.iterdir()), [destination])
+
+    def test_prefix_reuse_requires_original_files_and_profile(self):
+        prefix = self.root / "prefix"
+        prefix.mkdir()
+        database = prefix / "srs.db"
+        database.write_bytes(b"initial")
+        with self.assertRaisesRegex(ValueError, "Missing"):
+            check_prefix(prefix, False)
+        check_prefix(prefix, False, record=True)
+        check_prefix(prefix, False)
+        with self.assertRaisesRegex(ValueError, "inputs changed"):
+            check_prefix(prefix, True)
+        database.write_bytes(b"changed")
+        with self.assertRaisesRegex(ValueError, "srs.db"):
+            check_prefix(prefix, False)
+        database.unlink()
+        with self.assertRaisesRegex(ValueError, "srs.db"):
+            check_prefix(prefix, False)
 
     def test_exact_installed_versions(self):
         database = self.root / "installed.db"

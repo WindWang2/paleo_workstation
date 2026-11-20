@@ -36,11 +36,7 @@ foreach(required IN ITEMS "${ORT_INCLUDE}/onnxruntime_c_api.h"
   endif()
 endforeach()
 if(WIN32)
-  # Windows can resolve the system ORT before PATH. Place the locked DLLs
-  # beside the application and test binaries for both supported build entries.
-  foreach(library IN LISTS _paleo_ort_binary)
-    get_filename_component(name "${library}" NAME)
-    configure_file("${library}" "${CMAKE_BINARY_DIR}/${name}" COPYONLY)
-  endforeach()
+  include("${CMAKE_CURRENT_LIST_DIR}/paleo-windows-runtime.cmake")
+  paleo_stage_windows_runtime(${_paleo_ort_binary})
 endif()
 set(PALEO_LOCKED_ORT TRUE)

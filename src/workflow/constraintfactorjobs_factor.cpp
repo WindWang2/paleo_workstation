@@ -83,6 +83,9 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
   QVariantMap params = inputParams;
+  // P3/W4 卫生：剥离调用方可设的 prepared 信任键（引擎自标记只由引擎产生）。
+  params.remove(QStringLiteral("factorInputPrepared"));
+  params.remove(QStringLiteral("prepared_by_engine"));
   // P3/W1：正式单因素入口先冻结稳定分析单元（Data Service 实体核验；拒绝
   // 伪造 subinterval/错修订/aggregate）。成果键=layerToken、约束/井点键=父单元
   // 上界面，由引擎一次裁决——调用方自带的同名键被冻结结果覆盖，不再回退

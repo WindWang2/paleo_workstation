@@ -57,7 +57,6 @@ struct SchemeFixture
     paleo::data::DataService ds;
     const auto root = area_model::directory(dir.path()).toStdString();
     // catalog.open 已建 area model 工区（受控依赖后的默认行为）：存在则打开。
-    // catalog.open 已建 area model 工区（受控依赖后的默认行为）：存在则打开。
     const bool opened = QFileInfo::exists(QString(root.c_str()) + "/data.sqlite")
         ? ds.openProject(root, detail) : ds.createProject(root, "identity-test", detail);
     if (!opened)
@@ -271,7 +270,7 @@ private slots:
           QStringLiteral("factor.%1.sandthick").arg(key1))
         v1 = v;
       if (v.extra.value(QStringLiteral("manifest_layer_id")).toString() ==
-          QStringLiteral("factor.%2.sandthick").arg(key2))
+          QStringLiteral("factor.%1.sandthick").arg(key2))
         v2 = v;
     }
     QVERIFY(!v1.id.isEmpty() && !v2.id.isEmpty() && v1.id != v2.id);

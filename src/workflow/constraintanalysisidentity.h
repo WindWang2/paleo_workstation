@@ -8,7 +8,7 @@
 
 class DataCatalog;
 struct CatalogVersion;
-namespace paleo::capability { class ExecuteRequest; }
+namespace paleo::capability { struct ExecuteRequest; }
 
 // workflow/ — 单因素/约束插值链的稳定分析身份（P3，#972/#1004/#1005）。
 // 引擎准备入口统一经 resolveAnalysisIdentity 把（可能来自 UI/批任务/Host 的）

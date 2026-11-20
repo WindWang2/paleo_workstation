@@ -847,6 +847,10 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
                                                 const QVariantMap &requestedParams, QString *error,
                                                 bool synchronous) {
   QVariantMap params=requestedParams;
+  // P3/W4 卫生：剥离调用方可设的 prepared 信任键——引擎自标记只由引擎产生，
+  // 调用方（工具 JSON/UI 参数）预设 factorInputPrepared/prepared_by_engine 无效。
+  params.remove(QStringLiteral("factorInputPrepared"));
+  params.remove(QStringLiteral("prepared_by_engine"));
   // P3/W1：提取入口统一走稳定身份解析（携带 unitSelection 时做 DS 实体核验；
   // 无单元且工程已有方案 → 拒绝；aggregate 维持显式汇总合同）。冻结结果
   // 覆盖调用方自带的 analysisLayerKey/constraintHorizon 字符串。

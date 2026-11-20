@@ -34,9 +34,6 @@ else()
   file(READ "${CMAKE_SOURCE_DIR}/vendor/superbuild/debian13-base.lock" _paleo_source_lock)
   string(REPLACE "\r" "" _paleo_source_lock "${_paleo_source_lock}")
   string(SHA256 _paleo_supply_hash "${_paleo_source_lock}")
-  find_program(_paleo_receipt_python NAMES python3 REQUIRED)
-  execute_process(COMMAND "${_paleo_receipt_python}" "${CMAKE_SOURCE_DIR}/vendor/superbuild/source_receipt.py"
-    verify "${_paleo_project_prefix}" COMMAND_ERROR_IS_FATAL ANY)
 endif()
 if(DEFINED _paleo_supply_receipt)
   if(EXISTS "${_paleo_supply_receipt}")
@@ -45,6 +42,17 @@ if(DEFINED _paleo_supply_receipt)
   if(NOT _paleo_supply_hash STREQUAL _paleo_actual_hash)
     message(FATAL_ERROR "QGIS_PREFIX does not match a prepared dependency lock: ${QGIS_PREFIX}. "
       "Prepare the prefix using the matching route in BUILDING.md.")
+  endif()
+endif()
+
+if(NOT WIN32 AND NOT PALEO_DEB_PREFIX)
+  find_program(_paleo_receipt_python NAMES python3 REQUIRED)
+  execute_process(COMMAND "${_paleo_receipt_python}" "${CMAKE_SOURCE_DIR}/vendor/superbuild/source_receipt.py"
+    verify "${_paleo_project_prefix}" RESULT_VARIABLE _paleo_source_status
+    ERROR_VARIABLE _paleo_source_error ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _paleo_source_status STREQUAL "0")
+    message(FATAL_ERROR "${_paleo_source_error}\n"
+      "Prepare a fresh Linux source build and prefix as described in vendor/superbuild/README.md.")
   endif()
 endif()
 

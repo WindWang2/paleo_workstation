@@ -7,6 +7,7 @@
 #include "../domain/faciestaxonomy.h"
 #include "../domain/interpretationevidence.h"
 #include "../io/atomicwrite.h"
+#include <QAtomicInt>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -200,6 +201,17 @@ QObject *workbenchBinding(const QObject *observer) {
 void setWorkbenchBinding(QObject *observer, QObject *workbench) {
   if (observer) observer->setProperty(kWorkbenchBinding, QVariant::fromValue(workbench));
 }
+QString bindingSignature(const QgsVectorLayer *v) {
+  return v ? v->property(kBindingSignature).toString() : QString();
+}
+void setBindingSignature(QgsVectorLayer *v, const QString &signature) {
+  if (v) v->setProperty(kBindingSignature, signature);
+}
+// P5 W6：loadFootprint 调用计数（诊断 oracle，供绑定签名回归断言）。
+QAtomicInt g_footprintReads{0};
+int footprintReadCount() {
+  return g_footprintReads.loadAcquire();
+}
 QVariantMap saveFootprint(const QString &projectDir, const QString &workingPath,
                           const QString &base64Wkb, QString *error) {
   if (base64Wkb.isEmpty()) return {};
@@ -226,6 +238,7 @@ QVariantMap saveFootprint(const QString &projectDir, const QString &workingPath,
           {QString::fromLatin1(kFootprintSummaryKey), summary}};
 }
 QString loadFootprint(const QString &projectDir, const QVariantMap &extra) {
+  g_footprintReads.fetchAndAddRelease(1); // P5 W6：诊断 oracle
   const auto relative = extra.value(QString::fromLatin1(kFootprintPathKey)).toString();
   if (!relative.isEmpty()) {
     QFile file(QDir(projectDir).filePath(relative));
@@ -256,8 +269,14 @@ QString footprint(QgsVectorLayer *v, QString *error) {
   if (g.isEmpty() || !g.isGeosValid()) { fail(error, QObject::tr("无法建立相图覆盖范围")); return {}; }
   return QString::fromLatin1(g.asWkb().toBase64());
 }
+// P5 W6：install 调用计数（诊断 oracle，供绑定签名回归断言）。
+QAtomicInt g_installs{0};
+int installCount() {
+  return g_installs.loadAcquire();
+}
 bool install(QgsVectorLayer *v, const QVariantList &source, const QString &frozenFootprint, QString *error) {
   if (!v || v->geometryType() != Qgis::GeometryType::Polygon) return true;
+  g_installs.fetchAndAddRelease(1);
   QVariantList normalized;
   if (!FaciesTaxonomy::normalize(source, &normalized, error)) return false;
   FaciesPartitionState::setSchema(v, normalized);

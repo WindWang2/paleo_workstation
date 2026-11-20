@@ -20,6 +20,7 @@
 #include <QStringList>
 #include <QUuid>
 #include <cmath>
+#include <atomic>
 #include <memory>
 
 namespace {
@@ -32,6 +33,8 @@ void bumpRevision(const QString &gpkgPath) {
   const QMutexLocker lock(&revisionMutex());
   ++revisions()[key];
 }
+// P5 W4：load() 计数（诊断 oracle，测试断言批量导入不逐条全量读取）。
+std::atomic<quint64> &loadCount() { static std::atomic<quint64> count{0}; return count; }
 // 写路径出口（含失败/早退）一律递增：失败写已回滚，多一次失效只多一次重解析。
 struct RevisionBump { QString path; ~RevisionBump() { bumpRevision(path); } };
 using Feature = std::unique_ptr<void, decltype(&OGR_F_Destroy)>;
@@ -346,6 +349,9 @@ quint64 ConstraintStore::revision(const QString &gpkgPath) {
   const QMutexLocker lock(&revisionMutex());
   return revisions().value(key, 0);
 }
+quint64 ConstraintStore::debugLoadCount() {
+  return loadCount().load(std::memory_order_relaxed);
+}
 bool ConstraintStore::setAuditContext(const AuditContext &context, QString *error) {
   if (!contextValid(context, error)) return false;
   if (!context.actorId.isEmpty() && context.reason.trimmed().isEmpty()) {
@@ -421,9 +427,66 @@ bool ConstraintStore::appendInternal(const QString &horizon, const QString &id, 
   };
   const auto result = m_enqueue ? m_enqueue(write) : write(); if (!result.ok && error) *error = result.error; return result.ok;
 }
+
+bool ConstraintStore::appendBatch(const QVector<BatchAppend> &rows, QString *error) {
+  // P5 W4：一次事务写完整批。预检（身份/层位/批内唯一/存量查重）全部在
+  // 事务内、任何 CreateFeature 之前——任一失败整批回滚，不写任何行；审计
+  // 按同一 operationId 逐条登记 create 事件（批谱系可追溯）。
+  const RevisionBump revisionBump{m_gpkgPath};
+  if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
+  if (rows.isEmpty()) return true;
+  const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
+    QString reason;
+    QSet<QString> batchIds;
+    for (const auto &row : rows) {
+      if (row.horizon.trimmed().isEmpty() || row.id.trimmed().isEmpty() || row.type.trimmed().isEmpty() ||
+          !std::isfinite(row.weight))
+        return {false, QObject::tr("约束身份、层位、语义或权重无效")};
+      if (row.horizon.contains(QLatin1Char('|')))
+        return {false, QObject::tr("层位名不能包含「|」（GPKG 数据源分隔符）：%1").arg(row.horizon)};
+      if (batchIds.contains(row.id))
+        return {false, QObject::tr("批量约束稳定身份重复：%1").arg(row.id)};
+      batchIds.insert(row.id);
+    }
+    Transaction transaction; if (!transaction.open(m_gpkgPath, true, &reason)) return {false, reason};
+    auto layer = GDALDatasetGetLayerByName(transaction.ds, "constraints");
+    if (!layer) layer = createConstraintsLayer(transaction.ds, &reason);
+    if (!layer) return {false, reason.isEmpty() ? QObject::tr("无法建立约束图层") : reason};
+    for (const auto name : {"id", "horizon", "type", "params_json"})
+      if (!ensureField(layer, name, OFTString)) return {false, QObject::tr("无法建立约束字段")};
+    if (!ensureField(layer, "facies_code", OFTInteger) || !ensureField(layer, "weight", OFTReal) ||
+        !ensureField(layer, "schema_version", OFTInteger)) return {false, QObject::tr("无法建立约束字段")};
+    for (const auto &row : rows) {
+      auto existing = byId(layer, row.id, &reason); if (!reason.isEmpty()) return {false, reason};
+      if (existing) return {false, QObject::tr("约束稳定身份已存在：%1").arg(row.id)};
+    }
+    if (!ensureAudit(transaction.ds, layer)) return {false, QObject::tr("无法建立约束审计")};
+    const QString operation = m_audit.operationId.isEmpty() ? freshId() : m_audit.operationId;
+    for (const auto &row : rows) {
+      Feature feature(OGR_F_Create(OGR_L_GetLayerDefn(layer)), OGR_F_Destroy);
+      const auto set = [&](const char *name, const QString &value) {
+        OGR_F_SetFieldString(feature.get(), OGR_F_GetFieldIndex(feature.get(), name), value.toUtf8().constData());
+      };
+      set("id", row.id); set("horizon", row.horizon); set("type", row.type);
+      OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "facies_code"), row.faciesCode);
+      OGR_F_SetFieldDouble(feature.get(), OGR_F_GetFieldIndex(feature.get(), "weight"), row.weight);
+      if (!row.paramsJson.isEmpty()) { set("params_json", row.paramsJson);
+        OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "schema_version"), row.schemaVersion); }
+      if (!assignGeometry(feature.get(), row.wkt, &reason) || OGR_L_CreateFeature(layer, feature.get()) != OGRERR_NONE)
+        return {false, reason.isEmpty() ? QObject::tr("约束写入失败") : reason};
+      if (!journal(transaction.ds, layer, feature.get(), {}, featureSnapshot(feature.get()), m_audit,
+                   operation, &reason))
+        return {false, reason};
+    }
+    if (!transaction.commit(&reason)) return {false, reason};
+    return {true, {}};
+  };
+  const auto result = m_enqueue ? m_enqueue(write) : write(); if (!result.ok && error) *error = result.error; return result.ok;
+}
 QVector<QVariantMap> ConstraintStore::load(const QString &horizon, bool includeAudit) const
 {
   ensureGdalRegistered();
+  loadCount().fetch_add(1, std::memory_order_relaxed);
   QVector<QVariantMap> result;
 
   if (!QFile::exists(m_gpkgPath))

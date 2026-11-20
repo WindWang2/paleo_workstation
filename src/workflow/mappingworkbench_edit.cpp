@@ -153,6 +153,13 @@ QString carriedPins(const QgsMapLayer *layer, const QVariantMap &sourceExtra) {
 QString MappingWorkbench::copyForEditing(const QString &id,
                                          const QStringList &references,
                                          QString *error, bool requireEvidence) {
+  return copyForEditing(id, references, error, requireEvidence, nullptr);
+}
+
+QString MappingWorkbench::copyForEditing(const QString &id,
+                                         const QStringList &references,
+                                         QString *error, bool requireEvidence,
+                                         CopyFeatureIdentity *identity) {
   // 输入快照、版本登记和工作副本都可能同步上图；整个编辑转换保留视图。
   QScopedValueRollback<bool> preserveView(m_preserveEditingView, true);
   auto d = declaration(id);
@@ -170,6 +177,26 @@ QString MappingWorkbench::copyForEditing(const QString &id,
     fail(error,
          tr("编辑底图需要 facies_code 相编码字段；请选择相面或预测相点"));
     return {};
+  }
+  // P5 W5：复制前按 provider 迭代顺序记录源要素（fid 序 + 已有 UID）——
+  // 快照按同顺序写出，副本 fid 顺序与之对齐；不改来源、不猜几何。
+  QVector<QPair<qint64, QString>> sourceOrder; // {source fid, source uid（可空）}
+  if (identity) {
+    identity->sourceLayerId = id;
+    identity->copyFidBySourceUid.clear();
+    identity->copyFidBySourceFid.clear();
+    identity->ambiguousSourceUids.clear();
+    QHash<QString, int> uidCounts;
+    auto it = layer->getFeatures();
+    QgsFeature f;
+    while (it.nextFeature(f)) {
+      sourceOrder.append({f.id(), MappingFeatureIdentity::uid(f)});
+      if (!sourceOrder.last().second.isEmpty())
+        ++uidCounts[sourceOrder.last().second];
+    }
+    for (auto uit = uidCounts.cbegin(); uit != uidCounts.cend(); ++uit)
+      if (uit.value() > 1)
+        identity->ambiguousSourceUids.append(uit.key());
   }
   QStringList parents;
   QVariantList referenceVersions;
@@ -208,6 +235,26 @@ QString MappingWorkbench::copyForEditing(const QString &id,
             &copy, schema,
             error))
       return {};
+    // P5 W5：副本侧同一次遍历建立映射——UID 命中优先（快照携带原 UID，ensure
+    // 只补缺失/fork 重复）；无 UID 历史来源按快照写出顺序一一配对。顺序或
+    // 数量对不上（provider 重排/并发改动）时对应项缺省，调用方明确拒绝。
+    if (identity) {
+      QVector<qint64> copyOrder;
+      auto it = copy.getFeatures();
+      QgsFeature f;
+      while (it.nextFeature(f)) copyOrder.append(f.id());
+      if (copyOrder.size() == sourceOrder.size())
+        for (int i = 0; i < sourceOrder.size(); ++i)
+          identity->copyFidBySourceFid.insert(sourceOrder[i].first, copyOrder[i]);
+      for (const auto &entry : sourceOrder) {
+        if (entry.second.isEmpty() ||
+            identity->ambiguousSourceUids.contains(entry.second))
+          continue;
+        const auto found = MappingFeatureIdentity::find(&copy, entry.second);
+        if (found.isValid())
+          identity->copyFidBySourceUid.insert(entry.second, found.id());
+      }
+    }
   }
   // #540 子项 2：冻结覆盖范围走 sidecar 文件（与工作副本同目录，随
   // artifacts/working/<draft>/ 一并回收），extra 只留路径 + 可读摘要；不再把
@@ -834,17 +881,10 @@ bool MappingWorkbench::publishConstraintImport(
   const auto source = versionForLayer(inputId);
   QSignalBlocker workflowSignals(m_constraints);
   QSignalBlocker layerSignals(m_layers);
+  // P5 W4：一次批量预验证 + 一次存储事务 + 一次内存/视图同步（不再逐条
+  // addConstraint 造成 N 次全量扫描与 N 个事务）。
   QStringList created;
-  bool ok = true;
-  for (const auto &record : records) {
-    QString cid;
-    if (!m_constraints->addConstraint(h, record.wkt, record.type, -1, error,
-                                      &cid, record.params)) {
-      ok = false;
-      break;
-    }
-    created << cid;
-  }
+  bool ok = m_constraints->importConstraintBatch(h, records, error, &created);
   const auto rollback = [&] {
     if (auto *store = m_constraints->constraintStore())
       for (const auto &cid : created) store->remove(cid);

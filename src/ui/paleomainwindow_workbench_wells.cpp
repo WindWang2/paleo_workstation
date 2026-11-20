@@ -12,6 +12,7 @@
 #include "../domain/faciescatalog.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/draftautosave.h"
+#include "../qgis/mappingfeatureidentity.h" // P5 W5：复制后按稳定 UID 解析目标要素
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerprofile.h"
 #include "../qgis/qgislayerservice.h"
@@ -177,20 +178,31 @@ void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
                 QString target = id;
                 QgsFeatureId fid = original.id();
                 if (!target.startsWith("draft.")) {
-                  target = workbench->copyForEditing(id, {}, &error);
-                  auto *copy = qobject_cast<QgsVectorLayer *>(
-                      layerSvc->instantiate(target));
-                  if (copy) {
-                    auto it = copy->getFeatures();
-                    QgsFeature f;
+                  // P5 W5（#990）：按复制返回的身份映射解析目标要素——绝不
+                  // 以 WKB+facies_code 首个相等项顶替被选中对象（重复几何/
+                  // 相码会改错要素）。无 UID 的历史来源走复制内位置映射；
+                  // 歧义（重复 UID）或映射缺失明确拒绝。
+                  MappingWorkbench::CopyFeatureIdentity identity;
+                  target = workbench->copyForEditing(id, {}, &error, false,
+                                                     &identity);
+                  const QString sourceUid =
+                      MappingFeatureIdentity::uid(original);
+                  if (!target.isEmpty()) {
                     fid = FID_NULL;
-                    while (it.nextFeature(f))
-                      if (f.geometry().asWkb() == original.geometry().asWkb() &&
-                          f.attribute("facies_code") ==
-                              original.attribute("facies_code")) {
-                        fid = f.id();
-                        break;
-                      }
+                    if (!sourceUid.isEmpty()) {
+                      if (identity.ambiguousSourceUids.contains(sourceUid))
+                        error = PaleoMainWindow::tr(
+                            "所选要素的稳定身份在来源中重复，无法确定修改对象；请先在来源版本中修复身份。");
+                      else
+                        fid = identity.copyFidBySourceUid.value(sourceUid,
+                                                                FID_NULL);
+                    } else {
+                      fid = identity.copyFidBySourceFid.value(original.id(),
+                                                              FID_NULL);
+                    }
+                    if (fid == FID_NULL && error.isEmpty())
+                      error = PaleoMainWindow::tr(
+                          "无法在编辑副本中定位所选要素（可能已被并发修改），请重新选择后重试。");
                   }
                 }
                 if (target.isEmpty() || fid == FID_NULL || !beginEdit(target) ||

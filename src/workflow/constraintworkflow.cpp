@@ -634,18 +634,21 @@ ConstraintWorkflow::DrawResult ConstraintWorkflow::drawConstraintResult(
     return DrawResult::Failed;
   if (constraintIdOut)
     *constraintIdOut = id;
+  // W3 部分完成：约束已入库（可撤销），仅图层声明失败且回滚失败——不得
+  // 当作未写入（下次重试会制造重复约束）。
+  const bool partial = message && !message->isEmpty();
   if (!inSession && m_propertyEdits) {
     auto current = std::make_shared<QString>(id);
+    // W1/W2：闭包携带归属存储身份；重放走 ClosureReplay（受控业务修改），
+    // 不再进入会话开启路径——同一操作只有闭包栈这一份撤销历史。
+    ConstraintStore *cs = constraintStore();
+    const QString storeKey = cs ? constraintStoreKey(cs) : QString();
     QPointer<ConstraintWorkflow> self(this);
     m_propertyEdits->record(
         tr("绘制约束"),
-        [self, current] { return self && self->removeConstraint(*current); },
-        [self, current, horizon, wkt, type, faciesCode, lineParams] {
-          QString again;
-          if (!self || !self->addConstraint(horizon, wkt, type, faciesCode, nullptr, &again, lineParams))
-            return false;
-          *current = again;
-          return true;
+        [self, current, storeKey] { return self && self->closureUndoDraw(*current, storeKey); },
+        [self, current, horizon, wkt, type, faciesCode, lineParams, storeKey] {
+          return self && self->closureRedoDraw(current.get(), horizon, wkt, type, faciesCode, lineParams, storeKey);
         });
   }
   if (constraintStore() && m_layers) {
@@ -658,7 +661,7 @@ ConstraintWorkflow::DrawResult ConstraintWorkflow::drawConstraintResult(
     QgisStyleService::applyConstraintLayerStyle(layer);
     layer->triggerRepaint();
   }
-  return DrawResult::Saved;
+  return partial ? DrawResult::SavedLayerFailed : DrawResult::Saved;
 }
 
 bool ConstraintWorkflow::saveConstraintEdits(const QString &horizon, QString *error)
@@ -718,6 +721,15 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
                                         const QString &type, int faciesCode, QString *error,
                                         QString *constraintIdOut, const QVariantMap &lineParams )
 {
+  return addConstraintInternal( horizon, wkt, type, faciesCode, error, constraintIdOut, lineParams,
+                                ModifyOrigin::User );
+}
+
+bool ConstraintWorkflow::addConstraintInternal( const QString &horizon, const QString &wkt,
+                                                const QString &type, int faciesCode, QString *error,
+                                                QString *constraintIdOut,
+                                                const QVariantMap &lineParams, ModifyOrigin origin )
+{
   QgisLayerService *layers = m_layers.data();
   if ( !layers )
   {
@@ -738,6 +750,17 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     paleo::workflow_detail::setError( error, geomErr );
     return false;
   }
+  // W3 预检：subset 可表达性只取决于层位名，提前到任何持久写入之前——
+  // 旧实现在持久 append 之后才发现层位进不了安全过滤器。
+  if ( ConstraintStore *pre = constraintStore() )
+  {
+    QString subsetError;
+    if ( paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon, &subsetError ).isEmpty() )
+    {
+      paleo::workflow_detail::setError( error, subsetError );
+      return false;
+    }
+  }
 
   auto *editing = qobject_cast<QgsVectorLayer *>(layers->layer(QStringLiteral("constraints.%1").arg(horizon)));
   if (editing && !editing->isEditable())
@@ -748,25 +771,23 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     paleo::workflow_detail::setError(error, tr("先保存或取消约束编辑，再绘制新约束"));
     return false;
   }
+  // W2：闭包重放不得把补偿写进活会话的原生栈（会话内的绘制有自己的原生
+  // 撤销）。活会话时如实拒绝——闭包条目原地保留，等会话结束再重放。
+  if (origin == ModifyOrigin::ClosureReplay && editing)
+  {
+    paleo::workflow_detail::setError(error, tr("该层位正在原生编辑会话中，请先保存或取消后再重放撤销/重做"));
+    return false;
+  }
 
   // 编号在全库唯一。只看当前层位会从 c-1 重新计，撞上其他层位已有的
   // c-1 后，保存被拒并撤回，空子集又被 QGIS 读成无几何属性表。
-  if ( ConstraintStore *existing = constraintStore() )
-  {
-    for ( const QVariantMap &row : existing->load() )
-    {
-      const QString id = row.value( QStringLiteral( "id" ) ).toString();
-      if ( !id.startsWith( QLatin1String( "c-" ) ) )
-        continue;
-      bool ok = false;
-      const int num = id.mid( 2 ).toInt( &ok );
-      if ( ok && num > m_inMemorySeq )
-        m_inMemorySeq = num;
-    }
-  }
+  // W4：经 store+revision 键控的编号索引分配，他人写入（revision 变化）后
+  // 才重扫一次全库，连续绘制不再逐条全量 load。
   Constraint c;
-  const int seq = ++m_inMemorySeq;
-  c.id = QStringLiteral( "c-%1" ).arg( seq );
+  if ( ConstraintStore *existing = constraintStore() )
+    c.id = QStringLiteral( "c-%1" ).arg( nextConstraintSeq( existing ) );
+  else
+    c.id = QStringLiteral( "c-%1" ).arg( ++m_inMemorySeq );
   c.type = type;
   c.wkt = wkt;
   c.targetFaciesCode = faciesCode;
@@ -791,6 +812,8 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
       if ( !addConstraintThroughSession( editing, cs, horizon, c.id, wkt, persist ? storedType : type, faciesCode,
                                          persist ? paramsJson : QString(), persist, error ) )
         return false;
+      // 会话命令结束同步推进 store revision：记为已知，避免下一笔绘制重扫。
+      noteSelfWrite( cs );
       // 显式编辑中的绘制按命令原子写 store，伴随视图即时同步。
       syncConstraintGeometryViews(layers, cs, horizon, m_geometryTypes->lookup(cs, horizon));
       if ( persist )
@@ -819,6 +842,47 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     {
       return false;
     }
+    // durable 成功后才发布内存项/撤销项（W3）；自写 revision 记为已知（W4）。
+    noteSelfWrite( cs );
+    seedConstraintGeometry( cs, horizon, wkt );
+
+    QString subsetError;
+    const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon, &subsetError );
+    LayerDeclaration decl;
+    decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+    decl.horizon = horizon;
+    decl.title = constraintLayerTitle(horizon);
+    decl.type = QStringLiteral( "vector" );
+    decl.source = constraintSource(cs, m_geometryTypes->lookup(cs, horizon), subset);
+    decl.group = PaleoLayerVocabulary::kConstraintsGroup;
+    if ( !layers->declare( decl, error ) )
+    {
+      // W3 补偿：持久写入已发生——回收该行并如实报告；补偿失败时按
+      // 「已保存、声明未完成」部分完成返回（true + 警告），不伪装未写入。
+      QString removeError;
+      if ( !cs->remove( c.id, &removeError ) )
+      {
+        paleo::workflow_detail::setError(
+            error, tr( "约束 %1 已保存，但图层声明失败且回滚失败：%2；重新加载工程后可见该约束。" )
+                       .arg( c.id, removeError ) );
+        QVariantMap partial = c.toMap();
+        if ( persist )
+        {
+          partial.insert( QStringLiteral( "params_json" ), paramsJson );
+          partial.insert( QStringLiteral( "schema_version" ), 1 );
+        }
+        partial.insert( QStringLiteral( "horizon" ), horizon );
+        partial.insert( QStringLiteral( "facies_code" ), faciesCode );
+        m_inMemoryConstraints.append( partial );
+        if ( constraintIdOut )
+          *constraintIdOut = c.id;
+        emit constraintAdded( c.id );
+        return true;
+      }
+      // 干净回滚：几何缓存种子随 revision 失配自动失效，无内存残留。
+      return false;
+    }
+    syncConstraintGeometryViews(layers, cs, horizon, m_geometryTypes->lookup(cs, horizon));
 
     QVariantMap rec = c.toMap();
     if ( persist )
@@ -829,30 +893,6 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     rec.insert( QStringLiteral( "horizon" ), horizon );
     rec.insert( QStringLiteral( "facies_code" ), faciesCode );
     m_inMemoryConstraints.append( rec );
-
-    LayerDeclaration decl;
-    decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
-    decl.horizon = horizon;
-    decl.title = constraintLayerTitle(horizon);
-    decl.type = QStringLiteral( "vector" );
-    QString subsetError;
-    const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon, &subsetError );
-    if ( subset.isEmpty() )
-    {
-      if ( error )
-        *error = subsetError;
-      cs->remove( c.id );
-      return false; // 已回滚刚写入的行，不留半截
-    }
-    decl.source = constraintSource(cs, m_geometryTypes->lookup(cs, horizon), subset);
-    decl.group = PaleoLayerVocabulary::kConstraintsGroup;
-    if ( !layers->declare( decl, error ) )
-    {
-      cs->remove( c.id );
-      return false;
-    }
-    syncConstraintGeometryViews(layers, cs, horizon, m_geometryTypes->lookup(cs, horizon));
-
     if ( constraintIdOut )
       *constraintIdOut = c.id;
     emit constraintAdded( c.id );
@@ -1066,6 +1106,12 @@ bool ConstraintWorkflow::switchConstraintSemantic(const QString &id, const QStri
 
 bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString *error )
 {
+  return removeConstraintInternal( constraintId, error, ModifyOrigin::User );
+}
+
+bool ConstraintWorkflow::removeConstraintInternal( const QString &constraintId, QString *error,
+                                                   ModifyOrigin origin )
+{
   if ( constraintId.trimmed().isEmpty() )
   {
     paleo::workflow_detail::setError( error, tr( "缺少约束 id" ) );
@@ -1088,64 +1134,84 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
     emit constraintRemoved( constraintId );
     return true;
   }
-  bool found = false;
+  // 一次定位：行、层位、fid 全部来自同一份读取（旧实现 4 次全量 load）。
+  QVariantMap target;
   for ( const QVariantMap &row : cs->load() )
   {
     if ( row.value( QStringLiteral( "id" ) ).toString() == constraintId )
     {
-      found = true;
+      target = row;
       break;
     }
   }
-  if ( !found )
+  if ( target.isEmpty() )
   {
     paleo::workflow_detail::setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
     return false;
   }
-  for (const auto &row : cs->load())
+  const QString rowHorizon = target.value( QStringLiteral( "horizon" ) ).toString();
+  // P4：同 updateConstraintLines——可开会话时删除也走会话（可撤销）。
+  // W2：仅用户入口允许开会话；闭包重放绝不开启另一种编辑会话。
+  if ( origin == ModifyOrigin::User )
   {
-    if (row.value(QStringLiteral("id")).toString() != constraintId)
-      continue;
-    const QString rowHorizon = row.value(QStringLiteral("horizon")).toString();
-    // P4：同 updateConstraintLines——可开会话时删除也走会话（可撤销）。
-    if (canStartConstraintSession() && !ensureConstraintSession(rowHorizon, error))
+    if ( canStartConstraintSession() && !ensureConstraintSession( rowHorizon, error ) )
       return false;
-    auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(
-        QStringLiteral("constraints.%1").arg(row.value(QStringLiteral("horizon")).toString()))) : nullptr;
-    if (!layer || !layer->isEditable())
-      break;
-    if (!layer->property("paleoConstraintEditSession").toBool())
+  }
+  auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>( m_layers->layer(
+      QStringLiteral( "constraints.%1" ).arg( rowHorizon ) ) ) : nullptr;
+  if ( layer && layer->isEditable() )
+  {
+    if ( !cs || !layer->property( "paleoConstraintEditSession" ).toBool() )
     {
-      paleo::workflow_detail::setError(error, tr("约束编辑尚未接入 store 同步会话"));
+      paleo::workflow_detail::setError( error, tr( "约束编辑尚未接入 store 同步会话" ) );
       return false;
     }
-    layer->beginEditCommand(tr("删除约束"));
-    if (!layer->deleteFeature(row.value(QStringLiteral("fid")).toLongLong()))
+    if ( origin == ModifyOrigin::ClosureReplay )
+    {
+      // W2：活会话内的删除有自己的原生撤销——闭包重放不得叠加第二份历史。
+      paleo::workflow_detail::setError(
+          error, tr( "该层位正在原生编辑会话中，请先保存或取消后再重放撤销/重做" ) );
+      return false;
+    }
+    layer->beginEditCommand( tr( "删除约束" ) );
+    if ( !layer->deleteFeature( target.value( QStringLiteral( "fid" ) ).toLongLong() ) )
     {
       layer->destroyEditCommand();
-      // 删除失败不写 error，调用方只拿到静默 false（#188）——与其余路径一致
-      // 如实报错。
-      paleo::workflow_detail::setError(error, tr("删除约束失败"));
+      paleo::workflow_detail::setError( error, tr( "删除约束失败" ) );
       return false;
     }
     layer->endEditCommand();
-    for (const auto &remaining : cs->load())
-      if (remaining.value(QStringLiteral("id")).toString() == constraintId)
+    // 会话命令结束同步写 store：按层位读回一份，既做删除验证也是视图
+    // 同步的输入（不再全库重读）。
+    const QVector<QVariantMap> remaining = cs->load( rowHorizon );
+    for ( const auto &row : remaining )
+      if ( row.value( QStringLiteral( "id" ) ).toString() == constraintId )
       {
-        paleo::workflow_detail::setError(error, tr("删除约束未写入 store"));
+        paleo::workflow_detail::setError( error, tr( "删除约束未写入 store" ) );
         return false;
       }
-    syncConstraintGeometryViews(m_layers.data(), cs, rowHorizon, m_geometryTypes->lookup(cs, rowHorizon));
-    emit constraintRemoved(constraintId);
+    noteSelfWrite( cs );
+    syncConstraintGeometryViews( m_layers.data(), cs, rowHorizon,
+                                 m_geometryTypes->lookup( cs, rowHorizon, &remaining ) );
+    const auto pruned = std::remove_if(
+        m_inMemoryConstraints.begin(), m_inMemoryConstraints.end(),
+        [&constraintId]( const QVariantMap &rec ) {
+          return rec.value( QStringLiteral( "id" ) ).toString() == constraintId;
+        } );
+    m_inMemoryConstraints.erase( pruned, m_inMemoryConstraints.end() );
+    emit constraintRemoved( constraintId );
     return true;
   }
-  QString removedHorizon;
-  for ( const QVariantMap &row : cs->load() )
-    if ( row.value( QStringLiteral( "id" ) ).toString() == constraintId )
-      removedHorizon = row.value( QStringLiteral( "horizon" ) ).toString();
+  // 直写删除（无会话；闭包重放也走这里——重放不开会话）。
   if ( !cs->remove( constraintId, error ) )
     return false;
-  syncConstraintGeometryViews(m_layers.data(), cs, removedHorizon, m_geometryTypes->lookup(cs, removedHorizon));
+  noteSelfWrite( cs );
+  {
+    // 视图同步：一次按层位读回，兼作几何类型缓存的输入。
+    const QVector<QVariantMap> rows = cs->load( rowHorizon );
+    syncConstraintGeometryViews( m_layers.data(), cs, rowHorizon,
+                                 m_geometryTypes->lookup( cs, rowHorizon, &rows ) );
+  }
   const auto removed = std::remove_if(
       m_inMemoryConstraints.begin(), m_inMemoryConstraints.end(),
       [&constraintId]( const QVariantMap &rec ) {
@@ -1153,6 +1219,236 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
       } );
   m_inMemoryConstraints.erase( removed, m_inMemoryConstraints.end() );
   emit constraintRemoved( constraintId );
+  return true;
+}
+
+bool ConstraintWorkflow::closureGuard( const QString &storeKey, QString *error ) const
+{
+  // W1：闭包携带归属存储身份。空 key = 无存储的内存工作流（无可校验归属，
+  // 维持旧重放能力）；换库/换工程后 key 不符 → 如实拒绝，条目原地保留。
+  if ( storeKey.isEmpty() )
+    return true;
+  ConstraintStore *cs = constraintStore();
+  if ( !cs || constraintStoreKey( cs ) != storeKey )
+  {
+    paleo::workflow_detail::setError(
+        error, tr( "约束绘制所属工程已切换，撤销/重做条目保留原位" ) );
+    return false;
+  }
+  return true;
+}
+
+bool ConstraintWorkflow::closureUndoDraw( const QString &constraintId, const QString &storeKey )
+{
+  QString error;
+  return closureGuard( storeKey, &error ) &&
+         removeConstraintInternal( constraintId, &error, ModifyOrigin::ClosureReplay );
+}
+
+bool ConstraintWorkflow::closureRedoDraw( QString *current, const QString &horizon, const QString &wkt,
+                                          const QString &type, int faciesCode,
+                                          const QVariantMap &lineParams, const QString &storeKey )
+{
+  // W2：重放以原参数重画并更新闭包内共享的业务 id（合法的 id 再分配），
+  // 绝不进入会话路径或以行号/几何相等猜回对象。
+  if ( !current )
+    return false;
+  QString error;
+  if ( !closureGuard( storeKey, &error ) )
+    return false;
+  QString again;
+  if ( !addConstraintInternal( horizon, wkt, type, faciesCode, nullptr, &again, lineParams,
+                               ModifyOrigin::ClosureReplay ) )
+    return false;
+  *current = again;
+  return true;
+}
+
+int ConstraintWorkflow::nextConstraintSeq( ConstraintStore *store )
+{
+  // W4：编号索引。首次（或换库）一次全库扫描建索引；此后仅当 revision 与
+  // 记录不符（他人写入/会话持久化/另一实例）才重扫并入已知最大值；自身
+  // 写入经 noteSelfWrite 记录 revision，不把缓存顶掉。
+  const QString key = constraintStoreKey( store );
+  const quint64 revision = ConstraintStore::revision( store->gpkgPath() );
+  const auto scan = [store] {
+    int maxSeq = 0;
+    for ( const QVariantMap &row : store->load() )
+    {
+      const QString id = row.value( QStringLiteral( "id" ) ).toString();
+      if ( !id.startsWith( QLatin1String( "c-" ) ) )
+        continue;
+      bool ok = false;
+      const int num = id.mid( 2 ).toInt( &ok );
+      if ( ok && num > maxSeq )
+        maxSeq = num;
+    }
+    return maxSeq;
+  };
+  if ( !m_seqIndex.seeded || m_seqIndex.storeKey != key )
+  {
+    m_seqIndex = SequenceIndex{ key, revision, scan(), true };
+  }
+  else if ( m_seqIndex.revision != revision )
+  {
+    m_seqIndex.maxSeq = std::max( m_seqIndex.maxSeq, scan() );
+    m_seqIndex.revision = revision;
+  }
+  m_inMemorySeq = std::max( m_inMemorySeq, m_seqIndex.maxSeq );
+  return ++m_seqIndex.maxSeq;
+}
+
+void ConstraintWorkflow::noteSelfWrite( ConstraintStore *store )
+{
+  // 自身写入（append/remove/会话持久化）后把当前 revision 记为已知，
+  // 同实例的下一笔操作不必因自己的写而重扫编号索引。
+  if ( m_seqIndex.seeded && m_seqIndex.storeKey == constraintStoreKey( store ) )
+    m_seqIndex.revision = ConstraintStore::revision( store->gpkgPath() );
+}
+
+void ConstraintWorkflow::seedConstraintGeometry( ConstraintStore *store, const QString &horizon,
+                                                 const QString &wkt )
+{
+  // W4：新增行的几何类型直接并入同库缓存条目并把 revision 记为已知——
+  // 单条绘制后不再全量重读重解析整层位。换库或首条（无缓存条目）不动
+  // 缓存，由 lookup 按需定型（正确性优先）。
+  const QString key = constraintStoreKey( store );
+  auto it = m_geometryTypes->byHorizon.find( horizon );
+  if ( it == m_geometryTypes->byHorizon.end() || it->storeKey != key )
+    return;
+  const QgsGeometry geometry = QgsGeometry::fromWkt( wkt );
+  it->all.insert( geometry.type() );
+  if ( !geometry.isNull() && !geometry.isEmpty() )
+    it->present.insert( geometry.type() );
+  it->revision = ConstraintStore::revision( store->gpkgPath() );
+}
+
+bool ConstraintWorkflow::importConstraintBatch( const QString &horizon,
+                                                const QVector<paleo::ImportedConstraintRecord> &records,
+                                                QString *error, QStringList *createdOut )
+{
+  if ( createdOut )
+    createdOut->clear();
+  if ( horizon.isEmpty() || records.isEmpty() )
+  {
+    paleo::workflow_detail::setError( error, tr( "批量导入缺少层位或记录" ) );
+    return false;
+  }
+  QgisLayerService *layers = m_layers.data();
+  if ( !layers )
+  {
+    paleo::workflow_detail::setError( error, tr( "constraint workflow is not bound to a layer service" ) );
+    return false;
+  }
+  ConstraintStore *cs = constraintStore();
+  if ( !cs )
+  {
+    // 无存储兜底（测试壳/内存工作流）：逐条走内存路径，行为与旧导入一致。
+    for ( const auto &record : records )
+    {
+      QString cid;
+      if ( !addConstraint( horizon, record.wkt, record.type, -1, error, &cid, record.params ) )
+        return false;
+      if ( createdOut )
+        *createdOut << cid;
+    }
+    return true;
+  }
+  // 预验证（W4）：所有可判定的拒绝条件在写库前批量发现——层位 subset、
+  // 活会话互斥（会话快照提交会把批外写入整层覆盖）、几何提交门、参数 JSON。
+  QString subsetError;
+  const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon, &subsetError );
+  if ( subset.isEmpty() )
+  {
+    paleo::workflow_detail::setError( error, subsetError );
+    return false;
+  }
+  auto *editing = qobject_cast<QgsVectorLayer *>(
+      layers->layer( QStringLiteral( "constraints.%1" ).arg( horizon ) ) );
+  if ( editing && editing->isEditable() )
+  {
+    paleo::workflow_detail::setError( error, tr( "该层位正在约束编辑会话中，请先保存或取消再导入" ) );
+    return false;
+  }
+  QVector<ConstraintStore::BatchAppend> batch;
+  batch.reserve( records.size() );
+  for ( const auto &record : records )
+  {
+    if ( record.wkt.trimmed().isEmpty() )
+    {
+      paleo::workflow_detail::setError( error, tr( "constraint geometry WKT is empty" ) );
+      return false;
+    }
+    if ( const QString geomErr = QgisEditingService::geometryCommitError(
+             QgsGeometry::fromWkt( record.wkt ), tr( "constraint geometry" ) );
+         !geomErr.isEmpty() )
+    {
+      paleo::workflow_detail::setError( error, geomErr );
+      return false;
+    }
+    ConstraintStore::BatchAppend row;
+    row.horizon = horizon;
+    row.wkt = record.wkt;
+    row.type = record.type;
+    row.faciesCode = -1;
+    if ( !record.params.isEmpty() || isPersistedConstraintType( record.type ) )
+    {
+      row.paramsJson = lineParamsJson( record.type, record.params, error );
+      if ( row.paramsJson.isEmpty() )
+        return false;
+      row.type = storageTypeForSemantic( semanticForStoredType( record.type, record.params ) );
+      row.schemaVersion = 1;
+    }
+    batch.append( row );
+  }
+  if ( !cs->ensureSchema( error ) )
+    return false;
+  // 一次编号扫描，整批连续分配（appendBatch 负责批内唯一 + 存量查重）。
+  for ( auto &row : batch )
+    row.id = QStringLiteral( "c-%1" ).arg( nextConstraintSeq( cs ) );
+  if ( !cs->appendBatch( batch, error ) )
+    return false;
+  noteSelfWrite( cs );
+  // 内存投影 + 几何缓存：一次合并更新，不逐条重读。
+  for ( const auto &row : batch )
+  {
+    Constraint c;
+    c.id = row.id;
+    c.type = row.type;
+    c.wkt = row.wkt;
+    c.targetFaciesCode = row.faciesCode;
+    QVariantMap rec = c.toMap();
+    if ( !row.paramsJson.isEmpty() )
+    {
+      rec.insert( QStringLiteral( "params_json" ), row.paramsJson );
+      rec.insert( QStringLiteral( "schema_version" ), row.schemaVersion );
+    }
+    rec.insert( QStringLiteral( "horizon" ), horizon );
+    rec.insert( QStringLiteral( "facies_code" ), row.faciesCode );
+    m_inMemoryConstraints.append( rec );
+    seedConstraintGeometry( cs, horizon, row.wkt );
+    if ( createdOut )
+      *createdOut << row.id;
+  }
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
+  decl.horizon = horizon;
+  decl.title = constraintLayerTitle( horizon );
+  decl.type = QStringLiteral( "vector" );
+  decl.source = constraintSource( cs, m_geometryTypes->lookup( cs, horizon ), subset );
+  decl.group = PaleoLayerVocabulary::kConstraintsGroup;
+  if ( !layers->declare( decl, error ) )
+  {
+    // 批已提交：声明失败＝「已保存、呈现未完成」（W4），不回滚持久批；
+    // 快照/重载路径（loadConstraints）按 store 事实恢复呈现。
+    const QString declareError = error ? *error : QString();
+    paleo::workflow_detail::setError(
+        error, tr( "约束已批量保存，但图层声明失败：%1（重新加载后可见）" ).arg( declareError ) );
+    return true;
+  }
+  syncConstraintGeometryViews( layers, cs, horizon, m_geometryTypes->lookup( cs, horizon ) );
+  for ( const auto &row : batch )
+    emit constraintAdded( row.id );
   return true;
 }
 

@@ -24,6 +24,9 @@ QString layerKey(const QgsVectorLayer *v);
 QString footprint(QgsVectorLayer *v, QString *error = nullptr);
 bool install(QgsVectorLayer *v, const QVariantList &source,
              const QString &frozenFootprint = {}, QString *error = nullptr);
+// P5 W6：进程内 install 调用计数（诊断 oracle：普通编辑命令结束不应重装
+// 编辑器绑定，见 FaciesPartitionState::bindingSignature）。
+int installCount();
 bool validate(QgsVectorLayer *v, QString *error = nullptr);
 bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error = nullptr);
 // Paint is clipped to the existing footprint (including existing no-data holes).

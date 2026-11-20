@@ -1086,11 +1086,27 @@ void MappingWorkbench::styleLayer(const QString &id) {
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     vector->setReadOnly(!id.startsWith("draft."));
     if (id.startsWith("draft.") && vector->geometryType() == Qgis::GeometryType::Polygon) {
-      QString error;
-      // #540 子项 2：冻结覆盖范围读 sidecar，旧版本字段（partition_footprint_wkb）兜底。
-      if (!FaciesPartitionEditor::install(vector, v.extra.value("facies").toList(),
-                                         FaciesPartitionState::loadFootprint(m_dir, v.extra), &error)) {
-        vector->setAllowCommit(false); emit errorOccurred(error); return;
+      // P5 W6（#1015）：编辑器绑定按签名判定——版本 id、footprint 来源（sidecar
+      // 路径 + 摘要）或相表变化才重新 install 并读取 sidecar；普通编辑命令
+      // 结束、undo/redo、选中变化只走下方轻量刷新，不重装编辑生命周期、
+      // 不重复读取冻结覆盖范围。签名存图层实例：图层重建/换源自然重装；
+      // install 失败不记签名（下次照实重试，不跳过业务校验）。
+      const auto footprintSummary =
+          v.extra.value(QString::fromLatin1(FaciesPartitionState::kFootprintSummaryKey)).toMap();
+      const QString signature =
+          v.id + QChar(0x1f) +
+          v.extra.value(QString::fromLatin1(FaciesPartitionState::kFootprintPathKey)).toString() +
+          QChar(0x1f) + footprintSummary.value(QStringLiteral("sha256")).toString() + QChar(0x1f) +
+          QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(v.extra.value("facies").toList()))
+                                .toJson(QJsonDocument::Compact));
+      if (FaciesPartitionState::bindingSignature(vector) != signature) {
+        QString error;
+        // #540 子项 2：冻结覆盖范围读 sidecar，旧版本字段（partition_footprint_wkb）兜底。
+        if (!FaciesPartitionEditor::install(vector, v.extra.value("facies").toList(),
+                                            FaciesPartitionState::loadFootprint(m_dir, v.extra), &error)) {
+          vector->setAllowCommit(false); emit errorOccurred(error); return;
+        }
+        FaciesPartitionState::setBindingSignature(vector, signature);
       }
     }
     // facies-ux 4：属性表里 facies_code 用相名称下拉（值映射到编码），

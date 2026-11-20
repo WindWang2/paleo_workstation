@@ -10,6 +10,7 @@
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../services/singlefactordef.h"
+#include "constraintimport.h" // P5 W4：importConstraintBatch 的 ImportedConstraintRecord
 #include "derivedassets.h" // PredictionJob 持 DerivedStaging（#277 三段式）
 #include <QObject>
 #include <QHash>
@@ -226,6 +227,14 @@ class ConstraintWorkflow : public QObject
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr,
                        const QVariantMap &lineParams = {});
+    // P5 W4：批量导入。一批预验证（几何提交门/层位 subset/参数 JSON/活会话
+    // 互斥）+ 一次编号扫描 + 一次存储事务（appendBatch 批内唯一 + 存量查重）
+    // + 一次内存与几何视图同步——不逐条全量扫描。任何预验证或事务失败整批
+    // 拒绝（不写任何行）；已提交后的呈现失败按「已保存、呈现未完成」如实
+    // 返回（true + *error 警告），不回滚持久批。createdOut 回传本批新建 id。
+    bool importConstraintBatch(const QString &horizon,
+                               const QVector<paleo::ImportedConstraintRecord> &records,
+                               QString *error = nullptr, QStringList *createdOut = nullptr);
 
     // PR457-closure 二轮（P0-2 可达性）：约束库 CRS 存储契约的 workflow 门面——
     // 视图层不直接依赖 io。state：0=无约束层/无库 1=legacy CRS-less（坐标按
@@ -328,6 +337,29 @@ class ConstraintWorkflow : public QObject
 
   private:
     paleo::workflow::ClosureEditStack *m_propertyEdits = nullptr; // #742，不持有
+    // P5 W1/W2：约束修改上下文。用户入口按既有规则建立/复用原生编辑会话；
+    // #742 闭包栈的 undo/redo 重放（ClosureReplay）绝不 ensureConstraintSession、
+    // 不把补偿压进原生栈——同层位存在活会话或归属存储已切换时如实拒绝
+    //（ClosureEditStack 失败条目原地保留），同一操作只有一份撤销历史。
+    enum class ModifyOrigin { User, ClosureReplay };
+    bool removeConstraintInternal(const QString &constraintId, QString *error, ModifyOrigin origin);
+    bool addConstraintInternal(const QString &horizon, const QString &wkt, const QString &type,
+                               int faciesCode, QString *error, QString *constraintIdOut,
+                               const QVariantMap &lineParams, ModifyOrigin origin);
+    bool closureGuard(const QString &storeKey, QString *error) const;
+    bool closureUndoDraw(const QString &constraintId, const QString &storeKey);
+    bool closureRedoDraw(QString *current, const QString &horizon, const QString &wkt,
+                         const QString &type, int faciesCode, const QVariantMap &lineParams,
+                         const QString &storeKey);
+    // P5 W4：编号索引（store+revision 键控）。自写后记录 seen revision，自身
+    // 写入不再触发重扫；revision 与记录不符（他人写入/会话持久化）才重扫一次。
+    struct SequenceIndex { QString storeKey; quint64 revision = 0; int maxSeq = 0; bool seeded = false; };
+    SequenceIndex m_seqIndex;
+    int nextConstraintSeq(ConstraintStore *store);
+    void noteSelfWrite(ConstraintStore *store);
+    // P5 W4：新增行的几何类型直接并入同库缓存条目（revision 记为已知），
+    // 单条绘制不再全量重读重解析；换库/首条不动缓存（lookup 按需定型）。
+    void seedConstraintGeometry(ConstraintStore *store, const QString &horizon, const QString &wkt);
     bool addConstraintThroughSession(QgsVectorLayer *layer, ConstraintStore *store, const QString &horizon,
                                      const QString &id, const QString &wkt, const QString &storedType,
                                      int faciesCode, const QString &paramsJson, bool extended, QString *error);

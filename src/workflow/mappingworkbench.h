@@ -114,6 +114,20 @@ public:
   void cancelPolygonize();
   QString copyForEditing(const QString &layerId, const QStringList &references,
                          QString *error, bool requireEvidence = false);
+  // P5 W5（#990）：复制后的「源要素 → 副本要素」稳定身份映射。有稳定 UID 的
+  // 来源按身份解析；无 UID 的历史来源在复制过程内按 provider 迭代顺序建立
+  // 一对一位置映射（仅本次复制结果内有效，不落盘、不当长期身份）。来源
+  // 不被写入；重复 UID 记入 ambiguousSourceUids（调用方必须拒绝，不能取首条）。
+  struct CopyFeatureIdentity
+  {
+    QString sourceLayerId;
+    QHash<QString, qint64> copyFidBySourceUid;   // 稳定 UID 来源：源 UID → 副本 fid
+    QHash<qint64, qint64> copyFidBySourceFid;    // 无 UID 历史来源：源 fid → 副本 fid
+    QStringList ambiguousSourceUids;             // 重复 UID（副本侧 ensure 已fork，不可按 UID 解析）
+  };
+  QString copyForEditing(const QString &layerId, const QStringList &references,
+                         QString *error, bool requireEvidence,
+                         CopyFeatureIdentity *identity);
   // 从零编制：空白微相分区，首次闭合绘制确定覆盖范围。
   QString createBlankMap(const QString &horizon, QString *error);
   bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);

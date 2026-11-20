@@ -32,6 +32,12 @@ inline constexpr const char *kEvidenceFailure = "paleo.evidenceEditFailure";
 inline constexpr const char *kEvidenceFailures = "paleo.evidenceEditFailures";
 inline constexpr const char *kCommitRejected = "paleo.partitionCommitRejected";
 inline constexpr const char *kWorkbenchBinding = "paleo.workbenchBinding";
+// P5 W6（#1015）：编辑器绑定签名。styleLayer 按签名（版本 id + footprint
+// 来源 + 相表）判断 install/loadFootprint 是否需要重做；普通编辑命令结束、
+// undo/redo、选中变化只做轻量刷新，不重读 sidecar、不重装编辑生命周期。
+// 签名存于图层实例——图层重建/换源自然丢失并重装；版本或相表变化经签名
+// 失配重建；安装失败不记签名（下次重试）。
+inline constexpr const char *kBindingSignature = "paleo.partitionBindingSignature";
 
 // ---- 版本 extra 键（#540 子项 2） -----------------------------------------
 inline constexpr const char *kFootprintPathKey = "partition_footprint_path";
@@ -55,6 +61,11 @@ QVariantMap evidenceFailures(const QgsVectorLayer *v);
 void setEvidenceFailures(QgsVectorLayer *v, const QVariantMap &failures);
 bool commitRejected(const QgsVectorLayer *v);
 void setCommitRejected(QgsVectorLayer *v, bool rejected);
+// ---- 编辑器绑定签名（P5 W6）----------------------------------------------
+QString bindingSignature(const QgsVectorLayer *v);
+void setBindingSignature(QgsVectorLayer *v, const QString &signature);
+// 进程内 loadFootprint 次数（诊断 oracle：连续编辑不得重复读取 sidecar）。
+int footprintReadCount();
 
 // ---- 观察器侧访问器（MappingFeatureIdentity::Observer 上的工作台绑定）------
 QObject *workbenchBinding(const QObject *observer);

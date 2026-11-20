@@ -25,6 +25,9 @@ public:
   // 实例）的行写入/删除/替换/迁移/还原后递增；读侧缓存（如约束几何类型）
   // 以此判定失效，不必每次全表重载重解析 WKT。线程安全。
   static quint64 revision(const QString &gpkgPath);
+  // P5 W4：进程内 load() 调用计数（诊断 oracle）。批量导入/连续编辑的回归
+  // 以此证明全量读取不随条数逐条增长；仅测试与性能诊断消费。
+  static quint64 debugLoadCount();
   bool setAuditContext(const AuditContext &context, QString *error = nullptr);
   void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
 
@@ -35,6 +38,21 @@ public:
   bool appendExtended(const QString &horizon, const QString &id, const QString &wkt,
                       const QString &type, int faciesCode, const QString &paramsJson,
                       int schemaVersion, QString *error = nullptr, double weight = 1.0);
+  // P5 W4：批量追加——一次事务写完整批（批内唯一 + 存量查重，任一失败整批
+  // 回滚，不写任何行）。审计按同一 operationId 逐条登记 create 事件。
+  // paramsJson 为空走普通 append 字段集，否则与 appendExtended 同集。
+  struct BatchAppend
+  {
+    QString horizon;
+    QString id;
+    QString wkt;
+    QString type;
+    int faciesCode = -1;
+    double weight = 1.0;
+    QString paramsJson;
+    int schemaVersion = 0;
+  };
+  bool appendBatch(const QVector<BatchAppend> &rows, QString *error = nullptr);
   // 文件不存在时失败，不创建数据库。失败回滚，不改已有要素。
   bool updateParameters(const QString &id, const QString &paramsJson, int schemaVersion,
                         const QString &semanticType, QString *error = nullptr);

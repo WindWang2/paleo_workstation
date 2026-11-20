@@ -118,6 +118,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-ui.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-p1-data-commands.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-p2-data-query.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-p5-edit-lifecycle.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ui-cmdregistry.cmake"
 )
 # 双向核对：新增文件必须登记，已登记文件不得缺失，重复登记也立即失败。

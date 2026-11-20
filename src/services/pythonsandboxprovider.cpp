@@ -62,6 +62,9 @@ void evidence(QJsonObject &state,const SandboxResult &result) {
   state["cpuMicros"]=QString::number(result.cpuMicros);state["observedPeakMemoryBytes"]=QString::number(result.peakMemoryBytes);
   state["memoryPeakComplete"]=result.memoryPeakComplete;state["hostSnapshotReservedBytes"]=QString::number(result.hostSnapshotReservedBytes);
   state["childMemoryLimitBytes"]=QString::number(result.childMemoryLimitBytes);
+  // 私有执行视图口径（#959）：探针与正式 run 同一合同——ready 后实际执行
+  // 使用认证私有视图；复用/占用计数进入阶段诊断。
+  state["viewReused"]=result.viewReused;state["viewBytes"]=QString::number(result.viewBytes);state["viewFiles"]=QString::number(result.viewFiles);
 }
 }
 SandboxProvider::SandboxProvider(std::shared_ptr<RuntimeProvider> runtime):m_runtime(std::move(runtime)) {}

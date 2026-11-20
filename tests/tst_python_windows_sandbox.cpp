@@ -7,17 +7,23 @@
 #include <winioctl.h>
 #include <aclapi.h>
 #include <sddl.h>
+#include "services/pythonsandbox_windows_internal.h"
 #endif
 #include "services/pythonsandbox_windows.h"
 #include "services/pythoninputbundle.h"
 #include <QtTest>
+#include <QCryptographicHash>
 #include <QDataStream>
+#include <QDeadlineTimer>
 #include <QDir>
+#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QThread>
 #include <QSaveFile>
 #include <QScopeGuard>
 #include <QStandardPaths>
@@ -49,6 +55,48 @@ bool grantLegacyPackageRead(const QString &path){
   return SetEntriesInAclW(1,&access,original,&updated)==ERROR_SUCCESS&&SetNamedSecurityInfoW((LPWSTR)wide.utf16(),SE_FILE_OBJECT,
     DACL_SECURITY_INFORMATION|PROTECTED_DACL_SECURITY_INFORMATION,nullptr,nullptr,updated,nullptr)==ERROR_SUCCESS;
 }
+// #959 oracle：逐节点安全描述符的语义规范化快照——owner/group SID、
+// DACL 控制标志（含 PROTECTED/继承态）与 ACE 集合（类型|标志|掩码|受托人
+// SID，排序后拼接）。不依赖 SDDL 字符串的偶然排序；同时并入字节摘要，
+// 同一趟走查覆盖「字节 + 安全描述符 + 继承状态」三重不变量。
+QString nodeSecurityText(const QString &path){
+  const auto wide=QDir::toNativeSeparators(path);PSECURITY_DESCRIPTOR sd=nullptr;PACL dacl=nullptr;
+  const auto fields=DACL_SECURITY_INFORMATION|OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION;
+  if(GetNamedSecurityInfoW((LPWSTR)wide.utf16(),SE_FILE_OBJECT,fields,nullptr,nullptr,&dacl,nullptr,&sd)!=ERROR_SUCCESS)return {};
+  const auto cleanup=qScopeGuard([&]{if(sd)LocalFree(sd);});
+  PSID user=nullptr,group=nullptr;BOOL present=false,defaulted=false;DWORD control=0;DWORD revision=0;
+  if(!GetSecurityDescriptorOwner(sd,&user,&defaulted)||!GetSecurityDescriptorGroup(sd,&group,&defaulted)||
+     !GetSecurityDescriptorControl(sd,&control,&revision))return {};
+  auto sidText=[](PSID sid){LPWSTR text=nullptr;if(!sid||!ConvertSidToStringSidW(sid,&text))return QStringLiteral("?");const auto value=QString::fromWCharArray(text);LocalFree(text);return value;};
+  QStringList aces;
+  GetSecurityDescriptorDacl(sd,&present,&defaulted);
+  if(present&&dacl) {
+    for(WORD i=0;i<dacl->AceCount;++i) {
+      void *ace=nullptr;if(!GetAce(dacl,i,&ace))return {};
+      const auto *header=(ACE_HEADER*)ace;DWORD mask=0;PSID trustee=nullptr;QString kind;
+      if(header->AceType==ACCESS_ALLOWED_ACE_TYPE){const auto *allowed=(ACCESS_ALLOWED_ACE*)ace;mask=allowed->Mask;trustee=(PSID)&allowed->SidStart;kind="A";}
+      else if(header->AceType==ACCESS_DENIED_ACE_TYPE){const auto *denied=(ACCESS_DENIED_ACE*)ace;mask=denied->Mask;trustee=(PSID)&denied->SidStart;kind="D";}
+      else kind=QStringLiteral("T%1").arg(int(header->AceType));
+      aces.append(QStringLiteral("%1:%2:%3:%4").arg(kind).arg(int(header->AceFlags),4,16,QChar('0'))
+        .arg(mask,8,16,QChar('0')).arg(trustee?sidText(trustee):QStringLiteral("?")));
+    }
+  }
+  aces.sort();
+  return QStringLiteral("O=%1|G=%2|C=%3|ACL=%4").arg(sidText(user)).arg(sidText(group))
+    .arg(control,4,16,QChar('0')).arg(aces.join(QLatin1Char(';')));
+}
+QHash<QString,QString> treeSnapshot(const QString &root){
+  QHash<QString,QString> snapshot;
+  QDirIterator it(root,QDir::AllEntries|QDir::NoDotAndDotDot|QDir::Hidden|QDir::System,QDirIterator::Subdirectories);
+  while(it.hasNext()){
+    const auto path=it.next();QCryptographicHash hash(QCryptographicHash::Sha256);
+    if(QFileInfo(path).isFile()){QFile file(path);if(!file.open(QIODevice::ReadOnly))continue;
+      while(!file.atEnd())hash.addData(file.read(64*1024));file.close();}
+    snapshot.insert(QDir(root).relativeFilePath(path),
+                    nodeSecurityText(path)+QLatin1Char('|')+QString::fromLatin1(hash.result().toHex()));
+  }
+  return snapshot;
+}
 bool hasPythonChild(){
   HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);PROCESSENTRY32W entry{};entry.dwSize=sizeof(entry);bool found=false;
   if(snapshot!=INVALID_HANDLE_VALUE&&Process32FirstW(snapshot,&entry)){do{
@@ -78,6 +126,22 @@ int crashHost(const QStringList &args){
   });
   SandboxRequest request;request.runtime=inspected.runtime;request.input=bundle;request.policy.allowGenerated=true;
   const auto result=runWindowsSandbox(request);stop=true;monitor.join();fprintf(stderr,"crash fixture failed: %s %s\n",qPrintable(result.code),result.error.constData());return 2;
+}
+// 任务 B（同 generation 两宿主重叠）：独立 helper 进程 = 独立 profile/输入/
+// 执行许可；python 睡 30s，父进程等两个「已入运行」marker 后强杀 A，证明
+// 重叠与 KILL_ON_JOB_CLOSE 兜底。结果 JSON 由本 helper 落盘。
+int overlapHost(const QStringList &args){
+  const auto inspected=verifyRuntime({args[2],anchor(),true},{},std::make_shared<int>(0));
+  if(!inspected.ready())return 3;
+  QSaveFile launched(args[4]);
+  if(!launched.open(QIODevice::WriteOnly)||launched.write("1")!=1||!launched.commit())return 4;
+  auto bundle=input(args[3],"import time\ntime.sleep(30)\n");
+  SandboxRequest request;request.runtime=inspected.runtime;request.input=bundle;request.policy.allowGenerated=true;
+  const auto result=runWindowsSandbox(request);
+  QSaveFile file(args[5]);
+  const auto bytes=QJsonDocument(QJsonObject{{"code",result.code},{"viewReused",result.viewReused}}).toJson();
+  if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())return 5;
+  return result.ok()?0:6;
 }
 #endif
 }
@@ -299,6 +363,110 @@ print(json.dumps(d))
     HANDLE process=OpenProcess(SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION,FALSE,child);if(process){QCOMPARE(WaitForSingleObject(process,1000),DWORD(WAIT_OBJECT_0));CloseHandle(process);}
     QVERIFY(!QDir(controlRoot()).entryList({"*.json"},QDir::Files).isEmpty());const auto next=run("print('maintenance')");QVERIFY2(next.ok(),qPrintable(next.code+':'+QString::fromUtf8(next.error)));
     QVERIFY(QDir(controlRoot()).entryList({"*.json"},QDir::Files).isEmpty());
+    // 任务 B：死宿主的视图租约也须随维护运行清空（journal 扩展恢复面）。
+    const auto leases=QDir(QDir(controlRoot()).filePath("view-leases")).entryList({"*.json"},QDir::Files);
+    QVERIFY2(leases.isEmpty(),qPrintable(leases.join(QLatin1Char(','))));
+  }
+  void sourceTreesKeepTheirSecurityDescriptors(){
+    // #959 oracle：原 runtime/工程输入树逐节点「owner/group + DACL 控制标志
+    //（含 PROTECTED/继承）+ ACE 集合 + 字节摘要」在成功与取消两种运行前后
+    // 保持不变。运行期间源树被独占句柄锁死（既改不了字节也改不了 SD）。
+    QTemporaryDir project(QDir(projects).filePath("acl-XXXXXX"));QVERIFY(project.isValid());
+    auto bundle=input(project.path(),"import time\ntime.sleep(30)\n");QVERIFY(bundle->ok());
+    const QElapsedTimer clock;clock.start();
+    const auto runtimeBefore=treeSnapshot(runtime),inputBefore=treeSnapshot(bundle->root);
+    QVERIFY(!runtimeBefore.isEmpty());QVERIFY(!inputBefore.isEmpty());
+    {SandboxRequest ok;ok.runtime=verified;ok.input=input(project.path(),"print('ok')");ok.policy.allowGenerated=true;
+     const auto result=runWindowsSandbox(ok);QVERIFY2(result.ok(),qPrintable(result.code+':'+QString::fromUtf8(result.error)));}
+    {SandboxRequest cancel;cancel.runtime=verified;cancel.input=bundle;cancel.policy.allowGenerated=true;
+     QElapsedTimer stop;stop.start();cancel.cancelled=[&]{return stop.elapsed()>2000;};
+     const auto result=runWindowsSandbox(cancel);QCOMPARE(result.code,QString("cancelled"));}
+    const auto runtimeAfter=treeSnapshot(runtime),inputAfter=treeSnapshot(bundle->root);
+    QCOMPARE(runtimeAfter.size(),runtimeBefore.size());QCOMPARE(inputAfter.size(),inputBefore.size());
+    for(auto it=runtimeBefore.begin();it!=runtimeBefore.end();++it)QVERIFY2(runtimeAfter.value(it.key())==it.value(),qPrintable(it.key()));
+    for(auto it=inputBefore.begin();it!=inputBefore.end();++it)QVERIFY2(inputAfter.value(it.key())==it.value(),qPrintable(it.key()));
+    qInfo()<<"ACL/byte snapshot rows"<<runtimeBefore.size()+inputBefore.size()<<"in"<<clock.elapsed()<<"ms";
+  }
+  void privateViewIsUsedAndReusedAcrossRuns(){
+    const auto code="import json,sys,os\nprint(json.dumps({'exe':sys.executable,'cwd':os.getcwd()}))";
+    const auto first=run(code);QVERIFY2(first.ok(),qPrintable(first.code+':'+QString::fromUtf8(first.error)));
+    QVERIFY(!first.viewReused);QVERIFY(first.viewBytes>0);QVERIFY(first.viewFiles>0);
+    const auto second=run(code);QVERIFY2(second.ok(),qPrintable(second.code+':'+QString::fromUtf8(second.error)));
+    QVERIFY(second.viewReused);QCOMPARE(second.viewBytes,first.viewBytes);
+    for(const SandboxResult *result:{&first,&second}) {
+      const auto object=QJsonDocument::fromJson(result->output).object();
+      const auto exe=QDir::fromNativeSeparators(object.value("exe").toString()),cwd=QDir::fromNativeSeparators(object.value("cwd").toString());
+      // 执行视图在服务控制根内；来源 runtime/工程输入不再是被执行路径。
+      QVERIFY2(exe.startsWith(controlRoot()+'/'),qPrintable(exe));
+      QVERIFY2(!exe.startsWith(runtime+'/',Qt::CaseInsensitive),qPrintable(exe));
+      QVERIFY2(cwd.startsWith(controlRoot()+'/'),qPrintable(cwd));
+      QVERIFY2(QFileInfo(exe).fileName().compare("python.exe",Qt::CaseInsensitive)==0,qPrintable(exe));
+    }
+    QVERIFY(QDir(controlRoot()).exists("runtime-views"));
+  }
+  void viewTamperingIsRefusedAndSourceStaysIntact(){
+    const auto first=run("print('build')");QVERIFY2(first.ok(),qPrintable(first.code+':'+QString::fromUtf8(first.error)));
+    // 同尺寸篡改私有视图：复用验证须在执行前拒绝（不静默重建掩盖差异）。
+    const auto viewRoot=QDir(QDir(controlRoot()).filePath("runtime-views")).entryList(QDir::Dirs|QDir::NoDotAndDotDot).constFirst();
+    const auto target=QDir(QDir(QDir(controlRoot()).filePath("runtime-views")).filePath(viewRoot)).filePath("LICENSE.txt");
+    QVERIFY(QFile::exists(target));
+    const auto wide=QDir::toNativeSeparators(target);const auto attributes=GetFileAttributesW((PCWSTR)wide.utf16());
+    QVERIFY(SetFileAttributesW((PCWSTR)wide.utf16(),attributes&~FILE_ATTRIBUTE_READONLY));
+    const auto restore=qScopeGuard([&]{SetFileAttributesW((PCWSTR)wide.utf16(),attributes);});
+    {QFile file(target);QVERIFY(file.open(QIODevice::ReadWrite));QVERIFY(file.size()>0);file.seek(0);char byte=0;QVERIFY(file.getChar(&byte));
+     file.seek(0);QVERIFY(file.putChar(char(byte^1)));file.close();}
+    const auto second=run("print('forbidden')");QCOMPARE(second.code,QString("python_runtime_changed"));QVERIFY(second.output.isEmpty());
+  }
+  void viewFailureInjectionsRefuseExecution(){
+    using windows_detail::view_test::setFailuresForTest;
+    const auto clear=qScopeGuard([]{setFailuresForTest({},{},{},{});});
+    const auto runtimeViewDir=QDir(controlRoot()).filePath("runtime-views");
+    // 复制失败：删掉既有视图强制走构建路径——拒绝执行且无 ready 视图残留。
+    for(const auto &entry:QDir(runtimeViewDir).entryList(QDir::Dirs|QDir::NoDotAndDotDot))
+      QVERIFY(QDir(QDir(runtimeViewDir).filePath(entry)).removeRecursively());
+    setFailuresForTest([]{return true;},{},{},{});
+    QCOMPARE(run("print('forbidden')").code,QString("python_view_copy_forced"));
+    for(const auto &entry:QDir(runtimeViewDir).entryList(QDir::Dirs|QDir::NoDotAndDotDot))
+      QVERIFY2(entry.endsWith(".staging"),qPrintable(entry)); // 部分复制不得变成 ready 视图
+    setFailuresForTest({},[]{return true;},{},{});
+    QCOMPARE(run("print('forbidden')").code,QString("python_view_acl_forced"));
+    setFailuresForTest({},{},[]{return true;},{});
+    QCOMPARE(run("print('forbidden')").code,QString("python_view_lease_forced"));
+    setFailuresForTest({},{},{},[]{return true;});
+    const auto leaked=run("print('cleanup-pending')");QCOMPARE(leaked.code,QString("python_sandbox_cleanup_failed"));QVERIFY(leaked.output.isEmpty());
+    QVERIFY(!leaked.outputLog.isEmpty()); // 私有输出有界保留、不进成功链
+    // 租约记录保留（可重试凭据），下次正常运行后由恢复路径回收。
+    setFailuresForTest({},{},{},{});
+    const auto healed=run("print('maintenance')");QVERIFY2(healed.ok(),qPrintable(healed.code+':'+QString::fromUtf8(healed.error)));
+  }
+  void twoHostsOverlapAndCrashIsReconciled(){
+    QTemporaryDir projectA(QDir(projects).filePath("overlap-a-XXXXXX")),projectB(QDir(projects).filePath("overlap-b-XXXXXX"));
+    QVERIFY(projectA.isValid()&&projectB.isValid());
+    const auto markerA=projectA.filePath("launched"),resultA=projectA.filePath("result.json");
+    const auto markerB=projectB.filePath("launched"),resultB=projectB.filePath("result.json");
+    QProcess hostA,hostB;
+    hostA.start(QCoreApplication::applicationFilePath(),{"--view-overlap",runtime,projectA.path(),markerA,resultA});
+    hostB.start(QCoreApplication::applicationFilePath(),{"--view-overlap",runtime,projectB.path(),markerB,resultB});
+    QVERIFY(hostA.waitForStarted(5000));QVERIFY(hostB.waitForStarted(5000));
+    // 屏障：两个 helper 都已进入运行（各自 python 睡 30s）→ 真实重叠。
+    const QDeadlineTimer barrier(60000);
+    while((!QFile::exists(markerA)||!QFile::exists(markerB))&&!barrier.hasExpired())
+      QThread::msleep(100);
+    QVERIFY2(QFile::exists(markerA)&&QFile::exists(markerB),"both hosts must enter their runs");
+    QThread::msleep(2000); // 重叠窗口：A/B 的 python 同时在跑
+    HANDLE victim=OpenProcess(PROCESS_TERMINATE,FALSE,DWORD(hostA.processId()));
+    QVERIFY(victim);
+    TerminateProcess(victim,88); // A 宿主硬终止（崩溃面）
+    CloseHandle(victim);
+    QVERIFY(hostA.waitForFinished(10000));
+    QVERIFY2(hostB.waitForFinished(60000),"surviving host must finish its own run");
+    QFile file(resultB);QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto record=QJsonDocument::fromJson(file.readAll()).object();file.close();
+    QVERIFY2(record.value("code").toString()=="ok",qPrintable(record.value("code").toString()));
+    // A 崩溃不删 B 的执行文件：视图仍在且下一次维护运行后租约清空。
+    const auto next=run("print('maintenance')");QVERIFY2(next.ok(),qPrintable(next.code+':'+QString::fromUtf8(next.error)));
+    const auto leases=QDir(QDir(controlRoot()).filePath("view-leases")).entryList({"*.json"},QDir::Files);
+    QVERIFY2(leases.isEmpty(),qPrintable(leases.join(QLatin1Char(','))));
   }
 };
 class TestPythonWindowsSandboxMissing:public QObject {
@@ -313,6 +481,7 @@ int main(int argc,char **argv){
   QCoreApplication app(argc,argv);QCoreApplication::setOrganizationName("PaleoTests");QCoreApplication::setApplicationName("tst_python_windows_sandbox");
 #ifdef Q_OS_WIN
   if(app.arguments().size()==5&&app.arguments()[1]=="--profile-crash")return crashHost(app.arguments());
+  if(app.arguments().size()==6&&app.arguments()[1]=="--view-overlap")return overlapHost(app.arguments());
 #endif
   if(qEnvironmentVariable("PALEO_REQUIRE_AGENT_PYTHON_SANDBOX")!="1"&&runtimeRoot().isEmpty()){
     TestPythonWindowsSandboxMissing test;return QTest::qExec(&test,argc,argv);}

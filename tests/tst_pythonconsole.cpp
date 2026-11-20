@@ -59,6 +59,8 @@ private slots:
   void interpreterMissingShowsGuidance();
   void interpreterRowStyleFollowsThemeSwitch();
   void replRoundTripThroughPanel();
+  void terminalStatesAreDistinct();
+  void replRestartThroughPanel();
 
 private:
   static bool spinUntil(const std::function<bool()> &done, int timeoutMs = 20000)
@@ -331,6 +333,74 @@ void TestPythonConsole::replRoundTripThroughPanel()
   QVERIFY2(spinUntil([&] { return !f.controller.replRunning(); }),
            "REPL 会话必须干净退出");
   QVERIFY(status->text().contains(QStringLiteral("未启动")));
+}
+
+// 任务 B（终态与重复启停）：正常完成 / 启动后取消 / 超时在历史上呈现
+// 互异且如实的终态——不把取消伪装成失败或成功。
+void TestPythonConsole::terminalStatesAreDistinct()
+{
+  ConsoleFixture f;
+  auto *script = f.panel.findChild<QLineEdit *>(QStringLiteral("pythonScriptPath"));
+  auto *stop = f.panel.findChild<QPushButton *>(QStringLiteral("pythonStop"));
+  auto *history =
+      f.panel.findChild<QListWidget *>(QStringLiteral("pythonHistoryList"));
+  QVERIFY(script && stop && history);
+  // 1) 正常完成 → 成功。
+  script->setText(fixture(QStringLiteral("echo_args.py")));
+  f.panel.findChild<QPushButton *>(QStringLiteral("pythonRun"))->click();
+  QVERIFY2(spinUntil([&] { return history->count() == 1; }), "normal run");
+  QCOMPARE(f.controller.history().first().exitCode, 0);
+  QVERIFY(history->item(0)->text().contains(QStringLiteral("成功")));
+  // 2) 启动后取消 → 已取消（不是「异常退出」也不是「成功」）。
+  script->setText(fixture(QStringLiteral("sleep.py")));
+  f.panel.findChild<QLineEdit *>(QStringLiteral("pythonArgs"))
+      ->setText(QStringLiteral("30"));
+  f.panel.findChild<QPushButton *>(QStringLiteral("pythonRun"))->click();
+  QVERIFY(spinUntil([&] { return stop->isEnabled(); }));
+  stop->click();
+  QVERIFY2(spinUntil([&] { return history->count() == 2; }), "cancel must finish");
+  QVERIFY(f.controller.history().first().cancelled);
+  QVERIFY(history->item(0)->text().contains(QStringLiteral("已取消")));
+  QVERIFY(!history->item(0)->text().contains(QStringLiteral("成功")));
+  // 3) 非零退出码 → 「退出码 3」（第三种互异终态；超时路径由 runner 级
+  // tst_scriptrunner 验收，控制器面不重复构造入口）。
+  script->setText(fixture(QStringLiteral("fail.py")));
+  f.panel.findChild<QPushButton *>(QStringLiteral("pythonRun"))->click();
+  QVERIFY2(spinUntil([&] { return history->count() == 3; }), "exit-code run");
+  QCOMPARE(f.controller.history().first().exitCode, 3);
+  QVERIFY(history->item(0)->text().contains(QStringLiteral("退出码 3")));
+}
+
+// 任务 B（重复启停）：停止后立即重新启动 REPL——新会话中文往返正常，
+// 面板状态如实切换。
+void TestPythonConsole::replRestartThroughPanel()
+{
+  ConsoleFixture f;
+  auto *start =
+      f.replPanel.findChild<QPushButton *>(QStringLiteral("pythonReplStart"));
+  auto *stop = f.replPanel.findChild<QPushButton *>(QStringLiteral("pythonReplStop"));
+  auto *input = f.replPanel.findChild<QLineEdit *>(QStringLiteral("pythonReplInput"));
+  auto *output =
+      f.replPanel.findChild<QPlainTextEdit *>(QStringLiteral("pythonReplOutput"));
+  auto *status = f.replPanel.findChild<QLabel *>(QStringLiteral("pythonReplStatus"));
+  QVERIFY(start && stop && input && output && status);
+  for (int round = 0; round < 2; ++round)
+  {
+    start->click();
+    QVERIFY2(spinUntil([&] { return input->isEnabled(); }), "repl must start");
+    input->setText(QStringLiteral("print('中文-第%1轮')").arg(round + 1));
+    emit input->returnPressed();
+    QVERIFY2(spinUntil([&] {
+               return output->toPlainText().contains(
+                   QStringLiteral("中文-第%1轮").arg(round + 1));
+             }),
+             qPrintable(output->toPlainText()));
+    stop->click();
+    QVERIFY2(spinUntil([&] { return !f.controller.replRunning(); }),
+             "repl must stop");
+    QVERIFY(!input->isEnabled());
+    QVERIFY(status->text().contains(QStringLiteral("未启动")));
+  }
 }
 
 QTEST_MAIN(TestPythonConsole)

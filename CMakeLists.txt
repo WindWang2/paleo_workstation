@@ -126,6 +126,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-p6-map-save.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-c-workbench-commands.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-a-async-previews.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-b-runtime-lifecycle.cmake"
 )
 # 双向核对：新增文件必须登记，已登记文件不得缺失，重复登记也立即失败。
 # 先验证再 include，避免缺失功能被 EXISTS 静默跳过或半份清单已执行。

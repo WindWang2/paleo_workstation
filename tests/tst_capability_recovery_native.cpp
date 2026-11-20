@@ -131,9 +131,14 @@ private slots:
       b.context.documentId="doc-native";b.context.epoch=h.epoch;b.context.open=true;b.context.persistentIdentity=true;
       b.context.readOnly=!h.writable;b.context.ownsWrites=h.writable;b.context.allowedEffects=host::Read|host::PrivateStage|host::CatalogPublish|host::Presentation;
       b.freeze=[this,&h,&s1](ExecuteRequest &r){
-        if(r.capabilityId=="constraint.idw")
+        // 与生产 freezeInput 同序：bindingMode 先定，再走 constraint.idw 受信冻结。
+        // source_operation_id 复用发布（inputs 只含该键）由 Host 的 freezeSourcePublication
+        // 继承原冻结上下文，不重复解析单元——避免覆盖 stagePlan 继承的 parents。
+        if(r.bindingMode.isEmpty())r.bindingMode="pinned-value";
+        const bool reuse=r.publishIntent=="publish" && r.inputs.contains("source_operation_id") && r.inputs.size()==1;
+        if(!reuse && r.capabilityId=="constraint.idw")
           return paleo::constraint_identity::freezeConstraintIdwRequest(r,h.root.path(),&h.catalog,s1);
-        r.bindingMode="pinned-value";return QString();};
+        return QString();};
       b.validateInputs=[&h](const ExecuteRequest&){return h.providerOnline?QString():QString("provider_offline");};return b;
     });
     // 受管井点版本：points_ref 解析为父版本。
@@ -142,35 +147,38 @@ private slots:
       DerivedAssetRegistrar registrar(&h.catalog,h.root.path());QString error;
       const auto st=registrar.stage(QStringLiteral("well_factor_points"),QStringLiteral("p"),QStringLiteral("p.gpkg"),&error);
       QVERIFY(st.isValid());QFile file(st.absolutePath);QVERIFY(file.open(QIODevice::WriteOnly));file.write("pts");file.close();
-      DerivedFileFingerprint fp;fp.sha256=QStringLiteral("cc");DerivedOutputSetReceipt receipt;
+      DerivedFileFingerprint fp=DerivedFileFingerprint::read(st.absolutePath,{},&error);QVERIFY(!fp.sha256.isEmpty());DerivedOutputSetReceipt receipt;
       QVariantMap extra;extra.insert(QStringLiteral("manifest_layer_id"),QStringLiteral("wellfactor.sample.sandthick"));
       QVERIFY(registrar.commit(st,{},QStringLiteral(""),extra,&error,&fp));pointsVersion=st.versionId;
     }
-    ExecuteRequest r;r.capabilityId="constraint.idw";r.clientRequestId="idw-unit";r.publishIntent="publish";
+    ExecuteRequest r;r.capabilityId="constraint.idw";r.clientRequestId="idw-unit";r.publishIntent="compute-only";
     r.parameters={{"FIELD","z"},{"CELL_SIZE",25.0}};QVariantList points;
     for(int i=0;i<4;++i)points.append(QVariantMap{{"x",(i%2)*100.0},{"y",(i/2)*100.0},{"z",(i/2)*10.0},{"well_id",QString::number(i)}});
     r.inputs={{"points",points},{"points_ref",QStringLiteral("catalog:")+pointsVersion},{"subinterval_id",s1.subIntervalId}};
     const auto p=h.service.prepare(r,host::Caller::Agent);QVERIFY2(p.ok,qPrintable(p.code));
     bool done=false;ExecuteResult result;QString error;
     QVERIFY2(h.service.start(p.handle,r,this,"idw-unit",[&](ExecuteResult out){result=out;done=true;},&error),qPrintable(error));
-    QTRY_VERIFY(done);QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));
-    QCOMPARE(h.catalog.versions().size(),2);
-    // 发布成员携带宿主冻结的单元身份 + 实际消费的父版本。
+    QTRY_VERIFY(done);QVERIFY2(result.ok,qPrintable(result.code));
+    QCOMPARE(result.commitState,QString("not_requested")); // compute-only：不发布
+    QCOMPARE(h.catalog.versions().size(),1); // 只有受管井点版本
+    // 私有 compute-only 结果后用 source_operation_id 正式发布：沿用原冻结上下文
+    //（单元/父版本/算法契约不变），不重算数值、不新建重复版本。
+    auto reuse=r;reuse.clientRequestId="idw-reuse";reuse.publishIntent="publish";reuse.parameters.clear();
+    reuse.inputs={{"source_operation_id",result.operationId}};
+    const auto q=h.service.prepare(reuse,host::Caller::Agent);QVERIFY2(q.ok,qPrintable(q.code));done=false;
+    QVERIFY(h.service.start(q.handle,reuse,this,"idw-reuse",[&](ExecuteResult out){result=out;done=true;},&error));QTRY_VERIFY(done);
+    QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));
+    QCOMPARE(h.catalog.versions().size(),2); // 井点 + 复用的 IDW 产物；不重算
+    // 发布成员携带宿主冻结的单元身份 + 实际消费的父版本（成员 extra 合并）。
     CatalogVersion published;
-    for(const auto &v:h.catalog.versions())if(v.id!=pointsVersion)published=v;
+    for(const auto &v:h.catalog.versions())
+      if(v.id!=pointsVersion && v.extra.value("algorithm_id").toString()=="paleo:paleo_constraint_idw")published=v;
     QVERIFY(!published.id.isEmpty());
     QCOMPARE(published.parentVersionIds,QStringList{pointsVersion});
     QCOMPARE(published.extra.value(QStringLiteral("subIntervalId")).toString(),s1.subIntervalId);
     QCOMPARE(published.extra.value(QStringLiteral("schemeRevision")).toString(),s1.revision);
     QVERIFY(published.extra.value(QStringLiteral("subinterval_verified")).toBool());
     QCOMPARE(published.extra.value(QStringLiteral("algorithm_id")).toString(),QString("paleo:paleo_constraint_idw"));
-    // source_operation_id 后续发布：沿用原冻结上下文（单元/父版本不变）。
-    ExecuteRequest reuse;r.capabilityId="constraint.idw";reuse.clientRequestId="idw-reuse";reuse.publishIntent="publish";
-    reuse.inputs={{"source_operation_id",result.operationId}};
-    const auto q=h.service.prepare(reuse,host::Caller::Agent);QVERIFY2(q.ok,qPrintable(q.code));done=false;
-    QVERIFY(h.service.start(q.handle,reuse,this,"idw-reuse",[&](ExecuteResult out){result=out;done=true;},&error));QTRY_VERIFY(done);
-    QVERIFY2(result.ok,qPrintable(result.code));QCOMPARE(result.commitState,QString("committed"));
-    QCOMPARE(h.catalog.versions().size(),2); // 复用不新建数值/版本
     // 无效请求在数值前拒绝。
     ExecuteRequest mismatch;mismatch.capabilityId="constraint.idw";mismatch.clientRequestId="idw-mismatch";mismatch.publishIntent="compute-only";
     mismatch.parameters=r.parameters;mismatch.inputs=r.inputs;mismatch.inputs.insert("subinterval_id",QStringLiteral("S9"));

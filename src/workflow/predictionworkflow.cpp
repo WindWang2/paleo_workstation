@@ -866,19 +866,9 @@ bool PredictionWorkflow::publishPredictionJob( PredictionJob &job, QString *erro
   };
   if ( !job.prepared )
     return fail( tr( "预测任务未准备" ) );
-  if ( !job.ok || job.outputPath.isEmpty() )
-    return fail( job.error.isEmpty() ? tr( "预测未返回输出路径" ) : job.error );
 
-  QgisLayerService *layers = m_layers.data();
-  if ( !layers )
-    return fail( tr( "prediction workflow is not bound to a layer service" ) );
-  QString regErr;
-  DerivedAssetRegistrar registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
-  if ( !registrar.isBound() )
-    return fail( regErr );
-
-  // ① 提交事实先行（P4-W6）：已提交的版本必须先于工程代次检查——切换工程
-  // 不能把已发生的提交误判成可丢弃的暂存。
+  // ① 提交事实先行（P4-W6）：已提交的版本必须先于工程代次与产出检查——
+  // 切换工程不能把已发生的提交误判成可丢弃的暂存，重复回调也据此幂等。
   paleo::workflow::PredictionCommitEvidence commit =
       paleo::workflow::queryPredictionCommit( m_catalog.data(), job.staging );
   if ( commit.fact == paleo::workflow::PredictionCommitFact::CommitStateUnknown )
@@ -895,6 +885,16 @@ bool PredictionWorkflow::publishPredictionJob( PredictionJob &job, QString *erro
     PaleoWorkflowDiscardPredictionStagingDir( job.staging.versionId, job.staging.absolutePath );
     return fail( tr( "工程已切换，预测结果未发布" ) );
   }
+  if ( !job.ok || job.outputPath.isEmpty() )
+    return fail( job.error.isEmpty() ? tr( "预测未返回输出路径" ) : job.error );
+
+  QgisLayerService *layers = m_layers.data();
+  if ( !layers )
+    return fail( tr( "prediction workflow is not bound to a layer service" ) );
+  QString regErr;
+  DerivedAssetRegistrar registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
+  if ( !registrar.isBound() )
+    return fail( regErr );
 
   const QString stagedPath = job.staging.absolutePath;
   if ( commit.fact == paleo::workflow::PredictionCommitFact::NotCommitted )

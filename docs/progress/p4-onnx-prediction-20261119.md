@@ -93,6 +93,74 @@ committedVersionId 守卫）、`src/ui/pages/predictpage.cpp`（运行库诊断�
 `tst_onnxsessions.cpp`（探测注入负向）、`tst_workflows.cpp`（受影响预测
 用例补单元）。
 
-## 八、验证（最终 head 后回填）
+## 八、验证（2026-11-20，构建/回归均在本 worktree）
 
-- 待实现后填写：构建命令、ctest 项、Source gates、结果与剩余限制。
+环境：Arch/CachyOS（glibc 满足 deb 闭包），deb 闭包前缀
+`/home/kevin/projects/paleo-deb-prefix-20261119`（QGIS_PREFIX=…/usr，
+CMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu 显式注入），ORT=受控
+vendor/onnxruntime 1.30.0（主仓 symlink），构建 `./paleo-dev build`
+（-j4/-j2，ld 偶发 ENOSPC/段错误为宿主 btrfs 元数据压力，串行重链通过）。
+
+构建：全量 2556 目标绿（cmake -G Ninja RelWithDebInfo）。
+
+直接回归（offscreen + 受控 LD_LIBRARY_PATH，逐套运行）：
+
+| 套件 | 结果 |
+|---|---|
+| tst_p4_onnx_prediction（新增，19 项） | 19 pass / 0 fail（无 QSKIP 负向） |
+| tst_onnxworkflow（改造） | 8 pass / 0 fail |
+| tst_workflows | 24 pass / 0 fail |
+| tst_panels | 62 pass / 0 fail |
+| tst_predict_assembly | 4 pass / 0 fail |
+| tst_factorworkflow | 52 pass / 2 skip（既有 skip） |
+| tst_onnx / tst_onnxsessions | 9 + 26 pass（张量 API 原合同不动） |
+| tst_tileinference / tst_modelregistry / tst_remotepredictrouter / tst_aiassistworkflow / tst_predictionevidence | 24/32/20/11/9 pass |
+
+Source gates（最终 head 逐项）：layering --strict ✓（无层违规）、
+--qgs-audit ✓（134=baseline）、check_qgis_spread ✓（169=baseline）、
+check_file_budget --strict ✓（51=baseline，新增 0——predictpage 一度 +1
+已压缩回）、ui_size ✓、ui_invariants ✓、i18n ✓、ui_tokens ✓、
+qgis_versions ✓（4.2.3 三路一致）、docs_drift ✓、cpp_mainline ✓、
+layering --transitive（QGIS 头注入受控前缀）exit 0（黄牌清单在基线内）。
+
+关键验收矩阵核对（tst_p4 逐项对应）：
+- 所需 API 返回 nullptr/版本不匹配（注入）：probeInjectionApi*——首个
+  Ort 包装对象前拒绝、公开码 + 所需版号 + 实际版本 + 实测模块齐备、
+  进程不崩、负向不 QSKIP。
+- 无 ORT 构建：noOrtBuildReportsExplicitlyUnavailable（#if 分支断言，
+  编译于两种构建；本机为 ORT 构建，非 ORT 分支由编译期保证并留断言）。
+- OS main 前加载失败：文档化部署边界（onnxruntimeprobe.h 头注 + 测试
+  注释），不伪造 guard 捕获。
+- 无单元/Boundary/伪造 S/aggregate/analysisLayerKey 绕过：
+  noUnitFormalPredictionRejectedAtPrepare +
+  analysisLayerKeyMismatchAndForgedUnitRejected。
+- 同层段 S1/S2 不碰撞：unitOnnxPredictionEndToEndWithPreciseLineage 尾段。
+- T7/T70/T71 重名干扰不入 parents：同上（decoy 资产断言）。
+- 模型 prepare 后被换：modelSwapAfterPrepareRejectedAtCompute
+  （model_revision_changed + 冻结 SHA）。
+- 形状不合法拒绝：scopedModelShapeMismatchRefused（+compute 输出侧
+  shape 校验保留）。
+- 首次 Catalog 失败：catalogCommitFailureLeavesNoDanglingDeclaration。
+- v2 提交失败不覆盖 v1：同上（v1 声明/文件/版本可打开）。
+- v2 提交成功声明失败：declareFailureAfterCommitKeepsResultAndRetryRestoresDisplay
+  （重试只补展示，版本数不增）。
+- 重复回调/重放：duplicateCallbackIsIdempotent。
+- 并发展示不覆盖：concurrentDisplayWinnerNotOverwritten。
+- 取消（提交前/后）、切工程（提交前/后）：cancel*/projectSwitch* 四象限，
+  已提交文件在守卫清理后仍存在。
+- 原件不变：全部用合成夹具；无 gitlink/依赖版本改动（git diff 核对）。
+
+剩余限制（如实）：
+- OS 在 main 前终止进程的加载失败不可被进程内 guard 覆盖（部署边界，
+  交由 paleo-dev/selfcheck/便携包校验在进程外发现）。
+- 无 manifest 开发降级时无注册表钉 SHA 可冻结（expectedModelSha256 空，
+  实测 SHA 仍进 provenance）——生产路径（有 manifest）不受影响。
+- DerivedAssetRegistrar 的 stage 期版本号预分配在「两个同名资产任务都
+  prepare 且都未 commit」时可能撞 versionNumber（commit 拒绝 duplicate）；
+  该行为是共享底座现状，本任务不扩权修改（登记于上表 W3，生产三段式
+  单任务串行不触发）。
+- `paleo-dev test`（ctest）在 deb 前缀 LD_LIBRARY_PATH 下宿主 ctest 自身
+  符号冲突（XML_GetCurrentColumnNumber64），本机回归按套件直跑二进制；
+  CI 车道不受影响。
+- Processing 引擎无单元调用保留 legacy 合同（生产 UI 恒带单元；#972 的
+  因子/约束链执法属 P3 范围）。

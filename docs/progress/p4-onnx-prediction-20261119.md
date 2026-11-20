@@ -4,7 +4,8 @@
 分支：`codex/paleo-p4-onnx-prediction-20261119`（worktree
 `../paleo-p4-onnx-prediction-20261119`）。基线：origin/master
 `08ca3e52b829f928d38e34d3f7fa3e58376f6076`（2026-11-20 核对，当时与
-prompt 证据锚点一致）。
+prompt 证据锚点一致）。最终 head：`5e027a22`（4 个提交；
+origin/master 提 PR 前复核未移动）。
 
 ## 一、开工核对（scope ledger）
 

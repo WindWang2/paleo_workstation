@@ -17,7 +17,12 @@
 #include <qgsmaprendererparalleljob.h>
 #include <qgsmapcanvas.h>
 #include <QCoreApplication>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QImage>
+#ifdef Q_OS_WIN
+#include "../app/portableenvironment.h"
+#endif
 #include <QFileInfo>
 #include <cstdio>
 
@@ -33,6 +38,9 @@ static void check(bool ok, const QString &name, const QString &fix = {})
 static int runQgisGroup(int argc, char *argv[])
 {
   QElapsedTimer total; total.start();
+#ifdef Q_OS_WIN
+  initializePortableEnvironment();
+#endif
   QgsApplication app(argc, argv, false);
   // prefix 解析走 QgisRuntime 唯一事实源（#483：不再手工复制 env/缺省序列）。
   app.setPrefixPath(QgisRuntime::resolvePrefixPath(
@@ -53,10 +61,17 @@ static int runQgisGroup(int argc, char *argv[])
   check(QFile::exists(srs), QStringLiteral("srs.db at %1").arg(srs),
         QStringLiteral("share/qgis/resources missing from vendor prefix"));
 
-  QgsVectorLayer layer(FIXTURE_GPKG "|layername=basin", QStringLiteral("basin"), QStringLiteral("ogr"));
+  QTemporaryDir data;
+  const QString fixture = data.filePath(QStringLiteral("fixture.gpkg"));
+  if (!data.isValid() || !QFile::copy(QStringLiteral(":/selfcheck/fixture.gpkg"), fixture)) {
+    check(false, QStringLiteral("Could not materialize the embedded GeoPackage"));
+    QgsApplication::exitQgis();
+    return 1;
+  }
+  QgsVectorLayer layer(fixture + QStringLiteral("|layername=basin"), QStringLiteral("basin"), QStringLiteral("ogr"));
   check(layer.isValid() && layer.featureCount() > 0,
         QStringLiteral("fixture.gpkg loaded (%1 features)").arg(layer.featureCount()),
-        QStringLiteral("testdata/fixture.gpkg missing/corrupt — regenerate via ogr2ogr"));
+        QStringLiteral("check the packaged OGR provider and GeoPackage support"));
 
   QImage img;
   if (layer.isValid()) {

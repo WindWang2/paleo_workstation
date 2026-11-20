@@ -1,4 +1,4 @@
-# paleo_dev_ps1_selftest.ps1 — paleo-dev.ps1 的跨平台单元自检（方向 81）。
+﻿# paleo_dev_ps1_selftest.ps1 — paleo-dev.ps1 的跨平台单元自检（方向 81）。
 # 不执行 paleo-dev.ps1 本身（会进 VS/vendor 流程）：先整文件语法解析，再按
 # AST 抽出被测函数在本进程定义，喂合成夹具断言。Windows PowerShell 5.1 与
 # pwsh 7（含 Linux）都可跑；ctest 在找到 pwsh/powershell 时注册

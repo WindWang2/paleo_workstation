@@ -180,12 +180,7 @@ def verify_windows(package: Path):
         env = {"SystemRoot": str(system), "PATH": str(system / "System32"),
                "TEMP": scratch, "TMP": scratch,
                "QT_QPA_PLATFORM": "offscreen", "PROJ_NETWORK": "OFF",
-               "QGIS_PREFIX_PATH": str(package / "qgis"),
-               "QGIS_CUSTOM_CONFIG_PATH": scratch,
-               "QT_PLUGIN_PATH": str(package / "plugins"),
-               "PROJ_DATA": str(package / "share/proj"),
-               "GDAL_DATA": str(package / "share/gdal"),
-               "GDAL_DRIVER_PATH": str(package / "gdalplugins")}
+               "QGIS_CUSTOM_CONFIG_PATH": scratch}
         print(checked([str(package / "paleo_selfcheck.exe")], cwd=scratch, env=env))
         print(checked([str(package / "paleo.exe"), "--check-runtime"], cwd=scratch, env=env))
 

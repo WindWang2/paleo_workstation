@@ -406,3 +406,11 @@ if(PALEO_PWSH)
   add_test(NAME paleo_dev_ps1_selftest_mutation COMMAND ${PALEO_PWSH} -NoProfile -ExecutionPolicy Bypass
            -File ${CMAKE_SOURCE_DIR}/tools/paleo_dev_ps1_selftest.ps1 -Mutate)
 endif()
+if(WIN32)
+  find_program(PALEO_WINDOWS_POWERSHELL NAMES powershell.exe)
+  if(PALEO_WINDOWS_POWERSHELL AND NOT PALEO_WINDOWS_POWERSHELL STREQUAL PALEO_PWSH)
+    add_test(NAME paleo_dev_ps1_windows_compat COMMAND ${CMAKE_COMMAND} -E env
+      --unset=PSModulePath ${PALEO_WINDOWS_POWERSHELL}
+      -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_SOURCE_DIR}/tools/paleo_dev_ps1_selftest.ps1)
+  endif()
+endif()

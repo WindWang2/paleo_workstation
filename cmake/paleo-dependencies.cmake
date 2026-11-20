@@ -221,7 +221,12 @@ endif()
 
 add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
-target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
+qt_add_resources(paleo_selfcheck selfcheck_data PREFIX "/selfcheck"
+  BASE testdata FILES testdata/fixture.gpkg)
+if(WIN32)
+  target_sources(paleo_selfcheck PRIVATE src/app/portableenvironment.cpp)
+  target_link_libraries(paleo_selfcheck PRIVATE ${GDAL_LIB})
+endif()
 
 # demo 工程无头构建工具（组装根）：xlsx 转规范井文本 + 生产导入路径 +
 # georeference 落 project.paleo + 重开自校验。用法见 src/app/mkproject.cpp 头注。

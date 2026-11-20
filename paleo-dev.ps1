@@ -1,4 +1,4 @@
-# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
+﻿# paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
 # Verbs: bootstrap [fetch-only] | bootstrap-native | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep> | diagdeps <test>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。

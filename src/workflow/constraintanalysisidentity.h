@@ -6,6 +6,10 @@
 
 #include "domain/stratigraphicunit.h"
 
+class DataCatalog;
+struct CatalogVersion;
+namespace paleo::capability { class ExecuteRequest; }
+
 // workflow/ — 单因素/约束插值链的稳定分析身份（P3，#972/#1004/#1005）。
 // 引擎准备入口统一经 resolveAnalysisIdentity 把（可能来自 UI/批任务/Host 的）
 // UnitSelection 冻结为 Data Service 实体核验过的身份，再派生：
@@ -56,8 +60,6 @@ bool resolveAnalysisIdentity( const QString &projectDir, const QString &horizon,
 // 可选单元，正式分析只能走 legacy 键或先建方案）。
 bool projectHasAnalysisScheme( const QString &projectDir );
 
-class DataCatalog;
-
 // 调用方携带的父版本核验：每个 id 必须是 catalog 里真实存在的版本
 //（versionById 命中）。空列表通过；空 id 或不存在的 id → 拒绝并给出
 // 可见原因。不接受「工具 JSON 自称的版本授权」。
@@ -94,8 +96,8 @@ QString freezeConstraintIdwContext( const QString &projectDir, DataCatalog *cata
 // 接线，本函数承载全部受信逻辑，测试与组装根共用同一实现）：
 // 解析→规范化写入 request.inputs（subinterval_id/unit_selection/scheme 字段/
 // parent_version_ids，覆盖调用方自带值）。返回空=成功，否则为拒绝码。
-QString freezeConstraintIdwRequest( class ExecuteRequest &request, const QString &projectDir,
-                                    DataCatalog *catalog,
+QString freezeConstraintIdwRequest( paleo::capability::ExecuteRequest &request,
+                                    const QString &projectDir, DataCatalog *catalog,
                                     const paleo::strat::UnitSelection &activeUnit );
 
 // 把 points/constraints 引用解析为受管版本：显式 "catalog:<versionId>" 或

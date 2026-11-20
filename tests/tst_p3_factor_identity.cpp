@@ -291,7 +291,7 @@ private slots:
     QVERIFY(ds.openProjectReadOnly(area_model::directory(f.dir.path()).toStdString(), detail));
     for (const auto &unit : {f.s1, f.s2}) {
       std::vector<paleo::data::SubIntervalResultBinding> bindings;
-      QVERIFY(ds.listSubIntervalResults(f.schemeId.toStdString(), {unit.subIntervalId.toStdString()}, bindings, detail));
+      QVERIFY(ds.listSubIntervalResults(f.schemeId.toStdString(), paleo::data::SubIntervalId{unit.subIntervalId.toStdString()}, bindings, detail));
       const auto version = unit == f.s1 ? v1 : v2;
       QVERIFY(std::any_of(bindings.begin(), bindings.end(), [&](const auto &b) {
         return b.kind == "single_factor" && b.id == "catalog." + version.id.toStdString();
@@ -327,7 +327,8 @@ private slots:
                            QStringList{QStringLiteral("not-a-version")});
     QVERIFY(!workflow.generateFactor(paleo::strat::analysisLayerKey(f.s1), QStringLiteral("sandthick"), withFakeParents, &error));
     QVERIFY(error.contains(QStringLiteral("父版本")));
-    QCOMPARE(f.catalog.versions().size(), versionsBefore + 1); // 只留第一次合法产物
+    // +2 = 真实井点提取版本 + 栅格主结果版本；伪造父版本请求不新增任何版本。
+    QCOMPARE(f.catalog.versions().size(), versionsBefore + 2);
   }
 
   // W2：显示名/资产重命名不改变稳定身份（token/extra.unitSelection 不受影响）。

@@ -137,7 +137,12 @@ OperationWorker nativeWorker(ExecuteRequest request) {
       QVariantMap artifactExtra;
       if(child.capabilityId=="constraint.idw") {
         const auto unit=child.inputs.value("unit_selection").toMap();
-        if(!unit.isEmpty()) {
+        // 宿主冻结自洽性交叉校验：请求 subinterval_id 必须与冻结单元同一子层段。
+        // 缺 unit_selection（宿主未解析）或两者不一致 → 不盖 verified，投影侧
+        // 不会把该 agent_result 误识别为单因素证据。
+        const bool hostConsistent=!unit.isEmpty() &&
+            child.inputs.value("subinterval_id").toString()==unit.value("subIntervalId").toString();
+        if(hostConsistent) {
           artifactExtra.insert("unitSelection",unit);
           artifactExtra.insert("subIntervalId",unit.value("subIntervalId"));
           artifactExtra.insert("intervalId",unit.value("intervalId"));

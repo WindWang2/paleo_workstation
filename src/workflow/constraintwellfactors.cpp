@@ -942,7 +942,7 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     // 工程（无方案）回落入口 horizon，与旧结果兼容。同一父单元 T70 下的 S1/S2
     // 不再共用同一样点层键；版本谱系仍以 extra.unitSelection 区分。
     const QString id = QStringLiteral("wellfactor.%1.%2")
-                           .arg(paleo::constraint_detail::factorResultHorizonKey(horizon, params), factorId);
+                           .arg(factorResultHorizonKey(horizon, params), factorId);
     QVariantMap extra = params;
     extra.insert("acquisition_schema",2);
     if(paleo::strat::fromMap(extra.value("unitSelection").toMap()).isValid())extra.insert("coordinate_schema",1);

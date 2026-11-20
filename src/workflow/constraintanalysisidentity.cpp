@@ -77,6 +77,7 @@ QVariantMap ConstraintIdwFrozenContext::identityInputs() const
   m.insert( QStringLiteral( "scheme_id" ), unit.schemeId );
   m.insert( QStringLiteral( "scheme_revision" ), unit.revision );
   m.insert( QStringLiteral( "interval_id" ), unit.intervalId );
+  m.insert( QStringLiteral( "subinterval_verified" ), true );
   if( !parentVersionIds.isEmpty() )
     m.insert( QStringLiteral( "parent_version_ids" ), parentVersionIds );
   return m;
@@ -148,8 +149,8 @@ QString freezeConstraintIdwContext( const QString &projectDir, DataCatalog *cata
   return {};
 }
 
-QString freezeConstraintIdwRequest( ExecuteRequest &request, const QString &projectDir,
-                                    DataCatalog *catalog,
+QString freezeConstraintIdwRequest( paleo::capability::ExecuteRequest &request,
+                                    const QString &projectDir, DataCatalog *catalog,
                                     const paleo::strat::UnitSelection &activeUnit )
 {
   ConstraintIdwFrozenContext frozen;

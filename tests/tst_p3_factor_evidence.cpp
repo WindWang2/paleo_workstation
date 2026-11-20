@@ -105,7 +105,7 @@ struct EvidenceFixture
     if (!ds.openProjectReadOnly(area_model::directory(dir.path()).toStdString(), detail))
       return -1;
     std::vector<paleo::data::SubIntervalResultBinding> bindings;
-    if (!ds.listSubIntervalResults(schemeId.toStdString(), {}, bindings, detail))
+    if (!ds.listSubIntervalResults(schemeId.toStdString(), paleo::data::SubIntervalId{}, bindings, detail))
       return -1;
     const auto id = ("catalog." + versionId).toStdString();
     return static_cast<int>(std::count_if(bindings.begin(), bindings.end(),
@@ -223,11 +223,18 @@ private slots:
     extra.insert(QStringLiteral("unitSelection"), paleo::strat::toMap(f.unit));
     const QString versionId = f.commitFactorVersion(QStringLiteral("single_factor_raster"), extra);
     QVERIFY(!versionId.isEmpty());
+    // 先制造「已提交但证据未确认」的持久状态（与 DS 失败注入同一形状），
+    // 再验证恢复入口的幂等收敛。
+    QVariantMap pending;
+    pending.insert(QStringLiteral("step"), QStringLiteral("ds_binding"));
+    QVERIFY(f.catalog.updateVersionExtra(versionId, QStringLiteral("evidence_pending"), pending, &error));
     ConstraintWorkflow workflow(nullptr, nullptr);
     workflow.setCatalog(&f.catalog, f.dir.path());
-    QString error;
     QCOMPARE(workflow.retryPendingFactorEvidence(&error), 0);
     const auto versions = f.catalog.versions().size();
+    QCOMPARE(f.bindingCount(versionId), 1);
+    QVERIFY(!f.catalog.versionById(versionId).extra.contains(QStringLiteral("evidence_pending")));
+    // 重复到达：不新增版本、不重复绑定。
     QCOMPARE(workflow.retryPendingFactorEvidence(&error), 0);
     QCOMPARE(f.catalog.versions().size(), versions);
     QCOMPARE(f.bindingCount(versionId), 1);

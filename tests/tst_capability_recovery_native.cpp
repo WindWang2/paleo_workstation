@@ -179,7 +179,7 @@ private slots:
     paleo::data::DataService ds;std::string detail;
     QVERIFY(ds.openProjectReadOnly(paleo::area_model::directory(h.root.path()).toStdString(),detail));
     std::vector<paleo::data::SubIntervalResultBinding> bindings;
-    QVERIFY(ds.listSubIntervalResults(s1.schemeId.toStdString(),{s1.subIntervalId.toStdString()},bindings,detail));
+    QVERIFY(ds.listSubIntervalResults(s1.schemeId.toStdString(),paleo::data::SubIntervalId{s1.subIntervalId.toStdString()},bindings,detail));
     QVERIFY(std::any_of(bindings.begin(),bindings.end(),[&](const auto &b){
       return b.kind=="single_factor"&&b.id=="catalog."+published.id.toStdString()&&b.assetRef==published.id.toStdString();}));
   }

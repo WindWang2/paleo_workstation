@@ -17,7 +17,7 @@ namespace {
 using namespace paleo;
 
 QString freezeInput(capability::ExecuteRequest &request, document::DocumentSession *document,
-                   SelectionContext *selection, DataCatalog *catalog, const QString &projectDir) {
+                   SelectionContext *selectionContext, DataCatalog *catalog, const QString &projectDir) {
   if (!document || !document->isOpen()) return QStringLiteral("document_unavailable");
   if ((request.seismicTrace || request.inputs.contains(QStringLiteral("seismic_selection"))) &&
       request.capabilityId != QLatin1String("seismic.attributes.compute"))
@@ -34,7 +34,7 @@ QString freezeInput(capability::ExecuteRequest &request, document::DocumentSessi
   if (request.capabilityId == QLatin1String("constraint.idw"))
     return paleo::constraint_identity::freezeConstraintIdwRequest(
         request, projectDir, catalog,
-        selection ? selection->activeUnit() : paleo::strat::UnitSelection{});
+        selectionContext ? selectionContext->activeUnit() : paleo::strat::UnitSelection{});
   if (!request.inputs.contains(QStringLiteral("seismic_selection"))) return {};
   const auto value = QJsonObject::fromVariantMap(request.inputs.value(QStringLiteral("seismic_selection")).toMap());
   capability::SeismicTraceSelection selection;

@@ -33,7 +33,8 @@ bool bindingExists( const QString &projectDir, const paleo::strat::UnitSelection
   std::vector<paleo::data::SubIntervalResultBinding> bindings;
   std::string detail;
   if( !ds.listSubIntervalResults( unit.schemeId.toStdString(),
-                                  unit.subIntervalId.toStdString(), bindings, detail ) )
+                                  paleo::data::SubIntervalId{ unit.subIntervalId.toStdString() },
+                                  bindings, detail ) )
   {
     if( reason )
       *reason = QString::fromStdString( detail.empty() ? QStringLiteral( "绑定查询失败" ).toStdString() : detail );
@@ -58,8 +59,14 @@ bool writePendingFlag( DataCatalog *catalog, const QString &versionId, const QVa
 
 } // namespace
 
-Confirmation confirmVersionEvidence( DataCatalog *catalog, const QString &projectDir,
-                                     const QString &versionId, const paleo::strat::UnitSelection &unit )
+namespace
+{
+// 投影已跑完之后的单版本核验：确认判定只认绑定存在（不把同步函数返回空字符串
+// 当作全部确认）；未确认则沿既有扩展记录接缝持久化 {step,error,bindingId,
+// unitKey}。只读目录写不进标记——状态仍如实返回，绑定查询是权威事实。
+Confirmation verifyAfterProjection( DataCatalog *catalog, const QString &projectDir,
+                                    const QString &versionId, const paleo::strat::UnitSelection &unit,
+                                    const QString &syncError )
 {
   Confirmation out;
   out.versionId = versionId;
@@ -71,28 +78,32 @@ Confirmation confirmVersionEvidence( DataCatalog *catalog, const QString &projec
                                               : QStringLiteral( "冻结单元身份无效，无法登记证据" );
     return out;
   }
-  // 先跑既有幂等投影（按绑定 id 去重、stale 传播），再核验目标绑定——完成
-  // 判定只认绑定存在，不把同步函数返回空字符串当作全部确认。
-  const QString syncError = syncAnalysisResults( catalog, projectDir );
   QString reason;
   if( syncError.isEmpty() && bindingExists( projectDir, unit, versionId, &reason ) )
   {
     out.evidenceConfirmed = true;
-    const auto version = catalog->versionById( versionId );
-    if( version.extra.contains( QStringLiteral( "evidence_pending" ) ) )
+    if( catalog->versionById( versionId ).extra.contains( QStringLiteral( "evidence_pending" ) ) )
       writePendingFlag( catalog, versionId, {} );
     return out;
   }
-  out.pendingReason = !syncError.isEmpty() ? syncError : reason;
+  out.pendingReason = syncError.isEmpty() ? reason : syncError;
   QVariantMap pending;
   pending.insert( QStringLiteral( "step" ), QStringLiteral( "ds_binding" ) );
   pending.insert( QStringLiteral( "error" ), out.pendingReason );
   pending.insert( QStringLiteral( "bindingId" ), out.bindingId );
   pending.insert( QStringLiteral( "unitKey" ),
                   paleo::strat::analysisLayerKey( unit, unit.subIntervalId ) );
-  // 只读目录写不进标记：状态仍如实返回（绑定查询是权威事实），恢复重试兜底。
   writePendingFlag( catalog, versionId, pending );
   return out;
+}
+} // namespace
+
+Confirmation confirmVersionEvidence( DataCatalog *catalog, const QString &projectDir,
+                                     const QString &versionId, const paleo::strat::UnitSelection &unit )
+{
+  // 单次确认（发布尾部即时调用）：跑一次既有幂等投影后核验目标绑定。
+  return verifyAfterProjection( catalog, projectDir, versionId, unit,
+                                syncAnalysisResults( catalog, projectDir ) );
 }
 
 QStringList pendingEvidenceVersions( DataCatalog *catalog )
@@ -114,9 +125,10 @@ int retryPendingEvidence( DataCatalog *catalog, const QString &projectDir, QStri
       *error = QStringLiteral( "catalog 不可用" );
     return -1;
   }
+  // 先解析工作清单（含无单元历史版本——如实保留、计数，不虚构身份补登记）。
   const QStringList pending = pendingEvidenceVersions( catalog );
+  QVector<QPair<QString, paleo::strat::UnitSelection>> targets;
   int remaining = 0;
-  QString firstError;
   for( const auto &versionId : pending )
   {
     const auto version = catalog->versionById( versionId );
@@ -125,11 +137,20 @@ int retryPendingEvidence( DataCatalog *catalog, const QString &projectDir, QStri
     const auto unit = paleo::strat::fromMap( version.extra.value( QStringLiteral( "unitSelection" ) ).toMap() );
     if( !unit.isValid() )
     {
-      // 无冻结单元的历史产物不能补登记（不虚构身份）；标记保留并如实计数。
-      ++remaining;
+      ++remaining; // 无冻结单元的历史产物不能补登记；标记保留并如实计数。
       continue;
     }
-    const auto result = confirmVersionEvidence( catalog, projectDir, versionId, unit );
+    targets.append( { versionId, unit } );
+  }
+  if( targets.isEmpty() )
+    return remaining;
+  // 一次全量投影（幂等、按绑定 id 去重），再逐版本核验——N 个待确认版本
+  // 只付一次同步代价，重复到达收敛到同一结果。
+  const QString syncError = syncAnalysisResults( catalog, projectDir );
+  QString firstError;
+  for( const auto &target : targets )
+  {
+    const auto result = verifyAfterProjection( catalog, projectDir, target.first, target.second, syncError );
     if( !result.evidenceConfirmed )
     {
       ++remaining;

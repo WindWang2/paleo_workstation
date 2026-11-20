@@ -5282,6 +5282,11 @@
         <translation>井点来源在提取期间已变更，请重新提取</translation>
     </message>
     <message>
+        <location filename="../src/workflow/constraintwellfactors.cpp" line="1008"/>
+        <source> 证据发布未完成（已提交 v%1）：%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../src/workflow/constraintwellfactors.cpp" line="918"/>
         <source> 井点结果已保存为 v%1。</source>
         <translation> 井点结果已保存为 v%1。</translation>

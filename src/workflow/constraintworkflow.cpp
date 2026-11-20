@@ -1339,12 +1339,13 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
   // subinterval/错修订/aggregate；工程已有方案时缺单元直接拒绝）。成果键
   // =layerToken，约束/井点键=父单元上界面——UI 只传键的旧接缝在此补齐完整
   // 单元上下文，引擎不再接受任意 horizon 冒充单元身份。
-  QVariantMap params = inputParams;
+  QVariantMap identityParams = inputParams;
   paleo::constraint_identity::FrozenAnalysisIdentity identity;
   if ( !paleo::constraint_identity::resolveAnalysisIdentity(
-          projectDir(), horizon, params, paleo::constraint_identity::AggregatePolicy::Reject,
+          projectDir(), horizon, identityParams, paleo::constraint_identity::AggregatePolicy::Reject,
           identity, error ) )
     return false;
+  identity.enrichParams( identityParams ); // 冻结身份回写上下文（发布 extra 与证据收口同源）
   const QString analysisKey = identity.analysisLayerKey;
   const QString constraintKey = identity.constraintHorizon;
 
@@ -1458,7 +1459,7 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
         }
 
         // P3/W6：受管版本已提交——立即核验权威证据绑定并持久化未完成步骤。
-        finalizeFactorEvidence( st.versionId, params );
+        finalizeFactorEvidence( st.versionId, identityParams );
 
         LayerDeclaration decl;
         decl.layerId = QStringLiteral("factor.%1.idw").arg(analysisKey);

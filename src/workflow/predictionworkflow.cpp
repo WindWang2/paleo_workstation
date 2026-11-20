@@ -112,11 +112,8 @@ static bool verifyOnnxRasterOutput( const QString &path, int rows, int cols, con
         else if ( hasNodata && v == static_cast<float>( nodata ) )
           ++nodataCells;
         else
-        {
-          // 有限/nodata 之外的原值不应出现在已落盘栅格（writeOnnxRaster 已
-          // 把非有限值规范为 nodata）——如实按覆盖摘要异常处理。
-          ++nodataCells;
-        }
+          ++nodataCells; // 非有限且非 nodata 值（writeOnnxRaster 已规范化为
+                         // nodata，此为防御分支）——计入缺测统计
       }
     }
   }
@@ -441,8 +438,9 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     // P4-W2：正式 ONNX 地质预测必须冻结有效分析单元——结果键从单元产生、
     // 数值输入是单元 RMS。无地质单元的张量调用不能经本发布入口默认贴上
     // 工区网格并产出「某层预测」（低层 runTensor* 按原合同独立可用；历史
-    // 无单元成果保持只读兼容，不迁移）。
-    if ( !job->params.contains( QStringLiteral( "unitSelection" ) ) )
+    // 无单元成果保持只读兼容，不迁移）。共享段的空 unitSelection map 走
+    // legacy 路径（不冻结），这里以「冻结结果非空」为准拒绝。
+    if ( job->params.value( QStringLiteral( "unitSelection" ) ).toMap().isEmpty() )
       return fail( tr( "正式 ONNX 预测需要先冻结分析单元（方案内具体子层段 S1–S4）；"
                        "未带单元的张量调用不产生工区预测成果" ) );
 
@@ -452,11 +450,11 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     if ( !admission.ok() )
       return fail( admission.publicCode() + QStringLiteral( ": " ) + admission.summaryText() );
 
-    // P4-W3：模型身份冻结——注册表门控（#145/#737）先在这里把关（不可用/
-    // 未登记的模型 prepare 即拒），可用的按注册表钉 SHA 冻结期望身份。
-    // 轻查询（锁内拷贝，无文件 IO/哈希/会话构建，不占 GUI 线程）。
-    if ( !onnx->availableModels().contains( model ) )
-      return fail( tr( "模型 '%1' 在当前工程注册表中不可用（未登记/被门控/未钉哈希）" ).arg( model ) );
+    // P4-W3：模型身份冻结——先取注册表条目（单锁轻查询，无文件 IO/哈希/
+    // 会话构建，不占 GUI 线程）：Ok 即冻结钉 SHA（此后注册表被换不影响
+    // 本任务——compute 复验实测指纹）；条目不可用再以 availableModels 判
+    // 定开发降级（无 manifest）或拒绝，避免「可用性先查、身份后查」交错
+    // 窗口里悄悄退化为不钉身份。
     const ModelRegistryEntry entry = onnx->registryEntryFor( model );
     if ( entry.status == ModelRegistryEntry::Status::Ok )
     {
@@ -467,6 +465,10 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
         modelIdentity.insert( QStringLiteral( "registry_version" ), entry.version );
       modelIdentity.insert( QStringLiteral( "sha256_pinned" ), entry.sha256Pinned );
       job->commitExtra.insert( QStringLiteral( "model_registry" ), modelIdentity );
+    }
+    else if ( !onnx->availableModels().contains( model ) )
+    {
+      return fail( tr( "模型 '%1' 在当前工程注册表中不可用（未登记/被门控/未钉哈希）" ).arg( model ) );
     }
     // 无 manifest 的开发降级：expectedModelSha256 留空（不伪造注册表身份），
     // compute 仍把实测 SHA 写进 provenance。
@@ -728,6 +730,8 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
       rows=scopedInput.rows;cols=scopedInput.columns;
       for(qsizetype i=0;i<tensor.values.size();++i)if(!std::isfinite(scopedInput.samples[i%scopedInput.samples.size()]))tensor.values[i]=NAN;
     }
+    // 旧 411×641 工区网格门禁（P4-W2 后 prepare 产出的正式任务恒走单元
+    // 路径——scoped 恒真；本分支只对手工构造的 job 兜底，不再有生产入口）。
     if ( !scoped&&!paleo::workflow_detail::resolveOnnxGrid( tensor.values, tensor.shape, rows, cols,
                                                    &job->error ) )
       return fail( job->error.isEmpty() ? tr( "cannot place ONNX output on a grid" ) : job->error );
@@ -929,11 +933,16 @@ bool PredictionWorkflow::publishPredictionJob( PredictionJob &job, QString *erro
       return fail( commitErr );
     }
     job.committedVersionId = job.staging.versionId;
-    // 提交后凭证以 catalog 为准（延迟建资产归并可能移动受管文件）。
-    commit = paleo::workflow::queryPredictionCommit( m_catalog.data(), job.staging );
-    if ( commit.fact != paleo::workflow::PredictionCommitFact::Committed )
-      return fail( tr( "预测已提交但提交凭证核对失败（%1）——请勿重复执行，检查工程数据后重试发布以恢复展示" )
-                       .arg( commit.detail ) );
+    // 提交后凭证以 catalog 记录为准（延迟建资产归并可能移动受管文件）。
+    // publishArtifacts 的成功返回即提交证明，这里只取版本记录、不重算
+    // 文件摘要（commit 已算过一次；完整 sha 复核留给重放路径的提交事实
+    // 查询），避免 GUI 线程对大栅格二次哈希。
+    commit.fact = paleo::workflow::PredictionCommitFact::Committed;
+    commit.version = m_catalog->versionById( job.staging.versionId );
+    commit.detail.clear();
+    if ( commit.version.id.isEmpty() )
+      return fail( tr( "预测已提交但提交凭证核对失败（版本 %1 未在 catalog）——请勿重复执行，检查工程数据后重试发布以恢复展示" )
+                       .arg( job.staging.versionId ) );
   }
   else
   {

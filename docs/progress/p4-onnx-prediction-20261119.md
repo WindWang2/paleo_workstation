@@ -76,7 +76,8 @@ prompt 证据锚点一致）。
   声明（冲突检查：现声明 vs prepare 冻结快照）→ 声明路径==提交版本路径
   复核 → predictionDone」。声明失败/取消后：不删已提交文件、不重提交；
   报「成果已提交（版本 X）、展示未完成」。重复回调经 commit-fact 幂等。
-  取消检查在拷贝前/提交前/声明前；工程切换 discard 前先查提交事实。
+  取消检查在拷贝后/提交前与声明前（进入 publish 前的取消由 compute 入口
+  与调用方状态机拦截）；工程切换 discard 前先查提交事实。
   `publishPredictionJob` 签名改非 const（记录 committedVersionId 供调用方
   清理守卫；调用方：runPrediction、attach_predict、tests）。
 
@@ -88,10 +89,13 @@ prompt 证据锚点一致）。
 `tests/tst_p4_onnx_prediction.cpp`、`cmake/extra-p4-onnx-prediction.cmake`。
 窄缝：`src/ui/paleomainwindow_attach_predict.cpp`（取消/失败清理按
 committedVersionId 守卫）、`src/ui/pages/predictpage.cpp`（运行库诊断文案，
-2 处）、`CMakeLists.txt`（_paleo_extra_manifest 单条登记）。
-测试改造：`tst_onnxworkflow.cpp`（无单元用例改单元夹具/拒绝断言）、
-`tst_onnxsessions.cpp`（探测注入负向）、`tst_workflows.cpp`（受影响预测
-用例补单元）。
+2 处）、`CMakeLists.txt`（_paleo_extra_manifest 单条登记）、`TODOS.md`
+（ONNX 诊断条目改记已交付）。
+测试改造：`tst_onnxworkflow.cpp`（无单元发布用例改新合同拒绝断言，删除的
+无单元正向覆盖迁移至 tst_p4/tst_onnxsessions）。tst_onnxsessions.cpp 与
+tst_workflows.cpp 本任务未改动——前者本就覆盖张量 API 原合同，后者预测
+用例因 Processing 引擎保留可选单元 legacy 合同而无需补单元（独立 review
+核对后修正本节，最初草稿误列）。
 
 ## 八、验证（2026-11-20，构建/回归均在本 worktree）
 
@@ -107,7 +111,7 @@ vendor/onnxruntime 1.30.0（主仓 symlink），构建 `./paleo-dev build`
 
 | 套件 | 结果 |
 |---|---|
-| tst_p4_onnx_prediction（新增，19 项） | 19 pass / 0 fail（无 QSKIP 负向） |
+| tst_p4_onnx_prediction（新增，17 个用例函数；QTest 计数 19 含 init/cleanup） | 19 pass / 0 fail（无 QSKIP 负向） |
 | tst_onnxworkflow（改造） | 8 pass / 0 fail |
 | tst_workflows | 24 pass / 0 fail |
 | tst_panels | 62 pass / 0 fail |
@@ -164,3 +168,29 @@ layering --transitive（QGIS 头注入受控前缀）exit 0（黄牌清单在基
   CI 车道不受影响。
 - Processing 引擎无单元调用保留 legacy 合同（生产 UI 恒带单元；#972 的
   因子/约束链执法属 P3 范围）。
+- 并发胜者拒绝覆盖时 publish 返回成功并按稳定 layerId 发 predictionDone
+  （展示目标当时确有有效图层，指向较新版本）；任务详情不另行提示「本次
+  成果已提交未上屏」，需要时由 UI 后续按 catalog 记录补充呈现。
+- 既有（非本任务引入）：Processing 分支 prepare 在 stage 之后仍可能失败
+  （如 P0-1 输入解析失败），留下空 staging 目录——旧行为保持，未纳入本
+  任务清理面。
+
+## 九、独立复审（review → fix → 复审记录）
+
+独立 reviewer（未参与实现）通读 `git diff 08ca3e52..HEAD` 并独立重跑
+gates 与三个关键测试二进制后给出结论：无阻断项；清理安全（每个删除点
+逐址核对，含提交后错误分支无 unset 的 committedVersionId）、探测先于
+包装对象、准入无绕过、父引用无模糊回退、发布顺序与冲突边界、签名变更
+调用方、层门全部确认。要求修复项与处置：
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| ledger 误列 tst_onnxsessions/tst_workflows 改动 | MAJOR | 已修（三节改为与实际写集一致） |
+| 空 unitSelection map 绕过 prepare 拒绝文案 | MINOR | 已修（ONNX 门改按冻结结果非空判定） |
+| availableModels/registryEntryFor 双锁交错窗口可静默退化为不钉身份 | MINOR | 已修（先取条目单锁冻结，可用性仅作拒绝门） |
+| 提交成功后 GUI 线程二次哈希 | MINOR | 已修（publishArtifacts 成功即提交证明，只取版本记录，sha 复核留重放路径） |
+| compute 非 scoped 分支不可达无说明 | MINOR | 已补注释（手工 job 兜底，无生产入口） |
+| TODOS 公开码措辞 | MINOR | 已修（公开码=runtime_incompatible，api_* 为消息前缀） |
+| 「19 项」计数含 init/cleanup | NIT | 已修（17 个用例函数） |
+| 并发胜者成功无区分提示 | NIT | 维持现状 + 剩余限制登记 |
+| QDirIterator 未用 include / 回读注释措辞 / 文档「拷贝前」措辞 | NIT | 已修 |

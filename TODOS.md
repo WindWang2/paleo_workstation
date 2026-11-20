@@ -234,9 +234,10 @@ OrtApi 指针的 Ort 包装对象（Env/SessionOptions/Session…）构造前核
 C API——`OrtGetApiBase()` 不可用判 ApiUnavailable、`GetApi(ORT_API_VERSION)`
 返回空判 ApiVersionMismatch，错误链带所需 API 版号、运行库自报版本、
 `/proc/self/maps`（Windows GetModuleHandle）实测加载模块与受控前缀；
-`loadModelMeta` 首行门控（OnnxLoadStatus::RuntimeIncompatible → 公开码
-`runtime_api_unavailable`/`runtime_api_mismatch`），`runtimeAvailable()` 改
-与详细诊断同源。确定性负向回归（测试注入，不依赖坏 DLL、不 QSKIP）在
+`loadModelMeta` 首行门控（OnnxLoadStatus::RuntimeIncompatible，公开码
+`runtime_incompatible`；错误消息前缀带细分 `runtime_api_unavailable`/
+`runtime_api_mismatch`），`runtimeAvailable()` 改与详细诊断同源。确定性
+负向回归（测试注入，不依赖坏 DLL、不 QSKIP）在
 tests/tst_p4_onnx_prediction.cpp。部署边界如实记录：动态链接缺库时进程在
 main 之前被 OS 终止，进程内 guard 不可覆盖（见 onnxruntimeprobe.h 头注与
 docs/progress/p4-onnx-prediction-20261119.md）。

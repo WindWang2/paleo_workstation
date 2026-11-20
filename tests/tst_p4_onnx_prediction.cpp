@@ -259,6 +259,19 @@ public:
 
 } // namespace
 
+namespace
+{
+// 探测注入 RAII 守卫：断言失败也保证还原真实探测，不污染后续用例。
+struct ProbeOverrideGuard
+{
+  explicit ProbeOverrideGuard( const std::function<paleo::onnx::OnnxRuntimeProbeResult()> &fn )
+  {
+    paleo::onnx::OnnxRuntimeProbe::setTestOverride( fn );
+  }
+  ~ProbeOverrideGuard() { paleo::onnx::OnnxRuntimeProbe::setTestOverride( {} ); }
+};
+} // namespace
+
 class TestP4OnnxPrediction : public QObject
 {
   Q_OBJECT
@@ -296,12 +309,16 @@ private slots:
   // 具体错误，进程不崩溃；负向结论不靠 QSKIP。
   void probeInjectionApiMismatchFailsBeforeAnyWrapper()
   {
-    paleo::onnx::OnnxRuntimeProbeResult fake;
-    fake.status = paleo::onnx::OnnxRuntimeProbeResult::Status::ApiVersionMismatch;
-    fake.requiredApiVersion = int( ORT_API_VERSION );
-    fake.runtimeVersion = QStringLiteral( "onnxruntime.dll 1.2.3 (旧运行库)" );
-    fake.loadedModulePath = QStringLiteral( "C:\\Windows\\System32\\onnxruntime.dll" );
-    paleo::onnx::OnnxRuntimeProbe::setTestOverride( [] {
+    UnitFixture f;
+    QVERIFY( f.init() );
+    QVERIFY2( !f.installSegModel().isEmpty(), "model install failed" );
+    PaleoOnnxService svc;
+    svc.setModelRoot( f.dir.filePath( QStringLiteral( "models" ) ) );
+    svc.setModelRegistry( ModelRegistry::scan( f.dir.filePath( QStringLiteral( "models" ) ) ) );
+    QString err;
+    OnnxModelMeta meta;
+    {
+    const ProbeOverrideGuard apiMismatchGuard( [] {
       paleo::onnx::OnnxRuntimeProbeResult r;
       r.status = paleo::onnx::OnnxRuntimeProbeResult::Status::ApiVersionMismatch;
       r.requiredApiVersion = int( ORT_API_VERSION );
@@ -310,17 +327,9 @@ private slots:
       return r;
     } );
 
-    UnitFixture f;
-    QVERIFY( f.init() );
-    QVERIFY2( !f.installSegModel().isEmpty(), "model install failed" );
-    PaleoOnnxService svc;
-    svc.setModelRoot( f.dir.filePath( QStringLiteral( "models" ) ) );
-    svc.setModelRegistry( ModelRegistry::scan( f.dir.filePath( QStringLiteral( "models" ) ) ) );
     QCOMPARE( PaleoOnnxService::runtimeDiagnostics().status,
               paleo::onnx::OnnxRuntimeProbeResult::Status::ApiVersionMismatch );
     QVERIFY( !PaleoOnnxService::runtimeAvailable() );
-    QString err;
-    OnnxModelMeta meta;
     QCOMPARE( svc.loadModelMeta( QStringLiteral( "seg3" ), &meta, &err ),
               OnnxLoadStatus::RuntimeIncompatible );
     QVERIFY2( err.contains( QStringLiteral( "runtime_api_mismatch" ) ), qPrintable( err ) );
@@ -329,16 +338,16 @@ private slots:
     QVERIFY( err.contains( QStringLiteral( "旧运行库" ) ) ); // 实际运行库版本
     QVERIFY( err.contains( QStringLiteral( "onnxruntime.dll" ) ) ); // 实测加载模块
     QVERIFY( !svc.isModelLoaded( QStringLiteral( "seg3" ) ) ); // 未构造任何会话
+    }
 
-    paleo::onnx::OnnxRuntimeProbe::setTestOverride( {} );
-    QVERIFY( PaleoOnnxService::runtimeDiagnostics().ok() ); // 注入只影响探测
+    QVERIFY( PaleoOnnxService::runtimeDiagnostics().ok() ); // 守卫析构已还原
     QCOMPARE( svc.loadModelMeta( QStringLiteral( "seg3" ), &meta, &err ), OnnxLoadStatus::Ok );
   }
 
   // 确定性注入：OrtGetApiBase 本身不可用（进程内可观测的库不可用状态）。
   void probeInjectionApiUnavailableFailsBeforeAnyWrapper()
   {
-    paleo::onnx::OnnxRuntimeProbe::setTestOverride( [] {
+    const ProbeOverrideGuard apiUnavailableGuard( [] {
       paleo::onnx::OnnxRuntimeProbeResult r;
       r.status = paleo::onnx::OnnxRuntimeProbeResult::Status::ApiUnavailable;
       r.requiredApiVersion = int( ORT_API_VERSION );
@@ -355,7 +364,6 @@ private slots:
               OnnxLoadStatus::RuntimeIncompatible );
     QVERIFY2( err.contains( QStringLiteral( "runtime_api_unavailable" ) ), qPrintable( err ) );
     QVERIFY( !svc.isModelLoaded( QStringLiteral( "seg3" ) ) );
-    paleo::onnx::OnnxRuntimeProbe::setTestOverride( {} );
 
     // 部署边界（文档化事实）：ORT 动态链接缺库时进程在 main 之前被 OS 终止，
     // 进程内 guard 不可覆盖——此处只能断言进程已启动后两类 API 状态的区分。
@@ -364,7 +372,7 @@ private slots:
   // prepare 与服务/页面同一诊断：准入失败在准备阶段就拒绝（W7）。
   void prepareRejectsWhenAdmissionFails()
   {
-    paleo::onnx::OnnxRuntimeProbe::setTestOverride( [] {
+    const ProbeOverrideGuard admissionGuard( [] {
       paleo::onnx::OnnxRuntimeProbeResult r;
       r.status = paleo::onnx::OnnxRuntimeProbeResult::Status::ApiVersionMismatch;
       r.requiredApiVersion = int( ORT_API_VERSION );
@@ -385,7 +393,6 @@ private slots:
     QVERIFY( !wf.preparePredictionJob( QStringLiteral( "A" ), QStringLiteral( "onnx:seg3" ),
                                        params, &job, &err ) );
     QVERIFY2( err.contains( QStringLiteral( "runtime_api_mismatch" ) ), qPrintable( err ) );
-    paleo::onnx::OnnxRuntimeProbe::setTestOverride( {} );
   }
 #else
   // 无 ORT 构建：明确不可用，不当作成功推理（同样不 QSKIP）。

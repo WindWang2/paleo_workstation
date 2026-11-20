@@ -6,7 +6,6 @@
 #include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QDir>
-#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>

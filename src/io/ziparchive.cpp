@@ -377,8 +377,9 @@ ZipListResult zipListBytes( const QByteArray &archive )
       return result;
     }
     // 条目级 ZIP64：固定字段是哨兵 → extra field 0x0001 里的 64 位真值按
-    // 选择性字段顺序消费（#1028，见 consumeZip64Extra；本仓写面恒写满
-    // usize+csize+offset+盘号 28 字节，他源只写所需前缀子集的也兼容）。
+    // 选择性字段顺序消费（#1028，见 consumeZip64Extra；本仓写面中央目录恒
+    // 写 usize+csize+offset 共 24 字节载荷〔不含盘号〕，整块 28 字节；他源
+    // 只写所需前缀子集或附带盘号的也兼容）。
     if ( compressed == kZip64Sentinel || uncompressed == kZip64Sentinel ||
          localHeaderOffset == kZip64Sentinel )
     {

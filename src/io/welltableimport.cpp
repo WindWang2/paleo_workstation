@@ -28,7 +28,6 @@ bool readImportWellInput(const QString &path, const QString &type, const QString
     const auto table = readWellTable(path, mapping, {}, cancel);
     if (table.cancelled) return fail(table.error); // P1-W5：取消先行上报，不当格式错误
     if (!table.error.isEmpty()) return fail(table.error);
-    if (!table.error.isEmpty()) return fail(table.error);
     // 井点槽把带层位的表强制成井口时，仍收下井口坐标和分层，而不是类型冲突。
     const bool pointsSlotKeepsTops = type == QLatin1String("well_head")
         && table.type == QLatin1String("well_stratification") && !table.heads.isEmpty();

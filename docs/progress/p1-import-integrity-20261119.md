@@ -58,4 +58,67 @@
 
 ## 验证记录
 
-（构建/测试完成后回填：命令、日期、结果、剩余限制。）
+环境：Linux（CachyOS，内核 7.3.4），Qt 6.11/QGIS 4.2.3/GDAL/PROJ 全走受控 deb
+闭包前缀（与 P2 worktree 共享只读前缀 `/home/kevin/projects/paleo-p2-seismic-cache-20261119/vendor/prefix/usr`；
+本机 `vendor/superbuild/prefix` 早于 #1048 收据机制、无 `.paleo-superbuild-base.sha256`，
+按纪律未重建共享前缀）。构建类型 Release（避免 -g 全量 199G 撑爆盘），`-j4/-j2`，
+批次纪律内（P4/P5 并行编译期间出现资源争抢，已逐项复证）。
+
+| 验证 | 命令（worktree 内） | 结果 |
+|---|---|---|
+| 新套件 | `tst_p1_import_integrity` | **36 passed / 0 failed** |
+| ZIP 既有 | `tst_io_ziparchive_unit` | 13 / 0 |
+| 工作簿既有 | `tst_io_workbook_edges` | 19 / 0 |
+| 推导既有 | `tst_io_importrows_derivation` | 4 / 0 |
+| 外委簿既有 | `tst_io_outsource` | 15 / 0 |
+| 预览既有 | `tst_import_preview` | 24 / 0（1 skipped，既有） |
+| 台账既有 | `tst_io_importledger` | 21 / 0 |
+| 队列进度 | `tst_importqueue_progress` | 8 / 0 |
+| 导入主栈 | `tst_import` | 63 / 0（2 skipped，既有） |
+| 导入 UX | `tst_import_ux` | 55 / 0（1 skipped，既有） |
+| 数据预览 | `tst_datapreview` | 43 / 0（1 skipped，既有） |
+| 目录导入 | `tst_folderimport` | 28 / 0 |
+| 版本/工程/映射族 | tst_versions / tst_projectsetup / tst_mapping / tst_mappingworkbench / tst_paleomaplibrary / tst_projectsvc / tst_impactrecompute | 46/0、46/0、17/0、120/0、36/0、22/0、10/0 |
+
+源码闸门（全绿）：`check_layering.py`（普通 + `--strict` + `--selftest`）、
+`--symbol-audit`、`--transitive`（显式 `QGIS_PREFIX`，exit=0）、
+`check_qgis_spread.py`（新增 0）、`ui_invariants`、`ui_size`、`file_budget`
+（新增 0）、`i18n`、`ui_tokens`、`docs_drift`。ctest 无标签闸门项已全量构建并
+执行（566 项）。
+
+### 已知限制（如实记录）
+
+1. **first_configure 在本机需显式 triplet**：deb 闭包前缀布局为
+   `lib/<triplet>/qt6/...`，本机 CMake 不自动探测 `CMAKE_LIBRARY_ARCHITECTURE`；
+   不带 `-DCMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu` 时 G1 子构建报
+   `lib//qt6/...` 缺失。这是主机环境特性（P2/P4/P5 同样处理），非本任务代码
+   问题——单独带该参数复跑 G1 通过（QGIS_INCLUDE_DIR 命中受控前缀、
+   compile_commands.json 生成）。
+2. **并行构建期的门禁抖动**：P4/P5 并行重型构建期间，`ctest -LE 'core|perf'`
+   出现 10 个 300s 超时/段错误（tst_mappingworkbench/tst_projectsvc/
+   tst_datapreview/tst_folderimport/tst_paleomaplibrary/tst_versions/
+   tst_projectsetup/tst_mapping/tst_impactrecompute + first_configure）；
+   资源空闲后逐项单独复跑全部通过（见上表），无一是本任务引入的行为变化。
+3. **原生 importDirectory 覆盖边界**：本任务只修宿主解析器路径
+   （classifyImportFile → readWellTable/readImportWellInput → importOneFile）；
+   新建工程的 `ProjectSetupWorkflow::importAreaSources` 走 Data_service 原生
+   模块，本任务不触碰、不断言其已修复。
+4. **取消覆盖边界**：行粒度取消已覆盖导入主链（分类 → readImportWellInput →
+   readWellTable → readWorkbook/readXlsx/vectorOrText → readSpreadsheetMl）与
+   单文件路径（ImportOptions.cancelled）；`streamSpreadsheetMlWorkbook(QIODevice*)`
+   的流式读取、井斜/时深 collectSheetRows 与 CSV 快速路径未接取消谓词（非批量
+   导入热点，属增量增强）。
+5. **DTD 策略边界**：拒绝 DTD 是项目解析策略，不宣称消除所有 XML 资源风险
+   （未验证实体炸弹/SSRF/超大内存占用）；Qt 自身解析限制保持原样。
+
+## 独立复审记录
+
+Reviewer（未参与实现的独立 Agent，读真实 diff）结论 **MINOR**：
+- MINOR-1 `welltableimport.cpp` 重复死代码行 → 已删；
+- MINOR-2 `ziparchive.cpp` 写面注释失实（写面实际不含盘号，28 为整块长度）
+  → 已改为准确表述。
+- 覆盖边界（流式/井斜时深/CSV 未接取消）已记录在上述限制 4。
+- 其余关键点（ZIP64 逐字节推演、空 deflate 外部 zlib 独立验证、DTD 全入口
+  覆盖、PartResult 三分、取消生命周期、回归签名、测试可证伪性、分层纪律）
+  均经 reviewer 逐条推演通过。复证：修复后 `tst_p1_import_integrity` 36/0、
+  `tst_io_importledger` 21/0。

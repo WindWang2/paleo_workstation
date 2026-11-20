@@ -150,14 +150,19 @@ XML_GetCurrentColumnNumber64，与仓库代码无关；用 tools/run_tests_witho
 - 扩展：`tst_capability_recovery_native` 10/10（含新 Host 链 E2E：
   compute-only→source_operation_id 正式发布、成员 extra 单元身份/父版本、
   投影绑定指向真实单元）。
-- 全量非 core 套件：**598/601 通过**。3 个失败均为环境类、与本 PR 代码路径
-  无关（已逐一定位）：
-  1. `first_configure`：其子 cmake 首配探测未传 CMAKE_LIBRARY_ARCHITECTURE，
-     deb 路线 multiarch 推断为空（`lib//`）。本 PR 主构建显式传该变量后正常。
-  2. `tst_startup_trace`：QGIS provider 计时份额 perf 断言（healthy/degraded
-     比），单核固定重跑仍不过——机器/前缀加载特征相关；该测试零处触及
-     本 PR 改动的 constraint/factor/analysis 代码。
-  3. `l10n`：本 PR 新 tr() 串未填译文——**已修复**（补 zh/en 译文后 l10n 转绿）。
+- 全量非 core 套件（复审修复后终跑）：**596/601 通过**。5 个失败均为环境/
+  计时/并发类，与本 PR 代码路径无关（已逐一定位）：
+  1. `first_configure`（稳定复现）：其子 cmake 首配探测未传
+     CMAKE_LIBRARY_ARCHITECTURE，deb 路线 multiarch 推断为空（`lib//`）；
+     本 PR 主构建显式传该变量后 configure 正常——属该测试自身的环境探测
+     接线差异。
+  2. `tst_startup_trace`（稳定复现）：QGIS provider 加载计时份额断言
+     （劣化 0.486 < 3×健康 0.313），单核固定重跑仍不过——机器/前缀加载
+     特征；该测试零处触及本 PR 改动的 constraint/factor/analysis 代码。
+  3. `tst_constraint_draw` / `tst_catalog` / `tst_perfbudget`（并行调度下偶现）：
+     单独串行重跑均通过——计时/并发噪声（catalog 为 sqlite 只读 42ms vs
+     可写 40ms 的 ms 级抖动）。
+  4. `l10n`：本 PR 新 tr() 串未填译文——已修复（补 zh/en 译文后转绿）。
 
 ### Source gates（本地）
 

@@ -41,7 +41,7 @@ per curve: rowCount × f64  行主序
 文件名：`sha256(fingerprint)[0:24].plc`，位于
 `<proj>/artifacts/index/las/`。
 
-## 3. SEG-Y 道头索引 `.psx`（magic `PSGYIDX1`，version 3）
+## 3. SEG-Y 道头索引 `.psx`（magic `PSGYIDX1`，version 6）
 
 payload：
 
@@ -56,35 +56,58 @@ i32  sampleIntervalUs
 i32  formatCode
 i32  binLineNo
 i32[4] headerWordOffsets     inline/crossline/field-record/CDP 的 0 基偏移
+u8   dialectFlags           bit0 crossline 取 CDP / bit1 角点取 CDP X/Y / bit2 小端
+u8   'F' | 'V'              布局：固定道长 / 变道长（v6）
 i64  firstTraceOffset
 f64  geometry.inlineMin/Max, xlineMin/Max     survey 几何（open 时冻结）
 f64  geometry.cornerX[4] / cornerY[4]
 f64  geometry.startTimeMs
 u32  n                      道数
 u32  bad                    坏道数（D2.7）
-u8   'C' | 'P'              完整索引 | checkpoint（D2.8）
+u8   'C' | 'P'              完整索引 | checkpoint（D2.8；其余值按损坏自愈，v6）
 i64  scannedOffset          已扫到的文件偏移（完整时 = 文件尾）
 i32[n] inlineNos            平行数组（顺序 = 文件道序；inlineNo 已按 ordinal
 i32[n] xlineNos              方言解析为最终值——checkpoint 只在标准索引模式落）
 i64[n] offsets
+u16[n] traceNs              逐道有效 ns（仅 'V' 布局；UseBinary 记 binNs，v6）
 i64[bad] badTraceOffsets    损坏被跳过的道头偏移
 ```
 
 文件名：`segyidx_<sha256(canonicalPath)[0:24]>.psx`，位于
 `<proj>/artifacts/index/segy/`。v1 合成样本的历史 zstd 测量为 ratio 0.126（-87%）。
 
-v2 把道字配置加入完整索引与 checkpoint 身份；`openCached` 仅恢复与本次
-配置四个偏移全部相同的快照。v1 无配置自证信息，读侧弃用并重扫。配置
-变化只更新可再生 `.psx` 缓存，不改 SEG-Y 字节。
+（历史沿革：v2 道字配置入索引身份；v4/#290 方言探针统一三路判据；v5
+dialectFlags 落盘。**当前版本以 `segyindexstore.cpp` 的
+`kSegyIndexVersion` 为权威**——本文早期把版本写作 3，与代码不符，已按
+代码修正。）
 
-v4（e9d17e80/#290 合并口径）：方言探针（crossline 恒 0 且 CDP 变化、
-角点 72/76 恒 0 且 180/184 非零）由命名空间级共用实现承担，顺序 open() 与
-openCached() 并行路径、resumeScan 续扫同判据；v3 及更早的大文件索引可能带
-退化号域（方言文件 xline 全 0、角点 (0,0)），按过版拒绝并自愈删除重建。
-角点由最终号域极值道头回读冻结（cornerTraceIndices/freezeCorners），扫描线
-序与分片数不影响测区范围。
+### 统一边界审计（v6，P2/#1026）
 
-### checkpoint 完整性审计（D2.8）
+`load()` / `loadForResume()` / `SegyReader::restore()` 三口同走
+`SegyIndexAudit::validate`（`io/segyindexvalidate.*`），O(n) 纯算术、不重读
+源文件：
+
+- 头块：样点格式必须已知（1/2/3/5/8）——未知格式直接失败，不退化为
+  「每样 1 字节」；`samplesPerTrace ∈ [1,65535]`；头字偏移 ∈ [0,236]；
+  `firstTraceOffset ≥ 3600 且 ≤ fileSize`。
+- 道序走查（好道 + 坏道按偏移合并）：从 `firstTraceOffset` 起逐道平铺——
+  每个道槽要么入索引要么记坏道，无洞、无重叠、无重复；每道完整跨度
+  （`240 + ns·sampleBytes`）必须落在文件内（#1026 G6：道头在内、载荷
+  越界同样拒绝）。固定道长按全局道长推进；变道长按 `traceNs` 逐道推进
+  （坏道只可能出现在尚未观察到变道长的前缀，按固定道长跳过——与扫描
+  器推进口径一致）。
+- checkpoint（`'P'`，仅固定道长）：`scannedOffset` 必须等于走查末尾且
+  `≤ fileSize`——**v6 删除了旧 load() 的 `size+4096` 宽容**（#1026 G5）。
+  完整索引要求 `scannedOffset == fileSize`（扫描器顺序路径本就要求收在
+  文件尾）。
+- 解码闸：marker 只接受 `'C'`/`'P'`、布局只接受 `'F'`/`'V'`，其余按损坏
+  自愈；payload 必须无尾部余字节。
+
+任一不符：删缓存自愈 + 可解释 miss → `openCached` 落冷扫/续扫重建。前缀
+指纹只覆盖首 64KB——它能证明「前缀没被改写」，不是整个 SEG-Y 的内容
+哈希（中部原地改写不在其检测范围，身份块 size/mtime 才是第一道闸）。
+
+### checkpoint 完整性审计（D2.8，历史口径，已被上方统一审计收编）
 
 读 checkpoint 时的附加闸：`firstTraceOffset ≤ scannedOffset ≤ size`、
 `scannedOffset ≥ 末道覆盖偏移`、完整索引要求 `scannedOffset == size`——
@@ -100,7 +123,7 @@ openCached() 并行路径、resumeScan 续扫同判据；v3 及更早的大文�
 | 顺序扫描（`open()`） | 支持；坏道（负 ns）跳过 + 记录（B6 起，原为整索引报错） | 支持（逐道按各自 ns 推进）；坏道整索引报错 |
 | 并行扫描（`scanParallel`） | 支持（>1MB） | 不适用（步长假设） |
 | checkpoint / 续扫 | 支持 | **不落 checkpoint**（B6 起；`SegyReader::variableTraceLayout()` 门） |
-| 坏道跳过 | 三路径（顺序/并行/续扫）一致：`ns < 0`、`ns > binNs` 或（固定步长前缀内）`0 < ns < binNs` 且后续仍整道对齐 → 跳过 + 记 `badTraceOffsets` | **不跳**——负 ns 后道边界不可恢复，宁可整索引报错 |
+| 坏道跳过 | 三路径（顺序/并行/续扫）一致：显式损坏（道头 ns 最高位置位且二进制头 ns <32768，即 `classifyTraceNs` 的 Corrupt）→ 跳过 + 记 `badTraceOffsets`；ns 偏大/偏小一律按变道长观察（PW-071 统一口径） | **不跳**——坏道后边界不可恢复，宁可整索引报错 |
 
 - 顺序路径坏道跳过（B6）：仅当扫描前缀尚未观察到变道长（所有道
   `ns == binNs` 或 `0`）时，负 ns 按固定步长 `240 + binNs*4` 跳过——与

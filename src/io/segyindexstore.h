@@ -50,13 +50,19 @@ struct SegyStoredIndex
     SegyGeometry geometry;
     std::array<int, 4> headerWordOffsets = {188, 192, 8, 20}; // 索引取字口径（v2）
     quint8 dialectFlags = 0; // #290（v5 起真正落盘）：bit0 crossline 取 CDP，
-                             // bit1 角点取 CDP X/Y——checkpoint 续扫按同一口径
-                             // 取字；随格式版本升级让旧缓存（错误方言索引）
-                             // 整体失效重建
+                             // bit1 角点取 CDP X/Y，bit2 小端——checkpoint
+                             // 续扫按同一口径取字；随格式版本升级让旧缓存
+                             //（错误方言索引）整体失效重建
+    char layoutKind = 'F';    // P2/#1026（v6）：'F' 固定道长 / 'V' 变道长——
+                              // 完整索引的逐道覆盖证明按布局分口径（固定：
+                              // 同余 + 全局道长；变长：逐道 ns 平铺）；
+                              // 变长一律 complete（不落 checkpoint）
     QVector<qint32> inlineNos;
     QVector<qint32> xlineNos;
     QVector<qint64> offsets;
     QVector<qint64> badTraceOffsets;
+    QVector<quint16> traceNs; // v6：变道长布局的逐道有效 ns（UseBinary 记
+                              // binNs；固定布局恒空——走查不读它）
     bool complete = true;      // false = checkpoint（部分扫描）
     qint64 scannedOffset = 0;  // 已扫到的文件偏移（complete 时 = 文件尾）
     // 增量续扫的前缀指纹（首 64KB 哈希，十六进制；空 = 无）

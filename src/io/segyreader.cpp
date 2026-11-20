@@ -1,6 +1,7 @@
 // 层：数据
 #include "segyreader.h"
 #include "segyindexstore.h" // StoredIndex/IndexStats 完整类型（segyreader.h 仅前向声明）
+#include "segyindexvalidate.h" // P2/#1026：restore() 与 store 两口共用的边界审计
 
 #include "../domain/arearules.h"
 
@@ -483,6 +484,7 @@ bool SegyReader::scanTracesSequential(QFile &file, qint64 offset, qint64 fileSiz
     }
 
     m_index.append(e);
+    m_traceNs.append(static_cast<quint16>(ns)); // P2/#1026：逐道有效 ns（变道长布局的覆盖证明）
     offset += 240 + static_cast<qint64>(ns) * sb;
   }
   if (offset != fileSize)
@@ -1000,6 +1002,7 @@ void SegyReader::resetState()
   m_byInline.clear();
   m_byXline.clear();
   m_badTraceOffsets.clear();
+  m_traceNs.clear();
   m_samplesPerTrace = 0;
   m_sampleIntervalUs = 0.0f;
   m_geometry = SegyGeometry();
@@ -1049,6 +1052,10 @@ bool SegyReader::snapshot(SegyIndexStore::StoredIndex *out) const
       (m_dialect.xlineFromCdp ? 0x1 : 0x0) |
       (m_dialect.cornerFromCdpXY ? 0x2 : 0x0) |
       (m_littleEndian ? 0x4 : 0x0)); // PW-070：bit2 小端
+  // P2/#1026（v6）：布局标记随快照落盘；变道长带逐道 ns 供审计/恢复证明
+  // 覆盖范围，固定布局按全局道长同余验证（不落 ns 表）。
+  out->layoutKind = m_sawVariableNs ? 'V' : 'F';
+  out->traceNs = m_sawVariableNs ? m_traceNs : QVector<quint16>();
   out->inlineNos.resize(m_index.size());
   out->xlineNos.resize(m_index.size());
   out->offsets.resize(m_index.size());
@@ -1072,16 +1079,13 @@ bool SegyReader::restore(const SegyIndexStore::StoredIndex &in, const QString &p
       in.inlineNos.size() != in.offsets.size() || in.inlineNos.isEmpty())
     return false;
   // review-fix-dataio：缓存索引是磁盘上的外部数据（可能损坏/被篡改），
-  // 全部校验通过后才改写成员——旧实现 ns<=0 也照单全收，后续按
-  // 240 + ns*sampleBytes 计算道长、分配缓冲时越界/负长。
-  if (in.samplesPerTrace <= 0 ||
-      in.samplesPerTrace > 65535 || sampleBytesForFormat(in.formatCode) == 0 ||
-      in.firstTraceOffset < 3600)
-    return false;
+  // 全部校验通过后才改写成员。P2/#1026 起与 load()/loadForResume() 同走
+  // SegyIndexAudit：除数组一致性/头块范围外，还证明每道完整采样载荷
+  //（240 + ns·sampleBytes）在文件内、道序平铺无重叠、checkpoint 上界无
+  // +4096 宽容——旧口径只查道头 240 字节在界内。
   const qint64 fileSize = QFileInfo(path).size();
-  for (const qint64 off : in.offsets)
-    if (off < in.firstTraceOffset || off + 240 > fileSize)
-      return false;
+  if (!SegyIndexAudit::validate(in, fileSize).isEmpty())
+    return false;
   m_indexingRules = {in.headerWordOffsets[0], in.headerWordOffsets[1],
                      in.headerWordOffsets[2], in.headerWordOffsets[3]};
   // #290：方言口径随索引恢复——resumeScan() 按同一口径取字。
@@ -1094,6 +1098,10 @@ bool SegyReader::restore(const SegyIndexStore::StoredIndex &in, const QString &p
   m_sampleBytes = sampleBytesForFormat(m_formatCode);
   if (m_sampleBytes == 0)
     return false;
+  // P2/#1026（v6）：布局口径随索引恢复——变道长快照带逐道 ns；变道长
+  // 一律 complete（审计已拒 checkpoint），续扫契约不适用。
+  m_sawVariableNs = (in.layoutKind == 'V');
+  m_traceNs = m_sawVariableNs ? in.traceNs : QVector<quint16>();
   m_binLineNo = in.binLineNo;
   m_firstTraceOffset = in.firstTraceOffset;
   m_geometry = in.geometry;

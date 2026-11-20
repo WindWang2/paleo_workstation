@@ -12,7 +12,7 @@ Python、Flex、Bison、Tcl 和 curl。在需支持的最旧 glibc 上完成源�
 ```bash
 bash vendor/fetch-deps.sh --superbuild-base
 cmake -S vendor/superbuild -B vendor/build/superbuild -G Ninja -DSUPERBUILD_JOBS=4
-source vendor/superbuild/activate.sh
+source vendor/superbuild/activate.sh --build
 cmake --build vendor/build/superbuild --parallel 1
 ```
 
@@ -20,7 +20,7 @@ Debian 归档缓存位于 `vendor/cache/superbuild-debs`，源码归档缓存位
 `vendor/cache/tarballs`。首次联网准备后，在新工作树共享归档缓存并设置
 `PALEO_VENDOR_OFFLINE=1`，配置时传 `-DSUPERBUILD_OFFLINE=ON`，即可重放归档校验、
 解包和源码构建。ExternalProject 记录每个成功步骤，可从上次成功步骤继续。
-用 `SUPERBUILD_PREFIX` 可隔离不同版本的产物。
+底座、源码锁、配方、补丁或构建选项变更时，请同时选择新的构建目录和 `SUPERBUILD_PREFIX`。安装完成后默认目标写入源码凭据。开发、配置及打包入口均核对该凭据。`activate.sh --build` 仅用于首次编译依赖。
 
 安装前缀包含 Qt 工具、WebEngine 子进程、插件、字体、GIS 库及资源。主仓由该
 前缀编译，ONNX Runtime 与 Office 组件按各自供货入口准备。

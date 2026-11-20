@@ -279,7 +279,9 @@ $env:PALEO_CMAKE_BUILD_TYPE = 'Release'
 本机和发行包共用 OSGeo4W 供货锁。独立 worktree 可共享经过校验的前缀和下载缓存。
 `PALEO_PYTHON` 可指向用于本地测试的宿主解释器。测试串行执行，`PALEO_CTEST_ARGS`
 可限定本地回归范围。`diagdeps <测试目标>` 输出 MSVC 导入表和实际搜索路径。
-`ensure-resources` 核对 GIS 数据库，缺件时按已锁版本补齐。
+`ensure-resources` 从 OSGeo4W 离线缓存校验 `qgis-common` 归档，并用其中的原始 `srs.db` 恢复缺失或损坏的数据库。
+离线 bootstrap 需要预供包含清单内全部文件的 Office 编辑器目录，可用 `PALEO_OFFICE_EDITOR` 指定。
+Linux 源码前缀在 QGIS 安装完成后生成源码构建凭据。旧前缀、源码锁或补丁变更均需使用新的前缀和构建目录，详见 [superbuild](vendor/superbuild/README.md)。
 
 ## 平台 × 版本矩阵
 

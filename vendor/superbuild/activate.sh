@@ -1,6 +1,7 @@
 # Source this file for the Linux source build and its local application tests.
 paleo_activate_source_prefix() {
-  local sources prefix lock wanted multiarch
+  local sources prefix lock wanted multiarch mode=verify
+  if [ "${1:-}" = --build ]; then mode=prepared; shift; fi
   sources=$(cd -P -- "$(dirname "${BASH_SOURCE[0]}")" && pwd) || return
   prefix=$(realpath -e -- "${1:-$sources/prefix}") || return
   lock="$sources/debian13-base.lock"
@@ -9,6 +10,7 @@ paleo_activate_source_prefix() {
     echo "The source prefix is missing or stale. Configure vendor/superbuild first." >&2
     return 1
   fi
+  python3 "$sources/source_receipt.py" "$mode" "$prefix" || return
   multiarch="$prefix/lib/x86_64-linux-gnu"
   export QGIS_PREFIX_PATH="$prefix" PALEO_SOURCE_PREFIX="$prefix"
   export LD_LIBRARY_PATH="$prefix/lib:$multiarch"

@@ -891,15 +891,14 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
+    // WorkerGate controls cancellation. The same grid as the impact lifecycle test suffices here.
+    const QVariantMap factorOptions{{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 1.0}};
     QVERIFY(f.declarePoints({QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
                              QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
                              QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
                              QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
                             "bc-samples-a.geojson", &error));
-    QVERIFY2(f.work.generateFactor(
-                  "D61", "sandthick",
-                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
-                  &error),
+    QVERIFY2(f.work.generateFactor("D61", "sandthick", factorOptions, &error),
              qPrintable(error));
     const auto factorV1 = f.latest("single_factor_raster");
     const auto polygonsV1 = f.work.compose(
@@ -911,10 +910,7 @@ private slots:
                              QVariantMap{{"x", 0}, {"y", 100}, {"z", 100}},
                              QVariantMap{{"x", 100}, {"y", 100}, {"z", 100}}},
                             "bc-samples-b.geojson", &error));
-    QVERIFY2(f.work.generateFactor(
-                  "D61", "sandthick",
-                  {{"pointsLayerId", "wells.D61"}, {"field", "z"}, {"cellSize", 0.5}},
-                  &error),
+    QVERIFY2(f.work.generateFactor("D61", "sandthick", factorOptions, &error),
              qPrintable(error));
     const auto factorV2 = f.latest("single_factor_raster");
     const auto impact = f.work.analyzeImpact(

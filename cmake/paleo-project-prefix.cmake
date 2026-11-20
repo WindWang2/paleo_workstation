@@ -45,6 +45,17 @@ if(DEFINED _paleo_supply_receipt)
   endif()
 endif()
 
+if(NOT WIN32 AND NOT PALEO_DEB_PREFIX)
+  find_program(_paleo_receipt_python NAMES python3 REQUIRED)
+  execute_process(COMMAND "${_paleo_receipt_python}" "${CMAKE_SOURCE_DIR}/vendor/superbuild/source_receipt.py"
+    verify "${_paleo_project_prefix}" RESULT_VARIABLE _paleo_source_status
+    ERROR_VARIABLE _paleo_source_error ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _paleo_source_status STREQUAL "0")
+    message(FATAL_ERROR "${_paleo_source_error}\n"
+      "Prepare a fresh Linux source build and prefix as described in vendor/superbuild/README.md.")
+  endif()
+endif()
+
 if(PALEO_DEPENDENCY_PREFIX)
   file(REAL_PATH "${PALEO_DEPENDENCY_PREFIX}" _paleo_explicit_prefix)
   if(NOT _paleo_project_prefix STREQUAL _paleo_explicit_prefix)

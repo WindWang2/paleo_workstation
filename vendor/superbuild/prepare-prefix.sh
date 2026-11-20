@@ -5,6 +5,10 @@ set -euo pipefail
 prefix=$1
 base=$2
 lock=$3
+recipe=$4
+build=$5
+profile=$6
+instance=.paleo-superbuild-instance
 receipt=.paleo-superbuild-base.sha256
 wanted=$(tr -d '\r' < "$lock" | sha256sum | cut -d' ' -f1)
 if [ "$(cat "$base/.paleo-deb-closure.sha256" 2>/dev/null)" != "$wanted" ]; then
@@ -16,10 +20,18 @@ mkdir -p "$(dirname "$prefix")"
 exec 9>"$base/.paleo-prefix-prepare.lock"
 flock 9
 if [ -e "$prefix" ] || [ -L "$prefix" ]; then
-  if [ "$(cat "$prefix/$receipt" 2>/dev/null)" = "$wanted" ]; then
+  if [ "$(cat "$prefix/$receipt" 2>/dev/null)" = "$wanted" ] &&
+     [ "$(head -n 1 "$prefix/$instance" 2>/dev/null)" = "$recipe" ] &&
+     [ "$(sed -n '2p' "$prefix/$instance" 2>/dev/null)" = "$profile" ] &&
+     cmp -s "$prefix/$instance" "$build/$instance"; then
     exit 0
   fi
-  echo "Source install prefix $prefix belongs to a different base. Use a fresh SUPERBUILD_PREFIX." >&2
+  echo "Source inputs, configuration or build ownership changed. Use a fresh build directory and SUPERBUILD_PREFIX." >&2
+  exit 1
+fi
+
+if [ -e "$build/$instance" ] || [ -d "$build/qgis-prefix" ]; then
+  echo "An existing build cannot certify a fresh prefix. Select a new build directory." >&2
   exit 1
 fi
 
@@ -45,4 +57,6 @@ find "$staging/lib/x86_64-linux-gnu/cmake" -path '*/expat-*/expat-noconfig.cmake
 
 printf '%s\n' "$wanted" > "$staging/$receipt"
 chmod "$(umask -S)" "$staging"
+printf '%s\n' "$recipe" "$profile" "$(cat /proc/sys/kernel/random/uuid)" > "$staging/$instance"
 mv -- "$staging" "$prefix"
+cp -- "$prefix/$instance" "$build/$instance"

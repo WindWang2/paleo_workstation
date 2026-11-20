@@ -78,8 +78,8 @@ try {
   Set-Content (Join-Path $qgis 'resources/srs.db') -Value 'x'
   $env:PALEO_PYTHON = Join-Path $tmp 'no-such-python.exe'
   $Root = Split-Path -Parent $Script
-  $ok = $true; try { Invoke-EnsureQgisResources } catch { $ok = $false }
-  Check $ok 'ensure-resources invoked Python although srs.db exists'
+  $threw = $false; try { Invoke-EnsureQgisResources } catch { $threw = $true }
+  Check $threw 'an existing srs.db must still be verified against its archive'
   Remove-Item -LiteralPath (Join-Path $qgis 'resources/srs.db') -Force
   $threw = $false; try { Invoke-EnsureQgisResources } catch { $threw = $true }
   Check $threw 'ensure-resources with missing inputs must fail clearly'

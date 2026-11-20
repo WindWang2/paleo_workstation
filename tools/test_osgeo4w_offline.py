@@ -1,10 +1,13 @@
 import hashlib
 import io
+import json
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from ensure_qgis_resources import Fail, osgeo4w_database
 from osgeo4w_prefix import check as check_prefix
 from osgeo4w_offline import build_lock, check_installed, fetch, materialize
 
@@ -84,6 +87,44 @@ class OfflinePackagesTest(unittest.TestCase):
         database.unlink()
         with self.assertRaisesRegex(ValueError, "srs.db"):
             check_prefix(prefix, False)
+
+    def test_recover_only_locked_windows_srs(self):
+        # Build a real, digest-locked package and index with the production name.
+        payload = b"windows-crs"
+        pkg = "qgis-common"
+        with tarfile.open(self.archive_file, "w:bz2") as archive:
+            info = tarfile.TarInfo("./apps/qgis/resources/srs.db")
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+        raw = self.archive_file.read_bytes()
+        index = self.original / "x86_64/setup.ini"
+        index.write_text(f"arch: x86_64\n\n@ {pkg}\nversion: 1-2\n"
+                         f"install: {self.archive} {len(raw)} {hashlib.sha256(raw).hexdigest()}\n")
+        packages = {pkg: "1-2"}
+        pin = dict(self.pin, packages=packages, closure=packages)
+        locked_index = self.root / "osgeo4w-setup.ini"
+        lock = build_lock(self.original, self.installer, locked_index, pin)
+        lockfile = self.root / "lock.json"
+        lockfile.write_text(json.dumps(lock))
+        cached = self.cache / "archives" / self.archive
+        cached.parent.mkdir(parents=True)
+        cached.write_bytes(raw)
+        prefix = self.root / "qgis"
+        prefix.mkdir()
+        with patch("ensure_qgis_resources.LOCK", lockfile), patch("ensure_qgis_resources.manifest", return_value=pin):
+            with self.assertRaisesRegex(Fail, "Missing or damaged"):
+                osgeo4w_database(prefix, self.cache, check_only=True)
+            target = osgeo4w_database(prefix, self.cache)
+            self.assertEqual(target.read_bytes(), payload)
+            target.write_bytes(b"corrupt")
+            cached.write_bytes(b"broken")
+            with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+                osgeo4w_database(prefix, self.cache)
+            self.assertEqual(target.read_bytes(), b"corrupt")
+            cached.write_bytes(raw)
+            osgeo4w_database(prefix, self.cache)
+            osgeo4w_database(prefix, self.cache, check_only=True)
+            self.assertEqual(target.read_bytes(), payload)
 
     def test_exact_installed_versions(self):
         database = self.root / "installed.db"

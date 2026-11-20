@@ -213,13 +213,8 @@ function Assert-NoEnvDebtRegression([string[]]$FailedTests, [string]$ManifestPat
 function Invoke-EnsureQgisResources {
   $prefix = $env:QGIS_PREFIX_PATH
   if (-not $prefix) { throw 'A locked QGIS prefix is required. Run ./paleo-dev.ps1 bootstrap fetch-only.' }
-  $database = Join-Path $prefix 'resources\srs.db'
-  if (Test-Path -LiteralPath $database) {
-    Write-Host "  OK  srs.db -> $database"
-    return
-  }
   $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
-  & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win
+  & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win --cache (Join-Path $Vendor 'cache/osgeo4w-offline')
   if ($LASTEXITCODE -ne 0) { throw 'QGIS resource recovery failed. Reprepare the locked prefix.' }
 }
 
@@ -305,6 +300,9 @@ switch ($Verb) {
       })
       if ($missingOffice.Count) {
         if ($env:PALEO_OFFICE_EDITOR) { throw "PALEO_OFFICE_EDITOR 缺少组件文件：$($missingOffice -join ', ')" }
+        if ($env:PALEO_VENDOR_OFFLINE -eq '1') {
+          throw "Missing offline Office assets in $office ($($missingOffice -join ', ')). Supply the prepared editor tree or set PALEO_OFFICE_EDITOR."
+        }
         $gitBash = Join-Path $env:ProgramFiles 'Git/bin/bash.exe'
         if (-not (Test-Path -LiteralPath $gitBash)) { throw 'Office 组件需要 Git Bash 或已就绪的 PALEO_OFFICE_EDITOR' }
         & $gitBash (Join-Path $Vendor 'fetch-ranuts-document.sh') --ensure

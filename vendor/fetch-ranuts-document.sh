@@ -27,6 +27,12 @@ case "${1:-}" in
   *) echo 'Usage: fetch-ranuts-document.sh [--ensure]' >&2; exit 2 ;;
 esac
 
+if [[ "${PALEO_VENDOR_OFFLINE:-0}" == 1 ]]; then
+  if editor_ready "${PALEO_OFFICE_EDITOR:-$dest}"; then exit 0; fi
+  echo "Missing offline Office assets. Supply $dest or set PALEO_OFFICE_EDITOR to a prepared editor tree." >&2
+  exit 1
+fi
+
 # v0.0.6 includes the embedded-WebView Editor.bin fix.
 pin_repo="https://github.com/ranuts/document.git"
 pin_tag="v0.0.6"

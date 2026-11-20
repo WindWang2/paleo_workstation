@@ -2,6 +2,8 @@
 """Verify portable-package preflight and manifest handling without Windows SDKs."""
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -13,6 +15,36 @@ from portable_manifest import PackageFiles, verify
 
 
 class PortablePackageTests(unittest.TestCase):
+    def test_source_prefix_requires_completed_matching_build_and_recipe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            work = Path(temp)
+            recipe = Path(__file__).resolve().parents[1] / "vendor/superbuild"
+            copied = work / "vendor/superbuild"
+            copied.mkdir(parents=True)
+            for name in ("source_receipt.py", "CMakeLists.txt", "prepare-prefix.sh",
+                         "debian13-base.lock", "debian-sources.lock", "closed-dependencies.cmake",
+                         "prepare-debian-source.cmake"):
+                shutil.copyfile(recipe / name, copied / name)
+            shutil.copytree(recipe / "patches", copied / "patches")
+            prefix = work / "prefix"
+            prefix.mkdir()
+            build = work / "build"
+            build.mkdir()
+            def invoke(*args):
+                return subprocess.run([sys.executable, str(copied / "source_receipt.py"), *args],
+                                      capture_output=True, text=True)
+            digest = invoke("digest")
+            self.assertEqual(digest.returncode, 0, digest.stderr)
+            identity = digest.stdout + "profile\ninstallation\n"
+            (prefix / ".paleo-superbuild-instance").write_text(identity)
+            self.assertNotEqual(invoke("verify", prefix).returncode, 0)
+            self.assertNotEqual(invoke("finish", prefix, "--build", build).returncode, 0)
+            (build / ".paleo-superbuild-instance").write_text(identity)
+            self.assertEqual(invoke("finish", prefix, "--build", build).returncode, 0)
+            self.assertEqual(invoke("verify", prefix).returncode, 0)
+            (copied / "patches/new.patch").write_text("new input")
+            self.assertNotEqual(invoke("package-inputs", prefix).returncode, 0)
+
     def test_existing_output_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

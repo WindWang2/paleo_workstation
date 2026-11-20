@@ -1,30 +1,9 @@
 #!/usr/bin/env python3
 """QGIS prefix 资源闭包补齐（方向 81 srs.db 族）。
 
-问题：本机 QGIS 前缀（Windows localdeps 的 ~/paleo-qgis-prefix 只有
-bin/include/lib）与 deb 闭包解包前缀（fetch-deps.sh 只 dpkg-deb -x、不跑
-postinst）都没有 resources/srs.db——tst_runtime / boot 的
-QgsApplication::srsDatabaseFilePath() 断言必红，CRS 查表退化。
-
-来源（同源不手抄）：与方向 71 的 deb 闭包同一把锁 vendor/deb-closure.lock——
-QGIS 资源由其中的 qgis-providers-common（qgis.db / srs-template.db /
-symbology-style.xml / customization.xml）与 qgis-common（其余 resources/**）
-两个架构无关（_all）包提供；URL / 大小 / SHA-256 全取自锁文件，校验不过即拒。
-srs.db 按 Debian postinst 同义生成：cp srs-template.db srs.db（不跑 crssync
-——与官方包装后、触发器同步前的状态一致）。
-
-用法：
-  python3 tools/ensure_qgis_resources.py --prefix DIR [--layout auto|win|deb]
-         [--cache DIR] [--lock FILE] [--check] [--force]
-  python3 tools/ensure_qgis_resources.py --selftest
-
-  --layout win : 资源落 <prefix>/resources（QGIS Windows 前缀布局，
-                 pkgDataPath = prefix）
-  --layout deb : 资源落 <prefix>/share/qgis/resources（/usr 布局）
-  --layout auto: <prefix>/share/qgis 存在 → deb，否则 win
-  --check      : 只检查 srs.db 是否就位（0=齐备，1=缺），不下载不写
-  已有 resources/srs-template.db 而缺 srs.db（deb 闭包解包前缀）时只补 srs.db，
-  不联网。写入后在资源目录落 .paleo-resources.json（来源包 + SHA-256 + 文件清单）。
+Windows 使用项目 OSGeo4W 离线索引中 qgis-common 归档的原始 srs.db。
+Debian 闭包使用 deb-closure.lock 与发行包的 srs-template.db。
+--cache 可覆盖对应供货缓存。--check 检查资源，--force 重新生成 Debian 资源。
 """
 import argparse
 import hashlib
@@ -41,10 +20,12 @@ import urllib.request
 from urllib.parse import urlsplit
 from pathlib import Path
 
+from osgeo4w_offline import CONTENT, LOCK, digest, manifest, validate_file, verify_lock
+
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_LOCK = REPO / "vendor" / "deb-closure.lock"
 DEFAULT_CACHE = REPO / "vendor" / "cache" / "debs"
-# 提供 usr/share/qgis/resources/** 的锁内包（架构无关 _all 包，Windows 前缀可用）。
+# 提供 usr/share/qgis/resources/** 的锁内包（架构无关 _all 包）。
 RESOURCE_PACKAGES = ("qgis-providers-common", "qgis-common")
 RES_PREFIX = "usr/share/qgis/resources/"
 MANIFEST_NAME = ".paleo-resources.json"
@@ -110,6 +91,8 @@ def fetch(entry, cache, snapshot=DEFAULT_LOCK.with_suffix(".snapshot")):
     dest = cache / entry["file"]
     if dest.exists() and dest.stat().st_size == entry["size"] and sha256_of(dest) == entry["sha256"]:
         return dest
+    if os.environ.get("PALEO_VENDOR_OFFLINE") == "1":
+        raise Fail(f"Missing or damaged offline Debian resource archive: {dest}")
     tmp = dest.with_suffix(dest.suffix + ".part")
     urls = [entry["url"]]
     fallback = snapshot_url_for(entry["url"], snapshot)
@@ -206,6 +189,36 @@ def resources_dir(prefix, layout):
     return prefix / "resources" if layout == "win" else prefix / "share" / "qgis" / "resources"
 
 
+def osgeo4w_database(prefix, cache, check_only=False):
+    prefix = Path(prefix).resolve(strict=True)
+    resource = prefix / "resources/srs.db"
+    if resource.resolve() != resource:
+        raise Fail(f"Linked QGIS resource path: {resource}")
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    verify_lock(lock, manifest(), LOCK.with_name("osgeo4w-setup.ini"))
+    row = lock["packages"]["qgis-common"]
+    archive = cache / CONTENT / row["path"]
+    validate_file(archive, row)
+    member_name = "apps/qgis/resources/srs.db"
+    with tarfile.open(archive, "r|*") as tar:
+        for member in tar:
+            if member.name.removeprefix("./") == member_name and member.isfile():
+                payload = tar.extractfile(member).read()
+                break
+        else:
+            raise Fail(f"{archive} has no regular {member_name}")
+    if resource.is_file() and digest(resource) == hashlib.sha256(payload).hexdigest():
+        return resource
+    if check_only:
+        raise Fail(f"Missing or damaged {resource}")
+    resource.parent.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=resource.parent) as stage:
+        candidate = Path(stage) / "srs.db"
+        candidate.write_bytes(payload)
+        candidate.replace(resource)
+    return resource
+
+
 def make_srs_db(res_dir):
     template = res_dir / "srs-template.db"
     if not template.is_file():
@@ -213,8 +226,8 @@ def make_srs_db(res_dir):
     shutil.copyfile(template, res_dir / "srs.db")
 
 
-def ensure(prefix, layout="auto", cache=DEFAULT_CACHE, lock=DEFAULT_LOCK, force=False, log=print):
-    res = resources_dir(prefix, layout)
+def ensure_debian(prefix, cache=DEFAULT_CACHE, lock=DEFAULT_LOCK, force=False, log=print):
+    res = resources_dir(prefix, "deb")
     srs = res / "srs.db"
     if srs.is_file() and not force:
         log(f"ensure_qgis_resources: OK {srs}（已就位，跳过）")
@@ -292,7 +305,14 @@ def _deb(files, zst=False):
     return _ar([("debian-binary", b"2.0\n"), ("control.tar.gz", b""), ("data.tar.gz", buf.getvalue())])
 
 
+# Synthetic Debian downloads below exercise both online and offline policies.
 def selftest():
+    from unittest.mock import patch
+    with patch.dict(os.environ, {"PALEO_VENDOR_OFFLINE": "0"}):
+        return _debian_selftest()
+
+
+def _debian_selftest():
     from unittest.mock import patch
     from urllib.error import HTTPError
     with tempfile.TemporaryDirectory() as tmp:
@@ -342,10 +362,18 @@ def selftest():
                 else:
                     raise AssertionError("快照摘要不符必须拒绝")
 
-        # 1) Windows 布局全量补齐：资源 + srs.db + 清单；越界路径被拒。
-        prefix = tmp / "winprefix"
-        res = ensure(prefix, "win", cache, lock, log=quiet)
-        assert res == prefix / "resources", res
+        with patch.dict(os.environ, {"PALEO_VENDOR_OFFLINE": "1"}):
+            try:
+                fetch(entry, tmp / "missing-offline", snap)
+            except Fail as error:
+                assert "offline" in str(error)
+            else:
+                raise AssertionError("missing offline input was accepted")
+
+        # 1) Debian 布局全量补齐：资源 + srs.db + 清单；越界路径被拒。
+        prefix = tmp / "debprefix"
+        res = ensure_debian(prefix, cache, lock, log=quiet)
+        assert res == prefix / "share/qgis/resources", res
         assert (res / "srs.db").read_bytes() == b"SQLite format 3\0tpl"
         assert (res / "qgis.db").is_file() and (res / "data" / "world_map.gpkg").is_file()
         assert not (tmp / "evil").exists() and not any(tmp.rglob("evil")), "路径穿越必须拒绝"
@@ -356,7 +384,7 @@ def selftest():
             f"{k}_1%3a4.2.3+44resolute_all.deb" for k in debs), "下载后应落缓存"
         # 2) 幂等：已齐备 → 不动（哨兵内容保留）。
         (res / "srs.db").write_bytes(b"sentinel")
-        ensure(prefix, "win", cache, lock, log=quiet)
+        ensure_debian(prefix, cache, lock, log=quiet)
         assert (res / "srs.db").read_bytes() == b"sentinel", "已齐备时不得重写 srs.db"
         # 3) 远端包被篡改（缓存为空、必须重下）→ 校验拒绝，不写 srs.db、不留缓存。
         bad = tmp / "badprefix"
@@ -365,28 +393,28 @@ def selftest():
         (mirror / fname).write_bytes(good[:-1] + bytes([good[-1] ^ 0xFF]))
         cache2 = tmp / "cache2"
         try:
-            ensure(bad, "win", cache2, lock, log=quiet)
+            ensure_debian(bad, cache2, lock, log=quiet)
         except Fail as e:
             assert "校验不符" in str(e), e
         else:
             raise AssertionError("SHA-256 不符必须拒绝")
-        assert not (bad / "resources" / "srs.db").exists()
+        assert not (bad / "share/qgis/resources" / "srs.db").exists()
         assert not (cache2 / fname).exists(), "坏包不得进缓存"
         # 3b) 缓存里的坏包不被复用：远端恢复后自动重下覆盖。
         (cache / fname).write_bytes(b"corrupt")
         (mirror / fname).write_bytes(good)
-        ensure(tmp / "healprefix", "win", cache, lock, log=quiet)
+        ensure_debian(tmp / "healprefix", cache, lock, log=quiet)
         assert (cache / fname).read_bytes() == good
         # 4) deb 闭包解包前缀：已有 srs-template.db、缺 srs.db → 只补 srs.db，不碰锁/网络。
         debprefix = tmp / "usr"
         (debprefix / "share" / "qgis" / "resources").mkdir(parents=True)
         (debprefix / "share" / "qgis" / "resources" / "srs-template.db").write_bytes(b"tpl2")
-        res2 = ensure(debprefix, "auto", tmp / "nocache", tmp / "nolock", log=quiet)
+        res2 = ensure_debian(debprefix, tmp / "nocache", tmp / "nolock", log=quiet)
         assert res2 == debprefix / "share" / "qgis" / "resources"
         assert (res2 / "srs.db").read_bytes() == b"tpl2"
         # 5) --check 语义 + 锁缺资源包即报错。
-        assert main(["--prefix", str(prefix), "--layout", "win", "--check"]) == 0
-        assert main(["--prefix", str(tmp / "empty"), "--layout", "win", "--check"]) == 1
+        assert main(["--prefix", str(prefix), "--layout", "deb", "--check"]) == 0
+        assert main(["--prefix", str(tmp / "empty"), "--layout", "deb", "--check"]) == 1
         try:
             resource_entries(lock_lines[-1] + "\n")
         except Fail:
@@ -410,7 +438,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--prefix")
     ap.add_argument("--layout", choices=("auto", "win", "deb"), default="auto")
-    ap.add_argument("--cache", default=str(DEFAULT_CACHE))
+    ap.add_argument("--cache")
     ap.add_argument("--lock", default=str(DEFAULT_LOCK))
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--force", action="store_true")
@@ -420,13 +448,23 @@ def main(argv=None):
         return selftest()
     if not a.prefix:
         ap.error("--prefix 必填")
+    if resources_dir(a.prefix, a.layout) == Path(a.prefix) / "resources":
+        try:
+            cache = Path(a.cache) if a.cache else REPO / "vendor/cache/osgeo4w-offline"
+            if Path(a.lock) != DEFAULT_LOCK:
+                raise Fail("--lock selects a Debian resource lock. Windows uses the repository OSGeo4W lock.")
+            print(f"Verified {osgeo4w_database(a.prefix, cache, a.check)}")
+            return 0
+        except (Fail, OSError, ValueError, KeyError, tarfile.TarError) as error:
+            print(f"FAIL {error}", file=sys.stderr)
+            return 1
     if a.check:
         srs = resources_dir(a.prefix, a.layout) / "srs.db"
         ok = srs.is_file()
         print(f"ensure_qgis_resources: {'OK' if ok else 'MISSING'} {srs}")
         return 0 if ok else 1
     try:
-        ensure(a.prefix, a.layout, Path(a.cache), Path(a.lock), a.force)
+        ensure_debian(a.prefix, Path(a.cache or DEFAULT_CACHE), Path(a.lock), a.force)
     except Fail as e:
         print(f"FAIL {e}", file=sys.stderr)
         return 1

@@ -62,7 +62,7 @@ jobs:
       # ExternalProject stamp 断点续跑；本 job 每次全新构建树 = 干净口径）。
       - name: Build the pinned source route
         run: |
-          source vendor/superbuild/activate.sh
+          source vendor/superbuild/activate.sh --build
           cmake --build "${RUNNER_TEMP}/sb-build" --parallel 1
       - name: Prefix sanity probe
         run: |

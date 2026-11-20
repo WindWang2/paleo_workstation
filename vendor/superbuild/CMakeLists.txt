@@ -41,8 +41,18 @@ endfunction()
 
 find_program(BASH_EXECUTABLE bash REQUIRED)
 find_program(MAKE_EXECUTABLE NAMES gmake make REQUIRED)
+find_program(SOURCE_PYTHON NAMES python3 REQUIRED)
+set(receipt_tool "${CMAKE_CURRENT_SOURCE_DIR}/source_receipt.py")
+file(GLOB patch_inputs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/patches/*.*")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  debian13-base.lock debian-sources.lock closed-dependencies.cmake prepare-prefix.sh
+  prepare-debian-source.cmake "${receipt_tool}" ${patch_inputs})
+execute_process(COMMAND "${SOURCE_PYTHON}" "${receipt_tool}" digest
+  OUTPUT_VARIABLE recipe OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+string(SHA256 profile "${WITH_3D};${WITH_PDAL};${WITH_APP};${WITH_GUI};${WITH_ANALYSIS}")
 execute_process(COMMAND "${BASH_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/prepare-prefix.sh"
   "${SUPERBUILD_PREFIX}" "${SUPERBUILD_BASE}" "${CMAKE_CURRENT_SOURCE_DIR}/debian13-base.lock"
+  "${recipe}" "${CMAKE_BINARY_DIR}" "${profile}"
   COMMAND_ERROR_IS_FATAL ANY)
 
 set(source_cache DOWNLOAD_DIR "${SUPERBUILD_CACHE}" TLS_VERIFY ON)
@@ -164,3 +174,7 @@ ExternalProject_Add(qgis
              -DWITH_INTERNAL_SPATIALINDEX=ON -DWITH_PYTHON=OFF -DWITH_BINDINGS=OFF
              -DWITH_QGIS_PROCESS=OFF -DENABLE_TESTS=OFF
   ${source_build})
+
+add_custom_target(source_receipt ALL
+  COMMAND "${SOURCE_PYTHON}" "${receipt_tool}" finish "${SUPERBUILD_PREFIX}" --build "${CMAKE_BINARY_DIR}"
+  DEPENDS qgis VERBATIM)

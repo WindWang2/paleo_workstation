@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from urllib.request import urlopen
 
@@ -69,10 +70,10 @@ def host_abi(name, path):
 def dependency_prefix(cache):
     prefix = Path(cache["QGIS_PREFIX"]).resolve(strict=True)
     if (prefix / ".paleo-superbuild-base.sha256").is_file():
-        lock = "vendor/superbuild/debian13-base.lock"
-        verify_receipt(prefix, ".paleo-superbuild-base.sha256", lock, normalize=True)
-        return prefix, prefix, [lock, "vendor/superbuild/debian-sources.lock",
-                                "vendor/superbuild/CMakeLists.txt"]
+        verify_receipt(prefix, ".paleo-superbuild-base.sha256", "vendor/superbuild/debian13-base.lock", normalize=True)
+        recipe = REPO_ROOT / "vendor/superbuild/source_receipt.py"
+        locks = run([sys.executable, str(recipe), "package-inputs", str(prefix)]).splitlines()
+        return prefix, prefix, locks
     lock = "vendor/deb-closure.lock"
     verify_receipt(prefix.parent, ".paleo-deb-closure.sha256", lock, normalize=True)
     return prefix, prefix.parent, [lock]
@@ -231,6 +232,9 @@ def install_application(files: PackageFiles, build: Path, cache):
 def stage_linux(files: PackageFiles, build: Path, scratch: Path):
     cache = load_cmake_cache(build)
     prefix, data_root, locks = dependency_prefix(cache)
+    if data_root == prefix:
+        files.copy(prefix / ".paleo-superbuild-source.sha256", "share/paleo/supply/superbuild-source.txt",
+                   "linux-prefix", prefix)
     multiarch = prefix / "lib/x86_64-linux-gnu"
     source_root = Path(cache["CMAKE_HOME_DIRECTORY"]).resolve(strict=True)
     ort = source_root / "vendor/onnxruntime"

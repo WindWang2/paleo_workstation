@@ -443,16 +443,32 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   }
 
   // 局部直角米测网（§3）——无大地基准的 ENGCRS，非 EPSG:4326。GDAL 接受该
-  // WKT 并以 LOCAL_CS 落盘；SetFromUserInput 失败时宁可让 GeoTIFF SRS 留空，
-  // 也绝不把局部米写成经纬度。
+  // WKT 并以 LOCAL_CS 落盘。
+  // P2/#1025：CRS 解析统一带 SET_FROM_USER_INPUT_LIMITATIONS（仅内联
+  // WKT/EPSG/PROJ 定义，禁文件/网络访问）。解析失败改为如实失败——
+  // 旧口径「SRS 静默留空、栅格照发」会把文件/URL 形式的非法 CRS 吞成
+  // 无投影假栅格（QGIS 弹 CRS 询问）；本函数没有「有意无 CRS」的输入
+  // 形态（空串回落到本地测网常量，属有意本地网格而非缺 CRS）。
+  const bool useLocalGrid = b.coordinateSystem.isEmpty();
   OGRSpatialReference srs;
-  if (srs.SetFromUserInput((b.coordinateSystem.isEmpty()?DataCatalog::localGridCrsWkt():b.coordinateSystem).toUtf8().constData()) == OGRERR_NONE)
+  char *wkt = nullptr;
+  if (srs.SetFromUserInput((useLocalGrid ? DataCatalog::localGridCrsWkt()
+                                         : b.coordinateSystem)
+                               .toUtf8()
+                               .constData(),
+                           OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE ||
+      srs.exportToWkt(&wkt) != OGRERR_NONE || !wkt)
   {
-    char *wkt = nullptr;
-    if (srs.exportToWkt(&wkt) == OGRERR_NONE && wkt)
-      GDALSetProjection(ds, wkt);
     CPLFree(wkt);
+    GDALClose(ds);
+    QFile::remove(partial);
+    setError(error, QStringLiteral("invalid coordinate system for %1: %2")
+                         .arg(destPath, useLocalGrid ? QStringLiteral("<local grid>")
+                                                     : b.coordinateSystem));
+    return false;
   }
+  GDALSetProjection(ds, wkt);
+  CPLFree(wkt);
 
   const CPLErr err = GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Write, 0, 0, b.cols, b.rows,
                                   const_cast<float *>(b.z.constData()), b.cols, b.rows, GDT_Float32,

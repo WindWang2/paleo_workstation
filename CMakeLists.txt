@@ -78,6 +78,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-mamcl.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-mapping.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-p5-mapbook-delivery.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-p2-seismic-cache.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-petrophys.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-property-modeling.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"

@@ -109,7 +109,11 @@ bool projectRasterFile(const QString &path, const QString &target, QString *erro
   auto input = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
   if (!input) return fail(error, QStringLiteral("无法读取待转换栅格"));
   OGRSpatialReference from, to;
-  if (from.SetFromUserInput(GDALGetProjectionRef(input)) != OGRERR_NONE ||
+  // P2/#1025：来源投影来自栅格文件头（外部输入可控的元数据）——与目标
+  // CRS 同走 SET_FROM_USER_INPUT_LIMITATIONS（仅内联 WKT/EPSG/PROJ 定义，
+  // 禁文件/网络访问）；路径/URL 形式按无效拒绝，不打开本地文件。
+  if (from.SetFromUserInput(GDALGetProjectionRef(input),
+                            OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE ||
       to.SetFromUserInput(target.toUtf8().constData(), OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) != OGRERR_NONE) {
     GDALClose(input); return fail(error, QStringLiteral("栅格来源或工程坐标系无效"));
   }

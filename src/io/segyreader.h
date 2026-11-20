@@ -202,6 +202,9 @@ class SegyReader
     QHash<qint32, QVector<int>> m_byXline;  // xline  -> m_index 下标（按 inline 升序）
     SegyGeometry m_geometry;
     QVector<qint64> m_badTraceOffsets; // D2.7
+    QVector<quint16> m_traceNs;        // P2/#1026：顺序扫描逐道有效 ns
+                                       //（snapshot 在变道长布局随索引落盘，
+                                       // 固定布局不消费——审计走全局道长）
     bool m_lastScanPartial = false;    // open()/openCached() 取消后可 checkpoint
     qint64 m_scannedOffset = 0;        // 取消时的扫描位置
     bool m_sawVariableNs = false;      // B6：变道长布局观察（checkpoint 契约门）

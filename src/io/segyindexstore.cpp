@@ -1,6 +1,7 @@
 // 层：数据
 #include "segyindexstore.h"
-#include "segyreader.h" // PW-070：sampleBytesForFormat
+#include "segyindexvalidate.h" // P2/#1026：三口共用的边界/布局审计
+#include "segyreader.h"        // PW-070：sampleBytesForFormat
 
 #include "cachecore.h"
 #include "pathcanon.h"
@@ -21,7 +22,10 @@ namespace
   // v3 及更早的大文件索引可能带退化号域（xline 全 0、角点全 0），过版自愈重建。
   // v5：dialectFlags 真正落盘/读回（#290 接线）——v4 checkpoint 没带方言口径，
   // 续扫会按标准字错位，过版让旧缓存整体失效重建。
-  constexpr quint16 kSegyIndexVersion = 5;
+  // v6（P2/#1026）：layoutKind + 变道长逐道 traceNs 落盘——load/loadForResume/
+  // restore 三口改走 SegyIndexAudit 统一边界验证（完整道跨度、道序平铺、
+  // checkpoint 无 +4096 宽容）。v5 及更旧缓存按版本闸安全失效重建。
+  constexpr quint16 kSegyIndexVersion = 6;
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
 
   quint16 segyIndexCompressionFlags()
@@ -75,6 +79,11 @@ QString SegyIndexStore::cacheFilePathFor(const QFileInfo &source) const
 
 QByteArray SegyIndexStore::encodePayload(const StoredIndex &index)
 {
+  // 不变式（调用方维护）：'V' 布局时 traceNs 与 inlineNos 等长。此处
+  // fail-loud——at() 越界是 release 里的 OOB 读，宁可得空 payload 让
+  // save() 失败，也不写出半份编码。
+  if (index.layoutKind == 'V' && index.traceNs.size() != index.inlineNos.size())
+    return QByteArray();
   QByteArray out;
   // 身份块
   cacheio::putStr(&out, index.ident.canonicalPath);
@@ -89,6 +98,7 @@ QByteArray SegyIndexStore::encodePayload(const StoredIndex &index)
   cacheio::putI32(&out, index.binLineNo);
   for (int offset : index.headerWordOffsets) cacheio::putI32(&out, offset);
   out.append(static_cast<char>(index.dialectFlags)); // v5：方言口径随 checkpoint 持久化
+  out.append(index.layoutKind == 'V' ? 'V' : 'F'); // v6：布局标记
   cacheio::putI64(&out, index.firstTraceOffset);
   cacheio::putF64(&out, index.geometry.inlineMin);
   cacheio::putF64(&out, index.geometry.inlineMax);
@@ -114,6 +124,9 @@ QByteArray SegyIndexStore::encodePayload(const StoredIndex &index)
     cacheio::putI32(&out, index.xlineNos.at(int(i)));
   for (quint32 i = 0; i < n; ++i)
     cacheio::putI64(&out, index.offsets.at(int(i)));
+  if (index.layoutKind == 'V') // v6：变道长逐道 ns（固定布局不写）
+    for (quint32 i = 0; i < n; ++i)
+      cacheio::putU16(&out, index.traceNs.at(int(i)));
   for (quint32 i = 0; i < bad; ++i)
     cacheio::putI64(&out, index.badTraceOffsets.at(int(i)));
   return out;
@@ -141,6 +154,10 @@ bool SegyIndexStore::decodePayload(const QByteArray &payload, StoredIndex *out)
     return false;
   out->dialectFlags = static_cast<quint8>(payload.at(int(pos)));
   ++pos;
+  if (!ok || pos >= payload.size())
+    return false;
+  out->layoutKind = payload.at(int(pos)); // v6：'F'/'V' 之外按损坏自愈
+  ++pos;
   out->firstTraceOffset = cacheio::i64(payload, &pos, &ok);
   out->geometry.inlineMin = cacheio::f64(payload, &pos, &ok);
   out->geometry.inlineMax = cacheio::f64(payload, &pos, &ok);
@@ -158,12 +175,19 @@ bool SegyIndexStore::decodePayload(const QByteArray &payload, StoredIndex *out)
     return false;
   const char marker = payload.at(int(pos));
   ++pos;
+  // v6：完整/部分标记只接受显式 'C'/'P'——其余（含历史写入门禁前的野值）
+  // 一律按损坏自愈，不再「非 C 即 partial」地猜（P2/W1）。
+  if (marker != 'C' && marker != 'P')
+    return false;
   out->complete = (marker == 'C');
   out->scannedOffset = cacheio::i64(payload, &pos, &ok);
   if (!ok || n > 100000000 || bad > 10000000)
     return false; // 病态计数——按损坏自愈
-  // 容量合理性：道数 × (4+4+8) 字节必须装得下剩余 payload。
-  const qint64 need = qint64(n) * 16 + qint64(bad) * 8;
+  if (out->layoutKind != 'F' && out->layoutKind != 'V')
+    return false; // v6：布局标记未知——损坏
+  // 容量合理性：道数 × (4+4+8[+2 变长 ns]) 字节必须装得下剩余 payload。
+  const qint64 need =
+      qint64(n) * (out->layoutKind == 'V' ? 18 : 16) + qint64(bad) * 8;
   if (payload.size() - pos < need)
     return false; // 截断
   out->inlineNos.resize(int(n));
@@ -175,10 +199,16 @@ bool SegyIndexStore::decodePayload(const QByteArray &payload, StoredIndex *out)
     out->xlineNos[int(i)] = cacheio::i32(payload, &pos, &ok);
   for (quint32 i = 0; i < n && ok; ++i)
     out->offsets[int(i)] = cacheio::i64(payload, &pos, &ok);
+  if (out->layoutKind == 'V')
+  {
+    out->traceNs.resize(int(n));
+    for (quint32 i = 0; i < n && ok; ++i)
+      out->traceNs[int(i)] = cacheio::u16(payload, &pos, &ok);
+  }
   out->badTraceOffsets.resize(int(bad));
   for (quint32 i = 0; i < bad && ok; ++i)
     out->badTraceOffsets[int(i)] = cacheio::i64(payload, &pos, &ok);
-  return ok;
+  return ok && pos == payload.size(); // 尾部余字节 = 解码失步，按损坏自愈
 }
 
 std::optional<SegyIndexStore::StoredIndex> SegyIndexStore::load(const QFileInfo &source,
@@ -221,20 +251,13 @@ std::optional<SegyIndexStore::StoredIndex> SegyIndexStore::load(const QFileInfo 
     if (reason) *reason = QStringLiteral("checkpoint not requested");
     return std::nullopt;
   }
-  // D2.8 checkpoint 完整性审计：
-  //  · scannedOffset 必须落在 (firstTraceOffset, size] 且 ≥ 已含道覆盖的偏移。
-  //  · complete 时 scannedOffset 应等于文件尾。
-  const qint64 traceSpan = stored.offsets.isEmpty()
-                               ? 0
-                               : stored.offsets.last() + 240 +
-                                     qint64(stored.samplesPerTrace) *
-                                         qMax(1, SegyReader::sampleBytesForFormat(stored.formatCode)); // PW-070
-  if (stored.scannedOffset < stored.firstTraceOffset ||
-      stored.scannedOffset > now.size + 4096 || // 容忍尾部截断的少量越界？不——>
-      stored.scannedOffset < traceSpan ||
-      (stored.complete && stored.scannedOffset != now.size))
+  // P2/#1026：统一边界/布局审计（SegyIndexAudit）——完整道跨度、道序平铺、
+  // checkpoint 上界（不再有 size+4096 宽容）。失败即删缓存自愈，调用方
+  //（openCached）落冷扫/重建。
+  if (const QString audit = SegyIndexAudit::validate(stored, now.size); !audit.isEmpty())
   {
-    if (reason) *reason = QStringLiteral("checkpoint audit failed");
+    if (reason)
+      *reason = QStringLiteral("index audit failed: %1").arg(audit);
     QFile::remove(path);
     return std::nullopt;
   }
@@ -299,18 +322,13 @@ std::optional<SegyIndexStore::StoredIndex> SegyIndexStore::loadForResume(const Q
     if (reason) *reason = QStringLiteral("prefix rewritten");
     return std::nullopt;
   }
-  // D2.8 同款完整性审计（load() 有、resume 路径此前漏）：scannedOffset 指回
-  // 已扫区段内部时，resumeScan 唯一闸门（道对齐）照样放行，会把已在索引里
-  // 的道再 append 一遍（重复 inline/xline），并被 openCached 按完整态落盘
-  // 长期复用——失败即删缓存自愈。
-  const qint64 traceSpan = stored.offsets.isEmpty()
-                               ? 0
-                               : stored.offsets.last() + 240 +
-                                     qint64(stored.samplesPerTrace) *
-                                         qMax(1, SegyReader::sampleBytesForFormat(stored.formatCode));
-  if (stored.scannedOffset < stored.firstTraceOffset || stored.scannedOffset < traceSpan)
+  // D2.8 同款完整性审计 + P2/#1026 统一口径（SegyIndexAudit）：scannedOffset
+  // 指回已扫区段内部、道跨度不在文件内、变长布局混入 checkpoint 等一律拒绝
+  // ——续扫闸门（整道增长）之外再加这道防线，失败即删缓存自愈。
+  if (const QString audit = SegyIndexAudit::validate(stored, now.size); !audit.isEmpty())
   {
-    if (reason) *reason = QStringLiteral("checkpoint audit failed");
+    if (reason)
+      *reason = QStringLiteral("index audit failed: %1").arg(audit);
     QFile::remove(path);
     return std::nullopt;
   }
@@ -327,6 +345,11 @@ bool SegyIndexStore::save(const StoredIndex &index, QString *error) const
     return false;
   }
   const QByteArray payload = encodePayload(index);
+  if (payload.isEmpty())
+  {
+    if (error) *error = QStringLiteral("index snapshot is not encodable");
+    return false; // 调用方降级为无缓存（D2.1）
+  }
   if (!writeCacheFileAtomic(path, QByteArray(kSegyIndexMagic, 8), kSegyIndexVersion,
                             segyIndexCompressionFlags(), payload, error))
     return false; // 调用方降级为无缓存（D2.1）

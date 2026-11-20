@@ -77,6 +77,41 @@ private slots:
     QVERIFY(!validNativeCrs(wktFile));
     QVERIFY(!sameNativeCrs(wktFile, wkt));
   }
+  // P2/#1025：重投影入口的「来源 CRS」取自栅格文件头（外部输入可控元数据）
+  // ——与目标 CRS 同带 SET_FROM_USER_INPUT_LIMITATIONS；路径/URL 形式的
+  // 来源声明按无效拒绝（不打开本地文件/不发网络请求），合法内联 WKT 照常。
+  void rasterSourceCrsRefusesFilePathForms() {
+    QTemporaryDir root;
+    const auto targetWkt = paleo::io::coordinateWkt("EPSG:4326");
+    QVERIFY(!targetWkt.isEmpty());
+    const auto vrtOf = [&root](const QString &name, const QString &srs) {
+      const auto path = root.filePath(name);
+      write(path, QStringLiteral(
+                      "<VRTDataset rasterXSize=\"2\" rasterYSize=\"2\">"
+                      "<SRS>%1</SRS>"
+                      "<GeoTransform>0, 1, 0, 0, 0, 1</GeoTransform>"
+                      "<VRTRasterBand dataType=\"Float32\" band=\"1\"/>"
+                      "</VRTDataset>")
+                      .arg(srs)
+                      .toUtf8());
+      return path;
+    };
+    QString error;
+    // 路径形式的来源 CRS：拒绝（GDALGetProjectionRef 原样返回该串）。
+    QVERIFY(!paleo::io::projectRasterFile(
+        vrtOf(QStringLiteral("pathcrs.vrt"), QStringLiteral("./p2-crs-probe-not-a-crs")),
+        targetWkt, &error));
+    QVERIFY2(error.contains(QStringLiteral("无效")), qPrintable(error));
+    // URL 形式同样拒绝。
+    QVERIFY(!paleo::io::projectRasterFile(
+        vrtOf(QStringLiteral("urlcrs.vrt"), QStringLiteral("http://127.0.0.1:9/p2-proj")),
+        targetWkt, &error));
+    QVERIFY2(error.contains(QStringLiteral("无效")), qPrintable(error));
+    // 合法内联 WKT：同 CRS → IsSame 短路成功（无需重投影）。
+    QVERIFY2(paleo::io::projectRasterFile(
+                 vrtOf(QStringLiteral("okcrs.vrt"), targetWkt), targetWkt, &error),
+             qPrintable(error));
+  }
   void depthOnlyStratificationImportsIntoProjectedProject() {
     QTemporaryDir root; const auto heads = root.filePath("heads.csv");
     const auto tops = root.filePath("tops.csv"), td = root.filePath("td.dat");

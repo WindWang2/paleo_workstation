@@ -2,9 +2,15 @@
 #include "io/attrgridout.h"
 #include "ioerrors_internal.h"
 #include "algorithms/projectgeotiff.h"
+#include "io/gdalreg_internal.h" // P2：进程内幂等注册（writer 跑在任务 worker 线程，
+                                 // 裸 GDALAllRegister 非线程安全——并发扫描会
+                                 // 在 GDALRegister_* 里 SIGSEGV）
+#include "metadata/atomicfile.h" // P2/#1024：paleoReplaceFile/paleoSyncDir
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QRandomGenerator>
 
 #include <gdal.h>
 #include <cpl_string.h>
@@ -22,6 +28,7 @@ namespace
 {
 
 using paleo::io_detail::setError;
+using paleo::io_detail::ensureGdalRegistered; // P2：进程内幂等 GDAL 注册
 
 constexpr float kNoData = -9999.f;
 
@@ -43,6 +50,20 @@ bool axisRegular(const std::vector<int> &axis)
     if (axis[i] - axis[i - 1] != step)
       return false;
   return true;
+}
+
+// P2/#1024：本次调用独占的暂存名——同目录（rename 原子）、点前缀隐藏
+//（QDir 默认列举不含隐藏文件，产物扫描不误收）、带 pid+随机数（同 key
+// 并发请求互不覆盖对方的暂存）。旧固定 .partial 名两请求并发互踩。
+// 后缀沿用 metadata/atomicfile.h PaleoAtomicTransaction::recover 的
+// `.{name}.tmp.*` 孤儿 glob——硬崩溃残留的暂存可被既有恢复机制清扫。
+QString uniqueStagingPath(const QString &target)
+{
+  const QFileInfo info(target);
+  return QStringLiteral("%1/.%2.tmp.%3-%4")
+      .arg(info.absolutePath(), info.fileName())
+      .arg(QCoreApplication::applicationPid())
+      .arg(QRandomGenerator::global()->generate64(), 16, 16, QChar('0'));
 }
 
 } // namespace
@@ -70,6 +91,24 @@ bool writeTimeSliceGeoTiff(const QString &path, const AttrTimeSliceGrid &grid,
     setError(error, QStringLiteral("地理参考仿射缺失"));
     return false;
   }
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine[i]))
+    {
+      setError(error, QStringLiteral("地理参考仿射含非有限值（分量 %1）").arg(i));
+      return false;
+    }
+  // P2/W4：时间/统计元数据前置验——非有限值或越界计数一旦落盘（"nan"），
+  // 命中侧的严格 summary 解析会永远判 miss；在写入前如实失败。
+  if (grid.sampleIndex < 0 || grid.validCells < 0 ||
+      grid.validCells > qint64(grid.nIl) * grid.nXl ||
+      !std::isfinite(grid.timeMs) || !std::isfinite(grid.sampleIntervalMs) ||
+      grid.sampleIntervalMs < 0.0 || !std::isfinite(grid.startTimeMs) ||
+      !std::isfinite(grid.valueMin) || !std::isfinite(grid.valueMax) ||
+      grid.valueMin > grid.valueMax)
+  {
+    setError(error, QStringLiteral("时间切片时间/统计元数据非有限或越界"));
+    return false;
+  }
   const double a = affine[0], b = affine[1], c = affine[2];
   const double d = affine[3], e = affine[4], f = affine[5];
 
@@ -79,18 +118,26 @@ bool writeTimeSliceGeoTiff(const QString &path, const AttrTimeSliceGrid &grid,
     setError(error, QStringLiteral("无法创建目录 %1").arg(dir.absolutePath()));
     return false;
   }
-  GDALAllRegister();
+  // P2/#1024：绝不直接在正式路径上 GDALCreate——任何失败（创建/元数据/
+  // 像元/关闭）只清理本次独占的暂存，旧有效缓存字节不变；全部写出并
+  // 重开校验通过后才 paleoReplaceFile 发布。
+  const QString staging = uniqueStagingPath(path);
+  const auto failStaging = [&staging](const QString &what) {
+    QFile::remove(staging); // 只删自己拥有的暂存，不碰正式路径
+    return what;
+  };
+  ensureGdalRegistered();
   GDALDriverH drv = ProjectGeoTiff::driver();
   if (!drv)
   {
     setError(error, QStringLiteral("GTiff driver 不可用"));
     return false;
   }
-  GDALDatasetH ds = ProjectGeoTiff::create(path, grid.nXl, grid.nIl, GDT_Float32, drv);
+  GDALDatasetH ds = ProjectGeoTiff::create(staging, grid.nXl, grid.nIl, GDT_Float32, drv);
   if (!ds)
   {
-    setError(error, QStringLiteral("无法创建 %1：%2")
-                             .arg(path, QString::fromUtf8(CPLGetLastErrorMsg())));
+    setError(error, failStaging(QStringLiteral("无法创建暂存栅格：%1")
+                                    .arg(QString::fromUtf8(CPLGetLastErrorMsg()))));
     return false;
   }
 
@@ -145,26 +192,27 @@ bool writeTimeSliceGeoTiff(const QString &path, const AttrTimeSliceGrid &grid,
   {
     const QString detail = QString::fromUtf8(CPLGetLastErrorMsg());
     GDALClose(ds);
-    QFile::remove(path); // #233：同文件另两失败分支口径——不留无元数据半成品
-    setError(error, QStringLiteral("栅格元数据写入失败：%1%2")
-                         .arg(path, detail.isEmpty() ? QString()
-                                                     : QStringLiteral(": ") + detail));
+    setError(error, failStaging(QStringLiteral("栅格元数据写入失败：%1%2")
+                                     .arg(path, detail.isEmpty() ? QString()
+                                                                 : QStringLiteral(": ") + detail)));
     return false;
   }
 
   // 局部直角米测网 CRS（horizonbinner 同约定）：无大地基准的 ENGCRS。
   // 层树条目承诺「一定地理参考」——CRS 构造失败视为写失败（宁可不出
   // 栅格，不出会让 QGIS 弹 CRS 询问的无投影假栅格）。
+  // P2/#1025：常量 WKT 也带 SET_FROM_USER_INPUT_LIMITATIONS（统一策略，
+  // 禁文件/网络访问——该常量是内联 WKT，不受限影响）。
   OGRSpatialReference srs;
   char *wkt = nullptr;
-  if (srs.SetFromUserInput(DataCatalog::localGridCrsWkt().toUtf8().constData()) !=
+  if (srs.SetFromUserInput(DataCatalog::localGridCrsWkt().toUtf8().constData(),
+                           OGRSpatialReference::SET_FROM_USER_INPUT_LIMITATIONS_get()) !=
           OGRERR_NONE ||
       srs.exportToWkt(&wkt) != OGRERR_NONE || !wkt)
   {
     CPLFree(wkt);
     GDALClose(ds);
-    QFile::remove(path);
-    setError(error, QStringLiteral("局部测网 CRS 构造失败：%1").arg(path));
+    setError(error, failStaging(QStringLiteral("局部测网 CRS 构造失败：%1").arg(path)));
     return false;
   }
   GDALSetProjection(ds, wkt);
@@ -183,18 +231,86 @@ bool writeTimeSliceGeoTiff(const QString &path, const AttrTimeSliceGrid &grid,
                      row.data(), grid.nXl, 1, GDT_Float32, 0, 0) != CE_None)
     {
       GDALClose(ds);
-      QFile::remove(path); // 失败不留半成品栅格
-      setError(error, QStringLiteral("栅格像元写入失败（行 %1）：%2")
-                           .arg(r).arg(path));
+      setError(error, failStaging(QStringLiteral("栅格像元写入失败（行 %1）：%2")
+                                      .arg(r).arg(path)));
       return false;
     }
   }
   if (GDALClose(ds) != CE_None)
   {
-    QFile::remove(path);
-    setError(error, QStringLiteral("栅格落盘失败：%1").arg(path));
+    setError(error, failStaging(QStringLiteral("栅格落盘失败：%1").arg(path)));
     return false;
   }
+
+  // P2/W4：发布前重开校验（真实 GDAL 读回）——尺寸、身份元数据、
+  // geotransform 与首/末行像素逐值核对；半成品在替换正式文件之前拦下。
+  {
+    GDALDatasetH check = GDALOpen(staging.toUtf8().constData(), GA_ReadOnly);
+    if (!check)
+    {
+      setError(error, failStaging(QStringLiteral("暂存栅格重开失败：%1").arg(staging)));
+      return false;
+    }
+    bool ok = GDALGetRasterXSize(check) == grid.nXl &&
+              GDALGetRasterYSize(check) == grid.nIl;
+    const CSLConstList meta = GDALGetMetadata(check, nullptr);
+    const char *hash = CSLFetchNameValue(meta, "PALEO_PARAM_HASH");
+    const char *attr = CSLFetchNameValue(meta, "PALEO_ATTR_ID");
+    const char *sidx = CSLFetchNameValue(meta, "PALEO_TIME_SAMPLE_INDEX");
+    ok = ok && hash && attr && sidx &&
+         QString::fromUtf8(hash) == grid.paramHash &&
+         QString::fromUtf8(attr) == grid.attrId &&
+         QByteArray::number(qint64(grid.sampleIndex)) == QByteArray(sidx);
+    double gtCheck[6] = {0, 0, 0, 0, 0, 0};
+    if (ok && GDALGetGeoTransform(check, gtCheck) != CE_None)
+      ok = false;
+    for (int i = 0; ok && i < 6; ++i)
+      if (!std::isfinite(gtCheck[i]) || gtCheck[i] != gt[i])
+        ok = false;
+    std::vector<float> rowCheck(std::size_t(grid.nXl), 0.f);
+    const int rowsToCheck[] = {0, grid.nIl - 1};
+    for (int ri = 0; ok && ri < 2; ++ri)
+    {
+      const int r = rowsToCheck[ri];
+      if (GDALRasterIO(GDALGetRasterBand(check, 1), GF_Read, 0, r, grid.nXl, 1,
+                       rowCheck.data(), grid.nXl, 1, GDT_Float32, 0, 0) != CE_None)
+      {
+        ok = false;
+        break;
+      }
+      for (int x = 0; x < grid.nXl; ++x)
+      {
+        const float expect =
+            std::isnan(grid.values[std::size_t(r) * grid.nXl + x])
+                ? kNoData
+                : grid.values[std::size_t(r) * grid.nXl + x];
+        if (rowCheck[std::size_t(x)] != expect)
+        {
+          ok = false;
+          break;
+        }
+      }
+    }
+    GDALClose(check);
+    if (!ok)
+    {
+      setError(error, failStaging(
+                          QStringLiteral("暂存栅格校验失败（尺寸/身份元数据/像素不符）：%1")
+                              .arg(path)));
+      return false;
+    }
+  }
+
+  if (!paleoReplaceFile(staging, path))
+  {
+    setError(error, failStaging(QStringLiteral("缓存栅格发布失败（rename）：%1").arg(path)));
+    return false;
+  }
+  // rename 目录项落盘（atomicfile 契约）；失败只告警不阻断——数据已
+  // 由文件级 fsync 持久，掉电极端窗口回退旧文件仍是一致缓存。
+  if (!paleoSyncDir(dir.absolutePath()))
+    qWarning("time-slice GeoTIFF: parent directory fsync failed for %s",
+             qUtf8Printable(dir.absolutePath()));
   return true;
 }
 
@@ -206,7 +322,7 @@ bool readTimeSliceGeoTiffSummary(const QString &path,
     setError(error, QStringLiteral("摘要输出为空"));
     return false;
   }
-  GDALAllRegister();
+  ensureGdalRegistered();
   GDALDatasetH ds = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
   if (!ds)
   {
@@ -238,6 +354,32 @@ bool readTimeSliceGeoTiffSummary(const QString &path,
     setError(error, QStringLiteral("缓存栅格缺 PALEO_* 身份元数据：%1")
                              .arg(path));
   }
+  // P2/W5：数值键逐个严格解析——垃圾串（"abc"/"nan"/超范围）不得被
+  // toInt/toDouble 静默变 0 后当真值交给下游统计面板。
+  qint64 validCells = 0;
+  double valueMin = 0.0, valueMax = 0.0, timeMs = 0.0, sampleIntervalMs = 0.0,
+         startTimeMs = 0.0;
+  int sampleIndex = 0;
+  if (ok)
+  {
+    bool conv = true;
+    validCells = validStr.toLongLong(&conv);
+    ok = conv;
+    valueMin = vmin.toDouble(&conv);
+    ok = ok && conv;
+    valueMax = vmax.toDouble(&conv);
+    ok = ok && conv;
+    timeMs = tms.toDouble(&conv);
+    ok = ok && conv;
+    sampleIntervalMs = dt.toDouble(&conv);
+    ok = ok && conv;
+    startTimeMs = t0.toDouble(&conv);
+    ok = ok && conv;
+    sampleIndex = sidx.toInt(&conv);
+    ok = ok && conv;
+    if (!ok)
+      setError(error, QStringLiteral("缓存栅格数值元数据不可解析：%1").arg(path));
+  }
   double gt[6] = {0, 0, 0, 0, 0, 0};
   if (ok && GDALGetGeoTransform(ds, gt) != CE_None)
   {
@@ -246,17 +388,37 @@ bool readTimeSliceGeoTiffSummary(const QString &path,
   }
   if (ok)
   {
-    summary->attrId = attrId;
-    summary->paramHash = hash;
     summary->nIl = GDALGetRasterYSize(ds);
     summary->nXl = GDALGetRasterXSize(ds);
-    summary->validCells = validStr.toLongLong();
-    summary->valueMin = vmin.toDouble();
-    summary->valueMax = vmax.toDouble();
-    summary->timeMs = tms.toDouble();
-    summary->sampleIntervalMs = dt.toDouble();
-    summary->startTimeMs = t0.toDouble();
-    summary->sampleIndex = sidx.toInt();
+    if (summary->nIl <= 0 || summary->nXl <= 0 ||
+        validCells < 0 ||
+        validCells > qint64(summary->nIl) * summary->nXl ||
+        sampleIndex < 0 || sampleIntervalMs < 0.0 ||
+        !std::isfinite(valueMin) || !std::isfinite(valueMax) ||
+        valueMin > valueMax || !std::isfinite(timeMs) ||
+        !std::isfinite(sampleIntervalMs) || !std::isfinite(startTimeMs))
+    {
+      ok = false;
+      setError(error, QStringLiteral("缓存栅格元数据数值越界/非有限：%1").arg(path));
+    }
+    for (int i = 0; ok && i < 6; ++i)
+      if (!std::isfinite(gt[i]))
+      {
+        ok = false;
+        setError(error, QStringLiteral("缓存栅格 geotransform 非有限：%1").arg(path));
+      }
+  }
+  if (ok)
+  {
+    summary->attrId = attrId;
+    summary->paramHash = hash;
+    summary->validCells = validCells;
+    summary->valueMin = valueMin;
+    summary->valueMax = valueMax;
+    summary->timeMs = timeMs;
+    summary->sampleIntervalMs = sampleIntervalMs;
+    summary->startTimeMs = startTimeMs;
+    summary->sampleIndex = sampleIndex;
   }
   GDALClose(ds);
   return ok;

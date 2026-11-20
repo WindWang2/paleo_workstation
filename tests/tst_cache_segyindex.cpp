@@ -1,7 +1,10 @@
 // tst_cache_segyindex — wave/io-perf-cache D2：SEG-Y 道头索引持久化的
 // 版本化/完整性/损坏自愈/checkpoint/增量/坏道跳过/空洞统计。
+// P2/#1026（v6）：统一边界审计的伪造 payload 回归（越过 CRC 直达解码/
+// 审计分支）、载荷越界、checkpoint 越尾、变道长布局往返。
 #include <QtTest>
 
+#include "io/cachecore.h"
 #include "io/perffixtures.h"
 #include "io/segyindexstore.h"
 #include "io/segyreader.h"
@@ -11,6 +14,8 @@
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtEndian>
+
+#include <limits>
 
 class CacheSegyIndexTests : public QObject
 {
@@ -39,11 +44,17 @@ class CacheSegyIndexTests : public QObject
     void parallelShortTraceMatchesSequential();
     // review-fix-dataio：restore() 拒绝损坏/篡改的缓存索引。
     void restoreRejectsCorruptIndex();
+    // P2/#1026：统一边界审计（v6）——载荷越界、checkpoint 越尾、伪造
+    // payload（越过 CRC 的内部解码/审计分支）、变道长布局落盘往返。
+    void auditRejectsPayloadBeyondEof();
+    void checkpointPastEofSelfHeals();
+    void forgedPayloadRejectedBeyondCrc();
+    void variableLayoutIndexRoundtrip();
 
   private:
     QTemporaryDir m_dir;
     QString cacheDir() const { return m_dir.filePath("idx"); }
-};
+  };
 
 void CacheSegyIndexTests::saveLoadRoundtrip()
 {
@@ -219,14 +230,22 @@ void CacheSegyIndexTests::checkpointResumeAfterCancel()
   QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 120, 120, 40) > 0);
   const QString idx = cacheDir();
 
-  // 第一遍：立刻取消 → checkpoint 落盘。
+  // 第一遍：并行扫描中途取消 → checkpoint 落盘。
+  // P2（2026-11-19）：旧写法 cancel 恒 true——分片首查（i=0）即取消，
+  // m_index 为空，snapshot() 正确拒绝落空索引 → 无 .psx，本机对 master
+  // 实测 10/10 红（扫描器与验证器三代代码同）。改为计数器取消：每个
+  // 分片越过首个 128 道检查窗口（i=128）后才取消——m_path 在
+  // scanParallel 前已置，非空索引 → checkpoint 确定性落盘。
   {
     SegyReader r;
     SegyOptions opts;
-    opts.cancel = [] { return true; }; // 首个检查点即取消
+    int cancelChecks = 0;
+    opts.cancel = [&cancelChecks] { return ++cancelChecks >= 2; };
     QString err;
     QVERIFY(!r.openCached(sgy, idx, &err, &opts));
     QCOMPARE(err, QStringLiteral("cancelled"));
+    QVERIFY(r.lastScanPartial());
+    QVERIFY(r.traceCount() > 0); // 分片已收道——checkpoint 非空
   }
   const QDir dir(idx);
   QVERIFY(!dir.entryList({QStringLiteral("*.psx")}, QDir::Files).isEmpty());
@@ -674,6 +693,304 @@ void CacheSegyIndexTests::parallelShortTraceMatchesSequential()
   for (const SegyTrace &t : line)
     QVERIFY2(t.samples.size() == samples || t.samples.size() == samples - 10,
              qPrintable(QStringLiteral("unexpected ns %1").arg(t.samples.size())));
+}
+
+// ---- P2/#1026（v6）：统一边界审计 ------------------------------------------------
+
+namespace
+{
+// 测试侧 payload 组包器（与 SegyIndexStore::encodePayload v6 同构）。目的：
+// 绕过 store.save() 的合法编码，直接落「带合法 magic/版本/CRC 的伪造
+// payload」——让 load() 的内部解码/审计分支真正被测，而不是只被外层
+// CRC 拦截。marker/layout 允许覆写以构造未知标记。
+QByteArray forgeIndexPayload(const SegyIndexStore::StoredIndex &idx,
+                             char markerOverride = 0, char layoutOverride = 0)
+{
+  QByteArray out;
+  cacheio::putStr(&out, idx.ident.canonicalPath);
+  cacheio::putI64(&out, idx.ident.size);
+  cacheio::putI64(&out, idx.ident.mtimeMs);
+  cacheio::putU64(&out, idx.ident.inode);
+  cacheio::putStr(&out, QString::fromLatin1(idx.prefixFingerprint));
+  cacheio::putI32(&out, idx.samplesPerTrace);
+  cacheio::putI32(&out, idx.sampleIntervalUs);
+  cacheio::putI32(&out, idx.formatCode);
+  cacheio::putI32(&out, idx.binLineNo);
+  for (int offset : idx.headerWordOffsets) cacheio::putI32(&out, offset);
+  out.append(static_cast<char>(idx.dialectFlags));
+  out.append(layoutOverride ? layoutOverride
+                            : (idx.layoutKind == 'V' ? 'V' : 'F'));
+  cacheio::putI64(&out, idx.firstTraceOffset);
+  cacheio::putF64(&out, idx.geometry.inlineMin);
+  cacheio::putF64(&out, idx.geometry.inlineMax);
+  cacheio::putF64(&out, idx.geometry.xlineMin);
+  cacheio::putF64(&out, idx.geometry.xlineMax);
+  for (int i = 0; i < 4; ++i)
+  {
+    cacheio::putF64(&out, idx.geometry.cornerX[i]);
+    cacheio::putF64(&out, idx.geometry.cornerY[i]);
+  }
+  cacheio::putF64(&out, idx.geometry.startTimeMs);
+  const quint32 n = quint32(idx.inlineNos.size());
+  const quint32 bad = quint32(idx.badTraceOffsets.size());
+  cacheio::putU32(&out, n);
+  cacheio::putU32(&out, bad);
+  out.append(markerOverride ? markerOverride : (idx.complete ? 'C' : 'P'));
+  cacheio::putI64(&out, idx.scannedOffset);
+  for (quint32 i = 0; i < n; ++i)
+    cacheio::putI32(&out, idx.inlineNos.at(int(i)));
+  for (quint32 i = 0; i < n; ++i)
+    cacheio::putI32(&out, idx.xlineNos.at(int(i)));
+  for (quint32 i = 0; i < n; ++i)
+    cacheio::putI64(&out, idx.offsets.at(int(i)));
+  if ((layoutOverride ? layoutOverride : idx.layoutKind) == 'V')
+    for (quint32 i = 0; i < n; ++i)
+      cacheio::putU16(&out, idx.traceNs.size() == idx.inlineNos.size()
+                                ? idx.traceNs.at(int(i))
+                                : quint16(idx.samplesPerTrace));
+  for (quint32 i = 0; i < bad; ++i)
+    cacheio::putI64(&out, idx.badTraceOffsets.at(int(i)));
+  return out;
+}
+} // namespace
+
+void CacheSegyIndexTests::forgedPayloadRejectedBeyondCrc()
+{
+  // 基准：真实扫描快照（身份/几何/数组全部合法）。
+  const QString sgy = m_dir.filePath("forged.sgy");
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 4, 4, 12) > 0); // 道长 288B
+  SegyIndexStore store(cacheDir());
+  SegyReader reader;
+  QString err;
+  QVERIFY(reader.open(sgy, &err));
+  SegyIndexStore::StoredIndex snap;
+  QVERIFY(reader.snapshot(&snap));
+  const QFileInfo fi(sgy);
+  const QString path = store.cacheFilePathFor(fi);
+
+  // 单用例执行器：写伪造 payload（合法 magic/版本/CRC），load 必须给出
+  // 可解释 miss 并删文件自愈。
+  const auto expectReject = [&](const SegyIndexStore::StoredIndex &forged,
+                                char markerOverride, char layoutOverride,
+                                const char *needle) {
+    QString werr;
+    QVERIFY(writeCacheFileAtomic(path, QByteArray("PSGYIDX1", 8), 6,
+                                 CacheFlags::None,
+                                 forgeIndexPayload(forged, markerOverride,
+                                                   layoutOverride),
+                                 &werr));
+    QString reason;
+    const auto loaded = store.load(fi, /*partialOk=*/true, &reason);
+    QVERIFY2(!loaded.has_value(),
+             qPrintable(QStringLiteral("forged index accepted: %1 %2")
+                            .arg(markerOverride ? QChar(markerOverride) : QChar(),
+                                 reason)));
+    QVERIFY2(reason.contains(QLatin1String(needle)),
+             qPrintable(QStringLiteral("reason '%1' lacks '%2'").arg(reason, needle)));
+    QVERIFY(!QFile::exists(path)); // 自愈删除
+  };
+
+  { // 控制：真实快照经同一组包器 → 正常命中（组包器本身正确）。
+    QString werr;
+    QVERIFY(writeCacheFileAtomic(path, QByteArray("PSGYIDX1", 8), 6,
+                                 CacheFlags::None, forgeIndexPayload(snap),
+                                 &werr));
+    QString reason;
+    QVERIFY2(store.load(fi, /*partialOk=*/false, &reason).has_value(),
+             qPrintable(reason));
+  }
+  { // 未知 marker：非 'C'/'P' 一律损坏，不再「非 C 即 partial」。
+    expectReject(snap, 'X', 0, "payload decode failed");
+  }
+  { // 未知布局标记。
+    expectReject(snap, 0, 'Q', "payload decode failed");
+  }
+  {
+    auto f = snap;
+    f.formatCode = 99; // 未知样点格式——直接失败，不退化为 1 字节样本
+    expectReject(f, 0, 0, "unknown sample format");
+  }
+  {
+    auto f = snap;
+    f.samplesPerTrace = 0;
+    expectReject(f, 0, 0, "samples-per-trace");
+  }
+  {
+    auto f = snap; // 道序打乱
+    std::swap(f.offsets[0], f.offsets[1]);
+    expectReject(f, 0, 0, "order/alignment");
+  }
+  {
+    auto f = snap; // 重复偏移（重叠道）
+    f.offsets[3] = f.offsets[2];
+    expectReject(f, 0, 0, "order/alignment");
+  }
+  {
+    auto f = snap; // 接近整数上限的偏移（溢出安全：减法判界）
+    f.offsets[0] = std::numeric_limits<qint64>::max() / 2;
+    expectReject(f, 0, 0, "order/alignment");
+  }
+  {
+    auto f = snap; // 坏道偏移与好道重复
+    f.badTraceOffsets = {f.offsets.at(2)};
+    expectReject(f, 0, 0, "duplicate trace offset");
+  }
+  {
+    auto f = snap; // 变道长不允许 checkpoint
+    f.layoutKind = 'V';
+    f.complete = false;
+    f.traceNs.fill(quint16(f.samplesPerTrace));
+    expectReject(f, 0, 0, "must not be a checkpoint");
+  }
+  {
+    auto f = snap; // 变道长 ns 表与偏移不连续
+    f.layoutKind = 'V';
+    f.traceNs = QVector<quint16>(f.inlineNos.size(),
+                                 quint16(f.samplesPerTrace));
+    f.traceNs[0] = quint16(f.samplesPerTrace - 3);
+    expectReject(f, 0, 0, "order/alignment");
+  }
+  {
+    auto f = snap; // checkpoint 超尾 1 字节（#1026 G5：+4096 宽容已删）
+    f.complete = false;
+    f.scannedOffset = fi.size() + 1;
+    expectReject(f, 0, 0, "outside file");
+  }
+  {
+    auto f = snap; // checkpoint 超尾 4096（旧宽容上界）
+    f.complete = false;
+    f.scannedOffset = fi.size() + 4096;
+    expectReject(f, 0, 0, "outside file");
+  }
+  {
+    auto f = snap; // 完整索引未扫到文件尾
+    f.scannedOffset = fi.size() - 288;
+    expectReject(f, 0, 0, "does not end at EOF");
+  }
+  { // 合法 partial 控制：取消恰在文件尾（全道已扫）→ 仍可用（partialOk）。
+    QString werr;
+    auto f = snap;
+    f.complete = false;
+    f.scannedOffset = fi.size();
+    QVERIFY(writeCacheFileAtomic(path, QByteArray("PSGYIDX1", 8), 6,
+                                 CacheFlags::None, forgeIndexPayload(f), &werr));
+    QString reason;
+    QVERIFY2(store.load(fi, /*partialOk=*/true, &reason).has_value(),
+             qPrintable(reason));
+  }
+}
+
+void CacheSegyIndexTests::auditRejectsPayloadBeyondEof()
+{
+  // #1026 G6：道头完整在文件内、采样载荷越过文件尾——restore() 旧口径
+  // 只查 off+240≤fileSize，此处证明完整道跨度（240+ns·bytes）也不越界。
+  const QString sgy = m_dir.filePath("shortpay.sgy");
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 4, 4, 40) > 0); // 道长 400B
+  // 截到 2.75 道：道 2 道头（4400..4640）在文件内，载荷仅 60/160。
+  QFile f(sgy);
+  QVERIFY(f.open(QIODevice::ReadWrite));
+  QVERIFY(f.resize(3600 + 2 * 400 + 300));
+  f.close();
+
+  SegyIndexStore::StoredIndex snap;
+  snap.ident = SegyIndexStore::identityOf(QFileInfo(sgy));
+  snap.samplesPerTrace = 40;
+  snap.sampleIntervalUs = 2000;
+  snap.formatCode = 5;
+  snap.firstTraceOffset = 3600;
+  snap.layoutKind = 'F';
+  snap.complete = true;
+  snap.scannedOffset = QFileInfo(sgy).size();
+  snap.inlineNos = {1000, 1000, 1000};
+  snap.xlineNos = {2000, 2001, 2002};
+  snap.offsets = {3600, 4000, 4400};
+  QVERIFY(!SegyReader().restore(snap, sgy)); // 载荷越界 → 拒
+
+  // 同一份伪造经磁盘缓存走 load()：审计拒绝 + 自愈删除。
+  SegyIndexStore store(cacheDir());
+  QString werr;
+  QVERIFY(writeCacheFileAtomic(store.cacheFilePathFor(QFileInfo(sgy)),
+                               QByteArray("PSGYIDX1", 8), 6, CacheFlags::None,
+                               forgeIndexPayload(snap), &werr));
+  QString reason;
+  QVERIFY(!store.load(QFileInfo(sgy), /*partialOk=*/true, &reason).has_value());
+  QVERIFY2(reason.contains(QLatin1String("beyond EOF")),
+           qPrintable(reason));
+  QVERIFY(!QFile::exists(store.cacheFilePathFor(QFileInfo(sgy))));
+}
+
+void CacheSegyIndexTests::checkpointPastEofSelfHeals()
+{
+  // #1026 G5：篡改 checkpoint 的 scannedOffset 越过文件尾——旧 load() 的
+  // size+4096 宽容放行，新审计拒绝并删缓存自愈（可重建）。
+  const QString sgy = m_dir.filePath("cpt.sgy");
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 6, 6, 24) > 0);
+  SegyIndexStore store(m_dir.filePath("idxCpt"));
+  SegyReader reader;
+  QVERIFY(reader.open(sgy));
+  SegyIndexStore::StoredIndex snap;
+  QVERIFY(reader.snapshot(&snap));
+  const QFileInfo fi(sgy);
+  const auto tampered = [&snap, &fi](qint64 scanned) {
+    SegyIndexStore::StoredIndex t = snap;
+    t.complete = false;
+    t.scannedOffset = scanned;
+    return t;
+  };
+  for (const qint64 beyond : {fi.size() + 1, fi.size() + 4096})
+  {
+    QString err;
+    QVERIFY(store.save(tampered(beyond), &err)); // save 不审计（编码器）
+    QString reason;
+    QVERIFY(!store.load(fi, /*partialOk=*/true, &reason).has_value());
+    QVERIFY2(reason.contains(QLatin1String("audit")) ||
+                 reason.contains(QLatin1String("outside file")),
+             qPrintable(reason));
+    QVERIFY(!QFile::exists(store.cacheFilePathFor(fi)));
+  }
+  // 源数据仍可正常打开（缓存目录内容不污染原始 SEG-Y）。
+  SegyReader again;
+  QString reopenErr;
+  QVERIFY2(again.openCached(sgy, m_dir.filePath("idxCpt"), &reopenErr),
+           qPrintable(reopenErr));
+  QCOMPARE(again.traceCount(), 36);
+}
+
+void CacheSegyIndexTests::variableLayoutIndexRoundtrip()
+{
+  // P2/W1（v6）：变道长完整索引带 layoutKind='V' + 逐道 ns 落盘；身份
+  // 命中后 restore() 恢复同一索引并如实上报 variableTraceLayout()。
+  const QString sgy = m_dir.filePath("var.sgy");
+  const int inl = 6, xl = 8, samples = 20;
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
+  patchTraceNs(sgy, 3600, 12);
+  QVERIFY(shortenFirstTrace(sgy, samples, 12));
+
+  const QString idx = m_dir.filePath("idxVar");
+  SegyIndexStore store(idx);
+  SegyReader r;
+  QString err;
+  QVERIFY2(r.open(sgy, &err), qPrintable(err));
+  QCOMPARE(r.variableTraceLayout(), true);
+  SegyIndexStore::StoredIndex snap;
+  QVERIFY(r.snapshot(&snap));
+  QCOMPARE(snap.layoutKind, 'V');
+  QCOMPARE(snap.traceNs.size(), inl * xl);
+  QCOMPARE(int(snap.traceNs.first()), 12);
+  QVERIFY(store.save(snap, &err));
+
+  QString reason;
+  const auto loaded = store.load(QFileInfo(sgy), /*partialOk=*/false, &reason);
+  QVERIFY2(loaded.has_value(), qPrintable(reason));
+  QCOMPARE(loaded->layoutKind, 'V');
+  SegyReader hit;
+  QVERIFY(hit.restore(*loaded, sgy));
+  QCOMPARE(hit.traceCount(), inl * xl);
+  QCOMPARE(hit.variableTraceLayout(), true);
+  QVector<SegyTrace> line;
+  QVERIFY2(hit.readInline(1000, &line, &err), qPrintable(err));
+  QCOMPARE(line.size(), xl);
+  QCOMPARE(int(line.first().samples.size()), 12); // 短道按其真实 ns 解码
 }
 
 QTEST_MAIN(CacheSegyIndexTests)

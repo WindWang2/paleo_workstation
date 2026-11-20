@@ -39,6 +39,8 @@ target_sources(paleo_io PRIVATE
   src/io/shacache.cpp
   src/io/segyindexstore.h
   src/io/segyindexstore.cpp
+  src/io/segyindexvalidate.h
+  src/io/segyindexvalidate.cpp
   src/io/rasterpyramid.h
   src/io/rasterpyramid.cpp
   src/io/perffixtures.h

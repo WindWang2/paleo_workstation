@@ -471,6 +471,236 @@ private slots:
     QVERIFY(!third.result.cacheHit);
   }
 
+  // ---- P2（2026-11-19）：缓存对身份双验/提交协议/失败恢复 --------------------
+
+  // W5：sidecar 合法但 TIFF 内嵌身份被篡改/不匹配 → 不命中；重算-发布后
+  // 第三次正常命中（混合对治愈）。
+  void timeSliceCacheIdentityMismatchRecomputes()
+  {
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    const auto params = SeismicTaskService::SeismicAttrParams{};
+    const QString outDir = tempDir_.filePath(QStringLiteral("ts_ident"));
+    TsOutcome first = runTimeSlice(svc, sineVol_, K::Envelope, params, 64, outDir);
+    QVERIFY2(first.ok, qPrintable(first.result.error));
+    const QString cachePath = first.result.cachePath;
+
+    // 篡改 TIFF 内嵌 paramHash（sidecar 保持合法）——旧口径只核 sidecar，
+    // 会把身份不符的产物当好缓存；新口径双验判 miss。
+    {
+      GDALAllRegister();
+      GDALDatasetH ds = GDALOpen(cachePath.toUtf8().constData(), GA_Update);
+      QVERIFY(ds);
+      QCOMPARE(GDALSetMetadataItem(ds, "PALEO_PARAM_HASH",
+                                   "deadbeefdeadbeefdeadbeefdeadbeef", nullptr),
+               CE_None);
+      QCOMPARE(GDALClose(ds), CE_None);
+    }
+    TsOutcome stale = runTimeSlice(svc, sineVol_, K::Envelope, params, 64, outDir);
+    QVERIFY2(stale.ok, qPrintable(stale.result.error));
+    QVERIFY2(!stale.result.cacheHit, "tampered TIFF identity must not hit");
+
+    TsOutcome healed = runTimeSlice(svc, sineVol_, K::Envelope, params, 64, outDir);
+    QVERIFY2(healed.ok, qPrintable(healed.result.error));
+    QVERIFY(healed.result.cacheHit);
+    QCOMPARE(healed.result.validCells, qint64(6 * 8));
+  }
+
+  // W4/W6：正式路径被占位（发布 rename 失败的确定性接缝）——任务如实失败，
+  // 暂存零残件，占位物不删。
+  void timeSlicePublishFailureLeavesNoStaging()
+  {
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    const auto params = SeismicTaskService::SeismicAttrParams{};
+    const QString outDir = tempDir_.filePath(QStringLiteral("ts_pubfail"));
+    TsOutcome first = runTimeSlice(svc, sineVol_, K::Rms, params, 64, outDir);
+    QVERIFY2(first.ok, qPrintable(first.result.error));
+    const QString cachePath = first.result.cachePath;
+    const QString sidecar = cachePath + QStringLiteral(".prov.json");
+
+    QVERIFY(QFile::remove(cachePath));
+    QVERIFY(QDir().mkdir(cachePath)); // 占位：rename 必败
+    TsOutcome failed = runTimeSlice(svc, sineVol_, K::Rms, params, 64, outDir);
+    QVERIFY(failed.finished && !failed.ok);
+    QVERIFY2(failed.result.error.contains(QStringLiteral("发布失败")) ||
+                 failed.result.error.contains(QStringLiteral("写入失败")),
+             qPrintable(failed.result.error));
+    QVERIFY(QFileInfo(cachePath).isDir()); // 占位不被误删
+    // 目录里只有 sidecar 一个文件（含隐藏暂存扫描）。
+    const auto leftovers = QDir(outDir).entryList(
+        QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+    QCOMPARE(leftovers, QStringList{QFileInfo(sidecar).fileName()});
+    QVERIFY(QDir().rmdir(cachePath)); // 还原给临时目录清理
+  }
+
+  // W6：sidecar 发布失败 → TIFF 已新、sidecar 不可用——混合对。下一次读取
+  // 必须判 miss（不误命中），且失败如实、无暂存残件、不删已发布 TIFF。
+  void timeSliceSidecarFailureLeavesMixedPairThatMisses()
+  {
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    const auto params = SeismicTaskService::SeismicAttrParams{};
+    const QString outDir = tempDir_.filePath(QStringLiteral("ts_sidefail"));
+    TsOutcome first = runTimeSlice(svc, sineVol_, K::InstFreq, params, 64, outDir);
+    QVERIFY2(first.ok, qPrintable(first.result.error));
+    const QString cachePath = first.result.cachePath;
+    const QString sidecar = cachePath + QStringLiteral(".prov.json");
+
+    QVERIFY(QFile::remove(sidecar));
+    QVERIFY(QDir().mkdir(sidecar)); // sidecar 路径占位 → 发布链第二跳必败
+    TsOutcome failed = runTimeSlice(svc, sineVol_, K::InstFreq, params, 64, outDir);
+    QVERIFY(failed.finished && !failed.ok);
+    QVERIFY2(failed.result.error.contains(QStringLiteral("sidecar")),
+             qPrintable(failed.result.error));
+    QVERIFY(QFileInfo(cachePath).isFile()); // TIFF 已发布（新），未被伪回滚删除
+    const auto leftovers = QDir(outDir).entryList(
+        QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+    QCOMPARE(leftovers, QStringList{QFileInfo(cachePath).fileName()});
+
+    // 再次请求：混合对判 miss → 重算 → 同一占位再次失败（确定性，无静默
+    // 伪命中、无无限循环内单一请求）。
+    TsOutcome again = runTimeSlice(svc, sineVol_, K::InstFreq, params, 64, outDir);
+    QVERIFY(again.finished && !again.ok);
+    QVERIFY(!again.result.cacheHit);
+    QVERIFY2(again.result.error.contains(QStringLiteral("sidecar")),
+             qPrintable(again.result.error));
+    QVERIFY(QDir().rmdir(sidecar));
+    // 占位移除后：下一次请求重算并发布（仍 miss），再下一次正常命中——
+    // 混合对最终自愈。
+    TsOutcome healed = runTimeSlice(svc, sineVol_, K::InstFreq, params, 64, outDir);
+    QVERIFY2(healed.ok, qPrintable(healed.result.error));
+    QVERIFY(!healed.result.cacheHit);
+    TsOutcome hit = runTimeSlice(svc, sineVol_, K::InstFreq, params, 64, outDir);
+    QVERIFY2(hit.ok, qPrintable(hit.result.error));
+    QVERIFY(hit.result.cacheHit);
+  }
+
+  // W6：同 key（同体同参同目录）并发两请求——发布协议使用独占暂存，
+  // 互不覆盖；完成后目录收敛为一致缓存对，第三次命中，无暂存残件。
+  void timeSliceConcurrentSameKeyConsistentPair()
+  {
+    seismic::SeismicTaskService svcA, svcB;
+    svcA.setTaskService(new PaleoTaskService(nullptr, &svcA));
+    svcB.setTaskService(new PaleoTaskService(nullptr, &svcB));
+    const auto params = SeismicTaskService::SeismicAttrParams{};
+    const QString outDir = tempDir_.filePath(QStringLiteral("ts_conc"));
+    // 独立体实例（同文件同参数 → 同缓存 key），避免共享体对象的并发读。
+    auto volA = loadVolume(sineSgy_);
+    auto volB = loadVolume(sineSgy_);
+    QVERIFY(volA && volB && volA->IsLoaded() && volB->IsLoaded());
+
+    TsOutcome outA, outB;
+    // spy 在 start 返回后立即连：TaskRunner 的 applyFinish 走
+    // Qt::QueuedConnection（paleotaskservice.cpp），finished 只可能由
+    // 测试线程事件循环投递——start 返回前不可能已发射，不会漏信号。
+    PaleoTask *taskA = svcA.startTimeSliceAttribute(
+        volA, K::Envelope, params, 64, outDir,
+        [&outA](bool ok, const SeismicTaskService::SeismicAttrTimeSliceResult &r) {
+          outA.finished = true;
+          outA.ok = ok;
+          outA.result = r;
+        });
+    PaleoTask *taskB = svcB.startTimeSliceAttribute(
+        volB, K::Envelope, params, 64, outDir,
+        [&outB](bool ok, const SeismicTaskService::SeismicAttrTimeSliceResult &r) {
+          outB.finished = true;
+          outB.ok = ok;
+          outB.result = r;
+        });
+    QVERIFY(taskA && taskB);
+    // 两个任务的完成时刻可能都在同一次事件循环迭代里投递——顺序
+    // spy.wait() 会漏掉「已记录但等的是新信号」的那个（Qt 的 wait 只
+    // 认未来发射：spyB.count()==1 时 wait 仍返回 false，实测确认）。
+    // 改用截止期限 + 泵事件轮询两个回调查看（review B2 的实处修法）。
+    QElapsedTimer clock;
+    clock.start();
+    while ((!outA.finished || !outB.finished) && clock.elapsed() < 120000)
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+    QCoreApplication::processEvents();
+    QVERIFY2(outA.finished && outB.finished,
+             qPrintable(QStringLiteral("A=%1 B=%2")
+                            .arg(outA.finished ? 1 : 0)
+                            .arg(outB.finished ? 1 : 0)));
+    QVERIFY2(outA.ok && outB.ok,
+             qPrintable(outA.ok ? outB.result.error : outA.result.error));
+
+    const QString cachePath = outA.result.cachePath;
+    QCOMPARE(outB.result.cachePath, cachePath);
+    const auto leftovers = QDir(outDir).entryList(
+        QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+    QCOMPARE(leftovers,
+             (QStringList{QFileInfo(cachePath).fileName(),
+                          QFileInfo(cachePath).fileName() +
+                              QStringLiteral(".prov.json")}));
+
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    TsOutcome third = runTimeSlice(svc, sineVol_, K::Envelope, params, 64, outDir);
+    QVERIFY2(third.ok, qPrintable(third.result.error));
+    QVERIFY(third.result.cacheHit);
+  }
+
+  // W6：计算中途取消——正式提交前的取消闸（seismictaskservice_attr.cpp
+  // 的 cancel-gate）。用 bigVol_ 的长扫描 + 进度轮询在「读段已开始、
+  // 尚未结束」的窗口取消：per-inline 检查或提交前闸之一必然接住。
+  // 断言按协议写成分叉不变式，不依赖哪一支接住（禁 sleep 碰竞态）：
+  //  · Cancelled → 目录零产物（无 tif / 无 sidecar / 无隐藏暂存）；
+  //  · Succeeded（取消落在闸后、发布已完成）→ 恰好一对一致缓存。
+  // 两种终态都不允许出现「混合对/半成品」。
+  void timeSliceMidScanCancelLeavesNoMixedPair()
+  {
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    const auto params = SeismicTaskService::SeismicAttrParams{};
+    const QString outDir = tempDir_.filePath(QStringLiteral("ts_midcancel"));
+
+    TsOutcome out;
+    PaleoTask *task = svc.startTimeSliceAttribute(
+        bigVol_, K::Envelope, params, 512, outDir,
+        [&out](bool ok, const SeismicTaskService::SeismicAttrTimeSliceResult &r) {
+          out.finished = true;
+          out.ok = ok;
+          out.result = r;
+        });
+    QVERIFY(task);
+    QSignalSpy finishedSpy(task, &PaleoTask::finished);
+    // 轮询到扫描段真正开始（percent 前进）后取消——此刻取消必然落在
+    // 「计算中途」，而非 start 前的排队窗（cancelLeavesNoPartialArtifact
+    // 已覆盖立即取消）。
+    while (task->percent() <= 0 && !task->isFinished())
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    task->requestCancel();
+    QVERIFY(finishedSpy.wait(120000));
+    QCoreApplication::processEvents();
+    QVERIFY(out.finished);
+
+    const auto leftovers = QDir(outDir).entryList(
+        QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+    if (task->state() == PaleoTask::State::Cancelled)
+    {
+      QVERIFY2(!out.ok, qPrintable(out.result.error));
+      QVERIFY2(leftovers.isEmpty(),
+               qPrintable(QStringLiteral("取消残件：%1")
+                              .arg(leftovers.join(QLatin1Char(',')))));
+    }
+    else
+    {
+      // 取消落在提交闸之后：一致缓存已耐久发布（晚取消如实终结，不伪回滚）。
+      QVERIFY2(out.ok, qPrintable(out.result.error));
+      QCOMPARE(leftovers,
+               (QStringList{QFileInfo(out.result.cachePath).fileName(),
+                            QFileInfo(out.result.cachePath).fileName() +
+                                QStringLiteral(".prov.json")}));
+      // 混合对不得存在：sidecar hash 与本次参数一致。
+      QFile prov(out.result.cachePath + QStringLiteral(".prov.json"));
+      QVERIFY(prov.open(QIODevice::ReadOnly));
+      const auto obj = QJsonDocument::fromJson(prov.readAll()).object();
+      QCOMPARE(obj.value(QStringLiteral("paramHash")).toString(),
+               out.result.paramHash);
+    }
+  }
+
   void volumeScanExtractionConsistency()
   {
     seismic::SeismicTaskService svc;
@@ -656,6 +886,13 @@ private slots:
                      !f.endsWith(QStringLiteral(".partial")) &&
                      !f.endsWith(QStringLiteral(".prov.json")),
                  qPrintable(QStringLiteral("取消残件：%1").arg(f)));
+      // P2/W6：隐藏暂存（.name.paleo-tmp-*）同样不得残留——默认列举不含
+      // 隐藏文件，这里显式带上 Hidden。
+      const auto hidden = dir.entryList(QDir::Files | QDir::Hidden |
+                                        QDir::NoDotAndDotDot);
+      QVERIFY2(hidden.isEmpty(),
+               qPrintable(QStringLiteral("取消暂存残件：%1")
+                              .arg(hidden.join(QLatin1Char(',')))));
     }
     // 体扫描取消：无 .sattr / .partial 残件
     {

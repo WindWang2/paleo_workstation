@@ -15,6 +15,7 @@
 // （segyio metadata.trace0）
 #include <segyio/segy.h>
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -23,6 +24,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRandomGenerator>
 #include <QScopeGuard>
 #include <QtEndian>
 
@@ -89,6 +91,10 @@ namespace
 
 // GeoTIFF 缓存的身份 sidecar：<file>.prov.json——参数包摘要（栅格元数据
 // PALEO_PARAM_HASH 双保险）。
+// P2/W6：暂存名带 pid+随机数（本次发布尝试独占）——固定 .partial 名在
+// 同 key 并发请求下互相覆盖对方的半成品；失败只清自己那份。后缀沿用
+// metadata/atomicfile.h recover() 的 `.{name}.tmp.*` 孤儿 glob，硬崩溃
+// 残留可被既有恢复机制清扫。
 bool writeProvSidecar(const QString &provPath, const QString &paramHash,
                       const QString &attrId, const QString &scope)
 {
@@ -96,7 +102,11 @@ bool writeProvSidecar(const QString &provPath, const QString &paramHash,
   o.insert(QStringLiteral("paramHash"), paramHash);
   o.insert(QStringLiteral("attrId"), attrId);
   o.insert(QStringLiteral("scope"), scope);
-  const QString partial = provPath + QStringLiteral(".partial");
+  const QString partial =
+      QStringLiteral("%1/.%2.tmp.%3-%4")
+          .arg(QFileInfo(provPath).absolutePath(), QFileInfo(provPath).fileName())
+          .arg(QCoreApplication::applicationPid())
+          .arg(QRandomGenerator::global()->generate64(), 16, 16, QChar('0'));
   QFile f(partial);
   if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
     return false;
@@ -310,6 +320,10 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
     // 同参数去重缓存：sidecar 全量 hash 复验 + 产物存在 + PALEO_* 身份
     // 元数据/地理参考可读回 → 命中不重算（统计从产物摘要回填——面板
     // 「有效 N/M」不撒谎）；摘要不全视同未命中重算。
+    // P2/W5：命中还需 TIFF 内嵌身份（paramHash/attrId/sampleIndex）与本次
+    // 请求逐项一致——文件名 hash12 只做寻址不充身份；不一致 = 陈旧/混合
+    // 缓存对（如 TIFF 与 sidecar 发布错位），判 miss 重算，绝不把别的采样
+    // 位/别的参数的统计回填给下游。
     QString cachePath;
     if (!outputDir.isEmpty())
     {
@@ -323,7 +337,10 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
         paleo::sattr::AttrTimeSliceGrid summary;
         QString summaryErr;
         if (paleo::sattr::readTimeSliceGeoTiffSummary(cachePath, &summary,
-                                                      &summaryErr))
+                                                      &summaryErr) &&
+            summary.paramHash == paramHash &&
+            summary.attrId == result->attrId &&
+            summary.sampleIndex == sampleIndex)
         {
           result->ok = true;
           result->cacheHit = true;
@@ -333,7 +350,7 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
           result->valueMin = summary.valueMin;
           result->valueMax = summary.valueMax;
           result->validCells = summary.validCells;
-          result->sampleIndex = summary.sampleIndex;
+          result->sampleIndex = sampleIndex;
           task->reportBytes(1, 1);
           return QString();
         }
@@ -559,9 +576,21 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
     }
     result->readMs = double(clock.elapsed()); // 读算一体计时（分块交错）
 
-    // 地理参考栅格落盘（缓存命名 + 原子改名；取消/失败不留半成品）。
+    // 地理参考栅格落盘——缓存对提交协议（P2/W6）：
+    //  · 取消闸：昂贵计算完成后、任何正式发布前复核取消状态；已取消则
+    //    本请求不产正式缓存、不产 sidecar、不留暂存（cancelLeavesNo-
+    //    PartialArtifact 口径）。
+    //  · TIFF 先行、sidecar 后：两次 rename 不构成跨文件原子事务（如实
+    //    注明）；sidecar 失败/崩溃遗留的混合对由命中侧「sidecar 全量 hash
+    //    + TIFF 内嵌身份」双验判 miss，下次重算-发布治愈，不会误命中。
+    //  · writer 自带独占暂存 + 重开校验 + 原子替换（#1024）——服务层不再
+    //    叠固定 .partial（避免嵌套暂存与并发互踩）。
+    //  · 提交点之后才观察到的取消：既成一致缓存是耐久事实——不删共享
+    //    产物伪回滚，终态回执附缓存路径（见 finished 处理）。
     if (!outputDir.isEmpty())
     {
+      if (task->cancelRequested())
+        return QString(); // 正式提交点之前取消：无正式缓存/无 sidecar
       paleo::sattr::AttrTimeSliceGrid grid;
       grid.attrId = result->attrId;
       grid.nIl = result->nIl;
@@ -581,28 +610,17 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
       const double affine[6] = {mapper.fit().a, mapper.fit().b, mapper.fit().c,
                                 mapper.fit().d, mapper.fit().e, mapper.fit().f};
       QDir().mkpath(outputDir);
-      const QString partial = cachePath + QStringLiteral(".partial");
-      // 失败路径同样不留半成品（取消路径本就不经此处；写失败/改名失败/
-      // sidecar 失败都要清 .partial——「取消/失败不留残件」纪律）。
-      const auto failCleanup = [&partial](const QString &what) {
-        QFile::remove(partial);
-        return what;
-      };
       QString writeErr;
-      if (!paleo::sattr::writeTimeSliceGeoTiff(partial, grid, affine, &writeErr))
+      if (!paleo::sattr::writeTimeSliceGeoTiff(cachePath, grid, affine, &writeErr))
       {
         result->error = writeErr;
-        return failCleanup(
-            QStringLiteral("时间切片栅格写入失败：%1").arg(writeErr));
-      }
-      if (!paleoReplaceFile(partial, cachePath))
-      {
-        result->error = QStringLiteral("缓存产物落名失败：%1").arg(cachePath);
-        return failCleanup(result->error);
+        return QStringLiteral("时间切片栅格写入失败：%1").arg(writeErr);
       }
       if (!writeProvSidecar(cachePath + QStringLiteral(".prov.json"), paramHash,
                             result->attrId, QStringLiteral("ts")))
       {
+        // TIFF 已是新内容、sidecar 还是旧/缺——混合对，下次读取判 miss；
+        // 如实失败，不删已发布 TIFF（无跨文件回滚）。
         result->error = QStringLiteral("缓存 sidecar 写入失败：%1").arg(cachePath);
         return result->error;
       }
@@ -652,6 +670,15 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
               r.attrId = result->attrId;
               r.sampleIndex = result->sampleIndex;
               r.error = QStringLiteral("时间切片属性扫描已取消");
+              if (!result->cachePath.isEmpty())
+              {
+                // P2/W6：提交点之后才观察到的取消——一致缓存已耐久发布，
+                // 如实报告既成缓存事实（不删共享产物伪回滚）。
+                r.cachePath = result->cachePath;
+                r.paramHash = result->paramHash;
+                r.error = QStringLiteral("时间切片属性扫描已取消（缓存已发布：%1）")
+                              .arg(result->cachePath);
+              }
               onFinished(false, r);
             }
             else

@@ -30,6 +30,9 @@ private slots:
   void projectedGeoTiffKeepsSampleCenters();
   void writesGeoTiffWithGeotransform();
   void writesPaleoSurveyMetadata();
+  // P2/#1025：writeGeoTiff 的 CRS 解析带 SET_FROM_USER_INPUT_LIMITATIONS；
+  // 文件/URL 形式的非法 CRS 如实失败（不再静默产无 SRS 栅格）。
+  void writeGeoTiffRejectsNonInlineCrsForms();
   void benchmarkLocalHorizons();
 
 private:
@@ -437,6 +440,54 @@ void TestHorizonBinner::writesPaleoSurveyMetadata()
   QCOMPARE(QByteArray(GDALGetMetadataItem(ds, "PALEO_T0_MS", nullptr)),
            QByteArray("0"));
   GDALClose(ds);
+}
+
+void TestHorizonBinner::writeGeoTiffRejectsNonInlineCrsForms()
+{
+  // 与 projectedGeoTiffKeepsSampleCenters 同源的 2×2 装箱栅格。
+  const QByteArray text(
+      "# Grid_size:2x2\n"
+      "# P1: 1,1,0,0\n"
+      "# P2: 1,2,20,0\n"
+      "# P3: 2,2,20,40\n"
+      "# Z_units: s\n"
+      "0 0 1.00 1 1\n"
+      "20 0 1.01 1 2\n"
+      "0 40 1.02 2 1\n"
+      "20 40 1.03 2 2\n");
+  BinnedHorizon grid;
+  QString error;
+  QVERIFY2(binHorizon(text, &grid, &error), qPrintable(error));
+  QTemporaryDir temp;
+  QVERIFY(temp.isValid());
+
+  for (const QString &bad : {QStringLiteral("./no-such-crs.prj"),
+                             QStringLiteral("http://127.0.0.1:9/p2-proj.wkt")})
+  {
+    grid.coordinateSystem = bad;
+    const QString path = temp.filePath(QStringLiteral("badcrs.tif"));
+    QVERIFY2(!writeHorizonGeoTiff(grid, path, &error),
+             qPrintable(QStringLiteral("non-inline CRS accepted: %1").arg(bad)));
+    QVERIFY2(error.contains(QStringLiteral("invalid coordinate system")),
+             qPrintable(error));
+    QVERIFY(!QFile::exists(path)); // 失败不留半成品（partial 已清）
+    QVERIFY(!QFile::exists(path + QStringLiteral(".partial")));
+  }
+  // 合法 EPSG 与空串（回落本地测网常量）保持可用（既有调用兼容）。
+  grid.coordinateSystem = QStringLiteral("EPSG:32649");
+  const QString okPath = temp.filePath(QStringLiteral("epsg.tif"));
+  QVERIFY2(writeHorizonGeoTiff(grid, okPath, &error), qPrintable(error));
+  grid.coordinateSystem.clear();
+  const QString localPath = temp.filePath(QStringLiteral("local.tif"));
+  QVERIFY2(writeHorizonGeoTiff(grid, localPath, &error), qPrintable(error));
+  GDALAllRegister();
+  for (const QString &path : {okPath, localPath})
+  {
+    GDALDatasetH ds = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
+    QVERIFY2(ds, qPrintable(path));
+    QVERIFY(QByteArray(GDALGetProjectionRef(ds)).size() > 0); // 有投影，非假栅格
+    GDALClose(ds);
+  }
 }
 
 QTEST_MAIN(TestHorizonBinner)

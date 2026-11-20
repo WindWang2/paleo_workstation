@@ -211,7 +211,7 @@ target 的路径。configure 缓存指向其他前缀时，另用新构建目录
 
 ## Windows OSGeo4W 离线供货
 
-在可联网的机器上运行 `./paleo-dev.ps1 bootstrap fetch-only`，准备 Windows x64 缓存并得到一份已校验的安装树。复制 `vendor/cache/osgeo4w-offline` 和 `vendor/cache/onnxruntime` 到离线工作树。构建还需要按独立 worktree 的约定提供已经准备好的 Office 编辑组件 `vendor/ranuts-document`。使用 PowerShell 重放：
+在可联网的机器上运行 `./paleo-dev.ps1 bootstrap fetch-only`，准备 Windows x64 缓存并得到一份已校验的安装树。将 `vendor/cache/osgeo4w-offline`、`vendor/cache/onnxruntime` 和 `vendor/cache/tarballs` 一起复制到离线工作树。最后一个目录须包含 manifest 所列的 Zstd 源码包及 opencl-source.lock.json 所列的 OpenCL-Headers 和 OpenCL-ICD-Loader 源码包。构建还需要按独立 worktree 的约定提供已经准备好的 Office 编辑组件 `vendor/ranuts-document`。使用 PowerShell 重放：
 
 ```powershell
 $env:PALEO_VENDOR_OFFLINE = '1'
@@ -222,7 +222,7 @@ $env:PALEO_CTEST_ARGS = '-j1 -LE perf --no-tests=error'
 ./paleo-dev.ps1 test
 ```
 
-`vendor/osgeo4w-offline.lock.json` 固定安装器、离线索引及每个归档的字节数和 SHA-256。bootstrap 先校验镜像，再以本地安装模式运行安装器，最后逐包校对 `installed.db`（包含 OSGeo4W 的打包修订号）。缺包或坏包会指出文件，原样保留以供诊断。用同一份锁从可信缓存补齐它，再重新运行。已存在的旧安装树或锁变更后的安装树应移到其他目录，由 bootstrap 在目标路径重装。
+`vendor/osgeo4w-offline.lock.json` 固定安装器、离线索引及每个归档的字节数和 SHA-256。bootstrap 先校验镜像，再以本地安装模式运行安装器，最后逐包校对 `installed.db`（包含 OSGeo4W 的打包修订号）。缺包或坏包会指出文件，原样保留以供诊断。用同一份锁从可信缓存补齐它，再重新运行。每次准备都会重新核对缓存。首次从锁内归档安装并编译补件后记录前缀文件摘要；复用时逐文件核对。没有文件摘要的旧安装树或锁变更后的安装树应移到其他目录，由 bootstrap 在目标路径重装。
 
 有意升级时，准备 OSGeo4W 官方 `setup.ini` 中当前范围选中的归档与安装器。先用 `python -B tools/pin_osgeo4w.py --setup-ini <完整索引>` 更新 manifest，再用 `python -B tools/osgeo4w_offline.py generate --cache <镜像根> --installer <安装器> --index <新索引> --lock <新锁>` 生成新文件。镜像根下应有 `x86_64/setup.ini` 及 `x86_64/release`；生成命令写入新文件，避免覆盖当前锁。审查锁差异及上游来源、复跑本地离线验收后替换仓库中的索引与锁。保存按锁验证的缓存，供滚动上游下架历史包后重放。
 

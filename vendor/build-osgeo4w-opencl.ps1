@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Prefix)
+param([Parameter(Mandatory=$true)][string]$Prefix, [switch]$PrepareOnly)
 
 $ErrorActionPreference = 'Stop'
 function Assert-OpenClArchive([string]$Path, $Pin) {
@@ -13,14 +13,11 @@ $pin = Get-Content -LiteralPath $lock -Raw | ConvertFrom-Json
 $identity = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
 $stamp = Join-Path $Prefix '.paleo-opencl-source.sha256'
 $library = Join-Path $Prefix 'bin/OpenCL.dll'
-if ((Test-Path -LiteralPath $library) -and (Test-Path -LiteralPath $stamp) -and
-    (Get-Content -LiteralPath $stamp -Raw).Trim() -eq $identity) {
-  return
-}
 
 $cache = Join-Path $PSScriptRoot 'cache/tarballs'
 $buildRoot = Join-Path $PSScriptRoot "build/osgeo4w-opencl-$($pin.version)"
-New-Item -ItemType Directory -Path $cache,$buildRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $cache -Force | Out-Null
+$archives = @()
 foreach ($package in $pin.archives.PSObject.Properties) {
   $name = $package.Name
   $file = Join-Path $cache "$name-v$($pin.version).tar.gz"
@@ -37,8 +34,17 @@ foreach ($package in $pin.archives.PSObject.Properties) {
     }
   }
   Assert-OpenClArchive $file $package.Value
+  $archives += $file
+}
+if ($PrepareOnly) { return }
+if ((Test-Path -LiteralPath $library) -and (Test-Path -LiteralPath $stamp) -and
+    (Get-Content -LiteralPath $stamp -Raw).Trim() -eq $identity) {
+  return
+}
+New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+foreach ($file in $archives) {
   cmake -E chdir $buildRoot cmake -E tar xf $file
-  if ($LASTEXITCODE) { throw "Could not unpack $name" }
+  if ($LASTEXITCODE) { throw "Could not unpack $file" }
 }
 
 $headers = Join-Path $buildRoot "OpenCL-Headers-$($pin.version)"

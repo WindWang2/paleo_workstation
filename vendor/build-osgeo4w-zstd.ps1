@@ -1,17 +1,11 @@
 param(
-  [Parameter(Mandatory=$true)][string]$Prefix
+  [Parameter(Mandatory=$true)][string]$Prefix,
+  [switch]$PrepareOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $pin = (Get-Content -LiteralPath "$PSScriptRoot/manifest.json" -Raw | ConvertFrom-Json).deps.'zstd-source'
 $stamp = Join-Path $Prefix '.paleo-zstd-source.sha256'
-if ((Test-Path -LiteralPath $stamp) -and
-    (Get-Content -LiteralPath $stamp -Raw).Trim() -eq $pin.sha256 -and
-    (Test-Path -LiteralPath (Join-Path $Prefix 'include/zstd.h')) -and
-    (Test-Path -LiteralPath (Join-Path $Prefix 'lib/zstd_static.lib')) -and
-    (Test-Path -LiteralPath (Join-Path $Prefix 'lib/cmake/zstd/zstdConfig.cmake'))) {
-  return
-}
 
 $archive = Join-Path $PSScriptRoot "cache/tarballs/zstd-$($pin.version).tar.gz"
 function Assert-Archive([string]$Path) {
@@ -33,6 +27,14 @@ if (!(Test-Path -LiteralPath $archive)) {
   }
 }
 Assert-Archive $archive
+if ($PrepareOnly) { return }
+if ((Test-Path -LiteralPath $stamp) -and
+    (Get-Content -LiteralPath $stamp -Raw).Trim() -eq $pin.sha256 -and
+    (Test-Path -LiteralPath (Join-Path $Prefix 'include/zstd.h')) -and
+    (Test-Path -LiteralPath (Join-Path $Prefix 'lib/zstd_static.lib')) -and
+    (Test-Path -LiteralPath (Join-Path $Prefix 'lib/cmake/zstd/zstdConfig.cmake'))) {
+  return
+}
 
 $buildRoot = Join-Path $PSScriptRoot "build/osgeo4w-zstd-$($pin.version)"
 $source = Join-Path $buildRoot "zstd-$($pin.version)"

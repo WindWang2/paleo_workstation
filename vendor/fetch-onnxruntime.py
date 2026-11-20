@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install the pinned Microsoft native ONNX Runtime package for this host."""
 
+import filecmp
 import hashlib
 import json
 import os
@@ -63,6 +64,24 @@ def extract(archive, stage, rid, linux):
                 copy(f"runtimes/{rid}/native/{name}", stage / "lib" / name)
 
 
+def verify_extraction(stage, dest):
+    root = dest.resolve(strict=True)
+    expected = {p.relative_to(stage) for p in stage.rglob("*") if not p.is_dir()}
+    actual = {p.relative_to(root) for p in root.rglob("*") if not p.is_dir()}
+    if actual != expected:
+        raise ValueError(f"ONNX Runtime file list mismatch at {root}: {sorted(actual ^ expected)}")
+    for relative in sorted(expected):
+        source = stage / relative
+        installed = root / relative
+        if source.is_symlink():
+            matches = installed.is_symlink() and installed.readlink() == source.readlink()
+        else:
+            matches = (installed.resolve(strict=True).is_relative_to(root)
+                       and not installed.is_symlink() and filecmp.cmp(source, installed, shallow=False))
+        if not matches:
+            raise ValueError(f"ONNX Runtime differs from its locked archive: {installed}")
+
+
 def install(vendor, rid, offline):
     pin = json.loads((vendor / "manifest.json").read_text(encoding="utf-8"))["deps"]["onnxruntime"]
     dest = vendor / "onnxruntime"
@@ -71,11 +90,6 @@ def install(vendor, rid, offline):
         required += ["lib/libonnxruntime.so", f'lib/{pin["linux-x64"]["soname"]}']
     else:
         required += ["lib/onnxruntime.dll", "lib/onnxruntime.lib"]
-    if dest.exists() or dest.is_symlink():
-        if all((dest / entry).is_file() for entry in required):
-            print(f"ONNX Runtime already present: {dest}")
-            return
-        raise ValueError(f"Incomplete ONNX Runtime prefix: {dest}; move it aside and run bootstrap again")
     expected = pin["archive"]
     cache = vendor / "cache" / "onnxruntime"
     archive = cache / (expected["sha256"] + ".nupkg")
@@ -96,7 +110,11 @@ def install(vendor, rid, offline):
         extract(archive, stage, rid, pin.get("linux-x64"))
         if not all((stage / entry).is_file() for entry in required):
             raise ValueError("Pinned ONNX Runtime package is missing native headers or libraries")
-        stage.rename(dest)
+        if dest.exists() or dest.is_symlink():
+            verify_extraction(stage, dest)
+            print(f"Verified ONNX Runtime prefix: {dest}")
+        else:
+            stage.rename(dest)
 
 
 if __name__ == "__main__":

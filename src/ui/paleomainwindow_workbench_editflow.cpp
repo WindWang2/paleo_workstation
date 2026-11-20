@@ -1,12 +1,18 @@
 // 层：视图
 #include "paleomainwindow.h"
 #include "../linkage/selectioncontext.h"
+#include "../qgis/qgiscanvascontroller.h"
+#include "../qgis/qgislayerservice.h"
+#include "../qgis/qgisprojectservice.h"
 #include "../services/paleotaskservice.h"
 #include "../workflow/mappingworkbench.h"
 #include "datapreview/datapreviewtabs.h"
+#include "edittools/editingtoolbar.h"
 #include "pages/composepage.h"
+#include "pages/constraintpage.h"
 #include "pages/datapage.h"
 #include "pages/mappingworkbenchpage.h"
+#include "pages/wellpredictionpanel.h"
 #include "workbench/mappingworkbenchcommandcontroller.h"
 #include <QStatusBar>
 
@@ -79,6 +85,9 @@ void PaleoMainWindow::attachWorkbenchCommands(
     if (auto *compose = findChild<ComposePage *>())
       emit compose->exportPdfRequested();
   };
+  // C-W2：宿主状态钩子——触发时刻现读（只读翻转/工程切换即时生效）。
+  context.projectReadOnly = [this] { return isProjectReadOnly(); };
+  context.projectSwitching = [this] { return m_projectSvc && m_projectSvc->isOpening(); };
   for (auto *page : pages) {
     if (m_selection) bindWorkbenchPageHorizon(page, m_selection);
     impact->addPage(page);

@@ -8,6 +8,7 @@
 #include "faults/faultmanagerpanel.h"
 #include "layout/layoutundostack.h"
 #include "layoutdesignershell.h"
+#include "pages/datalist.h" // C-W3：数据列表局部撤销接入宿主写许可
 #include "seismicsection/seismicsectiondockwidget.h"
 #include <QApplication>
 
@@ -56,6 +57,11 @@ void PaleoMainWindow::updateUndoProjectGate(bool readOnly)
     m_faultPanel->setUndoReadOnly(readOnly);
   if (m_seismicSectionDock)
     m_seismicSectionDock->setInterpretationReadOnly(readOnly);
+  // C-W3（#995）：数据列表局部撤销（按钮 + data.list.undo/redo 快捷键 + 程序
+  // 直调）接入同一宿主写许可——此前面板只看栈可操作性，只读工程下局部
+  // Ctrl+Z 仍会改目录。不清栈：历史保留，恢复可写后按原契约继续可用。
+  for (auto *panel : findChildren<DataListPanel *>())
+    panel->setUndoReadOnly(readOnly);
   for (auto *shell : findChildren<PaleoLayoutDesignerShell *>())
     if (auto *undo = shell->undoStack())
       undo->setReadOnly(readOnly);

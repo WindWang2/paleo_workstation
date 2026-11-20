@@ -188,15 +188,72 @@ void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWo
 bool matchesWorkbenchHorizon(const SelectionContext *selection,const QString &horizon) {
   return selection && (horizon==selection->activeHorizon() || horizon==paleo::strat::analysisLayerKey(selection->activeUnit()));
 }
+
+// C-W6（#1000，自 attachWorkbench 拆出——file-budget 闸）:工作台页签与 ribbon
+// 镜像的绑定段。绑定表只列**真实接线**的条目——「绘制约束线」「单因素」两个
+// 命令由 ConstraintPage（workbenchTabs.constraint 的编图流程页签）独立拥有
+// 方法入口（drawConstraintRequested / runConstraintPageIdw），图件页不替换；
+// 此前表里的 page=1 条件跳过项是不可达配置，已删除，不做重复接线（否则
+// IDW/绘制会双执行）。
+void attachWorkbenchRibbonMirrors(PaleoMainWindow *self,
+                                  const QList<MappingWorkbenchPage *> &pages,
+                                  const QStringList &modes) {
+  struct Binding {
+    QString action;
+    int page;
+    QString command;
+    QString legacy;
+  };
+  const QList<Binding> bindings{
+      {"ribbonRunPrediction", 0, "predict", "runButton"},
+      {"ribbonFuse", 2, "compose", "fuseButton"},
+      {"ribbonPolygonize", 2, "polygonize", "polygonizeButton"},
+      {"ribbonSaveVersion", 2, "save", "saveVersionButton"}};
+  for (const auto &b : bindings) {
+    // The visible parameter tab owns the ribbon action's readiness and intent.
+    // Remirroring replaces the old event filter and connection atomically.
+    auto *action = self->findChild<QAction *>(b.action);
+    auto *tabs = self->findChild<QTabWidget *>("workbenchTabs." + modes[b.page]);
+    if (!action || !tabs)
+      continue;
+    auto *primary = pages[b.page]->commandButton(b.command);
+    auto *legacy = tabs->widget(1)->findChild<QPushButton *>(b.legacy);
+    action->setMenu(nullptr);
+    auto bind = [action, primary, legacy](int index) {
+      PaleoRibbon::mirror(action, index == 0 ? primary : legacy, true, false);
+    };
+    QObject::connect(tabs, &QTabWidget::currentChanged, self, bind);
+    bind(tabs->currentIndex());
+  }
+  if (auto *tabs = self->findChild<QTabWidget *>("workbenchTabs.compose")) {
+    for (const auto &name :
+         {"ribbonThicknessChain", "ribbonPublish"})
+      if (auto *action = self->findChild<QAction *>(name)) {
+        action->setVisible(tabs->currentIndex() == 1);
+        QObject::connect(tabs, &QTabWidget::currentChanged, action,
+                [action](int index) { action->setVisible(index == 1); });
+      }
+  }
 }
+}
+// C-W5（#997）：当前可见工作台页——按当前页签在三个 workbenchTabs 容器里
+// 解析所属 MappingWorkbenchPage；触发时刻读取，反馈不落在隐藏的旧页面。
+MappingWorkbenchPage *PaleoMainWindow::currentWorkbenchPage() const {
+  auto *tabs = findChild<QTabWidget *>(QStringLiteral("workbenchTabs.") + currentPage());
+  return tabs ? tabs->findChild<MappingWorkbenchPage *>() : nullptr;
+}
+
 void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
   if (!workbench || property("workbenchAttached").toBool())
     return;
+  // C-W7：前置校验——必要基础对象（页面栈宿主、画布控制器）先于任何页面栈
+  // 改动确认在场；失败直接返回且**不置完成标记**，装配可整体重试。
+  // （m_selection 可缺席：#994 起 productReady/切层回调一律判空，不再解引用
+  // 缺失的选择服务；小型宿主/测试壳按各自实际能力运行。）
   auto *host = findChild<QWidget *>("rightPanelHost");
   auto *stack = host ? qobject_cast<QStackedLayout *>(host->layout()) : nullptr;
-  if (!stack || stack->count() < paleo::pagesinternal::kPageIds.size())
+  if (!stack || stack->count() < paleo::pagesinternal::kPageIds.size() || !m_canvasCtl)
     return;
-  setProperty("workbenchAttached", true);
   m_workbench = workbench;
   bindWorkbenchSelection(workbench);
   // 智能预测在后台执行：开跑即弹出底栏任务中心并切到任务页（底栏原本就
@@ -351,7 +408,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   connect(workbench, &MappingWorkbench::productReady, this,
           [this, show, pages, workbench, openWells,
            wellDock](const QString &h, const QString &id) {
-            if (h == m_selection->activeHorizon() || h==paleo::strat::analysisLayerKey(m_selection->activeUnit())) {
+            // #994：选择服务可缺席（无 SelectionContext 的宿主）——只跳过
+            // 需要当前层位的上图分支，页面刷新/反馈照常。
+            const bool matchesSelection =
+                m_selection && (h == m_selection->activeHorizon() ||
+                                h == paleo::strat::analysisLayerKey(m_selection->activeUnit()));
+            if (matchesSelection) {
               QString error;
               if (!show(id, &error))
                 statusBar()->showMessage(error, 10000);
@@ -377,24 +439,28 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               page->showMessage(error);
             PaleoNotify::warning(this, tr("编图操作未完成"), error);
           });
-  connect(m_selection, &SelectionContext::activeHorizonChanged, this,
-          [legend] { legend(); });
-  connect(m_selection, &SelectionContext::activeHorizonChanged, this,
-          [this, show, shown, pages](const QString &h) {
-            QMetaObject::invokeMethod(
-                this,
-                [this, show, shown, pages, h] {
-                  if (m_selection->activeHorizon() != h || !shown->contains(h))
-                    return;
-                  QString error;
-                  const auto id = shown->value(h);
-                  if (show(id, &error))
-                    for (auto *page : pages)
-                      if (page->horizon() == h)
-                        page->selectLayer(id);
-                },
-                Qt::QueuedConnection);
-          });
+  // #994：选择服务缺席的宿主不接切层联动（回调内已判空，这里连 connect 都省）。
+  if (m_selection) {
+    connect(m_selection, &SelectionContext::activeHorizonChanged, this,
+            [legend] { legend(); });
+    connect(m_selection, &SelectionContext::activeHorizonChanged, this,
+            [this, show, shown, pages](const QString &h) {
+              QMetaObject::invokeMethod(
+                  this,
+                  [this, show, shown, pages, h] {
+                    // 排队回调执行时选择服务可能已被拆除（#994）：判空后跳过。
+                    if (!m_selection || m_selection->activeHorizon() != h || !shown->contains(h))
+                      return;
+                    QString error;
+                    const auto id = shown->value(h);
+                    if (show(id, &error))
+                      for (auto *page : pages)
+                        if (page->horizon() == h)
+                          page->selectLayer(id);
+                  },
+                  Qt::QueuedConnection);
+            });
+  }
   if (auto *tree = findChild<QgsLayerTreeView *>())
     connect(tree, &QgsLayerTreeView::currentLayerChanged, this,
             [legend](QgsMapLayer *layer) {
@@ -422,48 +488,13 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                 page->showMessage(
                     ok ? tr("画布编辑已保存，并登记了新的图件版本。") : error);
             });
-  // The visible parameter tab owns the ribbon action's readiness and intent.
-  // Remirroring replaces the old event filter and connection atomically.
-  struct Binding {
-    QString action;
-    int page;
-    QString command;
-    QString legacy;
-  };
-  const QList<Binding> bindings{
-      {"ribbonRunPrediction", 0, "predict", "runButton"},
-      {"ribbonDrawConstraint", 1, "draw", "drawButton"},
-      {"ribbonRunIdw", 1, "factor", "runIdwButton"},
-      {"ribbonFuse", 2, "compose", "fuseButton"},
-      {"ribbonPolygonize", 2, "polygonize", "polygonizeButton"},
-      {"ribbonSaveVersion", 2, "save", "saveVersionButton"}};
-  for (const auto &b : bindings) {
-    // 单因素主流程与 ribbon 已绑定同一 ConstraintPage；图件页不替换方法入口。
-    if (b.page == 1) continue;
-    auto *action = findChild<QAction *>(b.action);
-    auto *tabs = findChild<QTabWidget *>("workbenchTabs." + modes[b.page]);
-    if (!action || !tabs)
-      continue;
-    auto *primary = pages[b.page]->commandButton(b.command);
-    auto *legacy = tabs->widget(1)->findChild<QPushButton *>(b.legacy);
-    action->setMenu(nullptr);
-    auto bind = [action, primary, legacy](int index) {
-      PaleoRibbon::mirror(action, index == 0 ? primary : legacy, true, false);
-    };
-    connect(tabs, &QTabWidget::currentChanged, this, bind);
-    bind(tabs->currentIndex());
-  }
-  if (auto *tabs = findChild<QTabWidget *>("workbenchTabs.compose")) {
-    for (const auto &name :
-         {"ribbonThicknessChain", "ribbonPublish"})
-      if (auto *action = findChild<QAction *>(name)) {
-        action->setVisible(tabs->currentIndex() == 1);
-        connect(tabs, &QTabWidget::currentChanged, action,
-                [action](int index) { action->setVisible(index == 1); });
-      }
-  }
+  attachWorkbenchRibbonMirrors(this, pages, modes);
   attachMappingEditBasisEntry(workbench, pages[2]);
   legend();
+  // C-W7：完成标记只在全部接线成功后置位（与 attachWorkflows 的「成功才置位」
+  // 契约同型，但两者职责不同、不合并）。此前标记在入口即写，前置失败后
+  // 重试会被幂等守卫挡掉，半装配状态被当成已完成。
+  setProperty("workbenchAttached", true);
 }
 
 void PaleoMainWindow::attachMappingEditBasisEntry(MappingWorkbench *workbench, MappingWorkbenchPage *page) {

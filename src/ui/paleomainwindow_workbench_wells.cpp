@@ -120,16 +120,18 @@ void attachWellPanelActions(PaleoMainWindow *self, MappingWorkbench *workbench,
           });
 }
 
-// #538：画布右键「更改此要素的相」菜单——自 attachWorkbenchWells 拆出，逐字
-// 平移（this → self，私有成员经参数传入），行为守恒。
+// #538：画布右键「更改此要素的相」菜单——自 attachWorkbenchWells 拆出（this →
+// self，私有成员经参数传入）。C-W5（#997）：反馈出口改为触发时刻的类型化
+// 当前页解析（PaleoMainWindow::currentWorkbenchPage），不再固定捕获
+// pages.value(0)；右键目标（图层 id + 命中要素）仍在触发时冻结并校验。
+// 无工作台页的测试壳走后端直调兜底，但与统一准入同口径：只读工程先拒绝。
 void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
                             QgisCanvasController *canvasCtl,
                             QgisLayerService *layerSvc,
-                            const std::function<bool(const QString &)> &beginEdit,
-                            const QPointer<MappingWorkbenchPage> &page) {
+                            const std::function<bool(const QString &)> &beginEdit) {
   QObject::connect(
       canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, self,
-      [self, workbench, canvasCtl, layerSvc, beginEdit, page](QMenu *menu, QgsMapMouseEvent *event) {
+      [self, workbench, canvasCtl, layerSvc, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
         auto *v = qobject_cast<QgsVectorLayer *>(
             canvasCtl->canvas()->currentLayer());
         if (!v || v->fields().indexOf("facies_code") < 0)
@@ -150,14 +152,25 @@ void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
         //（撤销栈、ErrorHub 失败回报口径一致）；图层 id 显式取右键图层。
         FaciesPinMenu::add(menu, schema, original.attribute("facies_code"),
                            workbench->pinnedLevels(id),
-                           [self, workbench, id, page](const QString &key, const QString &mode) {
-                             if (page) {
+                           [self, workbench, id](const QString &key, const QString &mode) {
+                             // C-W5：触发时刻解析当前可见工作台页——切页后反馈
+                             // 属于当前上下文，目标图层 id 仍是右键对象。
+                             if (auto *page = self->currentWorkbenchPage()) {
                                emit page->commandRequested(
                                    QStringLiteral("pinFaciesLevel"),
                                    {{"layer", id}, {"pin_key", key}, {"display_mode", mode}});
                                return;
                              }
-                             QString error; // 无工作台页（测试壳）：后端直调兜底
+                             // 无工作台页（测试壳）：后端直调兜底走同一准入口径
+                             //（C-W2）——只读工程先拒绝，不留绕过 gate 的捷径。
+                             if (self->isProjectReadOnly()) {
+                               self->statusBar()->showMessage(
+                                   PaleoMainWindow::tr(
+                                       "工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消"),
+                                   10000);
+                               return;
+                             }
+                             QString error;
                              const bool ok = workbench->setPinnedLevel(id, key, mode, &error);
                              self->statusBar()->showMessage(
                                  ok ? PaleoMainWindow::tr("相图显示层级、标注与图例已更新。") : error, 10000);
@@ -173,6 +186,15 @@ void attachCanvasFaciesMenu(PaleoMainWindow *self, MappingWorkbench *workbench,
               action, &QAction::triggered, self,
               [self, workbench, layerSvc, id, original, code = f.value("code").toInt(),
                beginEdit] {
+                // C-W2：画布右键改相是写入意图——与统一准入同口径，只读工程
+                // 拒绝并给原因（复制工作副本/改相都会写工程）。
+                if (self->isProjectReadOnly()) {
+                  self->statusBar()->showMessage(
+                      PaleoMainWindow::tr(
+                          "工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消"),
+                      10000);
+                  return;
+                }
                 QString error;
                 QString target = id;
                 QgsFeatureId fid = original.id();
@@ -303,7 +325,7 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
           });
   if (auto *dataPage = findChild<DataPage *>())
     connect(dataPage->graphPage(), &DataGraphPage::workspaceRequested, this,
-            [this, workbench, pages, show, compare, openWells](const QString &version, const QString &action) {
+              [this, workbench, pages, show, compare, openWells](const QString &version, const QString &action) {
               QString error;
               const auto id = workbench->layerForVersion(version, &error);
               if (id.isEmpty()) { statusBar()->showMessage(error, 15000); return; }
@@ -314,10 +336,14 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
                   kind.contains("prediction") || kind.contains("well") || kind.contains("seismic")
                   ? QStringLiteral("predict") : kind.startsWith("single_factor") || kind.startsWith("constraint") || kind == "contour_lines"
                   ? QStringLiteral("constraint") : QStringLiteral("compose");
-              if (!declaration.horizon.isEmpty()) m_selection->setActiveHorizon(declaration.horizon);
+              // #994：无选择服务的宿主跳过切层，页面按声明层位对齐。
+              if (m_selection) {
+                if (!declaration.horizon.isEmpty()) m_selection->setActiveHorizon(declaration.horizon);
+              }
               showPage(pageId);
+              const auto horizon = m_selection ? m_selection->activeHorizon() : declaration.horizon;
               for (auto *page : pages) {
-                page->setHorizon(m_selection->activeHorizon()); page->refresh(); page->selectLayer(id);
+                page->setHorizon(horizon); page->refresh(); page->selectLayer(id);
               }
               bool ok = action == "compare" ? compare(id, &error) : show(id, &error);
               if (ok && action == "welltracks") {
@@ -359,11 +385,12 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
                 (DraftAutosave::of(v) && DraftAutosave::of(v)->canUndo()));
         }
       });
-  connect(m_selection, &SelectionContext::activeHorizonChanged, wellPanel,
-          [wellPanel, wellDock] {
-            wellPanel->clear();
-            wellDock->hide();
-          });
+  if (m_selection)
+    connect(m_selection, &SelectionContext::activeHorizonChanged, wellPanel,
+            [wellPanel, wellDock] {
+              wellPanel->clear();
+              wellDock->hide();
+            });
   if (m_projectSvc) {
     connect(m_projectSvc, &QgisProjectService::projectOpened, wellPanel,
             [wellPanel, wellDock] {
@@ -371,7 +398,6 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
               wellDock->hide();
             });
   }
-  attachCanvasFaciesMenu(this, workbench, m_canvasCtl, m_layerSvc,
-                         beginEdit, QPointer<MappingWorkbenchPage>(pages.value(0)));
+  attachCanvasFaciesMenu(this, workbench, m_canvasCtl, m_layerSvc, beginEdit);
   return {wellPanel, wellDock, openWells, beginEdit};
 }

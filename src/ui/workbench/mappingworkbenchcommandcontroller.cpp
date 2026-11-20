@@ -7,6 +7,7 @@
 #include "mappingworkbenchcommandcontroller.h"
 
 #include "impactoutcome.h"
+#include "workbenchadmission.h"
 #include "../workbenchcommandregistry.h"
 
 #include "../../catalog/datacatalog.h"
@@ -81,6 +82,24 @@ struct WaitCursorGuard
 enum class WbCmdStep { Skip, Handled, Return };
 
 using CommandContext = paleo::workbench::MappingWorkbenchCommandController::Context;
+
+// C-W4：模态边界（删除确认/文件与参数对话框）返回后的统一复核——嵌套事件
+// 循环期间宿主、页面、依赖、只读或工程会话都可能变化；与触发前同一准入
+// 口径（WorkbenchAdmission::admit），不能拿冻结的旧上下文继续当执行授权。
+bool postModalUsable(const CommandContext &d, const QString &action, QString *error)
+{
+  const auto *spec = paleo::workbenchcmd::find(action);
+  if (!spec) { // 未知动作在入口已拒；此处仅防御
+    if (error) *error = WorkbenchText::tr("未知操作：%1").arg(action);
+    return false;
+  }
+  const auto verdict = paleo::workbench::WorkbenchAdmission::admit(*spec, d);
+  if (!verdict.allowed) {
+    if (error) *error = verdict.reason;
+    return false;
+  }
+  return true;
+}
 
 // 查询族：predict / wellattributes / wellformations / cancel / show / graph /
 // catalog / reverseQuery / impactAnalysis / compareRecompute / recompute。
@@ -340,6 +359,11 @@ WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
             PaleoNotify::AskDefault::Reject,
             PaleoNotify::AskIcon::Warning))
       return WbCmdStep::Return;
+    else if (!postModalUsable(d, action, &error)) {
+      // C-W4：确认期间宿主/依赖/只读/工程会话已变化——拒绝并给明确原因，
+      // 不继续调用确认前捕获的 canvas/panel/dock。
+      ok = false;
+    }
     else if (d.workbench->removalProducts(id, &error) != products) {
       ok = false;
       if (error.isEmpty()) error = WorkbenchText::tr("图件或来源记录已变化，请重新确认删除");
@@ -375,6 +399,10 @@ WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
         WorkbenchText::tr("矢量文件 (*.gpkg *.geojson *.json *.shp)"));
     if (path.isEmpty())
       return WbCmdStep::Return;
+    if (!postModalUsable(d, action, &error)) {
+      // C-W4：文件选择期间工程已切换/只读已变化——不向新会话导入。
+      ok = false;
+    } else {
     paleo::ConstraintImportFailure failure = paleo::ConstraintImportFailure::None;
     ok = d.workbench->importConstraints(h, path, QStringLiteral("auto"),
                                         &error, &failure);
@@ -386,14 +414,18 @@ WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
       const QString choice = QInputDialog::getItem(
           d.dialogParent, WorkbenchText::tr("约束线类型"), WorkbenchText::tr("无法自动判断，请选择约束线类型："),
           {WorkbenchText::tr("方向线"), WorkbenchText::tr("打断线")}, 0, false, &ok);
-      if (ok)
+      if (!ok)
+        return WbCmdStep::Return;
+      // C-W4：角色选择也是模态边界——返回后同样复核再导入。
+      if (!postModalUsable(d, action, &error)) {
+        ok = false;
+      } else
         ok = d.workbench->importConstraints(
             h, path,
             choice == WorkbenchText::tr("方向线") ? QStringLiteral("direction")
                                   : QStringLiteral("barrier"),
             &error);
-      else
-        return WbCmdStep::Return;
+    }
     }
   } else if (action == "draw") {
     if (d.constraint) {
@@ -484,6 +516,13 @@ bool runMappingEditFlow(const CommandContext &d, const QString &action,
       return true;
     if (!d.dialogParent || !d.workbench || !d.page)
       return true;
+    // C-W4：导出对话框期间宿主/工程会话可能变化——与既有 session 复核同层
+    // 再过一次统一准入口径（只读翻转/切换中在 dialog 期间也可能发生）。
+    QString admissionReason;
+    if (!postModalUsable(d, action, &admissionReason)) {
+      notify(admissionReason);
+      return true;
+    }
     if (!tasks || tasks != d.taskService() || tasks->session() != session || !catalog ||
         catalog != d.workbench->catalog() || catalog->projectDir() != directory) {
       notify(WorkbenchText::tr("工程已切换，请重新打开导出。"));
@@ -593,14 +632,23 @@ bool MappingWorkbenchCommandController::handlesAction(const QString &action) con
 
 void MappingWorkbenchCommandController::handleCommand(const QString &action, const QVariantMap &p) {
   const auto d = m_ctx;
-  if (!d.dialogParent || !d.statusBar || !d.workbench || !d.page)
+  // C-W2：基础上下文缺失不再静默返回——状态栏还活着就给用户一个明确拒绝，
+  // 并入账 ErrorHub（此前入口直接 return，调用方以为已受理）。
+  if (!d.dialogParent || !d.statusBar || !d.workbench || !d.page) {
+    const QString message =
+        WorkbenchText::tr("工作台上下文不完整，操作未执行：%1").arg(action);
+    qWarning("runWorkbenchCommand: incomplete context for '%s'", qPrintable(action));
+    if (d.statusBar) d.statusBar->showMessage(message, 10000);
+    reportWorkbenchFailure(action, message);
     return;
+  }
   QString error;
   bool ok = true;
   // 分支量化详情成功文案（影响分析/重算对比/受控重算）：见查询族 statusDetail。
   QString statusDetail;
   // review-fix H1：未登记动作显式失败，不再落到默认成功文案。
-  if (!handlesAction(action)) {
+  const auto *spec = paleo::workbenchcmd::find(action);
+  if (!spec) {
     qWarning("runWorkbenchCommand: unknown action '%s'", qPrintable(action));
     const QString message = WorkbenchText::tr("未知操作：%1").arg(action);
     d.page->showMessage(message);
@@ -608,25 +656,47 @@ void MappingWorkbenchCommandController::handleCommand(const QString &action, con
     reportWorkbenchFailure(action, message);
     return;
   }
-  if (runMappingEditFlow(d, action, p)) return;
+  // C-W2：触发时刻统一准入（依赖/只读/切换中）。展示状态只是快照——按钮
+  // enabled 不是执行授权；页面按钮、Ribbon 镜像与直接 handleCommand 都在
+  // 这里复核真实上下文。
+  const auto verdict = WorkbenchAdmission::admit(*spec, d);
+  if (!verdict.allowed) {
+    const QString message =
+        WorkbenchText::tr("操作未执行（%1）：%2").arg(verdict.reason, action);
+    d.page->showMessage(message);
+    d.statusBar->showMessage(verdict.reason, 10000);
+    reportWorkbenchFailure(action, message);
+    return;
+  }
   bool declarationOnly = false;
   const auto h = p.value("horizon").toString(),
              id = p.value("layer").toString();
   const auto inputs = p.value("inputs").toStringList();
-  WbCmdStep step = runWorkbenchQueryFamily(d, action, h, id, inputs, p, ok,
-                                           error, statusDetail);
-  if (step == WbCmdStep::Skip)
-    step = runWorkbenchEditFamily(d, action, id, inputs, p, ok, error);
-  if (step == WbCmdStep::Skip)
-    step = runWorkbenchLifecycleFamily(d, action, h, id, inputs, p, ok,
-                                       error, declarationOnly);
+  // C-W1：分派由单份目录的 family 直达唯一处理入口，不再依次试探四段
+  // Skip 链——登记与分族不再可能漏配。
+  WbCmdStep step = WbCmdStep::Skip;
+  switch (spec->family) {
+    case paleo::workbenchcmd::Family::EditFlow:
+      step = runMappingEditFlow(d, action, p) ? WbCmdStep::Return : WbCmdStep::Skip;
+      break;
+    case paleo::workbenchcmd::Family::Query:
+      step = runWorkbenchQueryFamily(d, action, h, id, inputs, p, ok, error, statusDetail);
+      break;
+    case paleo::workbenchcmd::Family::Edit:
+      step = runWorkbenchEditFamily(d, action, id, inputs, p, ok, error);
+      break;
+    case paleo::workbenchcmd::Family::Lifecycle:
+      step = runWorkbenchLifecycleFamily(d, action, h, id, inputs, p, ok, error, declarationOnly);
+      break;
+  }
   if (step == WbCmdStep::Return)
     return;
   if (step == WbCmdStep::Skip) {
-    // 已登记却无分支受理（如编辑流前置条件不满足）：按失败回报。
-    qWarning("runWorkbenchCommand: action '%s' not handled", qPrintable(action));
+    // 已登记、准入放行，但其声明族没有受理分支：登记表与分派实现不一致，
+    // 按失败回报（与未知动作同一入账口径）。
+    qWarning("runWorkbenchCommand: action '%s' not claimed by its family", qPrintable(action));
     ok = false;
-    error = WorkbenchText::tr("操作未执行：%1 当前不可用").arg(action);
+    error = WorkbenchText::tr("操作未执行：%1 未被其声明处理族受理（登记与实现不一致）").arg(action);
   }
   QString message;
   // 分支已产出量化详情（像元数/报告路径/逐条 reason）时直接复用为成功文案：

@@ -24211,6 +24211,110 @@ PDF：%3
             <source>版本已保存，后续操作未完成</source>
             <translation>Version saved, but subsequent operations are incomplete</translation>
         </message>
+        <message>
+        <source>工程正在打开或切换，请稍后再试</source>
+        <translation>A project is opening or switching; please retry shortly</translation>
+    </message>
+    <message>
+        <source>命令所需依赖不可用：%1</source>
+        <translation>Required command dependencies are unavailable: %1</translation>
+    </message>
+    <message>
+        <source>画布控制器</source>
+        <translation>canvas controller</translation>
+    </message>
+    <message>
+        <source>图层服务</source>
+        <translation>layer service</translation>
+    </message>
+    <message>
+        <source>约束编图页</source>
+        <translation>constraint mapping page</translation>
+    </message>
+    <message>
+        <source>测井预测修订面板</source>
+        <translation>well prediction revision panel</translation>
+    </message>
+    <message>
+        <source>测井预测窗口</source>
+        <translation>well prediction dock</translation>
+    </message>
+    <message>
+        <source>影响分析反馈</source>
+        <translation>impact-analysis feedback</translation>
+    </message>
+    <message>
+        <source>已显示图件登记</source>
+        <translation>shown-map registry</translation>
+    </message>
+    <message>
+        <source>图件显示入口</source>
+        <translation>map display entry</translation>
+    </message>
+    <message>
+        <source>证据参考入口</source>
+        <translation>evidence reference entry</translation>
+    </message>
+    <message>
+        <source>图例刷新入口</source>
+        <translation>legend refresh entry</translation>
+    </message>
+    <message>
+        <source>井道面板入口</source>
+        <translation>well track panel entry</translation>
+    </message>
+    <message>
+        <source>编辑会话入口</source>
+        <translation>edit session entry</translation>
+    </message>
+    <message>
+        <source>属性表导航</source>
+        <translation>attribute table navigation</translation>
+    </message>
+    <message>
+        <source>图谱导航</source>
+        <translation>graph navigation</translation>
+    </message>
+    <message>
+        <source>数据管理导航</source>
+        <translation>data catalog navigation</translation>
+    </message>
+    <message>
+        <source>图件输出入口</source>
+        <translation>map export entry</translation>
+    </message>
+    <message>
+        <source>工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消</source>
+        <translation>The project is read-only; write operations are disabled. Browsing, queries and cancelling running jobs remain available</translation>
+    </message>
+    <message>
+        <source>操作未执行（%1）：%2</source>
+        <translation>Operation not executed (%1): %2</translation>
+    </message>
+    <message>
+        <source>操作未执行：%1 未被其声明处理族受理（登记与实现不一致）</source>
+        <translation>Operation not executed: %1 is not claimed by its declared handler family (registry/implementation mismatch)</translation>
+    </message>
+    <message>
+        <source>工作台上下文不完整，操作未执行：%1</source>
+        <translation>Workbench context is incomplete; operation not executed: %1</translation>
+    </message>
+    <message>
+        <source>工作台上下文不完整（窗口/状态栏/工作台/页面）</source>
+        <translation>Workbench context is incomplete (window/status bar/workbench/page)</translation>
+    </message>
+    <message>
+        <source>命令源按钮已销毁；切换页签或重建面板后恢复</source>
+        <translation>Command source button destroyed; switch tabs or rebuild the panel to restore</translation>
+    </message>
+    <message>
+        <source>命令源不可用；切换页签或重建面板后恢复</source>
+        <translation>Command source unavailable; switch tabs or rebuild the panel to restore</translation>
+    </message>
+    <message>
+        <source>工程处于只读模式，撤销/重做已禁用</source>
+        <translation>The project is read-only; undo/redo is disabled</translation>
+    </message>
     </context>
     <context>
         <name>PaleoMapBookController</name>

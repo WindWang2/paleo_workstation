@@ -168,6 +168,10 @@ class DataListPanel : public QWidget
     // ---- D5 撤销/重做（含状态反馈信号）----
     void undoOp();
     void redoOp();
+    // C-W3（#995）：接入宿主写许可——只读工程下按钮置灰带原因，undoOp/redoOp
+    // 入口复核（按钮、data.list.undo/redo 快捷键与程序直调同一条门）。
+    // 兼容加法：未设置（默认 false）时保持既有行为，独立测试壳不受影响。
+    void setUndoReadOnly(bool readOnly);
 
     // ---- D1 批量操作（右键菜单/命令面板共用入口）----
     void batchAttachToEntity();          // D1.4 目标实体对话框
@@ -338,6 +342,8 @@ class DataListPanel : public QWidget
     bool m_treeStale = false;
     // D5 视图命令栈（挂接/标签/改型/软删…；壳订阅 stackChanged 刷按钮态）。
     paleo::dataops::DataOpsUndoStack *m_opStack = nullptr;
+    // C-W3：宿主只读门（setUndoReadOnly 注入；默认可写，兼容独立测试壳）。
+    bool m_undoReadOnly = false;
     // P1（data-commands）：命令服务 + 会话代数（loadStoresForCatalog 绑定）。
     paleo::dataops::DataOpsCommandService m_cmdSvc;
     paleo::dataops::DataOpsSession m_opsSession;

@@ -239,6 +239,10 @@ class PaleoMainWindow : public SARibbonMainWindow
     // Swap right-dock placeholder panels for the real page panels (§42.2),
     // bound to the workflow orchestrators. Call after AppContext assembly.
     void attachWorkbench(MappingWorkbench *workbench, class EvidenceInteraction *evidence = nullptr);
+    // C-W5（#997）：当前**可见**工作台页的类型化解析——画布固定层级/右键菜单
+    // 的反馈出口按触发时刻的页签解析，不捕获 pages[0]。当前不是工作台页
+    //（数据/布局等）或未装配时返回 nullptr。
+    MappingWorkbenchPage *currentWorkbenchPage() const;
     // goal/time-depth-velocity：层树「转换为深度域…」意图 → DepthConversionWorkflow。
     // 独立于 attachWorkflows，避免动其签名（同 attachMapping 先例）。
     void attachDepthConversion(DepthConversionWorkflow *depth);

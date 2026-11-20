@@ -1199,16 +1199,14 @@ private slots:
     QVERIFY(emitted.size() > 20);
     for (const auto &action : std::as_const(emitted))
       QVERIFY2(isKnownAction(action), qPrintable("unregistered workbench action: " + action));
-    QSet<QString> dispatched;
-    const QRegularExpression literal(QStringLiteral(R"re(action == "([A-Za-z]+)")re"));
-    QFile source(QStringLiteral(PALEO_SOURCE_DIR "/src/ui/workbench/mappingworkbenchcommandcontroller.cpp"));
-    QVERIFY2(source.open(QIODevice::ReadOnly), qPrintable(source.fileName()));
-    auto it = literal.globalMatch(QString::fromUtf8(source.readAll()));
-    while (it.hasNext()) dispatched.insert(it.next().captured(1));
-    for (const auto &action : knownActions())
-      QVERIFY2(dispatched.contains(action), qPrintable("registered action without dispatch branch: " + action));
-    for (const auto &action : std::as_const(dispatched))
-      QVERIFY2(isKnownAction(action), qPrintable("dispatch branch not registered: " + action));
+    // C-W1（#983）：覆盖检查由源码正则改为结构校验——单份目录表完整性 +
+    // knownActions 恰好由目录派生（运行时分派覆盖与准入矩阵在
+    // tst_c_workbench_commands 的真实分派上验证）。
+    QVERIFY2(catalogIntegrity().isEmpty(), qPrintable(catalogIntegrity().join('\n')));
+    QSet<QString> ids;
+    for (const auto &spec : catalog())
+      ids.insert(QString::fromLatin1(spec.id));
+    QCOMPARE(ids, knownActions());
   }
   void workbenchCommandsDelegateToController() {
     // #749：命令分发链迁出主窗口——每个工作台页挂一个 MappingWorkbenchCommandController

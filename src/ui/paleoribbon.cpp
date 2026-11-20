@@ -23,7 +23,14 @@ namespace
 {
   // 事件过滤器挂在面板按钮上：EnabledChange / ToolTipChange 时整体重同步。
   // setText 没有对应事件——动态文案的按钮在改文案的同一处都会改 tooltip
-  // （setThicknessHorizon / setVersionState），ToolTipChange 顺带把文案带过来。
+  //（setThicknessHorizon / setVersionState），ToolTipChange 顺带把文案带过来。
+  // C-W6（#996）生命周期契约：
+  //   - 本对象是 action 的子件，action 析构 → 镜像随之析构（Qt 父子链）；
+  //   - 源按钮 toggled→action 的连接以**本对象**为接收者（context）——mirror()
+  //     重绑删除旧镜像时该连接一并断开，旧按钮的状态变化不再影响动作；
+  //   - 源按钮析构 → 镜像禁用动作并留诊断原因，不残留最后一次同步的可用态；
+  //   - checkable 完整重置：新源不可勾选时动作也回到不可勾选（此前只在可勾选
+  //     时单向置 true，A→B→C 重绑后动作残留可勾选态）。
   class ButtonMirror : public QObject
   {
     public:
@@ -40,8 +47,20 @@ namespace
             return;
           activate();
         });
-        if (button->isCheckable())
-          QObject::connect(button, &QAbstractButton::toggled, action, &QAction::setChecked);
+        // C-W6：连接接收者为本镜像（而非 action）——删除镜像即断开旧源影响。
+        QObject::connect(button, &QAbstractButton::toggled, this, [this](bool checked) {
+          if (m_action)
+            m_action->setChecked(checked);
+        });
+        // C-W6：源按钮销毁（页面重建/标签切换拆按钮）→ 动作禁用并给出可诊断
+        // 原因；事件过滤器随 QObject 析构自动摘除，这里只处理动作侧状态。
+        QObject::connect(button, &QObject::destroyed, this, [this] {
+          if (!m_action)
+            return;
+          m_action->setEnabled(false);
+          m_action->setToolTip(QCoreApplication::translate(
+              "PaleoRibbon", "命令源按钮已销毁；切换页签或重建面板后恢复"));
+        });
         sync();
       }
 
@@ -89,11 +108,13 @@ namespace
           help = m_button->accessibleDescription();
         if (!help.isEmpty())
           m_action->setWhatsThis(help);
+        // C-W6：checkable 完整双向同步——不可勾选源同样要把动作复位，
+        // 重绑链 A(可勾选)→B(可勾选)→C(普通) 不残留旧可勾选态。
+        m_action->setCheckable(m_button->isCheckable());
         if (m_button->isCheckable())
-        {
-          m_action->setCheckable(true);
           m_action->setChecked(m_button->isChecked());
-        }
+        else if (m_action->isChecked())
+          m_action->setChecked(false);
       }
 
       QPointer<QAction> m_action;
@@ -300,9 +321,21 @@ namespace PaleoRibbon
 
   void mirror(QAction *action, QAbstractButton *button, bool syncText, bool hideSource)
   {
-    if (!action || !button)
+    if (!action)
       return;
-    if (auto *old=action->findChild<QObject *>(QStringLiteral("paleoButtonMirror"))) delete old;
+    // C-W6：重绑原子性——先删旧镜像（其 toggled 连接/事件过滤器随对象析构
+    // 一并断开），再建新镜像；新旧源不会同时影响动作。
+    if (auto *old = action->findChild<QObject *>(QStringLiteral("paleoButtonMirror")))
+      delete old;
+    if (!button)
+    {
+      // 来源缺失（页面按钮未建/已销毁）：禁用且可诊断，不能保留上一次同步
+      // 的可用态让 trigger 什么都不做。
+      action->setEnabled(false);
+      action->setToolTip(QCoreApplication::translate(
+          "PaleoRibbon", "命令源不可用；切换页签或重建面板后恢复"));
+      return;
+    }
     new ButtonMirror(action, button, syncText);
     if (hideSource)
       button->hide();

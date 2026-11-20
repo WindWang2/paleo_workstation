@@ -288,8 +288,34 @@ void DataListPanel::rebuildRowSnapshot()
   }
 }
 
+void DataListPanel::setUndoReadOnly(bool readOnly)
+{
+  // C-W3：宿主写许可注入（与 FaultManagerPanel::setUndoReadOnly 同型）。
+  // 只置门不清栈——历史原样保留，恢复可写后按原契约继续可用。
+  m_undoReadOnly = readOnly;
+  refreshUndoButtons();
+}
+
 void DataListPanel::refreshUndoButtons()
 {
+  // C-W3：只读门优先于栈可操作性——按钮面如实显示原因，不假装「无可撤销」。
+  if (m_undoReadOnly)
+  {
+    const QString reason = tr("工程处于只读模式，撤销/重做已禁用");
+    if (m_undoBtn)
+    {
+      m_undoBtn->setEnabled(false);
+      m_undoBtn->setText(tr("撤销"));
+      m_undoBtn->setToolTip(reason);
+    }
+    if (m_redoBtn)
+    {
+      m_redoBtn->setEnabled(false);
+      m_redoBtn->setText(tr("重做"));
+      m_redoBtn->setToolTip(reason);
+    }
+    return;
+  }
   if (m_undoBtn)
   {
     // D5.2：菜单项（按钮同面）显示操作名——「撤销 挂接 …」。
@@ -313,6 +339,13 @@ void DataListPanel::refreshUndoButtons()
 
 void DataListPanel::undoOp()
 {
+  // C-W3：触发前复核（按钮、data.list.undo 快捷键与程序直调共用此门）——
+  // 按钮可用态只是快照，只读翻转后直达调用也不能进栈。
+  if (m_undoReadOnly)
+  {
+    emit statusMessage(tr("工程处于只读模式，撤销/重做已禁用"));
+    return;
+  }
   if (!m_opStack || !m_opStack->canUndo())
     return;
   const QString text = m_opStack->undo();
@@ -330,6 +363,12 @@ void DataListPanel::undoOp()
 
 void DataListPanel::redoOp()
 {
+  // C-W3：同 undoOp——触发前复核宿主写许可。
+  if (m_undoReadOnly)
+  {
+    emit statusMessage(tr("工程处于只读模式，撤销/重做已禁用"));
+    return;
+  }
   if (!m_opStack || !m_opStack->canRedo())
     return;
   const QString text = m_opStack->redo();

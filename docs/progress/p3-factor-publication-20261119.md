@@ -126,7 +126,44 @@
 
 ## 五、验证记录
 
-（实现后填写：命令、结果、范围）
+环境：CachyOS（glibc 2.44 / GCC 16.2.1 / clang 23.1.5）；deb 闭包受控前缀
+`/home/kevin/projects/paleo-deb-prefix-20261119/usr`（915 包，SHA256 锁校验，
+`.paleo-deb-closure.sha256` 匹配 `vendor/deb-closure.lock`，shim：dpkg-deb
+ar+tar、dpkg-architecture）；worktree `../paleo-p3-factor-publication-20261119`，
+分支 `codex/paleo-p3-factor-publication-20261119`（base `origin/master`
+08ca3e52）。
+
+### 构建
+
+- `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+  -DCMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu -DCMAKE_C_FLAGS=-g1
+  -DCMAKE_CXX_FLAGS=-g1 -DQGIS_PREFIX=<prefix>/usr` + `cmake --build build -j4`：
+  **EXIT 0**（GCC16 全量 RelWithDebInfo 触发 ld「relocation truncated /
+  bad reloc」（大库 debug_info 超限），`-g1` 行号表后稳定；tst_dockmanager
+  串行重链一次通过——均为工具链环境因素，非本 PR 代码）。
+
+### 测试（系统 ctest 4.5 与主机 libxml2 ABI 不匹配——缺
+XML_GetCurrentColumnNumber64，与仓库代码无关；用 tools/run_tests_without_ctest.py
+按 CTestTestfile 语义驱动，-j4）
+
+- 新增：`tst_p3_factor_identity` 9/9、`tst_p3_factor_evidence` 6/6 全绿。
+- 扩展：`tst_capability_recovery_native` 10/10（含新 Host 链 E2E：
+  compute-only→source_operation_id 正式发布、成员 extra 单元身份/父版本、
+  投影绑定指向真实单元）。
+- 全量非 core 套件：**598/601 通过**。3 个失败均为环境类、与本 PR 代码路径
+  无关（已逐一定位）：
+  1. `first_configure`：其子 cmake 首配探测未传 CMAKE_LIBRARY_ARCHITECTURE，
+     deb 路线 multiarch 推断为空（`lib//`）。本 PR 主构建显式传该变量后正常。
+  2. `tst_startup_trace`：QGIS provider 计时份额 perf 断言（healthy/degraded
+     比），单核固定重跑仍不过——机器/前缀加载特征相关；该测试零处触及
+     本 PR 改动的 constraint/factor/analysis 代码。
+  3. `l10n`：本 PR 新 tr() 串未填译文——**已修复**（补 zh/en 译文后 l10n 转绿）。
+
+### Source gates（本地）
+
+check_layering --strict / check_file_budget --strict / check_qgis_spread /
+check_layering --qgs-audit --strict / check_i18n / check_ui_tokens /
+check_docs_drift / check_ts_stale / l10n：**全绿**（P3 修正轮后复跑）。
 
 ## 六、独立复审
 

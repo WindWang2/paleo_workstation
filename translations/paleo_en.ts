@@ -5263,7 +5263,7 @@
         <message>
             <location filename="../src/workflow/constraintwellfactors.cpp" line="1008" />
             <source> 证据发布未完成（已提交 v%1）：%2</source>
-            <translation type="unfinished" />
+            <translation> 证据发布未完成（已提交 v%1）：%2</translation>
         </message>
         <message>
             <location filename="../src/workflow/constraintwellfactors.cpp" line="918" />

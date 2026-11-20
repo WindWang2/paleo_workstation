@@ -1,6 +1,7 @@
 // 层：功能
 #include "onnxpredictionservice.h"
 #include "onnxmodelbytes.h"
+#include "onnxruntimeprobe.h"
 
 #include <QCryptographicHash>
 #include <QCoreApplication>
@@ -43,24 +44,6 @@ Ort::Env &ortEnv()
   return *env;
 }
 
-QString libDirOf( const QString &root )
-{
-  // Canonical vendored layout is <root>/lib; the extracted release archive
-  // keeps that shape, but be tolerant of a wrapped onnxruntime-<platform>-*/
-  // directory one level down.
-  const QString direct = root + QStringLiteral( "/lib" );
-  if ( QDir( direct ).exists() )
-    return direct;
-#ifdef Q_OS_WIN
-  QDirIterator it( root, { QStringLiteral( "onnxruntime*.dll" ) }, QDir::Files,
-                   QDirIterator::Subdirectories );
-#else
-  QDirIterator it( root, { QStringLiteral( "libonnxruntime.so*" ) }, QDir::Files,
-                   QDirIterator::Subdirectories );
-#endif
-  return it.hasNext() ? QFileInfo( it.next() ).absolutePath() : QString();
-}
-
 // ORT 异常信息 → 失败分类（保守归类；原始串永远进错误链）。
 OnnxLoadStatus classifyLoadError( const QString &raw )
 {
@@ -82,6 +65,7 @@ QString loadStatusLabel( OnnxLoadStatus s )
     case OnnxLoadStatus::BadFormat: return QObject::tr( "模型格式不符（protobuf 解析失败）" );
     case OnnxLoadStatus::UnsupportedIr: return QObject::tr( "模型 IR 版本不兼容" );
     case OnnxLoadStatus::CreateFailed: return QObject::tr( "会话创建失败" );
+    case OnnxLoadStatus::RuntimeIncompatible: return QObject::tr( "ONNX Runtime 运行库不兼容" );
     case OnnxLoadStatus::Ok: return QString();
   }
   return QString();
@@ -431,9 +415,6 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
 {
   if ( error )
     error->clear();
-  QString file = name;
-  if ( !file.endsWith( QLatin1String( ".onnx" ) ) )
-    file += QLatin1String( ".onnx" );
 
   const auto finishFail = [this, error]( OnnxLoadStatus status, const QString &msg ) {
     QMutexLocker lock( &m_mutex );
@@ -444,6 +425,21 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
       *error = msg;
     return status;
   };
+
+  // P4-W1：C API 准入探测必须在首个 Ort 包装对象（下文 Ort::SessionOptions/
+  // ortEnv() 的 Ort::Env/Ort::Session）之前完成。探测失败按 RuntimeIncompatible
+  // 如实归类——错误链带所需 API/实际版本/实测加载模块，绝不在不匹配运行库上
+  // 构造对象（TODOS「ONNX 动态库 API 不匹配诊断」：GetApi 返回 nullptr 后的
+  // 访问异常不可由 catch 处理）。
+  const paleo::onnx::OnnxRuntimeProbeResult admission = paleo::onnx::OnnxRuntimeProbe::probe();
+  if ( !admission.ok() )
+  {
+    QString msg = admission.publicCode() + QStringLiteral( ": " ) + admission.summaryText();
+    return finishFail( OnnxLoadStatus::RuntimeIncompatible, msg );
+  }
+  QString file = name;
+  if ( !file.endsWith( QLatin1String( ".onnx" ) ) )
+    file += QLatin1String( ".onnx" );
 
   QString path;
   QString pinnedSha;
@@ -947,18 +943,47 @@ QString PaleoOnnxService::vendorRuntimeDir()
 
 bool PaleoOnnxService::runtimeAvailable()
 {
-  const QString root = vendorRuntimeDir();
-  if ( root.isEmpty() || !QDir( root ).exists() )
-    return false;
-  const QString libDir = libDirOf( root );
-  if ( libDir.isEmpty() )
-    return false;
-#ifdef Q_OS_WIN
-  // fetch-onnxruntime.py 保持 vendor/onnxruntime/lib/onnxruntime.dll 布局。
-  return QFile::exists( libDir + QStringLiteral( "/onnxruntime.dll" ) );
-#else
-  // Accept the versioned soname or the unversioned dev symlink.
-  return QFile::exists( libDir + QStringLiteral( "/libonnxruntime.so.1.30.0" ) ) ||
-         QFile::exists( libDir + QStringLiteral( "/libonnxruntime.so" ) );
-#endif
+  // P4-W1：与 runtimeDiagnostics() 同一结论（探测源一致）。「受控前缀里有
+  // 候选库文件」只是部署事实，不等于进程内 C API 可用——旧行为把文件存在
+  // 当可用，Windows 上 System32 旧库被实际加载时会漏报 API 不匹配。
+  return runtimeDiagnostics().ok();
+}
+
+paleo::onnx::OnnxRuntimeProbeResult PaleoOnnxService::runtimeDiagnostics()
+{
+  return paleo::onnx::OnnxRuntimeProbe::probe();
+}
+
+ModelRegistryEntry PaleoOnnxService::registryEntryFor( const QString &name ) const
+{
+  // 轻量身份查询：锁内拷贝注册表条目，无文件 IO、无会话构建——prepare
+  // 阶段冻结模型身份（P4-W3/W4）用它取钉 SHA，不把哈希/加载搬回 GUI 线程。
+  QMutexLocker lock( &m_mutex );
+  ModelRegistryEntry entry;
+  if ( !m_registryActive )
+  {
+    // 无 manifest 的开发降级：不是注册表管理的模型，如实返回未命中态。
+    entry.status = ModelRegistryEntry::Status::ManifestInvalid;
+    entry.name = name;
+    entry.detail = tr( "models/ 无 manifest（开发降级），模型不受注册表管理" );
+    return entry;
+  }
+  if ( !m_registryError.isEmpty() )
+  {
+    entry.status = ModelRegistryEntry::Status::ManifestInvalid;
+    entry.name = name;
+    entry.detail = m_registryError;
+    return entry;
+  }
+  const auto it = m_registryOk.constFind( name );
+  if ( it == m_registryOk.constEnd() )
+  {
+    entry.status = ModelRegistryEntry::Status::ManifestInvalid;
+    entry.name = name;
+    entry.detail = m_registryRejected.contains( name )
+                       ? m_registryRejected.value( name )
+                       : tr( "模型 '%1' 未在 models/manifest.json 登记" ).arg( name );
+    return entry;
+  }
+  return it.value();
 }

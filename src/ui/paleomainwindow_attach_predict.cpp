@@ -136,10 +136,17 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                    // #481 P2-1：删除语义收进 workflow——按目录名
                                    // == staging versionId 判定，不再无守卫
                                    // removeRecursively（空路径会删当前目录）。
-                                   PaleoWorkflowDiscardPredictionStagingDir(
-                                       job->staging.versionId, job->outputPath);
-                                   const QString msg = tr(
-                                       "预测已取消——运算无法中断，计算结果未发布");
+                                   // P4-W7：已提交事实（committedVersionId）绝不
+                                   // 被取消清理误删——正常时序下取消发生在
+                                   // publish 之前（恒为空），守卫防御未来重排。
+                                   if (job->committedVersionId.isEmpty())
+                                     PaleoWorkflowDiscardPredictionStagingDir(
+                                         job->staging.versionId, job->outputPath);
+                                   const QString msg = job->committedVersionId.isEmpty()
+                                       ? tr("预测已取消——运算无法中断，计算结果未发布")
+                                       : tr("预测已取消，但成果已提交（版本 %1）——"
+                                            "未清理已提交产物，可重试发布恢复展示")
+                                             .arg(job->committedVersionId);
                                    if (status)
                                      status->setText(msg);
                                    QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"),
@@ -150,6 +157,11 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                  {
                                    // #277：失败原因如实传（task->errorText() =
                                    // compute 写入的 job.error）。
+                                   // P4-W7：compute 失败只清本任务未提交暂存
+                                   //（committedVersionId 为空才有暂存可清）。
+                                   if (job->committedVersionId.isEmpty())
+                                     PaleoWorkflowDiscardPredictionStagingDir(
+                                         job->staging.versionId, job->outputPath);
                                    const QString reason =
                                        task->errorText().isEmpty() ? tr("未知原因")
                                                                    : task->errorText();

@@ -178,11 +178,12 @@ private slots:
     QVERIFY( !ids.contains( QStringLiteral( "onnx:" ) ) );
   }
 
-  // D15（pass-2 批准）：端到端 fixture 推理冒烟——模型夹具来自 testdata/onnx
-  // （工程内受管夹具，不再依赖 spikes/ 布局）。真 ORT 会话 → PredictionWorkflow
-  // → 411×641 GeoTIFF；只证明差异化路径可用：断言尺寸、非空、有限值比例 100%，
-  // 不做精度断言。产物按 T26 落 artifacts/derived。
-  void onnxEndToEndFixtureSmokeFromTestdata()
+  // D15（pass-2 批准）→ P4-W2 合同更新：正式 ONNX 预测必须冻结分析单元。
+  // 无单元调用（含 testdata/onnx/grid.onnx 夹具路径）在 prepare 前置拒绝，
+  // 不贴工区网格、不声明图层、不登记版本。真单元端到端冒烟移至
+  // tst_p4_onnx_prediction（真实方案 + 地震体 RMS 输入）；张量数值验证按原
+  // 合同留在 tst_onnx/tst_onnxsessions。
+  void onnxNoUnitPredictionFromTestdataRejectedAtPrepare()
   {
     if ( !PaleoOnnxService::runtimeAvailable() )
       QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
@@ -206,46 +207,33 @@ private slots:
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
     wf.setCatalog( &f.catalog, f.dir.path() );
+    QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
+    QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
 
     QVariantMap params;
     params.insert( QStringLiteral( "input" ), QVariantList{ 2.0f } );
     params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
     params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
     QString err;
-    QVERIFY2( wf.runPrediction( QStringLiteral( "D61" ), QStringLiteral( "onnx:grid" ),
-                                params, &err ),
-              qPrintable( err ) );
-
-    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.D61.onnx.grid" ) );
-    QVERIFY2( d != nullptr, "prediction layer not declared" );
-    QVERIFY( d->source.contains( QStringLiteral( "artifacts/derived/" ) ) );
-
-    GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
-    QVERIFY2( ds != nullptr, qPrintable( d->source ) );
-    QCOMPARE( GDALGetRasterXSize( ds ), 641 );
-    QCOMPARE( GDALGetRasterYSize( ds ), 411 );
-    GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
-    QVector<float> px( 411 * 641 );
-    QCOMPARE( GDALRasterIO( band, GF_Read, 0, 0, 641, 411, px.data(), 641, 411,
-                            GDT_Float32, 0, 0 ),
-              CE_None );
-    int finite = 0;
-    for ( float v : px )
-      if ( std::isfinite( v ) )
-        ++finite;
-    // 非空 + 有限值比例：全格有限（toy 语义是常值广播，非有限即异常）。
-    QVERIFY2( finite > 0, "raster is empty" );
-    QCOMPARE( finite, 411 * 641 );
-    GDALClose( ds );
-    delete d;
+    QVERIFY( !wf.runPrediction( QStringLiteral( "D61" ), QStringLiteral( "onnx:grid" ),
+                                params, &err ) );
+    QVERIFY2( err.contains( QStringLiteral( "冻结分析单元" ) ), qPrintable( err ) );
+    QCOMPARE( doneSpy.count(), 0 );
+    QCOMPARE( failSpy.count(), 1 );
+    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.D61.onnx.grid" ) ) == nullptr );
 #else
     QSKIP( "PROJECT_TESTDATA_DIR not defined" );
 #endif
   }
 
-  // onnx:grid end to end: 411×641 输出落在 D61 geotransform 上并登记
-  // "pred.T1.onnx.grid"。标量输入 2.0 经 Expand+Add 广播出全部 42.0。
-  void onnxPredictionRunsAndDeclares()
+  // P4-W2 合同更新：无单元的张量调用（spikes toy/grid/tile2x2 全族）不经
+  // 正式发布入口产出「某层预测」；已声明的 horizon.D61* 栅格也不能改变准入。
+  // （旧 onnxPredictionRunsAndDeclares / onnxDeclaredD61GeotransformWins /
+  // onnxScalarOutputRefused / onnxNonGridShapeRefused / onnxMissingModelFails /
+  // onnxMultiClassOutputArgmaxGrid / predictionEvidenceContainsModelSha256…
+  // 的无单元发布路径删除；单元路径的形状/血缘/provenance 断言在
+  // tst_p4_onnx_prediction，缺模型分类在 tst_onnxsessions。）
+  void onnxNoUnitTensorPublishRejected()
   {
     if ( !PaleoOnnxService::runtimeAvailable() )
       QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
@@ -254,124 +242,15 @@ private slots:
     if ( initFixture( f ).isEmpty() )
       QSKIP( "spikes/onnx models not locatable" );
 
-    PredictionWorkflow wf( &f.proc, &f.layers );
-    wf.setOnnxService( &f.onnx );
-    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
-    QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
-    QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
-
-    QVariantMap params;
-    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
-    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
-    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
-
-    QString err;
-    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:grid" ),
-                                params, &err ), qPrintable( err ) );
-    QCOMPARE( failSpy.count(), 0 );
-    QCOMPARE( doneSpy.count(), 1 );
-    QCOMPARE( doneSpy.at( 0 ).at( 0 ).toString(), QStringLiteral( "T1" ) );
-    QCOMPARE( doneSpy.at( 0 ).at( 1 ).toString(), QStringLiteral( "pred.T1.onnx.grid" ) );
-
-    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.T1.onnx.grid" ) );
-    QVERIFY( d != nullptr );
-    QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
-    QCOMPARE( d->type, QStringLiteral( "raster" ) );
-    QCOMPARE( d->group, QStringLiteral( "03_Predict" ) );
-    QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
-    QVERIFY( !d->source.startsWith( QStringLiteral( "memory" ) ) );
-    // T26：预测栅格落 artifacts/derived 并登记 DERIVED 版本（不进 QDir::temp）。
-    QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
-              qPrintable( d->source ) );
-    bool onnxRegistered = false;
-    for ( const CatalogAsset &a : f.catalog.assets() )
-    {
-      if ( a.type != QLatin1String( "onnx_prediction" ) )
-        continue;
-      for ( const CatalogVersion &v : f.catalog.versionsForAsset( a.id ) )
-        if ( d->source.endsWith( QLatin1Char( '/' ) + v.fileName ) && d->source.contains( v.id ) )
-          onnxRegistered = !v.sha256.isEmpty();
-    }
-    QVERIFY2( onnxRegistered, "ONNX raster has no DERIVED catalog version" );
-    GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
-    QVERIFY2( ds != nullptr, qPrintable( d->source ) );
-    QCOMPARE( GDALGetRasterXSize( ds ), 641 );
-    QCOMPARE( GDALGetRasterYSize( ds ), 411 );
-    // 没有 horizon.D61* 声明时用 plan §3 常量：(0, 12793/640, 0, 16406, 0, -16406/410)
-    double gt[6] = { 0, 0, 0, 0, 0, 0 };
-    QCOMPARE( GDALGetGeoTransform( ds, gt ), CE_None );
-    QVERIFY2( qAbs( gt[0] - 0.0 ) < 1e-9, qPrintable( QString::number( gt[0] ) ) );
-    QVERIFY2( qAbs( gt[1] - 12793.0 / 640.0 ) < 1e-9, qPrintable( QString::number( gt[1] ) ) );
-    QVERIFY2( qAbs( gt[2] - 0.0 ) < 1e-9, qPrintable( QString::number( gt[2] ) ) );
-    QVERIFY2( qAbs( gt[3] - 16406.0 ) < 1e-9, qPrintable( QString::number( gt[3] ) ) );
-    QVERIFY2( qAbs( gt[4] - 0.0 ) < 1e-9, qPrintable( QString::number( gt[4] ) ) );
-    QVERIFY2( qAbs( gt[5] - ( -16406.0 / 410.0 ) ) < 1e-9, qPrintable( QString::number( gt[5] ) ) );
-    float px = 0.0f;
-    QVERIFY( GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Read, 0, 0, 1, 1, &px, 1, 1,
-                           GDT_Float32, 0, 0 ) == CE_None );
-    QCOMPARE( px, 42.0f );
-    const char *modelItem = GDALGetMetadataItem( ds, "PALEO_MODEL", nullptr );
-    QCOMPARE( QString::fromUtf8( modelItem ? modelItem : "" ), QStringLiteral( "grid" ) );
-    GDALClose( ds );
-    delete d;
-  }
-
-  // 已声明的 horizon.D61* 栅格优先提供 geotransform（plan §3：ONNX 栅格用同
-  // 一套 D61 geotransform）。声明的栅格本身的尺寸不影响 411×641 门禁。
-  void onnxDeclaredD61GeotransformWins()
-  {
-    if ( !PaleoOnnxService::runtimeAvailable() )
-      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
-
-    Fixture f;
-    if ( initFixture( f ).isEmpty() )
-      QSKIP( "spikes/onnx models not locatable" );
-
+    // 已声明的 D61 栅格存在也不构成单元身份。
     const double d61gt[6] = { 123.0, 2.5, 0.0, 4567.0, 0.0, -2.5 };
     const QString d61Path = makeRaster( f.dir.filePath( QStringLiteral( "d61.tif" ) ), 4, 3,
                                         QVector<float>( 12, 7.0f ), d61gt );
     QVERIFY( !d61Path.isEmpty() );
     QString err;
     QVERIFY2( f.layers.declare( decl( QStringLiteral( "horizon.D61" ), QStringLiteral( "D61" ),
-                                    QStringLiteral( "raster" ), d61Path ), &err ),
+                                      QStringLiteral( "raster" ), d61Path ), &err ),
               qPrintable( err ) );
-
-    PredictionWorkflow wf( &f.proc, &f.layers );
-    wf.setOnnxService( &f.onnx );
-    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
-
-    QVariantMap params;
-    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
-    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
-    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
-
-    QVERIFY2( wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:grid" ),
-                                params, &err ), qPrintable( err ) );
-
-    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.T1.onnx.grid" ) );
-    QVERIFY( d != nullptr );
-    GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
-    QVERIFY2( ds != nullptr, qPrintable( d->source ) );
-    QCOMPARE( GDALGetRasterXSize( ds ), 641 );
-    QCOMPARE( GDALGetRasterYSize( ds ), 411 );
-    double gt[6] = { 0, 0, 0, 0, 0, 0 };
-    QCOMPARE( GDALGetGeoTransform( ds, gt ), CE_None );
-    for ( int i = 0; i < 6; ++i )
-      QVERIFY2( qAbs( gt[i] - d61gt[i] ) < 1e-9,
-                qPrintable( QStringLiteral( "gt[%1]: %2 != %3" ).arg( i ).arg( gt[i] ).arg( d61gt[i] ) ) );
-    GDALClose( ds );
-    delete d;
-  }
-
-  // plan trap：标量/点输出不得落成 1×1 栅格——拒绝并写出钉死的文案与实际行列数。
-  void onnxScalarOutputRefused()
-  {
-    if ( !PaleoOnnxService::runtimeAvailable() )
-      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
-
-    Fixture f;
-    if ( initFixture( f ).isEmpty() )
-      QSKIP( "spikes/onnx models not locatable" );
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
@@ -379,49 +258,32 @@ private slots:
     QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
     QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
 
-    QVariantMap params;
-    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
-    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
-    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
-
-    QString err;
-    QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:toy" ),
-                                params, &err ) );
-    QCOMPARE( err, QStringLiteral( "结果不是 411×641，没有写入栅格（实际 1×1）" ) );
+    for ( const QString &model : { QStringLiteral( "toy" ), QStringLiteral( "grid" ),
+                                   QStringLiteral( "tile2x2" ), QStringLiteral( "ghost" ) } )
+    {
+      QVariantMap params;
+      params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
+      params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
+      params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
+      params.insert( QStringLiteral( "rows" ), 411 ); // 旧门禁参数不能再绕过准入
+      params.insert( QStringLiteral( "cols" ), 641 );
+      QString runErr;
+      QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ),
+                                  QStringLiteral( "onnx:%1" ).arg( model ),
+                                  params, &runErr ) );
+      QVERIFY2( runErr.contains( QStringLiteral( "冻结分析单元" ) ), qPrintable( runErr ) );
+      QVERIFY( findDecl( f.layers,
+                         QStringLiteral( "pred.T1.onnx.%1" ).arg( model ) ) == nullptr );
+    }
     QCOMPARE( doneSpy.count(), 0 );
-    QCOMPARE( failSpy.count(), 1 );
-    QCOMPARE( failSpy.at( 0 ).at( 0 ).toString(), QStringLiteral( "T1" ) );
-    QCOMPARE( failSpy.at( 0 ).at( 1 ).toString(), err );
-    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.toy" ) ) == nullptr );
+    QCOMPARE( failSpy.count(), 4 );
   }
 
-  // 非 411×641 的二维输出同样拒绝（tile2x2 → 2×2）；params 里的 rows/cols
-  // 不再能绕过门禁。
-  void onnxNonGridShapeRefused()
-  {
-    if ( !PaleoOnnxService::runtimeAvailable() )
-      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
-    Fixture f;
-    if ( initFixture( f ).isEmpty() )
-      QSKIP( "spikes/onnx models not locatable" );
-
-    PredictionWorkflow wf( &f.proc, &f.layers );
-    wf.setOnnxService( &f.onnx );
-    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
-    QVariantMap params;
-    params.insert( QStringLiteral( "input" ), QVariantList{ 2.0 } );
-    params.insert( QStringLiteral( "shape" ), QVariantList{ QVariant::fromValue<qint64>( 1 ) } );
-    params.insert( QStringLiteral( "rows" ), 411 ); // 故意填门禁值也不行——形状说了算
-    params.insert( QStringLiteral( "cols" ), 641 );
-    QString err;
-    QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:tile2x2" ),
-                              params, &err ) );
-    QCOMPARE( err, QStringLiteral( "结果不是 411×641，没有写入栅格（实际 2×2）" ) );
-    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.tile2x2" ) ) == nullptr );
-  }
-
-  // "onnx:ghost" — no such file under the model root → failed signal + false.
-  void onnxMissingModelFails()
+  // P0-3 → P4-W2：无单元 prepare 前置失败（失败先于任何模型文件访问，GUI
+  // 线程不加载模型）；有单元时的加载延迟由
+  // tst_p4_onnx_prediction::unitOnnxPredictionEndToEndWithPreciseLineage 断言
+  //（prepare 后 job.modelSha256 为空）。
+  void preparePredictionJobRejectsNoUnitBeforeModelAccess()
   {
     Fixture f;
     const QString modelDir = initFixture( f );
@@ -430,47 +292,18 @@ private slots:
 
     PredictionWorkflow wf( &f.proc, &f.layers );
     wf.setOnnxService( &f.onnx );
-    wf.setCatalog( &f.catalog, f.dir.path() ); // T26
-    QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
-    QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
-
-    QString err;
-    QVERIFY( !wf.runPrediction( QStringLiteral( "T1" ), QStringLiteral( "onnx:ghost" ),
-                                QVariantMap(), &err ) );
-    QVERIFY( !err.isEmpty() );
-    QCOMPARE( doneSpy.count(), 0 );
-    QCOMPARE( failSpy.count(), 1 );
-    QCOMPARE( failSpy.at( 0 ).at( 0 ).toString(), QStringLiteral( "T1" ) );
-    // Nothing declared for the failed run.
-    QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.ghost" ) ) == nullptr );
-  }
-
-  // P0-3: preparePredictionJob must NOT run onnx->loadModelMeta on GUI main thread
-  void preparePredictionJobDefersModelLoadingToCompute()
-  {
-    Fixture f;
-    const QString modelDir = initFixture( f );
-    if ( modelDir.isEmpty() )
-      QSKIP( "spikes/onnx models not locatable" );
-
-    PredictionWorkflow wf( &f.proc, &f.layers );
-    wf.setOnnxService( &f.onnx );
     wf.setCatalog( &f.catalog, f.dir.path() );
 
     PredictionWorkflow::PredictionJob job;
     QString err;
-    // Non-existent model must NOT fail on GUI main thread during preparePredictionJob
     const bool prepOk = wf.preparePredictionJob( QStringLiteral( "T1" ),
-                                                QStringLiteral( "onnx:non_existent_ghost" ),
-                                                {}, &job, &err );
-    QVERIFY2( prepOk, qPrintable( err ) );
-    QVERIFY( job.prepared );
-    QVERIFY( job.modelSha256.isEmpty() );
-
-    // computePredictionJob on background thread is where loading and failure occur
-    const bool compOk = wf.computePredictionJob( &job );
-    QVERIFY( !compOk );
-    QVERIFY2( !job.error.isEmpty(), "computePredictionJob must fail on background thread for missing model" );
+                                                 QStringLiteral( "onnx:non_existent_ghost" ),
+                                                 {}, &job, &err );
+    QVERIFY( !prepOk );
+    QVERIFY2( err.contains( QStringLiteral( "冻结分析单元" ) ), qPrintable( err ) );
+    QVERIFY( !job.prepared );
+    QVERIFY( !job.staging.isValid() );
+    QVERIFY( job.modelSha256.isEmpty() ); // 模型从未被加载/哈希
   }
 
   // The "onnx:" dispatch must not intercept normal registry algorithm ids.
@@ -519,85 +352,6 @@ private slots:
     QVERIFY( !err.isEmpty() );
     QCOMPARE( doneSpy.count(), 1 );
     QCOMPARE( failSpy.count(), 1 );
-  }
-
-  void onnxMultiClassOutputArgmaxGrid()
-  {
-    if ( !PaleoOnnxService::runtimeAvailable() )
-      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
-    Fixture f;
-    if ( !f.dir.isValid() || !f.catalog.open( f.dir.path() ) ||
-         !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) ||
-         !f.manifest.open() )
-      QSKIP( "fixture setup failed" );
-    const QString modelDir = f.dir.filePath( QStringLiteral( "models" ) );
-    QVERIFY( QDir().mkpath( modelDir ) );
-    QVERIFY( OnnxFixtureWriter::writeSeg( modelDir + QStringLiteral( "/seg3.onnx" ),
-                                          { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 0.1f } ) );
-    f.onnx.setModelRoot( modelDir );
-
-    PredictionWorkflow wf( &f.proc, &f.layers );
-    wf.setOnnxService( &f.onnx );
-    wf.setCatalog( &f.catalog, f.dir.path() );
-
-    QVariantMap params;
-    QVector<float> inputData( 411 * 641, 0.5f );
-    QVariantList inputList;
-    inputList.reserve( inputData.size() );
-    for ( float v : inputData )
-      inputList.append( v );
-    params.insert( QStringLiteral( "input" ), inputList );
-    params.insert( QStringLiteral( "shape" ), QVariantList{ 1, 1, 411, 641 } );
-    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
-    QString err;
-    QVERIFY2( wf.runPrediction( QStringLiteral( "D61" ), QStringLiteral( "onnx:seg3" ),
-                                params, &err ),
-              qPrintable( err ) );
-    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.D61.onnx.seg3" ) );
-    QVERIFY2( d != nullptr, "multi-class prediction layer not declared" );
-  }
-
-  void predictionEvidenceContainsModelSha256AndExecutionEngine()
-  {
-    if ( !PaleoOnnxService::runtimeAvailable() )
-      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
-    Fixture f;
-    if ( !f.dir.isValid() || !f.catalog.open( f.dir.path() ) ||
-         !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) ||
-         !f.manifest.open() )
-      QSKIP( "fixture setup failed" );
-    const QString modelDir = f.dir.filePath( QStringLiteral( "models" ) );
-    QVERIFY( QDir().mkpath( modelDir ) );
-    QVERIFY( OnnxFixtureWriter::writeSeg( modelDir + QStringLiteral( "/seg3.onnx" ),
-                                          { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 0.1f } ) );
-    f.onnx.setModelRoot( modelDir );
-
-    PredictionWorkflow wf( &f.proc, &f.layers );
-    wf.setOnnxService( &f.onnx );
-    wf.setCatalog( &f.catalog, f.dir.path() );
-
-    QVariantMap params;
-    QVector<float> inputData( 411 * 641, 0.5f );
-    QVariantList inputList;
-    inputList.reserve( inputData.size() );
-    for ( float v : inputData )
-      inputList.append( v );
-    params.insert( QStringLiteral( "input" ), inputList );
-    params.insert( QStringLiteral( "shape" ), QVariantList{ 1, 1, 411, 641 } );
-    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
-    QString err;
-    QVERIFY2( wf.runPrediction( QStringLiteral( "D61" ), QStringLiteral( "onnx:seg3" ),
-                                params, &err ),
-              qPrintable( err ) );
-
-    const auto versions = f.catalog.versions();
-    QVERIFY( !versions.isEmpty() );
-    const auto v = versions.last();
-    const auto evidence = v.extra.value( QStringLiteral( "evidence" ) ).toMap();
-    const auto modelBlock = evidence.value( QStringLiteral( "model" ) ).toMap();
-    QCOMPARE( modelBlock.value( QStringLiteral( "execution_engine" ) ).toString(), QStringLiteral( "onnxruntime" ) );
-    QVERIFY2( !modelBlock.value( QStringLiteral( "model_sha256" ) ).toString().isEmpty(), "model_sha256 must be present in evidence model block" );
-    QVERIFY( !evidence.value( QStringLiteral( "parameters" ) ).toMap().contains( QStringLiteral( "model" ) ) );
   }
 
   void onnxAreaGridRespectsRequestedHorizon()

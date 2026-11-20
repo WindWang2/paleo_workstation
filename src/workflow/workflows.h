@@ -141,6 +141,19 @@ class PredictionWorkflow : public QObject
         QString layerTitle;
         QString modelSha256;
         QString executionEngine;
+        // P4-W3/W4：prepare 冻结的模型身份（注册表钉 SHA；空 = 无 manifest
+        // 开发降级——compute 仍把实测 SHA 写进 provenance，不伪造父对象）。
+        // compute 用它做 runPinnedTensor + 实测 SHA 复验：注册表或活动模型
+        // 切换不能让任务悄悄换模型。
+        QString expectedModelSha256;
+        // P4-W5：prepare 时该 layerId 现存声明的 source（展示目标快照）。
+        // publish 据此识别「本任务运行期间展示目标已被另一有效运行更新」
+        // ——那时拒绝覆盖声明，保留本次成果供查看。
+        QString declaredSourceAtPrepare;
+        // P4-W6：publish 实际提交成功的 catalog 版本 id（空 = 未提交）。
+        // 调用方清理未提交暂存前必须先核对它（已提交事实不得被取消/切换
+        // 清理误删）。
+        QString committedVersionId;
         std::function<bool()> isCancelled;
 #if PALEO_HAVE_ORT
         // ONNX 输入与网格几何（prepare 在 GUI 线程解析，compute 只做推理+写盘）。
@@ -156,7 +169,9 @@ class PredictionWorkflow : public QObject
     bool preparePredictionJob(const QString &horizon, const QString &algorithmId,
                               const QVariantMap &params, PredictionJob *job, QString *error = nullptr);
     bool computePredictionJob(PredictionJob *job);
-    bool publishPredictionJob(const PredictionJob &job, QString *error = nullptr);
+    // P4-W5/W6：非 const——publish 把可证明的提交事实（committedVersionId）
+    // 写回 job，供重复回调幂等跳过与调用方清理守卫。
+    bool publishPredictionJob(PredictionJob &job, QString *error = nullptr);
 
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }

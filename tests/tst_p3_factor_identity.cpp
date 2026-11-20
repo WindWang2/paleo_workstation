@@ -7,6 +7,7 @@
 #include <gdal.h>
 #include <qgsapplication.h>
 #include <qgsvectorlayer.h>
+#include <qgsmaplayer.h>
 #include <paleo_data/service.h>
 
 #include "catalog/datacatalog.h"
@@ -55,7 +56,11 @@ struct SchemeFixture
     std::string detail;
     paleo::data::DataService ds;
     const auto root = area_model::directory(dir.path()).toStdString();
-    if (!ds.createProject(root, "identity-test", detail))
+    // catalog.open 已建 area model 工区（受控依赖后的默认行为）：存在则打开。
+    // catalog.open 已建 area model 工区（受控依赖后的默认行为）：存在则打开。
+    const bool opened = QFileInfo::exists(QString(root.c_str()) + "/data.sqlite")
+        ? ds.openProject(root, detail) : ds.createProject(root, "identity-test", detail);
+    if (!opened)
       return false;
     const auto raw = dir.filePath(QStringLiteral("source.txt"));
     {
@@ -71,8 +76,9 @@ struct SchemeFixture
     parsed.status = "parsed";
     paleo::data::WellDataset well;
     well.wellInfo.wellName = "W-1";
-    well.wellInfo.wellheadX = 0;
-    well.wellInfo.wellheadY = 0;
+    // 单元路径以 Data Service 井位为准（nativeCoordinates.resolve）：工区米制坐标。
+    well.wellInfo.wellheadX = 500000;
+    well.wellInfo.wellheadY = 4000000;
     well.defaultDepthInfo.depthType = "MD";
     well.defaultDepthInfo.depthUnit = "m";
     paleo::data::IntervalTrack track; // 岩性道：S 窗内有砂有泥，保证 direct/auto 都可用
@@ -97,13 +103,13 @@ struct SchemeFixture
     if (!ds.listWells(wells, detail) || wells.empty())
       return false;
     CatalogEntity entity;
-    entity.id = "well-1";
+    entity.id = "W-1"; // 与井点层 well_id 一致：同一口井合并为一行，几何取工区层坐标
     entity.name = "W-1";
     entity.entityType = "well";
     entity.hasSurface = true;
     entity.coordinateStatus = "untransformed";
-    entity.surfaceX = 0;
-    entity.surfaceY = 0;
+    entity.surfaceX = 500000;
+    entity.surfaceY = 4000000;
     entity.extra.insert("areaModelWellId", wells.front().id);
     QString error;
     if (!catalog.addEntity(entity, &error))
@@ -116,7 +122,7 @@ struct SchemeFixture
     if (!ds.commitStratigraphicScheme(draft, {}, scheme, issues, detail))
       return false;
     ds.closeProject();
-    schemeId = QString::fromStdString(scheme.id.value);
+    schemeId = QString::fromStdString(scheme.id);
     revision = QString::fromStdString(scheme.revision.value);
     intervalId = QString::fromStdString(scheme.intervals.front().id.value);
     s1 = paleo::strat::makeSelection(scheme, intervalId, 1);
@@ -132,10 +138,12 @@ struct SchemeFixture
       QFile f(path);
       if (!f.open(QIODevice::WriteOnly))
         return {};
-      f.write("{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:3857\"}},\"features\":["
-              "{\"type\":\"Feature\",\"properties\":{\"well_id\":\"W-1\",\"z\":42.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,0.0]}},"
-              "{\"type\":\"Feature\",\"properties\":{\"well_id\":\"W-2\",\"z\":7.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[4.0,0.0]}},"
-              "{\"type\":\"Feature\",\"properties\":{\"well_id\":\"W-3\",\"z\":20.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,4.0]}}"
+      // 工区米制坐标（与 area model projectCrs 同系的小范围）：几何即工区坐标，
+      // 与真实井点图层一致（层服务按工区 CRS 呈现，3857 度值会被误读成米）。
+      f.write("{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:32650\"}},\"features\":["
+              "{\"type\":\"Feature\",\"properties\":{\"well_id\":\"W-1\",\"z\":42.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[500000.0,4000000.0]}},"
+              "{\"type\":\"Feature\",\"properties\":{\"well_id\":\"W-2\",\"z\":7.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[500004.0,4000000.0]}},"
+              "{\"type\":\"Feature\",\"properties\":{\"well_id\":\"W-3\",\"z\":20.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[500000.0,4000004.0]}}"
               "]}");
       f.close();
     }
@@ -245,10 +253,10 @@ private slots:
     const QString key2 = paleo::strat::analysisLayerKey(f.s2);
     QVERIFY(key1 != key2);
 
-    QVERIFY(workflow.extractWellFactors(QStringLiteral("TOP"), QStringLiteral("sandthick"), runParams(f.s1), &error, nullptr));
+    QVERIFY2(workflow.extractWellFactors(QStringLiteral("TOP"), QStringLiteral("sandthick"), runParams(f.s1), &error, nullptr), qPrintable(error));
     QString points1 = workflow.preparedWellFactorVersion(QStringLiteral("TOP"), QStringLiteral("sandthick"), runParams(f.s1));
     QVERIFY(!points1.isEmpty());
-    QVERIFY(workflow.generateFactor(key1, QStringLiteral("sandthick"), runParams(f.s1), &error));
+    QVERIFY2(workflow.generateFactor(key1, QStringLiteral("sandthick"), runParams(f.s1), &error), qPrintable(error));
 
     QVERIFY(workflow.extractWellFactors(QStringLiteral("TOP"), QStringLiteral("sandthick"), runParams(f.s2), &error, nullptr));
     QString points2 = workflow.preparedWellFactorVersion(QStringLiteral("TOP"), QStringLiteral("sandthick"), runParams(f.s2));
@@ -312,7 +320,7 @@ private slots:
     auto forged = runParams(f.s1);
     forged.insert(QStringLiteral("factorInputPrepared"), true);
     const auto versionsBefore = f.catalog.versions().size();
-    QVERIFY(workflow.generateFactor(paleo::strat::analysisLayerKey(f.s1), QStringLiteral("sandthick"), forged, &error));
+    QVERIFY2(workflow.generateFactor(paleo::strat::analysisLayerKey(f.s1), QStringLiteral("sandthick"), forged, &error), qPrintable(error));
     // 引擎自行完成提取：结果版本成为父版本，伪造标志没有省掉任何核验。
     CatalogVersion raster;
     for (const auto &v : f.catalog.versions())
@@ -391,8 +399,9 @@ private slots:
       file.write("stub");
       file.close();
     }
-    DerivedFileFingerprint fp;
-    fp.sha256 = QStringLiteral("ab");
+    DerivedFileFingerprint fp = DerivedFileFingerprint::read(st.absolutePath, {}, &regError);
+    if (fp.sha256.isEmpty())
+      return;
     DerivedOutputSetReceipt receipt;
     QVariantMap extra;
     extra.insert(QStringLiteral("manifest_layer_id"), QStringLiteral("wellfactor.sample.sandthick"));

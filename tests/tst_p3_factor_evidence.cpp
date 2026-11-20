@@ -6,7 +6,7 @@
 #include <QtTest>
 #include "catalog/datacatalog.h"
 #include "io/areamodel.h"
-#include "paleo_data/service.h"
+#include <paleo_data/service.h>
 #include "services/subintervalfactors.h"
 #include "workflow/analysisresultsync.h"
 #include "workflow/workflows.h"
@@ -90,11 +90,14 @@ struct EvidenceFixture
       file.write("factor-raster");
       file.close();
     }
-    DerivedFileFingerprint fp;
-    fp.sha256 = QStringLiteral("aa");
-    DerivedOutputSetReceipt receipt;
-    if (!registrar.commit(st, {}, QStringLiteral(""), extra, &error, &fp))
+    DerivedFileFingerprint fp = DerivedFileFingerprint::read(st.absolutePath, {}, &error);
+    if (fp.sha256.isEmpty())
       return {};
+    DerivedOutputSetReceipt receipt;
+    if (!registrar.commit(st, {}, QStringLiteral(""), extra, &error, &fp)) {
+      qWarning("commitFactorVersion failed: %s", qPrintable(error));
+      return {};
+    }
     return st.versionId;
   }
 
@@ -179,8 +182,10 @@ private slots:
     const QString v2 = f.commitFactorVersion(QStringLiteral("single_factor_raster"), legacy);
     QVERIFY(!v1.isEmpty() && !v2.isEmpty());
     QString error;
-    QVERIFY(f.catalog.updateVersionExtra(v2, QStringLiteral("evidence_pending"),
-                                         QVariantMap{{QStringLiteral("step"), QStringLiteral("ds_binding")}}, &error));
+    // 两个版本都处于「已提交但证据未确认」的持久待办状态。
+    for (const QString &id : {v1, v2})
+      QVERIFY(f.catalog.updateVersionExtra(id, QStringLiteral("evidence_pending"),
+                                           QVariantMap{{QStringLiteral("step"), QStringLiteral("ds_binding")}}, &error));
 
     QCOMPARE(paleo::factor_evidence::retryPendingEvidence(&f.catalog, f.dir.path(), &error), 1);
     QCOMPARE(f.bindingCount(v1), 1);      // 可确认的已确认
@@ -200,6 +205,9 @@ private slots:
     verified.insert(QStringLiteral("algorithm_id"), QStringLiteral("paleo:paleo_constraint_idw"));
     verified.insert(QStringLiteral("unitSelection"), paleo::strat::toMap(f.unit));
     verified.insert(QStringLiteral("subIntervalId"), f.unit.subIntervalId);
+    verified.insert(QStringLiteral("intervalId"), f.unit.intervalId);
+    verified.insert(QStringLiteral("schemeId"), f.unit.schemeId);
+    verified.insert(QStringLiteral("schemeRevision"), f.unit.revision);
     verified.insert(QStringLiteral("kind"), QStringLiteral("single_factor_raster"));
     const QString v1 = f.commitFactorVersion(QStringLiteral("agent_result"), verified);
     // 无核验标记的普通 agent_result → 不冒充 single_factor。
@@ -219,6 +227,7 @@ private slots:
   {
     EvidenceFixture f;
     QVERIFY(f.init());
+    QString error;
     QVariantMap extra;
     extra.insert(QStringLiteral("unitSelection"), paleo::strat::toMap(f.unit));
     const QString versionId = f.commitFactorVersion(QStringLiteral("single_factor_raster"), extra);

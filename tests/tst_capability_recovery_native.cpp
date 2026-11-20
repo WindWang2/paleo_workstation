@@ -1,6 +1,7 @@
 // 层：测试壳
 #include <QtTest>
 #include <qgsapplication.h>
+#include <paleo_data/service.h>
 #include "workflow/capabilityhost.h"
 #include "workflow/capabilitynativeoperation.h"
 #include "workflow/chatresultstore.h"

@@ -35,6 +35,10 @@ void PaleoMainWindow::runNewProject(const QString &sourceRoot, bool supplement)
   ProjectSetupDialog dialog(workflow, this);
   dialog.setExistingProject(m_projectSvc->projectPath(), workflow->currentSources());
   if (!sourceRoot.isEmpty()) dialog.setSourceRoot(sourceRoot);
+  // 保存确认提前到向导之前：原先弹在 accept 之后，用户取消保存时向导已随
+  // accept 关闭，整轮输入（扫描结果、字段映射、图件勾选）全部丢失，只能
+  // 从第一步重来。此刻用户尚未输入任何内容，取消代价为零。
+  if (!maybeSaveProject()) { workflow->deleteLater(); return; }
   while (dialog.exec() == QDialog::Accepted) {
     QString error;
     const bool ok = supplement ? workflow->applySources(dialog.sources(), dialog.preview(), &error)

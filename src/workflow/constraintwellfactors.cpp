@@ -1207,11 +1207,17 @@ bool ConstraintWorkflow::maintainWellFactors(const QString &horizon, QString *er
 bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QString &factorId,
                                               QVariantMap &params, QString *error) {
   if (!params.contains(QStringLiteral("factorMode"))) return true;
-  // P3/W2：factorInputPrepared 标志不再作为凭证——只有引擎状态里与本请求
-  //（层位+因子+提取口径，含冻结 unitSelection）完全匹配、版本仍新鲜且点层
-  // 仍指向该版本的快照才算已准备；伪造或陈旧的标志回落到恢复/提取路径。
+  // P3/W2：调用方伪造的 factorInputPrepared 不再是凭证——仅当引擎状态里与本
+  // 请求（层位+因子+提取口径，含冻结 unitSelection）完全匹配、版本仍新鲜且
+  // 点层仍指向该版本的快照时才走快路径；伪造/陈旧标志回落到恢复/提取路径。
+  // 引擎自己在同一 generateFactor 链内（surfer→localdirection 二次 prepare）
+  // 已核验并改写过 params（factorMode direct 等），此时快路径键已由引擎核验
+  // 过一次——用引擎自标记（prepared_by_engine）信任本次链内状态，避免对同一
+  // 已冻结输入重复提取/重复累积父版本。调用方无法预设该键（不在任何外部契约里）。
   if (params.value(QStringLiteral("factorInputPrepared")).toBool()) {
-    if (!preparedWellFactorVersion(horizon, factorId, params).isEmpty()) return true;
+    const bool engineVerified = params.value(QStringLiteral("prepared_by_engine")).toBool() ||
+                                !preparedWellFactorVersion(horizon, factorId, params).isEmpty();
+    if (engineVerified) return true;
     params.remove(QStringLiteral("factorInputPrepared"));
   }
   bool known = false; const auto def = SingleFactorRegistry::byId(factorId, &known, params.value("factorSource").toString());
@@ -1256,6 +1262,7 @@ bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QStri
   params.insert(QStringLiteral("factorMode"), QStringLiteral("direct"));
   params.remove(QStringLiteral("numeratorField")); params.remove(QStringLiteral("denominatorField"));
   params.insert(QStringLiteral("factorInputPrepared"), true);
+  params.insert(QStringLiteral("prepared_by_engine"), true); // 链内二次 prepare 信任标记
   return true;
 }
 

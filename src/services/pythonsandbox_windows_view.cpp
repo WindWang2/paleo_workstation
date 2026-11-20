@@ -418,7 +418,8 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
     // 损坏视图永久堵死该 generation。
     qint64 hashed=0;int files=0;
     if(!verifyViewTree(QDir(layout.views).filePath(anchorSha),manifest,anchorSha,request,&files,&hashed,error)) {
-      quarantineView(layout,anchorSha);
+      // 中途取消不是视图损坏：不检疫（避免把好视图删成 1 GiB 重复制）。
+      if(*error!="cancelled") quarantineView(layout,anchorSha);
       return false;}
     view.reusedView=true;view.viewBytes=treeSize;view.viewFiles=files;
   } else {
@@ -435,7 +436,7 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
       // 输给并发宿主：视图非本宿主哈希——按复用口径完整验证后再用。
       qint64 hashed=0;int files=0;
       if(!verifyViewTree(QDir(layout.views).filePath(anchorSha),manifest,anchorSha,request,&files,&hashed,error)) {
-        quarantineView(layout,anchorSha);
+        if(*error!="cancelled") quarantineView(layout,anchorSha);
         return false;}
       view.viewFiles=files;
     }

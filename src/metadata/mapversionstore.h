@@ -6,6 +6,7 @@
 
 #include "layermanifest.h"
 #include "mapsnapshot.h"
+#include <functional>
 
 // metadata/mapversionstore — 阶段E 版本状态机的落表（wave/mapping-pipeline；
 // PROJECT_AREA_PLAN 阶段E §177/§245/§260）。
@@ -48,6 +49,8 @@ class MapVersionStore
 
     bool open(QString *error = nullptr);          // 建表/补列（幂等）；可写时补登记中断的发布
     void setPublicationRenameProbe(PublicationProbe probe) { m_renameProbe = probe; }
+    // Test injection. Returning false fails that stage before a new version row exists.
+    void setSaveFaultProbe(const std::function<bool(const QString &)> &probe) { m_saveFaultProbe = probe; }
 
     // 单写实例降级（T4/SCHEMA_MIGRATION.md §6）：锁失败 = 真只读——
     // saveVersion/recordLayoutProduct 等写面如实失败，读面照常。值语义：
@@ -65,7 +68,8 @@ class MapVersionStore
     // 版本行，下一次保存才继承产物引用（§260）。
     MapVersion saveVersion(const QString &horizon, const QString &provenanceJson,
                            QString *error = nullptr,
-                           const QVector<LayerDeclaration> &layers = {});
+                           const QVector<LayerDeclaration> &layers = {},
+                           MapSnapshotAccounting *accounting = nullptr);
 
     // 发布门产物登记：记录该层位导出的 PDF —— 文件路径 + catalog OUTPUT
     // 资产 id + 文件 SHA-256（注册在 mapexport.cpp 的 registerMapPdfAsset，
@@ -129,7 +133,10 @@ class MapVersionStore
                                        const QString &stagingDirectory, const QString &finalDirectory,
                                        const QString &residualSummary, QString *error);
 
+    MapVersion savedAttempt(const QString &horizon, const QString &attemptId) const;
+
     QString m_dbPath;
     bool m_readOnly = false;
     PublicationProbe m_renameProbe = nullptr;
+    std::function<bool(const QString &)> m_saveFaultProbe;
 };

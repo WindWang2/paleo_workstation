@@ -182,16 +182,17 @@ class TestVersions : public QObject
 
         vl->setAllowCommit( false ); // 模拟提交失败（磁盘满 / 锁 / 约束拒绝）
         const MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
-        QCOMPARE( v.version, 0 );
-        QVERIFY( !err.isEmpty() );
-        QVERIFY( vl->isEditable() );                       // 编辑缓冲保留
-        QCOMPARE( vl->undoStack()->count(), undoBefore );  // 撤销历史保留
+        QCOMPARE( v.version, 1 );
+        QVERIFY2( err.contains( QStringLiteral( "后续" ) ), qPrintable( err ) );
+        QVERIFY( vl->isEditable() );
+        QCOMPARE( vl->undoStack()->count(), undoBefore );
+        QCOMPARE( f.versions.currentVersion( QStringLiteral( "D61" ) ), 1 );
 
-        // 解除故障后重试成功，成功路径照常清栈。
         vl->setAllowCommit( true );
         err.clear();
         const MapVersion retry = f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
         QVERIFY2( retry.version == 1, qPrintable( err ) );
+        QCOMPARE( f.versions.versions( QStringLiteral( "D61" ) ).size(), 1 );
         QCOMPARE( vl->undoStack()->count(), 0 );
     }
 
@@ -302,12 +303,19 @@ class TestVersions : public QObject
         QgsFeature fb( b->fields() );
         fb.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "POLYGON((4 4,5 4,5 5,4 4))" ) ) );
         QVERIFY( b->addFeature( fb ) );
-        b->setAllowCommit( false ); // B 提交必失败；A 先行提交已落盘
+        b->setAllowCommit( false ); // B 提交必失败；版本行已经落盘，A 的编辑已提交
         const MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
-        QCOMPARE( v.version, 0 );
-        QVERIFY2( err.contains( QStringLiteral( "已提交编辑但本次未出版本快照" ) ) &&
-                      err.contains( QStringLiteral( "facies.D61" ) ),
+        QCOMPARE( v.version, 1 );
+        QVERIFY2( err.contains( QStringLiteral( "后续" ) ) &&
+                      err.contains( QStringLiteral( "facies.D61" ) ) &&
+                      err.contains( QStringLiteral( "polys.D61" ) ),
                   qPrintable( err ) );
+        QCOMPARE( f.controller.lastSaveOutcome().kind,
+                  MapVersionController::SaveOutcome::Kind::SavedFollowUpPending );
+        QVERIFY( !a->isEditable() );
+        QVERIFY( b->isEditable() );
+        QVERIFY( b->undoStack()->count() > 0 );
+        QCOMPARE( f.versions.versions( QStringLiteral( "D61" ) ).size(), 1 );
     }
 
     // 残差摘要完整性判定 — 发布门与按钮 tooltip 共用这一份口径。
@@ -1079,9 +1087,12 @@ class TestVersions : public QObject
         prov.insert( QStringLiteral( "step" ), QStringLiteral( "partial_failure_test" ) );
         MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), prov, &err );
 
-        // 断言：由于 layer2 提交失败，saveVersion 应当失败返回版本 0
-        QCOMPARE( v.version, 0 );
-        QVERIFY( !err.isEmpty() );
+        // 版本行先落盘。layer2 提交失败时报告后续未完成，不回滚已保存版本。
+        QCOMPARE( v.version, 1 );
+        QVERIFY2( err.contains( QStringLiteral( "后续" ) ) &&
+                      err.contains( QStringLiteral( "layer2.D61" ) ),
+                  qPrintable( err ) );
+        QCOMPARE( f.versions.versions( QStringLiteral( "D61" ) ).size(), 1 );
 
         // 已提交的层释放双键。仍在编辑的 layer2 保留自己的 edit 锁。
         // 无法实例化的幽灵层没有活会话，孤立 edit 标记必须释放，避免卡住后续保存。

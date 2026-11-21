@@ -73,11 +73,19 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
     if (m_refreshPublishGate) m_refreshPublishGate();
   });
   connect(versions, &MapVersionController::snapshotFinished, this,
-          [this, composePage](const QString &h, const QString &operation, bool success, bool cancelled, const QString &error) {
+          [this, composePage, versions](const QString &h, const QString &operation, bool success, bool cancelled, const QString &error) {
     if (m_selection && m_selection->activeHorizon() == h) {
-      if (auto *label = composePage->findChild<QLabel *>("statusLabel"))
-        label->setText(success ? operation == "save" ? tr("成果版本已保存") : tr("成果快照已发布") :
-            cancelled ? tr("快照任务已取消，原成果保持不变") : error);
+      if (auto *label = composePage->findChild<QLabel *>("statusLabel")) {
+        const auto outcome = versions->lastSaveOutcome();
+        const bool followUp = operation == QLatin1String("save") &&
+            outcome.kind == MapVersionController::SaveOutcome::Kind::SavedFollowUpPending;
+        const bool unchanged = cancelled && outcome.version <= 0;
+        label->setText(followUp ? (error.isEmpty() ? tr("版本已保存，后续操作未完成") : error)
+            : success && !error.isEmpty() && operation == QLatin1String("save") ? error
+            : success ? operation == "save" ? tr("成果版本已保存") : tr("成果快照已发布")
+            : unchanged ? tr("快照任务已取消，原成果保持不变")
+            : error);
+      }
     }
     if (m_refreshPublishGate) m_refreshPublishGate();
   });

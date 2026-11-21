@@ -24,7 +24,8 @@ constexpr int kExtraHistoryKeep = 8;
 bool frozenProvenanceKey(const QString &key) {
   static const QSet<QString> keys{"evidence", "interpretation_reference_versions",
     "ordered_inputs", "algorithm_parameters", "feature_identity", "feature_summary",
-    "interpretation_events", "spatial_edit_events", "timeDepthDependencies", "outputSet"};
+    "interpretation_events", "spatial_edit_events", "spatial_edit_history",
+    "timeDepthDependencies", "outputSet"};
   return keys.contains(key);
 }
 bool contentEquivalentRelocation(const CatalogVersion &next, const CatalogVersion &previous) {

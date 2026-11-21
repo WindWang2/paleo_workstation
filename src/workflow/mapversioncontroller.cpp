@@ -6,6 +6,8 @@
 #include "../domain/interpretationevidence.h"
 #include "../qgis/mappingfeatureidentity.h"
 #include "../qgis/mappingartifactwriter.h"
+#include "../metadata/managedpath.h"
+#include "../domain/shaequals.h"
 #include "../domain/predictionevidence.h"
 
 #include "../io/timedeptool.h"
@@ -18,7 +20,10 @@
 #include "../services/projectdata.h"
 
 #include <QDebug>
+#include <QElapsedTimer>
+#include <QFileInfo>
 #include <QJsonArray>
+#include <QUuid>
 #include <QJsonDocument>
 #include <QSet>
 #include <QJsonObject>
@@ -119,10 +124,8 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   if (!featurePrevalidated) for (const auto &item : horizonVectorLayers) {
     auto *layer = item.second.data();
     if (!layer) continue;
-    if (item.first.startsWith("draft.") && layer->fields().indexOf("facies_code") >= 0 && !layer->readOnly() &&
-        !MappingFeatureIdentity::ensure(layer, error)) {
-      return {};
-    }
+    const bool requireIdentity = item.first.startsWith(QStringLiteral("draft.")) &&
+        layer->fields().indexOf(MappingFeatureIdentity::UidField) >= 0;
     if (layer->fields().indexOf("facies_evidence") < 0 &&
         layer->fields().indexOf("paleo_interpretation") < 0) {
       scan.featureCount += layer->featureCount(); continue;
@@ -130,7 +133,7 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     scan.layerUids.clear();
     auto features = layer->getFeatures(); QgsFeature feature;
     while (features.nextFeature(feature)) {
-      if (!scan.append(feature, horizon, m_catalog, error, item.first.startsWith("draft."))) return {};
+      if (!scan.append(feature, horizon, m_catalog, error, requireIdentity)) return {};
     }
   }
   if (!featurePrevalidated) frozenProvenance.insert("feature_summary", scan.summary());
@@ -188,88 +191,149 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     }
   }
 
-  // 编辑会话 commit（§1223 版本提交边界）：该层位全部矢量图层逐一提交；
-  // commitChanges 原生清 undo 栈，undoStack()->clear() 再兜底一次，保证
-  // undo 不跨版本边界。栅格图层无编辑缓冲，跳过。
+  if (frozenProvenance.value(QStringLiteral("save_attempt_id")).toString().isEmpty())
+    frozenProvenance.insert(QStringLiteral("save_attempt_id"),
+                            QUuid::createUuid().toString(QUuid::WithoutBraces));
+  auto capture = std::make_shared<MapVersionSaveCapture>();
+  capture->horizon = horizon;
+  capture->projectDirectory = m_store ? m_store->projectDirectory() : QString();
+  capture->epoch = m_snapshotEpoch;
+  capture->attemptId = frozenProvenance.value(QStringLiteral("save_attempt_id")).toString();
+  for (const auto &item : horizonVectorLayers) {
+    MapVersionSaveCapture::Layer captured;
+    captured.id = item.first;
+    captured.layer = item.second;
+    if (item.second) {
+      captured.hadEditBuffer = item.second->isEditable();
+      captured.undoCount = item.second->undoStack() ? item.second->undoStack()->count() : 0;
+    }
+    capture->layers << captured;
+    if (captured.hadEditBuffer) capture->pendingLayers << captured.id;
+  }
+  m_saveCapture = capture;
+  *declarations = declared; *frozen = frozenProvenance;
+  return true;
+}
+void MapVersionController::noteOutcome(SaveOutcome::Kind kind, int version, const QString &horizon,
+                                       const QString &message, const QString &stage) {
+  m_lastOutcome = {};
+  m_lastOutcome.kind = kind;
+  m_lastOutcome.version = version;
+  m_lastOutcome.horizon = horizon;
+  m_lastOutcome.message = message;
+  m_lastOutcome.stage = stage;
+  if (m_saveCapture) {
+    m_lastOutcome.committedLayers = m_saveCapture->committedLayers;
+    m_lastOutcome.pendingLayers = m_saveCapture->pendingLayers;
+  }
+}
+bool MapVersionController::resumePendingWorkCommit(const QString &horizon, MapVersion *out, QString *error) {
+  if (!m_saveCapture || m_saveCapture->version <= 0 || m_saveCapture->horizon != horizon) return false;
+  if (!m_store || m_saveCapture->epoch != m_snapshotEpoch ||
+      m_saveCapture->projectDirectory != m_store->projectDirectory()) {
+    m_saveCapture.reset();
+    return false;
+  }
+  for (const auto &layer : m_saveCapture->layers) {
+    if (!layer.hadEditBuffer) continue;
+    auto *vector = layer.layer.data();
+    if (!vector) { m_saveCapture.reset(); return false; }
+    if (!vector->isEditable()) continue;
+    const int undoCount = vector->undoStack() ? vector->undoStack()->count() : 0;
+    if (undoCount != layer.undoCount) { m_saveCapture.reset(); return false; }
+  }
+  QString commitError;
+  const bool committed = commitCapturedEdits(&commitError);
+  if (!committed) {
+    if (out) *out = m_store->latest(horizon);
+    const auto message = tr("版本已保存（v%1），后续工作副本提交未完成：%2")
+                             .arg(m_saveCapture->version).arg(commitError);
+    setError(error, message);
+    noteOutcome(SaveOutcome::Kind::SavedFollowUpPending, m_saveCapture->version, horizon, message,
+                QStringLiteral("work_commit"));
+    return true;
+  }
+  const auto saved = m_store->latest(horizon);
+  if (out) *out = saved;
+  QVector<LayerDeclaration> declaredLayers;
+  if (m_layers) m_layers->tryDeclared(&declaredLayers, nullptr);
+  rememberImmutableAssets(saved, declaredLayers);
+  if (error) error->clear();
+  noteOutcome(SaveOutcome::Kind::Saved, out ? out->version : m_saveCapture->version, horizon, {},
+              QStringLiteral("complete"));
+  m_saveCapture.reset();
+  return true;
+}
+bool MapVersionController::commitCapturedEdits(QString *error) {
+  if (!m_saveCapture) return false;
+  if (m_saveFault == SaveFault::WorkCommit) {
+    setError(error, tr("工作副本提交未完成"));
+    return false;
+  }
   bool commitFailed = false;
-  QStringList committedWithEdits; // #480 P2-2：已成功落盘编辑的层（跨层原生
-                                  // 提交非原子——失败时这些层无版本快照可回溯）
+  QStringList committedWithEdits;
   QVector<QPointer<MapVersionEvidenceCommitProof>> proofs;
-  // Bind every proof before the first native callback. Committing A must not
-  // certify changes that its callback makes to the already-scanned layer B.
-  if (featurePrevalidated)
-    for (const auto &item : horizonVectorLayers)
-      if (item.second && item.first.startsWith("draft."))
-        proofs << new MapVersionEvidenceCommitProof(item.second, horizon, m_catalog);
+  for (const auto &item : m_saveCapture->layers)
+    if (item.layer && item.id.startsWith(QStringLiteral("draft.")))
+      proofs << new MapVersionEvidenceCommitProof(item.layer, m_saveCapture->horizon, m_catalog);
   const auto expireProofs = qScopeGuard([&] {
     for (auto &proof : proofs) if (proof) { proof->releaseGuard(); delete proof.data(); }
   });
-  for ( const auto &item : horizonVectorLayers )
-  {
-    auto *vl = item.second.data();
-    if ( !vl )
+  m_saveCapture->committedLayers.clear();
+  m_saveCapture->pendingLayers.clear();
+  for (const auto &item : m_saveCapture->layers) {
+    auto *vl = item.layer.data();
+    if (!vl) continue;
+    if (!vl->isEditable()) {
+      if (item.hadEditBuffer) m_saveCapture->committedLayers << item.id;
       continue;
-    bool layerCommitted = true;
-    const bool hadEditBuffer = vl->isEditable(); // #480 P2-2：原生提交非原子，
-                                                  // 记录已落盘层，失败时显式披露部分状态
-    if ( vl->isEditable() )
-    {
-      if ( m_editSvc )
-      {
-        if ( !m_editSvc->commitEdit( vl, error ) )
-          layerCommitted = false;
-      }
-      else if ( m_projectStore )
-      {
-        const auto res = m_projectStore->enqueueWrite( [vl]() -> PaleoProjectStore::WriteResult {
-          if ( !vl->commitChanges() )
-            return { false, QObject::tr( "commitChanges failed for layer '%1'" ).arg( vl->id() ) };
-          return { true, QString() };
-        } );
-        if ( !res.ok )
-        {
-          if ( error && error->isEmpty() )
-            *error = tr( "图层 %1 提交编辑失败：%2" ).arg( item.first, res.error );
-          layerCommitted = false;
-        }
-      }
-      else
-      {
-        if ( !vl->commitChanges() )
-        {
-          if ( error && error->isEmpty() )
-            *error = tr( "图层 %1 提交编辑失败：%2" )
-                         .arg( item.first, vl->commitErrors().join( QLatin1Char( ';' ) ) );
-          layerCommitted = false;
-        }
-      }
     }
-    if ( layerCommitted && hadEditBuffer )
-      committedWithEdits << item.first;
-    // #222：只有提交成功（或本无编辑缓冲）的层才清 undo 栈。提交失败时编辑
-    // 缓冲保留供重试/回滚，撤销历史也必须一并保留；且约束会话仍挂着
-    // QUndoStack::indexChanged，clear() 会触发 synchronize(0) 把失败态反向
-    // 再 persist 进 store。
-    if ( layerCommitted )
-      vl->undoStack()->clear();
-    else
+    bool layerCommitted = true;
+    if (m_editSvc) {
+      if (!m_editSvc->commitEdit(vl, error)) layerCommitted = false;
+    } else if (m_projectStore) {
+      const auto res = m_projectStore->enqueueWrite([vl]() -> PaleoProjectStore::WriteResult {
+        if (!vl->commitChanges())
+          return {false, QObject::tr("commitChanges failed for layer '%1'").arg(vl->id())};
+        return {true, QString()};
+      });
+      if (!res.ok) {
+        if (error && error->isEmpty())
+          *error = tr("图层 %1 提交编辑失败：%2").arg(item.id, res.error);
+        layerCommitted = false;
+      }
+    } else if (!vl->commitChanges()) {
+      if (error && error->isEmpty())
+        *error = tr("图层 %1 提交编辑失败：%2").arg(item.id, vl->commitErrors().join(QLatin1Char(';')));
+      layerCommitted = false;
+    }
+    if (layerCommitted) {
+      if (vl->undoStack()) vl->undoStack()->clear();
+      m_saveCapture->committedLayers << item.id;
+      if (item.hadEditBuffer) committedWithEdits << item.id;
+    } else {
       commitFailed = true;
+      m_saveCapture->pendingLayers << item.id;
+    }
   }
-
-  if ( commitFailed )
-  {
-    // #480 P2-2：跨层原生提交非原子——先行层可能已落盘（GPKG 已写、undo
-    // 已清）但本版本未生成。显式披露部分状态，不再只报失败层，避免用户
-    // 误以为全部编辑仍在缓冲区可重试。
-    if ( !committedWithEdits.isEmpty() && error )
-      *error = tr( "部分层已提交编辑但本次未出版本快照：%1（提交失败：%2）" )
-                   .arg( committedWithEdits.join( QChar( 0x3001 ) ), *error ); // 顿号 U+3001——窄字符字面量容不下多字节 CJK（clang 诊断 error）
+  auto releaseCommittedEditLocks = [&]() {
+    if (!m_projectStore) return;
+    for (const auto &item : m_saveCapture->layers) {
+      auto *layer = item.layer.data();
+      if (layer && layer->isEditable()) continue;
+      m_projectStore->releaseLayerBusy(item.id, QStringLiteral("edit"));
+      if (layer) m_projectStore->releaseLayerBusy(layer->id(), QStringLiteral("edit"));
+    }
+  };
+  if (commitFailed) {
+    if (error)
+      *error = tr("版本已保存，部分工作层已提交、其余编辑仍可撤销：已提交 %1；未提交 %2。%3")
+                   .arg(committedWithEdits.join(QChar(0x3001)),
+                        m_saveCapture->pendingLayers.join(QChar(0x3001)), *error);
     releaseCommittedEditLocks();
     return false;
   }
   releaseCommittedEditLocks();
-
-  *declarations = declared; *frozen = frozenProvenance;
   return true;
 }
 void MapVersionController::releaseSnapshotTokens(const QString &horizon) {
@@ -283,30 +347,109 @@ void MapVersionController::releaseSnapshotTokens(const QString &horizon) {
   }
 }
 
+void MapVersionController::setSaveFaultForTest(SaveFault fault) {
+  m_saveFault = fault;
+  if (!m_store) return;
+  if (fault == SaveFault::Verify || fault == SaveFault::Sql) {
+    const auto stage = fault == SaveFault::Verify ? QStringLiteral("verify") : QStringLiteral("sql");
+    m_store->setSaveFaultProbe([stage](const QString &name) { return name != stage; });
+  } else {
+    m_store->setSaveFaultProbe({});
+  }
+}
+bool MapVersionController::tryReuseImmutable(const QString &layerId, LayerDeclaration *declaration) {
+  if (!m_layers || !m_store || !declaration) return false;
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(layerId));
+  if (!layer || layer->isEditable()) return false;
+  const QString source = QFileInfo(layer->source().section(QLatin1Char('|'), 0, 0)).canonicalFilePath();
+  const auto reuse = m_reuseBySource.constFind(source);
+  if (reuse == m_reuseBySource.cend() || reuse->projectDirectory != m_store->projectDirectory()) return false;
+  QString hashError;
+  const QString sourceHash = paleo::managedpath::sha256FileHex(source, &hashError);
+  ++m_lastMetrics.sourceHashes;
+  if (!paleo::domain::shaEquals(sourceHash, reuse->sourceSha256)) return false;
+  const QString snapshot = QFileInfo(reuse->snapshotPath).canonicalFilePath();
+  if (snapshot.isEmpty() || snapshot == source) return false;
+  const QString snapshotHash = paleo::managedpath::sha256FileHex(snapshot, &hashError);
+  ++m_lastMetrics.destinationHashes;
+  if (!paleo::domain::shaEquals(snapshotHash, reuse->snapshotSha256)) return false;
+  declaration->source = snapshot + QStringLiteral("|layername=features");
+  ++m_lastMetrics.reusedImmutableAssets;
+  return true;
+}
+void MapVersionController::rememberImmutableAssets(const MapVersion &version,
+                                                  const QVector<LayerDeclaration> &declared) {
+  if (!m_store || !m_layers || version.version <= 0) return;
+  const auto provenance = QJsonDocument::fromJson(version.provenance.toUtf8()).object();
+  QHash<QString, QJsonObject> saved;
+  for (const auto &entry : provenance.value(QStringLiteral("saved_layers")).toArray()) {
+    const auto object = entry.toObject();
+    saved.insert(object.value(QStringLiteral("layer_id")).toString(), object);
+  }
+  for (const auto &decl : declared) {
+    if (decl.horizon != version.horizon || !saved.contains(decl.layerId)) continue;
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(decl.layerId));
+    if (!layer || layer->isEditable()) continue;
+    const QString source = QFileInfo(layer->source().section(QLatin1Char('|'), 0, 0)).canonicalFilePath();
+    const auto snapshot = saved.value(decl.layerId);
+    const QString snapshotPath = QFileInfo(m_store->projectDirectory(), snapshot.value(QStringLiteral("path")).toString())
+                                     .absoluteFilePath();
+    if (source.isEmpty() || QFileInfo(snapshotPath).canonicalFilePath() == source) continue;
+    QString hashError;
+    ImmutableAssetReuse reuse;
+    reuse.projectDirectory = m_store->projectDirectory();
+    reuse.sourceSha256 = paleo::managedpath::sha256FileHex(source, &hashError);
+    reuse.snapshotPath = snapshotPath;
+    reuse.snapshotSha256 = snapshot.value(QStringLiteral("sha256")).toString();
+    if (reuse.sourceSha256.size() == 64 && reuse.snapshotSha256.size() == 64)
+      m_reuseBySource.insert(source, reuse);
+  }
+}
 MapVersion MapVersionController::saveVersion( const QString &horizon, const QVariantMap &provenance,
                                               QString *error )
 {
+  m_lastMetrics = {};
+  MapVersion resumed;
+  if (resumePendingWorkCommit(horizon, &resumed, error)) return resumed;
   QVector<LayerDeclaration> declared; QVariantMap frozenProvenance;
-  if (!captureVersion(horizon, provenance, &declared, &frozenProvenance, error)) return {};
+  if (!captureVersion(horizon, provenance, &declared, &frozenProvenance, error)) {
+    noteOutcome(SaveOutcome::Kind::Rejected, 0, horizon, error ? *error : QString(), QStringLiteral("validate"));
+    return {};
+  }
+  if (m_saveFault == SaveFault::Export) {
+    setError(error, tr("地图矢量导出失败"));
+    noteOutcome(SaveOutcome::Kind::Rejected, 0, horizon, error ? *error : QString(), QStringLiteral("export"));
+    return {};
+  }
   const QString json = QString::fromUtf8(QJsonDocument::fromVariant(frozenProvenance).toJson(QJsonDocument::Compact));
   const auto clearAllTokens = [&] { releaseSnapshotTokens(horizon); };
-  // Export committed vector views rather than copying a possibly open WAL-backed GPKG.
-  // This also freezes provider subsets and memory layers, preserving business attributes.
   QTemporaryDir vectorStaging;
   if (!vectorStaging.isValid()) {
-    setError(error, tr("无法创建地图版本矢量暂存目录")); clearAllTokens(); return {};
+    setError(error, tr("无法创建地图版本矢量暂存目录")); clearAllTokens();
+    noteOutcome(SaveOutcome::Kind::Rejected, 0, horizon, error ? *error : QString(), QStringLiteral("export"));
+    return {};
   }
+  QElapsedTimer exportTimer; exportTimer.start();
   QVector<LayerDeclaration> snapshotDeclarations = declared;
   for (auto &decl : snapshotDeclarations) {
     if (decl.horizon != horizon || decl.type.compare("vector", Qt::CaseInsensitive) != 0) continue;
+    if (!m_layers) continue;
+    if (tryReuseImmutable(decl.layerId, &decl)) continue;
     auto *vector = qobject_cast<QgsVectorLayer *>(m_layers->layer(decl.layerId));
     if (!vector) continue;
     const QString path = vectorStaging.filePath(QString::number(&decl - snapshotDeclarations.data()) + ".gpkg");
-    if (!MappingArtifactWriter::vectorSnapshot(vector, path, error)) { clearAllTokens(); return {}; }
+    if (!MappingArtifactWriter::vectorSnapshot(vector, path, error)) {
+      clearAllTokens();
+      noteOutcome(SaveOutcome::Kind::Rejected, 0, horizon, error ? *error : QString(), QStringLiteral("export"));
+      return {};
+    }
     decl.source = path + "|layername=features";
+    ++m_lastMetrics.providerExports;
+    ++m_lastMetrics.identityNormalizations;
   }
-
-  // §41.2 sole write choke point：saveVersion 路由进 m_projectStore->enqueueWrite
+  m_lastMetrics.providerExportMs = exportTimer.elapsed();
+  MapSnapshotAccounting accounting;
+  QElapsedTimer sqlTimer; sqlTimer.start();
   MapVersion v;
   if ( m_projectStore )
   {
@@ -314,7 +457,7 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
     const auto res = m_projectStore->enqueueWrite( [&]() -> PaleoProjectStore::WriteResult {
       if ( !m_store )
         return { false, QObject::tr( "MapVersionStore is null" ) };
-      v = m_store->saveVersion( horizon, json, &storeErr, snapshotDeclarations );
+      v = m_store->saveVersion( horizon, json, &storeErr, snapshotDeclarations, &accounting );
       if ( v.version <= 0 )
         return { false, storeErr.isEmpty() ? QObject::tr( "saveVersion failed" ) : storeErr };
       return { true, QString() };
@@ -324,28 +467,49 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
       if ( error && error->isEmpty() )
         *error = res.error;
       clearAllTokens();
+      noteOutcome(SaveOutcome::Kind::Rejected, 0, horizon, error ? *error : QString(), QStringLiteral("durable"));
       return MapVersion();
     }
   }
   else if ( m_store )
   {
-    v = m_store->saveVersion( horizon, json, error, snapshotDeclarations );
+    v = m_store->saveVersion( horizon, json, error, snapshotDeclarations, &accounting );
   }
-
+  m_lastMetrics.sqlRegisterMs = sqlTimer.elapsed();
+  m_lastMetrics.sourceHashes += accounting.sourceHashes;
+  m_lastMetrics.destinationHashes += accounting.destinationHashes;
+  m_lastMetrics.bytesCopied += accounting.bytesCopied;
+  m_lastMetrics.files += accounting.files;
+  if (v.version <= 0) {
+    clearAllTokens();
+    noteOutcome(SaveOutcome::Kind::Rejected, 0, horizon, error ? *error : QString(), QStringLiteral("durable"));
+    return {};
+  }
+  if (m_saveCapture) m_saveCapture->version = v.version;
+  QString commitError;
+  if (!commitCapturedEdits(&commitError)) {
+    const auto message = tr("版本已保存（v%1），后续工作副本提交未完成：%2").arg(v.version).arg(commitError);
+    setError(error, message);
+    noteOutcome(SaveOutcome::Kind::SavedFollowUpPending, v.version, horizon, message, QStringLiteral("work_commit"));
+    emit versionSaved(horizon, v.version);
+    return v;
+  }
   clearAllTokens();
-
-  if ( v.version > 0 ) {
-    QString retainError;
-    if (!retainMapCitations(m_catalog, horizon, v.version, frozenProvenance, &retainError)) {
-      // FC-002：版本已落库——retain 失败不构成「保存失败」；旧行为把失败
-      // 文本写进 *error 却照常返回成功 v，调用方按任一口径判读都自相矛盾
-      //（异步路径 #480 已收口为 snapshotFinished 捎带 retainError；同步路径
-      // 无任务服务消费方，这里以日志如实披露，不污染成功返回值）。
-      qWarning("MapVersionController: retainMapCitations failed after saveVersion(%s v%d): %s",
-               qPrintable(horizon), v.version, qPrintable(retainError));
-    }
-    emit versionSaved( horizon, v.version );
+  rememberImmutableAssets(v, declared);
+  QString retainError;
+  if (!retainMapCitations(m_catalog, horizon, v.version, frozenProvenance, &retainError)) {
+    qWarning("MapVersionController: retainMapCitations failed after saveVersion(%s v%d): %s",
+             qPrintable(horizon), v.version, qPrintable(retainError));
+    const auto message = tr("版本已保存（v%1），引用保留未完成：%2").arg(v.version).arg(retainError);
+    noteOutcome(SaveOutcome::Kind::SavedFollowUpPending, v.version, horizon, message, QStringLiteral("retain"));
+    setError(error, message);
+    emit versionSaved(horizon, v.version);
+    return v;
   }
+  if (error) error->clear();
+  noteOutcome(SaveOutcome::Kind::Saved, v.version, horizon, {}, QStringLiteral("complete"));
+  if (m_saveCapture && m_saveCapture->pendingLayers.isEmpty()) m_saveCapture.reset();
+  emit versionSaved( horizon, v.version );
   return v;
 }
 

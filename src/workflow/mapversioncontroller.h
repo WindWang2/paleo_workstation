@@ -2,6 +2,8 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QStringList>
+#include <QHash>
 #include <QVariantMap>
 #include <QPointer>
 #include <memory>
@@ -14,14 +16,16 @@ class PaleoProjectStore;
 class ProjectDataFacade;
 class DataCatalog;
 class PaleoTaskService;
+struct MapVersionSaveCapture;
 
 // workflow/mapversioncontroller — 「保存版本 / 发布 / Published」的编排
 // （wave/mapping-pipeline 阶段E；PALEO_QGIS_PLAN §41.7 + §1223 最小语义 +
 // PROJECT_AREA_PLAN §177/§260 发布门）。
 //
-//   保存版本 = 该层位全部矢量图层的编辑会话 commit（QGIS 原生：commit 清
-//   undo 栈；此处再显式 clear 兜底，undo 不跨版本边界）→ MapVersionStore
-//   版本号递增 + provenance 记录；新版本行继承最近一次登记的 PDF 产物引用。
+//   保存版本 = 先校验并冻结当前编辑视图（含未提交缓冲），再做文件准备与
+//   耐久登记。只有版本行已经存在，才提交工作副本。QGIS commitChanges 会
+//   清空原生撤销栈，因此提交不能提前到准备阶段。准备失败保留缓冲和撤销。
+//   耐久版本形成后工作副本提交失败时，版本仍然有效，结果标明后续未完成。
 //   发布 = result/ 快照（成果 gpkg + 绑定 PDF，只读）→ Published；发布门
 //   = 版本行上有 PDF 资产 id+SHA-256（导出登记 OUTPUT 资产后经 saveVersion
 //   继承）+ 每口井都有残差或原因（residualSummaryJson 产出的完整快照，
@@ -34,8 +38,8 @@ class MapVersionController : public QObject
     MapVersionController( MapVersionStore *store, QgisLayerService *layers,
                           QObject *parent = nullptr );
 
-    void setEditingService( QgisEditingService *editSvc ) { m_editSvc = editSvc; }
-    void setProjectStore( PaleoProjectStore *store ) { m_projectStore = store; }
+    void setEditingService( QgisEditingService *editSvc );
+    void setProjectStore( PaleoProjectStore *store );
     void setCatalog(DataCatalog *catalog);
     ~MapVersionController() override;
     void setTaskService(PaleoTaskService *tasks);
@@ -72,6 +76,35 @@ class MapVersionController : public QObject
     // 不阻断本次发布」。
     static QString stalePublishAdvisory( const DataCatalog *catalog );
 
+    struct SaveOutcome {
+      enum class Kind { None, Rejected, Cancelled, Saved, SavedFollowUpPending };
+      Kind kind = Kind::None;
+      int version = 0;
+      QString horizon;
+      QString message;
+      QString stage;
+      QStringList committedLayers;
+      QStringList pendingLayers;
+    };
+    struct PhaseMetrics {
+      qint64 evidenceScanMs = 0;
+      qint64 providerExportMs = 0;
+      qint64 sqlRegisterMs = 0;
+      qint64 uiMaxGapMs = 0;
+      qint64 bytesCopied = 0;
+      int providerExports = 0;
+      int identityNormalizations = 0;
+      int sourceHashes = 0;
+      int destinationHashes = 0;
+      int files = 0;
+      int reusedImmutableAssets = 0;
+      int events = 0;
+    };
+    SaveOutcome lastSaveOutcome() const { return m_lastOutcome; }
+    PhaseMetrics lastSaveMetrics() const { return m_lastMetrics; }
+    enum class SaveFault { None, Export, Verify, Sql, WorkCommit };
+    void setSaveFaultForTest(SaveFault fault);
+
   signals:
     void snapshotBusyChanged(bool busy);
     // Query batches yield to the event loop before the native commit boundary.
@@ -85,17 +118,34 @@ class MapVersionController : public QObject
     bool captureVersion(const QString &horizon, const QVariantMap &provenance,
                         QVector<LayerDeclaration> *declarations, QVariantMap *frozen, QString *error,
                         bool featurePrevalidated = false);
+    bool commitCapturedEdits(QString *error);
+    bool resumePendingWorkCommit(const QString &horizon, MapVersion *out, QString *error);
+    bool tryReuseImmutable(const QString &layerId, LayerDeclaration *declaration);
+    void rememberImmutableAssets(const MapVersion &version, const QVector<LayerDeclaration> &declared);
+    void noteOutcome(SaveOutcome::Kind kind, int version, const QString &horizon, const QString &message,
+                     const QString &stage);
     struct SavePreparation;
     void continueSavePreparation(const std::shared_ptr<SavePreparation> &preparation);
     bool launchSaveSnapshot(const QString &horizon, const QVariantMap &provenance, QString *error);
     void releaseSnapshotTokens(const QString &horizon);
     struct AsyncState;
     std::shared_ptr<AsyncState> m_async;
+    std::shared_ptr<MapVersionSaveCapture> m_saveCapture;
     quint64 m_snapshotEpoch = 0;
     QPointer<PaleoTaskService> m_tasks;
     QPointer<DataCatalog> m_catalog;
     MapVersionStore *m_store = nullptr;
-    QgisLayerService *m_layers = nullptr;
-    QgisEditingService *m_editSvc = nullptr;
-    PaleoProjectStore *m_projectStore = nullptr;
+    QPointer<QgisLayerService> m_layers;
+    QPointer<QgisEditingService> m_editSvc;
+    QPointer<PaleoProjectStore> m_projectStore;
+    SaveOutcome m_lastOutcome;
+    PhaseMetrics m_lastMetrics;
+    SaveFault m_saveFault = SaveFault::None;
+    struct ImmutableAssetReuse {
+      QString projectDirectory;
+      QString sourceSha256;
+      QString snapshotPath;
+      QString snapshotSha256;
+    };
+    QHash<QString, ImmutableAssetReuse> m_reuseBySource;
 };

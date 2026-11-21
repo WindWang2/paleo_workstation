@@ -356,8 +356,18 @@ QVector<MapVersion> MapVersionStore::versions( const QString &horizon ) const
   return out;
 }
 
+MapVersion MapVersionStore::savedAttempt(const QString &horizon, const QString &attemptId) const {
+  if (attemptId.isEmpty()) return {};
+  for (const auto &version : versions(horizon)) {
+    const auto object = QJsonDocument::fromJson(version.provenance.toUtf8()).object();
+    if (object.value(QStringLiteral("save_attempt_id")).toString() == attemptId) return version;
+  }
+  return {};
+}
+
 MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &provenanceJson,
-                                         QString *error, const QVector<LayerDeclaration> &layers )
+                                         QString *error, const QVector<LayerDeclaration> &layers,
+                                         MapSnapshotAccounting *accounting )
 {
   if ( m_readOnly )
   {
@@ -391,6 +401,9 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
     setError(error, QStringLiteral("地图版本来源记录 JSON 损坏，原记录未改写")); return {};
   }
   auto provenance = provenanceDocument.object();
+  if (const auto existing = savedAttempt(horizon, provenance.value(QStringLiteral("save_attempt_id")).toString());
+      existing.version > 0)
+    return existing;
   const QString projectDir = QFileInfo(m_dbPath).absolutePath();
   QString freezeDir;
   // #439：未传入图层的保存保持旧发布路径（发布时仍按调用方 decls 复制）。
@@ -401,11 +414,17 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
     QJsonArray savedLayers;
     const auto freeze = [&](const QString &source, const QString &name, QJsonObject &record) {
       const QString expected = paleo::managedpath::sha256FileHex(source, error);
+      if (accounting) ++accounting->sourceHashes;
       if (expected.isEmpty()) return false;
       if (!QDir().mkpath(freezeDir) ||
           !copyReadOnly(source, QDir(freezeDir).filePath(name), error)) return false;
       const QString path = QDir(freezeDir).filePath(name);
       const QString sha = paleo::managedpath::sha256FileHex(path, error);
+      if (accounting) {
+        ++accounting->destinationHashes;
+        ++accounting->files;
+        accounting->bytesCopied += QFileInfo(path).size();
+      }
       if (sha.isEmpty()) return false;
       if (sha != expected) {
         setError(error, QStringLiteral("保存快照时来源文件发生变化：%1").arg(source)); return false;
@@ -465,6 +484,17 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
     provenance.insert("saved_layers", savedLayers);
     provenance.insert("saved_pdf", savedPdf);
     provenance.insert("snapshot_hash", snapshotHash(provenance));
+  }
+
+  if (m_saveFaultProbe && !m_saveFaultProbe(QStringLiteral("verify"))) {
+    setError(error, QStringLiteral("注入的保存阶段失败：verify"));
+    if (!freezeDir.isEmpty()) QDir(freezeDir).removeRecursively();
+    return {};
+  }
+  if (m_saveFaultProbe && !m_saveFaultProbe(QStringLiteral("sql"))) {
+    setError(error, QStringLiteral("注入的保存阶段失败：sql"));
+    if (!freezeDir.isEmpty()) QDir(freezeDir).removeRecursively();
+    return {};
   }
 
   if (!db.transaction()) {
@@ -1156,9 +1186,19 @@ MapSnapshotInput MapVersionStore::snapshotInputForPublish(const QString &horizon
   input.valid = true; return input;
 }
 MapVersion MapVersionStore::commitPreparedVersion(PreparedMapSnapshot &snapshot, QString *error) {
+  if (const auto existing = savedAttempt(snapshot.input.horizon,
+          snapshot.provenance.value(QStringLiteral("save_attempt_id")).toString());
+      existing.version > 0)
+    return existing;
+  if (m_saveFaultProbe && !m_saveFaultProbe(QStringLiteral("verify"))) {
+    setError(error, QStringLiteral("注入的保存阶段失败：verify")); return {};
+  }
   if (m_readOnly || snapshot.input.operation != "save" || snapshot.input.projectDirectory != projectDirectory() ||
       !verifyPreparedMapSnapshot(snapshot, error) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
     if (error && error->isEmpty()) *error = QStringLiteral("地图快照工程已切换或不可写"); return {};
+  }
+  if (m_saveFaultProbe && !m_saveFaultProbe(QStringLiteral("sql"))) {
+    setError(error, QStringLiteral("注入的保存阶段失败：sql")); return {};
   }
   auto db = QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly));
   if (!db.transaction()) { setError(error, db.lastError().text()); return {}; }

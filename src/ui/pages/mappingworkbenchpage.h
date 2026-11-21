@@ -1,5 +1,6 @@
 // 层：视图
 #pragma once
+#include <QStringList>
 #include <QVariantMap>
 #include <QMap>
 #include <QWidget>
@@ -80,6 +81,8 @@ private:
   void buildEvidenceSources(QWidget *group, QTabWidget *tabs);
   void buildEvidenceReview(QWidget *group, QTabWidget *tabs);
   void buildEvidenceHistory(QWidget *group, QTabWidget *tabs);
+  void buildSpatialEditHistory(QWidget *page, QVBoxLayout *layout);
+  void renderSpatialEditHistory();
   void wireEvidenceControls();
   bool evidenceDetailsVisible() const;
   QPushButton *evidenceButton(const QString &name, const QString &text, QWidget *parent);
@@ -126,6 +129,7 @@ private:
   QLineEdit *m_evidenceActor = nullptr, *m_evidenceReason = nullptr, *m_sourceFeatureUid = nullptr;
   QLabel *m_interpretationState = nullptr, *m_quality = nullptr;
   QPlainTextEdit *m_evidenceHistory = nullptr;
+  QPlainTextEdit *m_spatialHistory = nullptr;
   // G03 计算归因 tab：冻结输入重放结果的只读展示（状态/决策分布/上游回执/井关联）。
   QLabel *m_attributionSummary = nullptr;
   QPlainTextEdit *m_attributionDetail = nullptr;
@@ -144,6 +148,11 @@ private:
   bool m_evidenceSnapshotOwned = false;
   int m_historyPage = 0;
   QString m_historyTarget;
+  QString m_spatialCursor;
+  QString m_spatialNextCursor;
+  QStringList m_spatialCursorStack;
+  QString m_spatialVersion;
+  QString m_spatialFeature;
   QTimer *m_refreshTimer = nullptr;
   bool m_refreshPending = false;
 };

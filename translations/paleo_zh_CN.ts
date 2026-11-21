@@ -14109,6 +14109,26 @@ Crossline: %3 ~ %4</source>
         <source>%1 发布地图与证据快照</source>
         <translation>%1 发布地图与证据快照</translation>
     </message>
+        <message>
+            <source>版本已保存（v%1），后续工作副本提交未完成：%2</source>
+            <translation>版本已保存（v%1），后续工作副本提交未完成：%2</translation>
+        </message>
+        <message>
+            <source>工作副本提交未完成</source>
+            <translation>工作副本提交未完成</translation>
+        </message>
+        <message>
+            <source>版本已保存，部分工作层已提交、其余编辑仍可撤销：已提交 %1；未提交 %2。%3</source>
+            <translation>版本已保存，部分工作层已提交、其余编辑仍可撤销：已提交 %1；未提交 %2。%3</translation>
+        </message>
+        <message>
+            <source>地图矢量导出失败</source>
+            <translation>地图矢量导出失败</translation>
+        </message>
+        <message>
+            <source>版本已保存（v%1），引用保留未完成：%2</source>
+            <translation>版本已保存（v%1），引用保留未完成：%2</translation>
+        </message>
 </context>
 <context>
     <name>MappingBaseMapSelector</name>
@@ -16410,6 +16430,10 @@ Crossline: %3 ~ %4</source>
         <source>井 %1 的预测未能生成当前层段优势相，未发布</source>
         <translation>井 %1 的预测未能生成当前层段优势相，未发布</translation>
     </message>
+        <message>
+            <source>资料目录不可用，不能读取图件空间编辑历史</source>
+            <translation>资料目录不可用，不能读取图件空间编辑历史</translation>
+        </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>
@@ -18316,6 +18340,60 @@ Crossline: %3 ~ %4</source>
         <source>按上面的步骤准备输入、运行，再对照图件分析。</source>
         <translation>按上面的步骤准备输入、运行，再对照图件分析。</translation>
     </message>
+        <message>
+            <source>图件空间编辑历史</source>
+            <translation>图件空间编辑历史</translation>
+        </message>
+        <message>
+            <source>更早空间编辑</source>
+            <translation>更早空间编辑</translation>
+        </message>
+        <message>
+            <source>较新空间编辑</source>
+            <translation>较新空间编辑</translation>
+        </message>
+        <message>
+            <source>尚无图件版本，不能读取空间编辑历史。</source>
+            <translation>尚无图件版本，不能读取空间编辑历史。</translation>
+        </message>
+        <message>
+            <source>图件空间编辑历史 · 本页 %1 条</source>
+            <translation>图件空间编辑历史 · 本页 %1 条</translation>
+        </message>
+        <message>
+            <source>图斑 %1</source>
+            <translation>图斑 %1</translation>
+        </message>
+        <message>
+            <source>未选中活要素，显示本版本链上的编辑，包括已删除对象</source>
+            <translation>未选中活要素，显示本版本链上的编辑，包括已删除对象</translation>
+        </message>
+        <message>
+            <source>诊断：%1</source>
+            <translation>诊断：%1</translation>
+        </message>
+        <message>
+            <source>还有更早的记录，使用翻页继续读取。</source>
+            <translation>还有更早的记录，使用翻页继续读取。</translation>
+        </message>
+        <message>
+            <source>%1 · %2 · %3
+对象 %4 · 版本 %5</source>
+            <translation>%1 · %2 · %3
+对象 %4 · 版本 %5</translation>
+        </message>
+        <message>
+            <source>这一页没有空间编辑事件。</source>
+            <translation>这一页没有空间编辑事件。</translation>
+        </message>
+        <message>
+            <source>继续读取更早的图件空间编辑，每次最多 50 条</source>
+            <translation>继续读取更早的图件空间编辑，每次最多 50 条</translation>
+        </message>
+        <message>
+            <source>返回较新的图件空间编辑</source>
+            <translation>返回较新的图件空间编辑</translation>
+        </message>
 </context>
 <context>
     <name>MappingWorkflow</name>
@@ -24233,6 +24311,10 @@ PDF：%3
         <message>
             <source>预测已取消，但成果已提交（版本 %1）——未清理已提交产物，可重试发布恢复展示</source>
             <translation>预测已取消，但成果已提交（版本 %1）——未清理已提交产物，可重试发布恢复展示</translation>
+        </message>
+        <message>
+            <source>版本已保存，后续操作未完成</source>
+            <translation>版本已保存，后续操作未完成</translation>
         </message>
   </context>
 <context>
@@ -37999,6 +38081,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message>
             <source>预测输出验证失败：%1（%2）</source>
             <translation>预测输出验证失败：%1（%2）</translation>
+        </message>
+        <message>
+            <source>无法复制正在编辑的图件</source>
+            <translation>无法复制正在编辑的图件</translation>
         </message>
 </context>
 <context>

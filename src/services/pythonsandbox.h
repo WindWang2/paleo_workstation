@@ -28,6 +28,12 @@ struct SandboxResult {
   qint64 hostSnapshotReservedBytes=0,childMemoryLimitBytes=0;
   int exitCode=-1;
   QByteArray outputLog; // Private bounded diagnostic prefix; never a numerical result.
+  // Windows private execution view accounting (#959): viewReused=按已验证内容
+  // 身份复用同代视图（无新复制）；viewBytes/viewFiles 为视图实际占用，
+  // 供诊断与磁盘预算核算（Linux 后端保持默认值）。
+  qint64 viewBytes=0;
+  int viewFiles=0;
+  bool viewReused=false;
   bool ok() const {return code==QLatin1String("ok");}
 };
 } // namespace paleo::python

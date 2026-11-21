@@ -29067,6 +29067,14 @@ PDF：%3
             <source>无法启动 Python：%1</source>
             <translation type="unfinished" />
         </message>
+    <message>
+      <source>无法确认 Python 进程树已完成清理。</source>
+      <translation>Python process tree cleanup could not be confirmed.</translation>
+    </message>
+    <message>
+      <source>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</source>
+      <translation>Python interpreter not found. Install Python 3 or set the PALEO_PYTHON environment variable.</translation>
+    </message>
     </context>
     <context>
         <name>PythonScripting</name>
@@ -39592,6 +39600,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>Python 解释器不可执行：%1</source>
             <translation type="unfinished" />
         </message>
+    <message>
+      <source>无法确认 Python 进程树已完成清理。</source>
+      <translation>Python process tree cleanup could not be confirmed.</translation>
+    </message>
     </context>
     <context>
         <name>SectionSetupDialog</name>

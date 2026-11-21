@@ -4,6 +4,7 @@
 #include "services/pythoninputbundle.h"
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QScopeGuard>
 #ifdef Q_OS_WIN
 #include <QDir>
 
@@ -13,13 +14,13 @@ using namespace windows_detail;
 bool requestValid(const SandboxRequest &r) {
   return r.runtime&&r.runtime->retention&&r.input&&r.input->ok();
 }
-QStringList environment(const SandboxRequest &request){
+QStringList environment(const SandboxRequest &request,const QString &scratch){
   wchar_t root[32768]{},system[32768]{};const auto rn=GetWindowsDirectoryW(root,32768),sn=GetSystemDirectoryW(system,32768);
   if(!rn||rn>=32768||!sn||sn>=32768)return {};
   const auto threads=QString::number(request.policy.threads);
   return {"SystemRoot="+QString::fromWCharArray(root),"WINDIR="+QString::fromWCharArray(root),"PATH="+QString::fromWCharArray(system),
-      "TEMP="+QDir::toNativeSeparators(request.input->root),"TMP="+QDir::toNativeSeparators(request.input->root),
-      "LOCALAPPDATA="+QDir::toNativeSeparators(request.input->root),"OPENBLAS_NUM_THREADS="+threads,"OMP_NUM_THREADS="+threads,"MKL_NUM_THREADS="+threads};
+      "TEMP="+QDir::toNativeSeparators(scratch),"TMP="+QDir::toNativeSeparators(scratch),
+      "LOCALAPPDATA="+QDir::toNativeSeparators(scratch),"OPENBLAS_NUM_THREADS="+threads,"OMP_NUM_THREADS="+threads,"MKL_NUM_THREADS="+threads};
 }
 SandboxResult unavailable(const QString &detail) {
   SandboxResult result;result.code="python_sandbox_unavailable";result.error=detail.toUtf8();return result;
@@ -60,24 +61,54 @@ SandboxResult runWindowsSandbox(const SandboxRequest &original) {
     return unavailable("root_or_interpreter_identity");
   if(input.bytes>request.policy.diskBytes-request.policy.outputBytes-request.policy.logBytes)
     return unavailable("broker_disk_reservation");
-  if(!restrictProfile(profile,&detail)||!restrictTree(runtime,profile.runtimeCapability,&detail)||!restrictTree(input,profile.sid,&detail))return unavailable(detail);
+  // #959：不再对原 runtime/工程输入树逐节点改写 DACL（restrictTree 只留给
+  // profile 自有目录）——原树在运行前、运行中、结束后保持原安全描述符与
+  // 字节；授权只落在服务自有的私有执行视图上。
+  if(!restrictProfile(profile,&detail))return unavailable(detail);
   AuthenticatedSnapshot snapshot;
   if(!authenticateSnapshots(effective,runtime,input,snapshot,&detail)){SandboxResult result;result.code=detail;result.hostSnapshotReservedBytes=snapshot.reservedBytes;
     if(result.code=="cancelled"&&!cancelled(request)&&clock.elapsed()>=wall)result.code="python_process_timeout";return result;}
   if(cancelled(effective)){SandboxResult result;result.code=cancelled(request)?"cancelled":"python_process_timeout";return result;}
-  process_detail::Launch launch;launch.program=snapshot.program;
-  launch.arguments={"-I","-u","-B","-X","utf8",snapshot.codePath};launch.workingDirectory=input.root;
+  PrivateView view;
+  if(!acquirePrivateView(effective,runtime,input,snapshot,profile,view,&detail)){
+    if(detail!="python_sandbox_cleanup_failed"&&cancelled(effective)){SandboxResult result;result.code=cancelled(request)?"cancelled":"python_process_timeout";return result;}
+    // 与 authenticateSnapshots 同口径：视图阶段失败以具体码直报
+    //（python_view_* / python_runtime_changed / cancelled …），不折叠成
+    // python_sandbox_unavailable 淹没诊断。
+    SandboxResult result;result.code=detail;result.hostSnapshotReservedBytes=snapshot.reservedBytes;return result;}
+  // acquire 之后任何退出路径都必须归还租约/清私有输入：scopeGuard 兜底，
+  // 正常路径显式释放并映射「清理待恢复」状态。
+  auto releaseView=qScopeGuard([&]{QString local;releasePrivateView(view,&local);});
+  process_detail::Launch launch;
+  launch.program=QDir(view.runtimeRoot).filePath(QFileInfo(request.runtime->interpreter).fileName());
+  launch.arguments={"-I","-u","-B","-X","utf8",QDir(view.inputRoot).filePath("code.py")};
+  launch.workingDirectory=view.inputRoot;
   launch.permit=permit;
-  launch.environment=environment(request);launch.inputChunks=snapshot.inputChunks;launch.policy=request.policy;launch.cancelled=effective.cancelled;
+  launch.environment=environment(request,view.inputRoot);launch.inputChunks=snapshot.inputChunks;
+  launch.policy=request.policy;launch.cancelled=effective.cancelled;
   if(launch.environment.isEmpty())return unavailable("windows_environment");
   windows_process::Security security;security.packageSid=profile.sid;
   security.capabilities={{profile.registryCapability,SE_GROUP_ENABLED},{profile.runtimeCapability,SE_GROUP_ENABLED}};
-  const auto work=windows_process::runChild(launch,&security);
+  bool treeReaped=false;
+  const auto work=windows_process::runChild(launch,&security,&treeReaped);
   SandboxResult result;result.code=work.code;result.output=work.output;result.error=work.error;result.cpuMicros=work.cpuMicros;result.peakMemoryBytes=work.peakMemoryBytes;
   result.memoryPeakComplete=work.memoryPeakComplete;
   result.hostSnapshotReservedBytes=snapshot.reservedBytes;result.childMemoryLimitBytes=request.policy.memoryBytes;result.exitCode=work.exitCode;
   result.outputLog=work.outputLog;
+  result.viewBytes=view.viewBytes;result.viewFiles=view.viewFiles;result.viewReused=view.reusedView;
   if(result.code=="cancelled"&&!cancelled(request)&&clock.elapsed()>=wall)result.code="python_process_timeout";
+  if(!treeReaped){
+    releaseView.dismiss(); // 不明进程仍可能使用视图，保留租约直至宿主退出。
+    profile.retainForRecovery=true;
+    result.code="python_sandbox_cleanup_failed";result.error="python_process_tree_not_reaped";
+    if(result.outputLog.isEmpty())result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));result.output.clear();
+    return result;
+  }
+  QString releaseDetail;
+  const bool viewReleased=releasePrivateView(view,&releaseDetail);
+  releaseView.dismiss();
+  if(!viewReleased){result.code="python_sandbox_cleanup_failed";result.error=releaseDetail.toUtf8();
+    if(result.outputLog.isEmpty())result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));result.output.clear();}
   if(!profile.cleanup(&detail)){result.code="python_sandbox_cleanup_failed";result.error=detail.toUtf8();
     if(result.outputLog.isEmpty())result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));result.output.clear();}
   return result;

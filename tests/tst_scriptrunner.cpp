@@ -1,18 +1,29 @@
 #include "../src/services/pythonenv.h"
 #include "../src/services/scriptrunner.h"
+#include "../src/services/scriptprocessscope.h"
 #include "perfbudget_relax.h"
 
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileInfo>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QtTest>
 
+#include <memory>
+
 #include <utility>
+
+#include <QTemporaryDir>
 
 #ifdef Q_OS_UNIX
 #include <cerrno>
 #include <csignal>
+#endif
+#ifdef Q_OS_WIN
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
 
 // 方向68：ScriptRunnerService 进程级验收——退出码/流式/argv 透传/超时/
@@ -36,9 +47,17 @@ private slots:
   void startFailureIsHonest();
   void failedToStartReportsCrashed();
   void noOrphanAfterCancel();
+  void treeDescendantsReclaimedWhenMainExitsFirst();
+  void treeDescendantsReclaimedOnCancel();
+  void treeDescendantsReclaimedOnTimeout();
+  void treeDescendantsReclaimedOnDestructor();
+  void treeReclamationFailureIsReported();
 
 private:
   static QString fixture(const QString &name);
+  // #960：跨平台 pid 存活判定（句柄/信号而非「进程列表里没有」）。
+  static bool pidDead(qint64 pid);
+  static QList<qint64> treePidsFromSentinel(const QString &sentinel);
   QString m_python;
 };
 
@@ -422,6 +441,177 @@ void TestScriptRunner::noOrphanAfterCancel()
   QCOMPARE(errno, ESRCH);
 #else
   QSKIP("orphan assertion is Unix-specific");
+#endif
+}
+
+// —— #960 进程树回收（父/子/孙真实进程夹具 spawn_tree.py）——
+// pid 存活：Unix 用 kill(pid,0)（僵尸也算存活，等 init 收尸后 ESRCH）；
+// Windows 用进程句柄等待退出（不以 PID 不存在冒充退出证明）。
+bool TestScriptRunner::pidDead(qint64 pid)
+{
+  if (pid <= 0)
+    return true;
+#ifdef Q_OS_UNIX
+  return ::kill(static_cast<pid_t>(pid), 0) == -1 && errno == ESRCH;
+#else
+  HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                               DWORD(pid));
+  if (!process)
+    return GetLastError() == ERROR_INVALID_PARAMETER; // PID 已不存在
+  const bool exited = WaitForSingleObject(process, 10000) == WAIT_OBJECT_0;
+  CloseHandle(process);
+  return exited;
+#endif
+}
+
+QList<qint64> TestScriptRunner::treePidsFromSentinel(const QString &sentinel)
+{
+  QList<qint64> pids;
+  QFile file(sentinel);
+  if (file.open(QIODevice::ReadOnly))
+  {
+    const auto parts = QString::fromUtf8(file.readAll()).split(QChar(' '),
+                                                               Qt::SkipEmptyParts);
+    for (const auto &part : parts)
+      pids.append(part.toLongLong());
+  }
+  return pids;
+}
+
+// 主进程先退（parent 模式父进程等 sentinel 后立即退出）、子孙仍存活并持有
+// 输出管道：runFinished 到来即本次运行整树已了结——子孙全部退出、文件锁
+// （sentinel 句柄）随进程释放。
+void TestScriptRunner::treeDescendantsReclaimedWhenMainExitsFirst()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sentinel = dir.filePath(QStringLiteral("tree.sentinel"));
+  ScriptRunnerService svc;
+  QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
+  const qint64 id = svc.start(
+      {fixture(QStringLiteral("spawn_tree.py")),
+       {sentinel, QStringLiteral("parent")}, dir.path(), m_python, 0});
+  QVERIFY(id > 0);
+  QVERIFY(finishedSpy.wait(30000));
+  const QList<qint64> pids = treePidsFromSentinel(sentinel);
+  QCOMPARE(pids.size(), 2); // child + grand
+  for (const qint64 pid : pids)
+    QTRY_VERIFY2_WITH_TIMEOUT(pidDead(pid), qPrintable(QString::number(pid)), 8000);
+  // 文件锁释放：可删除 sentinel（Windows 上仍被持有则删除失败）。
+  QVERIFY(QFile::remove(sentinel));
+}
+
+// 取消：树建立后 cancel——主/子/孙整树回收，runFinished(cancelled=true)
+// 只发一次，并发运行的其他任务不受连坐。
+void TestScriptRunner::treeDescendantsReclaimedOnCancel()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sentinelA = dir.filePath(QStringLiteral("a.sentinel"));
+  const QString sentinelB = dir.filePath(QStringLiteral("b.sentinel"));
+  ScriptRunnerService svc;
+  QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
+  QStringList lines;
+  connect(&svc, &ScriptRunnerService::runOutput, this,
+          [&lines](qint64, const QString &line, bool) { lines.append(line); });
+  const qint64 idA = svc.start(
+      {fixture(QStringLiteral("spawn_tree.py")), {sentinelA, QStringLiteral("hold")},
+       dir.path(), m_python, 0});
+  const qint64 idB = svc.start(
+      {fixture(QStringLiteral("spawn_tree.py")), {sentinelB, QStringLiteral("hold")},
+       dir.path(), m_python, 0});
+  QVERIFY(idA > 0 && idB > 0);
+  // 两棵树都建好（各打印一条 TREE_CHILD 行）再取消 A。
+  const auto treeChildLines = [&lines] {
+    int count = 0;
+    for (const QString &line : lines)
+      if (line.startsWith(QStringLiteral("TREE_CHILD:")))
+        ++count;
+    return count;
+  };
+  QTRY_VERIFY_WITH_TIMEOUT(treeChildLines() >= 2, 30000);
+  svc.cancel(idA);
+  QVERIFY(finishedSpy.wait(30000));
+  const QList<QVariant> argsA = finishedSpy.takeFirst();
+  QCOMPARE(argsA.at(0).toLongLong(), idA);
+  QCOMPARE(argsA.at(4).toBool(), true); // cancelled
+  for (const qint64 pid : treePidsFromSentinel(sentinelA))
+    QTRY_VERIFY2_WITH_TIMEOUT(pidDead(pid), qPrintable(QString::number(pid)), 8000);
+  // B 不受连坐：仍在运行，随后正常取消并整树回收。
+  QVERIFY(svc.isRunning(idB));
+  svc.cancel(idB);
+  QTRY_VERIFY_WITH_TIMEOUT(finishedSpy.count() >= 1, 30000);
+  for (const qint64 pid : treePidsFromSentinel(sentinelB))
+    QTRY_VERIFY2_WITH_TIMEOUT(pidDead(pid), qPrintable(QString::number(pid)), 8000);
+}
+
+// 超时优先标记：超时递进同样回收整树。
+void TestScriptRunner::treeDescendantsReclaimedOnTimeout()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sentinel = dir.filePath(QStringLiteral("t.sentinel"));
+  ScriptRunnerService svc;
+  QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
+  const qint64 id = svc.start(
+      {fixture(QStringLiteral("spawn_tree.py")), {sentinel, QStringLiteral("hold")},
+       dir.path(), m_python, 1500});
+  QVERIFY(id > 0);
+  QVERIFY(finishedSpy.wait(30000));
+  const QList<QVariant> args = finishedSpy.takeFirst();
+  QCOMPARE(args.at(4).toBool(), false); // cancelled
+  QCOMPARE(args.at(5).toBool(), true);  // timedOut
+  for (const qint64 pid : treePidsFromSentinel(sentinel))
+    QTRY_VERIFY2_WITH_TIMEOUT(pidDead(pid), qPrintable(QString::number(pid)), 8000);
+}
+
+// 服务析构：运行中的树随析构整组回收，不依赖事件循环继续派发。
+void TestScriptRunner::treeDescendantsReclaimedOnDestructor()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sentinel = dir.filePath(QStringLiteral("d.sentinel"));
+  QStringList lines;
+  std::unique_ptr<ScriptRunnerService> svc = std::make_unique<ScriptRunnerService>();
+  connect(svc.get(), &ScriptRunnerService::runOutput, this,
+          [&lines](qint64, const QString &line, bool) { lines.append(line); });
+  const qint64 id = svc->start(
+      {fixture(QStringLiteral("spawn_tree.py")), {sentinel, QStringLiteral("hold")},
+       dir.path(), m_python, 0});
+  QVERIFY(id > 0);
+  const auto childReported = [&lines] {
+    for (const QString &line : lines)
+      if (line.startsWith(QStringLiteral("TREE_CHILD:")))
+        return true;
+    return false;
+  };
+  QTRY_VERIFY_WITH_TIMEOUT(childReported(), 30000);
+  QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(sentinel), 30000);
+  const auto pids = treePidsFromSentinel(sentinel);
+  QVERIFY(pids.size() == 2); // child + grand
+  svc.reset(); // 析构不等 exit()——整树强制回收
+  for (const qint64 pid : pids)
+    QTRY_VERIFY2_WITH_TIMEOUT(pidDead(pid), qPrintable(QString::number(pid)), 8000);
+}
+
+void TestScriptRunner::treeReclamationFailureIsReported()
+{
+#ifdef Q_OS_WIN
+  ScriptRunnerService svc;
+  QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
+  QSignalSpy outputSpy(&svc, &ScriptRunnerService::runOutput);
+  scriptprocessscope_test::forceQueryFailure();
+  const auto reset = qScopeGuard([] { scriptprocessscope_test::clearQueryFailure(); });
+  const qint64 id = svc.start({fixture(QStringLiteral("echo_args.py")), {}, {}, m_python, 0});
+  QVERIFY(id > 0);
+  QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
+  QVERIFY(finishedSpy.at(0).at(3).toBool());
+  bool diagnostic = false;
+  for (const auto &args : outputSpy)
+    diagnostic |= args.at(1).toString().contains(QStringLiteral("无法确认 Python 进程树"));
+  QVERIFY(diagnostic);
+#else
+  QSKIP("job query failure requires Windows");
 #endif
 }
 

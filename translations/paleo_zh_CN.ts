@@ -29199,6 +29199,14 @@ PDF：%3
         <source>无法启动 Python：%1</source>
         <translation>无法启动 Python：%1</translation>
     </message>
+    <message>
+      <source>无法确认 Python 进程树已完成清理。</source>
+      <translation>无法确认 Python 进程树已完成清理。</translation>
+    </message>
+    <message>
+      <source>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</source>
+      <translation>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</translation>
+    </message>
 </context>
 <context>
     <name>PythonScripting</name>
@@ -39733,6 +39741,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/services/scriptrunner.cpp" line="104"/>
         <source>Python 解释器不可执行：%1</source>
         <translation>Python 解释器不可执行：%1</translation>
+    </message>
+    <message>
+      <source>无法确认 Python 进程树已完成清理。</source>
+      <translation>无法确认 Python 进程树已完成清理。</translation>
     </message>
 </context>
 <context>

@@ -80,7 +80,7 @@ QString canonicalRoot(const QString &path) {
   return canonical;
 }
 Profile::~Profile() {
-  cleanup();
+  if(!retainForRecovery)cleanup();
   if(sid)FreeSid(sid);if(registryCapability)LocalFree(registryCapability);if(runtimeCapability)LocalFree(runtimeCapability);
   for(DWORD i=0;i<registryGroupCount;++i)LocalFree(registryGroups[i]);if(registryGroups)LocalFree(registryGroups);
   for(DWORD i=0;i<runtimeGroupCount;++i)LocalFree(runtimeGroups[i]);if(runtimeGroups)LocalFree(runtimeGroups);

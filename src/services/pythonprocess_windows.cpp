@@ -5,9 +5,11 @@
 #ifdef Q_OS_WIN
 #include <QDir>
 #include <QThread>
+#include <atomic>
 
 namespace paleo::python::windows_process {
 namespace {
+std::atomic<bool> g_forceUnconfirmedTree{false};
 bool valid(const process_detail::Launch &r){
   const auto &p=r.policy;
   if(!p.validate().isEmpty()||r.arguments.size()>256||r.inputChunks.size()>4096||
@@ -25,18 +27,35 @@ Drain drain(const Handle &pipe,QByteArray &bytes,qint64 maximum,const QString &b
   if(!ReadFile(pipe.get(),buffer,count,&got,nullptr)||!got){code="python_process_pipe_failed";return Drain::Failure;}bytes.append(buffer,got);return Drain::Data;
 }
 struct Stop {
-  Job &job;Child &child;Writer &writer;
-  ~Stop(){if(child.process.valid()){job.stop();if(WaitForSingleObject(child.process.get(),5000)!=WAIT_OBJECT_0)TerminateProcess(child.process.get(),91);}writer.close();}
+  Job &job;Child &child;Writer &writer;bool *treeReaped;
+  ~Stop(){
+    if(child.process.valid()){
+      job.stop();
+      if(WaitForSingleObject(child.process.get(),5000)!=WAIT_OBJECT_0)TerminateProcess(child.process.get(),91);
+      QElapsedTimer timer;timer.start();
+      bool idle=false;
+      do {
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info{};
+        idle=QueryInformationJobObject(job.handle.get(),JobObjectBasicAccountingInformation,
+                                       &info,sizeof(info),nullptr)&&info.ActiveProcesses==0;
+        if(!idle)QThread::msleep(10);
+      } while(!idle&&timer.elapsed()<5000);
+      if(treeReaped)*treeReaped=idle&&!g_forceUnconfirmedTree.load();
+    }
+    writer.close();
+  }
 };
 ProcessResult unavailable(const QString &detail){ProcessResult result;result.error=detail.toUtf8();return result;}
 } // namespace
-ProcessResult runChild(const process_detail::Launch &request,const Security *security){
+void test::forceUnconfirmedTree(bool enabled){g_forceUnconfirmedTree.store(enabled);}
+ProcessResult runChild(const process_detail::Launch &request,const Security *security,bool *treeReaped){
+  if(treeReaped)*treeReaped=true;
   if(!valid(request))return unavailable("invalid_native_launch");
   ProcessResult result;result.code.clear();if(cancelled(request)){result.code="cancelled";return result;}
   const auto permit=request.permit?request.permit:process_detail::acquireProcessPermit([&]{return cancelled(request);});
   if(!permit){result.code="cancelled";return result;}
   QElapsedTimer clock;clock.start();Job job;Pipes pipes;Child child;Writer writer;QString detail;
-  if(!job.create(request.policy,&detail)||!pipes.create(&detail))return unavailable(detail);Stop stop{job,child,writer};
+  if(!job.create(request.policy,&detail)||!pipes.create(&detail))return unavailable(detail);Stop stop{job,child,writer,treeReaped};
   if(!child.start(request,security,job,pipes,&detail)){result.code="python_process_start_failed";result.error=detail.toUtf8();return result;}pipes.closeChildEnds();
   if(!writer.start(std::move(pipes.inputWrite),request.inputChunks,&detail))return unavailable(detail);
   bool finished=false;
@@ -62,6 +81,6 @@ ProcessResult runChild(const process_detail::Launch &request,const Security *sec
 } // namespace paleo::python::windows_process
 #else
 namespace paleo::python::windows_process {
-ProcessResult runChild(const process_detail::Launch &,const Security *){return {};}
+ProcessResult runChild(const process_detail::Launch &,const Security *,bool *treeReaped){if(treeReaped)*treeReaped=false;return {};}
 }
 #endif

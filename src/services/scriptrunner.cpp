@@ -2,12 +2,15 @@
 #include "scriptrunner.h"
 
 #include "pythonenv.h"
+#include "scriptprocessscope.h"
 
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QTimer>
+
+#include <memory>
 
 #ifdef Q_OS_UNIX
 #include <csignal>
@@ -19,6 +22,8 @@ namespace
   // 取消/超时的优雅退出窗口：terminate（Unix=进程组 SIGTERM）后给脚本
   // finally/atexit 清理机会，仍未退出再 kill。
   constexpr int kKillGraceMs = 2000;
+  // Windows：主进程退出后给 Job 内残留后代的有界收敛窗口（#960）。
+  constexpr int kTreeReapMs = 3000;
   // 无换行输出的半行缓冲上限（#479）：巨量无换行输出（如误把二进制写进
   // stdout）不得无上限积攒——超限即按「强制行」冲刷，单行长度恒有界，
   // 恶意/失控脚本不再能把宿主内存吃穿。
@@ -32,6 +37,9 @@ struct ScriptRunnerService::Run
   QProcess *proc = nullptr;
   QTimer *timeoutTimer = nullptr;
   QTimer *killTimer = nullptr;
+  // 本次运行的进程树所有权（Windows=创建时 Job 归属；Unix=空操作）。
+  // launch 时才创建：排队项不占系统资源，取消出队即无痕释放。
+  std::unique_ptr<ScriptProcessScope> scope;
   QByteArray outBuffer; // 行组包残留（跨 readyRead 的半行）
   QByteArray errBuffer;
   bool cancelRequested = false;
@@ -65,10 +73,18 @@ ScriptRunnerService::~ScriptRunnerService()
     if (run->proc)
     {
       run->proc->disconnect(this);
+      clearProcessLaunchModifier(run->proc);
 #ifdef Q_OS_UNIX
       if (run->pid > 0)
         ::kill(-run->pid, SIGKILL);
 #endif
+      // Windows：先整树终止再有界等待——析构不依赖已停止的事件循环派发
+      // 清理信号，也不无限等（kTreeReapMs 内收敛，句柄关闭另有内核兜底）。
+      if (run->scope)
+      {
+        run->scope->terminateTree();
+        run->scope->waitForTreeIdle(kTreeReapMs);
+      }
       run->proc->kill();
       run->proc->waitForFinished(1000);
       delete run->proc;
@@ -209,11 +225,15 @@ void ScriptRunnerService::launch(Run *run)
 {
   auto *proc = new QProcess(this);
   run->proc = proc;
+  run->scope = std::make_unique<ScriptProcessScope>();
   proc->setProcessChannelMode(QProcess::SeparateChannels);
 #ifdef Q_OS_UNIX
   // 独立进程组：取消/超时时整组回收脚本拉起的子进程，不留孤儿。
   proc->setChildProcessModifier([] { ::setsid(); });
 #endif
+  // Windows：创建时 Job 归属（JOB_LIST 属性）——首条脚本指令可能执行之前
+  // 树已可回收；归属/属性失败由修饰器以 FailedToStart 拒绝，不回退。
+  run->scope->configure(*proc);
   auto env = QProcessEnvironment::systemEnvironment();
   // 无缓冲保证流式回传的时效；不落 __pycache__ 污染脚本目录。Python 3 子进程
   // IO 统一 UTF-8（#479）：管道编码钉死，宿主侧 fromUtf8——Windows 非 UTF-8
@@ -242,7 +262,10 @@ void ScriptRunnerService::launch(Run *run)
         run->proc->kill();
 #else
       if (graceElapsed)
+      {
+        run->scope->terminateTree(); // 整树强停：脚本拉起的后代一并了结
         run->proc->kill();
+      }
       else
         run->proc->terminate();
 #endif
@@ -342,6 +365,9 @@ void ScriptRunnerService::terminateGracefully(Run *run)
     if (run->pid > 0)
       ::kill(-run->pid, SIGKILL);
 #endif
+    // Windows：递进终止档整树强停（TerminateJobObject），proc->kill() 保留
+    // Qt 侧 CrashExit 语义（被强杀的运行对观察者仍是 crashed=true）。
+    run->scope->terminateTree();
     proc->kill();
   });
   run->killTimer->start(kKillGraceMs);
@@ -370,6 +396,25 @@ void ScriptRunnerService::finishRun(Run *run, int exitCode, bool crashed)
     run->killTimer = nullptr;
   }
   proc->disconnect(this);
+  // 释放修饰器闭包持有的 scope 状态，再让 QProcess 按自身节奏销毁。
+  clearProcessLaunchModifier(proc);
+  // 整树收敛（#960）：主进程先退、后代仍存活/持有输出管道时在此强停 +
+  // 有界等待，确认本次运行的后代已回收后才对外发终结信号——runFinished
+  // 即「该运行的进程树已了结」。超时仍有存活则如实告警，句柄关闭由
+  // KILL_ON_JOB_CLOSE 兜底，不伪称排空成功。
+#ifdef Q_OS_UNIX
+  // Unix：组 id 在成员存活期间不可被新会话复用，kill(-pid) 只会命中本组
+  // 残留成员（主进程已退，对其为空操作）；全组已退时 ESRCH 无害。
+  if (run->pid > 0)
+    ::kill(-run->pid, SIGKILL);
+#endif
+  const bool treeReclaimed = run->scope ? run->scope->reclaim(kTreeReapMs) : true;
+  if (!treeReclaimed)
+  {
+    qWarning("scriptrunner: run %lld process tree still busy after reclamation",
+             static_cast<long long>(run->id));
+    crashed = true;
+  }
   const qint64 id = run->id;
   const QString scriptPath = run->request.scriptPath;
   const bool cancelled = run->cancelRequested && !run->timedOut;
@@ -377,8 +422,10 @@ void ScriptRunnerService::finishRun(Run *run, int exitCode, bool crashed)
   m_running.removeAll(run);
   proc->deleteLater();
   // timers 已停且删、proc 已 disconnect——没有任何挂起路径会再触碰
-  // run（全部同线程直连），直接释放。
+  // run（全部同线程直连），直接释放（scope 随之关闭 Job 句柄）。
   delete run;
+  if (!treeReclaimed)
+    emit runOutput(id, tr("无法确认 Python 进程树已完成清理。"), true);
   emit runFinished(id, scriptPath, exitCode, crashed, cancelled, timedOut);
   pumpQueue();
   updateBusy();

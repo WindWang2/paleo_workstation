@@ -13,6 +13,15 @@
 namespace paleo::python::windows_detail {
 namespace {
 constexpr auto Schema = "paleo.python-sandbox-profile.v1";
+bool removeNamed(const QString &moniker,QString *error) {
+  const auto code=api().remove((PCWSTR)moniker.utf16());
+  if(SUCCEEDED(code)||code==HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)||code==HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND)||code==HRESULT_FROM_WIN32(ERROR_NOT_FOUND))return true;
+  *error="profile_remove:"+QString::number(DWORD(code));return false;
+}
+} // namespace
+
+// 共享原语（internal 头声明）：profile journal 与私有视图记录共用同一
+// owner 判活与根解析口径。
 QString journalRoot(QString *error) {
   const auto app=QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
   if(app.isEmpty()){*error="profile_journal_location";return {};}
@@ -22,7 +31,7 @@ QString journalRoot(QString *error) {
   if(root.isEmpty()||!protectedFileAcl(root,nullptr,error))return {};
   return root;
 }
-quint64 creation(HANDLE process) {
+quint64 processCreation(HANDLE process) {
   FILETIME first{},last{},kernel{},user{};if(!GetProcessTimes(process,&first,&last,&kernel,&user))return 0;
   return (quint64(first.dwHighDateTime)<<32)|first.dwLowDateTime;
 }
@@ -32,20 +41,14 @@ bool validMoniker(const QString &moniker) {
 bool ownerStopped(DWORD id,quint64 started,bool &known) {
   known=true;Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,id));
   if(!process.valid()){if(GetLastError()==ERROR_INVALID_PARAMETER)return true;known=false;return false;}
-  const auto actual=creation(process.get());if(!actual){known=false;return false;}
+  const auto actual=processCreation(process.get());if(!actual){known=false;return false;}
   return actual!=started||WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0;
 }
-bool removeNamed(const QString &moniker,QString *error) {
-  const auto code=api().remove((PCWSTR)moniker.utf16());
-  if(SUCCEEDED(code)||code==HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)||code==HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND)||code==HRESULT_FROM_WIN32(ERROR_NOT_FOUND))return true;
-  *error="profile_remove:"+QString::number(DWORD(code));return false;
-}
-} // namespace
 bool registerProfile(Profile &profile,QString *error) {
   const auto root=journalRoot(error);if(root.isEmpty())return false;
   QLockFile lock(QDir(root).filePath(".lock"));lock.setStaleLockTime(30000);
   if(!lock.tryLock(5000)){*error="profile_journal_busy";return false;}
-  const auto started=creation(GetCurrentProcess());if(!started){*error="profile_owner_identity";return false;}
+  const auto started=processCreation(GetCurrentProcess());if(!started){*error="profile_owner_identity";return false;}
   profile.journal=QDir(root).filePath(profile.moniker+".json");
   if(QFileInfo::exists(profile.journal)){*error="profile_journal_collision";profile.journal.clear();return false;}
   const QJsonObject record{{"schema",Schema},{"moniker",profile.moniker},{"hostPid",qint64(GetCurrentProcessId())},

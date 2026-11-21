@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <userenv.h>
 #include <QVector>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -31,9 +32,15 @@ const Api &api();
 using windows_process::native;
 bool cancelled(const SandboxRequest &request);
 QString canonicalRoot(const QString &path);
+// journal.cpp 提供的共享判活/根解析原语（profile 与私有视图记录共用口径）。
+QString journalRoot(QString *error);
+quint64 processCreation(HANDLE process);
+bool ownerStopped(DWORD id, quint64 started, bool &known);
+bool validMoniker(const QString &moniker);
 
 struct Profile {
   QString moniker, base, journal;
+  bool retainForRecovery = false;
   PSID sid = nullptr;
   PSID registryCapability = nullptr, runtimeCapability = nullptr;
   PSID *registryGroups = nullptr, *runtimeGroups = nullptr;
@@ -63,6 +70,32 @@ bool lockTree(const QString &path,qint64 maximum,LockedTree &tree,const SandboxR
 bool restrictTree(const LockedTree &tree,PSID readSid,QString *error);
 bool restrictProfile(const Profile &profile,QString *error);
 bool protectedFileAcl(const QString &path,PSID readSid,QString *error);
+
+// pythonsandbox_windows_view.cpp —— 认证的私有执行视图（#959）：
+// 原 runtime/工程输入树不再逐节点改写 DACL；由已锁定并认证的来源构造
+// 服务自有副本（runtime 按 generation 内容寻址共享 + 租约，输入按 profile
+// 隔离），仅对自有副本设置沙箱 ACL。
+struct PrivateView {
+  QString runtimeRoot,inputRoot; // 私有执行路径（区别于来源身份）
+  QString leaseMoniker;          // 此次运行独有的租约身份
+  qint64 viewBytes=0;            // 视图实际字节（=manifest treeSize）
+  int viewFiles=0;
+  bool reusedView=false;         // true=按已验证内容身份复用既有视图
+};
+bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,const LockedTree &input,
+                        const AuthenticatedSnapshot &snapshot,const Profile &profile,PrivateView &view,QString *error);
+// 归还视图租约并清理本次私有输入；失败保留租约记录（下次恢复重试），
+// 返回 false 时 *error 带具体不完整状态。残留资源恢复（死宿主租约/
+// staging/输入 + 超额无租约视图回收）随 acquire 的首段临界区执行。
+bool releasePrivateView(const PrivateView &view,QString *error);
+
+namespace view_test {
+// 仅测试二进制置位的失败注入（复制/ACL/租约/清理各一档）；生产代码零引用，
+// 只制造失败，不提供任何「关闭隔离」的运行时开关。
+using FailureHook=std::function<bool()>;
+void setFailuresForTest(FailureHook copy,FailureHook acl,FailureHook lease,FailureHook release);
+void setVerifyHookForTest(std::function<void()> hook);
+}
 
 } // namespace paleo::python::windows_detail
 #endif

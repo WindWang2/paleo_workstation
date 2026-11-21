@@ -17,6 +17,7 @@
 #include <QSaveFile>
 #include <QDir>
 #include "../domain/arearules.h"
+#include "../domain/wellnumeric.h"
 #include <algorithm>
 using namespace paleo::data;
 using namespace paleo::stratigraphy;
@@ -84,11 +85,10 @@ QList<StratigraphyTrack> StratigraphyWorkflow::tracks() const {
   const auto append=[&](const InterpretationSeries &s,bool raw=false){
    const QString basis=raw?(w.input.depthInfo.depthType.empty()?policy.depthType:text(w.input.depthInfo.depthType)):text(s.axisKind);
    if(basis!="MD"||s.axis.size()!=s.values.size())return;
-   QString unit=raw?text(w.input.depthInfo.depthUnit):text(s.axisUnit);if(unit.isEmpty())unit=raw?policy.depthUnit:text(s.axisUnit);unit=unit.trimmed().toLower();
-   const double scale=unit=="ft"||unit=="feet"?0.3048:1.0;
-   if(unit!="m"&&unit!="metre"&&unit!="meter"&&unit!="ft"&&unit!="feet")return;
+   QString unit=raw?text(w.input.depthInfo.depthUnit):text(s.axisUnit);if(unit.isEmpty())unit=raw?policy.depthUnit:text(s.axisUnit);
+   const auto scale=paleo::wellnumeric::depthScaleToMetres(unit);if(!scale)return;
    StratigraphyTrack track;track.wellId=w.wellId;track.name=text(w.name);track.mnemonic=text(s.name)+(s.segmentId.empty()?QString():QStringLiteral(" [")+text(s.segmentId)+"]")+(s.status=="stale"?QStringLiteral(" *"):QString());
-   for(size_t i=0;i<s.axis.size();++i){track.depths.append(float(s.axis[i]*scale));track.values.append(i<s.quality.size()&&(s.quality[i]&5)?qQNaN():float(s.values[i]));}
+   for(size_t i=0;i<s.axis.size();++i){track.depths.append(float(s.axis[i]*(*scale)));track.values.append(i<s.quality.size()&&(s.quality[i]&5)?qQNaN():float(s.values[i]));}
    result.append(std::move(track));
   };append(w.input.log,true);for(const auto &s:w.series)append(s);
  }

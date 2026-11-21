@@ -129,9 +129,9 @@ void TestPythonConsole::stderrRendersColoredAndExitCode()
   f.panel.findChild<QPushButton *>(QStringLiteral("pythonRun"))->click();
   QVERIFY2(spinUntil([&] { return history->count() == 1; }),
            qPrintable(output->toPlainText()));
-  // stderr 分色：warning token 出现在 html 里；退出码如实呈现。
+  // stderr 分色：warningText（文本位，非语义原色）出现在 html 里。
   const QString html = output->toHtml();
-  QVERIFY2(html.contains(PaleoTheme::tokens().warning.name()),
+  QVERIFY2(html.contains(PaleoTheme::tokens().warningText.name()),
            qPrintable(html));
   QVERIFY(output->toPlainText().contains(QStringLiteral("FAIL_STDERR")));
   QVERIFY(output->toPlainText().contains(QStringLiteral("退出码 3")));
@@ -259,7 +259,7 @@ void TestPythonConsole::interpreterMissingShowsGuidance()
 void TestPythonConsole::interpreterRowStyleFollowsThemeSwitch()
 {
   // finding-140 回归：解释器行与次级文字不得停在旧主题 token 上。缺失档
-  // warning 是语义色（两主题同值）；在位档 muted 次级文字必须随主题翻转。
+  // 用 warningText（浅色深字 / 暗色浅字，随 tokens() 翻转）；在位档 muted 随主题翻转。
   ConsoleFixture f;
   auto *label =
       f.panel.findChild<QLabel *>(QStringLiteral("pythonInterpreterLabel"));
@@ -269,7 +269,7 @@ void TestPythonConsole::interpreterRowStyleFollowsThemeSwitch()
   const bool missing = label->property("interpreterMissing").toBool();
   const auto expectRow = [missing](PaleoTheme::Theme theme) {
     return missing ? QStringLiteral("color: %1;")
-                         .arg(PaleoTheme::tokens(theme).warning.name())
+                         .arg(PaleoTheme::tokens(theme).warningText.name())
                    : PaleoTheme::mutedCaptionStyleSheet(theme);
   };
   const QString lightRow = label->styleSheet();

@@ -1,5 +1,6 @@
 // 层：数据
 #include "welllogtext_internal.h"
+#include "domain/wellnumeric.h"
 
 #include <QCoreApplication>
 #include <QSet>
@@ -56,6 +57,9 @@ bool appendSample(const QString &path, const QStringList &headers, const QString
   const double index = row.value(indexColumn).trimmed().toDouble(&ok);
   if (!ok || !std::isfinite(index))
     return fail(path, line, QCoreApplication::translate("WellLogText", "索引值无法识别：%1").arg(row.value(indexColumn)), error, issues);
+  // 深度/坐标索引只认精确哨兵，不用曲线范围带。
+  if (paleo::wellnumeric::isNull(index))
+    return fail(path, line, QCoreApplication::translate("WellLogText", "索引值无法识别：%1").arg(row.value(indexColumn)), error, issues);
   if (!samples.index.isEmpty() && index <= samples.index.last())
     return fail(path, line, QCoreApplication::translate("WellLogText", "索引重复或逆序，不自动排序或合并"), error, issues);
   QVector<double> values;
@@ -68,7 +72,8 @@ bool appendSample(const QString &path, const QStringList &headers, const QString
       value = text.toDouble(&ok);
       if (!ok || !std::isfinite(value))
         return fail(path, line, QCoreApplication::translate("WellLogText", "曲线 %1 的数值无法识别：%2").arg(headers.at(col), text), error, issues);
-      if (value == -999.25 || value == -9999.0) value = std::numeric_limits<double>::quiet_NaN();
+      if (paleo::wellnumeric::isNullCurveValue(value))
+        value = std::numeric_limits<double>::quiet_NaN();
     }
     values.append(value);
   }

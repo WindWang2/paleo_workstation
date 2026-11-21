@@ -1,11 +1,11 @@
 // 层：数据
 #include "samples.h"
+#include "domain/wellnumeric.h"
 
 #include <cmath>
 #include <map>
 #include <utility>
 
-// 层：数据
 namespace paleo::singlefactor
 {
 
@@ -45,7 +45,10 @@ SamplePrepResult prepareSamples( const SamplePrepRequest &request )
   std::map<std::pair<double, double>, Group> groups;
   for ( const Sample &row : request.rows )
   {
-    if ( !std::isfinite( row.value ) || !std::isfinite( row.x ) || !std::isfinite( row.y ) )
+    // value 走曲线空值（含范围带）；x/y 只认精确哨兵。
+    if ( wellnumeric::isNullCurveValue( row.value ) || !std::isfinite( row.x ) ||
+         wellnumeric::isNull( row.x ) || !std::isfinite( row.y ) ||
+         wellnumeric::isNull( row.y ) )
     {
       ++input.missingCount;
       continue;

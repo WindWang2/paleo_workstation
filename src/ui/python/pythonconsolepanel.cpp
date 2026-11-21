@@ -17,12 +17,12 @@
 #include <QVBoxLayout>
 
 namespace {
-// 解释器行活体样式：缺失 = warning 警示色；在位 = muted 次级文字。属性
+// 解释器行活体样式：缺失 = warningText（文本位，非语义原色）；在位 = muted。
 // interpreterMissing 由 updateInterpreterRow 维护，换主题时随 relay 重算。
 QString interpreterRowStyleSheet(bool missing)
 {
   return missing ? QStringLiteral("color: %1;")
-                       .arg(PaleoTheme::tokens().warning.name())
+                       .arg(PaleoTheme::tokens().warningText.name())
                  : PaleoTheme::mutedCaptionStyleSheet();
 }
 } // namespace
@@ -236,9 +236,9 @@ void PythonConsolePanel::appendOutput(const QString &text, int channel)
   const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
   QColor color = tokens.text;
   if (channel == PythonConsoleController::Stderr)
-    color = tokens.warning;
+    color = tokens.warningText;
   else if (channel == PythonConsoleController::Error)
-    color = tokens.error;
+    color = tokens.errorText;
   else if (channel == PythonConsoleController::System)
     color = tokens.textMuted;
   m_output->append(QStringLiteral("<div style=\"color:%1\">%2</div>")

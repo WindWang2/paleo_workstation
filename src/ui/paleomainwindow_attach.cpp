@@ -58,6 +58,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QPointer>
 #include "notifications/paleonotify.h"
 #include <QStackedLayout>
 #include <QStatusBar>
@@ -81,10 +82,11 @@ namespace
 // 视图只发意图信号；这里串参数表 → 异步任务 → 受管派生 → manifest 声明。
 // ---------------------------------------------------------------------------
 
-// 层位资产 → 散点文本（读当前版本文件）。失败弹原因并返回 false；
-// 空文件如实返回 true + 空文本（由勘察阶段报「散点为空」）。
-bool readHorizonAssetText(PaleoMainWindow *win, DataCatalog *catalog,
-                          const QString &projectDir, const QString &assetId, QByteArray *out)
+// 层位资产（GUI）：查 catalog、确认文件打得开。不 readAll——整文件读与勘察
+// 在任务线程（无任务服务时才同步读）。失败弹原因并返回 false。
+bool locateHorizonAsset(PaleoMainWindow *win, DataCatalog *catalog,
+                        const QString &projectDir, const QString &assetId,
+                        QString *displayName, QString *srcPath)
 {
   const CatalogAsset a = catalog->assetById(assetId);
   if (a.id.isEmpty())
@@ -107,9 +109,33 @@ bool readHorizonAssetText(PaleoMainWindow *win, DataCatalog *catalog,
                          QObject::tr("无法读取层位文件：%1").arg(src));
     return false;
   }
-  *out = f.readAll();
+  f.close();
+  *displayName = a.displayName;
+  *srcPath = src;
   return true;
 }
+
+// 整文件读。空文件算成功（勘察报「散点为空」）。不弹窗，工作线程可调。
+QString readHorizonFile(const QString &src, QByteArray *out)
+{
+  QFile f(src);
+  if (!f.open(QIODevice::ReadOnly))
+    return QObject::tr("无法读取层位文件：%1").arg(src);
+  *out = f.readAll();
+  if (f.error() != QFile::NoError)
+  {
+    out->clear();
+    return QObject::tr("无法读取层位文件：%1").arg(src);
+  }
+  return {};
+}
+
+// 勘察结果经堆上 shared 带回 GUI（start 的工作函数只能返回 QString）。
+struct HorizonInspectResult
+{
+  QByteArray text;
+  SurfaceGriddingWorkflow::Inspect inspect;
+};
 
 // 网格化结果/等厚栅格的 manifest 声明 + 实例化（rasterReady 排队回 GUI 后执行）。
 void declareGriddedRaster(PaleoMainWindow *win, QgisLayerService *layerSvc,
@@ -166,26 +192,17 @@ SurfaceGriddingWorkflow *sharedGriddingWorkflow(PaleoMainWindow *win,
   return wf;
 }
 
-void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QString &projectDir,
-                        PaleoTaskService *taskSvc, QgisLayerService *layerSvc,
-                        const QString &constraintGpkg, const QString &assetId)
+// 参数表 + 网格化任务。调用方已完成勘察；本函数不再读文件。
+void promptAndStartHorizonGrid(const QPointer<PaleoMainWindow> &win, DataCatalog *catalog,
+                               const QString &projectDir, PaleoTaskService *taskSvc,
+                               QgisLayerService *layerSvc, const QString &constraintGpkg,
+                               const QString &horizonName, const QByteArray &text,
+                               const SurfaceGriddingWorkflow::Inspect &ctxIn)
 {
-  QByteArray text;
-  if (!readHorizonAssetText(win, catalog, projectDir, assetId, &text))
+  if (!win)
     return;
-  const CatalogAsset a = catalog->assetById(assetId);
-
-  // 参数表上下文：散点勘察下沉在 workflow（io 解析不许进视图层）。
-  const SurfaceGriddingWorkflow::Inspect ctxIn =
-      SurfaceGriddingWorkflow::inspectHorizonText(text, constraintGpkg);
-  if (!ctxIn.ok)
-  {
-    PaleoNotify::warning(win, QObject::tr("网格化"),
-                         QObject::tr("层位 %1：%2").arg(a.displayName, ctxIn.error));
-    return;
-  }
   PaleoGriddingDialog::RequestContext ctx;
-  ctx.horizonName = a.displayName;
+  ctx.horizonName = horizonName;
   ctx.minX = ctxIn.minX;
   ctx.maxX = ctxIn.maxX;
   ctx.minY = ctxIn.minY;
@@ -203,18 +220,19 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
   }
   // PR457-closure R8：按本层位收敛——散点资产是层位 A 时，别的层位的屏障
   // 不点亮本层位的屏障开关（迁移提示见 constraintgeom 视图口径）。
-  if ( ctxIn.hasConstraints && !ctxIn.barrierHorizons.isEmpty() &&
-       !ctxIn.barrierHorizons.contains( a.displayName, Qt::CaseInsensitive ) )
+  if (ctxIn.hasConstraints && !ctxIn.barrierHorizons.isEmpty() &&
+      !ctxIn.barrierHorizons.contains(horizonName, Qt::CaseInsensitive))
     ctx.hasConstraints = false;
   PaleoGriddingDialog::Request req;
-  if (!PaleoGriddingDialog::prompt(win, ctx, &req))
+  // 模态循环期间窗口可能被关掉；返回后用 QPointer 再确认。
+  if (!PaleoGriddingDialog::prompt(win, ctx, &req) || !win)
     return;
 
   auto *wf = sharedGriddingWorkflow(win, layerSvc);
   wf->setCatalog(catalog, projectDir);
   wf->setBarrierSource(constraintGpkg);
 
-  const QString horizon = a.displayName;
+  const QString horizon = horizonName;
   const QByteArray textCopy = text;
   if (taskSvc)
   {
@@ -250,7 +268,7 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
                                              .arg(o.cvFolds));
                      }
                      return err;
-                    });
+                   });
   }
   else
   {
@@ -264,9 +282,91 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
     opt.cvPoints = req.cvPoints;
     SurfaceGriddingWorkflow::Outcome o;
     const QString err = wf->gridHorizonText(horizon, text, opt, nullptr, nullptr, &o);
-    if (!err.isEmpty())
+    if (!err.isEmpty() && win)
       PaleoNotify::warning(win, QObject::tr("网格化失败"), err);
   }
+}
+
+void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QString &projectDir,
+                        PaleoTaskService *taskSvc, QgisLayerService *layerSvc,
+                        const QString &constraintGpkg, const QString &assetId)
+{
+  QString displayName;
+  QString src;
+  if (!locateHorizonAsset(win, catalog, projectDir, assetId, &displayName, &src))
+    return;
+
+  if (!taskSvc)
+  {
+    // 无任务服务（测试/退化环境）：同步读 + 勘察 + 参数表。
+    QByteArray text;
+    const QString readErr = readHorizonFile(src, &text);
+    if (!readErr.isEmpty())
+    {
+      PaleoNotify::warning(win, QObject::tr("网格化"), readErr);
+      return;
+    }
+    const SurfaceGriddingWorkflow::Inspect ctx =
+        SurfaceGriddingWorkflow::inspectHorizonText(text, constraintGpkg);
+    if (!ctx.ok)
+    {
+      PaleoNotify::warning(win, QObject::tr("网格化"),
+                           QObject::tr("层位 %1：%2").arg(displayName, ctx.error));
+      return;
+    }
+    promptAndStartHorizonGrid(win, catalog, projectDir, taskSvc, layerSvc, constraintGpkg,
+                               displayName, text, ctx);
+    return;
+  }
+
+  const auto bag = std::make_shared<HorizonInspectResult>();
+  PaleoTask *task = taskSvc->start(
+      QObject::tr("勘察层位 %1").arg(displayName),
+      [src, constraintGpkg, bag](PaleoTask *) -> QString
+      {
+        // 工作线程：只读文件 + 纯函数勘察。不碰 DataCatalog，不弹 PaleoNotify。
+        const QString readErr = readHorizonFile(src, &bag->text);
+        if (!readErr.isEmpty())
+        {
+          bag->inspect.error = readErr;
+          return readErr;
+        }
+        bag->inspect = SurfaceGriddingWorkflow::inspectHorizonText(bag->text, constraintGpkg);
+        if (!bag->inspect.ok)
+          return bag->inspect.error.isEmpty() ? QObject::tr("层位勘察失败") : bag->inspect.error;
+        return {};
+      });
+  if (!task)
+  {
+    PaleoNotify::warning(win, QObject::tr("网格化"), QObject::tr("无法启动层位勘察任务"));
+    return;
+  }
+  const QPointer<PaleoMainWindow> alive(win);
+  const QPointer<PaleoTask> taskPtr(task);
+  const auto once = std::make_shared<bool>(false);
+  const auto deliver = [alive, taskPtr, once, bag, catalog, projectDir, taskSvc, layerSvc,
+                        constraintGpkg, displayName]() {
+    if (!alive || !taskPtr || *once)
+      return;
+    *once = true;
+    const PaleoTask::State st = taskPtr->state();
+    const QString err = taskPtr->errorText().isEmpty() ? bag->inspect.error : taskPtr->errorText();
+    if (st == PaleoTask::State::Cancelled)
+      return;
+    if (st != PaleoTask::State::Succeeded)
+    {
+      PaleoNotify::warning(alive, QObject::tr("网格化"),
+                           err.isEmpty() ? QObject::tr("层位 %1 勘察失败").arg(displayName)
+                                         : QObject::tr("层位 %1：%2").arg(displayName, err));
+      return;
+    }
+    promptAndStartHorizonGrid(alive, catalog, projectDir, taskSvc, layerSvc, constraintGpkg,
+                               displayName, bag->text, bag->inspect);
+  };
+  // 小文件可能在 connect 之前跑完；终态再排队一次，once 挡住双弹窗。
+  QObject::connect(task, &PaleoTask::finished, win, deliver);
+  if (task->state() != PaleoTask::State::Running)
+    QMetaObject::invokeMethod(win, deliver, Qt::QueuedConnection);
 }
 
 // 图层树「面运算（等厚/体积）」：声明栅格两两组合 → 等厚 + 体积报告。

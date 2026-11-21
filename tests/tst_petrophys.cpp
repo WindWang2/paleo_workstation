@@ -99,6 +99,8 @@ private slots:
   void testAnomalyIntervals();
   // review-fix-numerics L9：参考点恰在右结点且左结点 NaN → 取右结点值。
   void resampleRightNodeExactWithNaNLeft();
+  // 曲线哨兵不进 GR 极值；该点线性泥质为 NaN。密度哨兵为 NaN，邻点不变。
+  void testCurveNullSentinels();
 };
 
 void TestPetroPhys::testVshLinearAnalytic()
@@ -373,6 +375,27 @@ void TestPetroPhys::resampleRightNodeExactWithNaNLeft()
   QVERIFY(resampleLinear({101.0}, src, val, out));
   QCOMPARE(out.size(), std::size_t(1));
   QCOMPARE(out[0], 7.0);
+}
+
+void TestPetroPhys::testCurveNullSentinels()
+{
+  const std::vector<double> gr = {30.0, -999.25, 90.0};
+  double lo = 0, hi = 0;
+  QVERIFY(grExtrema(gr.data(), 3, &lo, &hi));
+  QCOMPARE(lo, 30.0);
+  QCOMPARE(hi, 90.0);
+  std::vector<double> vsh(3);
+  vshGrLinear(gr.data(), 3, lo, hi, vsh.data());
+  QCOMPARE(vsh[0], 0.0);
+  QVERIFY(std::isnan(vsh[1]));
+  QCOMPARE(vsh[2], 1.0);
+
+  const std::vector<double> rhob = {2.45, -999.25, 2.65};
+  std::vector<double> phi(3);
+  phiDensity(rhob.data(), 3, 2.65, 1.0, phi.data());
+  QVERIFY2(std::fabs(phi[0] - 0.2 / 1.65) < 1e-12, "neighbor density kept");
+  QVERIFY(std::isnan(phi[1]));
+  QCOMPARE(phi[2], 0.0);
 }
 
 QTEST_MAIN(TestPetroPhys)

@@ -98,6 +98,8 @@ private slots:
   void petrelCheckshotsHeaderRejectsWholeTable();
   void readTimeDepthSurfacesEmptyTableReason();
   void reportsOptionalMissingCellsWithoutRejectingGoodDepth();
+  void missingZColumnWithCoordinatesStaysNanThroughShift();
+  void explicitZeroElevationShiftsWithDepth();
   void depthAliases_data();
   void depthAliases();
   void acousticUnitAliases_data();
@@ -390,6 +392,61 @@ void WellFileParserTests::reportsOptionalMissingCellsWithoutRejectingGoodDepth()
   changed = coordinatesBack[0];
   changed.z = 0.0;
   QVERIFY(!WellTopsEdit::sameValues(coordinates[0], changed)); // 真实 0 与缺失 Z 有别。
+}
+
+// 表头没有 Z、数据行有 X/Y：缺测海拔是 NaN，写出再读仍是 NaN，深度平移也不改 z。
+// 「Name」不是层名别名，那条走位置约定（缺第 6 列已是 NaN）。列名驱动
+//（topName，cmap.z < 0）此前把默认 0 留成海拔，这里一并钉住。
+void WellFileParserTests::missingZColumnWithCoordinatesStaysNanThroughShift()
+{
+  const char *texts[] = {
+      "#WellName Name MD X Y\n"
+      "W1 D61 100 10 20\n",
+      "# WellName topName MD X Y\n"
+      "W1 D61 100 10 20\n",
+  };
+  for (const char *text : texts)
+  {
+    const auto rows = parseWellTopsText(text);
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows[0].wellName, QStringLiteral("W1"));
+    QCOMPARE(rows[0].topName, QStringLiteral("D61"));
+    QVERIFY(rows[0].hasMd && rows[0].hasX && rows[0].hasY);
+    QCOMPARE(rows[0].md, 100.0);
+    QCOMPARE(rows[0].x, 10.0);
+    QCOMPARE(rows[0].y, 20.0);
+    QVERIFY(std::isnan(rows[0].z));
+    const auto back = parseWellTopsText(writeWellTopsText(rows));
+    QCOMPARE(back.size(), 1);
+    QVERIFY(back[0].hasMd && back[0].hasX && back[0].hasY);
+    QVERIFY(std::isnan(back[0].z));
+    QVector<WellTopRecord> shifted = back;
+    QCOMPARE(WellTopsEdit::applyShift(&shifted, 10.0), 1);
+    QVERIFY(std::isnan(shifted[0].z));
+    QCOMPARE(shifted[0].md, 110.0);
+  }
+}
+
+// 表头含 Z 且值为 0：这是真实海拔，不是缺测。深度 +10 后海拔为 -10。
+void WellFileParserTests::explicitZeroElevationShiftsWithDepth()
+{
+  const char *texts[] = {
+      "#WellName Name MD X Y Z\n"
+      "W1 D61 100 10 20 0\n",
+      "# WellName topName MD X Y Z\n"
+      "W1 D61 100 10 20 0\n",
+  };
+  for (const char *text : texts)
+  {
+    const auto rows = parseWellTopsText(text);
+    QCOMPARE(rows.size(), 1);
+    QVERIFY(rows[0].hasMd && rows[0].hasX && rows[0].hasY);
+    QCOMPARE(rows[0].z, 0.0);
+    QVector<WellTopRecord> shifted = rows;
+    QCOMPARE(WellTopsEdit::applyShift(&shifted, 10.0), 1);
+    QCOMPARE(shifted[0].z, -10.0);
+    QCOMPARE(shifted[0].md, 110.0);
+  }
 }
 
 void WellFileParserTests::depthAliases_data()

@@ -118,26 +118,31 @@ struct Reader {
     if(digest.size()!=64)return false;
     for(const auto c:digest)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;
     QString directory;if(!identifier(ref.value("directory"),directory,false) || QDir::cleanPath(directory)!=directory)return false;
-    // 共享内容寻址输入束（pythoninputbundle 生成）：directory 精确等于
-    // .paleo/capability-ops/inputs/<manifestHash>，不属于任何单条 operation
-    // 的私有空间，也不得借 per-op 规则放宽。
-    if(directory!=QLatin1String(".paleo/capability-ops/inputs/")+digest)return false;
+    // 共享输入束命名空间（G4-W6，与两个生产者一致）：pythoninputbundle 的
+    // inputs/<name> 与 wellfaciesinputstore 的 well-inputs/<uuid>。二者都
+    // 不属于任何单条 operation 的私有空间，也不得借 per-op 规则放宽；
+    // directory 的其余形态一律不接受。
+    const auto parts = directory.split(QLatin1Char('/'));
+    const bool shared = parts.size() == 4 && parts.value(0) == QLatin1String(".paleo") &&
+        parts.value(1) == QLatin1String("capability-ops") &&
+        (parts.value(2) == QLatin1String("inputs") || parts.value(2) == QLatin1String("well-inputs")) &&
+        managedpath::isSafePathSegment(parts.value(3));
+    if(!shared)return false;
     const auto relative=directory+"/manifest.json";
     if(!sharedCapabilityFile(relative))return false;
     const QFileInfo manifest(managedpath::resolveManagedPath(root,relative));
     // Retain the whole private directory, including future content-addressed responses. No owner hashing.
     return manifest.isFile() && manifest.isReadable();
   }
-  // .paleo/capability-ops 下的共享（非 per-operation）受管文件：仅限
-  // inputs/<sha64>/manifest.json 这一形态。
+  // .paleo/capability-ops 下的共享（非 per-operation）受管文件：relative 形如
+  // inputs|well-inputs/<安全段>/manifest.json（5 段；目录本身是 4 段）。
   bool sharedCapabilityFile(const QString &relative) {
-    if (!relative.startsWith(QLatin1String(".paleo/capability-ops/inputs/"))) return false;
     const auto parts = relative.split(QLatin1Char('/'));
-    if (parts.size() != 4 || parts.value(3) != QLatin1String("manifest.json")) return false;
-    const auto &digest = parts.value(2);
-    if (digest.size() != 64) return false;
-    for (const auto c : digest)
-      if (!((c >= QLatin1Char('0') && c <= QLatin1Char('9')) || (c >= QLatin1Char('a') && c <= QLatin1Char('f')))) return false;
+    if (parts.size() != 5 || parts.value(0) != QLatin1String(".paleo") ||
+        parts.value(1) != QLatin1String("capability-ops") || parts.value(4) != QLatin1String("manifest.json"))
+      return false;
+    if (parts.value(2) != QLatin1String("inputs") && parts.value(2) != QLatin1String("well-inputs"))
+      return false;
     const auto absolute = managedpath::resolveManagedPath(root, relative);
     if (absolute.isEmpty() || QFileInfo(absolute).isDir()) return false;
     const auto directory = identity(QFileInfo(absolute).absolutePath());

@@ -7,7 +7,9 @@ namespace paleo::capability::operation_namespace
 {
 namespace {
 // QUuid::toString(WithoutBraces) 的输出恒为小写十六进制；任何大写、花括号、
-// urn 前缀或非规范连字符位置都在此被拒——不 trim、不归一化、不改写后继续。
+// urn 前缀、缺连字符或非规范连字符位置都在此被拒——不 trim、不归一化、
+// 不改写后继续。（review R1：连字符位置必须强制为 '-'，十六进制字符不能
+// 占据连字符位，否则无连字符的 36 位 hex 串会被当作规范身份。）
 bool isLowercaseUuid(QStringView id)
 {
   static const QString pattern = QUuid().toString(QUuid::WithoutBraces); // 仅取长度参照
@@ -16,10 +18,14 @@ bool isLowercaseUuid(QStringView id)
   for (int i = 0; i < id.size(); ++i)
   {
     const QChar c = id.at(i);
-    const bool hex = (c >= QLatin1Char('0') && c <= QLatin1Char('9')) ||
-                     (c >= QLatin1Char('a') && c <= QLatin1Char('f'));
-    const bool dash = c == QLatin1Char('-');
-    if (!hex && !(dash && (i == 8 || i == 13 || i == 18 || i == 23)))
+    const bool dashPosition = i == 8 || i == 13 || i == 18 || i == 23;
+    if (dashPosition)
+    {
+      if (c != QLatin1Char('-'))
+        return false;
+    }
+    else if (!((c >= QLatin1Char('0') && c <= QLatin1Char('9')) ||
+               (c >= QLatin1Char('a') && c <= QLatin1Char('f'))))
       return false;
   }
   return true;
@@ -62,8 +68,8 @@ bool isInPrivateOperationNamespace(QStringView relative, QStringView operationId
   if (!isCanonicalOperationId(operationId))
     return false;
   // ".paleo/capability-ops/" = 22 字符；操作段后必须紧跟 '/' 且至少还有
-  // 一段内容（工件路径不可能恰好止于命名空间前缀）。
-  if (relative.size() < operationId.size() + 23)
+  // 一个内容字符（review R1：裸命名空间前缀本身不算成员路径）。
+  if (relative.size() < operationId.size() + 24)
     return false;
   if (!relative.startsWith(QLatin1String(".paleo/capability-ops/")))
     return false;

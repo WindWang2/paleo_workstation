@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QUuid>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/workflow/assetops.h"
@@ -98,7 +99,7 @@ private slots:
   void missingOperationInputVersionRefusesMetadataAndPhysicalPurge() {
     QTemporaryDir root;DataCatalog cat;QVERIFY(cat.open(root.path()));QDir dir(root.path());ManagedAsset output,input;
     QVERIFY(makeManagedAsset(cat,dir,"surviving-output",&output));QVERIFY(makeManagedAsset(cat,dir,"lost-input",&input));
-    QJsonObject row{{"schemaVersion",2},{"operationId","op-lost-input"},{"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},
+    QJsonObject row{{"schemaVersion",2},{"operationId",QStringLiteral("op-")+QUuid::createUuid().toString(QUuid::WithoutBraces)},{"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},
       {"stateRevision","1"},{"events",QJsonArray{}},{"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
       {"stagePlan",QJsonObject{{"targets",QJsonArray{}},{"parents",QJsonArray{input.v1}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
       {"preparedManifest",QJsonObject{}},{"artifactManifest",QJsonObject{}},{"presentationIntent",QJsonObject{}},{"externalRequest",QJsonObject{}},
@@ -119,7 +120,7 @@ private slots:
     auto persist=[&](const QJsonArray &rows){QSaveFile file(path);const auto bytes=QJsonDocument(rows).toJson(QJsonDocument::Compact);
       return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size()&&file.commit();};
     // A frozen source without a projected Catalog version still retains bytes.
-    QJsonObject row{{"schemaVersion",2},{"operationId","op-input"},
+    QJsonObject row{{"schemaVersion",2},{"operationId",QStringLiteral("op-")+QUuid::createUuid().toString(QUuid::WithoutBraces)},
       {"stagePlan",QJsonObject{{"targets",QJsonArray{}},{"parents",QJsonArray{}},{"outputSetId","set"},{"outputSpec",QJsonObject{}}}},
       {"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},{"stateRevision","1"},{"events",QJsonArray{}},
       {"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},

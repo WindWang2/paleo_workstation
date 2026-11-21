@@ -134,6 +134,34 @@ read/operationRetention），目录副作用用文件树快照对比：
 - 未实测：Windows junction/reparse/保留名、UNC 盘符行为（平台受限，如实
   报告，不宣称覆盖）。
 
+## 独立复审（R1）与修复
+
+独立 reviewer 审查真实 diff/调用链/验收证据后 **APPROVE**（0 P0/P1，
+2 P2），两条 P2 当轮修复：
+
+1. `isLowercaseUuid` 接受缺连字符的 36 位 hex 串（连字符位被 hex 占据仍
+   通过）→ 改为连字符位强制 '-'、其余位强制小写 hex；补回归断言。
+2. `isInPrivateOperationNamespace` 接受裸命名空间前缀（恰 62 字符、尾 '/'
+   后零内容）→ 最小长度收紧到 `opId.size()+24`；既有断言覆盖。
+
+全矩阵复跑后另发现并修正一处实现偏差（R1 修复的连带验证暴露）：
+- `storedInput` 初版把共享输入束窄化为 `inputs/<manifestHash>`，漏掉
+  wellfaciesinputstore 的生产命名空间 `well-inputs/<uuid>`
+  （`tst_storagegovernance` 真实 fixture 拦截）。修正为两个生产者命名空间
+  并列白名单（`inputs|well-inputs/<安全段>` + manifest.json 存在性），
+  不再要求 directory==manifestHash（well-inputs 的目录名是 UUID；
+  身份精确校验留在各自 loader）。同时修正 sharedCapabilityFile 的
+  分段数（5 段含 manifest.json）。
+- 该套件与 `tst_assetops` 的合成 fixture 使用非规范 operationId
+  （`op-retained`/`op-lost-input`/`op-input`）——按 W1 契约现代化为
+  `op-<uuid>`（精确归属的 fixture 更新，非断言放宽）。
+
+R1 后全矩阵：namespace 6/6、integrity 12/12、operation_control 15/15、
+recovery 37/37、recovery_native 10/10、gateway 18/18、host 12/12、
+round2 14/14、assetops 15/15、storagegovernance 15/15+1 既有 skip、
+authenticatedartifactreader 18/18、pigenerated 5/5、pythonoperations 17/17。
+
+
 ## 复用与避让
 
 - 复用：managedpath（isSafePathSegment/resolveManagedPath）、

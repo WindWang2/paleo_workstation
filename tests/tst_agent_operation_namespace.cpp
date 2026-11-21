@@ -64,6 +64,11 @@ void AgentOperationNamespace::attemptFormsKeepBothLegacies() {
   QVERIFY(!isCanonicalAttemptId(QString()));
   QVERIFY(!isCanonicalResultLeaf(uuid()));
   QVERIFY(!isCanonicalResultLeaf(QStringLiteral("result-../x")));
+  // review R1 回归：缺连字符/连字符位被 hex 占据的 36 位串不是规范身份。
+  QString dashless = uuid();
+  dashless.replace(8, 1, QLatin1Char('0'));
+  QVERIFY(!isCanonicalAttemptId(dashless));
+  QVERIFY(!isCanonicalOperationId(QStringLiteral("op-") + dashless));
 }
 
 void AgentOperationNamespace::prefixMembershipIsSegmentExact() {

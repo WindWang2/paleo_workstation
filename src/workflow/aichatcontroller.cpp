@@ -218,8 +218,9 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
   // G2-W3 薄门：欠账未清时拒绝切换——不发成功 sessionChanged（G5 侧不因此
   // 清当前草稿），sessionListChanged 让会话下拉回到真实当前选择。
   if (m_saveArrears && !m_session.messages.isEmpty()) {
-    if (error) *error = tr("会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试").arg(m_saveArrearsError);
-    emit errorOccurred(error && !error->isEmpty() ? *error : m_saveArrearsError);
+    const auto refusal = tr("会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试").arg(m_saveArrearsError);
+    if (error) *error = refusal;
+    emit errorOccurred(refusal);
     emit sessionListChanged();
     return false;
   }
@@ -293,10 +294,9 @@ bool AiChatController::renameSession(const QString &sessionId,
       emit sessionListChanged();
       return true;
     }
-    const bool ok = ChatSessionStore::save(m_session, error);
-    if (ok)
-      emit sessionListChanged();
-    return ok;
+    // G2-W3：走统一落盘入口——成功即清保存欠账（内部已发 sessionListChanged），
+    // 失败则欠账如实保留，不再绕过记账直写文件。
+    return saveCurrentSession(error);
   }
   ChatSession stored;
   if (!ChatSessionStore::load(sessionId, &stored, error))

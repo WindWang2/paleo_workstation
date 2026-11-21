@@ -90,8 +90,9 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
     else if (channel->stopReason()) code = channel->stopReason() == 1 ? "cancelled" : "interrupted";
     else if (code == "ok" && m_phase != Phase::Closed) code = "pi_conversation_incomplete";
     // 收尾补充：worker 的失败（如进程回收失败）与主因不同时不整段隐藏。
-    if (workerCode != code && workerCode != QLatin1String("ok") && !workerCode.isEmpty())
-      emit cleanupNotice(workerCode);
+    if (workerCode != code && workerCode != QLatin1String("ok") &&
+        workerCode != QLatin1String("interrupted") && !workerCode.isEmpty())
+      emit cleanupNotice(workerCode); // 未执行（interrupted）不是清理失败，不发补充
     m_timer.stop(); m_task.clear(); m_active = false; emit finished(code);
   }, Qt::SingleShotConnection);
   return {};

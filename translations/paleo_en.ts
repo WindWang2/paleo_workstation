@@ -24304,14 +24304,6 @@ PDF：%3
         <translation>Workbench context is incomplete (window/status bar/workbench/page)</translation>
     </message>
     <message>
-        <source>命令源按钮已销毁；切换页签或重建面板后恢复</source>
-        <translation>Command source button destroyed; switch tabs or rebuild the panel to restore</translation>
-    </message>
-    <message>
-        <source>命令源不可用；切换页签或重建面板后恢复</source>
-        <translation>Command source unavailable; switch tabs or rebuild the panel to restore</translation>
-    </message>
-    <message>
         <source>工程处于只读模式，撤销/重做已禁用</source>
         <translation>The project is read-only; undo/redo is disabled</translation>
     </message>
@@ -24954,7 +24946,15 @@ PDF：%3
             <source>展开「%1」组的全部命令</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>命令源按钮已销毁；切换页签或重建面板后恢复</source>
+        <translation>Command source button destroyed; switch tabs or rebuild the panel to restore</translation>
+    </message>
+    <message>
+        <source>命令源不可用；切换页签或重建面板后恢复</source>
+        <translation>Command source unavailable; switch tabs or rebuild the panel to restore</translation>
+    </message>
+</context>
     <context>
         <name>PaleoShortcuts</name>
         <message>

@@ -24316,7 +24316,103 @@ PDF：%3
             <source>版本已保存，后续操作未完成</source>
             <translation>版本已保存，后续操作未完成</translation>
         </message>
-  </context>
+      <message>
+        <source>工程正在打开或切换，请稍后再试</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>命令所需依赖不可用：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>画布控制器</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>图层服务</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>约束编图页</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>测井预测修订面板</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>测井预测窗口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>影响分析反馈</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已显示图件登记</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>图件显示入口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>证据参考入口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>图例刷新入口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>井道面板入口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>编辑会话入口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>属性表导航</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>图谱导航</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>数据管理导航</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>图件输出入口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>操作未执行（%1）：%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>操作未执行：%1 未被其声明处理族受理（登记与实现不一致）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>工作台上下文不完整，操作未执行：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>工作台上下文不完整（窗口/状态栏/工作台/页面）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>工程处于只读模式，撤销/重做已禁用</source>
+        <translation type="unfinished"></translation>
+    </message>
+    </context>
 <context>
     <name>PaleoMapBookController</name>
     <message>
@@ -24954,6 +25050,14 @@ PDF：%3
         <location filename="../src/ui/ribboncollapse.cpp" line="331"/>
         <source>展开「%1」组的全部命令</source>
         <translation>展开「%1」组的全部命令</translation>
+    </message>
+    <message>
+        <source>命令源按钮已销毁；切换页签或重建面板后恢复</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>命令源不可用；切换页签或重建面板后恢复</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

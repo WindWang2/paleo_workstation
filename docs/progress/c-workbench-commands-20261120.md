@@ -35,8 +35,8 @@ P5/P6 已分配未回归引擎——均不修改。predictpage/runConstraintPage
 - 新文件 `src/ui/workbench/workbenchactioncatalog.{h,cpp}`（C-W1 单份动作描述：
   id/family/effect/outcome/caps，43 条动作表 + catalogIntegrity 自检 +
   missingCapsReason 点名原因）；`src/ui/workbench/workbenchadmission.{h,cpp}`
-  （C-W2 统一准入：基础上下文→切换中→依赖位→只读，同一函数服务触发时刻与
-  模态返回后复核）。
+  （C-W2 统一准入：基础上下文→切换中→只读→依赖位（只读先于依赖位，全局资格
+  不被面板缺席遮蔽），同一函数服务触发时刻与模态返回后复核）。
 - 挂点：`cmake/extra-c-workbench-commands.cmake`（target_sources paleo_ui +
   add_paleo_test(tst_c_workbench_commands LIBS paleo_ui)），根 CMakeLists
   `_paleo_extra_manifest` 追加单条。

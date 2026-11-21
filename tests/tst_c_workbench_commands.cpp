@@ -48,7 +48,6 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
-#include "../src/qgis/qgisprocessingservice.h"
 #include "../src/services/previewdoc.h"
 #include "../src/ui/commandactionbinder.h"
 #include "../src/ui/paleomainwindow.h"
@@ -134,7 +133,9 @@ struct ModalCloser : public QObject
   //（offscreen 有 B-05 守卫，xcb 没有）——继续以 reject 关闭后续框。
   void watchFollowUps(int milliseconds)
   {
-    auto *watch = new QTimer(this);
+    // QPointer 捕获：看护提前自灭（无可见对话框一拍）后，到期的停止器
+    // 不再触碰已析构对象。
+    QPointer<QTimer> watch(new QTimer(this));
     connect(watch, &QTimer::timeout, this, [this, watch] {
       for (QWidget *w : QApplication::topLevelWidgets())
         if (qobject_cast<QMessageBox *>(w) && w->isVisible())
@@ -149,11 +150,20 @@ struct ModalCloser : public QObject
           box->reject();
           return;
         }
-      watch->stop();
-      watch->deleteLater();
+      if (watch)
+      {
+        watch->stop();
+        watch->deleteLater();
+      }
     });
     watch->start(50);
-    QTimer::singleShot(milliseconds, this, [watch] { watch->stop(); watch->deleteLater(); });
+    QTimer::singleShot(milliseconds, this, [watch] {
+      if (watch)
+      {
+        watch->stop();
+        watch->deleteLater();
+      }
+    });
   }
   void closeOne()
   {
@@ -646,7 +656,6 @@ class TestCWorkbenchCommands : public QObject
       QVERIFY(status.first().first().toString().contains(QStringLiteral("只读")));
       // 快捷键（data.list.undo = Ctrl+Z，ShortcutCatalog 键序）：同一条门。
       // 面板取焦点让 WidgetWithChildrenShortcut 语境的匹配可达。
-      panel.setFocusPolicy(Qt::StrongFocus);
       panel.setFocusPolicy(Qt::StrongFocus);
       panel.activateWindow();
       QVERIFY(QTest::qWaitForWindowActive(&panel));

@@ -551,7 +551,8 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
   return [this, workbench](const QString &id = QString()) {
     if (!m_decorMgr)
       return;
-    const auto h = m_selection->activeHorizon();
+    // #994：无 SelectionContext 的宿主按空层位处理（图例无层位即清空面）。
+    const auto h = m_selection ? m_selection->activeHorizon() : QString();
     auto *canvas = m_canvasCtl->canvas();
     const auto visible = canvas->layers();
     const auto eligible = [&](QgsMapLayer *layer) {

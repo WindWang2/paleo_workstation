@@ -8559,7 +8559,11 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <source>预设「%1」无法读取：%2</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>工程处于只读模式，撤销/重做已禁用</source>
+        <translation>The project is read-only; undo/redo is disabled</translation>
+    </message>
+</context>
     <context>
         <name>DataPage</name>
         <message>
@@ -24307,6 +24311,7 @@ PDF：%3
         <source>工程处于只读模式，撤销/重做已禁用</source>
         <translation>The project is read-only; undo/redo is disabled</translation>
     </message>
+
     </context>
     <context>
         <name>PaleoMapBookController</name>

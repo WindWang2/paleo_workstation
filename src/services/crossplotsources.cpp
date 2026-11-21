@@ -21,61 +21,144 @@
 #include <limits>
 #include <ogr_srs_api.h>
 namespace paleo::crossplot {
-QVector<SourceSpec>
-CrossplotSources::inventory(DataCatalog *cat, const QString &dir,
-                            const QVector<LayerDeclaration> &decls) {
-  QVector<SourceSpec> out;
+CrossplotSources::CatalogSnapshot
+CrossplotSources::snapshotCatalog(DataCatalog *cat, const QString &dir,
+                                  const QVector<LayerDeclaration> &decls) {
+  CatalogSnapshot snap;
   if (!cat || !cat->isOpen())
+    return snap;
+  snap.valid = true;
+  snap.projectDir = dir;
+  snap.catalogMutationSeq = cat->mutationSeq();
+  snap.declarations = decls;
+  // 快照只做 catalog 只读（实体/链接/版本/元数据）——well_log 表头与
+  // 时深判定的文件 I/O 全部留给 buildInventory 的消费线程。
+  const auto readinessInputs = paleo::snapshotReadinessInputs(cat);
+  for (const auto &entity : cat->entities(QStringLiteral("well"))) {
+    WellSnapshot well;
+    well.id = entity.id;
+    well.name = entity.name;
+    well.surfaceX = entity.surfaceX;
+    well.surfaceY = entity.surfaceY;
+    well.hasSurface = entity.hasSurface;
+    well.readiness = readinessInputs.value(entity.id);
+    well.logs = WellLogSet::snapshotWellLogLinks(cat, dir, entity.id);
+    snap.wells << well;
+  }
+  for (const auto &asset : cat->assets()) {
+    const auto version = cat->currentVersion(asset.id);
+    AssetSnapshot entry;
+    entry.assetId = asset.id;
+    entry.displayName = asset.displayName;
+    entry.type = asset.type;
+    entry.versionId = version.id;
+    entry.path = DataCatalog::resolvedVersionPath(dir, version);
+    entry.sha256 = version.sha256;
+    entry.managed = version.managed;
+    snap.assets << entry;
+  }
+  return snap;
+}
+
+CrossplotSources::InventoryOutcome
+CrossplotSources::buildInventory(const CatalogSnapshot &snap,
+                                 const cluster::Control &ctl) {
+  InventoryOutcome out;
+  if (!snap.valid)
     return out;
   // 就绪井口径（HY 验收 2026-11-01）：交会图井源只进「曲线+可用时深」双全
   // 的井（stamp 缓存，确认/导入后自愈）；数据管理面不受此过滤。
-  const auto readiness = paleo::analysisReadiness(cat, dir);
-  for (const auto &entity : cat->entities())
-    if (entity.entityType == QLatin1String("well") &&
-        readiness.value(entity.id).analysisReady())
-      for (const auto &ref : WellLogSet::wellCurveIndex(cat, dir, entity.id)) {
-        // 头解析失败的文件已由 WellLogSet 跳过。sha/managed 按源版本回查。
-        const CatalogVersion version = cat->versionById(ref.sourceVersionId);
-        SourceSpec s;
-        s.choice.id = entity.id + QLatin1Char('|') + ref.sourceVersionId +
-                      QLatin1Char('|') + ref.mnemonic;
-        s.choice.title = entity.name + QStringLiteral(" · ") + ref.mnemonic +
-                         QStringLiteral(" · ") + QFileInfo(ref.path).fileName();
-        s.choice.kind = QStringLiteral("well");
-        s.path = ref.path;
-        s.curve = ref.mnemonic;
-        s.versionId = ref.sourceVersionId;
-        s.sha256 = version.sha256;
-        s.managed = version.managed;
-        s.well.wellId = entity.id;
-        s.well.x = entity.surfaceX;
-        s.well.y = entity.surfaceY;
-        s.well.hasXY = entity.hasSurface;
-        out << s;
-      }
-  for (const auto &asset : cat->assets()) {
-    const auto version = cat->currentVersion(asset.id);
-    const auto path = DataCatalog::resolvedVersionPath(dir, version);
-    const auto suffix = QFileInfo(path).suffix().toLower();
+  QHash<QString, WellReadinessInput> readinessInputs;
+  for (const auto &well : snap.wells)
+    readinessInputs.insert(well.id, well.readiness);
+  const auto readiness = paleo::computeReadiness(readinessInputs, snap.projectDir);
+  // 全局单调进度（cluster::Control 契约）：先按就绪井数出总文件数，再逐井
+  // 以「累计完成 / 全局总数」上报——避免逐井分母导致的进度回跳。
+  qint64 filesPlannedTotal = 0;
+  for (const auto &well : snap.wells)
+    if (readiness.value(well.id).analysisReady())
+      filesPlannedTotal += well.logs.size();
+  int filesDone = 0;
+  for (const auto &well : snap.wells) {
+    if (ctl.cancelled && ctl.cancelled())
+      return out;
+    if (!readiness.value(well.id).analysisReady())
+      continue;
+    out.filesPlanned += well.logs.size();
+    WellLogWarnings warnings;
+    const int base = filesDone; // 本井开始前的全局累计
+    const auto refs = WellLogSet::curveIndexFromLinks(
+        well.logs, &warnings, ctl.cancelled,
+        [&ctl, &filesDone, base, filesPlannedTotal](int done, int) {
+          filesDone = base + done; // 全局累计单调（well 内 done 单调）
+          if (ctl.progress && filesPlannedTotal > 0)
+            ctl.progress(double(qMin<qint64>(filesDone, filesPlannedTotal)) /
+                         double(filesPlannedTotal));
+        },
+        &out.failedFiles);
+    filesDone = out.filesPlanned; // 井完成：对齐全局累计
+    if (ctl.cancelled && ctl.cancelled())
+      return out; // 取消批次不产出部分清单
+    for (const auto &ref : refs) {
+      // sha/managed 按源版本回查：ref 的 sourceVersionId 来自该井的链接
+      // 快照，逐条找回同版本的登记字段（与 versionById 回查同语义）。
+      QString sha256;
+      bool managed = true;
+      for (const auto &log : well.logs)
+        if (log.versionId == ref.sourceVersionId) {
+          sha256 = log.sha256;
+          managed = log.managed;
+          break;
+        }
+      SourceSpec s;
+      s.choice.id = well.id + QLatin1Char('|') + ref.sourceVersionId +
+                    QLatin1Char('|') + ref.mnemonic;
+      s.choice.title = well.name + QStringLiteral(" · ") + ref.mnemonic +
+                       QStringLiteral(" · ") + QFileInfo(ref.path).fileName();
+      s.choice.kind = QStringLiteral("well");
+      s.path = ref.path;
+      s.curve = ref.mnemonic;
+      s.versionId = ref.sourceVersionId;
+      s.sha256 = sha256;
+      s.managed = managed;
+      s.well.wellId = well.id;
+      s.well.x = well.surfaceX;
+      s.well.y = well.surfaceY;
+      s.well.hasXY = well.hasSurface;
+      out.sources << s;
+    }
+  }
+  out.filesFailed = out.failedFiles.size();
+  for (const auto &asset : snap.assets) {
+    if (ctl.cancelled && ctl.cancelled())
+      return out;
+    const auto suffix = QFileInfo(asset.path).suffix().toLower();
     if (suffix != QLatin1String("tif") && suffix != QLatin1String("tiff") &&
         suffix != QLatin1String("sattr"))
       continue;
     SourceSpec s;
-    s.choice = {version.id, asset.displayName,
+    s.choice = {asset.versionId, asset.displayName,
                 suffix == QLatin1String("sattr") ? QStringLiteral("attribute")
                                                  : QStringLiteral("raster")};
-    s.path = path;
-    s.versionId = version.id;
+    s.path = asset.path;
+    s.versionId = asset.versionId;
     s.timeHorizon = asset.type == QLatin1String("horizon");
-    s.sha256 = version.sha256;
-    s.managed = version.managed;
-    for (const auto &d : decls)
+    s.sha256 = asset.sha256;
+    s.managed = asset.managed;
+    for (const auto &d : snap.declarations)
       if (QFileInfo(d.source).absoluteFilePath() ==
-          QFileInfo(path).absoluteFilePath())
+          QFileInfo(asset.path).absoluteFilePath())
         s.layerId = d.layerId;
-    out << s;
+    out.sources << s;
   }
   return out;
+}
+
+QVector<SourceSpec>
+CrossplotSources::inventory(DataCatalog *cat, const QString &dir,
+                            const QVector<LayerDeclaration> &decls) {
+  // 同步兼容口径（既有调用方/测试）：与后台路径共享同一条快照+构建管线。
+  return buildInventory(snapshotCatalog(cat, dir, decls)).sources;
 }
 bool CrossplotSources::attributeSection(const QString &path,
                                         AttributeSection *out, QString *error,

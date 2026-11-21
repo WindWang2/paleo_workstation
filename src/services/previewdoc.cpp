@@ -49,6 +49,7 @@ bool externalShaMatches(const QString &project, const CatalogVersion &version,
 
 PreviewDocService::~PreviewDocService()
 {
+  m_destructing = true; // destroyed 回调在成员失效后不得再触达本类
   // #390：在飞任务归还并发闸并打断 worker 的同服务调用面（resetProjectState
   // 同款取消循环——析构不能等任务自然结束）。
   for (auto it = m_decodeTask.begin(); it != m_decodeTask.end(); ++it)
@@ -189,14 +190,58 @@ PreviewDocService::prepareSingleFileImport(const QString &kind, const QString &s
 void PreviewDocService::setTaskService(PaleoTaskService *svc)
 {
   m_taskSvc = svc;
-  if (m_taskSvc)
+  // A-W1：地震服务不再随任务服务急建——纯 LAS/记录门面不白占 256 MiB
+  // 数据缓存；首个地震消费者（seismicTaskService()）才懒建私有实例，或
+  // 由组装根注入共享实例（setSeismicTaskService）。
+  if (m_taskSvc && m_seismicTaskSvcOwned)
+    m_seismicTaskSvcOwned->setTaskService(m_taskSvc);
+}
+
+void PreviewDocService::setSeismicTaskService(seismic::SeismicTaskService *shared)
+{
+  if (m_seismicTaskSvcShared == shared && !m_seismicTaskSvcOwned)
+    return; // 幂等：重复注入同一共享实例零动作
+  if (m_seismicTaskSvcOwned && m_seismicTaskSvcOwned->activeTaskCount() > 0)
   {
-    if (!m_seismicTaskSvc)
-      m_seismicTaskSvc =
-          std::make_unique<seismic::SeismicTaskService>(m_taskSvc, 256, this);
-    else
-      m_seismicTaskSvc->setTaskService(m_taskSvc);
+    // 在途 worker 仍引用私有实例（回调/缓存路径）——替换会悬空。保持现状
+    // 并如实告警；生产装配在首请求前注入，不应走到这里。
+    qWarning("PreviewDocService: private seismic service still busy; "
+             "shared-instance injection deferred");
+    return;
   }
+  m_seismicTaskSvcShared = shared;
+  m_seismicTaskSvcOwned.reset();
+}
+
+seismic::SeismicTaskService *PreviewDocService::seismicTaskService() const
+{
+  if (m_seismicTaskSvcShared)
+    return m_seismicTaskSvcShared;
+  if (m_seismicTaskSvcOwned)
+    return m_seismicTaskSvcOwned.get();
+  if (!m_taskSvc)
+    return nullptr;
+  // 懒建（测试/小环境兜底）：与历史行为同参（256 MiB，任务服务托管）。
+  m_seismicTaskSvcOwned =
+      std::make_unique<seismic::SeismicTaskService>(m_taskSvc, 256,
+                                                    const_cast<PreviewDocService *>(this));
+  return m_seismicTaskSvcOwned.get();
+}
+
+void PreviewDocService::quiesce()
+{
+  if (m_quiesced)
+    return;
+  m_quiesced = true;
+}
+
+QString PreviewDocService::consumerRequestKey(const QString &key,
+                                              const QObject *consumer)
+{
+  if (!consumer)
+    return key;
+  return QString::number(reinterpret_cast<quintptr>(consumer)) +
+         QLatin1Char('|') + key;
 }
 
 void PreviewDocService::requestHorizonPreview(
@@ -204,6 +249,13 @@ void PreviewDocService::requestHorizonPreview(
     std::function<void(const HorizonPreview &)> ready)
 {
   auto result = std::make_shared<HorizonPreview>();
+  if (m_quiesced)
+  {
+    // A-W6：退出排空期拒绝新 worker——如实回报。
+    result->error = tr("应用退出中，预览请求已停止");
+    ready(*result);
+    return;
+  }
   result->storage = std::make_shared<QTemporaryDir>();
   const auto work = [source, result](PaleoTask *task) -> QString {
     BinnedHorizon grid;QString error;
@@ -458,6 +510,8 @@ void PreviewDocService::verifyExternalShaAsync(
     if (done)
       done(ok, error);
   };
+  if (m_quiesced)
+    return settle(false, tr("应用退出中，预览请求已停止")); // A-W6
   if (version.managed || version.sha256.isEmpty() || m_shaVerified.value(assetId))
     return settle(true, QString()); // 托管副本/无指纹/本会话已验 → 放行
   if (!m_taskSvc || !receiver)
@@ -694,11 +748,21 @@ void PreviewDocService::requestSection(const QString &assetId,
                                        const QString &versionId,
                                        const QString &absPath, bool managed,
                                        const QString &sha256, bool isInline,
-                                       int lineNo)
+                                       int lineNo, QObject *consumer)
 {
-  // D1：新解码请求取消同资产仍在跑的任务——其结果反正按世代号丢弃。
-  const int seq = ++m_decodeSeq[assetId];
-  if (auto *old = m_decodeTask.value(assetId).data(); old && old->running())
+  if (m_quiesced)
+  {
+    // A-W6：退出排空期拒绝新 worker——如实回报，不静默丢弃。
+    emit seismicSectionFailed(assetId, tr("应用退出中，预览请求已停止"),
+                             consumerTag(consumer));
+    return;
+  }
+  // D1/A-W2：新解码请求只取消同一消费者同资产仍在跑的任务——其结果反正
+  // 按世代号丢弃；别的消费者读同资产另一条线互不影响。
+  const QString requestKey = consumerRequestKey(assetId, consumer);
+  const quint64 tag = consumerTag(consumer);
+  const int seq = ++m_decodeSeq[requestKey];
+  if (auto *old = m_decodeTask.value(requestKey).data(); old && old->running())
   {
     old->requestCancel();
   }
@@ -755,15 +819,15 @@ void PreviewDocService::requestSection(const QString &assetId,
     return {};
   };
 
-  const auto apply = [this, assetId, seq, out, shaMismatch,
+  const auto apply = [this, assetId, requestKey, tag, seq, out, shaMismatch,
                       versionId](PaleoTask::State st, const QString &errText) {
-    if (seq != m_decodeSeq.value(assetId))
+    if (seq != m_decodeSeq.value(requestKey))
       return; // 陈旧结果丢弃：更新一代 decode 已接管（发射前压制）
     if (st == PaleoTask::State::Succeeded)
     {
       m_shaVerified.insert(assetId, true);
       out->doc.horizonsOnly=out->imageDelivered;
-      emit seismicSectionReady(assetId, out->doc);
+      emit seismicSectionReady(assetId, out->doc, tag);
     }
     else if (st == PaleoTask::State::Failed)
     {
@@ -778,13 +842,13 @@ void PreviewDocService::requestSection(const QString &assetId,
           qWarning() << "markDownstreamStale:" << markErr;
       }
       emit seismicSectionFailed(
-          assetId, errText.isEmpty() ? QStringLiteral("无法解码测线") : errText);
+          assetId, errText.isEmpty() ? QStringLiteral("无法解码测线") : errText, tag);
     }
     else if(out->imageDelivered){
       out->doc.horizonsOnly=true;
       out->doc.horizons.warnings.append(QObject::tr("地震层位加载已取消"));
-      emit seismicSectionReady(assetId,out->doc);
-    }else emit seismicSectionCancelled(assetId);
+      emit seismicSectionReady(assetId,out->doc,tag);
+    }else emit seismicSectionCancelled(assetId,tag);
   };
 
   if (m_taskSvc)
@@ -794,11 +858,25 @@ void PreviewDocService::requestSection(const QString &assetId,
     auto *task = m_taskSvc->start(
         QStringLiteral("解码剖面 %1").arg(QFileInfo(absPath).fileName()), work,
         QString(), /*quiet=*/true);
-    m_decodeTask[assetId] = task;
-    connect(task,&PaleoTask::changed,this,[this,assetId,seq,out,task]{
-      if(out->imageDelivered||seq!=m_decodeSeq.value(assetId)||task->cancelRequested())return;
+    m_decodeTask[requestKey] = task;
+    if (consumer) {
+      // 析构即作废本消费者的在途代（世代号 +1）：即便日后新 QObject 复用
+      // 同一地址成为新消费者，旧代的迟到 Cancelled 回包也按世代号丢弃，
+      // 不会带上新消费者的标签串收。
+      QPointer<PaleoTask> taskGuard(task);
+      connect(consumer, &QObject::destroyed, this,
+              [this, requestKey, taskGuard] {
+                if (m_destructing)
+                  return; // 本服务析构中：成员已失效，取消循环已在析构头做过
+                ++m_decodeSeq[requestKey];
+                if (taskGuard && taskGuard->running())
+                  taskGuard->requestCancel();
+              });
+    }
+    connect(task,&PaleoTask::changed,this,[this,assetId,requestKey,tag,seq,out,task]{
+      if(out->imageDelivered||seq!=m_decodeSeq.value(requestKey)||task->cancelRequested())return;
       if(const auto image=out->image.load()){
-        out->imageDelivered=true;emit seismicSectionImageReady(assetId,*image);
+        out->imageDelivered=true;emit seismicSectionImageReady(assetId,*image,tag);
       }
     });
     connect(task, &PaleoTask::finished, this,
@@ -813,27 +891,56 @@ void PreviewDocService::requestSection(const QString &assetId,
   }
 }
 
-void PreviewDocService::releaseSection(const QString &assetId)
+void PreviewDocService::releaseSection(const QString &assetId, QObject *consumer)
 {
-  // 标签关掉即释放该资产的索引缓存（持有文件句柄级状态）与世代号；进行
-  // 中的解码任务请求取消——结果没人等了。
+  // 标签关掉即释放该资产（消费者维度）的世代号；进行中的解码任务请求
+  // 取消——结果没人等了。
   // 世代号 +1 而不是移除：移除后同 assetId 的下一次请求会从 1 重新计数，
   // 与刚取消、尚未落地的旧代撞号（#154：换工程后 ast-N 复用时尤甚）。
-  ++m_decodeSeq[assetId];
+  const QString suffix = QLatin1Char('|') + assetId;
+  const auto releaseKey = [this](const QString &key) {
+    ++m_decodeSeq[key];
+    // 未终态（含排队中——PaleoTask 生命周期内一律 Running 态）都取消：
+    // 结果反正按世代号丢弃，出队即跳过不白占 worker。
+    if (auto *t = m_decodeTask.value(key).data(); t && t->running())
+      t->requestCancel();
+    m_decodeTask.remove(key);
+  };
+  if (consumer)
+  {
+    releaseKey(consumerRequestKey(assetId, consumer));
+    // SHA 已验标记随标签关闭清除（与改前匿名释放同语义）：外链源在标签
+    // 关闭期间被换盘面时，重开标签会重新校验而非沿用旧结论。方向保守
+    //（至多多算一次哈希），不影响其他消费者的在途任务。
+    m_shaVerified.remove(assetId);
+    return; // 只收口本消费者的请求；其他消费者的在途解码不受影响
+  }
+  // 匿名释放（兼容旧语义）：作废该资产全部消费者 + 匿名键的在途请求。
+  releaseKey(assetId);
+  const QStringList keys = m_decodeSeq.keys();
+  for (const QString &key : keys)
+    if (key.endsWith(suffix))
+      releaseKey(key);
   m_shaVerified.remove(assetId);
-  if (auto *t = m_decodeTask.value(assetId).data(); t && t->running())
-    t->requestCancel();
-  m_decodeTask.remove(assetId);
 }
 
 void PreviewDocService::requestLas(const QString &key, const QString &absPath,
-                                    const QStringList &siblingPaths)
+                                    const QStringList &siblingPaths,
+                                    QObject *consumer)
 {
-  // 与 requestSection 同一世代号纪律：同 key 新请求作废旧代（旧任务协作
-  // 取消，其结果按世代号在发射前丢弃）。
-  const int seq = ++m_lasSeq[key];
+  if (m_quiesced)
+  {
+    // A-W6：退出排空期拒绝新 worker——如实回报，不静默丢弃。
+    emit lasFailed(key, tr("应用退出中，预览请求已停止"), consumerTag(consumer));
+    return;
+  }
+  // 与 requestSection 同一世代号纪律（A-W2 起按 consumer|key）：同消费者
+  // 同 key 新请求作废旧代（旧任务协作取消，其结果按世代号在发射前丢弃）。
+  const QString requestKey = consumerRequestKey(key, consumer);
+  const quint64 tag = consumerTag(consumer);
+  const int seq = ++m_lasSeq[requestKey];
   m_lasSiblings.remove(key);
-  if (auto *old = m_lasTask.value(key).data(); old && old->running())
+  if (auto *old = m_lasTask.value(requestKey).data(); old && old->running())
     old->requestCancel();
 
   // worker 产出（跨线程交接，GUI 只读 finished 后的快照）。
@@ -871,25 +978,25 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath,
     }
     return QString();
   };
-  const auto apply = [this, key, seq, names, curves,
+  const auto apply = [this, key, requestKey, tag, seq, names, curves,
                       siblings](PaleoTask::State st, const QString &errText) {
-    if (seq != m_lasSeq.value(key))
+    if (seq != m_lasSeq.value(requestKey))
       return; // 陈旧结果丢弃：更新一代请求已接管（发射前压制）
     if (st == PaleoTask::State::Succeeded)
     {
       m_lasSiblings.insert(key, *siblings);
-      emit lasReady(key, *names, *curves);
+      emit lasReady(key, *names, *curves, tag);
     }
     else if (st == PaleoTask::State::Failed)
     {
       m_lasSiblings.remove(key);
       emit lasFailed(key, errText.isEmpty()
-                              ? QStringLiteral("无法解析 LAS 文件") : errText);
+                              ? QStringLiteral("无法解析 LAS 文件") : errText, tag);
     }
     else
     {
       m_lasSiblings.remove(key);
-      emit lasCancelled(key);
+      emit lasCancelled(key, tag);
     }
   };
 
@@ -899,7 +1006,19 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath,
     auto *task = m_taskSvc->start(
         QStringLiteral("解析测井 %1").arg(QFileInfo(absPath).fileName()), work,
         QString(), /*quiet=*/true);
-    m_lasTask[key] = task;
+    m_lasTask[requestKey] = task;
+    if (consumer) {
+      // 同 requestSection：析构作废在途代，防地址复用串收。
+      QPointer<PaleoTask> taskGuard(task);
+      connect(consumer, &QObject::destroyed, this,
+              [this, requestKey, taskGuard] {
+                if (m_destructing)
+                  return; // 同 requestSection：析构中不碰成员
+                ++m_lasSeq[requestKey];
+                if (taskGuard && taskGuard->running())
+                  taskGuard->requestCancel();
+              });
+    }
     connect(task, &PaleoTask::finished, this,
             [this, apply, task]() {
       // 多口井同时解析完成时，每帧只移交一份结果。消费者的 GUI 装配
@@ -958,20 +1077,36 @@ void PreviewDocService::resetProjectState()
   m_pyramidState.clear();
 }
 
-void PreviewDocService::releaseLas(const QString &key)
+void PreviewDocService::releaseLas(const QString &key, QObject *consumer)
 {
   // 标签/调用方关掉即释放世代号；进行中的解析请求取消——结果没人等了。
-  ++m_lasSeq[key]; // 同 releaseSection：+1 作废在途代，不移除（防撞号）
+  // consumer 语义同 releaseSection：只收口本消费者的请求。
+  const QString suffix = QLatin1Char('|') + key;
+  const auto releaseKey = [this](const QString &requestKey) {
+    ++m_lasSeq[requestKey]; // 同 releaseSection：+1 作废在途代，不移除（防撞号）
+    if (auto *t = m_lasTask.value(requestKey).data(); t && t->running())
+      t->requestCancel();
+    m_lasTask.remove(requestKey);
+  };
+  if (consumer)
+  {
+    releaseKey(consumerRequestKey(key, consumer));
+    return;
+  }
+  releaseKey(key);
+  const QStringList keys = m_lasSeq.keys();
+  for (const QString &requestKey : keys)
+    if (requestKey.endsWith(suffix))
+      releaseKey(requestKey);
   m_lasSiblings.remove(key);
-  if (auto *t = m_lasTask.value(key).data(); t && t->running())
-    t->requestCancel();
-  m_lasTask.remove(key);
 }
 
 int PreviewDocService::prefetch(const QStringList &absPaths)
 {
   // D1.3/D4.6：低优先级后台预取——用户点击（Normal/High）不被预取挡道；
   // LasCache 的 in-flight 合并保证「预取跑到一半用户点开」不双解析。
+  if (m_quiesced)
+    return 0; // A-W6：退出排空期不再提交预取
   if (!m_taskSvc)
   {
     LasCache::shared().prefetch(absPaths);
@@ -1003,8 +1138,8 @@ bool PreviewDocService::rasterPyramidReady(const QString &assetId) const
 
 void PreviewDocService::ensureRasterPyramidVersion(const QString &assetId)
 {
-  if (assetId.isEmpty() || !m_svc)
-    return;
+  if (assetId.isEmpty() || !m_svc || m_quiesced)
+    return; // A-W6：退出排空期不再提交金字塔预热（下次会话补齐）
   const int st = m_pyramidState.value(assetId, int(PyramidState::None));
   if (st == int(PyramidState::InFlight) || st == int(PyramidState::Ready))
     return; // 在途合并 / 会话内已就绪——幂等

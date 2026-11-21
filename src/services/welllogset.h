@@ -6,6 +6,8 @@
 #include <QVector>
 #include <QList>
 
+#include <functional>
+
 #include "../domain/deviationsurvey.h"
 #include "../domain/wellrecords.h" // TimeDepthTable（方向44 TIME 基准对齐）
 
@@ -64,6 +66,43 @@ public:
   // 仅转换已声明的深度单位，不把 TIME/TVD/TVDSS 或新格式未知轴冒充 MD。
   static bool mdAxisInMetres(const WellCurveRef &ref, const QList<LasCurve> &curves,
                             QVector<double> *axis, QString *error = nullptr);
+
+  // A-W3/A-W4：已决 well_log 链接的不可变快照——catalog 所属线程取一次
+  //（纯 catalog 读：链接、当前版本、受管表头元数据），头解析（文件 I/O）
+  // 留给消费线程。stored* 字段按 storedHeader 同口径记录受管版本登记的
+  // 已验证表头（hasStoredHeader=false 时无效）。
+  struct WellLogLinkSnapshot
+  {
+    QString assetId;
+    QString versionId;
+    QString path; // resolvedVersionPath（受管/外链统一）
+    QString sha256; // 版本登记的校验和（受管副本/入库时源文件 SHA-256）
+    bool isPrimary = false;
+    int ordinal = 0;
+    int versionNumber = 0;
+    bool managed = false;
+    bool hasStoredHeader = false;
+    QStringList storedCurveNames;
+    QString storedWellName;
+    QString storedIndexBasis;
+  };
+  // 链接快照（catalog 所属线程）。role!=well_log 或 unresolved 的链接不取；
+  // 版本缺失/文件不存在不在快照期判定（那要与消费侧警告口径一致）。
+  static QVector<WellLogLinkSnapshot> snapshotWellLogLinks(const DataCatalog *catalog,
+                                                           const QString &projectDir,
+                                                           const QString &wellId);
+  // 快照 → 跨文件曲线并集（与 wellCurveIndex 同一条流水线：排序/别名/
+  // 基准告警逐字共享，只是表头来源换成快照）。cancelled 在每个文件开始前
+  // 检查——取消即返回空结果（当前单文件 parseHeader 不可中断，见
+  // warmHeaderCache 口径）；progress(done,total) 在每个文件解析返回后回调；
+  // failedPaths 收集解析失败/缺失的源文件（与 warnings 同源，供部分失败
+  // 反馈）。三者均可空。
+  static QVector<WellCurveRef> curveIndexFromLinks(
+      const QVector<WellLogLinkSnapshot> &links, WellLogWarnings *warnings = nullptr,
+      const std::function<bool()> &cancelled = {},
+      const std::function<void(int, int)> &progress = {},
+      QStringList *failedPaths = nullptr);
+
   // 已决 well_log，按 ordinal 升序，其次 versionNumber，再次 versionId。
   // 头解析失败或路径缺失的链接不进入结果，记入 warnings。
   static QVector<WellLogFile> wellLogFiles(const DataCatalog *catalog,

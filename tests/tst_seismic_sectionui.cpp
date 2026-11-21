@@ -36,6 +36,7 @@
 
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/seismictaskservice.h"
+#include "../src/io/cachebudget.h" // A-W5：预算注册面断言
 #include "../src/ui/seismicsection/seismicsectioncanvas.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 #include "uipolish_capture.h"
@@ -1372,6 +1373,53 @@ private slots:
     // dock 切片路径经服务：结果落切片 LRU（裸 QThreadPool 时代不进缓存）
     QVERIFY(svc.dataCache().EntryCount() >= 1);
     QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }));
+  }
+
+  // A-W1（#974）：dock 构造不再自建私有任务池/256MiB 缓存——未注入时
+  // 提取入口如实给「服务未注入」原因（不静默、不私有兜底）；注入共享
+  // 服务后同一 dock 恢复提取；共享服务的 SgyDataCache 已注册统一预算。
+  void dockWithoutPrivatePoolReportsAndRecovers()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("nopool.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+
+    SeismicSectionDockWidget dock; // 不注入：构造期无私有服务
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] {
+      return dock.canvas()->noDataReason() ==
+             QStringLiteral("地震任务服务未注入");
+    }));
+    QVERIFY(!dock.canvas()->hasData());
+    QCOMPARE(done.count(), 0); // 没有偷偷用私有池完成提取
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    dock.setTaskService(&svc); // 后注入可恢复
+    SgyVolume reload;
+    QVERIFY(reload.Load(sgy.toStdString(), err));
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(reload)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); }));
+    QVERIFY(done.last().at(0).toBool());
+    QVERIFY(dock.canvas()->hasData());
+    QVERIFY(dock.canvas()->noDataReason().isEmpty());
+    QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }));
+
+    // A-W5：共享服务的宿主缓存已进统一预算（实占随切片落地而 >0）。
+    bool registered = false;
+    qint64 bytes = -1;
+    for (const auto &s : CacheBudgetManager::instance()->allStats())
+      if (s.id.startsWith(QStringLiteral("sgy-data-cache-")))
+      {
+        registered = true;
+        bytes = qMax(bytes, s.bytes);
+      }
+    QVERIFY(registered);
+    QVERIFY(bytes > 0);
   }
 
   // ---- 显示真值对拍（vendor 真切片 → dock → canvas 行序/TWT 对应）----

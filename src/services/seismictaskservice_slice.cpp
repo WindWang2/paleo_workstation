@@ -74,6 +74,7 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   const bool cacheOverview=pagedPath.isEmpty() || (viewer3D&&qint64(volume->InlineCount())*volume->XlineCount()>2000000);
   if (cacheOverview)
   {
+    noteDataCacheAccess(); // A-W5
     if (auto cached = dataCache_.Find(key))
     {
       if (onFinished)
@@ -188,7 +189,10 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
     if (task->state() == PaleoTask::State::Succeeded)
     {
       if (cacheOverview)
+      {
         dataCache_.Store(key, outImage);
+        noteDataCacheAccess(); // A-W5
+      }
       if (onFinished)
         onFinished(true, outImage, QString());
     }

@@ -27202,6 +27202,10 @@ PDF：%3
             <source>部分分层底界不深于顶界，按相邻顶界或测井显示范围截取。</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>应用退出中，预览请求已停止</source>
+            <translation>The application is shutting down. Preview requests have stopped.</translation>
+        </message>
     </context>
     <context>
         <name>PreviewMapCanvas</name>
@@ -41053,6 +41057,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>%1 · 提取中…</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>地震任务服务未注入</source>
+            <translation>Seismic task service is not available.</translation>
+        </message>
     </context>
     <context>
         <name>SeismicTaskService</name>
@@ -49688,6 +49696,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/app/crossplotcontroller.cpp" line="400" />
             <source>已定位 %1，深度 %2</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <source>交会通道清单刷新</source>
+            <translation>Refresh crossplot channel inventory</translation>
+        </message>
+        <message>
+            <source>正在刷新通道清单…</source>
+            <translation>Refreshing channel inventory…</translation>
+        </message>
+        <message>
+            <source>部分井源不可读：%1 个文件缺失或表头解析失败，已跳过。</source>
+            <translation>Some well sources could not be read: %1 files are missing or have invalid headers and were skipped.</translation>
+        </message>
+        <message>
+            <source>通道清单刷新失败</source>
+            <translation>Failed to refresh the channel inventory</translation>
         </message>
     </context>
     <context>

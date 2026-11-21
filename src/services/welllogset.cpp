@@ -253,6 +253,116 @@ namespace
     QVector<CurveItem> items;
   };
 
+  // A-W3：快照 → 已决文件集的共享流水线（catalog 版 wellLogFiles 与
+  // 后台 curveIndexFromLinks 同一条代码路径，语义零分叉）。cancelled 在
+  // 每个文件开始前检查（单文件 parseHeader 本身不可中断）；取消返回空。
+  QVector<WellLogFile> filesFromLinks(const QVector<WellLogSet::WellLogLinkSnapshot> &links,
+                                      WellLogWarnings *warnings,
+                                      const std::function<bool()> &cancelled,
+                                      const std::function<void(int, int)> &progress,
+                                      QStringList *failedPaths)
+  {
+    struct Row
+    {
+      WellLogFile file;
+      int versionNumber = 0;
+    };
+    QVector<Row> rows;
+    const int total = links.size();
+    for (int index = 0; index < total; ++index)
+    {
+      const WellLogSet::WellLogLinkSnapshot &link = links.at(index);
+      if (cancelled && cancelled())
+        return {};
+      if (progress && index > 0)
+        progress(index, total);
+      const QFileInfo source(link.path);
+      const bool missing = link.versionId.isEmpty() || link.path.isEmpty() ||
+                           !source.isFile();
+      if (missing)
+      {
+        const QString shown = !link.path.isEmpty() ? link.path
+                              : !link.versionId.isEmpty() ? link.versionId
+                                                          : link.assetId;
+        addWarning(warnings, QStringLiteral("%1: 文件不存在").arg(shown));
+        if (failedPaths)
+          failedPaths->append(shown);
+        continue;
+      }
+      LasHeaderInfo header;
+      QString error, format;
+      if (link.hasStoredHeader)
+      {
+        // storedHeader 同口径（受管 + 已登记 ≥2 列）：字段在快照期取自
+        // catalog，格式标签消费侧按文件分派（detect 是文件读）。
+        header.curveNames = link.storedCurveNames;
+        header.wellName = link.storedWellName;
+        header.indexBasis = link.storedIndexBasis;
+        header.sawAscii = true;
+        format = WellLogRead::formatTag(WellLogRead::detect(link.path));
+      }
+      else if (!parseHeaderCached(source, header, &error, &format))
+      {
+        addWarning(warnings, QStringLiteral("%1: %2").arg(link.path, error));
+        if (failedPaths)
+          failedPaths->append(link.path);
+        continue;
+      }
+      Row row;
+      row.file.assetId = link.assetId;
+      row.file.versionId = link.versionId;
+      row.file.path = link.path;
+      row.file.isPrimary = link.isPrimary;
+      row.file.ordinal = link.ordinal;
+      row.file.curveNames = header.curveNames;
+      row.file.indexBasis = header.indexBasis;
+      row.file.format = format;
+      row.versionNumber = link.versionNumber;
+      rows.append(row);
+    }
+    if (progress)
+      progress(total, total);
+
+    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+      if (a.file.ordinal != b.file.ordinal)
+        return a.file.ordinal < b.file.ordinal;
+      if (a.versionNumber != b.versionNumber)
+        return a.versionNumber < b.versionNumber;
+      return a.file.versionId < b.file.versionId;
+    });
+
+    QVector<WellLogFile> files;
+    files.reserve(rows.size());
+    for (const Row &row : rows)
+      files.append(row.file);
+
+    // 方向44：基准不一致的事实告警（对齐动作在并集消费侧——petrophys 合并
+    // 会用井的时深表做 TIME→深度；这里只陈述口径，不冒充已对齐）。
+    QString refBasis;
+    for (const WellLogFile &file : files)
+    {
+      if (file.isPrimary && !file.indexBasis.isEmpty())
+      {
+        refBasis = file.indexBasis;
+        break;
+      }
+    }
+    if (refBasis.isEmpty() && !files.isEmpty())
+      refBasis = files.first().indexBasis;
+    if (!refBasis.isEmpty())
+    {
+      for (const WellLogFile &file : files)
+      {
+        if (!file.indexBasis.isEmpty() && file.indexBasis != refBasis)
+          addWarning(warnings,
+                     QStringLiteral("%1: 深度基准 %2 与主基准 %3 不一致——"
+                                    "并集按线性重采样（可对齐时消费侧用时深表）")
+                         .arg(file.path, file.indexBasis, refBasis));
+      }
+    }
+    return files;
+  }
+
   Prepared prepare(const DataCatalog *catalog, const QString &projectDir,
                    const QString &wellId, WellLogWarnings *warnings)
   {
@@ -266,89 +376,9 @@ namespace
     }
     if (wellId.isEmpty())
       return out;
-
-    struct Row
-    {
-      WellLogFile file;
-      int versionNumber = 0;
-    };
-    QVector<Row> rows;
-    const QVector<EntityAssetLink> links = catalog->linksForEntity(wellId);
-    for (const EntityAssetLink &link : links)
-    {
-      if (link.role != QLatin1String("well_log") || link.unresolved)
-        continue;
-      const CatalogVersion version = catalog->currentVersion(link.assetId);
-      const QString path = DataCatalog::resolvedVersionPath(projectDir, version);
-      const QFileInfo source(path);
-      const bool missing = version.id.isEmpty() || path.isEmpty() || !source.isFile();
-      if (missing)
-      {
-        const QString shown = !path.isEmpty() ? path
-                              : !version.id.isEmpty() ? version.id
-                                                      : link.assetId;
-        addWarning(warnings, QStringLiteral("%1: 文件不存在").arg(shown));
-        continue;
-      }
-      LasHeaderInfo header;
-      QString error, format;
-      if (WellLogSet::storedHeader(version, &header))
-        format = WellLogRead::formatTag(WellLogRead::detect(path));
-      else if (!parseHeaderCached(source, header, &error, &format))
-      {
-        addWarning(warnings, QStringLiteral("%1: %2").arg(path, error));
-        continue;
-      }
-      Row row;
-      row.file.assetId = link.assetId;
-      row.file.versionId = version.id;
-      row.file.path = path;
-      row.file.isPrimary = link.isPrimary;
-      row.file.ordinal = link.ordinal;
-      row.file.curveNames = header.curveNames;
-      row.file.indexBasis = header.indexBasis;
-      row.file.format = format;
-      row.versionNumber = version.versionNumber;
-      rows.append(row);
-    }
-
-    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
-      if (a.file.ordinal != b.file.ordinal)
-        return a.file.ordinal < b.file.ordinal;
-      if (a.versionNumber != b.versionNumber)
-        return a.versionNumber < b.versionNumber;
-      return a.file.versionId < b.file.versionId;
-    });
-
-    out.files.reserve(rows.size());
-    for (const Row &row : rows)
-      out.files.append(row.file);
+    out.files = filesFromLinks(WellLogSet::snapshotWellLogLinks(catalog, projectDir, wellId),
+                               warnings, {}, {}, nullptr);
     out.items = itemsFromFiles(out.files, warnings);
-
-    // 方向44：基准不一致的事实告警（对齐动作在并集消费侧——petrophys 合并
-    // 会用井的时深表做 TIME→深度；这里只陈述口径，不冒充已对齐）。
-    QString refBasis;
-    for (const WellLogFile &file : out.files)
-    {
-      if (file.isPrimary && !file.indexBasis.isEmpty())
-      {
-        refBasis = file.indexBasis;
-        break;
-      }
-    }
-    if (refBasis.isEmpty() && !out.files.isEmpty())
-      refBasis = out.files.first().indexBasis;
-    if (!refBasis.isEmpty())
-    {
-      for (const WellLogFile &file : out.files)
-      {
-        if (!file.indexBasis.isEmpty() && file.indexBasis != refBasis)
-          addWarning(warnings,
-                     QStringLiteral("%1: 深度基准 %2 与主基准 %3 不一致——"
-                                    "并集按线性重采样（可对齐时消费侧用时深表）")
-                         .arg(file.path, file.indexBasis, refBasis));
-      }
-    }
     return out;
   }
 
@@ -381,6 +411,53 @@ void WellLogSet::warmHeaderCache(const QStringList &paths)
     QString error;
     parseHeaderCached(QFileInfo(path), header, &error);
   }
+}
+
+QVector<WellLogSet::WellLogLinkSnapshot>
+WellLogSet::snapshotWellLogLinks(const DataCatalog *catalog, const QString &projectDir,
+                                 const QString &wellId)
+{
+  QVector<WellLogLinkSnapshot> out;
+  if (!catalog || !catalog->isOpen() || wellId.isEmpty())
+    return out;
+  for (const EntityAssetLink &link : catalog->linksForEntity(wellId))
+  {
+    if (link.role != QLatin1String("well_log") || link.unresolved)
+      continue;
+    const CatalogVersion version = catalog->currentVersion(link.assetId);
+    WellLogLinkSnapshot snap;
+    snap.assetId = link.assetId;
+    snap.versionId = version.id;
+    snap.path = DataCatalog::resolvedVersionPath(projectDir, version);
+    snap.sha256 = version.sha256;
+    snap.isPrimary = link.isPrimary;
+    snap.ordinal = link.ordinal;
+    snap.versionNumber = version.versionNumber;
+    snap.managed = version.managed;
+    // storedHeader 同口径的字段面（受管 + 已登记 ≥2 列才算已存表头）。
+    const QStringList names =
+        version.extra.value(QStringLiteral("logCurveNames")).toStringList();
+    snap.hasStoredHeader = version.managed && names.size() >= 2;
+    snap.storedCurveNames = names;
+    snap.storedWellName = version.extra.value(QStringLiteral("logWellName")).toString();
+    snap.storedIndexBasis = version.extra.value(QStringLiteral("logIndexBasis")).toString();
+    out.append(snap);
+  }
+  return out;
+}
+
+QVector<WellCurveRef> WellLogSet::curveIndexFromLinks(
+    const QVector<WellLogLinkSnapshot> &links, WellLogWarnings *warnings,
+    const std::function<bool()> &cancelled, const std::function<void(int, int)> &progress,
+    QStringList *failedPaths)
+{
+  resetWarnings(warnings);
+  const QVector<WellLogFile> files = filesFromLinks(links, warnings, cancelled, progress, failedPaths);
+  if (cancelled && cancelled())
+    return {}; // 取消批次不产出部分清单（消费侧按取消终态处理）
+  QVector<CurveItem> items = itemsFromFiles(files, warnings);
+  disambiguateAcrossFiles(items);
+  return refsFromItems(items);
 }
 
 QVector<WellLogFile> WellLogSet::wellLogFiles(const DataCatalog *catalog,

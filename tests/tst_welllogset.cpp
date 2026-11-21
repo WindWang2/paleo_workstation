@@ -8,7 +8,9 @@
 
 #include "catalog/datacatalog.h"
 #include "io/lasdoc.h" // LasCurve（mdAxisInMetres 夹具）
+#include "services/crossplotsources.h"
 #include "services/welllogset.h"
+#include "services/wellreadiness.h"
 #include "perfbudget_relax.h"
 
 namespace
@@ -116,6 +118,8 @@ private slots:
   void doesNotElectPrimaryWhenMarkedFileIsMissing();
   void mdAxisRejectsUnknownLegacyUnitAndScalesFeet();
   void cachedHeaderFormatFollowsChangedSource();
+  void snapshotLinksAndCurveIndexMatchCatalogPipeline();
+  void warmCancelStopsBetweenFilesWithoutPoisoning();
 };
 
 void TestWellLogSet::cachedHeaderFormatFollowsChangedSource()
@@ -714,6 +718,142 @@ void TestWellLogSet::mdAxisRejectsUnknownLegacyUnitAndScalesFeet()
   ref.format = QStringLiteral("text");
   QVERIFY(!WellLogSet::mdAxisInMetres(ref, makeCurves(""), &axis, &error)); // 非 legacy 空单位仍拒
   QVERIFY(!error.isEmpty());
+}
+
+// A-W3：快照/后台构建管线与 catalog 同步口径零漂移——snapshotWellLogLinks +
+// curveIndexFromLinks 与 wellCurveIndex 逐字段一致；快照携带版本登记的
+// sha/managed，后台结果组装不回查活 catalog；就绪判定与通道清单同口径。
+void TestWellLogSet::snapshotLinksAndCurveIndexMatchCatalogPipeline()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+
+  CatalogEntity well;
+  well.id = QStringLiteral("ent-1");
+  well.entityType = QStringLiteral("well");
+  well.name = QStringLiteral("W1");
+  QVERIFY(cat.addEntity(well, &err));
+  const QString las1 = writeLas(dir.filePath(QStringLiteral("a.las")),
+                                {QStringLiteral("DEPT"), QStringLiteral("GR")}, 0., 4);
+  const QString las2 = writeLas(dir.filePath(QStringLiteral("b.las")),
+                                {QStringLiteral("DEPT"), QStringLiteral("GR"), QStringLiteral("DT")}, 0., 4);
+  for (int i = 0; i < 2; ++i)
+  {
+    CatalogAsset asset;
+    asset.id = QStringLiteral("ast-%1").arg(i);
+    asset.type = QStringLiteral("well_log");
+    asset.format = QStringLiteral("las");
+    asset.displayName = QFileInfo(i ? las2 : las1).fileName();
+    QVERIFY(cat.addAsset(asset, &err));
+    CatalogVersion version;
+    version.id = QStringLiteral("ver-%1").arg(i);
+    version.assetId = asset.id;
+    version.stage = QStringLiteral("RAW");
+    version.versionNumber = 1;
+    version.managed = false;
+    version.path = i ? las2 : las1;
+    version.fileName = asset.displayName;
+    version.sha256 = QStringLiteral("cafe%1").arg(i);
+    QVERIFY(cat.addVersion(version, &err));
+    EntityAssetLink link;
+    link.entityType = QStringLiteral("well");
+    link.entityId = well.id;
+    link.assetId = asset.id;
+    link.role = QStringLiteral("well_log");
+    link.isPrimary = i == 0;
+    link.ordinal = i;
+    QVERIFY(cat.addLink(link, &err));
+  }
+
+  const auto viaCatalog = WellLogSet::wellCurveIndex(&cat, dir.path(), well.id);
+  const auto viaSnapshot = WellLogSet::curveIndexFromLinks(
+      WellLogSet::snapshotWellLogLinks(&cat, dir.path(), well.id));
+  QCOMPARE(viaCatalog.size(), viaSnapshot.size());
+  QVERIFY(!viaSnapshot.isEmpty());
+  for (int i = 0; i < viaCatalog.size(); ++i)
+  {
+    QCOMPARE(viaCatalog.at(i).mnemonic, viaSnapshot.at(i).mnemonic);
+    QCOMPARE(viaCatalog.at(i).sourceVersionId, viaSnapshot.at(i).sourceVersionId);
+    QCOMPARE(viaCatalog.at(i).path, viaSnapshot.at(i).path);
+    QCOMPARE(viaCatalog.at(i).column, viaSnapshot.at(i).column);
+    QCOMPARE(viaCatalog.at(i).canonical, viaSnapshot.at(i).canonical);
+    QCOMPARE(viaCatalog.at(i).indexBasis, viaSnapshot.at(i).indexBasis);
+    QCOMPARE(viaCatalog.at(i).format, viaSnapshot.at(i).format);
+  }
+  // 快照的 sha/managed 与版本登记一致（后台组装 SourceSpec 的输入）。
+  const auto links = WellLogSet::snapshotWellLogLinks(&cat, dir.path(), well.id);
+  QCOMPARE(links.size(), 2);
+  for (const auto &link : links)
+  {
+    const CatalogVersion v = cat.versionById(link.versionId);
+    QCOMPARE(link.sha256, v.sha256);
+    QCOMPARE(link.managed, v.managed);
+    QCOMPARE(link.hasStoredHeader, false); // 外链版本无登记表头（storedHeader 口径）
+  }
+
+  // 就绪判定：analysisReadiness 与 快照+computeReadiness 逐井一致。
+  const auto readinessOld = paleo::analysisReadiness(&cat, dir.path());
+  const auto readinessNew = paleo::computeReadiness(
+      paleo::snapshotReadinessInputs(&cat), dir.path());
+  QCOMPARE(readinessOld.size(), readinessNew.size());
+  for (auto it = readinessOld.constBegin(); it != readinessOld.constEnd(); ++it)
+  {
+    const paleo::WellReadiness &other = readinessNew.value(it.key());
+    QCOMPARE(it.value().hasCurves, other.hasCurves);
+    QCOMPARE(it.value().tdUsable, other.tdUsable);
+    QCOMPARE(it.value().hasTimeDepth, other.hasTimeDepth);
+  }
+
+  // 通道清单：同步 inventory 与 快照+buildInventory 同结果。
+  const auto direct =
+      paleo::crossplot::CrossplotSources::inventory(&cat, dir.path(), {});
+  const auto staged = paleo::crossplot::CrossplotSources::buildInventory(
+      paleo::crossplot::CrossplotSources::snapshotCatalog(&cat, dir.path(), {}));
+  QCOMPARE(direct.size(), staged.sources.size());
+  for (int i = 0; i < direct.size(); ++i)
+  {
+    QCOMPARE(direct.at(i).choice.id, staged.sources.at(i).choice.id);
+    QCOMPARE(direct.at(i).choice.kind, staged.sources.at(i).choice.kind);
+    QCOMPARE(direct.at(i).path, staged.sources.at(i).path);
+    QCOMPARE(direct.at(i).sha256, staged.sources.at(i).sha256);
+    QCOMPARE(direct.at(i).managed, staged.sources.at(i).managed);
+  }
+}
+
+// A-W4：文件之间取消——取消谓词即屏障：第 1 个文件放行、此后取消，
+// 第 2/3 个文件不启动（无进度回调），批次返回空；取消不毒化头缓存
+//（同批完整重跑成功）。
+void TestWellLogSet::warmCancelStopsBetweenFilesWithoutPoisoning()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVector<WellLogSet::WellLogLinkSnapshot> links;
+  for (int i = 0; i < 3; ++i)
+  {
+    WellLogSet::WellLogLinkSnapshot link;
+    link.assetId = QStringLiteral("ast-%1").arg(i);
+    link.versionId = QStringLiteral("ver-%1").arg(i);
+    link.path = writeLas(dir.filePath(QStringLiteral("f%1.las").arg(i)),
+                         {QStringLiteral("DEPT"), QStringLiteral("GR")}, 0., 4);
+    link.isPrimary = i == 0;
+    link.ordinal = i;
+    link.managed = false;
+    links << link;
+  }
+  int checks = 0;
+  QVector<QPair<int, int>> progress;
+  const auto refs = WellLogSet::curveIndexFromLinks(
+      links, nullptr,
+      [&checks] { return ++checks > 1; },
+      [&progress](int done, int total) { progress.append({done, total}); },
+      nullptr);
+  QVERIFY(refs.isEmpty());
+  QVERIFY(progress.isEmpty());
+  const auto full = WellLogSet::curveIndexFromLinks(links);
+  QCOMPARE(full.size(), 3);
 }
 
 QTEST_MAIN(TestWellLogSet)

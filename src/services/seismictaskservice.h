@@ -35,6 +35,7 @@ namespace paleo::document {struct InterpretationSelection;}
 namespace seismic {
 
 struct SeismicDatasetEntry;     // cpp 内定义：Dataset + 使用锁（engine 契约：单线程独占使用）
+class SeismicCacheBudgetAdapter; // A-W5 适配器（cpp 内完整类型；防重头 io/cachebudget.h 经本头扩散）
 struct SeismicDatasetRegistry;  // cpp 内定义：条目注册表（shared_ptr 共享给 worker，析构安全）
 struct SeismicNativeInfo {
  int sampleCount=0,inlineMin=0,inlineMax=0,xlineMin=0,xlineMax=0;
@@ -847,6 +848,12 @@ private:
 
   PaleoTaskService *taskService_ = nullptr;
   SgyDataCache dataCache_;
+  // A-W5（#974）：dataCache_ 的真实占用接入 CacheBudgetManager 统一预算。
+  // 适配器是 cpp 内部类（unique_ptr + 前置声明；io/cachebudget.h 是重头，
+  // 只在 cpp 直接 include——不经本头扩散，--transitive heavy 零新增）。
+  // 生产 Find/Store/Clear/失效路径经 noteDataCacheAccess() 打访问时钟。
+  std::unique_ptr<SeismicCacheBudgetAdapter> cacheBudgetAdapter_;
+  void noteDataCacheAccess(); // A-W5：cacheBudgetAdapter_->noteAccess() 的 TU 间出口
 
   // D1.7 转码互斥：同输出路径的在途转码集合（主线程 start/finished 串行访问，
   // worker 不触碰）。start 时占用，任务终态释放。

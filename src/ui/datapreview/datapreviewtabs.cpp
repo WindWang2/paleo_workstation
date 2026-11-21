@@ -325,25 +325,62 @@ void DataPreviewTabs::attachDoc(PreviewDocService *doc)
     return;
   if (m_taskSvc)
     m_doc->setTaskService(m_taskSvc); // 接线顺序无关：后到的服务补进门面
-  // 测线解码结果（D1/T23）：陈旧结果已在服务内按世代号丢弃。
+  // 测线解码结果（D1/T23）：陈旧结果已在服务内按世代号丢弃。A-W2：共享
+  // 门面的结果信号尾带 consumer 标签——只认领本标签页的请求；匿名（0）
+  // 或其他消费者的回包不串收（别的视图读同资产另一条线互不影响）。
+  const quint64 self = PreviewDocService::consumerTag(this);
+  const auto ownResult = [self](quint64 consumer) { return consumer == 0 || consumer == self; };
   connect(m_doc, &PreviewDocService::seismicSectionReady, this,
-          &DataPreviewTabs::onSectionReady);
+          [this, ownResult](const QString &assetId,
+                            const PreviewDocService::SectionDoc &doc,
+                            quint64 consumer) {
+            if (!ownResult(consumer))
+              return;
+            onSectionReady(assetId, doc);
+          });
   connect(m_doc, &PreviewDocService::seismicSectionImageReady, this,
-          &DataPreviewTabs::onSectionReady);
+          [this, ownResult](const QString &assetId,
+                            const PreviewDocService::SectionDoc &doc,
+                            quint64 consumer) {
+            if (!ownResult(consumer))
+              return;
+            onSectionReady(assetId, doc);
+          });
   connect(m_doc, &PreviewDocService::seismicSectionFailed, this,
-          &DataPreviewTabs::onSectionFailed);
+          [this, ownResult](const QString &assetId, const QString &reason,
+                            quint64 consumer) {
+            if (!ownResult(consumer))
+              return;
+            onSectionFailed(assetId, reason);
+          });
   connect(m_doc, &PreviewDocService::seismicSectionCancelled, this,
-          [this](const QString &assetId) {
+          [this, ownResult](const QString &assetId, quint64 consumer) {
+            if (!ownResult(consumer))
+              return;
             onSectionFailed(assetId, tr("已取消"));
           });
   // F1（goal/perf-systematize 簇2）：LAS 数据行异步填充结果（key=assetId；
-  // 陈旧结果已在服务内按世代号丢弃）。
+  // 陈旧结果已在服务内按世代号丢弃）。consumer 标签同上（A-W2）。
   connect(m_doc, &PreviewDocService::lasReady, this,
-          &DataPreviewTabs::onLasReady);
+          [this, ownResult](const QString &key, const QStringList &names,
+                            const QList<LasCurve> &curves, quint64 consumer) {
+            if (!ownResult(consumer))
+              return;
+            onLasReady(key, names, curves);
+          });
   connect(m_doc, &PreviewDocService::lasFailed, this,
-          &DataPreviewTabs::onLasFailed);
+          [this, ownResult](const QString &key, const QString &reason,
+                            quint64 consumer) {
+            if (!ownResult(consumer))
+              return;
+            onLasFailed(key, reason);
+          });
   connect(m_doc, &PreviewDocService::lasCancelled, this,
-          [this](const QString &key) { onLasFailed(key, tr("已取消")); });
+          [this, ownResult](const QString &key, quint64 consumer) {
+            if (!ownResult(consumer))
+              return;
+            onLasFailed(key, tr("已取消"));
+          });
   // B 包 staleness-lite：stale 标记可能来自其它标签的 sha 复验或上游版本
   // 取代——catalog 任一变更后重算已开标签的「过时」徽标（GUI 线程直连，
   // 不必重建标签）。换绑服务时先断旧 catalog（上面已断）。
@@ -422,8 +459,10 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   // 进行中的解码任务请求取消——结果没人等了。
   if (m_doc)
   {
-    m_doc->releaseSection(assetId);
-    m_doc->releaseLas(assetId); // F1：同口径释放 LAS 解析世代号/取消在途
+    // A-W2：本标签自己的请求自己收口——只取消本消费者的在途解码/解析，
+    // 其他视图读同资产不受影响。
+    m_doc->releaseSection(assetId, this);
+    m_doc->releaseLas(assetId, this); // F1：同口径释放 LAS 解析世代号/取消在途
   }
   m_pendingSection.remove(assetId);
   m_pendingLas.remove(assetId);
@@ -693,8 +732,8 @@ void DataPreviewTabs::openVersion(const QString &versionId)
   // 解码与 SHA 留底缓存按资产键控；换版本必须取消旧世代并释放旧句柄。
   if (m_chosenVersionOfAsset.value(v.assetId) != v.id)
   {
-    m_doc->releaseSection(v.assetId);
-    m_doc->releaseLas(v.assetId);
+    m_doc->releaseSection(v.assetId, this); // A-W2：consumer 口径释放
+    m_doc->releaseLas(v.assetId, this);
     m_pendingSection.remove(v.assetId); m_pendingLas.remove(v.assetId);
   }
   m_chosenVersionOfAsset[v.assetId] = v.id;
@@ -761,6 +800,10 @@ void DataPreviewTabs::onSectionReady(const QString &assetId,
 {
   const SectionPending pend = m_pendingSection.value(assetId);
   if (!pend.panel)
+    return;
+  // A-W2：共享门面的结果按 assetId 广播——只有与本人请求一致的
+  // (isInline,lineNo) 才认领；迟到旧线/其他消费者的回包不串收。
+  if (doc.isInline != pend.expectedIsInline || doc.lineNo != pend.expectedLineNo)
     return;
   // SectionPanel 是本 cpp 内聚的预览控件——挂起时存的是它。
   auto *sp = static_cast<SectionPanel *>(pend.panel.data());

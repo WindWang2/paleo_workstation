@@ -62,6 +62,11 @@ void SeismicSectionDockWidget::runTracking() {
 
     const float dtMs = m_volume && m_volume->SampleIntervalUs() > 0
         ? m_volume->SampleIntervalUs() / 1000.0f : 2.0f;
+    if (!m_taskService) {
+        if (m_pickPanel)
+            m_pickPanel->showTrackError(tr("地震任务服务未注入"));
+        return; // A-W1：dock 构造不再自建私有服务，未注入时如实降级
+    }
     if (m_pickPanel)
         m_pickPanel->setTrackingActive(true);
     QPointer<SeismicSectionDockWidget> guard(this); // 注入共享服务时迟到回调守卫
@@ -234,6 +239,11 @@ void SeismicSectionDockWidget::runVolumePropagation() {
     req.interpreter = interpreter.isEmpty() ? tr("解释") : interpreter;
     req.horizonName = horizon;
 
+    if (!m_taskService) {
+        if (m_pickPanel)
+            m_pickPanel->showTrackError(tr("地震任务服务未注入"));
+        return; // A-W1：同 runTracking
+    }
     if (m_pickPanel)
         m_pickPanel->setPropagateActive(true);
     QPointer<SeismicSectionDockWidget> guard(this); // 迟到回调守卫（同 runTracking）

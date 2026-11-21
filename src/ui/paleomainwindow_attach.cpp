@@ -356,6 +356,32 @@ void attachWellCompositeDerived(PaleoMainWindow *win, DataCatalog *catalog)
 }
 } // namespace
 
+void PaleoMainWindow::setSharedPreviewServices(PreviewDocService *previewDoc,
+                                               seismic::SeismicTaskService *seismicSvc)
+{
+  // A-W1：只记录待用实例（attachWorkflows 统一接线）；重复调用以最后一次
+  // 为准，空参可解除共享（回退窗口自建兜底）。幂等、不重建连接。
+  m_sharedPreviewDoc = previewDoc;
+  m_sharedSeismicSvc = seismicSvc;
+}
+
+void PaleoMainWindow::resolvePreviewServices(DataImportService *importSvc,
+                                             PaleoTaskService *taskSvc)
+{
+  // A-W1（#974）：优先组装根共享实例（AppContext 拥有，main.cpp 注入）；
+  // 未注入（测试/小环境）沿用窗口自建兜底，行为与接线前一致。
+  if (m_sharedPreviewDoc)
+    m_previewDoc = m_sharedPreviewDoc; // 壳唯一数据门面（页属性/预览共用）
+  else if (importSvc)
+    m_previewDoc = new PreviewDocService(importSvc, this);
+  if (m_sharedSeismicSvc)
+    m_seismicTaskSvc = m_sharedSeismicSvc;
+  else if (taskSvc && !m_seismicTaskSvc)
+    m_seismicTaskSvc = new seismic::SeismicTaskService(taskSvc, 256, this);
+  if (m_seismicTaskSvc && m_seismic3dPanel)
+    m_seismic3dPanel->setTaskService(m_seismicTaskSvc);
+}
+
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
                                       DataImportService *importSvc, SeismicMapLink *seismicLink,
@@ -380,16 +406,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   m_taskSvc = taskSvc; if (m_stratigraphy) m_stratigraphy->setTaskService(taskSvc);
   m_projectStore = store; // #275：三入口（网格化/编辑分层/面运算）调用时现取 gpkg
   m_importSvc = importSvc; // 「从工区文件夹新建」直达入口
-  if (importSvc)
-    m_previewDoc = new PreviewDocService(importSvc, this); // 壳唯一数据门面（页属性/预览共用）
-  if (taskSvc && !m_seismicTaskSvc)
-  {
-    m_seismicTaskSvc = std::make_unique<seismic::SeismicTaskService>(taskSvc, 256, this);
-  }
-  if (m_seismicTaskSvc && m_seismic3dPanel)
-  {
-    m_seismic3dPanel->setTaskService(m_seismicTaskSvc.get());
-  }
+  resolvePreviewServices(importSvc, taskSvc); // A-W1（#974）：共享优先/兜底不变
 
   // Replace placeholders in page order (data, predict, constraint, compose, validate).
   while (stack->count() > 0)

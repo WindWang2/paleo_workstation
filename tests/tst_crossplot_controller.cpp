@@ -31,6 +31,7 @@ private slots:
   void endToEnd();
   void supervisedChain();
   void oracleSampleFloor();
+  void sourceRefreshRegisteredMergedAndQuiesced();
 };
 void TestController::endToEnd() {
   QTemporaryDir dir;
@@ -73,7 +74,7 @@ void TestController::endToEnd() {
   auto *panel = window.findChild<CrossplotPanel *>();
   QVERIFY(panel);
   auto *sources = panel->findChild<QListWidget *>("crossplotSources");
-  QCOMPARE(sources->count(), 2);
+  QTRY_COMPARE_WITH_TIMEOUT(sources->count(), 2, 30000); // A-W3：清单刷新异步化
   QStringList sourceIds;
   for (int i = 0; i < sources->count(); ++i) {
     sources->item(i)->setSelected(true);
@@ -175,7 +176,7 @@ void TestController::supervisedChain() {
   auto *panel = window.findChild<CrossplotPanel *>();
   QVERIFY(panel);
   auto *sources = panel->findChild<QListWidget *>("crossplotSources");
-  QCOMPARE(sources->count(), 2);
+  QTRY_COMPARE_WITH_TIMEOUT(sources->count(), 2, 30000); // A-W3：清单刷新异步化
   for (int i = 0; i < sources->count(); ++i)
     sources->item(i)->setSelected(true);
   panel->findChild<QPushButton *>("crossplotLoad")->click();
@@ -368,7 +369,7 @@ void TestController::oracleSampleFloor() {
   auto *panel = window.findChild<CrossplotPanel *>();
   QVERIFY(panel);
   auto *sources = panel->findChild<QListWidget *>("crossplotSources");
-  QCOMPARE(sources->count(), 2);
+  QTRY_COMPARE_WITH_TIMEOUT(sources->count(), 2, 30000); // A-W3：清单刷新异步化
   for (int i = 0; i < sources->count(); ++i)
     sources->item(i)->setSelected(true);
   panel->findChild<QPushButton *>("crossplotLoad")->click();
@@ -441,6 +442,85 @@ void TestController::oracleSampleFloor() {
   panel->findChild<QPushButton *>("crossplotAssignLabel")->click();
   QVERIFY(train->isEnabled());
 }
+// A-W3/W4/W6 闭环：清单刷新登记进共享任务服务（面板可见 = 交互优先级、
+// 非 quiet）；catalog 变更经 150ms 合并后只补一轮；drainTasks 置 quiesce 后
+// catalog 变更不再提交新清单任务。
+void TestController::sourceRefreshRegisteredMergedAndQuiesced() {
+  QTemporaryDir dir;
+  AppContext context(qEnvironmentVariable("QGIS_PREFIX_PATH"));
+  QVERIFY(context.ready());
+  QVERIFY(context.projectSvc()->createProject(dir.filePath("test.qgz")));
+  auto *cat = context.importSvc()->catalog();
+  QVERIFY(cat->isOpen());
+  const auto addAxis = [&](const QString &name) {
+    const auto path = dir.filePath(name + ".tif");
+    QVERIFY(PerfFixtures::makeSyntheticGeoTiff(path, 32, 32, false));
+    CatalogAsset a;
+    a.id = cat->nextAssetId();
+    a.type = "horizon";
+    a.displayName = name;
+    a.format = "tif";
+    QVERIFY(cat->addAsset(a));
+    CatalogVersion v;
+    v.id = cat->nextVersionId();
+    v.assetId = a.id;
+    v.stage = "DERIVED";
+    v.managed = false;
+    v.path = path;
+    QVERIFY(cat->addVersion(v));
+  };
+  addAxis("axis0");
+  addAxis("axis1");
+
+  PaleoMainWindow window(context.canvasCtl(), context.projectSvc(),
+                         context.layerSvc(), context.toolSvc(),
+                         context.selection());
+  window.attachWorkflows(
+      context.predictionWf(), context.constraintWf(), context.compositionWf(),
+      context.validationWf(), context.importSvc(), context.seismicLink(),
+      context.processingSvc(), context.store(), context.editingSvc(),
+      context.layoutSvc(), context.taskSvc());
+  new CrossplotController(&context, &window);
+  window.show();
+  auto *panel = window.findChild<CrossplotPanel *>();
+  QVERIFY(panel);
+  auto *sources = panel->findChild<QListWidget *>("crossplotSources");
+
+  int refreshTasks = 0;
+  QObject::connect(context.taskSvc(), &PaleoTaskService::taskAdded, &window,
+                   [&](PaleoTask *t) {
+                     if (t->title() == QStringLiteral("交会通道清单刷新"))
+                       ++refreshTasks;
+                   });
+
+  auto *action = window.findChild<QAction *>("openCrossplot");
+  QVERIFY(action);
+  action->trigger(); // 面板可见 → 交互优先级任务
+  QTRY_COMPARE_WITH_TIMEOUT(refreshTasks, 1, 30000);
+  QTRY_COMPARE_WITH_TIMEOUT(sources->count(), 2, 30000);
+  QTRY_COMPARE_WITH_TIMEOUT(context.taskSvc()->runningCount(), 0, 30000);
+  // 登记的任务可观测：标题出现在注册表里（非 quiet，用户可见）。
+  bool sawRegistered = false;
+  for (const PaleoTask *t : context.taskSvc()->tasks())
+    if (t->title() == QStringLiteral("交会通道清单刷新"))
+      sawRegistered = true;
+  QVERIFY(sawRegistered);
+
+  // catalog 变更 → 150ms 合并 → 恰好再补一轮清单任务。
+  addAxis("axis2");
+  QTest::qWait(400); // 跨过合并窗口
+  QTRY_COMPARE_WITH_TIMEOUT(refreshTasks, 2, 30000);
+  QTRY_COMPARE_WITH_TIMEOUT(sources->count(), 3, 30000);
+
+  // A-W6：drainTasks 先停生产者——quiesce 后 catalog 再变也不提交新任务。
+  QVERIFY(context.drainTasks(10000));
+  QVERIFY(context.previewsQuiesced());
+  const int after = refreshTasks;
+  addAxis("axis3");
+  QTest::qWait(400);
+  QCOMPARE(refreshTasks, after); // 排空期的迟到变更被门拒收
+}
+
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, false);
   app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH"), true);

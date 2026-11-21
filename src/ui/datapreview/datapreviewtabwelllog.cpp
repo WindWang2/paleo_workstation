@@ -364,6 +364,6 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   // 换成「读取失败」面，重试=重建标签再走一遍两段式）。无任务服务时
   // requestLas 同步执行、返回前信号已发——测试环境行为与旧路径一致。
   m_pendingLas.insert(assetId, {viewStack, fillCurves});
-  m_doc->requestLas(assetId, abs, siblingPaths);
+  m_doc->requestLas(assetId, abs, siblingPaths, this); // A-W2：consumer 口径
   return host;
 }

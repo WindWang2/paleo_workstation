@@ -27311,6 +27311,10 @@ PDF：%3
         <source>部分分层底界不深于顶界，按相邻顶界或测井显示范围截取。</source>
         <translation>部分分层底界不深于顶界，按相邻顶界或测井显示范围截取。</translation>
     </message>
+        <message>
+            <source>应用退出中，预览请求已停止</source>
+            <translation>应用退出中，预览请求已停止</translation>
+        </message>
 </context>
 <context>
     <name>PreviewMapCanvas</name>
@@ -41207,6 +41211,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>%1 · 提取中…</source>
         <translation type="vanished">%1 · 提取中…</translation>
     </message>
+        <message>
+            <source>地震任务服务未注入</source>
+            <translation>地震任务服务未注入</translation>
+        </message>
 </context>
 <context>
     <name>SeismicTaskService</name>
@@ -49868,6 +49876,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>已定位 %1，深度 %2</source>
         <translation>已定位 %1，深度 %2</translation>
     </message>
+        <message>
+            <source>交会通道清单刷新</source>
+            <translation>交会通道清单刷新</translation>
+        </message>
+        <message>
+            <source>正在刷新通道清单…</source>
+            <translation>正在刷新通道清单…</translation>
+        </message>
+        <message>
+            <source>部分井源不可读：%1 个文件缺失或表头解析失败，已跳过。</source>
+            <translation>部分井源不可读：%1 个文件缺失或表头解析失败，已跳过。</translation>
+        </message>
+        <message>
+            <source>通道清单刷新失败</source>
+            <translation>通道清单刷新失败</translation>
+        </message>
 </context>
 <context>
     <name>paleo::crossplot::CrossplotMapLink</name>

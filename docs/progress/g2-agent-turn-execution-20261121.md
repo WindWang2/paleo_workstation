@@ -80,3 +80,17 @@ qgis_versions、docs_drift、ui_invariants、ui_size、qgis_spread（169 基线
 - 进程突然终止时未落盘的内存内容不可恢复（重启只信磁盘 admitted bindings
   与 operation 记录）——设计边界，非缺陷；未为此新增第二套日志。
 - 保存欠账的呈现复用既有 errorOccurred/statusText 信号，未要求 G5 新 API。
+
+## 独立复审记录
+
+- R1（未参与实现的独立 reviewer，对 440dd54f 全量 diff + 调用链 + 自行复跑）：
+  **APPROVE**，0×P0/P1，5×P2（rename 绕过欠账记账、冻结跨会话残留、
+  loadSession 无出参时提示不一致、进度文档占位、interrupted 触发清理补充）。
+  reviewer 独立复跑：tst_g2_turncheckpoint 8/8、tst_g2_piterminal 11/11、
+  tst_aichatcontroller 24/24、tst_pichatbridge 29/29 及 touched gates 绿。
+- 修复：98e4ab5b（冻结跨会话失效）、dc91e594（文档证据）、25271ac3
+  （rename 走统一落盘/拒绝提示一致/interrupted 不发清理补充）。
+- R2（对 440dd54f..25271ac3 复审）：**re-verify clean**——五项 P2 全闭环，
+  无回归；最终立场 APPROVE。残留说明：重入监听器在 sequence 守卫处中断切换
+  会提前失效冻结，后果仅是后续落盘的 model 字段取值（startEngineTurn 恒重冻结，
+  无请求身份影响）。

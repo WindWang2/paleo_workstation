@@ -38055,6 +38055,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>无法复制正在编辑的图件</source>
             <translation>Unable to copy the map being edited</translation>
         </message>
+        <message>
+            <source>勘察层位 %1</source>
+            <translation>Inspect horizon %1</translation>
+        </message>
+        <message>
+            <source>层位勘察失败</source>
+            <translation>Horizon inspection failed</translation>
+        </message>
+        <message>
+            <source>无法启动层位勘察任务</source>
+            <translation>Unable to start the horizon inspection task</translation>
+        </message>
+        <message>
+            <source>层位 %1 勘察失败</source>
+            <translation>Inspection of horizon %1 failed</translation>
+        </message>
 </context>
     <context>
         <name>QgisCanvasController</name>

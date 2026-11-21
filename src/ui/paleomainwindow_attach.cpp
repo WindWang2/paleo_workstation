@@ -18,7 +18,6 @@
 #include "welltops/welltopseditordialog.h"
 #include "../workflow/workflows.h"
 #include "../workflow/surfacegridding.h"
-#include "../workflow/realizationworkflow.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
 #include "../services/previewdoc.h"
@@ -34,7 +33,6 @@
 #include "datapreview/datapreviewtabs.h"
 #include "wellcomposite/derivedsink.h"
 #include "../catalog/datacatalog.h"
-#include "../catalog/realizationset.h"
 #include "decorations/paleodecorations.h"
 #include "edittools/editingtoolbar.h"
 #include "../services/paleotaskservice.h"
@@ -966,40 +964,6 @@ void PaleoMainWindow::showRealizationLayer(const QString &layerId,
     else
       m_decorMgr->setUncertaintyBadge(badgeTitle, badgeSub);
   }
-}
-
-void PaleoMainWindow::showRealizationMember(const QString &setId, int index)
-{
-  QString subtitle;
-  if (DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr)
-  {
-    const paleo::realization::RealizationSet set =
-        paleo::realization::setById(*cat, setId);
-    subtitle = tr("%1 成员在场").arg(set.members.size());
-    if (!set.missingIndices.isEmpty())
-    {
-      QStringList missing;
-      for (const int idx : set.missingIndices)
-        missing << QStringLiteral("#%1").arg(idx);
-      subtitle += tr(" · 缺 %1").arg(missing.join(QStringLiteral(" ")));
-    }
-  }
-  showRealizationLayer(RealizationWorkflow::memberLayerId(setId, index),
-                       tr("集合成员 #%1").arg(index), subtitle);
-}
-
-void PaleoMainWindow::showRealizationStat(const QString &setId, const QString &token)
-{
-  QString subtitle;
-  if (DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr)
-  {
-    const auto stats = paleo::realization::statSurfaces(*cat, setId);
-    for (const auto &s : stats)
-      if (s.token == token)
-        subtitle = tr("%1 成员参与").arg(s.memberCount);
-  }
-  showRealizationLayer(RealizationWorkflow::statLayerId(setId, token),
-                       paleo::realization::statisticDisplayLabel(token), subtitle);
 }
 
 void PaleoMainWindow::pinLayoutTheme(QgsLayoutItemMap *mapItem, const QString &pageId)

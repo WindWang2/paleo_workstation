@@ -38199,6 +38199,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>无法复制正在编辑的图件</source>
             <translation>无法复制正在编辑的图件</translation>
         </message>
+        <message>
+            <source>勘察层位 %1</source>
+            <translation>勘察层位 %1</translation>
+        </message>
+        <message>
+            <source>层位勘察失败</source>
+            <translation>层位勘察失败</translation>
+        </message>
+        <message>
+            <source>无法启动层位勘察任务</source>
+            <translation>无法启动层位勘察任务</translation>
+        </message>
+        <message>
+            <source>层位 %1 勘察失败</source>
+            <translation>层位 %1 勘察失败</translation>
+        </message>
 </context>
 <context>
     <name>QgisCanvasController</name>

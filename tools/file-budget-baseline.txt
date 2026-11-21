@@ -35,6 +35,8 @@
 # 2026-10-27 QGIS 坐标输入：只缩不涨——buildGeoJsonContent 488→407（独立
 # 临时仿射对话框）、WellSitingPanel 253→225（buildCoordinateSection）、
 # attachShellSurfaces 548→477（attachMapBookSurface）。
+# 2026-11-21 预览 TOC 拖拽序：rowsMoved 体抽出 syncRowsFromListOrder，
+# PreviewTocPanel 构造 284→271。
 src/ui/correlation/petrophyspanel.cpp:fn:buildUi:220
 src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:239
 src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:407
@@ -44,7 +46,7 @@ src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:251
 src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:636
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
-src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:284
+src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:271
 src/ui/edittools/editingtoolbar.cpp:file:1098
 src/ui/edittools/editingtoolbar.cpp:fn:buildUi:231
 src/ui/edittools/vertexeditortools.cpp:file:1318

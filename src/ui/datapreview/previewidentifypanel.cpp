@@ -18,6 +18,7 @@
 #include <QMenu>
 #include "../notifications/paleonotify.h"
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTextStream>
@@ -187,36 +188,53 @@ void PreviewIdentifyPanel::showResultDetails( int index )
   }
 }
 
+void PreviewIdentifyPanel::setExportTargetForTesting( const QString &csvPath )
+{
+  m_csvTarget = csvPath;
+}
+
 void PreviewIdentifyPanel::exportCsv()
 {
   if ( m_results.isEmpty() )
     return;
-  const QString path = QFileDialog::getSaveFileName( this, QObject::tr( "导出识别结果 CSV" ),
-                                                     QString(), QStringLiteral( "CSV (*.csv)" ) );
+  const QString path = m_csvTarget.isEmpty()
+      ? QFileDialog::getSaveFileName( this, QObject::tr( "导出识别结果 CSV" ),
+                                      QString(), QStringLiteral( "CSV (*.csv)" ) )
+      : m_csvTarget;
   if ( path.isEmpty() )
     return;
-  QFile f( path );
-  if ( !f.open( QIODevice::WriteOnly | QIODevice::Text ) )
-  {
-    PaleoNotify::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
-    return;
-  }
-  f.write( "\xEF\xBB\xBF" ); // UTF-8 BOM：Windows Excel 读中文不乱码（#413）
-  QTextStream ts( &f );
+  // 先在内存里组全文，再经 QSaveFile 一次提交。中途失败不替换目标，
+  // 也不发 exportCsvRequested（剖面 CSV 已按写满才算成功；这里原先只查 open）。
+  QString body;
+  QTextStream ts( &body );
   ts << QStringLiteral( "layer,feature,field,value\n" );
   for ( const PreviewIdentifyResult &r : m_results )
   {
     if ( r.isRaster )
     {
-      ts << csvField( r.layerName ) << QStringLiteral( ",raster," )
-         << QStringLiteral( "nearest," ) << QString::number( r.rasterValueNearest, 'f', 4 )
-         << QLatin1Char( '\n' );
+      ts << csvField( r.layerName ) << QStringLiteral( ",raster,nearest," )
+         << QString::number( r.rasterValueNearest, 'f', 4 ) << QLatin1Char( '\n' );
+      ts << csvField( r.layerName ) << QStringLiteral( ",raster,bilinear," )
+         << QString::number( r.rasterValueBilinear, 'f', 4 ) << QLatin1Char( '\n' );
       continue;
     }
     for ( auto it = r.attributes.constBegin(); it != r.attributes.constEnd(); ++it )
       ts << csvField( r.layerName ) << QStringLiteral( ",#%1," ).arg( r.featureId )
          << csvField( it.key() ) << QStringLiteral( "," )
          << csvField( it.value().toString() ) << QLatin1Char( '\n' );
+  }
+  ts.flush();
+  const QByteArray bytes = QByteArray( "\xEF\xBB\xBF" ) + body.toUtf8(); // #413：Excel 认 BOM
+  if ( ts.status() != QTextStream::Ok )
+  {
+    PaleoNotify::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法完整写入 %1" ).arg( path ) );
+    return;
+  }
+  QSaveFile f( path );
+  if ( !f.open( QIODevice::WriteOnly ) || f.write( bytes ) != bytes.size() || !f.commit() )
+  {
+    PaleoNotify::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法完整写入 %1" ).arg( path ) );
+    return;
   }
   emit exportCsvRequested( path );
 }

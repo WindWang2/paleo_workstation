@@ -38079,6 +38079,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>层位 %1 勘察失败</source>
             <translation>Inspection of horizon %1 failed</translation>
         </message>
+        <message>
+            <source>无法完整写入 %1</source>
+            <translation>Unable to write %1 completely</translation>
+        </message>
 </context>
     <context>
         <name>QgisCanvasController</name>

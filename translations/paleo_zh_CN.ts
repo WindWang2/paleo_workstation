@@ -38223,6 +38223,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>层位 %1 勘察失败</source>
             <translation>层位 %1 勘察失败</translation>
         </message>
+        <message>
+            <source>无法完整写入 %1</source>
+            <translation>无法完整写入 %1</translation>
+        </message>
 </context>
 <context>
     <name>QgisCanvasController</name>

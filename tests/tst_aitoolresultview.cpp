@@ -33,6 +33,8 @@
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/chatinvocationbinding.h"
+#include "../src/workflow/aiconversationpresentation.h"
+#include "../src/services/toolresultprotocol.h"
 
 // 方向93：AI 工具结果结构化视图（Oracle 验收面）。
 //   · 分派映射：工具/topic → 视图类型；未知/失败/超限/空闭包 → 兜底折叠。
@@ -69,6 +71,11 @@ private slots:
   void pagedCardsDistinguishPageUnknownTotalsAndCrossPageEdges();
   void fallbackFoldStartsCollapsedAndNotesOverCap();
   void dockIntegrationAttachesStructuredView();
+  // G5（W3/W4）：envelope/降级/operation 三轴的分派与呈现。
+  void envelopePayloadDispatchesOnDataWithFacts();
+  void unparseableResultIsNotAnEmptySuccess();
+  void operationPayloadShowsThreeAxesSeparately();
+  void committedFactsSurvivePresentationPending();
   void captureLedgerScreenshots();
 
 private:
@@ -570,6 +577,92 @@ void TestAiToolResultView::captureLedgerScreenshots() {
     shot.view->deleteLater();
   }
   QCoreApplication::processEvents(); // grab 后清事件队列（延迟 fit 也在其中）
+}
+
+
+// ---- G5 W3：envelope 分派（实时 raw 与历史留存同一 renderer）----
+void TestAiToolResultView::envelopePayloadDispatchesOnDataWithFacts() {
+  const QJsonObject native = parse(summaryPayload()).object();
+  const auto envelope = paleo::chat::resultEnvelope(native, true);
+  const auto facts = paleo::chat::projectToolResult(
+    QStringLiteral("paleo.query_project"),
+    QString::fromUtf8(paleo::chat::compactJson(envelope)));
+  QCOMPARE(facts.source, paleo::chat::ToolResultFacts::Source::Envelope);
+  AiToolResultView view(facts);
+  QCOMPARE(view.kind(), AiToolResultViewKind::KeyValue);
+  QVERIFY(view.findChild<QTableWidget *>(QStringLiteral("aiResultKeyValue")));
+}
+
+void TestAiToolResultView::unparseableResultIsNotAnEmptySuccess() {
+  const auto facts = paleo::chat::projectToolResult(
+    QStringLiteral("paleo.tile_classification_v2"),
+    QStringLiteral("not-json-at-all"), true, false);
+  AiToolResultView view(facts);
+  QCOMPARE(view.kind(), AiToolResultViewKind::Fallback);
+  // 降级呈现：说明 + 原文证据（不是空 JSON 成功）。
+  auto *toggle = view.findChild<QToolButton *>(QStringLiteral("aiResultEvidenceToggle"));
+  QVERIFY(toggle);
+  QVERIFY2(toggle->text().contains(QStringLiteral("不可解析")) ||
+               view.findChild<QLabel *>(),
+           "坏 JSON 必须有可读降级说明");
+  auto *body = view.findChild<QTextBrowser *>(QStringLiteral("aiResultEvidenceBody"));
+  QVERIFY(body);
+  QVERIFY(body->toPlainText().contains(QStringLiteral("not-json-at-all")));
+}
+
+// ---- G5 W4：operation 三轴状态卡 ----
+void TestAiToolResultView::operationPayloadShowsThreeAxesSeparately() {
+  const QString json = QStringLiteral(
+    R"({"contract":"paleo.operation.v2","ok":true,"code":"running",)"
+    R"("operationId":"op-g5-axes","execution":"running","commitState":"not_requested",)"
+    R"("presentation":"not_requested","revision":"4","computeCount":1,)"
+    R"("cancelRequested":false})");
+  const auto facts = paleo::chat::projectToolResult(
+    QStringLiteral("paleo.operation_get"), json, true, true);
+  QVERIFY(facts.operationFacts);
+  AiToolResultView view(facts);
+  QCOMPARE(view.kind(), AiToolResultViewKind::Operation);
+  QCOMPARE(view.operationId(), QStringLiteral("op-g5-axes"));
+  QString text;
+  for (QLabel *label : view.findChildren<QLabel *>())
+    text += label->text() + QLatin1Char('\n');
+  QVERIFY2(text.contains(QStringLiteral("执行：running")), qPrintable(text));
+  QVERIFY2(text.contains(QStringLiteral("提交：not_requested")), qPrintable(text));
+  QVERIFY2(text.contains(QStringLiteral("呈现：not_requested")), qPrintable(text));
+  // 查询 ok=true ≠ 业务完成：说明行必须分开陈述。
+  QVERIFY2(text.contains(QStringLiteral("不等于业务已完成")), qPrintable(text));
+  // 长 ID 视觉可截、复制完整。
+  auto *copy = view.findChild<QPushButton *>(QStringLiteral("aiResultCopyOperationId"));
+  QVERIFY(copy);
+  copy->click();
+  QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("op-g5-axes"));
+}
+
+void TestAiToolResultView::committedFactsSurvivePresentationPending() {
+  // committed + presentation pending：三轴各自陈述，已提交不因呈现未定翻色。
+  const QString json = QStringLiteral(
+    R"({"contract":"paleo.operation.v2","ok":true,"code":"ok",)"
+    R"("operationId":"op-g5-commit","execution":"succeeded","commitState":"committed",)"
+    R"("presentation":"pending","revision":"9","computeCount":1,)"
+    R"("cancelRequested":true,"commitReceiptRef":"rcpt-g5"})");
+  const auto facts = paleo::chat::projectToolResult(
+    QStringLiteral("paleo.operation_get"), json, true, true);
+  AiToolResultView view(facts);
+  QString text;
+  for (QLabel *label : view.findChildren<QLabel *>())
+    text += label->text() + QLatin1Char('\n');
+  QVERIFY2(text.contains(QStringLiteral("提交：committed")), qPrintable(text));
+  QVERIFY2(text.contains(QStringLiteral("呈现：pending")), qPrintable(text));
+  auto *table = view.findChild<QTableWidget *>(QStringLiteral("aiResultOperationFacts"));
+  QVERIFY(table);
+  QString cells;
+  for (int r = 0; r < table->rowCount(); ++r)
+    for (int c = 0; c < table->columnCount(); ++c)
+      if (auto *item = table->item(r, c))
+        cells += item->text() + QLatin1Char('|');
+  QVERIFY2(cells.contains(QStringLiteral("op-g5-commit")), qPrintable(cells));
+  QVERIFY2(cells.contains(QStringLiteral("已请求取消")), qPrintable(cells));
+  QVERIFY2(cells.contains(QStringLiteral("rcpt-g5")), qPrintable(cells));
 }
 
 QTEST_MAIN(TestAiToolResultView)

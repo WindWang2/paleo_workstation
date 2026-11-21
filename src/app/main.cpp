@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "aiconversationwiring.h" // G5：AI 页签操作展示 adapter 装配
 #include "capabilityhostwiring.h"
 #include "workflow/commanddispatcher.h"
 #include "portableenvironment.h"
@@ -391,6 +392,10 @@ int main(int argc, char *argv[])
   window.attachFaciesMapping(ctx.faciesMappingWf());
   // 方向51：AI 地质对话助手（编排在 AppContext，面板只渲染 + 发意图）。
   window.attachAiAssistant(ctx.aiChat());
+  // G5：会话工作台展示 adapter——上下文归属/操作详情走现有 CapabilityHost
+  // 与 DocumentSession（依赖不新建服务，装配幂等重挂）。
+  installConversationPresentation(&window, ctx.aiChat(), ctx.capabilityHost(),
+                                  ctx.documentSession());
   // 方向68：Python 脚本面（服务/编排在 AppContext，面板只渲染 + 发意图）。
   // 结果导入意图在组装根接 DataImportService——视图不碰 io；未打开工程时
   // 导入如实失败并把原因回写控制台。

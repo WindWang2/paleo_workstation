@@ -55,8 +55,18 @@ public:
   QString systemPrompt() const;
   // 方向77：工程摘要常驻轻注入（井数/层位数/资产计数一行式，由装配根经
   // AiChatToolRunner::projectBrief 算好送入；空 = 无工程/未注入，不占预算）。
-  void setProjectBrief(const QString &brief) { m_projectBrief = brief; }
+  // G5：赋值变化时发 projectBriefChanged（展示层刷新上下文摘要；不影响注入）。
+  void setProjectBrief(const QString &brief) {
+    if (m_projectBrief == brief)
+      return;
+    m_projectBrief = brief;
+    emit projectBriefChanged();
+  }
   QString projectBrief() const { return m_projectBrief; }
+  // G5 展示快照（const、按值返回，不构成任何权限）：当前回合的宿主持久
+  // 归属 id 与回合发起时的冻结身份。空 = 未在回合中/未接入宿主。
+  QString hostTurnId() const { return m_hostTurn; }
+  QJsonObject turnContext() const { return m_turnContext; }
   QVector<AiToolSpec> tools() const { return m_runner.availableTools(); }
   // 工具执行器（组合成员；装配根/测试经此绑定执行面与数据上下文）。
   AiChatToolRunner *toolRunner() { return &m_runner; }
@@ -107,6 +117,8 @@ signals:
   void streamingChanged(bool streaming);
   void statusChanged(const QString &text);
   void errorOccurred(const QString &message);
+  // G5：工程摘要变化（setProjectBrief 实际改变值时；空→空不发）。
+  void projectBriefChanged();
 
 private:
   void stopCurrentRound(bool explicitRequest);

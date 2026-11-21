@@ -109,7 +109,7 @@ base = origin/master@1a79b745；head 见 PR。
 | 验证 | 命令 | 结果 |
 |---|---|---|
 | 专属回归（offscreen） | `./build/tst_c_workbench_commands`（3 次连跑） | 18 passed / 0 failed（3 GUI demo 用例 offscreen 跳过） |
-| 专属 GUI 演示（xcb 真窗） | `PALEO_C_GUI_DEMO=1 PALEO_C_SHOT_DIR=… tst_c_workbench_commands guiDemo*` | 5 passed / 0 failed；11 张截图存 `c-workbench-commands-20261120-assets/` |
+| 专属 GUI 演示（xcb 真窗） | `PALEO_C_GUI_DEMO=1 PALEO_C_SHOT_DIR=… tst_c_workbench_commands guiDemo*` | 5 passed / 0 failed；11 张截图存 `docs/evidence/c-workbench-commands-20261120/` |
 | 既有工作台套件 | `tst_mappingworkbench` | 138 passed / 0 failed / 1 skipped |
 | 命令入口闸 | `tst_commandshell` | 19 passed / 0 failed |
 | 快捷键闸 | `tst_shortcuts_shell` | 15 passed / 0 failed |

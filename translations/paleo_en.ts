@@ -29071,6 +29071,10 @@ PDF：%3
       <source>无法确认 Python 进程树已完成清理。</source>
       <translation>Python process tree cleanup could not be confirmed.</translation>
     </message>
+    <message>
+      <source>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</source>
+      <translation>Python interpreter not found. Install Python 3 or set the PALEO_PYTHON environment variable.</translation>
+    </message>
     </context>
     <context>
         <name>PythonScripting</name>

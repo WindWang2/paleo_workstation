@@ -29203,6 +29203,10 @@ PDF：%3
       <source>无法确认 Python 进程树已完成清理。</source>
       <translation>无法确认 Python 进程树已完成清理。</translation>
     </message>
+    <message>
+      <source>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</source>
+      <translation>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</translation>
+    </message>
 </context>
 <context>
     <name>PythonScripting</name>

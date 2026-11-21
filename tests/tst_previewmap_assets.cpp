@@ -620,6 +620,12 @@ void TestPreviewMapAssets::identifyCsvWritesRasterSamplesAtomically()
   QVERIFY(text.contains(QStringLiteral("amp,raster,nearest,1.5000")));
   QVERIFY(text.contains(QStringLiteral("amp,raster,bilinear,1.2500")));
   QVERIFY(text.contains(QStringLiteral("\"层,A\",#7,名,\"a\"\"b\"")));
+
+  const QString missingPath = tmp.filePath(QStringLiteral("missing/identify.csv"));
+  panel.setExportTargetForTesting(missingPath);
+  btn->click();
+  QCOMPARE(exported.count(), 1);
+  QVERIFY(!QFileInfo::exists(missingPath));
 }
 
 // ---------------- geojson（D2.4/D2.6/D4.4） ----------------

@@ -7,6 +7,7 @@
 #include "../domain/predictionevidence.h"
 #include "../qgis/qgiseditingservice.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/mappingartifactwriter.h"
 #include "../qgis/mappingfeatureidentity.h"
 #include "../services/jobrunner.h"
 #include <QDir>
@@ -355,7 +356,10 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
           {"expression", layer->expressionField(n)}};
     const auto key = paleo::evidence::fingerprint(QVariantMap{{"uri", decl.source}, {"fields", fieldDefinitions},
         {"crs", layer->crs().toWkt()}, {"subset", layer->subsetString()}, {"native_layer", layer->id()}, {"version", layer->customProperty("paleoVersionId")}});
-    VectorSnapshotSource source{decl.layerId, key, std::make_shared<QgsVectorLayerFeatureSource>(layer), layer->wkbType()};
+    std::unique_ptr<QgsVectorLayer> editView;
+    auto *sourceLayer = MappingArtifactWriter::snapshotEditView(layer, &editView, error);
+    if (!sourceLayer) return false;
+    VectorSnapshotSource source{decl.layerId, key, std::make_shared<QgsVectorLayerFeatureSource>(sourceLayer), sourceLayer->wkbType()};
     source.count = layer->featureCount();
     job->vectors << source;
   }

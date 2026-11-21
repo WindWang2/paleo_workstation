@@ -378,15 +378,14 @@ bool pointGeoPackage(const QString &path, const QVariantList &points,
 // snapshot insert does not collide, while still keeping uncommitted edits.
 QgsVectorLayer *snapshotEditView(QgsVectorLayer *layer, std::unique_ptr<QgsVectorLayer> *owned, QString *error) {
   if (!layer->isEditable()) return layer;
-  auto uri = QgsWkbTypes::displayString(layer->wkbType());
-  if (layer->crs().isValid() && !layer->crs().authid().isEmpty())
-    uri += QStringLiteral("?crs=") + layer->crs().authid();
+  const auto uri = QgsWkbTypes::displayString(layer->wkbType());
   owned->reset(new QgsVectorLayer(uri, QStringLiteral("edit-view"), QStringLiteral("memory")));
   auto *copy = owned->get();
   if (!copy || !copy->isValid() || !copy->dataProvider()) {
     if (error) *error = QObject::tr("无法复制正在编辑的图件");
     return nullptr;
   }
+  copy->setCrs(layer->crs());
   QgsFields stored;
   for (const auto &field : layer->fields()) {
     const auto name = field.name();

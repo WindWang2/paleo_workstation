@@ -25,6 +25,7 @@
 #include "../src/metadata/mapversionstore.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgiseditingservice.h"
 #include "../src/qgis/qgislayerservice.h"
@@ -446,6 +447,45 @@ private slots:
     QVERIFY(historyView);
     QVERIFY(historyView->toPlainText().contains("图件空间编辑历史"));
     QVERIFY(!page.findChild<QPlainTextEdit *>("faciesEvidenceHistory")->toPlainText().contains("图件空间编辑历史"));
+  }
+
+  void editableAsyncSaveKeepsFeaturesAndLocalCrs() {
+    Fixture f;
+    QVERIFY(f.init());
+    PaleoTaskService tasks;
+    tasks.setMaxWorkerThreads(1);
+    f.controller.setTaskService(&tasks);
+    const auto path = writePolygons(f.dir.filePath("async-edit.gpkg"), 1);
+    QVERIFY(declare(f, "facies.D61", path));
+    QString error;
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate("facies.D61", &error));
+    QVERIFY(layer);
+    const auto local = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+    QVERIFY(local.isValid());
+    QVERIFY(local.authid().isEmpty());
+    layer->setCrs(local);
+    QVERIFY(layer->startEditing());
+    QgsFeature added(layer->fields());
+    added.setGeometry(QgsGeometry::fromWkt("POLYGON((5 5, 6 5, 6 6, 5 5))"));
+    QVERIFY(layer->addFeature(added));
+    QSignalSpy finished(&f.controller, &MapVersionController::snapshotFinished);
+    QVERIFY(f.controller.startSaveVersion("D61", {}, &error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+    QCOMPARE(finished.size(), 1);
+    QVERIFY2(finished.first().at(2).toBool(), qPrintable(finished.first().at(4).toString()));
+    QVERIFY(!finished.first().at(3).toBool());
+    const auto saved = f.versions.versions("D61");
+    QCOMPARE(saved.size(), 1);
+    QCOMPARE(snapshotFeatures(f.dir.path(), saved.first()), 2);
+    const auto provenance = QJsonDocument::fromJson(saved.first().provenance.toUtf8()).object();
+    const auto relative = provenance.value("saved_layers").toArray().first().toObject().value("path").toString();
+    QgsVectorLayer snap(QDir(f.dir.path()).filePath(relative) + "|layername=features", "snap", "ogr");
+    QVERIFY(snap.isValid());
+    QVERIFY2(snap.crs().isValid(), qPrintable(snap.crs().toWkt()));
+    QVERIFY(snap.crs().toWkt().contains("Paleo local engineering grid") ||
+            snap.crs().toWkt().contains("Local engineering datum") ||
+            snap.crs().toWkt().contains("ENGINEERING"));
+    QVERIFY(tasks.shutdown());
   }
 };
 

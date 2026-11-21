@@ -151,3 +151,27 @@ base = origin/master@1a79b745；head 见 PR。
 - locator（Ctrl+K）入口的准入一致性依赖 CommandDispatcher 的 actionState/
   bindCommand state（既有机制），本轮未改其协议；工作台 controller 直调
   路径已过统一准入。
+
+## 独立复审记录（2026-11-21）
+
+- reviewer：未参与实现的独立 agent，读真实 diff（1a79b745..HEAD）、调用链与证据。
+- 结论：REQUEST_CHANGES —— P2-1（「工程处于只读模式，撤销/重做已禁用」误注册
+  PaleoMainWindow context，实际 DataListPanel::tr）+ P3-1..4；其余全部核验无问题
+  （43 条目录逐条比对、准入顺序、postModal 四处插桩、镜像生命周期、幂等路径、
+  测试可证伪性、边界纪律、层标记）。
+- 修复：5fcd8683→（rebase 后 e89eb3c2）P2-1 移 context + P3-1 legend 判空 +
+  P3-2 QPointer + P3-3 文档 + P3-4 去重；7fd12438 看护延迟启动修复 xcb 竞态
+  （看护抢先把确认框当后续 warning reject → 空消息路径）。修复后 offscreen
+  18/18、GUI demo 5/5 连续五次。
+
+## Rebase 记录（2026-11-21）
+
+- origin/master 前移 1a79b745 → e3f2863e（#1053 P4 ONNX 合入）。
+- 冲突：根 CMakeLists `_paleo_extra_manifest`（双方各加一行，全保留）；
+  translations/{en,zh}.ts（PaleoMainWindow context 尾部双方各追加条目，
+  双方保留 + 补一条被冲突切分吃掉的 `<message>` 开标签；修复后 XML 校验过、
+  zh=11054 en=11054 missing=0 extra=0，P4 新条目与我们 26 条均在）。
+- rebase 后重验：全量构建 0 error；29/29 ctest 闸门；tst_c 18/18、
+  tst_mappingworkbench 138/0、tst_commandshell 19/0、tst_shortcuts_shell 15/0、
+  tst_ui 44/0；GUI demo（xcb）5/5。
+- file-budget 基线随 mirror 段拆出同步收紧 attachWorkbench 276→253（只缩不涨）。

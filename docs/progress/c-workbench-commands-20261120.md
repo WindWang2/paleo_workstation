@@ -101,4 +101,53 @@ P5/P6 已分配未回归引擎——均不修改。predictpage/runConstraintPage
 
 ## 验证记录
 
-（构建/测试后追加）
+平台：Linux x86_64（CachyOS，xcb 真实 GUI + offscreen 断言）；
+base = origin/master@1a79b745；head 见 PR。
+前缀：`/home/kevin/projects/paleo-deb-prefix-20261119/usr`（deb 闭包，收据一致，只读共享）。
+构建：`QGIS_PREFIX_PATH=… ./paleo-dev build`（PALEO_JOBS=4，主机级锁）。
+
+| 验证 | 命令 | 结果 |
+|---|---|---|
+| 专属回归（offscreen） | `./build/tst_c_workbench_commands`（3 次连跑） | 18 passed / 0 failed（3 GUI demo 用例 offscreen 跳过） |
+| 专属 GUI 演示（xcb 真窗） | `PALEO_C_GUI_DEMO=1 PALEO_C_SHOT_DIR=… tst_c_workbench_commands guiDemo*` | 5 passed / 0 failed；11 张截图存 `c-workbench-commands-20261120-assets/` |
+| 既有工作台套件 | `tst_mappingworkbench` | 138 passed / 0 failed / 1 skipped |
+| 命令入口闸 | `tst_commandshell` | 19 passed / 0 failed |
+| 快捷键闸 | `tst_shortcuts_shell` | 15 passed / 0 failed |
+| 壳层套件 | `tst_ui` | 44 passed / 0 failed / 8 skipped |
+| ribbon 族 | `tst_ribboncollapse` / `tst_ribbontitlefit` | 10 / 15 passed |
+| 数据列表面板 | `tst_assetpaging` | 13 passed / 1 skipped |
+| Source gates | `ctest -R "layering|qgis_spread|ui_invariants|ui_size|file_budget|i18n|ui_tokens|qgis_versions|docs_drift|cpp_mainline"` | 29/29 Passed（attachWorkbench 拆出 mirror 段后回到基线 276 冻结值，无回升） |
+
+### GUI 三条路径摘要（真实 xcb 窗口 + 程序断言 + 截图）
+
+1. **数据列表撤销门**（c8-path1-*）：可写历史建立 → 切只读（按钮置灰+原因
+   tooltip）→ 真键盘 Ctrl+Z（`undone==0`、历史保留）→ 恢复可写 → 撤销成功
+   （`undone==1`）。
+2. **工作台页面反馈归属**（c8-path2-*）：同一 show 意图在 predict/compose
+   可见上下文触发，反馈页随 resolver 变化；切到 data 页 resolver 为 null
+   （不落到隐藏工作台页）；切回 constraint 命中对应页对象。
+3. **镜像生命周期 + 只读确认负例**（c8-path3-*）：主源↔换源↔切回（旧源
+   继续变化不影响动作）；专用演示源销毁 → 动作禁用+诊断 tooltip；恢复镜像
+   后状态跟随源真实业务态；删除确认弹出期间切只读 → 接受键返回后按只读
+   拒绝（feedback 含「只读」、图件仍在）。
+
+### 测试基建发现（如实记录，未改产品行为）
+
+- `PaleoNotify::ask` 的 offscreen 无头守卫（paleonotify.cpp B-05）固定 50ms
+  自动按默认键关闭对话框——测试协作必须先于它命中（ModalCloser 10ms 轮询）。
+- 真实 xcb 上 exec 早期的 QMessageBox 可能未被 WM 标记 visible（匹配条件需
+  含 isModal）；被拒路径的 `PaleoNotify::warning` 在真实平台同样模态（offscreen
+  有守卫），演示需后续模态看护。
+- tst_shortcuts_shell 偶发 `scriptrunner.cpp.o` debug_info 重定位截断
+  （R_X86_64_32），重试链接即过——与 A/B 并行构建共享 ccache 有关，非本任务
+  改动引入（该 TU 不在本次 diff 内）。
+
+## 未覆盖/限制
+
+- Windows 平台未验证（本机 Linux；NativeFormat QSettings 注册表行为不在范围）。
+- #987 全局 findChild 收敛不在本任务范围（仅 types 化 currentWorkbenchPage
+  一个 resolver）；#995 的主窗文本编辑焦点原生 Ctrl+Z 优先级由既有
+  ShortcutCatalog 语境保证，未新增第二套键序。
+- locator（Ctrl+K）入口的准入一致性依赖 CommandDispatcher 的 actionState/
+  bindCommand state（既有机制），本轮未改其协议；工作台 controller 直调
+  路径已过统一准入。

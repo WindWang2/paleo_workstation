@@ -30,6 +30,8 @@
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QToolBar>
+#include <QDeadlineTimer>
 #include <QVector>
 #include <gdal.h>
 #include <qgsapplication.h>
@@ -100,20 +102,68 @@ struct Fixture
 };
 
 // 模态关闭器：进嵌套事件循环后按角色关闭最上层目标对话框，并记录是否见到。
-struct ModalCloser
+// 真实平台上对话框可见时机晚于首个事件循环迭代——短周期重试直到命中。
+struct ModalCloser : public QObject
 {
   bool sawDialog = false;
   bool accept = false;
+  QTimer *timer = nullptr;
+  QDeadlineTimer deadline{QDeadlineTimer::Forever};
+  explicit ModalCloser(QObject *parent = nullptr) : QObject(parent) {}
+  ~ModalCloser() override
+  {
+    if (timer)
+      timer->stop(); // timer 是子对象，随本对象析构自动释放
+  }
   void arm()
   {
-    QTimer::singleShot(0, [this] { closeOne(); });
+    // 10ms 轮询：必须先于 PaleoNotify::ask 的 offscreen 无头守卫（50ms 自动
+    // 按默认键关闭，见 paleonotify.cpp B-05）命中对话框，点击意图才是测试
+    // 自己的 accept/accept=false，而不是与守卫竞速。
+    deadline.setDeadline(10000);
+    timer = new QTimer(this);
+    connect(timer, &QTimer::timeout, this, [this] {
+      closeOne();
+      if (sawDialog || deadline.hasExpired())
+        timer->stop();
+    });
+    timer->start(10);
+    QTimer::singleShot(0, this, [this] { closeOne(); });
+  }
+  // 后续模态看护：真实平台上被拒后 PaleoNotify::warning 还会弹一个模态框
+  //（offscreen 有 B-05 守卫，xcb 没有）——继续以 reject 关闭后续框。
+  void watchFollowUps(int milliseconds)
+  {
+    auto *watch = new QTimer(this);
+    connect(watch, &QTimer::timeout, this, [this, watch] {
+      for (QWidget *w : QApplication::topLevelWidgets())
+        if (qobject_cast<QMessageBox *>(w) && w->isVisible())
+        {
+          auto *box = qobject_cast<QMessageBox *>(w);
+          for (auto *b : box->buttons())
+            if (box->buttonRole(b) == QMessageBox::RejectRole)
+            {
+              b->click();
+              return;
+            }
+          box->reject();
+          return;
+        }
+      watch->stop();
+      watch->deleteLater();
+    });
+    watch->start(50);
+    QTimer::singleShot(milliseconds, this, [watch] { watch->stop(); watch->deleteLater(); });
   }
   void closeOne()
   {
+    // 匹配条件含 isModal()：真实平台（xcb）上 exec 早期的对话框可能尚未被
+    // 窗口管理器标记 visible，但模态标志在构造时即生效；点击不可见模态框
+    // 的按钮同样有效。offscreen 下两者皆真，行为不变。
     QWidget *target = nullptr;
     for (QWidget *w : QApplication::topLevelWidgets())
       if ((qobject_cast<QFileDialog *>(w) || qobject_cast<QMessageBox *>(w)) &&
-          w->isVisible())
+          (w->isVisible() || w->isModal()))
         target = w;
     if (!target)
       return; // 没弹框（如空工程删除早退）——sawDialog 保持 false
@@ -648,6 +698,175 @@ class TestCWorkbenchCommands : public QObject
       router.setWritable(true);
       QVERIFY(router.step(true));  // 恢复可写：按原契约继续可用
       QCOMPARE(stack.index(), 0);
+    }
+
+  private:
+    // ---- C-W8：真实 GUI 演示（PALEO_C_GUI_DEMO=1 且非 offscreen 平台才跑）----
+    // offscreen 自动化只做状态断言；这里在真实 xcb 窗口上按任务三条路径操作
+    // 并截图存证（PALEO_C_SHOT_DIR）。普通 ctest 运行直接跳过。
+    bool guiDemoEnabled() const
+    {
+      if (qEnvironmentVariableIsEmpty("PALEO_C_GUI_DEMO"))
+        return false;
+      return QGuiApplication::platformName() != QLatin1String("offscreen");
+    }
+    void shot(QWidget *w, const char *name) const
+    {
+      const QString dir = qEnvironmentVariable("PALEO_C_SHOT_DIR");
+      if (dir.isEmpty() || !w)
+        return;
+      w->repaint();
+      QApplication::processEvents();
+      w->grab().save(dir + QLatin1Char('/') + QLatin1String(name) + QStringLiteral(".png"));
+    }
+
+  private slots:
+    void guiDemoUndoGateRealWindow()
+    {
+      if (!guiDemoEnabled())
+        QSKIP("PALEO_C_GUI_DEMO 未设置或 offscreen 平台");
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataImportService importer;
+      importer.setProjectDir(dir.path());
+      PreviewDocService doc(&importer);
+      DataListPanel panel;
+      panel.setDocService(&doc);
+      panel.resize(760, 480);
+      panel.show();
+      panel.activateWindow();
+      QVERIFY(QTest::qWaitForWindowActive(&panel));
+      panel.refreshAssetTable();
+      static int undone = 0;
+      undone = 0;
+      class DemoOp : public paleo::dataops::DataOpCommand
+      {
+        public:
+          bool undo() override { ++undone; return true; }
+          bool redo() override { return true; }
+          QString text() const override { return QStringLiteral("演示挂接"); }
+      };
+      panel.pushCommand(new DemoOp());
+      undone = 0;
+      shot(&panel, "c8-path1-undo-history");
+      panel.setUndoReadOnly(true);
+      shot(&panel, "c8-path1-readonly-gate");
+      panel.setFocusPolicy(Qt::StrongFocus);
+      panel.setFocus();
+      QTest::keyClick(&panel, Qt::Key_Z, Qt::ControlModifier); // 真实键盘路径
+      QCOMPARE(undone, 0);                                     // 只读：历史未被消费
+      QVERIFY(panel.opStack()->canUndo());
+      panel.setUndoReadOnly(false);
+      panel.undoOp();
+      QCOMPARE(undone, 1); // 恢复可写：原历史按契约可用
+      shot(&panel, "c8-path1-restored");
+    }
+
+    void guiDemoWorkbenchPageFeedbackRealWindow()
+    {
+      if (!guiDemoEnabled())
+        QSKIP("PALEO_C_GUI_DEMO 未设置或 offscreen 平台");
+      WindowFixture w;
+      QVERIFY(w.init());
+      w.window->resize(1440, 900);
+      w.window->show();
+      w.window->activateWindow();
+      QVERIFY(QTest::qWaitForWindowActive(w.window.get()));
+      // 同一意图（显示图件）在 predict 与 compose 两个可见上下文间触发：
+      // 反馈落在当前页（resolver），不是固定 pages[0]。
+      w.window->showPage(QStringLiteral("predict"));
+      QTest::qWaitForWindowExposed(w.window.get());
+      auto *predictPage = w.window->currentWorkbenchPage();
+      QVERIFY(predictPage);
+      auto *predictHandler = w.controllerFor(predictPage);
+      QVERIFY(predictHandler);
+      predictHandler->handleCommand(QStringLiteral("show"), {});
+      shot(w.window.get(), "c8-path2-predict-context");
+      w.window->showPage(QStringLiteral("compose"));
+      auto *composePage = w.window->currentWorkbenchPage();
+      QVERIFY(composePage && composePage != predictPage);
+      auto *composeHandler = w.controllerFor(composePage);
+      composeHandler->handleCommand(QStringLiteral("show"), {});
+      shot(w.window.get(), "c8-path2-compose-context");
+      // 菜单打开后切页的负例：非工作台页 → 解析为空，反馈不落在隐藏工作台页。
+      w.window->showPage(QStringLiteral("data"));
+      QVERIFY(!w.window->currentWorkbenchPage());
+      shot(w.window.get(), "c8-path2-nonworkbench-null-resolver");
+      w.window->showPage(QStringLiteral("constraint"));
+      QVERIFY(w.window->currentWorkbenchPage() ==
+              w.window->findChild<MappingWorkbenchPage *>(
+                  QStringLiteral("mappingWorkbench.constraint")));
+    }
+
+    void guiDemoMirrorRebindRealWindow()
+    {
+      if (!guiDemoEnabled())
+        QSKIP("PALEO_C_GUI_DEMO 未设置或 offscreen 平台");
+      WindowFixture w;
+      QVERIFY(w.init());
+      w.window->resize(1440, 900);
+      w.window->show();
+      w.window->activateWindow();
+      QVERIFY(QTest::qWaitForWindowActive(w.window.get()));
+      w.window->showPage(QStringLiteral("compose"));
+      auto *tabs = w.window->findChild<QTabWidget *>(QStringLiteral("workbenchTabs.compose"));
+      QVERIFY(tabs);
+      // WindowFixture 未接 attachWorkflows（ribbon 动作未建）：用真实窗口里的
+      // 工具条动作 + 生产页面按钮（保存新版本/高级工具同名钮）演示镜像换源。
+      auto *page = qobject_cast<MappingWorkbenchPage *>(
+          tabs->findChild<MappingWorkbenchPage *>());
+      QVERIFY(page);
+      // attachWorkflows 未接（高级工具页签是占位页）：用页面上两颗真实生产
+      // 命令按钮演示镜像换源（主流程「综合编图」↔「相栅格转相面」）。
+      auto *primary = page->commandButton(QStringLiteral("compose"));
+      auto *legacy = page->commandButton(QStringLiteral("polygonize"));
+      QVERIFY(primary && legacy);
+      QToolBar demoBar(w.window.get());
+      demoBar.setWindowTitle(QStringLiteral("镜像演示"));
+      auto *action = demoBar.addAction(QStringLiteral("保存新版本（镜像）"));
+      w.window->addToolBar(Qt::TopToolBarArea, &demoBar);
+      PaleoRibbon::mirror(action, primary, true, false);
+      shot(w.window.get(), "c8-path3-mirror-primary");
+      PaleoRibbon::mirror(action, legacy, true, false); // 换源（切高级工具标签同路径）
+      shot(w.window.get(), "c8-path3-mirror-legacy");
+      PaleoRibbon::mirror(action, primary, true, false); // 切回；旧源再变化无影响
+      legacy->setEnabled(!legacy->isEnabled());
+      legacy->setEnabled(!legacy->isEnabled());
+      shot(w.window.get(), "c8-path3-mirror-rebound");
+      // 源销毁 → 动作禁用 + 可诊断原因（专用演示源，不动页面持有的生产按钮）。
+      auto *demoSource = new QPushButton(QStringLiteral("演示源"), w.window.get());
+      demoSource->show();
+      PaleoRibbon::mirror(action, demoSource, true, false);
+      QVERIFY(action->isEnabled());
+      demoSource->deleteLater();
+      QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+      QVERIFY(!action->isEnabled());
+      shot(w.window.get(), "c8-path3-source-destroyed");
+      // 恢复镜像到生产源（compose 在空工程本就禁用——断言跟随源的真实业务态）。
+      PaleoRibbon::mirror(action, primary, true, false);
+      QCOMPARE(action->isEnabled(), primary->isEnabled());
+      // 取消确认/只读负例：删除确认弹出时切只读 → 明确拒绝并保持工程。
+      QString error;
+      const auto draft = w.f.work.createBlankMap(QStringLiteral("D61"), &error);
+      QVERIFY2(!draft.isEmpty(), qPrintable(error));
+      for (int i = 0; i < 100 && w.f.work.removalProducts(draft, nullptr).isEmpty(); ++i)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+      QCoreApplication::processEvents();
+      auto *activePage = w.window->currentWorkbenchPage();
+      auto *handler = w.controllerFor(activePage);
+      PageFeedback feedback(page);
+      feedback.clear();
+      ModalCloser closer;
+      closer.accept = true;
+      QTimer::singleShot(0, [&w] { w.window->setProjectReadOnly(true); });
+      closer.arm();
+      closer.watchFollowUps(15000); // 拒绝后的 warning 模态框（xcb）也要有人关
+      handler->handleCommand(QStringLiteral("delete"), {{QStringLiteral("layer"), draft}});
+      QVERIFY(closer.sawDialog);
+      QVERIFY(feedback.message().contains(QStringLiteral("只读")));
+      QVERIFY(!w.f.work.declaration(draft).layerId.isEmpty());
+      shot(w.window.get(), "c8-path3-readonly-during-confirm");
+      w.window->setProjectReadOnly(false);
     }
 };
 

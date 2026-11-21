@@ -24,6 +24,32 @@ QVector<ChatToolCall> normalizedCalls(const QVector<ChatToolCall> &calls) {
 }
 } // namespace
 
+// ---- G2（回合执行闭环）：冻结快照取值与保存欠账结算 ----
+
+QString AiChatController::currentSessionModel() const {
+  // 记录字段 = 上一轮实际开场的模型（startEngineTurn 定格，含该轮收尾保存）；
+  // 下一轮重新定格前不跟随中途 setConfig 漂移——记录永远如实反映「这轮
+  // 对话用哪个模型跑的」。未冻结（构造后首轮前）跟随当前配置。
+  return m_turnFrozen ? m_turnConfig.model : m_config.model;
+}
+
+bool AiChatController::settleSaveArrears(QString *error) {
+  // 无欠账直接放行；有欠账先真实落盘一次（不是只清标志）。
+  if (!m_saveArrears || m_session.messages.isEmpty()) return true;
+  return saveCurrentSession(error);
+}
+
+void AiChatController::failTurnForSaveArrears(const QString &error) {
+  // 统一保存失败终态：欠账已由 saveCurrentSession 记账；这里只结算本轮——
+  // 作废未开始的队列与续轮、补齐未应答帧、单次错误上报。已收到的真实结果
+  // 与已提交操作事实不被改写、不改判 tool_failed（执行事实 ≠ 会话写成功）。
+  const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence + 1;
+  stopCurrentRound(false); // 宿主中断语义：保留可恢复的操作意图
+  if (!guard || sequence != m_turnSequence) return;
+  emit errorOccurred(tr("工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发").arg(error));
+}
+
 void AiChatController::rejectToolRound(const QString &code, const QString &message) {
   const QPointer<AiChatController> guard(this);
   const auto sequence = m_turnSequence;
@@ -75,10 +101,20 @@ void AiChatController::onRoundFinished(const QString &reason) {
       m_session.messages.last().role == ChatRole::Assistant &&
       !m_session.messages.last().toolCalls.isEmpty();
   if (!wantsTools) {
-    if (m_piBridge.busy()) { m_piBridge.modelFinished({}, reason); return; }
+    if (m_piBridge.busy()) {
+      // G2-W6：桥未接受本次完成（相位/停止/预算拒绝）即本轮失败——失败信号
+      // 已在桥内同步发出并结算（piFailure 幂等），此处兜底只处理无信号拒绝。
+      if (!m_piBridge.modelFinished({}, reason) && guard && m_streaming && sequence == m_turnSequence)
+        piFailure(QStringLiteral("pi_model_completion_rejected"));
+      return;
+    }
     setStreaming(false);
     if (!guard || sequence != m_turnSequence) return;
-    saveCurrentSession();
+    // G2-W3：最终回答的落盘失败不能被静默吞掉——回答保留在内存（保存欠账），
+    // 网络成功不冒充持久成功；恢复存储后重发/切换会话会先补保存。
+    QString error;
+    if (!saveCurrentSession(&error))
+      emit errorOccurred(tr("回答已完成，但会话保存失败（%1）。内容保留在内存").arg(error));
     return;
   }
   auto calls = normalizedCalls(m_session.messages.last().toolCalls);
@@ -104,7 +140,12 @@ void AiChatController::onRoundFinished(const QString &reason) {
   // Both engines use the same durable admitted calls before any tool dispatch.
   if (!saveCurrentSession(&error)) { if (guard) rejectToolRound("pi_invocation_save_failed"); return; }
   if (!guard || !m_streaming || sequence != m_turnSequence || m_session.id != session || m_hostTurn != turn) return;
-  if (pi) { m_piBridge.modelFinished(calls, reason); return; }
+  if (pi) {
+    // G2-W6：同上——桥拒绝即失败（failed 信号已同步结算，兜底仅无信号路径）。
+    if (!m_piBridge.modelFinished(calls, reason) && guard && m_streaming && sequence == m_turnSequence)
+      piFailure(QStringLiteral("pi_model_completion_rejected"));
+    return;
+  }
   emit statusChanged(statusText());
   if (!guard || sequence != m_turnSequence) return;
   // Snapshot: synchronous listeners may cancel/rebind; runner owns serial execution.
@@ -137,6 +178,16 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   const bool pi = m_piBridge.busy();
   // Publish completed state before signals: a listener may cancel or switch sessions synchronously.
   appendMessage(tool);
+  if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
+  // G2-W2 提交点：真实结果先落盘（含此前已准入的全部状态），再回送 Pi 或发
+  // 下一次模型请求——保存失败即停本轮：未开始的队列与续轮全部止步，已收到
+  // 的结果保留在内存与欠账状态，不改判 tool_failed、不重执行工具补偿。
+  QString saveError;
+  if (!saveCurrentSession(&saveError)) {
+    if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
+    failTurnForSaveArrears(saveError);
+    return;
+  }
   if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
   const bool piBudgetLimit = pi && m_pendingToolResults == 0 && m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens;
   if (pi && m_streaming && !piBudgetLimit) {

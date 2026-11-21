@@ -8,7 +8,9 @@
 #include "services/pythongenerated.h"
 #include <QtTest>
 #include <QEventLoop>
+#include <QFile>
 #include <QHostAddress>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTcpServer>
@@ -139,6 +141,28 @@ QJsonObject lastTool(const AiChatController &controller) {
     if (message->role == ChatRole::Tool) return QJsonDocument::fromJson(message->content.toUtf8()).object();
   return {};
 }
+// G2：会话存储断路器（目录去写位 → QSaveFile 确定性失败；恢复还原 0755）。
+struct G2StorageBreaker {
+  QString directory;
+  bool engage() {
+    directory = ChatSessionStore::directory();
+    return QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::ExeOwner |
+                                              QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                                              QFileDevice::ReadOther | QFileDevice::ExeOther);
+  }
+  bool restore() {
+    return QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
+                                                QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                                                QFileDevice::ReadOther | QFileDevice::ExeOther);
+  }
+};
+int g2DiskToolReplies(const QString &session) {
+  ChatSession stored; QString error;
+  if (!ChatSessionStore::load(session, &stored, &error)) return -1;
+  int total = 0;
+  for (const auto &message : stored.messages) total += message.role == ChatRole::Tool;
+  return total;
+}
 QJsonObject page(Fixture &fixture, const QString &scope, const QString &operation, qint64 offset) {
   QObject listener; QEventLoop wait; QTimer timer; timer.setSingleShot(true); bool done = false; QJsonObject result; QString error;
   QObject::connect(&timer, &QTimer::timeout, &wait, &QEventLoop::quit);
@@ -221,6 +245,54 @@ private slots:
     OperationLog journal(fixture.project + "/.paleo/capability-ops", fixture.project, fixture.lock->claim()); QCOMPARE(journal.recordById(computed.operationId).computeCount, 1);
     int derived = 0; for (const auto &version : fixture.catalog.versions()) if (version.stage == "DERIVED") { ++derived; QCOMPARE(version.parentVersionIds, QStringList{"generated-raw"}); }
     QCOMPARE(derived, 1); QCOMPARE(fixture.materializations.load(), materializations); QVERIFY(fixture.ownerOnly.load());
+  }
+  // G2-W7：已提交操作 → 会话保存失败（结果未落盘）→ 恢复存储 → retryLast
+  // 走既有绑定与 operation 回放——执行/发布数量保持 1，无新操作逃避恢复。
+  void committedOperationSurvivesSessionSaveFailureAndRetry() {
+    if (qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT").isEmpty()) {
+      QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_AGENT_PYTHON_EXECUTION") != "1", "Required agent Python fixture missing");
+      return;
+    }
+    Fixture fixture; QVERIFY2(fixture.open(), qPrintable(fixture.error)); QString code;
+    QVERIFY2(fixture.environment(false, code), qPrintable(code)); fixture.rebuildHost(); Model model; QVERIFY(model.open());
+    AiChatController controller; fixture.bind(controller, model, false); const auto session = controller.session().id;
+    sessions.append(session);
+    const QJsonObject arguments{{"client_request_id", "model-must-not-own-this"}, {"binding_mode", "pinned-value"}, {"publish_intent", "compute-only"},
+      {"parameters", QJsonObject{{"code", QString::fromUtf8(python::generated_sdk_fixture::sourceCode())}}}, {"inputs", fixture.selection}};
+    model.call(QLatin1String(python::GeneratedTool), arguments);
+    QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+    G2StorageBreaker breaker; bool broken = false;
+    connect(&controller, &AiChatController::toolExecutionStarted, this, [&](const auto &) {
+      if (!broken) { broken = true; QVERIFY(breaker.engage()); } // 提交事实发生前后、结果落盘前断电
+    });
+    const auto restore = qScopeGuard([&] { breaker.restore(); });
+    Q_UNUSED(restore)
+    controller.sendUserText("compute once then survive the save failure");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
+    QVERIFY(broken);
+    QVERIFY(!errors.isEmpty());
+    QVERIFY(errors.first().first().toString().contains(QStringLiteral("保存失败")));
+    // 提交事实与准入绑定：磁盘上绑定即最可信 checkpoint；结果只在内存。
+    QCOMPARE(g2DiskToolReplies(session), 0);
+    auto committed = fixture.record(controller);
+    QCOMPARE(committed.computeCount, 1); QCOMPARE(committed.execution, QString("succeeded"));
+    QCOMPARE(controller.session().hostToolBindings.size(), 1);
+    const auto materializations = fixture.materializations.load();
+    QVERIFY(breaker.restore());
+    QTRY_VERIFY_WITH_TIMEOUT(controller.canRetry(), 15000);
+    // retryLast：先清欠账（真实落盘内存里的成功结果）再重发；同一稳定身份
+    // 回放，不产生第二个操作或第二次执行。
+    model.call(QLatin1String(python::GeneratedTool), arguments);
+    errors.clear();
+    controller.retryLast();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
+    QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
+    QCOMPARE(model.requests, 2);
+    auto replayed = fixture.record(controller);
+    QCOMPARE(replayed.operationId, committed.operationId);
+    QCOMPARE(replayed.computeCount, 1);
+    QCOMPARE(fixture.materializations.load(), materializations);
+    QCOMPARE(fixture.catalog.versions().size(), 1);
   }
 };
 QTEST_GUILESS_MAIN(TestPiGeneratedOperations)

@@ -315,6 +315,46 @@
     <context>
         <name>AiChatController</name>
         <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="121" />
+            <source>回合已完成，但会话保存失败（%1）。内容保留在内存</source>
+            <translation>The turn completed, but saving the session failed (%1). Content is kept in memory</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="138" />
+            <source>会话保存失败：%1（内容保留在内存，重发上一条可先补保存）</source>
+            <translation>Session save failed: %1 (content kept in memory; resending the last message saves it first)</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="190" />
+            <source>会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试</source>
+            <translation>The session has not been saved (%1); the current session is kept. Restore storage and retry</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="247" />
+            <source>会话尚未保存成功（%1），暂不能删除；请恢复存储后重试</source>
+            <translation>The session has not been saved (%1) and cannot be deleted yet. Restore storage and retry</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="270" />
+            <source>未知存储错误</source>
+            <translation>Unknown storage error</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="410" />
+            <source>会话尚未保存成功（%1），已保留原回答；请恢复存储后重试</source>
+            <translation>The session has not been saved (%1); the previous answer is kept. Restore storage and retry</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="50" />
+            <source>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</source>
+            <translation>The tool result was received, but saving the session failed (%1). The turn stopped and content is kept in memory. Restore storage and resend</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="117" />
+            <source>回答已完成，但会话保存失败（%1）。内容保留在内存</source>
+            <translation>The answer completed, but saving the session failed (%1). Content is kept in memory</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichatcontroller.cpp" line="69" />
             <source>请求出错：本调用未执行</source>
             <translation type="unfinished" />

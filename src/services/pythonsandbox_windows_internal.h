@@ -40,6 +40,7 @@ bool validMoniker(const QString &moniker);
 
 struct Profile {
   QString moniker, base, journal;
+  bool retainForRecovery = false;
   PSID sid = nullptr;
   PSID registryCapability = nullptr, runtimeCapability = nullptr;
   PSID *registryGroups = nullptr, *runtimeGroups = nullptr;

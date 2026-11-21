@@ -5,9 +5,11 @@
 #ifdef Q_OS_WIN
 #include <QDir>
 #include <QThread>
+#include <atomic>
 
 namespace paleo::python::windows_process {
 namespace {
+std::atomic<bool> g_forceUnconfirmedTree{false};
 bool valid(const process_detail::Launch &r){
   const auto &p=r.policy;
   if(!p.validate().isEmpty()||r.arguments.size()>256||r.inputChunks.size()>4096||
@@ -38,13 +40,14 @@ struct Stop {
                                        &info,sizeof(info),nullptr)&&info.ActiveProcesses==0;
         if(!idle)QThread::msleep(10);
       } while(!idle&&timer.elapsed()<5000);
-      if(treeReaped)*treeReaped=idle;
+      if(treeReaped)*treeReaped=idle&&!g_forceUnconfirmedTree.load();
     }
     writer.close();
   }
 };
 ProcessResult unavailable(const QString &detail){ProcessResult result;result.error=detail.toUtf8();return result;}
 } // namespace
+void test::forceUnconfirmedTree(bool enabled){g_forceUnconfirmedTree.store(enabled);}
 ProcessResult runChild(const process_detail::Launch &request,const Security *security,bool *treeReaped){
   if(treeReaped)*treeReaped=true;
   if(!valid(request))return unavailable("invalid_native_launch");

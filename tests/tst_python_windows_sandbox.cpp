@@ -145,6 +145,19 @@ int overlapHost(const QStringList &args){
   if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())return 5;
   return result.ok()?0:6;
 }
+int unconfirmedTreeHost(const QStringList &args){
+  const auto inspected=verifyRuntime({args[2],anchor(),true},{},std::make_shared<int>(0));
+  if(!inspected.ready())return 3;
+  auto bundle=input(args[3],"print('fixture')");
+  SandboxRequest request;request.runtime=inspected.runtime;request.input=bundle;request.policy.allowGenerated=true;
+  windows_process::test::forceUnconfirmedTree(true);
+  const auto result=runWindowsSandbox(request);
+  QSaveFile file(args[4]);
+  const auto bytes=QJsonDocument(QJsonObject{{"code",result.code},{"error",QString::fromUtf8(result.error)}}).toJson();
+  if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())return 4;
+  QThread::msleep(30000);
+  return 0;
+}
 #endif
 }
 class TestPythonWindowsSandbox : public QObject {
@@ -525,6 +538,44 @@ print(json.dumps(d))
     QVERIFY2(next.ok(),qPrintable(next.code+':'+QString::fromUtf8(next.error)));
     QVERIFY(!QFileInfo::exists(legacy));
   }
+  void unconfirmedTreeRetainsResourcesUntilHostExit(){
+    QTemporaryDir project(QDir(projects).filePath("unconfirmed-XXXXXX"));QVERIFY(project.isValid());
+    const auto resultPath=project.filePath("result.json");
+    QProcess host;
+    host.start(QCoreApplication::applicationFilePath(),{"--tree-unconfirmed",runtime,project.path(),resultPath});
+    QVERIFY(host.waitForStarted(5000));
+    QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(resultPath),60000);
+    QFile resultFile(resultPath);QVERIFY(resultFile.open(QIODevice::ReadOnly));
+    const auto record=QJsonDocument::fromJson(resultFile.readAll()).object();resultFile.close();
+    QCOMPARE(record.value("code").toString(),QString("python_sandbox_cleanup_failed"));
+    QCOMPARE(record.value("error").toString(),QString("python_process_tree_not_reaped"));
+    const auto leases=QDir(QDir(controlRoot()).filePath("view-leases"));
+    const auto names=leases.entryList({"*.json"},QDir::Files);QCOMPARE(names.size(),1);
+    const auto moniker=names.first().section('.',2,3);
+    QVERIFY(windows_detail::validMoniker(moniker));
+    const auto journal=QDir(controlRoot()).filePath(moniker+".json");
+    const auto privateInput=QDir(controlRoot()).filePath("inputs/"+moniker);
+    const auto registryPath=QStringLiteral("Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppContainer\\Storage\\")+moniker;
+    const auto registryStatus=[&]{
+      HKEY key=nullptr;
+      const auto status=RegOpenKeyExW(HKEY_CURRENT_USER,(PCWSTR)registryPath.utf16(),0,KEY_READ,&key);
+      if(key)RegCloseKey(key);
+      return status;
+    };
+    QVERIFY(QFileInfo::exists(journal));QVERIFY(QFileInfo::exists(privateInput));
+    QCOMPARE(registryStatus(),LSTATUS(ERROR_SUCCESS));
+    const auto whileAlive=run("print('other host')");
+    QVERIFY2(whileAlive.ok(),qPrintable(whileAlive.code+':'+QString::fromUtf8(whileAlive.error)));
+    QVERIFY(QFileInfo::exists(journal));QVERIFY(QFileInfo::exists(privateInput));
+    QVERIFY(QFileInfo::exists(leases.filePath(names.first())));
+    QCOMPARE(registryStatus(),LSTATUS(ERROR_SUCCESS));
+    host.kill();QVERIFY(host.waitForFinished(10000));
+    const auto afterExit=run("print('recover')");
+    QVERIFY2(afterExit.ok(),qPrintable(afterExit.code+':'+QString::fromUtf8(afterExit.error)));
+    QVERIFY(!QFileInfo::exists(journal));QVERIFY(!QFileInfo::exists(privateInput));
+    QVERIFY(!QFileInfo::exists(leases.filePath(names.first())));
+    QCOMPARE(registryStatus(),LSTATUS(ERROR_FILE_NOT_FOUND));
+  }
   void activeSameHostStagingIsNotRecovered(){
     using windows_detail::view_test::setFailuresForTest;
     const auto views=QDir(QDir(controlRoot()).filePath("runtime-views"));
@@ -653,6 +704,7 @@ int main(int argc,char **argv){
   QCoreApplication app(argc,argv);QCoreApplication::setOrganizationName("PaleoTests");QCoreApplication::setApplicationName("tst_python_windows_sandbox");
 #ifdef Q_OS_WIN
   if(app.arguments().size()==5&&app.arguments()[1]=="--profile-crash")return crashHost(app.arguments());
+  if(app.arguments().size()==5&&app.arguments()[1]=="--tree-unconfirmed")return unconfirmedTreeHost(app.arguments());
   if(app.arguments().size()==6&&app.arguments()[1]=="--view-overlap")return overlapHost(app.arguments());
 #endif
   if(qEnvironmentVariable("PALEO_REQUIRE_AGENT_PYTHON_SANDBOX")!="1"&&runtimeRoot().isEmpty()){

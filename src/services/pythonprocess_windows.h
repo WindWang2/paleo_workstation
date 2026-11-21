@@ -11,6 +11,9 @@
 
 namespace paleo::python::windows_process {
 #ifdef Q_OS_WIN
+namespace test {
+void forceUnconfirmedTree(bool enabled);
+}
 // Host-only launch policy. A sandbox adapter must supply a complete, valid
 // package and capability set; a missing policy is the trusted-template mode.
 struct Security {

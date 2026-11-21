@@ -99,6 +99,7 @@ SandboxResult runWindowsSandbox(const SandboxRequest &original) {
   if(result.code=="cancelled"&&!cancelled(request)&&clock.elapsed()>=wall)result.code="python_process_timeout";
   if(!treeReaped){
     releaseView.dismiss(); // 不明进程仍可能使用视图，保留租约直至宿主退出。
+    profile.retainForRecovery=true;
     result.code="python_sandbox_cleanup_failed";result.error="python_process_tree_not_reaped";
     if(result.outputLog.isEmpty())result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));result.output.clear();
     return result;

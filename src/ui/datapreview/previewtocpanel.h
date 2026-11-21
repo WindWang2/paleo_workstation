@@ -92,6 +92,9 @@ class PreviewTocPanel : public QWidget
       double opacity = 1.0; // 滑杆当前值（0..1；D4.7 随资产记忆）
     };
     void rebuildList();
+    // 拖拽后按条目上的旧行号重排 m_rows，再把 UserRole 写成新视觉行号。
+    // 不回写的话，第二次拖拽仍用第一次之前的行号索引已经换过序的 m_rows。
+    void syncRowsFromListOrder();
     void rebuildQuickPanel();
     void applyRasterStyle( QgsRasterLayer *rl );
     void applyVectorStyle( QgsVectorLayer *vl );

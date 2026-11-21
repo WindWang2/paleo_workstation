@@ -101,6 +101,8 @@ class TestPreviewMapAssets : public QObject
     void tocOpacitySliderChangesLayerOpacity();
     void tocStatePersistsAcrossRebuild();
     void tocPropsLabelDoesNotOverlayQuickPanel();
+    void tocDragTwiceKeepsLayerOrder();
+    void identifyCsvWritesRasterSamplesAtomically();
     void geojsonLegendSidebarEntries();
     void geojsonLabelToggle();
     void geojsonTocCategorizedFieldSwitch();
@@ -533,6 +535,91 @@ void TestPreviewMapAssets::tocPropsLabelDoesNotOverlayQuickPanel()
   QCOMPARE(stack->indexOf(props), -1); // 不再是堆叠页
   QVERIFY(props->isVisible());
   QVERIFY(props->geometry().top() >= stack->geometry().bottom());
+}
+
+void TestPreviewMapAssets::tocDragTwiceKeepsLayerOrder()
+{
+  // UserRole 记下的是拖拽前的行号。重排 m_rows 后若不改写成新行号，
+  // 第二次拖拽会按旧行号索引新顺序，画布层序和勾选都错位。
+  PreviewTocPanel toc;
+  QgsVectorLayer a(QStringLiteral("Point?crs=EPSG:4326"), QStringLiteral("A"),
+                   QStringLiteral("memory"));
+  QgsVectorLayer b(QStringLiteral("Point?crs=EPSG:4326"), QStringLiteral("B"),
+                   QStringLiteral("memory"));
+  QgsVectorLayer c(QStringLiteral("Point?crs=EPSG:4326"), QStringLiteral("C"),
+                   QStringLiteral("memory"));
+  QVERIFY(a.isValid() && b.isValid() && c.isValid());
+  toc.addLayer(&a, QStringLiteral("A"), QStringLiteral("/a"));
+  toc.addLayer(&b, QStringLiteral("B"), QStringLiteral("/b"));
+  toc.addLayer(&c, QStringLiteral("C"), QStringLiteral("/c")); // 顶到底：C B A
+  auto *list = toc.findChild<QListWidget *>(QStringLiteral("previewTocList"));
+  QVERIFY(list);
+  QCOMPARE(list->count(), 3);
+
+  const auto names = [&toc] {
+    QStringList out;
+    for (QgsMapLayer *layer : toc.layersTopToBottom())
+      out << layer->name();
+    return out;
+  };
+  const auto listNames = [list] {
+    QStringList out;
+    for (int i = 0; i < list->count(); ++i)
+      out << list->item(i)->text();
+    return out;
+  };
+  QCOMPARE(names(), QStringList({QStringLiteral("C"), QStringLiteral("B"), QStringLiteral("A")}));
+
+  QVERIFY(list->model()->moveRow(QModelIndex(), 2, QModelIndex(), 0)); // A 置顶
+  QCOMPARE(listNames(), QStringList({QStringLiteral("A"), QStringLiteral("C"), QStringLiteral("B")}));
+  QCOMPARE(names(), listNames());
+  for (int i = 0; i < list->count(); ++i)
+    QCOMPARE(list->item(i)->data(Qt::UserRole).toInt(), i);
+
+  QVERIFY(list->model()->moveRow(QModelIndex(), 2, QModelIndex(), 0)); // B 置顶
+  QCOMPARE(listNames(), QStringList({QStringLiteral("B"), QStringLiteral("A"), QStringLiteral("C")}));
+  QCOMPARE(names(), listNames());
+
+  QSignalSpy vis(&toc, &PreviewTocPanel::layerVisibilityChanged);
+  list->item(0)->setCheckState(Qt::Unchecked);
+  QCOMPARE(vis.count(), 1);
+  QCOMPARE(vis.at(0).at(0).value<QgsMapLayer *>(), toc.layersTopToBottom().at(0));
+  QCOMPARE(toc.layersTopToBottom().at(0)->name(), QStringLiteral("B"));
+}
+
+void TestPreviewMapAssets::identifyCsvWritesRasterSamplesAtomically()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  PreviewIdentifyPanel panel;
+  PreviewIdentifyResult raster;
+  raster.isRaster = true;
+  raster.layerName = QStringLiteral("amp");
+  raster.rasterBand = 1;
+  raster.rasterValueNearest = 1.5;
+  raster.rasterValueBilinear = 1.25;
+  raster.rasterValid = true;
+  PreviewIdentifyResult vectorHit;
+  vectorHit.layerName = QStringLiteral("层,A");
+  vectorHit.featureId = 7;
+  vectorHit.attributes.insert(QStringLiteral("名"), QStringLiteral("a\"b"));
+  panel.setResults({raster, vectorHit});
+  const QString path = tmp.filePath(QStringLiteral("id.csv"));
+  panel.setExportTargetForTesting(path);
+  QSignalSpy exported(&panel, &PreviewIdentifyPanel::exportCsvRequested);
+  auto *btn = panel.findChild<QPushButton *>(QStringLiteral("identifyCsvBtn"));
+  QVERIFY(btn);
+  btn->click();
+  QCOMPARE(exported.count(), 1);
+  QCOMPARE(exported.at(0).at(0).toString(), path);
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const QByteArray raw = file.readAll();
+  QVERIFY(raw.startsWith("\xEF\xBB\xBF"));
+  const QString text = QString::fromUtf8(raw.mid(3));
+  QVERIFY(text.contains(QStringLiteral("amp,raster,nearest,1.5000")));
+  QVERIFY(text.contains(QStringLiteral("amp,raster,bilinear,1.2500")));
+  QVERIFY(text.contains(QStringLiteral("\"层,A\",#7,名,\"a\"\"b\"")));
 }
 
 // ---------------- geojson（D2.4/D2.6/D4.4） ----------------

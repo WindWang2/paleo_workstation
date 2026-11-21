@@ -25,6 +25,8 @@ class PreviewIdentifyPanel : public QWidget
     explicit PreviewIdentifyPanel( QWidget *parent = nullptr );
 
     void setResults( const QVector<PreviewIdentifyResult> &results );
+    // 供测试注入文件对话框目标（不弹窗）。空路径恢复弹窗。
+    void setExportTargetForTesting( const QString &csvPath );
     int resultCount() const { return m_results.size(); }
     const QVector<PreviewIdentifyResult> &results() const { return m_results; }
 

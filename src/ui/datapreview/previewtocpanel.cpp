@@ -18,8 +18,10 @@
 #include <QStackedLayout>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSet>
 #include <QSlider>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <qgsfillsymbol.h>
@@ -75,21 +77,8 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
   } );
   connect( m_list, &QListWidget::currentRowChanged, this, [this]( int ) { rebuildQuickPanel(); } );
   connect( m_list->model(), &QAbstractItemModel::rowsMoved, this, [this] {
-    if ( m_suppressSignals )
-      return;
-    QList<RowInfo> reordered;
-    for ( int i = 0; i < m_list->count(); ++i )
-    {
-      const int idx = m_list->item( i )->data( Qt::UserRole ).toInt();
-      if ( idx >= 0 && idx < m_rows.size() )
-        reordered.append( m_rows.at( idx ) );
-    }
-    if ( reordered.size() == m_rows.size() )
-    {
-      m_rows = reordered;
-      emit layerOrderChanged( layersTopToBottom() );
-      saveMemory();
-    }
+    if ( !m_suppressSignals )
+      syncRowsFromListOrder();
   } );
   lay->addWidget( m_list, 2 );
 
@@ -449,6 +438,40 @@ void PreviewTocPanel::setLegendEntries( const QVector<LegendEntry> &entries )
                 .arg( e.color.name(), e.name.toHtmlEscaped() );
   m_legendContent->setText( html );
   m_legendBox->setVisible( !entries.isEmpty() );
+}
+
+void PreviewTocPanel::syncRowsFromListOrder()
+{
+  if ( m_suppressSignals || m_list == nullptr )
+    return;
+  QList<RowInfo> reordered;
+  QSet<int> seen;
+  reordered.reserve( m_list->count() );
+  for ( int i = 0; i < m_list->count(); ++i )
+  {
+    QListWidgetItem *item = m_list->item( i );
+    bool ok = false;
+    const int idx = item != nullptr ? item->data( Qt::UserRole ).toInt( &ok ) : -1;
+    if ( item == nullptr || !ok || idx < 0 || idx >= m_rows.size() || seen.contains( idx ) )
+    {
+      QTimer::singleShot( 0, this, [this] { rebuildList(); } );
+      return;
+    }
+    seen.insert( idx );
+    reordered.append( m_rows.at( idx ) );
+  }
+  if ( reordered.size() != m_rows.size() )
+  {
+    QTimer::singleShot( 0, this, [this] { rebuildList(); } );
+    return;
+  }
+  m_rows = reordered;
+  m_suppressSignals = true;
+  for ( int i = 0; i < m_list->count(); ++i )
+    m_list->item( i )->setData( Qt::UserRole, i );
+  m_suppressSignals = false;
+  emit layerOrderChanged( layersTopToBottom() );
+  saveMemory();
 }
 
 void PreviewTocPanel::rebuildList()

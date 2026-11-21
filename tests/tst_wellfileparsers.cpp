@@ -110,6 +110,7 @@ private slots:
   void sheet1WellNameHeaderReadsOneTop();
   void baseMdHeaderIsNotStoredAsTopMd();
   void topDepthComesFromMdNotBaseMd();
+  void chineseHeadersKeepAxisAndBaseDepth();
   void stratTableWithoutSourceCrsKeepsImporting();
   void csvQuotedFieldsFollowRfc4180();
   // finding-58：分层表之后的纯井口页也要并入 heads（不再静默整表丢弃）
@@ -872,6 +873,71 @@ void WellFileParserTests::layerIntervalDatBasesMatchByKey()
     QCOMPARE(reparsed.at(i).topName, bases.at(i).topName);
     QCOMPARE(reparsed.at(i).md, bases.at(i).md);
   }
+}
+
+void WellFileParserTests::chineseHeadersKeepAxisAndBaseDepth()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  const QString swapped = dir.filePath(QStringLiteral("swap.csv"));
+  QVERIFY(writeCsv(swapped, QStringLiteral("井号,X（纵坐标）,Y（横坐标）\nA1,2361000,303500\n").toUtf8()));
+  const auto swapTable = paleo::io::readWellTable(swapped);
+  QVERIFY2(swapTable.error.isEmpty(), qPrintable(swapTable.error));
+  QCOMPARE(swapTable.mapping.value(QStringLiteral("x")).toString(), QStringLiteral("Y（横坐标）"));
+  QCOMPARE(swapTable.mapping.value(QStringLiteral("y")).toString(), QStringLiteral("X（纵坐标）"));
+  QCOMPARE(swapTable.heads.size(), 1);
+  QCOMPARE(swapTable.heads[0].x, 303500.0);
+  QCOMPARE(swapTable.heads[0].y, 2361000.0);
+
+  const QString utm = dir.filePath(QStringLiteral("utm.csv"));
+  QVERIFY(writeCsv(utm, QStringLiteral("井号,井口横坐标X_UTM49N(m),井口纵坐标Y_UTM49N(m)\nA1,233240.46,3997621.12\n").toUtf8()));
+  const auto utmTable = paleo::io::readWellTable(utm);
+  QVERIFY2(utmTable.error.isEmpty(), qPrintable(utmTable.error));
+  QCOMPARE(utmTable.mapping.value(QStringLiteral("x")).toString(), QStringLiteral("井口横坐标X_UTM49N(m)"));
+  QCOMPARE(utmTable.heads.size(), 1);
+  QCOMPARE(utmTable.heads[0].x, 233240.46);
+
+  const QString bottom = dir.filePath(QStringLiteral("bottom.csv"));
+  QVERIFY(writeCsv(bottom, QStringLiteral("井号,横坐标,纵坐标,井底横坐标,邻井井号\nA1,100,200,999,B2\n").toUtf8()));
+  const auto bottomTable = paleo::io::readWellTable(bottom);
+  QVERIFY2(bottomTable.error.isEmpty(), qPrintable(bottomTable.error));
+  QCOMPARE(bottomTable.mapping.value(QStringLiteral("well")).toString(), QStringLiteral("井号"));
+  QCOMPARE(bottomTable.mapping.value(QStringLiteral("x")).toString(), QStringLiteral("横坐标"));
+  QCOMPARE(bottomTable.heads.size(), 1);
+  QCOMPARE(bottomTable.heads[0].name, QStringLiteral("A1"));
+  QCOMPARE(bottomTable.heads[0].x, 100.0);
+  QCOMPARE(bottomTable.heads[0].y, 200.0);
+
+  const QString dup = dir.filePath(QStringLiteral("dup.csv"));
+  QVERIFY(writeCsv(dup, QStringLiteral("井号,横坐标,纵坐标,横坐标\nA1,100,200,300\n").toUtf8()));
+  const auto dupTable = paleo::io::readWellTable(dup);
+  QVERIFY2(!dupTable.error.isEmpty(), qPrintable(dupTable.error));
+  QVERIFY(dupTable.heads.isEmpty());
+
+  const QString layers = dir.filePath(QStringLiteral("interval.csv"));
+  QVERIFY(writeCsv(layers, QStringLiteral("井号,层位,顶界深度,底界深度\nA1,D61,100,180\n").toUtf8()));
+  QVector<WellTopRecord> bases;
+  const auto layerTable = paleo::io::readWellTable(layers, {}, &bases);
+  QVERIFY2(layerTable.error.isEmpty(), qPrintable(layerTable.error));
+  QCOMPARE(layerTable.tops.size(), 1);
+  QVERIFY(layerTable.tops[0].hasMd);
+  QCOMPARE(layerTable.tops[0].md, 100.0);
+  QCOMPARE(bases.size(), 1);
+  QVERIFY(bases[0].hasMd);
+  QCOMPARE(bases[0].md, 180.0);
+
+  WellParseReport report;
+  const auto baseOnly = parseWellTopsText(QStringLiteral("# 井号 层位 底界深度\nA1 D61 1500\n").toUtf8(), &report);
+  QVERIFY(baseOnly.isEmpty());
+  QVERIFY(!report.issues.isEmpty());
+
+  const auto both = parseWellTopsText(QStringLiteral("# 井号 层位 顶界深度 底界深度\nA1 D61 100 180\n").toUtf8());
+  QCOMPARE(both.size(), 1);
+  QVERIFY(both[0].hasMd);
+  QCOMPARE(both[0].md, 100.0);
+  QCOMPARE(both[0].wellName, QStringLiteral("A1"));
+  QCOMPARE(both[0].topName, QStringLiteral("D61"));
 }
 
 QTEST_GUILESS_MAIN(WellFileParserTests)

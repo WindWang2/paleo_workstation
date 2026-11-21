@@ -32,15 +32,36 @@ static QString withoutBom(const QByteArray &text)
 bool wellHeaderMatchesAlias(const QString &header, const QString &alias)
 {
   const bool ascii = !alias.contains(QRegularExpression(QStringLiteral("[^A-Za-z0-9_]")));
-  if (!ascii)
-    return header.contains(alias, Qt::CaseInsensitive);
-  // 单字母只认整词。更长的别名再认 _NAME，不放宽 \b，避免 MD 命中 BASE_MD。
-  const QString pattern = alias.size() <= 1
-                              ? QStringLiteral("\\b%1\\b")
-                              : QStringLiteral("\\b%1(?:_NAME)?\\b");
-  const QRegularExpression word(pattern.arg(QRegularExpression::escape(alias)),
-                                QRegularExpression::CaseInsensitiveOption);
-  return word.match(header).hasMatch();
+  if (ascii)
+  {
+    // 单字母只认整词。更长的别名再认 _NAME，不放宽 \b，避免 MD 命中 BASE_MD。
+    const QString pattern = alias.size() <= 1
+                                ? QStringLiteral("\\b%1\\b")
+                                : QStringLiteral("\\b%1(?:_NAME)?\\b");
+    const QRegularExpression word(pattern.arg(QRegularExpression::escape(alias)),
+                                  QRegularExpression::CaseInsensitiveOption);
+    return word.match(header).hasMatch();
+  }
+  // 井底坐标、位移和邻井井号不是本井井口列。整列排除，避免「横坐标」命中「井底横坐标」。
+  if (header.contains(QStringLiteral("井底")) || header.contains(QStringLiteral("位移")) ||
+      header.contains(QStringLiteral("偏移")) || header.contains(QStringLiteral("邻井")))
+    return false;
+  QString text = header.trimmed();
+  if (text.startsWith(QStringLiteral("井口")))
+    text.remove(0, 2);
+  static const QRegularExpression brackets(QStringLiteral("[()（）【】\\[\\]]"));
+  const QStringList segments = text.split(brackets, Qt::SkipEmptyParts);
+  for (QString segment : segments)
+  {
+    segment = segment.trimmed();
+    if (segment.compare(alias, Qt::CaseInsensitive) == 0)
+      return true;
+    // 「横坐标X_UTM49N」认横坐标；「底界深度」不认「深度」（下一个字仍是汉字）。
+    if (segment.size() > alias.size() && segment.startsWith(alias, Qt::CaseInsensitive) &&
+        segment.at(alias.size()).unicode() < 0x2E80)
+      return true;
+  }
+  return false;
 }
 
 namespace
@@ -184,15 +205,18 @@ namespace
     return false;
   }
 
-  // 底深列：整词 BASE_MD / BOTTOM_MD（及垂深、中文底界）。不占顶深角色。
+  // 底深列：整词 BASE_MD / BOTTOM_MD，以及中文底界。先于「深度」判定，
+  // 避免「底界深度」被顶深别名收走。不占顶深角色。
   bool isExplicitBaseDepth(const QString &token)
   {
     const QRegularExpression ascii(QStringLiteral("\\b(?:BASE|BOTTOM)_(?:MD|TVD)\\b"),
                                    QRegularExpression::CaseInsensitiveOption);
     if (ascii.match(token).hasMatch()) return true;
     for (const QString &name : {QStringLiteral("底界测深"), QStringLiteral("底测深"),
-                                QStringLiteral("底界垂深"), QStringLiteral("底垂深")})
-      if (token.contains(name)) return true;
+                                QStringLiteral("底界垂深"), QStringLiteral("底垂深"),
+                                QStringLiteral("底界深度"), QStringLiteral("底深"),
+                                QStringLiteral("底界")})
+      if (wellHeaderMatchesAlias(token, name)) return true;
     return false;
   }
 
@@ -214,6 +238,7 @@ namespace
         m.top = i;
       else if (m.md < 0 && tokenMatches(t, {QStringLiteral("depthmd"),
                                             QStringLiteral("md"),
+                                            QStringLiteral("顶界测深"), QStringLiteral("顶界深度"),
                                             QStringLiteral("顶深"), QStringLiteral("深度")}))
         m.md = i;
       else if (m.x < 0 && tokenMatches(t, {QStringLiteral("x")}))
@@ -320,7 +345,15 @@ namespace
         r.z = std::numeric_limits<double>::quiet_NaN();
       if (st.cmap.tvd >= 0) r.hasTvd = ctx.column(t, st.cmap.tvd, "TVD", &r.tvd, false);
       if (st.cmap.time >= 0) r.hasTime = ctx.column(t, st.cmap.time, "Time(ms)", &r.timeMs, false);
-      if (!r.hasMd && !r.hasTvd && !r.hasTime) { ++ctx.report.rejectedRows; return; }
+      if (!r.hasMd && !r.hasTvd && !r.hasTime)
+      {
+        ++ctx.report.rejectedRows;
+        // 只有底界列时不把底深写成顶深。记一条原因，避免整表被静默丢光。
+        if (st.explicitDepthBasis && st.cmap.md < 0 && st.cmap.tvd < 0 && st.cmap.time < 0)
+          ctx.report.issues.append(QCoreApplication::translate(
+              "WellFileParsers", "第 %1 行：只有底界列，不把底界当成顶深").arg(ctx.line));
+        return;
+      }
       tops.append(r);
       ++ctx.report.acceptedRows;
       return;

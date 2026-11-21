@@ -246,7 +246,7 @@ bool SattrVolumeWriter::begin(const QString &path, const SattrVolumeInfo &info,
     return false;
   }
   info_ = info;
-  info_.blockCount = (info.nIl + info.blockIl - 1) / info.blockIl;
+  info_.blockCount = int((qint64(info.nIl) + qint64(info.blockIl) - 1) / qint64(info.blockIl));
 
   QJsonArray ilArr, xlArr;
   for (int v : info.ilValues)
@@ -476,24 +476,40 @@ bool SattrVolumeReader::open(const QString &path, QString *error)
       info.ilValues.size() != info.nIl || info.xlValues.size() != info.nXl ||
       qint64(info.nIl) * info.nXl * info.nS > std::numeric_limits<int>::max())
     return fail(QStringLiteral("SATV 头几何/轴值表无效：%1").arg(path));
-  const int expectBlocks = (info.nIl + info.blockIl - 1) / info.blockIl;
-  if (info.blockCount != expectBlocks)
+  // 块数用 qint64。nIl + blockIl 在 int 里会回绕成负数，再和 JSON 里的 -1
+  // 对上，blocks_.resize 会按 uint32 最大值分配。
+  const qint64 expectBlocks64 =
+      (qint64(info.nIl) + qint64(info.blockIl) - 1) / qint64(info.blockIl);
+  if (expectBlocks64 <= 0 ||
+      expectBlocks64 > qint64(std::numeric_limits<int>::max()) ||
+      qint64(info.blockCount) != expectBlocks64)
     return fail(QStringLiteral("SATV 块数与几何不符（%1 != %2）")
-                    .arg(info.blockCount).arg(expectBlocks));
+                    .arg(info.blockCount).arg(expectBlocks64));
 
   quint32 blockCount = 0;
   stream >> blockCount;
-  if (blockCount != quint32(expectBlocks))
+  if (qint64(blockCount) != expectBlocks64)
     return fail(QStringLiteral("SATV 块表条数无效：%1").arg(path));
-  blocks_.resize(std::size_t(blockCount));
   const qint64 fileSize = file_.size();
-  const qint64 tableStart = 12 + json.size() + 4;
-  const qint64 payloadStart = tableStart + qint64(16) * blockCount;
+  const qint64 tableStart = 12 + qint64(json.size()) + 4;
+  if (tableStart > fileSize ||
+      expectBlocks64 > (std::numeric_limits<qint64>::max() - tableStart) / 16)
+    return fail(QStringLiteral("SATV 块表条数无效：%1").arg(path));
+  const qint64 tableBytes = expectBlocks64 * 16;
+  if (fileSize < tableStart + tableBytes)
+    return fail(QStringLiteral("SATV 块表条数无效：%1").arg(path));
+  blocks_.resize(std::size_t(expectBlocks64));
+  const qint64 payloadStart = tableStart + tableBytes;
   qint64 offset = payloadStart;
   for (quint32 b = 0; b < blockCount; ++b)
   {
-    const int rows = std::min(info.blockIl, info.nIl - int(b) * info.blockIl);
-    const qint64 bytes = qint64(rows) * info.nXl * info.nS * 4;
+    const qint64 rowStart = qint64(b) * qint64(info.blockIl);
+    if (rowStart < 0 || rowStart >= qint64(info.nIl))
+      return fail(QStringLiteral("SATV 块表寻址与文件不符：%1（块 %2）")
+                      .arg(path).arg(b));
+    const qint64 rows64 = std::min(qint64(info.blockIl), qint64(info.nIl) - rowStart);
+    const int rows = int(rows64);
+    const qint64 bytes = rows64 * qint64(info.nXl) * info.nS * 4;
     stream >> blocks_[std::size_t(b)].offset >> blocks_[std::size_t(b)].bytes;
     if (blocks_[std::size_t(b)].offset != quint64(offset) ||
         blocks_[std::size_t(b)].bytes != quint64(bytes) ||

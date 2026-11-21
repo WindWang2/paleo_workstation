@@ -624,6 +624,31 @@ private slots:
     }
   }
 
+  void volumeRejectsWrappedBlockCount()
+  {
+    // nIl=2、blockIl=INT_MAX：int 加法回绕后块数变成 -1。JSON 块数写成 -1、
+    // 二进制块数写成 uint32 最大值时，必须在 resize 之前拒收。
+    const QByteArray json = QByteArrayLiteral(
+        "{\"kind\":\"volume\",\"nIl\":2,\"nXl\":1,\"nS\":1,"
+        "\"blockIl\":2147483647,\"blockCount\":-1,"
+        "\"ilValues\":[1,2],\"xlValues\":[1]}");
+    const QString path = tempDir_.filePath(QStringLiteral("vol_wrap.sattr"));
+    {
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+      QDataStream stream(&f);
+      stream.setByteOrder(QDataStream::LittleEndian);
+      QVERIFY(stream.writeRawData("SATV", 4) == 4);
+      stream << quint32(1) << quint32(json.size());
+      QVERIFY(stream.writeRawData(json.constData(), int(json.size())) == int(json.size()));
+      stream << quint32(0xffffffffu);
+    }
+    SattrVolumeReader reader;
+    QString err;
+    QVERIFY2(!reader.open(path, &err), "wrapped block count must be rejected");
+    QVERIFY2(!err.isEmpty(), qPrintable(err));
+  }
+
   // 用 GDAL 抠掉数据集级元数据键（测试辅助：模拟「旧版写盘缺键」的缓存产物）。
   static bool stripDatasetMetadataItem(const QString &path, const QString &key)
   {

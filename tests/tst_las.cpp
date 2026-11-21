@@ -33,6 +33,7 @@ class TestLas : public QObject
     void depthRangeBadDepthTokenKeepsMonotonicGuard();
     // finding-49：NULL/NaN 深度行不得污染 lastDepth
     void depthRangeNullDepthRowDoesNotStopScan();
+    void depthRangePositiveNullDoesNotStopScan();
     // issue-810：头段超长无换行行如实拒收
     void headerLineGateRejectsGiantLine();
     void headerLineGateBoundaries_data();
@@ -878,6 +879,26 @@ void TestLas::depthRangeNullDepthRowDoesNotStopScan()
   file.write("~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nNULL. -999.25 :\nWELL. W1 :\n"
              "~C\nDEPT.M :\nGR.API :\n~A\n"
              "100 10\n-999.25 20\n200 30\n101 40\n");
+  file.close();
+
+  QStringList names;
+  QList<LasCurve> ranged;
+  QString error;
+  QVERIFY2(LasParser::parseDepthRange(path, 100.0, 101.0, names, ranged, &error), qPrintable(error));
+  QCOMPARE(ranged.size(), 2);
+  QCOMPARE(ranged[0].values, (QVector<double>{100.0, 101.0}));
+  QCOMPARE(ranged[1].values, (QVector<double>{10.0, 40.0}));
+}
+
+// 正数 NULL（不是常见的 -999.25）落在窗口外时，不能把它当成真实深度提前收尾。
+void TestLas::depthRangePositiveNullDoesNotStopScan()
+{
+  const QString path = m_tempDir.filePath("depthrange_posnull.las");
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write("~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nNULL. 5000 :\nWELL. W1 :\n"
+             "~C\nDEPT.M :\nGR.API :\n~A\n"
+             "100 10\n5000 20\n101 40\n");
   file.close();
 
   QStringList names;

@@ -15,6 +15,7 @@
 #include <QTemporaryDir>
 #include <QtEndian>
 
+#include <atomic>
 #include <limits>
 
 class CacheSegyIndexTests : public QObject
@@ -33,6 +34,7 @@ class CacheSegyIndexTests : public QObject
     void checkpointAuditRejectsTampered();
     void badTraceSkipKeepsIndex();
     void gapStatsReportMissing();
+    void gridCellSpanUsesWideDifference();
     void publishFailureStillUsable();
     // B6（wave/deepen-perf）：顺序路径坏道跳过放宽 + 变道长布局契约。
     void sequentialBadTraceSkipMatchesParallelContract();
@@ -368,6 +370,20 @@ void CacheSegyIndexTests::gapStatsReportMissing()
   QVERIFY(st.densityPercent > 99.99 && st.densityPercent <= 100.0);
 }
 
+void CacheSegyIndexTests::gridCellSpanUsesWideDifference()
+{
+  // inline 从 INT_MIN 到 INT_MAX：qint32 相减会回绕，跨度必须在 qint64 里算。
+  SegyIndexStore::StoredIndex index;
+  index.inlineNos = {std::numeric_limits<qint32>::min(), std::numeric_limits<qint32>::max()};
+  index.xlineNos = {0, 1};
+  const auto st = SegyIndexStore::computeStats(index);
+  const qint64 ilSpan = qint64(std::numeric_limits<qint32>::max()) -
+                        qint64(std::numeric_limits<qint32>::min()) + 1;
+  QCOMPARE(st.inlineMin, std::numeric_limits<qint32>::min());
+  QCOMPARE(st.inlineMax, std::numeric_limits<qint32>::max());
+  QCOMPARE(st.gridCells, ilSpan * 2);
+}
+
 void CacheSegyIndexTests::publishFailureStillUsable()
 {
   // D2.1 降级：缓存目录不可写（塞一个同名只读目录）→ openCached 仍成功。
@@ -445,6 +461,7 @@ bool makeDialectSegy(const QString &path, int inlCount, int xlCount, int samples
       put32(8, i + 1);                          // field record
       put32(20, x);                             // CDP = xline 序（道号位置 21）
       qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(trHdr.data() + 70)); // scal = 1
+      qToBigEndian<qint16>(48, reinterpret_cast<uchar *>(trHdr.data() + 108)); // delay ms
       put32(180, 500000 + 50 * x);              // CDP X（字节 181-184）
       put32(184, 4000000 + 100 * i);            // CDP Y（字节 185-188）
       qToBigEndian<qint16>(static_cast<qint16>(samples),
@@ -480,6 +497,12 @@ bool sameIndexAs(const SegyReader &r, const SegyReader &seq, QString *why)
       a.xlineMin != b.xlineMin || a.xlineMax != b.xlineMax)
   {
     if (why) *why = QStringLiteral("geometry range mismatch");
+    return false;
+  }
+  if (a.startTimeMs != b.startTimeMs)
+  {
+    if (why)
+      *why = QStringLiteral("startTimeMs %1 vs %2").arg(a.startTimeMs).arg(b.startTimeMs);
     return false;
   }
   for (int k = 0; k < 4; ++k)
@@ -642,6 +665,25 @@ void CacheSegyIndexTests::parallelDialectMatchesSequential()
   SegyReader resumed;
   QVERIFY2(resumed.openCached(sgy, idxB, &err), qPrintable(err));
   QVERIFY2(sameIndexAs(resumed, seq, &err), qPrintable(err));
+
+  // 路径 2b：取消发生在已经收入道之后。部分索引的线号和起始时间必须来自
+  // 已扫道，不能是默认 0；续扫完成后与顺序索引一致。
+  const QString idxC = m_dir.filePath("idxC");
+  {
+    SegyReader r;
+    SegyOptions opts;
+    std::atomic<int> checks{0};
+    opts.cancel = [&checks] { return checks.fetch_add(1) >= 4; };
+    QVERIFY(!r.openCached(sgy, idxC, &err, &opts));
+    QVERIFY(r.lastScanPartial());
+    QVERIFY(r.traceCount() > 0);
+    QVERIFY(r.traceCount() < seq.traceCount());
+    QCOMPARE(r.geometry().inlineMin, seq.geometry().inlineMin);
+    QCOMPARE(r.geometry().startTimeMs, seq.geometry().startTimeMs);
+  }
+  SegyReader resumedPartial;
+  QVERIFY2(resumedPartial.openCached(sgy, idxC, &err), qPrintable(err));
+  QVERIFY2(sameIndexAs(resumedPartial, seq, &err), qPrintable(err));
 
   // 路径 3：身份命中（路径 1 已发布完整索引）。
   SegyReader hit;

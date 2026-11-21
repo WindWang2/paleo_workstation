@@ -68,7 +68,10 @@ void LasAliasMap::buildTables()
     for (const char *a : aliases)
       m_curveTable.insert(normalizeCurveKey(QString::fromLatin1(a)), c);
   };
-  fam("DEPT", QStringLiteral("Depth"), {"DEPTH", "MD", "M_DEPTH", "DEPTMEAS", "DEPTH_MD", "TVD", "TVDSS"});
+  fam("DEPT", QStringLiteral("Depth"), {"DEPTH", "MD", "M_DEPTH", "DEPTMEAS", "DEPTH_MD"});
+  // TVD / TVDSS 同属深度族，但不是测深。并进 DEPT 会让第一条垂深曲线冒充 MD。
+  fam("TVD", QStringLiteral("Depth"), {});
+  fam("TVDSS", QStringLiteral("Depth"), {});
   fam("DT", QStringLiteral("Sonic"), {"AC", "DT4P", "DT35", "DTC", "DTCO", "SONIC", "DT_R"});
   fam("GR", QStringLiteral("Gamma"), {"NGR", "SGR", "CGR", "NGT", "GR_EDTC", "GRD", "GRS", "GAMMA"});
   fam("RHOB", QStringLiteral("Density"), {"DEN", "ZDEN", "RHOZ", "RHO8", "DENC", "RHOBC"});
@@ -82,7 +85,8 @@ void LasAliasMap::buildTables()
   fam("POR", QStringLiteral("Porosity"), {"PHIT", "PHIE", "PHIA", "PORO"});
   // #414：VS 是 S 波速度规范名——原别名 {"Vp","VP","VSONIC"} 全是 P 波词，
   // VP 曲线会冒充满足 VS 请求；S 波别名如实收窄。
-  fam("VS", QStringLiteral("Velocity"), {"SVEL", "VSH", "SHV"});
+  // VSH 在油田 LAS 里是泥质含量，不是横波速度。不映射，规范名保持 VSH。
+  fam("VS", QStringLiteral("Velocity"), {"SVEL", "SHV"});
 
   // ---- 单位 ----
   auto unit = [this](const QString &canon, std::initializer_list<const char *> aliases) {

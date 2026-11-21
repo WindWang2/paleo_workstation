@@ -131,14 +131,19 @@ struct ModalCloser : public QObject
   }
   // 后续模态看护：真实平台上被拒后 PaleoNotify::warning 还会弹一个模态框
   //（offscreen 有 B-05 守卫，xcb 没有）——继续以 reject 关闭后续框。
-  void watchFollowUps(int milliseconds)
+  // startDelayMs：确认框由 closeOne（10ms 拍）负责，看护延迟启动，不抢先把
+  // 确认框当后续 warning 关掉（否则 ask 被拒 → 空消息路径）。
+  void watchFollowUps(int milliseconds, int startDelayMs)
   {
     // QPointer 捕获：看护提前自灭（无可见对话框一拍）后，到期的停止器
     // 不再触碰已析构对象。
+    // 不自灭：xcb 上前一个确认框可能未被 WM 标记 visible（同 closeOne 的
+    // isModal 口径），第一拍看不到框不能说明看护结束——链上后续 warning 可能
+    // 稍后出现。只靠到期停止器收尾。
     QPointer<QTimer> watch(new QTimer(this));
     connect(watch, &QTimer::timeout, this, [this, watch] {
       for (QWidget *w : QApplication::topLevelWidgets())
-        if (qobject_cast<QMessageBox *>(w) && w->isVisible())
+        if (qobject_cast<QMessageBox *>(w) && (w->isVisible() || w->isModal()))
         {
           auto *box = qobject_cast<QMessageBox *>(w);
           for (auto *b : box->buttons())
@@ -150,19 +155,18 @@ struct ModalCloser : public QObject
           box->reject();
           return;
         }
-      if (watch)
-      {
-        watch->stop();
-        watch->deleteLater();
-      }
     });
-    watch->start(50);
-    QTimer::singleShot(milliseconds, this, [watch] {
-      if (watch)
-      {
-        watch->stop();
-        watch->deleteLater();
-      }
+    QTimer::singleShot(startDelayMs, this, [this, watch, milliseconds] {
+      if (!watch)
+        return;
+      watch->start(50);
+      QTimer::singleShot(milliseconds, this, [watch] {
+        if (watch)
+        {
+          watch->stop();
+          watch->deleteLater();
+        }
+      });
     });
   }
   void closeOne()
@@ -869,7 +873,7 @@ class TestCWorkbenchCommands : public QObject
       closer.accept = true;
       QTimer::singleShot(0, [&w] { w.window->setProjectReadOnly(true); });
       closer.arm();
-      closer.watchFollowUps(15000); // 拒绝后的 warning 模态框（xcb）也要有人关
+      closer.watchFollowUps(15000, 600); // 确认框（10ms 拍）之后再看护后续 warning
       handler->handleCommand(QStringLiteral("delete"), {{QStringLiteral("layer"), draft}});
       QVERIFY(closer.sawDialog);
       QVERIFY(feedback.message().contains(QStringLiteral("只读")));

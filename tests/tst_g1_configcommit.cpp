@@ -194,8 +194,7 @@ void TestG1ConfigCommit::newKeySuccessWritesFileThenKeyAndApplies() {
       runCommit(committer, store, form("m1"), "k1", true, form("m0"), &applied);
   QVERIFY2(result.ok, qPrintable(result.error));
   QCOMPARE(result.dones, 1);
-  QCOMPARE(store.ops,
-           QStringList{"writeConfig:m1", "writeKey:k1"}); // 文件先写、密钥后写
+  QCOMPARE(store.ops, (QStringList{"writeConfig:m1", "writeKey:k1"})); // 文件先写、密钥后写
   QCOMPARE(QString::fromUtf8(store.key), QStringLiteral("k1"));
   QVERIFY(fileHasModel(store.fileBytes, QStringLiteral("m1")));
   QCOMPARE(applied.model, QStringLiteral("m1"));
@@ -212,7 +211,7 @@ void TestG1ConfigCommit::clearKeySuccessAppliesEmptyKey() {
   const CommitResult result =
       runCommit(committer, store, form("m1"), "", true, form("m0"), &applied);
   QVERIFY2(result.ok, qPrintable(result.error));
-  QCOMPARE(store.ops, QStringList{"writeConfig:m1", "clearKey"});
+  QCOMPARE(store.ops, (QStringList{"writeConfig:m1", "clearKey"}));
   QVERIFY(store.key.isEmpty());
   QVERIFY(applied.apiKey.isEmpty()); // 清除后禁用态（无密钥）
 }
@@ -228,7 +227,7 @@ void TestG1ConfigCommit::reuseKeyKeepsCurrentKeyWithoutKeyOp() {
   const CommitResult result =
       runCommit(committer, store, form("m1"), "", false, current, &applied);
   QVERIFY2(result.ok, qPrintable(result.error));
-  QCOMPARE(store.ops, QStringList{"writeConfig:m1"}); // 不动钥匙串
+  QCOMPARE(store.ops, (QStringList{"writeConfig:m1"})); // 不动钥匙串
   QCOMPARE(QString::fromUtf8(store.key), QStringLiteral("k0"));
   QCOMPARE(applied.apiKey, QByteArray("k0")); // 沿用当前密钥
 }
@@ -245,7 +244,7 @@ void TestG1ConfigCommit::fileWriteFailureLeavesStoresConsistent() {
       runCommit(committer, store, form("m1"), "k1", false, form("m0"), &applied);
   QVERIFY(!result.ok);
   QVERIFY(result.error.contains(QStringLiteral("配置写入失败")));
-  QCOMPARE(store.ops, QStringList{"writeConfig:m1"}); // 密钥操作未发生
+  QCOMPARE(store.ops, (QStringList{"writeConfig:m1"})); // 密钥操作未发生
   QCOMPARE(QString::fromUtf8(store.key), QStringLiteral("k0")); // 旧组合完好
   QVERIFY(fileHasModel(store.fileBytes, QStringLiteral("m0")));
   QCOMPARE(applied.model, QStringLiteral("sentinel")); // 未生效
@@ -263,8 +262,8 @@ void TestG1ConfigCommit::keyWriteFailureRestoresPreviousFile() {
       runCommit(committer, store, form("m1"), "k1", false, form("m0"), &applied);
   QVERIFY(!result.ok);
   QVERIFY(result.error.contains(QStringLiteral("密钥写入钥匙串失败")));
-  QCOMPARE(store.ops, QStringList{"writeConfig:m1", "writeKey:k1",
-                                  "writeFileBytes:14"}); // 失败 → 还原旧原文
+  QCOMPARE(store.ops, (QStringList{"writeConfig:m1", "writeKey:k1",
+                                  "writeFileBytes:14"})); // 失败 → 还原旧原文
   QVERIFY(fileHasModel(store.fileBytes, QStringLiteral("m0"))); // 回到旧一致组合
   QCOMPARE(QString::fromUtf8(store.key), QStringLiteral("k0"));
   QCOMPARE(applied.model, QStringLiteral("sentinel")); // 新组合未生效
@@ -281,7 +280,7 @@ void TestG1ConfigCommit::keyWriteFailureWithoutPreviousFileClearsKeychain() {
   QVERIFY(!result.ok);
   QVERIFY(store.ops.contains(QStringLiteral("clearKey"))); // 降级清钥匙串
   QVERIFY(store.key.isEmpty()); // 重启 = 新端点 + 无密钥 → 诚实禁用态
-  QVERIFY(store.fileBytes.contains(QStringLiteral("m1"))); // 文件保留（非敏感）
+  QVERIFY(store.fileBytes.contains("m1")); // 文件保留（非敏感）
 }
 
 void TestG1ConfigCommit::restoreFailureFallsBackToClearKeychain() {
@@ -354,13 +353,13 @@ void TestG1ConfigCommit::serializedCommitsKeepActualStorageOrder() {
                    },
                    [&](const LlmConfig &config) { appliedSecond = config; });
   // 第二个提交已入队，但密钥操作必须尚未开始（第一个在途）。
-  QCOMPARE(store.ops, QStringList{"writeConfig:m1", "writeKey:k1"});
+  QCOMPARE(store.ops, (QStringList{"writeConfig:m1", "writeKey:k1"}));
   store.settlePending(); // 完成第一个 → 链推进第二个
   store.settlePending(); // 完成第二个
   QVERIFY(first.ok);
   QVERIFY(second.ok);
-  QCOMPARE(store.ops, QStringList{"writeConfig:m1", "writeKey:k1", "writeConfig:m2",
-                                  "writeKey:k2"});
+  QCOMPARE(store.ops, (QStringList{"writeConfig:m1", "writeKey:k1", "writeConfig:m2",
+                                  "writeKey:k2"}));
   QCOMPARE(QString::fromUtf8(store.key), QStringLiteral("k2")); // 末次写入胜出
   QVERIFY(fileHasModel(store.fileBytes, QStringLiteral("m2")));
   QCOMPARE(appliedSecond.model, QStringLiteral("m2"));

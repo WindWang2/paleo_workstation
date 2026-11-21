@@ -201,6 +201,7 @@ private:
   };
 
   bool alive(int generation) const { return generation == m_generation; }
+  void installDeadlineTimers(); // 双构造共用的计时器接线
   void releaseReply();
   // 统一失败终态：旧 attempt 的迟到失败静默丢弃；新 attempt 不被旧失败
   // 误伤；消息先按 attempt 密钥脱敏再出网。
@@ -230,8 +231,8 @@ private:
   qint64 m_received = 0;    // 已收字节数（readyRead 与 finished tail 统一口径）
   LlmStreamParser m_parser;
   int m_generation = 0;     // 世代号：cancel/send/终态后作废迟到信号
-  // 本轮是否真见过 SSE 事件（增量/工具帧/[DONE]/注释以外的字段都算）：
-  // stream=true 却收到普通 JSON 应答时的判别依据（#588）——没见过事件又确是
-  // chat completions 形状，按非流式解析，不把零增量当成功 finishUp。
+  // 本轮是否真见过 SSE 事件（增量/工具帧/[DONE]/解析过的坏事件；注释心跳
+  // 不算）：stream=true 却收到普通 JSON 应答时的判别依据（#588）——没见过
+  // 事件又确是 chat completions 形状，按非流式解析，不把零增量当成功。
   bool m_sawStreamEvent = false;
 };

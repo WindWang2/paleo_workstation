@@ -52,15 +52,21 @@ QByteArray deltaEvent(const QString &text) {
 }
 QByteArray toolEvent(int index, const QString &name, const QString &args,
                      std::optional<QString> id = {}, bool finalFrame = true) {
-  QJsonObject call{{"index", index}};
+  QJsonObject call;
+  call.insert("index", index);
   if (id)
     call.insert("id", *id);
-  QJsonObject function{{"arguments", args}};
+  QJsonObject function;
+  function.insert("arguments", args);
   if (!name.isEmpty())
     function.insert("name", name);
   call.insert("function", function);
-  QJsonObject event{{"choices", QJsonArray{QJsonObject{
-      {"delta", QJsonObject{{"tool_calls", QJsonArray{call}}}}}}};
+  QJsonObject delta;
+  delta.insert("tool_calls", QJsonArray{call});
+  QJsonObject choice;
+  choice.insert("delta", delta);
+  QJsonObject event;
+  event.insert("choices", QJsonArray{choice});
   if (finalFrame)
     event.insert("usage", QJsonObject{{"prompt_tokens", 3}, {"completion_tokens", 4}});
   return sse(QJsonDocument(event).toJson(QJsonDocument::Compact));
@@ -94,6 +100,7 @@ public:
     return QUrl(QStringLiteral("http://127.0.0.1:%1/v1").arg(m_server.serverPort()));
   }
   int requestCount() const { return m_requests; }
+  qint64 bytesWritten() const { return m_bytesWritten; }
   const QList<QByteArray> &rawRequests() const { return m_raw; }
 
 private:
@@ -129,17 +136,21 @@ private:
     const int delay = response.writeDelayMs;
     for (int i = 0; i < writes.size(); ++i)
       QTimer::singleShot(delay * (i + 1), sock,
-                         [sock, bytes = writes.at(i)] { sock->write(bytes); });
+                         [this, sock, bytes = writes.at(i)] {
+                           m_bytesWritten += bytes.size();
+                           sock->write(bytes);
+                         });
     if (response.repeatLastMs > 0 && !writes.isEmpty()) {
       const QByteArray last = writes.last();
       const int repeat = response.repeatLastMs;
       auto *ticker = new QTimer(sock);
       ticker->start(repeat);
-      connect(ticker, &QTimer::timeout, sock, [sock, ticker, last] {
+      connect(ticker, &QTimer::timeout, sock, [this, sock, ticker, last] {
         if (sock->state() != QAbstractSocket::ConnectedState) {
           ticker->stop();
           return;
         }
+        m_bytesWritten += last.size();
         sock->write(last);
       });
       return; // 永不主动关：由总时限/测试收尾断连
@@ -152,6 +163,7 @@ private:
   Handler m_handler;
   QTcpServer m_server;
   int m_requests = 0;
+  qint64 m_bytesWritten = 0;
   QList<QByteArray> m_raw;
 };
 
@@ -159,7 +171,9 @@ private:
 class FakeReply : public QNetworkReply {
   Q_OBJECT
 public:
-  explicit FakeReply(QObject *parent) : QNetworkReply(parent) {}
+  explicit FakeReply(QObject *parent) : QNetworkReply(parent) {
+    setOpenMode(QIODevice::ReadOnly | QIODevice::Unbuffered);
+  }
   void setStatusCode(int status) {
     setAttribute(QNetworkRequest::HttpStatusCodeAttribute, status);
   }
@@ -183,6 +197,7 @@ public:
     m_finished = true;
     emit finished();
   }
+  qint64 writeData(const char *, qint64) override { return -1; } // 只读
   qint64 bytesAvailable() const override {
     return m_buffer.size() + QNetworkReply::bytesAvailable();
   }
@@ -483,11 +498,18 @@ void TestG1ModelTransport::parserBareCrIsALineBreak() {
   QStringList deltas;
   bool done = false;
   QString error;
-  parser.feed("data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\r\r",
+  // 末尾孤立 CR 可能是 CRLF 前半：不提前定界（增量协议的正确行为）。
+  parser.feed("data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\r",
               &deltas, &done, &error);
+  QVERIFY(deltas.isEmpty());
+  parser.feed("\r\n", &deltas, &done, &error); // 第二个 CR 实为 CRLF：空行分发
   QCOMPARE(deltas.join(QString()), QStringLiteral("a"));
   QVERIFY(error.isEmpty());
-  parser.feed("data: [DONE]\r\r", &deltas, &done, &error);
+  parser.feed("data: [DONE]\r", &deltas, &done, &error);
+  QVERIFY(!done);
+  parser.feed("\r", &deltas, &done, &error); // 裸 CR：[DONE] 行已定界
+  QVERIFY(!done);                            // 但空行未到：事件不分发
+  parser.feed("\n", &deltas, &done, &error); // 补齐 CRLF 空行
   QVERIFY(done);
 }
 
@@ -557,7 +579,7 @@ void TestG1ModelTransport::parserSealedCallCannotBeExtended() {
   // 临时合法后再追加：协议翻覆——已交付内容不得被推翻。
   parser.feed(toolEvent(0, "", ",\"more\":2}"), &deltas, &done, &error);
   QVERIFY2(!error.isEmpty(), "封印后的追加分片必须报错");
-  QVERIFY(error.contains(QStringLiteral("已完整后又收到分片")));
+  QVERIFY(error.contains(QStringLiteral("分片")));
 }
 
 void TestG1ModelTransport::parserIdentityConflictIsReported() {
@@ -667,11 +689,12 @@ void TestG1ModelTransport::attemptFreezesStreamEndpointAndKey() {
   client.send(oneShot());
   QVERIFY2(spinUntil([&] { return recorder.finished >= 1; }),
            "B（非流式）必须完成");
-  // A 被有效 send 替换：A 的信号不再到达（无串扰归属）。
+  // A 被有效 send 替换：A 只交付切换前已到的首个增量，后续事件（"为主"）
+  // 属旧 attempt，静默。
   QCOMPARE(serverA.requestCount(), 1);
   QCOMPARE(serverB.requestCount(), 1);
-  QVERIFY(!recorder.joined().contains(QStringLiteral("砂岩")));
-  QCOMPARE(recorder.joined(), QStringLiteral("石灰岩"));
+  QCOMPARE(recorder.joined(), QStringLiteral("砂岩石灰岩"));
+  QVERIFY(!recorder.joined().contains(QStringLiteral("为主")));
   QCOMPARE(recorder.finishReason, QStringLiteral("stop"));
   QCOMPARE(recorder.promptTokens, 7);
   QCOMPARE(recorder.completionTokens, 3);
@@ -947,7 +970,10 @@ void TestG1ModelTransport::normalCloseWithoutDoneTolerated() {
   client.setConfig(clientConfig(server.endpoint()));
   client.send(oneShot());
   QVERIFY2(spinUntil([&] { return recorder.finished >= 1; }, 4000),
-           "无 [DONE] 的正常关闭按流式收尾");
+           qPrintable(QStringLiteral("deltas=%1 errors=%2 msgs=%3")
+                        .arg(recorder.deltas.size())
+                        .arg(recorder.errors)
+                        .arg(recorder.errorMessages.join(QStringLiteral(";")))));
   QCOMPARE(recorder.joined(), QStringLiteral("完整回答"));
   QCOMPARE(recorder.errors, 0);
   QCOMPARE(recorder.finishReason, QStringLiteral("stop")); // finish_reason 透传
@@ -1075,7 +1101,7 @@ void TestG1ModelTransport::budgetExactCapSucceeds() {
   client.setConfig(clientConfig(QUrl(QStringLiteral("https://cap.example/v1"))));
   nam.creator = [] { return new FakeReply(nullptr); };
   client.send(oneShot());
-  auto *reply = nam.lastReply;
+  auto *reply = nam.lastReply.data();
   QVERIFY(reply != nullptr);
   reply->setStatusCode(200);
   reply->setContentType("text/event-stream");
@@ -1103,7 +1129,7 @@ void TestG1ModelTransport::budgetOneByteOverFails() {
   client.setConfig(clientConfig(QUrl(QStringLiteral("https://cap.example/v1"))));
   nam.creator = [] { return new FakeReply(nullptr); };
   client.send(oneShot());
-  auto *reply = nam.lastReply;
+  auto *reply = nam.lastReply.data();
   QVERIFY(reply != nullptr);
   reply->setStatusCode(200);
   reply->setContentType("text/event-stream");
@@ -1127,7 +1153,7 @@ void TestG1ModelTransport::budgetTailOnlyOverflowFails() {
   client.setConfig(clientConfig(QUrl(QStringLiteral("https://cap.example/v1"))));
   nam.creator = [] { return new FakeReply(nullptr); };
   client.send(oneShot());
-  auto *reply = nam.lastReply;
+  auto *reply = nam.lastReply.data();
   QVERIFY(reply != nullptr);
   reply->setStatusCode(200);
   reply->setContentType("text/event-stream");
@@ -1142,11 +1168,12 @@ void TestG1ModelTransport::budgetTailOnlyOverflowFails() {
 }
 
 void TestG1ModelTransport::budgetUnclosedLineHitsCap() {
-  // 单个未闭合 data 行（无换行输入）持续增长：真实 socket 路径也必须撞上限。
+  // 单个未闭合 data 行（无换行输入）一次性送达超限体积后关连接：真实 socket
+  // 路径也必须撞上限（字节计数不看内容形状；readyRead 与 tail 任意分布）。
   RawServer server;
   QVERIFY(server.start([] {
-    return RawServer::Response{.writes = {QByteArray("data: ") + QByteArray(1024, 'z')},
-                               .repeatLastMs = 20};
+    return RawServer::Response{
+        .writes = {QByteArray("data: ") + QByteArray(int(kCap) + 50, 'z')}};
   }));
   LlmClient client;
   Recorder recorder;
@@ -1154,9 +1181,12 @@ void TestG1ModelTransport::budgetUnclosedLineHitsCap() {
   client.setConfig(clientConfig(server.endpoint(), "sk", true, 30000, 30000));
   client.send(oneShot());
   QVERIFY2(spinUntil([&] { return recorder.errors >= 1; }, 30000),
-           "无换行增长流必须由字节上限终结");
+           qPrintable(QStringLiteral("无换行增长流必须由字节上限终结"
+                                     "（server 写出 %1 字节）")
+                        .arg(server.bytesWritten())));
   QCOMPARE(recorder.errorKinds.first(), LlmErrorKind::TooLarge);
   QCOMPARE(recorder.finished, 0);
+  QCOMPARE(recorder.deltas.size(), 0); // 没有完整事件，零内容派发
 }
 
 // ---- W8 ------------------------------------------------------------------

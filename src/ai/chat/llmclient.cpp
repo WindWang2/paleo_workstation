@@ -198,16 +198,25 @@ QString llmErrorLabel(LlmErrorKind kind) {
 // LlmClient
 // ---------------------------------------------------------------------------
 LlmClient::LlmClient(QObject *parent)
-  : LlmClient(new QNetworkAccessManager, parent) {}
+  : QObject(parent)
+  , m_nam(new QNetworkAccessManager(this))
+  , m_timer(new QTimer(this))
+  , m_totalTimer(new QTimer(this)) {
+  installDeadlineTimers();
+}
 
+// 注入构造：NAM 归调用方所有（栈上注入时 reparent 会造成「栈作用域 +
+// 父对象」双重析构）；默认构造自持 NAM。
 LlmClient::LlmClient(QNetworkAccessManager *networkAccessManagerForTesting,
                      QObject *parent)
   : QObject(parent)
   , m_nam(networkAccessManagerForTesting)
   , m_timer(new QTimer(this))
   , m_totalTimer(new QTimer(this)) {
-  if (m_nam)
-    m_nam->setParent(this);
+  installDeadlineTimers();
+}
+
+void LlmClient::installDeadlineTimers() {
   m_timer->setSingleShot(true);
   connect(m_timer, &QTimer::timeout, this, [this]() {
     // idle 与 total 共用 LlmErrorKind::Timeout（enum 兼容），文案区分
@@ -342,8 +351,8 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
     bool done = false;
     QString parseError;
     m_parser.feed(chunk, &deltas, &done, &parseError);
-    if (!parseError.isEmpty())
-      m_sawStreamEvent = true; // 解析过 SSE 形态流量：不再走非 SSE 兼容层
+    if (!parseError.isEmpty() || !deltas.isEmpty())
+      m_sawStreamEvent = true; // 见过真 SSE 事件（文本/坏事件）：不走非 SSE 兼容层
     for (const QString &text : deltas) {
       emit deltaReceived(text);
       if (!self || !alive(generation))

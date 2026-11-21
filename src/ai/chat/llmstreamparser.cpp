@@ -186,7 +186,7 @@ void LlmStreamParser::accumulateChoice(const QJsonObject &choice,
         // 身份冲突（同 index 先后给出不同 id）：禁止无声覆盖。
         if (error && error->isEmpty())
           *error = QObject::tr("工具调用 index=%1 的 id 前后冲突（%2 → %3）")
-                       .arg(index, draft.id, id);
+                       .arg(index).arg(draft.id, id);
       } else {
         draft.id = id;
       }
@@ -197,7 +197,7 @@ void LlmStreamParser::accumulateChoice(const QJsonObject &choice,
       if (!draft.name.isEmpty() && draft.name != name) {
         if (error && error->isEmpty())
           *error = QObject::tr("工具调用 index=%1 的 name 前后冲突（%2 → %3）")
-                       .arg(index, draft.name, name);
+                       .arg(index).arg(draft.name, name);
       } else {
         draft.name = name;
       }

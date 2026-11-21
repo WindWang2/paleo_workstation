@@ -73,22 +73,29 @@ class MappingWorkbenchCommandController : public QObject, public WorkbenchComman
         QPointer<MappingWorkbenchPage> page;
         QPointer<QWidget> dialogParent;
         QPointer<QStatusBar> statusBar;
-        QgisCanvasController *canvasCtl = nullptr;
-        QgisLayerService *layerSvc = nullptr;
+        // C-W4（#988）：可销毁 QObject 一律 QPointer——模态边界（删除确认、
+        // 文件/参数对话框）返回后按 WorkbenchAdmission::admit 复核存活，
+        // 不再依赖装配时刻的裸指针。
+        QPointer<QgisCanvasController> canvasCtl;
+        QPointer<QgisLayerService> layerSvc;
         QPointer<MappingWorkbenchImpactFeedback> impact;
         std::function<bool()> factorBusy;
         std::function<PaleoTaskService *()> taskService;
         Navigation navigation;
-        PaleoEditingToolbar *edit = nullptr;
-        ConstraintPage *constraint = nullptr;
-        WellPredictionPanel *wellPanel = nullptr;
-        QDockWidget *wellDock = nullptr;
+        QPointer<PaleoEditingToolbar> edit;
+        QPointer<ConstraintPage> constraint;
+        QPointer<WellPredictionPanel> wellPanel;
+        QPointer<QDockWidget> wellDock;
         LegendFn legend;
         ShowFn show;
         ShowFn compare;
         OpenWellsFn openWells;
         BeginEditFn beginEdit;
         std::shared_ptr<QHash<QString, QString>> shown;
+        // C-W2：宿主状态钩子（触发时刻现读，不是装配快照）。留空的测试壳按
+        // 可写、非切换处理；生产装配由 attachWorkbenchCommands 注入。
+        std::function<bool()> projectReadOnly;  // 工程只读（Mutating 拒绝）
+        std::function<bool()> projectSwitching; // 工程打开/切换中（一律拒绝）
     };
 
     explicit MappingWorkbenchCommandController(Context context, QObject *parent = nullptr);

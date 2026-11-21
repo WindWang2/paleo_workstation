@@ -387,6 +387,12 @@ void PerfLasTests::aliasFamilies()
   QCOMPARE(m.family(QStringLiteral("NGR")), QStringLiteral("Gamma"));
   QCOMPARE(m.family(QStringLiteral("ZDEN")), QStringLiteral("Density"));
   QCOMPARE(m.family(QStringLiteral("TVDSS")), QStringLiteral("Depth"));
+  QCOMPARE(m.canonicalCurve(QStringLiteral("TVDSS")), QStringLiteral("TVDSS"));
+  QCOMPARE(m.canonicalCurve(QStringLiteral("TVD")), QStringLiteral("TVD"));
+  QCOMPARE(m.family(QStringLiteral("TVD")), QStringLiteral("Depth"));
+  QCOMPARE(m.canonicalCurve(QStringLiteral("DEPT")), QStringLiteral("DEPT"));
+  QCOMPARE(m.canonicalCurve(QStringLiteral("VSH")), QStringLiteral("VSH"));
+  QCOMPARE(m.canonicalCurve(QStringLiteral("SVEL")), QStringLiteral("VS"));
   QCOMPARE(m.family(QStringLiteral("NOSUCHCURVE")), QStringLiteral("Other"));
 }
 

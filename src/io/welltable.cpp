@@ -28,30 +28,52 @@ bool wellNumber(const QString &text, double *value)
 {
   return paleo::wellnumeric::parse(text, value) == paleo::wellnumeric::NumberKind::Value;
 }
-int column(const QStringList &headers, const QStringList &aliases, const QString &explicitName = {})
+int column(const QStringList &headers, const QStringList &aliases, const QString &explicitName = {},
+           bool *ambiguous = nullptr)
 {
+  if (ambiguous) *ambiguous = false;
   if (!explicitName.isEmpty()) return headers.indexOf(explicitName);
+  // 同一别名命中多列时不猜。别名仍按表中的顺序优先（井号先于井名）。
   for (const auto &alias : aliases)
+  {
+    int found = -1;
+    int count = 0;
     for (int i = 0; i < headers.size(); ++i)
-      if (headers[i].trimmed().compare(alias, Qt::CaseInsensitive) == 0) return i;
-  for (int i = 0; i < headers.size(); ++i)
-    for (const auto &alias : aliases) {
-      if (alias.size() <= 1) continue;
-      // ASCII：词边界，并认 <别名>_NAME。不放宽 \b，故 MD 不命中 BASE_MD，WELL_NAME 仍命中 WELL。
-      if (::wellHeaderMatchesAlias(headers[i].trimmed(), alias)) return i;
+    {
+      const QString header = headers[i].trimmed();
+      const bool hit = header.compare(alias, Qt::CaseInsensitive) == 0 ||
+                       (alias.size() > 1 && ::wellHeaderMatchesAlias(header, alias));
+      if (!hit) continue;
+      ++count;
+      if (found < 0) found = i;
     }
+    if (count > 1)
+    {
+      if (ambiguous) *ambiguous = true;
+      return -1;
+    }
+    if (count == 1) return found;
+  }
   return -1;
 }
-int coordinateColumn(const QStringList &headers, bool horizontal, const QString &explicitName)
+int coordinateColumn(const QStringList &headers, bool horizontal, const QString &explicitName,
+                     bool *ambiguous = nullptr)
 {
+  if (ambiguous) *ambiguous = false;
   if (!explicitName.isEmpty()) return headers.indexOf(explicitName);
   // Survey X = northing, Y = easting; GIS x = easting, y = northing.
   // Explicit semantic labels take precedence over the leading X/Y letters.
   const QStringList semantic = horizontal
       ? QStringList{QStringLiteral("横坐标"), QStringLiteral("东坐标"), QStringLiteral("经度"), "EASTING", "LONGITUDE"}
       : QStringList{QStringLiteral("纵坐标"), QStringLiteral("北坐标"), QStringLiteral("纬度"), "NORTHING", "LATITUDE"};
-  const int labelled = column(headers, semantic);
-  return labelled >= 0 ? labelled : column(headers, horizontal ? QStringList{"__geometry_x", "X"} : QStringList{"__geometry_y", "Y"});
+  bool semanticAmbiguous = false;
+  const int labelled = column(headers, semantic, {}, &semanticAmbiguous);
+  if (semanticAmbiguous)
+  {
+    if (ambiguous) *ambiguous = true;
+    return -1;
+  }
+  return labelled >= 0 ? labelled : column(headers, horizontal ? QStringList{"__geometry_x", "X"} : QStringList{"__geometry_y", "Y"}, {}, ambiguous);
 }
 WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, bool *limited = nullptr,
                                 const WellTableCancelCheck &cancel = {})
@@ -62,6 +84,8 @@ WorkbookReadResult vectorOrText(const QString &path, int rowLimit = 1000001, boo
   // 闸挡不住「行数 × 列填充宽」的乘积放大，宽表可把整表 QString 撑到 GB 级。
   qint64 cellBudget = kMaxWellTableCells;
   GDALAllRegister();
+  // finding-59：CPL 错误栈是进程全局的。上次失败留下的记录不能把这次好表拒掉。
+  CPLErrorReset();
   auto *ds = static_cast<GDALDataset *>(GDALOpenEx(path.toUtf8().constData(), GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr));
   if (!ds) { out.error = QStringLiteral("无法读取矢量或文本表：%1").arg(path); return out; }
   // issue-810：全量路径（readWellTable 正式导入）补层数闸——预览路径早就有
@@ -158,18 +182,28 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
                 QVector<WellTopRecord> *basesOut = nullptr)
 {
   const auto &h = sheet.headers;
-  const int name = column(h, {QStringLiteral("井号"), QStringLiteral("井名"), "WELL", "WELLNAME", "NAME"}, m.value("well").toString());
-  const int x = coordinateColumn(h, true, m.value("x").toString());
-  const int y = coordinateColumn(h, false, m.value("y").toString());
+  bool nameAmbiguous = false, xAmbiguous = false, yAmbiguous = false;
+  bool topAmbiguous = false, mdAmbiguous = false, tvdAmbiguous = false;
+  bool mdBaseAmbiguous = false, tvdBaseAmbiguous = false;
+  const int name = column(h, {QStringLiteral("井号"), QStringLiteral("井名"), "WELL", "WELLNAME", "NAME"}, m.value("well").toString(), &nameAmbiguous);
+  const int x = coordinateColumn(h, true, m.value("x").toString(), &xAmbiguous);
+  const int y = coordinateColumn(h, false, m.value("y").toString(), &yAmbiguous);
   const int kb = column(h, {"KB", QStringLiteral("补心海拔")}, m.value("kb").toString());
   const int td = column(h, {"TD", QStringLiteral("完钻井深"), QStringLiteral("总井深")}, m.value("td").toString());
-  const int top = column(h, {QStringLiteral("层位"), QStringLiteral("层名"), "HORIZON", "TOP"});
-  const int md = column(h, {"MD", QStringLiteral("顶界测深"), QStringLiteral("顶深")});
-  const int tvd = column(h, {"TVD", QStringLiteral("顶界垂深"), QStringLiteral("顶垂深")});
+  const int top = column(h, {QStringLiteral("层位"), QStringLiteral("层名"), "HORIZON", "TOP"}, {}, &topAmbiguous);
+  const int md = column(h, {"MD", QStringLiteral("顶界测深"), QStringLiteral("顶界深度"), QStringLiteral("顶深")}, {}, &mdAmbiguous);
+  const int tvd = column(h, {"TVD", QStringLiteral("顶界垂深"), QStringLiteral("顶垂深")}, {}, &tvdAmbiguous);
   // issue-796：底界列与顶界列在同一趟行解析里解出——此前分层表先整表解析
   // 一遍取 tops、再整表解析一遍取 bases（两次全表扫描 + 两次列匹配）。
-  const int mdBase = basesOut ? column(h, {"BOTTOM_MD", "BASE_MD", QStringLiteral("底界测深"), QStringLiteral("底测深")}) : -1;
-  const int tvdBase = basesOut ? column(h, {"BOTTOM_TVD", "BASE_TVD", QStringLiteral("底界垂深"), QStringLiteral("底垂深")}) : -1;
+  const int mdBase = basesOut ? column(h, {"BOTTOM_MD", "BASE_MD", QStringLiteral("底界测深"), QStringLiteral("底测深"), QStringLiteral("底界深度"), QStringLiteral("底深"), QStringLiteral("底界")}, {}, &mdBaseAmbiguous) : -1;
+  const int tvdBase = basesOut ? column(h, {"BOTTOM_TVD", "BASE_TVD", QStringLiteral("底界垂深"), QStringLiteral("底垂深")}, {}, &tvdBaseAmbiguous) : -1;
+  if (nameAmbiguous || xAmbiguous || yAmbiguous || topAmbiguous || mdAmbiguous ||
+      tvdAmbiguous || mdBaseAmbiguous || tvdBaseAmbiguous)
+  {
+    out.error = QStringLiteral("井表有多列匹配同一井名、坐标或深度，无法确定用哪一列");
+    out.report.issues.append(out.error);
+    return;
+  }
   const bool heads = name >= 0 && x >= 0 && y >= 0;
   const bool tops = top >= 0 && (md >= 0 || tvd >= 0);
   if (!heads && !tops) return;
@@ -328,6 +362,8 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
     // issue-796：底界与顶界在同一趟行解析里产出——此前分层表在这里解析一遍
     // 取 tops、下面再对全表解析一遍取 bases（两次全表扫描）。
     parseSheet(out, sheet, mapping, &parsedBases);
+    if (!out.error.isEmpty())
+      return out;
   }
   out.mapping.insert("crs", out.crs);
   if (wb.format == QLatin1String("headerless")) out.mapping.insert(QStringLiteral("headerless"), true);

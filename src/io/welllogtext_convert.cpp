@@ -2,6 +2,7 @@
 #include "welllogtext_internal.h"
 #include "domain/wellnumeric.h"
 
+
 #include <QCoreApplication>
 #include <QSet>
 #include <QRegularExpression>

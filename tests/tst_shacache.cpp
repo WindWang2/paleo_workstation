@@ -178,8 +178,9 @@ private slots:
     expected.addData(payload);
     QCOMPARE(hashed, QString::fromLatin1(expected.result().toHex()));
     QVERIFY(herr.isEmpty());
-    // 在途哈希的内存指纹还在；新 sha.json 不应被这次结果创建。
-    QCOMPARE(cache.memoryEntries(), 1);
+    // 写 fifo 可能跨过 mtime 分辨率。指纹变了就不进内存；没变则留下这一条。
+    // 代际已经切到 newSha，两种情况都不得创建新的 sha.json。
+    QVERIFY(cache.memoryEntries() <= 1);
     QVERIFY(!QFile::exists(newSha));
 
     const QString fileB = dir.filePath(QStringLiteral("b.bin"));

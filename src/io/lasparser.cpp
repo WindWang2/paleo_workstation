@@ -1230,7 +1230,7 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
               const double v = c < col ? rowVals[c] : nan();
               cols[c].values.append(v == nullValue || v != v ? nan() : v);
             }
-          else if (monotonicDepth && depth == depth && depth > toDepth)
+          else if (monotonicDepth && depth == depth && depth != nullValue && depth > toDepth)
           {
             stopped = true; // 越界即停——真·按需读段（D1.4）
             break;

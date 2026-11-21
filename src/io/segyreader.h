@@ -147,6 +147,10 @@ class SegyReader
                     QString *error, const SegyOptions *opts);
     // 从（部分）m_index 重建行/道哈希 + 范围几何（restore/resume 收尾）。
     void rebuildLineHashes();
+    // 线号范围只从已收入的 m_index 取。取消快照里的默认 0 不能参加下一次 qMin。
+    void adoptIndexLineRange();
+    // 道头字节 109-110。读失败时保留原值。
+    void adoptStartTimeFromOffset(qint64 headerOffset);
     void freezeCorners(const QVector<double> &xs, const QVector<double> &ys);
     QVector<int> cornerTraceIndices() const;
     bool freezeCornersFromFile(QFile &file, bool fromCdpXY = false);

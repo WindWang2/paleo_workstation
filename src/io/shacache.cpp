@@ -200,8 +200,17 @@ QString ShaCache::sha256Hex(const QString &path, QString *error, Fingerprint fp)
     return QString();
   }
 
+  // 指纹取在读之前。读的过程中文件被换掉时，不能把新内容的摘要记在旧指纹下。
+  const QFileInfo after(path);
+  const bool stable = after.exists() &&
+                      after.lastModified().toMSecsSinceEpoch() == mtime &&
+                      after.size() == size &&
+                      (!withInode || inodeOf(PathCanon::canonicalize(path)) == ino);
+
   QMutexLocker lock(&m_mutex);
   ++m_counts.misses;
+  if (!stable)
+    return sha;
   m_mem.insert(fpKey, sha);
   // setDiskFile 换代后不得把这次哈希写入新 sha.json（内存指纹仍保留）。
   if (diskGen == m_diskGeneration && !m_diskFile.isEmpty())

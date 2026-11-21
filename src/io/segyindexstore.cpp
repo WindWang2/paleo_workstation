@@ -14,6 +14,7 @@
 #include <QHash>
 #include <QSet>
 
+#include <limits>
 #include <sys/stat.h>
 
 namespace
@@ -385,7 +386,11 @@ SegyIndexStore::IndexStats SegyIndexStore::computeStats(const StoredIndex &index
                  quint32(index.xlineNos.at(i)));
   }
   st.presentCells = cells.size();
-  st.gridCells = qint64(st.inlineMax - st.inlineMin + 1) * qint64(st.xlineMax - st.xlineMin + 1);
+  // 线号差先升到 qint64。qint32 相减在跨零的大测网上会回绕，密度被算成 0。
+  const qint64 ilSpan = qint64(st.inlineMax) - qint64(st.inlineMin) + 1;
+  const qint64 xlSpan = qint64(st.xlineMax) - qint64(st.xlineMin) + 1;
+  if (ilSpan > 0 && xlSpan > 0 && ilSpan <= std::numeric_limits<qint64>::max() / xlSpan)
+    st.gridCells = ilSpan * xlSpan;
   st.missingCells = qMax<qint64>(0, st.gridCells - st.presentCells);
   st.densityPercent = st.gridCells > 0 ? 100.0 * double(st.presentCells) / double(st.gridCells) : 0.0;
   return st;

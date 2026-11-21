@@ -332,6 +332,9 @@ bool SegyReader::scanTracesSequential(QFile &file, qint64 offset, qint64 fileSiz
         // openCached() checkpoint 续扫（ordinal 模式由调用方识别后放弃）。
         m_lastScanPartial = true;
         m_scannedOffset = offset;
+        // 首道延迟已在 sawTrace 时写入 delayMs；取消也要带进 checkpoint。
+        if (sawTrace)
+          m_geometry.startTimeMs = *delayMs;
         return false;
       }
       if (opts->progress)
@@ -1034,6 +1037,37 @@ void SegyReader::rebuildLineHashes()
               [&idx](int a, int b) { return idx.at(a).inlineNo < idx.at(b).inlineNo; });
 }
 
+void SegyReader::adoptIndexLineRange()
+{
+  if (m_index.isEmpty())
+    return;
+  qint32 ilMin = m_index.first().inlineNo;
+  qint32 ilMax = ilMin;
+  qint32 xlMin = m_index.first().xlineNo;
+  qint32 xlMax = xlMin;
+  for (const IndexEntry &e : m_index)
+  {
+    ilMin = qMin(ilMin, e.inlineNo);
+    ilMax = qMax(ilMax, e.inlineNo);
+    xlMin = qMin(xlMin, e.xlineNo);
+    xlMax = qMax(xlMax, e.xlineNo);
+  }
+  m_geometry.inlineMin = ilMin;
+  m_geometry.inlineMax = ilMax;
+  m_geometry.xlineMin = xlMin;
+  m_geometry.xlineMax = xlMax;
+}
+
+void SegyReader::adoptStartTimeFromOffset(qint64 headerOffset)
+{
+  QFile local(m_path);
+  if (!local.open(QIODevice::ReadOnly) || !local.seek(headerOffset))
+    return;
+  uchar h[240];
+  if (local.read(reinterpret_cast<char *>(h), 240) == 240)
+    m_geometry.startTimeMs = static_cast<double>(rdI16(h + 108, m_littleEndian));
+}
+
 bool SegyReader::snapshot(SegyIndexStore::StoredIndex *out) const
 {
   if (m_index.isEmpty() || m_path.isEmpty())
@@ -1254,6 +1288,11 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
         // 用户取消：保留「连续前缀」为部分索引（checkpoint 续扫口径不变）。
         m_lastScanPartial = true;
         m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size() + m_badTraceOffsets.size()) * traceSize;
+        // 几何冻结在本函数后部。取消若直接返回，checkpoint 会带上默认 0，
+        // resumeScan 的 qMin 会把线号范围钉死。
+        adoptIndexLineRange();
+        if (!m_index.isEmpty())
+          adoptStartTimeFromOffset(m_index.first().offset);
         if (error)
           *error = sh.err;
         return false;
@@ -1277,36 +1316,20 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
   }
   if (!m_index.isEmpty())
   {
-    m_geometry.inlineMin = m_geometry.inlineMax = m_index.first().inlineNo;
-    m_geometry.xlineMin = m_geometry.xlineMax = m_index.first().xlineNo;
+    adoptIndexLineRange();
     m_geometry.cornerX[0] = m_geometry.cornerX[1] = m_geometry.cornerX[2] = m_geometry.cornerX[3] = xs.first();
     m_geometry.cornerY[0] = m_geometry.cornerY[1] = m_geometry.cornerY[2] = m_geometry.cornerY[3] = ys.first();
     for (int i = 0; i < m_index.size(); ++i)
     {
-      if (m_index.at(i).inlineNo < m_geometry.inlineMin)
-        m_geometry.inlineMin = m_index.at(i).inlineNo;
-      if (m_index.at(i).inlineNo > m_geometry.inlineMax)
-        m_geometry.inlineMax = m_index.at(i).inlineNo;
-      if (m_index.at(i).xlineNo < m_geometry.xlineMin)
-        m_geometry.xlineMin = m_index.at(i).xlineNo;
-      if (m_index.at(i).xlineNo > m_geometry.xlineMax)
-        m_geometry.xlineMax = m_index.at(i).xlineNo;
       const int slot = cornerSlot(m_index.at(i).inlineNo, m_index.at(i).xlineNo, m_geometry);
       m_geometry.cornerX[slot] = xs.at(i);
       m_geometry.cornerY[slot] = ys.at(i);
     }
   }
   freezeCorners(xs, ys);
-  // 首道 delay（字 109-110）：重读一次首道头。
-  {
-    QFile local(path);
-    if (local.open(QIODevice::ReadOnly) && local.seek(firstTraceOffset))
-    {
-      uchar h[240];
-      if (local.read(reinterpret_cast<char *>(h), 240) == 240)
-        m_geometry.startTimeMs = static_cast<double>(rdI16(h + 108, le));
-    }
-  }
+  // 与顺序扫描和 checkpoint 续扫一致：跳过坏道，从首个有效道读取延迟。
+  if (!m_index.isEmpty())
+    adoptStartTimeFromOffset(m_index.first().offset);
   m_lastScanPartial = false;
   m_scannedOffset = firstTraceOffset + traceCount * traceSize;
   rebuildLineHashes();
@@ -1335,6 +1358,11 @@ bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &part
                                             : sidx.crosslineWordOffset;
   const int coordXOff = m_dialect.cornerFromCdpXY ? 180 : 72;
   const int coordYOff = m_dialect.cornerFromCdpXY ? 184 : 76;
+  // 恢复出来的几何可能仍是默认 0（旧 checkpoint，或并行取消落在冻结之前）。
+  // 先按已有索引重算线号和起始时间，再折入新道。
+  adoptIndexLineRange();
+  if (!m_index.isEmpty())
+    adoptStartTimeFromOffset(m_index.first().offset);
   uchar trHdr[240];
   qint64 offset = partial.scannedOffset;
   while (offset + 240 <= fileSize)

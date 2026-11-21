@@ -145,7 +145,7 @@ private slots:
   {
     QTemporaryDir dir;
     const QString path = dir.filePath(QStringLiteral("curve.las"));
-    QVERIFY(write(path, "\xef\xbb\xbf# Well: A1\r\nMD[ft],\"GR[API]\",RHOB[g/cm3]\r\n1000.125,10,2.3\r\n1000.25,,NA\r\n1000.375,-999.25,-9999\r\n"));
+    QVERIFY(write(path, "\xef\xbb\xbf# Well: A1\r\nMD[ft],\"GR[API]\",RHOB[g/cm3]\r\n1000.125,10,2.3\r\n1000.25,,NA\r\n1000.375,-999.25,-9999\r\n1000.5,-999,-99999\r\n"));
     QCOMPARE(WellLogRead::detect(path), WellLogFormat::Text);
     LasHeaderInfo header;
     QString error;
@@ -165,6 +165,8 @@ private slots:
     QVERIFY(std::isnan(doc.curves.at(1).values.at(1)));
     QVERIFY(std::isnan(doc.curves.at(2).values.at(1)));
     QVERIFY(std::isnan(doc.curves.at(2).values.at(2)));
+    QVERIFY(std::isnan(doc.curves.at(1).values.at(3)));
+    QVERIFY(std::isnan(doc.curves.at(2).values.at(3)));
   }
 
   void references_data()

@@ -654,7 +654,11 @@ void AiToolResultView::buildDegraded(const paleo::chat::ToolResultFacts &facts) 
   if (!evidence.isEmpty()) {
     auto *toggle = new QToolButton(this);
     toggle->setObjectName(QStringLiteral("aiResultEvidenceToggle"));
-    toggle->setText(tr("原始内容（%1 字符）").arg(evidence.size()));
+    // 截断的证据不冒称原始尺寸（P2 review）。
+    toggle->setText(facts.rawTruncated
+                      ? tr("原始内容（已截断，保留前 %1 字符）").arg(evidence.size())
+                      : tr("原始内容（%1 字符）").arg(evidence.size()));
+
     toggle->setCheckable(true);
     toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toggle->setArrowType(Qt::RightArrow);

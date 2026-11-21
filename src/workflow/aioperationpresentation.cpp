@@ -19,15 +19,13 @@ QString busyKey(const QString &action, const QString &operationId) {
 AiOperationPresentation::AiOperationPresentation(const Deps &deps, QObject *parent)
   : QObject(parent), m_deps(deps) {
   // 重绑/换工程只递增展示代次并通知刷新；动作受理时永远现读 live 值。
+  // 重绑/换会话只发通知；在途回调的丢弃由 guard（会话 id）与 per-动作代次承担。
   if (m_deps.document)
     connect(m_deps.document, &paleo::document::DocumentSession::sessionChanged, this,
-            [this] { ++m_bindingEpoch; emit contextChanged(); });
+            &AiOperationPresentation::contextChanged);
   if (m_deps.chat)
-    connect(m_deps.chat, &AiChatController::sessionChanged, this, [this] {
-      // 聊天会话切换：在途异步回调按代次丢弃由 guard 校验承担。
-      ++m_requestSequence;
-      emit contextChanged();
-    });
+    connect(m_deps.chat, &AiChatController::sessionChanged, this,
+            &AiOperationPresentation::contextChanged);
   if (m_deps.host)
     connect(m_deps.host, &QObject::destroyed, this, [this] { emit contextChanged(); });
 }
@@ -66,7 +64,8 @@ bool AiOperationPresentation::busy(const QString &operationId, const QString &ac
 }
 
 bool AiOperationPresentation::checkGuard(const Guard &guard) const {
-  // owner 线程同步校验：依赖存活 + 会话/绑定代次未变（重入信号可能已改状态）。
+  // owner 线程同步校验：依赖存活 + 会话未变。宿主重绑/换工程由 scopeFor 的
+  // checkContext(live, captured) 拦截；异步回调另加 per-动作代次。
   return guard.valid() && m_deps.chat && m_deps.host &&
          m_deps.chat->session().id == guard.chatSessionId;
 }
@@ -221,7 +220,8 @@ bool AiOperationPresentation::requestPortPage(const QString &operationId, const 
       *reason = QStringLiteral("invalid_read_budget");
     return false;
   }
-  const quint64 sequence = ++m_requestSequence; // 新读页请求顶替旧回调
+  // 新读页请求顶替同操作旧读回调（按动作隔离：不误伤 resume 等其他动作）。
+  const quint64 sequence = ++m_actionSequences[busyKey(QStringLiteral("read"), operationId)];
   const QPointer<AiOperationPresentation> self(this);
   const auto finished = m_deps.host->recovery()->read(
     scope, operationId, portId, offset, maxBytes, this,
@@ -229,8 +229,9 @@ bool AiOperationPresentation::requestPortPage(const QString &operationId, const 
       if (!self)
         return; // 适配器已销毁：回调属过期代次，静默丢弃（busy 随对象消亡）
       releaseBusy(operationId, QStringLiteral("read"));
-      if (sequence != m_requestSequence || !checkGuard(guard))
-        return; // 被更新请求/会话切换顶替：不发UI
+      if (sequence != m_actionSequences.value(busyKey(QStringLiteral("read"), operationId)) ||
+          !checkGuard(guard))
+        return; // 被更新读请求/会话切换顶替：不发UI
       emit operationPortPage(operationId, portId, page);
     }, &gate);
   if (!finished) {
@@ -284,7 +285,8 @@ bool AiOperationPresentation::requestResume(const QString &operationId, QString 
       *reason = gate;
     return false;
   }
-  const quint64 sequence = ++m_requestSequence;
+  const quint64 sequence =
+    ++m_actionSequences[busyKey(QStringLiteral("resume"), operationId)];
   const QPointer<AiOperationPresentation> self(this);
   auto *task = m_deps.host->recovery()->start(
     scope, operationId, this, QStringLiteral("Resume operation"),
@@ -292,7 +294,8 @@ bool AiOperationPresentation::requestResume(const QString &operationId, QString 
       if (!self)
         return;
       releaseBusy(operationId, QStringLiteral("resume"));
-      if (sequence != m_requestSequence || !checkGuard(guard))
+      if (sequence != m_actionSequences.value(busyKey(QStringLiteral("resume"), operationId)) ||
+          !checkGuard(guard))
         return;
       QJsonObject response = QJsonDocument::fromJson(result.responseJson).object();
       if (response.isEmpty())

@@ -31,7 +31,7 @@
 // 周期、有界卡窗口、上下文条。端点一律 127.0.0.1 假服务器（同 tst_aiassistdock
 // 口径），历史恢复用例不发任何模型请求。
 namespace {
-constexpr int kAiTestCardTotal = 100; // 超过单窗口上限（64）的历史工具帧数
+constexpr int kAiTestCardTotal = 500; // 验收矩阵口径：500 历史工具结果 > 单窗口上限 64
 const char kStreamDone[] =
   "data: {\"choices\":[{\"delta\":{\"content\":\"砂岩\"}}]}\n\n"
   "data: [DONE]\n\n";
@@ -349,8 +349,10 @@ void TestG5ConversationWorkbench::contextBarShowsBriefAndUpdate() {
   toggle->setChecked(true);
   QVERIFY2(body->text().contains(QStringLiteral("操作服务未接入")),
            qPrintable(body->text()));
-  // 只读/不可用语义不冒充：summary 有「工程未打开」事实。
-  QVERIFY2(summary->text().contains(QStringLiteral("工程未打开")),
+  // 无 adapter 时工程状态未知：不冒称「工程未打开」，操作服务未接入单独陈述。
+  QVERIFY2(!summary->text().contains(QStringLiteral("工程未打开")),
+           "工程可能开着，不得冒称未打开");
+  QVERIFY2(summary->text().contains(QStringLiteral("操作服务未接入")),
            qPrintable(summary->text()));
 }
 

@@ -14,8 +14,8 @@
 | W4 operation 三轴卡 | `chatToolResponse`（capabilitychatprotocol.cpp:117）已把 contract/revision/computeCount/cancelRequested/commitReceiptRef/resultRef/execution/commitState/presentation 带进工具出参；operation 工具结果走通用 Fallback | 无三轴状态卡；查询 ok=true 会被当业务完成 | AiToolResultView 新增 Operation 分派 + 卡内三轴胶囊与事实 | tst：三轴显示；committed+取消不抹已提交；cancel_after_commit/commit_uncertain 可解释 |
 | W5 操作控制意图 | `runPersistentOperation`（aichattoolrunner_operations.cpp）示范 scope=`host->callerScope(Agent, session)` 后 get/events/results/cancel/start(resume)/read | UI 无显式查询/取消/恢复入口；无捕获-校验-代次纪律 | `src/workflow/aioperationpresentation.*`（QObject adapter，捕获 live context、`checkContext(Read)`、非空当前会话、忙碌去重、代次丢弃） | tst：真实 host/recovery 走通六路动作；拒绝路径不触服务；双击恢复去重 |
 | W6 事件/端口检视 | `events` 有 afterRevision/nextRevision 十进制游标、event_history_expired；`results` 出 portId/kind/unit/axis/byteSize/sha256/diagnostic；`read` 24KiB 有界 base64 页 | 无原生详情区；游标/翻页/内容检视缺失 | `src/ui/ai/aioperationdetailwidget.*`（分页事件表+端口表+有界内容预览） | tst：游标翻页不静默重置；过期显窗口；跨页 UTF-8 边界；代次丢弃 |
-| W7 草稿/键盘生命周期 | 输入框 placeholder 称「Enter 发送」但无 keyPressEvent（实际 Enter 换行，文案与行为不符）；`sendCurrentText` 先 `m_input->clear()` 再 `sendUserText`（拒绝时文本丢失） | Enter/Shift+Enter/IME/重复键；草稿按会话保存恢复；拒绝不吞草稿 | dock 键盘事件过滤 + 每会话草稿 + 接受后清理 | tst：未配置发送草稿保留；切换 round-trip；autoRepeat 不重发 |
-| W8 有界呈现/可达性 | m_cards 直接加入布局，卡全量即建；固定 token 样式不随主题刷新 | 500 结果历史全量建卡；主题切换不刷旧卡；窄 dock/键盘可达 | `src/ui/ai/aiconversationcard.*`（惰性展开+展开上限+palette change 刷新） | tst：500 历史结果时活跃 widget 有界、展开可达；浅暗切换刷新既有卡 |
+| W7 草稿/键盘生命周期 | 输入框 placeholder 称「Enter 发送」但无 keyPressEvent（实际 Enter 换行，文案与行为不符）；`sendCurrentText` 先 `m_input->clear()` 再 `sendUserText`（拒绝时文本丢失） | Enter/Shift+Enter/IME/重复键；草稿按会话保存恢复；拒绝不吞草稿 | dock 键盘事件过滤 + 每会话草稿 + 接受后清理 | tst：未配置发送草稿保留；切换 round-trip；Enter/Shift+Enter；autoRepeat/IME 有防御无自动化断言（见限制） |
+| W8 有界呈现/可达性 | m_cards 直接加入布局，卡全量即建；固定 token 样式不随主题刷新 | 500 结果历史全量建卡；主题切换不刷旧卡；窄 dock/键盘可达 | `src/ui/ai/aiconversationcard.*`（惰性展开+展开上限+palette change 刷新） | tst：500 历史结果（kAiTestCardTotal=500）时活跃 widget ≤64 有界、翻页可达；浅暗切换刷新既有卡 |
 | W9 真实装配 | `attachAiAssistant`（attach_shell.cpp:619）幂等接底栏；main.cpp:393 接线；tst_commandshell 有真实主窗测试先例 | adapter 未装配；回归/GUI 证据未做 | `src/app/aiconversationwiring.*` + main.cpp 一行 + tst_g5 装配测试 + 截图 | 真实 AppContext+主窗走 AI 页签闭环；回归 tst_aiassistdock 等 |
 
 ## 二、执行记录
@@ -34,7 +34,7 @@
 ### 修改接缝（按所有权边界）
 
 - `src/workflow/aichatcontroller.h`：`setProjectBrief` 变更时发 `projectBriefChanged`；新增 const 快照 getter `hostTurnId()`/`turnContext()`（按值返回，不赋权限）。**仅此两类增量**。
-- `src/ui/ai/aiassistdock.{h,cpp}`（主所有者）：ToolCard struct → AiConversationCard；`renderSession` 恢复历史工具卡（projectSessionTools + 有界窗口 64 + 惰性卡）；Enter/Shift+Enter/IME/autoRepeat 键盘过滤；每会话草稿（接受判据=本条 user 消息已入历史）；上下文条+详情面+adapter 注入（幂等）；主题 changeEvent 刷新；展开上限 8（LRU 收敛）；流式增量不夺滚动。
+- `src/ui/ai/aiassistdock.{h,cpp}`（主所有者）：ToolCard struct → AiConversationCard；`renderSession` 恢复历史工具卡（projectSessionTools + 有界窗口 64 + 惰性卡）；Enter/Shift+Enter/IME/autoRepeat 键盘过滤；每会话草稿（接受判据=历史数量增长 ∧ 最后一条 user 消息内容一致）；上下文条+详情面+adapter 注入（幂等）；主题 changeEvent 刷新；展开上限 8（LRU 收敛）；流式增量不夺滚动。
 - `src/ui/ai/aitoolresultview.{h,cpp}`（主所有者）：facts 构造器（实时 raw 与历史 envelope 同分派）；新增 `Operation` 分派（三轴胶囊+事实表+查询 ok 独立陈述+完整 ID 复制）；`buildDegraded`（transport incomplete/坏 JSON/标量原文，不引导重执行）；legacy 构造器委托投影保持兼容。
 - `src/app/main.cpp`：`attachAiAssistant` 后一行 `installConversationPresentation`（+include）。
 - `CMakeLists.txt`：仅 fragment manifest 一行。
@@ -64,10 +64,10 @@
 
 | 测试 | 结果 |
 |---|---|
-| tst_g5_conversation_projection | 15/15 绿 |
-| tst_g5_operation_presentation（真实 host/recovery/OperationLog 本地工程） | 13/13 绿 |
-| tst_g5_conversation_workbench（FakeLlmServer loopback） | 9/9 绿 |
-| tst_g5_assembly（真实 AppContext+PaleoMainWindow 装配；截图档 3/3） | 5/5 绿（1 skip=未设截图目录） |
+| tst_g5_conversation_projection | runner 总计 15 绿（13 用例 + init/cleanup） |
+| tst_g5_operation_presentation（真实 host/recovery/OperationLog 本地工程） | runner 总计 13 绿（11 用例 + init/cleanup） |
+| tst_g5_conversation_workbench（FakeLlmServer loopback） | runner 总计 9 绿（7 用例 + init/cleanup） |
+| tst_g5_assembly（真实 AppContext+PaleoMainWindow 装配；截图档 3/3） | runner 总计 5 绿（1 skip=未设截图目录；3 用例 + init/cleanup） |
 | tst_aiassistdock（回归） | 11/11 绿（1 skip=既有按需截图） |
 | tst_aitoolresultview（回归+G5 扩展） | 14/14 绿（1 skip=既有按需截图） |
 | tst_aichatcontroller（回归） | 24/24 绿 |

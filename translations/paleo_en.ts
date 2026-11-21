@@ -252,6 +252,14 @@
         <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>状态已刷新（修订 %1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>状态查询失败：%1</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>AiAssistWorkflow</name>
@@ -942,6 +950,10 @@
     </message>
     <message>
         <source>原始内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>原始内容（已截断，保留前 %1 字符）</source>
         <translation type="unfinished" />
     </message>
     </context>
@@ -57311,6 +57323,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <source>控制与导航动作受理时会重新读取当前宿主上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作服务未接入</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>宿主状态：未知（%1）</source>
         <translation type="unfinished" />
     </message>
 </context>

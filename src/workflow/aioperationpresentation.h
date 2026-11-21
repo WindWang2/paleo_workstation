@@ -13,6 +13,7 @@
 //     scope/epoch 作为 permit。
 //   · 异步结果按请求代次接收：过期回调（依赖销毁/换代/被更新请求顶替）丢弃。
 // 无 QtWidgets；不读私有目录、不解析 resultRef 为路径。
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
@@ -92,8 +93,9 @@ private:
   QString scopeFor(const Guard &guard, QString *reason) const;
 
   Deps m_deps;
-  quint64 m_bindingEpoch = 1;      // DocumentSession 重绑/换代递增
-  quint64 m_requestSequence = 0;   // 异步请求代次（新请求顶替旧回调）
+  // 异步请求代次（按 "action:operationId" 隔离：新请求只顶替同操作同动作的
+  // 旧回调，不误伤其他在飞动作；会话切换由 Guard 会话校验兜底）。
+  QHash<QString, quint64> m_actionSequences;
   QSet<QString> m_busy;            // "action:operationId"
 };
 

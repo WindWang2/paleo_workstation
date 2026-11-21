@@ -61,7 +61,6 @@ private:
 
   QString m_operationId;
   QString m_eventsCursor;   // 十进制 revision（空 = 尚未起读）
-  bool m_eventsExpired = false;
   QString m_selectedPort;
   qint64 m_portOffset = 0;  // 下一页读取游标
   QByteArray m_portBytes;   // 已取回字节（有界）

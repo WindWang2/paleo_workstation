@@ -14,6 +14,9 @@ class AiContextBar : public QWidget {
   Q_OBJECT
 public:
   AiContextBar(QWidget *parent = nullptr);
+  // 操作服务未接入（宿主上下文未知，不冒称未打开）：reason 给出原因。
+  void presentUnavailable(const QString &projectBrief, bool streaming,
+                          const QString &hostTurnId, const QString &reason);
   // 展示快照（W1）：宿主上下文 + 工程简报 + 流式状态。
   void present(const QString &projectBrief, bool streaming,
                const QString &hostUnavailableCode, bool hostOpen, bool hostReadOnly,
@@ -28,6 +31,7 @@ private:
 
   QString m_brief, m_horizon, m_unitId, m_documentId, m_turnContextNote;
   QString m_hostUnavailableCode, m_hostTurnId;
+  bool m_hostKnown = false; // false = 操作服务未接入（工程状态未知）
   bool m_streaming = false, m_hostOpen = false, m_hostReadOnly = true;
   quint64 m_epoch = 0;
   QLabel *m_summary = nullptr;

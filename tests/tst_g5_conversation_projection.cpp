@@ -289,6 +289,11 @@ void TestG5ConversationProjection::utf8BoundariesSplitAcrossPages() {
   // 非法序列：替换字符 + invalid 标记，不崩。
   const auto broken = paleo::chat::decodeUtf8Display(QByteArray("\xff\xfe"));
   QVERIFY(broken.invalid);
+  // 末页（holdTail=false）：残缺尾序列不再切尾吞字节，按替换呈现并置 invalid。
+  const auto tail = paleo::chat::decodeUtf8Display(sand.left(2), /*holdTail=*/false);
+  QCOMPARE(tail.trailingBytes, 0);
+  QVERIFY(tail.invalid); // 截尾的半个「砂」以替换字符如实呈现
+  QVERIFY(tail.text.contains(QChar::ReplacementCharacter));
 }
 
 QTEST_APPLESS_MAIN(TestG5ConversationProjection)

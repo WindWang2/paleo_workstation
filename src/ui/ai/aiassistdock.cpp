@@ -45,6 +45,28 @@
 // 本文件不写任何颜色字面量（check_ui_invariants 门禁）。
 
 namespace {
+// 控制动作结果的可解释文案（与详情面同口径：服务事实、不夸大不吞错）。
+QString actionNoteText(const QString &action, const QJsonObject &response) {
+  const QString code = response.value(QStringLiteral("code")).toString();
+  if (action == QLatin1String("cancel")) {
+    if (code == QLatin1String("cancel_after_commit"))
+      return QObject::tr("操作已提交，取消请求不影响已提交成果（cancel_after_commit）");
+    if (code == QLatin1String("commit_uncertain"))
+      return QObject::tr("提交不确定（commit_uncertain）：提交状态以服务事实为准");
+    if (code == QLatin1String("cancel_requested") ||
+        response.value(QStringLiteral("ok")).toBool())
+      return QObject::tr("已请求取消（等待执行面确认，不提前宣称已停止）");
+    return QObject::tr("取消请求失败：%1").arg(code);
+  }
+  if (action == QLatin1String("resume"))
+    return response.value(QStringLiteral("ok")).toBool()
+             ? QObject::tr("恢复已受理（原 operationId 继续执行）")
+             : QObject::tr("恢复失败：%1").arg(code);
+  if (response.value(QStringLiteral("ok")).toBool())
+    return QObject::tr("状态已刷新（修订 %1）")
+      .arg(response.value(QStringLiteral("revision")).toString());
+  return QObject::tr("状态查询失败：%1").arg(code);
+}
 QString roleLabel(ChatRole role) {
   switch (role) {
   case ChatRole::System:
@@ -72,6 +94,10 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
   m_status = new QLabel(tr("未配置"), this);
   m_status->setObjectName(QStringLiteral("aiAssistantStatus"));
   m_status->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  // P2(review)：muted 色走活体样式（applyTheme 在 dock 建前执行，palette
+  // 事件不可靠；applyThemedStyleSheet 构造即设且随主题自动重算）。
+  PaleoTheme::applyThemedStyleSheet(
+    m_status, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   header->addWidget(m_status, 1);
   m_new = new QPushButton(tr("新会话"), this);
   m_new->setObjectName(QStringLiteral("aiAssistantNew"));
@@ -318,12 +344,19 @@ void AiAssistDock::attachOperationPresenter(
     paleo::chat::AiOperationPresentation *presenter) {
   if (m_presenter == presenter)
     return;
-  if (m_presenter)
+  if (m_presenter) {
     m_presenter->disconnect(this);
+    m_presenter->disconnect(m_detail);
+  }
+  // 详情面 → dock 的意图转发一并断开（下次 attach 重建），防换绑后翻倍。
+  m_detail->disconnect(this);
   m_presenter = presenter;
   if (m_presenter)
     handlePresenterSignals();
-  // adapter 到位/退场：历史卡的控制入口随之可用/给原因，按当前窗口重建。
+  // adapter 到位/退场：历史卡的控制入口随之可用/给原因，按当前窗口重建；
+  // 已建实时卡同样收敛为「未接入」形态（防解绑后可点而无效的按钮）。
+  for (AiConversationCard *card : m_toolCards)
+    card->setOperationControlsAllowed(m_presenter != nullptr);
   if (!m_historyTools.isEmpty())
     buildHistoryCards();
   refreshContextBar();
@@ -350,6 +383,15 @@ void AiAssistDock::handlePresenterSignals() {
             const auto cards = m_cardsByOperation.value(operationId);
             for (AiConversationCard *card : cards)
               card->setActionBusy(action, busy);
+          });
+  // 控制动作结果 → 对应卡注记（详情面未开时卡上仍可见服务事实）。
+  connect(m_presenter, &AiOperationPresentation::operationActionFinished, this,
+          [this](const QString &operationId, const QString &action,
+                 const QJsonObject &response) {
+            const QString note = actionNoteText(action, response);
+            const auto cards = m_cardsByOperation.value(operationId);
+            for (AiConversationCard *card : cards)
+              card->setActionNote(note);
           });
   // 重绑/换工程：上下文条刷新（动作受理时 adapter 仍现读 live 值）。
   connect(m_presenter, &AiOperationPresentation::contextChanged, this,
@@ -409,15 +451,25 @@ void AiAssistDock::handleCardOperationIntents(AiConversationCard *card) {
   connect(card, &AiConversationCard::expandedChanged, this,
           &AiAssistDock::enforceExpandedCap);
   if (!m_presenter)
-    return; // 无 adapter：控制按钮意图无消费者（按钮仍可见但不发无效请求）
+    return; // 无 adapter：控制按钮不出现（buildBody 给原因），无意图消费者
   connect(card, &AiConversationCard::operationDetailRequested, this,
           [this](const QString &id) { m_detail->openOperation(id); });
+  // adapter 可能事后解绑（attachOperationPresenter(nullptr)）：空判防悬垂调用。
   connect(card, &AiConversationCard::operationRefreshRequested, this,
-          [this](const QString &id) { m_presenter->requestRefresh(id); });
+          [this](const QString &id) {
+            if (m_presenter)
+              m_presenter->requestRefresh(id);
+          });
   connect(card, &AiConversationCard::operationCancelRequested, this,
-          [this](const QString &id) { m_presenter->requestCancel(id); });
+          [this](const QString &id) {
+            if (m_presenter)
+              m_presenter->requestCancel(id);
+          });
   connect(card, &AiConversationCard::operationResumeRequested, this,
-          [this](const QString &id) { m_presenter->requestResume(id); });
+          [this](const QString &id) {
+            if (m_presenter)
+              m_presenter->requestResume(id);
+          });
 }
 
 void AiAssistDock::refreshContextBar() {
@@ -425,10 +477,10 @@ void AiAssistDock::refreshContextBar() {
   const bool streaming = m_controller && m_controller->streaming();
   const QString turnId = m_controller ? m_controller->hostTurnId() : QString();
   if (!m_presenter) {
-    // 未接 adapter（无 host / 测试壳）：上下文如实标注不可用，历史仍可读。
-    m_contextBar->present(brief, streaming,
-                          tr("操作服务未接入（查询/取消/恢复不可用）"), false,
-                          true, {}, {}, {}, 0, turnId, {});
+    // 未接 adapter（无 host / 测试壳）：工程状态未知（不冒称未打开），操作
+    // 服务未接入单独陈述；历史仍可读。
+    m_contextBar->presentUnavailable(brief, streaming, turnId,
+                                     tr("操作服务未接入（查询/取消/恢复不可用）"));
     return;
   }
   const auto view = m_presenter->currentContext();
@@ -690,15 +742,8 @@ bool AiAssistDock::eventFilter(QObject *watched, QEvent *event) {
 }
 
 void AiAssistDock::changeEvent(QEvent *event) {
-  // W8.3：主题切换刷新既有呈现（卡片各自在 changeEvent 重建 token 样式）。
-  if (event->type() == QEvent::ApplicationPaletteChange ||
-      event->type() == QEvent::PaletteChange) {
-    if (m_status && m_controller) {
-      QPalette palette = m_status->palette();
-      palette.setColor(QPalette::WindowText, PaleoTheme::tokens().textMuted);
-      m_status->setPalette(palette);
-    }
-  }
+  // W8.3：主题切换刷新既有呈现（卡片/状态条各自经活体样式或 changeEvent
+  // 重建 token 样式）。
   QWidget::changeEvent(event);
 }
 
@@ -802,6 +847,14 @@ void AiAssistDock::addToolCard(const ChatToolCall &call,
     m_cardLayout->removeWidget(old);
     old->deleteLater();
     m_toolCards.remove(call.id);
+  }
+  // W8：实时卡同样受活跃卡上限约束（超出撤最旧；消息与历史回放不受影响）。
+  while (m_toolCards.size() >= kCardWidgetCap) {
+    const QString oldest = m_toolCards.constBegin().key();
+    AiConversationCard *old = m_toolCards.value(oldest);
+    m_cardLayout->removeWidget(old);
+    old->deleteLater();
+    m_toolCards.remove(oldest);
   }
   auto *card = new AiConversationCard(call.name, call.id, statusText, m_cards);
   // 实时卡归属：当前回合（hostTurnId 是宿主持久归属快照）。

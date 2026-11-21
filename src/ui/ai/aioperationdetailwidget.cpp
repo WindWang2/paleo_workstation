@@ -148,7 +148,6 @@ AiOperationDetailWidget::AiOperationDetailWidget(QWidget *parent) : QWidget(pare
   connect(m_eventsRestart, &QPushButton::clicked, this, [this] {
     // 显式重读才复位游标（不静默拼「完整事件史」）。
     m_eventsCursor.clear();
-    m_eventsExpired = false;
     if (!m_operationId.isEmpty())
       emit eventsRequested(m_operationId, 0);
   });
@@ -214,7 +213,6 @@ void AiOperationDetailWidget::closeEvent(QCloseEvent *event) {
 void AiOperationDetailWidget::openOperation(const QString &operationId) {
   m_operationId = operationId;
   m_eventsCursor.clear();
-  m_eventsExpired = false;
   resetPortView();
   m_title->setText(tr("操作 %1").arg(elidedMiddle(operationId, 28)));
   m_title->setToolTip(operationId);
@@ -318,7 +316,6 @@ void AiOperationDetailWidget::onOperationEvents(const QString &operationId,
     return;
   }
   if (code == QLatin1String("event_history_expired")) {
-    m_eventsExpired = true;
     m_eventsNote->setText(
       tr("事件史已过期：最早可读修订 %1，此前事件不再可读；"
          "如需从头检视请点「重新起读」")
@@ -393,7 +390,9 @@ void AiOperationDetailWidget::onPortPage(const QString &operationId,
   // 文本预览仅限已知文本 encoding；其余按 hex 有界呈现（不解释内容语义）。
   const bool text = m_portEncoding.contains(QLatin1String("text"), Qt::CaseInsensitive);
   if (text) {
-    const auto decoded = paleo::chat::decodeUtf8Display(m_portBytes);
+    // 末页不再切尾（残缺序列如实按替换呈现）；中间页为跨页拼接保留尾巴。
+    const auto decoded = paleo::chat::decodeUtf8Display(
+      m_portBytes, page.value(QStringLiteral("hasMore")).toBool());
     const QString tail = page.value(QStringLiteral("hasMore")).toBool()
                            ? tr("尚有后续")
                            : tr("读取完成");
@@ -449,9 +448,14 @@ void AiOperationDetailWidget::onBusyChanged(const QString &operationId,
 }
 
 void AiOperationDetailWidget::setControlBusy(const QString &action, bool busy) {
-  QPushButton *button = action == QLatin1String("refresh") ? m_refresh
-                        : action == QLatin1String("cancel") ? m_cancel
-                                                            : m_resume;
+  // 精确映射（read/events/results 不牵连恢复按钮）。
+  QPushButton *button = nullptr;
+  if (action == QLatin1String("refresh"))
+    button = m_refresh;
+  else if (action == QLatin1String("cancel"))
+    button = m_cancel;
+  else if (action == QLatin1String("resume"))
+    button = m_resume;
   if (button)
     button->setEnabled(!busy);
 }

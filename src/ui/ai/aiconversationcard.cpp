@@ -138,6 +138,27 @@ void AiConversationCard::setArgumentsSummary(const QString &argumentsJson) {
   m_argumentsJson = argumentsJson;
 }
 
+void AiConversationCard::setActionNote(const QString &note) {
+  if (!m_actionNoteLabel) {
+    m_actionNoteLabel = new QLabel(m_frame);
+    m_actionNoteLabel->setObjectName(QStringLiteral("aiCardActionNote"));
+    m_actionNoteLabel->setTextFormat(Qt::PlainText);
+    m_actionNoteLabel->setWordWrap(true);
+    m_actionNoteLabel->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+    PaleoTheme::applyThemedStyleSheet(
+      m_actionNoteLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    if (auto *frameLayout = qobject_cast<QVBoxLayout *>(m_frame->layout()))
+      frameLayout->addWidget(m_actionNoteLabel);
+    m_actionNoteLabel->hide();
+  }
+  if (note.isEmpty()) {
+    m_actionNoteLabel->hide();
+    return;
+  }
+  m_actionNoteLabel->setText(note);
+  m_actionNoteLabel->show();
+}
+
 void AiConversationCard::setOperationControlsAllowed(bool allowed) {
   m_operationControlsAllowed = allowed;
 }
@@ -327,9 +348,14 @@ void AiConversationCard::buildBody() {
 }
 
 void AiConversationCard::setActionBusy(const QString &action, bool busy) {
-  QPushButton *button = action == QLatin1String("refresh") ? m_refreshButton
-                        : action == QLatin1String("cancel") ? m_cancelButton
-                                                            : m_resumeButton;
+  // 精确映射（read/events/results 不牵连恢复按钮）。
+  QPushButton *button = nullptr;
+  if (action == QLatin1String("refresh"))
+    button = m_refreshButton;
+  else if (action == QLatin1String("cancel"))
+    button = m_cancelButton;
+  else if (action == QLatin1String("resume"))
+    button = m_resumeButton;
   if (button)
     button->setEnabled(!busy);
 }

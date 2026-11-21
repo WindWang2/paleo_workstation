@@ -50,6 +50,9 @@ public:
   void setOperationControlsAllowed(bool allowed);
   // adapter 忙碌反馈：对应控制按钮置忙（action ∈ refresh/cancel/resume）。
   void setActionBusy(const QString &action, bool busy);
+  // 控制动作结果注记（如「已请求取消（等待执行面确认）」）：详情面未开时
+  // 卡上仍可见服务事实（P2 review）。
+  void setActionNote(const QString &note);
 
   QString toolCallId() const { return m_toolCallId; }
   QString operationId() const { return m_operationId; }
@@ -98,5 +101,6 @@ private:
   QPushButton *m_cancelButton = nullptr;
   QPushButton *m_resumeButton = nullptr;
   QLabel *m_summaryLabel = nullptr;      // 兜底摘要行（既有 160 字符形态）
+  QLabel *m_actionNoteLabel = nullptr;   // 控制动作结果注记（懒建）
   QString m_resultSummary;               // 实时帧摘要（历史卡无此帧则空）
 };

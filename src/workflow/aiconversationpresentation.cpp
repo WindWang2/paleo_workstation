@@ -101,10 +101,13 @@ ToolResultFacts projectToolResult(const QString &tool, const QString &resultJson
     }
     facts.retryAdviceNoRepeat = object.value(QStringLiteral("retryAdvice")).toString() ==
                                 QLatin1String("do_not_repeat_execution");
-    facts.encodedBytesNote = QString::number(
-      object.value(QStringLiteral("summary")).toObject().value(QStringLiteral("encodedBytes")).toDouble());
-    if (facts.encodedBytesNote == QLatin1String("0"))
-      facts.encodedBytesNote.clear();
+    const double encodedBytes = object.value(QStringLiteral("summary"))
+                                  .toObject()
+                                  .value(QStringLiteral("encodedBytes"))
+                                  .toDouble();
+    facts.encodedBytesNote = encodedBytes > 0
+                               ? QString::number(encodedBytes, 'f', 0)
+                               : QString();
     facts.data = object.value(QStringLiteral("data"));
     facts.hasData = !facts.data.isUndefined();
     facts.dataIsObject = facts.data.isObject();
@@ -262,7 +265,7 @@ QVector<HistoryToolCall> projectSessionTools(const ChatSession &session) {
   return out;
 }
 
-TextPage decodeUtf8Display(const QByteArray &bytes) {
+TextPage decodeUtf8Display(const QByteArray &bytes, bool holdTail) {
   TextPage page;
   int hold = 0;
   for (int index = bytes.size() - 1; index >= 0 && hold <= 3; --index) {
@@ -288,6 +291,8 @@ TextPage decodeUtf8Display(const QByteArray &bytes) {
   // 连续 ≥4 个 continuation（无合法 lead）：不猜，整体按非法呈现。
   if (hold > 3)
     hold = 0;
+  if (!holdTail)
+    hold = 0; // 末页：不再为下一页保留尾巴，残缺序列按非法替换呈现
   page.trailingBytes = hold;
   const auto body = bytes.left(bytes.size() - hold);
   page.text = QString::fromUtf8(body);

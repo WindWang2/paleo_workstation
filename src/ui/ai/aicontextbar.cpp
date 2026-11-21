@@ -79,7 +79,9 @@ QString AiContextBar::summaryLine() const {
   QStringList parts;
   if (!m_brief.isEmpty())
     parts << firstLine(m_brief);
-  if (!m_hostOpen)
+  if (!m_hostKnown)
+    parts << tr("操作服务未接入");
+  else if (!m_hostOpen)
     parts << tr("工程未打开");
   else if (m_hostReadOnly)
     parts << tr("只读");
@@ -90,12 +92,24 @@ QString AiContextBar::summaryLine() const {
   return parts.join(QStringLiteral(" · "));
 }
 
+void AiContextBar::presentUnavailable(const QString &projectBrief, bool streaming,
+                                      const QString &hostTurnId, const QString &reason) {
+  m_hostKnown = false;
+  m_brief = projectBrief;
+  m_streaming = streaming;
+  m_hostTurnId = hostTurnId;
+  m_hostUnavailableCode = reason;
+  m_summary->setText(summaryLine());
+  m_detailBody->setText(detailText());
+}
+
 void AiContextBar::present(const QString &projectBrief, bool streaming,
                            const QString &hostUnavailableCode, bool hostOpen,
                            bool hostReadOnly, const QString &horizon,
                            const QString &unitId, const QString &documentId,
                            quint64 epoch, const QString &hostTurnId,
                            const QString &turnContextNote) {
+  m_hostKnown = true;
   m_brief = projectBrief;
   m_streaming = streaming;
   m_hostUnavailableCode = hostUnavailableCode;
@@ -115,7 +129,9 @@ QString AiContextBar::detailText() const {
   QStringList lines;
   if (!m_brief.isEmpty())
     lines << tr("工程简报：%1").arg(m_brief);
-  if (!m_hostOpen) {
+  if (!m_hostKnown) {
+    lines << tr("宿主状态：未知（%1）").arg(m_hostUnavailableCode);
+  } else if (!m_hostOpen) {
     lines << tr("工程状态：未打开（%1）")
                  .arg(m_hostUnavailableCode.isEmpty() ? tr("无宿主上下文")
                                                       : m_hostUnavailableCode);

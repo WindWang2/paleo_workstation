@@ -83,12 +83,13 @@ QVector<HistoryToolCall> projectSessionTools(const ChatSession &session);
 
 // ---- W6 跨页 UTF-8 边界 ----
 // 把一页字节解码为可显示文本：尾部不完整多字节序列切出留待下一页，
-// 非法序列以替换字符呈现（invalid 标记）。纯函数，便于分页检视复用。
+// 非法序列以替换字符呈现（invalid 标记）。holdTail=false 用于末页
+//（hasMore=false）：不再切尾，残缺尾序列按非法替换呈现、不静默吞字节。
 struct TextPage {
   QString text;
   int trailingBytes = 0; // 留给下一页拼接的尾部不完整序列长度
   bool invalid = false;  // 页内存在被替换的非法序列
 };
-TextPage decodeUtf8Display(const QByteArray &bytes);
+TextPage decodeUtf8Display(const QByteArray &bytes, bool holdTail = true);
 
 } // namespace paleo::chat

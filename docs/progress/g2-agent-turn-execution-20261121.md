@@ -27,8 +27,56 @@
 
 ## 本地验证
 
-（构建/测试结果随执行填充）
+环境：CachyOS Linux x86_64；Qt 6.10.2（deb 闭包前缀）；RelWithDebInfo；`-j4`。
+构建/测试环境：`QGIS_PREFIX=/home/kevin/projects/paleo-deb-prefix-20261119/usr`
+（+`CMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu`），测试直跑二进制（deb 前缀
+expat 1.11 与系统 ctest 不兼容，ctest 闸门脚本改为直接运行同一脚本）。
+
+### 专项新增（19 例全绿）
+
+- `tst_g2_turncheckpoint`：8/8——首项结果保存失败停队列停续轮（内存/磁盘
+  oracle + 恢复后 retry 收口）、终答保存失败诚实上报 + newSession/loadSession/
+  removeSession/retryLast 薄门、中途 setConfig 不劫持在途回合（请求体断言
+  冻结模型）、**受控 Pi 链**（真 controller + 真 CapabilityHost 查询 +
+  FakeNode peer；第二项工具派发前 gate 在磁盘观察到第一项结果）、Pi 链保存
+  失败与原生同口径结算、保存失败窗口内取消单次结算。
+- `tst_g2_piterminal`：11/11——正常两轮闭环 ok（failed/cleanup 零次）、握手
+  违约根因不被降级（finished=pi_conversation_identity）、用户取消保持 cancelled
+  且回收失败走 cleanupNotice、任务销毁终态=根因、满 16 帧环背压可恢复（17 片
+  不丢、busy 不假失败）、重复帧风暴 15s 控制时限内有界失败（wall<24s，
+  toolRequested 恒 1、已完成结果合法重发）、缺 idle 有界超时（无凭空工具派发）、
+  错 round 立即 pi_tool_state、关闭后迟到 modelFinished/modelDelta/toolFinished
+  拒绝且零新信号。
+
+### 回归（既有受影响入口，全部绿）
+
+| 测试 | 结果 |
+|---|---|
+| tst_aichatcontroller | 24/24 |
+| tst_pichatbridge | 29/29 |
+| tst_chatinvocationbinding | 8/8 |
+| tst_piconversation / tst_piprotocol | 15/15、21/21 |
+| tst_pigeneratedoperations | 6/6（受控 Python 环境缺失，真实发布链按门跳过） |
+| tst_aichattoolloop（ORT 门内） | 14/14 |
+| tst_aichat / projectquery / capability / aiwiring / chatresults | 17、16、9、14、16 全绿 |
+
+### Source gates（脚本直跑，含 strict 变体）
+
+layering（含 --strict / --qgs-audit --strict / --transitive with
+QGIS_PREFIX）、file_budget --strict（51 基线 0 新增）、i18n、ui_tokens、
+qgis_versions、docs_drift、ui_invariants、ui_size、qgis_spread（169 基线
+0 新增）、cpp_mainline（cmake -P）全部通过；check_ts_stale 由 8→0
+（翻译补 8 条，仅本任务文案增量 +80 行）；check_l10n 的 27 处 unfinished
+为主干存量（stash 验证与本次改动无关）。
 
 ## 未覆盖/限制
 
-（随执行填充）
+- **真实 Pi 进程链**（PALEO_TEST_PI_NATIVE_ROOT）与**受控 Python 发布链**
+  （PALEO_TEST_AGENT_PYTHON_ROOT）本机未提供 fixture：`realPi*` 既有测试与
+  `committedOperationSurvivesSessionSaveFailureAndRetry`（新增，挂
+  tst_pigeneratedoperations）按环境门诚实跳过，未在本机运行。引擎一致性由
+  受控 peer 全链（宿主工具/模型 HTTP 全真）覆盖；发布一次性由既有
+  tst_pigeneratedoperations 主链在具备环境的跑道上验证。
+- 进程突然终止时未落盘的内存内容不可恢复（重启只信磁盘 admitted bindings
+  与 operation 记录）——设计边界，非缺陷；未为此新增第二套日志。
+- 保存欠账的呈现复用既有 errorOccurred/statusText 信号，未要求 G5 新 API。

@@ -1,10 +1,12 @@
 // 层：功能
 #include "llmclient.h"
+#include "llmcredentialguard.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QNetworkAccessManager>
@@ -14,7 +16,8 @@
 #include <QStandardPaths>
 #include <QTimer>
 
-// ai/chat — LLM 客户端实现（方向51）。
+// ai/chat — LLM 客户端实现（方向51；G1 重整为 attempt 冻结 + 双时限 +
+// 统一终态裁决）。
 //
 // 协议依据：chat completions 请求体 { model, messages, stream, max_tokens }，
 // 应答 choices[0].message.content（非流式）/ choices[0].delta.content（流式），
@@ -26,6 +29,7 @@ const char kEnvModel[] = "PALEO_LLM_MODEL";
 const char kEnvKey[] = "PALEO_LLM_API_KEY";
 // 响应体上限（字节）：流式与非流式共用，超出即判失败——防故障/恶意服务耗尽内存
 // （与 WellFaciesConfig 的同款纪律，只是阈值按对话场景下调到 8MiB）。
+// readyRead 与 finished tail 同一把尺子、每字节只计一次（W6）。
 constexpr qint64 kMaxResponseBytes = 8ll * 1024 * 1024;
 
 // 应答是不是普通 chat completions JSON（choices 数组）——「stream=true 却
@@ -110,6 +114,11 @@ LlmConfig LlmConfig::load() {
       // PW-067：用户 JSON 里的超时/令牌数钳到合理域（0/负值会导致即时超时或 400）。
       config.timeoutMs =
         qBound(1000, object.value(QStringLiteral("timeout_ms")).toInt(30000), 600000);
+      // G1（W2）：旧 JSON 缺 total_timeout_ms → 默认 300000（5 分钟）；
+      // 合法域 [1000, 3600000]（1 秒 ~ 1 小时）。
+      config.totalTimeoutMs = qBound(
+        1000, object.value(QStringLiteral("total_timeout_ms")).toInt(300000),
+        3600000);
       config.maxTokens =
         qBound(1, object.value(QStringLiteral("max_tokens")).toInt(1024), 32768);
       config.allowInsecureHttp =
@@ -136,6 +145,7 @@ bool LlmConfig::save(QString *error) const {
   object.insert(QStringLiteral("model"), model);
   object.insert(QStringLiteral("stream"), stream);
   object.insert(QStringLiteral("timeout_ms"), timeoutMs);
+  object.insert(QStringLiteral("total_timeout_ms"), totalTimeoutMs);
   object.insert(QStringLiteral("max_tokens"), maxTokens);
   object.insert(QStringLiteral("allow_insecure_http"), allowInsecureHttp);
   const QString path = this->path();
@@ -181,173 +191,71 @@ QString llmErrorLabel(LlmErrorKind kind) {
 }
 
 // ---------------------------------------------------------------------------
-// LlmStreamParser
+// LlmStreamParser —— 实现在 llmstreamparser.cpp（G1 拆分，函数体规模闸友好）
 // ---------------------------------------------------------------------------
-void LlmStreamParser::feed(const QByteArray &chunk, QStringList *deltas,
-                           bool *done, QString *error) {
-  if (deltas)
-    deltas->clear();
-  m_buffer.append(chunk);
-  // SSE 行结尾允许 CRLF/LF/CR（W3C 规范三分支；事件分隔为对应空行）：
-  // 全部归一成 LF，否则 CRLF/裸 CR 服务端的流式应答整轮切不出事件
-  // （收尾兜底把整个 body 拼成非法 JSON → Malformed）。缓冲只留最后一个
-  // 不完整事件（小），JSON 文本内 \r 均为转义形式，替换安全。
-  m_buffer.replace("\r\n", "\n");
-  m_buffer.replace("\r", "\n");
-  // SSE 事件以空行分隔；最后一个不完整的事件留在缓冲里等下一块。
-  int boundary;
-  while ((boundary = m_buffer.indexOf("\n\n")) >= 0) {
-    const QByteArray event = m_buffer.left(boundary);
-    m_buffer.remove(0, boundary + 2);
-    QString payload;
-    for (const QByteArray &rawLine : event.split('\n')) {
-      const QByteArray line = rawLine.trimmed();
-      if (line.isEmpty() || line.startsWith(':'))
-        continue; // 注释/心跳行：SSE 允许，不参与解析
-      if (!line.startsWith("data:")) {
-        continue; // event:/id:/retry: 等字段：本方向不使用，忽略而非报错
-      }
-      // W3C SSE：同事件多条 data 行以 \n 连接成载荷——直接 += 会把规范
-      // 后端合法拆行的 JSON 拼坏（Malformed 整轮失败）。
-      if (!payload.isEmpty())
-        payload += QLatin1Char('\n');
-      payload += QString::fromUtf8(line.mid(5).trimmed());
-    }
-    if (payload.trimmed() == QLatin1String("[DONE]")) {
-      if (done)
-        *done = true;
-      continue;
-    }
-    if (payload.trimmed().isEmpty())
-      continue;
-    QJsonParseError parseError;
-    const QJsonDocument document =
-      QJsonDocument::fromJson(payload.toUtf8(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-      if (error)
-        *error = QObject::tr("流式事件不是合法 JSON：%1").arg(parseError.errorString());
-      continue;
-    }
-    const QJsonObject object = document.object();
-    const QJsonObject usage = object.value(QStringLiteral("usage")).toObject();
-    if (!usage.isEmpty()) {
-      // usage 只在收尾事件（或全部事件）里出现，取最后一次即可。
-      promptTokens = usage.value(QStringLiteral("prompt_tokens")).toInt(promptTokens);
-      completionTokens =
-        usage.value(QStringLiteral("completion_tokens")).toInt(completionTokens);
-    }
-    const QJsonArray choices = object.value(QStringLiteral("choices")).toArray();
-    for (const QJsonValue &choiceValue : choices) {
-      const QJsonObject choice = choiceValue.toObject();
-      const QJsonObject delta = choice.value(QStringLiteral("delta")).toObject();
-      const QString text = delta.value(QStringLiteral("content")).toString();
-      if (!text.isEmpty() && deltas)
-        deltas->append(text);
-      const QJsonArray calls = delta.value(QStringLiteral("tool_calls")).toArray();
-      for (const QJsonValue &callValue : calls) {
-        const QJsonObject callObject = callValue.toObject();
-        const int index = callObject.value(QStringLiteral("index")).toInt(-1);
-        if (index < 0)
-          continue; // 无 index 的增量无法归段——如实丢弃（不猜下标）
-        LlmToolDraft draft = m_drafts.value(index);
-        draft.index = index;
-        const QJsonObject function =
-          callObject.value(QStringLiteral("function")).toObject();
-        const QString id = callObject.value(QStringLiteral("id")).toString();
-        if (!id.isEmpty())
-          draft.id = id;
-        const QString name = function.value(QStringLiteral("name")).toString();
-        if (!name.isEmpty())
-          draft.name = name;
-        draft.arguments += function.value(QStringLiteral("arguments")).toString();
-        m_drafts.insert(index, draft);
-      }
-    }
-  }
-}
-
-QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls() {
-  QVector<ChatToolCall> out;
-  // 按草稿 index 升序产出：QHash 迭代序任意，同一数据块内多个并行调用完成时
-  // 派发顺序不稳定——与 flush() 刻意保证的 index 升序相矛盾（下游按到达序
-  // 渲染工具调用帧）。收集后统一排序，只动顺序不动完成判定语义。
-  QList<int> indices = m_drafts.keys();
-  std::sort(indices.begin(), indices.end());
-  for (int index : indices) {
-    const LlmToolDraft draft = m_drafts.value(index);
-    // 空实参不是「无参工具」，而是「分片还没到货」：真实服务首帧固定发
-    // {id,name,arguments:""}，实参在后续增量里补齐——这里提前派发会把
-    // 实参全丢（#278）。只有 arguments 非空且拼成合法 JSON 对象才算完成；
-    // 真无参工具由 flush()（[DONE]/连接关闭）兜底产出。
-    if (!draft.hasIdentity() || draft.arguments.trimmed().isEmpty())
-      continue;
-    ChatToolCall call;
-    call.id = draft.id;
-    call.name = draft.name;
-    call.argumentsJson = draft.arguments;
-    if (call.hasValidArguments()) {
-      out.append(call);
-      m_drafts.remove(index);
-    }
-  }
-  return out;
-}
-
-QVector<ChatToolCall> LlmStreamParser::flush() {
-  QVector<ChatToolCall> out;
-  // 按下标升序：模型并发下发多段时破坏顺序会让人看不懂。
-  QList<int> indices = m_drafts.keys();
-  std::sort(indices.begin(), indices.end());
-  for (int index : indices) {
-    const LlmToolDraft draft = m_drafts.value(index);
-    if (!draft.hasIdentity())
-      continue;
-    ChatToolCall call;
-    call.id = draft.id;
-    call.name = draft.name;
-    call.argumentsJson = draft.arguments;
-    out.append(call);
-  }
-  m_drafts.clear();
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // LlmClient
 // ---------------------------------------------------------------------------
 LlmClient::LlmClient(QObject *parent)
+  : LlmClient(new QNetworkAccessManager, parent) {}
+
+LlmClient::LlmClient(QNetworkAccessManager *networkAccessManagerForTesting,
+                     QObject *parent)
   : QObject(parent)
-  , m_nam(new QNetworkAccessManager(this))
+  , m_nam(networkAccessManagerForTesting)
   , m_timer(new QTimer(this))
-{
+  , m_totalTimer(new QTimer(this)) {
+  if (m_nam)
+    m_nam->setParent(this);
   m_timer->setSingleShot(true);
   connect(m_timer, &QTimer::timeout, this, [this]() {
-    fail(LlmErrorKind::Timeout,
-         QObject::tr("大模型请求空闲超时（>%1 ms）").arg(m_config.timeoutMs));
+    // idle 与 total 共用 LlmErrorKind::Timeout（enum 兼容），文案区分
+    // 「空闲超时 / 总时限」（W2）：调用方/测试按稳定子串辨识。
+    const int generation = m_attempt.generation;
+    if (!alive(generation) || !m_reply)
+      return;
+    fail(generation, LlmErrorKind::Timeout,
+         QObject::tr("大模型请求空闲超时（>%1 ms）")
+           .arg(m_attempt.config.timeoutMs));
+  });
+  m_totalTimer->setSingleShot(true);
+  connect(m_totalTimer, &QTimer::timeout, this, [this]() {
+    const int generation = m_attempt.generation;
+    if (!alive(generation) || !m_reply)
+      return;
+    fail(generation, LlmErrorKind::Timeout,
+         QObject::tr("大模型请求超过总时限（%1 ms；空闲计时不延长它）")
+           .arg(m_attempt.config.totalTimeoutMs));
   });
 }
 
 LlmClient::~LlmClient() {
   ++m_generation; // 作废在飞回调（析构期不会再有事件循环跑它们）
   m_timer->stop();
+  m_totalTimer->stop();
   if (m_reply) {
     m_reply->abort();
     m_reply.clear(); // 析构期不做 deleteLater：事件循环已不在，无人消费
   }
 }
 
-void LlmClient::setConfig(const LlmConfig &config) { m_config = config; }
+void LlmClient::setConfig(const LlmConfig &config) {
+  // 只影响后续 send：在途请求冻结在 m_attempt（W1）。
+  m_config = config;
+}
 
 QNetworkReply *LlmClient::issueRequest(const QVector<ChatMessage> &messages,
-                                       const QVector<AiToolSpec> &tools) {
+                                       const QVector<AiToolSpec> &tools,
+                                       const LlmConfig &frozen) {
   QJsonArray array;
   for (const ChatMessage &message : messages)
     array.append(message.toProtocolJson()); // 只发协议字段（见 chatmessage.h）
   QJsonObject body;
-  body.insert(QStringLiteral("model"), m_config.model);
+  body.insert(QStringLiteral("model"), frozen.model);
   body.insert(QStringLiteral("messages"), array);
-  body.insert(QStringLiteral("stream"), m_config.stream);
-  body.insert(QStringLiteral("max_tokens"), m_config.maxTokens);
+  body.insert(QStringLiteral("stream"), frozen.stream);
+  body.insert(QStringLiteral("max_tokens"), frozen.maxTokens);
   // 工具上送（方向61）：tools[] 按 OpenAI 口径 = {type:"function",
   // function:{name,description,parameters}}；tool_choice 恒 "auto"——模型自决
   // 是否调用（含不调工具直接作答），不用 "required"/"none" 强制，也不点名
@@ -364,19 +272,19 @@ QNetworkReply *LlmClient::issueRequest(const QVector<ChatMessage> &messages,
     body.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
   }
 
-  QNetworkRequest request(m_config.completionsUrl());
+  QNetworkRequest request(frozen.completionsUrl());
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     QStringLiteral("application/json"));
-  // 重定向策略显式设为手动（与 wellfaciesservice.cpp:230 同款纪律）：Qt 默认
+  // 重定向策略显式设为手动（与 wellfaciesservice.cpp 同款纪律）：Qt 默认
   // 会跟随跨源重定向，Bearer 密钥会被带到重定向目标主机上。此处不跟随——
-  // 3xx 由下方 finished 的 status 分支如实报错，调用方自行决定是否重试。
+  // 3xx 由 finished 的 status 分支如实报错，调用方自行决定是否重试。
   request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                        QNetworkRequest::ManualRedirectPolicy);
   request.setRawHeader(
-    "Accept", m_config.stream ? "text/event-stream" : "application/json");
-  if (!m_config.apiKey.isEmpty())
-    request.setRawHeader("Authorization", "Bearer " + m_config.apiKey);
-  request.setTransferTimeout(0); // 超时由本端定时器统一判（避免双重超时语义）
+    "Accept", frozen.stream ? "text/event-stream" : "application/json");
+  if (!frozen.apiKey.isEmpty())
+    request.setRawHeader("Authorization", "Bearer " + frozen.apiKey);
+  request.setTransferTimeout(0); // 超时由本端双计时器统一判（避免双重超时语义）
   return m_nam->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
 }
 
@@ -384,232 +292,334 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
                      const QVector<AiToolSpec> &tools) {
   const QString invalid = m_config.validate();
   if (!invalid.isEmpty()) {
-    // 诚实禁用态：不给假结果，也不静默吞掉请求。
+    // 诚实禁用态：不给假结果，也不静默吞掉请求。invalid send 不作废在途
+    // 请求（语义：本次提交无效；上一轮合法请求照常完成，错误归属新提交）。
     emit errorOccurred(LlmErrorKind::NotConfigured, invalid);
     return;
   }
-  cancel(); // 中止上一轮（若有）并提世代
+  cancel(); // 中止上一轮（若有）并提世代——有效 send 替换旧请求
   const int generation = ++m_generation;
+  // 冻结 attempt（W1）：URL/模型/流式/密钥/双时限取当下快照；期间 setConfig
+  // 只影响下一次 send。
+  m_attempt = Attempt();
+  m_attempt.generation = generation;
+  m_attempt.config = m_config;
   m_body.clear();
   m_received = 0;
   m_sawStreamEvent = false;
   m_parser = LlmStreamParser();
-  m_promptTokens = 0;
-  m_completionTokens = 0;
 
-  QNetworkReply *reply = issueRequest(messages, tools);
+  QNetworkReply *reply = issueRequest(messages, tools, m_attempt.config);
   m_reply = reply;
-  m_timer->start(m_config.timeoutMs);
+  m_timer->start(m_attempt.config.timeoutMs);
+  m_totalTimer->start(m_attempt.config.totalTimeoutMs);
 
-  connect(reply, &QNetworkReply::readyRead, this, [this, reply, generation]() {
-    if (generation != m_generation)
+  // 订阅者可能在任一信号的同步槽里再 send/cancel/delete this：每个继续
+  // 处理点前重查对象存活（QPointer）与世代号（W1）。
+  const QPointer<LlmClient> self(this);
+  connect(reply, &QNetworkReply::readyRead, this,
+          [this, self, reply, generation]() {
+    if (!self || !alive(generation))
       return;
-    m_timer->start(m_config.timeoutMs); // 空闲计时：收到数据即重置
+    m_timer->start(m_attempt.config.timeoutMs); // idle：真实到货即重置
+    const int status =
+      reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray chunk = reply->readAll();
-    // 上限按累计到货字节判（流式与非流式同一把尺子——不能因为流式的载荷
-    // 不进 m_body 就让它绕过内存上限）。
-    if (m_received + qint64(chunk.size()) > kMaxResponseBytes) {
-      fail(LlmErrorKind::TooLarge, QObject::tr("应答超过 %1 字节上限")
-                                     .arg(kMaxResponseBytes));
+    // 上限按累计到货字节判（流式与非流式同一把尺子；tail 在 finished 另计，
+    // 每字节恰好一次——W6）。
+    if (!countBytes(generation, qint64(chunk.size())))
+      return;
+    if (!m_sawStreamEvent)
+      m_body.append(chunk); // 非 SSE 判别/非流式解析要整段体（见 W6 释放点）
+    if (!m_attempt.config.stream)
+      return;
+    if (status >= 300) {
+      // HTTP 分类优先（W5）：非 2xx 的应答体（哪怕长得像 SSE、带 [DONE]）
+      // 不向下游派发任何内容；字节已计数，等 finished 统一裁决。
       return;
     }
-    m_received += chunk.size();
-    // 原始应答两种模式都累积（上限判定已在上方统一计数）——stream=true 收到
-    // 非 SSE 应答时要拿得到整段 body 转非流式解析（#588）。
-    m_body.append(chunk);
-    if (!m_config.stream)
-      return;
     QStringList deltas;
     bool done = false;
     QString parseError;
     m_parser.feed(chunk, &deltas, &done, &parseError);
-    for (const QString &text : deltas)
+    if (!parseError.isEmpty())
+      m_sawStreamEvent = true; // 解析过 SSE 形态流量：不再走非 SSE 兼容层
+    for (const QString &text : deltas) {
       emit deltaReceived(text);
-    const QVector<ChatToolCall> calls = m_parser.takeCompleteCalls();
-    for (const ChatToolCall &call : calls)
-      emit toolCallReceived(call);
-    // 本轮是否真见过 SSE 事件（增量/工具帧/[DONE]）——非 SSE 应答的判别依据。
-    if (!deltas.isEmpty() || done || !calls.isEmpty() || !parseError.isEmpty())
+      if (!self || !alive(generation))
+        return;
+    }
+    QString callError;
+    const QVector<ChatToolCall> calls =
+      m_parser.takeCompleteCalls(&callError);
+    if (!calls.isEmpty() || done)
       m_sawStreamEvent = true;
-    if (!parseError.isEmpty()) {
-      fail(LlmErrorKind::Malformed, parseError);
+    for (const ChatToolCall &call : calls) {
+      emit toolCallReceived(call);
+      if (!self || !alive(generation))
+        return;
+    }
+    if (m_sawStreamEvent)
+      m_body.clear(); // W6：已确认真流式，原始体不再需要（判别面已过）
+    if (!parseError.isEmpty() || !callError.isEmpty()) {
+      fail(generation, LlmErrorKind::Malformed,
+           parseError.isEmpty() ? callError : parseError);
       return;
     }
-    if (done) {
-      for (const ChatToolCall &call : m_parser.flush())
-        emit toolCallReceived(call);
-      finishUp(QStringLiteral("stop"), m_parser.promptTokens,
-               m_parser.completionTokens);
-    }
+    if (done)
+      finalizeStream(generation); // [DONE] → 终局校验 + finished（单一收口）
   });
 
-  connect(reply, &QNetworkReply::finished, this, [this, reply, generation]() {
-    if (generation != m_generation) { // 已被超时/取消/新一轮作废
-      reply->deleteLater();
-      return;
-    }
-    m_timer->stop();
-    ++m_generation;
-    m_reply = nullptr;
-    const bool ok = reply->error() == QNetworkReply::NoError;
+  connect(reply, &QNetworkReply::finished, this,
+          [this, self, reply, generation]() {
+    reply->deleteLater();
+    if (!self || !alive(generation))
+      return; // 已被 [DONE] 收尾/超时/取消/新一轮作废：不再二次结算
+    const bool transportOk = reply->error() == QNetworkReply::NoError;
     const int status =
       reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QString contentType =
       reply->header(QNetworkRequest::ContentTypeHeader).toString();
-    const QByteArray tail = reply->readAll();
-    m_body.append(tail); // 收尾残余并入口径（非流式解析/非 SSE 判别共用）
     const QString detail = reply->errorString();
-    reply->deleteLater();
-    // 分类顺序：先看 HTTP 状态码，再看传输层错误——Qt 会把 401/403/404/5xx
-    // 同时报成 error()（AuthenticationRequiredError 等），若先判 ok 就会把
-    // 「密钥无效」误报成「网络错误」（实测 401 就踩过）。
+    const QByteArray tail = reply->readAll();
+    m_reply.clear();
+    if (!countBytes(generation, qint64(tail.size())))
+      return; // tail 越限同样有界失败（W6：readyRead 与 tail 统一口径）
+    if (!m_sawStreamEvent)
+      m_body.append(tail);
+    // 分类顺序（W5 统一裁决）：HTTP 状态码优先于传输层错误——Qt 会把
+    // 401/403/404/5xx 同时报成 error()（AuthenticationRequiredError 等），
+    // 先判 ok 就会把「密钥无效」误报成「网络错误」。
     if (status >= 300 && status < 400) {
-      // 请求不跟随重定向（见 issueRequest 的 RedirectPolicyAttribute）：3xx 必须
-      // 如实报错。若不拦，空体的重定向应答会走完「零增量 + finishUp(stop)」把
-      // 空答复冒充成功（#588 同款不诚实路径）。
-      const QString location =
-        reply->header(QNetworkRequest::LocationHeader).toString();
-      emit errorOccurred(
-        LlmErrorKind::Network,
-        QObject::tr("服务端要求重定向（HTTP %1 → %2）：未跟随（避免密钥跨源外泄）")
-          .arg(QString::number(status),
-               location.isEmpty() ? QStringLiteral("?") : location));
+      // 请求不跟随重定向（见 issueRequest）：3xx 必须如实报错；Location
+      // 可能携带回显的凭据/查询秘密——先按 attempt 密钥脱敏再进诊断。
+      const QString location = paleo::chat::redactCredential(
+        reply->header(QNetworkRequest::LocationHeader).toString(),
+        m_attempt.config.apiKey);
+      fail(generation, LlmErrorKind::Network,
+           QObject::tr("服务端要求重定向（HTTP %1 → %2）：未跟随（避免密钥跨源外泄）")
+             .arg(QString::number(status),
+                  location.isEmpty() ? QStringLiteral("?") : location));
       return;
     }
     if (status == 401 || status == 403) {
-      emit errorOccurred(
-        LlmErrorKind::Unauthorized,
-        QObject::tr("密钥无效或无访问权限（HTTP %1）").arg(status));
+      fail(generation, LlmErrorKind::Unauthorized,
+           QObject::tr("密钥无效或无访问权限（HTTP %1）").arg(status));
       return;
     }
     if (status == 429) {
-      emit errorOccurred(LlmErrorKind::RateLimited,
-                         QObject::tr("服务端限流（HTTP %1）").arg(status));
+      fail(generation, LlmErrorKind::RateLimited,
+           QObject::tr("服务端限流（HTTP %1）").arg(status));
       return;
     }
     if (status >= 500) {
-      emit errorOccurred(LlmErrorKind::ServerError,
-                         QObject::tr("服务端错误（HTTP %1）").arg(status));
+      fail(generation, LlmErrorKind::ServerError,
+           QObject::tr("服务端错误（HTTP %1）").arg(status));
       return;
     }
     if (status >= 400) {
-      emit errorOccurred(LlmErrorKind::BadRequest,
-                         QObject::tr("请求被拒绝（HTTP %1）").arg(status));
+      fail(generation, LlmErrorKind::BadRequest,
+           QObject::tr("请求被拒绝（HTTP %1）").arg(status));
       return;
     }
-    if (!ok) {
-      emit errorOccurred(LlmErrorKind::Network,
-                         QObject::tr("网络错误：%1").arg(detail));
+    if (!transportOk) {
+      fail(generation, LlmErrorKind::Network,
+           QObject::tr("网络错误：%1").arg(detail));
       return;
     }
-    if (m_config.stream) {
-      // stream=true 也可能收到非 SSE 应答：服务端无视请求体里的 stream 参数
-      // 直接回普通 chat completions JSON（Content-Type 非 event-stream），或
-      // 回了 200 带 error 信封。SSE 解析器对此一个事件都切不出，按流式收尾
-      // 就是「零增量 + finishUp(stop)」——把空答复当成功，不报错（#588）。
-      // 判别优先级：本轮真解析出过 SSE 事件 → 一律按流式办（内容类型不可信，
-      // 代理改写 Content-Type 不能把真流式判成非流式）；一个事件都没有时，
-      // 内容类型明示非 event-stream、或 body 确是 chat completions 形状，
-      // 即整段转非流式解析（缺 choices 等字段如实报 Malformed）。
-      if (!m_sawStreamEvent) {
-        const bool contentTypeMismatch =
-          !contentType.trimmed().isEmpty() &&
-          !contentType.contains(QStringLiteral("text/event-stream"));
-        if (contentTypeMismatch || isChatCompletionsJson(m_body)) {
-          handleNonStreamReply(m_body);
+    if (!m_attempt.config.stream) {
+      handleNonStreamReply(generation, m_body);
+      return;
+    }
+    if (m_sawStreamEvent) {
+      // 正常 EOF（可能无 [DONE]，PW-061 容错）：尾字节并入解析器并无条件
+      // 补事件分隔符——早先经 readyRead 送达的最后一个事件可能没有空行
+      // 结尾。合法完整 EOF 的容错范围到此为止：残缺 JSON/工具参数由终局
+      // 校验拦下，不得成功。
+      QStringList deltas;
+      bool done = false;
+      QString parseError;
+      m_parser.feed(tail + QByteArrayLiteral("\n\n"), &deltas, &done,
+                    &parseError);
+      for (const QString &text : deltas) {
+        emit deltaReceived(text);
+        if (!self || !alive(generation))
           return;
-        }
       }
-      // [DONE] 缺失但连接已正常关闭：把缓冲里最后一个事件兜底 flush。
-      // PW-061：即便 finished 时没有未读尾字节，解析器缓冲里也可能留着一个
-      // 没有空行结尾的事件（早先经 readyRead 送达）——无条件补一个事件分隔符。
-      {
-        QStringList deltas;
-        bool done = false;
-        QString parseError;
-        m_parser.feed(tail + QByteArrayLiteral("\n\n"), &deltas, &done,
-                      &parseError);
-        for (const QString &text : deltas)
-          emit deltaReceived(text);
-        for (const ChatToolCall &call : m_parser.takeCompleteCalls())
-          emit toolCallReceived(call);
+      if (!parseError.isEmpty()) {
+        fail(generation, LlmErrorKind::Malformed, parseError);
+        return;
       }
-      for (const ChatToolCall &call : m_parser.flush())
-        emit toolCallReceived(call);
-      finishUp(QStringLiteral("stop"), m_parser.promptTokens,
-               m_parser.completionTokens);
+      finalizeStream(generation);
       return;
     }
-    // C-6（full-audit-20261021）：非流式应答并入 finished 时刻读出的尾部
-    // 字节——与流式分支同款兜底。Qt 文档建议在 finished 里读取剩余缓冲；
-    // 若平台/管线在最后一个 readyRead 与 finished 之间留有未投递字节，
-    // 截断的 JSON 会被误报成 Malformed。tail 已在上方 append 进 m_body，
-    // 这里不得再拼一次（否则残余字节成双，合法应答被判 Malformed）。
-    handleNonStreamReply(m_body);
+    // 本轮没见过任何 SSE 事件：判别非 SSE 兼容层（#588）。优先级：内容类型
+    // 明示非 event-stream、或 body 确是 chat completions 形状 → 整段转非
+    // 流式解析（缺 choices 等字段如实报 Malformed）。
+    const bool contentTypeMismatch =
+      !contentType.trimmed().isEmpty() &&
+      !contentType.contains(QStringLiteral("text/event-stream"));
+    if (contentTypeMismatch || isChatCompletionsJson(m_body)) {
+      handleNonStreamReply(generation, m_body);
+      return;
+    }
+    // 200 error 信封（无 choices 的 JSON 对象）：如实报错——按流式收尾会把
+    // 错误体当零内容成功（空答复冒充成功的又一变体）。
+    {
+      QJsonParseError envelopeError;
+      const QJsonDocument document =
+        QJsonDocument::fromJson(m_body, &envelopeError);
+      if (envelopeError.error == QJsonParseError::NoError && document.isObject() &&
+          document.object().contains(QStringLiteral("error"))) {
+        const QJsonValue error = document.object().value(QStringLiteral("error"));
+        QString message = error.isObject()
+                            ? error.toObject().value(QStringLiteral("message")).toString()
+                            : error.toString();
+        if (message.isEmpty())
+          message = QObject::tr("（无详情）");
+        fail(generation, LlmErrorKind::Malformed,
+             QObject::tr("服务端返回错误信封：%1").arg(message));
+        return;
+      }
+    }
+    // 零事件流（纯心跳/注释流、空应答、非 JSON 垃圾体）：没有可交付的内容，
+    // 如实报错，不把零内容当成功。
+    fail(generation, LlmErrorKind::Malformed,
+         QObject::tr("流式应答未包含任何事件"));
   });
 }
 
-void LlmClient::handleNonStreamReply(const QByteArray &payload) {
+void LlmClient::handleNonStreamReply(int generation, const QByteArray &payload) {
   QJsonParseError parseError;
   const QJsonDocument document =
     QJsonDocument::fromJson(payload, &parseError);
   if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-    emit errorOccurred(LlmErrorKind::Malformed,
-                       QObject::tr("应答不是合法 JSON：%1")
-                         .arg(parseError.errorString()));
+    fail(generation, LlmErrorKind::Malformed,
+         QObject::tr("应答不是合法 JSON：%1").arg(parseError.errorString()));
     return;
   }
   const QJsonObject object = document.object();
+  if (object.contains(QStringLiteral("error"))) {
+    const QJsonValue error = object.value(QStringLiteral("error"));
+    QString message = error.isObject()
+                        ? error.toObject().value(QStringLiteral("message")).toString()
+                        : error.toString();
+    if (message.isEmpty())
+      message = QObject::tr("（无详情）");
+    fail(generation, LlmErrorKind::Malformed,
+         QObject::tr("服务端返回错误信封：%1").arg(message));
+    return;
+  }
   const QJsonArray choices = object.value(QStringLiteral("choices")).toArray();
   if (choices.isEmpty()) {
-    emit errorOccurred(LlmErrorKind::Malformed,
-                       QObject::tr("应答缺少 choices 字段"));
+    fail(generation, LlmErrorKind::Malformed,
+         QObject::tr("应答缺少 choices 字段"));
     return;
   }
   const QJsonObject choice = choices.at(0).toObject();
-  const QJsonObject message = choice.value(QStringLiteral("message")).toObject();
+  const QJsonValue messageValue = choice.value(QStringLiteral("message"));
+  if (!messageValue.isObject()) {
+    fail(generation, LlmErrorKind::Malformed,
+         QObject::tr("应答缺少 message 字段"));
+    return;
+  }
+  const QPointer<LlmClient> self(this);
+  const QJsonObject message = messageValue.toObject();
   const QString content = message.value(QStringLiteral("content")).toString();
-  if (!content.isEmpty())
+  if (!content.isEmpty()) {
     emit deltaReceived(content);
+    if (!self || !alive(generation))
+      return;
+  }
   const QJsonArray calls = message.value(QStringLiteral("tool_calls")).toArray();
-  for (const QJsonValue &value : calls)
+  for (const QJsonValue &value : calls) {
     emit toolCallReceived(ChatToolCall::fromJson(value.toObject()));
+    if (!self || !alive(generation))
+      return;
+  }
   const QJsonObject usage = object.value(QStringLiteral("usage")).toObject();
-  finishUp(choice.value(QStringLiteral("finish_reason")).toString(),
+  // finish_reason 透传（W5）：length/content_filter 等原样给 finished；
+  // 旧兼容端点缺该字段时退化为 "stop"（文档化口径，不改写已有原因）。
+  QString reason = choice.value(QStringLiteral("finish_reason")).toString();
+  if (reason.isEmpty())
+    reason = QStringLiteral("stop");
+  finishUp(generation, reason,
            usage.value(QStringLiteral("prompt_tokens")).toInt(),
            usage.value(QStringLiteral("completion_tokens")).toInt());
 }
 
-void LlmClient::cancel() {
-  ++m_generation; // 作废在飞的那一轮（其回调一律不再回信号）
-  m_timer->stop();
-  if (m_reply) {
-    m_reply->abort();
-    m_reply->deleteLater();
-    m_reply = nullptr;
+void LlmClient::finalizeStream(int generation) {
+  // 流终局（[DONE] 或 EOF）唯一收口：终局校验 → 完整工具帧（先于 finished
+  // 交付）→ finished。残缺 arguments/缺 name 在此如实失败，绝不改造成 {}。
+  if (!alive(generation))
+    return;
+  const QPointer<LlmClient> self(this);
+  QString callError;
+  const QVector<ChatToolCall> calls = m_parser.flush(&callError);
+  for (const ChatToolCall &call : calls) {
+    emit toolCallReceived(call);
+    if (!self || !alive(generation))
+      return;
   }
+  if (!callError.isEmpty()) {
+    fail(generation, LlmErrorKind::Malformed, callError);
+    return;
+  }
+  QString reason = m_parser.finishReason();
+  if (reason.isEmpty())
+    reason = QStringLiteral("stop"); // 旧兼容端点缺 finish_reason 的退化口径
+  finishUp(generation, reason, m_parser.promptTokens, m_parser.completionTokens);
 }
 
-void LlmClient::fail(LlmErrorKind kind, const QString &message) {
-  ++m_generation;
-  m_timer->stop();
-  if (m_reply) {
-    m_reply->abort();
-    m_reply->deleteLater();
-    m_reply = nullptr;
+bool LlmClient::countBytes(int generation, qint64 bytes) {
+  if (!alive(generation))
+    return false;
+  if (bytes > kMaxResponseBytes - m_received) { // 差值比较：加法不溢出
+    fail(generation, LlmErrorKind::TooLarge,
+         QObject::tr("应答超过 %1 字节上限").arg(kMaxResponseBytes));
+    return false;
   }
-  emit errorOccurred(kind, message);
+  m_received += bytes;
+  return true;
 }
 
-void LlmClient::finishUp(const QString &reason, int promptTokens,
-                         int completionTokens) {
-  ++m_generation;
-  m_timer->stop();
-  // 收尾即放掉 reply：连接可能还开着（[DONE] 到了不等于 socket 关了），
-  // 留着裸指针等析构时解引用就是悬垂。
+void LlmClient::releaseReply() {
   if (m_reply) {
+    m_reply->abort(); // 连接可能还开着（[DONE] ≠ socket 已关）：先断再放
     m_reply->deleteLater();
     m_reply.clear();
   }
+}
+
+void LlmClient::cancel() {
+  ++m_generation; // 作废在飞的那一轮（其回调一律不再回信号；不伪造成功/失败）
+  m_timer->stop();
+  m_totalTimer->stop();
+  releaseReply();
+}
+
+void LlmClient::fail(int generation, LlmErrorKind kind, const QString &message) {
+  if (!alive(generation))
+    return; // 旧 attempt 的迟到失败：静默丢弃，不得污染新请求
+  ++m_generation; // 本 attempt 就此终局：单终态，后续 finished/计时器不再结算
+  m_timer->stop();
+  m_totalTimer->stop();
+  releaseReply();
+  // 诊断出网前按 attempt 密钥脱敏（W8）：错误文本/信封消息/Location 都可能
+  // 回显 Bearer；密钥身份取自本次请求的冻结快照——配置切换后仍按旧 key 检。
+  emit errorOccurred(kind, paleo::chat::redactCredential(message,
+                                                         m_attempt.config.apiKey));
+}
+
+void LlmClient::finishUp(int generation, const QString &reason, int promptTokens,
+                         int completionTokens) {
+  if (!alive(generation))
+    return;
+  ++m_generation;
+  m_timer->stop();
+  m_totalTimer->stop();
+  // 收尾即放掉 reply：连接可能还开着（[DONE] 到了不等于 socket 关了），
+  // 留着裸指针等析构时解引用就是悬垂。
+  releaseReply();
   emit finished(reason, promptTokens, completionTokens);
 }

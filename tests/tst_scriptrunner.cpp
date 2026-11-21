@@ -583,6 +583,7 @@ void TestScriptRunner::treeDescendantsReclaimedOnDestructor()
     return false;
   };
   QTRY_VERIFY_WITH_TIMEOUT(childReported(), 30000);
+  QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(sentinel), 30000);
   const auto pids = treePidsFromSentinel(sentinel);
   QVERIFY(pids.size() == 2); // child + grand
   svc.reset(); // 析构不等 exit()——整树强制回收

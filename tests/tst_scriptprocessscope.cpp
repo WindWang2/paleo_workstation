@@ -75,9 +75,9 @@ void TestScriptProcessScope::windowsJobOwnsTreeAtCreation()
       "print('SPAWNED',flush=True)\ntime.sleep(60)\n");
   QSignalSpy startedSpy(&proc, &QProcess::started);
   proc.start(program, {QStringLiteral("-c"), script});
-  QVERIFY(startedSpy.wait(15000) || proc.state() != QProcess::NotRunning);
+  QVERIFY(startedSpy.count() > 0 || startedSpy.wait(15000) || proc.state() != QProcess::NotRunning);
   QVERIFY(scope.launchPrepared()); // 创建属性备齐（否则 CreateProcess 已失败）
-  QVERIFY(proc.waitForReadyRead(15000));
+  QVERIFY(proc.bytesAvailable() > 0 || proc.waitForReadyRead(15000));
   QVERIFY(proc.readAllStandardOutput().startsWith("SPAWNED"));
   // 主进程仍在：树内必有进程。
   QVERIFY(!scope.treeIdle());

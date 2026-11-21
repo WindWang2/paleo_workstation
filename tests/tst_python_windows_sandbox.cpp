@@ -64,12 +64,12 @@ QString nodeSecurityText(const QString &path){
   const auto fields=DACL_SECURITY_INFORMATION|OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION;
   if(GetNamedSecurityInfoW((LPWSTR)wide.utf16(),SE_FILE_OBJECT,fields,nullptr,nullptr,&dacl,nullptr,&sd)!=ERROR_SUCCESS)return {};
   const auto cleanup=qScopeGuard([&]{if(sd)LocalFree(sd);});
-  PSID user=nullptr,group=nullptr;BOOL present=false,defaulted=false;DWORD control=0;DWORD revision=0;
+  PSID user=nullptr,group=nullptr;BOOL present=false,defaulted=false;SECURITY_DESCRIPTOR_CONTROL control=0;DWORD revision=0;
   if(!GetSecurityDescriptorOwner(sd,&user,&defaulted)||!GetSecurityDescriptorGroup(sd,&group,&defaulted)||
      !GetSecurityDescriptorControl(sd,&control,&revision))return {};
   auto sidText=[](PSID sid){LPWSTR text=nullptr;if(!sid||!ConvertSidToStringSidW(sid,&text))return QStringLiteral("?");const auto value=QString::fromWCharArray(text);LocalFree(text);return value;};
   QStringList aces;
-  GetSecurityDescriptorDacl(sd,&present,&defaulted);
+  if(!GetSecurityDescriptorDacl(sd,&present,&dacl,&defaulted))return {};
   if(present&&dacl) {
     for(WORD i=0;i<dacl->AceCount;++i) {
       void *ace=nullptr;if(!GetAce(dacl,i,&ace))return {};
@@ -373,7 +373,7 @@ print(json.dumps(d))
     // 保持不变。运行期间源树被独占句柄锁死（既改不了字节也改不了 SD）。
     QTemporaryDir project(QDir(projects).filePath("acl-XXXXXX"));QVERIFY(project.isValid());
     auto bundle=input(project.path(),"import time\ntime.sleep(30)\n");QVERIFY(bundle->ok());
-    const QElapsedTimer clock;clock.start();
+    QElapsedTimer clock;clock.start();
     const auto runtimeBefore=treeSnapshot(runtime),inputBefore=treeSnapshot(bundle->root);
     QVERIFY(!runtimeBefore.isEmpty());QVERIFY(!inputBefore.isEmpty());
     {SandboxRequest ok;ok.runtime=verified;ok.input=input(project.path(),"print('ok')");ok.policy.allowGenerated=true;

@@ -78,7 +78,7 @@ SandboxResult runWindowsSandbox(const SandboxRequest &original) {
     SandboxResult result;result.code=detail;result.hostSnapshotReservedBytes=snapshot.reservedBytes;return result;}
   // acquire 之后任何退出路径都必须归还租约/清私有输入：scopeGuard 兜底，
   // 正常路径显式释放并映射「清理待恢复」状态。
-  const auto releaseView=qScopeGuard([&]{QString local;releasePrivateView(view,&local);});
+  auto releaseView=qScopeGuard([&]{QString local;releasePrivateView(view,&local);});
   process_detail::Launch launch;
   launch.program=QDir(view.runtimeRoot).filePath(QFileInfo(request.runtime->interpreter).fileName());
   launch.arguments={"-I","-u","-B","-X","utf8",QDir(view.inputRoot).filePath("code.py")};

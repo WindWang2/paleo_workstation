@@ -470,7 +470,7 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
     if(relativeUnder(input.root,input.paths.at(i))==codeName){codeSource=input.handles.at(size_t(i)).get();break;}
   if(!codeSource){*error="python_view_manifest_missing";return false;}
   QJsonObject codeRow;
-  for(const auto &value:input.manifest.value("files").toArray())
+  for(const auto &value:request.input->manifest.value("files").toArray())
     if(value.toObject().value("path").toString()==codeName){codeRow=value.toObject();break;}
   qint64 hashed=0;
   if(!copyFileAuthenticated(codeSource,QDir(inputRoot).filePath(codeName),codeRow.value("size").toInteger(-1),

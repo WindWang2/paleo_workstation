@@ -166,7 +166,7 @@ bool ScriptProcessScope::treeIdle() const
   if (!QueryInformationJobObject(m_state->job, JobObjectBasicAccountingInformation, &info,
                                  sizeof(info), nullptr))
     return true; // Job 句柄已失效：无存活进程可言，不阻塞调用方
-  return info.NumberOfActiveProcesses == 0;
+  return info.ActiveProcesses == 0;
 }
 
 bool ScriptProcessScope::waitForTreeIdle(int timeoutMs)

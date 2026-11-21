@@ -20,6 +20,7 @@ private slots:
   void unixContractIsNoOp();
   void windowsJobOwnsTreeAtCreation();
   void windowsCreateFailureRefusesLaunch();
+  void windowsQueryFailureDoesNotClaimIdle();
 
 private:
   QString python() const;
@@ -107,6 +108,21 @@ void TestScriptProcessScope::windowsCreateFailureRefusesLaunch()
   QVERIFY(!scope.launchPrepared());
 #else
   QSKIP("forced job-create failure requires Windows");
+#endif
+}
+
+void TestScriptProcessScope::windowsQueryFailureDoesNotClaimIdle()
+{
+#ifdef Q_OS_WIN
+  ScriptProcessScope scope;
+  QVERIFY(scope.isValid());
+  scriptprocessscope_test::forceQueryFailure();
+  const auto reset = qScopeGuard([] { scriptprocessscope_test::clearQueryFailure(); });
+  QVERIFY(!scope.treeIdle());
+  QVERIFY(!scope.waitForTreeIdle(30));
+  QVERIFY(!scope.reclaim(30));
+#else
+  QSKIP("job query failure requires Windows");
 #endif
 }
 

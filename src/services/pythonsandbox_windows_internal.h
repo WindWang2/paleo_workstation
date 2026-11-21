@@ -76,6 +76,7 @@ bool protectedFileAcl(const QString &path,PSID readSid,QString *error);
 // 隔离），仅对自有副本设置沙箱 ACL。
 struct PrivateView {
   QString runtimeRoot,inputRoot; // 私有执行路径（区别于来源身份）
+  QString leaseMoniker;          // 此次运行独有的租约身份
   qint64 viewBytes=0;            // 视图实际字节（=manifest treeSize）
   int viewFiles=0;
   bool reusedView=false;         // true=按已验证内容身份复用既有视图
@@ -92,6 +93,7 @@ namespace view_test {
 // 只制造失败，不提供任何「关闭隔离」的运行时开关。
 using FailureHook=std::function<bool()>;
 void setFailuresForTest(FailureHook copy,FailureHook acl,FailureHook lease,FailureHook release);
+void setVerifyHookForTest(std::function<void()> hook);
 }
 
 } // namespace paleo::python::windows_detail

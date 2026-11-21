@@ -410,8 +410,11 @@ void ScriptRunnerService::finishRun(Run *run, int exitCode, bool crashed)
 #endif
   const bool treeReclaimed = run->scope ? run->scope->reclaim(kTreeReapMs) : true;
   if (!treeReclaimed)
+  {
     qWarning("scriptrunner: run %lld process tree still busy after reclamation",
              static_cast<long long>(run->id));
+    crashed = true;
+  }
   const qint64 id = run->id;
   const QString scriptPath = run->request.scriptPath;
   const bool cancelled = run->cancelRequested && !run->timedOut;
@@ -421,6 +424,8 @@ void ScriptRunnerService::finishRun(Run *run, int exitCode, bool crashed)
   // timers 已停且删、proc 已 disconnect——没有任何挂起路径会再触碰
   // run（全部同线程直连），直接释放（scope 随之关闭 Job 句柄）。
   delete run;
+  if (!treeReclaimed)
+    emit runOutput(id, tr("无法确认 Python 进程树已完成清理。"), true);
   emit runFinished(id, scriptPath, exitCode, crashed, cancelled, timedOut);
   pumpQueue();
   updateBusy();

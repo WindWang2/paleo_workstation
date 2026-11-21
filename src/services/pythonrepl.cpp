@@ -219,6 +219,8 @@ void PythonReplSession::teardown(int exitCode, bool crashed)
   QProcess *proc = m_proc;
   if (!proc)
     return;
+  const quint64 generation = m_generation;
+  auto scope = std::move(m_scope);
   const qint64 pid = m_pid;
   m_proc = nullptr;
   m_pid = 0;
@@ -240,13 +242,24 @@ void PythonReplSession::teardown(int exitCode, bool crashed)
   if (pid > 0)
     ::kill(-pid, SIGKILL); // 组 id 在成员存活期间不可复用（同 scriptrunner）
 #endif
-  if (m_scope)
-    m_scope->reclaim(kStopReapMs);
+  const bool reclaimed = !scope || scope->reclaim(kStopReapMs);
+  scope.reset(); // 关闭旧会话 Job，不能触碰回调中可能新建的会话。
   proc->deleteLater();
   if (!out.isEmpty())
+  {
     emit output(QString::fromUtf8(out), false);
+    if (generation != m_generation) return;
+  }
   if (!err.isEmpty())
+  {
     emit output(QString::fromUtf8(err), true);
-  m_scope.reset(); // Job 句柄关闭（KILL_ON_JOB_CLOSE 内核兜底）
+    if (generation != m_generation) return;
+  }
+  if (!reclaimed)
+  {
+    crashed = true;
+    emit output(tr("无法确认 Python 进程树已完成清理。"), true);
+    if (generation != m_generation) return;
+  }
   emit finished(exitCode, crashed);
 }

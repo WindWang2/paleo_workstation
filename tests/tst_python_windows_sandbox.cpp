@@ -11,6 +11,7 @@
 #endif
 #include "services/pythonsandbox_windows.h"
 #include "services/pythoninputbundle.h"
+#include "services/pythonprocess.h"
 #include <QtTest>
 #include <QCryptographicHash>
 #include <QDataStream>
@@ -25,6 +26,7 @@
 #include <QProcess>
 #include <QThread>
 #include <QSaveFile>
+#include <QSemaphore>
 #include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -421,6 +423,107 @@ print(json.dumps(d))
     {QFile file(target);QVERIFY(file.open(QIODevice::ReadWrite));QVERIFY(file.size()>0);file.seek(0);char byte=0;QVERIFY(file.getChar(&byte));
      file.seek(0);QVERIFY(file.putChar(char(byte^1)));file.close();}
     const auto second=run("print('forbidden')");QCOMPARE(second.code,QString("python_runtime_changed"));QVERIFY(second.output.isEmpty());
+  }
+  void failedVerificationReleasesOnlyItsOwnLease(){
+    using windows_detail::view_test::setVerifyHookForTest;
+    for(const bool tamper:{false,true}) {
+      const auto warm=run("print('warm')");
+      QVERIFY2(warm.ok(),qPrintable(warm.code+':'+QString::fromUtf8(warm.error)));
+      QTemporaryDir firstProject(QDir(projects).filePath("lease-first-XXXXXX"));
+      QTemporaryDir secondProject(QDir(projects).filePath("lease-second-XXXXXX"));
+      QVERIFY(firstProject.isValid());QVERIFY(secondProject.isValid());
+      const auto permit=claimExecutionPermit();
+      QVERIFY(permit);
+      SandboxRequest first;first.runtime=verified;first.input=input(firstProject.path(),"print('first')");
+      first.policy.allowGenerated=true;first.permit=permit;
+      SandboxRequest second;second.runtime=verified;second.input=input(secondProject.path(),"print('second')");
+      second.policy.allowGenerated=true;second.permit=permit;
+      std::atomic<bool> cancelSecond{false};
+      second.cancelled=[&]{return cancelSecond.load();};
+      QSemaphore entered,proceed;
+      std::atomic<int> calls{0};
+      setVerifyHookForTest([&]{
+        if(calls.fetch_add(1)==0){entered.release();proceed.acquire();}
+        else if(!tamper)cancelSecond.store(true);
+      });
+      SandboxResult firstResult;
+      std::thread worker([&]{firstResult=runWindowsSandbox(first);});
+      const auto cleanup=qScopeGuard([&]{
+        proceed.release();
+        if(worker.joinable())worker.join();
+        setVerifyHookForTest({});
+      });
+      QVERIFY2(entered.tryAcquire(1,30000),"first request did not reach view verification");
+      const auto views=QDir(QDir(controlRoot()).filePath("runtime-views"));
+      const auto viewNames=views.entryList(QDir::Dirs|QDir::NoDotAndDotDot);
+      QCOMPARE(viewNames.size(),1);
+      const auto target=QDir(views.filePath(viewNames.first())).filePath("LICENSE.txt");
+      QByteArray original;
+      DWORD attributes=INVALID_FILE_ATTRIBUTES;
+      if(tamper) {
+        QFile file(target);QVERIFY(file.open(QIODevice::ReadOnly));original=file.readAll();file.close();
+        QVERIFY(!original.isEmpty());
+        const auto wide=QDir::toNativeSeparators(target);
+        attributes=GetFileAttributesW((PCWSTR)wide.utf16());
+        QVERIFY(attributes!=INVALID_FILE_ATTRIBUTES);
+        QVERIFY(SetFileAttributesW((PCWSTR)wide.utf16(),attributes&~FILE_ATTRIBUTE_READONLY));
+        QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Truncate));
+        auto changed=original;changed[0]=changed[0]=='X'?'Y':'X';
+        QCOMPARE(file.write(changed),qint64(changed.size()));file.close();
+      }
+      const auto restore=qScopeGuard([&]{
+        if(!tamper||attributes==INVALID_FILE_ATTRIBUTES)return;
+        QFile file(target);
+        if(file.open(QIODevice::WriteOnly|QIODevice::Truncate)){file.write(original);file.close();}
+        const auto wide=QDir::toNativeSeparators(target);
+        SetFileAttributesW((PCWSTR)wide.utf16(),attributes);
+      });
+      const auto secondResult=runWindowsSandbox(second);
+      QCOMPARE(secondResult.code,tamper?QString("python_runtime_changed"):QString("cancelled"));
+      const auto leases=QDir(QDir(controlRoot()).filePath("view-leases")).entryList({"*.json"},QDir::Files);
+      QCOMPARE(leases.size(),1);
+      if(tamper) {
+        QFile file(target);QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Truncate));
+        QCOMPARE(file.write(original),qint64(original.size()));file.close();
+      }
+      proceed.release();worker.join();
+      QVERIFY2(firstResult.ok(),qPrintable(firstResult.code+':'+QString::fromUtf8(firstResult.error)));
+      QVERIFY(QDir(QDir(controlRoot()).filePath("view-leases")).entryList({"*.json"},QDir::Files).isEmpty());
+    }
+  }
+  void cancellationDoesNotHideLeaseCleanupFailure(){
+    using windows_detail::view_test::setFailuresForTest;
+    using windows_detail::view_test::setVerifyHookForTest;
+    const auto warm=run("print('warm')");
+    QVERIFY2(warm.ok(),qPrintable(warm.code+':'+QString::fromUtf8(warm.error)));
+    QTemporaryDir project(QDir(projects).filePath("lease-cleanup-XXXXXX"));QVERIFY(project.isValid());
+    std::atomic<bool> cancel{false};
+    setVerifyHookForTest([&]{cancel.store(true);});
+    setFailuresForTest({},{},{},[]{return true;});
+    const auto reset=qScopeGuard([]{setVerifyHookForTest({});setFailuresForTest({},{},{},{});});
+    SandboxRequest request;request.runtime=verified;request.input=input(project.path(),"print('never')");
+    request.policy.allowGenerated=true;request.cancelled=[&]{return cancel.load();};
+    const auto result=runWindowsSandbox(request);
+    QCOMPARE(result.code,QString("python_sandbox_cleanup_failed"));
+    const auto leases=QDir(QDir(controlRoot()).filePath("view-leases"));
+    const auto names=leases.entryList({"*.json"},QDir::Files);QCOMPARE(names.size(),1);
+    QVERIFY(QFile::remove(leases.filePath(names.first())));
+  }
+  void legacyDeadHostLeaseIsRecovered(){
+    const auto warm=run("print('warm')");
+    QVERIFY2(warm.ok(),qPrintable(warm.code+':'+QString::fromUtf8(warm.error)));
+    const auto leases=QDir(QDir(controlRoot()).filePath("view-leases"));
+    const auto legacy=leases.filePath(anchor()+".4294967295-1.json");
+    QSaveFile file(legacy);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const QJsonObject record{{"schema","paleo.python-sandbox-view-lease.v1"},
+      {"manifestSha256",anchor()},{"viewPath","runtime-views/"+anchor()},
+      {"hostPid",qint64(4294967295LL)},{"hostCreated100ns","1"}};
+    const auto bytes=QJsonDocument(record).toJson();
+    QCOMPARE(file.write(bytes),qint64(bytes.size()));QVERIFY(file.commit());
+    const auto next=run("print('recovered')");
+    QVERIFY2(next.ok(),qPrintable(next.code+':'+QString::fromUtf8(next.error)));
+    QVERIFY(!QFileInfo::exists(legacy));
   }
   void viewFailureInjectionsRefuseExecution(){
     using windows_detail::view_test::setFailuresForTest;

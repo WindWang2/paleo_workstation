@@ -1,5 +1,6 @@
 #include "../src/services/pythonenv.h"
 #include "../src/services/scriptrunner.h"
+#include "../src/services/scriptprocessscope.h"
 #include "perfbudget_relax.h"
 
 #include <QDir>
@@ -7,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QtTest>
 
 #include <memory>
@@ -49,6 +51,7 @@ private slots:
   void treeDescendantsReclaimedOnCancel();
   void treeDescendantsReclaimedOnTimeout();
   void treeDescendantsReclaimedOnDestructor();
+  void treeReclamationFailureIsReported();
 
 private:
   static QString fixture(const QString &name);
@@ -589,6 +592,27 @@ void TestScriptRunner::treeDescendantsReclaimedOnDestructor()
   svc.reset(); // 析构不等 exit()——整树强制回收
   for (const qint64 pid : pids)
     QTRY_VERIFY2_WITH_TIMEOUT(pidDead(pid), qPrintable(QString::number(pid)), 8000);
+}
+
+void TestScriptRunner::treeReclamationFailureIsReported()
+{
+#ifdef Q_OS_WIN
+  ScriptRunnerService svc;
+  QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
+  QSignalSpy outputSpy(&svc, &ScriptRunnerService::runOutput);
+  scriptprocessscope_test::forceQueryFailure();
+  const auto reset = qScopeGuard([] { scriptprocessscope_test::clearQueryFailure(); });
+  const qint64 id = svc.start({fixture(QStringLiteral("echo_args.py")), {}, {}, m_python, 0});
+  QVERIFY(id > 0);
+  QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
+  QVERIFY(finishedSpy.at(0).at(3).toBool());
+  bool diagnostic = false;
+  for (const auto &args : outputSpy)
+    diagnostic |= args.at(1).toString().contains(QStringLiteral("无法确认 Python 进程树"));
+  QVERIFY(diagnostic);
+#else
+  QSKIP("job query failure requires Windows");
+#endif
 }
 
 QTEST_GUILESS_MAIN(TestScriptRunner)

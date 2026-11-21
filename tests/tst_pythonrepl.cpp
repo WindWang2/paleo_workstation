@@ -1,7 +1,9 @@
 #include "../src/services/pythonenv.h"
 #include "../src/services/pythonrepl.h"
+#include "../src/services/scriptprocessscope.h"
 
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QtTest>
 #include <QDir>
 #include <QFileInfo>
@@ -28,6 +30,8 @@ class TestPythonRepl : public QObject
   Q_OBJECT
 private slots:
   void initTestCase();
+  void treeReclamationFailureIsReported();
+  void restartDuringCleanupDiagnosticKeepsNewSession();
   void roundTrip();
   void stopExitsCleanly();
   void destroyKillsProcess();
@@ -230,6 +234,65 @@ void TestPythonRepl::descendantsReclaimedOnDestructor()
 #else
   QSKIP("orphan assertion is Unix-specific in this suite; Windows lanes cover it "
         "via the job-object suite");
+#endif
+}
+
+void TestPythonRepl::treeReclamationFailureIsReported()
+{
+#ifdef Q_OS_WIN
+  PythonReplSession repl;
+  QSignalSpy started(&repl, &PythonReplSession::started);
+  QSignalSpy finished(&repl, &PythonReplSession::finished);
+  QSignalSpy output(&repl, &PythonReplSession::output);
+  repl.start(m_python);
+  QTRY_COMPARE_WITH_TIMEOUT(started.count(), 1, 15000);
+  scriptprocessscope_test::forceQueryFailure();
+  const auto reset = qScopeGuard([] { scriptprocessscope_test::clearQueryFailure(); });
+  repl.stop();
+  QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 15000);
+  QVERIFY(finished.at(0).at(1).toBool());
+  bool diagnostic = false;
+  for (const auto &args : output)
+    diagnostic |= args.at(0).toString().contains(QStringLiteral("无法确认 Python 进程树"));
+  QVERIFY(diagnostic);
+#else
+  QSKIP("job query failure requires Windows");
+#endif
+}
+
+void TestPythonRepl::restartDuringCleanupDiagnosticKeepsNewSession()
+{
+#ifdef Q_OS_WIN
+  PythonReplSession repl;
+  QSignalSpy started(&repl, &PythonReplSession::started);
+  QSignalSpy finished(&repl, &PythonReplSession::finished);
+  QString received;
+  bool restarted = false;
+  connect(&repl, &PythonReplSession::output, this, [&](const QString &text, bool) {
+    received += text;
+    if (!restarted && text.contains(QStringLiteral("无法确认 Python 进程树")))
+    {
+      restarted = true;
+      scriptprocessscope_test::clearQueryFailure();
+      repl.start(m_python);
+    }
+  });
+  repl.start(m_python);
+  QTRY_COMPARE_WITH_TIMEOUT(started.count(), 1, 15000);
+  scriptprocessscope_test::forceQueryFailure();
+  const auto reset = qScopeGuard([] { scriptprocessscope_test::clearQueryFailure(); });
+  repl.stop();
+  QTRY_COMPARE_WITH_TIMEOUT(started.count(), 2, 15000);
+  QVERIFY(restarted);
+  QCOMPARE(finished.count(), 0);
+  QVERIFY(repl.isRunning());
+  repl.sendLine(QStringLiteral("print('restarted-session-ok')"));
+  QTRY_VERIFY_WITH_TIMEOUT(received.contains(QStringLiteral("restarted-session-ok")), 15000);
+  repl.stop();
+  QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 15000);
+  QVERIFY(!finished.at(0).at(1).toBool());
+#else
+  QSKIP("job query failure requires Windows");
 #endif
 }
 

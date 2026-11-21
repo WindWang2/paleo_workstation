@@ -22,6 +22,8 @@ namespace scriptprocessscope_test
 // 不是环境变量/配置开关，无法在产品运行时关闭隔离。
 void forceCreateFailure();
 void clearCreateFailure();
+void forceQueryFailure();
+void clearQueryFailure();
 }
 
 class ScriptProcessScope

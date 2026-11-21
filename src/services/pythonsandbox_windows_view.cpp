@@ -31,6 +31,7 @@ constexpr qint64 MinFreeDiskBytes = 64LL * 1024 * 1024;
 const QStringList kReservedNames{"view.json","staging.json"};
 
 view_test::FailureHook g_failCopy, g_failAcl, g_failLease, g_failRelease;
+std::function<void()> g_verifyHook;
 
 QString hexDigestOrEmpty(const QString &value) {
   if(value.size()!=64)return {};
@@ -81,7 +82,9 @@ struct Layout {
   }
 };
 QString hostIdentity() {return QString::number(GetCurrentProcessId())+'-'+QString::number(processCreation(GetCurrentProcess()));}
-QString leaseFileName(const QString &manifestSha) {return manifestSha+'.'+hostIdentity()+".json";}
+QString leaseFileName(const QString &manifestSha,const QString &moniker) {
+  return manifestSha+'.'+hostIdentity()+'.'+moniker+".json";
+}
 // owner 判活与 profile journal 同口径（PID + 进程创建时间），杜绝 PID 复用
 // 误判。known=false 表示无法判定，调用方保留并诊断。
 bool ownerRecordAlive(const QJsonObject &record,bool &known) {
@@ -90,10 +93,11 @@ bool ownerRecordAlive(const QJsonObject &record,bool &known) {
   if(!numeric||!started||pid<1||pid>0xffffffffLL){known=false;return false;}
   return !ownerStopped(DWORD(pid),started,known);
 }
-// 归还「本宿主 × 指定 generation」的租约（单宿主单运行合同下唯一在役）。
-bool removeOwnLease(const Layout &layout,const QString &manifestSha,QString *error) {
-  if(!QFile::remove(QDir(layout.leases).filePath(leaseFileName(manifestSha)))&&
-     QFileInfo::exists(QDir(layout.leases).filePath(leaseFileName(manifestSha)))) {
+// 每次运行的 profile 独占租约；调用方须持有 control 锁。
+bool removeOwnLease(const Layout &layout,const QString &manifestSha,const QString &moniker,QString *error) {
+  if(!validMoniker(moniker)){if(error)*error="python_view_lease_remove";return false;}
+  const auto path=QDir(layout.leases).filePath(leaseFileName(manifestSha,moniker));
+  if(!QFile::remove(path)&&QFileInfo::exists(path)) {
     if(error)*error="python_view_lease_remove";
     return false;
   }
@@ -143,6 +147,7 @@ bool copyFileAuthenticated(HANDLE source,const QString &destination,qint64 expec
 // 重解析点/硬链接/多余/缺失文件一律拒绝。
 bool verifyViewTree(const QString &viewRoot,const QJsonObject &manifest,const QString &anchorSha,
                     const SandboxRequest &request,int *fileCount,qint64 *hashedBytes,QString *error) {
+  if(g_verifyHook)g_verifyHook();
   QHash<QString,QJsonObject> rows;
   for(const auto &value:manifest.value("files").toArray())rows.insert(value.toObject().value("path").toString(),value.toObject());
   if(rows.isEmpty()){*error="python_view_manifest_invalid";return false;}
@@ -198,16 +203,15 @@ bool verifyViewTree(const QString &viewRoot,const QJsonObject &manifest,const QS
 }
 // 检疫验证失败的视图：仅当无其他租约时移除（他人运行中不动），下次运行
 // 重建——损坏视图不再永久堵死该 generation。
-bool quarantineView(const Layout &layout,const QString &manifestSha) {
+bool quarantineView(const Layout &layout,const QString &manifestSha,const QString &moniker) {
   QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
   if(!lock.tryLock(2000))return false;
-  const auto suffix='.'+hostIdentity()+".json";
+  const auto ownLease=leaseFileName(manifestSha,moniker);
   const auto wanted=manifestSha+'.';
   for(const auto &name:QDir(layout.leases).entryList({"*.json"},QDir::Files|QDir::Hidden|QDir::System))
-    if(name.startsWith(wanted)&&!name.endsWith(suffix))return false; // 他人持有：保留
+    if(name.startsWith(wanted)&&name!=ownLease)return false; // 其他运行持有：保留
   const auto viewRoot=QDir(layout.views).filePath(manifestSha);
   if(QFileInfo::exists(viewRoot)&&!QDir(viewRoot).removeRecursively())return false;
-  removeOwnLease(layout,manifestSha,nullptr);
   return true;
 }
 } // namespace
@@ -215,6 +219,7 @@ bool quarantineView(const Layout &layout,const QString &manifestSha) {
 void view_test::setFailuresForTest(FailureHook copy,FailureHook acl,FailureHook lease,FailureHook release) {
   g_failCopy=std::move(copy);g_failAcl=std::move(acl);g_failLease=std::move(lease);g_failRelease=std::move(release);
 }
+void view_test::setVerifyHookForTest(std::function<void()> hook) {g_verifyHook=std::move(hook);}
 
 // 视图构建：staging 复制（根先设 capability 只读可继承 ACL，子项随建随承，
 // 不再逐节点改写安全描述符）→ ready marker → 原子改名。最终目录名出现即
@@ -290,8 +295,9 @@ bool buildView(const SandboxRequest &request,const LockedTree &runtime,const Pro
   return true;
 }
 
-bool takeViewLease(const Layout &layout,const QString &manifestSha,QString *error) {
+bool takeViewLease(const Layout &layout,const QString &manifestSha,const QString &moniker,QString *error) {
   if(g_failLease&&g_failLease()){*error="python_view_lease_forced";return false;}
+  if(!validMoniker(moniker)){*error="python_view_owner_identity";return false;}
   const QString started=QString::number(processCreation(GetCurrentProcess()));
   if(started=="0"){*error="python_view_owner_identity";return false;}
   // 记录相对视图路径（诊断用）；清理一律按 manifestSha 在根内重建路径，
@@ -299,7 +305,7 @@ bool takeViewLease(const Layout &layout,const QString &manifestSha,QString *erro
   const QJsonObject record{{"schema",LeaseSchema},{"manifestSha256",manifestSha},
       {"viewPath","runtime-views/"+manifestSha},{"hostPid",qint64(GetCurrentProcessId())},
       {"hostCreated100ns",started}};
-  if(!writeRecord(QDir(layout.leases).filePath(leaseFileName(manifestSha)),record)){*error="python_view_lease_write";return false;}
+  if(!writeRecord(QDir(layout.leases).filePath(leaseFileName(manifestSha,moniker)),record)){*error="python_view_lease_write";return false;}
   return true;
 }
 
@@ -315,7 +321,7 @@ bool releasePrivateView(const PrivateView &view,QString *error) {
   if(!view.inputRoot.isEmpty()&&QFileInfo::exists(view.inputRoot)&&!QDir(view.inputRoot).removeRecursively()) {
     *error="python_view_input_remove";return false;}
   if(manifestSha.isEmpty()){*error="python_view_lease_remove";return false;}
-  return removeOwnLease(layout,manifestSha,error);
+  return removeOwnLease(layout,manifestSha,view.leaseMoniker,error);
 }
 
 // 恢复逻辑主体：调用方必须已持有 control .lock。
@@ -393,6 +399,13 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
   if(!layout.create(error))return false;
   const QString anchorSha=hexDigestOrEmpty(request.runtime->manifestSha256);
   if(anchorSha.isEmpty()){*error="python_view_manifest_invalid";return false;}
+  bool ownsLease=false;
+  const auto leaseCleanup=qScopeGuard([&]{
+    if(!ownsLease)return;
+    QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
+    if((g_failRelease&&g_failRelease())||!lock.tryLock(5000)||!removeOwnLease(layout,anchorSha,profile.moniker,nullptr))
+      *error="python_sandbox_cleanup_failed";
+  });
   // 第一临界区（毫秒级）：恢复 + manifest/预算准入 + 「存在即取租约」。
   // 复制与完整重哈希都在锁外——GiB 级复制不得饿死其他宿主的 journal 操作。
   QJsonObject manifest;bool exists=false;
@@ -409,7 +422,10 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
     const qint64 available=freeBytes(layout.control);
     if(available>=0&&available<treeSize+request.policy.inputBytes+MinFreeDiskBytes){*error="python_view_disk_space";return false;}
     exists=QFileInfo::exists(QDir(layout.views).filePath(anchorSha));
-    if(exists&&!takeViewLease(layout,anchorSha,error))return false;
+    if(exists) {
+      if(!takeViewLease(layout,anchorSha,profile.moniker,error))return false;
+      ownsLease=true;
+    }
   }
   const qint64 treeSize=manifest.value("treeSize").toInteger(-1);
   if(exists) {
@@ -419,7 +435,7 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
     qint64 hashed=0;int files=0;
     if(!verifyViewTree(QDir(layout.views).filePath(anchorSha),manifest,anchorSha,request,&files,&hashed,error)) {
       // 中途取消不是视图损坏：不检疫（避免把好视图删成 1 GiB 重复制）。
-      if(*error!="cancelled") quarantineView(layout,anchorSha);
+      if(*error!="cancelled") quarantineView(layout,anchorSha,profile.moniker);
       return false;}
     view.reusedView=true;view.viewBytes=treeSize;view.viewFiles=files;
   } else {
@@ -430,13 +446,14 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
       QLockFile lock(QDir(layout.control).filePath(".lock"));lock.setStaleLockTime(30000);
       if(!lock.tryLock(5000)){*error="python_view_journal_busy";return false;}
       if(!QFileInfo::exists(QDir(layout.views).filePath(anchorSha))){*error="python_view_rename";return false;}
-      if(!takeViewLease(layout,anchorSha,error))return false;
+      if(!takeViewLease(layout,anchorSha,profile.moniker,error))return false;
+      ownsLease=true;
     }
     if(!renamed) {
       // 输给并发宿主：视图非本宿主哈希——按复用口径完整验证后再用。
       qint64 hashed=0;int files=0;
       if(!verifyViewTree(QDir(layout.views).filePath(anchorSha),manifest,anchorSha,request,&files,&hashed,error)) {
-        if(*error!="cancelled") quarantineView(layout,anchorSha);
+        if(*error!="cancelled") quarantineView(layout,anchorSha,profile.moniker);
         return false;}
       view.viewFiles=files;
     }
@@ -449,13 +466,15 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
   const QString inputRoot=QDir(layout.inputs).filePath(profile.moniker);
   if(QFileInfo::exists(inputRoot)&&!QDir(inputRoot).removeRecursively()){*error="python_view_input_busy";return false;}
   bool inputReady=false;
-  // 输入构造失败：清本次输入并归还租约（removeOwnLease 免锁——此处不再持
-  // 有 control .lock）。
+  // 输入构造失败时清理私有输入；租约由外层保护器在控制锁下归还。
   const auto fail=qScopeGuard([&]{
     if(inputReady)return;
-    QDir(inputRoot).removeRecursively();
+    if(QFileInfo::exists(inputRoot)&&!QDir(inputRoot).removeRecursively()) {
+      *error="python_sandbox_cleanup_failed";
+      ownsLease=false; // 留下租约和目录，由后续恢复处理。
+      return;
+    }
     view.inputRoot.clear();
-    removeOwnLease(layout,anchorSha,nullptr);
   });
   if(!QDir().mkpath(inputRoot)){*error="python_view_input_create";return false;}
   if(g_failAcl&&g_failAcl()){*error="python_view_acl_forced";return false;}
@@ -491,6 +510,8 @@ bool acquirePrivateView(const SandboxRequest &request,const LockedTree &runtime,
   }
   inputReady=true;
   view.runtimeRoot=QDir(layout.views).filePath(anchorSha);view.inputRoot=inputRoot;
+  view.leaseMoniker=profile.moniker;
+  ownsLease=false; // 租约交给 releasePrivateView。
   return true;
 }
 } // namespace paleo::python::windows_detail

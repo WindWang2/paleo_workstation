@@ -21,6 +21,7 @@ constexpr DWORD kTreeExitCode = 90;
 constexpr DWORD kIdlePollMs = 10;
 
 std::atomic<bool> g_forceCreateFailure{false};
+std::atomic<bool> g_forceQueryFailure{false};
 
 // 用户脚本的 Job 只求「树可回收」：仅 KILL_ON_JOB_CLOSE。不设
 // ActiveProcess/内存/CPU 上限（显式用户脚本允许正常 subprocess），
@@ -70,6 +71,8 @@ struct ScriptProcessScope::State
 
 void scriptprocessscope_test::forceCreateFailure() { g_forceCreateFailure.store(true); }
 void scriptprocessscope_test::clearCreateFailure() { g_forceCreateFailure.store(false); }
+void scriptprocessscope_test::forceQueryFailure() { g_forceQueryFailure.store(true); }
+void scriptprocessscope_test::clearQueryFailure() { g_forceQueryFailure.store(false); }
 
 void clearProcessLaunchModifier(QProcess *process)
 {
@@ -134,9 +137,9 @@ void ScriptProcessScope::configure(QProcess &process)
             state->inherited[0] == state->inherited[2] ||
             state->inherited[1] == state->inherited[2])
           return;
-        HANDLE jobs[] = {state->job};
+        // 属性值须存活至 DeleteProcThreadAttributeList；job 是 State 成员。
         if (!UpdateProcThreadAttribute(state->attributes, 0,
-                                       PROC_THREAD_ATTRIBUTE_JOB_LIST, jobs, sizeof(jobs),
+                                       PROC_THREAD_ATTRIBUTE_JOB_LIST, &state->job, sizeof(state->job),
                                        nullptr, nullptr))
           return;
         if (!UpdateProcThreadAttribute(state->attributes, 0,
@@ -162,10 +165,12 @@ bool ScriptProcessScope::treeIdle() const
 {
   if (!m_state || !m_state->job)
     return true;
+  if (g_forceQueryFailure.load())
+    return false;
   JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info{};
   if (!QueryInformationJobObject(m_state->job, JobObjectBasicAccountingInformation, &info,
                                  sizeof(info), nullptr))
-    return true; // Job 句柄已失效：无存活进程可言，不阻塞调用方
+    return false; // 查询失败无法证明进程树已排空
   return info.ActiveProcesses == 0;
 }
 
@@ -198,6 +203,8 @@ struct ScriptProcessScope::State {};
 
 void scriptprocessscope_test::forceCreateFailure() {}
 void scriptprocessscope_test::clearCreateFailure() {}
+void scriptprocessscope_test::forceQueryFailure() {}
+void scriptprocessscope_test::clearQueryFailure() {}
 
 void clearProcessLaunchModifier(QProcess *)
 {

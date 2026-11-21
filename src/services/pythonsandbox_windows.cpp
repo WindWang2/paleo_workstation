@@ -71,7 +71,7 @@ SandboxResult runWindowsSandbox(const SandboxRequest &original) {
   if(cancelled(effective)){SandboxResult result;result.code=cancelled(request)?"cancelled":"python_process_timeout";return result;}
   PrivateView view;
   if(!acquirePrivateView(effective,runtime,input,snapshot,profile,view,&detail)){
-    if(cancelled(effective)){SandboxResult result;result.code=cancelled(request)?"cancelled":"python_process_timeout";return result;}
+    if(detail!="python_sandbox_cleanup_failed"&&cancelled(effective)){SandboxResult result;result.code=cancelled(request)?"cancelled":"python_process_timeout";return result;}
     // 与 authenticateSnapshots 同口径：视图阶段失败以具体码直报
     //（python_view_* / python_runtime_changed / cancelled …），不折叠成
     // python_sandbox_unavailable 淹没诊断。

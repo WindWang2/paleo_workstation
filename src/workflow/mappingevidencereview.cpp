@@ -116,6 +116,8 @@ QVariantMap MappingWorkbench::featureEvidenceSummary(const QString &id, const QL
   QVariantMap out{{"layer_id", id}, {"horizon", declaration(id).horizon},
       {"version_id", version.id}, {"asset_id", version.assetId}, {"details_deferred", true},
       {"generation_records", version.extra.value("evidence").toMap().value("records")}};
+  out.insert(QStringLiteral("spatial_edit_history"), QVariantMap{{QStringLiteral("deferred"), true},
+      {QStringLiteral("version_id"), version.id}, {QStringLiteral("page_size"), 50}});
   auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(id)) : nullptr;
   if (!layer || ids.isEmpty()) return out;
   const auto feature = layer->getFeature(ids.first());
@@ -174,16 +176,29 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
     out.insert("generation_records", generation);
   }
   auto *v = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(id)) : nullptr;
+  const auto attachSpatialHistory = [&](const QString &featureUid) {
+    out.insert(QStringLiteral("spatial_edit_history"), spatialEditHistory(version.id, featureUid, 50, {}));
+  };
   if (!v || ids.isEmpty()) {
-    out.insert("message", v ? tr("请在地图选择图斑以查看局部证据；以下为成果生成来源") : tr("地图要素暂不可用；可查看已保存的成果来源")); return out;
+    out.insert("message", v ? tr("请在地图选择图斑以查看局部证据；以下为成果生成来源") : tr("地图要素暂不可用；可查看已保存的成果来源"));
+    attachSpatialHistory({});
+    return out;
   }
   if (ids.size() != 1) out.insert("message", tr("已选 %1 个要素；详情显示首个，证据列表最多显示 100 个要素").arg(ids.size()));
   const auto f = v->getFeature(ids.first());
-  if (!f.isValid()) { out.insert("error", tr("选中要素已不存在")); return out; }
+  if (!f.isValid()) {
+    out.insert("error", tr("选中要素已不存在"));
+    attachSpatialHistory({});
+    return out;
+  }
   const auto t = target(f, version, declaration(id).horizon);
   for (auto it = t.cbegin(); it != t.cend(); ++it) out.insert(it.key(), it.value());
   QVariantList records; QVariantMap interpretation; QString error;
-  if (!read(f, &records, &interpretation, &error)) { out.insert("error", error); return out; }
+  if (!read(f, &records, &interpretation, &error)) {
+    out.insert("error", error);
+    attachSpatialHistory(MappingFeatureIdentity::uid(f));
+    return out;
+  }
   const QVariantMap spatialTarget{{"wkb", f.geometry().asWkb()}, {"crs_wkt", v->crs().toWkt()}};
   QSet<QString> spatialSources;
   // #198：详情视图此前对每条 evidence record 逐条跑空间解析/空间查询，既无
@@ -315,6 +330,7 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
   }
   out.insert("feature_id", f.id());
   if (MappingFeatureIdentity::uid(f).isEmpty()) out.insert("message", tr("早期图斑无稳定身份；创建编辑副本后可建立持久关联"));
+  attachSpatialHistory(MappingFeatureIdentity::uid(f));
   return out;
 }
 QString MappingWorkbench::composedAncestorVersion(const QString &id) const {

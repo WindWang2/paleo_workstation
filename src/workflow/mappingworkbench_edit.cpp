@@ -3,6 +3,7 @@
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
 #include "mappingworkbench.h"
+#include "mapediteventhistory.h"
 #include "workflows_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
@@ -387,7 +388,7 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
                         row.value("unlinked", row.value("tombstone", false)).toBool());
     }
   }
-  QVariantList spatialEvents = previous.extra.value("spatial_edit_events").toList();
+  QVariantList spatialEvents;
   if (observer) {
     const auto operation = uid();
     const QString actor = localOperator();
@@ -449,6 +450,7 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     }
   }
   extra.insert("spatial_edit_events", spatialEvents);
+  extra.insert("spatial_edit_history", paleo::mapedit::spatialEditHistoryLink(previous));
   extra.insert("computational_parent_versions", QStringList{previous.id});
   extra.insert("interpretation_reference_versions", referenceVersions);
   QVariantMap states, severities;

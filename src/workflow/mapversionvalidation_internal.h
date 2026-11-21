@@ -4,6 +4,8 @@
 #include "../domain/interpretationevidence.h"
 #include "../qgis/mappingfeatureidentity.h"
 #include <QSet>
+#include <QStringList>
+#include <QVector>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <qgsfeature.h>
@@ -153,6 +155,23 @@ inline QStringList mapResultRetention(const QVariant &value) {
   }
   return tokens;
 }
+struct MapVersionSaveCapture {
+  QString horizon;
+  QString projectDirectory;
+  quint64 epoch = 0;
+  QString attemptId;
+  int version = 0;
+  struct Layer {
+    QString id;
+    QPointer<QgsVectorLayer> layer;
+    bool hadEditBuffer = false;
+    int undoCount = 0;
+  };
+  QVector<Layer> layers;
+  QStringList committedLayers;
+  QStringList pendingLayers;
+};
+
 inline bool retainMapCitations(DataCatalog *catalog, const QString &horizon, int version,
                                 const QVariantMap &provenance, QString *error) {
   if (!catalog || version <= 0) return true;

@@ -110,10 +110,14 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
         if (bytes.isEmpty() && reader.error() != QFileDevice::NoError) { out.error = reader.errorString(); return out; }
         if (writer.write(bytes) != bytes.size()) { out.error = writer.errorString(); return out; }
         digest.addData(bytes);
+        out.accounting.bytesCopied += bytes.size();
       }
+      ++out.accounting.sourceHashes;
+      ++out.accounting.files;
       if (!paleo::domain::shaEquals(QString::fromLatin1(digest.result().toHex()), expected)) { out.error = QStringLiteral("快照复制期间来源内容变化：%1").arg(source); return out; }
       if (!writer.commit()) { out.error = writer.errorString(); return out; }
       const auto verified = paleo::managedpath::sha256FileHex(destination, &out.error, cancelled);
+      ++out.accounting.destinationHashes;
       if (!paleo::domain::shaEquals(verified, expected) || stop()) { if (out.error.isEmpty()) out.error = QStringLiteral("目标快照指纹不一致"); return out; }
       QFile::setPermissions(destination, QFileDevice::ReadOwner | QFileDevice::ReadUser | QFileDevice::ReadGroup | QFileDevice::ReadOther);
       const QFileInfo info(destination);

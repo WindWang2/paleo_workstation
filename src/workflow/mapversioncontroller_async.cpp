@@ -5,7 +5,9 @@
 #include "../metadata/paleoprojectstore.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/predictionevidence.h"
+#include "../qgis/qgiseditingservice.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/mappingartifactwriter.h"
 #include "../qgis/mappingfeatureidentity.h"
 #include "../services/jobrunner.h"
 #include <QDir>
@@ -65,6 +67,10 @@ struct SnapshotJob {
   std::shared_ptr<std::atomic_bool> stale;
   QString error;
   bool cancelled = false;
+  bool followUpPending = false;
+  int savedVersion = 0;
+  int exports = 0;
+  int identityNormalizations = 0;
   ~SnapshotJob() { discardPreparedMapSnapshot(prepared); }
 };
 bool computeSnapshot(SnapshotJob &job, const paleo::jobs::CancelFn &cancel,
@@ -92,6 +98,7 @@ bool computeSnapshot(SnapshotJob &job, const paleo::jobs::CancelFn &cancel,
         if (!writer || writer->hasError() != QgsVectorFileWriter::NoError) {
           job.error = writer ? writer->errorMessage() : QStringLiteral("无法创建矢量快照写入器"); return false;
         }
+        ++job.exports;
         auto features = vector.source->getFeatures(); QgsFeature feature; qint64 count = 0;
         while (features.nextFeature(feature)) {
           if (cancel()) { job.cancelled = true; return false; }
@@ -101,6 +108,7 @@ bool computeSnapshot(SnapshotJob &job, const paleo::jobs::CancelFn &cancel,
         features.close(); writer.reset();
         QgsVectorLayer generated(path + "|layername=features", "snapshot", "ogr");
         if (!MappingFeatureIdentity::ensure(&generated, &job.error)) return false;
+        ++job.identityNormalizations;
         if (sourceChanged()) { job.error = QStringLiteral("矢量来源在导出期间已变化，请重试"); return false; }
         exported.insert(vector.identity, path);
       }
@@ -158,15 +166,45 @@ void MapVersionController::cancelSnapshot() {
   m_async->runner.requestCancel();
   // Worker still owns its source read. Release only when it has stopped.
 }
-void MapVersionController::abandonForProjectClose() { cancelSnapshot(); ++m_snapshotEpoch; }
+void MapVersionController::setEditingService(QgisEditingService *editSvc) {
+  if (m_editSvc == editSvc) return;
+  cancelSnapshot();
+  ++m_snapshotEpoch;
+  m_saveCapture.reset();
+  m_editSvc = editSvc;
+}
+void MapVersionController::setProjectStore(PaleoProjectStore *store) {
+  if (m_projectStore == store) return;
+  cancelSnapshot();
+  ++m_snapshotEpoch;
+  m_saveCapture.reset();
+  m_reuseBySource.clear();
+  m_projectStore = store;
+}
+void MapVersionController::abandonForProjectClose() {
+  cancelSnapshot();
+  ++m_snapshotEpoch;
+  m_saveCapture.reset();
+  m_reuseBySource.clear();
+}
 
 bool MapVersionController::startSaveVersion(const QString &horizon, const QVariantMap &provenance, QString *error) {
   if (!m_tasks) {
     const auto result = saveVersion(horizon, provenance, error);
-    emit snapshotFinished(horizon, "save", result.version > 0, false, error ? *error : QString());
-    return result.version > 0;
+    const bool saved = result.version > 0;
+    const bool followUp = m_lastOutcome.kind == SaveOutcome::Kind::SavedFollowUpPending;
+    emit snapshotFinished(horizon, "save", saved, false, followUp ? m_lastOutcome.message : (error ? *error : QString()));
+    return saved;
+  }
+  MapVersion resumed;
+  if (resumePendingWorkCommit(horizon, &resumed, error)) {
+    const bool followUp = m_lastOutcome.kind == SaveOutcome::Kind::SavedFollowUpPending;
+    emit snapshotFinished(horizon, "save", resumed.version > 0, false,
+                          followUp ? m_lastOutcome.message : QString());
+    return resumed.version > 0;
   }
   if (!m_store || snapshotBusy()) { if (error) *error = tr("已有地图快照任务或版本存储不可用"); return false; }
+  m_lastMetrics = {};
   QVector<LayerDeclaration> declarations;
   if (m_layers && !m_layers->tryDeclared(&declarations, error)) return false;
   if (m_store->isReadOnly()) { if (error) *error = tr("工程不可写，保存被拒绝"); return false; }
@@ -224,17 +262,6 @@ void MapVersionController::continueSavePreparation(const std::shared_ptr<SavePre
     if (!layer) { error = tr("校验期间图层已卸载，请重新保存"); break; }
     if (!p->opened) {
       p->scan.layerUids.clear();
-      // Legacy identity migration still uses QGIS native edits on the owner.
-      // Ordinary drafts already have these fields from copyForEditing.
-      if (captured.id.startsWith("draft.") && layer->fields().indexOf("facies_code") >= 0 && !layer->readOnly() &&
-          (layer->fields().indexOf(MappingFeatureIdentity::UidField) < 0 ||
-           layer->fields().indexOf(MappingFeatureIdentity::ParentsField) < 0 ||
-           layer->fields().indexOf(MappingFeatureIdentity::RootsField) < 0 ||
-           layer->fields().indexOf(MappingFeatureIdentity::ReviewField) < 0)) {
-        if (!MappingFeatureIdentity::ensure(layer, &error)) break;
-        // The explicit migration is ours; subsequent changes invalidate the scan.
-        p->changed = false;
-      }
       if (layer->fields().indexOf("facies_evidence") < 0 && layer->fields().indexOf("paleo_interpretation") < 0) {
         p->scan.featureCount += layer->featureCount(); ++p->layerIndex; ++visited; continue;
       }
@@ -249,8 +276,12 @@ void MapVersionController::continueSavePreparation(const std::shared_ptr<SavePre
     QgsFeature feature;
     if (!p->features.nextFeature(feature)) { p->features.close(); p->opened = false; ++p->layerIndex; continue; }
     ++visited;
-    if (!p->scan.append(feature, p->horizon, m_catalog, &error, captured.id.startsWith("draft."))) break;
+    const bool requireIdentity = captured.id.startsWith(QStringLiteral("draft.")) &&
+        layer->fields().indexOf(MappingFeatureIdentity::UidField) >= 0;
+    if (!p->scan.append(feature, p->horizon, m_catalog, &error, requireIdentity)) break;
   }
+  m_lastMetrics.evidenceScanMs += budget.elapsed();
+  m_lastMetrics.uiMaxGapMs = qMax(m_lastMetrics.uiMaxGapMs, budget.elapsed());
   if (!p->cancelled && error.isEmpty() && p->epoch == m_snapshotEpoch)
     emit snapshotQueryProgress(p->horizon, p->scan.featureCount, p->total);
   // A progress consumer may cancel, switch projects or change a layer directly.
@@ -271,8 +302,11 @@ void MapVersionController::continueSavePreparation(const std::shared_ptr<SavePre
   }
   m_async->preparation.reset();
   emit snapshotBusyChanged(false);
-  if (p->epoch == m_snapshotEpoch)
+  if (p->epoch == m_snapshotEpoch) {
+    noteOutcome(p->cancelled ? SaveOutcome::Kind::Cancelled : SaveOutcome::Kind::Rejected, 0, p->horizon, error,
+                p->cancelled ? QStringLiteral("cancelled") : QStringLiteral("validate"));
     emit snapshotFinished(p->horizon, "save", false, p->cancelled, error);
+  }
 }
 
 bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVariantMap &provenance, QString *error) {
@@ -291,7 +325,28 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
   job->input = m_store->snapshotInputForSave(horizon,
       QString::fromUtf8(QJsonDocument::fromVariant(frozen).toJson(QJsonDocument::Compact)), declarations, error);
   if (!job->input.valid) return false;
+  if (m_saveFault == SaveFault::Export) {
+    if (error) *error = tr("地图矢量导出失败");
+    noteOutcome(SaveOutcome::Kind::Rejected, 0, horizon, error ? *error : QString(), QStringLiteral("export"));
+    return false;
+  }
+  QStringList reusedLayers;
+  for (auto &entry : job->input.files) {
+    auto record = entry.toMap();
+    if (record.value(QStringLiteral("pdf")).toBool()) continue;
+    LayerDeclaration reused;
+    reused.layerId = record.value(QStringLiteral("layer_id")).toString();
+    reused.horizon = horizon;
+    reused.type = QStringLiteral("vector");
+    reused.source = record.value(QStringLiteral("source")).toString();
+    if (!tryReuseImmutable(reused.layerId, &reused)) continue;
+    record.insert(QStringLiteral("source"), reused.source.section(QLatin1Char('|'), 0, 0));
+    record.insert(QStringLiteral("source_suffix"), QStringLiteral("|layername=features"));
+    entry = record;
+    reusedLayers << reused.layerId;
+  }
   for (const auto &decl : declarations) {
+    if (reusedLayers.contains(decl.layerId)) continue;
     if (decl.horizon != horizon || decl.type.compare("vector", Qt::CaseInsensitive) != 0) continue;
     auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(decl.layerId)); if (!layer) continue;
     QVariantList fieldDefinitions;
@@ -301,7 +356,10 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
           {"expression", layer->expressionField(n)}};
     const auto key = paleo::evidence::fingerprint(QVariantMap{{"uri", decl.source}, {"fields", fieldDefinitions},
         {"crs", layer->crs().toWkt()}, {"subset", layer->subsetString()}, {"native_layer", layer->id()}, {"version", layer->customProperty("paleoVersionId")}});
-    VectorSnapshotSource source{decl.layerId, key, std::make_shared<QgsVectorLayerFeatureSource>(layer), layer->wkbType()};
+    std::unique_ptr<QgsVectorLayer> editView;
+    auto *sourceLayer = MappingArtifactWriter::snapshotEditView(layer, &editView, error);
+    if (!sourceLayer) return false;
+    VectorSnapshotSource source{decl.layerId, key, std::make_shared<QgsVectorLayerFeatureSource>(sourceLayer), sourceLayer->wkbType()};
     source.count = layer->featureCount();
     job->vectors << source;
   }
@@ -321,7 +379,12 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
   tokenIds.removeDuplicates();
   const auto tokenOwner = QUuid::createUuid().toString(QUuid::WithoutBraces);
   if (tokenStore) {
-    for (const auto &id : tokenIds) if (tokenStore->layerBusy(id, error)) return false;
+    for (const auto &id : tokenIds)
+      for (const auto &entry : tokenStore->busyLayers()) {
+        if (entry.layerId != id || entry.taskId == QLatin1String("edit")) continue;
+        if (error) *error = entry.reason;
+        return false;
+      }
     for (const auto &id : tokenIds) tokenStore->markLayerBusy(id, tokenOwner, tr("地图快照正在读取来源"));
   }
   m_async->disconnectSourceWatches();
@@ -364,10 +427,22 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
     };
     const auto status = m_projectStore ? m_projectStore->enqueueWrite(commit) : commit();
     if (!status.ok) { if (err && err->isEmpty()) *err = status.error; return false; }
+    j.savedVersion = result.version;
+    if (m_saveCapture) m_saveCapture->version = result.version;
+    QString commitError;
+    if (!commitCapturedEdits(&commitError)) {
+      j.followUpPending = true;
+      j.error = tr("版本已保存（v%1），后续工作副本提交未完成：%2").arg(result.version).arg(commitError);
+      if (err) *err = j.error;
+      emit versionSaved(j.input.horizon, result.version);
+      return true;
+    }
     QString retainError;
-    if (!retainMapCitations(m_catalog, j.input.horizon, result.version, j.prepared.provenance, &retainError) &&
-        j.error.isEmpty())
-      j.error = retainError;
+    if (!retainMapCitations(m_catalog, j.input.horizon, result.version, j.prepared.provenance, &retainError)) {
+      j.followUpPending = true;
+      j.error = tr("版本已保存（v%1），引用保留未完成：%2").arg(result.version).arg(retainError);
+      if (err) *err = j.error;
+    }
     emit versionSaved(j.input.horizon, result.version); return true;
   };
   callbacks.cleanup = [](SnapshotJob &j) { discardPreparedMapSnapshot(j.prepared); };
@@ -381,10 +456,32 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
     disconnect(*connection);
     m_async->disconnectSourceWatches();
     job->vectors.clear(); job->temporary.reset();
+    m_lastMetrics.providerExports += job->exports;
+    m_lastMetrics.identityNormalizations += job->identityNormalizations;
+    m_lastMetrics.sourceHashes += job->prepared.accounting.sourceHashes;
+    m_lastMetrics.destinationHashes += job->prepared.accounting.destinationHashes;
+    m_lastMetrics.bytesCopied += job->prepared.accounting.bytesCopied;
+    m_lastMetrics.files += job->prepared.accounting.files;
     emit snapshotBusyChanged(snapshotBusy());
     if (m_async->releaseTokens) { m_async->releaseTokens(); m_async->releaseTokens = {}; }
-    if (job->epoch == m_snapshotEpoch)
-      emit snapshotFinished(job->input.horizon, "save", job->prepared.committed, job->cancelled, job->error);
+    if (job->epoch == m_snapshotEpoch) {
+      if (job->prepared.committed && job->followUpPending)
+        noteOutcome(SaveOutcome::Kind::SavedFollowUpPending, job->savedVersion, job->input.horizon, job->error,
+                    QStringLiteral("work_commit"));
+      else if (job->prepared.committed) {
+        noteOutcome(SaveOutcome::Kind::Saved, job->savedVersion, job->input.horizon, {}, QStringLiteral("complete"));
+        QVector<LayerDeclaration> declared;
+        if (m_layers) m_layers->tryDeclared(&declared, nullptr);
+        if (m_store) rememberImmutableAssets(m_store->latest(job->input.horizon), declared);
+        if (m_saveCapture && m_saveCapture->pendingLayers.isEmpty()) m_saveCapture.reset();
+      } else if (job->cancelled) {
+        noteOutcome(SaveOutcome::Kind::Cancelled, 0, job->input.horizon, job->error, QStringLiteral("cancelled"));
+      } else {
+        noteOutcome(SaveOutcome::Kind::Rejected, 0, job->input.horizon, job->error, QStringLiteral("prepare"));
+      }
+      emit snapshotFinished(job->input.horizon, "save", job->prepared.committed,
+                            job->cancelled && !job->prepared.committed, job->error);
+    }
   });
   auto *task = m_async->runner.start(tr("%1 保存地图与证据快照").arg(horizon), job, callbacks);
   if (!task) {

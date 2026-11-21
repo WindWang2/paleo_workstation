@@ -19,6 +19,9 @@
 #include <cpl_string.h>
 #include <gdal.h>
 #include <qgsattributetableconfig.h>
+#include <qgsfeature.h>
+#include <qgsvectorlayer.h>
+#include <qgswkbtypes.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgscoordinatetransform.h>
 #include <qgsexpression.h>
@@ -371,6 +374,43 @@ bool pointGeoPackage(const QString &path, const QVariantList &points,
   return true;
 }
 
+// Added features reuse provider fids. Copy the edit view and drop fid so the
+// snapshot insert does not collide, while still keeping uncommitted edits.
+QgsVectorLayer *snapshotEditView(QgsVectorLayer *layer, std::unique_ptr<QgsVectorLayer> *owned, QString *error) {
+  if (!layer->isEditable()) return layer;
+  const auto uri = QgsWkbTypes::displayString(layer->wkbType());
+  owned->reset(new QgsVectorLayer(uri, QStringLiteral("edit-view"), QStringLiteral("memory")));
+  auto *copy = owned->get();
+  if (!copy || !copy->isValid() || !copy->dataProvider()) {
+    if (error) *error = QObject::tr("无法复制正在编辑的图件");
+    return nullptr;
+  }
+  copy->setCrs(layer->crs());
+  QgsFields stored;
+  for (const auto &field : layer->fields()) {
+    const auto name = field.name();
+    if (name.compare(QStringLiteral("fid"), Qt::CaseInsensitive) == 0) continue;
+    stored.append(field);
+  }
+  copy->dataProvider()->addAttributes(stored.toList());
+  copy->updateFields();
+  QgsFeatureList rows;
+  QgsFeature feature;
+  auto features = layer->getFeatures();
+  while (features.nextFeature(feature)) {
+    QgsFeature row(copy->fields());
+    for (int i = 0; i < copy->fields().count(); ++i)
+      row.setAttribute(i, feature.attribute(copy->fields().at(i).name()));
+    row.setGeometry(feature.geometry());
+    rows << row;
+  }
+  if (!rows.isEmpty() && !copy->dataProvider()->addFeatures(rows)) {
+    if (error) *error = QObject::tr("无法复制正在编辑的图件");
+    return nullptr;
+  }
+  return copy;
+}
+
 bool vectorSnapshot(QgsVectorLayer *layer, const QString &path,
                     QString *error) {
   if (!layer || !layer->isValid()) {
@@ -384,12 +424,15 @@ bool vectorSnapshot(QgsVectorLayer *layer, const QString &path,
     if (error) *error = QObject::tr("图件快照必须使用新文件，不能覆盖来源版本");
     return false;
   }
+  std::unique_ptr<QgsVectorLayer> editView;
+  auto *source = snapshotEditView(layer, &editView, error);
+  if (!source) return false;
   QgsVectorFileWriter::SaveVectorOptions options;
   options.driverName = QStringLiteral("GPKG");
   options.layerName = QStringLiteral("features");
   options.fileEncoding = QStringLiteral("UTF-8");
   const bool saved = QgsVectorFileWriter::writeAsVectorFormatV3(
-             layer, path, QgsCoordinateTransformContext(), options, error) ==
+             source, path, QgsCoordinateTransformContext(), options, error) ==
          QgsVectorFileWriter::NoError;
   if (!saved) return false;
   // Identity normalization applies to the new snapshot only. In particular,

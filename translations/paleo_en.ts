@@ -14044,6 +14044,26 @@ Crossline: %3 ~ %4</source>
             <source>%1 发布地图与证据快照</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>版本已保存（v%1），后续工作副本提交未完成：%2</source>
+            <translation>Version saved (v%1), but the subsequent working copy commit failed: %2</translation>
+        </message>
+        <message>
+            <source>工作副本提交未完成</source>
+            <translation>Working copy commit incomplete</translation>
+        </message>
+        <message>
+            <source>版本已保存，部分工作层已提交、其余编辑仍可撤销：已提交 %1；未提交 %2。%3</source>
+            <translation>Version saved. Some working layers were committed and the remaining edits can still be undone. Committed: %1. Uncommitted: %2. %3</translation>
+        </message>
+        <message>
+            <source>地图矢量导出失败</source>
+            <translation>Map vector export failed</translation>
+        </message>
+        <message>
+            <source>版本已保存（v%1），引用保留未完成：%2</source>
+            <translation>Version saved (v%1), but retaining references failed: %2</translation>
+        </message>
     </context>
     <context>
         <name>MappingBaseMapSelector</name>
@@ -16344,6 +16364,10 @@ Crossline: %3 ~ %4</source>
         <source>井 %1 的预测未能生成当前层段优势相，未发布</source>
         <translation type="unfinished" />
     </message>
+        <message>
+            <source>资料目录不可用，不能读取图件空间编辑历史</source>
+            <translation>The catalog is unavailable. Cannot load the map spatial edit history.</translation>
+        </message>
 </context>
     <context>
         <name>MappingWorkbenchPage</name>
@@ -18230,6 +18254,60 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/ui/pages/mappingtaskguide.cpp" line="387" />
             <source>按上面的步骤准备输入、运行，再对照图件分析。</source>
             <translation>Follow the steps above to prepare inputs, run the prediction, and compare the resulting maps.</translation>
+        </message>
+        <message>
+            <source>图件空间编辑历史</source>
+            <translation>Map spatial edit history</translation>
+        </message>
+        <message>
+            <source>更早空间编辑</source>
+            <translation>Older spatial edits</translation>
+        </message>
+        <message>
+            <source>较新空间编辑</source>
+            <translation>Newer spatial edits</translation>
+        </message>
+        <message>
+            <source>尚无图件版本，不能读取空间编辑历史。</source>
+            <translation>No map versions are available for loading spatial edit history.</translation>
+        </message>
+        <message>
+            <source>图件空间编辑历史 · 本页 %1 条</source>
+            <translation>Map spatial edit history · %1 entries on this page</translation>
+        </message>
+        <message>
+            <source>图斑 %1</source>
+            <translation>Feature %1</translation>
+        </message>
+        <message>
+            <source>未选中活要素，显示本版本链上的编辑，包括已删除对象</source>
+            <translation>No live feature is selected. Showing edits in this version chain, including deleted features.</translation>
+        </message>
+        <message>
+            <source>诊断：%1</source>
+            <translation>Diagnostics: %1</translation>
+        </message>
+        <message>
+            <source>还有更早的记录，使用翻页继续读取。</source>
+            <translation>Earlier records are available. Use the page controls to continue.</translation>
+        </message>
+        <message>
+            <source>%1 · %2 · %3
+对象 %4 · 版本 %5</source>
+            <translation>%1 · %2 · %3
+Feature %4 · version %5</translation>
+        </message>
+        <message>
+            <source>这一页没有空间编辑事件。</source>
+            <translation>There are no spatial edit events on this page.</translation>
+        </message>
+        <message>
+            <source>继续读取更早的图件空间编辑，每次最多 50 条</source>
+            <translation>Load older map spatial edits, up to 50 at a time</translation>
+        </message>
+        <message>
+            <source>返回较新的图件空间编辑</source>
+            <translation>Return to newer spatial edits</translation>
         </message>
     </context>
     <context>
@@ -24128,6 +24206,10 @@ PDF：%3
         <message>
             <source>预测已取消，但成果已提交（版本 %1）——未清理已提交产物，可重试发布恢复展示</source>
             <translation>Prediction cancelled after the result was committed (version %1). The committed result was retained. Retry publication to restore its display.</translation>
+        </message>
+        <message>
+            <source>版本已保存，后续操作未完成</source>
+            <translation>Version saved, but subsequent operations are incomplete</translation>
         </message>
     </context>
     <context>
@@ -37855,6 +37937,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message>
             <source>预测输出验证失败：%1（%2）</source>
             <translation>Prediction output verification failed: %1 (%2)</translation>
+        </message>
+        <message>
+            <source>无法复制正在编辑的图件</source>
+            <translation>Unable to copy the map being edited</translation>
         </message>
 </context>
     <context>

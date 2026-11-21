@@ -14,11 +14,18 @@ struct MapSnapshotInput {
   bool freezeLayers = false;
   bool valid = false;
 };
+struct MapSnapshotAccounting {
+  int sourceHashes = 0;
+  int destinationHashes = 0;
+  qint64 bytesCopied = 0;
+  int files = 0;
+};
 struct PreparedMapSnapshot {
   MapSnapshotInput input;
   QString directory, finalDirectory, error;
   QVariantMap provenance;
   QVariantList attestations;
+  MapSnapshotAccounting accounting;
   bool cancelled = false, committed = false;
   bool isValid() const { return error.isEmpty() && !cancelled && !directory.isEmpty(); }
 };

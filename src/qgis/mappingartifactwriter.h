@@ -6,6 +6,7 @@
 #include <QVariantList>
 #include <QVector>
 #include <functional>
+#include <memory>
 class QColor;
 class QgsMapLayer;
 class QgsSymbol;
@@ -44,6 +45,9 @@ bool pointGeoPackage(const QString &path, const QVariantList &points,
                      const QString &crs, QString *error);
 bool emptyFacies(const QString &path, const QVariantList &facies, QString *error);
 bool vectorSnapshot(QgsVectorLayer *layer, const QString &path, QString *error);
+// 编辑中的图层先复制成不含 fid 的内存视图，并保留原 CRS（局部网格没有 authid）。
+// owned 持有副本；未在编辑时返回 layer，owned 保持空。
+QgsVectorLayer *snapshotEditView(QgsVectorLayer *layer, std::unique_ptr<QgsVectorLayer> *owned, QString *error);
 QVariantList constraintGeometries(const QString &path, QString *error);
 bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
                           QString *error);

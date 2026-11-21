@@ -217,6 +217,7 @@ void MappingWorkbenchPage::buildEvidenceHistory(QWidget *, QTabWidget *tabs) {
   historyNavigation->addWidget(evidenceButton("historyOlder", tr("更早历史"), page));
   historyNavigation->addWidget(evidenceButton("historyNewer", tr("较新历史"), page));
   layout->addLayout(historyNavigation);
+  buildSpatialEditHistory(page, layout);
   // G03/G04：计算归因 tab——冻结输入重放、上游回执与井空间关联的只读事实。
   auto *attributionPage = new QWidget(tabs);
   auto *attributionLayout = new QVBoxLayout(attributionPage);

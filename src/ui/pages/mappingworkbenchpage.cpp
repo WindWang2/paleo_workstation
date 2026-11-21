@@ -1184,5 +1184,5 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
   commandButton("historyOlder")->setEnabled(m_historyPage + 1 < pages);
   commandButton("historyOlder")->setToolTip(tr("每页显示 50 条追加历史记录"));
   commandButton("historyNewer")->setEnabled(m_historyPage > 0);
-  commandButton("historyNewer")->setToolTip(tr("返回较新的历史记录"));
+  commandButton("historyNewer")->setToolTip(tr("返回较新的历史记录")); renderSpatialEditHistory();
 }

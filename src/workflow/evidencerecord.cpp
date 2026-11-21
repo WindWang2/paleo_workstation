@@ -78,7 +78,8 @@ QVariantMap evidenceRecord( const DataCatalog *catalog, const QStringList &paren
   for (const auto &key : {QStringLiteral("interpretation_history"), QStringLiteral("review_events"),
                          QStringLiteral("actor_id"), QStringLiteral("feature_summary"),
                          QStringLiteral("evidence_quality"), QStringLiteral("evidence_snapshot"),
-                         QStringLiteral("spatial_edit_events")})
+                         QStringLiteral("spatial_edit_events"),
+                         QStringLiteral("spatial_edit_history")})
     generation.remove(key);
   QVariantList wellRows = extra.value(QStringLiteral("rows")).toList();
   if (wellRows.isEmpty() && catalog)

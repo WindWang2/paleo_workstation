@@ -371,6 +371,10 @@ int main(int argc, char *argv[])
   if (auto *stratigraphy = window.findChild<StratigraphyWorkflow *>())
     QObject::connect(stratigraphy, &StratigraphyWorkflow::classificationChanged,
                      &ctx, &AppContext::refreshAnalysisResults);
+  // A-W1（#974）：注入组装根共享的预览门面/地震服务——主窗、数据预览、
+  // 剖面 dock、3D 浏览共用同一任务面与缓存；attachWorkflows 不再自建
+  // 重复的 256MiB 地震缓存。
+  window.setSharedPreviewServices(ctx.previewDoc(), ctx.seismicTaskSvc());
   window.attachWorkflows(ctx.predictionWf(), ctx.constraintWf(),
                          ctx.compositionWf(), ctx.validationWf(), ctx.importSvc(),
                          ctx.seismicLink(), ctx.processingSvc(), ctx.store(),

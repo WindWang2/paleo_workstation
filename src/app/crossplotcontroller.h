@@ -17,10 +17,13 @@ public:
   CrossplotController(AppContext *, PaleoMainWindow *);
 
 private:
-  void refreshSources();
-  // 通道清单刷新的调度壳：面板可见→同步刷；不可见→后台预热 well_log 头
-  // 缓存，激活时命中（外链 SpreadsheetML 整本解析不能占 GUI 关键路径）。
-  void scheduleSourceRefresh();
+  // 通道清单刷新（A-W3/W4）：所有入口（构造、projectOpened、catalog 变化、
+  // 显式打开、tab 激活）进同一异步调度——catalog 快照在 GUI 线程取，表头
+  // 读取与就绪判定跑在共享任务服务的 Document scope 任务里；面板可见用
+  // 交互优先级，隐藏预热用低优先级（quiet）。在途任务 + 1 个待处理封顶，
+  // 不积累整批 worker。旧同步整本表头读取路径不再从 GUI 触发。
+  void scheduleSourceRefresh(bool interactive);
+  void startSourceRefresh(bool interactive);
   void load(const QStringList &);
   void project(const Axes &);
   void select(const QVector<QPointF> &);
@@ -35,7 +38,10 @@ private:
   QVector<SourceSpec> m_sources;
   PlotFrame m_frame;
   QPointer<PaleoTask> m_loadTask;
+  QPointer<PaleoTask> m_sourceTask;
   quint64 m_generation = 0;
+  quint64 m_sourceEpoch = 0;      // 工程切换推进：旧清单结果不得应用
+  bool m_sourceRefreshPending = false; // 在途时合并出的「最新待处理」（≤1）
   bool m_refreshPending = false;
   // 当前套索选区（assignLabelRequested 取 indices；project/load 时清空）。
   Selection m_selection;

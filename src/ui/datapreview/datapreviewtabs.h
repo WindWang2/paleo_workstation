@@ -274,6 +274,10 @@ class DataPreviewTabs : public QWidget
       QString tieText;
       double tieMs = 0.0;
       bool hasTie = false;
+      // A-W2：本消费者正在等的那条线——共享门面广播按 assetId 发，结果
+      // 到达时按 (isInline,lineNo) 认领，别的消费者/旧请求的回包不串收。
+      bool expectedIsInline = true;
+      int expectedLineNo = 0;
     };
     QHash<QString, SectionPending> m_pendingSection;
 

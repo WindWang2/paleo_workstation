@@ -123,38 +123,58 @@ QString legacyTimeDepthPath(DataCatalog *catalog, const QString &wellId) {
 }
 } // namespace
 
-QHash<QString, WellReadiness> analysisReadiness(DataCatalog *catalog,
-                                                const QString &projectDir) {
-  QHash<QString, WellReadiness> out;
+QHash<QString, WellReadinessInput> snapshotReadinessInputs(DataCatalog *catalog) {
+  QHash<QString, WellReadinessInput> out;
   if (!catalog)
     return out;
-  const Snapshot snapshot = modelSnapshot(projectDir);
   for (const CatalogEntity &well : catalog->entities(QStringLiteral("well"))) {
+    WellReadinessInput in;
+    in.hasCurves = wellSupportsAnalysis(catalog, well, /*requireCurves=*/true);
+    in.areaModelWellId = well.extra.value(QStringLiteral("areaModelWellId")).toLongLong();
+    in.legacyTimeDepthPath = in.areaModelWellId > 0 ? QString()
+                                                    : legacyTimeDepthPath(catalog, well.id);
+    out.insert(well.id, in);
+  }
+  return out;
+}
+
+QHash<QString, WellReadiness> computeReadiness(
+    const QHash<QString, WellReadinessInput> &inputs, const QString &projectDir) {
+  QHash<QString, WellReadiness> out;
+  if (inputs.isEmpty())
+    return out; // 无井输入不建模型快照（结果等价：原实现空集不入表）
+  const Snapshot snapshot = modelSnapshot(projectDir);
+  for (auto it = inputs.constBegin(); it != inputs.constEnd(); ++it) {
+    const WellReadinessInput &in = it.value();
     WellReadiness r;
-    r.hasCurves = wellSupportsAnalysis(catalog, well, /*requireCurves=*/true);
-    const qlonglong modelId = well.extra.value(QStringLiteral("areaModelWellId")).toLongLong();
-    if (modelId > 0) {
-      r.tdUsable = snapshot.usableWells.contains(modelId);
-      r.hasTimeDepth = snapshot.timeDepthWells.contains(modelId);
-    } else {
-      const QString path = legacyTimeDepthPath(catalog, well.id);
-      if (!path.isEmpty()) {
-        r.hasTimeDepth = QFileInfo::exists(path);
-        TimeDepthTable table;
-        QString error;
-        if (readTimeDepth(path, table, &error)) {
-          for (const auto &row : table.rows) {
-            if(!std::isfinite(row.timeMs))continue;
-            if(row.hasMd&&std::isfinite(row.md))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.md,true).ok();
-            if(!r.tdUsable&&row.hasTvd&&std::isfinite(row.tvd))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.tvd,false).ok();
-            if(r.tdUsable)break;
-          }
+    r.hasCurves = in.hasCurves;
+    if (in.areaModelWellId > 0) {
+      r.tdUsable = snapshot.usableWells.contains(in.areaModelWellId);
+      r.hasTimeDepth = snapshot.timeDepthWells.contains(in.areaModelWellId);
+    } else if (!in.legacyTimeDepthPath.isEmpty()) {
+      const QString path = in.legacyTimeDepthPath;
+      r.hasTimeDepth = QFileInfo::exists(path);
+      TimeDepthTable table;
+      QString error;
+      if (readTimeDepth(path, table, &error)) {
+        for (const auto &row : table.rows) {
+          if(!std::isfinite(row.timeMs))continue;
+          if(row.hasMd&&std::isfinite(row.md))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.md,true).ok();
+          if(!r.tdUsable&&row.hasTvd&&std::isfinite(row.tvd))r.tdUsable=TimeDepthTool::interpolateTimeMs(table,row.tvd,false).ok();
+          if(r.tdUsable)break;
         }
       }
     }
-    out.insert(well.id, r);
+    out.insert(it.key(), r);
   }
   return out;
+}
+
+QHash<QString, WellReadiness> analysisReadiness(DataCatalog *catalog,
+                                                const QString &projectDir) {
+  if (!catalog)
+    return {};
+  return computeReadiness(snapshotReadinessInputs(catalog), projectDir);
 }
 
 } // namespace paleo

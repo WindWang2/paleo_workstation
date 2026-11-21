@@ -64,12 +64,12 @@ src/ui/pages/mappingworkbenchpage.cpp:file:1188
 src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:380
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:275
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:223
-src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:404
+src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:395
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:368
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:646
 src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:224
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:476
-src/ui/paleomainwindow_sections.cpp:fn:attachSections:275
+src/ui/paleomainwindow_sections.cpp:fn:attachSections:271
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:426
 src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:253
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255

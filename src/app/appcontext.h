@@ -12,6 +12,8 @@
 #include "metadata/wellsitingstore.h"
 class ProjectDirLock;
 class ProjectLayerRefreshWorkflow;
+class PreviewDocService;
+namespace seismic { class SeismicTaskService; }
 struct AppProjectOpenData;
 class QgisRuntime;
 class QgisCanvasController;
@@ -124,6 +126,15 @@ class AppContext : public QObject
     // pass-2 D1/D2：异步任务注册中心（QThreadPool 执行 + 字节进度 + 10s 窗口
     // ETA + 协作取消），任务页轮询它渲染进度条；长 IO 经它上 worker。
     PaleoTaskService *taskSvc() const { return m_taskSvc; }
+    // A-W1（#974）：组装根拥有的共享预览门面与地震任务服务——主窗、数据
+    // 预览、剖面 dock、3D 浏览共用同一任务面与数据缓存（不再各自建私有
+    // 业务池/256MiB 缓存）。未就绪（QGIS 初始化失败早退）时为 nullptr，
+    // 消费侧按「服务未注入」如实降级。
+    PreviewDocService *previewDoc() const { return m_previewDoc; }
+    seismic::SeismicTaskService *seismicTaskSvc() const { return m_seismicTaskSvc; }
+    // A-W6：退出排空已开始——本任务族生产者（交会清单刷新、预览请求）
+    // 停止接受新请求。drainTasks() 置位，进程生命周期内不逆转。
+    bool previewsQuiesced() const { return m_previewQuiesced; }
     paleo::document::DocumentSession *documentSession() const { return m_documentSession; }
     paleo::capability::CapabilityHost *capabilityHost() const { return m_capabilityHost; }
     ProjectDirLock *projectLock() const { return m_projectLock.get(); }
@@ -228,6 +239,9 @@ class AppContext : public QObject
     FaultSetStore m_faultStore{QString(), nullptr}; // projectOpened 值重绑
     paleo::fault::FaultInterpretationController *m_faultCtl = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
+    seismic::SeismicTaskService *m_seismicTaskSvc = nullptr; // A-W1 共享（Qt 父对象持有）
+    PreviewDocService *m_previewDoc = nullptr;               // A-W1 共享（同上）
+    bool m_previewQuiesced = false;                          // A-W6 排空门
     paleo::document::DocumentSession *m_documentSession = nullptr;
     paleo::capability::CapabilityHost *m_capabilityHost = nullptr;
     std::unique_ptr<ProjectDirLock> m_projectLock;

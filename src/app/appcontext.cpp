@@ -34,6 +34,8 @@
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
+#include "../services/previewdoc.h" // A-W1：共享预览门面（组装根拥有）
+#include "../services/seismictaskservice.h" // A-W1：共享地震任务服务
 #include "../services/scriptrunner.h"  // 方向68：Python 脚本运行服务
 #include "../services/pythonrepl.h"    // 方向68：REPL 会话桥（实验性）
 #include "../workflow/pythonconsolecontroller.h" // 方向68：脚本面编排
@@ -202,6 +204,14 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
       });
 
   m_import = new DataImportService(m_store, this);
+  // A-W1（#974）：共享预览/地震服务收归组装根——主窗、数据预览、剖面
+  // dock 与 3D 浏览经注入共用同一任务面与 256MiB 数据缓存；SgyDataCache
+  // 真实占用经 SeismicCacheBudgetAdapter 纳入统一预算（A-W5）。窗口装配
+  // （main.cpp setSharedPreviewServices）只取用不重建。
+  m_seismicTaskSvc = new seismic::SeismicTaskService(m_taskSvc, 256, this);
+  m_previewDoc = new PreviewDocService(m_import, this);
+  m_previewDoc->setTaskService(m_taskSvc);
+  m_previewDoc->setSeismicTaskService(m_seismicTaskSvc);
   m_documentSession = new paleo::document::DocumentSession(m_store, m_taskSvc, this);
   m_capabilityHost = new paleo::capability::CapabilityHost(this);
   m_capabilityHost->setTaskService(m_taskSvc);
@@ -630,6 +640,12 @@ void AppContext::releaseProjectSession()
 
 bool AppContext::drainTasks(int timeoutMs)
 {
+  // A-W6：先停本任务族生产者再排空——shutdown 泵事件期间 catalog/tab/
+  // finished 信号不得重新提交预热或预览（交会清单刷新经 previewsQuiesced
+  // 门拒收；预览请求经 PreviewDocService::quiesce 以真实原因拒绝）。
+  m_previewQuiesced = true;
+  if (m_previewDoc)
+    m_previewDoc->quiesce();
   if (!m_taskSvc)
     return true;
   const bool ok = m_taskSvc->shutdown(timeoutMs);

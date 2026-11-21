@@ -42,8 +42,9 @@ SeismicSectionDockWidget::SeismicSectionDockWidget(const QString &title, QWidget
     setObjectName(QStringLiteral("seismicSectionDock"));
     setAllowedAreas(Qt::AllDockWidgetAreas);
     setupUi();
-    auto *tasks = new PaleoTaskService(nullptr, this);
-    m_taskService = new SeismicTaskService(tasks, 256, this);
+    // A-W1（#974）：不再自建私有 PaleoTaskService/SeismicTaskService——
+    // 服务经 setTaskService 由装配注入（attachSections 无条件先于早退注入）。
+    // 未注入时提取入口如实给出「服务未注入」，不静默回退到私有池。
 }
 
 // 迟到回调由 QPointer 守卫兜底（无 UAF）；这里取消是为归还并发闸——
@@ -286,8 +287,13 @@ void SeismicSectionDockWidget::setSectionMode(int modeIndex) {
 }
 
 void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
-    if (!m_volume || !m_volume->IsLoaded() || !m_taskService)
+    if (!m_volume || !m_volume->IsLoaded())
         return;
+    if (!m_taskService) {
+        if (m_canvas)
+            m_canvas->setNoDataReason(tr("地震任务服务未注入"));
+        return; // A-W1：不建私有兜底池，如实给不可用原因
+    }
 
     // 切片顶替任意线显示：取消其在途任务——迟到的任意线结果不再覆盖已
     // 应用的切片（旧实现无此守卫，属真实缺陷）。世代号在去抖判定之后才
@@ -545,8 +551,13 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
     const std::vector<glm::dvec2> &mapPolyline,
     const std::vector<SectionWellInfo> &candidateWells,const QStringList &selectedWellIds,
     const paleo::document::InterpretationSelection *selection) {
-  if (!volume || pathPoints.size() < 2 || !m_taskService)
+  if (!volume || pathPoints.size() < 2)
     return;
+  if (!m_taskService) {
+    if (m_canvas)
+      m_canvas->setNoDataReason(tr("地震任务服务未注入"));
+    return; // A-W1：不建私有兜底池，如实给不可用原因
+  }
   if (m_extraction)
     m_extraction->requestCancel();
   // 任意线顶替切片显示：取消在途切片/卷帘任务并作废去抖键——迟到的

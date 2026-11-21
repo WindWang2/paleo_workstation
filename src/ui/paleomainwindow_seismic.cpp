@@ -168,7 +168,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks(bool includeLargeVolumes)
         return;
       }
       if (guard->m_seismic3dPanel) {
-        guard->m_seismic3dPanel->setTaskService(guard->m_seismicTaskSvc.get());
+        guard->m_seismic3dPanel->setTaskService(guard->m_seismicTaskSvc);
         guard->m_seismic3dPanel->setVolume(volume);
         if (guard->m_seismic3dPanel->viewport()) {
           guard->m_seismic3dPanel->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);

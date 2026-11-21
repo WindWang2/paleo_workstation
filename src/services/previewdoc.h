@@ -96,7 +96,7 @@ class PreviewDocService : public QObject
 {
   Q_OBJECT
   public:
-    explicit PreviewDocService(DataImportService *svc, QObject *parent = nullptr);    // out-of-line 析构：m_seismicTaskSvc 是 incomplete-type unique_ptr。
+    explicit PreviewDocService(DataImportService *svc, QObject *parent = nullptr);    // out-of-line 析构：m_seismicTaskSvcOwned 是 incomplete-type unique_ptr。
     ~PreviewDocService() override;
 
     DataImportService *importService() const { return m_svc; }
@@ -133,7 +133,21 @@ class PreviewDocService : public QObject
     // ---- 任务服务（D1 异步解码；空 = 同步旧路径）----
     void setTaskService(PaleoTaskService *svc);
     PaleoTaskService *taskService() const { return m_taskSvc; }
-    seismic::SeismicTaskService *seismicTaskService() const { return m_seismicTaskSvc.get(); }
+    // A-W1：注入组装根共享的地震服务（与PaleoTaskService 同源）。注入后
+    // seismicTaskService() 返回共享实例，本门面不再自建地震缓存；未注入
+    // 时保持原行为——首个地震消费者到来时懒建 256 MiB 私有实例（测试/
+    // 小环境兜底，纯 LAS 门面不再白占缓存）。替换时旧私有实例须空闲，
+    // 在途任务未清空前拒绝替换（qWarning，不悬空 worker）。
+    void setSeismicTaskService(seismic::SeismicTaskService *shared);
+    seismic::SeismicTaskService *seismicTaskService() const;
+    // A-W6：退出排空前由宿主（AppContext::drainTasks）置位——此后所有
+    // 生产性请求（剖面/LAS/金字塔/SHA 预取）拒绝启动并以真实原因回报，
+    // 排空泵事件期间的迟到请求不得再提交 worker。幂等；不可逆。
+    void quiesce();
+    bool isQuiesced() const { return m_quiesced; }
+    // A-W2：QObject* 消费者的稳定标签（结果信号尾参）。null → 0（匿名）。
+    static quint64 consumerTag(const QObject *consumer)
+    { return consumer ? quint64(reinterpret_cast<quintptr>(consumer)) : 0; }
 
     // ---- 工程参数门面（domain/arearules.h 的视图侧出口）----
     static QString targetHorizon();
@@ -282,11 +296,17 @@ class PreviewDocService : public QObject
     struct SectionDoc;
     // 请求解码一条测线；同资产重复请求自动作废上一代。结果经信号回来
     // （无任务服务时同步执行、请求返回前信号已发——与旧同步路径一致）。
+    // A-W2：consumer 非空时该请求归属此消费者——世代号/在途取消按
+    // 「consumer|assetId」隔离：两个视图同资产不同测线互不顶替，快速换线
+    // 只作废本消费者旧代；consumer 析构自动取消其请求。空 consumer 保持
+    // 兼容匿名口径（同资产所有匿名请求互相顶替）。
     void requestSection(const QString &assetId, const QString &versionId,
                         const QString &absPath, bool managed, const QString &sha256,
-                        bool isInline, int lineNo);
-    // 标签关闭时释放该资产的索引缓存/世代号/进行中任务。
-    void releaseSection(const QString &assetId);
+                        bool isInline, int lineNo, QObject *consumer = nullptr);
+    // 标签关闭时释放该资产的索引缓存/世代号/进行中任务。带 consumer 只
+    // 释放该消费者的请求；匿名（无 consumer）释放该资产全部消费者的世代
+    //（兼容旧「资产标签关闭」语义）。
+    void releaseSection(const QString &assetId, QObject *consumer = nullptr);
 
     // ---- 工区三视图范围 / 地震时间剖面（数据服务只读探测，见 previewdoc_area.cpp）----
     // 井/地震/合并平面范围（paleo::data::readProjectPlanarRange 的值形态镜像；
@@ -307,14 +327,17 @@ class PreviewDocService : public QObject
     // 先用 lasHeaderAt 铺曲线名，再 requestLas 补数据行。
     // siblingPaths 与 absPath 在同一次后台任务里解析数据体。某个兄弟文件
     // 解析失败则跳过该文件，不让本次请求失败。空列表 = 只解析 absPath。
+    // A-W2：consumer 语义同 requestSection（per-consumer 世代号与析构取消；
+    // 空 = 兼容匿名口径）。
     void requestLas(const QString &key, const QString &absPath,
-                    const QStringList &siblingPaths = {});
+                    const QStringList &siblingPaths = {}, QObject *consumer = nullptr);
     // 最近一次成功 requestLas 的兄弟文件（失败的不在表里）。当前文件仍由
     // lasReady 的 curves 交付。只在 lasReady 槽里读；releaseLas / 同 key
     // 新请求会清掉。
     QHash<QString, LasDoc> lasSiblingDocs(const QString &key) const;
     // 释放该 key 的世代号；进行中的解析请求取消——结果没人等了。
-    void releaseLas(const QString &key);
+    // consumer 语义同 releaseSection。
+    void releaseLas(const QString &key, QObject *consumer = nullptr);
     bool hasPendingLasResults() const { return m_lasDeliveryScheduled || !m_lasDeliveryQueue.isEmpty(); }
     // #154：工程切换前清空所有按 assetId 键控的会话缓存（SEG-Y 索引读者、
     // SHA 已验集、金字塔状态、LAS 兄弟文档）并取消在途解码/解析/预热任务。
@@ -340,15 +363,21 @@ class PreviewDocService : public QObject
     int prefetch(const QStringList &absPaths);
 
   signals:
+    // A-W2：结果信号尾带 consumer 标签（PreviewDocService::consumerTag(consumer)；
+    // 0 = 匿名/兼容请求）。旧连接（槽参数少于信号）自动忽略尾参，行为不变；
+    // 显式消费者据此只认领自己的结果，共享门面下互不串收。
     // Same-generation amplitude, before the optional horizon query completes.
     void seismicSectionImageReady(const QString &assetId,
-                                 const PreviewDocService::SectionDoc &doc);
+                                 const PreviewDocService::SectionDoc &doc,
+                                 quint64 consumer = 0);
     // 解码成功（已判陈旧——到达的必然是最新一代）。
     void seismicSectionReady(const QString &assetId,
-                             const PreviewDocService::SectionDoc &doc);
+                             const PreviewDocService::SectionDoc &doc,
+                             quint64 consumer = 0);
     // 解码失败（原因如实；SHA 失配的下游标过时已在服务内做完）。
-    void seismicSectionFailed(const QString &assetId, const QString &reason);
-    void seismicSectionCancelled(const QString &assetId);
+    void seismicSectionFailed(const QString &assetId, const QString &reason,
+                              quint64 consumer = 0);
+    void seismicSectionCancelled(const QString &assetId, quint64 consumer = 0);
     // DataImportService 信号的壳侧转发（主窗只认门面）。
     void catalogOpenFailed(const QString &error);
     // catalog open() 经 .bak 回退恢复（T5）——「已从备份恢复，主文件损坏」
@@ -357,18 +386,31 @@ class PreviewDocService : public QObject
     void assetImported(const QString &kind, const QString &assetId,
                        const QString &layerId);
     // LAS 数据异步填充结果（requestLas；已判陈旧——到达的必然是最新一代）。
+    // 尾参 consumer 标签语义同剖面族（A-W2）。
     void lasReady(const QString &key, const QStringList &names,
-                  const QList<LasCurve> &curves);
-    void lasFailed(const QString &key, const QString &reason);
-    void lasCancelled(const QString &key);
+                  const QList<LasCurve> &curves, quint64 consumer = 0);
+    void lasFailed(const QString &key, const QString &reason, quint64 consumer = 0);
+    void lasCancelled(const QString &key, quint64 consumer = 0);
     // B3：栅格金字塔版本预热终态（ok = 瓦片 + 概览均就绪或无需建）。
     void rasterPyramidFinished(const QString &assetId, bool ok);
 
   private:
     void deliverNextLasResult();
+    // A-W2：请求键 = consumer 指针 | 调用方键（assetId/LAS key）。匿名请求
+    //（consumer=nullptr）沿用裸键——历史行为：同键请求互相顶替。指针仅在
+    // 键内用作消费者身份，不解引用（析构由 QObject::destroyed→requestCancel
+    // 覆盖；resetProjectState 逐键 +1 防跨工程撞号，同资产口径）。
+    static QString consumerRequestKey(const QString &key, const QObject *consumer);
     DataImportService *m_svc = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
-    std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
+    // A-W1：共享实例优先（组装根注入，非拥有）；m_seismicTaskSvcOwned 是
+    // 未注入时的懒建私有实例（测试/小环境）。
+    seismic::SeismicTaskService *m_seismicTaskSvcShared = nullptr;
+    mutable std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvcOwned; // 懒建（const 读路径可首建，同 m_shaVerified 惯例）
+    bool m_quiesced = false;
+    // 析构守卫：~QObject 期间（成员已销毁）子对象/自身的 destroyed 信号
+    // 仍可能触达本类回调——一律早退，不再碰任何成员。
+    bool m_destructing = false;
 
     // 工区三视图范围缓存：stamp = area-model data.sqlite(+wal) 尺寸+mtime。
     // 同 stamp 命中缓存免重探（井位 SQL + 每体有界道头探测）。
@@ -377,8 +419,8 @@ class PreviewDocService : public QObject
     int m_planarGeneration = 0;
     QPointer<PaleoTask> m_planarTask;
 
-    // D1 异步解码：按资产的索引缓存（每资产只 open/SHA 一次）、世代号
-    //（陈旧结果发射前丢弃）、进行中任务指针（新解码请求取消旧任务）。
+    // D1 异步解码：按资产（A-W2 起按 consumer|assetId）的世代号（陈旧结果
+    // 发射前丢弃）与进行中任务指针（新解码请求取消旧任务）。
     QHash<QString, int> m_decodeSeq;
     QHash<QString, QPointer<PaleoTask>> m_decodeTask;
     // assetId → 本会话已过 SHA 复验（mutable：verifyExternalSha 是 const——

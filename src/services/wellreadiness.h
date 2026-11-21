@@ -31,4 +31,17 @@ QSet<qlonglong> usableTimeDepthWells(data::DataService &service,
 QHash<QString, WellReadiness> analysisReadiness(DataCatalog *catalog,
                                                 const QString &projectDir);
 
+// A-W3：就绪判定的快照/计算拆分——catalog 只读部分（extra 标志、链接、
+// 版本路径）在 catalog 所属线程一次取齐；模型侧只读会话与 legacy 时深
+// 文件读取可用同一份输入在工作线程复算。computeReadiness 不碰活 catalog，
+// 口径与 analysisReadiness 逐井一致（快照=纯 catalog 读，计算=纯文件/模型）。
+struct WellReadinessInput {
+  bool hasCurves = false;       // wellSupportsAnalysis(catalog, well, true) 快照
+  qlonglong areaModelWellId = 0;
+  QString legacyTimeDepthPath;  // 主 time_depth 链接的已决版本路径（无则空）
+};
+QHash<QString, WellReadinessInput> snapshotReadinessInputs(DataCatalog *catalog);
+QHash<QString, WellReadiness> computeReadiness(
+    const QHash<QString, WellReadinessInput> &inputs, const QString &projectDir);
+
 } // namespace paleo

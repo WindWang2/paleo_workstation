@@ -8,7 +8,6 @@
 #include "qgis/qgislayerservice.h"
 #include "qgis/qgisprojectservice.h"
 #include "services/faciestraining.h"
-#include "services/welllogset.h"
 #include "catalog/datacatalog.h"
 #include "ui/crossplot/crossplotpanel.h"
 #include "ui/paleomainwindow.h"
@@ -16,10 +15,9 @@
 #include "ui/shortcuts/shortcutcatalog.h"
 #include <QAction>
 #include <QFileInfo>
-#include <QFutureWatcher>
 #include <QTabWidget>
 #include <QTimer>
-#include <QtConcurrent>
+#include <memory>
 #include <qgslayertreeview.h>
 namespace paleo::crossplot {
 CrossplotController::CrossplotController(AppContext *ctx,
@@ -48,12 +46,12 @@ CrossplotController::CrossplotController(AppContext *ctx,
     }
     if (tabs)
       tabs->setCurrentWidget(m_panel);
-    refreshSources();
+    scheduleSourceRefresh(/*interactive=*/true);
   });
   if (tabs)
     connect(tabs, &QTabWidget::currentChanged, this, [this, tabs] {
       if (tabs->currentWidget() == m_panel)
-        refreshSources();
+        scheduleSourceRefresh(/*interactive=*/true);
     });
   auto *catalog = ctx->importSvc()->catalog();
   connect(catalog, &DataCatalog::changed, this, [this] {
@@ -62,15 +60,22 @@ CrossplotController::CrossplotController(AppContext *ctx,
     m_refreshPending = true;
     QTimer::singleShot(150, this, [this] {
       m_refreshPending = false;
-      if (m_panel->isVisible())
-        refreshSources();
+      // A-W6：退出排空期（drainTasks 泵事件）不再提交清单任务。
+      if (m_context->previewsQuiesced())
+        return;
+      scheduleSourceRefresh(/*interactive=*/m_panel->isVisible());
     });
   });
   connect(ctx->projectSvc(), &QgisProjectService::projectOpened, this,
           [this, catalog](const QString &path) {
             if (m_loadTask)
               m_loadTask->requestCancel();
+            if (m_sourceTask)
+              m_sourceTask->requestCancel();
             ++m_generation;
+            ++m_sourceEpoch; // 旧工程的清单任务结果一律作废
+            m_sourceTask = nullptr;
+            m_sourceRefreshPending = false;
             m_loadTask = nullptr;
             m_panel->setBusy(false);
             m_workflow->setCatalog(catalog, QFileInfo(path).absolutePath());
@@ -86,8 +91,8 @@ CrossplotController::CrossplotController(AppContext *ctx,
             refreshTrainingState();
             m_map->clear();
             // projectOpened 是同步槽链（92% 进度停摆现场）：通道清单解析
-            // 挪出关键路径——可见即刷（后台已预热），不可见交给激活路径。
-            scheduleSourceRefresh();
+            // 挪出关键路径——统一进共享任务服务的低优先级预热。
+            scheduleSourceRefresh(/*interactive=*/false);
           });
   connect(m_panel, &CrossplotPanel::samplesRequested, this,
           &CrossplotController::load);
@@ -189,57 +194,93 @@ CrossplotController::CrossplotController(AppContext *ctx,
     m_workflow->setCatalog(
         catalog, QFileInfo(ctx->projectSvc()->projectPath()).absolutePath());
   refreshTrainingState(); // 首启训练态：禁用原因由控制器单一出处下发
-  scheduleSourceRefresh();
+  scheduleSourceRefresh(/*interactive=*/false);
 }
 
 // 交会通道清单要 wellCurveIndex 全井扫表头：外链 SpreadsheetML 是整本解析，
 // 几十个文件分钟级——不能在工程打开（projectOpened 同步槽）或控制器构造
-// 的 GUI 关键路径上同步做。面板不可见时改为后台预热头缓存，真正激活面板
-// 时（tab currentChanged / action）refreshSources 命中缓存秒回。
-void CrossplotController::scheduleSourceRefresh() {
-  if (m_panel->isVisible()) {
-    refreshSources();
+// 的 GUI 关键路径上同步做，也不再走未登记的 QtConcurrent 全局池（#961）。
+// 这里统一进共享 PaleoTaskService 的 Document scope 任务：任务中心可见、
+// 工程切换按会话取消、退出排空覆盖；面板可见用交互优先级。在途时新请求
+// 合并为「最新待处理」（≤1 份）——在途任务完成后补一轮最新快照（表头已
+// 落 WellLogSet 头缓存，补一轮不重复整本解析）。
+void CrossplotController::scheduleSourceRefresh(bool interactive) {
+  if (m_context->previewsQuiesced())
+    return; // A-W6：退出排空期不再提交（迟到请求以真实原因拒绝/丢弃）
+  if (m_sourceTask && m_sourceTask->running()) {
+    // 有界合并：在途 + 最新待处理各一；同快照在途读取由激活方附着复用。
+    m_sourceRefreshPending = true;
     return;
   }
-  const auto path = m_context->projectSvc()->projectPath();
-  auto *catalog = m_context->importSvc()->catalog();
-  if (!catalog || !catalog->isOpen())
-    return;
-  const QString dir = QFileInfo(path).absolutePath();
-  QStringList paths;
-  const auto wells = catalog->entities(QStringLiteral("well"));
-  for (const auto &well : wells)
-    for (const auto &link : catalog->linksForEntity(well.id)) {
-      if (link.role != QLatin1String("well_log") || link.unresolved)
-        continue;
-      const QString file =
-          DataCatalog::resolvedVersionPath(dir, catalog->currentVersion(link.assetId));
-      if (!file.isEmpty() && QFileInfo(file).isFile() && !paths.contains(file))
-        paths << file;
-    }
-  if (paths.isEmpty())
-    return;
-  auto *watcher = new QFutureWatcher<void>(this);
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
-    watcher->deleteLater();
-    // 预热完成时面板已可见（用户先开了 tab）→ 立即补一次清单；仍不可见
-    // 则留给激活路径，不在这里白扫。
-    if (m_panel->isVisible())
-      refreshSources();
-  });
-  watcher->setFuture(QtConcurrent::run(
-      [paths] { WellLogSet::warmHeaderCache(paths); }));
+  startSourceRefresh(interactive);
 }
 
-void CrossplotController::refreshSources() {
+void CrossplotController::startSourceRefresh(bool interactive) {
   const auto path = m_context->projectSvc()->projectPath();
-  m_sources = CrossplotSources::inventory(m_context->importSvc()->catalog(),
-                                          QFileInfo(path).absolutePath(),
-                                          m_context->layerSvc()->declared());
-  QVector<SourceChoice> choices;
-  for (const auto &s : m_sources)
-    choices << s.choice;
-  m_panel->setSources(choices);
+  auto *catalog = m_context->importSvc() ? m_context->importSvc()->catalog()
+                                         : nullptr;
+  const auto snap =
+      CrossplotSources::snapshotCatalog(catalog, QFileInfo(path).absolutePath(),
+                                        m_context->layerSvc()->declared());
+  if (!snap.valid) {
+    // catalog 缺席/未开工程：清空即如实（与旧同步口径一致），不起任务。
+    m_sources.clear();
+    m_panel->setSources({});
+    return;
+  }
+  const quint64 epoch = m_sourceEpoch;
+  const bool visible = interactive || m_panel->isVisible();
+  auto result = std::make_shared<CrossplotSources::InventoryOutcome>();
+  auto *task = m_context->taskSvc()->start(
+      tr("交会通道清单刷新"),
+      [snap, result](PaleoTask *t) {
+        cluster::Control ctl{
+            [t] { return t && t->cancelRequested(); },
+            [t](double p) { t->reportBytes(qint64(p * 1000), 1000); }};
+        *result = CrossplotSources::buildInventory(snap, ctl);
+        return QString();
+      },
+      QString(), visible ? PaleoTask::Priority::Normal
+                         : PaleoTask::Priority::Low,
+      /*quiet=*/!visible);
+  m_sourceTask = task;
+  // 可见刷新的进度/取消反馈走任务中心（非 quiet）+ 面板消息；不占
+  // setBusy——那是样本抽取的忙态，清单一轮刷新不得翻转它。
+  if (visible)
+    m_panel->setMessage(tr("正在刷新通道清单…"));
+  connect(task, &PaleoTask::finished, this,
+          [this, task, result, epoch, snap, visible] {
+            if (m_sourceTask.data() != task)
+              return; // 已被新工程/新一轮接管（旧任务的迟到回包不作数）
+            m_sourceTask = nullptr;
+            auto *cat = m_context->importSvc() ? m_context->importSvc()->catalog()
+                                               : nullptr;
+            const bool stillCurrent =
+                epoch == m_sourceEpoch && cat && cat->isOpen() &&
+                cat->mutationSeq() == snap.catalogMutationSeq;
+            if (stillCurrent &&
+                task->state() == PaleoTask::State::Succeeded) {
+              m_sources = result->sources;
+              QVector<SourceChoice> choices;
+              for (const auto &s : m_sources)
+                choices << s.choice;
+              m_panel->setSources(choices);
+              if (result->filesFailed > 0)
+                m_panel->setMessage(tr("部分井源不可读：%1 个文件缺失或表头"
+                                       "解析失败，已跳过。")
+                                        .arg(result->filesFailed));
+              else if (visible)
+                m_panel->setMessage(QString());
+            } else if (task->state() == PaleoTask::State::Failed) {
+              m_panel->setMessage(task->errorText().isEmpty()
+                                      ? tr("通道清单刷新失败")
+                                      : task->errorText());
+            }
+            if (m_sourceRefreshPending) {
+              m_sourceRefreshPending = false;
+              scheduleSourceRefresh(/*interactive=*/m_panel->isVisible());
+            }
+          });
 }
 void CrossplotController::refreshTrainingState() {
   // 摘要区始终与 workflow 对齐（无样本/零标注 → 「未标注」）。

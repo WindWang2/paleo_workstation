@@ -142,7 +142,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   m_wellSectionWf = wf;
   wf->setTaskService(taskSvc);
   if (m_seismicTaskSvc)
-    wf->setSeismicTaskService(m_seismicTaskSvc.get());
+    wf->setSeismicTaskService(m_seismicTaskSvc);
   wf->setSectionWorkbench(m_sectionWorkbench);
   connect(panel,&WellSectionPanel::timeDepthSettingsRequested,this,&PaleoMainWindow::showTimeDepthAlignment);
   // 剖面编辑产物落库（井序 + 连线改接 + 深度域 + 井间距；每次落盘版本 +1

@@ -133,13 +133,20 @@ void paleo::mainwindow_internal::setSectionLinkVolume(
     link->setActiveVolume(std::move(volume));
 }
 
-void PaleoMainWindow::attachSections(SeismicMapLink *link) {
+// A-W1（#974）装配分步：地震服务注入先于一切早退——不依赖测线 link、
+// 右侧页或当前工程资料恰好存在（dock 构造已不自建私有任务池/缓存）。
+seismic::SeismicSectionDockWidget *
+PaleoMainWindow::attachSectionDockService(SeismicMapLink *link) {
   m_sectionLink = link;
-  if (!link || !m_seismicSectionDock || !m_previewDoc)
-    return;
   auto *dock = m_seismicSectionDock;
-  if (m_seismicTaskSvc)
-    dock->setTaskService(m_seismicTaskSvc.get());
+  if (dock && m_seismicTaskSvc)
+    dock->setTaskService(m_seismicTaskSvc);
+  return (link && dock && m_previewDoc) ? dock : nullptr;
+}
+
+void PaleoMainWindow::attachSections(SeismicMapLink *link) {
+  auto *dock = attachSectionDockService(link); // A-W1：注入先于早退
+  if (!dock) return;
   auto *workbench = new SectionWorkbench(m_previewDoc->catalog(), this);
   workbench->setTaskService(m_taskSvc);
   m_sectionWorkbench = workbench; // 连井剖面共享逐井时深校正

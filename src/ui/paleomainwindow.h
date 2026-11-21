@@ -273,6 +273,19 @@ class PaleoMainWindow : public SARibbonMainWindow
     void attachErrorHub(ErrorHub *hub);
     void showErrorHistory();
     void attachDocumentSession(paleo::document::DocumentSession *session);
+    // A-W1（#974）：注入组装根（AppContext）共享的预览门面/地震服务。
+    // 须在 attachWorkflows 之前调用；幂等。未注入（测试/小环境）时
+    // attachWorkflows 沿用窗口自建兜底（行为与接线前一致）。
+    void setSharedPreviewServices(PreviewDocService *previewDoc,
+                                  seismic::SeismicTaskService *seismicSvc);
+
+private:
+    // A-W1 的装配分步（attachWorkflows/attachSections 已超函数体预算，只减不增）：
+    // 共享实例优先、窗口兜底自建；dock 服务注入先于 link 早退。守卫在助手内。
+    void resolvePreviewServices(DataImportService *importSvc, PaleoTaskService *taskSvc);
+    seismic::SeismicSectionDockWidget *attachSectionDockService(SeismicMapLink *link);
+
+public:
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,
@@ -545,7 +558,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     // goal/fault-interpretation：断层管理面板 dock（attachFaults 建一次）
     QDockWidget *m_faultPanelDock = nullptr;
     paleo::fault::FaultManagerPanel *m_faultPanel = nullptr;
-    std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
+    // A-W1：非拥有——共享注入时属 AppContext；测试兜底自建时 Qt 父对象
+    //（本窗）持有。
+    seismic::SeismicTaskService *m_seismicTaskSvc = nullptr;
+    PreviewDocService *m_sharedPreviewDoc = nullptr;   // A-W1 组装根共享实例
+    seismic::SeismicTaskService *m_sharedSeismicSvc = nullptr;
     QPointer<class PaleoTask> m_seismicOpenTask;
     QString m_seismicOpenPath;
     quint64 m_seismicOpenGeneration = 0;

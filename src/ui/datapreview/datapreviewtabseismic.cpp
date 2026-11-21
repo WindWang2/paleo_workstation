@@ -272,12 +272,12 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     pend.spin = no;
     pend.tieCaption = tieCaption;
     pend.tieText = tieCaption->text();
+    pend.expectedIsInline = isInline; pend.expectedLineNo = lineNo; // A-W2 认领键
     const PreviewDocService::TieMarker tieNow = m_doc->seismicTieMarker(assetId);
     pend.hasTie = tieNow.haveTop && tieNow.ok;
     pend.tieMs = tieNow.timeMs;
     m_pendingSection[assetId] = pend;
-    m_doc->requestSection(assetId, v.id, abs, v.managed, v.sha256,
-                          isInline, lineNo);
+    m_doc->requestSection(assetId, v.id, abs, v.managed, v.sha256, isInline, lineNo, this);
   };
 
   connect(mode, &QComboBox::currentIndexChanged, host, [mode, no, survey, decode]() {

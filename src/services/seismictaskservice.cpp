@@ -1,5 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
+#include "io/cachebudget.h"   // A-W5：预算注册面（本 TU 直接 include，重头不出闸）
+#include "io/cachecore.h"     // A-W5：CacheStats（同上）
 #include "services/seismictaskservice_internal.h"
 #include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
@@ -119,7 +121,81 @@ QString sha256OfFile(const QString &path)
   return QString::fromLatin1(hash.result().toHex());
 }
 
-SeismicTaskService::~SeismicTaskService() = default;
+// A-W5（#974）：宿主地震缓存 → 统一预算的适配器（本 TU 内部类）。
+// bytes/capacity/hits/misses/evictions 全部取自 SgyDataCache 实值；LRU
+// 收缩经 SetBudget 目标收缩后复原配置容量（被渲染端持有的图片不驱逐——
+// 预算是软政策，可能暂时超预算，如实上报释放差值）；lastAccess 由生产
+// 缓存路径 noteDataCacheAccess() 打点。实例身份 sgy-data-cache-<序号>：
+// 稳定且不跨实例复用。注销等 manager 的 eviction 引用归零（防边驱逐边
+// 析构悬空）；收缩/复原序列持独立互斥（并发 enforce 不得把临时收缩值当
+// 配置容量复原）。
+class SeismicCacheBudgetAdapter final : public EvictableCache
+{
+public:
+  explicit SeismicCacheBudgetAdapter(SgyDataCache &cache)
+      : m_cache(cache),
+        m_id(QStringLiteral("sgy-data-cache-%1").arg(s_instanceSeq.fetch_add(1) + 1))
+  {
+    CacheBudgetManager::instance()->registerCache(this);
+  }
+  ~SeismicCacheBudgetAdapter() override
+  {
+    CacheBudgetManager::instance()->unregisterCache(this);
+  }
+  SeismicCacheBudgetAdapter(const SeismicCacheBudgetAdapter &) = delete;
+  SeismicCacheBudgetAdapter &operator=(const SeismicCacheBudgetAdapter &) = delete;
+  QString cacheId() const override { return m_id; }
+  qint64 bytes() const override { return qint64(m_cache.UsedBytes()); }
+  qint64 capacity() const override { return qint64(m_cache.Budget()); }
+  qint64 evictLRUEntries(qint64 targetBytes) override
+  {
+    const qint64 target = qMax<qint64>(0, targetBytes);
+    const qint64 used = bytes();
+    if (used <= target)
+      return 0;
+    QMutexLocker evictLock(&m_evictMutex); // 串行「读配置→收缩→复原」
+    const qint64 configured = capacity();
+    m_cache.SetBudget(std::size_t(target));
+    const qint64 freed = used - bytes();
+    m_cache.SetBudget(std::size_t(qMax<qint64>(0, configured)));
+    noteAccess();
+    return freed;
+  }
+  CacheStats stats() const override
+  {
+    CacheStats out;
+    out.hits = m_cache.Hits();
+    out.misses = m_cache.Misses();
+    out.evictions = m_cache.Evictions();
+    // diskHits/diskWrites/selfHeals 不适用（纯内存）；pinnedSkips 供应商
+    // 缓存无该口径（Evictions 已含全部实际驱逐）。
+    return out;
+  }
+  qint64 lastAccessMs() const override
+  {
+    QMutexLocker lock(&m_accessMutex);
+    return m_lastAccessMs;
+  }
+  void noteAccess()
+  {
+    QMutexLocker lock(&m_accessMutex);
+    m_lastAccessMs = QDateTime::currentMSecsSinceEpoch();
+  }
+
+private:
+  SgyDataCache &m_cache;
+  const QString m_id;
+  mutable QMutex m_accessMutex;
+  qint64 m_lastAccessMs = 0;
+  QMutex m_evictMutex; // 独立于 m_accessMutex（evict 尾部调 noteAccess）
+  static std::atomic<quint64> s_instanceSeq;
+};
+std::atomic<quint64> SeismicCacheBudgetAdapter::s_instanceSeq{0};
+
+void SeismicTaskService::noteDataCacheAccess() { cacheBudgetAdapter_->noteAccess(); }
+
+SeismicTaskService::~SeismicTaskService() = default; // cacheBudgetAdapter_ 先于 dataCache_ 析构（注销预算注册）
+
 
 int SeismicTaskService::activeTaskCount() const
 {
@@ -135,6 +211,7 @@ void SeismicTaskService::invalidateDataset(const QString &path)
   // 图（键虽含 mtime，注册表失效语义要求同时归还预算）。
   lock.unlock();
   dataCache_.Clear();
+  cacheBudgetAdapter_->noteAccess(); // A-W5：失效也是缓存访问（访问时钟如实）
 }
 
 SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,
@@ -143,6 +220,7 @@ SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,
   : QObject(parent),
     taskService_(taskService),
     dataCache_(dataCacheBudgetMb * 1024ull * 1024ull),
+    cacheBudgetAdapter_(std::make_unique<SeismicCacheBudgetAdapter>(dataCache_)),
     registry_(std::make_shared<SeismicDatasetRegistry>()),
     gate_(std::make_shared<SeismicConcurrencyGate>(kMaxConcurrentTasks))
 {

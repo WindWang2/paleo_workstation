@@ -70,6 +70,7 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
  if(!taskService_){if(done)done(false,nullptr,{},tr("后台地震服务未连接"));return nullptr;}
  const auto key=nativePlaneKey(path,type,index);
  auto image=std::make_shared<std::shared_ptr<const SgySliceImage>>(dataCache_.Find(key));auto axis=std::make_shared<SeismicNativeInfo>();
+  noteDataCacheAccess(); // A-W5
  auto *task=startBounded(tr("提取地震切片 (%1: %2)").arg(int(type)).arg(index),[path,type,index,image,axis](PaleoTask *task)->QString {
   paleo::SeismicDataAccess source;QString error;std::string detail;if(!source.open(path,&error))return error;
   const auto cancel=[task]{return task->cancelRequested();};paleo::data::SeismicFileInfo info;
@@ -100,7 +101,7 @@ PaleoTask *SeismicTaskService::startDataPlane(const QString& path,SgySliceType t
  connect(task,&PaleoTask::finished,this,[this,task,path,type,index,key,image,axis,done]{
   const bool changed=key!=nativePlaneKey(path,type,index);
   const bool ok=task->state()==PaleoTask::State::Succeeded&&!changed;
-  if(ok)dataCache_.Store(key,*image);
+  if(ok){dataCache_.Store(key,*image);noteDataCacheAccess();} // A-W5
   if(done)done(ok,ok?*image:nullptr,*axis,changed?tr("地震来源已变化，请重新加载"):task->errorText());
  });
  return task;
@@ -160,6 +161,7 @@ PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType t
   QTimer::singleShot(0,this,[done]{if(done)done(false,nullptr,tr("时间切片读取线程数须为 1、2 或 4"));});return nullptr;
  }
  const auto key=nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);
+ noteDataCacheAccess(); // A-W5
  if(const auto hit=dataCache_.Find(key)){
   QTimer::singleShot(0,this,[this,path,type,index,key,hit,done,previewAxis]{
    const bool valid=key==nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);
@@ -181,7 +183,7 @@ PaleoTask *SeismicTaskService::startDataSlice(const QString& path,SgySliceType t
  connect(task,&PaleoTask::finished,this,[this,task,out,done,path,type,index,key,previewAxis]{
   const bool changed=key!=nativePlaneKey(path,type,index)+"|preview:"+std::to_string(previewAxis);
   const bool ok=task->state()==PaleoTask::State::Succeeded&&!changed;
-  if(ok)dataCache_.Store(key,out);
+  if(ok){dataCache_.Store(key,out);noteDataCacheAccess();} // A-W5
   if(done)done(ok,ok?out:nullptr,changed?tr("地震来源已变化，请重新加载"):task->errorText());
  });
  return task;

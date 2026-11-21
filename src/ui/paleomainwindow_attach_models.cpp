@@ -7,6 +7,9 @@
 #include "../qgis/qgislayerservice.h"
 #include "layers/layertreepanel.h"
 #include "../workflow/depthconversionworkflow.h"
+#include "../workflow/realizationworkflow.h"
+#include "../catalog/realizationset.h"
+#include "../services/previewdoc.h"
 #include "../workflow/propertymodelworkflow.h"
 #include "../workflow/faciesmappingworkflow.h" // DraftFaciesJob/Request（#558 起本 TU 显式持有，不再经 paleomainwindow.h）
 #include "../services/jobrunner.h"            // JobRunnerBase::jobCompleted 接线（同上）
@@ -688,4 +691,38 @@ void PaleoMainWindow::showAttributeVolumeIn3D(
             .arg(preview.stackLayerCount)
             .arg(message.isEmpty() ? QString()
                                    : QStringLiteral("；") + message), 8000);
+}
+
+void PaleoMainWindow::showRealizationMember(const QString &setId, int index)
+{
+  QString subtitle;
+  if (DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr)
+  {
+    const paleo::realization::RealizationSet set =
+        paleo::realization::setById(*cat, setId);
+    subtitle = tr("%1 成员在场").arg(set.members.size());
+    if (!set.missingIndices.isEmpty())
+    {
+      QStringList missing;
+      for (const int idx : set.missingIndices)
+        missing << QStringLiteral("#%1").arg(idx);
+      subtitle += tr(" · 缺 %1").arg(missing.join(QStringLiteral(" ")));
+    }
+  }
+  showRealizationLayer(RealizationWorkflow::memberLayerId(setId, index),
+                       tr("集合成员 #%1").arg(index), subtitle);
+}
+
+void PaleoMainWindow::showRealizationStat(const QString &setId, const QString &token)
+{
+  QString subtitle;
+  if (DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr)
+  {
+    const auto stats = paleo::realization::statSurfaces(*cat, setId);
+    for (const auto &s : stats)
+      if (s.token == token)
+        subtitle = tr("%1 成员参与").arg(s.memberCount);
+  }
+  showRealizationLayer(RealizationWorkflow::statLayerId(setId, token),
+                       paleo::realization::statisticDisplayLabel(token), subtitle);
 }

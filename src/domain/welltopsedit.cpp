@@ -408,9 +408,9 @@ int applyShift(QVector<WellTopRecord> *rows, double delta)
     if (r.hasTvd)
       r.tvd += delta;
     // Z 是海拔（向上为正）。深度正增量降低海拔，并保住与 TVD 的既有高差
-    // （不按 -tvd 重算）。Z 与 X/Y 同列组：无坐标行不动，半组行同样减 delta。
-    // X/Y 本身不改号。
-    if (r.hasX || r.hasY)
+    // （不按 -tvd 重算）。只在有坐标且海拔可用时减 delta：真实 0 要平移，
+    // NaN/哨兵不动；无坐标行不动。X/Y 本身不改号。
+    if ((r.hasX || r.hasY) && paleo::wellnumeric::isUsable(r.z))
       r.z -= delta;
     ++changed;
   }

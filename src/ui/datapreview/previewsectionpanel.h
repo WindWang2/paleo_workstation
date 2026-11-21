@@ -97,18 +97,20 @@ public:
     for (const SegyTrace &t : traces)
       for (float s : t.samples)
         if (std::isfinite(s)) amp = qMax(amp, qAbs(s));
-    for (int x = 0; x < w; ++x)
+    // Format_Indexed8：按行 scanLine 写色索引。setPixel 每像素查格式，大剖面卡 GUI。
+    for (int y = 0; y < h; ++y)
     {
-      const SegyTrace &t = traces.at(x);
-      for (int y = 0; y < h; ++y)
+      uchar *row = m_img.scanLine(y);
+      for (int x = 0; x < w; ++x)
       {
+        const SegyTrace &t = traces.at(x);
         float sample = 0.0f;
         if (!grid.sampleAt(t, y, dtUs, t0Ms, &sample)) continue;
         if (!std::isfinite(sample)) continue;
         const float v = std::clamp((sample / amp) * kAmplitudeGain, -1.0f, 1.0f);
         const int index = qRound(v * 127.0f) + 128;
         // 极弱负振幅仍使用负极性颜色，不能被量化到零后染成正极性。
-        m_img.setPixel(x, y, v < 0.0f ? qMin(127, index) : index);
+        row[x] = static_cast<uchar>(v < 0.0f ? qMin(127, index) : index);
       }
     }
     m_maxAmp = amp;

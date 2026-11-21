@@ -490,6 +490,36 @@ private slots:
     QVERIFY2(doc.error.contains(QStringLiteral("列数超过上限")),
              qPrintable(doc.error));
   }
+
+  void curveSentinelBecomesNanAndNullIndexRejected()
+  {
+    QTemporaryDir dir;
+    const QString curvePath = dir.filePath(QStringLiteral("curve-null.csv"));
+    QVERIFY(write(curvePath, "MD[m],GR[API]\n100,-99999\n101,12\n"));
+    const auto curve = WellLogRead::parseDoc(curvePath);
+    QVERIFY2(curve.ok, qPrintable(curve.error));
+    QCOMPARE(curve.curveNames, QStringList({"MD", "GR"}));
+    QCOMPARE(curve.curves.at(0).values.at(0), 100.0);
+    QCOMPARE(curve.curves.at(1).values.size(), 2);
+    QVERIFY(std::isnan(curve.curves.at(1).values.at(0)));
+    QCOMPARE(curve.curves.at(1).values.at(1), 12.0);
+
+    const QString lasNull = dir.filePath(QStringLiteral("index-las-null.csv"));
+    QVERIFY(write(lasNull, "MD[m],GR[API]\n-999.25,12\n"));
+    const auto rejectedLas = WellLogRead::parseDoc(lasNull);
+    QVERIFY(!rejectedLas.ok);
+    QVERIFY(rejectedLas.curves.isEmpty());
+    QVERIFY2(rejectedLas.error.contains(QStringLiteral("索引值无法识别：-999.25")),
+             qPrintable(rejectedLas.error));
+
+    const QString smiNull = dir.filePath(QStringLiteral("index-smi-null.csv"));
+    QVERIFY(write(smiNull, "MD[m],GR[API]\n-99999,8\n"));
+    const auto rejectedSmi = WellLogRead::parseDoc(smiNull);
+    QVERIFY(!rejectedSmi.ok);
+    QVERIFY(rejectedSmi.curves.isEmpty());
+    QVERIFY2(rejectedSmi.error.contains(QStringLiteral("索引值无法识别：-99999")),
+             qPrintable(rejectedSmi.error));
+  }
 };
 QTEST_GUILESS_MAIN(TestWellLogText)
 #include "tst_welllogtext.moc"

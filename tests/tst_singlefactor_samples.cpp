@@ -31,6 +31,7 @@ private slots:
   void keepsZeroAndDuplicateRows();
   void reportsMissingAndRangeWithoutClamping();
   void rejectsMissingAndMixedCrs();
+  void countsCurveSentinelsButKeepsLargeNegativeX();
 };
 
 void SingleFactorSampleTests::keepsZeroAndDuplicateRows()
@@ -105,6 +106,22 @@ void SingleFactorSampleTests::rejectsMissingAndMixedCrs()
   const SamplePrepResult local = prepareSamples( request );
   QCOMPARE( static_cast<int>( local.status ), static_cast<int>( Status::Ok ) );
   QVERIFY( local.input.localEngineeringGrid );
+}
+
+void SingleFactorSampleTests::countsCurveSentinelsButKeepsLargeNegativeX()
+{
+  SamplePrepRequest request;
+  request.rows = { row( "value-las", 0, 1, -999.25 ),
+                   row( "value-smi", 2, 1, -99999.0 ),
+                   row( "x-las", -999.25, 4, 5 ),
+                   row( "x-large", -100000.0, 6, 7 ) };
+  const SamplePrepResult result = prepareSamples( request );
+  QCOMPARE( static_cast<int>( result.status ), static_cast<int>( Status::Ok ) );
+  QCOMPARE( result.input.missingCount, 3 );
+  QCOMPARE( result.input.validCount, 1 );
+  QVERIFY( result.input.samples[0].stableRowId == "x-large" );
+  QCOMPARE( result.input.samples[0].x, -100000.0 );
+  QCOMPARE( result.input.samples[0].value, 7.0 );
 }
 
 QTEST_MAIN( SingleFactorSampleTests )

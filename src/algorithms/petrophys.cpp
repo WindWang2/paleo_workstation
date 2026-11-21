@@ -1,5 +1,6 @@
 // 层：数据
 #include "algorithms/petrophys.h"
+#include "domain/wellnumeric.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,7 +15,8 @@ constexpr double kNan = std::numeric_limits<double>::quiet_NaN();
 // IGR = (GR − grMin)/(grMax − grMin)，钳 [0,1]；NaN 诚实传播；基线非法 → NaN。
 double igreIndex(double gr, double grMin, double grMax)
 {
-  if (std::isnan(gr) || !(grMax > grMin))
+  // 曲线样值空（含哨兵）→ NaN；grMax>grMin 仍是参数合法性。
+  if (wellnumeric::isNullCurveValue(gr) || !(grMax > grMin))
     return kNan;
   const double v = (gr - grMin) / (grMax - grMin);
   if (std::isnan(v))
@@ -71,7 +73,7 @@ bool grExtrema(const double *gr, int n, double *minOut, double *maxOut)
   double lo = kNan, hi = kNan;
   for (int i = 0; i < n; ++i)
   {
-    if (std::isnan(gr[i]))
+    if (wellnumeric::isNullCurveValue(gr[i]))
       continue;
     if (std::isnan(lo) || gr[i] < lo)
       lo = gr[i];
@@ -91,13 +93,19 @@ void phiDensity(const double *rhob, int n, double rhoMa, double rhoFluid, double
   const double denom = rhoMa - rhoFluid;
   const bool ok = rhoMa > rhoFluid && std::isfinite(denom) && denom != 0.0;
   for (int i = 0; i < n; ++i)
-    out[i] = (std::isnan(rhob[i]) || !ok) ? kNan : (rhoMa - rhob[i]) / denom;
+    out[i] = (wellnumeric::isNullCurveValue(rhob[i]) || !ok) ? kNan : (rhoMa - rhob[i]) / denom;
 }
 
 void phiNeutron(const double *nphi, int n, bool inPercent, double *out)
 {
   for (int i = 0; i < n; ++i)
-    out[i] = (std::isnan(nphi[i]) || !inPercent) ? nphi[i] : nphi[i] / 100.0;
+  {
+    // 空值写 NaN。旧 isnan 为真时会把输入原样抄出，哨兵不能走透传。
+    if (wellnumeric::isNullCurveValue(nphi[i]))
+      out[i] = kNan;
+    else
+      out[i] = inPercent ? nphi[i] / 100.0 : nphi[i];
+  }
 }
 
 void phiSonicWyllie(const double *dt, int n, double dtMa, double dtFluid,
@@ -112,7 +120,7 @@ void phiSonicWyllie(const double *dt, int n, double dtMa, double dtFluid,
   const bool ok = std::isfinite(delta) && delta > 0.0 && cpFactor >= 1.0 &&
                   std::isfinite(cpFactor) && std::isfinite(denom);
   for (int i = 0; i < n; ++i)
-    out[i] = (std::isnan(dt[i]) || !ok) ? kNan : (dt[i] - dtMa) / denom;
+    out[i] = (wellnumeric::isNullCurveValue(dt[i]) || !ok) ? kNan : (dt[i] - dtMa) / denom;
 }
 
 void swArchie(const double *phi, const double *rt, int n,
@@ -121,7 +129,7 @@ void swArchie(const double *phi, const double *rt, int n,
   const bool paramsOk = a > 0.0 && rw > 0.0 && m > 0.0 && nSat > 0.0;
   for (int i = 0; i < n; ++i)
   {
-    if (!paramsOk || std::isnan(phi[i]) || std::isnan(rt[i]) || phi[i] <= 0.0
+    if (!paramsOk || wellnumeric::isNullCurveValue(phi[i]) || wellnumeric::isNullCurveValue(rt[i]) || phi[i] <= 0.0
         || phi[i] > 1.0 || rt[i] <= 0.0)
     {
       out[i] = kNan;
@@ -160,10 +168,12 @@ bool resampleLinear(const std::vector<double> &refDepths,
       ++j;
     while (j > 0 && srcDepths[j] > d)
       --j;
+    const size_t j1 = j + 1 < srcDepths.size() ? j + 1 : j;
     const double d0 = srcDepths[j];
-    const double d1 = srcDepths[j + 1 < srcDepths.size() ? j + 1 : j];
-    const double v0 = srcValues[j];
-    const double v1 = srcValues[j + 1 < srcDepths.size() ? j + 1 : j];
+    const double d1 = srcDepths[j1];
+    // 曲线哨兵先当成缺失再插值；深度轴仍只认 NaN，不用曲线范围带。
+    const double v0 = wellnumeric::isNullCurveValue(srcValues[j]) ? kNan : srcValues[j];
+    const double v1 = wellnumeric::isNullCurveValue(srcValues[j1]) ? kNan : srcValues[j1];
     if (d == d0)
     {
       out[i] = v0; // 恰在样本点上（含边界端点约定）

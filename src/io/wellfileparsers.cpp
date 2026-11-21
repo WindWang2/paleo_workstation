@@ -314,7 +314,9 @@ namespace
       }
       if (st.cmap.x >= 0) r.hasX = ctx.column(t, st.cmap.x, "X", &r.x, false);
       if (st.cmap.y >= 0) r.hasY = ctx.column(t, st.cmap.y, "Y", &r.y, false);
-      if (st.cmap.z >= 0 && !ctx.column(t, st.cmap.z, "Z", &r.z, false))
+      // 表头无 Z（cmap.z < 0）是缺测海拔，不能留默认 0。列在但解析失败仍是 NaN；
+      // 解析成功的 0 保持 0。缺列不调用 column，避免记一条不存在的空白单元格。
+      if (st.cmap.z < 0 || !ctx.column(t, st.cmap.z, "Z", &r.z, false))
         r.z = std::numeric_limits<double>::quiet_NaN();
       if (st.cmap.tvd >= 0) r.hasTvd = ctx.column(t, st.cmap.tvd, "TVD", &r.tvd, false);
       if (st.cmap.time >= 0) r.hasTime = ctx.column(t, st.cmap.time, "Time(ms)", &r.timeMs, false);

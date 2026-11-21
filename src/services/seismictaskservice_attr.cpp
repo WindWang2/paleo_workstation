@@ -864,11 +864,13 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
     if (!outputDir.isEmpty())
       QDir().mkpath(outputDir);
     const bool useCache = !outputDir.isEmpty();
-    const QString finalPath = useCache ? cachePath : QString();
-    const QString writePath =
-        useCache ? cachePath + QStringLiteral(".partial")
+    const QString finalPath =
+        useCache ? cachePath
                  : outputDir + QLatin1Char('/') + result->attrId +
                        QStringLiteral("_vol.sattr");
+    // begin 以 Truncate 打开。两条路径都写 finalPath+".partial"，成功后再
+    // 替换；失败/取消只删 partial，不删已有最终文件。
+    const QString writePath = finalPath + QStringLiteral(".partial");
     paleo::sattr::SattrVolumeWriter writer;
     QString err;
     if (!writer.begin(writePath, info, &err))
@@ -1091,13 +1093,12 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
                        stats.any() ? double(stats.vMax) : 0.0, stats.valid, &err))
     {
       result->error = err;
-      QFile::remove(writePath);
+      abandonPartial(); // 失败只删 .partial
       return err;
     }
-    // 落名走替换语义（#322/atomicfile 口径，同 627 行 ts 路径）：
-    // QFile::rename 在目标已存在时直接失败，且本失败分支会删掉刚写好的
-    // 缓存产物——一个损坏的既有缓存会让该参数组合的扫描永久失败。
-    if (useCache && !paleoReplaceFile(writePath, finalPath))
+    // 落名走替换语义（#322/atomicfile 口径，同时间切片路径）：
+    // QFile::rename 在目标已存在时直接失败。失败只删 .partial，不删已有最终文件。
+    if (!paleoReplaceFile(writePath, finalPath))
     {
       result->error = QStringLiteral("缓存产物落名失败：%1").arg(finalPath);
       QFile::remove(writePath);
@@ -1105,7 +1106,7 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
     }
 
     result->ok = true;
-    result->path = useCache ? finalPath : writePath;
+    result->path = finalPath;
     result->nIl = nIl;
     result->nXl = nXl;
     result->nS = nS;

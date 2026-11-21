@@ -17,7 +17,7 @@ class StratigraphyModelTest : public QObject {
  Q_OBJECT
 private:
  // 合成工区：单井 LAS + 一条已保存解释（NEW_TOP=100 / NEW_BASE=103）。
- static bool buildSyntheticProject(const QString &path,qlonglong *wellId,QString *revision) {
+ static bool buildSyntheticProject(const QString &path,qlonglong *wellId,QString *revision,const QStringList &depthUnits={}) {
   paleo::data::DataService service;std::string error;
   const auto directory=paleo::area_model::directory(path).toStdString();
   if(!service.createProject(directory,"Synthetic",error))return false;
@@ -43,6 +43,12 @@ private:
   paleo::data::InterpretationSeries curve;curve.id="series-gr";curve.name="GR_DERIVED";
   curve.axisKind="MD";curve.axisUnit="m";curve.axis={100,101,102,103};curve.values={5,6,7,8};
   well.series.push_back(curve);
+  for(const auto &spec:depthUnits){
+   const auto parts=spec.split(QLatin1Char('='));if(parts.size()!=2)return false;
+   paleo::data::InterpretationSeries extra;extra.id=parts[0].toStdString();extra.name=extra.id;
+   extra.axisKind="MD";extra.axisUnit=parts[1].toStdString();extra.axis={100};extra.values={1};
+   well.series.push_back(std::move(extra));
+  }
   well.boundaries={top,bottom};document.wells.push_back(well);
   paleo::data::InterpretationCommitResult saved;
   if(!service.commitInterpretation(document,{"","first"},saved,error))return false;
@@ -104,6 +110,29 @@ private slots:
   QVERIFY(!baseLoaded); // #827：调用方能看出基础模型失败
   QVERIFY(!error.isEmpty());
   QVERIFY(data.dataWarnings.join(QString()).contains(QStringLiteral("基础模型读取失败")));
+  AreaRules::reset();
+ }
+ void footDepthUnitsStayOnTracks() {
+  QTemporaryDir project;QVERIFY(project.isValid());
+  qlonglong wellId=0;
+  QVERIFY(buildSyntheticProject(project.path(),&wellId,nullptr,{
+   QStringLiteral("FOOT=FOOT"),QStringLiteral("FTDOT=ft."),
+   QStringLiteral("F=f"),QStringLiteral("XYZ=XYZ")}));
+  StratigraphyWorkflow workflow(nullptr);
+  workflow.setProject(project.path(),true);
+  QVERIFY(workflow.documentLoadError().isEmpty());
+  const auto tracks=workflow.tracks();
+  const auto find=[&](const QString &name)->const StratigraphyTrack *{
+   for(const auto &track:tracks) if(track.mnemonic==name) return &track;
+   return nullptr;
+  };
+  for(const auto &name:QStringList{QStringLiteral("FOOT"),QStringLiteral("FTDOT"),QStringLiteral("F")}){
+   const auto *track=find(name);
+   QVERIFY2(track,qPrintable(name));
+   QCOMPARE(track->depths.size(),1);
+   QCOMPARE(track->depths.front(),float(100.0*0.3048));
+  }
+  QVERIFY(!find(QStringLiteral("XYZ")));
   AreaRules::reset();
  }
  void savedClassificationFeedsAnalysis() {

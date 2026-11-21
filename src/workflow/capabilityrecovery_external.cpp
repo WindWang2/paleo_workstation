@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include "capabilitypublication_internal.h"
 #include "services/paleotaskservice.h"
+#include "operationprivatedir.h"
 #include <QDir>
 namespace paleo::capability {
 CapabilityRecovery::Accepted CapabilityRecovery::beginExternal(const FrozenOperation &plan) {
@@ -33,8 +34,9 @@ CapabilityRecovery::Accepted CapabilityRecovery::beginExternal(const FrozenOpera
 }
 QString CapabilityRecovery::noteRemoteAccepted(const QString &scope,const QString &id,const QString &jobId) {
   const auto h=m_externalHosts.contains(id)?m_externalHosts.value(id):live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  auto r=recovery_detail::authorized(log,h,scope,id);
-  if(r.operationId.isEmpty())return "operation_not_found";
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
+  if(admission.code!=QLatin1String("ok"))return admission.code;
+  auto r=admission.record;
   if(r.externalRequest.isEmpty() || jobId.isEmpty() || jobId.toUtf8().size()>1024)return "invalid_remote_job";
   if(!r.remoteJobId.isEmpty())return r.remoteJobId==jobId?"ok":"remote_job_conflict";
   if(r.execution!=QLatin1String("running") && r.execution!=QLatin1String("external_unknown"))return "invalid_external_state";
@@ -43,8 +45,9 @@ QString CapabilityRecovery::noteRemoteAccepted(const QString &scope,const QStrin
 QString CapabilityRecovery::reportExternal(const QString &scope,const QString &id,const QString &jobId,const QString &outcome,const QJsonObject &proof,
                                            bool retainOwnershipForResults) {
   const auto h=m_externalHosts.contains(id)?m_externalHosts.value(id):live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  auto r=recovery_detail::authorized(log,h,scope,id);
-  if(r.operationId.isEmpty())return "operation_not_found";
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
+  if(admission.code!=QLatin1String("ok"))return admission.code;
+  auto r=admission.record;
   if(r.externalRequest.isEmpty() || outcome!="succeeded" && outcome!="failed" && outcome!="unknown")return "invalid_external_outcome";
   if(!jobId.isEmpty() && !r.remoteJobId.isEmpty() && jobId!=r.remoteJobId)return "remote_job_conflict";
   if(!proof.isEmpty()) {
@@ -84,9 +87,10 @@ QString CapabilityRecovery::reportExternal(const QString &scope,const QString &i
 PaleoTask *CapabilityRecovery::attachExternalResults(const QString &scope,const QString &id,OperationWorker worker,
     QObject *subscriber,std::function<void(ExecuteResult)> finished,QString *error) {
   const auto h=m_externalHosts.contains(id)?m_externalHosts.value(id):live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  const auto r=recovery_detail::authorized(log,h,scope,id);
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
   const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
-  if(r.operationId.isEmpty())return reject("operation_not_found");
+  if(admission.code!=QLatin1String("ok"))return reject(admission.code);
+  const auto r=admission.record;
   if(r.externalRequest.isEmpty() || r.execution!="succeeded" || !worker)return reject("external_result_not_ready");
   if(!log.ownsWrites() || !m_tasks || !subscriber)return reject("project_write_ownership_required");
   if(!r.artifactManifest.isEmpty())return reject("external_result_already_attached");
@@ -94,9 +98,13 @@ PaleoTask *CapabilityRecovery::attachExternalResults(const QString &scope,const 
   auto *task=m_tasks->start("Store external result",[h,r,worker,manifest,code](PaleoTask *task) {
     OperationWorkContext context;context.operationId=r.operationId;context.attemptId=r.ownerAttempt;
     context.projectDir=h.projectDir;
-    context.privateDir=QDir(h.operationDir).filePath(r.operationId+'/'+r.ownerAttempt+"/result-"+QUuid::createUuid().toString(QUuid::WithoutBraces));
+    // G4-W5：result-<uuid> 附件叶子与 worker 私有目录走同一可信解析/创建；
+    // 身份不合规或根被链接别名时，不创建任何目录、不调用 worker。
+    const auto leaf=QStringLiteral("result-")+QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto privateDir=operation_detail::createPrivateAttemptDir(h.projectDir,r.operationId,r.ownerAttempt,leaf);
+    if(!privateDir.code.isEmpty()){*code=privateDir.code;return *code;}
+    context.privateDir=privateDir.path;
     context.frozenPlan=r.frozenRequest.value("plan").toObject();context.cancelled=[task]{return task->cancelRequested();};
-    if(!QDir().mkpath(context.privateDir)){*code="stage_failed";return *code;}
     const auto result=worker(context);if(!result.ok){*code=result.code;return *code;}
     *manifest=publication_detail::artifactManifest(h.projectDir,r.operationId,context.privateDir,result.outputs,code.get(),context.cancelled);
     if(manifest->isEmpty() && code->isEmpty())*code="invalid_artifact_manifest";return *code;

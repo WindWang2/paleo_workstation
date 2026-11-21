@@ -2,14 +2,17 @@
 #include "operationretention.h"
 #include "../io/pathcanon.h"
 #include "../metadata/managedpath.h"
+#include "../metadata/operationnamespace.h"
 #include <QCryptographicHash>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 
 namespace paleo::storage {
 namespace {
+namespace opns = paleo::capability::operation_namespace;
 constexpr qint64 maxJournalBytes = 128LL * 1024 * 1024;
 constexpr int maxReferences = 1000000;
 QString identity(const QString &path) {
@@ -31,6 +34,9 @@ struct Reader {
   OperationRetention result;
   QSet<QString> paths, versions, operations, keys;
   std::function<bool()> cancelled;
+  // 当前正在核对的记录的 operationId：私有命名空间工件必须属于"这一条"
+  // operation（G4-W6），不能仅凭整个工程内路径安全就认领。
+  QString ownerOperationId;
   int references = 0;
   bool check() {
     if (cancelled && cancelled()) {result.code = "operation_retention_cancelled"; return false;}
@@ -47,8 +53,12 @@ struct Reader {
     QString relative;
     if (!check() || !identifier(value, relative, false) || QDir::cleanPath(relative) != relative) return false;
     const auto parts = relative.split(QLatin1Char('/'));
-    if (!(relative.startsWith(QLatin1String("artifacts/derived/")) && parts.size() >= 5) &&
-        !(privateAllowed && relative.startsWith(QLatin1String(".paleo/capability-ops/")) && parts.size() >= 4)) return false;
+    const bool derived = relative.startsWith(QLatin1String("artifacts/derived/")) && parts.size() >= 5;
+    // 私有工件：必须精确落在本记录 operation 的命名空间（op-a 不认领
+    // op-ab 的成员；shared inputs 由 storedInput 单独处理）。
+    const bool privateOwned = privateAllowed && !ownerOperationId.isEmpty() &&
+        opns::isInPrivateOperationNamespace(relative, ownerOperationId);
+    if (!derived && !privateOwned) return false;
     const auto absolute = managedpath::resolveManagedPath(root, relative);
     if (absolute.isEmpty() || QFileInfo(absolute).isDir()) return false;
     const auto directory = identity(QFileInfo(absolute).absolutePath());
@@ -107,13 +117,33 @@ struct Reader {
     const auto ref=value.toObject();const auto digest=ref.value("manifestHash").toString();
     if(digest.size()!=64)return false;
     for(const auto c:digest)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;
-    QString directory;if(!identifier(ref.value("directory"),directory,false) || QDir::cleanPath(directory)!=directory ||
-        !directory.startsWith(QLatin1String(".paleo/capability-ops/")))return false;
+    QString directory;if(!identifier(ref.value("directory"),directory,false) || QDir::cleanPath(directory)!=directory)return false;
+    // 共享内容寻址输入束（pythoninputbundle 生成）：directory 精确等于
+    // .paleo/capability-ops/inputs/<manifestHash>，不属于任何单条 operation
+    // 的私有空间，也不得借 per-op 规则放宽。
+    if(directory!=QLatin1String(".paleo/capability-ops/inputs/")+digest)return false;
     const auto relative=directory+"/manifest.json";
-    if(!path(relative,true))return false;
+    if(!sharedCapabilityFile(relative))return false;
     const QFileInfo manifest(managedpath::resolveManagedPath(root,relative));
     // Retain the whole private directory, including future content-addressed responses. No owner hashing.
     return manifest.isFile() && manifest.isReadable();
+  }
+  // .paleo/capability-ops 下的共享（非 per-operation）受管文件：仅限
+  // inputs/<sha64>/manifest.json 这一形态。
+  bool sharedCapabilityFile(const QString &relative) {
+    if (!relative.startsWith(QLatin1String(".paleo/capability-ops/inputs/"))) return false;
+    const auto parts = relative.split(QLatin1Char('/'));
+    if (parts.size() != 4 || parts.value(3) != QLatin1String("manifest.json")) return false;
+    const auto &digest = parts.value(2);
+    if (digest.size() != 64) return false;
+    for (const auto c : digest)
+      if (!((c >= QLatin1Char('0') && c <= QLatin1Char('9')) || (c >= QLatin1Char('a') && c <= QLatin1Char('f')))) return false;
+    const auto absolute = managedpath::resolveManagedPath(root, relative);
+    if (absolute.isEmpty() || QFileInfo(absolute).isDir()) return false;
+    const auto directory = identity(QFileInfo(absolute).absolutePath());
+    if (directory.isEmpty() || directory == identity(root)) return false;
+    paths.insert(relative); result.canonicalRoots.insert(directory);
+    return true;
   }
   bool frozenSource(const QJsonValue &value) {
     if (!value.isObject()) return false;
@@ -148,8 +178,23 @@ struct Reader {
     const auto key = QString::fromUtf8(QJsonDocument(QJsonArray{object.value("documentId"),object.value("callerScope"),
         object.value("clientRequestId")}).toJson(QJsonDocument::Compact));
     if (key != object.value("key").toString() || keys.contains(key)) return false;
-    if (!identifier(object.value("operationId"), id, false) || operations.contains(id) ||
-        !object.value("stagePlan").isObject() || !object.value("preparedManifest").isObject() ||
+    // G4-W6：operationId/ownerAttempt 是路径身份，按各自契约严格化；其余
+    // 字段（relative path、versionId、key…）继续走通用 identifier() 语义，
+    // 不整体替换。identity 不明 → incomplete，阻止基于不完整集合的删除。
+    if (!object.value("operationId").isString() ||
+        !opns::isCanonicalOperationId(object.value("operationId").toString()) ||
+        operations.contains(object.value("operationId").toString())) {
+      result.code = "operation_retention_unsafe_identifier"; return false;
+    }
+    if (object.contains("ownerAttempt") && !object.value("ownerAttempt").isString()) {
+      result.code = "operation_retention_unsafe_identifier"; return false;
+    }
+    const auto attempt = object.value("ownerAttempt").toString();
+    if (!attempt.isEmpty() && !opns::isCanonicalAttemptId(attempt)) {
+      result.code = "operation_retention_unsafe_identifier"; return false;
+    }
+    id = object.value("operationId").toString();
+    if (!object.value("stagePlan").isObject() || !object.value("preparedManifest").isObject() ||
         !object.value("artifactManifest").isObject() || !object.value("frozenRequest").isObject() ||
         !object.value("presentationIntent").isObject() || !object.value("externalRequest").isObject() ||
         !object.value("planHash").isString() || object.value("planHash").toString().size() != 64) return false;
@@ -157,8 +202,11 @@ struct Reader {
         object.value("stagePlan").toObject(), object.value("presentationIntent").toObject(),
         object.value("externalRequest").toObject())) {result.code = "operation_retention_plan_mismatch"; return false;}
     operations.insert(id); keys.insert(key);
+    // 私有工件命名空间从现在起绑定到本记录的 operation。
+    const auto ownerGuard = qScopeGuard([this, previous = ownerOperationId] { ownerOperationId = previous; });
+    ownerOperationId = id;
     return stage(object.value("stagePlan").toObject()) && prepared(object.value("preparedManifest").toObject()) &&
-      artifacts(object.value("artifactManifest").toObject()) && frozenSource(object.value("frozenRequest"));
+        artifacts(object.value("artifactManifest").toObject()) && frozenSource(object.value("frozenRequest"));
   }
   OperationRetention finish() {
     result.paths = paths.values(); result.paths.sort();

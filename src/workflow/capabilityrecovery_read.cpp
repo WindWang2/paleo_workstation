@@ -47,8 +47,9 @@ QString currentReadError(const RecoveryHost &current,const host::CallContext &ex
   if(!contextError.isEmpty())return contextError;
   if(QFileInfo(current.projectDir).canonicalFilePath()!=request.project)return "stale_session";
   OperationLog log(current.operationDir,current.projectDir,current.writeClaim);
-  const auto record=recovery_detail::authorized(log,current,request.record.callerScope,request.record.operationId);
-  if(record.operationId.isEmpty())return "operation_not_found";
+  const auto admission=recovery_detail::authorized(log,current,request.record.callerScope,request.record.operationId);
+  if(admission.code!=QLatin1String("ok"))return admission.code;
+  const auto &record=admission.record;
   if(record.artifactManifest!=request.record.artifactManifest || record.stagePlan!=request.record.stagePlan)
     return "result_changed";
   return {};
@@ -57,9 +58,10 @@ QString currentReadError(const RecoveryHost &current,const host::CallContext &ex
 PaleoTask *CapabilityRecovery::read(const QString &scope,const QString &id,const QString &portId,qint64 offset,int maxBytes,
     QObject *subscriber,std::function<void(QJsonObject)> finished,QString *error) {
   const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  const auto record=recovery_detail::authorized(log,h,scope,id);
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
   const auto reject=[&](const QString &code)->PaleoTask*{if(error)*error=code;return nullptr;};
-  if(record.operationId.isEmpty())return reject("operation_not_found");
+  if(admission.code!=QLatin1String("ok"))return reject(admission.code);
+  const auto record=admission.record;
   const auto contextError=host::checkContext(h.context,h.context,host::Read);
   if(!contextError.isEmpty())return reject(contextError);
   if(offset<0 || maxBytes<1 || maxBytes>24*1024)return reject("invalid_read_budget");

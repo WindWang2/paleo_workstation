@@ -3,14 +3,24 @@
 #include "capabilityrecovery_internal.h"
 #include <QJsonDocument>
 namespace paleo::capability {
+namespace {
+// G4-W7：日志不可读/目标被隔离呈现为独立 machine code，不冒充 not found，
+// 也不泄露路径、原始请求或坏 JSON 内容。
+QJsonObject admissionFailure(const QString &code) {
+  return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code",code}};
+}
+}
 QJsonObject CapabilityRecovery::get(const QString &scope,const QString &id) {
   const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  return publicOperation(reconcile(h,recovery_detail::authorized(log,h,scope,id)));
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
+  if(admission.code!=QLatin1String("ok"))return admissionFailure(admission.code);
+  return publicOperation(reconcile(h,admission.record));
 }
 QJsonObject CapabilityRecovery::events(const QString &scope,const QString &id,quint64 after,int pageSize,int maxBytes) {
   const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  const auto r=recovery_detail::authorized(log,h,scope,id);
-  if(r.operationId.isEmpty())return publicOperation(r);
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
+  if(admission.code!=QLatin1String("ok"))return admissionFailure(admission.code);
+  const auto &r=admission.record;
   if(pageSize<1 || pageSize>64 || maxBytes<1024 || maxBytes>32*1024)return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","invalid_page_budget"}};
   const auto first=r.events.isEmpty()?r.stateRevision:r.events.first().toObject().value("revision").toString().toULongLong();
   if(after && after<first-1)return {{"contract",QLatin1String(OperationContract)},{"ok",false},{"code","event_history_expired"},{"firstRevision",QString::number(first)}};
@@ -29,7 +39,9 @@ QJsonObject CapabilityRecovery::events(const QString &scope,const QString &id,qu
 }
 QJsonObject CapabilityRecovery::cancel(const QString &scope,const QString &id) {
   const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  auto r=reconcile(h,recovery_detail::authorized(log,h,scope,id));
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
+  if(admission.code!=QLatin1String("ok"))return admissionFailure(admission.code);
+  auto r=reconcile(h,admission.record);
   if(r.operationId.isEmpty())return publicOperation(r);
   if(r.commitState==QLatin1String("committed")){auto out=publicOperation(r);out.insert("code","cancel_after_commit");return out;}
   const auto permitted=host::checkContext(h.context,h.context,host::Read|host::PrivateStage);
@@ -43,7 +55,9 @@ QJsonObject CapabilityRecovery::cancel(const QString &scope,const QString &id) {
 }
 QJsonObject CapabilityRecovery::results(const QString &scope,const QString &id) {
   const auto h=live();OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  const auto r=reconcile(h,recovery_detail::authorized(log,h,scope,id));auto out=publicOperation(r);
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
+  if(admission.code!=QLatin1String("ok"))return admissionFailure(admission.code);
+  const auto r=reconcile(h,admission.record);auto out=publicOperation(r);
   if(r.operationId.isEmpty())return out;
   QJsonArray ports;
   for(const auto &entry:r.artifactManifest.value("ports").toArray()) {

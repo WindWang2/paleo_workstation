@@ -193,6 +193,8 @@ void AiChatController::newSession() {
   }
   m_session = ChatSession();
   m_session.id = ChatSessionStore::newSessionId();
+  // G2-W1：会话已切换——上一轮的冻结快照不再归属新会话，落盘回退当前配置。
+  m_turnFrozen = false;
   m_runner.setResultSession(m_session.id);
   if (!guard || sequence != m_turnSequence) return;
   m_session.model = m_config.model;
@@ -229,6 +231,8 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
     return false;
   }
   m_session = loaded;
+  // G2-W1：同 newSession——载入的会话不属于任何在途回合，冻结随之失效。
+  m_turnFrozen = false;
   m_runner.setResultSession(m_session.id);
   if (!guard || sequence != m_turnSequence) return false;
   emit sessionChanged();

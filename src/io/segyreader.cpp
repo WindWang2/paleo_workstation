@@ -1327,8 +1327,9 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
     }
   }
   freezeCorners(xs, ys);
-  // 首道 delay（字 109-110）：重读一次首道头。
-  adoptStartTimeFromOffset(firstTraceOffset);
+  // 与顺序扫描和 checkpoint 续扫一致：跳过坏道，从首个有效道读取延迟。
+  if (!m_index.isEmpty())
+    adoptStartTimeFromOffset(m_index.first().offset);
   m_lastScanPartial = false;
   m_scannedOffset = firstTraceOffset + traceCount * traceSize;
   rebuildLineHashes();

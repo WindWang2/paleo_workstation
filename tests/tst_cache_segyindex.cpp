@@ -43,6 +43,7 @@ class CacheSegyIndexTests : public QObject
     void variableLayoutWritesNoCheckpoint();
     // #290：并行/续扫与顺序 open() 的索引口径一致性。
     void parallelDialectMatchesSequential();
+    void badFirstTraceDelayMatchesAcrossScanPaths();
     void parallelShortTraceMatchesSequential();
     // review-fix-dataio：restore() 拒绝损坏/篡改的缓存索引。
     void restoreRejectsCorruptIndex();
@@ -689,6 +690,76 @@ void CacheSegyIndexTests::parallelDialectMatchesSequential()
   SegyReader hit;
   QVERIFY2(hit.openCached(sgy, m_dir.filePath("idxA"), &err), qPrintable(err));
   QVERIFY2(sameIndexAs(hit, seq, &err), qPrintable(err));
+}
+
+void CacheSegyIndexTests::badFirstTraceDelayMatchesAcrossScanPaths()
+{
+  const QString sgy = m_dir.filePath("bad-first-delay.sgy");
+  const int inlineCount = 40, crosslineCount = 60, samples = 100;
+  const qint64 firstTraceOffset = 3600;
+  const qint64 traceSize = 240 + samples * 4;
+  QVERIFY(makeDialectSegy(sgy, inlineCount, crosslineCount, samples, 3000));
+  patchTraceNs(sgy, firstTraceOffset, -32768);
+  {
+    QFile file(sgy);
+    QVERIFY(file.open(QIODevice::ReadWrite));
+    QVERIFY(file.seek(firstTraceOffset + 108));
+    char delay[2];
+    qToBigEndian<qint16>(12, reinterpret_cast<uchar *>(delay));
+    QCOMPARE(file.write(delay, sizeof(delay)), qint64(sizeof(delay)));
+  }
+
+  QString error;
+  SegyReader sequential;
+  QVERIFY2(sequential.open(sgy, &error), qPrintable(error));
+  QCOMPARE(sequential.badTraceOffsets(), QVector<qint64>{firstTraceOffset});
+  QCOMPARE(sequential.geometry().startTimeMs, 48.0);
+
+  SegyReader parallel;
+  QVERIFY2(parallel.openCached(sgy, m_dir.filePath("idxBadFirstParallel"), &error),
+           qPrintable(error));
+  QCOMPARE(parallel.traceCount(), sequential.traceCount());
+  QCOMPARE(parallel.geometry().startTimeMs, sequential.geometry().startTimeMs);
+
+  // Cancel after the first shard has indexed valid traces, then resume its
+  // checkpoint. A bad first trace must not supply the start time.
+  const QString cancelledIndex = m_dir.filePath("idxBadFirstCancelled");
+  std::atomic_bool cancel{false};
+  SegyOptions options;
+  options.progress = [&](qint64 offset, qint64) {
+    if (offset == firstTraceOffset + 128 * traceSize)
+      cancel.store(true);
+  };
+  options.cancel = [&] { return cancel.load(); };
+  SegyReader interrupted;
+  QVERIFY(!interrupted.openCached(sgy, cancelledIndex, &error, &options));
+  QVERIFY(interrupted.lastScanPartial());
+  QVERIFY(interrupted.traceCount() > 0);
+  QCOMPARE(interrupted.geometry().startTimeMs, sequential.geometry().startTimeMs);
+  SegyReader resumedCancelled;
+  QVERIFY2(resumedCancelled.openCached(sgy, cancelledIndex, &error), qPrintable(error));
+  QCOMPARE(resumedCancelled.traceCount(), sequential.traceCount());
+  QCOMPARE(resumedCancelled.geometry().startTimeMs, sequential.geometry().startTimeMs);
+
+  // Persist a valid checkpoint covering the bad first trace and 127 valid traces.
+  // Its stale delay must be repaired from the first valid indexed trace on resume.
+  SegyIndexStore::StoredIndex checkpoint;
+  QVERIFY(parallel.snapshot(&checkpoint));
+  checkpoint.inlineNos.resize(127);
+  checkpoint.xlineNos.resize(127);
+  checkpoint.offsets.resize(127);
+  checkpoint.complete = false;
+  checkpoint.scannedOffset = firstTraceOffset + 128 * traceSize;
+  checkpoint.geometry.startTimeMs = 12.0;
+  SegyIndexStore store(m_dir.filePath("idxBadFirstResume"));
+  QVERIFY2(store.save(checkpoint, &error), qPrintable(error));
+  QVERIFY(store.load(QFileInfo(sgy), /*partialOk=*/true).has_value());
+
+  SegyReader resumed;
+  QVERIFY2(resumed.openCached(sgy, m_dir.filePath("idxBadFirstResume"), &error),
+           qPrintable(error));
+  QCOMPARE(resumed.traceCount(), sequential.traceCount());
+  QCOMPARE(resumed.geometry().startTimeMs, sequential.geometry().startTimeMs);
 }
 
 void CacheSegyIndexTests::parallelShortTraceMatchesSequential()

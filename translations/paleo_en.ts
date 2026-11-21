@@ -46885,6 +46885,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>第 %1 行声明 Petrel checkshots 格式：本解析器的固定列序（TIME/TVDSS/TVD/MD）不适用，整表拒收，请经工区数据服务导入解析</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>第 %1 行：只有底界列，不把底界当成顶深</source>
+            <translation>Line %1: only a base depth column is present; it will not be used as top depth</translation>
+        </message>
     </context>
     <context>
         <name>WellLocatorFilter</name>

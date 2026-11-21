@@ -3,6 +3,7 @@
 #include "catalog/datacatalog.h"
 #include "services/artifactversioncapability.h"
 #include "services/projectquerycapability.h"
+#include "services/projectquerytopics.h"
 #include <QJsonArray>
 
 void AiChatToolRunner::runQuery(const ChatToolCall &call, const QJsonObject &args) {
@@ -10,10 +11,11 @@ void AiChatToolRunner::runQuery(const ChatToolCall &call, const QJsonObject &arg
   const auto topic=args.value("topic").toString();
   if(topic==QLatin1String("local_models")){runLocalModels(args);return;}
   if(topic==QLatin1String("well_facies_models") || topic==QLatin1String("well_facies_inputs")) {
-    const QStringList allowed=topic==QLatin1String("well_facies_models")?QStringList{"topic","model_id"}:QStringList{"topic","well_ref"};
-    for(auto it=args.begin();it!=args.end();++it)if(!allowed.contains(it.key())) {
-      finishActive(false,{{"code","unsupported_topic_argument"},{"field",it.key()}});return;
-    }
+    // G3/W2：字段集单源（services/projectquerytopics）——此前此处手维护
+    // allowed 清单，与 schema/描述漂移。
+    QString field;
+    const auto code=paleo::query::validateQueryTopicArguments(args,&field);
+    if(!code.isEmpty()){finishActive(false,{{"code",code},{"field",field}});return;}
     if(topic==QLatin1String("well_facies_models"))runFaciesModels(args);else runFaciesInputs(args);
     return;
   }

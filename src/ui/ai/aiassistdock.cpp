@@ -848,7 +848,9 @@ void AiAssistDock::addToolCard(const ChatToolCall &call,
     old->deleteLater();
     m_toolCards.remove(call.id);
   }
-  // W8：实时卡同样受活跃卡上限约束（超出撤最旧；消息与历史回放不受影响）。
+  // W8：实时卡同样受活跃卡上限约束（超出按 QHash 任意序淘汰一张——有界性
+  // 是目标而非次序；被撤卡的迟到 toolFinished 因 hash 已移除而安全丢弃，
+  // 消息与历史回放不受影响）。
   while (m_toolCards.size() >= kCardWidgetCap) {
     const QString oldest = m_toolCards.constBegin().key();
     AiConversationCard *old = m_toolCards.value(oldest);

@@ -161,6 +161,15 @@ void AiConversationCard::setActionNote(const QString &note) {
 
 void AiConversationCard::setOperationControlsAllowed(bool allowed) {
   m_operationControlsAllowed = allowed;
+  // 已建 body 的卡（如实时卡在解绑 adapter 后）：撤下控制行并给原因，
+  // 不留可点而无效的按钮。
+  if (!allowed && m_controlRow) {
+    m_controlRow->hide();
+    setActionNote(tr("操作查询/取消/恢复未接入（无操作服务）"));
+  } else if (allowed && m_controlRow) {
+    m_controlRow->show();
+    setActionNote(QString());
+  }
 }
 
 QString AiConversationCard::attributionText() const {
@@ -317,7 +326,10 @@ void AiConversationCard::buildBody() {
         frameLayout->addWidget(m_body);
       return;
     }
-    auto *actions = new QHBoxLayout;
+    // 控制行包一层 QWidget 记账：allowed=false（adapter 解绑）时整体撤下。
+    m_controlRow = new QWidget(m_body);
+    auto *actions = new QHBoxLayout(m_controlRow);
+    actions->setContentsMargins(0, 0, 0, 0);
     actions->setSpacing(tokens.spacingXs);
     auto *detail = new QPushButton(tr("操作详情"), m_body);
     detail->setObjectName(QStringLiteral("aiCardOperationDetail"));
@@ -332,7 +344,7 @@ void AiConversationCard::buildBody() {
     m_resumeButton->setObjectName(QStringLiteral("aiCardOperationResume"));
     actions->addWidget(m_resumeButton);
     actions->addStretch(1);
-    m_bodyLayout->addLayout(actions);
+    m_bodyLayout->addWidget(m_controlRow);
     connect(detail, &QPushButton::clicked, this,
             [this] { emit operationDetailRequested(m_operationId); });
     connect(m_refreshButton, &QPushButton::clicked, this,

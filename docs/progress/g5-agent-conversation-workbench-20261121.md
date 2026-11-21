@@ -95,6 +95,8 @@
 ### 未覆盖/限制（如实）
 
 - event_history_expired 路径在 adapter 测试未注入（服务层由 tst_operation_control 覆盖；UI 呈现分支由 onOperationEvents 的 code 分支承担，未设专测）。
+- IME 组字中的 Enter（inputMethod()->isVisible() 启发式）与按住 Enter 的 autoRepeat 分支无自动化断言（实现有防御：isAutoRepeat 不重发、组字期不发送；平台输入法行为未列入专测）。
+- 主题切换刷新既有卡由 changeEvent/活体样式实现，无自动化断言（截图档的浅→暗切换覆盖整窗视觉证据）。
 - Windows/macOS 平台行为未在本机验证（Linux 单机）；Windows 侧 QSettings/注册表隔离依赖既有 ctest 沙箱约定。
 - 截图为 offscreen 平台渲染（同一 Qt 渲染栈）；未做人工目视走查记录。
 - tst_g5_assembly 不打开真实工程文件（工程打开路径的 host 上下文变化由 tst_aiwiring 换工程回归承载）；走查中 adapter 对未开工程的拒绝行为本身是被验证的断言。

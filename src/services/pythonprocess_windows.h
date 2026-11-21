@@ -21,5 +21,6 @@ struct Security {
 #else
 struct Security {};
 #endif
-ProcessResult runChild(const process_detail::Launch &request,const Security *security = nullptr);
+ProcessResult runChild(const process_detail::Launch &request,const Security *security = nullptr,
+                       bool *treeReaped = nullptr);
 } // namespace paleo::python::windows_process

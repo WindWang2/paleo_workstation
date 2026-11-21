@@ -525,6 +525,70 @@ print(json.dumps(d))
     QVERIFY2(next.ok(),qPrintable(next.code+':'+QString::fromUtf8(next.error)));
     QVERIFY(!QFileInfo::exists(legacy));
   }
+  void activeSameHostStagingIsNotRecovered(){
+    using windows_detail::view_test::setFailuresForTest;
+    const auto views=QDir(QDir(controlRoot()).filePath("runtime-views"));
+    for(const auto &entry:views.entryList(QDir::Dirs|QDir::NoDotAndDotDot))
+      QVERIFY(QDir(views.filePath(entry)).removeRecursively());
+    QTemporaryDir firstProject(QDir(projects).filePath("stage-first-XXXXXX"));
+    QTemporaryDir secondProject(QDir(projects).filePath("stage-second-XXXXXX"));
+    QVERIFY(firstProject.isValid());QVERIFY(secondProject.isValid());
+    const auto permit=claimExecutionPermit();QVERIFY(permit);
+    SandboxRequest first;first.runtime=verified;first.input=input(firstProject.path(),"print('first')");
+    first.policy.allowGenerated=true;first.permit=permit;
+    SandboxRequest second;second.runtime=verified;second.input=input(secondProject.path(),"print('second')");
+    second.policy.allowGenerated=true;second.permit=permit;
+    QSemaphore entered,proceed;std::atomic<int> calls{0};
+    setFailuresForTest([&]{
+      if(calls.fetch_add(1)==0){entered.release();proceed.acquire();}
+      return true;
+    },{},{},{});
+    SandboxResult firstResult;
+    std::thread worker([&]{firstResult=runWindowsSandbox(first);});
+    const auto cleanup=qScopeGuard([&]{
+      proceed.release();if(worker.joinable())worker.join();setFailuresForTest({},{},{},{});
+    });
+    QVERIFY2(entered.tryAcquire(1,30000),"first request did not reach staging copy");
+    const auto before=views.entryList({"*.staging"},QDir::Dirs|QDir::NoDotAndDotDot);
+    QCOMPARE(before.size(),1);
+    QCOMPARE(runWindowsSandbox(second).code,QString("python_view_copy_forced"));
+    QVERIFY(QFileInfo::exists(views.filePath(before.first())));
+    proceed.release();worker.join();
+    QCOMPARE(firstResult.code,QString("python_view_copy_forced"));
+    QVERIFY(views.entryList({"*.staging"},QDir::Dirs|QDir::NoDotAndDotDot).isEmpty());
+  }
+  void legacyDeadHostStagingIsRecovered(){
+    const auto warm=run("print('warm')");
+    QVERIFY2(warm.ok(),qPrintable(warm.code+':'+QString::fromUtf8(warm.error)));
+    const auto views=QDir(QDir(controlRoot()).filePath("runtime-views"));
+    const auto legacy=views.filePath(anchor()+".PaleoPython.0123456789abcdef0123456789abcdef.staging");
+    QVERIFY(QDir().mkpath(legacy));
+    QSaveFile file(QDir(legacy).filePath("staging.json"));QVERIFY(file.open(QIODevice::WriteOnly));
+    const QJsonObject record{{"schema","paleo.python-sandbox-view.v1"},{"state","staging"},
+      {"manifestSha256",anchor()},{"hostPid",qint64(4294967295LL)},{"hostCreated100ns","1"}};
+    const auto bytes=QJsonDocument(record).toJson();
+    QCOMPARE(file.write(bytes),qint64(bytes.size()));QVERIFY(file.commit());
+    const auto next=run("print('recovered')");
+    QVERIFY2(next.ok(),qPrintable(next.code+':'+QString::fromUtf8(next.error)));
+    QVERIFY(!QFileInfo::exists(legacy));
+  }
+  void stagingCleanupFailureIsReportedAndRecovered(){
+    using windows_detail::view_test::setFailuresForTest;
+    const auto views=QDir(QDir(controlRoot()).filePath("runtime-views"));
+    for(const auto &entry:views.entryList(QDir::Dirs|QDir::NoDotAndDotDot))
+      QVERIFY(QDir(views.filePath(entry)).removeRecursively());
+    setFailuresForTest({},[]{return true;},{},[]{return true;});
+    const auto reset=qScopeGuard([]{setFailuresForTest({},{},{},{});});
+    const auto failed=run("print('forbidden')");
+    QCOMPARE(failed.code,QString("python_sandbox_cleanup_failed"));
+    const auto staging=views.entryList({"*.staging"},QDir::Dirs|QDir::NoDotAndDotDot);
+    QCOMPARE(staging.size(),1);
+    QVERIFY(!QFileInfo::exists(QDir(views.filePath(staging.first())).filePath("staging.json")));
+    setFailuresForTest({},{},{},{});
+    const auto recovered=run("print('recovered')");
+    QVERIFY2(recovered.ok(),qPrintable(recovered.code+':'+QString::fromUtf8(recovered.error)));
+    QVERIFY(views.entryList({"*.staging"},QDir::Dirs|QDir::NoDotAndDotDot).isEmpty());
+  }
   void viewFailureInjectionsRefuseExecution(){
     using windows_detail::view_test::setFailuresForTest;
     const auto clear=qScopeGuard([]{setFailuresForTest({},{},{},{});});

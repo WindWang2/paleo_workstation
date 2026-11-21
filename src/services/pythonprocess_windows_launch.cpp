@@ -56,15 +56,16 @@ bool Pipes::create(QString *error){
   return true;
 }
 bool Child::start(const process_detail::Launch &request,const Security *security,const Job &job,Pipes &pipes,QString *error){
-  Attributes attrs;if(!attrs.init(security?4:2)){*error=winError("attributes_init",GetLastError());return false;}
   SECURITY_CAPABILITIES caps{};DWORD optout=PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
+  HANDLE jobs[]={job.handle.get()};HANDLE inherited[]={pipes.inputRead.get(),pipes.outputWrite.get(),pipes.errorWrite.get()};
+  // 属性值须比属性表活得更久，析构时先释放属性表。
+  Attributes attrs;if(!attrs.init(security?4:2)){*error=winError("attributes_init",GetLastError());return false;}
   if(security){
     if(!security->packageSid||!IsValidSid(security->packageSid)||!security->lessPrivileged||security->capabilities.isEmpty()||security->capabilities.size()>16){*error="security_identity";return false;}
     for(const auto &item:security->capabilities)if(!item.Sid||!IsValidSid(item.Sid)||item.Attributes!=SE_GROUP_ENABLED){*error="security_capability";return false;}
     caps.AppContainerSid=security->packageSid;caps.Capabilities=const_cast<SID_AND_ATTRIBUTES*>(security->capabilities.constData());caps.CapabilityCount=DWORD(security->capabilities.size());
     if(!attrs.add(PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,&caps,sizeof(caps))||
         !attrs.add(PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,&optout,sizeof(optout))){*error=winError("attributes_security",GetLastError());return false;}}
-  HANDLE jobs[]={job.handle.get()};HANDLE inherited[]={pipes.inputRead.get(),pipes.outputWrite.get(),pipes.errorWrite.get()};
   if(!attrs.add(PROC_THREAD_ATTRIBUTE_JOB_LIST,jobs,sizeof(jobs))||!attrs.add(PROC_THREAD_ATTRIBUTE_HANDLE_LIST,inherited,sizeof(inherited))){*error=winError("attributes_job",GetLastError());return false;}
   std::wstring command=quote(QDir::toNativeSeparators(request.program));
   for(const auto &arg:request.arguments){command+=L' ';command+=quote(arg);if(command.size()>32760){*error="argument_budget";return false;}}

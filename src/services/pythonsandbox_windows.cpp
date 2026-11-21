@@ -89,13 +89,20 @@ SandboxResult runWindowsSandbox(const SandboxRequest &original) {
   if(launch.environment.isEmpty())return unavailable("windows_environment");
   windows_process::Security security;security.packageSid=profile.sid;
   security.capabilities={{profile.registryCapability,SE_GROUP_ENABLED},{profile.runtimeCapability,SE_GROUP_ENABLED}};
-  const auto work=windows_process::runChild(launch,&security);
+  bool treeReaped=false;
+  const auto work=windows_process::runChild(launch,&security,&treeReaped);
   SandboxResult result;result.code=work.code;result.output=work.output;result.error=work.error;result.cpuMicros=work.cpuMicros;result.peakMemoryBytes=work.peakMemoryBytes;
   result.memoryPeakComplete=work.memoryPeakComplete;
   result.hostSnapshotReservedBytes=snapshot.reservedBytes;result.childMemoryLimitBytes=request.policy.memoryBytes;result.exitCode=work.exitCode;
   result.outputLog=work.outputLog;
   result.viewBytes=view.viewBytes;result.viewFiles=view.viewFiles;result.viewReused=view.reusedView;
   if(result.code=="cancelled"&&!cancelled(request)&&clock.elapsed()>=wall)result.code="python_process_timeout";
+  if(!treeReaped){
+    releaseView.dismiss(); // 不明进程仍可能使用视图，保留租约直至宿主退出。
+    result.code="python_sandbox_cleanup_failed";result.error="python_process_tree_not_reaped";
+    if(result.outputLog.isEmpty())result.outputLog=result.output.first(qMin<qint64>(result.output.size(),request.policy.logBytes));result.output.clear();
+    return result;
+  }
   QString releaseDetail;
   const bool viewReleased=releasePrivateView(view,&releaseDetail);
   releaseView.dismiss();

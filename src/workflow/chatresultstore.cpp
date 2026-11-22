@@ -125,10 +125,7 @@ QJsonObject ChatResultStore::encode(const QString &rawJson, bool ok, int maxByte
   if (error.error != QJsonParseError::NoError || (!doc.isObject() && !doc.isArray()))
     return resultError(QStringLiteral("invalid_tool_result"));
   const QJsonValue value = doc.isObject() ? QJsonValue(doc.object()) : QJsonValue(doc.array());
-  auto out = resultEnvelope(value, ok);
-  auto transport = out.value("transport").toObject();
-  transport.insert("maxBytes", maxBytes);
-  out.insert("transport", transport);
+  auto out = resultEnvelopeForBudget(value, ok, maxBytes);
   if (compactJson(out).size() <= maxBytes)
     return out;
   const QByteArray json = compactJson(value);
@@ -136,7 +133,7 @@ QJsonObject ChatResultStore::encode(const QString &rawJson, bool ok, int maxByte
   QString code = QStringLiteral("page_budget_exceeded");
   const auto reference = allowCache ? put(value, json, &code) : QString();
   out = transportResult(out, reference.isEmpty() ? code : QStringLiteral("result_referenced"), summary);
-  transport = out.value("transport").toObject();
+  auto transport = out.value("transport").toObject();
   transport.insert("maxBytes", maxBytes);
   out.insert("transport", transport);
   if (!reference.isEmpty())
@@ -241,25 +238,40 @@ bool ChatResultStore::select(const QJsonValue &root, const QString &selector, QJ
   return true;
 }
 
-QJsonObject ChatResultStore::read(const QJsonObject &request) {
+QJsonObject ChatResultStore::read(const QJsonObject &request, int hostQuotaBytes) {
+  m_lastReadEnvelopeBytes = 0;
   const auto reference = request.value("result_ref").toString();
   const auto parts = reference.split(':');
   if (parts.size() != 3 || parts[0] != QLatin1String("chat-result-v1"))
     return {{"code", "unsupported_result_ref"}};
   if (parts[1] != m_scope) return {{"code", "result_scope_changed"}};
+  // 读路径本身就是到期维护点：不必等下一次 put 才释放过期值与其字节，
+  // 也不必新增定时器/后台线程。tombstone 只保留有界的 expired/unknown 区分。
+  expire();
   auto it = m_values.constFind(reference);
   if (it == m_values.cend())
     return {{"code", m_expired.contains(reference) ? "result_expired" : "unknown_result_ref"}};
-  if (it->expires <= m_clock()) return {{"code", "result_expired"}};
   const auto maximum = request.value("max_bytes");
   const double bytes = maximum.isUndefined() ? kResultPageBytes : maximum.toDouble(-1);
   if (bytes < kMinimumEnvelopeBytes || bytes > kResultHardBytes || bytes != std::floor(bytes))
     return {{"code", "invalid_page_budget"}};
-  return readValue(request, reference, it->value, int(bytes));
+  // 模型请求值是上限；宿主本次调用的最终回复配额可以更严，二者与协议硬
+  // 上限取交集（只向下收紧，绝不抬高）。这是资源条件，不进入 cursor 的
+  // 查询身份；最终化按同一交集复核。
+  int envelopeBytes = int(bytes);
+  if (hostQuotaBytes > 0)
+    envelopeBytes = qMin(envelopeBytes, qMin(hostQuotaBytes, kResultHardBytes));
+  m_lastReadEnvelopeBytes = envelopeBytes;
+  auto out = readValue(request, reference, it->value, envelopeBytes);
+  // 被拒绝的读取（selector/cursor/page 预算）不产生可交付页：不得把这次
+  // 尝试的预算留给最终化误当成成功页的预算。
+  if (out.value("code").toString() != QLatin1String("ok"))
+    m_lastReadEnvelopeBytes = 0;
+  return out;
 }
 
 QJsonObject ChatResultStore::readValue(const QJsonObject &request, const QString &reference,
-                                      const QJsonValue &root, int maxBytes) {
+                                      const QJsonValue &root, int envelopeBytes) {
   if (request.contains("selector") && !request.value("selector").isString())
     return {{"code", "invalid_result_selector"}};
   if (request.contains("cursor") && !request.value("cursor").isString())
@@ -279,14 +291,19 @@ QJsonObject ChatResultStore::readValue(const QJsonObject &request, const QString
   const auto expectedMode = position.mode;
   if (!token.isEmpty() && (!decodeCursor(token, reference, selector, &position) || position.mode != expectedMode))
     return {{"code", "invalid_result_cursor"}};
-  // Leave room for the model envelope, so read_result cannot create a reference to another reference.
-  const int pageBudget = maxBytes - 384;
-  if (value.isString()) return stringPage(reference, selector, value.toString(), position, pageBudget);
-  if (!value.isArray() && !value.isObject())
-    return {{"code", "ok"}, {"kind", jsonValueKind(value)}, {"value", value}, {"hasMore", false}};
+  // 页预算 = 最终 paleo.tool-result.v1 envelope 的紧凑 UTF-8 字节（含
+  // transport/coverage/data/cursor）。每个候选页在选页时按同一形状实测，
+  // 不再用固定外层预留猜成本。
+  if (value.isString()) return stringPage(reference, selector, value.toString(), position, envelopeBytes);
+  if (!value.isArray() && !value.isObject()) {
+    QJsonObject out{{"code", "ok"}, {"kind", jsonValueKind(value)}, {"value", value}, {"hasMore", false}};
+    if (resultEnvelopeBytes(out, true, envelopeBytes) > envelopeBytes)
+      return {{"code", "value_exceeds_page_budget"}};
+    return out;
+  }
   const double pageSize = request.contains("page_size") ? request.value("page_size").toDouble(-1) : 32;
   if (pageSize < 1 || pageSize > 128 || pageSize != std::floor(pageSize))
     return {{"code", "invalid_page_size"}};
-  return containerPage(reference, selector, value, position, int(pageSize), pageBudget);
+  return containerPage(reference, selector, value, position, int(pageSize), envelopeBytes);
 }
 } // namespace paleo::chat

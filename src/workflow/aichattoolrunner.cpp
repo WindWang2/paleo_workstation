@@ -153,7 +153,11 @@ bool AiChatToolRunner::activeContextIsCurrent() const {
 }
 
 void AiChatToolRunner::run(const ChatToolCall &call) {
-  m_queue.append({call, m_contextGeneration, taskSession(),m_faciesEpoch});
+  run(call, 0);
+}
+
+void AiChatToolRunner::run(const ChatToolCall &call, int quotaBytes) {
+  m_queue.append({call, m_contextGeneration, taskSession(), m_faciesEpoch, quotaBytes});
   startNext();
 }
 
@@ -170,6 +174,9 @@ void AiChatToolRunner::stopCurrentRound(bool explicitRequest) {
   ++m_generation;
   if(explicitRequest)m_explicitCancelGeneration=m_generation;
   m_queue.clear();
+  // H7：已生成页的配额记录只活到该调用完成；取消即作废，不进入新上下文。
+  m_deliveredReadCallId.clear();
+  m_deliveredReadQuota = 0;
   if (m_activeTask) {
     if(explicitRequest)m_activeTask->requestCancel();
     else m_activeTask->requestInterruption();
@@ -193,6 +200,7 @@ void AiChatToolRunner::startNext() {
   m_activeContextGeneration = next.contextGeneration;
   m_activeTaskSession = next.taskSession;
   m_activeFaciesEpoch=next.faciesEpoch;
+  m_activeQuotaBytes = next.quotaBytes;
   m_active = true;
   m_activeIsFacies = false;
   const int generation = m_generation;
@@ -301,7 +309,16 @@ void AiChatToolRunner::startNext() {
   }
   if (m_activeCall.name == QStringLiteral("paleo.read_result")) {
     refreshResultScope();
-    const auto result = m_results.read(args);
+    // H7-W3：一次读取准入、一次页面选择。页生成直接以「本次调用实际能发送
+    // 的最终 envelope」计价；成功页即本次读取事实，最终化不再查缓存。
+    const auto result = m_results.read(args, m_activeQuotaBytes);
+    // 记录本次实际生效的 envelope 预算（请求上限与宿主配额的交集），
+    // 而不是只记宿主配额：两者可能不同，最终化必须按较小者复核。
+    const int envelopeBytes = m_results.lastReadEnvelopeBytes();
+    if (result.value("code").toString() == QLatin1String("ok") && envelopeBytes > 0) {
+      m_deliveredReadCallId = m_activeCall.id;
+      m_deliveredReadQuota = envelopeBytes;
+    }
     finishActive(result.value("code").toString() == QLatin1String("ok"), result);
   } else if(m_activeCall.name==QLatin1String("paleo.python_environment"))
     runPythonEnvironment();

@@ -38632,8 +38632,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>每页 1–128 个元素</translation>
         </message>
         <message>
-            <source>UTF-8 JSON 预算，768–65536 字节</source>
-            <translation>UTF-8 JSON 预算，768–65536 字节</translation>
+            <source>请求字节上限（UTF-8 JSON，768–65536）；宿主回包可能更小，以实际页与 nextCursor 为准</source>
+            <translation>请求字节上限（UTF-8 JSON，768–65536）；宿主回包可能更小，以实际页与 nextCursor 为准</translation>
         </message>
           <message>
         <source>版本 2：prepare 以 source_version_id 和 model 冻结源栅格、网格及模型；compute-only 只接受 prepare 的 source_operation_id，生成私有三端口结果；publish 只接受 computed 的 source_operation_id，一次登记三端口并呈现图层。后两阶段不能重新指定来源、模型或参数。</source>

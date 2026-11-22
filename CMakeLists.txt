@@ -93,6 +93,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-h6-agent-model-diagnostics.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-pi-agent.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-g2-agent-turn-execution.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-h7-agent-result-retrieval.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-qgis-ui-deepening.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-realization.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-section-split.cmake"

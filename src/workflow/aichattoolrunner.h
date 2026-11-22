@@ -114,6 +114,8 @@ public:
   void setResultSession(const QString &session);
   QJsonObject modelResult(const ChatToolCall &call, const QString &rawJson,
                          bool ok, int maxBytes);
+  // H7：丢弃尚未最终化的读页交付记录（迟到/重复完成帧不再兑现旧页）。
+  void discardDeliveredReadResult(const QString &callId);
   PaleoTaskService *taskService() const { return m_taskService; }
   QJsonObject hostContextIdentity() const; // Host-only, path-free generation binding.
 
@@ -131,6 +133,10 @@ public:
 
   // 入队执行（异步）。同帧重复 id 由调用方（controller）保证不出现。
   void run(const ChatToolCall &call);
+  // H7：带宿主本次调用的最终回包字节配额（<=0 = 未知，沿用请求预算）。
+  // 配额随 QueuedCall 与 contextGeneration/taskSession 同寿命，读取端不得
+  // 读取 args/历史来推导它。旧 run(call) 等价 quota=0。
+  void run(const ChatToolCall &call, int quotaBytes);
   // 作废在途与排队（见类注释「取消 = 作废」）。
   void cancel();
   void interrupt(); // Host/session invalidation preserves resumable operation intent.
@@ -175,6 +181,7 @@ private:
     quint64 contextGeneration;
     quint64 taskSession;
     quint64 faciesEpoch;
+    int quotaBytes = 0; // H7：派发时冻结的最终回包字节配额（0 = 未知）
   };
 
   ToolReadiness readinessForSpecInContext(const AiToolSpec &spec, const QJsonObject &args,
@@ -205,6 +212,11 @@ private:
   QString m_resultSession;
   quint64 m_resultEpoch = 0;
   quint64 m_resultTaskSession = 0;
+  // H7：当前调用的冻结配额；read_result 成功页的配额单槽记录，供
+  // modelResult 复核一次（单调用存活、完成即清，不累积成第二套缓存）。
+  int m_activeQuotaBytes = 0;
+  QString m_deliveredReadCallId;
+  int m_deliveredReadQuota = 0;
 };
 
 // 装配/测试侧的简称（Context 语义上独立于 runner 实例存在）。

@@ -14,6 +14,7 @@
 #include <QMessageAuthenticationCode>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QStringList>
 #include <QUuid>
 
 #include <algorithm>

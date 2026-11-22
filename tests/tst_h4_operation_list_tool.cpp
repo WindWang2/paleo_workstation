@@ -107,7 +107,7 @@ struct ToolHost {
     }
     bool done = false;
     ExecuteResult result;
-    auto *task = host.recovery()->start(accepted.record.callerScope, accepted.record.operationId, &host,
+    auto *task = host.recovery()->start(accepted.record.callerScope, accepted.record.operationId, &host.host,
         QStringLiteral("h4"), [&](ExecuteResult r) { result = r; done = true; }, false, error);
     if (!task)
       return false;
@@ -163,7 +163,7 @@ void H4OperationListTool::toolDeclaredAndDispatchable() {
     for (const auto &parameter : spec.parameters)
       if (parameter.required)
         required.append(parameter.name);
-    QCOMPARE(required, QStringList{}); // 唯一不要求已知 operation_id
+    QCOMPARE(required, QStringList()); // 唯一不要求已知 operation_id
     const auto dispatch = dispatchAiTool(QStringLiteral("paleo.operation_list"), {});
     QCOMPARE(dispatch.status, AiToolDispatchStatus::Routed);
     // 严格外部档：合法实参通过，坏枚举/坏类型拒绝。
@@ -220,7 +220,8 @@ void H4OperationListTool::negativeArgumentsFailClosed() {
   QVERIFY(host.runTool(QStringLiteral("paleo.operation_list"),
                        QStringLiteral("{\"view\":\"everything\"}"), &ok, &payload));
   QVERIFY(!ok);
-  QVERIFY(!payload.value(QStringLiteral("code")).toString().isEmpty());
+  // 词表外取值在 dispatch 档被拒（Disabled 路径给 error 文案）。
+  QVERIFY(!payload.value(QStringLiteral("error")).toString().isEmpty());
   QVERIFY(host.runTool(QStringLiteral("paleo.operation_list"), QStringLiteral("{\"page_size\":0}"), &ok, &payload));
   QVERIFY(!ok);
   QVERIFY(host.runTool(QStringLiteral("paleo.operation_list"), QStringLiteral("{\"page_size\":\"16\"}"), &ok, &payload));

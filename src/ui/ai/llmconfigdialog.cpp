@@ -3,6 +3,7 @@
 
 #include "../../ai/chat/llmkeystore.h"
 #include "../paleotheme.h"
+#include "llmdiagnosticspanel.h"
 
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -97,6 +98,14 @@ LlmConfigDialog::LlmConfigDialog(const LlmConfig &current, QWidget *parent)
       "系统钥匙串不可用——密钥可经环境变量 PALEO_LLM_API_KEY 提供"));
   }
 
+  // H6 诊断面板（显式启动；诊断不落盘/不碰钥匙串/不调 applyConfig）。
+  m_diagnostics = new LlmDiagnosticsPanel(this);
+  root->addWidget(m_diagnostics);
+  connect(m_diagnostics, &LlmDiagnosticsPanel::actionRequested, this,
+          [this](int action) { emit diagnosticsActionRequested(action); });
+  connect(m_diagnostics, &LlmDiagnosticsPanel::modelChosen, this,
+          &LlmConfigDialog::setDraftModel);
+
   auto *folderRow = new QHBoxLayout;
   auto *openFolder = new QPushButton(tr("打开配置文件所在目录"), this);
   openFolder->setObjectName(QStringLiteral("llmConfigOpenFolder"));
@@ -118,6 +127,13 @@ LlmConfigDialog::LlmConfigDialog(const LlmConfig &current, QWidget *parent)
   folderRow->addWidget(m_note, 1);
   root->addLayout(folderRow);
 
+  // H6-W1：已有超域值诚实提示——保留显示不裁剪，应用时可见拒绝（不无声
+  // 裁剪、不抬 load 上限）。
+  if (m_maxTokens->value() > 32768)
+    note(tr("当前最大输出 token %1 超出持久化域 [1, 32768]：显示保留原值；"
+              "应用前请调整（见「应用」提示）。")
+           .arg(m_maxTokens->value()));
+
   m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                    this);
   connect(m_buttons, &QDialogButtonBox::accepted, this,
@@ -134,6 +150,10 @@ LlmConfig LlmConfigDialog::formConfig() const {
   config.timeoutMs = m_timeout->value();
   config.stream = m_stream->isChecked();
   config.allowInsecureHttp = m_insecureHttp->isChecked();
+  // H6-W1 表单往返修正：totalTimeoutMs 无 UI 配置项（G1 口径），未编辑时
+  // 必须保持当前值原样流转——不得被默认 300000 无声覆盖（真实路径：
+  // 打开→只改模型名→原 apply→重载，其余字段不变）。
+  config.totalTimeoutMs = m_current.totalTimeoutMs;
   return config;
 }
 
@@ -157,6 +177,16 @@ void LlmConfigDialog::accept() {
   const QString structural = probe.validate();
   if (!structural.isEmpty()) {
     note(structural);
+    return;
+  }
+  // H6-W1 maxTokens 持久化域守卫：load 的真实读取域为 [1, 32768]（钳位）。
+  // 超域值可见拒绝——不无声裁剪、不保存成重启后读回不同的值；也不抬高
+  // load 上限迁就 UI（诚实处理：当前值超域时保留显示并明确提示）。
+  const LlmConfig form = formConfig();
+  if (form.maxTokens > 32768) {
+    note(tr("最大输出 token %1 超出持久化域 [1, 32768]——为避免保存后重启"
+            "读回不同的值，应用被拒绝。请调整后再应用。")
+           .arg(form.maxTokens));
     return;
   }
   const QByteArray typed = m_keyInput->text().toUtf8();
@@ -192,4 +222,52 @@ void LlmConfigDialog::closeEvent(QCloseEvent *event) {
     return;
   }
   QDialog::closeEvent(event);
+}
+
+// ---------------------------------------------------------------------------
+// H6 诊断接缝（视图只发意图/展示；网络与报告在功能层协调器）
+// ---------------------------------------------------------------------------
+
+paleo::chat::LlmDiagnosticCandidate LlmConfigDialog::buildDiagnosticCandidate() const {
+  paleo::chat::LlmDiagnosticCandidate candidate;
+  candidate.endpoint = QUrl(m_endpoint->text().trimmed());
+  candidate.model = m_model->text().trimmed();
+  candidate.stream = m_stream->isChecked();
+  candidate.timeoutMs = m_timeout->value();
+  candidate.totalTimeoutMs = m_current.totalTimeoutMs;
+  candidate.maxTokens = m_maxTokens->value();
+  candidate.allowInsecureHttp = m_insecureHttp->isChecked();
+  const QByteArray typed = m_keyInput->text().toUtf8();
+  const bool clearRequested = m_keyClear->isChecked() && m_keyClear->isEnabled();
+  // 凭据来源判定（W2 规则在功能层助手）：显式输入优先；清除意图不复用；
+  // 端点身份完全一致（含 base path）才沿用当前内存值；端点已变更且未输入
+  // 目标凭据 → 无凭据（诊断本地拒绝），绝不静默搬运旧 key。
+  candidate.keySource = paleo::chat::llmResolveDiagnosticKeySource(
+    !typed.isEmpty(), clearRequested, candidate.endpoint, m_current.endpoint,
+    !m_current.apiKey.isEmpty());
+  using KeySource = paleo::chat::LlmDiagnosticCandidate::KeySource;
+  if (candidate.keySource == KeySource::ExplicitInput)
+    candidate.key = typed;
+  else if (candidate.keySource == KeySource::InMemoryCurrent)
+    candidate.key = m_current.apiKey;
+  return candidate;
+}
+
+void LlmConfigDialog::setDiagnosticsSummary(const QString &summary) {
+  m_diagnostics->setSummary(summary);
+}
+
+void LlmConfigDialog::setDiagnosticsBusy(bool busy) {
+  m_diagnostics->setBusy(busy);
+}
+
+void LlmConfigDialog::setModelCandidates(const QStringList &models) {
+  m_diagnostics->setModelCandidates(models);
+}
+
+void LlmConfigDialog::setDraftModel(const QString &model) {
+  // 只改草稿；生效仍走原「应用/确定」流程（诊断不调 applyConfig）。
+  if (model.isEmpty())
+    return;
+  m_model->setText(model);
 }

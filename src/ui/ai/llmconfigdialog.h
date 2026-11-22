@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 #include "../../ai/chat/llmclient.h"
+#include "../../workflow/llmdiagnosticcontract.h"
 #include <QDialog>
 
 class QCheckBox;
@@ -10,6 +11,7 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
+class LlmDiagnosticsPanel;
 
 // ui/ai/ — 大模型配置对话框（方向62：图形化配置收编「手改 JSON + 环境变量」）。
 //
@@ -37,12 +39,28 @@ public:
   // 宿主回灌应用结果（controller->applyConfig 的 done 回调落脚点）。
   void onApplyResult(bool ok, const QString &error);
 
+  // H6 诊断接缝：候选值装配（草稿字段 + 本次凭据来源判定——显式输入 /
+  // 端点身份一致才沿用当前内存值 / 端点变更绝不搬运旧 key）与状态回灌。
+  // 候选含本次凭据（仅内存）；诊断不落盘、不写钥匙串、不调用 applyConfig。
+  paleo::chat::LlmDiagnosticCandidate buildDiagnosticCandidate() const;
+  LlmDiagnosticsPanel *diagnosticsPanel() const { return m_diagnostics; }
+
 signals:
   void pythonEnvironmentRequested();
   // 确认并通过结构校验后发出（一次提交至多一次；busy 期间再点无效）。
   // newKey 非空 = 写入新密钥；clearKey 且 newKey 空 = 清除；都空 = 不变。
   void applyRequested(const LlmConfig &formConfig, const QByteArray &newKey,
                       bool clearKey);
+  // H6 诊断意图（数值与 workflow 层 LlmDiagnosticsAction 一一对应；4 = 取消）。
+  // 装配根（aiconfigurationwiring）把它接到诊断协调器——对话框不做网络。
+  void diagnosticsActionRequested(int action);
+
+public slots:
+  // 诊断协调器状态回灌（渲染摘要/在途互斥/目录候选——视图只展示）。
+  void setDiagnosticsSummary(const QString &summary);
+  void setDiagnosticsBusy(bool busy);
+  void setModelCandidates(const QStringList &models);
+  void setDraftModel(const QString &model);
 
 private:
   void accept() override;
@@ -66,5 +84,6 @@ private:
   QPushButton *m_pythonEnvironment = nullptr;
   QDialogButtonBox *m_buttons = nullptr;
   QLabel *m_note = nullptr;
-  bool m_busy = false;
+  LlmDiagnosticsPanel *m_diagnostics = nullptr; // H6 诊断面板（显式启动）
+  bool m_busy = false;                          // 应用提交在途（原语义不变）
 };

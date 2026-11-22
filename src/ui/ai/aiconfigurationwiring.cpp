@@ -2,8 +2,10 @@
 #include "aiconfigurationwiring.h"
 #include "aiassistdock.h"
 #include "llmconfigdialog.h"
+#include "llmdiagnosticspanel.h"
 #include "pythonenvironmentdialog.h"
 #include "workflow/aichatcontroller.h"
+#include "workflow/llmconnectiondiagnostics.h"
 #include "workflow/pythonenvironmentcontroller.h"
 #include <QPointer>
 
@@ -37,6 +39,36 @@ void openAiConfiguration(AiAssistDock *dock, QWidget *parent) {
   if (!controller) return;
   const QPointer<AiAssistDock> owner(dock);
   LlmConfigDialog dialog(controller->config(), parent);
+  // H6（模型接入诊断）：独立协调对象——专属网络对象随对话框析构终止在途
+  // 探测；不触碰 controller 聊天编排/配置提交/钥匙串。候选含本次凭据仅存
+  // 内存（不落盘、不进报告）。装配的视图意图与状态回流全在下面连接里。
+  auto *diagnostics = new paleo::chat::LlmConnectionDiagnostics(&dialog);
+  QObject::connect(&dialog, &LlmConfigDialog::diagnosticsActionRequested,
+                   &dialog, [owner, &dialog, diagnostics](int action) {
+    if (!owner) return;
+    if (action == static_cast<int>(LlmDiagnosticsPanel::Action::Cancel)) {
+      diagnostics->cancel(); // 只取消诊断自身；不中断密钥提交
+      return;
+    }
+    diagnostics->runAction(
+      static_cast<paleo::chat::LlmDiagnosticsAction>(action),
+      dialog.buildDiagnosticCandidate());
+  });
+  QObject::connect(diagnostics,
+                   &paleo::chat::LlmConnectionDiagnostics::summaryChanged,
+                   &dialog, &LlmConfigDialog::setDiagnosticsSummary);
+  QObject::connect(diagnostics,
+                   &paleo::chat::LlmConnectionDiagnostics::busyChanged, &dialog,
+                   &LlmConfigDialog::setDiagnosticsBusy);
+  QObject::connect(diagnostics,
+                   &paleo::chat::LlmConnectionDiagnostics::modelCandidatesChanged,
+                   &dialog, &LlmConfigDialog::setModelCandidates);
+  // 本地拒绝（零网络）：面板提示行呈现，不写配置、不冒充探测成功。
+  QObject::connect(diagnostics,
+                   &paleo::chat::LlmConnectionDiagnostics::candidateRejected,
+                   &dialog, [&dialog](const QString &reason) {
+    dialog.diagnosticsPanel()->showNotice(reason);
+  });
   QObject::connect(&dialog, &LlmConfigDialog::pythonEnvironmentRequested, &dialog,
                    [owner, &dialog] { if (owner) openEnvironment(owner, &dialog); });
   QObject::connect(&dialog, &LlmConfigDialog::applyRequested, &dialog,

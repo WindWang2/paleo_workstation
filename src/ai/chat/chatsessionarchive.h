@@ -88,7 +88,7 @@ struct ChatArchiveBudget {
   int escapeWorstFactor = 6;
   qint64 contentSlack = 1024;   // 每内容块的标点/字段名/信封余量
   qint64 callMetaSlack = 2560;  // 每调用帧的 id/type/name 元字段余量（含最坏转义）
-  qint64 messageMetaSlack = 1600;// 每条消息的时间戳/tool_call_id 等元字段余量（含最坏转义）
+  qint64 messageMetaSlack = 2400;// 每条消息时间戳+tool_call_id+host_turn_id 的元字段余量（含最坏转义）
   qint64 bindingRowBytes = 3072;// 每行 host 绑定的定长字段上界（documentId ≤256、toolName ≤128，均含最坏转义）
 
   static ChatArchiveBudget production();

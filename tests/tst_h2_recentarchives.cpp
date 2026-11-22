@@ -475,8 +475,7 @@ void TestH2RecentArchives::repairCancellableAndRecoversViaTaskService() {
     if (task->running())
       task->requestCancel();
   QVERIFY2(spinUntil([&] { return !summaries.repairInFlight(); }),
-           "取消后修复必须有界停止");
-  const int partial = sidecarCount(); // 取消点决定 0..60，不悬挂即达标
+           "取消后修复必须有界停止（0..60 由取消点决定，不悬挂即达标）");
 
   // 取消不是终态：再次刷新（无取消）恢复到 complete。
   bool complete = false;

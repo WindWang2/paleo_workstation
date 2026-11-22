@@ -48,8 +48,10 @@ void AiChatRecentSummaries::refresh(int limit) {
   }
   m_cache = cache;
   // 孤儿缓存清理（W6）：外部删除的正文不在扫描集里——只清缓存目录里的
-  // sidecar，永不触碰任何正文文件；调用方拿到的 liveIds 即当前磁盘事实。
-  {
+  // sidecar，永不触碰任何正文文件。扫描被截断（>上限的窗口子集）时跳过：
+  // liveIds 不完整，窗口外的 sidecar 不能当孤儿删（缓存 churn 自愈面收窄
+  // 到真实孤儿）。
+  if (!scan.truncated) {
     QStringList liveIds;
     liveIds.reserve(scan.files.size());
     for (const paleo::chat::ChatArchiveFileStamp &stamp : scan.files)

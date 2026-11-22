@@ -450,7 +450,7 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
     bool done = false;
     QString parseError;
     m_parser.feed(tail + QByteArrayLiteral("\n\n"), &deltas, &done, &parseError);
-    // 证据门（三类真内容）：坏事件、文本增量、[DONE] 终局、**工具草稿**。
+    // 证据门（四类真内容）：坏事件、文本增量、[DONE] 终局、**工具草稿**。
     // 最后一项不可省：整条流只有一个「缺终止空行的工具帧」时，尾喂会把调用
     // 封印进草稿表却没有增量/done/错误——漏掉它就会跳过 finalizeStream，
     // 把已收到的工具帧静默丢弃，还报一句与事实相反的「未包含任何事件」。

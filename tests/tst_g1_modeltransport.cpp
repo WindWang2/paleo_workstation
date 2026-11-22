@@ -382,6 +382,7 @@ private slots:
   void toolCallOnlyUnterminatedEventSucceeds();
   void truncatedToolArgumentsUnterminatedFailsAccurately();
   void prettyPrintedJsonUnderStreamFlagStillUsesFallback();
+  void eventStreamContentTypeWithPlainJsonBodyStillUsesFallback();
   void errorEnvelope200FailsHonestly();
   void emptyChoicesNonStreamFails();
   void nonObjectMessageFails();
@@ -1269,6 +1270,32 @@ void TestG1ModelTransport::prettyPrintedJsonUnderStreamFlagStillUsesFallback() {
   QCOMPARE(recorder.promptTokens, 9);
   QCOMPARE(recorder.completionTokens, 4);
   QVERIFY(server.rawRequests().first().contains("text/event-stream")); // 前提自检
+}
+
+// #588 判别的最末一支：Content-Type 仍自称 text/event-stream、body 却是
+// 普通 chat completions JSON（代理改写内容类型的形状）——按形状判定走非
+// 流式解析，不把零增量当成功。
+void TestG1ModelTransport::eventStreamContentTypeWithPlainJsonBodyStillUsesFallback() {
+  const QByteArray body =
+    "{\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":"
+    "{\"role\":\"assistant\",\"content\":\"石膏\"}}],"
+    "\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}";
+  RawServer server;
+  QVERIFY(server.start([&] {
+    return RawServer::Response{.contentType = "text/event-stream",
+                               .writes = {body}};
+  }));
+  LlmClient client;
+  Recorder recorder;
+  recorder.attach(&client);
+  client.setConfig(clientConfig(server.endpoint()));
+  client.send(oneShot());
+  QVERIFY2(spinUntil([&] { return recorder.finished >= 1; }, 4000),
+           qPrintable(QStringLiteral("形状判定的 fallback 必须收尾（errors=%1）")
+                        .arg(recorder.errors)));
+  QCOMPARE(recorder.joined(), QStringLiteral("石膏"));
+  QCOMPARE(recorder.errors, 0);
+  QCOMPARE(recorder.promptTokens, 5);
 }
 
 void TestG1ModelTransport::errorEnvelope200FailsHonestly() {

@@ -1,5 +1,6 @@
 // 层：视图
 #include "aiconversationcard.h"
+#include "../../ai/chat/planpreviewtool.h"
 #include "../notifications/paleonotify.h"
 #include "../paleotheme.h"
 #include "aitoolresultview.h"
@@ -344,6 +345,23 @@ void AiConversationCard::buildBody() {
     m_refreshButton->setDisabled(m_busyActions.contains(QStringLiteral("refresh")));
     m_cancelButton->setDisabled(m_busyActions.contains(QStringLiteral("cancel")));
     m_resumeButton->setDisabled(m_busyActions.contains(QStringLiteral("resume")));
+  }
+  // H5：计划提案卡——「审阅此计划」入口（payload 携带完整图才可开面板；
+  // 截断/缺图的历史 envelope 不给入口，面板如实拒绝，不拼凑可执行草案）。
+  if (m_facts.tool == QLatin1String(paleo::chat::kPlanPreviewTool) && m_facts.hasData &&
+      m_facts.dataIsObject) {
+    const auto payload = m_facts.data.toObject();
+    if (payload.value(QStringLiteral("contract")).toString() ==
+          QLatin1String(paleo::chat::kPlanPreviewContract) &&
+        payload.value(QStringLiteral("graph")).toObject()
+            .value(QStringLiteral("nodes")).toArray().size() > 0) {
+      auto *review = new QPushButton(tr("审阅此计划"), m_body);
+      review->setObjectName(QStringLiteral("aiCardPlanReview"));
+      m_bodyLayout->addWidget(review);
+      connect(review, &QPushButton::clicked, this, [this, payload] {
+        emit planReviewRequested(m_toolCallId, payload);
+      });
+    }
   }
   m_body->hide(); // 显隐统一由 expand toggle 管理
   if (auto *frameLayout = qobject_cast<QVBoxLayout *>(m_frame->layout()))

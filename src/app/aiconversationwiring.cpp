@@ -1,5 +1,6 @@
 // 层：组装根
 #include "aiconversationwiring.h"
+#include "aiplanwiring.h"
 #include "../ui/ai/aiassistdock.h"
 #include "../ui/paleomainwindow.h"
 #include "../workflow/aichatcontroller.h"
@@ -28,5 +29,7 @@ paleo::chat::AiOperationPresentation *installConversationPresentation(
   auto *dock = window->findChild<AiAssistDock *>(QStringLiteral("aiAssistantDock"));
   if (dock)
     dock->attachOperationPresenter(presenter); // 幂等（同指针直接返回）
+  // H5：同一装配路径追加计划审阅工作台（自身幂等；Dock 晚建时下次调用补挂）。
+  installPlanWorkbench(window, chat, host, document);
   return presenter;
 }

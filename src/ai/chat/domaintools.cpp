@@ -1,5 +1,6 @@
 // 层：功能
 #include "domaintools.h"
+#include "planpreviewtool.h"
 #include "pythonanalysistools.h"
 #include "../../services/toolresultprotocol.h"
 #include "../../services/pythonnumerictablequery.h"
@@ -582,6 +583,8 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
   appendAgentOperationTools(specs);
+  // H5：纯预检提案工具（只 decode+validate，执行入口在原生审阅面板）。
+  paleo::chat::appendAgentPlanPreviewTool(specs);
   AiToolSpec environment;environment.name="paleo.python_environment";
   environment.title=QObject::tr("Python 环境状态");
   environment.description=QObject::tr("核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。");
@@ -637,6 +640,14 @@ AiToolDispatch dispatchAiTool(const QString &name,
   }
   if(name==QLatin1String("paleo.python_environment")) {
     out.target="workflow/RuntimeProvider";out.status=AiToolDispatchStatus::Routed;return out;
+  }
+  if(name==QLatin1String(paleo::chat::kPlanPreviewTool)) {
+    // H5：纯预检提案——严格解码+validatePlan 在 runner 专属分支执行；
+    // 不挂 isAiCapabilityTool（那族工具经 runChatTool 自动执行能力调用）。
+    out.target=QStringLiteral("workflow/aichattoolrunner_plan:runPlanPreview");
+    out.status=AiToolDispatchStatus::Routed;
+    out.note=QObject::tr("只提出并检查计划，等待用户在原生面板明确计算");
+    return out;
   }
   if (name == QStringLiteral("paleo.tile_classification")) {
     out.target = QStringLiteral("ai/tileinference.h:runTileInference + "

@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "../ai/chat/domaintools.h"
+#include "../ai/chat/planpreviewtool.h"
 #include "../ai/tileinference.h"
 #include "../ai/wellfaciesservice.h"
 #include "ai/onnxpredictionservice.h" // G3/W6：setContext 比较 QPointer 需完整类型
@@ -264,7 +265,8 @@ void AiChatToolRunner::startNext() {
       expected.documentId = m_context.documentId; expected.epoch = m_context.documentEpoch;
       if (live.documentId != expected.documentId || live.epoch != expected.epoch)
         code = QStringLiteral("stale_session");
-      else if (m_activeCall.name != QLatin1String("paleo.read_result")) {
+      else if (m_activeCall.name != QLatin1String("paleo.read_result") &&
+               m_activeCall.name != QLatin1String(paleo::chat::kPlanPreviewTool)) {
         unsigned effects = paleo::host::Read;
         if (m_activeCall.name == QLatin1String("paleo.tile_classification"))
           effects |= paleo::host::PrivateStage | paleo::host::CatalogPublish | paleo::host::Presentation;
@@ -322,6 +324,8 @@ void AiChatToolRunner::startNext() {
     finishActive(result.value("code").toString() == QLatin1String("ok"), result);
   } else if(m_activeCall.name==QLatin1String("paleo.python_environment"))
     runPythonEnvironment();
+  else if(m_activeCall.name==QLatin1String("paleo.workflow_plan_preview"))
+    runPlanPreview(args);
   else if(m_activeCall.name.startsWith(QLatin1String("paleo.operation_")))
     runPersistentOperation(args);
   else if(m_activeCall.name==QLatin1String("paleo.tile_classification_v2"))

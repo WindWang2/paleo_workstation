@@ -354,6 +354,9 @@ private slots:
   void parserIdentityConflictIsReported();
   void parserTerminalRejectsIncompleteArguments();
   void parserTerminalRejectsMissingName();
+  void parserDropsTrailingBytesAfterDone();
+  void parserDropsTrailingToolCallAfterDone();
+  void parserManyTinyLinesInOneFeedStayLinear();
   void parserExplicitEmptyObjectIsSealed();
   void parserHugeIndexIsBounded();
   // W1：attempt 冻结与同步订阅者。
@@ -626,6 +629,71 @@ void TestG1ModelTransport::parserTerminalRejectsMissingName() {
   QCOMPARE(calls.size(), 0);
   QVERIFY2(!terminalError.isEmpty(), "缺 name 的残帧必须报错");
   QVERIFY(terminalError.contains(QStringLiteral("缺 name")));
+}
+
+// [DONE] 之后的同块尾字节必须被丢弃：不得再产出文本（W3/W5 边界）。
+void TestG1ModelTransport::parserDropsTrailingBytesAfterDone() {
+  LlmStreamParser parser;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  const QByteArray payload =
+    deltaEvent("正式") + sse({}, true) + deltaEvent("迟到");
+  parser.feed(payload, &deltas, &done, &error);
+  QCOMPARE(deltas.join(QString()), QStringLiteral("正式"));
+  QVERIFY(done);
+  // 终局 flush（EOF 兜底路径）也不得把尾字节补成内容。
+  QString flushError;
+  const auto calls = parser.flush(&flushError);
+  QVERIFY(calls.isEmpty());
+  QVERIFY(flushError.isEmpty());
+  // 后续 feed 同样静默。
+  parser.feed(deltaEvent("更晚"), &deltas, &done, &error);
+  QVERIFY(deltas.isEmpty());
+}
+
+// [DONE] 之后的同块尾字节若带完整工具帧，同样不得被 flush 兜底产出——
+// 否则「模型已完成」之后还会冒出一次工具执行（W5：终态后不得再结算）。
+void TestG1ModelTransport::parserDropsTrailingToolCallAfterDone() {
+  LlmStreamParser parser;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  const QByteArray payload =
+    deltaEvent("答案") + sse({}, true) +
+    toolEvent(0, "paleo.query_project", "{\"topic\":\"wells\"}", "late-call");
+  parser.feed(payload, &deltas, &done, &error);
+  QVERIFY(done);
+  QVERIFY(error.isEmpty());
+  QCOMPARE(parser.takeCompleteCalls(&error).size(), 0); // 流中零工具
+  QString flushError;
+  const auto calls = parser.flush(&flushError); // 终局也不得补出迟到帧
+  QCOMPARE(calls.size(), 0);
+  QVERIFY(flushError.isEmpty());
+}
+
+// W3 反二次方：单块内 20 万行碎事件（心跳形态）必须线性完成。旧实现逐行
+// remove(0,n) 前移，此例要把 ~100GB 字节搬来搬去（分钟级）；偏移推进后为
+// 毫秒级。阈值取 5s（宽上限，只用来区分「二次方」与「线性」两档）。
+void TestG1ModelTransport::parserManyTinyLinesInOneFeedStayLinear() {
+  LlmStreamParser parser;
+  QByteArray flood;
+  flood.reserve(200000 * 5);
+  for (int i = 0; i < 200000; ++i)
+    flood += ": c\n\n"; // 注释心跳行：5 字节/行
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  QElapsedTimer clock;
+  clock.start();
+  parser.feed(flood, &deltas, &done, &error);
+  const qint64 elapsed = clock.elapsed();
+  QVERIFY2(elapsed < 5000,
+           qPrintable(QStringLiteral("单块 20 万行必须线性完成，实际 %1 ms")
+                        .arg(elapsed)));
+  QVERIFY(deltas.isEmpty()); // 纯心跳：零内容
+  QVERIFY(error.isEmpty());
+  QVERIFY(!done);
 }
 
 void TestG1ModelTransport::parserExplicitEmptyObjectIsSealed() {

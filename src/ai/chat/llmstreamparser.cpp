@@ -54,27 +54,36 @@ void LlmStreamParser::feed(const QByteArray &chunk, QStringList *deltas,
     m_bomChecked = true;
   }
 
-  // 行扫描：找最早的 LF 或 CR。
-  while (!m_terminal) {
-    const int lf = m_pending.indexOf('\n');
-    const int cr = m_pending.indexOf('\r');
-    int end = -1;
-    int consume = 0;
+  // 行扫描：偏移推进 + 整次 feed 只压实一次——不做「逐行 remove(0,n)」的
+  // 前缀重扫/前移（单块含大量行（心跳/碎事件）时那是 O(行数²) 内存移动，
+  // 8 MiB 预算内的病态流能把客户端拖死；W3 明令禁止二次方工作量）。
+  // UTF-8 续字节恒 ≥0x80，字节级扫行不会把多字节字符劈断。
+  qint64 cursor = 0;
+  const qint64 size = qint64(m_pending.size());
+  while (!m_terminal && cursor < size) {
+    const qint64 lf = m_pending.indexOf('\n', int(cursor));
+    const qint64 cr = m_pending.indexOf('\r', int(cursor));
+    qint64 end = -1;
+    qint64 consume = 0;
     if (lf >= 0 && (cr < 0 || lf < cr)) {
       end = lf;
       consume = lf + 1;
     } else if (cr >= 0) {
-      if (cr == m_pending.size() - 1)
+      if (cr == size - 1)
         break; // 孤立 CR 在缓冲末尾：可能是 CRLF 前半，等下一块
       end = cr;
-      consume = cr + 1 + (m_pending.at(cr + 1) == '\n' ? 1 : 0);
+      consume = cr + 1 + (m_pending.at(int(cr) + 1) == '\n' ? 1 : 0);
     } else {
       break; // 没有完整行
     }
-    const QByteArray line = m_pending.left(end);
-    m_pending.remove(0, consume);
-    processLine(line, deltas, done, error);
+    processLine(m_pending.mid(int(cursor), int(end - cursor)), deltas, done,
+                error);
+    cursor = consume;
   }
+  if (cursor > 0)
+    m_pending.remove(0, int(cursor)); // 一次性压实：O(剩余)
+  if (m_terminal)
+    m_pending.clear(); // [DONE] 已过：同块尾字节一并丢弃（终局后输入停止）
 }
 
 void LlmStreamParser::processLine(const QByteArray &line, QStringList *deltas,

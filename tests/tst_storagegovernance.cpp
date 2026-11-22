@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QUuid>
 #include <algorithm>
 #include "../src/services/storagegovernance.h"
 #include "../src/workflow/storagegovernancecontroller.h"
@@ -29,7 +30,7 @@ class TestStorageGovernance : public QObject {
       object.value("presentationIntent").toObject(),object.value("externalRequest").toObject());return object;
   }
   static QJsonObject operation(const QString &path, const QString &head={}) {
-    return seal({{"schemaVersion",2},{"operationId","op-retained"},
+    return seal({{"schemaVersion",2},{"operationId",QStringLiteral("op-")+QUuid::createUuid().toString(QUuid::WithoutBraces)},
       {"documentId","doc"},{"callerScope","scope"},{"clientRequestId","request"},{"stateRevision","1"},{"events",QJsonArray{}},
       {"key",QString::fromUtf8(QJsonDocument(QJsonArray{"doc","scope","request"}).toJson(QJsonDocument::Compact))},
       {"stagePlan",QJsonObject{{"targets",QJsonArray{QJsonObject{{"staging",QJsonObject{{"path",path},{"expectedHead",head}}}}}},
@@ -95,12 +96,13 @@ private slots:
   void operationRootsProtectPreparedSidecarsSourcesAndPreviewRevisions() {
     QTemporaryDir dir;DataCatalog cat;QVERIFY(cat.open(dir.path()));QVERIFY(seed(cat,dir.path()));
     const QString target="artifacts/derived/agent/v1/output.tif", prepared="artifacts/derived/agent2/v2/output.gpkg";
-    const QString artifact=".paleo/capability-ops/op-retained/private/part.bin", orphan="artifacts/DERIVED/orphan/unreferenced.bin";
+    const QString opId=QStringLiteral("op-")+QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString artifact=".paleo/capability-ops/"+opId+"/private/part.bin", orphan="artifacts/DERIVED/orphan/unreferenced.bin";
     const QString source="raw/legacy-model/input.sgy";
     const QString raster="raw/legacy-tile/input.tif";
     for(const auto &path:QStringList{target,target+".aux.xml",prepared,artifact,orphan,source,source+".sidecar",raster,raster+".aux.xml"})
       QVERIFY(write(dir.filePath(path),11));
-    auto row=operation(target,"child");
+    auto row=operation(target,"child");row["operationId"]=opId;
     row["preparedManifest"]=QJsonObject{{"schema",2},{"members",QJsonArray{QJsonObject{{"staging",QJsonObject{{"path",prepared},{"expectedHead",""}}}}}}};
     row["artifactManifest"]=QJsonObject{{"schema",1},{"ports",QJsonArray{QJsonObject{{"path",artifact}}}}};
     row["frozenRequest"]=QJsonObject{{"plan",QJsonObject{{"sourceVerification",QJsonObject{{"path",dir.filePath(source)},{"versionId",""}}},

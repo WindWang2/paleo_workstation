@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QByteArrayView>
 #include <QMutex>
+#include <QSet>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -139,6 +140,17 @@ public:
     QString code;
     Record record;
   };
+  // G4：磁盘读取状态的可区分诊断。found 之外的三种 code 供调用方区分
+  // "日志不可读/损坏"、"目标记录被隔离（身份不明，不得二次立项）"与
+  // "确实不存在"。安全 ID 形态本身不授予任何读取或执行权限。
+  struct RecordLookup {
+    QString code; // found | operation_not_found | operation_log_unavailable | operation_record_quarantined
+    Record record;
+  };
+  struct JournalHealth {
+    QString code; // ok | operation_log_unavailable | operation_log_quarantined
+    int quarantined = 0;
+  };
 
   explicit OperationLog(const QString &directory);
   OperationLog(const QString &directory, const QString &projectDir,
@@ -149,6 +161,8 @@ public:
   Accept accept(const QString &documentId, const QString &callerScope, const QString &clientRequestId,
                 const QString &requestHash);
   Record recordById(const QString &operationId);
+  RecordLookup lookupRecordById(const QString &operationId);
+  JournalHealth journalHealth();
   Record artifactOwner(const QString &documentId, const QString &callerScope, const QString &relativePath);
   Accept lookup(const QString &documentId, const QString &callerScope, const QString &clientRequestId);
   Accept acceptDurable(const Record &seed);
@@ -171,6 +185,10 @@ private:
   std::shared_ptr<const ProjectWriteClaim> m_claim;
   QHash<QString, Record> m_byKey;
   QHash<QString, QString> m_idToKey;
+  // 本次 loadOperations() 的隔离结论：被拒记录的安全 ID 形态（仅用于把
+  // "目标被隔离"与"确实不存在"区分开）；原始行永不回写。
+  QSet<QString> m_quarantinedIds;
+  QSet<QString> m_quarantinedKeys;
 };
 
 QVariantMap effectiveScalarParams(const QString &algorithmId, int contractVersion, const QVariantMap &user,

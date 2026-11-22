@@ -2,6 +2,7 @@
 // workflow/capabilityoperationcontrol.cpp — v2 控制日志的身份、CAS 和有界事件。
 #include "capabilitygateway.h"
 #include "capabilityops_internal.h"
+#include "metadata/operationnamespace.h"
 #include "metadata/projectlock.h"
 #include "catalog/purgelease.h"
 #include <QDateTime>
@@ -118,9 +119,12 @@ OperationLog::Accept OperationLog::lookup(const QString &documentId, const QStri
                                          const QString &clientRequestId) {
   QMutexLocker lock(&operation_detail::mutexFor(m_path));
   if (!loadOperations()) return {QStringLiteral("operation_log_unavailable"), {}};
-  const auto found = m_byKey.constFind(operation_detail::key(documentId, callerScope, clientRequestId));
-  return found == m_byKey.cend() ? Accept{QStringLiteral("not_found"), {}}
-                                : Accept{QStringLiteral("found"), *found};
+  const auto identity = operation_detail::key(documentId, callerScope, clientRequestId);
+  const auto found = m_byKey.constFind(identity);
+  if (found != m_byKey.cend()) return {QStringLiteral("found"), *found};
+  // 身份不明的记录不得借 not_found 让同一业务二次立项。
+  if (m_quarantinedKeys.contains(identity)) return {QStringLiteral("operation_record_quarantined"), {}};
+  return {QStringLiteral("not_found"), {}};
 }
 OperationLog::Record OperationLog::artifactOwner(const QString &documentId,const QString &scope,const QString &relativePath) {
   QMutexLocker lock(&operation_detail::mutexFor(m_path));if(!loadOperations())return {};
@@ -145,7 +149,12 @@ OperationLog::Accept OperationLog::acceptDurable(const Record &seed) {
     const auto record = m_byKey.value(identity);
     return {record.requestHash == seed.requestHash ? QStringLiteral("replay") : QStringLiteral("conflict"), record};
   }
+  if (m_quarantinedKeys.contains(identity))
+    return {QStringLiteral("operation_record_quarantined"), {}};
   if (m_byKey.size() >= 4096) return {QStringLiteral("operation_capacity_exceeded"), {}};
+  // 邻居被隔离即阻断新根：写入会把隔离行从磁盘上抹掉（无损纪律）。
+  if (!m_quarantinedIds.isEmpty() || !m_quarantinedKeys.isEmpty())
+    return {QStringLiteral("operation_log_quarantined"), {}};
   auto record = seed;
   record.schemaVersion = 2; record.key = identity;
   record.operationId = QStringLiteral("op-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -170,12 +179,22 @@ QString OperationLog::saveDurable(const Record &input, quint64 expectedRevision,
   QMutexLocker lock(&operation_detail::mutexFor(m_path));
   if (!loadOperations()) return QStringLiteral("operation_log_unavailable");
   const auto found = m_byKey.constFind(proposal.key);
-  if (found == m_byKey.cend()) return QStringLiteral("unknown_operation");
+  if (found == m_byKey.cend()) {
+    if (m_quarantinedKeys.contains(proposal.key)) return QStringLiteral("operation_record_quarantined");
+    return QStringLiteral("unknown_operation");
+  }
   const Record before = *found;
   if (current) *current = before;
+  // 目标记录在、邻居被隔离：CAS 事实仍可读取（current 已回传磁盘现状），
+  // 但任何写入都会抹掉隔离行——无损纪律优先于状态推进。
+  if (!m_quarantinedIds.isEmpty() || !m_quarantinedKeys.isEmpty())
+    return QStringLiteral("operation_log_quarantined");
   if (before.schemaVersion != 2) return QStringLiteral("legacy_unverifiable");
   if (before.stateRevision != expectedRevision || before.ownerAttempt != expectedAttempt)
     return QStringLiteral("operation_state_conflict");
+  if (!operation_namespace::isCanonicalOperationId(proposal.operationId) ||
+      (!proposal.ownerAttempt.isEmpty() && !operation_namespace::isCanonicalAttemptId(proposal.ownerAttempt)))
+    return QStringLiteral("invalid_operation_owner");
   if (!immutable(before, proposal) || !transitionAllowed(before, proposal, transition) ||
       !bounded(proposal.preparedManifest, 64 * 1024) || !bounded(proposal.artifactManifest, 64 * 1024) || proposal.summaryJson.size()>96*1024 ||
       before.stateRevision == std::numeric_limits<quint64>::max()) return QStringLiteral("invalid_operation_transition");

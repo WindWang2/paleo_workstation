@@ -2,6 +2,7 @@
 // workflow/capabilitypublication.cpp — 冻结输出契约/身份编解码与 worker 文件复核。
 #include "capabilitypublication_internal.h"
 #include "metadata/managedpath.h"
+#include "metadata/operationnamespace.h"
 #include "catalog/datacatalog.h"
 #include <QDir>
 #include <QFileInfo>
@@ -197,11 +198,13 @@ QJsonObject artifactManifest(const QString &root, const QString &operationId, co
                              const AlgorithmRunResult &outputs, QString *error,
                              const std::function<bool()> &cancelled, const QSet<QString> &allowedManaged) {
   if (!outputs.ok || outputs.artifacts.isEmpty() || outputs.artifacts.size() > 64) return {};
+  // G4-W6：operation 私有命名空间的最小事实与 journal/目录层同源；非规范
+  // operationId 不产生任何 manifest（也不凭字符串前缀认领邻居的空间）。
+  const auto privatePrefix = operation_namespace::privateOperationPrefix(operationId);
   QJsonArray ports; QSet<QString> ids; qint64 remaining = 1024LL * 1024 * 1024;
   const auto privateRoot = QFileInfo(privateDir).canonicalFilePath();
-  const auto expected = QDir(QFileInfo(root).canonicalFilePath()).filePath(
-      QStringLiteral(".paleo/capability-ops/") + operationId + '/');
-  if (privateRoot.isEmpty() || !privateRoot.startsWith(expected)) return {};
+  const auto expected = QDir(QFileInfo(root).canonicalFilePath()).filePath(privatePrefix);
+  if (privatePrefix.isEmpty() || privateRoot.isEmpty() || !privateRoot.startsWith(expected)) return {};
   const auto allowedPrivate = privateRoot + '/';
   for (const auto &artifact : outputs.artifacts) {
     const auto info = QFileInfo(artifact.absolutePath);
@@ -225,6 +228,10 @@ bool outputsFromManifest(const QString &root, const QString &operationId, const 
                          const std::function<bool()> &cancelled, bool verifyBytes, const QSet<QString> &allowedManaged) {
   outputs = {};
   if (manifest.value("schema") != QJsonValue(1) || manifest.value("operationId").toString() != operationId) return false;
+  // 与 artifactManifest/目录层同一 namespace 事实：非规范 id 或借用邻居
+  // 前缀的路径一律不成立。
+  const auto privatePrefix = operation_namespace::privateOperationPrefix(operationId);
+  if (privatePrefix.isEmpty()) return false;
   const auto ports = manifest.value("ports").toArray();
   if (ports.isEmpty() || ports.size() > 64) return false;
   qint64 remaining = 1024LL * 1024 * 1024; QSet<QString> ids;
@@ -234,7 +241,7 @@ bool outputsFromManifest(const QString &root, const QString &operationId, const 
     const auto relative = object.value("path").toString();
     artifact.absolutePath = paleo::managedpath::resolveManagedPath(root, relative);
     if (artifact.absolutePath.isEmpty()) return false;
-    if ((!relative.startsWith(QStringLiteral(".paleo/capability-ops/") + operationId + '/') &&
+    if ((!relative.startsWith(privatePrefix) &&
          !allowedManaged.contains(QFileInfo(artifact.absolutePath).canonicalFilePath())) ||
         ids.contains(artifact.portId) || !DataCatalog::isSafePathSegment(artifact.portId)) return false;
     DerivedFileFingerprint fingerprint;

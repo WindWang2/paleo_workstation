@@ -449,6 +449,11 @@
         <translation>能力工具须由宿主绑定工程</translation>
     </message>
     <message>
+        <location filename="../src/workflow/aichattoolrunner.cpp" line="236"/>
+        <source>工具实参顶层必须是 JSON object</source>
+        <translation>工具实参顶层必须是 JSON object</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/aichattoolrunner.cpp" line="150"/>
         <source>实参不是合法 JSON：%1</source>
         <translation>实参不是合法 JSON：%1</translation>
@@ -35018,9 +35023,24 @@ PDF：%3
         <translation>种子向 inline/xline 双向扩张的道数半径</translation>
     </message>
     <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="163"/>
-        <source>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}</source>
-        <translation>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}</translation>
+        <location filename="../src/ai/chat/domaintools.cpp" line="374"/>
+        <source>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}，至多 %1 颗</source>
+        <translation>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}，至多 %1 颗</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/operationtools.cpp" line="34"/>
+        <source>起始修订（含），十进制字符串（0–2^63-1，无前导零）；缺省 0</source>
+        <translation>起始修订（含），十进制字符串（0–2^63-1，无前导零）；缺省 0</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/operationtools.cpp" line="39"/>
+        <source>起始字节偏移，十进制字符串（0–2^63-1，无前导零）；缺省 0</source>
+        <translation>起始字节偏移，十进制字符串（0–2^63-1，无前导零）；缺省 0</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/operationtools.cpp" line="41"/>
+        <source>本页 base64 前的字节预算（1–24576）</source>
+        <translation>本页 base64 前的字节预算（1–24576）</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="172"/>

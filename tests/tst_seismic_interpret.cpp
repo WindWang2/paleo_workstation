@@ -360,7 +360,10 @@ private slots:
     std::string verr;
     QVERIFY(volume->Load(sgy.toStdString(), verr));
 
+    PaleoTaskService tasks;
+    SeismicTaskService service(&tasks);
     SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
     dock.resize(900, 650);
     QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.setVolume(volume);
@@ -403,7 +406,10 @@ private slots:
     std::string verr;
     QVERIFY(volume->Load(sgy.toStdString(), verr));
 
+    PaleoTaskService tasks;
+    SeismicTaskService service(&tasks);
     SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
     dock.resize(900, 650);
     QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.setVolume(volume);
@@ -569,7 +575,10 @@ private slots:
     std::string verr;
     QVERIFY(volume->Load(sgy.toStdString(), verr));
 
+    PaleoTaskService tasks;
+    SeismicTaskService service(&tasks);
     SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
     dock.resize(900, 650);
     QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.setVolume(volume);
@@ -636,7 +645,10 @@ private slots:
     QVERIFY(volumeA->Load(sgyA.toStdString(), verr));
     QVERIFY(volumeB->Load(sgyB.toStdString(), verr));
 
+    PaleoTaskService tasks;
+    SeismicTaskService service(&tasks);
     SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
     dock.resize(900, 650);
     QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.setVolume(volumeA);
@@ -812,8 +824,11 @@ private slots:
   // ---- goal/horizon-3d：3D 传播入口可用性（Oracle#6 空态禁用带原因）----
   void dockPropagationReadinessEmptyStates()
   {
-    // 无体 → NoVolume + 原因
+    PaleoTaskService tasks;
+    SeismicTaskService service(&tasks);
     SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
+    // 无体 → NoVolume + 原因
     QString reason;
     QCOMPARE(dock.propagationReadiness(&reason),
              SeismicSectionDockWidget::PropagationReadiness::NoVolume);
@@ -877,7 +892,10 @@ private slots:
     rawVersion.path = sgy;
     QVERIFY(catalog.addVersion(rawVersion, &err));
 
+    PaleoTaskService tasks;
+    SeismicTaskService service(&tasks);
     SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
     dock.resize(900, 650);
     QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.setInterpretationCatalog(&catalog, seismicAsset.id, rawVersion.id,

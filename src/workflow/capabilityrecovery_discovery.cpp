@@ -62,17 +62,18 @@ PaleoTask *CapabilityRecovery::listOperations(const QString &callerScope, const 
   const auto expected = h.context;
   const auto service = m_discovery;
   auto output = std::make_shared<QJsonObject>(discoveryFailure(QStringLiteral("discovery_unavailable")));
+  // 守卫先于 start() 构造（read() 同款）：taskAdded 可能同步销毁订阅者或
+  // 关闭 owner，事后构造 QPointer 本身就是对悬空指针的解引用。
+  const QPointer<CapabilityRecovery> guard(this);
+  const QPointer<QObject> listener(subscriber);
   auto *task = m_tasks->start(QStringLiteral("List scoped operations"),
       [scan, arguments, service, output](PaleoTask *task) {
         *output = service->query(scan, arguments, [task] { return task->cancelRequested(); });
         return output->value("ok").toBool() ? QString() : output->value("code").toString();
       });
-  // start() 同步发 taskAdded：可能已换绑/关闭宿主或销毁订阅者。
-  const QPointer<CapabilityRecovery> guard(this);
-  const QPointer<QObject> listener(subscriber);
   if (!guard || !listener) {
     if (task)
-      task->requestInterruption();
+      task->requestCancel();
     return task;
   }
   QObject::connect(task, &PaleoTask::finished, guard.data(),

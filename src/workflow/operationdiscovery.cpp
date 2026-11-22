@@ -25,9 +25,10 @@ namespace {
 
 using operation_namespace::isCanonicalOperationId;
 
-// 与既有 events()/operation_read 同族的页预算口径：行区占 max_bytes-512，
-// 余量留给 envelope 固定字段；单行超预算明确报 minimumBytes，不截断 ID。
-constexpr int kEnvelopeReserve = 512;
+// 与既有 events()/operation_read 同族的页预算口径：行区占 max_bytes 减去
+// envelope 余量（coverage+note+documentId+journalDigest+游标最坏 ~0.9 KiB，
+// 取 1 KiB）；单行超预算明确报 minimumBytes，不截断 ID。
+constexpr int kEnvelopeReserve = 1024;
 constexpr int kCursorMaxChars = 256;
 constexpr int kAnchorMaxBytes = 256;
 constexpr int kCapabilityMaxBytes = 512;
@@ -140,6 +141,7 @@ struct OperationDiscovery::Impl {
   QHash<QString, CursorSlot> cursors;
   qint64 cachedBytes = 0;
   int scans = 0;
+  quint64 generation = 0; // invalidate() 递增：在途扫描不得把旧结果登记回缓存
 
   qint64 now() const { return clock ? clock() : QDateTime::currentMSecsSinceEpoch(); }
 
@@ -217,18 +219,18 @@ struct OperationDiscovery::Impl {
   // 不是 operationId。次序固定：source_operation → consumer（按 operationId）
   // → plan_step（记录序）→ parent_version（记录序）。
   QJsonArray relationRows(const QVector<OperationLog::Record> &records, const QHash<QString, int> &rowIndex,
-                          const QString &anchorId) {
+                          const QHash<QString, int> &consumers, const QString &anchorId) {
     const auto anchor = std::find_if(records.cbegin(), records.cend(),
                                      [&](const OperationLog::Record &r) { return r.operationId == anchorId; });
     if (anchor == records.cend() || !rowIndex.contains(anchorId))
       return {};
     QJsonArray rows;
     const auto facts = relationFacts(*anchor);
-    const auto appendTarget = [&rows](const QString &relation, const OperationLog::Record *target) {
+    const auto appendTarget = [&rows, &consumers](const QString &relation, const OperationLog::Record *target) {
       QJsonObject row;
       row.insert(QStringLiteral("relation"), relation);
       // 解析不到（他域/隔离/v1/不存在）时只给状态，不回显目标 ID。
-      row.insert(QStringLiteral("target"), target ? summaryRow(*target, 0)
+      row.insert(QStringLiteral("target"), target ? summaryRow(*target, consumers.value(target->operationId, 0))
           : QJsonObject{{QStringLiteral("status"), QStringLiteral("unresolved_in_snapshot")}});
       rows.append(row);
     };
@@ -265,6 +267,7 @@ void OperationDiscovery::invalidate() {
   m->snapshots.clear();
   m->cursors.clear();
   m->cachedBytes = 0;
+  ++m->generation;
 }
 
 void OperationDiscovery::setClock(std::function<qint64()> clock) {
@@ -298,13 +301,13 @@ QJsonObject OperationDiscovery::query(const DiscoveryScan &scan, const QJsonObje
       !stringArgument(arguments, "execution_state", stateFilter) ||
       !stringArgument(arguments, "capability_id", capabilityFilter) || !stringArgument(arguments, "cursor", cursor))
     return discoveryFailure(QStringLiteral("invalid_argument_type"));
-  if (view.isEmpty())
-    view = QStringLiteral("operations");
   if (scan.documentId.isEmpty() || scan.callerScope.isEmpty() || scan.documentId.toUtf8().size() > 256 ||
       scan.callerScope.toUtf8().size() > 512 || scan.projectDir.isEmpty())
     return discoveryFailure(QStringLiteral("discovery_scope_invalid"));
+  const bool hasView = arguments.contains(QStringLiteral("view"));
   const bool relations = view == QStringLiteral("relations");
-  if (!relations && view != QStringLiteral("operations"))
+  // view 键出现就必须取精确词表值（缺省=未提供键）；空串不给隐式缺省。
+  if ((hasView && view.isEmpty()) || (!relations && hasView && view != QStringLiteral("operations")))
     return discoveryFailure(QStringLiteral("invalid_discovery_view"));
   if (!stateFilter.isEmpty() &&
       !QStringList{QStringLiteral("queued"),   QStringLiteral("running"),    QStringLiteral("prepared"),
@@ -313,6 +316,9 @@ QJsonObject OperationDiscovery::query(const DiscoveryScan &scan, const QJsonObje
     return discoveryFailure(QStringLiteral("invalid_execution_state_filter"));
   if (capabilityFilter.toUtf8().size() > kCapabilityMaxBytes)
     return discoveryFailure(QStringLiteral("invalid_capability_filter"));
+  // 筛选只属于 operations 视图：与 relations 组合显式拒绝，不静默忽略。
+  if (relations && (!stateFilter.isEmpty() || !capabilityFilter.isEmpty()))
+    return discoveryFailure(QStringLiteral("invalid_filter_for_view"));
   if (relations && (anchor.toUtf8().size() > kAnchorMaxBytes || !isCanonicalOperationId(anchor)))
     return discoveryFailure(QStringLiteral("invalid_anchor_operation"));
   int pageSize = 0, maxBytes = 0;
@@ -320,99 +326,127 @@ QJsonObject OperationDiscovery::query(const DiscoveryScan &scan, const QJsonObje
       !integerArgument(arguments, "max_bytes", 8192, 2048, 24576, maxBytes))
     return discoveryFailure(QStringLiteral("invalid_page_budget"));
 
+  const QString digest = m->queryDigest(arguments); // 纯函数，无共享状态。
+
+  // 2) cursor 续页：定位快照并整页在互斥内完成（纯内存，无磁盘）。
+  if (!cursor.isEmpty()) {
+    QMutexLocker lock(&m->mutex);
+    return pageFromCursor(scan, digest, cursor, relations, anchor, pageSize, maxBytes);
+  }
+
+  // 3) 新查询：磁盘扫描在互斥外执行（W3：不让大 journal 读解析阻塞
+  //    invalidate/续页/其他查询）；OperationLog 自身的目录互斥与既有
+  //    get/events 读路径同口径——每快照一次，不逐页重扫。
+  if (cancelled && cancelled())
+    return discoveryFailure(QStringLiteral("cancelled"));
+  quint64 generation = 0;
+  {
+    QMutexLocker lock(&m->mutex);
+    generation = m->generation;
+  }
+  OperationLog log(scan.operationDir, scan.projectDir, scan.writeClaim);
+  const auto scoped = log.snapshotScope(scan.documentId, scan.callerScope);
+  {
+    QMutexLocker lock(&m->mutex);
+    ++m->scans;
+  }
+  if (scoped.code != QLatin1String("ok"))
+    return discoveryFailure(QStringLiteral("operation_log_unavailable"));
+
+  QHash<QString, int> consumers; // operationId -> 同 scope 直接消费者数
+  QHash<QString, int> rowIndex;
+  for (int i = 0; i < scoped.records.size(); ++i) {
+    const auto &record = scoped.records.at(i);
+    rowIndex.insert(record.operationId, i);
+    const auto source = record.frozenRequest.value(QStringLiteral("sourceOperationId")).toString();
+    if (!source.isEmpty())
+      consumers[source] = consumers.value(source, 0) + 1;
+  }
+  if (relations && !rowIndex.contains(anchor)) {
+    // 与 lookupRecordById 同口径区分隔离与不存在（G4 语义）；两者都不
+    // 启动关系分页，也不泄漏他人条目。
+    return discoveryFailure(scoped.quarantinedIds.contains(anchor)
+                                ? QStringLiteral("operation_record_quarantined")
+                                : QStringLiteral("operation_not_found"));
+  }
+
+  Impl::Snapshot built;
+  built.key = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  built.queryDigest = digest;
+  built.project = scan.projectDir;
+  built.documentId = scan.documentId;
+  built.callerScope = scan.callerScope;
+  built.journalDigest = QString::fromLatin1(scoped.journalDigest.toHex());
+  built.journalIncomplete = scoped.quarantinedRows > 0;
+  if (relations) {
+    built.rows = m->relationRows(scoped.records, rowIndex, consumers, anchor);
+    built.sortKey = QStringLiteral("relation-kind@1");
+  } else {
+    for (int i = 0; i < scoped.records.size(); ++i) {
+      if (cancelled && (i % kCancelStride) == 0 && cancelled())
+        return discoveryFailure(QStringLiteral("cancelled"));
+      const auto &record = scoped.records.at(i);
+      if (!stateFilter.isEmpty() && record.execution != stateFilter)
+        continue;
+      if (!capabilityFilter.isEmpty() && record.capabilityId != capabilityFilter)
+        continue;
+      built.rows.append(summaryRow(record, consumers.value(record.operationId, 0)));
+    }
+    built.sortKey = QStringLiteral("operationId-lex@1");
+  }
+  built.matched = int(built.rows.size());
+  qint64 bytes = 512;
+  for (const auto &row : built.rows)
+    bytes += rowBytes(row);
+  built.bytes = bytes;
+
   QMutexLocker lock(&m->mutex);
   const auto nowMs = m->now();
   m->pruneExpired(nowMs);
-  const QString digest = m->queryDigest(arguments);
+  // 扫描期间发生 invalidate（会话/工程切换）：旧作用域的快照不得登记回
+  // 新上下文的缓存——完成侧另有归属复核，这里挡住缓存复活。
+  if (m->generation != generation)
+    return discoveryFailure(QStringLiteral("stale_session"));
+  built.expiresAt = nowMs + m->policy.ttlMs;
+  // 缓存满给结构化失败（W3）：只回收过期项，不挤掉仍有效的分页承诺。
+  if (m->snapshots.size() >= m->policy.maxSnapshots || m->cachedBytes + bytes > m->policy.maxCacheBytes)
+    return discoveryFailure(QStringLiteral("discovery_cache_full"));
+  const QString snapshotKey = built.key;
+  m->cachedBytes += bytes;
+  m->snapshots.insert(snapshotKey, std::move(built));
+  return pageFromSnapshotLocked(snapshotKey, 0, relations, anchor, pageSize, maxBytes, QString());
+}
 
-  // 2) 定位快照：cursor 续页（不可变快照内取页）或新扫描。
+// 调用方已持有 m->mutex。
+QJsonObject OperationDiscovery::pageFromCursor(const DiscoveryScan &scan, const QString &digest,
+                                                const QString &cursor, bool relations, const QString &anchor,
+                                                int pageSize, int maxBytes) {
+  const auto nowMs = m->now();
+  m->pruneExpired(nowMs);
   QString snapshotKey;
   int position = 0;
-  if (!cursor.isEmpty()) {
-    const auto invalid = m->validateCursor(cursor, nowMs, &snapshotKey, &position);
-    if (!invalid.isEmpty())
-      return discoveryFailure(invalid);
-    const auto found = m->snapshots.constFind(snapshotKey);
-    if (found == m->snapshots.cend() || found->expiresAt < nowMs)
-      return discoveryFailure(QStringLiteral("cursor_expired"));
-    if (found->documentId != scan.documentId || found->callerScope != scan.callerScope ||
-        found->project != scan.projectDir)
-      return discoveryFailure(QStringLiteral("cursor_scope_mismatch"));
-    if (found->queryDigest != digest)
-      return discoveryFailure(QStringLiteral("cursor_query_mismatch"));
-    if (position > found->rows.size())
-      return discoveryFailure(QStringLiteral("cursor_invalid"));
-    snapshotKey = found.key(); // 快照已定位且本调用内不再变更 snapshots。
-  } else {
-    // 新查询：一次受权读取（W2/W3）。扫描在 worker 线程；OperationLog 的
-    // 目录互斥与既有 get/events 读路径同口径——每快照一次，不逐页重扫。
-    if (cancelled && cancelled())
-      return discoveryFailure(QStringLiteral("cancelled"));
-    OperationLog log(scan.operationDir, scan.projectDir, scan.writeClaim);
-    const auto scoped = log.snapshotScope(scan.documentId, scan.callerScope);
-    ++m->scans;
-    if (scoped.code != QLatin1String("ok"))
-      return discoveryFailure(QStringLiteral("operation_log_unavailable"));
+  const auto invalid = m->validateCursor(cursor, nowMs, &snapshotKey, &position);
+  if (!invalid.isEmpty())
+    return discoveryFailure(invalid);
+  const auto found = m->snapshots.constFind(snapshotKey);
+  if (found == m->snapshots.cend() || found->expiresAt < nowMs)
+    return discoveryFailure(QStringLiteral("cursor_expired"));
+  if (found->documentId != scan.documentId || found->callerScope != scan.callerScope ||
+      found->project != scan.projectDir)
+    return discoveryFailure(QStringLiteral("cursor_scope_mismatch"));
+  if (found->queryDigest != digest)
+    return discoveryFailure(QStringLiteral("cursor_query_mismatch"));
+  if (position > found->rows.size())
+    return discoveryFailure(QStringLiteral("cursor_invalid"));
+  return pageFromSnapshotLocked(found.key(), position, relations, anchor, pageSize, maxBytes, cursor);
+}
 
-    QHash<QString, int> consumers; // operationId -> 同 scope 直接消费者数
-    QHash<QString, int> rowIndex;
-    for (int i = 0; i < scoped.records.size(); ++i) {
-      const auto &record = scoped.records.at(i);
-      rowIndex.insert(record.operationId, i);
-      const auto source = record.frozenRequest.value(QStringLiteral("sourceOperationId")).toString();
-      if (!source.isEmpty())
-        consumers[source] = consumers.value(source, 0) + 1;
-    }
-
-    Impl::Snapshot built;
-    built.key = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    built.queryDigest = digest;
-    built.project = scan.projectDir;
-    built.documentId = scan.documentId;
-    built.callerScope = scan.callerScope;
-    built.journalDigest = QString::fromLatin1(scoped.journalDigest.toHex());
-    built.journalIncomplete = scoped.quarantinedRows > 0;
-    built.expiresAt = nowMs + m->policy.ttlMs;
-
-    if (relations) {
-      if (!rowIndex.contains(anchor)) {
-        // 与 lookupRecordById 同口径区分隔离与不存在（G4 语义）；两者都不
-        // 启动关系分页，也不泄漏他人条目。
-        return discoveryFailure(scoped.quarantinedIds.contains(anchor)
-                                    ? QStringLiteral("operation_record_quarantined")
-                                    : QStringLiteral("operation_not_found"));
-      }
-      built.rows = m->relationRows(scoped.records, rowIndex, anchor);
-      built.sortKey = QStringLiteral("relation-kind@1");
-    } else {
-      for (int i = 0; i < scoped.records.size(); ++i) {
-        if (cancelled && (i % kCancelStride) == 0 && cancelled())
-          return discoveryFailure(QStringLiteral("cancelled"));
-        const auto &record = scoped.records.at(i);
-        if (!stateFilter.isEmpty() && record.execution != stateFilter)
-          continue;
-        if (!capabilityFilter.isEmpty() && record.capabilityId != capabilityFilter)
-          continue;
-        built.rows.append(summaryRow(record, consumers.value(record.operationId, 0)));
-      }
-      built.sortKey = QStringLiteral("operationId-lex@1");
-    }
-    built.matched = int(built.rows.size());
-    qint64 bytes = 512;
-    for (const auto &row : built.rows)
-      bytes += rowBytes(row);
-    built.bytes = bytes;
-    // 缓存满给结构化失败（W3）：只回收过期项，不挤掉仍有效的分页承诺。
-    if (m->snapshots.size() >= m->policy.maxSnapshots || m->cachedBytes + bytes > m->policy.maxCacheBytes)
-      return discoveryFailure(QStringLiteral("discovery_cache_full"));
-    snapshotKey = built.key;
-    m->cachedBytes += bytes;
-    m->snapshots.insert(snapshotKey, std::move(built));
-    position = 0;
-  }
+// 调用方已持有 m->mutex。
+QJsonObject OperationDiscovery::pageFromSnapshotLocked(const QString &snapshotKey, int position, bool relations,
+                                                        const QString &anchor, int pageSize, int maxBytes,
+                                                        const QString &consumedCursor) {
   const auto &snapshot = m->snapshots.value(snapshotKey);
-
-  // 3) 从不可变快照取页：单行超预算报 minimumBytes，不截断 ID、不静默丢条。
+  // 从不可变快照取页：单行超预算报 minimumBytes，不截断 ID、不静默丢条。
   QJsonArray page;
   int index = position;
   for (; index < snapshot.rows.size(); ++index) {
@@ -439,17 +473,26 @@ QJsonObject OperationDiscovery::query(const DiscoveryScan &scan, const QJsonObje
     result.insert(QStringLiteral("anchorOperationId"), anchor);
   result.insert(QStringLiteral("returnedCount"), int(page.size()));
   result.insert(QStringLiteral("hasMore"), hasMore);
-  result.insert(QStringLiteral("nextCursor"), QJsonValue::Null);
+  QString next;
   if (hasMore) {
     if (int(m->cursors.size()) >= m->policy.maxCursors)
       return discoveryFailure(QStringLiteral("cursor_capacity_exceeded"));
     const auto expiry = m->now() + m->policy.ttlMs;
-    const QString next = m->cursorToken(snapshot.key, index, expiry);
+    next = m->cursorToken(snapshot.key, index, expiry);
     result.insert(QStringLiteral("nextCursor"), next);
     m->cursors.insert(next, Impl::CursorSlot{snapshot.key, expiry});
+    // 游标有界（W4）：消费下一续页即确认收到上一页——同一快照只保留
+    // 「刚消费的可重试游标 + 新发的续页游标」，更早的位置按已超越回收
+    //（重放旧位置得明确的 cursor_expired，不静默回第一页）；跨快照互不影响。
+    for (auto it = m->cursors.begin(); it != m->cursors.end();) {
+      if (it.key() != consumedCursor && it.key() != next && it->snapshotKey == snapshot.key)
+        it = m->cursors.erase(it);
+      else
+        ++it;
+    }
   }
   result.insert(QStringLiteral("coverage"), QJsonObject{
-      {QStringLiteral("documentId"), scan.documentId},
+      {QStringLiteral("documentId"), snapshot.documentId},
       {QStringLiteral("journalDigest"), snapshot.journalDigest},
       {QStringLiteral("journalHealth"), snapshot.journalIncomplete ? QStringLiteral("incomplete") : QStringLiteral("ok")},
       {QStringLiteral("snapshotPolicy"), QStringLiteral("immutable-snapshot@1")},
@@ -459,8 +502,8 @@ QJsonObject OperationDiscovery::query(const DiscoveryScan &scan, const QJsonObje
   result.insert(QStringLiteral("note"), QStringLiteral(
       "Recorded journal facts from one immutable read; query paleo.operation_get for reconciled current state."));
   if (QJsonDocument(result).toJson(QJsonDocument::Compact).size() > maxBytes) {
-    if (hasMore)
-      m->cursors.remove(result.value(QStringLiteral("nextCursor")).toString());
+    if (!next.isEmpty())
+      m->cursors.remove(next);
     return discoveryFailure(QStringLiteral("discovery_response_budget_exceeded"));
   }
   return result;

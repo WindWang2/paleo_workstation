@@ -420,7 +420,7 @@ void H4OperationDiscovery::bulkJournalPagesWithoutRescan() {
   QString cursor;
   int pages = 0;
   forever {
-    QJsonObject args{{QStringLiteral("page_size"), 32}};
+    QJsonObject args{{QStringLiteral("page_size"), 32}, {QStringLiteral("max_bytes"), 24576}};
     if (!cursor.isEmpty())
       args.insert(QStringLiteral("cursor"), cursor);
     const auto page = service.query(scan, args);
@@ -431,6 +431,8 @@ void H4OperationDiscovery::bulkJournalPagesWithoutRescan() {
     // 一次快照顺序分页：续页不再全文件解析（扫描计数不涨），字节预算内。
     QCOMPARE(service.scanCount(), 1);
     QVERIFY(QJsonDocument(page).toJson(QJsonDocument::Compact).size() <= 24576);
+    // 游标有界：同快照只保留「可重试 + 续页」两个，不随页数增长。
+    QVERIFY(service.liveCursors() <= 2);
     cursor = page.value(QStringLiteral("nextCursor")).toString();
     if (cursor.isEmpty())
       break;
@@ -440,7 +442,28 @@ void H4OperationDiscovery::bulkJournalPagesWithoutRescan() {
   QCOMPARE(walked, expected); // 无重复/遗漏，序 = operationId 字典序
   QVERIFY(service.retainedBytes() > 0);
   QCOMPARE(service.liveSnapshots(), 1);
-  QCOMPARE(service.liveCursors(), 124); // 除末页外每页一个游标，TTL 内不回收
+  QCOMPARE(service.liveCursors(), 1); // 末页后仅剩刚消费的可重试游标
+  // 缺省预算（更小页）同样能走完整本：游标回收使长遍历不受 maxCursors 限制。
+  OperationDiscovery small;
+  QStringList smallWalked;
+  QString smallCursor;
+  int smallPages = 0;
+  forever {
+    QJsonObject args;
+    if (!smallCursor.isEmpty())
+      args.insert(QStringLiteral("cursor"), smallCursor);
+    const auto page = small.query(scan, args);
+    QVERIFY2(page.value(QStringLiteral("ok")).toBool(),
+             qPrintable(page.value(QStringLiteral("code")).toString()));
+    smallWalked.append(operationIds(page));
+    ++smallPages;
+    QCOMPARE(small.scanCount(), 1);
+    smallCursor = page.value(QStringLiteral("nextCursor")).toString();
+    if (smallCursor.isEmpty())
+      break;
+  }
+  QVERIFY(smallPages > 125); // 缺省 8192-1024 行区 < 32 行/页
+  QCOMPARE(smallWalked, expected);
 }
 
 void H4OperationDiscovery::budgetCursorAndCacheDiscipline() {
@@ -463,15 +486,30 @@ void H4OperationDiscovery::budgetCursorAndCacheDiscipline() {
   OperationDiscovery service;
   service.setClock([&] { return now; });
 
-  // 单行超页预算：明确 minimumBytes，不截断 ID、不静默丢条。
-  auto page = service.query(scan, {{QStringLiteral("max_bytes"), 2048}});
-  if (page.value(QStringLiteral("code")).toString() == QLatin1String("page_budget_too_small")) {
-    QVERIFY(page.value(QStringLiteral("minimumBytes")).toInt() > 2048);
-  } else {
-    QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  // 单行超页预算：明确 minimumBytes，不截断 ID、不静默丢条。加一条超长
+  // requestHash 的行，使该分支在最小预算下必然触发。
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto rows = QJsonDocument::fromJson(file.readAll()).array();
+    file.close();
+    auto big = syntheticRow("doc", scope, "big");
+    big.insert(QStringLiteral("requestHash"), QString(2000, QChar('x')));
+    big.insert(QStringLiteral("capabilityId"), QStringLiteral("h4.big"));
+    QJsonArray edited = rows;
+    edited.append(big);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(edited).toJson(QJsonDocument::Compact));
   }
+  OperationDiscovery tinyRows;
+  const auto tooSmall = tinyRows.query(scan, {{QStringLiteral("max_bytes"), 2048},
+                                              {QStringLiteral("capability_id"), QStringLiteral("h4.big")},
+                                              {QStringLiteral("page_size"), 1}});
+  // 过滤只留 big 行：单行即超 2048-1024 行区 → page_budget_too_small。
+  QCOMPARE(tooSmall.value(QStringLiteral("code")).toString(), QStringLiteral("page_budget_too_small"));
+  QVERIFY(tooSmall.value(QStringLiteral("minimumBytes")).toInt() > 2048);
 
-  page = service.query(scan, {{QStringLiteral("page_size"), 1}});
+  QJsonObject page = service.query(scan, {{QStringLiteral("page_size"), 1}});
   QVERIFY(page.value(QStringLiteral("ok")).toBool());
   const QString cursor = page.value(QStringLiteral("nextCursor")).toString();
   QVERIFY(!cursor.isEmpty());
@@ -522,11 +560,9 @@ void H4OperationDiscovery::snapshotImmutabilityWhileBusinessAdvances() {
   second = log.recordById(second.operationId);
   QCOMPARE(begin(log, first), QLatin1String("ok"));
   QCOMPARE(begin(log, second), QLatin1String("ok"));
-  ProjectDirLock lock(root.path());
-  QVERIFY(lock.tryLock());
   OperationDiscovery service;
   const DiscoveryScan scan{QFileInfo(root.path()).canonicalFilePath(), logDir(root.path()), "doc", scope,
-                           lock.claim()};
+                           host.lock->claim()};
   // 页 1（小页，必有续页）后业务推进：另一条记录转 failed。
   auto page = service.query(scan, {{QStringLiteral("page_size"), 1}});
   QVERIFY(page.value(QStringLiteral("ok")).toBool());

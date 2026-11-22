@@ -54,6 +54,12 @@ public:
   void setClock(std::function<qint64()> clock);
 
 private:
+  // 以下两个 helper 由 query() 在已持有 Impl 互斥的路径上调用。
+  QJsonObject pageFromCursor(const DiscoveryScan &scan, const QString &digest, const QString &cursor,
+                             bool relations, const QString &anchor, int pageSize, int maxBytes);
+  QJsonObject pageFromSnapshotLocked(const QString &snapshotKey, int position, bool relations,
+                                     const QString &anchor, int pageSize, int maxBytes,
+                                     const QString &consumedCursor);
   struct Impl;
   std::unique_ptr<Impl> m;
 };

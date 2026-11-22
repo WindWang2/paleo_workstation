@@ -94,8 +94,9 @@ void CapabilityRecovery::invalidateRuntimeHooks(bool cancelRunning) {
   m_runtimeHooks.clear();
   if(cancelRunning){m_runtimeDocument.clear();m_runtimeProject.clear();m_runtimeEpoch=0;}
   // H4：宿主绑定/会话身份变化即丢弃发现快照与游标——旧作用域的分页不再
-  // 可用，也不与新上下文的查询合并。
-  if(m_discovery)m_discovery->invalidate();
+  // 可用，也不与新上下文的查询合并；reset 使完成侧 service 代次检查生效
+  //（在途 worker 持 shared_ptr 安全收尾，结果按 stale_session 丢弃）。
+  if(m_discovery){m_discovery->invalidate();m_discovery.reset();}
 }
 void CapabilityRecovery::setTaskService(PaleoTaskService *tasks){m_tasks=tasks;}
 void CapabilityRecovery::setCheckpointHook(std::function<void(const QString&)> hook){m_checkpoint=std::move(hook);}

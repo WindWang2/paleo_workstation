@@ -168,7 +168,9 @@ void H4OperationListTool::toolDeclaredAndDispatchable() {
     QCOMPARE(dispatch.status, AiToolDispatchStatus::Routed);
     // 严格外部档：合法实参通过，坏枚举/坏类型拒绝。
     QCOMPARE(spec.validateExternalArguments({{QStringLiteral("view"), QStringLiteral("relations")}}), QString());
-    QVERIFY(!spec.validateExternalArguments({{QStringLiteral("view"), QStringLiteral("everything")}}).isEmpty());
+    // 词表封闭在宽松档（validateParameters，经 dispatchAiTool 执行）；
+    // 严格档管 integer/number 表示与数值域。
+    QVERIFY(!spec.validateParameters({{QStringLiteral("view"), QStringLiteral("everything")}}).isEmpty());
     QVERIFY(!spec.validateExternalArguments({{QStringLiteral("page_size"), QStringLiteral("16")}}).isEmpty());
     QVERIFY(!spec.validateExternalArguments({{QStringLiteral("page_size"), 0}}).isEmpty());
     QVERIFY(!spec.validateExternalArguments({{QStringLiteral("page_size"), 33}}).isEmpty());
@@ -268,8 +270,9 @@ void H4OperationListTool::invalidationDropsInFlightResult() {
   ToolHost host;
   QString operationId, error;
   QVERIFY2(host.createCommittedOperation(&operationId, &error), qPrintable(error));
-  // taskAdded 内同步重绑（真实换 projectDir → invalidateContext）：旧帧被
-  // 作废——finishActive 不投递（toolFinished 无帧），与新请求的句柄互不干扰。
+  // taskAdded 内同步重绑（真实换 projectDir → invalidateContext）：旧摘要
+  // 不投递——帧按 stale_session 单帧终态（与既有 tst_aichatcapability 口径
+  // 一致），迟到业务结果不回灌，新请求句柄不被旧回调清掉。
   QTemporaryDir other;
   AiChatToolContext rebound;
   {
@@ -291,9 +294,14 @@ void H4OperationListTool::invalidationDropsInFlightResult() {
   for (int i = 0; i < 20; ++i)
     QCoreApplication::processEvents();
   QObject::disconnect(added);
-  QCOMPARE(finished.size(), 0); // 旧帧零回灌
-  // 收尾后（作废帧清出队列）恢复正常：重新绑定原上下文，list 正常完成。
-  host.runner.cancel();
+  // 与既有口径一致（tst_aichatcapability::contextChangeDuringTaskAddedCancelsTheTask）：
+  // 重绑帧恰有一帧终态，按 stale_session 如实回灌，不投递旧摘要。
+  QCOMPARE(finished.size(), 1);
+  const auto record = finished.takeFirst();
+  QVERIFY(!record.at(1).toBool());
+  const auto stalePayload = QJsonDocument::fromJson(record.at(2).toString().toUtf8()).object();
+  QCOMPARE(stalePayload.value(QStringLiteral("code")).toString(), QStringLiteral("stale_session"));
+  // 恢复正常：重新绑定原上下文，list 正常完成（旧回调不清掉新请求句柄）。
   AiChatToolContext restored;
   restored.capabilityHost = &host.host;
   restored.requireCapabilityHost = true;

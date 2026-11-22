@@ -95,6 +95,7 @@ Source gates（`tools/` Python 检查器 + `cmake -P`）：
 
 ### 未覆盖项 / 限制（如实记录）
 
+- **`tst_shell_projectlifecycle::surfaceOpsGateFetchesProjectAtCallTime` 失败为基线既有**：本任务曾把全部 G1 改动临时回退到 `dd73a322`（新文件移出、5 个 base 文件 checkout、CMake fragment 清空、重新 configure/build）后重跑同一用例，**同样失败**（`'seen' returned FALSE`，门提示「需要至少两个已声明的栅格图层」）。结论：该失败来自离屏环境下假栅格源（`/fake/r1.tif`）不可解析的环境因素，与 G1 改动无关；同一二进制重跑不自行恢复（非抖动）。G1 改动已完整恢复并重新验证（51+18 绿）。
 - 真实系统钥匙串（libsecret/Windows 凭据管理器）路径未在本地跑：`PALEO_HAVE_QTKEYCHAIN` 已启用，但钥匙串操作经注入式 FakeStore 测试；`defaultLlmConfigCommitHooks` 的真实 LlmKeyStore 路径只做了编译与契约核对，未做真实钥匙串 round-trip（需人工/交互环境）。
 - Windows 平台未跑（本任务在 Linux 验证）；NativeFormat QSettings/注册表隔离是 Windows 侧既有机制，本任务未触碰。
 - `--transitive` func/ui 两指标未本地全闸（需 QGIS 头目录；权威在 CI lint 车道）。

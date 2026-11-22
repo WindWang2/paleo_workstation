@@ -470,10 +470,13 @@ void TestH2SessionArchive::admissionMathBoundaries() {
   QString reason;
   QVERIFY(paleo::chat::chatArchiveAcceptsTurn(empty, QStringLiteral("hi"), budget, &reason));
 
-  // 用户输入恰好把余量用完：放行；再加 1 字符：拒绝。
+  // 用户输入恰好把余量用完：放行；再加 1 字符：拒绝。探针与生产同形
+  //（timestamp + 32 码元 host_turn_id——见 chatArchiveAcceptsTurn）。
   const qint64 base = paleo::chat::chatArchiveSerializedBytes(empty);
   ChatMessage probe;
   probe.role = ChatRole::User;
+  probe.timestamp = QDateTime::currentDateTimeUtc();
+  probe.hostTurnId = QString(32, QLatin1Char('0'));
   const qint64 room = budget.maxArchiveBytes - budget.turnReserve() -
                       budget.titleReserve() - base;
   QVERIFY(room > 4);

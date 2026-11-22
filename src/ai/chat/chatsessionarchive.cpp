@@ -2,6 +2,7 @@
 #include "chatsessionarchive.h"
 #include "services/toolresultprotocol.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -346,6 +347,10 @@ bool chatArchiveAcceptsTurn(const ChatSession &session, const QString &userText,
   ChatMessage user;
   user.role = ChatRole::User;
   user.content = userText;
+  // 与真实落盘形态一致：appendMessage 写 timestamp，startEngineTurn 赋
+  // host_turn_id（QUuid::Id128 = 32 码元）——探针按此精确计，不留缺口。
+  user.timestamp = QDateTime::currentDateTimeUtc();
+  user.hostTurnId = QString(32, QLatin1Char('0'));
   // 用户消息本体按精确序列化计（此刻可算）；其后的一轮增量按最坏预留
   //（含轮中合法 rename 的标题余量——改名不消耗本轮响应余量）。
   const qint64 projected = chatArchiveSerializedBytesWithMessage(session, user) +

@@ -88,10 +88,9 @@ void AiChatRecentSummaries::refresh(int limit) {
 void AiChatRecentSummaries::startRepair(
     const QVector<paleo::chat::ChatArchiveFileStamp> &candidates) {
   auto run = std::make_shared<RepairRun>();
-  const QString root = ChatSessionStore::directory();
   PaleoTask *task = m_service->startApplication(
     tr("重建会话列表索引"),
-    [root, candidates, run](PaleoTask *task) -> QString {
+    [candidates, run](PaleoTask *task) -> QString {
       // 池线程 worker：纯文件 IO（有界读 + sidecar 写）；只回填共享
       // RepairRun，不触碰协调器/GUI 对象。每文件之间协作取消。
       const auto outcome = paleo::chat::repairChatArchiveSummaries(

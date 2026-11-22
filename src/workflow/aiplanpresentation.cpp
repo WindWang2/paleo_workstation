@@ -196,8 +196,8 @@ bool decodeNodesEdges(const QJsonArray &nodeArray, const QJsonArray &edgeArray,
           it.key() != QLatin1String("to") && it.key() != QLatin1String("to_port"))
         return fail(QStringLiteral("unknown_field"), path + QLatin1Char('.') + it.key());
     paleo::capability::PlanEdge edge;
-    for (const auto key : {QStringLiteral("from"), QStringLiteral("from_port"),
-                           QStringLiteral("to"), QStringLiteral("to_port")}) {
+    for (const auto &key : {QStringLiteral("from"), QStringLiteral("from_port"),
+                            QStringLiteral("to"), QStringLiteral("to_port")}) {
       QString *target = key == QLatin1String("from") ? &edge.from
           : key == QLatin1String("from_port") ? &edge.fromPort
           : key == QLatin1String("to") ? &edge.to : &edge.toPort;
@@ -220,18 +220,31 @@ QJsonObject normalizedNodeJson(const paleo::capability::PlanNode &node) {
           {QStringLiteral("inputs"), QJsonObject::fromVariantMap(node.inputs)}};
 }
 
+QVector<QJsonValue> jsonValues(const QJsonArray &array) {
+  QVector<QJsonValue> values;
+  values.reserve(int(array.size()));
+  for (const auto &value : array)
+    values.append(value);
+  return values;
+}
+
 QJsonArray sortedNodeArray(const QJsonObject &graph) {
-  auto array = graph.value(QStringLiteral("nodes")).toArray();
-  std::stable_sort(array.begin(), array.end(),
+  // QJsonArray 迭代器解引用为 QJsonValueRef，无可行 swap——拷贝到
+  // QVector 排序后重建（节点数 ≤32，成本可忽略）。
+  const auto values = jsonValues(graph.value(QStringLiteral("nodes")).toArray());
+  std::stable_sort(values.begin(), values.end(),
                    [](const QJsonValue &a, const QJsonValue &b) {
                      return a.toObject().value(QStringLiteral("id")).toString() <
                             b.toObject().value(QStringLiteral("id")).toString();
                    });
-  return array;
+  QJsonArray sorted;
+  for (const auto &value : values)
+    sorted.append(value);
+  return sorted;
 }
 
 QJsonArray sortedEdgeArray(const QJsonObject &graph) {
-  auto array = graph.value(QStringLiteral("edges")).toArray();
+  const auto values = jsonValues(graph.value(QStringLiteral("edges")).toArray());
   const auto key = [](const QJsonValue &value) {
     const auto edge = value.toObject();
     return QStringList{edge.value(QStringLiteral("from")).toString(),
@@ -240,9 +253,12 @@ QJsonArray sortedEdgeArray(const QJsonObject &graph) {
                        edge.value(QStringLiteral("to_port")).toString()}.join(
         QChar::fromLatin1('|'));
   };
-  std::stable_sort(array.begin(), array.end(),
+  std::stable_sort(values.begin(), values.end(),
                    [&key](const QJsonValue &a, const QJsonValue &b) { return key(a) < key(b); });
-  return array;
+  QJsonArray sorted;
+  for (const auto &value : values)
+    sorted.append(value);
+  return sorted;
 }
 
 QJsonObject factsFromResult(const paleo::capability::ExecuteResult &result) {
@@ -553,10 +569,10 @@ QString AiPlanPresentation::openProposal(const QJsonObject &payload,
 
 AiPlanPresentation::DraftView AiPlanPresentation::draft(const QString &draftId) const {
   DraftView view;
-  view.draftId = draftId;
   const auto *draft = findDraft(draftId);
   if (!draft)
-    return view;
+    return view; // 未知 id：draftId 留空，调用方守卫可判别
+  view.draftId = draftId;
   view.sourceToolCallId = draft->sourceToolCallId;
   view.revision = draft->revision;
   view.preflightValid = draft->preflightValid;
@@ -811,7 +827,7 @@ bool AiPlanPresentation::requestOriginalOperation(const QString &draftId, QStrin
     return false;
   const auto scope = m_deps.host->callerScope(paleo::host::Caller::Agent,
                                               guard.chatSessionId);
-  const auto *service = m_deps.host->recovery();
+  auto *service = m_deps.host->recovery();
   // 已知 operationId 直接 get；否则按稳定请求身份 lookup（确定性重建，
   // 不需要 operation_list）。二者都只读原操作，不新起计算；来源不足或
   // 原操作不存在时如实报告不可恢复，不自动发起新计算冒充恢复。

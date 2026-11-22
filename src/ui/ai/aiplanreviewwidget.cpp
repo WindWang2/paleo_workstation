@@ -223,8 +223,8 @@ AiPlanReviewWidget::AiPlanReviewWidget(QWidget *parent) : QWidget(parent) {
     if (!m_presenter || m_draftId.isEmpty())
       return;
     QString reason;
-    if (!m_presenter->requestPreflight(m_draftId, &reason))
-      refreshStatusLine(reason.isEmpty() ? tr("预检未开始：%1").arg(reason) : QString());
+    if (!m_presenter->requestPreflight(m_draftId, &reason) && !reason.isEmpty())
+      refreshStatusLine(tr("预检未开始：%1").arg(reason));
   });
   connect(m_compute, &QPushButton::clicked, this, [this] {
     if (!m_presenter || m_draftId.isEmpty())
@@ -277,7 +277,6 @@ void AiPlanReviewWidget::handlePresenterSignals() {
 }
 
 void AiPlanReviewWidget::openProposal(const QJsonObject &payload, const QString &toolCallId) {
-  m_toolCallId = toolCallId;
   if (!m_presenter) {
     showRefusal(QStringLiteral("plan_host_or_session_unavailable"),
                 tr("计划审阅服务未接入（宿主/会话不可用）"));
@@ -438,6 +437,8 @@ void AiPlanReviewWidget::rebuildNodeDetail() {
   }
   if (node.isEmpty()) {
     m_nodeFacts->setText(tr("节点 %1 不在当前修订中").arg(nodeId));
+    m_params->setRowCount(0);
+    m_points->setRowCount(0);
     return;
   }
   const auto effective = view.lastPayload.value(QStringLiteral("effective_parameters"))

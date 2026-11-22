@@ -36,7 +36,7 @@ QJsonObject twoStepArguments() {
                         {"intent", "compute-only"},
                         {"parameters", QJsonObject{{"FIELD", "z"}, {"CELL_SIZE", 25.0}}},
                         {"inputs", QJsonObject{{"points", points},
-                                               {"subinterval_id", "S1"}}};
+                                               {"subinterval_id", "S1"}}}};
   const QJsonObject contour{{"id", "contours"},
                             {"capability", "singlefactor.contours"},
                             {"contract_version", 1},

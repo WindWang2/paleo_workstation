@@ -80,7 +80,7 @@ QJsonObject validTwoStepGraph() {
                         {"intent", "compute-only"},
                         {"parameters", QJsonObject{{"FIELD", "z"}, {"CELL_SIZE", 25.0}}},
                         {"inputs", QJsonObject{{"points", points},
-                                               {"subinterval_id", "S1"}}};
+                                               {"subinterval_id", "S1"}}}};
   const QJsonObject contour{{"id", "contours"},
                             {"capability", "singlefactor.contours"},
                             {"contract_version", 1},
@@ -101,13 +101,6 @@ QJsonObject previewPayloadFor(const QJsonObject &graph) {
   return paleo::chat::planPreviewPayload(plan, decoded.nodes, decoded.edges, {}, {});
 }
 
-bool spinUntil(const std::function<bool()> &done, int timeoutMs = 30000) {
-  QElapsedTimer clock;
-  clock.start();
-  while (!done() && clock.elapsed() < timeoutMs)
-    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
-  return done();
-}
 } // namespace
 
 class TestH5PlanPresentation : public QObject {

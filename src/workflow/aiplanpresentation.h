@@ -157,6 +157,7 @@ private:
     QString graphDigest;
     bool executionEligible = false;
     QString ineligibleReason;
+    QString clientRequestId;                // 最近一次显式计算的请求身份
     QString operationId, execution, commitState, presentation, requestHash, acceptedNote;
     quint64 execGeneration = 0;            // 在途执行匹配（晚结果归属）
   };

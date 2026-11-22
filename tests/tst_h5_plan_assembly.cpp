@@ -67,7 +67,7 @@ QString planPreviewArguments() {
                         {"intent", "compute-only"},
                         {"parameters", QJsonObject{{"FIELD", "z"}, {"CELL_SIZE", 25.0}}},
                         {"inputs", QJsonObject{{"points", points},
-                                               {"subinterval_id", "S1"}}};
+                                               {"subinterval_id", "S1"}}}};
   const QJsonObject contour{{"id", "contours"},
                             {"capability", "singlefactor.contours"},
                             {"contract_version", 1},
@@ -299,11 +299,11 @@ void TestH5PlanAssembly::captureAssemblyScreenshots() {
   // 用户修改一个点值（修订走查）。
   auto *points = panel->findChild<QTableWidget *>(QStringLiteral("aiPlanReviewPoints"));
   points->item(0, 2)->setText(QStringLiteral("3.5"));
- PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+  PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
   QVERIFY(m_win->grab().save(dir + QStringLiteral("/h5-assembly-light.png")));
   PaleoTheme::applyTheme(PaleoTheme::Theme::Dark);
   QVERIFY(m_win->grab().save(dir + QStringLiteral("/h5-assembly-dark.png")));
-  PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+   PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
   m_win->resize(720, 600);
   QVERIFY(m_win->grab().save(dir + QStringLiteral("/h5-assembly-narrow.png")));
 }

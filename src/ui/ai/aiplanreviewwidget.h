@@ -49,7 +49,7 @@ protected:
 private:
   void rebuild();                       // 从 adapter DraftView 整体重建（含修订对照）
   void rebuildNodeDetail();             // 选中节点的参数/输入/端口
-  void refreshStatusLine();
+  void refreshStatusLine(const QString &extra = QString());
   void refreshActionStates();           // 按钮 enabled = adapter 同一判定
   void applyEdits();                    // 有界编辑 → adapter::updateDraftGraph
   QJsonObject buildEditedGraph() const; // 从控件状态组装规范化图 JSON
@@ -64,7 +64,6 @@ private:
 
   QPointer<paleo::chat::AiPlanPresentation> m_presenter;
   QString m_draftId;
-  QString m_toolCallId;
   bool m_rebuilding = false;   // 重建期间屏蔽 itemChanged 回灌
   QLabel *m_title = nullptr;
   QLabel *m_status = nullptr;  // 预检/执行状态行（失败原因常驻）

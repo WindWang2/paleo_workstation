@@ -255,7 +255,9 @@ void TestH5PlanWorkbench::themeAndNarrowSizesRenderWithoutCrash() {
   panel.openProposal(previewPayloadFor(validTwoStepGraph()), "call-ui-5");
   QTest::mouseClick(button(&panel, "aiPlanReviewPreflight"), Qt::LeftButton);
   PaleoTheme::applyTheme(PaleoTheme::Theme::Dark);
-  QTRY_VERIFY(panel.findChild<QLabel *>(QStringLiteral("aiPlanReviewTitle")) != nullptr);
+  // 主题切换重建 token 依赖样式：审阅态与内容保留（不是只查控件存在）。
+  QVERIFY(panel.reviewing());
+  QCOMPARE(panel->findChildren<QListWidget *>(QStringLiteral("aiPlanReviewSteps")).first()->count(), 2);
   PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
   panel.resize(320, 480); // 窄 Dock 形态
   QVERIFY(panel.grab().size().width() > 0);

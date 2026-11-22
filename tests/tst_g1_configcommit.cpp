@@ -163,6 +163,7 @@ private slots:
   void contextDeathDropsDoneButChainContinues();
   void applyConfigDelegatesThroughController();
   void applyHappensBeforeDoneCallback();
+  void failedSubmitNeverApplies();
 
 private:
   static bool fileHasModel(const QByteArray &bytes, const QString &model) {
@@ -462,23 +463,41 @@ void TestG1ConfigCommit::applyConfigDelegatesThroughController() {
   QCOMPARE(controller.config().model, QStringLiteral("m1")); // 未被污染
 }
 
+// 契约：done(ok) 触发时配置**已生效**——用共享 trace 直接观测 apply/done
+// 的真实先后（不是「done 里看得到值」这种间接推断）。
 void TestG1ConfigCommit::applyHappensBeforeDoneCallback() {
   FakeStore store;
   LlmConfigCommitter committer;
   committer.setHooks(store.hooks());
-  QString modelAtDone;
+  QStringList trace;
   QObject context;
   committer.submit(form("m1"), "k1", false, form("m0"), &context,
-                   [&](bool, const QString &) {
-                     // done 触发时生效配置应已就绪（契约：ok 时已生效）。
-                     modelAtDone = QStringLiteral("seen");
+                   [&trace](bool ok, const QString &) {
+                     trace.append(QStringLiteral("done:%1").arg(ok ? 1 : 0));
                    },
-                   [](const LlmConfig &) {});
-  // 先 apply 后 done 的次序由 committer 保证；这里从可观察面验证 done 恰好
-  // 触发一次且在 apply 之后（ops 已含 writeKey——apply 只在 writeKey 成功后）。
+                   [&trace](const LlmConfig &applied) {
+                     trace.append(QStringLiteral("apply:%1").arg(applied.model));
+                   });
   store.settlePending();
-  QCOMPARE(modelAtDone, QStringLiteral("seen"));
+  QCOMPARE(trace, (QStringList{"apply:m1", "done:1"}));
   QCOMPARE(store.ops.last(), QStringLiteral("writeKey:k1"));
+}
+
+// 失败提交不得 apply（生效面不被污染），done 仍恰好一次。
+void TestG1ConfigCommit::failedSubmitNeverApplies() {
+  FakeStore store;
+  store.failWriteKey = 1;
+  LlmConfigCommitter committer;
+  committer.setHooks(store.hooks());
+  QStringList trace;
+  QObject context;
+  committer.submit(form("m1"), "k1", false, form("m0"), &context,
+                   [&trace](bool ok, const QString &) {
+                     trace.append(QStringLiteral("done:%1").arg(ok ? 1 : 0));
+                   },
+                   [&trace](const LlmConfig &) { trace.append(QStringLiteral("apply")); });
+  store.settlePending();
+  QCOMPARE(trace, (QStringList{"done:0"}));
 }
 
 int main(int argc, char *argv[]) {

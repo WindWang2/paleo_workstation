@@ -359,6 +359,8 @@ private slots:
   void parserManyTinyLinesInOneFeedStayLinear();
   void parserExplicitEmptyObjectIsSealed();
   void parserHugeIndexIsBounded();
+  void parserFractionalOrOutOfRangeIndexIsDropped();
+  void parserDeliversSealedCallsInIndexOrder();
   // W1：attempt 冻结与同步订阅者。
   void attemptFreezesStreamEndpointAndKey();
   void sendReplacesAttemptOldAttemptStaysSilent();
@@ -375,6 +377,7 @@ private slots:
   void redirectLocationIsRedacted();
   void eofWithBrokenTailFailsMalformed();
   void normalCloseWithoutDoneTolerated();
+  void singleUnterminatedEventWithoutBlankLineSucceeds();
   void errorEnvelope200FailsHonestly();
   void emptyChoicesNonStreamFails();
   void nonObjectMessageFails();
@@ -708,6 +711,56 @@ void TestG1ModelTransport::parserExplicitEmptyObjectIsSealed() {
   QCOMPARE(calls.size(), 1);
   QCOMPARE(calls.first().argumentsJson, QStringLiteral("{}"));
   QVERIFY(calls.first().hasValidArguments());
+}
+
+// 非整数 / 越界 index：如实丢弃（不得与真实 index 0 合并混段）。
+void TestG1ModelTransport::parserFractionalOrOutOfRangeIndexIsDropped() {
+  LlmStreamParser parser;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  parser.feed(toolEvent(0, "paleo.query_project", "{\"topic\":\"wells\"}", "ok")
+                  .replace("\"index\":0", "\"index\":0.5"),
+              &deltas, &done, &error);
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+  QCOMPARE(parser.takeCompleteCalls(&error).size(), 0); // 0.5 不是合法 index
+  parser.feed(toolEvent(0, "paleo.query_project", "{\"topic\":\"wells\"}", "ok2")
+                  .replace("\"index\":0", "\"index\":1e300"),
+              &deltas, &done, &error);
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+  QCOMPARE(parser.takeCompleteCalls(&error).size(), 0); // 越界不得并入 index 0
+  // 正常 index 仍照常交付（上述丢弃没有破坏解析器状态）。
+  parser.feed(toolEvent(0, "paleo.query_project", "{\"topic\":\"wells\"}", "ok3"),
+              &deltas, &done, &error);
+  const auto calls = parser.takeCompleteCalls(&error);
+  QCOMPARE(calls.size(), 1);
+  QCOMPARE(calls.first().id, QStringLiteral("ok3"));
+}
+
+// 流中交付按 index 升序（W4「index 稳定排序」口径）：即便 index=1 先封印。
+void TestG1ModelTransport::parserDeliversSealedCallsInIndexOrder() {
+  LlmStreamParser parser;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  parser.feed(toolEvent(1, "paleo.query_project", "{\"topic\":\"wells\"}", "second"),
+              &deltas, &done, &error);
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+  QCOMPARE(parser.takeCompleteCalls(&error).size(), 1); // index=1 先封印先取走
+  parser.feed(toolEvent(0, "paleo.query_project", "{\"topic\":\"horizons\"}", "first"),
+              &deltas, &done, &error);
+  const auto calls = parser.takeCompleteCalls(&error);
+  QCOMPARE(calls.size(), 1);
+  QCOMPARE(calls.first().id, QStringLiteral("first")); // index 升序：0 在 1 前
+  // 两个调用若同批封印（一次喂入两帧），仍按 index 升序。
+  LlmStreamParser parser2;
+  parser2.feed(toolEvent(1, "paleo.query_project", "{\"a\":1}", "b") +
+                  toolEvent(0, "paleo.query_project", "{\"b\":2}", "a"),
+              &deltas, &done, &error);
+  const auto both = parser2.takeCompleteCalls(&error);
+  QCOMPARE(both.size(), 2);
+  QCOMPARE(both.at(0).id, QStringLiteral("a")); // index 0 优先
+  QCOMPARE(both.at(1).id, QStringLiteral("b"));
 }
 
 void TestG1ModelTransport::parserHugeIndexIsBounded() {
@@ -1045,6 +1098,34 @@ void TestG1ModelTransport::normalCloseWithoutDoneTolerated() {
   QCOMPARE(recorder.joined(), QStringLiteral("完整回答"));
   QCOMPARE(recorder.errors, 0);
   QCOMPARE(recorder.finishReason, QStringLiteral("stop")); // finish_reason 透传
+}
+
+// PW-061 容错钉子（G1 review P2）：整条流只有**一个**没有终止空行的事件
+// ——readyRead 一个完整行都切不出（m_sawStreamEvent 保持 false），若把 EOF
+// 兜底喂给关在「见过事件」门后，合法完整应答会被误判成「未包含任何事件」。
+// 断言：内容照常交付且成功收尾（不放大容错范围——缺的只是 SSE 帧结束符，
+// JSON 载荷本身完整）。
+void TestG1ModelTransport::singleUnterminatedEventWithoutBlankLineSucceeds() {
+  RawServer server;
+  QVERIFY(server.start([] {
+    return RawServer::Response{
+        .writes = {QByteArrayLiteral(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"唯一事件\"}}]}")},
+        .closeAfter = true};
+  }));
+  LlmClient client;
+  Recorder recorder;
+  recorder.attach(&client);
+  client.setConfig(clientConfig(server.endpoint()));
+  client.send(oneShot());
+  QVERIFY2(spinUntil([&] { return recorder.finished >= 1; }, 4000),
+           qPrintable(QStringLiteral("缺终止空行的唯一事件必须成功收尾"
+                                     "（errors=%1 %2）")
+                        .arg(recorder.errors)
+                        .arg(recorder.errorMessages.join(QStringLiteral(";")))));
+  QCOMPARE(recorder.joined(), QStringLiteral("唯一事件"));
+  QCOMPARE(recorder.errors, 0);
+  QCOMPARE(recorder.finishReason, QStringLiteral("stop")); // 缺 finish_reason 退化
 }
 
 void TestG1ModelTransport::errorEnvelope200FailsHonestly() {

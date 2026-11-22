@@ -440,25 +440,30 @@ void LlmClient::send(const QVector<ChatMessage> &messages,
       handleNonStreamReply(generation, m_body);
       return;
     }
-    if (m_sawStreamEvent) {
-      // 正常 EOF（可能无 [DONE]，PW-061 容错）：尾字节并入解析器并无条件
-      // 补事件分隔符——早先经 readyRead 送达的最后一个事件可能没有空行
-      // 结尾。合法完整 EOF 的容错范围到此为止：残缺 JSON/工具参数由终局
-      // 校验拦下，不得成功。
-      QStringList deltas;
-      bool done = false;
-      QString parseError;
-      m_parser.feed(tail + QByteArrayLiteral("\n\n"), &deltas, &done,
-                    &parseError);
-      for (const QString &text : deltas) {
-        emit deltaReceived(text);
-        if (!self || !alive(generation))
-          return;
-      }
-      if (!parseError.isEmpty()) {
-        fail(generation, LlmErrorKind::Malformed, parseError);
+    // 流式应答的 EOF 收尾：**无条件**把尾字节 + 一个事件分隔符喂进解析器
+    // （PW-061：最后一个事件可能没有空行结尾——「整条流只有一个缺终止
+    // 空行的事件」时 readyRead 一个完整行都切不出，m_sawStreamEvent 仍是
+    // false，若把兜底喂给关在「见过事件」门后就会把合法完整 EOF 误判成
+    // 「未包含任何事件」）。普通 JSON 应答喂它无害：不含 `data:` 字段名的
+    // 行一律忽略，#588 的非 SSE 判别不受影响。
+    QStringList deltas;
+    bool done = false;
+    QString parseError;
+    m_parser.feed(tail + QByteArrayLiteral("\n\n"), &deltas, &done, &parseError);
+    if (!parseError.isEmpty() || !deltas.isEmpty() || done)
+      m_sawStreamEvent = true; // 尾字节补出了真 SSE 内容/终局
+    for (const QString &text : deltas) {
+      emit deltaReceived(text);
+      if (!self || !alive(generation))
         return;
-      }
+    }
+    if (!parseError.isEmpty()) {
+      // EOF 时的坏事件：残缺 JSON/工具参数不得成功（合法完整 EOF 的容错
+      // 范围只到「缺终止空行」，不含畸形载荷）。
+      fail(generation, LlmErrorKind::Malformed, parseError);
+      return;
+    }
+    if (m_sawStreamEvent) {
       finalizeStream(generation);
       return;
     }

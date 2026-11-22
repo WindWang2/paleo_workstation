@@ -7,6 +7,7 @@
 #include <QJsonParseError>
 
 #include <algorithm>
+#include <cmath>
 
 // G1（模型通信）——SSE 增量解析器实现。
 //
@@ -173,9 +174,13 @@ void LlmStreamParser::accumulateChoice(const QJsonObject &choice,
     const QJsonValue indexValue = callObject.value(QStringLiteral("index"));
     if (!indexValue.isDouble())
       continue; // 无 index/非数值的增量无法归段——如实丢弃（不猜下标）
-    const int index = indexValue.toInt();
-    if (index < 0)
+    // 类型/范围校验：非整数、越界（如 1e300 的 toInt 为实现定义）或负值
+    // 一律丢弃——与真实 index 0 合并会静默混段，比丢帧更危险。
+    const double rawIndex = indexValue.toDouble();
+    if (!(rawIndex >= 0.0) || rawIndex > 2147483647.0 ||
+        rawIndex != std::floor(rawIndex))
       continue;
+    const int index = int(rawIndex);
     if (m_emitted.contains(index)) {
       // W4：调用已按完整帧交付，后续同 index 分片意味着「已交付内容被追加
       // 推翻」——协议翻覆，如实报错，绝不静默改写。
@@ -245,8 +250,10 @@ QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls() {
 
 QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls(QString *error) {
   QVector<ChatToolCall> out;
-  // 流中：只交付已封印且有身份的调用，按**封印序**（事件处理期决定，与
-  // TCP 切分无关）——「任意拆包 == 一次喂入」产出同一序列。
+  // 流中：只交付已封印且有身份的调用，按 **index 升序**（同位次以封印序
+  // 稳定）——与旧实现的 index 稳定排序口径一致（下游按到达序渲染帧），
+  // 同时因 index 与封印序都由事件处理期决定（与 TCP 切分无关），「任意
+  // 拆包 == 一次喂入」仍产出同一序列。
   QList<LlmToolDraft> ready;
   QList<int> indices = m_drafts.keys();
   for (int index : indices) {
@@ -256,7 +263,8 @@ QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls(QString *error) {
   }
   std::sort(ready.begin(), ready.end(),
             [](const LlmToolDraft &a, const LlmToolDraft &b) {
-              return a.sealSequence < b.sealSequence;
+              return a.index != b.index ? a.index < b.index
+                                        : a.sealSequence < b.sealSequence;
             });
   for (const LlmToolDraft &draft : ready) {
     ChatToolCall call;

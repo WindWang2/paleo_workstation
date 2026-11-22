@@ -105,7 +105,7 @@ Source gates（`tools/` Python 检查器 + `cmake -P`）：
 - 真实系统钥匙串（libsecret/Windows 凭据管理器）路径未在本地跑：`PALEO_HAVE_QTKEYCHAIN` 已启用，但钥匙串操作经注入式 FakeStore 测试；`defaultLlmConfigCommitHooks` 的真实 LlmKeyStore 路径只做了编译与契约核对，未做真实钥匙串 round-trip（需人工/交互环境）。
 - Windows 平台未跑（本任务在 Linux 验证）；NativeFormat QSettings/注册表隔离是 Windows 侧既有机制，本任务未触碰。
 - `--transitive` func/ui 两指标未本地全闸（需 QGIS 头目录；权威在 CI lint 车道）。
-- SSE `feed` 的行消费用 `QByteArray::remove(0,n)`（每行 O(剩余)）。已评估：m_pending 只保留未成行字节（SSE 行长有界，[DONE]/心跳场景极小），且「一次 feed 内含极大量行」在 chat completions 流式场景不现实（每事件 ≤ 数百字节）；未改为滚动偏移实现，避免为理论风险引入新复杂度。如评审认为需要，可改 index 滚动。
+- SSE `feed` 的二次方风险**已修**（`5bb6f408`）：行消费从「逐行 remove(0,n) + 每次从头 indexOf」改为「偏移推进 + 整次 feed 一次压实」，`m_terminal` 时清残余；`parserManyTinyLinesInOneFeedStayLinear`（单块 20 万行心跳，毫秒级）钉住线性。早前账本曾以「m_pending 只保留未成行字节」判定无需修——该推理有误：`m_pending` 持有本次 feed 的全部未消费字节，每行前移都要搬走其后所有行。单一事实源以此条与「自审修复记录」为准。
 - 未查询/等待托管 CI；未自动合并。
 
 ## Review 记录

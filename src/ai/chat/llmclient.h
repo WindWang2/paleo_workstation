@@ -99,11 +99,18 @@ struct LlmToolDraft {
 //           流首一次性剥 UTF-8 BOM；注释行（':' 开头）与无关字段忽略；
 //           同一事件多条 data 行按规范以 '\n' 连接。
 //   takeCompleteCalls()：流中取出 arguments 已拼成**非空**合法 JSON 对象、
-//           且未被推翻的调用帧（取出即移除，天然防重复 emit）。已产出的
-//           index 再收到分片 = 协议翻覆 → feed 置 Malformed 错误，绝不
-//           无声改写已交付内容（W4）。空 arguments 不算完成（#278）。
+//           且未被推翻的调用帧（按 index 升序交付，同位次以封印序稳定——
+//           与旧实现的 index 稳定排序口径一致）。已封印/已产出的 index
+//           再收到分片 = 协议翻覆 → feed 置 Malformed 错误，绝不无声改写
+//           已交付内容（W4）。空 arguments 不算完成（#278）。
 //           流终局（[DONE] 或 markTerminal）后调用则做终局校验：空实参按
 //           无参调用产出，非空残缺/非对象 → 错误（不得改造成 {}）。
+//   设计取舍（W4「malformed 流不触发实际工具」的口径）：同一 TCP 块里
+//   「已封印完整帧 + 畸形事件」时，完整帧**先交付**、随后整轮报 Malformed。
+//   已封印帧在畸形被发现前就已完整（无法合理撤回），且 LlmClient 的单一
+//   终态保证错误路径不会走到 controller 的工具执行相——畸形流不会触发
+//   实际工具执行，只会留下一张未执行卡片（错误路径按既有口径补
+//   「未执行」应答，协议完整性不受影响）。
 //   markTerminal()/flush()：流结束（[DONE] 或 EOF 兜底）收尾。flush =
 //           markTerminal + 终局 takeCompleteCalls。终局后不再产出任何
 //           文本/工具（同一 TCP chunk 内 [DONE] 之后的内容一并忽略）。

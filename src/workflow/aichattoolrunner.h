@@ -177,6 +177,15 @@ private:
     quint64 faciesEpoch;
   };
 
+  // G3/W6：资格判断在 owner 线程对一份 Context 快照求值；注入回调
+  // （trackingInput/runtimeReadiness/tileOperations）同步重绑或销毁绑定
+  // 后，快照与活上下文不再一致——返回 false，调用方按 context_rebound
+  // 失败，不把旧 provider 的 ready 与新上下文组合。
+  bool contextMatchesLive(const Context &context, quint64 contextGeneration) const;
+  ToolReadiness readinessForSpecInContext(const AiToolSpec &spec, const QJsonObject &args,
+                                          bool listing, const Context &context,
+                                          quint64 contextGeneration) const;
+
   AiAssistWorkflow *m_workflow = nullptr;
   Context m_context;
   std::shared_ptr<paleo::python::PythonEnvironmentRegistry> m_pythonEnvironments;

@@ -16,6 +16,9 @@
 void appendAgentOperationTools(QVector<AiToolSpec> &specs);
 #include "../../domain/wellfaciesrequest.h"
 #include "../../domain/wellref.h"
+#include "../../services/projectquerytopics.h"
+#include "../tileinference.h"     // G3：网格上限与 schema 单源
+#include "../horizonsuggest.h"    // G3：PW-013 建议输入上限与 schema 单源
 
 // ai/chat — 领域工具表实现（方向51）。
 //
@@ -56,6 +59,40 @@ bool jsonTypeMatches(const QString &expected, const QJsonValue &value) {
     return value.isArray();
   return true; // 未知类型：不挡（表由本目录维护，类型词有限）
 }
+
+// G3/W3：严格外部档的整数表示——必须是 JSON 原生 double（模型输出里
+// "16" 文本、1.5、1e300、null/bool 均拒），有限、整值且落在 int 域。
+// 宽松档（jsonTypeMatches 的文本整数口径）只保留给宿主内部兼容调用。
+bool strictIntegerValue(const QJsonValue &value) {
+  if (!value.isDouble())
+    return false;
+  const double d = value.toDouble();
+  return std::isfinite(d) && d == std::floor(d) &&
+         d >= double(std::numeric_limits<int>::min()) &&
+         d <= double(std::numeric_limits<int>::max());
+}
+
+// G3/W4：local_models 条件 schema（分页预算域与 aichattoolrunner_models
+// 运行期同值）；具名构造避免深嵌套初始化的花括号计数错误。
+QJsonObject localModelsBudgetCondition() {
+  QJsonObject pageSize{{"type", "integer"}, {"minimum", 1}, {"maximum", 64}};
+  QJsonObject maxBytes{{"type", "integer"}, {"minimum", 1024}, {"maximum", 32768}};
+  QJsonObject budgets{{"page_size", pageSize}, {"max_bytes", maxBytes}};
+  return QJsonObject{{"if", QJsonObject{{"properties", QJsonObject{{"topic",
+        QJsonObject{{"const", "local_models"}}}}}}},
+      {"then", QJsonObject{{"properties", budgets}}}};
+}
+
+// G3/W4：带数值域的参数规格（C++20 不允许位置+指定混合初始化，统一走
+// 具名构造；域值与运行期检查同源）。
+AiToolParamSpec boundedParameter(const QString &name, const QString &type,
+                                 const QString &description, bool required,
+                                 double minimum, double maximum) {
+  AiToolParamSpec spec{name, type, description, required, {}};
+  spec.minimum = minimum;
+  spec.maximum = maximum;
+  return spec;
+}
 } // namespace
 
 QJsonObject AiToolParamSpec::toJsonSchema() const {
@@ -69,6 +106,10 @@ QJsonObject AiToolParamSpec::toJsonSchema() const {
       allowed.append(value);
     schema.insert(QStringLiteral("enum"), allowed);
   }
+  if (std::isfinite(minimum))
+    schema.insert(QStringLiteral("minimum"), minimum);
+  if (std::isfinite(maximum))
+    schema.insert(QStringLiteral("maximum"), maximum);
   return schema;
 }
 
@@ -100,7 +141,30 @@ QJsonObject AiToolSpec::toJsonSchema() const {
       QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","numeric_table_projection"}}}}}}},
         {"then",QJsonObject{{"required",QJsonArray{"source_ref","table_id"}}}}},
       QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","seismic_trace_descriptor"}}}}}}},
-        {"then",QJsonObject{{"required",QJsonArray{"source_ref","volume_id"}}}}}});
+        {"then",QJsonObject{{"required",QJsonArray{"source_ref","volume_id"}}}}},
+      // G3/W2：well_facies_inputs 的 well_ref 此前只在 runner allowed 清单里，
+      // schema 未声明条件必填——模型无从发现。
+      QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","well_facies_inputs"}}}}}}},
+        {"then",QJsonObject{{"required",QJsonArray{"well_ref"}}}}},
+      // G3/W4：local_models 分页预算域与运行期（aichattoolrunner_models）同值。
+      localModelsBudgetCondition()});
+  }
+  if (name==QLatin1String("paleo.horizon_tracking_suggestion")) {
+    // G3/W4：seeds 元素形状此前只有描述文本；运行期（aichattoolrunner 的
+    // PW-013 检查）一直限制整数线号/非负样点与种子数上限——这里把既有
+    // 规则反映进 schema，运行期检查保留不删。具名构造见上。
+    QJsonObject axis{{"type", "integer"}, {"minimum", -kMaxLineNumberAbs}, {"maximum", kMaxLineNumberAbs}};
+    QJsonObject sample{{"type", "integer"}, {"minimum", 0}, {"maximum", kMaxLineNumberAbs}};
+    QJsonObject itemProperties{{"inline", axis}, {"xline", axis}, {"sample_index", sample}};
+    QJsonObject item{{"type", "object"}, {"additionalProperties", false},
+      {"required", QJsonArray{"inline", "xline", "sample_index"}},
+      {"properties", itemProperties}};
+    auto horizonProperties=schema.value("properties").toObject();
+    auto seeds=horizonProperties.value("seeds").toObject();
+    seeds.insert(QStringLiteral("maxItems"),kMaxSuggestSeeds);
+    seeds.insert(QStringLiteral("items"),item);
+    horizonProperties.insert("seeds",seeds);
+    schema.insert("properties",horizonProperties);
   }
   return schema;
 }
@@ -146,12 +210,13 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
     paleo::document::WellRef well;
     if(!arguments.value("well_ref").isObject()||!paleo::document::wellRefFromJson(arguments.value("well_ref").toObject(),well)||!well.modelAvailable)
       return QStringLiteral("invalid_well_ref");
-    if(arguments.contains("page_size")){const auto size=arguments.value("page_size");
-      if(!size.isDouble()||!std::isfinite(size.toDouble())||size.toDouble()!=std::floor(size.toDouble())||size.toDouble()<1||size.toDouble()>16)
-        return QStringLiteral("query_budget_invalid");}
-    for(auto it=arguments.begin();it!=arguments.end();++it)if(!QStringList{"topic","well_ref","cursor","page_size","max_bytes"}.contains(it.key()))
-      return QStringLiteral("unsupported_topic_argument");
   }
+  // G3/W2：主题字段/预算契约（services/projectquerytopics）不在本宽松档
+  // 执行——分派层保持既有口径（tst_agent_readiness 钉住 runner 链对
+  // unsupported_topic_argument 的机器码 payload）；同一契约在严格外部档
+  // （validateExternalArguments，模型边界）、runner 分派
+  // （aichattoolrunner_query/_models）与服务入口（ProjectQueryCapability）
+  // 三处执行。
   if(name==QLatin1String("paleo.tile_classification_v2")) {
     const auto phase=arguments.value("publish_intent").toString();
     const QStringList required=phase==QLatin1String("prepare")?QStringList{"model","source_version_id"}:QStringList{"source_operation_id"};
@@ -200,6 +265,68 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
   return QString();
 }
 
+QString AiToolSpec::validateExternalArguments(const QJsonObject &arguments, QString *field) const {
+  const auto fail = [field](const QString &code, const QString &name) {
+    if (field)
+      *field = name;
+    return code;
+  };
+  // W2：主题字段/预算域（query_project 非 typed 主题；typed 主题的专业
+  // 解析器在 validateParameters（宽松档）已先行，这里不重复）。
+  if (name == QLatin1String("paleo.query_project")) {
+    QString topicField;
+    const QString topicCode = paleo::query::validateQueryTopicArguments(arguments, &topicField);
+    if (!topicCode.isEmpty())
+      return fail(topicCode, topicField);
+  }
+  for (const AiToolParamSpec &parameter : parameters) {
+    if (!arguments.contains(parameter.name))
+      continue;
+    const QJsonValue value = arguments.value(parameter.name);
+    // W3：严格表示——integer/number 必须是 JSON 原生数值。整数文本
+    // （"16"）只属宿主内部宽松档；新外部模型请求在此明确失败，
+    // 不带着「校验通过但解码成另一值」的表示进入 provider。
+    if (parameter.type == QLatin1String("integer")) {
+      if (!strictIntegerValue(value))
+        return fail(QStringLiteral("invalid_integer_representation"), parameter.name);
+    } else if (parameter.type == QLatin1String("number")) {
+      if (!value.isDouble() || !std::isfinite(value.toDouble()))
+        return fail(QStringLiteral("invalid_number_representation"), parameter.name);
+    }
+    if (value.isDouble() && std::isfinite(value.toDouble())) {
+      if (std::isfinite(parameter.minimum) && value.toDouble() < parameter.minimum)
+        return fail(QStringLiteral("argument_out_of_range"), parameter.name);
+      if (std::isfinite(parameter.maximum) && value.toDouble() > parameter.maximum)
+        return fail(QStringLiteral("argument_out_of_range"), parameter.name);
+    }
+  }
+  // W4：seeds 元素坐标必须是 JSON 原生整数、字段封闭（与 schema items 的
+  // additionalProperties:false 一致；运行期 runHorizon 的 intArg 仍保留文本
+  // 兼容，但外部请求在进入执行面前拒绝）。
+  if (name == QLatin1String("paleo.horizon_tracking_suggestion")) {
+    const QJsonValue seeds = arguments.value(QStringLiteral("seeds"));
+    if (seeds.isArray()) {
+      int index = 0;
+      for (const QJsonValue &element : seeds.toArray()) {
+        const QJsonObject seed = element.toObject();
+        for (const auto &key : seed.keys())
+          if (key != QLatin1String("inline") && key != QLatin1String("xline") &&
+              key != QLatin1String("sample_index"))
+            return fail(QStringLiteral("unsupported_seed_field"),
+                        QStringLiteral("seeds.%1.%2").arg(index).arg(key));
+        for (const char *key : {"inline", "xline", "sample_index"}) {
+          if (seed.contains(QLatin1String(key)) &&
+              !strictIntegerValue(seed.value(QLatin1String(key))))
+            return fail(QStringLiteral("invalid_integer_representation"),
+                        QStringLiteral("seeds.%1.%2").arg(index).arg(QLatin1String(key)));
+        }
+        ++index;
+      }
+    }
+  }
+  return QString();
+}
+
 QVector<AiToolSpec> builtinAiToolSpecs() {
   // 1) tile 分类：existing capability (tileinference + PaleoOnnxService)
   AiToolSpec tile;
@@ -214,10 +341,10 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   tile.parameters = {
     {QStringLiteral("model"), QStringLiteral("string"),
      QObject::tr("模型名（PaleoOnnxService 命名，位于工程 models/ 目录）"), true},
-    {QStringLiteral("grid_columns"), QStringLiteral("integer"),
-     QObject::tr("整图网格列数"), true},
-    {QStringLiteral("grid_rows"), QStringLiteral("integer"),
-     QObject::tr("整图网格行数"), true},
+    boundedParameter(QStringLiteral("grid_columns"), QStringLiteral("integer"),
+     QObject::tr("整图网格列数"), true, 1, kMaxTileGridSide),
+    boundedParameter(QStringLiteral("grid_rows"), QStringLiteral("integer"),
+     QObject::tr("整图网格行数"), true, 1, kMaxTileGridSide),
     {QStringLiteral("tile_rows"), QStringLiteral("integer"),
      QObject::tr("tile 行数（缺省 128）"), false},
     {QStringLiteral("tile_columns"), QStringLiteral("integer"),
@@ -239,12 +366,13 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   horizon.parameters = {
     {QStringLiteral("model"), QStringLiteral("string"),
      QObject::tr("道窗 scorer 模型名"), true},
-    {QStringLiteral("window_samples"), QStringLiteral("integer"),
-     QObject::tr("每道的取窗样本数"), true},
-    {QStringLiteral("radius"), QStringLiteral("integer"),
-     QObject::tr("种子向 inline/xline 双向扩张的道数半径"), true},
+    boundedParameter(QStringLiteral("window_samples"), QStringLiteral("integer"),
+     QObject::tr("每道的取窗样本数"), true, 1, kMaxSuggestWindow),
+    boundedParameter(QStringLiteral("radius"), QStringLiteral("integer"),
+     QObject::tr("种子向 inline/xline 双向扩张的道数半径"), true, 1, kMaxSuggestRadius),
     {QStringLiteral("seeds"), QStringLiteral("array"),
-     QObject::tr("种子点列表，元素形如 {\"inline\":0,\"xline\":0,\"sample_index\":0}"),
+     QObject::tr("种子点列表，元素形如 {\"inline\":0,\"xline\":0,\"sample_index\":0}，"
+                 "至多 %1 颗").arg(kMaxSuggestSeeds),
      true},
   };
   horizon.resultSchemaJson = QStringLiteral(
@@ -353,10 +481,10 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     {QStringLiteral("asset"), QStringLiteral("string"),
      QObject::tr("资产名或 id（versionId / assetId / 显示名，按此序解析）"),
      true},
-    {QStringLiteral("upstream_depth"), QStringLiteral("integer"),
-     QObject::tr("上游追溯深度（缺省 3，0-12）"), false},
-    {QStringLiteral("downstream_depth"), QStringLiteral("integer"),
-     QObject::tr("下游追溯深度（缺省 1，0-12）"), false},
+    boundedParameter(QStringLiteral("upstream_depth"), QStringLiteral("integer"),
+     QObject::tr("上游追溯深度（缺省 3，0-12）"), false, 0, 12),
+    boundedParameter(QStringLiteral("downstream_depth"), QStringLiteral("integer"),
+     QObject::tr("下游追溯深度（缺省 1，0-12）"), false, 0, 12),
     {QStringLiteral("cursor"), QStringLiteral("string"),
      QObject::tr("上一页的 nextCursor；保持主题、筛选及页预算不变"), false},
     {QStringLiteral("page_size"), QStringLiteral("integer"),
@@ -429,8 +557,9 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
       {"selector", "string", QObject::tr("JSON Pointer；默认根，不携带路径"), false},
       {"cursor", "string", QObject::tr("上一页 nextCursor，须保持相同 selector"), false},
       {"mode", "string", QObject::tr("自动分页或字符串片段"), false, {"auto", "text_parts"}},
-      {"page_size", "integer", QObject::tr("每页 1–128 个元素"), false},
-      {"max_bytes", "integer", QObject::tr("UTF-8 JSON 预算，768–65536 字节"), false}};
+      boundedParameter("page_size", "integer", QObject::tr("每页 1–128 个元素"), false, 1, 128),
+      boundedParameter("max_bytes", "integer", QObject::tr("UTF-8 JSON 预算，768–65536 字节"), false,
+                       paleo::chat::kMinimumEnvelopeBytes, paleo::chat::kResultHardBytes)};
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
   appendAgentOperationTools(specs);

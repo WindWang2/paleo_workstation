@@ -2,7 +2,6 @@
 #include "aichatcontroller.h"
 #include "chatinvocationbinding.h"
 
-#include "../ai/chat/llmkeystore.h"
 #include "../services/toolresultprotocol.h"
 
 #include <QDateTime>
@@ -23,7 +22,8 @@
 //   calls 而缺应答，下轮请求直接违反协议（OpenAI 400）。
 
 AiChatController::AiChatController(QObject *parent)
-  : QObject(parent), m_client(this), m_runner(this), m_piBridge(this) {
+  : QObject(parent), m_client(this), m_configCommitter(this), m_runner(this),
+    m_piBridge(this) {
   newSession();
   connect(&m_client, &LlmClient::deltaReceived, this,
           [this](const QString &text) {
@@ -114,7 +114,12 @@ AiChatController::AiChatController(QObject *parent)
     if (!m_streaming) return;
     if (code != "ok") { piFailure(code); return; }
     const QPointer<AiChatController> guard(this); const auto sequence = m_turnSequence;
-    setStreaming(false); if (guard && sequence == m_turnSequence) saveCurrentSession();
+    setStreaming(false); if (guard && sequence == m_turnSequence) {
+      // G2-W3：Pi 正常收尾的落盘失败不能被静默吞掉——回答与工具事实仍在
+      // 内存（保存欠账），用既有错误信号如实呈现，不冒充持久成功。
+      QString error;
+      if (!saveCurrentSession(&error)) emit errorOccurred(tr("回合已完成，但会话保存失败（%1）。内容保留在内存").arg(error));
+    }
   });
 }
 
@@ -128,6 +133,9 @@ QString AiChatController::statusText() const {
     return tr("正在执行领域工具…");
   if (m_streaming)
     return tr("正在生成回答…");
+  // G2-W3：保存欠账是一等状态——不冒充就绪，指明内容仍在内存与恢复入口。
+  if (m_saveArrears && !m_session.messages.isEmpty())
+    return tr("会话保存失败：%1（内容保留在内存，重发上一条可先补保存）").arg(m_saveArrearsError);
   const QString invalid = m_config.validate();
   if (!invalid.isEmpty())
     return invalid; // 禁用原因原样给 UI（「尚未配置 API 密钥——助手处于禁用态」等）
@@ -176,8 +184,17 @@ void AiChatController::newSession() {
   if (!guard || sequence != m_turnSequence) return;
   saveCurrentSession();
   if (!guard || sequence != m_turnSequence) return;
+  // G2-W3 薄门：保存欠账未清（落盘仍失败）时拒绝切换——未保存的半轮回答
+  // 与工具结果不能被「新会话」无声丢弃；恢复存储后同一入口即可正常切换。
+  if (m_saveArrears && !m_session.messages.isEmpty()) {
+    emit errorOccurred(tr("会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试").arg(m_saveArrearsError));
+    emit sessionListChanged(); // 显示态回到真实当前会话
+    return;
+  }
   m_session = ChatSession();
   m_session.id = ChatSessionStore::newSessionId();
+  // G2-W1：会话已切换——上一轮的冻结快照不再归属新会话，落盘回退当前配置。
+  m_turnFrozen = false;
   m_runner.setResultSession(m_session.id);
   if (!guard || sequence != m_turnSequence) return;
   m_session.model = m_config.model;
@@ -198,6 +215,15 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
   if (!guard || sequence != m_turnSequence) return false;
   saveCurrentSession();
   if (!guard || sequence != m_turnSequence) return false;
+  // G2-W3 薄门：欠账未清时拒绝切换——不发成功 sessionChanged（G5 侧不因此
+  // 清当前草稿），sessionListChanged 让会话下拉回到真实当前选择。
+  if (m_saveArrears && !m_session.messages.isEmpty()) {
+    const auto refusal = tr("会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试").arg(m_saveArrearsError);
+    if (error) *error = refusal;
+    emit errorOccurred(refusal);
+    emit sessionListChanged();
+    return false;
+  }
   ChatSession loaded;
   if (!ChatSessionStore::load(sessionId, &loaded, error)) {
     // 失败也要发列表信号：UI 下拉可能已经把显示切到目标会话，
@@ -206,6 +232,8 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
     return false;
   }
   m_session = loaded;
+  // G2-W1：同 newSession——载入的会话不属于任何在途回合，冻结随之失效。
+  m_turnFrozen = false;
   m_runner.setResultSession(m_session.id);
   if (!guard || sequence != m_turnSequence) return false;
   emit sessionChanged();
@@ -218,6 +246,12 @@ bool AiChatController::removeSession(const QString &sessionId, QString *error) {
   if (sessionId == m_session.id)
     newSession();
   if (!guard) return false;
+  // G2-W3：欠账薄门拒绝了切换（newSession 未生效）时，当前会话仍是
+  // sessionId——此刻删除文件等于销毁唯一证据，必须拒绝并保留原会话。
+  if (sessionId == m_session.id) {
+    if (error) *error = tr("会话尚未保存成功（%1），暂不能删除；请恢复存储后重试").arg(m_saveArrearsError);
+    return false;
+  }
   const bool ok = ChatSessionStore::remove(sessionId, error);
   if (ok)
     emit sessionListChanged();
@@ -227,11 +261,20 @@ bool AiChatController::removeSession(const QString &sessionId, QString *error) {
 bool AiChatController::saveCurrentSession(QString *error) {
   if (m_session.messages.isEmpty())
     return true; // 空会话不落盘（避免用户目录里堆垃圾文件）
-  m_session.model = m_config.model;
+  m_session.model = currentSessionModel(); // G2-W1：回合内冻结模型记录字段
   m_session.updatedAt = QDateTime::currentDateTime();
-  const bool ok = ChatSessionStore::save(m_session, error);
-  if (ok)
+  QString localError;
+  const bool ok = ChatSessionStore::save(m_session, &localError);
+  // G2-W3：保存欠账统一在此记账——失败=true（内存有未落盘内容），成功清账。
+  if (ok) {
+    m_saveArrears = false;
+    m_saveArrearsError.clear();
     emit sessionListChanged(); // 标题/updatedAt 变化，列表要刷新
+  } else {
+    m_saveArrears = true;
+    m_saveArrearsError = localError.isEmpty() ? tr("未知存储错误") : localError;
+    if (error) *error = m_saveArrearsError;
+  }
   return ok;
 }
 
@@ -251,10 +294,9 @@ bool AiChatController::renameSession(const QString &sessionId,
       emit sessionListChanged();
       return true;
     }
-    const bool ok = ChatSessionStore::save(m_session, error);
-    if (ok)
-      emit sessionListChanged();
-    return ok;
+    // G2-W3：走统一落盘入口——成功即清保存欠账（内部已发 sessionListChanged），
+    // 失败则欠账如实保留，不再绕过记账直写文件。
+    return saveCurrentSession(error);
   }
   ChatSession stored;
   if (!ChatSessionStore::load(sessionId, &stored, error))
@@ -282,61 +324,15 @@ bool AiChatController::exportCurrentSession(const QString &filePath,
 void AiChatController::applyConfig(
   const LlmConfig &config, const QByteArray &newKey, bool clearKey,
   QObject *callbackContext, std::function<void(bool, const QString &)> done) {
-  // 结构校验（地址/模型）：密钥单查——密钥缺失允许保存（助手保持禁用态，
-  // 状态行如实说明），地址/模型非法则不落盘。
-  LlmConfig probe = config;
-  probe.apiKey = QByteArrayLiteral("probe-placeholder");
-  const QString structural = probe.validate();
-  if (!structural.isEmpty()) {
-    done(false, structural);
-    return;
-  }
-  LlmConfig next = config;
-  QString error;
-  if (!next.save(&error)) {
-    done(false, tr("配置写入失败：%1").arg(error));
-    return;
-  }
-  // 密钥语义：newKey 优先（显式输入新密钥 = 替换，clear 冗余忽略）；
-  // clearKey 且无新密钥 = 清除；都无 = 沿用内存态密钥。
-  // 回调经 QPointer 双守卫：callbackContext（钥匙串侧）+ 控制器自身
-  // （关停次序反转时任一侧先走都不悬垂）。
-  QPointer<AiChatController> self(this);
-  if (!newKey.isEmpty()) {
-    LlmKeyStore::write(callbackContext, newKey,
-                       [self, next, newKey, done](bool ok,
-                                                  const QString &err) mutable {
-                         if (!self)
-                           return;
-                         if (!ok) {
-                           done(false, self->tr("密钥写入钥匙串失败：%1").arg(err));
-                           return;
-                         }
-                         next.apiKey = newKey;
-                         self->setConfig(next);
-                         done(true, QString());
-                       });
-    return;
-  }
-  if (clearKey) {
-    LlmKeyStore::clear(callbackContext,
-                       [self, next, done](bool ok,
-                                          const QString &err) mutable {
-                         if (!self)
-                           return;
-                         if (!ok) {
-                           done(false, self->tr("清除密钥失败：%1").arg(err));
-                           return;
-                         }
-                         next.apiKey = QByteArray();
-                         self->setConfig(next);
-                         done(true, QString());
-                       });
-    return;
-  }
-  next.apiKey = m_config.apiKey; // 密钥维持现状
-  setConfig(next);
-  done(true, QString());
+  // G1（W7）：提交协议收编进 LlmConfigCommitter（串行链 + 文件快照补偿，
+  // 细节见 llmconfigcommit.h）。对外签名与语义不变：结构校验失败同步拒绝；
+  // 密钥语义保持 newKey 优先 / clearKey 清除 / 沿用当前；成功仍经 setConfig
+  // 生效；done(ok) 时配置已生效，callbackContext 先亡则回调静默丢弃。
+  m_configCommitter.submit(config, newKey, clearKey, m_config,
+                           callbackContext, std::move(done),
+                           [this](const LlmConfig &applied) {
+                             setConfig(applied);
+                           });
 }
 
 bool AiChatController::canRetry() const {
@@ -365,6 +361,13 @@ void AiChatController::retryLast() {
   }
   const auto retryCode = paleo::chat::validateInvocationRetry(m_session, lastUser);
   if (!retryCode.isEmpty()) { emit errorOccurred(retryCode); return; }
+  // G2-W7：重试是清保存欠账的生产行为入口——欠账仍无法落盘时不得截掉
+  // 唯一内存证据，也不发新的模型请求；恢复存储后同一入口先补保存再续轮。
+  QString arrearsError;
+  if (!settleSaveArrears(&arrearsError)) {
+    emit errorOccurred(tr("会话尚未保存成功（%1），已保留原回答；请恢复存储后重试").arg(arrearsError));
+    return;
+  }
   // 截掉旧回答（含其携带的工具帧），历史回到「刚发完这条用户消息」。
   m_session.messages.resize(lastUser + 1);
   emit sessionChanged(); // 历史被截断：整页重画（UI 不做增量反演）
@@ -497,8 +500,11 @@ void AiChatController::sendRound() {
   placeholder.timestamp = QDateTime::currentDateTime();
   appendMessage(placeholder);
   if (!guard || !m_streaming || m_session.id != session || sequence != m_turnSequence) return;
-  m_client.setConfig(m_config);
-  m_client.send(requestMessages(), m_piBridge.busy() ? m_piBridge.toolSnapshot() : tools());
+  // G2-W1：续轮使用本轮冻结的配置与协商工具表——Pi 侧即桥内快照，原生侧
+  // 同源快照；中途 setConfig 或可用工具表变化不改变在途回合的请求身份。
+  m_client.setConfig(m_turnFrozen ? m_turnConfig : m_config);
+  m_client.send(requestMessages(),
+                m_turnFrozen ? (m_piBridge.busy() ? m_piBridge.toolSnapshot() : m_turnTools) : tools());
 }
 
 void AiChatController::sendUserText(const QString &text) {
@@ -539,6 +545,8 @@ void AiChatController::sendUserText(const QString &text) {
 
 void AiChatController::setConfig(const LlmConfig &config) {
   m_config = config;
-  m_session.model = config.model;
+  // G2-W1：记录的 model 字段不由 setConfig 直接改写——落盘时按
+  // currentSessionModel() 取「本轮开场模型」（冻结），新配置自下一轮生效；
+  // 续轮请求同样用冻结配置（见 sendRound）。
   emit statusChanged(statusText());
 }

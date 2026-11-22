@@ -36,6 +36,15 @@ struct TrackingSuggestion
   int sourceXline = 0;
 };
 
+// ---- G3（工具契约单源，2026-11-21）----
+// PW-013 输入上限此前只存在于 aichattoolrunner.cpp 匿名命名空间；工具
+// schema（domaintools.cpp）与运行期检查（runHorizon）共用同一组常量，
+// 防止声明与执行漂移。改值须同步评估 schema 声明与组合工作量上限。
+inline constexpr int kMaxSuggestRadius = 256;
+inline constexpr int kMaxSuggestSeeds = 64;
+inline constexpr int kMaxSuggestWindow = 4096;
+inline constexpr int kMaxLineNumberAbs = 10000000; // 线号/样点号合理域，防 ±radius 溢出
+
 // 道窗取数：给定 (inline, xline) 与 [sampleBegin, sampleBegin+sampleCount)，
 // 填 out（NaN=缺失样本）。返回 false + err → 引擎如实中止。
 using TraceWindowFetcher = std::function<bool( int inlineNo, int xlineNo, int sampleBegin,

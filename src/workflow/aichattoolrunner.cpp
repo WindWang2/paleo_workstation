@@ -23,6 +23,8 @@
 #include "../ai/chat/domaintools.h"
 #include "../ai/tileinference.h"
 #include "../ai/wellfaciesservice.h"
+#include "ai/onnxpredictionservice.h" // G3/W6：setContext 比较 QPointer 需完整类型
+#include "tileoperationservice.h"     // 同上
 #include "../catalog/datacatalog.h"
 #include "../services/paleotaskservice.h"
 
@@ -62,11 +64,8 @@ int intArg(const QJsonObject &args, const char *key, int fallback) {
   return fallback;
 }
 
-// PW-013：层位追踪参数上限（radius/种子来自 LLM，O(seeds·(2r+1)²)）。
-constexpr int kMaxSuggestRadius = 256;
-constexpr int kMaxSuggestSeeds = 64;
-constexpr int kMaxSuggestWindow = 4096;
-constexpr int kMaxLineNumberAbs = 10000000; // 线号/样点号合理域，防 ±radius 溢出
+// PW-013：层位追踪参数上限已单源到 ai/horizonsuggest.h（G3：schema 与
+// 运行期共用），这里直接使用同名常量。
 
 } // namespace
 
@@ -97,10 +96,26 @@ void AiChatToolRunner::setFaciesConfig(const WellFaciesConfig &config) {
 
 void AiChatToolRunner::setContext(const Context &context) {
   const bool replaceSourceResolver=bool(context.sourceResolver)||bool(m_context.sourceResolver);
+  // G3/W6：provider/取数回调的接入或撤除（null↔非空）也算绑定变化——
+  // 旧判定只看 catalog/文档身份，撤掉 trackingInput/gridFetch 后世代不
+  // 前进，资格判断与排队调用仍按旧绑定放行。std::function 同布尔值替换
+  // 无法值比较（已知边界，见 aichattoolrunner.h）；指针成员按值比较。
+  const bool providerBindingChanged =
+      bool(context.trackingInput)!=bool(m_context.trackingInput) ||
+      bool(context.traceFetch)!=bool(m_context.traceFetch) ||
+      bool(context.gridFetch)!=bool(m_context.gridFetch) ||
+      bool(context.frozenFaciesInput)!=bool(m_context.frozenFaciesInput) ||
+      bool(context.faciesContext)!=bool(m_context.faciesContext) ||
+      bool(context.runtimeReadiness)!=bool(m_context.runtimeReadiness) ||
+      bool(context.sourceResolver)!=bool(m_context.sourceResolver) ||
+      context.onnx!=m_context.onnx || context.tileOperations!=m_context.tileOperations ||
+      context.pythonRuntime!=m_context.pythonRuntime || context.pythonTrusted!=m_context.pythonTrusted ||
+      context.pythonSandbox!=m_context.pythonSandbox;
   const bool changed = context.catalog != m_context.catalog || context.documentId != m_context.documentId ||
       context.projectDir != m_context.projectDir || context.documentEpoch != m_context.documentEpoch ||
       bool(context.sourceResolver)!=bool(m_context.sourceResolver) ||
-      context.capabilityHost != m_context.capabilityHost || context.requireCapabilityHost != m_context.requireCapabilityHost;
+      context.capabilityHost != m_context.capabilityHost || context.requireCapabilityHost != m_context.requireCapabilityHost ||
+      providerBindingChanged;
   if (changed)
     invalidateContext();
   m_context = context;
@@ -197,8 +212,15 @@ void AiChatToolRunner::startNext() {
   }
 
   QJsonParseError parseError;
-  const QJsonDocument document =
-    QJsonDocument::fromJson(m_activeCall.argumentsJson.toUtf8(), &parseError);
+  // G3/W3：顶层必须是 JSON object（空串 = 无参工具，与
+  // ChatToolCall::hasValidArguments 口径一致）。此前数组/字符串/null 顶层
+  // 解析成功后 .object() 得空对象，静默走「缺必填」甚至无参执行。
+  QJsonDocument document;
+  if (m_activeCall.argumentsJson.trimmed().isEmpty()) {
+    document = QJsonDocument::fromJson(QByteArrayLiteral("{}"));
+  } else {
+    document = QJsonDocument::fromJson(m_activeCall.argumentsJson.toUtf8(), &parseError);
+  }
   const QJsonObject args = document.object();
   // 表驱动诚实态：未登记 / 本构建不可用 / 实参不合格 → 错误结果回灌
   // （不冒充成功，也不静默丢帧）。注：fromJson 失败必返回 null 文档，
@@ -207,6 +229,11 @@ void AiChatToolRunner::startNext() {
   if (parseError.error != QJsonParseError::NoError) {
     finishActive(false, errorPayload(tr("实参不是合法 JSON：%1")
                                        .arg(parseError.errorString())));
+    return;
+  }
+  if (!document.isObject()) {
+    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("invalid_arguments_type")},
+                                    {QStringLiteral("error"), tr("工具实参顶层必须是 JSON object")}});
     return;
   }
   if(m_activeFaciesEpoch!=m_faciesEpoch&&(m_activeCall.name=="paleo.well_facies_prediction"||
@@ -246,6 +273,21 @@ void AiChatToolRunner::startNext() {
                             : QStringLiteral("：%1").arg(dispatch.note));
     finishActive(false, errorPayload(text));
     return;
+  }
+  // G3/W3/W5：严格外部档——本入口只承接新外部模型请求（controller 派发），
+  // integer/number 必须是 JSON 原生数值、主题字段/预算域/seeds 元素在此
+  // 收紧；失败发生在任何 provider/Task/operation 之前。宿主内部的宽松
+  // 兼容路径不经本 runner 执行（validateParameters/dispatchAiTool 直调）。
+  {
+    QString strictField;
+    const QString strictCode = dispatch.spec.validateExternalArguments(args, &strictField);
+    if (!strictCode.isEmpty()) {
+      QJsonObject payload{{QStringLiteral("code"), strictCode}};
+      if (!strictField.isEmpty())
+        payload.insert(QStringLiteral("field"), strictField);
+      finishActive(false, payload);
+      return;
+    }
   }
   const auto runtime=readiness(m_activeCall.name,args);
   if(!runtime.ready) {finishActive(false,QJsonObject{{"code",runtime.code}});return;}

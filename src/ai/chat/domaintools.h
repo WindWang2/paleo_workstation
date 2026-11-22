@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <limits>
 #include "services/hostcallcontext.h"
 #include "services/capabilityspec.h"
 
@@ -29,6 +30,10 @@ struct AiToolParamSpec {
   // string 入参的封闭词表（方向77）：非空时 schema 出 "enum"、实参校验拒绝
   // 词表外取值——模型少走一轮「取值错→报错→重试」的往返。
   QStringList enumValues;
+  // 数值域（G3/W4）：有限时进 schema（minimum/maximum）并在校验时拒绝越界。
+  // 缺省 NaN 表示无声明域（执行面仍可能有运行期检查）。
+  double minimum = std::numeric_limits<double>::quiet_NaN();
+  double maximum = std::numeric_limits<double>::quiet_NaN();
   QJsonObject toJsonSchema() const;
 };
 
@@ -50,7 +55,15 @@ struct AiToolSpec {
   QJsonObject toChatFunction() const; // OpenAI tools[].function 形状
   QJsonObject modelResultSchema() const; // 模型边界 envelope，data 引用原生 schema
   // 空串表示通过；非空为验证原因，测井相沿用领域请求的机器错误码。
+  // 本函数是共享宽松档（PW-060 口径）：整数参数接受整串可解析的数字文本
+  // （"16"），供宿主内部既有调用与已持久化会话兼容；tst_aichat 钉住该行为。
   QString validateParameters(const QJsonObject &arguments) const;
+  // 严格外部档（G3/W3）：新外部模型请求经 runner 入口先过本档再分派——
+  // integer/number 参数必须是 JSON 原生数值（拒绝 "16" 文本、分数、越界、
+  // 非有限值），query_project 主题字段/预算域、seeds 元素整数同档收紧。
+  // 返回机器错误码；field 给出首个违规字段（可空）。宽松档兼容路径只保留
+  // 在 validateParameters/dispatchAiTool 的直接内部调用，不经 runner 执行。
+  QString validateExternalArguments(const QJsonObject &arguments, QString *field = nullptr) const;
 };
 
 // 查询、持久操作与受控执行的内置目录；顺序稳定，宿主另行筛选运行时可用性。

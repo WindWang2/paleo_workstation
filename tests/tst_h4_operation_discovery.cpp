@@ -795,6 +795,11 @@ void H4OperationDiscovery::listDoesNotReconcileWhileGetDoes() {
   Host host(root.path());
   const QString scope = "agent:h4:chat:recon";
   OperationLog::Record record = seed("recon", scope);
+  // 与 accept 生产路径同源：storeGeneration 取自当前 catalog（使 get 的
+  // reconcile 能走 not_committed 修复分支，journal 必然被改写）。
+  const auto probe = host.catalog.publication(QStringLiteral("doc"), QStringLiteral("op-") + uuid(), QString(64, '0'));
+  QCOMPARE(probe.code, QLatin1String("not_committed"));
+  record.storeGeneration = probe.storeGeneration;
   OperationLog log(logDir(root.path()), root.path(), host.lock->claim());
   QCOMPARE(log.acceptDurable(record).code, QLatin1String("created"));
   record = log.recordById(record.operationId);

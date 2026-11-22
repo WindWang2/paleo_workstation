@@ -1224,10 +1224,19 @@ bool ConstraintWorkflow::removeConstraintInternal( const QString &constraintId, 
 
 bool ConstraintWorkflow::closureGuard( const QString &storeKey, QString *error ) const
 {
-  // W1：闭包携带归属存储身份。空 key = 无存储的内存工作流（无可校验归属，
-  // 维持旧重放能力）；换库/换工程后 key 不符 → 如实拒绝，条目原地保留。
+  // W1：闭包携带归属存储身份。空 key = 绘制时无存储的内存工作流；此后若
+  // 绑定了工程存储，该条目不再适用（重放只会对着新库找不到目标）——如实
+  // 拒绝并保留条目，而非静默失败。换库/换工程后 key 不符同样拒绝。
   if ( storeKey.isEmpty() )
+  {
+    if ( constraintStore() )
+    {
+      paleo::workflow_detail::setError(
+          error, tr( "该撤销条目绘制于无存储会话，当前已绑定工程存储，条目保留原位" ) );
+      return false;
+    }
     return true;
+  }
   ConstraintStore *cs = constraintStore();
   if ( !cs || constraintStoreKey( cs ) != storeKey )
   {
@@ -1440,10 +1449,13 @@ bool ConstraintWorkflow::importConstraintBatch( const QString &horizon,
   if ( !layers->declare( decl, error ) )
   {
     // 批已提交：声明失败＝「已保存、呈现未完成」（W4），不回滚持久批；
-    // 快照/重载路径（loadConstraints）按 store 事实恢复呈现。
+    // 快照/重载路径（loadConstraints）按 store 事实恢复呈现。与单条部分
+    // 完成同口径：内存已发布、逐条发 constraintAdded。
     const QString declareError = error ? *error : QString();
     paleo::workflow_detail::setError(
         error, tr( "约束已批量保存，但图层声明失败：%1（重新加载后可见）" ).arg( declareError ) );
+    for ( const auto &row : batch )
+      emit constraintAdded( row.id );
     return true;
   }
   syncConstraintGeometryViews( layers, cs, horizon, m_geometryTypes->lookup( cs, horizon ) );

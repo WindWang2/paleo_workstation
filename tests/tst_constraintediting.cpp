@@ -293,7 +293,7 @@ private slots:
   }
   // #742：几何类型缓存按层位 + store 修订号失效——重复同步不再全量重解析
   // WKT；绘制/删除（含临时 ConstraintStore 实例写入）后必须重新扫描。
-  void geometryTypeCacheInvalidatesOnDrawAndDelete()
+  void geometryTypeCacheSeedsOnDrawAndInvalidatesOnWrite()
   {
     QTemporaryDir dir;
     PaleoProjectStore store;
@@ -322,11 +322,17 @@ private slots:
     QString drawnId;
     QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 5,10 5)", "break_line", 0, &error, &drawnId,
                                     {{"semantic", "hard_barrier"}, {"blockMode", "full_block"}}), qPrintable(error));
+    // P5 W4：单条绘制把新增几何类型并入缓存条目（store+revision 记为已知），
+    // 不再全量重读重解析；显式失效后仍按需重定型（重扫语义不变）。
     workflow.syncAllConstraintGeometryViews();
     const int afterDraw = workflow.constraintGeometryParseCount();
-    QVERIFY(afterDraw > afterFirst); // 绘制使缓存失效
+    QCOMPARE(afterDraw, afterFirst); // 绘制走增量种子：零重解析
+    workflow.invalidateConstraintGeometryCache();
     workflow.syncAllConstraintGeometryViews();
-    QCOMPARE(workflow.constraintGeometryParseCount(), afterDraw);
+    const int afterReseed = workflow.constraintGeometryParseCount();
+    QVERIFY(afterReseed > afterDraw); // 失效后重定型
+    workflow.syncAllConstraintGeometryViews();
+    QCOMPARE(workflow.constraintGeometryParseCount(), afterReseed);
 
     { // 另一个 store 实例写同一 gpkg 也必须失效（修订号按路径共享）
       ConstraintStore other(gpkg, &store);
@@ -334,7 +340,7 @@ private slots:
     }
     workflow.syncAllConstraintGeometryViews();
     const int afterDelete = workflow.constraintGeometryParseCount();
-    QVERIFY(afterDelete > afterDraw);
+    QVERIFY(afterDelete > afterReseed);
     QVERIFY2(workflow.removeConstraint("a", &error), qPrintable(error));
     workflow.syncAllConstraintGeometryViews();
     QVERIFY(workflow.constraintGeometryParseCount() > afterDelete);

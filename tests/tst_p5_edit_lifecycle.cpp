@@ -142,11 +142,23 @@ private slots:
     QVERIFY(redoId != id);
     QVERIFY(f.closure.undo());
     QCOMPARE(f.rowCount("T70"), 0);
-    // 审计如实记录 create/delete 序列（不删除历史事件伪装未发生）。
+    // 审计如实记录完整序列（不删除历史事件伪装未发生）：create c-1 →
+    // delete（undo）→ create c-2（redo）→ delete（undo）。readHistory 按
+    // fid 降序（最新在前）。
     ConstraintStore verify(f.store.gpkgPath());
     const auto history = verify.historyForHorizon("T70");
-    QCOMPARE(history.size(), 3); // create + delete(create) + create(delete 撤销)
-    QVERIFY(history.first().value("change").toString() == QLatin1String("create"));
+    QCOMPARE(history.size(), 4);
+    QCOMPARE(history.first().value("change").toString(),
+             QStringLiteral("delete"));
+    int creates = 0, deletes = 0;
+    for (const auto &event : history) {
+      if (event.value("change").toString() == QLatin1String("create"))
+        ++creates;
+      else if (event.value("change").toString() == QLatin1String("delete"))
+        ++deletes;
+    }
+    QCOMPARE(creates, 2);
+    QCOMPARE(deletes, 2);
   }
 
   // W2：闭包重放遇同层位活会话 → 如实拒绝，条目原地保留；会话结束后可重放。
@@ -263,14 +275,17 @@ private slots:
     QCOMPARE(f.rowCount("T71"), 1000);
     QVERIFY2(loads1000 <= 6,
              qPrintable(QStringLiteral("import(1000) loads=%1").arg(loads1000)));
-    // 重开存储核对持久事实（含参数与审计）。
+    // 重开存储核对持久事实（含参数与审计）。historyForHorizon 每页上限 200
+    //（qBound 语义），1000 条 create 以满页 + 首事件特征核对。
     ConstraintStore verify(f.store.gpkgPath());
     const auto rows = verify.load("T71");
     QCOMPARE(rows.size(), 1000);
     QVERIFY(rows.first().value("params_json").toString().contains(
         "direction_guide"));
     const auto audit = verify.historyForHorizon("T71");
-    QCOMPARE(audit.size(), 1000);
+    QCOMPARE(audit.size(), 200); // 满页：批量审计逐条在档
+    QCOMPARE(audit.first().value("change").toString(),
+             QStringLiteral("create"));
     // 整批原子：一条自相交多边形毁掉整批，不留半成品。
     auto bad = lineRecords(5);
     bad.append({"POLYGON((0 0, 10 0, 0 10, 10 10, 0 0))",
@@ -304,7 +319,7 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
-    QVERIFY(f.work.saveFacies("T70", hierarchySchema(), &error));
+    QVERIFY(f.work.saveFacies("D61", hierarchySchema(), &error));
     // 两个 WKB 与 facies_code 完全一致的点要素（旧首匹配路径必改错）。
     QgsVectorLayer source(
         QStringLiteral("Point?field=facies_code:integer"), QStringLiteral("dup"),
@@ -323,7 +338,7 @@ private slots:
     QVERIFY(MappingArtifactWriter::vectorSnapshot(&source, path, &error));
     LayerDeclaration d;
     d.layerId = QStringLiteral("product.dup");
-    d.horizon = QStringLiteral("T70");
+    d.horizon = QStringLiteral("D61");
     d.type = QStringLiteral("vector");
     d.group = QStringLiteral("05_Composition");
     d.title = QStringLiteral("duplicate points");
@@ -379,7 +394,7 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
-    QVERIFY(f.work.saveFacies("T70", hierarchySchema(), &error));
+    QVERIFY(f.work.saveFacies("D61", hierarchySchema(), &error));
     QgsVectorLayer grid(QStringLiteral("Polygon?field=facies_code:integer"),
                         QStringLiteral("grid"), QStringLiteral("memory"));
     grid.setCrs(
@@ -397,7 +412,7 @@ private slots:
     QVERIFY(MappingArtifactWriter::vectorSnapshot(&grid, path, &error));
     LayerDeclaration d;
     d.layerId = QStringLiteral("input.grid");
-    d.horizon = QStringLiteral("T70");
+    d.horizon = QStringLiteral("D61");
     d.type = QStringLiteral("vector");
     d.group = QStringLiteral("05_Composition");
     d.title = QStringLiteral("grid");
@@ -413,7 +428,7 @@ private slots:
     const int readsBefore = FaciesPartitionState::footprintReadCount();
     QVERIFY(f.edits.beginEdit(copy, &error));
     // 50 次属性编辑命令（editCommandEnded → styleLayer 每次触发）。
-    const QList<QgsFeatureId> fids = copy->allFeatureIdList().values();
+    const QList<QgsFeatureId> fids = copy->allFeatureIds().values();
     QVERIFY(fids.size() >= 2);
     for (int i = 0; i < 50; ++i) {
       const auto fid = fids.at(i % fids.size());

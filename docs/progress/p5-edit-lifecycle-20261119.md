@@ -95,15 +95,15 @@
 
 ## 验证（命令与结果）
 
-- 构建：`PALEO_JOBS=4 ./paleo-dev build`（deb 闭包前缀，Ninja+ccache）——全量
-  通过（见下「记录」节最终 head 复验）。
+- 构建：`PALEO_JOBS=2 ./paleo-dev build`（deb 闭包前缀，Ninja+ccache；受控
+  并发见工作账本）。结果以 PR 描述的最终复验为准。
 - 新回归：`tests/tst_p5_edit_lifecycle.cpp`
   （`add_paleo_test(tst_p5_edit_lifecycle LIBS paleo_workflow
   Paleo::paleo_data_service)`，600s 超时）覆盖验收矩阵：
   1. `outOfSessionDrawUndoKeepsSingleOwner`——真实 starter（对齐生产
      `beginConstraintEdit` 语义）下会话外 draw→undo→redo→undo：行数、闭包栈
      位置、原生栈 index/count（零推进）、图层不可编辑、审计 create/delete
-     序列、redo id 再分配。
+     完整序列（2 create + 2 delete，最新在前）、redo id 再分配。
   2. `closureReplayRefusedDuringLiveSession`——活会话中重放拒绝、条目保留、
      会话取消后重放成功。
   3. `closureGuardRejectsStoreSwitch`——切库重放拒绝、条目保留、切回后成功。
@@ -111,19 +111,45 @@
      拒绝：零 durable 行、零成功信号、重试恰好一次成功。
   5. `removeConstraintBoundedLoads`——单条删除全量 load ≤3（旧 4+）。
   6. `importBatchIsBoundedAndAtomic`——100 与 1000 条导入 load 同为常数级
-     （≤6）；重开 GPKG 核对行数/参数/审计（1000 create 事件）；自相交几何
-     整批拒绝零残留；他人实例写入 c-9999 后继续导入不撞身份；会话中拒绝导入。
+     （≤6）；重开 GPKG 核对行数/参数/审计（满页 200 create 事件，最新在前）；
+     自相交几何整批拒绝零残留；他人实例写入 c-9999 后继续导入不撞身份；
+     会话中拒绝导入。
   7. `copyIdentityDisambiguatesDuplicateGeometries`——两个 WKB+相码完全一致
-     的要素：选中第二个，复制映射解析后改相只落在被选对象；来源文件字节
-     不变（哈希对比）。
+     的要素（D61 有效编图层位）：选中第二个，复制映射解析后改相只落在被选
+     对象；来源文件字节不变（哈希对比）。
   8. `styleLayerBindsOnceAcrossEditCommands`——50 次属性编辑命令 + 全量 undo：
      install/footprintRead 计数零增长，绑定与拓扑状态保持。
-- 既有回归：tst_constraintediting / tst_constraintstore / tst_constraint_draw /
-  tst_featureidentity / tst_mappingworkbench（见 PR 描述的具体命令与结果）。
-- Source gates：layering 族（含 qgs_audit/strict）、qgis_spread、file_budget、
-  ui_size/ui_invariants、i18n/ui_tokens、qgis_versions、docs_drift、
-  cpp_mainline ——最终 head 全绿（见 PR 描述）。
+- 既有回归：tst_constraintediting（含按 W4 增量种子语义更新的
+  `geometryTypeCacheSeedsOnDrawAndInvalidatesOnWrite`）/ tst_constraintstore /
+  tst_constraint_draw / tst_featureidentity / tst_mappingworkbench——具体命令
+  与结果见 PR 描述。
+- Source gates：layering 族（strict/qgs-audit/transitive 带 QGIS_PREFIX）、
+  qgis_spread、file_budget、ui_size/ui_invariants、i18n/ui_tokens、
+  qgis_versions、docs_drift、cpp_mainline——结果见 PR 描述（最终 head 复验）。
 - 本地真实 GUI 演示：见 PR 描述与截图清单。
+
+### 独立审查（2026-11-20）
+
+未参与实现的独立 reviewer 对 173c0b2a 做了实读 + 实跑审查（含按修正补丁实跑
+测试）。主要发现与处置：
+
+1.（P0，已修）`allFeatureIdList()` 在钉版 QGIS 中不存在 → 改 `allFeatureIds()`。
+2.（P0，已修）三处 oracle 错误：审计事件数（4 非 3，最新在前）、
+   `historyForHorizon` 200 条/页上限（1000 断言恒败）、saveFacies 需有效编图
+   层位（T70→D61）。
+3.（P0，已修）`geometryTypeCacheInvalidatesOnDrawAndDelete` 与 W4 增量种子
+   语义冲突 → 按新语义更新并更名
+   `geometryTypeCacheSeedsOnDrawAndInvalidatesOnWrite`（失效重定型语义保留）。
+4.（P1，已修）进度文档曾预先宣称「全量通过」——本节改为如实记录，最终结果
+   以 PR 描述的复验为准。
+5.（P2，已修）`importConstraintBatch` 部分完成路径补齐逐条 `constraintAdded`
+   （与单条路径同口径）。
+6.（P2，已修）空 storeKey 闭包在绑定存储后改为明确拒绝（原为「找不到约束」
+   式静默失败）。
+7.（P2，已修）`appendBatch` 空批不再白动修订号。
+   reviewer 同时复核确认：撤销/重做 LIFO 与 id 再分配、W3 排序与补偿、批量
+   事务原子性（含 enqueueWrite 单写者串行）、W5 映射与 fid 稳定性、W6 签名
+   覆盖面与失败重试语义均正确。
 
 ## 所有权与并行接缝
 

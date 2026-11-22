@@ -432,9 +432,9 @@ bool ConstraintStore::appendBatch(const QVector<BatchAppend> &rows, QString *err
   // P5 W4：一次事务写完整批。预检（身份/层位/批内唯一/存量查重）全部在
   // 事务内、任何 CreateFeature 之前——任一失败整批回滚，不写任何行；审计
   // 按同一 operationId 逐条登记 create 事件（批谱系可追溯）。
+  if (rows.isEmpty()) return true; // 空批零写入：不动修订号（不白白失效他人缓存）
   const RevisionBump revisionBump{m_gpkgPath};
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
-  if (rows.isEmpty()) return true;
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
     QString reason;
     QSet<QString> batchIds;

@@ -20,53 +20,38 @@ bool AiChatToolRunner::externalTransferConfigured() const {
     WellFaciesConfig::validateUrl(m_faciesConfig.baseUrl,m_faciesConfig.allowInsecureHttp).isEmpty();
 }
 
-// G3/W6：快照身份复核——catalog/宿主/provider 指针、文档身份与世代一致
-// 才算「同一有效上下文」。std::function 同布尔值替换不可值比较（已知边界，
-// 见头文件注释）；世代号覆盖 setContext/setTaskService 判定的全部变化。
-bool AiChatToolRunner::contextMatchesLive(const Context &context, quint64 contextGeneration) const {
-  if (m_contextGeneration != contextGeneration)
-    return false;
-  return m_context.catalog == context.catalog &&
-      m_context.documentId == context.documentId &&
-      m_context.documentEpoch == context.documentEpoch &&
-      m_context.projectDir == context.projectDir &&
-      m_context.capabilityHost == context.capabilityHost &&
-      m_context.requireCapabilityHost == context.requireCapabilityHost &&
-      m_context.onnx == context.onnx &&
-      m_context.tileOperations == context.tileOperations &&
-      m_context.pythonRuntime == context.pythonRuntime &&
-      m_context.pythonTrusted == context.pythonTrusted &&
-      m_context.pythonSandbox == context.pythonSandbox &&
-      bool(m_context.trackingInput) == bool(context.trackingInput) &&
-      bool(m_context.traceFetch) == bool(context.traceFetch) &&
-      bool(m_context.gridFetch) == bool(context.gridFetch) &&
-      bool(m_context.frozenFaciesInput) == bool(context.frozenFaciesInput) &&
-      bool(m_context.faciesContext) == bool(context.faciesContext) &&
-      bool(m_context.sourceResolver) == bool(context.sourceResolver) &&
-      bool(m_context.runtimeReadiness) == bool(context.runtimeReadiness);
-}
-
 AiChatToolRunner::ToolReadiness AiChatToolRunner::readiness(const QString &name,const QJsonObject &args,bool listing) const {
   return readinessForSpec(aiToolSpec(name),args,listing);
 }
 AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpec(const AiToolSpec &spec,const QJsonObject &args,bool listing) const {
-  // G3/W6：单次判断绑定一份快照——判断途中（含注入回调内）发生重绑时，
-  // 由 readinessForSpecInContext 的回调后复核按 context_rebound 失败，
-  // 不混用新旧上下文成员。
-  return readinessForSpecInContext(spec,args,listing,m_context,m_contextGeneration);
+  if (QThread::currentThread() != thread()) return {false, QStringLiteral("owner_thread_required")};
+  // Keep the callable alive even if it replaces its own binding synchronously.
+  const Context snapshot = m_context;
+  return readinessForSpecInContext(spec, args, listing, snapshot, m_bindingRevision);
 }
 AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(const AiToolSpec &spec,const QJsonObject &args,bool listing,
-                                                                           const Context &context,quint64 contextGeneration) const {
+                                                                           const Context &context,quint64 bindingRevision) const {
   const auto &name=spec.name;
   ToolReadiness result;result.effects=spec.effectsForArguments(args);
   const auto fail=[&](const QString &code) { result.code=code;return result; };
-  // 注入回调后复核：回调同步重绑 setContext/换 provider/清空绑定时，
-  // 快照即刻失效——本次判断失败，不投递旧绑定的 ready=true。
-  const auto rebound=[&]() { return !contextMatchesLive(context,contextGeneration); };
-  if(QThread::currentThread()!=thread())return fail("owner_thread_required");
   if(spec.name.isEmpty())return fail("tool_not_found");
   if(spec.exposure==CapabilityExposure::Internal || spec.exposure==CapabilityExposure::Unavailable)
     return fail("tool_not_exposed");
+  if (name == QLatin1String("paleo.read_result")) { result.ready = true; return result; }
+
+  const QPointer<const AiChatToolRunner> owner(this);
+  const QPointer<const DataCatalog> catalog(context.catalog);
+  const bool hadHost = bool(context.capabilityHost);
+  const bool hadOnnx = bool(context.onnx);
+  const bool hadTileOperations = bool(context.tileOperations);
+  const bool hadTasks = bool(m_taskService);
+  const auto rebound = [&] {
+    return !owner || m_bindingRevision != bindingRevision ||
+        (hadHost && !context.capabilityHost) || (hadOnnx && !context.onnx) ||
+        (hadTileOperations && !context.tileOperations) || (hadTasks && !m_taskService) ||
+        (context.catalog && !catalog);
+  };
+  if (rebound()) return fail("context_rebound");
   const bool python=name==QLatin1String(paleo::python::WellQualityTool) || name==QLatin1String(paleo::python::CorrelationTool) ||
     name==QLatin1String(paleo::python::GeneratedTool) || name==QLatin1String(paleo::python::NumericTableTool) ||
     name==QLatin1String(paleo::python::SeismicTraceTool) || name==QLatin1String(paleo::python::TableOutputsTool) ||
@@ -80,10 +65,10 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   // Explicitly injected legacy adapters remain available to existing internal callers.
   if(!context.requireCapabilityHost && !python) {result.ready=true;return result;}
   if(spec.legacyAdapter)return fail("legacy_tool_requires_versioned_adapter");
-  if(name==QLatin1String("paleo.read_result")) {result.ready=true;return result;}
-  if(name==QLatin1String("paleo.python_environment") && !m_taskService)return fail("task_service_unavailable");
   if(!context.capabilityHost)return fail("host_unavailable");
-  const auto live=context.capabilityHost->context();auto expected=live;
+  const auto live = context.capabilityHost->context();
+  if (rebound()) return fail("context_rebound");
+  auto expected = live;
   expected.documentId=context.documentId;expected.epoch=context.documentEpoch;
   if(name==QLatin1String("paleo.operation_cancel") && !listing && !m_resultSession.isEmpty() &&
       context.capabilityHost->recovery() && paleo::host::checkContext(live,expected,paleo::host::Read).isEmpty()) {
@@ -114,7 +99,9 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if((name==QLatin1String("paleo.query_project") || name==QLatin1String("paleo.asset_lineage")) &&
       (!context.catalog || !context.catalog->isOpen()))return fail("catalog_unavailable");
   if(name==QLatin1String("paleo.well_facies_prediction")) {
-    const auto code=wellFaciesReadiness(args,listing);if(!code.isEmpty())return fail(code);
+    const auto code = wellFaciesReadiness(args, listing);
+    if (rebound()) return fail("context_rebound");
+    if (!code.isEmpty()) return fail(code);
   }
   if(name==QLatin1String("paleo.query_project") && args.value("topic")==QLatin1String("local_models")) {
 #if !PALEO_HAVE_ORT
@@ -166,8 +153,12 @@ QVector<AiToolSpec> AiChatToolRunner::availableTools() const {
   // G3/W6：一次枚举绑定同一份快照——途中注入回调重绑/销毁时，受影响
   // 工具按 context_rebound 排除，不返回一半旧一半新的清单；下一次枚举
   // 自然使用新上下文（有界策略：不重试、不阻塞事件循环）。
-  const Context snapshot=m_context;
-  const quint64 generation=m_contextGeneration;
+  if (QThread::currentThread() != thread()) return {};
+  const QPointer<const AiChatToolRunner> owner(this);
+  const Context snapshot = m_context;
+  const QPointer<const DataCatalog> catalog(snapshot.catalog);
+  const auto lostOwner = [&] { return !owner || (snapshot.catalog && !catalog); };
+  const quint64 bindingRevision = m_bindingRevision;
   QVector<AiToolSpec> tools;
   for(const auto &spec:builtinAiToolSpecs()) {
     auto candidate=spec;
@@ -180,16 +171,24 @@ QVector<AiToolSpec> AiChatToolRunner::availableTools() const {
           if(spec.parameters[i].name==QLatin1String("topic"))return i;
         return -1;
       }();
-      if(topicIndex>=0) {
+      if (topicIndex >= 0) {
         QStringList narrowed;
-        for(const auto &topic:spec.parameters[topicIndex].enumValues)
-          if(readinessForSpecInContext(spec,QJsonObject{{"topic",topic}},true,snapshot,generation).ready)
+        for (const auto &topic : spec.parameters[topicIndex].enumValues) {
+          if (readinessForSpecInContext(spec, {{"topic", topic}}, true, snapshot, bindingRevision).ready)
             narrowed.append(topic);
-        if(!narrowed.isEmpty() && narrowed.size()<spec.parameters[topicIndex].enumValues.size())
-          candidate.parameters[topicIndex].enumValues=narrowed;
+          if (lostOwner()) return {};
+        }
+        if (!narrowed.isEmpty()) {
+          candidate.parameters[topicIndex].enumValues = narrowed;
+          tools.append(candidate);
+        }
+        continue;
       }
     }
-    if(readinessForSpecInContext(candidate,{},true,snapshot,generation).ready)tools.append(candidate);
+    if (readinessForSpecInContext(candidate, {}, true, snapshot, bindingRevision).ready) tools.append(candidate);
+    if (lostOwner()) return {};
   }
+  if (m_bindingRevision != bindingRevision)
+    tools.removeIf([](const auto &spec) { return spec.name != QLatin1String("paleo.read_result"); });
   return tools;
 }

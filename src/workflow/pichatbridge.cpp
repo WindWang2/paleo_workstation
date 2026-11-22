@@ -79,8 +79,9 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
   if (!task) { m_active = false; return "pi_task_unavailable"; }
   m_task = task; m_timer.start();
   connect(task, &PaleoTask::finished, this, [this, guard, generation, state, channel] {
-    if (!guard || generation != m_generation) return;
-    drain(); if (!guard) return;
+    if (!guard || !m_active || generation != m_generation) return;
+    drain();
+    if (!guard || !m_active || generation != m_generation) return;
     const auto workerCode = state->ready.load(std::memory_order_acquire) ? state->value.code : QStringLiteral("interrupted");
     QString code = workerCode;
     // G2-W5：终态原因优先级 = 首个宿主侧失败 > 停止原因（用户取消/宿主停止）
@@ -91,8 +92,10 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
     else if (code == "ok" && m_phase != Phase::Closed) code = "pi_conversation_incomplete";
     // 收尾补充：worker 的失败（如进程回收失败）与主因不同时不整段隐藏。
     if (workerCode != code && workerCode != QLatin1String("ok") &&
-        workerCode != QLatin1String("interrupted") && !workerCode.isEmpty())
-      emit cleanupNotice(workerCode); // 未执行（interrupted）不是清理失败，不发补充
+        workerCode != QLatin1String("interrupted") && !workerCode.isEmpty()) {
+      emit cleanupNotice(workerCode);
+      if (!guard || !m_active || generation != m_generation) return;
+    }
     m_timer.stop(); m_task.clear(); m_active = false; emit finished(code);
   }, Qt::SingleShotConnection);
   return {};
@@ -117,23 +120,27 @@ void PiChatBridge::abort(bool explicitUser) {
 void PiChatBridge::controlTick() {
   if (!m_active) return;
   const QPointer<PiChatBridge> guard(this);
+  const auto generation = m_generation;
+  const auto currentGeneration = [guard, generation] {
+    return guard && guard->m_active && generation == guard->m_generation;
+  };
   // A service shutdown may delete a queued task without delivering its queued
   // finished signal. Do not leave the selected engine permanently busy.
   if (!m_service || !m_task) {
-    fail("pi_task_unavailable"); if (!guard) return;
+    fail("pi_task_unavailable"); if (!currentGeneration()) return;
     // G2-W5：任务不可用即主因——收尾完成与根因一致，不再降级为 interrupted。
     m_timer.stop(); m_task.clear(); m_active = false;
     emit finished(m_failure.isEmpty() ? QStringLiteral("interrupted") : m_failure); return;
   }
   const bool current = m_contextCurrent && m_contextCurrent();
-  if (!guard) return;
+  if (!currentGeneration()) return;
   if (!current) fail("interrupted");
-  if (!guard) return;
+  if (!currentGeneration()) return;
   if (!m_channel->stopReason() && (m_phase != Phase::Model || m_modelEnding) && m_phase != Phase::Tool && m_phase != Phase::Closed && m_controlAge.elapsed() > 15000)
     fail("pi_control_timeout");
-  if (!guard) return;
+  if (!currentGeneration()) return;
   flushModel();
-  if (!guard) return;
+  if (!currentGeneration()) return;
   drain();
 }
 void PiChatBridge::configureNext() {
@@ -151,7 +158,11 @@ void PiChatBridge::drain() {
     return;
   }
   const QPointer<PiChatBridge> guard(this);
-  for (const auto &value : frames) { frame(value); if (!guard) return; }
+  const auto generation = m_generation;
+  for (const auto &value : frames) {
+    frame(value);
+    if (!guard || !m_active || generation != m_generation) return;
+  }
 }
 void PiChatBridge::frame(const QJsonObject &value) {
   if (!m_active) return;
@@ -239,8 +250,9 @@ void PiChatBridge::flushModel() {
   m_modelEnding = false; m_phase = m_calls.isEmpty() ? Phase::AwaitIdle : Phase::AwaitTool; m_controlAge.restart();
 }
 void PiChatBridge::modelFailed(const QString &code) {
-  if (!m_active || m_phase != Phase::Model) { fail(code); return; }
-  m_failure = code; m_phase = Phase::AwaitIdle; m_controlAge.restart();
+  if (!m_active || m_channel->stopReason()) return;
+  if (m_phase != Phase::Model) { fail(code); return; }
+  if (m_failure.isEmpty()) m_failure = code; m_phase = Phase::AwaitIdle; m_controlAge.restart();
   m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false;
   send("model_error", {{"round", QString::number(m_round)}, {"code", code}});
 }

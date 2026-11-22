@@ -357,6 +357,7 @@ private slots:
   void parserDropsTrailingBytesAfterDone();
   void parserDropsTrailingToolCallAfterDone();
   void parserManyTinyLinesInOneFeedStayLinear();
+  void parserFragmentedLongLineStaysLinear();
   void parserExplicitEmptyObjectIsSealed();
   void parserMultiToolDeliveryOrderIsBatchScoped();
   void parserHugeIndexIsBounded();
@@ -385,6 +386,7 @@ private slots:
   void eventStreamContentTypeWithPlainJsonBodyStillUsesFallback();
   void errorEnvelope200FailsHonestly();
   void emptyChoicesNonStreamFails();
+  void nonStreamUsesPrimaryChoiceByIndex();
   void nonObjectMessageFails();
   void finishReasonAndUsagePassThrough();
   void zeroEventStreamFails();
@@ -690,9 +692,7 @@ void TestG1ModelTransport::parserDropsTrailingToolCallAfterDone() {
   QVERIFY(flushError.isEmpty());
 }
 
-// W3 反二次方：单块内 20 万行碎事件（心跳形态）必须线性完成。旧实现逐行
-// remove(0,n) 前移，此例要把 ~100GB 字节搬来搬去（分钟级）；偏移推进后为
-// 毫秒级。阈值取 5s（宽上限，只用来区分「二次方」与「线性」两档）。
+// 200,000 short LF-only heartbeats catch rescanning the suffix for an absent CR.
 void TestG1ModelTransport::parserManyTinyLinesInOneFeedStayLinear() {
   LlmStreamParser parser;
   QByteArray flood;
@@ -712,6 +712,28 @@ void TestG1ModelTransport::parserManyTinyLinesInOneFeedStayLinear() {
   QVERIFY(deltas.isEmpty()); // 纯心跳：零内容
   QVERIFY(error.isEmpty());
   QVERIFY(!done);
+}
+
+void TestG1ModelTransport::parserFragmentedLongLineStaysLinear() {
+  LlmStreamParser parser;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  parser.feed(":", &deltas, &done, &error);
+
+  const QByteArray fragment(8, 'x');
+  QElapsedTimer clock;
+  clock.start();
+  for (int i = 0; i < 200000; ++i)
+    parser.feed(fragment, &deltas, &done, &error);
+  // Finish the comment with a CRLF split over a chunk boundary.
+  parser.feed("\r", &deltas, &done, &error);
+  parser.feed("\n" + deltaEvent("answer") + sse({}, true), &deltas, &done, &error);
+
+  QVERIFY2(clock.elapsed() < 5000, "Fragmented lines must resume scanning, not rescan the prefix");
+  QVERIFY(error.isEmpty());
+  QVERIFY(done);
+  QCOMPARE(deltas, QStringList{QStringLiteral("answer")});
 }
 
 void TestG1ModelTransport::parserExplicitEmptyObjectIsSealed() {
@@ -1332,6 +1354,26 @@ void TestG1ModelTransport::emptyChoicesNonStreamFails() {
   QVERIFY2(spinUntil([&] { return recorder.errors >= 1; }, 4000), "空 choices 报错");
   QCOMPARE(recorder.errorKinds.first(), LlmErrorKind::Malformed);
   QCOMPARE(recorder.finished, 0);
+}
+
+void TestG1ModelTransport::nonStreamUsesPrimaryChoiceByIndex() {
+  RawServer server;
+  QVERIFY(server.start([] {
+    return RawServer::Response{.contentType = "application/json",
+      .writes = {R"({"choices":[
+        {"index":1,"message":{"content":"secondary"},"finish_reason":"length"},
+        {"index":0,"message":{"content":"primary"},"finish_reason":"stop"}
+      ]})"}};
+  }));
+  LlmClient client;
+  Recorder recorder;
+  recorder.attach(&client);
+  client.setConfig(clientConfig(server.endpoint(), "sk", false));
+  client.send(oneShot());
+  QVERIFY(spinUntil([&] { return recorder.finished == 1 || recorder.errors; }, 4000));
+  QCOMPARE(recorder.errors, 0);
+  QCOMPARE(recorder.joined(), QStringLiteral("primary"));
+  QCOMPARE(recorder.finishReason, QStringLiteral("stop"));
 }
 
 void TestG1ModelTransport::nonObjectMessageFails() {

@@ -1,10 +1,12 @@
 // 层：功能
 #include "aiconversationpresentation.h"
+#include "chatinvocationbinding.h"
 #include "../services/toolresultprotocol.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QStringConverter>
 
 namespace paleo::chat {
 namespace {
@@ -169,134 +171,123 @@ ToolResultFacts projectToolResult(const QString &tool, const QString &resultJson
 }
 
 QVector<HistoryToolCall> projectSessionTools(const ChatSession &session) {
+  using TurnCall = QPair<int, QString>;
   struct CallSite {
+    const ChatToolCall *call = nullptr;
     int messageIndex = -1;
-    QString name;
-    QString argumentsJson;
-    int occurrences = 0;
+    int declarations = 0;
+    int results = 0;
+    bool answered = false;
   };
-  QHash<QString, CallSite> sites; // callId → 最后一个声明位（occurrences 记歧义）
-  for (int index = 0; index < session.messages.size(); ++index) {
-    const auto &message = session.messages[index];
-    if (message.role != ChatRole::Assistant)
-      continue;
-    for (const auto &call : message.toolCalls) {
-      auto &site = sites[call.id];
-      site.messageIndex = index;
-      site.name = call.name;
-      site.argumentsJson = call.argumentsJson;
-      ++site.occurrences;
-    }
-  }
-
-  QVector<HistoryToolCall> out;
-  QString turnId;
+  QHash<TurnCall, CallSite> sites;
+  QHash<QString, int> turnCounts;
   int turnUserIndex = -1;
   for (int index = 0; index < session.messages.size(); ++index) {
     const auto &message = session.messages[index];
     if (message.role == ChatRole::User) {
-      turnId = message.hostTurnId; // 旧记录未记 → 空（归属未验证）
       turnUserIndex = index;
-      continue;
+      ++turnCounts[message.hostTurnId];
+    } else if (message.role == ChatRole::Assistant) {
+      for (const auto &call : message.toolCalls) {
+        if (call.id.isEmpty())
+          continue;
+        auto &site = sites[{turnUserIndex, call.id}];
+        if (++site.declarations == 1) {
+          site.call = &call;
+          site.messageIndex = index;
+        }
+      }
+    } else if (message.role == ChatRole::Tool && !message.toolCallId.isEmpty()) {
+      ++sites[{turnUserIndex, message.toolCallId}].results;
     }
-    if (message.role != ChatRole::Tool)
-      continue;
+  }
+
+  QHash<QPair<QString, QString>, QJsonObject> bindings;
+  if (validateInvocationBindings(session).isEmpty()) {
+    for (const auto &value : session.hostToolBindings) {
+      const auto row = value.toObject();
+      bindings.insert({row.value("turnId").toString(), row.value("callId").toString()}, row);
+    }
+  }
+
+  const auto makeEntry = [&](const TurnCall &key, const CallSite &site, int resultIndex) {
     HistoryToolCall entry;
-    entry.toolMessageIndex = index;
-    entry.toolCallId = message.toolCallId;
-    entry.turnId = turnId;
-    entry.turnUserIndex = turnUserIndex;
-    const auto site = sites.constFind(message.toolCallId);
-    if (site != sites.constEnd()) {
+    entry.toolMessageIndex = resultIndex;
+    entry.turnUserIndex = key.first;
+    entry.toolCallId = key.second;
+    if (key.first >= 0)
+      entry.turnId = session.messages.at(key.first).hostTurnId;
+    entry.ambiguousCallId = site.declarations > 1 || site.results > 1;
+    if (site.call && (resultIndex < 0 || site.messageIndex < resultIndex)) {
       entry.callPaired = true;
-      entry.ambiguousCallId = site->occurrences > 1;
-      entry.assistantMessageIndex = site->messageIndex;
-      entry.toolName = site->name;
-      entry.argumentsJson = site->argumentsJson;
-    }
-    if (session.hostBindingsValid) {
-      for (const auto &value : session.hostToolBindings) {
-        const auto row = value.toObject();
-        if (row.value(QStringLiteral("turnId")).toString() == turnId &&
-            row.value(QStringLiteral("callId")).toString() == message.toolCallId) {
-          // 绑定只证明「当时宿主承认过这次调用」，不是现在的执行授权。
+      entry.assistantMessageIndex = site.messageIndex;
+      entry.toolName = site.call->name;
+      entry.argumentsJson = site.call->argumentsJson;
+      if (!entry.ambiguousCallId && !entry.turnId.isEmpty() && turnCounts.value(entry.turnId) == 1) {
+        const auto binding = bindings.constFind({entry.turnId, key.second});
+        if (binding != bindings.constEnd() && invocationMatchesBinding(*site.call, *binding)) {
           entry.bindingKnown = true;
-          entry.bindingDocumentId = row.value(QStringLiteral("documentId")).toString();
-          break;
+          entry.bindingDocumentId = binding->value("documentId").toString();
         }
       }
     }
-    entry.hasResult = true;
-    entry.facts = projectToolResult(entry.toolName, message.content);
-    out.append(entry);
-  }
-  // 有调用、无结果帧（遗留未应答）：如实列出，结果缺失。
-  QSet<QString> answered;
-  for (const auto &entry : out)
-    answered.insert(entry.toolCallId);
-  for (auto it = sites.constBegin(); it != sites.constEnd(); ++it) {
-    if (answered.contains(it.key()))
-      continue;
-    HistoryToolCall entry;
-    entry.toolCallId = it.key();
-    entry.toolName = it.value().name;
-    entry.argumentsJson = it.value().argumentsJson;
-    entry.assistantMessageIndex = it.value().messageIndex;
-    entry.callPaired = true;
-    entry.ambiguousCallId = it.value().occurrences > 1;
-    // 无 tool 消息可回溯回合：以调用位之前最近的 user 帧计。
-    for (int index = it.value().messageIndex; index >= 0; --index) {
-      if (session.messages[index].role == ChatRole::User) {
-        entry.turnUserIndex = index;
-        entry.turnId = session.messages[index].hostTurnId;
-        break;
-      }
+    entry.hasResult = resultIndex >= 0;
+    if (entry.hasResult)
+      entry.facts = projectToolResult(entry.toolName, session.messages.at(resultIndex).content);
+    return entry;
+  };
+
+  QVector<HistoryToolCall> out;
+  turnUserIndex = -1;
+  for (int index = 0; index < session.messages.size(); ++index) {
+    const auto &message = session.messages[index];
+    if (message.role == ChatRole::User) {
+      turnUserIndex = index;
+    } else if (message.role == ChatRole::Tool) {
+      const TurnCall key{turnUserIndex, message.toolCallId};
+      auto site = sites.find(key);
+      auto entry = makeEntry(key, site == sites.end() ? CallSite{} : *site, index);
+      if (entry.callPaired)
+        site->answered = true;
+      out.append(std::move(entry));
     }
-    out.append(entry);
   }
-  // 保持消息顺序稳定（补录的未应答项按 assistant 位排回）。
+  for (auto site = sites.cbegin(); site != sites.cend(); ++site) {
+    if (site->call && !site->answered)
+      out.append(makeEntry(site.key(), *site, -1));
+  }
   std::sort(out.begin(), out.end(), [](const HistoryToolCall &a, const HistoryToolCall &b) {
-    const int rankA = a.assistantMessageIndex >= 0 ? a.assistantMessageIndex : a.toolMessageIndex;
-    const int rankB = b.assistantMessageIndex >= 0 ? b.assistantMessageIndex : b.toolMessageIndex;
-    if (rankA != rankB)
-      return rankA < rankB;
-    return a.toolMessageIndex < b.toolMessageIndex;
+    const int rankA = a.hasResult ? a.toolMessageIndex : a.assistantMessageIndex;
+    const int rankB = b.hasResult ? b.toolMessageIndex : b.assistantMessageIndex;
+    return rankA != rankB ? rankA < rankB : a.toolCallId < b.toolCallId;
   });
   return out;
 }
 
 TextPage decodeUtf8Display(const QByteArray &bytes, bool holdTail) {
   TextPage page;
-  int hold = 0;
-  for (int index = bytes.size() - 1; index >= 0 && hold <= 3; --index) {
-    const auto byte = quint8(bytes.at(index));
-    if ((byte & 0xC0) == 0x80) { // continuation
-      ++hold;
-      continue;
+  if (holdTail && !bytes.isEmpty()) {
+    auto lead = bytes.size() - 1;
+    while (lead >= 0 && bytes.size() - lead <= 3 && (quint8(bytes.at(lead)) & 0xC0) == 0x80)
+      --lead;
+    if (lead >= 0 && bytes.size() - lead <= 3) {
+      const auto first = quint8(bytes.at(lead));
+      const auto length = bytes.size() - lead;
+      const int expected = first >= 0xF0 && first <= 0xF4 ? 4 :
+                           first >= 0xE0 && first <= 0xEF ? 3 :
+                           first >= 0xC2 && first <= 0xDF ? 2 : 1;
+      const auto second = length > 1 ? quint8(bytes.at(lead + 1)) : quint8(0);
+      const bool validPrefix = length == 1 ||
+        ((first != 0xE0 || second >= 0xA0) && (first != 0xED || second <= 0x9F) &&
+         (first != 0xF0 || second >= 0x90) && (first != 0xF4 || second <= 0x8F));
+      if (length < expected && validPrefix)
+        page.trailingBytes = int(length);
     }
-    int length = 1;
-    if (byte >= 0xF0 && byte <= 0xF7)
-      length = 4;
-    else if (byte >= 0xE0 && byte <= 0xEF)
-      length = 3;
-    else if (byte >= 0xC0 && byte <= 0xDF)
-      length = 2;
-    // lead 找到：序列完整则无需保留；不完整则连同 lead 一起留给下一页。
-    if (length > 1 && hold == length - 1)
-      hold = 0;
-    else if (length > 1)
-      hold += 1; // lead 也留下
-    break;
   }
-  // 连续 ≥4 个 continuation（无合法 lead）：不猜，整体按非法呈现。
-  if (hold > 3)
-    hold = 0;
-  if (!holdTail)
-    hold = 0; // 末页：不再为下一页保留尾巴，残缺序列按非法替换呈现
-  page.trailingBytes = hold;
-  const auto body = bytes.left(bytes.size() - hold);
-  page.text = QString::fromUtf8(body);
-  page.invalid = page.text.contains(QChar::ReplacementCharacter);
+  QStringDecoder decoder(QStringConverter::Utf8,
+                         QStringConverter::Flag::Stateless | QStringConverter::Flag::ConvertInitialBom);
+  page.text = decoder(QByteArrayView(bytes).first(bytes.size() - page.trailingBytes));
+  page.invalid = decoder.hasError();
   return page;
 }
 

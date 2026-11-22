@@ -1,6 +1,5 @@
 // 层：功能
 #include "operationprivatedir.h"
-#include "metadata/managedpath.h"
 #include "metadata/operationnamespace.h"
 
 #include <QDir>
@@ -21,7 +20,7 @@ bool walkExistingSegments(const QString &root, const QStringList &segments, QStr
   {
     current = QDir(current).filePath(segment);
     const QFileInfo info(current);
-    if (info.isSymbolicLink())
+    if (info.isSymbolicLink() || info.isJunction())
     {
       code = QStringLiteral("unsafe_operation_directory");
       return false;
@@ -69,12 +68,10 @@ PrivateDir createPrivateAttemptDir(const QString &projectDir, const QString &ope
     out.code = QStringLiteral("stage_failed");
     return out;
   }
-  const QFileInfo created(expected);
-  // 创建后复核：真实目录、无链接别名、规范路径仍在工程根内。根取自磁盘
-  // 规范化路径，Windows 大小写差异不会误伤；越出根即说明创建链被外部
-  // 篡改（残余 TOCTOU 窗口收敛到本复核点之后）。
-  if (!created.isDir() || created.isSymbolicLink() ||
-      !created.canonicalFilePath().startsWith(root + QLatin1Char('/')))
+  // 创建期间父段也可能变化，不能只复核末段的类型。
+  if (!walkExistingSegments(root, segments, out.code))
+    return out;
+  if (!QFileInfo(expected).isDir())
   {
     out.code = QStringLiteral("unsafe_operation_directory");
     return out;

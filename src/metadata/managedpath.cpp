@@ -28,7 +28,7 @@ QString resolveManagedPath(const QString &projectDir, const QString &relativePat
   {
     current = QDir(current).filePath(segment);
     const QFileInfo info(current);
-    if (info.isSymbolicLink()) return QString();
+    if (info.isSymbolicLink() || info.isJunction()) return QString();
     if (info.exists())
     {
       // canonicalFilePath() 恒以 '/' 作分隔符（含 Windows）；QDir::separator()

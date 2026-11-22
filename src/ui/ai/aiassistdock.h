@@ -77,6 +77,9 @@ private:
   // （全量 JSON）；历史 envelope 走同一 renderer（buildHistoryCards）。
   void showToolResult(const ChatToolCall &call, bool ok, const QString &resultJson);
   void clearToolCards();
+  void syncCardOperationControls(AiConversationCard *card);
+  void retireCard(AiConversationCard *card);
+  QList<AiConversationCard *> operationCards(const QString &operationId) const;
   void writeBlock(const QString &html);
   void bindController();
   // 会话面（方向62）
@@ -136,9 +139,8 @@ private:
   QHash<QString, AiConversationCard *> m_toolCards; // key = tool_call id（实时）
   QVector<paleo::chat::HistoryToolCall> m_historyTools; // W2 只读投影
   QList<AiConversationCard *> m_historyCards;           // 当前窗口内的历史卡
-  QHash<QString, QList<AiConversationCard *>> m_cardsByOperation;
   int m_historyWindowStart = 0; // W8 卡窗口起点（kCardWidgetCap 张为一页）
-  QStringList m_expandedOrder;  // W8 展开次序（超限 LRU 收敛）
+  QList<AiConversationCard *> m_expandedOrder;  // W8 展开次序（超限 LRU 收敛）
   static constexpr int kCardWidgetCap = 64;   // 活跃卡 widget 上限
   static constexpr int kExpandedCardCap = 8;  // 同时展开卡上限
 };

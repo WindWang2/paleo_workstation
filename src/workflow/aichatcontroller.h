@@ -133,6 +133,10 @@ private:
   void appendMessage(const ChatMessage &message);
   void setStreaming(bool streaming);
   void sendRound();               // 占位 + 上送（带 tools[]）
+  QString buildSystemPrompt(const QVector<AiToolSpec> &tools, const QString &brief) const;
+  bool ensureTurnContext();
+  QString negotiatedToolError(const ChatToolCall &call) const;
+  void dispatchTurnTool(ChatToolCall call);
   void onRoundFinished(const QString &reason);
   void onToolFinished(const ChatToolCall &call, bool ok, const QString &resultJson);
   QVector<ChatMessage> requestMessages() const; // system + 预算窗内历史
@@ -143,8 +147,8 @@ private:
   void handleModelError(LlmErrorKind, const QString &message);
   bool admitToolCalls(const QVector<ChatToolCall> &calls);
   void rejectToolRound(const QString &code, const QString &message = {});
-  void startEngineTurn();
-  void piFailure(const QString &);
+  void startEngineTurn(const QJsonObject &context);
+  void failTurn(const QString &);
   ChatToolCall hostAdmittedCall(const ChatToolCall &) const;
   // ---- G2（回合执行闭环）：本轮冻结快照与保存欠账 ----
   // W1：一轮用户请求的执行归属（模型配置/协商工具表）在 startEngineTurn
@@ -179,6 +183,7 @@ private:
   // G2-W1：本轮冻结的模型配置与协商工具表（原生/Pi 同源），见上块注释。
   LlmConfig m_turnConfig;
   QVector<AiToolSpec> m_turnTools;
+  QString m_turnPrompt;
   bool m_turnFrozen = false;
   // G2-W3：保存欠账 = 已进入内存但尚未成功落盘的对话内容；未清账前拒绝
   // 无声切换/删除当前会话（薄门见 newSession/loadSession/removeSession）。

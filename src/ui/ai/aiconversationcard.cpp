@@ -161,15 +161,10 @@ void AiConversationCard::setActionNote(const QString &note) {
 
 void AiConversationCard::setOperationControlsAllowed(bool allowed) {
   m_operationControlsAllowed = allowed;
-  // 已建 body 的卡（如实时卡在解绑 adapter 后）：撤下控制行并给原因，
-  // 不留可点而无效的按钮。
-  if (!allowed && m_controlRow) {
-    m_controlRow->hide();
-    setActionNote(tr("操作查询/取消/恢复未接入（无操作服务）"));
-  } else if (allowed && m_controlRow) {
-    m_controlRow->show();
-    setActionNote(QString());
-  }
+  if (m_controlRow)
+    m_controlRow->setVisible(allowed);
+  if (m_unavailableNote)
+    m_unavailableNote->setVisible(!allowed);
 }
 
 QString AiConversationCard::attributionText() const {
@@ -311,22 +306,14 @@ void AiConversationCard::buildBody() {
 
   // 操作控制行（仅 operation 事实存在且有 operationId）：意图交 adapter 裁决。
   if (m_facts.operationFacts && !m_operationId.isEmpty()) {
-    if (!m_operationControlsAllowed) {
-      // 业务不允许时给原因（W8.4）：按钮不出现，说明为什么。
-      auto *note = new QLabel(tr("操作查询/取消/恢复未接入（无操作服务）"),
-                              m_body);
-      note->setObjectName(QStringLiteral("aiCardOperationUnavailable"));
-      note->setTextFormat(Qt::PlainText);
-      note->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
-      PaleoTheme::applyThemedStyleSheet(
-        note, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-      m_bodyLayout->addWidget(note);
-      m_body->hide();
-      if (auto *frameLayout = qobject_cast<QVBoxLayout *>(m_frame->layout()))
-        frameLayout->addWidget(m_body);
-      return;
-    }
-    // 控制行包一层 QWidget 记账：allowed=false（adapter 解绑）时整体撤下。
+    m_unavailableNote = new QLabel(tr("操作查询/取消/恢复未接入（无操作服务）"), m_body);
+    m_unavailableNote->setObjectName(QStringLiteral("aiCardOperationUnavailable"));
+    m_unavailableNote->setTextFormat(Qt::PlainText);
+    m_unavailableNote->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+    PaleoTheme::applyThemedStyleSheet(
+      m_unavailableNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    m_bodyLayout->addWidget(m_unavailableNote);
+
     m_controlRow = new QWidget(m_body);
     auto *actions = new QHBoxLayout(m_controlRow);
     actions->setContentsMargins(0, 0, 0, 0);
@@ -353,6 +340,10 @@ void AiConversationCard::buildBody() {
             [this] { emit operationCancelRequested(m_operationId); });
     connect(m_resumeButton, &QPushButton::clicked, this,
             [this] { emit operationResumeRequested(m_operationId); });
+    setOperationControlsAllowed(m_operationControlsAllowed);
+    m_refreshButton->setDisabled(m_busyActions.contains(QStringLiteral("refresh")));
+    m_cancelButton->setDisabled(m_busyActions.contains(QStringLiteral("cancel")));
+    m_resumeButton->setDisabled(m_busyActions.contains(QStringLiteral("resume")));
   }
   m_body->hide(); // 显隐统一由 expand toggle 管理
   if (auto *frameLayout = qobject_cast<QVBoxLayout *>(m_frame->layout()))
@@ -360,6 +351,10 @@ void AiConversationCard::buildBody() {
 }
 
 void AiConversationCard::setActionBusy(const QString &action, bool busy) {
+  if (busy)
+    m_busyActions.insert(action);
+  else
+    m_busyActions.remove(action);
   // 精确映射（read/events/results 不牵连恢复按钮）。
   QPushButton *button = nullptr;
   if (action == QLatin1String("refresh"))

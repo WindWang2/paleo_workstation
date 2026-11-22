@@ -61,7 +61,9 @@ private slots:
                     QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))});
         QTRY_COMPARE(done.size(),calls);QVERIFY(!done.last()[1].toBool());
         const auto result=QJsonDocument::fromJson(done.last()[2].toString().toUtf8()).object();
-        QCOMPARE(result.value("error").toString(),QCoreApplication::translate("AiChatToolRunner","种子点坐标缺失或越界（须为整数线号与非负样点号）"));
+        QCOMPARE(result.value("code").toString(), QStringLiteral("argument_out_of_range"));
+        QCOMPARE(result.value("field").toString(), inlineAxis ? QStringLiteral("seeds.0.inline")
+                                                              : QStringLiteral("seeds.0.xline"));
         QCOMPARE(providerCalls,0);QCOMPARE(fetchCalls,0);QVERIFY(tasks.tasks().isEmpty());
         QVERIFY(onnx.loadedModel().isEmpty());
       }
@@ -151,7 +153,8 @@ private slots:
     ctx.trackingInput=[](const auto &,auto *,QString *why){*why="tracking_time_reference_unknown";return false;};
     runner.setContext(ctx);QCOMPARE(runner.readiness(name,{{"model","model"}}).code,QString("tracking_time_reference_unknown"));
     PaleoTaskService tasks;runner.setTaskService(&tasks);QSignalSpy done(&runner,&AiChatToolRunner::toolFinished);
-    runner.run({"call","paleo.horizon_tracking_suggestion",R"({"model":"model","window_samples":4,"radius":1,"seeds":[]})"});
+    runner.run({"call", "paleo.horizon_tracking_suggestion",
+                R"({"model":"model","window_samples":4,"radius":1,"seeds":[{"inline":0,"xline":0,"sample_index":0}]})"});
     QTRY_COMPARE(done.size(),1);QVERIFY(tasks.tasks().isEmpty());QVERIFY(!done[0][1].toBool());
     QCOMPARE(QJsonDocument::fromJson(done[0][2].toString().toUtf8()).object().value("code").toString(),QString("tracking_time_reference_unknown"));
   }

@@ -177,6 +177,7 @@ public:
   void cachePut(const QString &fingerprint, const QByteArray &summaryJson);
 
 private:
+  bool projectPathSafe(const QString &path) const;
   bool loadOperations();
   bool persistOperations() const;
   QString m_path;
@@ -189,6 +190,7 @@ private:
   // "目标被隔离"与"确实不存在"区分开）；原始行永不回写。
   QSet<QString> m_quarantinedIds;
   QSet<QString> m_quarantinedKeys;
+  int m_quarantinedRows = 0; // 包括无法确定任何身份字段的坏行。
 };
 
 QVariantMap effectiveScalarParams(const QString &algorithmId, int contractVersion, const QVariantMap &user,

@@ -53,10 +53,8 @@ signals:
 
 private:
   void rebuildStateRows(const QJsonObject &state);
-  void showEventPage(const QJsonObject &events);
-  void showPorts(const QJsonObject &results);
-  void showPortPage(const QString &portId, const QJsonObject &page);
   void resetPortView();
+  void clearPortPreview();
   void setControlBusy(const QString &action, bool busy);
 
   QString m_operationId;

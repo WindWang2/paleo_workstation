@@ -72,15 +72,36 @@ bool strictIntegerValue(const QJsonValue &value) {
          d <= double(std::numeric_limits<int>::max());
 }
 
-// G3/W4：local_models 条件 schema（分页预算域与 aichattoolrunner_models
-// 运行期同值）；具名构造避免深嵌套初始化的花括号计数错误。
-QJsonObject localModelsBudgetCondition() {
-  QJsonObject pageSize{{"type", "integer"}, {"minimum", 1}, {"maximum", 64}};
-  QJsonObject maxBytes{{"type", "integer"}, {"minimum", 1024}, {"maximum", 32768}};
-  QJsonObject budgets{{"page_size", pageSize}, {"max_bytes", maxBytes}};
-  return QJsonObject{{"if", QJsonObject{{"properties", QJsonObject{{"topic",
-        QJsonObject{{"const", "local_models"}}}}}}},
-      {"then", QJsonObject{{"properties", budgets}}}};
+const QList<paleo::query::QueryTopicRule> &modelQueryTopics() {
+  static const auto topics = [] {
+    auto rules = paleo::query::queryTopicRules();
+    // Typed topics retain their own SourceRef and decimal-ID decoders.
+    rules.append(paleo::query::QueryTopicRule{"numeric_table_projection", {"source_ref", "table_id"},
+        {"topic", "source_ref", "table_id", "max_bytes"}});
+    rules.append(paleo::query::QueryTopicRule{"seismic_trace_descriptor", {"source_ref", "volume_id"},
+        {"topic", "source_ref", "volume_id", "max_bytes"}});
+    return rules;
+  }();
+  return topics;
+}
+
+QJsonObject queryTopicCondition(const paleo::query::QueryTopicRule &rule,
+                                const QJsonObject &properties) {
+  QJsonObject fields;
+  for (auto it = properties.constBegin(); it != properties.constEnd(); ++it)
+    if (!rule.allowed.contains(it.key())) fields.insert(it.key(), false);
+  if (rule.allowed.contains("page_size"))
+    fields.insert("page_size", QJsonObject{{"type", "integer"},
+        {"minimum", rule.pageSizeMin}, {"maximum", rule.pageSizeMax}, {"default", rule.pageSizeDefault}});
+  if (rule.allowed.contains("max_bytes"))
+    fields.insert("max_bytes", QJsonObject{{"type", "integer"},
+        {"minimum", rule.maxBytesMin}, {"maximum", rule.maxBytesMax}, {"default", rule.maxBytesDefault}});
+  QJsonArray required;
+  for (const auto &key : rule.required) required.append(key);
+  const QJsonObject when{{"properties", QJsonObject{{"topic", QJsonObject{{"const", rule.topic}}}}}};
+  QJsonObject then{{"properties", fields}};
+  if (!required.isEmpty()) then.insert("required", required);
+  return {{"if", when}, {"then", then}};
 }
 
 // G3/W4：带数值域的参数规格（C++20 不允许位置+指定混合初始化，统一走
@@ -132,22 +153,11 @@ QJsonObject AiToolSpec::toJsonSchema() const {
   if (name==QLatin1String("paleo.query_project")) {
     properties.insert("source_ref",paleo::python::numericTableProjectionSourceSchema());
     schema.insert("properties",properties);
-    const QJsonObject condition{{"properties",QJsonObject{{"topic",QJsonObject{{"enum",QJsonArray{"version","version_parents"}}}}}}};
-    schema.insert("allOf",QJsonArray{QJsonObject{{"if",condition},
-        {"then",QJsonObject{{"required",QJsonArray{"version_id"}}}}},
-      QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","well_curves"}}}}}}},
-        {"then",QJsonObject{{"required",QJsonArray{"well_ref"}},
-          {"properties",QJsonObject{{"page_size",QJsonObject{{"type","integer"},{"minimum",1},{"maximum",16}}}}}}}},
-      QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","numeric_table_projection"}}}}}}},
-        {"then",QJsonObject{{"required",QJsonArray{"source_ref","table_id"}}}}},
-      QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","seismic_trace_descriptor"}}}}}}},
-        {"then",QJsonObject{{"required",QJsonArray{"source_ref","volume_id"}}}}},
-      // G3/W2：well_facies_inputs 的 well_ref 此前只在 runner allowed 清单里，
-      // schema 未声明条件必填——模型无从发现。
-      QJsonObject{{"if",QJsonObject{{"properties",QJsonObject{{"topic",QJsonObject{{"const","well_facies_inputs"}}}}}}},
-        {"then",QJsonObject{{"required",QJsonArray{"well_ref"}}}}},
-      // G3/W4：local_models 分页预算域与运行期（aichattoolrunner_models）同值。
-      localModelsBudgetCondition()});
+    QJsonArray conditions;
+    const auto topics = properties.value("topic").toObject().value("enum").toArray();
+    for (const auto &rule : modelQueryTopics())
+      if (topics.contains(rule.topic)) conditions.append(queryTopicCondition(rule, properties));
+    schema.insert("allOf", conditions);
   }
   if (name==QLatin1String("paleo.horizon_tracking_suggestion")) {
     // G3/W4：seeds 元素形状此前只有描述文本；运行期（aichattoolrunner 的
@@ -161,7 +171,8 @@ QJsonObject AiToolSpec::toJsonSchema() const {
       {"properties", itemProperties}};
     auto horizonProperties=schema.value("properties").toObject();
     auto seeds=horizonProperties.value("seeds").toObject();
-    seeds.insert(QStringLiteral("maxItems"),kMaxSuggestSeeds);
+    seeds.insert(QStringLiteral("minItems"), 1);
+    seeds.insert(QStringLiteral("maxItems"), kMaxSuggestSeeds);
     seeds.insert(QStringLiteral("items"),item);
     horizonProperties.insert("seeds",seeds);
     schema.insert("properties",horizonProperties);
@@ -266,6 +277,7 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
 }
 
 QString AiToolSpec::validateExternalArguments(const QJsonObject &arguments, QString *field) const {
+  if (field) field->clear();
   const auto fail = [field](const QString &code, const QString &name) {
     if (field)
       *field = name;
@@ -300,27 +312,33 @@ QString AiToolSpec::validateExternalArguments(const QJsonObject &arguments, QStr
         return fail(QStringLiteral("argument_out_of_range"), parameter.name);
     }
   }
-  // W4：seeds 元素坐标必须是 JSON 原生整数、字段封闭（与 schema items 的
-  // additionalProperties:false 一致；运行期 runHorizon 的 intArg 仍保留文本
-  // 兼容，但外部请求在进入执行面前拒绝）。
   if (name == QLatin1String("paleo.horizon_tracking_suggestion")) {
-    const QJsonValue seeds = arguments.value(QStringLiteral("seeds"));
-    if (seeds.isArray()) {
-      int index = 0;
-      for (const QJsonValue &element : seeds.toArray()) {
-        const QJsonObject seed = element.toObject();
-        for (const auto &key : seed.keys())
-          if (key != QLatin1String("inline") && key != QLatin1String("xline") &&
-              key != QLatin1String("sample_index"))
-            return fail(QStringLiteral("unsupported_seed_field"),
-                        QStringLiteral("seeds.%1.%2").arg(index).arg(key));
-        for (const char *key : {"inline", "xline", "sample_index"}) {
-          if (seed.contains(QLatin1String(key)) &&
-              !strictIntegerValue(seed.value(QLatin1String(key))))
-            return fail(QStringLiteral("invalid_integer_representation"),
-                        QStringLiteral("seeds.%1.%2").arg(index).arg(QLatin1String(key)));
-        }
-        ++index;
+    if (arguments.value("model").toString().isEmpty())
+      return fail(QStringLiteral("missing_required_field"), QStringLiteral("model"));
+    const auto seeds = arguments.value("seeds").toArray();
+    if (seeds.isEmpty() || seeds.size() > kMaxSuggestSeeds)
+      return fail(QStringLiteral("argument_out_of_range"), QStringLiteral("seeds"));
+    const qint64 diameter = qint64(arguments.value("radius").toInt()) * 2 + 1;
+    const qint64 expanded = qint64(seeds.size()) * diameter * diameter;
+    if (expanded > 20000 || expanded * arguments.value("window_samples").toInt() > 8'000'000)
+      return QStringLiteral("tracking_expansion_budget");
+    for (qsizetype index = 0; index < seeds.size(); ++index) {
+      const auto element = seeds.at(index);
+      const auto path = QStringLiteral("seeds.%1").arg(index);
+      if (!element.isObject()) return fail(QStringLiteral("invalid_seed_shape"), path);
+      const auto seed = element.toObject();
+      for (const auto &key : seed.keys())
+        if (key != QLatin1String("inline") && key != QLatin1String("xline") &&
+            key != QLatin1String("sample_index"))
+          return fail(QStringLiteral("unsupported_seed_field"), path + '.' + key);
+      for (const auto &key : {QStringLiteral("inline"), QStringLiteral("xline"), QStringLiteral("sample_index")}) {
+        const auto value = seed.value(key);
+        const auto coordinate = path + '.' + key;
+        if (value.isUndefined()) return fail(QStringLiteral("missing_required_field"), coordinate);
+        if (!strictIntegerValue(value)) return fail(QStringLiteral("invalid_integer_representation"), coordinate);
+        const int minimum = key == QLatin1String("sample_index") ? 0 : -kMaxLineNumberAbs;
+        if (value.toInt() < minimum || value.toInt() > kMaxLineNumberAbs)
+          return fail(QStringLiteral("argument_out_of_range"), coordinate);
       }
     }
   }
@@ -367,7 +385,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     {QStringLiteral("model"), QStringLiteral("string"),
      QObject::tr("道窗 scorer 模型名"), true},
     boundedParameter(QStringLiteral("window_samples"), QStringLiteral("integer"),
-     QObject::tr("每道的取窗样本数"), true, 1, kMaxSuggestWindow),
+     QObject::tr("每道的取窗样本数"), true, 2, kMaxSuggestWindow),
     boundedParameter(QStringLiteral("radius"), QStringLiteral("integer"),
      QObject::tr("种子向 inline/xline 双向扩张的道数半径"), true, 1, kMaxSuggestRadius),
     {QStringLiteral("seeds"), QStringLiteral("array"),
@@ -405,14 +423,15 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     "清单按页返回，hasMore=true 时用 nextCursor 续查；count 为筛选总数，"
     "returnedCount 为本页条目数。井深按来源原值返回，未给出的单位不能推断。");
   query.requiresLocalOrt = false;
+  QStringList topics;
+  for (const auto &rule : modelQueryTopics()) topics.append(rule.topic);
   query.parameters = {
     {QStringLiteral("topic"), QStringLiteral("string"),
      QObject::tr("查询主题：summary=计数摘要；wells=井清单；horizons=层位"
                  "资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；"
                  "numeric_table_projection=精确源表的显式数值投影声明；seismic_trace_descriptor=精确地震体的采样声明；version=严格版本摘要；version_parents=完整父引用续页"),
      true,
-     {QStringLiteral("summary"), QStringLiteral("wells"), QStringLiteral("horizons"),
-      QStringLiteral("assets"), QStringLiteral("well_details"),QStringLiteral("well_curves"),QStringLiteral("numeric_table_projection"),QStringLiteral("seismic_trace_descriptor"),QStringLiteral("version"),QStringLiteral("version_parents"),QStringLiteral("well_facies_models"),QStringLiteral("well_facies_inputs"),QStringLiteral("local_models")}},
+     topics},
     {QStringLiteral("source_ref"),QStringLiteral("object"),QObject::tr("numeric_table_projection/seismic_trace_descriptor 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位"),false},
     {QStringLiteral("volume_id"),QStringLiteral("string"),QObject::tr("seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退"),false},
     {QStringLiteral("table_id"),QStringLiteral("string"),QObject::tr("numeric_table_projection 的精确源表十进制标识；不按工作表名回退"),false},

@@ -176,15 +176,17 @@ AiOperationDetailWidget::AiOperationDetailWidget(QWidget *parent) : QWidget(pare
     const auto *item = m_portsTable->item(row, 0);
     if (!item)
       return;
-    m_selectedPort = item->data(Qt::UserRole + 1).toString();
+    const auto portId = item->data(Qt::UserRole + 1).toString();
+    if (portId != m_selectedPort)
+      clearPortPreview();
+    m_selectedPort = portId;
     m_portEncoding = item->data(Qt::UserRole + 2).toString();
     m_portRead->setEnabled(!m_selectedPort.isEmpty());
-    m_portNext->setEnabled(false);
   });
   connect(m_portRead, &QPushButton::clicked, this, [this] {
     if (m_operationId.isEmpty() || m_selectedPort.isEmpty())
       return;
-    resetPortView();
+    clearPortPreview();
     emit portPageRequested(m_operationId, m_selectedPort, 0, kPortPageBytes);
   });
   connect(m_portNext, &QPushButton::clicked, this, [this] {
@@ -211,6 +213,9 @@ void AiOperationDetailWidget::closeEvent(QCloseEvent *event) {
 }
 
 void AiOperationDetailWidget::openOperation(const QString &operationId) {
+  if (m_operationId != operationId)
+    for (auto *button : {m_refresh, m_cancel, m_resume})
+      button->setEnabled(true);
   m_operationId = operationId;
   m_eventsCursor.clear();
   resetPortView();
@@ -225,17 +230,24 @@ void AiOperationDetailWidget::openOperation(const QString &operationId) {
   show();
   // 显式打开 = 显式检视：刷新 + 事件起读 + 端口表。
   emit refreshRequested(operationId);
+  if (isHidden() || m_operationId != operationId)
+    return;
   emit eventsRequested(operationId, 0);
-  emit resultsRequested(operationId);
+  if (!isHidden() && m_operationId == operationId)
+    emit resultsRequested(operationId);
 }
 
 void AiOperationDetailWidget::resetPortView() {
   m_selectedPort.clear();
   m_portEncoding.clear();
+  m_portRead->setEnabled(false);
+  clearPortPreview();
+}
+
+void AiOperationDetailWidget::clearPortPreview() {
   m_portOffset = 0;
   m_portBytes.clear();
   m_portPreview->clear();
-  m_portRead->setEnabled(false);
   m_portNext->setEnabled(false);
 }
 
@@ -276,6 +288,12 @@ void AiOperationDetailWidget::onOperationState(const QString &operationId,
                                                const QJsonObject &state) {
   if (operationId != m_operationId || isHidden())
     return; // 迟到帧/目标已切：按代次丢弃
+  const QString code = state.value(QStringLiteral("code")).toString();
+  if (!state.value(QStringLiteral("ok")).toBool() && !code.isEmpty()) {
+    m_axes->setText(tr("读取失败：%1").arg(code));
+    m_stateTable->setRowCount(0);
+    return;
+  }
   const QString axes = tr("执行：%1 · 提交：%2 · 呈现：%3")
                          .arg(knownOrUnknown(state.value(QStringLiteral("execution")).toString()),
                               knownOrUnknown(state.value(QStringLiteral("commitState")).toString()),
@@ -375,6 +393,10 @@ void AiOperationDetailWidget::onPortPage(const QString &operationId,
     m_portNext->setEnabled(false);
     return;
   }
+  bool validOffset = false;
+  const auto offset = page.value(QStringLiteral("offset")).toString().toLongLong(&validOffset);
+  if (!validOffset || offset != m_portOffset)
+    return;
   const auto bytes = QByteArray::fromBase64(
     page.value(QStringLiteral("data")).toString().toLatin1());
   if (m_portBytes.size() + bytes.size() > kPortPreviewCap) {

@@ -123,7 +123,8 @@ private slots:
   void eventsPageAdvancesByDecimalCursor();
   void resultsListsPortsFromCommittedOperation();
   void readPortReturnsBoundedBase64Page();
-  void newerReadSupersedesOlderCallback();
+  void sequentialReadsReturnTheirOwnOffsets();
+  void delayedPageIsDiscardedAfterHostChanges();
   void resumeDoubleClickIsDeduplicated();
   void contextRaceBetweenCaptureAndLiveIsRejected();
   void missingSessionOrHostRefusesWithoutServiceCall();
@@ -325,7 +326,7 @@ void TestG5OperationPresentation::readPortReturnsBoundedBase64Page() {
   QVERIFY(!payload.value(QStringLiteral("hasMore")).toBool());
 }
 
-void TestG5OperationPresentation::newerReadSupersedesOlderCallback() {
+void TestG5OperationPresentation::sequentialReadsReturnTheirOwnOffsets() {
   QTemporaryDir root;
   Host host(this);
   QVERIFY(host.open(root.path()));
@@ -345,7 +346,7 @@ void TestG5OperationPresentation::newerReadSupersedesOlderCallback() {
   const QString operationId = accepted.record.operationId;
 
   QSignalSpy page(&presenter, &paleo::chat::AiOperationPresentation::operationPortPage);
-  // 两个读页请求：第二个顶替第一个（同 action 忙碌会拒绝并发，串行发两次）。
+  // Read to completion, then continue from the returned offset.
   QVERIFY(presenter.requestPortPage(operationId, QStringLiteral("OUTPUT"), 0, 8));
   QVERIFY2(spinUntil([&page] { return page.size() == 1; }), "第一页完成（忙碌解除）");
   QVERIFY(presenter.requestPortPage(operationId, QStringLiteral("OUTPUT"), 8, 1024));
@@ -354,6 +355,31 @@ void TestG5OperationPresentation::newerReadSupersedesOlderCallback() {
   const auto last = page.at(1).at(2).toJsonObject();
   QVERIFY(last.value(QStringLiteral("ok")).toBool());
   QCOMPARE(last.value(QStringLiteral("offset")).toString(), QStringLiteral("8"));
+}
+
+void TestG5OperationPresentation::delayedPageIsDiscardedAfterHostChanges() {
+  QTemporaryDir root;
+  Host host(this);
+  QVERIFY(host.open(root.path()));
+  AiChatController controller;
+  controllerSession = controller.session().id;
+  paleo::chat::AiOperationPresentation presenter{{&controller, &host.host, nullptr}};
+  auto plan = publishPlan("old-page");
+  plan.callerScope = host.host.callerScope(host::Caller::Agent, controllerSession);
+  const auto accepted = host.host.recovery()->accept(plan);
+  QVERIFY(accepted.ok);
+  QEventLoop loop;
+  QVERIFY(host.host.recovery()->start(plan.callerScope, accepted.record.operationId, &host.host,
+                                      "run", [&loop](ExecuteResult) { loop.quit(); }, false));
+  loop.exec();
+  const QString operationId = accepted.record.operationId;
+  const auto read = QStringLiteral("read");
+  QSignalSpy pages(&presenter, &paleo::chat::AiOperationPresentation::operationPortPage);
+  QVERIFY(presenter.requestPortPage(operationId, "OUTPUT", 0, 8));
+  QVERIFY(presenter.busy(operationId, read));
+  ++host.epoch;
+  QVERIFY(spinUntil([&] { return !presenter.busy(operationId, read); }));
+  QCOMPARE(pages.size(), 0);
 }
 
 void TestG5OperationPresentation::resumeDoubleClickIsDeduplicated() {

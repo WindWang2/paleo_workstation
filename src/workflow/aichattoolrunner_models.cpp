@@ -4,7 +4,6 @@
 #include "ai/onnxpredictionservice.h"
 #include "services/projectquerytopics.h"
 #include <QJsonDocument>
-#include <cmath>
 
 void AiChatToolRunner::runLocalModels(const QJsonObject &args) {
   const auto fail=[&](const QString &code,const QString &field={}){
@@ -12,10 +11,9 @@ void AiChatToolRunner::runLocalModels(const QJsonObject &args) {
     if(!field.isEmpty())payload.insert("field",field);
     finishActive(false,payload);
   };
-  // G3/W2：字段集单源（services/projectquerytopics）；预算域仍由下方
-  // integer() 运行期检查给出（含缺省值）。field 一并带回供重试定位。
-  {QString field;const auto code=paleo::query::validateQueryTopicArguments(args,&field);
-   if(!code.isEmpty())return fail(code,field);}
+  QString field;
+  const auto argumentError = paleo::query::validateQueryTopicArguments(args, &field);
+  if (!argumentError.isEmpty()) return fail(argumentError, field);
 #if !PALEO_HAVE_ORT
   return fail("ort_unavailable");
 #else
@@ -27,14 +25,10 @@ void AiChatToolRunner::runLocalModels(const QJsonObject &args) {
   if(!policy.isEmpty())return fail(policy);
   const auto caller=m_context.capabilityHost->callerScope(paleo::host::Caller::Agent,m_resultSession);
   if(caller.isEmpty())return fail("caller_unbound");
-  const auto integer=[&](const char *key,int fallback,int minimum,int maximum,int &out) {
-    const auto value=args.value(QLatin1String(key));if(value.isUndefined()){out=fallback;return true;}
-    const double number=value.toDouble();
-    if(!value.isDouble() || !std::isfinite(number) || number!=std::floor(number) || number<minimum || number>maximum)return false;
-    out=int(number);return true;
-  };
-  int size=0,bytes=0;
-  if(!integer("page_size",16,1,64,size) || !integer("max_bytes",8192,1024,32768,bytes))return fail("invalid_query_budget");
+  paleo::query::QueryTopicRule rule;
+  if (!paleo::query::queryTopicRule(QStringLiteral("local_models"), rule)) return fail("query_topic_unavailable");
+  const int size = args.value("page_size").toInt(rule.pageSizeDefault);
+  const int bytes = args.value("max_bytes").toInt(rule.maxBytesDefault);
   const QJsonObject scope{{"caller",caller},{"document",live.documentId},{"epoch",QString::number(live.epoch)}};
   const auto result=m_context.onnx->modelContractPage(args.value("model_name").toString(),args.value("cursor").toString(),
     QString::fromUtf8(QJsonDocument(scope).toJson(QJsonDocument::Compact)),size,bytes);

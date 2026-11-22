@@ -26,7 +26,6 @@ public:
   void modelFailed(const QString &code);
   bool toolFinished(const ChatToolCall &, bool ok, const QString &modelContent);
   void abort(bool explicitUser);
-  QVector<AiToolSpec> toolSnapshot() const { return m_tools; }
   // G2 测试缝：受控进程内 peer 取代 Node 会话 worker（仅测试注入，生产为
   // 空）。桥的相位/控制/清理记账全部保持真实路径；driver 在 worker 线程只
   // 经线程安全 channel（takeOutgoing/acceptPeer）与 task->cancelRequested()

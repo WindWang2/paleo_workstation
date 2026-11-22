@@ -124,6 +124,8 @@ toolloop/Pi、OperationLog/recovery、UI）。
 `-DCMAKE_BUILD_TYPE=Release`（首次全树 RelWithDebInfo 因磁盘 100% 中止并
 清理，改目标化 Release 构建）；直跑测试经 `run-g3-target-tests.sh` 注入
 prefix 库/插件/GDAL/PROJ 路径与树内 TMPDIR（沙箱监狱对策）。
+以下保留当时的验证记录。该环境专用脚本已在后续整体 review 中移除；
+当前本地回归使用 [BUILDING.md](../../BUILDING.md) 的标准测试入口。
 
 ### 新增测试（全绿）
 

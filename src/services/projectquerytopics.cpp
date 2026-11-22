@@ -4,17 +4,10 @@
 
 namespace paleo::query {
 namespace {
-// 与运行期执行面同值的预算域（改这里须同步执行面，反之亦然）：
-//  · wells/horizons/assets/well_details/version_parents 走
-//    ProjectQueryCapability::run() 的 integer()（page 1–256/缺省 50，
-//    bytes 2048–65536/缺省 8192）；
-//  · well_curves 页 1–16/缺省 16（domaintools 现行检查同值）；
-//  · local_models 页 1–64/缺省 16、bytes 1024–32768/缺省 8192
-//    （aichattoolrunner_models.cpp）。
+// 非 typed 查询的字段、预算和缺省值。每个主题的 allowed 控制哪些字段可用。
 QList<QueryTopicRule> buildRules() {
   return {
-    {QStringLiteral("summary"), {}, {QStringLiteral("topic"), QStringLiteral("max_bytes")},
-     false, 1, 256, 50, 2048, 65536, 8192},
+    {QStringLiteral("summary"), {}, {QStringLiteral("topic"), QStringLiteral("max_bytes")}},
     {QStringLiteral("wells"), {},
      {QStringLiteral("topic"), QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")}},
     {QStringLiteral("horizons"), {},
@@ -26,19 +19,19 @@ QList<QueryTopicRule> buildRules() {
       QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")}},
     {QStringLiteral("well_curves"), {QStringLiteral("well_ref")},
      {QStringLiteral("topic"), QStringLiteral("well_ref"), QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")},
-     true, 1, 16, 16},
+     1, 16, 16},
     {QStringLiteral("version"), {QStringLiteral("version_id")},
-     {QStringLiteral("topic"), QStringLiteral("version_id"), QStringLiteral("catalog_revision")}, false},
+     {QStringLiteral("topic"), QStringLiteral("version_id"), QStringLiteral("catalog_revision")}},
     {QStringLiteral("version_parents"), {QStringLiteral("version_id")},
      {QStringLiteral("topic"), QStringLiteral("version_id"), QStringLiteral("catalog_revision"),
       QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")}},
     {QStringLiteral("well_facies_models"), {},
-     {QStringLiteral("topic"), QStringLiteral("model_id")}, false},
+     {QStringLiteral("topic"), QStringLiteral("model_id")}},
     {QStringLiteral("well_facies_inputs"), {QStringLiteral("well_ref")},
-     {QStringLiteral("topic"), QStringLiteral("well_ref")}, false},
+     {QStringLiteral("topic"), QStringLiteral("well_ref")}},
     {QStringLiteral("local_models"), {},
      {QStringLiteral("topic"), QStringLiteral("model_name"), QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")},
-     true, 1, 64, 16, 1024, 32768, 8192},
+     1, 64, 16, 1024, 32768, 8192},
   };
 }
 

@@ -28,7 +28,28 @@ QString requestId(const QString &session, const QJsonObject &row) {
 QString key(const QJsonObject &row) {
   return row.value("turnId").toString() + ':' + row.value("callId").toString();
 }
+bool hasHostRequestId(const QString &tool) {
+  return aiToolSpec(tool).toJsonSchema().value("properties").toObject()
+      .contains("client_request_id");
+}
+QString admittedDigest(const QString &tool, const QJsonObject &arguments) {
+  return digest({{"name", tool}, {"arguments", arguments}});
+}
 } // namespace
+
+bool invocationMatchesBinding(const ChatToolCall &call, const QJsonObject &row) {
+  if (row.value("callId") != call.id || row.value("toolName") != call.name ||
+      !call.argumentsWithinBudget())
+    return false;
+  const auto parsed = QJsonDocument::fromJson(call.argumentsJson.toUtf8());
+  if (!parsed.isObject())
+    return false;
+  auto arguments = parsed.object();
+  if (hasHostRequestId(call.name) &&
+      arguments.take("client_request_id") != row.value("clientRequestId"))
+    return false;
+  return row.value("admittedSha256") == admittedDigest(call.name, arguments);
+}
 
 QString validateInvocationBindings(const ChatSession &session) {
   if (!session.hostBindingsValid || !safeId(session.id) || session.hostToolBindings.size() > MaxBindings) return "pi_invocation_binding_invalid";
@@ -85,9 +106,9 @@ QString bindInvocations(ChatSession &session, const QString &turn, const QString
     auto arguments = parsed.object();
     // The authoritative host schema owns this field. Future persistent tools
     // participate without a second name catalogue; control tools have no field.
-    const bool operation = aiToolSpec(call.name).toJsonSchema().value("properties").toObject().contains("client_request_id");
+    const bool operation = hasHostRequestId(call.name);
     if (operation) arguments.remove("client_request_id");
-    QJsonObject row{{"admittedSha256", digest({{"name", call.name}, {"arguments", arguments}})}, {"callId", call.id},
+    QJsonObject row{{"admittedSha256", admittedDigest(call.name, arguments)}, {"callId", call.id},
       {"documentId", document}, {"toolName", call.name}, {"turnId", turn}};
     const auto stable = requestId(session.id, row); row.insert("clientRequestId", stable);
     bool existing = false;

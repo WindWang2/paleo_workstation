@@ -61,11 +61,18 @@ AiChatController::AiChatController(QObject *parent)
             }
             AiToolDispatch dispatch;
             if (call.argumentsWithinBudget()) {
-              dispatch = dispatchAiTool(call.name,
-                                        QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object());
-              if(dispatch.status==AiToolDispatchStatus::Routed) {
-                const auto ready=m_runner.readiness(call.name,QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object());
-                if(!ready.ready) {dispatch.status=AiToolDispatchStatus::Disabled;dispatch.note=ready.code;}
+              const auto args = QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object();
+              dispatch = dispatchAiTool(call.name, args);
+              if (dispatch.status == AiToolDispatchStatus::Routed) {
+                auto code = negotiatedToolError(call);
+                // The card classifies a proposed call without reaching a live
+                // provider. Runtime readiness is checked at actual dispatch.
+                if (code.isEmpty())
+                  code = dispatch.spec.validateExternalArguments(args);
+                if (!code.isEmpty()) {
+                  dispatch.status = AiToolDispatchStatus::Disabled;
+                  dispatch.note = code;
+                }
               }
             } else {
               dispatch.status = AiToolDispatchStatus::Disabled;
@@ -102,17 +109,12 @@ AiChatController::AiChatController(QObject *parent)
   connect(&m_piBridge, &PiChatBridge::modelRequested, this, [this] { if (m_streaming) sendRound(); else m_piBridge.abort(false); });
   connect(&m_piBridge, &PiChatBridge::toolRequested, this, [this](const ChatToolCall &call) {
     if (!m_streaming || !m_unansweredCalls.contains(call)) { m_piBridge.abort(false); return; }
-    bool declared = false; for (const auto &tool : m_piBridge.toolSnapshot()) if (tool.name == call.name) declared = true;
-    if (!declared) {
-      onToolFinished(call, false, QString::fromUtf8(QJsonDocument(QJsonObject{{"code", "tool_not_declared"},
-        {"error", "tool_not_declared"}}).toJson(QJsonDocument::Compact))); return;
-    }
-    m_runner.run(call);
+    dispatchTurnTool(call);
   });
-  connect(&m_piBridge, &PiChatBridge::failed, this, &AiChatController::piFailure);
+  connect(&m_piBridge, &PiChatBridge::failed, this, &AiChatController::failTurn);
   connect(&m_piBridge, &PiChatBridge::finished, this, [this](const QString &code) {
     if (!m_streaming) return;
-    if (code != "ok") { piFailure(code); return; }
+    if (code != "ok") { failTurn(code); return; }
     const QPointer<AiChatController> guard(this); const auto sequence = m_turnSequence;
     setStreaming(false); if (guard && sequence == m_turnSequence) {
       // G2-W3：Pi 正常收尾的落盘失败不能被静默吞掉——回答与工具事实仍在
@@ -143,9 +145,13 @@ QString AiChatController::statusText() const {
 }
 
 QString AiChatController::systemPrompt() const {
-  QString tools;
-  for (const AiToolSpec &spec : this->tools())
-    tools += QStringLiteral("  · %1 — %2\n").arg(spec.name, spec.description);
+  return buildSystemPrompt(tools(), m_projectBrief);
+}
+
+QString AiChatController::buildSystemPrompt(const QVector<AiToolSpec> &tools, const QString &brief) const {
+  QString declarations;
+  for (const AiToolSpec &spec : tools)
+    declarations += QStringLiteral("  · %1 — %2\n").arg(spec.name, spec.description);
   QString prompt = tr(
     "你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/"
     "地震解释行业惯例。\n"
@@ -158,13 +164,13 @@ QString AiChatController::systemPrompt() const {
     "如实转述错误，不得虚构结果。\n"
     "  3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。\n"
     "当前可调用的领域工具（如实解读结果及副作用）：\n%1")
-    .arg(tools);
+    .arg(declarations);
   // 方向77：工程概况常驻轻注入（≤3 行，预算口径见 aichattoolrunner 的
   // projectBrief；数据以工具实查为准——这段只是开局的指北针）。
-  if (!m_projectBrief.isEmpty())
+  if (!brief.isEmpty())
     prompt += tr("\n当前工程概况（绑定时的 catalog 计数，实查请用 "
                  "paleo.query_project）：\n%1\n")
-                .arg(m_projectBrief);
+                .arg(brief);
   return prompt;
 }
 
@@ -195,6 +201,8 @@ void AiChatController::newSession() {
   m_session.id = ChatSessionStore::newSessionId();
   // G2-W1：会话已切换——上一轮的冻结快照不再归属新会话，落盘回退当前配置。
   m_turnFrozen = false;
+  m_hostTurn.clear();
+  m_turnContext = {};
   m_runner.setResultSession(m_session.id);
   if (!guard || sequence != m_turnSequence) return;
   m_session.model = m_config.model;
@@ -234,6 +242,8 @@ bool AiChatController::loadSession(const QString &sessionId, QString *error) {
   m_session = loaded;
   // G2-W1：同 newSession——载入的会话不属于任何在途回合，冻结随之失效。
   m_turnFrozen = false;
+  m_hostTurn.clear();
+  m_turnContext = {};
   m_runner.setResultSession(m_session.id);
   if (!guard || sequence != m_turnSequence) return false;
   emit sessionChanged();
@@ -336,7 +346,7 @@ void AiChatController::applyConfig(
 }
 
 bool AiChatController::canRetry() const {
-  if (m_streaming || m_piBridge.busy())
+  if (m_streaming || m_runner.busy() || m_piBridge.busy())
     return false;
   for (int i = m_session.messages.size() - 1; i >= 0; --i)
     if (m_session.messages.at(i).role == ChatRole::User)
@@ -352,6 +362,7 @@ void AiChatController::retryLast() {
     return;
   }
   const QPointer<AiChatController> guard(this); const auto sequence = ++m_turnSequence; const auto sessionId = m_session.id;
+  const auto context = m_runner.hostContextIdentity();
   int lastUser = -1;
   for (int i = m_session.messages.size() - 1; i >= 0; --i) {
     if (m_session.messages.at(i).role == ChatRole::User) {
@@ -368,29 +379,16 @@ void AiChatController::retryLast() {
     emit errorOccurred(tr("会话尚未保存成功（%1），已保留原回答；请恢复存储后重试").arg(arrearsError));
     return;
   }
+  if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
   // 截掉旧回答（含其携带的工具帧），历史回到「刚发完这条用户消息」。
   m_session.messages.resize(lastUser + 1);
   emit sessionChanged(); // 历史被截断：整页重画（UI 不做增量反演）
   if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
 
-  // 与 sendUserText 同口径重置工具往返状态：否则上一轮打满 kMaxToolRounds
-  // 后重试，本轮首个工具请求即超限——重试轮被永久禁用工具。
-  m_toolRound = 0;
-  m_turnCalls = 0;
-  m_toolTokens = estimateTokens(systemPrompt()) + qMin(m_config.maxTokens, kHistoryTokenBudget / 2);
-  for (int i = m_session.messages.size() - 1; i >= 0; --i)
-    if (m_session.messages[i].role == ChatRole::User) {
-      m_toolTokens += estimateTokens(m_session.messages[i].content);
-      break;
-    }
-  m_pendingToolResults = 0;
-  m_unansweredCalls.clear();
-  setStreaming(true);
-  if (!guard || sequence != m_turnSequence || !m_streaming || sessionId != m_session.id) return;
   // C-1（full-audit-20261021）：收编进 sendRound——此前手工复制占位+上送
   // 序列时漏了 tools() 实参，重试轮发出的请求不含领域工具，模型静默失去
   // 工具调用能力（与上方注释自述的「重试轮恢复工具」意图相悖）。
-  startEngineTurn();
+  startEngineTurn(context);
 }
 
 void AiChatController::appendMessage(const ChatMessage &message) {
@@ -407,8 +405,9 @@ void AiChatController::setStreaming(bool streaming) {
     return;
   m_streaming = streaming;
   const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence;
   emit streamingChanged(streaming);
-  if (!guard) return;
+  if (!guard || sequence != m_turnSequence || m_streaming != streaming) return;
   emit statusChanged(statusText());
 }
 
@@ -430,7 +429,7 @@ QVector<ChatMessage> AiChatController::requestMessages() const {
   QVector<ChatMessage> out;
   ChatMessage system;
   system.role = ChatRole::System;
-  system.content = systemPrompt();
+  system.content = m_turnPrompt;
   out.append(system);
 
   // 历史按「轮」开窗（一轮 = 一条 User 消息起到下一条 User 前）：协议要求
@@ -489,6 +488,7 @@ QVector<ChatMessage> AiChatController::requestMessages() const {
 }
 
 void AiChatController::sendRound() {
+  if (!ensureTurnContext()) return;
   const QPointer<AiChatController> guard(this); const auto session = m_session.id;
   const auto sequence = m_turnSequence;
   ++m_modelRound;
@@ -499,12 +499,9 @@ void AiChatController::sendRound() {
   placeholder.role = ChatRole::Assistant;
   placeholder.timestamp = QDateTime::currentDateTime();
   appendMessage(placeholder);
-  if (!guard || !m_streaming || m_session.id != session || sequence != m_turnSequence) return;
-  // G2-W1：续轮使用本轮冻结的配置与协商工具表——Pi 侧即桥内快照，原生侧
-  // 同源快照；中途 setConfig 或可用工具表变化不改变在途回合的请求身份。
-  m_client.setConfig(m_turnFrozen ? m_turnConfig : m_config);
-  m_client.send(requestMessages(),
-                m_turnFrozen ? (m_piBridge.busy() ? m_piBridge.toolSnapshot() : m_turnTools) : tools());
+  if (!guard || m_session.id != session || sequence != m_turnSequence || !ensureTurnContext()) return;
+  m_client.setConfig(m_turnConfig);
+  m_client.send(requestMessages(), m_turnTools);
 }
 
 void AiChatController::sendUserText(const QString &text) {
@@ -521,6 +518,13 @@ void AiChatController::sendUserText(const QString &text) {
     return;
   }
   const QPointer<AiChatController> guard(this); const auto sequence = ++m_turnSequence; const auto sessionId = m_session.id;
+  const auto context = m_runner.hostContextIdentity();
+  QString arrearsError;
+  if (!settleSaveArrears(&arrearsError)) {
+    emit errorOccurred(tr("会话尚未保存成功（%1），已保留原回答；请恢复存储后重试").arg(arrearsError));
+    return;
+  }
+  if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
   ChatMessage user;
   user.role = ChatRole::User;
   user.content = trimmed;
@@ -528,19 +532,7 @@ void AiChatController::sendUserText(const QString &text) {
   appendMessage(user);
   if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
 
-  m_toolRound = 0;
-  m_turnCalls = 0;
-  m_toolTokens = estimateTokens(systemPrompt()) + qMin(m_config.maxTokens, kHistoryTokenBudget / 2);
-  for (int i = m_session.messages.size() - 1; i >= 0; --i)
-    if (m_session.messages[i].role == ChatRole::User) {
-      m_toolTokens += estimateTokens(m_session.messages[i].content);
-      break;
-    }
-  m_pendingToolResults = 0;
-  m_unansweredCalls.clear();
-  setStreaming(true);
-  if (!guard || sequence != m_turnSequence || !m_streaming || sessionId != m_session.id) return;
-  startEngineTurn();
+  startEngineTurn(context);
 }
 
 void AiChatController::setConfig(const LlmConfig &config) {

@@ -11,19 +11,19 @@
 //   · 本适配器不实现第二套调度/恢复事务：operationId 只是候选引用，效果、
 //     写权限与原计划由既有服务最终裁决；不使用 Caller::Ui，不重用历史
 //     scope/epoch 作为 permit。
-//   · 异步结果按请求代次接收：过期回调（依赖销毁/换代/被更新请求顶替）丢弃。
+//   · 异步结果按请求代次接收：过期回调（依赖销毁/换工程/换会话）丢弃。
 // 无 QtWidgets；不读私有目录、不解析 resultRef 为路径。
-#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
 #include <QString>
 #include <QSet>
+#include <functional>
 
 #include "services/hostcallcontext.h"
 
 class AiChatController;
-namespace paleo::capability { class CapabilityHost; }
+namespace paleo::capability { class CapabilityHost; class CapabilityRecovery; }
 namespace paleo::document { class DocumentSession; }
 
 namespace paleo::chat {
@@ -81,22 +81,27 @@ signals:
   void busyChanged(const QString &operationId, const QString &action, bool busy);
 
 private:
-  struct Guard { // 捕获快照：动作期间重绑/销毁/换会话即失效。
+  struct Guard {
     QString chatSessionId;
     paleo::host::CallContext capturedContext;
-    bool valid() const { return !chatSessionId.isEmpty(); }
+    quint64 generation = 0;
   };
-  bool beginAction(const QString &operationId, const QString &action, Guard *guard,
-                   QString *reason);
+  using Operation = std::function<QJsonObject(paleo::capability::CapabilityRecovery &,
+                                              const QString &scope)>;
+  using Reporter = std::function<void(const QJsonObject &)>;
+  QString beginAction(const QString &operationId, const QString &action, Guard &guard,
+                      QString *reason);
+  bool finishAction(const QString &operationId, const QString &action, const Guard &guard,
+                    const QJsonObject &response, const Reporter &report, QString *reason = nullptr);
+  bool runAction(const QString &operationId, const QString &action, const Operation &operation,
+                 const Reporter &report, QString *reason);
   void releaseBusy(const QString &operationId, const QString &action);
-  bool checkGuard(const Guard &guard) const;
-  QString scopeFor(const Guard &guard, QString *reason) const;
+  QString guardError(const Guard &guard) const;
 
   Deps m_deps;
-  // 异步请求代次（按 "action:operationId" 隔离：新请求只顶替同操作同动作的
-  // 旧回调，不误伤其他在飞动作；会话切换由 Guard 会话校验兜底）。
-  QHash<QString, quint64> m_actionSequences;
-  QSet<QString> m_busy;            // "action:operationId"
+  quint64 m_generation = 0;
+  QSet<QString> m_busy;
+
 };
 
 } // namespace paleo::chat

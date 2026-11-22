@@ -535,7 +535,16 @@ void LlmClient::handleNonStreamReply(int generation, const QByteArray &payload) 
          QObject::tr("应答缺少 choices 字段"));
     return;
   }
-  const QJsonObject choice = choices.at(0).toObject();
+  // Match the SSE path: resolve choice 0 by index, independent of array order.
+  QJsonObject choice;
+  for (const auto &entry : choices) {
+    if (!entry.isObject()) continue;
+    const auto candidate = entry.toObject();
+    const auto index = candidate.value(QStringLiteral("index"));
+    if (!index.isUndefined() && (!index.isDouble() || index.toDouble() != 0.0)) continue;
+    choice = candidate;
+    break;
+  }
   const QJsonValue messageValue = choice.value(QStringLiteral("message"));
   if (!messageValue.isObject()) {
     fail(generation, LlmErrorKind::Malformed,

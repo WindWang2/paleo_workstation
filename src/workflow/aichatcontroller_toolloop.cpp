@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QSet>
 #include <QUuid>
+#include <algorithm>
 
 namespace {
 // For the existing character estimator, valid UTF-8 JSON costs at most one estimated token
@@ -88,11 +89,38 @@ bool AiChatController::admitToolCalls(const QVector<ChatToolCall> &calls) {
   return true;
 }
 
+QString AiChatController::negotiatedToolError(const ChatToolCall &call) const {
+  const auto named = [&call](const AiToolSpec &spec) { return spec.name == call.name; };
+  const auto declared = std::find_if(m_turnTools.cbegin(), m_turnTools.cend(), named);
+  if (declared == m_turnTools.cend()) return QStringLiteral("tool_not_declared");
+  if (call.name != QLatin1String("paleo.query_project")) return {};
+  const auto args = QJsonDocument::fromJson(call.argumentsJson.toUtf8()).object();
+  const auto topic = args.value("topic").toString();
+  const auto topicParameter = std::find_if(declared->parameters.cbegin(), declared->parameters.cend(),
+      [](const AiToolParamSpec &parameter) { return parameter.name == QLatin1String("topic"); });
+  // The runner still diagnoses invalid topic values. This check is only for a
+  // valid topic excluded from the schema offered when this turn started.
+  if (topicParameter != declared->parameters.cend() && !topicParameter->enumValues.contains(topic) &&
+      aiToolSpec(call.name).validateParameters(args).isEmpty())
+    return QStringLiteral("query_topic_not_declared");
+  return {};
+}
+
+void AiChatController::dispatchTurnTool(ChatToolCall call) {
+  if (ensureTurnContext()) m_runner.run(call);
+}
+
 void AiChatController::onRoundFinished(const QString &reason) {
   const QPointer<AiChatController> guard(this);
   const auto sequence = m_turnSequence;
-  Q_UNUSED(reason)
-  if (!m_streaming) return;
+  if (!ensureTurnContext()) return;
+  if (reason == QLatin1String("length") || reason == QLatin1String("content_filter")) {
+    // A parseable argument fragment does not make a truncated or filtered
+    // response safe to execute. Preserve any partial text with its stop reason.
+    rejectToolRound(reason == QLatin1String("length") ? QStringLiteral("model_output_truncated")
+                                                       : QStringLiteral("model_output_filtered"));
+    return;
+  }
   if (m_roundRejected) {
     rejectToolRound(QStringLiteral("tool_call_budget_exceeded"));
     return;
@@ -103,9 +131,9 @@ void AiChatController::onRoundFinished(const QString &reason) {
   if (!wantsTools) {
     if (m_piBridge.busy()) {
       // G2-W6：桥未接受本次完成（相位/停止/预算拒绝）即本轮失败——失败信号
-      // 已在桥内同步发出并结算（piFailure 幂等），此处兜底只处理无信号拒绝。
+      // 已在桥内同步发出并结算（failTurn 幂等），此处兜底只处理无信号拒绝。
       if (!m_piBridge.modelFinished({}, reason) && guard && m_streaming && sequence == m_turnSequence)
-        piFailure(QStringLiteral("pi_model_completion_rejected"));
+        failTurn(QStringLiteral("pi_model_completion_rejected"));
       return;
     }
     setStreaming(false);
@@ -118,9 +146,12 @@ void AiChatController::onRoundFinished(const QString &reason) {
     return;
   }
   auto calls = normalizedCalls(m_session.messages.last().toolCalls);
+  for (const auto &call : calls) {
+    const auto error = negotiatedToolError(call);
+    if (!error.isEmpty()) { rejectToolRound(error); return; }
+  }
   const bool pi = m_piBridge.busy();
   auto bound = m_session;
-  if (m_runner.hostContextIdentity() != m_turnContext) { piFailure("interrupted"); return; }
   const auto code = paleo::chat::bindInvocations(bound, m_hostTurn, m_turnContext.value("documentId").toString(), calls);
   if (!code.isEmpty()) { rejectToolRound(code); return; }
   m_session.messages.last().toolCalls = calls;
@@ -139,20 +170,19 @@ void AiChatController::onRoundFinished(const QString &reason) {
   const auto session = m_session.id, turn = m_hostTurn; QString error;
   // Both engines use the same durable admitted calls before any tool dispatch.
   if (!saveCurrentSession(&error)) { if (guard) rejectToolRound("pi_invocation_save_failed"); return; }
-  if (!guard || !m_streaming || sequence != m_turnSequence || m_session.id != session || m_hostTurn != turn) return;
+  if (!guard || sequence != m_turnSequence || m_session.id != session || m_hostTurn != turn ||
+      !ensureTurnContext()) return;
   if (pi) {
     // G2-W6：同上——桥拒绝即失败（failed 信号已同步结算，兜底仅无信号路径）。
     if (!m_piBridge.modelFinished(calls, reason) && guard && m_streaming && sequence == m_turnSequence)
-      piFailure(QStringLiteral("pi_model_completion_rejected"));
+      failTurn(QStringLiteral("pi_model_completion_rejected"));
     return;
   }
   emit statusChanged(statusText());
   if (!guard || sequence != m_turnSequence) return;
-  // Snapshot: synchronous listeners may cancel/rebind; runner owns serial execution.
-  for (const auto &call : calls) {
-    if (!guard || !m_streaming || sequence != m_turnSequence) break;
-    m_runner.run(call);
-  }
+  // Dispatch the next native call only after its predecessor is checkpointed.
+  // Recheck ownership before each call instead of queuing it into a live context.
+  dispatchTurnTool(calls.first());
 }
 
 void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const QString &resultJson) {
@@ -193,7 +223,7 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   if (pi && m_streaming && !piBudgetLimit) {
     const auto sent = m_piBridge.toolFinished(call, ok, tool.content);
     if (!guard) return;
-    if (!sent) { piFailure("pi_tool_result_state"); return; }
+    if (!sent) { failTurn("pi_tool_result_state"); return; }
   }
   // The UI summary remains independent of the model's transport contract.
   const auto native = QJsonDocument::fromJson(resultJson.toUtf8()).object();
@@ -205,8 +235,13 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   }
   emit toolResultReady(call, ok, summary);
   if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
-  if (!m_streaming || m_pendingToolResults > 0) return;
-  if (piBudgetLimit) { piFailure("tool_turn_budget_exceeded"); return; }
+  if (!m_streaming) return;
+  if (m_pendingToolResults > 0) {
+    if (!pi) dispatchTurnTool(m_unansweredCalls.first());
+    return;
+  }
+  if (!ensureTurnContext()) return;
+  if (piBudgetLimit) { failTurn("tool_turn_budget_exceeded"); return; }
   if (m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens) {
     setStreaming(false);
     if (!guard || sequence != m_turnSequence) return;

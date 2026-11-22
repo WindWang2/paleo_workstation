@@ -30,10 +30,16 @@
 
 ### 提交历史
 
-| commit | 内容 |
-|---|---|
 | `c85c0515` | WIP：八个工作包生产实现 + 三套测试初版 |
 | `135ec48f` | 收口：attempt 双时限、SSE 封印序分帧、统一终态、串行配置提交、结构化凭据防线；三套 G1 测试全绿 |
+| `465ef218` | docs：进度账本补实现摘要、验证证据、契约变更与未覆盖项 |
+| `2292476b` | docs：记录 shell_projectlifecycle 既有环境失败的基线对照实证 |
+| `5bb6f408` | SSE `feed` 偏移推进（消除单块多行的二次方前移）；补 [DONE] 后尾字节边界与线性性回归用例 |
+
+### 自审发现并修复（review 前的自查）
+
+- **W3 反二次方**：`feed` 原逐行 `m_pending.remove(0,n)` 前移 + 每次 `indexOf` 从头扫，单块含大量行（心跳/碎事件）时是 O(行数²) 内存移动（8 MiB 预算内可把客户端拖死——任务书明令禁止）。改为**偏移推进 + 整次 feed 一次压实**；`m_terminal` 时清空残余（[DONE] 后同块尾字节一并丢弃，与 `markTerminal` 的早退语义互为冗余防线）。回归用例 `parserManyTinyLinesInOneFeedStayLinear`：单块 20 万行 5 字节心跳，毫秒级完成（阈值 5s 只用于区分二次方/线性两档）。
+- **[DONE] 后尾字节边界**：补 `parserDropsTrailingBytesAfterDone` / `parserDropsTrailingToolCallAfterDone` 两个显式钉子（`markTerminal` 的 `m_terminal` 早退本就挡住该路径，钉子防回归）。
 
 ### 生产改动摘要
 
@@ -62,7 +68,7 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 传输回归 | `./build/tst_g1_modeltransport` | **51 passed / 0 failed**（4.8s） |
+| 传输回归 | `./build/tst_g1_modeltransport` | **54 passed / 0 failed**（7.1s，含 3 个新增边界/线性用例） |
 | 配置提交 | `./build/tst_g1_configcommit` | **18 passed / 0 failed** |
 | 凭据边界 | `./build/tst_g1_credentialboundary` | **11 passed / 0 failed**（490ms） |
 | 既有 parser | `./build/tst_aichat` | 17 passed / 0 failed（含 SSE 拆包、工具草稿、配置校验用例——契约变更点见下） |

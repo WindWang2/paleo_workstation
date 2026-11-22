@@ -140,6 +140,10 @@ void H3PlanOutputsTests::exportsCodecRejectsUnknownVersionsAndFields() {
   extraField.insert("schemaHint", "x");
   QVERIFY(!planExportsFromJson(extraField, exports, &code));
   QCOMPARE(code, QStringLiteral("unknown_plan_field"));
+  auto missingExports = base;
+  missingExports.remove("exports");
+  QVERIFY(!planExportsFromJson(missingExports, exports, &code));
+  QCOMPARE(code, QStringLiteral("missing_export_field"));
   auto extraEntryField = base;
   auto rows = extraEntryField.value("exports").toArray();
   auto first = rows.at(0).toObject();

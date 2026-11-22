@@ -320,7 +320,7 @@ bool checkParameters(ValidatedPlan &plan, ValidatedPlanNode &entry) {
 
 } // namespace
 
-ValidatedPlan validatePlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges) {
+ValidatedPlan validatePlanGraph(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges) {
   ValidatedPlan plan;
   if (nodes.isEmpty()) {
     fail(plan, QStringLiteral("empty_plan"));
@@ -338,12 +338,21 @@ ValidatedPlan validatePlan(const QVector<PlanNode> &nodes, const QVector<PlanEdg
       return plan;
   if (!bindEdges(plan))
     return plan;
-  if (!checkSingleResult(plan))
-    return plan;
   for (int i = 0; i < plan.nodes.size(); ++i)
     if (!checkParameters(plan, plan.nodes[i]) || !checkInputs(plan, i))
       return plan;
   plan.ok = true;
+  return plan;
+}
+
+ValidatedPlan validatePlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges) {
+  auto plan = validatePlanGraph(nodes, edges);
+  if (!plan.ok)
+    return plan;
+  if (!checkSingleResult(plan)) {
+    plan.ok = false;
+    return plan;
+  }
   return plan;
 }
 

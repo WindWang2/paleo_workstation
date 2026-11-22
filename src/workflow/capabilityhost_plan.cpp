@@ -9,6 +9,10 @@
 namespace paleo::capability {
 HostPrepared CapabilityHost::preparePlan(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,const QVector<PlanEdge> &edges,
                                         host::Caller caller,const QString &session) {
+  return preparePlanCommon(intent,nodes,edges,nullptr,caller,session);
+}
+HostPrepared CapabilityHost::preparePlanCommon(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,const QVector<PlanEdge> &edges,
+                                              const PlanExports *exports,host::Caller caller,const QString &session) {
   HostPrepared out;const QPointer<CapabilityHost> guard(this);const auto invalidated=m_preparationInvalidated;
   const auto fail=[&](const QString &code){out.code=code;return out;};
   const auto interrupted=[guard,invalidated] {
@@ -22,7 +26,7 @@ HostPrepared CapabilityHost::preparePlan(const ExecuteRequest &intent,const QVec
   if(!intent.documentId.isEmpty() && intent.documentId!=h.context.documentId)return fail("document_mismatch");
   const auto scope=callerScope(caller,session);if(scope.isEmpty())return fail("caller_unbound");
   if(intent.clientRequestId.isEmpty())return fail("client_request_id_required");
-  const auto original=nativePlanIntent(intent,nodes,edges);
+  const auto original=exports?nativePlanIntentV2(intent,nodes,edges,*exports):nativePlanIntent(intent,nodes,edges);
   const auto prior=m_recovery->lookup(scope,intent.clientRequestId);
   if(const auto code=interrupted();!code.isEmpty())return fail(code);
   Prepared p;p.request=intent;p.request.documentId=h.context.documentId;p.request.callerScope=scope;
@@ -36,12 +40,13 @@ HostPrepared CapabilityHost::preparePlan(const ExecuteRequest &intent,const QVec
   } else {
     if(prior.code!=QLatin1String("not_found"))return fail(prior.code);
     auto code=host::checkContext(h.context,h.context,p.effects);if(!code.isEmpty())return fail(code);
-    p.frozen=freezeNativePlan(p.request,nodes,edges,&code);
+    // 票据拥有整张图（v2 含 exports）；start 不能替换节点/边/导出。
+    p.frozen=exports?freezeNativePlanV2(p.request,nodes,edges,*exports,&code)
+                    :freezeNativePlan(p.request,nodes,edges,&code);
     if(const auto stopped=interrupted();!stopped.isEmpty())return fail(stopped);
     if(!code.isEmpty())return fail(code);
     p.frozen.intent=original;
   }
-  // The opaque ticket owns the entire graph; start cannot replace its nodes/edges.
   p.intentDigest=requestDigest(intent);
   p.expiresAt=QDateTime::currentMSecsSinceEpoch()+5*60*1000;
   // check() uses the same original-request digest as individual capabilities.

@@ -186,9 +186,17 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   QString code = host::checkContext(live.context, live.context, effects);
   if (code.isEmpty()) code = host::checkRequiredContext(live.context, requiredContext);
   if (!code.isEmpty()) return fail(code);
-  const QString id = CapabilityRegistry::resolveAlias(intent.capabilityId, &code);
-  const auto spec = CapabilityRegistry::spec(id, intent.contractVersion);
-  if (spec.capabilityId.isEmpty() || spec.exposure != CapabilityExposure::Callable)
+  QString id = CapabilityRegistry::resolveAlias(intent.capabilityId, &code);
+  const auto sourceId = intent.inputs.value("source_operation_id").toString();
+  const bool publishSource = intent.publishIntent == QLatin1String("publish") && !sourceId.isEmpty();
+  // H3：workflow.plan 父操作的 source 发布不经过全局能力注册表——能力契约由
+  // 既有父记录 + freezeSourcePublication 核验；冻结工具表不因此新增可调用
+  // 能力，其余能力仍要求 Callable。workflow.plan 不在注册表中，resolveAlias
+  // 会置 unknown_capability，这里恢复规范 id 并清掉该错误码。
+  if (publishSource && intent.capabilityId == QLatin1String("workflow.plan")) {
+    id = intent.capabilityId;
+    code.clear();
+  } else if (id.isEmpty() || CapabilityRegistry::spec(id, intent.contractVersion).exposure != CapabilityExposure::Callable)
     return fail(QStringLiteral("capability_not_callable"));
   Prepared saved;
   saved.request = intent;
@@ -202,8 +210,6 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   saved.request.operationDir = live.operationDir;
   saved.request.currentHead.clear(); // Never trust the caller's alleged current state.
   saved.request.cancelled = {}; saved.request.onRunning = {};
-  const auto sourceId=intent.inputs.value("source_operation_id").toString();
-  const bool publishSource=intent.publishIntent==QLatin1String("publish") && !sourceId.isEmpty();
   if(publishSource) {
     if(!intent.parameters.isEmpty() || intent.inputs.size()!=1 || intent.seismicTrace)return fail("mixed_source_operation_inputs");
     OperationLog log(live.operationDir,live.projectDir,live.writeClaim);

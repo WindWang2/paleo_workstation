@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include "capabilitygateway.h"
+#include "capabilityplan_outputs.h"
 #include "capabilityrecovery.h"
 #include "services/hostcallcontext.h"
 #include <QObject>
@@ -71,6 +72,11 @@ public:
                        std::function<QString()> executionGuard = {}, const QString &trustedChatSessionId = {});
   HostPrepared preparePlan(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,const QVector<PlanEdge> &edges,
                            host::Caller caller,const QString &trustedChatSessionId = {});
+  // H3 v2：显式 exports 的多成果计划。票据语义（进程内 opaque、容量/到期/
+  // epoch/重入保护）与 v1 相同；exports 的增删/别名/来源/顺序变化都进入
+  // 意图摘要——同 key 不等价请求报 idempotency_conflict，不建第二父操作。
+  HostPrepared preparePlanV2(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,const QVector<PlanEdge> &edges,
+                             const PlanExports &exports,host::Caller caller,const QString &trustedChatSessionId = {});
   ExecuteResult execute(const QString &handle, const ExecuteRequest &originalIntent);
   PaleoTask *start(const QString &handle, const ExecuteRequest &originalIntent,
                    QObject *receiver, const QString &title,
@@ -91,6 +97,10 @@ private:
     qint64 expiresAt = 0;
     CapabilityPreparation preparation;
   };
+  // v1/v2 计划入口共享的票据装配路径；exports 为空指针表示 v1 单成果。
+  HostPrepared preparePlanCommon(const ExecuteRequest &intent,const QVector<PlanNode> &nodes,
+                                 const QVector<PlanEdge> &edges,const PlanExports *exports,
+                                 host::Caller caller,const QString &trustedChatSessionId);
   QString check(const Prepared &prepared, const ExecuteRequest &intent, HostBinding &live) const;
   HostBinding binding() const;
   void prunePrepared(const host::CallContext &context);

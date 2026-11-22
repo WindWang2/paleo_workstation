@@ -71,6 +71,13 @@ RelWithDebInfo；`-j4`（主机级重型构建互斥锁，五任务并行纪律�
   windows leg 覆盖，未在本机验证的部分如实记录。
 - 同毫秒同大小替换的弱指纹盲区：size+mtime 一致时缓存判新鲜（打开仍走权威
   校验）；确定性规则见 chatsessionindex.h 头注。
+- **准入序列化成本**（独立复审 R1 提示，如实记录）：sendUserText/retryLast
+  的纯容量门在 UI 线程全量序列化当前会话（retry 另经前缀深拷贝）——近上限
+  （数百 MB）档案的拒绝判断本身可感知卡顿；正常会话（MB 级）无感。未做
+  序列化字节数缓存（增量维护会引入失效面，收益仅极端档案）。
+- **load 的 TOCTOU 窗口**：isSymLink/isFile/canonicalFilePath 检查与 open
+  之间存在竞窗（本地私有用户数据目录的威胁模型下可接受；读取中累计上限
+  兜住打开后增长）。
 - 真实 Pi 进程链/受控 Python 发布链 fixture 本机未提供（同 G2 批次口径）；
   容量预留对 Pi 轮的结构覆盖来自同形消息面（Pi 回答/工具结果与原生共用
   appendMessage/emit 路径）。

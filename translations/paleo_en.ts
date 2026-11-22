@@ -459,6 +459,11 @@
             <translation>The host must bind a project before running a capability tool.</translation>
         </message>
         <message>
+            <location filename="../src/workflow/aichattoolrunner.cpp" line="236" />
+            <source>工具实参顶层必须是 JSON object</source>
+            <translation>Tool arguments must be a JSON object at the top level.</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichattoolrunner.cpp" line="150" />
             <source>实参不是合法 JSON：%1</source>
             <translation type="unfinished" />
@@ -34992,9 +34997,24 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ai/chat/domaintools.cpp" line="163" />
-            <source>种子点列表，元素形如 {"inline":0,"xline":0,"sample_index":0}</source>
-            <translation type="unfinished" />
+            <location filename="../src/ai/chat/domaintools.cpp" line="374" />
+            <source>种子点列表，元素形如 {"inline":0,"xline":0,"sample_index":0}，至多 %1 颗</source>
+            <translation>List of up to %1 seed points, each in the form {"inline":0,"xline":0,"sample_index":0}.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/operationtools.cpp" line="34" />
+            <source>起始修订（含），十进制字符串（0–2^63-1，无前导零）；缺省 0</source>
+            <translation>Starting revision (inclusive) as a decimal string (0 to 2^63-1, with no leading zeros). Defaults to 0.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/operationtools.cpp" line="39" />
+            <source>起始字节偏移，十进制字符串（0–2^63-1，无前导零）；缺省 0</source>
+            <translation>Starting byte offset as a decimal string (0 to 2^63-1, with no leading zeros). Defaults to 0.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/operationtools.cpp" line="41" />
+            <source>本页 base64 前的字节预算（1–24576）</source>
+            <translation>Byte limit for this page before base64 encoding (1–24576).</translation>
         </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="172" />

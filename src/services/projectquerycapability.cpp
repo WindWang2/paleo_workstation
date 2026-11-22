@@ -1,5 +1,6 @@
 // 层：数据
 #include "projectquery_internal.h"
+#include "projectquerytopics.h"
 #include "domain/wellref.h"
 #include <QCryptographicHash>
 #include <QDir>
@@ -142,6 +143,14 @@ QJsonObject ProjectQueryCapability::Impl::run(const QJsonObject &args, bool grap
     return queryFailure("query_identity_invalid");
   if (QJsonDocument(args).toJson(QJsonDocument::Compact).size() > 16384) return queryFailure("query_request_budget_exceeded");
   if (args.contains("cursor") && !args.value("cursor").isString()) return queryFailure("cursor_invalid");
+  // G3/W2：主题字段/预算域单源（projectquerytopics）——服务直调与聊天分派
+  // 同一契约；typed 主题（numeric_table/seismic）由其专业解析器把守，
+  // 本表自动跳过。分页数值检查（integer()）与 cursor 生命周期保持原位。
+  if (!graph) {
+    QString topicField;
+    const QString topicCode = validateQueryTopicArguments(args, &topicField);
+    if (!topicCode.isEmpty()) return queryFailure(topicCode);
+  }
   const bool curves=!graph&&args.value("topic")==QLatin1String("well_curves");
   const int rows = integer(args, "page_size", curves?16:50, curves?16:256);
   const int bytes = integer(args, "max_bytes", 8192, 65536);

@@ -88,8 +88,35 @@ static QJsonObject decodeChatToolRequest(ExecuteRequest &request, const QString 
   const QString intent = arguments.value(QStringLiteral("publish_intent")).toString(QStringLiteral("compute-only"));
   if (!hosted && intent == QLatin1String("publish") && hostHead.isEmpty())
     return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("code"), QStringLiteral("host_head_required")}};
+  // G3/W3：contract_version 精确解码。此前 toInt(1) 把 "2"（文本）、2.5、
+  // 越界值静默解释成默认版本 1——「校验通过但解码成另一值」。现在：
+  // 缺席 → 1；在场必须是 JSON 原生整数（有限、整值、int 域、≥1），否则
+  // 明确参数错误。不支持的整值版本不在此回退，交由网关按
+  // unsupported_version 精确拒绝（capabilitygateway.cpp）。
+  int contractVersion = 1;
+  if (arguments.contains(QStringLiteral("contract_version"))) {
+    const auto version = arguments.value(QStringLiteral("contract_version"));
+    if (!version.isDouble() || !std::isfinite(version.toDouble()) ||
+        std::floor(version.toDouble()) != version.toDouble() ||
+        version.toDouble() < 1 || version.toDouble() > 2147483647.0)
+      return QJsonObject{{QStringLiteral("ok"), false},
+                         {QStringLiteral("code"), QStringLiteral("contract_version_invalid")}};
+    contractVersion = int(version.toDouble());
+  }
+  // G3/W3：parameters/inputs 必须是 JSON object（若在场）。此前对非 object
+  // 静默取空 map 继续执行。宿主授权字段仍由 forbiddenAuthority/gateway 把守。
+  const auto parametersValue = arguments.value(QStringLiteral("parameters"));
+  if (!parametersValue.isUndefined() && !parametersValue.isObject())
+    return QJsonObject{{QStringLiteral("ok"), false},
+                       {QStringLiteral("code"), QStringLiteral("invalid_request_shape")},
+                       {QStringLiteral("field"), QStringLiteral("parameters")}};
+  const auto inputsValue = arguments.value(QStringLiteral("inputs"));
+  if (!inputsValue.isUndefined() && !inputsValue.isObject())
+    return QJsonObject{{QStringLiteral("ok"), false},
+                       {QStringLiteral("code"), QStringLiteral("invalid_request_shape")},
+                       {QStringLiteral("field"), QStringLiteral("inputs")}};
   request.capabilityId = toolName;
-  request.contractVersion = arguments.value(QStringLiteral("contract_version")).toInt(1);
+  request.contractVersion = contractVersion;
   request.documentId = documentId;
   request.callerScope = hostScope;
   request.clientRequestId = arguments.value(QStringLiteral("client_request_id")).toString();
@@ -98,20 +125,20 @@ static QJsonObject decodeChatToolRequest(ExecuteRequest &request, const QString 
   request.frozenHead = arguments.value(QStringLiteral("frozen_head")).toString();
   request.currentHead = hostHead;
   request.publishIntent = intent;
-  request.parameters = arguments.value(QStringLiteral("parameters")).toObject().toVariantMap();
-  request.inputs = arguments.value(QStringLiteral("inputs")).toObject().toVariantMap();
+  request.parameters = parametersValue.toObject().toVariantMap();
+  request.inputs = inputsValue.toObject().toVariantMap();
   request.inputs.remove(QStringLiteral("parent_version_ids"));
   request.inputs.remove(QStringLiteral("drop_output_port"));
   request.inputs.remove(QStringLiteral("grid_wkt"));
   request.operationDir = operationDir;
   return {};
 }
-QJsonObject prepareChatToolRequest(ExecuteRequest &request,const QString &name,const QJsonObject &arguments,
-    const QString &scope,const QString &documentId,const QString &directory,const QString &head) {
-  return decodeChatToolRequest(request,name,arguments,scope,documentId,directory,head,false);
+QJsonObject prepareChatToolRequest(ExecuteRequest &out, const QString &toolName, const QJsonObject &arguments,
+    const QString &hostScope, const QString &documentId, const QString &operationDir, const QString &hostHead) {
+  return decodeChatToolRequest(out,toolName,arguments,hostScope,documentId,operationDir,hostHead,false);
 }
-QJsonObject prepareHostedChatToolRequest(ExecuteRequest &request,const QString &name,const QJsonObject &arguments) {
-  return decodeChatToolRequest(request,name,arguments,{},{},{},{},true);
+QJsonObject prepareHostedChatToolRequest(ExecuteRequest &out,const QString &toolName,const QJsonObject &arguments) {
+  return decodeChatToolRequest(out,toolName,arguments,{},{},{},{},true);
 }
 
 QJsonObject chatToolResponse(const ExecuteResult &result) {

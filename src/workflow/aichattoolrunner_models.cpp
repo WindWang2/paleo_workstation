@@ -2,13 +2,20 @@
 #include "aichattoolrunner.h"
 #include "capabilityhost.h"
 #include "ai/onnxpredictionservice.h"
+#include "services/projectquerytopics.h"
 #include <QJsonDocument>
 #include <cmath>
 
 void AiChatToolRunner::runLocalModels(const QJsonObject &args) {
-  const auto fail=[&](const QString &code){finishActive(false,{{"contract","paleo.local_models.page.v1"},{"code",code}});};
-  const QStringList allowed{"topic","model_name","cursor","page_size","max_bytes"};
-  for(auto it=args.begin();it!=args.end();++it)if(!allowed.contains(it.key()))return fail("unsupported_topic_argument");
+  const auto fail=[&](const QString &code,const QString &field={}){
+    QJsonObject payload{{"contract","paleo.local_models.page.v1"},{"code",code}};
+    if(!field.isEmpty())payload.insert("field",field);
+    finishActive(false,payload);
+  };
+  // G3/W2：字段集单源（services/projectquerytopics）；预算域仍由下方
+  // integer() 运行期检查给出（含缺省值）。field 一并带回供重试定位。
+  {QString field;const auto code=paleo::query::validateQueryTopicArguments(args,&field);
+   if(!code.isEmpty())return fail(code,field);}
 #if !PALEO_HAVE_ORT
   return fail("ort_unavailable");
 #else

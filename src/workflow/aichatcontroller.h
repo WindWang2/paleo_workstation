@@ -4,6 +4,7 @@
 #include "../ai/chat/chatsession.h"
 #include "../ai/chat/domaintools.h"
 #include "../ai/chat/llmclient.h"
+#include "../ai/chat/llmconfigcommit.h"
 #include "aichattoolrunner.h"
 #include "pichatbridge.h"
 #include <QObject>
@@ -46,6 +47,11 @@ public:
   void applyConfig(const LlmConfig &config, const QByteArray &newKey,
                    bool clearKey, QObject *callbackContext,
                    std::function<void(bool ok, const QString &error)> done);
+  // G1（W7）测试注入口：确定性伪造文件/钥匙串存储（真实生产走
+  // defaultLlmConfigCommitHooks——LlmConfig::save + LlmKeyStore）。
+  void setLlmConfigCommitHooksForTesting(const LlmConfigCommitHooks &hooks) {
+    m_configCommitter.setHooks(hooks);
+  }
   // 可发请求的唯一判据（端点/模型/密钥齐且地址合法）。
   bool enabled() const { return m_config.enabled(); }
   bool streaming() const { return m_streaming; }
@@ -129,6 +135,9 @@ private:
 
   LlmConfig m_config;
   LlmClient m_client;
+  // G1（W7）配置保存串行提交：applyConfig 的私有协作者（世代/排队/补偿
+  // 细节见 llmconfigcommit.h；成功仍经上方 setConfig 生效）。
+  LlmConfigCommitter m_configCommitter;
   AiChatToolRunner m_runner;
   PiChatBridge m_piBridge;
   paleo::pi::RuntimeConfig m_piConfiguration;

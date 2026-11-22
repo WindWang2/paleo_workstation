@@ -89,6 +89,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python-numeric-table.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python-seismic-trace.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python-outputs.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-g1-agent-model-transport.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-pi-agent.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-qgis-ui-deepening.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-realization.cmake"

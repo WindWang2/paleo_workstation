@@ -3,6 +3,7 @@
 #include "wellfaciesagentrun.h"
 #include "wellfaciesreplay.h"
 #include "capabilityhost.h"
+#include "../ai/chat/llmcredentialguard.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QCryptographicHash>
@@ -62,6 +63,9 @@ void AiChatToolRunner::runFaciesModels(const QJsonObject &args) {
   const auto policy=paleo::host::checkContext(expected,expected,paleo::host::Read|paleo::host::ExternalTransfer);
   if(!policy.isEmpty()){finishActive(false,{{"code",policy}});return;}
   m_activeIsFacies=true;const auto generation=m_generation;const auto faciesEpoch=m_faciesEpoch;
+  // G1（W8）：捕获本次请求实际使用的凭据身份——后续配置切换不影响本响应
+  // 的防回显判定（不能只检查新 key 而漏掉旧响应）。
+  const auto requestApiKey=m_faciesConfig.apiKey;
   auto *phase=m_taskService->beginExternal(tr("查询测井相模型契约"));
   if(generation!=m_generation){phase->requestCancel();phase->finishExternal("cancelled");return;}
   if(faciesEpoch!=m_faciesEpoch){phase->requestCancel();phase->finishExternal("facies_config_changed");finishActive(false,{{"code","facies_config_changed"}});return;}
@@ -70,7 +74,7 @@ void AiChatToolRunner::runFaciesModels(const QJsonObject &args) {
   connect(phase,&PaleoTask::cancelAsked,this,[this,generation,phase] {
     if(generation!=m_generation)return;m_facies->cancel();phase->finishExternal("cancelled");finishActive(false,{{"code","cancelled"}});
   });
-  connect(m_facies,&WellFaciesService::modelsReady,this,[this,generation,args,phase,expected](const QVector<WellFaciesModel> &models) {
+  connect(m_facies,&WellFaciesService::modelsReady,this,[this,generation,args,phase,expected,requestApiKey](const QVector<WellFaciesModel> &models) {
     if(generation!=m_generation||!m_active)return;
     const auto guard=m_context.capabilityHost;
     const auto policy=guard?paleo::host::checkContext(guard->context(),expected,paleo::host::Read|paleo::host::ExternalTransfer):QStringLiteral("stale_session");
@@ -91,17 +95,27 @@ void AiChatToolRunner::runFaciesModels(const QJsonObject &args) {
       {"coverage",QJsonObject{{"complete",true},{"scope",filter.isEmpty()?"all_models":"exact_model_id"}}}};
     const auto endpoint=m_faciesConfig.baseUrl.adjusted(QUrl::NormalizePathSegments|QUrl::StripTrailingSlash).toEncoded();
     payload.insert("endpoint_id",QString::fromLatin1(QCryptographicHash::hash(endpoint,QCryptographicHash::Sha256).toHex()));
-    const auto bytes=QJsonDocument(payload).toJson(QJsonDocument::Compact);
-    if(m_faciesConfig.apiKey.size()>=8&&bytes.contains(m_faciesConfig.apiKey)) {
+    // G1（W8）：防回显按**结构化字符串值**递归判定（任意非空长度等值命中，
+    // ≥8 时另防包含式回显）——旧口径只对序列化字节做 contains，短 key 直接
+    // 漏检、含引号/反斜杠/非 ASCII 的 key 可借 JSON 转义绕过。模型目录含
+    // 凭据时诚实拒绝整份 payload（不删字段后假称完整目录）。
+    if(paleo::chat::jsonDisclosesCredential(QJsonValue(payload),requestApiKey)) {
       phase->finishExternal("model_catalog_contains_credential");finishActive(false,{{"code","model_catalog_contains_credential"}});return;
     }
+    const auto bytes=QJsonDocument(payload).toJson(QJsonDocument::Compact);
     if(bytes.size()>1024*1024) {
       phase->finishExternal("model_catalog_budget_exceeded");
       finishActive(false,{{"code","model_catalog_budget_exceeded"},{"retryAdvice","query_exact_model_id"}});
     }else{phase->finishExternal();finishActive(true,payload);}
   });
-  connect(m_facies,&WellFaciesService::failed,this,[this,generation,phase](const QString &reason) {
-    if(generation==m_generation&&m_active){phase->finishExternal(reason);finishActive(false,{{"code","model_catalog_unavailable"},{"error",reason}});}
+  connect(m_facies,&WellFaciesService::failed,this,[this,generation,phase,requestApiKey](const QString &reason) {
+    // G1（W8）：失败 reason 是外部文本，出结果面前按本次请求的凭据身份脱敏
+    //（服务侧已有同款脱敏，这里是 runner 出口的第二道防线；失败原因仍可辨识）。
+    if(generation==m_generation&&m_active){
+      const auto safeReason=paleo::chat::redactCredential(reason,requestApiKey);
+      phase->finishExternal(safeReason);
+      finishActive(false,{{"code","model_catalog_unavailable"},{"error",safeReason}});
+    }
   });
   m_facies->fetchModelContracts();
   if(!activeContextIsCurrent())phase->requestCancel();

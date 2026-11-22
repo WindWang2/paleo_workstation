@@ -373,21 +373,6 @@
         <translation>导出路径为空</translation>
     </message>
     <message>
-        <location filename="../src/workflow/aichatcontroller.cpp" line="279"/>
-        <source>配置写入失败：%1</source>
-        <translation>配置写入失败：%1</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichatcontroller.cpp" line="294"/>
-        <source>密钥写入钥匙串失败：%1</source>
-        <translation>密钥写入钥匙串失败：%1</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichatcontroller.cpp" line="310"/>
-        <source>清除密钥失败：%1</source>
-        <translation>清除密钥失败：%1</translation>
-    </message>
-    <message>
         <location filename="../src/workflow/aichatcontroller.cpp" line="398"/>
         <source>…[结果超长已截断：原始 %1 字符]</source>
         <translation>…[结果超长已截断：原始 %1 字符]</translation>
@@ -33336,6 +33321,93 @@ PDF：%3
         <location filename="../src/ai/chat/llmclient.cpp" line="566"/>
         <source>应答缺少 choices 字段</source>
         <translation>应答缺少 choices 字段</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="237"/>
+        <source>大模型请求超过总时限（%1 ms；空闲计时不延长它）</source>
+        <translation>大模型请求超过总时限（%1 ms；空闲计时不延长它）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="498"/>
+        <location filename="../src/ai/chat/llmclient.cpp" line="527"/>
+        <source>（无详情）</source>
+        <translation>（无详情）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="500"/>
+        <location filename="../src/ai/chat/llmclient.cpp" line="529"/>
+        <source>服务端返回错误信封：%1</source>
+        <translation>服务端返回错误信封：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="507"/>
+        <source>流式应答未包含任何事件</source>
+        <translation>流式应答未包含任何事件</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="542"/>
+        <source>应答缺少 message 字段</source>
+        <translation>应答缺少 message 字段</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="149"/>
+        <source>；配置文件还原失败：%1</source>
+        <translation>；配置文件还原失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="159"/>
+        <source>；钥匙串密钥清理也失败：%1（须手动重新配置）</source>
+        <translation>；钥匙串密钥清理也失败：%1（须手动重新配置）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="188"/>
+        <source>工具调用 index=%1 在完整交付后再次收到分片</source>
+        <translation>工具调用 index=%1 在完整交付后再次收到分片</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="202"/>
+        <source>工具调用 index=%1 的 id 前后冲突（%2 → %3）</source>
+        <translation>工具调用 index=%1 的 id 前后冲突（%2 → %3）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="213"/>
+        <source>工具调用 index=%1 的 name 前后冲突（%2 → %3）</source>
+        <translation>工具调用 index=%1 的 name 前后冲突（%2 → %3）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="227"/>
+        <source>工具调用 index=%1 的 arguments 在已完整后又收到分片</source>
+        <translation>工具调用 index=%1 的 arguments 在已完整后又收到分片</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="294"/>
+        <source>工具调用 index=%1 缺 name，无法构成调用</source>
+        <translation>工具调用 index=%1 缺 name，无法构成调用</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="313"/>
+        <source>工具调用 index=%1 的 arguments 超出 %2 字节预算</source>
+        <translation>工具调用 index=%1 的 arguments 超出 %2 字节预算</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="317"/>
+        <source>工具调用 index=%1 的 arguments 不是合法 JSON 对象</source>
+        <translation>工具调用 index=%1 的 arguments 不是合法 JSON 对象</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="92"/>
+        <source>配置写入失败：%1</source>
+        <translation>配置写入失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="130"/>
+        <source>密钥写入钥匙串失败：%1</source>
+        <translation>密钥写入钥匙串失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="129"/>
+        <source>清除密钥失败：%1</source>
+        <translation>清除密钥失败：%1</translation>
     </message>
     <message>
         <location filename="../src/ai/remotepredictrouter.cpp" line="349"/>

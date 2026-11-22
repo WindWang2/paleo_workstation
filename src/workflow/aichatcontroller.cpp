@@ -2,7 +2,6 @@
 #include "aichatcontroller.h"
 #include "chatinvocationbinding.h"
 
-#include "../ai/chat/llmkeystore.h"
 #include "../services/toolresultprotocol.h"
 
 #include <QDateTime>
@@ -23,7 +22,8 @@
 //   calls 而缺应答，下轮请求直接违反协议（OpenAI 400）。
 
 AiChatController::AiChatController(QObject *parent)
-  : QObject(parent), m_client(this), m_runner(this), m_piBridge(this) {
+  : QObject(parent), m_client(this), m_configCommitter(this), m_runner(this),
+    m_piBridge(this) {
   newSession();
   connect(&m_client, &LlmClient::deltaReceived, this,
           [this](const QString &text) {
@@ -282,61 +282,15 @@ bool AiChatController::exportCurrentSession(const QString &filePath,
 void AiChatController::applyConfig(
   const LlmConfig &config, const QByteArray &newKey, bool clearKey,
   QObject *callbackContext, std::function<void(bool, const QString &)> done) {
-  // 结构校验（地址/模型）：密钥单查——密钥缺失允许保存（助手保持禁用态，
-  // 状态行如实说明），地址/模型非法则不落盘。
-  LlmConfig probe = config;
-  probe.apiKey = QByteArrayLiteral("probe-placeholder");
-  const QString structural = probe.validate();
-  if (!structural.isEmpty()) {
-    done(false, structural);
-    return;
-  }
-  LlmConfig next = config;
-  QString error;
-  if (!next.save(&error)) {
-    done(false, tr("配置写入失败：%1").arg(error));
-    return;
-  }
-  // 密钥语义：newKey 优先（显式输入新密钥 = 替换，clear 冗余忽略）；
-  // clearKey 且无新密钥 = 清除；都无 = 沿用内存态密钥。
-  // 回调经 QPointer 双守卫：callbackContext（钥匙串侧）+ 控制器自身
-  // （关停次序反转时任一侧先走都不悬垂）。
-  QPointer<AiChatController> self(this);
-  if (!newKey.isEmpty()) {
-    LlmKeyStore::write(callbackContext, newKey,
-                       [self, next, newKey, done](bool ok,
-                                                  const QString &err) mutable {
-                         if (!self)
-                           return;
-                         if (!ok) {
-                           done(false, self->tr("密钥写入钥匙串失败：%1").arg(err));
-                           return;
-                         }
-                         next.apiKey = newKey;
-                         self->setConfig(next);
-                         done(true, QString());
-                       });
-    return;
-  }
-  if (clearKey) {
-    LlmKeyStore::clear(callbackContext,
-                       [self, next, done](bool ok,
-                                          const QString &err) mutable {
-                         if (!self)
-                           return;
-                         if (!ok) {
-                           done(false, self->tr("清除密钥失败：%1").arg(err));
-                           return;
-                         }
-                         next.apiKey = QByteArray();
-                         self->setConfig(next);
-                         done(true, QString());
-                       });
-    return;
-  }
-  next.apiKey = m_config.apiKey; // 密钥维持现状
-  setConfig(next);
-  done(true, QString());
+  // G1（W7）：提交协议收编进 LlmConfigCommitter（串行链 + 文件快照补偿，
+  // 细节见 llmconfigcommit.h）。对外签名与语义不变：结构校验失败同步拒绝；
+  // 密钥语义保持 newKey 优先 / clearKey 清除 / 沿用当前；成功仍经 setConfig
+  // 生效；done(ok) 时配置已生效，callbackContext 先亡则回调静默丢弃。
+  m_configCommitter.submit(config, newKey, clearKey, m_config,
+                           callbackContext, std::move(done),
+                           [this](const LlmConfig &applied) {
+                             setConfig(applied);
+                           });
 }
 
 bool AiChatController::canRetry() const {

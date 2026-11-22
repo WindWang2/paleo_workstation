@@ -228,6 +228,38 @@
             <source>失败</source>
             <translation type="unfinished" />
         </message>
+    <message>
+        <source>◀ 更早结果</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>更新结果 ▶</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作服务未接入（查询/取消/恢复不可用）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>（未知工具）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史记录</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>状态已刷新（修订 %1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>状态查询失败：%1</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>AiAssistWorkflow</name>
@@ -841,6 +873,119 @@
 …（显示前 %1 字符，原始 %2 字符；全文已回传模型）</source>
             <translation type="unfinished" />
         </message>
+    <message>
+        <source>状态查询成功（查询 ok=true 不等于业务已完成）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>状态查询失败（ok=false，错误码见详情）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>operationId</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>修订 revision</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>计算次数</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>取消请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已请求取消</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>未请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交收据</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>requestHash</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果引用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>operation-result-v2（详情页可检视）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>复制完整 ID</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果不可解析（失败帧原文保留如下）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果内容不可解析——原文证据保留如下，不作为成功或失败判定</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果留存为有界摘要（transport incomplete：%1）——这是已发生事实的留存，不代表执行失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>；原始出参约 %1 字节</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>；协议建议不要重复执行来取回内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>出参根为%1（非对象），按原文呈现</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>数组</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>标量</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 引用：%2（可用性以引用自身为准，不自动续取）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>有界留存时省略的字段：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>原始内容（%1 字符）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>
+…（显示前 %1 字符，原始 %2 字符）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>复制原始内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>原始内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>原始内容（已截断，保留前 %1 字符）</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>AlgorithmSpec</name>
@@ -57236,6 +57381,344 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/pichatbridge.cpp" line="50" />
         <source>Pi 对话编排</source>
         <translation>Pi conversation orchestration</translation>
+    </message>
+</context>
+<context>
+    <name>AiContextBar</name>
+    <message>
+        <source>上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>暂无上下文信息</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>只读</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>本轮进行中</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无工程上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工程简报：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工程状态：未打开（%1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无宿主上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工程状态：已打开 · %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>可写</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>层位：%1 · 地层单元：%2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>文档标识：%1（epoch %2）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>正在进行的回合：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>归属未记录</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>回合冻结身份：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史回合的层位/选区以各自冻结参数为准，不沿用当前上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>回合归属：空闲（历史卡各自标注归属）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>控制与导航动作受理时会重新读取当前宿主上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作服务未接入</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>宿主状态：未知（%1）</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+<context>
+    <name>AiConversationCard</name>
+    <message>
+        <source>详情</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史记录：未找到配对调用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史记录：调用标识歧义</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>回合 %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>宿主绑定已验证</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>归属未验证（旧记录未记回合）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已完成（已提交）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果未知</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史留存结果（paleo.tool-result.v1 有界摘要）——当时完整出参可能大于此留存</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果缺失（无留存内容）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>参数：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作查询/取消/恢复未接入（无操作服务）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作详情</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>刷新</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+<context>
+    <name>AiOperationDetailWidget</name>
+    <message>
+        <source>刷新状态</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复执行</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事实</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件（按修订游标分页）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>修订</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>下一页事件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>重新起读</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果端口</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>端口</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>字节</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>诊断</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>读取内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>继续读取</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作 %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>正在读取状态…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>operationId</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>执行</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>呈现</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>计算次数</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>取消请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已请求取消（不等于已停止）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>未请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交收据</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>code</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>执行：%1 · 提交：%2 · 呈现：%3</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件史曾截断（最早修订 %1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>尚有后续事件（下一页自修订 %1 起）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>请求范围已读完（至修订 %1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件史已过期：最早可读修订 %1，此前事件不再可读；如需从头检视请点「重新起读」</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件读取失败：%1（详情见表格下方原始 code）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>暂无结果端口（%1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果端口读取失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>读取失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已到本视图呈现上限（%1 字节）——未读取部分不做校验结论</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>尚有后续</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>读取完成</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>
+（已取回 %1 字节；%2）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source> …（hex 仅呈现前 %1 字节，共 %2 字节）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>（共 %1 字节）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交不确定（commit_uncertain）：提交状态以服务事实为准</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已请求取消（等待执行面确认，不提前宣称已停止）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>取消请求失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复已受理（原 operationId 继续执行）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复失败：%1</source>
+        <translation type="unfinished" />
     </message>
 </context>
 </TS>

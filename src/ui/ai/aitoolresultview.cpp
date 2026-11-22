@@ -6,6 +6,7 @@
 #include "../paleotheme.h"
 #include "../pages/derivationgraph.h"
 #include "../../services/derivationgraph.h"
+#include "../../services/toolresultprotocol.h"
 
 #include <QAbstractItemView>
 #include <QClipboard>
@@ -98,11 +99,29 @@ AiToolResultViewKind aiToolResultViewKind(const QString &tool, bool ok,
 
 AiToolResultView::AiToolResultView(const QString &tool, bool ok,
                                    const QString &resultJson, QWidget *parent)
+  : AiToolResultView(paleo::chat::projectToolResult(tool, resultJson, true, ok),
+                     parent) {}
+
+AiToolResultView::AiToolResultView(const paleo::chat::ToolResultFacts &facts,
+                                   QWidget *parent)
   : QWidget(parent) {
-  const QJsonDocument document =
-    QJsonDocument::fromJson(resultJson.toUtf8());
-  const QJsonObject payload = document.object();
-  m_kind = aiToolResultViewKind(tool, ok, payload);
+  m_operationId = facts.operationId;
+  if (facts.operationFacts) {
+    // W4：operation 三轴状态卡（查询 ok 与业务完成分开陈述）。
+    m_kind = AiToolResultViewKind::Operation;
+    buildOperation(facts);
+    return;
+  }
+  // W3：不可解析/无数据/非对象根 → 明确降级，绝不伪装成「成功的空结果」。
+  if (facts.source == paleo::chat::ToolResultFacts::Source::Unparseable ||
+      !facts.hasData || !facts.dataIsObject) {
+    m_kind = AiToolResultViewKind::Fallback;
+    buildDegraded(facts);
+    return;
+  }
+  const QJsonObject payload = facts.data.toObject();
+  const bool ok = facts.outcome != paleo::chat::ToolResultFacts::Outcome::Failed;
+  m_kind = aiToolResultViewKind(facts.tool, ok, payload);
   switch (m_kind) {
   case AiToolResultViewKind::Table:
     buildTable(payload, payload.value(QStringLiteral("topic")).toString());
@@ -117,6 +136,8 @@ AiToolResultView::AiToolResultView(const QString &tool, bool ok,
   case AiToolResultViewKind::LineageGraph:
     buildLineageGraph(payload);
     break;
+  case AiToolResultViewKind::Operation:
+    break; // 上面已处理（保持 switch 完整）
   case AiToolResultViewKind::Fallback:
     buildFallback(payload);
     break;
@@ -466,6 +487,213 @@ bool AiToolResultView::eventFilter(QObject *watched, QEvent *event) {
     graph->fitGraph();
   }
   return QWidget::eventFilter(watched, event);
+}
+
+// ---- G5：operation 三轴状态卡（W4）与不完整事实降级（W3）----
+
+namespace {
+// 三轴胶囊：状态词 + 色双通道（文字本身携带状态，不只用颜色）；未知值
+// 原样保留并给中性/警示——不默认绿。
+PaleoTheme::CapsuleKind axisCapsuleKind(const QString &value, bool known) {
+  if (!known)
+    return PaleoTheme::CapsuleKind::Warning;
+  if (value == QLatin1String("failed") || value == QLatin1String("cancelled"))
+    return PaleoTheme::CapsuleKind::Error;
+  if (value == QLatin1String("succeeded") || value == QLatin1String("committed") ||
+      value == QLatin1String("presented"))
+    return PaleoTheme::CapsuleKind::Success;
+  if (value == QLatin1String("interrupted") || value == QLatin1String("external_unknown") ||
+      value == QLatin1String("publishing"))
+    return PaleoTheme::CapsuleKind::Warning;
+  return PaleoTheme::CapsuleKind::Neutral; // prepared/computed/running/pending/…
+}
+QString elidedMiddle(const QString &text, int cap) {
+  if (text.size() <= cap)
+    return text;
+  return text.left(cap / 2) + QStringLiteral("…") + text.right(cap - cap / 2 - 1);
+}
+QString knownOrUnknown(const QString &value) {
+  return value.isEmpty() ? QObject::tr("未知") : value;
+}
+} // namespace
+
+void AiToolResultView::buildOperation(const paleo::chat::ToolResultFacts &facts) {
+  auto *layout = new QVBoxLayout(this);
+  layout->setContentsMargins(0, 0, 0, 0);
+  layout->setSpacing(PaleoTheme::tokens().spacingXs);
+
+  // 三条状态轴：execution / commitState / presentation。已提交的成果不因
+  // 后续取消/失败翻绿为红——各轴独立陈述事实。
+  auto *axes = new QHBoxLayout;
+  axes->setSpacing(PaleoTheme::tokens().spacingXs);
+  const struct {
+    const char *label;
+    QString value;
+  } axisList[] = {{"执行", facts.execution}, {"提交", facts.commitState},
+                  {"呈现", facts.presentation}};
+  for (const auto &axis : axisList) {
+    const bool known = !axis.value.isEmpty();
+    auto *capsule = PaleoTheme::capsuleLabel(
+      tr("%1：%2").arg(QString::fromUtf8(axis.label), knownOrUnknown(axis.value)),
+      axisCapsuleKind(axis.value, known), this);
+    axes->addWidget(capsule);
+  }
+  axes->addStretch(1);
+  layout->addLayout(axes);
+
+  // 查询级 ok 与业务完成分开：ok=true 只说明「这次查询请求成功」。
+  if (facts.responseOkKnown) {
+    auto *note = new QLabel(facts.responseOk
+                              ? tr("状态查询成功（查询 ok=true 不等于业务已完成）")
+                              : tr("状态查询失败（ok=false，错误码见详情）"),
+                            this);
+    note->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+    note->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(
+      note, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    layout->addWidget(note);
+  }
+
+  // 事实表：ID/修订/computeCount/取消标记/引用。长 ID 视觉可截、复制完整。
+  QTableWidget *table = makeCompactTable(2, {QString(), QString()});
+  table->setObjectName(QStringLiteral("aiResultOperationFacts"));
+  table->horizontalHeader()->hide();
+  auto addRow = [table](const QString &key, const QString &value,
+                        const QString &tooltip = {}) {
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto *k = new QTableWidgetItem(key);
+    PaleoTheme::setItemTextColor(k, PaleoTheme::ItemTextColor::Muted);
+    table->setItem(r, 0, k);
+    auto *v = new QTableWidgetItem(value);
+    if (!tooltip.isEmpty())
+      v->setToolTip(tooltip);
+    table->setItem(r, 1, v);
+  };
+  const QString operationId = facts.operationId;
+  addRow(tr("operationId"), elidedMiddle(operationId, 28), operationId);
+  addRow(tr("修订 revision"), knownOrUnknown(facts.revision));
+  addRow(tr("计算次数"), facts.computeCountKnown
+                            ? QString::number(facts.computeCount)
+                            : tr("未知"));
+  addRow(tr("取消请求"), facts.cancelRequested ? tr("已请求取消") : tr("未请求"));
+  if (!facts.commitReceiptRef.isEmpty())
+    addRow(tr("提交收据"), elidedMiddle(facts.commitReceiptRef, 28), facts.commitReceiptRef);
+  if (!facts.requestHash.isEmpty())
+    addRow(tr("requestHash"), elidedMiddle(facts.requestHash, 28), facts.requestHash);
+  addRow(tr("结果引用"), tr("operation-result-v2（详情页可检视）"));
+  layout->addWidget(table);
+
+  auto *actions = new QHBoxLayout;
+  actions->setSpacing(PaleoTheme::tokens().spacingXs);
+  actions->addStretch(1);
+  auto *copy = new QPushButton(tr("复制完整 ID"), this);
+  copy->setObjectName(QStringLiteral("aiResultCopyOperationId"));
+  actions->addWidget(copy);
+  layout->addLayout(actions);
+  connect(copy, &QPushButton::clicked, this, [this, operationId] {
+    if (QClipboard *clipboard = QGuiApplication::clipboard()) {
+      clipboard->setText(operationId); // 复制必须完整（视觉截断只在上表）
+      PaleoNotify::copied(this, tr("operationId"));
+    }
+  });
+}
+
+void AiToolResultView::buildDegraded(const paleo::chat::ToolResultFacts &facts) {
+  auto *layout = new QVBoxLayout(this);
+  layout->setContentsMargins(0, 0, 0, 0);
+  layout->setSpacing(PaleoTheme::tokens().spacingXs);
+
+  // 1) 事实说明行：为什么只能降级呈现（诚实缺失原因，不引导重执行）。
+  QString explanation;
+  QString evidence = facts.rawText;
+  if (facts.source == paleo::chat::ToolResultFacts::Source::Unparseable) {
+    explanation = facts.outcomeKnown && facts.outcome == paleo::chat::ToolResultFacts::Outcome::Failed
+      ? tr("结果不可解析（失败帧原文保留如下）")
+      : tr("结果内容不可解析——原文证据保留如下，不作为成功或失败判定");
+  } else if (!facts.hasData) {
+    // envelope：transport 不完整（大结果被有界截留 / 引用式留存）。
+    explanation = tr("结果留存为有界摘要（transport incomplete：%1）——"
+                     "这是已发生事实的留存，不代表执行失败")
+                    .arg(facts.transportCode.isEmpty() ? tr("未知") : facts.transportCode);
+    if (!facts.encodedBytesNote.isEmpty())
+      explanation += tr("；原始出参约 %1 字节").arg(facts.encodedBytesNote);
+    if (facts.retryAdviceNoRepeat)
+      explanation += tr("；协议建议不要重复执行来取回内容");
+  } else {
+    explanation = tr("出参根为%1（非对象），按原文呈现")
+                    .arg(facts.data.isArray() ? tr("数组") : tr("标量"));
+    evidence = QString::fromUtf8(paleo::chat::compactJson(facts.data));
+  }
+  auto *note = new QLabel(explanation, this);
+  note->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  note->setWordWrap(true);
+  PaleoTheme::applyThemedStyleSheet(note, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  layout->addWidget(note);
+
+  // 2) 引用与缺失字段（引用可用性由引用自身决定，不承诺可续取）。
+  QStringList refNotes;
+  for (const auto &value : facts.resultRefs) {
+    const auto ref = value.toObject();
+    refNotes << tr("%1 引用：%2（可用性以引用自身为准，不自动续取）")
+                  .arg(ref.value(QStringLiteral("kind")).toString(),
+                       elidedMiddle(ref.value(QStringLiteral("ref")).toString(), 24));
+  }
+  if (!facts.omittedFields.isEmpty())
+    refNotes << tr("有界留存时省略的字段：%1").arg(facts.omittedFields.join(QStringLiteral(", ")));
+  if (!refNotes.isEmpty()) {
+    auto *refs = new QLabel(refNotes.join(QLatin1Char('\n')), this);
+    refs->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+    refs->setWordWrap(true);
+    refs->setTextFormat(Qt::PlainText);
+    PaleoTheme::applyThemedStyleSheet(refs, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    layout->addWidget(refs);
+  }
+
+  // 3) 原文证据：纯文本呈现（不可信内容不解释 HTML/Markdown），有界。
+  if (!evidence.isEmpty()) {
+    auto *toggle = new QToolButton(this);
+    toggle->setObjectName(QStringLiteral("aiResultEvidenceToggle"));
+    // 截断的证据不冒称原始尺寸（P2 review）。
+    toggle->setText(facts.rawTruncated
+                      ? tr("原始内容（已截断，保留前 %1 字符）").arg(evidence.size())
+                      : tr("原始内容（%1 字符）").arg(evidence.size()));
+
+    toggle->setCheckable(true);
+    toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    toggle->setArrowType(Qt::RightArrow);
+    layout->addWidget(toggle);
+    auto *body = new QTextBrowser(this);
+    body->setObjectName(QStringLiteral("aiResultEvidenceBody"));
+    body->setFont(PaleoTheme::monoFont());
+    body->setOpenExternalLinks(false);
+    body->setMaximumHeight(paleo::ui_detail::lineRows(body, 10));
+    constexpr int kEvidenceDisplayCap = 8000;
+    QString text = evidence;
+    if (text.size() > kEvidenceDisplayCap)
+      text = text.left(kEvidenceDisplayCap) +
+             tr("\n…（显示前 %1 字符，原始 %2 字符）").arg(kEvidenceDisplayCap).arg(evidence.size());
+    body->setPlainText(text);
+    body->hide();
+    layout->addWidget(body);
+    connect(toggle, &QToolButton::toggled, this, [toggle, body](bool on) {
+      body->setVisible(on);
+      toggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+    });
+    auto *actions = new QHBoxLayout;
+    actions->setSpacing(PaleoTheme::tokens().spacingXs);
+    actions->addStretch(1);
+    auto *copy = new QPushButton(tr("复制原始内容"), this);
+    copy->setObjectName(QStringLiteral("aiResultCopyEvidence"));
+    actions->addWidget(copy);
+    layout->addLayout(actions);
+    connect(copy, &QPushButton::clicked, this, [this, evidence] {
+      if (QClipboard *clipboard = QGuiApplication::clipboard()) {
+        clipboard->setText(evidence);
+        PaleoNotify::copied(this, tr("原始内容"));
+      }
+    });
+  }
 }
 
 void AiToolResultView::buildFallback(const QJsonObject &payload) {

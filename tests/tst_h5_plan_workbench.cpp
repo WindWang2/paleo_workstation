@@ -257,7 +257,8 @@ void TestH5PlanWorkbench::themeAndNarrowSizesRenderWithoutCrash() {
   PaleoTheme::applyTheme(PaleoTheme::Theme::Dark);
   // 主题切换重建 token 依赖样式：审阅态与内容保留（不是只查控件存在）。
   QVERIFY(panel.reviewing());
-  QCOMPARE(panel->findChildren<QListWidget *>(QStringLiteral("aiPlanReviewSteps")).first()->count(), 2);
+  const auto steps = panel.findChildren<QListWidget *>(QStringLiteral("aiPlanReviewSteps"));
+  QCOMPARE(steps.isEmpty() ? -1 : steps.first()->count(), 2);
   PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
   panel.resize(320, 480); // 窄 Dock 形态
   QVERIFY(panel.grab().size().width() > 0);

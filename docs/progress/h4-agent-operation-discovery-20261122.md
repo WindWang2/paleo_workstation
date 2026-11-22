@@ -101,6 +101,12 @@ document_unavailable/stale_session/owner_thread_required/task_service_unavailabl
 
 ## 已知边界
 
+- `coverage.journalDigest` 是**整本 journal 文件**（含其他 callerScope/document 的行）的
+  SHA-256：仅作为本次快照的身份与"journal 是否变化"的检测信号，不含任何内容可恢复性，
+  也不泄漏其他条目的数量或身份（G4 口径复核时以此为准）。
+- query() 的「扫描期间 invalidate → stale_session」防线（generation 比对）无确定性测试
+  夹具（需故障注入才能稳定命中窗口）；由代码审查与完成侧归属复核双重兜底。
+
 - `--transitive` 的 func/ui 两指标只在 CI lint 车道全闸；本地以受控 QGIS_PREFIX 预跑通过。
 - 规模夹具用满足 loader 严格校验的合成 journal 行（含 4000 行全量分页 walk），
   未执行数千次真实科学计算（受影响解析/投影路径与真实记录同一条 loader 代码路径）。

@@ -481,15 +481,16 @@ QJsonObject OperationDiscovery::pageFromSnapshotLocked(const QString &snapshotKe
     next = m->cursorToken(snapshot.key, index, expiry);
     result.insert(QStringLiteral("nextCursor"), next);
     m->cursors.insert(next, Impl::CursorSlot{snapshot.key, expiry});
-    // 游标有界（W4）：消费下一续页即确认收到上一页——同一快照只保留
-    // 「刚消费的可重试游标 + 新发的续页游标」，更早的位置按已超越回收
-    //（重放旧位置得明确的 cursor_expired，不静默回第一页）；跨快照互不影响。
-    for (auto it = m->cursors.begin(); it != m->cursors.end();) {
-      if (it.key() != consumedCursor && it.key() != next && it->snapshotKey == snapshot.key)
-        it = m->cursors.erase(it);
-      else
-        ++it;
-    }
+  }
+  // 游标有界（W4）：消费下一续页即确认收到上一页——同一快照只保留
+  // 「刚消费的可重试游标 +（若有）新发的续页游标」，更早的位置按已超越
+  // 回收（重放旧位置得明确的 cursor_expired，不静默回第一页；末页同样
+  // 只留可重试游标）；跨快照互不影响。
+  for (auto it = m->cursors.begin(); it != m->cursors.end();) {
+    if (it.key() != consumedCursor && it.key() != next && it->snapshotKey == snapshot.key)
+      it = m->cursors.erase(it);
+    else
+      ++it;
   }
   result.insert(QStringLiteral("coverage"), QJsonObject{
       {QStringLiteral("documentId"), snapshot.documentId},

@@ -482,6 +482,16 @@ void H4OperationDiscovery::budgetCursorAndCacheDiscipline() {
   QVERIFY(lock.tryLock());
   const DiscoveryScan scan{QFileInfo(root.path()).canonicalFilePath(), logDir(root.path()), "doc", scope,
                            lock.claim()};
+  // 新错误码负例（W1 契约收紧）：view 键出现即须精确词表值；筛选只属于
+  // operations 视图，与 relations 组合显式拒绝（先于锚点与磁盘）。
+  OperationDiscovery contract;
+  QCOMPARE(contract.query(scan, {{QStringLiteral("view"), QString()}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("invalid_discovery_view"));
+  QCOMPARE(contract.query(scan, {{QStringLiteral("view"), QStringLiteral("relations")},
+                                 {QStringLiteral("execution_state"), QStringLiteral("succeeded")}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("invalid_filter_for_view"));
   qint64 now = 1000;
   OperationDiscovery service;
   service.setClock([&] { return now; });

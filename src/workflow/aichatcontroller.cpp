@@ -1,8 +1,7 @@
 // 层：功能
 #include "aichatcontroller.h"
+#include "aichatcontextprojection.h"
 #include "chatinvocationbinding.h"
-
-#include "../services/toolresultprotocol.h"
 
 #include <QDateTime>
 #include <QJsonDocument>
@@ -425,67 +424,10 @@ int AiChatController::estimateTokens(const QString &text) {
   return ascii / 4 + wide;
 }
 
-QVector<ChatMessage> AiChatController::requestMessages() const {
-  QVector<ChatMessage> out;
-  ChatMessage system;
-  system.role = ChatRole::System;
-  system.content = m_turnPrompt;
-  out.append(system);
-
-  // 历史按「轮」开窗（一轮 = 一条 User 消息起到下一条 User 前）：协议要求
-  // assistant 的 tool_calls 与其后所有 role=tool 应答同进同出，从轮边界切
-  // 才不会产生孤儿 tool 消息。窗口 = 近 kMaxHistoryTurns 轮且估算 token 不
-  // 超 kHistoryTokenBudget（口径见 estimateTokens）；超预算从最旧整轮丢弃，
-  // 并在 system 后插一条截断标记（对模型与请求体断言都可见）。
-  QVector<QVector<ChatMessage>> turns;
-  for (const ChatMessage &message : m_session.messages) {
-    if (message.role == ChatRole::User || turns.isEmpty())
-      turns.append(QVector<ChatMessage>());
-    turns.last().append(message);
-  }
-  QVector<QVector<ChatMessage>> kept;
-  int budget = kHistoryTokenBudget;
-  bool dropped = false;
-  for (int i = turns.size() - 1; i >= 0; --i) {
-    if (int(kept.size()) < kMaxHistoryTurns) {
-      int cost = 0;
-      for (const ChatMessage &message : turns[i]) {
-        cost += estimateTokens(message.content);
-        for (const ChatToolCall &call : message.toolCalls)
-          cost += estimateTokens(call.argumentsJson);
-      }
-      // 最新一轮永远保留（用户问题必须上送），哪怕单轮超预算。
-      if (cost <= budget || kept.isEmpty()) {
-        budget -= qMin(cost, budget);
-        kept.prepend(turns[i]);
-        continue;
-      }
-    }
-    dropped = true; // 超轮数上限或预算耗尽：整轮丢弃（从最旧开始）
-  }
-  if (dropped) {
-    ChatMessage marker;
-    marker.role = ChatRole::System;
-    marker.content = tr("（更早的对话已按上下文预算截断）");
-    out.append(marker);
-  }
-  for (const QVector<ChatMessage> &turn : kept)
-    for (ChatMessage message : turn) {
-      if (message.role == ChatRole::Tool) {
-        const auto value = QJsonDocument::fromJson(message.content.toUtf8()).object();
-        if (!paleo::chat::isResultEnvelope(value)) {
-          const bool valid = !value.isEmpty();
-          paleo::chat::ChatResultStore transient;
-          const auto wrapped = valid ? transient.encode(message.content, !value.contains("error"),
-                                                        paleo::chat::kResultPageBytes, false)
-                                     : paleo::chat::resultError(QStringLiteral("legacy_result_unavailable"));
-          message.content = QString::fromUtf8(paleo::chat::compactJson(wrapped));
-        }
-      }
-      out.append(message);
-    }
-  return out;
-}
+// 历史→请求投影（原 requestMessages 的职责）已收编进只读投影组件
+// aichatcontextprojection.{h,cpp}（H1）：按最终发送形态计价、连续后缀选择、
+// 逐轮 tool 配对校验、唯一宿主 System、空占位不发送——语义与预算口径见该
+// 头注；controller 只在 sendRound 消费投影结果。
 
 void AiChatController::sendRound() {
   if (!ensureTurnContext()) return;
@@ -500,8 +442,26 @@ void AiChatController::sendRound() {
   placeholder.timestamp = QDateTime::currentDateTime();
   appendMessage(placeholder);
   if (!guard || m_session.id != session || sequence != m_turnSequence || !ensureTurnContext()) return;
+  // H1：完整会话 → 只读投影（冻结 prompt/tools/config 消费）→ 装配诊断。
+  // 投影不可发送（当前轮协议损坏/超历史预算、工具声明或请求体超字节闸）
+  // 时零 HTTP：failTurn 走既有停轮路径（撤空占位、落盘、单次错误上报），
+  // 已发生的工具结果与提交事实原样保留，保存欠账语义不变。
+  paleo::chat::ContextProjectionLimits limits;
+  limits.maxHistoryTurns = kMaxHistoryTurns;
+  limits.historyTokenBudget = kHistoryTokenBudget;
+  const auto projection = paleo::chat::projectChatRequest(
+    m_session, m_turnPrompt, m_turnTools, m_turnConfig, limits);
+  if (!projection.diagnostics.sendable) {
+    const auto &diagnostics = projection.diagnostics;
+    failTurn(tr("本轮上下文超出请求预算（%1%2），已停止本轮，未发送模型请求")
+               .arg(diagnostics.rejectionCode,
+                    diagnostics.rejectionDetail.isEmpty()
+                      ? QString()
+                      : QStringLiteral("：%1").arg(diagnostics.rejectionDetail)));
+    return;
+  }
   m_client.setConfig(m_turnConfig);
-  m_client.send(requestMessages(), m_turnTools);
+  m_client.send(projection.messages, m_turnTools);
 }
 
 void AiChatController::sendUserText(const QString &text) {

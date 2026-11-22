@@ -662,7 +662,7 @@ void H4OperationDiscovery::relationsClassifyDirectTargets() {
                    page, &error));
   QVERIFY(page.value(QStringLiteral("ok")).toBool());
   relations = page.value(QStringLiteral("relations")).toArray();
-  QCOMPARE(relations.size(), 4);
+  QCOMPARE(relations.size(), 5); // 未解析来源 + 2 计划步骤 + 2 父版本
   QCOMPARE(relations.at(0).toObject().value(QStringLiteral("relation")).toString(), QStringLiteral("source_operation"));
   QCOMPARE(relations.at(0).toObject().value(QStringLiteral("target")).toObject()
                .value(QStringLiteral("status")).toString(), QStringLiteral("unresolved_in_snapshot"));

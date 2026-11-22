@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QSemaphore>
 #include <QTemporaryDir>
+#include <memory>
 #include "../src/ai/chat/domaintools.h"
 #include "../src/workflow/aichattoolrunner.h"
 #include "../src/workflow/capabilityhost.h"
@@ -132,6 +133,101 @@ private slots:
       namesAgain.append(spec.name);
     QVERIFY(namesAgain.contains(QStringLiteral("paleo.query_project")));
     QVERIFY(tasks.tasks().isEmpty());
+  }
+
+  void sameShapeCallbackReplacementRetainsSnapshotAndFailsClosed() {
+    QTemporaryDir project;
+    DataCatalog catalog;
+    QString error;
+    QVERIFY(project.isValid() && catalog.open(project.path(), &error));
+    capability::CapabilityHost host;
+    host.setBindingProvider(readBinding);
+    AiChatToolRunner runner;
+    AiChatToolContext replacement;
+    replacement.catalog = &catalog;
+    replacement.documentId = QStringLiteral("doc");
+    replacement.capabilityHost = &host;
+    replacement.requireCapabilityHost = true;
+    replacement.runtimeReadiness = [](const auto &, const auto &, bool) { return QString(); };
+    auto original = replacement;
+    bool callbackWasAlive = false;
+    original.runtimeReadiness = [&, resource = std::make_shared<int>(0)](const auto &, const auto &, bool) {
+      const std::weak_ptr<int> retained(resource);
+      auto *alive = &callbackWasAlive;
+      runner.setContext(replacement);
+      *alive = !retained.expired();
+      return QString();
+    };
+    runner.setContext(original);
+    original.runtimeReadiness = {};
+    const auto args = QJsonObject{{"topic", "wells"}};
+    QCOMPARE(runner.readiness("paleo.query_project", args).code, QStringLiteral("context_rebound"));
+    QVERIFY(callbackWasAlive);
+    QVERIFY(runner.readiness("paleo.query_project", args).ready);
+  }
+
+  void cancellingInsideReadinessDoesNotCompleteReplacementTwice() {
+    QTemporaryDir project;
+    DataCatalog catalog;
+    QString error;
+    QVERIFY(project.isValid() && catalog.open(project.path(), &error));
+    capability::CapabilityHost host;
+    host.setBindingProvider(readBinding);
+    AiChatToolRunner runner;
+    AiChatToolContext context;
+    context.catalog = &catalog;
+    context.documentId = QStringLiteral("doc");
+    context.capabilityHost = &host;
+    context.requireCapabilityHost = true;
+    context.runtimeReadiness = [&](const QString &name, const QJsonObject &args, bool listing) {
+      if (!listing && name == QLatin1String("paleo.query_project") && args.value("topic") == QLatin1String("summary")) {
+        runner.cancel();
+        runner.run({"replacement", "paleo.query_project", R"({"topic":"wells"})"});
+      }
+      return QString();
+    };
+    runner.setContext(context);
+    QSignalSpy done(&runner, &AiChatToolRunner::toolFinished);
+    runner.run({"cancelled", "paleo.query_project", R"({"topic":"summary"})"});
+    QTRY_COMPARE(done.size(), 1);
+    QCOMPARE(qvariant_cast<ChatToolCall>(done.first()[0]).id, QStringLiteral("replacement"));
+    const auto payload = QJsonDocument::fromJson(done.first()[2].toString().toUtf8()).object();
+    QCOMPARE(payload.value("topic").toString(), QStringLiteral("wells"));
+  }
+
+  void queryListingRequiresAtLeastOneReadyTopic() {
+    QTemporaryDir project;
+    DataCatalog catalog;
+    QString error;
+    QVERIFY(project.isValid() && catalog.open(project.path(), &error));
+    capability::CapabilityHost host;
+    host.setBindingProvider(readBinding);
+    AiChatToolRunner runner;
+    AiChatToolContext context;
+    context.catalog = &catalog;
+    context.documentId = QStringLiteral("doc");
+    context.capabilityHost = &host;
+    context.requireCapabilityHost = true;
+    bool allowWells = false;
+    context.runtimeReadiness = [&](const QString &name, const QJsonObject &args, bool) {
+      if (name != QLatin1String("paleo.query_project")) return QString();
+      const auto topic = args.value("topic").toString();
+      if ((!allowWells && topic.isEmpty()) || (allowWells && topic == QLatin1String("wells"))) return QString();
+      return QStringLiteral("topic_unavailable");
+    };
+    runner.setContext(context);
+    const auto query = [&]() {
+      for (const auto &spec : runner.availableTools())
+        if (spec.name == QLatin1String("paleo.query_project")) return spec;
+      return AiToolSpec{};
+    };
+    QVERIFY(query().name.isEmpty());
+    allowWells = true;
+    const auto listed = query();
+    QVERIFY(!listed.name.isEmpty());
+    const auto properties = listed.toJsonSchema().value("properties").toObject();
+    QCOMPARE(properties.value("topic").toObject().value("enum").toArray(), QJsonArray{"wells"});
+    QCOMPARE(listed.toJsonSchema().value("allOf").toArray().size(), 1);
   }
 
   // ---- W6：provider 接入/撤除推进世代；排队调用不再按旧绑定执行 ----

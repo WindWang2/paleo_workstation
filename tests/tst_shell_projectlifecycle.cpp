@@ -182,6 +182,13 @@ private:
     return task->state() != PaleoTask::State::Running;
   }
 
+  static bool hasPublishedRaster(const QTemporaryDir &project)
+  {
+    QDirIterator files(project.filePath(QStringLiteral("artifacts/derived")),
+                       {QStringLiteral("*.tif")}, QDir::Files, QDirIterator::Subdirectories);
+    return files.hasNext();
+  }
+
   // armed 在模态窗出现后点 griddingOkButton（无该按钮则 reject）。
   static void armGriddingDialogCloser()
   {
@@ -297,6 +304,10 @@ private slots:
     QVERIFY(task);
     QVERIFY2(waitFinished(task), "网格化任务须在时限内完成");
     QCOMPARE(task->state(), PaleoTask::State::Succeeded);
+    // The worker completes before owner-thread publication. Keep this project's
+    // directory alive until the registered raster has been written.
+    QTRY_VERIFY2_WITH_TIMEOUT(hasPublishedRaster(dirA),
+                             qPrintable(m_win->statusBar()->currentMessage()), 10000);
   }
 
   // #275：切到第二个工程后入口跟随新工程（projectDir 不钉死首工程），
@@ -320,15 +331,9 @@ private slots:
     QVERIFY2(waitFinished(task), "网格化任务须在时限内完成");
     QCOMPARE(task->state(), PaleoTask::State::Succeeded);
 
-    // 产物（DERIVED 受管 tif）必须落在第二个工程目录下。
-    bool foundTif = false;
-    QDirIterator it(dirB.path(), {QStringLiteral("*.tif")}, QDir::Files, QDirIterator::Subdirectories);
-    while (it.hasNext())
-    {
-      it.next();
-      foundTif = true;
-    }
-    QVERIFY2(foundTif, "网格化产物必须写进第二个工程的受管区（projectDir 调用时现取）");
+    // Wait for publication, excluding the worker's staging file.
+    QTRY_VERIFY2_WITH_TIMEOUT(hasPublishedRaster(dirB),
+                             qPrintable(m_win->statusBar()->currentMessage()), 10000);
 
     // #481 P3-9：两次网格化（跨工程）共用挂窗下的同一只 SurfaceGriddingWorkflow
     //（objectName 寻址复用、信号连接只在首建时打一次）——不得随命令次数累积实例。

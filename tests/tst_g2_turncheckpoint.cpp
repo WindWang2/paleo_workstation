@@ -10,6 +10,7 @@
 #include "services/piprotocol.h"
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QScopeGuard>
@@ -25,20 +26,22 @@
 #include <functional>
 
 namespace {
-QByteArray reply(bool tools, int request = 0) {
+QByteArray reply(bool tools, int request, const QString &reason, const QString &toolName) {
   QJsonObject message{{"role", "assistant"}, {"content", tools ? "" : "host model completed"}};
   if (tools) {
     QJsonArray calls;
     for (int i = 0; i < 2; ++i) calls.append(QJsonObject{{"id", QString("provider-%1-call-%2").arg(request).arg(i)}, {"type", "function"},
-      {"function", QJsonObject{{"name", "paleo.query_project"}, {"arguments", "{\"topic\":\"wells\"}"}}}});
+      {"function", QJsonObject{{"name", toolName}, {"arguments", "{\"topic\":\"wells\"}"}}}});
     message.insert("tool_calls", calls);
   }
-  return QJsonDocument(QJsonObject{{"choices", QJsonArray{QJsonObject{{"message", message}, {"finish_reason", tools ? "tool_calls" : "stop"}}}}}).toJson(QJsonDocument::Compact);
+  return QJsonDocument(QJsonObject{{"choices", QJsonArray{QJsonObject{{"message", message}, {"finish_reason", reason.isEmpty() ? (tools ? QStringLiteral("tool_calls") : QStringLiteral("stop")) : reason}}}}}).toJson(QJsonDocument::Compact);
 }
 class Model : public QObject {
 public:
   QTcpServer server; int requests = 0; bool firstTools = true;
   QVector<QByteArray> bodies;
+  QString firstReason;
+  QString firstToolName = QStringLiteral("paleo.query_project");
   Model() {
     connect(&server, &QTcpServer::newConnection, this, [this] {
       auto *socket = server.nextPendingConnection(); auto bytes = std::make_shared<QByteArray>();
@@ -51,7 +54,7 @@ public:
         if (length < 0 || length > 128 * 1024 || bytes->size() < header + 4 + length) return;
         *served = true; bodies.append(bytes->mid(header + 4, length)); const auto index = requests++;
         const bool calls = firstTools && index == 0;
-        const auto body = reply(calls, requests);
+        const auto body = reply(calls, requests, index == 0 ? firstReason : QString(), firstToolName);
         socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
         socket->disconnectFromHost();
       });
@@ -78,20 +81,41 @@ struct Host {
     context.capabilityHost = &capability; context.requireCapabilityHost = true; controller.toolRunner()->setContext(context); return true;
   }
 };
-// 会话存储断路器：目录去写位 → QSaveFile 建临时文件失败（原子保存的确定性
-// 故障注入；恢复即原样恢复 0755）。
+// A directory at the exact target prevents QSaveFile from replacing it on
+// every supported OS. Other sessions and the preceding checkpoint stay readable.
 struct StorageBreaker {
-  QString directory;
-  bool engage() {
-    directory = ChatSessionStore::directory();
-    return QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::ExeOwner |
-                                              QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                                              QFileDevice::ReadOther | QFileDevice::ExeOther);
+  QString target;
+  QString checkpoint;
+  bool engage(const QString &sessionId) {
+    const auto path = ChatSessionStore::pathFor(sessionId);
+    if (path.isEmpty()) return false;
+    const auto saved = path + QStringLiteral(".test-checkpoint");
+    const bool existed = QFileInfo::exists(path);
+    if (existed && !QFile::rename(path, saved))
+      return false;
+    if (!QDir().mkdir(path)) {
+      if (existed) QFile::rename(saved, path);
+      return false;
+    }
+    target = path;
+    if (existed) checkpoint = saved;
+    return true;
   }
   bool restore() {
-    return QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
-                                                QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                                                QFileDevice::ReadOther | QFileDevice::ExeOther);
+    if (target.isEmpty()) return true;
+    if (QFileInfo(target).isDir() && !QDir().rmdir(target)) return false;
+    if (!checkpoint.isEmpty() && !QFile::rename(checkpoint, target)) return false;
+    target.clear();
+    checkpoint.clear();
+    return true;
+  }
+  bool loadCheckpoint(ChatSession *session) const {
+    QFile file(checkpoint);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    const auto record = QJsonDocument::fromJson(file.readAll());
+    if (!record.isObject()) return false;
+    *session = ChatSession::fromJson(record.object());
+    return true;
   }
 };
 int countRole(const QVector<ChatMessage> &messages, ChatRole role) {
@@ -205,7 +229,7 @@ private slots:
         results(&controller, &AiChatController::toolResultReady);
     bool broken = false;
     connect(&controller, &AiChatController::toolExecutionStarted, this, [&](const auto &) {
-      if (!broken) { broken = true; QVERIFY(breaker.engage()); } // 首项执行中、结果未回：破坏落盘
+      if (!broken) { broken = true; QVERIFY(breaker.engage(controller.session().id)); } // 首项执行中、结果未回：破坏落盘
     });
     const auto restore = qScopeGuard([&] { breaker.restore(); });
     Q_UNUSED(restore)
@@ -224,9 +248,9 @@ private slots:
     QVERIFY(firstTool != memory.cend());
     QVERIFY(firstTool->content.contains(QStringLiteral("\"ok\"")));
     // 磁盘：最后可信 checkpoint = 已准入绑定，无任何结果。
-    QCOMPARE(diskToolReplies(controller.session().id), 0);
     ChatSession stored; QString error;
-    QVERIFY2(ChatSessionStore::load(controller.session().id, &stored, &error), qPrintable(error));
+    QVERIFY(breaker.loadCheckpoint(&stored));
+    QCOMPARE(countRole(stored.messages, ChatRole::Tool), 0);
     QCOMPARE(stored.hostToolBindings.size(), 2);
     QVERIFY(breaker.restore());
     errors.clear();
@@ -250,7 +274,7 @@ private slots:
     ChatSession other; other.id = ChatSessionStore::newSessionId(); m_sessions.append(other.id);
     other.messages = {ChatMessage{}};
     QString otherError; QVERIFY2(ChatSessionStore::save(other, &otherError), qPrintable(otherError));
-    QVERIFY(breaker.engage());
+    QVERIFY(breaker.engage(controller.session().id));
     const auto restore = qScopeGuard([&] { breaker.restore(); });
     Q_UNUSED(restore)
     QSignalSpy errors(&controller, &AiChatController::errorOccurred),
@@ -280,6 +304,9 @@ private slots:
     QVERIFY(!controller.removeSession(session, &error));
     QCOMPARE(controller.session().id, session);
     QVERIFY2(ChatSessionStore::load(other.id, &other, &otherError), qPrintable(otherError));
+    controller.sendUserText(QStringLiteral("start another turn while storage is broken"));
+    QCOMPARE(model.requests, 1);
+    QCOMPARE(controller.messages(), memoryBefore);
     // retryLast：欠账未清 → 不截历史、不重发。
     controller.retryLast();
     QCOMPARE(model.requests, 1);
@@ -302,8 +329,19 @@ private slots:
     AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config());
     bool switched = false;
+    controller.setProjectBrief(QStringLiteral("original-project-brief"));
+    QStringList activeTurnIds;
+    connect(&controller, &AiChatController::streamingChanged, this, [&](bool active) {
+      if (!active) return;
+      activeTurnIds.append(controller.hostTurnId());
+      QCOMPARE(controller.turnContext(), controller.toolRunner()->hostContextIdentity());
+    });
     connect(&controller, &AiChatController::toolExecutionStarted, this, [&](const auto &) {
-      if (!switched) { switched = true; controller.setConfig(model.switchedConfig()); }
+      if (!switched) {
+        switched = true;
+        controller.setConfig(model.switchedConfig());
+        controller.setProjectBrief(QStringLiteral("updated-project-brief"));
+      }
     });
     controller.sendUserText("freeze me");
     QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 15000);
@@ -313,6 +351,9 @@ private slots:
     QVERIFY(model.bodies.first().contains("\"model\":\"controlled-fixture\""));
     QVERIFY(model.bodies.at(1).contains("\"model\":\"controlled-fixture\"")); // 续轮 = 冻结身份
     QVERIFY(!model.bodies.at(1).contains("switched-mid-turn"));
+    QVERIFY(model.bodies.first().contains("original-project-brief"));
+    QVERIFY(model.bodies.at(1).contains("original-project-brief"));
+    QVERIFY(!model.bodies.at(1).contains("updated-project-brief"));
     QCOMPARE(controller.config().model, QString("switched-mid-turn"));       // 配置本身已更新
     QCOMPARE(controller.session().model, QString("controlled-fixture"));     // 记录字段不悄悄改
     // 下一轮使用新配置。
@@ -321,6 +362,74 @@ private slots:
     QCOMPARE(model.requests, 3);
     QVERIFY(model.bodies.at(2).contains("\"model\":\"switched-mid-turn\""));
     QCOMPARE(controller.session().model, QString("switched-mid-turn"));
+    QVERIFY(model.bodies.at(2).contains("updated-project-brief"));
+    QCOMPARE(activeTurnIds.size(), 2);
+    QVERIFY(!activeTurnIds.first().isEmpty());
+    QVERIFY(activeTurnIds.first() != activeTurnIds.last());
+    controller.newSession();
+    QVERIFY(controller.hostTurnId().isEmpty());
+    QVERIFY(controller.turnContext().isEmpty());
+  }
+
+  void contextChangesCannotMoveLaterNativeCallsToAnotherProject() {
+    Host original, replacement;
+    Model model;
+    QVERIFY(model.open());
+    AiChatController controller;
+    QVERIFY(original.bind(controller));
+    m_sessions.append(controller.session().id);
+    controller.setConfig(model.config());
+    QSignalSpy started(&controller, &AiChatController::toolExecutionStarted);
+    QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+    connect(&controller, &AiChatController::toolExecutionStarted, this,
+        [&](const ChatToolCall &) { if (started.size() == 1) QVERIFY(replacement.bind(controller)); });
+
+    controller.sendUserText(QStringLiteral("query the original project twice"));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 15000);
+    QCOMPARE(started.size(), 1);
+    QCOMPARE(model.requests, 1);
+    QCOMPARE(errors.size(), 1);
+    QCOMPARE(errors.first().first().toString(), QStringLiteral("interrupted"));
+    QCOMPARE(countRole(controller.messages(), ChatRole::Tool), 2);
+    QCOMPARE(diskToolReplies(controller.session().id), 2);
+  }
+
+  void unsafeModelCompletionsCannotStartTools_data() {
+    QTest::addColumn<QString>("finishReason");
+    QTest::addColumn<QString>("toolName");
+    QTest::addColumn<QString>("errorCode");
+    QTest::newRow("truncated") << QStringLiteral("length") << QStringLiteral("paleo.query_project")
+                               << QStringLiteral("model_output_truncated");
+    QTest::newRow("filtered") << QStringLiteral("content_filter") << QStringLiteral("paleo.query_project")
+                              << QStringLiteral("model_output_filtered");
+    QTest::newRow("not-declared") << QStringLiteral("tool_calls") << QStringLiteral("paleo.unknown")
+                                  << QStringLiteral("tool_not_declared");
+  }
+
+  void unsafeModelCompletionsCannotStartTools() {
+    QFETCH(QString, finishReason);
+    QFETCH(QString, toolName);
+    QFETCH(QString, errorCode);
+    Host host;
+    Model model;
+    model.firstReason = finishReason;
+    model.firstToolName = toolName;
+    QVERIFY(model.open());
+    AiChatController controller;
+    QVERIFY(host.bind(controller));
+    m_sessions.append(controller.session().id);
+    controller.setConfig(model.config());
+    QSignalSpy started(&controller, &AiChatController::toolExecutionStarted);
+    QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+
+    controller.sendUserText(QStringLiteral("attempt invalid tool completion"));
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 15000);
+    QCOMPARE(started.size(), 0);
+    QCOMPARE(model.requests, 1);
+    QCOMPARE(errors.size(), 1);
+    QCOMPARE(errors.first().first().toString(), errorCode);
+    QVERIFY(controller.session().hostToolBindings.isEmpty());
+    QVERIFY(controller.messages().last().toolCalls.isEmpty());
   }
 
   // G2-W8 受控 Pi 链：真实 controller + 真实宿主查询 + 受控 peer。第一项结果
@@ -379,7 +488,7 @@ private slots:
         started(&controller, &AiChatController::toolExecutionStarted);
     bool broken = false;
     connect(&controller, &AiChatController::toolExecutionStarted, this, [&](const auto &) {
-      if (!broken) { broken = true; QVERIFY(breaker.engage()); }
+      if (!broken) { broken = true; QVERIFY(breaker.engage(controller.session().id)); }
     });
     const auto restore = qScopeGuard([&] { breaker.restore(); });
     Q_UNUSED(restore)
@@ -390,9 +499,9 @@ private slots:
     QCOMPARE(started.size(), 1);
     QVERIFY(!errors.isEmpty());
     QVERIFY(errors.first().first().toString().contains(QStringLiteral("保存失败")));
-    QCOMPARE(diskToolReplies(controller.session().id), 0);
     ChatSession stored; QString error;
-    QVERIFY2(ChatSessionStore::load(controller.session().id, &stored, &error), qPrintable(error));
+    QVERIFY(breaker.loadCheckpoint(&stored));
+    QCOMPARE(countRole(stored.messages, ChatRole::Tool), 0);
     QCOMPARE(stored.hostToolBindings.size(), 2); // 准入绑定仍是最可信 checkpoint
     QCOMPARE(countRole(controller.messages(), ChatRole::Tool), 2); // 内存配对完整（真实结果 + stale）
     QVERIFY(breaker.restore());
@@ -416,7 +525,7 @@ private slots:
     QSignalSpy errors(&controller, &AiChatController::errorOccurred);
     bool broken = false, cancelled = false;
     connect(&controller, &AiChatController::toolExecutionStarted, this, [&](const auto &) {
-      if (!broken) { broken = true; QVERIFY(breaker.engage()); }
+      if (!broken) { broken = true; QVERIFY(breaker.engage(controller.session().id)); }
     });
     const auto restore = qScopeGuard([&] { breaker.restore(); });
     Q_UNUSED(restore)

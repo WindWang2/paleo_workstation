@@ -18,6 +18,7 @@
 #include "workflow/constraintanalysisidentity.h"
 #include "workflow/derivedassets.h"
 #include "algorithms/velocitymodel.h"
+#include <QDir>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -26,7 +27,12 @@ using namespace paleo;
 using namespace paleo::capability;
 namespace {
 struct Host {
-  QTemporaryDir root;DataCatalog catalog;ProjectDirLock lock{root.path()};PaleoTaskService tasks;CapabilityHost service;
+  // Leave room for the rehydrated GeoPackage's SQLite journal suffix on Windows.
+  QTemporaryDir root{QDir::temp().filePath(QStringLiteral("pn-XXXXXX"))};
+  DataCatalog catalog;
+  ProjectDirLock lock{root.path()};
+  PaleoTaskService tasks;
+  CapabilityHost service;
   bool providerOnline=true,writable=true;quint64 epoch=1;
   bool init() {
     if(!lock.tryLock() || !catalog.open(root.path()))return false;

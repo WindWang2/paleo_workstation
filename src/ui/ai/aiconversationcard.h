@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QString>
 #include <QToolButton>
+#include <QSet>
 #include <QWidget>
 
 class QFrame;
@@ -102,6 +103,8 @@ private:
   QPushButton *m_resumeButton = nullptr;
   QLabel *m_summaryLabel = nullptr;      // 兜底摘要行（既有 160 字符形态）
   QLabel *m_actionNoteLabel = nullptr;   // 控制动作结果注记（懒建）
+  QSet<QString> m_busyActions;
+  QLabel *m_unavailableNote = nullptr;
   QWidget *m_controlRow = nullptr;       // operation 控制按钮行（buildBody 建）
   QString m_resultSummary;               // 实时帧摘要（历史卡无此帧则空）
 };

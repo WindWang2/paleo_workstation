@@ -177,14 +177,9 @@ private:
     quint64 faciesEpoch;
   };
 
-  // G3/W6：资格判断在 owner 线程对一份 Context 快照求值；注入回调
-  // （trackingInput/runtimeReadiness/tileOperations）同步重绑或销毁绑定
-  // 后，快照与活上下文不再一致——返回 false，调用方按 context_rebound
-  // 失败，不把旧 provider 的 ready 与新上下文组合。
-  bool contextMatchesLive(const Context &context, quint64 contextGeneration) const;
   ToolReadiness readinessForSpecInContext(const AiToolSpec &spec, const QJsonObject &args,
                                           bool listing, const Context &context,
-                                          quint64 contextGeneration) const;
+                                          quint64 bindingRevision) const;
 
   AiAssistWorkflow *m_workflow = nullptr;
   Context m_context;
@@ -203,6 +198,7 @@ private:
   int m_generation = 0; // cancel()/析构 ++：作废迟到回调
   int m_explicitCancelGeneration = -1;
   quint64 m_contextGeneration = 0;
+  quint64 m_bindingRevision = 0; // Detects reentrant replacement of same-shaped callbacks.
   quint64 m_activeContextGeneration = 0;
   quint64 m_activeTaskSession = 0;
   paleo::chat::ChatResultStore m_results;

@@ -45,8 +45,10 @@ QJsonObject queryFailure(const QString &code) {
 }
 QString queryDigest(QJsonObject args, bool graph) {
   args.remove("cursor");
-  args.insert("page_size", args.value("page_size").toInt(!graph&&args.value("topic")==QLatin1String("well_curves")?16:50));
-  args.insert("max_bytes", args.value("max_bytes").toInt(8192));
+  QueryTopicRule budget;
+  if (!graph) queryTopicRule(args.value("topic").toString(), budget);
+  args.insert("page_size", args.value("page_size").toInt(budget.pageSizeDefault));
+  args.insert("max_bytes", args.value("max_bytes").toInt(budget.maxBytesDefault));
   args.insert("query_kind", graph ? "lineage" : "project");
   return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(args).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
 }
@@ -151,10 +153,11 @@ QJsonObject ProjectQueryCapability::Impl::run(const QJsonObject &args, bool grap
     const QString topicCode = validateQueryTopicArguments(args, &topicField);
     if (!topicCode.isEmpty()) return queryFailure(topicCode);
   }
-  const bool curves=!graph&&args.value("topic")==QLatin1String("well_curves");
-  const int rows = integer(args, "page_size", curves?16:50, curves?16:256);
-  const int bytes = integer(args, "max_bytes", 8192, 65536);
-  if (rows < 0 || bytes < 2048) return queryFailure("query_budget_invalid");
+  QueryTopicRule budget;
+  if (!graph) queryTopicRule(args.value("topic").toString(), budget);
+  const int rows = integer(args, "page_size", budget.pageSizeDefault, budget.pageSizeMax);
+  const int bytes = integer(args, "max_bytes", budget.maxBytesDefault, budget.maxBytesMax);
+  if (rows < budget.pageSizeMin || bytes < budget.maxBytesMin) return queryFailure("query_budget_invalid");
   QueryState state; const QString cursor = args.value("cursor").toString();
   if (!cursor.isEmpty()) {
     const auto invalidCursor = validateCursor(cursor); if (!invalidCursor.isEmpty()) return queryFailure(invalidCursor);

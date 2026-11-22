@@ -17,7 +17,11 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QScopeGuard>
 #include <QTemporaryDir>
+#ifdef Q_OS_WIN
+#include <QProcess>
+#endif
 #include <QUuid>
 
 using namespace paleo;
@@ -27,6 +31,24 @@ namespace {
 QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 QString logDir(const QString &root) { return QDir(root).filePath(".paleo/capability-ops"); }
 QString journalPath(const QString &root) { return QDir(logDir(root)).filePath("operations.json"); }
+
+bool linkDirectory(const QString &target, const QString &alias) {
+#ifdef Q_OS_WIN
+  QProcess junction;
+  junction.setProgram(QDir(qEnvironmentVariable("SystemRoot")).filePath("System32/cmd.exe"));
+  auto environment = QProcessEnvironment::systemEnvironment();
+  environment.insert("PALEO_TEST_JUNCTION_LINK", QDir::toNativeSeparators(alias));
+  environment.insert("PALEO_TEST_JUNCTION_TARGET", QDir::toNativeSeparators(target));
+  junction.setProcessEnvironment(environment);
+  junction.setNativeArguments(QStringLiteral(
+      "/d /v:off /s /c \"mklink /J \"%PALEO_TEST_JUNCTION_LINK%\" \"%PALEO_TEST_JUNCTION_TARGET%\"\""));
+  junction.start();
+  return junction.waitForFinished() && junction.exitStatus() == QProcess::NormalExit &&
+      junction.exitCode() == 0 && QFileInfo(alias).isJunction();
+#else
+  return QFile::link(target, alias);
+#endif
+}
 
 OperationLog::Record seed(const QString &request = "req") {
   OperationLog::Record record;
@@ -129,7 +151,8 @@ QByteArray readFileBytes(const QString &path) {
 }
 QStringList treeSnapshot(const QString &root) {
   QStringList entries;
-  QDirIterator it(root, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+  QDirIterator it(root, QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot,
+                  QDirIterator::Subdirectories);
   while (it.hasNext()) entries.append(QDir(root).relativeFilePath(it.next()));
   entries.sort();
   return entries;
@@ -156,10 +179,14 @@ class AgentOperationIntegrity : public QObject {
   Q_OBJECT
 private slots:
   void privateDirectoryBoundaries();
+  void managedJournalRejectsDirectoryAlias();
   void restartPreservesIdentityAndLegacyAttemptForm();
   void tamperedOperationIdIsQuarantinedNotSecondBusiness();
   void committedNeighborSurvivesUnsafeRecord();
+  void duplicateIdentitiesAreAmbiguous_data();
   void duplicateIdentitiesAreAmbiguous();
+  void identitylessCorruptionBlocksWrites();
+  void corruptEventRevisionCannotStallPaging();
   void truncatedOrCorruptJournalIsUnavailableNotMissing();
   void workerRefusesQuarantinedIdentityWithoutSideEffects();
   void externalAttachRefusesAliasedOperationDirectory();
@@ -236,6 +263,42 @@ void AgentOperationIntegrity::privateDirectoryBoundaries() {
   }
 }
 
+void AgentOperationIntegrity::managedJournalRejectsDirectoryAlias() {
+  QTemporaryDir root;
+  QVERIFY(root.isValid());
+  const auto target = root.filePath("other-operations");
+  const auto alias = logDir(root.path());
+  QVERIFY(QDir().mkpath(target));
+  QVERIFY(QDir().mkpath(QFileInfo(alias).absolutePath()));
+  QVERIFY(linkDirectory(target, alias));
+  const auto unlink = qScopeGuard([&] {
+#ifdef Q_OS_WIN
+    QDir().rmdir(alias);
+#else
+    QFile::remove(alias);
+#endif
+  });
+
+  OperationLog unbound(target);
+  const auto legacy = unbound.accept("doc", "local", "other", QString(64, 'a'));
+  QCOMPARE(legacy.code, QStringLiteral("created"));
+  const auto path = QDir(target).filePath("operations.json");
+  const auto original = readFileBytes(path);
+  QVERIFY(!original.isEmpty());
+
+  ProjectDirLock owner(root.path());
+  QVERIFY(owner.tryLock());
+  OperationLog log(alias, root.path(), owner.claim());
+  const auto op = QStringLiteral("op-") + uuid();
+  const auto attempt = uuid();
+  QCOMPARE(log.lookupRecordById(legacy.record.operationId).code, QStringLiteral("operation_log_unavailable"));
+  QCOMPARE(log.acceptDurable(seed("new")).code, QStringLiteral("project_write_ownership_required"));
+  QCOMPARE(operation_detail::createPrivateAttemptDir(root.path(), op, attempt).code,
+           QStringLiteral("unsafe_operation_directory"));
+  QVERIFY(!QFileInfo::exists(QDir(target).filePath(op)));
+  QCOMPARE(readFileBytes(path), original);
+}
+
 void AgentOperationIntegrity::restartPreservesIdentityAndLegacyAttemptForm() {
   QTemporaryDir root;
   QString operationId;
@@ -293,7 +356,6 @@ void AgentOperationIntegrity::tamperedOperationIdIsQuarantinedNotSecondBusiness(
     operationId = accepted.record.operationId;
   }
   const auto before = readFileBytes(journalPath(root.path()));
-  const auto treeBefore = treeSnapshot(root.path());
   QByteArray beforeRewrite;
   QVERIFY(rewriteJournal(root.path(), [operationId](QJsonArray &rows) {
     for (auto row : rows) {
@@ -307,6 +369,7 @@ void AgentOperationIntegrity::tamperedOperationIdIsQuarantinedNotSecondBusiness(
   {
     ProjectDirLock owner(root.path());
     QVERIFY(owner.tryLock());
+    const auto treeBefore = treeSnapshot(root.path());
     OperationLog log(logDir(root.path()), root.path(), owner.claim());
     // 目标身份被隔离：lookup 与幂等入口都不是 not found，也不得二次立项。
     QCOMPARE(log.lookup("doc", "agent:g4", "tampered").code, QStringLiteral("operation_record_quarantined"));
@@ -375,7 +438,15 @@ void AgentOperationIntegrity::committedNeighborSurvivesUnsafeRecord() {
   QVERIFY(!retention.complete);
 }
 
+void AgentOperationIntegrity::duplicateIdentitiesAreAmbiguous_data() {
+  QTest::addColumn<QString>("corruptedIdentity");
+  QTest::newRow("valid-duplicate") << QString();
+  QTest::newRow("duplicate-operation-id") << QStringLiteral("key");
+  QTest::newRow("duplicate-request-identity") << QStringLiteral("operationId");
+}
+
 void AgentOperationIntegrity::duplicateIdentitiesAreAmbiguous() {
+  QFETCH(QString, corruptedIdentity);
   QTemporaryDir root;
   QString operationId, neighbor;
   {
@@ -388,15 +459,21 @@ void AgentOperationIntegrity::duplicateIdentitiesAreAmbiguous() {
     operationId = first.record.operationId;
     neighbor = other.record.operationId;
   }
-  // 复制一条同 key 同 operationId 的记录：任何一方都不得被选为赢家。
-  QByteArray ignored;
-  QVERIFY(rewriteJournal(root.path(), [operationId](QJsonArray &rows) {
-    for (const auto &row : rows)
-      if (row.toObject().value("operationId").toString() == operationId) {
-        rows.append(row);
-        break;
+  QByteArray tampered;
+  QVERIFY(rewriteJournal(root.path(), [operationId, corruptedIdentity](QJsonArray &rows) {
+    for (const auto &row : rows) {
+      auto duplicate = row.toObject();
+      if (duplicate.value("operationId").toString() != operationId) continue;
+      if (!corruptedIdentity.isEmpty()) {
+        duplicate.insert(corruptedIdentity, 7);
+        duplicate.insert("key", 7); // The v2 identity tuple may still identify the request.
+        if (corruptedIdentity == QLatin1String("key"))
+          duplicate.remove("documentId"); // Here only the operation ID identifies the duplicate.
       }
-  }, ignored));
+      rows.append(duplicate);
+      break;
+    }
+  }, tampered));
   ProjectDirLock owner(root.path());
   QVERIFY(owner.tryLock());
   OperationLog log(logDir(root.path()), root.path(), owner.claim());
@@ -406,6 +483,58 @@ void AgentOperationIntegrity::duplicateIdentitiesAreAmbiguous() {
   // 无冲突邻居照常。
   QCOMPARE(log.lookup("doc", "agent:g4", "neighbor").code, QStringLiteral("found"));
   QCOMPARE(log.lookupRecordById(neighbor).code, QStringLiteral("found"));
+  QCOMPARE(log.journalHealth().quarantined, 2);
+  QCOMPARE(readFileBytes(journalPath(root.path())), tampered);
+}
+
+void AgentOperationIntegrity::identitylessCorruptionBlocksWrites() {
+  QTemporaryDir root;
+  ProjectDirLock owner(root.path());
+  QVERIFY(owner.tryLock());
+  OperationLog log(logDir(root.path()), root.path(), owner.claim());
+  const auto existing = log.acceptDurable(seed("existing"));
+  QCOMPARE(existing.code, QStringLiteral("created"));
+
+  QByteArray tampered;
+  QVERIFY(rewriteJournal(root.path(), [](QJsonArray &rows) {
+    rows.append(false);
+    rows.append(QJsonObject{{"operationId", 3}, {"key", QJsonValue::Null}});
+  }, tampered));
+
+  QCOMPARE(log.journalHealth().code, QStringLiteral("operation_log_quarantined"));
+  QCOMPARE(log.journalHealth().quarantined, 2);
+  QCOMPARE(log.lookupRecordById(existing.record.operationId).code, QStringLiteral("found"));
+  QCOMPARE(log.acceptDurable(seed("existing")).code, QStringLiteral("replay"));
+  QCOMPARE(log.acceptDurable(seed("new")).code, QStringLiteral("operation_log_quarantined"));
+  QCOMPARE(log.accept("doc", "local", "new", QString(64, 'a')).code,
+           QStringLiteral("operation_log_quarantined"));
+  auto proposal = existing.record;
+  proposal.cancelRequested = true;
+  QCOMPARE(update(log, proposal), QStringLiteral("operation_log_quarantined"));
+  QCOMPARE(readFileBytes(journalPath(root.path())), tampered);
+}
+
+void AgentOperationIntegrity::corruptEventRevisionCannotStallPaging() {
+  QTemporaryDir root;
+  Host host(root.path());
+  const auto accepted = host.recovery.accept(plan("events", countingWorker(std::make_shared<int>(0))));
+  QVERIFY2(accepted.ok, qPrintable(accepted.code));
+  const auto &record = accepted.record;
+
+  QByteArray tampered;
+  QVERIFY(rewriteJournal(root.path(), [](QJsonArray &rows) {
+    auto row = rows.first().toObject();
+    auto events = row.value("events").toArray();
+    auto first = events.first().toObject();
+    first.insert("revision", "0");
+    events.replace(0, first);
+    row.insert("events", events);
+    rows.replace(0, row);
+  }, tampered));
+  const auto page = host.recovery.events(record.callerScope, record.operationId, 0, 4, 1024);
+  QVERIFY(!page.value("ok").toBool());
+  QCOMPARE(page.value("code").toString(), QStringLiteral("operation_record_quarantined"));
+  QCOMPARE(readFileBytes(journalPath(root.path())), tampered);
 }
 
 void AgentOperationIntegrity::truncatedOrCorruptJournalIsUnavailableNotMissing() {
@@ -418,17 +547,19 @@ void AgentOperationIntegrity::truncatedOrCorruptJournalIsUnavailableNotMissing()
   }
   QFile file(journalPath(root.path()));
   QVERIFY(file.open(QIODevice::WriteOnly));
-  file.write("{\"op\":"); // 截断 JSON
+  const QByteArray truncated = "{\"op\":";
+  QCOMPARE(file.write(truncated), truncated.size());
   file.close();
-  const auto treeBefore = treeSnapshot(root.path());
   {
     ProjectDirLock owner(root.path());
     QVERIFY(owner.tryLock());
+    const auto treeBefore = treeSnapshot(root.path());
     OperationLog log(logDir(root.path()), root.path(), owner.claim());
     // 整本不可读 ≠ 空 journal ≠ not found；同一业务不得被再次接受。
     QCOMPARE(log.lookup("doc", "agent:g4", "truncated").code, QStringLiteral("operation_log_unavailable"));
     QCOMPARE(log.acceptDurable(seed("truncated")).code, QStringLiteral("operation_log_unavailable"));
     QCOMPARE(log.journalHealth().code, QStringLiteral("operation_log_unavailable"));
+    QCOMPARE(readFileBytes(journalPath(root.path())), truncated);
     QCOMPARE(treeSnapshot(root.path()), treeBefore);
   } // 锁与 claim 随作用域释放
   Host host(root.path());
@@ -521,11 +652,12 @@ void AgentOperationIntegrity::externalAttachRefusesAliasedOperationDirectory() {
 void AgentOperationIntegrity::v1RecordsStayLocalAndInvisibleToAgent() {
   QTemporaryDir root;
   QString v1Id, v2Id;
+  const auto legacyPlan = plan("legacy", {});
   {
     ProjectDirLock owner(root.path());
     QVERIFY(owner.tryLock());
     OperationLog log(logDir(root.path()), root.path(), owner.claim());
-    const auto v1 = log.accept("doc", "agent:g4", "legacy", QString(64, 'c'));
+    const auto v1 = log.accept("doc", "agent:g4", "legacy", operationDigest(legacyPlan.intent));
     QCOMPARE(v1.code, QStringLiteral("created"));
     v1Id = v1.record.operationId;
     const auto v2 = log.acceptDurable(seed("durable"));
@@ -543,6 +675,13 @@ void AgentOperationIntegrity::v1RecordsStayLocalAndInvisibleToAgent() {
   // Agent 面：v1 缺 v2 document/caller scope 绑定，get/results/read/resume
   // 一律不可见——安全 ID 形态不授予越过 v2 授权的任何权限。
   Host host(root.path());
+  const auto lookup = host.recovery.lookup("agent:g4", "legacy");
+  QCOMPARE(lookup.code, QStringLiteral("legacy_unverifiable"));
+  QVERIFY(lookup.record.operationId.isEmpty());
+  const auto replay = host.recovery.accept(legacyPlan);
+  QVERIFY(!replay.ok);
+  QCOMPARE(replay.code, QStringLiteral("legacy_unverifiable"));
+  QVERIFY(replay.record.operationId.isEmpty());
   QCOMPARE(host.recovery.get("agent:g4", v1Id).value("code").toString(), QStringLiteral("operation_not_found"));
   QString error;
   QVERIFY(!host.recovery.read("agent:g4", v1Id, "OUTPUT", 0, 8, &host.recovery, {}, &error));

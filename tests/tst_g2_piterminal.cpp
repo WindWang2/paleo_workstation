@@ -239,6 +239,7 @@ private slots:
         cleanups(&bridge, &PiChatBridge::cleanupNotice);
     QObject::connect(&bridge, &PiChatBridge::modelRequested, &bridge, [&] {
       bridge.abort(true); // 用户主动取消：停止请求 ≠ 已回收
+      bridge.modelFailed(QStringLiteral("llm_error_after_stop"));
     });
     QCOMPARE(bridge.start({true, {}, {}}, &tasks, "g2-session", "g2-turn", {}, [] { return true; }), QString());
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 15000);

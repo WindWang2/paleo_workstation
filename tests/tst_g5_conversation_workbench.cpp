@@ -5,10 +5,12 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QStandardPaths>
+#include <QTableWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTextBrowser>
@@ -23,9 +25,11 @@
 #include "../src/ui/ai/aiassistdock.h"
 #include "../src/ui/ai/aiconversationcard.h"
 #include "../src/ui/ai/aicontextbar.h"
+#include "../src/ui/ai/aioperationdetailwidget.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/aioperationpresentation.h"
+#include "../src/workflow/chatinvocationbinding.h"
 
 // G5 W2/W7/W8 dock 级测试：历史工具卡恢复（零模型请求）、草稿/键盘生命
 // 周期、有界卡窗口、上下文条。端点一律 127.0.0.1 假服务器（同 tst_aiassistdock
@@ -65,15 +69,10 @@ ChatSession makeSessionWithToolHistory(int toolFrames, bool legacyTurnIds = fals
       QJsonObject{{"topic", "summary"}, {"entities", QJsonObject{{"well", i + 1}}}},
       true);
     session.messages << user << assistant << tool;
-    if (!legacyTurnIds) {
-      session.hostToolBindings.append(QJsonObject{
-        {"admittedSha256", QString(64, '0')},
-        {"callId", call.id},
-        {"clientRequestId", QStringLiteral("pi-%1").arg(i)},
-        {"documentId", QStringLiteral("doc-g5")},
-        {"toolName", call.name},
-        {"turnId", user.hostTurnId}});
-    }
+    if (!legacyTurnIds &&
+        !paleo::chat::bindInvocations(session, user.hostTurnId, "doc-g5",
+                                     session.messages[session.messages.size() - 2].toolCalls).isEmpty())
+      qFatal("G5 history fixture could not bind its tool call");
   }
   return session;
 }
@@ -133,6 +132,7 @@ private slots:
   void enterSendsShiftEnterBreaks();
   void contextBarShowsBriefAndUpdate();
   void attachPresenterIdempotentAndNullPresenterKeepsReason();
+  void selectedResultPortCanBeReadFromTheDetailView();
 
 private:
   static bool spinUntil(const std::function<bool()> &done, int timeoutMs = 15000) {
@@ -154,6 +154,55 @@ private:
     return config;
   }
 };
+
+void TestG5ConversationWorkbench::selectedResultPortCanBeReadFromTheDetailView() {
+  AiOperationDetailWidget detail;
+  const QString operation = QStringLiteral("op-result");
+  const QString output = QStringLiteral("OUTPUT");
+  detail.openOperation(operation);
+  detail.onOperationResults(operation, {{"ok", true}, {"ports", QJsonArray{
+    QJsonObject{{"portId", output}, {"encoding", "text/plain"}}
+  }}});
+
+  auto *ports = detail.findChild<QTableWidget *>(QStringLiteral("aiOperationDetailPorts"));
+  auto *read = detail.findChild<QPushButton *>(QStringLiteral("aiOperationDetailPortRead"));
+  auto *next = detail.findChild<QPushButton *>(QStringLiteral("aiOperationDetailPortNext"));
+  auto *preview = detail.findChild<QLabel *>(QStringLiteral("aiOperationDetailPortPreview"));
+  QVERIFY(ports && read && next && preview);
+  QCOMPARE(ports->rowCount(), 1);
+  QVERIFY(QMetaObject::invokeMethod(ports, "cellClicked", Q_ARG(int, 0), Q_ARG(int, 0)));
+  QVERIFY(read->isEnabled());
+
+  QSignalSpy requests(&detail, &AiOperationDetailWidget::portPageRequested);
+  read->click();
+  QCOMPARE(requests.size(), 1);
+  QCOMPARE(requests.first().at(0).toString(), operation);
+  QCOMPARE(requests.first().at(1).toString(), output);
+  QCOMPARE(requests.first().at(2).toLongLong(), qint64(0));
+
+  detail.onPortPage(operation, output, {{"ok", true}, {"offset", "3"}, {"nextOffset", "6"},
+                                       {"hasMore", false}, {"data", "ZGVm"}});
+  QVERIFY(preview->text().isEmpty());
+  detail.onPortPage(operation, output, {{"ok", true}, {"offset", "0"}, {"nextOffset", "3"},
+                                       {"hasMore", true}, {"data", "YWJj"}});
+  QVERIFY(preview->text().startsWith(QStringLiteral("abc")));
+  QVERIFY(next->isEnabled());
+  next->click();
+  QCOMPARE(requests.size(), 2);
+  QCOMPARE(requests.last().at(1).toString(), output);
+  QCOMPARE(requests.last().at(2).toLongLong(), qint64(3));
+
+  auto *resume = detail.findChild<QPushButton *>(QStringLiteral("aiOperationDetailResume"));
+  QVERIFY(resume);
+  detail.onBusyChanged(operation, QStringLiteral("resume"), true);
+  QVERIFY(!resume->isEnabled());
+  detail.openOperation(operation);
+  QVERIFY(!resume->isEnabled()); // Reopening the busy operation keeps its state.
+  detail.openOperation(QStringLiteral("op-other"));
+  QVERIFY(resume->isEnabled());
+  detail.onBusyChanged(operation, QStringLiteral("resume"), true);
+  QVERIFY(resume->isEnabled()); // The old operation can no longer affect this view.
+}
 
 void TestG5ConversationWorkbench::initTestCase() {
   PaleoTheme::pinRenderEnvironment();

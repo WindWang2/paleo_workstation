@@ -35,36 +35,62 @@ ChatToolCall AiChatController::hostAdmittedCall(const ChatToolCall &source) cons
       QJsonDocument(identity).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex().left(40));
   return call;
 }
-void AiChatController::startEngineTurn() {
-  m_modelRound = 0; m_hostTurn.clear(); m_turnContext = m_runner.hostContextIdentity();
-  // G2-W1：定格本轮执行归属——模型配置与协商工具表在本入口快照，原生续轮
-  // 与 Pi 桥内快照同源；回合中途的 setConfig/工具表变化不影响在途请求。
-  m_turnConfig = m_config;
-  m_turnTools = tools();
+void AiChatController::startEngineTurn(const QJsonObject &context) {
+  const QPointer<AiChatController> guard(this);
+  const auto sequence = m_turnSequence;
+  m_modelRound = 0;
+  m_roundRejected = false;
+  m_toolRound = 0;
+  m_turnCalls = 0;
+  m_pendingToolResults = 0;
+  m_unansweredCalls.clear();
+  m_hostTurn.clear();
+  m_turnContext = context;
+  // One snapshot drives the provider schema, prompt, budgets and Pi bridge.
+  const auto config = m_config;
+  const auto brief = m_projectBrief;
+  const auto declared = tools();
+  if (!guard || sequence != m_turnSequence) return;
+  m_turnConfig = config;
+  m_turnTools = declared;
+  m_turnPrompt = buildSystemPrompt(declared, brief);
+  m_toolTokens = estimateTokens(m_turnPrompt) + qMin(config.maxTokens, kHistoryTokenBudget / 2);
   m_turnFrozen = true;
   const auto code = paleo::chat::validateInvocationBindings(m_session);
-  if (!code.isEmpty()) { piFailure(code); return; }
   for (qsizetype index = m_session.messages.size(); index > 0; --index) {
     auto &message = m_session.messages[index - 1];
     if (message.role != ChatRole::User) continue;
     if (message.hostTurnId.isEmpty()) message.hostTurnId = QUuid::createUuid().toString(QUuid::Id128);
-    m_hostTurn = message.hostTurnId; break;
+    m_hostTurn = message.hostTurnId;
+    m_toolTokens += estimateTokens(message.content);
+    break;
   }
+  // Synchronous UI observers must see the same ownership as the engine.
+  setStreaming(true);
+  if (!guard || sequence != m_turnSequence || !ensureTurnContext()) return;
+  if (!code.isEmpty()) { failTurn(code); return; }
   if (!m_piConfiguration.enabled) { sendRound(); return; }
-  const QPointer<AiChatController> guard(this); const auto sessionId = m_session.id, turn = m_hostTurn;
+  const auto sessionId = m_session.id, turn = m_hostTurn;
   QString error;
   // Reuse the existing atomic private ChatSessionStore; this is not a second
   // operation journal. A missing durable host identity must precede no effects.
-  if (!saveCurrentSession(&error)) { if (guard) piFailure("pi_session_save_failed"); return; }
-  if (!guard || !m_streaming || sessionId != m_session.id || turn != m_hostTurn) return;
-  const auto context = m_turnContext;
+  if (!saveCurrentSession(&error)) { if (guard) failTurn("pi_session_save_failed"); return; }
+  if (!guard || sequence != m_turnSequence || !ensureTurnContext()) return;
+  const auto turnContext = m_turnContext;
   const auto started = m_piBridge.start(m_piConfiguration, m_runner.taskService(), sessionId, turn, m_turnTools,
-    [guard, context, sessionId, turn] {
-      return guard && guard->m_session.id == sessionId && guard->m_hostTurn == turn && guard->m_runner.hostContextIdentity() == context;
+    [guard, turnContext, sequence] {
+      return guard && guard->m_turnSequence == sequence && guard->m_runner.hostContextIdentity() == turnContext;
     });
-  if (guard && !started.isEmpty()) piFailure(started);
+  if (guard && sequence == m_turnSequence && !started.isEmpty()) failTurn(started);
 }
-void AiChatController::piFailure(const QString &code) {
+bool AiChatController::ensureTurnContext() {
+  if (!m_streaming) return false;
+  if (m_runner.hostContextIdentity() == m_turnContext) return true;
+  failTurn(QStringLiteral("interrupted"));
+  return false;
+}
+
+void AiChatController::failTurn(const QString &code) {
   if (!m_streaming) return;
   const QPointer<AiChatController> guard(this);
   const auto sequence = m_turnSequence + 1;

@@ -350,15 +350,14 @@ void AiAssistDock::attachOperationPresenter(
   }
   // 详情面 → dock 的意图转发一并断开（下次 attach 重建），防换绑后翻倍。
   m_detail->disconnect(this);
+  m_detail->hide();
   m_presenter = presenter;
   if (m_presenter)
     handlePresenterSignals();
-  // adapter 到位/退场：历史卡的控制入口随之可用/给原因，按当前窗口重建；
-  // 已建实时卡同样收敛为「未接入」形态（防解绑后可点而无效的按钮）。
-  for (AiConversationCard *card : m_toolCards)
-    card->setOperationControlsAllowed(m_presenter != nullptr);
-  if (!m_historyTools.isEmpty())
-    buildHistoryCards();
+  for (auto *card : m_toolCards)
+    syncCardOperationControls(card);
+  for (auto *card : m_historyCards)
+    syncCardOperationControls(card);
   refreshContextBar();
 }
 
@@ -380,7 +379,7 @@ void AiAssistDock::handlePresenterSignals() {
   // 忙碌反馈 → 对应卡的控制按钮。
   connect(m_presenter, &AiOperationPresentation::busyChanged, this,
           [this](const QString &operationId, const QString &action, bool busy) {
-            const auto cards = m_cardsByOperation.value(operationId);
+            const auto cards = operationCards(operationId);
             for (AiConversationCard *card : cards)
               card->setActionBusy(action, busy);
           });
@@ -389,18 +388,21 @@ void AiAssistDock::handlePresenterSignals() {
           [this](const QString &operationId, const QString &action,
                  const QJsonObject &response) {
             const QString note = actionNoteText(action, response);
-            const auto cards = m_cardsByOperation.value(operationId);
+            const auto cards = operationCards(operationId);
             for (AiConversationCard *card : cards)
               card->setActionNote(note);
           });
-  // 重绑/换工程：上下文条刷新（动作受理时 adapter 仍现读 live 值）。
-  connect(m_presenter, &AiOperationPresentation::contextChanged, this,
-          &AiAssistDock::refreshContextBar);
+  connect(m_presenter, &AiOperationPresentation::contextChanged, this, [this] {
+    m_detail->hide();
+    refreshContextBar();
+  });
   // 详情面的显式意图 → adapter（由服务裁决；面板不加第二道门）。
   connect(m_detail, &AiOperationDetailWidget::refreshRequested, this,
           [this](const QString &id) {
-            if (m_presenter)
-              m_presenter->requestRefresh(id);
+            QString reason;
+            if (m_presenter && !m_presenter->requestRefresh(id, &reason) && !reason.isEmpty())
+              m_detail->onOperationState(id, {{QStringLiteral("ok"), false},
+                                              {QStringLiteral("code"), reason}});
           });
   connect(m_detail, &AiOperationDetailWidget::eventsRequested, this,
           [this](const QString &id, quint64 after) {
@@ -431,16 +433,6 @@ void AiAssistDock::handlePresenterSignals() {
 }
 
 void AiAssistDock::handleCardOperationIntents(AiConversationCard *card) {
-  // 卡销毁（切会话/翻窗/重挂的 deleteLater）时同步清理操作索引，防悬垂。
-  connect(card, &QObject::destroyed, this, [this, card] {
-    for (auto it = m_cardsByOperation.begin(); it != m_cardsByOperation.end();) {
-      it.value().removeAll(card);
-      if (it.value().isEmpty())
-        it = m_cardsByOperation.erase(it);
-      else
-        ++it;
-    }
-  });
   // 导航意图透传到面板级信号（宿主接线消费；面板不自己跳页）。
   connect(card, &AiConversationCard::assetNavigateRequested, this,
           &AiAssistDock::assetNavigateRequested);
@@ -450,10 +442,15 @@ void AiAssistDock::handleCardOperationIntents(AiConversationCard *card) {
           &AiAssistDock::lineageNavigateRequested);
   connect(card, &AiConversationCard::expandedChanged, this,
           &AiAssistDock::enforceExpandedCap);
-  if (!m_presenter)
-    return; // 无 adapter：控制按钮不出现（buildBody 给原因），无意图消费者
   connect(card, &AiConversationCard::operationDetailRequested, this,
-          [this](const QString &id) { m_detail->openOperation(id); });
+          [this](const QString &id) {
+            if (!m_presenter)
+              return;
+            m_detail->openOperation(id);
+            for (const auto &action : {QStringLiteral("refresh"), QStringLiteral("cancel"),
+                                       QStringLiteral("resume")})
+              m_detail->onBusyChanged(id, action, m_presenter && m_presenter->busy(id, action));
+          });
   // adapter 可能事后解绑（attachOperationPresenter(nullptr)）：空判防悬垂调用。
   connect(card, &AiConversationCard::operationRefreshRequested, this,
           [this](const QString &id) {
@@ -592,10 +589,8 @@ void AiAssistDock::renderSession() {
 
 void AiAssistDock::buildHistoryCards() {
   // 清掉上一窗的历史卡（实时卡另由 m_toolCards 记账）。
-  for (AiConversationCard *card : m_historyCards) {
-    m_cardLayout->removeWidget(card);
-    card->deleteLater();
-  }
+  for (AiConversationCard *card : m_historyCards)
+    retireCard(card);
   m_historyCards.clear();
   const int count = int(m_historyTools.size());
   const int start = qBound(0, m_historyWindowStart, qMax(0, count - 1));
@@ -619,14 +614,12 @@ void AiAssistDock::buildHistoryCards() {
         m_controller->messages().at(entry.toolMessageIndex).timestamp;
     card->setAttribution(attribution);
     card->setArgumentsSummary(entry.argumentsJson);
-    card->setOperationControlsAllowed(m_presenter != nullptr);
     if (entry.hasResult)
       card->setResult(entry.facts, /*lazyBody=*/true); // W8：历史卡惰性构建
+    syncCardOperationControls(card);
     m_cardLayout->addWidget(card);
     m_historyCards.append(card);
     handleCardOperationIntents(card);
-    if (entry.hasResult && !entry.facts.operationId.isEmpty())
-      m_cardsByOperation[entry.facts.operationId].append(card);
   }
   // 窗口导航（W8.2：较早结果仍可访问；消息与导出内容不受分页影响）。
   const bool pageable = count > kCardWidgetCap;
@@ -654,26 +647,37 @@ void AiAssistDock::navigateHistory(int delta) {
 }
 
 void AiAssistDock::enforceExpandedCap(AiConversationCard *card) {
-  if (!card->expanded()) {
-    m_expandedOrder.removeAll(card->toolCallId());
-    return;
-  }
-  m_expandedOrder.removeAll(card->toolCallId());
-  m_expandedOrder.append(card->toolCallId());
-  // 超限收敛最旧展开卡（LRU）：折叠不删数据，只是不再全部常开重控件。
-  while (m_expandedOrder.size() > kExpandedCardCap) {
-    const QString oldest = m_expandedOrder.takeFirst();
-    const auto live = m_toolCards.value(oldest);
-    if (live && live->expanded()) {
-      live->setExpanded(false);
-      continue;
-    }
-    for (AiConversationCard *history : m_historyCards)
-      if (history->toolCallId() == oldest && history->expanded()) {
-        history->setExpanded(false);
-        break;
-      }
-  }
+  m_expandedOrder.removeAll(card);
+  if (card->expanded())
+    m_expandedOrder.append(card);
+  while (m_expandedOrder.size() > kExpandedCardCap)
+    m_expandedOrder.takeFirst()->setExpanded(false);
+}
+
+void AiAssistDock::syncCardOperationControls(AiConversationCard *card) {
+  card->setOperationControlsAllowed(m_presenter != nullptr);
+  for (const auto &action : {QStringLiteral("refresh"), QStringLiteral("cancel"),
+                             QStringLiteral("resume")})
+    card->setActionBusy(action, m_presenter && m_presenter->busy(card->operationId(), action));
+}
+
+void AiAssistDock::retireCard(AiConversationCard *card) {
+  m_expandedOrder.removeAll(card);
+  m_cardLayout->removeWidget(card);
+  card->hide();
+  card->disconnect(this);
+  card->deleteLater();
+}
+
+QList<AiConversationCard *> AiAssistDock::operationCards(const QString &operationId) const {
+  QList<AiConversationCard *> cards;
+  for (auto *card : m_historyCards)
+    if (card->operationId() == operationId)
+      cards.append(card);
+  for (auto *card : m_toolCards)
+    if (card->operationId() == operationId)
+      cards.append(card);
+  return cards;
 }
 
 void AiAssistDock::sendCurrentText() {
@@ -818,10 +822,13 @@ void AiAssistDock::appendError(const QString &message) {
 }
 
 void AiAssistDock::clearToolCards() {
+  m_detail->hide();
+  for (auto *card : m_toolCards)
+    retireCard(card);
+  for (auto *card : m_historyCards)
+    retireCard(card);
   m_toolCards.clear();
   m_historyCards.clear();
-  m_cardsByOperation.clear();
-  m_expandedOrder.clear();
   while (auto *item = m_cardLayout->takeAt(0)) {
     if (item->widget() && item->widget() != m_historyNote &&
         item->widget() != m_historyOlder && item->widget() != m_historyNewer)
@@ -843,20 +850,13 @@ void AiAssistDock::addToolCard(const ChatToolCall &call,
                                const QString &statusText) {
   // 同 id 帧重放（脚本端点/断线重试）不叠卡：旧卡先撤，hash 顶替。
   if (m_toolCards.contains(call.id)) {
-    AiConversationCard *old = m_toolCards.value(call.id);
-    m_cardLayout->removeWidget(old);
-    old->deleteLater();
-    m_toolCards.remove(call.id);
+    retireCard(m_toolCards.take(call.id));
   }
   // W8：实时卡同样受活跃卡上限约束（超出按 QHash 任意序淘汰一张——有界性
   // 是目标而非次序；被撤卡的迟到 toolFinished 因 hash 已移除而安全丢弃，
   // 消息与历史回放不受影响）。
   while (m_toolCards.size() >= kCardWidgetCap) {
-    const QString oldest = m_toolCards.constBegin().key();
-    AiConversationCard *old = m_toolCards.value(oldest);
-    m_cardLayout->removeWidget(old);
-    old->deleteLater();
-    m_toolCards.remove(oldest);
+    retireCard(m_toolCards.take(m_toolCards.constBegin().key()));
   }
   auto *card = new AiConversationCard(call.name, call.id, statusText, m_cards);
   // 实时卡归属：当前回合（hostTurnId 是宿主持久归属快照）。
@@ -898,8 +898,7 @@ void AiAssistDock::showToolResult(const ChatToolCall &call, bool ok,
   AiConversationCard *card = it.value();
   const auto facts = paleo::chat::projectToolResult(call.name, resultJson, true, ok);
   card->setResult(facts, /*lazyBody=*/false); // 实时结果即展开
-  if (!facts.operationId.isEmpty())
-    m_cardsByOperation[facts.operationId].append(card);
+  syncCardOperationControls(card);
 }
 
 void AiAssistDock::copyTranscript() {

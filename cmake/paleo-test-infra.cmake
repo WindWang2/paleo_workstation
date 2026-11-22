@@ -60,6 +60,8 @@ function(paleo_test_sandbox name)
     # 已按用例隔离，Windows 上 XDG 沙箱也不生效（QSettings 走注册表）。
     string(APPEND _env ";TEMP=${_home}/tmp;TMP=${_home}/tmp")
   else()
+    # SBM on Windows defaults to LOCALAPPDATA and ignores XDG_CACHE_HOME.
+    string(APPEND _env ";SEISMIC_INDEX_CACHE_DIR=${_home}/cache/segy-index")
     # 私有注册表 hive（见上方 paleo_test_link_sandbox）：每次运行先删再挂载。
     string(APPEND _env ";PALEO_TEST_REGISTRY_HIVE=${_home}/registry.hiv")
     # #872：QgsApplication::init() 在 Windows 上经 Known Folders 解析用户

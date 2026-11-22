@@ -46,6 +46,7 @@ private slots:
   void schemaDeclarationsExposeRuntimeBounds() {
     const auto horizon = aiToolSpec(QStringLiteral("paleo.horizon_tracking_suggestion"));
     const auto seeds = horizon.toJsonSchema().value("properties").toObject().value("seeds").toObject();
+    QCOMPARE(seeds.value("minItems").toInt(), 1);
     QCOMPARE(seeds.value("maxItems").toInt(), 64);
     const auto items = seeds.value("items").toObject();
     QCOMPARE(items.value("required").toArray(),
@@ -56,6 +57,7 @@ private slots:
                QStringLiteral("integer"));
     QCOMPARE(properties.value("sample_index").toObject().value("minimum").toInt(), 0);
     const auto horizonParams = horizon.toJsonSchema().value("properties").toObject();
+    QCOMPARE(horizonParams.value("window_samples").toObject().value("minimum").toInt(), 2);
     QCOMPARE(horizonParams.value("window_samples").toObject().value("maximum").toInt(), 4096);
     QCOMPARE(horizonParams.value("radius").toObject().value("maximum").toInt(), 256);
 
@@ -80,21 +82,24 @@ private slots:
 
     const auto query = aiToolSpec(QStringLiteral("paleo.query_project"));
     const auto allOf = query.toJsonSchema().value("allOf").toArray();
-    bool faciesInputsCondition = false, localModelsCondition = false;
+    QJsonObject topicConstraints;
     for (const auto &entry : allOf) {
       const auto condition = entry.toObject().value("if").toObject()
                                  .value("properties").toObject().value("topic").toObject();
-      if (condition.value("const").toString() == QLatin1String("well_facies_inputs"))
-        faciesInputsCondition = entry.toObject().value("then").toObject()
-                                    .value("required").toArray().contains(QLatin1String("well_ref"));
-      if (condition.value("const").toString() == QLatin1String("local_models")) {
-        const auto then = entry.toObject().value("then").toObject().value("properties").toObject();
-        localModelsCondition = then.value("page_size").toObject().value("maximum").toInt() == 64 &&
-                               then.value("max_bytes").toObject().value("minimum").toInt() == 1024;
-      }
+      topicConstraints.insert(condition.value("const").toString(), entry.toObject().value("then"));
     }
-    QVERIFY(faciesInputsCondition);
-    QVERIFY(localModelsCondition);
+    QCOMPARE(topicConstraints.size(), 13);
+    QVERIFY(topicConstraints.value("well_facies_inputs").toObject().value("required").toArray()
+                .contains(QLatin1String("well_ref")));
+    const auto localModels = topicConstraints.value("local_models").toObject().value("properties").toObject();
+    QCOMPARE(localModels.value("page_size").toObject().value("maximum").toInt(), 64);
+    QCOMPARE(localModels.value("max_bytes").toObject().value("minimum").toInt(), 1024);
+    QCOMPARE(topicConstraints.value("summary").toObject().value("properties").toObject().value("page_size"),
+             QJsonValue(false));
+    QCOMPARE(topicConstraints.value("wells").toObject().value("properties").toObject().value("version_id"),
+             QJsonValue(false));
+    QCOMPARE(topicConstraints.value("seismic_trace_descriptor").toObject().value("properties").toObject().value("table_id"),
+             QJsonValue(false));
 
     // 声明展开仍在工具声明预算内（远小于 16 KiB 实参预算的量级）。
     for (const auto &spec : builtinAiToolSpecs()) {
@@ -409,7 +414,7 @@ private slots:
     QVERIFY(done.first()[2].toString().contains(QStringLiteral("seeds.0.inline")));
     QCOMPARE(providerCalls, 0);
     QCOMPARE(fetchCalls, 0);
-    // 缺坐标：运行期 PW-013 边界检查保留（schema required 之外的第二道）。
+    // Validate seed coordinates and count before consulting a tracking provider.
     const QJsonObject missingXline{{"inline", 10}, {"sample_index", 5}};
     runner.run({"seed-missing", "paleo.horizon_tracking_suggestion",
                 QString::fromUtf8(QJsonDocument(QJsonObject{{"model", QStringLiteral("m")},
@@ -418,9 +423,11 @@ private slots:
                                       .toJson(QJsonDocument::Compact))});
     QTRY_COMPARE(done.size(), 2);
     QVERIFY(!done.last()[1].toBool());
-    QCOMPARE(providerCalls, 0); // runHorizon 在取数前拒绝
+    const auto missingPayload = QJsonDocument::fromJson(done.last()[2].toString().toUtf8()).object();
+    QCOMPARE(missingPayload.value("code").toString(), QStringLiteral("missing_required_field"));
+    QCOMPARE(missingPayload.value("field").toString(), QStringLiteral("seeds.0.xline"));
+    QCOMPARE(providerCalls, 0);
     QCOMPARE(fetchCalls, 0);
-    // 种子数超限：运行期预算检查保留。
     QJsonArray many;
     for (int i = 0; i < 65; ++i)
       many.append(QJsonObject{{"inline", i}, {"xline", i}, {"sample_index", 1}});

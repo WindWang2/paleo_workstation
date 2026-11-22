@@ -64,9 +64,6 @@ int intArg(const QJsonObject &args, const char *key, int fallback) {
   return fallback;
 }
 
-// PW-013：层位追踪参数上限已单源到 ai/horizonsuggest.h（G3：schema 与
-// 运行期共用），这里直接使用同名常量。
-
 } // namespace
 
 AiChatToolRunner::AiChatToolRunner(QObject *parent)
@@ -95,6 +92,7 @@ void AiChatToolRunner::setFaciesConfig(const WellFaciesConfig &config) {
 }
 
 void AiChatToolRunner::setContext(const Context &context) {
+  ++m_bindingRevision;
   const bool replaceSourceResolver=bool(context.sourceResolver)||bool(m_context.sourceResolver);
   // G3/W6：provider/取数回调的接入或撤除（null↔非空）也算绑定变化——
   // 旧判定只看 catalog/文档身份，撤掉 trackingInput/gridFetch 后世代不
@@ -113,21 +111,21 @@ void AiChatToolRunner::setContext(const Context &context) {
       context.pythonSandbox!=m_context.pythonSandbox;
   const bool changed = context.catalog != m_context.catalog || context.documentId != m_context.documentId ||
       context.projectDir != m_context.projectDir || context.documentEpoch != m_context.documentEpoch ||
-      bool(context.sourceResolver)!=bool(m_context.sourceResolver) ||
+      context.horizon != m_context.horizon ||
       context.capabilityHost != m_context.capabilityHost || context.requireCapabilityHost != m_context.requireCapabilityHost ||
       providerBindingChanged;
-  if (changed)
-    invalidateContext();
   m_context = context;
-  if (changed) rebindQueryScope();
-  else if(replaceSourceResolver)m_query->setSourceResolver(m_context.sourceResolver);
+  // cancelAsked() can synchronously replace this binding again.
+  if (changed) invalidateContext();
+  else if (replaceSourceResolver) m_query->setSourceResolver(m_context.sourceResolver);
 }
 
 void AiChatToolRunner::setTaskService(PaleoTaskService *service) {
   if (m_taskService == service)
     return;
-  invalidateContext();
   m_taskService = service;
+  ++m_bindingRevision;
+  invalidateContext();
 }
 
 void AiChatToolRunner::invalidateContext() {
@@ -249,6 +247,11 @@ void AiChatToolRunner::startNext() {
     if (!m_context.capabilityHost) code = QStringLiteral("host_unavailable");
     else {
       const auto live = m_context.capabilityHost->context();
+      if (!guard || generation != m_generation) return;
+      if (!activeContextIsCurrent()) {
+        finishActive(false, QJsonObject{{"code", "stale_session"}});
+        return;
+      }
       auto expected = live;
       expected.documentId = m_context.documentId; expected.epoch = m_context.documentEpoch;
       if (live.documentId != expected.documentId || live.epoch != expected.epoch)
@@ -289,8 +292,13 @@ void AiChatToolRunner::startNext() {
       return;
     }
   }
-  const auto runtime=readiness(m_activeCall.name,args);
-  if(!runtime.ready) {finishActive(false,QJsonObject{{"code",runtime.code}});return;}
+  const auto runtime = readinessForSpec(dispatch.spec, args, false);
+  if (!guard || generation != m_generation) return;
+  if (!runtime.ready) {finishActive(false,QJsonObject{{"code",runtime.code}});return;}
+  if (!activeContextIsCurrent()) {
+    finishActive(false, QJsonObject{{"code", "stale_session"}});
+    return;
+  }
   if (m_activeCall.name == QStringLiteral("paleo.read_result")) {
     refreshResultScope();
     const auto result = m_results.read(args);
@@ -489,73 +497,67 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
                  errorPayload(tr("层位建议上下文未绑定（须提供道窗取数）")));
     return;
   }
-  const QString model = args.value(QStringLiteral("model")).toString();
-  const int windowSamples = intArg(args, "window_samples", 0);
-  const int radius = intArg(args, "radius", 0);
-  const QJsonArray seeds = args.value(QStringLiteral("seeds")).toArray();
-  // PW-013：radius/种子数/种子坐标设上限，超限拒绝（不进入 O(seeds·r²) 扩张）。
-  if (radius > kMaxSuggestRadius || windowSamples > kMaxSuggestWindow ||
-      seeds.size() > kMaxSuggestSeeds) {
-    finishActive(false,
-                 errorPayload(tr("层位建议参数超限：radius ≤%1、窗长 ≤%2、种子数 ≤%3")
-                                .arg(kMaxSuggestRadius).arg(kMaxSuggestWindow)
-                                .arg(kMaxSuggestSeeds)));
-    return;
-  }
+  const QString model = args.value("model").toString();
+  const int windowSamples = args.value("window_samples").toInt();
+  const int radius = args.value("radius").toInt();
   QVector<TrackingSeed> parsed;
-  for (const QJsonValue &value : seeds) {
-    const QJsonObject seed = value.toObject();
-    TrackingSeed s;
-    s.inlineNo = intArg(seed, "inline", kMaxLineNumberAbs + 1);
-    s.xlineNo = intArg(seed, "xline", kMaxLineNumberAbs + 1);
-    s.sampleIndex = intArg(seed, "sample_index", -1);
-    if (s.inlineNo < -kMaxLineNumberAbs || s.inlineNo > kMaxLineNumberAbs ||
-        s.xlineNo < -kMaxLineNumberAbs || s.xlineNo > kMaxLineNumberAbs || s.sampleIndex < 0 ||
-        s.sampleIndex > kMaxLineNumberAbs) {
-      finishActive(false, errorPayload(tr("种子点坐标缺失或越界（须为整数线号与非负样点号）")));
-      return;
-    }
-    parsed.append(s);
-  }
-  if (model.isEmpty() || windowSamples <= 0 || radius <= 0 || parsed.isEmpty()) {
-    finishActive(false,
-                 errorPayload(tr("模型名、正数窗长/半径与至少一个种子点为必填")));
-    return;
-  }
-  const qint64 diameter = qint64(radius) * 2 + 1;
-  const qint64 expanded = qint64(seeds.size()) * diameter * diameter;
-  if (expanded > 20000 || expanded * windowSamples > 8'000'000) {
-    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("tracking_expansion_budget")}});
-    return;
+  for (const auto &value : args.value("seeds").toArray()) {
+    const auto seed = value.toObject();
+    parsed.append(TrackingSeed{seed.value("inline").toInt(), seed.value("xline").toInt(),
+                               seed.value("sample_index").toInt()});
   }
   QString error;
   auto cancelled = std::make_shared<std::atomic_bool>(false);
   const int generation = m_generation;
+  const quint64 bindingRevision = m_bindingRevision;
   const QString callId = m_activeCall.id;
-  TrackingInput input; input.fetch = m_context.traceFetch;
-  if (m_context.trackingInput && !m_context.trackingInput(
-      [cancelled] { return cancelled->load(); }, &input, &error)) {
-    finishActive(false, QJsonObject{{QStringLiteral("code"), QStringLiteral("tracking_context_unavailable")},
-                                  {QStringLiteral("error"), error}});
+  const QString horizon = m_context.horizon;
+  const QPointer<AiChatToolRunner> guard(this);
+  const QPointer<AiAssistWorkflow> workflow(m_workflow);
+  const auto invocationCurrent = [&] {
+    return guard && generation == m_generation && m_active && m_activeCall.id == callId;
+  };
+  const auto bindingCurrent = [&] {
+    return workflow && workflow == m_workflow && bindingRevision == m_bindingRevision && activeContextIsCurrent();
+  };
+  const auto provider = m_context.trackingInput;
+  TrackingInput input;
+  input.fetch = m_context.traceFetch;
+  const bool available = !provider || provider([cancelled] { return cancelled->load(); }, &input, &error);
+  if (!invocationCurrent()) return;
+  if (!bindingCurrent()) {
+    finishActive(false, QJsonObject{{"code", "context_rebound"}});
     return;
   }
-  if (generation != m_generation || !m_active || m_activeCall.id != callId) return;
-  PaleoTask *task = m_workflow->startSuggestion(
-    m_context.horizon, model, parsed, windowSamples, radius,
-    input.fetch, &error, input.ownerValidation);
+  if (!available) {
+    finishActive(false, QJsonObject{{"code", "tracking_context_unavailable"}, {"error", error}});
+    return;
+  }
+  const QPointer<PaleoTask> task = workflow->startSuggestion(
+    horizon, model, parsed, windowSamples, radius, input.fetch, &error, input.ownerValidation);
+  if (!invocationCurrent()) {
+    if (task) task->requestInterruption();
+    return;
+  }
+  if (!bindingCurrent()) {
+    finishActive(false, QJsonObject{{"code", "context_rebound"}});
+    if (task) task->requestInterruption();
+    return;
+  }
   if (!task) {
     finishActive(false, errorPayload(error));
     return;
   }
-  connect(task, &PaleoTask::cancelAsked, task, [cancelled] { cancelled->store(true); });
+  connect(task.data(), &PaleoTask::cancelAsked, task.data(), [cancelled] { cancelled->store(true); });
   if (task->cancelRequested()) cancelled->store(true);
-  if (generation != m_generation || !m_active || m_activeCall.id != callId || !activeContextIsCurrent()) {
-    task->requestCancel(); return;
-  }
   m_activeTask = task;
-  connect(task, &PaleoTask::finished, this, [this, generation, callId, identity = input.identity]() {
+  connect(task.data(), &PaleoTask::finished, this, [this, generation, callId, workflow, horizon, identity = input.identity]() {
     if (generation != m_generation || !m_active || m_activeCall.id != callId)
       return;
+    if (!activeContextIsCurrent() || !workflow) {
+      finishActive(false, QJsonObject{{"code", "stale_session"}});
+      return;
+    }
     const PaleoTask::State state = m_activeTask->state();
     const QString inputError = m_activeTask->property("paleoTrackingInputError").toString();
     if (!inputError.isEmpty()) {
@@ -564,17 +566,17 @@ void AiChatToolRunner::runHorizon(const ChatToolCall &call,
     if (state == PaleoTask::State::Succeeded) {
       // 建议已入裁决队列（startSuggestion 收尾）：数量从队列侧取——
       // 非种子未裁决 + 已接受（含种子锚点）= 总数。
-      const int pending = m_workflow->pendingCount(m_context.horizon);
-      const int accepted = m_workflow->acceptedCount(m_context.horizon);
+      const int pending = workflow->pendingCount(horizon);
+      const int accepted = workflow->acceptedCount(horizon);
       int seeds = 0;
       for (const TrackingSuggestion &s :
-           m_workflow->acceptedSuggestions(m_context.horizon))
+           workflow->acceptedSuggestions(horizon))
         if (s.isSeed)
           ++seeds;
       QJsonObject payload;
       payload.insert(QStringLiteral("tool"),
                      QStringLiteral("paleo.horizon_tracking_suggestion"));
-      payload.insert(QStringLiteral("horizon"), m_context.horizon);
+      payload.insert(QStringLiteral("horizon"), horizon);
       payload.insert(QStringLiteral("suggestions_total"), pending + accepted);
       payload.insert(QStringLiteral("pending_review"), pending);
       payload.insert(QStringLiteral("input"), identity);

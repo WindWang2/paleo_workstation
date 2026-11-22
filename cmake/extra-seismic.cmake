@@ -14,11 +14,11 @@ target_compile_definitions(tst_seismic_engine PRIVATE
 add_paleo_test(tst_seismic_perf LIBS paleo_sbm)
 # RUN_SERIAL：切片/索引墙钟基线在并行负载下偶发超限（tst_perf 先例）。
 set_tests_properties(tst_seismic_perf PROPERTIES RUN_SERIAL TRUE)
-find_program(PALEO_PERF_PYTHON3 NAMES python3 python)
+# 沿用源码闸门的解释器。Windows 的 OSGeo4W bin/python3.exe 单独启动找不到标准库。
 target_compile_definitions(tst_seismic_perf PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
-  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+  PALEO_PYTHON3="${PALEO_PYTHON3}")
 
 # P5 Phase 0 基线实测：索引冷/热、切片冷/热、双通道转码、体素、离屏 3D
 # 帧率、峰值 RSS（输出 = docs/seismic/BASELINE.md 数据源；共享夹具目录）。
@@ -28,7 +28,7 @@ set_tests_properties(tst_seismic_baseline PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_seismic_baseline PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
-  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+  PALEO_PYTHON3="${PALEO_PYTHON3}")
 
 # P5 Phase 1 转码链路：分阶段进度/断点续跑/并发写/质量报告/互斥/自适应 LOD
 add_paleo_test(tst_seismic_transcode LIBS paleo_services)
@@ -83,7 +83,7 @@ set_tests_properties(tst_seismic_budgets PROPERTIES RUN_SERIAL TRUE)
 target_compile_definitions(tst_seismic_budgets PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
-  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+  PALEO_PYTHON3="${PALEO_PYTHON3}")
 
 # goal/seismic-attributes — 属性任务编排：几何/解析值/拒绝语义/入池取消/
 # 进度单调/SATR 资产登记 roundtrip（核函数数值面在 tst_seismicattr）
@@ -112,7 +112,7 @@ add_paleo_test(tst_horizontrackperf LIBS paleo_services)
 target_compile_definitions(tst_horizontrackperf PRIVATE
   PALEO_SEGY_FIXTURE_TOOL="${CMAKE_SOURCE_DIR}/tools/make_segy_fixture.py"
   PALEO_SEISMIC_PERF_DIR="${CMAKE_CURRENT_BINARY_DIR}/seismic_perf"
-  PALEO_PYTHON3="${PALEO_PERF_PYTHON3}")
+  PALEO_PYTHON3="${PALEO_PYTHON3}")
 
 # goal/horizon-3d — 体传播服务面：单种子全覆盖/取消无半成品/顶替静默/
 # 空态报因/DERIVED 锚源登记/直接成格留洞/RSS 比率门/传播比率门

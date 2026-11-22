@@ -19,6 +19,14 @@ namespace paleo::capability {
 namespace recovery_detail {
 namespace { QMutex mutex; QHash<QString, std::weak_ptr<ActiveAttempt>> attempts;
 QString key(const QString &root, const QString &id) { return QFileInfo(root).canonicalFilePath() + '/' + id; } }
+OperationLog::Accept lookupDurable(OperationLog &log, const RecoveryHost &host,
+                                  const QString &scope, const QString &request) {
+  auto result = log.lookup(host.context.documentId, scope, request);
+  if (result.code == QLatin1String("found") && result.record.schemaVersion != 2)
+    return {QStringLiteral("legacy_unverifiable"), {}};
+  return result;
+}
+
 std::shared_ptr<ActiveAttempt> acquire(const QString &root, const QString &id) {
   QMutexLocker lock(&mutex); const auto k = key(root,id);
   if (!attempts.value(k).expired()) return {}; auto value=std::make_shared<ActiveAttempt>(); attempts.insert(k,value); return value;
@@ -100,12 +108,15 @@ RecoveryHost CapabilityRecovery::live() {
 }
 OperationLog::Accept CapabilityRecovery::lookup(const QString &scope,const QString &request) {
   const auto h=live(); if(!h.context.open)return {"document_unavailable",{}};
-  OperationLog log(h.operationDir,h.projectDir,h.writeClaim); return log.lookup(h.context.documentId,scope,request);
+  OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
+  return recovery_detail::lookupDurable(log,h,scope,request);
 }
 CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &input) {
   auto plan=input;
-  const auto h=live(); OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  auto prior=log.lookup(h.context.documentId,plan.callerScope,plan.clientRequestId);
+  const auto h=live();
+  if (!h.context.open) return {false, "document_unavailable", {}};
+  OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
+  const auto prior=recovery_detail::lookupDurable(log,h,plan.callerScope,plan.clientRequestId);
   const auto hash=operationDigest(plan.intent);
   if(prior.code==QLatin1String("found")) {
     if(prior.record.requestHash!=hash)return {false,"idempotency_conflict",prior.record};

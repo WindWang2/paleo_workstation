@@ -105,14 +105,8 @@ bool transitionAllowed(const OperationLog::Record &before, const OperationLog::R
 } // namespace
 
 bool OperationLog::ownsWrites() const {
-  if (!m_claim || !m_claim->isHeldFor(m_projectDir)) return false;
-  const auto root = QFileInfo(m_projectDir).canonicalFilePath();
-  const auto expected = QDir(root).filePath(QStringLiteral(".paleo/capability-ops"));
-  const auto actual = QFileInfo(m_path).absolutePath();
-  if (QDir::cleanPath(actual) != QDir::cleanPath(expected) || QFileInfo(expected).isSymLink() ||
-      QFileInfo(m_path).isSymLink() || QFileInfo(m_cachePath).isSymLink() ||
-      QFileInfo(QDir(root).filePath(QStringLiteral(".paleo"))).isSymLink()) return false;
-  return true;
+  return m_claim && m_claim->isHeldFor(m_projectDir) &&
+      projectPathSafe(m_path) && projectPathSafe(m_cachePath);
 }
 
 OperationLog::Accept OperationLog::lookup(const QString &documentId, const QString &callerScope,
@@ -142,7 +136,8 @@ OperationLog::Accept OperationLog::acceptDurable(const Record &seed) {
   if(CatalogPurgeLease::isHeld(catalogPath))return {QStringLiteral("catalog_purge_in_progress"),{}};
   if (!validSeed(seed)) return {QStringLiteral("invalid_operation_intent"), {}};
   QMutexLocker lock(&operation_detail::mutexFor(m_path));
-  if(!ownsWrites() || CatalogPurgeLease::isHeld(catalogPath))return {QStringLiteral("catalog_purge_in_progress"),{}};
+  if (!ownsWrites()) return {QStringLiteral("project_write_ownership_required"), {}};
+  if (CatalogPurgeLease::isHeld(catalogPath)) return {QStringLiteral("catalog_purge_in_progress"), {}};
   if (!loadOperations()) return {QStringLiteral("operation_log_unavailable"), {}};
   const auto identity = operation_detail::key(seed.documentId, seed.callerScope, seed.clientRequestId);
   if (m_byKey.contains(identity)) {
@@ -153,7 +148,7 @@ OperationLog::Accept OperationLog::acceptDurable(const Record &seed) {
     return {QStringLiteral("operation_record_quarantined"), {}};
   if (m_byKey.size() >= 4096) return {QStringLiteral("operation_capacity_exceeded"), {}};
   // 邻居被隔离即阻断新根：写入会把隔离行从磁盘上抹掉（无损纪律）。
-  if (!m_quarantinedIds.isEmpty() || !m_quarantinedKeys.isEmpty())
+  if (m_quarantinedRows > 0)
     return {QStringLiteral("operation_log_quarantined"), {}};
   auto record = seed;
   record.schemaVersion = 2; record.key = identity;
@@ -187,7 +182,7 @@ QString OperationLog::saveDurable(const Record &input, quint64 expectedRevision,
   if (current) *current = before;
   // 目标记录在、邻居被隔离：CAS 事实仍可读取（current 已回传磁盘现状），
   // 但任何写入都会抹掉隔离行——无损纪律优先于状态推进。
-  if (!m_quarantinedIds.isEmpty() || !m_quarantinedKeys.isEmpty())
+  if (m_quarantinedRows > 0)
     return QStringLiteral("operation_log_quarantined");
   if (before.schemaVersion != 2) return QStringLiteral("legacy_unverifiable");
   if (before.stateRevision != expectedRevision || before.ownerAttempt != expectedAttempt)

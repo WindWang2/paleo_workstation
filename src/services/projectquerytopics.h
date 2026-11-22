@@ -19,14 +19,11 @@
 
 namespace paleo::query {
 
-// 单个主题的字段契约。budget 字段为该主题 page_size/max_bytes 的
-// 允许域与缺省（与运行期检查同值，见 aichattoolrunner_models.cpp、
-// projectquerycapability.cpp 的 integer() 检查）。
+// 单个主题的字段契约。声明、校验和执行共用 page_size/max_bytes 的允许域与缺省值。
 struct QueryTopicRule {
   QString topic;
   QStringList required;   // 该主题必填（缺 → missing_required_field）
   QStringList allowed;    // 该主题允许的全部字段（含 topic/分页三件）
-  bool paginated = true;  // cursor/page_size 是否有意义（false 时两者都拒）
   int pageSizeMin = 1, pageSizeMax = 256, pageSizeDefault = 50;
   int maxBytesMin = 2048, maxBytesMax = 65536, maxBytesDefault = 8192;
 };

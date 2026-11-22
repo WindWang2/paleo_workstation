@@ -147,6 +147,7 @@ private:
                         QString *error);
 
   QByteArray m_pending;       // 未构成完整行的字节（可能含半个 CRLF/BOM 前缀）
+  qsizetype m_scanOffset = 0; // Bytes in the pending line already checked for a line ending.
   bool m_bomChecked = false;  // 流首 BOM 判定是否已定（需 ≥1 或 3 个字节）
   bool m_terminal = false;    // [DONE]/markTerminal 后：输入与产出一并停止
   QString m_data;             // 当前事件累积的 data 载荷（WHATWG：value+'\n'）

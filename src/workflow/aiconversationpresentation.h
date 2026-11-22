@@ -70,8 +70,8 @@ struct HistoryToolCall {
   QString toolCallId, toolName, argumentsJson;
   QString turnId;                 // 回合 user 消息的 hostTurnId（空 = 旧记录未记）
   bool callPaired = false;        // assistant.toolCalls 里找得到该 id
-  bool ambiguousCallId = false;   // 同 id 被多个 assistant 帧声明
-  bool bindingKnown = false;      // hostToolBindings 命中 (turnId, callId)
+  bool ambiguousCallId = false;   // 同回合内重复声明或结果
+  bool bindingKnown = false;      // 唯一回合及调用通过宿主绑定校验
   QString bindingDocumentId;
   bool hasResult = false;
   ToolResultFacts facts;          // role=Tool 消息内容投影（hasResult=false 时为空）

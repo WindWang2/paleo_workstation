@@ -3,6 +3,8 @@
 #include "domain/seismic/timedepthmodel.h"
 #include "linkage/seismicmaplink.h"
 #include "qgis/mappingartifactwriter.h"
+#include "services/paleotaskservice.h"
+#include "services/seismictaskservice.h"
 #include "ui/seismicsection/sectionsetupdialog.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "workflow/sectionworkbench.h"
@@ -28,7 +30,6 @@
 #include <qgsvectordataprovider.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayerlabeling.h>
-#include "services/seismictaskservice.h"
 
 class TestSectionsAlignment : public QObject {
   Q_OBJECT
@@ -218,7 +219,10 @@ private slots:
     auto volume = std::make_shared<seismic::SgyVolume>();
     std::string error;
     QVERIFY2(volume->Load(path.toStdString(), error), error.c_str());
+    PaleoTaskService tasks;
+    seismic::SeismicTaskService service(&tasks);
     seismic::SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
     dock.resize(1100, 500);
     dock.show();
     dock.setTimeOriginMs(999);
@@ -298,6 +302,7 @@ private slots:
     // Destruction before extraction completion must not deliver into a deleted
     // widget.
     auto *closing = new seismic::SeismicSectionDockWidget;
+    closing->setTaskService(&service);
     closing->extractSectionFromVolumeAsync(volume, {{1000, 2000}, {1003, 2003}},
                                            "closing", {{0, 0}, {300, 600}});
     delete closing;

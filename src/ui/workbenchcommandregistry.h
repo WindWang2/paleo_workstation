@@ -29,6 +29,7 @@ inline const QSet<QString> &knownActions() {
 inline const QSet<QString> &pageLocalActions() {
   static const QSet<QString> actions = {
       QStringLiteral("historyOlder"), QStringLiteral("historyNewer"),
+      QStringLiteral("spatialHistoryOlder"), QStringLiteral("spatialHistoryNewer"),
       QStringLiteral("evidenceGraph"), QStringLiteral("locateEvidence"),
       QStringLiteral("useEvidenceSource"),
   };

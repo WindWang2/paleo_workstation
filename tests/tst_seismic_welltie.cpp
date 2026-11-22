@@ -506,7 +506,10 @@ private slots:
     std::string err;
     QVERIFY(volume->Load(sgy.toStdString(), err));
 
+    PaleoTaskService tasks;
+    SeismicTaskService service(&tasks);
     SeismicSectionDockWidget dock;
+    dock.setTaskService(&service);
     dock.resize(900, 650);
     QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.extractSectionFromVolumeAsync(

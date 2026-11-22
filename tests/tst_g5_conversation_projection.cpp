@@ -2,6 +2,7 @@
 #include <QtTest>
 #include "../src/services/toolresultprotocol.h"
 #include "../src/workflow/aiconversationpresentation.h"
+#include "../src/workflow/chatinvocationbinding.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -63,6 +64,8 @@ private slots:
   void historyLegacyTurnAndMissingBindingStayUnverified();
   void historyAmbiguousCallIdFlagged();
   void historyUnansweredCallListedWithoutResult();
+  void historyCallIdsAreLocalToTheTurn();
+  void historyRefusesMismatchedBindingAndFutureCall();
   void utf8BoundariesSplitAcrossPages();
 };
 
@@ -212,13 +215,8 @@ void TestG5ConversationProjection::historyPairingAndAttribution() {
                    << assistantWithCall(QStringLiteral("call-1"))
                    << toolMessage(QStringLiteral("call-1"),
                                   envelopeJson(QJsonObject{{"topic", "summary"}}, true));
-  session.hostToolBindings.append(QJsonObject{
-    {"admittedSha256", QString(64, '0')},
-    {"callId", QStringLiteral("call-1")},
-    {"clientRequestId", QStringLiteral("pi-x")},
-    {"documentId", QStringLiteral("doc-A")},
-    {"toolName", QStringLiteral("paleo.query_project")},
-    {"turnId", QStringLiteral("turn-1")}});
+  auto &calls = session.messages[1].toolCalls;
+  QVERIFY(paleo::chat::bindInvocations(session, "turn-1", "doc-A", calls).isEmpty());
   const auto entries = paleo::chat::projectSessionTools(session);
   QCOMPARE(entries.size(), 1);
   const auto &entry = entries.first();
@@ -272,6 +270,44 @@ void TestG5ConversationProjection::historyUnansweredCallListedWithoutResult() {
   QCOMPARE(entries.first().turnId, QStringLiteral("turn-3"));
 }
 
+void TestG5ConversationProjection::historyCallIdsAreLocalToTheTurn() {
+  ChatSession session;
+  session.id = QStringLiteral("reused-call");
+  session.messages << userMessage("one") << assistantWithCall("id", "paleo.query_project")
+                   << toolMessage("id", "{}") << userMessage("two")
+                   << assistantWithCall("id", "paleo.operation_get");
+  QVERIFY(paleo::chat::bindInvocations(session, "one", "doc-A",
+                                      session.messages[1].toolCalls).isEmpty());
+  QVERIFY(paleo::chat::bindInvocations(session, "two", "doc-B",
+                                      session.messages[4].toolCalls).isEmpty());
+
+  const auto entries = paleo::chat::projectSessionTools(session);
+  QCOMPARE(entries.size(), 2);
+  QCOMPARE(entries[0].toolName, QStringLiteral("paleo.query_project"));
+  QCOMPARE(entries[0].bindingDocumentId, QStringLiteral("doc-A"));
+  QVERIFY(entries[0].bindingKnown && !entries[0].ambiguousCallId);
+  QCOMPARE(entries[1].toolName, QStringLiteral("paleo.operation_get"));
+  QCOMPARE(entries[1].bindingDocumentId, QStringLiteral("doc-B"));
+  QVERIFY(entries[1].bindingKnown && !entries[1].hasResult);
+}
+
+void TestG5ConversationProjection::historyRefusesMismatchedBindingAndFutureCall() {
+  ChatSession session;
+  session.id = QStringLiteral("changed-call");
+  session.messages << userMessage("one") << toolMessage("early", "{}")
+                   << assistantWithCall("id") << toolMessage("id", "{}")
+                   << assistantWithCall("early");
+  QVERIFY(paleo::chat::bindInvocations(session, "one", "doc-A",
+                                      session.messages[2].toolCalls).isEmpty());
+  session.messages[2].toolCalls[0].argumentsJson = QStringLiteral(R"({"topic":"assets"})");
+
+  const auto entries = paleo::chat::projectSessionTools(session);
+  QCOMPARE(entries.size(), 3);
+  QVERIFY(!entries[0].callPaired && !entries[0].bindingKnown);
+  QVERIFY(entries[1].callPaired && !entries[1].bindingKnown);
+  QVERIFY(entries[2].callPaired && !entries[2].hasResult);
+}
+
 void TestG5ConversationProjection::utf8BoundariesSplitAcrossPages() {
   // 三字节「砂」(E7 A0 82) 跨页：前两字节必须留给下一页拼接。
   const QByteArray sand("\xe7\xa0\x82");
@@ -289,6 +325,13 @@ void TestG5ConversationProjection::utf8BoundariesSplitAcrossPages() {
   // 非法序列：替换字符 + invalid 标记，不崩。
   const auto broken = paleo::chat::decodeUtf8Display(QByteArray("\xff\xfe"));
   QVERIFY(broken.invalid);
+  const auto stray = paleo::chat::decodeUtf8Display(QByteArray("A\x80"));
+  QCOMPARE(stray.trailingBytes, 0);
+  QVERIFY(stray.invalid);
+  const auto overlong = paleo::chat::decodeUtf8Display(QByteArray("\xe0\x80"));
+  QCOMPARE(overlong.trailingBytes, 0);
+  QVERIFY(overlong.invalid);
+  QVERIFY(!paleo::chat::decodeUtf8Display(QByteArray("\xef\xbf\xbd")).invalid);
   // 末页（holdTail=false）：残缺尾序列不再切尾吞字节，按替换呈现并置 invalid。
   const auto tail = paleo::chat::decodeUtf8Display(sand.left(2), /*holdTail=*/false);
   QCOMPARE(tail.trailingBytes, 0);

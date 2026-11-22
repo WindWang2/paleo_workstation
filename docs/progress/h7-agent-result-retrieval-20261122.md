@@ -83,9 +83,11 @@ QT_PLUGIN_PATH=... QT_QPA_PLATFORM=offscreen ./build/tst_h7_resultwire
 
 关键回归（同一构建、同一运行环境）：`tst_chatresults` 16/16、
 `tst_aichatprojectquery` 16/16、`tst_g2_turncheckpoint` 12/12（含受控 Pi 链、
-保存失败停队列、取消单次结算）。未运行：`tst_aichattoolloop`（需 ORT 执行面
-整链）、`tst_pichatbridge`/`tst_g2_piterminal` 的真实 Pi 进程项（本机无
-`PALEO_TEST_PI_NATIVE_ROOT`）；H7 未改 Pi bridge/ORT 执行面。
+保存失败停队列、取消单次结算）、`tst_pichatbridge` 29/29、
+`tst_wellfaciesagent` 20/20。未运行：`tst_aichattoolloop`（需 ORT 执行面
+整链）；`tst_pichatbridge`/`tst_g2_piterminal` 的真实 Pi 进程项需要
+`PALEO_TEST_PI_NATIVE_ROOT`，本机按既有跳过语义通过（受控 peer 链已覆盖同一
+生产桥路径）。H7 未改 Pi bridge/ORT 执行面。
 
 Source gates（本地，全部通过）：`check_layering.py --strict`、`check_i18n.py`、
 `check_ts_stale.py`（0 missing）、`check_file_budget.py --strict`（新增 0）、

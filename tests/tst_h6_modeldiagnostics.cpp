@@ -255,6 +255,8 @@ private slots:
   void cancelDuringFirstRequestZeroFollowUp();
   void lateResultDroppedAfterNewCandidate();
   void redirectNotFollowedSecondEndpointZeroAuth();
+  void destroyDuringProbeSafeShutdown();
+  void catalogAllFilteredIsEmptyWithReason();
 };
 
 void TestH6ModelDiagnostics::endpointIdentityAndKeySourceRules() {
@@ -762,6 +764,41 @@ void TestH6ModelDiagnostics::redirectNotFollowedSecondEndpointZeroAuth() {
   QVERIFY(diag.report().catalog.detail.contains(QStringLiteral("未跟随")));
   QCOMPARE(firstServer.requestCount(), 1);
   QCOMPARE(secondServer.requestCount(), 0); // 不跟随、不重发凭据
+}
+
+void TestH6ModelDiagnostics::destroyDuringProbeSafeShutdown() {
+  // 关窗/销毁打断在途探测：析构安全终止（abort 在途请求），之后零新请求、
+  // 零崩溃（生命周期由 QPointer/世代号纪律保证，与 G1 同款）。
+  ScriptServer server;
+  QVERIFY(server.start([](const ScriptServer::Request &) {
+    ScriptServer::Response hold;
+    hold.hold = true;
+    return hold;
+  }));
+  auto *diag = new LlmConnectionDiagnostics;
+  diag->runAction(LlmDiagnosticsAction::Text, candidateFor(server.endpoint()));
+  spinUntil([&] { return diag->busy() && server.requestCount() >= 1; });
+  delete diag; // 模拟对话框关闭：owner 析构
+  QTest::qWait(150);
+  QCOMPARE(server.requestCount(), 1); // 零新请求（无重试/无续发）
+}
+
+void TestH6ModelDiagnostics::catalogAllFilteredIsEmptyWithReason() {
+  // 条目全部形状非法 → Empty 语义 + 原因 detail（不再「通过（0 项）」）。
+  ScriptServer server;
+  QVERIFY(server.start([](const ScriptServer::Request &) {
+    const QJsonObject catalog{
+      {"data", QJsonArray{QJsonObject{{"no_id", 1}},
+                          QJsonObject{{"id", QStringLiteral("   ")}}}}};
+    return ScriptServer::Response{200, "application/json", {},
+                                  {QJsonDocument(catalog).toJson(QJsonDocument::Compact)}};
+  }));
+  LlmConnectionDiagnostics diag;
+  QVERIFY(runAndWait(diag, LlmDiagnosticsAction::Catalog,
+                     candidateFor(server.endpoint())));
+  QCOMPARE(diag.report().catalog.status, LlmDiagnosticStatus::Empty);
+  QVERIFY(diag.report().catalog.detail.contains(QStringLiteral("无可用条目")));
+  QCOMPARE(diag.report().catalog.malformedEntries, 2);
 }
 
 QTEST_MAIN(TestH6ModelDiagnostics)

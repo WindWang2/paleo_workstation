@@ -239,9 +239,10 @@ void LlmConnectionDiagnostics::startTextProbe(
   const LlmDiagnosticCandidate &candidate) {
   m_report.text.kind = LlmProbeObservation::Kind::Text;
   m_report.text.status = LlmDiagnosticStatus::Running;
+  // 计数先于 send（attempt 口径）：send 配置无效会同步收口，事后补计会漏。
+  ++m_report.text.httpRequests;
   m_textClient->setConfig(probeConfig(candidate, /*stream=*/false));
   m_textClient->send({syntheticUserMessage()});
-  ++m_report.text.httpRequests;
 }
 
 void LlmConnectionDiagnostics::startStreamProbe(
@@ -250,9 +251,9 @@ void LlmConnectionDiagnostics::startStreamProbe(
   m_report.stream.status = LlmDiagnosticStatus::Running;
   // 动作语义：「测试流式请求」恒以 stream=true 探测（与草稿当前开关无关，
   // 草稿值只进报告上下文）；结论仍只到「被当前客户端接受」。
+  ++m_report.stream.httpRequests; // 计数先于 send（attempt 口径）
   m_streamClient->setConfig(probeConfig(candidate, /*stream=*/true));
   m_streamClient->send({syntheticUserMessage()});
-  ++m_report.stream.httpRequests;
 }
 
 void LlmConnectionDiagnostics::startToolProbe(
@@ -262,9 +263,11 @@ void LlmConnectionDiagnostics::startToolProbe(
   m_tool = ToolProbe();
   m_tool.phase = ToolProbe::Phase::AwaitingFrame;
   m_tool.nonce = QUuid::createUuid().toString(QUuid::Id128).left(24);
+  // 计数先于 send（attempt 口径）；工具往返沿用草稿 stream 开关（报告头
+  // draftStream 为该值——分项 detail 在终局再次点明实际模式）。
+  ++m_report.toolRoundTrip.httpRequests;
   m_toolClient->setConfig(probeConfig(candidate, candidate.stream));
   m_toolClient->send({toolPromptMessage()}, {echoToolSpec()});
-  ++m_report.toolRoundTrip.httpRequests;
 }
 
 void LlmConnectionDiagnostics::cancel() {
@@ -502,7 +505,9 @@ void LlmConnectionDiagnostics::onToolFinished(const QString &reason,
     m_report.toolRoundTrip.status = LlmDiagnosticStatus::Passed;
     m_report.toolRoundTrip.followUpTextCompleted = true;
     m_report.toolRoundTrip.detail = QObject::tr(
-      "观察到正确工具帧 → 固定内存结果已按原 call ID 回送 → 后续文本完成");
+      "观察到正确工具帧 → 固定内存结果已按原 call ID 回送 → 后续文本完成"
+      "（模式：stream=%1）")
+      .arg(m_report.draftStream ? QStringLiteral("开") : QStringLiteral("关"));
   }
   completeAction(LlmDiagnosticsAction::Tool);
 }

@@ -78,6 +78,7 @@ LlmDiagnosticsPanel::LlmDiagnosticsPanel(QWidget *parent) : QWidget(parent) {
   auto *listActions = new QVBoxLayout;
   m_useModelButton = new QPushButton(tr("填入草稿"), this);
   m_useModelButton->setObjectName(QStringLiteral("llmDiagUseModel"));
+  m_useModelButton->setEnabled(false); // 有候选才可用（setModelCandidates 开关）
   m_useModelButton->setToolTip(
     tr("把所选模型 ID 填入上方模型字段（只改草稿；应用仍走原「确定」流程）"));
   listActions->addWidget(m_useModelButton);

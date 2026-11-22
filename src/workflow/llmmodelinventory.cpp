@@ -79,8 +79,6 @@ void LlmModelInventory::probe(const LlmDiagnosticCandidate &candidate) {
   m_key = candidate.key;
 
   QNetworkRequest request(modelsUrl(candidate.endpoint));
-  request.setHeader(QNetworkRequest::ContentTypeHeader,
-                    QStringLiteral("application/json"));
   request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                        QNetworkRequest::ManualRedirectPolicy);
   request.setRawHeader("Accept", "application/json");
@@ -254,8 +252,10 @@ LlmModelInventory::parseDocument(const QByteArray &body,
       continue;
     }
     const QJsonValue id = entry.toObject().value(QStringLiteral("id"));
-    if (!id.isString())
+    if (!id.isString()) {
+      ++observation.malformedEntries; // 缺 id 键同样是形状非法（如实计数）
       continue;
+    }
     const QString modelId = id.toString();
     // 有界 + 形状严格：空串/超长/带首尾空白的 ID 都按形状非法计
     // （不截半截当模型名，也不静默 trim 改变服务端给出的精确 ID）。
@@ -271,10 +271,20 @@ LlmModelInventory::parseDocument(const QByteArray &body,
     }
     seen.append(modelId);
   }
-  if (seen.isEmpty() && observation.malformedEntries == 0 &&
-      entries.isEmpty()) {
+  if (seen.isEmpty()) {
+    // 零可用条目统一 Empty 语义（不再呈现「通过（0 项）」）：
+    //   真空目录 / 条目全被凭据回显剔除 / 全部形状非法——detail 说明原因。
     observation.status = LlmDiagnosticStatus::Empty;
-    observation.detail = QObject::tr("目录成功但未列出任何模型（空目录）");
+    if (entries.isEmpty())
+      observation.detail = QObject::tr("目录成功但未列出任何模型（空目录）");
+    else
+      observation.detail =
+        QObject::tr("目录返回 %1 条目但无可用条目（含凭据回显条目：%2；"
+                    "形状非法 %3 条）")
+          .arg(entries.size())
+          .arg(observation.credentialFiltered ? QStringLiteral("是")
+                                             : QStringLiteral("否"),
+             QString::number(observation.malformedEntries));
     return observation;
   }
   observation.status = LlmDiagnosticStatus::Passed;

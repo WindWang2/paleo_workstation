@@ -2,6 +2,7 @@
 // workflow/capabilityops.cpp — 持久 operation 身份、数值缓存与进程内预算。
 #include "capabilitygateway.h"
 #include "capabilityops_internal.h"
+#include "metadata/operationnamespace.h"
 
 #include <algorithm>
 #include <atomic>
@@ -19,6 +20,9 @@
 
 namespace paleo::capability {
 namespace {
+
+using operation_namespace::isCanonicalAttemptId;
+using operation_namespace::isCanonicalOperationId;
 
 QJsonObject recordJson(const OperationLog::Record &record) {
   QJsonObject object;
@@ -50,36 +54,102 @@ QJsonObject recordJson(const OperationLog::Record &record) {
   return object;
 }
 
-OperationLog::Record recordFromJson(const QJsonObject &object) {
+// 严格解析：任何字段形状与本仓写入口（recordJson）不一致即整条记录拒绝
+// （G4-W2：不得用 toObject()/toString() 的默认空值把坏形状伪装成合法空
+// 记录）。拒绝的记录进入隔离区——邻居照常可读，journal 原文件永不改写。
+struct ParsedRecord {
   OperationLog::Record record;
-  record.operationId = object.value(QStringLiteral("operationId")).toString();
-  record.key = object.value(QStringLiteral("key")).toString();
-  record.requestHash = object.value(QStringLiteral("requestHash")).toString();
-  record.execution = object.value(QStringLiteral("execution")).toString();
-  record.commitState = object.value(QStringLiteral("commitState")).toString();
-  record.presentation = object.value(QStringLiteral("presentation")).toString();
-  record.code = object.value(QStringLiteral("code")).toString();
-  record.computeCount = object.value(QStringLiteral("computeCount")).toInt();
-  record.summaryJson = QByteArray::fromBase64(object.value(QStringLiteral("summary")).toString().toLatin1());
-  record.schemaVersion = object.value("schemaVersion").toInt(1);
-  if (record.schemaVersion == 2) {
-    record.documentId = object.value("documentId").toString(); record.callerScope = object.value("callerScope").toString();
-    record.clientRequestId = object.value("clientRequestId").toString(); record.capabilityId = object.value("capabilityId").toString();
-    record.contractVersion = object.value("contractVersion").toInt(); record.implementationVersion = object.value("implementationVersion").toString();
-    record.planHash = object.value("planHash").toString(); record.storeGeneration = object.value("storeGeneration").toString();
-    bool valid = false;
-    record.stateRevision = object.value("stateRevision").toString().toULongLong(&valid);
-    if (!valid) record.schemaVersion = -1;
-    record.ownerAttempt = object.value("ownerAttempt").toString(); record.ownerProcess = object.value("ownerProcess").toString();
-    record.cancelRequested = object.value("cancelRequested").toBool(); record.frozenRequest = object.value("frozenRequest").toObject();
-    record.stagePlan = object.value("stagePlan").toObject(); record.preparedManifest = object.value("preparedManifest").toObject();
-    record.artifactManifest = object.value("artifactManifest").toObject(); record.presentationIntent = object.value("presentationIntent").toObject();
-    record.events = object.value("events").toArray();
-    record.externalRequest = object.value("externalRequest").toObject(); record.remoteJobId = object.value("remoteJobId").toString();
-    record.externalOutcome = object.value("externalOutcome").toString();
-    record.remoteCompletionProof = object.value("remoteCompletionProof").toObject();
+  QString error;
+};
+ParsedRecord recordFromJson(const QJsonValue &value) {
+  ParsedRecord parsed;
+  if (!value.isObject()) {
+    parsed.error = QStringLiteral("record_not_object");
+    return parsed;
   }
-  return record;
+  const QJsonObject object = value.toObject();
+  OperationLog::Record &record = parsed.record;
+  const auto stringField = [&object](const char *name, QString &out) {
+    const auto field = object.value(QLatin1String(name));
+    if (!field.isString()) return false;
+    out = field.toString();
+    return true;
+  };
+  const auto objectField = [&object](const char *name, QJsonObject &out) {
+    const auto field = object.value(QLatin1String(name));
+    if (!field.isObject()) return false;
+    out = field.toObject();
+    return true;
+  };
+  const bool baseOk = stringField("operationId", record.operationId) &&
+      stringField("key", record.key) && stringField("requestHash", record.requestHash) &&
+      stringField("execution", record.execution) && stringField("commitState", record.commitState) &&
+      stringField("presentation", record.presentation) && stringField("code", record.code);
+  if (!baseOk) {
+    parsed.error = QStringLiteral("record_field_type");
+    return parsed;
+  }
+  const auto compute = object.value(QStringLiteral("computeCount"));
+  const auto summary = object.value(QStringLiteral("summary"));
+  if (!compute.isDouble() || !summary.isString()) {
+    parsed.error = QStringLiteral("record_field_type");
+    return parsed;
+  }
+  record.computeCount = compute.toInt();
+  record.summaryJson = QByteArray::fromBase64(summary.toString().toLatin1());
+  const auto schema = object.value(QStringLiteral("schemaVersion"));
+  // 真正的 v1 旧记录不含 schemaVersion；出现即必须是非 1/2 的数字之外不受
+  // 支持（未知 schema 只隔离该条，不猜测含义，也不清空整本日志）。
+  if (schema.isDouble())
+    record.schemaVersion = schema.toInt();
+  else if (!schema.isUndefined())
+  {
+    parsed.error = QStringLiteral("record_field_type");
+    return parsed;
+  }
+  if (record.schemaVersion == 2) {
+    bool ok = stringField("documentId", record.documentId) && stringField("callerScope", record.callerScope) &&
+        stringField("clientRequestId", record.clientRequestId) && stringField("capabilityId", record.capabilityId) &&
+        stringField("implementationVersion", record.implementationVersion) &&
+        stringField("planHash", record.planHash) && stringField("storeGeneration", record.storeGeneration) &&
+        stringField("ownerAttempt", record.ownerAttempt) && stringField("ownerProcess", record.ownerProcess) &&
+        stringField("remoteJobId", record.remoteJobId) && stringField("externalOutcome", record.externalOutcome);
+    const auto contract = object.value(QStringLiteral("contractVersion"));
+    const auto revision = object.value(QStringLiteral("stateRevision"));
+    const auto cancelled = object.value(QStringLiteral("cancelRequested"));
+    const auto events = object.value(QStringLiteral("events"));
+    ok = ok && contract.isDouble() && revision.isString() && (cancelled.isBool() || cancelled.isUndefined()) &&
+        events.isArray() && objectField("frozenRequest", record.frozenRequest) &&
+        objectField("stagePlan", record.stagePlan) && objectField("preparedManifest", record.preparedManifest) &&
+        objectField("artifactManifest", record.artifactManifest) &&
+        objectField("presentationIntent", record.presentationIntent) &&
+        objectField("externalRequest", record.externalRequest) &&
+        objectField("remoteCompletionProof", record.remoteCompletionProof);
+    record.contractVersion = contract.toInt();
+    record.cancelRequested = cancelled.toBool();
+    record.events = events.toArray();
+    bool valid = false;
+    record.stateRevision = revision.toString().toULongLong(&valid);
+    if (!ok || !valid) {
+      parsed.error = QStringLiteral("record_field_type");
+      return parsed;
+    }
+  } else if (record.schemaVersion != 1) {
+    parsed.error = QStringLiteral("record_unknown_schema");
+    return parsed;
+  }
+  // 路径身份契约（G4-W1）：operationId 恒为 op-<uuid>（两个生成器一致，
+  // restoreSeismicTraceResult 同口径）；attempt 为裸 UUID 或 attempt-<uuid>
+  // （生产与已发布控制 fixture）。历史合法数据不受影响；篡改形态在此隔离。
+  if (!isCanonicalOperationId(record.operationId)) {
+    parsed.error = QStringLiteral("record_unsafe_operation_id");
+    return parsed;
+  }
+  if (!record.ownerAttempt.isEmpty() && !isCanonicalAttemptId(record.ownerAttempt)) {
+    parsed.error = QStringLiteral("record_unsafe_attempt_id");
+    return parsed;
+  }
+  return parsed;
 }
 
 QMutex g_cancelMutex;
@@ -213,21 +283,57 @@ OperationLog::OperationLog(const QString &directory, const QString &projectDir,
 bool OperationLog::loadOperations() {
   m_byKey.clear();
   m_idToKey.clear();
+  m_quarantinedIds.clear();
+  m_quarantinedKeys.clear();
   QJsonDocument document;
   if (!readJson(m_path, document) || (!document.isNull() && !document.isArray()))
     return false;
   const QJsonArray rows = document.array();
+  // 第一遍：严格解析。单条坏记录只隔离自身（含身份不明/类型错误/未知
+  // schema），不得连坐整本日志，也不得伪装成合法空记录。
+  struct Entry { Record record; QString error; };
+  QList<Entry> entries;
+  QSet<QString> duplicateKeys, duplicateIds, seenKeys, seenIds;
   for (const QJsonValue &value : rows) {
-    const Record record = recordFromJson(value.toObject());
-    if ((record.schemaVersion != 1 && record.schemaVersion != 2) || record.events.size() > 128 ||
-        record.key.isEmpty() || record.operationId.isEmpty() || m_byKey.contains(record.key) || m_idToKey.contains(record.operationId))
-      return false;
-    if (record.schemaVersion == 2 && (record.stateRevision == 0 || record.documentId.isEmpty() ||
-        record.callerScope.isEmpty() || record.clientRequestId.isEmpty() ||
-        record.key != operation_detail::key(record.documentId, record.callerScope, record.clientRequestId)))
-      return false;
-    m_byKey.insert(record.key, record);
-    m_idToKey.insert(record.operationId, record.key);
+    const auto parsed = recordFromJson(value);
+    Entry entry{parsed.record, parsed.error};
+    if (entry.error.isEmpty()) {
+      const Record &record = entry.record;
+      if (record.events.size() > 128 || record.key.isEmpty())
+        entry.error = QStringLiteral("record_shape_invalid");
+      else if (record.schemaVersion == 2 && (record.stateRevision == 0 || record.documentId.isEmpty() ||
+          record.callerScope.isEmpty() || record.clientRequestId.isEmpty() ||
+          record.key != operation_detail::key(record.documentId, record.callerScope, record.clientRequestId)))
+        entry.error = QStringLiteral("record_identity_mismatch");
+    }
+    if (entry.error.isEmpty()) {
+      if (seenKeys.contains(entry.record.key)) duplicateKeys.insert(entry.record.key);
+      else seenKeys.insert(entry.record.key);
+      if (seenIds.contains(entry.record.operationId)) duplicateIds.insert(entry.record.operationId);
+      else seenIds.insert(entry.record.operationId);
+    }
+    entries.append(entry);
+  }
+  // 第二遍：重复 key/operationId 歧义不任取赢家——涉事各条全部隔离。
+  for (int i = 0; i < entries.size(); ++i) {
+    Entry &entry = entries[i];
+    if (!entry.error.isEmpty())
+      continue;
+    if (duplicateKeys.contains(entry.record.key) || duplicateIds.contains(entry.record.operationId))
+      entry.error = QStringLiteral("record_duplicate_identity");
+  }
+  for (const Entry &entry : entries) {
+    if (!entry.error.isEmpty()) {
+      // 仅登记可安全显示的形态事实；不回读、不改写原始行（原始
+      // operations.json 保持字节不变，坏行只能由人工处置）。
+      if (isCanonicalOperationId(entry.record.operationId))
+        m_quarantinedIds.insert(entry.record.operationId);
+      if (!entry.record.key.isEmpty())
+        m_quarantinedKeys.insert(entry.record.key);
+      continue;
+    }
+    m_byKey.insert(entry.record.key, entry.record);
+    m_idToKey.insert(entry.record.operationId, entry.record.key);
   }
   return true;
 }
@@ -237,6 +343,12 @@ void OperationLog::armOperationFileWriteFault(int succeedBeforeFail) {
 }
 
 bool OperationLog::persistOperations() const {
+  // 含隔离记录的 journal 一律拒绝覆写（G4-W2 无损纪律）：任何把内存里的
+  // 好记录直接写回都等于删除坏行——原始文件只能由人工处置。这里的 const
+  // 语义依赖"写路径都在持锁并刚完成 loadOperations 的上下文"这一既有
+  // 调用约定；隔离状态是本次读取的结论。
+  if (!m_quarantinedIds.isEmpty() || !m_quarantinedKeys.isEmpty())
+    return false;
   QJsonArray rows;
   for (const Record &record : m_byKey)
     rows.append(recordJson(record));
@@ -255,6 +367,11 @@ OperationLog::Accept OperationLog::accept(const QString &documentId, const QStri
   if (m_byKey.contains(key)) {
     result.record = m_byKey.value(key);
     result.code = result.record.requestHash == requestHash ? QStringLiteral("replay") : QStringLiteral("conflict");
+    return result;
+  }
+  if (!m_quarantinedIds.isEmpty() || !m_quarantinedKeys.isEmpty()) {
+    // 同一业务不得在身份不明的邻居在场时借"not found"二次立项。
+    result.code = QStringLiteral("operation_log_quarantined");
     return result;
   }
   Record record;
@@ -281,6 +398,37 @@ OperationLog::Record OperationLog::recordById(const QString &operationId) {
   if (!loadOperations())
     return {};
   return m_byKey.value(m_idToKey.value(operationId));
+}
+
+OperationLog::RecordLookup OperationLog::lookupRecordById(const QString &operationId) {
+  QMutexLocker lock(&directoryMutex(m_path));
+  RecordLookup result;
+  if (!loadOperations()) {
+    result.code = QStringLiteral("operation_log_unavailable");
+    return result;
+  }
+  if (m_idToKey.contains(operationId)) {
+    result.code = QStringLiteral("found");
+    result.record = m_byKey.value(m_idToKey.value(operationId));
+    return result;
+  }
+  // 区分"目标记录被隔离"与"确实不存在"：前者绝不能触发二次立项或被当作
+  // not found 重新接受同一业务请求。
+  result.code = m_quarantinedIds.contains(operationId) ? QStringLiteral("operation_record_quarantined")
+                                                       : QStringLiteral("operation_not_found");
+  return result;
+}
+
+OperationLog::JournalHealth OperationLog::journalHealth() {
+  QMutexLocker lock(&directoryMutex(m_path));
+  JournalHealth health;
+  if (!loadOperations()) {
+    health.code = QStringLiteral("operation_log_unavailable");
+    return health;
+  }
+  health.quarantined = m_quarantinedIds.size() + m_quarantinedKeys.size();
+  health.code = health.quarantined ? QStringLiteral("operation_log_quarantined") : QStringLiteral("ok");
+  return health;
 }
 
 bool OperationLog::save(const Record &record, Record *current) {
@@ -313,7 +461,10 @@ QString OperationLog::cancel(const QString &operationId) {
     return QStringLiteral("operation_log_unavailable");
   const QString key = m_idToKey.value(operationId);
   if (!m_byKey.contains(key))
-    return QStringLiteral("unknown_operation");
+    return m_quarantinedIds.contains(operationId) ? QStringLiteral("operation_record_quarantined")
+                                                  : QStringLiteral("unknown_operation");
+  if (!m_quarantinedIds.isEmpty() || !m_quarantinedKeys.isEmpty())
+    return QStringLiteral("operation_log_quarantined");
   Record record = m_byKey.value(key);
   if (record.commitState == QLatin1String("committed"))
     return QStringLiteral("cancel_after_commit");

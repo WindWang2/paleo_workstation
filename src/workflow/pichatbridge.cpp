@@ -50,17 +50,27 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
   // The application outlives its TaskService workers. Inspect QPointer only on
   // the owner thread; the worker posts one coalesced notification to this root.
   auto *application = QCoreApplication::instance();
-  auto *task = service->start(tr("Pi 对话编排"), [configuration, channel, state, guard, application](PaleoTask *task) {
-    const auto stopped = [task, channel] { return task->cancelRequested() || channel->stopReason() != 0; };
-    const auto inspection = paleo::pi::inspectRuntime(configuration, stopped);
-    if (!inspection.ok()) state->value.code = inspection.code;
-    else {
-      paleo::pi::ConversationRequest request; request.enabled = configuration.enabled; request.runtime = inspection.runtime;
-      request.channel = channel; request.cancelled = [task] { return task->cancelRequested(); };
-      request.incoming = [guard, application] {
+  auto *task = service->start(tr("Pi 对话编排"), [configuration, channel, state, guard, application, driver = m_workerDriver](PaleoTask *task) {
+    if (driver) {
+      // G2 测试缝：受控 peer 顶替 Node 会话；notify 即生产 incoming 通知，
+      // 空返回 = ok，走同一结算路径。
+      const auto notify = [guard, application] {
         if (application) QMetaObject::invokeMethod(application, [guard] { if (guard) guard->drain(); }, Qt::QueuedConnection);
       };
-      state->value = paleo::pi::runConversation(request);
+      const auto driven = driver(task, channel, notify);
+      state->value.code = driven.isEmpty() ? QStringLiteral("ok") : driven;
+    } else {
+      const auto stopped = [task, channel] { return task->cancelRequested() || channel->stopReason() != 0; };
+      const auto inspection = paleo::pi::inspectRuntime(configuration, stopped);
+      if (!inspection.ok()) state->value.code = inspection.code;
+      else {
+        paleo::pi::ConversationRequest request; request.enabled = configuration.enabled; request.runtime = inspection.runtime;
+        request.channel = channel; request.cancelled = [task] { return task->cancelRequested(); };
+        request.incoming = [guard, application] {
+          if (application) QMetaObject::invokeMethod(application, [guard] { if (guard) guard->drain(); }, Qt::QueuedConnection);
+        };
+        state->value = paleo::pi::runConversation(request);
+      }
     }
     state->ready.store(true, std::memory_order_release);
     return state->value.ok() ? QString() : state->value.code;
@@ -71,10 +81,18 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
   connect(task, &PaleoTask::finished, this, [this, guard, generation, state, channel] {
     if (!guard || generation != m_generation) return;
     drain(); if (!guard) return;
-    QString code = state->ready.load(std::memory_order_acquire) ? state->value.code : QStringLiteral("interrupted");
-    if (channel->stopReason()) code = channel->stopReason() == 1 ? "cancelled" : "interrupted";
-    else if (!m_failure.isEmpty()) code = m_failure;
+    const auto workerCode = state->ready.load(std::memory_order_acquire) ? state->value.code : QStringLiteral("interrupted");
+    QString code = workerCode;
+    // G2-W5：终态原因优先级 = 首个宿主侧失败 > 停止原因（用户取消/宿主停止）
+    // > worker 结果。fail() 触发的清理性 requestStop 不再把自己降级为
+    // interrupted；较晚的用户 cancel 也只是清理补充，不覆盖已确认的失败。
+    if (!m_failure.isEmpty()) code = m_failure;
+    else if (channel->stopReason()) code = channel->stopReason() == 1 ? "cancelled" : "interrupted";
     else if (code == "ok" && m_phase != Phase::Closed) code = "pi_conversation_incomplete";
+    // 收尾补充：worker 的失败（如进程回收失败）与主因不同时不整段隐藏。
+    if (workerCode != code && workerCode != QLatin1String("ok") &&
+        workerCode != QLatin1String("interrupted") && !workerCode.isEmpty())
+      emit cleanupNotice(workerCode); // 未执行（interrupted）不是清理失败，不发补充
     m_timer.stop(); m_task.clear(); m_active = false; emit finished(code);
   }, Qt::SingleShotConnection);
   return {};
@@ -84,7 +102,10 @@ bool PiChatBridge::send(const QString &type, const QJsonObject &payload) {
   fail("pi_outgoing_budget"); return false;
 }
 void PiChatBridge::fail(const QString &code) {
-  const bool first = m_failure.isEmpty(); if (first) m_failure = code;
+  // G2-W5：首个确认失败是主因。停止已请求（用户取消/宿主停止）之后到达的
+  // 失败属清理性噪声——既不抢占已记录的真实错误，也不覆盖取消/停止终态。
+  const bool first = m_failure.isEmpty() && !(m_channel && m_channel->stopReason());
+  if (first) m_failure = code;
   if (m_channel) m_channel->requestStop(false);
   m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false;
   if (first) emit failed(code);
@@ -100,7 +121,9 @@ void PiChatBridge::controlTick() {
   // finished signal. Do not leave the selected engine permanently busy.
   if (!m_service || !m_task) {
     fail("pi_task_unavailable"); if (!guard) return;
-    m_timer.stop(); m_task.clear(); m_active = false; emit finished("interrupted"); return;
+    // G2-W5：任务不可用即主因——收尾完成与根因一致，不再降级为 interrupted。
+    m_timer.stop(); m_task.clear(); m_active = false;
+    emit finished(m_failure.isEmpty() ? QStringLiteral("interrupted") : m_failure); return;
   }
   const bool current = m_contextCurrent && m_contextCurrent();
   if (!guard) return;
@@ -139,7 +162,9 @@ void PiChatBridge::frame(const QJsonObject &value) {
     if (!guard) return;
     if (!current) { fail("interrupted"); return; }
   }
-  m_controlAge.restart();
+  // G2-W6：控制时限只在真实协议进展处刷新（相位推进/轮次推进/调用派发）。
+  // 重复在途 tool_request、已完成结果的合法重发不刷新——停滞的重发风暴不
+  // 能无限续命控制阶段；opened/configured 经 configureNext() 刷新。
   if (type == "opened" && m_phase == Phase::Opening) {
     if (!keys(payload, {"upstreamCommit", "coreVersion", "nodeVersion", "toolExecution", "modelTransport", "sandboxed"}) ||
         payload.value("toolExecution") != "sequential" || payload.value("modelTransport") != "host-only" || payload.value("sandboxed") != false) {
@@ -151,14 +176,14 @@ void PiChatBridge::frame(const QJsonObject &value) {
       keys(payload, {"name"}) && payload.value("name") == m_tools[m_definition].name) { ++m_definition; configureNext(); return; }
   if (type == "model_request" && m_phase == Phase::AwaitModel && keys(payload, {"round"}) &&
       payload.value("round").toString() == QString::number(m_round + 1) && m_round < 6) {
-    ++m_round; m_calls.clear(); m_nextCall = 0; m_phase = Phase::Model; emit modelRequested(); return;
+    ++m_round; m_calls.clear(); m_nextCall = 0; m_phase = Phase::Model; m_controlAge.restart(); emit modelRequested(); return;
   }
   if (type == "tool_request" && keys(payload, {"round", "callId"})) {
     const auto id = payload.value("callId").toString();
     if (m_completed.contains(id)) { if (payload.value("round") == m_completed[id].value("round")) send("tool_result", m_completed[id]); else fail("pi_tool_state"); return; }
     if (m_nextCall < m_calls.size() && payload.value("round").toString() == QString::number(m_round) && id == m_calls[m_nextCall].id) {
       if (m_phase == Phase::Tool) return; // In-flight retransmission never dispatches twice.
-      if (m_phase == Phase::AwaitTool) { m_phase = Phase::Tool; emit toolRequested(m_calls[m_nextCall]); return; }
+      if (m_phase == Phase::AwaitTool) { m_phase = Phase::Tool; m_controlAge.restart(); emit toolRequested(m_calls[m_nextCall]); return; }
     }
     fail("pi_tool_state"); return;
   }
@@ -167,7 +192,7 @@ void PiChatBridge::frame(const QJsonObject &value) {
     const auto code = payload.value("code").toString();
     if (!QStringList{"ok", "error", "cancelled", "interrupted"}.contains(code)) { fail("pi_idle_state"); return; }
     if (!m_channel->stopReason() && code != "ok" && m_failure.isEmpty()) m_failure = "pi_agent_failed";
-    m_phase = Phase::Closing; send("close"); return;
+    m_phase = Phase::Closing; m_controlAge.restart(); send("close"); return;
   }
   if (type == "closed" && m_phase == Phase::Closing && payload.isEmpty()) { m_phase = Phase::Closed; return; }
   fail("pi_conversation_state");

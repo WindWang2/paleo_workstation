@@ -346,6 +346,46 @@
 </context>
 <context>
     <name>AiChatController</name>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="121"/>
+            <source>回合已完成，但会话保存失败（%1）。内容保留在内存</source>
+            <translation>回合已完成，但会话保存失败（%1）。内容保留在内存</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="138"/>
+            <source>会话保存失败：%1（内容保留在内存，重发上一条可先补保存）</source>
+            <translation>会话保存失败：%1（内容保留在内存，重发上一条可先补保存）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="190"/>
+            <source>会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试</source>
+            <translation>会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="247"/>
+            <source>会话尚未保存成功（%1），暂不能删除；请恢复存储后重试</source>
+            <translation>会话尚未保存成功（%1），暂不能删除；请恢复存储后重试</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="270"/>
+            <source>未知存储错误</source>
+            <translation>未知存储错误</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="410"/>
+            <source>会话尚未保存成功（%1），已保留原回答；请恢复存储后重试</source>
+            <translation>会话尚未保存成功（%1），已保留原回答；请恢复存储后重试</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="50"/>
+            <source>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</source>
+            <translation>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="117"/>
+            <source>回答已完成，但会话保存失败（%1）。内容保留在内存</source>
+            <translation>回答已完成，但会话保存失败（%1）。内容保留在内存</translation>
+        </message>
     <message>
         <location filename="../src/workflow/aichatcontroller.cpp" line="69"/>
         <source>请求出错：本调用未执行</source>
@@ -403,21 +443,6 @@
         <location filename="../src/workflow/aichatcontroller.cpp" line="255"/>
         <source>导出路径为空</source>
         <translation>导出路径为空</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichatcontroller.cpp" line="279"/>
-        <source>配置写入失败：%1</source>
-        <translation>配置写入失败：%1</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichatcontroller.cpp" line="294"/>
-        <source>密钥写入钥匙串失败：%1</source>
-        <translation>密钥写入钥匙串失败：%1</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/aichatcontroller.cpp" line="310"/>
-        <source>清除密钥失败：%1</source>
-        <translation>清除密钥失败：%1</translation>
     </message>
     <message>
         <location filename="../src/workflow/aichatcontroller.cpp" line="398"/>
@@ -479,6 +504,11 @@
         <location filename="../src/workflow/aichattoolrunner.cpp" line="180"/>
         <source>能力工具须由宿主绑定工程</source>
         <translation>能力工具须由宿主绑定工程</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/aichattoolrunner.cpp" line="236"/>
+        <source>工具实参顶层必须是 JSON object</source>
+        <translation>工具实参顶层必须是 JSON object</translation>
     </message>
     <message>
         <location filename="../src/workflow/aichattoolrunner.cpp" line="150"/>
@@ -33484,6 +33514,93 @@ PDF：%3
         <translation>应答缺少 choices 字段</translation>
     </message>
     <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="237"/>
+        <source>大模型请求超过总时限（%1 ms；空闲计时不延长它）</source>
+        <translation>大模型请求超过总时限（%1 ms；空闲计时不延长它）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="498"/>
+        <location filename="../src/ai/chat/llmclient.cpp" line="527"/>
+        <source>（无详情）</source>
+        <translation>（无详情）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="500"/>
+        <location filename="../src/ai/chat/llmclient.cpp" line="529"/>
+        <source>服务端返回错误信封：%1</source>
+        <translation>服务端返回错误信封：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="507"/>
+        <source>流式应答未包含任何事件</source>
+        <translation>流式应答未包含任何事件</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmclient.cpp" line="542"/>
+        <source>应答缺少 message 字段</source>
+        <translation>应答缺少 message 字段</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="149"/>
+        <source>；配置文件还原失败：%1</source>
+        <translation>；配置文件还原失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="159"/>
+        <source>；钥匙串密钥清理也失败：%1（须手动重新配置）</source>
+        <translation>；钥匙串密钥清理也失败：%1（须手动重新配置）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="188"/>
+        <source>工具调用 index=%1 在完整交付后再次收到分片</source>
+        <translation>工具调用 index=%1 在完整交付后再次收到分片</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="202"/>
+        <source>工具调用 index=%1 的 id 前后冲突（%2 → %3）</source>
+        <translation>工具调用 index=%1 的 id 前后冲突（%2 → %3）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="213"/>
+        <source>工具调用 index=%1 的 name 前后冲突（%2 → %3）</source>
+        <translation>工具调用 index=%1 的 name 前后冲突（%2 → %3）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="227"/>
+        <source>工具调用 index=%1 的 arguments 在已完整后又收到分片</source>
+        <translation>工具调用 index=%1 的 arguments 在已完整后又收到分片</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="294"/>
+        <source>工具调用 index=%1 缺 name，无法构成调用</source>
+        <translation>工具调用 index=%1 缺 name，无法构成调用</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="313"/>
+        <source>工具调用 index=%1 的 arguments 超出 %2 字节预算</source>
+        <translation>工具调用 index=%1 的 arguments 超出 %2 字节预算</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmstreamparser.cpp" line="317"/>
+        <source>工具调用 index=%1 的 arguments 不是合法 JSON 对象</source>
+        <translation>工具调用 index=%1 的 arguments 不是合法 JSON 对象</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="92"/>
+        <source>配置写入失败：%1</source>
+        <translation>配置写入失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="130"/>
+        <source>密钥写入钥匙串失败：%1</source>
+        <translation>密钥写入钥匙串失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/llmconfigcommit.cpp" line="129"/>
+        <source>清除密钥失败：%1</source>
+        <translation>清除密钥失败：%1</translation>
+    </message>
+    <message>
         <location filename="../src/ai/remotepredictrouter.cpp" line="349"/>
         <source>未绑定远端传输</source>
         <translation>未绑定远端传输</translation>
@@ -35164,9 +35281,24 @@ PDF：%3
         <translation>种子向 inline/xline 双向扩张的道数半径</translation>
     </message>
     <message>
-        <location filename="../src/ai/chat/domaintools.cpp" line="163"/>
-        <source>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}</source>
-        <translation>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}</translation>
+        <location filename="../src/ai/chat/domaintools.cpp" line="374"/>
+        <source>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}，至多 %1 颗</source>
+        <translation>种子点列表，元素形如 {&quot;inline&quot;:0,&quot;xline&quot;:0,&quot;sample_index&quot;:0}，至多 %1 颗</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/operationtools.cpp" line="34"/>
+        <source>起始修订（含），十进制字符串（0–2^63-1，无前导零）；缺省 0</source>
+        <translation>起始修订（含），十进制字符串（0–2^63-1，无前导零）；缺省 0</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/operationtools.cpp" line="39"/>
+        <source>起始字节偏移，十进制字符串（0–2^63-1，无前导零）；缺省 0</source>
+        <translation>起始字节偏移，十进制字符串（0–2^63-1，无前导零）；缺省 0</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/operationtools.cpp" line="41"/>
+        <source>本页 base64 前的字节预算（1–24576）</source>
+        <translation>本页 base64 前的字节预算（1–24576）</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="172"/>

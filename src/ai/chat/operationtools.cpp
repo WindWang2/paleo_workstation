@@ -3,7 +3,12 @@
 
 void appendAgentOperationTools(QVector<AiToolSpec> &specs) {
   const auto text=[](const char *key,bool required) {return AiToolParamSpec{QLatin1String(key),"string",QString(),required,{}};};
-  const auto integer=[](const char *key) {return AiToolParamSpec{QLatin1String(key),"integer",QString(),false,{}};};
+  // G3/W4：分页预算声明与运行期（aichattoolrunner_operations.cpp 的
+  // pageInteger）同值；缺省值不进 schema——由运行期按工具分别给出。
+  const auto integer=[](const char *key,int minimum,int maximum) {
+    AiToolParamSpec spec{QLatin1String(key),"integer",QString(),false,{}};
+    spec.minimum=minimum;spec.maximum=maximum;return spec;
+  };
   const auto response=QStringLiteral(R"({"type":"object","required":["code"],"properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"operationId":{"type":"string"},"execution":{"type":"string"},"commitState":{"type":"string"},"presentation":{"type":"string"},"revision":{"type":"string"}}})");
   AiToolSpec tile;tile.name="paleo.tile_classification_v2";tile.title=QObject::tr("地震相 tile 分类");
   tile.description=QObject::tr("版本 2：prepare 以 source_version_id 和 model 冻结源栅格、网格及模型；compute-only 只接受 prepare 的 source_operation_id，生成私有三端口结果；publish 只接受 computed 的 source_operation_id，一次登记三端口并呈现图层。后两阶段不能重新指定来源、模型或参数。");
@@ -24,8 +29,18 @@ void appendAgentOperationTools(QVector<AiToolSpec> &specs) {
     AiToolSpec spec;spec.name=QLatin1String(entry.name);spec.title=entry.title;spec.description=entry.description;
     spec.resultSchemaJson=response;
     spec.parameters={text("operation_id",true)};
-    if(spec.name.endsWith("_events"))spec.parameters+={text("after_revision",false),integer("page_size"),integer("max_bytes")};
-    if(spec.name.endsWith("_read"))spec.parameters+={text("port_id",true),text("offset",false),integer("max_bytes")};
+    if(spec.name.endsWith("_events")) {
+      auto after=text("after_revision",false);
+      after.description=QObject::tr("起始修订（含），十进制字符串（0–2^63-1，无前导零）；缺省 0");
+      spec.parameters+={after,integer("page_size",1,64),integer("max_bytes",1024,32768)};
+    }
+    if(spec.name.endsWith("_read")) {
+      auto offset=text("offset",false);
+      offset.description=QObject::tr("起始字节偏移，十进制字符串（0–2^63-1，无前导零）；缺省 0");
+      auto bytes=integer("max_bytes",1,24576);
+      bytes.description=QObject::tr("本页 base64 前的字节预算（1–24576）");
+      spec.parameters+={text("port_id",true),offset,bytes};
+    }
     spec.effects=paleo::host::Read;
     if(spec.name.endsWith("_cancel"))spec.effects|=paleo::host::PrivateStage;
     specs.append(spec);

@@ -152,7 +152,10 @@ private slots:
     Fixture f;QVERIFY(f.open(false,true));query::ProjectQueryCapability service;service.bind(&f.catalog,{"doc",1,1,"chat"});service.setSourceResolver(f.resolver());
     auto page=service.query(f.arguments(1,2048));QVERIFY(!page.value("ok").toBool());QCOMPARE(page.value("code").toString(),QString("query_entry_too_large"));QVERIFY(!page.contains("curves"));
     page=service.query(f.arguments(17));QCOMPARE(page.value("code").toString(),QString("query_budget_invalid"));
-    auto args=f.arguments();args.remove("well_ref");QCOMPARE(service.query(args).value("code").toString(),QString("invalid_well_ref"));
+    // G3（工具契约）：well_ref 缺失由主题字段契约先行报告
+    // missing_required_field（与 schema allOf required 一致）；present-but-
+    // invalid 仍走 invalid_well_ref（下一行参数化覆盖）。
+    auto args=f.arguments();args.remove("well_ref");QCOMPARE(service.query(args).value("code").toString(),QString("missing_required_field"));
     args=f.arguments();args.insert("well_id","well-catalog");QCOMPARE(service.query(args).value("code").toString(),QString("unsupported_topic_argument"));
   }
 };

@@ -89,7 +89,9 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python-numeric-table.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python-seismic-trace.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-agent-python-outputs.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-g1-agent-model-transport.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-pi-agent.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-g2-agent-turn-execution.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-qgis-ui-deepening.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-realization.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-section-split.cmake"
@@ -127,6 +129,8 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-c-workbench-commands.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-a-async-previews.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-b-runtime-lifecycle.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-g3-agent-tool-contracts.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-g4-agent-operation-recovery.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-g5-agent-conversation-workbench.cmake"
 )
 # 双向核对：新增文件必须登记，已登记文件不得缺失，重复登记也立即失败。

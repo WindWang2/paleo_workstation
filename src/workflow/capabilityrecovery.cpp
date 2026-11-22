@@ -28,10 +28,14 @@ void cancelActive(const QString &root,const QString &id) {
   QMutexLocker lock(&mutex);if(auto value=attempts.value(key(root,id)).lock())value->cancelled=true;
 }
 void release(const QString &root,const QString &id) { QMutexLocker lock(&mutex); attempts.remove(key(root,id)); }
-OperationLog::Record authorized(OperationLog &log,const RecoveryHost &host,const QString &scope,const QString &id) {
-  if (!host.context.open || scope.isEmpty()) return {};
-  auto r=log.recordById(id);
-  if (r.schemaVersion!=2 || r.documentId!=host.context.documentId || r.callerScope!=scope) return {}; return r;
+AuthorizedRecord authorized(OperationLog &log,const RecoveryHost &host,const QString &scope,const QString &id) {
+  if (!host.context.open || scope.isEmpty()) return {QStringLiteral("operation_not_found"),{}};
+  const auto found=log.lookupRecordById(id);
+  if (found.code!=QLatin1String("found")) return {found.code,{}};
+  const auto &r=found.record;
+  if (r.schemaVersion!=2 || r.documentId!=host.context.documentId || r.callerScope!=scope)
+    return {QStringLiteral("operation_not_found"),{}};
+  return {QStringLiteral("ok"),r};
 }
 QSet<QString> managedTargets(const OperationLog::Record &record,const QString &root) {
   QSet<QString> paths; QVector<AlgorithmOutputTarget> targets;
@@ -108,24 +112,26 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
     return {true,"replay",reconcile(h,prior.record)};
   }
   if(prior.code!=QLatin1String("not_found"))return {false,prior.code,{}};
-  OperationLog::Record source;
+  recovery_detail::AuthorizedRecord source;
   if(!plan.sourceOperationId.isEmpty()) {
     source=recovery_detail::authorized(log,h,plan.callerScope,plan.sourceOperationId);
-    if(source.operationId.isEmpty() || (!plan.capabilityId.isEmpty() && source.capabilityId!=plan.capabilityId) || source.contractVersion!=plan.contractVersion ||
-       (!plan.outputSpec.id.isEmpty() && source.stagePlan.value("outputSpec").toObject()!=publication_detail::specJson(plan.outputSpec)))return {false,"source_operation_mismatch",{}};
-    if(!(plan.phase==QLatin1String("compute-only") && source.execution==QLatin1String("prepared") && source.preparedManifest.isEmpty()) &&
-       !(plan.phase==QLatin1String("publish") && !source.artifactManifest.isEmpty()))return {false,"source_result_unavailable",{}};
-    if(!publication_detail::specFromJson(source.stagePlan.value("outputSpec").toObject(),plan.outputSpec))return {false,"source_operation_mismatch",{}};
-    if(!plan.frozenPlan.isEmpty() && plan.frozenPlan!=source.frozenRequest.value("plan").toObject())return {false,"mixed_source_operation_inputs",{}};
-    QStringList parents;for(const auto &id:source.stagePlan.value("parents").toArray())parents.append(id.toString());
+    if(source.code!=QLatin1String("ok"))return {false,source.code,{}};
+    const auto &sourceRecord=source.record;
+    if((!plan.capabilityId.isEmpty() && sourceRecord.capabilityId!=plan.capabilityId) || sourceRecord.contractVersion!=plan.contractVersion ||
+       (!plan.outputSpec.id.isEmpty() && sourceRecord.stagePlan.value("outputSpec").toObject()!=publication_detail::specJson(plan.outputSpec)))return {false,"source_operation_mismatch",{}};
+    if(!(plan.phase==QLatin1String("compute-only") && sourceRecord.execution==QLatin1String("prepared") && sourceRecord.preparedManifest.isEmpty()) &&
+       !(plan.phase==QLatin1String("publish") && !sourceRecord.artifactManifest.isEmpty()))return {false,"source_result_unavailable",{}};
+    if(!publication_detail::specFromJson(sourceRecord.stagePlan.value("outputSpec").toObject(),plan.outputSpec))return {false,"source_operation_mismatch",{}};
+    if(!plan.frozenPlan.isEmpty() && plan.frozenPlan!=sourceRecord.frozenRequest.value("plan").toObject())return {false,"mixed_source_operation_inputs",{}};
+    QStringList parents;for(const auto &id:sourceRecord.stagePlan.value("parents").toArray())parents.append(id.toString());
     if(!plan.parentVersionIds.isEmpty() && plan.parentVersionIds!=parents)return {false,"source_operation_mismatch",{}};
-    plan.parentVersionIds=parents;plan.capabilityId=source.capabilityId;plan.implementationVersion=source.implementationVersion;
-    plan.frozenPlan=source.frozenRequest.value("plan").toObject();
-    auto originalPresentation=source.presentationIntent;originalPresentation.remove("members");
+    plan.parentVersionIds=parents;plan.capabilityId=sourceRecord.capabilityId;plan.implementationVersion=sourceRecord.implementationVersion;
+    plan.frozenPlan=sourceRecord.frozenRequest.value("plan").toObject();
+    auto originalPresentation=sourceRecord.presentationIntent;originalPresentation.remove("members");
     auto requestedPresentation=plan.presentationIntent;requestedPresentation.remove("members");
     if(!requestedPresentation.isEmpty() && requestedPresentation!=originalPresentation)return {false,"source_operation_mismatch",{}};
-    plan.presentationIntent=source.presentationIntent;
-    if(!plan.inputValidator)plan.inputValidator=m_runtimeHooks.value(source.operationId).inputValidator;
+    plan.presentationIntent=sourceRecord.presentationIntent;
+    if(!plan.inputValidator)plan.inputValidator=m_runtimeHooks.value(sourceRecord.operationId).inputValidator;
   }
   if(plan.requiredEffects & ~127U)return {false,"invalid_execution_effects",{}};
   const auto phaseEffects=host::computeEffects(plan.phase);
@@ -137,15 +143,15 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
   if(!log.ownsWrites() || !h.catalog)return {false,"project_write_claim_required",{}};
   const auto proof=h.catalog->publication(h.context.documentId,QUuid::createUuid().toString(QUuid::WithoutBraces),QString(64,'0'));
   if(proof.code!=QLatin1String("not_committed"))return {false,"publication_store_unavailable",{}};
-  if(!source.operationId.isEmpty() && source.storeGeneration!=proof.storeGeneration)return {false,"publication_store_changed",{}};
+  if(!source.record.operationId.isEmpty() && source.record.storeGeneration!=proof.storeGeneration)return {false,"publication_store_changed",{}};
   for(const auto &id:plan.parentVersionIds)if(id.isEmpty() || h.catalog->versionById(id).id!=id)return {false,"input_version_missing",{}};
   OperationLog::Record seed; seed.schemaVersion=2; seed.documentId=h.context.documentId;
   seed.callerScope=plan.callerScope;seed.clientRequestId=plan.clientRequestId;seed.requestHash=hash;
   seed.capabilityId=plan.capabilityId;seed.contractVersion=plan.contractVersion;
   seed.implementationVersion=plan.implementationVersion;seed.storeGeneration=proof.storeGeneration;
   QVector<AlgorithmOutputTarget> targets;QHash<QString,DerivedStaging> reservations;
-  if(!source.operationId.isEmpty()) {
-    if(!publication_detail::targetsFromJson(h.projectDir,source.stagePlan,targets))return {false,"source_operation_mismatch",{}};
+  if(!source.record.operationId.isEmpty()) {
+    if(!publication_detail::targetsFromJson(h.projectDir,source.record.stagePlan,targets))return {false,"source_operation_mismatch",{}};
   } else for(const auto &port:plan.outputSpec.outputs) {
     if(!plan.outputPorts.contains(port.id))continue;
     QString extension=port.constraints.value("fileExtension").toString();
@@ -155,12 +161,12 @@ CapabilityRecovery::Accepted CapabilityRecovery::accept(const FrozenOperation &i
   }
   if(plan.phase!=QLatin1String("prepare") && targets.isEmpty() && plan.externalRequest.isEmpty())return {false,"output_contract_required",{}};
   seed.stagePlan=publication_detail::targetsJson(targets);
-  seed.stagePlan.insert("outputSetId",source.operationId.isEmpty()?QUuid::createUuid().toString(QUuid::WithoutBraces):source.stagePlan.value("outputSetId").toString());
+  seed.stagePlan.insert("outputSetId",source.record.operationId.isEmpty()?QUuid::createUuid().toString(QUuid::WithoutBraces):source.record.stagePlan.value("outputSetId").toString());
   seed.stagePlan.insert("outputSpec",publication_detail::specJson(plan.outputSpec));
   seed.stagePlan.insert("parents",QJsonArray::fromStringList(plan.parentVersionIds));
   seed.frozenRequest={{"intent",plan.intent},{"plan",plan.frozenPlan},{"phase",plan.phase},{"sourceOperationId",plan.sourceOperationId}};
   if(executionEffects)seed.frozenRequest.insert("executionEffects",double(executionEffects));
-  seed.frozenRequest.insert("inputValidationRequired",bool(plan.inputValidator) || source.frozenRequest.value("inputValidationRequired").toBool());
+  seed.frozenRequest.insert("inputValidationRequired",bool(plan.inputValidator) || source.record.frozenRequest.value("inputValidationRequired").toBool());
   seed.presentationIntent=plan.presentationIntent;
   if(!seed.presentationIntent.isEmpty()) {
     QJsonArray members;for(const auto &target:targets)members.append(QJsonObject{{"portId",target.portId},

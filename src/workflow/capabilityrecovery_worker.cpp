@@ -4,6 +4,7 @@
 #include "services/operationretention.h"
 #include "capabilitypublication_internal.h"
 #include "services/paleotaskservice.h"
+#include "operationprivatedir.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
@@ -63,8 +64,12 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
   context.projectDir=h.projectDir;
   context.frozenPlan=r.frozenRequest.value("plan").toObject();context.cancelled=stop;
   context.requestInterruption=[attempt]{attempt->interrupted=true;};
-  context.privateDir=QDir(h.operationDir).filePath(r.operationId+'/'+r.ownerAttempt);
-  if(!QDir().mkpath(context.privateDir) || !publication_detail::specFromJson(r.stagePlan.value("outputSpec").toObject(),context.outputSpec) ||
+  // G4-W5：私有目录只能经可信解析/创建进入。身份不合规、根被链接别名或
+  // 越界时在任何 worker 之前拒绝；不安全标识不得触碰 mkpath。
+  const auto privateDir=operation_detail::createPrivateAttemptDir(h.projectDir,r.operationId,r.ownerAttempt);
+  if(!privateDir.code.isEmpty())return fail(privateDir.code);
+  context.privateDir=privateDir.path;
+  if(!publication_detail::specFromJson(r.stagePlan.value("outputSpec").toObject(),context.outputSpec) ||
       !publication_detail::targetsFromJson(h.projectDir,r.stagePlan,context.targets)) return fail("invalid_frozen_plan");
   if(validator){const auto code=validator(context);if(!code.isEmpty())return fail(code);}
   if(!r.preparedManifest.isEmpty()) {
@@ -74,14 +79,16 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
   }
   const auto sourceId=r.frozenRequest.value("sourceOperationId").toString();
   if(!sourceId.isEmpty() && r.frozenRequest.value("phase").toString()==QLatin1String("publish")) {
-    const auto source=authorized(log,h,r.callerScope,sourceId);
+    const auto sourceAuth=authorized(log,h,r.callerScope,sourceId);
+    if(sourceAuth.code!=QLatin1String("ok"))return fail(sourceAuth.code);
+    const auto &source=sourceAuth.record;
     if((source.execution!=QLatin1String("succeeded") && source.commitState!=QLatin1String("committed")) ||
        !publication_detail::outputsFromManifest(h.projectDir,source.operationId,source.artifactManifest,out.outputs,&error,stop,true,managedTargets(source,h.projectDir))) {
       return fail(error.isEmpty()?"source_result_unavailable":error);
     }
     // A new publication consumes numerical outputs only; original logs remain with its source operation.
     out.outputs.artifacts.erase(std::remove_if(out.outputs.artifacts.begin(),out.outputs.artifacts.end(),
-      [&](const auto &artifact){return diagnosticPort(context.outputSpec,artifact.portId);}),out.outputs.artifacts.end());
+        [&](const auto &artifact){return diagnosticPort(context.outputSpec,artifact.portId);}),out.outputs.artifacts.end());
     out.ok=true;
     if(source.artifactManifest.contains("childOperations"))out.summary.insert("child_operations",source.artifactManifest.value("childOperations"));
   } else if(worker)out=worker(context);else return fail("execution_adapter_unavailable");
@@ -139,8 +146,11 @@ PaleoTask *CapabilityRecovery::start(const QString &scope,const QString &id,QObj
     return !guard?QStringLiteral("document_unavailable"):invalidated->load()?QStringLiteral("stale_session"):QString();
   };
   OperationLog log(h.operationDir,h.projectDir,h.writeClaim);
-  auto r=reconcile(h,recovery_detail::authorized(log,h,scope,id));
+  // G4-W7：日志不可读/目标被隔离与"确实不存在"分流，不互相冒充。
+  const auto admission=recovery_detail::authorized(log,h,scope,id);
   if(const auto stopped=interrupted();!stopped.isEmpty())return reject(stopped);
+  if(admission.code!=QLatin1String("ok"))return reject(admission.code);
+  auto r=reconcile(h,admission.record);
   if(r.operationId.isEmpty())return reject("operation_not_found");
   if(r.planHash!=storage::operationPlanHash(r.frozenRequest,r.stagePlan,r.presentationIntent,r.externalRequest))
     return reject("frozen_plan_corrupt");

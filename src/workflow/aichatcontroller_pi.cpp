@@ -37,6 +37,11 @@ ChatToolCall AiChatController::hostAdmittedCall(const ChatToolCall &source) cons
 }
 void AiChatController::startEngineTurn() {
   m_modelRound = 0; m_hostTurn.clear(); m_turnContext = m_runner.hostContextIdentity();
+  // G2-W1：定格本轮执行归属——模型配置与协商工具表在本入口快照，原生续轮
+  // 与 Pi 桥内快照同源；回合中途的 setConfig/工具表变化不影响在途请求。
+  m_turnConfig = m_config;
+  m_turnTools = tools();
+  m_turnFrozen = true;
   const auto code = paleo::chat::validateInvocationBindings(m_session);
   if (!code.isEmpty()) { piFailure(code); return; }
   for (qsizetype index = m_session.messages.size(); index > 0; --index) {
@@ -53,7 +58,7 @@ void AiChatController::startEngineTurn() {
   if (!saveCurrentSession(&error)) { if (guard) piFailure("pi_session_save_failed"); return; }
   if (!guard || !m_streaming || sessionId != m_session.id || turn != m_hostTurn) return;
   const auto context = m_turnContext;
-  const auto started = m_piBridge.start(m_piConfiguration, m_runner.taskService(), sessionId, turn, tools(),
+  const auto started = m_piBridge.start(m_piConfiguration, m_runner.taskService(), sessionId, turn, m_turnTools,
     [guard, context, sessionId, turn] {
       return guard && guard->m_session.id == sessionId && guard->m_hostTurn == turn && guard->m_runner.hostContextIdentity() == context;
     });

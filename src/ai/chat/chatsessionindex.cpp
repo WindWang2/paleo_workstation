@@ -228,12 +228,12 @@ void ChatSessionIndex::pruneOrphans(const QStringList &liveIds)
 
 ChatArchiveRepairOutcome repairChatArchiveSummaries(
     const QVector<ChatArchiveFileStamp> &candidates,
-    const std::function<bool()> &shouldContinue)
+    const std::function<bool()> &shouldStop)
 {
   ChatArchiveRepairOutcome outcome;
   const ChatArchiveBudget budget = chatArchiveBudget();
   for (const ChatArchiveFileStamp &candidate : candidates) {
-    if (shouldContinue && !shouldContinue())
+    if (shouldStop && shouldStop())
       break; // 协作取消：已完成的条目照常上缴，剩余留待下一次修复
     const QString path = ChatSessionStore::pathFor(candidate.id);
     const QFileInfo info(path);

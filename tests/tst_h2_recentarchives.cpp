@@ -149,7 +149,7 @@ void TestH2RecentArchives::coldRepairBuildsSidecarsAndPublishesComplete() {
                          if (complete) { completed = result; completeFlag = true; }
                        });
   summaries.refresh(20);
-  spinUntil([&] { return completeFlag; });
+  QVERIFY2(spinUntil([&] { return completeFlag; }), "complete 结果必须发布");
   disconnect(connection);
   QCOMPARE(completed.size(), 20);
   for (int i = 1; i < completed.size(); ++i)
@@ -200,7 +200,7 @@ void TestH2RecentArchives::hotRefreshDoesNotParseBodies() {
                                   s.displayTitle == QStringLiteral("外部改写标题"));
     });
   summaries.refresh(20);
-  spinUntil([&] { return sawUpdate; });
+  QVERIFY2(spinUntil([&] { return sawUpdate; }), "外部改写后定向修复必须完成");
   disconnect(connection);
   QCOMPARE(paleo::chat::chatArchiveFullLoadCount(), qint64(1)); // 定向修复恰好一次
   // 其余 79 个正文零解析。
@@ -299,7 +299,7 @@ void TestH2RecentArchives::staleDetectionAndExternalReplace() {
         sawNewTitle = sawNewTitle || s.displayTitle == QStringLiteral("外部重命名");
     });
   summaries.refresh(20);
-  spinUntil([&] { return sawNewTitle; });
+  QVERIFY2(spinUntil([&] { return sawNewTitle; }), "外部改写标题必须进入列表");
   disconnect(connection);
 
   // 损坏 sidecar（截断）：读取失败 → 待修复 → 从权威文件重建（不反向覆盖正文）。
@@ -311,11 +311,11 @@ void TestH2RecentArchives::staleDetectionAndExternalReplace() {
     file.write("{\"schema\":1"); // 截断 JSON
   }
   summaries.refresh(20);
-  spinUntil([&] {
+  QVERIFY2(spinUntil([&] {
     paleo::chat::ChatSessionIndex::Entry entry;
     return paleo::chat::ChatSessionIndex::read(QStringLiteral("h2-stale"), &entry) &&
            entry.displayTitle == QStringLiteral("外部重命名");
-  });
+  }), "坏缓存必须从权威文件重建");
 }
 
 void TestH2RecentArchives::overLimitAndInvalidSummaries() {
@@ -356,7 +356,7 @@ void TestH2RecentArchives::overLimitAndInvalidSummaries() {
       complete = c;
     });
   summaries.refresh(20);
-  spinUntil([&] { return complete; });
+  QVERIFY2(spinUntil([&] { return complete; }), "超限/损坏状态必须发布 complete");
   disconnect(connection);
 
   bool sawOver = false, sawInvalid = false;
@@ -406,10 +406,11 @@ void TestH2RecentArchives::externalDeletePrunesOrphanSidecars() {
         QVERIFY2(s.id != QStringLiteral("h2-del"), "已删除会话不得复活");
     });
   summaries.refresh(20);
-  spinUntil([&] { return sawGone; });
+  QVERIFY2(spinUntil([&] { return sawGone; }), "外部删除后列表必须收敛");
   disconnect(connection);
-  QVERIFY(!QFileInfo::exists(
-    paleo::chat::ChatSessionIndex::sidecarPathFor(QStringLiteral("h2-del"))));
+  QVERIFY2(!QFileInfo::exists(
+             paleo::chat::ChatSessionIndex::sidecarPathFor(QStringLiteral("h2-del"))),
+           "孤儿 sidecar 必须被清理");
 }
 
 void TestH2RecentArchives::noServiceFallsBackToTrustedCache() {
@@ -437,7 +438,7 @@ void TestH2RecentArchives::noServiceFallsBackToTrustedCache() {
     paleo::chat::scanChatArchiveFiles(ChatSessionStore::directory(), 4096);
   paleo::chat::repairChatArchiveSummaries(scan.files, [] { return false; });
   summaries.refresh(20);
-  spinUntil([&] { return complete; });
+  QVERIFY2(spinUntil([&] { return complete; }), "无服务+可信缓存必须发布 complete");
   disconnect(connection);
   QVERIFY(complete);
   QCOMPARE(result.size(), 2);
@@ -473,9 +474,9 @@ void TestH2RecentArchives::repairCancellableAndRecoversViaTaskService() {
   for (PaleoTask *task : service.tasks())
     if (task->running())
       task->requestCancel();
-  spinUntil([&] { return !summaries.repairInFlight(); });
-  const int partial = sidecarCount();
-  QVERIFY(partial <= 60);
+  QVERIFY2(spinUntil([&] { return !summaries.repairInFlight(); }),
+           "取消后修复必须有界停止");
+  const int partial = sidecarCount(); // 取消点决定 0..60，不悬挂即达标
 
   // 取消不是终态：再次刷新（无取消）恢复到 complete。
   bool complete = false;
@@ -483,7 +484,9 @@ void TestH2RecentArchives::repairCancellableAndRecoversViaTaskService() {
     &summaries, &AiChatRecentSummaries::ready,
     [&](const QVector<paleo::chat::ChatSessionSummary> &, bool c) { complete = c; });
   summaries.refresh(20);
-  spinUntil([&] { return complete && sidecarCount() == 60 && !summaries.repairInFlight(); });
+  QVERIFY2(spinUntil([&] {
+    return complete && sidecarCount() == 60 && !summaries.repairInFlight();
+  }), "取消不是终态：再刷新必须恢复 complete");
   disconnect(connection);
   QCOMPARE(sidecarCount(), 60);
 }
@@ -502,7 +505,8 @@ void TestH2RecentArchives::controllerTeardownDuringRepairIsSafe() {
     // 由共享护栏安全收尾，无悬空回调。
     spinUntil([&] { return service.runningCount() > 0 || sidecarCount() > 0; });
   }
-  spinUntil([&] { return service.runningCount() == 0; });
+  QVERIFY2(spinUntil([&] { return service.runningCount() == 0; }),
+           "控制器销毁后 worker 必须安全排空");
   // 服务池排空后进程健康；再次查询照常工作。
   AiChatRecentSummaries summaries;
   summaries.setTaskService(&service);
@@ -511,7 +515,7 @@ void TestH2RecentArchives::controllerTeardownDuringRepairIsSafe() {
                             [&](const QVector<paleo::chat::ChatSessionSummary> &,
                                 bool c) { complete = c; });
   summaries.refresh(20);
-  spinUntil([&] { return complete; });
+  QVERIFY2(spinUntil([&] { return complete; }), "销毁后的新查询必须照常 complete");
   disconnect(connection);
 }
 
@@ -565,7 +569,7 @@ void TestH2RecentArchives::saveFactIndependentFromIndexFailure() {
         sawTitle = sawTitle || s.displayTitle == QStringLiteral("恢复后的新标题");
     });
   summaries.refresh(20);
-  spinUntil([&] { return sawTitle; });
+  QVERIFY2(spinUntil([&] { return sawTitle; }), "权限恢复后必须收敛到磁盘事实");
   disconnect(connection);
   QVERIFY(sidecarCount() >= bounded);
 #endif

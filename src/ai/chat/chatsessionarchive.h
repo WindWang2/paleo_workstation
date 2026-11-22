@@ -87,12 +87,18 @@ struct ChatArchiveBudget {
   int resultPageBytes = 8 * 1024;
   int escapeWorstFactor = 6;
   qint64 contentSlack = 1024;   // 每内容块的标点/字段名/信封余量
-  qint64 messageMetaSlack = 256;// 每条消息的时间戳/id 元字段余量
-  qint64 bindingRowBytes = 768; // 每行 host 绑定的定长字段上界
+  qint64 callMetaSlack = 2560;  // 每调用帧的 id/type/name 元字段余量（含最坏转义）
+  qint64 messageMetaSlack = 1600;// 每条消息的时间戳/tool_call_id 等元字段余量（含最坏转义）
+  qint64 bindingRowBytes = 3072;// 每行 host 绑定的定长字段上界（documentId ≤256、toolName ≤128，均含最坏转义）
 
   static ChatArchiveBudget production();
   qint64 titleReserve() const;
   qint64 turnReserve() const;   // 一轮最坏增量（不含用户消息本体与标题）
+  // 一轮内可能追加的最大消息条数：1 占位外的首答开场 + (1+toolRounds) 条
+  // assistant（开场 + 续轮）+ callsPerTurn 条 role=tool 结果 + 配对合成余量。
+  qsizetype messagesPerTurn() const {
+    return 2 + toolRounds + callsPerTurn + 2;
+  }
 };
 // 当前生效预算（production，或测试注入的缩放档）。线程安全（互斥读快照）。
 const ChatArchiveBudget chatArchiveBudget();

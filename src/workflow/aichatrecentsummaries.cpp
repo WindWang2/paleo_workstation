@@ -23,7 +23,6 @@ void AiChatRecentSummaries::refresh(int limit) {
   m_limit = limit;
   const QString root = ChatSessionStore::directory();
   const auto scan = paleo::chat::scanChatArchiveFiles(root, kMaxScanEntries);
-  m_scanTruncated = scan.truncated ? 1 : 0;
   QVector<paleo::chat::ChatSessionSummary> summaries;
   QVector<paleo::chat::ChatArchiveFileStamp> candidates;
   QHash<QString, CacheEntry> cache; // 重建式缓存：只保留本轮仍命中的条目
@@ -48,6 +47,15 @@ void AiChatRecentSummaries::refresh(int limit) {
     candidates.append(stamp); // 缓存缺失/损坏/过期：待修复（不读正文）
   }
   m_cache = cache;
+  // 孤儿缓存清理（W6）：外部删除的正文不在扫描集里——只清缓存目录里的
+  // sidecar，永不触碰任何正文文件；调用方拿到的 liveIds 即当前磁盘事实。
+  {
+    QStringList liveIds;
+    liveIds.reserve(scan.files.size());
+    for (const paleo::chat::ChatArchiveFileStamp &stamp : scan.files)
+      liveIds.append(stamp.id);
+    paleo::chat::ChatSessionIndex::pruneOrphans(liveIds);
+  }
   // 排序契约：updatedAt 优先、无效回退 createdAt（与旧 loadRecent 同义）；
   // 无任何合法时间的条目排最后；同值按 id 升序——同秒批量写入也确定。
   const auto stampOf = [](const paleo::chat::ChatSessionSummary &s) {

@@ -127,13 +127,24 @@ bool ChatSessionStore::save(const ChatSession &session, QString *error) {
   }
   const QByteArray bytes =
     QJsonDocument(session.toJson()).toJson(QJsonDocument::Compact);
-  // H2-W3 对称容量：save 与 load 共用同一上限——成功写出的档案必须仍可被
-  // 自己完整载入（写入侧拒绝，不产生 load 永远拒绝的档案）。
+  // H2-W3 对称容量：save 与 load 共用同一尺——成功写出的档案必须仍可被
+  // 自己完整载入（字节上限 + 结构护栏：消息数/关键字段长度，不产生 load
+  // 永远拒绝的档案）。
   const paleo::chat::ChatArchiveBudget budget = paleo::chat::chatArchiveBudget();
   if (bytes.size() > budget.maxArchiveBytes) {
     if (error)
       *error = QObject::tr("会话超过本机档案容量上限（%1 MiB）")
                  .arg(budget.maxArchiveBytes / (1024 * 1024));
+    return false;
+  }
+  if (session.messages.size() > budget.maxMessages) {
+    if (error)
+      *error = QObject::tr("会话消息数超过档案结构上限（%1）").arg(budget.maxMessages);
+    return false;
+  }
+  if (session.model.size() > 256 || session.title.size() > budget.maxTitleCharsLoad) {
+    if (error)
+      *error = QObject::tr("会话字段长度超过档案合同上限");
     return false;
   }
   QSaveFile file(path);

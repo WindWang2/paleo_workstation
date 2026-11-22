@@ -101,10 +101,11 @@ struct ChatArchiveRepairOutcome {
 };
 
 // 冷修复：对候选逐个重建 sidecar。可在任意线程运行（纯文件 IO，不触碰
-// GUI/工程/RAW/operation 面）；每文件之间经 shouldContinue 协作取消。
-// 超上限旧档案只产 OverLimit 元信息（不读正文、不伪称完整载入）。
+// GUI/工程/RAW/operation 面）；每文件之间经 shouldStop 协作取消（返回
+// true = 停止，如 task->cancelRequested()）。超上限旧档案只产 OverLimit
+// 元信息（不读正文、不伪称完整载入）。
 ChatArchiveRepairOutcome repairChatArchiveSummaries(
     const QVector<ChatArchiveFileStamp> &candidates,
-    const std::function<bool()> &shouldContinue);
+    const std::function<bool()> &shouldStop);
 
 } // namespace paleo::chat

@@ -259,7 +259,7 @@ qint64 ChatArchiveBudget::turnReserve() const
   const qint64 toolResults =
     qint64(callsPerTurn) * (qint64(escapeWorstFactor) * (resultPageBytes + contentSlack) + messageMetaSlack);
   const qint64 toolFrames =
-    qint64(callsPerTurn) * (qint64(escapeWorstFactor) * toolArgumentBytes + contentSlack);
+    qint64(callsPerTurn) * (qint64(escapeWorstFactor) * toolArgumentBytes + callMetaSlack);
   const qint64 bindingRows = qint64(callsPerTurn) * bindingRowBytes;
   const qint64 messageMeta =
     qint64(1 + toolRounds + callsPerTurn + 4) * messageMetaSlack;
@@ -339,7 +339,9 @@ qint64 chatArchiveSerializedPrefixBytes(const ChatSession &session,
 bool chatArchiveAcceptsTurn(const ChatSession &session, const QString &userText,
                             const ChatArchiveBudget &budget, QString *reason)
 {
-  if (session.messages.size() + 1 > budget.maxMessages) {
+  // 消息数护栏按「现有 + 一轮内可能追加的最大条数」评估（轮内 append 不再
+  // 过门），保证门放行的轮次结束后仍在结构上限内（save/load 对称前提）。
+  if (session.messages.size() + budget.messagesPerTurn() > budget.maxMessages) {
     if (reason)
       *reason = QStringLiteral("message_budget_exceeded");
     return false;
@@ -380,7 +382,8 @@ bool chatArchiveAcceptsRetryPrefix(const ChatSession &session, qsizetype lastUse
       *reason = QStringLiteral("archive_budget_exceeded");
     return false;
   }
-  if (lastUser + 1 > budget.maxMessages) {
+  const qsizetype prefixMessages = lastUser + 1;
+  if (prefixMessages + budget.messagesPerTurn() - 1 > budget.maxMessages) {
     if (reason)
       *reason = QStringLiteral("message_budget_exceeded");
     return false;

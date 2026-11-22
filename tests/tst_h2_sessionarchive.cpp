@@ -322,18 +322,20 @@ void TestH2SessionArchive::directoryAndSymlinkMasqueradeRefused() {
 }
 
 void TestH2SessionArchive::overLimitArchivePreservedBytes() {
-  // 缩放档：上限 4 KiB；构造超限旧档案——字节保留、明确拒绝、可删除。
+  // 缩放档：上限 4 KiB；先用生产档写出大档案（> 4 KiB），再切缩放档验证
+  // 「超限旧档案」路径——字节保留、明确拒绝、可删除。
   paleo::chat::ChatArchiveBudget budget;
   budget.maxArchiveBytes = 4096;
   budget.maxTitleChars = 64;
   budget.maxTitleCharsLoad = 4096;
   budget.maxMessages = 100;
-  paleo::chat::setChatArchiveBudgetForTesting(budget);
 
   const QString big = QString(9000, QLatin1Char('x'));
   ChatSession session = makeSession(QStringLiteral("h2-overlimit"), big, 2);
   QString error;
-  QVERIFY(ChatSessionStore::save(session, &error)); // 生产档保存成功
+  paleo::chat::setChatArchiveBudgetForTesting(
+    paleo::chat::ChatArchiveBudget::production());
+  QVERIFY2(ChatSessionStore::save(session, &error), qPrintable(error));
   paleo::chat::setChatArchiveBudgetForTesting(budget); // 已写文件 > 4 KiB
 
   const QString path = ChatSessionStore::pathFor(session.id);
@@ -437,13 +439,17 @@ void TestH2SessionArchive::messageBudgetRefused() {
   budget.maxTitleCharsLoad = 4096;
   budget.maxMessages = 4;
   paleo::chat::setChatArchiveBudgetForTesting(budget);
+  // 直接写盘构造「消息数超限」的旧档案（save 侧同尺拒绝，不经 save）。
   ChatSession session = makeSession(QStringLiteral("h2-count"), QStringLiteral("m"), 3);
-  QString error;
-  QVERIFY(ChatSessionStore::save(session, &error)); // save 侧不查条数（字节上限管写）
+  writeRawArchive(session.id, session.toJson());
   ChatSession out;
+  QString error;
   paleo::chat::ChatArchiveReject reject = paleo::chat::ChatArchiveReject::None;
   QVERIFY(!ChatSessionStore::load(session.id, &out, &error, &reject));
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::MessageBudget);
+  // 对称面：save 拒绝写超条数档案（不产生 load 永远拒绝的档案）。
+  QVERIFY(!ChatSessionStore::save(session, &error));
+  QVERIFY(error.contains(QStringLiteral("消息数")));
   paleo::chat::setChatArchiveBudgetForTesting(paleo::chat::ChatArchiveBudget::production());
 }
 
@@ -494,9 +500,9 @@ void TestH2SessionArchive::admissionMathBoundaries() {
                                                budget, &reason));
   QCOMPARE(reason, QStringLiteral("archive_budget_exceeded"));
 
-  // 消息数边界。
+  // 消息数边界：护栏按「现有 + 一轮可能追加的最大条数」评估。
   paleo::chat::ChatArchiveBudget tiny = budget;
-  tiny.maxMessages = 2;
+  tiny.maxMessages = budget.messagesPerTurn() + 2;
   ChatSession three;
   three.id = QStringLiteral("h2-admit-3");
   for (int i = 0; i < 3; ++i) {
@@ -507,8 +513,9 @@ void TestH2SessionArchive::admissionMathBoundaries() {
   }
   QVERIFY(!paleo::chat::chatArchiveAcceptsTurn(three, QStringLiteral("x"), tiny, &reason));
   QCOMPARE(reason, QStringLiteral("message_budget_exceeded"));
+  QVERIFY(paleo::chat::chatArchiveAcceptsTurn(three, QStringLiteral("x"), budget, &reason));
 
-  // retry 前缀：前缀恰好可行/超 1 字节拒绝；lastUser 越界拒绝。
+  // retry 前缀：lastUser 指向唯一 user（0）；前缀可容纳时放行。
   ChatSession retrySession = empty;
   ChatMessage user;
   user.role = ChatRole::User;
@@ -516,24 +523,25 @@ void TestH2SessionArchive::admissionMathBoundaries() {
   retrySession.messages.append(user);
   ChatMessage assistant;
   assistant.role = ChatRole::Assistant;
-  assistant.content = QString(4096, QLatin1Char('a')); // 大回答：resize 前就该拒绝
+  assistant.content = QStringLiteral("旧回答");
   retrySession.messages.append(assistant);
-  // 前缀 = user；余量按 (cap - prefix - reserve) 反推可用回答尺寸。
+  QVERIFY2(paleo::chat::chatArchiveAcceptsRetryPrefix(retrySession, 0, budget, &reason),
+           qPrintable(reason)); // 小前缀 + 预留仍在限内：放行
+  // 把旧回答加大到「整体仍可 load（< cap）但前缀+一轮预留超限」——
+  // resize 前就该拒绝（合法近上限旧档案的重试边界）。
   const qint64 prefixBytes = paleo::chat::chatArchiveSerializedPrefixBytes(retrySession, 1);
-  const qint64 overhead = paleo::chat::chatArchiveSerializedBytes(retrySession) -
-                          paleo::chat::chatArchiveSerializedPrefixBytes(retrySession, 2);
-  QVERIFY(overhead > 0);
-  QVERIFY(!paleo::chat::chatArchiveAcceptsRetryPrefix(retrySession, 1, budget, &reason)
-          || prefixBytes + budget.turnReserve() + budget.titleReserve() <= budget.maxArchiveBytes);
-  // 把回答加大到使「前缀+reserve」超限，但整体仍可 load（字节 < cap）。
-  const qint64 grow = budget.maxArchiveBytes + 1024 - prefixBytes -
-                      paleo::chat::chatArchiveSerializedBytes(retrySession);
+  const qint64 whole = paleo::chat::chatArchiveSerializedBytes(retrySession);
+  const qint64 grow = budget.maxArchiveBytes - (prefixBytes + budget.turnReserve() +
+                                                budget.titleReserve()) - whole + 64;
+  QVERIFY(grow > 0);
   assistant.content += QString(grow, QLatin1Char('a'));
   retrySession.messages.last() = assistant;
-  QVERIFY(paleo::chat::chatArchiveSerializedBytes(retrySession) > budget.maxArchiveBytes);
-  QVERIFY(!paleo::chat::chatArchiveAcceptsRetryPrefix(retrySession, 1, budget, &reason));
+  QVERIFY(paleo::chat::chatArchiveSerializedBytes(retrySession) < budget.maxArchiveBytes);
+  QVERIFY(!paleo::chat::chatArchiveAcceptsRetryPrefix(retrySession, 0, budget, &reason));
   QCOMPARE(reason, QStringLiteral("archive_budget_exceeded"));
+  // lastUser 越界/指向非 user：拒绝（与 validateInvocationRetry 同界）。
   QVERIFY(!paleo::chat::chatArchiveAcceptsRetryPrefix(retrySession, -1, budget, &reason));
+  QVERIFY(!paleo::chat::chatArchiveAcceptsRetryPrefix(retrySession, 1, budget, &reason));
   QVERIFY(!paleo::chat::chatArchiveAcceptsRetryPrefix(retrySession, 5, budget, &reason));
 
   // 标题：超字段/候选档案成本拒绝；合法标题放行。

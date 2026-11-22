@@ -63,7 +63,6 @@ private:
   QPointer<PaleoTask> m_repairTask;
   std::shared_ptr<RepairRun> m_run;
   int m_limit = 20;
-  int m_scanTruncated = 0; // 最近一次扫描的截断信号（partial 发布口径）
   bool m_repairSuppressed = false; // sidecar 写失败后停止自动重试（防循环）
   QVector<paleo::chat::ChatArchiveFileStamp> m_failedCandidates; // 触发抑制的
   // 候选指纹：候选集合/指纹变化（新保存、外部改动）即恢复修复资格。

@@ -378,6 +378,7 @@ private slots:
   void eofWithBrokenTailFailsMalformed();
   void normalCloseWithoutDoneTolerated();
   void singleUnterminatedEventWithoutBlankLineSucceeds();
+  void prettyPrintedJsonUnderStreamFlagStillUsesFallback();
   void errorEnvelope200FailsHonestly();
   void emptyChoicesNonStreamFails();
   void nonObjectMessageFails();
@@ -1126,6 +1127,42 @@ void TestG1ModelTransport::singleUnterminatedEventWithoutBlankLineSucceeds() {
   QCOMPARE(recorder.joined(), QStringLiteral("唯一事件"));
   QCOMPARE(recorder.errors, 0);
   QCOMPARE(recorder.finishReason, QStringLiteral("stop")); // 缺 finish_reason 退化
+}
+
+// #588 兼容层的反向钉子：EOF 收尾现在**无条件**把尾字节喂解析器（为恢复
+// PW-061），必须不破坏「stream=true 收普通 JSON」的 fallback——美化打印的
+// JSON 文档里没有任何行以 `data:` 开头（JSON 字符串内的换行必为转义形式），
+// 喂解析器不产出事件，仍按非流式解析出内容。
+void TestG1ModelTransport::prettyPrintedJsonUnderStreamFlagStillUsesFallback() {
+  const QJsonObject payload{
+      {"choices", QJsonArray{QJsonObject{
+          {"index", 0},
+          {"finish_reason", "stop"},
+          {"message", QJsonObject{{"role", "assistant"},
+                                  {"content", "白云岩"}}}}}},
+      {"usage", QJsonObject{{"prompt_tokens", 9}, {"completion_tokens", 4}}}};
+  const QByteArray body =
+      QJsonDocument(payload).toJson(QJsonDocument::Indented);
+  RawServer server;
+  QVERIFY(server.start([&] {
+    return RawServer::Response{.contentType = "application/json",
+                               .writes = {body}};
+  }));
+  LlmClient client;
+  Recorder recorder;
+  recorder.attach(&client);
+  client.setConfig(clientConfig(server.endpoint()));
+  client.send(oneShot());
+  QVERIFY2(spinUntil([&] { return recorder.finished >= 1; }, 4000),
+           qPrintable(QStringLiteral("美化打印 JSON 必须经 fallback 收尾"
+                                     "（errors=%1 %2）")
+                        .arg(recorder.errors)
+                        .arg(recorder.errorMessages.join(QStringLiteral(";")))));
+  QCOMPARE(recorder.joined(), QStringLiteral("白云岩"));
+  QCOMPARE(recorder.errors, 0);
+  QCOMPARE(recorder.promptTokens, 9);
+  QCOMPARE(recorder.completionTokens, 4);
+  QVERIFY(server.rawRequests().first().contains("text/event-stream")); // 前提自检
 }
 
 void TestG1ModelTransport::errorEnvelope200FailsHonestly() {

@@ -364,21 +364,6 @@
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/aichatcontroller.cpp" line="279" />
-            <source>配置写入失败：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/workflow/aichatcontroller.cpp" line="294" />
-            <source>密钥写入钥匙串失败：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/workflow/aichatcontroller.cpp" line="310" />
-            <source>清除密钥失败：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
             <location filename="../src/workflow/aichatcontroller.cpp" line="398" />
             <source>…[结果超长已截断：原始 %1 字符]</source>
             <translation type="unfinished" />
@@ -33201,6 +33186,93 @@ PDF：%3
             <location filename="../src/ai/chat/llmclient.cpp" line="566" />
             <source>应答缺少 choices 字段</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmclient.cpp" line="237" />
+            <source>大模型请求超过总时限（%1 ms；空闲计时不延长它）</source>
+            <translation>The model request exceeded the total time limit (%1 ms, regardless of idle timer resets).</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmclient.cpp" line="498" />
+            <location filename="../src/ai/chat/llmclient.cpp" line="527" />
+            <source>（无详情）</source>
+            <translation>(no details)</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmclient.cpp" line="500" />
+            <location filename="../src/ai/chat/llmclient.cpp" line="529" />
+            <source>服务端返回错误信封：%1</source>
+            <translation>The server returned an error response: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmclient.cpp" line="507" />
+            <source>流式应答未包含任何事件</source>
+            <translation>The streaming response contained no events.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmclient.cpp" line="542" />
+            <source>应答缺少 message 字段</source>
+            <translation>The response is missing the message field.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmconfigcommit.cpp" line="149" />
+            <source>；配置文件还原失败：%1</source>
+            <translation>; failed to restore the configuration file: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmconfigcommit.cpp" line="159" />
+            <source>；钥匙串密钥清理也失败：%1（须手动重新配置）</source>
+            <translation>; failed to clear the keychain key as well: %1 (reconfigure manually)</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmstreamparser.cpp" line="188" />
+            <source>工具调用 index=%1 在完整交付后再次收到分片</source>
+            <translation>Tool call index=%1 received another fragment after delivery.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmstreamparser.cpp" line="202" />
+            <source>工具调用 index=%1 的 id 前后冲突（%2 → %3）</source>
+            <translation>Tool call index=%1 has conflicting id values (%2 → %3).</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmstreamparser.cpp" line="213" />
+            <source>工具调用 index=%1 的 name 前后冲突（%2 → %3）</source>
+            <translation>Tool call index=%1 has conflicting name values (%2 → %3).</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmstreamparser.cpp" line="227" />
+            <source>工具调用 index=%1 的 arguments 在已完整后又收到分片</source>
+            <translation>Tool call index=%1 received another arguments fragment after its arguments were complete.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmstreamparser.cpp" line="294" />
+            <source>工具调用 index=%1 缺 name，无法构成调用</source>
+            <translation>Tool call index=%1 is missing the name required to invoke it.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmstreamparser.cpp" line="313" />
+            <source>工具调用 index=%1 的 arguments 超出 %2 字节预算</source>
+            <translation>Tool call index=%1 has arguments exceeding the %2-byte limit.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmstreamparser.cpp" line="317" />
+            <source>工具调用 index=%1 的 arguments 不是合法 JSON 对象</source>
+            <translation>The arguments for tool call index=%1 are not a valid JSON object.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmconfigcommit.cpp" line="92" />
+            <source>配置写入失败：%1</source>
+            <translation>Failed to write the configuration: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmconfigcommit.cpp" line="130" />
+            <source>密钥写入钥匙串失败：%1</source>
+            <translation>Failed to save the key to the keychain: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/llmconfigcommit.cpp" line="129" />
+            <source>清除密钥失败：%1</source>
+            <translation>Failed to clear the key: %1</translation>
         </message>
         <message>
             <location filename="../src/ai/remotepredictrouter.cpp" line="349" />

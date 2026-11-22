@@ -8772,7 +8772,7 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
     </message>
       <message>
         <source>工程处于只读模式，撤销/重做已禁用</source>
-        <translation type="unfinished"></translation>
+        <translation>工程处于只读模式，撤销/重做已禁用</translation>
     </message>
 </context>
 <context>
@@ -24498,99 +24498,99 @@ PDF：%3
         </message>
       <message>
         <source>工程正在打开或切换，请稍后再试</source>
-        <translation type="unfinished"></translation>
+        <translation>工程正在打开或切换，请稍后再试</translation>
     </message>
     <message>
         <source>命令所需依赖不可用：%1</source>
-        <translation type="unfinished"></translation>
+        <translation>命令所需依赖不可用：%1</translation>
     </message>
     <message>
         <source>画布控制器</source>
-        <translation type="unfinished"></translation>
+        <translation>画布控制器</translation>
     </message>
     <message>
         <source>图层服务</source>
-        <translation type="unfinished"></translation>
+        <translation>图层服务</translation>
     </message>
     <message>
         <source>约束编图页</source>
-        <translation type="unfinished"></translation>
+        <translation>约束编图页</translation>
     </message>
     <message>
         <source>测井预测修订面板</source>
-        <translation type="unfinished"></translation>
+        <translation>测井预测修订面板</translation>
     </message>
     <message>
         <source>测井预测窗口</source>
-        <translation type="unfinished"></translation>
+        <translation>测井预测窗口</translation>
     </message>
     <message>
         <source>影响分析反馈</source>
-        <translation type="unfinished"></translation>
+        <translation>影响分析反馈</translation>
     </message>
     <message>
         <source>已显示图件登记</source>
-        <translation type="unfinished"></translation>
+        <translation>已显示图件登记</translation>
     </message>
     <message>
         <source>图件显示入口</source>
-        <translation type="unfinished"></translation>
+        <translation>图件显示入口</translation>
     </message>
     <message>
         <source>证据参考入口</source>
-        <translation type="unfinished"></translation>
+        <translation>证据参考入口</translation>
     </message>
     <message>
         <source>图例刷新入口</source>
-        <translation type="unfinished"></translation>
+        <translation>图例刷新入口</translation>
     </message>
     <message>
         <source>井道面板入口</source>
-        <translation type="unfinished"></translation>
+        <translation>井道面板入口</translation>
     </message>
     <message>
         <source>编辑会话入口</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑会话入口</translation>
     </message>
     <message>
         <source>属性表导航</source>
-        <translation type="unfinished"></translation>
+        <translation>属性表导航</translation>
     </message>
     <message>
         <source>图谱导航</source>
-        <translation type="unfinished"></translation>
+        <translation>图谱导航</translation>
     </message>
     <message>
         <source>数据管理导航</source>
-        <translation type="unfinished"></translation>
+        <translation>数据管理导航</translation>
     </message>
     <message>
         <source>图件输出入口</source>
-        <translation type="unfinished"></translation>
+        <translation>图件输出入口</translation>
     </message>
     <message>
         <source>工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消</source>
-        <translation type="unfinished"></translation>
+        <translation>工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消</translation>
     </message>
     <message>
         <source>操作未执行（%1）：%2</source>
-        <translation type="unfinished"></translation>
+        <translation>操作未执行（%1）：%2</translation>
     </message>
     <message>
         <source>操作未执行：%1 未被其声明处理族受理（登记与实现不一致）</source>
-        <translation type="unfinished"></translation>
+        <translation>操作未执行：%1 未被其声明处理族受理（登记与实现不一致）</translation>
     </message>
     <message>
         <source>工作台上下文不完整，操作未执行：%1</source>
-        <translation type="unfinished"></translation>
+        <translation>工作台上下文不完整，操作未执行：%1</translation>
     </message>
     <message>
         <source>工作台上下文不完整（窗口/状态栏/工作台/页面）</source>
-        <translation type="unfinished"></translation>
+        <translation>工作台上下文不完整（窗口/状态栏/工作台/页面）</translation>
     </message>
     <message>
         <source>工程处于只读模式，撤销/重做已禁用</source>
-        <translation type="unfinished"></translation>
+        <translation>工程处于只读模式，撤销/重做已禁用</translation>
     </message>
 
     </context>
@@ -25234,11 +25234,11 @@ PDF：%3
     </message>
     <message>
         <source>命令源按钮已销毁；切换页签或重建面板后恢复</source>
-        <translation type="unfinished"></translation>
+        <translation>命令源按钮已销毁；切换页签或重建面板后恢复</translation>
     </message>
     <message>
         <source>命令源不可用；切换页签或重建面板后恢复</source>
-        <translation type="unfinished"></translation>
+        <translation>命令源不可用；切换页签或重建面板后恢复</translation>
     </message>
 </context>
 <context>

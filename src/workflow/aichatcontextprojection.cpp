@@ -9,6 +9,8 @@
 #include <QSet>
 #include <QtGlobal>
 
+#include <limits>
+
 namespace paleo::chat {
 namespace {
 
@@ -48,11 +50,13 @@ QString adaptToolContentForWire(const QString &content) {
   return QString::fromUtf8(compactJson(wrapped));
 }
 
-// 一轮的投影产物：发送形态消息 + 协议判定 + 最终形态计价。
+// 一轮的投影产物：发送形态消息 + 协议判定 + 最终形态计价 + 归一计数。
 struct TurnView {
   QVector<ChatMessage> wire;
   QString violation; // 非空 = 协议损坏（机器码，不含用户内容）
   int cost = 0;      // 最终协议形态估算 token（饱和在预算上限）
+  int strippedSystem = 0;     // 本轮剔除的存储 System 条数
+  int droppedEmptyAssistants = 0; // 本轮剔除的空 assistant 条数
 };
 
 // 轮内协议闭合（W2）：assistant tool_calls 与紧随其后的 role=tool 应答必须
@@ -61,7 +65,7 @@ struct TurnView {
 // 同时完成发送形态归一：剔 System、剔空 assistant 占位、tool 内容转 envelope。
 // 损坏即返回：不做「部分保留」——半条 tool pair 进请求同样是协议违规。
 TurnView prepareTurn(const QVector<ChatMessage> &messages, int begin, int end,
-                     int ceiling, ContextProjectionDiagnostics *diagnostics) {
+                     int ceiling) {
   TurnView out;
   QSet<QString> pending; // 已声明、等应答的 call id
   QSet<QString> seen;    // 本轮声明过的 call id（查重复声明）
@@ -75,15 +79,15 @@ TurnView prepareTurn(const QVector<ChatMessage> &messages, int begin, int end,
     const ChatMessage &message = messages.at(index);
     if (message.role == ChatRole::System) {
       // 存储中的 System（旧档案残留）不进请求、不拼回宿主提示——存储历史
-      // 不是新的高优先级指令来源。原档案不动，仅计数。
-      ++diagnostics->strippedSystemMessages;
+      // 不是新的高优先级指令来源。原档案不动，仅计数（随轮纳入诊断）。
+      ++out.strippedSystem;
       continue;
     }
     if (message.role == ChatRole::Assistant && message.content.isEmpty() &&
         message.toolCalls.isEmpty()) {
       // 空 assistant（sendRound 的流式占位/历史残留）：本地落点，不是协议
       // 消息，不发送。带 toolCalls 的空 content assistant 是合法帧，保留。
-      ++diagnostics->droppedEmptyAssistants;
+      ++out.droppedEmptyAssistants;
       continue;
     }
     if (message.role == ChatRole::Assistant && !message.toolCalls.isEmpty()) {
@@ -206,18 +210,21 @@ ContextProjection projectChatRequest(const ChatSession &session,
   QVector<Range> ranges; // 最新轮在前
   const int total = int(session.messages.size());
   int boundary = total;
+  bool scannedToStart = true; // 是否扫到首条消息（false = 窗外还有未扫内容）
   for (int index = total - 1; index >= 0; --index) {
     ++diagnostics.scannedMessages;
     if (session.messages.at(index).role == ChatRole::User) {
       ranges.append({index, boundary});
       boundary = index;
-      if (int(ranges.size()) > limits.maxHistoryTurns)
-        break; // 窗外还有更旧内容：到此为止
+      if (int(ranges.size()) > limits.maxHistoryTurns) {
+        scannedToStart = false; // 窗外还有更旧内容：到此为止
+        break;
+      }
     }
   }
-  if (boundary > 0 && int(ranges.size()) <= limits.maxHistoryTurns)
+  if (scannedToStart && boundary > 0)
     ranges.append({0, boundary}); // 首个 User 之前的引导消息（旧档案形态）
-  diagnostics.olderContentBeyondScan = int(ranges.size()) > limits.maxHistoryTurns;
+  diagnostics.olderContentBeyondScan = !scannedToStart;
 
   // ---- 连续后缀选择（W4）：锚在最新轮，从新到旧逐轮纳入；遇「无法纳入」
   // （预算耗尽/轮数满/协议损坏）即停——绝不跳过较近轮去捞更旧小轮。
@@ -225,7 +232,11 @@ ContextProjection projectChatRequest(const ChatSession &session,
   // cost==budget 可纳入、cost==budget+1 判超限（累加面有界，比较不失真）。 ----
   QVector<TurnView> kept; // 新→旧收集，装配时倒序
   qint64 remaining = limits.historyTokenBudget;
-  const int tokenCeiling = limits.historyTokenBudget + 1;
+  // +1 前钳上限：退化的 INT_MAX 预算不制造有符号溢出（此时等值即极限）。
+  const int tokenCeiling =
+    limits.historyTokenBudget >= std::numeric_limits<int>::max() - 1
+      ? std::numeric_limits<int>::max()
+      : limits.historyTokenBudget + 1;
   for (int round = 0; round < ranges.size(); ++round) {
     const bool currentTurn = round == 0;
     if (!currentTurn && int(kept.size()) >= limits.maxHistoryTurns) {
@@ -234,8 +245,7 @@ ContextProjection projectChatRequest(const ChatSession &session,
     }
     const Range &range = ranges.at(round);
     const TurnView turn =
-      prepareTurn(session.messages, range.begin, range.end,
-                  tokenCeiling, &diagnostics);
+      prepareTurn(session.messages, range.begin, range.end, tokenCeiling);
     if (!turn.violation.isEmpty()) {
       if (currentTurn) {
         // 当前必需轮损坏：不允许丢掉真实结果继续，明确拒绝整个请求。
@@ -257,6 +267,9 @@ ContextProjection projectChatRequest(const ChatSession &session,
       break;
     }
     remaining -= turn.cost;
+    // 归一计数只随**实际进入请求**的轮累计——被截断/排除的轮不虚报。
+    diagnostics.strippedSystemMessages += turn.strippedSystem;
+    diagnostics.droppedEmptyAssistants += turn.droppedEmptyAssistants;
     kept.append(turn);
   }
   diagnostics.historyTokens =

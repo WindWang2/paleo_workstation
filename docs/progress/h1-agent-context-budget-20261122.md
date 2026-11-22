@@ -20,7 +20,7 @@ assistant 占位 → `m_client.send(requestMessages(), m_turnTools)` →
 | 缺口 4（W1） | sendRound 追加的空 assistant 占位被当作 `{"role":"assistant","content":""}` 发送 | 投影剔除占位（存储不动） |
 | 缺口 5（W2） | 仅按 User 边界分组，无 tool_call/应答配对校验——孤儿/重复/跨轮 tool 消息可产出协议非法请求 | 逐轮协议闭合校验；损坏旧轮整轮排除，当前轮损坏即拒绝发送 |
 | 缺口 6（W5） | 最新轮无条件保留，单轮超预算也照发 | 当前必需轮超限→明确不可发送原因，零 HTTP，走既有停轮路径 |
-| 缺口 7（W6） | 无请求体字节保护；固定 prompt/工具声明/输出预留与历史预算不分账 | 投影诊断分账 + 独立字节闸（256KiB 请求体 / 64KiB 工具声明，依据见组件头注） |
+| 缺口 7（W6） | 无请求体字节保护；固定 prompt/工具声明/输出预留与历史预算不分账 | 投影诊断分账 + 独立字节闸（256KiB 请求体 / 128KiB 工具声明——初拟 64KiB 低于内置表实测 ~72KiB，已校准，依据见组件头注与复盘） |
 | 缺口 8（W7） | requestMessages 每轮全量复制整段历史、int 累加 | 尾部有界扫描（≤N+1 轮）；qint64 饱和计数；不建缓存（失效面>收益） |
 
 边界（必须不破坏）：G5 tst_g5_conversation_workbench「loadSession 零模型请求、
@@ -93,3 +93,22 @@ docs_drift ✅、cpp_mainline ✅、`--transitive`（deb 头目录全闸）黄�
 - 工具声明字节闸初版 64 KiB 低于当前内置表实测 ~72 KiB（会拒掉所有带工具
   请求）——实测校准为 128 KiB（测试钉住余量）；
 - 空工具表的声明字节按「不上送=0」报告（序列化 "[]" 不计成本）。
+
+## 独立复审（2026-11-23，reviewer 未参与实现）
+
+结论 **APPROVE**（无 P1/P2；P3×7）。已修 5 项：
+
+- 归一计数（strippedSystem/空 assistant）改为只随实际进入请求的轮累计，
+  被截断/排除的轮不虚报；
+- 尾部扫描改用 scannedToStart 判定「窗外还有未扫内容」——修正 lead-in 轮
+  附加与 maxHistoryTurns=0 无 User 会话下 truncated 的假阳性；
+- tokenCeiling 的 +1 加钳上限，退化的 INT_MAX 预算不制造有符号溢出；
+- Pi 链 byte oracle 升级为**逐字节**比较（原为对象级，键序/格式漂移不红）；
+- 本文缺口 7 行的声明闸数值与实现对齐（128KiB，含校准说明）。
+
+记录不改的 2 项：续轮中段投影拒绝未单测——按账本口径分析，admitToolCalls
+的 m_toolTokens（含 prompt+maxTokens/2 预留）比投影计价更紧，中段
+current_turn_exceeds_history_budget 经控制器常量不可达，路径与首轮同一
+sendRound/failTurn 接缝（已被首轮零 HTTP 测试钉住）；`int(messages.size())`
+窄化与周边代码风格一致（>2^31 消息的会话不在现实面）。reviewer 亦独立
+复跑 4 个受影响套件与 3 项闸门全绿。

@@ -657,7 +657,7 @@ void TestH1RequestAssembly::controlledPiPeerChainMatchesProjectionOracle() {
   QCOMPARE(messages.last().toObject().value(QStringLiteral("role")).toString(),
            QStringLiteral("user"));
   // 线上体与纯投影序列化逐字节一致（byte oracle：issueRequest 与
-  // serializeChatRequestBody 同形）。
+  // serializeChatRequestBody 同形同序——键序/格式漂移在此处即红）。
   ChatSession view;
   view.messages = controller.messages();
   for (int index = 0; index < view.messages.size(); ++index)
@@ -667,9 +667,9 @@ void TestH1RequestAssembly::controlledPiPeerChainMatchesProjectionOracle() {
   const auto projection = paleo::chat::projectChatRequest(
     view, controller.systemPrompt(), controller.tools(), controller.config());
   QVERIFY(projection.diagnostics.sendable);
-  QCOMPARE(QJsonDocument::fromJson(server.rawBody(0)).object(),
-           QJsonDocument::fromJson(paleo::chat::serializeChatRequestBody(
-             projection.messages, controller.tools(), controller.config())).object());
+  QCOMPARE(server.rawBody(0),
+           paleo::chat::serializeChatRequestBody(
+             projection.messages, controller.tools(), controller.config()));
 }
 
 QTEST_GUILESS_MAIN(TestH1RequestAssembly)

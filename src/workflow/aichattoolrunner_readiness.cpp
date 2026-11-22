@@ -101,6 +101,13 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(!result.effects)return fail("invalid_publish_intent");
   const auto denied=paleo::host::checkContext(live,expected,result.effects);
   if(!denied.isEmpty())return fail(denied);
+  // H4：operation_list 只需 Read（写权限不足不阻止只读发现）；扫描走
+  // TaskService worker，资格在此精确声明，不假设调用方替它检查。
+  if(name==QLatin1String("paleo.operation_list")) {
+    if(!context.capabilityHost->recovery())return fail("host_unavailable");
+    if(!m_taskService)return fail("task_service_unavailable");
+    result.ready=true;return result;
+  }
   if((name==QLatin1String("paleo.query_project") || name==QLatin1String("paleo.asset_lineage")) &&
       (!context.catalog || !context.catalog->isOpen()))return fail("catalog_unavailable");
   if(name==QLatin1String("paleo.well_facies_prediction")) {

@@ -1,6 +1,7 @@
 // 层：功能
 // workflow/capabilityrecovery.cpp — 先查持久身份，再冻结/分配/运行。
 #include "capabilityrecovery_internal.h"
+#include "operationdiscovery.h"
 #include "services/operationretention.h"
 #include "capabilitypublication_internal.h"
 #include "catalog/datacatalog.h"
@@ -92,6 +93,9 @@ void CapabilityRecovery::invalidateRuntimeHooks(bool cancelRunning) {
   m_resultReader.reset();
   m_runtimeHooks.clear();
   if(cancelRunning){m_runtimeDocument.clear();m_runtimeProject.clear();m_runtimeEpoch=0;}
+  // H4：宿主绑定/会话身份变化即丢弃发现快照与游标——旧作用域的分页不再
+  // 可用，也不与新上下文的查询合并。
+  if(m_discovery)m_discovery->invalidate();
 }
 void CapabilityRecovery::setTaskService(PaleoTaskService *tasks){m_tasks=tasks;}
 void CapabilityRecovery::setCheckpointHook(std::function<void(const QString&)> hook){m_checkpoint=std::move(hook);}

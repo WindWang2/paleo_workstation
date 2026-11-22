@@ -174,7 +174,7 @@ QJsonObject syntheticRow(const QString &doc, const QString &scope, const QString
                          const QJsonObject &stagePlan = QJsonObject()) {
   QJsonObject row;
   row.insert(QStringLiteral("operationId"), QStringLiteral("op-") + uuid());
-  row.insert(QStringLiteral("key"), QString::fromUtf8(operation_detail::key(doc, scope, request)));
+  row.insert(QStringLiteral("key"), operation_detail::key(doc, scope, request));
   row.insert(QStringLiteral("requestHash"), QString(64, 'c'));
   row.insert(QStringLiteral("execution"), QStringLiteral("succeeded"));
   row.insert(QStringLiteral("commitState"), QStringLiteral("committed"));
@@ -341,7 +341,7 @@ void H4OperationDiscovery::v1QuarantinedAndForeignNeighborsStayOut() {
     QJsonArray edited = rows;
     QJsonObject v1;
     v1.insert(QStringLiteral("operationId"), QStringLiteral("op-") + uuid());
-    v1.insert(QStringLiteral("key"), QString::fromUtf8(operation_detail::key("doc", scope, "legacy")));
+    v1.insert(QStringLiteral("key"), operation_detail::key("doc", scope, "legacy"));
     v1.insert(QStringLiteral("requestHash"), QString(64, 'e'));
     v1.insert(QStringLiteral("execution"), QStringLiteral("succeeded"));
     v1.insert(QStringLiteral("commitState"), QStringLiteral("not_requested"));
@@ -473,7 +473,7 @@ void H4OperationDiscovery::budgetCursorAndCacheDiscipline() {
 
   page = service.query(scan, {{QStringLiteral("page_size"), 1}});
   QVERIFY(page.value(QStringLiteral("ok")).toBool());
-  const QString cursor = page.value(QStringLiteral("nextCursor").toString());
+  const QString cursor = page.value(QStringLiteral("nextCursor")).toString();
   QVERIFY(!cursor.isEmpty());
 
   // 篡改游标（MAC 负例）与换条件续页。
@@ -520,8 +520,8 @@ void H4OperationDiscovery::snapshotImmutabilityWhileBusinessAdvances() {
   QCOMPARE(log.acceptDurable(second).code, QLatin1String("created"));
   first = log.recordById(first.operationId);
   second = log.recordById(second.operationId);
-  QVERIFY(begin(log, first));
-  QVERIFY(begin(log, second));
+  QCOMPARE(begin(log, first), QLatin1String("ok"));
+  QCOMPARE(begin(log, second), QLatin1String("ok"));
   ProjectDirLock lock(root.path());
   QVERIFY(lock.tryLock());
   OperationDiscovery service;
@@ -752,7 +752,7 @@ void H4OperationDiscovery::listDoesNotReconcileWhileGetDoes() {
   OperationLog log(logDir(root.path()), root.path(), host.lock->claim());
   QCOMPARE(log.acceptDurable(record).code, QLatin1String("created"));
   record = log.recordById(record.operationId);
-  QVERIFY(begin(log, record));
+  QCOMPARE(begin(log, record), QLatin1String("ok"));
   record.execution = QStringLiteral("prepared");
   record.code = QStringLiteral("prepared");
   record.preparedManifest = {{QStringLiteral("staged"), true}};

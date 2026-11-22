@@ -68,7 +68,7 @@ struct ToolHost {
   QString session = "chat-" + uuid();
   int businessRuns = 0;
   std::shared_ptr<int> calls = std::make_shared<int>(0);
-  ToolHost() : host(CapabilityHost::NativeAdapterFactory{}) {
+  ToolHost() : host(NativeAdapterFactory(), nullptr) {
     QVERIFY2(lock->tryLock(), "project lock");
     QVERIFY2(catalog.open(root.path()), "catalog open");
     host.setTaskService(&tasks);
@@ -107,7 +107,7 @@ struct ToolHost {
     }
     bool done = false;
     ExecuteResult result;
-    auto *task = host.recovery()->start(accepted.record.callerScope, accepted.record.operationId, &host.host,
+    auto *task = host.recovery()->start(accepted.record.callerScope, accepted.record.operationId, &host,
         QStringLiteral("h4"), [&](ExecuteResult r) { result = r; done = true; }, false, error);
     if (!task)
       return false;

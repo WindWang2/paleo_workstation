@@ -231,7 +231,7 @@ QVector<QJsonValue> jsonValues(const QJsonArray &array) {
 QJsonArray sortedNodeArray(const QJsonObject &graph) {
   // QJsonArray 迭代器解引用为 QJsonValueRef，无可行 swap——拷贝到
   // QVector 排序后重建（节点数 ≤32，成本可忽略）。
-  const auto values = jsonValues(graph.value(QStringLiteral("nodes")).toArray());
+  auto values = jsonValues(graph.value(QStringLiteral("nodes")).toArray());
   std::stable_sort(values.begin(), values.end(),
                    [](const QJsonValue &a, const QJsonValue &b) {
                      return a.toObject().value(QStringLiteral("id")).toString() <
@@ -244,7 +244,7 @@ QJsonArray sortedNodeArray(const QJsonObject &graph) {
 }
 
 QJsonArray sortedEdgeArray(const QJsonObject &graph) {
-  const auto values = jsonValues(graph.value(QStringLiteral("edges")).toArray());
+  auto values = jsonValues(graph.value(QStringLiteral("edges")).toArray());
   const auto key = [](const QJsonValue &value) {
     const auto edge = value.toObject();
     return QStringList{edge.value(QStringLiteral("from")).toString(),

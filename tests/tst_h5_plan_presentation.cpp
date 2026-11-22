@@ -94,9 +94,9 @@ QJsonObject validTwoStepGraph() {
 }
 
 // 与 runPlanPreview 同一实现的提案载荷（工具入口在 tst_h5_plan_preview 覆盖）。
+// 夹具解码失败时载荷 ok=false，下游断言会给出可定位失败。
 QJsonObject previewPayloadFor(const QJsonObject &graph) {
   const auto decoded = paleo::chat::decodePlanPreviewGraph(graph);
-  QCOMPARE(decoded.ok, true);
   const auto plan = validatePlan(decoded.nodes, decoded.edges);
   return paleo::chat::planPreviewPayload(plan, decoded.nodes, decoded.edges, {}, {});
 }
@@ -183,6 +183,11 @@ void TestH5PlanPresentation::computeRunsRealTwoStepChainComputeOnly() {
   QVERIFY2(presenter.requestCompute(draftId, &reason), qPrintable(reason));
   QCOMPARE(presenter.prepareAttempts(), 1u);
   QCOMPARE(presenter.startAttempts(), 1u);
+  // 双击/同步重入：busy 拒绝，不产生第二次 prepare/start。
+  QString busyReason;
+  QVERIFY(!presenter.requestCompute(draftId, &busyReason));
+  QCOMPARE(busyReason, QStringLiteral("request_already_busy"));
+  QCOMPARE(presenter.prepareAttempts(), 1u);
   QVERIFY2(finished.wait(30000), "真实 IDW→contour worker 必须完成");
   const auto facts = finished.at(0).at(1).toJsonObject();
   QVERIFY2(facts.value(QStringLiteral("ok")).toBool(),
@@ -413,17 +418,16 @@ void TestH5PlanPresentation::lateResultDoesNotOverrideNewerRevision() {
   QVERIFY(presenter.requestPreflight(draftId, &reason));
   QSignalSpy finished(&presenter, &paleo::chat::AiPlanPresentation::computeFinished);
   QVERIFY(presenter.requestCompute(draftId, &reason));
-  // 计算在途时编辑图（新修订）：晚到的结果属于旧请求，不得改写新修订状态。
+  // 计算在途时编辑图（新修订）：晚到的结果属于旧请求——操作事实保留可见，
+  // 但不得把新修订标记为已执行（执行资格仍失效，修订不被回滚）。
   editCellSize(graph, 12.5);
   QVERIFY(presenter.updateDraftGraph(draftId, graph, &reason));
   const int revisionsAtEdit = presenter.draft(draftId).revision;
   QVERIFY(finished.wait(30000));
-  // 晚结果被新修订挡下（computeFinished 只对在途身份的修订发出）。
-  Q_UNUSED(revisionsAtEdit);
   const auto view = presenter.draft(draftId);
-  // 草案仍在（可读、修订保留）；当前修订未获得执行事实贴附。
   QCOMPARE(view.revision, revisionsAtEdit);
   QVERIFY(!view.executionEligible);
+  QVERIFY(!view.operationId.isEmpty()); // 旧请求的操作事实保留（W7.5）
 }
 
 int main(int argc, char **argv) {

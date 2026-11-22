@@ -1,7 +1,12 @@
 // 层：功能
 #include "chatsession.h"
 
+#include "chatsessionarchive.h"
+#include "chatsessionindex.h"
+
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
@@ -120,43 +125,131 @@ bool ChatSessionStore::save(const ChatSession &session, QString *error) {
       *error = QObject::tr("会话 id 含非法路径字符");
     return false;
   }
-  QSaveFile file(path);
   const QByteArray bytes =
     QJsonDocument(session.toJson()).toJson(QJsonDocument::Compact);
+  // H2-W3 对称容量：save 与 load 共用同一上限——成功写出的档案必须仍可被
+  // 自己完整载入（写入侧拒绝，不产生 load 永远拒绝的档案）。
+  const paleo::chat::ChatArchiveBudget budget = paleo::chat::chatArchiveBudget();
+  if (bytes.size() > budget.maxArchiveBytes) {
+    if (error)
+      *error = QObject::tr("会话超过本机档案容量上限（%1 MiB）")
+                 .arg(budget.maxArchiveBytes / (1024 * 1024));
+    return false;
+  }
+  QSaveFile file(path);
   if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
       !file.commit()) {
     if (error)
       *error = file.errorString();
     return false;
   }
+  // H2-W6：权威保存成功之后才更新派生缓存；sidecar 写失败不影响 save=true
+  //（不产生假欠账）——过期条目由新鲜度戳自动判为待修复，下次列表补齐。
+  const QFileInfo info(path);
+  const qint64 size = info.size();
+  const qint64 mtimeMs = info.lastModified().toMSecsSinceEpoch();
+  paleo::chat::ChatSessionIndex::write(
+    paleo::chat::ChatSessionIndex::summarize(session, size), size, mtimeMs);
   return true;
 }
 
 bool ChatSessionStore::load(const QString &sessionId, ChatSession *out,
-                            QString *error) {
+                            QString *error,
+                            paleo::chat::ChatArchiveReject *reject) {
+  const auto fail = [&](paleo::chat::ChatArchiveReject code,
+                        const QString &message) {
+    if (error)
+      *error = message;
+    if (reject)
+      *reject = code;
+    return false;
+  };
   const QString path = pathFor(sessionId);
-  if (path.isEmpty()) {
-    if (error)
-      *error = QObject::tr("会话 id 含非法路径字符");
-    return false;
-  }
+  if (path.isEmpty())
+    return fail(paleo::chat::ChatArchiveReject::UnsafeId,
+                QObject::tr("会话 id 含非法路径字符"));
+  // H2-W2 私有文件边界：先验身份与形态，再有界读取。目录/设备/叶子符号
+  // 链接一律拒绝；根与叶同规则——把会话根解析成真实路径后，要求文件解析
+  // 后的真实路径恰为 <root>/<id>.json，中间目录的符号链接/junction 穿越
+  // 与叶子别名同拒。根与叶的处理保持一致（不是只查传入字符串含不含斜杠）。
+  QFileInfo info(path);
+  if (!info.exists())
+    return fail(paleo::chat::ChatArchiveReject::NotFound,
+                QObject::tr("会话文件不存在"));
+  if (info.isSymLink() || !info.isFile())
+    return fail(paleo::chat::ChatArchiveReject::NotRegularFile,
+                QObject::tr("会话文件不是常规文件（目录/链接伪装被拒绝）"));
+  const QString rootCanonical =
+    QFileInfo(directory()).canonicalFilePath();
+  const QString expected =
+    rootCanonical + QLatin1Char('/') + sessionId + QStringLiteral(".json");
+  if (rootCanonical.isEmpty() || info.canonicalFilePath() != expected)
+    return fail(paleo::chat::ChatArchiveReject::OutsideRoot,
+                QObject::tr("会话文件路径越过私有会话根（链接/别名被拒绝）"));
+  const paleo::chat::ChatArchiveBudget budget = paleo::chat::chatArchiveBudget();
+  if (info.size() > budget.maxArchiveBytes)
+    return fail(paleo::chat::ChatArchiveReject::SizeExceeded,
+                QObject::tr("会话档案超过 %1 MiB 存储上限（内容保留在磁盘，"
+                            "仅元信息可列出）")
+                  .arg(budget.maxArchiveBytes / (1024 * 1024)));
   QFile file(path);
-  if (!file.open(QIODevice::ReadOnly)) {
-    if (error)
-      *error = file.errorString();
-    return false;
+  if (!file.open(QIODevice::ReadOnly))
+    return fail(paleo::chat::ChatArchiveReject::IoError, file.errorString());
+  // 累计上限在读取过程中执行：打开后增长的文件同样被拦住（不只看打开前
+  // 的 size），原始字节超限即停、原文件不动。
+  paleo::chat::ChatArchiveReject readReject = paleo::chat::ChatArchiveReject::None;
+  const QByteArray bytes =
+    paleo::chat::readChatArchiveBytes(&file, budget.maxArchiveBytes, &readReject);
+  if (readReject != paleo::chat::ChatArchiveReject::None) {
+    const bool grew = readReject == paleo::chat::ChatArchiveReject::ReadLimitExceeded;
+    return fail(readReject,
+                grew ? QObject::tr("会话文件在读取中超过 %1 MiB 上限")
+                             .arg(budget.maxArchiveBytes / (1024 * 1024))
+                     : file.errorString());
   }
+  // 正文解析成本在此发生（与后续成败无关）——热列表路径不应增长此计数。
+  paleo::chat::noteChatArchiveFullLoad();
   QJsonParseError parseError;
   const QJsonDocument document =
-    QJsonDocument::fromJson(file.readAll(), &parseError);
-  if (parseError.error != QJsonParseError::NoError ||
-      !document.isObject()) {
+    QJsonDocument::fromJson(bytes, &parseError);
+  if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
     if (error)
       *error = QObject::tr("会话文件不是合法 JSON：%1").arg(parseError.errorString());
+    if (reject)
+      *reject = parseError.error == QJsonParseError::NoError
+                  ? paleo::chat::ChatArchiveReject::NotObject
+                  : paleo::chat::ChatArchiveReject::JsonSyntax;
     return false;
   }
+  // H2-W1 结构 + 身份合同：文件名 id 与 JSON 内部 id 必须一致（不做 trim/
+  // 大小写折叠式「修复」）；schema/字段形状明确校验，toObject/toArray 的
+  // 默认空值不再把坏结构伪装成合法空历史。未知未来 schema 拒绝完整载入。
+  QString detail;
+  const auto verdict = paleo::chat::validateChatArchiveObject(
+    document.object(), sessionId, &detail);
+  if (verdict != paleo::chat::ChatArchiveReject::None) {
+    const QString code = paleo::chat::chatArchiveRejectCode(verdict);
+    QString message;
+    switch (verdict) {
+    case paleo::chat::ChatArchiveReject::SchemaUnsupported:
+      message = QObject::tr("会话档案 schema 版本不受支持（%1），拒绝载入")
+                  .arg(detail);
+      break;
+    case paleo::chat::ChatArchiveReject::IdentityMismatch:
+      message = QObject::tr("会话文件名与内部 id 不一致（%1），拒绝载入")
+                  .arg(detail);
+      break;
+    default:
+      message = QObject::tr("会话档案结构不合法：%1").arg(code);
+      break;
+    }
+    return fail(verdict, message);
+  }
+  // 成功才覆盖 out：失败路径不部分覆盖、不清空既有会话。
   if (out)
     *out = ChatSession::fromJson(document.object());
+  if (reject)
+    *reject = paleo::chat::ChatArchiveReject::None;
   return true;
 }
 
@@ -173,6 +266,9 @@ bool ChatSessionStore::remove(const QString &sessionId, QString *error) {
       *error = file.errorString();
     return false;
   }
+  // H2-W6：删除成功后同步失效派生缓存（best-effort；失败仅留孤儿，
+  // 由扫描期 prune 兜底——缓存永不反向「复活」或误报已删除的会话）。
+  paleo::chat::ChatSessionIndex::removeFor(sessionId);
   return true;
 }
 

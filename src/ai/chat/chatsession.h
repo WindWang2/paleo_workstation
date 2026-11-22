@@ -7,6 +7,11 @@
 #include <QStringList>
 #include <QVector>
 
+namespace paleo::chat {
+// 完整定义在 chatsessionarchive.h（本头被它包含，不能反向 include）。
+enum class ChatArchiveReject;
+}
+
 // 一次会话的内存形态 + 磁盘形态。
 //
 // 落盘纪律（方向51）：会话文件只写用户的 AppLocalDataLocation 目录，
@@ -45,7 +50,10 @@ public:
   static QString newSessionId();
   static QStringList listIds();
   static bool save(const ChatSession &session, QString *error);
-  static bool load(const QString &sessionId, ChatSession *out, QString *error);
+  // H2：有界读取 + 结构/身份校验。失败时 out 不被部分覆盖，原文件字节不动；
+  // reject（可选）给出机器可判分类（见 chatsessionarchive.h）。
+  static bool load(const QString &sessionId, ChatSession *out, QString *error,
+                   paleo::chat::ChatArchiveReject *reject = nullptr);
   static bool remove(const QString &sessionId, QString *error);
   // 最近会话优先：按 updatedAt 倒序。
   static QVector<ChatSession> loadRecent(int limit = 20);

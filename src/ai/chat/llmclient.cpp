@@ -1,5 +1,6 @@
 // 层：功能
 #include "llmclient.h"
+#include "chatsessionarchive.h"
 #include "llmcredentialguard.h"
 
 #include <QDir>
@@ -30,7 +31,9 @@ const char kEnvKey[] = "PALEO_LLM_API_KEY";
 // 响应体上限（字节）：流式与非流式共用，超出即判失败——防故障/恶意服务耗尽内存
 // （与 WellFaciesConfig 的同款纪律，只是阈值按对话场景下调到 8MiB）。
 // readyRead 与 finished tail 同一把尺子、每字节只计一次（W6）。
-constexpr qint64 kMaxResponseBytes = 8ll * 1024 * 1024;
+// H2：取值单点登记在 chatsessionarchive.h（档案容量预留按同一尺子推导），
+// 此处仅引用——传输状态机（G1）本身零改动。
+constexpr qint64 kMaxResponseBytes = paleo::chat::kArchiveMaxModelResponseBytes;
 
 // 应答是不是普通 chat completions JSON（choices 数组）——「stream=true 却
 // 收到非 SSE 应答」的判别式之一（#588）：SSE 解析器对普通 JSON 一个事件都

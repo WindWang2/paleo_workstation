@@ -2,6 +2,8 @@
 #pragma once
 #include "../ai/chat/chatmessage.h"
 #include "../ai/chat/chatsession.h"
+#include "../ai/chat/chatsessionarchive.h"
+#include "../ai/chat/chatsessionindex.h"
 #include "../ai/chat/domaintools.h"
 #include "../ai/chat/llmclient.h"
 #include "../ai/chat/llmconfigcommit.h"
@@ -14,6 +16,7 @@
 #include <functional>
 
 class PythonEnvironmentController;
+class AiChatRecentSummaries;
 
 // workflow/ — AI 地质对话助手编排（方向51 骨架，方向61 工具闭环）。
 //
@@ -83,6 +86,12 @@ public:
   ChatSession session() const { return m_session; }
   QVector<ChatMessage> messages() const { return m_session.messages; }
   QVector<ChatSession> recentSessions(int limit = 5) const;
+  // H2：轻量最近会话元信息查询（列表不载入正文；热路径只读元数据/缓存，
+  // 冷修复经既有任务服务异步分批重建）。结果经 recentSessionSummariesReady
+  // 发布；complete=false 表示仍有待修复条目或扫描截断——那是有限扫描的
+  // 部分结果，修复完成后会再次发布。
+  void requestRecentSessionSummaries(int limit = 20);
+  bool recentSummaryRepairInFlight() const;
 
   void newSession();
   bool loadSession(const QString &sessionId, QString *error = nullptr);
@@ -108,15 +117,22 @@ public:
   static int estimateTokens(const QString &text);
   static constexpr int kMaxHistoryTurns = 12;      // 近 N 轮开窗
   static constexpr int kHistoryTokenBudget = 6000; // 历史估算 token 上限
-  static constexpr int kMaxToolRounds = 5;          // 每个用户轮的工具往返上限
+  // H2：每用户轮的轮次形状上限单点登记在 ai/chat/chatsessionarchive.h
+  //（档案容量预留推导与之共用；此处仅引用，不另立第二份取值）。
+  static constexpr int kMaxToolRounds = paleo::chat::kArchiveMaxToolRounds;
   static constexpr int kMaxCallsPerResponse = 8;
-  static constexpr int kMaxCallsPerTurn = 16;
-  static constexpr int kMaxToolArgumentBytes = ChatToolCall::kMaxArgumentBytes;
+  static constexpr int kMaxCallsPerTurn = paleo::chat::kArchiveMaxCallsPerTurn;
+  static constexpr int kMaxToolArgumentBytes = paleo::chat::kArchiveMaxToolArgumentBytes;
 
 signals:
   void sessionChanged();
   // 会话列表/标题/排序变化（打开/删除/重命名/落盘后；UI 侧刷新下拉）。
   void sessionListChanged();
+  // H2：轻量最近会话元信息（按 updatedAt、无效回退 createdAt 倒序，同值
+  // 按 id 升序）。元信息不是读取工具或执行计划的授权——载入仍走
+  // loadSession 的权威校验，缓存命中不绕过身份/结构检查。
+  void recentSessionSummariesReady(
+    const QVector<paleo::chat::ChatSessionSummary> &summaries, bool complete);
   void messageAppended(const ChatMessage &message);
   void assistantDelta(const QString &text); // 流式增量（接到当前 assistant 消息尾）
   void toolCallDispatched(const ChatToolCall &call, const QString &statusText);
@@ -190,4 +206,7 @@ private:
   // 无声切换/删除当前会话（薄门见 newSession/loadSession/removeSession）。
   bool m_saveArrears = false;
   QString m_saveArrearsError;
+  // H2 私有：最近会话元信息查询协调器（子对象；任务服务在每次刷新时现取
+  // runner 的既有绑定，不新增装配/全局线程池）。
+  AiChatRecentSummaries *m_recentSummaries = nullptr;
 };

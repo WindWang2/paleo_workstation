@@ -352,6 +352,10 @@ void AiAssistDock::bindController() {
   });
   connect(m_controller, &AiChatController::sessionListChanged, this,
           &AiAssistDock::refreshSessions);
+  // H2：元信息查询结果 → Combo 重建（当前选择/草稿/工具卡不受影响；每次
+  // 结果都按当下 controller 状态重建，较旧完成不覆盖新列表）。
+  connect(m_controller, &AiChatController::recentSessionSummariesReady, this,
+          &AiAssistDock::rebuildSessionCombo);
 }
 
 void AiAssistDock::attachOperationPresenter(
@@ -574,23 +578,48 @@ void AiAssistDock::updateActionStates() {
 }
 
 void AiAssistDock::refreshSessions() {
+  // H2（W7）：下拉改吃轻量元信息——refresh 只发查询意图，不再触发全库
+  // 会话正文载入。结果（热路径同步完成；冷修复后补发）经
+  // recentSessionSummariesReady 回到 rebuildSessionCombo。
   if (!m_controller) {
     m_sessions->clear();
     m_sessionIds.clear();
     return;
   }
+  m_controller->requestRecentSessionSummaries(20);
+}
+
+void AiAssistDock::rebuildSessionCombo(
+    const QVector<paleo::chat::ChatSessionSummary> &summaries) {
+  if (!m_controller)
+    return;
   QSignalBlocker block(m_sessions); // 重建不触发 activated/currentIndexChanged
   m_sessions->clear();
   m_sessionIds.clear();
+  // 当前会话永远以 controller 当前身份固定首位（元信息不含未落盘的当前态）。
   const ChatSession current = m_controller->session();
   m_sessions->addItem(current.displayTitle().isEmpty()
                         ? tr("（未命名会话）")
                         : current.displayTitle());
   m_sessionIds.append(current.id);
-  for (const ChatSession &recent : m_controller->recentSessions(20)) {
+  for (const paleo::chat::ChatSessionSummary &recent : summaries) {
     if (recent.id == current.id)
       continue;
-    m_sessions->addItem(recent.displayTitle());
+    QString label;
+    if (recent.state == paleo::chat::ChatSessionSummary::State::Ok) {
+      label = recent.displayTitle.isEmpty() ? tr("（未命名会话）")
+                                            : recent.displayTitle;
+    } else if (recent.state ==
+               paleo::chat::ChatSessionSummary::State::OverLimit) {
+      // 有界诊断（muted 纯文本口径）：选择后由 loadSession 的权威上限拒绝。
+      label = tr("超限会话（%1…）").arg(recent.id.left(8));
+    } else {
+      label = tr("档案异常（%1…）：%2")
+                .arg(recent.id.left(8),
+                     recent.diagnostic.isEmpty() ? QStringLiteral("invalid")
+                                                 : recent.diagnostic);
+    }
+    m_sessions->addItem(label);
     m_sessionIds.append(recent.id);
   }
   m_sessions->setCurrentIndex(0);

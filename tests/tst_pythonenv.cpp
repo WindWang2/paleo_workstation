@@ -5,6 +5,7 @@
 #include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QCryptographicHash>
+#include <QScopeGuard>
 
 #include "../src/services/pythonenv.h"
 #include "../src/workflow/mamcltool.h"
@@ -48,13 +49,27 @@ class TestPythonEnv : public QObject
       QVERIFY2(created.at(1).toBool(), qPrintable(created.at(2).toString()));
       QVERIFY(env.venvReady(QStringLiteral("t")));
 
-      // 空 requirements：pip no-op，校验「venv 内 pip 可用」这条契约。
+      // 空 requirements 仍会触发 pip 的版本检查；隔离本机配置与包源。
+      const auto previousConfig = qgetenv("PIP_CONFIG_FILE");
+      const auto restoreConfig = qScopeGuard([&] {
+        if (previousConfig.isNull())
+          qunsetenv("PIP_CONFIG_FILE");
+        else
+          qputenv("PIP_CONFIG_FILE", previousConfig);
+      });
+#ifdef Q_OS_WIN
+      QVERIFY(qputenv("PIP_CONFIG_FILE", "nul"));
+#else
+      QVERIFY(qputenv("PIP_CONFIG_FILE", "/dev/null"));
+#endif
       QFile req(tmp.filePath(QStringLiteral("req.txt")));
       QVERIFY(req.open(QIODevice::WriteOnly));
       req.write("# nothing\n");
       req.close();
-      env.installRequirements(QStringLiteral("t"), req.fileName());
-      QVERIFY2(spy.wait(180000), "installRequirements timed out");
+      env.installRequirements(QStringLiteral("t"), req.fileName(),
+                              {QStringLiteral("--isolated"), QStringLiteral("--no-index"),
+                               QStringLiteral("--disable-pip-version-check")});
+      QVERIFY2(!spy.isEmpty() || spy.wait(180000), "installRequirements timed out");
       const QList<QVariant> installed = spy.takeFirst();
       QCOMPARE(installed.at(0).toString(), QStringLiteral("installRequirements"));
       QVERIFY2(installed.at(1).toBool(), qPrintable(installed.at(2).toString()));

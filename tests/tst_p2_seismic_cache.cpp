@@ -9,7 +9,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QScopeGuard>
 #include <QTemporaryDir>
 
 #include <gdal.h>
@@ -103,33 +102,35 @@ void P2SeismicCacheTests::writerRoundtripAndIdentityMetadata()
 
 void P2SeismicCacheTests::writerPreservesExistingTargetOnFailure()
 {
-  // 预置有效旧缓存，随后让写入在「创建暂存」处失败（目录去写权限）——
-  // 旧缓存字节不变、仍可开（#1024：writer 失败前目标已存在）。
+  // 目标文件名合法，追加暂存后缀后超过文件系统的单段长度上限。
+  // 这种创建暂存失败不依赖权限位，普通用户与管理员得到相同结果。
   const QString dir = m_dir.filePath(QStringLiteral("preserve"));
   QVERIFY(QDir().mkpath(dir));
-  const QString path = QDir(dir).filePath(QStringLiteral("old.tif"));
+  const QString original = QDir(dir).filePath(QStringLiteral("old.tif"));
+  const QString name = QString(250, QLatin1Char('a')) + QStringLiteral(".tif");
+  const QString path = QDir(dir).filePath(name);
   QString err;
-  QVERIFY2(paleo::sattr::writeTimeSliceGeoTiff(path, makeGrid(), kAffine, &err),
+  QVERIFY2(paleo::sattr::writeTimeSliceGeoTiff(original, makeGrid(), kAffine, &err),
            qPrintable(err));
-  QFile old(path);
+  QFile old(original);
   QVERIFY(old.open(QIODevice::ReadOnly));
   const QByteArray before = old.readAll();
   old.close();
+  QVERIFY2(old.rename(path), qPrintable(old.errorString()));
 
-  QFile::Permissions saved = QFile::permissions(dir);
-  QVERIFY(QFile::setPermissions(dir,
-                                saved & ~(QFile::WriteOwner | QFile::WriteUser)));
-  auto restore = qScopeGuard([&] { QFile::setPermissions(dir, saved); });
-  QVERIFY(!paleo::sattr::writeTimeSliceGeoTiff(path, makeGrid(), kAffine, &err));
-  QVERIFY(!err.isEmpty());
+  auto replacement = makeGrid();
+  replacement.paramHash = QStringLiteral("ffffffffffffffffffffffffffffffff");
+  QVERIFY(!paleo::sattr::writeTimeSliceGeoTiff(path, replacement, kAffine, &err));
+  QVERIFY2(err.contains(QStringLiteral("无法创建暂存栅格")), qPrintable(err));
+  QCOMPARE(allEntries(dir), QStringList{name});
 
-  QFile after(path);
-  QVERIFY(after.open(QIODevice::ReadOnly));
-  QCOMPARE(after.readAll(), before); // 旧缓存逐字节不变
-  after.close();
-  // 仍可被 GDAL 打开（不是被截断的半成品）。
+  QVERIFY(old.open(QIODevice::ReadOnly));
+  QCOMPARE(old.readAll(), before); // 旧缓存逐字节不变
+  old.close();
+  // 用原短路径让 GDAL 重开，避开 Windows 原生路径长度限制。
+  QVERIFY2(old.rename(original), qPrintable(old.errorString()));
   GDALAllRegister();
-  GDALDatasetH ds = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
+  GDALDatasetH ds = GDALOpen(original.toUtf8().constData(), GA_ReadOnly);
   QVERIFY(ds);
   GDALClose(ds);
 }

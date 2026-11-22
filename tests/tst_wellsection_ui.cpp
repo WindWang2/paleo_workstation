@@ -1,6 +1,6 @@
 // tests/tst_wellsection_ui.cpp — goal/wellsection 视图层验收：面板行为
 // （井集/连线/高亮/拉平/选中/拖排/主题/模板/地震/缩放）+ 版头交互 +
-// 对话框 + 截图件产（/tmp/wellsection-shots/，供人工阅图）。
+// 对话框 + 截图件产（可通过 PALEO_VISUAL_CAPTURE 留存）。
 #include <QtTest>
 #include <QApplication>
 #include <QDir>
@@ -1981,9 +1981,6 @@ class TestWellSectionUi : public QObject
       }
     }
 
-    // 截图件产（不断言）：/tmp/wellsection-shots/{classic,colored,print,
-    // highlight_D61,seismic,seismic_reflectors,seismic_colored,
-    // panel_light}.png
     // ---- 栅状图：自动布点 + 交点井同帧联动（Oracle #3）+ 落库恢复 ----
     void fencePlanAndSharedWellSync()
     {
@@ -2143,7 +2140,12 @@ class TestWellSectionUi : public QObject
 
     void screenshots()
     {
-      QDir().mkpath(QStringLiteral("/tmp/wellsection-shots"));
+      const QString capture = qEnvironmentVariable("PALEO_VISUAL_CAPTURE");
+      QTemporaryDir temporary;
+      QVERIFY2(!capture.isEmpty() || temporary.isValid(), qPrintable(temporary.errorString()));
+      const QDir shots(capture.isEmpty() ? temporary.path()
+                                        : QDir(capture).filePath(QStringLiteral("wellsection-shots")));
+      QVERIFY(QDir().mkpath(shots.absolutePath()));
       SelectionContext ctx;
       WellSectionPanel panel(&ctx);
       panel.resize(1400, 720);
@@ -2154,41 +2156,33 @@ class TestWellSectionUi : public QObject
       panel.fitToView();
 
       panel.setThemeId(QStringLiteral("classic"));
-      QVERIFY(panel.renderImage().save(
-          QStringLiteral("/tmp/wellsection-shots/classic.png")));
+      QVERIFY(panel.renderImage().save(shots.filePath(QStringLiteral("classic.png"))));
       panel.setThemeId(QStringLiteral("colored"));
-      QVERIFY(panel.renderImage().save(
-          QStringLiteral("/tmp/wellsection-shots/colored.png")));
+      QVERIFY(panel.renderImage().save(shots.filePath(QStringLiteral("colored.png"))));
       panel.setThemeId(QStringLiteral("print"));
-      QVERIFY(panel.renderImage().save(
-          QStringLiteral("/tmp/wellsection-shots/print.png")));
+      QVERIFY(panel.renderImage().save(shots.filePath(QStringLiteral("print.png"))));
 
       panel.setThemeId(QStringLiteral("classic"));
       ctx.setActiveHorizon(QStringLiteral("D61"));
-      QVERIFY(panel.renderImage().save(
-          QStringLiteral("/tmp/wellsection-shots/highlight_D61.png")));
+      QVERIFY(panel.renderImage().save(shots.filePath(QStringLiteral("highlight_D61.png"))));
 
       panel.setSeismicAvailable(true, QString());
       panel.setSeismicEnabled(true);
       panel.fitToView();
       panel.setSeismicStrip(
           reflectorStrip(panel.wellIds().size() - 1));
-      QVERIFY(panel.renderImage().save(
-          QStringLiteral("/tmp/wellsection-shots/seismic.png")));
+      QVERIFY(panel.renderImage().save(shots.filePath(QStringLiteral("seismic.png"))));
       // 同帧再存一张明确的反射层命名图（供审阅对照）。
-      QVERIFY(panel.renderImage().save(
-          QStringLiteral("/tmp/wellsection-shots/seismic_reflectors.png")));
+      QVERIFY(panel.renderImage().save(shots.filePath(QStringLiteral("seismic_reflectors.png"))));
       panel.setThemeId(QStringLiteral("colored"));
-      QVERIFY(panel.renderImage().save(
-          QStringLiteral("/tmp/wellsection-shots/seismic_colored.png")));
+      QVERIFY(panel.renderImage().save(shots.filePath(QStringLiteral("seismic_colored.png"))));
       panel.setThemeId(QStringLiteral("classic"));
 
       // 面板整体截图（高亮开 + 一个带原因的缝：无 TD 的井）。
       auto stripR = reflectorStrip(panel.wellIds().size() - 1);
       stripR.gaps[1].reason = tr("C-1 缺少时深关系");
       panel.setSeismicStrip(stripR);
-      QVERIFY(panel.grab().save(
-          QStringLiteral("/tmp/wellsection-shots/panel_light.png")));
+      QVERIFY(panel.grab().save(shots.filePath(QStringLiteral("panel_light.png"))));
       QVERIFY(paleo::tests::captureVisual(&panel, QStringLiteral("wellsection"), QSize(1400, 720)));
     }
     // 四口井开剖面后静置：视口不应再有重绘/重排风暴（resize↔refit 自激

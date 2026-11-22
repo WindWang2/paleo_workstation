@@ -221,9 +221,15 @@ private slots:
     SandboxRequest request;request.runtime=identity.runtime;request.input=std::make_shared<InputBundle>(input);request.policy=policy;
 #ifdef Q_OS_WIN
     const auto result=runWindowsSandbox(request);
-    const auto expected=windowsSandboxReadiness().value("code")=="ok"?"python_runtime_changed":"python_sandbox_unavailable";
-    if (result.code != QString::fromLatin1(expected)) qWarning().noquote() << QString::fromUtf8(result.error);
-    QCOMPARE(result.code,QString::fromLatin1(expected));
+    // The platform probe covers API availability; local account policy can
+    // still deny CreateAppContainerProfile before the broker authenticates.
+    constexpr quint32 accessDenied = 0x80070005;
+    const bool profileDenied = result.error == "profile_create:" + QByteArray::number(accessDenied);
+    const bool unavailable = windowsSandboxReadiness().value("code") != "ok" || profileDenied;
+    const QString expected = unavailable ? "python_sandbox_unavailable" : "python_runtime_changed";
+    QVERIFY2(result.code == expected, qPrintable(result.code + ": " + QString::fromUtf8(result.error)));
+    if (profileDenied)
+      qInfo() << "AppContainer profile creation denied by this host";
 #elif defined(Q_OS_LINUX)
     const auto result=runLinuxSandbox(request);
 #if QT_VERSION >= QT_VERSION_CHECK(6,7,0)
@@ -233,6 +239,7 @@ private slots:
 #endif
 #endif
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    QCOMPARE(result.exitCode, -1);
     QCOMPARE(result.cpuMicros,qint64(0));QVERIFY(result.output.isEmpty());QVERIFY(result.outputLog.isEmpty());
 #endif
     QCOMPARE(provider.inspectIntegrity().code,QString("python_runtime_changed"));

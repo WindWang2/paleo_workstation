@@ -66,6 +66,8 @@ public:
   QVector<AiToolSpec> tools() const { return m_runner.availableTools(); }
   // 工具执行器（组合成员；装配根/测试经此绑定执行面与数据上下文）。
   AiChatToolRunner *toolRunner() { return &m_runner; }
+  // G2：可选 Pi 引擎桥（测试经此注入受控 peer；运行接线不变）。
+  PiChatBridge *piBridge() { return &m_piBridge; }
   PythonEnvironmentController *createPythonEnvironmentController(QObject *owner);
 
   ChatSession session() const { return m_session; }
@@ -132,6 +134,12 @@ private:
   void startEngineTurn();
   void piFailure(const QString &);
   ChatToolCall hostAdmittedCall(const ChatToolCall &) const;
+  // ---- G2（回合执行闭环）：本轮冻结快照与保存欠账 ----
+  // W1：一轮用户请求的执行归属（模型配置/协商工具表）在 startEngineTurn
+  // 定格；续轮不因中途 setConfig 或工具表变化悄悄换身份，下一轮重新定格。
+  QString currentSessionModel() const;               // 本轮开场模型（未冻结=当前配置）
+  bool settleSaveArrears(QString *error = nullptr);  // 先清保存欠账，成功才允许续轮
+  void failTurnForSaveArrears(const QString &error); // 保存失败统一结算本轮（单次上报）
 
   LlmConfig m_config;
   LlmClient m_client;
@@ -156,4 +164,12 @@ private:
   int m_streamToolCalls = 0;
   bool m_roundRejected = false;
   QVector<ChatToolCall> m_unansweredCalls; // 本轮尚未有 role=tool 应答的帧
+  // G2-W1：本轮冻结的模型配置与协商工具表（原生/Pi 同源），见上块注释。
+  LlmConfig m_turnConfig;
+  QVector<AiToolSpec> m_turnTools;
+  bool m_turnFrozen = false;
+  // G2-W3：保存欠账 = 已进入内存但尚未成功落盘的对话内容；未清账前拒绝
+  // 无声切换/删除当前会话（薄门见 newSession/loadSession/removeSession）。
+  bool m_saveArrears = false;
+  QString m_saveArrearsError;
 };

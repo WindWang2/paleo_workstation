@@ -314,6 +314,46 @@
 </context>
 <context>
     <name>AiChatController</name>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="121"/>
+            <source>回合已完成，但会话保存失败（%1）。内容保留在内存</source>
+            <translation>回合已完成，但会话保存失败（%1）。内容保留在内存</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="138"/>
+            <source>会话保存失败：%1（内容保留在内存，重发上一条可先补保存）</source>
+            <translation>会话保存失败：%1（内容保留在内存，重发上一条可先补保存）</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="190"/>
+            <source>会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试</source>
+            <translation>会话尚未保存成功（%1），已保留当前会话；请恢复存储后重试</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="247"/>
+            <source>会话尚未保存成功（%1），暂不能删除；请恢复存储后重试</source>
+            <translation>会话尚未保存成功（%1），暂不能删除；请恢复存储后重试</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="270"/>
+            <source>未知存储错误</source>
+            <translation>未知存储错误</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="410"/>
+            <source>会话尚未保存成功（%1），已保留原回答；请恢复存储后重试</source>
+            <translation>会话尚未保存成功（%1），已保留原回答；请恢复存储后重试</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="50"/>
+            <source>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</source>
+            <translation>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="117"/>
+            <source>回答已完成，但会话保存失败（%1）。内容保留在内存</source>
+            <translation>回答已完成，但会话保存失败（%1）。内容保留在内存</translation>
+        </message>
     <message>
         <location filename="../src/workflow/aichatcontroller.cpp" line="69"/>
         <source>请求出错：本调用未执行</source>

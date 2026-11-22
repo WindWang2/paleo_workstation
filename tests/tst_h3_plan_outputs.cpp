@@ -118,7 +118,7 @@ private slots:
   void executorStopsBetweenNodesOnCancel();
   void hostPublishesThreeRealArtifactsAndReadsBackEveryPort();
   void hostIdempotencyDistinguishesExportChanges();
-  void v2TicketsRespectEpochAndExpiry();
+  void v2TicketsDieWithEpochChange();
 };
 
 void H3PlanOutputsTests::exportsCodecRejectsUnknownVersionsAndFields() {
@@ -415,6 +415,24 @@ void H3PlanOutputsTests::hostPublishesThreeRealArtifactsAndReadsBackEveryPort() 
   }
   QVERIFY(!rasterSha.isEmpty());
   QVERIFY(shaA != shaB);
+  // 组内血缘：contour 成员的 catalog parentVersionIds 指向同一组的 raster
+  // 版本（parentPortIds → commitSet 兄弟版本解析），raster 自身无外部父版本。
+  QHash<QString, QString> versionByPort;
+  QString rasterVersionId;
+  for (const auto &member : carrier.extra.value("outputSet").toMap().value("members").toList()) {
+    const auto row = member.toMap();
+    versionByPort.insert(row.value("versionId").toString(), row.value("portId").toString());
+    if (row.value("portId").toString() == QStringLiteral("idw_raster"))
+      rasterVersionId = row.value("versionId").toString();
+  }
+  QVERIFY(!rasterVersionId.isEmpty());
+  QCOMPARE(versionByPort.size(), 3);
+  for (const auto &version : h.catalog.versions()) {
+    const auto port = versionByPort.value(version.id);
+    QVERIFY(!port.isEmpty()); // 每个版本对应组内一个成员端口
+    const auto expected = port == QStringLiteral("idw_raster") ? QStringList{} : QStringList{rasterVersionId};
+    QCOMPARE(version.parentVersionIds, expected);
+  }
   // GPKG 真实文件特征 + 与 receipt 哈希一致。
   for (const auto &version : h.catalog.versions()) {
     QFile file(h.root.path() + '/' + version.path);
@@ -470,7 +488,7 @@ void H3PlanOutputsTests::hostIdempotencyDistinguishesExportChanges() {
            QStringLiteral("idempotency_conflict"));
 }
 
-void H3PlanOutputsTests::v2TicketsRespectEpochAndExpiry() {
+void H3PlanOutputsTests::v2TicketsDieWithEpochChange() {
   Host h;
   QVERIFY(h.init());
   ExecuteRequest host;

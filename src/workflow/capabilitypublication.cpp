@@ -216,8 +216,14 @@ QJsonObject artifactManifest(const QString &root, const QString &operationId, co
     const auto fingerprint = fingerprintBounded(actual,info.size(),error,cancelled);
     if (fingerprint.sha256.isEmpty()) return {};
     remaining -= fingerprint.size;
-    ports.append(QJsonObject{{"portId", artifact.portId}, {"path", relative}, {"sha256", fingerprint.sha256},
-        {"byteSize", QString::number(fingerprint.size)}, {"extra", QJsonObject::fromVariantMap(artifact.extra)}});
+    auto row = QJsonObject{{"portId", artifact.portId}, {"path", relative}, {"sha256", fingerprint.sha256},
+        {"byteSize", QString::number(fingerprint.size)}, {"extra", QJsonObject::fromVariantMap(artifact.extra)}};
+    // H3：组内兄弟依赖（如 plan 的 contour→raster）随端口行持久化，重启后的
+    // source 发布经 outputsFromManifest 恢复——未导出上游仍只在 extra 描述。
+    // 旧清单无此字段，读取按空处理（向后兼容）。
+    if (!artifact.parentPortIds.isEmpty())
+      row.insert("parents", QJsonArray::fromStringList(artifact.parentPortIds));
+    ports.append(row);
     ids.insert(artifact.portId);
   }
   return {{"schema", 1}, {"operationId", operationId}, {"ports", ports}};
@@ -247,6 +253,8 @@ bool outputsFromManifest(const QString &root, const QString &operationId, const 
     DerivedFileFingerprint fingerprint;
     if (verifyBytes && !verify(artifact.absolutePath, object, fingerprint, remaining, error, cancelled)) return false;
     artifact.extra = object.value("extra").toObject().toVariantMap();
+    for (const auto &parent : object.value("parents").toArray())
+      artifact.parentPortIds.append(parent.toString());
     ids.insert(artifact.portId); outputs.artifacts.append(artifact);
   }
   outputs.ok = true;

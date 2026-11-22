@@ -10,7 +10,6 @@ namespace paleo::capability {
 
 // 计划描述符里的版本语义：缺版本 = v1（冻结历史按原样恢复）；2 = 显式
 // exports；其他值一律拒绝，不做“善意猜测”或静默降级。
-inline constexpr int kPlanDescriptorV1 = 1;
 inline constexpr int kPlanDescriptorV2 = 2;
 
 // 首批上界：export 数量与单个别名长度（UTF-8 字节）。沿用 v1 的 32 节点/

@@ -186,6 +186,28 @@ void H3PlanPublicationTests::computeOnlyThenRestartedSourcePublishDoesNotRecompu
       outputSets.insert(manifest.value("id").toString());
     }
     QCOMPARE(outputSets.size(), 1);
+    // 重启后的 source publish 同样保留组内血缘（parents 随 manifest 端口行
+    // 持久化 → outputsFromManifest 恢复 parentPortIds → 兄弟版本解析）。
+    QHash<QString, QString> versionByPort;
+    for (const auto &version : h.catalog.versions()) {
+      const auto manifest = version.extra.value("outputSet").toMap();
+      for (const auto &member : manifest.value("members").toList()) {
+        const auto row = member.toMap();
+        if (row.value("versionId").toString() == version.id)
+          versionByPort.insert(version.id, row.value("portId").toString());
+      }
+    }
+    QCOMPARE(versionByPort.size(), 3);
+    QString rasterVersionId;
+    for (const auto &version : h.catalog.versions())
+      if (versionByPort.value(version.id) == QStringLiteral("idw_raster"))
+        rasterVersionId = version.id;
+    QVERIFY(!rasterVersionId.isEmpty());
+    for (const auto &version : h.catalog.versions()) {
+      const auto port = versionByPort.value(version.id);
+      const auto expected = port == QStringLiteral("idw_raster") ? QStringList{} : QStringList{rasterVersionId};
+      QCOMPARE(version.parentVersionIds, expected);
+    }
   }
 }
 

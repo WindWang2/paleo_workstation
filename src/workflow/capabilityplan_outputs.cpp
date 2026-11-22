@@ -39,6 +39,8 @@ bool planExportsFromJson(const QJsonObject &graph, PlanExports &exports, QString
   if (graph.value("version") != QJsonValue(kPlanDescriptorV2))
     return reject(graph.contains("version") ? QStringLiteral("unsupported_plan_version")
                                             : QStringLiteral("missing_plan_version"));
+  if (!graph.contains("exports"))
+    return reject(QStringLiteral("missing_export_field"));
   if (graph.size() != 4) // nodes/edges/version/exports —— 未知字段一律拒绝
     return reject(QStringLiteral("unknown_plan_field"));
   const auto rows = graph.value("exports").toArray();
@@ -114,7 +116,6 @@ ValidatedPlanExports validatePlanV2(const QVector<PlanNode> &nodes, const QVecto
   // 执行节点都要对某个导出有贡献（uncontributing_node）。DAG 上两条规则
   // 经由“逆向可达被导出节点”统一判定：未覆盖的终端报 missing_export，
   // 未覆盖的中间节点报 uncontributing_node。
-  QSet<int> exported(out.nodeIndex.cbegin(), out.nodeIndex.cend());
   QSet<int> hasDownstream;
   for (const auto &edge : out.plan.edges)
     hasDownstream.insert(edge.fromNode);

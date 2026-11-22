@@ -79,3 +79,27 @@ Source gates（`ctest -R "layering|ui_invariants|ui_size|ui_tokens|i18n|docs_dri
   planUpstream（未捏造 Catalog 父版本），prompt W6 允许的降级口径。
 - 取消窗口覆盖：节点间（executor 层）、prepared 破坏、提交后迟到；「计算前取消」
   由同一路径（首个节点前 cancelled 查询）覆盖未单列。
+- 票据 5 分钟到期未单测（无时间注入设施）；epoch 失效已覆盖
+  （v2TicketsDieWithEpochChange）。
+
+## 独立复审（general-purpose reviewer，未参与实现，绑定 commit）
+
+- 首轮（66f06c9e）：APPROVE，无阻断项。十三条要求域 12 项核清；
+  silent-weakening 扫描（限额/检查/断言/基线）零发现；三条调用链
+  （preparePlanV2→accept→worker→commitSet、版本分派、source publish）逐一核对。
+- 复审发现已修复（fix commit）：
+  1. **组内血缘跨重启丢失**（P2）：artifactManifest 端口行新增 `parents`
+     序列化、outputsFromManifest 恢复（capabilitypublication.cpp，向后兼容——
+     旧清单无字段按空处理）。这是经复现证明 plan 私有适配无法完成的必要发布
+     缝（ledger：artifactManifest/outputsFromManifest 两函数的端口行 hunk）。
+     新增断言：两条发布路径的 catalog parentVersionIds 均为
+     raster→[]、contour→[raster 版本]。
+  2. v1 多 issue 计划的首个 issue code 顺序变化（checkSingleResult 移到
+     参数/输入检查后）——接受/拒绝结果不变，v1 全部测试绿；如实记录。
+  3. codec 对「version=2 但缺 exports」给专用 missing_export_field。
+  4. 清理：未使用 exported 集合与 kPlanDescriptorV1；测试更名
+     v2TicketsDieWithEpochChange（原名称夸大覆盖）。
+- 修复后复跑：tst_h3_plan_outputs 19/19、tst_h3_plan_publication 7/7、
+  algorithm_output_set 15/15、capability_plan 49/49、recovery 37/37、
+  recovery_native 10/10；gates layering --strict ✓、file_budget/qgis_spread
+  新增 0、27 项 gate ctest 全绿。

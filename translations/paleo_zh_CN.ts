@@ -29557,6 +29557,14 @@ PDF：%3
 <context>
     <name>QObject</name>
         <message>
+            <source>会话消息数超过档案结构上限（%1）</source>
+            <translation>会话消息数超过档案结构上限（%1）</translation>
+        </message>
+        <message>
+            <source>会话字段长度超过档案合同上限</source>
+            <translation>会话字段长度超过档案合同上限</translation>
+        </message>
+        <message>
             <source>会话文件不存在</source>
             <translation>会话文件不存在</translation>
         </message>

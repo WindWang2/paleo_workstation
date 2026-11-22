@@ -128,6 +128,10 @@ public:
   // EOF 无 [DONE] 的兜底收尾：把残余缓冲按最后一行处理并进入终局。
   void markTerminal();
   bool terminal() const { return m_terminal; }
+  // 草稿表是否非空（无副作用查询）。EOF 证据门用它识别「流带了工具帧」：
+  // 表内任何草稿都是真内容（待交付或待报错），而 `data:` 空载荷/纯注释流
+  // 的草稿表为空——不因此放宽 #588 的零事件严格性。
+  bool hasDrafts() const { return !m_drafts.isEmpty(); }
   // choice 0 的最后一个非空 finish_reason（透传给 finished；未见时为空，
   // 由调用方按兼容口径退化，不改写 length/content_filter 等语义）。
   QString finishReason() const { return m_finishReason; }

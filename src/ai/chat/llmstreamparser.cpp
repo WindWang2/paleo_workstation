@@ -251,9 +251,15 @@ QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls() {
 QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls(QString *error) {
   QVector<ChatToolCall> out;
   // 流中：只交付已封印且有身份的调用，按 **index 升序**（同位次以封印序
-  // 稳定）——与旧实现的 index 稳定排序口径一致（下游按到达序渲染帧），
-  // 同时因 index 与封印序都由事件处理期决定（与 TCP 切分无关），「任意
-  // 拆包 == 一次喂入」仍产出同一序列。
+  // 稳定）——与 pre-G1 实现同一口径（pre-G1 也是「每次 takeCompleteCalls
+  // 内按 index 排序」，见 dd73a322 版注释）。
+  // 边界如实说明：index 升序是**批次内**口径；跨批次（多次 take）按到达序。
+  // 对协议合规流（tool_calls 按 index 顺序分片下发，Chat Completions 的
+  // 既定形状）封印序 == index 序，全局序列与一次喂入完全一致——等价表
+  // 的「tool-calls-in-order」行即钉这一点。病态流（先给 index=1 完整帧
+  // 再给 index=0）跨批次会按 [1,0] 到达，与 pre-G1 行为相同；不做跨批次
+  // 重排缓冲：那要么推迟到流尾（违反「完整工具帧先于 finished 交付」的
+  // 调用契约），要么在低 index 尚未出现时无法预知（信息不存在）。
   QList<LlmToolDraft> ready;
   QList<int> indices = m_drafts.keys();
   for (int index : indices) {

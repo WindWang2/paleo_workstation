@@ -358,6 +358,7 @@ private slots:
   void parserDropsTrailingToolCallAfterDone();
   void parserManyTinyLinesInOneFeedStayLinear();
   void parserExplicitEmptyObjectIsSealed();
+  void parserMultiToolDeliveryOrderIsBatchScoped();
   void parserHugeIndexIsBounded();
   void parserFractionalOrOutOfRangeIndexIsDropped();
   void parserDeliversSealedCallsInIndexOrder();
@@ -378,6 +379,8 @@ private slots:
   void eofWithBrokenTailFailsMalformed();
   void normalCloseWithoutDoneTolerated();
   void singleUnterminatedEventWithoutBlankLineSucceeds();
+  void toolCallOnlyUnterminatedEventSucceeds();
+  void truncatedToolArgumentsUnterminatedFailsAccurately();
   void prettyPrintedJsonUnderStreamFlagStillUsesFallback();
   void errorEnvelope200FailsHonestly();
   void emptyChoicesNonStreamFails();
@@ -452,6 +455,16 @@ void TestG1ModelTransport::parserByteSplitEquivalence_data() {
                   "\"id\":\"c1\",\"type\":\"function\",\"function\":"
                   "{\"name\":\"paleo.query_project\",\"arguments\":\"{\\\"topic\\\":"
                   "\\\"wells\\\"}\"}}]}}]}\n\n"
+                  "data: [DONE]\n\n");
+  // 协议合规的多工具流（按 index 顺序分片）：全局交付序必须与一次喂入一致
+  // （index 升序 + 封印序 == index 序时切分不变）。
+  QTest::newRow("tool-calls-in-order")
+    << QByteArray("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+                  "\"id\":\"a\",\"function\":{\"name\":\"paleo.query_project\","
+                  "\"arguments\":\"{\\\"topic\\\":\\\"wells\\\"}\"}}]}}]}\n\n"
+                  "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,"
+                  "\"id\":\"b\",\"function\":{\"name\":\"paleo.query_project\","
+                  "\"arguments\":\"{\\\"topic\\\":\\\"horizons\\\"}\"}}]}}]}\n\n"
                   "data: [DONE]\n\n");
   QTest::newRow("tool-call-split-fragments")
     << QByteArray("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
@@ -762,6 +775,37 @@ void TestG1ModelTransport::parserDeliversSealedCallsInIndexOrder() {
   QCOMPARE(both.size(), 2);
   QCOMPARE(both.at(0).id, QStringLiteral("a")); // index 0 优先
   QCOMPARE(both.at(1).id, QStringLiteral("b"));
+}
+
+// 多工具调用的交付次序口径（显式钉子，防「以为全局 index 升序」）：
+//   · 协议合规流（按 index 顺序分片）→ 全局 [0,1]，与一次喂入一致；
+//   · 病态流（先 index=1 完整帧后 index=0）→ 跨批次按到达序 [1,0]
+//     （与 pre-G1 同口径；不做跨批次重排缓冲的理由见 llmstreamparser.cpp
+//     takeCompleteCalls 注释）。
+void TestG1ModelTransport::parserMultiToolDeliveryOrderIsBatchScoped() {
+  // 合规流：一次喂入两帧（index 0、1）→ [0,1]。
+  LlmStreamParser conformant;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  conformant.feed(toolEvent(0, "paleo.query_project", "{\"a\":1}", "a") +
+                      toolEvent(1, "paleo.query_project", "{\"b\":2}", "b"),
+                  &deltas, &done, &error);
+  const auto inOrder = conformant.takeCompleteCalls(&error);
+  QCOMPARE(inOrder.size(), 2);
+  QCOMPARE(inOrder.at(0).id, QStringLiteral("a"));
+  QCOMPARE(inOrder.at(1).id, QStringLiteral("b"));
+
+  // 病态流：index=1 先封印先取走，index=0 后到——跨批次按到达序。
+  LlmStreamParser pathological;
+  pathological.feed(toolEvent(1, "paleo.query_project", "{\"b\":2}", "b"),
+                    &deltas, &done, &error);
+  QCOMPARE(pathological.takeCompleteCalls(&error).size(), 1);
+  pathological.feed(toolEvent(0, "paleo.query_project", "{\"a\":1}", "a"),
+                    &deltas, &done, &error);
+  const auto crossed = pathological.takeCompleteCalls(&error);
+  QCOMPARE(crossed.size(), 1);
+  QCOMPARE(crossed.first().id, QStringLiteral("a")); // 到达序，不重排
 }
 
 void TestG1ModelTransport::parserHugeIndexIsBounded() {
@@ -1127,6 +1171,68 @@ void TestG1ModelTransport::singleUnterminatedEventWithoutBlankLineSucceeds() {
   QCOMPARE(recorder.joined(), QStringLiteral("唯一事件"));
   QCOMPARE(recorder.errors, 0);
   QCOMPARE(recorder.finishReason, QStringLiteral("stop")); // 缺 finish_reason 退化
+}
+
+// PW-061 的工具帧形态（G1 review P2 残口）：整条流只有一个「缺终止空行的
+// 工具调用事件」——尾喂会把它封印进草稿表，但没有增量/done/错误。证据门
+// 必须认草稿（hasDrafts），否则跳过 finalizeStream：工具帧被静默丢弃，还报
+// 一句与事实相反的「未包含任何事件」。断言：调用完整交付且成功收尾。
+void TestG1ModelTransport::toolCallOnlyUnterminatedEventSucceeds() {
+  const QByteArray frame =
+    "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\","
+    "\"type\":\"function\",\"function\":{\"name\":\"paleo.query_project\","
+    "\"arguments\":\"{\\\"topic\\\":\\\"wells\\\"}\"}}]}}]}";
+  RawServer server;
+  QVERIFY(server.start([&] {
+    return RawServer::Response{.writes = {frame}, .closeAfter = true};
+  }));
+  LlmClient client;
+  Recorder recorder;
+  recorder.attach(&client);
+  client.setConfig(clientConfig(server.endpoint()));
+  client.send(oneShot());
+  QVERIFY2(spinUntil([&] { return recorder.finished >= 1 || recorder.errors >= 1; },
+                     4000),
+           qPrintable(QStringLiteral("工具帧形态必须收敛（errors=%1 %2）")
+                        .arg(recorder.errors)
+                        .arg(recorder.errorMessages.join(QStringLiteral(";")))));
+  QCOMPARE(recorder.errors, 0);
+  QCOMPARE(recorder.finished, 1);
+  QCOMPARE(recorder.calls.size(), 1); // 调用完整交付（不丢、不重复）
+  QCOMPARE(recorder.calls.first().name, QStringLiteral("paleo.query_project"));
+  QCOMPARE(recorder.calls.first().id, QStringLiteral("c1"));
+  QCOMPARE(recorder.calls.first().argumentsJson,
+           QStringLiteral("{\"topic\":\"wells\"}"));
+  QVERIFY(recorder.calls.first().hasValidArguments());
+  QCOMPARE(recorder.deltas.size(), 0); // 纯工具帧：零文本增量
+}
+
+// 同形态但工具实参被截断（缺终止空行 + 残缺 arguments）：必须给**准确**
+// 的错误（「不是合法 JSON 对象」），而不是「未包含任何事件」的假诊断，
+// 且不得把残缺实参改造成 {} 交付。
+void TestG1ModelTransport::truncatedToolArgumentsUnterminatedFailsAccurately() {
+  const QByteArray frame =
+    "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\","
+    "\"type\":\"function\",\"function\":{\"name\":\"paleo.query_project\","
+    "\"arguments\":\"{\\\"topic\\\":\"}}]}}]}";
+  RawServer server;
+  QVERIFY(server.start([&] {
+    return RawServer::Response{.writes = {frame}, .closeAfter = true};
+  }));
+  LlmClient client;
+  Recorder recorder;
+  recorder.attach(&client);
+  client.setConfig(clientConfig(server.endpoint()));
+  client.send(oneShot());
+  QVERIFY2(spinUntil([&] { return recorder.errors >= 1; }, 4000),
+           qPrintable(QStringLiteral("截断实参必须报错（deltas=%1 calls=%2）")
+                        .arg(recorder.deltas.size())
+                        .arg(recorder.calls.size())));
+  QCOMPARE(recorder.errorKinds.first(), LlmErrorKind::Malformed);
+  QVERIFY(recorder.errorMessages.first().contains(
+      QStringLiteral("不是合法 JSON 对象"))); // 准确诊断，不说「未包含任何事件」
+  QCOMPARE(recorder.calls.size(), 0);
+  QCOMPARE(recorder.finished, 0);
 }
 
 // #588 兼容层的反向钉子：EOF 收尾现在**无条件**把尾字节喂解析器（为恢复

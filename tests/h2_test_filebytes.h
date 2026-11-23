@@ -1,25 +1,33 @@
 // 层：测试壳
 #pragma once
-// H2 测试专用（tst_h2_sessionarchive / tst_h2_capacitygates 共用）：把文件字节读进
-// 调用方给的变量；读不到就在该处让用例失败。
+// H2 测试专用（tst_h2_sessionarchive / tst_h2_capacitygates 共用）：磁盘字节的读取。
 //
-// QFile 临时对象未打开时 readAll() 返回空——直接比较会让「原文件字节保留」「磁盘
-// 不变」这类断言退化成空对空的恒真。这里打开失败或读到空都判失败，且每次读取都是
-// 一次独立的断言：不存在「两侧都读不到却相等」的退化路径。
-// 只能在返回 void 的测试槽内调用（QtTest 的 QVERIFY 是 `if (!cond) return;`）。
+// 为什么需要它：`QFile(path).readAll()` 用**未打开**的临时对象时恒返回空，直接比较
+// 会把「原文件字节保留」「磁盘不变」这类断言退化成空对空的恒真；即便显式打开，读失败
+// 时返回空也会让两侧都读不到的比较仍然相等。
+//
+// 用法：REQUIRE_BYTES(表达式, 目标变量);  —— 读不到即在该语句处让用例失败。
+// QtTest 的 QVERIFY 展开为 `if (!ok) return;`，宏必须用在返回 void 的测试槽内（本目录
+// 所有调用点都是）。断言写在调用点的槽里而不是 inline 辅助函数里：失败会直接从槽返回，
+// 后续比较不会在空缓冲上继续执行。
 #include <QByteArray>
 #include <QFile>
 #include <QString>
 #include <QtTest>
 
-inline void requireFileBytes(const QString &path, QByteArray *out, const char *what)
+inline bool readFileBytes(const QString &path, QByteArray *out)
 {
   QFile file(path);
-  const bool opened = file.open(QIODevice::ReadOnly);
-  QVERIFY2(opened, qPrintable(QStringLiteral("%1：无法打开 %2（%3）")
-                                .arg(QLatin1String(what), path, file.errorString())));
+  if (!file.open(QIODevice::ReadOnly))
+    return false;
   const QByteArray bytes = file.readAll();
-  QVERIFY2(!bytes.isEmpty(), qPrintable(QStringLiteral("%1：%2 读到 0 字节")
-                                            .arg(QLatin1String(what), path)));
+  if (bytes.isEmpty())
+    return false;
   *out = bytes;
+  return true;
 }
+
+#define REQUIRE_BYTES(expr, var)                                              \
+  QVERIFY2(::readFileBytes((expr), &(var)),                                   \
+           qPrintable(QStringLiteral("无法读取文件（不存在/打不开/空文件）：%1") \
+                        .arg(QString(expr))))

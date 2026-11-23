@@ -143,7 +143,7 @@ void TestH2SessionArchive::identityMismatchRefusesWithoutTouchingFiles() {
   const QString path = writeRawArchive(QStringLiteral("h2-file-a"), object);
   QVERIFY(!path.isEmpty());
   QByteArray before;
-  requireFileBytes(path, &before, "before");
+  REQUIRE_BYTES(path, before);
 
   ChatSession out;
   out.id = QStringLiteral("sentinel");
@@ -153,7 +153,7 @@ void TestH2SessionArchive::identityMismatchRefusesWithoutTouchingFiles() {
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::IdentityMismatch);
   QCOMPARE(out.id, QStringLiteral("sentinel")); // 失败不部分覆盖 out
   QByteArray after_before;
-  requireFileBytes(path, &after_before, "after_before");
+  REQUIRE_BYTES(path, after_before);
   QCOMPARE(after_before, before);      // 原文件字节保留
   QVERIFY(!QFileInfo::exists(ChatSessionStore::pathFor(QStringLiteral("h2-payload-b"))));
 
@@ -362,7 +362,7 @@ void TestH2SessionArchive::overLimitArchivePreservedBytes() {
 
   const QString path = ChatSessionStore::pathFor(session.id);
   QByteArray before;
-  requireFileBytes(path, &before, "before");
+  REQUIRE_BYTES(path, before);
   QVERIFY2(before.size() > qint64(4096),
            qPrintable(QStringLiteral("path=%1 size=%2 head=%3")
                         .arg(path).arg(before.size())
@@ -373,7 +373,7 @@ void TestH2SessionArchive::overLimitArchivePreservedBytes() {
   QVERIFY(!ChatSessionStore::load(session.id, &out, &error, &reject));
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::SizeExceeded);
   QByteArray after_before;
-  requireFileBytes(path, &after_before, "after_before");
+  REQUIRE_BYTES(path, after_before);
   QCOMPARE(after_before, before); // 不截断、不删除、不改名、不重存
   QCOMPARE(out.id, QStringLiteral("sentinel"));
   QVERIFY(error.contains(QStringLiteral("MiB")));
@@ -609,7 +609,7 @@ void TestH2SessionArchive::saveRefusesOverCapKeepsPreviousFile() {
   QVERIFY(ChatSessionStore::save(session, &error));
   const QString path = ChatSessionStore::pathFor(session.id);
   QByteArray good;
-  requireFileBytes(path, &good, "good");
+  REQUIRE_BYTES(path, good);
 
   session.messages.append(ChatMessage()); // 明显超限增长
   session.messages.last().role = ChatRole::Assistant;
@@ -617,7 +617,7 @@ void TestH2SessionArchive::saveRefusesOverCapKeepsPreviousFile() {
   QVERIFY(!ChatSessionStore::save(session, &error));
   QVERIFY(error.contains(QStringLiteral("MiB")));
   QByteArray after_good;
-  requireFileBytes(path, &after_good, "after_good");
+  REQUIRE_BYTES(path, after_good);
   QCOMPARE(after_good, good); // 上一份完整文件保留
   paleo::chat::setChatArchiveBudgetForTesting(paleo::chat::ChatArchiveBudget::production());
 }

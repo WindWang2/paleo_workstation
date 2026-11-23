@@ -22,9 +22,13 @@ constexpr qsizetype kSummaryTitleChars = 120;
 
 QString boundedTitle(const QString &title)
 {
-  return title.size() <= kSummaryTitleChars
-           ? title
-           : title.left(kSummaryTitleChars) + QStringLiteral("…");
+  if (title.size() <= kSummaryTitleChars)
+    return title;
+  int cut = kSummaryTitleChars;
+  // Unicode 边界：截点落在代理对中间时退一格，不产生孤立代理项。
+  if (title.at(cut - 1).isHighSurrogate() && title.at(cut).isLowSurrogate())
+    --cut;
+  return title.left(cut) + QStringLiteral("…");
 }
 
 QString stateKey(ChatSessionSummary::State state)

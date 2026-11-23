@@ -632,9 +632,13 @@ void AiAssistDock::rebuildSessionCombo(
     const int row = m_sessions->count();
     m_sessions->addItem(tr("（列表可能不完整：部分会话尚未校验）"));
     m_sessionIds.append(QString());
+    // DESIGN.md：禁用控件必须带 reason tooltip。
     if (auto *model = qobject_cast<QStandardItemModel *>(m_sessions->model())) {
-      if (model->item(row))
-        model->item(row)->setEnabled(false);
+      if (auto *item = model->item(row)) {
+        item->setEnabled(false);
+        item->setToolTip(
+          tr("部分会话尚未校验（索引修复中或不可用），当前列表可能不完整"));
+      }
     }
   }
   updateActionStates();

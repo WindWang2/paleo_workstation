@@ -88,6 +88,10 @@
 <context>
     <name>AiAssistDock</name>
         <message>
+            <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
+            <translation>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</translation>
+        </message>
+        <message>
             <source>超限会话：%1</source>
             <translation>超限会话：%1</translation>
         </message>

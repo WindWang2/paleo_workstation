@@ -267,14 +267,17 @@ void TestH2SessionCombo::brokenArchivesShowBoundedDiagnostics() {
   QVERIFY(spinUntil([&] { return combo->count() == 2; }));
   QVERIFY(combo->itemText(1).contains(QStringLiteral("超限会话")));
   // 选择超限档案：宿主接线（生产在 paleomainwindow_attach_shell，测试同
-  // 路径连接）→ 权威 load 拒绝（Combo 回到真实当前会话）。
+  // 路径连接）→ 权威 load 拒绝（Combo 回到真实当前会话）。loadSession 载入
+  // 失败只发 sessionListChanged，原因经 out 参数交给宿主显示——与生产同形，
+  // 这里经出参断言拒绝原因。
+  QString loadError;
   connect(&dock, &AiAssistDock::openSessionRequested, &controller,
-          [&controller](const QString &id) { controller.loadSession(id); });
-  QSignalSpy errors(&controller, &AiChatController::errorOccurred);
-  QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 1));
-  QVERIFY(spinUntil([&] { return errors.count() >= 1; }));
-  QVERIFY(errors.first().first().toString().contains(QStringLiteral("上限")));
+          [&controller, &loadError](const QString &id) { controller.loadSession(id, &loadError); });
+  QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 1)); // 信号直连：同步完成
+  QVERIFY2(loadError.contains(QStringLiteral("上限")), qPrintable(loadError));
   QCOMPARE(controller.session().id != big.id, true);
+  QCOMPARE(combo->currentIndex(), 0); // Combo 回到真实当前会话
+  QVERIFY(spinUntil([&] { return combo->count() == 2; }));
   paleo::chat::setChatArchiveBudgetForTesting(paleo::chat::ChatArchiveBudget::production());
 }
 

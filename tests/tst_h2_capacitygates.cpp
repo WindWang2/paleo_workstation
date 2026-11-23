@@ -330,6 +330,22 @@ void TestH2CapacityGates::renameOverFieldOrBudgetRefused() {
   QVERIFY(controller.renameSession(other.id, QStringLiteral("别的新名"), &error));
   QVERIFY(ChatSessionStore::load(other.id, &onDisk, &error));
   QCOMPARE(onDisk.title, QStringLiteral("别的新名"));
+
+  // 候选档案成本超限（标题本身并不长）：档案离上限只差 5 字节，加一个标题
+  // 就越线——报「会话容量不足」而不是「标题超限」，磁盘不动。
+  ChatSession nearCap = legacyArchive(QStringLiteral("h2-rename-cost"), 1000);
+  const qint64 target = budget.maxArchiveBytes - 5;
+  nearCap.messages.last().content +=
+    QString(target - paleo::chat::chatArchiveSerializedBytes(nearCap), QLatin1Char('a'));
+  QCOMPARE(paleo::chat::chatArchiveSerializedBytes(nearCap), target);
+  QVERIFY(ChatSessionStore::save(nearCap, &error));
+  m_sessions.append(nearCap.id);
+  const QByteArray nearCapBefore =
+    QFile(ChatSessionStore::pathFor(nearCap.id)).readAll();
+  QVERIFY(!controller.renameSession(nearCap.id, QStringLiteral("新名"), &error));
+  QVERIFY2(error.contains(QStringLiteral("会话容量不足")), qPrintable(error));
+  QVERIFY2(!error.contains(QStringLiteral("标题超限")), qPrintable(error));
+  QCOMPARE(QFile(ChatSessionStore::pathFor(nearCap.id)).readAll(), nearCapBefore);
 }
 
 void TestH2CapacityGates::emptySessionRenameStillNoFile() {

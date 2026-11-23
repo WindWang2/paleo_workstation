@@ -367,6 +367,10 @@
 <context>
     <name>AiChatController</name>
         <message>
+            <source>会话容量不足（%1）：改名会使会话超过本机档案上限；请缩短标题，或用「新会话」继续新话题</source>
+            <translation>会话容量不足（%1）：改名会使会话超过本机档案上限；请缩短标题，或用「新会话」继续新话题</translation>
+        </message>
+        <message>
             <source>会话容量不足（%1）：继续本轮会超出本机会话档案上限。请用「新会话」开始新话题；当前会话仍可导出。</source>
             <translation>会话容量不足（%1）：继续本轮会超出本机会话档案上限。请用「新会话」开始新话题；当前会话仍可导出。</translation>
         </message>

@@ -5,7 +5,7 @@
 - 分支 `codex/h4-agent-operation-discovery`，worktree `../paleo-h4-agent-operation-discovery`，
   专属挂点 `cmake/extra-h4-agent-operation-discovery.cmake`（根 `_paleo_extra_manifest` 仅加自己一行）。
 - base：`origin/master = 8eca4644db31b4dcfd5ff11bebf39f0bbcfaf3a5`（开工与提 PR 前两次 fetch 均未前移）。
-- head：<<HEAD_SHA>>
+- head：`6cae05dc`（R4 修复轮；最终 PR 以推送时分支 tip 为准）
 - 环境：CachyOS x86_64（Linux 7.3.4-1-cachyos），GCC 16，CMake 4.5.1（主机），
   Qt 6.10.2 / QGIS 4.2.3（vendored），RelWithDebInfo，`-j4`，`ctest -j1`。
 - 依赖前缀：`vendor/prefix → /home/kevin/projects/paleo-h3-agent-plan-outputs/vendor/prefix`
@@ -125,8 +125,8 @@
 | `src/workflow/aichattoolrunner_operations.cpp` | 薄缝：`runPersistentOperation` 在 operation_id 必填校验之前加 list 专用分支 |
 | `src/workflow/aichattoolrunner.h` | 薄缝：`runOperationList` 声明 |
 | `src/workflow/aichattoolrunner_readiness.cpp` | 薄缝：`operation_list` 跳过 legacy 无条件放行 + 精确资格（recovery + TaskService） |
-| `tests/tst_h4_operation_discovery.cpp` | 新：服务/Recovery 层 <<N_DISC>> 项 |
-| `tests/tst_h4_operation_list_tool.cpp` | 新：真实 runner 链 <<N_TOOL>> 项 |
+| `tests/tst_h4_operation_discovery.cpp` | 新：服务/Recovery 层 20 个用例 |
+| `tests/tst_h4_operation_list_tool.cpp` | 新：真实 runner 链 6 个用例 |
 | `tests/tst_aichat.cpp`、`tests/tst_aichatprojectquery.cpp` | 守卫同步：内置工具总数 24→25、名单加 `paleo.operation_list`；为无必填项的 `operation_list` 加一条**点名**例外（其余工具仍须至少一个必填项） |
 | `cmake/extra-h4-agent-operation-discovery.cmake` + 根 manifest 一行 | 构建接线 |
 | `translations/paleo_{zh_CN,en}.ts` | 仅追加本任务 9 条文案（+36 行/文件；手工定位插入，未整库重排） |
@@ -172,8 +172,8 @@ resultPorts/sourceOperation/consumers/planSteps/parentVersions/external——全
 ```
 ./paleo-dev build -j4                                   # 全量 + 逐轮增量；exit 0
 ./paleo-dev test -j1 -R "tst_h4_"                       # 2/2
-./paleo-dev test -j1 -R "<受影响族正则，见下>"            # <<REGRESSION>>
-ctest -LE 'core|perf' -R "<63 个无标签闸门项>" -j1       # <<GATES>>
+./paleo-dev test -j1 -R "<受影响族正则，见下>"            # 86/86 通过
+ctest -LE 'core|perf' -R "<无标签闸门项正则>" -j1         # 61/62（first_configure 见下）
 ```
 
 - 受影响族回归正则：
@@ -190,12 +190,12 @@ ctest -LE 'core|perf' -R "<63 个无标签闸门项>" -j1       # <<GATES>>
 
 | 项 | 结果 |
 |---|---|
-| 构建 `./paleo-dev build -j4` | <<BUILD>> |
-| `tst_h4_operation_discovery` | <<DISC>> |
-| `tst_h4_operation_list_tool` | <<TOOL>> |
-| 受影响族回归 | <<REGRESSION>> |
-| 63 个无标签闸门项（ctest） | <<GATES>> |
-| 源码闸门脚本直跑 14 项（layering --strict/--qgs-audit/--transitive、file_budget --strict、ui_size、ui_invariants、ui_tokens、i18n、l10n、ts_stale、qgis_versions、docs_drift、qgis_spread、cpp_mainline） | <<SCRIPTS>> |
+| 构建 `./paleo-dev build -j4` | exit 0（全量 + 每轮增量均 0 FAILED；ccache 加速） |
+| `tst_h4_operation_discovery` | Passed（20/20 用例；ctest 计 22 项含 init/cleanup；~12 s） |
+| `tst_h4_operation_list_tool` | Passed（6/6 用例；ctest 计 8 项；~2.7 s） |
+| 受影响族回归 | 86/86 通过（`ctest -j1`，187 s；同一正则与首轮一致） |
+| 无标签闸门项（ctest，正则列 63 个名字） | 61/62 通过；唯一失败 `first_configure` 为**本机工具链环境限制**：其内层全新 configure 不传 `CMAKE_LIBRARY_ARCHITECTURE`，在非 Debian 多架构主机（Arch/CachyOS）上该变量为空 → 资源路径 `usr/lib//qt6/...` 缺多架构段。同一 configure 加 `-DCMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu` 即通过（已复现）；护栏脚本相对基线零改动 |
+| 源码闸门脚本直跑 14 项（layering --strict/--qgs-audit/--transitive、file_budget --strict、ui_size、ui_invariants、ui_tokens、i18n、l10n、ts_stale、qgis_versions、docs_drift、qgis_spread、cpp_mainline） | 14/14 rc=0（最终 head 复跑；transitive 用受控 `QGIS_PREFIX`） |
 
 ### 验收矩阵对照
 
@@ -223,8 +223,9 @@ ctest -LE 'core|perf' -R "<63 个无标签闸门项>" -j1       # <<GATES>>
 | R2 | `d67a0a13`（reviewer A 复审） | 上轮各项核实已解决；新发现 N-1：末页后 `liveCursors` 断言仍红（2 vs 1）；N-2~N-4 为补充项 | `c4d6d226`：回收循环移出 `hasMore`（末页也只留可重试游标）、新错误码负例、digest 口径与窗口防线文档化 |
 | 实跑 | 首次全量构建 + 首次测试运行 | R1/R2 关于"测试未跑过"的判断成立：暴露 1 处编译错误（缺 `QCryptographicHash` include）、4 处夹具错误（`acceptDurable` 不回写入参、状态机须两步、SHA 基线时序）、1 处空指针（`ToolHost` 未分配 `ProjectDirLock`）、1 处字节数笔误、宿主直通校验器缺失 | `b4d4f41b`、`def177ea`、`1fc741cc` |
 | 回归 | `1fc741cc` 上 86 个受影响族 | 83/86；3 个失败均为工具表守卫（新工具被枚举） | `e8151242`：产品侧让 `operation_list` 恒走 hosted 资格路径；同步 `tst_aichat`/`tst_aichatprojectquery` 守卫 |
-| 自审 | `e8151242` | 整本 journal 哈希返回给模型 = 他人操作的旁路信号（R1 记为取舍，自审认为应改）；W6"任务前拒绝"未按字面做到 | `ba6d8746`（作用域内摘要）；准入前移（最终 commit） |
-| R3 | `e8151242`（独立 reviewer B，未参与前两轮，全量 diff，不带前轮结论） | 需修复后复审：无 P0；P1×3——P1-1 快照上限 4 份且只回收过期项，10 分钟内第 5 次无游标查询必失败；P1-2 canonical 工程路径与原始 operationDir 混用，工程根非规范时恒报 `operation_log_unavailable`；P1-3 整本 journal 哈希是跨作用域活动旁路（已在 `ba6d8746` 修）。P2：`coverage` 撞协议保留键缺 `complete`；任务非 quiet 每页弹任务中心；文档错误码缺口；`resultSchemaJson` 偏差；失效后旧游标报 `cursor_invalid` 不准；测试 oracle 缺口（`msleep` 时序依赖、取消用例未执行扫描、`consumers` 无断言、两处修复无回归用例）；`journalHealth` 为工程级位 | <<R3_FIX>> |
+| 自审与实跑自纠 | `e8151242` | 整本 journal 哈希返回给模型 = 他人操作的旁路信号（R1 记为取舍，自审认为应改）；W6"任务前拒绝"未按字面做到；实跑抓到自己两处时序/逻辑缺陷：`makeRoom` 内层循环未在腾够后停止（多淘汰）、LRU 初版用墙钟毫秒（同毫秒打平 + QHash 遍历序不定 → 淘汰顺序随机） | `ba6d8746`（作用域内摘要）、`6cae05dc`（准入前移、单调 useSeq） |
+| R4 | `6cae05dc`（独立 reviewer C，未参与前几轮，增量 diff） | <<R4>> | <<R4_FIX>> |
+| R3 | `e8151242`（独立 reviewer B，未参与前两轮，全量 diff，不带前轮结论） | 需修复后复审：无 P0；P1×3——P1-1 快照上限 4 份且只回收过期项，10 分钟内第 5 次无游标查询必失败；P1-2 canonical 工程路径与原始 operationDir 混用，工程根非规范时恒报 `operation_log_unavailable`；P1-3 整本 journal 哈希是跨作用域活动旁路（已在 `ba6d8746` 修）。P2：`coverage` 撞协议保留键缺 `complete`；任务非 quiet 每页弹任务中心；文档错误码缺口；`resultSchemaJson` 偏差；失效后旧游标报 `cursor_invalid` 不准；测试 oracle 缺口（`msleep` 时序依赖、取消用例未执行扫描、`consumers` 无断言、两处修复无回归用例）；`journalHealth` 为工程级位 | `6cae05dc`：P1-1 三级 LRU 淘汰（他会话遗留 → 已走完 → 最久未用在途，单调 useSeq；被淘汰在途游标得明确 `cursor_expired`；`discovery_cache_full`+`retryAfterMs` 仅在新快照自身放不下时；首页失败撤销登记、首行超预算登记前判定）；P1-2 宿主原值工程路径 + 符号链接用例；P2-1 `coverage.complete`；P2-2 quiet 任务；P2-4 文档错误码补齐；P2-5 schema 对齐；P2-8 游标实例标记（`cursor_expired`/`cursor_invalid` 分流）；P2-6 测试补齐（扫描内取消、上下文变化三变体、taskAdded 内销毁订阅者、consumers、去 msleep）；P2-3 不采纳并写明理由 |
 
 ## 与同批开放 PR 的接缝（提 PR 时核对）
 

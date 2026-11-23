@@ -98,6 +98,7 @@ struct ChatArchiveRepairOutcome {
   QVector<ChatArchiveRepairItem> items;
   int vanished = 0;   // 候选在修复时已不存在（缓存随之清理）
   int irregular = 0;  // 候选变成目录/链接等非常规形态：跳过不读不缓存
+  int changed = 0;    // 修复读取期间权威文件被改写：不写缓存，留给下一次修复
 };
 
 // 冷修复：对候选逐个重建 sidecar。可在任意线程运行（纯文件 IO，不触碰

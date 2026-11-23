@@ -250,11 +250,15 @@ ChatArchiveRepairOutcome repairChatArchiveSummaries(
       ++outcome.irregular;
       continue; // 目录/链接伪装：不读、不缓存，留待权威 load 分类拒绝
     }
+    // 指纹取在读正文之前，读完再复核：两步之间文件被改写就不能把「旧内容
+    // 的新指纹」写进缓存（那会让过期摘要一直被当成新鲜缓存）。
+    const qint64 bytes = info.size();
+    const qint64 mtimeMs = info.lastModified().toMSecsSinceEpoch();
     ChatSessionSummary summary;
     summary.id = candidate.id;
-    summary.fileBytes = info.size();
+    summary.fileBytes = bytes;
     ChatArchiveReject reject = ChatArchiveReject::None;
-    if (info.size() > budget.maxArchiveBytes) {
+    if (bytes > budget.maxArchiveBytes) {
       // 超限旧档案：保留字节、只给元信息状态，不读正文、不伪称完整载入。
       summary.state = ChatSessionSummary::State::OverLimit;
       summary.diagnostic = chatArchiveRejectCode(ChatArchiveReject::SizeExceeded);
@@ -267,10 +271,15 @@ ChatArchiveRepairOutcome repairChatArchiveSummaries(
         summary = ChatSessionIndex::summarize(session, info.size());
       }
     }
+    const QFileInfo after(path);
+    if (after.size() != bytes || after.lastModified().toMSecsSinceEpoch() != mtimeMs) {
+      ++outcome.changed;
+      continue;
+    }
     ChatArchiveRepairItem item;
     item.stamp.id = candidate.id;
-    item.stamp.bytes = info.size();
-    item.stamp.mtimeMs = info.lastModified().toMSecsSinceEpoch();
+    item.stamp.bytes = bytes;
+    item.stamp.mtimeMs = mtimeMs;
     item.summary = summary;
     item.written = ChatSessionIndex::write(summary, item.stamp.bytes, item.stamp.mtimeMs);
     outcome.items.append(item);

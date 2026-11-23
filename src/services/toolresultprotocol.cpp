@@ -71,6 +71,29 @@ QJsonObject resultEnvelope(const QJsonValue &value, bool ok) {
   return out;
 }
 
+QJsonObject resultEnvelopeForBudget(const QJsonValue &value, bool ok, int maxBytes) {
+  auto out = resultEnvelope(value, ok);
+  auto transport = out.value("transport").toObject();
+  transport.insert("maxBytes", maxBytes);
+  out.insert("transport", transport);
+  return out;
+}
+
+int resultEnvelopeBytes(const QJsonValue &value, bool ok, int maxBytes) {
+  return compactJson(resultEnvelopeForBudget(value, ok, maxBytes)).size();
+}
+
+QJsonObject boundedResultError(const QString &code, int maxBytes,
+                               const QString &retryAdvice) {
+  maxBytes = qBound(kMinimumEnvelopeBytes, maxBytes, kResultHardBytes);
+  auto out = resultError(code);
+  auto transport = out.value("transport").toObject();
+  transport.insert("maxBytes", maxBytes);
+  out.insert("transport", transport);
+  out.insert("retryAdvice", retryAdvice);
+  return out;
+}
+
 QJsonObject transportResult(const QJsonObject &facts, const QString &code,
                             const QJsonValue &summary) {
   QJsonObject out = facts;

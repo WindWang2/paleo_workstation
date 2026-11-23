@@ -18,10 +18,16 @@ QString childSelector(const QString &parent, QString key) {
   key.replace("/", "~1");
   return parent + '/' + key;
 }
+// H7：页的合格判据是「最终可发送 envelope」而不是内层 JSON 片段。计价对象与
+// ChatResultStore::encode 的成功分支同一形状（含 transport.maxBytes、coverage
+// 与 nextCursor 的可变字节），因此成功页不会再在最终包装时被降级。
+bool fitsEnvelope(const QJsonObject &page, int envelopeBytes) {
+  return resultEnvelopeBytes(page, true, envelopeBytes) <= envelopeBytes;
+}
 } // namespace
 
 QJsonObject ChatResultStore::stringPage(const QString &reference, const QString &selector,
-                                       const QString &value, Position position, int maxBytes) {
+                                       const QString &value, Position position, int envelopeBytes) {
   if (position.offset > value.size()) return {{"code", "invalid_result_cursor"}};
   const int total = codepoints(value);
   const int offset = codepoints(value.left(position.offset));
@@ -36,23 +42,22 @@ QJsonObject ChatResultStore::stringPage(const QString &reference, const QString 
     return out;
   };
   const auto complete = page(int(value.size()));
-  if (compactJson(complete).size() <= maxBytes) return complete;
+  if (fitsEnvelope(complete, envelopeBytes)) return complete;
   int low = position.offset, high = int(value.size());
   while (low < high) {
     const int middle = low + (high - low + 1) / 2;
-    if (compactJson(page(middle)).size() <= maxBytes) low = middle;
+    if (fitsEnvelope(page(middle), envelopeBytes)) low = middle;
     else high = middle - 1;
   }
   if (low > position.offset && low < value.size() && value[low - 1].isHighSurrogate() && value[low].isLowSurrogate())
     --low;
   auto out = page(low);
-  if ((low == position.offset && low < value.size()) || compactJson(out).size() > maxBytes)
+  if ((low == position.offset && low < value.size()) || !fitsEnvelope(out, envelopeBytes))
     return {{"code", "value_exceeds_page_budget"}};
   return out;
 }
-
 QJsonObject ChatResultStore::containerPage(const QString &reference, const QString &selector,
-    const QJsonValue &value, Position position, int pageSize, int maxBytes) {
+    const QJsonValue &value, Position position, int pageSize, int envelopeBytes) {
   const bool arrayKind = value.isArray();
   const auto array = value.toArray();
   const auto object = value.toObject();
@@ -79,14 +84,18 @@ QJsonObject ChatResultStore::containerPage(const QString &reference, const QStri
                        {"value", item}};
     auto trial = entries;
     trial.append(entry);
-    if (compactJson(page(trial, end + 1)).size() > maxBytes) {
-      // A member can be larger than a page. Describe its location in this same immutable value.
+    if (!fitsEnvelope(page(trial, end + 1), envelopeBytes)) {
+      // 若该成员单独一页能放下，只是本页剩余预算不够：把它留给下一页
+      // （页首重新获得完整预算），避免把后续每个正常成员都降级成 child。
+      const bool fitsAlone = fitsEnvelope(page(QJsonArray{entry}, end + 1), envelopeBytes);
+      if (!entries.isEmpty() && fitsAlone) break;
+      // 本身超过一页的成员：在同一不可变值内描述其位置（不新建引用）。
       const auto child = childSelector(selector, key);
       entry.remove("value");
       entry.insert("child", QJsonObject{{"selector", child}, {"kind", jsonValueKind(item)}});
       trial = entries;
       trial.append(entry);
-      if (child.toUtf8().size() > 1024 || compactJson(page(trial, end + 1)).size() > maxBytes) {
+      if (child.toUtf8().size() > 1024 || !fitsEnvelope(page(trial, end + 1), envelopeBytes)) {
         if (entries.isEmpty()) return {{"code", "value_exceeds_page_budget"}};
         break;
       }
@@ -95,7 +104,7 @@ QJsonObject ChatResultStore::containerPage(const QString &reference, const QStri
     ++end;
   }
   auto out = page(entries, end);
-  if (compactJson(out).size() > maxBytes) return {{"code", "value_exceeds_page_budget"}};
+  if (!fitsEnvelope(out, envelopeBytes)) return {{"code", "value_exceeds_page_budget"}};
   return out;
 }
 } // namespace paleo::chat

@@ -577,7 +577,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
       {"cursor", "string", QObject::tr("上一页 nextCursor，须保持相同 selector"), false},
       {"mode", "string", QObject::tr("自动分页或字符串片段"), false, {"auto", "text_parts"}},
       boundedParameter("page_size", "integer", QObject::tr("每页 1–128 个元素"), false, 1, 128),
-      boundedParameter("max_bytes", "integer", QObject::tr("UTF-8 JSON 预算，768–65536 字节"), false,
+      boundedParameter("max_bytes", "integer", QObject::tr("请求字节上限（UTF-8 JSON，768–65536）；宿主回包可能更小，以实际页与 nextCursor 为准"), false,
                        paleo::chat::kMinimumEnvelopeBytes, paleo::chat::kResultHardBytes)};
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};

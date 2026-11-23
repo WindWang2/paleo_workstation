@@ -2,6 +2,7 @@
 #include "aichatcontroller.h"
 #include "../services/toolresultprotocol.h"
 #include "chatinvocationbinding.h"
+#include "toolreplybudget.h"
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QSet>
@@ -107,7 +108,13 @@ QString AiChatController::negotiatedToolError(const ChatToolCall &call) const {
 }
 
 void AiChatController::dispatchTurnTool(ChatToolCall call) {
-  if (ensureTurnContext()) m_runner.run(call);
+  if (!ensureTurnContext()) return;
+  // H7-W2：native 首次/后继与 Pi toolRequested 都走这里。派发即按当前回合
+  // 额度冻结本次调用的最终回包配额，随 call 交给 runner；不预读、不消耗
+  // 下一调用的份额，也不改 admitToolCalls 的准入与保存顺序。
+  const int quota = paleo::chat::replyQuotaBytes(
+      m_pendingToolResults, m_toolTokens, kHistoryTokenBudget, kMinimumReplyTokens);
+  m_runner.run(call, quota);
 }
 
 void AiChatController::onRoundFinished(const QString &reason) {
@@ -188,15 +195,24 @@ void AiChatController::onRoundFinished(const QString &reason) {
 void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const QString &resultJson) {
   const QPointer<AiChatController> guard(this); const auto sessionId = m_session.id;
   const auto sequence = m_turnSequence;
-  if (m_pendingToolResults <= 0) return;
+  if (m_pendingToolResults <= 0) { m_runner.discardDeliveredReadResult(call.id); return; }
   int match = -1;
   for (int i = 0; i < m_unansweredCalls.size(); ++i)
     if (m_unansweredCalls[i].id == call.id) { match = i; break; }
-  if (match < 0) return;
-  const int reserved = (m_pendingToolResults - 1) * kMinimumReplyTokens;
-  const int available = kHistoryTokenBudget - m_toolTokens - reserved;
-  const int bytes = qBound(paleo::chat::kMinimumEnvelopeBytes, available * 2, paleo::chat::kResultPageBytes);
+  if (match < 0) { m_runner.discardDeliveredReadResult(call.id); return; }
+  // H7-W2：最终化用同一纯值公式重算可用额度，交给 runner 复核「本次读页
+  // 实际采用的 envelope 预算」。页生成时的交集（请求上限 vs 宿主配额）由
+  // runner 记录，最终化不重选页、不重跑业务；若额度被压小，runner 返回
+  // tool_reply_budget_changed，且不会把成功页降级成无 data/无 cursor。
+  const int bytes = paleo::chat::replyQuotaBytes(
+      m_pendingToolResults, m_toolTokens, kHistoryTokenBudget, kMinimumReplyTokens);
   const auto envelope = m_runner.modelResult(call, resultJson, ok, bytes);
+  // 交付失败与 native tool_finished、Pi 外层 ok 和 UI 卡片必须是同一事实：
+  // 读取本次没有成功送达，不能仍报 ok=true。
+  const bool readDeliveryFailed = ok && call.name == QLatin1String("paleo.read_result") &&
+      envelope.value("transport").toObject().value("code").toString() ==
+          QLatin1String("tool_reply_budget_changed");
+  const bool deliveredOk = ok && !readDeliveryFailed;
   ChatMessage tool;
   tool.role = ChatRole::Tool;
   tool.toolCallId = call.id;
@@ -221,19 +237,21 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
   const bool piBudgetLimit = pi && m_pendingToolResults == 0 && m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens;
   if (pi && m_streaming && !piBudgetLimit) {
-    const auto sent = m_piBridge.toolFinished(call, ok, tool.content);
+    const auto sent = m_piBridge.toolFinished(call, deliveredOk, tool.content);
     if (!guard) return;
     if (!sent) { failTurn("pi_tool_result_state"); return; }
   }
   // The UI summary remains independent of the model's transport contract.
   const auto native = QJsonDocument::fromJson(resultJson.toUtf8()).object();
-  QString summary = ok ? resultJson : native.value("error").toString(resultJson);
-  if (ok && resultJson.size() > 160) {
+  QString summary = deliveredOk ? resultJson
+      : (readDeliveryFailed ? QStringLiteral("tool_reply_budget_changed")
+                           : native.value("error").toString(resultJson));
+  if (deliveredOk && resultJson.size() > 160) {
     int end = 160;
     if (resultJson[end - 1].isHighSurrogate() && resultJson[end].isLowSurrogate()) --end;
     summary = resultJson.left(end) + QStringLiteral("…");
   }
-  emit toolResultReady(call, ok, summary);
+  emit toolResultReady(call, deliveredOk, summary);
   if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
   if (!m_streaming) return;
   if (m_pendingToolResults > 0) {

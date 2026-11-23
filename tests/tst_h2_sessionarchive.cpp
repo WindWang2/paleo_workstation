@@ -182,8 +182,10 @@ void TestH2SessionArchive::futureAndMissingSchemaRefused() {
 void TestH2SessionArchive::structureShapesRefusedInsteadOfMasked() {
   const QString base = QStringLiteral("h2-shape-%1");
   int index = 0;
+  // 身份校验先于结构校验：夹具的 id 必须与文件名一致，只留被测的结构缺陷。
   const auto write = [&](QJsonObject object) -> QString {
     const QString id = base.arg(++index);
+    object.insert(QStringLiteral("id"), id);
     writeRawArchive(id, object);
     return id;
   };
@@ -478,22 +480,21 @@ void TestH2SessionArchive::admissionMathBoundaries() {
 
   // 用户输入恰好把余量用完：放行；再加 1 字符：拒绝。探针与生产同形
   //（timestamp + 32 码元 host_turn_id——见 chatArchiveAcceptsTurn）。
-  const qint64 base = paleo::chat::chatArchiveSerializedBytes(empty);
   ChatMessage probe;
   probe.role = ChatRole::User;
   probe.timestamp = QDateTime::currentDateTimeUtc();
   probe.hostTurnId = QString(32, QLatin1Char('0'));
-  const qint64 room = budget.maxArchiveBytes - budget.turnReserve() -
-                      budget.titleReserve() - base;
-  QVERIFY(room > 4);
-  probe.content = QString(room - 2, QLatin1Char('u')); // {"role":"user","content":"…"} ≈ room
-  qint64 projected = paleo::chat::chatArchiveSerializedBytesWithMessage(empty, probe) +
-                     budget.turnReserve() + budget.titleReserve();
-  // 校准到恰好等于上限（ASCII 内容每字符 1 字节）。
-  qint64 delta = budget.maxArchiveBytes - projected;
-  probe.content += QString(delta, QLatin1Char('u'));
-  projected = paleo::chat::chatArchiveSerializedBytesWithMessage(empty, probe) +
-              budget.turnReserve() + budget.titleReserve();
+  // ASCII 内容每多一个字符，序列化恰好多 1 字节：先量出消息信封的固定开销，
+  // 再把内容长度反解到「恰好等于上限」（期望值由度量得出，不抄实现公式）。
+  probe.content = QStringLiteral("u");
+  const qint64 envelope = paleo::chat::chatArchiveSerializedBytesWithMessage(empty, probe) - 1;
+  const qint64 contentLength = budget.maxArchiveBytes - budget.turnReserve() -
+                               budget.titleReserve() - envelope;
+  QVERIFY2(contentLength > 0 && contentLength < 100000,
+           qPrintable(QStringLiteral("contentLength=%1").arg(contentLength)));
+  probe.content = QString(contentLength, QLatin1Char('u'));
+  const qint64 projected = paleo::chat::chatArchiveSerializedBytesWithMessage(empty, probe) +
+                           budget.turnReserve() + budget.titleReserve();
   QCOMPARE(projected, budget.maxArchiveBytes);
   QVERIFY(paleo::chat::chatArchiveAcceptsTurn(empty, probe.content, budget, &reason));
   QVERIFY(!paleo::chat::chatArchiveAcceptsTurn(empty, probe.content + QLatin1Char('!'),

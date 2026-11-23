@@ -33,6 +33,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSignalBlocker>
+#include <QStandardItemModel>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextEdit>
@@ -232,6 +233,8 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
     if (!m_controller || index < 0 || index >= m_sessionIds.size())
       return;
     const QString id = m_sessionIds.at(index);
+    if (id.isEmpty())
+      return; // 「列表可能不完整」说明行不对应会话（禁用行，防御性兜底）
     if (id == m_controller->session().id)
       return; // 选的就是当前会话：无事发生
     emit openSessionRequested(id);
@@ -590,7 +593,7 @@ void AiAssistDock::refreshSessions() {
 }
 
 void AiAssistDock::rebuildSessionCombo(
-    const QVector<paleo::chat::ChatSessionSummary> &summaries) {
+    const QVector<paleo::chat::ChatSessionSummary> &summaries, bool complete) {
   if (!m_controller)
     return;
   QSignalBlocker block(m_sessions); // 重建不触发 activated/currentIndexChanged
@@ -611,11 +614,11 @@ void AiAssistDock::rebuildSessionCombo(
                                             : recent.displayTitle;
     } else if (recent.state ==
                paleo::chat::ChatSessionSummary::State::OverLimit) {
-      // 有界诊断（muted 纯文本口径）：选择后由 loadSession 的权威上限拒绝。
-      label = tr("超限会话（%1…）").arg(recent.id.left(8));
+      // 有界诊断（纯文本）：选中后由 loadSession 的权威上限拒绝，不伪称可载入。
+      label = tr("超限会话：%1").arg(displayNameOf(recent));
     } else {
-      label = tr("档案异常（%1…）：%2")
-                .arg(recent.id.left(8),
+      label = tr("档案异常（%2）：%1")
+                .arg(displayNameOf(recent),
                      recent.diagnostic.isEmpty() ? QStringLiteral("invalid")
                                                  : recent.diagnostic);
     }
@@ -623,7 +626,24 @@ void AiAssistDock::rebuildSessionCombo(
     m_sessionIds.append(recent.id);
   }
   m_sessions->setCurrentIndex(0);
+  // complete=false：有限扫描/修复未完成——如实标注，不把这一页说成完整最近
+  // 集合。禁用行不可选、不对应任何会话；修复完成后下一次重建即消失。
+  if (!complete) {
+    const int row = m_sessions->count();
+    m_sessions->addItem(tr("（列表可能不完整：部分会话尚未校验）"));
+    m_sessionIds.append(QString());
+    if (auto *model = qobject_cast<QStandardItemModel *>(m_sessions->model())) {
+      if (model->item(row))
+        model->item(row)->setEnabled(false);
+    }
+  }
   updateActionStates();
+}
+
+QString AiAssistDock::displayNameOf(const paleo::chat::ChatSessionSummary &recent) {
+  // 诊断行用的辨认名：有标题用标题，否则用 id 前缀（元信息缺失/损坏时）。
+  return recent.displayTitle.isEmpty() ? tr("%1…").arg(recent.id.left(8))
+                                       : recent.displayTitle;
 }
 
 void AiAssistDock::renameComboSession() {

@@ -142,7 +142,8 @@ bool ChatSessionStore::save(const ChatSession &session, QString *error) {
       *error = QObject::tr("会话消息数超过档案结构上限（%1）").arg(budget.maxMessages);
     return false;
   }
-  if (session.model.size() > 256 || session.title.size() > budget.maxTitleCharsLoad) {
+  if (session.model.size() > budget.maxModelChars ||
+      session.title.size() > budget.maxTitleCharsLoad) {
     if (error)
       *error = QObject::tr("会话字段长度超过档案合同上限");
     return false;

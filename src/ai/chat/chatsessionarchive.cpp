@@ -167,7 +167,7 @@ ChatArchiveReject validateChatArchiveObject(const QJsonObject &object,
   const ChatArchiveBudget budget = chatArchiveBudget();
   if (!boundedString(object, "title", budget.maxTitleCharsLoad, false, detail))
     return ChatArchiveReject::StructureInvalid;
-  if (!boundedString(object, "model", 256, false, detail))
+  if (!boundedString(object, "model", budget.maxModelChars, false, detail))
     return ChatArchiveReject::StructureInvalid;
   if (!boundedString(object, "created_at", 64, false, detail))
     return ChatArchiveReject::StructureInvalid;
@@ -249,7 +249,7 @@ QByteArray readChatArchiveBytes(QIODevice *device, qint64 limit,
 
 qint64 ChatArchiveBudget::titleReserve() const
 {
-  return qint64(escapeWorstFactor) * maxTitleChars + contentSlack;
+  return qint64(escapeWorstFactor) * (maxTitleChars + maxModelChars) + contentSlack;
 }
 
 qint64 ChatArchiveBudget::turnReserve() const
@@ -268,15 +268,15 @@ qint64 ChatArchiveBudget::turnReserve() const
 
 ChatArchiveBudget ChatArchiveBudget::production()
 {
-  ChatArchiveBudget budget; // knobs 缺省即既有业务上限（单点登记见头文件）
+  // 旋钮取成员初始值（= 既有业务上限，单点登记见头文件）；结果页上限取
+  // 结果协议的同一常量（数值相同，保持单点）。
+  ChatArchiveBudget budget;
   budget.resultPageBytes = kResultPageBytes;
-  budget.maxTitleChars = 256;
-  budget.maxTitleCharsLoad = 4096;
-  budget.maxMessages = 65536;
   // 上限结构式推导：fresh 空会话必须容得下一整轮最大合法工作（W3）。
   //   cap = turnReserve() + titleReserve() + 32 MiB 余量
-  // 生产数值 ≈ 290.4 MiB + 1.8 KiB + 32 MiB ≈ 322.5 MiB：空会话首轮恒可
-  // 通过；一轮最大工作落盘后（~290 MiB）再发新轮被拒（建议新建会话），
+  // 生产数值 = 304,644,544 + 4,096 + 33,554,432 = 338,203,072 字节
+  //（≈ 290.5 MiB + 4 KiB + 32 MiB ≈ 322.5 MiB）：空会话首轮恒可通过；一轮
+  // 最大工作落盘后（~290 MiB）再发新轮被拒（建议新建会话），
   // 既有 newSession / 导出 / G2 保存欠账语义不受影响。
   budget.maxArchiveBytes =
     budget.turnReserve() + budget.titleReserve() + 32ll * 1024 * 1024;

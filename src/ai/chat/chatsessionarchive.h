@@ -72,14 +72,18 @@ QByteArray readChatArchiveBytes(QIODevice *device, qint64 limit,
 //   · 工具结果：callsPerTurn 条 role=tool，每条 content 是 result envelope
 //     （≤ resultPageBytes 页 + 信封字段），同按最坏转义放缩；
 //   · 工具调用帧：callsPerTurn 个 arguments（≤ toolArgumentBytes）+ 名字/id；
-//   · host 绑定行：callsPerTurn 行定长字段（~0.5 KiB/行）；
-//   · 元字段：消息时间戳/host_turn_id、轮中合法 rename 的标题上限
-//     （titleReserve——合法改名不消耗本轮响应余量）。
+//   · host 绑定行：callsPerTurn 行定长字段（~3 KiB/行，含最坏转义）；
+//   · 元字段：消息时间戳/tool_call_id/host_turn_id；会话头另留 titleReserve
+//     （轮中合法 rename 的标题 + 换模型后的 model 名——不消耗本轮响应余量）。
+//
+// 各旋钮的成员初始值即生产取值（测试缩放档只改它关心的项，其余保持生产
+// 口径）；production() 仅据此推导总上限 maxArchiveBytes。
 struct ChatArchiveBudget {
-  qint64 maxArchiveBytes = 0;   // 读/写共用的硬上限（save 与 load 对称）
-  int maxMessages = 0;          // 结构性消息数上限（内存护栏）
-  int maxTitleChars = 0;        // 新标题上限（rename 准入；UTF-16 码元）
-  int maxTitleCharsLoad = 0;    // 旧档案标题容忍上限（更长的旧标题仍可载入）
+  qint64 maxArchiveBytes = 0;   // 读/写共用的硬上限（save 与 load 对称）；production() 推导
+  int maxMessages = 65536;      // 结构性消息数上限（内存护栏）
+  int maxTitleChars = 256;      // 新标题上限（rename 准入；UTF-16 码元）
+  int maxTitleCharsLoad = 4096; // 旧档案标题容忍上限（更长的旧标题仍可载入）
+  int maxModelChars = 256;      // 会话头 model 字段上限（换模型后新轮落盘可能变长）
   int toolRounds = kArchiveMaxToolRounds;
   qint64 maxResponseBytes = kArchiveMaxModelResponseBytes;
   int callsPerTurn = kArchiveMaxCallsPerTurn;
@@ -92,12 +96,15 @@ struct ChatArchiveBudget {
   qint64 bindingRowBytes = 3072;// 每行 host 绑定的定长字段上界（documentId ≤256、toolName ≤128，均含最坏转义）
 
   static ChatArchiveBudget production();
+  // 会话头元字段预留：轮中合法 rename 的标题 + 换模型后落盘的 model 名——
+  // 两者都可能在准入之后、本轮保存之前变长，不占用响应余量。
   qint64 titleReserve() const;
   qint64 turnReserve() const;   // 一轮最坏增量（不含用户消息本体与标题）
-  // 一轮内可能追加的最大消息条数：1 占位外的首答开场 + (1+toolRounds) 条
-  // assistant（开场 + 续轮）+ callsPerTurn 条 role=tool 结果 + 配对合成余量。
+  // 一轮内可能追加的最大消息条数：1 条 user + (1+toolRounds) 条 assistant
+  //（开场 + 每批工具后的续轮）+ callsPerTurn 条 role=tool 结果（含取消/出错
+  // 时为未应答帧合成的应答——每条已准入调用恰一条）+ 2 条结构余量。
   qsizetype messagesPerTurn() const {
-    return 2 + toolRounds + callsPerTurn + 2;
+    return 1 + (1 + toolRounds) + callsPerTurn + 2;
   }
 };
 // 当前生效预算（production，或测试注入的缩放档）。线程安全（互斥读快照）。

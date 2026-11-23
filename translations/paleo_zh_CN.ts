@@ -88,12 +88,20 @@
 <context>
     <name>AiAssistDock</name>
         <message>
-            <source>超限会话（%1…）</source>
-            <translation>超限会话（%1…）</translation>
+            <source>超限会话：%1</source>
+            <translation>超限会话：%1</translation>
         </message>
         <message>
-            <source>档案异常（%1…）：%2</source>
-            <translation>档案异常（%1…）：%2</translation>
+            <source>档案异常（%2）：%1</source>
+            <translation>档案异常（%2）：%1</translation>
+        </message>
+        <message>
+            <source>%1…</source>
+            <translation>%1…</translation>
+        </message>
+        <message>
+            <source>（列表可能不完整：部分会话尚未校验）</source>
+            <translation>（列表可能不完整：部分会话尚未校验）</translation>
         </message>
     <message>
         <location filename="../src/ui/ai/aiassistdock.cpp" line="64"/>

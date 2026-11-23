@@ -12,6 +12,7 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUrl>
+#include <memory>
 
 #include "../src/ai/chat/chatmessage.h"
 #include "../src/ai/chat/chatsession.h"
@@ -48,9 +49,17 @@ private:
     auto buf = std::make_shared<QByteArray>();
     connect(sock, &QTcpSocket::readyRead, sock, [this, sock, buf] {
       buf->append(sock->readAll());
-      if (!buf->contains("\r\n\r\n"))
+      // 等到完整请求（头 + Content-Length 指明的体）再应答，同一连接只应答
+      // 一次（同 tst_aichatcontroller 假服务器的口径）。
+      const int headerEnd = buf->indexOf("\r\n\r\n");
+      if (headerEnd < 0)
         return;
-      buf->clear();
+      const QString header = QString::fromUtf8(buf->left(headerEnd));
+      const int contentLength =
+        header.section("Content-Length:", 1, 1, QString::SectionCaseInsensitiveSeps)
+          .section("\r", 0, 0).trimmed().toInt();
+      if (buf->mid(headerEnd + 4).size() < contentLength)
+        return;
       ++m_requests;
       QJsonObject delta;
       if (m_mode == Mode::HeavyEscape) {
@@ -67,9 +76,12 @@ private:
         "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":9,"
         "\"completion_tokens\":2}}\n\n"
         "data: [DONE]\n\n";
+      // 流式不写 Content-Length：写完即关连接，客户端以 EOF 判定响应结束。
       sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
                   "Content-Type: text/event-stream\r\n\r\n");
       sock->write(frame);
+      sock->flush();
+      sock->disconnectFromHost();
     });
   }
   QTcpServer m_server;

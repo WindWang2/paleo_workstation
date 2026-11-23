@@ -13,7 +13,10 @@
 #include <QTimer>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QStandardItemModel>
 #include <functional>
+#include <memory>
 
 #include "../src/ai/chat/chatmessage.h"
 #include "../src/ai/chat/chatsession.h"
@@ -52,12 +55,25 @@ private:
     if (!sock)
       return;
     connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
-    connect(sock, &QTcpSocket::readyRead, sock, [sock] {
-      if (!sock->readAll().contains("\r\n\r\n"))
+    auto buf = std::make_shared<QByteArray>();
+    connect(sock, &QTcpSocket::readyRead, sock, [sock, buf] {
+      // 等到完整请求（头 + Content-Length 指明的体）再应答一次；流式无
+      // Content-Length，写完即关连接，客户端以 EOF 判定响应结束。
+      buf->append(sock->readAll());
+      const int headerEnd = buf->indexOf("\r\n\r\n");
+      if (headerEnd < 0)
+        return;
+      const QString header = QString::fromUtf8(buf->left(headerEnd));
+      const int contentLength =
+        header.section("Content-Length:", 1, 1, QString::SectionCaseInsensitiveSeps)
+          .section("\r", 0, 0).trimmed().toInt();
+      if (buf->mid(headerEnd + 4).size() < contentLength)
         return;
       sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
                   "Content-Type: text/event-stream\r\n\r\n");
       sock->write(kStream);
+      sock->flush();
+      sock->disconnectFromHost();
     });
   }
   QTcpServer m_server;
@@ -84,6 +100,7 @@ private slots:
   void checkpointRefreshDoesNotParseBodies();
   void draftSurvivesRefreshAndSelectionStable();
   void deleteRemovesEntryFromCombo();
+  void incompleteListIsMarkedUntilRepaired();
 
 private:
   static bool spinUntil(const std::function<bool()> &done, int timeoutMs = 15000) {
@@ -149,13 +166,74 @@ void TestH2SessionCombo::refreshBuildsComboFromSummaries() {
   QCOMPARE(combo->itemText(1), QStringLiteral("最新会话"));
   QCOMPARE(combo->itemText(2), QStringLiteral("较早会话"));
   QCOMPARE(combo->itemText(3), QStringLiteral("最旧会话"));
-  // 选中较旧会话经权威载入切换：Combo 回到新当前会话首位。
+  // 选中较旧会话经权威载入切换：Combo 回到新当前会话首位；该会话自身的
+  // 元信息不再重复入列（当前 + 其余 2 个存量 = 3 项）。
   QString error;
   QVERIFY(controller.loadSession(middle, &error));
-  QVERIFY(spinUntil([&] { return combo->count() == 4; }));
+  QVERIFY(spinUntil([&] { return combo->count() == 3; }));
   QCOMPARE(combo->currentIndex(), 0);
   QVERIFY(combo->itemText(0).contains(QStringLiteral("较早会话")));
+  QCOMPARE(combo->itemText(1), QStringLiteral("最新会话"));
+  QCOMPARE(combo->itemText(2), QStringLiteral("最旧会话"));
   Q_UNUSED(newest);
+}
+
+void TestH2SessionCombo::incompleteListIsMarkedUntilRepaired() {
+  // 未建索引的存量会话（H2 升级后首启的形态）：无任务服务时不在 GUI 线程
+  // 补读正文，列表如实标注「可能不完整」且该行不可选；接上任务服务后
+  // 冷修复完成，标注消失、会话进入列表。
+  seedSession(QStringLiteral("h2-combo-indexed"), QStringLiteral("已有索引的会话"), 3);
+  ChatSession raw;
+  raw.id = QStringLiteral("h2-combo-unindexed");
+  raw.title = QStringLiteral("尚未建索引的会话");
+  raw.model = QStringLiteral("test-model");
+  raw.createdAt = raw.updatedAt = QDateTime::currentDateTimeUtc();
+  ChatMessage user;
+  user.role = ChatRole::User;
+  user.content = QStringLiteral("升级前写入的正文");
+  raw.messages.append(user);
+  m_sessions.append(raw.id);
+  {
+    // 直接落盘且不留 sidecar：等价于旧版本写出的会话文件。
+    QFile file(ChatSessionStore::pathFor(raw.id));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(raw.toJson()).toJson(QJsonDocument::Compact));
+  }
+  const auto rowEnabled = [](const QComboBox *combo, int row) {
+    const auto *model = qobject_cast<const QStandardItemModel *>(combo->model());
+    return model && model->item(row) && model->item(row)->isEnabled();
+  };
+  {
+    AiChatController controller; // 未接任务服务：只发布可信缓存的部分结果
+    AiAssistDock dock(&controller);
+    auto *combo = dock.findChild<QComboBox *>(QStringLiteral("aiAssistantSessions"));
+    QVERIFY(combo);
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    QCOMPARE(combo->count(), 3); // 当前 + 已建索引 1 条 + 说明行
+    QCOMPARE(combo->itemText(1), QStringLiteral("已有索引的会话"));
+    QVERIFY2(combo->itemText(2).contains(QStringLiteral("列表可能不完整")),
+             qPrintable(combo->itemText(2)));
+    QVERIFY(!rowEnabled(combo, 2)); // 说明行不可选
+    QVERIFY(rowEnabled(combo, 1));
+    for (int i = 0; i < combo->count(); ++i)
+      QVERIFY2(!combo->itemText(i).contains(QStringLiteral("尚未建索引")),
+               "未校验的会话不得冒充已列出的完整最近集合");
+  }
+  {
+    PaleoTaskService service;
+    AiChatController controller;
+    controller.toolRunner()->setTaskService(&service);
+    AiAssistDock dock(&controller);
+    auto *combo = dock.findChild<QComboBox *>(QStringLiteral("aiAssistantSessions"));
+    QVERIFY(combo);
+    // 冷修复完成后的第二次发布：说明行消失，两条存量按时间倒序入列。
+    QVERIFY2(spinUntil([&] { return combo->count() == 3 &&
+                                     !combo->itemText(2).contains(QStringLiteral("列表可能不完整")); }),
+             qPrintable(QStringLiteral("count=%1 last=%2").arg(combo->count()).arg(combo->itemText(combo->count() - 1))));
+    QCOMPARE(combo->currentIndex(), 0);
+    QCOMPARE(combo->itemText(1), QStringLiteral("尚未建索引的会话"));
+    QCOMPARE(combo->itemText(2), QStringLiteral("已有索引的会话"));
+  }
 }
 
 void TestH2SessionCombo::brokenArchivesShowBoundedDiagnostics() {

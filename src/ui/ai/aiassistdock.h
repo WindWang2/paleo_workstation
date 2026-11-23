@@ -91,8 +91,11 @@ private:
   void renderSession();    // 按编排器历史整页重画（切换/重发截断后）
   void refreshSessions();  // 发起元信息查询（H2：不再全量载入正文）
   // H2：按下拉的元信息结果重建 Combo（当前会话固定首位；超限/损坏档案给
-  // 有界诊断文案，选择后由 loadSession 权威裁决）。
-  void rebuildSessionCombo(const QVector<paleo::chat::ChatSessionSummary> &summaries);
+  // 有界诊断文案，选择后由 loadSession 权威裁决）。complete=false 表示仍有
+  // 未校验条目或扫描被截断——末尾附一条禁用的「可能不完整」说明行。
+  void rebuildSessionCombo(const QVector<paleo::chat::ChatSessionSummary> &summaries,
+                           bool complete);
+  static QString displayNameOf(const paleo::chat::ChatSessionSummary &recent);
   void renameComboSession(); // 弹标题输入（视图本地输入框，非业务对话框）
   // 消息面（方向62）
   void finalizeAssistantBlock(); // 流结束：增量纯文本 → markdown 渲染定型

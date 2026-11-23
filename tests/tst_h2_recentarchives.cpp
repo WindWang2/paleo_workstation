@@ -302,7 +302,9 @@ void TestH2RecentArchives::staleDetectionAndExternalReplace() {
   QVERIFY2(spinUntil([&] { return sawNewTitle; }), "外部改写标题必须进入列表");
   disconnect(connection);
 
-  // 损坏 sidecar（截断）：读取失败 → 待修复 → 从权威文件重建（不反向覆盖正文）。
+  // 损坏 sidecar（截断）：读取失败 → 待修复 → 从权威文件重建（不反向覆盖
+  // 正文）。协调器内存里还留着上一轮命中的条目，所以换一个全新协调器
+  //（等价于重启后首次查询）来逼出「读盘缓存 → 发现损坏 → 修复」的路径。
   const QString sidecar =
     paleo::chat::ChatSessionIndex::sidecarPathFor(QStringLiteral("h2-stale"));
   {
@@ -310,7 +312,9 @@ void TestH2RecentArchives::staleDetectionAndExternalReplace() {
     QVERIFY(file.open(QIODevice::WriteOnly));
     file.write("{\"schema\":1"); // 截断 JSON
   }
-  summaries.refresh(20);
+  AiChatRecentSummaries restarted;
+  restarted.setTaskService(&service);
+  restarted.refresh(20);
   QVERIFY2(spinUntil([&] {
     paleo::chat::ChatSessionIndex::Entry entry;
     return paleo::chat::ChatSessionIndex::read(QStringLiteral("h2-stale"), &entry) &&
@@ -442,7 +446,7 @@ void TestH2RecentArchives::noServiceFallsBackToTrustedCache() {
   disconnect(connection);
   QVERIFY(complete);
   QCOMPARE(result.size(), 2);
-  QCOMPARE(result.first().id, QStringLiteral("h2-nosvc-b")); // updatedAt 新者优先
+  QCOMPARE(result.first().id, QStringLiteral("h2-nosvc-a")); // updatedAt 新者优先（a 比 b 晚 1 秒）
 }
 
 void TestH2RecentArchives::repairPrimitiveHonoursCancellation() {

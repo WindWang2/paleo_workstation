@@ -1,6 +1,7 @@
 // 层：功能
 #include "aichatrecentsummaries.h"
 #include "../ai/chat/chatsession.h"
+#include "../ai/chat/chatsessionarchive.h"
 #include "../services/paleotaskservice.h"
 
 #include <algorithm>
@@ -9,6 +10,25 @@ namespace {
 // 扫描上限：目录 stat 数量的护栏（正常用户会话量远低于此；超出即如实
 // 报 partial，不假装是完整最近集合）。
 constexpr int kMaxScanEntries = 4096;
+
+// 超限旧档案的列表摘要：状态只按**当前预算**核对文件大小得出（扫描已经
+// stat 到的字节数），不读正文，也不信缓存里写入当时留下的旧结论。缓存中
+// 与权威文件指纹相符的标题/时间等元信息只供列表辨认，照用。
+paleo::chat::ChatSessionSummary overLimitSummary(
+    const paleo::chat::ChatArchiveFileStamp &stamp)
+{
+  paleo::chat::ChatSessionSummary summary;
+  paleo::chat::ChatSessionIndex::Entry entry;
+  if (paleo::chat::ChatSessionIndex::read(stamp.id, &entry) &&
+      entry.sourceBytes == stamp.bytes && entry.sourceMtimeMs == stamp.mtimeMs)
+    summary = entry.toSummary();
+  summary.id = stamp.id;
+  summary.state = paleo::chat::ChatSessionSummary::State::OverLimit;
+  summary.diagnostic = paleo::chat::chatArchiveRejectCode(
+    paleo::chat::ChatArchiveReject::SizeExceeded);
+  summary.fileBytes = stamp.bytes;
+  return summary;
+}
 } // namespace
 
 AiChatRecentSummaries::AiChatRecentSummaries(QObject *parent) : QObject(parent) {}
@@ -27,7 +47,12 @@ void AiChatRecentSummaries::refresh(int limit) {
   QVector<paleo::chat::ChatArchiveFileStamp> candidates;
   QHash<QString, CacheEntry> cache; // 重建式缓存：只保留本轮仍命中的条目
   summaries.reserve(scan.files.size());
+  const qint64 archiveCap = paleo::chat::chatArchiveBudget().maxArchiveBytes;
   for (const paleo::chat::ChatArchiveFileStamp &stamp : scan.files) {
+    if (stamp.bytes > archiveCap) {
+      summaries.append(overLimitSummary(stamp)); // 超限：stat-only，不进修复队列
+      continue;
+    }
     const auto cached = m_cache.constFind(stamp.id);
     if (cached != m_cache.constEnd() && cached->bytes == stamp.bytes &&
         cached->mtimeMs == stamp.mtimeMs) {

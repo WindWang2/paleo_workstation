@@ -13,7 +13,7 @@
 ## 设计与边界
 
 - **快照语义（W4，已选定）**：一次受权读取形成不可变摘要快照，分页从快照顺序取出。
-  journal 其后变化不使旧页失效、不混入新行；`coverage.journalDigest` 声明快照身份，
+  journal 其后变化不使旧页失效、不混入新行；`coverage.snapshotDigest` 声明快照身份，
   `snapshotPolicy="immutable-snapshot@1"`；需要当前状态重新发现或调 operation_get（工具
   description 明说）。会话/工程/epoch 变化（Recovery `live()` 身份检测 →
   `invalidateRuntimeHooks` → `OperationDiscovery::invalidate()`）整体失效。
@@ -53,7 +53,7 @@
 |---|---|
 | `src/workflow/operationdiscovery.{h,cpp}` | 新：发现服务（快照/HMAC 游标/预算/关系投影/诊断计数/注入时钟） |
 | `src/workflow/capabilityrecovery_discovery.cpp` | 新：`CapabilityRecovery::listOperations`（owner 冻结→worker 扫描→完成复核） |
-| `src/workflow/capabilitygateway.h` + `capabilityops.cpp` | 薄缝：`OperationLog::ScopedSnapshot snapshotScope()`（单锁单次加载 + journalDigest 捕获）；`loadOperations(bool captureDigest)` 缺省不变 |
+| `src/workflow/capabilitygateway.h` + `capabilityops.cpp` | 薄缝：`OperationLog::ScopedSnapshot snapshotScope()`（单锁单次加载 + 作用域内摘要）。相对基线**纯新增 48 行**：`readJson`/`loadOperations` 签名与既有读写路径一行未改 |
 | `src/workflow/capabilityrecovery.{h,cpp}` | 薄缝：`listOperations` 声明 + `m_discovery` shared_ptr；`invalidateRuntimeHooks` 顺带失效发现缓存；状态机零改动 |
 | `src/ai/chat/operationdiscoverytools.cpp` | 新：`paleo.operation_list` 工具声明（effects=Read，operation_id 非必填） |
 | `src/ai/chat/operationtools.cpp` | 薄缝：`appendAgentOperationTools` 末尾追加注册调用 |
@@ -76,7 +76,7 @@ operations）、`anchor_operation_id`（relations 必填，规范 op-uuid 形态
 `page_size`（1–32，缺省 16）、`max_bytes`（2048–24576，缺省 8192）、`cursor`。
 
 响应：`operations[]`/`relations[]`、`returnedCount`、`hasMore`、`nextCursor`、
-`coverage{documentId, journalDigest, journalHealth(ok|incomplete), snapshotPolicy, sort,
+`coverage{documentId, snapshotDigest, journalHealth(ok|incomplete), snapshotPolicy, sort,
 matched, pageComplete}`。摘要行字段：operationId/capabilityId/contractVersion/execution/
 commitState/presentation/revision/computeCount/cancelRequested/requestHash/resultsAvailable/
 resultPorts/sourceOperation/consumers/planSteps/parentVersions/external——全部为已存在的
@@ -101,9 +101,10 @@ document_unavailable/stale_session/owner_thread_required/task_service_unavailabl
 
 ## 已知边界
 
-- `coverage.journalDigest` 是**整本 journal 文件**（含其他 callerScope/document 的行）的
-  SHA-256：仅作为本次快照的身份与"journal 是否变化"的检测信号，不含任何内容可恢复性，
-  也不泄漏其他条目的数量或身份（G4 口径复核时以此为准）。
+- `coverage.snapshotDigest` 只覆盖**本作用域记录与隔离事实**（同一次加载内按 operationId
+  排序的 v2 记录规范序列 + 隔离有无，长度前缀后 SHA-256），刻意不取整本 journal 的哈希：
+  journal 是整个工程一份，整本哈希会让当前作用域看到"其他会话/document 的操作是否变化"
+  的旁路信号。他人行变化不改变本作用域摘要（`scopeAndDocumentIsolation` 钉住）。
 - query() 的「扫描期间 invalidate → stale_session」防线（generation 比对）无确定性测试
   夹具（需故障注入才能稳定命中窗口）；由代码审查与完成侧归属复核双重兜底。
 

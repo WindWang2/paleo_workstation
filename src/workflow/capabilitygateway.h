@@ -154,11 +154,13 @@ public:
   // H4（只读发现薄缝）：一次加锁、一次加载得到的当前作用域一致快照。records
   // 仅含合法 schema v2 且 document/caller 精确匹配的记录；quarantinedIds 只在
   // 进程内用于区分"锚点被隔离"与"不存在"（与 lookupRecordById 同口径），
-  // 永不投影给模型。journalDigest 是本次实际读取字节的 SHA-256，作为快照
-  // 身份；不含任何跨次加载拼接。本调用不写盘、不 mkpath、不对账。
+  // 永不投影给模型。scopedDigest 是本作用域记录与隔离事实的 SHA-256，作为
+  // 快照身份——刻意不覆盖其他 document/caller 的行，使其不成为他人操作
+  // 变化的旁路信号；全部出自同一次加载，不含跨次拼接。本调用不写盘、
+  // 不 mkpath、不对账。
   struct ScopedSnapshot {
     QString code; // ok | operation_log_unavailable
-    QByteArray journalDigest;
+    QByteArray scopedDigest;
     int quarantinedRows = 0;
     QSet<QString> quarantinedIds;
     QVector<Record> records;
@@ -191,7 +193,7 @@ public:
 
 private:
   bool projectPathSafe(const QString &path) const;
-  bool loadOperations(bool captureDigest = false);
+  bool loadOperations();
   bool persistOperations() const;
   QString m_path;
   QString m_cachePath;
@@ -199,7 +201,6 @@ private:
   std::shared_ptr<const ProjectWriteClaim> m_claim;
   QHash<QString, Record> m_byKey;
   QHash<QString, QString> m_idToKey;
-  QByteArray m_loadDigest; // 仅 captureDigest 加载填充：本次读取字节的 SHA-256
   // 本次 loadOperations() 的隔离结论：被拒记录的安全 ID 形态（仅用于把
   // "目标被隔离"与"确实不存在"区分开）；原始行永不回写。
   QSet<QString> m_quarantinedIds;

@@ -172,7 +172,7 @@ bool writeJson(const QString &path, const QJsonDocument &document) {
   return file.commit();
 }
 
-bool readJson(const QString &path, QJsonDocument &document, QByteArray *digestOut = nullptr) {
+bool readJson(const QString &path, QJsonDocument &document) {
   constexpr auto maxBytes = 128LL * 1024 * 1024;
   document = {};
   const QFileInfo info(path);
@@ -188,8 +188,6 @@ bool readJson(const QString &path, QJsonDocument &document, QByteArray *digestOu
   if (bytes.size() != expected) return false;
   QJsonParseError error;
   document = QJsonDocument::fromJson(bytes, &error);
-  if (digestOut)
-    *digestOut = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
   return file.error() == QFileDevice::NoError && error.error == QJsonParseError::NoError;
 }
 
@@ -288,17 +286,15 @@ bool OperationLog::projectPathSafe(const QString &path) const {
   return managedpath::resolveManagedPath(m_projectDir, relative) == path;
 }
 
-bool OperationLog::loadOperations(bool captureDigest) {
+bool OperationLog::loadOperations() {
   m_byKey.clear();
   m_idToKey.clear();
   m_quarantinedIds.clear();
   m_quarantinedKeys.clear();
   m_quarantinedRows = 0;
-  m_loadDigest.clear();
   QJsonDocument document;
   if ((!m_projectDir.isEmpty() && !projectPathSafe(m_path)) ||
-      !readJson(m_path, document, captureDigest ? &m_loadDigest : nullptr) ||
-      (!document.isNull() && !document.isArray()))
+      !readJson(m_path, document) || (!document.isNull() && !document.isArray()))
     return false;
 
   struct Entry {
@@ -434,16 +430,15 @@ OperationLog::JournalHealth OperationLog::journalHealth() {
 
 OperationLog::ScopedSnapshot OperationLog::snapshotScope(const QString &documentId, const QString &callerScope) {
   // H4 只读发现：与其它读路径同一把目录互斥、同一次严格加载——快照内的
-  // 所有记录与 journalDigest 出自同一文件时刻，不存在跨次拼接。这里不做
+  // 所有记录与 scopedDigest 出自同一文件时刻，不存在跨次拼接。这里不做
   // 任何写回：隔离结论只随本结构带出，不触发 persistOperations/mkpath。
   QMutexLocker lock(&directoryMutex(m_path));
   ScopedSnapshot out;
-  if (!loadOperations(true)) {
+  if (!loadOperations()) {
     out.code = QStringLiteral("operation_log_unavailable");
     return out;
   }
   out.code = QStringLiteral("ok");
-  out.journalDigest = m_loadDigest;
   out.quarantinedRows = m_quarantinedRows;
   out.quarantinedIds = m_quarantinedIds;
   for (const auto &record : m_byKey)
@@ -451,6 +446,17 @@ OperationLog::ScopedSnapshot OperationLog::snapshotScope(const QString &document
       out.records.append(record);
   std::sort(out.records.begin(), out.records.end(),
             [](const Record &a, const Record &b) { return a.operationId < b.operationId; });
+  // 快照身份只覆盖本作用域记录与隔离事实（长度前缀消除拼接歧义）。不取
+  // 整本 journal 的哈希：journal 是整个工程一份，整本哈希会让当前作用域
+  // 看到"其他会话/document 的操作是否变化"的旁路信号。
+  QCryptographicHash digest(QCryptographicHash::Sha256);
+  digest.addData(QByteArray::number(out.quarantinedRows > 0));
+  for (const auto &record : out.records) {
+    const auto bytes = QJsonDocument(recordJson(record)).toJson(QJsonDocument::Compact);
+    digest.addData(QByteArray::number(bytes.size()));
+    digest.addData(bytes);
+  }
+  out.scopedDigest = digest.result();
   return out;
 }
 

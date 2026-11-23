@@ -319,6 +319,29 @@ void H4OperationDiscovery::scopeAndDocumentIsolation() {
   QVERIFY(listOnce(host.recovery, QStringLiteral("agent:h4:chat:b"),
                    {{QStringLiteral("cursor"), cursor}, {QStringLiteral("page_size"), 1}}, other, &error));
   QCOMPARE(other.value(QStringLiteral("code")).toString(), QStringLiteral("cursor_scope_mismatch"));
+  // 快照身份只覆盖本作用域：其他会话/document 的行变化既不改变本作用域摘要
+  //（不成为他人操作的旁路信号），也不改变清单；本作用域内容变化才改变摘要
+  //（见 snapshotImmutabilityWhileBusinessAdvances）。
+  const auto scopeDigest = page.value(QStringLiteral("coverage")).toObject()
+                               .value(QStringLiteral("snapshotDigest")).toString();
+  QVERIFY(!scopeDigest.isEmpty());
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto current = QJsonDocument::fromJson(file.readAll()).array();
+    file.close();
+    auto edited = current;
+    edited.append(syntheticRow("doc", "agent:h4:chat:b", "b2"));  // 他会话新增一行
+    edited.append(syntheticRow("docB", "agent:h4:chat:a", "x2")); // 他 document 新增一行
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(edited).toJson(QJsonDocument::Compact));
+  }
+  QJsonObject again;
+  QVERIFY(listOnce(host.recovery, QStringLiteral("agent:h4:chat:a"), {}, again, &error));
+  QVERIFY(again.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(operationIds(again).size(), 2);
+  QCOMPARE(again.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString(),
+           scopeDigest);
 }
 
 void H4OperationDiscovery::v1QuarantinedAndForeignNeighborsStayOut() {
@@ -575,7 +598,7 @@ void H4OperationDiscovery::snapshotImmutabilityWhileBusinessAdvances() {
   // 页 1（小页，必有续页）后业务推进：另一条记录转 failed。
   auto page = service.query(scan, {{QStringLiteral("page_size"), 1}});
   QVERIFY(page.value(QStringLiteral("ok")).toBool());
-  const auto digest = page.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("journalDigest")).toString();
+  const auto digest = page.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString();
   const QString pageOne = operationIds(page).first();
   OperationLog::Record &mutated = pageOne == first.operationId ? second : first;
   mutated.execution = QStringLiteral("failed");
@@ -585,13 +608,13 @@ void H4OperationDiscovery::snapshotImmutabilityWhileBusinessAdvances() {
   const auto next = service.query(scan, {{QStringLiteral("cursor"), page.value(QStringLiteral("nextCursor")).toString()},
                                          {QStringLiteral("page_size"), 1}});
   QVERIFY(next.value(QStringLiteral("ok")).toBool());
-  QCOMPARE(next.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("journalDigest")).toString(), digest);
+  QCOMPARE(next.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString(), digest);
   QCOMPARE(next.value(QStringLiteral("operations")).toArray().at(0).toObject()
                .value(QStringLiteral("execution")).toString(), QStringLiteral("running"));
   // 新查询取得新快照（新 digest + 新状态）。
   const auto fresh = service.query(scan, {});
   QVERIFY(fresh.value(QStringLiteral("ok")).toBool());
-  QVERIFY(fresh.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("journalDigest")).toString() != digest);
+  QVERIFY(fresh.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString() != digest);
   bool sawFailed = false;
   for (const auto &entry : fresh.value(QStringLiteral("operations")).toArray())
     if (entry.toObject().value(QStringLiteral("operationId")).toString() == mutated.operationId)

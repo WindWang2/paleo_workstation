@@ -26,7 +26,7 @@ namespace {
 using operation_namespace::isCanonicalOperationId;
 
 // 与既有 events()/operation_read 同族的页预算口径：行区占 max_bytes 减去
-// envelope 余量（coverage+note+documentId+journalDigest+游标最坏 ~0.9 KiB，
+// envelope 余量（coverage+note+documentId+snapshotDigest+游标最坏 ~0.9 KiB，
 // 取 1 KiB）；单行超预算明确报 minimumBytes，不截断 ID。
 constexpr int kEnvelopeReserve = 1024;
 constexpr int kCursorMaxChars = 256;
@@ -125,7 +125,7 @@ struct OperationDiscovery::Impl {
 
   struct Snapshot {
     QString key, queryDigest;
-    QString project, documentId, callerScope, journalDigest;
+    QString project, documentId, callerScope, snapshotDigest;
     bool journalIncomplete = false;
     QJsonArray rows;  // operations=摘要行；relations=预建关系行
     int matched = 0;
@@ -376,7 +376,7 @@ QJsonObject OperationDiscovery::query(const DiscoveryScan &scan, const QJsonObje
   built.project = scan.projectDir;
   built.documentId = scan.documentId;
   built.callerScope = scan.callerScope;
-  built.journalDigest = QString::fromLatin1(scoped.journalDigest.toHex());
+  built.snapshotDigest = QString::fromLatin1(scoped.scopedDigest.toHex());
   built.journalIncomplete = scoped.quarantinedRows > 0;
   if (relations) {
     built.rows = m->relationRows(scoped.records, rowIndex, consumers, anchor);
@@ -494,7 +494,7 @@ QJsonObject OperationDiscovery::pageFromSnapshotLocked(const QString &snapshotKe
   }
   result.insert(QStringLiteral("coverage"), QJsonObject{
       {QStringLiteral("documentId"), snapshot.documentId},
-      {QStringLiteral("journalDigest"), snapshot.journalDigest},
+      {QStringLiteral("snapshotDigest"), snapshot.snapshotDigest},
       {QStringLiteral("journalHealth"), snapshot.journalIncomplete ? QStringLiteral("incomplete") : QStringLiteral("ok")},
       {QStringLiteral("snapshotPolicy"), QStringLiteral("immutable-snapshot@1")},
       {QStringLiteral("sort"), snapshot.sortKey},

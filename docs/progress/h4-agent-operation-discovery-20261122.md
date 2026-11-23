@@ -30,7 +30,7 @@
 | W1 契约与摘要 | `operationdiscoverytools.cpp` 工具声明；`OperationDiscovery::validateRequest` | G3 的 `AiToolSpec`/严格外部档 | 版本化请求/结果（`paleo.operation-discovery.v1`）：7 个已声明参数、筛选词表、页预算域；摘要只取既有安全字段，无时间戳，排序键写入 `coverage.sort` | `toolDeclaredAndDispatchable`、`invalidRequestsAreRejectedBeforeAnyTask` |
 | W2 一致受限快照 | `OperationLog::snapshotScope`（薄缝） | G4 严格 loader：`readRecord`、重复身份隔离、受管路径检查、`persistOperations` 写保护 | 单锁单次加载的当前作用域快照 + 作用域内摘要；相对基线纯新增，不改既有读写路径 | `v1QuarantinedAndForeignNeighborsStayOut`、`emptyAndCorruptJournalsAreDistinguished`、`scopeAndDocumentIsolation` |
 | W3 预算与生命周期 | `CapabilityRecovery::listOperations` → `PaleoTaskService` worker | 既有任务服务、取消模型、128 MiB journal 上限 | 磁盘扫描出互斥（不阻塞 owner 的 invalidate/续页）；投影每 64 条自查取消；快照/游标/字节上限；缓存满结构化失败 | `bulkJournalPagesWithoutRescan`、`budgetCursorAndCacheDiscipline`、`cancelPreservesJournalAndBusinessState` |
-| W4 作用域绑定游标 | `OperationDiscovery` 游标（HMAC） | ProjectQuery 的游标/queryDigest 口径（借鉴，未迁移协议） | `opdisc1.<snapshot>.<pos>.<expiry>.<HMAC>`；绑定工程/document/caller/查询摘要；TTL 10 min；同快照游标有界回收 | `budgetCursorAndCacheDiscipline`、`bulkJournalPagesWithoutRescan`、`scopeAndDocumentIsolation` |
+| W4 作用域绑定游标 | `OperationDiscovery` 游标（HMAC） | ProjectQuery 的游标/queryDigest 口径（借鉴，未迁移协议） | `opdisc1.<instanceTag>.<snapshotKey>.<pos>.<expiry>.<HMAC>`；绑定工程/document/caller/查询摘要；TTL 10 min；同快照游标有界回收 | `budgetCursorAndCacheDiscipline`、`bulkJournalPagesWithoutRescan`、`scopeAndDocumentIsolation` |
 | W5 直接关系 | `relationRows` 投影 | 记录里既有的 `frozenRequest.sourceOperationId`、`artifactManifest.childOperations`、`stagePlan.parents` | 四类关系行：持久可读目标 / 未解析 / 计划内步骤（标注不可独立 get/resume）/ catalog 父版本（非 operationId） | `relationsClassifyDirectTargets` |
 | W6 Recovery API 与工具 | `listOperations`；runner `runOperationList`；readiness 精确资格 | 既有 runner 异步 envelope、`callerScope(Agent, session)`、工具分派 | Read 门；**请求与游标准入在建任务之前**（纯函数 + 互斥内纯内存判定）；`operation_list` 恒走 hosted 资格路径（无宿主不广播） | `readGateAndWriteDenialBoundaries`、`invalidRequestsAreRejectedBeforeAnyTask`、`listGetChainThroughRealRunner`、`readinessGates`、`negativeArgumentsFailClosed`、`emptySessionIsRefusedBeforeAnyTask` |
 | W7 失效/取消/回收 | 完成回调复核；`invalidateRuntimeHooks → invalidate + reset` | `read()` 的完成复核范式 | generation 防缓存复活；服务代次检查；取消窄窗；重入回调不清新句柄 | `snapshotImmutabilityWhileBusinessAdvances`、`subscriberDestructionKeepsServiceUsable`、`invalidationDropsInFlightResult`、`cancelPreservesJournalAndBusinessState` |
@@ -141,7 +141,7 @@ operations；键出现即须取精确词表值）、`anchor_operation_id`（rela
 
 响应：`operations[]`/`relations[]`、`returnedCount`、`hasMore`、`nextCursor`（无续页时省略）、
 `coverage{documentId, snapshotDigest, journalHealth(ok|incomplete), snapshotPolicy, sort, matched,
-pageComplete, complete}`、`note`。`coverage.complete`（本页即末页）与同族
+complete}`、`note`。`coverage.complete`（本页即末页）与同族
 `paleo.query_project` 同义：工具结果信封协议会把原生 `coverage` 对象原样提升到信封顶层，投影层
 读其中的 `complete` 判定覆盖是否已知（R3-P2-1）。失败时可带 `minimumBytes`、`retryAfterMs`。摘要行字段：operationId/capabilityId/contractVersion/execution/
 commitState/presentation/revision/computeCount/cancelRequested/requestHash/resultsAvailable/
@@ -224,7 +224,7 @@ ctest -LE 'core|perf' -R "<无标签闸门项正则>" -j1         # 62/63（firs
 | 实跑 | 首次全量构建 + 首次测试运行 | R1/R2 关于"测试未跑过"的判断成立：暴露 1 处编译错误（缺 `QCryptographicHash` include）、4 处夹具错误（`acceptDurable` 不回写入参、状态机须两步、SHA 基线时序）、1 处空指针（`ToolHost` 未分配 `ProjectDirLock`）、1 处字节数笔误、宿主直通校验器缺失 | `b4d4f41b`、`def177ea`、`1fc741cc` |
 | 回归 | `1fc741cc` 上 86 个受影响族 | 83/86；3 个失败均为工具表守卫（新工具被枚举） | `e8151242`：产品侧让 `operation_list` 恒走 hosted 资格路径；同步 `tst_aichat`/`tst_aichatprojectquery` 守卫 |
 | 自审与实跑自纠 | `e8151242` | 整本 journal 哈希返回给模型 = 他人操作的旁路信号（R1 记为取舍，自审认为应改）；W6"任务前拒绝"未按字面做到；实跑抓到自己两处时序/逻辑缺陷：`makeRoom` 内层循环未在腾够后停止（多淘汰）、LRU 初版用墙钟毫秒（同毫秒打平 + QHash 遍历序不定 → 淘汰顺序随机） | `ba6d8746`（作用域内摘要）、`6cae05dc`（准入前移、单调 useSeq） |
-| R4 | `6cae05dc`（独立 reviewer C，未参与前几轮，增量 diff） | <<R4>> | <<R4_FIX>> |
+| R4 | `6cae05dc`（独立 reviewer C，未参与前几轮，增量 `e8151242..6cae05dc`） | **可合入**：R3 的 3×P1 与须修 P2 均核实实质修复，未发现新 P0/P1；P2 集中在文档/注释与测试 oracle 表述——头文件 `maxSnapshots` 注释过时、进度文档残留 `pageComplete` 与旧 token 格式、"三条独立 oracle"表述不实、tier0 未与通用 LRU 区分、同步失败载荷缺 `contract`、`retryAfterMs` 含他会话到期（极弱跨会话时序信号）、operations 视图静默忽略锚点 | `6cae05dc` 之后的收尾 commit：修正头文件注释与文档两处契约错误；补只撤 Read 效果、不 reset 服务的 `effect_denied` 变体（单独隔离完成侧上下文/效果复核）；补 tier0-vs-LRU 对照用例（`maxSnapshots=2`，他会话快照让位、同作用域在途存活）；operations 视图下提供锚点改为显式 `invalid_filter_for_view`（不静默忽略，附负例）；同步失败载荷补 `contract`（payloadContract 稳定）；`retryAfterMs` 只取本作用域快照；`queryDigest` 移出锁外。R4 记录的两处与 `read()` 同款的既有残留（task 在 `taskAdded` 内被同步销毁而订阅者仍活时的空错误码；`DiscoveryScan::writeClaim` 注释措辞）记入已知边界，不在本任务改动 |
 | R3 | `e8151242`（独立 reviewer B，未参与前两轮，全量 diff，不带前轮结论） | 需修复后复审：无 P0；P1×3——P1-1 快照上限 4 份且只回收过期项，10 分钟内第 5 次无游标查询必失败；P1-2 canonical 工程路径与原始 operationDir 混用，工程根非规范时恒报 `operation_log_unavailable`；P1-3 整本 journal 哈希是跨作用域活动旁路（已在 `ba6d8746` 修）。P2：`coverage` 撞协议保留键缺 `complete`；任务非 quiet 每页弹任务中心；文档错误码缺口；`resultSchemaJson` 偏差；失效后旧游标报 `cursor_invalid` 不准；测试 oracle 缺口（`msleep` 时序依赖、取消用例未执行扫描、`consumers` 无断言、两处修复无回归用例）；`journalHealth` 为工程级位 | `6cae05dc`：P1-1 三级 LRU 淘汰（他会话遗留 → 已走完 → 最久未用在途，单调 useSeq；被淘汰在途游标得明确 `cursor_expired`；`discovery_cache_full`+`retryAfterMs` 仅在新快照自身放不下时；首页失败撤销登记、首行超预算登记前判定）；P1-2 宿主原值工程路径 + 符号链接用例；P2-1 `coverage.complete`；P2-2 quiet 任务；P2-4 文档错误码补齐；P2-5 schema 对齐；P2-8 游标实例标记（`cursor_expired`/`cursor_invalid` 分流）；P2-6 测试补齐（扫描内取消、上下文变化三变体、taskAdded 内销毁订阅者、consumers、去 msleep）；P2-3 不采纳并写明理由 |
 
 ## 与同批开放 PR 的接缝（提 PR 时核对）
@@ -256,6 +256,10 @@ ctest -LE 'core|perf' -R "<无标签闸门项正则>" -j1         # 62/63（firs
   `cancelRequested()` 复核兜底，与 `read()` 同款，未单独构造。
 - **游标并发的 last-wins**：同一刚消费游标被并发双发时先发的会被回收（串行单 agent 工具下
   不会出现）。
+- **与 `read()` 同款的既有残留**（非本任务引入，记录在案）：任务若在 `taskAdded` 内被同步
+  销毁而订阅者/owner 仍存活，`listOperations` 会以空 `*error` 返回（宿主不可恢复，正常路径
+  不可达）；`DiscoveryScan::writeClaim` 注释称"用于受管路径钉住"，实际读路径的钉住由
+  projectDir + managedpath 完成，claim 仅为保持与既有 RecoveryHost 结构同构。
 - **规模夹具**：4000 行为满足 loader 严格校验的合成 journal 行，未执行数千次真实科学计算；
   解析/投影路径与真实记录是同一条 loader 代码路径。真实 accept/start 生成操作与工件的闭环由
   重启用例覆盖（少量操作）。

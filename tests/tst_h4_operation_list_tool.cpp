@@ -177,7 +177,7 @@ void H4OperationListTool::toolDeclaredAndDispatchable() {
     const auto properties = schema.value(QStringLiteral("properties")).toObject();
     // 结果 schema 与服务实际返回一致：清单载荷不是单条操作，不声明 operationId。
     QVERIFY(!properties.contains(QStringLiteral("operationId")));
-    for (const auto *key : {"anchorOperationId", "coverage", "minimumBytes", "note", "nextCursor"})
+    for (const auto *key : {"anchorOperationId", "coverage", "minimumBytes", "retryAfterMs", "note", "nextCursor"})
       QVERIFY2(properties.contains(QLatin1String(key)), key);
     const auto dispatch = dispatchAiTool(QStringLiteral("paleo.operation_list"), {});
     QCOMPARE(dispatch.status, AiToolDispatchStatus::Routed);

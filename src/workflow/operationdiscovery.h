@@ -15,7 +15,7 @@ namespace paleo::capability {
 inline constexpr char OperationDiscoveryContract[] = "paleo.operation-discovery.v1";
 
 struct DiscoveryPolicy {
-  int maxSnapshots = 4;                    // 快照数上限；满时先淘汰无分页承诺的快照（他会话遗留/已走完），再结构化失败
+  int maxSnapshots = 4;                    // 快照数上限；满时按 他会话遗留 → 已走完 → 最久未用在途 淘汰；仅新快照自身放不下才结构化失败
   int maxCursors = 128;                    // 未过期游标数上限
   qint64 ttlMs = 10 * 60 * 1000;           // 快照与游标 TTL
   qint64 maxCacheBytes = 8 * 1024 * 1024;  // 快照摘要总字节上限

@@ -976,6 +976,8 @@ void H4OperationDiscovery::invalidRequestsAreRejectedBeforeAnyTask() {
       {{{QStringLiteral("view"), QStringLiteral("relations")},
         {QStringLiteral("execution_state"), QStringLiteral("succeeded")}},
        QStringLiteral("invalid_filter_for_view")},
+      {{{QStringLiteral("anchor_operation_id"), QStringLiteral("op-") + uuid()}},
+       QStringLiteral("invalid_filter_for_view")}, // 锚点只属于 relations 视图，不静默忽略
       {{{QStringLiteral("view"), QStringLiteral("relations")}}, QStringLiteral("invalid_anchor_operation")},
       {{{QStringLiteral("view"), QStringLiteral("relations")},
         {QStringLiteral("anchor_operation_id"), QStringLiteral("not-an-id")}},
@@ -1106,6 +1108,24 @@ void H4OperationDiscovery::snapshotCapacityEvictsLeastValuableFirst() {
                                {QStringLiteral("page_size"), 1}}).value(QStringLiteral("ok")).toBool(),
              "in-flight A survives; finished B was evicted");
   }
+  // (f) tier0 优先于通用 LRU：同作用域更旧的"在途"快照与他会话快照并存时，
+  // 让位的是他会话快照（若缺少 tier0，纯 LRU 会淘汰更旧的同作用域快照）。
+  {
+    OperationDiscovery prio(DiscoveryPolicy{2, 128, 600000, 8 * 1024 * 1024});
+    const auto a = prio.query(scanA, {{QStringLiteral("page_size"), 1}});
+    const auto b = prio.query(scanB, {{QStringLiteral("page_size"), 1}});
+    QVERIFY(a.value(QStringLiteral("ok")).toBool() && b.value(QStringLiteral("ok")).toBool());
+    QVERIFY(!a.value(QStringLiteral("nextCursor")).toString().isEmpty());
+    QVERIFY(!b.value(QStringLiteral("nextCursor")).toString().isEmpty());
+    QVERIFY2(prio.query(scanA, {{QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), bulk}})
+                 .value(QStringLiteral("ok")).toBool(), "room made by evicting the other-scope snapshot");
+    QVERIFY2(prio.query(scanA, {{QStringLiteral("cursor"), a.value(QStringLiteral("nextCursor")).toString()},
+                                {QStringLiteral("page_size"), 1}}).value(QStringLiteral("ok")).toBool(),
+             "same-scope in-flight snapshot survives tier0 eviction");
+    QCOMPARE(prio.query(scanB, {{QStringLiteral("cursor"), b.value(QStringLiteral("nextCursor")).toString()},
+                                {QStringLiteral("page_size"), 1}}).value(QStringLiteral("code")).toString(),
+             QStringLiteral("cursor_expired"));
+  }
   // (e) 会话切换：其他 callerScope 的遗留快照最先让位，其旧游标得 cursor_expired。
   {
     OperationDiscovery scoped(DiscoveryPolicy{1, 128, 600000, 8 * 1024 * 1024});
@@ -1178,10 +1198,11 @@ void H4OperationDiscovery::staleInstanceCursorIsExpiredNotInvalid() {
 }
 
 void H4OperationDiscovery::deliveryIsDroppedWhenContextChangesDuringScan() {
-  // H4 完成侧三项复核（文档归属 / epoch 归属 / 服务代次）各有独立 oracle：
-  // 扫描输入已冻结、worker 会照常算出清单，但上下文已变 → 交付 stale_session
-  // 而不是清单。删掉任一复核，对应用例就会把清单交付出来。
-  for (int variant = 0; variant < 3; ++variant) {
+  // H4 完成侧复核的 oracle：扫描输入已冻结、worker 会照常算出清单，但上下文
+  // 已变 → 交付失败而不是清单。变体 0/1（文档/epoch）会同时触发服务代次检查，
+  // 不能单独隔离 checkContext 归属复核；变体 3 只撤 Read 效果（不改身份、
+  // 不 reset 服务）→ effect_denied，单独证明完成侧的上下文/效果复核生效。
+  for (int variant = 0; variant < 4; ++variant) {
     QTemporaryDir root;
     const QString scope = "agent:h4:chat:drop" + QString::number(variant);
     writeCapacityJournal(root.path(), scope, "agent:h4:chat:other");
@@ -1195,8 +1216,10 @@ void H4OperationDiscovery::deliveryIsDroppedWhenContextChangesDuringScan() {
             host.documentId = QStringLiteral("docB");
           else if (variant == 1)
             ++host.epoch;
-          else
+          else if (variant == 2)
             host.recovery.invalidateRuntimeHooks(false); // 服务代次变化（宿主 provider 换绑）
+          else
+            host.allowedEffects = 0; // 仅撤效果：不 reset 服务，单独隔离完成侧归属复核
         });
     auto *task = host.recovery.listOperations(scope, {}, &host.recovery,
                                               [&](QJsonObject r) { out = r; delivered = true; });
@@ -1212,7 +1235,8 @@ void H4OperationDiscovery::deliveryIsDroppedWhenContextChangesDuringScan() {
     QVERIFY(delivered);
     QVERIFY2(!out.value(QStringLiteral("ok")).toBool(), qPrintable(QString::fromUtf8(
         QJsonDocument(out).toJson(QJsonDocument::Compact))));
-    QCOMPARE(out.value(QStringLiteral("code")).toString(), QStringLiteral("stale_session"));
+    QCOMPARE(out.value(QStringLiteral("code")).toString(),
+             variant == 3 ? QStringLiteral("effect_denied") : QStringLiteral("stale_session"));
   }
 }
 

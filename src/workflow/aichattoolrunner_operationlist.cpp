@@ -5,10 +5,14 @@
 #include "aichattoolrunner.h"
 #include "capabilityhost.h"
 #include "capabilityrecovery.h"
+#include "operationdiscovery.h"
 #include <QPointer>
 
 void AiChatToolRunner::runOperationList(const QString &scope,const QJsonObject &args) {
-  const auto fail=[&](const QString &code){finishActive(false,QJsonObject{{"ok",false},{"code",code}});};
+  // 同步失败与 worker 失败同一 payloadContract：工具结果信封据此判定契约，
+  // 不因拒绝发生在建任务之前而退化成 legacy.unversioned。
+  const auto fail=[&](const QString &code){finishActive(false,QJsonObject{{"ok",false},{"code",code},
+      {"contract",QLatin1String(paleo::capability::OperationDiscoveryContract)}});};
   const auto host=m_context.capabilityHost;
   if(!host || !host->recovery() || m_resultSession.isEmpty())return fail("operation_host_or_session_unavailable");
   const int generation=m_generation;const auto call=m_activeCall.id;QString code;

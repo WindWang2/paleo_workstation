@@ -103,7 +103,9 @@ QString validateRequestValue(const QJsonObject &arguments, DiscoveryRequest &out
     return fail(QStringLiteral("invalid_execution_state_filter"), "execution_state");
   if (out.capabilityFilter.toUtf8().size() > kCapabilityMaxBytes)
     return fail(QStringLiteral("invalid_capability_filter"), "capability_id");
-  // 筛选只属于 operations 视图：与 relations 组合显式拒绝，不静默忽略。
+  // 筛选/锚点只属于各自视图：错配组合显式拒绝，不静默忽略。
+  if (!out.relations && !out.anchor.isEmpty())
+    return fail(QStringLiteral("invalid_filter_for_view"), "anchor_operation_id");
   if (out.relations && (!out.stateFilter.isEmpty() || !out.capabilityFilter.isEmpty()))
     return fail(QStringLiteral("invalid_filter_for_view"),
                 out.stateFilter.isEmpty() ? "capability_id" : "execution_state");
@@ -302,9 +304,12 @@ struct OperationDiscovery::Impl {
     if (!over())
       return {};
     if (policy.maxSnapshots < 1 || bytes > policy.maxCacheBytes) {
+      // retryAfterMs 只取本 callerScope 快照的最早到期：跨会话的到期时间也是
+      // 极弱的活动信号，这里保持"作用域外零信号"。
       qint64 earliest = std::numeric_limits<qint64>::max();
       for (const auto &snapshot : snapshots)
-        earliest = qMin(earliest, snapshot.expiresAt - nowMs);
+        if (snapshot.callerScope == callerScope)
+          earliest = qMin(earliest, snapshot.expiresAt - nowMs);
       *retryAfterMs = earliest == std::numeric_limits<qint64>::max() ? 0 : qMax<qint64>(0, earliest);
       return QStringLiteral("discovery_cache_full");
     }
@@ -606,10 +611,11 @@ QString OperationDiscovery::validateContinuation(const DiscoveryScan &scan, cons
   if (scan.documentId.isEmpty() || scan.callerScope.isEmpty() || scan.documentId.toUtf8().size() > 256 ||
       scan.callerScope.toUtf8().size() > 512 || scan.projectDir.isEmpty())
     return QStringLiteral("discovery_scope_invalid");
+  const QString digest = m->queryDigest(arguments); // 纯函数，锁外计算以缩小锁面。
   QMutexLocker lock(&m->mutex);
   QString snapshotKey;
   int position = 0;
-  return cursorErrorLocked(scan, m->queryDigest(arguments), request.cursor, &snapshotKey, &position);
+  return cursorErrorLocked(scan, digest, request.cursor, &snapshotKey, &position);
 }
 
 // 调用方已持有 m->mutex。

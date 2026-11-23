@@ -1,10 +1,7 @@
 # H2｜私有会话档案的有界读写与轻量最近列表（2026-11-22）
 
 - 分支：`codex/h2-agent-session-archive`（base = `origin/master` `8eca4644`）
-- Worktree：`../paleo-h2-agent-session-archive`（独立 build；vendor 链接共享主仓
-  superbuild/onnxruntime/ranuts-document，deb 闭包前缀共享 H3 的 `vendor/prefix`
-  ——只读引用，不在他人 prefix 原地升级；`vendor/Data_service` 按本分支 gitlink
-  `905b5c1b` 就位）
+- Worktree：`../paleo-h2-agent-session-archive`（独立 build）
 - 范围：W1–W8（档案合同/有界读取/容量准入/索引/查询/一致性/Combo/验收）；
   不动 G2 checkpoint/欠账状态机、G1 传输、H1 sendRound 投影、H5 计划面。
 
@@ -13,75 +10,115 @@
 | 工作包 | 开工时生产入口现状（源码观察） | 本任务增量 |
 |---|---|---|
 | W1 身份/结构合同 | `ChatSession::fromJson` 无 schema/形状/身份检查，`toObject/toArray` 默认值把坏结构映射成空历史 | `chatsessionarchive.*`：`validateChatArchiveObject`（schema=1、id==文件名、字段类型/长度、messages/tool_calls/bindings 形状、消息数护栏）；错误分类 `ChatArchiveReject`；load 失败不部分覆盖 out |
-| W2 有界读取 | `load` 直接 `readAll()`，无文件类型/大小/累计上限检查；无符号链接边界 | 常规文件+根/叶一致 canonical 边界（目录/FIFO/叶子链接/中间穿越同拒）；打开前 size 与读取中累计双上限（`readChatArchiveBytes`）；超限旧档案保留字节、只给元信息状态 |
-| W3 容量准入 | 无任何发送/重试/改名前置容量概念；`save` 无上限 | `ChatArchiveBudget`（生产上限由 `turnReserve()+titleReserve()+32MiB` 结构式推导，≈322.5 MiB）；`sendUserText` append 前、`retryLast` resize 前、`renameSession` 赋值前三道纯门；`save` 写侧同尺（对称）；G2 欠账语义原样 |
-| W4 可重建索引 | 无 | `chatsessionindex.*`：per-session sidecar（`<root>/index/<id>.meta.json`，≤2 KiB，schema=1，id 绑文件名）；sidecar 只存列表元信息+size/mtime 弱指纹；缺失/损坏/过期丢弃重建，永不反向改正文 |
-| W5 有界最近列表 | `loadRecent` 全量解析所有正文再排序裁剪；每次 checkpoint 的 `sessionListChanged` → `recentSessions(20)` → 全库正文载入 | `aichatrecentsummaries.*` 协调器：热路径 stat+sidecar/内存缓存（正文解析计数零增长）；冷修复经既有 PaleoTaskService quiet 低优先池任务（分文件协作取消、单飞、#159 连接次序）；无服务=可信缓存 partial，不退回 GUI 线程全库解析；partial/complete 如实发布 |
-| W6 一致性 | save/remove 与列表无缓存协同 | 权威 save 成功才写 sidecar（失败只留待修复，不产生假欠账）；remove 同步清缓存；外部删除/替换/坏 sidecar 经弱指纹失配定向修复；索引持久写失败抑制自动重试（候选指纹变化才恢复），权威保存事实不受缓存影响 |
-| W7 Combo 接入 | `refreshSessions` 同步 `recentSessions(20)`（全量正文） | `refreshSessions` 只发查询；`rebuildSessionCombo`（当前会话恒首位、QSignalBlocker、超限/损坏有界诊断文案、选择后权威裁决）；草稿/工具卡/选择不受刷新影响 |
-| W8 验收 | — | `tst_h2_sessionarchive`（W1/W2/纯准入数学）、`tst_h2_capacitygates`（W3 控制器闭环）、`tst_h2_recentarchives`（W4/W5/W6，含 1000 小档案热列表零正文解析）、`tst_h2_sessioncombo`（W7 真实信号链） |
+| W2 有界读取 | `load` 直接 `readAll()`，无文件类型/大小/累计上限检查；无符号链接边界 | 常规文件 + 叶子 `isSymLink()` 拒绝 + 父目录 canonical == 会话根（目录伪装/叶子链接别名/junction 同拒）；打开前 size 与读取中累计双上限（`readChatArchiveBytes`）；超限旧档案保留字节、只给元信息状态 |
+| W3 容量准入 | 无任何发送/重试/改名前置容量概念；`save` 无上限 | `ChatArchiveBudget`（生产上限由 `turnReserve()+titleReserve()+32MiB` 结构式推导 = 338,203,072 字节）；`sendUserText` append 前、`retryLast` resize 前、`renameSession` 赋值前三道纯门；`save` 写侧同尺（字节 + 消息数 + 头字段长度，对称）；G2 欠账语义原样 |
+| W4 可重建索引 | 无 | `chatsessionindex.*`：per-session sidecar（`<root>/index/<id>.meta.json`，≤2 KiB，schema=1，id 绑文件名）；只存列表元信息 + size/mtime 弱指纹；缺失/损坏/过期丢弃重建，永不反向改正文 |
+| W5 有界最近列表 | `loadRecent` 全量解析所有正文再排序裁剪；每次 checkpoint 的 `sessionListChanged` → `recentSessions(20)` → 全库正文载入 | `aichatrecentsummaries.*` 协调器：热路径 stat + sidecar/内存缓存（正文解析计数零增长）；超限档案按当前预算只看文件大小；冷修复经既有 PaleoTaskService 的 quiet 低优先应用任务（分文件协作取消、单飞、#159 连接次序、用户取消不自动重启、写失败按候选指纹抑制重试）；无服务 = 只发布可信缓存的部分结果，不退回 GUI 线程全库解析；partial/complete 如实发布 |
+| W6 一致性 | save/remove 与列表无缓存协同 | 权威 save 成功才写 sidecar（sidecar 失败不影响 save=true、不产生假欠账）；remove 同步清缓存；外部删除/替换/坏 sidecar 经弱指纹失配定向修复；孤儿 sidecar 在未截断的扫描后清理 |
+| W7 Combo 接入 | `refreshSessions` 同步 `recentSessions(20)`（全量正文） | `refreshSessions` 只发查询；`rebuildSessionCombo`（当前会话恒首位、QSignalBlocker、超限/异常行诊断文案、`complete=false` 时末尾一条禁用的「列表可能不完整」说明行）；草稿/工具卡/选择不受刷新影响 |
+| W8 验收 | — | `tst_h2_sessionarchive`（W1/W2/纯准入数学）、`tst_h2_capacitygates`（W3 控制器闭环）、`tst_h2_recentarchives`（W4/W5/W6，含 1000 小档案）、`tst_h2_sessioncombo`（W7 真实信号链） |
 
 既有能力复用（不重做）：G2 同步 checkpoint/欠账/删除保护/重试授权
 （`settleSaveArrears`、`validateInvocationRetry` 原序保留）；G3 工具表；G4 隔离；
-`QSaveFile` 原子写；`displayTitle` 语义；`pathFor` 单段安全名。轮次形状常量
-（kMaxToolRounds/kMaxCallsPerTurn/kMaxToolArgumentBytes/8MiB 响应上限）单点
+`QSaveFile` 原子写；`displayTitle` 语义；`pathFor` 单段安全名；`loadRecent`/`listIds`
+契约保留（dock 不再调用 `loadRecent`）。轮次形状常量
+（kMaxToolRounds/kMaxCallsPerTurn/kMaxToolArgumentBytes/8 MiB 响应上限）单点
 登记到 `chatsessionarchive.h`，controller/llmclient 改为引用（值不变）。
 
 ## 容量推导（W3，工程容量选择）
 
+每项都是「已准入回合内可能落盘的最大增量」，全部取自既有业务上限，不提高
+任何 LLM/工具预算：
+
 ```
-escapeWorstFactor = 6            // QString→JSON 每码元最坏 \uXXXX 6 字节；
-                                 // UTF-8 网络字节 ≥ UTF-16 码元（各编码逐项可证）
-assistant   = (1+kMaxToolRounds) × (6 × 8 MiB + slack)   // 6 条回答（开场+5 工具续轮+终答）
-toolResults = kMaxCallsPerTurn   × (6 × (8 KiB 页 + 信封) + 元字段)
-toolFrames  = kMaxCallsPerTurn   × (6 × 16 KiB arguments + 名字/id)
-bindings    = kMaxCallsPerTurn   × 行定长上界
-titleReserve= 6 × maxTitleChars(256) + slack             // 轮中合法 rename 不耗响应余量
-turnReserve ≈ 290.4 MiB；maxArchiveBytes = turnReserve + titleReserve + 32 MiB ≈ 322.5 MiB
+escapeWorstFactor = 6                 // 每码元最坏 \uXXXX；UTF-8 网络字节 ≥ UTF-16 码元
+assistant   = 6 × (6×8 MiB + 1 KiB)                 // 开场 + 5 次工具续轮；响应 ≤ 8 MiB
+toolResults = 16 × (6×(8 KiB + 1 KiB) + 2400)      // 每条已准入调用恰一条 role=tool
+toolFrames  = 16 × (6×16 KiB + 2560)                // arguments ≤ 16 KiB；id ≤256、name ≤128
+bindings    = 16 × 3072                             // documentId ≤256、toolName ≤128（含最坏转义）
+messageMeta = 26 × 2400                             // timestamp + tool_call_id + host_turn_id
+turnReserve = 304,644,544（290.53 MiB）
+titleReserve= 6 × (256 + 256) + 1 KiB = 4,096       // 轮中 rename 的标题 + 换模型后的 model 名
+maxArchiveBytes = turnReserve + titleReserve + 32 MiB = 338,203,072（322.54 MiB）
 ```
 
-- 空会话一整轮最大合法工作恒可容纳（fresh ≈ 0 + 290.4 ≤ 322.5）；不提高任何
-  LLM/工具业务预算（8 MiB/16 次/8 KiB 页全部沿用既有值）。
-- 一轮最大工作落盘后（~290 MiB）再发新轮被拒（建议新建会话）；原 newSession/
-  导出/G2 欠账出口不受影响。
-- 读写对称：save 用同一上限（先序列化后开文件），成功写出的档案自身 load
-  恒可接受；准入用「当前精确序列化 + 用户消息精确字节 + 最坏预留」的上界。
+- 空会话一整轮最大合法工作恒可容纳；已载入历史 + 用户消息 ≤ 32 MiB 的会话仍可
+  开新的一轮；超过后被拒并建议新建会话（原 newSession / 导出 / G2 欠账出口不受
+  影响）。
+- 消息数护栏按「现有 + 一轮可能追加的最大条数（25）」评估，轮内 append 不再过门，
+  门放行的轮次结束后仍在结构上限（65536）内。
+- Pi 引擎每轮文本上限为 16×4096 码元（`PiChatBridge::modelDelta`），小于原生
+  8 MiB 响应上限，同一预留对两种引擎都成立。
+- 读写对称：save 先序列化再开文件，用同一上限；成功写出的档案自身 load 恒可接受。
 
 ## 旧超限档案边界
 
-- > 上限的旧档案：load 明确 `SizeExceeded` 拒绝完整载入（字节保留），最近
-  列表给 `OverLimit` 元信息状态（stat-only，不读正文）；仍可经 UI 删除。
-- 消息数 > 65536 的档案：`MessageBudget` 拒绝（内存护栏；正常会话远不可及，
-  发送门同尺拒绝继续增长）。
-- 无 bindings/无标题/对象形态 arguments/旧时间格式的 schema=1 档案照常可读；
-  长标题（≤4096 码元）容忍，新写入标题上限 256。
+- > 上限的旧档案：load 明确 `SizeExceeded` 拒绝完整载入（字节保留），最近列表给
+  `OverLimit` 元信息状态（只用扫描已 stat 的文件大小对照当前预算，不读正文，
+  不信缓存里的旧结论）；仍可经 UI 删除。
+- 消息数 > 65536：`MessageBudget` 拒绝。model > 256 / 标题 > 4096 码元：结构非法
+  拒绝；save 侧同尺拒绝写出（否则会写出自身永远载不回的档案）。
+- 无 bindings / 无标题 / 对象形态 arguments / 无时间戳的 schema=1 档案照常可读；
+  长标题（≤4096 码元）容忍，新写入标题上限 256。`schema` 自 writer 首个提交
+  （b99e8d5f）起恒写，缺 `schema` 的文件不是 Paleo 写出的档案，按 `SchemaMissing`
+  拒绝；未来版本号按 `SchemaUnsupported` 拒绝。
+
+## 环境
+
+- CachyOS Linux x86_64，Qt 6.10.2 / QGIS 4.2.3（deb 闭包前缀），RelWithDebInfo，
+  `-j4`（主机级构建互斥，同批多 Agent 同一时刻只有一个重型构建）。
+- **依赖前缀**：`vendor/prefix` 是一份带闭包收据的 deb 闭包的**私有只读副本**
+  （`cp -a`，96,979 项 / 3.47 GB；收据 `90a7bf14…fb02` == 本分支
+  `vendor/deb-closure.lock` 的 sha256；configure 期 `paleo-deb-prefix.cmake` 复核
+  收据与关键资源）。缘由：最初只读引用的兄弟 worktree 前缀在该 worktree 被删除后
+  悬空；本机无 `dpkg-deb`，仓库的离线解包入口（`vendor/fetch-deps.sh`）在本机
+  不可用。`CMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu`；
+  `vendor/onnxruntime`、`vendor/ranuts-document` 链接主仓；`office-editor` 就绪
+  （configure 无缺失警告）；`vendor/Data_service` 按本分支 gitlink `905b5c1b`。
+- **测试执行方式**：deb 前缀进入 `LD_LIBRARY_PATH` 后系统 `ctest` 无法加载
+  （`XML_GetCurrentColumnNumber64` 未定义，同 G2 批次记录）。测试二进制按
+  `CTestTestfile.cmake` 生成的原始参数、每测试沙箱 `ENVIRONMENT`、
+  `WORKING_DIRECTORY` 与 `TIMEOUT`（300 s）直接运行，串行（相当于 ctest -j1）。
 
 ## 本地验证
 
-环境：CachyOS Linux x86_64；Qt 6.10.2 / QGIS vendored（deb 闭包前缀，共享 H3
-worktree 的 `vendor/prefix`，`CMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu`）；
-RelWithDebInfo；`-j4`（主机级重型构建互斥锁，五任务并行纪律）。
+**尚未执行。** 会话两次中断 + 等待主机构建互斥锁，H2 的构建与测试在本文写作时
+还没有运行过；以下为构建/测试完成后的真实结果占位，未填即为未验证。
 
-（以下结果在最终 head 复核后填写）
+- 构建：（待填）
+- `tst_h2_*`：（待填）
+- 回归：（待填）
+- Source gates：（待填）
+
+构建前对全部改动做过的工作（如实区分）：每个改动 TU 的 `-fsyntax-only` 编译检查
+通过；静态闸门脚本（layering --strict / --qgs-audit / --transitive、file_budget
+--strict、ui_size、ui_invariants、ui_tokens、ts_stale、i18n、l10n、qgis_versions、
+docs_drift、qgis_spread、cpp_mainline）通过；测试用例经逐条静态推演修订。这些
+都不替代真实运行。
 
 ## 未覆盖/限制
 
-- Windows 特有名（保留名/junction/大小写不敏感归一）未在本机实测——叶子
-  链接/junction 走 `isSymLink()` 同拒，目录伪装同拒；真实 Windows 车道由 CI
-  windows leg 覆盖，未在本机验证的部分如实记录。
-- 同毫秒同大小替换的弱指纹盲区：size+mtime 一致时缓存判新鲜（打开仍走权威
-  校验）；确定性规则见 chatsessionindex.h 头注。
-- **准入序列化成本**（独立复审 R1 提示，如实记录）：sendUserText/retryLast
-  的纯容量门在 UI 线程全量序列化当前会话（retry 另经前缀深拷贝）——近上限
-  （数百 MB）档案的拒绝判断本身可感知卡顿；正常会话（MB 级）无感。未做
-  序列化字节数缓存（增量维护会引入失效面，收益仅极端档案）。
-- **load 的 TOCTOU 窗口**：isSymLink/isFile/canonicalFilePath 检查与 open
-  之间存在竞窗（本地私有用户数据目录的威胁模型下可接受；读取中累计上限
-  兜住打开后增长）。
-- 真实 Pi 进程链/受控 Python 发布链 fixture 本机未提供（同 G2 批次口径）；
-  容量预留对 Pi 轮的结构覆盖来自同形消息面（Pi 回答/工具结果与原生共用
-  appendMessage/emit 路径）。
+- Windows 特有名（保留名/junction/大小写不敏感归一）未实测；叶子链接别名用例在
+  无法创建符号链接的平台显式 SKIP（如实记为跳过，不算通过）。
+- 同毫秒同大小替换的弱指纹盲区：size+mtime 一致时缓存判新鲜（打开仍走权威校验）。
+- **准入序列化成本**（复审 R1 提示）：sendUserText/retryLast 的容量门在 UI 线程
+  全量序列化当前会话——近上限（数百 MB）档案的拒绝判断本身可感知卡顿；正常
+  会话（MB 级）无感。未做序列化字节数缓存。
+- **load 的 TOCTOU 窗口**：类型/链接检查与 open 之间存在竞窗（本地私有用户数据
+  目录的威胁模型下可接受；读取中累计上限兜住打开后增长）。
+- 无任务服务时未建索引的会话不会出现在列表里（列表标注「可能不完整」）；生产
+  装配已接任务服务（appcontext.cpp）。
+- 真实 Pi 进程链 / 受控 Python 发布链 fixture 本机未提供（同 G2 批次口径）。
 
 ## 独立复审记录
 
-（review 后填写）
+- R1（独立 reviewer，对 990c0282 全量 diff + 调用链，静态推演）：REQUEST CHANGES
+  ——4×P0（修复协作取消极性反转、超限用例时序、retry 用例 lastUser 指向、
+  `pruneOrphans` 零调用）、2×P1（预留常量低于形式最坏上界、save 只查字节不查
+  结构）、若干 P2。修复提交 bdbba6a5 / fd47f3f3。
+- R2（对 990c0282..fd47f3f3）：REQUEST CHANGES——残留 1×P0（retry 边界夹具把大
+  内容放在会被 resize 丢弃的一侧）+ 3×P2（截断时 prune 误删、未用变量、文档）。
+  修复提交 e4f064f1 / dfff0406。
+- R3（对 e4f064f1）：APPROVE（代码面）。
+- R3 之后的增量（4c123341、4a52f40e：预算默认值、会话头预留、超限按当前预算、
+  列表完整性标注、根边界同构比较、测试夹具修订）：（复审结论待填）

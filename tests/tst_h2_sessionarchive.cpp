@@ -19,13 +19,16 @@
 // 有界读取。全部本地磁盘操作（会话根重定向 .qttest 沙箱），无网络。
 namespace {
 
-// 显式打开再读（QFile 临时对象未打开时 readAll() 返回空——「空对空」的比较恒真，
-// 会把「原文件字节保留」这类断言变成没在验证任何东西）。
+// 显式打开再读；读不到直接让用例失败（返回空会让「磁盘不变」的比较退化成
+// 空对空的恒真——QFile 临时对象未打开时 readAll() 正是返回空）。
 QByteArray readFileBytes(const QString &path)
 {
   QFile file(path);
-  if (!file.open(QIODevice::ReadOnly))
-    return QByteArray();
+  if (!file.open(QIODevice::ReadOnly)) {
+    qWarning("readFileBytes: cannot open %s: %s", qPrintable(path),
+             qPrintable(file.errorString()));
+    return QByteArray("<unreadable>");
+  }
   return file.readAll();
 }
 } // namespace
@@ -155,6 +158,7 @@ void TestH2SessionArchive::identityMismatchRefusesWithoutTouchingFiles() {
   const QString path = writeRawArchive(QStringLiteral("h2-file-a"), object);
   QVERIFY(!path.isEmpty());
   const QByteArray before = readFileBytes(path);
+  QVERIFY(!before.isEmpty()); // 基线非空：下方「字节保留」比较不是空对空
 
   ChatSession out;
   out.id = QStringLiteral("sentinel");
@@ -615,6 +619,7 @@ void TestH2SessionArchive::saveRefusesOverCapKeepsPreviousFile() {
   QVERIFY(ChatSessionStore::save(session, &error));
   const QString path = ChatSessionStore::pathFor(session.id);
   const QByteArray good = readFileBytes(path);
+  QVERIFY(!good.isEmpty()); // 基线非空：下方「上一份完整文件保留」比较不是空对空
 
   session.messages.append(ChatMessage()); // 明显超限增长
   session.messages.last().role = ChatRole::Assistant;

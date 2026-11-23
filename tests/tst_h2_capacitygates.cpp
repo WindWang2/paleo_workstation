@@ -140,13 +140,16 @@ ChatSession legacyArchive(const QString &id, int bodyChars) {
 
 namespace {
 
-// 显式打开再读（QFile 临时对象未打开时 readAll() 返回空——「空对空」的比较恒真，
-// 会把「原文件字节保留」这类断言变成没在验证任何东西）。
+// 显式打开再读；读不到直接让用例失败（返回空会让「磁盘不变」的比较退化成
+// 空对空的恒真——QFile 临时对象未打开时 readAll() 正是返回空）。
 QByteArray readFileBytes(const QString &path)
 {
   QFile file(path);
-  if (!file.open(QIODevice::ReadOnly))
-    return QByteArray();
+  if (!file.open(QIODevice::ReadOnly)) {
+    qWarning("readFileBytes: cannot open %s: %s", qPrintable(path),
+             qPrintable(file.errorString()));
+    return QByteArray("<unreadable>");
+  }
   return file.readAll();
 }
 } // namespace
@@ -198,6 +201,7 @@ void TestH2CapacityGates::sendRejectKeepsSessionUntouchedAndNewSessionWorks() {
   const int messagesBefore = controller.messages().size();
   const QByteArray diskBefore =
     readFileBytes(ChatSessionStore::pathFor(nearCap.id));
+  QVERIFY(!diskBefore.isEmpty()); // 基线非空：下方「磁盘不变」比较不是空对空
 
   QSignalSpy errors(&controller, &AiChatController::errorOccurred),
       changed(&controller, &AiChatController::sessionChanged),
@@ -255,6 +259,7 @@ void TestH2CapacityGates::nearCapLegacyLoadRetryRefusedBeforeResize() {
   const auto bindingsBefore = controller.session().hostToolBindings;
   const QByteArray diskBefore =
     readFileBytes(ChatSessionStore::pathFor(nearCap.id));
+  QVERIFY(!diskBefore.isEmpty()); // 基线非空：下方「磁盘不变」比较不是空对空
 
   QSignalSpy errors(&controller, &AiChatController::errorOccurred),
       changed(&controller, &AiChatController::sessionChanged),
@@ -316,6 +321,7 @@ void TestH2CapacityGates::renameOverFieldOrBudgetRefused() {
   QVERIFY(controller.session().title != tooLong);
   const QString path = ChatSessionStore::pathFor(currentId);
   const QByteArray before = readFileBytes(path);
+  QVERIFY(!before.isEmpty());
   // 空会话规则不受影响：重命名失败不发成功列表更新。
   QCOMPARE(listChanged.count(), 0);
 
@@ -326,6 +332,7 @@ void TestH2CapacityGates::renameOverFieldOrBudgetRefused() {
   m_sessions.append(other.id);
   const QByteArray otherBefore =
     readFileBytes(ChatSessionStore::pathFor(other.id));
+  QVERIFY(!otherBefore.isEmpty());
   auto tiny = budget;
   tiny.maxArchiveBytes = 64;
   paleo::chat::setChatArchiveBudgetForTesting(tiny);
@@ -355,6 +362,7 @@ void TestH2CapacityGates::renameOverFieldOrBudgetRefused() {
   m_sessions.append(nearCap.id);
   const QByteArray nearCapBefore =
     readFileBytes(ChatSessionStore::pathFor(nearCap.id));
+  QVERIFY(!nearCapBefore.isEmpty());
   QVERIFY(!controller.renameSession(nearCap.id, QStringLiteral("新名"), &error));
   QVERIFY2(error.contains(QStringLiteral("会话容量不足")), qPrintable(error));
   QVERIFY2(!error.contains(QStringLiteral("标题超限")), qPrintable(error));

@@ -167,7 +167,28 @@ Python/depth/seismic 能力进计划、正式科学发布/MapVersion、输入法
   不涨）/ --transitive（QGIS_PREFIX 受控）、file_budget --strict（51 基线
   不涨）、ui_size / ui_invariants / ui_tokens、i18n / l10n / ts_stale
   （0/0 基线）、qgis_versions、docs_drift、cpp_mainline、qgis_spread。
-- 测试与截图结果：（构建与运行完成后回填）
+- 测试与截图结果（2026-11-23，本地真实运行）：
+  - 新增 4 测试全绿：tst_h5_plan_preview 13/13、tst_h5_plan_presentation 10/10、
+    tst_h5_plan_workbench 7/7、tst_h5_plan_assembly 5/5（1 skip=截图用例，
+    设 PALEO_H5_SHOT_DIR 后实跑并产出截图）。
+  - 相邻回归全绿：tst_capability_plan / tst_capability_host /
+    tst_capability_recovery_native / tst_aichatcapability /
+    tst_aichattoolloop（工具表计数 16→17 随新工具更新断言）/
+    tst_g5_conversation_projection / tst_g5_operation_presentation /
+    tst_g5_conversation_workbench / tst_g5_assembly / tst_aiassistdock /
+    tst_aitoolresultview。
+  - 测试执行方式：./run-target-tests.sh（vendored 前缀环境注入；每测试
+    独立 mktemp 日志）；构建 PALEO_JOBS=4 ./paleo-dev build（Ninja +
+    RelWithDebInfo；重型构建经主机级互斥锁 -j4）。
+  - GUI 证据：artifacts/h5-screenshots/{h5-assembly-light,h5-assembly-dark,
+    h5-assembly-narrow}.png（1280×800 浅/深 + 720×600 窄；真实主窗 AI 页签
+    走查：loopback 工具提案→卡片→审阅面板→用户点值编辑→修订呈现）。
+- 评审与迭代：独立 reviewer 全 diff 审查（逐 TU 实编），P0×5/P1×1/P2×8
+  全部修复；随后真实构建/测试迭代修复 4 个运行期问题（payload 原始提议值
+  回显、单实例状态胶囊、参数当前值=将提交值语义、编辑后请求身份重 derive）。
+- 环境事件记录：h3 worktree 收尾清理导致共享 deb 前缀悬空，已按同 lock
+  （逐字节一致）以 h6 前缀重建原路径 symlink（协调目录有记录）；本 build
+  的二进制 strip -g 以控制磁盘（938G 卷曾满）。
 
 ## 8. PR 说明要点
 

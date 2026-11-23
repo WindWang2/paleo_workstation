@@ -134,6 +134,26 @@
             <translation type="unfinished" />
         </message>
         <message>
+            <source>%1…</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>档案异常（%2）：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>超限会话：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>（列表可能不完整：部分会话尚未校验）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
             <location filename="../src/ui/ai/aiassistdock.cpp" line="131" />
             <source>重发</source>
             <translation type="unfinished" />
@@ -345,6 +365,13 @@
         </message>
     </context>
     <context>
+        <name>AiChatRecentSummaries</name>
+        <message>
+            <source>重建会话列表索引</source>
+            <translation type="unfinished" />
+        </message>
+    </context>
+    <context>
         <name>AiChatController</name>
         <message>
             <location filename="../src/workflow/aichatcontroller.cpp" line="121" />
@@ -394,6 +421,22 @@
         <message>
             <location filename="../src/workflow/aichatcontroller.cpp" line="69" />
             <source>请求出错：本调用未执行</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话容量不足（%1）：已保留原回答与工具记录；请用「新会话」继续新话题。</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话容量不足（%1）：改名会使会话超过本机档案上限；请缩短标题，或用「新会话」继续新话题</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话容量不足（%1）：继续本轮会超出本机会话档案上限。请用「新会话」开始新话题；当前会话仍可导出。</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话标题超限（%1）</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -29861,6 +29904,50 @@ PDF：%3
         <source>核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。</source>
         <translation>Verify the host-configured optional analysis-core Python environment and report missing dependencies and versions. Does not install environments, run user or generated code, or grant publication permissions.</translation>
     </message>
+        <message>
+            <source>会话字段长度超过档案合同上限</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话文件不存在</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话文件不是常规文件（目录/链接伪装被拒绝）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话文件名与内部 id 不一致（%1），拒绝载入</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话文件在读取中超过 %1 MiB 上限</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话文件路径越过私有会话根（链接/别名被拒绝）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话档案 schema 版本不受支持（%1），拒绝载入</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话档案结构不合法：%1</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话档案超过 %1 MiB 存储上限（内容保留在磁盘，仅元信息可列出）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话消息数超过档案结构上限（%1）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>会话超过本机档案容量上限（%1 MiB）</source>
+            <translation type="unfinished" />
+        </message>
         <message>
             <source>临时配准源超过 500 MB，或目标文件已存在</source>
             <translation>The provisional registration source exceeds 500 MB, or the destination already exists.</translation>

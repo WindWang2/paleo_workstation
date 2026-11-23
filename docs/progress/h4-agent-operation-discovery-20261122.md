@@ -173,7 +173,7 @@ resultPorts/sourceOperation/consumers/planSteps/parentVersions/external——全
 ./paleo-dev build -j4                                   # 全量 + 逐轮增量；exit 0
 ./paleo-dev test -j1 -R "tst_h4_"                       # 2/2
 ./paleo-dev test -j1 -R "<受影响族正则，见下>"            # 86/86 通过
-ctest -LE 'core|perf' -R "<无标签闸门项正则>" -j1         # 61/62（first_configure 见下）
+ctest -LE 'core|perf' -R "<无标签闸门项正则>" -j1         # 62/63（first_configure 见下）
 ```
 
 - 受影响族回归正则：
@@ -194,7 +194,7 @@ ctest -LE 'core|perf' -R "<无标签闸门项正则>" -j1         # 61/62（firs
 | `tst_h4_operation_discovery` | Passed（20/20 用例；ctest 计 22 项含 init/cleanup；~12 s） |
 | `tst_h4_operation_list_tool` | Passed（6/6 用例；ctest 计 8 项；~2.7 s） |
 | 受影响族回归 | 86/86 通过（`ctest -j1`，187 s；同一正则与首轮一致） |
-| 无标签闸门项（ctest，正则列 63 个名字） | 61/62 通过；唯一失败 `first_configure` 为**本机工具链环境限制**：其内层全新 configure 不传 `CMAKE_LIBRARY_ARCHITECTURE`，在非 Debian 多架构主机（Arch/CachyOS）上该变量为空 → 资源路径 `usr/lib//qt6/...` 缺多架构段。同一 configure 加 `-DCMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu` 即通过（已复现）；护栏脚本相对基线零改动 |
+| 无标签闸门项（ctest，共 63 项） | 62/63 通过；唯一失败 `first_configure` 为**本机工具链环境限制**：其内层全新 configure 不传 `CMAKE_LIBRARY_ARCHITECTURE`，在非 Debian 多架构主机（Arch/CachyOS）上该变量为空 → 资源路径 `usr/lib//qt6/...` 缺多架构段。同一 configure 加 `-DCMAKE_LIBRARY_ARCHITECTURE=x86_64-linux-gnu` 即通过（已复现）；护栏脚本相对基线零改动 |
 | 源码闸门脚本直跑 14 项（layering --strict/--qgs-audit/--transitive、file_budget --strict、ui_size、ui_invariants、ui_tokens、i18n、l10n、ts_stale、qgis_versions、docs_drift、qgis_spread、cpp_mainline） | 14/14 rc=0（最终 head 复跑；transitive 用受控 `QGIS_PREFIX`） |
 
 ### 验收矩阵对照

@@ -3,7 +3,9 @@
 #include "capabilityhost.h"
 #include "capabilityrecovery.h"
 #include "ai/chat/domaintools.h"
+#include "ai/chat/navigationtools.h"
 #include "ai/chat/planpreviewtool.h"
+#include "agentnavigation.h"
 #include "ai/onnxpredictionservice.h"
 #include "catalog/datacatalog.h"
 #include "tileoperationservice.h"
@@ -70,8 +72,11 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   // Explicitly injected legacy adapters remain available to existing internal callers.
   // H4：operation_list 依赖 Host/Recovery/TaskService，无宿主即不可执行——不经
   // 该无条件放行，恒走下方 hosted 资格路径（不向模型广播必然失败的调用）。
+  // I4：语义导航原子同口径——效果门（Read）与 provider 都在宿主侧，无宿主/
+  // 无 provider 不广播（不落入旧适配器默认放行）。
   const bool operationList=name==QLatin1String("paleo.operation_list");
-  if(!context.requireCapabilityHost && !python && !operationList) {result.ready=true;return result;}
+  const bool navigationTool=paleo::agent::navigation::isNavigationTool(name);
+  if(!context.requireCapabilityHost && !python && !operationList && !navigationTool) {result.ready=true;return result;}
   if(spec.legacyAdapter)return fail("legacy_tool_requires_versioned_adapter");
   if(!context.capabilityHost)return fail("host_unavailable");
   const auto live = context.capabilityHost->context();
@@ -109,6 +114,19 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(operationList) {
     if(!context.capabilityHost->recovery())return fail("host_unavailable");
     if(!m_taskService)return fail("task_service_unavailable");
+    result.ready=true;return result;
+  }
+  // I4：provider 存在性/目录要求与直接调用同因（readiness 广播与执行同一
+  // 来源）；效果门已在上方 checkContext(effects) 完成（恒 Read——临时
+  // 选择/视图导航，只读工程不因导航被拒）。
+  if(navigationTool) {
+    if(!m_navigation || m_navigationOwner.isNull())
+      return fail("navigation_provider_unavailable");
+    bool catalogRequired=false;
+    if(const QString reason=m_navigation->unavailabilityReason(name,&catalogRequired);!reason.isEmpty())
+      return fail(reason);
+    if(catalogRequired && (!context.catalog || !context.catalog->isOpen()))
+      return fail("catalog_unavailable");
     result.ready=true;return result;
   }
   if((name==QLatin1String("paleo.query_project") || name==QLatin1String("paleo.asset_lineage")) &&

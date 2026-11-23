@@ -232,9 +232,9 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
       tvds.append(r.tvd);
       times.append(r.timeMs);
     }
-    // §4：time_depth 没有可用样点时写「无时深表」，不画假线。
+    // §4：time_depth 没有可用样点时写「无时深表」，不画假线（标记供 typed 导航回读）。
     if (tvds.isEmpty())
-      return stateLabel(tr("无时深表"), parent);
+      return stateLabel(tr("无时深表"), parent, false, QStringLiteral("noTimeDepthText"));
     return makeTimeDepthPanel(parent, times, tvds);
   }
 
@@ -254,8 +254,8 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
       if (matchWell(r.name))
         rec = &r;
     if (!rec && !wellName.isEmpty())
-    {
-      hl->addWidget(stateLabel(tr("井 %1 不在该井位文件中").arg(wellName), holder), 1);
+    { // 标记供 typed 导航回读（请求井不在井位文件）。
+      hl->addWidget(stateLabel(tr("井 %1 不在该井位文件中").arg(wellName), holder, false, QStringLiteral("wellNotInFileText")), 1);
       return holder;
     }
     // §4 字段不变（井名/X/Y/KB/TD/BottomX/BottomY/WellType/坐标状态），

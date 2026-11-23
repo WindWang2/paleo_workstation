@@ -139,6 +139,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-h5-agent-plan-workbench.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-h2-agent-session-archive.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-h4-agent-operation-discovery.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-i4-agent-semantic-navigation-atoms.cmake"
 )
 # 双向核对：新增文件必须登记，已登记文件不得缺失，重复登记也立即失败。
 # 先验证再 include，避免缺失功能被 EXISTS 静默跳过或半份清单已执行。

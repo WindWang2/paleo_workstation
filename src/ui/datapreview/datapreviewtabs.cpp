@@ -390,6 +390,8 @@ void DataPreviewTabs::attachDoc(PreviewDocService *doc)
       for (auto it = m_pageOfAsset.constBegin(); it != m_pageOfAsset.constEnd(); ++it)
         updateTabTitle(it.key());
     });
+  // I4：typed 导航回执路由（门面重挂时随上面的 disconnect 一并重接）。
+  wireNavigationOutcomeRoutes();
 }
 
 void DataPreviewTabs::setTaskService(PaleoTaskService *svc)
@@ -447,6 +449,9 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
   QWidget *page = m_pageOfAsset.value(assetId);
   if (!page)
     return;
+  // I4：typed 导航挂起回执随页关闭收口（cancelled——晚到的解码结果无人
+  // 等待，不产生第二终态）。
+  dropNavigationWatch(assetId, QStringLiteral("cancelled"), tr("预览页面已关闭"));
   const int idx = m_tabs->indexOf(page);
   if (idx >= 0)
     m_tabs->removeTab(idx);

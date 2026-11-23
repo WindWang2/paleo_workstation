@@ -15,6 +15,7 @@
 #include "../../catalog/catalogroles.h"
 #include "../../services/artifactversioncapability.h"
 void appendAgentOperationTools(QVector<AiToolSpec> &specs);
+#include "navigationtools.h" // I4：精确名称集合（isNavigationTool）与六工具声明
 #include "../../domain/wellfaciesrequest.h"
 #include "../../domain/wellref.h"
 #include "../../services/projectquerytopics.h"
@@ -583,6 +584,9 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
   appendAgentOperationTools(specs);
+  // I4：语义导航原子（井/地震/地图的业务身份选择、定位与原生预览打开，
+  // 精确六名）。
+  appendAgentNavigationTools(specs);
   // H5：纯预检提案工具（只 decode+validate，执行入口在原生审阅面板）。
   paleo::chat::appendAgentPlanPreviewTool(specs);
   AiToolSpec environment;environment.name="paleo.python_environment";
@@ -633,6 +637,15 @@ AiToolDispatch dispatchAiTool(const QString &name,
     // 参数不合格 = 工具名知道但调用不成：报 Disabled 并把原因写进 note。
     out.status = AiToolDispatchStatus::Disabled;
     out.note = invalid;
+    return out;
+  }
+  // I4：语义导航原子——精确名称集合（isNavigationTool），先于任何前缀
+  // 分派；I3 的 paleo.map_layer* 显示族不被本族吞掉（未登记 = NotFound）。
+  if(paleo::agent::navigation::isNavigationTool(name)) {
+    out.target=QStringLiteral("workflow/agentnavigation + qgis/agentmapnavigation + ui/agentnavigationadapter");
+    out.status=AiToolDispatchStatus::Routed;
+    out.note=QObject::tr("按业务身份选择井/定位地图/打开固定版本井资料与地震测线："
+                         "临时视图导航，效果恒 Read，不写目录不改显示样式");
     return out;
   }
   if(name.startsWith(QLatin1String("paleo.operation_")) || name==QLatin1String("paleo.tile_classification_v2")) {

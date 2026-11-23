@@ -9973,7 +9973,39 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <source>曲线</source>
         <translation>曲线</translation>
     </message>
-  </context>
+      <message>
+        <source>预览门面未接线或目标不完整</source>
+        <translation>预览门面未接线或目标不完整</translation>
+    </message>
+    <message>
+        <source>预览门面未接线</source>
+        <translation>预览门面未接线</translation>
+    </message>
+    <message>
+        <source>预览页面未能创建</source>
+        <translation>预览页面未能创建</translation>
+    </message>
+    <message>
+        <source>地震正文未建出测线控件</source>
+        <translation>地震正文未建出测线控件</translation>
+    </message>
+    <message>
+        <source>非法测线轴</source>
+        <translation>非法测线轴</translation>
+    </message>
+    <message>
+        <source>测线号被控件范围改写</source>
+        <translation>测线号被控件范围改写</translation>
+    </message>
+    <message>
+        <source>振幅已显示，地震层位仍在读取</source>
+        <translation>振幅已显示，地震层位仍在读取</translation>
+    </message>
+    <message>
+        <source>预览页面已关闭</source>
+        <translation>预览页面已关闭</translation>
+    </message>
+</context>
 <context>
     <name>DataServiceImportWizard</name>
     <message>
@@ -39211,6 +39243,102 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
         <translation>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</translation>
     </message>
+    <message>
+        <source>导航状态查询</source>
+        <translation>导航状态查询</translation>
+    </message>
+    <message>
+        <source>只读查询当前宿主的导航事实：文档绑定、当前业务选井（含来源）、主画布实际范围与 CRS、已打开原生预览目标及其加载/错误态。不创建视图、不全扫源数据；未创建的画布/已关闭的页面如实报不可用，不从页面标题猜身份。</source>
+        <translation>只读查询当前宿主的导航事实：文档绑定、当前业务选井（含来源）、主画布实际范围与 CRS、已打开原生预览目标及其加载/错误态。不创建视图、不全扫源数据；未创建的画布/已关闭的页面如实报不可用，不从页面标题猜身份。</translation>
+    </message>
+    <message>
+        <source>选择井</source>
+        <translation>选择井</translation>
+    </message>
+    <message>
+        <source>按稳定井业务 ID 精确替换当前井选择（replace 语义）：先在当前工程目录核实全部 ID 都是井实体才更新，未知/错类型 ID 整批拒绝且不留部分选中。重复 ID 去重且保持首次出现顺序。只影响井选择域，不动地震线选择、解释目标或编辑状态。不收名称匹配或 QGIS FID。</source>
+        <translation>按稳定井业务 ID 精确替换当前井选择（replace 语义）：先在当前工程目录核实全部 ID 都是井实体才更新，未知/错类型 ID 整批拒绝且不留部分选中。重复 ID 去重且保持首次出现顺序。只影响井选择域，不动地震线选择、解释目标或编辑状态。不收名称匹配或 QGIS FID。</translation>
+    </message>
+    <message>
+        <source>井业务 ID 列表（1–%1 个，每项 ≤%2 字符）；语义为整批替换</source>
+        <translation>井业务 ID 列表（1–%1 个，每项 ≤%2 字符）；语义为整批替换</translation>
+    </message>
+    <message>
+        <source>清除井选择</source>
+        <translation>清除井选择</translation>
+    </message>
+    <message>
+        <source>只清除井选择域（本工具定义的业务选井），不删除数据、不清解释/编辑/地震线选择。可携带 navigation_state 返回的选择修订 token：token 与当前选择不一致时报 stale_selection 不动作；当前选择含非井目标时报foreign_selection 不动作。</source>
+        <translation>只清除井选择域（本工具定义的业务选井），不删除数据、不清解释/编辑/地震线选择。可携带 navigation_state 返回的选择修订 token：token 与当前选择不一致时报 stale_selection 不动作；当前选择含非井目标时报foreign_selection 不动作。</translation>
+    </message>
+    <message>
+        <source>可选：navigation_state 返回的选择修订 token（≤%1 字符）；缺省时按当前选择内容判定</source>
+        <translation>可选：navigation_state 返回的选择修订 token（≤%1 字符）；缺省时按当前选择内容判定</translation>
+    </message>
+    <message>
+        <source>地图定位</source>
+        <translation>地图定位</translation>
+    </message>
+    <message>
+        <source>把主画布视口移到业务目标：井 ID 列表的包络或受管图层。坐标/范围/源CRS 由宿主解析并经工程转换严格校验——非有限坐标、未知 CRS、转换失败或空范围时拒绝且旧视口不动，不回落原始坐标。center 保留当前比例尺，fit 匹配目标包络。不改变图层可见性/样式/层序；目标隐藏时如实报located_not_visible。</source>
+        <translation>把主画布视口移到业务目标：井 ID 列表的包络或受管图层。坐标/范围/源CRS 由宿主解析并经工程转换严格校验——非有限坐标、未知 CRS、转换失败或空范围时拒绝且旧视口不动，不回落原始坐标。center 保留当前比例尺，fit 匹配目标包络。不改变图层可见性/样式/层序；目标隐藏时如实报located_not_visible。</translation>
+    </message>
+    <message>
+        <source>井业务 ID 列表（1–%1 个）；与 layer_id 互斥</source>
+        <translation>井业务 ID 列表（1–%1 个）；与 layer_id 互斥</translation>
+    </message>
+    <message>
+        <source>受管图层 ID（manifest id）；与 well_ids 互斥</source>
+        <translation>受管图层 ID（manifest id）；与 well_ids 互斥</translation>
+    </message>
+    <message>
+        <source>center=保持当前比例尺居中；fit=适配目标包络</source>
+        <translation>center=保持当前比例尺居中；fit=适配目标包络</translation>
+    </message>
+    <message>
+        <source>打开井资料</source>
+        <translation>打开井资料</translation>
+    </message>
+    <message>
+        <source>在原生数据页预览中打开明确版本的井资料并过滤到指定井：well_id+asset_id+version_id 须在当前工程内核实（版本归属资产、井关联已决、类型受支持：well_head/well_stratification/time_depth）。结果区分页面创建/聚焦/正文显示三个事实；外链 SHA 失配按只读策略如实失败，不写目录。不打开Office、外部网址或任意资产。</source>
+        <translation>在原生数据页预览中打开明确版本的井资料并过滤到指定井：well_id+asset_id+version_id 须在当前工程内核实（版本归属资产、井关联已决、类型受支持：well_head/well_stratification/time_depth）。结果区分页面创建/聚焦/正文显示三个事实；外链 SHA 失配按只读策略如实失败，不写目录。不打开Office、外部网址或任意资产。</translation>
+    </message>
+    <message>
+        <source>井业务 ID（须是该资产已决关联的井）</source>
+        <translation>井业务 ID（须是该资产已决关联的井）</translation>
+    </message>
+    <message>
+        <source>资产业务 ID</source>
+        <translation>资产业务 ID</translation>
+    </message>
+    <message>
+        <source>固定版本 ID（不回落 currentVersion）</source>
+        <translation>固定版本 ID（不回落 currentVersion）</translation>
+    </message>
+    <message>
+        <source>打开地震测线</source>
+        <translation>打开地震测线</translation>
+    </message>
+    <message>
+        <source>在原生二维测线页面显示明确版本地震资料的指定 inline/crossline：真实存在的线才解码呈现，越界/不存在的线拒绝（不取最近一条、不吃 SpinBox钳位）；结果区分振幅已显示与层位仍在读取的部分就绪态。不选层、不改可见性、不做时间游标或 3D 视角。</source>
+        <translation>在原生二维测线页面显示明确版本地震资料的指定 inline/crossline：真实存在的线才解码呈现，越界/不存在的线拒绝（不取最近一条、不吃 SpinBox钳位）；结果区分振幅已显示与层位仍在读取的部分就绪态。不选层、不改可见性、不做时间游标或 3D 视角。</translation>
+    </message>
+    <message>
+        <source>地震资产业务 ID</source>
+        <translation>地震资产业务 ID</translation>
+    </message>
+    <message>
+        <source>测线轴</source>
+        <translation>测线轴</translation>
+    </message>
+    <message>
+        <source>测线号（survey 几何范围内的整数；真实存在性由解码结果判定）</source>
+        <translation>测线号（survey 几何范围内的整数；真实存在性由解码结果判定）</translation>
+    </message>
+    <message>
+        <source>按业务身份选择井/定位地图/打开固定版本井资料与地震测线：临时视图导航，效果恒 Read，不写目录不改显示样式</source>
+        <translation>按业务身份选择井/定位地图/打开固定版本井资料与地震测线：临时视图导航，效果恒 Read，不写目录不改显示样式</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -58928,6 +59056,13 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>终端成果：未知（预检未通过时不猜测）</source>
         <translation>终端成果：未知（预检未通过时不猜测）</translation>
+    </message>
+</context>
+<context>
+    <name>AgentNavigation</name>
+    <message>
+        <source>目标未在期限内确认；页面可能在后台继续完成，稍后用 navigation_state 查询实际状态</source>
+        <translation>目标未在期限内确认；页面可能在后台继续完成，稍后用 navigation_state 查询实际状态</translation>
     </message>
 </context>
 </TS>

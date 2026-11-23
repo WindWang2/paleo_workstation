@@ -204,9 +204,25 @@ QgsCoordinateReferenceSystem cachedLocalGridCrs()
 }
 } // namespace
 
+bool SeismicMapLink::isWellSelectionOrigin(const QString &origin)
+{
+  // I4（W3）：井域 origin 的封闭集合。well_map = 井层自身回声（本类早已
+  // 跳过，此处一并登记）；datatree/datapreview = 数据页/预览页的 wellSelected
+  // 广播（open_well_view 复用的旧路径）；agent_navigation = I4 select/clear；
+  // rebind = WellMapLink 井层重绑恢复。这些载荷按业务约定只含井 ID——
+  // 避免选井触发地震线层的整层扫描与误选/清空（同字串 line_id 隔离）。
+  return origin == QLatin1String("well_map") || origin == QLatin1String("datatree") ||
+         origin == QLatin1String("datapreview") ||
+         origin == QLatin1String("agent_navigation") || origin == QLatin1String("rebind");
+}
+
 void SeismicMapLink::onContextSelection(const QStringList &ids, const QString &origin)
 {
   if (!m_layer || origin == QLatin1String("seismic_map"))
+    return;
+  // I4（W3）：井域来源隔离——井选择（含 Agent 的 select/clear 与预览页
+  // wellSelected 旧广播）不触碰地震线层：不扫描、不选择、不清空。
+  if (isWellSelectionOrigin(origin))
     return;
 
   const int idx = m_layer->fields().indexOf(m_idField);

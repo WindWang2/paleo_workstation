@@ -223,6 +223,10 @@ MAMCL/测井相跳转工具；控 file_budget 函数体规模，且本 TU 不直
 新增 `_commands.cpp` 承载主窗命令处理器（工程/视图命令，经 CommandDispatcher 登记），
 Ctrl+K 命令过滤器本体在 `src/qgis/commandlocatorfilter`，本 TU 不直连 Qgs。
 
+**实测（2026-11-24，codex/paleo-i4-agent-semantic-navigation-atoms-20261123）：paleomainwindow.cpp 971 行（家族 35 TU）**
+新增 `_agent_navigation.cpp` 承载 I4 语义导航适配器工厂
+（`attachAgentNavigation`——预览标签宿主/选择总线/井地图链接的窄接线，本 TU 不直连 Qgs）。
+
 撤销作用域由当前窗口内的焦点和编辑模式决定。Qt 原生历史由 `QUndoGroup` 管理，
 断层和工作台属性历史通过同一路由查询可用性和执行结果。项目切换、只读状态和
 隐藏编辑面会撤销相关入口的操作权限（#748）。

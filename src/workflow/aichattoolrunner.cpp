@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "../ai/chat/domaintools.h"
+#include "../ai/chat/navigationtools.h"
 #include "../ai/chat/planpreviewtool.h"
 #include "../ai/tileinference.h"
 #include "../ai/wellfaciesservice.h"
@@ -326,6 +327,10 @@ void AiChatToolRunner::startNext() {
     runPythonEnvironment();
   else if(m_activeCall.name==QLatin1String("paleo.workflow_plan_preview"))
     runPlanPreview(args);
+  // I4：精确名称集合分派（isNavigationTool），不用 paleo.map_ 前缀——
+  // I3 的 paleo.map_layer* 显示族与 paleo.map_locate 互不吞路由。
+  else if(paleo::agent::navigation::isNavigationTool(m_activeCall.name))
+    runNavigationTool(m_activeCall.name, args);
   else if(m_activeCall.name.startsWith(QLatin1String("paleo.operation_")))
     runPersistentOperation(args);
   else if(m_activeCall.name==QLatin1String("paleo.tile_classification_v2"))

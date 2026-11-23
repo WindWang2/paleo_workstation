@@ -38914,6 +38914,34 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>无法完整写入 %1</source>
             <translation>Unable to write %1 completely</translation>
         </message>
+    <message>
+        <source>只提出并检查计划，等待用户在原生面板明确计算</source>
+        <translation>Proposes and checks a plan only; waits for explicit user compute in the native panel</translation>
+    </message>
+    <message>
+        <source>计算计划提案预检</source>
+        <translation>Compute plan proposal preflight</translation>
+    </message>
+    <message>
+        <source>提出一个 v1 计算计划并只做预检：当前可组合的形状是 constraint.idw（OUTPUT）→ singlefactor.contours（RASTER）的 compute-only 两步图，终端输出单一私有成果。输入为有类型 nodes/edges（IDW 点集用 inputs.points 的 x/y/z 数值表给出，subinterval_id 必填）。工具只严格解码并调用既有整图预检，返回规范化参数、执行顺序与首个可定位问题；不会开始任何计算——执行须由用户在原生审阅面板中修改、重新预检并明确点击「计算私有成果」。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划的非执行性标题（≤120 字符，仅展示用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划的非执行性说明（≤500 字符，仅展示用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>节点表（≤32 项）。元素字段：id、capability、contract_version、output_port、intent（仅 compute-only）、parameters、inputs；封闭词表，未知字段拒绝</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -58082,6 +58110,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>恢复</source>
         <translation type="unfinished" />
     </message>
+    <message>
+        <source>审阅此计划</source>
+        <translation>Review this plan</translation>
+    </message>
 </context>
 <context>
     <name>AiOperationDetailWidget</name>
@@ -58273,6 +58305,296 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>恢复失败：%1</source>
         <translation type="unfinished" />
+    </message>
+</context>
+<context>
+    <name>AiPlanPresentation</name>
+    <message>
+        <source>受理状态待确认（%1）</source>
+        <translation>Acceptance pending confirmation (%1)</translation>
+    </message>
+    <message>
+        <source>已受理（调度暂不可用：%1）</source>
+        <translation>Accepted (scheduling unavailable: %1)</translation>
+    </message>
+    <message>
+        <source>计算计划（私有成果）</source>
+        <translation>Compute plan (private result)</translation>
+    </message>
+</context>
+<context>
+    <name>AiPlanReviewWidget</name>
+    <message>
+        <source> — %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 = %2（提案值·来源未核验：字符串引用不构成宿主核验的Catalogue 版本证明）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 · %2 → %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CRS/单位：宿主未提供核验事实，如实标注未知；grid_wkt %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>IDW 点集（x/y/z 数值，有界编辑）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>compute-only 私有计算产物：未登记正式成果库、未改地图。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>subinterval_id（必填）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>x</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>y</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>z</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>上下文变化</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>修改未应用：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>修改未应用：数值必须为有限数（x/y/z/数值参数）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>删选中行</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>加一行</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>原操作 %1 · 执行 %2 · 提交 %3 · computeCount %4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>原操作不可恢复：%1（不自动发起新计算冒充恢复）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>原操作：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>参数</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>子步骤事实（后端返回，非独立发布）：%1 个</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>尚未预检当前修订</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已由提案给出（未核验）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>当前值</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>待预检（当前修订尚未验证）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>打开操作详情</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>执行：%1 · 提交：%2 · 呈现：%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>拒绝码：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>提案</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>提案值</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>提案无法打开审阅（缺完整图或契约不符）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>无法审阅</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>服务码：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未命名计划</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未打开</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未提供</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>来源节点.端口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>查看原操作</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>栅格输入由图内上游边供给（raster_path）；本入口不支持独立文件源，不提供任意文件打开回退。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>用户修改</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>目标节点.端口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>算法默认</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>终端成果：%1（私有计算产物，compute-only；不登记正式成果库/地图）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>终端成果：未知（预检通过时不猜测）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>节点 %1 · %2（契约 v%3）· 输出端口 %4 · 意图 %5</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>节点 %1 不在当前修订中</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>草案已不存在</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划审阅 — %1（修订 %2）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划审阅服务未接入（宿主/会话不可用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划审阅（只读）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计算中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计算私有成果</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>输入键</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>连接与终端成果</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>重新预检</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>问题：%1%2%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>附加字段(well_id)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检未开始：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检未通过</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检未通过（验证器未给出定位字段）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检通过·尚未执行</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检通过·执行资格失效（%1）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检通过（结构与类型可用）。注意：这不证明输入真实性、物理合理性或执行权限——来源核验与效果门在执行时由宿主裁决。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检问题（首个可定位问题；修正后需重新预检）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>（字段 %1）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>终端成果：未知（预检未通过时不猜测）</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 </TS>

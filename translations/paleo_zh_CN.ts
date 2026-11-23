@@ -39059,6 +39059,34 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>无法完整写入 %1</source>
             <translation>无法完整写入 %1</translation>
         </message>
+    <message>
+        <source>只提出并检查计划，等待用户在原生面板明确计算</source>
+        <translation>只提出并检查计划，等待用户在原生面板明确计算</translation>
+    </message>
+    <message>
+        <source>计算计划提案预检</source>
+        <translation>计算计划提案预检</translation>
+    </message>
+    <message>
+        <source>提出一个 v1 计算计划并只做预检：当前可组合的形状是 constraint.idw（OUTPUT）→ singlefactor.contours（RASTER）的 compute-only 两步图，终端输出单一私有成果。输入为有类型 nodes/edges（IDW 点集用 inputs.points 的 x/y/z 数值表给出，subinterval_id 必填）。工具只严格解码并调用既有整图预检，返回规范化参数、执行顺序与首个可定位问题；不会开始任何计算——执行须由用户在原生审阅面板中修改、重新预检并明确点击「计算私有成果」。</source>
+        <translation>提出一个 v1 计算计划并只做预检：当前可组合的形状是 constraint.idw（OUTPUT）→ singlefactor.contours（RASTER）的 compute-only 两步图，终端输出单一私有成果。输入为有类型 nodes/edges（IDW 点集用 inputs.points 的 x/y/z 数值表给出，subinterval_id 必填）。工具只严格解码并调用既有整图预检，返回规范化参数、执行顺序与首个可定位问题；不会开始任何计算——执行须由用户在原生审阅面板中修改、重新预检并明确点击「计算私有成果」。</translation>
+    </message>
+    <message>
+        <source>计划的非执行性标题（≤120 字符，仅展示用）</source>
+        <translation>计划的非执行性标题（≤120 字符，仅展示用）</translation>
+    </message>
+    <message>
+        <source>计划的非执行性说明（≤500 字符，仅展示用）</source>
+        <translation>计划的非执行性说明（≤500 字符，仅展示用）</translation>
+    </message>
+    <message>
+        <source>节点表（≤32 项）。元素字段：id、capability、contract_version、output_port、intent（仅 compute-only）、parameters、inputs；封闭词表，未知字段拒绝</source>
+        <translation>节点表（≤32 项）。元素字段：id、capability、contract_version、output_port、intent（仅 compute-only）、parameters、inputs；封闭词表，未知字段拒绝</translation>
+    </message>
+    <message>
+        <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
+        <translation>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -58290,6 +58318,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>恢复</source>
         <translation>恢复</translation>
     </message>
+    <message>
+        <source>审阅此计划</source>
+        <translation>审阅此计划</translation>
+    </message>
 </context>
 <context>
     <name>AiOperationDetailWidget</name>
@@ -58482,6 +58514,296 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>恢复失败：%1</source>
         <translation>恢复失败：%1</translation>
+    </message>
+</context>
+<context>
+    <name>AiPlanPresentation</name>
+    <message>
+        <source>受理状态待确认（%1）</source>
+        <translation>受理状态待确认（%1）</translation>
+    </message>
+    <message>
+        <source>已受理（调度暂不可用：%1）</source>
+        <translation>已受理（调度暂不可用：%1）</translation>
+    </message>
+    <message>
+        <source>计算计划（私有成果）</source>
+        <translation>计算计划（私有成果）</translation>
+    </message>
+</context>
+<context>
+    <name>AiPlanReviewWidget</name>
+    <message>
+        <source> — %1</source>
+        <translation> — %1</translation>
+    </message>
+    <message>
+        <source>%1 = %2（提案值·来源未核验：字符串引用不构成宿主核验的Catalogue 版本证明）</source>
+        <translation>%1 = %2（提案值·来源未核验：字符串引用不构成宿主核验的Catalogue 版本证明）</translation>
+    </message>
+    <message>
+        <source>%1 · %2 → %3</source>
+        <translation>%1 · %2 → %3</translation>
+    </message>
+    <message>
+        <source>CRS/单位：宿主未提供核验事实，如实标注未知；grid_wkt %1</source>
+        <translation>CRS/单位：宿主未提供核验事实，如实标注未知；grid_wkt %1</translation>
+    </message>
+    <message>
+        <source>IDW 点集（x/y/z 数值，有界编辑）</source>
+        <translation>IDW 点集（x/y/z 数值，有界编辑）</translation>
+    </message>
+    <message>
+        <source>compute-only 私有计算产物：未登记正式成果库、未改地图。</source>
+        <translation>compute-only 私有计算产物：未登记正式成果库、未改地图。</translation>
+    </message>
+    <message>
+        <source>subinterval_id（必填）</source>
+        <translation>subinterval_id（必填）</translation>
+    </message>
+    <message>
+        <source>x</source>
+        <translation>x</translation>
+    </message>
+    <message>
+        <source>y</source>
+        <translation>y</translation>
+    </message>
+    <message>
+        <source>z</source>
+        <translation>z</translation>
+    </message>
+    <message>
+        <source>上下文变化</source>
+        <translation>上下文变化</translation>
+    </message>
+    <message>
+        <source>修改未应用：%1</source>
+        <translation>修改未应用：%1</translation>
+    </message>
+    <message>
+        <source>修改未应用：数值必须为有限数（x/y/z/数值参数）</source>
+        <translation>修改未应用：数值必须为有限数（x/y/z/数值参数）</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>删选中行</source>
+        <translation>删选中行</translation>
+    </message>
+    <message>
+        <source>加一行</source>
+        <translation>加一行</translation>
+    </message>
+    <message>
+        <source>原操作 %1 · 执行 %2 · 提交 %3 · computeCount %4</source>
+        <translation>原操作 %1 · 执行 %2 · 提交 %3 · computeCount %4</translation>
+    </message>
+    <message>
+        <source>原操作不可恢复：%1（不自动发起新计算冒充恢复）</source>
+        <translation>原操作不可恢复：%1（不自动发起新计算冒充恢复）</translation>
+    </message>
+    <message>
+        <source>原操作：%1</source>
+        <translation>原操作：%1</translation>
+    </message>
+    <message>
+        <source>参数</source>
+        <translation>参数</translation>
+    </message>
+    <message>
+        <source>子步骤事实（后端返回，非独立发布）：%1 个</source>
+        <translation>子步骤事实（后端返回，非独立发布）：%1 个</translation>
+    </message>
+    <message>
+        <source>尚未预检当前修订</source>
+        <translation>尚未预检当前修订</translation>
+    </message>
+    <message>
+        <source>已由提案给出（未核验）</source>
+        <translation>已由提案给出（未核验）</translation>
+    </message>
+    <message>
+        <source>当前值</source>
+        <translation>当前值</translation>
+    </message>
+    <message>
+        <source>待预检（当前修订尚未验证）</source>
+        <translation>待预检（当前修订尚未验证）</translation>
+    </message>
+    <message>
+        <source>打开操作详情</source>
+        <translation>打开操作详情</translation>
+    </message>
+    <message>
+        <source>执行：%1 · 提交：%2 · 呈现：%3</source>
+        <translation>执行：%1 · 提交：%2 · 呈现：%3</translation>
+    </message>
+    <message>
+        <source>拒绝码：%1</source>
+        <translation>拒绝码：%1</translation>
+    </message>
+    <message>
+        <source>提案</source>
+        <translation>提案</translation>
+    </message>
+    <message>
+        <source>提案值</source>
+        <translation>提案值</translation>
+    </message>
+    <message>
+        <source>提案无法打开审阅（缺完整图或契约不符）</source>
+        <translation>提案无法打开审阅（缺完整图或契约不符）</translation>
+    </message>
+    <message>
+        <source>无法审阅</source>
+        <translation>无法审阅</translation>
+    </message>
+    <message>
+        <source>服务码：%1</source>
+        <translation>服务码：%1</translation>
+    </message>
+    <message>
+        <source>未命名计划</source>
+        <translation>未命名计划</translation>
+    </message>
+    <message>
+        <source>未打开</source>
+        <translation>未打开</translation>
+    </message>
+    <message>
+        <source>未提供</source>
+        <translation>未提供</translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation>未知</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>来源</translation>
+    </message>
+    <message>
+        <source>来源节点.端口</source>
+        <translation>来源节点.端口</translation>
+    </message>
+    <message>
+        <source>查看原操作</source>
+        <translation>查看原操作</translation>
+    </message>
+    <message>
+        <source>栅格输入由图内上游边供给（raster_path）；本入口不支持独立文件源，不提供任意文件打开回退。</source>
+        <translation>栅格输入由图内上游边供给（raster_path）；本入口不支持独立文件源，不提供任意文件打开回退。</translation>
+    </message>
+    <message>
+        <source>用户修改</source>
+        <translation>用户修改</translation>
+    </message>
+    <message>
+        <source>目标节点.端口</source>
+        <translation>目标节点.端口</translation>
+    </message>
+    <message>
+        <source>算法默认</source>
+        <translation>算法默认</translation>
+    </message>
+    <message>
+        <source>终端成果：%1（私有计算产物，compute-only；不登记正式成果库/地图）</source>
+        <translation>终端成果：%1（私有计算产物，compute-only；不登记正式成果库/地图）</translation>
+    </message>
+    <message>
+        <source>终端成果：未知（预检通过时不猜测）</source>
+        <translation>终端成果：未知（预检通过时不猜测）</translation>
+    </message>
+    <message>
+        <source>节点 %1 · %2（契约 v%3）· 输出端口 %4 · 意图 %5</source>
+        <translation>节点 %1 · %2（契约 v%3）· 输出端口 %4 · 意图 %5</translation>
+    </message>
+    <message>
+        <source>节点 %1 不在当前修订中</source>
+        <translation>节点 %1 不在当前修订中</translation>
+    </message>
+    <message>
+        <source>草案已不存在</source>
+        <translation>草案已不存在</translation>
+    </message>
+    <message>
+        <source>计划审阅 — %1（修订 %2）</source>
+        <translation>计划审阅 — %1（修订 %2）</translation>
+    </message>
+    <message>
+        <source>计划审阅服务未接入（宿主/会话不可用）</source>
+        <translation>计划审阅服务未接入（宿主/会话不可用）</translation>
+    </message>
+    <message>
+        <source>计划审阅（只读）</source>
+        <translation>计划审阅（只读）</translation>
+    </message>
+    <message>
+        <source>计算中…</source>
+        <translation>计算中…</translation>
+    </message>
+    <message>
+        <source>计算私有成果</source>
+        <translation>计算私有成果</translation>
+    </message>
+    <message>
+        <source>输入键</source>
+        <translation>输入键</translation>
+    </message>
+    <message>
+        <source>连接与终端成果</source>
+        <translation>连接与终端成果</translation>
+    </message>
+    <message>
+        <source>重新预检</source>
+        <translation>重新预检</translation>
+    </message>
+    <message>
+        <source>问题：%1%2%3</source>
+        <translation>问题：%1%2%3</translation>
+    </message>
+    <message>
+        <source>附加字段(well_id)</source>
+        <translation>附加字段(well_id)</translation>
+    </message>
+    <message>
+        <source>预检未开始：%1</source>
+        <translation>预检未开始：%1</translation>
+    </message>
+    <message>
+        <source>预检未通过</source>
+        <translation>预检未通过</translation>
+    </message>
+    <message>
+        <source>预检未通过（验证器未给出定位字段）</source>
+        <translation>预检未通过（验证器未给出定位字段）</translation>
+    </message>
+    <message>
+        <source>预检通过·尚未执行</source>
+        <translation>预检通过·尚未执行</translation>
+    </message>
+    <message>
+        <source>预检通过·执行资格失效（%1）</source>
+        <translation>预检通过·执行资格失效（%1）</translation>
+    </message>
+    <message>
+        <source>预检通过（结构与类型可用）。注意：这不证明输入真实性、物理合理性或执行权限——来源核验与效果门在执行时由宿主裁决。</source>
+        <translation>预检通过（结构与类型可用）。注意：这不证明输入真实性、物理合理性或执行权限——来源核验与效果门在执行时由宿主裁决。</translation>
+    </message>
+    <message>
+        <source>预检问题（首个可定位问题；修正后需重新预检）</source>
+        <translation>预检问题（首个可定位问题；修正后需重新预检）</translation>
+    </message>
+    <message>
+        <source>（字段 %1）</source>
+        <translation>（字段 %1）</translation>
+    </message>
+    <message>
+        <source>终端成果：未知（预检未通过时不猜测）</source>
+        <translation>终端成果：未知（预检未通过时不猜测）</translation>
     </message>
 </context>
 </TS>

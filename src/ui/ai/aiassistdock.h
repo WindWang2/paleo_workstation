@@ -10,8 +10,9 @@
 class AiChatController;
 class AiConversationCard;
 class AiOperationDetailWidget;
+class AiPlanReviewWidget;
 class AiContextBar;
-namespace paleo::chat { class AiOperationPresentation; }
+namespace paleo::chat { class AiOperationPresentation; class AiPlanPresentation; }
 class QComboBox;
 class QHBoxLayout;
 class QLabel;
@@ -43,6 +44,8 @@ public:
   // G5：注入/重挂操作展示 adapter（幂等；null = 解绑）。adapter 由组装根
   // 按真实 CapabilityHost/DocumentSession/controller 创建，面板不建服务。
   void attachOperationPresenter(paleo::chat::AiOperationPresentation *presenter);
+  // H5：注入/重挂计划审阅 adapter（幂等；null = 解绑）。同上由组装根创建。
+  void attachPlanPresenter(paleo::chat::AiPlanPresentation *presenter);
 
 public slots:
   void refresh(); // 按 controller 状态重画（状态行/按钮可用性/历史）
@@ -100,11 +103,14 @@ private:
   void restoreDraft(const QString &sessionId); // W7：会话草稿 → 输入框
   void handleCardOperationIntents(AiConversationCard *card); // 卡意图 → adapter
   void handlePresenterSignals();     // adapter 信号 → 详情面/卡忙碌
+  void handleCardPlanIntents(AiConversationCard *card); // H5：计划卡审阅意图 → 面板
 
   AiChatController *m_controller = nullptr;
   paleo::chat::AiOperationPresentation *m_presenter = nullptr; // 弱引用（组装根拥有）
+  paleo::chat::AiPlanPresentation *m_planPresenter = nullptr; // H5：同上弱引用
   AiContextBar *m_contextBar = nullptr;
   AiOperationDetailWidget *m_detail = nullptr;
+  AiPlanReviewWidget *m_planReview = nullptr; // H5：计划审阅面板（默认隐藏）
   QLabel *m_status = nullptr;
   QComboBox *m_sessions = nullptr;
   QPushButton *m_rename = nullptr;

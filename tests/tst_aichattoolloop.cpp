@@ -326,7 +326,8 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   QCOMPARE(server.requestCount(), 2);
   const QJsonObject body1 = server.body(0);
   const QJsonArray tools = body1.value(QStringLiteral("tools")).toArray();
-  QCOMPARE(tools.size(), 16);
+  // H5：+paleo.workflow_plan_preview（纯预检提案工具，会话级可用）。
+  QCOMPARE(tools.size(), 17);
   QStringList toolNames;
   for (const QJsonValue &value : tools) {
     const QJsonObject entry = value.toObject();

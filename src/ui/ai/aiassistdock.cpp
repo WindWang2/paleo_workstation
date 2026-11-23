@@ -1,5 +1,6 @@
 // 层：视图
 #include "aiassistdock.h"
+#include "aiplanreviewwidget.h"
 #include "../paleoemptystate.h"
 #include <QTextDocument>
 #include "../notifications/paleonotify.h"
@@ -144,6 +145,19 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
   // G5 W6：操作详情面（从结果卡「操作详情」显式打开；默认隐藏）。
   m_detail = new AiOperationDetailWidget(this);
   layout->addWidget(m_detail);
+  // H5：计划审阅面板（从计划提案卡「审阅此计划」显式打开；默认隐藏）。
+  m_planReview = new AiPlanReviewWidget(this);
+  layout->addWidget(m_planReview);
+  connect(m_planReview, &AiPlanReviewWidget::operationDetailRequested, this,
+          [this](const QString &id) {
+            // 复用既有操作详情面（三轴/事件/端口/取消/恢复），不建第二套。
+            if (!m_presenter)
+              return;
+            m_detail->openOperation(id);
+            for (const auto &action : {QStringLiteral("refresh"), QStringLiteral("cancel"),
+                                       QStringLiteral("resume")})
+              m_detail->onBusyChanged(id, action, m_presenter->busy(id, action));
+          });
 
   // 工具卡区（G5：实时与历史共用 AiConversationCard；历史按窗口有界呈现）。
   m_cards = new QWidget(this);
@@ -361,6 +375,17 @@ void AiAssistDock::attachOperationPresenter(
   refreshContextBar();
 }
 
+void AiAssistDock::attachPlanPresenter(paleo::chat::AiPlanPresentation *presenter) {
+  if (m_planPresenter == presenter)
+    return;
+  if (m_planPresenter)
+    m_planPresenter->disconnect(this);
+  m_planPresenter = presenter;
+  // 面板重挂 adapter（幂等；null = 解绑只读）。
+  m_planReview->attachPresenter(presenter);
+  refreshContextBar();
+}
+
 void AiAssistDock::handlePresenterSignals() {
   using paleo::chat::AiOperationPresentation;
   // adapter 事实 → 详情面（详情面自带目标/代次过滤）。
@@ -466,6 +491,16 @@ void AiAssistDock::handleCardOperationIntents(AiConversationCard *card) {
           [this](const QString &id) {
             if (m_presenter)
               m_presenter->requestResume(id);
+          });
+  handleCardPlanIntents(card);
+}
+
+void AiAssistDock::handleCardPlanIntents(AiConversationCard *card) {
+  // H5：计划卡的审阅意图 → 审阅面板（adapter 可用时编辑/执行，否则只读
+  // 拒绝态；打开面板不自动 prepare/查询/开始任何回合）。
+  connect(card, &AiConversationCard::planReviewRequested, this,
+          [this](const QString &toolCallId, const QJsonObject &payload) {
+            m_planReview->openProposal(payload, toolCallId);
           });
 }
 
@@ -823,6 +858,7 @@ void AiAssistDock::appendError(const QString &message) {
 
 void AiAssistDock::clearToolCards() {
   m_detail->hide();
+  m_planReview->hide(); // 关闭视图不取消已受理的计算（W8.1）
   for (auto *card : m_toolCards)
     retireCard(card);
   for (auto *card : m_historyCards)

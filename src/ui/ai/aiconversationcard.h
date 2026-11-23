@@ -2,6 +2,7 @@
 #pragma once
 #include "../../workflow/aiconversationpresentation.h"
 #include <QDateTime>
+#include <QJsonObject>
 #include <QString>
 #include <QToolButton>
 #include <QSet>
@@ -67,6 +68,9 @@ signals:
   void operationRefreshRequested(const QString &operationId);
   void operationCancelRequested(const QString &operationId);
   void operationResumeRequested(const QString &operationId);
+  // H5：计划提案的审阅意图（payload = paleo.plan-preview.v1 结果；只读打开
+  // 原生审阅面板，不构成执行授权——历史卡同样可打开只读审阅）。
+  void planReviewRequested(const QString &toolCallId, const QJsonObject &payload);
   // 导航意图透传（与既有 AiToolResultView 同语义）。
   void assetNavigateRequested(const QString &assetId);
   void entityNavigateRequested(const QString &entityId);

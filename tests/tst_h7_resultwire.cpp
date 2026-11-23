@@ -134,7 +134,8 @@ struct Host {
   DataCatalog catalog;
   PaleoTaskService tasks;
   ~Host() { tasks.shutdown(10000, true); }
-  bool bind(AiChatController &controller, int wells = 0, QStringList *names = nullptr) {
+  bool bind(AiChatController &controller, int wells = 0, QStringList *names = nullptr,
+            int wellNamePadding = 36) {
     if (!catalog.open(project.path())) return false;
     tasks.setMaxWorkerThreads(3);
     for (int i = 0; i < wells; ++i) {
@@ -142,7 +143,7 @@ struct Host {
       entity.id = QStringLiteral("w%1").arg(i, 3, 10, QLatin1Char('0'));
       entity.entityType = QStringLiteral("well");
       entity.name = QStringLiteral("W-%1-%2").arg(i, 3, 10, QLatin1Char('0'))
-                        .arg(QString(36, QLatin1Char('x')));
+                        .arg(QString(wellNamePadding, QLatin1Char('x')));
       if (!catalog.addEntity(entity)) return false;
       if (names) names->append(entity.name);
     }
@@ -353,7 +354,8 @@ void TestH7ResultWire::nativeQueryResultIsRetrievedAcrossPages() {
   Host host;
   QStringList expected;
   AiChatController controller;
-  QVERIFY(host.bind(controller, 22, &expected));
+  // 22 条井记录的 /wells 数组本身就超过 8192 字节，首次查询必得临时引用。
+  QVERIFY(host.bind(controller, 22, &expected, /*wellNamePadding=*/96));
   m_sessions.append(controller.session().id);
 
   std::atomic_int entityPages{0};
@@ -384,8 +386,12 @@ void TestH7ResultWire::nativeQueryResultIsRetrievedAcrossPages() {
                                  QStringLiteral("paleo.read_result"), args)});
   }));
 
-  controller.setConfig(LlmConfig::fromParts(server.endpoint(), QStringLiteral("h7-fixture"),
-                                            QByteArrayLiteral("sk-h7-fixture"), false));
+  auto config = LlmConfig::fromParts(server.endpoint(), QStringLiteral("h7-fixture"),
+                                     QByteArrayLiteral("sk-h7-fixture"), false);
+  // 模拟端点每次只回一个工具调用或一句终答，按这个规模预留模型输出，
+  // 让单轮预算覆盖本例要验证的完整分页往返。
+  config.maxTokens = 256;
+  controller.setConfig(config);
   QSignalSpy started(&controller, &AiChatController::toolExecutionStarted);
   QSignalSpy errors(&controller, &AiChatController::errorOccurred);
   controller.sendUserText(QStringLiteral("列出工程里的井"));
@@ -402,6 +408,7 @@ void TestH7ResultWire::nativeQueryResultIsRetrievedAcrossPages() {
   const auto messages = body.value("messages").toArray();
   int readEnvelopes = 0;
   int childEntries = 0;
+  int cursorPages = 0;
   for (const auto &value : messages) {
     const auto message = value.toObject();
     if (message.value("role").toString() != QLatin1String("tool")) continue;
@@ -413,13 +420,16 @@ void TestH7ResultWire::nativeQueryResultIsRetrievedAcrossPages() {
     QVERIFY(content.toUtf8().size() <= paleo::chat::kResultPageBytes);
     const auto data = envelope.value("data").toObject();
     QVERIFY(data.value("code").toString() == QLatin1String("ok"));
-    if (data.value("hasMore").toBool())
+    if (data.value("hasMore").toBool()) {
+      ++cursorPages;
       QVERIFY(!data.value("nextCursor").toString().isEmpty());
+    }
     for (const auto &entry : data.value("entries").toArray())
       childEntries += entry.toObject().contains("child");
   }
   QCOMPARE(readEnvelopes, walker.pages);
   QVERIFY(childEntries >= 1); // 大成员经同一引用的 child selector 下钻
+  QVERIFY(cursorPages >= 1);
   // 读页不重跑原查询：catalog 的 entityPage 只发生一次（原工具调用）。
   QCOMPARE(entityPages.load(), 1);
   // 对话里只有一个临时引用，读页不签发 result_ref 链。

@@ -22,17 +22,14 @@
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
-#include <QLineEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QScrollBar>
-#include <QSignalBlocker>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextEdit>
@@ -232,6 +229,8 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
     if (!m_controller || index < 0 || index >= m_sessionIds.size())
       return;
     const QString id = m_sessionIds.at(index);
+    if (id.isEmpty())
+      return; // 「列表可能不完整」说明行不对应会话（禁用行，防御性兜底）
     if (id == m_controller->session().id)
       return; // 选的就是当前会话：无事发生
     emit openSessionRequested(id);
@@ -352,6 +351,10 @@ void AiAssistDock::bindController() {
   });
   connect(m_controller, &AiChatController::sessionListChanged, this,
           &AiAssistDock::refreshSessions);
+  // H2：元信息查询结果 → Combo 重建（当前选择/草稿/工具卡不受影响；每次
+  // 结果都按当下 controller 状态重建，较旧完成不覆盖新列表）。
+  connect(m_controller, &AiChatController::recentSessionSummariesReady, this,
+          &AiAssistDock::rebuildSessionCombo);
 }
 
 void AiAssistDock::attachOperationPresenter(
@@ -571,43 +574,6 @@ void AiAssistDock::updateActionStates() {
   m_copy->setEnabled(hasContent);
   m_export->setEnabled(hasController && !m_controller->messages().isEmpty());
   m_resend->setEnabled(ready && !streaming && m_controller->canRetry());
-}
-
-void AiAssistDock::refreshSessions() {
-  if (!m_controller) {
-    m_sessions->clear();
-    m_sessionIds.clear();
-    return;
-  }
-  QSignalBlocker block(m_sessions); // 重建不触发 activated/currentIndexChanged
-  m_sessions->clear();
-  m_sessionIds.clear();
-  const ChatSession current = m_controller->session();
-  m_sessions->addItem(current.displayTitle().isEmpty()
-                        ? tr("（未命名会话）")
-                        : current.displayTitle());
-  m_sessionIds.append(current.id);
-  for (const ChatSession &recent : m_controller->recentSessions(20)) {
-    if (recent.id == current.id)
-      continue;
-    m_sessions->addItem(recent.displayTitle());
-    m_sessionIds.append(recent.id);
-  }
-  m_sessions->setCurrentIndex(0);
-  updateActionStates();
-}
-
-void AiAssistDock::renameComboSession() {
-  const int index = m_sessions->currentIndex();
-  if (index < 0 || index >= m_sessionIds.size())
-    return;
-  bool ok = false;
-  const QString title = QInputDialog::getText(
-    this, tr("重命名会话"), tr("会话标题："), QLineEdit::Normal,
-    m_sessions->itemText(index), &ok);
-  if (!ok || title.trimmed().isEmpty())
-    return;
-  emit renameSessionRequested(m_sessionIds.at(index), title.trimmed());
 }
 
 void AiAssistDock::renderSession() {

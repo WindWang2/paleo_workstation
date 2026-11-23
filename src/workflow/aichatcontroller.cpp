@@ -1,6 +1,7 @@
 // 层：功能
 #include "aichatcontroller.h"
 #include "aichatcontextprojection.h"
+#include "aichatrecentsummaries.h"
 #include "chatinvocationbinding.h"
 
 #include <QDateTime>
@@ -122,7 +123,30 @@ AiChatController::AiChatController(QObject *parent)
       if (!saveCurrentSession(&error)) emit errorOccurred(tr("回合已完成，但会话保存失败（%1）。内容保留在内存").arg(error));
     }
   });
+  // H2：轻量最近会话元信息查询协调器（子对象；结果原样转发，控制器不
+  // 加第二套列表语义）。
+  m_recentSummaries = new AiChatRecentSummaries(this);
+  qRegisterMetaType<QVector<paleo::chat::ChatSessionSummary>>(
+    "QVector<paleo::chat::ChatSessionSummary>");
+  connect(m_recentSummaries, &AiChatRecentSummaries::ready, this,
+          [this](const QVector<paleo::chat::ChatSessionSummary> &summaries,
+                 bool complete) {
+            emit recentSessionSummariesReady(summaries, complete);
+          });
 }
+
+namespace {
+// H2-W6：rename 容量拒绝的用户可读原因——标题字段超限与「候选档案成本超限」
+// 是两件事，不混报（后者时标题本身并不长）。
+QString renameCapacityError(const QString &reason)
+{
+  if (reason == QLatin1String("archive_budget_exceeded"))
+    return AiChatController::tr("会话容量不足（%1）：改名会使会话超过本机档案上限；"
+                                "请缩短标题，或用「新会话」继续新话题")
+      .arg(reason);
+  return AiChatController::tr("会话标题超限（%1）").arg(reason);
+}
+} // namespace
 
 // 协议完整性（见文件头注释）：尾部 assistant 的 tool_calls 若没有对应
 // role=tool 应答，下一轮请求就违反「每个 tool_call 必有一条应答」
@@ -175,6 +199,17 @@ QString AiChatController::buildSystemPrompt(const QVector<AiToolSpec> &tools, co
 
 QVector<ChatSession> AiChatController::recentSessions(int limit) const {
   return ChatSessionStore::loadRecent(limit);
+}
+
+void AiChatController::requestRecentSessionSummaries(int limit) {
+  // 任务服务取装配根在 runner 上的既有绑定（只读取用，不新增装配/改
+  // PaleoTaskService）；未绑定时协调器只发布可信缓存的部分结果。
+  m_recentSummaries->setTaskService(m_runner.taskService());
+  m_recentSummaries->refresh(limit);
+}
+
+bool AiChatController::recentSummaryRepairInFlight() const {
+  return m_recentSummaries && m_recentSummaries->repairInFlight();
 }
 
 void AiChatController::newSession() {
@@ -295,7 +330,19 @@ bool AiChatController::renameSession(const QString &sessionId,
       *error = tr("会话标题不能为空");
     return false;
   }
+  // H2-W6：标题赋值前的纯容量检查（新标题字段上限 + 候选档案成本；轮中
+  // rename 由本轮预留的标题余量兜底，不消耗响应余量）。容量拒绝不留新
+  // 标题、不发成功列表更新、不制造保存欠账；真实写盘失败继续走既有
+  // G2 欠账语义。
+  const paleo::chat::ChatArchiveBudget budget = paleo::chat::chatArchiveBudget();
+  QString capacityReason;
   if (sessionId == m_session.id) {
+    if (!paleo::chat::chatArchiveAcceptsTitle(m_session, trimmed, budget,
+                                              &capacityReason)) {
+      if (error)
+        *error = renameCapacityError(capacityReason);
+      return false;
+    }
     // 当前会话：改内存态；空会话不落盘（守住「空会话不出文件」的既有
     // 纪律——标题跟着首次真实落盘一起持久化）。
     m_session.title = trimmed;
@@ -310,6 +357,13 @@ bool AiChatController::renameSession(const QString &sessionId,
   ChatSession stored;
   if (!ChatSessionStore::load(sessionId, &stored, error))
     return false;
+  // 非当前会话：先按候选标题校验再保存（拒绝时磁盘与内存都不动）。
+  if (!paleo::chat::chatArchiveAcceptsTitle(stored, trimmed, budget,
+                                            &capacityReason)) {
+    if (error)
+      *error = renameCapacityError(capacityReason);
+    return false;
+  }
   stored.title = trimmed;
   const bool ok = ChatSessionStore::save(stored, error);
   if (ok)
@@ -379,6 +433,20 @@ void AiChatController::retryLast() {
     return;
   }
   if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
+  // H2-W3：重试与发送同门——「截至最后 User 的候选前缀 + 仍保留的完整
+  // bindings/会话元字段 + 一轮最坏预留」的纯评估，必须先于 resize 删除旧
+  // 回答（合法近上限旧档案即使可载入，也可能不足重试预留）。拒绝时旧回
+  // 答、工具事实、bindings 与既有欠账状态原样保留，不发新模型请求，也不
+  // 发成功 sessionChanged。
+  QString capacityReason;
+  if (!paleo::chat::chatArchiveAcceptsRetryPrefix(m_session, lastUser,
+                                                  paleo::chat::chatArchiveBudget(),
+                                                  &capacityReason)) {
+    emit errorOccurred(tr("会话容量不足（%1）：已保留原回答与工具记录；"
+                          "请用「新会话」继续新话题。")
+                         .arg(capacityReason));
+    return;
+  }
   // 截掉旧回答（含其携带的工具帧），历史回到「刚发完这条用户消息」。
   m_session.messages.resize(lastUser + 1);
   emit sessionChanged(); // 历史被截断：整页重画（UI 不做增量反演）
@@ -485,6 +553,19 @@ void AiChatController::sendUserText(const QString &text) {
     return;
   }
   if (!guard || sequence != m_turnSequence || sessionId != m_session.id) return;
+  // H2-W3 纯档案容量准入：在追加 User 消息与任何新副作用之前，按「当前
+  // 序列化成本 + 实际用户输入 + 一轮最坏预留（含轮中 rename 标题余量）」
+  // 评估。拒绝时零 append/零 HTTP/零工具派发、不制造新欠账（既有欠账已在
+  // 上方按 G2 语义先补存）；newSession/导出等既有出口不受影响。
+  QString capacityReason;
+  if (!paleo::chat::chatArchiveAcceptsTurn(m_session, trimmed,
+                                           paleo::chat::chatArchiveBudget(),
+                                           &capacityReason)) {
+    emit errorOccurred(tr("会话容量不足（%1）：继续本轮会超出本机会话档案上限。"
+                          "请用「新会话」开始新话题；当前会话仍可导出。")
+                         .arg(capacityReason));
+    return;
+  }
   ChatMessage user;
   user.role = ChatRole::User;
   user.content = trimmed;

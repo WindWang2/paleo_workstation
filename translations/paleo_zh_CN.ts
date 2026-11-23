@@ -87,6 +87,26 @@
 </context>
 <context>
     <name>AiAssistDock</name>
+        <message>
+            <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
+            <translation>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</translation>
+        </message>
+        <message>
+            <source>超限会话：%1</source>
+            <translation>超限会话：%1</translation>
+        </message>
+        <message>
+            <source>档案异常（%2）：%1</source>
+            <translation>档案异常（%2）：%1</translation>
+        </message>
+        <message>
+            <source>%1…</source>
+            <translation>%1…</translation>
+        </message>
+        <message>
+            <source>（列表可能不完整：部分会话尚未校验）</source>
+            <translation>（列表可能不完整：部分会话尚未校验）</translation>
+        </message>
     <message>
         <location filename="../src/ui/ai/aiassistdock.cpp" line="64"/>
         <source>未配置</source>
@@ -347,6 +367,22 @@
 <context>
     <name>AiChatController</name>
         <message>
+            <source>会话容量不足（%1）：改名会使会话超过本机档案上限；请缩短标题，或用「新会话」继续新话题</source>
+            <translation>会话容量不足（%1）：改名会使会话超过本机档案上限；请缩短标题，或用「新会话」继续新话题</translation>
+        </message>
+        <message>
+            <source>会话容量不足（%1）：继续本轮会超出本机会话档案上限。请用「新会话」开始新话题；当前会话仍可导出。</source>
+            <translation>会话容量不足（%1）：继续本轮会超出本机会话档案上限。请用「新会话」开始新话题；当前会话仍可导出。</translation>
+        </message>
+        <message>
+            <source>会话容量不足（%1）：已保留原回答与工具记录；请用「新会话」继续新话题。</source>
+            <translation>会话容量不足（%1）：已保留原回答与工具记录；请用「新会话」继续新话题。</translation>
+        </message>
+        <message>
+            <source>会话标题超限（%1）</source>
+            <translation>会话标题超限（%1）</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichatcontroller.cpp" line="121"/>
             <source>回合已完成，但会话保存失败（%1）。内容保留在内存</source>
             <translation>回合已完成，但会话保存失败（%1）。内容保留在内存</translation>
@@ -503,6 +539,14 @@
 %1</translation>
     </message>
 </context>
+    <context>
+        <name>AiChatRecentSummaries</name>
+        <message>
+            <source>重建会话列表索引</source>
+            <translation>重建会话列表索引</translation>
+        </message>
+    </context>
+
 <context>
     <name>AiChatToolRunner</name>
     <message>
@@ -29528,6 +29572,50 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+        <message>
+            <source>会话消息数超过档案结构上限（%1）</source>
+            <translation>会话消息数超过档案结构上限（%1）</translation>
+        </message>
+        <message>
+            <source>会话字段长度超过档案合同上限</source>
+            <translation>会话字段长度超过档案合同上限</translation>
+        </message>
+        <message>
+            <source>会话文件不存在</source>
+            <translation>会话文件不存在</translation>
+        </message>
+        <message>
+            <source>会话文件不是常规文件（目录/链接伪装被拒绝）</source>
+            <translation>会话文件不是常规文件（目录/链接伪装被拒绝）</translation>
+        </message>
+        <message>
+            <source>会话文件路径越过私有会话根（链接/别名被拒绝）</source>
+            <translation>会话文件路径越过私有会话根（链接/别名被拒绝）</translation>
+        </message>
+        <message>
+            <source>会话文件在读取中超过 %1 MiB 上限</source>
+            <translation>会话文件在读取中超过 %1 MiB 上限</translation>
+        </message>
+        <message>
+            <source>会话文件名与内部 id 不一致（%1），拒绝载入</source>
+            <translation>会话文件名与内部 id 不一致（%1），拒绝载入</translation>
+        </message>
+        <message>
+            <source>会话档案 schema 版本不受支持（%1），拒绝载入</source>
+            <translation>会话档案 schema 版本不受支持（%1），拒绝载入</translation>
+        </message>
+        <message>
+            <source>会话档案结构不合法：%1</source>
+            <translation>会话档案结构不合法：%1</translation>
+        </message>
+        <message>
+            <source>会话档案超过 %1 MiB 存储上限（内容保留在磁盘，仅元信息可列出）</source>
+            <translation>会话档案超过 %1 MiB 存储上限（内容保留在磁盘，仅元信息可列出）</translation>
+        </message>
+        <message>
+            <source>会话超过本机档案容量上限（%1 MiB）</source>
+            <translation>会话超过本机档案容量上限（%1 MiB）</translation>
+        </message>
     <message>
         <source>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</source>
         <translation>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</translation>

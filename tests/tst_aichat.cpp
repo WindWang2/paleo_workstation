@@ -353,7 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 26);
+  QCOMPARE(tools.size(), 27); // I5：+paleo.capability_inspect（能力目录只读检查）
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -395,7 +395,7 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
     "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
-    "paleo.operation_list"};
+    "paleo.operation_list", "paleo.capability_inspect"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;

@@ -115,6 +115,11 @@ class AlgorithmSpecRegistry
     // 版本不匹配时 id 为空，不回落到最新版。
     static AlgorithmSpec specAtVersion( const QString &algorithmId, int contractVersion );
     static QStringList knownIds();
+    // I5 只读枚举接缝：既有 allSpecs 的纯值全版本投影（同一注册次序）。
+    // knownIds 可重复、spec 只取首项；多版本条目在此逐条可见、不合并。
+    // 旧 knownIds/spec/specAtVersion 语义不变；I1/I2 新版本仍走 allSpecs
+    // 工厂追加，不要求改用本 API。
+    static QVector<AlgorithmSpec> allSpecsProjection();
     // complete==true 的 id（12 Processing + P4 native 入口）
     static QStringList completeIds();
     // 任务中心用：非 hidden 输入/输出「id(kind)」摘要；未知 id → 空串。

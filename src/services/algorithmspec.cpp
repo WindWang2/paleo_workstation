@@ -700,6 +700,11 @@ QStringList AlgorithmSpecRegistry::knownIds()
   return ids;
 }
 
+QVector<AlgorithmSpec> AlgorithmSpecRegistry::allSpecsProjection()
+{
+  return allSpecs();
+}
+
 QStringList AlgorithmSpecRegistry::completeIds()
 {
   QStringList ids;

@@ -3,6 +3,7 @@
 #include "capabilityhost.h"
 #include "capabilityrecovery.h"
 #include "ai/chat/domaintools.h"
+#include "ai/chat/capabilityinspectiontool.h"
 #include "ai/chat/planpreviewtool.h"
 #include "ai/onnxpredictionservice.h"
 #include "catalog/datacatalog.h"
@@ -43,6 +44,10 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   // 与会话级 read_result 同口径；采纳（重新预检）与显式执行仍由
   // aiplanpresentation 走宿主 Read/effects 门，不因本分支放宽。
   if (name == QLatin1String(paleo::chat::kPlanPreviewTool)) { result.ready = true; return result; }
+  // I5：能力目录静态查询零宿主/工程/ORT 依赖（纯注册表投影+纯验证器）——
+  // 与 read_result/plan preview 同口径；无 Host 时 policy 部分由服务如实
+  // 标 unavailable，不为目录查询伪造 live context。
+  if (name == QLatin1String(paleo::chat::kCapabilityInspectTool)) { result.ready = true; return result; }
 
   const QPointer<const AiChatToolRunner> owner(this);
   const QPointer<const DataCatalog> catalog(context.catalog);

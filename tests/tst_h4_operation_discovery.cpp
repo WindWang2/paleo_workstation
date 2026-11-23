@@ -331,8 +331,9 @@ void H4OperationDiscovery::v1QuarantinedAndForeignNeighborsStayOut() {
   ExecuteResult result;
   QString error;
   QVERIFY(runToEnd(host, accepted.record, result, &error));
-  const auto before = fileSha(journalPath(root.path()));
-  // v1 邻居 + 重复身份坏行：v1 不进 Agent 清单，坏行触发隔离。
+  // v1 邻居 + 重复身份坏行：v1 不进 Agent 清单，坏行触发隔离。基线取
+  // 篡改后字节——发现必须保持的是"篡改现状"，不是篡改前的内容。
+  QByteArray tampered;
   {
     QFile file(journalPath(root.path()));
     QVERIFY(file.open(QIODevice::ReadOnly));
@@ -351,9 +352,11 @@ void H4OperationDiscovery::v1QuarantinedAndForeignNeighborsStayOut() {
     v1.insert(QStringLiteral("summary"), QString::fromLatin1(QByteArrayLiteral("{}").toBase64()));
     edited.append(v1);
     edited.append(rows.at(0)); // 重复身份 → 双方隔离
+    tampered = QJsonDocument(edited).toJson(QJsonDocument::Compact);
     QVERIFY(file.open(QIODevice::WriteOnly));
-    file.write(QJsonDocument(edited).toJson(QJsonDocument::Compact));
+    file.write(tampered);
   }
+  const auto before = QCryptographicHash::hash(tampered, QCryptographicHash::Sha256);
   QJsonObject page;
   QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
   QVERIFY(page.value(QStringLiteral("ok")).toBool());
@@ -562,12 +565,8 @@ void H4OperationDiscovery::snapshotImmutabilityWhileBusinessAdvances() {
   Host host(root.path());
   const QString scope = "agent:h4:chat:imm";
   OperationLog log(logDir(root.path()), root.path(), host.lock->claim());
-  OperationLog::Record first = seed("imm-1", scope);
-  OperationLog::Record second = seed("imm-2", scope);
-  QCOMPARE(log.acceptDurable(first).code, QLatin1String("created"));
-  QCOMPARE(log.acceptDurable(second).code, QLatin1String("created"));
-  first = log.recordById(first.operationId);
-  second = log.recordById(second.operationId);
+  OperationLog::Record first = log.acceptDurable(seed("imm-1", scope)).record;
+  OperationLog::Record second = log.acceptDurable(seed("imm-2", scope)).record;
   QCOMPARE(begin(log, first), QLatin1String("ok"));
   QCOMPARE(begin(log, second), QLatin1String("ok"));
   OperationDiscovery service;
@@ -699,10 +698,11 @@ void H4OperationDiscovery::cancelPreservesJournalAndBusinessState() {
     file.write(QJsonDocument(rows).toJson(QJsonDocument::Compact));
   }
   Host host(root.path());
-  const auto before = fileSha(journalPath(root.path()));
   // 在途业务操作（queued）：发现取消不得写 cancelRequested 或扰动其状态。
   const auto business = host.recovery.accept(plan("business", countingWorker(std::make_shared<int>()), scope));
   QVERIFY2(business.ok, qPrintable(business.code));
+  // 基线在 accept 落盘之后：发现/取消链必须保持的是含业务记录的现状。
+  const auto before = fileSha(journalPath(root.path()));
   QJsonObject out;
   bool delivered = false;
   // taskAdded 同步取消：worker 首个取消检查点前即置位，确定性走 cancelled 分支。
@@ -801,13 +801,16 @@ void H4OperationDiscovery::listDoesNotReconcileWhileGetDoes() {
   QCOMPARE(probe.code, QLatin1String("not_committed"));
   record.storeGeneration = probe.storeGeneration;
   OperationLog log(logDir(root.path()), root.path(), host.lock->claim());
-  QCOMPARE(log.acceptDurable(record).code, QLatin1String("created"));
-  record = log.recordById(record.operationId);
+  record = log.acceptDurable(record).record; // acceptDurable 不回写调用方记录
   QCOMPARE(begin(log, record), QLatin1String("ok"));
+  // 生产状态机链：running → prepared（含 preparedManifest）→ publishing，
+  // 不能一步跳 running→publishing（transitionAllowed 语义）。
   record.execution = QStringLiteral("prepared");
   record.code = QStringLiteral("prepared");
   record.preparedManifest = {{QStringLiteral("staged"), true}};
+  QCOMPARE(update(log, record), QLatin1String("ok"));
   record.commitState = QStringLiteral("publishing");
+  record.code = QStringLiteral("publishing");
   QCOMPARE(update(log, record), QLatin1String("ok"));
   const auto before = fileSha(journalPath(root.path()));
   // 纯 list：零 reconcile 写——journal 字节与 publishing 状态原样。

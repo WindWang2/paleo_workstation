@@ -30,7 +30,7 @@ OperationWorker countingWorker(std::shared_ptr<int> calls) {
     ++*calls;
     OperationWorkResult r;
     QFile file(c.privateDir + "/values.bin");
-    r.ok = file.open(QIODevice::WriteOnly) && file.write("h4-tool-bytes") == 14;
+    r.ok = file.open(QIODevice::WriteOnly) && file.write("h4-tool-bytes") == 13;
     file.close();
     r.outputs.ok = r.ok;
     r.outputs.artifacts.append({"OUTPUT", file.fileName(), {}, {}, {}, {}});
@@ -68,7 +68,15 @@ struct ToolHost {
   QString session = "chat-" + uuid();
   int businessRuns = 0;
   std::shared_ptr<int> calls = std::make_shared<int>(0);
-  ToolHost() : host(NativeAdapterFactory(), nullptr) {
+  ToolHost() : host(NativeAdapterFactory([](const HostBinding &) {
+    // 直通校验器：宿主 validateFrozen 恒接线（未注册 adapter 的 capability
+    // 一律拒绝）；数值 worker 走 recovery runtime hooks，与生产 restore 同路径。
+    CapabilityExecutionAdapter adapter;
+    adapter.validateFrozen = [](const OperationLog::Record &) { return QString(); };
+    adapter.restoreInputValidator = [](const OperationLog::Record &, QString *) { return OperationInputValidator{}; };
+    return adapter;
+  }), nullptr) {
+    lock = std::make_unique<ProjectDirLock>(root.path());
     QVERIFY2(lock->tryLock(), "project lock");
     QVERIFY2(catalog.open(root.path()), "catalog open");
     host.setTaskService(&tasks);

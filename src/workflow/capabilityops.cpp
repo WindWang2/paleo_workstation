@@ -9,6 +9,7 @@
 #include <atomic>
 #include <utility>
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>

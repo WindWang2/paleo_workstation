@@ -201,6 +201,18 @@ void TestH5PlanWorkbench::preflightEnablesComputeAndEditDisablesIt() {
                              .value(QStringLiteral("inputs")).toObject()
                              .value(QStringLiteral("points")).toArray().at(0).toObject();
   QCOMPARE(originRow.value(QStringLiteral("z")).toDouble(), 0.0);
+  // 用户修改仅存在于 effective 的默认参数（ANISO_RATIO）→ 来源=用户修改
+  //（当前值=将提交值 与 来源列一致）。
+  {
+    auto *params2 = panel.findChild<QTableWidget *>(QStringLiteral("aiPlanReviewParams"));
+    int anisoRow = -1;
+    for (int row = 0; row < params2->rowCount(); ++row)
+      if (params2->item(row, 0)->text() == QStringLiteral("ANISO_RATIO"))
+        anisoRow = row;
+    QVERIFY(anisoRow >= 0);
+    params2->item(anisoRow, 2)->setText(QStringLiteral("4"));
+    QTRY_VERIFY(params2->item(anisoRow, 3)->text() == QStringLiteral("用户修改"));
+  }
 }
 
 void TestH5PlanWorkbench::invalidNumericEditIsRejectedAndStaysVisible() {

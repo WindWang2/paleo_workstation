@@ -417,6 +417,8 @@ void AiPlanReviewWidget::rebuildNodeDetail() {
     m_nodeFacts->clear();
     m_params->setRowCount(0);
     m_points->setRowCount(0);
+    m_inputNotes->clear();
+    m_subinterval->clear();
     return;
   }
   const QString nodeId = item->data(Qt::UserRole).toString();
@@ -438,6 +440,8 @@ void AiPlanReviewWidget::rebuildNodeDetail() {
     m_nodeFacts->setText(tr("节点 %1 不在当前修订中").arg(nodeId));
     m_params->setRowCount(0);
     m_points->setRowCount(0);
+    m_inputNotes->clear();
+    m_subinterval->clear();
     return;
   }
   const auto effective = view.lastPayload.value(QStringLiteral("effective_parameters"))
@@ -535,6 +539,10 @@ QString AiPlanReviewWidget::paramSourceText(const QString &nodeId, const QString
   }
   effective = view.lastPayload.value(QStringLiteral("effective_parameters")).toObject()
                   .value(nodeId).toObject();
+  // 用户改过仅存在于 effective 的默认参数：current 已有显式值 → 用户修改
+  //（先于算法默认分支判定，否则「当前值=将提交值」与来源列互相矛盾）。
+  if (current.contains(key) && !proposed.contains(key))
+    return tr("用户修改");
   if (!proposed.contains(key) && effective.contains(key))
     return tr("算法默认");
   if (current.value(key) != proposed.value(key))

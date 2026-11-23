@@ -168,8 +168,8 @@ Python/depth/seismic 能力进计划、正式科学发布/MapVersion、输入法
   不涨）、ui_size / ui_invariants / ui_tokens、i18n / l10n / ts_stale
   （0/0 基线）、qgis_versions、docs_drift、cpp_mainline、qgis_spread。
 - 测试与截图结果（2026-11-23，本地真实运行）：
-  - 新增 4 测试全绿：tst_h5_plan_preview 13/13、tst_h5_plan_presentation 10/10、
-    tst_h5_plan_workbench 7/7、tst_h5_plan_assembly 5/5（1 skip=截图用例，
+  - 新增 4 测试全绿：tst_h5_plan_preview 13/13、tst_h5_plan_presentation 11/11、
+    tst_h5_plan_workbench 8/8、tst_h5_plan_assembly 5/5（1 skip=截图用例，
     设 PALEO_H5_SHOT_DIR 后实跑并产出截图）。
   - 相邻回归全绿：tst_capability_plan / tst_capability_host /
     tst_capability_recovery_native / tst_aichatcapability /

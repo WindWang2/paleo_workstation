@@ -272,6 +272,23 @@ void H4OperationListTool::readinessGates() {
   emptyContext.requireCapabilityHost = true;
   orphan.setContext(emptyContext);
   QCOMPARE(orphan.readiness(QStringLiteral("paleo.operation_list")).code, QStringLiteral("host_unavailable"));
+  // legacy 适配器上下文（未要求 CapabilityHost、无宿主）：其余 operation_*
+  // 沿既有口径被广播，但 operation_list 依赖 Host/Recovery/TaskService——
+  // 不经 legacy 无条件放行，既不广播也不可分派。
+  AiChatToolRunner legacy;
+  AiChatToolContext legacyContext;
+  legacyContext.documentId = QStringLiteral("doc");
+  legacy.setContext(legacyContext);
+  const auto legacyReady = legacy.readiness(QStringLiteral("paleo.operation_list"));
+  QVERIFY(!legacyReady.ready);
+  QCOMPARE(legacyReady.code, QStringLiteral("host_unavailable"));
+  bool legacyListed = false;
+  for (const auto &spec : legacy.availableTools())
+    if (spec.name == QLatin1String("paleo.operation_list"))
+      legacyListed = true;
+  QVERIFY(!legacyListed);
+  // 对照：同上下文里既有 operation_get 仍按旧口径就绪（本任务不改其语义）。
+  QVERIFY(legacy.readiness(QStringLiteral("paleo.operation_get")).ready);
 }
 
 void H4OperationListTool::invalidationDropsInFlightResult() {

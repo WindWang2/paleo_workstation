@@ -50,5 +50,8 @@ struct ValidatedPlan {
 ValidatedPlan validatePlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
 // 兼容调用方的错误接口；message 不再编码拓扑顺序。
 ContractIssue checkPlan(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
+// H3 v2：共享整图预检（拓扑/端口/参数/字面输入与 v1 同一实现），不含 v1
+// 单终端约束。仅供显式 exports 的 v2 闭包校验复用；v1 调用方仍走 validatePlan。
+ValidatedPlan validatePlanGraph(const QVector<PlanNode> &nodes, const QVector<PlanEdge> &edges);
 
 } // namespace paleo::capability

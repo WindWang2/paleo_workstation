@@ -28,8 +28,13 @@ QJsonObject nativePlanIntent(const ExecuteRequest &r,const QVector<PlanNode> &no
   return {{"host",nativeIntent(r)},{"graph",descriptor(nodes,edges)}};
 }
 OperationWorker restoreNativePlan(const QJsonObject &json,QString *error) {
+  // H3 v2：冻结描述符带显式版本。缺版本 = v1 历史计划（按原语义恢复）；
+  // 2 = 显式 exports；出现 exports 却无版本、或未知版本都诚实拒绝。
+  const auto graph=json.value("graph").toObject();
+  if(graph.contains("version") || graph.contains("exports"))
+    return restoreNativePlanV2(json,error);
   QVector<PlanNode> nodes;QVector<PlanEdge> edges;ExecuteRequest host;
-  if(!nativeRequestFromJson(json.value("host").toObject(),host) || !decode(json.value("graph").toObject(),nodes,edges)) {
+  if(!nativeRequestFromJson(json.value("host").toObject(),host) || !decode(graph,nodes,edges)) {
     if(error)*error="invalid_frozen_plan";return {};
   }
   const auto plan=validatePlan(nodes,edges);if(!plan.ok){if(error)*error=plan.issues.first().code;return {};}

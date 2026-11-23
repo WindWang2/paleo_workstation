@@ -119,8 +119,11 @@ OperationWorkResult run(const RecoveryHost &h,OperationLog::Record r,OperationWo
     current.execution=out.ok?(out.prepared.members.isEmpty()?"succeeded":"prepared"):
       current.cancelRequested?"cancelled":stop()?"interrupted":"failed";
     current.code=out.ok?"computed":current.execution=="interrupted"?"interrupted":(out.code.isEmpty()?error:out.code);
-    if(out.ok || !manifest.isEmpty()){
-      current.artifactManifest=manifest;current.summaryJson=QJsonDocument(out.summary).toJson(QJsonDocument::Compact);
+    if(out.ok || !manifest.isEmpty() || !out.summary.isEmpty()){
+      // H3：失败的 plan worker 也带回有界节点状态（失败节点/子操作前缀）；
+      // 与 gateway execute() 的失败摘要同语义，仍受 16 KiB 截断保护。
+      if(!manifest.isEmpty())current.artifactManifest=manifest;
+      current.summaryJson=QJsonDocument(out.summary).toJson(QJsonDocument::Compact);
       if(current.summaryJson.size()>16*1024)current.summaryJson=QJsonDocument(QJsonObject{{"summaryOmitted",true},{"resultsAvailable",true}}).toJson(QJsonDocument::Compact);
     }
     if(out.ok && !out.prepared.members.isEmpty())current.preparedManifest=publication_detail::preparedJson(out.prepared);

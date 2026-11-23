@@ -294,7 +294,19 @@ void TestH2SessionCombo::checkpointRefreshDoesNotParseBodies() {
   AiAssistDock dock(&controller);
   auto *combo = dock.findChild<QComboBox *>(QStringLiteral("aiAssistantSessions"));
   QVERIFY(combo);
-  QVERIFY(spinUntil([&] { return combo->count() == 61; })); // 当前 + 60 存量
+  // 下拉是「有界最近列表」：当前 + 最近 20 个（requestRecentSessionSummaries(20)）。
+  // 磁盘上有 60 个存量会话，列表只取 updatedAt 最新的 20 个（按时间倒序）。
+  const auto comboRows = [combo] {
+    QStringList rows;
+    for (int i = 0; i < combo->count(); ++i)
+      rows << combo->itemText(i);
+    return rows;
+  };
+  QVERIFY2(spinUntil([&] { return combo->count() == 21; }), // 当前 + 20 个最近存量
+           qPrintable(QStringLiteral("count=%1\n%2").arg(combo->count()).arg(comboRows().join(QLatin1Char('\n')))));
+  QCOMPARE(comboRows().at(1), QStringLiteral("存量会话 0"));  // 最新
+  QCOMPARE(comboRows().at(20), QStringLiteral("存量会话 19")); // 第 20 近
+  QVERIFY(!comboRows().contains(QStringLiteral("存量会话 20"))); // 更旧的不在最近 20 内
 
   // 真实流式回合：checkpoint 保存 → sessionListChanged → refreshSessions
   // → 元信息查询。热刷新零旧正文解析（保存自己的 sidecar 顺带更新）。
@@ -302,10 +314,20 @@ void TestH2SessionCombo::checkpointRefreshDoesNotParseBodies() {
   controller.sendUserText(QStringLiteral("新问题"));
   QVERIFY(spinUntil([&] { return !controller.streaming(); }));
   m_sessions.append(controller.session().id);
-  spinUntil([&] { return !controller.recentSummaryRepairInFlight(); });
+  QVERIFY2(spinUntil([&] { return !controller.recentSummaryRepairInFlight(); }),
+           "checkpoint 后的修复应已收尾");
   QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
   QCOMPARE(paleo::chat::chatArchiveFullLoadCount(), qint64(0));
-  QVERIFY(spinUntil([&] { return combo->count() == 61; })); // 当前 + 60 存量
+  // 回合后当前会话已落盘并进入「最近 20 条」之首：dock 过滤掉结果里的当前会话
+  // 再固定首位，所以是 20 项 = 当前 + 19 个存量（与改造前 recentSessions(20)
+  // + 过滤当前会话的条数语义一致）。当前会话不重复入列，选择仍在其上。
+  QVERIFY2(combo->count() == 20, qPrintable(QStringLiteral("count=%1\n%2")
+             .arg(combo->count()).arg(comboRows().join(QLatin1Char('\n')))));
+  QCOMPARE(combo->currentIndex(), 0);
+  QCOMPARE(comboRows().at(0), QStringLiteral("新问题")); // 当前会话（首条用户消息作标题）
+  QCOMPARE(comboRows().at(1), QStringLiteral("存量会话 0"));
+  QCOMPARE(comboRows().at(19), QStringLiteral("存量会话 18"));
+  QVERIFY(comboRows().filter(QStringLiteral("新问题")).size() == 1); // 不重复入列
 
   paleo::chat::setChatArchiveBudgetForTesting(paleo::chat::ChatArchiveBudget::production());
 }

@@ -26,7 +26,8 @@ private slots:
   void identityMismatchRefusesWithoutTouchingFiles();
   void futureAndMissingSchemaRefused();
   void structureShapesRefusedInsteadOfMasked();
-  void directoryAndSymlinkMasqueradeRefused();
+  void directoryMasqueradeRefused();
+  void symlinkAliasRefused();
   void overLimitArchivePreservedBytes();
   void boundedReadEnforcedDuringGrowth();
   void exactBoundaryAcceptedOneByteOverRefused();
@@ -283,18 +284,22 @@ void TestH2SessionArchive::structureShapesRefusedInsteadOfMasked() {
   QCOMPARE(restored.messages.last().toolCalls.size(), 1);
 }
 
-void TestH2SessionArchive::directoryAndSymlinkMasqueradeRefused() {
-  // 目录伪装成会话文件。
+void TestH2SessionArchive::directoryMasqueradeRefused() {
+  // 目录伪装成会话文件：拒绝，且原样保留（load 没动它）。
   const QString dirPath = ChatSessionStore::pathFor(QStringLiteral("h2-dir-fake"));
-  QDir().mkdir(dirPath);
+  QVERIFY(QDir().mkpath(dirPath));
   ChatSession out;
   QString error;
   paleo::chat::ChatArchiveReject reject = paleo::chat::ChatArchiveReject::None;
   QVERIFY(!ChatSessionStore::load(QStringLiteral("h2-dir-fake"), &out, &error, &reject));
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::NotRegularFile);
-  QVERIFY(QDir(dirPath).removeRecursively()); // 原样保留：load 没动它
+  QVERIFY(!error.isEmpty());
+  QVERIFY(QDir(dirPath).removeRecursively());
+}
 
-  // 叶子符号链接指向别的会话文件：别名被拒（不读目标、不缓存）。
+void TestH2SessionArchive::symlinkAliasRefused() {
+  // 叶子符号链接别名：无论指向根内别的会话还是根外文件，一律拒绝（不读
+  // 目标、不缓存、不删除目标）。
   const QString real = ChatSessionStore::pathFor(QStringLiteral("h2-sym-real"));
   {
     QFile file(real);
@@ -304,10 +309,19 @@ void TestH2SessionArchive::directoryAndSymlinkMasqueradeRefused() {
                  .toJson(QJsonDocument::Compact));
   }
   const QString link = ChatSessionStore::pathFor(QStringLiteral("h2-sym-alias"));
-  QVERIFY(QFile::link(real, link));
+  if (!QFile::link(real, link)) {
+    QFile::remove(real);
+    QSKIP("本机无法创建符号链接（如 Windows 未开开发者模式/无特权）："
+          "叶子链接别名用例未执行，如实记为跳过");
+  }
+  ChatSession out;
+  QString error;
+  paleo::chat::ChatArchiveReject reject = paleo::chat::ChatArchiveReject::None;
   QVERIFY(!ChatSessionStore::load(QStringLiteral("h2-sym-alias"), &out, &error, &reject));
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::NotRegularFile);
-  // 穿过链接到达 root 外的文件同样被拒：叶子解析后的真实路径必须在根内。
+  QVERIFY(QFileInfo::exists(real)); // 目标未被触碰
+
+  // 穿过链接到达会话根之外的文件：同样在叶子处拒绝。
   QTemporaryDir outside;
   const QString outsideFile = outside.path() + QStringLiteral("/evil.json");
   {
@@ -317,10 +331,12 @@ void TestH2SessionArchive::directoryAndSymlinkMasqueradeRefused() {
                                          QStringLiteral("s"), 1).toJson())
                  .toJson(QJsonDocument::Compact));
   }
-  const QString linkOutside = ChatSessionStore::pathFor(QStringLiteral("h2-sym-outside"));
+  const QString linkOutside =
+    ChatSessionStore::pathFor(QStringLiteral("h2-sym-outside"));
   QVERIFY(QFile::link(outsideFile, linkOutside));
   QVERIFY(!ChatSessionStore::load(QStringLiteral("h2-sym-outside"), &out, &error, &reject));
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::NotRegularFile);
+  QVERIFY(QFileInfo::exists(outsideFile)); // 根外目标未被触碰
 }
 
 void TestH2SessionArchive::overLimitArchivePreservedBytes() {

@@ -191,11 +191,11 @@ bool ChatSessionStore::load(const QString &sessionId, ChatSession *out,
   if (info.isSymLink() || !info.isFile())
     return fail(paleo::chat::ChatArchiveReject::NotRegularFile,
                 QObject::tr("会话文件不是常规文件（目录/链接伪装被拒绝）"));
-  const QString rootCanonical =
-    QFileInfo(directory()).canonicalFilePath();
-  const QString expected =
-    rootCanonical + QLatin1Char('/') + sessionId + QStringLiteral(".json");
-  if (rootCanonical.isEmpty() || info.canonicalFilePath() != expected)
+  // 中间目录的符号链接/junction 穿越：比较「文件父目录」与会话根解析后的
+  // 真实路径——两边都是目录，走同一归一化，不依赖平台对文件路径形式的细节。
+  const QString rootCanonical = QFileInfo(directory()).canonicalFilePath();
+  const QString parentCanonical = QFileInfo(info.absolutePath()).canonicalFilePath();
+  if (rootCanonical.isEmpty() || parentCanonical != rootCanonical)
     return fail(paleo::chat::ChatArchiveReject::OutsideRoot,
                 QObject::tr("会话文件路径越过私有会话根（链接/别名被拒绝）"));
   const paleo::chat::ChatArchiveBudget budget = paleo::chat::chatArchiveBudget();

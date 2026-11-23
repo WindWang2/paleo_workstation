@@ -159,6 +159,9 @@ private:
   // H5：计划提案纯预检（decode + validatePlan，返回有界 paleo.plan-preview.v1
   // 契约；不 prepare/start/accept，不读模型路径）。
   void runPlanPreview(const QJsonObject &args);
+  // H4：只读发现（paleo.operation_list）——不走 operation_id 必填分支；
+  // 快照/游标状态在 Recovery 侧发现服务内，runner 只持任务句柄。
+  void runOperationList(const QString &callerScope, const QJsonObject &args);
   void runTileV2(const QJsonObject &args);
   void runTile(const ChatToolCall &call, const QJsonObject &args);
   void runHorizon(const ChatToolCall &call, const QJsonObject &args);

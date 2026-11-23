@@ -151,6 +151,20 @@ public:
     QString code; // ok | operation_log_unavailable | operation_log_quarantined
     int quarantined = 0;
   };
+  // H4（只读发现薄缝）：一次加锁、一次加载得到的当前作用域一致快照。records
+  // 仅含合法 schema v2 且 document/caller 精确匹配的记录；quarantinedIds 只在
+  // 进程内用于区分"锚点被隔离"与"不存在"（与 lookupRecordById 同口径），
+  // 永不投影给模型。scopedDigest 是本作用域记录与隔离事实的 SHA-256，作为
+  // 快照身份——刻意不覆盖其他 document/caller 的行，使其不成为他人操作
+  // 变化的旁路信号；全部出自同一次加载，不含跨次拼接。本调用不写盘、
+  // 不 mkpath、不对账。
+  struct ScopedSnapshot {
+    QString code; // ok | operation_log_unavailable
+    QByteArray scopedDigest;
+    int quarantinedRows = 0;
+    QSet<QString> quarantinedIds;
+    QVector<Record> records;
+  };
 
   explicit OperationLog(const QString &directory);
   OperationLog(const QString &directory, const QString &projectDir,
@@ -163,6 +177,7 @@ public:
   Record recordById(const QString &operationId);
   RecordLookup lookupRecordById(const QString &operationId);
   JournalHealth journalHealth();
+  ScopedSnapshot snapshotScope(const QString &documentId, const QString &callerScope);
   Record artifactOwner(const QString &documentId, const QString &callerScope, const QString &relativePath);
   Accept lookup(const QString &documentId, const QString &callerScope, const QString &clientRequestId);
   Accept acceptDurable(const Record &seed);

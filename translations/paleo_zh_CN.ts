@@ -38776,6 +38776,42 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>按准确 operation_id、port_id 和十进制 offset 读取有界二进制页，以 base64 返回。</translation>
     </message>
     <message>
+        <source>发现持久操作</source>
+        <translation>发现持久操作</translation>
+    </message>
+    <message>
+        <source>在当前工程与当前聊天作用域内列出既有合法持久操作的准确摘要，或分页一个已授权操作的直接关系。只读快照：不执行、不恢复、不对账、不写任何业务数据；列出的是日志记录事实，当前状态须再调 paleo.operation_get 对账。清单默认按 operationId 字典序分页；relations 视图以 anchor_operation_id 为锚点呈现来源操作、同作用域消费者、计划内步骤（不可据此独立 get/resume）与父版本（catalog 版本，非 operationId）。发现不要求已知 operation_id；得到 ID 后显式调用 get/results/read 等既有工具。</source>
+        <translation>在当前工程与当前聊天作用域内列出既有合法持久操作的准确摘要，或分页一个已授权操作的直接关系。只读快照：不执行、不恢复、不对账、不写任何业务数据；列出的是日志记录事实，当前状态须再调 paleo.operation_get 对账。清单默认按 operationId 字典序分页；relations 视图以 anchor_operation_id 为锚点呈现来源操作、同作用域消费者、计划内步骤（不可据此独立 get/resume）与父版本（catalog 版本，非 operationId）。发现不要求已知 operation_id；得到 ID 后显式调用 get/results/read 等既有工具。</translation>
+    </message>
+    <message>
+        <source>视图：operations=作用域清单（缺省）；relations=锚点直接关系</source>
+        <translation>视图：operations=作用域清单（缺省）；relations=锚点直接关系</translation>
+    </message>
+    <message>
+        <source>按记录的 execution 字段精确筛选（仅 operations 视图）</source>
+        <translation>按记录的 execution 字段精确筛选（仅 operations 视图）</translation>
+    </message>
+    <message>
+        <source>按记录的 capability_id 精确筛选（仅 operations 视图）</source>
+        <translation>按记录的 capability_id 精确筛选（仅 operations 视图）</translation>
+    </message>
+    <message>
+        <source>relations 视图必填：锚点操作 ID（须为当前作用域内合法 v2 操作）</source>
+        <translation>relations 视图必填：锚点操作 ID（须为当前作用域内合法 v2 操作）</translation>
+    </message>
+    <message>
+        <source>每页条数（1–32，缺省 16）</source>
+        <translation>每页条数（1–32，缺省 16）</translation>
+    </message>
+    <message>
+        <source>本页 JSON 字节预算（2048–24576，缺省 8192）</source>
+        <translation>本页 JSON 字节预算（2048–24576，缺省 8192）</translation>
+    </message>
+    <message>
+        <source>上一页返回的续页游标（绑定查询与快照；过期/换条件明确报错）</source>
+        <translation>上一页返回的续页游标（绑定查询与快照；过期/换条件明确报错）</translation>
+    </message>
+    <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="230" />
         <source>精确井实体标识；well_details 优先使用此字段</source>
         <translation>精确井实体标识；well_details 优先使用此字段</translation>

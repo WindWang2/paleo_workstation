@@ -27,8 +27,12 @@ void AiChatToolRunner::runPersistentOperation(const QJsonObject &args) {
   const auto host=m_context.capabilityHost;
   if(!host || !host->recovery() || m_resultSession.isEmpty())return fail("operation_host_or_session_unavailable");
   const auto scope=host->callerScope(paleo::host::Caller::Agent,m_resultSession);
+  const auto name=m_activeCall.name;
+  // H4：list 是唯一不要求已知 operation_id 的分支——同样先经可信 Host 与
+  // 当前 session（scope 已在上方生成）；其余六工具维持 operation_id 必填。
+  if(name==QLatin1String("paleo.operation_list"))return runOperationList(scope,args);
   const auto id=args.value("operation_id").toString();if(id.isEmpty() || id.toUtf8().size()>256)return fail("invalid_operation_id");
-  const auto name=m_activeCall.name;auto *service=host->recovery();QJsonObject response;
+  auto *service=host->recovery();QJsonObject response;
   if(name==QLatin1String("paleo.operation_get"))response=service->get(scope,id);
   else if(name==QLatin1String("paleo.operation_results"))response=service->results(scope,id);
   else if(name==QLatin1String("paleo.operation_cancel"))response=service->cancel(scope,id);

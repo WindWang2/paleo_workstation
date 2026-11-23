@@ -1,0 +1,1329 @@
+// 层：测试壳
+// H4/tst_h4_operation_discovery — 只读发现的生产入口验证：作用域快照、
+// 分页/游标预算、关系分类、坏邻居隔离、取消/销毁与零对账副作用。全部经
+// 真实持久文件与 Recovery/OperationLog 生产 API；规模夹具用满足 loader
+// 严格校验的合成 journal 行（不执行数千次科学计算），oracle 用稳定 ID
+// 集合、扫描计数、缓存保留字节与 journal 原始 SHA。
+#include <QtTest>
+#include "workflow/capabilityrecovery.h"
+#include "workflow/operationdiscovery.h"
+#include "workflow/capabilityops_internal.h"
+#include "catalog/datacatalog.h"
+#include "metadata/projectlock.h"
+#include "services/paleotaskservice.h"
+#include <QCryptographicHash>
+#include <QEventLoop>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QTemporaryDir>
+#include <QThread>
+#include <QUuid>
+
+using namespace paleo;
+using namespace paleo::capability;
+
+namespace {
+QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
+QString logDir(const QString &root) { return QDir(root).filePath(".paleo/capability-ops"); }
+QString journalPath(const QString &root) { return QDir(logDir(root)).filePath("operations.json"); }
+
+QByteArray fileSha(const QString &path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly))
+    return {};
+  return QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256);
+}
+
+OperationLog::Record seed(const QString &request, const QString &scope = "agent:h4") {
+  OperationLog::Record record;
+  record.documentId = "doc";
+  record.callerScope = scope;
+  record.clientRequestId = request;
+  record.capabilityId = "h4.compute";
+  record.implementationVersion = "1";
+  record.requestHash = QString(64, 'a');
+  record.planHash = QString(64, 'b');
+  record.frozenRequest = {{"intent", "h4"}};
+  return record;
+}
+QString begin(OperationLog &log, OperationLog::Record &record) {
+  const auto oldAttempt = record.ownerAttempt;
+  record.ownerAttempt = uuid();
+  record.ownerProcess = QString::number(QCoreApplication::applicationPid());
+  record.execution = "running";
+  record.code = "running";
+  ++record.computeCount;
+  OperationLog::Record current;
+  const auto result = log.saveDurable(record, record.stateRevision, oldAttempt, &current);
+  if (result == QLatin1String("ok"))
+    record = current;
+  return result;
+}
+QString update(OperationLog &log, OperationLog::Record &record) {
+  OperationLog::Record current;
+  const auto result = log.saveDurable(record, record.stateRevision, record.ownerAttempt, &current);
+  if (result == QLatin1String("ok"))
+    record = current;
+  return result;
+}
+
+OperationWorker countingWorker(std::shared_ptr<int> calls) {
+  return [calls](const OperationWorkContext &c) {
+    ++*calls;
+    OperationWorkResult r;
+    QFile file(c.privateDir + "/values.bin");
+    r.ok = file.open(QIODevice::WriteOnly) && file.write("h4-worker-bytes") == 15;
+    file.close();
+    r.outputs.ok = r.ok;
+    r.outputs.artifacts.append({"OUTPUT", file.fileName(), {}, {}, {}, {}});
+    return r;
+  };
+}
+FrozenOperation plan(const QString &request, const OperationWorker &worker, const QString &scope = "agent:h4",
+                     const QString &sourceOperationId = QString()) {
+  FrozenOperation p;
+  p.capabilityId = "h4.compute";
+  p.implementationVersion = "1";
+  p.callerScope = scope;
+  p.clientRequestId = request;
+  p.intent = {{"number", 1}};
+  p.frozenPlan = {{"immutable", true}};
+  p.phase = "publish";
+  p.worker = worker;
+  p.sourceOperationId = sourceOperationId;
+  p.outputSpec.id = "h4:values";
+  p.outputSpec.complete = true;
+  AlgoPort port;
+  port.id = "OUTPUT";
+  port.kind = "file";
+  p.outputSpec.outputs = {port};
+  p.outputPorts = {"OUTPUT"};
+  return p;
+}
+
+struct Host {
+  DataCatalog catalog;
+  std::unique_ptr<ProjectDirLock> lock;
+  PaleoTaskService tasks;
+  CapabilityRecovery recovery;
+  QString documentId = "doc";
+  quint64 epoch = 1;
+  unsigned allowedEffects = host::Read | host::PrivateStage | host::CatalogPublish | host::Presentation;
+  bool ownsWrites = true;
+  explicit Host(const QString &root) {
+    lock = std::make_unique<ProjectDirLock>(root);
+    QVERIFY2(lock->tryLock(), "project lock");
+    QVERIFY2(catalog.open(root), "catalog open");
+    recovery.setTaskService(&tasks);
+    recovery.setHostProvider([this, root] {
+      RecoveryHost h;
+      h.projectDir = root;
+      h.operationDir = logDir(root);
+      h.catalog = &catalog;
+      h.writeClaim = lock->claim();
+      h.context.documentId = documentId;
+      h.context.epoch = epoch;
+      h.context.open = true;
+      h.context.persistentIdentity = true;
+      h.context.readOnly = false;
+      h.context.ownsWrites = ownsWrites;
+      h.context.allowedEffects = allowedEffects;
+      return h;
+    });
+  }
+};
+
+bool runToEnd(Host &host, const OperationLog::Record &record, ExecuteResult &result, QString *error) {
+  bool done = false;
+  error->clear();
+  auto *task = host.recovery.start(record.callerScope, record.operationId, &host.recovery, "h4",
+      [&](ExecuteResult r) { result = r; done = true; }, false, error);
+  if (!task)
+    return false;
+  QEventLoop loop;
+  QObject::connect(task, &PaleoTask::finished, &loop, &QEventLoop::quit);
+  loop.exec();
+  for (int i = 0; i < 500 && !done; ++i) {
+    QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
+  return done;
+}
+
+bool listOnce(CapabilityRecovery &recovery, const QString &scope, const QJsonObject &args, QJsonObject &out,
+              QString *error) {
+  bool done = false;
+  error->clear();
+  auto *task = recovery.listOperations(scope, args, &recovery, [&](QJsonObject r) { out = r; done = true; }, error);
+  if (!task)
+    return false;
+  QEventLoop loop;
+  QObject::connect(task, &PaleoTask::finished, &loop, &QEventLoop::quit);
+  loop.exec();
+  for (int i = 0; i < 500 && !done; ++i) {
+    QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
+  return done;
+}
+
+// 合成一条满足 readRecord 严格校验的 v2 journal 行（规模/关系夹具用）。
+QJsonObject syntheticRow(const QString &doc, const QString &scope, const QString &request,
+                         const QJsonObject &frozenRequest = QJsonObject(),
+                         const QJsonObject &artifactManifest = QJsonObject(),
+                         const QJsonObject &stagePlan = QJsonObject()) {
+  QJsonObject row;
+  row.insert(QStringLiteral("operationId"), QStringLiteral("op-") + uuid());
+  row.insert(QStringLiteral("key"), operation_detail::key(doc, scope, request));
+  row.insert(QStringLiteral("requestHash"), QString(64, 'c'));
+  row.insert(QStringLiteral("execution"), QStringLiteral("succeeded"));
+  row.insert(QStringLiteral("commitState"), QStringLiteral("committed"));
+  row.insert(QStringLiteral("presentation"), QStringLiteral("presented"));
+  row.insert(QStringLiteral("code"), QStringLiteral("committed"));
+  row.insert(QStringLiteral("computeCount"), 1);
+  row.insert(QStringLiteral("summary"), QString::fromLatin1(QByteArrayLiteral("{}").toBase64()));
+  row.insert(QStringLiteral("schemaVersion"), 2);
+  row.insert(QStringLiteral("documentId"), doc);
+  row.insert(QStringLiteral("callerScope"), scope);
+  row.insert(QStringLiteral("clientRequestId"), request);
+  row.insert(QStringLiteral("capabilityId"), QStringLiteral("h4.bulk"));
+  row.insert(QStringLiteral("contractVersion"), 1);
+  row.insert(QStringLiteral("implementationVersion"), QStringLiteral("1"));
+  row.insert(QStringLiteral("planHash"), QString(64, 'd'));
+  row.insert(QStringLiteral("storeGeneration"), QStringLiteral("gen"));
+  row.insert(QStringLiteral("stateRevision"), QStringLiteral("1"));
+  row.insert(QStringLiteral("ownerAttempt"), QString());
+  row.insert(QStringLiteral("ownerProcess"), QStringLiteral("1"));
+  row.insert(QStringLiteral("cancelRequested"), false);
+  row.insert(QStringLiteral("frozenRequest"),
+             frozenRequest.isEmpty() ? QJsonObject{{QStringLiteral("intent"), QStringLiteral("bulk")}} : frozenRequest);
+  row.insert(QStringLiteral("stagePlan"), stagePlan);
+  row.insert(QStringLiteral("preparedManifest"), QJsonObject{});
+  row.insert(QStringLiteral("artifactManifest"), artifactManifest);
+  row.insert(QStringLiteral("presentationIntent"), QJsonObject{});
+  row.insert(QStringLiteral("externalRequest"), QJsonObject{});
+  row.insert(QStringLiteral("remoteJobId"), QString());
+  row.insert(QStringLiteral("externalOutcome"), QString());
+  row.insert(QStringLiteral("remoteCompletionProof"), QJsonObject{});
+  row.insert(QStringLiteral("events"),
+             QJsonArray{QJsonObject{{QStringLiteral("revision"), QStringLiteral("1")},
+                                    {QStringLiteral("execution"), QStringLiteral("succeeded")},
+                                    {QStringLiteral("commitState"), QStringLiteral("committed")},
+                                    {QStringLiteral("presentation"), QStringLiteral("presented")},
+                                    {QStringLiteral("code"), QStringLiteral("committed")},
+                                    {QStringLiteral("attempt"), QString()},
+                                    {QStringLiteral("computeCount"), 1},
+                                    {QStringLiteral("cancelRequested"), false},
+                                    {QStringLiteral("time"), QStringLiteral("2026-11-23T00:00:00.000Z")}}});
+  return row;
+}
+
+QStringList operationIds(const QJsonObject &page) {
+  QStringList ids;
+  for (const auto &entry : page.value(QStringLiteral("operations")).toArray())
+    ids.append(entry.toObject().value(QStringLiteral("operationId")).toString());
+  return ids;
+}
+} // namespace
+
+class H4OperationDiscovery : public QObject {
+  Q_OBJECT
+private slots:
+  void discoversScopedOperationsAfterRestart();
+  void scopeAndDocumentIsolation();
+  void v1QuarantinedAndForeignNeighborsStayOut();
+  void emptyAndCorruptJournalsAreDistinguished();
+  void bulkJournalPagesWithoutRescan();
+  void budgetCursorAndCacheDiscipline();
+  void snapshotImmutabilityWhileBusinessAdvances();
+  void relationsClassifyDirectTargets();
+  void cancelPreservesJournalAndBusinessState();
+  void subscriberDestructionKeepsServiceUsable();
+  void readGateAndWriteDenialBoundaries();
+  void listDoesNotReconcileWhileGetDoes();
+  void invalidRequestsAreRejectedBeforeAnyTask();
+  void snapshotCapacityEvictsLeastValuableFirst();
+  void nonCanonicalProjectPathStillDiscovers();
+  void staleInstanceCursorIsExpiredNotInvalid();
+  void deliveryIsDroppedWhenContextChangesDuringScan();
+  void subscriberDestroyedInsideTaskAddedIsSafe();
+  void cancelInsideScanLeavesJournalUntouched();
+  void listTaskIsQuietAndCoverageIsDeclared();
+};
+
+void H4OperationDiscovery::discoversScopedOperationsAfterRestart() {
+  QTemporaryDir root;
+  const QString scope = "agent:h4:chat:" + uuid();
+  QStringList created;
+  {
+    Host host(root.path());
+    const auto calls = std::make_shared<int>(0);
+    for (int i = 0; i < 3; ++i) {
+      const auto accepted = host.recovery.accept(plan(QStringLiteral("req-%1").arg(i), countingWorker(calls), scope));
+      QVERIFY2(accepted.ok, qPrintable(accepted.code));
+      ExecuteResult result;
+      QString error;
+      QVERIFY(runToEnd(host, accepted.record, result, &error));
+      QVERIFY2(result.ok, qPrintable(result.code + QLatin1Char(' ') + error));
+      created.append(accepted.record.operationId);
+    }
+    QCOMPARE(*calls, 3);
+  }
+  // 冷重启：不依赖聊天历史/内存索引，仅凭 journal 重新发现原 ID。
+  Host host(root.path());
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY2(page.value(QStringLiteral("ok")).toBool(),
+           qPrintable(QString::fromUtf8(QJsonDocument(page).toJson(QJsonDocument::Compact))));
+  QStringList sorted = created;
+  sorted.sort();
+  const auto ids = operationIds(page);
+  QCOMPARE(ids, sorted); // 快照按 operationId 字典序返回
+  QVERIFY(page.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("journalHealth")).toString()
+          == QLatin1String("ok"));
+  // 发现的 ID 随后可走原 get/results 链（不读聊天结果历史）。
+  const auto state = host.recovery.get(scope, ids.first());
+  QVERIFY2(state.value(QStringLiteral("ok")).toBool(), qPrintable(state.value(QStringLiteral("code")).toString()));
+  QCOMPARE(state.value(QStringLiteral("commitState")).toString(), QStringLiteral("committed"));
+  const auto results = host.recovery.results(scope, ids.first());
+  QVERIFY2(results.value(QStringLiteral("ok")).toBool(), qPrintable(results.value(QStringLiteral("code")).toString()));
+  QCOMPARE(results.value(QStringLiteral("ports")).toArray().size(), 1);
+  // read：同一结果的原有界字节页（发现只负责给出 ID；字节读取仍走
+  // operation_read 的 SHA 锚定认证），读回的正是业务 worker 落盘的内容。
+  bool readDone = false;
+  QJsonObject readPage;
+  QString readError;
+  auto *readTask = host.recovery.read(scope, ids.first(), QStringLiteral("OUTPUT"), 0, 4096, &host.recovery,
+                                      [&](QJsonObject r) { readPage = r; readDone = true; }, &readError);
+  QVERIFY2(readTask, qPrintable(readError));
+  {
+    QEventLoop loop;
+    QObject::connect(readTask, &PaleoTask::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+  }
+  for (int i = 0; i < 500 && !readDone; ++i) {
+    QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
+  QVERIFY(readDone);
+  QVERIFY2(readPage.value(QStringLiteral("ok")).toBool(), qPrintable(readPage.value(QStringLiteral("code")).toString()));
+  QCOMPARE(QByteArray::fromBase64(readPage.value(QStringLiteral("data")).toString().toLatin1()),
+           QByteArrayLiteral("h4-worker-bytes"));
+}
+
+void H4OperationDiscovery::scopeAndDocumentIsolation() {
+  QTemporaryDir root;
+  Host host(root.path());
+  QDir().mkpath(logDir(root.path()));
+  QJsonArray rows;
+  rows.append(syntheticRow("doc", "agent:h4:chat:a", "a1"));
+  rows.append(syntheticRow("doc", "agent:h4:chat:a", "a2"));
+  rows.append(syntheticRow("doc", "agent:h4:chat:b", "b1"));
+  rows.append(syntheticRow("docB", "agent:h4:chat:a", "x1"));
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(rows).toJson(QJsonDocument::Compact));
+  }
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, QStringLiteral("agent:h4:chat:a"), {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  const auto ids = operationIds(page);
+  QCOMPARE(ids.size(), 2);
+  const auto encoded = QString::fromUtf8(QJsonDocument(page).toJson(QJsonDocument::Compact));
+  QVERIFY(!encoded.contains(QLatin1String("chat:b")));
+  QVERIFY(!encoded.contains(QLatin1String("docB")));
+  QVERIFY(!encoded.contains(rows.at(2).toObject().value(QStringLiteral("operationId")).toString()));
+  QVERIFY(!encoded.contains(rows.at(3).toObject().value(QStringLiteral("operationId")).toString()));
+  // 换 scope 后旧游标拒绝（不返回其他查询页）：先取有续页的小页。
+  QJsonObject paged;
+  QVERIFY(listOnce(host.recovery, QStringLiteral("agent:h4:chat:a"),
+                   {{QStringLiteral("page_size"), 1}}, paged, &error));
+  QVERIFY(paged.value(QStringLiteral("ok")).toBool());
+  const QString cursor = paged.value(QStringLiteral("nextCursor")).toString();
+  QVERIFY(!cursor.isEmpty());
+  // 换 scope 后旧游标在建任务之前即被拒绝：独立错误码、零任务、不返回其他查询页。
+  QString cursorError;
+  QSignalSpy added(&host.tasks, &PaleoTaskService::taskAdded);
+  QVERIFY(!host.recovery.listOperations(QStringLiteral("agent:h4:chat:b"),
+                                        {{QStringLiteral("cursor"), cursor}, {QStringLiteral("page_size"), 1}},
+                                        &host.recovery, [](QJsonObject) {}, &cursorError));
+  QCOMPARE(cursorError, QStringLiteral("cursor_scope_mismatch"));
+  QCOMPARE(added.size(), 0);
+  // 快照身份只覆盖本作用域：其他会话/document 的行变化既不改变本作用域摘要
+  //（不成为他人操作的旁路信号），也不改变清单；本作用域内容变化才改变摘要
+  //（见 snapshotImmutabilityWhileBusinessAdvances）。
+  const auto scopeDigest = page.value(QStringLiteral("coverage")).toObject()
+                               .value(QStringLiteral("snapshotDigest")).toString();
+  QVERIFY(!scopeDigest.isEmpty());
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto current = QJsonDocument::fromJson(file.readAll()).array();
+    file.close();
+    auto edited = current;
+    edited.append(syntheticRow("doc", "agent:h4:chat:b", "b2"));  // 他会话新增一行
+    edited.append(syntheticRow("docB", "agent:h4:chat:a", "x2")); // 他 document 新增一行
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(edited).toJson(QJsonDocument::Compact));
+  }
+  QJsonObject again;
+  QVERIFY(listOnce(host.recovery, QStringLiteral("agent:h4:chat:a"), {}, again, &error));
+  QVERIFY(again.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(operationIds(again).size(), 2);
+  QCOMPARE(again.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString(),
+           scopeDigest);
+}
+
+void H4OperationDiscovery::v1QuarantinedAndForeignNeighborsStayOut() {
+  QTemporaryDir root;
+  Host host(root.path());
+  const QString scope = "agent:h4:chat:a";
+  const auto calls = std::make_shared<int>(0);
+  const auto accepted = host.recovery.accept(plan("legal", countingWorker(calls), scope));
+  QVERIFY2(accepted.ok, qPrintable(accepted.code));
+  ExecuteResult result;
+  QString error;
+  QVERIFY(runToEnd(host, accepted.record, result, &error));
+  // v1 邻居 + 重复身份坏行：v1 不进 Agent 清单，坏行触发隔离。基线取
+  // 篡改后字节——发现必须保持的是"篡改现状"，不是篡改前的内容。
+  QByteArray tampered;
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto rows = QJsonDocument::fromJson(file.readAll()).array();
+    file.close();
+    QJsonArray edited = rows;
+    QJsonObject v1;
+    v1.insert(QStringLiteral("operationId"), QStringLiteral("op-") + uuid());
+    v1.insert(QStringLiteral("key"), operation_detail::key("doc", scope, "legacy"));
+    v1.insert(QStringLiteral("requestHash"), QString(64, 'e'));
+    v1.insert(QStringLiteral("execution"), QStringLiteral("succeeded"));
+    v1.insert(QStringLiteral("commitState"), QStringLiteral("not_requested"));
+    v1.insert(QStringLiteral("presentation"), QStringLiteral("not_requested"));
+    v1.insert(QStringLiteral("code"), QStringLiteral("done"));
+    v1.insert(QStringLiteral("computeCount"), 0);
+    v1.insert(QStringLiteral("summary"), QString::fromLatin1(QByteArrayLiteral("{}").toBase64()));
+    edited.append(v1);
+    edited.append(rows.at(0)); // 重复身份 → 双方隔离
+    tampered = QJsonDocument(edited).toJson(QJsonDocument::Compact);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(tampered);
+  }
+  const auto before = QCryptographicHash::hash(tampered, QCryptographicHash::Sha256);
+  QJsonObject page;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  // 合法同 scope 邻居被重复身份拖入隔离（G4 无损纪律：同一身份的每条都隔离），
+  // 因此清单为空但健康度是 incomplete，不是"全部业务均已发现"。
+  QCOMPARE(operationIds(page).size(), 0);
+  QCOMPARE(page.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("journalHealth")).toString(),
+           QStringLiteral("incomplete"));
+  const auto encoded = QString::fromUtf8(QJsonDocument(page).toJson(QJsonDocument::Compact));
+  QVERIFY(!encoded.contains(QLatin1String("legacy")));
+  // 零写入：原始字节不变。
+  QCOMPARE(fileSha(journalPath(root.path())), before);
+}
+
+void H4OperationDiscovery::emptyAndCorruptJournalsAreDistinguished() {
+  QTemporaryDir root;
+  {
+    Host host(root.path());
+    QJsonObject page;
+    QString error;
+    QVERIFY(listOnce(host.recovery, "agent:h4:chat:a", {}, page, &error));
+    QVERIFY(page.value(QStringLiteral("ok")).toBool());
+    QCOMPARE(page.value(QStringLiteral("returnedCount")).toInt(), 0);
+    QCOMPARE(page.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("journalHealth")).toString(),
+             QStringLiteral("ok"));
+  }
+  QDir().mkpath(logDir(root.path()));
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("{\"not\":\"an array\"");
+  }
+  Host host(root.path());
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, "agent:h4:chat:a", {}, page, &error));
+  QVERIFY(!page.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(page.value(QStringLiteral("code")).toString(), QStringLiteral("operation_log_unavailable"));
+}
+
+void H4OperationDiscovery::bulkJournalPagesWithoutRescan() {
+  QTemporaryDir root;
+  QDir().mkpath(logDir(root.path()));
+  const QString scope = "agent:h4:chat:bulk";
+  QJsonArray rows;
+  QStringList expected;
+  for (int i = 0; i < 4000; ++i) {
+    const auto row = syntheticRow("doc", scope, QStringLiteral("bulk-%1").arg(i, 4, 10, QChar('0')));
+    expected.append(row.value(QStringLiteral("operationId")).toString());
+    rows.append(row);
+  }
+  expected.sort();
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(rows).toJson(QJsonDocument::Compact));
+  }
+  ProjectDirLock lock(root.path());
+  QVERIFY(lock.tryLock());
+  OperationDiscovery service;
+  const DiscoveryScan scan{QFileInfo(root.path()).canonicalFilePath(), root.path(), logDir(root.path()), "doc",
+                           scope, lock.claim()};
+  QStringList walked;
+  QString cursor;
+  int pages = 0;
+  forever {
+    QJsonObject args{{QStringLiteral("page_size"), 32}, {QStringLiteral("max_bytes"), 24576}};
+    if (!cursor.isEmpty())
+      args.insert(QStringLiteral("cursor"), cursor);
+    const auto page = service.query(scan, args);
+    QVERIFY2(page.value(QStringLiteral("ok")).toBool(),
+             qPrintable(page.value(QStringLiteral("code")).toString()));
+    walked.append(operationIds(page));
+    ++pages;
+    // 一次快照顺序分页：续页不再全文件解析（扫描计数不涨），字节预算内。
+    QCOMPARE(service.scanCount(), 1);
+    QVERIFY(QJsonDocument(page).toJson(QJsonDocument::Compact).size() <= 24576);
+    // 游标有界：同快照只保留「可重试 + 续页」两个，不随页数增长。
+    QVERIFY(service.liveCursors() <= 2);
+    cursor = page.value(QStringLiteral("nextCursor")).toString();
+    if (cursor.isEmpty())
+      break;
+    QVERIFY(page.value(QStringLiteral("hasMore")).toBool());
+  }
+  QCOMPARE(pages, 125); // ceil(4000/32)
+  QCOMPARE(walked, expected); // 无重复/遗漏，序 = operationId 字典序
+  QVERIFY(service.retainedBytes() > 0);
+  QCOMPARE(service.liveSnapshots(), 1);
+  QCOMPARE(service.liveCursors(), 1); // 末页后仅剩刚消费的可重试游标
+  // 内存保留量：快照只留摘要行，明显小于源 journal；不复制完整 Record /
+  // frozenRequest / artifactManifest。
+  const qint64 journalBytes = QFileInfo(journalPath(root.path())).size();
+  QVERIFY(journalBytes > 1024 * 1024);
+  QVERIFY2(service.retainedBytes() * 2 < journalBytes,
+           qPrintable(QStringLiteral("retained=%1 journal=%2").arg(service.retainedBytes()).arg(journalBytes)));
+  // 会话/工程失效：整体释放。
+  service.invalidate();
+  QCOMPARE(service.liveSnapshots(), 0);
+  QCOMPARE(service.liveCursors(), 0);
+  QCOMPARE(service.retainedBytes(), 0);
+  // 缺省预算（更小页）同样能走完整本：游标回收使长遍历不受 maxCursors 限制。
+  OperationDiscovery small;
+  QStringList smallWalked;
+  QString smallCursor;
+  int smallPages = 0;
+  forever {
+    QJsonObject args;
+    if (!smallCursor.isEmpty())
+      args.insert(QStringLiteral("cursor"), smallCursor);
+    const auto page = small.query(scan, args);
+    QVERIFY2(page.value(QStringLiteral("ok")).toBool(),
+             qPrintable(page.value(QStringLiteral("code")).toString()));
+    smallWalked.append(operationIds(page));
+    ++smallPages;
+    QCOMPARE(small.scanCount(), 1);
+    smallCursor = page.value(QStringLiteral("nextCursor")).toString();
+    if (smallCursor.isEmpty())
+      break;
+  }
+  QVERIFY(smallPages > 125); // 缺省 8192-1024 行区 < 32 行/页
+  QCOMPARE(smallWalked, expected);
+}
+
+void H4OperationDiscovery::budgetCursorAndCacheDiscipline() {
+  QTemporaryDir root;
+  QDir().mkpath(logDir(root.path()));
+  const QString scope = "agent:h4:chat:cursor";
+  QJsonArray rows;
+  rows.append(syntheticRow("doc", scope, "r1"));
+  rows.append(syntheticRow("doc", scope, "r2"));
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(rows).toJson(QJsonDocument::Compact));
+  }
+  ProjectDirLock lock(root.path());
+  QVERIFY(lock.tryLock());
+  const DiscoveryScan scan{QFileInfo(root.path()).canonicalFilePath(), root.path(), logDir(root.path()), "doc",
+                           scope, lock.claim()};
+  // 新错误码负例（W1 契约收紧）：view 键出现即须精确词表值；筛选只属于
+  // operations 视图，与 relations 组合显式拒绝（先于锚点与磁盘）。
+  OperationDiscovery contract;
+  QCOMPARE(contract.query(scan, {{QStringLiteral("view"), QString()}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("invalid_discovery_view"));
+  QCOMPARE(contract.query(scan, {{QStringLiteral("view"), QStringLiteral("relations")},
+                                 {QStringLiteral("execution_state"), QStringLiteral("succeeded")}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("invalid_filter_for_view"));
+  qint64 now = 1000;
+  OperationDiscovery service;
+  service.setClock([&] { return now; });
+
+  // 单行超页预算：明确 minimumBytes，不截断 ID、不静默丢条。加一条超长
+  // requestHash 的行，使该分支在最小预算下必然触发。
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto rows = QJsonDocument::fromJson(file.readAll()).array();
+    file.close();
+    auto big = syntheticRow("doc", scope, "big");
+    big.insert(QStringLiteral("requestHash"), QString(2000, QChar('x')));
+    big.insert(QStringLiteral("capabilityId"), QStringLiteral("h4.big"));
+    QJsonArray edited = rows;
+    edited.append(big);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(edited).toJson(QJsonDocument::Compact));
+  }
+  OperationDiscovery tinyRows;
+  const auto tooSmall = tinyRows.query(scan, {{QStringLiteral("max_bytes"), 2048},
+                                              {QStringLiteral("capability_id"), QStringLiteral("h4.big")},
+                                              {QStringLiteral("page_size"), 1}});
+  // 过滤只留 big 行：单行即超 2048-1024 行区 → page_budget_too_small。
+  QCOMPARE(tooSmall.value(QStringLiteral("code")).toString(), QStringLiteral("page_budget_too_small"));
+  QVERIFY(tooSmall.value(QStringLiteral("minimumBytes")).toInt() > 2048);
+
+  QJsonObject page = service.query(scan, {{QStringLiteral("page_size"), 1}});
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  const QString cursor = page.value(QStringLiteral("nextCursor")).toString();
+  QVERIFY(!cursor.isEmpty());
+
+  // 篡改游标（MAC 负例）与换条件续页。
+  auto tampered = cursor;
+  tampered.replace(tampered.size() - 1, 1, tampered.endsWith(QLatin1Char('0')) ? QLatin1Char('1') : QLatin1Char('0'));
+  QCOMPARE(service.query(scan, {{QStringLiteral("cursor"), tampered}}).value(QStringLiteral("code")).toString(),
+           QStringLiteral("cursor_invalid"));
+  QCOMPARE(service.query(scan, {{QStringLiteral("cursor"), cursor},
+                                {QStringLiteral("page_size"), 1},
+                                {QStringLiteral("execution_state"), QStringLiteral("succeeded")}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("cursor_query_mismatch"));
+
+  // TTL 到期（注入时钟）：cursor_expired，不静默回第一页。
+  now += 10 * 60 * 1000 + 1;
+  QCOMPARE(service.query(scan, {{QStringLiteral("cursor"), cursor}, {QStringLiteral("page_size"), 1}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("cursor_expired"));
+  // 预算最终释放：到期即回收快照、游标与保留字节（不随时间累积）。
+  QCOMPARE(service.liveSnapshots(), 0);
+  QCOMPARE(service.liveCursors(), 0);
+  QCOMPARE(service.retainedBytes(), 0);
+
+  // 字节上限：新快照自身放不下（淘汰谁都无济于事）→ 结构化失败并附
+  // retryAfterMs；且不做无谓淘汰——旧快照的续页照常可用。
+  //   两行小记录的快照 ≈1.5 KiB 放得下；含 big 行的快照 ≈3 KiB 放不下。
+  OperationDiscovery tiny(DiscoveryPolicy{4, 128, 600000, 2000});
+  const auto first = tiny.query(scan, {{QStringLiteral("page_size"), 1},
+                                       {QStringLiteral("capability_id"), QStringLiteral("h4.bulk")}});
+  QVERIFY2(first.value(QStringLiteral("ok")).toBool(),
+           qPrintable(first.value(QStringLiteral("code")).toString()));
+  const QString liveCursor = first.value(QStringLiteral("nextCursor")).toString();
+  QVERIFY(!liveCursor.isEmpty());
+  const auto full = tiny.query(scan, {{QStringLiteral("page_size"), 1},
+                                      {QStringLiteral("capability_id"), QStringLiteral("h4.big")}});
+  QCOMPARE(full.value(QStringLiteral("code")).toString(), QStringLiteral("discovery_cache_full"));
+  QVERIFY(full.contains(QStringLiteral("retryAfterMs")));
+  QVERIFY(full.value(QStringLiteral("retryAfterMs")).toDouble() >= 0);
+  QCOMPARE(tiny.liveSnapshots(), 1); // 没有为了腾位把旧快照淘汰掉
+  const auto continued = tiny.query(scan, {{QStringLiteral("cursor"), liveCursor},
+                                           {QStringLiteral("page_size"), 1},
+                                           {QStringLiteral("capability_id"), QStringLiteral("h4.bulk")}});
+  QVERIFY2(continued.value(QStringLiteral("ok")).toBool(),
+           qPrintable(continued.value(QStringLiteral("code")).toString()));
+}
+
+void H4OperationDiscovery::snapshotImmutabilityWhileBusinessAdvances() {
+  QTemporaryDir root;
+  Host host(root.path());
+  const QString scope = "agent:h4:chat:imm";
+  OperationLog log(logDir(root.path()), root.path(), host.lock->claim());
+  OperationLog::Record first = log.acceptDurable(seed("imm-1", scope)).record;
+  OperationLog::Record second = log.acceptDurable(seed("imm-2", scope)).record;
+  QCOMPARE(begin(log, first), QLatin1String("ok"));
+  QCOMPARE(begin(log, second), QLatin1String("ok"));
+  OperationDiscovery service;
+  const DiscoveryScan scan{QFileInfo(root.path()).canonicalFilePath(), root.path(), logDir(root.path()), "doc",
+                           scope, host.lock->claim()};
+  // 页 1（小页，必有续页）后业务推进：另一条记录转 failed。
+  auto page = service.query(scan, {{QStringLiteral("page_size"), 1}});
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  const auto digest = page.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString();
+  const QString pageOne = operationIds(page).first();
+  OperationLog::Record &mutated = pageOne == first.operationId ? second : first;
+  mutated.execution = QStringLiteral("failed");
+  mutated.code = QStringLiteral("failed");
+  QCOMPARE(update(log, mutated), QLatin1String("ok"));
+  // 同一游标续页：不可变快照——digest 不变、被改记录仍按快照呈现 running。
+  const auto next = service.query(scan, {{QStringLiteral("cursor"), page.value(QStringLiteral("nextCursor")).toString()},
+                                         {QStringLiteral("page_size"), 1}});
+  QVERIFY(next.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(next.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString(), digest);
+  QCOMPARE(next.value(QStringLiteral("operations")).toArray().at(0).toObject()
+               .value(QStringLiteral("execution")).toString(), QStringLiteral("running"));
+  // 新查询取得新快照（新 digest + 新状态）。
+  const auto fresh = service.query(scan, {});
+  QVERIFY(fresh.value(QStringLiteral("ok")).toBool());
+  QVERIFY(fresh.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("snapshotDigest")).toString() != digest);
+  bool sawFailed = false;
+  for (const auto &entry : fresh.value(QStringLiteral("operations")).toArray())
+    if (entry.toObject().value(QStringLiteral("operationId")).toString() == mutated.operationId)
+      sawFailed = entry.toObject().value(QStringLiteral("execution")).toString() == QLatin1String("failed");
+  QVERIFY(sawFailed);
+}
+
+void H4OperationDiscovery::relationsClassifyDirectTargets() {
+  QTemporaryDir root;
+  Host host(root.path());
+  const QString scope = "agent:h4:chat:rel";
+  const auto calls = std::make_shared<int>(0);
+  const auto source = host.recovery.accept(plan("source", countingWorker(calls), scope));
+  QVERIFY2(source.ok, qPrintable(source.code));
+  ExecuteResult result;
+  QString error;
+  QVERIFY(runToEnd(host, source.record, result, &error));
+  // B：记录里带 sourceOperationId（accept 生成 frozenRequest.sourceOperationId）。
+  const auto consumer = host.recovery.accept(plan("consumer", {}, scope, source.record.operationId));
+  QVERIFY2(consumer.ok, qPrintable(consumer.code));
+  // C：合成行——来源指向不存在目标 + 计划内步骤 + 父版本。
+  QJsonObject frozen{{QStringLiteral("intent"), QStringLiteral("rel")},
+                     {QStringLiteral("sourceOperationId"), QStringLiteral("op-") + uuid()}};
+  QJsonObject artifacts{{QStringLiteral("childOperations"),
+      QJsonArray{QJsonObject{{QStringLiteral("nodeId"), QStringLiteral("n1")},
+                             {QStringLiteral("operationId"), QStringLiteral("op-") + uuid()}},
+                  QJsonObject{{QStringLiteral("nodeId"), QStringLiteral("n2")},
+                             {QStringLiteral("operationId"), QStringLiteral("not-an-id")}}}},
+      {QStringLiteral("ports"), QJsonArray{QJsonObject{{QStringLiteral("portId"), QStringLiteral("OUTPUT")},
+                                                       {QStringLiteral("sha256"), QString(64, 'f')},
+                                                       {QStringLiteral("byteSize"), QStringLiteral("4")}}}}};
+  QJsonObject stage{{QStringLiteral("parents"), QJsonArray{QStringLiteral("ver-1"), QStringLiteral("ver-2")}}};
+  const auto rowC = syntheticRow("doc", scope, "synthetic", frozen, artifacts, stage);
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto rows = QJsonDocument::fromJson(file.readAll()).array();
+    file.close();
+    QJsonArray edited = rows;
+    edited.append(rowC);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(edited).toJson(QJsonDocument::Compact));
+  }
+  // 消费者视角：source_operation 解析为真实同 scope 记录。
+  QJsonObject page;
+  QVERIFY(listOnce(host.recovery, scope, {{QStringLiteral("view"), QStringLiteral("relations")},
+                                          {QStringLiteral("anchor_operation_id"), consumer.record.operationId}},
+                   page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  auto relations = page.value(QStringLiteral("relations")).toArray();
+  QCOMPARE(relations.size(), 1);
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("relation")).toString(), QStringLiteral("source_operation"));
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("target")).toObject()
+               .value(QStringLiteral("operationId")).toString(), source.record.operationId);
+  // 目标行携带真实消费者数（不得恒 0）：来源操作被本消费者消费 → 1。
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("target")).toObject()
+               .value(QStringLiteral("consumers")).toInt(), 1);
+  // 来源视角：消费者 + 无未解析来源。
+  QVERIFY(listOnce(host.recovery, scope, {{QStringLiteral("view"), QStringLiteral("relations")},
+                                          {QStringLiteral("anchor_operation_id"), source.record.operationId}},
+                   page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  relations = page.value(QStringLiteral("relations")).toArray();
+  QCOMPARE(relations.size(), 1);
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("relation")).toString(), QStringLiteral("consumer"));
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("target")).toObject()
+               .value(QStringLiteral("operationId")).toString(), consumer.record.operationId);
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("target")).toObject()
+               .value(QStringLiteral("consumers")).toInt(), 0); // 消费者自身没有被消费
+  // operations 视图同一口径：来源 1、消费者 0。
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  int checked = 0;
+  for (const auto &entry : page.value(QStringLiteral("operations")).toArray()) {
+    const auto row = entry.toObject();
+    const auto id = row.value(QStringLiteral("operationId")).toString();
+    if (id == source.record.operationId) {
+      QCOMPARE(row.value(QStringLiteral("consumers")).toInt(), 1);
+      ++checked;
+    } else if (id == consumer.record.operationId) {
+      QCOMPARE(row.value(QStringLiteral("consumers")).toInt(), 0);
+      ++checked;
+    }
+  }
+  QCOMPARE(checked, 2);
+  // 合成行视角：未解析来源（不回显目标 ID）+ 计划步骤 + 父版本。
+  QVERIFY(listOnce(host.recovery, scope, {{QStringLiteral("view"), QStringLiteral("relations")},
+                                          {QStringLiteral("anchor_operation_id"),
+                                           rowC.value(QStringLiteral("operationId")).toString()}},
+                   page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  relations = page.value(QStringLiteral("relations")).toArray();
+  QCOMPARE(relations.size(), 5); // 未解析来源 + 2 计划步骤 + 2 父版本
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("relation")).toString(), QStringLiteral("source_operation"));
+  QCOMPARE(relations.at(0).toObject().value(QStringLiteral("target")).toObject()
+               .value(QStringLiteral("status")).toString(), QStringLiteral("unresolved_in_snapshot"));
+  const auto encoded = QString::fromUtf8(QJsonDocument(page).toJson(QJsonDocument::Compact));
+  QVERIFY(!encoded.contains(frozen.value(QStringLiteral("sourceOperationId")).toString()));
+  QCOMPARE(relations.at(1).toObject().value(QStringLiteral("relation")).toString(), QStringLiteral("plan_step"));
+  QCOMPARE(relations.at(1).toObject().value(QStringLiteral("nodeId")).toString(), QStringLiteral("n1"));
+  QCOMPARE(relations.at(1).toObject().value(QStringLiteral("access")).toString(),
+           QStringLiteral("plan_step_not_independently_accessible"));
+  QVERIFY(relations.at(1).toObject().value(QStringLiteral("operationId")).isString()); // 记录事实保留
+  QVERIFY(!relations.at(2).toObject().value(QStringLiteral("operationId")).isString()); // 非规范 ID 不冒充
+  QCOMPARE(relations.at(3).toObject().value(QStringLiteral("kind")).toString(), QStringLiteral("catalog_version"));
+  // 锚点越权/不存在：不扩大边界，不泄漏。
+  QVERIFY(listOnce(host.recovery, "agent:h4:chat:other",
+                   {{QStringLiteral("view"), QStringLiteral("relations")},
+                    {QStringLiteral("anchor_operation_id"), source.record.operationId}}, page, &error));
+  QCOMPARE(page.value(QStringLiteral("code")).toString(), QStringLiteral("operation_not_found"));
+  QVERIFY(listOnce(host.recovery, scope, {{QStringLiteral("view"), QStringLiteral("relations")},
+                                          {QStringLiteral("anchor_operation_id"), QStringLiteral("op-") + uuid()}},
+                   page, &error));
+  QCOMPARE(page.value(QStringLiteral("code")).toString(), QStringLiteral("operation_not_found"));
+}
+
+void H4OperationDiscovery::cancelPreservesJournalAndBusinessState() {
+  QTemporaryDir root;
+  QDir().mkpath(logDir(root.path()));
+  const QString scope = "agent:h4:chat:cancel";
+  QJsonArray rows;
+  for (int i = 0; i < 600; ++i)
+    rows.append(syntheticRow("doc", scope, QStringLiteral("c-%1").arg(i, 4, 10, QChar('0'))));
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(rows).toJson(QJsonDocument::Compact));
+  }
+  Host host(root.path());
+  // 在途业务操作（queued）：发现取消不得写 cancelRequested 或扰动其状态。
+  const auto business = host.recovery.accept(plan("business", countingWorker(std::make_shared<int>()), scope));
+  QVERIFY2(business.ok, qPrintable(business.code));
+  // 基线在 accept 落盘之后：发现/取消链必须保持的是含业务记录的现状。
+  const auto before = fileSha(journalPath(root.path()));
+  QJsonObject out;
+  bool delivered = false;
+  // taskAdded 同步取消：worker 尚未执行即置位，确定性走"取消先于扫描"分支
+  //（此处 journal 不变为空真；扫描之内取消见 cancelInsideScanLeavesJournalUntouched）。
+  const QMetaObject::Connection added =
+      QObject::connect(&host.tasks, &PaleoTaskService::taskAdded, [&](PaleoTask *task) { task->requestCancel(); });
+  auto *task = host.recovery.listOperations(scope, {}, &host.recovery,
+                                            [&](QJsonObject r) { out = r; delivered = true; });
+  QObject::disconnect(added);
+  QVERIFY(task);
+  QEventLoop loop;
+  QObject::connect(task, &PaleoTask::finished, &loop, &QEventLoop::quit);
+  loop.exec();
+  for (int i = 0; i < 500 && !delivered; ++i) {
+    QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
+  QVERIFY(delivered);
+  QCOMPARE(out.value(QStringLiteral("code")).toString(), QStringLiteral("cancelled"));
+  QVERIFY(!out.value(QStringLiteral("ok")).toBool());
+  // 零副作用：journal 字节不变，业务记录仍是 queued/未取消。
+  QCOMPARE(fileSha(journalPath(root.path())), before);
+  const auto state = OperationLog(logDir(root.path()), root.path(), host.lock->claim())
+                         .recordById(business.record.operationId);
+  QCOMPARE(state.execution, QStringLiteral("queued"));
+  QVERIFY(!state.cancelRequested);
+}
+
+void H4OperationDiscovery::subscriberDestructionKeepsServiceUsable() {
+  QTemporaryDir root;
+  Host host(root.path());
+  const QString scope = "agent:h4:chat:destroy";
+  const auto accepted = host.recovery.accept(plan("op", countingWorker(std::make_shared<int>()), scope));
+  QVERIFY2(accepted.ok, qPrintable(accepted.code));
+  QJsonObject out;
+  bool delivered = false;
+  {
+    auto *subscriber = new QObject();
+    auto *task = host.recovery.listOperations(scope, {}, subscriber,
+                                              [&](QJsonObject r) { out = r; delivered = true; });
+    QVERIFY(task);
+    delete subscriber; // 完成前销毁订阅者：迟到结果不投递、不悬空。
+    QEventLoop loop;
+    QObject::connect(task, &PaleoTask::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    for (int i = 0; i < 50; ++i)
+      QCoreApplication::processEvents();
+  }
+  QVERIFY(!delivered);
+  // 服务缓存/状态未被旧回调清掉：新查询照常工作。
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(operationIds(page).size(), 1);
+}
+
+void H4OperationDiscovery::readGateAndWriteDenialBoundaries() {
+  QTemporaryDir root;
+  {
+    Host host(root.path());
+    host.allowedEffects = 0; // Read 也被拒：发现如实失败，不启动扫描。
+    QJsonObject page;
+    QString error;
+    QVERIFY(!host.recovery.listOperations("agent:h4:chat:a", {}, &host.recovery,
+                                          [&](QJsonObject) {}, &error));
+    QCOMPARE(error, QStringLiteral("effect_denied"));
+  }
+  Host host(root.path());
+  host.allowedEffects = host::Read; // 只读宿主：写权限不足不阻止只读发现。
+  host.ownsWrites = false;
+  const QString scope = "agent:h4:chat:ro";
+  const auto accepted = host.recovery.accept(plan("ro", countingWorker(std::make_shared<int>()), scope));
+  QVERIFY(!accepted.ok); // 写路径如实拒绝（效果门在声明层拦截）
+  QCOMPARE(accepted.code, QStringLiteral("effect_denied"));
+  QDir().mkpath(logDir(root.path()));
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(QJsonArray{syntheticRow("doc", scope, "r1")}).toJson(QJsonDocument::Compact));
+  }
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(operationIds(page).size(), 1);
+}
+
+void H4OperationDiscovery::listDoesNotReconcileWhileGetDoes() {
+  QTemporaryDir root;
+  Host host(root.path());
+  const QString scope = "agent:h4:chat:recon";
+  OperationLog::Record record = seed("recon", scope);
+  // 与 accept 生产路径同源：storeGeneration 取自当前 catalog（使 get 的
+  // reconcile 能走 not_committed 修复分支，journal 必然被改写）。
+  const auto probe = host.catalog.publication(QStringLiteral("doc"), QStringLiteral("op-") + uuid(), QString(64, '0'));
+  QCOMPARE(probe.code, QLatin1String("not_committed"));
+  record.storeGeneration = probe.storeGeneration;
+  OperationLog log(logDir(root.path()), root.path(), host.lock->claim());
+  record = log.acceptDurable(record).record; // acceptDurable 不回写调用方记录
+  QCOMPARE(begin(log, record), QLatin1String("ok"));
+  // 生产状态机链：running → prepared（含 preparedManifest）→ publishing，
+  // 不能一步跳 running→publishing（transitionAllowed 语义）。
+  record.execution = QStringLiteral("prepared");
+  record.code = QStringLiteral("prepared");
+  record.preparedManifest = {{QStringLiteral("staged"), true}};
+  QCOMPARE(update(log, record), QLatin1String("ok"));
+  record.commitState = QStringLiteral("publishing");
+  record.code = QStringLiteral("publishing");
+  QCOMPARE(update(log, record), QLatin1String("ok"));
+  const auto before = fileSha(journalPath(root.path()));
+  // 纯 list：零 reconcile 写——journal 字节与 publishing 状态原样。
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(fileSha(journalPath(root.path())), before);
+  QCOMPARE(page.value(QStringLiteral("operations")).toArray().at(0).toObject()
+               .value(QStringLiteral("commitState")).toString(), QStringLiteral("publishing"));
+  QCOMPARE(log.recordById(record.operationId).commitState, QStringLiteral("publishing"));
+  // 显式 get：沿旧契约对账（publishing 无回执 → 回退 not_requested）。
+  const auto state = host.recovery.get(scope, record.operationId);
+  QVERIFY(state.value(QStringLiteral("ok")).toBool());
+  QVERIFY(fileSha(journalPath(root.path())) != before);
+  QCOMPARE(log.recordById(record.operationId).commitState, QStringLiteral("not_requested"));
+}
+
+void H4OperationDiscovery::invalidRequestsAreRejectedBeforeAnyTask() {
+  QTemporaryDir root;
+  Host host(root.path());
+  const QString scope = "agent:h4:chat:admit";
+  // 纯函数准入：合法请求通过并指出违规字段。
+  QString field = QStringLiteral("untouched");
+  QCOMPARE(OperationDiscovery::validateRequest({}, &field), QString());
+  QCOMPARE(field, QStringLiteral("untouched"));
+  QCOMPARE(OperationDiscovery::validateRequest(
+               {{QStringLiteral("view"), QStringLiteral("relations")},
+                {QStringLiteral("anchor_operation_id"), QStringLiteral("op-") + uuid()},
+                {QStringLiteral("page_size"), 32}, {QStringLiteral("max_bytes"), 24576}}, &field),
+           QString());
+  QCOMPARE(OperationDiscovery::validateRequest({{QStringLiteral("view"), QString()}}, &field),
+           QStringLiteral("invalid_discovery_view"));
+  QCOMPARE(field, QStringLiteral("view"));
+  QCOMPARE(OperationDiscovery::validateRequest({{QStringLiteral("page_size"), 0}}, &field),
+           QStringLiteral("invalid_page_budget"));
+  QCOMPARE(field, QStringLiteral("page_size"));
+
+  // 宿主入口：以下条件都在建任务之前拒绝——taskAdded 计数恒为 0、journal
+  // 字节不变。覆盖坏视图/坏类型/坏筛选/组合非法/坏锚点/越界预算/超长实参/
+  // 伪造游标。
+  QDir().mkpath(logDir(root.path()));
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(QJsonArray{syntheticRow("doc", scope, "a1")}).toJson(QJsonDocument::Compact));
+  }
+  const auto before = fileSha(journalPath(root.path()));
+  QSignalSpy added(&host.tasks, &PaleoTaskService::taskAdded);
+  struct Case {
+    QJsonObject args;
+    QString code;
+  };
+  const QVector<Case> cases{
+      {{{QStringLiteral("view"), QString()}}, QStringLiteral("invalid_discovery_view")},
+      {{{QStringLiteral("view"), QStringLiteral("everything")}}, QStringLiteral("invalid_discovery_view")},
+      {{{QStringLiteral("view"), 7}}, QStringLiteral("invalid_argument_type")},
+      {{{QStringLiteral("execution_state"), QStringLiteral("finished")}},
+       QStringLiteral("invalid_execution_state_filter")},
+      {{{QStringLiteral("view"), QStringLiteral("relations")},
+        {QStringLiteral("execution_state"), QStringLiteral("succeeded")}},
+       QStringLiteral("invalid_filter_for_view")},
+      {{{QStringLiteral("anchor_operation_id"), QStringLiteral("op-") + uuid()}},
+       QStringLiteral("invalid_filter_for_view")}, // 锚点只属于 relations 视图，不静默忽略
+      {{{QStringLiteral("view"), QStringLiteral("relations")}}, QStringLiteral("invalid_anchor_operation")},
+      {{{QStringLiteral("view"), QStringLiteral("relations")},
+        {QStringLiteral("anchor_operation_id"), QStringLiteral("not-an-id")}},
+       QStringLiteral("invalid_anchor_operation")},
+      {{{QStringLiteral("capability_id"), QString(600, QLatin1Char('x'))}},
+       QStringLiteral("invalid_capability_filter")},
+      {{{QStringLiteral("page_size"), 0}}, QStringLiteral("invalid_page_budget")},
+      {{{QStringLiteral("page_size"), 33}}, QStringLiteral("invalid_page_budget")},
+      {{{QStringLiteral("page_size"), 16.5}}, QStringLiteral("invalid_page_budget")},
+      {{{QStringLiteral("max_bytes"), 1024}}, QStringLiteral("invalid_page_budget")},
+      {{{QStringLiteral("cursor"), QString(300, QLatin1Char('c'))}}, QStringLiteral("cursor_invalid")},
+      {{{QStringLiteral("cursor"), 5}}, QStringLiteral("invalid_argument_type")},
+      {{{QStringLiteral("cursor"), QStringLiteral("forged")},
+        {QStringLiteral("page_size"), 4}},
+       QStringLiteral("cursor_invalid")},
+      {{{QStringLiteral("pad"), QString(20000, QLatin1Char('p'))}},
+       QStringLiteral("discovery_request_budget_exceeded")},
+  };
+  for (const auto &entry : cases) {
+    QString error;
+    QVERIFY(!host.recovery.listOperations(scope, entry.args, &host.recovery, [](QJsonObject) {}, &error));
+    QCOMPARE(error, entry.code);
+  }
+  // 空 callerScope：独立错误码（不折叠成 document_unavailable），同样不建任务。
+  {
+    QString error;
+    QVERIFY(!host.recovery.listOperations(QString(), {}, &host.recovery, [](QJsonObject) {}, &error));
+    QCOMPARE(error, QStringLiteral("discovery_scope_invalid"));
+  }
+  QCOMPARE(added.size(), 0);
+  QCOMPARE(fileSha(journalPath(root.path())), before);
+  // 合法请求才建任务：恰一个，且照常完成。
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(operationIds(page).size(), 1);
+  QCOMPARE(added.size(), 1);
+}
+
+namespace {
+
+// 供容量/交付多项用例共用的 journal：scopeA 3 行（含一条超长 requestHash 的
+// big 行，capability=h4.big；其余 capability=h4.bulk），scopeB 2 行。
+void writeCapacityJournal(const QString &root, const QString &scopeA, const QString &scopeB) {
+  QDir().mkpath(logDir(root));
+  QJsonArray rows;
+  rows.append(syntheticRow("doc", scopeA, "a1"));
+  rows.append(syntheticRow("doc", scopeA, "a2"));
+  auto big = syntheticRow("doc", scopeA, "big");
+  big.insert(QStringLiteral("requestHash"), QString(2000, QChar('x')));
+  big.insert(QStringLiteral("capabilityId"), QStringLiteral("h4.big"));
+  rows.append(big);
+  rows.append(syntheticRow("doc", scopeB, "b1"));
+  rows.append(syntheticRow("doc", scopeB, "b2"));
+  QFile file(journalPath(root));
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write(QJsonDocument(rows).toJson(QJsonDocument::Compact));
+}
+
+DiscoveryScan scanFor(const QString &root, const QString &scope,
+                      const std::shared_ptr<const ProjectWriteClaim> &claim) {
+  return {QFileInfo(root).canonicalFilePath(), root, logDir(root), "doc", scope, claim};
+}
+
+} // namespace
+
+void H4OperationDiscovery::snapshotCapacityEvictsLeastValuableFirst() {
+  QTemporaryDir root;
+  const QString scopeA = "agent:h4:chat:cap-a", scopeB = "agent:h4:chat:cap-b";
+  writeCapacityJournal(root.path(), scopeA, scopeB);
+  ProjectDirLock lock(root.path());
+  QVERIFY(lock.tryLock());
+  const auto scanA = scanFor(root.path(), scopeA, lock.claim());
+  const auto scanB = scanFor(root.path(), scopeB, lock.claim());
+  const QString bulk = QStringLiteral("h4.bulk"), big = QStringLiteral("h4.big");
+
+  // (a) 典型"list 第一页挑到 ID 就走"：每次 list 都留下一个未消费续页。默认
+  // 4 份上限下连续 8 次都成功——工具不会因为自己在途的分页而被打死。
+  OperationDiscovery service;
+  for (int i = 0; i < 8; ++i) {
+    const auto page = service.query(scanA, {{QStringLiteral("page_size"), 1}});
+    QVERIFY2(page.value(QStringLiteral("ok")).toBool(), qPrintable(page.value(QStringLiteral("code")).toString()));
+    QVERIFY(!page.value(QStringLiteral("nextCursor")).toString().isEmpty());
+    QVERIFY(service.liveSnapshots() <= 4);
+  }
+  QCOMPARE(service.liveSnapshots(), 4);
+  // (b) 首页即失败（单行超预算）：撤销登记，不占槽。
+  QCOMPARE(service.query(scanA, {{QStringLiteral("max_bytes"), 2048},
+                                 {QStringLiteral("capability_id"), big}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("page_budget_too_small"));
+  QCOMPARE(service.liveSnapshots(), 4);
+
+  // (c) 份数上限内的 LRU：两份都有在途分页；A 被续用后更"新"，新查询淘汰 B。
+  {
+    OperationDiscovery lru(DiscoveryPolicy{2, 128, 600000, 8 * 1024 * 1024});
+    const auto a = lru.query(scanA, {{QStringLiteral("page_size"), 1}});
+    const auto b = lru.query(scanA, {{QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), bulk}});
+    QVERIFY(a.value(QStringLiteral("ok")).toBool() && b.value(QStringLiteral("ok")).toBool());
+    const auto a2 = lru.query(scanA, {{QStringLiteral("cursor"), a.value(QStringLiteral("nextCursor")).toString()},
+                                      {QStringLiteral("page_size"), 1}});
+    QVERIFY(a2.value(QStringLiteral("ok")).toBool());
+    const auto c = lru.query(scanA, {{QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), big}});
+    QVERIFY2(c.value(QStringLiteral("ok")).toBool(), qPrintable(c.value(QStringLiteral("code")).toString()));
+    QCOMPARE(lru.liveSnapshots(), 2);
+    // 被淘汰的在途分页：明确的 cursor_expired（不是静默回首页、不是混页）。
+    QCOMPARE(lru.query(scanA, {{QStringLiteral("cursor"), b.value(QStringLiteral("nextCursor")).toString()},
+                               {QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), bulk}})
+                 .value(QStringLiteral("code")).toString(),
+             QStringLiteral("cursor_expired"));
+    // 仍在缓存的 A：最新游标签续照常。
+    QVERIFY(lru.query(scanA, {{QStringLiteral("cursor"), a2.value(QStringLiteral("nextCursor")).toString()},
+                              {QStringLiteral("page_size"), 1}}).value(QStringLiteral("ok")).toBool());
+  }
+  // (d) 已走完的先于在途的被淘汰：B 续到末页后不再有续页，新查询淘汰 B、保留 A。
+  {
+    OperationDiscovery fin(DiscoveryPolicy{2, 128, 600000, 8 * 1024 * 1024});
+    const auto a = fin.query(scanA, {{QStringLiteral("page_size"), 1}});
+    const auto b = fin.query(scanA, {{QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), bulk}});
+    const auto b2 = fin.query(scanA, {{QStringLiteral("cursor"), b.value(QStringLiteral("nextCursor")).toString()},
+                                      {QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), bulk}});
+    QVERIFY(b2.value(QStringLiteral("ok")).toBool());
+    QVERIFY(!b2.value(QStringLiteral("hasMore")).toBool()); // bulk 共 2 行，已走完
+    QVERIFY(fin.query(scanA, {{QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), big}})
+                .value(QStringLiteral("ok")).toBool());
+    QVERIFY2(fin.query(scanA, {{QStringLiteral("cursor"), a.value(QStringLiteral("nextCursor")).toString()},
+                               {QStringLiteral("page_size"), 1}}).value(QStringLiteral("ok")).toBool(),
+             "in-flight A survives; finished B was evicted");
+  }
+  // (f) tier0 优先于通用 LRU：同作用域更旧的"在途"快照与他会话快照并存时，
+  // 让位的是他会话快照（若缺少 tier0，纯 LRU 会淘汰更旧的同作用域快照）。
+  {
+    OperationDiscovery prio(DiscoveryPolicy{2, 128, 600000, 8 * 1024 * 1024});
+    const auto a = prio.query(scanA, {{QStringLiteral("page_size"), 1}});
+    const auto b = prio.query(scanB, {{QStringLiteral("page_size"), 1}});
+    QVERIFY(a.value(QStringLiteral("ok")).toBool() && b.value(QStringLiteral("ok")).toBool());
+    QVERIFY(!a.value(QStringLiteral("nextCursor")).toString().isEmpty());
+    QVERIFY(!b.value(QStringLiteral("nextCursor")).toString().isEmpty());
+    QVERIFY2(prio.query(scanA, {{QStringLiteral("page_size"), 1}, {QStringLiteral("capability_id"), bulk}})
+                 .value(QStringLiteral("ok")).toBool(), "room made by evicting the other-scope snapshot");
+    QVERIFY2(prio.query(scanA, {{QStringLiteral("cursor"), a.value(QStringLiteral("nextCursor")).toString()},
+                                {QStringLiteral("page_size"), 1}}).value(QStringLiteral("ok")).toBool(),
+             "same-scope in-flight snapshot survives tier0 eviction");
+    QCOMPARE(prio.query(scanB, {{QStringLiteral("cursor"), b.value(QStringLiteral("nextCursor")).toString()},
+                                {QStringLiteral("page_size"), 1}}).value(QStringLiteral("code")).toString(),
+             QStringLiteral("cursor_expired"));
+  }
+  // (e) 会话切换：其他 callerScope 的遗留快照最先让位，其旧游标得 cursor_expired。
+  {
+    OperationDiscovery scoped(DiscoveryPolicy{1, 128, 600000, 8 * 1024 * 1024});
+    const auto x = scoped.query(scanA, {{QStringLiteral("page_size"), 1}});
+    QVERIFY(x.value(QStringLiteral("ok")).toBool());
+    QVERIFY2(scoped.query(scanB, {{QStringLiteral("page_size"), 1}}).value(QStringLiteral("ok")).toBool(),
+             "other-scope snapshot yields to the active session");
+    QCOMPARE(scoped.query(scanA, {{QStringLiteral("cursor"), x.value(QStringLiteral("nextCursor")).toString()},
+                                  {QStringLiteral("page_size"), 1}}).value(QStringLiteral("code")).toString(),
+             QStringLiteral("cursor_expired"));
+  }
+}
+
+void H4OperationDiscovery::nonCanonicalProjectPathStillDiscovers() {
+#ifndef Q_OS_WIN
+  QTemporaryDir root;
+  const QString scope = "agent:h4:chat:alias";
+  writeCapacityJournal(root.path(), scope, "agent:h4:chat:other");
+  QStringList expected;
+  {
+    QFile file(journalPath(root.path()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    for (const auto &row : QJsonDocument::fromJson(file.readAll()).array())
+      if (row.toObject().value(QStringLiteral("callerScope")).toString() == scope)
+        expected.append(row.toObject().value(QStringLiteral("operationId")).toString());
+    expected.sort();
+  }
+  QCOMPARE(expected.size(), 3);
+  // 工程根经符号链接访问（R3-P1-2）：宿主给出的 projectDir/operationDir 都是非
+  // 规范形态。发现须与既有 get/results 一样照常工作，而不是误报
+  // operation_log_unavailable。
+  const QString alias = QDir(root.path()).filePath(QStringLiteral("alias"));
+  QVERIFY(QFile::link(root.path(), alias));
+  QVERIFY(QFileInfo(alias).canonicalFilePath() != QFileInfo(alias).absoluteFilePath());
+  Host host(alias);
+  QJsonObject page;
+  QString error;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY2(page.value(QStringLiteral("ok")).toBool(), qPrintable(page.value(QStringLiteral("code")).toString()));
+  QCOMPARE(operationIds(page), expected);
+#else
+  QSKIP("directory alias via symlink is POSIX-only in this fixture");
+#endif
+}
+
+void H4OperationDiscovery::staleInstanceCursorIsExpiredNotInvalid() {
+  QTemporaryDir root;
+  const QString scope = "agent:h4:chat:instance";
+  writeCapacityJournal(root.path(), scope, "agent:h4:chat:other");
+  ProjectDirLock lock(root.path());
+  QVERIFY(lock.tryLock());
+  const auto scan = scanFor(root.path(), scope, lock.claim());
+  OperationDiscovery first;
+  const auto page = first.query(scan, {{QStringLiteral("page_size"), 1}});
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  const QString cursor = page.value(QStringLiteral("nextCursor")).toString();
+  QVERIFY(!cursor.isEmpty());
+  // 服务实例重建（会话/宿主失效后）：旧游标"不再有效"→ cursor_expired，引导
+  // 重新发现，而不是让模型以为传错了（cursor_invalid）。
+  OperationDiscovery second;
+  QCOMPARE(second.query(scan, {{QStringLiteral("cursor"), cursor}, {QStringLiteral("page_size"), 1}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("cursor_expired"));
+  // 同实例内篡改 MAC 仍是 cursor_invalid。
+  auto tampered = cursor;
+  tampered.replace(tampered.size() - 1, 1, tampered.endsWith(QLatin1Char('0')) ? QLatin1Char('1') : QLatin1Char('0'));
+  QCOMPARE(first.query(scan, {{QStringLiteral("cursor"), tampered}, {QStringLiteral("page_size"), 1}})
+               .value(QStringLiteral("code")).toString(),
+           QStringLiteral("cursor_invalid"));
+}
+
+void H4OperationDiscovery::deliveryIsDroppedWhenContextChangesDuringScan() {
+  // H4 完成侧复核的 oracle：扫描输入已冻结、worker 会照常算出清单，但上下文
+  // 已变 → 交付失败而不是清单。变体 0/1（文档/epoch）会同时触发服务代次检查，
+  // 不能单独隔离 checkContext 归属复核；变体 3 只撤 Read 效果（不改身份、
+  // 不 reset 服务）→ effect_denied，单独证明完成侧的上下文/效果复核生效。
+  for (int variant = 0; variant < 4; ++variant) {
+    QTemporaryDir root;
+    const QString scope = "agent:h4:chat:drop" + QString::number(variant);
+    writeCapacityJournal(root.path(), scope, "agent:h4:chat:other");
+    Host host(root.path());
+    QJsonObject out;
+    bool delivered = false;
+    // taskAdded 同步改变宿主身份（此刻 worker 尚未开始执行）。
+    const QMetaObject::Connection added =
+        QObject::connect(&host.tasks, &PaleoTaskService::taskAdded, &(host.tasks), [&, variant](PaleoTask *) {
+          if (variant == 0)
+            host.documentId = QStringLiteral("docB");
+          else if (variant == 1)
+            ++host.epoch;
+          else if (variant == 2)
+            host.recovery.invalidateRuntimeHooks(false); // 服务代次变化（宿主 provider 换绑）
+          else
+            host.allowedEffects = 0; // 仅撤效果：不 reset 服务，单独隔离完成侧归属复核
+        });
+    auto *task = host.recovery.listOperations(scope, {}, &host.recovery,
+                                              [&](QJsonObject r) { out = r; delivered = true; });
+    QObject::disconnect(added);
+    QVERIFY(task);
+    QEventLoop loop;
+    QObject::connect(task, &PaleoTask::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    for (int i = 0; i < 500 && !delivered; ++i) {
+      QCoreApplication::processEvents();
+      QThread::msleep(1);
+    }
+    QVERIFY(delivered);
+    QVERIFY2(!out.value(QStringLiteral("ok")).toBool(), qPrintable(QString::fromUtf8(
+        QJsonDocument(out).toJson(QJsonDocument::Compact))));
+    QCOMPARE(out.value(QStringLiteral("code")).toString(),
+             variant == 3 ? QStringLiteral("effect_denied") : QStringLiteral("stale_session"));
+  }
+}
+
+void H4OperationDiscovery::subscriberDestroyedInsideTaskAddedIsSafe() {
+  // R1-P1-1 回归：订阅者在 taskAdded 内被同步销毁（守卫必须先于 start() 构造）。
+  QTemporaryDir root;
+  const QString scope = "agent:h4:chat:gone";
+  writeCapacityJournal(root.path(), scope, "agent:h4:chat:other");
+  Host host(root.path());
+  QJsonObject out;
+  bool delivered = false;
+  auto *subscriber = new QObject;
+  const QMetaObject::Connection added =
+      QObject::connect(&host.tasks, &PaleoTaskService::taskAdded, [subscriber](PaleoTask *) { delete subscriber; });
+  QString error;
+  auto *task = host.recovery.listOperations(scope, {}, subscriber, [&](QJsonObject r) { out = r; delivered = true; },
+                                            &error);
+  QObject::disconnect(added);
+  QVERIFY(!task);
+  QCOMPARE(error, QStringLiteral("stale_session"));
+  for (int i = 0; i < 50; ++i)
+    QCoreApplication::processEvents();
+  QVERIFY(!delivered);
+  // 服务与缓存未被旧回调破坏：新查询照常完成。
+  QJsonObject page;
+  QVERIFY(listOnce(host.recovery, scope, {}, page, &error));
+  QVERIFY(page.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(operationIds(page).size(), 3);
+}
+
+void H4OperationDiscovery::cancelInsideScanLeavesJournalUntouched() {
+  QTemporaryDir root;
+  const QString scope = "agent:h4:chat:midcancel";
+  writeCapacityJournal(root.path(), scope, "agent:h4:chat:other");
+  ProjectDirLock lock(root.path());
+  QVERIFY(lock.tryLock());
+  const auto scan = scanFor(root.path(), scope, lock.claim());
+  const auto before = fileSha(journalPath(root.path()));
+  OperationDiscovery service;
+  // 取消回调：首个检查点（扫描前）放行，扫描确实发生，投影阶段的检查点命中。
+  int checks = 0;
+  const auto page = service.query(scan, {}, [&] { return ++checks > 1; });
+  QCOMPARE(page.value(QStringLiteral("code")).toString(), QStringLiteral("cancelled"));
+  QVERIFY(!page.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(service.scanCount(), 1); // 扫描真的执行过
+  QCOMPARE(service.liveSnapshots(), 0);
+  QVERIFY(checks >= 2);
+  // 扫描之中取消：journal 字节不变（此处不是空真——snapshotScope 已执行）。
+  QCOMPARE(fileSha(journalPath(root.path())), before);
+  // 取消只影响本次查询：随后正常查询照常。
+  QVERIFY(service.query(scan, {}).value(QStringLiteral("ok")).toBool());
+}
+
+void H4OperationDiscovery::listTaskIsQuietAndCoverageIsDeclared() {
+  QTemporaryDir root;
+  const QString scope = "agent:h4:chat:quiet";
+  writeCapacityJournal(root.path(), scope, "agent:h4:chat:other");
+  Host host(root.path());
+  QJsonObject out;
+  bool delivered = false;
+  QString error;
+  auto *task = host.recovery.listOperations(scope, {{QStringLiteral("page_size"), 2}}, &host.recovery,
+                                            [&](QJsonObject r) { out = r; delivered = true; }, &error);
+  QVERIFY2(task, qPrintable(error));
+  // 嵌入交互的毫秒级任务：登记、可取消，但不触发主窗口任务中心自动露出。
+  QVERIFY(task->quiet());
+  QEventLoop loop;
+  QObject::connect(task, &PaleoTask::finished, &loop, &QEventLoop::quit);
+  loop.exec();
+  for (int i = 0; i < 500 && !delivered; ++i) {
+    QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
+  QVERIFY(delivered);
+  QVERIFY(out.value(QStringLiteral("ok")).toBool());
+  // coverage.complete 与工具结果信封协议同名键：有续页 false，末页 true。
+  QCOMPARE(out.value(QStringLiteral("hasMore")).toBool(), true);
+  QCOMPARE(out.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("complete")).toBool(), false);
+  const QString cursor = out.value(QStringLiteral("nextCursor")).toString();
+  QVERIFY(!cursor.isEmpty());
+  QVERIFY(listOnce(host.recovery, scope, {{QStringLiteral("cursor"), cursor}, {QStringLiteral("page_size"), 2}}, out,
+                   &error));
+  QVERIFY(out.value(QStringLiteral("ok")).toBool());
+  QCOMPARE(out.value(QStringLiteral("hasMore")).toBool(), false);
+  QVERIFY(!out.contains(QStringLiteral("nextCursor")));
+  QCOMPARE(out.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("complete")).toBool(), true);
+}
+
+QTEST_MAIN(H4OperationDiscovery)
+#include "tst_h4_operation_discovery.moc"

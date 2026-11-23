@@ -15,6 +15,7 @@ namespace paleo::artifacts { class AuthenticatedArtifactReader; }
 
 namespace paleo::capability {
 inline constexpr char OperationContract[] = "paleo.operation.v2";
+class OperationDiscovery; // H4：只读发现服务（operationdiscovery.h）
 struct OperationWorkContext {
   QString operationId, attemptId, privateDir, projectDir;
   QJsonObject frozenPlan;
@@ -102,6 +103,12 @@ public:
   PaleoTask *read(const QString &callerScope, const QString &operationId, const QString &portId,
                   qint64 offset, int maxBytes, QObject *subscriber,
                   std::function<void(QJsonObject)> finished, QString *error = nullptr);
+  // H4 只读发现：当前 document/callerScope 的持久 operation 摘要与直接关系
+  // 分页（paleo.operation_list 后端）。扫描/解析经 TaskService worker 执行，
+  // owner 只冻结可信值并在完成时复核归属；不 get/reconcile、不写 journal。
+  PaleoTask *listOperations(const QString &callerScope, const QJsonObject &arguments,
+                            QObject *subscriber, std::function<void(QJsonObject)> finished,
+                            QString *error = nullptr);
   // Host-only fault injection. Test child processes exit at these durable boundaries.
   void setCheckpointHook(std::function<void(const QString &)> hook);
 
@@ -125,5 +132,7 @@ private:
   QHash<QString, RecoveryHost> m_externalHosts;
   std::function<void(const QString &)> m_checkpoint;
   std::shared_ptr<artifacts::AuthenticatedArtifactReader> m_resultReader;
+  // H4：发现服务以 shared_ptr 保活——worker 在途时 Recovery 销毁不悬空。
+  std::shared_ptr<OperationDiscovery> m_discovery;
 };
 } // namespace paleo::capability

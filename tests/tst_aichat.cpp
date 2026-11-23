@@ -353,7 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 25);
+  QCOMPARE(tools.size(), 26);
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -365,7 +365,10 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     if(spec.name==QLatin1String("paleo.python_environment")) {
       QVERIFY(properties.isEmpty());QVERIFY(required.isEmpty());
     } else {
-      QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");QVERIFY(!required.isEmpty());
+      QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");
+      // H4：operation_list 是唯一不要求任何必填实参的有参工具（发现不以已知
+      // operation_id 为起点）；其余工具仍须至少一个必填项。
+      QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list"),"工具必须有必填参数");
     }
     for(const auto &key:required)QVERIFY(properties.contains(key.toString()));
     QCOMPARE(inputSchema.value("additionalProperties"),QJsonValue(false));
@@ -391,7 +394,8 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.tile_classification_v2", "paleo.operation_get", "paleo.operation_events",
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
-    "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs"};
+    "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
+    "paleo.operation_list"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;

@@ -1,6 +1,10 @@
 // 层：功能
 #include "domaintools.h"
 
+// H4：同族只读发现工具（operationdiscoverytools.cpp）——唯一不要求已知
+// operation_id 的 operation 前缀工具，效果恒为 Read。
+void appendAgentOperationDiscoveryTools(QVector<AiToolSpec> &specs);
+
 void appendAgentOperationTools(QVector<AiToolSpec> &specs) {
   const auto text=[](const char *key,bool required) {return AiToolParamSpec{QLatin1String(key),"string",QString(),required,{}};};
   // G3/W4：分页预算声明与运行期（aichattoolrunner_operations.cpp 的
@@ -45,4 +49,5 @@ void appendAgentOperationTools(QVector<AiToolSpec> &specs) {
     if(spec.name.endsWith("_cancel"))spec.effects|=paleo::host::PrivateStage;
     specs.append(spec);
   }
+  appendAgentOperationDiscoveryTools(specs);
 }

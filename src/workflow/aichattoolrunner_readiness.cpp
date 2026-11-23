@@ -68,7 +68,10 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(spec.requiresLocalOrt)return fail("ort_unavailable");
 #endif
   // Explicitly injected legacy adapters remain available to existing internal callers.
-  if(!context.requireCapabilityHost && !python) {result.ready=true;return result;}
+  // H4：operation_list 依赖 Host/Recovery/TaskService，无宿主即不可执行——不经
+  // 该无条件放行，恒走下方 hosted 资格路径（不向模型广播必然失败的调用）。
+  const bool operationList=name==QLatin1String("paleo.operation_list");
+  if(!context.requireCapabilityHost && !python && !operationList) {result.ready=true;return result;}
   if(spec.legacyAdapter)return fail("legacy_tool_requires_versioned_adapter");
   if(!context.capabilityHost)return fail("host_unavailable");
   const auto live = context.capabilityHost->context();
@@ -101,6 +104,13 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(!result.effects)return fail("invalid_publish_intent");
   const auto denied=paleo::host::checkContext(live,expected,result.effects);
   if(!denied.isEmpty())return fail(denied);
+  // H4：operation_list 只需 Read（写权限不足不阻止只读发现）；扫描走
+  // TaskService worker，资格在此精确声明，不假设调用方替它检查。
+  if(operationList) {
+    if(!context.capabilityHost->recovery())return fail("host_unavailable");
+    if(!m_taskService)return fail("task_service_unavailable");
+    result.ready=true;return result;
+  }
   if((name==QLatin1String("paleo.query_project") || name==QLatin1String("paleo.asset_lineage")) &&
       (!context.catalog || !context.catalog->isOpen()))return fail("catalog_unavailable");
   if(name==QLatin1String("paleo.well_facies_prediction")) {

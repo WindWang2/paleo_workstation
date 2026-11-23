@@ -27,7 +27,12 @@ inline bool readFileBytes(const QString &path, QByteArray *out)
   return true;
 }
 
+// expr 只求值一次：调用点允许传入非纯表达式（如 ChatSessionStore::pathFor，它经
+// directory() 会做幂等 mkpath），也避免成功分支为了拼失败消息再求值一遍。
 #define REQUIRE_BYTES(expr, var)                                              \
-  QVERIFY2(::readFileBytes((expr), &(var)),                                   \
-           qPrintable(QStringLiteral("无法读取文件（不存在/打不开/空文件）：%1") \
-                        .arg(QString(expr))))
+  do {                                                                        \
+    const QString requirePath_ = (expr);                                      \
+    QVERIFY2(::readFileBytes(requirePath_, &(var)),                           \
+             qPrintable(QStringLiteral("无法读取文件（不存在/打不开/空文件）：%1") \
+                            .arg(requirePath_)));                             \
+  } while (false)

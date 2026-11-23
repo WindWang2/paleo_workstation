@@ -84,9 +84,9 @@ maxArchiveBytes = turnReserve + titleReserve + 32 MiB = 338,203,072（322.54 MiB
 
 ## 本地验证
 
-最终 head `eaf48afc`（base = `origin/master` `8eca4644`，主干在开发期间未移动，无需
-rebase）。`89b57cff`/`d771d5a1`/`26e1e75b`/`eaf48afc` 四个提交只改测试文件与本文档；
-产品代码与二进制自 15:29 构建后未变。
+最终 head `552d1191`（base = `origin/master` `8eca4644`，主干在开发期间未移动，无需
+rebase）。15:29 构建之后的提交只改测试文件与本文档；产品代码与产品二进制自那次构建
+后未变（因此 27 个回归测试的二进制仍是跑过的那批）。
 
 ### 构建
 
@@ -191,4 +191,11 @@ ts_stale（0）、l10n、qgis_versions、docs_drift、cpp_mainline。**未抬任
   类断言真正可失败。
 - R7（对 26e1e75b 的收尾确认）：**未完成**——reviewer 触达所用模型的 5 小时使用上限
   （16:29 中断，18:31 重置）。如实记录，不作为通过。
-- R8（对最终 head `eaf48afc` 的末段测试改动，另起一位独立 reviewer）：见下方结论。
+- R8（对 `d771d5a1..eaf48afc` 末段测试改动，另起一位独立 reviewer）：**APPROVE（绑定
+  eaf48afc）**，无 P0/P1。逐项确认：16 处调用点全在返回 void 的测试槽内；失败经
+  `QTEST_FAIL_ACTION` 直接从槽返回；无绕过 REQUIRE_BYTES 的磁盘内容比较；`!=` 断言已
+  正反两向钉住（改名前无新标题、改名后有新标题）；共享头只被两个 QtTest TU 包含、
+  层标记合规；实跑 Totals 与时间戳绑定最终测试源码；388 的更正已落地。
+  1×P2（非阻塞）：`REQUIRE_BYTES` 对 `expr` 求值两次，且 `pathFor` 经 `directory()` 会做
+  幂等 `mkpath`——已改为宏内只求值一次（552d1191），语义不变、消除重复副作用；改后
+  重链两个测试目标 exit 0，tst_h2_* 15/8/13/8 全绿，Source gates 14/14 exit 0。

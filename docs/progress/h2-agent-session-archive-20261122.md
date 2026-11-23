@@ -65,8 +65,10 @@ maxArchiveBytes = turnReserve + titleReserve + 32 MiB = 338,203,072（322.54 MiB
 
 ## 环境
 
-- CachyOS Linux x86_64，Qt 6.10.2 / QGIS 4.2.3（deb 闭包前缀），RelWithDebInfo，
-  `-j4`（主机级构建互斥，同批多 Agent 同一时刻只有一个重型构建）。
+- CachyOS Linux x86_64，Qt 6.10.2 / QGIS 4.2.3（deb 闭包前缀），RelWithDebInfo
+  **`-O2 -g1 -DNDEBUG`**（同批「构建磁盘占用公告」与 CI Linux 必过车道口径；完整 DWARF
+  下每棵全量构建树约 270 GB，本构建树 5.6 GB），`-j4`（主机级构建互斥，同批多 Agent 同一
+  时刻只有一个重型构建）。
 - **依赖前缀**：`vendor/prefix` 是一份带闭包收据的 deb 闭包的**私有只读副本**
   （`cp -a`，96,979 项 / 3.47 GB；收据 `90a7bf14…fb02` == 本分支
   `vendor/deb-closure.lock` 的 sha256；configure 期 `paleo-deb-prefix.cmake` 复核
@@ -82,19 +84,73 @@ maxArchiveBytes = turnReserve + titleReserve + 32 MiB = 338,203,072（322.54 MiB
 
 ## 本地验证
 
-**尚未执行。** 会话两次中断 + 等待主机构建互斥锁，H2 的构建与测试在本文写作时
-还没有运行过；以下为构建/测试完成后的真实结果占位，未填即为未验证。
+最终 head `eaf48afc`（base = `origin/master` `8eca4644`，主干在开发期间未移动，无需
+rebase）。`89b57cff`/`d771d5a1`/`26e1e75b`/`eaf48afc` 四个提交只改测试文件与本文档；
+产品代码与二进制自 15:29 构建后未变。
 
-- 构建：（待填）
-- `tst_h2_*`：（待填）
-- 回归：（待填）
-- Source gates：（待填）
+### 构建
 
-构建前对全部改动做过的工作（如实区分）：每个改动 TU 的 `-fsyntax-only` 编译检查
-通过；静态闸门脚本（layering --strict / --qgs-audit / --transitive、file_budget
---strict、ui_size、ui_invariants、ui_tokens、ts_stale、i18n、l10n、qgis_versions、
-docs_drift、qgis_spread、cpp_mainline）通过；测试用例经逐条静态推演修订。这些
-都不替代真实运行。
+`./paleo-dev build -j4 --target paleo <31 个受影响测试>`：1371 步，**exit 0**，1348 s，
+0 error；H2 改动的 TU 无新增警告。构建树 5.6 GB。
+
+### 专项新增（4 个测试，44 例全绿，0 skipped）
+
+| 测试 | 结果 | 覆盖 |
+|---|---|---|
+| `tst_h2_sessionarchive` | 15 passed | schema/身份/结构拒绝、目录伪装与符号链接别名（叶子链接在本机**真实创建并拒绝**，非 SKIP）、超限档案保留字节、读取中增长（无限设备）、恰好到限/差一字节、消息数上限、纯准入数学边界、save 对称拒绝、sidecar 生命周期 |
+| `tst_h2_capacitygates` | 8 passed | 发送拒绝零 append/零 HTTP/磁盘不变 + `newSession` 逃生、近上限旧档案 load→retry 在 resize 前拒绝→原回答/bindings 不变、重试余量充足时照常、rename 三类拒绝（标题字段/候选档案成本/无法载入）与合法改名、空会话不落盘、真实重转义一轮的落盘字节落在预留内 |
+| `tst_h2_recentarchives` | 13 passed | 1000 小档案冷修复恰 N 次正文解析、热刷新 5 次零解析、定向修复恰 1 次、排序/同秒/无时间、外部改写与坏缓存重建、超限/损坏摘要、外部删除清孤儿、无服务 partial、修复原语与任务页取消、控制器销毁安全、索引目录只读时保存事实独立 |
+| `tst_h2_sessioncombo` | 8 passed | 下拉由元信息构建、超限选择经权威拒绝、**真实 checkpoint 信号链后零旧正文解析**、草稿与选择不受刷新影响、删除不复活、未校验完全部候选时的禁用说明行 |
+
+### 回归（既有受影响入口，27 个测试）
+
+388 passed / 0 failed / 4 skipped（此前误记为 402，独立复审 R6 逐文件核对后更正）：
+
+| 测试 | 结果 |
+|---|---|
+| tst_aichat / aichatcontroller / aichatprojectquery / aichatcapability | 17、24、16、9 全绿 |
+| tst_aiassistdock / aitoolresultview | 11、14 通过；各 1 skipped（`captureLedgerScreenshots`，需显式截图环境，既有环境门） |
+| tst_chatinvocationbinding / chatresults | 8、16 全绿 |
+| tst_g1_configcommit / g1_credentialboundary | 19、11 全绿 |
+| tst_g2_turncheckpoint / g2_piterminal | 12、11 全绿 |
+| tst_g5_assembly / g5_conversation_workbench / g5_conversation_projection / g5_operation_presentation | 5、10、17、14 通过；g5_assembly 1 skipped（`captureAssemblyScreenshots`，既有环境门） |
+| tst_pichatbridge / piconversation / piprotocol / pigeneratedoperations | 29、15、21、6 全绿 |
+| tst_shell_projectlifecycle | 19 通过；1 skipped（`realProjectBackgroundResponsiveness`，需真实工程夹具，既有环境门） |
+| tst_wellfaciesagent / tile_agent / agent_readiness / aichattoolloop / capability_host / aiwiring | 20、14、10、14、12、14 全绿 |
+
+4 个 skipped 全部是既有的环境门（截图采集 / 真实工程夹具），与 H2 无关，**如实记为
+未执行，不计入通过**。
+
+### Source gates（最终 head，脚本直跑，全部 exit 0）
+
+layering `--strict` / `--qgs-audit --strict`（134 = 基线 134，新增 0）/ `--transitive`
+（`QGIS_PREFIX` = 本 worktree 的受控前缀）、qgis_spread（169 = 基线 169）、
+file_budget `--strict`（51 = 基线 51，新增 0）、ui_size、ui_invariants、i18n、ui_tokens、
+ts_stale（0）、l10n、qgis_versions、docs_drift、cpp_mainline。**未抬任何基线、未改
+任何检查器。**
+
+### 过程如实记录
+
+- 上述构建/测试是本任务**第一次真实运行**（此前会话两次中断 + 等待主机构建互斥锁
+  约 7 小时）。在此之前只做过：每个改动 TU 的 `-fsyntax-only`、静态闸门脚本、测试
+  用例逐条推演。
+- 首跑结果 1 绿 3 红，**产品代码未暴露缺陷**，全部是测试自身问题，修复于 89b57cff：
+  (a) `QFile(path).readAll()` 用未打开的临时对象恒返回空，使「原文件字节保留」类断言
+  此前是空对空的恒真比较——改为显式打开的 `readFileBytes()` 后这些断言才真正生效；
+  (b) 有界列表期望值写错：`requestRecentSessionSummaries(20)` 在回合后是「当前会话
+  自身进入最近 20 条之首 → 被 dock 过滤 → 当前 + 19 个存量 = 20 项」，与改造前
+  `recentSessions(20)` + 过滤当前会话的条数语义一致。
+- 独立复审（R1–R6）在**构建前后**靠静态推演 + 实跑证据发现并修掉了 4×P0 / 2×P1 等问题；
+  构建前的逐条推演与自审又消掉了 9 处测试缺陷与 3 处产品侧问题（预算旋钮默认值为 0、
+  超限档案沿用缓存旧结论、修复原语的指纹竞窗）。
+- **等待约 7 小时的真实原因**（不是"机器慢"）：同批的共享构建锁脚本
+  `heavy-build.sh` 用 `git -C <主仓> rev-parse --git-common-dir` 取锁目录，该命令从主
+  checkout 调用时返回**相对路径 `.git`**，被解析成**调用者 cwd** 下的 `.git`——从 worktree
+  调用时 worktree 的 `.git` 是文件（gitlink），`mkdir` 恒失败，`wait` 轮询永远在 sleep。
+  H2 与 h4 的排队进程都因此空转（H2 错过 h4 在 14:24 主动让出的窗口就是这个原因）。
+  已把脚本改为 `--path-format=absolute`（备份原文件）并从 worktree cwd 验证。
+- R6 指出回归合计误写为 402；逐文件重算确认实际为 **388 passed / 0 failed / 4 skipped**
+  （两种独立数法一致），文档与 PR 描述均已更正并保留更正说明。
 
 ## 未覆盖/限制
 
@@ -120,5 +176,19 @@ docs_drift、qgis_spread、cpp_mainline）通过；测试用例经逐条静态�
   内容放在会被 resize 丢弃的一侧）+ 3×P2（截断时 prune 误删、未用变量、文档）。
   修复提交 e4f064f1 / dfff0406。
 - R3（对 e4f064f1）：APPROVE（代码面）。
-- R3 之后的增量（4c123341、4a52f40e：预算默认值、会话头预留、超限按当前预算、
-  列表完整性标注、根边界同构比较、测试夹具修订）：（复审结论待填）
+- R4（另一位独立 reviewer，对 e4f064f1..871d73fa 增量）：REQUEST CHANGES——产品
+  代码无阻塞；1×P1 测试缺陷（`loadSession` 载入失败只发 `sessionListChanged`、原因
+  走出参，用例却在等 `errorOccurred`）、2×P2（DESIGN.md 禁用控件 reason tooltip；
+  空 id 防御——后者经 reviewer 复核撤回）。修复提交 08b289d6。
+- R5（同一 reviewer，对 871d73fa..39cb98a1）：APPROVE——rename 拒绝按原因分报、
+  修复原语读前取指纹读后复核均正确；确认后者无环/无饥饿，未配专门测试可接受
+  （竞窗无确定性注入缝，失败模式保守）。
+- R6（另一位独立 reviewer，对 d771d5a1 及其实跑证据）：**APPROVE（绑定 d771d5a1）**，
+  无 P0/P1；2×P2——(a) 测试的文件读取辅助函数仍有恒真缺口（一处 `!=` 断言被空过、
+  两侧都读不到时哨兵对哨兵仍相等），(b) 回归合计 402 应为 388。
+- R6 修复：d771d5a1（哨兵 + 7 处基线非空）、26e1e75b（requireFileBytes）、
+  eaf48afc（REQUIRE_BYTES 宏把断言放回测试槽）——三轮都在收紧同一件事：让「磁盘不变」
+  类断言真正可失败。
+- R7（对 26e1e75b 的收尾确认）：**未完成**——reviewer 触达所用模型的 5 小时使用上限
+  （16:29 中断，18:31 重置）。如实记录，不作为通过。
+- R8（对最终 head `eaf48afc` 的末段测试改动，另起一位独立 reviewer）：见下方结论。

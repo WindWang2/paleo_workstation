@@ -79,6 +79,7 @@ private slots:
   void policyIsStaticAndSeparatedFromRuntime();
   void missingHostKeepsStaticContractAndMarksPolicyUnavailable();
   void describeBudgetDropsWholeSectionsWithCoverage();
+  void cursorAndSectionGuardsAreStrict();
   void topLevelClosedFieldSet();
   void unknownModesAndTargetsAreMachineErrors();
 };
@@ -141,12 +142,15 @@ void TestI5CapabilityInspection::describeCapabilityExactVersionAliasAndNoFallbac
   QCOMPARE(identity.value("id").toString(), QStringLiteral("constraint.idw"));
   QCOMPARE(identity.value("requested_alias").toString(), QStringLiteral("paleo.constraint_idw"));
   QCOMPARE(identity.value("exposure").toString(), QStringLiteral("callable"));
-  // 精确版本：constraint.idw 只有 v1——请求 v2 明确拒绝，不回落。
+  // 精确版本：constraint.idw 只有 v1——请求 v2 明确拒绝，不回落（field 归因
+  // 版本字段，与 algorithm/command 同口径）。
   const auto wrong = inspect({{"mode", "describe"}, {"target_kind", "capability"},
                               {"target_id", "constraint.idw"}, {"contract_version", 2}});
   QVERIFY(!wrong.ok);
   QCOMPARE(wrong.code, QStringLiteral("unsupported_version"));
-  QCOMPARE(wrong.field, QStringLiteral("target_id"));
+  QCOMPARE(wrong.field, QStringLiteral("contract_version"));
+  // F5：失败帧携带 mode（自身 schema required=[contract,ok] 之外的纪律补齐）。
+  QCOMPARE(wrong.payload.value("mode").toString(), QStringLiteral("describe"));
   // wellfacies.predict 登记 v2：默认（0）取 v2 并列出 versions。
   const auto facies = inspect({{"mode", "describe"}, {"target_kind", "capability"},
                                {"target_id", "wellfacies.predict"}});
@@ -189,22 +193,31 @@ void TestI5CapabilityInspection::describeAlgorithmVersionsWithoutMerging() {
 }
 
 void TestI5CapabilityInspection::describeToolReflectsRealContractAndHonestRelations() {
-  // query_project 的完整 schema 较大：显式请求 contract/route/related 三节
-  // （默认全节会按预算整节省略——见 describeBudgetDropsWholeSections）。
+  // query_project 的完整声明 schema 超过单页内联预算（F1 路径在
+  // describeBudgetDropsWholeSections 里以它做超限反例）；schema 内容断言用
+  // 较小的 operation_list，route/related 断言用 query_project。
+  const auto operations = inspect({{"mode", "describe"}, {"target_kind", "tool"},
+                                   {"target_id", "paleo.operation_list"},
+                                   {"sections", QJsonArray{QStringLiteral("contract")}},
+                                   {"max_bytes", 8192}});
+  QVERIFY(operations.ok);
+  const auto operationsSections = payloadJson(operations).value("sections").toObject();
+  QVERIFY(operationsSections.contains(QStringLiteral("declaration")));
+  const auto operationsDeclaration = operationsSections.value("declaration").toObject();
+  // schema 来自真实 AiToolSpec 生成器：view enum 与注册表同源。
+  const auto view = operationsDeclaration.value("parameters_schema").toObject()
+                        .value("properties").toObject().value("view").toObject();
+  QVERIFY(view.value("enum").toArray().contains(QStringLiteral("relations")));
+  QVERIFY(operationsDeclaration.contains(QStringLiteral("model_envelope_schema")));
+  QVERIFY(payloadJson(operations).value("coverage").toObject().value("complete").toBool());
+
   const auto query = inspect({{"mode", "describe"}, {"target_kind", "tool"},
                               {"target_id", "paleo.query_project"},
-                              {"sections", QJsonArray{QStringLiteral("contract"),
-                                                      QStringLiteral("route"),
+                              {"sections", QJsonArray{QStringLiteral("route"),
                                                       QStringLiteral("related")}},
-                              {"max_bytes", 16384}});
+                              {"max_bytes", 8192}});
   QVERIFY(query.ok);
   const auto sections = payloadJson(query).value("sections").toObject();
-  const auto declaration = sections.value("declaration").toObject();
-  // schema 来自真实 AiToolSpec 生成器：topic enum 与注册表同源。
-  const auto topic = declaration.value("parameters_schema").toObject()
-                         .value("properties").toObject().value("topic").toObject();
-  QVERIFY(topic.value("enum").toArray().contains(QStringLiteral("wells")));
-  QVERIFY(declaration.contains(QStringLiteral("model_envelope_schema")));
   const auto route = sections.value("route").toObject();
   QCOMPARE(route.value("status").toString(), QStringLiteral("static_route_registered"));
   // 空探针实参走 dispatch 早退分支时不虚构 target（target_note 说明取法）。
@@ -564,6 +577,64 @@ void TestI5CapabilityInspection::describeBudgetDropsWholeSectionsWithCoverage() 
   QVERIFY(payloadJson(refetch).value("sections").toObject()
               .contains(omitted.first().toString()));
   QVERIFY(payloadJson(refetch).value("coverage").toObject().value("complete").toBool());
+
+  // F1（评审修复）：单个节自身超预算同样省略——不超限交付、不谎报 complete。
+  const auto single = inspect({{"mode", "describe"}, {"target_kind", "tool"},
+                               {"target_id", "paleo.query_project"},
+                               {"sections", QJsonArray{QStringLiteral("contract")}},
+                               {"max_bytes", 2048}});
+  QVERIFY(single.ok);
+  const auto singleCoverage = payloadJson(single).value("coverage").toObject();
+  QCOMPARE(singleCoverage.value("complete").toBool(), false);
+  QVERIFY(singleCoverage.value("omittedSections").toArray().contains(
+      QStringLiteral("declaration")));
+  QVERIFY(!payloadJson(single).value("sections").toObject().contains(
+      QStringLiteral("declaration")));
+}
+
+void TestI5CapabilityInspection::cursorAndSectionGuardsAreStrict() {
+  // F3（评审修复）：游标 offset 非原生整数（文本 "1"）→ cursor_stale，
+  // 不被 toInt 静默解释成第 1 页。
+  const auto page = inspect({{"mode", "list"}, {"page_size", 5}});
+  QVERIFY(page.ok);
+  const QString cursor = payloadJson(page).value("nextCursor").toString();
+  QVERIFY(!cursor.isEmpty());
+  const auto forged = QByteArray::fromBase64(cursor.toUtf8(),
+      QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+  auto document = QJsonDocument::fromJson(forged);
+  auto object = document.object();
+  object.insert(QStringLiteral("offset"), QStringLiteral("1")); // 伪造文本 offset
+  const auto reforged = QString::fromLatin1(QJsonDocument(object).toJson(QJsonDocument::Compact)
+      .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+  const auto staleOffset = inspect({{"mode", "list"}, {"page_size", 5},
+                                    {"cursor", reforged}});
+  QVERIFY(!staleOffset.ok);
+  QCOMPARE(staleOffset.code, QStringLiteral("cursor_stale"));
+
+  // F4（评审修复）：目标类型不适用的节名 → invalid_section（不静默缺失）。
+  const auto toolParams = inspect({{"mode", "describe"}, {"target_kind", "tool"},
+                                   {"target_id", "paleo.query_project"},
+                                   {"sections", QJsonArray{QStringLiteral("params")}}});
+  QVERIFY(!toolParams.ok);
+  QCOMPARE(toolParams.code, QStringLiteral("invalid_section"));
+  QCOMPARE(toolParams.field, QStringLiteral("params"));
+  const auto commandRoute = inspect({{"mode", "describe"}, {"target_kind", "command"},
+                                     {"target_id", "view.open.data"},
+                                     {"sections", QJsonArray{QStringLiteral("route")}}});
+  QVERIFY(!commandRoute.ok);
+  QCOMPARE(commandRoute.code, QStringLiteral("invalid_section"));
+  // capability 的 params 节按请求名交付（含来源 AlgorithmSpec 身份）。
+  const auto capabilityParams = inspect({{"mode", "describe"}, {"target_kind", "capability"},
+                                         {"target_id", "constraint.idw"},
+                                         {"sections", QJsonArray{QStringLiteral("params")}}});
+  QVERIFY(capabilityParams.ok);
+  const auto params = payloadJson(capabilityParams).value("sections").toObject()
+                          .value("params").toObject();
+  QCOMPARE(params.value("source").toString(),
+           QStringLiteral("linked AlgorithmSpec at the capability's algorithm_contract_version"));
+  QVERIFY(params.value("fields").toArray().size() >= 1);
+  QVERIFY(payloadJson(capabilityParams).value("coverage").toObject()
+              .value("deliveredSections").toArray().contains(QStringLiteral("params")));
 }
 
 void TestI5CapabilityInspection::topLevelClosedFieldSet() {

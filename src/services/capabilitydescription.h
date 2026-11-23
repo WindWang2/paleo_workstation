@@ -17,6 +17,9 @@ namespace paleo::capability {
 QString capabilityKindName(CapabilityKind kind);
 QString algorithmReproducibilityName(AlgorithmReproducibility value);
 QString algorithmParamTypeName(AlgorithmParamField::Type type);
+// host 效果位 → 稳定名的单源映射（services/workflow 两处描述共用；
+// hostcallcontext.h 的 Effect 枚举是位定义的唯一来源）。
+QStringList hostEffectNames(unsigned effects);
 
 // —— CapabilitySpec 投影 ——
 // 清单卡片（list 页条目）：身份/版本/kind/exposure + 摘要事实。

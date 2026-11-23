@@ -40,8 +40,10 @@ void appendCapabilityInspectionTool(QVector<AiToolSpec> &specs) {
        QObject::tr("目标契约版本（0=当前登记最高版，缺省 0；给定版本精确匹配不回落）"),
        false},
       {QStringLiteral("sections"), QStringLiteral("array"),
-       QObject::tr("describe 节选择（≤16）：identity/contract/params/ports/lifecycle/"
-                   "related/route；缺省全节"),
+       QObject::tr("describe 节选择（≤16，按目标类型适用子集校验）：identity/"
+                   "contract/params/ports/lifecycle/related（capability/algorithm），"
+                   "command 另收 identity/contract/related，tool 另收 route；"
+                   "不适用的节名明确 invalid_section；缺省全节"),
        false},
       {QStringLiteral("filter"), QStringLiteral("string"),
        QObject::tr("list 筛选：default=capability+algorithm+tool；另有 capabilities/"
@@ -60,10 +62,11 @@ void appendCapabilityInspectionTool(QVector<AiToolSpec> &specs) {
       {QStringLiteral("page_size"), QStringLiteral("integer"),
        QObject::tr("list 每页条数（1–32，缺省 16）"), false},
       {QStringLiteral("max_bytes"), QStringLiteral("integer"),
-       QObject::tr("本页 JSON 字节预算（2048–24576，缺省 8192）"), false},
+       QObject::tr("本页 JSON 字节预算（2048–8192，缺省 8192；与传输层内联页上限"
+                   "对齐，更大结果经 paleo.read_result 引用续读）"), false},
   };
   // 结果 schema 程序化构造（与 query/lineage 工具同款做法，避免手写长串括号错）。
-  QJsonObject schema{{"type", "object"}, {"required", QJsonArray{"contract", "mode", "ok"}}};
+  QJsonObject schema{{"type", "object"}, {"required", QJsonArray{"contract", "ok"}}};
   QJsonObject properties{
       {"contract", QJsonObject{{"const", "paleo.capability-inspect.v1"}}},
       {"mode", QJsonObject{{"enum", QJsonArray{"list", "describe", "check"}}}},

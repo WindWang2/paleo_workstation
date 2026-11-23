@@ -451,13 +451,14 @@ void TestI5CapabilityInspectionWire::loopbackModelDrivesListDescribeCheckThenRea
   const auto listData = listEnvelope.value("data").toObject();
   QCOMPARE(listData.value("contract").toString(), QStringLiteral("paleo.capability-inspect.v1"));
   QVERIFY(listData.value("entries").toArray().size() >= 1);
-  // 帧 2（describe）：精确合同可读（含算法参数节——来自 AlgorithmSpec 单源）。
+  // 帧 2（describe）：精确合同可读（params 节来自链接 AlgorithmSpec 单源，
+  // 请求名与交付名对齐）。
   const auto describeData = lastToolEnvelope(server.body(2)).value("data").toObject();
   QCOMPARE(describeData.value("mode").toString(), QStringLiteral("describe"));
   const auto sections = describeData.value("sections").toObject();
   QVERIFY(sections.value("identity").toObject().value("id").toString() ==
           QLatin1String("constraint.idw"));
-  QVERIFY(sections.contains(QStringLiteral("algorithm")));
+  QVERIFY(sections.contains(QStringLiteral("params")));
   // 帧 3（无效候选）：工具成功执行、参数评估 invalid + 机器码定位
   //（query_project 的主题预算域单源先于通用整数档：文本 "16" 命中
   // query_budget_invalid + 字段定位）。

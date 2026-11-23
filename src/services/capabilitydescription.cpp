@@ -16,8 +16,14 @@ QJsonArray stringArray(const QStringList &values) {
   return out;
 }
 
+QJsonObject effectsDescription(unsigned effects) {
+  return QJsonObject{{"mask", QString::number(effects)}, {"names", stringArray(hostEffectNames(effects))}};
+}
+
+} // namespace
+
 // host 效果位 → 稳定名（hostcallcontext 的枚举单源；不把效果名当独立授权）。
-QStringList effectNames(unsigned effects) {
+QStringList hostEffectNames(unsigned effects) {
   QStringList names;
   if (effects & paleo::host::Read) names << QStringLiteral("read");
   if (effects & paleo::host::PrivateStage) names << QStringLiteral("private_stage");
@@ -28,12 +34,6 @@ QStringList effectNames(unsigned effects) {
   if (effects & paleo::host::LocalExecute) names << QStringLiteral("local_execute");
   return names;
 }
-
-QJsonObject effectsDescription(unsigned effects) {
-  return QJsonObject{{"mask", QString::number(effects)}, {"names", stringArray(effectNames(effects))}};
-}
-
-} // namespace
 
 QString capabilityKindName(CapabilityKind kind) {
   switch (kind) {

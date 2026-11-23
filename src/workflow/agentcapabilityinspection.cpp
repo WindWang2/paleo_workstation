@@ -32,8 +32,14 @@ constexpr int kMaxCandidateStringChars = 4096;
 constexpr int kDefaultPageSize = 16;
 constexpr int kMaxPageSize = 32;
 constexpr int kMinPageBytes = 2048;
-constexpr int kMaxPageBytes = 24576;
+// F6（评审）：与传输层内联页上限对齐（toolresultprotocol kResultPageBytes）；
+// 超过该值的请求不会内联送达（envelope 转 result_referenced）——声明上限
+// 不放大到 24 KiB，大结果经 H7 read_result 引用续读。
+constexpr int kMaxPageBytes = 8192;
 constexpr int kDefaultPageBytes = 8192;
+// F1（评审）：payload 外层固定开销余量（tool/mode/code/coverage.continuation
+// 等键 + target_id 最长 128 字符 UTF-8）——测量值 + 余量须落在预算内。
+constexpr int kEnvelopeMarginBytes = 512;
 constexpr int kMaxIssues = 16;
 constexpr int kMaxContractVersion = 99;
 
@@ -186,7 +192,13 @@ bool decodeListCursor(const QString &cursor, const QString &filter,
       object.value("filter").toString() != filter ||
       object.value("d").toString() != directoryDigest(entries, filter))
     return false;
-  const int position = object.value("offset").toInt();
+  // F3（评审）：offset 严格整数解码——文本/分数/布尔不被 QJsonValue::toInt
+  // 静默解释成 0（与 strictIntArg 同口径，伪造游标按 cursor_stale 拒）。
+  const auto offsetValue = object.value("offset");
+  if (!offsetValue.isDouble() || !std::isfinite(offsetValue.toDouble()) ||
+      std::floor(offsetValue.toDouble()) != offsetValue.toDouble())
+    return false;
+  const int position = int(offsetValue.toDouble());
   if (position < 0 || position > entries.size())
     return false;
   *offset = position;
@@ -270,41 +282,52 @@ QJsonObject describeToolRoute(const QString &name) {
 }
 
 QJsonObject describeToolEffects(const AiToolSpec &spec) {
-  QStringList names;
   const unsigned effects = spec.effects;
-  if (effects & paleo::host::Read) names << QStringLiteral("read");
-  if (effects & paleo::host::PrivateStage) names << QStringLiteral("private_stage");
-  if (effects & paleo::host::CatalogPublish) names << QStringLiteral("catalog_publish");
-  if (effects & paleo::host::Presentation) names << QStringLiteral("presentation");
-  if (effects & paleo::host::FileExport) names << QStringLiteral("file_export");
-  if (effects & paleo::host::ExternalTransfer) names << QStringLiteral("external_transfer");
-  if (effects & paleo::host::LocalExecute) names << QStringLiteral("local_execute");
   return QJsonObject{{"declared_mask", QString::number(effects)},
-                     {"declared_names", QJsonArray::fromStringList(names)},
+                     {"declared_names",
+                      QJsonArray::fromStringList(paleo::capability::hostEffectNames(effects))},
                      {"derivation",
                       QStringLiteral("effectsForArguments derives per-call effects from the current parameter rules (e.g. publish_intent)")}};
 }
 
-QJsonObject capabilityAlgorithmSection(const CapabilitySpec &spec, bool withParams,
-                                       bool withPorts) {
+// F4（评审）：capability 的 params/ports 节按请求名单独交付（fields/items
+// 顶层平铺，请求名与交付名对齐；默认值单一来源不复制；链接算法缺失时
+// 如实报缺口——不因静态元信息不足而修补成看似可调用）。
+QJsonObject capabilityParamSection(const CapabilitySpec &spec) {
   const AlgorithmSpec algorithm = AlgorithmSpecRegistry::specAtVersion(
       spec.algorithmId, spec.algorithmContractVersion);
-  QJsonObject section;
+  QJsonObject section{{"source", QStringLiteral("linked AlgorithmSpec at the capability's algorithm_contract_version")},
+                      {"algorithm_id", spec.algorithmId}};
   if (algorithm.id.isEmpty()) {
-    // 不因静态元信息缺失而修补成看似可调用——如实报告缺口。
-    section.insert(QStringLiteral("algorithm_id"), spec.algorithmId);
     section.insert(QStringLiteral("status"),
                    AlgorithmSpecRegistry::knows(spec.algorithmId)
                        ? QStringLiteral("algorithm_version_not_registered")
                        : QStringLiteral("algorithm_not_registered"));
     return section;
   }
+  const auto description = paleo::capability::algorithmParamsDescription(algorithm);
   section.insert(QStringLiteral("status"), QStringLiteral("registered"));
-  section.insert(QStringLiteral("identity"), paleo::capability::algorithmIdentityDescription(algorithm));
-  if (withParams)
-    section.insert(QStringLiteral("params"), paleo::capability::algorithmParamsDescription(algorithm));
-  if (withPorts)
-    section.insert(QStringLiteral("ports"), paleo::capability::algorithmPortsDescription(algorithm));
+  section.insert(QStringLiteral("fields"), description.value("fields"));
+  section.insert(QStringLiteral("defaults_are_single_source"),
+                description.value("defaults_are_single_source"));
+  return section;
+}
+QJsonObject capabilityPortSection(const CapabilitySpec &spec) {
+  const AlgorithmSpec algorithm = AlgorithmSpecRegistry::specAtVersion(
+      spec.algorithmId, spec.algorithmContractVersion);
+  QJsonObject section{{"source", QStringLiteral("linked AlgorithmSpec at the capability's algorithm_contract_version")},
+                      {"algorithm_id", spec.algorithmId}};
+  if (algorithm.id.isEmpty()) {
+    section.insert(QStringLiteral("status"),
+                   AlgorithmSpecRegistry::knows(spec.algorithmId)
+                       ? QStringLiteral("algorithm_version_not_registered")
+                       : QStringLiteral("algorithm_not_registered"));
+    return section;
+  }
+  const auto description = paleo::capability::algorithmPortsDescription(algorithm);
+  section.insert(QStringLiteral("status"), QStringLiteral("registered"));
+  section.insert(QStringLiteral("inputs"), description.value("inputs"));
+  section.insert(QStringLiteral("outputs"), description.value("outputs"));
   return section;
 }
 
@@ -417,6 +440,8 @@ QJsonObject runtimeAssessment(bool requiresLocalOrt) {
 #if !PALEO_HAVE_ORT
   if (requiresLocalOrt)
     runtime.insert(QStringLiteral("build_ort"), QStringLiteral("unavailable"));
+#else
+  Q_UNUSED(requiresLocalOrt); // 构建含 ORT：该静态事实仅在无 ORT 构建呈现
 #endif
   return runtime;
 }
@@ -618,10 +643,11 @@ InspectionResult runList(const QJsonObject &args) {
     cards.removeLast();
     --position;
   }
-  if (!cards.isEmpty() && compactBytes(QJsonObject{{"entries", cards}}) > maxBytes) {
-    cards.removeLast(); // 单条仍超预算：宁可少一条也不输出超限/截断条目
-    --position;
-  }
+  // F2（评审）：首条即超预算时不能返回「空页 + 原游标」的可重复成功——
+  // 模型会无限重翻同一页；明确报 page_budget_exceeded（换更小筛选/更大
+  // max_bytes 或改用 describe）。
+  if (!cards.isEmpty() && compactBytes(QJsonObject{{"entries", cards}}) > maxBytes)
+    return failure(QStringLiteral("page_budget_exceeded"), QStringLiteral("max_bytes"));
 
   QJsonObject payload{{"contract", QLatin1String(kCapabilityInspectContract)},
                       {"tool", QLatin1String(paleo::chat::kCapabilityInspectTool)},
@@ -659,7 +685,8 @@ InspectionResult runDescribe(const QJsonObject &args) {
   if (!strictIntArg(args, "max_bytes", kMinPageBytes, kMaxPageBytes, kDefaultPageBytes, &maxBytes))
     return failure(QStringLiteral("argument_out_of_range"), QStringLiteral("max_bytes"));
 
-  // sections 封闭词表（按目标类型取适用子集，未请求的节不出现在载荷里）。
+  // sections 封闭词表（F4：按目标类型校验适用子集——不适用的节名明确
+  // invalid_section，不静默吞掉；未请求的节不出现在载荷里）。
   const QStringList vocabulary{QStringLiteral("identity"), QStringLiteral("contract"),
                                QStringLiteral("params"), QStringLiteral("ports"),
                                QStringLiteral("lifecycle"), QStringLiteral("related"),
@@ -675,6 +702,21 @@ InspectionResult runDescribe(const QJsonObject &args) {
     if (!requested.contains(section))
       requested.append(section);
   }
+  const auto kindSections = [&kind] {
+    if (kind == QLatin1String("command"))
+      return QStringList{QStringLiteral("identity"), QStringLiteral("contract"),
+                         QStringLiteral("related")};
+    if (kind == QLatin1String("tool"))
+      return QStringList{QStringLiteral("identity"), QStringLiteral("contract"),
+                         QStringLiteral("route"), QStringLiteral("related"),
+                         QStringLiteral("lifecycle")};
+    return QStringList{QStringLiteral("identity"), QStringLiteral("contract"),
+                       QStringLiteral("params"), QStringLiteral("ports"),
+                       QStringLiteral("lifecycle"), QStringLiteral("related")};
+  }();
+  for (const QString &section : requested)
+    if (!kindSections.contains(section))
+      return failure(QStringLiteral("invalid_section"), section);
   const bool allSections = requested.isEmpty();
   const auto wants = [&](const QString &section) {
     return allSections || requested.contains(section);
@@ -712,7 +754,8 @@ InspectionResult runDescribe(const QJsonObject &args) {
     if (!spec)
       return failure(requestedVersion > 0 ? QStringLiteral("unsupported_version")
                                           : QStringLiteral("unknown_target"),
-                     QStringLiteral("target_id"));
+                     requestedVersion > 0 ? QStringLiteral("contract_version")
+                                          : QStringLiteral("target_id"));
     if (wants(QStringLiteral("identity"))) {
       auto identity = paleo::capability::capabilityIdentityDescription(*spec);
       identity.insert(QStringLiteral("id"), canonical);
@@ -734,10 +777,10 @@ InspectionResult runDescribe(const QJsonObject &args) {
           {"cancel_supported", spec->cancelSupported},
           {"resume_supported", spec->resumeSupported},
           {"restartable", spec->restartable}});
-    if (wants(QStringLiteral("params")) || wants(QStringLiteral("ports")))
-      appendSection(QStringLiteral("algorithm"),
-                    capabilityAlgorithmSection(*spec, wants(QStringLiteral("params")),
-                                               wants(QStringLiteral("ports"))));
+    if (wants(QStringLiteral("params")))
+      appendSection(QStringLiteral("params"), capabilityParamSection(*spec));
+    if (wants(QStringLiteral("ports")))
+      appendSection(QStringLiteral("ports"), capabilityPortSection(*spec));
     if (wants(QStringLiteral("related")))
       appendSection(QStringLiteral("related"), capabilityRelatedSection(*spec));
   } else if (kind == QLatin1String("algorithm")) {
@@ -796,7 +839,8 @@ InspectionResult runDescribe(const QJsonObject &args) {
     if (!command)
       return failure(requestedVersion > 0 ? QStringLiteral("unsupported_version")
                                           : QStringLiteral("unknown_target"),
-                     QStringLiteral("target_id"));
+                     requestedVersion > 0 ? QStringLiteral("contract_version")
+                                          : QStringLiteral("target_id"));
     if (wants(QStringLiteral("identity")))
       appendSection(QStringLiteral("identity"),
                     paleo::capability::commandIdentityDescription(*command));
@@ -834,12 +878,14 @@ InspectionResult runDescribe(const QJsonObject &args) {
   }
 
   // 预算：从尾部整节移除并记录 omittedSections——不截半个 schema 再称完整。
+  // F1（评审）：单个节自身超预算同样省略（sections 可为空 + complete=false +
+  // continuation 指引），绝不在超限时交付并谎报 complete。
   QStringList delivered, omitted;
   while (!assembled.isEmpty()) {
     QJsonObject measure;
     for (const auto &section : assembled)
       measure.insert(section.first, section.second);
-    if (compactBytes(measure) + 256 <= maxBytes || assembled.size() == 1)
+    if (compactBytes(measure) + kEnvelopeMarginBytes <= maxBytes)
       break;
     omitted.prepend(assembled.last().first);
     assembled.removeLast();
@@ -918,15 +964,22 @@ InspectionResult runCapabilityInspection(const QJsonObject &arguments,
     if (!kTopLevelFields.contains(it.key()))
       return failure(QStringLiteral("unknown_field"), it.key());
   const QString mode = arguments.value("mode").toString();
+  InspectionResult result;
   if (mode == QLatin1String("list"))
-    return runList(arguments);
-  if (mode == QLatin1String("describe"))
-    return runDescribe(arguments);
-  if (mode == QLatin1String("check"))
-    return runCheck(arguments, host);
-  return failure(arguments.contains("mode") ? QStringLiteral("invalid_mode")
-                                            : QStringLiteral("missing_required"),
-                 QStringLiteral("mode"));
+    result = runList(arguments);
+  else if (mode == QLatin1String("describe"))
+    result = runDescribe(arguments);
+  else if (mode == QLatin1String("check"))
+    result = runCheck(arguments, host);
+  else
+    result = failure(arguments.contains("mode") ? QStringLiteral("invalid_mode")
+                                                : QStringLiteral("missing_required"),
+                     QStringLiteral("mode"));
+  // F5（评审）：失败帧也携带 mode（H5 失败路径携带完整 required 键的同纪律；
+  // mode 本身非法时为空串——schema required 只钉 contract/ok）。
+  if (!result.ok)
+    result.payload.insert(QStringLiteral("mode"), mode);
+  return result;
 }
 
 } // namespace paleo::agent

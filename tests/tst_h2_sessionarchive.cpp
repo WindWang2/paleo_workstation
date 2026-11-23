@@ -14,25 +14,10 @@
 #include "../src/ai/chat/chatsession.h"
 #include "../src/ai/chat/chatsessionarchive.h"
 #include "../src/ai/chat/chatsessionindex.h"
+#include "h2_test_filebytes.h"
 
 // H2（agent-session-archive）W1/W2：档案身份与结构合同、私有文件边界、
 // 有界读取。全部本地磁盘操作（会话根重定向 .qttest 沙箱），无网络。
-namespace {
-
-// 显式打开再读；读不到直接让用例失败（返回空会让「磁盘不变」的比较退化成
-// 空对空的恒真——QFile 临时对象未打开时 readAll() 正是返回空）。
-QByteArray readFileBytes(const QString &path)
-{
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly)) {
-    qWarning("readFileBytes: cannot open %s: %s", qPrintable(path),
-             qPrintable(file.errorString()));
-    return QByteArray("<unreadable>");
-  }
-  return file.readAll();
-}
-} // namespace
-
 class TestH2SessionArchive : public QObject {
   Q_OBJECT
 private slots:
@@ -157,8 +142,8 @@ void TestH2SessionArchive::identityMismatchRefusesWithoutTouchingFiles() {
   object.insert(QStringLiteral("id"), QStringLiteral("h2-payload-b"));
   const QString path = writeRawArchive(QStringLiteral("h2-file-a"), object);
   QVERIFY(!path.isEmpty());
-  const QByteArray before = readFileBytes(path);
-  QVERIFY(!before.isEmpty()); // 基线非空：下方「字节保留」比较不是空对空
+  QByteArray before;
+  requireFileBytes(path, &before, "before");
 
   ChatSession out;
   out.id = QStringLiteral("sentinel");
@@ -167,7 +152,9 @@ void TestH2SessionArchive::identityMismatchRefusesWithoutTouchingFiles() {
   QVERIFY(!ChatSessionStore::load(QStringLiteral("h2-file-a"), &out, &error, &reject));
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::IdentityMismatch);
   QCOMPARE(out.id, QStringLiteral("sentinel")); // 失败不部分覆盖 out
-  QCOMPARE(readFileBytes(path), before);      // 原文件字节保留
+  QByteArray after_before;
+  requireFileBytes(path, &after_before, "after_before");
+  QCOMPARE(after_before, before);      // 原文件字节保留
   QVERIFY(!QFileInfo::exists(ChatSessionStore::pathFor(QStringLiteral("h2-payload-b"))));
 
   // 尺寸相近/大小写差异不做「修复」：id 不同就是不同。
@@ -374,7 +361,8 @@ void TestH2SessionArchive::overLimitArchivePreservedBytes() {
   paleo::chat::setChatArchiveBudgetForTesting(budget); // 已写文件 > 4 KiB
 
   const QString path = ChatSessionStore::pathFor(session.id);
-  const QByteArray before = readFileBytes(path);
+  QByteArray before;
+  requireFileBytes(path, &before, "before");
   QVERIFY2(before.size() > qint64(4096),
            qPrintable(QStringLiteral("path=%1 size=%2 head=%3")
                         .arg(path).arg(before.size())
@@ -384,7 +372,9 @@ void TestH2SessionArchive::overLimitArchivePreservedBytes() {
   paleo::chat::ChatArchiveReject reject = paleo::chat::ChatArchiveReject::None;
   QVERIFY(!ChatSessionStore::load(session.id, &out, &error, &reject));
   QCOMPARE(reject, paleo::chat::ChatArchiveReject::SizeExceeded);
-  QCOMPARE(readFileBytes(path), before); // 不截断、不删除、不改名、不重存
+  QByteArray after_before;
+  requireFileBytes(path, &after_before, "after_before");
+  QCOMPARE(after_before, before); // 不截断、不删除、不改名、不重存
   QCOMPARE(out.id, QStringLiteral("sentinel"));
   QVERIFY(error.contains(QStringLiteral("MiB")));
   // 超限档案仍可经原入口删除（用户可恢复）。
@@ -618,15 +608,17 @@ void TestH2SessionArchive::saveRefusesOverCapKeepsPreviousFile() {
   QString error;
   QVERIFY(ChatSessionStore::save(session, &error));
   const QString path = ChatSessionStore::pathFor(session.id);
-  const QByteArray good = readFileBytes(path);
-  QVERIFY(!good.isEmpty()); // 基线非空：下方「上一份完整文件保留」比较不是空对空
+  QByteArray good;
+  requireFileBytes(path, &good, "good");
 
   session.messages.append(ChatMessage()); // 明显超限增长
   session.messages.last().role = ChatRole::Assistant;
   session.messages.last().content = QString(9000, QLatin1Char('z'));
   QVERIFY(!ChatSessionStore::save(session, &error));
   QVERIFY(error.contains(QStringLiteral("MiB")));
-  QCOMPARE(readFileBytes(path), good); // 上一份完整文件保留
+  QByteArray after_good;
+  requireFileBytes(path, &after_good, "after_good");
+  QCOMPARE(after_good, good); // 上一份完整文件保留
   paleo::chat::setChatArchiveBudgetForTesting(paleo::chat::ChatArchiveBudget::production());
 }
 

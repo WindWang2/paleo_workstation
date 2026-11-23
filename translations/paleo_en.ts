@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
 <TS version="2.1" language="en" sourcelanguage="zh_CN">
     <context>
         <name />
@@ -227,38 +228,38 @@
             <source>失败</source>
             <translation type="unfinished" />
         </message>
-        <message>
-            <source>◀ 更早结果</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>更新结果 ▶</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>操作服务未接入（查询/取消/恢复不可用）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>（未知工具）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>历史记录</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>状态已刷新（修订 %1）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>状态查询失败：%1</source>
-            <translation type="unfinished" />
-        </message>
+    <message>
+        <source>◀ 更早结果</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>更新结果 ▶</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作服务未接入（查询/取消/恢复不可用）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>（未知工具）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史记录</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>状态已刷新（修订 %1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>状态查询失败：%1</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>AiAssistWorkflow</name>
@@ -872,119 +873,119 @@
 …（显示前 %1 字符，原始 %2 字符；全文已回传模型）</source>
             <translation type="unfinished" />
         </message>
-        <message>
-            <source>状态查询成功（查询 ok=true 不等于业务已完成）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>状态查询失败（ok=false，错误码见详情）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>operationId</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>修订 revision</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计算次数</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>取消请求</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>已请求取消</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>未请求</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>提交收据</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>requestHash</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果引用</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>operation-result-v2（详情页可检视）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>复制完整 ID</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果不可解析（失败帧原文保留如下）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果内容不可解析——原文证据保留如下，不作为成功或失败判定</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果留存为有界摘要（transport incomplete：%1）——这是已发生事实的留存，不代表执行失败</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>；原始出参约 %1 字节</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>；协议建议不要重复执行来取回内容</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>出参根为%1（非对象），按原文呈现</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>数组</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>标量</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>%1 引用：%2（可用性以引用自身为准，不自动续取）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>有界留存时省略的字段：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>原始内容（%1 字符）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>
+    <message>
+        <source>状态查询成功（查询 ok=true 不等于业务已完成）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>状态查询失败（ok=false，错误码见详情）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>operationId</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>修订 revision</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>计算次数</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>取消请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已请求取消</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>未请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交收据</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>requestHash</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果引用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>operation-result-v2（详情页可检视）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>复制完整 ID</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果不可解析（失败帧原文保留如下）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果内容不可解析——原文证据保留如下，不作为成功或失败判定</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果留存为有界摘要（transport incomplete：%1）——这是已发生事实的留存，不代表执行失败</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>；原始出参约 %1 字节</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>；协议建议不要重复执行来取回内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>出参根为%1（非对象），按原文呈现</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>数组</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>标量</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>%1 引用：%2（可用性以引用自身为准，不自动续取）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>有界留存时省略的字段：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>原始内容（%1 字符）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>
 …（显示前 %1 字符，原始 %2 字符）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>复制原始内容</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>原始内容</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>原始内容（已截断，保留前 %1 字符）</source>
-            <translation type="unfinished" />
-        </message>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>复制原始内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>原始内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>原始内容（已截断，保留前 %1 字符）</source>
+        <translation type="unfinished" />
+    </message>
     </context>
     <context>
         <name>AlgorithmSpec</name>
@@ -2058,36 +2059,37 @@
         <name>ConstraintPage</name>
         <message>
             <source>任务完成</source>
-            <translation>Task complete</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>GR 估算参数（解释不足时使用）</source>
-            <translation>GR estimate parameters (used when interpretation is insufficient)</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>砂岩 GR 基线</source>
-            <translation>Sandstone GR baseline</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>泥岩 GR 基线</source>
-            <translation>Shale GR baseline</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>砂层泥质指标上限</source>
-            <translation>Sand Vshale upper limit</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>允许的最大采样间隔（米）</source>
-            <translation>Maximum allowed sample interval (m)</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>自动（全井 P05 / P95）</source>
-            <translation>Auto (whole-well P05 / P95)</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>自动（典型采样间隔的三倍）</source>
-            <translation>Auto (3× typical sample interval)</translation>
+            <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/ui/pages/constraintpage.cpp" line="70" />
             <source>[legacy] 历史层位下拉（兼容）。层段分析请用画布父单元→S1–S4；单因素/井因子成果身份走 UnitSelection，勿依赖本框字符串。</source>
@@ -4028,71 +4030,71 @@
             <translation type="unfinished" />
         </message>
         <message>
-            <source>当前地震层段</source>
-            <translation>Current seismic interval</translation>
-        </message>
-        <message>
-            <source>与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。</source>
-            <translation>Follows the seismic interval selector above. Select a parent interval and S1–S4 or the aggregate above.</translation>
-        </message>
-        <message>
-            <source>请在顶部选择地震层位单元及 S1–S4 或综合</source>
-            <translation>Select a seismic interval and S1–S4 or the aggregate above</translation>
-        </message>
-        <message>
-            <source>所选地震层段厚度（MD）</source>
-            <translation>Selected seismic interval thickness (MD)</translation>
-        </message>
-        <message>
-            <source>所选地震层段内的井点数据</source>
-            <translation>Well inputs within the selected seismic interval</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="36" />
-            <source>GR 估算参数（解释不足时使用）</source>
-            <translation>GR estimate parameters (used when interpretation is insufficient)</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_generate.cpp" line="918" />
-            <source>任务完成</source>
-            <translation>Task complete</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39" />
-            <source>允许的最大采样间隔（米）</source>
-            <translation>Maximum allowed sample interval (m)</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38" />
-            <source>泥岩 GR 基线</source>
-            <translation>Shale GR baseline</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39" />
-            <source>砂层泥质指标上限</source>
-            <translation>Sand Vshale upper limit</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38" />
-            <source>砂岩 GR 基线</source>
-            <translation>Sandstone GR baseline</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="42" />
-            <source>自动（全井 P05 / P95）</source>
-            <translation>Auto (whole-well P05 / P95)</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="44" />
-            <source>自动（典型采样间隔的三倍）</source>
-            <translation>Auto (3× typical sample interval)</translation>
-        </message>
-    </context>
+        <source>当前地震层段</source>
+        <translation>Current seismic interval</translation>
+    </message>
+    <message>
+        <source>与顶部地震层位单元同步；请在顶部选择父单元及 S1–S4 或综合。</source>
+        <translation>Follows the seismic interval selector above. Select a parent interval and S1–S4 or the aggregate above.</translation>
+    </message>
+    <message>
+        <source>请在顶部选择地震层位单元及 S1–S4 或综合</source>
+        <translation>Select a seismic interval and S1–S4 or the aggregate above</translation>
+    </message>
+    <message>
+        <source>所选地震层段厚度（MD）</source>
+        <translation>Selected seismic interval thickness (MD)</translation>
+    </message>
+    <message>
+        <source>所选地震层段内的井点数据</source>
+        <translation>Well inputs within the selected seismic interval</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="36"/>
+        <source>GR 估算参数（解释不足时使用）</source>
+        <translation>GR estimate parameters (used when interpretation is insufficient)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_generate.cpp" line="918"/>
+        <source>任务完成</source>
+        <translation>Task complete</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39"/>
+        <source>允许的最大采样间隔（米）</source>
+        <translation>Maximum allowed sample interval (m)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38"/>
+        <source>泥岩 GR 基线</source>
+        <translation>Shale GR baseline</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="39"/>
+        <source>砂层泥质指标上限</source>
+        <translation>Sand Vshale upper limit</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="38"/>
+        <source>砂岩 GR 基线</source>
+        <translation>Sandstone GR baseline</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="42"/>
+        <source>自动（全井 P05 / P95）</source>
+        <translation>Auto (whole-well P05 / P95)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/constraintpage_wellfactors.cpp" line="44"/>
+        <source>自动（典型采样间隔的三倍）</source>
+        <translation>Auto (3× typical sample interval)</translation>
+    </message>
+</context>
     <context>
         <name>ConstraintWorkflow</name>
         <message>
             <source>工区范围不可用：%1</source>
-            <translation>Project extent unavailable: %1</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>工区范围</source>
@@ -4100,12 +4102,13 @@
         </message>
         <message>
             <source>工区范围（井位与地震）</source>
-            <translation>Project extent (wells and seismic)</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source> 可计算 %1 井，其中 %2 井有坐标参与成图。</source>
             <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/workflow/constraintfactorjobs_contours.cpp" line="152" />
             <location filename="../src/workflow/constraintfactorjobs_contours.cpp" line="357" />
@@ -5473,20 +5476,20 @@
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/constraintwellfactors.cpp" line="646" />
-            <source>可计算 %1 井，其中 %2 井有坐标参与成图。</source>
-            <translation>%1 wells are computable; %2 of them have coordinates for mapping.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/constraintworkflow.cpp" line="107" />
-            <source>工区范围不可用：%1</source>
-            <translation>Project extent unavailable: %1</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/constraintworkflow.cpp" line="129" />
-            <source>工区范围（井位与地震）</source>
-            <translation>Project extent (wells and seismic)</translation>
-        </message>
+        <location filename="../src/workflow/constraintwellfactors.cpp" line="646"/>
+        <source>可计算 %1 井，其中 %2 井有坐标参与成图。</source>
+        <translation>%1 wells are computable; %2 of them have coordinates for mapping.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/constraintworkflow.cpp" line="107"/>
+        <source>工区范围不可用：%1</source>
+        <translation>Project extent unavailable: %1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/constraintworkflow.cpp" line="129"/>
+        <source>工区范围（井位与地震）</source>
+        <translation>Project extent (wells and seismic)</translation>
+    </message>
         <message>
             <location filename="../src/workflow/constraintfactorjobs_geostat.cpp" line="1024" />
             <source>有 %1 口井落在硬屏障线上，两侧归属不明确——请移动井位或调整屏障几何</source>
@@ -8612,87 +8615,87 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>原因见明细</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>恢复结果</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>成功 %1 项%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>批量恢复 %1 项</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>挂接到「%1」：新挂 %2、转移 %3、跳过 %4%5</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>挂接结果</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>操作失败且留有部分变化，撤销历史已作废：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>未发生变化（%1 项已满足）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>部分失败：成功 %1、无变化 %2、失败 %3（%4）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>（可撤销）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>（新挂关联不可撤销）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>；转移可撤销，新挂关联不可撤销</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/datalist_undo.cpp" line="0" />
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>未执行：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/datalist_undo.cpp" line="0" />
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>未执行（%1 项被拒绝）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/datalist_undo.cpp" line="0" />
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>阶段：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/datalist_undo.cpp" line="0" />
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>（%1）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/datalist_undo.cpp" line="0" />
+            <location filename="../src/ui/pages/datalist_undo.cpp" line="0"/>
             <source>（原因见明细）</source>
             <translation type="unfinished" />
         </message>
@@ -8732,10 +8735,10 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <source>工程处于只读模式，撤销/重做已禁用</source>
-            <translation>The project is read-only; undo/redo is disabled</translation>
-        </message>
-    </context>
+        <source>工程处于只读模式，撤销/重做已禁用</source>
+        <translation>The project is read-only; undo/redo is disabled</translation>
+    </message>
+</context>
     <context>
         <name>DataPage</name>
         <message>
@@ -8774,6 +8777,7 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <source>索引已就绪 · 三维预览 / 二维完整分辨率</source>
             <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="121" />
             <source>坐标有效</source>
@@ -11671,12 +11675,12 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>未知原因</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/pages/entitypanel_crud.cpp" line="0" />
+            <location filename="../src/ui/pages/entitypanel_crud.cpp" line="0"/>
             <source>实体值未变化</source>
             <translation type="unfinished" />
         </message>
@@ -12749,18 +12753,18 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <source>工作流未绑定数据目录</source>
-            <translation>The workflow is not bound to a data catalog</translation>
-        </message>
-        <message>
-            <source>相图输出目标无效</source>
-            <translation>Invalid facies map output targets</translation>
-        </message>
-        <message>
-            <source>输出准备已取消</source>
-            <translation>Output preparation cancelled</translation>
-        </message>
-    </context>
+      <source>工作流未绑定数据目录</source>
+      <translation>The workflow is not bound to a data catalog</translation>
+    </message>
+    <message>
+      <source>相图输出目标无效</source>
+      <translation>Invalid facies map output targets</translation>
+    </message>
+    <message>
+      <source>输出准备已取消</source>
+      <translation>Output preparation cancelled</translation>
+    </message>
+</context>
     <context>
         <name>FaciesPartitionTool</name>
         <message>
@@ -13937,11 +13941,11 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/ai/llmconfigdialog.cpp" line="113" />
-            <source>Python 计算环境…</source>
-            <translation>Python Compute Environment…</translation>
-        </message>
-    </context>
+        <location filename="../src/ui/ai/llmconfigdialog.cpp" line="113" />
+        <source>Python 计算环境…</source>
+        <translation>Python Compute Environment…</translation>
+    </message>
+</context>
     <context>
         <name>MamclTool</name>
         <message>
@@ -14438,11 +14442,11 @@ Crossline: %3 ~ %4</source>
         </message>
         <message>
             <source>解释说明</source>
-            <translation type="unfinished" />
+            <translation type="unfinished"></translation>
         </message>
         <message>
             <source>修改目的</source>
-            <translation type="unfinished" />
+            <translation type="unfinished"></translation>
         </message>
     </context>
     <context>
@@ -14875,6 +14879,7 @@ Crossline: %3 ~ %4</source>
             <source>所选井均缺少可读源文件或测井曲线</source>
             <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/workflow/mappingworkbench.cpp" line="311" />
             <location filename="../src/workflow/mappingworkbench.cpp" line="789" />
@@ -16503,46 +16508,46 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <source>地震相预测 · %1</source>
-            <translation>Seismic facies prediction · %1</translation>
-        </message>
-        <message>
-            <source>层段输入已准备，提交预测服务</source>
-            <translation>Unit input prepared; submitting prediction</translation>
-        </message>
-        <message>
-            <source>按当前地震层段读取逐道窗口</source>
-            <translation>Reading trace windows for the selected seismic unit</translation>
-        </message>
-        <message>
-            <source>预测服务已断开</source>
-            <translation>Prediction service disconnected</translation>
-        </message>
-        <message>
-            <source>预测分类或请求层段不一致，未发布</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预测返回井数与请求井数不一致，未发布</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>井 %1 的返回身份、坐标或微相编码不一致，未发布</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>井 %1 的预测井段或层段范围不一致，未发布</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>井 %1 的预测未能生成当前层段优势相，未发布</source>
-            <translation type="unfinished" />
-        </message>
+        <source>地震相预测 · %1</source>
+        <translation>Seismic facies prediction · %1</translation>
+    </message>
+    <message>
+        <source>层段输入已准备，提交预测服务</source>
+        <translation>Unit input prepared; submitting prediction</translation>
+    </message>
+    <message>
+        <source>按当前地震层段读取逐道窗口</source>
+        <translation>Reading trace windows for the selected seismic unit</translation>
+    </message>
+    <message>
+        <source>预测服务已断开</source>
+        <translation>Prediction service disconnected</translation>
+    </message>
+    <message>
+        <source>预测分类或请求层段不一致，未发布</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>预测返回井数与请求井数不一致，未发布</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>井 %1 的返回身份、坐标或微相编码不一致，未发布</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>井 %1 的预测井段或层段范围不一致，未发布</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>井 %1 的预测未能生成当前层段优势相，未发布</source>
+        <translation type="unfinished" />
+    </message>
         <message>
             <source>资料目录不可用，不能读取图件空间编辑历史</source>
             <translation>The catalog is unavailable. Cannot load the map spatial edit history.</translation>
         </message>
-    </context>
+</context>
     <context>
         <name>MappingWorkbenchPage</name>
         <message>
@@ -18418,6 +18423,7 @@ Crossline: %3 ~ %4</source>
             <source>打开参考证据面板</source>
             <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="287" />
             <source>3 · 查看与分析</source>
@@ -24299,22 +24305,22 @@ PDF：%3
             <source>数据可视化</source>
             <translation type="unfinished" />
         </message>
-        <message>
+    <message>
             <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="16" />
             <source>时深来源与地震时间基准已保存，正在刷新连井数据</source>
             <translation type="unfinished" />
         </message>
         <message>
             <source>解释依据…</source>
-            <translation type="unfinished" />
+            <translation type="unfinished"></translation>
         </message>
         <message>
             <source>填写本次解释说明和修改目的，可选取当前参考证据，启用后绘制或修改相面。</source>
-            <translation type="unfinished" />
+            <translation type="unfinished"></translation>
         </message>
         <message>
             <source>请填写右侧的解释说明和修改目的，点击“启用本次解释依据”后，再选择相面编辑工具。未修改图面。</source>
-            <translation type="unfinished" />
+            <translation type="unfinished"></translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_timedepth.cpp" line="124" />
@@ -24385,101 +24391,102 @@ PDF：%3
             <translation>Version saved, but subsequent operations are incomplete</translation>
         </message>
         <message>
-            <source>工程正在打开或切换，请稍后再试</source>
-            <translation>A project is opening or switching; please retry shortly</translation>
-        </message>
-        <message>
-            <source>命令所需依赖不可用：%1</source>
-            <translation>Required command dependencies are unavailable: %1</translation>
-        </message>
-        <message>
-            <source>画布控制器</source>
-            <translation>canvas controller</translation>
-        </message>
-        <message>
-            <source>图层服务</source>
-            <translation>layer service</translation>
-        </message>
-        <message>
-            <source>约束编图页</source>
-            <translation>constraint mapping page</translation>
-        </message>
-        <message>
-            <source>测井预测修订面板</source>
-            <translation>well prediction revision panel</translation>
-        </message>
-        <message>
-            <source>测井预测窗口</source>
-            <translation>well prediction dock</translation>
-        </message>
-        <message>
-            <source>影响分析反馈</source>
-            <translation>impact-analysis feedback</translation>
-        </message>
-        <message>
-            <source>已显示图件登记</source>
-            <translation>shown-map registry</translation>
-        </message>
-        <message>
-            <source>图件显示入口</source>
-            <translation>map display entry</translation>
-        </message>
-        <message>
-            <source>证据参考入口</source>
-            <translation>evidence reference entry</translation>
-        </message>
-        <message>
-            <source>图例刷新入口</source>
-            <translation>legend refresh entry</translation>
-        </message>
-        <message>
-            <source>井道面板入口</source>
-            <translation>well track panel entry</translation>
-        </message>
-        <message>
-            <source>编辑会话入口</source>
-            <translation>edit session entry</translation>
-        </message>
-        <message>
-            <source>属性表导航</source>
-            <translation>attribute table navigation</translation>
-        </message>
-        <message>
-            <source>图谱导航</source>
-            <translation>graph navigation</translation>
-        </message>
-        <message>
-            <source>数据管理导航</source>
-            <translation>data catalog navigation</translation>
-        </message>
-        <message>
-            <source>图件输出入口</source>
-            <translation>map export entry</translation>
-        </message>
-        <message>
-            <source>工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消</source>
-            <translation>The project is read-only; write operations are disabled. Browsing, queries and cancelling running jobs remain available</translation>
-        </message>
-        <message>
-            <source>操作未执行（%1）：%2</source>
-            <translation>Operation not executed (%1): %2</translation>
-        </message>
-        <message>
-            <source>操作未执行：%1 未被其声明处理族受理（登记与实现不一致）</source>
-            <translation>Operation not executed: %1 is not claimed by its declared handler family (registry/implementation mismatch)</translation>
-        </message>
-        <message>
-            <source>工作台上下文不完整，操作未执行：%1</source>
-            <translation>Workbench context is incomplete; operation not executed: %1</translation>
-        </message>
-        <message>
-            <source>工作台上下文不完整（窗口/状态栏/工作台/页面）</source>
-            <translation>Workbench context is incomplete (window/status bar/workbench/page)</translation>
-        </message>
-        <message>
-            <source>工程处于只读模式，撤销/重做已禁用</source>
-            <translation>The project is read-only; undo/redo is disabled</translation>
-        </message>
+        <source>工程正在打开或切换，请稍后再试</source>
+        <translation>A project is opening or switching; please retry shortly</translation>
+    </message>
+    <message>
+        <source>命令所需依赖不可用：%1</source>
+        <translation>Required command dependencies are unavailable: %1</translation>
+    </message>
+    <message>
+        <source>画布控制器</source>
+        <translation>canvas controller</translation>
+    </message>
+    <message>
+        <source>图层服务</source>
+        <translation>layer service</translation>
+    </message>
+    <message>
+        <source>约束编图页</source>
+        <translation>constraint mapping page</translation>
+    </message>
+    <message>
+        <source>测井预测修订面板</source>
+        <translation>well prediction revision panel</translation>
+    </message>
+    <message>
+        <source>测井预测窗口</source>
+        <translation>well prediction dock</translation>
+    </message>
+    <message>
+        <source>影响分析反馈</source>
+        <translation>impact-analysis feedback</translation>
+    </message>
+    <message>
+        <source>已显示图件登记</source>
+        <translation>shown-map registry</translation>
+    </message>
+    <message>
+        <source>图件显示入口</source>
+        <translation>map display entry</translation>
+    </message>
+    <message>
+        <source>证据参考入口</source>
+        <translation>evidence reference entry</translation>
+    </message>
+    <message>
+        <source>图例刷新入口</source>
+        <translation>legend refresh entry</translation>
+    </message>
+    <message>
+        <source>井道面板入口</source>
+        <translation>well track panel entry</translation>
+    </message>
+    <message>
+        <source>编辑会话入口</source>
+        <translation>edit session entry</translation>
+    </message>
+    <message>
+        <source>属性表导航</source>
+        <translation>attribute table navigation</translation>
+    </message>
+    <message>
+        <source>图谱导航</source>
+        <translation>graph navigation</translation>
+    </message>
+    <message>
+        <source>数据管理导航</source>
+        <translation>data catalog navigation</translation>
+    </message>
+    <message>
+        <source>图件输出入口</source>
+        <translation>map export entry</translation>
+    </message>
+    <message>
+        <source>工程处于只读模式，写操作已禁用；可继续浏览、查询和请求取消</source>
+        <translation>The project is read-only; write operations are disabled. Browsing, queries and cancelling running jobs remain available</translation>
+    </message>
+    <message>
+        <source>操作未执行（%1）：%2</source>
+        <translation>Operation not executed (%1): %2</translation>
+    </message>
+    <message>
+        <source>操作未执行：%1 未被其声明处理族受理（登记与实现不一致）</source>
+        <translation>Operation not executed: %1 is not claimed by its declared handler family (registry/implementation mismatch)</translation>
+    </message>
+    <message>
+        <source>工作台上下文不完整，操作未执行：%1</source>
+        <translation>Workbench context is incomplete; operation not executed: %1</translation>
+    </message>
+    <message>
+        <source>工作台上下文不完整（窗口/状态栏/工作台/页面）</source>
+        <translation>Workbench context is incomplete (window/status bar/workbench/page)</translation>
+    </message>
+    <message>
+        <source>工程处于只读模式，撤销/重做已禁用</source>
+        <translation>The project is read-only; undo/redo is disabled</translation>
+    </message>
+
     </context>
     <context>
         <name>PaleoMapBookController</name>
@@ -25120,14 +25127,14 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <source>命令源按钮已销毁；切换页签或重建面板后恢复</source>
-            <translation>Command source button destroyed; switch tabs or rebuild the panel to restore</translation>
-        </message>
-        <message>
-            <source>命令源不可用；切换页签或重建面板后恢复</source>
-            <translation>Command source unavailable; switch tabs or rebuild the panel to restore</translation>
-        </message>
-    </context>
+        <source>命令源按钮已销毁；切换页签或重建面板后恢复</source>
+        <translation>Command source button destroyed; switch tabs or rebuild the panel to restore</translation>
+    </message>
+    <message>
+        <source>命令源不可用；切换页签或重建面板后恢复</source>
+        <translation>Command source unavailable; switch tabs or rebuild the panel to restore</translation>
+    </message>
+</context>
     <context>
         <name>PaleoShortcuts</name>
         <message>
@@ -26358,18 +26365,18 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <source>数据预览预测整井；单井相分析按当前分析层段预测。</source>
-            <translation>Data preview predicts the whole well; single-well facies analysis uses the selected interval.</translation>
-        </message>
-        <message>
-            <source>测井相网络模型可用于全部地层段；整井预览覆盖有效测井，分析页按所选层段取数。</source>
-            <translation>Well facies models support all strata. Preview predicts valid logs across the well; analysis uses the selected interval.</translation>
-        </message>
-        <message>
-            <source>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</source>
-            <translation>Data preview predicts valid samples throughout the well independently of the map interval; single-well facies analysis uses the selected subinterval.</translation>
-        </message>
-    </context>
+        <source>数据预览预测整井；单井相分析按当前分析层段预测。</source>
+        <translation>Data preview predicts the whole well; single-well facies analysis uses the selected interval.</translation>
+    </message>
+    <message>
+        <source>测井相网络模型可用于全部地层段；整井预览覆盖有效测井，分析页按所选层段取数。</source>
+        <translation>Well facies models support all strata. Preview predicts valid logs across the well; analysis uses the selected interval.</translation>
+    </message>
+    <message>
+        <source>数据预览对整井有效测井样点预测，不受地图层段限制；单井相分析仍按所选子层段预测。</source>
+        <translation>Data preview predicts valid samples throughout the well independently of the map interval; single-well facies analysis uses the selected subinterval.</translation>
+    </message>
+</context>
     <context>
         <name>PetroPhysPanel</name>
         <message>
@@ -27095,29 +27102,29 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <source>模型输入与当前层段的 RMS 网格不匹配，需要 [1,1,%1,%2]</source>
-            <translation>Model input does not match the unit RMS grid; expected [1,1,%1,%2]</translation>
-        </message>
-        <message>
-            <source>模型输出与所选层段网格不一致</source>
-            <translation>Model output does not match the selected unit grid</translation>
-        </message>
-        <message>
-            <source>所选算法未声明地震层段输入</source>
-            <translation>The algorithm does not declare a seismic-unit input</translation>
-        </message>
-        <message>
-            <source>输入成果不属于所选地震层段，请先按该层段获取输入</source>
-            <translation>The input belongs to a different seismic unit; acquire data for this unit first</translation>
-        </message>
-        <message>
-            <source>不能创建层段预测临时输入</source>
-            <translation>Cannot create temporary input for unit prediction</translation>
-        </message>
-        <message>
-            <source>算法输出未写入本次任务的成果路径，结果未发布</source>
-            <translation>The algorithm did not write to the task output path; results were not published</translation>
-        </message>
+        <source>模型输入与当前层段的 RMS 网格不匹配，需要 [1,1,%1,%2]</source>
+        <translation>Model input does not match the unit RMS grid; expected [1,1,%1,%2]</translation>
+    </message>
+    <message>
+        <source>模型输出与所选层段网格不一致</source>
+        <translation>Model output does not match the selected unit grid</translation>
+    </message>
+    <message>
+        <source>所选算法未声明地震层段输入</source>
+        <translation>The algorithm does not declare a seismic-unit input</translation>
+    </message>
+    <message>
+        <source>输入成果不属于所选地震层段，请先按该层段获取输入</source>
+        <translation>The input belongs to a different seismic unit; acquire data for this unit first</translation>
+    </message>
+    <message>
+        <source>不能创建层段预测临时输入</source>
+        <translation>Cannot create temporary input for unit prediction</translation>
+    </message>
+    <message>
+        <source>算法输出未写入本次任务的成果路径，结果未发布</source>
+        <translation>The algorithm did not write to the task output path; results were not published</translation>
+    </message>
         <message>
             <source>analysisLayerKey（%1）与冻结单元的结果键（%2）不一致——结果键由冻结单元产生，不允许绕过单元身份</source>
             <translation>analysisLayerKey (%1) does not match the frozen unit result key (%2). The result key must come from the frozen unit.</translation>
@@ -27127,12 +27134,12 @@ PDF：%3
             <translation>Published ONNX prediction requires a frozen analysis unit with a specific subinterval S1–S4. Tensor calls without a unit do not publish project predictions.</translation>
         </message>
         <message>
-            <source>模型 '%1' 在当前工程注册表中不可用（未登记/被门控/未钉哈希）</source>
-            <translation>Model '%1' is unavailable in the current project registry (unregistered, gated, or missing a pinned hash).</translation>
+            <source>模型 &#x27;%1&#x27; 在当前工程注册表中不可用（未登记/被门控/未钉哈希）</source>
+            <translation>Model &#x27;%1&#x27; is unavailable in the current project registry (unregistered, gated, or missing a pinned hash).</translation>
         </message>
         <message>
-            <source>model_revision_changed: 模型 '%1' 与准备阶段冻结的身份不一致（冻结 %2，实际 %3）——请重新发起预测</source>
-            <translation>model_revision_changed: Model '%1' differs from its identity at preparation (expected %2, actual %3). Start the prediction again.</translation>
+            <source>model_revision_changed: 模型 &#x27;%1&#x27; 与准备阶段冻结的身份不一致（冻结 %2，实际 %3）——请重新发起预测</source>
+            <translation>model_revision_changed: Model &#x27;%1&#x27; differs from its identity at preparation (expected %2, actual %3). Start the prediction again.</translation>
         </message>
         <message>
             <source>无法证明预测提交状态（%1）——已阻断以避免重复提交，请重试或检查工程数据后重试发布</source>
@@ -27140,7 +27147,7 @@ PDF：%3
         </message>
         <message>
             <source>预测成果已提交（版本 %1），但工程已切换，展示未恢复——成果保留在原工程受管路径，可从成果目录查看</source>
-            <translation>The prediction result was committed (version %1), but the project changed before display was restored. The result remains in the original project's managed directory.</translation>
+            <translation>The prediction result was committed (version %1), but the project changed before display was restored. The result remains in the original project&#x27;s managed directory.</translation>
         </message>
         <message>
             <source>预测已取消（提交前终止，产物未发布）</source>
@@ -27166,7 +27173,7 @@ PDF：%3
             <source>图层声明（%1）与已提交版本路径（%2）不一致——展示未完成，请重试发布</source>
             <translation>Layer declaration (%1) does not match the committed version path (%2). Display is incomplete. Retry publication.</translation>
         </message>
-    </context>
+</context>
     <context>
         <name>PreviewBasemapControl</name>
         <message>
@@ -27561,30 +27568,30 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <source>所选时深来源未在工区数据服务中匹配，请检查关联</source>
-            <translation>The selected time-depth source is not linked to the project data service; check its association</translation>
-        </message>
-        <message>
-            <source>深度单位</source>
-            <translation>Depth unit</translation>
-        </message>
-        <message>
-            <source>时间单位</source>
-            <translation>Time unit</translation>
-        </message>
-        <message>
-            <source>单/双程类型</source>
-            <translation>One-way/two-way time type</translation>
-        </message>
-        <message>
-            <source>时间基准</source>
-            <translation>Time datum</translation>
-        </message>
-        <message>
-            <source>时深关系存在，但%1缺失或不受支持</source>
-            <translation>Time-depth data is present, but %1 is missing or unsupported</translation>
-        </message>
-    </context>
+        <source>所选时深来源未在工区数据服务中匹配，请检查关联</source>
+        <translation>The selected time-depth source is not linked to the project data service; check its association</translation>
+    </message>
+    <message>
+        <source>深度单位</source>
+        <translation>Depth unit</translation>
+    </message>
+    <message>
+        <source>时间单位</source>
+        <translation>Time unit</translation>
+    </message>
+    <message>
+        <source>单/双程类型</source>
+        <translation>One-way/two-way time type</translation>
+    </message>
+    <message>
+        <source>时间基准</source>
+        <translation>Time datum</translation>
+    </message>
+    <message>
+        <source>时深关系存在，但%1缺失或不受支持</source>
+        <translation>Time-depth data is present, but %1 is missing or unsupported</translation>
+    </message>
+</context>
     <context>
         <name>ProjectLayerRefreshWorkflow</name>
         <message>
@@ -29235,14 +29242,14 @@ PDF：%3
             <source>无法启动 Python：%1</source>
             <translation type="unfinished" />
         </message>
-        <message>
-            <source>无法确认 Python 进程树已完成清理。</source>
-            <translation>Python process tree cleanup could not be confirmed.</translation>
-        </message>
-        <message>
-            <source>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</source>
-            <translation>Python interpreter not found. Install Python 3 or set the PALEO_PYTHON environment variable.</translation>
-        </message>
+    <message>
+      <source>无法确认 Python 进程树已完成清理。</source>
+      <translation>Python process tree cleanup could not be confirmed.</translation>
+    </message>
+    <message>
+      <source>未找到 Python 解释器——请安装 Python 3，或设置 PALEO_PYTHON 环境变量</source>
+      <translation>Python interpreter not found. Install Python 3 or set the PALEO_PYTHON environment variable.</translation>
+    </message>
     </context>
     <context>
         <name>PythonScripting</name>
@@ -29264,42 +29271,42 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
-        <message>
-            <source>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</source>
-            <translation>Exact WellRef for well_facies_inputs/well_curves. Metadata queries do not read numerical samples; well_curves returns resolvable input_ref values, without certifying numerical input or execution readiness.</translation>
-        </message>
-        <message>
-            <source>先用 query_project 的 well_curves 取得精确 input_ref，再显式选择同井曲线、样点窗、处理状态和 MD 基准。可信 Python 模板只分析所选窗口，报告缺失、异常、覆盖率与统计量；最多16列、8192点。prepare 冻结输入，compute-only 保存私有报告；publish 只能引用原操作并经宿主授权登记成果。不修改原始数据。</source>
-            <translation>Use query_project well_curves to obtain exact input_ref values, then select curves from one well, a sample window, processing state and MD reference. A trusted Python template reports missing and abnormal data, coverage and statistics for the selected window only, up to 16 columns and 8192 samples. prepare freezes inputs; compute-only stores a private report; publish references the original operation and requires host authorization. Original data is unchanged.</translation>
-        </message>
-        <message>
-            <source>分析 well_curves 精确引用的同井数值属性窗口：要求至少2列、完全一致的显式 MD 轴，保留逐列单位，不做插值或隐式换算。可信 Python 模板报告 Pearson 相关、共同有效点数及冗余对；结论仅适用于所选窗口，不代表全体积地震属性优选或融合。prepare、compute-only 和引用原操作的 publish 复用现有成果链路。</source>
-            <translation>Analyze selected numerical attribute windows from exact well_curves references: at least two columns with the same explicit MD axis and declared column units, without interpolation or implicit conversion. A trusted Python template reports Pearson correlation, joint valid counts and redundant pairs for the selected window only. This does not represent seismic volume attribute selection or fusion. prepare, compute-only and publish from an original operation use the existing artifact chain.</translation>
-        </message>
-        <message>
-            <source>所选数值属性相关性</source>
-            <translation>Selected numerical attribute correlation</translation>
-        </message>
-        <message>
-            <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；seismic_trace_descriptor=精确地震体的采样声明；version=严格版本摘要；version_parents=完整父引用续页</source>
-            <translation>Query topic: summary=counts; wells=well list; horizons=horizon assets; assets=asset list; well_details=well links; well_curves=paged exact curve metadata; numeric_table_projection=declared numeric projection for an exact source table; seismic_trace_descriptor=sampling declaration for an exact seismic volume; version=strict version summary; version_parents=paged complete parent references</translation>
-        </message>
-        <message>
-            <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
-            <translation>Page item budget: catalog 1–256, default 50; well_curves 1–16, default 16; local_models 1–64, default 16.</translation>
-        </message>
-        <message>
-            <source>测井曲线质量报告</source>
-            <translation>Well curve quality report</translation>
-        </message>
-        <message>
-            <source>Python 环境状态</source>
-            <translation>Python environment status</translation>
-        </message>
-        <message>
-            <source>核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。</source>
-            <translation>Verify the host-configured optional analysis-core Python environment and report missing dependencies and versions. Does not install environments, run user or generated code, or grant publication permissions.</translation>
-        </message>
+    <message>
+        <source>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</source>
+        <translation>Exact WellRef for well_facies_inputs/well_curves. Metadata queries do not read numerical samples; well_curves returns resolvable input_ref values, without certifying numerical input or execution readiness.</translation>
+    </message>
+    <message>
+        <source>先用 query_project 的 well_curves 取得精确 input_ref，再显式选择同井曲线、样点窗、处理状态和 MD 基准。可信 Python 模板只分析所选窗口，报告缺失、异常、覆盖率与统计量；最多16列、8192点。prepare 冻结输入，compute-only 保存私有报告；publish 只能引用原操作并经宿主授权登记成果。不修改原始数据。</source>
+        <translation>Use query_project well_curves to obtain exact input_ref values, then select curves from one well, a sample window, processing state and MD reference. A trusted Python template reports missing and abnormal data, coverage and statistics for the selected window only, up to 16 columns and 8192 samples. prepare freezes inputs; compute-only stores a private report; publish references the original operation and requires host authorization. Original data is unchanged.</translation>
+    </message>
+    <message>
+        <source>分析 well_curves 精确引用的同井数值属性窗口：要求至少2列、完全一致的显式 MD 轴，保留逐列单位，不做插值或隐式换算。可信 Python 模板报告 Pearson 相关、共同有效点数及冗余对；结论仅适用于所选窗口，不代表全体积地震属性优选或融合。prepare、compute-only 和引用原操作的 publish 复用现有成果链路。</source>
+        <translation>Analyze selected numerical attribute windows from exact well_curves references: at least two columns with the same explicit MD axis and declared column units, without interpolation or implicit conversion. A trusted Python template reports Pearson correlation, joint valid counts and redundant pairs for the selected window only. This does not represent seismic volume attribute selection or fusion. prepare, compute-only and publish from an original operation use the existing artifact chain.</translation>
+    </message>
+    <message>
+        <source>所选数值属性相关性</source>
+        <translation>Selected numerical attribute correlation</translation>
+    </message>
+    <message>
+        <source>查询主题：summary=计数摘要；wells=井清单；horizons=层位资产清单；assets=资产清单；well_details=单井关联明细；well_curves=精确井曲线元数据续页；numeric_table_projection=精确源表的显式数值投影声明；seismic_trace_descriptor=精确地震体的采样声明；version=严格版本摘要；version_parents=完整父引用续页</source>
+        <translation>Query topic: summary=counts; wells=well list; horizons=horizon assets; assets=asset list; well_details=well links; well_curves=paged exact curve metadata; numeric_table_projection=declared numeric projection for an exact source table; seismic_trace_descriptor=sampling declaration for an exact seismic volume; version=strict version summary; version_parents=paged complete parent references</translation>
+    </message>
+    <message>
+        <source>每页条目预算：目录页1–256，缺省50；well_curves页1–16，缺省16；local_models页1–64，缺省16</source>
+        <translation>Page item budget: catalog 1–256, default 50; well_curves 1–16, default 16; local_models 1–64, default 16.</translation>
+    </message>
+    <message>
+        <source>测井曲线质量报告</source>
+        <translation>Well curve quality report</translation>
+    </message>
+    <message>
+        <source>Python 环境状态</source>
+        <translation>Python environment status</translation>
+    </message>
+    <message>
+        <source>核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。</source>
+        <translation>Verify the host-configured optional analysis-core Python environment and report missing dependencies and versions. Does not install environments, run user or generated code, or grant publication permissions.</translation>
+    </message>
         <message>
             <source>临时配准源超过 500 MB，或目标文件已存在</source>
             <translation>The provisional registration source exceeds 500 MB, or the destination already exists.</translation>
@@ -29423,14 +29430,11 @@ PDF：%3
             <location filename="../src/ai/chat/domaintools.cpp" line="401" />
             <source>入口已接线：显式引用，不读取当前选择</source>
             <translation>Available through explicit references. The current selection is ignored.</translation>
-            <location filename="../src/ui/seismicsection/seismicsectiondock_internal.h" line="89" />
+            <location filename="../src/ui/seismicsection/seismicsectiondock_internal.h" line="89"/>
             <source>添加断层 %1</source>
-            <translation>添加断层 %1</translation>
+            <translation>Add fault %1</translation>
         </message>
-        <message>
-            <source>快速预览（≤64×64）</source>
-            <translation type="unfinished" />
-        </message>
+    <message><source>快速预览（≤64×64）</source><translation type="unfinished"></translation></message>
         <message>
             <source>未命名层位</source>
             <translation type="unfinished" />
@@ -29449,11 +29453,11 @@ PDF：%3
         </message>
         <message>
             <source>工区范围或坐标系无效</source>
-            <translation>Project extent or CRS is invalid</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>工区范围样式保存失败</source>
-            <translation>Failed to save project-extent style</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
@@ -29465,19 +29469,19 @@ PDF：%3
         </message>
         <message>
             <source>读取测线振幅</source>
-            <translation>Reading line amplitudes</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>振幅已就绪，正在加载地震层位</source>
-            <translation>Amplitudes ready; loading seismic horizons</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>加载地震层位</source>
-            <translation>Loading seismic horizons</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>地震层位加载已取消</source>
-            <translation>Seismic horizon load cancelled</translation>
+            <translation type="unfinished" />
         </message>
         <message>
             <source>快速预览（≤128×128）</source>
@@ -29491,6 +29495,7 @@ PDF：%3
             <source>预览读取均匀抽样的真实振幅；完整分辨率按原始测网逐点读取，可取消。</source>
             <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/io/projectsetupscan.cpp" line="130" />
             <source>%1：仅识别有界预览样本；完整记录与校验在导入时读取。</source>
@@ -32262,112 +32267,112 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.h" line="156" />
+            <location filename="../src/workflow/dataopscommandservice.h" line="156"/>
             <source>数据目录不可用（工程已关闭或切换）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.h" line="159" />
+            <location filename="../src/workflow/dataopscommandservice.h" line="159"/>
             <source>找不到 %1 的对应关联（目录已在别处被改动）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.h" line="161" />
+            <location filename="../src/workflow/dataopscommandservice.h" line="161"/>
             <source>写入侧车文件失败</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="10" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="10"/>
             <source>挂接 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="70" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="70"/>
             <source>解挂 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="129" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="129"/>
             <source>转移挂接 %1：%2→%3</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="192" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="192"/>
             <source>设为主版本 %1（%2·%3）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="12" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="12"/>
             <source>打标签 %1「%2」</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="13" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="13"/>
             <source>去标签 %1「%2」</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="149" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="149"/>
             <source>改类型 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="247" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="247"/>
             <source>移除 %1（进可回收清单）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="248" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="248"/>
             <source>恢复 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="243" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="243"/>
             <source>批量移除</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="243" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="243"/>
             <source>撤销恢复</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="302" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="302"/>
             <source>批量恢复 %1 项</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="380" />
+            <location filename="../src/workflow/dataopscommandservice_sidecars.cpp" line="380"/>
             <source>批量移除 %1 项（软删）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="13" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="13"/>
             <source>改备注 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="16" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="16"/>
             <source>改坐标 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="17" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="17"/>
             <source>重命名实体 %1→%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="117" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="117"/>
             <source>新建实体撤销</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="62" />
+            <location filename="../src/workflow/dataopscommandservice_entities.cpp" line="62"/>
             <source>新建实体 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="270" />
+            <location filename="../src/workflow/dataopscommandservice_catalog.cpp" line="270"/>
             <source>重命名 %1 → %2</source>
             <translation type="unfinished" />
         </message>
@@ -37474,204 +37479,204 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>地震层位</source>
-            <translation>Seismic horizons</translation>
-        </message>
+        <source>地震层位</source>
+        <translation>Seismic horizons</translation>
+    </message>
+    <message>
+        <source>叠加地震层位</source>
+        <translation>Overlay seismic horizons</translation>
+    </message>
+    <message>
+        <source>叠加大层界面、S1–S4 小层分界及半透明层间色带；虚线为方案推导分界，实线为已解释界线。</source>
+        <translation>Overlay major horizons, S1–S4 boundaries and translucent interval bands. Dashed lines are scheme-derived; solid lines are interpreted.</translation>
+    </message>
+    <message>
+        <source>当前剖面没有可叠加层位。</source>
+        <translation>No horizons available for this section.</translation>
+    </message>
+    <message>
+        <source>当前剖面：%1 条界线。</source>
+        <translation>Current section: %1 boundaries.</translation>
+    </message>
+    <message>
+        <source>地震体缺少有效 XY 测网几何，请检查道头坐标</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>正在加载工区地震体及测网，请稍候…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>地震体加载未完成，请重新打开连井剖面</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工区未找到可加载的地震体，请检查数据管理中的来源</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>地震体及测网已就绪</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>地震体或 XY 测网未就绪，不能生成剖面</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="826"/>
+        <source>加载地震层位</source>
+        <translation>Loading seismic horizons</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="860"/>
+        <source>地震层位加载已取消</source>
+        <translation>Seismic horizon load cancelled</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/projectmapreference.cpp" line="44"/>
+        <source>工区范围或坐标系无效</source>
+        <translation>Project extent or CRS is invalid</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/projectmapreference.cpp" line="49"/>
+        <source>工区范围样式保存失败</source>
+        <translation>Failed to save project-extent style</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="825"/>
+        <source>振幅已就绪，正在加载地震层位</source>
+        <translation>Amplitudes ready; loading seismic horizons</translation>
+    </message>
+    <message>
+        <location filename="../src/services/previewdoc.cpp" line="809"/>
+        <source>读取测线振幅</source>
+        <translation>Reading line amplitudes</translation>
+    </message>
+    <message>
+        <source>轨迹坐标系无效，未叠加井轨迹</source>
+        <translation>Invalid trajectory CRS; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>轨迹坐标转换失败，未叠加井轨迹</source>
+        <translation>Trajectory coordinate transformation failed; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>测斜轨迹</source>
+        <translation>Survey trajectory</translation>
+    </message>
+    <message>
+        <source>时深表 X/Y 恒定，缺少可还原斜井的 Survey，未叠加井身</source>
+        <translation>Time-depth X/Y are constant; a Survey is required to reconstruct the deviated well. Wellbore not overlaid</translation>
+    </message>
+    <message>
+        <source>测斜方位未声明为网格北，不能直接投射到地震坐标</source>
+        <translation>Survey azimuth is not declared relative to grid north; direct seismic projection is unavailable</translation>
+    </message>
+    <message>
+        <source>轨迹缺少米或英尺平面坐标，未叠加井轨迹</source>
+        <translation>Trajectory lacks planar coordinates in metres or feet; well trajectory not overlaid</translation>
+    </message>
+    <message>
+        <source>时深轨迹 · %1 点</source>
+        <translation>Time-depth trajectory · %1 points</translation>
+    </message>
+    <message>
+        <source>缺少轨迹坐标或真实测斜，未叠加井身</source>
+        <translation>Trajectory coordinates or an actual survey are missing; wellbore not overlaid</translation>
+    </message>
+    <message>
+        <source>本井有多份测斜资料，请明确采用的 Survey 表</source>
+        <translation>Multiple surveys exist for this well; select the Survey table to use</translation>
+    </message>
+    <message>
+        <source>测斜 MD 缺少米或英尺单位</source>
+        <translation>Survey MD lacks metre or foot units</translation>
+    </message>
+    <message>
+        <source>读取：%1 线程</source>
+        <translation>Read: %1 threads</translation>
+    </message>
+    <message>
+        <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
+        <translation>Concurrent SEG-Y read workers. Changing this setting reloads the current slice; cached slices are reused. Paged workspaces use their own scheduling.</translation>
+    </message>
         <message>
-            <source>叠加地震层位</source>
-            <translation>Overlay seismic horizons</translation>
-        </message>
-        <message>
-            <source>叠加大层界面、S1–S4 小层分界及半透明层间色带；虚线为方案推导分界，实线为已解释界线。</source>
-            <translation>Overlay major horizons, S1–S4 boundaries and translucent interval bands. Dashed lines are scheme-derived; solid lines are interpreted.</translation>
-        </message>
-        <message>
-            <source>当前剖面没有可叠加层位。</source>
-            <translation>No horizons available for this section.</translation>
-        </message>
-        <message>
-            <source>当前剖面：%1 条界线。</source>
-            <translation>Current section: %1 boundaries.</translation>
-        </message>
-        <message>
-            <source>地震体缺少有效 XY 测网几何，请检查道头坐标</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>正在加载工区地震体及测网，请稍候…</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>地震体加载未完成，请重新打开连井剖面</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>工区未找到可加载的地震体，请检查数据管理中的来源</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>地震体及测网已就绪</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>地震体或 XY 测网未就绪，不能生成剖面</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/services/previewdoc.cpp" line="826" />
-            <source>加载地震层位</source>
-            <translation>Loading seismic horizons</translation>
-        </message>
-        <message>
-            <location filename="../src/services/previewdoc.cpp" line="860" />
-            <source>地震层位加载已取消</source>
-            <translation>Seismic horizon load cancelled</translation>
-        </message>
-        <message>
-            <location filename="../src/qgis/projectmapreference.cpp" line="44" />
-            <source>工区范围或坐标系无效</source>
-            <translation>Project extent or CRS is invalid</translation>
-        </message>
-        <message>
-            <location filename="../src/qgis/projectmapreference.cpp" line="49" />
-            <source>工区范围样式保存失败</source>
-            <translation>Failed to save project-extent style</translation>
-        </message>
-        <message>
-            <location filename="../src/services/previewdoc.cpp" line="825" />
-            <source>振幅已就绪，正在加载地震层位</source>
-            <translation>Amplitudes ready; loading seismic horizons</translation>
-        </message>
-        <message>
-            <location filename="../src/services/previewdoc.cpp" line="809" />
-            <source>读取测线振幅</source>
-            <translation>Reading line amplitudes</translation>
-        </message>
-        <message>
-            <source>轨迹坐标系无效，未叠加井轨迹</source>
-            <translation>Invalid trajectory CRS; well trajectory not overlaid</translation>
-        </message>
-        <message>
-            <source>轨迹坐标转换失败，未叠加井轨迹</source>
-            <translation>Trajectory coordinate transformation failed; well trajectory not overlaid</translation>
-        </message>
-        <message>
-            <source>测斜轨迹</source>
-            <translation>Survey trajectory</translation>
-        </message>
-        <message>
-            <source>时深表 X/Y 恒定，缺少可还原斜井的 Survey，未叠加井身</source>
-            <translation>Time-depth X/Y are constant; a Survey is required to reconstruct the deviated well. Wellbore not overlaid</translation>
-        </message>
-        <message>
-            <source>测斜方位未声明为网格北，不能直接投射到地震坐标</source>
-            <translation>Survey azimuth is not declared relative to grid north; direct seismic projection is unavailable</translation>
-        </message>
-        <message>
-            <source>轨迹缺少米或英尺平面坐标，未叠加井轨迹</source>
-            <translation>Trajectory lacks planar coordinates in metres or feet; well trajectory not overlaid</translation>
-        </message>
-        <message>
-            <source>时深轨迹 · %1 点</source>
-            <translation>Time-depth trajectory · %1 points</translation>
-        </message>
-        <message>
-            <source>缺少轨迹坐标或真实测斜，未叠加井身</source>
-            <translation>Trajectory coordinates or an actual survey are missing; wellbore not overlaid</translation>
-        </message>
-        <message>
-            <source>本井有多份测斜资料，请明确采用的 Survey 表</source>
-            <translation>Multiple surveys exist for this well; select the Survey table to use</translation>
-        </message>
-        <message>
-            <source>测斜 MD 缺少米或英尺单位</source>
-            <translation>Survey MD lacks metre or foot units</translation>
-        </message>
-        <message>
-            <source>读取：%1 线程</source>
-            <translation>Read: %1 threads</translation>
-        </message>
-        <message>
-            <source>直读 SEG-Y 的并发读取线程数；切换后重取当前切片，已有缓存直接复用。分页工作区使用自身读取调度。</source>
-            <translation>Concurrent SEG-Y read workers. Changing this setting reloads the current slice; cached slices are reused. Paged workspaces use their own scheduling.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>不在可回收清单</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>回收状态未变化</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>实体改写未变化</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>工程会话已变更（数据目录已切换），请重新操作</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>工程会话已变更，请重新操作</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>已在可回收清单</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>批量失败已整体回滚：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>批量失败已补偿恢复</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>批量提交失败（已整体回滚）：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>数据目录未打开</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>标签未变化（已存在或不存在）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>目标实体相同</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>类型已是目标值</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>补偿失败：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>转移第二步失败（已回滚）：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>转移落盘失败（已回滚）：%1</source>
             <translation type="unfinished" />
         </message>
@@ -37898,6 +37903,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>井不属于当前解释计划</source>
             <translation>The well is outside the current interpretation plan</translation>
         </message>
+
         <message>
             <source>读取工具结果</source>
             <translation>Read tool result</translation>
@@ -37930,58 +37936,58 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>UTF-8 JSON 预算，768–65536 字节</source>
             <translation>UTF-8 JSON budget, 768–65536 bytes</translation>
         </message>
-        <message>
-            <source>版本 2：prepare 以 source_version_id 和 model 冻结源栅格、网格及模型；compute-only 只接受 prepare 的 source_operation_id，生成私有三端口结果；publish 只接受 computed 的 source_operation_id，一次登记三端口并呈现图层。后两阶段不能重新指定来源、模型或参数。</source>
-            <translation>Version 2: prepare freezes source_version_id, raster grid and model. compute-only takes a prepared source_operation_id and writes three private result ports. publish takes a computed source_operation_id, commits all three ports atomically and presents layers. Later phases cannot replace the source, model or parameters.</translation>
-        </message>
-        <message>
-            <source>操作状态</source>
-            <translation>Operation status</translation>
-        </message>
-        <message>
-            <source>读取同一聊天作用域内的持久操作状态；分别报告执行、数据提交与呈现事实。</source>
-            <translation>Read persistent operation status in this chat scope, with separate execution, data commit and presentation facts.</translation>
-        </message>
-        <message>
-            <source>操作事件</source>
-            <translation>Operation events</translation>
-        </message>
-        <message>
-            <source>按 after_revision 十进制字符串读取有界事件页；历史过期明确报错，不回退第一页。</source>
-            <translation>Read a bounded event page after the decimal-string after_revision. Expired history is reported explicitly; it never restarts at the first page.</translation>
-        </message>
-        <message>
-            <source>恢复操作</source>
-            <translation>Resume operation</translation>
-        </message>
-        <message>
-            <source>恢复原操作：已提交时修复凭证或准确呈现；未提交时按冻结计划恢复。不会创建第二个业务操作。</source>
-            <translation>Resume the original operation: reconcile its receipt or exact presentation after commit, or resume its frozen plan before commit. No second business operation is created.</translation>
-        </message>
-        <message>
-            <source>取消操作</source>
-            <translation>Cancel operation</translation>
-        </message>
-        <message>
-            <source>持久化取消请求；已提交时返回 cancel_after_commit，保留成果。</source>
-            <translation>Persist cancellation intent. A committed operation returns cancel_after_commit and retains its results.</translation>
-        </message>
-        <message>
-            <source>操作结果</source>
-            <translation>Operation results</translation>
-        </message>
-        <message>
-            <source>列出原操作的准确结果端口、字节数与指纹；结果引用不暴露路径。</source>
-            <translation>List exact result ports, byte sizes and fingerprints for the original operation. Result references do not expose paths.</translation>
-        </message>
-        <message>
-            <source>读取操作结果</source>
-            <translation>Read operation result</translation>
-        </message>
-        <message>
-            <source>按准确 operation_id、port_id 和十进制 offset 读取有界二进制页，以 base64 返回。</source>
-            <translation>Read a bounded binary page by exact operation_id, port_id and decimal-string offset, returned as base64.</translation>
-        </message>
+            <message>
+        <source>版本 2：prepare 以 source_version_id 和 model 冻结源栅格、网格及模型；compute-only 只接受 prepare 的 source_operation_id，生成私有三端口结果；publish 只接受 computed 的 source_operation_id，一次登记三端口并呈现图层。后两阶段不能重新指定来源、模型或参数。</source>
+        <translation>Version 2: prepare freezes source_version_id, raster grid and model. compute-only takes a prepared source_operation_id and writes three private result ports. publish takes a computed source_operation_id, commits all three ports atomically and presents layers. Later phases cannot replace the source, model or parameters.</translation>
+    </message>
+    <message>
+        <source>操作状态</source>
+        <translation>Operation status</translation>
+    </message>
+    <message>
+        <source>读取同一聊天作用域内的持久操作状态；分别报告执行、数据提交与呈现事实。</source>
+        <translation>Read persistent operation status in this chat scope, with separate execution, data commit and presentation facts.</translation>
+    </message>
+    <message>
+        <source>操作事件</source>
+        <translation>Operation events</translation>
+    </message>
+    <message>
+        <source>按 after_revision 十进制字符串读取有界事件页；历史过期明确报错，不回退第一页。</source>
+        <translation>Read a bounded event page after the decimal-string after_revision. Expired history is reported explicitly; it never restarts at the first page.</translation>
+    </message>
+    <message>
+        <source>恢复操作</source>
+        <translation>Resume operation</translation>
+    </message>
+    <message>
+        <source>恢复原操作：已提交时修复凭证或准确呈现；未提交时按冻结计划恢复。不会创建第二个业务操作。</source>
+        <translation>Resume the original operation: reconcile its receipt or exact presentation after commit, or resume its frozen plan before commit. No second business operation is created.</translation>
+    </message>
+    <message>
+        <source>取消操作</source>
+        <translation>Cancel operation</translation>
+    </message>
+    <message>
+        <source>持久化取消请求；已提交时返回 cancel_after_commit，保留成果。</source>
+        <translation>Persist cancellation intent. A committed operation returns cancel_after_commit and retains its results.</translation>
+    </message>
+    <message>
+        <source>操作结果</source>
+        <translation>Operation results</translation>
+    </message>
+    <message>
+        <source>列出原操作的准确结果端口、字节数与指纹；结果引用不暴露路径。</source>
+        <translation>List exact result ports, byte sizes and fingerprints for the original operation. Result references do not expose paths.</translation>
+    </message>
+    <message>
+        <source>读取操作结果</source>
+        <translation>Read operation result</translation>
+    </message>
+    <message>
+        <source>按准确 operation_id、port_id 和十进制 offset 读取有界二进制页，以 base64 返回。</source>
+        <translation>Read a bounded binary page by exact operation_id, port_id and decimal-string offset, returned as base64.</translation>
+    </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="230" />
             <source>精确井实体标识；well_details 优先使用此字段</source>
@@ -38060,229 +38066,220 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>精确模型和 SDK 输入经宿主授权后调用；原任务和结果可恢复，未知提交不重发</source>
             <translation>Exact model and SDK input require host authorization; original jobs and results can be recovered without resubmitting unknown requests</translation>
         </message>
+        <message><source>local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准</source><translation>local_models: Exact local model name; omit to page through input features, weight fingerprints and output declarations. Runtime availability is validated by prepare.</translation></message>
+        <message><source>每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16</source><translation>Page item budget: catalog 1–256 (default 50); local_models 1–64 (default 16).</translation></message>
+        <message><source>完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192</source><translation>Complete JSON page byte budget: catalog 2048–65536; local_models 1024–32768; default 8192.</translation></message>
         <message>
-            <source>local_models：精确本地模型名；缺省分页列出输入特征、权重指纹和输出声明，实际可用性以 prepare 为准</source>
-            <translation>local_models: Exact local model name; omit to page through input features, weight fingerprints and output declarations. Runtime availability is validated by prepare.</translation>
-        </message>
-        <message>
-            <source>每页条目预算：目录页1–256，缺省50；local_models页1–64，缺省16</source>
-            <translation>Page item budget: catalog 1–256 (default 50); local_models 1–64 (default 16).</translation>
-        </message>
-        <message>
-            <source>完整JSON页字节预算：目录页2048–65536；local_models页1024–32768；缺省8192</source>
-            <translation>Complete JSON page byte budget: catalog 2048–65536; local_models 1024–32768; default 8192.</translation>
-        </message>
-        <message>
-            <source>受控 Python 计算</source>
-            <translation>Controlled Python computation</translation>
-        </message>
-        <message>
-            <source>对 well_curves 精确引用的同井窗口执行有界生成代码，限16列、8192点及16KiB UTF-8源码。必须启用独立生成代码权限并通过当前平台隔离探测；缺项拒绝执行。源码、输入、运行时及策略按内容身份冻结，每次使用新进程。只接收有界指标、表格和说明，宿主补来源证据；脚本的数值与单位声明未经独立重算。compute-only 不登记正式成果；publish 仅引用原操作并单独授权。</source>
-            <translation>Execute bounded generated code on exact same-well windows from well_curves: up to 16 columns, 8192 samples and 16 KiB of UTF-8 source. Requires separate generated-code permission and a verified platform sandbox. Freeze code, inputs, runtime and policy by content identity; use a fresh process each time. Accept only bounded metrics, tables and notes; the host adds source evidence. Generated numerical values and declared units are not independently recomputed. compute-only does not register formal results; publish references the original operation and requires separate authorization.</translation>
-        </message>
-        <message>
-            <source>Python 隔离状态</source>
-            <translation>Python sandbox status</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="30" />
-            <source>已安装</source>
-            <translation>Installed</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="31" />
-            <source>校验通过</source>
-            <translation>Verified</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
-            <source>可执行</source>
-            <translation>Ready to run</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="33" />
-            <source>未安装</source>
-            <translation>Not installed</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="34" />
-            <source>尚未选择环境</source>
-            <translation>No environment selected</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="35" />
-            <source>未启用</source>
-            <translation>Disabled</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="36" />
-            <source>当前不可执行</source>
-            <translation>Not ready to run</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="37" />
-            <source>检查未通过</source>
-            <translation>Check failed</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="38" />
-            <source>尚未检查</source>
-            <translation>Not checked</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="44" />
-            <source>是</source>
-            <translation>Yes</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="44" />
-            <source>否</source>
-            <translation>No</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="19" />
-            <source>操作已取消。</source>
-            <translation>Operation cancelled.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="21" />
-            <source>配置或授权已变更。请重新载入后再应用，当前输入仍保留。</source>
-            <translation>Configuration or permissions have changed. Reload before applying. Your current input has been kept.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="23" />
-            <source>配置已变更。请重新载入后再应用，当前输入仍保留。</source>
-            <translation>Configuration has changed. Reload before applying. Your current input has been kept.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="25" />
-            <source>交付校验未通过。请核对独立交付记录，并使用与本应用匹配的环境包。</source>
-            <translation>Delivery verification failed. Check the separate delivery record and use an environment package compatible with this application.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="26" />
-            <source>安装空间不足。旧版本已保留，请选择空间充足的专用目录。</source>
-            <translation>Not enough space for installation. The previous version has been kept. Select a dedicated directory with enough free space.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="27" />
-            <source>安装目录不可用。请使用运行时或模板各自的专用目录。</source>
-            <translation>The installation directory is unavailable. Use separate dedicated directories for the runtime and templates.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="28" />
-            <source>此环境未获执行授权。请选择已核验且允许使用的版本。</source>
-            <translation>This environment is not authorized for execution. Select a verified version that is permitted for use.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="29" />
-            <source>持久状态尚未确认。请重新载入并核对实际身份与修订号，再重试。</source>
-            <translation>The saved state has not been confirmed. Reload and check the actual identity and revision before trying again.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="30" />
-            <source>环境操作未完成。请导出诊断检查原因。</source>
-            <translation>The environment operation did not complete. Export diagnostics to investigate.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="27" />
-            <source>宿主持久配置</source>
-            <translation>Saved host configuration</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="28" />
-            <source>兼容环境变量</source>
-            <translation>Compatibility environment variables</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="29" />
-            <source>正在载入</source>
-            <translation>Loading</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="30" />
-            <source>尚未配置</source>
-            <translation>Not configured</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="71" />
-            <source>本次会话已停用相关计算权限，但持久配置仍允许执行。请保存停用或撤销配置。</source>
-            <translation>Related compute permissions have been disabled for this session, but the saved configuration still allows execution. Save the disabled settings or revoke authorization.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="73" />
-            <source>请核对运行时与清单校验码；完整性未通过时不能执行。</source>
-            <translation>Check the runtime and manifest checksums. Execution is blocked until integrity verification passes.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="75" />
-            <source>可信模板完整性未通过；运行时与生成计算状态分别检查。</source>
-            <translation>Trusted template integrity verification failed. Check the runtime and generated computation status separately.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="77" />
-            <source>生成计算当前不可执行。请检查平台隔离与资源条件；不会回退到普通进程。</source>
-            <translation>Generated computation cannot run at present. Check platform isolation and resource requirements. It will not fall back to a regular process.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="79" />
-            <source>可信分析当前不可执行。请核对平台执行后端。</source>
-            <translation>Trusted analysis cannot run at present. Check the platform execution backend.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="80" />
-            <source>安装、启用与可执行状态分别检查；启用前不会运行分析。</source>
-            <translation>Installation, enablement and readiness to run are checked separately. No analysis runs before computation is enabled.</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
-            <source>无需安装（生成专用）</source>
-            <translation>Not required (generated only)</translation>
-        </message>
-        <message>
-            <source>受控数值表计算</source>
-            <translation>Controlled numeric table computation</translation>
-        </message>
-        <message>
-            <source>对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。</source>
-            <translation>Run bounded generated Python against a host-confirmed source_tables numeric projection using an exact SourceRef, table ID, projection revision, columns and row window. At most 15 numeric or Boolean columns plus a separate int64 physical row axis, 16 columns in total and 8192 rows. Types, units and nulls are not inferred from display strings. Missing projections or formal source-version mappings are rejected without model upgrades. The actual ReadCut and frozen bytes are retained; output remains a bounded REPORT, with no new CSV or image artifact. Generated-code permission, real isolation, compute-only and publication referencing the original operation use the host chain. Numerical results are not independently recomputed.</translation>
-        </message>
-        <message>
-            <source>numeric_table_projection/seismic_trace_descriptor 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
-            <translation>Exact SourceRef for numeric_table_projection/seismic_trace_descriptor. Read declared metadata only; do not scan values or infer types or units.</translation>
-        </message>
-        <message>
-            <source>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</source>
-            <translation>Exact decimal source-table ID for numeric_table_projection; no worksheet-name fallback.</translation>
-        </message>
-        <message>
-            <source>受控地震道窗口计算</source>
-            <translation>Controlled seismic trace window computation</translation>
-        </message>
-        <message>
-            <source>对精确 SourceRef、体修订及零基文件道序号的一段样点执行有界生成 Python，最多8192点。只支持固定道长、big-endian IEEE32 的 SEG-Y rev1，显式 ms TWT/OWT、时间参考与振幅单位；不猜近邻道、不混用 MD、不整卷加载。宿主按正式来源完整 SHA 建立有界分块认证，冷扫描字节与后续范围认证 I/O 分开记录。输入与实际 ReadCut 冻结，仍只输出 REPORT；生成权限、真实隔离及单独 publish 沿现有链路。数值结果未经独立重算。</source>
-            <translation>Run bounded generated Python for an exact SourceRef, volume revision and zero-based file trace ordinal, with at most 8192 selected samples. Supports fixed-length, big-endian IEEE32 SEG-Y rev1 only, with explicit ms TWT/OWT, time reference and amplitude unit. No nearest-trace guessing, MD substitution or full-volume loading. The host builds a bounded chunk-authentication index anchored to the formal source full SHA; cold scan bytes and subsequent authenticated range I/O are reported separately. Inputs and the actual ReadCut are frozen. Output remains REPORT only; generated-code permission, real isolation and separate publication use the existing chain. Numerical results are not independently recomputed.</translation>
-        </message>
-        <message>
-            <source>seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退</source>
-            <translation>Exact decimal volume ID for seismic_trace_descriptor; no name, coordinate or nearest-trace fallback.</translation>
-        </message>
-        <message>
-            <source>受控 Python 表格成果</source>
-            <translation>Controlled Python table outputs</translation>
-        </message>
-        <message>
-            <source>使用显式数值表窗口和冻结的输出列声明，生成报告与单张数值表；最多16列、8192行，宿主编码CSV至多4MiB。两项成果整组验收、一次发布。源码、输入和运行时保留来源证据；生成数值和单位未经宿主独立重算。旧REPORT操作保持原有恢复方式。</source>
-            <translation>Generate a report and one numeric table from an explicit table window and frozen output columns, up to 16 columns and 8192 rows. The host encodes CSV up to 4 MiB, validates the complete group and publishes once. Source, input and runtime identities are retained; generated values and units are not independently recomputed. Existing REPORT operations keep their original recovery contract.</translation>
-        </message>
-        <message>
-            <source>受控 Python 图表成果</source>
-            <translation>Controlled Python chart outputs</translation>
-        </message>
-        <message>
-            <source>显式选择数值表或单道地震窗口，并冻结输出列与图像尺寸。生成报告、单张数值表及单张RGBA图像；宿主编码CSV和PNG，每项至多4MiB，图像至多1024×1024像素。三项整组验收、一次发布；PNG是非空间报告成果，不自动成为GIS图层。保留输入、代码、运行时及编码器来源，生成数值与像素未经独立重算。复用同一权限、隔离、恢复和认证分页链路。</source>
-            <translation>Select an explicit numeric table or single seismic trace window and freeze output columns and image dimensions. Generate one report, one numeric table and one RGBA image; the host encodes CSV and PNG up to 4 MiB each, with images up to 1024 by 1024 pixels. Validate the complete set and publish once. The PNG is a nonspatial report artifact and does not automatically become a GIS layer. Preserve input, code, runtime and encoder provenance; generated values and pixels are not independently recomputed. Reuse host permissions, isolation, recovery and authenticated pagination.</translation>
-        </message>
+        <source>受控 Python 计算</source>
+        <translation>Controlled Python computation</translation>
+    </message>
+    <message>
+        <source>对 well_curves 精确引用的同井窗口执行有界生成代码，限16列、8192点及16KiB UTF-8源码。必须启用独立生成代码权限并通过当前平台隔离探测；缺项拒绝执行。源码、输入、运行时及策略按内容身份冻结，每次使用新进程。只接收有界指标、表格和说明，宿主补来源证据；脚本的数值与单位声明未经独立重算。compute-only 不登记正式成果；publish 仅引用原操作并单独授权。</source>
+        <translation>Execute bounded generated code on exact same-well windows from well_curves: up to 16 columns, 8192 samples and 16 KiB of UTF-8 source. Requires separate generated-code permission and a verified platform sandbox. Freeze code, inputs, runtime and policy by content identity; use a fresh process each time. Accept only bounded metrics, tables and notes; the host adds source evidence. Generated numerical values and declared units are not independently recomputed. compute-only does not register formal results; publish references the original operation and requires separate authorization.</translation>
+    </message>
+    <message>
+        <source>Python 隔离状态</source>
+        <translation>Python sandbox status</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="30" />
+        <source>已安装</source>
+        <translation>Installed</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="31" />
+        <source>校验通过</source>
+        <translation>Verified</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
+        <source>可执行</source>
+        <translation>Ready to run</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="33" />
+        <source>未安装</source>
+        <translation>Not installed</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="34" />
+        <source>尚未选择环境</source>
+        <translation>No environment selected</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="35" />
+        <source>未启用</source>
+        <translation>Disabled</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="36" />
+        <source>当前不可执行</source>
+        <translation>Not ready to run</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="37" />
+        <source>检查未通过</source>
+        <translation>Check failed</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="38" />
+        <source>尚未检查</source>
+        <translation>Not checked</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="44" />
+        <source>是</source>
+        <translation>Yes</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="44" />
+        <source>否</source>
+        <translation>No</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="19" />
+        <source>操作已取消。</source>
+        <translation>Operation cancelled.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="21" />
+        <source>配置或授权已变更。请重新载入后再应用，当前输入仍保留。</source>
+        <translation>Configuration or permissions have changed. Reload before applying. Your current input has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="23" />
+        <source>配置已变更。请重新载入后再应用，当前输入仍保留。</source>
+        <translation>Configuration has changed. Reload before applying. Your current input has been kept.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="25" />
+        <source>交付校验未通过。请核对独立交付记录，并使用与本应用匹配的环境包。</source>
+        <translation>Delivery verification failed. Check the separate delivery record and use an environment package compatible with this application.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="26" />
+        <source>安装空间不足。旧版本已保留，请选择空间充足的专用目录。</source>
+        <translation>Not enough space for installation. The previous version has been kept. Select a dedicated directory with enough free space.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="27" />
+        <source>安装目录不可用。请使用运行时或模板各自的专用目录。</source>
+        <translation>The installation directory is unavailable. Use separate dedicated directories for the runtime and templates.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="28" />
+        <source>此环境未获执行授权。请选择已核验且允许使用的版本。</source>
+        <translation>This environment is not authorized for execution. Select a verified version that is permitted for use.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="29" />
+        <source>持久状态尚未确认。请重新载入并核对实际身份与修订号，再重试。</source>
+        <translation>The saved state has not been confirmed. Reload and check the actual identity and revision before trying again.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="30" />
+        <source>环境操作未完成。请导出诊断检查原因。</source>
+        <translation>The environment operation did not complete. Export diagnostics to investigate.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="27" />
+        <source>宿主持久配置</source>
+        <translation>Saved host configuration</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="28" />
+        <source>兼容环境变量</source>
+        <translation>Compatibility environment variables</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="29" />
+        <source>正在载入</source>
+        <translation>Loading</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="30" />
+        <source>尚未配置</source>
+        <translation>Not configured</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="71" />
+        <source>本次会话已停用相关计算权限，但持久配置仍允许执行。请保存停用或撤销配置。</source>
+        <translation>Related compute permissions have been disabled for this session, but the saved configuration still allows execution. Save the disabled settings or revoke authorization.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="73" />
+        <source>请核对运行时与清单校验码；完整性未通过时不能执行。</source>
+        <translation>Check the runtime and manifest checksums. Execution is blocked until integrity verification passes.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="75" />
+        <source>可信模板完整性未通过；运行时与生成计算状态分别检查。</source>
+        <translation>Trusted template integrity verification failed. Check the runtime and generated computation status separately.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="77" />
+        <source>生成计算当前不可执行。请检查平台隔离与资源条件；不会回退到普通进程。</source>
+        <translation>Generated computation cannot run at present. Check platform isolation and resource requirements. It will not fall back to a regular process.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="79" />
+        <source>可信分析当前不可执行。请核对平台执行后端。</source>
+        <translation>Trusted analysis cannot run at present. Check the platform execution backend.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentdiagnostics.cpp" line="80" />
+        <source>安装、启用与可执行状态分别检查；启用前不会运行分析。</source>
+        <translation>Installation, enablement and readiness to run are checked separately. No analysis runs before computation is enabled.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="32" />
+        <source>无需安装（生成专用）</source>
+        <translation>Not required (generated only)</translation>
+    </message>
+    <message>
+        <source>受控数值表计算</source>
+        <translation>Controlled numeric table computation</translation>
+    </message>
+    <message>
+        <source>对宿主已确认的 source_tables 数值投影执行有界生成 Python：显式 SourceRef、tableId、投影修订、列和行窗；最多15个数值或布尔列及独立 int64 物理行轴，共16列、8192行。不猜测展示字符串的类型、单位或 null。缺投影或正式来源版本映射时拒绝，不自动升级模型。保留实际 ReadCut 和冻结字节，输出仍为有界 REPORT；不新增 CSV 或图片成果。生成权限、真实隔离、compute-only 与引用原操作 publish 沿用宿主链路；数值结果未经独立重算。</source>
+        <translation>Run bounded generated Python against a host-confirmed source_tables numeric projection using an exact SourceRef, table ID, projection revision, columns and row window. At most 15 numeric or Boolean columns plus a separate int64 physical row axis, 16 columns in total and 8192 rows. Types, units and nulls are not inferred from display strings. Missing projections or formal source-version mappings are rejected without model upgrades. The actual ReadCut and frozen bytes are retained; output remains a bounded REPORT, with no new CSV or image artifact. Generated-code permission, real isolation, compute-only and publication referencing the original operation use the host chain. Numerical results are not independently recomputed.</translation>
+    </message>
+    <message>
+        <source>numeric_table_projection/seismic_trace_descriptor 的精确 SourceRef；只读声明元数据，不扫描数值或自动推断类型、单位</source>
+        <translation>Exact SourceRef for numeric_table_projection/seismic_trace_descriptor. Read declared metadata only; do not scan values or infer types or units.</translation>
+    </message>
+    <message>
+        <source>numeric_table_projection 的精确源表十进制标识；不按工作表名回退</source>
+        <translation>Exact decimal source-table ID for numeric_table_projection; no worksheet-name fallback.</translation>
+    </message>
+    <message>
+        <source>受控地震道窗口计算</source>
+        <translation>Controlled seismic trace window computation</translation>
+    </message>
+    <message>
+        <source>对精确 SourceRef、体修订及零基文件道序号的一段样点执行有界生成 Python，最多8192点。只支持固定道长、big-endian IEEE32 的 SEG-Y rev1，显式 ms TWT/OWT、时间参考与振幅单位；不猜近邻道、不混用 MD、不整卷加载。宿主按正式来源完整 SHA 建立有界分块认证，冷扫描字节与后续范围认证 I/O 分开记录。输入与实际 ReadCut 冻结，仍只输出 REPORT；生成权限、真实隔离及单独 publish 沿现有链路。数值结果未经独立重算。</source>
+        <translation>Run bounded generated Python for an exact SourceRef, volume revision and zero-based file trace ordinal, with at most 8192 selected samples. Supports fixed-length, big-endian IEEE32 SEG-Y rev1 only, with explicit ms TWT/OWT, time reference and amplitude unit. No nearest-trace guessing, MD substitution or full-volume loading. The host builds a bounded chunk-authentication index anchored to the formal source full SHA; cold scan bytes and subsequent authenticated range I/O are reported separately. Inputs and the actual ReadCut are frozen. Output remains REPORT only; generated-code permission, real isolation and separate publication use the existing chain. Numerical results are not independently recomputed.</translation>
+    </message>
+    <message>
+        <source>seismic_trace_descriptor 的精确体十进制标识；不按名称、坐标或近邻道回退</source>
+        <translation>Exact decimal volume ID for seismic_trace_descriptor; no name, coordinate or nearest-trace fallback.</translation>
+    </message>
+    <message>
+        <source>受控 Python 表格成果</source>
+        <translation>Controlled Python table outputs</translation>
+    </message>
+    <message>
+        <source>使用显式数值表窗口和冻结的输出列声明，生成报告与单张数值表；最多16列、8192行，宿主编码CSV至多4MiB。两项成果整组验收、一次发布。源码、输入和运行时保留来源证据；生成数值和单位未经宿主独立重算。旧REPORT操作保持原有恢复方式。</source>
+        <translation>Generate a report and one numeric table from an explicit table window and frozen output columns, up to 16 columns and 8192 rows. The host encodes CSV up to 4 MiB, validates the complete group and publishes once. Source, input and runtime identities are retained; generated values and units are not independently recomputed. Existing REPORT operations keep their original recovery contract.</translation>
+    </message>
+    <message>
+        <source>受控 Python 图表成果</source>
+        <translation>Controlled Python chart outputs</translation>
+    </message>
+    <message>
+        <source>显式选择数值表或单道地震窗口，并冻结输出列与图像尺寸。生成报告、单张数值表及单张RGBA图像；宿主编码CSV和PNG，每项至多4MiB，图像至多1024×1024像素。三项整组验收、一次发布；PNG是非空间报告成果，不自动成为GIS图层。保留输入、代码、运行时及编码器来源，生成数值与像素未经独立重算。复用同一权限、隔离、恢复和认证分页链路。</source>
+        <translation>Select an explicit numeric table or single seismic trace window and freeze output columns and image dimensions. Generate one report, one numeric table and one RGBA image; the host encodes CSV and PNG up to 4 MiB each, with images up to 1024 by 1024 pixels. Validate the complete set and publish once. The PNG is a nonspatial report artifact and does not automatically become a GIS layer. Preserve input, code, runtime and encoder provenance; generated values and pixels are not independently recomputed. Reuse host permissions, isolation, recovery and authenticated pagination.</translation>
+    </message>
         <message>
             <source>ONNX Runtime 就绪：API %1，运行库 %2（%3）</source>
             <translation>ONNX Runtime ready: API %1, runtime %2 (%3)</translation>
@@ -38363,35 +38360,35 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>无法完整写入 %1</source>
             <translation>Unable to write %1 completely</translation>
         </message>
-        <message>
-            <source>只提出并检查计划，等待用户在原生面板明确计算</source>
-            <translation>Proposes and checks a plan only; waits for explicit user compute in the native panel</translation>
-        </message>
-        <message>
-            <source>提出一个 v1 计算计划并只做预检：当前可组合的形状是 constraint.idw（OUTPUT）→ singlefactor.contours（RASTER）的 compute-only 两步图，终端输出单一私有成果。输入为有类型 nodes/edges（IDW 点集用 inputs.points 的 x/y/z 数值表给出，subinterval_id 必填）。工具只严格解码并调用既有整图预检，返回规范化参数、执行顺序与首个可定位问题；不会开始任何计算——执行须由用户在原生审阅面板中修改、重新预检并明确点击「计算私有成果」。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>节点表（≤32 项）。元素字段：id、capability、contract_version、output_port、intent（仅 compute-only）、parameters、inputs；封闭词表，未知字段拒绝</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计划的非执行性标题（≤120 字符，仅展示用）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计划的非执行性说明（≤500 字符，仅展示用）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计算计划提案预检</source>
-            <translation>Compute plan proposal preflight</translation>
-        </message>
-        <message>
-            <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
-            <translation type="unfinished" />
-        </message>
-    </context>
+    <message>
+        <source>只提出并检查计划，等待用户在原生面板明确计算</source>
+        <translation>Proposes and checks a plan only; waits for explicit user compute in the native panel</translation>
+    </message>
+    <message>
+        <source>计算计划提案预检</source>
+        <translation>Compute plan proposal preflight</translation>
+    </message>
+    <message>
+        <source>提出一个 v1 计算计划并只做预检：当前可组合的形状是 constraint.idw（OUTPUT）→ singlefactor.contours（RASTER）的 compute-only 两步图，终端输出单一私有成果。输入为有类型 nodes/edges（IDW 点集用 inputs.points 的 x/y/z 数值表给出，subinterval_id 必填）。工具只严格解码并调用既有整图预检，返回规范化参数、执行顺序与首个可定位问题；不会开始任何计算——执行须由用户在原生审阅面板中修改、重新预检并明确点击「计算私有成果」。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划的非执行性标题（≤120 字符，仅展示用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划的非执行性说明（≤500 字符，仅展示用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>节点表（≤32 项）。元素字段：id、capability、contract_version、output_port、intent（仅 compute-only）、parameters、inputs；封闭词表，未知字段拒绝</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
     <context>
         <name>QgisCanvasController</name>
         <message>
@@ -38399,6 +38396,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>地图画布尚未就绪，不能复制坐标。</source>
             <translation type="unfinished" />
         </message>
+
+
     </context>
     <context>
         <name>QgisConstraintEditSession</name>
@@ -39910,13 +39909,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>Python 解释器不可执行：%1</source>
             <translation type="unfinished" />
         </message>
-        <message>
-            <source>无法确认 Python 进程树已完成清理。</source>
-            <translation>Python process tree cleanup could not be confirmed.</translation>
-        </message>
+    <message>
+      <source>无法确认 Python 进程树已完成清理。</source>
+      <translation>Python process tree cleanup could not be confirmed.</translation>
+    </message>
     </context>
     <context>
         <name>SectionSetupDialog</name>
+        <message>
+            <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>井点成果坐标系无效</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
+            <translation type="unfinished" />
+        </message>
+
         <message>
             <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="23" />
             <source>连井剖面与时深对齐</source>
@@ -40089,39 +40101,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>地震体及测网就绪后可生成剖面</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
+        <source>地震体及测网就绪后可生成剖面</source>
+        <translation type="unfinished" />
+    </message>
+<message>
             <location filename="../src/ui/seismicsection/sectionsetupdialog.cpp" line="81" />
             <source>时深来源与地震时间基准…</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>井点成果坐标系无效</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>井 %1 的旧预测坐标与 DataService 井位不一致，不能用于地震校准</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/qgis/samplepointstyle.cpp" />
-            <source>无数据</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/qgis/samplepointstyle.cpp" />
-            <source>没有可套用样点表达的图层</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/qgis/samplepointstyle.cpp" />
-            <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -40130,18 +40115,28 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/qgis/mapbooklayout.cpp" />
-            <source>（本册没有可列条目）</source>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
+            <source>产物不存在或已被移动：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>用户取消（已出的版保留）</source>
+            <location filename="../src/qgis/samplepointstyle.cpp" />
+            <source>图层「%1」不是井点因子层（缺 factor_value 或井识别字段），不套用样点表达——因子值不借其他字段冒充</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>预演限额（前 %1 版）</source>
+            <location filename="../src/ui/layout/mapbookpanel.cpp" />
+            <source>已导出产物</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/samplepointstyle.cpp" />
+            <source>无数据</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
+            <source>无法打开产物：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -40150,13 +40145,13 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>目录 %1 文件</source>
+            <location filename="../src/qgis/samplepointstyle.cpp" />
+            <source>没有可套用样点表达的图层</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>目录失败</source>
+            <location filename="../src/ui/layout/mapbookpanel.cpp" />
+            <source>清单 · manifest.json</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -40171,17 +40166,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>警告 %1</source>
+            <source>清单未写</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/layout/mapbookpanel.cpp" />
-            <source>已导出产物</source>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>用户取消（已出的版保留）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/layout/mapbookpanel.cpp" />
-            <source>页 %1 · %2</source>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>登记失败，目录页随整册作废</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>目录 %1 文件</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -40190,18 +40190,13 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/layout/mapbookpanel.cpp" />
-            <source>清单 · manifest.json</source>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>目录失败</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
-            <source>产物不存在或已被移动：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
-            <source>无法打开产物：%1</source>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>警告 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -40210,23 +40205,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
-            <source>（共 %1 个文件）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>清单未写</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>页账本 ok=%1 与 succeeded=%2 不符</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>页账本 failed=%1 与 failed=%2 不符</source>
+            <location filename="../src/ui/layout/mapbookpanel.cpp" />
+            <source>页 %1 · %2</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -40236,7 +40216,27 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/workflow/mapbookqueue.cpp" />
-            <source>登记失败，目录页随整册作废</source>
+            <source>页账本 failed=%1 与 failed=%2 不符</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>页账本 ok=%1 与 succeeded=%2 不符</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/mapbookqueue.cpp" />
+            <source>预演限额（前 %1 版）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/layout/mapbookcontroller.cpp" />
+            <source>（共 %1 个文件）</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/mapbooklayout.cpp" />
+            <source>（本册没有可列条目）</source>
             <translation type="unfinished" />
         </message>
     </context>
@@ -40401,25 +40401,19 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>有时深资料；对齐不可用：%1</source>
-            <translation>Time-depth data present; alignment unavailable: %1</translation>
-        </message>
-        <message>
-            <source>无时深资料；不叠加井道</source>
-            <translation>No time-depth data; well overlay unavailable</translation>
-        </message>
-        <message>
-            <source>时深表：MD → TWT</source>
-            <translation>Time-depth table: MD → TWT</translation>
-        </message>
-        <message>
-            <source>缺少可用时深关系，仅显示井位</source>
-            <translation>No usable time-depth relation; well location only</translation>
-        </message>
-        <message>
-            <source>时深不能唯一反算</source>
-            <translation>Time-depth relation has no unique inverse</translation>
-        </message>
+        <source>有时深资料；对齐不可用：%1</source>
+        <translation>Time-depth data present; alignment unavailable: %1</translation>
+    </message>
+    <message>
+        <source>无时深资料；不叠加井道</source>
+        <translation>No time-depth data; well overlay unavailable</translation>
+    </message>
+    <message>
+        <source>时深表：MD → TWT</source>
+        <translation>Time-depth table: MD → TWT</translation>
+    </message>
+    <message><source>缺少可用时深关系，仅显示井位</source><translation>No usable time-depth relation; well location only</translation></message>
+    <message><source>时深不能唯一反算</source><translation>Time-depth relation has no unique inverse</translation></message>
         <message>
             <location filename="../src/workflow/sectionworkbench.cpp" line="46" />
             <source>当前地震视图与文档所选目标地震体不一致</source>
@@ -41593,11 +41587,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/services/seismictaskservice_data.cpp" line="101" />
-            <source>读取水平时间切片</source>
-            <translation>Reading horizontal time slice</translation>
-        </message>
-    </context>
+        <location filename="../src/services/seismictaskservice_data.cpp" line="101"/>
+        <source>读取水平时间切片</source>
+        <translation>Reading horizontal time slice</translation>
+    </message>
+</context>
     <context>
         <name>SeismicWellTraceLocate</name>
         <message>
@@ -43333,14 +43327,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>界线列表</source>
-            <translation>Boundary list</translation>
-        </message>
-        <message>
-            <source>MD 井道显示不需要时深或测斜；未选择关系的提示仅影响井震联合计算，不表示原始资料不存在。</source>
-            <translation>MD well tracks do not require time-depth or trajectory data. An unselected relation affects well-seismic calculations only and does not mean the source data is absent.</translation>
-        </message>
-    </context>
+        <source>界线列表</source>
+        <translation>Boundary list</translation>
+    </message>
+    <message>
+        <source>MD 井道显示不需要时深或测斜；未选择关系的提示仅影响井震联合计算，不表示原始资料不存在。</source>
+        <translation>MD well tracks do not require time-depth or trajectory data. An unselected relation affects well-seismic calculations only and does not mean the source data is absent.</translation>
+    </message>
+</context>
     <context>
         <name>StratigraphyWorkflow</name>
         <message>
@@ -43454,14 +43448,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。</source>
-            <translation>Loaded %1 wells for MD correlation and boundary editing. Data diagnostics are available under More settings and history.</translation>
-        </message>
-        <message>
-            <source>计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。</source>
-            <translation>Calculation complete. Review the results; detailed data and calculation diagnostics are available under More settings and history.</translation>
-        </message>
-    </context>
+        <source>已加载 %1 口井，可直接进行 MD 地层对比与界线编辑。资料诊断在“更多设置与历史”中查看。</source>
+        <translation>Loaded %1 wells for MD correlation and boundary editing. Data diagnostics are available under More settings and history.</translation>
+    </message>
+    <message>
+        <source>计算完成，请复核结果；详细资料与计算诊断在“更多设置与历史”中查看。</source>
+        <translation>Calculation complete. Review the results; detailed data and calculation diagnostics are available under More settings and history.</translation>
+    </message>
+</context>
     <context>
         <name>SubIntervalSelectorBar</name>
         <message>
@@ -46193,26 +46187,26 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>预测范围：整井（按地层组逐组）</source>
-            <translation>Prediction range: whole well (by formation group)</translation>
-        </message>
-        <message>
-            <source>整井（按地层组逐组）</source>
-            <translation>Whole well (by formation group)</translation>
-        </message>
-        <message>
-            <source>隐藏道</source>
-            <translation>Hidden tracks</translation>
-        </message>
-        <message>
-            <source>预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。</source>
-            <translation>Preview predicts valid log samples across the whole well. The model supports all strata, independently of the selected analysis interval.</translation>
-        </message>
-        <message>
-            <source>当前井无法开始预测</source>
-            <translation>Unable to start prediction for this well</translation>
-        </message>
-        <message>
+        <source>预测范围：整井（按地层组逐组）</source>
+        <translation>Prediction range: whole well (by formation group)</translation>
+    </message>
+    <message>
+        <source>整井（按地层组逐组）</source>
+        <translation>Whole well (by formation group)</translation>
+    </message>
+    <message>
+        <source>隐藏道</source>
+        <translation>Hidden tracks</translation>
+    </message>
+    <message>
+        <source>预览预测覆盖整井的有效测井样点，模型可用于全部地层段；不受当前分析层段限制。</source>
+        <translation>Preview predicts valid log samples across the whole well. The model supports all strata, independently of the selected analysis interval.</translation>
+    </message>
+    <message>
+        <source>当前井无法开始预测</source>
+        <translation>Unable to start prediction for this well</translation>
+    </message>
+<message>
             <location filename="../src/ui/wellcomposite/panelfacieschrome.cpp" line="182" />
             <source>请在顶部选择地震层段</source>
             <translation type="unfinished" />
@@ -46543,10 +46537,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>%1–%2 m</source>
-            <translation>%1–%2 m</translation>
-        </message>
-    </context>
+        <source>%1–%2 m</source>
+        <translation>%1–%2 m</translation>
+    </message>
+</context>
     <context>
         <name>WellComposite::WellSelectionDialog</name>
         <message>
@@ -47130,14 +47124,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>%1 · %2–%3 m</source>
-            <translation>%1 · %2–%3 m</translation>
-        </message>
-        <message>
-            <source>预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5</source>
-            <translation>Prediction complete: %1 intervals (%2), %3 samples, %4; %5</translation>
-        </message>
-    </context>
+        <source>%1 · %2–%3 m</source>
+        <translation>%1 · %2–%3 m</translation>
+    </message>
+    <message>
+        <source>预测完成：%1 个井段（%2）· %3 个深度点 · %4；%5</source>
+        <translation>Prediction complete: %1 intervals (%2), %3 samples, %4; %5</translation>
+    </message>
+</context>
     <context>
         <name>WellFileParsers</name>
         <message>
@@ -47644,10 +47638,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>当前子层段内有效测井样点不足</source>
-            <translation>Insufficient valid log samples in this subinterval</translation>
-        </message>
-    </context>
+        <source>当前子层段内有效测井样点不足</source>
+        <translation>Insufficient valid log samples in this subinterval</translation>
+    </message>
+</context>
     <context>
         <name>WellReadinessPanel</name>
         <message>
@@ -48304,7 +48298,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>取消</source>
             <translation type="unfinished" />
         </message>
-        <message>
+    <message>
             <location filename="../src/ui/wellsection/wellsectiondialogs.cpp" line="160" />
             <source>时深对齐设置…</source>
             <translation type="unfinished" />
@@ -48548,17 +48542,17 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>有可用时深；叠加仍校验地震基准</source>
-            <translation>Usable time-depth data; seismic datum compatibility is checked before overlay</translation>
-        </message>
-        <message>
-            <source>有时深；时间对齐不可用，MD 井道可显示</source>
-            <translation>Time-depth data present; time alignment unavailable, MD tracks available</translation>
-        </message>
-        <message>
-            <source>无时深；MD 井道可显示</source>
-            <translation>No time-depth data; MD tracks available</translation>
-        </message>
+        <source>有可用时深；叠加仍校验地震基准</source>
+        <translation>Usable time-depth data; seismic datum compatibility is checked before overlay</translation>
+    </message>
+    <message>
+        <source>有时深；时间对齐不可用，MD 井道可显示</source>
+        <translation>Time-depth data present; time alignment unavailable, MD tracks available</translation>
+    </message>
+    <message>
+        <source>无时深；MD 井道可显示</source>
+        <translation>No time-depth data; MD tracks available</translation>
+    </message>
         <message>
             <location filename="../src/workflow/wellsectionworkflow.cpp" line="1181" />
             <source>解释选择已变化，请刷新剖面</source>
@@ -50842,7 +50836,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>paleo::dataops::DataOpsUndoStack</name>
         <message>
-            <location filename="../src/workflow/dataopscommandservice_undo.cpp" line="30" />
+            <location filename="../src/workflow/dataopscommandservice_undo.cpp" line="30"/>
             <source>操作未能完成</source>
             <translation type="unfinished" />
         </message>
@@ -53380,6 +53374,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>预览：IL/XL ≤128 道，时间面 ≤64×48；完整分辨率见二维视图</source>
             <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/ui/seismic3d/seismic3dviewpanel.cpp" line="91" />
             <source>等轴测</source>
@@ -53986,22 +53981,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>seismic::SeismicPickPanel</name>
         <message>
-            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56" />
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
             <source>撤销：%1</source>
             <translation>Undo: %1</translation>
         </message>
         <message>
-            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57" />
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
             <source>重做：%1</source>
             <translation>Redo: %1</translation>
         </message>
         <message>
-            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56" />
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="56"/>
             <source>没有可撤销的解释变更</source>
             <translation>No interpretation edit to undo</translation>
         </message>
         <message>
-            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57" />
+            <location filename="../src/ui/seismicsection/seismicpickpanel.cpp" line="57"/>
             <source>没有可重做的解释变更</source>
             <translation>No interpretation edit to redo</translation>
         </message>
@@ -54424,15 +54419,12 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>深度(m)</source>
             <translation type="unfinished" />
         </message>
-        <message>
-            <source>仅井位：%1</source>
-            <translation>Location only: %1</translation>
-        </message>
-    </context>
+        <message><source>仅井位：%1</source><translation>Location only: %1</translation></message>
+</context>
     <context>
         <name>seismic::SeismicSectionDockWidget</name>
         <message>
-            <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="312" />
+            <location filename="../src/ui/seismicsection/seismicsectiondock_interpret.cpp" line="312"/>
             <source>只读工程不能保存地震解释</source>
             <translation>Cannot save seismic interpretation in a read-only project</translation>
         </message>
@@ -55419,14 +55411,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
         <message>
-            <source>沿井子波估计</source>
-            <translation>Along-well wavelet estimation</translation>
-        </message>
-        <message>
-            <source>｜拟合相关较低，请复核井震标定后再用于解释</source>
-            <translation> | Low fit correlation; review the well-to-seismic calibration before interpretation</translation>
-        </message>
-    </context>
+        <source>沿井子波估计</source>
+        <translation>Along-well wavelet estimation</translation>
+    </message>
+    <message>
+        <source>｜拟合相关较低，请复核井震标定后再用于解释</source>
+        <translation> | Low fit correlation; review the well-to-seismic calibration before interpretation</translation>
+    </message>
+</context>
     <context>
         <name>seismic::SeismicTaskService</name>
         <message>
@@ -55437,6 +55429,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>读取三维层位预览</source>
             <translation type="unfinished" />
         </message>
+
         <message>
             <location filename="../src/services/seismictaskservice_data.cpp" line="21" />
             <location filename="../src/services/seismictaskservice_data.cpp" line="62" />
@@ -55739,33 +55732,33 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation type="unfinished" />
         </message>
     </context>
-    <context>
-        <name>WellCompositePanel</name>
-        <message>
-            <source>请在顶部选择地震层段</source>
-            <translation>Select a seismic unit above</translation>
-        </message>
-        <message>
-            <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
-            <translation>Prediction follows the seismic unit selected above; results retain the same scheme revision</translation>
-        </message>
-    </context>
-    <context>
-        <name>WellFacies</name>
-        <message>
-            <source>缺少段或岩性井道</source>
-            <translation>Missing formation member or lithology track</translation>
-        </message>
-        <message>
-            <source>%1：跳过 %2 个样点、%3 处缺口（%4）</source>
-            <translation>%1: skipped %2 samples and %3 gaps (%4)</translation>
-        </message>
-        <message>
-            <source>当前范围内没有可用于预测的井段</source>
-            <translation>No usable prediction interval within the current range</translation>
-        </message>
-    </context>
-    <context>
+<context>
+    <name>WellCompositePanel</name>
+    <message>
+        <source>请在顶部选择地震层段</source>
+        <translation>Select a seismic unit above</translation>
+    </message>
+    <message>
+        <source>预测范围跟随顶部地震层段选择，成果保存到同一方案修订</source>
+        <translation>Prediction follows the seismic unit selected above; results retain the same scheme revision</translation>
+    </message>
+</context>
+<context>
+    <name>WellFacies</name>
+    <message>
+        <source>缺少段或岩性井道</source>
+        <translation>Missing formation member or lithology track</translation>
+    </message>
+    <message>
+        <source>%1：跳过 %2 个样点、%3 处缺口（%4）</source>
+        <translation>%1: skipped %2 samples and %3 gaps (%4)</translation>
+    </message>
+    <message>
+        <source>当前范围内没有可用于预测的井段</source>
+        <translation>No usable prediction interval within the current range</translation>
+    </message>
+</context>
+<context>
         <name>TimeDepthAlignmentDialog</name>
         <message>
             <location filename="../src/ui/seismicsection/timedepthalignmentdialog.cpp" line="15" />
@@ -55878,15 +55871,16 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>Select interpretation context…</translation>
         </message>
     </context>
+
     <context>
         <name>BatchTagCmd</name>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>去标签「%1」（%2 项）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>打标签「%1」（%2 项）</source>
             <translation type="unfinished" />
         </message>
@@ -55894,7 +55888,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>BatchTypeOverrideCmd</name>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>批量改类型 %1 项→%2</source>
             <translation type="unfinished" />
         </message>
@@ -55902,117 +55896,117 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>DataOpsCommandService</name>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>%1（实体已写入目录但可见性未恢复）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>名称不能为空</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>名称未变化</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>工程为只读，数据操作不可用</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>已挂到目标实体</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>批量挂接 %1 项：%2</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>挂接失败（已回滚）：%1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>挂接目标不完整</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>撤销栈不可用</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>新建关联（不可撤销）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>标签不存在</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>标签名不能为空</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>标签名含非法字符</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>标签名过长（至多 40 字符）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>标签已存在</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>目标实体不存在（工程已变化，请重新选择）</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>类型不能为空</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>类型已是 %1</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>记录已清空，不可恢复</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>资产不存在</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>资产已在可回收清单</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>选中资产没有可提升的非主关联</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>选中资产没有已决关联</source>
             <translation type="unfinished" />
         </message>
@@ -56020,7 +56014,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>DataOpsUndoStack</name>
         <message>
-            <location filename="../src/workflow/dataopscommandservice.cpp" line="0" />
+            <location filename="../src/workflow/dataopscommandservice.cpp" line="0"/>
             <source>操作未能完成</source>
             <translation type="unfinished" />
         </message>
@@ -56691,41 +56685,42 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>RMS, envelope and coherence attribute computation</translation>
         </message>
         <message>
-            <location filename="../src/services/commandspec.cpp" line="209" />
+            <location filename="../src/services/commandspec.cpp" line="209"/>
             <source>测井曲线质量分析</source>
             <translation>Well curve quality analysis</translation>
         </message>
         <message>
-            <location filename="../src/services/commandspec.cpp" line="211" />
+            <location filename="../src/services/commandspec.cpp" line="211"/>
             <source>井曲线属性相关性分析</source>
             <translation>Well curve attribute correlation</translation>
         </message>
         <message>
-            <location filename="../src/services/commandspec.cpp" line="213" />
+            <location filename="../src/services/commandspec.cpp" line="213"/>
             <source>Python 井曲线计算</source>
             <translation>Python well curve computation</translation>
         </message>
         <message>
-            <location filename="../src/services/commandspec.cpp" line="209" />
+            <location filename="../src/services/commandspec.cpp" line="209"/>
             <source>Python 数值表计算</source>
             <translation>Python numeric table computation</translation>
         </message>
         <message>
-            <location filename="../src/services/commandspec.cpp" line="209" />
+            <location filename="../src/services/commandspec.cpp" line="209"/>
             <source>Python 地震道计算</source>
             <translation>Python seismic trace computation</translation>
         </message>
         <message>
-            <location filename="../src/services/commandspec.cpp" line="209" />
+            <location filename="../src/services/commandspec.cpp" line="209"/>
             <source>Python 数值表成果计算</source>
             <translation>Python numeric table output computation</translation>
         </message>
         <message>
-            <location filename="../src/services/commandspec.cpp" line="209" />
+            <location filename="../src/services/commandspec.cpp" line="209"/>
             <source>Python 表格与图像成果计算</source>
             <translation>Python table and image output computation</translation>
         </message>
     </context>
+
     <context>
         <name>WellTrackSource</name>
         <message>
@@ -56793,6 +56788,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>A registered well and project model are required.</translation>
         </message>
     </context>
+
     <context>
         <name>paleo::welltrack::WellTrackSourceSession</name>
         <message>
@@ -56833,6 +56829,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>Read cancelled</translation>
         </message>
     </context>
+
     <context>
         <name>AreaWellChart</name>
         <message>
@@ -56841,185 +56838,186 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>The full well log exceeds the read budget. Select a source curve to load it by depth window.</translation>
         </message>
     </context>
-    <context>
-        <name>SeismicAttributeFusionClient</name>
-        <message>
-            <source>Attribute fusion cancelled.</source>
-            <translation>Attribute fusion cancelled.</translation>
-        </message>
-        <message>
-            <source>Attribute fusion requires a local HTTP service URL.</source>
-            <translation>Attribute fusion requires a local HTTP service URL.</translation>
-        </message>
-        <message>
-            <source>Attribute fusion service failed or was cancelled.</source>
-            <translation>Attribute fusion service failed or was cancelled.</translation>
-        </message>
-        <message>
-            <source>Attribute fusion timed out.</source>
-            <translation>Attribute fusion timed out.</translation>
-        </message>
-        <message>
-            <source>Cannot create fusion output directory.</source>
-            <translation>Cannot create fusion output directory.</translation>
-        </message>
-        <message>
-            <source>Cannot create fusion output directory: %1</source>
-            <translation>Cannot create fusion output directory: %1</translation>
-        </message>
-        <message>
-            <source>Cannot create fusion request directory.</source>
-            <translation>Cannot create fusion request directory.</translation>
-        </message>
-        <message>
-            <source>Cannot start fusion service: %1</source>
-            <translation>Cannot start fusion service: %1</translation>
-        </message>
-        <message>
-            <source>Cannot write fusion request file.</source>
-            <translation>Cannot write fusion request file.</translation>
-        </message>
-        <message>
-            <source>Fusion process failed (%1): %2</source>
-            <translation>Fusion process failed (%1): %2</translation>
-        </message>
-        <message>
-            <source>Fusion process returned invalid result JSON.</source>
-            <translation>Fusion process returned invalid result JSON.</translation>
-        </message>
-        <message>
-            <source>Fusion process returned no readable result within the JSON size limit: %1</source>
-            <translation>Fusion process returned no readable result within the JSON size limit: %1</translation>
-        </message>
-        <message>
-            <source>Grid spacing and outer pixel extent are inconsistent.</source>
-            <translation>Grid spacing and outer pixel extent are inconsistent.</translation>
-        </message>
-        <message>
-            <source>Input file is not readable: %1</source>
-            <translation>Input file is not readable: %1</translation>
-        </message>
-        <message>
-            <source>Interval fractions must satisfy 0 &lt;= top &lt; bottom &lt;= 1.</source>
-            <translation>Interval fractions must satisfy 0 &lt;= top &lt; bottom &lt;= 1.</translation>
-        </message>
-        <message>
-            <source>Invalid attribute fusion extent.</source>
-            <translation>Invalid attribute fusion extent.</translation>
-        </message>
-        <message>
-            <source>Invalid attribute fusion time or memory budget.</source>
-            <translation>Invalid attribute fusion time or memory budget.</translation>
-        </message>
-        <message>
-            <source>Invalid cluster count, interval or grid spacing.</source>
-            <translation>Invalid cluster count, interval or grid spacing.</translation>
-        </message>
-        <message>
-            <source>Invalid cluster statistics or nodata value.</source>
-            <translation>Invalid cluster statistics or nodata value.</translation>
-        </message>
-        <message>
-            <source>Invalid grid dimensions or raster memory budget exceeded.</source>
-            <translation>Invalid grid dimensions or raster memory budget exceeded.</translation>
-        </message>
-        <message>
-            <source>Invalid north-up grid transform.</source>
-            <translation>Invalid north-up grid transform.</translation>
-        </message>
-        <message>
-            <source>Local fusion service is unavailable. Configure PALEO_FUSION_SCRIPT to enable optional CLI execution.</source>
-            <translation>Local fusion service is unavailable. Configure PALEO_FUSION_SCRIPT to enable optional CLI execution.</translation>
-        </message>
-        <message>
-            <source>Local service HTTP %1: %2</source>
-            <translation>Local service HTTP %1: %2</translation>
-        </message>
-        <message>
-            <source>Local service request timed out.</source>
-            <translation>Local service request timed out.</translation>
-        </message>
-        <message>
-            <source>Local service returned invalid JSON.</source>
-            <translation>Local service returned invalid JSON.</translation>
-        </message>
-        <message>
-            <source>Python executable was not found: %1</source>
-            <translation>Python executable was not found: %1</translation>
-        </message>
-        <message>
-            <source>Raster binary is unreadable or has the wrong size: %1</source>
-            <translation>Raster binary is unreadable or has the wrong size: %1</translation>
-        </message>
-        <message>
-            <source>Raster binary was truncated while reading.</source>
-            <translation>Raster binary was truncated while reading.</translation>
-        </message>
-        <message>
-            <source>Raster contains an invalid cluster code.</source>
-            <translation>Raster contains an invalid cluster code.</translation>
-        </message>
-        <message>
-            <source>Raster data and classification counts are inconsistent.</source>
-            <translation>Raster data and classification counts are inconsistent.</translation>
-        </message>
-        <message>
-            <source>Result file is not readable: %1</source>
-            <translation>Result file is not readable: %1</translation>
-        </message>
-        <message>
-            <source>Seismic data and a horizon or interval window are required.</source>
-            <translation>Seismic data and a horizon or interval window are required.</translation>
-        </message>
-        <message>
-            <source>Service JSON exceeds the size limit.</source>
-            <translation>Service JSON exceeds the size limit.</translation>
-        </message>
-        <message>
-            <source>Service did not return a valid job ID.</source>
-            <translation>Service did not return a valid job ID.</translation>
-        </message>
-        <message>
-            <source>Service job did not succeed.</source>
-            <translation>Service job did not succeed.</translation>
-        </message>
-        <message>
-            <source>Service result did not succeed.</source>
-            <translation>Service result did not succeed.</translation>
-        </message>
-        <message>
-            <source>Service result has no output directory.</source>
-            <translation>Service result has no output directory.</translation>
-        </message>
-        <message>
-            <source>Service result is missing required raster files.</source>
-            <translation>Service result is missing required raster files.</translation>
-        </message>
-        <message>
-            <source>Service returned a different job ID.</source>
-            <translation>Service returned a different job ID.</translation>
-        </message>
-        <message>
-            <source>Service returned an unknown job state.</source>
-            <translation>Service returned an unknown job state.</translation>
-        </message>
-        <message>
-            <source>Service returned invalid progress.</source>
-            <translation>Service returned invalid progress.</translation>
-        </message>
-        <message>
-            <source>Service script is not readable: %1</source>
-            <translation>Service script is not readable: %1</translation>
-        </message>
-        <message>
-            <source>Unknown attribute fusion strategy.</source>
-            <translation>Unknown attribute fusion strategy.</translation>
-        </message>
-        <message>
-            <source>Unsupported raster row order, axes or coordinate unit.</source>
-            <translation>Unsupported raster row order, axes or coordinate unit.</translation>
-        </message>
-    </context>
+<context>
+    <name>SeismicAttributeFusionClient</name>
+    <message>
+        <source>Attribute fusion cancelled.</source>
+        <translation>Attribute fusion cancelled.</translation>
+    </message>
+    <message>
+        <source>Attribute fusion requires a local HTTP service URL.</source>
+        <translation>Attribute fusion requires a local HTTP service URL.</translation>
+    </message>
+    <message>
+        <source>Attribute fusion service failed or was cancelled.</source>
+        <translation>Attribute fusion service failed or was cancelled.</translation>
+    </message>
+    <message>
+        <source>Attribute fusion timed out.</source>
+        <translation>Attribute fusion timed out.</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion output directory.</source>
+        <translation>Cannot create fusion output directory.</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion output directory: %1</source>
+        <translation>Cannot create fusion output directory: %1</translation>
+    </message>
+    <message>
+        <source>Cannot create fusion request directory.</source>
+        <translation>Cannot create fusion request directory.</translation>
+    </message>
+    <message>
+        <source>Cannot start fusion service: %1</source>
+        <translation>Cannot start fusion service: %1</translation>
+    </message>
+    <message>
+        <source>Cannot write fusion request file.</source>
+        <translation>Cannot write fusion request file.</translation>
+    </message>
+    <message>
+        <source>Fusion process failed (%1): %2</source>
+        <translation>Fusion process failed (%1): %2</translation>
+    </message>
+    <message>
+        <source>Fusion process returned invalid result JSON.</source>
+        <translation>Fusion process returned invalid result JSON.</translation>
+    </message>
+    <message>
+        <source>Fusion process returned no readable result within the JSON size limit: %1</source>
+        <translation>Fusion process returned no readable result within the JSON size limit: %1</translation>
+    </message>
+    <message>
+        <source>Grid spacing and outer pixel extent are inconsistent.</source>
+        <translation>Grid spacing and outer pixel extent are inconsistent.</translation>
+    </message>
+    <message>
+        <source>Input file is not readable: %1</source>
+        <translation>Input file is not readable: %1</translation>
+    </message>
+    <message>
+        <source>Interval fractions must satisfy 0 &lt;= top &lt; bottom &lt;= 1.</source>
+        <translation>Interval fractions must satisfy 0 &lt;= top &lt; bottom &lt;= 1.</translation>
+    </message>
+    <message>
+        <source>Invalid attribute fusion extent.</source>
+        <translation>Invalid attribute fusion extent.</translation>
+    </message>
+    <message>
+        <source>Invalid attribute fusion time or memory budget.</source>
+        <translation>Invalid attribute fusion time or memory budget.</translation>
+    </message>
+    <message>
+        <source>Invalid cluster count, interval or grid spacing.</source>
+        <translation>Invalid cluster count, interval or grid spacing.</translation>
+    </message>
+    <message>
+        <source>Invalid cluster statistics or nodata value.</source>
+        <translation>Invalid cluster statistics or nodata value.</translation>
+    </message>
+    <message>
+        <source>Invalid grid dimensions or raster memory budget exceeded.</source>
+        <translation>Invalid grid dimensions or raster memory budget exceeded.</translation>
+    </message>
+    <message>
+        <source>Invalid north-up grid transform.</source>
+        <translation>Invalid north-up grid transform.</translation>
+    </message>
+    <message>
+        <source>Local fusion service is unavailable. Configure PALEO_FUSION_SCRIPT to enable optional CLI execution.</source>
+        <translation>Local fusion service is unavailable. Configure PALEO_FUSION_SCRIPT to enable optional CLI execution.</translation>
+    </message>
+    <message>
+        <source>Local service HTTP %1: %2</source>
+        <translation>Local service HTTP %1: %2</translation>
+    </message>
+    <message>
+        <source>Local service request timed out.</source>
+        <translation>Local service request timed out.</translation>
+    </message>
+    <message>
+        <source>Local service returned invalid JSON.</source>
+        <translation>Local service returned invalid JSON.</translation>
+    </message>
+    <message>
+        <source>Python executable was not found: %1</source>
+        <translation>Python executable was not found: %1</translation>
+    </message>
+    <message>
+        <source>Raster binary is unreadable or has the wrong size: %1</source>
+        <translation>Raster binary is unreadable or has the wrong size: %1</translation>
+    </message>
+    <message>
+        <source>Raster binary was truncated while reading.</source>
+        <translation>Raster binary was truncated while reading.</translation>
+    </message>
+    <message>
+        <source>Raster contains an invalid cluster code.</source>
+        <translation>Raster contains an invalid cluster code.</translation>
+    </message>
+    <message>
+        <source>Raster data and classification counts are inconsistent.</source>
+        <translation>Raster data and classification counts are inconsistent.</translation>
+    </message>
+    <message>
+        <source>Result file is not readable: %1</source>
+        <translation>Result file is not readable: %1</translation>
+    </message>
+    <message>
+        <source>Seismic data and a horizon or interval window are required.</source>
+        <translation>Seismic data and a horizon or interval window are required.</translation>
+    </message>
+    <message>
+        <source>Service JSON exceeds the size limit.</source>
+        <translation>Service JSON exceeds the size limit.</translation>
+    </message>
+    <message>
+        <source>Service did not return a valid job ID.</source>
+        <translation>Service did not return a valid job ID.</translation>
+    </message>
+    <message>
+        <source>Service job did not succeed.</source>
+        <translation>Service job did not succeed.</translation>
+    </message>
+    <message>
+        <source>Service result did not succeed.</source>
+        <translation>Service result did not succeed.</translation>
+    </message>
+    <message>
+        <source>Service result has no output directory.</source>
+        <translation>Service result has no output directory.</translation>
+    </message>
+    <message>
+        <source>Service result is missing required raster files.</source>
+        <translation>Service result is missing required raster files.</translation>
+    </message>
+    <message>
+        <source>Service returned a different job ID.</source>
+        <translation>Service returned a different job ID.</translation>
+    </message>
+    <message>
+        <source>Service returned an unknown job state.</source>
+        <translation>Service returned an unknown job state.</translation>
+    </message>
+    <message>
+        <source>Service returned invalid progress.</source>
+        <translation>Service returned invalid progress.</translation>
+    </message>
+    <message>
+        <source>Service script is not readable: %1</source>
+        <translation>Service script is not readable: %1</translation>
+    </message>
+    <message>
+        <source>Unknown attribute fusion strategy.</source>
+        <translation>Unknown attribute fusion strategy.</translation>
+    </message>
+    <message>
+        <source>Unsupported raster row order, axes or coordinate unit.</source>
+        <translation>Unsupported raster row order, axes or coordinate unit.</translation>
+    </message>
+</context>
+
     <context>
         <name>WellFaciesAgentRun</name>
         <message>
@@ -57048,1017 +57046,1001 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>Restore completed well facies result</translation>
         </message>
     </context>
-    <context>
-        <name>PythonEnvironmentController</name>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="41" />
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="98" />
-            <source>本次会话已停用，但停用配置尚未确认保存。</source>
-            <translation>Disabled for this session, but saving the disabled settings has not been confirmed.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="41" />
-            <source>任务服务已关闭，环境操作已中断。</source>
-            <translation>The task service has shut down. The environment operation was interrupted.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="60" />
-            <source>本次会话已撤销权限，但配置尚未保存。宿主任务服务尚未就绪。</source>
-            <translation>Permissions have been revoked for this session, but the configuration has not been saved. The host task service is not ready.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="60" />
-            <source>宿主环境服务尚未就绪。</source>
-            <translation>The host environment service is not ready.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="62" />
-            <source>已有环境操作正在进行。</source>
-            <translation>An environment operation is already in progress.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="98" />
-            <source>环境操作已中断，未应用过期结果。</source>
-            <translation>The environment operation was interrupted. Stale results were not applied.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="100" />
-            <source>环境操作未产生结果。</source>
-            <translation>The environment operation produced no result.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="115" />
-            <source>载入 Python 环境</source>
-            <translation>Load Python Environment</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="120" />
-            <source>安装 Python 离线环境</source>
-            <translation>Install Offline Python Environment</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="129" />
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="191" />
-            <source>请先载入宿主配置。</source>
-            <translation>Load the host configuration first.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="132" />
-            <source>已载入的执行策略无效，请重新载入配置。</source>
-            <translation>The loaded execution policy is invalid. Reload the configuration.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="138" />
-            <source>验证并应用 Python 环境</source>
-            <translation>Verify and Apply Python Environment</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="144" />
-            <source>检查 Python 可执行状态</source>
-            <translation>Check Python Execution Readiness</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="176" />
-            <source>保存 Python 停用配置</source>
-            <translation>Save Settings with Python Disabled</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="176" />
-            <source>撤销 Python 环境授权</source>
-            <translation>Revoke Python Environment Authorization</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="186" />
-            <source>请选择有效的已批准环境身份。</source>
-            <translation>Select a valid, approved environment identity.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="193" />
-            <source>回退 Python 环境</source>
-            <translation>Roll Back Python Environment</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="199" />
-            <source>导出 Python 环境诊断</source>
-            <translation>Export Python Environment Diagnostics</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="217" />
-            <source>本次会话已撤销权限，但配置尚未保存。</source>
-            <translation>Permissions have been revoked for this session, but the configuration has not been saved.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="226" />
-            <source>离线包已安装并填入表单；验证并应用后才会使用所选环境。</source>
-            <translation>The offline package has been installed and the form populated. The selected environment will only be used after you verify and apply it.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="231" />
-            <source>Python 计算已停用并保存。</source>
-            <translation>Python computation has been disabled and the settings saved.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="232" />
-            <source>脱敏诊断已导出。</source>
-            <translation>Redacted diagnostics have been exported.</translation>
-        </message>
-        <message>
-            <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="233" />
-            <source>配置已应用；可执行状态须单独检查。</source>
-            <translation>Configuration applied. Check execution readiness separately.</translation>
-        </message>
-    </context>
-    <context>
-        <name>PythonEnvironmentDialog</name>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="52" />
-            <source>Python 计算环境</source>
-            <translation>Python Compute Environment</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="65" />
-            <source>诊断项</source>
-            <translation>Diagnostic Item</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="65" />
-            <source>实际状态</source>
-            <translation>Actual Status</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="85" />
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="86" />
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="87" />
-            <source>尚未检查</source>
-            <translation>Not checked</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="89" />
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="90" />
-            <source>未启用</source>
-            <translation>Disabled</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="92" />
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="117" />
-            <source>安装</source>
-            <translation>Install</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="92" />
-            <source>运行时完整性</source>
-            <translation>Runtime integrity</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="93" />
-            <source>可信模板完整性</source>
-            <translation>Trusted template integrity</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="94" />
-            <source>可信分析</source>
-            <translation>Trusted analysis</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="94" />
-            <source>受控生成计算</source>
-            <translation>Controlled generated computation</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="95" />
-            <source>配置来源</source>
-            <translation>Configuration source</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="98" />
-            <source>安装离线环境</source>
-            <translation>Install Offline Environment</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="101" />
-            <source>选择包…</source>
-            <translation>Select Package…</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="104" />
-            <source>选择离线环境包</source>
-            <translation>Select Offline Environment Package</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="108" />
-            <source>使用独立交付记录中的完整 SHA-256 校验码。</source>
-            <translation>Use the full SHA-256 checksum from the separate delivery record.</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="110" />
-            <source>使用专用安装目录；运行时和可信模板分别安装。</source>
-            <translation>Use dedicated installation directories. Install the runtime and trusted templates separately.</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="111" />
-            <source>选择目录…</source>
-            <translation>Select Directory…</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="114" />
-            <source>选择专用安装目录</source>
-            <translation>Select Dedicated Installation Directory</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="121" />
-            <source>离线包</source>
-            <translation>Offline package</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="121" />
-            <source>交付校验码</source>
-            <translation>Delivery checksum</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="122" />
-            <source>专用安装目录</source>
-            <translation>Dedicated installation directory</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="123" />
-            <source>安装不会启用计算。请选择受信任的运行时包；可信分析还需模板包。</source>
-            <translation>Installation does not enable computation. Select a trusted runtime package. Trusted analysis also requires a template package.</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="127" />
-            <source>启用计算</source>
-            <translation>Enable Computation</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="133" />
-            <source>运行时目录</source>
-            <translation>Runtime directory</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="133" />
-            <source>运行时清单校验码</source>
-            <translation>Runtime manifest checksum</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="134" />
-            <source>可信模板目录</source>
-            <translation>Trusted template directory</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="134" />
-            <source>模板清单校验码</source>
-            <translation>Template manifest checksum</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="135" />
-            <source>允许已登记的可信分析</source>
-            <translation>Allow registered trusted analyses</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="137" />
-            <source>允许受控生成计算</source>
-            <translation>Allow controlled generated computation</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="140" />
-            <source>验证并应用</source>
-            <translation>Verify and Apply</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="148" />
-            <source>重新载入配置</source>
-            <translation>Reload Configuration</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="150" />
-            <source>丢弃表单草稿并载入最新配置；其他窗口修改配置后请先重新载入。</source>
-            <translation>Discard the form draft and load the latest configuration. Reload first if another window has changed the configuration.</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="152" />
-            <source>检查可执行状态</source>
-            <translation>Check Execution Readiness</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="153" />
-            <source>停用计算</source>
-            <translation>Disable Computation</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="155" />
-            <source>立即停用 Python 执行，并保存停用配置。</source>
-            <translation>Disable Python execution immediately and save the disabled settings.</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="156" />
-            <source>导出诊断…</source>
-            <translation>Export Diagnostics…</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="160" />
-            <source>导出环境诊断</source>
-            <translation>Export Environment Diagnostics</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="160" />
-            <source>JSON 文件 (*.json)</source>
-            <translation>JSON files (*.json)</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="166" />
-            <source>回退到已核验版本</source>
-            <translation>Roll Back to Verified Version</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="167" />
-            <source>撤销所选版本</source>
-            <translation>Revoke Selected Version</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="204" />
-            <source>离线包已安装并填入表单；验证并应用后才会使用所选环境。</source>
-            <translation>The offline package has been installed and the form populated. The selected environment will only be used after you verify and apply it.</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="215" />
-            <source>宿主配置与完整性</source>
-            <translation>Host configuration and integrity</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
-            <source>已申请的资源上限</source>
-            <translation>Requested resource limits</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
-            <source>可信分析实测</source>
-            <translation>Trusted analysis execution check</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
-            <source>受控生成实测</source>
-            <translation>Controlled generated computation execution check</translation>
-        </message>
-        <message>
-            <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="237" />
-            <source>正在结束当前操作，完成后关闭。</source>
-            <translation>Finishing the current operation. This window will close when it completes.</translation>
-        </message>
-    </context>
-    <context>
-        <name>PiChatBridge</name>
-        <message>
-            <location filename="../src/workflow/pichatbridge.cpp" line="50" />
-            <source>Pi 对话编排</source>
-            <translation>Pi conversation orchestration</translation>
-        </message>
-    </context>
-    <context>
-        <name>AiContextBar</name>
-        <message>
-            <source>上下文</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>暂无上下文信息</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>只读</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>本轮进行中</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>无工程上下文</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>工程简报：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>工程状态：未打开（%1）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>无宿主上下文</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>工程状态：已打开 · %1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>可写</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>层位：%1 · 地层单元：%2</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>文档标识：%1（epoch %2）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>正在进行的回合：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>归属未记录</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>回合冻结身份：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>历史回合的层位/选区以各自冻结参数为准，不沿用当前上下文</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>回合归属：空闲（历史卡各自标注归属）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>控制与导航动作受理时会重新读取当前宿主上下文</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>操作服务未接入</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>宿主状态：未知（%1）</source>
-            <translation type="unfinished" />
-        </message>
-    </context>
-    <context>
-        <name>AiConversationCard</name>
-        <message>
-            <source>详情</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>历史记录：未找到配对调用</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>历史记录：调用标识歧义</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>回合 %1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>宿主绑定已验证</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>归属未验证（旧记录未记回合）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>已完成（已提交）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果未知</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>历史留存结果（paleo.tool-result.v1 有界摘要）——当时完整出参可能大于此留存</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果缺失（无留存内容）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>参数：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>操作查询/取消/恢复未接入（无操作服务）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>操作详情</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>刷新</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>恢复</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>取消</source>
-            <translation>Cancel</translation>
-        </message>
-        <message>
-            <source>失败</source>
-            <translation>Failed</translation>
-        </message>
-        <message>
-            <source>审阅此计划</source>
-            <translation>Review this plan</translation>
-        </message>
-        <message>
-            <source>已完成</source>
-            <translation>Completed</translation>
-        </message>
-        <message>
-            <source>待执行</source>
-            <translation>Pending</translation>
-        </message>
-        <message>
-            <source>执行中</source>
-            <translation>Running</translation>
-        </message>
-    </context>
-    <context>
-        <name>AiOperationDetailWidget</name>
-        <message>
-            <source>刷新状态</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>恢复执行</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>事实</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>事件（按修订游标分页）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>修订</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>事件</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>下一页事件</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>重新起读</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果端口</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>端口</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>字节</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>诊断</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>读取内容</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>继续读取</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>操作 %1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>正在读取状态…</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>operationId</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>执行</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>提交</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>呈现</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计算次数</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>取消请求</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>已请求取消（不等于已停止）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>未请求</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>提交收据</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>code</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>执行：%1 · 提交：%2 · 呈现：%3</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>事件史曾截断（最早修订 %1）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>尚有后续事件（下一页自修订 %1 起）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>请求范围已读完（至修订 %1）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>事件史已过期：最早可读修订 %1，此前事件不再可读；如需从头检视请点「重新起读」</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>事件读取失败：%1（详情见表格下方原始 code）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>暂无结果端口（%1）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>结果端口读取失败：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>读取失败：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>已到本视图呈现上限（%1 字节）——未读取部分不做校验结论</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>尚有后续</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>读取完成</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>
+<context>
+    <name>PythonEnvironmentController</name>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="41" />
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="98" />
+        <source>本次会话已停用，但停用配置尚未确认保存。</source>
+        <translation>Disabled for this session, but saving the disabled settings has not been confirmed.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="41" />
+        <source>任务服务已关闭，环境操作已中断。</source>
+        <translation>The task service has shut down. The environment operation was interrupted.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="60" />
+        <source>本次会话已撤销权限，但配置尚未保存。宿主任务服务尚未就绪。</source>
+        <translation>Permissions have been revoked for this session, but the configuration has not been saved. The host task service is not ready.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="60" />
+        <source>宿主环境服务尚未就绪。</source>
+        <translation>The host environment service is not ready.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="62" />
+        <source>已有环境操作正在进行。</source>
+        <translation>An environment operation is already in progress.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="98" />
+        <source>环境操作已中断，未应用过期结果。</source>
+        <translation>The environment operation was interrupted. Stale results were not applied.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="100" />
+        <source>环境操作未产生结果。</source>
+        <translation>The environment operation produced no result.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="115" />
+        <source>载入 Python 环境</source>
+        <translation>Load Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="120" />
+        <source>安装 Python 离线环境</source>
+        <translation>Install Offline Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="129" />
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="191" />
+        <source>请先载入宿主配置。</source>
+        <translation>Load the host configuration first.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="132" />
+        <source>已载入的执行策略无效，请重新载入配置。</source>
+        <translation>The loaded execution policy is invalid. Reload the configuration.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="138" />
+        <source>验证并应用 Python 环境</source>
+        <translation>Verify and Apply Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="144" />
+        <source>检查 Python 可执行状态</source>
+        <translation>Check Python Execution Readiness</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="176" />
+        <source>保存 Python 停用配置</source>
+        <translation>Save Settings with Python Disabled</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="176" />
+        <source>撤销 Python 环境授权</source>
+        <translation>Revoke Python Environment Authorization</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="186" />
+        <source>请选择有效的已批准环境身份。</source>
+        <translation>Select a valid, approved environment identity.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="193" />
+        <source>回退 Python 环境</source>
+        <translation>Roll Back Python Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="199" />
+        <source>导出 Python 环境诊断</source>
+        <translation>Export Python Environment Diagnostics</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="217" />
+        <source>本次会话已撤销权限，但配置尚未保存。</source>
+        <translation>Permissions have been revoked for this session, but the configuration has not been saved.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="226" />
+        <source>离线包已安装并填入表单；验证并应用后才会使用所选环境。</source>
+        <translation>The offline package has been installed and the form populated. The selected environment will only be used after you verify and apply it.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="231" />
+        <source>Python 计算已停用并保存。</source>
+        <translation>Python computation has been disabled and the settings saved.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="232" />
+        <source>脱敏诊断已导出。</source>
+        <translation>Redacted diagnostics have been exported.</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/pythonenvironmentcontroller.cpp" line="233" />
+        <source>配置已应用；可执行状态须单独检查。</source>
+        <translation>Configuration applied. Check execution readiness separately.</translation>
+    </message>
+</context>
+<context>
+    <name>PythonEnvironmentDialog</name>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="52" />
+        <source>Python 计算环境</source>
+        <translation>Python Compute Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="65" />
+        <source>诊断项</source>
+        <translation>Diagnostic Item</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="65" />
+        <source>实际状态</source>
+        <translation>Actual Status</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="85" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="86" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="87" />
+        <source>尚未检查</source>
+        <translation>Not checked</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="89" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="90" />
+        <source>未启用</source>
+        <translation>Disabled</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="92" />
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="117" />
+        <source>安装</source>
+        <translation>Install</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="92" />
+        <source>运行时完整性</source>
+        <translation>Runtime integrity</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="93" />
+        <source>可信模板完整性</source>
+        <translation>Trusted template integrity</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="94" />
+        <source>可信分析</source>
+        <translation>Trusted analysis</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="94" />
+        <source>受控生成计算</source>
+        <translation>Controlled generated computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="95" />
+        <source>配置来源</source>
+        <translation>Configuration source</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="98" />
+        <source>安装离线环境</source>
+        <translation>Install Offline Environment</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="101" />
+        <source>选择包…</source>
+        <translation>Select Package…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="104" />
+        <source>选择离线环境包</source>
+        <translation>Select Offline Environment Package</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="108" />
+        <source>使用独立交付记录中的完整 SHA-256 校验码。</source>
+        <translation>Use the full SHA-256 checksum from the separate delivery record.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="110" />
+        <source>使用专用安装目录；运行时和可信模板分别安装。</source>
+        <translation>Use dedicated installation directories. Install the runtime and trusted templates separately.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="111" />
+        <source>选择目录…</source>
+        <translation>Select Directory…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="114" />
+        <source>选择专用安装目录</source>
+        <translation>Select Dedicated Installation Directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="121" />
+        <source>离线包</source>
+        <translation>Offline package</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="121" />
+        <source>交付校验码</source>
+        <translation>Delivery checksum</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="122" />
+        <source>专用安装目录</source>
+        <translation>Dedicated installation directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="123" />
+        <source>安装不会启用计算。请选择受信任的运行时包；可信分析还需模板包。</source>
+        <translation>Installation does not enable computation. Select a trusted runtime package. Trusted analysis also requires a template package.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="127" />
+        <source>启用计算</source>
+        <translation>Enable Computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="133" />
+        <source>运行时目录</source>
+        <translation>Runtime directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="133" />
+        <source>运行时清单校验码</source>
+        <translation>Runtime manifest checksum</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="134" />
+        <source>可信模板目录</source>
+        <translation>Trusted template directory</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="134" />
+        <source>模板清单校验码</source>
+        <translation>Template manifest checksum</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="135" />
+        <source>允许已登记的可信分析</source>
+        <translation>Allow registered trusted analyses</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="137" />
+        <source>允许受控生成计算</source>
+        <translation>Allow controlled generated computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="140" />
+        <source>验证并应用</source>
+        <translation>Verify and Apply</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="148" />
+        <source>重新载入配置</source>
+        <translation>Reload Configuration</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="150" />
+        <source>丢弃表单草稿并载入最新配置；其他窗口修改配置后请先重新载入。</source>
+        <translation>Discard the form draft and load the latest configuration. Reload first if another window has changed the configuration.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="152" />
+        <source>检查可执行状态</source>
+        <translation>Check Execution Readiness</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="153" />
+        <source>停用计算</source>
+        <translation>Disable Computation</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="155" />
+        <source>立即停用 Python 执行，并保存停用配置。</source>
+        <translation>Disable Python execution immediately and save the disabled settings.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="156" />
+        <source>导出诊断…</source>
+        <translation>Export Diagnostics…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="160" />
+        <source>导出环境诊断</source>
+        <translation>Export Environment Diagnostics</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="160" />
+        <source>JSON 文件 (*.json)</source>
+        <translation>JSON files (*.json)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="166" />
+        <source>回退到已核验版本</source>
+        <translation>Roll Back to Verified Version</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="167" />
+        <source>撤销所选版本</source>
+        <translation>Revoke Selected Version</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="204" />
+        <source>离线包已安装并填入表单；验证并应用后才会使用所选环境。</source>
+        <translation>The offline package has been installed and the form populated. The selected environment will only be used after you verify and apply it.</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="215" />
+        <source>宿主配置与完整性</source>
+        <translation>Host configuration and integrity</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
+        <source>已申请的资源上限</source>
+        <translation>Requested resource limits</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
+        <source>可信分析实测</source>
+        <translation>Trusted analysis execution check</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="216" />
+        <source>受控生成实测</source>
+        <translation>Controlled generated computation execution check</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/pythonenvironmentdialog.cpp" line="237" />
+        <source>正在结束当前操作，完成后关闭。</source>
+        <translation>Finishing the current operation. This window will close when it completes.</translation>
+    </message>
+</context>
+<context>
+    <name>PiChatBridge</name>
+    <message>
+        <location filename="../src/workflow/pichatbridge.cpp" line="50" />
+        <source>Pi 对话编排</source>
+        <translation>Pi conversation orchestration</translation>
+    </message>
+</context>
+<context>
+    <name>AiContextBar</name>
+    <message>
+        <source>上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>暂无上下文信息</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>只读</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>本轮进行中</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无工程上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工程简报：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工程状态：未打开（%1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无宿主上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>工程状态：已打开 · %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>可写</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>层位：%1 · 地层单元：%2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>文档标识：%1（epoch %2）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>正在进行的回合：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>归属未记录</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>回合冻结身份：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史回合的层位/选区以各自冻结参数为准，不沿用当前上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>回合归属：空闲（历史卡各自标注归属）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>控制与导航动作受理时会重新读取当前宿主上下文</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作服务未接入</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>宿主状态：未知（%1）</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+<context>
+    <name>AiConversationCard</name>
+    <message>
+        <source>详情</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史记录：未找到配对调用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史记录：调用标识歧义</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>回合 %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>宿主绑定已验证</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>归属未验证（旧记录未记回合）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已完成（已提交）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果未知</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>历史留存结果（paleo.tool-result.v1 有界摘要）——当时完整出参可能大于此留存</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果缺失（无留存内容）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>参数：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作查询/取消/恢复未接入（无操作服务）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作详情</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>刷新</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>审阅此计划</source>
+        <translation>Review this plan</translation>
+    </message>
+</context>
+<context>
+    <name>AiOperationDetailWidget</name>
+    <message>
+        <source>刷新状态</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复执行</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事实</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件（按修订游标分页）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>修订</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>下一页事件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>重新起读</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果端口</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>端口</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>字节</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>诊断</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>读取内容</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>继续读取</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作 %1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>正在读取状态…</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>operationId</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>执行</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>呈现</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>计算次数</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>取消请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已请求取消（不等于已停止）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>未请求</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交收据</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>code</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>执行：%1 · 提交：%2 · 呈现：%3</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件史曾截断（最早修订 %1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>尚有后续事件（下一页自修订 %1 起）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>请求范围已读完（至修订 %1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件史已过期：最早可读修订 %1，此前事件不再可读；如需从头检视请点「重新起读」</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>事件读取失败：%1（详情见表格下方原始 code）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>暂无结果端口（%1）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>结果端口读取失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>读取失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已到本视图呈现上限（%1 字节）——未读取部分不做校验结论</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>尚有后续</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>读取完成</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>
 （已取回 %1 字节；%2）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source> …（hex 仅呈现前 %1 字节，共 %2 字节）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>（共 %1 字节）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>提交不确定（commit_uncertain）：提交状态以服务事实为准</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>已请求取消（等待执行面确认，不提前宣称已停止）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>取消请求失败：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>恢复已受理（原 operationId 继续执行）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>恢复失败：%1</source>
-            <translation type="unfinished" />
-        </message>
-    </context>
-    <context>
-        <name>AiPlanPresentation</name>
-        <message>
-            <source>受理状态待确认（%1）</source>
-            <translation>Acceptance pending confirmation (%1)</translation>
-        </message>
-        <message>
-            <source>已受理（调度暂不可用：%1）</source>
-            <translation>Accepted (scheduling unavailable: %1)</translation>
-        </message>
-        <message>
-            <source>计算计划（私有成果）</source>
-            <translation>Compute plan (private result)</translation>
-        </message>
-    </context>
-    <context>
-        <name>AiPlanReviewWidget</name>
-        <message>
-            <source> — %1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>%1 = %2（提案值·来源未核验：字符串引用不构成宿主核验的Catalogue 版本证明）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>%1 · %2 → %3</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>CRS/单位：宿主未提供核验事实，如实标注未知；grid_wkt %1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>IDW 点集（x/y/z 数值，有界编辑）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>compute-only 私有计算产物：未登记正式成果库、未改地图。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>subinterval_id（必填）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>x</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>y</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>z</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>上下文变化</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>修改未应用：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>修改未应用：数值必须为有限数（x/y/z/数值参数）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>关闭</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>删选中行</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>加一行</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>原操作 %1 · 执行 %2 · 提交 %3 · computeCount %4</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>原操作不可恢复：%1（不自动发起新计算冒充恢复）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>原操作：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>参数</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>子步骤事实（后端返回，非独立发布）：%1 个</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>尚未预检当前修订</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>已由提案给出（未核验）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>当前值</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>待预检（当前修订尚未验证）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>打开操作详情</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>执行：%1 · 提交：%2 · 呈现：%3</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>拒绝码：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>提案</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>提案值</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>提案无法打开审阅（缺完整图或契约不符）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>无法审阅</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>服务码：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>未命名计划</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>未打开</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>未提供</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>未知</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>来源</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>来源节点.端口</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>查看原操作</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>栅格输入由图内上游边供给（raster_path）；本入口不支持独立文件源，不提供任意文件打开回退。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>用户修改</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>目标节点.端口</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>算法默认</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>终端成果：%1（私有计算产物，compute-only；不登记正式成果库/地图）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>终端成果：未知（预检未通过时不猜测）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>节点 %1 · %2（契约 v%3）· 输出端口 %4 · 意图 %5</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>节点 %1 不在当前修订中</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>草案已不存在</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计划审阅 — %1（修订 %2）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计划审阅服务未接入（宿主/会话不可用）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计划审阅（只读）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计算中…</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>计算私有成果</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>输入键</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>连接与终端成果</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>重新预检</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>问题：%1%2%3</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>附加字段(well_id)</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预检未开始：%1</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预检未通过</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预检未通过（验证器未给出定位字段）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预检通过·尚未执行</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预检通过·执行资格失效（%1）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预检通过（结构与类型可用）。注意：这不证明输入真实性、物理合理性或执行权限——来源核验与效果门在执行时由宿主裁决。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>预检问题（首个可定位问题；修正后需重新预检）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <source>（字段 %1）</source>
-            <translation type="unfinished" />
-        </message>
-    </context>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source> …（hex 仅呈现前 %1 字节，共 %2 字节）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>（共 %1 字节）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>提交不确定（commit_uncertain）：提交状态以服务事实为准</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>已请求取消（等待执行面确认，不提前宣称已停止）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>取消请求失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复已受理（原 operationId 继续执行）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>恢复失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+<context>
+    <name>AiPlanPresentation</name>
+    <message>
+        <source>受理状态待确认（%1）</source>
+        <translation>Acceptance pending confirmation (%1)</translation>
+    </message>
+    <message>
+        <source>已受理（调度暂不可用：%1）</source>
+        <translation>Accepted (scheduling unavailable: %1)</translation>
+    </message>
+    <message>
+        <source>计算计划（私有成果）</source>
+        <translation>Compute plan (private result)</translation>
+    </message>
+</context>
+<context>
+    <name>AiPlanReviewWidget</name>
+    <message>
+        <source> — %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 = %2（提案值·来源未核验：字符串引用不构成宿主核验的Catalogue 版本证明）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 · %2 → %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CRS/单位：宿主未提供核验事实，如实标注未知；grid_wkt %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>IDW 点集（x/y/z 数值，有界编辑）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>compute-only 私有计算产物：未登记正式成果库、未改地图。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>subinterval_id（必填）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>x</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>y</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>z</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>上下文变化</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>修改未应用：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>修改未应用：数值必须为有限数（x/y/z/数值参数）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>删选中行</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>加一行</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>原操作 %1 · 执行 %2 · 提交 %3 · computeCount %4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>原操作不可恢复：%1（不自动发起新计算冒充恢复）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>原操作：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>参数</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>子步骤事实（后端返回，非独立发布）：%1 个</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>尚未预检当前修订</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已由提案给出（未核验）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>当前值</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>待预检（当前修订尚未验证）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>打开操作详情</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>执行：%1 · 提交：%2 · 呈现：%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>拒绝码：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>提案</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>提案值</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>提案无法打开审阅（缺完整图或契约不符）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>无法审阅</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>服务码：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未命名计划</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未打开</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未提供</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>来源节点.端口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>查看原操作</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>栅格输入由图内上游边供给（raster_path）；本入口不支持独立文件源，不提供任意文件打开回退。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>用户修改</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>目标节点.端口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>算法默认</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>终端成果：%1（私有计算产物，compute-only；不登记正式成果库/地图）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>终端成果：未知（预检通过时不猜测）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>节点 %1 · %2（契约 v%3）· 输出端口 %4 · 意图 %5</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>节点 %1 不在当前修订中</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>草案已不存在</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划审阅 — %1（修订 %2）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划审阅服务未接入（宿主/会话不可用）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计划审阅（只读）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计算中…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>计算私有成果</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>输入键</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>连接与终端成果</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>重新预检</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>问题：%1%2%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>附加字段(well_id)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检未开始：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检未通过</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检未通过（验证器未给出定位字段）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检通过·尚未执行</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检通过·执行资格失效（%1）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检通过（结构与类型可用）。注意：这不证明输入真实性、物理合理性或执行权限——来源核验与效果门在执行时由宿主裁决。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预检问题（首个可定位问题；修正后需重新预检）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>（字段 %1）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>终端成果：未知（预检未通过时不猜测）</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
 </TS>

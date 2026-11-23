@@ -377,6 +377,11 @@
             <translation>会话尚未保存成功（%1），已保留原回答；请恢复存储后重试</translation>
         </message>
         <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="456"/>
+            <source>本轮上下文超出请求预算（%1%2），已停止本轮，未发送模型请求</source>
+            <translation>本轮上下文超出请求预算（%1%2），已停止本轮，未发送模型请求</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="50"/>
             <source>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</source>
             <translation>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</translation>

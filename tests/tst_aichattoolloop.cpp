@@ -742,10 +742,18 @@ void TestAiChatToolLoop::historyWindowTruncatesOldTurnsButKeepsSystemAndRecent()
              .toString()
              .contains(QStringLiteral("地质解释助手")),
            "system prompt 必须常驻首位");
-  // 截断标记（第二条 system，紧跟常驻 system）。
-  const QString second = messages.at(1).toObject().value(QStringLiteral("content")).toString();
-  QVERIFY2(second.contains(QStringLiteral("截断")),
-           qPrintable(QStringLiteral("第二条消息应为截断标记，实得：%1").arg(second)));
+  // H1：截断说明合并进唯一宿主 System 块——请求不再出现第二条 system
+  //（存储里的 System/标记不进请求），全文在 messages[0] 内可见。
+  int systemCount = 0;
+  for (const QJsonValue &value : messages)
+    if (value.toObject().value(QStringLiteral("role")).toString() ==
+        QStringLiteral("system"))
+      ++systemCount;
+  QCOMPARE(systemCount, 1);
+  QVERIFY2(messages.at(0).toObject().value(QStringLiteral("content"))
+             .toString()
+             .contains(QStringLiteral("截断")),
+           "截断说明须合并进唯一宿主 system 块");
 
   int userCount = 0;
   QStringList userTexts;

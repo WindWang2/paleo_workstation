@@ -139,7 +139,8 @@ private:
   void dispatchTurnTool(ChatToolCall call);
   void onRoundFinished(const QString &reason);
   void onToolFinished(const ChatToolCall &call, bool ok, const QString &resultJson);
-  QVector<ChatMessage> requestMessages() const; // system + 预算窗内历史
+  // 历史→请求投影由 aichatcontextprojection 只读组件承担（H1）；sendRound
+  // 在装配接缝消费其结果——投影不可发送即零 HTTP、走既有停轮路径。
   // 给尾部 assistant 的未应答 tool_calls 合成一条 role=tool 错误应答
   // （reason 说明为何没执行）：取消/出错两条停轮路径共用，
   // 保证历史里「每个 tool_call 必有一条应答」的协议完整性。

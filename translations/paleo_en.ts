@@ -377,6 +377,11 @@
             <translation>The session has not been saved (%1); the previous answer is kept. Restore storage and retry</translation>
         </message>
         <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="456" />
+            <source>本轮上下文超出请求预算（%1%2），已停止本轮，未发送模型请求</source>
+            <translation>The context exceeds the request budget (%1%2). The turn stopped before sending a request to the model.</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="50" />
             <source>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</source>
             <translation>The tool result was received, but saving the session failed (%1). The turn stopped and content is kept in memory. Restore storage and resend</translation>

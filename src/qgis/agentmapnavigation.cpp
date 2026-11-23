@@ -142,11 +142,16 @@ QJsonObject AgentMapNavigation::applyLocate(const QgsRectangle &target, bool fit
   const QgsRectangle actual = canvas->extent();
   // 回读核含：实际视野须覆盖目标包络（含浮点容差），否则按失败回报且不
   // 假称已定位（setExtent 同步生效，此断言防未来管线漂移）。
-  if (!actual.contains(target.buffered(std::max(1e-6, std::abs(target.width()) * 1e-9))))
+  if (!actual.contains(target.buffered(std::max(1e-6, std::abs(target.width()) * 1e-9)))) {
+    // 审查修复（I4-R2）：防御性回读失败时还原旧视野——失败结果不得伴随
+    // 已移动的画布（同步 setExtent 正常不可达此分支，防未来管线漂移）。
+    canvas->setExtent(before);
+    canvas->refresh();
     return {{QStringLiteral("ok"), false},
             {QStringLiteral("code"), QStringLiteral("extent_apply_failed")},
-            {QStringLiteral("extent"), extentToJson(actual)},
+            {QStringLiteral("extent"), extentToJson(canvas->extent())},
             {QStringLiteral("crs"), crsLabel(canvas->mapSettings().destinationCrs())}};
+  }
   QJsonObject facts;
   facts.insert(QStringLiteral("extent"), extentToJson(actual));
   facts.insert(QStringLiteral("crs"), crsLabel(canvas->mapSettings().destinationCrs()));
@@ -201,7 +206,25 @@ QJsonObject AgentMapNavigation::locateWells(
     envelope.setYMinimum(envelope.yMinimum() - kPointBufferMeters);
     envelope.setYMaximum(envelope.yMaximum() + kPointBufferMeters);
   }
-  QJsonObject facts = applyLocate(envelope, fit, layerTreeVisible(QStringLiteral("wells")));
+  // 审查修复（I4-R3）：井层可见性按 manifest 声明解析（wells 或 wells@<层位>
+  // 作用域变体，同 constraintfactorjobs 的 wellsLayerIdFor 口径）——只认已
+  // 实例化层的真实树勾选，不做假阴性/假阳性。
+  bool wellsVisible = false;
+  {
+    QVector<LayerDeclaration> declared;
+    if (m_layerSvc->tryDeclared(&declared)) {
+      for (const LayerDeclaration &d : declared) {
+        if (d.type.compare(QStringLiteral("vector"), Qt::CaseInsensitive) != 0 ||
+            !d.layerId.startsWith(QStringLiteral("wells")))
+          continue;
+        if (layerTreeVisible(d.layerId)) {
+          wellsVisible = true;
+          break;
+        }
+      }
+    }
+  }
+  QJsonObject facts = applyLocate(envelope, fit, wellsVisible);
   facts.insert(QStringLiteral("target_count"), wells.size());
   facts.insert(QStringLiteral("resolved_count"), resolved.size());
   facts.insert(QStringLiteral("mode"),

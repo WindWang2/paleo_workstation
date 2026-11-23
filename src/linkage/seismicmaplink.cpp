@@ -213,7 +213,8 @@ bool SeismicMapLink::isWellSelectionOrigin(const QString &origin)
   // 避免选井触发地震线层的整层扫描与误选/清空（同字串 line_id 隔离）。
   return origin == QLatin1String("well_map") || origin == QLatin1String("datatree") ||
          origin == QLatin1String("datapreview") ||
-         origin == QLatin1String("agent_navigation") || origin == QLatin1String("rebind");
+         origin == QLatin1String("agent_navigation") || origin == QLatin1String("rebind") ||
+         origin == QLatin1String("evidence_well"); // 审查修复（I4-R6）：证据井来源同属井域
 }
 
 void SeismicMapLink::onContextSelection(const QStringList &ids, const QString &origin)

@@ -60,9 +60,10 @@ public:
   // 机器错误码；空串 = 可用。catalogRequired 区分需要目录的目标解析工具。
   QString unavailabilityReason(const QString &name, bool *catalogRequired = nullptr) const;
 
-  // 执行一个导航原子。done 在 GUI 线程回调恰一次（同步完成也经队列派发，
-  // #281 纪律）；同刻只允许一个在途请求——新 run 作废旧请求（旧 done 不再
-  // 触发），cancel() 同理。迟到回执按请求代次丢弃，不产生第二终态。
+  // 执行一个导航原子。done 在 GUI 线程回调恰一次（同步完成时在本调用栈
+  // 内联回调——最终异步投递由 runner 的 finishActive 承担，#281 纪律在彼处）；
+  // 同刻只允许一个在途请求——新 run 作废旧请求（旧 done 不再触发），cancel()
+  // 同理。迟到回执按请求代次丢弃，不产生第二终态。
   void run(const QString &name, const QJsonObject &args, const Environment &env,
            const Completion &done);
   // 宿主/会话失效：丢弃在途请求（不回调——调用方自行回报 stale）。
@@ -75,7 +76,6 @@ private:
   };
   void finish(quint64 serial, bool ok, const QJsonObject &payload);
   void startDeadline(int ms);
-  bool beginRequest(const QString &name, const Completion &done, quint64 *serial);
   // 目标解析（W2）：全部 ID 必须是当前工程的井实体；失败返回非空错误码并
   // 填 unknown（有界）。
   QString resolveWellIds(const QStringList &ids, DataCatalog *catalog,
@@ -95,8 +95,7 @@ private:
   quint64 m_requestSerial = 0;      // 单调；每个在途请求持有自己的代次
   quint64 m_activeSerial = 0;       // 0 = 无在途
   Completion m_activeDone;
-  QTimer *m_deadline = nullptr; // 懒建；单发截止（超时=终态，迟到回执丢弃）
-  int m_deadlineMs = 0;             // 当前请求的截止（0 = 同步完成，无计时）
+  QTimer *m_deadline = nullptr;    // 懒建；单发截止（超时=终态，迟到回执丢弃）
   int m_generation = 0;             // cancel()/析构 ++：作废迟到回调
 };
 

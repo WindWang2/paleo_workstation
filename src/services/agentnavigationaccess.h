@@ -19,6 +19,24 @@
 
 namespace paleo::agent::navigation {
 
+// 工具回执 detail 的净化：绝对路径 token 一律折叠为 [path]（任务书 W9
+// 「不含源路径」——错误原文可能携带 QFile::errorString 的宿主绝对路径）。
+inline QString sanitizeModelText(const QString &text)
+{
+  QString out;
+  const QStringList tokens = text.split(QLatin1Char(' '));
+  for (int i = 0; i < tokens.size(); ++i) {
+    const QString &token = tokens.at(i);
+    if (token.startsWith(QLatin1Char('/')) && token.size() > 1)
+      out += QStringLiteral("[path]");
+    else
+      out += token;
+    if (i + 1 < tokens.size())
+      out += QLatin1Char(' ');
+  }
+  return out;
+}
+
 // 当前业务选井的读/替换/清除（实现：ui/agentnavigationadapter）。
 class SelectionAccess
 {
@@ -69,8 +87,8 @@ public:
   // 命名与 SelectionAccess::snapshot 区分（双继承适配器需要两个具名面）。
   virtual QJsonObject previewSnapshot() const = 0;
   // 异步打开：done 恰好在 GUI 线程回调一次（shown/partial/failed/
-  // superseded/cancelled/rejected 由实现归类）。返回值是同步拒绝（如
-  // provider 缺位）时的错误结果；已受理异步时返回空对象。
+  // superseded/cancelled/rejected 由实现归类；同步可判的拒绝也在 done 内
+  // 回报）。返回值仅用于 provider 本身缺位的场景（此时 done 不会被调用）。
   using Completion = std::function<void(const QJsonObject &)>;
   virtual QJsonObject openWellView(const QString &versionId, const QString &wellId,
                                    const Completion &done) = 0;

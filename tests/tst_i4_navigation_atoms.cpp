@@ -127,6 +127,7 @@ private slots:
   void seismicLineRealDisplayLifecycle();
   void seismicLineRejectsOutOfRangeAndReportsDecodeFailure();
   void seismicLineSupersededByUserChangeAndCancelledByTabClose();
+  void seismicLineReopenAtDisplayedLineReportsRealFailure();
   void guiEvidenceDemo();
 
 private:
@@ -954,6 +955,57 @@ void TestI4NavigationAtoms::seismicLineSupersededByUserChangeAndCancelledByTabCl
 // 序列：查询当前状态 → 选两口井 → 定位包络 → 打开明确井资料版本 → 显示
 // 明确 inline；另演示只读工程成功导航与被拒绝的非法目标。逐步截图 + 结果
 // JSON 落盘（非 offscreen 冒充——真实 xcb 窗口、真实解码/选择/定位）。
+void TestI4NavigationAtoms::seismicLineReopenAtDisplayedLineReportsRealFailure()
+{
+  // 审查修复（I4-R1）回归：既有页已显示 IL1000 时请求会失败的版本（坏
+  // 指纹外链）同线重开——不得用「标题后缀已匹配」伪造 shown 终态吞掉
+  // 真实失败（旧短路的后缀与版本无关且重建后已陈旧）。
+  Fixture fixture;
+  QVERIFY(makeFixture(fixture));
+  DataCatalog *catalog = fixture.catalog();
+  PaleoProjectStore taskStore;
+  PaleoTaskService taskSvc(&taskStore);
+  fixture.stack->preview->setTaskService(&taskSvc);
+
+  const CatalogAsset sgy = catalog->assetById(fixture.ids.sgy);
+  const CatalogVersion good = catalog->currentVersion(sgy.id);
+  CatalogVersion broken = good;
+  broken.id = QStringLiteral("ver-i4-sgy-reopen-bad");
+  broken.versionNumber = good.versionNumber + 1;
+  broken.managed = false;
+  broken.path = fixture.ids.sgySource; // 真实 SEG-Y + 坏指纹 → 解码 SHA 闸失败
+  QVERIFY(QFile::exists(broken.path));
+  broken.sha256 = QStringLiteral("2222222222222222222222222222222222222222222222222222222222222222");
+  QVERIFY(catalog->addVersion(broken));
+
+  AgentNavigationAdapter adapter(fixture.stack->preview.get(), new SelectionContext(), nullptr);
+  paleo::agent::navigation::AgentNavigation navigation;
+  navigation.setPreviewAccess(&adapter, &adapter);
+
+  // 先开好版本到 IL1000 并等上屏。
+  const Outcome initial = runNavigation(
+      navigation, paleo::agent::navigation::kOpenSeismicLineTool,
+      {{QStringLiteral("asset_id"), sgy.id},
+       {QStringLiteral("version_id"), good.id},
+       {QStringLiteral("axis"), QStringLiteral("inline")},
+       {QStringLiteral("line_number"), 1000}},
+      catalog);
+  QVERIFY(initial.ok);
+
+  // 同线请求坏版本：真实失败必须回报（不得伪造 shown）。
+  const Outcome failed = runNavigation(
+      navigation, paleo::agent::navigation::kOpenSeismicLineTool,
+      {{QStringLiteral("asset_id"), sgy.id},
+       {QStringLiteral("version_id"), broken.id},
+       {QStringLiteral("axis"), QStringLiteral("inline")},
+       {QStringLiteral("line_number"), 1000}},
+      catalog);
+  QVERIFY(!failed.ok);
+  const QString status = failed.payload.value(QStringLiteral("status")).toString();
+  QVERIFY2(status == QLatin1String("failed") || status == QLatin1String("rejected"),
+           qPrintable(status));
+}
+
 void TestI4NavigationAtoms::guiEvidenceDemo()
 {
   if (qgetenv("PALEO_I4_GUI_EVIDENCE_DIR").isEmpty())

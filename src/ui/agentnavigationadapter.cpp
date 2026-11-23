@@ -159,7 +159,8 @@ QJsonObject AgentNavigationAdapter::openWellView(
         if (!facts.wellId.isEmpty())
           payload.insert(QStringLiteral("well_id"), facts.wellId);
         if (!facts.detail.isEmpty())
-          payload.insert(QStringLiteral("detail"), facts.detail);
+          payload.insert(QStringLiteral("detail"),
+                         paleo::agent::navigation::sanitizeModelText(facts.detail));
         done(payload);
       });
   return {}; // 已受理异步（回执经 done 恰一次）

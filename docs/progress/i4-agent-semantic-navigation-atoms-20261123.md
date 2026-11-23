@@ -180,10 +180,36 @@ PALEO_I4_GUI_EVIDENCE_DIR 流程同 I3 先例：手动触发、offscreen 车道�
 - 截图 7 张 + 结果 JSON transcript 见 `docs/progress/i4-nav-20261124/`；
   offscreen 车道该用例 QSKIP（真实窗口证据为手动流程，不冒充）。
 
-## 7. 审查记录
+## 7. 最终验证汇总（提交态 4a7901f4）
 
-独立审查（未参与主要实现的评审者读真实 diff + 契约 + 测试结果）结论与
-逐项修复见 §8（发现→处理→验证）。
+- 受影响回归 12/12 套 100%（ctest -j1，107.45s）：tst_linkage /
+  tst_datapreview / tst_previewdoc / tst_agent_tool_contracts /
+  tst_agent_readiness / tst_agent_tool_readiness / tst_aiwiring /
+  tst_a_async_previews / tst_projectcoordinates / tst_modelwellselection /
+  tst_aichat / tst_i4_navigation_atoms。
+- tst_aichat 维护点：枚举数 26→32；无参状态查询豁免同 python_environment
+  先例；clear_well_selection 全可选参数豁免同 operation_list 先例。
+- 源码闸门提交态全绿（§3 所列）；`git diff --check` 通过。
+
+## 8. 审查记录（发现→处理→验证）
+
+独立审查（未参与主要实现的评审 Agent 读真实 diff + 宿主契约 + 测试结果）
+给出 NEEDS-FIXES（1 阻断 + 若干 minor）。逐项处置（全部修复后复跑）：
+
+| # | 发现 | 级别 | 处理 | 验证 |
+|---|---|---|---|---|
+| R1 | 地震「已显示」标题后缀短路：既有页重建后后缀陈旧且与版本无关——可伪造 shown 终态并吞掉坏版本/坏线的真实失败 | **阻断** | 删除短路（既有页总是经 rebuildAssetTab 重发解码，目标匹配信号必然到来，无信号场景由截止兜底） | 新增 `seismicLineReopenAtDisplayedLineReportsRealFailure`：已显示 IL1000 后请求坏指纹版本同线 → 真实 failed 回报；18/18 通过 |
+| R2 | `extent_apply_failed` 防御分支在 setExtent 后才报失败（画布已动） | minor | 回读失败时还原旧 extent | 代码路径审查（同步 setExtent 正常不可达；防御分支现在还原） |
+| R3 | 井层可见性只查精确 `"wells"`，漏 `wells@<层位>` 作用域变体（假阴性 located_not_visible） | minor | 按 manifest 声明解析（wells 前缀 + 已实例化树勾选，同 wellsLayerIdFor 口径） | 既有 map_locate 用例复跑通过 |
+| R4 | 失败 detail 可能携带 QFile::errorString 的宿主绝对路径 | minor | `sanitizeModelText`（共享于 agentnavigationaccess.h）在两处回执边折叠 `/…` token 为 [path] | 代码路径审查（sha_mismatch/failed 均经该边） |
+| R5 | 预览页挂起表持有的 wrap 闭包捕获裸 this——编排器先亡时晚回执悬垂 | minor | wrap 增加 QPointer 守卫；顺带删除 m_deadlineMs/beginRequest 死代码、修正头注释的 #281 归属表述 | 18/18 通过（晚回执路径由 superseded/cancelled 用例钉住） |
+| R6 | `evidence_well` 亦是井 ID 生产者但不在隔离集（沿旧行为清地震选择） | minor | 加入 isWellSelectionOrigin 封闭集合 | 隔离用例复跑通过 |
+| R7 | 深度标记覆盖 drainDeferredRebuilds 顺延的其他资产重建（少一次 stale 标记，不误写） | minor（备忘） | 注释登记已知边界；按资产作用域化递延 | 注释落地 |
+| — | PreviewAccess 头注释与实现的同步拒绝通道表述不一致 | nit | 头注释对齐（同步可判拒绝在 done 内回报；返回值仅 provider 缺位） | — |
+
+审查另确认（OK）：信任边界（effects 硬编码 + live context 复核 + 不可自授）、
+SHA 版本精确键全触点、ReportOnly 三处 markDownstreamStale 全部受控、
+armed 位/恰一次/迟到回执/center 回退、runner 精确路由与 readiness 同因。
 
 ## 8. 验收命令清单（复现）
 

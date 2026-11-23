@@ -202,20 +202,7 @@ void AgentNavigation::cancel() {
     m_deadline->stop();
 }
 
-bool AgentNavigation::beginRequest(const QString &name, const Completion &done,
-                                   quint64 *serial) {
-  // 同刻单在途：新请求作废旧请求（旧 done 不触发——由调用方按串行 runner
-  // 语义自然保证；防御性丢弃仍在 finish 的代次判定里兜底）。
-  ++m_requestSerial;
-  m_activeSerial = m_requestSerial;
-  m_activeDone = done;
-  *serial = m_requestSerial;
-  Q_UNUSED(name);
-  return true;
-}
-
 void AgentNavigation::startDeadline(int ms) {
-  m_deadlineMs = ms;
   if (ms <= 0)
     return;
   if (!m_deadline) {
@@ -357,12 +344,17 @@ void AgentNavigation::run(const QString &name, const QJsonObject &args,
     done(false, navigationResult(false, QStringLiteral("catalog_unavailable")));
     return;
   }
-  quint64 serial = 0;
-  beginRequest(name, done, &serial);
+  ++m_requestSerial; // 同刻单在途：新请求顶替旧请求（旧 done 不再触发）
+  const quint64 serial = m_requestSerial;
+  m_activeSerial = serial;
+  m_activeDone = done;
   const int generation = m_generation;
-  const auto wrap = [this, serial, generation](bool ok, const QJsonObject &payload) {
-    if (generation != m_generation)
-      return; // 已被 cancel 作废
+  // 审查修复（I4-R5）：回执闭包会被预览页挂起表持有到晚回执——QPointer
+  // 守卫编排器寿命，防止其先于预览页析构时晚回执触达悬垂 this。
+  const QPointer<AgentNavigation> guard(this);
+  const auto wrap = [this, guard, serial, generation](bool ok, const QJsonObject &payload) {
+    if (!guard || generation != m_generation)
+      return; // 编排器已销毁 / 已被 cancel 作废
     finish(serial, ok, payload);
   };
 

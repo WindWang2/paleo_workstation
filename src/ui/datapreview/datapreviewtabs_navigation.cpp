@@ -3,6 +3,7 @@
 #include "datapreviewtabs_internal.h"
 
 #include "../../catalog/datacatalog.h"
+#include "../../services/agentnavigationaccess.h" // sanitizeModelText（detail 路径净化）
 #include "../../services/sectiondoc.h" // PreviewDocService::SectionDoc 完整定义（结果信号成员访问）
 
 #include <QComboBox>
@@ -40,6 +41,11 @@ PreviewDocService::ShaGatePolicy DataPreviewTabs::navigationShaPolicy() const
   return m_navigationPolicyDepth > 0 ? PreviewDocService::ShaGatePolicy::ReportOnly
                                     : PreviewDocService::ShaGatePolicy::MarkDownstreamStale;
 }
+
+// 已知边界（审查 I4-R7 备注）：深度标记覆盖整个同步 typed 调用栈，含
+// rebuildAssetTab 尾部的 drainDeferredRebuilds()——期间顺延重建的「其他
+// 资产」也会按 ReportOnly 过闸（少一次 stale 标记，不会误写）。GUI 线程
+// 同栈语义下窗口极窄；按资产作用域化留待后续接缝收敛。
 
 // ---- 井资料：固定版本 + 指定井 -------------------------------------------
 
@@ -321,16 +327,13 @@ void DataPreviewTabs::openSeismicLineVersion(
   }
   if (auto *modeTabs = page->findChild<QTabWidget *>(QStringLiteral("seismicSubTabs")))
     modeTabs->setCurrentIndex(0); // 聚焦二维测线剖面页签
-  // 目标解码已发出（或目标已是当前显示）——此后非目标结果才是用户换线
-  // 顶替（superseded）；建页初始解码的非目标结果在此之前静默忽略。
+  // 目标解码已发出——此后非目标结果才是用户换线顶替（superseded）；建页
+  // 初始解码的非目标结果在此之前静默忽略。审查修复（I4-R1）：既有页总是
+  // 经 rebuildAssetTab 重建并重发解码（重建的初始解码或本处的 setValue 至少
+  // 一次），目标匹配的结果信号必然到来——不再用标题后缀做「已显示」短路
+  //（后缀与版本无关且重建后已陈旧，会伪造 shown 终态并吞掉后续失败）。
   if (m_navigationSectionWatch.contains(assetId))
     m_navigationSectionWatch[assetId].armed = true;
-  // 目标已是当前显示（同轴同线上一次成功解码的标题后缀）——直接回执，
-  // 不等一个不会再来的信号；否则结果信号到达时按挂起表回执。
-  const QString suffix = (isInline ? QStringLiteral("IL") : QStringLiteral("XL")) +
-                         QString::number(lineNumber);
-  if (existing && m_titleSuffixOfAsset.value(assetId) == suffix)
-    notifyNavigationSectionOutcome(assetId, QStringLiteral("shown"));
 }
 
 void DataPreviewTabs::notifyNavigationSectionOutcome(const QString &assetId,
@@ -347,7 +350,8 @@ void DataPreviewTabs::notifyNavigationSectionOutcome(const QString &assetId,
   outcome.insert(QStringLiteral("axis"), watch.axis);
   outcome.insert(QStringLiteral("line_number"), watch.line);
   if (!detail.isEmpty())
-    outcome.insert(QStringLiteral("detail"), detail);
+    outcome.insert(QStringLiteral("detail"),
+                   paleo::agent::navigation::sanitizeModelText(detail));
   watch.done(outcome);
 }
 

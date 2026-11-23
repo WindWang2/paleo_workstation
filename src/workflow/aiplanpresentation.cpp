@@ -359,15 +359,16 @@ QJsonObject planPreviewPayload(const paleo::capability::ValidatedPlan &plan,
     payload.insert(QStringLiteral("title"), title);
   if (!note.isEmpty())
     payload.insert(QStringLiteral("note"), note);
-  // 规范化图回显：预检通过时用验证器归一结果（含 effective 参数），
-  // 失败时回显解码归一值（参数为原样提议值）。
+  // 规范化图回显：参数一律为**原始提议值**（intent 归一化除外）——算法补的
+  // 默认值单独放 effective_parameters，提案/默认/用户修改三态才可分辨；
+  // 预检失败与成功同一口径（失败的图本就未被填充）。
   QJsonArray nodeValues;
-  QJsonObject effective;
+  for (const auto &node : nodes)
+    nodeValues.append(normalizedNodeJson(node));
   if (plan.ok) {
-    for (const auto &entry : plan.nodes) {
-      nodeValues.append(normalizedNodeJson(entry.node));
+    QJsonObject effective;
+    for (const auto &entry : plan.nodes)
       effective.insert(entry.node.id, QJsonObject::fromVariantMap(entry.node.parameters));
-    }
     payload.insert(QStringLiteral("effective_parameters"), effective);
     QJsonArray order;
     for (const auto &id : plan.order)
@@ -375,9 +376,6 @@ QJsonObject planPreviewPayload(const paleo::capability::ValidatedPlan &plan,
     payload.insert(QStringLiteral("order"), order);
     payload.insert(QStringLiteral("terminal"), plan.order.isEmpty()
         ? QString() : plan.order.last());
-  } else {
-    for (const auto &node : nodes)
-      nodeValues.append(normalizedNodeJson(node));
   }
   QJsonArray edgeValues;
   for (const auto &edge : edges)
@@ -656,6 +654,10 @@ bool AiPlanPresentation::requestPreflight(const QString &draftId, QString *reaso
   draft->preflightDone = true;
   draft->preflightValid = plan.ok;
   draft->graphDigest = payload.value(QStringLiteral("digest")).toString();
+  // 图身份随本次采纳刷新：请求身份与 (document, digest) 同步重 derive
+  //（编辑后的新修订不得沿用旧修订的执行身份）。
+  draft->clientRequestId = planExecutionRequestId(guard.capturedContext.documentId,
+                                                  draft->graphDigest);
   // 显式绑定当前上下文（W5.3）：预检即采纳。
   draft->chatSessionId = guard.chatSessionId;
   draft->boundContext = guard.capturedContext;
@@ -673,14 +675,18 @@ bool AiPlanPresentation::computeAllowed(const QString &draftId, QString *reason)
     if (reason) *reason = QStringLiteral("plan_draft_unknown");
     return false;
   }
+  // 优先报失效原因（graph_edited/context_changed 比笼统的 preflight_required
+  // 更可定位）；初始打开态的 ineligibleReason 即 preflight_required。
+  if (!draft->executionEligible) {
+    if (reason) *reason = !draft->ineligibleReason.isEmpty()
+        ? draft->ineligibleReason
+        : (draft->preflightDone ? QStringLiteral("preflight_failed")
+                                : QStringLiteral("preflight_required"));
+    return false;
+  }
   if (!draft->preflightDone || !draft->preflightValid) {
     if (reason) *reason = draft->preflightDone ? QStringLiteral("preflight_failed")
                                                : QStringLiteral("preflight_required");
-    return false;
-  }
-  if (!draft->executionEligible) {
-    if (reason) *reason = draft->ineligibleReason.isEmpty()
-        ? QStringLiteral("context_changed") : draft->ineligibleReason;
     return false;
   }
   QString code;

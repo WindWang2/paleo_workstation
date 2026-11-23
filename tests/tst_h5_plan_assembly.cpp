@@ -230,15 +230,26 @@ void TestH5PlanAssembly::liveToolCallProducesReviewableCard() {
         QStringLiteral("paleo.workflow_plan_preview"))
       declared = true;
   QVERIFY2(declared, "paleo.workflow_plan_preview 必须出现在 tools[] 上送");
-  // 请求 2 回灌 role=tool 应答本提案（协议对账）。
+  // 请求 2 回灌 role=tool 应答本提案（协议对账）。controller 会把调用 id
+  // 改写为宿主持久身份（host_<hash>，G3 语义），故按「role=tool 存在且内容
+  // 为计划提案契约」配对——同时核对该 id 与同请求 assistant.tool_calls 声明
+  // 一致（每个声明都有应答）。
   const auto messages = server.body(1).value(QStringLiteral("messages")).toArray();
   bool toolPaired = false;
-  for (const auto &entry : messages)
-    if (entry.toObject().value(QStringLiteral("role")).toString() == QLatin1String("tool") &&
-        entry.toObject().value(QStringLiteral("tool_call_id")).toString() ==
-            QLatin1String("call-h5-assembly"))
+  QString admittedId;
+  for (const auto &entry : messages) {
+    const auto object = entry.toObject();
+    if (object.value(QStringLiteral("role")).toString() == QLatin1String("assistant") &&
+        object.contains(QStringLiteral("tool_calls")))
+      admittedId = object.value(QStringLiteral("tool_calls")).toArray().at(0).toObject()
+                       .value(QStringLiteral("id")).toString();
+    if (object.value(QStringLiteral("role")).toString() == QLatin1String("tool") &&
+        object.value(QStringLiteral("content")).toString()
+            .contains(QStringLiteral("paleo.plan-preview.v1")))
       toolPaired = true;
-  QVERIFY2(toolPaired, "tool_call_id 必须有 role=tool 应答回灌");
+  }
+  QVERIFY2(toolPaired, "提案工具必须有 role=tool 应答回灌");
+  QVERIFY2(!admittedId.isEmpty(), "assistant 帧必须携带（宿主改写后的）tool_calls id");
   // 实时卡出现且带「审阅此计划」入口；点击打开真实面板。
   auto *cards = dock->findChild<QWidget *>(QStringLiteral("aiAssistantToolCards"));
   QVERIFY(cards);

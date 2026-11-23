@@ -309,11 +309,10 @@ void AiPlanReviewWidget::showRefusal(const QString &code, const QString &detail)
   m_operationNote->setText(tr("拒绝码：%1").arg(code));
   m_rebuilding = false;
   refreshActionStates();
-  auto *fresh = PaleoTheme::capsuleLabel(tr("无法审阅"), PaleoTheme::CapsuleKind::Error, this);
-  layout()->replaceWidget(m_status, fresh);
-  m_status->deleteLater();
-  m_status = fresh;
-  m_status->setObjectName(QStringLiteral("aiPlanReviewStatus"));
+  m_status->setText(tr("无法审阅"));
+  m_status->setProperty("capsuleKind", int(PaleoTheme::CapsuleKind::Error));
+  PaleoTheme::applyThemedStyleSheet(
+    m_status, [] { return PaleoTheme::capsuleStyleSheet(PaleoTheme::CapsuleKind::Error); });
   show();
 }
 
@@ -467,7 +466,13 @@ void AiPlanReviewWidget::rebuildNodeDetail() {
     auto *proposalItem = new QTableWidgetItem(valueText(proposed.value(key)));
     proposalItem->setFlags(proposalItem->flags() & ~Qt::ItemIsEditable);
     m_params->setItem(row, 1, proposalItem);
-    m_params->setItem(row, 2, new QTableWidgetItem(valueText(current.value(key))));
+    // 当前值 = 实际会提交的值：用户改过用 current，否则算法默认（effective）
+    // ——空串留给 truly-unknown（两侧都缺）的键。
+    const auto effectiveValue = effective.value(key);
+    m_params->setItem(row, 2, new QTableWidgetItem(
+      current.contains(key) ? valueText(current.value(key))
+                            : (effective.contains(key) ? valueText(effectiveValue)
+                                                       : QString())));
     auto *sourceItem = new QTableWidgetItem(paramSourceText(nodeId, key));
     sourceItem->setFlags(sourceItem->flags() & ~Qt::ItemIsEditable);
     m_params->setItem(row, 3, sourceItem);
@@ -561,6 +566,10 @@ QJsonObject AiPlanReviewWidget::buildEditedGraph() const {
           ? parameters.value(key)
           : view.lastPayload.value(QStringLiteral("effective_parameters")).toObject()
                 .value(nodeId).toObject().value(key);
+      if (text.trimmed().isEmpty()) {
+        parameters.remove(key); // 清空 = 回退算法默认（不提交显式值）
+        continue;
+      }
       if (reference.isDouble()) {
         bool ok = false;
         const double number = text.trimmed().toDouble(&ok);
@@ -647,11 +656,12 @@ void AiPlanReviewWidget::refreshStatusLine(const QString &extra) {
     if (kind == PaleoTheme::CapsuleKind::Success)
       kind = PaleoTheme::CapsuleKind::Warning;
   }
-  auto *fresh = PaleoTheme::capsuleLabel(text, kind, this);
-  layout()->replaceWidget(m_status, fresh);
-  m_status->deleteLater();
-  m_status = fresh;
-  m_status->setObjectName(QStringLiteral("aiPlanReviewStatus"));
+  // 单实例就地更新（不换 widget）：offscreen/无事件循环窗口里 deleteLater
+  // 旧胶囊仍挂在树上，findChild 会命中陈旧文本。
+  m_status->setText(text);
+  m_status->setProperty("capsuleKind", int(kind));
+  PaleoTheme::applyThemedStyleSheet(
+    m_status, [kind] { return PaleoTheme::capsuleStyleSheet(kind); });
 }
 
 void AiPlanReviewWidget::refreshActionStates() {

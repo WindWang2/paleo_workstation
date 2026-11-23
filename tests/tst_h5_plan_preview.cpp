@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
+#include <limits>
 
 using namespace paleo::capability;
 
@@ -227,13 +228,14 @@ void TestH5PlanPreview::budgetDepthAndTypeMatrix() {
   QVERIFY(!decoded.ok);
   QCOMPARE(decoded.code, QStringLiteral("plan_value_too_deep"));
 
-  // 非有限数值（1e999 解析为 inf）。
+  // 非有限数值（JSON 文本会被解析器拒绝；防御目标是 QJsonValue 携带的
+  // inf——经运行时构造抵达解码器的情形）。
   arguments = twoStepArguments();
   nodes = nodeArray(arguments);
   idw = nodes.at(0).toObject();
   parameters = idw.value(QStringLiteral("parameters")).toObject();
   parameters.insert(QStringLiteral("CELL_SIZE"),
-                   QJsonDocument::fromJson("{\"x\":1e999}").object().value(QStringLiteral("x")));
+                   QJsonValue(std::numeric_limits<double>::infinity()));
   idw.insert(QStringLiteral("parameters"), parameters);
   nodes.replace(0, idw);
   arguments.insert(QStringLiteral("nodes"), nodes);
@@ -271,17 +273,18 @@ void TestH5PlanPreview::budgetDepthAndTypeMatrix() {
   QVERIFY(!decoded.ok);
   QCOMPARE(decoded.code, QStringLiteral("plan_string_too_large"));
 
-  // null 值拒绝（不允许 undefined/null 进参数面）。
+  // null 值拒绝（JSON 原生 null；undefined 插入是 no-op 不构成用例）。
   arguments = twoStepArguments();
   nodes = nodeArray(arguments);
   idw = nodes.at(0).toObject();
   parameters = idw.value(QStringLiteral("parameters")).toObject();
-  parameters.insert(QStringLiteral("FIELD"), QJsonValue());
+  parameters.insert(QStringLiteral("FIELD"),
+                    QJsonDocument::fromJson("{\"v\":null}").object().value(QStringLiteral("v")));
   idw.insert(QStringLiteral("parameters"), parameters);
   nodes.replace(0, idw);
   arguments.insert(QStringLiteral("nodes"), nodes);
   decoded = paleo::chat::decodePlanPreviewArguments(arguments);
-  QVERIFY(!decoded.ok);
+  QVERIFY2(!decoded.ok, qPrintable(decoded.code));
   QCOMPARE(decoded.code, QStringLiteral("plan_value_type_rejected"));
 }
 
@@ -371,22 +374,47 @@ void TestH5PlanPreview::runnerRejectsDecodeFailureWithCodeAndField() {
   AiChatToolRunner runner;
   runner.setContext(AiChatToolRunner::Context{});
   QSignalSpy finished(&runner, &AiChatToolRunner::toolFinished);
+  // 第一层：顶层未知字段（授权语义）在 dispatch 宽松档即被拒（先于工具
+  // 分支；错误回灌不含执行）。
+  ChatToolCall top;
+  top.id = QStringLiteral("call-preview-bad-top");
+  top.name = QStringLiteral("paleo.workflow_plan_preview");
+  auto arguments = twoStepArguments();
+  arguments.insert(QStringLiteral("approved"), true);
+  top.argumentsJson = QString::fromUtf8(
+    QJsonDocument(arguments).toJson(QJsonDocument::Compact));
+  runner.run(top);
+  QVERIFY(finished.wait(5000));
+  QVERIFY(!finished.at(0).at(1).toBool());
+  {
+    const auto payload = QJsonDocument::fromJson(
+                           finished.at(0).at(2).toString().toUtf8()).object();
+    QVERIFY(!payload.value(QStringLiteral("error")).toString().isEmpty());
+    QVERIFY(!payload.contains(QStringLiteral("operationId")));
+  }
+  // 第二层：嵌套未知字段过了宽松档（顶层类型合法），由严格解码器以
+  // paleo.plan-preview.v1 契约拒绝并给出 code/field。
   ChatToolCall call;
   call.id = QStringLiteral("call-preview-bad");
   call.name = QStringLiteral("paleo.workflow_plan_preview");
-  auto arguments = twoStepArguments();
-  arguments.insert(QStringLiteral("approved"), true);
+  arguments = twoStepArguments();
+  auto nodes = nodeArray(arguments);
+  auto idw = nodes.at(0).toObject();
+  idw.insert(QStringLiteral("approved"), QStringLiteral("model-claims"));
+  nodes.replace(0, idw);
+  arguments.insert(QStringLiteral("nodes"), nodes);
   call.argumentsJson = QString::fromUtf8(
     QJsonDocument(arguments).toJson(QJsonDocument::Compact));
   runner.run(call);
   QVERIFY(finished.wait(5000));
-  QVERIFY(!finished.at(0).at(1).toBool());
+  QVERIFY(!finished.at(1).at(1).toBool());
   const auto payload = QJsonDocument::fromJson(
-                         finished.at(0).at(2).toString().toUtf8()).object();
+                         finished.at(1).at(2).toString().toUtf8()).object();
   QCOMPARE(payload.value(QStringLiteral("contract")).toString(),
            QStringLiteral("paleo.plan-preview.v1"));
   QCOMPARE(payload.value(QStringLiteral("code")).toString(), QStringLiteral("unknown_field"));
-  QCOMPARE(payload.value(QStringLiteral("field")).toString(), QStringLiteral("approved"));
+  QCOMPARE(payload.value(QStringLiteral("field")).toString(),
+           QStringLiteral("nodes.0.approved"));
   QCOMPARE(payload.value(QStringLiteral("status")).toString(), QStringLiteral("not_executed"));
 }
 

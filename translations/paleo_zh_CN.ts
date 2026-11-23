@@ -377,6 +377,11 @@
             <translation>会话尚未保存成功（%1），已保留原回答；请恢复存储后重试</translation>
         </message>
         <message>
+            <location filename="../src/workflow/aichatcontroller.cpp" line="456"/>
+            <source>本轮上下文超出请求预算（%1%2），已停止本轮，未发送模型请求</source>
+            <translation>本轮上下文超出请求预算（%1%2），已停止本轮，未发送模型请求</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/aichatcontroller_toolloop.cpp" line="50"/>
             <source>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</source>
             <translation>工具结果已收到，但会话保存失败（%1）。本轮已停止，内容保留在内存；请恢复存储后重发</translation>
@@ -13917,11 +13922,130 @@ Crossline: %3 ~ %4</source>
     </message>
 </context>
 <context>
+    <name>LlmDiagnosticsPanel</name>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="34"/>
+        <source>以下动作均为显式启动：不点击不联网。目录/文本/流式各至多一次请求；工具往返最多两次小型模型请求（合成消息，非工程数据）。</source>
+        <translation>以下动作均为显式启动：不点击不联网。目录/文本/流式各至多一次请求；工具往返最多两次小型模型请求（合成消息，非工程数据）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="51"/>
+        <source>发送一次最小合成文本请求（非流式；需要模型名与本次凭据）</source>
+        <translation>发送一次最小合成文本请求（非流式；需要模型名与本次凭据）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="54"/>
+        <source>发送一次最小合成流式请求（需要模型名与凭据）</source>
+        <translation>发送一次最小合成流式请求（需要模型名与凭据）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="60"/>
+        <source>取消诊断</source>
+        <translation>取消诊断</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="79"/>
+        <source>填入草稿</source>
+        <translation>填入草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="179"/>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="183"/>
+        <source>导出失败：%1</source>
+        <translation>导出失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="105"/>
+        <source>导出报告摘要…</source>
+        <translation>导出报告摘要…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="173"/>
+        <source>导出诊断摘要</source>
+        <translation>导出诊断摘要</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="169"/>
+        <source>尚无报告可导出</source>
+        <translation>尚无报告可导出</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="100"/>
+        <source>尚未运行诊断——所有动作显式启动，不点击不联网</source>
+        <translation>尚未运行诊断——所有动作显式启动，不点击不联网</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="186"/>
+        <source>已导出：%1</source>
+        <translation>已导出：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="107"/>
+        <source>把当前摘要保存为文本文件（不含密钥与原始请求/应答）</source>
+        <translation>把当前摘要保存为文本文件（不含密钥与原始请求/应答）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="83"/>
+        <source>把所选模型 ID 填入上方模型字段（只改草稿；应用仍走原「确定」流程）</source>
+        <translation>把所选模型 ID 填入上方模型字段（只改草稿；应用仍走原「确定」流程）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="174"/>
+        <source>文本文件 (*.txt)</source>
+        <translation>文本文件 (*.txt)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="58"/>
+        <source>最多两次小型模型请求：诊断专用回声工具（无业务副作用，不执行任何真实工具）</source>
+        <translation>最多两次小型模型请求：诊断专用回声工具（无业务副作用，不执行任何真实工具）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="47"/>
+        <source>查询 &lt;服务地址&gt;/models 目录（可缺席）；不需要先填模型名</source>
+        <translation>查询 &lt;服务地址&gt;/models 目录（可缺席）；不需要先填模型名</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="28"/>
+        <source>模型接入诊断</source>
+        <translation>模型接入诊断</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="55"/>
+        <source>测试工具往返</source>
+        <translation>测试工具往返</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="48"/>
+        <source>测试文本</source>
+        <translation>测试文本</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="52"/>
+        <source>测试流式请求</source>
+        <translation>测试流式请求</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="44"/>
+        <source>获取模型列表</source>
+        <translation>获取模型列表</translation>
+    </message>
+</context>
+<context>
     <name>LlmConfigDialog</name>
     <message>
         <location filename="../src/ui/ai/llmconfigdialog.cpp" line="30"/>
         <source>大模型配置</source>
         <translation>大模型配置</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmconfigdialog.cpp" line="133"/>
+        <source>当前最大输出 token %1 超出持久化域 [1, 32768]：显示保留原值；应用前请调整（见「应用」提示）。</source>
+        <translation>当前最大输出 token %1 超出持久化域 [1, 32768]：显示保留原值；应用前请调整（见「应用」提示）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/llmconfigdialog.cpp" line="187"/>
+        <source>最大输出 token %1 超出持久化域 [1, 32768]——为避免保存后重启读回不同的值，应用被拒绝。请调整后再应用。</source>
+        <translation>最大输出 token %1 超出持久化域 [1, 32768]——为避免保存后重启读回不同的值，应用被拒绝。请调整后再应用。</translation>
     </message>
     <message>
         <location filename="../src/ui/ai/llmconfigdialog.cpp" line="41"/>
@@ -29409,6 +29533,436 @@ PDF：%3
         <translation>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</translation>
     </message>
     <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="333"/>
+        <source>stream=true 请求被当前客户端接受（真实 SSE 未独立确认）</source>
+        <translation>stream=true 请求被当前客户端接受（真实 SSE 未独立确认）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="23"/>
+        <source>usage：服务端报告 prompt=%1 completion=%2</source>
+        <translation>usage：服务端报告 prompt=%1 completion=%2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="22"/>
+        <source>usage：服务端未报告（缺省不显示为精确零）</source>
+        <translation>usage：服务端未报告（缺省不显示为精确零）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="173"/>
+        <source>·已剔除回显凭据条目</source>
+        <translation>·已剔除回显凭据条目</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="171"/>
+        <source>·部分（已截断）</source>
+        <translation>·部分（已截断）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="57"/>
+        <source>不支持（目录未实现）</source>
+        <translation>不支持（目录未实现）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="116"/>
+        <source>从目录选择模型 ID 填入草稿后，可用「测试文本」验证补全（目录列出 ≠ 模型可用）</source>
+        <translation>从目录选择模型 ID 填入草稿后，可用「测试文本」验证补全（目录列出 ≠ 模型可用）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="198"/>
+        <source>后续请求再次要求工具（已忽略，零第三轮）</source>
+        <translation>后续请求再次要求工具（已忽略，零第三轮）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="502"/>
+        <source>后续请求再次要求工具（已忽略；零第三轮）——不冒充完整通过</source>
+        <translation>后续请求再次要求工具（已忽略；零第三轮）——不冒充完整通过</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="412"/>
+        <source>实参不是 JSON 对象</source>
+        <translation>实参不是 JSON 对象</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="419"/>
+        <source>实参不是恰好一个与宿主 nonce 精确一致的 {"nonce":…} 对象</source>
+        <translation>实参不是恰好一个与宿主 nonce 精确一致的 {"nonce":…} 对象</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="163"/>
+        <source>宿主生成的诊断一次性数值</source>
+        <translation>宿主生成的诊断一次性数值</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="120"/>
+        <source>密钥被拒绝：核对密钥、其适用端点与模型权限</source>
+        <translation>密钥被拒绝：核对密钥、其适用端点与模型权限</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="191"/>
+        <source>尚未填写模型名称——文本/流式/工具探测需要真实选定模型（目录查询不需要）</source>
+        <translation>尚未填写模型名称——文本/流式/工具探测需要真实选定模型（目录查询不需要）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="147"/>
+        <source>尚未运行诊断。所有动作均为显式启动：打开设置、编辑草稿、关闭窗口都不会产生任何网络请求。</source>
+        <translation>尚未运行诊断。所有动作均为显式启动：打开设置、编辑草稿、关闭窗口都不会产生任何网络请求。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="399"/>
+        <source>工具名不匹配（收到 %1）</source>
+        <translation>工具名不匹配（收到 %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="130"/>
+        <source>工具帧协议兼容（仅协议往返；不代表业务工具执行验证）</source>
+        <translation>工具帧协议兼容（仅协议往返；不代表业务工具执行验证）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="188"/>
+        <source>工具帧：%1｜内存结果回送：%2｜后续文本：%3｜模型请求 %4 次</source>
+        <translation>工具帧：%1｜内存结果回送：%2｜后续文本：%3｜模型请求 %4 次</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="438"/>
+        <source>工具往返收到 %1 个调用帧（要求恰好一个）</source>
+        <translation>工具往返收到 %1 个调用帧（要求恰好一个）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="146"/>
+        <source>工具往返诊断：请调用 %1 工具，nonce 参数必须精确传 "%2"；不要调用其他工具，也不要执行任何实际操作。</source>
+        <translation>工具往返诊断：请调用 %1 工具，nonce 参数必须精确传 "%2"；不要调用其他工具，也不要执行任何实际操作。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="177"/>
+        <source>已有诊断在途——请等待完成或先取消</source>
+        <translation>已有诊断在途——请等待完成或先取消</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="191"/>
+        <source>已送回</source>
+        <translation>已送回</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="206"/>
+        <source>建议：%1</source>
+        <translation>建议：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="139"/>
+        <source>按上方分项观测处理：核对端点/模型/凭据，或改用手填模型 ID</source>
+        <translation>按上方分项观测处理：核对端点/模型/凭据，或改用手填模型 ID</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="136"/>
+        <source>文本可用；可用「测试流式请求」继续核对流式模式</source>
+        <translation>文本可用；可用「测试流式请求」继续核对流式模式</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="178"/>
+        <source>文本请求</source>
+        <translation>文本请求</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="332"/>
+        <source>文本请求可用（finish=%1）</source>
+        <translation>文本请求可用（finish=%1）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="138"/>
+        <source>文本请求可用；其余分项按各自观测结论处理</source>
+        <translation>文本请求可用；其余分项按各自观测结论处理</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="63"/>
+        <source>无权限（401/403）</source>
+        <translation>无权限（401/403）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="81"/>
+        <source>无法确定</source>
+        <translation>无法确定</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="140"/>
+        <source>服务未实现模型目录（HTTP %1）：目录缺席不代表文本不可用，可手填模型继续</source>
+        <translation>服务未实现模型目录（HTTP %1）：目录缺席不代表文本不可用，可手填模型继续</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="123"/>
+        <source>服务端限流：稍后重试或降低请求频率</source>
+        <translation>服务端限流：稍后重试或降低请求频率</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="194"/>
+        <source>未完成</source>
+        <translation>未完成</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="51"/>
+        <source>未测试</source>
+        <translation>未测试</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="59"/>
+        <source>未知形状</source>
+        <translation>未知形状</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="97"/>
+        <source>未知来源</source>
+        <translation>未知来源</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="85"/>
+        <source>未知状态</source>
+        <translation>未知状态</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="190"/>
+        <source>未观察到</source>
+        <translation>未观察到</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="192"/>
+        <source>未送回</source>
+        <translation>未送回</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="83"/>
+        <source>本地拒绝</source>
+        <translation>本地拒绝</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="91"/>
+        <source>本次显式输入（仅用于本次诊断）</source>
+        <translation>本次显式输入（仅用于本次诊断）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="77"/>
+        <source>格式/协议失败</source>
+        <translation>格式/协议失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="133"/>
+        <source>模型未调用诊断工具（auto 允许直接作答）——重试或保持结论为无法确定</source>
+        <translation>模型未调用诊断工具（auto 允许直接作答）——重试或保持结论为无法确定</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="493"/>
+        <source>模型未调用诊断工具（tool_choice=auto 允许直接作答；文本声称会调用不算工具帧）——不能据此判定工具能力</source>
+        <translation>模型未调用诊断工具（tool_choice=auto 允许直接作答；文本声称会调用不算工具帧）——不能据此判定工具能力</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="93"/>
+        <source>沿用当前内存值（端点身份一致）</source>
+        <translation>沿用当前内存值（端点身份一致）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="179"/>
+        <source>流式请求</source>
+        <translation>流式请求</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="128"/>
+        <source>流式请求已被客户端接受；文本请求未测——两者独立</source>
+        <translation>流式请求已被客户端接受；文本请求未测——两者独立</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="155"/>
+        <source>测试值：端点=%1 模型=%2 流式=%3 探测输出上限=%4/%5 凭据来源=%6</source>
+        <translation>测试值：端点=%1 模型=%2 流式=%3 探测输出上限=%4/%5 凭据来源=%6</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="293"/>
+        <source>目录含 %1 个形状非法条目（已跳过）</source>
+        <translation>目录含 %1 个形状非法条目（已跳过）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="227"/>
+        <source>目录应答不是已知形状（须形如 {"data":[{"id":…}]} 的 JSON 对象）</source>
+        <translation>目录应答不是已知形状（须形如 {"data":[{"id":…}]} 的 JSON 对象）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="235"/>
+        <source>目录应答缺少 data 数组（未知形状）</source>
+        <translation>目录应答缺少 data 数组（未知形状）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="203"/>
+        <source>目录应答超过 %1 字节预算</source>
+        <translation>目录应答超过 %1 字节预算</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="279"/>
+        <source>目录成功但未列出任何模型（空目录）</source>
+        <translation>目录成功但未列出任何模型（空目录）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="112"/>
+        <source>目录无权限：核对该密钥是否有列表权限，或改用手填模型 ID 继续文本探测</source>
+        <translation>目录无权限：核对该密钥是否有列表权限，或改用手填模型 ID 继续文本探测</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="150"/>
+        <source>目录无访问权限（HTTP %1）</source>
+        <translation>目录无访问权限（HTTP %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="165"/>
+        <source>目录服务端错误（HTTP %1）</source>
+        <translation>目录服务端错误（HTTP %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="109"/>
+        <source>目录未实现但不影响使用——手填模型 ID 后由原「应用」流程提交生效</source>
+        <translation>目录未实现但不影响使用——手填模型 ID 后由原「应用」流程提交生效</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="297"/>
+        <source>目录条目超过 %1 项上限：已截断（部分目录）</source>
+        <translation>目录条目超过 %1 项上限：已截断（部分目录）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="181"/>
+        <source>目录网络错误：%1</source>
+        <translation>目录网络错误：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="37"/>
+        <source>目录请求空闲超时（&gt;%1 ms）</source>
+        <translation>目录请求空闲超时（&gt;%1 ms）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="173"/>
+        <source>目录请求被拒绝（HTTP %1）</source>
+        <translation>目录请求被拒绝（HTTP %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="157"/>
+        <source>目录请求被限流（HTTP 429）</source>
+        <translation>目录请求被限流（HTTP 429）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="130"/>
+        <source>目录请求要求重定向（HTTP %1 → %2）：未跟随（避免凭据跨源外泄）</source>
+        <translation>目录请求要求重定向（HTTP %1 → %2）：未跟随（避免凭据跨源外泄）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="48"/>
+        <source>目录请求超过总时限（%1 ms）</source>
+        <translation>目录请求超过总时限（%1 ms）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmmodelinventory.cpp" line="282"/>
+        <source>目录返回 %1 条目但无可用条目（含凭据回显条目：%2；形状非法 %3 条）</source>
+        <translation>目录返回 %1 条目但无可用条目（含凭据回显条目：%2；形状非法 %3 条）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="204"/>
+        <source>真实 SSE：未独立确认（公开信号不能区分真实 SSE 与普通 JSON 兼容应答）</source>
+        <translation>真实 SSE：未独立确认（公开信号不能区分真实 SSE 与普通 JSON 兼容应答）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="61"/>
+        <source>空目录</source>
+        <translation>空目录</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="67"/>
+        <source>被拒绝</source>
+        <translation>被拒绝</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="189"/>
+        <source>观察到</source>
+        <translation>观察到</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="507"/>
+        <source>观察到正确工具帧 → 固定内存结果已按原 call ID 回送 → 后续文本完成（模式：stream=%1）</source>
+        <translation>观察到正确工具帧 → 固定内存结果已按原 call ID 回送 → 后续文本完成（模式：stream=%1）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="151"/>
+        <source>诊断 #%1 · %2</source>
+        <translation>诊断 #%1 · %2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="157"/>
+        <source>诊断回声</source>
+        <translation>诊断回声</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="112"/>
+        <source>诊断需要本次可用凭据：沿用当前密钥要求端点身份完全一致（含 base path），端点已变更时请在密钥框输入新目标的密钥（仅用于本次诊断，不写入钥匙串）</source>
+        <translation>诊断需要本次可用凭据：沿用当前密钥要求端点身份完全一致（含 base path），端点已变更时请在密钥框输入新目标的密钥（仅用于本次诊断，不写入钥匙串）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="126"/>
+        <source>请求超时：核对网络可达性与服务端响应时长</source>
+        <translation>请求超时：核对网络可达性与服务端响应时长</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="405"/>
+        <source>调用 ID 为空</source>
+        <translation>调用 ID 为空</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="73"/>
+        <source>超时</source>
+        <translation>超时</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="75"/>
+        <source>超预算</source>
+        <translation>超预算</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="53"/>
+        <source>进行中</source>
+        <translation>进行中</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="158"/>
+        <source>连接诊断专用：原样回显宿主提供的 nonce。无任何业务副作用。</source>
+        <translation>连接诊断专用：原样回显宿主提供的 nonce。无任何业务副作用。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmconnectiondiagnostics.cpp" line="139"/>
+        <source>连接诊断合成消息：请原样回复「诊断正常」。</source>
+        <translation>连接诊断合成消息：请原样回复「诊断正常」。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="55"/>
+        <source>通过</source>
+        <translation>通过</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="65"/>
+        <source>限流（429）</source>
+        <translation>限流（429）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="169"/>
+        <source>（%1 项模型）</source>
+        <translation>（%1 项模型）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="35"/>
+        <source>（finish=%1</source>
+        <translation>（finish=%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="208"/>
+        <source>（历史报告仅说明当时快照；不构成当前配置已启用或当前服务健康的证明）</source>
+        <translation>（历史报告仅说明当时快照；不构成当前配置已启用或当前服务健康的证明）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/llmdiagnosticreport.cpp" line="38"/>
+        <source>；增量 %1 次；%2）</source>
+        <translation>；增量 %1 次；%2）</translation>
+    </message>
+    <message>
         <source>先用 query_project 的 well_curves 取得精确 input_ref，再显式选择同井曲线、样点窗、处理状态和 MD 基准。可信 Python 模板只分析所选窗口，报告缺失、异常、覆盖率与统计量；最多16列、8192点。prepare 冻结输入，compute-only 保存私有报告；publish 只能引用原操作并经宿主授权登记成果。不修改原始数据。</source>
         <translation>先用 query_project 的 well_curves 取得精确 input_ref，再显式选择同井曲线、样点窗、处理状态和 MD 基准。可信 Python 模板只分析所选窗口，报告缺失、异常、覆盖率与统计量；最多16列、8192点。prepare 冻结输入，compute-only 保存私有报告；publish 只能引用原操作并经宿主授权登记成果。不修改原始数据。</translation>
     </message>
@@ -38078,8 +38632,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>每页 1–128 个元素</translation>
         </message>
         <message>
-            <source>UTF-8 JSON 预算，768–65536 字节</source>
-            <translation>UTF-8 JSON 预算，768–65536 字节</translation>
+            <source>请求字节上限（UTF-8 JSON，768–65536）；宿主回包可能更小，以实际页与 nextCursor 为准</source>
+            <translation>请求字节上限（UTF-8 JSON，768–65536）；宿主回包可能更小，以实际页与 nextCursor 为准</translation>
         </message>
           <message>
         <source>版本 2：prepare 以 source_version_id 和 model 冻结源栅格、网格及模型；compute-only 只接受 prepare 的 source_operation_id，生成私有三端口结果；publish 只接受 computed 的 source_operation_id，一次登记三端口并呈现图层。后两阶段不能重新指定来源、模型或参数。</source>

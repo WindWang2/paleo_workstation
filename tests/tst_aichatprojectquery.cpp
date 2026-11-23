@@ -222,6 +222,7 @@ void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
     names.append(spec.name);
   // The registry includes gated adapters; runtime advertisement is a separate contract.
   QStringList expected{
+    "paleo.workflow_plan_preview",
     "paleo.tile_classification", "paleo.horizon_tracking_suggestion", "paleo.well_facies_prediction",
     "paleo.query_project", "paleo.asset_lineage", "paleo.depth_convert_batch",
     "paleo.seismic_attribute_group", "paleo.constraint_idw", "paleo.read_result",

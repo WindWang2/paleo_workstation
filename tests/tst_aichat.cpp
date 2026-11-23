@@ -353,7 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 24); // Includes the atomic REPORT+TABLE+IMAGE output tool.
+  QCOMPARE(tools.size(), 25);
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -384,6 +384,7 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     QCOMPARE(spec.validateParameters(blank).isEmpty(),required.isEmpty());
   }
   QStringList expected{
+    "paleo.workflow_plan_preview",
     "paleo.tile_classification", "paleo.horizon_tracking_suggestion", "paleo.well_facies_prediction",
     "paleo.query_project", "paleo.asset_lineage", "paleo.depth_convert_batch",
     "paleo.seismic_attribute_group", "paleo.constraint_idw", "paleo.read_result",

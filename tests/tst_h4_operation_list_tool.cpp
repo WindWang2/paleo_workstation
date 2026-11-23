@@ -158,6 +158,7 @@ private slots:
   void negativeArgumentsFailClosed();
   void readinessGates();
   void invalidationDropsInFlightResult();
+  void emptySessionIsRefusedBeforeAnyTask();
 };
 
 void H4OperationListTool::toolDeclaredAndDispatchable() {
@@ -171,7 +172,13 @@ void H4OperationListTool::toolDeclaredAndDispatchable() {
     for (const auto &parameter : spec.parameters)
       if (parameter.required)
         required.append(parameter.name);
-    QCOMPARE(required, QStringList()); // 唯一不要求已知 operation_id
+    QCOMPARE(required, QStringList()); // 唯一不要求已知 operation_id（反向钉住：确实无必填项）
+    const auto schema = QJsonDocument::fromJson(spec.resultSchemaJson.toUtf8()).object();
+    const auto properties = schema.value(QStringLiteral("properties")).toObject();
+    // 结果 schema 与服务实际返回一致：清单载荷不是单条操作，不声明 operationId。
+    QVERIFY(!properties.contains(QStringLiteral("operationId")));
+    for (const auto *key : {"anchorOperationId", "coverage", "minimumBytes", "note", "nextCursor"})
+      QVERIFY2(properties.contains(QLatin1String(key)), key);
     const auto dispatch = dispatchAiTool(QStringLiteral("paleo.operation_list"), {});
     QCOMPARE(dispatch.status, AiToolDispatchStatus::Routed);
     // 严格外部档：合法实参通过，坏枚举/坏类型拒绝。
@@ -202,13 +209,31 @@ void H4OperationListTool::listGetChainThroughRealRunner() {
   QCOMPARE(ids, QStringList{operationId});
   QCOMPARE(payload.value(QStringLiteral("coverage")).toObject().value(QStringLiteral("sort")).toString(),
            QStringLiteral("operationId-lex@1"));
+  const auto callJson = [](const QJsonObject &object) {
+    return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
+  };
   QVERIFY(host.runTool(QStringLiteral("paleo.operation_get"),
-                       QString::fromUtf8(QJsonDocument(QJsonObject{{QStringLiteral("operation_id"), operationId}})
-                                             .toJson(QJsonDocument::Compact)),
-                       &ok, &payload));
+                       callJson({{QStringLiteral("operation_id"), operationId}}), &ok, &payload));
   QVERIFY2(ok, qPrintable(payload.value(QStringLiteral("code")).toString()));
   QCOMPARE(payload.value(QStringLiteral("operationId")).toString(), operationId);
   QCOMPARE(payload.value(QStringLiteral("commitState")).toString(), QStringLiteral("committed"));
+  // results：从清单拿到的 ID 解析出准确端口。
+  QVERIFY(host.runTool(QStringLiteral("paleo.operation_results"),
+                       callJson({{QStringLiteral("operation_id"), operationId}}), &ok, &payload));
+  QVERIFY2(ok, qPrintable(payload.value(QStringLiteral("code")).toString()));
+  QCOMPARE(payload.value(QStringLiteral("ports")).toArray().size(), 1);
+  QCOMPARE(payload.value(QStringLiteral("ports")).toArray().at(0).toObject().value(QStringLiteral("portId")).toString(),
+           QStringLiteral("OUTPUT"));
+  // read：字节页读回的正是业务 worker 落盘的内容（SHA 锚定认证链路不变）。
+  QVERIFY(host.runTool(QStringLiteral("paleo.operation_read"),
+                       callJson({{QStringLiteral("operation_id"), operationId},
+                                 {QStringLiteral("port_id"), QStringLiteral("OUTPUT")},
+                                 {QStringLiteral("offset"), QStringLiteral("0")},
+                                 {QStringLiteral("max_bytes"), 64}}),
+                       &ok, &payload));
+  QVERIFY2(ok, qPrintable(payload.value(QStringLiteral("code")).toString()));
+  QCOMPARE(QByteArray::fromBase64(payload.value(QStringLiteral("data")).toString().toLatin1()),
+           QByteArrayLiteral("h4-tool-bytes"));
   // 发现与查询自身零业务执行：worker 未被再次调用。
   QCOMPARE(*host.calls, 1);
   // 关系视图（真实 runner + anchor）。
@@ -226,6 +251,8 @@ void H4OperationListTool::negativeArgumentsFailClosed() {
   ToolHost host;
   bool ok = true;
   QJsonObject payload;
+  // 否定参数全部在工具分派/严格档/宿主准入层被拒：没有任何一个走到建任务。
+  QSignalSpy added(&host.tasks, &PaleoTaskService::taskAdded);
   // 坏视图 / 越界页预算 / 文本页预算（严格档）/ 坏锚点：任务/磁盘读取前拒绝。
   QVERIFY(host.runTool(QStringLiteral("paleo.operation_list"),
                        QStringLiteral("{\"view\":\"everything\"}"), &ok, &payload));
@@ -243,6 +270,21 @@ void H4OperationListTool::negativeArgumentsFailClosed() {
   QVERIFY(host.runTool(QStringLiteral("paleo.operation_list"), QStringLiteral("{\"cursor\":\"forged\"}"), &ok, &payload));
   QVERIFY(!ok);
   QCOMPARE(payload.value(QStringLiteral("code")).toString(), QStringLiteral("cursor_invalid"));
+  QCOMPARE(added.size(), 0);
+}
+
+void H4OperationListTool::emptySessionIsRefusedBeforeAnyTask() {
+  ToolHost host;
+  QSignalSpy added(&host.tasks, &PaleoTaskService::taskAdded);
+  // 无当前聊天会话：没有可信 callerScope 可用——在取 scope 之前拒绝，不建任务。
+  host.runner.setResultSession(QString());
+  bool ok = true;
+  QJsonObject payload;
+  QVERIFY(host.runTool(QStringLiteral("paleo.operation_list"), QStringLiteral("{}"), &ok, &payload));
+  QVERIFY(!ok);
+  QCOMPARE(payload.value(QStringLiteral("code")).toString(),
+           QStringLiteral("operation_host_or_session_unavailable"));
+  QCOMPARE(added.size(), 0);
 }
 
 void H4OperationListTool::readinessGates() {
@@ -315,9 +357,11 @@ void H4OperationListTool::invalidationDropsInFlightResult() {
       QObject::connect(&host.tasks, &PaleoTaskService::taskAdded, [&](PaleoTask *) { host.runner.setContext(rebound); });
   QSignalSpy finished(&host.runner, &AiChatToolRunner::toolFinished);
   host.runner.run({QStringLiteral("call-x"), QStringLiteral("paleo.operation_list"), QStringLiteral("{}")});
-  QThread::msleep(50);
-  for (int i = 0; i < 20; ++i)
+  // 有界等待（不依赖固定 sleep）：终态帧经事件循环投递。
+  for (int i = 0; i < 500 && finished.isEmpty(); ++i) {
     QCoreApplication::processEvents();
+    QThread::msleep(1);
+  }
   QObject::disconnect(added);
   // 与既有口径一致（tst_aichatcapability::contextChangeDuringTaskAddedCancelsTheTask）：
   // 重绑帧恰有一帧终态，按 stale_session 如实回灌，不投递旧摘要。

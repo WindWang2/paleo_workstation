@@ -44,8 +44,12 @@ PaleoTask *CapabilityRecovery::listOperations(const QString &callerScope, const 
   if (QThread::currentThread() != thread())
     return reject(QStringLiteral("owner_thread_required"));
   const auto h = live();
-  if (!h.context.open || callerScope.isEmpty() || h.context.documentId.isEmpty())
+  if (!h.context.open || h.context.documentId.isEmpty())
     return reject(QStringLiteral("document_unavailable"));
+  // 空 callerScope 不折叠进 document_unavailable/not_found：发现没有"默认
+  // 作用域"，宿主必须给出可信的当前会话作用域。
+  if (callerScope.isEmpty() || callerScope.toUtf8().size() > 512)
+    return reject(QStringLiteral("discovery_scope_invalid"));
   // Read 门：发现不需要写权限；效果被拒（含只读文档之外的越权）如实失败。
   const auto contextError = host::checkContext(h.context, h.context, host::Read);
   if (!contextError.isEmpty())
@@ -57,8 +61,12 @@ PaleoTask *CapabilityRecovery::listOperations(const QString &callerScope, const 
 
   // worker 只拿冻结值：无活 Host/Catalog/GUI 对象；服务经 shared_ptr 保活，
   // Recovery 销毁后 worker 仍能安全收尾（结果不再投递）。
-  const DiscoveryScan scan{QFileInfo(h.projectDir).canonicalFilePath(), h.operationDir,
+  const DiscoveryScan scan{QFileInfo(h.projectDir).canonicalFilePath(), h.projectDir, h.operationDir,
                            h.context.documentId, callerScope, h.writeClaim};
+  // 无效条件在建任务与任何磁盘读取之前拒绝（W6）：实参准入是纯函数，游标
+  // 归属是互斥内纯内存判定——坏条件、伪造或过期的续页都不占任务槽。
+  if (const auto invalid = m_discovery->validateContinuation(scan, arguments); !invalid.isEmpty())
+    return reject(invalid);
   const auto expected = h.context;
   const auto service = m_discovery;
   auto output = std::make_shared<QJsonObject>(discoveryFailure(QStringLiteral("discovery_unavailable")));
@@ -66,15 +74,18 @@ PaleoTask *CapabilityRecovery::listOperations(const QString &callerScope, const 
   // 关闭 owner，事后构造 QPointer 本身就是对悬空指针的解引用。
   const QPointer<CapabilityRecovery> guard(this);
   const QPointer<QObject> listener(subscriber);
+  // quiet：发现是毫秒级的嵌入交互步骤，照常登记/可取消，但不触发主窗口任务
+  // 中心自动露出（否则每翻一页都会弹出任务页）。
   auto *task = m_tasks->start(QStringLiteral("List scoped operations"),
       [scan, arguments, service, output](PaleoTask *task) {
         *output = service->query(scan, arguments, [task] { return task->cancelRequested(); });
         return output->value("ok").toBool() ? QString() : output->value("code").toString();
-      });
+      }, QString(), /*quiet=*/true);
   if (!guard || !listener) {
+    // 订阅者或 owner 已在 taskAdded 内被销毁：不交付，也不留空错误码。
     if (task)
       task->requestCancel();
-    return task;
+    return reject(QStringLiteral("stale_session"));
   }
   QObject::connect(task, &PaleoTask::finished, guard.data(),
       [guard, task = QPointer<PaleoTask>(task), listener, expected, scan, output,

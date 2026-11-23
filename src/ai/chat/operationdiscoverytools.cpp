@@ -17,7 +17,8 @@ void appendAgentOperationDiscoveryTools(QVector<AiToolSpec> &specs) {
     spec.maximum = maximum;
     return spec;
   };
-  const auto response = QStringLiteral(R"({"type":"object","required":["code"],"properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"view":{"type":"string"},"operationId":{"type":"string"},"operations":{"type":"array"},"relations":{"type":"array"},"returnedCount":{"type":"integer"},"hasMore":{"type":"boolean"},"nextCursor":{"type":"string"},"coverage":{"type":"object"}}})");
+  // 与服务实际返回的字段一致（无 operationId：清单载荷不是单条操作）。
+  const auto response = QStringLiteral(R"({"type":"object","required":["code"],"properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"view":{"type":"string"},"operations":{"type":"array"},"relations":{"type":"array"},"anchorOperationId":{"type":"string"},"returnedCount":{"type":"integer"},"hasMore":{"type":"boolean"},"nextCursor":{"type":"string"},"minimumBytes":{"type":"integer"},"retryAfterMs":{"type":"integer"},"coverage":{"type":"object"},"note":{"type":"string"}}})");
   AiToolSpec spec;
   spec.name = QStringLiteral("paleo.operation_list");
   spec.title = QObject::tr("发现持久操作");

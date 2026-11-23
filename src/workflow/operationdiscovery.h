@@ -15,7 +15,7 @@ namespace paleo::capability {
 inline constexpr char OperationDiscoveryContract[] = "paleo.operation-discovery.v1";
 
 struct DiscoveryPolicy {
-  int maxSnapshots = 4;                    // 同时保留的快照数（只回收过期项）
+  int maxSnapshots = 4;                    // 快照数上限；满时先淘汰无分页承诺的快照（他会话遗留/已走完），再结构化失败
   int maxCursors = 128;                    // 未过期游标数上限
   qint64 ttlMs = 10 * 60 * 1000;           // 快照与游标 TTL
   qint64 maxCacheBytes = 8 * 1024 * 1024;  // 快照摘要总字节上限
@@ -26,8 +26,9 @@ struct DiscoveryPolicy {
 // 历史 JSON 或游标自授；writeClaim 仅用于受管路径钉住（符号链接/联接别名
 // 防御），本服务永不调用写路径。
 struct DiscoveryScan {
-  QString projectDir;   // canonical
-  QString operationDir; // trusted host value
+  QString projectDir;      // canonical：只用于快照身份与归属比对
+  QString hostProjectDir;  // 宿主原值：与 operationDir 同一词法形态，交给 OperationLog
+  QString operationDir;    // trusted host value
   QString documentId, callerScope;
   std::shared_ptr<const ProjectWriteClaim> writeClaim;
 };
@@ -40,7 +41,17 @@ public:
   explicit OperationDiscovery(DiscoveryPolicy policy = {});
   ~OperationDiscovery();
   // 会话/工程/epoch 变化：丢弃全部快照与游标（旧上下文的分页不再可用）。
+  // 调用方随后 reset 服务实例时，新实例的游标带不同实例标记——旧游标判为
+  // cursor_expired。
   void invalidate();
+  // 请求准入（纯函数：无共享状态、无磁盘、无锁）：只接受已声明筛选，空串
+  // 通过、否则返回稳定 machine code，field 给出首个违规字段（可空）。宿主在
+  // 创建任务之前调用——无效条件不占任务槽，更不读盘。
+  static QString validateRequest(const QJsonObject &arguments, QString *field = nullptr);
+  // 续页准入（owner 线程）：在 validateRequest 之上再判定游标——MAC/到期/登记、
+  // 快照归属（document/caller/工程）与查询摘要。互斥内纯内存、无磁盘读取；
+  // 伪造或过期的续页同样不占任务槽。无 cursor 时等价于 validateRequest。
+  QString validateContinuation(const DiscoveryScan &scan, const QJsonObject &arguments);
   // 一次查询：无 cursor 时先扫描建快照，再从快照取页；有 cursor 时从绑定
   // 快照续页。实参校验先于任何磁盘读取。返回值即模型可见 envelope。
   QJsonObject query(const DiscoveryScan &scan, const QJsonObject &arguments,
@@ -55,6 +66,8 @@ public:
 
 private:
   // 以下两个 helper 由 query() 在已持有 Impl 互斥的路径上调用。
+  QString cursorErrorLocked(const DiscoveryScan &scan, const QString &digest, const QString &cursor,
+                            QString *snapshotKey, int *position);
   QJsonObject pageFromCursor(const DiscoveryScan &scan, const QString &digest, const QString &cursor,
                              bool relations, const QString &anchor, int pageSize, int maxBytes);
   QJsonObject pageFromSnapshotLocked(const QString &snapshotKey, int position, bool relations,

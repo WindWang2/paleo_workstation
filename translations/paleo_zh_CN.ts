@@ -39211,6 +39211,86 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
         <translation>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</translation>
     </message>
+    <message>
+        <source>上次 map_layer_get/修改回执返回的显示状态标记；与当前实际显示状态或宿主世代不符时明确拒绝（重新查询获取新标记，标记不是授权凭证）</source>
+        <translation>上次 map_layer_get/修改回执返回的显示状态标记；与当前实际显示状态或宿主世代不符时明确拒绝（重新查询获取新标记，标记不是授权凭证）</translation>
+    </message>
+    <message>
+        <source>列出受管地图图层</source>
+        <translation>列出受管地图图层</translation>
+    </message>
+    <message>
+        <source>列出当前工程 manifest 受管图层及其可观察显示状态（是否已实例化、树勾选、最终可见、透明度、当前具名样式、语义符号）。只读快照：查询不实例化未加载层、不切换层位、不改任何显示状态；手工添加的非受管图层不在目录内。按 layer_id 字典序分页，游标绑定当前显示修订。</source>
+        <translation>列出当前工程 manifest 受管图层及其可观察显示状态（是否已实例化、树勾选、最终可见、透明度、当前具名样式、语义符号）。只读快照：查询不实例化未加载层、不切换层位、不改任何显示状态；手工添加的非受管图层不在目录内。按 layer_id 字典序分页，游标绑定当前显示修订。</translation>
+    </message>
+    <message>
+        <source>按声明的层位精确筛选（空串=不限层的共享层）</source>
+        <translation>按声明的层位精确筛选（空串=不限层的共享层）</translation>
+    </message>
+    <message>
+        <source>按声明类型精确筛选</source>
+        <translation>按声明类型精确筛选</translation>
+    </message>
+    <message>
+        <source>每页条数（1–32，缺省 16）</source>
+        <translation>每页条数（1–32，缺省 16）</translation>
+    </message>
+    <message>
+        <source>上一页返回的续页游标（绑定筛选条件与显示修订；显示状态变化后明确报错）</source>
+        <translation>上一页返回的续页游标（绑定筛选条件与显示修订；显示状态变化后明确报错）</translation>
+    </message>
+    <message>
+        <source>查询图层显示状态</source>
+        <translation>查询图层显示状态</translation>
+    </message>
+    <message>
+        <source>按精确 layer_id 返回该受管图层的显示状态：树勾选与最终可见（含父组隐藏原因）、透明度、当前具名样式、语义符号、是否编辑中；并列出该层当前适用的具名预设与语义符号选项（几何适配）。未实例化层如实标记（不触发加载）。不返回 QGIS 内部 ID、源路径或完整 QML。</source>
+        <translation>按精确 layer_id 返回该受管图层的显示状态：树勾选与最终可见（含父组隐藏原因）、透明度、当前具名样式、语义符号、是否编辑中；并列出该层当前适用的具名预设与语义符号选项（几何适配）。未实例化层如实标记（不触发加载）。不返回 QGIS 内部 ID、源路径或完整 QML。</translation>
+    </message>
+    <message>
+        <source>设置图层可见性</source>
+        <translation>设置图层可见性</translation>
+    </message>
+    <message>
+        <source>设置当前已实例化受管图层的树勾选状态（JSON 布尔）。回读自身勾选与最终可见：父组隐藏时勾选可为 true 而最终可见为 false（不代为打开父组或其他图层）。同值设置返回 no_change。修改只进入当前工程的原生显示状态（未保存工程文件），不落 Catalog 版本、不发布。</source>
+        <translation>设置当前已实例化受管图层的树勾选状态（JSON 布尔）。回读自身勾选与最终可见：父组隐藏时勾选可为 true 而最终可见为 false（不代为打开父组或其他图层）。同值设置返回 no_change。修改只进入当前工程的原生显示状态（未保存工程文件），不落 Catalog 版本、不发布。</translation>
+    </message>
+    <message>
+        <source>目标勾选状态（JSON 原生布尔）</source>
+        <translation>目标勾选状态（JSON 原生布尔）</translation>
+    </message>
+    <message>
+        <source>设置图层透明度</source>
+        <translation>设置图层透明度</translation>
+    </message>
+    <message>
+        <source>对支持的矢量/栅格受管图层设置原生层透明度（0–1，JSON 原生数值，拒绝越界/NaN/文本），并回读实际值。只改显示呈现：不改像元值、要素属性、源引用或地图范围。同值返回 no_change；修改未保存为工程文件。</source>
+        <translation>对支持的矢量/栅格受管图层设置原生层透明度（0–1，JSON 原生数值，拒绝越界/NaN/文本），并回读实际值。只改显示呈现：不改像元值、要素属性、源引用或地图范围。同值返回 no_change；修改未保存为工程文件。</translation>
+    </message>
+    <message>
+        <source>目标透明度（0=全透明，1=不透明）</source>
+        <translation>目标透明度（0=全透明，1=不透明）</translation>
+    </message>
+    <message>
+        <source>应用图层样式</source>
+        <translation>应用图层样式</translation>
+    </message>
+    <message>
+        <source>对受管矢量/栅格图层应用受限样式：具名预设（当前图层样式管理器中已存在的名字，精确选项）或语义符号（GeoPatterns 词表 family/id，按几何适配）。两者互斥，必须恰好给一个。不接收文件路径、QML/SVG 内容或表达式。回读 currentStyle/renderer 语义锚；不适用时如实拒绝且零副作用。修改未保存为工程文件。</source>
+        <translation>对受管矢量/栅格图层应用受限样式：具名预设（当前图层样式管理器中已存在的名字，精确选项）或语义符号（GeoPatterns 词表 family/id，按几何适配）。两者互斥，必须恰好给一个。不接收文件路径、QML/SVG 内容或表达式。回读 currentStyle/renderer 语义锚；不适用时如实拒绝且零副作用。修改未保存为工程文件。</translation>
+    </message>
+    <message>
+        <source>图层已存在的具名预设名（与 semantic_symbol 互斥）</source>
+        <translation>图层已存在的具名预设名（与 semantic_symbol 互斥）</translation>
+    </message>
+    <message>
+        <source>语义符号 {family: lithology|facies|line, id: 词表稳定 id}（与 named_preset 互斥；几何不匹配会被拒绝）</source>
+        <translation>语义符号 {family: lithology|facies|line, id: 词表稳定 id}（与 named_preset 互斥；几何不匹配会被拒绝）</translation>
+    </message>
+    <message>
+        <source>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</source>
+        <translation>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>

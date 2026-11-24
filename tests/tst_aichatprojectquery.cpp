@@ -232,7 +232,9 @@ void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
     "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
     "paleo.operation_list", "paleo.capability_inspect",
     "paleo.map_layers", "paleo.map_layer_get", "paleo.map_layer_set_visibility",
-    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style"};
+    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style",
+    "paleo.navigation_state", "paleo.select_wells", "paleo.clear_well_selection",
+    "paleo.map_locate", "paleo.open_well_view", "paleo.open_seismic_line"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Exact membership also rejects duplicate registrations.
 

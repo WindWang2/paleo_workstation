@@ -23,6 +23,7 @@
 #include "../ai/chat/domaintools.h"
 #include "../ai/chat/mapdisplaytools.h"
 #include "../ai/chat/capabilityinspectiontool.h"
+#include "../ai/chat/navigationtools.h"
 #include "../ai/chat/planpreviewtool.h"
 #include "../ai/tileinference.h"
 #include "../ai/wellfaciesservice.h"
@@ -333,6 +334,10 @@ void AiChatToolRunner::startNext() {
   // I4 的 paleo.map_locate 不得被本族吞掉。
   else if(paleo::agent::mapdisplay::isMapDisplayTool(m_activeCall.name))
     runMapDisplayTool(m_activeCall.name, args);
+  // I4：精确名称集合分派（isNavigationTool），不用 paleo.map_ 前缀——
+  // I3 的 paleo.map_layer* 显示族与 paleo.map_locate 互不吞路由。
+  else if(paleo::agent::navigation::isNavigationTool(m_activeCall.name))
+    runNavigationTool(m_activeCall.name, args);
   // I5：能力目录只读检查——精确工具名（不用前缀吞并兄弟任务的工具族）。
   else if(m_activeCall.name==QLatin1String(paleo::chat::kCapabilityInspectTool))
     runCapabilityInspection(args);

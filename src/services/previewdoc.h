@@ -219,18 +219,28 @@ class PreviewDocService : public QObject
                                     QString *error = nullptr);
 
     // ---- 外链 SHA-256 闸门（§3/B 包）----
-    // 非托管版本带 sha256 时先验后发；会话内每资产只验一次（resetSha 供
-    // 「重新定位文件」后重验）。失配时由服务内部把下游 DERIVED 如实标过时。
+    // I4（W7）：失配副作用策略是**每次请求的受信属性**（宿主/typed 导航
+    // 传入，不是模型可设参数）：普通 UI 缺省 MarkDownstreamStale（失配时
+    // 下游 DERIVED 如实标过时，既有行为）；Agent 只读导航传 ReportOnly
+    //（仅回报失败，不写 Catalog）。
+    enum class ShaGatePolicy { MarkDownstreamStale, ReportOnly };
+    // 非托管版本带 sha256 时先验后发；会话内每 (asset,version,指纹) 只验
+    // 一次（I4 起版本精确——旧版本/另一指纹的晚成功不得给新版本授予通过
+    // 证明）；resetSha 供「重新定位文件」后重验。失配时按 policy 处理。
     bool verifyExternalSha(const QString &assetId, const CatalogVersion &version,
-                           QString *error) const;
+                           QString *error, ShaGatePolicy policy = ShaGatePolicy::MarkDownstreamStale) const;
     // 同一道闸门的后台版（镜像地震解码任务的 hash 路径）：整份哈希跑任务池
     // （字节进度/协作取消），结果回主线程再碰 catalog。短路口径与同步版一致
-    // （托管/无指纹/本会话已验 → 立即 ok）；无任务服务时退回同步复验（测试/
+    //（托管/无指纹/本会话已验 → 立即 ok）；无任务服务时退回同步复验（测试/
     // 小夹具环境）。done 只在主线程调一次；receiver 销毁即取消在途校验
-    // （大体积外链不白读），取消时不回调（页已关闭，无处回填）。
+    //（大体积外链不白读），取消时不回调（页已关闭，无处回填）。
     void verifyExternalShaAsync(const QString &assetId, const CatalogVersion &version,
                                 const QString &absPath, QObject *receiver,
-                                std::function<void(bool ok, const QString &error)> done);
+                                std::function<void(bool, const QString &)> done,
+                                ShaGatePolicy policy = ShaGatePolicy::MarkDownstreamStale);
+    // 本会话是否已有该 (asset,version,指纹) 的通过证明（托管/无指纹 → true）。
+    // typed 导航用它决定是否需要先复验再打开（I4）。
+    bool externalShaVerified(const QString &assetId, const CatalogVersion &version) const;
     void resetSha(const QString &assetId);
     bool markDownstreamStale(const QString &versionId, const QString &reason,
                              QString *error);
@@ -302,7 +312,8 @@ class PreviewDocService : public QObject
     // 兼容匿名口径（同资产所有匿名请求互相顶替）。
     void requestSection(const QString &assetId, const QString &versionId,
                         const QString &absPath, bool managed, const QString &sha256,
-                        bool isInline, int lineNo, QObject *consumer = nullptr);
+                        bool isInline, int lineNo, QObject *consumer = nullptr,
+                        ShaGatePolicy policy = ShaGatePolicy::MarkDownstreamStale);
     // 标签关闭时释放该资产的索引缓存/世代号/进行中任务。带 consumer 只
     // 释放该消费者的请求；匿名（无 consumer）释放该资产全部消费者的世代
     //（兼容旧「资产标签关闭」语义）。
@@ -423,9 +434,16 @@ class PreviewDocService : public QObject
     // 发射前丢弃）与进行中任务指针（新解码请求取消旧任务）。
     QHash<QString, int> m_decodeSeq;
     QHash<QString, QPointer<PaleoTask>> m_decodeTask;
-    // assetId → 本会话已过 SHA 复验（mutable：verifyExternalSha 是 const——
-    // 会话级缓存不算对象逻辑状态，seismicTieMarker 等 const 读路径可用）。
+    // 「assetId|versionId|sha256」→ 本会话已过 SHA 复验（I4 起版本精确，
+    // 不再用 asset 级布尔——同资产他版本/他指纹的晚成功不得放行本版本；
+    // mutable：verifyExternalSha 是 const——会话级缓存不算对象逻辑状态，
+    // seismicTieMarker 等 const 读路径可用）。
     mutable QHash<QString, bool> m_shaVerified;
+    // 版本精确缓存键（managed/无指纹版本不会用到——闸门直接短路）。
+    static QString shaVerifiedKey(const QString &assetId, const QString &versionId,
+                                  const QString &sha256);
+    // 移除该资产全部版本的已验结论（resetSha/releaseSection 的按资产收口）。
+    void removeShaVerifiedForAsset(const QString &assetId);
 
     // T1 LAS 异步填充：按 key 的世代号（陈旧结果发射前丢弃）与进行中
     // 任务指针（新解码请求取消旧任务）——与 m_decodeSeq/m_decodeTask 同一模式。

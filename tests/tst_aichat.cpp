@@ -353,7 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 32); // I3(+5) + I5(+1 paleo.capability_inspect)
+  QCOMPARE(tools.size(), 38); // I3(+5) + I5(+1) + I4(+6)
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -362,15 +362,18 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     const auto inputSchema=spec.toJsonSchema();
     const auto properties=inputSchema.value("properties").toObject();
     const auto required=inputSchema.value("required").toArray();
-    if(spec.name==QLatin1String("paleo.python_environment")) {
+    if(spec.name==QLatin1String("paleo.python_environment")||
+       spec.name==QLatin1String("paleo.navigation_state")) {
+      // 无参状态查询（I4 navigation_state 与 python_environment 同口径）。
       QVERIFY(properties.isEmpty());QVERIFY(required.isEmpty());
     } else {
       QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");
       // H4：operation_list 是不要求任何必填实参的有参工具（发现不以已知
-      // operation_id 为起点）；I3 的 map_layers 同为无参目录发现。其余工具
-      // 仍须至少一个必填项。
+      // operation_id 为起点）；I3 的 map_layers、I4 的 clear_well_selection
+      // 同样无需必填实参；其余工具仍须至少一个必填项。
       QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list") ||
-               spec.name==QLatin1String("paleo.map_layers"),"工具必须有必填参数");
+               spec.name==QLatin1String("paleo.map_layers") ||
+               spec.name==QLatin1String("paleo.clear_well_selection"),"工具必须有必填参数");
     }
     for(const auto &key:required)QVERIFY(properties.contains(key.toString()));
     QCOMPARE(inputSchema.value("additionalProperties"),QJsonValue(false));
@@ -399,7 +402,10 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
     "paleo.operation_list", "paleo.capability_inspect",
     "paleo.map_layers", "paleo.map_layer_get", "paleo.map_layer_set_visibility",
-    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style"};
+    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style",
+    // I4：语义导航原子（精确六名）。
+    "paleo.navigation_state", "paleo.select_wells", "paleo.clear_well_selection",
+    "paleo.map_locate", "paleo.open_well_view", "paleo.open_seismic_line"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;

@@ -264,7 +264,11 @@ QString DataPreviewTabs::externalShaGateError(const QString &assetId,
   if (!m_doc->taskService())
   {
     QString verr;
-    return m_doc->verifyExternalSha(assetId, sourceVersion, &verr) ? QString() : verr;
+    // I4：typed 导航调用栈内的闸门按 per-request SHA 策略（Agent 只读导航
+    // 失配只回报，不写 Catalog；普通 UI 缺省策略不变）。
+    return m_doc->verifyExternalSha(assetId, sourceVersion, &verr, navigationShaPolicy())
+               ? QString()
+               : verr;
   }
   const QString versionId = sourceVersion.id;
   m_doc->verifyExternalShaAsync(
@@ -274,6 +278,7 @@ QString DataPreviewTabs::externalShaGateError(const QString &assetId,
           return;
         m_shaFailedOfVersion.insert(versionId, error);
         rebuildAssetTab(assetId); // 回填失败态
-      });
+      },
+      navigationShaPolicy());
   return QString();
 }

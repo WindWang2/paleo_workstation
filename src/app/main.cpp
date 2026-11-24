@@ -2,7 +2,8 @@
 #include "appcontext.h"
 #include "aiconversationwiring.h" // G5：AI 页签操作展示 adapter 装配
 #include "agentmapdisplaywiring.h" // I3：地图显示原子装配
-#include "../workflow/aichatcontroller.h" // I3：aiChat()->toolRunner() 需完整类型
+#include "agentnavigationwiring.h" // I4：语义导航原子装配
+#include "../workflow/aichatcontroller.h" // I3/I4：aiChat()->toolRunner() 需完整类型
 #include "capabilityhostwiring.h"
 #include "workflow/commanddispatcher.h"
 #include "portableenvironment.h"
@@ -398,6 +399,10 @@ int main(int argc, char *argv[])
   // 与 DocumentSession（依赖不新建服务，装配幂等重挂）。
   installConversationPresentation(&window, ctx.aiChat(), ctx.capabilityHost(),
                                   ctx.documentSession());
+  // I4：语义导航原子（paleo.navigation_state / select_wells / clear_well_
+  // selection / map_locate / open_well_view / open_seismic_line）——主窗/
+  // 共享预览服务/DocumentSession/AI 接线完成后接入 runner 生产链。
+  installAgentNavigation(ctx.aiChat()->toolRunner(), &ctx, &window);
   // 方向68：Python 脚本面（服务/编排在 AppContext，面板只渲染 + 发意图）。
   // 结果导入意图在组装根接 DataImportService——视图不碰 io；未打开工程时
   // 导入如实失败并把原因回写控制台。

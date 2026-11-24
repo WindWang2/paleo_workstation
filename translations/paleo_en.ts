@@ -9929,7 +9929,39 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <source>曲线</source>
             <translation>Curve</translation>
         </message>
-    </context>
+        <message>
+        <source>预览门面未接线或目标不完整</source>
+        <translation>Preview facade not wired or incomplete target</translation>
+    </message>
+    <message>
+        <source>预览门面未接线</source>
+        <translation>Preview facade not wired</translation>
+    </message>
+    <message>
+        <source>预览页面未能创建</source>
+        <translation>Preview page could not be created</translation>
+    </message>
+    <message>
+        <source>地震正文未建出测线控件</source>
+        <translation>Seismic body has no line controls</translation>
+    </message>
+    <message>
+        <source>非法测线轴</source>
+        <translation>Invalid line axis</translation>
+    </message>
+    <message>
+        <source>测线号被控件范围改写</source>
+        <translation>Line number rewritten by control range</translation>
+    </message>
+    <message>
+        <source>振幅已显示，地震层位仍在读取</source>
+        <translation>Amplitudes displayed; seismic horizons still loading</translation>
+    </message>
+    <message>
+        <source>预览页面已关闭</source>
+        <translation>Preview page closed</translation>
+    </message>
+</context>
     <context>
         <name>DataServiceImportWizard</name>
         <message>
@@ -39294,6 +39326,102 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>导航状态查询</source>
+        <translation>Navigation state query</translation>
+    </message>
+    <message>
+        <source>只读查询当前宿主的导航事实：文档绑定、当前业务选井（含来源）、主画布实际范围与 CRS、已打开原生预览目标及其加载/错误态。不创建视图、不全扫源数据；未创建的画布/已关闭的页面如实报不可用，不从页面标题猜身份。</source>
+        <translation>Read-only query of the current host's navigation facts: document binding, current business well selection (with origin), actual main-canvas extent and CRS, and opened native preview targets with their loading/error state. Creates no views and scans no source data; canvases not yet created or pages already closed report unavailable honestly, never guessing identities from tab titles.</translation>
+    </message>
+    <message>
+        <source>选择井</source>
+        <translation>Select wells</translation>
+    </message>
+    <message>
+        <source>按稳定井业务 ID 精确替换当前井选择（replace 语义）：先在当前工程目录核实全部 ID 都是井实体才更新，未知/错类型 ID 整批拒绝且不留部分选中。重复 ID 去重且保持首次出现顺序。只影响井选择域，不动地震线选择、解释目标或编辑状态。不收名称匹配或 QGIS FID。</source>
+        <translation>Precisely replace the current well selection by stable business well IDs (replace semantics): every ID is verified as a well entity in the current project catalog before any update; unknown or wrong-type IDs reject the whole batch with no partial selection left behind. Duplicate IDs are deduplicated preserving first-occurrence order. Only the well selection domain is affected; seismic line selection, interpretation targets and editing state are untouched. Name matching and QGIS FIDs are not accepted.</translation>
+    </message>
+    <message>
+        <source>井业务 ID 列表（1–%1 个，每项 ≤%2 字符）；语义为整批替换</source>
+        <translation>Well business ID list (1–%1 items, each ≤%2 characters); semantics are whole-batch replace</translation>
+    </message>
+    <message>
+        <source>清除井选择</source>
+        <translation>Clear well selection</translation>
+    </message>
+    <message>
+        <source>只清除井选择域（本工具定义的业务选井），不删除数据、不清解释/编辑/地震线选择。可携带 navigation_state 返回的选择修订 token：token 与当前选择不一致时报 stale_selection 不动作；当前选择含非井目标时报foreign_selection 不动作。</source>
+        <translation>Clears only the well selection domain (the business well selection defined by this tool); deletes no data and clears no interpretation/editing/seismic line selections. May carry the selection revision token returned by navigation_state: a token mismatching the current selection reports stale_selection without acting; a current selection containing non-well targets reports foreign_selection without acting.</translation>
+    </message>
+    <message>
+        <source>可选：navigation_state 返回的选择修订 token（≤%1 字符）；缺省时按当前选择内容判定</source>
+        <translation>Optional: selection revision token returned by navigation_state (≤%1 characters); defaults to judging by the current selection content</translation>
+    </message>
+    <message>
+        <source>地图定位</source>
+        <translation>Map locate</translation>
+    </message>
+    <message>
+        <source>把主画布视口移到业务目标：井 ID 列表的包络或受管图层。坐标/范围/源CRS 由宿主解析并经工程转换严格校验——非有限坐标、未知 CRS、转换失败或空范围时拒绝且旧视口不动，不回落原始坐标。center 保留当前比例尺，fit 匹配目标包络。不改变图层可见性/样式/层序；目标隐藏时如实报located_not_visible。</source>
+        <translation>Moves the main canvas viewport onto a business target: the envelope of a well ID list or a managed layer. Coordinates/extent/source CRS are resolved by the host and strictly validated through the project transform — non-finite coordinates, unknown CRS, transform failure or empty extent reject the request leaving the previous viewport untouched, with no raw-coordinate fallback. center keeps the current scale; fit matches the target envelope. Layer visibility/style/order never change; a hidden target honestly reports located_not_visible.</translation>
+    </message>
+    <message>
+        <source>井业务 ID 列表（1–%1 个）；与 layer_id 互斥</source>
+        <translation>Well business ID list (1–%1 items); mutually exclusive with layer_id</translation>
+    </message>
+    <message>
+        <source>受管图层 ID（manifest id）；与 well_ids 互斥</source>
+        <translation>Managed layer ID (manifest id); mutually exclusive with well_ids</translation>
+    </message>
+    <message>
+        <source>center=保持当前比例尺居中；fit=适配目标包络</source>
+        <translation>center=keep the current scale and center; fit=fit the target envelope</translation>
+    </message>
+    <message>
+        <source>打开井资料</source>
+        <translation>Open well view</translation>
+    </message>
+    <message>
+        <source>在原生数据页预览中打开明确版本的井资料并过滤到指定井：well_id+asset_id+version_id 须在当前工程内核实（版本归属资产、井关联已决、类型受支持：well_head/well_stratification/time_depth）。结果区分页面创建/聚焦/正文显示三个事实；外链 SHA 失配按只读策略如实失败，不写目录。不打开Office、外部网址或任意资产。</source>
+        <translation>Opens an explicitly versioned well document in the native data-page preview filtered to the specified well: well_id+asset_id+version_id must be verified in the current project (version belongs to the asset, well association resolved, type supported: well_head/well_stratification/time_depth). The result separates the three facts of page creation, focus and body display; external-link SHA mismatch fails honestly under the read-only policy without writing the catalog. Does not open Office, external URLs or arbitrary assets.</translation>
+    </message>
+    <message>
+        <source>井业务 ID（须是该资产已决关联的井）</source>
+        <translation>Well business ID (must be a resolved association of this asset)</translation>
+    </message>
+    <message>
+        <source>资产业务 ID</source>
+        <translation>Asset business ID</translation>
+    </message>
+    <message>
+        <source>固定版本 ID（不回落 currentVersion）</source>
+        <translation>Pinned version ID (never falls back to currentVersion)</translation>
+    </message>
+    <message>
+        <source>打开地震测线</source>
+        <translation>Open seismic line</translation>
+    </message>
+    <message>
+        <source>在原生二维测线页面显示明确版本地震资料的指定 inline/crossline：真实存在的线才解码呈现，越界/不存在的线拒绝（不取最近一条、不吃 SpinBox钳位）；结果区分振幅已显示与层位仍在读取的部分就绪态。不选层、不改可见性、不做时间游标或 3D 视角。</source>
+        <translation>Shows the specified inline/crossline of an explicitly versioned seismic dataset in the native 2D line page: only lines that actually exist decode and render; out-of-range or non-existent lines are rejected (no nearest-line substitution, no SpinBox clamping). The result distinguishes amplitudes already displayed from the partially ready state where horizons are still loading. Selects no layers, changes no visibility, and does no time cursor or 3D camera moves.</translation>
+    </message>
+    <message>
+        <source>地震资产业务 ID</source>
+        <translation>Seismic asset business ID</translation>
+    </message>
+    <message>
+        <source>测线轴</source>
+        <translation>Line axis</translation>
+    </message>
+    <message>
+        <source>测线号（survey 几何范围内的整数；真实存在性由解码结果判定）</source>
+        <translation>Line number (an integer within the survey geometry; actual existence is decided by the decode result)</translation>
+    </message>
+    <message>
+        <source>按业务身份选择井/定位地图/打开固定版本井资料与地震测线：临时视图导航，效果恒 Read，不写目录不改显示样式</source>
+        <translation>Select wells by business identity, locate the map, open pinned-version well documents and seismic lines: transient view navigation, effect always Read, writing no catalog and changing no display style</translation>
+    </message>
+    <message>
         <source>上次 map_layer_get/修改回执返回的显示状态标记；与当前实际显示状态或宿主世代不符时明确拒绝（重新查询获取新标记，标记不是授权凭证）</source>
         <translation>The display state token returned by the last map_layer_get or mutation receipt; mismatch against the actual display state or host generation is rejected explicitly (re-query for a new token; the token is not an authorization credential)</translation>
     </message>
@@ -59026,6 +59154,13 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>终端成果：未知（预检未通过时不猜测）</source>
         <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>AgentNavigation</name>
+    <message>
+        <source>目标未在期限内确认；页面可能在后台继续完成，稍后用 navigation_state 查询实际状态</source>
+        <translation>Target not confirmed within the deadline; the page may still complete in the background — query the actual state with navigation_state later</translation>
     </message>
 </context>
 <context>

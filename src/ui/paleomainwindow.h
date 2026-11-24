@@ -256,6 +256,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     // AiChatController。编排与会话落盘全在 workflow 层，这里只装配面板 +
     // 把「配置…」意图翻成状态栏提示（配置对话框递延，见 TODOS.md）。
     void attachAiAssistant(class AiChatController *controller);
+    // I4：语义导航适配器工厂——把主窗持有的预览标签宿主/选择总线/井地图
+    // 链接装进 AgentNavigationAdapter（窄接线，parent=主窗；幂等）。空入参
+    // 小环境返回 nullptr（组装根按未安装处理）。不开放任意 QWidget 查询。
+    class AgentNavigationAdapter *attachAgentNavigation(class SelectionContext *selection,
+                                                        class WellMapLink *wellLink);
     // 方向68：Python 脚本面——底栏加「Python 脚本」+「Python REPL（实验性）」
     // 页签，挂 AppContext 持有的 PythonConsoleController。返回脚本面板指针，
     // 供组装根把 importRequested 接到 DataImportService（视图不碰 io）。幂等。

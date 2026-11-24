@@ -22,6 +22,7 @@
 
 #include "../ai/chat/domaintools.h"
 #include "../ai/chat/mapdisplaytools.h"
+#include "../ai/chat/capabilityinspectiontool.h"
 #include "../ai/chat/planpreviewtool.h"
 #include "../ai/tileinference.h"
 #include "../ai/wellfaciesservice.h"
@@ -267,7 +268,8 @@ void AiChatToolRunner::startNext() {
       if (live.documentId != expected.documentId || live.epoch != expected.epoch)
         code = QStringLiteral("stale_session");
       else if (m_activeCall.name != QLatin1String("paleo.read_result") &&
-               m_activeCall.name != QLatin1String(paleo::chat::kPlanPreviewTool)) {
+               m_activeCall.name != QLatin1String(paleo::chat::kPlanPreviewTool) &&
+               m_activeCall.name != QLatin1String(paleo::chat::kCapabilityInspectTool)) {
         unsigned effects = paleo::host::Read;
         if (m_activeCall.name == QLatin1String("paleo.tile_classification"))
           effects |= paleo::host::PrivateStage | paleo::host::CatalogPublish | paleo::host::Presentation;
@@ -331,6 +333,9 @@ void AiChatToolRunner::startNext() {
   // I4 的 paleo.map_locate 不得被本族吞掉。
   else if(paleo::agent::mapdisplay::isMapDisplayTool(m_activeCall.name))
     runMapDisplayTool(m_activeCall.name, args);
+  // I5：能力目录只读检查——精确工具名（不用前缀吞并兄弟任务的工具族）。
+  else if(m_activeCall.name==QLatin1String(paleo::chat::kCapabilityInspectTool))
+    runCapabilityInspection(args);
   else if(m_activeCall.name.startsWith(QLatin1String("paleo.operation_")))
     runPersistentOperation(args);
   else if(m_activeCall.name==QLatin1String("paleo.tile_classification_v2"))

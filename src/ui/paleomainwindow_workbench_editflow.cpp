@@ -39,7 +39,7 @@ void PaleoMainWindow::bindWorkbenchSelection(MappingWorkbench *workbench) {
       workbench->setAnalysisUnit(m_selection->activeUnit());
     });
   }
-  workbench->setManualEvidenceRequired(currentPage() == QLatin1String("compose"));
+  // 编图过程不必需预先填写解释说明，不再强制开启阻断模式。
 }
 
 void PaleoMainWindow::attachWorkbenchCommands(

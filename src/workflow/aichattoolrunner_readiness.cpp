@@ -3,10 +3,16 @@
 #include "capabilityhost.h"
 #include "capabilityrecovery.h"
 #include "ai/chat/domaintools.h"
+#include "ai/chat/mapdisplaytools.h"
+#include "ai/chat/capabilityinspectiontool.h"
+#include "ai/chat/navigationtools.h"
 #include "ai/chat/planpreviewtool.h"
+#include "agentnavigation.h"
+#include "qgis/agentmapdisplayadapter.h"
 #include "ai/onnxpredictionservice.h"
 #include "catalog/datacatalog.h"
 #include "tileoperationservice.h"
+#include "ai/chat/unitonnxtools.h"
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythongenerated.h"
 #include "services/pythonnumerictable.h"
@@ -43,6 +49,10 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   // 与会话级 read_result 同口径；采纳（重新预检）与显式执行仍由
   // aiplanpresentation 走宿主 Read/effects 门，不因本分支放宽。
   if (name == QLatin1String(paleo::chat::kPlanPreviewTool)) { result.ready = true; return result; }
+  // I5：能力目录静态查询零宿主/工程/ORT 依赖（纯注册表投影+纯验证器）——
+  // 与 read_result/plan preview 同口径；无 Host 时 policy 部分由服务如实
+  // 标 unavailable，不为目录查询伪造 live context。
+  if (name == QLatin1String(paleo::chat::kCapabilityInspectTool)) { result.ready = true; return result; }
 
   const QPointer<const AiChatToolRunner> owner(this);
   const QPointer<const DataCatalog> catalog(context.catalog);
@@ -70,8 +80,12 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   // Explicitly injected legacy adapters remain available to existing internal callers.
   // H4：operation_list 依赖 Host/Recovery/TaskService，无宿主即不可执行——不经
   // 该无条件放行，恒走下方 hosted 资格路径（不向模型广播必然失败的调用）。
+  // I3/I4：地图显示与语义导航原子同口径——效果门与 provider 都在宿主侧，
+  // 无宿主/无 provider 不广播（不落入旧适配器默认放行）。
   const bool operationList=name==QLatin1String("paleo.operation_list");
-  if(!context.requireCapabilityHost && !python && !operationList) {result.ready=true;return result;}
+  const bool mapDisplay=paleo::agent::mapdisplay::isMapDisplayTool(name);
+  const bool navigationTool=paleo::agent::navigation::isNavigationTool(name);
+  if(!context.requireCapabilityHost && !python && !operationList && !mapDisplay && !navigationTool) {result.ready=true;return result;}
   if(spec.legacyAdapter)return fail("legacy_tool_requires_versioned_adapter");
   if(!context.capabilityHost)return fail("host_unavailable");
   const auto live = context.capabilityHost->context();
@@ -109,6 +123,29 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(operationList) {
     if(!context.capabilityHost->recovery())return fail("host_unavailable");
     if(!m_taskService)return fail("task_service_unavailable");
+    result.ready=true;return result;
+  }
+  // I3：provider 存在性与工程可用性来自适配器同一来源（readiness 广播与
+  // 直接调用同因）；效果门已在上方 checkContext(effects) 完成（查询 Read、
+  // 显示修改 Read|Presentation——只读/无身份/恢复态工程不广播修改工具）。
+  if(mapDisplay) {
+    if(!m_mapDisplay || m_mapDisplayOwner.isNull())
+      return fail("map_display_provider_unavailable");
+    if(const QString reason=m_mapDisplay->unavailabilityReason();!reason.isEmpty())
+      return fail(reason);
+    result.ready=true;return result;
+  }
+  // I4：provider 存在性/目录要求与直接调用同因（readiness 广播与执行同一
+  // 来源）；效果门已在上方 checkContext(effects) 完成（恒 Read——临时
+  // 选择/视图导航，只读工程不因导航被拒）。
+  if(navigationTool) {
+    if(!m_navigation || m_navigationOwner.isNull())
+      return fail("navigation_provider_unavailable");
+    bool catalogRequired=false;
+    if(const QString reason=m_navigation->unavailabilityReason(name,&catalogRequired);!reason.isEmpty())
+      return fail(reason);
+    if(catalogRequired && (!context.catalog || !context.catalog->isOpen()))
+      return fail("catalog_unavailable");
     result.ready=true;return result;
   }
   if((name==QLatin1String("paleo.query_project") || name==QLatin1String("paleo.asset_lineage")) &&
@@ -157,6 +194,14 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(name==QLatin1String("paleo.tile_classification_v2")) {
     if(!context.tileOperations)return fail("tile_provider_unavailable");
     const auto code=context.tileOperations->readiness(args,listing);
+    if(rebound())return fail("context_rebound");
+    if(!code.isEmpty())return fail(code);
+  }
+  // I2：unit.onnx_predict 的就绪委托——只有需要新加载/数值运行的 prepare 与
+  // 新 compute 才受 ORT/推理服务可用性牵连；publish、终态重放与列表广播
+  // 不在此设门（scope/effects 校验仍在上方通用段完成）。
+  if(isUnitOnnxTool(name)) {
+    const auto code=unitOnnxReadinessCode(context.onnx,args,listing);
     if(rebound())return fail("context_rebound");
     if(!code.isEmpty())return fail(code);
   }

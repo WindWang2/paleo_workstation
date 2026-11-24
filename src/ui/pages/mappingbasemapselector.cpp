@@ -61,7 +61,7 @@ void MappingBaseMapSelector::updateState() {
   m_start->setEnabled(!m_horizon.isEmpty() && !action.isEmpty() && valid);
   m_start->setToolTip(action.isEmpty() ? tr("此图可作为参考底图；相面编辑需要完整三级相分类和 facies_code 字段") : !valid ? tr("阈值数须为分类数减一，且为有限递增数值") : tr("生成独立成果版本，保留原始图件"));
   m_hint->setText(row.isEmpty() ? tr("请先在数据管理中导入本层位古地理图，或生成单因素／地震相图。") :
-      action == "newMap" ? tr("建立空白三级相图，启用本次解释依据后，选择目标微相并绘制首个闭合面。首次保存确定覆盖范围，随后使用分割、覆盖绘制和共边节点编辑。") :
+      action == "newMap" ? tr("建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。") :
       action == "polygonize" ? tr("先将相栅格转为相面，完成后可复制相面进行编辑。") :
       continuous ? tr("单因素按当前相分类的编码顺序分相；不同因子分类列出，避免混用量纲。") :
       action.isEmpty() ? tr("当前图件作为空间参考；未登记三级相归属时不自动推定相类别。") : tr("复制为独立相图工作副本，原始图件保留。"));
@@ -88,16 +88,15 @@ void MappingWorkbenchPage::buildBaseMapStep(QWidget *body, QVBoxLayout *layout) 
   connect(this, &MappingWorkbenchPage::horizonChanged, selector, &MappingBaseMapSelector::setHorizon);
   connect(selector, &MappingBaseMapSelector::commandRequested, this, &MappingWorkbenchPage::commandRequested);
   buildReferenceEntry(body, layout);
-  auto *basis = new MappingEditBasis(m_workbench, body); layout->addWidget(basis);
-  connect(this, &MappingWorkbenchPage::horizonChanged, basis, &MappingEditBasis::setHorizon);
-  connect(basis, &MappingEditBasis::commandRequested, this, &MappingWorkbenchPage::commandRequested);
 }
 
 void MappingWorkbenchPage::showEditBasis() {
   auto *basis = findChild<MappingEditBasis *>();
   if (!basis) return;
+  basis->setExpanded(true);
   // Wait for the restored dock/tab layout before bringing the field into view.
   QTimer::singleShot(0, this, [this, basis] {
+    basis->setExpanded(true);
     auto *text = basis->findChild<QPlainTextEdit *>("editBasisText");
     auto *reason = basis->findChild<QLineEdit *>("editBasisReason");
     QWidget *field = !text->toPlainText().trimmed().isEmpty() && reason->text().trimmed().isEmpty()

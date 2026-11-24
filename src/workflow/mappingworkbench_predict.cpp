@@ -3,6 +3,7 @@
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
 #include <QDebug>
+#include "mappingexplanationservice.h"
 #include "mappingworkbench.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
@@ -105,6 +106,8 @@ void MappingWorkbench::setTaskService(PaleoTaskService *tasks) {
   m_taskSvc = tasks;
   if (m_wellRemote)
     m_wellRemote->setTaskService(tasks);
+  if (m_explanationSvc)
+    m_explanationSvc->setTaskService(tasks);
 }
 void MappingWorkbench::beginPredictionTask(const QString &title) {
   endPredictionTask();

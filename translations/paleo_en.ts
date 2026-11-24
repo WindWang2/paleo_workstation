@@ -9929,7 +9929,39 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <source>曲线</source>
             <translation>Curve</translation>
         </message>
-    </context>
+        <message>
+        <source>预览门面未接线或目标不完整</source>
+        <translation>Preview facade not wired or incomplete target</translation>
+    </message>
+    <message>
+        <source>预览门面未接线</source>
+        <translation>Preview facade not wired</translation>
+    </message>
+    <message>
+        <source>预览页面未能创建</source>
+        <translation>Preview page could not be created</translation>
+    </message>
+    <message>
+        <source>地震正文未建出测线控件</source>
+        <translation>Seismic body has no line controls</translation>
+    </message>
+    <message>
+        <source>非法测线轴</source>
+        <translation>Invalid line axis</translation>
+    </message>
+    <message>
+        <source>测线号被控件范围改写</source>
+        <translation>Line number rewritten by control range</translation>
+    </message>
+    <message>
+        <source>振幅已显示，地震层位仍在读取</source>
+        <translation>Amplitudes displayed; seismic horizons still loading</translation>
+    </message>
+    <message>
+        <source>预览页面已关闭</source>
+        <translation>Preview page closed</translation>
+    </message>
+</context>
     <context>
         <name>DataServiceImportWizard</name>
         <message>
@@ -14588,7 +14620,11 @@ Crossline: %3 ~ %4</source>
             <source>阈值“%1”不是有效数字，请修正后重试。</source>
             <translation type="unfinished" />
         </message>
-    </context>
+        <message>
+        <source>建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。</source>
+        <translation>After creating a blank three-level facies map, select a target microfacies and draw the first closed polygon directly; explanations can be generated automatically in the background and are not required upfront.</translation>
+    </message>
+</context>
     <context>
         <name>MappingEditBasis</name>
         <message>
@@ -14679,7 +14715,111 @@ Crossline: %3 ~ %4</source>
             <source>修改目的</source>
             <translation type="unfinished"></translation>
         </message>
-    </context>
+        <message>
+        <source>可选 · 解释说明与后台自动生成</source>
+        <translation>Optional · Explanation Notes &amp; Background Auto-Generation</translation>
+    </message>
+    <message>
+        <source>编图过程不必需先写解释。绘制、分割、合并或改类后，系统会在独立后台线程自动生成解释草稿（已配置 AI 时由 AI 生成，未配置时生成本地事实摘要），不影响继续编图。</source>
+        <translation>Writing an explanation before compiling a map is optional. After painting, splitting, merging, or reclassifying, a background worker thread automatically drafts an explanation (using AI when configured, or a local factual summary otherwise) without blocking compilation.</translation>
+    </message>
+    <message>
+        <source>编图时后台自动生成解释（有 AI 时由 AI 生成）</source>
+        <translation>Auto-generate explanations in background while compiling (uses AI when configured)</translation>
+    </message>
+    <message>
+        <source>立即后台生成说明</source>
+        <translation>Generate Note in Background</translation>
+    </message>
+    <message>
+        <source>取消生成</source>
+        <translation>Cancel Generation</translation>
+    </message>
+    <message>
+        <source>将后台草稿填入下方表单</source>
+        <translation>Fill Background Draft into Form Below</translation>
+    </message>
+    <message>
+        <source>可选：补充井、地震或单因素观察；留空也可直接编图，修改后由后台自动生成草稿。</source>
+        <translation>Optional: add well, seismic, or single-factor observations; you can also leave this blank and compile directly while drafts are generated in the background.</translation>
+    </message>
+    <message>
+        <source>可选：例如根据砂厚高值区调整河道边界</source>
+        <translation>Optional: e.g., adjust channel boundary according to high sand-thickness zone</translation>
+    </message>
+    <message>
+        <source>启用手动解释依据</source>
+        <translation>Enable Manual Basis</translation>
+    </message>
+    <message>
+        <source>清空手动依据</source>
+        <translation>Clear Manual Basis</translation>
+    </message>
+    <message>
+        <source>请先选择编图层位</source>
+        <translation>Select a mapping horizon first</translation>
+    </message>
+    <message>
+        <source>在独立后台线程调用已配置 AI 生成编图解释草稿</source>
+        <translation>Call the configured AI on a background worker thread to draft a mapping explanation</translation>
+    </message>
+    <message>
+        <source>在独立后台线程根据当前图件与井资料汇总事实草稿</source>
+        <translation>Summarize current map and well facts into a draft on a background worker thread</translation>
+    </message>
+    <message>
+        <source>取消当前后台解释生成</source>
+        <translation>Cancel the current background explanation task</translation>
+    </message>
+    <message>
+        <source>当前没有进行中的后台解释任务</source>
+        <translation>No background explanation task is currently running</translation>
+    </message>
+    <message>
+        <source>AI 草稿已生成（%1 · 待复核）</source>
+        <translation>AI draft ready (%1 · Needs Review)</translation>
+    </message>
+    <message>
+        <source>AI 草稿已生成（待复核）</source>
+        <translation>AI draft ready (Needs Review)</translation>
+    </message>
+    <message>
+        <source>后台事实摘要已生成（待复核）</source>
+        <translation>Background factual summary ready (Needs Review)</translation>
+    </message>
+    <message>
+        <source>最新后台草稿：%1</source>
+        <translation>Latest background draft: %1</translation>
+    </message>
+    <message>
+        <source>将手动说明优先用于后续相面修改</source>
+        <translation>Prioritize this manual explanation for subsequent facies edits</translation>
+    </message>
+    <message>
+        <source>可选：填写解释说明和修改目的（合计不超过 9000 字）后可手动启用</source>
+        <translation>Optional: enter an explanation and purpose (combined max 9000 chars) to enable manually</translation>
+    </message>
+    <message>
+        <source>当前未启用手动依据</source>
+        <translation>Manual basis is not enabled</translation>
+    </message>
+    <message>
+        <source>清空手动依据，恢复后台自动生成模式</source>
+        <translation>Clear manual basis and resume automatic background generation</translation>
+    </message>
+    <message>
+        <source>编图不必需手动填写依据。直接绘制、分割或合并相面即可，修改后会在后台自动生成解释草稿。</source>
+        <translation>Manual basis is optional. Paint, split, or merge facies polygons directly; explanation drafts are generated automatically in the background.</translation>
+    </message>
+    <message>
+        <source>已启用手动依据（%1 个参考版本）。后续编辑优先记录此人工说明；解释仍需复核。</source>
+        <translation>Manual basis enabled (%1 reference version(s)). Subsequent edits record this manual note first; explanations still require review.</translation>
+    </message>
+    <message>
+        <source>手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。</source>
+        <translation>Manual basis form modified; edits still use the previously enabled basis until re-enabled.</translation>
+    </message>
+</context>
     <context>
         <name>MappingEvidencePanel</name>
         <message>
@@ -15095,7 +15235,51 @@ Crossline: %3 ~ %4</source>
             <source>先完成基础图和解释依据，再分割相面</source>
             <translation>Prepare the base map and interpretation evidence before splitting facies polygons</translation>
         </message>
-    </context>
+        <message>
+        <source>2 相面编辑</source>
+        <translation>2 Facies Editing</translation>
+    </message>
+    <message>
+        <source>直接绘制、分割、覆盖或合并相面；解释说明可后台自动生成，非必需步骤</source>
+        <translation>Paint, split, overlay, or merge facies polygons directly; explanations can be generated in the background and are optional</translation>
+    </message>
+    <message>
+        <source>3 保存输出</source>
+        <translation>3 Save &amp; Export</translation>
+    </message>
+    <message>
+        <source>选择基础图或新建空白相图即可直接开始编图；解释说明非必需，可在后台自动生成。</source>
+        <translation>Select a base map or create a blank facies map to start compiling right away; explanations are optional and can be generated in the background.</translation>
+    </message>
+    <message>
+        <source>相面已改（解释草稿正在后台线程生成）。先检查拓扑并保存新版本，无需等待解释完成。</source>
+        <translation>Facies updated (explanation draft generating on background thread). Run topology check and save a new version without waiting.</translation>
+    </message>
+    <message>
+        <source>可直接继续编图；手动解释表单已改动，如需采用新说明可在下方重新启用。</source>
+        <translation>You can keep compiling directly; the manual basis form has unsaved edits—re-enable below if you want to apply them.</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割或合并相面；后台线程正在生成解释草稿。</source>
+        <translation>Working copy ready—paint, split, or merge facies polygons directly while the background thread drafts an explanation.</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后 AI 会在后台线程自动生成解释草稿。</source>
+        <translation>Working copy ready—paint, split, overlay, or merge facies polygons directly. AI will automatically draft explanations on a background thread after edits.</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后系统会在后台线程自动生成事实摘要（配置 AI 后自动启用 AI 生成）。</source>
+        <translation>Working copy ready—paint, split, overlay, or merge facies polygons directly. A background thread will draft factual summaries after edits (AI generation activates automatically once AI is configured).</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割、覆盖或合并相面；解释说明可在需要时随时补充或手动生成。</source>
+        <translation>Working copy ready—paint, split, overlay, or merge facies polygons directly; add or generate explanation notes anytime if needed.</translation>
+    </message>
+    <message>
+        <source>无需先填解释，直接选中或绘制相面；分割、覆盖和合并后自动记录或后台生成草稿</source>
+        <translation>No upfront explanation required—select or paint facies directly; drafts are recorded or generated in the background after split, overlay, or merge</translation>
+    </message>
+</context>
     <context>
         <name>MappingWorkbench</name>
         <message>
@@ -16778,6 +16962,38 @@ Crossline: %3 ~ %4</source>
             <source>资料目录不可用，不能读取图件空间编辑历史</source>
             <translation>The catalog is unavailable. Cannot load the map spatial edit history.</translation>
         </message>
+    <message>
+        <source>后台解释服务尚未初始化</source>
+        <translation>Background explanation service is not initialized</translation>
+    </message>
+    <message>
+        <source>AI 后台自动解释（%1 · 待复核）</source>
+        <translation>AI background explanation (%1 · Needs Review)</translation>
+    </message>
+    <message>
+        <source>AI 后台自动解释（待复核）</source>
+        <translation>AI background explanation (Needs Review)</translation>
+    </message>
+    <message>
+        <source>后台自动摘要（待复核）</source>
+        <translation>Background factual summary (Needs Review)</translation>
+    </message>
+    <message>
+        <source>缺少解释请求输出目标</source>
+        <translation>Missing explanation request output target</translation>
+    </message>
+    <message>
+        <source>%1 v%2</source>
+        <translation>%1 v%2</translation>
+    </message>
+    <message>
+        <source>目标图斑已不存在</source>
+        <translation>Target polygon no longer exists</translation>
+    </message>
+    <message>
+        <source>后台自动生成编图解释草稿</source>
+        <translation>Auto-generated mapping explanation draft in background</translation>
+    </message>
 </context>
     <context>
         <name>MappingWorkbenchPage</name>
@@ -18719,7 +18935,19 @@ Feature %4 · version %5</translation>
             <source>返回较新的图件空间编辑</source>
             <translation>Return to newer spatial edits</translation>
         </message>
-    </context>
+        <message>
+        <source>2 · 相面编辑</source>
+        <translation>2 · Facies Editing</translation>
+    </message>
+    <message>
+        <source>3 · 检查、保存与输出</source>
+        <translation>3 · Check, Save &amp; Export</translation>
+    </message>
+    <message>
+        <source>相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出（无需等待解释生成）。显示层级可按图层固定，也可锁定选中相面；导出图例沿用实际显示。</source>
+        <translation>Facies, subfacies, and microfacies share one partition. Check topology and save a new version before exporting (no need to wait for explanations). Display levels can be fixed per layer or locked per polygon; exported legends match the displayed view.</translation>
+    </message>
+</context>
     <context>
         <name>MappingWorkflow</name>
         <message>
@@ -24718,7 +24946,39 @@ PDF：%3
         <translation>The project is read-only; undo/redo is disabled</translation>
     </message>
 
-    </context>
+        <message>
+        <source>可选：查看后台自动生成的解释草稿，或手动补充本次解释说明与修改目的（编图不必需预先填写）。</source>
+        <translation>Optional: inspect background-generated explanation drafts or manually add notes and purpose (not required before compiling).</translation>
+    </message>
+    <message>
+        <source>已启用手动解释依据，之后的相面修改将优先记录此说明。</source>
+        <translation>Manual explanation basis enabled; subsequent facies edits will prioritize this note.</translation>
+    </message>
+    <message>
+        <source>已清空手动解释依据；编图可直接继续，修改后将由后台自动生成解释草稿。</source>
+        <translation>Manual explanation basis cleared; you can keep compiling while explanations are drafted in the background.</translation>
+    </message>
+    <message>
+        <source>已开启后台自动生成编图解释（不阻塞编图）。</source>
+        <translation>Background auto-explanation enabled (non-blocking).</translation>
+    </message>
+    <message>
+        <source>已暂停后台自动生成编图解释；编图仍可直接进行。</source>
+        <translation>Background auto-explanation paused; map compilation remains unblocked.</translation>
+    </message>
+    <message>
+        <source>已在后台线程启动 AI 解释生成，可继续编图…</source>
+        <translation>Started AI explanation generation on a background thread; you may continue compiling…</translation>
+    </message>
+    <message>
+        <source>已在后台线程生成编图事实摘要，可继续编图…</source>
+        <translation>Started factual summary generation on a background thread; you may continue compiling…</translation>
+    </message>
+    <message>
+        <source>已取消后台解释生成。</source>
+        <translation>Background explanation generation cancelled.</translation>
+    </message>
+</context>
     <context>
         <name>PaleoMapBookController</name>
         <message>
@@ -39283,6 +39543,210 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ai/chat/geostatictools.cpp" line="225"/>
         <source>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</source>
         <translation>Seeded sequential Gaussian simulation of managed well-point samples (OUTPUT mean + STD simulation-spread raster; STD is the dispersion between realizations, not a kriging variance, confidence or pass threshold); results are catalog-managed versions and are not displayed automatically. This version freezes persistRealizations=false: no MEMBER_n realization files are produced. Unconstrained geostatistics, the same scope as the kriging tool.</translation>
+    </message>
+    <message>
+        <source>地层单元 ONNX 预测</source>
+        <translation>Stratigraphic unit ONNX prediction</translation>
+    </message>
+    <message>
+        <source>对明确的地层分析单元（方案内 S1–S4 子层段）从受管地震体提取 64×64 层段窗口 RMS，交给当前工程 models/ 注册表内钉 SHA 的本地 ONNX 分类模型推理。先用 query_project （local_models / version）取得精确模型名、地震体目录版本与单元引用。prepare 冻结模型/来源/单元并物化输入，返回持久 operationId；compute-only 只接受 prepare 的 source_operation_id（输入不可重述，重启后仍按同一冻结输入计算）；publish 只提交已计算的 source_operation_id，不重复推理。类别输出是模型通道索引，不带地质标签映射；不自动选择或显示图层。</source>
+        <translation>For an explicit stratigraphic analysis unit (an S1–S4 sub-interval of the scheme), extracts a 64×64 layer-window RMS from the managed seismic volume and runs it through a local ONNX classification model that is pinned by SHA in the current project's models/ registry. Use query_project (local_models / version) first to obtain the exact model name, the seismic catalog version and the unit reference. prepare freezes the model/source/unit, materializes the input and returns a durable operationId; compute-only accepts only the prepare source_operation_id (inputs cannot be restated; after a restart the same frozen input is used); publish commits only an already computed source_operation_id without rerunning inference. Class outputs are model channel indexes with no geological label mapping; layers are never selected or shown automatically.</translation>
+    </message>
+    <message>
+        <source>调用方请求号（同一意图的幂等键；重放返回原操作事实）</source>
+        <translation>Caller request id (idempotency key of the same intent; a replay returns the original operation facts)</translation>
+    </message>
+    <message>
+        <source>执行阶段</source>
+        <translation>Execution phase</translation>
+    </message>
+    <message>
+        <source>能力契约版本；缺省 1（v1 仅接受 1）</source>
+        <translation>Capability contract version; default 1 (v1 accepts only 1)</translation>
+    </message>
+    <message>
+        <source>绑定模式；v1 仅支持 pinned-value（可省略，省略等同 pinned-value）</source>
+        <translation>Binding mode; v1 supports only pinned-value (optional; omitting it is equivalent to pinned-value)</translation>
+    </message>
+    <message>
+        <source>prepare：{model: 注册表模型名, seismic_version_id: 地震体目录版本 id, unit_selection: {schemeId, revision?, intervalId, subIntervalId, subIndex, aggregate:false}}；compute-only/publish：{source_operation_id}（继承输入不可重述）</source>
+        <translation>prepare: {model: registry model name, seismic_version_id: seismic volume catalog version id, unit_selection: {schemeId, revision?, intervalId, subIntervalId, subIndex, aggregate:false}}; compute-only/publish: {source_operation_id} (inherited inputs cannot be restated)</translation>
+    </message>
+    <message>
+        <source>导航状态查询</source>
+        <translation>Navigation state query</translation>
+    </message>
+    <message>
+        <source>只读查询当前宿主的导航事实：文档绑定、当前业务选井（含来源）、主画布实际范围与 CRS、已打开原生预览目标及其加载/错误态。不创建视图、不全扫源数据；未创建的画布/已关闭的页面如实报不可用，不从页面标题猜身份。</source>
+        <translation>Read-only query of the current host's navigation facts: document binding, current business well selection (with origin), actual main-canvas extent and CRS, and opened native preview targets with their loading/error state. Creates no views and scans no source data; canvases not yet created or pages already closed report unavailable honestly, never guessing identities from tab titles.</translation>
+    </message>
+    <message>
+        <source>选择井</source>
+        <translation>Select wells</translation>
+    </message>
+    <message>
+        <source>按稳定井业务 ID 精确替换当前井选择（replace 语义）：先在当前工程目录核实全部 ID 都是井实体才更新，未知/错类型 ID 整批拒绝且不留部分选中。重复 ID 去重且保持首次出现顺序。只影响井选择域，不动地震线选择、解释目标或编辑状态。不收名称匹配或 QGIS FID。</source>
+        <translation>Precisely replace the current well selection by stable business well IDs (replace semantics): every ID is verified as a well entity in the current project catalog before any update; unknown or wrong-type IDs reject the whole batch with no partial selection left behind. Duplicate IDs are deduplicated preserving first-occurrence order. Only the well selection domain is affected; seismic line selection, interpretation targets and editing state are untouched. Name matching and QGIS FIDs are not accepted.</translation>
+    </message>
+    <message>
+        <source>井业务 ID 列表（1–%1 个，每项 ≤%2 字符）；语义为整批替换</source>
+        <translation>Well business ID list (1–%1 items, each ≤%2 characters); semantics are whole-batch replace</translation>
+    </message>
+    <message>
+        <source>清除井选择</source>
+        <translation>Clear well selection</translation>
+    </message>
+    <message>
+        <source>只清除井选择域（本工具定义的业务选井），不删除数据、不清解释/编辑/地震线选择。可携带 navigation_state 返回的选择修订 token：token 与当前选择不一致时报 stale_selection 不动作；当前选择含非井目标时报foreign_selection 不动作。</source>
+        <translation>Clears only the well selection domain (the business well selection defined by this tool); deletes no data and clears no interpretation/editing/seismic line selections. May carry the selection revision token returned by navigation_state: a token mismatching the current selection reports stale_selection without acting; a current selection containing non-well targets reports foreign_selection without acting.</translation>
+    </message>
+    <message>
+        <source>可选：navigation_state 返回的选择修订 token（≤%1 字符）；缺省时按当前选择内容判定</source>
+        <translation>Optional: selection revision token returned by navigation_state (≤%1 characters); defaults to judging by the current selection content</translation>
+    </message>
+    <message>
+        <source>地图定位</source>
+        <translation>Map locate</translation>
+    </message>
+    <message>
+        <source>把主画布视口移到业务目标：井 ID 列表的包络或受管图层。坐标/范围/源CRS 由宿主解析并经工程转换严格校验——非有限坐标、未知 CRS、转换失败或空范围时拒绝且旧视口不动，不回落原始坐标。center 保留当前比例尺，fit 匹配目标包络。不改变图层可见性/样式/层序；目标隐藏时如实报located_not_visible。</source>
+        <translation>Moves the main canvas viewport onto a business target: the envelope of a well ID list or a managed layer. Coordinates/extent/source CRS are resolved by the host and strictly validated through the project transform — non-finite coordinates, unknown CRS, transform failure or empty extent reject the request leaving the previous viewport untouched, with no raw-coordinate fallback. center keeps the current scale; fit matches the target envelope. Layer visibility/style/order never change; a hidden target honestly reports located_not_visible.</translation>
+    </message>
+    <message>
+        <source>井业务 ID 列表（1–%1 个）；与 layer_id 互斥</source>
+        <translation>Well business ID list (1–%1 items); mutually exclusive with layer_id</translation>
+    </message>
+    <message>
+        <source>受管图层 ID（manifest id）；与 well_ids 互斥</source>
+        <translation>Managed layer ID (manifest id); mutually exclusive with well_ids</translation>
+    </message>
+    <message>
+        <source>center=保持当前比例尺居中；fit=适配目标包络</source>
+        <translation>center=keep the current scale and center; fit=fit the target envelope</translation>
+    </message>
+    <message>
+        <source>打开井资料</source>
+        <translation>Open well view</translation>
+    </message>
+    <message>
+        <source>在原生数据页预览中打开明确版本的井资料并过滤到指定井：well_id+asset_id+version_id 须在当前工程内核实（版本归属资产、井关联已决、类型受支持：well_head/well_stratification/time_depth）。结果区分页面创建/聚焦/正文显示三个事实；外链 SHA 失配按只读策略如实失败，不写目录。不打开Office、外部网址或任意资产。</source>
+        <translation>Opens an explicitly versioned well document in the native data-page preview filtered to the specified well: well_id+asset_id+version_id must be verified in the current project (version belongs to the asset, well association resolved, type supported: well_head/well_stratification/time_depth). The result separates the three facts of page creation, focus and body display; external-link SHA mismatch fails honestly under the read-only policy without writing the catalog. Does not open Office, external URLs or arbitrary assets.</translation>
+    </message>
+    <message>
+        <source>井业务 ID（须是该资产已决关联的井）</source>
+        <translation>Well business ID (must be a resolved association of this asset)</translation>
+    </message>
+    <message>
+        <source>资产业务 ID</source>
+        <translation>Asset business ID</translation>
+    </message>
+    <message>
+        <source>固定版本 ID（不回落 currentVersion）</source>
+        <translation>Pinned version ID (never falls back to currentVersion)</translation>
+    </message>
+    <message>
+        <source>打开地震测线</source>
+        <translation>Open seismic line</translation>
+    </message>
+    <message>
+        <source>在原生二维测线页面显示明确版本地震资料的指定 inline/crossline：真实存在的线才解码呈现，越界/不存在的线拒绝（不取最近一条、不吃 SpinBox钳位）；结果区分振幅已显示与层位仍在读取的部分就绪态。不选层、不改可见性、不做时间游标或 3D 视角。</source>
+        <translation>Shows the specified inline/crossline of an explicitly versioned seismic dataset in the native 2D line page: only lines that actually exist decode and render; out-of-range or non-existent lines are rejected (no nearest-line substitution, no SpinBox clamping). The result distinguishes amplitudes already displayed from the partially ready state where horizons are still loading. Selects no layers, changes no visibility, and does no time cursor or 3D camera moves.</translation>
+    </message>
+    <message>
+        <source>地震资产业务 ID</source>
+        <translation>Seismic asset business ID</translation>
+    </message>
+    <message>
+        <source>测线轴</source>
+        <translation>Line axis</translation>
+    </message>
+    <message>
+        <source>测线号（survey 几何范围内的整数；真实存在性由解码结果判定）</source>
+        <translation>Line number (an integer within the survey geometry; actual existence is decided by the decode result)</translation>
+    </message>
+    <message>
+        <source>按业务身份选择井/定位地图/打开固定版本井资料与地震测线：临时视图导航，效果恒 Read，不写目录不改显示样式</source>
+        <translation>Select wells by business identity, locate the map, open pinned-version well documents and seismic lines: transient view navigation, effect always Read, writing no catalog and changing no display style</translation>
+    </message>
+    <message>
+        <source>上次 map_layer_get/修改回执返回的显示状态标记；与当前实际显示状态或宿主世代不符时明确拒绝（重新查询获取新标记，标记不是授权凭证）</source>
+        <translation>The display state token returned by the last map_layer_get or mutation receipt; mismatch against the actual display state or host generation is rejected explicitly (re-query for a new token; the token is not an authorization credential)</translation>
+    </message>
+    <message>
+        <source>列出受管地图图层</source>
+        <translation>List managed map layers</translation>
+    </message>
+    <message>
+        <source>列出当前工程 manifest 受管图层及其可观察显示状态（是否已实例化、树勾选、最终可见、透明度、当前具名样式、语义符号）。只读快照：查询不实例化未加载层、不切换层位、不改任何显示状态；手工添加的非受管图层不在目录内。按 layer_id 字典序分页，游标绑定当前显示修订。</source>
+        <translation>List the current project's manifest-managed layers with observable display state (materialized or not, tree check state, effective visibility, opacity, current named style, semantic symbol). Read-only snapshot: queries never materialize unloaded layers, switch horizons, or change any display state; manually added unmanaged layers are not listed. Sorted by layer_id with a cursor bound to the current display revision.</translation>
+    </message>
+    <message>
+        <source>按声明的层位精确筛选（空串=不限层的共享层）</source>
+        <translation>Filter exactly by declared horizon (empty string = horizon-agnostic shared layers)</translation>
+    </message>
+    <message>
+        <source>按声明类型精确筛选</source>
+        <translation>Filter exactly by declared type</translation>
+    </message>
+    <message>
+        <source>每页条数（1–32，缺省 16）</source>
+        <translation>Page size (1-32, default 16)</translation>
+    </message>
+    <message>
+        <source>上一页返回的续页游标（绑定筛选条件与显示修订；显示状态变化后明确报错）</source>
+        <translation>Continuation cursor returned by the previous page (bound to the filter and display revision; expired after display changes are reported explicitly)</translation>
+    </message>
+    <message>
+        <source>查询图层显示状态</source>
+        <translation>Query layer display state</translation>
+    </message>
+    <message>
+        <source>按精确 layer_id 返回该受管图层的显示状态：树勾选与最终可见（含父组隐藏原因）、透明度、当前具名样式、语义符号、是否编辑中；并列出该层当前适用的具名预设与语义符号选项（几何适配）。未实例化层如实标记（不触发加载）。不返回 QGIS 内部 ID、源路径或完整 QML。</source>
+        <translation>Return the managed layer's display state by exact layer_id: tree check state and effective visibility (including parent-group hidden reason), opacity, current named style, semantic symbol, and editing state; also the named presets and geometry-applicable semantic symbol options for this layer. Unmaterialized layers are reported honestly (loading is never triggered). QGIS internal ids, source paths, and full QML are never returned.</translation>
+    </message>
+    <message>
+        <source>设置图层可见性</source>
+        <translation>Set layer visibility</translation>
+    </message>
+    <message>
+        <source>设置当前已实例化受管图层的树勾选状态（JSON 布尔）。回读自身勾选与最终可见：父组隐藏时勾选可为 true 而最终可见为 false（不代为打开父组或其他图层）。同值设置返回 no_change。修改只进入当前工程的原生显示状态（未保存工程文件），不落 Catalog 版本、不发布。</source>
+        <translation>Set the tree check state (JSON boolean) of a currently materialized managed layer. Reads back own checked and effective visibility: with a hidden parent group, checked may be true while effective visibility is false (parent groups and other layers are never opened on the caller's behalf). Same-value sets return no_change. Mutations only enter the current project's native display state (unsaved project file); no Catalog versions are written and nothing is published.</translation>
+    </message>
+    <message>
+        <source>目标勾选状态（JSON 原生布尔）</source>
+        <translation>Target check state (JSON native boolean)</translation>
+    </message>
+    <message>
+        <source>设置图层透明度</source>
+        <translation>Set layer opacity</translation>
+    </message>
+    <message>
+        <source>对支持的矢量/栅格受管图层设置原生层透明度（0–1，JSON 原生数值，拒绝越界/NaN/文本），并回读实际值。只改显示呈现：不改像元值、要素属性、源引用或地图范围。同值返回 no_change；修改未保存为工程文件。</source>
+        <translation>Set the native layer opacity (0-1, JSON native number; out-of-range/NaN/text values are rejected) for supported vector/raster managed layers and read back the actual value. Display-only: pixel values, feature attributes, source references, and the map extent are untouched. Same-value sets return no_change; mutations are not saved to the project file.</translation>
+    </message>
+    <message>
+        <source>目标透明度（0=全透明，1=不透明）</source>
+        <translation>Target opacity (0=fully transparent, 1=opaque)</translation>
+    </message>
+    <message>
+        <source>应用图层样式</source>
+        <translation>Apply layer style</translation>
+    </message>
+    <message>
+        <source>对受管矢量/栅格图层应用受限样式：具名预设（当前图层样式管理器中已存在的名字，精确选项）或语义符号（GeoPatterns 词表 family/id，按几何适配）。两者互斥，必须恰好给一个。不接收文件路径、QML/SVG 内容或表达式。回读 currentStyle/renderer 语义锚；不适用时如实拒绝且零副作用。修改未保存为工程文件。</source>
+        <translation>Apply a restricted style to a managed vector/raster layer: a named preset (a name that already exists in the layer's style manager, an exact option) or a semantic symbol (GeoPatterns vocabulary family/id, geometry-matched). The two are mutually exclusive; exactly one must be given. File paths, QML/SVG content, and expressions are never accepted. currentStyle/renderer semantic anchors are read back; inapplicable requests are rejected honestly with zero side effects. Mutations are not saved to the project file.</translation>
+    </message>
+    <message>
+        <source>图层已存在的具名预设名（与 semantic_symbol 互斥）</source>
+        <translation>An existing named preset of the layer (mutually exclusive with semantic_symbol)</translation>
+    </message>
+    <message>
+        <source>语义符号 {family: lithology|facies|line, id: 词表稳定 id}（与 named_preset 互斥；几何不匹配会被拒绝）</source>
+        <translation>Semantic symbol {family: lithology|facies|line, id: stable vocabulary id} (mutually exclusive with named_preset; geometry mismatches are rejected)</translation>
+    </message>
+    <message>
+        <source>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</source>
+        <translation>Display snapshots and restricted mutations of managed layers: visibility/opacity/styles pass the host Read|Presentation gates; receipts read back native state and note the unsaved project file</translation>
     </message>
 </context>
     <context>
@@ -58937,6 +59401,202 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>终端成果：未知（预检未通过时不猜测）</source>
         <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>AgentNavigation</name>
+    <message>
+        <source>目标未在期限内确认；页面可能在后台继续完成，稍后用 navigation_state 查询实际状态</source>
+        <translation>Target not confirmed within the deadline; the page may still complete in the background — query the actual state with navigation_state later</translation>
+    </message>
+</context>
+<context>
+    <name>MappingExplanationService</name>
+    <message>
+        <source>绘制/覆盖相面</source>
+        <translation>Paint / overlay facies polygon</translation>
+    </message>
+    <message>
+        <source>合并相面</source>
+        <translation>Merge facies polygons</translation>
+    </message>
+    <message>
+        <source>调整相面边界几何</source>
+        <translation>Edit facies polygon geometry</translation>
+    </message>
+    <message>
+        <source>调整相归属分类</source>
+        <translation>Reclassify facies attribution</translation>
+    </message>
+    <message>
+        <source>保存编图修订</source>
+        <translation>Save compiled map revision</translation>
+    </message>
+    <message>
+        <source>编图现状说明</source>
+        <translation>Current map compilation summary</translation>
+    </message>
+    <message>
+        <source>约 %1 km²</source>
+        <translation>approx. %1 km²</translation>
+    </message>
+    <message>
+        <source>约 %1 m²</source>
+        <translation>approx. %1 m²</translation>
+    </message>
+    <message>
+        <source>等 %1 口井</source>
+        <translation> and %1 wells in total</translation>
+    </message>
+    <message>
+        <source>AI 返回内容为空或无法解析，已自动生成本地事实摘要</source>
+        <translation>AI returned empty or unparseable output; generated local factual summary instead</translation>
+    </message>
+    <message>
+        <source>AI 生成未完成（%1），已自动生成本地事实摘要</source>
+        <translation>AI generation did not complete (%1); generated local factual summary instead</translation>
+    </message>
+    <message>
+        <source>正在后台线程生成编图解释…</source>
+        <translation>Generating mapping explanation on background thread…</translation>
+    </message>
+    <message>
+        <source>后台自动生成解释已暂停（编图仍可直接进行，可随时手动生成）</source>
+        <translation>Background auto-explanation paused (compilation remains unblocked; generate manually anytime)</translation>
+    </message>
+    <message>
+        <source>后台自动生成已开启（AI 模型：%1；独立线程运行，不阻塞编图）</source>
+        <translation>Background auto-explanation enabled (AI model: %1; runs on worker thread without blocking compilation)</translation>
+    </message>
+    <message>
+        <source>后台自动生成已开启（当前未配置 AI，将自动生成本地事实摘要；配置 AI 后自动启用 AI 生成）</source>
+        <translation>Background auto-explanation enabled (AI not configured—using local factual summaries; AI activates automatically once configured)</translation>
+    </message>
+    <message>
+        <source>后台生成编图解释（AI）</source>
+        <translation>Background mapping explanation (AI)</translation>
+    </message>
+    <message>
+        <source>后台生成编图解释摘要</source>
+        <translation>Background mapping factual summary</translation>
+    </message>
+    <message>
+        <source>AI 正在后台线程整理编图解释草稿…</source>
+        <translation>AI is drafting a mapping explanation on a background thread…</translation>
+    </message>
+    <message>
+        <source>正在后台线程整理编图事实摘要…</source>
+        <translation>Summarizing mapping facts on a background thread…</translation>
+    </message>
+    <message>
+        <source>正在后台线程调用 AI（%1）生成解释草稿…</source>
+        <translation>Calling AI (%1) on a background thread to draft explanation…</translation>
+    </message>
+    <message>
+        <source>正在后台线程生成编图事实摘要…</source>
+        <translation>Generating local factual summary on a background thread…</translation>
+    </message>
+    <message>
+        <source>已取消后台解释生成</source>
+        <translation>Background explanation generation cancelled</translation>
+    </message>
+    <message>
+        <source>你是石油地质古地理编图助手。请仅根据用户提供的当前工区与相面编辑事实，生成一段简明、专业、客观的中文编图解释说明草稿和一句简短修改目的。
+严格要求：
+1. 只使用给定事实，严禁编造任何未提供的井名、深度、物性数值、地震反射特征或岩心结论。
+2. 事实有限时如实指出需结合测井/地震或单因素资料复核，不得冒充已确认解释。
+3. 只输出一个 JSON 对象，格式为 {"text": "2~4句简明地质解释草稿", "reason": "1句修改目的"}，不要输出多余解释或 Markdown 标题。</source>
+        <translation>You are a petroleum geology paleogeographic mapping assistant. Using strictly the workspace and facies editing facts provided by the user, draft a concise, objective geological explanation and a one-sentence edit purpose in Chinese.
+Strict rules:
+1. Use only the provided facts; never invent well names, depths, petrophysical values, seismic reflections, or core conclusions.
+2. When facts are limited, honestly state that well-log/seismic or single-factor verification is needed and never impersonate a confirmed interpretation.
+3. Output only a single JSON object in the form {"text": "2-4 concise sentences", "reason": "1-sentence edit purpose"} with no extra text or Markdown headings.</translation>
+    </message>
+    <message>
+        <source>层位/单元：%1</source>
+        <translation>Horizon / unit: %1</translation>
+    </message>
+    <message>
+        <source>未指定</source>
+        <translation>Unspecified</translation>
+    </message>
+    <message>
+        <source>编图操作：%1</source>
+        <translation>Mapping operation: %1</translation>
+    </message>
+    <message>
+        <source>目标相归属：%1（编码 %2）</source>
+        <translation>Target facies: %1 (code %2)</translation>
+    </message>
+    <message>
+        <source>修改前相归属：%1（编码 %2）</source>
+        <translation>Previous facies: %1 (code %2)</translation>
+    </message>
+    <message>
+        <source>图斑面积：%1</source>
+        <translation>Polygon area: %1</translation>
+    </message>
+    <message>
+        <source>当前图件相面总数：%1</source>
+        <translation>Total facies polygons in map: %1</translation>
+    </message>
+    <message>
+        <source>图斑内井资料：%1</source>
+        <translation>Wells inside polygon: %1</translation>
+    </message>
+    <message>
+        <source>上游计算来源：%1</source>
+        <translation>Upstream derivation source: %1</translation>
+    </message>
+    <message>
+        <source>可见/关联参考图件：%1</source>
+        <translation>Visible / linked reference maps: %1</translation>
+    </message>
+    <message>
+        <source>请根据以下编图事实生成解释草稿 JSON：
+%1</source>
+        <translation>Generate the explanation draft JSON based on the following mapping facts:
+%1</translation>
+    </message>
+    <message>
+        <source>%1层位经%2将相归属由「%3」调整为「%4」（编码 %5）</source>
+        <translation>Horizon %1 updated facies attribution from "%3" to "%4" (code %5) via %2</translation>
+    </message>
+    <message>
+        <source>%1层位经%2形成「%3」（编码 %4）相面</source>
+        <translation>Horizon %1 formed facies polygon "%3" (code %4) via %2</translation>
+    </message>
+    <message>
+        <source>%1层位执行%2（当前相面数 %3）</source>
+        <translation>Horizon %1 executed %2 (%3 facies polygons currently)</translation>
+    </message>
+    <message>
+        <source>面积%1</source>
+        <translation>area %1</translation>
+    </message>
+    <message>
+        <source>图斑内包含井：%1</source>
+        <translation>wells inside polygon: %1</translation>
+    </message>
+    <message>
+        <source>来源依据：%1</source>
+        <translation>derivation source: %1</translation>
+    </message>
+    <message>
+        <source>参考图件：%1</source>
+        <translation>reference maps: %1</translation>
+    </message>
+    <message>
+        <source>。本说明由后台自动汇总当前图件事实生成，待地质复核。</source>
+        <translation>. Automatically summarized from current map facts in the background; pending geological review.</translation>
+    </message>
+    <message>
+        <source>后台自动记录：%1（%2）</source>
+        <translation>Background auto-record: %1 (%2)</translation>
+    </message>
+    <message>
+        <source>后台自动记录：%1%2</source>
+        <translation>Background auto-record: %1%2</translation>
     </message>
 </context>
 </TS>

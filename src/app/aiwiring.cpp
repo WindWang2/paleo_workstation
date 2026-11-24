@@ -6,6 +6,7 @@
 #include "wellproviderwiring.h"
 #include "pythonanalysiswiring.h"
 #include "pichatwiring.h"
+#include "unitonnxwiring.h"
 #include "workflow/capabilityhost.h"
 #include "workflow/capabilityrecovery.h"
 #include "workflow/tileoperationservice.h"
@@ -221,6 +222,9 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   context.horizon = AreaRules::active().targetHorizon;
   context.onnx = assist ? assist->onnxService() : nullptr;
   context.tileOperations=installTileOperationServices(chat->toolRunner(),context.onnx,layers,catalog,host,document);
+  // I2：unit.onnx_predict 的 per-capability 执行适配器（每次重绑以当期
+  // onnx/catalog 重注册；不触碰 tile/Python 的全局恢复回调）。
+  installUnitOnnxCapability(chat->toolRunner(),context.onnx,catalog,host);
   context.gridFetch = AiAssistWorkflow::horizonGridFetch(layers);
   if (document) context.trackingInput = trackingInputProvider(document);
   // 方向77：只读工程上下文（catalog 指针稳定性由 importSvc 保证）。

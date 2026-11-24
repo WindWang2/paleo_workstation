@@ -16,6 +16,10 @@
 #include "../../catalog/catalogroles.h"
 #include "../../services/artifactversioncapability.h"
 void appendAgentOperationTools(QVector<AiToolSpec> &specs);
+#include "mapdisplaytools.h" // I3：精确名称集合（isMapDisplayTool）与五工具声明
+#include "capabilityinspectiontool.h" // I5：能力目录只读检查工具（paleo.capability_inspect）
+#include "navigationtools.h" // I4：精确名称集合（isNavigationTool）与六工具声明
+#include "unitonnxtools.h" // I2：unit.onnx_predict（工具工厂与形状/就绪校验在本文件族）
 #include "../../domain/wellfaciesrequest.h"
 #include "../../domain/wellref.h"
 #include "../../services/projectquerytopics.h"
@@ -276,6 +280,10 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
     if (!known)
       return QObject::tr("未知参数 %1").arg(it.key());
   }
+  // 通用字段（必填/类型/枚举/未知键）先过，再查 I2 的内容形状（阶段相关
+  // 的 inputs 结构、契约版本与绑定模式）。
+  if (isUnitOnnxTool(name))
+    return validateUnitOnnxToolArguments(arguments);
   return QString();
 }
 
@@ -587,8 +595,16 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   // I1 地统计原子工具（paleo.geostat_kriging / paleo.geostat_sgs）。
   specs.append(paleo::geostat_atom::geostatAtomToolSpecs());
   appendAgentOperationTools(specs);
+  // I3：地图显示原子（受管图层目录/可见性/透明度/受限样式，精确五名）。
+  appendAgentMapDisplayTools(specs);
+  // I4：语义导航原子（井/地震/地图的业务身份选择、定位与原生预览打开，
+  // 精确六名）。
+  appendAgentNavigationTools(specs);
+  appendAgentUnitOnnxTools(specs);
   // H5：纯预检提案工具（只 decode+validate，执行入口在原生审阅面板）。
   paleo::chat::appendAgentPlanPreviewTool(specs);
+  // I5：能力目录只读检查工具（list/describe/check 纯静态合同与候选预检）。
+  paleo::chat::appendCapabilityInspectionTool(specs);
   AiToolSpec environment;environment.name="paleo.python_environment";
   environment.title=QObject::tr("Python 环境状态");
   environment.description=QObject::tr("核验宿主配置的 analysis-core 可选 Python 环境，报告缺项与版本。不安装环境，不执行用户或生成代码，不授予发布权限。");
@@ -609,7 +625,7 @@ AiToolSpec aiToolSpec(const QString &name) {
 bool isAiCapabilityTool(const QString &name) {
   return isPythonAnalysisTool(name) || name == QLatin1String("paleo.depth_convert_batch") ||
          name == QLatin1String("paleo.seismic_attribute_group") ||
-         name == QLatin1String("paleo.constraint_idw") ||
+         name == QLatin1String("paleo.constraint_idw") || isUnitOnnxTool(name) ||
          paleo::geostat_atom::isGeostatAtomTool(name);
 }
 
@@ -640,6 +656,24 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.note = invalid;
     return out;
   }
+  // I3：地图显示原子——精确名称集合（isMapDisplayTool），先于任何前缀
+  // 分派；I4 的 paleo.map_locate 不被本族吞掉（未登记 = NotFound）。
+  if(paleo::agent::mapdisplay::isMapDisplayTool(name)) {
+    out.target=QStringLiteral("qgis/agentmapdisplayadapter + workflow/aichattoolrunner_display");
+    out.status=AiToolDispatchStatus::Routed;
+    out.note=QObject::tr("受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 "
+                         "Read|Presentation 门，回执回读原生状态且未保存工程文件");
+    return out;
+  }
+  // I4：语义导航原子——精确名称集合（isNavigationTool），先于任何前缀
+  // 分派；I3 的 paleo.map_layer* 显示族不被本族吞掉（未登记 = NotFound）。
+  if(paleo::agent::navigation::isNavigationTool(name)) {
+    out.target=QStringLiteral("workflow/agentnavigation + qgis/agentmapnavigation + ui/agentnavigationadapter");
+    out.status=AiToolDispatchStatus::Routed;
+    out.note=QObject::tr("按业务身份选择井/定位地图/打开固定版本井资料与地震测线："
+                         "临时视图导航，效果恒 Read，不写目录不改显示样式");
+    return out;
+  }
   if(name.startsWith(QLatin1String("paleo.operation_")) || name==QLatin1String("paleo.tile_classification_v2")) {
     out.target=QStringLiteral("workflow/CapabilityRecovery");out.status=AiToolDispatchStatus::Routed;return out;
   }
@@ -652,6 +686,14 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.target=QStringLiteral("workflow/aichattoolrunner_plan:runPlanPreview");
     out.status=AiToolDispatchStatus::Routed;
     out.note=QObject::tr("只提出并检查计划，等待用户在原生面板明确计算");
+    return out;
+  }
+  if(name==QLatin1String(paleo::chat::kCapabilityInspectTool)) {
+    // I5：能力目录只读检查——list/describe/check 在 runner 专属分支执行；
+    // 纯注册表投影+纯验证器，不 prepare/start、不发放执行票据。
+    out.target=QStringLiteral("workflow/aichattoolrunner_capabilities:runCapabilityInspection");
+    out.status=AiToolDispatchStatus::Routed;
+    out.note=QObject::tr("只读能力目录与候选参数预检；执行仍由原工具与宿主门禁决定");
     return out;
   }
   if (name == QStringLiteral("paleo.tile_classification")) {

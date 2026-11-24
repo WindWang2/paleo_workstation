@@ -24,6 +24,9 @@ class WellMapLink : public QObject
 
     void setWellLayer(QgsVectorLayer *layer, const QString &idField = QStringLiteral("id"));
     QgsVectorLayer *wellLayer() const;
+    // I4：井层原生选中集计数（Agent 井选择回读事实；-1 = 层未绑定）。
+    // ui 侧经此只读出口取数，不直连 qgs* 头（qgs-audit/qgis-spread 闸）。
+    int selectedWellFeatureCount() const;
 
   private slots:
     void onContextSelection(const QStringList &ids, const QString &origin);

@@ -143,3 +143,8 @@ QgsVectorLayer *WellMapLink::wellLayer() const
 {
   return m_layer.data();
 }
+
+int WellMapLink::selectedWellFeatureCount() const
+{
+  return m_layer ? int(m_layer->selectedFeatureCount()) : -1;
+}

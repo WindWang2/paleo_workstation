@@ -230,7 +230,12 @@ void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation", "paleo.python_compute",
     "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
-    "paleo.operation_list",
+    "paleo.operation_list", "paleo.capability_inspect",
+    "paleo.map_layers", "paleo.map_layer_get", "paleo.map_layer_set_visibility",
+    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style",
+    "paleo.navigation_state", "paleo.select_wells", "paleo.clear_well_selection",
+    "paleo.map_locate", "paleo.open_well_view", "paleo.open_seismic_line",
+    "paleo.unit_onnx_predict", // I2：地层单元 ONNX 原子
     // I1：地统计原子工具。
     "paleo.geostat_kriging", "paleo.geostat_sgs"};
   names.sort();expected.sort();

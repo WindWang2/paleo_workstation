@@ -2463,14 +2463,14 @@ private slots:
     QVERIFY2(!draft.isEmpty(), qPrintable(error));
     page.refresh();
     hint = page.findChild<QLabel *>("mappingTaskHint");
-    QVERIFY2(hint->text().contains(QStringLiteral("分割")), qPrintable(hint->text()));
+    QVERIFY2(hint->text().contains(QStringLiteral("直接绘制")), qPrintable(hint->text()));
     QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 1);
     auto *editStep = page.findChild<QPushButton *>("mappingTaskStep.edit");
-    QVERIFY(editStep->property("taskBlocked").toBool());
+    QVERIFY(!editStep->property("taskBlocked").toBool());
     QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
-             QStringLiteral("editBasisText"));
+             QStringLiteral("workbenchResults"));
 
-    // The real newMap command enters editing before the user enables evidence.
+    // The real newMap command enters editing without requiring an edit basis first.
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
     QVERIFY2(layer, qPrintable(error));
     QVERIFY(layer->startEditing());
@@ -2481,43 +2481,42 @@ private slots:
     QVERIFY(!f.work.versionForLayer(draft).id.isEmpty());
     QVERIFY(!page.findChild<QPushButton *>("workbench.exportVector")->isEnabled());
     QVERIFY(!page.findChild<QPushButton *>("workbench.exportMap")->isEnabled());
+    QVERIFY(!f.work.needsEditEvidence(draft));
+
+    // Painting works directly without enabling manual evidence; stage moves to deliver (2).
+    const auto outline = QgsGeometry::fromWkt("POLYGON((0 0,100 0,100 100,0 100,0 0))");
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    QVERIFY(f.work.hasUnpublishedChanges(draft));
+    hint = page.findChild<QLabel *>("mappingTaskHint");
+    QVERIFY2(hint->text().contains(QStringLiteral("检查")), qPrintable(hint->text()));
+    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 2);
+    QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
+             QStringLiteral("workbench.checkTopology"));
+    auto *guide = page.findChild<QWidget *>("mappingTaskGuide");
+    layer->undoStack()->undo();
+    QTRY_COMPARE(guide->property("stage").toInt(), 1);
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QVERIFY(f.work.hasUnpublishedEdits(draft));
+    layer->undoStack()->redo();
+    QTRY_COMPARE(guide->property("stage").toInt(), 2);
+    QVERIFY(layer->rollBack());
+    QTRY_COMPARE(guide->property("stage").toInt(), 1);
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+
+    // Optional manual edit basis drift updates hint without blocking edit stage.
     const QString text = QStringLiteral("砂厚高值区与井相支持河道展布");
     const QString reason = QStringLiteral("调整河道边界");
     page.findChild<QPlainTextEdit *>("editBasisText")->setPlainText(text);
     page.findChild<QLineEdit *>("editBasisReason")->setText(reason);
     QVERIFY2(f.work.setEditEvidence("D61", {{"text", text}, {"reason", reason}}, &error),
              qPrintable(error));
-    hint = page.findChild<QLabel *>("mappingTaskHint");
-    QVERIFY2(hint->text().contains(QStringLiteral("可以分割")), qPrintable(hint->text()));
-    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 2);
-    QVERIFY(!editStep->property("taskBlocked").toBool());
-
+    QCOMPARE(guide->property("stage").toInt(), 1);
     page.findChild<QLineEdit *>("editBasisReason")->setText(QStringLiteral("改了但还没启用"));
-    hint = page.findChild<QLabel *>("mappingTaskHint");
     QVERIFY2(hint->text().contains(QStringLiteral("重新启用")), qPrintable(hint->text()));
-    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 1);
+    QCOMPARE(guide->property("stage").toInt(), 1);
     page.findChild<QLineEdit *>("editBasisReason")->setText(reason);
-    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 2);
-
-    const auto outline = QgsGeometry::fromWkt("POLYGON((0 0,100 0,100 100,0 100,0 0))");
-    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
-    QVERIFY(f.work.hasUnpublishedChanges(draft));
-    hint = page.findChild<QLabel *>("mappingTaskHint");
-    QVERIFY2(hint->text().contains(QStringLiteral("检查")), qPrintable(hint->text()));
-    QCOMPARE(page.findChild<QWidget *>("mappingTaskGuide")->property("stage").toInt(), 3);
-    QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
-             QStringLiteral("workbench.checkTopology"));
-    auto *guide = page.findChild<QWidget *>("mappingTaskGuide");
-    layer->undoStack()->undo();
-    QTRY_COMPARE(guide->property("stage").toInt(), 2);
-    QVERIFY(!f.work.hasUnpublishedChanges(draft));
-    QVERIFY(f.work.hasUnpublishedEdits(draft));
-    layer->undoStack()->redo();
-    QTRY_COMPARE(guide->property("stage").toInt(), 3);
-    QVERIFY(layer->rollBack());
-    QTRY_COMPARE(guide->property("stage").toInt(), 2);
-    QVERIFY(!f.work.hasUnpublishedChanges(draft));
-    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+    QCOMPARE(guide->property("stage").toInt(), 1);
   }
   void taskGuideIgnoresWellPredictionDrafts() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -2555,19 +2554,19 @@ private slots:
         {"reason", "Refine boundary"}}, &error), qPrintable(error));
     QVERIFY(f.work.setDisplayMode(draft, "micro_facies", &error));
     auto *guide = page.findChild<QWidget *>("mappingTaskGuide"); QVERIFY(guide);
-    QCOMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(guide->property("stage").toInt(), 1);
     const auto originalLegend = f.work.displayLegend(draft);
     QgsFeature feature; auto features = layer->getFeatures(); QVERIFY(features.nextFeature(feature)); features.close();
     QVERIFY2(f.work.setFeatureDisplayMode(draft, {feature.id()}, "facies", &error), qPrintable(error));
-    QCOMPARE(guide->property("stage").toInt(), 3);
+    QCOMPARE(guide->property("stage").toInt(), 2);
     QVERIFY(f.work.displayLegend(draft) != originalLegend);
     layer->undoStack()->undo();
-    QTRY_COMPARE(guide->property("stage").toInt(), 2);
+    QTRY_COMPARE(guide->property("stage").toInt(), 1);
     QCOMPARE(f.work.displayLegend(draft), originalLegend);
     layer->undoStack()->redo();
-    QTRY_COMPARE(guide->property("stage").toInt(), 3);
-    QVERIFY(layer->rollBack());
     QTRY_COMPARE(guide->property("stage").toInt(), 2);
+    QVERIFY(layer->rollBack());
+    QTRY_COMPARE(guide->property("stage").toInt(), 1);
     QCOMPARE(f.work.displayLegend(draft), originalLegend);
   }
   void committedDisplayLocksStayPendingUntilVersionRegistration() {
@@ -2588,7 +2587,7 @@ private slots:
     QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
     QVERIFY(!f.work.hasUnpublishedEdits(draft));
     QVERIFY(!f.work.hasUnpublishedChanges(draft));
-    QCOMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(guide->property("stage").toInt(), 1);
 
     QgsFeature feature; auto features = layer->getFeatures(); QVERIFY(features.nextFeature(feature)); features.close();
     QVERIFY2(f.work.setFeatureDisplayMode(draft, {feature.id()}, "facies", &error), qPrintable(error));
@@ -2598,7 +2597,7 @@ private slots:
     QVERIFY(!layer->isEditable());
     QVERIFY(f.work.hasUnpublishedEdits(draft));
     QVERIFY(f.work.hasUnpublishedChanges(draft));
-    QCOMPARE(guide->property("stage").toInt(), 3);
+    QCOMPARE(guide->property("stage").toInt(), 2);
     QVERIFY(!exportVector->isEnabled()); QVERIFY(!exportMap->isEnabled());
 
     // Switching the selected copy must not lose the committed publication state.
@@ -2612,7 +2611,7 @@ private slots:
     QVERIFY(layer->rollBack());
     QCOMPARE(f.work.featureDisplayMode(draft, feature.id()), QString("facies"));
     QVERIFY(f.work.hasUnpublishedChanges(draft));
-    QCOMPARE(guide->property("stage").toInt(), 3);
+    QCOMPARE(guide->property("stage").toInt(), 2);
 
     const auto catalogSql = [&f](const QString &command) {
       const auto connection = QStringLiteral("mapping-version-fault");
@@ -2631,7 +2630,7 @@ private slots:
     QCOMPARE(f.work.versionForLayer(draft).id, previous.id);
     QCOMPARE(f.work.featureDisplayMode(draft, feature.id()), QString("facies"));
     QVERIFY(f.work.hasUnpublishedEdits(draft));
-    QCOMPARE(guide->property("stage").toInt(), 3);
+    QCOMPARE(guide->property("stage").toInt(), 2);
     QVERIFY(!exportVector->isEnabled()); QVERIFY(!exportMap->isEnabled());
     QVERIFY(catalogSql(QStringLiteral("DROP TRIGGER reject_version")));
     error.clear();
@@ -2640,7 +2639,7 @@ private slots:
     QCOMPARE(saved.extra.value("spatial_edit_events").toList(), previous.extra.value("spatial_edit_events").toList());
     QVERIFY(!f.work.hasUnpublishedEdits(draft));
     QVERIFY(!f.work.hasUnpublishedChanges(draft));
-    QCOMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(guide->property("stage").toInt(), 1);
     QVERIFY(exportVector->isEnabled()); QVERIFY(exportMap->isEnabled());
     QgsVectorLayer snapshot(DataCatalog::resolvedVersionPath(f.dir.path(), saved) + "|layername=features", "saved", "ogr");
     QVERIFY(snapshot.isValid());
@@ -2681,7 +2680,7 @@ private slots:
     page.refresh();
     QVERIFY(!f.layers.isInstantiated(draft));
     QCOMPARE(guide->property("stage").toInt(), 1);
-    QVERIFY(page.findChild<QPushButton *>("mappingTaskStep.edit")->property("taskBlocked").toBool());
+    QVERIFY(!page.findChild<QPushButton *>("mappingTaskStep.edit")->property("taskBlocked").toBool());
   }
   void taskGuideTracksReferenceReplacementAndClear() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -2693,22 +2692,27 @@ private slots:
     page.setHorizon("D61");
     auto *basis = page.findChild<MappingEditBasis *>(); QVERIFY(basis);
     auto *guide = page.findChild<QWidget *>("mappingTaskGuide"); QVERIFY(guide);
+    auto *hint = page.findChild<QLabel *>("mappingTaskHint"); QVERIFY(hint);
     const QVariantList references{QVariantMap{{"name", "reference"}, {"version_id", version}}};
     basis->setReferences(references);
     page.findChild<QPlainTextEdit *>("editBasisText")->setPlainText("Observed facies");
     page.findChild<QLineEdit *>("editBasisReason")->setText("Refine boundary");
     QVERIFY2(f.work.setEditEvidence("D61", {{"text", "Observed facies"},
         {"reason", "Refine boundary"}, {"source_versions", QStringList{version}}}, &error), qPrintable(error));
-    QCOMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(guide->property("stage").toInt(), 1);
+    QVERIFY(!hint->text().contains(QStringLiteral("重新启用")));
 
     // setReferences inserts each item before assigning its version ID. The final
-    // dataChanged must restore the ready state when the same evidence is captured.
+    // dataChanged must clear the drift warning when the same evidence is captured.
     basis->setReferences(references);
-    QCOMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(guide->property("stage").toInt(), 1);
+    QVERIFY(!hint->text().contains(QStringLiteral("重新启用")));
     basis->setReferences({});
     QCOMPARE(guide->property("stage").toInt(), 1);
+    QVERIFY(hint->text().contains(QStringLiteral("重新启用")));
     basis->setReferences(references);
-    QCOMPARE(guide->property("stage").toInt(), 2);
+    QCOMPARE(guide->property("stage").toInt(), 1);
+    QVERIFY(!hint->text().contains(QStringLiteral("重新启用")));
   }
   void taskGuideDisconnectsBeforePageChildrenAreDestroyed() {
     Fixture f; QVERIFY(f.init());
@@ -2814,13 +2818,17 @@ private slots:
     QTRY_VERIFY(dock->isVisible()); QCOMPARE(tabs->currentWidget(), page);
     QTRY_VERIFY(text->hasFocus());
     QVERIFY(scroll->viewport()->rect().intersects(QRect(text->mapTo(scroll->viewport(), QPoint(0, 0)), text->size())));
-    QVERIFY(f.work.needsEditEvidence(draft)); QVERIFY(edit->actionPaintFacies()->isEnabled());
+    // Mapping no longer requires pre-filled edit basis before drawing.
+    QVERIFY(!f.work.needsEditEvidence(draft)); QVERIFY(edit->actionPaintFacies()->isEnabled());
     tabs->setCurrentIndex(1); dock->hide();
     edit->actionPaintFacies()->trigger();
+    QVERIFY(qobject_cast<FaciesPartitionTool *>(controller.canvas()->mapTool()));
+    QVERIFY(edit->actionPaintFacies()->isChecked()); QVERIFY(layer->isEditable());
+    QVERIFY2(FaciesPartitionEditor::paint(layer, QgsGeometry::fromRect(QgsRectangle(0, 0, 100, 100)), 1, &error), qPrintable(error));
+    QCOMPARE(layer->featureCount(), 1);
+    // Optional manual edit basis remains reachable via ribbon entry and records manual text when armed.
+    entry->trigger();
     QTRY_VERIFY(dock->isVisible()); QTRY_VERIFY(text->hasFocus());
-    QVERIFY(!qobject_cast<FaciesPartitionTool *>(controller.canvas()->mapTool()));
-    QVERIFY(!edit->actionPaintFacies()->isChecked()); QVERIFY(!layer->isEditable());
-    QCOMPARE(layer->featureCount(), 0);
     const auto qa = qEnvironmentVariable("PALEO_MAPPING_BASIS_QA_DIR");
     if (!qa.isEmpty()) { QDir().mkpath(qa); QVERIFY(window.grab().save(qa + "/explanation-entry.png")); }
     text->setPlainText(QStringLiteral("测试观察：依据当前层位的井相与砂地比调整相界"));
@@ -2828,16 +2836,17 @@ private slots:
     auto *apply = page->commandButton("setEditEvidence"); QVERIFY(apply); QVERIFY(!apply->isEnabled());
     reason->setText(QStringLiteral("测试工作副本：绘制首个相面"));
     QVERIFY(apply->isEnabled()); apply->click(); QVERIFY(!f.work.needsEditEvidence(draft));
-    edit->actionPaintFacies()->trigger(); QVERIFY(qobject_cast<FaciesPartitionTool *>(controller.canvas()->mapTool()));
-    QVERIFY2(FaciesPartitionEditor::paint(layer, QgsGeometry::fromRect(QgsRectangle(0, 0, 100, 100)), 1, &error), qPrintable(error));
-    QCOMPARE(layer->featureCount(), 1);
+    QVERIFY2(FaciesPartitionEditor::paint(layer, QgsGeometry::fromRect(QgsRectangle(40, 0, 60, 100)), 2, &error), qPrintable(error));
     const auto evidence = f.work.featureEvidence(draft, layer->selectedFeatureIds().values());
     QVERIFY(!evidence.value("records").toList().isEmpty());
-    QCOMPARE(evidence.value("records").toList().first().toMap().value("text").toString().section('\n', 0, 0), text->toPlainText());
+    bool sawManual = false;
+    for (const auto &rec : evidence.value("records").toList())
+      sawManual |= rec.toMap().value("text").toString().section('\n', 0, 0) == text->toPlainText();
+    QVERIFY(sawManual);
     if (!qa.isEmpty()) { QCoreApplication::processEvents(); QVERIFY(window.grab().save(qa + "/explanation-enabled.png")); }
     f.work.clearEditEvidence();
-    edit->actionVertexEdit()->trigger(); QTRY_VERIFY(text->hasFocus());
-    QVERIFY(!qobject_cast<PaleoVertexTool *>(controller.canvas()->mapTool())); QCOMPARE(layer->featureCount(), 1);
+    edit->actionVertexEdit()->trigger();
+    QVERIFY(qobject_cast<PaleoVertexTool *>(controller.canvas()->mapTool()));
     QVERIFY(edit->cancelEditing());
   }
   void analysisUnitBlankMapUsesFrozenSchemeIdentity() {
@@ -2871,17 +2880,12 @@ private slots:
     QVERIFY(layer->fields().indexOf("microfacies") >= 0);
     QVERIFY(layer->startEditing());
     const auto outline = QgsGeometry::fromWkt("POLYGON((0 0,100 0,100 100,0 100,0 0))");
-    QVERIFY(!FaciesPartitionEditor::paint(layer, outline, 1, &error));
-    QVERIFY(error.contains(QStringLiteral("依据"))); QCOMPARE(layer->featureCount(), 0);
+    // Blank map painting succeeds immediately without requiring pre-filled edit evidence.
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    QCOMPARE(layer->featureCount(), 1);
     QVERIFY(!f.work.setEditEvidence("D61", {{"text", "observation"}}, &error));
     const QVariantMap context{{"text", "well and sand thickness observation"}, {"reason", "draw initial outline"}};
     QVERIFY2(f.work.setEditEvidence("D61", context, &error), qPrintable(error));
-    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
-    QCOMPARE(layer->featureCount(), 1);
-    auto selected = layer->selectedFeatureIds().values(); QCOMPARE(selected.size(), 1);
-    const auto evidence = f.work.featureEvidence(draft, selected);
-    QCOMPARE(evidence.value("records").toList().size(), 1);
-    QCOMPARE(evidence.value("records").toList().first().toMap().value("role").toString(), QString("SUPPORTED_BY"));
     QVERIFY(f.work.hasUnpublishedEdits(draft));
     layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), 0);
     QVERIFY2(FaciesPartitionEditor::validate(layer, &error), qPrintable(error));
@@ -2893,7 +2897,7 @@ private slots:
     QVERIFY(FaciesPartitionState::hasFrozenFootprint(layer));
     const auto version = f.work.versionForLayer(draft);
     QVERIFY(!version.extra.value("partition_footprint_path").toString().isEmpty());
-    QVERIFY(version.extra.value("requires_edit_evidence").toBool());
+    QVERIFY(!version.extra.value("requires_edit_evidence").toBool());
     { DataExportDialog dialog(&f.catalog, {version.assetId}, nullptr, nullptr, {initial.id});
       QCOMPARE(dialog.request().versionIds, QStringList{initial.id}); }
     QVERIFY(layer->startEditing());
@@ -2919,8 +2923,10 @@ private slots:
     QVERIFY(layer->startEditing()); QgsFeature face; auto iterator = layer->getFeatures();
     QVERIFY(iterator.nextFeature(face)); iterator.close();
     const int original = face.attribute("facies_code").toInt(), next = original == 1 ? 2 : 1;
+    f.work.setManualEvidenceRequired(true);
     QVERIFY(!f.work.assignHierarchy(draft, {face.id()}, next, "micro_facies", &error));
     QCOMPARE(layer->getFeature(face.id()).attribute("facies_code").toInt(), original);
+    f.work.setManualEvidenceRequired(false);
     QVERIFY(!f.work.setEditEvidence("D61", {{"text", "test"}, {"reason", "test"}, {"source_versions", QStringList{"missing"}}}, &error));
     const QVariantMap context{{"text", "observed channel boundary"}, {"reason", "revise microfacies"},
         {"source_versions", QStringList{reference.id, reference.id}}};

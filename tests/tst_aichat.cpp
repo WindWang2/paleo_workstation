@@ -353,8 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  // I1：paleo.geostat_kriging / paleo.geostat_sgs 加入后 26→28。
-  QCOMPARE(tools.size(), 28);
+  QCOMPARE(tools.size(), 41); // I3(+5) + I5(+1) + I4(+6) + I2(+1) + I1(+2)
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -363,13 +362,18 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     const auto inputSchema=spec.toJsonSchema();
     const auto properties=inputSchema.value("properties").toObject();
     const auto required=inputSchema.value("required").toArray();
-    if(spec.name==QLatin1String("paleo.python_environment")) {
+    if(spec.name==QLatin1String("paleo.python_environment")||
+       spec.name==QLatin1String("paleo.navigation_state")) {
+      // 无参状态查询（I4 navigation_state 与 python_environment 同口径）。
       QVERIFY(properties.isEmpty());QVERIFY(required.isEmpty());
     } else {
       QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");
-      // H4：operation_list 是唯一不要求任何必填实参的有参工具（发现不以已知
-      // operation_id 为起点）；其余工具仍须至少一个必填项。
-      QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list"),"工具必须有必填参数");
+      // H4：operation_list 是不要求任何必填实参的有参工具（发现不以已知
+      // operation_id 为起点）；I3 的 map_layers、I4 的 clear_well_selection
+      // 同样无需必填实参；其余工具仍须至少一个必填项。
+      QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list") ||
+               spec.name==QLatin1String("paleo.map_layers") ||
+               spec.name==QLatin1String("paleo.clear_well_selection"),"工具必须有必填参数");
     }
     for(const auto &key:required)QVERIFY(properties.contains(key.toString()));
     QCOMPARE(inputSchema.value("additionalProperties"),QJsonValue(false));
@@ -396,7 +400,13 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
     "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
-    "paleo.operation_list",
+    "paleo.operation_list", "paleo.capability_inspect",
+    "paleo.map_layers", "paleo.map_layer_get", "paleo.map_layer_set_visibility",
+    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style",
+    // I4：语义导航原子（精确六名）。
+    "paleo.navigation_state", "paleo.select_wells", "paleo.clear_well_selection",
+    "paleo.map_locate", "paleo.open_well_view", "paleo.open_seismic_line",
+    "paleo.unit_onnx_predict", // I2：地层单元 ONNX 原子
     // I1：地统计原子工具。
     "paleo.geostat_kriging", "paleo.geostat_sgs"};
   names.sort();expected.sort();

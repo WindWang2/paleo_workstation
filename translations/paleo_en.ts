@@ -13370,6 +13370,70 @@ Crossline: %3 ~ %4</source>
         </message>
     </context>
     <context>
+        <name>GeostatAtomSpec</name>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="60"/>
+        <source>随机种子（十进制字符串，精确往返）</source>
+        <translation>Random seed (decimal string, exact round trip)</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="70"/>
+        <source>变差模型类型</source>
+        <translation>Variogram model type</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="87"/>
+        <source>块金值（≥0）</source>
+        <translation>Nugget (≥0)</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="89"/>
+        <source>部分基台（&gt;0，总基台=块金+部分基台）</source>
+        <translation>Partial sill (>0; total sill = nugget + partial sill)</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="91"/>
+        <source>变程（&gt;0，投影平面米制）</source>
+        <translation>Range (>0, projected planar metres)</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="93"/>
+        <source>各向异性比（≥1，1=各向同性）</source>
+        <translation>Anisotropy ratio (≥1; 1 = isotropic)</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="95"/>
+        <source>长轴方位角（度，[0,360)）</source>
+        <translation>Long-axis azimuth (degrees, [0,360))</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="157"/>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="177"/>
+        <source>邻域点数上限 [1,64]</source>
+        <translation>Maximum neighbourhood points [1,64]</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="160"/>
+        <source>半径模式最少邻点 [1,64]（仅 SEARCH_RADIUS&gt;0 生效）</source>
+        <translation>Minimum neighbours in radius mode [1,64] (only when SEARCH_RADIUS>0)</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="163"/>
+        <source>搜索半径（米，0=纯最近邻）</source>
+        <translation>Search radius (metres; 0 = nearest neighbours only)</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="173"/>
+        <source>实现次数 [1,64]</source>
+        <translation>Number of realizations [1,64]</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="180"/>
+        <source>搜索半径（米，0=全局最近邻）</source>
+        <translation>Search radius (metres; 0 = global nearest neighbours)</translation>
+    </message>
+    </context>
+    <context>
         <name>HorizonChipBar</name>
         <message>
             <location filename="../src/ui/horizonchipbar.cpp" line="87" />
@@ -39324,6 +39388,161 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="43"/>
+        <source>prepare：物化样本快照并冻结计划；compute-only：按冻结计划计算；publish：发布已计算结果（只给 source_operation_id）</source>
+        <translation>prepare: materialize the sample snapshot and freeze the plan; compute-only: compute from the frozen plan; publish: publish an already computed result (source_operation_id only)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="49"/>
+        <source>科学参数（形状见本 schema 的 parameters.properties）。默认值只来自 AlgorithmSpec，不在工具描述里复制；compute-only 继承时应省略</source>
+        <translation>Scientific parameters (shape: parameters.properties of this schema). Defaults come only from AlgorithmSpec and are not copied into the tool description; omit them when inheriting with compute-only</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="53"/>
+        <source>显式输入引用与冻结值（形状见本 schema 的 inputs.properties）</source>
+        <translation>Explicit input references and frozen values (shape: inputs.properties of this schema)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="94"/>
+        <source>变差模型类型（缺省 spherical）</source>
+        <translation>Variogram model type (default spherical)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="95"/>
+        <source>块金值（≥0，缺省 0）</source>
+        <translation>Nugget (≥0, default 0)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="96"/>
+        <source>部分基台（&gt;0，缺省 1；总基台=块金+部分基台）</source>
+        <translation>Partial sill (>0, default 1; total sill = nugget + partial sill)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="98"/>
+        <source>变程（&gt;0 米，缺省 1；首版无自动拟合）</source>
+        <translation>Range (>0 metres, default 1; no automatic fitting in this version)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="101"/>
+        <source>各向异性比（≥1，缺省 1=各向同性）</source>
+        <translation>Anisotropy ratio (≥1, default 1 = isotropic)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="103"/>
+        <source>长轴方位角（度 [0,360)，缺省 0）</source>
+        <translation>Long-axis azimuth (degrees [0,360), default 0)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="114"/>
+        <source>显式计算网格（样本投影坐标系，米制）：extent + 像元尺寸；网格覆盖整个 extent，跨度非整数倍时东/南边界最多外扩一个像元；不接受任意 WKT 或绝对输出路径</source>
+        <translation>Explicit computation grid (sample projected CRS, metres): extent + cell size; the grid covers the whole extent and its east/south edges may extend by at most one cell when the span is not a whole multiple; arbitrary WKT and absolute output paths are not accepted</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="121"/>
+        <source>西边界（米，有限数）</source>
+        <translation>West edge (metres, finite number)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="122"/>
+        <source>东边界（米，&gt;min_x）</source>
+        <translation>East edge (metres, >min_x)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="123"/>
+        <source>南边界（米，有限数）</source>
+        <translation>South edge (metres, finite number)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="124"/>
+        <source>北边界（米，&gt;min_y）</source>
+        <translation>North edge (metres, >min_y)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="125"/>
+        <source>像元尺寸（米，&gt;0）</source>
+        <translation>Cell size (metres, >0)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="133"/>
+        <source>邻域点数上限（缺省 16）</source>
+        <translation>Maximum neighbourhood points (default 16)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="135"/>
+        <source>搜索半径（米，≥0，0=纯最近邻；缺省 0）</source>
+        <translation>Search radius (metres, ≥0; 0 = nearest neighbours only; default 0)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="140"/>
+        <source>半径模式最少邻点（缺省 4；仅 SEARCH_RADIUS&gt;0 时生效，邻点不足的格点为 NoData）</source>
+        <translation>Minimum neighbours in radius mode (default 4; only when SEARCH_RADIUS>0; cells with fewer neighbours are NoData)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="146"/>
+        <source>实现次数（缺省 4；仅开放 OUTPUT/STD，不交付个体实现成员）</source>
+        <translation>Number of realizations (default 4; only OUTPUT/STD are delivered, individual realization members are not)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="152"/>
+        <source>随机种子（十进制字符串，缺省 "42"；同 seed 同输入逐字节复现）</source>
+        <translation>Random seed (decimal string, default "42"; the same seed and input reproduce byte for byte)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="164"/>
+        <source>%1（单位 %2，字段 %3）</source>
+        <translation>%1 (unit %2, field %3)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="170"/>
+        <source>受管点样本引用："catalog:&lt;versionId&gt;" 或受管井点层键（如 wells.T70）。宿主解析并核验其与单元的关联，不信任路径自称</source>
+        <translation>Managed point-sample reference: "catalog:&lt;versionId&gt;" or a managed well layer key (e.g. wells.T70). The host resolves it and verifies its association with the unit; a path is not trusted on its own say-so</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="177"/>
+        <source>样本因子的单因素词表 id：数值单位与字段取词表已确认值（%1）；词表单位未确认的因子须先在既有词表补齐，本工具不猜单位</source>
+        <translation>Single-factor vocabulary id of the sample factor: the value unit and field come from the confirmed vocabulary values (%1); factors whose unit is not confirmed in the vocabulary must be completed there first — this tool does not guess units</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="179"/>
+        <source>；</source>
+        <translation>; </translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="182"/>
+        <source>数值字段名（可省略=因子登记字段；给出时须与登记字段相同）</source>
+        <translation>Numeric field name (optional = the factor's registered field; if given it must equal the registered field)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="187"/>
+        <source>分析单元身份（S1–S4 子层段）；宿主做 Data Service 实体核验，Boundary/Interval/aggregate 拒绝。revision 省略=当前头修订，给出即冻结到该修订</source>
+        <translation>Analysis unit identity (S1–S4 sub-interval); the host verifies it against Data Service entities and rejects Boundary/Interval/aggregate. Omit revision = current head revision; give it to freeze that revision</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="201"/>
+        <source>compute-only：先前 prepare 操作的持久 operationId（此时不接受其他业务输入，parameters 应省略）；publish：已计算操作的 operationId（唯一输入）</source>
+        <translation>compute-only: durable operationId of the earlier prepare operation (no other business inputs are accepted then and parameters should be omitted); publish: operationId of the computed operation (the only input)</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="218"/>
+        <source>地统计普通克里金</source>
+        <translation>Geostatistical ordinary kriging</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="219"/>
+        <source>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</source>
+        <translation>Ordinary kriging of managed well-point samples (OUTPUT estimate + VARIANCE kriging-variance rasters); results are catalog-managed versions and are not displayed automatically. Unconstrained geostatistics: project constraints, barriers and covariates are not consumed. prepare materializes the sample snapshot and returns the frozen plan (sample count/unit/grid/resource estimate); compute-only computes from the frozen plan; publish only publishes an already computed result.</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="224"/>
+        <source>序贯高斯模拟</source>
+        <translation>Sequential Gaussian simulation</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="225"/>
+        <source>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</source>
+        <translation>Seeded sequential Gaussian simulation of managed well-point samples (OUTPUT mean + STD simulation-spread raster; STD is the dispersion between realizations, not a kriging variance, confidence or pass threshold); results are catalog-managed versions and are not displayed automatically. This version freezes persistRealizations=false: no MEMBER_n realization files are produced. Unconstrained geostatistics, the same scope as the kriging tool.</translation>
     </message>
     <message>
         <source>地层单元 ONNX 预测</source>

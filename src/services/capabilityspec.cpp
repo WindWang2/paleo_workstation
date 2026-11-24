@@ -10,6 +10,7 @@
 #include "pythontableoutputspec.h"
 #include "pythongeneratedoutputspec.h"
 #include "unitonnxcapabilityspec.h"
+#include "geostaticapabilityspec.h"
 
 namespace {
 
@@ -66,6 +67,10 @@ const QVector<CapabilitySpec> &table() {
       make(QStringLiteral("singlefactor.contours"), CapabilityKind::Compute, QStringLiteral("native:factor_contour"),
            CapabilityExposure::Callable, QStringLiteral("reads an issued raster result and extracts fixed-level contours"),
            {}, {QStringLiteral("global")}),
+      // I1 地统计原子：引用 geostat v2 精确算法契约（显式变差参数；旧 v1
+      // 保持 UI 语义不动）。工厂与语义见 services/geostaticapabilityspec。
+      paleo::geostat_atom::krigingCapabilitySpec(),
+      paleo::geostat_atom::sgsCapabilitySpec(),
       wellFaciesAdapter(),
       paleo::python::summaryCapabilitySpec(),
       paleo::python::analysisCapabilitySpec(paleo::python::AnalysisKind::WellQuality),
@@ -174,7 +179,11 @@ QStringList CapabilityRegistry::aliasCollisions() {
 
 CapabilityExposure CapabilityRegistry::exposureForAlgorithm(const QString &algorithmId, QString *reason) {
   for (const CapabilitySpec &spec : table()) {
-    if (spec.algorithmId == algorithmId) {
+    // 版本精确：能力行引用的算法版本须等于该算法的默认版本（spec(id) 首项），
+    // 才算「该算法对 Agent 可调用」——同 id 的其他 exact-version 描述（如 I1
+    // 的 geostat v2）只经其能力行暴露，不把旧版本算法标成 callable。
+    if (spec.algorithmId == algorithmId &&
+        spec.algorithmContractVersion == AlgorithmSpecRegistry::spec(algorithmId).contractVersion) {
       if (reason)
         *reason = spec.exposureReason;
       return spec.exposure;

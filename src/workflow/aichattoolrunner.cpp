@@ -4,6 +4,8 @@
 #include "services/projectquerycapability.h"
 #include "capabilitytaskrunner.h"
 #include "wellfaciesreplay.h"
+#include "geostatatomoperation.h" // I1：地统计原子回包的冻结计划事实投影
+#include "ai/chat/geostatictools.h"
 #include <QDir>
 
 #include <QJsonArray>
@@ -387,10 +389,26 @@ void AiChatToolRunner::runCapability(const QString &title, const QJsonObject &ar
   const int generation = m_generation;
   const QString callId = m_activeCall.id;
   QString rejectionCode;
-  const auto finished = [this, generation, callId](ExecuteResult result) {
+  // I1：地统计原子的回包追加有界冻结计划事实（prepare 阶段不运行 worker、
+  // 记录无摘要，物化成本只在持久计划里）。作用域/文档在宿主存活时取值，
+  // 回调不再解引用宿主；其余能力工具的回包不变。
+  const bool geostatAtom = paleo::geostat_atom::isGeostatAtomTool(m_activeCall.name) &&
+                           bool(m_context.capabilityHost);
+  const QString geostatScope =
+      geostatAtom ? m_context.capabilityHost->callerScope(paleo::host::Caller::Agent, m_resultSession)
+                  : QString();
+  const QString geostatDocument = geostatAtom ? m_context.capabilityHost->context().documentId : QString();
+  const auto finished = [this, generation, callId, geostatAtom, geostatScope,
+                         geostatDocument](ExecuteResult result) {
         if (generation != m_generation || !m_active || m_activeCall.id != callId)
           return;
-        finishActive(result.ok, chatToolResponse(result));
+        QJsonObject payload = chatToolResponse(result);
+        if (geostatAtom)
+          payload = paleo::geostat_atom::geostatAtomToolResponse(
+              std::move(payload), result, m_context.projectDir,
+              m_context.projectDir + QStringLiteral("/.paleo/capability-ops"), geostatDocument,
+              geostatScope);
+        finishActive(result.ok, payload);
       };
   const QPointer<AiChatToolRunner> guard(this);
   PaleoTask *task = nullptr;

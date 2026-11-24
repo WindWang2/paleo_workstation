@@ -353,7 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 39); // I3(+5) + I5(+1) + I4(+6) + I2(+1 paleo.unit_onnx_predict)
+  QCOMPARE(tools.size(), 41); // I3(+5) + I5(+1) + I4(+6) + I2(+1) + I1(+2)
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -406,7 +406,9 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     // I4：语义导航原子（精确六名）。
     "paleo.navigation_state", "paleo.select_wells", "paleo.clear_well_selection",
     "paleo.map_locate", "paleo.open_well_view", "paleo.open_seismic_line",
-    "paleo.unit_onnx_predict"}; // I2：地层单元 ONNX 原子
+    "paleo.unit_onnx_predict", // I2：地层单元 ONNX 原子
+    // I1：地统计原子工具。
+    "paleo.geostat_kriging", "paleo.geostat_sgs"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;

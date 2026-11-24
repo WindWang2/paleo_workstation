@@ -1,0 +1,113 @@
+{
+    "client_request_id": "i1-replay-compute",
+    "request": {
+        "binding_mode": "pinned-value",
+        "client_request_id": "i1-replay-compute",
+        "inputs": {
+            "source_operation_id": "op-235b7975-08ff-4e70-b909-9d51d76a264b"
+        },
+        "parameters": {
+        },
+        "publish_intent": "compute-only"
+    },
+    "response": {
+        "algorithm": "geostat:ordinary_kriging",
+        "algorithm_contract_version": 2,
+        "cancelRequested": false,
+        "cell_size": 10,
+        "code": "computed",
+        "commitState": "not_requested",
+        "computeCount": 1,
+        "constraints_applied": "none",
+        "contract": "paleo.operation.v2",
+        "execution": "succeeded",
+        "factor_id": "sandthick",
+        "field": "sand_thick",
+        "finite_cells": 36,
+        "frozenPlan": {
+            "constraintsApplied": "none",
+            "effectiveParameters": {
+                "ANISOTROPY_RATIO": 1,
+                "AZIMUTH_DEG": 0,
+                "MAX_POINTS": 16,
+                "MIN_POINTS": 4,
+                "NUGGET": 0,
+                "RANGE": 40,
+                "SEARCH_RADIUS": 0,
+                "SILL": 1,
+                "VARIOGRAM_MODEL": "spherical"
+            },
+            "grid": {
+                "cols": 6,
+                "origin_x": -5,
+                "origin_y": 55,
+                "pixel_height": -10,
+                "pixel_width": 10,
+                "rows": 6
+            },
+            "method": "kriging",
+            "resourceEstimate": {
+                "grid_bytes": 576,
+                "output_bytes": 131360,
+                "peak_bytes": 133736,
+                "realization_bytes": 0,
+                "sample_bytes": 1800,
+                "scratch_bytes": 131360,
+                "snapshot_bytes": 6096
+            },
+            "sample": {
+                "association": "layer_key",
+                "count": 25,
+                "crsAuthId": "EPSG:3857",
+                "crsWktSha256": "315ab21a1751a73fc5adc2758152992fca2f29750428733bcea311aab0cdbc18",
+                "factorId": "sandthick",
+                "field": "sand_thick",
+                "layerKey": "wells.T70",
+                "skippedRows": 0,
+                "snapshotSha256": "ae526386e084b02298e98ad18b7c81f9b30fd4796f70e36ae8840affdbece977",
+                "sourceSha256": "46427ff06755e326ea7d8751778a09cb67787c947adc440597821bf78dcf5271",
+                "valueUnit": "m",
+                "versionId": "ver-1"
+            },
+            "schema": "paleo.geostat-atom.v1",
+            "unit": {
+                "intervalId": "int-ffdb53eec5895b00",
+                "revision": "0b39e63e-bdd2-4e5d-a5dd-0de00233566a",
+                "schemeId": "scheme",
+                "subIntervalId": "sub-a69350de95a83e75"
+            },
+            "variogram": {
+                "anisotropy_ratio": 1,
+                "azimuth_deg": 0,
+                "model": "spherical",
+                "nugget": 0,
+                "range": 40,
+                "sill": 1
+            }
+        },
+        "grid_cols": 6,
+        "grid_rows": 6,
+        "merged_duplicates": 0,
+        "method": "kriging",
+        "nodata_cells": 0,
+        "ok": true,
+        "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19",
+        "peak_bytes": 133736,
+        "presentation": "not_requested",
+        "requestHash": "d8a14cb667c0abc35304a4d7636c3b5c088f3a6e74a8feccc7e3e55c10edaa25",
+        "resultRef": {
+            "kind": "operation-result-v2",
+            "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19"
+        },
+        "revision": "3",
+        "sample_count": 25,
+        "skipped_rows": 0,
+        "snapshot_sha256": "ae526386e084b02298e98ad18b7c81f9b30fd4796f70e36ae8840affdbece977",
+        "solver_failures": 0,
+        "source_version_id": "ver-1",
+        "subinterval_id": "sub-a69350de95a83e75",
+        "value_unit": "m"
+    },
+    "step": 4,
+    "tool": "paleo.geostat_kriging"
+}

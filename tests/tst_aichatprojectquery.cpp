@@ -235,7 +235,9 @@ void TestAiChatProjectQuery::toolTableGainsQueryAndLineageSpecs() {
     "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style",
     "paleo.navigation_state", "paleo.select_wells", "paleo.clear_well_selection",
     "paleo.map_locate", "paleo.open_well_view", "paleo.open_seismic_line",
-    "paleo.unit_onnx_predict"}; // I2：地层单元 ONNX 原子
+    "paleo.unit_onnx_predict", // I2：地层单元 ONNX 原子
+    // I1：地统计原子工具。
+    "paleo.geostat_kriging", "paleo.geostat_sgs"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Exact membership also rejects duplicate registrations.
 

@@ -1,0 +1,36 @@
+{
+    "client_request_id": "",
+    "request": {
+        "topic": "version",
+        "version_id": "ver-1"
+    },
+    "response": {
+        "tool": "paleo.query_project",
+        "topic": "version",
+        "version": {
+            "catalogRevision": 2,
+            "code": "described",
+            "documentId": "doc-i1",
+            "error": "",
+            "ok": true,
+            "version": {
+                "assetId": "ast-1",
+                "displayName": "wells",
+                "fileName": "wells.geojson",
+                "id": "ver-1",
+                "labelsTruncated": false,
+                "managed": true,
+                "parentCount": "0",
+                "parentVersionIds": [
+                ],
+                "parentsTruncated": false,
+                "sha256": "46427ff06755e326ea7d8751778a09cb67787c947adc440597821bf78dcf5271",
+                "stage": "DERIVED",
+                "stale": false,
+                "versionNumber": 1
+            }
+        }
+    },
+    "step": 2,
+    "tool": "paleo.query_project"
+}

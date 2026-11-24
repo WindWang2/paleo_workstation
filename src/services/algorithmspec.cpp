@@ -7,6 +7,7 @@
 void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs);
 void appendPythonAlgorithmSpecs(QVector<AlgorithmSpec> *specs);
 void appendUnitOnnxSpec(QVector<AlgorithmSpec> *specs); // I2：unit.onnx_predict（algorithmspec_unitonnx.cpp）
+namespace paleo::geostat_atom { void appendGeostatAtomAlgorithmSpecs(QVector<AlgorithmSpec> *specs); }
 
 namespace
 {
@@ -608,6 +609,8 @@ const QVector<AlgorithmSpec> &allSpecs()
     ::appendAtomicPilotSpecs(&specs);
     ::appendPythonAlgorithmSpecs(&specs);
     ::appendUnitOnnxSpec(&specs);
+    // I1 地统计原子：geostat v2 精确契约（agent 面；v1 保持 UI 语义）。
+    paleo::geostat_atom::appendGeostatAtomAlgorithmSpecs(&specs);
     return specs;
   }();
   return kSpecs;

@@ -1,0 +1,42 @@
+{
+    "client_request_id": "",
+    "request": {
+        "asset_type": "well_factor_points",
+        "topic": "assets"
+    },
+    "response": {
+        "assets": [
+            {
+                "format": "geojson",
+                "id": "ast-1",
+                "name": "wells",
+                "path": "artifacts/derived/ast-1/ver-1/wells.geojson",
+                "stage": "DERIVED",
+                "type": "well_factor_points",
+                "version_id": "ver-1",
+                "version_number": 1
+            }
+        ],
+        "code": "ok",
+        "contract": "paleo.project.query.page.v1",
+        "count": 1,
+        "coverage": {
+            "catalogRevision": "2",
+            "complete": true,
+            "documentId": "doc-i1",
+            "epoch": "1",
+            "modelSnapshot": "",
+            "mutationSequence": "5",
+            "sortVersion": "id@1"
+        },
+        "hasMore": false,
+        "nextCursor": null,
+        "ok": true,
+        "returnedCount": 1,
+        "tool": "paleo.query_project",
+        "topic": "assets",
+        "totalCount": 1
+    },
+    "step": 1,
+    "tool": "paleo.query_project"
+}

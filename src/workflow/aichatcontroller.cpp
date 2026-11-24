@@ -581,5 +581,6 @@ void AiChatController::setConfig(const LlmConfig &config) {
   // G2-W1：记录的 model 字段不由 setConfig 直接改写——落盘时按
   // currentSessionModel() 取「本轮开场模型」（冻结），新配置自下一轮生效；
   // 续轮请求同样用冻结配置（见 sendRound）。
+  emit configChanged(m_config);
   emit statusChanged(statusText());
 }

@@ -26,9 +26,14 @@ class QgisProcessingService;
 class QgisProjectService;
 class QgsFeature;
 class QgsMapLayer;
+class QgsVectorLayer;
 class ConstraintWorkflow;
 class PaleoTask;
 class PaleoTaskService;
+class MappingExplanationService;
+struct LlmConfig;
+struct MappingExplanationRequest;
+struct MappingExplanationResult;
 namespace paleo::jobs {
 template <class JobT> class JobRunner;
 }
@@ -121,6 +126,23 @@ public:
   bool needsEditEvidence(const QString &layerId) const;
   void clearEditEvidence();
   void setManualEvidenceRequired(bool required);
+  bool manualEvidenceRequired() const { return m_manualEvidenceRequired; }
+  // 编图后台自动解释（独立工作线程；配置可用 AI 时优先调用 AI，否则自动生成本地事实摘要）。
+  void setLlmConfig(const LlmConfig &config);
+  bool aiExplanationAvailable() const;
+  void setAutoExplainEnabled(bool enabled);
+  bool autoExplainEnabled() const;
+  bool explanationBusy() const;
+  QString explanationStatus() const;
+  QVariantMap lastAutoExplanation(const QString &horizon) const;
+  QVariantMap generatedExplanationForFeature(const QString &layerId,
+                                             const QString &featureUid) const;
+  bool requestBackgroundExplanation(const QString &horizon, const QString &layerId,
+                                    const QList<qint64> &featureIds,
+                                    const QStringList &referenceVersionIds,
+                                    bool applyToEditBasis,
+                                    QString *error = nullptr);
+  void cancelBackgroundExplanation();
   bool hasUnpublishedEdits(const QString &id) const;
   // Actual buffer or unregistered feature changes; an empty edit session is not a change.
   bool hasUnpublishedChanges(const QString &id) const;
@@ -311,6 +333,8 @@ signals:
   void displayChanged(const QString &layerId);
   void faciesChanged(const QString &horizon);
   void editEvidenceChanged();
+  void explanationStatusChanged();
+  void autoExplanationReady(const QString &horizon, const QVariantMap &explanation);
   void predictionBusyChanged(bool busy);
   void predictionProgress(int percent);
   void predictionDetailChanged(const QString &detail);
@@ -370,6 +394,20 @@ private:
                                 int beforeCode, int afterCode, QString *error);
   bool recordSpatialInterpretationEdit(const QString &id, qint64 fid,
                                       const QString &kind, QString *error);
+  void scheduleAutoExplanation(const QString &layerId, const QString &featureUid,
+                               const QString &kind, int beforeCode = 0);
+  void flushPendingExplanations();
+  bool captureExplanationSnapshot(const QString &horizon, const QString &layerId,
+                                  const QString &featureUid, const QString &kind,
+                                  int beforeCode, const QStringList &referenceVersionIds,
+                                  bool applyToEditBasis,
+                                  MappingExplanationRequest *out, QString *error) const;
+  void onBackgroundExplanationReady(const MappingExplanationResult &result);
+  QString draftExplanationsPath(const QString &layerId) const;
+  QHash<QString, QVariantMap> loadDraftExplanations(const QString &layerId) const;
+  void saveDraftExplanations(const QString &layerId) const;
+  void materializePendingExplanations(QgsVectorLayer *layer, const QString &layerId);
+  QVariantMap collectVersionAutoExplanations(const QString &layerId) const;
 public:
   struct ComposeJob {
     ~ComposeJob();
@@ -579,4 +617,16 @@ private:
   QVariantMap m_evidenceIndexStats;
   mutable QVariantList m_productsCache;
   bool m_preserveEditingView = false; // 覆盖一次编辑副本创建中的全部同步上图通知。
+  MappingExplanationService *m_explanationSvc = nullptr;
+  struct PendingExplainItem {
+    QString layerId;
+    QString featureUid;
+    QString kind;
+    int beforeCode = 0;
+  };
+  QList<PendingExplainItem> m_pendingExplanations;
+  bool m_explainFlushQueued = false;
+  mutable QHash<QString, QHash<QString, QVariantMap>> m_generatedExplanations;
+  mutable QSet<QString> m_loadedDraftExplanations;
+  QHash<QString, QVariantMap> m_lastAutoExplanations;
 };

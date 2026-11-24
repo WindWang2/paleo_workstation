@@ -2,6 +2,7 @@
 #include "../windowsizing_internal.h"
 #include "../../workflow/mappingworkbench.h"
 #include "../paleotheme.h"
+#include "mappingeditbasis.h"
 #include "mappingworkbenchpage.h"
 #include <QFormLayout>
 #include <QGroupBox>
@@ -83,9 +84,9 @@ void MappingWorkbenchPage::buildComposeAdvanced(QWidget *body, QVBoxLayout *root
 }
 
 void MappingWorkbenchPage::buildDeliveryStep(QWidget *body, QVBoxLayout *layout) {
-  auto *group = new QGroupBox(tr("4 · 检查、保存与输出"), body);
+  auto *group = new QGroupBox(tr("3 · 检查、保存与输出"), body);
   auto *flow = new QVBoxLayout(group);
-  auto *hint = new QLabel(tr("相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出。"
+  auto *hint = new QLabel(tr("相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出（无需等待解释生成）。"
                              "显示层级可按图层固定，也可锁定选中相面；导出图例沿用实际显示。"),
                           group);
   hint->setWordWrap(true);
@@ -121,4 +122,8 @@ void MappingWorkbenchPage::buildDeliveryStep(QWidget *body, QVBoxLayout *layout)
     refresh();
   }
   layout->addWidget(group);
+  auto *basis = new MappingEditBasis(m_workbench, body);
+  layout->addWidget(basis);
+  connect(this, &MappingWorkbenchPage::horizonChanged, basis, &MappingEditBasis::setHorizon);
+  connect(basis, &MappingEditBasis::commandRequested, this, &MappingWorkbenchPage::commandRequested);
 }

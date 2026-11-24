@@ -161,11 +161,9 @@ void MappingTaskGuide::buildSteps() {
   if (m_mode == QLatin1String("compose")) {
     add(QStringLiteral("basemap"), tr("1 基础图"), QStringLiteral("mappingBaseMapSelector"),
         tr("选择已有图件，或新建空白相图"));
-    add(QStringLiteral("evidence"), tr("2 依据"), QStringLiteral("editBasisText"),
-        tr("填写解释说明和修改目的后启用。分割相面、覆盖绘制和合并都要先完成这一步"));
-    add(QStringLiteral("edit"), tr("3 相编辑"), QStringLiteral("workbenchResults"),
-        tr("先在画布选中相面，再分割、覆盖绘制或合并"));
-    add(QStringLiteral("deliver"), tr("4 保存"), QStringLiteral("workbench.checkTopology"),
+    add(QStringLiteral("edit"), tr("2 相面编辑"), QStringLiteral("workbenchResults"),
+        tr("直接绘制、分割、覆盖或合并相面；解释说明可后台自动生成，非必需步骤"));
+    add(QStringLiteral("deliver"), tr("3 保存输出"), QStringLiteral("workbench.checkTopology"),
         tr("检查三级相面拓扑，保存新版本后再导出"));
   } else {
     add(QStringLiteral("prepare"), tr("1 准备"), QStringLiteral("predictionKind"),
@@ -297,10 +295,10 @@ void MappingTaskGuide::refreshCompose() {
         pendingSave = true;
     }
   }
-  const bool evidenceReady = armed && !drift;
-  const int stage = horizon.isEmpty() || !workCopy ? 0 : !evidenceReady ? 1 : pendingSave ? 3 : 2;
-  const QString blockedTip =
-      tr("分割相面、覆盖绘制和合并都要先启用解释依据，否则这些编辑无法完成");
+  const int stage = horizon.isEmpty() || !workCopy ? 0 : pendingSave ? 2 : 1;
+  const bool autoExplain = m_workbench->autoExplainEnabled();
+  const bool aiReady = m_workbench->aiExplanationAvailable();
+  const bool explainBusy = m_workbench->explanationBusy();
   QString hint;
   QString nextText;
   QString anchor;
@@ -308,40 +306,39 @@ void MappingTaskGuide::refreshCompose() {
   if (horizon.isEmpty()) {
     hint = tr("请先在画布上方选择层位。");
     enabled = false;
-  } else if (!workCopy && !armed) {
-    hint = tr("先在基础图里选择已有图件，或新建空白相图。建好后必须启用解释依据，分割相面才能完成。");
+  } else if (!workCopy) {
+    hint = tr("选择基础图或新建空白相图即可直接开始编图；解释说明非必需，可在后台自动生成。");
     nextText = tr("去选基础图");
     anchor = QStringLiteral("mappingBaseMapSelector");
-  } else if (!workCopy) {
-    hint = tr("解释依据已启用。建立相图之后就可以绘制，并用分割切开相面。");
-    nextText = tr("去建图");
-    anchor = QStringLiteral("baseMapStart");
-  } else if (!armed) {
-    hint = tr("还不能完成相面编辑。分割、覆盖绘制和合并都要先启用解释依据，否则改动落不成。");
-    nextText = tr("去启用依据");
-    anchor = QStringLiteral("editBasisText");
-  } else if (drift) {
-    hint = tr("依据表单已改，还没重新启用。现在分割仍按上一次的依据记录，新说明不会写上。");
-    nextText = tr("重新启用");
-    anchor = QStringLiteral("workbench.setEditEvidence");
   } else if (pendingSave) {
-    hint = tr("相面已改。先检查拓扑，再保存新版本。导出要等保存之后。");
+    hint = explainBusy
+               ? tr("相面已改（解释草稿正在后台线程生成）。先检查拓扑并保存新版本，无需等待解释完成。")
+               : tr("相面已改。先检查拓扑，再保存新版本。导出要等保存之后。");
     nextText = tr("去检查");
     anchor = QStringLiteral("workbench.checkTopology");
+  } else if (armed && drift) {
+    hint = tr("可直接继续编图；手动解释表单已改动，如需采用新说明可在下方重新启用。");
+    nextText = tr("去编相面");
+    anchor = QStringLiteral("workbenchResults");
+  } else if (explainBusy) {
+    hint = tr("工作副本已就绪，可直接绘制、分割或合并相面；后台线程正在生成解释草稿。");
+    nextText = tr("去编相面");
+    anchor = QStringLiteral("workbenchResults");
+  } else if (autoExplain) {
+    hint = aiReady
+               ? tr("工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后 AI 会在后台线程自动生成解释草稿。")
+               : tr("工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后系统会在后台线程自动生成事实摘要（配置 AI 后自动启用 AI 生成）。");
+    nextText = tr("去编相面");
+    anchor = QStringLiteral("workbenchResults");
   } else {
-    hint = tr("依据已启用，可以分割相面：先在画布选中相面，再画一条穿过该面的分割线。新面继承原来的三级归属。");
+    hint = tr("工作副本已就绪，可直接绘制、分割、覆盖或合并相面；解释说明可在需要时随时补充或手动生成。");
     nextText = tr("去编相面");
     anchor = QStringLiteral("workbenchResults");
   }
   markStep(QStringLiteral("basemap"), workCopy, stage == 0, false, QString());
-  markStep(QStringLiteral("evidence"), evidenceReady, stage == 1, false,
-           stage == 1 ? hint : tr("启用后，随后的分割和改类会自动记下这些依据"));
-  const bool editBlocked = workCopy && !armed;
-  markStep(QStringLiteral("edit"), pendingSave, stage == 2, editBlocked,
-           editBlocked ? blockedTip
-           : armed     ? tr("依据已启用。先选中相面，再画分割线；新面继承原来的三级归属")
-                       : tr("先完成基础图和解释依据，再分割相面"));
-  markStep(QStringLiteral("deliver"), false, stage == 3, false, QString());
+  markStep(QStringLiteral("edit"), pendingSave, stage == 1, false,
+           tr("无需先填解释，直接选中或绘制相面；分割、覆盖和合并后自动记录或后台生成草稿"));
+  markStep(QStringLiteral("deliver"), false, stage == 2, false, QString());
   apply(stage, hint, nextText, anchor, enabled);
 }
 
@@ -365,6 +362,7 @@ void MappingWorkbenchPage::installTaskGuide(QVBoxLayout *outer) {
   outer->insertWidget(0, guide);
   outer->setSpacing(PaleoTheme::tokens().spacingXs);
   connect(m_workbench, &MappingWorkbench::editEvidenceChanged, guide, &MappingTaskGuide::refresh);
+  connect(m_workbench, &MappingWorkbench::explanationStatusChanged, guide, &MappingTaskGuide::refresh);
   connect(m_workbench, &MappingWorkbench::displayChanged, guide, &MappingTaskGuide::refresh);
   connect(m_workbench, &MappingWorkbench::faciesEdited, guide, &MappingTaskGuide::refresh);
   connect(m_workbench, &MappingWorkbench::predictionBusyChanged, guide,

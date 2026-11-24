@@ -283,7 +283,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_message->hide();
   m_message->setTextInteractionFlags(Qt::TextSelectableByMouse);
   layout->addSpacing(PaleoTheme::tokens().spacingSm);
-  layout->addWidget(paleo::pagesinternal::caption(mode == "compose" ? tr("3 · 相面编辑")
+  layout->addWidget(paleo::pagesinternal::caption(mode == "compose" ? tr("2 · 相面编辑")
                          : mode == "predict" ? tr("3 · 查看与分析") : tr("图件与版本"), body));
   m_results = new QTreeWidget(body);
   m_results->setObjectName("workbenchResults");

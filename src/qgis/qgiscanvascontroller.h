@@ -26,6 +26,9 @@ class QgisCanvasController : public QObject
     ~QgisCanvasController() override;
 
     QgsMapCanvas *canvas();                       // created lazily; QWidget* for embedding
+    // I3：只读观察缝——返回已创建的画布（未创建返回 nullptr，绝不触发
+    // 惰性创建）；Agent 显示快照/回执用它如实报 canvas_present。
+    QgsMapCanvas *canvasIfCreated() const { return m_canvas; }
     QWidget *canvasWidget();
     QString coordinateClipboardText(const QPointF &point, bool geographic,
                                     QString *error = nullptr);

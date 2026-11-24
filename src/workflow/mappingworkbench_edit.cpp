@@ -219,7 +219,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   if (!partitionFootprint.isEmpty() && footprintExtra.isEmpty()) return {};
   QVariantMap extra{
       {"draft_id", draft},
-      {"requires_edit_evidence", requireEvidence || source.extra.value("requires_edit_evidence").toBool()},
+      {"requires_edit_evidence", requireEvidence},
       {"computational_parent_versions", QStringList{parent}},
       {"interpretation_reference_versions", referenceVersions},
       {"working_path", relative},
@@ -459,6 +459,9 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   extra.insert("feature_summary", QVariantMap{{"feature_count", layer->featureCount()},
                                               {"evidence_count", evidenceCount}, {"statuses", states},
                                               {"quality_counts", severities}});
+  const auto autoExplanations = collectVersionAutoExplanations(id);
+  if (!autoExplanations.isEmpty())
+    extra.insert(QStringLiteral("auto_explanations"), autoExplanations);
   extra.insert("feature_identity", QStringLiteral("paleo_feature_uid"));
   if (layer->fields().indexOf("facies_intervals") >= 0) {
     for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {

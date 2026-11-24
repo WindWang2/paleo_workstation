@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "mappingexplanationservice.h"
 #include "../services/faciesdisplaysettings.h"
 #include "mapversionvalidation_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
@@ -150,6 +151,13 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
       m_project(project), m_constraints(constraints) {
   if (m_constraints) // #742：会话外绘制约束与固定层级共用工作台撤销栈
     m_constraints->setPropertyEditStack(&m_propertyEdits);
+  m_explanationSvc = new MappingExplanationService(this);
+  connect(m_explanationSvc, &MappingExplanationService::statusChanged, this,
+          &MappingWorkbench::explanationStatusChanged);
+  connect(m_explanationSvc, &MappingExplanationService::busyChanged, this,
+          [this](bool, const QString &) { emit explanationStatusChanged(); });
+  connect(m_explanationSvc, &MappingExplanationService::explanationReady, this,
+          &MappingWorkbench::onBackgroundExplanationReady);
   connect(&FaciesDisplaySettings::instance(), &FaciesDisplaySettings::thresholdsChanged,
       this, [this] { updateDisplayScale(m_displayScale); emit changed(); });
   // 方向51：不再自装测试替身（原先这里 setPredictionService(new <替身>(this))，
@@ -204,6 +212,9 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
   // constraints.<horizon> 声明图层（直读 store，reload 即新）。
 }
 MappingWorkbench::~MappingWorkbench() {
+  cancelBackgroundExplanation();
+  delete m_explanationSvc;
+  m_explanationSvc = nullptr;
   if (m_constraints)
     m_constraints->setPropertyEditStack(nullptr);
   if (m_mockCancelled)
@@ -224,8 +235,13 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   if (m_catalog)
     disconnect(m_catalog, nullptr, this, nullptr);
   m_constraints->clearConstraintSnapshots(); // L-01：替代动态属性前缀清理暗道
+  cancelBackgroundExplanation();
+  m_generatedExplanations.clear();
+  m_loadedDraftExplanations.clear();
+  m_lastAutoExplanations.clear();
   m_editEvidence.clear();
   emit editEvidenceChanged();
+  emit explanationStatusChanged();
   m_catalog = catalog;
   m_catalogSyncQueued = false;
   m_dir = dir;
@@ -1197,8 +1213,11 @@ void MappingWorkbench::styleLayer(const QString &id) {
                     validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
                 const bool topologyOk = evidenceOk && FaciesHierarchyRenderer::validateTopology(vector, &error);
                 if (evidenceOk) FaciesPartitionState::setCommitRejected(vector, !topologyOk);
-                const bool ok = topologyOk &&
-                    MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error) &&
+                const bool synced = topologyOk &&
+                    MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error);
+                if (synced)
+                  materializePendingExplanations(vector, id);
+                const bool ok = synced &&
                     validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
                 // Never override a rejection from an earlier beforeCommit consumer.
                 vector->setAllowCommit(ok && vector->allowCommit());

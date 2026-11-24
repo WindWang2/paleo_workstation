@@ -14591,6 +14591,10 @@ Crossline: %3 ~ %4</source>
         <source>阈值“%1”不是有效数字，请修正后重试。</source>
         <translation>阈值“%1”不是有效数字，请修正后重试。</translation>
     </message>
+    <message>
+        <source>建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。</source>
+        <translation>建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。</translation>
+    </message>
 </context>
 <context>
     <name>MappingEditBasis</name>
@@ -14681,6 +14685,110 @@ Crossline: %3 ~ %4</source>
     <message>
         <source>修改目的</source>
         <translation>修改目的</translation>
+    </message>
+    <message>
+        <source>可选 · 解释说明与后台自动生成</source>
+        <translation>可选 · 解释说明与后台自动生成</translation>
+    </message>
+    <message>
+        <source>编图过程不必需先写解释。绘制、分割、合并或改类后，系统会在独立后台线程自动生成解释草稿（已配置 AI 时由 AI 生成，未配置时生成本地事实摘要），不影响继续编图。</source>
+        <translation>编图过程不必需先写解释。绘制、分割、合并或改类后，系统会在独立后台线程自动生成解释草稿（已配置 AI 时由 AI 生成，未配置时生成本地事实摘要），不影响继续编图。</translation>
+    </message>
+    <message>
+        <source>编图时后台自动生成解释（有 AI 时由 AI 生成）</source>
+        <translation>编图时后台自动生成解释（有 AI 时由 AI 生成）</translation>
+    </message>
+    <message>
+        <source>立即后台生成说明</source>
+        <translation>立即后台生成说明</translation>
+    </message>
+    <message>
+        <source>取消生成</source>
+        <translation>取消生成</translation>
+    </message>
+    <message>
+        <source>将后台草稿填入下方表单</source>
+        <translation>将后台草稿填入下方表单</translation>
+    </message>
+    <message>
+        <source>可选：补充井、地震或单因素观察；留空也可直接编图，修改后由后台自动生成草稿。</source>
+        <translation>可选：补充井、地震或单因素观察；留空也可直接编图，修改后由后台自动生成草稿。</translation>
+    </message>
+    <message>
+        <source>可选：例如根据砂厚高值区调整河道边界</source>
+        <translation>可选：例如根据砂厚高值区调整河道边界</translation>
+    </message>
+    <message>
+        <source>启用手动解释依据</source>
+        <translation>启用手动解释依据</translation>
+    </message>
+    <message>
+        <source>清空手动依据</source>
+        <translation>清空手动依据</translation>
+    </message>
+    <message>
+        <source>请先选择编图层位</source>
+        <translation>请先选择编图层位</translation>
+    </message>
+    <message>
+        <source>在独立后台线程调用已配置 AI 生成编图解释草稿</source>
+        <translation>在独立后台线程调用已配置 AI 生成编图解释草稿</translation>
+    </message>
+    <message>
+        <source>在独立后台线程根据当前图件与井资料汇总事实草稿</source>
+        <translation>在独立后台线程根据当前图件与井资料汇总事实草稿</translation>
+    </message>
+    <message>
+        <source>取消当前后台解释生成</source>
+        <translation>取消当前后台解释生成</translation>
+    </message>
+    <message>
+        <source>当前没有进行中的后台解释任务</source>
+        <translation>当前没有进行中的后台解释任务</translation>
+    </message>
+    <message>
+        <source>AI 草稿已生成（%1 · 待复核）</source>
+        <translation>AI 草稿已生成（%1 · 待复核）</translation>
+    </message>
+    <message>
+        <source>AI 草稿已生成（待复核）</source>
+        <translation>AI 草稿已生成（待复核）</translation>
+    </message>
+    <message>
+        <source>后台事实摘要已生成（待复核）</source>
+        <translation>后台事实摘要已生成（待复核）</translation>
+    </message>
+    <message>
+        <source>最新后台草稿：%1</source>
+        <translation>最新后台草稿：%1</translation>
+    </message>
+    <message>
+        <source>将手动说明优先用于后续相面修改</source>
+        <translation>将手动说明优先用于后续相面修改</translation>
+    </message>
+    <message>
+        <source>可选：填写解释说明和修改目的（合计不超过 9000 字）后可手动启用</source>
+        <translation>可选：填写解释说明和修改目的（合计不超过 9000 字）后可手动启用</translation>
+    </message>
+    <message>
+        <source>当前未启用手动依据</source>
+        <translation>当前未启用手动依据</translation>
+    </message>
+    <message>
+        <source>清空手动依据，恢复后台自动生成模式</source>
+        <translation>清空手动依据，恢复后台自动生成模式</translation>
+    </message>
+    <message>
+        <source>编图不必需手动填写依据。直接绘制、分割或合并相面即可，修改后会在后台自动生成解释草稿。</source>
+        <translation>编图不必需手动填写依据。直接绘制、分割或合并相面即可，修改后会在后台自动生成解释草稿。</translation>
+    </message>
+    <message>
+        <source>已启用手动依据（%1 个参考版本）。后续编辑优先记录此人工说明；解释仍需复核。</source>
+        <translation>已启用手动依据（%1 个参考版本）。后续编辑优先记录此人工说明；解释仍需复核。</translation>
+    </message>
+    <message>
+        <source>手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。</source>
+        <translation>手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。</translation>
     </message>
 </context>
 <context>
@@ -15098,6 +15206,50 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingtaskguide.cpp" line="342"/>
         <source>先完成基础图和解释依据，再分割相面</source>
         <translation>先完成基础图和解释依据，再分割相面</translation>
+    </message>
+    <message>
+        <source>2 相面编辑</source>
+        <translation>2 相面编辑</translation>
+    </message>
+    <message>
+        <source>直接绘制、分割、覆盖或合并相面；解释说明可后台自动生成，非必需步骤</source>
+        <translation>直接绘制、分割、覆盖或合并相面；解释说明可后台自动生成，非必需步骤</translation>
+    </message>
+    <message>
+        <source>3 保存输出</source>
+        <translation>3 保存输出</translation>
+    </message>
+    <message>
+        <source>选择基础图或新建空白相图即可直接开始编图；解释说明非必需，可在后台自动生成。</source>
+        <translation>选择基础图或新建空白相图即可直接开始编图；解释说明非必需，可在后台自动生成。</translation>
+    </message>
+    <message>
+        <source>相面已改（解释草稿正在后台线程生成）。先检查拓扑并保存新版本，无需等待解释完成。</source>
+        <translation>相面已改（解释草稿正在后台线程生成）。先检查拓扑并保存新版本，无需等待解释完成。</translation>
+    </message>
+    <message>
+        <source>可直接继续编图；手动解释表单已改动，如需采用新说明可在下方重新启用。</source>
+        <translation>可直接继续编图；手动解释表单已改动，如需采用新说明可在下方重新启用。</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割或合并相面；后台线程正在生成解释草稿。</source>
+        <translation>工作副本已就绪，可直接绘制、分割或合并相面；后台线程正在生成解释草稿。</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后 AI 会在后台线程自动生成解释草稿。</source>
+        <translation>工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后 AI 会在后台线程自动生成解释草稿。</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后系统会在后台线程自动生成事实摘要（配置 AI 后自动启用 AI 生成）。</source>
+        <translation>工作副本已就绪，可直接绘制、分割、覆盖或合并相面。修改后系统会在后台线程自动生成事实摘要（配置 AI 后自动启用 AI 生成）。</translation>
+    </message>
+    <message>
+        <source>工作副本已就绪，可直接绘制、分割、覆盖或合并相面；解释说明可在需要时随时补充或手动生成。</source>
+        <translation>工作副本已就绪，可直接绘制、分割、覆盖或合并相面；解释说明可在需要时随时补充或手动生成。</translation>
+    </message>
+    <message>
+        <source>无需先填解释，直接选中或绘制相面；分割、覆盖和合并后自动记录或后台生成草稿</source>
+        <translation>无需先填解释，直接选中或绘制相面；分割、覆盖和合并后自动记录或后台生成草稿</translation>
     </message>
 </context>
 <context>
@@ -16782,6 +16934,38 @@ Crossline: %3 ~ %4</source>
             <source>资料目录不可用，不能读取图件空间编辑历史</source>
             <translation>资料目录不可用，不能读取图件空间编辑历史</translation>
         </message>
+    <message>
+        <source>后台解释服务尚未初始化</source>
+        <translation>后台解释服务尚未初始化</translation>
+    </message>
+    <message>
+        <source>AI 后台自动解释（%1 · 待复核）</source>
+        <translation>AI 后台自动解释（%1 · 待复核）</translation>
+    </message>
+    <message>
+        <source>AI 后台自动解释（待复核）</source>
+        <translation>AI 后台自动解释（待复核）</translation>
+    </message>
+    <message>
+        <source>后台自动摘要（待复核）</source>
+        <translation>后台自动摘要（待复核）</translation>
+    </message>
+    <message>
+        <source>缺少解释请求输出目标</source>
+        <translation>缺少解释请求输出目标</translation>
+    </message>
+    <message>
+        <source>%1 v%2</source>
+        <translation>%1 v%2</translation>
+    </message>
+    <message>
+        <source>目标图斑已不存在</source>
+        <translation>目标图斑已不存在</translation>
+    </message>
+    <message>
+        <source>后台自动生成编图解释草稿</source>
+        <translation>后台自动生成编图解释草稿</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>
@@ -18742,6 +18926,18 @@ Crossline: %3 ~ %4</source>
             <source>返回较新的图件空间编辑</source>
             <translation>返回较新的图件空间编辑</translation>
         </message>
+    <message>
+        <source>2 · 相面编辑</source>
+        <translation>2 · 相面编辑</translation>
+    </message>
+    <message>
+        <source>3 · 检查、保存与输出</source>
+        <translation>3 · 检查、保存与输出</translation>
+    </message>
+    <message>
+        <source>相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出（无需等待解释生成）。显示层级可按图层固定，也可锁定选中相面；导出图例沿用实际显示。</source>
+        <translation>相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出（无需等待解释生成）。显示层级可按图层固定，也可锁定选中相面；导出图例沿用实际显示。</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkflow</name>
@@ -24761,7 +24957,39 @@ PDF：%3
         <translation>工程处于只读模式，撤销/重做已禁用</translation>
     </message>
 
-    </context>
+        <message>
+        <source>可选：查看后台自动生成的解释草稿，或手动补充本次解释说明与修改目的（编图不必需预先填写）。</source>
+        <translation>可选：查看后台自动生成的解释草稿，或手动补充本次解释说明与修改目的（编图不必需预先填写）。</translation>
+    </message>
+    <message>
+        <source>已启用手动解释依据，之后的相面修改将优先记录此说明。</source>
+        <translation>已启用手动解释依据，之后的相面修改将优先记录此说明。</translation>
+    </message>
+    <message>
+        <source>已清空手动解释依据；编图可直接继续，修改后将由后台自动生成解释草稿。</source>
+        <translation>已清空手动解释依据；编图可直接继续，修改后将由后台自动生成解释草稿。</translation>
+    </message>
+    <message>
+        <source>已开启后台自动生成编图解释（不阻塞编图）。</source>
+        <translation>已开启后台自动生成编图解释（不阻塞编图）。</translation>
+    </message>
+    <message>
+        <source>已暂停后台自动生成编图解释；编图仍可直接进行。</source>
+        <translation>已暂停后台自动生成编图解释；编图仍可直接进行。</translation>
+    </message>
+    <message>
+        <source>已在后台线程启动 AI 解释生成，可继续编图…</source>
+        <translation>已在后台线程启动 AI 解释生成，可继续编图…</translation>
+    </message>
+    <message>
+        <source>已在后台线程生成编图事实摘要，可继续编图…</source>
+        <translation>已在后台线程生成编图事实摘要，可继续编图…</translation>
+    </message>
+    <message>
+        <source>已取消后台解释生成。</source>
+        <translation>已取消后台解释生成。</translation>
+    </message>
+</context>
 <context>
     <name>PaleoMapBookController</name>
     <message>
@@ -39210,6 +39438,86 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
         <translation>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</translation>
+    </message>
+    <message>
+        <source>上次 map_layer_get/修改回执返回的显示状态标记；与当前实际显示状态或宿主世代不符时明确拒绝（重新查询获取新标记，标记不是授权凭证）</source>
+        <translation>上次 map_layer_get/修改回执返回的显示状态标记；与当前实际显示状态或宿主世代不符时明确拒绝（重新查询获取新标记，标记不是授权凭证）</translation>
+    </message>
+    <message>
+        <source>列出受管地图图层</source>
+        <translation>列出受管地图图层</translation>
+    </message>
+    <message>
+        <source>列出当前工程 manifest 受管图层及其可观察显示状态（是否已实例化、树勾选、最终可见、透明度、当前具名样式、语义符号）。只读快照：查询不实例化未加载层、不切换层位、不改任何显示状态；手工添加的非受管图层不在目录内。按 layer_id 字典序分页，游标绑定当前显示修订。</source>
+        <translation>列出当前工程 manifest 受管图层及其可观察显示状态（是否已实例化、树勾选、最终可见、透明度、当前具名样式、语义符号）。只读快照：查询不实例化未加载层、不切换层位、不改任何显示状态；手工添加的非受管图层不在目录内。按 layer_id 字典序分页，游标绑定当前显示修订。</translation>
+    </message>
+    <message>
+        <source>按声明的层位精确筛选（空串=不限层的共享层）</source>
+        <translation>按声明的层位精确筛选（空串=不限层的共享层）</translation>
+    </message>
+    <message>
+        <source>按声明类型精确筛选</source>
+        <translation>按声明类型精确筛选</translation>
+    </message>
+    <message>
+        <source>每页条数（1–32，缺省 16）</source>
+        <translation>每页条数（1–32，缺省 16）</translation>
+    </message>
+    <message>
+        <source>上一页返回的续页游标（绑定筛选条件与显示修订；显示状态变化后明确报错）</source>
+        <translation>上一页返回的续页游标（绑定筛选条件与显示修订；显示状态变化后明确报错）</translation>
+    </message>
+    <message>
+        <source>查询图层显示状态</source>
+        <translation>查询图层显示状态</translation>
+    </message>
+    <message>
+        <source>按精确 layer_id 返回该受管图层的显示状态：树勾选与最终可见（含父组隐藏原因）、透明度、当前具名样式、语义符号、是否编辑中；并列出该层当前适用的具名预设与语义符号选项（几何适配）。未实例化层如实标记（不触发加载）。不返回 QGIS 内部 ID、源路径或完整 QML。</source>
+        <translation>按精确 layer_id 返回该受管图层的显示状态：树勾选与最终可见（含父组隐藏原因）、透明度、当前具名样式、语义符号、是否编辑中；并列出该层当前适用的具名预设与语义符号选项（几何适配）。未实例化层如实标记（不触发加载）。不返回 QGIS 内部 ID、源路径或完整 QML。</translation>
+    </message>
+    <message>
+        <source>设置图层可见性</source>
+        <translation>设置图层可见性</translation>
+    </message>
+    <message>
+        <source>设置当前已实例化受管图层的树勾选状态（JSON 布尔）。回读自身勾选与最终可见：父组隐藏时勾选可为 true 而最终可见为 false（不代为打开父组或其他图层）。同值设置返回 no_change。修改只进入当前工程的原生显示状态（未保存工程文件），不落 Catalog 版本、不发布。</source>
+        <translation>设置当前已实例化受管图层的树勾选状态（JSON 布尔）。回读自身勾选与最终可见：父组隐藏时勾选可为 true 而最终可见为 false（不代为打开父组或其他图层）。同值设置返回 no_change。修改只进入当前工程的原生显示状态（未保存工程文件），不落 Catalog 版本、不发布。</translation>
+    </message>
+    <message>
+        <source>目标勾选状态（JSON 原生布尔）</source>
+        <translation>目标勾选状态（JSON 原生布尔）</translation>
+    </message>
+    <message>
+        <source>设置图层透明度</source>
+        <translation>设置图层透明度</translation>
+    </message>
+    <message>
+        <source>对支持的矢量/栅格受管图层设置原生层透明度（0–1，JSON 原生数值，拒绝越界/NaN/文本），并回读实际值。只改显示呈现：不改像元值、要素属性、源引用或地图范围。同值返回 no_change；修改未保存为工程文件。</source>
+        <translation>对支持的矢量/栅格受管图层设置原生层透明度（0–1，JSON 原生数值，拒绝越界/NaN/文本），并回读实际值。只改显示呈现：不改像元值、要素属性、源引用或地图范围。同值返回 no_change；修改未保存为工程文件。</translation>
+    </message>
+    <message>
+        <source>目标透明度（0=全透明，1=不透明）</source>
+        <translation>目标透明度（0=全透明，1=不透明）</translation>
+    </message>
+    <message>
+        <source>应用图层样式</source>
+        <translation>应用图层样式</translation>
+    </message>
+    <message>
+        <source>对受管矢量/栅格图层应用受限样式：具名预设（当前图层样式管理器中已存在的名字，精确选项）或语义符号（GeoPatterns 词表 family/id，按几何适配）。两者互斥，必须恰好给一个。不接收文件路径、QML/SVG 内容或表达式。回读 currentStyle/renderer 语义锚；不适用时如实拒绝且零副作用。修改未保存为工程文件。</source>
+        <translation>对受管矢量/栅格图层应用受限样式：具名预设（当前图层样式管理器中已存在的名字，精确选项）或语义符号（GeoPatterns 词表 family/id，按几何适配）。两者互斥，必须恰好给一个。不接收文件路径、QML/SVG 内容或表达式。回读 currentStyle/renderer 语义锚；不适用时如实拒绝且零副作用。修改未保存为工程文件。</translation>
+    </message>
+    <message>
+        <source>图层已存在的具名预设名（与 semantic_symbol 互斥）</source>
+        <translation>图层已存在的具名预设名（与 semantic_symbol 互斥）</translation>
+    </message>
+    <message>
+        <source>语义符号 {family: lithology|facies|line, id: 词表稳定 id}（与 named_preset 互斥；几何不匹配会被拒绝）</source>
+        <translation>语义符号 {family: lithology|facies|line, id: 词表稳定 id}（与 named_preset 互斥；几何不匹配会被拒绝）</translation>
+    </message>
+    <message>
+        <source>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</source>
+        <translation>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</translation>
     </message>
 </context>
 <context>
@@ -58928,6 +59236,195 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>终端成果：未知（预检未通过时不猜测）</source>
         <translation>终端成果：未知（预检未通过时不猜测）</translation>
+    </message>
+</context>
+<context>
+    <name>MappingExplanationService</name>
+    <message>
+        <source>绘制/覆盖相面</source>
+        <translation>绘制/覆盖相面</translation>
+    </message>
+    <message>
+        <source>合并相面</source>
+        <translation>合并相面</translation>
+    </message>
+    <message>
+        <source>调整相面边界几何</source>
+        <translation>调整相面边界几何</translation>
+    </message>
+    <message>
+        <source>调整相归属分类</source>
+        <translation>调整相归属分类</translation>
+    </message>
+    <message>
+        <source>保存编图修订</source>
+        <translation>保存编图修订</translation>
+    </message>
+    <message>
+        <source>编图现状说明</source>
+        <translation>编图现状说明</translation>
+    </message>
+    <message>
+        <source>约 %1 km²</source>
+        <translation>约 %1 km²</translation>
+    </message>
+    <message>
+        <source>约 %1 m²</source>
+        <translation>约 %1 m²</translation>
+    </message>
+    <message>
+        <source>等 %1 口井</source>
+        <translation>等 %1 口井</translation>
+    </message>
+    <message>
+        <source>AI 返回内容为空或无法解析，已自动生成本地事实摘要</source>
+        <translation>AI 返回内容为空或无法解析，已自动生成本地事实摘要</translation>
+    </message>
+    <message>
+        <source>AI 生成未完成（%1），已自动生成本地事实摘要</source>
+        <translation>AI 生成未完成（%1），已自动生成本地事实摘要</translation>
+    </message>
+    <message>
+        <source>正在后台线程生成编图解释…</source>
+        <translation>正在后台线程生成编图解释…</translation>
+    </message>
+    <message>
+        <source>后台自动生成解释已暂停（编图仍可直接进行，可随时手动生成）</source>
+        <translation>后台自动生成解释已暂停（编图仍可直接进行，可随时手动生成）</translation>
+    </message>
+    <message>
+        <source>后台自动生成已开启（AI 模型：%1；独立线程运行，不阻塞编图）</source>
+        <translation>后台自动生成已开启（AI 模型：%1；独立线程运行，不阻塞编图）</translation>
+    </message>
+    <message>
+        <source>后台自动生成已开启（当前未配置 AI，将自动生成本地事实摘要；配置 AI 后自动启用 AI 生成）</source>
+        <translation>后台自动生成已开启（当前未配置 AI，将自动生成本地事实摘要；配置 AI 后自动启用 AI 生成）</translation>
+    </message>
+    <message>
+        <source>后台生成编图解释（AI）</source>
+        <translation>后台生成编图解释（AI）</translation>
+    </message>
+    <message>
+        <source>后台生成编图解释摘要</source>
+        <translation>后台生成编图解释摘要</translation>
+    </message>
+    <message>
+        <source>AI 正在后台线程整理编图解释草稿…</source>
+        <translation>AI 正在后台线程整理编图解释草稿…</translation>
+    </message>
+    <message>
+        <source>正在后台线程整理编图事实摘要…</source>
+        <translation>正在后台线程整理编图事实摘要…</translation>
+    </message>
+    <message>
+        <source>正在后台线程调用 AI（%1）生成解释草稿…</source>
+        <translation>正在后台线程调用 AI（%1）生成解释草稿…</translation>
+    </message>
+    <message>
+        <source>正在后台线程生成编图事实摘要…</source>
+        <translation>正在后台线程生成编图事实摘要…</translation>
+    </message>
+    <message>
+        <source>已取消后台解释生成</source>
+        <translation>已取消后台解释生成</translation>
+    </message>
+    <message>
+        <source>你是石油地质古地理编图助手。请仅根据用户提供的当前工区与相面编辑事实，生成一段简明、专业、客观的中文编图解释说明草稿和一句简短修改目的。
+严格要求：
+1. 只使用给定事实，严禁编造任何未提供的井名、深度、物性数值、地震反射特征或岩心结论。
+2. 事实有限时如实指出需结合测井/地震或单因素资料复核，不得冒充已确认解释。
+3. 只输出一个 JSON 对象，格式为 {"text": "2~4句简明地质解释草稿", "reason": "1句修改目的"}，不要输出多余解释或 Markdown 标题。</source>
+        <translation>你是石油地质古地理编图助手。请仅根据用户提供的当前工区与相面编辑事实，生成一段简明、专业、客观的中文编图解释说明草稿和一句简短修改目的。
+严格要求：
+1. 只使用给定事实，严禁编造任何未提供的井名、深度、物性数值、地震反射特征或岩心结论。
+2. 事实有限时如实指出需结合测井/地震或单因素资料复核，不得冒充已确认解释。
+3. 只输出一个 JSON 对象，格式为 {"text": "2~4句简明地质解释草稿", "reason": "1句修改目的"}，不要输出多余解释或 Markdown 标题。</translation>
+    </message>
+    <message>
+        <source>层位/单元：%1</source>
+        <translation>层位/单元：%1</translation>
+    </message>
+    <message>
+        <source>未指定</source>
+        <translation>未指定</translation>
+    </message>
+    <message>
+        <source>编图操作：%1</source>
+        <translation>编图操作：%1</translation>
+    </message>
+    <message>
+        <source>目标相归属：%1（编码 %2）</source>
+        <translation>目标相归属：%1（编码 %2）</translation>
+    </message>
+    <message>
+        <source>修改前相归属：%1（编码 %2）</source>
+        <translation>修改前相归属：%1（编码 %2）</translation>
+    </message>
+    <message>
+        <source>图斑面积：%1</source>
+        <translation>图斑面积：%1</translation>
+    </message>
+    <message>
+        <source>当前图件相面总数：%1</source>
+        <translation>当前图件相面总数：%1</translation>
+    </message>
+    <message>
+        <source>图斑内井资料：%1</source>
+        <translation>图斑内井资料：%1</translation>
+    </message>
+    <message>
+        <source>上游计算来源：%1</source>
+        <translation>上游计算来源：%1</translation>
+    </message>
+    <message>
+        <source>可见/关联参考图件：%1</source>
+        <translation>可见/关联参考图件：%1</translation>
+    </message>
+    <message>
+        <source>请根据以下编图事实生成解释草稿 JSON：
+%1</source>
+        <translation>请根据以下编图事实生成解释草稿 JSON：
+%1</translation>
+    </message>
+    <message>
+        <source>%1层位经%2将相归属由「%3」调整为「%4」（编码 %5）</source>
+        <translation>%1层位经%2将相归属由「%3」调整为「%4」（编码 %5）</translation>
+    </message>
+    <message>
+        <source>%1层位经%2形成「%3」（编码 %4）相面</source>
+        <translation>%1层位经%2形成「%3」（编码 %4）相面</translation>
+    </message>
+    <message>
+        <source>%1层位执行%2（当前相面数 %3）</source>
+        <translation>%1层位执行%2（当前相面数 %3）</translation>
+    </message>
+    <message>
+        <source>面积%1</source>
+        <translation>面积%1</translation>
+    </message>
+    <message>
+        <source>图斑内包含井：%1</source>
+        <translation>图斑内包含井：%1</translation>
+    </message>
+    <message>
+        <source>来源依据：%1</source>
+        <translation>来源依据：%1</translation>
+    </message>
+    <message>
+        <source>参考图件：%1</source>
+        <translation>参考图件：%1</translation>
+    </message>
+    <message>
+        <source>。本说明由后台自动汇总当前图件事实生成，待地质复核。</source>
+        <translation>。本说明由后台自动汇总当前图件事实生成，待地质复核。</translation>
+    </message>
+    <message>
+        <source>后台自动记录：%1（%2）</source>
+        <translation>后台自动记录：%1（%2）</translation>
+    </message>
+    <message>
+        <source>后台自动记录：%1%2</source>
+        <translation>后台自动记录：%1%2</translation>
     </message>
 </context>
 </TS>

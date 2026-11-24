@@ -167,7 +167,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
     m_visualizationTabs->setTabData(tab, QVariantMap{{QStringLiteral("surface"), surface}, {QStringLiteral("page"), pageId}});
     m_visualizationTabs->setCurrentIndex(tab);
   }
-  if (m_workbench) m_workbench->setManualEvidenceRequired(pageId == QLatin1String("compose"));
+  // 编图过程不必需预先填写解释说明（解释可后台自动生成，非阻断步骤）。
 
   // Visualization activation preserves the user's selected Ribbon tools.
   // 各 attach 后续建的命令钮也要进 Tab 链（幂等，便宜的补漏点）。

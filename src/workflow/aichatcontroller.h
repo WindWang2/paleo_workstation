@@ -140,6 +140,7 @@ signals:
   void toolResultReady(const ChatToolCall &call, bool ok, const QString &summary);
   void streamingChanged(bool streaming);
   void statusChanged(const QString &text);
+  void configChanged(const LlmConfig &config);
   void errorOccurred(const QString &message);
   // G5：工程摘要变化（setProjectBrief 实际改变值时；空→空不发）。
   void projectBriefChanged();

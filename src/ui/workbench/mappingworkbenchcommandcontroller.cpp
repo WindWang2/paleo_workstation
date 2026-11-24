@@ -288,7 +288,7 @@ WbCmdStep runWorkbenchEditFamily(const CommandContext &d,
   } else if (action == "polygonize")
     ok = d.workbench->startPolygonize(id, &error);
   else if (action == "copy") {
-    const auto draft = d.workbench->copyForEditing(id, inputs, &error, d.page->mode() == "compose");
+    const auto draft = d.workbench->copyForEditing(id, inputs, &error, false);
     ok = !draft.isEmpty();
     if (ok && d.edit) {
       // productReady 已显示工作副本；重复 show 会把编辑中的局部视图缩回全图。
@@ -497,7 +497,30 @@ bool runMappingEditFlow(const CommandContext &d, const QString &action,
                : WorkbenchText::tr("已选取 %1 个参考版本，请补充解释说明并启用。").arg(references.size()));
   } else if (action == "setEditEvidence") {
     const bool ok = d.workbench->setEditEvidence(horizon, parameters, &error);
-    notify(ok ? WorkbenchText::tr("本次解释依据已启用，之后的元素修改会自动记录依据。") : error);
+    notify(ok ? WorkbenchText::tr("已启用手动解释依据，之后的相面修改将优先记录此说明。") : error);
+  } else if (action == "clearEditEvidence") {
+    d.workbench->clearEditEvidence();
+    notify(WorkbenchText::tr("已清空手动解释依据；编图可直接继续，修改后将由后台自动生成解释草稿。"));
+  } else if (action == "setAutoExplain") {
+    const bool enabled = parameters.value(QStringLiteral("enabled"), true).toBool();
+    d.workbench->setAutoExplainEnabled(enabled);
+    notify(enabled ? WorkbenchText::tr("已开启后台自动生成编图解释（不阻塞编图）。")
+                   : WorkbenchText::tr("已暂停后台自动生成编图解释；编图仍可直接进行。"));
+  } else if (action == "generateEditExplanation") {
+    const QString targetLayer = !id.isEmpty() ? id : d.page->selectedLayer();
+    const auto selected = targetLayer.isEmpty() ? QList<qint64>{} : d.workbench->selectedFeatures(targetLayer);
+    const bool applyToBasis = parameters.value(QStringLiteral("apply_to_edit_basis"), true).toBool();
+    const bool ok = d.workbench->requestBackgroundExplanation(
+        horizon, targetLayer, selected,
+        parameters.value(QStringLiteral("source_versions")).toStringList(),
+        applyToBasis, &error);
+    notify(ok ? (d.workbench->aiExplanationAvailable()
+                     ? WorkbenchText::tr("已在后台线程启动 AI 解释生成，可继续编图…")
+                     : WorkbenchText::tr("已在后台线程生成编图事实摘要，可继续编图…"))
+              : error);
+  } else if (action == "cancelEditExplanation") {
+    d.workbench->cancelBackgroundExplanation();
+    notify(WorkbenchText::tr("已取消后台解释生成。"));
   } else if (action == "checkTopology") {
     const bool ok = d.workbench->checkEditingTopology(id, &error);
     notify(ok ? WorkbenchText::tr("三级相面拓扑检查通过：几何有效，共边一致，覆盖范围保持。") : error);

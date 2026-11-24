@@ -353,7 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 27); // I5：+paleo.capability_inspect（能力目录只读检查）
+  QCOMPARE(tools.size(), 32); // I3(+5) + I5(+1 paleo.capability_inspect)
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -366,9 +366,11 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
       QVERIFY(properties.isEmpty());QVERIFY(required.isEmpty());
     } else {
       QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");
-      // H4：operation_list 是唯一不要求任何必填实参的有参工具（发现不以已知
-      // operation_id 为起点）；其余工具仍须至少一个必填项。
-      QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list"),"工具必须有必填参数");
+      // H4：operation_list 是不要求任何必填实参的有参工具（发现不以已知
+      // operation_id 为起点）；I3 的 map_layers 同为无参目录发现。其余工具
+      // 仍须至少一个必填项。
+      QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list") ||
+               spec.name==QLatin1String("paleo.map_layers"),"工具必须有必填参数");
     }
     for(const auto &key:required)QVERIFY(properties.contains(key.toString()));
     QCOMPARE(inputSchema.value("additionalProperties"),QJsonValue(false));
@@ -395,7 +397,9 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
     "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
-    "paleo.operation_list", "paleo.capability_inspect"};
+    "paleo.operation_list", "paleo.capability_inspect",
+    "paleo.map_layers", "paleo.map_layer_get", "paleo.map_layer_set_visibility",
+    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style"};
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;

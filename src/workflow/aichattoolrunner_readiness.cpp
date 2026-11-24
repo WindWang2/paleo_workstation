@@ -3,8 +3,10 @@
 #include "capabilityhost.h"
 #include "capabilityrecovery.h"
 #include "ai/chat/domaintools.h"
+#include "ai/chat/mapdisplaytools.h"
 #include "ai/chat/capabilityinspectiontool.h"
 #include "ai/chat/planpreviewtool.h"
+#include "qgis/agentmapdisplayadapter.h"
 #include "ai/onnxpredictionservice.h"
 #include "catalog/datacatalog.h"
 #include "tileoperationservice.h"
@@ -75,8 +77,11 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   // Explicitly injected legacy adapters remain available to existing internal callers.
   // H4：operation_list 依赖 Host/Recovery/TaskService，无宿主即不可执行——不经
   // 该无条件放行，恒走下方 hosted 资格路径（不向模型广播必然失败的调用）。
+  // I3：地图显示原子同口径——效果门（Read|Presentation）与 provider 都在
+  // 宿主侧，无宿主/无 provider 不广播（不落入旧适配器默认放行）。
   const bool operationList=name==QLatin1String("paleo.operation_list");
-  if(!context.requireCapabilityHost && !python && !operationList) {result.ready=true;return result;}
+  const bool mapDisplay=paleo::agent::mapdisplay::isMapDisplayTool(name);
+  if(!context.requireCapabilityHost && !python && !operationList && !mapDisplay) {result.ready=true;return result;}
   if(spec.legacyAdapter)return fail("legacy_tool_requires_versioned_adapter");
   if(!context.capabilityHost)return fail("host_unavailable");
   const auto live = context.capabilityHost->context();
@@ -114,6 +119,16 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(operationList) {
     if(!context.capabilityHost->recovery())return fail("host_unavailable");
     if(!m_taskService)return fail("task_service_unavailable");
+    result.ready=true;return result;
+  }
+  // I3：provider 存在性与工程可用性来自适配器同一来源（readiness 广播与
+  // 直接调用同因）；效果门已在上方 checkContext(effects) 完成（查询 Read、
+  // 显示修改 Read|Presentation——只读/无身份/恢复态工程不广播修改工具）。
+  if(mapDisplay) {
+    if(!m_mapDisplay || m_mapDisplayOwner.isNull())
+      return fail("map_display_provider_unavailable");
+    if(const QString reason=m_mapDisplay->unavailabilityReason();!reason.isEmpty())
+      return fail(reason);
     result.ready=true;return result;
   }
   if((name==QLatin1String("paleo.query_project") || name==QLatin1String("paleo.asset_lineage")) &&

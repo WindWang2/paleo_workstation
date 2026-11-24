@@ -15,6 +15,7 @@
 #include "../../catalog/catalogroles.h"
 #include "../../services/artifactversioncapability.h"
 void appendAgentOperationTools(QVector<AiToolSpec> &specs);
+#include "mapdisplaytools.h" // I3：精确名称集合（isMapDisplayTool）与五工具声明
 #include "capabilityinspectiontool.h" // I5：能力目录只读检查工具（paleo.capability_inspect）
 #include "../../domain/wellfaciesrequest.h"
 #include "../../domain/wellref.h"
@@ -584,6 +585,8 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
   appendAgentOperationTools(specs);
+  // I3：地图显示原子（受管图层目录/可见性/透明度/受限样式，精确五名）。
+  appendAgentMapDisplayTools(specs);
   // H5：纯预检提案工具（只 decode+validate，执行入口在原生审阅面板）。
   paleo::chat::appendAgentPlanPreviewTool(specs);
   // I5：能力目录只读检查工具（list/describe/check 纯静态合同与候选预检）。
@@ -636,6 +639,15 @@ AiToolDispatch dispatchAiTool(const QString &name,
     // 参数不合格 = 工具名知道但调用不成：报 Disabled 并把原因写进 note。
     out.status = AiToolDispatchStatus::Disabled;
     out.note = invalid;
+    return out;
+  }
+  // I3：地图显示原子——精确名称集合（isMapDisplayTool），先于任何前缀
+  // 分派；I4 的 paleo.map_locate 不被本族吞掉（未登记 = NotFound）。
+  if(paleo::agent::mapdisplay::isMapDisplayTool(name)) {
+    out.target=QStringLiteral("qgis/agentmapdisplayadapter + workflow/aichattoolrunner_display");
+    out.status=AiToolDispatchStatus::Routed;
+    out.note=QObject::tr("受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 "
+                         "Read|Presentation 门，回执回读原生状态且未保存工程文件");
     return out;
   }
   if(name.startsWith(QLatin1String("paleo.operation_")) || name==QLatin1String("paleo.tile_classification_v2")) {

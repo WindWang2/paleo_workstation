@@ -18,6 +18,10 @@ const ActionSpec kActions[] = {
     // ---- EditFlow（runMappingEditFlow：分支自行 notify 收尾）----
     {"captureEditEvidence", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
     {"setEditEvidence", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
+    {"clearEditEvidence", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
+    {"setAutoExplain", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
+    {"generateEditExplanation", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
+    {"cancelEditExplanation", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
     {"checkTopology", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
     // 导出把成果写出工程之外，不改工程数据：只读工程放行（浏览/查询契约）。
     {"exportVector", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},

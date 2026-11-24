@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "mappingexplanationservice.h"
 #include "../domain/interpretationevidence.h"
 #include "../domain/predictionevidence.h"
 #include "../domain/evidenceconflict.h"
@@ -75,6 +76,50 @@ QVariantList layerFaciesSchema(const CatalogVersion &version) {
   if (FaciesTaxonomy::upgrade(stored, &schema)) return schema;
   return stored;
 }
+void appendTransientAutoExplanation(QVariantList *records, const QVariantMap &generated,
+                                    const QgsFeature &feature, const QString &horizon) {
+  if (!records || generated.isEmpty() || generated.value(QStringLiteral("materialized")).toBool())
+    return;
+  if (generated.value(QStringLiteral("geometry_hash")).toString() !=
+          MappingFeatureIdentity::geometryFingerprint(feature) ||
+      generated.value(QStringLiteral("facies_code")).toInt() !=
+          feature.attribute(QStringLiteral("facies_code")).toInt())
+    return;
+  const QString autoId = QStringLiteral("auto:") + generated.value(QStringLiteral("request_id")).toString();
+  for (const auto &entry : *records) {
+    const auto row = entry.toMap();
+    if (!row.value(QStringLiteral("unlinked")).toBool() &&
+        row.value(QStringLiteral("id")).toString() == autoId)
+      return;
+  }
+  const bool ai = generated.value(QStringLiteral("ai_generated")).toBool();
+  const QString model = generated.value(QStringLiteral("model")).toString();
+  QVariantMap row{
+      {QStringLiteral("id"), autoId},
+      {QStringLiteral("evidence_id"), autoId},
+      {QStringLiteral("feature_id"), feature.id()},
+      {QStringLiteral("feature_uid"), MappingFeatureIdentity::uid(feature)},
+      {QStringLiteral("horizon"), horizon},
+      {QStringLiteral("level"), QStringLiteral("micro_facies")},
+      {QStringLiteral("role"), QStringLiteral("REFERENCES")},
+      {QStringLiteral("type"), QStringLiteral("computation")},
+      {QStringLiteral("origin"), ai ? QStringLiteral("ai_auto_explanation") : QStringLiteral("auto_explanation")},
+      {QStringLiteral("generator"), generated.value(QStringLiteral("generator"))},
+      {QStringLiteral("model"), model},
+      {QStringLiteral("text"), generated.value(QStringLiteral("text"))},
+      {QStringLiteral("reason"), generated.value(QStringLiteral("reason"))},
+      {QStringLiteral("created_at"), generated.value(QStringLiteral("generated_at"))},
+      {QStringLiteral("source_title"), ai && !model.isEmpty()
+                                           ? QObject::tr("AI 后台自动解释（%1 · 待复核）").arg(model)
+                                           : ai ? QObject::tr("AI 后台自动解释（待复核）")
+                                                : QObject::tr("后台自动摘要（待复核）")},
+      {QStringLiteral("auto_generated"), true},
+      {QStringLiteral("ai_generated"), ai},
+      {QStringLiteral("pending_commit"), true},
+      {QStringLiteral("needs_review"), true},
+  };
+  *records << row;
+}
 }
 QString MappingWorkbench::localOperator() const {
   const auto user = qEnvironmentVariable("USER", qEnvironmentVariable("USERNAME", "operator"));
@@ -132,7 +177,11 @@ QVariantMap MappingWorkbench::featureEvidenceSummary(const QString &id, const QL
     for (const auto *key : {"source_missing", "source_stale", "source_feature_missing", "spatial_intersection", "spatial_query", "spatial_message", "source_current_version"}) row.remove(QLatin1String(key));
     row.insert("spatial_state", "deferred"); value = row;
   }
-  out.insert("feature_id", feature.id()); out.insert("records", records);
+  out.insert("feature_id", feature.id());
+  appendTransientAutoExplanation(&records,
+                                 generatedExplanationForFeature(id, MappingFeatureIdentity::uid(feature)),
+                                 feature, declaration(id).horizon);
+  out.insert("records", records);
   out.insert("interpretation", interpretation);
   auto findings = paleo::evidence::check(records, interpretation, identity);
   if (feature.fields().indexOf(MappingFeatureIdentity::ReviewField) >= 0 && feature.attribute(MappingFeatureIdentity::ReviewField).toBool())
@@ -247,6 +296,9 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
   auto findings = paleo::evidence::check(records, interpretation, t);
   if (f.fields().indexOf(MappingFeatureIdentity::ReviewField) >= 0 && f.attribute(MappingFeatureIdentity::ReviewField).toBool())
     findings << QVariantMap{{"severity", "Warning"}, {"code", "identity_changed"}, {"message", tr("图斑经过分割或合并，继承关系和空间证据需要复核")}};
+  appendTransientAutoExplanation(&records,
+                                 generatedExplanationForFeature(id, MappingFeatureIdentity::uid(f)),
+                                 f, declaration(id).horizon);
   out.insert("records", records); out.insert("interpretation", interpretation); out.insert("quality", findings);
   // 图斑级计算归因：面状成果按冻结输入重放确定性融合决策；人工/无血统
   // 图斑如实走 manual，不伪造自动分类过程。
@@ -831,7 +883,9 @@ bool MappingWorkbench::recordInterpretationEdit(const QString &id, qint64 fid, i
   if (!paleo::evidence::revise(records, i, target(f, versionForLayer(id), declaration(id).horizon), "edit",
       {{"before_facies_code", beforeCode}, {"facies_code", afterCode}}, localOperator(),
       tr("人工指定相类型：%1 → %2").arg(beforeCode).arg(afterCode), i.value("revision", 0).toULongLong(), &r, error)) return false;
-  return store(v, fid, r) && appendEditEvidence(id, fid, error);
+  if (!store(v, fid, r) || !appendEditEvidence(id, fid, error)) return false;
+  scheduleAutoExplanation(id, MappingFeatureIdentity::uid(f), QStringLiteral("classification"), beforeCode);
+  return true;
 }
 bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64 fid, const QString &kind, QString *error) {
   auto *v = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(id)) : nullptr;
@@ -963,7 +1017,9 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
   paleo::evidence::Revision result;
   if (!paleo::evidence::revise(records, i, t, "edit", change, localOperator(),
       tr("QGIS 原生空间编辑（%1），继承的证据需要复核").arg(kind), i.value("revision", 0).toULongLong(), &result, error)) return false;
-  return store(v, fid, result) && appendEditEvidence(id, fid, error);
+  if (!store(v, fid, result) || !appendEditEvidence(id, fid, error)) return false;
+  scheduleAutoExplanation(id, currentUid, kind);
+  return true;
 }
 
 // 和几何、三级属性及身份写入同一个原生撤销命令；不会自动确认解释。
@@ -1025,4 +1081,180 @@ bool MappingWorkbench::hasUnpublishedChanges(const QString &id) const {
   if (layer && layer->isModified()) return true;
   const auto *observer = layer ? MappingFeatureIdentity::Observer::of(layer) : nullptr;
   return observer && observer->hasUnpublishedChanges();
+}
+
+bool MappingWorkbench::captureExplanationSnapshot(
+    const QString &horizon, const QString &layerId, const QString &featureUid,
+    const QString &kind, int beforeCode, const QStringList &referenceVersionIds,
+    bool applyToEditBasis, MappingExplanationRequest *out, QString *error) const {
+  if (!out)
+    return reject(error, tr("缺少解释请求输出目标"));
+  MappingExplanationRequest req;
+  req.projectDir = m_dir;
+  req.horizon = horizon;
+  req.unitDisplayName = m_analysisUnit.isValid() && !m_analysisUnit.displayName.isEmpty()
+                            ? m_analysisUnit.displayName
+                            : horizon;
+  req.layerId = layerId;
+  req.operationKind = kind;
+  req.beforeFaciesCode = beforeCode;
+  req.referenceVersionIds = referenceVersionIds;
+  req.applyToEditBasis = applyToEditBasis;
+  if (m_catalog) {
+    QSet<QString> seen;
+    for (const auto &vid : referenceVersionIds) {
+      if (vid.isEmpty() || seen.contains(vid))
+        continue;
+      seen.insert(vid);
+      const auto version = m_catalog->versionById(vid);
+      if (version.id.isEmpty())
+        continue;
+      const auto title = version.extra.value(QStringLiteral("title"),
+          m_catalog->assetById(version.assetId).displayName).toString();
+      if (!title.isEmpty())
+        req.referenceTitles << tr("%1 v%2").arg(title).arg(version.versionNumber);
+    }
+  }
+  if (!layerId.isEmpty()) {
+    const auto version = versionForLayer(layerId);
+    req.versionId = version.id;
+    const auto schema = layerFaciesSchema(version);
+    if (beforeCode != 0)
+      req.beforeFaciesPath = FaciesHierarchy::path(FaciesCatalog::find(schema, beforeCode)).join(QStringLiteral(" / "));
+    QStringList sources;
+    for (const auto &input : version.extra.value(QStringLiteral("evidence")).toMap().value(QStringLiteral("inputs")).toList()) {
+      const auto name = input.toMap().value(QStringLiteral("name")).toString().trimmed();
+      if (!name.isEmpty() && !sources.contains(name))
+        sources << name;
+      if (sources.size() >= 4)
+        break;
+    }
+    if (!sources.isEmpty())
+      req.attributionSummary = sources.join(QStringLiteral("、"));
+    auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(layerId)) : nullptr;
+    if (layer) {
+      req.featureCount = int(layer->featureCount());
+      if (!featureUid.isEmpty()) {
+        const auto feature = MappingFeatureIdentity::find(layer, featureUid);
+        if (!feature.isValid())
+          return reject(error, tr("目标图斑已不存在"));
+        req.featureUid = featureUid;
+        req.geometryHash = MappingFeatureIdentity::geometryFingerprint(feature);
+        req.faciesCode = feature.attribute(QStringLiteral("facies_code")).toInt();
+        req.faciesPath = FaciesHierarchy::path(FaciesCatalog::find(schema, req.faciesCode)).join(QStringLiteral(" / "));
+        if (feature.hasGeometry()) {
+          req.areaSqm = feature.geometry().area();
+          if (acceptsLocalGridCrs(layer->crs()) && m_catalog) {
+            QHash<QString, QVariantMap> formationByWell;
+            for (const auto &value : WellAttributeStore::rows(
+                     m_dir, m_layers, WellAttributeStore::Table::Formations, {}, horizon)) {
+              const auto row = value.toMap();
+              formationByWell.insert(row.value(QStringLiteral("well_id")).toString(), row);
+            }
+            const auto bbox = feature.geometry().boundingBox();
+            for (const auto &entity : m_catalog->entities(QStringLiteral("well"))) {
+              if (!entity.hasSurface)
+                continue;
+              if (!bbox.contains(entity.surfaceX, entity.surfaceY) ||
+                  !feature.geometry().contains(entity.surfaceX, entity.surfaceY))
+                continue;
+              QVariantMap wellRow{{QStringLiteral("well_name"), entity.name}};
+              const auto formation = formationByWell.value(entity.id);
+              if (!formation.isEmpty() && !formation.value(QStringLiteral("facies_code")).isNull()) {
+                wellRow.insert(QStringLiteral("formation_facies_code"), formation.value(QStringLiteral("facies_code")));
+                wellRow.insert(QStringLiteral("formation_dominant"), formation.value(QStringLiteral("dominant_facies")));
+              }
+              req.wellsInFeature << wellRow;
+              if (req.wellsInFeature.size() >= 12)
+                break;
+            }
+          }
+        }
+      }
+    }
+  }
+  *out = std::move(req);
+  return true;
+}
+
+void MappingWorkbench::materializePendingExplanations(QgsVectorLayer *layer, const QString &layerId) {
+  if (!layer || !layer->isEditable() || !layerId.startsWith(QLatin1String("draft.")))
+    return;
+  const auto entries = loadDraftExplanations(layerId);
+  if (entries.isEmpty())
+    return;
+  const auto version = versionForLayer(layerId);
+  const auto horizon = declaration(layerId).horizon;
+  const auto schema = layerFaciesSchema(version);
+  bool modifiedSidecar = false;
+  auto it = layer->getFeatures();
+  QgsFeature feature;
+  while (it.nextFeature(feature)) {
+    const auto uid = MappingFeatureIdentity::uid(feature);
+    if (uid.isEmpty() || !entries.contains(uid))
+      continue;
+    auto generated = entries.value(uid);
+    if (generated.value(QStringLiteral("materialized")).toBool())
+      continue;
+    if (generated.value(QStringLiteral("geometry_hash")).toString() !=
+            MappingFeatureIdentity::geometryFingerprint(feature) ||
+        generated.value(QStringLiteral("facies_code")).toInt() !=
+            feature.attribute(QStringLiteral("facies_code")).toInt())
+      continue;
+    QVariantList records;
+    QVariantMap interpretation;
+    QString err;
+    if (!read(feature, &records, &interpretation, &err))
+      continue;
+    const QString autoId = QStringLiteral("auto:") + generated.value(QStringLiteral("request_id")).toString();
+    bool exists = false;
+    for (const auto &entry : records)
+      if (entry.toMap().value(QStringLiteral("id")).toString() == autoId) {
+        exists = true;
+        break;
+      }
+    if (exists) {
+      generated.insert(QStringLiteral("materialized"), true);
+      m_generatedExplanations[layerId].insert(uid, generated);
+      modifiedSidecar = true;
+      continue;
+    }
+    const bool ai = generated.value(QStringLiteral("ai_generated")).toBool();
+    const QString model = generated.value(QStringLiteral("model")).toString();
+    const auto category = FaciesCatalog::find(schema, feature.attribute(QStringLiteral("facies_code")));
+    QVariantMap link{
+        {QStringLiteral("id"), autoId},
+        {QStringLiteral("evidence_id"), autoId},
+        {QStringLiteral("text"), generated.value(QStringLiteral("text"))},
+        {QStringLiteral("role"), QStringLiteral("REFERENCES")},
+        {QStringLiteral("type"), QStringLiteral("computation")},
+        {QStringLiteral("origin"), ai ? QStringLiteral("ai_auto_explanation") : QStringLiteral("auto_explanation")},
+        {QStringLiteral("generator"), generated.value(QStringLiteral("generator"))},
+        {QStringLiteral("model"), model},
+        {QStringLiteral("source_title"), ai && !model.isEmpty()
+                                             ? tr("AI 后台自动解释（%1 · 待复核）").arg(model)
+                                             : ai ? tr("AI 后台自动解释（待复核）")
+                                                  : tr("后台自动摘要（待复核）")},
+        {QStringLiteral("auto_generated"), true},
+        {QStringLiteral("ai_generated"), ai},
+        {QStringLiteral("level"), QStringLiteral("micro_facies")},
+        {QStringLiteral("category_path"), FaciesHierarchy::path(category).join(QStringLiteral(" / "))},
+        {QStringLiteral("category_key"), FaciesHierarchy::key(category, QStringLiteral("micro_facies"))},
+    };
+    const QString reason = generated.value(QStringLiteral("reason")).toString().trimmed().isEmpty()
+                               ? tr("后台自动生成编图解释草稿")
+                               : generated.value(QStringLiteral("reason")).toString().trimmed();
+    paleo::evidence::Revision next;
+    if (paleo::evidence::revise(records, interpretation, target(feature, version, horizon),
+                                QStringLiteral("link"), link, localOperator(), reason,
+                                interpretation.value(QStringLiteral("revision"), 0).toULongLong(),
+                                &next, &err) &&
+        store(layer, feature.id(), next)) {
+      generated.insert(QStringLiteral("materialized"), true);
+      m_generatedExplanations[layerId].insert(uid, generated);
+      modifiedSidecar = true;
+    }
+  }
+  if (modifiedSidecar)
+    saveDraftExplanations(layerId);
 }

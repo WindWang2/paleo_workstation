@@ -335,6 +335,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   // 补齐——补齐前是禁用态（UI 显示禁用原因），不静默跑假回答。
   m_aiChat = new AiChatController(this);
   m_aiChat->toolRunner()->setTaskService(m_taskSvc);
+  if (m_mappingWorkbench) {
+    connect(m_aiChat, &AiChatController::configChanged, m_mappingWorkbench,
+            &MappingWorkbench::setLlmConfig);
+  }
   // 方向61/77：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
   // 只读工程工具（query/lineage）不依赖 ORT——无 ORT 构建也绑（assist 为空
   // 时 tile/horizon 由执行器按调用如实报错）。
@@ -342,12 +346,16 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
                      m_import->catalog(), QString(), QString(), m_capabilityHost, m_documentSession);
   {
     LlmConfig llm = LlmConfig::load();
+    if (m_mappingWorkbench)
+      m_mappingWorkbench->setLlmConfig(llm);
     LlmKeyStore::read(this, [this, llm](bool ok, const QByteArray &key,
                                         const QString &) mutable {
       if (ok)
         llm.apiKey = key;
       if (m_aiChat)
         m_aiChat->setConfig(llm);
+      else if (m_mappingWorkbench)
+        m_mappingWorkbench->setLlmConfig(llm);
     });
   }
   // 方向68：Python 脚本面三件。脚本执行恒为显式用户动作（控制台面板
@@ -433,6 +441,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   });
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
     m_projectLayerRefresh->cancel();
+    if (m_mappingWorkbench)
+      m_mappingWorkbench->cancelBackgroundExplanation();
     if (m_aiChat)
       m_aiChat->interrupt();
     if (m_versionCtl)
@@ -644,6 +654,8 @@ bool AppContext::drainTasks(int timeoutMs)
   // finished 信号不得重新提交预热或预览（交会清单刷新经 previewsQuiesced
   // 门拒收；预览请求经 PreviewDocService::quiesce 以真实原因拒绝）。
   m_previewQuiesced = true;
+  if (m_mappingWorkbench)
+    m_mappingWorkbench->cancelBackgroundExplanation();
   if (m_previewDoc)
     m_previewDoc->quiesce();
   if (!m_taskSvc)

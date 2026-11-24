@@ -147,7 +147,8 @@ bool revise(const QVariantList &records, const QVariantMap &interpretation,
     r.insert("id", key); r.insert("evidence_id", key); r.insert("text", text);
     r.insert("role", r.value("role", "REFERENCES")); r.insert("type", r.value("type", "manual"));
     r.insert("verification", "Unverified"); r.insert("revision", 1);
-    r.insert("origin", "manual_interpretation");
+    if (r.value("origin").toString().trimmed().isEmpty())
+      r.insert("origin", "manual_interpretation");
     r.insert("feature_uid", uid); r.insert("horizon", target.value("horizon"));
     r.insert("geometry_hash", target.value("geometry_hash")); r.insert("facies_schema_hash", target.value("facies_schema_hash"));
     r.insert("actor_id", actor.trimmed()); r.insert("created_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));

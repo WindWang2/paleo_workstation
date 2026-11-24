@@ -97,6 +97,27 @@ class DataPreviewTabs : public QWidget
     void openSeismicLine(const QString &assetId, const QString &kind,
                         int line, double timeMs);
 
+    // ---- I4 typed 导航接缝（Agent 导航专用薄接缝；普通 UI 流程不走）----
+    // 井资料：固定版本 + 指定井，严格校验/事实回读；地震测线：固定版本 +
+    // 严格 axis/线号（拒绝越界，不吃 SpinBox 钳位），真实解码完成经回调
+    // 回报（shown/partial/failed/superseded/cancelled）。SHA 闸门按入参
+    // policy 执行（Agent 只读导航传 ReportOnly——不写 Catalog；普通 UI
+    // 缺省策略不变）。done 恰好在 GUI 线程回调一次。
+    struct WellViewFacts {
+      QString state;   // shown|select_well|no_resolved_wells|well_not_in_file|
+                       // source_missing|sha_mismatch|error|version_unknown
+      bool pageOpen = false, pageFocused = false, showsWell = false;
+      QString assetId, versionId, wellId, detail;
+    };
+    void openWellViewVersionAsync(const QString &versionId, const QString &wellId,
+                                  PreviewDocService::ShaGatePolicy policy,
+                                  std::function<void(const WellViewFacts &)> done);
+    void openSeismicLineVersion(const QString &versionId, const QString &axis,
+                                int lineNumber, PreviewDocService::ShaGatePolicy policy,
+                                std::function<void(const QJsonObject &)> done);
+    // 已打开预览目标的有限快照（navigation_state 工具用；≤8 项，不猜身份）。
+    QJsonObject navigationPreviewSnapshot() const;
+
     int tabCount() const;
     QString versionIdAt(int index) const; // 页实际显示的版本，供标签切换恢复上下文
     QString assetIdAt(int index) const;   // "" 越界
@@ -240,6 +261,36 @@ class DataPreviewTabs : public QWidget
 
     // 挂接门面（私有）：setImportService/setDocService 共用入口。
     void attachDoc(PreviewDocService *doc);
+
+    // ---- I4 typed 导航内部（datapreviewtabs_navigation.cpp）----
+    // 同步严格打开（外链 SHA 已过闸的前提下）：固定版本 + 指定井 + 事实
+    // 回读（页面创建/聚焦/正文三事实分开）。
+    WellViewFacts openWellViewVersion(const QString &versionId, const QString &wellId,
+                                      PreviewDocService::ShaGatePolicy policy);
+    // typed 打开期间的 per-request SHA 策略深度（>0 → 解码/闸门请求带
+    // ReportOnly）。只在同步 typed 调用栈内非零——不是共享全局开关。
+    int m_navigationPolicyDepth = 0;
+    PreviewDocService::ShaGatePolicy navigationShaPolicy() const;
+    // 地震 typed 请求观察：assetId → 挂起的导航回执（结果信号到达时按
+    // 目标 (axis,line) 认领；用户换线/关页/重建 → superseded/cancelled）。
+    struct NavigationSectionWatch {
+      QString versionId, axis;
+      int line = 0;
+      bool inlineAxis = true;
+      // armed=false：建页初始解码（初始测线）尚未被目标解码顶替——非目标
+      // 结果静默忽略（不是用户换线）；目标解码发出后置 true，此后非目标
+      // 结果才判 superseded。
+      bool armed = false;
+      std::function<void(const QJsonObject &)> done;
+    };
+    QHash<QString, NavigationSectionWatch> m_navigationSectionWatch;
+    void wireNavigationOutcomeRoutes();          // attachDoc 尾部重接
+    void notifyNavigationSectionOutcome(const QString &assetId, const QString &status,
+                                        const QString &detail = QString());
+    void dropNavigationWatch(const QString &assetId, const QString &status,
+                             const QString &detail = QString());
+    QString classifyWellBodyState(QWidget *page, const QString &assetId,
+                                  const QString &wellId) const;
 
     // 瓦片渐进时间片路由（datapreviewtabseismic.cpp 调）：服务信号是广播的，
     // 这里按「画布 → (工作区, 采样号)」登记表逐项匹配。connectTiledTileRoute

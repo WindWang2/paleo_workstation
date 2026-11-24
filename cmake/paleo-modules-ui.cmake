@@ -25,6 +25,7 @@ add_library(paleo_workflow STATIC
   src/workflow/paleomaplibrary.cpp
   src/workflow/projectareasummary.cpp
   src/workflow/mappingeditcontext.cpp
+  src/workflow/mappingexplanationservice.cpp
   src/workflow/mappingbasemaps.cpp
   src/workflow/geologicalexport.cpp
   src/workflow/dataexportworkflow.cpp

@@ -477,12 +477,36 @@ void PreviewDocService::affinePreviewBounds(const double src[4],
   }
 }
 
+QString PreviewDocService::shaVerifiedKey(const QString &assetId, const QString &versionId,
+                                           const QString &sha256)
+{
+  return assetId + QLatin1Char('|') + versionId + QLatin1Char('|') + sha256;
+}
+
+void PreviewDocService::removeShaVerifiedForAsset(const QString &assetId)
+{
+  const QString prefix = assetId + QLatin1Char('|');
+  const QStringList keys = m_shaVerified.keys();
+  for (const QString &key : keys)
+    if (key.startsWith(prefix))
+      m_shaVerified.remove(key);
+}
+
+bool PreviewDocService::externalShaVerified(const QString &assetId,
+                                            const CatalogVersion &version) const
+{
+  if (version.managed || version.sha256.isEmpty())
+    return true; // 托管副本/无指纹：闸门本身短路
+  return m_shaVerified.value(shaVerifiedKey(assetId, version.id, version.sha256), false);
+}
+
 bool PreviewDocService::verifyExternalSha(const QString &assetId,
                                           const CatalogVersion &version,
-                                          QString *error) const
+                                          QString *error, ShaGatePolicy policy) const
 {
-  if (version.managed || version.sha256.isEmpty() || m_shaVerified.value(assetId))
-    return true; // 托管副本/无指纹/本会话已验 → 放行
+  if (version.managed || version.sha256.isEmpty() ||
+      m_shaVerified.value(shaVerifiedKey(assetId, version.id, version.sha256)))
+    return true; // 托管副本/无指纹/本会话已验（版本精确） → 放行
   DataCatalog *cat = catalog();
   if (!cat)
     return true;
@@ -491,20 +515,26 @@ bool PreviewDocService::verifyExternalSha(const QString &assetId,
     // B 包 staleness-lite：外链源字节与入库时不一致 ⇒ 下游闭包里的 DERIVED
     // 产物输入失效，如实标过时（幂等；GUI 线程直调，与 catalog 线程纪律
     // 一致）。标记失败只记日志——复验拒解码的门不受影响。
-    QString markErr;
-    if (!cat->markDownstreamStale(version.id,
-                                  QStringLiteral("上游外链版本 sha 校验失败"),
-                                  &markErr))
-      qWarning() << "markDownstreamStale:" << markErr;
+    // I4（W7）：Agent 只读导航（ReportOnly）仅回报失败——不写 Catalog，
+    // 普通 UI 的既有处理策略保持不变。
+    if (policy == ShaGatePolicy::MarkDownstreamStale)
+    {
+      QString markErr;
+      if (!cat->markDownstreamStale(version.id,
+                                    QStringLiteral("上游外链版本 sha 校验失败"),
+                                    &markErr))
+        qWarning() << "markDownstreamStale:" << markErr;
+    }
     return false;
   }
-  m_shaVerified.insert(assetId, true);
+  m_shaVerified.insert(shaVerifiedKey(assetId, version.id, version.sha256), true);
   return true;
 }
 
 void PreviewDocService::verifyExternalShaAsync(
     const QString &assetId, const CatalogVersion &version, const QString &absPath,
-    QObject *receiver, std::function<void(bool, const QString &)> done)
+    QObject *receiver, std::function<void(bool, const QString &)> done,
+    ShaGatePolicy policy)
 {
   const auto settle = [&done](bool ok, const QString &error) {
     if (done)
@@ -512,12 +542,13 @@ void PreviewDocService::verifyExternalShaAsync(
   };
   if (m_quiesced)
     return settle(false, tr("应用退出中，预览请求已停止")); // A-W6
-  if (version.managed || version.sha256.isEmpty() || m_shaVerified.value(assetId))
+  if (version.managed || version.sha256.isEmpty() ||
+      m_shaVerified.value(shaVerifiedKey(assetId, version.id, version.sha256)))
     return settle(true, QString()); // 托管副本/无指纹/本会话已验 → 放行
   if (!m_taskSvc || !receiver)
   {
     QString err;
-    return settle(verifyExternalSha(assetId, version, &err), err);
+    return settle(verifyExternalSha(assetId, version, &err, policy), err);
   }
   const QString project = catalog() ? catalog()->projectDir() : QString();
   const QString versionId = version.id;
@@ -536,7 +567,7 @@ void PreviewDocService::verifyExternalShaAsync(
   if (!task)
   {
     QString err;
-    return settle(verifyExternalSha(assetId, version, &err), err);
+    return settle(verifyExternalSha(assetId, version, &err, policy), err);
   }
   const QPointer<PaleoTask> guard(task);
   connect(receiver, &QObject::destroyed, task, [guard] {
@@ -544,14 +575,15 @@ void PreviewDocService::verifyExternalShaAsync(
       guard->requestCancel(); // 页关闭：大外链不白读
   });
   connect(task, &PaleoTask::finished, receiver,
-          [this, guard, assetId, versionId, mismatched, done]() {
+          [this, guard, assetId, version, versionId, mismatched, done, policy]() {
             if (!guard)
               return;
             if (guard->state() == PaleoTask::State::Cancelled)
               return; // 页已关闭/切换——不回填任何状态
             if (guard->state() == PaleoTask::State::Succeeded)
             {
-              m_shaVerified.insert(assetId, true); // 主线程写缓存（同同步口径）
+              // 主线程写缓存（同同步口径；版本精确键——I4 W7）。
+              m_shaVerified.insert(shaVerifiedKey(assetId, version.id, version.sha256), true);
               if (done)
                 done(true, QString());
               return;
@@ -560,14 +592,18 @@ void PreviewDocService::verifyExternalShaAsync(
             {
               // B 包 staleness-lite：失配 → 下游 DERIVED 如实标过时（GUI 线程，
               // 与 verifyExternalSha 同一口径；幂等）。
-              DataCatalog *cat = catalog();
-              if (cat)
+              // I4（W7）：ReportOnly（Agent 只读导航）不写 Catalog。
+              if (policy == ShaGatePolicy::MarkDownstreamStale)
               {
-                QString markErr;
-                if (!cat->markDownstreamStale(
-                        versionId, QStringLiteral("上游外链版本 sha 校验失败"),
-                        &markErr))
-                  qWarning() << "markDownstreamStale:" << markErr;
+                DataCatalog *cat = catalog();
+                if (cat)
+                {
+                  QString markErr;
+                  if (!cat->markDownstreamStale(
+                          versionId, QStringLiteral("上游外链版本 sha 校验失败"),
+                          &markErr))
+                    qWarning() << "markDownstreamStale:" << markErr;
+                }
               }
               if (done)
                 done(false, guard->errorText());
@@ -580,7 +616,7 @@ void PreviewDocService::verifyExternalShaAsync(
 
 void PreviewDocService::resetSha(const QString &assetId)
 {
-  m_shaVerified.remove(assetId);
+  removeShaVerifiedForAsset(assetId);
 }
 
 bool PreviewDocService::markDownstreamStale(const QString &versionId,
@@ -748,7 +784,8 @@ void PreviewDocService::requestSection(const QString &assetId,
                                        const QString &versionId,
                                        const QString &absPath, bool managed,
                                        const QString &sha256, bool isInline,
-                                       int lineNo, QObject *consumer)
+                                       int lineNo, QObject *consumer,
+                                       ShaGatePolicy policy)
 {
   if (m_quiesced)
   {
@@ -778,8 +815,10 @@ void PreviewDocService::requestSection(const QString &assetId,
   out->doc.isInline = isInline;
   out->doc.lineNo = lineNo;
 
-  const bool needSha =
-      !managed && !sha256.isEmpty() && !m_shaVerified.value(assetId);
+  // I4（W7）：SHA 通过证明按 (asset,version,指纹) 版本精确判定——同资产
+  // 旧版本/旧指纹的已验结论不放行本版本。
+  const bool needSha = !managed && !sha256.isEmpty() &&
+      !m_shaVerified.value(shaVerifiedKey(assetId, versionId, sha256));
   // B 包 staleness-lite：sha 是否失配由 worker 判定（bool 经 shared_ptr
   // 交接），回 GUI 线程再碰 catalog——下游标记的线程纪律与库内一致。
   const auto shaMismatch = std::make_shared<bool>(false);
@@ -820,12 +859,12 @@ void PreviewDocService::requestSection(const QString &assetId,
   };
 
   const auto apply = [this, assetId, requestKey, tag, seq, out, shaMismatch,
-                      versionId](PaleoTask::State st, const QString &errText) {
+                      versionId, sha256, policy](PaleoTask::State st, const QString &errText) {
     if (seq != m_decodeSeq.value(requestKey))
       return; // 陈旧结果丢弃：更新一代 decode 已接管（发射前压制）
     if (st == PaleoTask::State::Succeeded)
     {
-      m_shaVerified.insert(assetId, true);
+      m_shaVerified.insert(shaVerifiedKey(assetId, versionId, sha256), true);
       out->doc.horizonsOnly=out->imageDelivered;
       emit seismicSectionReady(assetId, out->doc, tag);
     }
@@ -833,7 +872,9 @@ void PreviewDocService::requestSection(const QString &assetId,
     {
       // sha 失配（worker 判定）：下游 DERIVED 如实标过时——GUI 线程直调、
       // 幂等；读取失败/取消/纯解码失败不产标（非源被改的证据）。
-      if (*shaMismatch && !versionId.isEmpty())
+      // I4（W7）：ReportOnly（Agent 只读导航）只回报失败，不写 Catalog。
+      if (*shaMismatch && !versionId.isEmpty() &&
+          policy == ShaGatePolicy::MarkDownstreamStale)
       {
         QString markErr;
         if (!markDownstreamStale(versionId,
@@ -911,8 +952,9 @@ void PreviewDocService::releaseSection(const QString &assetId, QObject *consumer
     releaseKey(consumerRequestKey(assetId, consumer));
     // SHA 已验标记随标签关闭清除（与改前匿名释放同语义）：外链源在标签
     // 关闭期间被换盘面时，重开标签会重新校验而非沿用旧结论。方向保守
-    //（至多多算一次哈希），不影响其他消费者的在途任务。
-    m_shaVerified.remove(assetId);
+    //（至多多算一次哈希），不影响其他消费者的在途任务。I4 起按资产前缀
+    // 清全部版本的版本精确键。
+    removeShaVerifiedForAsset(assetId);
     return; // 只收口本消费者的请求；其他消费者的在途解码不受影响
   }
   // 匿名释放（兼容旧语义）：作废该资产全部消费者 + 匿名键的在途请求。
@@ -921,7 +963,7 @@ void PreviewDocService::releaseSection(const QString &assetId, QObject *consumer
   for (const QString &key : keys)
     if (key.endsWith(suffix))
       releaseKey(key);
-  m_shaVerified.remove(assetId);
+  removeShaVerifiedForAsset(assetId);
 }
 
 void PreviewDocService::requestLas(const QString &key, const QString &absPath,

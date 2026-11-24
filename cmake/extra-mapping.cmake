@@ -2,3 +2,5 @@
 #（CMakeLists.txt 模块表禁改，见 cmake/README.md）。
 
 target_sources(paleo_qgis PRIVATE src/qgis/topologicalindex.cpp)
+
+add_paleo_test(tst_mapping_async_explanation LIBS paleo_ui paleo_workflow paleo_ai Qt6::Network)

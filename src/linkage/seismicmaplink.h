@@ -38,6 +38,12 @@ class SeismicMapLink : public QObject
     void setSeismicLayer(QgsVectorLayer *lineLayer, const QString &idField = QStringLiteral("line_id"));
     QgsVectorLayer *seismicLayer() const;
 
+    // I4（W3）：可信井来源隔离——井域 origin（井层回声/数据页/预览页/
+    // Agent 导航/井层重绑恢复）的选择载荷只含井业务 ID，不得触发地震线层
+    // 的整层扫描/选择/清空：同字串 line_id 不因「选井」被误选。精确集合
+    // 判定，地震域自身 origin（seismic_map）不在此列。
+    static bool isWellSelectionOrigin(const QString &origin);
+
     // 剖面跨视图联动（W3b）：linkage 不持有 ui 控件——壳把剖面画布的
     // traceHovered/traceClicked 连到下面的槽，把 sectionVolumeChanged 连到
     // 剖面控件的 setVolume。连接前先取 activeVolume() 做一次初始推送。

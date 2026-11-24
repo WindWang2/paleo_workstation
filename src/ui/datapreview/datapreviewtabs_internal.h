@@ -292,9 +292,12 @@ inline QLabel *caption8(const QString &text, QWidget *parent)
   return l;
 }
 
-inline QLabel *stateLabel(const QString &text, QWidget *parent, bool error = false)
+inline QLabel *stateLabel(const QString &text, QWidget *parent, bool error = false,
+                           const QString &objectName = QString())
 {
   auto *l = new QLabel(text, parent);
+  if (!objectName.isEmpty())
+    l->setObjectName(objectName); // I4：typed 导航正文状态回读标记
   l->setAlignment(Qt::AlignCenter);
   l->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(l, [error] {

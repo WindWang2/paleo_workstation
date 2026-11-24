@@ -16,6 +16,8 @@
 #include <memory>
 namespace paleo::query {class ProjectQueryCapability;}
 namespace paleo::python {class RuntimeProvider;class TrustedReadinessProvider;class SandboxProvider;class PythonEnvironmentRegistry;}
+namespace paleo::agent::mapdisplay {class Access;}
+namespace paleo::agent::navigation {class AgentNavigation;}
 namespace paleo::document {struct SourceRef;struct SourceRecord;}
 
 // workflow/ — 聊天领域工具执行器（方向61）。
@@ -111,6 +113,12 @@ public:
   void setPythonEnvironments(std::shared_ptr<paleo::python::PythonEnvironmentRegistry> registry);
   void setContext(const Context &context);
   void setTaskService(PaleoTaskService *service);
+  // I3：宿主注入的地图显示访问（生产实现 qgis/agentmapdisplayadapter，
+  // 组装根安装）。owner 守卫寿命；接入/撤除算绑定变化（作废在途资格）。
+  void setMapDisplay(paleo::agent::mapdisplay::Access *access, QObject *owner);
+  // I4：宿主注入的语义导航编排（生产实现 workflow/agentnavigation，组装根
+  // 安装）。owner 守卫寿命；接入/撤除算绑定变化（作废在途资格）。
+  void setNavigation(paleo::agent::navigation::AgentNavigation *navigation, QObject *owner);
   void setResultSession(const QString &session);
   QJsonObject modelResult(const ChatToolCall &call, const QString &rawJson,
                          bool ok, int maxBytes);
@@ -159,9 +167,18 @@ private:
   // H5：计划提案纯预检（decode + validatePlan，返回有界 paleo.plan-preview.v1
   // 契约；不 prepare/start/accept，不读模型路径）。
   void runPlanPreview(const QJsonObject &args);
+  // I5：能力目录只读检查（list/describe/check；纯注册表投影+纯验证器，
+  // 零业务副作用，宿主上下文仅在绑定时做策略快照）。
+  void runCapabilityInspection(const QJsonObject &args);
   // H4：只读发现（paleo.operation_list）——不走 operation_id 必填分支；
   // 快照/游标状态在 Recovery 侧发现服务内，runner 只持任务句柄。
   void runOperationList(const QString &callerScope, const QJsonObject &args);
+  // I3：地图显示原子（paleo.map_layer* 精确五名）——宿主效果门复核 +
+  // 受管显示访问委托（实现：aichattoolrunner_display.cpp）。
+  void runMapDisplayTool(const QString &name, const QJsonObject &args);
+  // I4：语义导航原子（六个精确名）——宿主效果门（Read）复核 + 编排委托
+  //（实现：aichattoolrunner_navigation.cpp）。
+  void runNavigationTool(const QString &name, const QJsonObject &args);
   void runTileV2(const QJsonObject &args);
   void runTile(const ChatToolCall &call, const QJsonObject &args);
   void runHorizon(const ChatToolCall &call, const QJsonObject &args);
@@ -223,6 +240,14 @@ private:
   int m_activeQuotaBytes = 0;
   QString m_deliveredReadCallId;
   int m_deliveredReadQuota = 0;
+  // I3：显示访问（非拥有；owner QPointer 守卫，供给变化随 bindingRevision
+  // 作废资格）。
+  paleo::agent::mapdisplay::Access *m_mapDisplay = nullptr;
+  QPointer<QObject> m_mapDisplayOwner;
+  // I4：语义导航编排（非拥有；owner QPointer 守卫，供给变化随 bindingRevision
+  // 作废资格）。
+  paleo::agent::navigation::AgentNavigation *m_navigation = nullptr;
+  QPointer<QObject> m_navigationOwner;
 };
 
 // 装配/测试侧的简称（Context 语义上独立于 runner 实例存在）。

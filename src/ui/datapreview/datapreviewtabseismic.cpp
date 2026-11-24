@@ -277,7 +277,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     pend.hasTie = tieNow.haveTop && tieNow.ok;
     pend.tieMs = tieNow.timeMs;
     m_pendingSection[assetId] = pend;
-    m_doc->requestSection(assetId, v.id, abs, v.managed, v.sha256, isInline, lineNo, this);
+    m_doc->requestSection(assetId,v.id,abs,v.managed,v.sha256,isInline,lineNo,this,navigationShaPolicy()); // I4：typed 导航栈内按 per-request SHA 策略
   };
 
   connect(mode, &QComboBox::currentIndexChanged, host, [mode, no, survey, decode]() {

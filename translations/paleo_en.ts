@@ -39065,6 +39065,34 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>地层单元 ONNX 预测</source>
+        <translation>Stratigraphic unit ONNX prediction</translation>
+    </message>
+    <message>
+        <source>对明确的地层分析单元（方案内 S1–S4 子层段）从受管地震体提取 64×64 层段窗口 RMS，交给当前工程 models/ 注册表内钉 SHA 的本地 ONNX 分类模型推理。先用 query_project （local_models / version）取得精确模型名、地震体目录版本与单元引用。prepare 冻结模型/来源/单元并物化输入，返回持久 operationId；compute-only 只接受 prepare 的 source_operation_id（输入不可重述，重启后仍按同一冻结输入计算）；publish 只提交已计算的 source_operation_id，不重复推理。类别输出是模型通道索引，不带地质标签映射；不自动选择或显示图层。</source>
+        <translation>For an explicit stratigraphic analysis unit (an S1–S4 sub-interval of the scheme), extracts a 64×64 layer-window RMS from the managed seismic volume and runs it through a local ONNX classification model that is pinned by SHA in the current project's models/ registry. Use query_project (local_models / version) first to obtain the exact model name, the seismic catalog version and the unit reference. prepare freezes the model/source/unit, materializes the input and returns a durable operationId; compute-only accepts only the prepare source_operation_id (inputs cannot be restated; after a restart the same frozen input is used); publish commits only an already computed source_operation_id without rerunning inference. Class outputs are model channel indexes with no geological label mapping; layers are never selected or shown automatically.</translation>
+    </message>
+    <message>
+        <source>调用方请求号（同一意图的幂等键；重放返回原操作事实）</source>
+        <translation>Caller request id (idempotency key of the same intent; a replay returns the original operation facts)</translation>
+    </message>
+    <message>
+        <source>执行阶段</source>
+        <translation>Execution phase</translation>
+    </message>
+    <message>
+        <source>能力契约版本；缺省 1（v1 仅接受 1）</source>
+        <translation>Capability contract version; default 1 (v1 accepts only 1)</translation>
+    </message>
+    <message>
+        <source>绑定模式；v1 仅支持 pinned-value（可省略，省略等同 pinned-value）</source>
+        <translation>Binding mode; v1 supports only pinned-value (optional; omitting it is equivalent to pinned-value)</translation>
+    </message>
+    <message>
+        <source>prepare：{model: 注册表模型名, seismic_version_id: 地震体目录版本 id, unit_selection: {schemeId, revision?, intervalId, subIntervalId, subIndex, aggregate:false}}；compute-only/publish：{source_operation_id}（继承输入不可重述）</source>
+        <translation>prepare: {model: registry model name, seismic_version_id: seismic volume catalog version id, unit_selection: {schemeId, revision?, intervalId, subIntervalId, subIndex, aggregate:false}}; compute-only/publish: {source_operation_id} (inherited inputs cannot be restated)</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>

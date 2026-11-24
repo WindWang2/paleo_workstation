@@ -15,6 +15,7 @@
 #include "../../catalog/catalogroles.h"
 #include "../../services/artifactversioncapability.h"
 void appendAgentOperationTools(QVector<AiToolSpec> &specs);
+#include "unitonnxtools.h" // I2：unit.onnx_predict（工具工厂与形状/就绪校验在本文件族）
 #include "../../domain/wellfaciesrequest.h"
 #include "../../domain/wellref.h"
 #include "../../services/projectquerytopics.h"
@@ -274,6 +275,10 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
     if (!known)
       return QObject::tr("未知参数 %1").arg(it.key());
   }
+  // 通用字段（必填/类型/枚举/未知键）先过，再查 I2 的内容形状（阶段相关
+  // 的 inputs 结构、契约版本与绑定模式）。
+  if (isUnitOnnxTool(name))
+    return validateUnitOnnxToolArguments(arguments);
   return QString();
 }
 
@@ -583,6 +588,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
   appendAgentOperationTools(specs);
+  appendAgentUnitOnnxTools(specs);
   // H5：纯预检提案工具（只 decode+validate，执行入口在原生审阅面板）。
   paleo::chat::appendAgentPlanPreviewTool(specs);
   AiToolSpec environment;environment.name="paleo.python_environment";
@@ -605,7 +611,7 @@ AiToolSpec aiToolSpec(const QString &name) {
 bool isAiCapabilityTool(const QString &name) {
   return isPythonAnalysisTool(name) || name == QLatin1String("paleo.depth_convert_batch") ||
          name == QLatin1String("paleo.seismic_attribute_group") ||
-         name == QLatin1String("paleo.constraint_idw");
+         name == QLatin1String("paleo.constraint_idw") || isUnitOnnxTool(name);
 }
 
 QString aiToolDispatchLabel(AiToolDispatchStatus status) {

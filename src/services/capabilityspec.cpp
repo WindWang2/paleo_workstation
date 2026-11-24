@@ -9,6 +9,7 @@
 #include "pythonseismictracespec.h"
 #include "pythontableoutputspec.h"
 #include "pythongeneratedoutputspec.h"
+#include "unitonnxcapabilityspec.h"
 
 namespace {
 
@@ -74,6 +75,7 @@ const QVector<CapabilitySpec> &table() {
       paleo::python::seismicTraceCapabilitySpec(),
       paleo::python::tableOutputsCapabilitySpec(),
       paleo::python::generatedOutputsCapabilitySpec(),
+      paleo::unitOnnxCapabilitySpec(), // I2：unit.onnx_predict（地层单元 RMS → 本地 ONNX）
   };
   return specs;
 }

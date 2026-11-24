@@ -353,7 +353,8 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 26);
+  // I2：+paleo.unit_onnx_predict（地层单元 RMS → 本地 ONNX 持久操作原子）。
+  QCOMPARE(tools.size(), 27);
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -395,7 +396,8 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
     "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
-    "paleo.operation_list"};
+    "paleo.operation_list",
+    "paleo.unit_onnx_predict"}; // I2：地层单元 ONNX 原子
   names.sort();expected.sort();
   QCOMPARE(names,expected); // Also rejects duplicate or unintended registrations.
   ChatToolCall oversized;

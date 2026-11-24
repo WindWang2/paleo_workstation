@@ -7,6 +7,7 @@
 #include "ai/onnxpredictionservice.h"
 #include "catalog/datacatalog.h"
 #include "tileoperationservice.h"
+#include "ai/chat/unitonnxtools.h"
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythongenerated.h"
 #include "services/pythonnumerictable.h"
@@ -157,6 +158,14 @@ AiChatToolRunner::ToolReadiness AiChatToolRunner::readinessForSpecInContext(cons
   if(name==QLatin1String("paleo.tile_classification_v2")) {
     if(!context.tileOperations)return fail("tile_provider_unavailable");
     const auto code=context.tileOperations->readiness(args,listing);
+    if(rebound())return fail("context_rebound");
+    if(!code.isEmpty())return fail(code);
+  }
+  // I2：unit.onnx_predict 的就绪委托——只有需要新加载/数值运行的 prepare 与
+  // 新 compute 才受 ORT/推理服务可用性牵连；publish、终态重放与列表广播
+  // 不在此设门（scope/effects 校验仍在上方通用段完成）。
+  if(isUnitOnnxTool(name)) {
+    const auto code=unitOnnxReadinessCode(context.onnx,args,listing);
     if(rebound())return fail("context_rebound");
     if(!code.isEmpty())return fail(code);
   }

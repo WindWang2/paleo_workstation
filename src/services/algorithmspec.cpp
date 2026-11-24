@@ -6,6 +6,7 @@
 
 void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs);
 void appendPythonAlgorithmSpecs(QVector<AlgorithmSpec> *specs);
+void appendUnitOnnxSpec(QVector<AlgorithmSpec> *specs); // I2：unit.onnx_predict（algorithmspec_unitonnx.cpp）
 
 namespace
 {
@@ -606,6 +607,7 @@ const QVector<AlgorithmSpec> &allSpecs()
     QVector<AlgorithmSpec> specs = baseSpecTable();
     ::appendAtomicPilotSpecs(&specs);
     ::appendPythonAlgorithmSpecs(&specs);
+    ::appendUnitOnnxSpec(&specs);
     return specs;
   }();
   return kSpecs;

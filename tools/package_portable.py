@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
-"""Assemble and check a Windows runtime from the locked build inputs."""
+"""Assemble and check a Windows portable runtime from locked or overridden inputs.
+
+All dependency search paths come from CMakeCache.txt, environment variables, or
+explicit CLI overrides (--qgis-prefix / --deps / --qt-pdf / --office-editor);
+no personal machine paths are hardcoded.
+
+By default, any unresolved PE dependency fails hard (non-zero exit). Pass
+--allow-missing only for explicit diagnostic overrides. All --verify /
+--verify-only failures, early process exits, timeouts, and launch errors
+propagate as non-zero exit codes.
+"""
 
 import argparse
 from collections import deque
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 
@@ -76,10 +86,59 @@ def is_os_import(name: str, system: Path) -> bool:
                 and (system / name).is_file()))
 
 
-def collect_pe_imports(files: PackageFiles, entries, roots, dumpbin: Path, system: Path):
+def _append_override_root(roots: list[tuple[Path, str, Path]], raw_path: Path, role: str):
+    resolved = Path(raw_path).resolve(strict=True)
+    if not resolved.is_dir():
+        raise ValueError(f"Dependency override directory does not exist: {raw_path}")
+    bin_dir = resolved / "bin"
+    if bin_dir.is_dir():
+        roots.append((bin_dir, role, resolved))
+    roots.append((resolved, role, resolved))
+
+
+def resolve_prefix_and_roots(
+    cache: dict[str, str],
+    qgis_prefix: Path | None = None,
+    deps: list[Path] | None = None,
+    qt_pdf: Path | None = None,
+) -> tuple[Path, list[tuple[Path, str, Path]]]:
+    """Resolve QGIS dependency prefix and DLL search roots from CLI/env/cache."""
+    raw_prefix = qgis_prefix or os.environ.get("PALEO_QGIS_PREFIX") or cache.get("QGIS_PREFIX")
+    if not raw_prefix:
+        raise ValueError("QGIS_PREFIX is not set in CMakeCache.txt; pass --qgis-prefix or set PALEO_QGIS_PREFIX")
+    prefix = Path(raw_prefix).resolve(strict=True)
+    qt = prefix / "apps/qt6"
+    gis = prefix / "apps/qgis"
+    roots: list[tuple[Path, str, Path]] = []
+
+    # Explicit overrides take search precedence when provided (#958).
+    dep_paths = list(deps or [])
+    env_deps = os.environ.get("PALEO_DEPS_DIR")
+    if not dep_paths and env_deps:
+        dep_paths = [Path(p) for p in env_deps.split(os.pathsep) if p]
+    for dep_path in dep_paths:
+        _append_override_root(roots, dep_path, "deps")
+
+    qt_pdf_raw = qt_pdf or os.environ.get("PALEO_QT_PDF_DIR")
+    if qt_pdf_raw:
+        _append_override_root(roots, Path(qt_pdf_raw), "qt-pdf")
+
+    roots.extend((root, "osgeo4w", prefix) for root in (qt / "bin", gis / "bin", prefix / "bin"))
+    return prefix, roots
+
+
+def collect_pe_imports(
+    files: PackageFiles,
+    entries,
+    roots,
+    dumpbin: Path,
+    system: Path,
+    *,
+    allow_missing: bool = False,
+):
     pending = deque(entries)
     found = {entry.name.lower() for entry in entries if entry.parent == files.output}
-    missing = {}
+    missing: dict[str, set[str]] = {}
     while pending:
         binary = pending.popleft()
         listing = checked([str(dumpbin), "/nologo", "/dependents", str(binary)])
@@ -97,11 +156,26 @@ def collect_pe_imports(files: PackageFiles, entries, roots, dumpbin: Path, syste
     if missing:
         details = "\n".join(f"{name} required by {', '.join(sorted(users))}"
                             for name, users in sorted(missing.items()))
-        raise ValueError(f"Missing locked runtime dependencies:\n{details}")
+        if not allow_missing:
+            raise ValueError(f"Missing locked runtime dependencies:\n{details}")
+        print(f"WARNING: allowing missing runtime dependencies (--allow-missing):\n{details}",
+              file=sys.stderr)
+    return missing
 
 
-def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin: Path):
-    prefix = Path(cache["QGIS_PREFIX"]).resolve(strict=True)
+def stage_windows(
+    files: PackageFiles,
+    build: Path,
+    office: Path,
+    cache,
+    dumpbin: Path,
+    *,
+    qgis_prefix: Path | None = None,
+    deps: list[Path] | None = None,
+    qt_pdf: Path | None = None,
+    allow_missing: bool = False,
+):
+    prefix, roots = resolve_prefix_and_roots(cache, qgis_prefix=qgis_prefix, deps=deps, qt_pdf=qt_pdf)
     verify_receipt(prefix, ".paleo-osgeo4w-lock.sha256", "vendor/osgeo4w-offline.lock.json")
     verify_receipt(prefix, ".paleo-opencl-source.sha256", "vendor/opencl-source.lock.json")
     qt = prefix / "apps/qt6"
@@ -132,14 +206,17 @@ def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin
     freexl_source = REPO_ROOT / "vendor/Data_service/vendor/freexl"
     for name in ("NOTICE.txt", "LGPL-2.1.txt", "spreadsheet_compat.patch", "freexl-2.0.0/COPYING"):
         files.copy(freexl_source / name, f"share/paleo/licenses/freexl/{name}", "source", REPO_ROOT)
-    roots = [(root, "osgeo4w", prefix) for root in (qt / "bin", gis / "bin", prefix / "bin")]
     ort = Path(cache["CMAKE_HOME_DIRECTORY"]) / "vendor/onnxruntime"
     if ort.is_dir() and cache.get("PALEO_ONNXRUNTIME") != "OFF" and cache.get("ORT_LIB") != "OFF":
         for name in ("onnxruntime.dll", "onnxruntime_providers_shared.dll"):
             entries.append(files.copy(ort / "lib" / name, name, "onnxruntime", ort))
         for name in ("LICENSE", "ThirdPartyNotices.txt"):
             files.copy(ort / name, f"share/paleo/licenses/onnxruntime/{name}", "onnxruntime", ort)
-    collect_pe_imports(files, entries, roots, dumpbin, Path(os.environ["SystemRoot"]) / "System32")
+    collect_pe_imports(
+        files, entries, roots, dumpbin,
+        Path(os.environ["SystemRoot"]) / "System32",
+        allow_missing=allow_missing,
+    )
     add_windows_resources(files, prefix, qt, gis, gdal, office)
 
 
@@ -190,6 +267,14 @@ def main():
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--office-editor")
+    parser.add_argument("--qgis-prefix", type=Path,
+                        help="Override QGIS/OSGeo4W dependency prefix (or set PALEO_QGIS_PREFIX)")
+    parser.add_argument("--deps", type=Path, action="append",
+                        help="Additional DLL dependency search root (repeatable; or set PALEO_DEPS_DIR)")
+    parser.add_argument("--qt-pdf", type=Path,
+                        help="Additional Qt PDF DLL search root (or set PALEO_QT_PDF_DIR)")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="Warn instead of failing when PE DLL closure has unresolved imports")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--verify-only", type=Path)
     parser.add_argument("--zip", action="store_true")
@@ -215,7 +300,13 @@ def main():
             package = Path(staging) / "runtime"
             package.mkdir()
             files = PackageFiles(package)
-            stage_windows(files, build, office, cache, find_dumpbin())
+            stage_windows(
+                files, build, office, cache, find_dumpbin(),
+                qgis_prefix=args.qgis_prefix,
+                deps=args.deps,
+                qt_pdf=args.qt_pdf,
+                allow_missing=args.allow_missing,
+            )
             files.write(["vendor/osgeo4w-offline.lock.json", "vendor/manifest.json",
                          "vendor/opencl-source.lock.json",
                          "vendor/office-editor-required.txt", "vendor/fetch-ranuts-document.sh"])

@@ -93,7 +93,7 @@ jobs:
       - name: Vendor dependencies (deb 闭包，QGIS 头来源 #76)
         run: ./paleo-dev bootstrap fetch-only
       - name: Configure (compile_commands.json only)
-        run: ./paleo-dev configure -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        run: ./paleo-dev configure -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DPALEO_ONNXRUNTIME=ON
       # .cpp 内 Q_OBJECT 类靠 `#include "*.moc"`（AUTOMOC 产物）；只 configure
       # 不 build 时该文件不存在，clang-tidy 报 clang-diagnostic-error。
       # 先生成全部 *_autogen 目标（只跑 moc/uic，不编译，秒级）。
@@ -142,6 +142,7 @@ jobs:
           python3 tools/check_layering.py --symbol-audit
           python3 tools/check_layering.py --transitive
           python3 tools/check_layering.py --qgs-audit --strict
+          python3 tools/check_layering.py --link-audit
           python3 tools/check_qgis_spread.py --strict
           python3 tools/check_ui_invariants.py --strict
           python3 tools/check_ui_invariants.py --selftest
@@ -163,6 +164,12 @@ jobs:
           python3 tools/check_qgis_versions.py --selftest
           python3 tools/check_ci_scripts.py
           python3 tools/check_ci_scripts.py --selftest
+          python3 tools/check_env_redset.py --validate
+          python3 tools/check_env_redset.py --selftest
+          python3 tools/check_test_manifest.py --build build --require-ort
+          python3 tools/check_test_manifest.py --selftest
+          python3 tools/test_package_portable.py
+          python3 tools/test_make_appimage.py
           python3 tools/check_docs_drift.py
           python3 tools/check_docs_drift.py --selftest
             python3 tools/check_agent_python_runtime.py
@@ -240,7 +247,7 @@ jobs:
         # Keep optimization and source/line stacks (-g1), without local-variable DWARF.
         # Configure the cache first; paleo-dev retains these flags on its own configure.
         run: |
-          ./paleo-dev configure -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG'
+          ./paleo-dev configure -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG' -DPALEO_ONNXRUNTIME=ON
           ./paleo-dev build
       # #501 flaky 台账跨 run 持久化：tools/flaky-ledger.jsonl 不入库（gitignore），
       # 此前每次 run 都从空台账起算，「同一测试累计 ≥3 次」永远到不了。restore 取
@@ -380,7 +387,7 @@ jobs:
         # （#498/#505 同款事故）；continue-on-error 只让它「不拖累合并门禁」，
         # 失败仍会静默丢趋势数据。
         run: ./paleo-dev configure
-          -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG'
+          -DCMAKE_CXX_FLAGS_RELWITHDEBINFO='-O2 -g1 -DNDEBUG' -DPALEO_ONNXRUNTIME=ON
       - name: Build + run perf tests (serial)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -470,7 +477,7 @@ jobs:
       # 函数和数据段。保留 -g1 行号及两种 sanitizer，继续构建和运行全部测试。
       - name: Configure (ASAN+UBSAN)
         run: ./paleo-dev configure
-          -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON
+          -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON -DPALEO_ONNXRUNTIME=ON
           "-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG" "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g1 -DNDEBUG"
           -DPALEO_SANITIZER_DEBUG_FLAG=-g1
           "-DCMAKE_C_FLAGS=-gz -ffunction-sections -fdata-sections --param=asan-instrumentation-with-call-threshold=0"

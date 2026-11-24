@@ -1,8 +1,10 @@
 // 层：数据
 #include "pythonsandbox_windows_internal.h"
+#include "pythonsandbox_windows_view_logic.h"
 #ifdef Q_OS_WIN
 #include "services/pythoninputbundle.h"
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -48,9 +50,7 @@ bool leaseIsActive(const QString &moniker) {
 }
 
 QString hexDigestOrEmpty(const QString &value) {
-  if(value.size()!=64)return {};
-  for(const auto c:value)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return {};
-  return value;
+  return windows_view_logic::hexDigest64OrEmpty(value);
 }
 bool writeRecord(const QString &path,const QJsonObject &record) {
   QSaveFile file(path);
@@ -78,9 +78,7 @@ bool rewind(HANDLE handle) {
   LARGE_INTEGER zero{};return SetFilePointerEx(handle,zero,nullptr,FILE_BEGIN)!=FALSE;
 }
 QString relativeUnder(const QString &root,const QString &path) {
-  if(!path.startsWith(root+'/',Qt::CaseInsensitive))return {};
-  const auto value=path.mid(root.size()+1);
-  return value.isEmpty()||value.contains("..")||value.contains('\\')||value.contains(QChar(0))?QString():value;
+  return windows_view_logic::relativePathUnderRoot(root,path);
 }
 struct Layout {
   QString control,views,leases,inputs;
@@ -412,25 +410,25 @@ bool recoverViewResourcesLocked(const Layout &layout,QString *error) {
     if(!parseRecord(QDir(root).filePath("input.json"),QStringList{"hostCreated100ns","hostPid","schema","state"},ViewSchema,record))continue;
     bool known=false;const bool alive=ownerRecordAlive(record,known);
     if(!known){*error="python_view_input_owner_unknown";return false;}
-    if(!alive&&!QDir(root).removeRecursively()){*error="python_view_input_remove";return false;}
+    const bool own=record.value("hostPid").toInteger(-1)==qint64(GetCurrentProcessId())&&
+      record.value("hostCreated100ns").toString()==QString::number(processCreation(GetCurrentProcess()));
+    if((!alive||(own&&!leaseIsActive(entry.fileName())))&&!QDir(root).removeRecursively()){*error="python_view_input_remove";return false;}
   }
   // 4) 视图缓存逐出：超出上限的无租约视图按 marker 修改时间回收；占用中
   // 的（活租约/归属未知）不动——一任务清理不碰另一运行中的资源。
-  struct Candidate {QString path;QDateTime modified;};
-  QList<Candidate> idle;
+  QList<windows_view_logic::CachedViewCandidate> candidates;
   for(const auto &entry:QDir(layout.views).entryInfoList(QDir::Dirs|QDir::NoDotAndDotDot|QDir::Hidden,QDir::Name)) {
     if(entry.fileName().endsWith(".staging"))continue;
     const auto sha=hexDigestOrEmpty(entry.fileName());
     QJsonObject record;
-    if(sha.isEmpty()||blocked.contains(sha)||!parseRecord(QDir(entry.absoluteFilePath()).filePath("view.json"),
+    const auto markerPath=QDir(entry.absoluteFilePath()).filePath("view.json");
+    if(sha.isEmpty()||blocked.contains(sha)||!parseRecord(markerPath,
         QStringList{"files","hostCreated100ns","hostPid","manifestSha256","schema","state","treeSize"},ViewSchema,record))continue;
-    idle.append({entry.absoluteFilePath(),QFileInfo(QDir(entry.absoluteFilePath()).filePath("view.json")).lastModified()});
+    if(!windows_view_logic::validateReadyViewRecord(record,sha))continue;
+    candidates.append({sha,entry.absoluteFilePath(),QFileInfo(markerPath).lastModified().toMSecsSinceEpoch()});
   }
-  if(idle.size()>MaxCachedViews) {
-    std::sort(idle.begin(),idle.end(),[](const Candidate &a,const Candidate &b){return a.modified<b.modified;});
-    for(int i=0;i<idle.size()-MaxCachedViews;++i)
-      if(!QDir(idle.at(i).path).removeRecursively()){*error="python_view_evict";return false;}
-  }
+  for(const auto &path:windows_view_logic::selectViewsToEvict(candidates,blocked,MaxCachedViews))
+    if(!QDir(path).removeRecursively()){*error="python_view_evict";return false;}
   return true;
 }
 

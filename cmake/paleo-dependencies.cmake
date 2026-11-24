@@ -253,9 +253,8 @@ if(PALEO_LOCKED_ORT)
   target_include_directories(paleo_ai_onnx PUBLIC ${CMAKE_SOURCE_DIR}/src)
   target_compile_definitions(paleo_ai_onnx PUBLIC PALEO_HAVE_ORT=1)
   add_library(paleo_ai STATIC src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
-  # 方向 92：domaintools 角色清单单源消费 catalogRoles()（catalogroles.cpp
-  # 在 paleo_store）——ai(功能) → store(数据) 属允许的向下依赖（层 DAG 同层
-  # 邻接，无环：store 不含 ai）。
+  # 方向 92 / #984：paleo_ai 属功能层，此处先声明对 paleo_store/paleo_ai_onnx 的依赖；
+  # 对 paleo_services 的显式链接边在 paleo-modules-data.cmake 中 paleo_services 定义后补齐（无环：services 不含 ai）。
   target_link_libraries(paleo_ai PUBLIC paleo_deps paleo_store paleo_ai_onnx)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   # 审计 01 M5：vendorRuntimeDir() 从可执行文件往上找 vendor/onnxruntime，构建目录在

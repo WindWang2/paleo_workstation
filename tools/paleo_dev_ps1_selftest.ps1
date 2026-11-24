@@ -14,7 +14,7 @@ if ($errs.Count) {
   $errs | ForEach-Object { Write-Host ("PARSE ERROR: {0} @ line {1}" -f $_.Message, $_.Extent.StartLineNumber) }
   exit 1
 }
-$want = 'Get-Osgeo4wLockHash', 'Assert-Osgeo4wLockStamp', 'Enter-VendorEnvironment', 'Enter-DependencyEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
+$want = 'Get-Osgeo4wLockHash', 'Assert-Osgeo4wLockStamp', 'Enter-VendorEnvironment', 'Enter-DependencyEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression', 'Assert-CTestNonEmpty', 'Invoke-TestManifestCheck', 'Invoke-FlakyLedgerCheck'
 $fns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
 foreach ($f in $fns) { if ($want -contains $f.Name) { Invoke-Expression $f.Extent.Text } }
 foreach ($n in $want) { if (-not (Get-Command $n -CommandType Function -ErrorAction SilentlyContinue)) { throw "function $n not found in $Script" } }
@@ -87,6 +87,49 @@ try {
   $Vendor = Join-Path $tmp 'absent-vendor'
   $threw = $false; try { Enter-DependencyEnvironment } catch { $threw = $true }
   Check $threw 'an unlocked host must be rejected with bootstrap instructions'
+
+  # #957：空测试集兜底与 flaky strict 退出码传播。
+  $emptyLog = Join-Path $tmp 'empty-ctest.log'
+  Set-Content -LiteralPath $emptyLog -Encoding ascii -Value 'No tests were found!!!'
+  $threw = $false; try { Assert-CTestNonEmpty $emptyLog '-R no_such_test' } catch { $threw = $true }
+  Check $threw 'empty CTest selection log must fail non-zero (#957)'
+  $okLog = Join-Path $tmp 'ok-ctest.log'
+  Set-Content -LiteralPath $okLog -Encoding ascii -Value '100% tests passed, 0 tests failed out of 1'
+  $ok = $true; try { Assert-CTestNonEmpty $okLog '-R tst_runtime' } catch { $ok = $false }
+  Check $ok 'non-empty CTest log must pass Assert-CTestNonEmpty (#957)'
+
+  $flakyRepo = Join-Path $tmp 'flaky-repo'
+  $flakyTools = Join-Path $flakyRepo 'tools'
+  New-Item -ItemType Directory -Force $flakyTools | Out-Null
+  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $Script) 'tools/check_flaky_ledger.py') -Destination (Join-Path $flakyTools 'check_flaky_ledger.py')
+  $flakyJsonl = Join-Path $flakyTools 'flaky-ledger.jsonl'
+  $threeRows = @(
+    '{"test":"tst_flaky_957","utc":"2026-11-24T00:00:00Z","event":"serial-rerun-pass","lane":"ps1-direct"}'
+    '{"test":"tst_flaky_957","utc":"2026-11-24T00:01:00Z","event":"serial-rerun-pass","lane":"ps1-direct"}'
+    '{"test":"tst_flaky_957","utc":"2026-11-24T00:02:00Z","event":"serial-rerun-pass","lane":"ps1-direct"}'
+  )
+  Set-Content -LiteralPath $flakyJsonl -Encoding ascii -Value $threeRows
+  $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $pyCmd) { $pyCmd = Get-Command python3 -ErrorAction SilentlyContinue }
+  if ($pyCmd) {
+    $flakyLog = Join-Path $tmp 'flaky.log'
+    $threw = $false; try { Invoke-FlakyLedgerCheck $pyCmd.Source $flakyRepo $flakyLog $true } catch { $threw = $true }
+    Check $threw 'three flaky records under strict mode must throw (#957)'
+    $ok = $true; try { Invoke-FlakyLedgerCheck $pyCmd.Source $flakyRepo $flakyLog $false } catch { $ok = $false }
+    Check $ok 'three flaky records under warning mode must not throw (#957)'
+    Set-Content -LiteralPath $flakyJsonl -Encoding ascii -Value $threeRows[0..1]
+    $ok = $true; try { Invoke-FlakyLedgerCheck $pyCmd.Source $flakyRepo $flakyLog $true } catch { $ok = $false }
+    Check $ok 'below-threshold flaky records under strict mode must pass (#957)'
+    $threw = $false; try { Invoke-FlakyLedgerCheck (Join-Path $tmp 'no-such-python.exe') $flakyRepo $flakyLog $true } catch { $threw = $true }
+    Check $threw 'missing python under strict flaky mode must throw (#957)'
+
+    # #965：配置期注册测试清单对账（缩减必须阻断）。
+    $manifestBuild = Join-Path $tmp 'manifest-build'
+    New-Item -ItemType Directory -Force (Join-Path $manifestBuild 'Testing') | Out-Null
+    Set-Content -LiteralPath (Join-Path $manifestBuild 'Testing/registered-tests.json') -Encoding ascii -Value '{"schema":1,"platform":"windows","have_ort":false,"count":1,"tests":["only_one"],"perf_tests":[]}'
+    $threw = $false; try { Invoke-TestManifestCheck $pyCmd.Source (Split-Path -Parent $Script) $manifestBuild $true } catch { $threw = $true }
+    Check $threw 'shrunk registered-tests.json must fail Invoke-TestManifestCheck (#965)'
+  }
 } finally {
   foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k], 'Process') }
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

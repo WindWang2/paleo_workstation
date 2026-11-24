@@ -46,6 +46,8 @@ endif()
 # 显式排除；AUTOMOC 与 unity 的组合按 CMake 语义兼容，但跨 TU 静态同名符号
 # 有合批冲突风险——只作本地加速实验，不进 CI 默认路径。
 option(PALEO_UNITY_BUILD "实验性 unity build（vendor 目标显式排除）" OFF)
+# #985：可选辅助命令行工具目标（如 tools/singlefactor_run.cpp），开启后纳入常规编译以防 API 漂移。
+option(PALEO_BUILD_TOOLS "构建可选辅助命令行工具（如 singlefactor_run）" OFF)
 if(PALEO_ENABLE_ASAN OR PALEO_ENABLE_UBSAN)
   if(MSVC)
     message(FATAL_ERROR "sanitizer 档仅支持 GNU/Clang（MSVC 走 /fsanitize 手动档）")

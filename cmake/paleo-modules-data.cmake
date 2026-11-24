@@ -4,9 +4,12 @@
 # 文件名刻意不用 extra- 前缀——extra-*.cmake 受 _paleo_extra_manifest 防漏对账。
 
 # ---- 模块化分层库（按 UI_LAYER_PLAN 层契约拆分）----
-# DAG（按实测 include 边排序，单向无环）：
-#   domain · algorithms · ai · store(catalog+metadata) ── qgis ── io ── services
-#     ── linkage · workflow ── ui ── app
+# DAG（按实测 include 边与 target_link_libraries 边排序，单向无环，由 check_layering --link-audit 校验）：
+#   数据层：domain ── algorithms · store(catalog+metadata) ── io ── services
+#   封装层：qgis（← domain · algorithms · store · io · services）
+#   功能层：ai（← domain · store · services[, ai_onnx]）· linkage（← domain · services · qgis）
+#           ── workflow（← domain · algorithms · store · io · services · qgis · linkage · ai）
+#   视图/装配：ui ── app
 # catalog↔metadata 互有 include（datacatalog→atomicfile / mapversionstore→datacatalog），
 # 同层环合并为 paleo_store。paleo_core 降为 INTERFACE 伞，旧链接方零改动。
 add_library(paleo_deps INTERFACE)
@@ -212,7 +215,7 @@ add_library(paleo_io STATIC
   src/io/ingestplan.cpp                             # C 包：纯 plan + 幂等执行器
   src/io/paleomapfiles.cpp                          # 古地理图文件族发现/复制（自 services 下沉，削 io⇄services 环）
 )
-target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
+target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store paleo_algorithms) # #984：attrgridout/horizonbinner/faciescoveragereader 显式声明 algorithms 依赖
 
 add_library(paleo_services_hostcontext STATIC src/services/hostcallcontext.cpp)
 target_include_directories(paleo_services_hostcontext PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -272,3 +275,7 @@ add_library(paleo_services STATIC
   src/services/evidenceindex.cpp                    # G08/G12：证据反向索引（可重建检索结构，非第二事实源）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms paleo_services_hostcontext paleo_services_artifactreader)
+# #984：paleo_ai（功能层，定义于 paleo-dependencies.cmake）直接 include services/* 契约头
+# （artifactversioncapability/capabilityspec 等），在 paleo_services 定义后显式补齐链接边，
+# 消除仅靠 inline 传递的隐式依赖（services 不依赖 ai，无环）。
+target_link_libraries(paleo_ai PUBLIC paleo_services)

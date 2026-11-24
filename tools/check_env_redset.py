@@ -103,7 +103,7 @@ def load_list(path):
 
 
 def load_documented(path=DEFAULT_DOC):
-    """#475 文档化红项名单 → {test: entry}；结构非法/复审过期一律 Fail。"""
+    """#475 / #965 文档化红项名单 → {test: entry}；结构非法/无形态约束一律 Fail。"""
     if not Path(path).is_file():
         # 分诊名单是可选机制：文件缺省 = 无文档化红项（不是错误）。
         return {}
@@ -130,6 +130,21 @@ def load_documented(path=DEFAULT_DOC):
                 datetime.date.fromisoformat(str(e["review_due"]))
             except ValueError:
                 errors.append(f"{where}: review_due 须为合法 YYYY-MM-DD 日期")
+        # #965：documented 条目必须显式声明 forbid_crash=true 且提供非空、非通配 expect_fail
+        if e.get("forbid_crash") is not True:
+            errors.append(f"{where}: documented 项须显式设置 forbid_crash=true（禁止崩溃/超时放行，#965）")
+        pats = e.get("expect_fail") or []
+        if not isinstance(pats, list) or not pats:
+            errors.append(f"{where}: documented 项须写非空 expect_fail（不许无条件放行，#965）")
+        else:
+            for p in pats:
+                try:
+                    rx = re.compile(p)
+                except re.error as ex:
+                    errors.append(f"{where}: expect_fail 正则非法 {p!r}: {ex}")
+                    continue
+                if rx.search("") is not None:
+                    errors.append(f"{where}: expect_fail {p!r} 匹配空串——等于无条件放行（#965）")
     if errors:
         raise Fail("文档化红项名单结构错误：\n  " + "\n  ".join(errors))
     return {e["test"]: e for e in data["entries"]}
@@ -212,9 +227,25 @@ def classify(entries, results, build, route, documented=None):
             if e is None:
                 if test in documented:
                     d = documented[test]
-                    report.append(("DOCUMENTED", test,
-                                   f"[{d['category']}] {d['reason'][:120]}"
-                                   f"（owner {d['owner']}，复审 {d['review_due']}）"))
+                    # #965：documented 条目按 expect_fail / forbid_crash 形态严格校验；
+                    # 崩溃/超时/无输出/失败形态变化一律判 UNEXPECTED（红），不放行。
+                    if d.get("forbid_crash", True) and state == "unsafe":
+                        report.append(("UNEXPECTED", test,
+                                       f"[{d['category']}] 文档化红项禁止崩溃/超时放行（forbid_crash=true，#965）"))
+                    else:
+                        fails, complete = qtest_fail_lines(build, test)
+                        pats = [re.compile(p) for p in d["expect_fail"]]
+                        odd = [m for m in fails if not any(p.search(m) for p in pats)]
+                        if not complete or not fails:
+                            report.append(("UNEXPECTED", test,
+                                           f"[{d['category']}] 文档化红项 QtTest 输出缺失/不完整/崩溃——禁止放行（#965）"))
+                        elif odd:
+                            report.append(("UNEXPECTED", test,
+                                           f"[{d['category']}] 文档化红项失败形态变化（非预期断言）：{odd[0][:160]}"))
+                        else:
+                            report.append(("DOCUMENTED", test,
+                                           f"[{d['category']}] {d['reason'][:120]}"
+                                           f"（owner {d['owner']}，复审 {d['review_due']}）"))
                 else:
                     report.append(("UNEXPECTED", test, "不在环境债名单"))
             elif e["status"] == "fixed":
@@ -239,6 +270,25 @@ def classify(entries, results, build, route, documented=None):
         elif state == "pass" and e is not None and e["status"] == "exempt":
             report.append(("STALE", test, f"[{e['category']}] 本轮通过——名单可删此条"))
     return report
+
+
+def perf_labeled_tests(labels_cmake=None):
+    """解析 cmake/paleo-test-labels.cmake 中的 _paleo_perf_tests 集合（#965）。"""
+    path = Path(labels_cmake) if labels_cmake else REPO / "cmake" / "paleo-test-labels.cmake"
+    text = path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"set\(\s*_paleo_perf_tests\b(.*?)\)", text, re.S)
+    if not m:
+        raise Fail(f"找不到 _paleo_perf_tests 定义：{path}")
+    body = "\n".join(line.split("#", 1)[0] for line in m.group(1).splitlines())
+    return set(re.findall(r"[A-Za-z0-9_]+", body))
+
+
+def validate_documented_not_perf(documented, labels_cmake=None):
+    """#965：documented_redset 服务于必过车道（-LE perf），不得残留 perf 标签死条目。"""
+    perf_set = perf_labeled_tests(labels_cmake)
+    dead = sorted(t for t in documented if t in perf_set)
+    if dead:
+        raise Fail(f"documented_redset 包含 perf 标签条目（必过车道 -LE perf 下无效）：{dead}")
 
 
 def validate_registered(entries):
@@ -311,6 +361,7 @@ def run(argv):
     if a.validate:
         validate_registered(entries)
         validate_registered(documented)
+        validate_documented_not_perf(documented)
         overdue = documented_overdue(documented)
         for test, due in overdue:
             print(f"FAIL 文档化红项 {test} 复审已过期（review_due={due}）——"
@@ -420,8 +471,13 @@ def selftest():
                 rc = run(argv)
             return rc, emit.read_text(encoding="utf-8").split()
 
+    doc_fail = "FAIL!  : WellCompositeVisualTests::testGoldenImageSampling() 'diffs <= 4' returned FALSE. (17/48 抽样点超容差)\n"
+    doc_other = "FAIL!  : WellCompositeVisualTests::testExportPdf() Compared values are not the same\n"
+    doc_crash = doc_fail + "Received signal 11 (SIGSEGV)\n"
     doc_entry = {"test": "tst_doc_red", "category": "golden-tolerance", "status": "documented",
-                 "owner": "o", "reason": "r", "review_due": "2099-01-01"}
+                 "owner": "o", "reason": "r", "review_due": "2099-01-01",
+                 "forbid_crash": True,
+                 "expect_fail": [r"testGoldenImageSampling\(\).*[0-9]+/48 抽样点超容差"]}
 
     cases = [
         # (说明, results, qtest, route, strict, 期望 rc, 期望不放行集合)
@@ -441,15 +497,29 @@ def selftest():
         ("豁免项转绿 → STALE（非 strict 放行）", {"tst_cache_las": "pass"}, {}, "localdeps", False, 0, []),
         ("豁免项转绿 → STALE（strict 不放行）", {"tst_cache_las": "pass"}, {}, "localdeps", True, 1, ["tst_cache_las"]),
         ("跳过不算红", {"tst_new": "skip"}, {}, "localdeps", False, 0, []),
-        # #475：文档化红项分诊——DOCUMENTED 不计入不放行集合、不进 emit。
-        ("文档化红项红 → DOCUMENTED 分诊放行", {"tst_doc_red": "fail"}, {}, "localdeps", False, 0, []),
-        ("文档化红项崩溃态 → 同样分诊", {"tst_doc_red": "unsafe"}, {}, "localdeps", False, 0, []),
+        # #475 / #965：文档化红项分诊——仅命中 expect_fail 且完整无崩溃才放行；
+        # 崩溃/超时/无输出/失败形态变化均须判红（UNEXPECTED）。
+        ("文档化红项命中预期失败形态 → DOCUMENTED 分诊放行", {"tst_doc_red": "fail"},
+         {"tst_doc_red": doc_fail + totals}, "localdeps", False, 0, []),
+        ("文档化红项 CTest 崩溃/超时态 → 拒绝放行（#965）", {"tst_doc_red": "unsafe"},
+         {"tst_doc_red": doc_fail + totals}, "localdeps", False, 1, ["tst_doc_red"]),
+        ("文档化红项进程崩溃（信号/无 Totals）→ 拒绝放行（#965）", {"tst_doc_red": "fail"},
+         {"tst_doc_red": doc_crash}, "localdeps", False, 1, ["tst_doc_red"]),
+        ("文档化红项无 QtTest 输出 → 拒绝放行（#965）", {"tst_doc_red": "fail"},
+         {}, "localdeps", False, 1, ["tst_doc_red"]),
+        ("文档化红项失败形态变化（非预期断言）→ 拒绝放行（#965）", {"tst_doc_red": "fail"},
+         {"tst_doc_red": doc_fail + doc_other + totals}, "localdeps", False, 1, ["tst_doc_red"]),
         ("文档化红项 + 名单外红并存 → 名单外仍不放行",
-         {"tst_doc_red": "fail", "tst_new": "fail"}, {}, "localdeps", False, 1, ["tst_new"]),
+         {"tst_doc_red": "fail", "tst_new": "fail"}, {"tst_doc_red": doc_fail + totals}, "localdeps", False, 1, ["tst_new"]),
     ]
-    doc_cases = {"文档化红项红 → DOCUMENTED 分诊放行": [doc_entry],
-                 "文档化红项崩溃态 → 同样分诊": [doc_entry],
-                 "文档化红项 + 名单外红并存 → 名单外仍不放行": [doc_entry]}
+    doc_cases = {
+        "文档化红项命中预期失败形态 → DOCUMENTED 分诊放行": [doc_entry],
+        "文档化红项 CTest 崩溃/超时态 → 拒绝放行（#965）": [doc_entry],
+        "文档化红项进程崩溃（信号/无 Totals）→ 拒绝放行（#965）": [doc_entry],
+        "文档化红项无 QtTest 输出 → 拒绝放行（#965）": [doc_entry],
+        "文档化红项失败形态变化（非预期断言）→ 拒绝放行（#965）": [doc_entry],
+        "文档化红项 + 名单外红并存 → 名单外仍不放行": [doc_entry],
+    }
     failures = []
     real_entries = load_list(DEFAULT_LIST)
     green = {name: "pass" for name in real_entries}
@@ -499,13 +569,21 @@ def selftest():
                 failures.append(f"结构校验漏放：{desc}")
             except Fail:
                 pass
-    # #475：documented_redset 结构突变必须拒绝（缺 owner/reason/review_due、
-    # 非法日期/状态）；复审到期必须能被 documented_overdue 抓到。
-    for mutate, desc in ((lambda e: e.pop("owner"), "缺 owner"),
-                         (lambda e: e.pop("reason"), "缺 reason"),
-                         (lambda e: e.pop("review_due"), "缺 review_due"),
-                         (lambda e: e.update(review_due="2099-13-99"), "非法日期"),
-                         (lambda e: e.update(status="exempt"), "status 越权（豁免只许走 env_redset）")):
+    # #475 / #965：documented_redset 结构突变必须拒绝（缺 owner/reason/review_due、
+    # 非法日期/状态、缺 forbid_crash=true、缺/过宽 expect_fail）；复审到期必须能抓到。
+    doc_mutations = (
+        (lambda e: e.pop("owner"), "缺 owner"),
+        (lambda e: e.pop("reason"), "缺 reason"),
+        (lambda e: e.pop("review_due"), "缺 review_due"),
+        (lambda e: e.update(review_due="2099-13-99"), "非法日期"),
+        (lambda e: e.update(status="exempt"), "status 越权（豁免只许走 env_redset）"),
+        (lambda e: e.pop("forbid_crash"), "缺 forbid_crash（#965）"),
+        (lambda e: e.update(forbid_crash=False), "forbid_crash=false 越权放行崩溃（#965）"),
+        (lambda e: e.pop("expect_fail"), "缺 expect_fail（#965）"),
+        (lambda e: e.update(expect_fail=[]), "空 expect_fail（#965）"),
+        (lambda e: e.update(expect_fail=[".*"]), "expect_fail='.*' 过宽（#965）"),
+    )
+    for mutate, desc in doc_mutations:
         bad_doc = {"schema": 1, "categories": {"golden-tolerance": "g"},
                    "entries": [dict(doc_entry)]}
         mutate(bad_doc["entries"][0])
@@ -517,6 +595,12 @@ def selftest():
                 failures.append(f"文档化红项结构校验漏放：{desc}")
             except Fail:
                 pass
+    # #965：perf 标签条目不得混入 documented_redset（必过车道 -LE perf 下无效）。
+    try:
+        validate_documented_not_perf({"tst_cache_las": dict(doc_entry, test="tst_cache_las")})
+        failures.append("documented_redset 含 perf 标签死条目未被拦截（#965）")
+    except Fail:
+        pass
     past = dict(doc_entry, test="tst_past", review_due="2000-01-01")
     future = dict(doc_entry, test="tst_future", review_due="2099-12-31")
     overdue = documented_overdue({"tst_past": past, "tst_future": future,
@@ -556,12 +640,24 @@ def selftest():
                     failures.append(f"{test}.cpp 已无断言文案 {frag!r}——同步 env_redset.json 的 expect_fail")
     except Fail as e:
         failures.append(f"仓库名单：{e}")
-    # #475：仓库 documented_redset.json 必须结构合法、测试名已注册、复审未过期。
+    # #475 / #965：仓库 documented_redset.json 必须结构合法、测试名已注册、非 perf、
+    # 复审未过期，且 expect_fail 命中真实源码断言文案并拒收 QCOMPARE。
     try:
         real_doc = load_documented(DEFAULT_DOC)
         validate_registered(real_doc)
+        validate_documented_not_perf(real_doc)
         if documented_overdue(real_doc):
             failures.append(f"documented_redset 复审已过期：{documented_overdue(real_doc)}")
+        if "tst_wellcomposite_visual" in real_doc:
+            dpats = [re.compile(p) for p in real_doc["tst_wellcomposite_visual"]["expect_fail"]]
+            sample_ok = "WellCompositeVisualTests::testGoldenImageSampling() 'diffs <= 4' returned FALSE. (17/48 抽样点超容差)"
+            if not any(p.search(sample_ok) for p in dpats):
+                failures.append("documented_redset tst_wellcomposite_visual 的 expect_fail 不命中样本")
+            if any(p.search("Compared values are not the same") for p in dpats):
+                failures.append("documented_redset tst_wellcomposite_visual 的 expect_fail 过宽")
+            src_vis = (REPO / "tests" / "tst_wellcomposite_visual.cpp").read_text(encoding="utf-8")
+            if "抽样点超容差" not in src_vis:
+                failures.append("tst_wellcomposite_visual.cpp 已无 '抽样点超容差' 文案")
     except Fail as e:
         failures.append(f"文档化红项仓库名单：{e}")
     if failures:
@@ -569,7 +665,7 @@ def selftest():
             print("SELFTEST FAIL", f)
         return 1
     print(f"check_env_redset selftest: PASS（{len(cases)} 场景 + {len(mutations)} 结构突变 + "
-          f"5 文档化红项结构突变 + 复审到期判定）")
+          f"{len(doc_mutations)} 文档化红项结构突变 + perf 死条目校验 + 复审到期判定）")
     return 0
 
 

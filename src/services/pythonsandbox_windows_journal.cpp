@@ -1,12 +1,12 @@
 // 层：数据
 #include "pythonsandbox_windows_internal.h"
+#include "pythonsandbox_windows_view_logic.h"
 #ifdef Q_OS_WIN
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QLockFile>
-#include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
 
@@ -36,7 +36,7 @@ quint64 processCreation(HANDLE process) {
   return (quint64(first.dwHighDateTime)<<32)|first.dwLowDateTime;
 }
 bool validMoniker(const QString &moniker) {
-  static const QRegularExpression pattern("^PaleoPython\\.[0-9a-f]{32}$");return pattern.match(moniker).hasMatch();
+  return windows_view_logic::isValidSandboxMoniker(moniker);
 }
 bool ownerStopped(DWORD id,quint64 started,bool &known) {
   known=true;Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,id));

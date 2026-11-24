@@ -8,6 +8,7 @@
 #   check_layering.py --transitive [--strict] [--qgis-include PATH]
 #                                                        # 传递债闸 + 黄牌清单（#474）
 #   check_layering.py --symbol-audit                    # 符号级抽检闸（零基线，#474）
+#   check_layering.py --link-audit                      # include 与 target_link_libraries 边一致性闸（零基线，#984）
 #   未知参数一律 exit 2（历史上 argv 被静默忽略，--strict 假绿——已修）。
 #
 # 规则面：
@@ -829,6 +830,224 @@ def run_qgs_audit(strict=False, baseline_path=None):
     return 0
 
 
+# ---------------- #984：--link-audit（include 与 target_link_libraries 边一致性闸） ----------------
+# 静态解析 CMakeLists.txt + cmake/*.cmake（跳过 verify-*.cmake）里的
+# add_library / target_sources / target_link_libraries，核对：
+#   1) paleo_* 库链接图本身单向无环；
+#   2) src/ 中每一条跨模块 #include 边（selfcheck 测试壳除外）都有对应的
+#      target_link_libraries 传递链接边（模块主库或拥有该头/对应 .cpp 的子库），
+#      防止仅靠 inline/伞目标偶然补链的隐式依赖。
+
+CMAKE_CMD_RE = re.compile(
+    r"\b(add_library|add_executable|target_sources|target_link_libraries)\s*\(([^)]*)\)",
+    re.S,
+)
+CMAKE_LINK_KEYWORDS = {"PUBLIC", "PRIVATE", "INTERFACE"}
+
+
+def _dir_to_module_target(layer_dir):
+    if layer_dir in ("catalog", "metadata"):
+        return "paleo_store"
+    return f"paleo_{layer_dir}"
+
+
+def _parse_cmake_targets(repo_root):
+    """解析 CMakeLists.txt 与 cmake/*.cmake → (defined_targets, file_to_targets, target_links)。"""
+    cmake_files = []
+    root_cm = os.path.join(repo_root, "CMakeLists.txt")
+    if os.path.isfile(root_cm):
+        cmake_files.append(root_cm)
+    cmake_dir = os.path.join(repo_root, "cmake")
+    if os.path.isdir(cmake_dir):
+        for name in sorted(os.listdir(cmake_dir)):
+            if name.endswith(".cmake") and not name.startswith("verify-"):
+                cmake_files.append(os.path.join(cmake_dir, name))
+
+    defined_targets = set()
+    file_to_targets = {}
+    target_links = {}
+
+    for cf in cmake_files:
+        try:
+            with open(cf, encoding="utf-8", errors="replace") as fh:
+                raw = fh.read()
+        except OSError:
+            continue
+        stripped = "\n".join(line.split("#", 1)[0] for line in raw.splitlines())
+        for m in CMAKE_CMD_RE.finditer(stripped):
+            cmd, body = m.group(1), m.group(2)
+            tokens = [t.strip('"') for t in re.split(r"\s+", body.strip()) if t]
+            if not tokens:
+                continue
+            tgt = tokens[0]
+            if cmd in ("add_library", "add_executable"):
+                defined_targets.add(tgt)
+                for tok in tokens[1:]:
+                    if tok.startswith("src/"):
+                        file_to_targets.setdefault(tok.replace("\\", "/"), set()).add(tgt)
+            elif cmd == "target_sources":
+                for tok in tokens[1:]:
+                    if tok.startswith("src/"):
+                        file_to_targets.setdefault(tok.replace("\\", "/"), set()).add(tgt)
+            elif cmd == "target_link_libraries":
+                for tok in tokens[1:]:
+                    if tok in CMAKE_LINK_KEYWORDS or tok.startswith(("$", "-")):
+                        continue
+                    target_links.setdefault(tgt, set()).add(tok)
+    return defined_targets, file_to_targets, target_links
+
+
+def _find_link_cycles(defined_targets, target_links):
+    """CMake paleo_* 库链接图的强连通分量（≥2 节点即环）。"""
+    graph = {}
+    for tgt in defined_targets:
+        if not tgt.startswith("paleo_"):
+            continue
+        graph.setdefault(tgt, set())
+        for dst in target_links.get(tgt, ()):
+            if dst in defined_targets and dst.startswith("paleo_"):
+                graph[tgt].add(dst)
+                graph.setdefault(dst, set())
+    index, low, stack, on, sccs = {}, {}, [], set(), []
+    counter = [0]
+
+    def strong(v):
+        index[v] = low[v] = counter[0]
+        counter[0] += 1
+        stack.append(v)
+        on.add(v)
+        for w in sorted(graph[v]):
+            if w not in index:
+                strong(w)
+                low[v] = min(low[v], low[w])
+            elif w in on:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            comp = []
+            while True:
+                w = stack.pop()
+                on.discard(w)
+                comp.append(w)
+                if w == v:
+                    break
+            if len(comp) > 1:
+                sccs.append(sorted(comp))
+
+    for v in sorted(graph):
+        if v not in index:
+            strong(v)
+    return sorted(sccs)
+
+
+def collect_link_audit(repo_root=None, src_root=None):
+    """(--link-audit 数据面) → (cycles, missing_edges)。
+
+    missing_edges: [(src_target, dst_module_target, [示例 include 列表])]
+    """
+    repo_root = repo_root or REPO
+    src_root = src_root or os.path.join(repo_root, "src")
+    defined_targets, file_to_targets, target_links = _parse_cmake_targets(repo_root)
+    cycles = _find_link_cycles(defined_targets, target_links)
+
+    closure_cache = {}
+
+    def link_closure(tgt):
+        if tgt not in closure_cache:
+            seen = {tgt}
+            stack = [tgt]
+            while stack:
+                cur = stack.pop()
+                for nxt in target_links.get(cur, ()):
+                    if nxt not in seen:
+                        seen.add(nxt)
+                        stack.append(nxt)
+            closure_cache[tgt] = seen
+        return closure_cache[tgt]
+
+    def _norm_with_src(file_dir, inc):
+        top_prefixes = tuple(d + "/" for d in LAYERS)
+        if inc.startswith(top_prefixes):
+            return inc
+        cand = os.path.normpath(os.path.join(file_dir, inc))
+        rel = os.path.relpath(cand, src_root)
+        if rel.startswith(".."):
+            return None
+        return rel.replace(os.sep, "/")
+
+    def link_satisfies(cl, dst_dir, dst_norm):
+        dst_mod = _dir_to_module_target(dst_dir)
+        if dst_mod in cl:
+            return True
+        # 子库（如 paleo_services_toolresults / paleo_services_query）拥有对应头或 .cpp
+        hdr_rel = "src/" + dst_norm
+        for sub in file_to_targets.get(hdr_rel, ()):
+            if sub in cl:
+                return True
+        if dst_norm.endswith(".h"):
+            cpp_rel = "src/" + dst_norm[:-2] + ".cpp"
+            for sub in file_to_targets.get(cpp_rel, ()):
+                if sub in cl:
+                    return True
+        return False
+
+    missing = {}
+    if os.path.isdir(src_root):
+        for root, _dirs, files in os.walk(src_root):
+            for fname in sorted(files):
+                if not fname.endswith((".h", ".cpp")):
+                    continue
+                path = os.path.join(root, fname)
+                rel = os.path.relpath(path, src_root).replace(os.sep, "/")
+                sdir = top_dir(rel)
+                if sdir not in LAYERS or sdir == "selfcheck":
+                    continue
+                smod = _dir_to_module_target(sdir)
+                owners = file_to_targets.get("src/" + rel) or {smod}
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fh:
+                        lines = fh.read().split("\n")
+                except OSError:
+                    continue
+                for lineno, line in enumerate(lines, 1):
+                    m = INC_RE.match(line)
+                    if not m:
+                        continue
+                    norm = _norm_with_src(os.path.dirname(path), m.group(1))
+                    if norm is None or "/" not in norm:
+                        continue
+                    if not os.path.exists(os.path.join(src_root, norm)):
+                        continue
+                    ddir = top_dir(norm)
+                    if ddir not in LAYERS or ddir == sdir:
+                        continue
+                    dmod = _dir_to_module_target(ddir)
+                    if smod == dmod:
+                        continue
+                    for owner in sorted(owners):
+                        if owner not in defined_targets:
+                            continue
+                        if not link_satisfies(link_closure(owner), ddir, norm):
+                            missing.setdefault((owner, dmod), []).append(
+                                f"src/{rel}:{lineno} -> {norm}"
+                            )
+    missing_list = [(src_t, dst_t, samples) for (src_t, dst_t), samples in sorted(missing.items())]
+    return cycles, missing_list
+
+
+def run_link_audit(repo_root=None, src_root=None):
+    cycles, missing = collect_link_audit(repo_root=repo_root, src_root=src_root)
+    for comp in cycles:
+        print(f"FAIL [link-cycle] CMake 目标链接成环：{' ⇄ '.join(comp)}")
+    for src_t, dst_t, samples in missing:
+        print(f"FAIL [link-missing] {src_t} include 了 {dst_t} 头文件但未在 target_link_libraries 声明链接"
+              f"（共 {len(samples)} 处，例：{samples[0]}）")
+    if cycles or missing:
+        print(f"\n--link-audit 未通过：{len(cycles)} 个链接环，{len(missing)} 条隐式头文件依赖缺少链接声明（#984）。")
+        return 1
+    print("link-audit 通过：CMake target_link_libraries 无环，且所有跨模块 include 均有显式链接边（#984）。")
+    return 0
+
+
 def selftest():
     """内置夹具：正/反违规 + ../ 前缀 + 前向声明 + 层标记 + strict 语义。"""
     import contextlib
@@ -1218,6 +1437,80 @@ def selftest():
             print("SELFTEST FAIL qgs-audit: 可收缩条目严格必须红（强制删行）")
             failures += 1
         QGS_BASELINE = orig_qgs_bl
+
+        # ---- #984：--link-audit 夹具（显式链接/隐式头依赖缺失/子库链接/链接环）----
+        la_root = os.path.join(tmp2, "link_audit_repo")
+        def put_la(rel, text):
+            p = os.path.join(la_root, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "w", encoding="utf-8").write(text)
+
+        put_la("src/algorithms/a.h", "// 层：数据\n")
+        put_la("src/io/reader.cpp", '// 层：数据\n#include "../algorithms/a.h"\n')
+        put_la("src/services/svc.h", "// 层：数据\n")
+        put_la("src/services/sub.h", "// 层：数据\n")
+        put_la("src/services/sub.cpp", "// 层：数据\n")
+        put_la("src/ai/tool.cpp", '// 层：功能\n#include "../services/svc.h"\n#include "../services/sub.h"\n')
+        put_la("CMakeLists.txt",
+               "add_library(paleo_algorithms STATIC src/algorithms/a.h)\n"
+               "add_library(paleo_io STATIC src/io/reader.cpp)\n"
+               "target_link_libraries(paleo_io PUBLIC paleo_algorithms)\n"
+               "add_library(paleo_services_sub STATIC src/services/sub.cpp)\n"
+               "add_library(paleo_services STATIC src/services/svc.h)\n"
+               "target_link_libraries(paleo_services PUBLIC paleo_services_sub)\n"
+               "add_library(paleo_ai STATIC src/ai/tool.cpp)\n"
+               "target_link_libraries(paleo_ai PUBLIC paleo_services)\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            if run_link_audit(la_root) != 0:
+                print("SELFTEST FAIL link-audit: 显式链接齐全应绿")
+                failures += 1
+        # 移除 paleo_io -> paleo_algorithms 链接边 → 必须红
+        put_la("CMakeLists.txt",
+               "add_library(paleo_algorithms STATIC src/algorithms/a.h)\n"
+               "add_library(paleo_io STATIC src/io/reader.cpp)\n"
+               "add_library(paleo_services_sub STATIC src/services/sub.cpp)\n"
+               "add_library(paleo_services STATIC src/services/svc.h)\n"
+               "target_link_libraries(paleo_services PUBLIC paleo_services_sub)\n"
+               "add_library(paleo_ai STATIC src/ai/tool.cpp)\n"
+               "target_link_libraries(paleo_ai PUBLIC paleo_services)\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            if run_link_audit(la_root) != 1:
+                print("SELFTEST FAIL link-audit: io 缺 algorithms 链接边必须红")
+                failures += 1
+        # 仅链子库 paleo_services_sub 但 include 了 services/svc.h（非子库所有）→ 必须红
+        put_la("CMakeLists.txt",
+               "add_library(paleo_algorithms STATIC src/algorithms/a.h)\n"
+               "add_library(paleo_io STATIC src/io/reader.cpp)\n"
+               "target_link_libraries(paleo_io PUBLIC paleo_algorithms)\n"
+               "add_library(paleo_services_sub STATIC src/services/sub.cpp)\n"
+               "add_library(paleo_services STATIC src/services/svc.h)\n"
+               "target_link_libraries(paleo_services PUBLIC paleo_services_sub)\n"
+               "add_library(paleo_ai STATIC src/ai/tool.cpp)\n"
+               "target_link_libraries(paleo_ai PUBLIC paleo_services_sub)\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            if run_link_audit(la_root) != 1:
+                print("SELFTEST FAIL link-audit: ai 缺 paleo_services 链接边必须红")
+                failures += 1
+        # 若 tool.cpp 只 include sub.h，则链 paleo_services_sub 应绿
+        put_la("src/ai/tool.cpp", '// 层：功能\n#include "../services/sub.h"\n')
+        with contextlib.redirect_stdout(io.StringIO()):
+            if run_link_audit(la_root) != 0:
+                print("SELFTEST FAIL link-audit: 链精确子库应满足该子库头 include")
+                failures += 1
+        # 链接成环 paleo_io <-> paleo_services → 必须红
+        put_la("CMakeLists.txt",
+               "add_library(paleo_algorithms STATIC src/algorithms/a.h)\n"
+               "add_library(paleo_io STATIC src/io/reader.cpp)\n"
+               "target_link_libraries(paleo_io PUBLIC paleo_algorithms paleo_services)\n"
+               "add_library(paleo_services_sub STATIC src/services/sub.cpp)\n"
+               "add_library(paleo_services STATIC src/services/svc.h)\n"
+               "target_link_libraries(paleo_services PUBLIC paleo_services_sub paleo_io)\n"
+               "add_library(paleo_ai STATIC src/ai/tool.cpp)\n"
+               "target_link_libraries(paleo_ai PUBLIC paleo_services_sub)\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            if run_link_audit(la_root) != 1:
+                print("SELFTEST FAIL link-audit: CMake 目标链接成环必须红")
+                failures += 1
     BASELINE = orig_baseline
     SRC = orig_src
     if failures:
@@ -1226,7 +1519,7 @@ def selftest():
     print(f"selftest 通过：{len(cases)} 文件夹具 + 2 词表外置夹具 + "
           f"5 strict 语义夹具 + 7 transitive 夹具 + 3 重头出闸夹具 + "
           f"2 symbol-audit 夹具 + 6 transitive 闸门逻辑夹具 + "
-          f"5 transitive 闸门端到端夹具 + 6 qgs-audit 夹具全部命中预期。")
+          f"5 transitive 闸门端到端夹具 + 6 qgs-audit 夹具 + 5 link-audit 夹具全部命中预期。")
     return 0
 
 
@@ -1238,6 +1531,7 @@ def main(argv=None):
     transitive = False
     symbol_audit = False
     qgs_audit = False
+    link_audit = False
     qgis_include = None
     it = iter(argv)
     for a in it:
@@ -1261,6 +1555,8 @@ def main(argv=None):
             symbol_audit = True
         elif a == "--qgs-audit":
             qgs_audit = True
+        elif a == "--link-audit":
+            link_audit = True
         elif a == "--qgis-include":
             qgis_include = next(it, None)
             if not qgis_include:
@@ -1278,16 +1574,16 @@ def main(argv=None):
             print(f"FAIL 未知参数：{a}\n"
                   f"       用法：check_layering.py [--strict] [--vocab PATH] "
                   f"[--baseline PATH] | --selftest | --qgs-audit [--strict] "
-                  f"| --transitive [--strict] [--qgis-include PATH] | --symbol-audit",
+                  f"| --transitive [--strict] [--qgis-include PATH] | --symbol-audit | --link-audit",
                   file=sys.stderr)
             return 2
-    # #472/#474：闸门档现已自带 baseline；--strict 对它们语义是「可收缩条目
+    # #472/#474/#984：闸门档现已自带 baseline 或零基线；--strict 对它们语义是「可收缩条目
     # 也红」（与三档闸门同口径），允许组合。--baseline 仍是三档闸门专属
     # （layering-baseline 自定义路径），避免与各闸门基线文件混淆。
-    if baseline is not None and (transitive or symbol_audit or qgs_audit):
+    if baseline is not None and (transitive or symbol_audit or qgs_audit or link_audit):
         print("FAIL --baseline 是三档闸门（layering-baseline）专属参数，"
-              "与 --qgs-audit/--transitive/--symbol-audit 互斥——"
-              "后三者的基线文件固定在 tools/ 下。", file=sys.stderr)
+              "与 --qgs-audit/--transitive/--symbol-audit/--link-audit 互斥——"
+              "后几者的基线文件固定在 tools/ 下或采用零基线。", file=sys.stderr)
         return 2
     if qgis_include and not transitive:
         print("FAIL --qgis-include 只对 --transitive 有意义", file=sys.stderr)
@@ -1309,7 +1605,7 @@ def main(argv=None):
         LAYER_VOCAB.update(set(_layers))
         QTWIDGETS_BAN.clear()
         QTWIDGETS_BAN.extend(d for d in NON_VIEW if d != "qgis")
-    if transitive or symbol_audit or qgs_audit:
+    if transitive or symbol_audit or qgs_audit or link_audit:
         # 闸门档：替代默认扫描执行（三档闸门口径不受影响，另跑即可）
         rc = 0
         if transitive:
@@ -1318,6 +1614,8 @@ def main(argv=None):
             rc = max(rc, run_symbol_audit())
         if qgs_audit:
             rc = max(rc, run_qgs_audit(strict=strict))
+        if link_audit:
+            rc = max(rc, run_link_audit())
         return rc
     return run_check(strict=strict, baseline_path=baseline)
 

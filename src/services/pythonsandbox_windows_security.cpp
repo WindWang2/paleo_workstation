@@ -24,7 +24,7 @@ bool descriptor(PSID readSid,DWORD full,DWORD read,PACL *out,QString *error) {
   EXPLICIT_ACCESSW access[4]{};int count=0;
   for(int i=0;i<4;++i){if(!ids[i])continue;auto &entry=access[count++];entry.grfAccessPermissions=rights[i];entry.grfAccessMode=SET_ACCESS;
     entry.grfInheritance=SUB_CONTAINERS_AND_OBJECTS_INHERIT;entry.Trustee.TrusteeForm=TRUSTEE_IS_SID;entry.Trustee.ptstrName=(LPWSTR)ids[i];}
-  const auto code=SetEntriesInAclW(count,access,nullptr,out);if(code)*error=winError("acl_build",code);return code==ERROR_SUCCESS;
+  const auto code=SetEntriesInAclW(ULONG(count),access,nullptr,out);if(code)*error=winError("acl_build",code);return code==ERROR_SUCCESS;
 }
 bool capability(const wchar_t *name,PSID &sid,PSID *&groups,DWORD &count,QString *error) {
   PSID *sids=nullptr;DWORD sidCount=0;

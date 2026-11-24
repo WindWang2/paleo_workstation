@@ -48,6 +48,19 @@ if [ -d "$first_run_dir" ]; then
   find "$first_run_dir" -maxdepth 1 -type f -name '*.txt' -delete || exit 1
 fi
 
+# #965：CTest 前对账配置期注册测试清单（只缩必红；CI 下强制要求 ORT 测试齐全）。
+manifest_json="$build_dir/Testing/registered-tests.json"
+if [ -f "$manifest_json" ] || [ "${PALEO_TEST_MANIFEST_CHECK:-0}" = "1" ]; then
+  manifest_args=(--build "$build_dir")
+  if [ "${CI:-}" = "true" ] || [ "${CI:-}" = "1" ] || [ "${PALEO_REQUIRE_ORT:-0}" = "1" ]; then
+    manifest_args+=(--require-ort)
+  fi
+  if ! python3 "$script_dir/check_test_manifest.py" "${manifest_args[@]}"; then
+    echo "::error::注册测试清单对账失败（#965：必需依赖缺失或测试注册数缩减）"
+    exit 1
+  fi
+fi
+
 # #230：并行度交给 paleo-dev 的 min(核数, 8) 缺省（AGENTS.md -j8 上限）。
 ./paleo-dev test "$@" --no-tests=error 2>&1 | tee "$log"
 rc=${PIPESTATUS[0]}

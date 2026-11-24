@@ -1,6 +1,8 @@
 // 层：组装根
 #include "appcontext.h"
 #include "aiconversationwiring.h" // G5：AI 页签操作展示 adapter 装配
+#include "agentmapdisplaywiring.h" // I3：地图显示原子装配
+#include "../workflow/aichatcontroller.h" // I3：aiChat()->toolRunner() 需完整类型
 #include "capabilityhostwiring.h"
 #include "workflow/commanddispatcher.h"
 #include "portableenvironment.h"
@@ -464,6 +466,10 @@ int main(int argc, char *argv[])
                        ctx.projectData(),
                        ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);
   window.attachWorkbench(ctx.mappingWorkbench(), ctx.evidenceInteraction());
+  // I3：地图显示原子（paleo.map_layer*）——原生窗口/工程/图层服务装配完
+  // 成后接入 runner 生产链（adapter 与 AppContext 同寿命，幂等重挂）。
+  installAgentMapDisplay(ctx.aiChat()->toolRunner(), ctx.projectSvc(), ctx.layerSvc(),
+                         ctx.canvasCtl(), &ctx);
   StartupTrace::mark(QStringLiteral("main_window_ready"));
   window.show();
   StartupTrace::mark(QStringLiteral("window_shown"));

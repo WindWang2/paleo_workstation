@@ -39293,6 +39293,86 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>上次 map_layer_get/修改回执返回的显示状态标记；与当前实际显示状态或宿主世代不符时明确拒绝（重新查询获取新标记，标记不是授权凭证）</source>
+        <translation>The display state token returned by the last map_layer_get or mutation receipt; mismatch against the actual display state or host generation is rejected explicitly (re-query for a new token; the token is not an authorization credential)</translation>
+    </message>
+    <message>
+        <source>列出受管地图图层</source>
+        <translation>List managed map layers</translation>
+    </message>
+    <message>
+        <source>列出当前工程 manifest 受管图层及其可观察显示状态（是否已实例化、树勾选、最终可见、透明度、当前具名样式、语义符号）。只读快照：查询不实例化未加载层、不切换层位、不改任何显示状态；手工添加的非受管图层不在目录内。按 layer_id 字典序分页，游标绑定当前显示修订。</source>
+        <translation>List the current project's manifest-managed layers with observable display state (materialized or not, tree check state, effective visibility, opacity, current named style, semantic symbol). Read-only snapshot: queries never materialize unloaded layers, switch horizons, or change any display state; manually added unmanaged layers are not listed. Sorted by layer_id with a cursor bound to the current display revision.</translation>
+    </message>
+    <message>
+        <source>按声明的层位精确筛选（空串=不限层的共享层）</source>
+        <translation>Filter exactly by declared horizon (empty string = horizon-agnostic shared layers)</translation>
+    </message>
+    <message>
+        <source>按声明类型精确筛选</source>
+        <translation>Filter exactly by declared type</translation>
+    </message>
+    <message>
+        <source>每页条数（1–32，缺省 16）</source>
+        <translation>Page size (1-32, default 16)</translation>
+    </message>
+    <message>
+        <source>上一页返回的续页游标（绑定筛选条件与显示修订；显示状态变化后明确报错）</source>
+        <translation>Continuation cursor returned by the previous page (bound to the filter and display revision; expired after display changes are reported explicitly)</translation>
+    </message>
+    <message>
+        <source>查询图层显示状态</source>
+        <translation>Query layer display state</translation>
+    </message>
+    <message>
+        <source>按精确 layer_id 返回该受管图层的显示状态：树勾选与最终可见（含父组隐藏原因）、透明度、当前具名样式、语义符号、是否编辑中；并列出该层当前适用的具名预设与语义符号选项（几何适配）。未实例化层如实标记（不触发加载）。不返回 QGIS 内部 ID、源路径或完整 QML。</source>
+        <translation>Return the managed layer's display state by exact layer_id: tree check state and effective visibility (including parent-group hidden reason), opacity, current named style, semantic symbol, and editing state; also the named presets and geometry-applicable semantic symbol options for this layer. Unmaterialized layers are reported honestly (loading is never triggered). QGIS internal ids, source paths, and full QML are never returned.</translation>
+    </message>
+    <message>
+        <source>设置图层可见性</source>
+        <translation>Set layer visibility</translation>
+    </message>
+    <message>
+        <source>设置当前已实例化受管图层的树勾选状态（JSON 布尔）。回读自身勾选与最终可见：父组隐藏时勾选可为 true 而最终可见为 false（不代为打开父组或其他图层）。同值设置返回 no_change。修改只进入当前工程的原生显示状态（未保存工程文件），不落 Catalog 版本、不发布。</source>
+        <translation>Set the tree check state (JSON boolean) of a currently materialized managed layer. Reads back own checked and effective visibility: with a hidden parent group, checked may be true while effective visibility is false (parent groups and other layers are never opened on the caller's behalf). Same-value sets return no_change. Mutations only enter the current project's native display state (unsaved project file); no Catalog versions are written and nothing is published.</translation>
+    </message>
+    <message>
+        <source>目标勾选状态（JSON 原生布尔）</source>
+        <translation>Target check state (JSON native boolean)</translation>
+    </message>
+    <message>
+        <source>设置图层透明度</source>
+        <translation>Set layer opacity</translation>
+    </message>
+    <message>
+        <source>对支持的矢量/栅格受管图层设置原生层透明度（0–1，JSON 原生数值，拒绝越界/NaN/文本），并回读实际值。只改显示呈现：不改像元值、要素属性、源引用或地图范围。同值返回 no_change；修改未保存为工程文件。</source>
+        <translation>Set the native layer opacity (0-1, JSON native number; out-of-range/NaN/text values are rejected) for supported vector/raster managed layers and read back the actual value. Display-only: pixel values, feature attributes, source references, and the map extent are untouched. Same-value sets return no_change; mutations are not saved to the project file.</translation>
+    </message>
+    <message>
+        <source>目标透明度（0=全透明，1=不透明）</source>
+        <translation>Target opacity (0=fully transparent, 1=opaque)</translation>
+    </message>
+    <message>
+        <source>应用图层样式</source>
+        <translation>Apply layer style</translation>
+    </message>
+    <message>
+        <source>对受管矢量/栅格图层应用受限样式：具名预设（当前图层样式管理器中已存在的名字，精确选项）或语义符号（GeoPatterns 词表 family/id，按几何适配）。两者互斥，必须恰好给一个。不接收文件路径、QML/SVG 内容或表达式。回读 currentStyle/renderer 语义锚；不适用时如实拒绝且零副作用。修改未保存为工程文件。</source>
+        <translation>Apply a restricted style to a managed vector/raster layer: a named preset (a name that already exists in the layer's style manager, an exact option) or a semantic symbol (GeoPatterns vocabulary family/id, geometry-matched). The two are mutually exclusive; exactly one must be given. File paths, QML/SVG content, and expressions are never accepted. currentStyle/renderer semantic anchors are read back; inapplicable requests are rejected honestly with zero side effects. Mutations are not saved to the project file.</translation>
+    </message>
+    <message>
+        <source>图层已存在的具名预设名（与 semantic_symbol 互斥）</source>
+        <translation>An existing named preset of the layer (mutually exclusive with semantic_symbol)</translation>
+    </message>
+    <message>
+        <source>语义符号 {family: lithology|facies|line, id: 词表稳定 id}（与 named_preset 互斥；几何不匹配会被拒绝）</source>
+        <translation>Semantic symbol {family: lithology|facies|line, id: stable vocabulary id} (mutually exclusive with named_preset; geometry mismatches are rejected)</translation>
+    </message>
+    <message>
+        <source>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</source>
+        <translation>Display snapshots and restricted mutations of managed layers: visibility/opacity/styles pass the host Read|Presentation gates; receipts read back native state and note the unsaved project file</translation>
+    </message>
 </context>
     <context>
         <name>QgisCanvasController</name>

@@ -1,0 +1,25 @@
+{
+    "client_request_id": "",
+    "request": {
+        "operation_id": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19"
+    },
+    "response": {
+        "cancelRequested": false,
+        "code": "computed",
+        "commitState": "not_requested",
+        "computeCount": 1,
+        "contract": "paleo.operation.v2",
+        "execution": "succeeded",
+        "ok": true,
+        "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19",
+        "presentation": "not_requested",
+        "requestHash": "d8a14cb667c0abc35304a4d7636c3b5c088f3a6e74a8feccc7e3e55c10edaa25",
+        "resultRef": {
+            "kind": "operation-result-v2",
+            "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19"
+        },
+        "revision": "3"
+    },
+    "step": 5,
+    "tool": "paleo.operation_get"
+}

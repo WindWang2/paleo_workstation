@@ -1,0 +1,37 @@
+{
+    "client_request_id": "i1-replay-constrained",
+    "request": {
+        "binding_mode": "pinned-value",
+        "client_request_id": "i1-replay-constrained",
+        "inputs": {
+            "constraints_ref": "catalog:ver-1",
+            "factor_id": "sandthick",
+            "grid": {
+                "cell_size": 10,
+                "max_x": 55,
+                "max_y": 55,
+                "min_x": -5,
+                "min_y": -5
+            },
+            "sample_ref": "catalog:ver-1",
+            "unit_selection": {
+                "intervalId": "int-ffdb53eec5895b00",
+                "revision": "0b39e63e-bdd2-4e5d-a5dd-0de00233566a",
+                "schemeId": "scheme",
+                "subIntervalId": "sub-a69350de95a83e75"
+            }
+        },
+        "parameters": {
+            "NUGGET": 0,
+            "RANGE": 40,
+            "SILL": 1,
+            "VARIOGRAM_MODEL": "spherical"
+        },
+        "publish_intent": "compute-only"
+    },
+    "response": {
+        "code": "geostat_input_unsupported"
+    },
+    "step": 10,
+    "tool": "paleo.geostat_kriging"
+}

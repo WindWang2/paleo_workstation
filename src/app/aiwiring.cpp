@@ -1,5 +1,6 @@
 // 层：组装根
 #include "aiwiring.h"
+#include "geostaticwiring.h"
 #include "agentproviderwiring.h"
 #include "ai/onnxpredictionservice.h"
 #include "wellproviderwiring.h"
@@ -208,6 +209,9 @@ void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
   if (assist)
     chat->toolRunner()->setWorkflow(assist);
   AiChatToolContext context;
+  // I1 地统计原子：与 python 能力族同一点位注册执行适配器（受控 provider +
+  // 绑定代次；重绑覆盖注册并失效旧准备）。
+  bindGeostatAtomCapabilities(host,catalog,document,currentBinding);
   if(!assembleAgentPython(chat->toolRunner(),context,catalog,document,host,currentBinding))return;
   if(document)context.sourceResolver=[guard=QPointer<paleo::document::DocumentSession>(document)](const auto &ref) {
     return guard && guard->isOpen()?guard->source(ref):paleo::document::SourceRecord{};

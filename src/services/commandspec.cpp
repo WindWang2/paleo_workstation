@@ -206,6 +206,13 @@ const Row kRows[] = {
      SurfaceAgent, "stage", "depth.convert_batch"},
     {"seismic.attributes.compute", CommandKind::Compute, "seismic", QT_TRANSLATE_NOOP("PaleoCommands", "地震属性计算"),
      QT_TRANSLATE_NOOP("PaleoCommands", "RMS、包络与相干属性计算"), SurfaceAgent, "stage", "seismic.attributes.compute"},
+    // I1 地统计原子：无约束地统计，复用工具表同一中文源串，不新增 ribbon 入口。
+    {"geostat.kriging", CommandKind::Compute, "well", QT_TRANSLATE_NOOP("PaleoCommands", "地统计普通克里金"),
+     QT_TRANSLATE_NOOP("PaleoCommands", "对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。"),
+     SurfaceAgent, "stage", "geostat.kriging"},
+    {"geostat.sgs", CommandKind::Compute, "well", QT_TRANSLATE_NOOP("PaleoCommands", "序贯高斯模拟"),
+     QT_TRANSLATE_NOOP("PaleoCommands", "对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。"),
+     SurfaceAgent, "stage", "geostat.sgs"},
     {"python.generated_outputs", CommandKind::Compute, "data", QT_TRANSLATE_NOOP("PaleoCommands", "Python 表格与图像成果计算"), "",
      SurfaceAgent, "stage", "python.generated_outputs", "", "", "project"},
     {"python.numeric_table_outputs", CommandKind::Compute, "data", QT_TRANSLATE_NOOP("PaleoCommands", "Python 数值表成果计算"), "",

@@ -1,0 +1,55 @@
+{
+    "client_request_id": "",
+    "request": {
+        "operation_id": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19"
+    },
+    "response": {
+        "cancelRequested": false,
+        "code": "computed",
+        "commitState": "not_requested",
+        "computeCount": 1,
+        "contract": "paleo.operation.v2",
+        "execution": "succeeded",
+        "ok": true,
+        "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19",
+        "ports": [
+            {
+                "axis": "XY",
+                "byteSize": "2153",
+                "diagnostic": false,
+                "kind": "raster",
+                "portId": "OUTPUT",
+                "resultRef": {
+                    "kind": "operation-result-v2",
+                    "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19",
+                    "portId": "OUTPUT"
+                },
+                "sha256": "39fc301d94799b19b5cdff4bf21e872492a0f30a2b1a65eeb8549c3bddb63b8a",
+                "unit": "factor value unit"
+            },
+            {
+                "axis": "XY",
+                "byteSize": "2056",
+                "diagnostic": false,
+                "kind": "raster",
+                "portId": "VARIANCE",
+                "resultRef": {
+                    "kind": "operation-result-v2",
+                    "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19",
+                    "portId": "VARIANCE"
+                },
+                "sha256": "aede57e23a4ae4d411d0131b9810b269c2d57d601f07aca811bcfdad201ed015",
+                "unit": "squared factor value unit"
+            }
+        ],
+        "presentation": "not_requested",
+        "requestHash": "d8a14cb667c0abc35304a4d7636c3b5c088f3a6e74a8feccc7e3e55c10edaa25",
+        "resultRef": {
+            "kind": "operation-result-v2",
+            "operationId": "op-a7bacea9-e083-46fa-bf59-fb27158e0d19"
+        },
+        "revision": "3"
+    },
+    "step": 6,
+    "tool": "paleo.operation_results"
+}

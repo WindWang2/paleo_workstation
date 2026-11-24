@@ -13402,6 +13402,70 @@ Crossline: %3 ~ %4</source>
     </message>
 </context>
 <context>
+    <name>GeostatAtomSpec</name>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="60"/>
+        <source>随机种子（十进制字符串，精确往返）</source>
+        <translation>随机种子（十进制字符串，精确往返）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="70"/>
+        <source>变差模型类型</source>
+        <translation>变差模型类型</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="87"/>
+        <source>块金值（≥0）</source>
+        <translation>块金值（≥0）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="89"/>
+        <source>部分基台（&gt;0，总基台=块金+部分基台）</source>
+        <translation>部分基台（&gt;0，总基台=块金+部分基台）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="91"/>
+        <source>变程（&gt;0，投影平面米制）</source>
+        <translation>变程（&gt;0，投影平面米制）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="93"/>
+        <source>各向异性比（≥1，1=各向同性）</source>
+        <translation>各向异性比（≥1，1=各向同性）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="95"/>
+        <source>长轴方位角（度，[0,360)）</source>
+        <translation>长轴方位角（度，[0,360)）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="157"/>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="177"/>
+        <source>邻域点数上限 [1,64]</source>
+        <translation>邻域点数上限 [1,64]</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="160"/>
+        <source>半径模式最少邻点 [1,64]（仅 SEARCH_RADIUS&gt;0 生效）</source>
+        <translation>半径模式最少邻点 [1,64]（仅 SEARCH_RADIUS&gt;0 生效）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="163"/>
+        <source>搜索半径（米，0=纯最近邻）</source>
+        <translation>搜索半径（米，0=纯最近邻）</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="173"/>
+        <source>实现次数 [1,64]</source>
+        <translation>实现次数 [1,64]</translation>
+    </message>
+    <message>
+        <location filename="../src/services/geostaticapabilityspec.cpp" line="180"/>
+        <source>搜索半径（米，0=全局最近邻）</source>
+        <translation>搜索半径（米，0=全局最近邻）</translation>
+    </message>
+</context>
+<context>
     <name>HorizonChipBar</name>
     <message>
         <location filename="../src/ui/horizonchipbar.cpp" line="87"/>
@@ -39206,6 +39270,161 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>节点表（≤32 项）。元素字段：id、capability、contract_version、output_port、intent（仅 compute-only）、parameters、inputs；封闭词表，未知字段拒绝</source>
         <translation>节点表（≤32 项）。元素字段：id、capability、contract_version、output_port、intent（仅 compute-only）、parameters、inputs；封闭词表，未知字段拒绝</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="43"/>
+        <source>prepare：物化样本快照并冻结计划；compute-only：按冻结计划计算；publish：发布已计算结果（只给 source_operation_id）</source>
+        <translation>prepare：物化样本快照并冻结计划；compute-only：按冻结计划计算；publish：发布已计算结果（只给 source_operation_id）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="49"/>
+        <source>科学参数（形状见本 schema 的 parameters.properties）。默认值只来自 AlgorithmSpec，不在工具描述里复制；compute-only 继承时应省略</source>
+        <translation>科学参数（形状见本 schema 的 parameters.properties）。默认值只来自 AlgorithmSpec，不在工具描述里复制；compute-only 继承时应省略</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="53"/>
+        <source>显式输入引用与冻结值（形状见本 schema 的 inputs.properties）</source>
+        <translation>显式输入引用与冻结值（形状见本 schema 的 inputs.properties）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="94"/>
+        <source>变差模型类型（缺省 spherical）</source>
+        <translation>变差模型类型（缺省 spherical）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="95"/>
+        <source>块金值（≥0，缺省 0）</source>
+        <translation>块金值（≥0，缺省 0）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="96"/>
+        <source>部分基台（&gt;0，缺省 1；总基台=块金+部分基台）</source>
+        <translation>部分基台（&gt;0，缺省 1；总基台=块金+部分基台）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="98"/>
+        <source>变程（&gt;0 米，缺省 1；首版无自动拟合）</source>
+        <translation>变程（&gt;0 米，缺省 1；首版无自动拟合）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="101"/>
+        <source>各向异性比（≥1，缺省 1=各向同性）</source>
+        <translation>各向异性比（≥1，缺省 1=各向同性）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="103"/>
+        <source>长轴方位角（度 [0,360)，缺省 0）</source>
+        <translation>长轴方位角（度 [0,360)，缺省 0）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="114"/>
+        <source>显式计算网格（样本投影坐标系，米制）：extent + 像元尺寸；网格覆盖整个 extent，跨度非整数倍时东/南边界最多外扩一个像元；不接受任意 WKT 或绝对输出路径</source>
+        <translation>显式计算网格（样本投影坐标系，米制）：extent + 像元尺寸；网格覆盖整个 extent，跨度非整数倍时东/南边界最多外扩一个像元；不接受任意 WKT 或绝对输出路径</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="121"/>
+        <source>西边界（米，有限数）</source>
+        <translation>西边界（米，有限数）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="122"/>
+        <source>东边界（米，&gt;min_x）</source>
+        <translation>东边界（米，&gt;min_x）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="123"/>
+        <source>南边界（米，有限数）</source>
+        <translation>南边界（米，有限数）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="124"/>
+        <source>北边界（米，&gt;min_y）</source>
+        <translation>北边界（米，&gt;min_y）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="125"/>
+        <source>像元尺寸（米，&gt;0）</source>
+        <translation>像元尺寸（米，&gt;0）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="133"/>
+        <source>邻域点数上限（缺省 16）</source>
+        <translation>邻域点数上限（缺省 16）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="135"/>
+        <source>搜索半径（米，≥0，0=纯最近邻；缺省 0）</source>
+        <translation>搜索半径（米，≥0，0=纯最近邻；缺省 0）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="140"/>
+        <source>半径模式最少邻点（缺省 4；仅 SEARCH_RADIUS&gt;0 时生效，邻点不足的格点为 NoData）</source>
+        <translation>半径模式最少邻点（缺省 4；仅 SEARCH_RADIUS&gt;0 时生效，邻点不足的格点为 NoData）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="146"/>
+        <source>实现次数（缺省 4；仅开放 OUTPUT/STD，不交付个体实现成员）</source>
+        <translation>实现次数（缺省 4；仅开放 OUTPUT/STD，不交付个体实现成员）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="152"/>
+        <source>随机种子（十进制字符串，缺省 "42"；同 seed 同输入逐字节复现）</source>
+        <translation>随机种子（十进制字符串，缺省 "42"；同 seed 同输入逐字节复现）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="164"/>
+        <source>%1（单位 %2，字段 %3）</source>
+        <translation>%1（单位 %2，字段 %3）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="170"/>
+        <source>受管点样本引用："catalog:&lt;versionId&gt;" 或受管井点层键（如 wells.T70）。宿主解析并核验其与单元的关联，不信任路径自称</source>
+        <translation>受管点样本引用："catalog:&lt;versionId&gt;" 或受管井点层键（如 wells.T70）。宿主解析并核验其与单元的关联，不信任路径自称</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="177"/>
+        <source>样本因子的单因素词表 id：数值单位与字段取词表已确认值（%1）；词表单位未确认的因子须先在既有词表补齐，本工具不猜单位</source>
+        <translation>样本因子的单因素词表 id：数值单位与字段取词表已确认值（%1）；词表单位未确认的因子须先在既有词表补齐，本工具不猜单位</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="179"/>
+        <source>；</source>
+        <translation>；</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="182"/>
+        <source>数值字段名（可省略=因子登记字段；给出时须与登记字段相同）</source>
+        <translation>数值字段名（可省略=因子登记字段；给出时须与登记字段相同）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="187"/>
+        <source>分析单元身份（S1–S4 子层段）；宿主做 Data Service 实体核验，Boundary/Interval/aggregate 拒绝。revision 省略=当前头修订，给出即冻结到该修订</source>
+        <translation>分析单元身份（S1–S4 子层段）；宿主做 Data Service 实体核验，Boundary/Interval/aggregate 拒绝。revision 省略=当前头修订，给出即冻结到该修订</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="201"/>
+        <source>compute-only：先前 prepare 操作的持久 operationId（此时不接受其他业务输入，parameters 应省略）；publish：已计算操作的 operationId（唯一输入）</source>
+        <translation>compute-only：先前 prepare 操作的持久 operationId（此时不接受其他业务输入，parameters 应省略）；publish：已计算操作的 operationId（唯一输入）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="218"/>
+        <source>地统计普通克里金</source>
+        <translation>地统计普通克里金</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="219"/>
+        <source>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</source>
+        <translation>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="224"/>
+        <source>序贯高斯模拟</source>
+        <translation>序贯高斯模拟</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/geostatictools.cpp" line="225"/>
+        <source>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</source>
+        <translation>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</translation>
     </message>
     <message>
         <source>边表（≤64 项）。元素字段：from、from_port、to、to_port；当前仅支持 IDW OUTPUT → contours RASTER</source>

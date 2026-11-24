@@ -6,6 +6,7 @@
 
 void appendAtomicPilotSpecs(QVector<AlgorithmSpec> *specs);
 void appendPythonAlgorithmSpecs(QVector<AlgorithmSpec> *specs);
+namespace paleo::geostat_atom { void appendGeostatAtomAlgorithmSpecs(QVector<AlgorithmSpec> *specs); }
 
 namespace
 {
@@ -606,6 +607,8 @@ const QVector<AlgorithmSpec> &allSpecs()
     QVector<AlgorithmSpec> specs = baseSpecTable();
     ::appendAtomicPilotSpecs(&specs);
     ::appendPythonAlgorithmSpecs(&specs);
+    // I1 地统计原子：geostat v2 精确契约（agent 面；v1 保持 UI 语义）。
+    paleo::geostat_atom::appendGeostatAtomAlgorithmSpecs(&specs);
     return specs;
   }();
   return kSpecs;

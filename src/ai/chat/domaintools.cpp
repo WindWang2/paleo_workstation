@@ -1,5 +1,6 @@
 // 层：功能
 #include "domaintools.h"
+#include "geostatictools.h"
 #include "planpreviewtool.h"
 #include "pythonanalysistools.h"
 #include "../../services/toolresultprotocol.h"
@@ -137,6 +138,7 @@ QJsonObject AiToolParamSpec::toJsonSchema() const {
 
 QJsonObject AiToolSpec::toJsonSchema() const {
   if(isPythonAnalysisTool(name))return pythonAnalysisToolSchema(name);
+  if(paleo::geostat_atom::isGeostatAtomTool(name))return paleo::geostat_atom::geostatAtomToolSchema(name);
   if(name==QLatin1String("paleo.well_facies_prediction"))return paleo::wellfacies::requestJsonSchema();
   QJsonObject schema;
   schema.insert(QStringLiteral("type"), QStringLiteral("object"));
@@ -582,6 +584,8 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
                        paleo::chat::kMinimumEnvelopeBytes, paleo::chat::kResultHardBytes)};
   read.resultSchemaJson = QStringLiteral("{\"type\":\"object\",\"required\":[\"code\"]}");
   QVector<AiToolSpec> specs{tile, horizon, facies, query, lineage, depth, seismic, constraint, read};
+  // I1 地统计原子工具（paleo.geostat_kriging / paleo.geostat_sgs）。
+  specs.append(paleo::geostat_atom::geostatAtomToolSpecs());
   appendAgentOperationTools(specs);
   // H5：纯预检提案工具（只 decode+validate，执行入口在原生审阅面板）。
   paleo::chat::appendAgentPlanPreviewTool(specs);
@@ -605,7 +609,8 @@ AiToolSpec aiToolSpec(const QString &name) {
 bool isAiCapabilityTool(const QString &name) {
   return isPythonAnalysisTool(name) || name == QLatin1String("paleo.depth_convert_batch") ||
          name == QLatin1String("paleo.seismic_attribute_group") ||
-         name == QLatin1String("paleo.constraint_idw");
+         name == QLatin1String("paleo.constraint_idw") ||
+         paleo::geostat_atom::isGeostatAtomTool(name);
 }
 
 QString aiToolDispatchLabel(AiToolDispatchStatus status) {

@@ -353,7 +353,7 @@ void TestAiChat::configBuildsCompletionsUrl() {
 
 void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   const QVector<AiToolSpec> tools = builtinAiToolSpecs();
-  QCOMPARE(tools.size(), 32); // I4 +6：paleo.navigation_*/select_wells/clear_well_selection/map_locate/open_well_view/open_seismic_line
+  QCOMPARE(tools.size(), 38); // I3(+5) + I5(+1) + I4(+6)
   QStringList names;
   for (const AiToolSpec &spec : tools) {
     QVERIFY2(!spec.name.isEmpty(), "工具必须有稳定 key");
@@ -368,9 +368,11 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
       QVERIFY(properties.isEmpty());QVERIFY(required.isEmpty());
     } else {
       QVERIFY2(!properties.isEmpty(), "工具必须有真实输入 schema");
-      // H4：operation_list 是唯一不要求任何必填实参的有参工具（发现不以已知
-      // operation_id 为起点）；其余工具仍须至少一个必填项。
-      QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list")||
+      // H4：operation_list 是不要求任何必填实参的有参工具（发现不以已知
+      // operation_id 为起点）；I3 的 map_layers、I4 的 clear_well_selection
+      // 同样无需必填实参；其余工具仍须至少一个必填项。
+      QVERIFY2(!required.isEmpty() || spec.name==QLatin1String("paleo.operation_list") ||
+               spec.name==QLatin1String("paleo.map_layers") ||
                spec.name==QLatin1String("paleo.clear_well_selection"),"工具必须有必填参数");
     }
     for(const auto &key:required)QVERIFY(properties.contains(key.toString()));
@@ -398,7 +400,9 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
     "paleo.operation_resume", "paleo.operation_cancel", "paleo.operation_results", "paleo.operation_read",
     "paleo.python_environment", "paleo.well_curve_quality", "paleo.attribute_correlation",
     "paleo.python_compute", "paleo.python_compute_table", "paleo.python_compute_trace", "paleo.python_table_outputs", "paleo.python_outputs",
-    "paleo.operation_list",
+    "paleo.operation_list", "paleo.capability_inspect",
+    "paleo.map_layers", "paleo.map_layer_get", "paleo.map_layer_set_visibility",
+    "paleo.map_layer_set_opacity", "paleo.map_layer_apply_style",
     // I4：语义导航原子（精确六名）。
     "paleo.navigation_state", "paleo.select_wells", "paleo.clear_well_selection",
     "paleo.map_locate", "paleo.open_well_view", "paleo.open_seismic_line"};

@@ -508,7 +508,7 @@ void PaleoMainWindow::attachMappingEditBasisEntry(MappingWorkbench *workbench, M
     if (auto *panel = category->findChild<SARibbonPanel *>(QStringLiteral("ribbonPanel.compose.chain"))) {
       auto *basis = new QAction(PaleoIcons::qgisTheme("mActionFormAnnotation.svg"), tr("解释依据…"), this);
       basis->setObjectName(QStringLiteral("ribbonEditBasis"));
-      basis->setToolTip(tr("填写本次解释说明和修改目的，可选取当前参考证据，启用后绘制或修改相面。"));
+      basis->setToolTip(tr("可选：查看后台自动生成的解释草稿，或手动补充本次解释说明与修改目的（编图不必需预先填写）。"));
       basis->setWhatsThis(basis->toolTip());
       panel->addSmallAction(basis);
       bindCommand(QStringLiteral("compose.editBasis"), [openBasis](const QVariantMap &) { openBasis(); });

@@ -22,7 +22,9 @@
 #include "../src/io/dataimportservice.h"
 #include "../src/io/importclassification.h"
 #include "../src/io/outsourceworkbook.h"
+#include "../src/io/sourceprobe.h"
 #include "../src/io/wellcompositexml.h"
+#include "../src/io/welllogtext.h"
 #include "../src/io/ziparchive.h"
 #include "../src/metadata/paleoprojectstore.h"
 
@@ -337,16 +339,19 @@ private slots:
   void zip64DuplicateBlockFails();
   void zip64SubBlockOverrunFails();
   void zip64NonzeroDiskFails();
-  // B. 空 deflate
+  void zip64OmittedLeadingUsizeAndSelfRoundtrip();
+  // B. 空 deflate / 空 stored
   void emptyDeflateValidStreamsExtract();
   void emptyDeflateTruncatedFails();
   void emptyDeflateDeclaredEmptyButHasDataFails();
   void emptyDeflateCrcContractEnforced();
+  void emptyStoredCrcContractEnforced();
   void extractFailureKeepsOutParamUntouched();
   // C. DTD 策略
   void dtdRejectedAcrossStringAndStreamingEntries();
   void dtdRejectedByDeviationAndTimeDepthEntry();
   void dtdRejectedInOoxmlParts();
+  void dtdRejectedByPrefixSniffersAndClassification();
   void leadingDeclarationBomCommentStillAccepted();
   void truncatedDeviationXmlFailsInsteadOfPartialRows();
   // D. OOXML 部件失败可见
@@ -552,6 +557,91 @@ void TestP1ImportIntegrity::zip64NonzeroDiskFails()
   QVERIFY2( list.error.contains( QStringLiteral( "跨盘" ) ), qPrintable( list.error ) );
 }
 
+void TestP1ImportIntegrity::zip64OmittedLeadingUsizeAndSelfRoundtrip()
+{
+  // #1028 典型第三方组合：省略前置 usize（32 位非哨兵），但 csize 与 offset 为 0xFFFFFFFF 哨兵，
+  // 且前导有一个非 ZIP64 扩展子块（0x5455）+ 非零 localHeaderOffset（第二条条目）。
+  const QByteArray padData = "0123456789";
+  const QByteArray secondData = "HELLO";
+  const quint64 secondLocalOffset = 30 + 7 + static_cast<quint64>( padData.size() ); // "pad.bin" = 7B
+  CentralEntrySpec first;
+  first.data = padData;
+  first.crc = crc32Of( padData );
+  first.usizeField = static_cast<quint32>( padData.size() );
+  first.csizeField = static_cast<quint32>( padData.size() );
+  first.offsetField = 0;
+
+  QByteArray nonZip64Sub;
+  writeU16( nonZip64Sub, 0x5455 ); // extended timestamp sub-block
+  writeU16( nonZip64Sub, 4 );
+  writeU32( nonZip64Sub, 0x12345678 );
+
+  CentralEntrySpec second;
+  second.data = secondData;
+  second.crc = crc32Of( secondData );
+  second.usizeField = 5;            // 32 位非哨兵：extra 不含 usize
+  second.csizeField = 0xFFFFFFFFu;  // 哨兵 1
+  second.offsetField = 0xFFFFFFFFu; // 哨兵 2（非零偏移）
+  second.extra = nonZip64Sub + zip64Extra( false, true, true, true, 0, 5, secondLocalOffset, 0 );
+
+  const BuiltArchive built =
+      buildArchive( { first, second }, { QStringLiteral( "pad.bin" ), QStringLiteral( "second.txt" ) } );
+  const ZipListResult list = zipListBytes( built.bytes );
+  QVERIFY2( list.ok, qPrintable( list.error ) );
+  QCOMPARE( list.entries.size(), 2 );
+  const ZipEntry *e2 = list.entry( QStringLiteral( "second.txt" ) );
+  QVERIFY( e2 != nullptr );
+  QCOMPARE( e2->uncompressedSize, Q_UINT64_C( 5 ) );
+  QCOMPARE( e2->compressedSize, Q_UINT64_C( 5 ) );
+  QCOMPARE( e2->localHeaderOffset, secondLocalOffset );
+  QByteArray out;
+  QString err;
+  QVERIFY2( zipExtractEntry( built.bytes, *e2, &out, &err ), qPrintable( err ) );
+  QCOMPARE( out, secondData );
+
+  // (usize, csize) 双哨兵 + 32 位 offset
+  CentralEntrySpec bothSizes;
+  bothSizes.data = secondData;
+  bothSizes.crc = crc32Of( secondData );
+  bothSizes.usizeField = 0xFFFFFFFFu;
+  bothSizes.csizeField = 0xFFFFFFFFu;
+  bothSizes.offsetField = 0;
+  bothSizes.extra = zip64Extra( true, true, false, false, 5, 5, 0, 0 );
+  const BuiltArchive builtBoth = buildArchive( { bothSizes }, { QStringLiteral( "sizes.txt" ) } );
+  const ZipListResult listBoth = zipListBytes( builtBoth.bytes );
+  QVERIFY2( listBoth.ok, qPrintable( listBoth.error ) );
+  QCOMPARE( listBoth.entries.first().uncompressedSize, Q_UINT64_C( 5 ) );
+  QCOMPARE( listBoth.entries.first().compressedSize, Q_UINT64_C( 5 ) );
+
+  // 完全缺失 0x0001 extra 块（extraLength == 0）→ 明确拒绝。
+  CentralEntrySpec noExtra = bothSizes;
+  noExtra.extra.clear();
+  const BuiltArchive builtNoExtra = buildArchive( { noExtra }, { QStringLiteral( "noextra.txt" ) } );
+  const ZipListResult listNoExtra = zipListBytes( builtNoExtra.bytes );
+  QVERIFY( !listNoExtra.ok );
+  QVERIFY2( listNoExtra.error.contains( QStringLiteral( "0x0001" ) ), qPrintable( listNoExtra.error ) );
+
+  // 本仓自写 forceZip64 往返（stored + deflate）。
+  for ( const ZipCompression mode : { ZipCompression::Stored, ZipCompression::Deflate } )
+  {
+    ZipBuildOptions opts;
+    opts.compression = mode;
+    opts.forceZip64 = true;
+    bool used64 = false;
+    const QByteArray selfArchive = zipBuildArchive(
+        { ZipWriteEntry{ QStringLiteral( "a.txt" ), QByteArrayLiteral( "zip64-self-roundtrip" ) },
+          ZipWriteEntry{ QStringLiteral( "b.txt" ), QByteArrayLiteral( "second-entry" ) } },
+        opts, &err, &used64 );
+    QVERIFY2( !selfArchive.isEmpty() && used64, qPrintable( err ) );
+    const ZipListResult selfList = zipListBytes( selfArchive );
+    QVERIFY2( selfList.ok, qPrintable( selfList.error ) );
+    QCOMPARE( selfList.entries.size(), 2 );
+    QByteArray got;
+    QVERIFY2( zipExtractBytes( selfArchive, QStringLiteral( "b.txt" ), &got, &err ), qPrintable( err ) );
+    QCOMPARE( got, QByteArrayLiteral( "second-entry" ) );
+  }
+}
+
 // ---------- B. 空 deflate ----------
 
 namespace {
@@ -672,6 +762,35 @@ void TestP1ImportIntegrity::emptyDeflateCrcContractEnforced()
   QVERIFY2( err.contains( QStringLiteral( "CRC32" ) ), qPrintable( err ) );
 }
 
+void TestP1ImportIntegrity::emptyStoredCrcContractEnforced()
+{
+  // #1029：空 stored 条目 CRC32==0 接受，非零错误 CRC 拒绝且不改 *out。
+  CentralEntrySpec okSpec;
+  okSpec.data = QByteArray();
+  okSpec.crc = 0;
+  okSpec.usizeField = 0;
+  okSpec.csizeField = 0;
+  okSpec.offsetField = 0;
+  const BuiltArchive okArc = buildArchive( { okSpec }, { QStringLiteral( "empty_stored.bin" ) } );
+  const ZipListResult okList = zipListBytes( okArc.bytes );
+  QVERIFY2( okList.ok, qPrintable( okList.error ) );
+  QByteArray out = QByteArrayLiteral( "SENTINEL" );
+  QString err;
+  QVERIFY2( zipExtractEntry( okArc.bytes, okList.entries.first(), &out, &err ), qPrintable( err ) );
+  QVERIFY( out.isEmpty() );
+
+  CentralEntrySpec badSpec = okSpec;
+  badSpec.crc = 0x12345678u;
+  const BuiltArchive badArc = buildArchive( { badSpec }, { QStringLiteral( "empty_bad_crc.bin" ) } );
+  const ZipListResult badList = zipListBytes( badArc.bytes );
+  QVERIFY2( badList.ok, qPrintable( badList.error ) );
+  out = QByteArrayLiteral( "KEEP_ME" );
+  err.clear();
+  QVERIFY( !zipExtractEntry( badArc.bytes, badList.entries.first(), &out, &err ) );
+  QVERIFY2( err.contains( QStringLiteral( "CRC32" ) ), qPrintable( err ) );
+  QCOMPARE( out, QByteArrayLiteral( "KEEP_ME" ) );
+}
+
 void TestP1ImportIntegrity::extractFailureKeepsOutParamUntouched()
 {
   const QByteArray payload = QByteArrayLiteral( "kept" );
@@ -736,23 +855,120 @@ void TestP1ImportIntegrity::dtdRejectedByDeviationAndTimeDepthEntry()
 
 void TestP1ImportIntegrity::dtdRejectedInOoxmlParts()
 {
-  XlsxParts parts;
-  parts.workbook = defaultWorkbookXml( false );
-  parts.rels = defaultRelsXml( false );
-  parts.sheet1 = defaultSheetXml( false );
-  // sharedStrings 前导 DTD——部件级拒绝（不是「空共享字符串表」）
-  parts.shared = "<?xml version=\"1.0\"?>\n<!DOCTYPE sst [<!ENTITY x \"y\">]>\n"
-                 "<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"/>";
-  const QByteArray archive = buildXlsx( parts );
-  QVERIFY( !archive.isEmpty() );
+  // #1023：XLSX 五类 XML 部件（rels / sharedStrings / styles / workbook / sheet）
+  // 任一含极小安全 DTD/实体声明都必须走统一策略拒收，错误文案一致含 "DTD"。
   QTemporaryDir dir;
-  const QString path = dir.filePath( QStringLiteral( "dtd.xlsx" ) );
-  QVERIFY( writeFile( path, archive ) );
-  const WorkbookReadResult result = readWorkbook( path );
-  QVERIFY( !result.ok );
-  QVERIFY2( result.error.contains( QStringLiteral( "DTD" ) ) ||
-                result.error.contains( QStringLiteral( "sharedStrings" ) ),
-            qPrintable( result.error ) );
+  QVERIFY( dir.isValid() );
+  const auto injectDtd = []( const QByteArray &xml, const QByteArray &rootName ) {
+    const int nl = xml.indexOf( '\n' );
+    const QByteArray dtd = "<!DOCTYPE " + rootName + " [<!ENTITY x \"y\">]>\n";
+    return nl >= 0 ? xml.left( nl + 1 ) + dtd + xml.mid( nl + 1 ) : dtd + xml;
+  };
+  auto baseParts = []() {
+    XlsxParts p;
+    p.workbook = defaultWorkbookXml( false );
+    p.rels = defaultRelsXml( false );
+    p.sheet1 = defaultSheetXml( false );
+    p.shared = "<?xml version=\"1.0\"?>\n"
+               "<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+               "<si><t>W1</t></si></sst>\n";
+    p.styles = "<?xml version=\"1.0\"?>\n"
+               "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+               "<cellXfs count=\"1\"><xf numFmtId=\"0\"/></cellXfs></styleSheet>\n";
+    return p;
+  };
+  const QList<QPair<QString, XlsxParts>> cases = {
+      { QStringLiteral( "dtd_rels.xlsx" ),
+        [&]() { auto p = baseParts(); p.rels = injectDtd( p.rels, "Relationships" ); return p; }() },
+      { QStringLiteral( "dtd_shared.xlsx" ),
+        [&]() { auto p = baseParts(); p.shared = injectDtd( p.shared, "sst" ); return p; }() },
+      { QStringLiteral( "dtd_styles.xlsx" ),
+        [&]() { auto p = baseParts(); p.styles = injectDtd( p.styles, "styleSheet" ); return p; }() },
+      { QStringLiteral( "dtd_workbook.xlsx" ),
+        [&]() { auto p = baseParts(); p.workbook = injectDtd( p.workbook, "workbook" ); return p; }() },
+      { QStringLiteral( "dtd_sheet.xlsx" ),
+        [&]() { auto p = baseParts(); p.sheet1 = injectDtd( p.sheet1, "worksheet" ); return p; }() },
+  };
+  for ( const auto &tc : cases )
+  {
+    const QByteArray archive = buildXlsx( tc.second );
+    QVERIFY2( !archive.isEmpty(), qPrintable( tc.first ) );
+    const QString path = dir.filePath( tc.first );
+    QVERIFY( writeFile( path, archive ) );
+    const WorkbookReadResult result = readWorkbook( path );
+    QVERIFY2( !result.ok, qPrintable( tc.first + QStringLiteral( " unexpectedly succeeded" ) ) );
+    QVERIFY2( result.error.contains( QStringLiteral( "DTD" ) ),
+              qPrintable( tc.first + QStringLiteral( ": " ) + result.error ) );
+  }
+}
+
+void TestP1ImportIntegrity::dtdRejectedByPrefixSniffersAndClassification()
+{
+  // #1023：前缀嗅探（WellLogText::sniffSpreadsheetXml / sourceprobe::probeSource /
+  // sniffWellXml）与分类入口（classifyProjectImport / classifyImportFileDetailed）
+  // 均须对极小安全 DTD 样本一致拒绝，不把含 DTD 的工作簿判作合法测井曲线表。
+  const auto makeLogXml = []( bool withDtd, int padBytes ) {
+    QByteArray xml = QByteArray::fromHex( "EFBBBF" );
+    xml += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- benign comment -->\n";
+    if ( withDtd )
+      xml += "<!DOCTYPE Workbook [<!ENTITY well \"W1\">]>\n";
+    xml += "<Workbook xmlns=\"" + QByteArray( kSsXmlns ) + "\" xmlns:ss=\"" + QByteArray( kSsXmlns ) + "\">\n";
+    if ( padBytes > 0 )
+    {
+      xml += " <Worksheet ss:Name=\"说明\"><Table><Row><Cell><Data ss:Type=\"String\">";
+      xml += QByteArray( padBytes, 'A' );
+      xml += "</Data></Cell></Row></Table></Worksheet>\n";
+    }
+    xml += " <Worksheet ss:Name=\"测井曲线-W1井\"><Table>\n";
+    xml += "  <Row><Cell><Data ss:Type=\"String\">井号</Data></Cell>"
+           "<Cell><Data ss:Type=\"String\">MD</Data></Cell>"
+           "<Cell><Data ss:Type=\"String\">GR</Data></Cell></Row>\n";
+    xml += QByteArray( "  <Row><Cell><Data ss:Type=\"String\">" ) + ( withDtd ? "&well;" : "W1" ) +
+           "</Data></Cell><Cell><Data ss:Type=\"Number\">1000</Data></Cell>"
+           "<Cell><Data ss:Type=\"Number\">45</Data></Cell></Row>\n";
+    xml += " </Table></Worksheet>\n</Workbook>\n";
+    return xml;
+  };
+
+  const QByteArray cleanSmall = makeLogXml( false, 0 );
+  const QByteArray dtdSmall = makeLogXml( true, 0 );
+
+  // 1) WellLogText::sniffSpreadsheetXml
+  QVERIFY( WellLogText::sniffSpreadsheetXml( cleanSmall ) );
+  QVERIFY( !WellLogText::sniffSpreadsheetXml( dtdSmall ) );
+
+  // 2) classifyProjectImport（底层走 sniffWellXml）
+  QCOMPARE( classifyProjectImport( QStringLiteral( "log.xml" ), cleanSmall ).type,
+            QStringLiteral( "well_log" ) );
+  QCOMPARE( classifyProjectImport( QStringLiteral( "log.xml" ), dtdSmall ).type,
+            QStringLiteral( "unknown" ) );
+
+  // 3) sourceprobe::probeSource（identify + xmlIdentity 均不消费 DTD）
+  {
+    QBuffer cleanBuf;
+    cleanBuf.setData( cleanSmall );
+    QVERIFY( cleanBuf.open( QIODevice::ReadOnly ) );
+    const SourceProbe cleanProbe = probeSource( cleanBuf, QStringLiteral( "log.xml" ) );
+    QCOMPARE( cleanProbe.classification.type, QStringLiteral( "well_log" ) );
+    QCOMPARE( cleanProbe.wellName, QStringLiteral( "W1" ) );
+
+    QBuffer dtdBuf;
+    dtdBuf.setData( dtdSmall );
+    QVERIFY( dtdBuf.open( QIODevice::ReadOnly ) );
+    const SourceProbe dtdProbe = probeSource( dtdBuf, QStringLiteral( "log.xml" ) );
+    QVERIFY( dtdProbe.classification.type != QLatin1String( "well_log" ) );
+    QVERIFY( dtdProbe.wellName.isEmpty() );
+  }
+
+  // 4) classifyImportFileDetailed：小文件与 >64 KiB 大 XML 均拒绝分类为 well_log。
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString cleanLargePath = dir.filePath( QStringLiteral( "clean_large.xml" ) );
+  const QString dtdLargePath = dir.filePath( QStringLiteral( "dtd_large.xml" ) );
+  QVERIFY( writeFile( cleanLargePath, makeLogXml( false, 70 * 1024 ) ) );
+  QVERIFY( writeFile( dtdLargePath, makeLogXml( true, 70 * 1024 ) ) );
+  QCOMPARE( classifyImportFileDetailed( cleanLargePath ).cls.type, QStringLiteral( "well_log" ) );
+  QCOMPARE( classifyImportFileDetailed( dtdLargePath ).cls.type, QStringLiteral( "unknown" ) );
 }
 
 void TestP1ImportIntegrity::leadingDeclarationBomCommentStillAccepted()

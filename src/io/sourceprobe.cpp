@@ -4,6 +4,7 @@
 #include "lisparser.h"
 #include "lasparser.h"
 #include "encodingdetect.h"
+#include "xmlstreamsafety.h"
 #include <QBuffer>
 #include <QFile>
 #include <QFileInfo>
@@ -44,9 +45,9 @@ void xmlIdentity(const QByteArray &prefix, SourceProbe &out)
   QString sheet; QStringList headers; bool curves = false;
   while (!xml.atEnd()) {
     const auto token = xml.readNext();
-    // P1-W3（#1023）：身份探测与完整读取同一 DTD 策略——读到 DTD 即停止
-    // 探测（分类保持 classifyProjectImport 的结果），不展开实体取文本。
-    if (token == QXmlStreamReader::DTD) return;
+    // P1-W3（#1023）：身份探测与完整读取同一 DTD 策略——经 xmlsafe 拒绝 DTD，
+    // 读到 DTD 即停止探测，不展开实体取文本。
+    if (xmlsafe::rejectDtdToken(token, QString(), nullptr)) return;
     if (!xml.isStartElement()) continue;
     if (xml.name() == QLatin1String("Worksheet")) {
       sheet.clear(); headers.clear();
@@ -86,7 +87,9 @@ void identify(const QByteArray &prefix, const QString &path, SourceProbe &out)
     return;
   }
   QXmlStreamReader xml(prefix);
-  if (xml.readNextStartElement() && xml.name() == QLatin1String("Workbook") &&
+  // #1023：前导 token 走 xmlsafe::advanceToRootElement，避免裸 readNextStartElement
+  // 在进入 xmlIdentity 前静默消费并注册 DTD。
+  if (xmlsafe::advanceToRootElement(xml, path, nullptr) && xml.name() == QLatin1String("Workbook") &&
       xml.namespaceUri() == QLatin1String("urn:schemas-microsoft-com:office:spreadsheet")) {
     xmlIdentity(prefix, out); return;
   }

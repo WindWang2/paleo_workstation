@@ -97,12 +97,24 @@ private slots:
       return path;
     };
     QString error;
-    // 路径形式的来源 CRS：拒绝（GDALGetProjectionRef 原样返回该串）。
+    // 真实存在的本地 WKT 文件路径：不带 SET_FROM_USER_INPUT_LIMITATIONS 时 GDAL 会打开该文件并成功；
+    // 带限制后必须按无效拒绝，证明不触发本地文件读取。
+    const auto realWktFile = root.filePath(QStringLiteral("realcrs.wkt"));
+    const auto validSourceWkt = paleo::io::coordinateWkt(QStringLiteral("EPSG:32649"));
+    QVERIFY(!validSourceWkt.isEmpty());
+    write(realWktFile, validSourceWkt.toUtf8());
+    QVERIFY(!paleo::io::projectRasterFile(
+        vrtOf(QStringLiteral("existingfilecrs.vrt"), realWktFile), targetWkt, &error));
+    QVERIFY2(error.contains(QStringLiteral("无效")), qPrintable(error));
+    QVERIFY(!paleo::io::projectRasterFile(
+        vrtOf(QStringLiteral("fileurlcrs.vrt"), QStringLiteral("file://") + realWktFile),
+        targetWkt, &error));
+    QVERIFY2(error.contains(QStringLiteral("无效")), qPrintable(error));
+    // 不存在的路径形式与 HTTP URL 形式同样拒绝。
     QVERIFY(!paleo::io::projectRasterFile(
         vrtOf(QStringLiteral("pathcrs.vrt"), QStringLiteral("./p2-crs-probe-not-a-crs")),
         targetWkt, &error));
     QVERIFY2(error.contains(QStringLiteral("无效")), qPrintable(error));
-    // URL 形式同样拒绝。
     QVERIFY(!paleo::io::projectRasterFile(
         vrtOf(QStringLiteral("urlcrs.vrt"), QStringLiteral("http://127.0.0.1:9/p2-proj")),
         targetWkt, &error));

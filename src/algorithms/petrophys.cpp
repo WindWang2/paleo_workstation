@@ -124,9 +124,12 @@ void phiSonicWyllie(const double *dt, int n, double dtMa, double dtFluid,
 }
 
 void swArchie(const double *phi, const double *rt, int n,
-              double a, double m, double nSat, double rw, double *out)
+              double a, double m, double nSat, double rw, double *out,
+              bool clampToOne)
 {
-  const bool paramsOk = a > 0.0 && rw > 0.0 && m > 0.0 && nSat > 0.0;
+  const bool paramsOk = std::isfinite(a) && std::isfinite(rw) &&
+                        std::isfinite(m) && std::isfinite(nSat) &&
+                        a > 0.0 && rw > 0.0 && m > 0.0 && nSat > 0.0;
   for (int i = 0; i < n; ++i)
   {
     if (!paramsOk || wellnumeric::isNullCurveValue(phi[i]) || wellnumeric::isNullCurveValue(rt[i]) || phi[i] <= 0.0
@@ -138,7 +141,8 @@ void swArchie(const double *phi, const double *rt, int n,
     // #478：φ 极小时 pow(φ,m) 下溢 0 → 中间值溢出 ±inf——与同文件 NaN
     // 诚实传播口径一致，输出端查 isfinite（inf 不当饱和度外泄）。
     const double sw = std::pow(a * rw / (std::pow(phi[i], m) * rt[i]), 1.0 / nSat);
-    out[i] = std::isfinite(sw) ? std::min(sw, 1.0) : kNan; // #838：Sw 物理上限 1
+    // #838 / #964：默认钳制到物理上限 1.0；显式 clampToOne=false 时保留原始 Sw>1。
+    out[i] = std::isfinite(sw) ? (clampToOne ? std::min(sw, 1.0) : sw) : kNan;
   }
 }
 

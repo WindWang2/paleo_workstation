@@ -1019,7 +1019,14 @@ void CacheSegyIndexTests::auditRejectsPayloadBeyondEof()
   snap.offsets = {3600, 4000, 4400};
   QVERIFY(!SegyReader().restore(snap, sgy)); // 载荷越界 → 拒
 
-  // 同一份伪造经磁盘缓存走 load()：审计拒绝 + 自愈删除。
+  // #1026：restore() 直接拒绝恶意超大偏移（溢出安全）。
+  {
+    SegyIndexStore::StoredIndex hugeOff = snap;
+    hugeOff.offsets[2] = std::numeric_limits<qint64>::max() - 10;
+    QVERIFY(!SegyReader().restore(hugeOff, sgy));
+  }
+
+  // 同一份伪造经磁盘缓存走 load() 与 loadForResume()：审计拒绝 + 自愈删除。
   SegyIndexStore store(cacheDir());
   QString werr;
   QVERIFY(writeCacheFileAtomic(store.cacheFilePathFor(QFileInfo(sgy)),
@@ -1029,6 +1036,19 @@ void CacheSegyIndexTests::auditRejectsPayloadBeyondEof()
   QVERIFY(!store.load(QFileInfo(sgy), /*partialOk=*/true, &reason).has_value());
   QVERIFY2(reason.contains(QLatin1String("beyond EOF")),
            qPrintable(reason));
+  QVERIFY(!QFile::exists(store.cacheFilePathFor(QFileInfo(sgy))));
+
+  // loadForResume() 对截断载荷的 partial checkpoint 同样拒绝并自愈删除。
+  SegyIndexStore::StoredIndex partialTrunc = snap;
+  partialTrunc.complete = false;
+  partialTrunc.prefixFingerprint =
+      SegyIndexStore::prefixFingerprintOf(sgy, QFileInfo(sgy).size());
+  QVERIFY(writeCacheFileAtomic(store.cacheFilePathFor(QFileInfo(sgy)),
+                               QByteArray("PSGYIDX1", 8), 6, CacheFlags::None,
+                               forgeIndexPayload(partialTrunc), &werr));
+  reason.clear();
+  QVERIFY(!store.loadForResume(QFileInfo(sgy), &reason).has_value());
+  QVERIFY2(reason.contains(QLatin1String("beyond EOF")), qPrintable(reason));
   QVERIFY(!QFile::exists(store.cacheFilePathFor(QFileInfo(sgy))));
 }
 

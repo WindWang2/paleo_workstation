@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace paleo::velmodel {
 
@@ -562,19 +563,39 @@ VelocityModel VelocityModel::fromJson(const QJsonObject &obj, QString *error)
 DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
                                        const QVector<float> &timeMs, int rows, int cols,
                                        const double gt[6], double nodata,
-                                       const std::function<bool()> &cancelled)
+                                       const std::function<bool()> &cancelled,
+                                       qint64 maxBudgetBytes)
 {
   DepthGridResult r;
-  r.depthM.resize(rows * cols);
-  std::fill(r.depthM.begin(), r.depthM.end(), qQNaN());
-  // 尺寸契约：timeMs 必须就是 rows×cols。旧式用 QVector::value() 静默取 0.0f，
-  // 越界像元被当成合法 TWT=0ms 换算成深度 0 写进输出——错误被吞成貌似合理
-  // 的错值。不符即整体拒绝（保持全 NaN），不发布半真半假的深度面。
-  if (timeMs.size() != qsizetype(rows) * cols)
+  // #964：入口尺寸与内存预算闸——统一用 64 位/qsizetype 防 rows*cols 溢出，
+  // 且在分配 r.depthM 前校验维度、预算与 timeMs.size()，避免先触发巨量分配
+  // 再发现形状错误。
+  if (!gt || rows <= 0 || cols <= 0 || maxBudgetBytes <= 0)
   {
-    r.nodataCells = qsizetype(rows) * cols; // 没有一格被转换，如实计数
+    r.invalidShape = true;
     return r;
   }
+  const qint64 maxCellsByBudget = maxBudgetBytes / static_cast<qint64>(sizeof(float));
+  const qint64 maxCells = std::min<qint64>(
+      std::min<qint64>(std::numeric_limits<int>::max(), std::numeric_limits<qsizetype>::max()),
+      maxCellsByBudget);
+  if (maxCells <= 0 || static_cast<qint64>(rows) > maxCells / static_cast<qint64>(cols))
+  {
+    r.invalidShape = true;
+    return r;
+  }
+  const qsizetype cells = static_cast<qsizetype>(rows) * static_cast<qsizetype>(cols);
+  // 尺寸契约：timeMs 必须就是 rows×cols。旧式用 QVector::value() 静默取 0.0f，
+  // 越界像元被当成合法 TWT=0ms 换算成深度 0 写进输出——错误被吞成貌似合理
+  // 的错值。不符即整体拒绝（不分配 depthM），不发布半真半假的深度面。
+  if (timeMs.size() != cells)
+  {
+    r.invalidShape = true;
+    r.nodataCells = static_cast<int>(cells); // 没有一格被转换，如实计数
+    return r;
+  }
+  r.depthM.resize(cells);
+  std::fill(r.depthM.begin(), r.depthM.end(), qQNaN());
   for (int row = 0; row < rows; ++row)
   {
     if (cancelled && cancelled())
@@ -582,10 +603,11 @@ DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
       r.cancelled = true;
       return r; // 半途结果：统计不完整，调用方必须弃用
     }
+    const qsizetype rowBase = static_cast<qsizetype>(row) * static_cast<qsizetype>(cols);
     for (int col = 0; col < cols; ++col)
     {
-      const int idx = row * cols + col;
-      const float t = timeMs.value(idx);
+      const qsizetype idx = rowBase + static_cast<qsizetype>(col);
+      const float t = timeMs.at(idx);
       // #165：像元是 float，nodata 按 float 口径比较（1e30 等非 float 可表示值）。
       if (!std::isfinite(t) || t == static_cast<float>(nodata))
       {

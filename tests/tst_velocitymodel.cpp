@@ -71,6 +71,7 @@ private slots:
   void idwBlendsAcrossUnequalWellRanges();
   void v0kNegativeKBeyondSingularityIsNaN();
   void v0kFitRmsSkipsNonPositiveDepthKnots();
+  void gridConversionRejectsOverflowAndBudgetExceeded();
 };
 
 // 用例1：恒速 2500 m/s（k=0 极限 + 层间平均同值）——z = v·twt/2000 解析。
@@ -521,6 +522,74 @@ void TestVelocityModel::v0kFitRmsSkipsNonPositiveDepthKnots()
   QVERIFY2(std::isfinite(rb), "fitRmsMs must be finite with z<=0 knots");
   QVERIFY(ra > 0.0);
   QVERIFY2(qAbs(ra - rb) < 1e-9 * ra, qPrintable(QStringLiteral("pos=%1 neg=%2").arg(ra).arg(rb)));
+}
+
+// #964：时深格网大尺寸溢出/超预算/形状不符在分配 depthM 前直接拒绝，不触发巨量分配；
+// 正常尺寸与预算内转换逐值不变。
+void TestVelocityModel::gridConversionRejectsOverflowAndBudgetExceeded()
+{
+  const auto c = well(QStringLiteral("W1"), 50.0, 50.0, {{1000.0, 1250.0}, {2000.0, 2500.0}});
+  const VelocityModel m = VelocityModel::fit({c}, ModelType::IntervalAverage);
+  const double gt[6] = {0.0, 100.0, 0.0, 400.0, 0.0, -100.0};
+  const QVector<float> tiny(4, 1600.0f);
+
+  // 1) rows * cols 超 INT_MAX（旧 int 乘法溢出）。
+  {
+    const DepthGridResult r = convertTimeGridToDepth(m, tiny, 50000, 50000, gt, -9999.0);
+    QVERIFY(r.invalidShape);
+    QVERIFY(r.depthM.isEmpty());
+    QCOMPARE(r.convertedCells, 0);
+  }
+  // 2) INT_MAX * 2 边界溢出。
+  {
+    const DepthGridResult r =
+        convertTimeGridToDepth(m, tiny, std::numeric_limits<int>::max(), 2, gt, -9999.0);
+    QVERIFY(r.invalidShape);
+    QVERIFY(r.depthM.isEmpty());
+    QCOMPARE(r.convertedCells, 0);
+  }
+  // 3) 略低于 INT_MAX（46340^2 ≈ 8.6 GiB）被默认预算闸拒收，不分配。
+  {
+    const DepthGridResult r = convertTimeGridToDepth(m, tiny, 46340, 46340, gt, -9999.0);
+    QVERIFY(r.invalidShape);
+    QVERIFY(r.depthM.isEmpty());
+    QCOMPARE(r.convertedCells, 0);
+  }
+  // 4) 非正维度与空仿射。
+  {
+    const DepthGridResult neg = convertTimeGridToDepth(m, tiny, -2, -3, gt, -9999.0);
+    QVERIFY(neg.invalidShape);
+    QVERIFY(neg.depthM.isEmpty());
+    const DepthGridResult zero = convertTimeGridToDepth(m, tiny, 0, 5, gt, -9999.0);
+    QVERIFY(zero.invalidShape);
+    QVERIFY(zero.depthM.isEmpty());
+    const DepthGridResult nullGt = convertTimeGridToDepth(m, tiny, 2, 2, nullptr, -9999.0);
+    QVERIFY(nullGt.invalidShape);
+    QVERIFY(nullGt.depthM.isEmpty());
+  }
+  // 5) 尺寸不符在分配前拒收（depthM 为空，nodataCells 记预期像元数）。
+  {
+    const DepthGridResult mismatch = convertTimeGridToDepth(m, tiny, 4, 4, gt, -9999.0);
+    QVERIFY(mismatch.invalidShape);
+    QVERIFY(mismatch.depthM.isEmpty());
+    QCOMPARE(mismatch.convertedCells, 0);
+    QCOMPARE(mismatch.nodataCells, 16);
+  }
+  // 6) 小样本 + mock 预算：超预算拒绝，预算恰足时正常转换且逐值不变。
+  {
+    const QVector<float> grid(16, 1600.0f); // 16 * 4B = 64B
+    const DepthGridResult over = convertTimeGridToDepth(m, grid, 4, 4, gt, -9999.0, {}, 63);
+    QVERIFY(over.invalidShape);
+    QVERIFY(over.depthM.isEmpty());
+    QCOMPARE(over.convertedCells, 0);
+
+    const DepthGridResult exact = convertTimeGridToDepth(m, grid, 4, 4, gt, -9999.0, {}, 64);
+    QVERIFY(!exact.invalidShape);
+    QCOMPARE(exact.depthM.size(), 16);
+    QCOMPARE(exact.convertedCells, 16);
+    for (float z : exact.depthM)
+      QCOMPARE(z, 2000.0f);
+  }
 }
 
 QTEST_MAIN(TestVelocityModel)

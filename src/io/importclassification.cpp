@@ -3,6 +3,7 @@
 #include "welllogtext.h"
 #include "welltable.h"
 #include "wellfactorfile.h"
+#include "xmlstreamsafety.h"
 #include <QFileInfo>
 #include <QFile>
 #include <QXmlStreamReader>
@@ -69,8 +70,13 @@ ImportClassificationDetail classifyImportFileDetailed(const QString &path, const
   while (!xml.atEnd())
   {
     const auto token = xml.readNext();
-    // P1-W3（#1023）：流式分类扫描与完整读取同一 DTD 策略。
-    if (token == QXmlStreamReader::DTD) break;
+    // P1-W3（#1023）：流式分类扫描与完整读取同一 DTD 策略（走 xmlsafe 并记
+    // 容器错误，避免带 DTD 的大 XML 静默通过分类）。
+    if (paleo::io::xmlsafe::rejectDtdToken(token, path, &detail.containerError))
+    {
+      detail.cls = classifyProjectPath(path);
+      return detail;
+    }
     if (!xml.isStartElement() || xml.name() != QLatin1String("Worksheet")) continue;
     for (const auto &attribute : xml.attributes())
     {

@@ -37,6 +37,7 @@ private slots:
   void mixedCoherenceIsPricedAndShapeCannotOverflow();
   void tiledCoherenceMatchesFullVolume();
   void envelopeSplitKeepsCoherenceChunk();
+  void computeAttributeGroupRejectsOverflowAndBudgetExceeded();
 };
 
 void TestSeisAttrGroup::envelopeAndPhaseShareOneAnalyticCall() {
@@ -260,6 +261,127 @@ void TestSeisAttrGroup::envelopeSplitKeepsCoherenceChunk() {
   QVERIFY(mixed.estimatedBytes <= 1000);
   QVERIFY(mixed.traceBatch > 0);
   QVERIFY(mixed.traceBatch < 4);
+}
+
+void TestSeisAttrGroup::computeAttributeGroupRejectsOverflowAndBudgetExceeded() {
+  // #964：使用 1 个 float 的极小缓冲验证大尺寸/近 INT_MAX 路径在分配前拒绝，
+  // 不触发任何巨量分配。
+  float sample = 1.f;
+  const auto makeBase = [&sample]() {
+    paleo::seisattr::TraceGroupRequest req;
+    req.traces = &sample;
+    req.sampleIntervalMs = 2.0;
+    req.wantRms = true;
+    req.rmsHalf = 1;
+    req.fullTrace = true;
+    return req;
+  };
+
+  // 1) nTraces * nOut 超过 INT_MAX（旧 int 乘法有符号溢出）。
+  {
+    auto req = makeBase();
+    req.nTraces = 50000;
+    req.traceLength = 50000;
+    req.stride = 50000;
+    const auto res = paleo::seisattr::computeAttributeGroup(req);
+    QVERIFY(!res.ok);
+    QCOMPARE(QString::fromStdString(res.code), QStringLiteral("invalid_shape"));
+    QCOMPARE(res.samplesRead, 0);
+    QVERIFY(res.rms.empty());
+  }
+  // 2) 接近 INT_MAX 的边界组合（INT_MAX * 2）。
+  {
+    auto req = makeBase();
+    req.nTraces = std::numeric_limits<int>::max();
+    req.traceLength = 2;
+    req.stride = 2;
+    const auto res = paleo::seisattr::computeAttributeGroup(req);
+    QVERIFY(!res.ok);
+    QCOMPARE(QString::fromStdString(res.code), QStringLiteral("invalid_shape"));
+    QVERIFY(res.rms.empty());
+  }
+  // 3) 输出窗很小但 nTraces * traceLength 超 INT_MAX（会令 samplesRead 溢出）。
+  {
+    auto req = makeBase();
+    req.nTraces = 100000;
+    req.traceLength = 30000;
+    req.stride = 30000;
+    req.outputBegin = 0;
+    req.outputEnd = 1;
+    const auto res = paleo::seisattr::computeAttributeGroup(req);
+    QVERIFY(!res.ok);
+    QCOMPARE(QString::fromStdString(res.code), QStringLiteral("invalid_shape"));
+    QVERIFY(res.rms.empty());
+  }
+  // 4) 略低于 INT_MAX（46340^2 ≈ 2.147e9 像元 ≈ 8.6 GiB）被默认预算闸拒收。
+  {
+    auto req = makeBase();
+    req.nTraces = 46340;
+    req.traceLength = 46340;
+    req.stride = 46340;
+    const auto res = paleo::seisattr::computeAttributeGroup(req);
+    QVERIFY(!res.ok);
+    QCOMPARE(QString::fromStdString(res.code), QStringLiteral("invalid_shape"));
+    QVERIFY(res.rms.empty());
+  }
+  // 5) 小样本 + mock 预算：超预算拒绝，放宽到恰好覆盖时通过且逐值准确。
+  {
+    const std::vector<float> traces = ramp(3 * 32);
+    paleo::seisattr::TraceGroupRequest req;
+    req.traces = traces.data();
+    req.nTraces = 3;
+    req.traceLength = 32;
+    req.stride = 32;
+    req.sampleIntervalMs = 4.0;
+    req.outputBegin = 4;
+    req.outputEnd = 20; // nOut = 16，3 道 × 16 × 3 通道 × 4B = 576 B
+    req.wantRms = true;
+    req.wantEnvelope = true;
+    req.wantPhase = true;
+    req.rmsHalf = 2;
+    req.fullTrace = true;
+    req.maxOutputBytes = 575;
+    const auto refused = paleo::seisattr::computeAttributeGroup(req);
+    QVERIFY(!refused.ok);
+    QCOMPARE(QString::fromStdString(refused.code), QStringLiteral("invalid_shape"));
+    QVERIFY(refused.rms.empty());
+    QVERIFY(refused.envelope.empty());
+    QVERIFY(refused.phase.empty());
+
+    req.maxOutputBytes = 576;
+    const auto ok = paleo::seisattr::computeAttributeGroup(req);
+    QVERIFY(ok.ok);
+    QCOMPARE(ok.nOut, 16);
+    QCOMPARE(ok.samplesRead, 96);
+    QCOMPARE(ok.rms.size(), std::size_t(48));
+    for (int t = 0; t < 3; ++t) {
+      const float *tr = traces.data() + t * 32;
+      const auto analytic = paleo::seisattr::complexTraceAnalysis(tr, 32, 4.0);
+      std::vector<float> rmsRef(32);
+      paleo::seisattr::windowedRms(tr, 32, 2, rmsRef.data());
+      for (int i = 0; i < 16; ++i) {
+        const std::size_t dst = static_cast<std::size_t>(t) * 16 + static_cast<std::size_t>(i);
+        const std::size_t src = static_cast<std::size_t>(4 + i);
+        QVERIFY(same(ok.rms[dst], rmsRef[src]));
+        QVERIFY(same(ok.envelope[dst], analytic.envelope[src]));
+        QVERIFY(same(ok.phase[dst], analytic.phaseDeg[src]));
+      }
+    }
+  }
+  // 6) computeCoherenceTiled 与 planAttributeBudget 大尺寸/大 halo 不溢出。
+  {
+    paleo::seisattr::CoherenceTile tile;
+    tile.volume = &sample;
+    tile.nIl = 2000000000;
+    tile.nXl = 2000000000;
+    tile.nS = 2000000000;
+    const auto tiled = paleo::seisattr::computeCoherenceTiled(tile, paleo::seisattr::CoherenceWeightMode::Equal, 4);
+    QVERIFY(!tiled.ok);
+    QCOMPARE(QString::fromStdString(tiled.code), QStringLiteral("invalid_shape"));
+    const auto rmsPlan = paleo::seisattr::planAttributeBudget(
+        1, 16, std::numeric_limits<int>::max() / 2, false, true, false, 0, 0, 0, 0, 1024);
+    QCOMPARE(QString::fromStdString(rmsPlan.code), QStringLiteral("budget_exceeded"));
+  }
 }
 
 QTEST_MAIN(TestSeisAttrGroup)

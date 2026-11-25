@@ -1017,6 +1017,67 @@ private slots:
     selection.clearActiveUnit();
     QCOMPARE(page->horizon(), QString("D63"));
   }
+  void resizedCanvasRestoresAutomaticFaciesAndLegend() {
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, nullptr, nullptr, &f.processing, &f.store);
+    window.attachWorkbench(&f.work);
+    window.resize(1600, 1000); window.show(); window.showPage("compose");
+    selection.setActiveHorizon("D61");
+    MappingWorkbenchPage *page = nullptr;
+    for (auto *candidate : window.findChildren<MappingWorkbenchPage *>())
+      if (candidate->mode() == "compose") page = candidate;
+    QVERIFY(page);
+    QString error; const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    page->refresh(); page->selectLayer(draft);
+    auto *show = page->commandButton("show"); QVERIFY(show && show->isEnabled());
+    show->click();
+    auto *canvas = controller.canvas();
+    auto *layer = f.layers.layer(draft); QVERIFY(layer);
+    QTRY_VERIFY(canvas->layers().contains(layer));
+    QTRY_COMPARE(canvas->currentLayer(), layer);
+    auto *mode = page->findChild<QComboBox *>("faciesDisplayLevel");
+    auto *state = window.findChild<QLabel *>("ribbonFaciesDisplayState");
+    auto *scale = window.findChild<QLabel *>("statusScale");
+    auto *legend = window.findChild<PaleoDecorationManager *>();
+    QVERIFY(mode && state && scale && legend); QTRY_VERIFY(mode->isEnabled());
+    mode->setCurrentIndex(mode->findData("micro_facies"));
+    QTRY_COMPARE(f.work.displayMode(draft), QString("micro_facies"));
+    const auto check = [&](const QString &stage, const QString &expected) {
+      QTRY_COMPARE(scale->text(), QStringLiteral("1:%1").arg(static_cast<qlonglong>(canvas->scale())));
+      QTRY_COMPARE(f.work.resolvedLevel(draft), expected);
+      QTRY_COMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), expected);
+      QTRY_VERIFY2(state->text().contains(FaciesHierarchy::title(expected)), qPrintable(state->text()));
+      QTRY_VERIFY2(legend->legendTitle().contains(FaciesHierarchy::title(expected)), qPrintable(legend->legendTitle()));
+      QVERIFY(!legend->legendFacies().isEmpty());
+      for (const auto &value : legend->legendFacies()) {
+        const auto row = value.toMap();
+        if (!row.value("heading").toBool()) QCOMPARE(row.value("level").toString(), expected);
+      }
+      qInfo().noquote() << "FACIES_RESIZE" << stage << window.size() << canvas->viewport()->size()
+                        << "canvas" << QString::number(canvas->scale(), 'f', 2) << "status" << scale->text()
+                        << "ribbon" << state->text() << "legend" << legend->legendTitle();
+      const auto shots = qEnvironmentVariable("PALEO_FACIES_RESIZE_QA");
+      if (!shots.isEmpty()) QVERIFY(window.grab().save(QDir(shots).filePath(stage + ".png")));
+    };
+    canvas->zoomScale(225000);
+    check(QStringLiteral("fixed-before"), QStringLiteral("micro_facies"));
+    const auto largeViewport = canvas->viewport()->size();
+    QSignalSpy frames(canvas, &QgsMapCanvas::mapCanvasRefreshed);
+    window.resize(1040, 720);
+    QTRY_VERIFY(canvas->viewport()->size() != largeViewport && !frames.isEmpty());
+    check(QStringLiteral("fixed-after"), QStringLiteral("micro_facies"));
+    mode->setCurrentIndex(mode->findData("auto"));
+    QTRY_COMPARE(f.work.displayMode(draft), QString("auto"));
+    check(QStringLiteral("automatic"), FaciesHierarchy::resolveLevel("auto", canvas->scale(), f.work.displayThresholds()));
+  }
   void predictionProductsKeepMicrofaciesAtEveryScale() {
     Fixture f; QVERIFY(f.init()); QString error;
     const auto schema = FaciesCatalog::defaults();

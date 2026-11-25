@@ -20,6 +20,12 @@ void MappingEvidencePanel::enableCompactDock()
   setSources(m_sources, m_horizon);
 }
 
+void MappingEvidencePanel::reloadProjectLayout()
+{
+  m_widthKey.clear();
+  setSources({}, {});
+}
+
 void MappingEvidencePanel::setCompact(bool compact)
 {
   m_compact = compact;

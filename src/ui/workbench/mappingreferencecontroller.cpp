@@ -42,7 +42,7 @@ MappingReferenceController::MappingReferenceController(
     connect(&selection, &SelectionContext::activeHorizonChanged,
             this, &MappingReferenceController::refreshSources);
     connect(&workbench, &MappingWorkbench::catalogBound, this, [this] {
-        m_panel->setSources({}, {});
+        m_panel->reloadProjectLayout();
         m_panel->clearReferences(QCoreApplication::translate(
             "PaleoMainWindow", "工程已切换，请选择当前工程的参考证据。"));
     });

@@ -90,6 +90,7 @@ public:
   int visibleViewCount() const; // 当前视口内（至少部分）可见的视图数
   static constexpr int kDefaultViewCount = 2;
   void enableCompactDock();
+  void reloadProjectLayout();
   bool compact() const { return m_compact; }
   // #875：视图最窄/最矮按字体推导（随 DPI/字号缩放），不再是硬 260/200 像素。
   int minViewWidth() const;

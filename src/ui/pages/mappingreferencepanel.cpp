@@ -427,6 +427,7 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
   if (index < 0) return;
   m_autoFill = false;
   m_views.removeAt(index);
+  if (index < m_pendingSources.size()) m_pendingSources.removeAt(index);
   m_widths.remove(view);
   // #745：宽度按序号存，删视图必须立刻落盘——否则后续视图的宽度依次左移套到
   // 别的视图上（直到用户下次拖动才纠正）。

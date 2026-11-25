@@ -2252,6 +2252,28 @@ class TestUiShell : public QObject
       QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       auto *pageHost = m_win->findChild<QWidget *>("rightPanelHost");
       auto *pageStack = qobject_cast<QStackedLayout *>(pageHost->layout());
+      const auto captureMapArea = [this](const QString &stage) {
+        const auto dir = qEnvironmentVariable("PALEO_EDIT_LAYOUT_QA");
+        if (dir.isEmpty()) return;
+        QVERIFY(QDir().mkpath(dir));
+        const auto original = m_win->size();
+        for (const QSize size : {QSize(1440, 960), QSize(960, 720)}) {
+          m_win->resize(size);
+          QTest::qWait(100);
+          auto *canvas = m_ctx->canvasCtl()->canvas();
+          const auto measured = canvas->viewport()->size();
+          qInfo().noquote() << "EDIT_LAYOUT" << stage << m_win->size() << "canvas" << measured
+                            << "dpr" << canvas->devicePixelRatioF();
+          QVERIFY(m_win->grab().save(dir + "/" + stage + "-" + QString::number(size.width()) + ".png"));
+        }
+        m_win->resize(original);
+        QCoreApplication::processEvents();
+      };
+      m_win->showPage("compose");
+      auto *initialRef = referenceDock(); QVERIFY(initialRef);
+      auto *initialPanel = initialRef->findChild<MappingEvidencePanel *>();
+      QVERIFY(initialPanel && initialPanel->compact() && initialPanel->views().isEmpty());
+      captureMapArea("compact");
       for (const auto &mode : QStringList{"predict", "constraint", "compose"})
       {
         m_win->showPage(mode);
@@ -2432,6 +2454,7 @@ class TestUiShell : public QObject
       QCOMPARE(newReference->findChildren<QComboBox *>().size(), 1);
       newReference->selectSource(id);
       QVERIFY(newReference->hasReference());
+      captureMapArea("two-references");
       auto *firstReferenceCanvas = editingRef->findChild<QgsMapCanvas *>("referenceCanvas");
       QVERIFY(firstReferenceCanvas);
       QTRY_VERIFY(qAbs(firstReferenceCanvas->scale() - newReference->canvas()->scale()) <

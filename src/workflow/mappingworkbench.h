@@ -91,6 +91,9 @@ public:
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
   QVariantList baseMapCandidates(const QString &horizon) const;
+  QVariantList mapBoundaries() const;
+  QVariantMap prepareMapBoundary(const QString &id, QString *error) const;
+  bool seedMapBoundary(const QString &draft, const QVariantMap &boundary, int code, QString *error);
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
@@ -120,7 +123,7 @@ public:
   QString copyForEditing(const QString &layerId, const QStringList &references,
                          QString *error, bool requireEvidence = false);
   // 从零编制：空白微相分区，首次闭合绘制确定覆盖范围。
-  QString createBlankMap(const QString &horizon, QString *error);
+  QString createBlankMap(const QString &horizon, QString *error, const QVariantMap &boundary = {});
   bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);
   QVariantMap editEvidence(const QString &horizon) const;
   bool needsEditEvidence(const QString &layerId) const;

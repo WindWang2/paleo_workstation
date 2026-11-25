@@ -43,7 +43,7 @@ bool points(const QString &path, const QVariantList &points, QString *error);
 bool points(const QString &path,const QVariantList &points,const QString &crs,QString *error);
 bool pointGeoPackage(const QString &path, const QVariantList &points,
                      const QString &crs, QString *error);
-bool emptyFacies(const QString &path, const QVariantList &facies, QString *error);
+bool emptyFacies(const QString &path, const QVariantList &facies, QString *error, const QString &crsWkt = {});
 bool vectorSnapshot(QgsVectorLayer *layer, const QString &path, QString *error);
 // 编辑中的图层先复制成不含 fid 的内存视图，并保留原 CRS（局部网格没有 authid）。
 // owned 持有副本；未在编辑时返回 layer，owned 保持空。

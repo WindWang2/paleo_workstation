@@ -335,6 +335,16 @@ bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error) {
   if (plan.removed.isEmpty()) return fail(error, QObject::tr("分割线没有穿过任何所选相面"));
   return apply(v, plan, "split", QObject::tr("分割相面并继承三级归属"), error);
 }
+QgsGeometry clippedPaint(QgsVectorLayer *v, const QgsGeometry &polygon) {
+  if (!v) return {};
+  if (v->featureCount() == 0 && !FaciesPartitionState::hasFrozenFootprint(v)) return polygon;
+  QgsGeometry coverage;
+  if (FaciesPartitionState::hasFrozenFootprint(v))
+    coverage.fromWkb(QByteArray::fromBase64(FaciesPartitionState::frozenFootprint(v).toLatin1()));
+  else
+    coverage = united(v);
+  return polygon.intersection(coverage);
+}
 bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *error) {
   if (error) error->clear();
   if (!ready(v, error) || !validCode(v, code, error)) return false;
@@ -349,7 +359,7 @@ bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *err
     }
     return apply(v, initial, "create", QObject::tr("绘制首个相面及解释依据"), error);
   }
-  const auto clipped = polygon.intersection(united(v));
+  const auto clipped = clippedPaint(v, polygon);
   if (!clipped.lastError().isEmpty()) return fail(error, clipped.lastError());
   if (clipped.isEmpty() || clipped.area() <= 0) return fail(error, QObject::tr("新面必须覆盖现有相图中的有效区域"));
   Plan plan; QgsFeatureList sources;

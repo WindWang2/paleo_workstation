@@ -311,7 +311,7 @@ void MappingWorkbench::onBackgroundExplanationReady(const MappingExplanationResu
     emit displayChanged(result.layerId);
 }
 
-QString MappingWorkbench::createBlankMap(const QString &horizon, QString *error) {
+QString MappingWorkbench::createBlankMap(const QString &horizon, QString *error, const QVariantMap &boundary) {
   if (!ready(horizon, error))
     return {};
   QVariantList schema;
@@ -321,17 +321,20 @@ QString MappingWorkbench::createBlankMap(const QString &horizon, QString *error)
   const auto relative = QStringLiteral("artifacts/working/%1/features.gpkg").arg(draft);
   const auto path = QDir(m_dir).filePath(relative);
   if (!QDir().mkpath(QFileInfo(path).absolutePath()) ||
-      !MappingArtifactWriter::emptyFacies(path, schema, error)) {
+      !MappingArtifactWriter::emptyFacies(path, schema, error, boundary.value("crs").toString())) {
     QDir(QFileInfo(path).absolutePath()).removeRecursively();
     return {};
   }
-  const QVariantMap extra{{"draft_id", draft},
+  QVariantMap extra{{"draft_id", draft},
                           {"working_path", relative},
                           {"facies", schema},
                           {"requires_edit_evidence", false},
                           {"hierarchy_model", "shared-polygon-partition-v1"},
                           {"method", "manual-blank-map"},
                           {"display_mode", "micro_facies"}};
+  if (!boundary.isEmpty())
+    extra.insert("initial_boundary", QVariantMap{{"layer", boundary.value("layer")}, {"name", boundary.value("name")},
+        {"crs", boundary.value("crs")}, {"digest", QString::fromLatin1(boundary.value("digest").toByteArray())}});
   const auto product = record(path, horizon, "edited_facies", tr("%1 新建古地理图").arg(horizon), "vector",
                               {}, extra, error, "|layername=features", draft);
   if (product.isEmpty()) {

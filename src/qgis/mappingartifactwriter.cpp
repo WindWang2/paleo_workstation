@@ -48,9 +48,9 @@
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
 namespace MappingArtifactWriter {
-bool emptyFacies(const QString &path, const QVariantList &facies, QString *error) {
+bool emptyFacies(const QString &path, const QVariantList &facies, QString *error, const QString &crsWkt) {
   QgsVectorLayer layer("MultiPolygon", "empty-facies", "memory");
-  layer.setCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+  layer.setCrs(QgsCoordinateReferenceSystem::fromWkt(crsWkt.isEmpty() ? DataCatalog::localGridCrsWkt() : crsWkt));
   if (!layer.isValid() || !layer.dataProvider()->addAttributes({QgsField("facies_code", QMetaType::Type::Int)})) {
     if (error) *error = QObject::tr("无法建立空白相面");
     return false;

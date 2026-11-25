@@ -2,6 +2,7 @@
 #include <QUndoStack>
 #include <QJsonDocument>
 #include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/faciesmapboundary.h"
 #include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgisruntime.h"
 #include <qgsvectorlayer.h>
@@ -51,6 +52,45 @@ QStringList parents(const QgsFeature &f) {
 class TestFaciesPartition : public QObject {
   Q_OBJECT
 private slots:
+  void initialBoundaryPreservesHolesPartsAndUndo() {
+    Fixture draft;
+    QgsVectorLayer boundary("MultiPolygon?crs=EPSG:3857", "survey", "memory");
+    const auto outline = QgsGeometry::fromWkt(
+        "MULTIPOLYGON(((0 0,50 0,50 50,0 50,0 0),(10 10,10 20,20 20,20 10,10 10)),"
+        "((70 0,80 0,80 10,70 10,70 0)))");
+    QgsFeature area;
+    area.setGeometry(outline);
+    QgsFeatureList features{area};
+    QVERIFY(boundary.dataProvider()->addFeatures(features));
+    QString error;
+    auto snapshot = FaciesMapBoundary::inspect(&boundary, &error);
+    QVERIFY2(!snapshot.isEmpty(), qPrintable(error));
+    QVERIFY(!FaciesMapBoundary::thumbnail(snapshot.value("wkb").toByteArray(), QSize(160, 80), Qt::black).isNull());
+    QVERIFY(FaciesPartitionEditor::install(&draft.layer, classification(), {}, &error));
+    QVERIFY(MappingFeatureIdentity::Observer::attach(&draft.layer, &error));
+    QVERIFY(draft.layer.startEditing());
+    QVERIFY(!FaciesMapBoundary::seed(&draft.layer, snapshot, 0, &error));
+    QCOMPARE(draft.layer.undoStack()->count(), 0);
+    QVERIFY2(FaciesMapBoundary::seed(&draft.layer, snapshot, 2, &error), qPrintable(error));
+    QCOMPARE(draft.layer.featureCount(), 2);
+    QgsGeometry seeded;
+    seeded.fromWkb(QByteArray::fromBase64(FaciesPartitionEditor::footprint(&draft.layer).toLatin1()));
+    QVERIFY(seeded.isGeosEqual(outline));
+    QVERIFY(FaciesPartitionEditor::clippedPaint(&draft.layer, QgsGeometry::fromRect(QgsRectangle(12,12,18,18))).isEmpty());
+    const auto overlap = FaciesPartitionEditor::clippedPaint(&draft.layer, QgsGeometry::fromRect(QgsRectangle(-5,0,5,10)));
+    QCOMPARE(overlap.area(), 50.);
+    draft.layer.undoStack()->undo();
+    QCOMPARE(draft.layer.featureCount(), 0);
+    QVERIFY(!FaciesPartitionState::hasFrozenFootprint(&draft.layer));
+    draft.layer.undoStack()->redo();
+    QCOMPARE(draft.layer.featureCount(), 2);
+    draft.layer.undoStack()->undo();
+    boundary.setCrs(QgsCoordinateReferenceSystem("EPSG:4326"));
+    QVERIFY(FaciesMapBoundary::inspect(&boundary, &error).isEmpty());
+    snapshot.insert("crs", boundary.crs().toWkt());
+    QVERIFY(!FaciesMapBoundary::seed(&draft.layer, snapshot, 2, &error));
+  }
+
   void splitUpdatesNeighborAndUndoesEverything() {
     Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
     auto original = f.first(); const auto uid = MappingFeatureIdentity::uid(original);

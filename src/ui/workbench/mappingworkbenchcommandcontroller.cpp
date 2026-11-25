@@ -17,6 +17,7 @@
 #include "../../services/paleotaskservice.h"
 #include "../../workflow/dataexportworkflow.h"
 #include "../../workflow/constraintimport.h" // ConstraintImportFailure 机器可判定原因码
+#include "../../domain/faciescatalog.h"
 #include "../../workflow/mappingworkbench.h"
 #include "../../domain/facieshierarchy.h" // #754：pinFaciesLevel 文案携带层级名
 #include "../dialogs/dataexportdialog.h"
@@ -324,12 +325,7 @@ WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
                                       const QVariantMap &p, bool &ok,
                                       QString &error, bool &declarationOnly) {
   if (action == "newMap") {
-    const auto draft = d.workbench->createBlankMap(h, &error);
-    ok = !draft.isEmpty();
-    if (ok) {
-      ok = d.show(draft, &error) && d.beginEdit(draft);
-      if (!ok && error.isEmpty()) error = WorkbenchText::tr("空白图已创建，请先结束其他图层的编辑");
-    }
+    ok = startBlankMap(d, h, p, &error);
   } else if (action == "delete") {
     const auto title = d.workbench->declaration(id).title;
     const auto products = d.workbench->removalProducts(id, &error);
@@ -338,6 +334,31 @@ WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
     for (const auto &value : products) {
       const auto product = value.toMap();
       entries << (declarationOnly ? product.value("title").toString()
+bool startBlankMap(const CommandContext &d, const QString &horizon, const QVariantMap &params, QString *error) {
+  QVariantMap boundary;
+  const QString source = params.value("boundary").toString();
+  const int code = params.value("initial_facies").toInt();
+  if (!source.isEmpty()) {
+    boundary = d.workbench->prepareMapBoundary(source, error);
+    if (boundary.isEmpty()) return false;
+    if (boundary.value("digest") != params.value("boundary_digest")) {
+      *error = WorkbenchText::tr("边界已变化，请重新预览后建立相图。");
+      return false;
+    }
+    if (FaciesCatalog::find(d.workbench->facies(horizon), code).isEmpty()) {
+      *error = WorkbenchText::tr("请选择当前层位的初始微相。");
+      return false;
+    }
+  }
+  const auto draft = d.workbench->createBlankMap(horizon, error, boundary);
+  if (draft.isEmpty()) return false;
+  if (!d.show(draft, error) || !d.beginEdit(draft)) {
+    if (error->isEmpty()) *error = WorkbenchText::tr("空白图已创建，请先结束其他图层的编辑");
+    return false;
+  }
+  return boundary.isEmpty() || d.workbench->seedMapBoundary(draft, boundary, code, error);
+}
+
                      : WorkbenchText::tr("• %1（%2 个版本）").arg(product.value("title").toString())
                            .arg(product.value("versions").toInt()));
       if (auto *catalog = d.workbench->catalog())

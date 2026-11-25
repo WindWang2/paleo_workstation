@@ -50,6 +50,7 @@
 #include <QComboBox>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMouseEvent>
 #include <QMenu>
 #include <QShortcut>
@@ -4783,6 +4784,9 @@ void TestEditTools::toolbarCrossLayerGestureUndoAndConflicts()
   bar.setCurrentLayer(&a);
   QVERIFY(bar.startEditing());
   QVERIFY(b.startEditing());
+  PaleoUndoGroupRouter router;
+  bar.setUndoRouter(&router);
+  router.registerScope(&canvas, a.undoStack(), bar.canvasUndoTarget());
   a.selectByIds({fa});
   bar.actionTopological()->setChecked(true);
   bar.actionCrossLayerTopo()->setChecked(true);
@@ -4803,6 +4807,20 @@ void TestEditTools::toolbarCrossLayerGestureUndoAndConflicts()
   QCOMPARE(a.getFeature(fa).geometry().asWkb(), movedA);
   QCOMPARE(b.getFeature(fb).geometry().asWkb(), movedB);
 
+  QLineEdit explanation;
+  explanation.show();
+  QApplication::setActiveWindow(&explanation);
+  explanation.setFocus();
+  QTRY_VERIFY(explanation.hasFocus());
+  QTest::keyClicks(&explanation, "manual basis");
+  QTest::keyClick(&explanation, Qt::Key_Z, Qt::ControlModifier);
+  QCOMPARE(explanation.text(), QString());
+  QCOMPARE(a.getFeature(fa).geometry().asWkb(), movedA);
+  QCOMPARE(b.getFeature(fb).geometry().asWkb(), movedB);
+  QApplication::setActiveWindow(&canvas);
+  canvas.setFocus();
+  QTRY_VERIFY(canvas.hasFocus());
+
   const auto target = bar.canvasUndoTarget();
   b.undoStack()->push(new QUndoCommand("another edit"));
   QVERIFY(!bar.actionUndo()->isEnabled());
@@ -4817,7 +4835,10 @@ void TestEditTools::toolbarCrossLayerGestureUndoAndConflicts()
   QCOMPARE(b.getFeature(fb).geometry().asWkb(), originalB);
   b.undoStack()->redo();
   QVERIFY(b.commitChanges());
-  QVERIFY(b.startEditing()); // a new buffer on the same layer cannot claim the old group
+  QVERIFY(b.startEditing());
+  PaleoUndoGroupRouter router;
+  bar.setUndoRouter(&router);
+  router.registerScope(&canvas, a.undoStack(), bar.canvasUndoTarget()); // a new buffer on the same layer cannot claim the old group
   QVERIFY(!target.step(true));
   QCOMPARE(a.undoStack()->index(), 1);
   QVERIFY(bar.cancelEditing());

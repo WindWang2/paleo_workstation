@@ -109,6 +109,7 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QTimer>
+#include <QMessageBox>
 #include <QTreeWidget>
 #include <qgsmapmouseevent.h>
 
@@ -2396,6 +2397,29 @@ class TestUiShell : public QObject
       drawTool = m_ctx->canvasCtl()->canvas()->mapTool();
       auto *composePage = m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");
       QVERIFY(composePage && composePage->commandButton("referencePanel")->isEnabled());
+      const auto originalExtent = m_ctx->canvasCtl()->canvas()->extent();
+      const auto mapCount = m_ctx->mappingWorkbench()->products(composePage->horizon()).size();
+      bool rejectedSwitch = false;
+      QTimer cancelTimer;
+      cancelTimer.setSingleShot(true);
+      connect(&cancelTimer, &QTimer::timeout, &cancelTimer, [&rejectedSwitch] {
+        auto *question = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        if (!question) return;
+        for (auto *button : question->buttons()) {
+          if (question->buttonRole(button) == QMessageBox::RejectRole) {
+            rejectedSwitch = true;
+            button->click();
+            return;
+          }
+        }
+      });
+      cancelTimer.start(0);
+      emit composePage->commandRequested("newMap", {{"horizon", composePage->horizon()}});
+      QVERIFY(rejectedSwitch);
+      QCOMPARE(m_ctx->mappingWorkbench()->products(composePage->horizon()).size(), mapCount);
+      QCOMPARE(editing->currentLayer(), vector);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->extent(), originalExtent);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
       composePage->commandButton("referencePanel")->click();
       QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
       QCOMPARE(editing->currentLayer(), vector);

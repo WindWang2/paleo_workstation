@@ -99,7 +99,8 @@ class PaleoSelectTool : public QgsMapTool
           vl->removeSelection();
         return;
       }
-      QgsMapToolSelectUtils::setRubberBand(canvas(), QRect(mPressPos, e->pixelPoint()).normalized(), mRubberBand);
+      QRect rect = QRect(mPressPos, e->pixelPoint()).normalized();
+      QgsMapToolSelectUtils::setRubberBand(canvas(), rect, mRubberBand);
       QgsRectangle layerRect = mRubberBand->asGeometry().boundingBox(); // map CRS
       const QgsCoordinateReferenceSystem mapCrs = canvas()->mapSettings().destinationCrs();
       if ( mapCrs.isValid() && vl->crs().isValid() && mapCrs != vl->crs() )

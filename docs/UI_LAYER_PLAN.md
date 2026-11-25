@@ -227,6 +227,9 @@ Ctrl+K 命令过滤器本体在 `src/qgis/commandlocatorfilter`，本 TU 不直�
 新增 `_agent_navigation.cpp` 承载 I4 语义导航适配器工厂
 （`attachAgentNavigation`——预览标签宿主/选择总线/井地图链接的窄接线，本 TU 不直连 Qgs）。
 
+**实测（2026-11-25，助手文件导入）：paleomainwindow.cpp 971 行（家族 36 TU）**
+`_agentimport.cpp` 将助手选中的文件交给当前工程的导入流程，并把结果写回发起对话。
+
 撤销作用域由当前窗口内的焦点和编辑模式决定。Qt 原生历史由 `QUndoGroup` 管理，
 断层和工作台属性历史通过同一路由查询可用性和执行结果。项目切换、只读状态和
 隐藏编辑面会撤销相关入口的操作权限（#748）。
@@ -236,13 +239,15 @@ Ctrl+K 命令过滤器本体在 `src/qgis/commandlocatorfilter`，本 TU 不直�
 层位和成果版本决定重算是否可用。参考窗口的证据加载由
 `MappingReferenceController` 维护，主窗口装配停靠面和导航入口（#749）。
 
-家族全表（`src/ui/paleomainwindow_*.cpp` 34 TU + 本体 1 行 = 表 35 行，平铺不
+家族全表（`src/ui/paleomainwindow_*.cpp` 36 TU + 本体 1 行 = 表 37 行，平铺不
 建子目录；行数为 2026-10-20 实测，#312 落点至今随各批次增长——漂移护栏按
 ±20% 容差盯本行）：
 
 | TU | 行数 | 域（各 TU 头注释口径） |
 |---|---|---|
 | `paleomainwindow.cpp` | 932 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
+| `_agent_navigation.cpp` | 26 | 助手导航与预览、地图选择联动 |
+| `_agentimport.cpp` | 118 | 助手文件导入、确认与对话回执 |
 | `_sources.cpp` | 26 | 来源命令异步接线；视图仅转发意图和呈现结果（2026-11-05） |
 | `_attach.cpp` | 881 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |
 | `_attach_constraint.cpp` | 800 | 约束与单因素页接线（W4 段；#299 矢量属性维护/#301 realization 异步增量） |

@@ -68,8 +68,7 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
     m_text->clear();
     m_reason->clear();
     m_latestDraft.clear();
-    m_lastAutoFilledText.clear();
-    m_lastAutoFilledReason.clear();
+    m_formEdited = false;
     updateState();
   });
   updateState();
@@ -197,8 +196,12 @@ void MappingEditBasis::buildManualSection(QWidget *parent, QVBoxLayout *layout) 
   m_state->setTextFormat(Qt::PlainText);
   layout->addWidget(m_state);
 
-  connect(m_text, &QPlainTextEdit::textChanged, this, &MappingEditBasis::updateState);
-  connect(m_reason, &QLineEdit::textChanged, this, &MappingEditBasis::updateState);
+  const auto onFormEdited = [this] {
+    m_formEdited = true;
+    updateState();
+  };
+  connect(m_text, &QPlainTextEdit::textChanged, this, onFormEdited);
+  connect(m_reason, &QLineEdit::textChanged, this, onFormEdited);
   connect(m_sources, &QListWidget::currentRowChanged, this, &MappingEditBasis::updateState);
 }
 
@@ -218,8 +221,7 @@ void MappingEditBasis::setHorizon(const QString &horizon) {
     m_text->clear();
     m_reason->clear();
     m_latestDraft = m_workbench->lastAutoExplanation(horizon);
-    m_lastAutoFilledText.clear();
-    m_lastAutoFilledReason.clear();
+    m_formEdited = false;
   }
   m_horizon = horizon;
   updateState();
@@ -241,14 +243,9 @@ void MappingEditBasis::applyDraftToForm(const QVariantMap &draft) {
     return;
   const QString text = draft.value(QStringLiteral("text")).toString().trimmed();
   const QString reason = draft.value(QStringLiteral("reason")).toString().trimmed();
-  if (!text.isEmpty()) {
-    m_text->setPlainText(text);
-    m_lastAutoFilledText = text;
-  }
-  if (!reason.isEmpty()) {
-    m_reason->setText(reason);
-    m_lastAutoFilledReason = reason;
-  }
+  m_text->setPlainText(text);
+  m_reason->setText(reason);
+  m_formEdited = false;
   updateState();
 }
 
@@ -256,12 +253,7 @@ void MappingEditBasis::onAutoExplanationReady(const QString &horizon, const QVar
   if (horizon != m_horizon)
     return;
   m_latestDraft = explanation;
-  const QString currentText = m_text->toPlainText().trimmed();
-  const QString currentReason = m_reason->text().trimmed();
-  const bool userUntouched =
-      (currentText.isEmpty() || currentText == m_lastAutoFilledText) &&
-      (currentReason.isEmpty() || currentReason == m_lastAutoFilledReason);
-  if (explanation.value(QStringLiteral("apply_to_edit_basis")).toBool() && userUntouched)
+  if (explanation.value(QStringLiteral("apply_to_edit_basis")).toBool() && !m_formEdited)
     applyDraftToForm(explanation);
   else
     updateState();
@@ -290,8 +282,15 @@ void MappingEditBasis::updateState() {
     m_cancelBtn->setEnabled(busy);
     m_cancelBtn->setToolTip(busy ? tr("取消当前后台解释生成") : tr("当前没有进行中的后台解释任务"));
   }
-  if (m_latestDraft.isEmpty() && !m_horizon.isEmpty())
-    m_latestDraft = m_workbench->lastAutoExplanation(m_horizon);
+  const auto latest = m_workbench->lastAutoExplanation(m_horizon);
+  if (latest.isEmpty() && !m_latestDraft.isEmpty() && !m_formEdited &&
+      m_text->toPlainText() == m_latestDraft.value(QStringLiteral("text")).toString() &&
+      m_reason->text() == m_latestDraft.value(QStringLiteral("reason")).toString()) {
+    QSignalBlocker blockText(m_text), blockReason(m_reason);
+    m_text->clear();
+    m_reason->clear();
+  }
+  m_latestDraft = latest;
   const QString statusLine = m_workbench->explanationStatus();
   if (!m_latestDraft.isEmpty() && !busy) {
     const bool ai = m_latestDraft.value(QStringLiteral("ai_generated")).toBool();
@@ -315,11 +314,10 @@ void MappingEditBasis::updateState() {
   const auto current = m_workbench->editEvidence(m_horizon);
   if (auto *apply = findChild<QPushButton *>(QStringLiteral("workbench.setEditEvidence"))) {
     const bool valid = !m_horizon.isEmpty() && !m_text->toPlainText().trimmed().isEmpty() &&
-                       !m_reason->text().trimmed().isEmpty() &&
                        m_text->toPlainText().size() + m_reason->text().size() <= 9000;
     apply->setEnabled(valid);
     apply->setToolTip(valid ? tr("将手动说明优先用于后续相面修改")
-                            : tr("可选：填写解释说明和修改目的（合计不超过 9000 字）后可手动启用"));
+                            : tr("填写解释说明即可启用，修改目的可选（合计不超过 9000 字）"));
   }
   if (auto *clear = findChild<QPushButton *>(QStringLiteral("workbench.clearEditEvidence"))) {
     clear->setEnabled(!current.isEmpty());

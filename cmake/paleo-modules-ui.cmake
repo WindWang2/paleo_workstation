@@ -59,6 +59,7 @@ add_library(paleo_workflow STATIC
   src/workflow/constraintfactorjobs_contours.cpp   # 方向57：分析等值线族 + 制图工作场
   src/workflow/constraintfactorjobs_interpretive.cpp # 方向57：解释性等值线族三段式
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
+  src/workflow/folderimport_agent.cpp
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
   src/workflow/registration.cpp                    # W3 临时配准编排
   src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路

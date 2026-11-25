@@ -42,7 +42,7 @@ struct MappingExplanationRequest {
   QString beforeFaciesPath;
   QString operationKind;
   double areaSqm = 0.0;
-  int featureCount = 0;
+  qint64 featureCount = -1;
   QVariantList wellsInFeature;
   QStringList referenceTitles;
   QStringList referenceVersionIds;

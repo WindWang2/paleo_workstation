@@ -5,7 +5,41 @@
 #include "wellfactorfile.h"
 #include <QFileInfo>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QXmlStreamReader>
+
+namespace {
+// Generic JSON may contain an embedded map or a project setting named
+// "features". Only the complete root document can identify the attachment.
+bool isGeoJsonFeature(const QJsonObject &feature)
+{
+  if (feature.value("type").toString() != QLatin1String("Feature")) return false;
+  const auto properties = feature.value("properties");
+  if (!properties.isNull() && !properties.isObject()) return false;
+  const auto value = feature.value("geometry");
+  if (value.isNull()) return true;
+  const auto geometry = value.toObject();
+  const auto type = geometry.value("type").toString();
+  if (type == QLatin1String("GeometryCollection")) return geometry.value("geometries").isArray();
+  static const QStringList coordinateTypes{"Point", "MultiPoint", "LineString", "MultiLineString",
+                                           "Polygon", "MultiPolygon"};
+  return coordinateTypes.contains(type) && geometry.value("coordinates").isArray();
+}
+
+bool isGeoJsonDocument(const QByteArray &bytes)
+{
+  const auto root = QJsonDocument::fromJson(bytes).object();
+  if (isGeoJsonFeature(root)) return true;
+  if (root.value("type").toString() != QLatin1String("FeatureCollection") ||
+      !root.value("features").isArray()) return false;
+  const auto features = root.value("features").toArray();
+  for (const auto &feature : features)
+    if (!isGeoJsonFeature(feature.toObject())) return false;
+  return true;
+}
+}
 
 ImportClassificationDetail classifyImportFileDetailed(const QString &path, const std::function<bool()> &cancel)
 {
@@ -60,6 +94,17 @@ ImportClassificationDetail classifyImportFileDetailed(const QString &path, const
   if (!file.open(QIODevice::ReadOnly)) { detail.cls = classifyProjectPath(path); return detail; }
   const QByteArray prefix = file.read(65536);
   classification = classifyProjectImport(path, prefix);
+  if (classification.type == QLatin1String("unknown") &&
+      QFileInfo(path).suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0) {
+    constexpr qint64 maxJsonProbe = 2 * 1024 * 1024;
+    if (file.size() <= maxJsonProbe) {
+      const QByteArray bytes = prefix + file.read(maxJsonProbe - prefix.size() + 1);
+      if (bytes.size() <= maxJsonProbe && file.atEnd() && isGeoJsonDocument(bytes)) {
+        detail.cls = {QStringLiteral("geojson"), QStringLiteral("geojson"), QStringLiteral("input")};
+        return detail;
+      }
+    }
+  }
   if ((classification.type != QLatin1String("unknown") && classification.type != QLatin1String("well_deviation")) ||
       !WellLogText::sniffSpreadsheetXml(prefix) || file.size() <= prefix.size() ||
       file.size() > 1024ll * 1024 * 1024) { detail.cls = classification; return detail; }

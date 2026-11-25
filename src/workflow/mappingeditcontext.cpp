@@ -57,8 +57,8 @@ bool MappingWorkbench::setEditEvidence(const QString &horizon, const QVariantMap
   };
   const auto text = context.value("text").toString().trimmed();
   const auto reason = context.value("reason").toString().trimmed();
-  if (text.isEmpty() || text.size() + reason.size() > 9000 || reason.isEmpty())
-    return reject(tr("请填写解释依据和修改目的（合计不超过 9000 字）"));
+  if (text.isEmpty() || text.size() + reason.size() > 9000)
+    return reject(tr("请填写解释说明，说明与修改目的合计不超过 9000 字"));
   QVariantList references;
   QSet<QString> seen;
   for (const auto &id : context.value("source_versions").toStringList()) {
@@ -192,12 +192,17 @@ QVariantMap MappingWorkbench::generatedExplanationForFeature(const QString &laye
   return entries.value(featureUid);
 }
 
-QVariantMap MappingWorkbench::collectVersionAutoExplanations(const QString &layerId) const {
-  const auto entries = loadDraftExplanations(layerId);
-  QVariantMap out;
-  for (auto it = entries.cbegin(); it != entries.cend(); ++it)
-    out.insert(it.key(), it.value());
-  return out;
+void MappingWorkbench::refreshLastExplanation(const QString &layerId) {
+  if (m_lastAutoExplanations.isEmpty())
+    return;
+  const auto horizon = declaration(layerId).horizon;
+  const auto record = m_lastAutoExplanations.value(horizon);
+  if (record.value(QStringLiteral("layer_id")).toString() == layerId &&
+      !record.value(QStringLiteral("feature_uid")).toString().isEmpty() &&
+      !explanationTargetMatches(MappingExplanationResult::fromVariantMap(record))) {
+    m_lastAutoExplanations.remove(horizon);
+    emit explanationStatusChanged();
+  }
 }
 
 void MappingWorkbench::scheduleAutoExplanation(const QString &layerId,
@@ -288,7 +293,7 @@ void MappingWorkbench::cancelBackgroundExplanation() {
 void MappingWorkbench::onBackgroundExplanationReady(const MappingExplanationResult &result) {
   if (result.cancelled || result.text.trimmed().isEmpty())
     return;
-  if (!m_dir.isEmpty() && !result.projectDir.isEmpty() && m_dir != result.projectDir)
+  if (m_dir != result.projectDir || !explanationTargetMatches(result))
     return;
   auto record = result.toVariantMap();
   record.insert(QStringLiteral("materialized"), false);

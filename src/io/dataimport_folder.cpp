@@ -193,6 +193,7 @@ QVector<FolderPreviewRow> DataImportService::previewRowsFromPlan(const IngestPla
     r.sourceSha256 = item.sha256;
     r.sizeBytes = item.size;    // T2 大小估算（族项 = 主件字节）
     r.entityPreview = entityPreviewFor(item);
+    r.needsImportReview = item.entityAmbiguous;
     r.displayName = QFileInfo(item.path).fileName(); // 「显示名」列默认值 = 原文件名
     fillDisplay(r);
     rows.append(r);
@@ -591,7 +592,11 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
     if (!item.members.isEmpty() && !item.duplicateOfVersionId.isEmpty())
       copyBundleMembersIntoVersion(s, item, item.duplicateOfVersionId, &row.message);
     if (!item.duplicateOfVersionId.isEmpty())
-      appendStoredWellReport(cat->versionById(item.duplicateOfVersionId));
+    {
+      const auto existing = cat->versionById(item.duplicateOfVersionId);
+      row.assetId = existing.assetId;
+      appendStoredWellReport(existing);
+    }
     return row;
   }
 
@@ -608,6 +613,7 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
     {
       row.outcome = FolderRowResult::Outcome::Skipped;
       row.message = QStringLiteral("已在库，幂等跳过");
+      row.assetId = hit.assetId;
       if (!item.members.isEmpty())
         copyBundleMembersIntoVersion(s, item, hit.id, &row.message);
       appendStoredWellReport(hit);

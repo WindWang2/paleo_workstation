@@ -48,6 +48,8 @@ public:
   void attachOperationPresenter(paleo::chat::AiOperationPresentation *presenter);
   // H5：注入/重挂计划审阅 adapter（幂等；null = 解绑）。同上由组装根创建。
   void attachPlanPresenter(paleo::chat::AiPlanPresentation *presenter);
+  void setFileImportContext(quint64 projectSession, const QString &unavailableReason);
+  void showFileImportStatus(const QString &message);
 
 public slots:
   void refresh(); // 按 controller 状态重画（状态行/按钮可用性/历史）
@@ -58,6 +60,7 @@ signals:
   void openSessionRequested(const QString &sessionId);
   void renameSessionRequested(const QString &sessionId, const QString &title);
   void deleteSessionRequested(const QString &sessionId);
+  void importFilesRequested(const QStringList &localPaths, quint64 projectSession);
   // 方向 93：结果卡导航意图（定位不是数据修改）——宿主接线消费
   // （先例：DataPage::assetActivated 通道 / focusVersion / selectAssetsForEntities）。
   void assetNavigateRequested(const QString &assetId);
@@ -71,6 +74,9 @@ protected:
   void changeEvent(QEvent *event) override;
 
 private:
+  void buildFileImportControls(QHBoxLayout *actions, QVBoxLayout *layout);
+  bool filterFileDrop(QObject *watched, QEvent *event);
+  void chooseFilesForImport();
   void sendCurrentText();
   void appendMessage(const ChatMessage &message);
   void appendDelta(const QString &text);
@@ -139,6 +145,10 @@ private:
   QPushButton *m_copy = nullptr;
   QPushButton *m_export = nullptr;
   QPushButton *m_resend = nullptr;
+  QPushButton *m_importFiles = nullptr;
+  QLabel *m_importStatus = nullptr;
+  quint64 m_importProjectSession = 0;
+  quint64 m_dragProjectSession = 0;
   // 会话下拉的 id 列表（与下拉项一一对应；重建期间阻塞 activated）。
   QStringList m_sessionIds;
   QString m_currentSessionId;

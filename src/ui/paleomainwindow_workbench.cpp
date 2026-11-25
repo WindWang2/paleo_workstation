@@ -478,7 +478,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               const auto id =
                   layer ? layer->customProperty("paleoLayerId").toString()
                         : QString();
-              if (!id.startsWith("draft."))
+              if (!id.startsWith("draft.") || !workbench->hasUnpublishedChanges(id))
                 return;
               QString error;
               const bool ok = workbench->saveEditingVersion(id, &error);
@@ -528,7 +528,7 @@ void PaleoMainWindow::attachMappingEditBasisEntry(MappingWorkbench *workbench, M
     edit->setMutationGuard([this, page, openBasis, missingBasis](const QgsVectorLayer *layer) {
       if (!missingBasis(layer)) return true;
       openBasis();
-      const auto message = tr("请填写右侧的解释说明和修改目的，点击“启用本次解释依据”后，再选择相面编辑工具。未修改图面。");
+      const auto message = tr("请填写右侧的解释说明，点击“启用手动解释依据”后再选择相面编辑工具。");
       page->showMessage(message);
       statusBar()->showMessage(message, 15000);
       return false;

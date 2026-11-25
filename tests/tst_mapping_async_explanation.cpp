@@ -365,6 +365,66 @@ private slots:
     QVERIFY(!result.value(QStringLiteral("text")).toString().isEmpty());
   }
 
+  void undoAfterGenerationDropsStaleDraftFromTheNextVersion() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap(QStringLiteral("D61"), &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(layer, qPrintable(error));
+    const auto projectCrs = layer->crs();
+    layer->setCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")));
+    QVERIFY(layer->startEditing());
+    QSignalSpy ready(&f.work, &MappingWorkbench::autoExplanationReady);
+    const auto outline = QgsGeometry::fromWkt(QStringLiteral("POLYGON((0 0,1 0,1 1,0 1,0 0))"));
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 5000);
+    const auto generated = ready.first().at(1).toMap();
+    QVERIFY(!generated.value("text").toString().contains(QStringLiteral("m²")));
+    const auto uid = generated.value("feature_uid").toString();
+    QVERIFY(!uid.isEmpty());
+    layer->undoStack()->undo();
+    QTRY_VERIFY(f.work.lastAutoExplanation(QStringLiteral("D61")).isEmpty());
+    f.work.setAutoExplainEnabled(false);
+    layer->setCrs(projectCrs);
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 2, &error), qPrintable(error));
+    QVERIFY(layer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto saved = f.work.versionForLayer(draft).extra.value("auto_explanations").toMap();
+    QVERIFY(!saved.contains(uid));
+  }
+
+  void undoWhileExplanationIsRunningDropsTheObsoleteFeature() {
+    LoopbackLlmServer server;
+    QVERIFY(server.start());
+    server.setReply(500, QByteArrayLiteral("{}"));
+    server.setHoldResponses(true);
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    f.work.setLlmConfig(LlmConfig::fromParts(server.endpointUrl(), QStringLiteral("slow-model"),
+                                             QByteArrayLiteral("k"), false));
+    QString error;
+    const auto draft = f.work.createBlankMap(QStringLiteral("D61"), &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(layer, qPrintable(error));
+    QVERIFY(layer->startEditing());
+    QSignalSpy ready(&f.work, &MappingWorkbench::autoExplanationReady);
+    const auto outline = QgsGeometry::fromWkt(QStringLiteral("POLYGON((0 0,100 0,100 100,0 100,0 0))"));
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(server.requestCount(), 1, 5000);
+    const auto uid = f.work.featureEvidenceSummary(draft, layer->selectedFeatureIds().values())
+                         .value(QStringLiteral("feature_uid")).toString();
+    QVERIFY(!uid.isEmpty());
+    layer->undoStack()->undo();
+    QCOMPARE(layer->featureCount(), 0);
+    server.releaseHeld();
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.explanationBusy(), 5000);
+    QCOMPARE(ready.count(), 0);
+    QVERIFY(f.work.lastAutoExplanation(QStringLiteral("D61")).isEmpty());
+    QVERIFY(f.work.generatedExplanationForFeature(draft, uid).isEmpty());
+    QVERIFY(layer->rollBack());
+  }
+
   void cancellationDropsStaleBackgroundResult() {
     LoopbackLlmServer server;
     QVERIFY(server.start());
@@ -492,6 +552,18 @@ private slots:
              qPrintable(error));
     QTRY_VERIFY_WITH_TIMEOUT(readySpy.count() >= 1, 5000);
     QCOMPARE(text->toPlainText(), userTyped);
+    text->clear();
+    reason->clear();
+    readySpy.clear();
+    QVERIFY2(f.work.requestBackgroundExplanation(QStringLiteral("D61"), draft, {}, {}, true, &error),
+             qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(readySpy.count(), 1, 5000);
+    QVERIFY(text->toPlainText().isEmpty());
+    QVERIFY(reason->text().isEmpty());
+    auto *adopt = basis->findChild<QPushButton *>(QStringLiteral("editBasisAdoptDraft"));
+    QVERIFY(adopt);
+    adopt->click();
+    QCOMPARE(text->toPlainText(), readySpy.first().at(1).toMap().value("text").toString());
 
     // 开关和按钮发命令信号（视图只发信号不直接改状态）。
     QSignalSpy cmdSpy(&page, &MappingWorkbenchPage::commandRequested);

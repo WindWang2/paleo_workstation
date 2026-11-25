@@ -487,10 +487,10 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
               [editTb, canvas, tree](QgsMapLayer *layer) {
         auto *vector = qobject_cast<QgsVectorLayer *>(layer);
         editTb->setCurrentLayer(vector);
-        // 栅格与被层位过滤挡下的矢量层仍是合法浏览目标：画布跟随树选择
-        //（工具条受理的矢量层已在 setCurrentLayer 内同步画布）。
-        if (!editTb->isEditing() && (!vector || editTb->currentLayer() != vector))
+        if (!editTb->isEditing() && (!vector || editTb->currentLayer() != vector)) {
+          editTb->setCurrentLayer(nullptr);
           canvas->setCurrentLayer(layer);
+        }
         // A refused switch restores the tree as well as the ribbon.
         const QSignalBlocker block(tree);
         tree->setCurrentLayer(canvas->currentLayer());
@@ -634,6 +634,7 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
   auto *dock = new AiAssistDock(controller, bottomTabs);
   dock->setObjectName(QStringLiteral("aiAssistantDock"));
   bottomTabs->addTab(dock, tr("AI 助手"));
+  wireAgentFileImport(dock);
   // 「配置…」打开图形化配置对话框（方向62）。对话框只出表单值意图；
   // 落盘/钥匙串/应用编排走 controller->applyConfig（功能层），
   // 结果回灌对话框（失败停留，成功关窗）。钥匙串回调以对话框为

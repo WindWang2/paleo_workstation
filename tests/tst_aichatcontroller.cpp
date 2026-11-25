@@ -189,6 +189,8 @@ private slots:
   void cancelDuringStreamingAfterToolFramesKeepsProtocol();
   void errorAfterToolFramesKeepsProtocolIntegrity();
   void disabledConfigReportsAndSendsNothing();
+  void localImportSurvivesSessionSwitchAndReachesNextRequest();
+  void localImportDuringStreamingKeepsAnswerAndReceipt();
   // 方向62
   void switchingSessionsFlushesUnsavedContentToDisk();
   void retryLastResendsWithoutDuplicatingUserMessage();
@@ -578,6 +580,56 @@ void TestAiChatController::cancelDuringStreamingAfterToolFramesKeepsProtocol()
   for (const QString &id : callIds)
     QVERIFY2(answered.contains(id),
              qPrintable(QStringLiteral("call %1 缺 role=tool 应答").arg(id)));
+}
+
+void TestAiChatController::localImportSurvivesSessionSwitchAndReachesNextRequest() {
+  AiChatController controller;
+  const auto origin = controller.session().id;
+  m_createdSessions << origin;
+  QString error;
+  QVERIFY2(controller.recordImportReceipt(origin, "Selected 1 file", &error), qPrintable(error));
+  controller.newSession();
+  m_createdSessions << controller.session().id;
+  QVERIFY2(controller.recordImportReceipt(origin, "W1.las | WellLog | asset-42", &error),
+           qPrintable(error));
+  QVERIFY(controller.messages().isEmpty());
+  QVERIFY2(controller.loadSession(origin, &error), qPrintable(error));
+  QCOMPARE(controller.messages().size(), 2);
+  QVERIFY(controller.messages().last().content.contains("asset-42"));
+  QVERIFY(controller.messages().last().localImportReceipt);
+  QVERIFY(!controller.canRetry());
+
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::Stream));
+  controller.setConfig(baseConfig(server.endpoint()));
+  controller.sendUserText("Which log did I import?");
+  QVERIFY(spinUntil([&] { return !controller.streaming(); }));
+  QCOMPARE(server.requestCount(), 1);
+  QVERIFY(server.requestBodies().constFirst().contains("asset-42"));
+  QVERIFY(!server.requestBodies().constFirst().contains("local_import_receipt"));
+  QVERIFY(controller.removeSession(origin, &error));
+  QVERIFY(!controller.recordImportReceipt(origin, "late receipt", &error));
+  QVERIFY(!QFile::exists(ChatSessionStore::pathFor(origin)));
+}
+
+void TestAiChatController::localImportDuringStreamingKeepsAnswerAndReceipt() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::Stream));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  const auto origin = controller.session().id;
+  m_createdSessions << origin;
+  controller.sendUserText("What is here?");
+  QVERIFY(controller.streaming());
+  QVERIFY(controller.recordImportReceipt(origin, "map.geojson | asset-7"));
+  QVERIFY(spinUntil([&] { return !controller.streaming(); }));
+  ChatSession saved;
+  QString error;
+  QVERIFY2(ChatSessionStore::load(origin, &saved, &error), qPrintable(error));
+  QCOMPARE(saved.messages.size(), 3);
+  QCOMPARE(saved.messages[1].content, QStringLiteral("砂岩为主"));
+  QVERIFY(saved.messages[2].content.contains("asset-7"));
+  QCOMPARE(server.requestCount(), 1);
 }
 
 void TestAiChatController::disabledConfigReportsAndSendsNothing() {

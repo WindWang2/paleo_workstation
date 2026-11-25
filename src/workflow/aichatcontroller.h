@@ -97,6 +97,10 @@ public:
   bool loadSession(const QString &sessionId, QString *error = nullptr);
   bool removeSession(const QString &sessionId, QString *error = nullptr);
   bool saveCurrentSession(QString *error = nullptr);
+  // A local file selection or import result belongs to the initiating chat.
+  // Recording it does not contact a model or grant access to the source file.
+  bool recordImportReceipt(const QString &sessionId, const QString &summary,
+                           QString *error = nullptr);
   // 方向62：会话重命名（任意会话，按 id；改标题不改消息）。
   bool renameSession(const QString &sessionId, const QString &title,
                      QString *error = nullptr);
@@ -147,6 +151,7 @@ signals:
 
 private:
   void stopCurrentRound(bool explicitRequest);
+  void flushImportReceipts();
   void appendMessage(const ChatMessage &message);
   void setStreaming(bool streaming);
   void sendRound();               // 占位 + 上送（带 tools[]）
@@ -189,6 +194,7 @@ private:
   QJsonObject m_turnContext;
   QSet<QString> m_providerCalls; // Response-only deduplication; never durable identity.
   ChatSession m_session;
+  QList<QPair<QString, QString>> m_pendingImportReceipts;
   QString m_projectBrief; // 方向77：工程概况常驻段（system prompt 尾部轻注入）
   bool m_streaming = false;
   int m_pendingToolResults = 0; // 工具相：等待回灌的未应答帧数

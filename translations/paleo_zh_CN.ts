@@ -280,6 +280,41 @@
         <source>状态查询失败：%1</source>
         <translation>状态查询失败：%1</translation>
     </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="566"/>
+        <source>输入问题，或将文件拖到此处导入当前工程。</source>
+        <translation>输入问题，或将文件拖到此处导入当前工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="567"/>
+        <source>将文件拖到此处导入当前工程。要与助手对话，请先配置模型。</source>
+        <translation>将文件拖到此处导入当前工程。要与助手对话，请先配置模型。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_import.cpp" line="16"/>
+        <source>导入文件…</source>
+        <translation>导入文件…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_import.cpp" line="28"/>
+        <source>请先打开可写工程</source>
+        <translation>请先打开可写工程</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_import.cpp" line="42"/>
+        <source>选择文件或将文件拖到助手中，自动识别并导入当前工程</source>
+        <translation>选择文件或将文件拖到助手中，自动识别并导入当前工程</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_import.cpp" line="53"/>
+        <source>选择要导入当前工程的文件</source>
+        <translation>选择要导入当前工程的文件</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_import.cpp" line="59"/>
+        <source>工程已变化，请重新选择文件。</source>
+        <translation>工程已变化，请重新选择文件。</translation>
+    </message>
 </context>
 <context>
     <name>AiAssistWorkflow</name>
@@ -536,6 +571,18 @@
   2. 数据不足就直说数据不足，不得编造井号、层位、深度或数值；工具报错时如实转述错误，不得虚构结果。
   3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。
 可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：
+%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/aichatcontroller_import.cpp" line="22"/>
+        <source>文件导入记录为空</source>
+        <translation>文件导入记录为空</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/aichatcontroller_import.cpp" line="40"/>
+        <source>文件导入记录
+%1</source>
+        <translation>文件导入记录
 %1</translation>
     </message>
 </context>
@@ -13069,6 +13116,20 @@ Crossline: %3 ~ %4</source>
         <source>导入 %1</source>
         <translation>导入 %1</translation>
     </message>
+    <message>
+        <location filename="../src/workflow/folderimport.cpp" line="124"/>
+        <location filename="../src/workflow/folderimport.cpp" line="248"/>
+        <location filename="../src/workflow/folderimport.cpp" line="588"/>
+        <location filename="../src/workflow/folderimport_agent.cpp" line="38"/>
+        <location filename="../src/workflow/folderimport_agent.cpp" line="73"/>
+        <source>工程已变化，请重新选择资料。</source>
+        <translation>工程已变化，请重新选择资料。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/folderimport_agent.cpp" line="51"/>
+        <source>请选择可读取的非空本地文件。</source>
+        <translation>请选择可读取的非空本地文件。</translation>
+    </message>
 </context>
 <context>
     <name>GeoPatterns</name>
@@ -14885,6 +14946,11 @@ Crossline: %3 ~ %4</source>
     <message>
         <source>手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。</source>
         <translation>手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="313"/>
+        <source>填写解释说明即可启用，修改目的可选（合计不超过 9000 字）</source>
+        <translation>填写解释说明即可启用，修改目的可选（合计不超过 9000 字）</translation>
     </message>
 </context>
 <context>
@@ -17061,6 +17127,21 @@ Crossline: %3 ~ %4</source>
     <message>
         <source>后台自动生成编图解释草稿</source>
         <translation>后台自动生成编图解释草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditcontext.cpp" line="61"/>
+        <source>请填写解释说明，说明与修改目的合计不超过 9000 字</source>
+        <translation>请填写解释说明，说明与修改目的合计不超过 9000 字</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingevidencereview.cpp" line="1032"/>
+        <source>请先设置本次解释说明，再绘制或修改相面</source>
+        <translation>请先设置本次解释说明，再绘制或修改相面</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingevidencereview.cpp" line="1043"/>
+        <source>记录手动解释说明</source>
+        <translation>记录手动解释说明</translation>
     </message>
 </context>
 <context>
@@ -20559,6 +20640,16 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/edittools/editingtoolbar_partition.cpp" line="79"/>
         <source>三级相面共用基础分区，跨层独立撤销会破坏一致性；请在当前工作副本编辑</source>
         <translation>三级相面共用基础分区，跨层独立撤销会破坏一致性；请在当前工作副本编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="789"/>
+        <source>编辑中：%1 · 有未保存的修改</source>
+        <translation>编辑中：%1 · 有未保存的修改</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="974"/>
+        <source>已保存「%1」：%2</source>
+        <translation>已保存「%1」：%2</translation>
     </message>
 </context>
 <context>
@@ -25084,6 +25175,117 @@ PDF：%3
     <message>
         <source>已取消后台解释生成。</source>
         <translation>已取消后台解释生成。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="15"/>
+        <source>已导入</source>
+        <translation>已导入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="16"/>
+        <source>已登记，关联待解析</source>
+        <translation>已登记，关联待解析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="17"/>
+        <source>导入失败</source>
+        <translation>导入失败</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="18"/>
+        <source>已跳过</source>
+        <translation>已跳过</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="25"/>
+        <source>工程「%1」文件导入结果</source>
+        <translation>工程「%1」文件导入结果</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="26"/>
+        <source>已取消导入。</source>
+        <translation>已取消导入。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="27"/>
+        <source>导入遇到错误。</source>
+        <translation>导入遇到错误。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="33"/>
+        <source>资产 ID %1</source>
+        <translation>资产 ID %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="37"/>
+        <source>共 %1 项，已列出前 %2 项。</source>
+        <translation>共 %1 项，已列出前 %2 项。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="43"/>
+        <source>请先打开可写工程</source>
+        <translation>请先打开可写工程</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="44"/>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="60"/>
+        <source>工程正在切换，请稍后再导入</source>
+        <translation>工程正在切换，请稍后再导入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="45"/>
+        <source>当前工程只读，无法导入文件</source>
+        <translation>当前工程只读，无法导入文件</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="46"/>
+        <source>工程导入服务未接入</source>
+        <translation>工程导入服务未接入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="75"/>
+        <source>无法导入；请在当前可写工程中重新选择文件。</source>
+        <translation>无法导入；请在当前可写工程中重新选择文件。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="84"/>
+        <source>文件导入记录未能保存：%1</source>
+        <translation>文件导入记录未能保存：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="86"/>
+        <source>已选择 %1 个文件导入工程「%2」。</source>
+        <translation>已选择 %1 个文件导入工程「%2」。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="88"/>
+        <source>工程已变化，所选文件尚未导入。</source>
+        <translation>工程已变化，所选文件尚未导入。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="91"/>
+        <source>正在识别并导入所选文件…</source>
+        <translation>正在识别并导入所选文件…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="104"/>
+        <source>%1：%2</source>
+        <translation>%1：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="112"/>
+        <source>请核对待确认文件的类型或关联。</source>
+        <translation>请核对待确认文件的类型或关联。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="531"/>
+        <source>请填写右侧的解释说明，点击“启用手动解释依据”后再选择相面编辑工具。</source>
+        <translation>请填写右侧的解释说明，点击“启用手动解释依据”后再选择相面编辑工具。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="19"/>
+        <source>项目中已有相同内容</source>
+        <translation>项目中已有相同内容</translation>
     </message>
 </context>
 <context>
@@ -39894,6 +40096,71 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</source>
         <translation>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</translation>
     </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="14"/>
+        <source>能力目录与契约检查</source>
+        <translation>能力目录与契约检查</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="15"/>
+        <source>只读查询 Agent 可用的业务能力与工具目录：list 分页列出已登记的 capability/algorithm/tool（UI 命令全集仅在 filter=commands 时给出）；describe 按精确 ID+版本读取参数/端口/效果合同（sections 可选节，超预算时整节省略并在 coverage 声明）；check 对候选实参复用既有纯验证器返回分层结论（declaration/route/parameter/policy/runtime 相互独立，policy 只反映当前宿主静态策略，动态前提恒为 not_checked）。本工具不执行任何能力、不发放执行票据——检查结论不豁免原工具调用时的既有门禁。</source>
+        <translation>只读查询 Agent 可用的业务能力与工具目录：list 分页列出已登记的 capability/algorithm/tool（UI 命令全集仅在 filter=commands 时给出）；describe 按精确 ID+版本读取参数/端口/效果合同（sections 可选节，超预算时整节省略并在 coverage 声明）；check 对候选实参复用既有纯验证器返回分层结论（declaration/route/parameter/policy/runtime 相互独立，policy 只反映当前宿主静态策略，动态前提恒为 not_checked）。本工具不执行任何能力、不发放执行票据——检查结论不豁免原工具调用时的既有门禁。</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="28"/>
+        <source>查询模式：list=分页目录；describe=精确合同；check=候选参数预检</source>
+        <translation>查询模式：list=分页目录；describe=精确合同；check=候选参数预检</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="32"/>
+        <source>describe 目标类型：capability/algorithm/command/tool</source>
+        <translation>describe 目标类型：capability/algorithm/command/tool</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="36"/>
+        <source>精确注册表 ID（capability/command 支持 registry 声明的别名；别名冲突时不猜测）</source>
+        <translation>精确注册表 ID（capability/command 支持 registry 声明的别名；别名冲突时不猜测）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="40"/>
+        <source>目标契约版本（0=当前登记最高版，缺省 0；给定版本精确匹配不回落）</source>
+        <translation>目标契约版本（0=当前登记最高版，缺省 0；给定版本精确匹配不回落）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="43"/>
+        <source>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</source>
+        <translation>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="49"/>
+        <source>list 筛选：default=capability+algorithm+tool；另有 capabilities/algorithms/tools/commands 精确子集</source>
+        <translation>list 筛选：default=capability+algorithm+tool；另有 capabilities/algorithms/tools/commands 精确子集</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="56"/>
+        <source>check 候选（二选一）：{tool,arguments} 或 {algorithm,contract_version,parameters}；实参只是数据，approved/scope/路径不构成许可</source>
+        <translation>check 候选（二选一）：{tool,arguments} 或 {algorithm,contract_version,parameters}；实参只是数据，approved/scope/路径不构成许可</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="60"/>
+        <source>上一页 nextCursor；绑定筛选与目录摘要，注册表演进后报 cursor_stale</source>
+        <translation>上一页 nextCursor；绑定筛选与目录摘要，注册表演进后报 cursor_stale</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="63"/>
+        <source>list 每页条数（1–32，缺省 16）</source>
+        <translation>list 每页条数（1–32，缺省 16）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="65"/>
+        <source>本页 JSON 字节预算（2048–8192，缺省 8192；与传输层内联页上限对齐，更大结果经 paleo.read_result 引用续读）</source>
+        <translation>本页 JSON 字节预算（2048–8192，缺省 8192；与传输层内联页上限对齐，更大结果经 paleo.read_result 引用续读）</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="696"/>
+        <source>只读能力目录与候选参数预检；执行仍由原工具与宿主门禁决定</source>
+        <translation>只读能力目录与候选参数预检；执行仍由原工具与宿主门禁决定</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -40070,6 +40337,46 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/qgis/qgiseditingservice.cpp" line="244"/>
         <source>%1 is invalid: %2%3</source>
         <translation>%1 无效：%2%3</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="90"/>
+        <source>新增 %1 个要素</source>
+        <translation>新增 %1 个要素</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="91"/>
+        <source>删除 %1 个要素</source>
+        <translation>删除 %1 个要素</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="92"/>
+        <source>修改 %1 个要素的几何</source>
+        <translation>修改 %1 个要素的几何</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="93"/>
+        <source>修改 %1 个要素的属性</source>
+        <translation>修改 %1 个要素的属性</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="94"/>
+        <source>新增 %1 个字段</source>
+        <translation>新增 %1 个字段</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="95"/>
+        <source>删除 %1 个字段</source>
+        <translation>删除 %1 个字段</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="97"/>
+        <source>其他图层编辑</source>
+        <translation>其他图层编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/qgiseditingservice.cpp" line="98"/>
+        <source>，</source>
+        <translation>，</translation>
     </message>
 </context>
 <context>
@@ -59807,6 +60114,21 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <message>
         <source>后台自动记录：%1%2</source>
         <translation>后台自动记录：%1%2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingexplanationservice.cpp" line="533"/>
+        <source>%1层位编图现状</source>
+        <translation>%1层位编图现状</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingexplanationservice.cpp" line="535"/>
+        <source>所选相面为「%1」（编码 %2）</source>
+        <translation>所选相面为「%1」（编码 %2）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingexplanationservice.cpp" line="547"/>
+        <source>%1层位执行%2</source>
+        <translation>%1层位执行%2</translation>
     </message>
 </context>
 </TS>

@@ -4,6 +4,8 @@
 #include "app/capabilityhostwiring.h"
 #include "../src/ai/chat/llmclient.h"
 #include "../src/app/appcontext.h"
+#include "../src/io/dataimportservice.h"
+#include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/ai/aiconversationcard.h"
 #include "../src/ui/ai/aiassistdock.h"
 #include "../src/ui/ai/aicontextbar.h"
@@ -11,13 +13,17 @@
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/aioperationpresentation.h"
 #include <QApplication>
+#include <QDialog>
 #include <QDir>
+#include <QDropEvent>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QLabel>
+#include <QMimeData>
 #include <QPushButton>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QTabWidget>
 #include <QTcpServer>
@@ -94,6 +100,7 @@ private slots:
   void dockAndPresenterAreWiredIntoTheRealWindow();
   void contextBarReflectsHostContext();
   void presenterIsIdempotentOnReinstall();
+  void droppingAFileImportsItIntoTheOpenProjectWithoutAModel();
   void captureAssemblyScreenshots();
 
 private:
@@ -144,6 +151,51 @@ void TestG5Assembly::presenterIsIdempotentOnReinstall() {
   const auto presenters =
     m_win->findChildren<paleo::chat::AiOperationPresentation *>();
   QCOMPARE(presenters.size(), 1);
+}
+
+void TestG5Assembly::droppingAFileImportsItIntoTheOpenProjectWithoutAModel() {
+  QTemporaryDir project, files;
+  QVERIFY(project.isValid() && files.isValid());
+  const auto closeProject = qScopeGuard([this] { m_ctx->closeProject(); });
+  QVERIFY2(m_ctx->projectSvc()->createProject(project.filePath("import.qgz")),
+           qPrintable(m_ctx->projectSvc()->lastErrors().join(';')));
+  auto *chat = m_ctx->aiChat();
+  chat->setConfig({});
+  chat->newSession();
+  const auto session = chat->session().id;
+  const auto removeChat = qScopeGuard([chat, session] { chat->removeSession(session); });
+  auto *dock = m_win->findChild<AiAssistDock *>("aiAssistantDock");
+  QVERIFY(dock);
+  const QString source = files.filePath("survey.dat");
+  QVERIFY(QFile::copy(QFINDTESTDATA("../testdata/project_area/ExportWellHead.dat"), source));
+
+  bool prompted = false;
+  QTimer dismissUnexpectedPrompt;
+  connect(&dismissUnexpectedPrompt, &QTimer::timeout, this, [&] {
+    if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+      prompted = true;
+      dialog->reject();
+    }
+  });
+  dismissUnexpectedPrompt.start(50);
+  QMimeData data;
+  data.setUrls({QUrl::fromLocalFile(source)});
+  QDragEnterEvent enter(QPoint(8, 8), Qt::CopyAction, &data, Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(dock, &enter);
+  QVERIFY(enter.isAccepted());
+  QDropEvent drop(QPointF(8, 8), Qt::CopyAction, &data, Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(dock, &drop);
+  QVERIFY(drop.isAccepted());
+  QVERIFY(spinUntil([chat] { return chat->messages().size() >= 2; }));
+  QVERIFY2(!prompted, "A self-describing well-head table should import directly");
+  const auto assets = m_ctx->importSvc()->assets("well_head");
+  QCOMPARE(assets.size(), 1);
+  const auto receipt = chat->messages().last();
+  QVERIFY(receipt.localImportReceipt);
+  QVERIFY(receipt.content.contains(assets.first()));
+  QVERIFY(receipt.content.contains("survey.dat"));
+  QVERIFY(!receipt.content.contains(files.path()));
+  QVERIFY(!chat->streaming());
 }
 
 void TestG5Assembly::captureAssemblyScreenshots() {

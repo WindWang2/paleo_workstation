@@ -1148,6 +1148,53 @@ class TestUiShell : public QObject
       QTRY_COMPARE_WITH_TIMEOUT(corr->wellCount(), wellLogs, 3000); // #156：从 catalog 重灌
     }
 
+    void referenceDockPlacementFollowsProject()
+    {
+      QTemporaryDir first, second;
+      const QString a = first.filePath("a.qgz"), b = second.filePath("b.qgz");
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+          m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(), m_ctx->processingSvc(),
+          m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      m_win->attachWorkbench(m_ctx->mappingWorkbench());
+      QVERIFY(m_ctx->projectSvc()->createProject(a));
+      m_win->show(); m_win->showPage("compose");
+      auto *dock = m_win->findChild<PaleoDockWidget *>("mappingReferenceDock");
+      auto *other = m_win->findChild<QDockWidget *>("pagePanelDock");
+      QVERIFY(dock && other);
+      const auto otherArea = m_win->dockWidgetArea(other);
+      const auto defaultArea = m_win->dockWidgetArea(dock);
+      const bool defaultFloat = dock->isFloating(), defaultVisible = dock->userWantsVisible();
+      dock->show();
+      dock->setFloating(true);
+      dock->setGeometry(QRect(55, 60, 540, 265));
+      QCoreApplication::processEvents();
+      const QRect floatingGeometry = dock->geometry();
+      m_win->showPage("data");
+      QVERIFY(dock->isHidden()); QVERIFY(dock->userWantsVisible());
+
+      QVERIFY(m_ctx->projectSvc()->createProject(b));
+      m_win->showPage("compose");
+      QCOMPARE(dock->isFloating(), defaultFloat);
+      QCOMPARE(m_win->dockWidgetArea(dock), defaultArea);
+      QCOMPARE(dock->userWantsVisible(), defaultVisible);
+      dock->setFloating(false);
+      m_win->addDockWidget(Qt::LeftDockWidgetArea, dock);
+      dock->show();
+      dock->toggleViewAction()->trigger();
+      QVERIFY(!dock->userWantsVisible());
+      QVERIFY(m_ctx->projectSvc()->openProject(a));
+      m_win->showPage("compose");
+      QTRY_VERIFY(dock->isFloating() && !dock->isHidden());
+      QTRY_COMPARE(dock->size(), floatingGeometry.size());
+      QVERIFY((dock->geometry().topLeft() - floatingGeometry.topLeft()).manhattanLength() <= 4);
+
+      QVERIFY(m_ctx->projectSvc()->openProject(b));
+      m_win->showPage("compose");
+      QTRY_VERIFY(!dock->isFloating() && dock->isHidden());
+      QCOMPARE(m_win->dockWidgetArea(dock), Qt::LeftDockWidgetArea);
+      QCOMPARE(m_win->dockWidgetArea(other), otherArea);
+    }
+
     void canvasYieldsSpaceToDocks()
     {
       m_win->resize(1800, 1000);

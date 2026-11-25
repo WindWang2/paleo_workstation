@@ -337,7 +337,8 @@ void PaleoMainWindow::buildCenterArea()
       const QString mode = action ? action->text().remove(QLatin1Char('&'))
                                   : tool ? tool->toolName() : tr("浏览");
       const QString target = canvas->currentLayer() ? canvas->currentLayer()->name() : tr("未选择图层");
-      const QString hint = action ? action->toolTip()
+      const QString captureHint = tool ? tool->property("paleo.captureHint").toString() : QString();
+      const QString hint = !captureHint.isEmpty() ? captureHint : action ? action->toolTip()
                                  : tool ? tr("在地图中操作；结束工具后保留图层编辑")
                                         : tr("选择上方地图工具开始操作");
       const QString text = tr("%1 · %2 — %3").arg(mode, target, hint);
@@ -348,7 +349,11 @@ void PaleoMainWindow::buildCenterArea()
       stop->setToolTip(tool ? tr("结束当前地图操作，保留尚未保存的图层编辑")
                             : tr("当前没有活动地图工具"));
     };
-    connect(canvas, &QgsMapCanvas::mapToolSet, contextRow, syncContext);
+    connect(canvas, &QgsMapCanvas::mapToolSet, contextRow, [context, syncContext](QgsMapTool *tool, QgsMapTool *old) {
+      if (old) QObject::disconnect(old, &QgsMapTool::messageEmitted, context, nullptr);
+      if (tool) QObject::connect(tool, &QgsMapTool::messageEmitted, context, syncContext);
+      syncContext();
+    });
     connect(canvas, &QgsMapCanvas::currentLayerChanged, contextRow, syncContext);
     syncContext();
     contextLayout->addWidget(context, 1);

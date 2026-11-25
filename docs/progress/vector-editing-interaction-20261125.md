@@ -25,4 +25,6 @@
 
 交互走查保留了[基线主窗口](vector-editing-20261125/baseline-window.png)、修改后的[十字线画布](vector-editing-20261125/LineString-light-canvas.png)、[浅色候选菜单](vector-editing-20261125/LineString-light-candidates.png)和[深色候选菜单](vector-editing-20261125/LineString-dark-candidates.png)。后三张取自 Windows 原生 Qt 测试桌面，设备像素比为 1.5。125% 和 150% 下分别测得设备像素比 1.25、1.50，浅深两种主题的点、线、面候选均通过键盘选择回归。另在 125% 下通过鼠标事件记录了[20 点分割线失败后保留](vector-editing-20261125/split-20-vertices-retained.png)、[只修正末点](vector-editing-20261125/split-20-last-vertex-corrected.png)及[分割结果](vector-editing-20261125/split-completed.png)。
 
+桌面相级回归 `resizedCanvasRestoresAutomaticFaciesAndLegend` 将窗口从 1600 × 1000 缩到 1040 × 720。固定微相时，画布比例尺从 1∶225000 变为约 1∶422211，图例保持 3 级；切回自动时，比例尺保持约 1∶422211，功能区和各图例条目同步切至 1 级。记录取自 WSLg X11 [实际桌面](vector-editing-20261125/automatic-after-resize.png)。
+
 在 `tst_ui mappingWorkbenchCanvasRibbonAndReferences` 设置 `PALEO_EDIT_LAYOUT_QA` 可导出 1440 × 960 和 960 × 720 下的主窗口截图，日志同时报告窗口和画布的实际大小及设备像素比。相面 1 千、1 万、5 万图斑的确定性夹具及采样说明见[性能手册](../perf/BENCHMARKS.md)。

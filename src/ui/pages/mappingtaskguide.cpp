@@ -336,7 +336,7 @@ void MappingTaskGuide::refreshCompose() {
     anchor = QStringLiteral("workbenchResults");
   }
   if (stage == 1) {
-    nextText = m_drafts.size() > 1 ? tr("选择要继续编辑的副本…") : tr("继续编辑 · %1").arg(m_drafts.value(draft));
+    nextText = draft.isEmpty() ? tr("选择要继续编辑的副本…") : tr("继续编辑 · %1").arg(m_drafts.value(draft));
     anchor = QStringLiteral("resumeEdit");
   }
   markStep(QStringLiteral("basemap"), workCopy, stage == 0, false, QString());

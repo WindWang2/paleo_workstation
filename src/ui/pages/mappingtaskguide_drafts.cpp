@@ -14,7 +14,7 @@ void MappingTaskGuide::watchEditor(PaleoEditingToolbar *editor) {
   m_editor = editor;
   const auto sync = [this] {
     const QString id = m_editor && m_editor->isEditing() ? FaciesPartitionEditor::declaredLayerId(m_editor->currentLayer()) : QString();
-    if (id == m_activeDraft) return;
+    if (!id.startsWith(QLatin1String("draft.")) || id == m_activeDraft) return;
     m_activeDraft = id;
     refresh();
   };
@@ -43,8 +43,10 @@ QString MappingTaskGuide::resolveDrafts() {
         id.startsWith(QLatin1String("draft.")) && !m_workbench->isWellPrediction(id))
       m_drafts.insert(id, row.value("name", id).toString());
   }
-  if (m_drafts.contains(m_activeDraft)) return m_activeDraft;
+  if (m_editor && m_editor->isEditing() && m_drafts.contains(m_activeDraft) &&
+      FaciesPartitionEditor::declaredLayerId(m_editor->currentLayer()) == m_activeDraft) return m_activeDraft;
   if (m_drafts.contains(page->selectedLayer())) return page->selectedLayer();
+  if (m_drafts.contains(m_activeDraft)) return m_activeDraft;
   return m_drafts.size() == 1 ? m_drafts.firstKey() : QString();
 }
 

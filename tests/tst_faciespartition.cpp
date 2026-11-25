@@ -112,6 +112,22 @@ private slots:
     QCOMPARE(f.layer.featureCount(), 2);
     QCOMPARE(f.area(), 20000.);
   }
+  void deletingSplitTargetOrEndingSessionClearsCapture() {
+    Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
+    const auto face = f.first().id();
+    f.layer.selectByIds({face});
+    Capture capture(f.layer, FaciesPartitionTool::Split);
+    capture.click(-10, 45); capture.click(30, 45);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 2);
+    QVERIFY(f.layer.deleteFeature(face));
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 0);
+    auto *layer = &f.layer;
+    layer->selectByIds({f.first().id()});
+    capture.click(120, 20);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 1);
+    QVERIFY(layer->rollBack());
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 0);
+  }
   void correctSelfIntersectionAndConfirmClippedStroke() {
     Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
     Capture capture(f.layer, FaciesPartitionTool::Paint);

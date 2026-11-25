@@ -30,6 +30,7 @@ private:
   std::function<int()> m_targetCode;
   std::unique_ptr<QgsRubberBand> m_kept, m_cut, m_issueMarker;
   QByteArray m_previewStroke, m_previewArea;
+  QgsFeatureIds m_splitTargets;
   bool m_repairing = false, m_applying = false;
   bool previewCut(const QgsGeometry &stroke);
   QgsGeometry strokeGeometry() const;

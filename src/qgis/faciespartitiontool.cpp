@@ -30,16 +30,21 @@ FaciesPartitionTool::FaciesPartitionTool(QgsMapCanvas *canvas,
   connect(layer, &QgsVectorLayer::selectionChanged, this, [this] {
     if (m_operation == Split && !m_applying && size()) discardStroke();
   });
+  connect(layer, &QgsVectorLayer::featureDeleted, this, [this](QgsFeatureId id) {
+    if (!m_applying && m_splitTargets.contains(id)) discardStroke();
+  });
 }
 FaciesPartitionTool::~FaciesPartitionTool() = default;
 void FaciesPartitionTool::activate() { QgsMapToolCapture::activate(); startCapturing(); updateHint(); }
 void FaciesPartitionTool::deactivate() {
+  m_splitTargets.clear();
   clearPreview();
   stopCapturing();
   QgsMapToolCapture::deactivate();
 }
 void FaciesPartitionTool::discardStroke() {
   if (!isActive()) return;
+  m_splitTargets.clear();
   clearPreview();
   stopCapturing();
   emit editAborted();
@@ -97,6 +102,7 @@ void FaciesPartitionTool::cadCanvasReleaseEvent(QgsMapMouseEvent *event) {
     return;
   }
   if (event->button() == Qt::LeftButton) {
+    if (m_operation == Split && size() == 0) m_splitTargets = m_layer->selectedFeatureIds();
     if (m_repairing && event->modifiers().testFlag(Qt::ShiftModifier)) undo();
     clearPreview();
   }
@@ -106,7 +112,7 @@ void FaciesPartitionTool::cadCanvasReleaseEvent(QgsMapMouseEvent *event) {
 void FaciesPartitionTool::updateHint(const QString &next, Qgis::MessageLevel level) {
   const auto matches = snappingMatches();
   const auto *snapped = matches.isEmpty() ? nullptr : matches.last().layer();
-  const auto snap = snapped ? tr("吸附到「%1」").arg(snapped->name()) : tr("未吸附");
+  const auto snap = snapped ? tr("吸附到「%1」的要素 %2").arg(snapped->name()).arg(matches.last().featureId()) : tr("未吸附");
   const auto action = size() < (m_operation == Split ? 2 : 3) ? tr("左键加点，右键取消") : tr("右键完成，退格撤回一点");
   const auto hint = tr("%1 个顶点 · %2 · %3").arg(size()).arg(snap, next.isEmpty() ? action : next);
   setProperty("paleo.captureHint", hint);
@@ -130,6 +136,7 @@ void FaciesPartitionTool::finish(const QgsGeometry &geometry) {
   const bool ok = m_operation == Split ? FaciesPartitionEditor::split(m_layer, geometry, &error)
       : FaciesPartitionEditor::paint(m_layer, geometry, m_targetCode(), &error);
   if (ok) {
+    m_splitTargets.clear();
     stopCapturing();
     canvas()->refresh();
     updateHint();

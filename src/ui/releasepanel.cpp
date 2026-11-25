@@ -155,7 +155,7 @@ ReleasePanel::ReleasePanel(QWidget *parent)
       return;
     }
     ReleaseStore store(m_dbPath());
-    store.setReadOnly(projectReadOnly()); // 只读实例不建表、不写（§6）
+    store.setReadOnly(true); // Comparison only reads immutable release snapshots.
     QString openErr;
     if (!store.open(&openErr))
     {
@@ -227,13 +227,14 @@ void ReleasePanel::refresh()
   const bool readOnly = projectReadOnly();
   // 只读 + 库文件还没建（新工程/从未发布）：不得建库（#80），按空态处理，
   // 不报「发布库打开失败」。
-  if (readOnly && !QFileInfo::exists(m_dbPath()))
+  if (!QFileInfo::exists(m_dbPath()))
   {
-    showEmptyGuidance(tr("还没有发布 — 工程被另一个实例锁定（只读），不能创建发布"));
+    showEmptyGuidance(readOnly ? tr("还没有发布 — 工程被另一个实例锁定（只读），不能创建发布")
+                               : tr("还没有发布 — 在下方填名称后点「创建发布」"));
     return;
   }
   ReleaseStore store(m_dbPath());
-  store.setReadOnly(readOnly);
+  store.setReadOnly(true); // Opening the list must not create or migrate release tables.
   QString openErr;
   if (!store.open(&openErr))
   {

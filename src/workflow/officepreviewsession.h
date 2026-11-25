@@ -26,7 +26,7 @@ public:
   QUrl endpoint() const { return m_endpoint; }
   QUrl documentUrl() const { return m_documentUrl; }
   void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
-  void open(const QString &path, const QString &expectedSha = {});
+  void open(const QString &path, const QString &expectedSha = {}, const QString &projectDir = {});
   void stop();
   // 把编辑结果登记为同一资产的 DERIVED 版本。原件字节保持不动。
   static bool commitEdit(DataCatalog *catalog, const QString &assetId, const QString &parentVersionId,
@@ -53,6 +53,7 @@ private:
   QUrl m_documentUrl;
   QString m_token;
   QString m_documentPath;
+  QString m_projectDir;
   QString m_editorRoot;
   std::shared_ptr<QTemporaryDir> m_sourceCopy;
   std::shared_ptr<QTemporaryDir> m_saves;

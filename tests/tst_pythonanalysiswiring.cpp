@@ -143,6 +143,21 @@ private slots:
     request=f.request();request.inputs["path"]="/host/private";
     QCOMPARE(provider(request,plan,validate),QString("invalid_python_analysis_selection"));
   }
+  void forgedBoreOnStaleMappingCannotStartNumericWork() {
+    Fixture f;QVERIFY2(f.open(),qPrintable(f.error));
+    const auto provider=assemblePythonAnalysisProvider(&f.catalog,&f.session,&f.host);
+    auto request=f.request();auto inputs=QJsonObject::fromVariantMap(request.inputs);
+    auto curves=inputs.value("curves").toArray();auto ref=curves[0].toObject();ref["wellbore_key"]="main";
+    curves[0]=ref;inputs["curves"]=curves;request.inputs=inputs.toVariantMap();
+    const auto versions=f.catalog.versions().size();const auto tasks=f.tasks.tasks().size();
+    python::AnalysisReadPlan plan;std::function<QString()> validate;
+    QCOMPARE(provider(request,plan,validate),QString("wellbore_source_unconfirmed")); // Original is a .data file.
+    auto entity=f.catalog.storedEntityById(f.well.catalogEntityId);
+    entity.extra["areaModelGeneration"]="stale-catalog-generation";QVERIFY(f.catalog.updateEntity(entity,&f.error));
+    QCOMPARE(provider(request,plan,validate),QString("wellbore_mapping_unconfirmed"));
+    QVERIFY(!validate);QVERIFY(plan.curves.isEmpty());
+    QCOMPARE(f.tasks.tasks().size(),tasks);QCOMPARE(f.catalog.versions().size(),versions);
+  }
   void providerLifetimeAndRuntimeReadinessFailClosed() {
     auto *host=new capability::CapabilityHost;
     auto provider=assemblePythonAnalysisProvider(nullptr,nullptr,host);delete host;

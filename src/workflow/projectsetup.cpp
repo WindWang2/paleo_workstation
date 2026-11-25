@@ -1,4 +1,5 @@
 // 层：功能
+#include "metadata/managedpath.h"
 #include "projectsetup.h"
 #include "../io/areamodelpublication.h"
 #include "../services/futuretask.h"
@@ -84,7 +85,18 @@ bool ProjectSetupWorkflow::containsProject(const QString &root)
 {
   return QFileInfo::exists(paleoProjectFilePath(root)) || !QDir(root).entryList({QStringLiteral("*.qgz")}, QDir::Files).isEmpty();
 }
-bool ProjectSetupWorkflow::checkProjectLocation(const QString &path, QString *error)
+QString ProjectSetupWorkflow::defaultProjectVolume() { return paleo::managedpath::defaultProjectVolume(); }
+QString ProjectSetupWorkflow::defaultProjectDirectory() { return paleo::managedpath::defaultProjectDirectory(); }
+
+static bool containsPath(const QString &root, const QString &path)
+{
+  if (root.isEmpty() || path.isEmpty()) return false;
+  const QString relative = QDir(root).relativeFilePath(path);
+  return !QDir::isAbsolutePath(relative) && relative != QStringLiteral("..") && !relative.startsWith(QStringLiteral("../"));
+}
+
+bool ProjectSetupWorkflow::checkProjectLocation(const QString &path, QString *error, const QString &sourceRoot,
+                                              const QString &requiredRoot)
 {
   if (error) error->clear();
   const auto fail = [&](const QString &message) { if (error) *error = message; return false; };
@@ -99,6 +111,14 @@ bool ProjectSetupWorkflow::checkProjectLocation(const QString &path, QString *er
     ancestor = parent;
   }
   if (!QFileInfo(ancestor).isDir()) return fail(tr("工程保存路径被同名文件占用：%1").arg(ancestor));
+  const QString target = QDir::cleanPath(QDir(QFileInfo(ancestor).canonicalFilePath()).filePath(QDir(ancestor).relativeFilePath(directory)));
+  if (!requiredRoot.isEmpty() && !containsPath(QFileInfo(requiredRoot).canonicalFilePath(), target))
+    return fail(tr("请将新工程保存到可用的数据盘 %1。").arg(QDir::toNativeSeparators(requiredRoot)));
+  if (!sourceRoot.trimmed().isEmpty()) {
+    const QString source = QFileInfo(sourceRoot).canonicalFilePath();
+    if (containsPath(source, target) || containsPath(target, source))
+      return fail(tr("请为新工程和原始资料选择相互独立的目录。"));
+  }
   if (ancestor == directory) return probeWritableDirectory(directory, error);
   // Probe a private child of the nearest existing parent, so parent folders
   // allowing subdirectories but not loose files are still valid destinations.
@@ -142,7 +162,7 @@ bool ProjectSetupWorkflow::create(const QString &path, const ProjectSetupSources
   // Check coordinates before creating files or closing the active project.
   if (!QgisProjectService::validateMapReference(configuration, error)) return false;
   const QString directory = QFileInfo(path).absolutePath();
-  if (!checkProjectLocation(path, error)) return false;
+  if (!checkProjectLocation(path, error, sources.root, m_requiredRoot)) return false;
   const QString previous = m_project->projectPath();
   std::error_code directoryError;
   const bool createdDir = std::filesystem::create_directories(nativeDirectoryPath(directory), directoryError);

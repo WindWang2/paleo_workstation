@@ -80,6 +80,7 @@ NativeFile wellFile(const dataimport_detail::FamilyContext &ctx) {
         paleo::data::MarkerTrack track; track.trackName = "source tops";
         // MD is the explicit primary field; unknown values stay NaN.
         track.depthInfo.depthType = "MD";
+        track.depthInfo.depthUnit = u(ctx.version.extra.value(QStringLiteral("wellTopDepthUnit")).toString());
         well.wellbore.markerTracks.push_back(std::move(track));
       }
       paleo::data::Marker marker; marker.markerName = u(row.topName);
@@ -146,8 +147,8 @@ bool prepare(ImportSession &session, const CatalogVersion &version,
       return false;
     }
   }
-  NativeFile model = log ? logFile(ctx, *log) : wellFile(ctx);
-  if (model.status != "parsed") return true; // Unresolved identities keep the legacy read contract.
+  NativeFile model = ctx.checkshotModel ? std::move(*ctx.checkshotModel) : log ? logFile(ctx, *log) : wellFile(ctx);
+  if (!ctx.checkshotModel && model.status != "parsed") return true; // Unresolved identities keep the legacy read contract.
   preserveWellColumns(model, ctx);
   if (!session.ensureStagingRoot(error)) return false;
   const QString relative = QStringLiteral("artifacts/raw/%1/%2/native-model/data.sqlite")
@@ -190,7 +191,8 @@ bool prepare(ImportSession &session, const CatalogVersion &version,
   if (digest.isEmpty()) return fail(QStringLiteral("cannot hash native model"));
   QVariantMap binding{{"schema", 1}, {"path", relative}, {"sha256", digest},
                       {"sourceSha256", version.sha256}, {"sourceId", qlonglong(sourceId)},
-                      {"kind", ctx.cls.type}, {"typed", model.status == "parsed"}};
+                      {"kind", ctx.cls.type}, {"typed", ctx.checkshotModel || model.status == "parsed"}};
+  if (ctx.checkshotModel) binding.insert("checkshotExchange", true);
   binding.insert("parseReport", version.extra.value("wellParseReport"));
   if (ctx.cls.type == QLatin1String("time_depth")) binding.insert("wellName", ctx.parsedTd.wellName);
   if (ctx.cls.type == QLatin1String("well_deviation")) binding.insert("wellName", ctx.parsedDev.wellName);

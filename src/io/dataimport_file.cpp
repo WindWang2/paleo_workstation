@@ -2,7 +2,10 @@
 // 方向57：从 dataimportservice.cpp 按格式族析出。公共 API（dataimportservice.h）
 // 零改动；跨族共享辅助（setError/readFileOrEmpty/FamilyContext）经
 // dataimport_internal.h；importOneFile 分支体族函数亦声明于该头。
+#include "metadata/managedpath.h"
 #include "dataimportservice.h"
+#include "horizongridexchange.h"
+#include "checkshotexchange.h"
 
 #include "lascache.h"
 #include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
@@ -60,6 +63,16 @@
 
 using paleo::dataimport_detail::setError;
 
+namespace {
+bool conflictingDelivery(const DataCatalog &catalog, const QString &kind, const QVariantMap &source, const QString &sha) {
+  for (const auto &prior : catalog.versions()) {
+    const auto saved = prior.extra.value(kind).toMap();
+    if (!saved.isEmpty() && saved.value("project_id") == source.value("project_id") &&
+        saved.value("version_id") == source.value("version_id") && prior.sha256 != sha) return true;
+  }
+  return false;
+}
+}
 
 void DataImportService::produceFile(ImportSession &s, const QString &sourcePath,
                                     const ImportOptions &options)
@@ -220,6 +233,13 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
        cls.type == QLatin1String("time_depth") ||
        (cls.type == QLatin1String("well_deviation") && cls.format != QLatin1String("xml")));
   QString parseSummary;
+  QVariantMap gridSource;
+  if (cls.type == QLatin1String("horizon") && paleo::io::isHorizonGridExchange(sourcePath)) {
+    if (!paleo::io::readHorizonGridExchange(sourcePath, sourceSha, gridSource, error, effectiveCancel))
+      return fail(*error);
+    if (conflictingDelivery(*cat, "horizonExchange", gridSource, sourceSha))
+      return fail(QStringLiteral("同一来源工程的层位版本已有不同内容，请复核"));
+  }
   const auto importedFactors = paleo::io::isWellFactorFile(sourcePath)
       ? paleo::io::readWellFactorFile(sourcePath, error) : QVariantList{};
   if (paleo::io::isWellFactorFile(sourcePath) && importedFactors.isEmpty()) return fail(*error);
@@ -231,9 +251,9 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   {
     // 引用模式直接读取原文件/已建立的工区模型；只有显式受管导入需要私有副本。
     if (!options.linkExternal) {
-      logSnapshot = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-log-import-XXXXXX"));
-      validatedLogPath = logSnapshot->filePath(fi.fileName());
-      if (!logSnapshot->isValid() || !QFile::copy(sourcePath, validatedLogPath))
+      logSnapshot = paleo::managedpath::temporaryDirectory(s.projectDir, QStringLiteral("paleo-log-import"));
+      if (logSnapshot) validatedLogPath = logSnapshot->filePath(fi.fileName());
+      if (!logSnapshot || !QFile::copy(sourcePath, validatedLogPath))
         return fail(QCoreApplication::translate("DataImportService", "无法为 %1 创建导入快照，请检查临时目录空间与权限后重试。").arg(sourcePath));
       QFile::setPermissions(validatedLogPath, QFile::permissions(validatedLogPath) | QFileDevice::WriteOwner);
     }
@@ -248,7 +268,13 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     parseSummary = logInfo.summary;
   }
   paleo::io::ValidatedWellInput tableInput;
-  if (textWellInput) {
+  paleo::io::CheckshotExchange checkshots;
+  if (cls.type == QLatin1String("time_depth") && paleo::io::isCheckshotExchange(sourcePath)) {
+    if (!paleo::io::readCheckshotExchange(sourcePath, s.projectDir, sourceSha, &checkshots, error, effectiveCancel)) return fail(*error);
+    if (conflictingDelivery(*cat, "checkshotExchange", checkshots.source, sourceSha))
+      return fail(QStringLiteral("同一来源工程的时深版本已有不同内容，请复核"));
+    parsedTd.wellName = checkshots.well; wellReport = checkshots.report; parseSummary = wellParseSummary(wellReport);
+  } else if (textWellInput) {
     auto mapping = options.tableMapping;
     if (s.georeference && s.georeference->kind == QLatin1String("crs")) mapping.insert(QStringLiteral("projectCrs"), s.georeference->sourceCrs);
     if (!paleo::io::readImportWellInput(sourcePath, cls.type, sourceSha, mapping, &tableInput, error, effectiveCancel))
@@ -278,7 +304,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
           {"input_source_annotations", logInfo.sourceAnnotations}}, error)) return fail(*error);
     const CatalogAsset existingAsset =
         cat->assetById(existing.assetId);
-    if (existingAsset.type == QLatin1String("horizon"))
+    if (existingAsset.type == QLatin1String("horizon") && gridSource.isEmpty())
     {
       const QString rerr = paleo::dataimport_detail::dedupHorizonRederive(
           cat, s, existing, sourcePath, inputCrs, error);
@@ -287,7 +313,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     }
     QString aerr;
     // 补挂在 staging 副本上执行（attachLink 记进 journal，提交时重放）。
-    const int attached = wellLogInput ? 0 : attachResolvableLinks(cat, existingAsset, sourcePath, &aerr);
+    const int attached = wellLogInput || !gridSource.isEmpty() || checkshots.model ? 0 : attachResolvableLinks(cat, existingAsset, sourcePath, &aerr);
     if (!aerr.isEmpty())
       qWarning("import dedup attach: %s", qPrintable(aerr));
     QString msg =
@@ -315,11 +341,16 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     return fail(*error);
 
   CatalogVersion version;
+  if (!gridSource.isEmpty()) version.extra.insert("horizonExchange", gridSource);
+  if (!checkshots.source.isEmpty()) version.extra.insert("checkshotExchange", checkshots.source);
   if (!importedFactors.isEmpty()) version.extra.insert(QStringLiteral("wellFactors"), importedFactors);
   version.id = versionId;
   version.assetId = assetId;
   version.stage = QStringLiteral("RAW");
-  if (!tableInput.normalized.isEmpty()) version.extra.insert(QStringLiteral("wellTableParsed"), true);
+  if (!tableInput.normalized.isEmpty() || !tableInput.declaredTopDepthUnit.isEmpty())
+    version.extra.insert(QStringLiteral("wellTableParsed"), true);
+  if (!tableInput.declaredTopDepthUnit.isEmpty())
+    version.extra.insert(QStringLiteral("wellTopDepthUnit"), tableInput.declaredTopDepthUnit);
   if (textWellInput)
   {
     version.extra.insert(QStringLiteral("wellParseReport"), QVariantMap{
@@ -369,7 +400,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     QString relPath, sha;
     if (!storeManagedRaw(s, validatedLogPath, assetId, versionId, &relPath, &sha, error))
       return fail(*error);
-    if ((textWellInput || wellLogInput) && sha != sourceSha)
+    if ((textWellInput || wellLogInput || !gridSource.isEmpty()) && sha != sourceSha)
     {
       // 本行尚无资产/版本/关联；移除自身暂存 RAW，不能提交不匹配的解析报告。
       version.managed = true;
@@ -423,6 +454,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   ctx.parsedHeads = std::move(parsedHeads);
   ctx.parsedTops = std::move(parsedTops);
   ctx.parsedTd = std::move(parsedTd);
+  ctx.checkshotModel = std::move(checkshots.model);
   ctx.parsedDev = std::move(parsedDev);
   ctx.logWellName = logInfo.header.wellName;
   ctx.targetWellId = options.targetWellId;

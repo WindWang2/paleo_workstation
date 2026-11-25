@@ -6,6 +6,8 @@
 #include "../workflow/aichatcontroller.h"
 #include "../workflow/folderimport.h"
 #include <QDir>
+#include <QFileDialog>
+#include <QInputDialog>
 #include <QFileInfo>
 #include <QStatusBar>
 
@@ -38,6 +40,36 @@ QString importReceipt(const QString &project, const QVector<FolderRowResult> &ro
     lines << PaleoMainWindow::tr("共 %1 项，已列出前 %2 项。").arg(rows.size()).arg(visibleRows);
   return lines.join(QLatin1Char('\n'));
 }
+}
+
+namespace {
+QString legacySender(QWidget *window) {
+  return window ? QInputDialog::getText(window, PaleoMainWindow::tr("旧包的来源工程"),
+      PaleoMainWindow::tr("输入发送方的稳定工程标识。再次接收同一工程的资料时请使用相同标识。")) : QString{};
+}
+QString receiptSummary(qsizetype count, qsizetype reused, const QString &error, bool cancelled) {
+  QString text = PaleoMainWindow::tr("原件已收 %1 份，其中 %2 份为此前收件。").arg(count).arg(reused);
+  if (cancelled) text += PaleoMainWindow::tr("接收已取消。");
+  if (!error.isEmpty()) text += QLatin1Char('\n') + error;
+  return text;
+}
+}
+
+void PaleoMainWindow::pickOriginalPackage(quint64 session) {
+  const QString directory = QFileDialog::getExistingDirectory(this, tr("选择 LAS 或 SEG-Y 原件包目录"));
+  if (directory.isEmpty()) return;
+  const QPointer<PaleoMainWindow> window(this);
+  const auto current = [window, session] {
+    return window && window->agentImportUnavailableReason().isEmpty() &&
+           window->m_projectSvc->sessionId() == session;
+  };
+  folderImportWorkflow()->receiveOriginalPackage(directory, current,
+    [window, current](const QStringList &files, qsizetype reused, const QString &error, bool cancelled) {
+      if (!window || !current()) return;
+      window->statusBar()->showMessage(receiptSummary(files.size(), reused, error, cancelled), 15000);
+      if (!files.isEmpty() && !cancelled)
+        window->runFilesImportAt(window->m_importSvc, files, QStringLiteral("files"));
+    }, [window] { return legacySender(window); });
 }
 
 QString PaleoMainWindow::agentImportUnavailableReason() const {
@@ -114,6 +146,11 @@ void PaleoMainWindow::wireAgentFileImport(AiAssistDock *dock) {
           QStringList reviewPaths;
           for (const auto &row : preview) reviewPaths << row.path;
           window->confirmFileImport(reviewPaths, preview, {}, projectSession, report);
-        });
+        }, [current, chat, session, panel, record](const QStringList &files, qsizetype reused, const QString &error, bool cancelled) {
+          const auto summary = receiptSummary(files.size(), reused, error, cancelled);
+          record(summary);
+          if (current() && panel && chat && panel->controller() == chat && chat->session().id == session)
+            panel->showFileImportStatus(summary);
+        }, [current, window] { return current() ? legacySender(window) : QString{}; });
     });
 }

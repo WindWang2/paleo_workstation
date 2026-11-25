@@ -57,8 +57,9 @@ void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<
   //  · vendor SgyIndexCache 的全局缓存目录顺手预建（D2.1 仓外根治）。
   if (!dir.trimmed().isEmpty())
   {
-    LasCache::shared().setDiskRoot(dir + QStringLiteral("/artifacts/index/las"));
-    ShaCache::shared().setDiskFile(dir + QStringLiteral("/artifacts/index/sha.json"), bool(prepared));
+    const bool writable = !m_catalog->isLockedReadOnly();
+    LasCache::shared().setDiskRoot(writable ? dir + QStringLiteral("/artifacts/index/las") : QString());
+    ShaCache::shared().setDiskFile(writable ? dir + QStringLiteral("/artifacts/index/sha.json") : QString(), bool(prepared));
     SegyIndexStore::ensureLegacyGlobalCacheDir();
   }
   m_catalogReady = false;
@@ -116,7 +117,7 @@ int DataImportService::sweepStaleStaging(const QString &projectDir)
 
 QString DataImportService::indexCacheDir() const
 {
-  return m_projectDir.isEmpty()
+  return m_projectDir.isEmpty() || m_catalog->isLockedReadOnly()
              ? QString()
              : m_projectDir + QStringLiteral("/artifacts/index/segy");
 }
@@ -125,7 +126,7 @@ QString DataImportService::pyramidCacheDir() const
 {
   // B3：栅格瓦片金字塔根（工程私有，随工程迁移；损坏/过版自愈走
   // RasterPyramidService 的 meta 身份闸）。
-  return m_projectDir.isEmpty()
+  return m_projectDir.isEmpty() || m_catalog->isLockedReadOnly()
              ? QString()
              : m_projectDir + QStringLiteral("/artifacts/pyramids");
 }

@@ -40,7 +40,7 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
     SgySliceType type,
     int sliceIndex,
     std::function<void(bool, std::shared_ptr<const SgySliceImage>, const QString &)> onFinished,
-    const QString &pagedPath, bool viewer3D)
+    const QString &pagedPath, bool viewer3D, const QString &workspaceMeta)
 {
   if (!volume || !volume->IsIndexComplete())
   {
@@ -100,10 +100,11 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   // 引擎优先：sdk::Dataset。Auto 通道在工作区存在时用随机访问后端；
   // pagedPath 非空走显式 .sf3p（LOD 映射）。条目在 worker 内解析——
   // Dataset::Open 是有限 IO，不得占用 UI 线程。
-  const QString sgyPath = QString::fromStdString(sgyio::ToUtf8Path(volume->Index()->path));
+  const QString sgyPath = current.absoluteFilePath();
+  const QString datasetPath = !pagedPath.isEmpty() ? pagedPath : (workspaceMeta.isEmpty() ? sgyPath : workspaceMeta);
   const auto registry = registry_;
 
-  auto work = [registry, volume, sgyPath, pagedPath, type, sliceIndex, outImage, viewer3D](PaleoTask *task) -> QString {
+  auto work = [registry, volume, sgyPath, datasetPath, pagedPath, type, sliceIndex, outImage, viewer3D](PaleoTask *task) -> QString {
     if(!viewer3D) {
       QString error;
       if(!paleo::readSeismicDataSlice(sgyPath,type,sliceIndex,*outImage,error,[task]{return task->cancelRequested();}))return error;
@@ -120,7 +121,7 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
         :volume->ExtractPreviewSlice(type,sliceIndex,128,*outImage,error,columns,total,true,progress);
       return ok?QString():QString::fromUtf8(error);
     }
-    const auto entry = datasetEntryFor(registry, pagedPath.isEmpty() ? sgyPath : pagedPath,
+    const auto entry = datasetEntryFor(registry, datasetPath,
                                        pagedPath.isEmpty() ? sdk::Backend::Auto : sdk::Backend::Paged);
     if (entry && entry->dataset)
     {

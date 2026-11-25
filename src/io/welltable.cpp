@@ -4,6 +4,7 @@
 #include "outsourceworkbook.h"
 #include "wellfileparsers.h"
 #include "welltabletext.h"
+#include "sectiontopscsv.h"
 #include "../domain/wellnumeric.h"
 #include <QFileInfo>
 #include <QFile>
@@ -331,6 +332,7 @@ static WellTable tableFromWorkbook(const WorkbookReadResult &wb, const QVariantM
 {
   WellTable out;
   if (bases) bases->clear();
+  if (wb.format == QLatin1String(sectionTopsProfile)) return sectionTopsTable(wb);
   if (!wb.ok) {
     out.error = wb.error;
     // P1-W6：底层工作簿读取失败（损坏/超预算）与「读成功但不是井表」区分

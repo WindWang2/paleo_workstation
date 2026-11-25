@@ -28,6 +28,7 @@ target_link_libraries(paleo_io PRIVATE Paleo::paleo_data_service)
 target_sources(paleo_io PRIVATE src/io/areamodel.cpp src/io/areamodel_crs.cpp
   src/io/areamodel_import.cpp src/io/areamodel_log.cpp src/io/modelhorizonpreview.cpp src/io/areamodel_conventions.cpp)
 target_sources(paleo_services PRIVATE src/services/previewdoc_area.cpp src/services/areawellchart.cpp)
+target_sources(paleo_services PRIVATE src/services/areainventory.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/projectsetup_area.cpp)
 target_sources(paleo_ui PRIVATE src/ui/dialogs/dataserviceimportwizard.cpp)
 target_link_libraries(paleo_ui PRIVATE Paleo::paleo_data_service)
@@ -80,7 +81,7 @@ add_paleo_test(tst_stratigraphy_model LIBS paleo_workflow paleo_services Paleo::
 target_sources(paleo_ui PRIVATE src/ui/pages/stratigraphypage_preview.cpp src/ui/wellcomposite/multiwellview_range.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/stratigraphyworkflow_preview.cpp)
 
-target_sources(paleo_services PRIVATE src/services/seismicdataaccess.cpp src/services/seismicdataprojection.cpp src/services/seismiclinecache.cpp)
+target_sources(paleo_services PRIVATE src/services/seismicworkspacepaths.cpp src/services/seismicdataaccess.cpp src/services/seismicdataprojection.cpp src/services/seismiclinecache.cpp)
 target_sources(paleo_services PRIVATE src/services/seismictaskservice_data.cpp)
 target_link_libraries(tst_seismic_index PRIVATE Paleo::paleo_data_service)
 target_sources(paleo_services PRIVATE src/services/projectdata_timedepth.cpp src/services/wellreadiness.cpp)
@@ -104,3 +105,5 @@ target_link_libraries(tst_wellfacies PRIVATE Paleo::paleo_data_service)
 target_link_libraries(tst_factorworkflow PRIVATE Paleo::paleo_data_service)
 target_link_libraries(tst_mappingworkbench PRIVATE Paleo::paleo_data_service)
 target_link_libraries(paleo PRIVATE Paleo::paleo_data_service)
+
+add_paleo_test(tst_dataservice_wellbores LIBS Paleo::paleo_data_service Qt6::Core Qt6::Sql)

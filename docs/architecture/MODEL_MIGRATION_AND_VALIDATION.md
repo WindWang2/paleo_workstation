@@ -3,6 +3,8 @@
 状态：2026-11-06 待实施计划。本次只交付设计文档，不关闭下面任何代码改造项。
 前置阅读：[统一模型](UNIFIED_DOCUMENT_MODEL.md)、[I/O 契约](FILE_MODEL_IO_CONTRACTS.md)。
 
+2026-11-25 的[数据模型与 I/O 实施方案](DATA_MODEL_IO_IMPLEMENTATION_PLAN.md)按当前主线核对了已落地能力，并将 D 盘存储、LAS／SEG-Y 原件交换和各业务模块的读写迁移排入交付批次。
+
 ## 1. 迁移原则和不变量
 
 1. 原始资料只读；新块、索引、数据库和预览放工程受管目录或本操作私有 staging。

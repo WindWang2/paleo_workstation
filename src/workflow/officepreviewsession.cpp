@@ -1,4 +1,5 @@
 // 层：功能
+#include "metadata/managedpath.h"
 #include "officepreviewsession.h"
 #include "../catalog/datacatalog.h"
 #include "../services/futuretask.h"
@@ -98,9 +99,10 @@ QString OfficePreviewSession::editorRoot()
   return {};
 }
 
-void OfficePreviewSession::open(const QString &path, const QString &expectedSha)
+void OfficePreviewSession::open(const QString &path, const QString &expectedSha, const QString &projectDir)
 {
   stop();
+  m_projectDir = projectDir;
   if (!supports(path))
   {
     fail(tr("不支持的 Office 文件格式"));
@@ -114,8 +116,8 @@ void OfficePreviewSession::open(const QString &path, const QString &expectedSha)
   }
   // 先复制到会话私有目录，再对这份副本做 SHA，并把同一路径交给编辑页。
   // 拒绝符号链接，避免核对的文件和随后读出的文件不是同一个。
-  m_sourceCopy = std::make_shared<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-office-XXXXXX"));
-  if (!m_sourceCopy->isValid())
+  m_sourceCopy = paleo::managedpath::temporaryPreviewDirectory(projectDir, QStringLiteral("paleo-office"));
+  if (!m_sourceCopy)
   {
     fail(tr("无法创建 Office 编辑临时目录"));
     return;
@@ -205,8 +207,8 @@ void OfficePreviewSession::launch(const QString &path)
     fail(tr("Office 文件名不能作为本机地址的一段"));
     return;
   }
-  m_saves = std::make_shared<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-office-edit-XXXXXX"));
-  if (!m_saves->isValid())
+  m_saves = paleo::managedpath::temporaryPreviewDirectory(m_projectDir, QStringLiteral("paleo-office-edit"));
+  if (!m_saves)
   {
     fail(tr("无法创建 Office 编辑临时目录"));
     return;
@@ -539,8 +541,8 @@ void OfficePreviewSession::stop()
     m_server->deleteLater();
     m_server = nullptr;
   }
-  m_sourceCopy.reset();
   m_saves.reset();
+  m_sourceCopy.reset();
 }
 
 bool OfficePreviewSession::commitEdit(DataCatalog *catalog, const QString &assetId, const QString &parentVersionId,

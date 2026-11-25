@@ -1,10 +1,14 @@
 // 层：测试壳
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/paleoprojectstore.h"
+#include "../src/metadata/paleoprojectfile.h"
+#include "../src/services/dataexport.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/workflow/folderimport.h"
 
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -40,6 +44,64 @@ class TestAgentAttachmentImport : public QObject
 {
   Q_OBJECT
 private slots:
+  void packageIsReceivedBeforeParsingAndRetriesReuseOriginal()
+  {
+    ImportProject sender;
+    ImportProject receiver;
+    QTemporaryDir delivery;
+    const auto project = projectFileForQgz(sender.directory.filePath("project.qgz"));
+    QString error;
+    QVERIFY(writeProjectFile(sender.directory.path(), project, &error));
+    const QString log = sender.directory.filePath("A1.las");
+    QVERIFY(writeFile(log, las("A1")));
+    const auto asset = sender.service.importFile("well_log", log, &error);
+    QVERIFY2(!asset.isEmpty(), qPrintable(error));
+    paleo::exporting::DataRequest request;
+    request.scope = paleo::exporting::Scope::Original;
+    request.versionIds = {sender.service.catalog()->currentVersion(asset).id};
+    request.destination = delivery.filePath("package");
+    auto batch = paleo::exporting::execute(paleo::exporting::plan(*sender.service.catalog(), sender.directory.path(), request));
+    QVERIFY2(batch.complete(), qPrintable(batch.error + batch.failures.join("\n")));
+
+    FolderImportWorkflow imports(&receiver.service, nullptr);
+    QString durablePath;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      QStringList events;
+      imports.importAgentAttachments({request.destination}, [] { return true; },
+        [&](const auto &rows, const QString &why, bool cancelled) {
+          QVERIFY2(why.isEmpty(), qPrintable(why));
+          QVERIFY(!cancelled);
+          QCOMPARE(rows.size(), 1);
+          QVERIFY2(!rows.front().assetId.isEmpty(), qPrintable(rows.front().message));
+          QCOMPARE(rows.front().path, durablePath);
+          events << "parsed";
+        }, {}, [&](const QStringList &files, qsizetype reused, const QString &why, bool cancelled) {
+          QVERIFY2(why.isEmpty(), qPrintable(why));
+          QVERIFY(!cancelled);
+          QCOMPARE(files.size(), 1);
+          QCOMPARE(reused, qsizetype(attempt));
+          QCOMPARE(receiver.service.catalog()->assets().size(), qsizetype(attempt));
+          durablePath = files.front();
+          QVERIFY(QFileInfo::exists(durablePath));
+          events << "received";
+        });
+      QCOMPARE(events, QStringList({"received", "parsed"}));
+    }
+    QCOMPARE(receiver.service.catalog()->assets().size(), 1);
+    const auto localVersion = receiver.service.catalog()->currentVersion(receiver.service.catalog()->assets().front().id);
+    const auto inbox = QFileInfo(durablePath).dir();
+    const auto records = inbox.entryList({QStringLiteral("import-*.json")}, QDir::Files);
+    QVERIFY(!records.isEmpty());
+    for (const auto &name : records) {
+      QFile file(inbox.filePath(name));
+      QVERIFY(file.open(QIODevice::ReadOnly));
+      const auto parsed = QJsonDocument::fromJson(file.readAll()).object();
+      QCOMPARE(parsed.value("receipt_id").toString(), inbox.dirName());
+      QCOMPARE(parsed.value("source_sha256").toString(), localVersion.sha256);
+      QCOMPARE(parsed.value("local_raw_version_id").toString(), localVersion.id);
+    }
+  }
+
   void importsByContentAndReviewsOnlyAmbiguousFiles()
   {
     ImportProject project;

@@ -281,6 +281,10 @@ ProjectOpenWorkflow *PaleoMainWindow::projectOpenWorkflow()
               else
                 PaleoNotify::warning(this, title, detail);
             });
+    connect(m_projectOpenWf, &ProjectOpenWorkflow::copySourceReviewRequested, this, [this](const QStringList &rows) {
+      PaleoNotify::warning(this, tr("工程副本中有旧路径来源"),
+        tr("以下来源仍引用原工程中的文件。请在数据页核对并重定位到所需副本（最多列出 20 条）。") + '\n' + rows.join('\n'));
+    });
     connect(m_projectOpenWf, &ProjectOpenWorkflow::folderImportRequested, this,
             [this](const QString &dir) {
               if (m_importSvc)

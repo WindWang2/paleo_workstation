@@ -517,6 +517,14 @@ bool AppContext::acquireProjectLock(const QString &projectDir, bool creating, QS
   m_pendingLock.reset();
   m_pendingLockReuse = false;
   auto candidate = std::make_unique<ProjectDirLock>(projectDir);
+  if (!m_projectSvc->allowsProjectWritesAt(projectDir)) {
+    if (creating) {
+      if (error) *error = tr("请将新工程保存到可用的数据盘 %1。").arg(m_projectSvc->writableProjectRoot());
+      return false;
+    }
+    m_pendingLock = std::move(candidate); // Preflight never creates lock directories on the original volume.
+    return true;
+  }
   if (m_projectLock && m_projectLock->isHeld() &&
       m_projectLock->lockPath() == candidate->lockPath())
   {
@@ -609,13 +617,13 @@ void AppContext::releaseProjectSession()
   }
   m_projectLock.reset();
   m_lastReadOnlyNotified = false;
-  if (m_store)
+  if (m_store) {
+    // readOnlyChanged is synchronous: observers must already see a closed store.
+    m_store->setProjectPaths({}, {}, {});
     m_store->setReadOnly(false);
-  if (m_import)
-  {
-    if (DataCatalog *cat = m_import->catalog())
-      cat->setLockedReadOnly(false);
   }
+  if (m_import && m_import->catalog())
+    m_import->catalog()->setLockedReadOnly(true); // The previous catalog has no active write lock.
 
   // M-06: 显式重置断层解释与井位编排器，杜绝跨会话脏数据残留
   if (m_faultCtl)
@@ -693,6 +701,15 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
   // T4 单写实例降级：锁失败 = 真只读。四个落盘面全部接线——
   // catalog（save/mutator 回滚）、工程存储（gpkg/qgz/journal）、
   // 图层清单（manifest sqlite）、版本库（map_versions）。读面照常。
+  // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
+  // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
+  // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
+  if (!m_metaPath.isEmpty())
+    MetaStore::closeConnectionsFor(m_metaPath);
+  const QString metaPath = manifestPathFor(qgzPath);
+  const bool metaExisted = QFileInfo::exists(metaPath);
+  m_metaPath = metaPath;
+  m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
   const bool writable = m_projectLock->isHeld();
   m_store->setReadOnly(!writable);
   m_projectSvc->setReadOnly(!writable);
@@ -704,15 +721,6 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
     m_lastReadOnlyNotified = !writable;
     emit projectReadOnlyChanged(!writable);
   }
-  // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
-  // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
-  // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
-  if (!m_metaPath.isEmpty())
-    MetaStore::closeConnectionsFor(m_metaPath);
-  const QString metaPath = manifestPathFor(qgzPath);
-  const bool metaExisted = QFileInfo::exists(metaPath);
-  m_metaPath = metaPath;
-  m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
   // 发布记档与工程提交记档同目录。先补登记中断的发布，再扫描未完成
   // 记档，避免一次已经补完的发布仍被报成未完成。只读实例不补登记。

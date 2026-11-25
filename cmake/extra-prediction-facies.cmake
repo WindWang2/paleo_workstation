@@ -3,6 +3,7 @@ target_sources(paleo_domain PRIVATE src/domain/faciestaxonomy.cpp src/domain/fac
 target_sources(paleo_qgis PRIVATE src/qgis/faciesmaplegend.cpp src/qgis/facieshierarchyrenderer.cpp src/qgis/mapcanvaslink.cpp src/qgis/draftautosave.cpp src/qgis/mappingfeatureidentity.cpp src/qgis/evidencemapadapter.cpp src/qgis/composeattribution.cpp)  # draftautosave：facies-ux 4；composeattribution：图斑级编图归因重放
 target_sources(paleo_workflow PRIVATE src/workflow/mappinghierarchy.cpp src/workflow/mappingevidencereview.cpp src/workflow/mappingeditsave.cpp src/workflow/evidenceinteraction.cpp)
 target_sources(paleo_store PRIVATE src/metadata/mapsnapshot.cpp src/metadata/mapsnapshot.h)
+target_sources(paleo_store PRIVATE src/metadata/editsavejournal.cpp)
 target_sources(paleo_workflow PRIVATE src/workflow/mapversioncontroller_async.cpp)
 target_sources(paleo_ui PRIVATE src/ui/pages/wellpredictionpanel.cpp src/ui/pages/faciesconsistencydialog.cpp)  # facies-ux 4 一致性报告
 target_link_libraries(paleo_qgis PRIVATE paleo_domain)

@@ -2,6 +2,7 @@
 #include "pythonanalysisreport.h"
 #include "pythonanalysis.h"
 #include "pythonoutputjson.h"
+#include "domain/wellref.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
@@ -52,7 +53,8 @@ bool sources(const Expected &expected) {
   if(!keys(model,{"storeId","generation","sequence","boundary"})||!text(model.value("storeId"))||!text(model.value("generation"))||
       !decimal(model.value("sequence"),sequence)||model.value("boundary")!="unchanged_before_and_after_all_windows")return false;
   const auto array=provenance.value("sources").toArray();if(array.size()!=expected.channels)return false;
-  for(int i=0;i<array.size();++i){const auto value=array[i].toObject(),column=expected.columns[i].toObject();
+  for(int i=0;i<array.size();++i){auto value=array[i].toObject();const auto column=expected.columns[i].toObject();
+    if(value.contains("wellboreKey")&&!document::validWellboreKey(value.take("wellboreKey").toString()))return false;
     qint64 well=0,log=0,curve=0,first=0,total=0,sourceId=0;int count=0;
     const auto source=value.value("source").toObject();
     if(!keys(value,{"source","sourceVersionId","wellId","logSetId","curveId","firstSample","sampleCount","sourceTotalSamples","processed"})||

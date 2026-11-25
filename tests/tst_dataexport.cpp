@@ -1,7 +1,9 @@
 #include <QtTest>
+#include <QCryptographicHash>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QDir>
 #ifdef Q_OS_WIN
@@ -12,6 +14,7 @@
 #include <gdal.h>
 #include <ogr_api.h>
 #include "../src/services/dataexport.h"
+#include "../src/metadata/paleoprojectfile.h"
 #include "../src/qgis/dataexportwriter.h"
 #include "../src/workflow/dataexportworkflow.h"
 #include "../src/services/paleotaskservice.h"
@@ -21,7 +24,7 @@ using namespace paleo::exporting;
 class TestDataExport : public QObject {
   Q_OBJECT
   static QString add(DataCatalog &cat, const QString &name, const QByteArray &bytes,
-      const QStringList &parents = {}, const QString &assetId = {}) {
+      const QStringList &parents = {}, const QString &assetId = {}, bool useQuickFingerprint = false) {
     CatalogAsset a; a.id = assetId.isEmpty() ? cat.nextAssetId() : assetId;
     a.displayName = name; a.type = "auxiliary"; a.format = QFileInfo(name).suffix();
     if (assetId.isEmpty() && !cat.addAsset(a)) return {};
@@ -33,7 +36,14 @@ class TestDataExport : public QObject {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) return {};
-    file.close(); v.sha256 = DataCatalog::sha256FileHex(path);
+    file.close();
+    if (useQuickFingerprint) {
+      QCryptographicHash hash(QCryptographicHash::Sha256);
+      hash.addData(bytes.left(65536));
+      hash.addData(QByteArray::number(bytes.size()));
+      hash.addData(QByteArray::number(QFileInfo(path).lastModified().toMSecsSinceEpoch()));
+      v.sha256 = "quick:" + QString::fromLatin1(hash.result().toHex());
+    } else v.sha256 = DataCatalog::sha256FileHex(path);
     return cat.addVersion(v) ? v.id : QString();
   }
 private slots:
@@ -183,6 +193,72 @@ private slots:
     QFile exported(QDir(result.directory).filePath("data/" + asset + "/" + raw + "/同名.dat"));
     QVERIFY(exported.open(QIODevice::ReadOnly)); QCOMPARE(exported.readAll(), QByteArray("old raw\n"));
     QVERIFY(!execute(plan(cat, tmp.path(), request)).complete()); // no overwrite
+  }
+  void nativeTransferKeepsSourceAndPublishesFullDigest_data() {
+    QTest::addColumn<QString>("fixture");
+    QTest::addColumn<bool>("quick");
+    const auto las = QFINDTESTDATA("fixtures/io_robustness/unit_metre.las");
+    const auto sgy = QFINDTESTDATA("../testdata/segy/synthetic_4x5.sgy");
+    QTest::newRow("LAS-full") << las << false;
+    QTest::newRow("SGY-full") << sgy << false;
+    QTest::newRow("SGY-directory-quick") << sgy << true;
+  }
+  void nativeTransferKeepsSourceAndPublishesFullDigest() {
+    QFETCH(QString, fixture); QFETCH(bool, quick);
+    QFile original(fixture); QVERIFY(original.open(QIODevice::ReadOnly));
+    const auto bytes = original.readAll(); QVERIFY(!bytes.isEmpty());
+    const auto fullHash = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+    const auto name = QFileInfo(fixture).fileName();
+    QTemporaryDir projectDir;
+    const auto project = projectFileForQgz(projectDir.filePath("transfer.qgz"));
+    QVERIFY(writeProjectFile(projectDir.path(), project));
+    QString versionId, registered;
+    {
+      DataCatalog catalog; QVERIFY(catalog.open(projectDir.path()));
+      versionId = add(catalog, name, bytes, {}, {}, quick); QVERIFY(!versionId.isEmpty());
+      registered = catalog.versionById(versionId).sha256;
+      QCOMPARE(registered.startsWith("quick:"), quick);
+      DataRequest request; request.versionIds = {versionId}; request.scope = Scope::Original;
+      request.destination = projectDir.filePath("exchange");
+      const auto result = execute(plan(catalog, projectDir.path(), request));
+      QVERIFY2(result.complete(), qPrintable(result.error + result.failures.join("\n")));
+      QFile metadata(QDir(result.directory).filePath("metadata.json"));
+      QVERIFY(metadata.open(QIODevice::ReadOnly));
+      const auto batch = QJsonDocument::fromJson(metadata.readAll()).object();
+      QCOMPARE(batch.value("project_id").toString(), project.projectId);
+      const auto asset = batch.value("assets").toArray().at(0).toObject();
+      QCOMPARE(asset.value("file_name").toString(), name);
+      QCOMPARE(asset.value("source_fingerprint").toString(), registered);
+      QCOMPARE(asset.value("source_sha256").toString(), fullHash);
+      const auto files = asset.value("files").toArray(); QCOMPARE(files.size(), 1);
+      const auto member = files.at(0).toObject();
+      QCOMPARE(member.value("bytes").toInteger(), bytes.size());
+      QCOMPARE(member.value("sha256").toString(), fullHash);
+      QFile received(QDir(result.directory).filePath(member.value("path").toString()));
+      QVERIFY(received.open(QIODevice::ReadOnly)); QCOMPARE(received.readAll(), bytes);
+    }
+    DataCatalog reopened; QVERIFY(reopened.open(projectDir.path()));
+    QCOMPARE(reopened.versionById(versionId).sha256, registered);
+  }
+  void changedQuickSourceRejectsDelivery() {
+    QTemporaryDir tmp; DataCatalog catalog; QVERIFY(catalog.open(tmp.path()));
+    const auto id = add(catalog, "head.sgy", QByteArray(85000, 'A'), {}, {}, true);
+    QVERIFY(!id.isEmpty());
+    DataRequest request; request.versionIds = {id}; request.scope = Scope::Original;
+    request.destination = tmp.filePath("exchange");
+    auto prepared = plan(catalog, tmp.path(), request); QCOMPARE(prepared.items.size(), 1);
+    const auto path = prepared.items.first().path;
+    const auto modified = QFileInfo(path).lastModified();
+    QFile f(path); QVERIFY(f.open(QIODevice::ReadWrite)); QCOMPARE(f.write("B",1), qint64(1));
+    QVERIFY(f.flush()); QVERIFY(f.setFileTime(modified, QFileDevice::FileModificationTime)); f.close();
+    const auto result = execute(prepared);
+    QVERIFY(!result.complete()); QCOMPARE(result.succeeded, 0); QVERIFY(!result.failures.isEmpty());
+    QVERIFY(!QFileInfo::exists(QDir(result.directory).filePath(
+        QStringLiteral("data/") + prepared.items.first().asset.id + "/" + id + "/head.sgy")));
+    QFile metadata(QDir(result.directory).filePath("metadata.json"));
+    QVERIFY(metadata.open(QIODevice::ReadOnly));
+    const auto batch = QJsonDocument::fromJson(metadata.readAll()).object();
+    QVERIFY(!batch.contains("project_id")); QVERIFY(!batch.value("complete").toBool());
   }
   void sourcesUseHistoricalInputsAndDeduplicate() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path()));

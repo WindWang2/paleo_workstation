@@ -61,7 +61,7 @@ ProjectLayerData ProjectLayerRefreshWorkflow::prepare(DataCatalog &snapshot, con
 }
 void ProjectLayerRefreshWorkflow::request(DataCatalog *catalog, const QString &directory)
 {
-  if (!catalog || directory.isEmpty() || !catalog->isOpen()) return;
+  if (!catalog || directory.isEmpty() || !catalog->isOpen() || catalog->refusesWrites()) return;
   m_catalog = catalog; m_directory = directory; ++m_generation;
   if (m_running) { m_pending = true; return; }
   m_running = true; m_pending = false;

@@ -311,7 +311,7 @@ public:
       SgySliceType type,
       int sliceIndex,
       std::function<void(bool success, std::shared_ptr<const SgySliceImage> image, const QString &error)> onFinished,
-      const QString &pagedPath = QString(), bool viewer3D = false);
+      const QString &pagedPath = QString(), bool viewer3D = false, const QString &workspaceMeta = {});
 
   // 3. 异步任意剖面提取：任意折线路径剖面提取
   PaleoTask *startSectionExtraction(

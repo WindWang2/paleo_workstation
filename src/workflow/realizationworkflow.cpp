@@ -1,4 +1,5 @@
 // 层：功能
+#include "metadata/managedpath.h"
 #include "realizationworkflow.h"
 
 #include "../algorithms/ensemblestats.h"
@@ -142,6 +143,8 @@ void closeMemberRasters( QVector<MemberRaster> *members )
 
 struct RealizationJob
 {
+  QString projectDir;
+  std::shared_ptr<QTemporaryDir> scratch;
   enum class Kind { DeriveAllStats, DifferenceOfMeans };
   Kind kind = Kind::DeriveAllStats;
   QString setId;
@@ -798,6 +801,7 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
   }
 
   auto job = std::make_shared<RealizationJob>();
+  job->projectDir = m_projectDir;
   job->kind = RealizationJob::Kind::DeriveAllStats;
   job->setId = setId;
 
@@ -992,7 +996,9 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
 
     progress( 70.0, QStringLiteral( "quantiles" ) );
 
-    const QString tempDir = QDir::tempPath();
+    j.scratch = paleo::managedpath::temporaryDirectory(j.projectDir, QStringLiteral("paleo-realstat"));
+    if (!j.scratch) { j.error = RealizationWorkflow::tr("无法创建统计面暂存目录"); return false; }
+    const QString tempDir = j.scratch->path();
     const quint64 ts = QDateTime::currentMSecsSinceEpoch();
     const QByteArray projWktBytes = j.projWkt.toUtf8();
 
@@ -1156,6 +1162,7 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
     return nullptr;
 
   auto job = std::make_shared<RealizationJob>();
+  job->projectDir = m_projectDir;
   job->kind = RealizationJob::Kind::DifferenceOfMeans;
   job->setId = setIdA;
   job->setIdB = setIdB;
@@ -1274,9 +1281,9 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
                     ? a[i] - b[i]
                     : std::numeric_limits<double>::quiet_NaN();
 
-    const QString tmpFile = QDir( QDir::tempPath() ).filePath(
-        QStringLiteral( "paleo_realdiff_%1_%2_%3.tif" )
-            .arg( j.setId, j.setIdB ).arg( QDateTime::currentMSecsSinceEpoch() ) );
+    j.scratch = paleo::managedpath::temporaryDirectory(j.projectDir, QStringLiteral("paleo-realdiff"));
+    if (!j.scratch) { j.error = RealizationWorkflow::tr("无法创建差值面暂存目录"); return false; }
+    const QString tmpFile = j.scratch->filePath(QStringLiteral("difference.tif"));
     if ( !writeStatRaster( tmpFile, diff, cols, rows, j.gt, j.projWkt.toUtf8() ) )
     {
       j.error = RealizationWorkflow::tr( "差值面写盘失败" );

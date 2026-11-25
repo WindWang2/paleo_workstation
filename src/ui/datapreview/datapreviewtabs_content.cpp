@@ -135,7 +135,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   {
     auto *office = new OfficePreviewWidget(
         abs, sourceVersion.managed ? QString() : sourceVersion.sha256, host,
-        m_doc ? m_doc->taskService() : nullptr);
+        m_doc ? m_doc->taskService() : nullptr, cat->refusesWrites() ? QString() : cat->projectDir());
     const QString &editAsset = assetId; // 引用绑定：lambda 捕获时才拷一份
     const QString editParent = sourceVersion.id;
     connect(office, &OfficePreviewWidget::editSaved, host, [this, office, editAsset, editParent](const QString &saved) {

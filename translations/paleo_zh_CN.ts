@@ -1099,6 +1099,57 @@
         <source>原始内容（已截断，保留前 %1 字符）</source>
         <translation>原始内容（已截断，保留前 %1 字符）</translation>
     </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="340"/>
+        <source>%1（%2）</source>
+        <translation>%1（%2）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="339"/>
+        <source>主井筒</source>
+        <translation>主井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="335"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="336"/>
+        <source>井筒</source>
+        <translation>井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="336"/>
+        <source>井筒资料暂不可读取</source>
+        <translation>井筒资料暂不可读取</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="339"/>
+        <source>已登记分支井筒</source>
+        <translation>已登记分支井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="335"/>
+        <source>所属井尚待确认</source>
+        <translation>所属井尚待确认</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="370"/>
+        <source>归属冲突</source>
+        <translation>归属冲突</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="369"/>
+        <source>待确认</source>
+        <translation>待确认</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="371"/>
+        <source>来源待核验</source>
+        <translation>来源待核验</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="355"/>
+        <source>来源所属井筒</source>
+        <translation>来源所属井筒</translation>
+    </message>
 </context>
 <context>
     <name>AlgorithmSpec</name>
@@ -1197,6 +1248,11 @@
         <location filename="../src/app/appcontext_layers.cpp" line="190"/>
         <source>测区范围</source>
         <translation>测区范围</translation>
+    </message>
+    <message>
+        <location filename="../src/app/appcontext.cpp" line="522"/>
+        <source>请将新工程保存到可用的数据盘 %1。</source>
+        <translation>请将新工程保存到可用的数据盘 %1。</translation>
     </message>
 </context>
 <context>
@@ -8870,6 +8926,16 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <source>工程处于只读模式，撤销/重做已禁用</source>
         <translation>工程处于只读模式，撤销/重做已禁用</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="26"/>
+        <source>接收原件包</source>
+        <translation>接收原件包</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="27"/>
+        <source>选择另一工程导出的原件包目录，校验并保存 LAS 或 SEG-Y，再确认导入</source>
+        <translation>选择另一工程导出的原件包目录，校验并保存 LAS 或 SEG-Y，再确认导入</translation>
+    </message>
 </context>
 <context>
     <name>DataPage</name>
@@ -10051,6 +10117,18 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
     <message>
         <source>预览页面已关闭</source>
         <translation>预览页面已关闭</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546"/>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607"/>
+        <source>地震转码</source>
+        <translation>地震转码</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546"/>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607"/>
+        <source>无法创建工程工作区</source>
+        <translation>无法创建工程工作区</translation>
     </message>
 </context>
 <context>
@@ -13169,6 +13247,21 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/workflow/folderimport_agent.cpp" line="51"/>
         <source>请选择可读取的非空本地文件。</source>
         <translation>请选择可读取的非空本地文件。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/folderimport_originals.cpp" line="34"/>
+        <source>工程已切换，请在原工程查看收件结果。</source>
+        <translation>工程已切换，请在原工程查看收件结果。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/folderimport_originals.cpp" line="52"/>
+        <source>校验并接收原件包</source>
+        <translation>校验并接收原件包</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/folderimport_originals.cpp" line="19"/>
+        <source>请先打开可写工程，再接收原件包。</source>
+        <translation>请先打开可写工程，再接收原件包。</translation>
     </message>
 </context>
 <context>
@@ -25585,6 +25678,56 @@ PDF：%3
         <source>画布编辑已保存，当前成果版本为 v%1。</source>
         <translation>画布编辑已保存，当前成果版本为 v%1。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="47"/>
+        <source>原件已收 %1 份，其中 %2 份为此前收件。</source>
+        <translation>原件已收 %1 份，其中 %2 份为此前收件。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="48"/>
+        <source>接收已取消。</source>
+        <translation>接收已取消。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="69"/>
+        <source>旧包的来源工程</source>
+        <translation>旧包的来源工程</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="70"/>
+        <source>输入发送方的稳定工程标识。再次接收同一工程的资料时请使用相同标识。</source>
+        <translation>输入发送方的稳定工程标识。再次接收同一工程的资料时请使用相同标识。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="55"/>
+        <source>选择 LAS 或 SEG-Y 原件包目录</source>
+        <translation>选择 LAS 或 SEG-Y 原件包目录</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="54"/>
+        <source>复制工程到数据盘并打开…</source>
+        <translation>复制工程到数据盘并打开…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="591"/>
+        <source>工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。</source>
+        <translation>工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="65"/>
+        <source>选择数据盘上的目标父目录（将复制清单成员和受管资料）</source>
+        <translation>选择数据盘上的目标父目录（将复制清单成员和受管资料）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_project.cpp" line="286"/>
+        <source>以下来源仍引用原工程中的文件。请在数据页核对并重定位到所需副本（最多列出 20 条）。</source>
+        <translation>以下来源仍引用原工程中的文件。请在数据页核对并重定位到所需副本（最多列出 20 条）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_project.cpp" line="285"/>
+        <source>工程副本中有旧路径来源</source>
+        <translation>工程副本中有旧路径来源</translation>
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -28901,6 +29044,21 @@ PDF：%3
         <source>写入工程清单失败</source>
         <translation>写入工程清单失败</translation>
     </message>
+    <message>
+        <location filename="../src/workflow/projectopen.cpp" line="53"/>
+        <source>复制并校验工程</source>
+        <translation>复制并校验工程</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectopen.cpp" line="61"/>
+        <source>工程复制失败</source>
+        <translation>工程复制失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectopen.cpp" line="134"/>
+        <source>请使用新建工程向导，在数据盘创建工程并选择此资料目录。</source>
+        <translation>请使用新建工程向导，在数据盘创建工程并选择此资料目录。</translation>
+    </message>
 </context>
 <context>
     <name>ProjectSetupDialog</name>
@@ -29536,6 +29694,16 @@ PDF：%3
         <location filename="../src/workflow/projectsetup_area.cpp" line="136"/>
         <source>资料未提供可唯一确定的 EPSG，工程基准已默认采用 EPSG:32650。</source>
         <translation>资料未提供可唯一确定的 EPSG，工程基准已默认采用 EPSG:32650。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectsetup.cpp" line="120"/>
+        <source>请为新工程和原始资料选择相互独立的目录。</source>
+        <translation>请为新工程和原始资料选择相互独立的目录。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectsetup.cpp" line="116"/>
+        <source>请将新工程保存到可用的数据盘 %1。</source>
+        <translation>请将新工程保存到可用的数据盘 %1。</translation>
     </message>
 </context>
 <context>
@@ -40459,6 +40627,317 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>工作副本已变化，请重新选择编图范围。</source>
         <translation>工作副本已变化，请重新选择编图范围。</translation>
     </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="60"/>
+        <source>仅可接收每个 RAW 版本含一个 LAS 或 SEG-Y 原件的资料包</source>
+        <translation>仅可接收每个 RAW 版本含一个 LAS 或 SEG-Y 原件的资料包</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="168"/>
+        <source>写入收件文件失败</source>
+        <translation>写入收件文件失败</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="66"/>
+        <source>原件不在清单声明的资产版本目录</source>
+        <translation>原件不在清单声明的资产版本目录</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="356"/>
+        <source>原件交付需要 %1 字节，目标卷可用 %2 字节</source>
+        <translation>原件交付需要 %1 字节，目标卷可用 %2 字节</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="164"/>
+        <source>原件传输中断</source>
+        <translation>原件传输中断</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="78"/>
+        <source>原件位置或长度与清单不符</source>
+        <translation>原件位置或长度与清单不符</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="176"/>
+        <source>原件完整性核验失败</source>
+        <translation>原件完整性核验失败</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="150"/>
+        <source>原件或已收文件长度不符</source>
+        <translation>原件或已收文件长度不符</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="75"/>
+        <source>原件缺少一致的完整摘要或长度</source>
+        <translation>原件缺少一致的完整摘要或长度</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="123"/>
+        <source>复制期间来源文件发生变化或读取不完整：%1</source>
+        <translation>复制期间来源文件发生变化或读取不完整：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/dataimport_geodata.cpp" line="228"/>
+        <source>外部时间域层位 %1，来源体版本 %2，待关联本工区测区</source>
+        <translation>外部时间域层位 %1，来源体版本 %2，待关联本工区测区</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="395"/>
+        <source>导出文件重名：%1</source>
+        <translation>导出文件重名：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="166"/>
+        <source>工程内已有文件与本次原件不同</source>
+        <translation>工程内已有文件与本次原件不同</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="226"/>
+        <source>工程收件区不可写</source>
+        <translation>工程收件区不可写</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="154"/>
+        <source>工程盘不可用或剩余空间不足</source>
+        <translation>工程盘不可用或剩余空间不足</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="207"/>
+        <source>收件发布失败，可重新接收</source>
+        <translation>收件发布失败，可重新接收</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="118"/>
+        <source>收件回执位置无效</source>
+        <translation>收件回执位置无效</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="196"/>
+        <source>收件文件位置无效</source>
+        <translation>收件文件位置无效</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="185"/>
+        <source>收件目录越界或不可用</source>
+        <translation>收件目录越界或不可用</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="134"/>
+        <source>无法写入收件回执</source>
+        <translation>无法写入收件回执</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="191"/>
+        <source>无法创建工程收件暂存目录</source>
+        <translation>无法创建工程收件暂存目录</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="147"/>
+        <source>无法打开原件或工程收件文件</source>
+        <translation>无法打开原件或工程收件文件</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="46"/>
+        <source>无法读取清单或清单过大</source>
+        <translation>无法读取清单或清单过大</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="96"/>
+        <source>旧资料包缺少来源工程身份，请在资料页接收时指定来源工程标识</source>
+        <translation>旧资料包缺少来源工程身份，请在资料页接收时指定来源工程标识</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="92"/>
+        <source>来源工程身份与清单不一致</source>
+        <translation>来源工程身份与清单不一致</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="98"/>
+        <source>来源版本指纹格式无效：%1</source>
+        <translation>来源版本指纹格式无效：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="52"/>
+        <source>清单格式无效</source>
+        <translation>清单格式无效</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="127"/>
+        <source>相同来源工程与版本已有不同内容或身份的收件记录</source>
+        <translation>相同来源工程与版本已有不同内容或身份的收件记录</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="236"/>
+        <source>缺少持久工程标识；本批数据可导出，接收方需核实来源工程。</source>
+        <translation>缺少持久工程标识；本批数据可导出，接收方需核实来源工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="220"/>
+        <source>缺少接收工程或资料包目录</source>
+        <translation>缺少接收工程或资料包目录</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="70"/>
+        <source>该文件不是 LAS 或 SEG-Y 原件</source>
+        <translation>该文件不是 LAS 或 SEG-Y 原件</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="188"/>
+        <source>该版本正在接收或收件目录不可写，请稍后重试</source>
+        <translation>该版本正在接收或收件目录不可写，请稍后重试</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="89"/>
+        <source>请选择已完成的原生格式资料导出包</source>
+        <translation>请选择已完成的原生格式资料导出包</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="104"/>
+        <source>资料包版本重复或文件总量超出可处理范围</source>
+        <translation>资料包版本重复或文件总量超出可处理范围</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="451"/>
+        <source>well_curves 可指定 well_details 中的井筒标识；返回该井筒已确认 LAS 来源的曲线引用及待确认数量</source>
+        <translation>well_curves 可指定 well_details 中的井筒标识；返回该井筒已确认 LAS 来源的曲线引用及待确认数量</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="30"/>
+        <source>主井筒填 main，侧钻井筒填稳定编号</source>
+        <translation>主井筒填 main，侧钻井筒填稳定编号</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="33"/>
+        <source>井筒名称</source>
+        <translation>井筒名称</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="32"/>
+        <source>井筒标识</source>
+        <translation>井筒标识</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="112"/>
+        <source>复制工程需要 %1 字节，目标可用 %2 字节。</source>
+        <translation>复制工程需要 %1 字节，目标可用 %2 字节。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="128"/>
+        <source>复制期间工程发生变化，请关闭编辑后重试。</source>
+        <translation>复制期间工程发生变化，请关闭编辑后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="44"/>
+        <source>工程中有链接目录或文件，请先处理后再迁移：%1</source>
+        <translation>工程中有链接目录或文件，请先处理后再迁移：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopylayers.cpp" line="47"/>
+        <source>工程中的 QGIS XML 无法读取。</source>
+        <translation>工程中的 QGIS XML 无法读取。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopylayers.cpp" line="109"/>
+        <source>工程包中缺少 QGIS 工程文件。</source>
+        <translation>工程包中缺少 QGIS 工程文件。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopylayers.cpp" line="103"/>
+        <source>工程包有多个 QGIS 工程文件，无法确定入口。</source>
+        <translation>工程包有多个 QGIS 工程文件，无法确定入口。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="74"/>
+        <source>工程文件校验失败：%1</source>
+        <translation>工程文件校验失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="46"/>
+        <source>工程正在被编辑，关闭写入它的实例后再迁移。</source>
+        <translation>工程正在被编辑，关闭写入它的实例后再迁移。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="107"/>
+        <source>工程清单中的 QGIS 文件缺失：%1</source>
+        <translation>工程清单中的 QGIS 文件缺失：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="39"/>
+        <location filename="../src/io/projectcopy.cpp" line="62"/>
+        <source>已取消复制工程。</source>
+        <translation>已取消复制工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="28"/>
+        <source>所属井</source>
+        <translation>所属井</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="102"/>
+        <source>所选 QGIS 文件不属于该目录的工程清单，请打开对应的 project.paleo。</source>
+        <translation>所选 QGIS 文件不属于该目录的工程清单，请打开对应的 project.paleo。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="118"/>
+        <source>无法创建工程副本目录：%1</source>
+        <translation>无法创建工程副本目录：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="129"/>
+        <source>无法发布已校验的工程副本：%1</source>
+        <translation>无法发布已校验的工程副本：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="52"/>
+        <source>无法完整读取工程目录：%1</source>
+        <translation>无法完整读取工程目录：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="47"/>
+        <source>无法读取工程成员：%1</source>
+        <translation>无法读取工程成员：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="96"/>
+        <source>此 QGIS 文件没有工程清单 project.paleo，无法确认要复制的资料。请先提供带清单的工程束。</source>
+        <translation>此 QGIS 文件没有工程清单 project.paleo，无法确认要复制的资料。请先提供带清单的工程束。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="93"/>
+        <source>目标目录已经存在，请选择其他位置：%1</source>
+        <translation>目标目录已经存在，请选择其他位置：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="25"/>
+        <source>确认 LAS 所属井筒</source>
+        <translation>确认 LAS 所属井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="20"/>
+        <source>确认 LAS 所属井筒…</source>
+        <translation>确认 LAS 所属井筒…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="51"/>
+        <source>该来源或井筒标识已有不同归属，请核对。</source>
+        <translation>该来源或井筒标识已有不同归属，请核对。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="43"/>
+        <source>请填写井筒标识和名称。</source>
+        <translation>请填写井筒标识和名称。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="90"/>
+        <source>请选择数据盘中位于原工程目录以外的目标目录。</source>
+        <translation>请选择数据盘中位于原工程目录以外的目标目录。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="87"/>
+        <source>请选择独立工程目录中的工程文件。</source>
+        <translation>请选择独立工程目录中的工程文件。</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -41764,6 +42243,16 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/realizationworkflow.cpp" line="1367"/>
         <source>两集合均值差：%1 vs %2</source>
         <translation>两集合均值差：%1 vs %2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/realizationworkflow.cpp" line="1285"/>
+        <source>无法创建差值面暂存目录</source>
+        <translation>无法创建差值面暂存目录</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/realizationworkflow.cpp" line="1000"/>
+        <source>无法创建统计面暂存目录</source>
+        <translation>无法创建统计面暂存目录</translation>
     </message>
 </context>
 <context>

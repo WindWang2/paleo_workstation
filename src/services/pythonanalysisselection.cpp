@@ -38,10 +38,13 @@ QJsonObject wellSchema() {
     {"model_well_id",decimalSchema(true)},{"model_head",decimalSchema()},{"model_available",QJsonObject{{"const",true}}}});
 }
 QJsonObject selectedInputs(AnalysisKind kind) {
-  const auto curve=object({{"source_ref",sourceSchema()},{"source_version_id",string()},{"well_id",decimalSchema(true)},
+  auto curve=object({{"source_ref",sourceSchema()},{"source_version_id",string()},{"well_id",decimalSchema(true)},
     {"log_set_id",decimalSchema(true)},{"curve_id",decimalSchema(true)},{"unit",string()},
     {"depth_type",QJsonObject{{"const","MD"}}},{"depth_unit",QJsonObject{{"type","string"},{"enum",QJsonArray{"m","ft","M","FT"}}}},
     {"depth_reference",string()},{"total_samples",decimalSchema()}});
+  auto properties=curve.value("properties").toObject();
+  properties.insert("wellbore_key",QJsonObject{{"type","string"},{"minLength",1},{"maxLength",512}});
+  curve.insert("properties",properties);
   return object({{"well_ref",wellSchema()},{"curves",QJsonObject{{"type","array"},{"minItems",kind==AnalysisKind::AttributeCorrelation?2:1},
     {"maxItems",AnalysisMaxChannels},{"items",curve}}},{"first_sample",decimalSchema()},
     {"sample_count",QJsonObject{{"type","integer"},{"minimum",0},{"maximum",AnalysisMaxSamples}}},
@@ -73,7 +76,11 @@ bool analysisSelectionFromJson(const QJsonObject &inputs,AnalysisKind kind,Analy
   if(curves.size()<(kind==AnalysisKind::AttributeCorrelation?2:1) || curves.size()>AnalysisMaxChannels)return fail("python_analysis_channel_budget");
   QSet<qlonglong> seen;
   for(const auto &value:curves) {
-    const auto ref=value.toObject();AnalysisCurveSelection selected;qlonglong total=0;
+    auto ref=value.toObject();AnalysisCurveSelection selected;qlonglong total=0;
+    if(ref.contains("wellbore_key")) {
+      selected.wellboreKey=ref.take("wellbore_key").toString();
+      if(!document::validWellboreKey(selected.wellboreKey))return fail("invalid_wellbore_key");
+    }
     if(!value.isObject() || !keys(ref,{"source_ref","source_version_id","well_id","log_set_id","curve_id","unit","depth_type","depth_unit","depth_reference","total_samples"}) ||
         !text(ref.value("source_version_id")) || !ref.value("source_ref").isObject() ||
         !document::sourceRefFromJson(ref.value("source_ref").toObject(),selected.source.ref) ||

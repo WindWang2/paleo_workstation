@@ -1,6 +1,7 @@
 // 层：数据
 #include "boundedread.h" // PW-076
 #include "welltabletext.h"
+#include "sectiontopscsv.h"
 #include "encodingdetect.h"
 #include "sourceprobe.h"
 #include <QFile>
@@ -25,6 +26,9 @@ WorkbookReadResult parseDelimited(const QString &path, const QByteArray &raw, in
 {
   WorkbookReadResult out;
   const auto text = EncodingDetect::decodeText(raw);
+  if (text.startsWith(QStringLiteral("井名,顶名,")) &&
+      QStringView(text).sliced(0, text.indexOf('\n') < 0 ? text.size() : text.indexOf('\n')).contains(QStringLiteral(",基准面,")))
+    return readSectionTopsCsv(text, rowLimit, limited);
   WorkbookSheet sheet; sheet.name = QFileInfo(path).completeBaseName(); QChar delimiter;
   int row = 0;
   for (const auto &line : text.split(QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts)) {

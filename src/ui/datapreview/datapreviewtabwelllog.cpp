@@ -2,6 +2,8 @@
 // token 例外：DESIGN 数据符号例外：关联分层区间填色，作为综合井图数据。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
 #include "datapreviewtabs_internal.h"
+#include "wellboresourcebutton.h"
+#include "../../workflow/documentsession.h"
 #include "../paleoviewport.h"   // PaleoToolRow（工具条容器）
 
 // 共享辅助来自内部头——与 datapreviewtabs.cpp 用同一 using 引入。
@@ -131,9 +133,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
     const QVector<EntityAssetLink> &links, QWidget *host, QVBoxLayout *lay)
 {
   // 单井曲线：按已决链接过滤（LAS 本就是单井文件），标题带井名。
-  QString linkedWell;
-  if (!wells.isEmpty())
-    linkedWell = wells.front().first;
+  const QString linkedWell = wells.value(0).first;
   if (!linkedWell.isEmpty())
   {
     m_wellEntityOfAsset[assetId] = linkedWell;
@@ -357,6 +357,8 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   auto *viewStack = new QStackedWidget(host);
   viewStack->setObjectName(QStringLiteral("logViewStack"));
   viewStack->addWidget(compPanel);
+  if (wells.size() == 1 && v.stage == QLatin1String("RAW") && QFileInfo(v.fileName).suffix().compare("las", Qt::CaseInsensitive) == 0)
+    paleo::preview::addWellboreSourceButton(m_document, v.id, linkedWell, wells.front().second, host, lay);
   lay->addWidget(lasPendingHint);
   lay->addWidget(viewStack, 1);
 

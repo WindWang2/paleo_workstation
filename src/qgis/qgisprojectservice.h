@@ -67,6 +67,10 @@ class QgisProjectService : public QObject
     bool updateMapConfiguration(const PaleoProjectFile &configuration, QString *error = nullptr);
     void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
     bool isReadOnly() const { return m_readOnly; }
+    void setWritableProjectRoot(const QString &root) { m_writableProjectRoot = root; }
+    QString writableProjectRoot() const { return m_writableProjectRoot; }
+    bool allowsProjectWritesAt(const QString &directory) const;
+    QString projectEntryPath() const { return m_entryPath.isEmpty() || m_path.isEmpty() ? m_path : m_entryPath; }
 
     // 关闭当前工程（#152/#153）：发 projectAboutToClose → clear() → 清路径
     // → 发 projectClosed。未打开工程时为空操作。关闭后 writeProject() 拒写
@@ -125,7 +129,7 @@ class QgisProjectService : public QObject
   quint64 m_sessionId = 0;
   bool m_lastOpenCancelled = false;
   OpenGate m_openGate;
-  QString m_path;
+  QString m_path, m_entryPath, m_writableProjectRoot;
   QStringList m_errors;
   std::optional<PaleoGeoreference> m_georeference;
   PaleoProjectFile m_mapConfiguration;

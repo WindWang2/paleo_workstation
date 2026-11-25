@@ -238,6 +238,53 @@ private slots:
     QCOMPARE(renewed.value("wells").toArray().at(1).toObject().value("td").toDouble(),777.0);
   }
 
+  void wellDetailsPagesStableBoreIdentities() {
+    Fixture f; QVERIFY(f.open());
+    const auto root = f.temp.filePath("artifacts/metadata/area-model");
+    paleo::data::DataService sdk; std::string error;
+    QVERIFY2(sdk.createProject(root.toUtf8().toStdString(), "bores", error), error.c_str());
+    paleo::data::WellInfo source; source.wellName = "identity-well";
+    long long id = 0; QVERIFY2(sdk.createWell(source, id, error), error.c_str());
+    for (const auto *key : {"side-a", "side-b"}) {
+      paleo::data::WellboreDeclaration declaration;
+      declaration.wellbore = {{id, key}, "侧钻"};
+      QVERIFY2(sdk.registerWellbore(declaration, error), error.c_str());
+    }
+    CatalogEntity well; well.id = "well-key"; well.entityType = "well"; well.name = "identity-well";
+    paleo::data::ModelChangeHead head; QVERIFY(sdk.readModelChangeHead(head, error));
+    const auto generation = QString::fromStdString(head.generation);
+    QVERIFY(f.catalog.setProjectionCheckpoint("area-sources", {QString::fromStdString(head.storeId), generation, head.sequence}, &f.error));
+    well.extra["areaModelGeneration"] = generation;
+    well.extra["areaModelWellId"] = qlonglong(id); QVERIFY(f.catalog.addEntity(well, &f.error));
+    ProjectQueryCapability service; service.bind(&f.catalog, {"doc", 1, 1});
+    QJsonObject args{{"topic", "well_details"}, {"well_id", well.id}, {"page_size", 1}};
+    QStringList keys;
+    for (int i = 0; i < 3; ++i) {
+      const auto response = service.query(args);
+      QVERIFY2(response.value("ok").toBool(), qPrintable(response.value("code").toString()));
+      QCOMPARE(response.value("well_id").toString(), well.id);
+      QCOMPARE(response.value("wellbore_status").toString(), QStringLiteral("available"));
+      QCOMPARE(response.value("count").toInt(), 0); // Preserves the linked-asset count.
+      const auto bores = response.value("wellbores").toArray(); QCOMPARE(bores.size(), 1);
+      const auto bore = bores.first().toObject(); keys << bore.value("key").toString();
+      QCOMPARE(bore.value("main").toBool(), i == 0);
+      QCOMPARE(bore.value("declared").toBool(), i > 0);
+      QCOMPARE(response.value("hasMore").toBool(), i < 2);
+      args["cursor"] = cursor(response);
+    }
+    const QStringList expected{"main", "side-a", "side-b"}; QCOMPARE(keys, expected);
+    well.extra["areaModelGeneration"] = "old-generation"; QVERIFY(f.catalog.updateEntity(well, &f.error));
+    args.remove("cursor");
+    QCOMPARE(service.query(args).value("wellbore_status").toString(), QStringLiteral("unconfirmed"));
+    // A name-only match still projects ordinary well metadata, but cannot
+    // silently confirm which local well owns explicitly registered branches.
+    well.extra.remove("areaModelWellId"); QVERIFY(f.catalog.updateEntity(well, &f.error));
+    args.remove("cursor");
+    const auto unbound = service.query(args);
+    QVERIFY(unbound.value("ok").toBool());
+    QCOMPARE(unbound.value("wellbore_status").toString(), QStringLiteral("unconfirmed"));
+    QVERIFY(unbound.value("wellbores").toArray().isEmpty());
+  }
   void highBranchingLineageAdvancesOnceAndRespectsZeroDepth() {
     Fixture f;QVERIFY(f.open());QVERIFY(f.asset("a"));QStringList parents;
     for(int i=0;i<300;++i)parents.append(QString("missing-%1").arg(i));

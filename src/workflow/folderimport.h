@@ -120,8 +120,16 @@ class FolderImportWorkflow : public QObject
                      const ProjectGuard &projectStillCurrent = {});
     // Explicit local attachment selection. Publish automatic results first, then
     // present only the files that need an operator's type or well selection.
+    // Receipt is delivered before any domain parsing or well choice. Repeated
+    // deliveries include the previously received files so parsing can be retried.
+    using OriginalsReceived = std::function<void(const QStringList &files, qsizetype reused,
+                                                  const QString &error, bool cancelled)>;
+    void receiveOriginalPackage(const QString &directory, const ProjectGuard &projectStillCurrent,
+                                const OriginalsReceived &done, const std::function<QString()> &identifySender = {});
     void importAgentAttachments(const QStringList &paths, const ProjectGuard &projectStillCurrent,
-                                const ImportDone &done, const AttachmentReview &needsReview = {});
+                                const ImportDone &done, const AttachmentReview &needsReview = {},
+                                const OriginalsReceived &received = {},
+                                const std::function<QString()> &identifySender = {});
     void previewFilesAsync(
         const QStringList &paths,
         const std::function<void(const QVector<FolderPreviewRow> &,
@@ -141,6 +149,8 @@ class FolderImportWorkflow : public QObject
     void previewActiveChanged(bool active);
 
   private:
+    void receiveFromSender(const QString &directory, const QString &senderId, const ProjectGuard &current,
+                           const OriginalsReceived &done, const std::function<QString()> &identifySender);
     struct ImportJob;
     // （#560）整批导入（importFolder/importFiles）的 produce 面：只写
     // session；进度统一经任务页回调（扫描段 total==0 跑马灯 + 文件名

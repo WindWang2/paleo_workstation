@@ -14,5 +14,6 @@ struct WellRef {
   bool operator==(const WellRef &) const = default;
 };
 QJsonObject wellRefJson(const WellRef &ref);
+bool validWellboreKey(const QString &key);
 bool wellRefFromJson(const QJsonObject &json, WellRef &ref, QString *code = nullptr);
 } // namespace paleo::document

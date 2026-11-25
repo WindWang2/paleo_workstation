@@ -1,5 +1,6 @@
 // 层：数据
 #include "welltable.h"
+#include "sectiontopscsv.h"
 #include "wellfileparsers.h"
 #include "dataimportservice.h"
 #include "lasparser.h"
@@ -32,6 +33,8 @@ bool readImportWellInput(const QString &path, const QString &type, const QString
     const bool pointsSlotKeepsTops = type == QLatin1String("well_head")
         && table.type == QLatin1String("well_stratification") && !table.heads.isEmpty();
     if (table.type != type && !pointsSlotKeepsTops) return fail(QObject::tr("井表类型与字段不匹配"));
+    if (table.mapping.value("profile").toString() == QLatin1String(sectionTopsProfile))
+      out->declaredTopDepthUnit = QStringLiteral("m");
     out->heads = table.heads; out->tops = table.tops; out->report = table.report; out->normalized = table.normalized;
     ok = hash.addData(&source);
   } else if (type == QLatin1String("well_head")) {

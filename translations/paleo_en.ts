@@ -1081,6 +1081,57 @@
         <source>原始内容（已截断，保留前 %1 字符）</source>
         <translation type="unfinished" />
     </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="340" />
+            <source>%1（%2）</source>
+            <translation>%1 (%2)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="339" />
+            <source>主井筒</source>
+            <translation>Main wellbore</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="335" />
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="336" />
+            <source>井筒</source>
+            <translation>Wellbores</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="336" />
+            <source>井筒资料暂不可读取</source>
+            <translation>Wellbore data is currently unavailable</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="339" />
+            <source>已登记分支井筒</source>
+            <translation>Registered branch wellbore</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="335" />
+            <source>所属井尚待确认</source>
+            <translation>Parent well awaits confirmation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="370" />
+            <source>归属冲突</source>
+            <translation>Conflicting assignment</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="369" />
+            <source>待确认</source>
+            <translation>Awaiting confirmation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="371" />
+            <source>来源待核验</source>
+            <translation>Source verification pending</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="355" />
+            <source>来源所属井筒</source>
+            <translation>Wellbore assigned to this source</translation>
+        </message>
     </context>
     <context>
         <name>AlgorithmSpec</name>
@@ -1175,6 +1226,11 @@
             <location filename="../src/app/appcontext_layers.cpp" line="190" />
             <source>测区范围</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/app/appcontext.cpp" line="522" />
+            <source>请将新工程保存到可用的数据盘 %1。</source>
+            <translation>Save the new project to the available data drive %1.</translation>
         </message>
     </context>
     <context>
@@ -8833,6 +8889,16 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
         <source>工程处于只读模式，撤销/重做已禁用</source>
         <translation>The project is read-only; undo/redo is disabled</translation>
     </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="26" />
+            <source>接收原件包</source>
+            <translation>Receive original files</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="27" />
+            <source>选择另一工程导出的原件包目录，校验并保存 LAS 或 SEG-Y，再确认导入</source>
+            <translation>Select an original-file package from another project, verify and save the LAS or SEG-Y files, then confirm the import</translation>
+        </message>
 </context>
     <context>
         <name>DataPage</name>
@@ -10008,6 +10074,18 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
         <source>预览页面已关闭</source>
         <translation>Preview page closed</translation>
     </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546" />
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607" />
+            <source>地震转码</source>
+            <translation>Seismic transcoding</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546" />
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607" />
+            <source>无法创建工程工作区</source>
+            <translation>Cannot create the project workspace</translation>
+        </message>
 </context>
     <context>
         <name>DataServiceImportWizard</name>
@@ -13106,6 +13184,21 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/workflow/folderimport_agent.cpp" line="51" />
             <source>请选择可读取的非空本地文件。</source>
             <translation>Select a local file that is readable and contains data.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_originals.cpp" line="34" />
+            <source>工程已切换，请在原工程查看收件结果。</source>
+            <translation>The active project has changed. Open the original project to view the receipt.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_originals.cpp" line="52" />
+            <source>校验并接收原件包</source>
+            <translation>Verify and receive original files</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_originals.cpp" line="19" />
+            <source>请先打开可写工程，再接收原件包。</source>
+            <translation>Open a writable project before receiving original files.</translation>
         </message>
     </context>
     <context>
@@ -25479,6 +25572,56 @@ PDF：%3
             <source>画布编辑已保存，当前成果版本为 v%1。</source>
             <translation>Canvas edits saved. The current map version is v%1.</translation>
         </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="47" />
+            <source>原件已收 %1 份，其中 %2 份为此前收件。</source>
+            <translation>Received %1 original files, including %2 previously received.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="48" />
+            <source>接收已取消。</source>
+            <translation>Transfer cancelled.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="69" />
+            <source>旧包的来源工程</source>
+            <translation>Source project for this legacy package</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="70" />
+            <source>输入发送方的稳定工程标识。再次接收同一工程的资料时请使用相同标识。</source>
+            <translation>Enter the sender's stable project ID. Use the same ID for future packages from that project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="55" />
+            <source>选择 LAS 或 SEG-Y 原件包目录</source>
+            <translation>Select a LAS or SEG-Y original-file package directory</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="54" />
+            <source>复制工程到数据盘并打开…</source>
+            <translation>Copy project to the data drive and open…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow.cpp" line="591" />
+            <source>工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。</source>
+            <translation>This project is open read-only because it is outside the data drive. To edit it, choose “Copy project to the data drive and open” in the project menu.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="65" />
+            <source>选择数据盘上的目标父目录（将复制清单成员和受管资料）</source>
+            <translation>Choose a parent folder on the data drive for the project members and managed data</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_project.cpp" line="286" />
+            <source>以下来源仍引用原工程中的文件。请在数据页核对并重定位到所需副本（最多列出 20 条）。</source>
+            <translation>The following sources still reference files in the original project. Review them on the Data page and relocate them to the desired copies (up to 20 shown).</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_project.cpp" line="285" />
+            <source>工程副本中有旧路径来源</source>
+            <translation>Some sources in the copied project still use old paths</translation>
+        </message>
 </context>
     <context>
         <name>PaleoMapBookController</name>
@@ -28787,6 +28930,21 @@ PDF：%3
             <source>写入工程清单失败</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/workflow/projectopen.cpp" line="53" />
+            <source>复制并校验工程</source>
+            <translation>Copy and verify project</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/projectopen.cpp" line="61" />
+            <source>工程复制失败</source>
+            <translation>Project copy failed</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/projectopen.cpp" line="134" />
+            <source>请使用新建工程向导，在数据盘创建工程并选择此资料目录。</source>
+            <translation>Use the New Project wizard to create a project on the data drive and select this source folder.</translation>
+        </message>
     </context>
     <context>
         <name>ProjectSetupDialog</name>
@@ -29405,6 +29563,16 @@ PDF：%3
             <location filename="../src/workflow/projectsetup_area.cpp" line="136" />
             <source>资料未提供可唯一确定的 EPSG，工程基准已默认采用 EPSG:32650。</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/projectsetup.cpp" line="120" />
+            <source>请为新工程和原始资料选择相互独立的目录。</source>
+            <translation>Choose separate directories for the new project and the source data.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/projectsetup.cpp" line="116" />
+            <source>请将新工程保存到可用的数据盘 %1。</source>
+            <translation>Save the new project to the available data drive %1.</translation>
         </message>
     </context>
     <context>
@@ -40314,6 +40482,317 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>工作副本已变化，请重新选择编图范围。</source>
             <translation>The working copy has changed. Select the map boundary again.</translation>
         </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="60" />
+            <source>仅可接收每个 RAW 版本含一个 LAS 或 SEG-Y 原件的资料包</source>
+            <translation>Each RAW version in the package must contain a single original LAS or SEG-Y file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="168" />
+            <source>写入收件文件失败</source>
+            <translation>Could not write the received file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="66" />
+            <source>原件不在清单声明的资产版本目录</source>
+            <translation>The original file is outside the asset version directory declared in the manifest</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="356" />
+            <source>原件交付需要 %1 字节，目标卷可用 %2 字节</source>
+            <translation>Delivering the original files requires %1 bytes. The destination volume has %2 bytes available</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="164" />
+            <source>原件传输中断</source>
+            <translation>Original file transfer interrupted</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="78" />
+            <source>原件位置或长度与清单不符</source>
+            <translation>The original file location or size does not match the manifest</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="176" />
+            <source>原件完整性核验失败</source>
+            <translation>Original file integrity check failed</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="150" />
+            <source>原件或已收文件长度不符</source>
+            <translation>The original or previously received file has an unexpected size</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="75" />
+            <source>原件缺少一致的完整摘要或长度</source>
+            <translation>The original file is missing a consistent full-file checksum or size</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="123" />
+            <source>复制期间来源文件发生变化或读取不完整：%1</source>
+            <translation>The source file changed during copying or could not be read in full: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/dataimport_geodata.cpp" line="228" />
+            <source>外部时间域层位 %1，来源体版本 %2，待关联本工区测区</source>
+            <translation>External time-domain horizon %1 from volume version %2 awaits association with a survey in this project</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="395" />
+            <source>导出文件重名：%1</source>
+            <translation>Duplicate export filename: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="166" />
+            <source>工程内已有文件与本次原件不同</source>
+            <translation>The existing project file differs from the incoming original</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="226" />
+            <source>工程收件区不可写</source>
+            <translation>The project receiving directory is not writable</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="154" />
+            <source>工程盘不可用或剩余空间不足</source>
+            <translation>The project drive is unavailable or has insufficient free space</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="207" />
+            <source>收件发布失败，可重新接收</source>
+            <translation>Publishing the received file failed. You can retry the transfer</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="118" />
+            <source>收件回执位置无效</source>
+            <translation>Invalid receipt location</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="196" />
+            <source>收件文件位置无效</source>
+            <translation>Invalid location for the received file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="185" />
+            <source>收件目录越界或不可用</source>
+            <translation>The receiving directory is outside the project or is unavailable</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="134" />
+            <source>无法写入收件回执</source>
+            <translation>Cannot write the transfer receipt</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="191" />
+            <source>无法创建工程收件暂存目录</source>
+            <translation>Cannot create the project's transfer staging directory</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="147" />
+            <source>无法打开原件或工程收件文件</source>
+            <translation>Cannot open the original file or the project's receiving file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="46" />
+            <source>无法读取清单或清单过大</source>
+            <translation>The manifest is unreadable or too large</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="96" />
+            <source>旧资料包缺少来源工程身份，请在资料页接收时指定来源工程标识</source>
+            <translation>This legacy package has no source project ID. Specify one when receiving it on the Data page</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="92" />
+            <source>来源工程身份与清单不一致</source>
+            <translation>The source project ID does not match the manifest</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="98" />
+            <source>来源版本指纹格式无效：%1</source>
+            <translation>Invalid source version fingerprint format: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="52" />
+            <source>清单格式无效</source>
+            <translation>Invalid manifest format</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="127" />
+            <source>相同来源工程与版本已有不同内容或身份的收件记录</source>
+            <translation>A receipt with different content or identity already exists for this source project and version</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="236" />
+            <source>缺少持久工程标识；本批数据可导出，接收方需核实来源工程。</source>
+            <translation>No persistent project ID is available. This batch can be exported, but the recipient must verify the source project.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="220" />
+            <source>缺少接收工程或资料包目录</source>
+            <translation>A receiving project and a package directory are required</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="70" />
+            <source>该文件不是 LAS 或 SEG-Y 原件</source>
+            <translation>This file is not an original LAS or SEG-Y file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="188" />
+            <source>该版本正在接收或收件目录不可写，请稍后重试</source>
+            <translation>This version is being received or the receiving directory is not writable. Try again later</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="89" />
+            <source>请选择已完成的原生格式资料导出包</source>
+            <translation>Select a completed native-format export package</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="104" />
+            <source>资料包版本重复或文件总量超出可处理范围</source>
+            <translation>The package contains duplicate versions or exceeds the supported total file size</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="451" />
+            <source>well_curves 可指定 well_details 中的井筒标识；返回该井筒已确认 LAS 来源的曲线引用及待确认数量</source>
+            <translation>well_curves accepts a wellbore ID from well_details and returns curve references from confirmed LAS sources and the number awaiting confirmation.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="30" />
+            <source>主井筒填 main，侧钻井筒填稳定编号</source>
+            <translation>Enter main for the main bore or a stable ID for a sidetrack</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="33" />
+            <source>井筒名称</source>
+            <translation>Wellbore name</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="32" />
+            <source>井筒标识</source>
+            <translation>Wellbore ID</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="112" />
+            <source>复制工程需要 %1 字节，目标可用 %2 字节。</source>
+            <translation>The project copy requires %1 bytes. The destination has %2 bytes available.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="128" />
+            <source>复制期间工程发生变化，请关闭编辑后重试。</source>
+            <translation>The project changed during copying. Close the editing session and try again.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="44" />
+            <source>工程中有链接目录或文件，请先处理后再迁移：%1</source>
+            <translation>Resolve this linked file or folder before migrating the project: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopylayers.cpp" line="47" />
+            <source>工程中的 QGIS XML 无法读取。</source>
+            <translation>The QGIS project XML could not be read.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopylayers.cpp" line="109" />
+            <source>工程包中缺少 QGIS 工程文件。</source>
+            <translation>The QGIS project file is missing from the bundle.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopylayers.cpp" line="103" />
+            <source>工程包有多个 QGIS 工程文件，无法确定入口。</source>
+            <translation>The bundle contains multiple QGIS project files. Its entry point is ambiguous.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="74" />
+            <source>工程文件校验失败：%1</source>
+            <translation>Project file verification failed: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="46" />
+            <source>工程正在被编辑，关闭写入它的实例后再迁移。</source>
+            <translation>Close the instance editing this project before migrating it.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="107" />
+            <source>工程清单中的 QGIS 文件缺失：%1</source>
+            <translation>The QGIS file named in the project manifest is missing: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="39" />
+            <location filename="../src/io/projectcopy.cpp" line="62" />
+            <source>已取消复制工程。</source>
+            <translation>Project copy cancelled.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="28" />
+            <source>所属井</source>
+            <translation>Parent well</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="102" />
+            <source>所选 QGIS 文件不属于该目录的工程清单，请打开对应的 project.paleo。</source>
+            <translation>The selected QGIS file does not belong to this folder’s project manifest. Open the matching project.paleo file.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="118" />
+            <source>无法创建工程副本目录：%1</source>
+            <translation>Could not create the project copy folder: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="129" />
+            <source>无法发布已校验的工程副本：%1</source>
+            <translation>Could not publish the verified project copy: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="52" />
+            <source>无法完整读取工程目录：%1</source>
+            <translation>Could not read the entire project folder: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="47" />
+            <source>无法读取工程成员：%1</source>
+            <translation>Could not read project member: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="96" />
+            <source>此 QGIS 文件没有工程清单 project.paleo，无法确认要复制的资料。请先提供带清单的工程束。</source>
+            <translation>This QGIS file has no project.paleo manifest to identify the files to copy. Select a project bundle that includes a manifest.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="93" />
+            <source>目标目录已经存在，请选择其他位置：%1</source>
+            <translation>The destination folder already exists. Choose another location: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="25" />
+            <source>确认 LAS 所属井筒</source>
+            <translation>Confirm LAS wellbore assignment</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="20" />
+            <source>确认 LAS 所属井筒…</source>
+            <translation>Confirm LAS wellbore assignment…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="51" />
+            <source>该来源或井筒标识已有不同归属，请核对。</source>
+            <translation>This source or wellbore ID already has a different assignment. Check the assignment.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="43" />
+            <source>请填写井筒标识和名称。</source>
+            <translation>Enter the wellbore ID and name.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="90" />
+            <source>请选择数据盘中位于原工程目录以外的目标目录。</source>
+            <translation>Choose a destination on the data drive outside the original project folder.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="87" />
+            <source>请选择独立工程目录中的工程文件。</source>
+            <translation>Select a project file in a dedicated project folder.</translation>
+        </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -41621,6 +42100,16 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/workflow/realizationworkflow.cpp" line="1367" />
             <source>两集合均值差：%1 vs %2</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/realizationworkflow.cpp" line="1285" />
+            <source>无法创建差值面暂存目录</source>
+            <translation>Cannot create a staging directory for the difference surface</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/realizationworkflow.cpp" line="1000" />
+            <source>无法创建统计面暂存目录</source>
+            <translation>Cannot create a staging directory for the statistics surfaces</translation>
         </message>
     </context>
     <context>

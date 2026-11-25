@@ -1,4 +1,5 @@
 // 层：视图
+#include "services/seismicworkspacepaths.h"
 #include "datapreviewtabs.h"
 #include "timeslicereadcontrols.h"
 #include "ui/common/fitwidth.h"
@@ -205,6 +206,24 @@ void bindTranscodeTaskUi(QProgressBar *bar, QToolButton *cancel, PaleoTask *task
     }
   });
 }
+QString backendStatusText(const seismic::SeismicBackendStatus &s, const QString &suffix)
+{
+  QString name;
+  if (s.backendName == QLatin1String("workspace"))
+    name = QObject::tr(".sf3c 工作区");
+  else if (s.backendName == QLatin1String("paged-workspace"))
+    name = QObject::tr(".sf3p 分页工作区");
+  else
+    name = QObject::tr("直读 SEG-Y");
+  QString text = QObject::tr("后端：%1%2").arg(
+      name, s.fellBackToDirect ? QObject::tr("（回退直读）") : QString());
+  if (s.backendName == QLatin1String("paged-workspace") && !s.quality.isEmpty())
+    text += QStringLiteral(" · %1").arg(s.quality);
+  if (!suffix.isEmpty())
+    text += suffix;
+  return text;
+}
+
 }
 
 QWidget *DataPreviewTabs::buildSeismicContent(
@@ -336,10 +355,11 @@ QWidget *DataPreviewTabs::buildSeismicContent(
 
   // ---- 引擎通道状态（先于转码区声明）：两段式体加载 + 显式 .sf3p 通道 ----
   auto sharedVol = std::make_shared<std::shared_ptr<seismic::SgyVolume>>();
-  auto sharedPaged = std::make_shared<QString>();
-  *sharedPaged = QFile::exists(abs + QStringLiteral(".sf3p"))
-                     ? abs + QStringLiteral(".sf3p")
-                     : QString(); // Auto 永不自动升级 .sf3p：存在即显式启用（引擎语义）
+  const auto workspace = seismic::workspaceLocations(cat->projectDir(), v.id, abs, &survey);
+  const bool canTranscode = !cat->refusesWrites() && !workspace.chunkBase.isEmpty() && !workspace.pagedFile.isEmpty();
+  auto sharedPaged = std::make_shared<QString>(workspace.readyPaged);
+  auto sharedChunk = std::make_shared<QString>(workspace.readyChunk);
+  panel3d->setChunkWorkspace(*sharedChunk);
 
   // 3. 水平时间切片剖面 (Time Slice)
   auto *wTime = new QWidget(modeTabs);
@@ -413,22 +433,21 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   auto *btnTranscode = new QToolButton(timeBar);
   btnTranscode->setText(tr("转码工作区 (.sf3c)"));
   btnTranscode->setToolTip(tr("将 SEG-Y 转码为 .sf3c 分片工作区（可续跑）；转码后切片与任意剖面走随机访问后端"));
-  btnTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
-                           && !QFile::exists(abs + QStringLiteral(".sf3c.meta")));
+  btnTranscode->setEnabled(canTranscode && workspace.readyChunk.isEmpty());
   // D1.2/D1.6：断点探测——半成品给「继续转码」入口，旧版/损坏给「重建」提示
   if (auto *probeSvc = (m_doc ? m_doc->seismicTaskService() : nullptr))
   {
-    const seismic::SeismicWorkspaceProbe wp = probeSvc->probeWorkspace(abs);
+    const seismic::SeismicWorkspaceProbe wp = probeSvc->probeWorkspace(workspace.chunkBase);
     if (wp.exists && wp.readable && !wp.complete)
     {
-      btnTranscode->setEnabled(true);
+      btnTranscode->setEnabled(canTranscode && workspace.readyChunk.isEmpty());
       btnTranscode->setText(tr("继续转码 (.sf3c)"));
       btnTranscode->setToolTip(tr("检测到未完成的 .sf3c 工作区（%1）。点击继续，已写分片自动跳过")
                                    .arg(wp.stateText()));
     }
     else if (wp.exists && !wp.readable)
     {
-      btnTranscode->setEnabled(true);
+      btnTranscode->setEnabled(canTranscode && workspace.readyChunk.isEmpty());
       btnTranscode->setText(tr("重建工作区 (.sf3c)"));
       btnTranscode->setToolTip(tr("现有 .sf3c 工作区不可读（%1，格式版本 v%2）。再次转码将自动重建")
                                    .arg(wp.error.isEmpty() ? tr("格式不支持") : wp.error)
@@ -442,15 +461,14 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   btnPagedTranscode->setText(tr("转码分页工作区 (.sf3p)"));
   btnPagedTranscode->setToolTip(tr("转码为 .sf3p 分页工作区并构建 L1/L2 金字塔（可续跑）；"
                                    "提供瓦片渐进时间片与拖动粗/静止细的渐进 LOD。Auto 后端不自动启用，需显式选择"));
-  const QString pagedPathForButtons = abs + QStringLiteral(".sf3p");
-  btnPagedTranscode->setEnabled(!abs.isEmpty() && QFile::exists(abs)
-                                && !QFile::exists(pagedPathForButtons));
+  const QString pagedPathForButtons = workspace.pagedFile;
+  btnPagedTranscode->setEnabled(canTranscode && workspace.readyPaged.isEmpty());
   if (auto *probeSvc = (m_doc ? m_doc->seismicTaskService() : nullptr))
   {
     const seismic::SeismicWorkspaceProbe pp = probeSvc->probePagedWorkspace(pagedPathForButtons);
     if (pp.exists && !pp.complete)
     {
-      btnPagedTranscode->setEnabled(true);
+      btnPagedTranscode->setEnabled(canTranscode && workspace.readyPaged.isEmpty());
       btnPagedTranscode->setText(tr("继续转码 (.sf3p)"));
       btnPagedTranscode->setToolTip(tr("检测到未完成的 .sf3p 分页工作区（%1）。点击继续，已完成页自动跳过")
                                         .arg(pp.stateText()));
@@ -479,12 +497,13 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   timeBarLay->addWidget(backendLabel);
 
   // 后端状态探测（转码完成后的「热切换」提示；Auto 只认 .sf3c 伴生）
-  const auto refreshBackendStatus = [this, abs, backendLabel](const QString &suffix = QString()) {
+  const auto refreshBackendStatus = [this, abs, backendLabel, sharedChunk, sharedPaged](const QString &suffix = QString()) {
     auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
     if (!svc)
       return;
     const QPointer<QLabel> labelGuard(backendLabel);
-    svc->startBackendProbe(abs, [labelGuard, suffix](bool ok, const seismic::SeismicBackendStatus &s, const QString &) {
+    const QString source = !sharedPaged->isEmpty() ? *sharedPaged : (sharedChunk->isEmpty() ? abs : *sharedChunk);
+    svc->startBackendProbe(source, [labelGuard, suffix](bool ok, const seismic::SeismicBackendStatus &s, const QString &) {
       if (!labelGuard)
         return;
       if (!ok)
@@ -492,20 +511,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
         labelGuard->setText(QObject::tr("后端：探测失败"));
         return;
       }
-      QString name;
-      if (s.backendName == QLatin1String("workspace"))
-        name = QObject::tr(".sf3c 工作区");
-      else if (s.backendName == QLatin1String("paged-workspace"))
-        name = QObject::tr(".sf3p 分页工作区");
-      else
-        name = QObject::tr("直读 SEG-Y");
-      QString text = QObject::tr("后端：%1%2").arg(
-          name, s.fellBackToDirect ? QObject::tr("（回退直读）") : QString());
-      if (s.backendName == QLatin1String("paged-workspace") && !s.quality.isEmpty())
-        text += QStringLiteral(" · %1").arg(s.quality);
-      if (!suffix.isEmpty())
-        text += suffix;
-      labelGuard->setText(text);
+      labelGuard->setText(backendStatusText(s, suffix));
     });
   };
 
@@ -518,12 +524,12 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     bindTranscodeTaskUi(transcodeProgress, btnCancelTranscode, task, activeTasks, boundTask);
   };
 
-  connect(btnTranscode, &QToolButton::clicked, host, [this, abs, btnTranscode, bindTranscodeTask, refreshBackendStatus]() {
+  connect(btnTranscode, &QToolButton::clicked, host, [this, abs, workspace, sharedChunk, panel3d, btnTranscode, bindTranscodeTask, refreshBackendStatus]() {
     auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
     if (!svc)
       return;
     // D1.2：点击时重新探测——续跑/新建/重建三种话术
-    const seismic::SeismicWorkspaceProbe wp = svc->probeWorkspace(abs);
+    const seismic::SeismicWorkspaceProbe wp = svc->probeWorkspace(workspace.chunkBase);
     QString questionText;
     if (wp.exists && wp.readable && !wp.complete)
       questionText = tr("检测到未完成的 .sf3c 工作区（%1）。\n继续转码（已写分片自动跳过）？")
@@ -537,16 +543,19 @@ QWidget *DataPreviewTabs::buildSeismicContent(
                          .arg(QFileInfo(abs).fileName());
     if (!PaleoNotify::ask(btnTranscode, tr("转码地震工作区"), questionText))
       return;
+    if (!workspace.prepareOutput()) { PaleoNotify::warning(btnTranscode, tr("地震转码"), tr("无法创建工程工作区")); return; }
     btnTranscode->setEnabled(false);
     btnTranscode->setText(tr("转码中…（可取消）"));
     const QPointer<QToolButton> guard(btnTranscode);
     PaleoTask *task = svc->startWorkspaceTranscodeDetailed(
-        abs, QString(),
-        [guard, refreshBackendStatus](bool ok, const QString &, const QString &err) {
+        abs, workspace.chunkBase,
+        [guard, refreshBackendStatus, sharedChunk, workspace, panel3d](bool ok, const QString &, const QString &err) {
       if (!guard)
         return;
       if (ok)
       {
+        *sharedChunk = workspace.chunkMeta;
+        panel3d->setChunkWorkspace(*sharedChunk);
         guard->setText(QObject::tr("工作区已就绪"));
         guard->setEnabled(false);
         refreshBackendStatus(QObject::tr("（已热切换）"));
@@ -577,7 +586,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
   });
 
   connect(btnPagedTranscode, &QToolButton::clicked, host,
-          [this, abs, pagedPathForButtons, btnPagedTranscode, bindTranscodeTask, refreshBackendStatus,
+          [this, abs, workspace, pagedPathForButtons, btnPagedTranscode, bindTranscodeTask, refreshBackendStatus,
            sharedPaged, panel3d, sharedVol]() {
     auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
     if (!svc)
@@ -595,6 +604,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
                           .arg(QFileInfo(abs).fileName());
     if (!PaleoNotify::ask(btnPagedTranscode, tr("转码分页工作区"), pagedQuestion))
       return;
+    if (!workspace.prepareOutput()) { PaleoNotify::warning(btnPagedTranscode, tr("地震转码"), tr("无法创建工程工作区")); return; }
     btnPagedTranscode->setEnabled(false);
     btnPagedTranscode->setText(tr("转码中…（可取消）"));
     const QPointer<QToolButton> guard(btnPagedTranscode);

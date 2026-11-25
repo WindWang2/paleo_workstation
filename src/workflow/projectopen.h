@@ -6,6 +6,7 @@
 #include <QVariantMap>
 
 class QgisProjectService;
+class PaleoTaskService;
 
 // workflow/projectopen — 「打开/新建工程」编排（W2：从主窗 openPath 下沉）。
 //
@@ -25,6 +26,8 @@ class ProjectOpenWorkflow : public QObject
 
     // 打开工程异步提交；返回 true 表示读取已启动。新建目录保持原有创建流程。
     bool openPath(const QString &path);
+    bool needsDataVolumeCopy() const;
+    void copyCurrentTo(const QString &parent, PaleoTaskService *tasks);
 
     // 「从工区文件夹新建」回写 sourceArea：工程目录 == 导入目录才写（目录
     // 不匹配静默拒绝）；读/写 project.paleo 失败只告警不阻断导入。
@@ -32,6 +35,7 @@ class ProjectOpenWorkflow : public QObject
 
   signals:
     void openFailed(const QString &title, const QString &detail, bool fatal);
+    void copySourceReviewRequested(const QStringList &rows);
     void folderImportRequested(const QString &dir);
 
   private:

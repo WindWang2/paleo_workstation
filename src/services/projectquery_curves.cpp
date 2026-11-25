@@ -115,7 +115,7 @@ int overhead(QJsonObject result,const QueryState &state) {
 }
 } // namespace
 QJsonObject ProjectQueryCapability::Impl::wellCurves(QueryState &state,const QJsonObject &args,int rows,int bytes,bool &more) {
-  for(auto it=args.begin();it!=args.end();++it)if(!QStringList{"topic","well_ref","cursor","page_size","max_bytes"}.contains(it.key()))
+  for(auto it=args.begin();it!=args.end();++it)if(!QStringList{"topic","well_ref","wellbore_key","cursor","page_size","max_bytes"}.contains(it.key()))
     return queryFailure("unsupported_topic_argument");
   document::WellRef well;
   if(!args.value("well_ref").isObject()||!document::wellRefFromJson(args.value("well_ref").toObject(),well)||
@@ -126,6 +126,11 @@ QJsonObject ProjectQueryCapability::Impl::wellCurves(QueryState &state,const QJs
   const auto mapping=entity.extra.value("areaModelWellId").toString();const auto id=mapping.toLongLong(&mapped);
   if(entity.id!=well.catalogEntityId||entity.entityType!="well"||!mapped||QString::number(id)!=mapping||id!=well.modelWellId)
     return queryFailure("well_model_mapping_mismatch");
+  const auto boreKey=args.value("wellbore_key").toString();
+  if(args.contains("wellbore_key")) {
+    if(!document::validWellboreKey(boreKey))return queryFailure("invalid_wellbore_key");
+    if(!currentWellboreMapping(*catalog,well))return queryFailure("wellbore_mapping_unconfirmed");
+  }
   const auto root=modelRoot(catalog);if(root.isEmpty())return queryFailure("model_query_unavailable");
   data::DataService service;std::string detail;
   if(!service.openProjectReadOnly(root.toUtf8().toStdString(),detail))return queryFailure("model_query_unavailable");
@@ -140,15 +145,41 @@ QJsonObject ProjectQueryCapability::Impl::wellCurves(QueryState &state,const QJs
   QJsonObject result{{"ok",true},{"code","ok"},{"contract","paleo.project.query.page.v1"},{"tool","paleo.query_project"},{"topic","well_curves"},
     {"well_ref",document::wellRefJson(well)},{"totalCount",QJsonValue::Null},{"metadataOnly",true},{"numericPayloadBytes","0"},
     {"sourceMetadataBytes","131072"},{"metadataTextBytes","393216"},{"metadataReadBudgetBytes",QString::number(qint64(rows)*3*8192)}};
+  if(!boreKey.isEmpty()) {
+    result.insert("wellbore_key",boreKey);result.insert("unconfirmedCurveCount",rows);
+    result.insert("wellbore_status","unconfirmed_sources");
+  }
+  int unconfirmed=0;
   const auto reserved=overhead(result,state);QJsonArray values;qlonglong previous=after;qint64 sourceBytes=0,curveBytes=0;const auto resolver=sourceResolver;const auto owner=catalog;
   for(const auto &entry:entries){
     if(entry.id<=previous||entry.wellId!=well.modelWellId||entry.parentId<=0)return queryFailure("curve_metadata_invalid");previous=entry.id;
-    const auto row=curveRow(service,entry,well,root,owner,resolver,sourceBytes,curveBytes);if(!row.error.isEmpty())return queryFailure(row.error);
+    if(!boreKey.isEmpty()) {
+      std::optional<data::WellboreRef> bore;
+      if(!service.findWellbore(data::SourceWellboreKey{entry.sourceId,"file"},bore,detail))return queryFailure("wellbore_query_unavailable");
+      if(!bore || bore->wellId!=well.modelWellId || QString::fromStdString(bore->key)!=boreKey) {
+        if(!bore || bore->wellId!=well.modelWellId)++unconfirmed;
+        state.after=QString::number(entry.id);continue;
+      }
+    }
+    auto row=curveRow(service,entry,well,root,owner,resolver,sourceBytes,curveBytes);if(!row.error.isEmpty())return queryFailure(row.error);
     if(scope!=state.scope||catalog!=owner||state.bindingEpoch!=bindingEpoch)return queryFailure("cursor_scope_mismatch");
+    if(!boreKey.isEmpty() && row.value.contains("input_ref")) {
+      auto input=row.value.value("input_ref").toObject();
+      const auto version=owner->versionById(input.value("source_version_id").toString());
+      if(!currentWellboreLas(*owner,well,version,entry.sourceId)) {
+        row.value.remove("input_ref");row.value.insert("metadataReady",false);row.value.insert("code","wellbore_source_unconfirmed");
+      } else {
+        input.insert("wellbore_key",boreKey);row.value.insert("input_ref",input);
+      }
+    }
     if(!appendWithinBudget(values,row.value,bytes,reserved)){if(values.isEmpty())return queryFailure("query_entry_too_large");more=true;break;}
     state.after=QString::number(entry.id);
   }
   const auto last=checkHead(service,well);if(!last.isEmpty())return queryFailure(last);
+  if(!boreKey.isEmpty()) {
+    result.insert("unconfirmedCurveCount",unconfirmed);
+    result.insert("wellbore_status",unconfirmed?"unconfirmed_sources":values.isEmpty()?"no_confirmed_curves":"available");
+  }
   more=more||tail;result.insert("curves",values);result.insert("returnedCount",values.size());result.insert("sourceMetadataBytes",QString::number(sourceBytes));
   result.insert("metadataTextBytes",QString::number(listStats.textBytesRead+curveBytes+sourceBytes));return result;
 }

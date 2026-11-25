@@ -72,6 +72,7 @@ add_library(paleo_store STATIC
   src/catalog/datacatalog_projection.cpp
   src/catalog/datacatalog_publications.cpp
   src/catalog/publicationreceipt.cpp
+  src/catalog/importledger.cpp
   src/catalog/areasource_delta.cpp
   src/catalog/areasource_delta_apply.cpp
   src/catalog/documentsourceprojection.cpp
@@ -184,6 +185,8 @@ target_include_directories(paleo_qgis_attribute_table PUBLIC
 target_link_libraries(paleo_qgis_attribute_table PUBLIC paleo_qgis Qt6::Core5Compat)
 
 add_library(paleo_io STATIC
+  src/io/projectcopy.cpp
+  src/io/projectcopylayers.cpp
   src/io/areamodelpublication.cpp
   src/io/nativesourcesnapshot.cpp
   src/io/sourcefingerprint.cpp

@@ -28,7 +28,7 @@
 #include <qgsvectorlayer.h>
 
 struct ProjectLoadState {
-  QString path, error;
+  QString path, entryPath, error;
   QStringList warnings;
   bool readOnly = false;
   std::optional<PaleoGeoreference> georeference;
@@ -100,6 +100,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
   }
   auto state = std::make_shared<ProjectLoadState>();
   state->path = source.absoluteFilePath();
+  state->entryPath = state->path;
   const QString manifestDir = source.absolutePath();
   std::optional<PaleoProjectFile> selectedManifest;
   if (input.endsWith(QLatin1String(".paleo"), Qt::CaseInsensitive))
@@ -390,6 +391,7 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
       else m_mapConfiguration = adopted;
     }
   } else {
+    m_entryPath = state->entryPath;
     m_path = state->path;
     ++m_sessionId;
     m_project->setDirty(false);

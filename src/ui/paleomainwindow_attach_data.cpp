@@ -366,6 +366,7 @@ void PaleoMainWindow::wireDataImportRequests(DataPage *dataPage, DataImportServi
               if (kind == QLatin1String("offline_basemap")) { openOfflineBasemapImport(m_projectSvc, m_layerSvc, m_taskSvc, this); return; }
               if (!m_projectSvc || m_projectSvc->projectPath().isEmpty() || isProjectReadOnly() || m_projectSvc->isOpening()) return;
               const auto session = m_projectSvc->sessionId();
+              if (kind == QLatin1String("original_package")) { pickOriginalPackage(session); return; }
               ImportSourceDialog source(kind, this);
               if (source.exec() != QDialog::Accepted) return;
               if (m_projectSvc->sessionId() != session) { PaleoNotify::warning(this, tr("导入资料"), tr("工程已变化，请重新选择资料。")); return; }

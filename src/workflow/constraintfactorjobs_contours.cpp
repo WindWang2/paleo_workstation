@@ -225,6 +225,7 @@ bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, cons
   const QString analysisSha;
 
   job->generation = ++m_publishGeneration;
+  job->projectDir = m_projectDir;
   job->horizon = horizon;
   job->factorLayerId = factorLayerId;
   job->factorId = factorIdOf( horizon, factorLayerId );
@@ -270,10 +271,9 @@ bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, con
   }
   job->inputFingerprint = input;
   job->analysisSha = input.sha256;
-  const QString tempDir = QDir( QDir::tempPath() )
-                              .filePath( QStringLiteral( "paleo-sf-contour-%1" )
-                                             .arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
-  if ( !QDir().mkpath( tempDir ) )
+  job->scratch = paleo::managedpath::temporaryDirectory(job->projectDir, QStringLiteral("paleo-sf-contour"));
+  const QString tempDir = job->scratch ? job->scratch->path() : QString();
+  if (!job->scratch)
   {
     job->error = tr( "无法创建临时计算目录" );
     job->ok = false;

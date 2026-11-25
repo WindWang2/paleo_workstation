@@ -14,7 +14,7 @@ public:
   explicit OfficePreviewWidget(const QString &path,
                                const QString &expectedSha = {},
                                QWidget *parent = nullptr,
-                               PaleoTaskService *tasks = nullptr);
+                               PaleoTaskService *tasks = nullptr, const QString &projectDir = {});
   ~OfficePreviewWidget() override;
   void showMessage(const QString &text, bool error = false);
 signals:
@@ -22,7 +22,7 @@ signals:
   void previewClosed();
 private:
   void open();
-  QString m_path, m_sha;
+  QString m_path, m_sha, m_projectDir;
   OfficePreviewSession *m_session;
   WebViewPanel *m_web;
   QLabel *m_status;

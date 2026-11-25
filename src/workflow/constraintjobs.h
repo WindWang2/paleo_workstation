@@ -11,6 +11,7 @@
 // 声明，见彼处注释）；成员别名/枚举无法类外定义——ConstraintJobKind 用
 // 类内不透明枚举声明 + 此处定义保名，variant 词表收进 ConstraintJob。
 
+#include "metadata/managedpath.h"
 #include "workflows.h"
 
 #include "../algorithms/singlefactor/types.h"
@@ -32,6 +33,8 @@ enum class ConstraintWorkflow::ConstraintJobKind : int
 
 struct ConstraintWorkflow::LocalDirectionJob
 {
+  QString projectDir;
+  std::shared_ptr<QTemporaryDir> scratch;
   DerivedStaging staging;
   DerivedFileFingerprint fingerprint;
   QString stagedSupportSha, stagedQcSha;
@@ -59,6 +62,8 @@ struct ConstraintWorkflow::LocalDirectionJob
 
 struct ConstraintWorkflow::GeostatJob
 {
+  QString projectDir;
+  std::shared_ptr<QTemporaryDir> scratch;
   DerivedStaging staging;
   DerivedFileFingerprint fingerprint;
   QString stagedSupportSha, stagedQcSha;
@@ -101,6 +106,8 @@ struct ConstraintWorkflow::GeostatJob
 
 struct ConstraintWorkflow::AnalysisContourJob
 {
+  QString projectDir;
+  std::shared_ptr<QTemporaryDir> scratch;
   DerivedFileFingerprint inputFingerprint;
   bool prepared = false;
   bool ok = false;
@@ -124,6 +131,8 @@ struct ConstraintWorkflow::AnalysisContourJob
 
 struct ConstraintWorkflow::InterpretiveContourJob
 {
+  QString projectDir;
+  std::shared_ptr<QTemporaryDir> scratch;
   DerivedFileFingerprint inputFingerprint;
   bool prepared = false;
   bool ok = false;

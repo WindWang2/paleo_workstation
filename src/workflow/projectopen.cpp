@@ -1,4 +1,6 @@
 // 层：功能
+#include "services/paleotaskservice.h"
+#include "io/projectcopy.h"
 #include "projectopen.h"
 
 #include "../qgis/qgisprojectservice.h"
@@ -33,6 +35,36 @@ ProjectOpenWorkflow::ProjectOpenWorkflow(QgisProjectService *projSvc,
       if (!success && !m_projSvc->lastOpenCancelled())
         emit openFailed(tr("打开工程失败"), m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
     });
+}
+
+bool ProjectOpenWorkflow::needsDataVolumeCopy() const
+{
+  return m_projSvc && !m_projSvc->isOpening() && !m_projSvc->projectPath().isEmpty() &&
+         m_projSvc->isReadOnly() && !m_projSvc->allowsProjectWritesAt(QFileInfo(m_projSvc->projectPath()).absolutePath());
+}
+
+void ProjectOpenWorkflow::copyCurrentTo(const QString &parent, PaleoTaskService *tasks)
+{
+  if (!needsDataVolumeCopy() || !tasks || parent.isEmpty()) return;
+  const auto original = m_projSvc->projectEntryPath();
+  const auto root = m_projSvc->writableProjectRoot();
+  const auto session = m_projSvc->sessionId();
+  const auto result = std::make_shared<QString>();
+  const auto review = std::make_shared<QStringList>();
+  auto *task = tasks->start(tr("复制并校验工程"), [original, parent, root, result, review](PaleoTask *work) {
+    QString error;
+    *result = paleo::projectcopy::copyVerified(original, parent, root, error, [work] { return work->cancelRequested(); },
+                                               [work](qint64 done, qint64 total) { work->reportBytes(done, total); }, review.get());
+    return error;
+  });
+  if (!task) return;
+  connect(task, &PaleoTask::finished, this, [this, task, result, review, session] {
+    if (task->state() == PaleoTask::State::Failed) emit openFailed(tr("工程复制失败"), task->errorText(), false);
+    if (task->state() == PaleoTask::State::Succeeded && session == m_projSvc->sessionId() && needsDataVolumeCopy()) {
+      openPath(*result);
+      if (!review->isEmpty()) emit copySourceReviewRequested(*review);
+    }
+  });
 }
 
 bool ProjectOpenWorkflow::openPath(const QString &path)
@@ -101,6 +133,10 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
       }
       return true;
     }
+    if (!m_projSvc->allowsProjectWritesAt(dir)) {
+      emit openFailed(tr("新建工程失败"), tr("请使用新建工程向导，在数据盘创建工程并选择此资料目录。"), false);
+      return false;
+    }
     const QString previous = m_projSvc->projectPath();
     const auto dropThisAttempt = [&] {
       QFile::remove(qgz);
@@ -166,7 +202,7 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
 void ProjectOpenWorkflow::stampSourceArea(const QString &dir,
                                           const QVariantMap &stats)
 {
-  if (!m_projSvc || m_projSvc->projectPath().isEmpty())
+  if (!m_projSvc || m_projSvc->isReadOnly() || m_projSvc->projectPath().isEmpty())
     return;
   // 只回填「从工区文件夹新建」的工程（工程目录 == 导入目录）；否则静默跳过——
   // 普通「导入工区文件夹」不应改写一个不相关工程的来源字段。

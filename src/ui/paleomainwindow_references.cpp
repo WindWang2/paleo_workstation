@@ -3,6 +3,7 @@
 #include "workbench/mappingreferencecontroller.h"
 #include "qgis/projectscope.h"
 #include "qgis/qgisprojectservice.h"
+#include <QCoreApplication>
 #include <QEvent>
 #include <QScopedValueRollback>
 #include <QSettings>
@@ -16,6 +17,7 @@ public:
         m_saveTimer.setSingleShot(true);
         m_saveTimer.setInterval(160);
         connect(&m_saveTimer, &QTimer::timeout, this, [this] { savePlacement(); });
+        connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] { savePlacement(); });
         connect(this, &QDockWidget::dockLocationChanged, this, [this] { scheduleSave(); });
         connect(this, &QDockWidget::topLevelChanged, this, [this] { scheduleSave(); });
         connect(this, &PaleoDockWidget::userVisibilityChanged, this, [this](bool visible) {
@@ -51,7 +53,10 @@ protected:
         const auto type = event->type();
         const bool handled = PaleoDockWidget::event(event);
         if (type == QEvent::Move || type == QEvent::Resize) scheduleSave();
-        else if (type == QEvent::Close) savePlacement();
+        else if ((type == QEvent::Hide || type == QEvent::Close) && m_saveTimer.isActive()) {
+            m_saveTimer.stop();
+            savePlacement();
+        }
         return handled;
     }
 

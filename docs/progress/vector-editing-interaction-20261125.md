@@ -23,4 +23,6 @@
 
 初始 512 × 512 画布夹具中，重合点中心一次删除减少两个要素，普通十字线交点亦如此。回归夹具通过真实选择、删除工具与鼠标事件验证剩余几何、撤销栈和取消操作。运行 `tst_edittools ambiguousPointPickingAndDeletion` 时设置 `PALEO_EDIT_SHOT_DIR` 可保存画布与候选菜单，`PALEO_EDIT_SHOT_THEME=dark` 可复现深色主题。
 
+交互走查保留了[基线主窗口](vector-editing-20261125/baseline-window.png)、修改后的[十字线画布](vector-editing-20261125/LineString-light-canvas.png)、[浅色候选菜单](vector-editing-20261125/LineString-light-candidates.png)和[深色候选菜单](vector-editing-20261125/LineString-dark-candidates.png)。后三张取自 Windows 原生 Qt 测试桌面，设备像素比为 1.5。
+
 在 `tst_ui mappingWorkbenchCanvasRibbonAndReferences` 设置 `PALEO_EDIT_LAYOUT_QA` 可导出 1440 × 960 和 960 × 720 下的主窗口截图，日志同时报告窗口和画布的实际大小及设备像素比。相面 1 千、1 万、5 万图斑的确定性夹具及采样说明见[性能手册](../perf/BENCHMARKS.md)。

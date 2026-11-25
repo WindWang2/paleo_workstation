@@ -1,5 +1,6 @@
 // 层：视图
 #include "editingtools.h"
+#include "../../qgis/mapfeaturepicker.h"
 #include <qgscoordinatetransform.h>
 #include <qgsexception.h>
 #include "../maptools/capturehelpers.h"
@@ -497,7 +498,7 @@ void PaleoMoveTool::clearDragState()
 
 PaleoDeleteFeatureTool::PaleoDeleteFeatureTool( QgsMapCanvas *canvas, QgsVectorLayer *layer )
   : QgsMapToolEdit( canvas ) // NOT QgsMapToolAdvancedDigitizing: plain canvas* hooks
-  , mLayer( layer )
+  , mLayer( layer ), mPicker(std::make_unique<MapFeaturePicker>(canvas, this))
 {
   setToolName( tr( "删除要素" ) );
   setCursor( QCursor( Qt::ArrowCursor ) );
@@ -512,7 +513,12 @@ void PaleoDeleteFeatureTool::activate()
 
 void PaleoDeleteFeatureTool::deactivate()
 {
+  mPicker->clear();
   QgsMapToolEdit::deactivate();
+}
+
+void PaleoDeleteFeatureTool::canvasMoveEvent(QgsMapMouseEvent *event) {
+  mPicker->hover(targetLayer(), event->pixelPoint());
 }
 
 QgsVectorLayer *PaleoDeleteFeatureTool::targetLayer() const
@@ -536,49 +542,20 @@ void PaleoDeleteFeatureTool::canvasReleaseEvent( QgsMapMouseEvent *e )
     return;
   }
 
-  // 命中式删除（QGIS 节点工具惯例：点击作用于光标下的要素）——不再一键删
-  // 整个选区。搜索半径用原生顶点搜索容差（地图单位），点/线/面统一走
-  // 容差圆盘 intersects。
-  const double radius = QgsTolerance::vertexSearchRadius( canvas()->mapSettings() );
-  QgsGeometry disc = QgsGeometry::fromPointXY( e->mapPoint() ).buffer( radius, 8 );
-  try {
-    disc.transform(QgsCoordinateTransform(canvas()->mapSettings().destinationCrs(), vl->crs(),
-                                          canvas()->mapSettings().transformContext()));
-  } catch (const QgsCsException &ex) {
-    emit messageEmitted(ex.what(), Qgis::MessageLevel::Warning);
-    return;
-  }
-  QgsFeatureIds hits;
-  QgsFeature feature;
-  QgsFeatureIterator it = vl->getFeatures( QgsFeatureRequest()
-                                             .setFilterRect( disc.boundingBox() )
-                                             .setFlags( Qgis::FeatureRequestFlag::ExactIntersect ) );
-  while ( it.nextFeature( feature ) )
-  {
-    if ( feature.hasGeometry() && feature.geometry().intersects( disc ) )
-      hits.insert( feature.id() );
-  }
-
-  if ( hits.isEmpty() )
-  {
-    // Nothing under the cursor: warn, but do NOT emit editAborted().
-    emit messageEmitted( tr( "点击位置没有可删除的要素" ), Qgis::MessageLevel::Warning );
-    return;
-  }
-
-  vl->beginEditCommand( tr( "删除要素" ) );
-  const bool ok = vl->deleteFeatures( hits );
-  if ( ok )
-  {
-    vl->endEditCommand(); // one edit command per click → one native undo step
-    mDeletedCount += static_cast<int>( hits.size() );
-    emit featureEdited( vl->id() );
-    emit messageEmitted( tr( "已删除 %1 个要素" ).arg( hits.size() ), Qgis::MessageLevel::Info );
-  }
-  else
-  {
-    vl->destroyEditCommand(); // refused — stay clean
-  }
+  const auto result = mPicker->choose(vl, e->pixelPoint(), true, [this, vl](qint64 id) {
+    vl->beginEditCommand(tr("删除要素"));
+    if (!vl->deleteFeature(id)) {
+      vl->destroyEditCommand();
+      emit messageEmitted(tr("删除要素失败"), Qgis::MessageLevel::Warning);
+      return;
+    }
+    vl->endEditCommand();
+    ++mDeletedCount;
+    emit featureEdited(vl->id());
+    emit messageEmitted(tr("已删除 %1 个要素").arg(1), Qgis::MessageLevel::Info);
+  });
+  if (result == MapFeaturePicker::Result::Empty)
+    emit messageEmitted(tr("点击位置没有可删除的要素"), Qgis::MessageLevel::Warning);
 }
 
 void PaleoDeleteFeatureTool::keyPressEvent( QKeyEvent *e )

@@ -218,6 +218,8 @@ class TestEditTools : public QObject
     void toolbarCancelDiscardsEdits();
     void toolbarSaveRefusedOutsideSession();
     void selectedLayerOwnsEditsAndReportsCommittedFacts();
+    void ambiguousPointPickingAndDeletion_data();
+    void ambiguousPointPickingAndDeletion();
     // ---- mapping 主线3：编辑会话生命周期加固 ----
     void toolbarProjectSwitchFinalizesSession();
     void toolbarProjectClearedDropsSessionCleanly();
@@ -3320,6 +3322,85 @@ void TestEditTools::toolbarSelectionIsReadOnlyAndToolsFollowCanvas()
   QVERIFY(bar.actionAddPoint()->isChecked());
   QCOMPARE(started.count(), 1); // navigation didn't end/restart the session
   QVERIFY(bar.cancelEditing());
+}
+
+void TestEditTools::ambiguousPointPickingAndDeletion_data()
+{
+  QTest::addColumn<bool>("points");
+  QTest::newRow("coincident points") << true;
+  QTest::newRow("crossing lines") << false;
+}
+
+void TestEditTools::ambiguousPointPickingAndDeletion()
+{
+  QFETCH(bool, points);
+  QgsMapCanvas canvas;
+  canvas.setDestinationCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:3857")));
+  canvas.resize(512, 512);
+  canvas.show();
+  canvas.setExtent(QgsRectangle(0, 0, 512, 512));
+  QCoreApplication::processEvents();
+  QgsVectorLayer layer(points ? "Point?crs=EPSG:3857" : "LineString?crs=EPSG:3857", "test", "memory");
+  canvas.setLayers({&layer});
+  canvas.setCurrentLayer(&layer);
+  const auto geom = [&](int x1, int y1, int x2, int y2) {
+    return points ? QgsGeometry::fromPointXY(mapPt(canvas, x1, y1))
+                  : QgsGeometry::fromPolylineXY({mapPt(canvas, x1, y1), mapPt(canvas, x2, y2)});
+  };
+  const auto isolated = seedFeature(layer, geom(60, 60, 110, 60));
+  const auto first = seedFeature(layer, geom(points ? 190 : 140, 190, 240, 190));
+  const auto second = seedFeature(layer, geom(190, points ? 190 : 140, 190, 240));
+  layer.updateExtents();
+  const auto preservedGeometry = layer.getFeature(first).geometry().asWkb();
+  PaleoEditingToolbar bar(&canvas);
+  bar.setLayers({&layer});
+  bar.setCurrentLayer(&layer);
+  bar.actionSelect()->trigger();
+  const auto clickMap = [&](QPoint p, Qt::KeyboardModifiers mods = Qt::NoModifier) {
+    QTest::mouseClick(canvas.viewport(), Qt::LeftButton, mods, p);
+  };
+  const auto popup = [] { return qobject_cast<QMenu *>(QApplication::activePopupWidget()); };
+  clickMap(QPoint(60, 63));
+  QCOMPARE(layer.selectedFeatureIds(), QgsFeatureIds{isolated});
+  clickMap(QPoint(190, 190), Qt::ShiftModifier);
+  QTRY_VERIFY(popup());
+  QTest::keyClick(popup(), Qt::Key_Down);
+  QTest::keyClick(popup(), Qt::Key_Return);
+  QTRY_COMPARE(layer.selectedFeatureCount(), 2);
+  QVERIFY(layer.selectedFeatureIds().contains(second));
+  clickMap(QPoint(60, 63), Qt::ControlModifier);
+  QCOMPARE(layer.selectedFeatureIds(), QgsFeatureIds{second});
+
+  bar.actionDeleteFeatures()->trigger();
+  QVERIFY(bar.isEditing());
+  clickMap(QPoint(190, 190));
+  QTRY_VERIFY(popup());
+  QTest::keyClick(popup(), Qt::Key_Escape);
+  QCOMPARE(layer.featureCount(), 3);
+  QCOMPARE(layer.undoStack()->count(), 0);
+  clickMap(QPoint(190, 190));
+  QTRY_VERIFY(popup());
+  QTest::keyClick(popup(), Qt::Key_Down);
+  QTest::keyClick(popup(), Qt::Key_Return);
+  QTRY_COMPARE(layer.featureCount(), 2);
+  QVERIFY(!layer.getFeature(second).isValid());
+  QCOMPARE(layer.getFeature(first).geometry().asWkb(), preservedGeometry);
+  bar.actionUndo()->trigger();
+  QCOMPARE(layer.featureCount(), 3);
+
+  bar.actionSelect()->trigger();
+  QTest::mousePress(canvas.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+  QTest::mouseMove(canvas.viewport(), QPoint(260, 260));
+  QTest::mouseRelease(canvas.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(260, 260));
+  QCOMPARE(layer.selectedFeatureIds(), (QgsFeatureIds{first, second}));
+  auto *batch = bar.findChild<QAction *>("deleteSelectedFeatures");
+  QVERIFY(batch && batch->isEnabled() && batch->text().contains("2"));
+  batch->trigger();
+  QCOMPARE(layer.featureCount(), 1);
+  bar.actionUndo()->trigger();
+  QCOMPARE(layer.featureCount(), 3);
+  QVERIFY(bar.cancelEditing());
+  canvas.stopRendering();
 }
 
 void TestEditTools::selectedLayerOwnsEditsAndReportsCommittedFacts()

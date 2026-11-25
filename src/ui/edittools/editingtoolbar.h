@@ -149,6 +149,9 @@ class PaleoEditingToolbar : public QWidget
   private:
     void buildUi();
     void buildPartitionControls();
+    void buildAddFeatureControl();
+    void buildDeleteSelectionAction();
+    void updateDeleteSelectionAction();
     void wireToolActions();
     void installCanvasUndoShortcuts( QWidget *canvas );
     void uncheckTools();
@@ -194,6 +197,7 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionReshape = nullptr;
     QAction *mActionMove = nullptr;
     QAction *mActionDeleteFeatures = nullptr;
+    QAction *mDeleteSelection = nullptr;
     QAction *mActionVertexEdit = nullptr;
     QAction *mActionSplitFacies = nullptr, *mActionPaintFacies = nullptr, *mActionMergeFacies = nullptr;
     QAction *mActionFaciesOperations = nullptr;

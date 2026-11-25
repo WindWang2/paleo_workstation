@@ -1,6 +1,7 @@
 // 层：功能
 #include "mappingworkbench.h"
 #include "mappingexplanationservice.h"
+#include "../services/canonicalfilepath.h"
 #include "../services/faciesdisplaysettings.h"
 #include "mapversionvalidation_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
@@ -76,7 +77,7 @@ QString filePath(const QString &source) { return source.section('|', 0, 0); }
 QString versionPathKey(const QString &source) {
   const auto path = filePath(source);
   if (path.isEmpty()) return {};
-  const auto canonical = QFileInfo(path).canonicalFilePath();
+  const auto canonical = paleo::canonicalLocalFilePath(QFileInfo(path));
   if (canonical.isEmpty()) return path;
 #ifdef Q_OS_WIN
   return canonical.toCaseFolded();

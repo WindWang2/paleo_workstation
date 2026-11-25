@@ -11,6 +11,7 @@
 #include "qgisstyleservice.h"
 #include "mappingartifactwriter.h"
 #include "projectmapreference.h"
+#include "../services/canonicalfilepath.h"
 #include "../services/errorhub.h"
 
 #include <QSet>
@@ -65,7 +66,7 @@ void applyConstraintDisplayName(QgsMapLayer *layer, const QString &layerId, cons
     auto parts = QgsProviderRegistry::instance()->decodeUri(QStringLiteral("ogr"), source);
     const QFileInfo file(parts.value(QStringLiteral("path")).toString());
     if (file.filePath().isEmpty()) return {};
-    QString path = file.canonicalFilePath();
+    QString path = paleo::canonicalLocalFilePath(file);
     if (path.isEmpty()) path = file.absoluteFilePath();
 #ifdef Q_OS_WIN
     path = path.toCaseFolded();

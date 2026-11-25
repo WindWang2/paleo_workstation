@@ -2535,6 +2535,7 @@ private slots:
     QCOMPARE(junction.exitStatus(), QProcess::NormalExit);
     QVERIFY2(junction.exitCode() == 0, junction.readAllStandardError().constData());
     QVERIFY(QFileInfo(aliasDir).isJunction());
+    const auto unlinkJunction = qScopeGuard([&] { QDir().rmdir(aliasDir); });
 #else
     std::error_code ec;
     std::filesystem::create_directory_symlink(QDir(f.dir.path()).filesystemPath(), QDir(aliasDir).filesystemPath(), ec);
@@ -2546,16 +2547,23 @@ private slots:
     auto declared = f.layers.declaration(id);
     auto *open = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(id, &error));
     QVERIFY(open && open->startEditing());
+    QgsFeature pending(open->fields());
+    pending.setGeometry(QgsGeometry::fromRect(QgsRectangle(1, 1, 2, 2)));
+    QVERIFY(open->addFeature(pending));
     const int separator = declared.source.indexOf('|');
     QVERIFY(separator > 0);
     declared.source = aliasPath(declared.source.left(separator)) + declared.source.mid(separator);
     QVERIFY2(f.layers.declare(declared, &error), qPrintable(error));
     QCOMPARE(f.layers.layer(id), open);
     QVERIFY(open->isEditable());
+    QVERIFY(open->getFeature(pending.id()).isValid());
     auto anotherTable = declared;
     anotherTable.source = declared.source.section('|', 0, 0) + "|layername=another_table";
     QVERIFY(!f.layers.declare(anotherTable, &error));
     QCOMPARE(f.layers.layer(id), open);
+    QVERIFY(!MappingArtifactWriter::vectorSnapshot(open, declared.source.section('|', 0, 0), &error));
+    QCOMPARE(error, QObject::tr("图件快照必须使用新文件，不能覆盖来源版本"));
+    QVERIFY(open->getFeature(pending.id()).isValid());
     QVERIFY(open->rollBack());
     auto alias = declared;
     alias.layerId = "reference.alias";

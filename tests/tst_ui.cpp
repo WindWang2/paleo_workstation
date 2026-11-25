@@ -1499,7 +1499,7 @@ class TestUiShell : public QObject
       delete pan;
     }
 
-    void vectorEditingGroupsStayVisibleAndFollowTarget()
+    void vectorEditingGroupsFollowTargetAndKeepSettingsReachable()
     {
       QTemporaryDir dir;
       QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("vectors.qgz")));
@@ -1512,15 +1512,21 @@ class TestUiShell : public QObject
       for (const auto &page : {"predict", "constraint", "compose"}) {
         m_win->showPage(page); editor->setCurrentLayer(nullptr);
         auto *category = m_win->categoryForPage(page); QVERIFY(category);
-        for (const auto &name : {"ribbonEditPanel", "ribbonFaciesPartitionPanel",
-                                 "ribbonEditSessionPanel", "ribbonEditingSettingsPanel"}) {
+        for (const auto *name : {"ribbonEditPanel", "ribbonFaciesPartitionPanel", "ribbonEditSessionPanel"}) {
+          auto *panel = category->findChild<SARibbonPanel *>(name); QVERIFY2(panel && panel->isHidden(), name);
+        }
+        for (const auto *name : {"ribbonEditContextPanel", "ribbonEditingSettingsPanel"}) {
           auto *panel = category->findChild<SARibbonPanel *>(name); QVERIFY2(panel && !panel->isHidden(), name);
         }
+        QVERIFY(category->findChild<QComboBox *>("ribbonEditLayerCombo")->focusPolicy() & Qt::TabFocus);
         QVERIFY(!editor->actionVertexEdit()->isEnabled()); QVERIFY(!editor->actionVertexEdit()->toolTip().isEmpty());
         auto *session = category->findChild<SARibbonPanel *>("ribbonEditSessionPanel");
         QVERIFY(PaleoRibbon::buttonFor(session, editor->actionTopological()));
         QVERIFY(PaleoRibbon::buttonFor(session, editor->actionCrossLayerTopo()));
         editor->setCurrentLayer(layer); QCOMPARE(editor->currentLayer(), layer);
+        QVERIFY(!session->isHidden());
+        QVERIFY(!category->findChild<SARibbonPanel *>("ribbonEditPanel")->isHidden());
+        QVERIFY(category->findChild<SARibbonPanel *>("ribbonFaciesPartitionPanel")->isHidden());
         QVERIFY(editor->actionVertexEdit()->isEnabled()); QVERIFY(editor->actionMove()->isEnabled());
         QVERIFY(!editor->actionFaciesOperations()->isEnabled());
         QVERIFY(!editor->actionFaciesOperations()->toolTip().isEmpty());

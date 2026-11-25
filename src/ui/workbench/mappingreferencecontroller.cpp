@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QDockWidget>
 #include <QFileInfo>
+#include <QMainWindow>
 
 namespace paleo::workbench {
 
@@ -25,18 +26,27 @@ MappingReferenceController::MappingReferenceController(
       m_panel(new MappingEvidencePanel(canvas.canvas(), project ? project->project() : nullptr, &dock))
 {
     dock.setWidget(m_panel);
+    const auto sizeDock = [&dock, panel = m_panel] {
+        const bool compact = panel->compact() && !dock.isFloating();
+        dock.setMaximumHeight(compact ? dock.minimumSizeHint().height() : QWIDGETSIZE_MAX);
+        if (!compact && !dock.isFloating())
+            if (auto *main = qobject_cast<QMainWindow *>(dock.parentWidget()))
+                main->resizeDocks({&dock}, {panel->sizeHint().height()}, Qt::Vertical);
+    };
+    connect(m_panel, &MappingEvidencePanel::compactChanged, &dock, sizeDock);
+    connect(&dock, &QDockWidget::topLevelChanged, &dock, sizeDock);
     connect(&dock, &QDockWidget::visibilityChanged, m_panel, &MappingEvidencePanel::setViewActive);
     connect(m_panel, &MappingEvidencePanel::referenceRequested,
             this, &MappingReferenceController::loadReference);
     connect(&workbench, &MappingWorkbench::changed, this, &MappingReferenceController::refreshSources);
     connect(&selection, &SelectionContext::activeHorizonChanged,
             this, &MappingReferenceController::refreshSources);
-    connect(&workbench, &MappingWorkbench::catalogBound, this, [this, &dock] {
+    connect(&workbench, &MappingWorkbench::catalogBound, this, [this] {
         m_panel->setSources({}, {});
         m_panel->clearReferences(QCoreApplication::translate(
             "PaleoMainWindow", "工程已切换，请选择当前工程的参考证据。"));
-        dock.hide();
     });
+    m_panel->enableCompactDock();
     refreshSources();
 }
 

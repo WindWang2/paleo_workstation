@@ -2444,6 +2444,37 @@ private slots:
     toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
     QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
   }
+  void taskGuideChoosesBetweenTwoWorkingCopies() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto first = f.work.createBlankMap("D61", &error);
+    const auto second = f.work.createBlankMap("D61", &error);
+    QVERIFY(!first.isEmpty() && !second.isEmpty() && first != second);
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.show();
+    page.refresh();
+    QSignalSpy requested(&page, &MappingWorkbenchPage::commandRequested);
+    auto *next = page.findChild<QPushButton *>("mappingTaskNext");
+    QVERIFY(next);
+    next->click();
+    auto *menu = page.findChild<QMenu *>("resumeDraftMenu");
+    QVERIFY(menu && menu->isVisible());
+    QCOMPARE(menu->actions().size(), 2);
+    QTest::keyClick(menu, Qt::Key_Escape);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCOMPARE(requested.count(), 0);
+    next->click();
+    menu = page.findChild<QMenu *>("resumeDraftMenu");
+    QVERIFY(menu);
+    for (auto *action : menu->actions())
+      if (action->data().toString() == second) action->trigger();
+    QCOMPARE(requested.count(), 1);
+    QCOMPARE(requested.first().at(0).toString(), QString("resumeEdit"));
+    QCOMPARE(requested.first().at(1).toMap().value("layer").toString(), second);
+  }
+
   void taskGuideWalksPredictAndCompose() {
     Fixture f; QVERIFY(f.init()); QString error;
     MappingWorkbenchPage predict("predict", &f.work);
@@ -2476,7 +2507,11 @@ private slots:
     auto *editStep = page.findChild<QPushButton *>("mappingTaskStep.edit");
     QVERIFY(!editStep->property("taskBlocked").toBool());
     QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
-             QStringLiteral("workbenchResults"));
+             QStringLiteral("resumeEdit"));
+    QSignalSpy resume(&page, &MappingWorkbenchPage::commandRequested);
+    page.findChild<QPushButton *>("mappingTaskNext")->click();
+    QCOMPARE(resume.count(), 1);
+    QCOMPARE(resume.first().at(1).toMap().value("layer").toString(), draft);
 
     // The real newMap command enters editing without requiring an edit basis first.
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
@@ -3643,7 +3678,9 @@ private slots:
             [](MappingReferencePanel *view, const QString &) {
       view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "evidence", "memory"), {});
     });
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
+    panel.addView();
+    panel.addView();
     // 关闭两个空视图后继续覆盖添加、移除和来源选择的完整生命周期。
     panel.views()[3]->findChild<QToolButton *>("referenceRemoveView")->click();
     panel.views()[2]->findChild<QToolButton *>("referenceRemoveView")->click();
@@ -3723,7 +3760,8 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(800, 360); panel.show();
-    panel.addView();
+    QCOMPARE(panel.views().size(), 2);
+    for (int i = 0; i < 3; ++i) panel.addView();
     QCOMPARE(panel.views().size(), 5);
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     auto *add = panel.findChild<QPushButton *>("referenceAddView"); QVERIFY(add);
@@ -3785,7 +3823,7 @@ private slots:
     }
     panel.resize(900, 400); QCoreApplication::processEvents();
     QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() == 0);
-    QCOMPARE(panel.visibleViewCount(), 4);
+    QCOMPARE(panel.visibleViewCount(), 2);
     main.stopRendering();
   }
 
@@ -3816,7 +3854,7 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(800, 360); panel.show();
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
     QCOMPARE(panel.findChildren<QgsMapCanvas *>("referenceCanvas").size(), 0);
     for (auto *view : panel.views()) QVERIFY(view->canvas() == nullptr);
     const QVariantList rows{QVariantMap{{"id", "wells"}, {"name", "D61 测井相 v1"},
@@ -3837,6 +3875,40 @@ private slots:
   }
 
   // #745：宽度按工程存；删视图立刻落盘，后续视图不再左移套用别人的宽度。
+  void compactReferencePickerRestoresProjectSources() {
+    QTemporaryDir dir;
+    QgsProject project;
+    project.setFileName(dir.filePath("one.qgz"));
+    QgsMapCanvas main;
+    const QVariantList rows{QVariantMap{{"id", "ref1"}, {"name", "参考一"}, {"type", "vector"}}};
+    MappingEvidencePanel panel(&main, &project);
+    panel.enableCompactDock();
+    panel.setSources(rows, {});
+    panel.show();
+    auto *picker = panel.findChild<QComboBox *>("referenceCompactPicker");
+    QVERIFY(picker && !picker->isHidden() && !picker->accessibleName().isEmpty());
+    QVERIFY(panel.compact() && panel.views().isEmpty());
+    const int compactHeight = panel.sizeHint().height();
+    connect(&panel, &MappingEvidencePanel::referenceRequested, &panel,
+            [](MappingReferencePanel *view, const QString &) {
+      view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "reference", "memory"), {});
+    });
+    picker->setCurrentIndex(1);
+    QMetaObject::invokeMethod(picker, "activated", Q_ARG(int, 1));
+    QCOMPARE(panel.views().size(), 2);
+    QVERIFY(!panel.compact() && panel.sizeHint().height() > compactHeight);
+    QVERIFY(panel.views().first()->hasReference() && !panel.views().last()->canvas());
+    project.setFileName(dir.filePath("two.qgz"));
+    panel.setSources({}, {});
+    QVERIFY(panel.compact() && panel.views().isEmpty());
+    project.setFileName(dir.filePath("one.qgz"));
+    panel.setSources(rows, {});
+    QCOMPARE(panel.views().size(), 2);
+    QVERIFY(panel.views().first()->hasReference());
+    QCOMPARE(panel.views().first()->sourceId(), QString("ref1"));
+    QSettings("paleo", "paleo").remove(evidenceWidthsKey(&project));
+  }
+
   void evidenceViewWidthsFollowProjectAndDeletion() {
     QTemporaryDir dirA, dirB;
     QVERIFY(dirA.isValid() && dirB.isValid());
@@ -3850,6 +3922,7 @@ private slots:
     };
     clean();
     const auto cleanup = qScopeGuard([&clean] { clean(); });
+    settings.setValue(evidenceWidthsKey(&projectA), QVariantList{0, 0, 0, 0});
     const int distinctive = 333;
     QgsMapCanvas main;
     main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
@@ -3877,7 +3950,7 @@ private slots:
     {
       MappingEvidencePanel panel(&main, &projectB);
       panel.resize(800, 360); panel.show();
-      QCOMPARE(panel.views().size(), 4);
+      QCOMPARE(panel.views().size(), 2);
       for (auto *view : panel.views()) QVERIFY(panel.viewWidth(view) != distinctive);
     }
   }
@@ -3891,7 +3964,9 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(1200, 360); panel.show();
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
+    panel.addView();
+    panel.addView();
     QCoreApplication::processEvents();
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     const auto handles = panel.findChildren<QWidget *>("referenceViewResizeHandle");

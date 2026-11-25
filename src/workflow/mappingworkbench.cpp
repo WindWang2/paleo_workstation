@@ -72,6 +72,13 @@ void fail(QString *error, const QString &text) {
     *error = text;
 }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
+
+QString versionPathKey(const QString &source) {
+  const auto path = filePath(source);
+  if (path.isEmpty()) return {};
+  const auto canonical = QFileInfo(path).canonicalFilePath();
+  return canonical.isEmpty() ? path : canonical;
+}
 void rememberNativeFailure(QgsVectorLayer *layer, const QString &target, const QString &error) {
   auto failures = FaciesPartitionState::evidenceFailures(layer);
   if (error.isEmpty()) failures.remove(target); else failures.insert(target, error);
@@ -621,7 +628,7 @@ void MappingWorkbench::ensureVersionIndex() const {
   for (const auto &v : m_catalog->versions()) {
     insert(m_aliasVersions, v.extra.value("layer_id").toString(), v);
     insert(m_aliasVersions, v.extra.value("draft_id").toString(), v);
-    insert(m_pathVersions, DataCatalog::resolvedVersionPath(m_dir, v), v);
+    insert(m_pathVersions, versionPathKey(DataCatalog::resolvedVersionPath(m_dir, v)), v);
   }
   m_versionIndexSeq = m_catalog->mutationSeq();
   m_versionIndexRevision = m_catalog->catalogRevision();
@@ -635,7 +642,7 @@ CatalogVersion MappingWorkbench::versionForLayer(const QString &id) const {
   }
   ensureVersionIndex();
   auto found = m_aliasVersions.value(id);
-  const auto byPath = m_pathVersions.value(filePath(declaration(id).source));
+  const auto byPath = m_pathVersions.value(versionPathKey(declaration(id).source));
   if (found.id.isEmpty() || byPath.versionNumber > found.versionNumber) found = byPath;
   return found;
 }

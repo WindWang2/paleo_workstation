@@ -130,9 +130,15 @@ bool QgisLayerService::declareWithPresentationMarker(const LayerDeclaration &dec
   QgsMapLayer *previous = m_instances.value(decl.layerId).data();
   auto *constraint = decl.layerId.startsWith(QLatin1String("constraints."))
       ? qobject_cast<QgsVectorLayer *>(previous) : nullptr;
+  const auto sameSource = [&] {
+    if (previous->source() == decl.source) return true;
+    if (previous->providerType() != QLatin1String("ogr")) return false;
+    const auto key = vectorSourceKey(previous->source());
+    return !key.isEmpty() && key == vectorSourceKey(decl.source);
+  };
   const bool replace = previous && (!previous->isValid() || (decl.type == QLatin1String("mbtiles")
       ? previous->customProperty("paleoBasemapPath").toString() != QFileInfo(QDir(QFileInfo(svcProject(m_projectSvc)->fileName()).absolutePath()).filePath(decl.source)).absoluteFilePath()
-      : previous->source() != decl.source));
+      : !sameSource()));
   if (replace)
   {
     if (auto *vector = qobject_cast<QgsVectorLayer *>(previous))

@@ -288,7 +288,29 @@ WbCmdStep runWorkbenchEditFamily(const CommandContext &d,
     ok = d.workbench->startFaciesConsistency(id, &error);
   } else if (action == "polygonize")
     ok = d.workbench->startPolygonize(id, &error);
-  else if (action == "copy") {
+  else if (action == "resumeEdit") {
+    const auto declaration = d.workbench->declaration(id);
+    if (!id.startsWith(QLatin1String("draft.")) || declaration.type != QLatin1String("vector") ||
+        declaration.horizon != p.value("horizon").toString() || d.workbench->isWellPrediction(id)) {
+      error = WorkbenchText::tr("该相面工作副本已不可用，请重新选择。");
+      ok = false;
+    } else {
+      const bool active = d.edit && d.edit->isEditing() && d.edit->currentLayer() &&
+          d.edit->currentLayer()->customProperty("paleoLayerId").toString() == id;
+      if (!active) {
+        d.workbench->suppressNextProductZoom();
+        ok = d.show(id, &error) && d.beginEdit(id);
+        d.workbench->clearSuppressedProductZoom();
+      }
+      if (ok) {
+        d.page->selectLayer(id);
+        if (d.canvasCtl && d.canvasCtl->canvas()) d.canvasCtl->canvas()->setFocus(Qt::OtherFocusReason);
+        d.page->showMessage(WorkbenchText::tr("正在编辑 %1").arg(declaration.title));
+        return WbCmdStep::Return;
+      }
+      if (error.isEmpty()) error = WorkbenchText::tr("无法进入所选工作副本。");
+    }
+  } else if (action == "copy") {
     const auto draft = d.workbench->copyForEditing(id, inputs, &error, false);
     ok = !draft.isEmpty();
     if (ok && d.edit) {
@@ -317,23 +339,6 @@ WbCmdStep runWorkbenchEditFamily(const CommandContext &d,
   return WbCmdStep::Handled;
 }
 
-// 生命周期族：delete / import / draw / factor / contours / compose / schema。
-WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
-                                      const QString &action, const QString &h,
-                                      const QString &id,
-                                      const QStringList &inputs,
-                                      const QVariantMap &p, bool &ok,
-                                      QString &error, bool &declarationOnly) {
-  if (action == "newMap") {
-    ok = startBlankMap(d, h, p, &error);
-  } else if (action == "delete") {
-    const auto title = d.workbench->declaration(id).title;
-    const auto products = d.workbench->removalProducts(id, &error);
-    declarationOnly = products.size() == 1 && products.first().toMap().value("declaration_only").toBool();
-    QStringList entries, versionIds;
-    for (const auto &value : products) {
-      const auto product = value.toMap();
-      entries << (declarationOnly ? product.value("title").toString()
 bool startBlankMap(const CommandContext &d, const QString &horizon, const QVariantMap &params, QString *error) {
   QVariantMap boundary;
   const QString source = params.value("boundary").toString();
@@ -359,6 +364,23 @@ bool startBlankMap(const CommandContext &d, const QString &horizon, const QVaria
   return boundary.isEmpty() || d.workbench->seedMapBoundary(draft, boundary, code, error);
 }
 
+// 生命周期族：delete / import / draw / factor / contours / compose / schema。
+WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
+                                      const QString &action, const QString &h,
+                                      const QString &id,
+                                      const QStringList &inputs,
+                                      const QVariantMap &p, bool &ok,
+                                      QString &error, bool &declarationOnly) {
+  if (action == "newMap") {
+    ok = startBlankMap(d, h, p, &error);
+  } else if (action == "delete") {
+    const auto title = d.workbench->declaration(id).title;
+    const auto products = d.workbench->removalProducts(id, &error);
+    declarationOnly = products.size() == 1 && products.first().toMap().value("declaration_only").toBool();
+    QStringList entries, versionIds;
+    for (const auto &value : products) {
+      const auto product = value.toMap();
+      entries << (declarationOnly ? product.value("title").toString()
                      : WorkbenchText::tr("• %1（%2 个版本）").arg(product.value("title").toString())
                            .arg(product.value("versions").toInt()));
       if (auto *catalog = d.workbench->catalog())
@@ -719,6 +741,23 @@ void MappingWorkbenchCommandController::handleCommand(const QString &action, con
   const auto h = p.value("horizon").toString(),
              id = p.value("layer").toString();
   const auto inputs = p.value("inputs").toStringList();
+  if ((action == "newMap" || action == "copy" || action == "resumeEdit") && d.edit && d.edit->isEditing()) {
+    QPointer<QgsVectorLayer> previous = d.edit->currentLayer();
+    const auto previousId = previous ? previous->customProperty("paleoLayerId").toString() : QString();
+    if (action != "resumeEdit" || previousId != id) {
+      const auto session = d.projectSession ? d.projectSession() : 0;
+      const auto choice = PaleoNotify::askSaveDiscard(d.dialogParent, PaleoNotify::AskIcon::Question,
+          WorkbenchText::tr("切换编辑图层"), WorkbenchText::tr("当前正在编辑「%1」。如何处理本次编辑？").arg(previous ? previous->name() : QString()),
+          WorkbenchText::tr("保存并继续"), WorkbenchText::tr("放弃并继续"), WorkbenchText::tr("返回当前副本"));
+      if (choice == PaleoNotify::SaveChoice::Cancel || !previous || !postModalUsable(d, action, &error) ||
+          !d.edit || !d.edit->isEditing() || previous != d.edit->currentLayer() ||
+          (d.projectSession && session != d.projectSession()) || d.page->horizon() != h) return;
+      if (choice == PaleoNotify::SaveChoice::Save) {
+        if (!d.edit->saveEditing() || !d.workbench || d.workbench->hasUnpublishedChanges(previousId)) return;
+      } else if (!d.edit->cancelEditing()) return;
+      if (!postModalUsable(d, action, &error) || (d.projectSession && session != d.projectSession())) return;
+    }
+  }
   // C-W1：分派由单份目录的 family 直达唯一处理入口，不再依次试探四段
   // Skip 链——登记与分族不再可能漏配。
   WbCmdStep step = WbCmdStep::Skip;

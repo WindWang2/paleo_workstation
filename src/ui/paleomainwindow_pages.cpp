@@ -77,8 +77,7 @@ void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
   if (window)
     for (auto *dock : window->findChildren<PaleoDockWidget *>())
       if (dock->property("paleo.mappingReference").toBool())
-        dock->setProgrammaticVisible(pageId != QLatin1String("data") &&
-            pageId != QLatin1String("correlation") && dock->userWantsVisible());
+        dock->setProgrammaticVisible(kEditingToolPages.contains(pageId) && dock->userWantsVisible());
 }
 
 void hideAllDocksForCorrelation(QMainWindow *win)
@@ -198,6 +197,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
 
+  if (m_projectSvc && !m_projectSvc->projectPath().isEmpty() && kEditingToolPages.contains(pageId))
+    prepareMappingReferenceDock();
   paleo::mainwindow_internal::applyPageDockPolicy(
       pageId, {m_leftDock, m_dataListDock, m_bottomDock, m_wellSectionDock,
                m_previewMaximized, m_bottomDockAutoShown, m_rightDock}, this);

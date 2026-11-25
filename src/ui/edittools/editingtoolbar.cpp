@@ -98,6 +98,7 @@ PaleoEditingToolbar::PaleoEditingToolbar( QgsMapCanvas *canvas, QWidget *parent 
   // Layer-switch refusals (dirty native stack) surface as editRefused reasons.
   connect( mUndoStack.get(), &PaleoUndoStack::switchRefused, this,
            [this]( const QString &, const QString &reason ) { emit editRefused( reason ); } );
+  connect( this, &PaleoEditingToolbar::featureEdited, this, &PaleoEditingToolbar::refreshUndoActions );
   connect( mActionUndo, &QAction::triggered, this, [this] { routeUndo( true ); } );
   connect( mActionRedo, &QAction::triggered, this, [this] { routeUndo( false ); } );
 
@@ -124,7 +125,10 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
 {
   for ( const auto &layer : std::as_const( mLayers ) )
     if ( layer )
+    {
       disconnect( layer, nullptr, this, nullptr );
+      disconnect( layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::refreshUndoActions );
+    }
   for (const auto &connection : mHighlightConnections)
     disconnect(connection);
   mHighlightConnections.clear();
@@ -141,10 +145,12 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
       refreshCombo();
       updateActionStates();
     } );
+    connect( layer, &QgsVectorLayer::editCommandEnded, this, &PaleoEditingToolbar::refreshUndoActions );
     connect( layer, &QgsVectorLayer::readOnlyChanged, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::supportsEditingChanged, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::editingStarted, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::editingStopped, this, &PaleoEditingToolbar::updateActionStates );
+    connect( layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::refreshUndoActions );
     connect(layer, &QgsVectorLayer::beforeCommitChanges, this, [this, layer](bool stopEditing) {
       if (stopEditing && layer == mEditLayer)
         m_saveSummary = QgisEditingService::pendingEditSummary(layer);
@@ -365,9 +371,9 @@ void PaleoEditingToolbar::buildUi()
   } );
 
   // 跨层拓扑（mapping 主线2）：写集延伸到「同 CRS 且处于编辑会话的相邻层」。
-  // 参与层必须可写（native 语义），undo 按层各一步。持久化走工程自定义属性
+  // 参与层必须可写（native 语义），画布撤销整组进行。持久化走工程自定义属性
   // paleo/crossLayerTopologicalEditing（随 .qgz）。仅在拓扑编辑开启时可用。
-  mActionCrossLayerTopo = newToolAction( tr( "跨层" ), tr( "跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）" ),
+  mActionCrossLayerTopo = newToolAction( tr( "跨层" ), tr( "跨层拓扑：同坐标系普通图层的共点节点一起编辑和撤销" ),
                                          QStringLiteral( "mIconTopologicalEditing.svg" ) );
   mActionCrossLayerTopo->setObjectName( QStringLiteral( "actionCrossLayerTopo" ) );
   connect( mActionCrossLayerTopo, &QAction::toggled, this, [this]( bool on ) {

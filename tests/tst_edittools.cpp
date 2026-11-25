@@ -34,6 +34,7 @@
 //   · QgsProject::instance() is process-global — init()/cleanup() clear it.
 
 #include "../src/qgis/qgiseditingservice.h"
+#include "../src/qgis/topologygesture.h"
 #include "../src/qgis/faciespartitioneditor.h"
 #include "../src/qgis/faciespartitiontool.h"
 #include "../src/qgis/mappingfeatureidentity.h"
@@ -241,6 +242,8 @@ class TestEditTools : public QObject
     void topoIndexCandidatesAndHealth();
     void topoIndexInvalidationOnEditSignals();
     void vertexTopoCrossLayerDragMovesBothLayers();
+    void toolbarCrossLayerGestureUndoAndConflicts();
+    void crossLayerWriteFailureRestoresAllParticipants();
     void vertexTopoCrossLayerCrsMismatchExcluded();
     void vertexTopoCrossLayerDeleteAndUndo();
     void vertexTopoCrossLayerParticipantDestructionMidDrag();
@@ -4727,6 +4730,97 @@ void TestEditTools::vertexTopoCrossLayerDragMovesBothLayers()
   b.rollBack();
   QgsProject::instance()->removeMapLayer( &a );
   QgsProject::instance()->removeMapLayer( &b );
+}
+
+void TestEditTools::toolbarCrossLayerGestureUndoAndConflicts()
+{
+  QgsVectorLayer a("Polygon?crs=EPSG:4326", "a", "memory"), b("Polygon?crs=EPSG:4326", "b-neighbor", "memory");
+  const auto fa = seedFeature(a, QgsGeometry::fromWkt(squareWkt(10,10,20)));
+  const auto fb = seedFeature(b, QgsGeometry::fromWkt(squareWkt(30,10,20)));
+  QgsProject project;
+  project.addMapLayer(&a, false, false);
+  project.addMapLayer(&b, false, false);
+  QgsMapCanvas canvas;
+  canvas.setProject(&project);
+  configureCanvas(canvas);
+  canvas.show();
+  QApplication::setActiveWindow(&canvas);
+  canvas.setFocus();
+  QTRY_VERIFY(canvas.hasFocus());
+  canvas.setExtent(QgsRectangle(25,5,35,15));
+  canvas.setLayers({&a, &b});
+  canvas.setCurrentLayer(&a);
+  PaleoEditingToolbar bar(&canvas);
+  bar.setProject(&project);
+  bar.setCurrentLayer(&a);
+  QVERIFY(bar.startEditing());
+  QVERIFY(b.startEditing());
+  a.selectByIds({fa});
+  bar.actionTopological()->setChecked(true);
+  bar.actionCrossLayerTopo()->setChecked(true);
+  bar.actionVertexEdit()->trigger();
+  QVERIFY(qobject_cast<PaleoVertexTool *>(canvas.mapTool()));
+  const auto originalA = a.getFeature(fa).geometry().asWkb();
+  const auto originalB = b.getFeature(fb).geometry().asWkb();
+  QTest::mousePress(canvas.viewport(), Qt::LeftButton, Qt::NoModifier, pxAt(canvas,30,10));
+  QTest::mouseRelease(canvas.viewport(), Qt::LeftButton, Qt::NoModifier, pxAt(canvas,30,7));
+  const auto movedA = a.getFeature(fa).geometry().asWkb();
+  const auto movedB = b.getFeature(fb).geometry().asWkb();
+  QVERIFY(movedA != originalA && movedB != originalB);
+  QVERIFY(bar.actionUndo()->isEnabled());
+  QTest::keyClick(&canvas, Qt::Key_Z, Qt::ControlModifier);
+  QCOMPARE(a.getFeature(fa).geometry().asWkb(), originalA);
+  QCOMPARE(b.getFeature(fb).geometry().asWkb(), originalB);
+  QTest::keyClick(&canvas, Qt::Key_Y, Qt::ControlModifier);
+  QCOMPARE(a.getFeature(fa).geometry().asWkb(), movedA);
+  QCOMPARE(b.getFeature(fb).geometry().asWkb(), movedB);
+
+  const auto target = bar.canvasUndoTarget();
+  b.undoStack()->push(new QUndoCommand("another edit"));
+  QVERIFY(!bar.actionUndo()->isEnabled());
+  QVERIFY(bar.actionUndo()->toolTip().contains(b.name()));
+  QVERIFY(!target.step(true));
+  QCOMPARE(a.getFeature(fa).geometry().asWkb(), movedA);
+  b.undoStack()->undo();
+  QVERIFY(bar.actionUndo()->isEnabled());
+  b.undoStack()->undo(); // an external native undo moves just one participant
+  QVERIFY(!target.step(true));
+  QCOMPARE(a.getFeature(fa).geometry().asWkb(), movedA);
+  QCOMPARE(b.getFeature(fb).geometry().asWkb(), originalB);
+  b.undoStack()->redo();
+  QVERIFY(b.commitChanges());
+  QVERIFY(b.startEditing()); // a new buffer on the same layer cannot claim the old group
+  QVERIFY(!target.step(true));
+  QCOMPARE(a.undoStack()->index(), 1);
+  QVERIFY(bar.cancelEditing());
+  QVERIFY(b.rollBack());
+  canvas.stopRendering();
+}
+
+void TestEditTools::crossLayerWriteFailureRestoresAllParticipants()
+{
+  QgsVectorLayer a("Point?crs=EPSG:4326","a","memory"), b("Point?crs=EPSG:4326","b","memory");
+  const auto fa = seedFeature(a, QgsGeometry::fromWkt("Point (1 2)"));
+  const auto fb = seedFeature(b, QgsGeometry::fromWkt("Point (1 2)"));
+  QVERIFY(a.startEditing() && b.startEditing());
+  int writes = 0;
+  QString error;
+  QVERIFY(!QgisTopologyGesture::apply({&a,&b}, "move", [&](QgsVectorLayer *layer) {
+    ++writes;
+    auto geom = QgsGeometry::fromPointXY(QgsPointXY(3,4));
+    return layer->changeGeometry(layer == &a ? fa : fb, geom) && layer != &b;
+  }, &error));
+  QCOMPARE(writes, 2);
+  QVERIFY(error.contains(b.name()));
+  QCOMPARE(a.getFeature(fa).geometry().asPoint(), QgsPointXY(1,2));
+  QCOMPARE(b.getFeature(fb).geometry().asPoint(), QgsPointXY(1,2));
+  QCOMPARE(a.undoStack()->count(), 0);
+  QCOMPARE(b.undoStack()->count(), 0);
+  b.setCustomProperty("paleoLayerId", "constraints.fixture");
+  QVERIFY(!QgisTopologyGesture::crossLayerEligible(&b));
+  writes = 0;
+  QVERIFY(!QgisTopologyGesture::apply({&a,&b}, "move", [&](QgsVectorLayer *) { ++writes; return true; }, &error));
+  QCOMPARE(writes, 0);
 }
 
 void TestEditTools::vertexTopoCrossLayerCrsMismatchExcluded()

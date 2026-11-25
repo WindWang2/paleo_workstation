@@ -35,6 +35,8 @@
 
 #include "../src/qgis/qgiseditingservice.h"
 #include "../src/qgis/topologygesture.h"
+#include "../src/ui/paleotheme.h"
+#include <QDir>
 #include "../src/qgis/faciespartitioneditor.h"
 #include "../src/qgis/faciespartitiontool.h"
 #include "../src/qgis/mappingfeatureidentity.h"
@@ -3338,6 +3340,10 @@ void TestEditTools::ambiguousPointPickingAndDeletion_data()
 void TestEditTools::ambiguousPointPickingAndDeletion()
 {
   QFETCH(QString, type);
+  const QString shotDir = qEnvironmentVariable("PALEO_EDIT_SHOT_DIR");
+  const bool dark = qEnvironmentVariable("PALEO_EDIT_SHOT_THEME") == QStringLiteral("dark");
+  if (!shotDir.isEmpty())
+    PaleoTheme::applyTheme(dark ? PaleoTheme::Theme::Dark : PaleoTheme::Theme::Light);
   const bool points = type == QLatin1String("Point");
   const bool polygons = type == QLatin1String("Polygon");
   QgsMapCanvas canvas;
@@ -3385,6 +3391,14 @@ void TestEditTools::ambiguousPointPickingAndDeletion()
   QVERIFY(bar.isEditing());
   clickMap(QPoint(190, 190));
   QTRY_VERIFY(popup());
+  if (!shotDir.isEmpty()) {
+    QVERIFY(QDir().mkpath(shotDir));
+    canvas.refresh();
+    canvas.waitWhileRendering();
+    const auto stem = QDir(shotDir).filePath(type + (dark ? "-dark" : "-light"));
+    QVERIFY(canvas.grab().save(stem + "-canvas.png"));
+    QVERIFY(popup()->grab().save(stem + "-candidates.png"));
+  }
   QTest::keyClick(popup(), Qt::Key_Escape);
   QCOMPARE(layer.featureCount(), 3);
   QCOMPARE(layer.undoStack()->count(), 0);

@@ -43,13 +43,18 @@ void sample(Fixture &f, Capture &capture, int count, const QString &phase, QJson
   auto polygon = std::make_unique<QgsPolygon>();
   polygon->setExteriorRing(source->curveToLine());
   const QgsGeometry stroke(polygon.release());
-  double frameMs = -1, inputMs = -1, renderStart = -1;
+  double frameMs = -1, inputMs = -1, renderStart = -1, renderMs = -1;
   QElapsedTimer elapsed;
   const auto ms = [&] { return elapsed.nsecsElapsed() / 1000000.; };
   QObject scope;
-  QObject::connect(&capture.canvas, &QgsMapCanvas::renderStarting, &scope, [&] { renderStart = ms(); });
+  QObject::connect(&capture.canvas, &QgsMapCanvas::renderStarting, &scope, [&] {
+    if (frameMs < 0) renderStart = ms();
+  });
   QObject::connect(&capture.canvas, &QgsMapCanvas::mapCanvasRefreshed, &scope, [&] {
-    if (renderStart >= 0 && frameMs < 0) frameMs = ms();
+    if (renderStart >= 0 && frameMs < 0) {
+      frameMs = ms();
+      renderMs = frameMs - renderStart;
+    }
   });
   elapsed.start();
   QTimer::singleShot(0, &scope, [&] {
@@ -61,7 +66,7 @@ void sample(Fixture &f, Capture &capture, int count, const QString &phase, QJson
   const double synchronousMs = ms();
   QCOMPARE(f.layer.undoStack()->index(), 1);
   QTRY_VERIFY_WITH_TIMEOUT(frameMs >= 0 && inputMs >= 0, 60000);
-  const double renderMs = frameMs - renderStart;
+  QVERIFY(renderMs >= 0);
   QVERIFY(f.layer.selectedFeatures().first().attribute("facies_code").toInt() == 3);
   f.layer.undoStack()->undo();
   QCOMPARE(f.layer.featureCount(), count);

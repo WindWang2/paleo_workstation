@@ -1,6 +1,12 @@
 #include <QtTest>
 #include <QUndoStack>
 #include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QTimer>
+#include <qgsapplication.h>
+#include <qgspolygon.h>
 #include "../src/qgis/faciespartitioneditor.h"
 #include "../src/qgis/faciesmapboundary.h"
 #include "../src/qgis/faciespartitiontool.h"
@@ -76,9 +82,15 @@ struct Capture {
   }
 };
 }
+#include "faciespartitionbench.h"
 class TestFaciesPartition : public QObject {
   Q_OBJECT
 private slots:
+  void capturePerformance() {
+    if (!qEnvironmentVariableIsSet("PALEO_FACIES_BENCH_JSON"))
+      QSKIP("Set PALEO_FACIES_BENCH_JSON to record the optional large-grid benchmark.");
+    FaciesPartitionBench::run();
+  }
   void correctLastVertexOfLongSplit() {
     Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
     f.layer.selectByIds({f.first().id()});

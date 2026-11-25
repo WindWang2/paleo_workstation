@@ -250,6 +250,9 @@ QVariantList choices(const QgsVectorLayer *v) {
 }
 int selectionSize(const QgsVectorLayer *v) { return v ? v->selectedFeatureCount() : 0; }
 QString layerKey(const QgsVectorLayer *v) { return v ? v->id() : QString(); }
+QString declaredLayerId(const QgsVectorLayer *v) {
+  return v ? v->customProperty(QStringLiteral("paleoLayerId")).toString() : QString();
+}
 QString footprint(QgsVectorLayer *v, QString *error) {
   if (!v || !v->isValid()) { fail(error, QObject::tr("相面图层不可用")); return {}; }
   const auto g = united(v);

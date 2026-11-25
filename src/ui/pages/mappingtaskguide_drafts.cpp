@@ -13,7 +13,7 @@ void MappingTaskGuide::watchEditor(PaleoEditingToolbar *editor) {
   if (!editor || m_mode != QLatin1String("compose")) return;
   m_editor = editor;
   const auto sync = [this] {
-    const QString id = m_editor && m_editor->isEditing() ? FaciesPartitionEditor::layerKey(m_editor->currentLayer()) : QString();
+    const QString id = m_editor && m_editor->isEditing() ? FaciesPartitionEditor::declaredLayerId(m_editor->currentLayer()) : QString();
     if (id == m_activeDraft) return;
     m_activeDraft = id;
     refresh();
@@ -23,7 +23,7 @@ void MappingTaskGuide::watchEditor(PaleoEditingToolbar *editor) {
                        editor->actionVertexEdit(), editor->actionAddPolygon()}) {
     connect(action, &QAction::triggered, this, [this, action] {
       if (m_editor && m_editor->isEditing() && action->isChecked()) {
-        const auto id = FaciesPartitionEditor::layerKey(m_editor->currentLayer());
+        const auto id = FaciesPartitionEditor::declaredLayerId(m_editor->currentLayer());
         if (id.startsWith(QLatin1String("draft."))) m_draftTools.insert(id, action);
       }
     });
@@ -59,7 +59,7 @@ void MappingTaskGuide::resumeDraft(const QString &id) {
   if (!page || !m_drafts.contains(id)) return;
   const QPointer<QAction> tool = m_draftTools.value(id);
   emit page->commandRequested(QStringLiteral("resumeEdit"), {{"layer", id}, {"horizon", page->horizon()}});
-  if (m_editor && m_editor->isEditing() && FaciesPartitionEditor::layerKey(m_editor->currentLayer()) == id &&
+  if (m_editor && m_editor->isEditing() && FaciesPartitionEditor::declaredLayerId(m_editor->currentLayer()) == id &&
       tool && tool->isEnabled() && !tool->isChecked()) tool->trigger();
 }
 

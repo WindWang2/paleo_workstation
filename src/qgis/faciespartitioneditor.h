@@ -21,6 +21,7 @@ bool isPartition(const QgsVectorLayer *v);
 QVariantList choices(const QgsVectorLayer *v);
 int selectionSize(const QgsVectorLayer *v);
 QString layerKey(const QgsVectorLayer *v);
+QString declaredLayerId(const QgsVectorLayer *v);
 QString footprint(QgsVectorLayer *v, QString *error = nullptr);
 bool install(QgsVectorLayer *v, const QVariantList &source,
              const QString &frozenFootprint = {}, QString *error = nullptr);

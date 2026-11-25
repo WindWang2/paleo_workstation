@@ -12911,11 +12911,6 @@ Crossline: %3 ~ %4</source>
         </message>
         <message>
             <location filename="../src/qgis/faciespartitiontool.cpp" line="109" />
-            <source>吸附到「%1」</source>
-            <translation>Snapped to “%1”</translation>
-        </message>
-        <message>
-            <location filename="../src/qgis/faciespartitiontool.cpp" line="109" />
             <source>未吸附</source>
             <translation>Not snapped</translation>
         </message>
@@ -12938,6 +12933,21 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/qgis/faciespartitiontool.cpp" line="140" />
             <source>%1。Shift + 左键移动末点，退格撤回一点，或继续加点后右键重试。</source>
             <translation>%1. Shift-click to move the last vertex, press Backspace to remove it, or add vertices and right-click to try again.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="116" />
+            <source>吸附到交点</source>
+            <translation>Snapped to intersection</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="120" />
+            <source>吸附到「%1」的要素 %2</source>
+            <translation>Snapped to feature %2 in “%1”</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="121" />
+            <source>吸附到要素 %1</source>
+            <translation>Snapped to feature %1</translation>
         </message>
     </context>
     <context>
@@ -20724,13 +20734,8 @@ Feature %4 · version %5</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar_partition.cpp" line="79" />
-            <source>三级相面共用基础分区，跨层独立撤销会破坏一致性；请在当前工作副本编辑</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="789" />
-            <source>编辑中：%1 · 有未保存的修改</source>
-            <translation>Editing: %1 · Unsaved changes</translation>
+            <source>三级相面的拓扑校验限于当前工作副本，跨层编辑仅适用于普通图层</source>
+            <translation>Topology checks for the three-level facies partition apply to the current working copy. Cross-layer editing is available for ordinary layers.</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="974" />
@@ -25453,6 +25458,11 @@ PDF：%3
             <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="751" />
             <source>返回当前副本</source>
             <translation>Return to the current working copy</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="791" />
+            <source>已保存「%1」：%2</source>
+            <translation>Saved “%1”: %2</translation>
         </message>
 </context>
     <context>

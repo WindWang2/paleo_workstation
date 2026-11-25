@@ -8,6 +8,7 @@
 #include <qgshighlight.h>
 #include <qgsmapcanvas.h>
 #include <qgsmaptool.h>
+#include <qgsproject.h>
 #include <qgstolerance.h>
 #include <qgsvectorlayer.h>
 #include <algorithm>
@@ -110,12 +111,14 @@ MapFeaturePicker::Result MapFeaturePicker::choose(QgsVectorLayer *layer, const Q
   menu->setAccessibleName(tr("选择目标要素"));
   menu->addSection(modifying ? tr("选择要删除的要素") : tr("选择要素"));
   const QPointer<QgsVectorLayer> target(layer);
+  const QPointer<QgsProject> project(m_canvas->project());
   for (const auto &hit : hits) {
     auto *action = menu->addAction(tr("要素 %1").arg(hit.id));
     action->setData(hit.id);
-    connect(action, &QAction::triggered, this, [this, target, modifying, apply, id = hit.id, position, menu] {
+    connect(action, &QAction::triggered, this, [this, target, project, modifying, apply, id = hit.id, position, menu] {
       if (m_menu != menu || !m_canvas || !target || m_canvas->mapTool() != m_owner ||
-          m_canvas->currentLayer() != target || (modifying && !target->isEditable())) return;
+          m_canvas->project() != project || m_canvas->currentLayer() != target ||
+          (modifying && !target->isEditable())) return;
       try {
         const auto hitsNow = candidates(m_canvas, target, position);
         if (std::any_of(hitsNow.begin(), hitsNow.end(), [id](const Hit &hit) { return hit.id == id; }))
@@ -126,6 +129,11 @@ MapFeaturePicker::Result MapFeaturePicker::choose(QgsVectorLayer *layer, const Q
     });
   }
   const auto invalidate = [this, menu] { if (m_menu == menu) clear(); };
+  auto *session = project ? project.data() : QgsProject::instance();
+  connect(session, &QgsProject::aboutToBeCleared, menu, invalidate);
+  connect(session, &QObject::destroyed, menu, invalidate);
+  connect(session, qOverload<const QStringList &>(&QgsProject::layersWillBeRemoved), menu,
+          [id = layer->id(), invalidate](const QStringList &ids) { if (ids.contains(id)) invalidate(); });
   connect(layer, &QObject::destroyed, menu, invalidate);
   connect(layer, &QgsVectorLayer::editingStopped, menu, invalidate);
   connect(menu, &QMenu::hovered, this, [this, target](QAction *action) {

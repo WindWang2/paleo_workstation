@@ -31,20 +31,33 @@ MappingReferenceController::MappingReferenceController(
         if (!main) return;
         const auto area = main->dockWidgetArea(&dock);
         const bool horizontal = !dock.isFloating() && (area == Qt::TopDockWidgetArea || area == Qt::BottomDockWidgetArea);
-        const bool fold = horizontal && panel->compact();
-        const bool folded = dock.property("referenceFolded").toBool();
-        if (fold && !folded && dock.isVisible() && dock.height() > dock.minimumSizeHint().height())
-            dock.setProperty("referenceExpandedHeight", dock.height());
+        const auto previous = dock.property("referenceFolded");
+        const bool fold = panel->compact();
         dock.setProperty("referenceFolded", fold);
-        dock.setMaximumHeight(fold ? dock.minimumSizeHint().height() : QWIDGETSIZE_MAX);
-        if (horizontal && folded && !fold) {
+        if (!horizontal || !dock.isVisible()) return;
+        if (fold) {
+            if (previous.isValid() && !previous.toBool()) dock.setProperty("referenceExpandedHeight", dock.height());
+            // A custom layout may put the log or a different dock in this row.
+            // Its height remains under the user's control.
+            const auto peers = main->findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly);
+            for (auto *peer : peers) {
+                if (peer != &dock && !peer->isHidden() && !peer->isFloating() && main->dockWidgetArea(peer) == area &&
+                    peer->geometry().bottom() >= dock.geometry().top() && peer->geometry().top() <= dock.geometry().bottom())
+                    return;
+            }
+            main->resizeDocks({&dock}, {dock.minimumSizeHint().height()}, Qt::Vertical);
+        } else if (previous.toBool()) {
             const int saved = dock.property("referenceExpandedHeight").toInt();
-            main->resizeDocks({&dock}, {saved > 0 ? saved : panel->sizeHint().height()}, Qt::Vertical);
+            int initial = panel->sizeHint().height();
+            if (auto *central = main->centralWidget())
+                initial = qMin(initial, (central->height() + dock.height()) / 2);
+            main->resizeDocks({&dock}, {saved > 0 ? saved : initial}, Qt::Vertical);
         }
     };
     connect(m_panel, &MappingEvidencePanel::compactChanged, &dock, sizeDock);
     connect(&dock, &QDockWidget::topLevelChanged, &dock, sizeDock);
     connect(&dock, &QDockWidget::dockLocationChanged, &dock, sizeDock);
+    connect(&dock, &QDockWidget::visibilityChanged, &dock, [sizeDock](bool visible) { if (visible) sizeDock(); });
     connect(&dock, &QDockWidget::visibilityChanged, m_panel, &MappingEvidencePanel::setViewActive);
     connect(m_panel, &MappingEvidencePanel::referenceRequested,
             this, &MappingReferenceController::loadReference);

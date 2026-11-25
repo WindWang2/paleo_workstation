@@ -21,6 +21,9 @@ class SgyVolume;
 // 常量会在 main 前静态初始化，漏翻译。
 namespace paleo::mainwindow_internal {
 
+// Flush before QMainWindow starts dismantling its native dock layout.
+void finishReferenceDockLayout(QMainWindow *window);
+
 // 页策略作用的 dock 面：showPage 与 dock 布局恢复后的策略重落共用。
 struct PageDockState
 {

@@ -216,6 +216,7 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
 
 PaleoMainWindow::~PaleoMainWindow()
 {
+  paleo::mainwindow_internal::finishReferenceDockLayout(this);
   // #777：先断开画布 destroyed 接线（见 m_sectionCaptureConn 头注释）——本类
   // 析构函数体内 vptr 仍为派生类，断开安全；否则画布作为子对象在 ~QObject
   // 阶段删除时才触发该 lambda，会写已降级对象触发 UBSan vptr。

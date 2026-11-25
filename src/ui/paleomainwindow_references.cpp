@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleomainwindow.h"
+#include "paleomainwindow_internal.h"
 #include "workbench/mappingreferencecontroller.h"
 #include "qgis/projectscope.h"
 #include "qgis/qgisprojectservice.h"
@@ -31,7 +32,16 @@ public:
         m_defaultVisible = userWantsVisible();
     }
 
+    void finishSaving() {
+        m_saveTimer.stop();
+        savePlacement();
+        m_restoring = true;
+        m_scope.clear();
+        m_window = nullptr;
+    }
+
     void selectProject(const QString &scope) {
+        if (!m_window) return;
         if (m_bound && scope == m_scope) return;
         m_saveTimer.stop();
         savePlacement();
@@ -92,7 +102,8 @@ private:
             area == Qt::BottomDockWidgetArea || area == Qt::TopDockWidgetArea) {
             const auto tabs = m_window->tabifiedDockWidgets(this);
             if (m_window->dockWidgetArea(this) != area || (!floating && !peer && !tabs.isEmpty()))
-                m_window->addDockWidget(area, this);
+                m_window->addDockWidget(area, this,
+                    area == Qt::TopDockWidgetArea || area == Qt::BottomDockWidgetArea ? Qt::Vertical : Qt::Horizontal);
             if (!floating && peer && m_window->dockWidgetArea(peer) == area && !tabs.contains(peer))
                 m_window->tabifyDockWidget(peer, this);
         }
@@ -106,6 +117,12 @@ private:
     QString m_scope;
     bool m_bound = false, m_restoring = false, m_defaultVisible = true;
 };
+}
+
+void paleo::mainwindow_internal::finishReferenceDockLayout(QMainWindow *window)
+{
+    if (auto *dock = dynamic_cast<ReferenceDock *>(window->findChild<PaleoDockWidget *>(QStringLiteral("mappingReferenceDock"))))
+        dock->finishSaving();
 }
 
 PaleoDockWidget *PaleoMainWindow::prepareMappingReferenceDock()
@@ -122,7 +139,12 @@ PaleoDockWidget *PaleoMainWindow::prepareMappingReferenceDock()
         new MappingReferenceController(
             *dock, *m_workbench, *m_canvasCtl, *m_layerSvc, m_projectSvc, *m_selection);
         const bool restored = restoreDockWidget(dock);
-        if (!restored) addDockWidget(Qt::BottomDockWidgetArea, dock);
+        if (!restored) {
+            addDockWidget(Qt::BottomDockWidgetArea, dock);
+            // The managed dock is registered above. Give the reference panel its
+            // own row below the existing native bottom tab group.
+            QMainWindow::addDockWidget(Qt::BottomDockWidgetArea, dock, Qt::Vertical);
+        }
         dock->setUserWantsVisible(!restored || !dock->isHidden());
         dock->rememberGlobalLayout();
         connect(m_workbench, &MappingWorkbench::catalogBound, dock, [this, dock] {

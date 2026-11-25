@@ -862,14 +862,17 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
     QStringList saved;
     for (int i = 0; i < dirty.size(); ++i) {
       QString err;
-      if (!dirty.at(i) || !commitPendingLayer(dirty.at(i)->id(), &err)) {
-        QStringList detail{tr("提交失败：%1。%2").arg(dirtyNames.at(i), err)};
+      const auto target = dirty.at(i);
+      const auto id = target ? target->customProperty("paleoLayerId").toString() : QString();
+      const bool committed = target && commitPendingLayer(target->id(), &err);
+      if (committed) saved << dirtyNames.at(i);
+      if (!committed || needsDraftSaveRetry(id)) {
+        QStringList detail{committed ? statusBar()->currentMessage() : tr("提交失败：%1。%2").arg(dirtyNames.at(i), err)};
         if (!saved.isEmpty()) detail << tr("已提交：%1").arg(saved.join(QStringLiteral("、")));
         if (i + 1 < dirty.size()) detail << tr("尚未提交：%1").arg(dirtyNames.mid(i + 1).join(QStringLiteral("、")));
         PaleoNotify::critical(this, tr("保存编辑失败"), detail.join(QLatin1Char('\n')));
         return false;
       }
-      saved << dirtyNames.at(i);
     }
   }
   else // 放弃

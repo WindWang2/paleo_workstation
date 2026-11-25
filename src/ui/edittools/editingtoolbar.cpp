@@ -128,6 +128,7 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
     {
       disconnect( layer, nullptr, this, nullptr );
       disconnect( layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::refreshUndoActions );
+      disconnect(layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::updateStateLabel);
     }
   for (const auto &connection : mHighlightConnections)
     disconnect(connection);
@@ -151,6 +152,7 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
     connect( layer, &QgsVectorLayer::editingStarted, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::editingStopped, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::refreshUndoActions );
+    connect(layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::updateStateLabel, Qt::UniqueConnection);
     connect(layer, &QgsVectorLayer::beforeCommitChanges, this, [this, layer](bool stopEditing) {
       if (stopEditing && layer == mEditLayer)
         m_saveSummary = QgisEditingService::pendingEditSummary(layer);
@@ -296,6 +298,8 @@ void PaleoEditingToolbar::buildUi()
   mLayerCombo = new QComboBox( this );
   mLayerCombo->setPlaceholderText( tr( "选择可编辑图层" ) );
   mStateLabel = new QLabel( this );
+  mStateLabel->setObjectName(QStringLiteral("canvasEditStatus"));
+  mStateLabel->setTextFormat(Qt::PlainText);
 
   auto newToolAction = [this]( const QString &text, const QString &hint,
                                const QString &iconName ) -> QAction * {
@@ -605,10 +609,12 @@ void PaleoEditingToolbar::updateStateLabel()
   QPalette palette = mStateLabel->palette();
   palette.setColor(QPalette::WindowText, PaleoTheme::tokens().textMuted);
   mStateLabel->setPalette(palette);
-  if (isEditing())
-    mStateLabel->setText((mEditLayer->isModified() ? tr("编辑中：%1 · 有未保存的修改") : tr("编辑中：%1"))
-                             .arg(mEditLayer->name()));
-  else
+  if (isEditing()) {
+    const auto changes = QgisEditingService::pendingEditSummary(mEditLayer);
+    auto label = tr("编辑中：%1").arg(mEditLayer->name());
+    if (!changes.isEmpty()) label += QStringLiteral(" · ") + changes;
+    mStateLabel->setText(label);
+  } else
     mStateLabel->setText(currentLayer() ? tr("浏览：%1").arg(currentLayer()->name()) : tr("未选择矢量图层"));
 }
 

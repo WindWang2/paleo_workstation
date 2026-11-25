@@ -251,6 +251,11 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   emit productReady(d.horizon, draft);
   return draft;
 }
+bool MappingWorkbench::isWorkingLayerEditing(const QString &id) const {
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  return layer && layer->isEditable();
+}
+
 bool MappingWorkbench::registerEditingVersion(const QString &id, const QString &token, QString *error) {
   if (!id.startsWith("draft.")) {
     fail(error, tr("只有人工编辑副本可以保存编辑版本"));
@@ -475,12 +480,6 @@ bool MappingWorkbench::registerEditingVersion(const QString &id, const QString &
   if (!currentDrafts.isEmpty())
     extra.insert(QStringLiteral("auto_explanations"), currentDrafts);
   extra.insert("feature_identity", QStringLiteral("paleo_feature_uid"));
-  if (layer->fields().indexOf("facies_intervals") >= 0) {
-    for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {
-      auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
-      if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
-    }
-  }
   const auto revision = MappingFeatureIdentity::layerRevision(layer);
   if (!revision.isEmpty() && previous.extra.value("edit_revision").toString() == revision &&
       previous.extra.value("auto_explanations").toMap() == currentDrafts &&
@@ -519,6 +518,13 @@ bool MappingWorkbench::registerEditingVersion(const QString &id, const QString &
 
 bool MappingWorkbench::syncSavedWellAttributes(const CatalogVersion &version, QString *error) {
   if (!version.extra.value("sync_well_attributes").toBool()) return true;
+  for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {
+    auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+    if (attributes && attributes->isEditable()) {
+      fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑"));
+      return false;
+    }
+  }
   const auto path = DataCatalog::resolvedVersionPath(m_dir, version);
   QgsVectorLayer layer(path + QStringLiteral("|layername=features"), version.id, QStringLiteral("ogr"));
   if (!layer.isValid() || layer.fields().indexOf("facies_intervals") < 0) {

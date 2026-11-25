@@ -45,6 +45,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   if (m_catalog->refusesWrites()) return reject(tr("当前工程只读，无法保存图件版本"));
   const auto path = journalPath(m_dir, id);
   if (path.isEmpty()) return reject(tr("无法定位工作副本保存记录"));
+  if (isWorkingLayerEditing(id) && pendingEditSave(id) != EditSaveStage::WellSync)
+    return reject(tr("请先点击“保存编辑”提交当前编辑，再保存图件版本"));
   if (m_savingDrafts.contains(id)) return reject(tr("正在保存该工作副本"));
   m_savingDrafts.insert(id);
   const auto cleanup = qScopeGuard([this, id] { m_savingDrafts.remove(id); });
@@ -61,13 +63,17 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   auto saved = versionForLayer(id);
   QString why;
   if (saved.extra.value("edit_save_token").toString() != token) {
-    if (!registerEditingVersion(id, token, &why))
+    if (!registerEditingVersion(id, token, &why)) {
+      emit displayChanged(id);
       return reject(tr("工作副本已保存，成果版本未登记。%1").arg(why));
+    }
     saved = versionForLayer(id);
   }
   if (saved.extra.value("edit_save_token").toString() == token &&
-      !syncSavedWellAttributes(saved, &why))
+      !syncSavedWellAttributes(saved, &why)) {
+    emit displayChanged(id);
     return reject(tr("成果版本 %1 已登记，井属性尚未同步。%2").arg(saved.id, why));
+  }
   if (!QFile::remove(path))
     return reject(tr("成果版本 %1 已登记，保存记录尚未清理，可重试。").arg(saved.id));
   emit displayChanged(id);

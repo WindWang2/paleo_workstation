@@ -187,6 +187,15 @@ private slots:
     vl->endEditCommand();
     QCOMPARE(vl->undoStack()->count(), 1);
     QCOMPARE(vl->getFeature(fid).attribute(0).toString(), QStringLiteral("W9"));
+    auto *summary = panel.findChild<QLabel *>(QStringLiteral("attrPendingChanges"));
+    QVERIFY(summary);
+    QVERIFY(vl->changeGeometry(fid, QgsGeometry::fromPointXY(QgsPointXY(3, 4))));
+    QCOMPARE(summary->text(), QgisEditingService::pendingEditSummary(vl));
+    QVERIFY(summary->text().contains(QStringLiteral("几何")));
+    QVERIFY(summary->text().contains(QStringLiteral("属性")));
+    vl->undoStack()->undo();
+    QVERIFY(!summary->text().contains(QStringLiteral("几何")));
+    QVERIFY(summary->text().contains(QStringLiteral("属性")));
 
     QVERIFY2(panel.saveEditing(),
              qPrintable(refusedSpy.isEmpty() ? QStringLiteral("no reason")

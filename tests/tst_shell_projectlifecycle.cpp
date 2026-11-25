@@ -15,6 +15,9 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QLabel>
+#include <QMenu>
+#include <qgsvectorlayer.h>
+#include <qgsgeometry.h>
 #include <QPushButton>
 #include <QDirIterator>
 #include <QSettings>
@@ -28,6 +31,7 @@
 #include <QtTest>
 #include <QListWidget>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <atomic>
@@ -480,6 +484,52 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzB, 5000);
     QCOMPARE(askCount, 0); // 不脏不问
     m_win->setProjectSaveAskForTesting(nullptr);
+  }
+
+  void projectSaveAndPartialLayerCommitKeepUnfinishedEdits() {
+    QTemporaryDir dir;
+    QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("edits.qgz")));
+    auto *project = m_ctx->projectSvc()->project();
+    QList<QgsVectorLayer *> layers;
+    for (const auto &name : {QStringLiteral("aaa"), QStringLiteral("bbb"), QStringLiteral("ccc")}) {
+      auto *layer = new QgsVectorLayer("Point?crs=EPSG:4326", name, "memory");
+      QVERIFY(project->addMapLayer(layer));
+      QVERIFY(layer->startEditing());
+      QgsFeature added(layer->fields());
+      added.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(1, 2)));
+      QVERIFY(layer->addFeature(added));
+      layers << layer;
+    }
+    std::sort(layers.begin(), layers.end(), [](const auto *a, const auto *b) { return a->id() < b->id(); });
+    auto *save = m_win->findChild<QAction *>("saveProjectAction");
+    QVERIFY(save);
+    save->trigger();
+    for (auto *layer : layers) {
+      QVERIFY(layer->isEditable() && layer->isModified());
+      QVERIFY(m_win->statusBar()->currentMessage().contains(layer->name()));
+    }
+    auto *pending = m_win->statusBar()->findChild<QToolButton *>("projectPendingEdits");
+    QVERIFY(pending && pending->menu());
+    QCOMPARE(pending->menu()->actions().size(), 3);
+    auto reject = connect(layers[1], &QgsVectorLayer::beforeCommitChanges, layers[1],
+                          [layer = layers[1]] { layer->setAllowCommit(false); });
+    m_win->setProjectSaveAskForTesting([](const QString &, const QString &) { return PaleoNotify::SaveChoice::Save; });
+    const auto cleanup = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
+    QVERIFY(!m_win->resolveDirtyLayerEdits());
+    QVERIFY(!layers[0]->isEditable());
+    QVERIFY(layers[1]->isEditable() && layers[1]->isModified());
+    QVERIFY(layers[2]->isEditable() && layers[2]->isModified());
+    disconnect(reject);
+    layers[1]->setAllowCommit(true);
+    // Retry from the same project-save menu. Each action still owns its original layer.
+    QVERIFY(!pending->menu()->actions().first()->isEnabled());
+    for (auto *action : pending->menu()->actions())
+      if (action->isEnabled()) action->trigger();
+    for (auto *layer : layers) {
+      QVERIFY(!layer->isEditable());
+      QCOMPARE(layer->featureCount(), 1);
+    }
+    QVERIFY(pending->isHidden());
   }
 
   void projectSourcesAsksOnceBeforeOpeningDialog()

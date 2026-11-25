@@ -10,6 +10,7 @@
 
 class QgsAttributeTableFilterModel;
 class QgsAttributeTableModel;
+class QLabel;
 class QgsMapCanvas;
 class QgsVectorLayer;
 class QgsAttributeTableDialog;
@@ -70,6 +71,7 @@ class AttributeTablePanel : public QWidget
     QPointer<QgsVectorLayer> m_currentLayer;
     QString m_currentLayerId;
     PaleoAttributeTableHost *m_host = nullptr;
+    QLabel *m_pendingChanges = nullptr;
     QWidget *m_tableHost = nullptr;
     QgsAttributeTableDialog *m_nativeDialog = nullptr;
     QMetaObject::Connection m_layerDestroyed;

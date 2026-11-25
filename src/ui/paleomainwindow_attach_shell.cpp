@@ -757,6 +757,11 @@ void PaleoMainWindow::attachReleasePanel(PaleoProjectStore *store)
   }
 }
 
+bool PaleoMainWindow::needsDraftSaveRetry(const QString &id) const
+{
+  return m_workbench && m_workbench->pendingEditSave(id) != MappingWorkbench::EditSaveStage::Idle;
+}
+
 void PaleoMainWindow::showProjectSaveFeedback()
 {
   auto *bar = statusBar();
@@ -779,7 +784,11 @@ void PaleoMainWindow::showProjectSaveFeedback()
       if (!safe || !m_projectSvc || m_projectSvc->sessionId() != session ||
           !safe->isEditable() || !safe->isModified()) return;
       QString error;
+      const auto name = safe->name();
+      const auto id = safe->customProperty("paleoLayerId").toString();
+      const auto summary = QgisEditingService::pendingEditSummary(safe);
       if (!commitPendingLayer(safe->id(), &error)) statusBar()->showMessage(tr("图层编辑未提交：%1").arg(error), 15000);
+      else if (!id.startsWith("draft.")) statusBar()->showMessage(tr("已保存「%1」：%2").arg(name, summary), 8000);
     });
     const auto disable = [menu, button, action] {
       action->setEnabled(false);

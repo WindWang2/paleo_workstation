@@ -3780,6 +3780,13 @@ void TestEditTools::toolbarSavePersistsAndClearsUndo()
   addPointCommand( &layer, 2 );
   QCOMPARE( layer.featureCount(), 2 );
   QVERIFY( bar.actionUndo()->isEnabled() );
+  const auto *summary = bar.findChild<QLabel *>("canvasEditStatus");
+  QVERIFY(summary);
+  QVERIFY(summary->text().contains(QStringLiteral("新增 2 个要素")));
+  bar.actionUndo()->trigger();
+  QVERIFY(summary->text().contains(QStringLiteral("新增 1 个要素")));
+  bar.actionRedo()->trigger();
+  QVERIFY(summary->text().contains(QStringLiteral("新增 2 个要素")));
 
   QSignalSpy stoppedSpy( &bar, &PaleoEditingToolbar::editingStopped );
   QVERIFY2( bar.saveEditing(), "saving an active session must succeed" );

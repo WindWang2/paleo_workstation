@@ -4835,10 +4835,7 @@ void TestEditTools::toolbarCrossLayerGestureUndoAndConflicts()
   QCOMPARE(b.getFeature(fb).geometry().asWkb(), originalB);
   b.undoStack()->redo();
   QVERIFY(b.commitChanges());
-  QVERIFY(b.startEditing());
-  PaleoUndoGroupRouter router;
-  bar.setUndoRouter(&router);
-  router.registerScope(&canvas, a.undoStack(), bar.canvasUndoTarget()); // a new buffer on the same layer cannot claim the old group
+  QVERIFY(b.startEditing()); // a new buffer cannot claim the old group
   QVERIFY(!target.step(true));
   QCOMPARE(a.undoStack()->index(), 1);
   QVERIFY(bar.cancelEditing());

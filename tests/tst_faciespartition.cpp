@@ -1,11 +1,22 @@
 #include <QtTest>
 #include <QUndoStack>
 #include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QTimer>
+#include <qgsapplication.h>
+#include <qgspolygon.h>
 #include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/faciesmapboundary.h"
+#include "../src/qgis/faciespartitiontool.h"
 #include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgisruntime.h"
 #include <qgsvectorlayer.h>
 #include <qgsvectordataprovider.h>
+#include <qgsadvanceddigitizingdockwidget.h>
+#include <qgsmapcanvas.h>
+#include <qgsmapmouseevent.h>
 namespace {
 QVariantList classification() {
   return {QVariantMap{{"code", 1}, {"name", "河道"}, {"facies", "河流"}, {"subfacies", "曲流河"}, {"microfacies", "河道"}},
@@ -47,10 +58,143 @@ QStringList parents(const QgsFeature &f) {
   for (const auto &id : QJsonDocument::fromJson(f.attribute(MappingFeatureIdentity::ParentsField).toString().toUtf8()).toVariant().toList()) result << id.toString();
   return result;
 }
+struct Capture {
+  QgsMapCanvas canvas;
+  QgsAdvancedDigitizingDockWidget cad{&canvas};
+  FaciesPartitionTool tool;
+  Capture(QgsVectorLayer &layer, FaciesPartitionTool::Operation operation)
+      : tool(&canvas, &cad, &layer, operation, [] { return 3; }) {
+    canvas.resize(600, 400);
+    canvas.setDestinationCrs(layer.crs());
+    canvas.setExtent(QgsRectangle(-20, -20, 260, 130));
+    canvas.setLayers({&layer});
+    canvas.setCurrentLayer(&layer);
+    canvas.setMapTool(&tool);
+  }
+  void click(double x, double y, Qt::MouseButton button = Qt::LeftButton,
+             Qt::KeyboardModifiers modifiers = {}) {
+    const auto p = canvas.getCoordinateTransform()->transform(QgsPointXY(x, y));
+    const QPoint pixel(qRound(p.x()), qRound(p.y()));
+    QgsMapMouseEvent press(&canvas, QEvent::MouseButtonPress, pixel, button, button, modifiers);
+    QgsMapMouseEvent release(&canvas, QEvent::MouseButtonRelease, pixel, button, Qt::NoButton, modifiers);
+    tool.canvasPressEvent(&press);
+    tool.canvasReleaseEvent(&release);
+  }
+};
 }
+#include "faciespartitionbench.h"
 class TestFaciesPartition : public QObject {
   Q_OBJECT
 private slots:
+  void capturePerformance() {
+    if (!qEnvironmentVariableIsSet("PALEO_FACIES_BENCH_JSON"))
+      QSKIP("Set PALEO_FACIES_BENCH_JSON to record the optional large-grid benchmark.");
+    FaciesPartitionBench::run();
+  }
+  void correctLastVertexOfLongSplit() {
+    Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
+    f.layer.selectByIds({f.first().id()});
+    Capture capture(f.layer, FaciesPartitionTool::Split);
+    QSignalSpy edited(&capture.tool, &FaciesPartitionTool::featureEdited);
+    for (int i = 0; i < 20; ++i) capture.click(-10 + i * 5, 45 + i % 2);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 20);
+    capture.click(85, 46, Qt::RightButton);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 20);
+    QCOMPARE(f.layer.undoStack()->count(), 0);
+    QCOMPARE(f.layer.selectedFeatureCount(), 1);
+    capture.click(110, 45, Qt::LeftButton, Qt::ShiftModifier);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 20);
+    capture.click(110, 45, Qt::RightButton);
+    QCOMPARE(edited.count(), 1);
+    QCOMPARE(f.layer.featureCount(), 3);
+    QCOMPARE(f.layer.undoStack()->count(), 1);
+    f.layer.undoStack()->undo();
+    QCOMPARE(f.layer.featureCount(), 2);
+    QCOMPARE(f.area(), 20000.);
+  }
+  void deletingSplitTargetOrEndingSessionClearsCapture() {
+    Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
+    const auto face = f.first().id();
+    f.layer.selectByIds({face});
+    Capture capture(f.layer, FaciesPartitionTool::Split);
+    capture.click(-10, 45); capture.click(30, 45);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 2);
+    QVERIFY(f.layer.deleteFeature(face));
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 0);
+    auto *layer = &f.layer;
+    layer->selectByIds({f.first().id()});
+    capture.click(120, 20);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 1);
+    QVERIFY(layer->rollBack());
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 0);
+  }
+  void correctSelfIntersectionAndConfirmClippedStroke() {
+    Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
+    Capture capture(f.layer, FaciesPartitionTool::Paint);
+    capture.click(20, 20); capture.click(80, 20); capture.click(40, 80); capture.click(20, 0);
+    capture.click(20, 0, Qt::RightButton);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 4);
+    QCOMPARE(f.layer.undoStack()->count(), 0);
+    QKeyEvent back(QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier);
+    static_cast<QgsMapTool &>(capture.tool).keyPressEvent(&back);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 3);
+    capture.click(20, 65); capture.click(20, 65, Qt::RightButton);
+    QCOMPARE(f.layer.undoStack()->count(), 1);
+    capture.click(220, 10); capture.click(240, 50); capture.click(220, 80);
+    capture.click(220, 80, Qt::RightButton);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 3);
+    QCOMPARE(f.layer.undoStack()->count(), 1);
+    capture.click(180, 70, Qt::LeftButton, Qt::ShiftModifier);
+    capture.click(180, 70, Qt::RightButton);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 3);
+    QCOMPARE(f.layer.undoStack()->count(), 1);
+    capture.click(180, 70, Qt::RightButton);
+    QCOMPARE(f.layer.undoStack()->count(), 2);
+    QCOMPARE(f.area(), 20000.);
+    capture.click(20, 20);
+    capture.canvas.setCurrentLayer(nullptr);
+    QCOMPARE(capture.tool.captureCurve()->numPoints(), 0);
+    QVERIFY2(FaciesPartitionEditor::validate(&f.layer, &error), qPrintable(error));
+  }
+  void initialBoundaryPreservesHolesPartsAndUndo() {
+    Fixture draft;
+    QgsVectorLayer boundary("MultiPolygon?crs=EPSG:3857", "survey", "memory");
+    const auto outline = QgsGeometry::fromWkt(
+        "MULTIPOLYGON(((0 0,50 0,50 50,0 50,0 0),(10 10,10 20,20 20,20 10,10 10)),"
+        "((70 0,80 0,80 10,70 10,70 0)))");
+    QgsFeature area;
+    area.setGeometry(outline);
+    QgsFeatureList features{area};
+    QVERIFY(boundary.dataProvider()->addFeatures(features));
+    QString error;
+    auto snapshot = FaciesMapBoundary::inspect(&boundary, &error);
+    QVERIFY2(!snapshot.isEmpty(), qPrintable(error));
+    QVERIFY(!FaciesMapBoundary::thumbnail(snapshot.value("wkb").toByteArray(), QSize(160, 80), Qt::black).isNull());
+    QVERIFY(FaciesPartitionEditor::install(&draft.layer, classification(), {}, &error));
+    QVERIFY(MappingFeatureIdentity::Observer::attach(&draft.layer, &error));
+    QVERIFY(draft.layer.startEditing());
+    QVERIFY(!FaciesMapBoundary::seed(&draft.layer, snapshot, 0, &error));
+    QCOMPARE(draft.layer.undoStack()->count(), 0);
+    QVERIFY2(FaciesMapBoundary::seed(&draft.layer, snapshot, 2, &error), qPrintable(error));
+    QCOMPARE(draft.layer.featureCount(), 2);
+    QgsGeometry seeded;
+    seeded.fromWkb(QByteArray::fromBase64(FaciesPartitionEditor::footprint(&draft.layer).toLatin1()));
+    QVERIFY(seeded.isGeosEqual(outline));
+    QVERIFY(FaciesPartitionEditor::clippedPaint(&draft.layer, QgsGeometry::fromRect(QgsRectangle(12,12,18,18))).isEmpty());
+    const auto overlap = FaciesPartitionEditor::clippedPaint(&draft.layer, QgsGeometry::fromRect(QgsRectangle(-5,0,5,10)));
+    QCOMPARE(overlap.area(), 50.);
+    draft.layer.undoStack()->undo();
+    QCOMPARE(draft.layer.featureCount(), 0);
+    QVERIFY(!FaciesPartitionState::hasFrozenFootprint(&draft.layer));
+    draft.layer.undoStack()->redo();
+    QCOMPARE(draft.layer.featureCount(), 2);
+    draft.layer.undoStack()->undo();
+    boundary.setCrs(QgsCoordinateReferenceSystem("EPSG:4326"));
+    QVERIFY(FaciesMapBoundary::inspect(&boundary, &error).isEmpty());
+    snapshot.insert("crs", boundary.crs().toWkt());
+    QVERIFY(!FaciesMapBoundary::seed(&draft.layer, snapshot, 2, &error));
+  }
+
   void splitUpdatesNeighborAndUndoesEverything() {
     Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));
     auto original = f.first(); const auto uid = MappingFeatureIdentity::uid(original);

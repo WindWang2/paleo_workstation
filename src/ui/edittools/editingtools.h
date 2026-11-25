@@ -1,5 +1,6 @@
 // 层：视图
 #pragma once
+#include <memory>
 #include <qgsmaptoolcapture.h>
 #include <qgsmaptooledit.h>
 #include <QPointer>
@@ -179,7 +180,7 @@ class PaleoMoveTool : public QgsMapToolEdit
     QList<QPair<qint64, class QgsGeometry *>> mSnapshots;
 };
 
-// Delete: click deletes the feature(s) UNDER the cursor on the target layer —
+// Delete: click chooses one feature UNDER the cursor on the target layer —
 // hit-tested with the native vertex-search tolerance (QGIS map-tool convention:
 // the gesture acts on what it points at, never on the whole selection).
 // Nothing hit → messageEmitted warning, no editAborted (nothing was
@@ -202,10 +203,12 @@ class PaleoDeleteFeatureTool : public QgsMapToolEdit
     void editAborted();
 
   protected:
-    void canvasReleaseEvent( QgsMapMouseEvent *e ) override; // left click → delete hit features
+    void canvasMoveEvent(QgsMapMouseEvent *event) override;
+    void canvasReleaseEvent( QgsMapMouseEvent *e ) override; // choose one hit
     void keyPressEvent( QKeyEvent *e ) override;             // Esc → editAborted
 
   private:
     QPointer<QgsVectorLayer> mLayer; // not owned
+    std::unique_ptr<class MapFeaturePicker> mPicker;
     int mDeletedCount = 0;
 };

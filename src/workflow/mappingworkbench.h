@@ -91,6 +91,9 @@ public:
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
   QVariantList baseMapCandidates(const QString &horizon) const;
+  QVariantList mapBoundaries() const;
+  QVariantMap prepareMapBoundary(const QString &id, QString *error) const;
+  bool seedMapBoundary(const QString &draft, const QVariantMap &boundary, int code, QString *error);
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
@@ -120,11 +123,15 @@ public:
   QString copyForEditing(const QString &layerId, const QStringList &references,
                          QString *error, bool requireEvidence = false);
   // 从零编制：空白微相分区，首次闭合绘制确定覆盖范围。
-  QString createBlankMap(const QString &horizon, QString *error);
+  QString createBlankMap(const QString &horizon, QString *error, const QVariantMap &boundary = {});
   bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);
   QVariantMap editEvidence(const QString &horizon) const;
+  QVariantMap editEvidenceForLayer(const QString &id) const;
+  QVariantMap explanationForTarget(const QString &id, const QString &featureUid) const;
+  bool adoptExplanation(const QString &id, const QString &featureUid, const QString &requestId);
+  bool hasPendingExplanationAdoption(const QString &id) const;
   bool needsEditEvidence(const QString &layerId) const;
-  void clearEditEvidence();
+  void clearEditEvidence(const QString &layerId = {});
   void setManualEvidenceRequired(bool required);
   bool manualEvidenceRequired() const { return m_manualEvidenceRequired; }
   // 编图后台自动解释（独立工作线程；配置可用 AI 时优先调用 AI，否则自动生成本地事实摘要）。
@@ -147,6 +154,8 @@ public:
   // Actual buffer or unregistered feature changes; an empty edit session is not a change.
   bool hasUnpublishedChanges(const QString &id) const;
   bool checkEditingTopology(const QString &id, QString *error);
+  enum class EditSaveStage { Idle, Registration, WellSync };
+  EditSaveStage pendingEditSave(const QString &draftId) const;
   bool saveEditingVersion(const QString &draftId, QString *error);
   // 编辑副本创建过程及保存版本后的上图保持视图；主动显示图件仍缩放定位。
   void suppressNextProductZoom() { m_suppressNextProductZoom = true; }
@@ -557,6 +566,13 @@ private:
   // 测井相点的井段 → 每井每个地层单位（组/段）的优势相行；地层单位取自该井
   // tops（顶 = 本层位顶，底 = 下一层位顶，最末取预测底）。predicted=false 为
   // 人工修订：只更新维护的优势相，不动「预测优势相」。
+  bool reserveEditSave(const QString &id, QString *newToken) const;
+  void discardEditSaveReservation(const QString &id, const QString &token) const;
+  bool isWorkingLayerEditing(const QString &id) const;
+  QString committedWorkingRevision(const QString &id) const;
+  bool registerEditingVersion(const QString &id, const QString &token, QString *error);
+  bool syncSavedWellAttributes(const CatalogVersion &version, QString *error);
+  QSet<QString> m_savingDrafts;
   QVariantList wellFormationUpdates(const QVariantList &points,
                                     const QVariantList &schema, bool predicted,
                                     const QString &method = {},
@@ -579,6 +595,7 @@ private:
   paleo::strat::UnitSelection m_analysisUnit;
   double m_displayScale = 0;
   bool m_suppressNextProductZoom = false;
+  QHash<QString, QVariantMap> m_draftEvidence;
   QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。
   bool m_manualEvidenceRequired = false;
   bool m_catalogSyncQueued = false;

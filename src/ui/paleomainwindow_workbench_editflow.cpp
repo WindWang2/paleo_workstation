@@ -12,6 +12,7 @@
 #include "pages/constraintpage.h"
 #include "pages/datapage.h"
 #include "pages/mappingworkbenchpage.h"
+#include "pages/mappingtaskguide.h"
 #include "pages/wellpredictionpanel.h"
 #include "workbench/mappingworkbenchcommandcontroller.h"
 #include <QStatusBar>
@@ -86,11 +87,13 @@ void PaleoMainWindow::attachWorkbenchCommands(
       emit compose->exportPdfRequested();
   };
   // C-W2：宿主状态钩子——触发时刻现读（只读翻转/工程切换即时生效）。
+  context.projectSession = [this] { return m_projectSvc ? m_projectSvc->sessionId() : 0; };
   context.projectReadOnly = [this] { return isProjectReadOnly(); };
   context.projectSwitching = [this] { return m_projectSvc && m_projectSvc->isOpening(); };
   for (auto *page : pages) {
     if (m_selection) bindWorkbenchPageHorizon(page, m_selection);
     impact->addPage(page);
+    if (auto *guide = page->findChild<MappingTaskGuide *>()) guide->watchEditor(edit);
     context.page = page;
     auto *commands = new MappingWorkbenchCommandController(context, page);
     connect(page, &MappingWorkbenchPage::commandRequested, commands,

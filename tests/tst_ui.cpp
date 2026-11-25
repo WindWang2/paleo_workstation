@@ -109,6 +109,7 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QTimer>
+#include <QMessageBox>
 #include <QTreeWidget>
 #include <qgsmapmouseevent.h>
 
@@ -1147,6 +1148,53 @@ class TestUiShell : public QObject
       QTRY_COMPARE_WITH_TIMEOUT(corr->wellCount(), wellLogs, 3000); // #156：从 catalog 重灌
     }
 
+    void referenceDockPlacementFollowsProject()
+    {
+      QTemporaryDir first, second;
+      const QString a = first.filePath("a.qgz"), b = second.filePath("b.qgz");
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+          m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(), m_ctx->processingSvc(),
+          m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      m_win->attachWorkbench(m_ctx->mappingWorkbench());
+      QVERIFY(m_ctx->projectSvc()->createProject(a));
+      m_win->show(); m_win->showPage("compose");
+      auto *dock = m_win->findChild<PaleoDockWidget *>("mappingReferenceDock");
+      auto *other = m_win->findChild<QDockWidget *>("pagePanelDock");
+      QVERIFY(dock && other);
+      const auto otherArea = m_win->dockWidgetArea(other);
+      const auto defaultArea = m_win->dockWidgetArea(dock);
+      const bool defaultFloat = dock->isFloating(), defaultVisible = dock->userWantsVisible();
+      dock->show();
+      dock->setFloating(true);
+      dock->setGeometry(QRect(55, 60, 540, 265));
+      QCoreApplication::processEvents();
+      const QRect floatingGeometry = dock->geometry();
+      m_win->showPage("data");
+      QVERIFY(dock->isHidden()); QVERIFY(dock->userWantsVisible());
+
+      QVERIFY(m_ctx->projectSvc()->createProject(b));
+      m_win->showPage("compose");
+      QCOMPARE(dock->isFloating(), defaultFloat);
+      QCOMPARE(m_win->dockWidgetArea(dock), defaultArea);
+      QCOMPARE(dock->userWantsVisible(), defaultVisible);
+      dock->setFloating(false);
+      m_win->addDockWidget(Qt::LeftDockWidgetArea, dock);
+      dock->show();
+      dock->toggleViewAction()->trigger();
+      QVERIFY(!dock->userWantsVisible());
+      QVERIFY(m_ctx->projectSvc()->openProject(a));
+      m_win->showPage("compose");
+      QTRY_VERIFY(dock->isFloating() && !dock->isHidden());
+      QTRY_COMPARE(dock->size(), floatingGeometry.size());
+      QVERIFY((dock->geometry().topLeft() - floatingGeometry.topLeft()).manhattanLength() <= 4);
+
+      QVERIFY(m_ctx->projectSvc()->openProject(b));
+      m_win->showPage("compose");
+      QTRY_VERIFY(!dock->isFloating() && dock->isHidden());
+      QCOMPARE(m_win->dockWidgetArea(dock), Qt::LeftDockWidgetArea);
+      QCOMPARE(m_win->dockWidgetArea(other), otherArea);
+    }
+
     void canvasYieldsSpaceToDocks()
     {
       m_win->resize(1800, 1000);
@@ -1499,7 +1547,7 @@ class TestUiShell : public QObject
       delete pan;
     }
 
-    void vectorEditingGroupsStayVisibleAndFollowTarget()
+    void vectorEditingGroupsFollowTargetAndKeepSettingsReachable()
     {
       QTemporaryDir dir;
       QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("vectors.qgz")));
@@ -1512,15 +1560,21 @@ class TestUiShell : public QObject
       for (const auto &page : {"predict", "constraint", "compose"}) {
         m_win->showPage(page); editor->setCurrentLayer(nullptr);
         auto *category = m_win->categoryForPage(page); QVERIFY(category);
-        for (const auto &name : {"ribbonEditPanel", "ribbonFaciesPartitionPanel",
-                                 "ribbonEditSessionPanel", "ribbonEditingSettingsPanel"}) {
+        for (const auto *name : {"ribbonEditPanel", "ribbonFaciesPartitionPanel", "ribbonEditSessionPanel"}) {
+          auto *panel = category->findChild<SARibbonPanel *>(name); QVERIFY2(panel && panel->isHidden(), name);
+        }
+        for (const auto *name : {"ribbonEditContextPanel", "ribbonEditingSettingsPanel"}) {
           auto *panel = category->findChild<SARibbonPanel *>(name); QVERIFY2(panel && !panel->isHidden(), name);
         }
+        QVERIFY(category->findChild<QComboBox *>("ribbonEditLayerCombo")->focusPolicy() & Qt::TabFocus);
         QVERIFY(!editor->actionVertexEdit()->isEnabled()); QVERIFY(!editor->actionVertexEdit()->toolTip().isEmpty());
         auto *session = category->findChild<SARibbonPanel *>("ribbonEditSessionPanel");
         QVERIFY(PaleoRibbon::buttonFor(session, editor->actionTopological()));
         QVERIFY(PaleoRibbon::buttonFor(session, editor->actionCrossLayerTopo()));
         editor->setCurrentLayer(layer); QCOMPARE(editor->currentLayer(), layer);
+        QVERIFY(!session->isHidden());
+        QVERIFY(!category->findChild<SARibbonPanel *>("ribbonEditPanel")->isHidden());
+        QVERIFY(category->findChild<SARibbonPanel *>("ribbonFaciesPartitionPanel")->isHidden());
         QVERIFY(editor->actionVertexEdit()->isEnabled()); QVERIFY(editor->actionMove()->isEnabled());
         QVERIFY(!editor->actionFaciesOperations()->isEnabled());
         QVERIFY(!editor->actionFaciesOperations()->toolTip().isEmpty());
@@ -2245,6 +2299,28 @@ class TestUiShell : public QObject
       QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       auto *pageHost = m_win->findChild<QWidget *>("rightPanelHost");
       auto *pageStack = qobject_cast<QStackedLayout *>(pageHost->layout());
+      const auto captureMapArea = [this](const QString &stage) {
+        const auto dir = qEnvironmentVariable("PALEO_EDIT_LAYOUT_QA");
+        if (dir.isEmpty()) return;
+        QVERIFY(QDir().mkpath(dir));
+        const auto original = m_win->size();
+        for (const QSize size : {QSize(1440, 960), QSize(960, 720)}) {
+          m_win->resize(size);
+          QTest::qWait(100);
+          auto *canvas = m_ctx->canvasCtl()->canvas();
+          const auto measured = canvas->viewport()->size();
+          qInfo().noquote() << "EDIT_LAYOUT" << stage << m_win->size() << "canvas" << measured
+                            << "dpr" << canvas->devicePixelRatioF();
+          QVERIFY(m_win->grab().save(dir + "/" + stage + "-" + QString::number(size.width()) + ".png"));
+        }
+        m_win->resize(original);
+        QCoreApplication::processEvents();
+      };
+      m_win->showPage("compose");
+      auto *initialRef = referenceDock(); QVERIFY(initialRef);
+      auto *initialPanel = initialRef->findChild<MappingEvidencePanel *>();
+      QVERIFY(initialPanel && initialPanel->compact() && initialPanel->views().isEmpty());
+      captureMapArea("compact");
       for (const auto &mode : QStringList{"predict", "constraint", "compose"})
       {
         m_win->showPage(mode);
@@ -2390,6 +2466,29 @@ class TestUiShell : public QObject
       drawTool = m_ctx->canvasCtl()->canvas()->mapTool();
       auto *composePage = m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");
       QVERIFY(composePage && composePage->commandButton("referencePanel")->isEnabled());
+      const auto originalExtent = m_ctx->canvasCtl()->canvas()->extent();
+      const auto mapCount = m_ctx->mappingWorkbench()->products(composePage->horizon()).size();
+      bool rejectedSwitch = false;
+      QTimer cancelTimer;
+      cancelTimer.setSingleShot(true);
+      connect(&cancelTimer, &QTimer::timeout, &cancelTimer, [&rejectedSwitch] {
+        auto *question = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        if (!question) return;
+        for (auto *button : question->buttons()) {
+          if (question->buttonRole(button) == QMessageBox::RejectRole) {
+            rejectedSwitch = true;
+            button->click();
+            return;
+          }
+        }
+      });
+      cancelTimer.start(0);
+      emit composePage->commandRequested("newMap", {{"horizon", composePage->horizon()}});
+      QVERIFY(rejectedSwitch);
+      QCOMPARE(m_ctx->mappingWorkbench()->products(composePage->horizon()).size(), mapCount);
+      QCOMPARE(editing->currentLayer(), vector);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->extent(), originalExtent);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
       composePage->commandButton("referencePanel")->click();
       QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
       QCOMPARE(editing->currentLayer(), vector);
@@ -2402,6 +2501,7 @@ class TestUiShell : public QObject
       QCOMPARE(newReference->findChildren<QComboBox *>().size(), 1);
       newReference->selectSource(id);
       QVERIFY(newReference->hasReference());
+      captureMapArea("two-references");
       auto *firstReferenceCanvas = editingRef->findChild<QgsMapCanvas *>("referenceCanvas");
       QVERIFY(firstReferenceCanvas);
       QTRY_VERIFY(qAbs(firstReferenceCanvas->scale() - newReference->canvas()->scale()) <

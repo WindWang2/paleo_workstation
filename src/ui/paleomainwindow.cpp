@@ -83,6 +83,7 @@
 #include <QSettings>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include "attributetablepanel.h"
 #include <QTableWidget>
 #include <QTimer>
 #include <QShowEvent>
@@ -215,6 +216,7 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
 
 PaleoMainWindow::~PaleoMainWindow()
 {
+  paleo::mainwindow_internal::finishReferenceDockLayout(this);
   // #777：先断开画布 destroyed 接线（见 m_sectionCaptureConn 头注释）——本类
   // 析构函数体内 vptr 仍为派生类，断开安全；否则画布作为子对象在 ~QObject
   // 阶段删除时才触发该 lambda，会写已降级对象触发 UBSan vptr。
@@ -809,13 +811,32 @@ void PaleoMainWindow::resetProjectScopedState()
 // 服务（busy 挂账随 commit/rollback 清），无服务时直连 commitChanges/
 // rollBack。offscreen（无头测试/渲染环境）且未注入询问 seam 时不弹模态框
 // ——弹了没人点会挂死事件循环，保持旧行为直接放行。返回 false = 取消。
+bool PaleoMainWindow::commitPendingLayer(const QString &nativeId, QString *error)
+{
+  if (!m_projectSvc || !m_projectSvc->project() || m_projectSvc->isReadOnly()) return false;
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_projectSvc->project()->mapLayer(nativeId));
+  if (!layer) return false;
+  if (auto *panel = findChild<AttributeTablePanel *>(); panel && panel->currentLayer() == layer) {
+    // Flush the active cell or native feature form before committing the shared buffer.
+    const auto reason = connect(panel, &AttributeTablePanel::editRefused, this,
+                                [error](const QString &detail) { if (error) *error = detail; });
+    const bool ok = panel->saveEditing();
+    disconnect(reason);
+    return ok;
+  }
+  if (m_editSvc) return m_editSvc->commitEdit(layer, error);
+  const bool ok = layer->commitChanges();
+  if (!ok && error) *error = layer->commitErrors().join(QLatin1Char('\n'));
+  return ok;
+}
+
 bool PaleoMainWindow::resolveDirtyLayerEdits()
 {
   if (!m_projectSvc || !m_projectSvc->project())
     return true;
   if (isOffscreen() && !m_projectSaveAsk)
     return true;
-  QList<QgsVectorLayer *> dirty;
+  QList<QPointer<QgsVectorLayer>> dirty;
   QStringList dirtyNames;
   const auto layers = m_projectSvc->project()->mapLayers();
   for (QgsMapLayer *l : layers)
@@ -839,17 +860,18 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
     return false;
   if (choice == PaleoNotify::SaveChoice::Save)
   {
-    for (QgsVectorLayer *vl : dirty)
-    {
+    QStringList saved;
+    for (int i = 0; i < dirty.size(); ++i) {
       QString err;
-      const bool ok =
-          m_editSvc ? m_editSvc->commitEdit(vl, &err) : vl->commitChanges();
-      if (!ok)
-      {
-        PaleoNotify::critical(
-            this, tr("保存编辑失败"),
-            tr("图层「%1」的编辑未能提交，操作中止。")
-                .arg(vl->name().isEmpty() ? vl->id() : vl->name()));
+      const auto target = dirty.at(i);
+      const auto id = target ? target->customProperty("paleoLayerId").toString() : QString();
+      const bool committed = target && commitPendingLayer(target->id(), &err);
+      if (committed) saved << dirtyNames.at(i);
+      if (!committed || needsDraftSaveRetry(id)) {
+        QStringList detail{committed ? statusBar()->currentMessage() : tr("提交失败：%1。%2").arg(dirtyNames.at(i), err)};
+        if (!saved.isEmpty()) detail << tr("已提交：%1").arg(saved.join(QStringLiteral("、")));
+        if (i + 1 < dirty.size()) detail << tr("尚未提交：%1").arg(dirtyNames.mid(i + 1).join(QStringLiteral("、")));
+        PaleoNotify::critical(this, tr("保存编辑失败"), detail.join(QLatin1Char('\n')));
         return false;
       }
     }
@@ -857,6 +879,7 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
   else // 放弃
     for (QgsVectorLayer *vl : dirty)
     {
+      if (!vl) continue;
       if (m_editSvc)
         m_editSvc->rollbackEdit(vl);
       else

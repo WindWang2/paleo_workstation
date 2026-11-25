@@ -5,6 +5,7 @@
 #include "../catalog/datacatalog.h"
 #include "../metadata/atomicfile.h"
 #include "../domain/faciescatalog.h"
+#include "../services/canonicalfilepath.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -48,9 +49,9 @@
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
 namespace MappingArtifactWriter {
-bool emptyFacies(const QString &path, const QVariantList &facies, QString *error) {
+bool emptyFacies(const QString &path, const QVariantList &facies, QString *error, const QString &crsWkt) {
   QgsVectorLayer layer("MultiPolygon", "empty-facies", "memory");
-  layer.setCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+  layer.setCrs(QgsCoordinateReferenceSystem::fromWkt(crsWkt.isEmpty() ? DataCatalog::localGridCrsWkt() : crsWkt));
   if (!layer.isValid() || !layer.dataProvider()->addAttributes({QgsField("facies_code", QMetaType::Type::Int)})) {
     if (error) *error = QObject::tr("无法建立空白相面");
     return false;
@@ -418,8 +419,8 @@ bool vectorSnapshot(QgsVectorLayer *layer, const QString &path,
       *error = QObject::tr("矢量图层无效");
     return false;
   }
-  const auto sourcePath = QFileInfo(layer->source().section(QLatin1Char('|'), 0, 0)).canonicalFilePath();
-  const auto destinationPath = QFileInfo(path).canonicalFilePath();
+  const auto sourcePath = paleo::canonicalLocalFilePath(QFileInfo(layer->source().section(QLatin1Char('|'), 0, 0)));
+  const auto destinationPath = paleo::canonicalLocalFilePath(QFileInfo(path));
   if (!sourcePath.isEmpty() && sourcePath == destinationPath) {
     if (error) *error = QObject::tr("图件快照必须使用新文件，不能覆盖来源版本");
     return false;

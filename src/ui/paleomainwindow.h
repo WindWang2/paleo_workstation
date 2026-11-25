@@ -81,10 +81,15 @@ public:
 
   void setVisible(bool visible) override
   {
-    if (!m_programmatic)
+    if (!m_programmatic && m_userWantsVisible != visible) {
       m_userWantsVisible = visible;
+      emit userVisibilityChanged(visible);
+    }
     QDockWidget::setVisible(visible);
   }
+
+signals:
+  void userVisibilityChanged(bool visible);
 
 private:
   bool m_programmatic = false;
@@ -407,6 +412,7 @@ public:
     void wireErrorHubStatus();    // 状态栏错误胶囊 + ErrorHub 计数同步
     void registerPageShortcuts(); // Ctrl+1..5 / Ctrl+Tab（方向 63 注册表）
     void restoreCorrelationDocks();
+    PaleoDockWidget *prepareMappingReferenceDock();
     bool showMappingReference(const QString &layerId, QString *error);
     void buildRibbonPanels(DataPage *data, PredictPage *predict, ConstraintPage *constraint,
                            ComposePage *compose, ValidatePage *validate,
@@ -672,6 +678,9 @@ public:
     using WorkbenchOpenWellsFn = std::function<void(const QString &)>;
     using WorkbenchBeginEditFn = std::function<bool(const QString &)>;
     // 证据面板/图谱联动接线（_evidence.cpp）。
+    void showProjectSaveFeedback();
+    bool commitPendingLayer(const QString &nativeId, QString *error);
+    bool needsDraftSaveRetry(const QString &id) const;
     void bindWorkbenchSelection(MappingWorkbench *workbench);
     void attachMappingEditBasisEntry(MappingWorkbench *workbench, MappingWorkbenchPage *page);
     void attachWorkbenchEvidence(EvidenceInteraction *evidence,

@@ -48,6 +48,34 @@ RelWithDebInfo、j4。绝对毫秒随机器浮动——跨机器比较请看 §3
 确定性：LCG 种子固定（20260929 / 42），同参数跨机器字节一致，测试断言可
 复用期望值（`PerfFixtures::lcgUnit`）。
 
+### 相面覆盖绘制的交互延迟
+
+用与应用相同的 Qt、QGIS 与 GEOS 前缀编译 `tst_faciespartition`。每轮重建带空间索引的内存图层，分别测量第一次覆盖绘制，以及撤销回原图后的第二次绘制。冷态指新图层上的首次编辑，操作系统与依赖库已经加载。
+
+在加载了 Windows 工程依赖环境的 PowerShell 中运行，最后一行的路径指向实际构建目录。
+
+```powershell
+$env:QT_QPA_PLATFORM = "windows"
+$env:QTEST_FUNCTION_TIMEOUT = "1200000"
+$env:PALEO_FACIES_BENCH_ROUNDS = "20"
+$env:PALEO_FACIES_BENCH_JSON = Join-Path $PWD "facies-capture-windows.json"
+& ./build/tst_faciespartition.exe capturePerformance
+```
+
+历史 Linux 离屏样本使用以下命令。
+
+```bash
+QT_QPA_PLATFORM=offscreen QTEST_FUNCTION_TIMEOUT=1200000 PALEO_FACIES_BENCH_ROUNDS=20 \
+  PALEO_FACIES_BENCH_JSON="$PWD/facies-capture-samples.json" \
+  ./build/tst_faciespartition capturePerformance
+```
+
+夹具按行生成 100 列、每格 10 × 10 米、四角闭合的矩形。总图斑数为 1,000、10,000 和 50,000，初始图元身份由行列位置确定。每次在同一格内落四个顶点、右键完成。视口、落点、可见图层和绘制线程数保持一致。每次撤销后检查覆盖几何与原始面数。
+
+每组原始样本包含右键同步返回、第一帧绘制完成和下一个排队的画布移动事件处理完成的时间，单位均为毫秒。另记绘制开始到完成、撤销后一次全图校验、以及单个受影响图斑的相交与差集耗时。后两项独立计时。按 `faces`、`phase` 分组，以中位数和最近秩 P95 汇总；跨机器比较须同时记录编译配置、渲染平台、依赖版本及样本数。
+
+2026-11-25 的 [覆盖绘制基准报告](FACIES_CAPTURE_20261125.md) 包含调整前后的 240 个样本及复现环境。
+
 ## 6. 内存基线断言（D6.7）
 
 - `tst_cache_core::budget*`：默认预算/超限逐出（最远未用先收）/压力广播/

@@ -250,6 +250,9 @@ QVariantList choices(const QgsVectorLayer *v) {
 }
 int selectionSize(const QgsVectorLayer *v) { return v ? v->selectedFeatureCount() : 0; }
 QString layerKey(const QgsVectorLayer *v) { return v ? v->id() : QString(); }
+QString declaredLayerId(const QgsVectorLayer *v) {
+  return v ? v->customProperty(QStringLiteral("paleoLayerId")).toString() : QString();
+}
 QString footprint(QgsVectorLayer *v, QString *error) {
   if (!v || !v->isValid()) { fail(error, QObject::tr("相面图层不可用")); return {}; }
   const auto g = united(v);
@@ -304,7 +307,9 @@ bool validate(QgsVectorLayer *v, QString *error) {
   if (FaciesPartitionState::hasFrozenFootprint(v)) {
     QgsGeometry baseline;
     baseline.fromWkb(QByteArray::fromBase64(FaciesPartitionState::frozenFootprint(v).toLatin1()));
-    const auto current = united(v);
+    // The coverage check above already established matching edges and no
+    // overlaps. GEOS can dissolve these faces without renoding the entire map.
+    const auto current = coverage.unionCoverage();
     if (current.isEmpty() || !baseline.isGeosEqual(current))
       return fail(error, QObject::tr("相图覆盖范围发生变化，存在新增空洞、误删或越界；请撤销或使用覆盖绘制保持完整分区"));
   }
@@ -335,6 +340,16 @@ bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error) {
   if (plan.removed.isEmpty()) return fail(error, QObject::tr("分割线没有穿过任何所选相面"));
   return apply(v, plan, "split", QObject::tr("分割相面并继承三级归属"), error);
 }
+QgsGeometry clippedPaint(QgsVectorLayer *v, const QgsGeometry &polygon) {
+  if (!v) return {};
+  if (v->featureCount() == 0 && !FaciesPartitionState::hasFrozenFootprint(v)) return polygon;
+  QgsGeometry coverage;
+  if (FaciesPartitionState::hasFrozenFootprint(v))
+    coverage.fromWkb(QByteArray::fromBase64(FaciesPartitionState::frozenFootprint(v).toLatin1()));
+  else
+    coverage = united(v);
+  return polygon.intersection(coverage);
+}
 bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *error) {
   if (error) error->clear();
   if (!ready(v, error) || !validCode(v, code, error)) return false;
@@ -349,13 +364,12 @@ bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *err
     }
     return apply(v, initial, "create", QObject::tr("绘制首个相面及解释依据"), error);
   }
-  const auto clipped = polygon.intersection(united(v));
+  const auto clipped = clippedPaint(v, polygon);
   if (!clipped.lastError().isEmpty()) return fail(error, clipped.lastError());
   if (clipped.isEmpty() || clipped.area() <= 0) return fail(error, QObject::tr("新面必须覆盖现有相图中的有效区域"));
   Plan plan; QgsFeatureList sources;
-  auto it = v->getFeatures(); QgsFeature f;
+  auto it = v->getFeatures(QgsFeatureRequest().setFilterRect(clipped.boundingBox())); QgsFeature f;
   while (it.nextFeature(f)) {
-    if (!f.geometry().boundingBox().intersects(clipped.boundingBox())) continue;
     const auto intersection = f.geometry().intersection(clipped);
     if (!intersection.lastError().isEmpty()) return fail(error, intersection.lastError());
     if (intersection.isEmpty() || intersection.area() <= 0) continue;

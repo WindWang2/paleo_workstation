@@ -1,6 +1,7 @@
 // 层：功能
 #include "mappingworkbench.h"
 #include "mappingexplanationservice.h"
+#include "../services/canonicalfilepath.h"
 #include "../services/faciesdisplaysettings.h"
 #include "mapversionvalidation_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
@@ -72,6 +73,18 @@ void fail(QString *error, const QString &text) {
     *error = text;
 }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
+
+QString versionPathKey(const QString &source) {
+  const auto path = filePath(source);
+  if (path.isEmpty()) return {};
+  const auto canonical = paleo::canonicalLocalFilePath(QFileInfo(path));
+  if (canonical.isEmpty()) return path;
+#ifdef Q_OS_WIN
+  return canonical.toCaseFolded();
+#else
+  return canonical;
+#endif
+}
 void rememberNativeFailure(QgsVectorLayer *layer, const QString &target, const QString &error) {
   auto failures = FaciesPartitionState::evidenceFailures(layer);
   if (error.isEmpty()) failures.remove(target); else failures.insert(target, error);
@@ -240,6 +253,7 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_loadedDraftExplanations.clear();
   m_lastAutoExplanations.clear();
   m_editEvidence.clear();
+  m_draftEvidence.clear();
   emit editEvidenceChanged();
   emit explanationStatusChanged();
   m_catalog = catalog;
@@ -620,7 +634,7 @@ void MappingWorkbench::ensureVersionIndex() const {
   for (const auto &v : m_catalog->versions()) {
     insert(m_aliasVersions, v.extra.value("layer_id").toString(), v);
     insert(m_aliasVersions, v.extra.value("draft_id").toString(), v);
-    insert(m_pathVersions, DataCatalog::resolvedVersionPath(m_dir, v), v);
+    insert(m_pathVersions, versionPathKey(DataCatalog::resolvedVersionPath(m_dir, v)), v);
   }
   m_versionIndexSeq = m_catalog->mutationSeq();
   m_versionIndexRevision = m_catalog->catalogRevision();
@@ -634,7 +648,7 @@ CatalogVersion MappingWorkbench::versionForLayer(const QString &id) const {
   }
   ensureVersionIndex();
   auto found = m_aliasVersions.value(id);
-  const auto byPath = m_pathVersions.value(filePath(declaration(id).source));
+  const auto byPath = m_pathVersions.value(versionPathKey(declaration(id).source));
   if (found.id.isEmpty() || byPath.versionNumber > found.versionNumber) found = byPath;
   return found;
 }
@@ -1189,7 +1203,12 @@ void MappingWorkbench::styleLayer(const QString &id) {
         styleLayer(id);
         emit displayChanged(id);
       });
-      connect(vector, &QgsVectorLayer::afterRollBack, this, [this, id] {
+      connect(vector, &QgsVectorLayer::afterCommitChanges, this, [vector] {
+        vector->setProperty("paleoEditSaveReservation", {});
+      });
+      connect(vector, &QgsVectorLayer::afterRollBack, this, [this, id, vector] {
+        discardEditSaveReservation(id, vector->property("paleoEditSaveReservation").toString());
+        vector->setProperty("paleoEditSaveReservation", {});
         styleLayer(id);
         emit displayChanged(id);
       });
@@ -1209,6 +1228,9 @@ void MappingWorkbench::styleLayer(const QString &id) {
       });
       connect(vector, &QgsVectorLayer::beforeCommitChanges, this,
               [this, vector, id, schema = v.extra.value("facies").toList()] {
+                // Capture the user's buffer before normalization opens its own native
+                // edit command. An empty commit must not reserve a new map version.
+                const bool hadLayerEdits = vector->isModified();
                 const bool previouslyAllowed = vector->allowCommit();
                 QString error = FaciesPartitionState::evidenceFailure(vector);
                 const bool evidenceOk = previouslyAllowed && error.isEmpty() &&
@@ -1219,8 +1241,24 @@ void MappingWorkbench::styleLayer(const QString &id) {
                     MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error);
                 if (synced)
                   materializePendingExplanations(vector, id);
-                const bool ok = synced &&
-                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
+                bool ok = synced && validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
+                vector->setProperty("paleoEditSaveError", {});
+                if (ok && hadLayerEdits) {
+                  QString token;
+                  ok = reserveEditSave(id, &token);
+                  if (!token.isEmpty()) vector->setProperty("paleoEditSaveReservation", token);
+                  if (!ok) {
+                    error = tr("无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。");
+                    vector->setProperty("paleoEditSaveError", error);
+                    // The veto covers this provider write. Restore it on return to the
+                    // event loop so a repaired directory can be retried in the same session.
+                    QMetaObject::invokeMethod(vector, [vector] {
+                      if (vector->isEditable() && vector->property("paleoEditSaveError").isValid() &&
+                          FaciesPartitionState::evidenceFailure(vector).isEmpty() &&
+                          !FaciesPartitionState::commitRejected(vector)) vector->setAllowCommit(true);
+                    }, Qt::QueuedConnection);
+                  }
+                }
                 // Never override a rejection from an earlier beforeCommit consumer.
                 vector->setAllowCommit(ok && vector->allowCommit());
                 if (!ok && error.isEmpty()) error = tr("图层提交已被证据或图元身份校验拒绝，请修复或撤销修改");

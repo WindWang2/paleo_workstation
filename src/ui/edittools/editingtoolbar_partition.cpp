@@ -76,7 +76,7 @@ void PaleoEditingToolbar::updatePartitionControls(const QString &noEdit) {
   if (partition) {
     for (auto *action : {mActionMove, mActionReshape, mActionDeleteFeatures})
       gate(action, tr("相图须保持完整分区；请用共边节点、分割、覆盖绘制或合并编辑"));
-    gate(mActionCrossLayerTopo, tr("三级相面共用基础分区，跨层独立撤销会破坏一致性；请在当前工作副本编辑"));
+    gate(mActionCrossLayerTopo, tr("三级相面的拓扑校验限于当前工作副本，跨层编辑仅适用于普通图层"));
     mActionAddPolygon->setToolTip(mActionPaintFacies->toolTip());
     mActionAddPolygon->setStatusTip(mActionPaintFacies->toolTip());
     mActionAddPolygon->setEnabled(mActionPaintFacies->isEnabled());

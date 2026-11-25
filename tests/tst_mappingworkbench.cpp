@@ -118,6 +118,7 @@
 #include <QSqlQuery>
 #include <atomic>
 #include <memory>
+#include <filesystem>
 #include <gdal.h>
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
@@ -1016,6 +1017,67 @@ private slots:
     selection.clearActiveUnit();
     QCOMPARE(page->horizon(), QString("D63"));
   }
+  void resizedCanvasRestoresAutomaticFaciesAndLegend() {
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, nullptr, nullptr, &f.processing, &f.store);
+    window.attachWorkbench(&f.work);
+    window.resize(1600, 1000); window.show(); window.showPage("compose");
+    selection.setActiveHorizon("D61");
+    MappingWorkbenchPage *page = nullptr;
+    for (auto *candidate : window.findChildren<MappingWorkbenchPage *>())
+      if (candidate->mode() == "compose") page = candidate;
+    QVERIFY(page);
+    QString error; const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    page->refresh(); page->selectLayer(draft);
+    auto *show = page->commandButton("show"); QVERIFY(show && show->isEnabled());
+    show->click();
+    auto *canvas = controller.canvas();
+    auto *layer = f.layers.layer(draft); QVERIFY(layer);
+    QTRY_VERIFY(canvas->layers().contains(layer));
+    QTRY_COMPARE(canvas->currentLayer(), layer);
+    auto *mode = page->findChild<QComboBox *>("faciesDisplayLevel");
+    auto *state = window.findChild<QLabel *>("ribbonFaciesDisplayState");
+    auto *scale = window.findChild<QLabel *>("statusScale");
+    auto *legend = window.findChild<PaleoDecorationManager *>();
+    QVERIFY(mode && state && scale && legend); QTRY_VERIFY(mode->isEnabled());
+    mode->setCurrentIndex(mode->findData("micro_facies"));
+    QTRY_COMPARE(f.work.displayMode(draft), QString("micro_facies"));
+    const auto check = [&](const QString &stage, const QString &expected) {
+      QTRY_COMPARE(scale->text(), QStringLiteral("1:%1").arg(static_cast<qlonglong>(canvas->scale())));
+      QTRY_COMPARE(f.work.resolvedLevel(draft), expected);
+      QTRY_COMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), expected);
+      QTRY_VERIFY2(state->text().contains(FaciesHierarchy::title(expected)), qPrintable(state->text()));
+      QTRY_VERIFY2(legend->legendTitle().contains(FaciesHierarchy::title(expected)), qPrintable(legend->legendTitle()));
+      QVERIFY(!legend->legendFacies().isEmpty());
+      for (const auto &value : legend->legendFacies()) {
+        const auto row = value.toMap();
+        if (!row.value("heading").toBool()) QCOMPARE(row.value("level").toString(), expected);
+      }
+      qInfo().noquote() << "FACIES_RESIZE" << stage << window.size() << canvas->viewport()->size()
+                        << "canvas" << QString::number(canvas->scale(), 'f', 2) << "status" << scale->text()
+                        << "ribbon" << state->text() << "legend" << legend->legendTitle();
+      const auto shots = qEnvironmentVariable("PALEO_FACIES_RESIZE_QA");
+      if (!shots.isEmpty()) QVERIFY(window.grab().save(QDir(shots).filePath(stage + ".png")));
+    };
+    canvas->zoomScale(225000);
+    check(QStringLiteral("fixed-before"), QStringLiteral("micro_facies"));
+    const auto largeViewport = canvas->viewport()->size();
+    QSignalSpy frames(canvas, &QgsMapCanvas::mapCanvasRefreshed);
+    window.resize(1040, 720);
+    QTRY_VERIFY(canvas->viewport()->size() != largeViewport && !frames.isEmpty());
+    check(QStringLiteral("fixed-after"), QStringLiteral("micro_facies"));
+    mode->setCurrentIndex(mode->findData("auto"));
+    QTRY_COMPARE(f.work.displayMode(draft), QString("auto"));
+    check(QStringLiteral("automatic"), FaciesHierarchy::resolveLevel("auto", canvas->scale(), f.work.displayThresholds()));
+  }
   void predictionProductsKeepMicrofaciesAtEveryScale() {
     Fixture f; QVERIFY(f.init()); QString error;
     const auto schema = FaciesCatalog::defaults();
@@ -1351,10 +1413,14 @@ private slots:
     QVERIFY(panel && !panel->views().isEmpty());
     auto *view = panel->views().first();
     QCOMPARE(view->property("paleo.referenceVersion").toString(), after);
+    QPointer<QgsMapLayer> previousReference = view->canvas()->layers().first();
     f.work.bindCatalog(&f.catalog, f.dir.path());
     QVERIFY(!recompute->isEnabled());
-    QVERIFY(!view->hasReference());
-    QVERIFY(referenceDock.isHidden());
+    QVERIFY(previousReference.isNull());
+    QVERIFY(!referenceDock.isHidden());
+    QTRY_VERIFY(!panel->views().isEmpty() && panel->views().first()->hasReference());
+    QCOMPARE(panel->views().first()->sourceId(), reportLayer);
+    QCOMPARE(panel->views().first()->property("paleo.referenceVersion").toString(), after);
   }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;
@@ -2444,6 +2510,99 @@ private slots:
     toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
     QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
   }
+  void managedVersionsAndOpenEditsSurviveDirectoryAliases() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const QString id = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!id.isEmpty(), qPrintable(error));
+    const auto original = f.work.versionForLayer(id);
+    QVERIFY(!original.id.isEmpty());
+    QTemporaryDir aliases;
+    QVERIFY(aliases.isValid());
+    const auto aliasDir = aliases.filePath("same project & copy");
+#ifdef Q_OS_WIN
+    QProcess junction;
+    junction.setProgram(QDir(qEnvironmentVariable("SystemRoot")).filePath("System32/cmd.exe"));
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert("PALEO_TEST_JUNCTION_LINK", QDir::toNativeSeparators(aliasDir));
+    environment.insert("PALEO_TEST_JUNCTION_TARGET", QDir::toNativeSeparators(f.dir.path()));
+    junction.setProcessEnvironment(environment);
+    junction.setNativeArguments(QStringLiteral(
+        "/d /v:off /s /c \"mklink /J \"%PALEO_TEST_JUNCTION_LINK%\" \"%PALEO_TEST_JUNCTION_TARGET%\"\""));
+    junction.start();
+    QVERIFY2(junction.waitForFinished(), qPrintable(junction.errorString()));
+    QCOMPARE(junction.exitStatus(), QProcess::NormalExit);
+    QVERIFY2(junction.exitCode() == 0, junction.readAllStandardError().constData());
+    QVERIFY(QFileInfo(aliasDir).isJunction());
+    const auto unlinkJunction = qScopeGuard([&] { QDir().rmdir(aliasDir); });
+#else
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(QDir(f.dir.path()).filesystemPath(), QDir(aliasDir).filesystemPath(), ec);
+    if (ec) QSKIP(qPrintable(QString::fromStdString(ec.message())));
+#endif
+    auto aliasPath = [&](const QString &path) {
+      return QDir(aliasDir).filePath(QDir(f.dir.path()).relativeFilePath(path));
+    };
+    auto declared = f.layers.declaration(id);
+    auto *open = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(id, &error));
+    QVERIFY(open && open->startEditing());
+    QgsFeature pending(open->fields());
+    pending.setGeometry(QgsGeometry::fromRect(QgsRectangle(1, 1, 2, 2)));
+    QVERIFY(open->addFeature(pending));
+    const int separator = declared.source.indexOf('|');
+    QVERIFY(separator > 0);
+    declared.source = aliasPath(declared.source.left(separator)) + declared.source.mid(separator);
+    QVERIFY2(f.layers.declare(declared, &error), qPrintable(error));
+    QCOMPARE(f.layers.layer(id), open);
+    QVERIFY(open->isEditable());
+    QVERIFY(open->getFeature(pending.id()).isValid());
+    auto anotherTable = declared;
+    anotherTable.source = declared.source.section('|', 0, 0) + "|layername=another_table";
+    QVERIFY(!f.layers.declare(anotherTable, &error));
+    QCOMPARE(f.layers.layer(id), open);
+    QVERIFY(!MappingArtifactWriter::vectorSnapshot(open, declared.source.section('|', 0, 0), &error));
+    QCOMPARE(error, QObject::tr("图件快照必须使用新文件，不能覆盖来源版本"));
+    QVERIFY(open->getFeature(pending.id()).isValid());
+    QVERIFY(open->rollBack());
+    auto alias = declared;
+    alias.layerId = "reference.alias";
+    alias.source = aliasPath(DataCatalog::resolvedVersionPath(f.dir.path(), original)) + "|layername=features";
+    QVERIFY2(f.layers.declare(alias, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(alias.layerId).id, original.id);
+  }
+
+  void taskGuideChoosesBetweenTwoWorkingCopies() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto first = f.work.createBlankMap("D61", &error);
+    const auto second = f.work.createBlankMap("D61", &error);
+    QVERIFY(!first.isEmpty() && !second.isEmpty() && first != second);
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.show();
+    page.refresh();
+    QSignalSpy requested(&page, &MappingWorkbenchPage::commandRequested);
+    auto *next = page.findChild<QPushButton *>("mappingTaskNext");
+    QVERIFY(next);
+    next->click();
+    auto *menu = page.findChild<QMenu *>("resumeDraftMenu");
+    QVERIFY(menu && menu->isVisible());
+    QCOMPARE(menu->actions().size(), 2);
+    QTest::keyClick(menu, Qt::Key_Escape);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCOMPARE(requested.count(), 0);
+    next->click();
+    menu = page.findChild<QMenu *>("resumeDraftMenu");
+    QVERIFY(menu);
+    for (auto *action : menu->actions())
+      if (action->data().toString() == second) action->trigger();
+    QCOMPARE(requested.count(), 1);
+    QCOMPARE(requested.first().at(0).toString(), QString("resumeEdit"));
+    QCOMPARE(requested.first().at(1).toMap().value("layer").toString(), second);
+  }
+
   void taskGuideWalksPredictAndCompose() {
     Fixture f; QVERIFY(f.init()); QString error;
     MappingWorkbenchPage predict("predict", &f.work);
@@ -2476,7 +2635,11 @@ private slots:
     auto *editStep = page.findChild<QPushButton *>("mappingTaskStep.edit");
     QVERIFY(!editStep->property("taskBlocked").toBool());
     QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
-             QStringLiteral("workbenchResults"));
+             QStringLiteral("resumeEdit"));
+    QSignalSpy resume(&page, &MappingWorkbenchPage::commandRequested);
+    page.findChild<QPushButton *>("mappingTaskNext")->click();
+    QCOMPARE(resume.count(), 1);
+    QCOMPARE(resume.first().at(1).toMap().value("layer").toString(), draft);
 
     // The real newMap command enters editing without requiring an edit basis first.
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
@@ -2880,6 +3043,65 @@ private slots:
     QVERIFY(f.work.setEditEvidence(key,{{"text","acceptance observation"},{"reason","draft only"}},&error));
     auto changed=unit;changed.revision="missing";f.work.setAnalysisUnit(changed);
     QVERIFY(f.work.editEvidence(key).isEmpty());QVERIFY(f.work.createBlankMap(key,&error).isEmpty());
+  }
+  void chooseSurveyBoundaryAndReopenSavedPartition() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QgsVectorLayer boundary("MultiPolygon?crs=EPSG:3857", "survey", "memory");
+    auto outline = QgsGeometry::fromWkt("MULTIPOLYGON(((0 0,50 0,50 50,0 50,0 0),"
+        "(10 10,10 20,20 20,20 10,10 10)),((70 0,80 0,80 10,70 10,70 0)))");
+    QgsFeature area; area.setGeometry(outline);
+    QgsFeatureList features{area};
+    QVERIFY(boundary.dataProvider()->addFeatures(features));
+    const auto path = f.dir.filePath("survey.gpkg");
+    QVERIFY2(MappingArtifactWriter::vectorSnapshot(&boundary, path, &error), qPrintable(error));
+    LayerDeclaration source;
+    source.layerId = "boundary.survey"; source.type = "vector"; source.title = "Survey";
+    source.source = path + "|layername=features"; source.group = "00_Data";
+    QVERIFY2(f.layers.declare(source, &error), qPrintable(error));
+    source.layerId = "survey.area";
+    QVERIFY2(f.layers.declare(source, &error), qPrintable(error));
+    QCOMPARE(f.work.mapBoundaries().size(), 2);
+    QWidget window; QStatusBar status(&window);
+    MappingWorkbenchPage page("compose", &f.work, &window);
+    page.setHorizon("D61");
+    using paleo::workbench::MappingWorkbenchCommandController;
+    MappingWorkbenchCommandController::Context context;
+    context.workbench = &f.work; context.page = &page; context.dialogParent = &window; context.statusBar = &status;
+    context.show = [&](const QString &id, QString *why) { return f.layers.instantiate(id, why) != nullptr; };
+    QString draft;
+    context.beginEdit = [&](const QString &id) {
+      draft = id;
+      auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(id));
+      return layer && layer->startEditing();
+    };
+    MappingWorkbenchCommandController handler(context, &page);
+    connect(&page, &MappingWorkbenchPage::commandRequested, &handler, &MappingWorkbenchCommandController::handleCommand);
+    auto *sources = page.findChild<QComboBox *>("baseMapSource");
+    auto *leaf = page.findChild<QComboBox *>("initialBoundaryFacies");
+    auto *start = page.findChild<QPushButton *>("baseMapStart");
+    QVERIFY(sources && leaf && start);
+    for (int i = 0; i < sources->count(); ++i)
+      if (sources->itemData(i).toMap().value("boundary") == source.layerId) sources->setCurrentIndex(i);
+    QCOMPARE(sources->currentData().toMap().value("boundary").toString(), source.layerId);
+    QVERIFY(!start->isEnabled());
+    leaf->setCurrentIndex(leaf->findData(2)); QVERIFY(start->isEnabled());
+    start->click(); QVERIFY2(!draft.isEmpty(), qPrintable(status.currentMessage()));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(draft));
+    QVERIFY(layer); QCOMPARE(layer->featureCount(), 2); QCOMPARE(layer->crs(), boundary.crs());
+    QCOMPARE(layer->undoStack()->count(), 1);
+    layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), 0);
+    layer->undoStack()->redo();
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "saved", "ogr");
+    QVERIFY(reopened.isValid()); QCOMPARE(reopened.featureCount(), 2);
+    QVector<QgsGeometry> parts; QgsFeature piece; auto it = reopened.getFeatures();
+    while (it.nextFeature(piece)) {
+      QCOMPARE(piece.attribute("facies_code").toInt(), 2);
+      parts << piece.geometry();
+    }
+    QVERIFY(QgsGeometry::unaryUnion(parts).isGeosEqual(outline));
   }
   void blankMapRequiresEvidenceAndKeepsUndoAndCoverage() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -3643,7 +3865,9 @@ private slots:
             [](MappingReferencePanel *view, const QString &) {
       view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "evidence", "memory"), {});
     });
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
+    panel.addView();
+    panel.addView();
     // 关闭两个空视图后继续覆盖添加、移除和来源选择的完整生命周期。
     panel.views()[3]->findChild<QToolButton *>("referenceRemoveView")->click();
     panel.views()[2]->findChild<QToolButton *>("referenceRemoveView")->click();
@@ -3723,7 +3947,8 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(800, 360); panel.show();
-    panel.addView();
+    QCOMPARE(panel.views().size(), 2);
+    for (int i = 0; i < 3; ++i) panel.addView();
     QCOMPARE(panel.views().size(), 5);
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     auto *add = panel.findChild<QPushButton *>("referenceAddView"); QVERIFY(add);
@@ -3785,7 +4010,7 @@ private slots:
     }
     panel.resize(900, 400); QCoreApplication::processEvents();
     QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() == 0);
-    QCOMPARE(panel.visibleViewCount(), 4);
+    QCOMPARE(panel.visibleViewCount(), 2);
     main.stopRendering();
   }
 
@@ -3816,7 +4041,7 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(800, 360); panel.show();
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
     QCOMPARE(panel.findChildren<QgsMapCanvas *>("referenceCanvas").size(), 0);
     for (auto *view : panel.views()) QVERIFY(view->canvas() == nullptr);
     const QVariantList rows{QVariantMap{{"id", "wells"}, {"name", "D61 测井相 v1"},
@@ -3837,6 +4062,40 @@ private slots:
   }
 
   // #745：宽度按工程存；删视图立刻落盘，后续视图不再左移套用别人的宽度。
+  void compactReferencePickerRestoresProjectSources() {
+    QTemporaryDir dir;
+    QgsProject project;
+    project.setFileName(dir.filePath("one.qgz"));
+    QgsMapCanvas main;
+    const QVariantList rows{QVariantMap{{"id", "ref1"}, {"name", "参考一"}, {"type", "vector"}}};
+    MappingEvidencePanel panel(&main, &project);
+    panel.enableCompactDock();
+    panel.setSources(rows, {});
+    panel.show();
+    auto *picker = panel.findChild<QComboBox *>("referenceCompactPicker");
+    QVERIFY(picker && !picker->isHidden() && !picker->accessibleName().isEmpty());
+    QVERIFY(panel.compact() && panel.views().isEmpty());
+    const int compactHeight = panel.sizeHint().height();
+    connect(&panel, &MappingEvidencePanel::referenceRequested, &panel,
+            [](MappingReferencePanel *view, const QString &) {
+      view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "reference", "memory"), {});
+    });
+    picker->setCurrentIndex(1);
+    QMetaObject::invokeMethod(picker, "activated", Q_ARG(int, 1));
+    QCOMPARE(panel.views().size(), 2);
+    QVERIFY(!panel.compact() && panel.sizeHint().height() > compactHeight);
+    QVERIFY(panel.views().first()->hasReference() && !panel.views().last()->canvas());
+    project.setFileName(dir.filePath("two.qgz"));
+    panel.setSources({}, {});
+    QVERIFY(panel.compact() && panel.views().isEmpty());
+    project.setFileName(dir.filePath("one.qgz"));
+    panel.setSources(rows, {});
+    QCOMPARE(panel.views().size(), 2);
+    QVERIFY(panel.views().first()->hasReference());
+    QCOMPARE(panel.views().first()->sourceId(), QString("ref1"));
+    QSettings("paleo", "paleo").remove(evidenceWidthsKey(&project));
+  }
+
   void evidenceViewWidthsFollowProjectAndDeletion() {
     QTemporaryDir dirA, dirB;
     QVERIFY(dirA.isValid() && dirB.isValid());
@@ -3850,6 +4109,7 @@ private slots:
     };
     clean();
     const auto cleanup = qScopeGuard([&clean] { clean(); });
+    settings.setValue(evidenceWidthsKey(&projectA), QVariantList{0, 0, 0, 0});
     const int distinctive = 333;
     QgsMapCanvas main;
     main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
@@ -3877,7 +4137,7 @@ private slots:
     {
       MappingEvidencePanel panel(&main, &projectB);
       panel.resize(800, 360); panel.show();
-      QCOMPARE(panel.views().size(), 4);
+      QCOMPARE(panel.views().size(), 2);
       for (auto *view : panel.views()) QVERIFY(panel.viewWidth(view) != distinctive);
     }
   }
@@ -3891,7 +4151,9 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(1200, 360); panel.show();
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
+    panel.addView();
+    panel.addView();
     QCoreApplication::processEvents();
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     const auto handles = panel.findChildren<QWidget *>("referenceViewResizeHandle");

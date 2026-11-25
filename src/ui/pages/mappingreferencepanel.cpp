@@ -79,7 +79,7 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   connect(m_sources, &QComboBox::currentIndexChanged, this, [this] {
     clearReference();
     updateCaption();
-    if (!sourceId().isEmpty()) emit referenceRequested(sourceId());
+    emit referenceRequested(sourceId());
   });
   connect(m_linked, &QToolButton::toggled, this, &MappingReferencePanel::updateLink);
   connect(m_remove, &QToolButton::clicked, this, &MappingReferencePanel::removeViewRequested);
@@ -328,7 +328,15 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   auto *tools = new QHBoxLayout;
   m_count = new QLabel(this);
   m_count->setObjectName(QStringLiteral("referenceViewCount"));
-  auto *add = new QPushButton(tr("添加视图"), this);
+  m_picker = new QComboBox(this);
+  m_picker->setObjectName(QStringLiteral("referenceCompactPicker"));
+  m_picker->setAccessibleName(tr("添加参考"));
+  m_picker->hide();
+  tools->addWidget(m_picker);
+  connect(m_picker, &QComboBox::activated, this, [this](int i) {
+    if (i > 0) showSource(m_picker->itemData(i).toString());
+  });
+  auto *add = m_add = new QPushButton(tr("添加视图"), this);
   add->setObjectName(QStringLiteral("referenceAddView"));
   add->setToolTip(tr("在同一行添加参考视图，左右滚动查看更多证据"));
   tools->addWidget(m_count);
@@ -369,6 +377,7 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   connect(add, &QPushButton::clicked, this, [this] {
     m_autoFill = false;
     addView();
+    saveWidths();
   });
   // #746：先放一个视图；首次可见时按视口宽补足（窄停靠不再首屏横向滚动）。
   addView();
@@ -395,7 +404,8 @@ MappingReferencePanel *MappingEvidencePanel::addView()
   view->installEventFilter(this);
   for (auto *child : view->findChildren<QWidget *>()) child->installEventFilter(this);
   connect(view, &MappingReferencePanel::referenceRequested, this, [this, view](const QString &id) {
-    emit referenceRequested(view, id);
+    if (!id.isEmpty()) emit referenceRequested(view, id);
+    if (!m_restoring) saveDockSources();
   });
   // #746：画布延迟创建，addView 时的子控件快照装不到它——创建后补装过滤器，
   // 否则滚轮落在 canvas viewport 上不会转成横向滚动。
@@ -417,6 +427,7 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
   if (index < 0) return;
   m_autoFill = false;
   m_views.removeAt(index);
+  if (index < m_pendingSources.size()) m_pendingSources.removeAt(index);
   m_widths.remove(view);
   // #745：宽度按序号存，删视图必须立刻落盘——否则后续视图的宽度依次左移套到
   // 别的视图上（直到用户下次拖动才纠正）。
@@ -429,7 +440,11 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
   view->hide();
   view->deleteLater();
   layoutViews();
-  saveWidths(); // 用剩余视图重建序号表（已删项不留空洞）
+  if (!m_restoring) {
+    saveWidths();
+    saveDockSources();
+    if (m_dockMode && m_views.isEmpty()) setCompact(true);
+  }
 }
 
 void MappingEvidencePanel::layoutViews()
@@ -451,8 +466,8 @@ void MappingEvidencePanel::layoutViews()
   updateViewSizes();
   m_row->activate();
   m_count->setText(tr("%1 个视图").arg(m_views.size()));
-  m_scroll->setVisible(!m_views.isEmpty()); // D-12：空态收起滚动区，展示引导
-  m_emptyHint->setVisible(m_views.isEmpty());
+  m_scroll->setVisible(!m_compact && !m_views.isEmpty()); // D-12：空态收起滚动区，展示引导
+  m_emptyHint->setVisible(!m_compact && m_views.isEmpty());
 }
 
 int MappingEvidencePanel::minViewWidth() const
@@ -475,12 +490,12 @@ void MappingEvidencePanel::showEvent(QShowEvent *event)
 
 void MappingEvidencePanel::fillDefaultViews()
 {
-  if (!m_autoFill) return;
+  if (!m_autoFill || m_compact || m_restoring) return;
   if (layout()) layout()->activate();
   const int width = m_scroll->viewport()->width();
   if (width <= 0) return;
   // 手动增删前持续随视口变宽补足（停靠初显常很窄，之后放宽仍应得到默认视图数）。
-  const int target = fittingViewCount(width);
+  const int target = m_project && !m_savedWidths.isEmpty() ? int(m_savedWidths.size()) : fittingViewCount(width);
   while (m_views.size() < target) addView();
 }
 
@@ -492,7 +507,7 @@ int MappingEvidencePanel::minViewHeight() const
 int MappingEvidencePanel::defaultViewWidth() const
 {
   // 未调整过的视图一屏约放四个；不足四个时均分，最窄 minViewWidth()（字体推导，#875）。
-  const int per = qBound(1, int(m_views.size()), kDefaultViewCount);
+  const int per = qBound(1, int(m_views.size()), 4);
   const int gap = m_handles.isEmpty() ? 0 : m_handles.first()->width();
   return qMax(minViewWidth(), (m_scroll->viewport()->width() - per * gap) / per);
 }
@@ -584,7 +599,9 @@ void MappingEvidencePanel::setSources(const QVariantList &sources, const QString
 {
   m_sources = sources;
   m_horizon = horizon;
+  if (m_dockMode) restoreDockLayout(widthsKey(m_project));
   for (auto *view : m_views) view->setSources(sources, horizon);
+  if (m_dockMode) refreshDockSources();
 }
 
 void MappingEvidencePanel::clearReferences(const QString &message)
@@ -600,6 +617,11 @@ void MappingEvidencePanel::setViewActive(bool active)
 
 MappingReferencePanel *MappingEvidencePanel::showSource(const QString &id)
 {
+  if (m_dockMode && (id.isEmpty() || m_picker->findData(id) < 1)) return nullptr;
+  if (m_compact) {
+    setCompact(false);
+    while (m_views.size() < kDefaultViewCount) addView();
+  }
   for (auto *view : m_views)
     if (view->sourceId() == id) {
       view->selectSource(id);

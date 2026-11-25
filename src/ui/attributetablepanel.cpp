@@ -21,6 +21,7 @@
 #include "notifications/paleonotify.h"
 
 #include <QVBoxLayout>
+#include <QUndoStack>
 
 // The layer picker hosts the original QGIS dialog; QGIS owns its table,
 // filtering, form view, field tools and model lifetimes.
@@ -44,6 +45,12 @@ AttributeTablePanel::AttributeTablePanel(
   picker->setObjectName(QStringLiteral("attrLayerPicker"));
   picker->setAccessibleName(tr("属性表图层选择"));
   lay->addWidget(picker);
+  m_pendingChanges = new QLabel(this);
+  m_pendingChanges->setObjectName(QStringLiteral("attrPendingChanges"));
+  m_pendingChanges->setTextFormat(Qt::PlainText);
+  m_pendingChanges->setWordWrap(true);
+  m_pendingChanges->hide();
+  lay->addWidget(m_pendingChanges);
   m_host = new PaleoAttributeTableHost(canvas, this);
   // FD-004：破坏性确认统一走 PaleoNotify Tier-2 收敛（DESIGN.md「错误呈现」；
   // 未注入时宿主回落原生 QMessageBox 的降级契约保持）。
@@ -235,6 +242,8 @@ void AttributeTablePanel::setLayerIds(const QStringList &ids, const QStringList 
 void AttributeTablePanel::clearTable()
 {
   disconnect(m_layerDestroyed);
+  m_pendingChanges->clear();
+  m_pendingChanges->hide();
   m_currentLayer = nullptr;
   m_currentLayerId.clear();
   m_model = nullptr;
@@ -294,6 +303,14 @@ void AttributeTablePanel::showLayer(const QString &layerId)
   m_filter = qobject_cast<QgsAttributeTableFilterModel *>(m_nativeDialog->dualView()->tableView()->model());
   m_layerDestroyed = connect(vl, &QObject::destroyed, this, &AttributeTablePanel::clearTable);
   connect(vl, &QgsMapLayer::nameChanged, m_nativeDialog, syncName);
+  const auto updateChanges = [this, vl] {
+    const auto summary = QgisEditingService::pendingEditSummary(vl);
+    m_pendingChanges->setText(summary);
+    m_pendingChanges->setVisible(!summary.isEmpty());
+  };
+  connect(vl->undoStack(), &QUndoStack::indexChanged, m_nativeDialog, updateChanges);
+  connect(vl, &QgsVectorLayer::editingStopped, m_nativeDialog, updateChanges);
+  updateChanges();
   if (hint)
     hint->setVisible(false);
   updateEditRowStates();

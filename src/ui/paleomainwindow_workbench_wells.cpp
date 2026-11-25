@@ -358,7 +358,7 @@ PaleoMainWindow::WorkbenchWells PaleoMainWindow::attachWorkbenchWells(
     if (edit && vector) {
       edit->refreshFromProject();
       edit->setCurrentLayer(vector);
-      const bool ok = edit->startEditing();
+      const bool ok = edit->currentLayer() == vector && edit->startEditing();
       if (ok && !edit->actionSelect()->isChecked())
         edit->actionSelect()->trigger();
       return ok;

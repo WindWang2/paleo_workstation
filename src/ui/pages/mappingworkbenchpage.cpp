@@ -562,6 +562,7 @@ void MappingWorkbenchPage::refresh() {
         qMax(0, m_evidenceSource->findData(source)));
   }
   refreshInputs();
+  syncEditBasisTarget();
   updateState();
   if (auto *guide = findChild<QObject *>(QStringLiteral("mappingTaskGuide")))
     QMetaObject::invokeMethod(guide, "refresh");
@@ -1008,11 +1009,6 @@ bool MappingWorkbenchPage::nativeSelectionMatchesEvidence() const {
   // still validate target_feature_uid, version and expected revision.
   return !ids.isEmpty() && m_evidenceSnapshot.value("layer_id").toString() == selectedLayer() &&
       m_evidenceSnapshot.contains("feature_id") && ids.first() == m_evidenceSnapshot.value("feature_id").toLongLong();
-}
-void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
-  m_evidenceSnapshotOwned = true;
-  m_evidenceSnapshot = snapshot;
-  updateState();
 }
 void MappingWorkbenchPage::setImpactAvailable(bool ready) {
   if (m_impactReady == ready)

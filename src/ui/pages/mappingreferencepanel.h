@@ -88,19 +88,27 @@ public:
   void setViewWidth(MappingReferencePanel *view, int width, bool persist = false);
   int viewWidth(MappingReferencePanel *view) const;
   int visibleViewCount() const; // 当前视口内（至少部分）可见的视图数
-  static constexpr int kDefaultViewCount = 4;
+  static constexpr int kDefaultViewCount = 2;
+  void enableCompactDock();
+  void reloadProjectLayout();
+  bool compact() const { return m_compact; }
   // #875：视图最窄/最矮按字体推导（随 DPI/字号缩放），不再是硬 260/200 像素。
   int minViewWidth() const;
   int minViewHeight() const;
   // #746：给定视口宽可并排放下的默认视图数（≥1，≤kDefaultViewCount）。
   int fittingViewCount(int viewportWidth) const;
   static constexpr int kMaxViewWidth = 4000;
-  QSize sizeHint() const override { return {640, 340}; }
+  QSize sizeHint() const override;
 
 signals:
+  void compactChanged(bool compact);
   void referenceRequested(MappingReferencePanel *view, const QString &layerId);
 
 private:
+  void refreshDockSources();
+  void restoreDockLayout(const QString &widthKey);
+  void saveDockSources();
+  void setCompact(bool compact);
   void removeView(MappingReferencePanel *view);
   void layoutViews();
   void updateViewSizes();
@@ -114,6 +122,13 @@ private:
   bool m_autoFill = true;
   QgsMapCanvas *m_mainCanvas; // 非拥有；宿主与现有参考画布共享生命周期。
   QgsProject *m_project;
+  bool m_dockMode = false;
+  bool m_compact = false;
+  bool m_restoring = false;
+  QComboBox *m_picker = nullptr;
+  QPushButton *m_add = nullptr;
+  QString m_widthKey;
+  QStringList m_pendingSources;
   QScrollArea *m_scroll;
   QHBoxLayout *m_row;
   QLabel *m_count;

@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QDockWidget>
 #include <QFileInfo>
+#include <QMainWindow>
 
 namespace paleo::workbench {
 
@@ -25,18 +26,50 @@ MappingReferenceController::MappingReferenceController(
       m_panel(new MappingEvidencePanel(canvas.canvas(), project ? project->project() : nullptr, &dock))
 {
     dock.setWidget(m_panel);
+    const auto sizeDock = [&dock, panel = m_panel] {
+        auto *main = qobject_cast<QMainWindow *>(dock.parentWidget());
+        if (!main) return;
+        const auto area = main->dockWidgetArea(&dock);
+        const bool horizontal = !dock.isFloating() && (area == Qt::TopDockWidgetArea || area == Qt::BottomDockWidgetArea);
+        const auto previous = dock.property("referenceFolded");
+        const bool fold = panel->compact();
+        dock.setProperty("referenceFolded", fold);
+        if (!horizontal || !dock.isVisible()) return;
+        if (fold) {
+            if (previous.isValid() && !previous.toBool()) dock.setProperty("referenceExpandedHeight", dock.height());
+            // A custom layout may put the log or a different dock in this row.
+            // Its height remains under the user's control.
+            const auto peers = main->findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly);
+            for (auto *peer : peers) {
+                if (peer != &dock && !peer->isHidden() && !peer->isFloating() && main->dockWidgetArea(peer) == area &&
+                    peer->geometry().bottom() >= dock.geometry().top() && peer->geometry().top() <= dock.geometry().bottom())
+                    return;
+            }
+            main->resizeDocks({&dock}, {dock.minimumSizeHint().height()}, Qt::Vertical);
+        } else if (previous.toBool()) {
+            const int saved = dock.property("referenceExpandedHeight").toInt();
+            int initial = panel->sizeHint().height();
+            if (auto *central = main->centralWidget())
+                initial = qMin(initial, (central->height() + dock.height()) / 2);
+            main->resizeDocks({&dock}, {saved > 0 ? saved : initial}, Qt::Vertical);
+        }
+    };
+    connect(m_panel, &MappingEvidencePanel::compactChanged, &dock, sizeDock);
+    connect(&dock, &QDockWidget::topLevelChanged, &dock, sizeDock);
+    connect(&dock, &QDockWidget::dockLocationChanged, &dock, sizeDock);
+    connect(&dock, &QDockWidget::visibilityChanged, &dock, [sizeDock](bool visible) { if (visible) sizeDock(); });
     connect(&dock, &QDockWidget::visibilityChanged, m_panel, &MappingEvidencePanel::setViewActive);
     connect(m_panel, &MappingEvidencePanel::referenceRequested,
             this, &MappingReferenceController::loadReference);
     connect(&workbench, &MappingWorkbench::changed, this, &MappingReferenceController::refreshSources);
     connect(&selection, &SelectionContext::activeHorizonChanged,
             this, &MappingReferenceController::refreshSources);
-    connect(&workbench, &MappingWorkbench::catalogBound, this, [this, &dock] {
-        m_panel->setSources({}, {});
+    connect(&workbench, &MappingWorkbench::catalogBound, this, [this] {
+        m_panel->reloadProjectLayout();
         m_panel->clearReferences(QCoreApplication::translate(
             "PaleoMainWindow", "工程已切换，请选择当前工程的参考证据。"));
-        dock.hide();
     });
+    m_panel->enableCompactDock();
     refreshSources();
 }
 

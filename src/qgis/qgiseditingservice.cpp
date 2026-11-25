@@ -197,8 +197,10 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
     {
       if (!layer->isEditable())
         return {false, QObject::tr("图层「%1」没有进行中的编辑").arg(layer->id())};
-      if (!layer->commitChanges())
-        return {false, QObject::tr("图层「%1」保存编辑失败").arg(layer->id())};
+      if (!layer->commitChanges()) {
+        const auto detail = layer->property("paleoEditSaveError").toString();
+        return {false, detail.isEmpty() ? QObject::tr("图层「%1」保存编辑失败").arg(layer->id()) : detail};
+      }
       return {true, QString()};
     });
 

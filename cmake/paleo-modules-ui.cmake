@@ -129,7 +129,9 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingworkbenchpage_references.cpp
   src/ui/pages/mappingworkbenchpage_schema.cpp
   src/ui/pages/mappingtaskguide.cpp
+  src/ui/pages/mappingtaskguide_drafts.cpp
   src/ui/pages/mappingreferencepanel.cpp
+    src/ui/pages/mappingreferencepanel_layout.cpp
   src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow_undogroup.cpp           # #748 主窗口撤销组

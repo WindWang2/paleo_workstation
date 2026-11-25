@@ -139,6 +139,7 @@ add_library(paleo_qgis STATIC
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
   src/qgis/manifestprojection.cpp
   src/qgis/faciespartitioneditor.cpp
+  src/qgis/faciesmapboundary.cpp
   src/qgis/faciespartitiontool.cpp
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
   src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API

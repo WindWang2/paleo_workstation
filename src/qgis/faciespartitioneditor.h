@@ -21,12 +21,14 @@ bool isPartition(const QgsVectorLayer *v);
 QVariantList choices(const QgsVectorLayer *v);
 int selectionSize(const QgsVectorLayer *v);
 QString layerKey(const QgsVectorLayer *v);
+QString declaredLayerId(const QgsVectorLayer *v);
 QString footprint(QgsVectorLayer *v, QString *error = nullptr);
 bool install(QgsVectorLayer *v, const QVariantList &source,
              const QString &frozenFootprint = {}, QString *error = nullptr);
 bool validate(QgsVectorLayer *v, QString *error = nullptr);
 bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error = nullptr);
 // Paint is clipped to the existing footprint (including existing no-data holes).
+QgsGeometry clippedPaint(QgsVectorLayer *v, const QgsGeometry &polygon);
 bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code,
            QString *error = nullptr);
 // code=0 means preserve a common microfacies; mixed classes need a target.

@@ -70,6 +70,7 @@ private:
   void buildBaseMapStep(QWidget *body, QVBoxLayout *layout);
   void installTaskGuide(QVBoxLayout *outer);
   void refreshInputs();
+  void syncEditBasisTarget();
   void buildFaciesSchema(QWidget *schemaBody);
   void wireFaciesUpdates();
   QVariantList faciesRows() const;

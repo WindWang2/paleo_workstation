@@ -11,6 +11,7 @@
 #include "qgisstyleservice.h"
 #include "mappingartifactwriter.h"
 #include "projectmapreference.h"
+#include "../services/canonicalfilepath.h"
 #include "../services/errorhub.h"
 
 #include <QSet>
@@ -65,7 +66,7 @@ void applyConstraintDisplayName(QgsMapLayer *layer, const QString &layerId, cons
     auto parts = QgsProviderRegistry::instance()->decodeUri(QStringLiteral("ogr"), source);
     const QFileInfo file(parts.value(QStringLiteral("path")).toString());
     if (file.filePath().isEmpty()) return {};
-    QString path = file.canonicalFilePath();
+    QString path = paleo::canonicalLocalFilePath(file);
     if (path.isEmpty()) path = file.absoluteFilePath();
 #ifdef Q_OS_WIN
     path = path.toCaseFolded();
@@ -130,9 +131,15 @@ bool QgisLayerService::declareWithPresentationMarker(const LayerDeclaration &dec
   QgsMapLayer *previous = m_instances.value(decl.layerId).data();
   auto *constraint = decl.layerId.startsWith(QLatin1String("constraints."))
       ? qobject_cast<QgsVectorLayer *>(previous) : nullptr;
+  const auto sameSource = [&] {
+    if (previous->source() == decl.source) return true;
+    if (previous->providerType() != QLatin1String("ogr")) return false;
+    const auto key = vectorSourceKey(previous->source());
+    return !key.isEmpty() && key == vectorSourceKey(decl.source);
+  };
   const bool replace = previous && (!previous->isValid() || (decl.type == QLatin1String("mbtiles")
       ? previous->customProperty("paleoBasemapPath").toString() != QFileInfo(QDir(QFileInfo(svcProject(m_projectSvc)->fileName()).absolutePath()).filePath(decl.source)).absoluteFilePath()
-      : previous->source() != decl.source));
+      : !sameSource()));
   if (replace)
   {
     if (auto *vector = qobject_cast<QgsVectorLayer *>(previous))

@@ -5,17 +5,23 @@
 #include "../qgis/faciesmapboundary.h"
 #include "../qgis/qgislayerservice.h"
 
+namespace {
+bool isStudyBoundary(const LayerDeclaration &layer) {
+  return layer.type == "vector" && (layer.layerId == "survey.area" || layer.layerId.startsWith("boundary."));
+}
+}
+
 QVariantList MappingWorkbench::mapBoundaries() const {
   QVariantList result;
   if (!m_layers) return result;
   for (const auto &decl : m_layers->declared())
-    if (decl.type == "vector" && decl.layerId.startsWith("boundary."))
+    if (isStudyBoundary(decl))
       result << QVariantMap{{"id", decl.layerId}, {"name", decl.title}};
   return result;
 }
 
 QVariantMap MappingWorkbench::prepareMapBoundary(const QString &id, QString *error) const {
-  if (!m_layers || !id.startsWith("boundary.") || m_layers->declaration(id).type != "vector") {
+  if (!m_layers || !isStudyBoundary(m_layers->declaration(id))) {
     if (error) *error = tr("所选工区边界已失效。");
     return {};
   }

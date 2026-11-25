@@ -2968,6 +2968,9 @@ private slots:
     source.layerId = "boundary.survey"; source.type = "vector"; source.title = "Survey";
     source.source = path + "|layername=features"; source.group = "00_Data";
     QVERIFY2(f.layers.declare(source, &error), qPrintable(error));
+    source.layerId = "survey.area";
+    QVERIFY2(f.layers.declare(source, &error), qPrintable(error));
+    QCOMPARE(f.work.mapBoundaries().size(), 2);
     QWidget window; QStatusBar status(&window);
     MappingWorkbenchPage page("compose", &f.work, &window);
     page.setHorizon("D61");

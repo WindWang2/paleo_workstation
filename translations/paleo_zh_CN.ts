@@ -12968,9 +12968,39 @@ Crossline: %3 ~ %4</source>
         <translation>覆盖绘制相面</translation>
     </message>
     <message>
-        <location filename="../src/qgis/faciespartitiontool.cpp" line="41"/>
-        <source>编辑目标已切换，请重新选择相面工具</source>
-        <translation>编辑目标已切换，请重新选择相面工具</translation>
+        <location filename="../src/qgis/faciespartitiontool.cpp" line="77"/>
+        <source>实线内将保留，斜线部分将裁掉。再次右键确认，或退格修正笔画。</source>
+        <translation>实线内将保留，斜线部分将裁掉。再次右键确认，或退格修正笔画。</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciespartitiontool.cpp" line="109"/>
+        <source>吸附到「%1」</source>
+        <translation>吸附到「%1」</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciespartitiontool.cpp" line="109"/>
+        <source>未吸附</source>
+        <translation>未吸附</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciespartitiontool.cpp" line="110"/>
+        <source>左键加点，右键取消</source>
+        <translation>左键加点，右键取消</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciespartitiontool.cpp" line="110"/>
+        <source>右键完成，退格撤回一点</source>
+        <translation>右键完成，退格撤回一点</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciespartitiontool.cpp" line="111"/>
+        <source>%1 个顶点 · %2 · %3</source>
+        <translation>%1 个顶点 · %2 · %3</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciespartitiontool.cpp" line="140"/>
+        <source>%1。Shift + 左键移动末点，退格撤回一点，或继续加点后右键重试。</source>
+        <translation>%1。Shift + 左键移动末点，退格撤回一点，或继续加点后右键重试。</translation>
     </message>
 </context>
 <context>
@@ -14679,11 +14709,6 @@ Crossline: %3 ~ %4</source>
         <translation>从零编制</translation>
     </message>
     <message>
-        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="41"/>
-        <source>新建空白古地理图</source>
-        <translation>新建空白古地理图</translation>
-    </message>
-    <message>
         <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="51"/>
         <source>新建并开始编制</source>
         <translation>新建并开始编制</translation>
@@ -14751,6 +14776,41 @@ Crossline: %3 ~ %4</source>
     <message>
         <source>建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。</source>
         <translation>建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="31"/>
+        <source>初始微相</source>
+        <translation>初始微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="33"/>
+        <source>工区边界轮廓预览</source>
+        <translation>工区边界轮廓预览</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="56"/>
+        <source>选择范围内的初始微相</source>
+        <translation>选择范围内的初始微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="76"/>
+        <source>范围取自「%1」，坐标系为 %2。选定初始微相后，可在这个范围内细分。</source>
+        <translation>范围取自「%1」，坐标系为 %2。选定初始微相后，可在这个范围内细分。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="87"/>
+        <source>手绘编图范围</source>
+        <translation>手绘编图范围</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="92"/>
+        <source>使用工区边界 · %1</source>
+        <translation>使用工区边界 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="122"/>
+        <source>选择初始微相后，第一笔闭合面将确定整图编制范围。后续图斑在该范围内细分，首次保存前可撤销首笔。</source>
+        <translation>选择初始微相后，第一笔闭合面将确定整图编制范围。后续图斑在该范围内细分，首次保存前可撤销首笔。</translation>
     </message>
 </context>
 <context>
@@ -14952,6 +15012,38 @@ Crossline: %3 ~ %4</source>
         <source>填写解释说明即可启用，修改目的可选（合计不超过 9000 字）</source>
         <translation>填写解释说明即可启用，修改目的可选（合计不超过 9000 字）</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="180"/>
+        <source>给当前图斑加备注</source>
+        <translation>给当前图斑加备注</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="184"/>
+        <source>后续编辑沿用这条说明</source>
+        <translation>后续编辑沿用这条说明</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="396"/>
+        <source>%1 · 图斑 %2</source>
+        <translation>%1 · 图斑 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="398"/>
+        <source>已随 v%1 保存</source>
+        <translation>已随 v%1 保存</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="398"/>
+        <source>工作副本草稿</source>
+        <translation>工作副本草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingeditbasis.cpp" line="399"/>
+        <source>%1 · %2
+%3</source>
+        <translation>%1 · %2
+%3</translation>
+    </message>
 </context>
 <context>
     <name>MappingEvidencePanel</name>
@@ -14984,6 +15076,12 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="453"/>
         <source>%1 个视图</source>
         <translation>%1 个视图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="333"/>
+        <location filename="../src/ui/pages/mappingreferencepanel_layout.cpp" line="56"/>
+        <source>添加参考</source>
+        <translation>添加参考</translation>
     </message>
 </context>
 <context>
@@ -15412,6 +15510,21 @@ Crossline: %3 ~ %4</source>
     <message>
         <source>无需先填解释，直接选中或绘制相面；分割、覆盖和合并后自动记录或后台生成草稿</source>
         <translation>无需先填解释，直接选中或绘制相面；分割、覆盖和合并后自动记录或后台生成草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="333"/>
+        <source>选择要继续编辑的副本…</source>
+        <translation>选择要继续编辑的副本…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="333"/>
+        <source>继续编辑 · %1</source>
+        <translation>继续编辑 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide_drafts.cpp" line="80"/>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
     </message>
 </context>
 <context>
@@ -15913,11 +16026,6 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/workflow/mappingworkbench_edit.cpp" line="469"/>
         <source>无法创建编图版本暂存目录</source>
         <translation>无法创建编图版本暂存目录</translation>
-    </message>
-    <message>
-        <location filename="../src/workflow/mappingworkbench_edit.cpp" line="503"/>
-        <source>图件版本已保存（%1），但测井属性同步失败：%2。修正后可再次保存，编辑事件不会重复入档。</source>
-        <translation>图件版本已保存（%1），但测井属性同步失败：%2。修正后可再次保存，编辑事件不会重复入档。</translation>
     </message>
     <message>
         <location filename="../src/workflow/mappingworkbench_edit.cpp" line="513"/>
@@ -17142,6 +17250,61 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/workflow/mappingevidencereview.cpp" line="1043"/>
         <source>记录手动解释说明</source>
         <translation>记录手动解释说明</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingbasemaps.cpp" line="19"/>
+        <source>所选工区边界已失效。</source>
+        <translation>所选工区边界已失效。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditcontext.cpp" line="95"/>
+        <source>请先选择当前层位的工作副本</source>
+        <translation>请先选择当前层位的工作副本</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="45"/>
+        <source>当前工程只读，无法保存图件版本</source>
+        <translation>当前工程只读，无法保存图件版本</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="47"/>
+        <source>无法定位工作副本保存记录</source>
+        <translation>无法定位工作副本保存记录</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="48"/>
+        <source>正在保存该工作副本</source>
+        <translation>正在保存该工作副本</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="54"/>
+        <source>工作副本的保存记录损坏，无法继续登记</source>
+        <translation>工作副本的保存记录损坏，无法继续登记</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="57"/>
+        <source>工作副本已落盘，但无法写入版本登记记录</source>
+        <translation>工作副本已落盘，但无法写入版本登记记录</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="65"/>
+        <source>工作副本已保存，成果版本未登记。%1</source>
+        <translation>工作副本已保存，成果版本未登记。%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="70"/>
+        <source>成果版本 %1 已登记，井属性尚未同步。%2</source>
+        <translation>成果版本 %1 已登记，井属性尚未同步。%2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="72"/>
+        <source>成果版本 %1 已登记，保存记录尚未清理，可重试。</source>
+        <translation>成果版本 %1 已登记，保存记录尚未清理，可重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_edit.cpp" line="525"/>
+        <source>无法读取已登记版本的测井属性快照</source>
+        <translation>无法读取已登记版本的测井属性快照</translation>
     </message>
 </context>
 <context>
@@ -19115,6 +19278,16 @@ Crossline: %3 ~ %4</source>
         <source>相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出（无需等待解释生成）。显示层级可按图层固定，也可锁定选中相面；导出图例沿用实际显示。</source>
         <translation>相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出（无需等待解释生成）。显示层级可按图层固定，也可锁定选中相面；导出图例沿用实际显示。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage_flow.cpp" line="105"/>
+        <source>重试井属性同步</source>
+        <translation>重试井属性同步</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage_flow.cpp" line="106"/>
+        <source>重试登记当前工作副本</source>
+        <translation>重试登记当前工作副本</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkflow</name>
@@ -19973,6 +20146,11 @@ Crossline: %3 ~ %4</source>
         <source>已删除 %1 个要素</source>
         <translation>已删除 %1 个要素</translation>
     </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtools.cpp" line="549"/>
+        <source>删除要素失败</source>
+        <translation>删除要素失败</translation>
+    </message>
 </context>
 <context>
     <name>PaleoDockManager</name>
@@ -20319,11 +20497,6 @@ Crossline: %3 ~ %4</source>
         <translation>跨层</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="553"/>
-        <source>跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）</source>
-        <translation>跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）</translation>
-    </message>
-    <message>
         <location filename="../src/ui/edittools/editingtoolbar.cpp" line="565"/>
         <source>保存编辑</source>
         <translation>保存编辑</translation>
@@ -20650,6 +20823,26 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/edittools/editingtoolbar.cpp" line="974"/>
         <source>已保存「%1」：%2</source>
         <translation>已保存「%1」：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="376"/>
+        <source>跨层拓扑：同坐标系普通图层的共点节点一起编辑和撤销</source>
+        <translation>跨层拓扑：同坐标系普通图层的共点节点一起编辑和撤销</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="925"/>
+        <source>删除所选要素</source>
+        <translation>删除所选要素</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="928"/>
+        <source>删除所选要素失败</source>
+        <translation>删除所选要素失败</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="939"/>
+        <source>删除所选 %1 项</source>
+        <translation>删除所选 %1 项</translation>
     </message>
 </context>
 <context>
@@ -22312,11 +22505,6 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/paleomainwindow.cpp" line="829"/>
         <source>未保存的编辑</source>
         <translation>未保存的编辑</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow.cpp" line="844"/>
-        <source>图层「%1」的编辑未能提交，操作中止。</source>
-        <translation>图层「%1」的编辑未能提交，操作中止。</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="870"/>
@@ -25287,6 +25475,91 @@ PDF：%3
         <source>项目中已有相同内容</source>
         <translation>项目中已有相同内容</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="866"/>
+        <source>提交失败：%1。%2</source>
+        <translation>提交失败：%1。%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="867"/>
+        <source>已提交：%1</source>
+        <translation>已提交：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="868"/>
+        <source>尚未提交：%1</source>
+        <translation>尚未提交：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="767"/>
+        <source>保存图层编辑</source>
+        <translation>保存图层编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="782"/>
+        <source>图层编辑未提交：%1</source>
+        <translation>图层编辑未提交：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="799"/>
+        <source>工程已保存，以下图层仍有修改：%1</source>
+        <translation>工程已保存，以下图层仍有修改：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="295"/>
+        <source>该相面工作副本已不可用，请重新选择。</source>
+        <translation>该相面工作副本已不可用，请重新选择。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="308"/>
+        <source>正在编辑 %1</source>
+        <translation>正在编辑 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="311"/>
+        <source>无法进入所选工作副本。</source>
+        <translation>无法进入所选工作副本。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="350"/>
+        <source>边界已变化，请重新预览后建立相图。</source>
+        <translation>边界已变化，请重新预览后建立相图。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="354"/>
+        <source>请选择当前层位的初始微相。</source>
+        <translation>请选择当前层位的初始微相。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="554"/>
+        <source>目标图斑或草稿已改变，请重新选择</source>
+        <translation>目标图斑或草稿已改变，请重新选择</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="750"/>
+        <source>切换编辑图层</source>
+        <translation>切换编辑图层</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="750"/>
+        <source>当前正在编辑「%1」。如何处理本次编辑？</source>
+        <translation>当前正在编辑「%1」。如何处理本次编辑？</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="751"/>
+        <source>保存并继续</source>
+        <translation>保存并继续</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="751"/>
+        <source>放弃并继续</source>
+        <translation>放弃并继续</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="751"/>
+        <source>返回当前副本</source>
+        <translation>返回当前副本</translation>
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -26607,16 +26880,6 @@ PDF：%3
         <translation>删除节点</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="712"/>
-        <source>部分图层拒绝了节点删除</source>
-        <translation>部分图层拒绝了节点删除</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="713"/>
-        <source>无法删除节点</source>
-        <translation>无法删除节点</translation>
-    </message>
-    <message>
         <location filename="../src/ui/edittools/vertexeditortools.cpp" line="741"/>
         <source>编辑已停止——节点移动已丢弃</source>
         <translation>编辑已停止——节点移动已丢弃</translation>
@@ -26627,16 +26890,6 @@ PDF：%3
         <translation>移动节点</translation>
     </message>
     <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="810"/>
-        <source>部分图层的编辑已停止——这些移动已丢弃</source>
-        <translation>部分图层的编辑已停止——这些移动已丢弃</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="811"/>
-        <source>无法移动节点</source>
-        <translation>无法移动节点</translation>
-    </message>
-    <message>
         <location filename="../src/ui/edittools/vertexeditortools.cpp" line="827"/>
         <source>请先开始编辑，再添加节点</source>
         <translation>请先开始编辑，再添加节点</translation>
@@ -26645,16 +26898,6 @@ PDF：%3
         <location filename="../src/ui/edittools/vertexeditortools.cpp" line="886"/>
         <source>添加节点</source>
         <translation>添加节点</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="919"/>
-        <source>部分图层拒绝了节点插入</source>
-        <translation>部分图层拒绝了节点插入</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/edittools/vertexeditortools.cpp" line="920"/>
-        <source>无法添加节点</source>
-        <translation>无法添加节点</translation>
     </message>
 </context>
 <context>
@@ -40160,6 +40403,36 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ai/chat/domaintools.cpp" line="696"/>
         <source>只读能力目录与候选参数预检；执行仍由原工具与宿主门禁决定</source>
         <translation>只读能力目录与候选参数预检；执行仍由原工具与宿主门禁决定</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciesmapboundary.cpp" line="17"/>
+        <source>请选择已登记的面状工区边界。</source>
+        <translation>请选择已登记的面状工区边界。</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciesmapboundary.cpp" line="20"/>
+        <source>工区边界需要已知的米制坐标系，请先完成配准。</source>
+        <translation>工区边界需要已知的米制坐标系，请先完成配准。</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciesmapboundary.cpp" line="22"/>
+        <source>工区边界有未提交的修改，请先保存边界。</source>
+        <translation>工区边界有未提交的修改，请先保存边界。</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciesmapboundary.cpp" line="29"/>
+        <source>工区边界含有空或无效的面，请先修复。</source>
+        <translation>工区边界含有空或无效的面，请先修复。</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciesmapboundary.cpp" line="34"/>
+        <source>无法建立有效的工区覆盖范围。</source>
+        <translation>无法建立有效的工区覆盖范围。</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/faciesmapboundary.cpp" line="72"/>
+        <source>工作副本已变化，请重新选择编图范围。</source>
+        <translation>工作副本已变化，请重新选择编图范围。</translation>
     </message>
 </context>
 <context>
@@ -60129,6 +60402,57 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/mappingexplanationservice.cpp" line="547"/>
         <source>%1层位执行%2</source>
         <translation>%1层位执行%2</translation>
+    </message>
+</context>
+<context>
+    <name>MapFeaturePicker</name>
+    <message>
+        <location filename="../src/qgis/mapfeaturepicker.cpp" line="110"/>
+        <source>选择目标要素</source>
+        <translation>选择目标要素</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/mapfeaturepicker.cpp" line="111"/>
+        <source>选择要删除的要素</source>
+        <translation>选择要删除的要素</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/mapfeaturepicker.cpp" line="111"/>
+        <source>选择要素</source>
+        <translation>选择要素</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/mapfeaturepicker.cpp" line="114"/>
+        <source>要素 %1</source>
+        <translation>要素 %1</translation>
+    </message>
+</context>
+<context>
+    <name>TopologyGesture</name>
+    <message>
+        <location filename="../src/qgis/topologygesture.cpp" line="47"/>
+        <source>图层「%1」的编辑历史已改变，无法整组撤销或重做</source>
+        <translation>图层「%1」的编辑历史已改变，无法整组撤销或重做</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/topologygesture.cpp" line="84"/>
+        <source>参与图层已停止编辑或不能共同修改</source>
+        <translation>参与图层已停止编辑或不能共同修改</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/topologygesture.cpp" line="92"/>
+        <source>节点编辑未完成，已撤回本次修改：%1</source>
+        <translation>节点编辑未完成，已撤回本次修改：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/topologygesture.cpp" line="116"/>
+        <source>%1（%2 个图层）</source>
+        <translation>%1（%2 个图层）</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/topologygesture.cpp" line="137"/>
+        <source>跨层编辑状态已变化，请重新检查图层</source>
+        <translation>跨层编辑状态已变化，请重新检查图层</translation>
     </message>
 </context>
 </TS>

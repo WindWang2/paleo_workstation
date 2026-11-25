@@ -17,6 +17,7 @@
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
 
 class PaleoDockManager;
+class AiAssistDock;
 class QComboBox;
 class QDialog;
 class QMenu;
@@ -459,6 +460,11 @@ public:
     // 「多选文件导入」：与文件夹导入同一确认表/两阶段导入语义，数据源是
     // 显式文件清单（识别不了的类型按分类器落 document/unknown → 辅助资料）。
     void runFilesImportAt(DataImportService *svc, const QStringList &paths, const QString &kind = {});
+    using FileImportReport = std::function<void(const QVector<FolderRowResult> &, const QString &, bool)>;
+    void confirmFileImport(const QStringList &paths, const QVector<FolderPreviewRow> &preview,
+                           const QString &kind, quint64 session, const FileImportReport &report = {});
+    void wireAgentFileImport(AiAssistDock *dock);
+    QString agentImportUnavailableReason() const;
     // W2/W3 工作流懒建钩子（壳侧唯一持有点； nullptr 直至服务注入）。
     FolderImportWorkflow *folderImportWorkflow();
     ProjectOpenWorkflow *projectOpenWorkflow();

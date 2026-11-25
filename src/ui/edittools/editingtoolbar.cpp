@@ -18,6 +18,7 @@
 #include <QVariant>
 #include <QSpinBox>
 #include <QSettings>
+#include <QStatusBar>
 #include <QPushButton>
 #include <qgssnappingutils.h>
 
@@ -288,6 +289,12 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
     } );
     connect( layer, &QgsVectorLayer::readOnlyChanged, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::supportsEditingChanged, this, &PaleoEditingToolbar::updateActionStates );
+    connect( layer, &QgsVectorLayer::editingStarted, this, &PaleoEditingToolbar::updateActionStates );
+    connect( layer, &QgsVectorLayer::editingStopped, this, &PaleoEditingToolbar::updateActionStates );
+    connect(layer, &QgsVectorLayer::beforeCommitChanges, this, [this, layer](bool stopEditing) {
+      if (stopEditing && layer == mEditLayer)
+        m_saveSummary = QgisEditingService::pendingEditSummary(layer);
+    });
     connect(layer, &QgsVectorLayer::selectionChanged, this, [this] { updateActionStates(); });
   }
   if (isEditing())
@@ -462,7 +469,8 @@ void PaleoEditingToolbar::buildUi()
       {
         const auto choice = PaleoNotify::askSaveDiscard(
             this, PaleoNotify::AskIcon::Question, tr("退出编辑"),
-            tr("本段编辑尚未确认保存。保存编辑，或放弃本段修改？"),
+            QgisEditingService::pendingEditSummary(mEditLayer) + QLatin1Char('\n') +
+                tr("本段编辑尚未确认保存。保存编辑，或放弃本段修改？"),
             tr("保存"), tr("放弃"), tr("取消"));
         if (choice == PaleoNotify::SaveChoice::Save)
           saveEditing();
@@ -475,9 +483,7 @@ void PaleoEditingToolbar::buildUi()
   mActionSelect = newToolAction( tr( "选择" ), tr( "单击或框选要素（Shift 追加 / Ctrl 去除）" ),
                                  QStringLiteral( "mActionSelectRectangle.svg" ) );
 
-  // Add-feature entry: one native QToolButton with a menu of the three capture
-  // modes (点/线/面). The children are the checkable group members; the parent
-  // action only hosts the affordance — InstantPopup keeps the semantics plain.
+  // Geometry-specific capture actions share a single menu button.
   mActionAddFeature = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionAdd.svg" ) ),
                                    tr( "添加" ), this );
   const QString addHint = tr( "添加要素：点 / 线 / 面" );
@@ -667,7 +673,10 @@ void PaleoEditingToolbar::installTool( QgsMapTool *tool )
 
 void PaleoEditingToolbar::refreshCombo()
 {
-  const QString keepId = currentLayer() ? currentLayer()->id() : QString();
+  QgsMapLayer *canvasLayer = mCanvas ? mCanvas->currentLayer() : nullptr;
+  QgsVectorLayer *preferred = mEditLayer ? mEditLayer.data() : qobject_cast<QgsVectorLayer *>(canvasLayer);
+  if (!preferred && !canvasLayer)
+    preferred = currentLayer();
   QgsVectorLayer *watched = mUndoStack ? mUndoStack->layer() : nullptr;
 
   {
@@ -685,21 +694,8 @@ void PaleoEditingToolbar::refreshCombo()
                                : lyr->name();
       mLayerCombo->addItem( text, QVariant::fromValue( lyr ) );
     }
-    // restore: previous selection first, else the edit layer, else the first
-    // item — priority matters when both are listed in either order
-    int idx = -1;
-    for ( int i = 0; i < mLayerCombo->count() && idx < 0; ++i )
-    {
-      QgsVectorLayer *lyr = qvariant_cast<QgsVectorLayer *>( mLayerCombo->itemData( i ) );
-      if ( !keepId.isEmpty() && lyr && lyr->id() == keepId )
-        idx = i;
-    }
-    for ( int i = 0; i < mLayerCombo->count() && idx < 0; ++i )
-    {
-      if ( qvariant_cast<QgsVectorLayer *>( mLayerCombo->itemData( i ) ) == mEditLayer )
-        idx = i;
-    }
-    if ( idx < 0 && mLayerCombo->count() > 0 )
+    int idx = comboIndexForLayer(mLayerCombo, preferred);
+    if (idx < 0 && !canvasLayer && mLayerCombo->count() > 0)
       idx = 0;
     mLayerCombo->setCurrentIndex( idx );
   }
@@ -714,7 +710,8 @@ void PaleoEditingToolbar::refreshCombo()
       sel = mUndoStack->layer();
       selectComboLayer( mLayerCombo, sel );
     }
-    mCanvas->setCurrentLayer( sel );
+    if (mCanvas && sel)
+      mCanvas->setCurrentLayer(sel);
   }
 }
 
@@ -726,6 +723,7 @@ void PaleoEditingToolbar::updateActionStates()
   const QString noEdit = !hasTarget ? noTarget
       : target->readOnly() ? tr( "当前图层为只读，可选择要素，不能修改" )
       : !target->supportsEditing() ? tr( "当前图层的数据源不支持编辑" )
+      : target->isEditable() && target != mEditLayer ? tr( "图层 %1 已在编辑中" ).arg(target->name())
       : QgisEditingService::isConstraintLayer(target) && !mEditingService ? tr("约束编辑需要工程 store 同步服务")
       : mEditingService ? mEditingService->availabilityError(target) : QString();
   const auto gate = []( QAction *action, const QString &reason ) {
@@ -785,21 +783,13 @@ void PaleoEditingToolbar::updateActionStates()
 void PaleoEditingToolbar::updateStateLabel()
 {
   QPalette palette = mStateLabel->palette();
-  // DESIGN.md text-muted——状态文字（浏览/编辑中）是说明性 chrome，非告警。
-  const QColor stateColor = PaleoTheme::tokens().textMuted;
-  if ( isEditing() )
-  {
-    // Editing is an ordinary operation, not an error or review warning.
-    mStateLabel->setText( tr( "编辑中：%1" ).arg( mEditLayer->name() ) );
-    palette.setColor( QPalette::WindowText, stateColor );
-  }
+  palette.setColor(QPalette::WindowText, PaleoTheme::tokens().textMuted);
+  mStateLabel->setPalette(palette);
+  if (isEditing())
+    mStateLabel->setText((mEditLayer->isModified() ? tr("编辑中：%1 · 有未保存的修改") : tr("编辑中：%1"))
+                             .arg(mEditLayer->name()));
   else
-  {
-    mStateLabel->setText( currentLayer() ? tr( "浏览：%1" ).arg( currentLayer()->name() )
-                                        : tr( "未选择矢量图层" ) );
-    palette.setColor( QPalette::WindowText, stateColor );
-  }
-  mStateLabel->setPalette( palette );
+    mStateLabel->setText(currentLayer() ? tr("浏览：%1").arg(currentLayer()->name()) : tr("未选择矢量图层"));
 }
 
 void PaleoEditingToolbar::updateEditHighlight()
@@ -845,7 +835,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
     updateActionStates();
     return;
   }
-  if ( action != mActionSelect && (!allowMutation() || (!target->isEditable() && !startEditing())) )
+  if (action != mActionSelect && (!allowMutation() || !startEditing()))
   {
     action->setChecked( false ); // preflight/session refused — no mutation tool
     updateActionStates();
@@ -960,6 +950,7 @@ bool PaleoEditingToolbar::startEditing()
   }
 
   mEditLayer = target;
+  m_saveSummary.clear();
   mHighlightConnections.append(connect(target, &QgsVectorLayer::selectionChanged, this, [this] { updateEditHighlight(); }));
   mHighlightConnections.append(connect(target, &QgsVectorLayer::geometryChanged, this, [this] { updateEditHighlight(); }));
   updateEditHighlight();
@@ -979,6 +970,8 @@ void PaleoEditingToolbar::finishSession(const QString &id, bool saved)
     disconnect(connection);
   mHighlightConnections.clear();
   mEditHighlight.reset();
+  if (saved && mUndoStatus && !m_saveSummary.isEmpty())
+    mUndoStatus->showMessage(tr("已保存「%1」：%2").arg(mEditLayer->name(), m_saveSummary), 8000);
   mEditLayer = nullptr;
   installTool(nullptr);
   uncheckTools();

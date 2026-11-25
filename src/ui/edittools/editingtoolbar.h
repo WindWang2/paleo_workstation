@@ -208,6 +208,7 @@ class PaleoEditingToolbar : public QWidget
     PaleoUndoTarget mSecondaryUndo;
     QPointer<PaleoUndoGroupRouter> mUndoRouter;
     QPointer<QStatusBar> mUndoStatus;
+    QString m_saveSummary;
     void routeUndo( bool undo );
     PaleoUndoStep describeCanvasUndo( bool undo ) const;
     bool stepCanvasUndo( bool undo );

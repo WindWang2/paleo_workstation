@@ -46,6 +46,7 @@ signals:
   void failed(const QString &reason);
   void businessEdit(qint64 featureId, const QString &kind);
   void publicationStateChanged();
+  void editHistoryChanged();
 private:
   friend bool setParents(QgsVectorLayer *, QgsFeatureId, const QStringList &, QString *);
   explicit Observer(QgsVectorLayer *layer);

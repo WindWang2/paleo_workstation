@@ -3,16 +3,23 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFileDialog>
 #include <QHostAddress>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMimeData>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTemporaryFile>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextFrame>
@@ -124,6 +131,8 @@ private slots:
   void initTestCase();
   void cleanup();
   void unconfiguredControllerShowsDisabledState();
+  void fileDropUsesCurrentProjectAndPreservesDraft();
+  void filePickerOpensWithoutModelAndRejectsChangedProject();
   void streamingRendersIntoTranscript();
   void toolCallRendersPlaceholderCard();
   void errorStateIsRenderedWithReason();
@@ -188,6 +197,84 @@ void TestAiAssistDock::unconfiguredControllerShowsDisabledState() {
   QVERIFY(empty);
   QVERIFY(!empty->isHidden());
   QVERIFY2(empty->text().contains(QStringLiteral("配置")), qPrintable(empty->text()));
+}
+
+void TestAiAssistDock::fileDropUsesCurrentProjectAndPreservesDraft() {
+  AiChatController controller;
+  controller.setConfig(makeConfig(QUrl(QStringLiteral("http://127.0.0.1:1/v1"))));
+  AiAssistDock dock(&controller);
+  dock.show();
+  auto *input = dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"));
+  auto *button = dock.findChild<QPushButton *>(QStringLiteral("aiAssistantImportFiles"));
+  QVERIFY(input && button);
+  QVERIFY(!button->isEnabled());
+  input->setPlainText(QStringLiteral("unsent draft"));
+  QSignalSpy imports(&dock, &AiAssistDock::importFilesRequested);
+  QTemporaryFile source;
+  QVERIFY(source.open());
+  const QStringList files{source.fileName()};
+  QMimeData mime;
+  mime.setUrls({QUrl::fromLocalFile(files.front())});
+  auto enter = [&] {
+    QDragEnterEvent event(QPoint(2, 2), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(input->viewport(), &event);
+    return event.isAccepted();
+  };
+  auto drop = [&] {
+    QDropEvent event(QPointF(2, 2), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(input->viewport(), &event);
+  };
+  dock.setFileImportContext(4, {});
+  QVERIFY(enter());
+  drop();
+  QCOMPARE(imports.count(), 1);
+  QCOMPARE(imports.first().at(0).toStringList(), files);
+  QCOMPARE(imports.first().at(1).toULongLong(), quint64(4));
+  QVERIFY(enter());
+  dock.setFileImportContext(5, {});
+  drop();
+  QCOMPARE(imports.count(), 1);
+  mime.setUrls({QUrl(QStringLiteral("https://example.invalid/file.las"))});
+  QVERIFY(!enter());
+  dock.setFileImportContext(5, QStringLiteral("read only"));
+  QVERIFY(!button->isEnabled());
+  QCOMPARE(button->toolTip(), QStringLiteral("read only"));
+  QCOMPARE(input->toPlainText(), QStringLiteral("unsent draft"));
+  QVERIFY(controller.messages().isEmpty());
+}
+
+void TestAiAssistDock::filePickerOpensWithoutModelAndRejectsChangedProject() {
+  const bool old = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+  QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+  const auto restore = qScopeGuard([old] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, old); });
+  AiChatController controller;
+  AiAssistDock dock(&controller);
+  auto *button = dock.findChild<QPushButton *>(QStringLiteral("aiAssistantImportFiles"));
+  QVERIFY(button);
+  QVERIFY(!controller.enabled());
+  dock.setFileImportContext(7, {});
+  QVERIFY(button->isEnabled());
+  QSignalSpy imports(&dock, &AiAssistDock::importFilesRequested);
+  QTemporaryFile source;
+  QVERIFY(source.open());
+  source.close();
+  for (bool changeProject : {false, true}) {
+    button->click();
+    auto *picker = dock.findChild<QFileDialog *>();
+    QVERIFY(picker);
+    QCOMPARE(picker->fileMode(), QFileDialog::ExistingFiles);
+    auto *fileName = picker->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+    QVERIFY(fileName);
+    fileName->setText(source.fileName());
+    if (changeProject) dock.setFileImportContext(8, {});
+    QMetaObject::invokeMethod(picker, "accept");
+    QVERIFY(!picker->isVisible());
+    QCOMPARE(imports.count(), 1);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  }
+  QCOMPARE(imports.first().at(0).toStringList(), QStringList{source.fileName()});
+  QCOMPARE(imports.first().at(1).toULongLong(), quint64(7));
+  QCOMPARE(controller.messages().size(), 0);
 }
 
 void TestAiAssistDock::streamingRendersIntoTranscript() {

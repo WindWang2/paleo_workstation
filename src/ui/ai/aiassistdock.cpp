@@ -208,6 +208,7 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
   actions->addWidget(m_copy);
   actions->addWidget(m_export);
   actions->addWidget(m_resend);
+  buildFileImportControls(actions, layout);
   actions->addStretch(1);
   actions->addWidget(m_stop);
   actions->addWidget(m_send);
@@ -278,6 +279,7 @@ void AiAssistDock::attachController(AiChatController *controller) {
     m_controller->disconnect(this);
   }
   m_controller = controller;
+  showFileImportStatus({});
   if (m_controller) {
     bindController();
     // 换了编排器：整页按新控制器重画；滚动/卡片/草稿记账一并复位。
@@ -328,6 +330,7 @@ void AiAssistDock::bindController() {
   connect(m_controller, &AiChatController::projectBriefChanged, this,
           &AiAssistDock::refreshContextBar);
   connect(m_controller, &AiChatController::sessionChanged, this, [this] {
+    showFileImportStatus({});
     // 切换前记住旧会话滚动位置；文档清空后流式块记账一并失效。
     if (!m_currentSessionId.isEmpty())
       m_scrollPositions.insert(m_currentSessionId,
@@ -559,6 +562,9 @@ void AiAssistDock::updateEmptyState() {
   const bool ready = m_controller && m_controller->enabled();
   m_emptyState->setDetailText(
     !m_controller ? tr("助手尚未接入 — 打开工程后再使用 AI 助手")
+    : m_importFiles && m_importFiles->isEnabled()
+                  ? (ready ? tr("输入问题，或将文件拖到此处导入当前工程。")
+                           : tr("将文件拖到此处导入当前工程。要与助手对话，请先配置模型。"))
     : ready       ? tr("还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题")
                   : tr("助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问"));
 }
@@ -728,6 +734,8 @@ void AiAssistDock::restoreDraft(const QString &sessionId) {
 }
 
 bool AiAssistDock::eventFilter(QObject *watched, QEvent *event) {
+  if (filterFileDrop(watched, event))
+    return true;
   // W7.1：Enter 发送 / Shift+Enter 换行；IME 组字中的 Enter 属输入法确认
   // 不发送；按住不放的重复 Enter 不重复发送。
   if (watched == m_input && event->type() == QEvent::KeyPress) {
@@ -765,6 +773,11 @@ void AiAssistDock::appendMessage(const ChatMessage &message) {
     return; // 流式占位：等增量到了再显示，避免先出现一条空白
   finalizeAssistantBlock(); // 防御：上一轮流式块若未定型，先定型再上新消息
   const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
+  if (message.localImportReceipt) {
+    writeBlock(QStringLiteral("<div>%1</div>").arg(
+      message.content.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br/>"))));
+    return;
+  }
   if (message.role == ChatRole::Tool) {
     // 工具结果不灌 JSON 进正文（可读性）；完整呈现走工具卡（实时+历史）。
     writeBlock(

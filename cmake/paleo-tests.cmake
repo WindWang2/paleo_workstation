@@ -254,6 +254,7 @@ target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 # ---- W7 新接缝测试（docs/UI_LAYER_PLAN.md）----
 add_paleo_test(tst_folderimport LIBS paleo_workflow paleo_ui)
+add_paleo_test(tst_agentattachmentimport LIBS paleo_workflow)
 target_compile_definitions(tst_folderimport PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 # ---- 方向 30：工区数据管线与健康管理 ----

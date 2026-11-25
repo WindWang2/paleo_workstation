@@ -97,6 +97,7 @@ QJsonObject ChatMessage::toJson() const {
     object.insert(QStringLiteral("timestamp"),
                   timestamp.toUTC().toString(Qt::ISODateWithMs));
   if (!hostTurnId.isEmpty()) object.insert(QStringLiteral("host_turn_id"), hostTurnId);
+  if (localImportReceipt) object.insert(QStringLiteral("local_import_receipt"), true);
   return object;
 }
 
@@ -125,6 +126,8 @@ ChatMessage ChatMessage::fromJson(const QJsonObject &object) {
   message.content = object.value(QStringLiteral("content")).toString();
   message.toolCallId = object.value(QStringLiteral("tool_call_id")).toString();
   message.hostTurnId = object.value(QStringLiteral("host_turn_id")).toString();
+  message.localImportReceipt = message.role == ChatRole::User &&
+    object.value(QStringLiteral("local_import_receipt")).toBool();
   const QJsonArray calls = object.value(QStringLiteral("tool_calls")).toArray();
   for (const QJsonValue &value : calls)
     message.toolCalls.append(ChatToolCall::fromJson(value.toObject()));
@@ -136,5 +139,6 @@ ChatMessage ChatMessage::fromJson(const QJsonObject &object) {
 
 bool ChatMessage::operator==(const ChatMessage &other) const {
   return role == other.role && content == other.content &&
-         toolCallId == other.toolCallId && toolCalls == other.toolCalls;
+         toolCallId == other.toolCallId && toolCalls == other.toolCalls &&
+         localImportReceipt == other.localImportReceipt;
 }

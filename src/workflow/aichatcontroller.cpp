@@ -25,6 +25,9 @@ AiChatController::AiChatController(QObject *parent)
   : QObject(parent), m_client(this), m_configCommitter(this), m_runner(this),
     m_piBridge(this) {
   newSession();
+  connect(this, &AiChatController::streamingChanged, this, [this](bool active) {
+    if (!active) flushImportReceipts();
+  });
   connect(&m_client, &LlmClient::deltaReceived, this,
           [this](const QString &text) {
             if (!m_streaming) return;
@@ -403,7 +406,7 @@ bool AiChatController::canRetry() const {
     return false;
   for (int i = m_session.messages.size() - 1; i >= 0; --i)
     if (m_session.messages.at(i).role == ChatRole::User)
-      return true;
+      return !m_session.messages.at(i).localImportReceipt;
   return false;
 }
 

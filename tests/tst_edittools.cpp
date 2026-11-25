@@ -81,6 +81,7 @@
 #include "ui/edittools/editingtoolbar.h"
 #include "ui/edittools/undogrouprouter.h"
 #include <QUndoGroup>
+#include <QStatusBar>
 #include "ui/edittools/editingtools.h"
 #include "ui/edittools/editingundostack.h"
 #include "ui/edittools/vertexeditortools.h"
@@ -216,6 +217,7 @@ class TestEditTools : public QObject
     void toolbarServiceEndsEachSessionOnce();
     void toolbarCancelDiscardsEdits();
     void toolbarSaveRefusedOutsideSession();
+    void selectedLayerOwnsEditsAndReportsCommittedFacts();
     // ---- mapping 主线3：编辑会话生命周期加固 ----
     void toolbarProjectSwitchFinalizesSession();
     void toolbarProjectClearedDropsSessionCleanly();
@@ -3318,6 +3320,61 @@ void TestEditTools::toolbarSelectionIsReadOnlyAndToolsFollowCanvas()
   QVERIFY(bar.actionAddPoint()->isChecked());
   QCOMPARE(started.count(), 1); // navigation didn't end/restart the session
   QVERIFY(bar.cancelEditing());
+}
+
+void TestEditTools::selectedLayerOwnsEditsAndReportsCommittedFacts()
+{
+  QgsMapCanvas canvas;
+  QgsVectorLayer line(QStringLiteral("LineString"), QStringLiteral("断层"), QStringLiteral("memory"));
+  QgsVectorLayer point(QStringLiteral("Point?field=id:integer"), QStringLiteral("井位"), QStringLiteral("memory"));
+  const auto original = seedFeatures(point, {"POINT(0 0)", "POINT(1 1)"});
+  QCOMPARE(original.size(), 2);
+  canvas.setCurrentLayer(&point);
+  PaleoEditingToolbar bar(&canvas);
+  QStatusBar status;
+  bar.bindStatusMessages(&status);
+  bar.setLayers({&line, &point});
+  QCOMPARE(bar.currentLayer(), &point);
+
+  QVERIFY(point.startEditing()); // Another editor owns this buffer.
+  QVERIFY(bar.actionSelect()->isEnabled());
+  QVERIFY(!bar.actionAddPoint()->isEnabled());
+  QVERIFY(!bar.isEditing());
+  QVERIFY(point.rollBack());
+  QVERIFY(bar.actionAddPoint()->isEnabled());
+  bar.actionAddPoint()->trigger();
+  QVERIFY(bar.isEditing());
+  addPointCommand(&point, 3);
+  addPointCommand(&point, 4);
+  point.undoStack()->undo();
+  QVERIFY(point.changeAttributeValue(original[0].id(), 0, 7));
+  auto moved = QgsGeometry::fromWkt(QStringLiteral("POINT(8 9)"));
+  QVERIFY(point.changeGeometry(original[0].id(), moved));
+  QVERIFY(point.deleteFeature(original[1].id()));
+  const auto veto = connect(&point, &QgsVectorLayer::beforeCommitChanges, &point,
+                            [&point] { point.setAllowCommit(false); });
+  QVERIFY(!bar.saveEditing());
+  QVERIFY(bar.isEditing());
+  QVERIFY(!status.currentMessage().contains(QStringLiteral("已保存")));
+  disconnect(veto);
+  point.setAllowCommit(true);
+  QVERIFY(bar.saveEditing());
+  const auto saved = status.currentMessage();
+  QVERIFY2(saved.contains(QStringLiteral("井位")), qPrintable(saved));
+  QVERIFY(saved.contains(QStringLiteral("新增 1 个要素")));
+  QVERIFY(saved.contains(QStringLiteral("删除 1 个要素")));
+  QVERIFY(saved.contains(QStringLiteral("修改 1 个要素的几何")));
+  QVERIFY(saved.contains(QStringLiteral("修改 1 个要素的属性")));
+  QCOMPARE(point.fields().count(), 1);
+  QCOMPARE(point.featureCount(), 2);
+  QVERIFY(!line.isEditable());
+
+  // A filtered browse target stays on the canvas and leaves no armed tool.
+  canvas.setCurrentLayer(&line);
+  bar.setLayerFilter([&point](const QgsVectorLayer *layer) { return layer == &point; });
+  QCOMPARE(canvas.currentLayer(), &line);
+  QVERIFY(!bar.currentLayer());
+  QVERIFY(!bar.actionAddPoint()->isEnabled());
 }
 
 void TestEditTools::toolbarGeometryAndReadOnlyGates()

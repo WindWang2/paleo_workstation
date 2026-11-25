@@ -1140,6 +1140,8 @@ void MappingWorkbench::styleLayer(const QString &id) {
         if (FaciesPartitionState::workbenchBinding(observer) != this) {
           FaciesPartitionState::setWorkbenchBinding(observer, this);
           const QPointer<QgsVectorLayer> safeVector(vector);
+          connect(observer, &MappingFeatureIdentity::Observer::editHistoryChanged,
+                  this, [this, id] { refreshLastExplanation(id); }, Qt::QueuedConnection);
           connect(this, &QObject::destroyed, observer, [observer] {
             FaciesPartitionState::setWorkbenchBinding(observer, nullptr);
           });

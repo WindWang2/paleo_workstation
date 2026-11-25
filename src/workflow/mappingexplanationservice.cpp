@@ -470,7 +470,7 @@ QVector<ChatMessage> MappingExplanationService::buildPromptMessages(
   const QString area = formatArea(req.areaSqm);
   if (!area.isEmpty())
     facts << tr("图斑面积：%1").arg(area);
-  if (req.featureCount > 0)
+  if (req.featureCount >= 0)
     facts << tr("当前图件相面总数：%1").arg(req.featureCount);
   const QString wells = formatWellsSummary(req.wellsInFeature);
   if (!wells.isEmpty())
@@ -529,7 +529,11 @@ void MappingExplanationService::buildLocalFactualExplanation(
   const QString horizonLabel = req.unitDisplayName.isEmpty() ? req.horizon : req.unitDisplayName;
   const QString op = operationLabel(req.operationKind);
   QStringList clauses;
-  if (!req.faciesPath.isEmpty()) {
+  if (req.operationKind == QLatin1String("manual_request")) {
+    clauses << tr("%1层位编图现状").arg(horizonLabel);
+    if (!req.faciesPath.isEmpty())
+      clauses << tr("所选相面为「%1」（编码 %2）").arg(req.faciesPath).arg(req.faciesCode);
+  } else if (!req.faciesPath.isEmpty()) {
     if (!req.beforeFaciesPath.isEmpty() && req.beforeFaciesPath != req.faciesPath) {
       clauses << tr("%1层位经%2将相归属由「%3」调整为「%4」（编码 %5）")
                      .arg(horizonLabel, op, req.beforeFaciesPath, req.faciesPath)
@@ -540,10 +544,10 @@ void MappingExplanationService::buildLocalFactualExplanation(
                      .arg(req.faciesCode);
     }
   } else {
-    clauses << tr("%1层位执行%2（当前相面数 %3）")
-                   .arg(horizonLabel, op)
-                   .arg(qMax(0, req.featureCount));
+    clauses << tr("%1层位执行%2").arg(horizonLabel, op);
   }
+  if (req.featureCount >= 0)
+    clauses << tr("当前图件相面总数：%1").arg(req.featureCount);
   const QString area = formatArea(req.areaSqm);
   if (!area.isEmpty())
     clauses << tr("面积%1").arg(area);

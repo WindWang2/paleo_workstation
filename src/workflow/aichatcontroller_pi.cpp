@@ -12,6 +12,7 @@ AiChatController::~AiChatController() {
   // while transcript/session members must still be alive for normal callbacks.
   const QSignalBlocker notifications(this);
   stopCurrentRound(false);
+  flushImportReceipts();
   disconnect(&m_client, nullptr, this, nullptr); disconnect(&m_runner, nullptr, this, nullptr);
   disconnect(&m_piBridge, nullptr, this, nullptr);
   m_piBridge.abort(false); m_client.cancel(); m_runner.interrupt();

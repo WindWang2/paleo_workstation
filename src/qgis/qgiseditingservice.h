@@ -25,6 +25,7 @@ class QgisEditingService : public QObject
     int undoDepth() const { return m_undoDepth; }
     QString availabilityError(const QgsVectorLayer *layer) const;
     static bool isConstraintLayer(const QgsVectorLayer *layer);
+    static QString pendingEditSummary(const QgsVectorLayer *layer);
 
     bool beginEdit(QgsVectorLayer *layer, QString *error = nullptr);   // startEditing + markBusy("edit")
     bool commitEdit(QgsVectorLayer *layer, QString *error = nullptr);  // commitChanges via store queue

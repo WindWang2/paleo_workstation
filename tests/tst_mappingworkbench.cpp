@@ -908,9 +908,18 @@ private slots:
     window.attachWorkbench(&f.work); window.showPage("compose"); selection.setActiveHorizon("D61");
     const auto controls = window.findChildren<FaciesDisplayControl *>(); QCOMPARE(controls.size(), 3);
     QString error; const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
-    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY(layer);
-    auto *node = f.project.project()->layerTreeRoot()->findLayer(layer->id()); QVERIFY(node);
-    node->setItemVisibilityCheckedParentRecursive(true); controller.canvas()->setCurrentLayer(layer);
+    // Tree nodes belong to the current tree. Resolve both the instance and its node
+    // from the declared layer ID whenever the fixture changes visibility.
+    const auto setVisible = [&](const QString &id, bool visible) -> QgsMapLayer * {
+      auto *current = f.layers.instantiate(id, &error);
+      auto *node = current ? f.project.project()->layerTreeRoot()->findLayer(current->id()) : nullptr;
+      if (!node) return nullptr;
+      if (visible) node->setItemVisibilityCheckedParentRecursive(true);
+      else node->setItemVisibilityChecked(false);
+      return current;
+    };
+    auto *layer = qobject_cast<QgsVectorLayer *>(setVisible(draft, true)); QVERIFY2(layer, qPrintable(error));
+    controller.canvas()->setCurrentLayer(layer);
     auto *mode = controls.first()->findChild<QComboBox *>("ribbonFaciesDisplayMode"); QVERIFY(mode);
     QTRY_VERIFY(mode->isEnabled());
     MappingWorkbenchPage *page = nullptr;
@@ -924,10 +933,8 @@ private slots:
     const auto snapshot = f.work.snapshotConstraints("D61", {}, &error);
     QVERIFY2(!snapshot.isEmpty(), qPrintable(error));
     QVERIFY(!f.work.versionForLayer(snapshot).extra.value("facies").toList().isEmpty());
-    auto *constraint = f.layers.instantiate(snapshot, &error); QVERIFY(constraint);
-    auto *constraintNode = f.project.project()->layerTreeRoot()->findLayer(constraint->id()); QVERIFY(constraintNode);
-    constraintNode->setItemVisibilityCheckedParentRecursive(true);
-    node->setItemVisibilityCheckedParentRecursive(true); // productReady focuses the new snapshot
+    auto *constraint = setVisible(snapshot, true); QVERIFY2(constraint, qPrintable(error));
+    layer = qobject_cast<QgsVectorLayer *>(setVisible(draft, true)); QVERIFY2(layer, qPrintable(error));
     controller.canvas()->setCurrentLayer(constraint);
     QTRY_VERIFY(controller.canvas()->layers().contains(constraint));
     QTRY_VERIFY(controller.canvas()->layers().contains(layer)); QTRY_VERIFY(mode->isEnabled());
@@ -991,11 +998,12 @@ private slots:
     layer->setScaleBasedVisibility(true); layer->setMinimumScale(200000); layer->setMaximumScale(50000);
     controller.canvas()->zoomScale(1000000); QTRY_VERIFY(!mode->isEnabled());
     layer->setScaleBasedVisibility(false);
-    node->setItemVisibilityChecked(false); QTRY_VERIFY(!mode->isEnabled());
+    QVERIFY(setVisible(draft, false)); QTRY_VERIFY(!mode->isEnabled());
     QVERIFY(!f.work.setDisplayMode(snapshot, "micro_facies", &error));
     QVERIFY(!constraint->customProperty("paleo/faciesDisplayMode").isValid());
     page->selectLayer(snapshot); QTRY_VERIFY(!sideMode->isEnabled());
-    selection.setActiveHorizon("D62"); node->setItemVisibilityCheckedParentRecursive(true);
+    selection.setActiveHorizon("D62");
+    layer = qobject_cast<QgsVectorLayer *>(setVisible(draft, true)); QVERIFY2(layer, qPrintable(error));
     controller.canvas()->setCurrentLayer(layer); QTRY_VERIFY(!mode->isEnabled());
     QCOMPARE(page->horizon(), QString("D62"));
     paleo::strat::UnitSelection unit;
@@ -2804,6 +2812,10 @@ private slots:
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY(layer);
     auto *edit = window.findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(edit);
     edit->refreshFromProject(); edit->setCurrentLayer(layer);
+    const auto versionBeforeEditing = f.work.versionForLayer(draft).id;
+    QVERIFY(edit->startEditing());
+    QVERIFY(edit->saveEditing());
+    QCOMPARE(f.work.versionForLayer(draft).id, versionBeforeEditing);
     edit->partitionCodeCombo()->setCurrentIndex(edit->partitionCodeCombo()->findData(1));
     auto *tabs = window.findChild<QTabWidget *>("workbenchTabs.compose"); QVERIFY(tabs);
     auto *page = qobject_cast<MappingWorkbenchPage *>(tabs->widget(0)); QVERIFY(page);
@@ -2832,16 +2844,15 @@ private slots:
     const auto qa = qEnvironmentVariable("PALEO_MAPPING_BASIS_QA_DIR");
     if (!qa.isEmpty()) { QDir().mkpath(qa); QVERIFY(window.grab().save(qa + "/explanation-entry.png")); }
     text->setPlainText(QStringLiteral("测试观察：依据当前层位的井相与砂地比调整相界"));
-    entry->trigger(); QTRY_VERIFY(reason->hasFocus());
-    auto *apply = page->commandButton("setEditEvidence"); QVERIFY(apply); QVERIFY(!apply->isEnabled());
-    reason->setText(QStringLiteral("测试工作副本：绘制首个相面"));
+    entry->trigger(); QTRY_VERIFY(text->hasFocus());
+    auto *apply = page->commandButton("setEditEvidence"); QVERIFY(apply); QVERIFY(reason->text().isEmpty());
     QVERIFY(apply->isEnabled()); apply->click(); QVERIFY(!f.work.needsEditEvidence(draft));
     QVERIFY2(FaciesPartitionEditor::paint(layer, QgsGeometry::fromRect(QgsRectangle(40, 0, 60, 100)), 2, &error), qPrintable(error));
     const auto evidence = f.work.featureEvidence(draft, layer->selectedFeatureIds().values());
     QVERIFY(!evidence.value("records").toList().isEmpty());
     bool sawManual = false;
     for (const auto &rec : evidence.value("records").toList())
-      sawManual |= rec.toMap().value("text").toString().section('\n', 0, 0) == text->toPlainText();
+      sawManual |= rec.toMap().value("text").toString() == text->toPlainText();
     QVERIFY(sawManual);
     if (!qa.isEmpty()) { QCoreApplication::processEvents(); QVERIFY(window.grab().save(qa + "/explanation-enabled.png")); }
     f.work.clearEditEvidence();
@@ -2883,7 +2894,9 @@ private slots:
     // Blank map painting succeeds immediately without requiring pre-filled edit evidence.
     QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
     QCOMPARE(layer->featureCount(), 1);
-    QVERIFY(!f.work.setEditEvidence("D61", {{"text", "observation"}}, &error));
+    QVERIFY(!f.work.setEditEvidence("D61", {{"text", "  "}, {"reason", "purpose"}}, &error));
+    QVERIFY(f.work.setEditEvidence("D61", {{"text", "observation"}}, &error));
+    QVERIFY(f.work.editEvidence("D61").value("reason").toString().isEmpty());
     const QVariantMap context{{"text", "well and sand thickness observation"}, {"reason", "draw initial outline"}};
     QVERIFY2(f.work.setEditEvidence("D61", context, &error), qPrintable(error));
     QVERIFY(f.work.hasUnpublishedEdits(draft));

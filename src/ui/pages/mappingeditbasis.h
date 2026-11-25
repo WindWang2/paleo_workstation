@@ -44,6 +44,5 @@ private:
   QPlainTextEdit *m_text = nullptr;
   QLineEdit *m_reason = nullptr;
   QVariantMap m_latestDraft;
-  QString m_lastAutoFilledText;
-  QString m_lastAutoFilledReason;
+  bool m_formEdited = false;
 };

@@ -280,6 +280,41 @@
         <source>状态查询失败：%1</source>
         <translation type="unfinished" />
     </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="566" />
+            <source>输入问题，或将文件拖到此处导入当前工程。</source>
+            <translation>Ask a question, or drop files here to import them into the current project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="567" />
+            <source>将文件拖到此处导入当前工程。要与助手对话，请先配置模型。</source>
+            <translation>Drop files here to import them into the current project. To chat with the assistant, configure a model first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="16" />
+            <source>导入文件…</source>
+            <translation>Import Files…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="28" />
+            <source>请先打开可写工程</source>
+            <translation>Open a writable project first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="42" />
+            <source>选择文件或将文件拖到助手中，自动识别并导入当前工程</source>
+            <translation>Choose files or drop them here. The assistant will identify them and import them into the current project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="53" />
+            <source>选择要导入当前工程的文件</source>
+            <translation>Choose files to import into the current project</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="59" />
+            <source>工程已变化，请重新选择文件。</source>
+            <translation>The project has changed. Select the files again.</translation>
+        </message>
     </context>
     <context>
         <name>AiAssistWorkflow</name>
@@ -529,6 +564,18 @@
 可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：
 %1</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_import.cpp" line="22" />
+            <source>文件导入记录为空</source>
+            <translation>The file import record is empty.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_import.cpp" line="40" />
+            <source>文件导入记录
+%1</source>
+            <translation>File import record
+%1</translation>
         </message>
     </context>
     <context>
@@ -12969,7 +13016,7 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="105" />
             <source>已取消导入，未写入工程</source>
-            <translation type="unfinished" />
+            <translation>Import canceled. No data was written to the project.</translation>
         </message>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="199" />
@@ -12994,7 +13041,7 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="514" />
             <source>扫描所选文件</source>
-            <translation type="unfinished" />
+            <translation>Scan selected files</translation>
         </message>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="547" />
@@ -13005,6 +13052,20 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/workflow/folderimport.cpp" line="595" />
             <source>导入 %1</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport.cpp" line="124" />
+            <location filename="../src/workflow/folderimport.cpp" line="248" />
+            <location filename="../src/workflow/folderimport.cpp" line="588" />
+            <location filename="../src/workflow/folderimport_agent.cpp" line="38" />
+            <location filename="../src/workflow/folderimport_agent.cpp" line="73" />
+            <source>工程已变化，请重新选择资料。</source>
+            <translation>The project has changed. Select the data files again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_agent.cpp" line="51" />
+            <source>请选择可读取的非空本地文件。</source>
+            <translation>Select a local file that is readable and contains data.</translation>
         </message>
     </context>
     <context>
@@ -14819,6 +14880,11 @@ Crossline: %3 ~ %4</source>
         <source>手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。</source>
         <translation>Manual basis form modified; edits still use the previously enabled basis until re-enabled.</translation>
     </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="313" />
+            <source>填写解释说明即可启用，修改目的可选（合计不超过 9000 字）</source>
+            <translation>Enter an interpretation note to enable the manual basis. The purpose is optional. Both fields together allow up to 9,000 characters.</translation>
+        </message>
 </context>
     <context>
         <name>MappingEvidencePanel</name>
@@ -16407,7 +16473,7 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/workflow/mappingevidencereview.cpp" line="971" />
             <source>本次修订：%1（修订 %2）</source>
-            <translation type="unfinished" />
+            <translation>Reason for this change: %1 (revision %2)</translation>
         </message>
         <message>
             <location filename="../src/workflow/mappingevidencereview.cpp" line="979" />
@@ -16994,6 +17060,21 @@ Crossline: %3 ~ %4</source>
         <source>后台自动生成编图解释草稿</source>
         <translation>Auto-generated mapping explanation draft in background</translation>
     </message>
+        <message>
+            <location filename="../src/workflow/mappingeditcontext.cpp" line="61" />
+            <source>请填写解释说明，说明与修改目的合计不超过 9000 字</source>
+            <translation>Enter an interpretation note. The note and the optional purpose together allow up to 9,000 characters.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingevidencereview.cpp" line="1032" />
+            <source>请先设置本次解释说明，再绘制或修改相面</source>
+            <translation>Enter an interpretation note before drawing or editing facies polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingevidencereview.cpp" line="1043" />
+            <source>记录手动解释说明</source>
+            <translation>Record manual interpretation note</translation>
+        </message>
 </context>
     <context>
         <name>MappingWorkbenchPage</name>
@@ -20103,7 +20184,7 @@ Feature %4 · version %5</translation>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="467" />
             <source>本段编辑尚未确认保存。保存编辑，或放弃本段修改？</source>
-            <translation type="unfinished" />
+            <translation>This edit session has unsaved changes. Save or discard them?</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="468" />
@@ -20319,17 +20400,17 @@ Feature %4 · version %5</translation>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="799" />
             <source>编辑中：%1</source>
-            <translation type="unfinished" />
+            <translation>Editing: %1</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="804" />
             <source>浏览：%1</source>
-            <translation type="unfinished" />
+            <translation>Browsing: %1</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="805" />
             <source>未选择矢量图层</source>
-            <translation type="unfinished" />
+            <translation>No vector layer selected</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="849" />
@@ -20340,7 +20421,7 @@ Feature %4 · version %5</translation>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="943" />
             <source>图层 %1 已在编辑中</source>
-            <translation type="unfinished" />
+            <translation>Layer %1 is already being edited.</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="949" />
@@ -20472,6 +20553,16 @@ Feature %4 · version %5</translation>
             <location filename="../src/ui/edittools/editingtoolbar_partition.cpp" line="79" />
             <source>三级相面共用基础分区，跨层独立撤销会破坏一致性；请在当前工作副本编辑</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="789" />
+            <source>编辑中：%1 · 有未保存的修改</source>
+            <translation>Editing: %1 · Unsaved changes</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="974" />
+            <source>已保存「%1」：%2</source>
+            <translation>Saved “%1”: %2</translation>
         </message>
     </context>
     <context>
@@ -22031,8 +22122,9 @@ Feature %4 · version %5</translation>
         <message numerus="yes">
             <location filename="../src/ui/paleomainwindow_project.cpp" line="148" />
             <source>%n 个所选文件</source>
-            <translation type="unfinished">
-                <numerusform />
+            <translation>
+                <numerusform>%n selected file</numerusform>
+                <numerusform>%n selected files</numerusform>
             </translation>
         </message>
         <message>
@@ -22265,7 +22357,7 @@ Feature %4 · version %5</translation>
             <location filename="../src/ui/paleomainwindow_project.cpp" line="155" />
             <location filename="../src/ui/paleomainwindow_project.cpp" line="181" />
             <source>工程已变化，请重新选择资料。</source>
-            <translation type="unfinished" />
+            <translation>The project has changed. Select the data files again.</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow.cpp" line="830" />
@@ -24978,6 +25070,117 @@ PDF：%3
         <source>已取消后台解释生成。</source>
         <translation>Background explanation generation cancelled.</translation>
     </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="15" />
+            <source>已导入</source>
+            <translation>Imported</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="16" />
+            <source>已登记，关联待解析</source>
+            <translation>Registered; association pending</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="17" />
+            <source>导入失败</source>
+            <translation>Import failed</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="18" />
+            <source>已跳过</source>
+            <translation>Skipped</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="25" />
+            <source>工程「%1」文件导入结果</source>
+            <translation>File import results for project “%1”</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="26" />
+            <source>已取消导入。</source>
+            <translation>Import canceled.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="27" />
+            <source>导入遇到错误。</source>
+            <translation>An error occurred during import.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="33" />
+            <source>资产 ID %1</source>
+            <translation>Asset ID %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="37" />
+            <source>共 %1 项，已列出前 %2 项。</source>
+            <translation>Showing the first %2 of %1 items.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="43" />
+            <source>请先打开可写工程</source>
+            <translation>Open a writable project first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="44" />
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="60" />
+            <source>工程正在切换，请稍后再导入</source>
+            <translation>The project is switching. Try importing again shortly.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="45" />
+            <source>当前工程只读，无法导入文件</source>
+            <translation>The current project is read-only. Open a writable project to import files.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="46" />
+            <source>工程导入服务未接入</source>
+            <translation>The project import service is unavailable.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="75" />
+            <source>无法导入；请在当前可写工程中重新选择文件。</source>
+            <translation>Unable to import. Select the files again in the current writable project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="84" />
+            <source>文件导入记录未能保存：%1</source>
+            <translation>Could not save the file import record: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="86" />
+            <source>已选择 %1 个文件导入工程「%2」。</source>
+            <translation>Files selected for import into project “%2”: %1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="88" />
+            <source>工程已变化，所选文件尚未导入。</source>
+            <translation>The project has changed. The selected files have not been imported.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="91" />
+            <source>正在识别并导入所选文件…</source>
+            <translation>Identifying and importing the selected files…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="104" />
+            <source>%1：%2</source>
+            <translation>%1: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="112" />
+            <source>请核对待确认文件的类型或关联。</source>
+            <translation>Review the file types or associations that need confirmation.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="531" />
+            <source>请填写右侧的解释说明，点击“启用手动解释依据”后再选择相面编辑工具。</source>
+            <translation>Enter an interpretation note on the right, click “Enable Manual Basis”, then select a facies editing tool.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="19" />
+            <source>项目中已有相同内容</source>
+            <translation>Identical content already exists in this project</translation>
+        </message>
 </context>
     <context>
         <name>PaleoMapBookController</name>
@@ -39748,6 +39951,71 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</source>
         <translation>Display snapshots and restricted mutations of managed layers: visibility/opacity/styles pass the host Read|Presentation gates; receipts read back native state and note the unsaved project file</translation>
     </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="14" />
+            <source>能力目录与契约检查</source>
+            <translation>Capability catalog and contract inspection</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="15" />
+            <source>只读查询 Agent 可用的业务能力与工具目录：list 分页列出已登记的 capability/algorithm/tool（UI 命令全集仅在 filter=commands 时给出）；describe 按精确 ID+版本读取参数/端口/效果合同（sections 可选节，超预算时整节省略并在 coverage 声明）；check 对候选实参复用既有纯验证器返回分层结论（declaration/route/parameter/policy/runtime 相互独立，policy 只反映当前宿主静态策略，动态前提恒为 not_checked）。本工具不执行任何能力、不发放执行票据——检查结论不豁免原工具调用时的既有门禁。</source>
+            <translation>Inspect the catalog of domain capabilities and tools available to the agent. Use list to page through registered capabilities, algorithms, and tools. Set filter=commands to list all UI commands. Use describe with an exact ID and version to read the parameter, port, and effect contracts. Select sections with the sections parameter. Sections omitted to meet the size limit are listed in coverage. Use check to validate candidate arguments. Existing side-effect-free validators report declaration, route, parameter, policy, and runtime independently. The policy result reflects the current host’s static policy. Runtime prerequisites are always reported as not_checked. This read-only tool neither runs capabilities nor issues execution tickets. The original tool still applies its usual checks when called.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="28" />
+            <source>查询模式：list=分页目录；describe=精确合同；check=候选参数预检</source>
+            <translation>Query mode: list pages through the catalog, describe reads an exact contract, and check validates candidate arguments.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="32" />
+            <source>describe 目标类型：capability/algorithm/command/tool</source>
+            <translation>Target kind for describe: capability, algorithm, command, or tool.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="36" />
+            <source>精确注册表 ID（capability/command 支持 registry 声明的别名；别名冲突时不猜测）</source>
+            <translation>Exact registry ID. Capabilities and commands also accept aliases declared in the registry. Conflicting aliases are rejected.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="40" />
+            <source>目标契约版本（0=当前登记最高版，缺省 0；给定版本精确匹配不回落）</source>
+            <translation>Target contract version. The default, 0, selects the highest registered version. Any other value must match exactly.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="43" />
+            <source>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</source>
+            <translation>Sections to return for describe (up to 16, all by default). Capabilities and algorithms accept identity, contract, params, ports, lifecycle, and related. Commands accept identity, contract, and related. Tools also accept route. An unsupported section returns invalid_section.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="49" />
+            <source>list 筛选：default=capability+algorithm+tool；另有 capabilities/algorithms/tools/commands 精确子集</source>
+            <translation>Filter for list. The default includes capabilities, algorithms, and tools. Use capabilities, algorithms, tools, or commands to select a single group.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="56" />
+            <source>check 候选（二选一）：{tool,arguments} 或 {algorithm,contract_version,parameters}；实参只是数据，approved/scope/路径不构成许可</source>
+            <translation>Candidate for check: provide either {tool,arguments} or {algorithm,contract_version,parameters}. Arguments are data. An approved flag, scope, or path does not grant permission.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="60" />
+            <source>上一页 nextCursor；绑定筛选与目录摘要，注册表演进后报 cursor_stale</source>
+            <translation>The nextCursor from the previous page. It is tied to the filter and catalog digest. A registry change returns cursor_stale.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="63" />
+            <source>list 每页条数（1–32，缺省 16）</source>
+            <translation>Entries per list page (1–32, default 16).</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="65" />
+            <source>本页 JSON 字节预算（2048–8192，缺省 8192；与传输层内联页上限对齐，更大结果经 paleo.read_result 引用续读）</source>
+            <translation>JSON byte limit for this page (2048–8192, default 8192), capped at the transport’s inline page limit. Use the result reference with paleo.read_result to continue reading larger results.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="696" />
+            <source>只读能力目录与候选参数预检；执行仍由原工具与宿主门禁决定</source>
+            <translation>Read-only capability catalog and candidate argument validation. Execution remains subject to the original tool and host checks.</translation>
+        </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -39926,6 +40194,46 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/qgis/qgiseditingservice.cpp" line="244" />
             <source>%1 is invalid: %2%3</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="90" />
+            <source>新增 %1 个要素</source>
+            <translation>Features added: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="91" />
+            <source>删除 %1 个要素</source>
+            <translation>Features deleted: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="92" />
+            <source>修改 %1 个要素的几何</source>
+            <translation>Features with geometry changes: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="93" />
+            <source>修改 %1 个要素的属性</source>
+            <translation>Features with attribute changes: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="94" />
+            <source>新增 %1 个字段</source>
+            <translation>Fields added: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="95" />
+            <source>删除 %1 个字段</source>
+            <translation>Fields deleted: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="97" />
+            <source>其他图层编辑</source>
+            <translation>Other layer edits</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="98" />
+            <source>，</source>
+            <translation>, </translation>
         </message>
     </context>
     <context>
@@ -59598,5 +59906,20 @@ Strict rules:
         <source>后台自动记录：%1%2</source>
         <translation>Background auto-record: %1%2</translation>
     </message>
+        <message>
+            <location filename="../src/workflow/mappingexplanationservice.cpp" line="533" />
+            <source>%1层位编图现状</source>
+            <translation>Current map for horizon %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingexplanationservice.cpp" line="535" />
+            <source>所选相面为「%1」（编码 %2）</source>
+            <translation>The selected facies polygon is classified as “%1” (code %2)</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingexplanationservice.cpp" line="547" />
+            <source>%1层位执行%2</source>
+            <translation>Operation on horizon %1: %2</translation>
+        </message>
 </context>
 </TS>

@@ -260,6 +260,7 @@ Observer *Observer::attach(QgsVectorLayer *layer, QString *error) {
 }
 Observer::Observer(QgsVectorLayer *layer) : QObject(layer), m_layer(layer) {
   setObjectName(QStringLiteral("paleoFeatureIdentityObserver"));
+  connect(layer->undoStack(), &QUndoStack::indexChanged, this, &Observer::editHistoryChanged);
   connect(layer, &QgsVectorLayer::editingStarted, this, [this] {
     // Unsaved spatial history survives normalization sessions and failed
     // version registration. Only successful registration acknowledges it.

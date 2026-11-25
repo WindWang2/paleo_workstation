@@ -402,12 +402,13 @@ private:
                                   int beforeCode, const QStringList &referenceVersionIds,
                                   bool applyToEditBasis,
                                   MappingExplanationRequest *out, QString *error) const;
+  bool explanationTargetMatches(const MappingExplanationResult &result) const;
   void onBackgroundExplanationReady(const MappingExplanationResult &result);
   QString draftExplanationsPath(const QString &layerId) const;
   QHash<QString, QVariantMap> loadDraftExplanations(const QString &layerId) const;
   void saveDraftExplanations(const QString &layerId) const;
   void materializePendingExplanations(QgsVectorLayer *layer, const QString &layerId);
-  QVariantMap collectVersionAutoExplanations(const QString &layerId) const;
+  void refreshLastExplanation(const QString &layerId);
 public:
   struct ComposeJob {
     ~ComposeJob();

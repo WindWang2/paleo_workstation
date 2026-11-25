@@ -97,10 +97,7 @@ void MappingWorkbenchPage::showEditBasis() {
   // Wait for the restored dock/tab layout before bringing the field into view.
   QTimer::singleShot(0, this, [this, basis] {
     basis->setExpanded(true);
-    auto *text = basis->findChild<QPlainTextEdit *>("editBasisText");
-    auto *reason = basis->findChild<QLineEdit *>("editBasisReason");
-    QWidget *field = !text->toPlainText().trimmed().isEmpty() && reason->text().trimmed().isEmpty()
-                         ? static_cast<QWidget *>(reason) : text;
+    QWidget *field = basis->findChild<QPlainTextEdit *>("editBasisText");
     field->setFocus(Qt::OtherFocusReason);
     if (auto *scroll = findChild<QScrollArea *>()) {
       const auto margin = PaleoTheme::tokens().spacingSm;

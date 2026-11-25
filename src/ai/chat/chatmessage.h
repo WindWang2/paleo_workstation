@@ -49,6 +49,7 @@ struct ChatMessage {
   QVector<ChatToolCall> toolCalls;
   QDateTime timestamp;
   QString hostTurnId; // Host-only persistence identity; never sent in model messages.
+  bool localImportReceipt = false; // Local attachment activity, not a model request to retry.
 
   bool isEmpty() const { return content.isEmpty() && toolCalls.isEmpty(); }
   // 落盘形态（会话文件）：带 timestamp 等本机元数据。

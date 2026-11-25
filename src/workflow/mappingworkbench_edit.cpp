@@ -353,22 +353,31 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   QHash<QString, int> qualityCounts;
   QHash<QString, int> stateCounts;
   qint64 evidenceCount = 0;
+  const auto drafts = loadDraftExplanations(id);
+  QVariantMap currentDrafts;
+  if (drafts.contains(QStringLiteral("__map__")))
+    currentDrafts.insert(QStringLiteral("__map__"), drafts.value(QStringLiteral("__map__")));
   auto evidenceFeatures = layer->getFeatures(); QgsFeature evidenceFeature;
   while (evidenceFeatures.nextFeature(evidenceFeature)) {
+    const auto uid = MappingFeatureIdentity::uid(evidenceFeature);
     QVariantList records; QVariantMap interpretation;
     if (layer->fields().indexOf("facies_evidence") >= 0 &&
         !paleo::evidence::decodeRecords(evidenceFeature.attribute("facies_evidence").toString(), &records, error)) return false;
     if (layer->fields().indexOf("paleo_interpretation") >= 0 &&
         !paleo::evidence::decodeInterpretation(evidenceFeature.attribute("paleo_interpretation").toString(), &interpretation, error)) return false;
     if (!interpretation.isEmpty() &&
-        (interpretation.value("feature_uid").toString() != MappingFeatureIdentity::uid(evidenceFeature) ||
+        (interpretation.value("feature_uid").toString() != uid ||
          interpretation.value("horizon").toString() != d.horizon)) {
       fail(error, tr("解释身份或层位与当前图斑不一致，请先复核")); return false;
     }
     ++stateCounts[interpretation.value("status", "Proposed").toString()];
-    const QVariantMap target{{"feature_uid", MappingFeatureIdentity::uid(evidenceFeature)},
+    const QVariantMap target{{"feature_uid", uid},
                             {"horizon", d.horizon},
                             {"geometry_hash", MappingFeatureIdentity::geometryFingerprint(evidenceFeature)}};
+    const auto draft = drafts.constFind(uid);
+    if (draft != drafts.cend() && draft->value("geometry_hash") == target.value("geometry_hash") &&
+        draft->value("facies_code").toInt() == evidenceFeature.attribute("facies_code").toInt())
+      currentDrafts.insert(uid, *draft);
     for (const auto &finding : paleo::evidence::check(records, interpretation, target)) {
       const auto severity = finding.toMap().value("severity").toString();
       ++qualityCounts[severity];
@@ -459,9 +468,9 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   extra.insert("feature_summary", QVariantMap{{"feature_count", layer->featureCount()},
                                               {"evidence_count", evidenceCount}, {"statuses", states},
                                               {"quality_counts", severities}});
-  const auto autoExplanations = collectVersionAutoExplanations(id);
-  if (!autoExplanations.isEmpty())
-    extra.insert(QStringLiteral("auto_explanations"), autoExplanations);
+  extra.remove(QStringLiteral("auto_explanations"));
+  if (!currentDrafts.isEmpty())
+    extra.insert(QStringLiteral("auto_explanations"), currentDrafts);
   extra.insert("feature_identity", QStringLiteral("paleo_feature_uid"));
   if (layer->fields().indexOf("facies_intervals") >= 0) {
     for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {

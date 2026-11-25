@@ -1227,6 +1227,9 @@ void MappingWorkbench::styleLayer(const QString &id) {
       });
       connect(vector, &QgsVectorLayer::beforeCommitChanges, this,
               [this, vector, id, schema = v.extra.value("facies").toList()] {
+                // Capture the user's buffer before normalization opens its own native
+                // edit command. An empty commit must not reserve a new map version.
+                const bool hadLayerEdits = vector->isModified();
                 const bool previouslyAllowed = vector->allowCommit();
                 QString error = FaciesPartitionState::evidenceFailure(vector);
                 const bool evidenceOk = previouslyAllowed && error.isEmpty() &&
@@ -1239,7 +1242,7 @@ void MappingWorkbench::styleLayer(const QString &id) {
                   materializePendingExplanations(vector, id);
                 bool ok = synced && validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
                 vector->setProperty("paleoEditSaveError", {});
-                if (ok && vector->isModified()) {
+                if (ok && hadLayerEdits) {
                   QString token;
                   ok = reserveEditSave(id, &token);
                   if (!token.isEmpty()) vector->setProperty("paleoEditSaveReservation", token);

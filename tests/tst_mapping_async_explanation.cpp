@@ -191,6 +191,24 @@ struct WorkbenchFixture {
 class TestMappingAsyncExplanation : public QObject {
   Q_OBJECT
 private slots:
+  void emptyLayerCommitLeavesNoReservationAcrossReopen() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    const auto original = f.work.versionForLayer(draft).id;
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    f.work.styleLayer(draft);
+    QVERIFY(layer->startEditing());
+    QVERIFY(!layer->isModified());
+    QVERIFY(layer->commitChanges());
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Idle);
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+    QCOMPARE(f.work.versionForLayer(draft).id, original);
+  }
+
   void saveReservationFailureKeepsProviderUnchangedAndRetryable() {
     WorkbenchFixture f;
     QVERIFY(f.init());

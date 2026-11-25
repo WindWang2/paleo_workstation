@@ -50,7 +50,19 @@ RelWithDebInfo、j4。绝对毫秒随机器浮动——跨机器比较请看 §3
 
 ### 相面覆盖绘制的交互延迟
 
-用与应用相同的 Qt、QGIS 与 GEOS 前缀编译 `tst_faciespartition`。以下命令在 Linux 无显示器模式下测量。每轮重建带空间索引的内存图层，分别测第一次覆盖绘制，以及撤销回原图后的第二次绘制。冷态指新图层的首次编辑，操作系统与依赖库已经加载。
+用与应用相同的 Qt、QGIS 与 GEOS 前缀编译 `tst_faciespartition`。每轮重建带空间索引的内存图层，分别测量第一次覆盖绘制，以及撤销回原图后的第二次绘制。冷态指新图层上的首次编辑，操作系统与依赖库已经加载。
+
+在加载了 Windows 工程依赖环境的 PowerShell 中运行，最后一行的路径指向实际构建目录。
+
+```powershell
+$env:QT_QPA_PLATFORM = "windows"
+$env:QTEST_FUNCTION_TIMEOUT = "1200000"
+$env:PALEO_FACIES_BENCH_ROUNDS = "20"
+$env:PALEO_FACIES_BENCH_JSON = Join-Path $PWD "facies-capture-windows.json"
+& ./build/tst_faciespartition.exe capturePerformance
+```
+
+历史 Linux 离屏样本使用以下命令。
 
 ```bash
 QT_QPA_PLATFORM=offscreen QTEST_FUNCTION_TIMEOUT=1200000 PALEO_FACIES_BENCH_ROUNDS=20 \

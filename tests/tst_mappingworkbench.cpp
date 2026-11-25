@@ -2916,6 +2916,62 @@ private slots:
     auto changed=unit;changed.revision="missing";f.work.setAnalysisUnit(changed);
     QVERIFY(f.work.editEvidence(key).isEmpty());QVERIFY(f.work.createBlankMap(key,&error).isEmpty());
   }
+  void chooseSurveyBoundaryAndReopenSavedPartition() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QgsVectorLayer boundary("MultiPolygon?crs=EPSG:3857", "survey", "memory");
+    auto outline = QgsGeometry::fromWkt("MULTIPOLYGON(((0 0,50 0,50 50,0 50,0 0),"
+        "(10 10,10 20,20 20,20 10,10 10)),((70 0,80 0,80 10,70 10,70 0)))");
+    QgsFeature area; area.setGeometry(outline);
+    QgsFeatureList features{area};
+    QVERIFY(boundary.dataProvider()->addFeatures(features));
+    const auto path = f.dir.filePath("survey.gpkg");
+    QVERIFY2(MappingArtifactWriter::vectorSnapshot(&boundary, path, &error), qPrintable(error));
+    LayerDeclaration source;
+    source.layerId = "boundary.survey"; source.type = "vector"; source.title = "Survey";
+    source.source = path + "|layername=features"; source.group = "00_Data";
+    QVERIFY2(f.layers.declare(source, &error), qPrintable(error));
+    QWidget window; QStatusBar status(&window);
+    MappingWorkbenchPage page("compose", &f.work, &window);
+    page.setHorizon("D61");
+    using paleo::workbench::MappingWorkbenchCommandController;
+    MappingWorkbenchCommandController::Context context;
+    context.workbench = &f.work; context.page = &page; context.dialogParent = &window; context.statusBar = &status;
+    context.show = [&](const QString &id, QString *why) { return f.layers.instantiate(id, why) != nullptr; };
+    QString draft;
+    context.beginEdit = [&](const QString &id) {
+      draft = id;
+      auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(id));
+      return layer && layer->startEditing();
+    };
+    MappingWorkbenchCommandController handler(context, &page);
+    connect(&page, &MappingWorkbenchPage::commandRequested, &handler, &MappingWorkbenchCommandController::handleCommand);
+    auto *sources = page.findChild<QComboBox *>("baseMapSource");
+    auto *leaf = page.findChild<QComboBox *>("initialBoundaryFacies");
+    auto *start = page.findChild<QPushButton *>("baseMapStart");
+    QVERIFY(sources && leaf && start);
+    for (int i = 0; i < sources->count(); ++i)
+      if (sources->itemData(i).toMap().value("boundary") == source.layerId) sources->setCurrentIndex(i);
+    QCOMPARE(sources->currentData().toMap().value("boundary").toString(), source.layerId);
+    QVERIFY(!start->isEnabled());
+    leaf->setCurrentIndex(leaf->findData(2)); QVERIFY(start->isEnabled());
+    start->click(); QVERIFY2(!draft.isEmpty(), qPrintable(status.currentMessage()));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(draft));
+    QVERIFY(layer); QCOMPARE(layer->featureCount(), 2); QCOMPARE(layer->crs(), boundary.crs());
+    QCOMPARE(layer->undoStack()->count(), 1);
+    layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), 0);
+    layer->undoStack()->redo();
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "saved", "ogr");
+    QVERIFY(reopened.isValid()); QCOMPARE(reopened.featureCount(), 2);
+    QVector<QgsGeometry> parts; QgsFeature piece; auto it = reopened.getFeatures();
+    while (it.nextFeature(piece)) {
+      QCOMPARE(piece.attribute("facies_code").toInt(), 2);
+      parts << piece.geometry();
+    }
+    QVERIFY(QgsGeometry::unaryUnion(parts).isGeosEqual(outline));
+  }
   void blankMapRequiresEvidenceAndKeepsUndoAndCoverage() {
     Fixture f; QVERIFY(f.init()); QString error;
     const auto draft = f.work.createBlankMap("D61", &error);

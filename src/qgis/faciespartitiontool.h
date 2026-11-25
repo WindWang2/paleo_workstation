@@ -36,6 +36,7 @@ private:
   QgsGeometry strokeGeometry() const;
   void clearPreview();
   void discardStroke();
+  QString snapDescription() const;
   void updateHint(const QString &next = {}, Qgis::MessageLevel level = Qgis::MessageLevel::Info);
   void markIssue(const QgsGeometry &geometry);
   void finish(const QgsGeometry &geometry);

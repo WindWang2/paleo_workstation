@@ -109,12 +109,20 @@ void FaciesPartitionTool::cadCanvasReleaseEvent(QgsMapMouseEvent *event) {
   QgsMapToolCapture::cadCanvasReleaseEvent(event);
   if (event->button() == Qt::LeftButton) updateHint();
 }
-void FaciesPartitionTool::updateHint(const QString &next, Qgis::MessageLevel level) {
+QString FaciesPartitionTool::snapDescription() const {
   const auto matches = snappingMatches();
-  const auto *snapped = matches.isEmpty() ? nullptr : matches.last().layer();
-  const auto snap = snapped ? tr("吸附到「%1」的要素 %2").arg(snapped->name()).arg(matches.last().featureId()) : tr("未吸附");
+  if (matches.isEmpty() || !matches.last().isValid()) return tr("未吸附");
+  const auto &match = matches.last();
+  if (!match.layer()) return tr("吸附到交点");
+  // A saved native Match holds a raw pointer. A reference layer may have been
+  // closed since the vertex was captured. Only dereference a live canvas layer.
+  for (const auto *layer : canvas()->layers())
+    if (layer == match.layer()) return tr("吸附到「%1」的要素 %2").arg(layer->name()).arg(match.featureId());
+  return tr("吸附到要素 %1").arg(match.featureId());
+}
+void FaciesPartitionTool::updateHint(const QString &next, Qgis::MessageLevel level) {
   const auto action = size() < (m_operation == Split ? 2 : 3) ? tr("左键加点，右键取消") : tr("右键完成，退格撤回一点");
-  const auto hint = tr("%1 个顶点 · %2 · %3").arg(size()).arg(snap, next.isEmpty() ? action : next);
+  const auto hint = tr("%1 个顶点 · %2 · %3").arg(size()).arg(snapDescription(), next.isEmpty() ? action : next);
   setProperty("paleo.captureHint", hint);
   emit messageEmitted(hint, level);
 }

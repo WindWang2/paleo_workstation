@@ -15,9 +15,26 @@
 | 第一次进入编图页，在底部“添加参考”选择图件 | 空状态只占一行。选图后展开两个横排槽位，按需创建画布。可增减槽位、拖动宽度、单独浏览或联动。目标图层与吸附、撤销始终可达 | `tst_ui`、`tst_mappingworkbench` |
 | 给当前图斑添加备注，或为同一副本的后续编辑沿用说明 | 手写说明与后台草稿显示其归属。无模型时生成事实摘要。保存后返回的草稿留给原副本，采用后可进入下一版本 | `tst_mapping_async_explanation`、`tst_mappingpages` |
 
+## Windows 原生验证
+
+使用 Windows 11、Visual Studio 2022 的 Release 构建，以及仓库锁定的 QGIS 4.2.3、Qt 6.11.3、GDAL 3.13.3。构建目录中的 Office 入口可读。源码检查使用同一个 Windows 依赖前缀，包括显式指定 QGIS 头文件的传递依赖检查，共 41 项通过。
+
+- 目录联接回归在普通用户权限下实际创建联接，从两条路径声明同一正在编辑的 GeoPackage。未提交的图斑仍可读，版本能从两条路径查到，切换到另一子表和原地覆写快照均被拦截。
+- 附件导入回归通过 7 项。扩展名为 `.bin` 的有效测井文件能按内容导入，信息不足的表格进入确认，重复导入返回同一资产。另覆盖取消预览、预览后文件变化及切换工程。
+- 桌面交互直接使用 Windows 窗口。主窗口 5 项、工作台 6 项通过。工具栏在浅色和深色、125% 和 150% 缩放的四种组合下各通过 7 项。这些计数含测试初始化与收尾。
+
+在功能提交 `c1dff39d` 上编译了主程序和 16 个测试程序，使用 CTest 串行运行。下列 PowerShell 命令中的 `$build` 指向 Windows 构建目录。
+
+```powershell
+$cases = '^tst_(edittools|attrpanel|ui|mappingworkbench|faciespartition|mappingpages|mapping_async_explanation|constraintediting|draftautosave|p6_mapsave|c_workbench_commands|workbench_impactoutcome|shell_projectlifecycle|layerservice|staleness|agentattachmentimport)$'
+ctest --test-dir $build --parallel 1 --output-on-failure --no-tests=error -R $cases
+```
+
+首轮 15 组通过。`tst_workbench_impactoutcome` 的 Qt 断言全部通过，但进程首轮耗时 41.95 秒，超过 CTest 的 30 秒上限。保留原配置单独复跑耗时 0.13 秒并通过。16 组汇总为 508 项通过，15 项按本地数据、截图或性能采样条件跳过。桌面截图与性能测量单独运行。后续仅修订了可选基准的首帧计时，提交 `c090f8bf` 上重新编译并通过完整 `tst_faciespartition`，耗时 2.30 秒。
+
 ## 大图响应
 
-在 5 万面、同一局部四点笔画的热态夹具中，右键到下一次画布输入的中位数从 5.65 秒降为 1.76 秒，P95 从 8.39 秒降为 3.03 秒。首帧中位数从 5.67 秒降为 1.78 秒。优化把局部候选筛选交给空间索引，全图覆盖校验使用已经验证过的覆盖几何。三种规模共 240 笔，环境为 WSL、Qt 离屏、内存图层，完整数据见[性能报告](../perf/FACIES_CAPTURE_20261125.md)。
+5 万面热态下，右键到下一次画布输入的中位数从 7.39 秒降至 3.15 秒，P95 从 7.91 秒降至 3.51 秒。首帧中位数从 7.41 秒降至 3.18 秒。结果来自 Windows 原生窗口、内存图层、固定视口下的 240 笔测量。完整分位数与逐笔样本见[性能报告](../perf/FACIES_CAPTURE_20261125.md)。
 
 ## 参考区的可绘面积
 
@@ -36,6 +53,6 @@
 
 交互走查保留了[基线主窗口](vector-editing-20261125/baseline-window.png)、修改后的[十字线画布](vector-editing-20261125/LineString-light-canvas.png)、[浅色候选菜单](vector-editing-20261125/LineString-light-candidates.png)和[深色候选菜单](vector-editing-20261125/LineString-dark-candidates.png)。后三张取自 Windows 原生 Qt 测试桌面，设备像素比为 1.5。125% 和 150% 下分别测得设备像素比 1.25、1.50，浅深两种主题的点、线、面候选均通过键盘选择回归。另在 125% 下通过鼠标事件记录了[20 点分割线失败后保留](vector-editing-20261125/split-20-vertices-retained.png)、[只修正末点](vector-editing-20261125/split-20-last-vertex-corrected.png)及[分割结果](vector-editing-20261125/split-completed.png)。
 
-桌面相级回归 `resizedCanvasRestoresAutomaticFaciesAndLegend` 将窗口从 1600 × 1000 缩到 1040 × 720。固定微相时，画布比例尺从 1∶225000 变为约 1∶422211，图例保持 3 级；切回自动时，比例尺保持约 1∶422211，功能区和各图例条目同步切至 1 级。记录取自 WSLg X11 [实际桌面](vector-editing-20261125/automatic-after-resize.png)。
+Windows 原生窗口回归 `resizedCanvasRestoresAutomaticFaciesAndLegend` 将窗口从 1600 × 1000 缩到 1040 × 720，主画布从 942 × 650 缩至 502 × 336。固定微相时，比例尺从 1∶225000 变为约 1∶422211，图例保持在微相层级。切回自动后比例尺不变，功能区与图例同时切至相层级。见[缩窗后恢复自动层级的 Windows 截图](vector-editing-20261125/automatic-after-resize.png)。
 
 在 `tst_ui mappingWorkbenchCanvasRibbonAndReferences` 设置 `PALEO_EDIT_LAYOUT_QA` 可导出 1440 × 960 和 960 × 720 下的主窗口截图，日志同时报告窗口和画布的实际大小及设备像素比。相面 1 千、1 万、5 万图斑的确定性夹具及采样说明见[性能手册](../perf/BENCHMARKS.md)。

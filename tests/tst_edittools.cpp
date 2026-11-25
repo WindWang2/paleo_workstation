@@ -4781,6 +4781,7 @@ void TestEditTools::toolbarCrossLayerGestureUndoAndConflicts()
   canvas.setCurrentLayer(&a);
   PaleoEditingToolbar bar(&canvas);
   bar.setProject(&project);
+  bar.refreshFromProject();
   bar.setCurrentLayer(&a);
   QVERIFY(bar.startEditing());
   QVERIFY(b.startEditing());

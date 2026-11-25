@@ -2519,10 +2519,27 @@ private slots:
     const auto original = f.work.versionForLayer(id);
     QVERIFY(!original.id.isEmpty());
     QTemporaryDir aliases;
-    const auto aliasDir = aliases.filePath("same-project");
+    QVERIFY(aliases.isValid());
+    const auto aliasDir = aliases.filePath("same project & copy");
+#ifdef Q_OS_WIN
+    QProcess junction;
+    junction.setProgram(QDir(qEnvironmentVariable("SystemRoot")).filePath("System32/cmd.exe"));
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert("PALEO_TEST_JUNCTION_LINK", QDir::toNativeSeparators(aliasDir));
+    environment.insert("PALEO_TEST_JUNCTION_TARGET", QDir::toNativeSeparators(f.dir.path()));
+    junction.setProcessEnvironment(environment);
+    junction.setNativeArguments(QStringLiteral(
+        "/d /v:off /s /c \"mklink /J \"%PALEO_TEST_JUNCTION_LINK%\" \"%PALEO_TEST_JUNCTION_TARGET%\"\""));
+    junction.start();
+    QVERIFY2(junction.waitForFinished(), qPrintable(junction.errorString()));
+    QCOMPARE(junction.exitStatus(), QProcess::NormalExit);
+    QVERIFY2(junction.exitCode() == 0, junction.readAllStandardError().constData());
+    QVERIFY(QFileInfo(aliasDir).isJunction());
+#else
     std::error_code ec;
     std::filesystem::create_directory_symlink(QDir(f.dir.path()).filesystemPath(), QDir(aliasDir).filesystemPath(), ec);
     if (ec) QSKIP(qPrintable(QString::fromStdString(ec.message())));
+#endif
     auto aliasPath = [&](const QString &path) {
       return QDir(aliasDir).filePath(QDir(f.dir.path()).relativeFilePath(path));
     };

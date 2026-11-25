@@ -1352,10 +1352,14 @@ private slots:
     QVERIFY(panel && !panel->views().isEmpty());
     auto *view = panel->views().first();
     QCOMPARE(view->property("paleo.referenceVersion").toString(), after);
+    QPointer<QgsMapLayer> previousReference = view->canvas()->layers().first();
     f.work.bindCatalog(&f.catalog, f.dir.path());
     QVERIFY(!recompute->isEnabled());
-    QVERIFY(!view->hasReference());
-    QVERIFY(referenceDock.isHidden());
+    QVERIFY(previousReference.isNull());
+    QVERIFY(!referenceDock.isHidden());
+    QTRY_VERIFY(!panel->views().isEmpty() && panel->views().first()->hasReference());
+    QCOMPARE(panel->views().first()->sourceId(), reportLayer);
+    QCOMPARE(panel->views().first()->property("paleo.referenceVersion").toString(), after);
   }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;

@@ -3377,12 +3377,18 @@ void TestEditTools::ambiguousPointPickingAndDeletion()
     QTest::mouseClick(canvas.viewport(), Qt::LeftButton, mods, p);
   };
   const auto popup = [] { return qobject_cast<QMenu *>(QApplication::activePopupWidget()); };
+  const auto pressInPopup = [&](Qt::Key key) {
+    const QPointer<QMenu> menu = popup();
+    if (!menu || !menu->isVisible()) return false;
+    QTest::keyClick(menu, key);
+    return true;
+  };
   clickMap(QPoint(60, 63));
   QCOMPARE(layer.selectedFeatureIds(), QgsFeatureIds{isolated});
   clickMap(QPoint(190, 190), Qt::ShiftModifier);
   QTRY_VERIFY(popup());
-  QTest::keyClick(popup(), Qt::Key_Down);
-  QTest::keyClick(popup(), Qt::Key_Return);
+  QVERIFY(pressInPopup(Qt::Key_Down));
+  QVERIFY(pressInPopup(Qt::Key_Return));
   QTRY_COMPARE(layer.selectedFeatureCount(), 2);
   QVERIFY(layer.selectedFeatureIds().contains(second));
   clickMap(QPoint(60, 63), Qt::ControlModifier);
@@ -3410,13 +3416,13 @@ void TestEditTools::ambiguousPointPickingAndDeletion()
       QTRY_VERIFY(popup());
     }
   }
-  QTest::keyClick(popup(), Qt::Key_Escape);
+  QVERIFY(pressInPopup(Qt::Key_Escape));
   QCOMPARE(layer.featureCount(), 3);
   QCOMPARE(layer.undoStack()->count(), 0);
   clickMap(QPoint(190, 190));
   QTRY_VERIFY(popup());
-  QTest::keyClick(popup(), Qt::Key_Down);
-  QTest::keyClick(popup(), Qt::Key_Return);
+  QVERIFY(pressInPopup(Qt::Key_Down));
+  QVERIFY(pressInPopup(Qt::Key_Return));
   QTRY_COMPARE(layer.featureCount(), 2);
   QVERIFY(!layer.getFeature(second).isValid());
   QCOMPARE(layer.getFeature(first).geometry().asWkb(), preservedGeometry);

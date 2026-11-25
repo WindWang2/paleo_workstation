@@ -27,14 +27,24 @@ MappingReferenceController::MappingReferenceController(
 {
     dock.setWidget(m_panel);
     const auto sizeDock = [&dock, panel = m_panel] {
-        const bool compact = panel->compact() && !dock.isFloating();
-        dock.setMaximumHeight(compact ? dock.minimumSizeHint().height() : QWIDGETSIZE_MAX);
-        if (!compact && !dock.isFloating())
-            if (auto *main = qobject_cast<QMainWindow *>(dock.parentWidget()))
-                main->resizeDocks({&dock}, {panel->sizeHint().height()}, Qt::Vertical);
+        auto *main = qobject_cast<QMainWindow *>(dock.parentWidget());
+        if (!main) return;
+        const auto area = main->dockWidgetArea(&dock);
+        const bool horizontal = !dock.isFloating() && (area == Qt::TopDockWidgetArea || area == Qt::BottomDockWidgetArea);
+        const bool fold = horizontal && panel->compact();
+        const bool folded = dock.property("referenceFolded").toBool();
+        if (fold && !folded && dock.isVisible() && dock.height() > dock.minimumSizeHint().height())
+            dock.setProperty("referenceExpandedHeight", dock.height());
+        dock.setProperty("referenceFolded", fold);
+        dock.setMaximumHeight(fold ? dock.minimumSizeHint().height() : QWIDGETSIZE_MAX);
+        if (horizontal && folded && !fold) {
+            const int saved = dock.property("referenceExpandedHeight").toInt();
+            main->resizeDocks({&dock}, {saved > 0 ? saved : panel->sizeHint().height()}, Qt::Vertical);
+        }
     };
     connect(m_panel, &MappingEvidencePanel::compactChanged, &dock, sizeDock);
     connect(&dock, &QDockWidget::topLevelChanged, &dock, sizeDock);
+    connect(&dock, &QDockWidget::dockLocationChanged, &dock, sizeDock);
     connect(&dock, &QDockWidget::visibilityChanged, m_panel, &MappingEvidencePanel::setViewActive);
     connect(m_panel, &MappingEvidencePanel::referenceRequested,
             this, &MappingReferenceController::loadReference);

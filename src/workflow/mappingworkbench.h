@@ -150,6 +150,8 @@ public:
   // Actual buffer or unregistered feature changes; an empty edit session is not a change.
   bool hasUnpublishedChanges(const QString &id) const;
   bool checkEditingTopology(const QString &id, QString *error);
+  enum class EditSaveStage { Idle, Registration, WellSync };
+  EditSaveStage pendingEditSave(const QString &draftId) const;
   bool saveEditingVersion(const QString &draftId, QString *error);
   // 编辑副本创建过程及保存版本后的上图保持视图；主动显示图件仍缩放定位。
   void suppressNextProductZoom() { m_suppressNextProductZoom = true; }
@@ -560,6 +562,9 @@ private:
   // 测井相点的井段 → 每井每个地层单位（组/段）的优势相行；地层单位取自该井
   // tops（顶 = 本层位顶，底 = 下一层位顶，最末取预测底）。predicted=false 为
   // 人工修订：只更新维护的优势相，不动「预测优势相」。
+  bool registerEditingVersion(const QString &id, const QString &token, QString *error);
+  bool syncSavedWellAttributes(const CatalogVersion &version, QString *error);
+  QSet<QString> m_savingDrafts;
   QVariantList wellFormationUpdates(const QVariantList &points,
                                     const QVariantList &schema, bool predicted,
                                     const QString &method = {},

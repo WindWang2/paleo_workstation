@@ -99,8 +99,16 @@ void MappingWorkbenchPage::buildDeliveryStep(QWidget *body, QVBoxLayout *layout)
     button->setObjectName("workbench." + entry.first);
     flow->addWidget(button);
     connect(button, &QPushButton::clicked, this, [this, action = entry.first] { issue(action); });
-    if (entry.first == "save")
-      continue; // 复用页面既有保存会话门控。
+    if (entry.first == "save") {
+      const auto refreshSave = [this, button, title = entry.second] {
+        const auto stage = m_workbench->pendingEditSave(selectedLayer());
+        button->setText(stage == MappingWorkbench::EditSaveStage::WellSync ? tr("重试井属性同步")
+            : stage == MappingWorkbench::EditSaveStage::Registration ? tr("重试登记当前工作副本") : title);
+      };
+      connect(m_results, &QTreeWidget::currentItemChanged, button, refreshSave);
+      connect(m_workbench, &MappingWorkbench::displayChanged, button, refreshSave);
+      continue;
+    }
     const auto refresh = [this, button, action = entry.first] {
       const auto id = selectedLayer();
       const auto version = m_workbench->versionForLayer(id);

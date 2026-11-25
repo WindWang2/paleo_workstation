@@ -35,6 +35,7 @@ class AttributeTablePanel : public QWidget
     void setLayerIds(const QStringList &ids, const QStringList &names = {});
     void showLayer(const QString &layerId);    // select + load its table
     QString currentLayerId() const;
+    QgsVectorLayer *currentLayer() const;
 
     // 会话注入（可选）：null → 直连降级。接线是壳面动作（见
     // docs/progress/mapping.md seam 表）。
@@ -60,7 +61,6 @@ class AttributeTablePanel : public QWidget
     void editRefused(const QString &reason);
 
   private:
-    QgsVectorLayer *currentLayer() const;
     void clearTable();
     void updateEditRowStates();
 

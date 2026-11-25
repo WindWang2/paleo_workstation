@@ -433,7 +433,20 @@ private slots:
     error.clear();
     QVERIFY2(work.saveEditingVersion(draft, &error), qPrintable(error));
     const auto attributeOnly = work.versionForLayer(draft);
-    QVERIFY(attributeOnly.extra.value("spatial_edit_events").toList().isEmpty());
+    QCOMPARE(attributeOnly.id, saved.id);
+    // Simulate termination after catalog commit and before clearing the durable retry record.
+    QFile journal(dir.filePath(QStringLiteral("artifacts/working/%1/pending-save").arg(draft)));
+    QVERIFY(journal.open(QIODevice::WriteOnly));
+    QVERIFY(journal.write(saved.extra.value("edit_save_token").toString().toLatin1()) > 0);
+    journal.close();
+    {
+      MappingWorkbench reopened{&layers, &processing, &project, &constraints};
+      reopened.bindCatalog(&catalog, dir.path());
+      QCOMPARE(reopened.pendingEditSave(draft), MappingWorkbench::EditSaveStage::WellSync);
+      QVERIFY2(reopened.saveEditingVersion(draft, &error), qPrintable(error));
+      QCOMPARE(reopened.versionForLayer(draft).id, saved.id);
+      QCOMPARE(reopened.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Idle);
+    }
     const auto history = work.spatialEditHistory(attributeOnly.id, {}, 50, {});
     QCOMPARE(history.value("events").toList().size(), 1);
     QVERIFY(history.value("complete").toBool());

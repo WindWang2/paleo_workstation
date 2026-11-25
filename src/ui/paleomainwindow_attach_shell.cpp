@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_shell — 壳面与全局组件接线（W4 拆分段）
 #include "ribbontitlefit.h"
+#include <algorithm>
 #include "paleomainwindow.h"
 #include "commandactionbinder.h"
 #include "../qgis/commandlocatorfilter.h"
@@ -225,7 +226,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         if (res.ok)
         {
           if (statusBar())
-            statusBar()->showMessage(tr("工程已保存：%1").arg(m_projectSvc->projectPath()), 5000);
+            showProjectSaveFeedback();
           updateWindowTitle();
         }
         else if (QGuiApplication::platformName() != QLatin1String("offscreen"))
@@ -754,4 +755,46 @@ void PaleoMainWindow::attachReleasePanel(PaleoProjectStore *store)
             &ReleasePanel::refresh);
     bottomTabs->addTab(releasePanel, tr("发布"));
   }
+}
+
+void PaleoMainWindow::showProjectSaveFeedback()
+{
+  auto *bar = statusBar();
+  auto *button = bar->findChild<QToolButton *>(QStringLiteral("projectPendingEdits"));
+  if (button) { bar->removeWidget(button); button->setObjectName({}); button->deleteLater(); }
+  button = new QToolButton(bar);
+  button->setObjectName(QStringLiteral("projectPendingEdits"));
+  button->setText(tr("保存图层编辑"));
+  button->setPopupMode(QToolButton::InstantPopup);
+  auto *menu = new QMenu(button);
+  button->setMenu(menu);
+  QStringList names;
+  const auto session = m_projectSvc->sessionId();
+  for (auto *mapLayer : m_projectSvc->project()->mapLayers()) {
+    auto *layer = qobject_cast<QgsVectorLayer *>(mapLayer);
+    if (!layer || !layer->isEditable() || !layer->isModified()) continue;
+    names << layer->name();
+    auto *action = menu->addAction(tr("%1 · %2").arg(layer->name(), QgisEditingService::pendingEditSummary(layer)));
+    connect(action, &QAction::triggered, this, [this, session, safe = QPointer<QgsVectorLayer>(layer)] {
+      if (!safe || !m_projectSvc || m_projectSvc->sessionId() != session ||
+          !safe->isEditable() || !safe->isModified()) return;
+      QString error;
+      if (!commitPendingLayer(safe->id(), &error)) statusBar()->showMessage(tr("图层编辑未提交：%1").arg(error), 15000);
+    });
+    const auto disable = [menu, button, action] {
+      action->setEnabled(false);
+      const auto actions = menu->actions();
+      if (std::none_of(actions.begin(), actions.end(), [](auto *item) { return item->isEnabled(); })) button->hide();
+    };
+    connect(layer, &QgsVectorLayer::editingStopped, action, disable);
+    connect(layer, &QObject::destroyed, action, disable);
+  }
+  if (names.isEmpty()) {
+    delete button;
+    bar->showMessage(tr("工程已保存：%1").arg(m_projectSvc->projectPath()), 5000);
+    return;
+  }
+  bar->addPermanentWidget(button);
+  connect(m_projectSvc, &QgisProjectService::projectAboutToClose, button, &QWidget::hide);
+  bar->showMessage(tr("工程已保存，以下图层仍有修改：%1").arg(names.join(QStringLiteral("、"))), 15000);
 }

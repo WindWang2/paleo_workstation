@@ -204,6 +204,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool maybeSaveProject();
     // C1/#282：编辑中的矢量图层缓冲三选一（maybeSaveProject 的第一步）。
     bool resolveDirtyLayerEdits();
+    void showProjectSaveFeedback();
+    bool commitPendingLayer(const QString &nativeId, QString *error);
     // 询问 seam：生产不调即模态；壳级测试替身模态框（offscreen 无法真的弹）。
     using ProjectSaveAsk =
         std::function<PaleoNotify::SaveChoice(const QString &title,

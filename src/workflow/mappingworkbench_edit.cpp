@@ -251,7 +251,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   emit productReady(d.horizon, draft);
   return draft;
 }
-bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
+bool MappingWorkbench::registerEditingVersion(const QString &id, const QString &token, QString *error) {
   if (!id.startsWith("draft.")) {
     fail(error, tr("只有人工编辑副本可以保存编辑版本"));
     return false;
@@ -478,6 +478,16 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
       if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
     }
   }
+  const auto revision = MappingFeatureIdentity::layerRevision(layer);
+  if (!revision.isEmpty() && previous.extra.value("edit_revision").toString() == revision &&
+      previous.extra.value("pinned_levels") == extra.value("pinned_levels") &&
+      previous.extra.value("display_mode") == extra.value("display_mode")) {
+    if (observer) observer->acknowledge();
+    return true;
+  }
+  extra.insert("edit_revision", revision);
+  extra.insert("edit_save_token", token);
+  extra.insert("sync_well_attributes", layer->fields().indexOf("facies_intervals") >= 0);
   const auto snapshotPath = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!QDir().mkpath(QFileInfo(snapshotPath).absolutePath())) {
     fail(error, tr("无法创建编图版本暂存目录")); return false;
@@ -499,28 +509,31 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     // 记录再追加一遍（新 event_id，无法判重）。故版本登记成功即确认。
     if (observer) observer->acknowledge();
     styleLayer(id);
-    if (layer->fields().indexOf("facies_intervals") >= 0) {
-      QVariantList points;
-      auto it = layer->getFeatures(); QgsFeature feature;
-      while (it.nextFeature(feature)) {
-        QVariantMap point;
-        for (const auto &field : {"id", "facies_intervals", "depth_mock", "formation_intervals"})
-          if (layer->fields().indexOf(field) >= 0) point.insert(field, feature.attribute(field));
-        points << point;
-      }
-      QString mergeError;
-      if (!WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
-          wellAttributeUpdates(points, previous.extra.value("facies").toList(), d.horizon, false), &mergeError) ||
-          !WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
-          wellFormationUpdates(points, previous.extra.value("facies").toList(), false), &mergeError)) {
-        // 部分完成态如实披露：版本已存在，失败的只是井属性同步。
-        fail(error, tr("图件版本已保存（%1），但测井属性同步失败：%2。修正后可再次保存，"
-                       "编辑事件不会重复入档。").arg(output, mergeError));
-        return false;
-      }
-    }
   }
   return !output.isEmpty();
+}
+
+bool MappingWorkbench::syncSavedWellAttributes(const CatalogVersion &version, QString *error) {
+  if (!version.extra.value("sync_well_attributes").toBool()) return true;
+  const auto path = DataCatalog::resolvedVersionPath(m_dir, version);
+  QgsVectorLayer layer(path + QStringLiteral("|layername=features"), version.id, QStringLiteral("ogr"));
+  if (!layer.isValid() || layer.fields().indexOf("facies_intervals") < 0) {
+    fail(error, tr("无法读取已登记版本的测井属性快照"));
+    return false;
+  }
+  QVariantList points;
+  auto it = layer.getFeatures(); QgsFeature feature;
+  while (it.nextFeature(feature)) {
+    QVariantMap point;
+    for (const auto &field : {"id", "facies_intervals", "depth_mock", "formation_intervals"})
+      if (layer.fields().indexOf(field) >= 0) point.insert(field, feature.attribute(field));
+    points << point;
+  }
+  const auto schema = version.extra.value("facies").toList();
+  return WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
+             wellAttributeUpdates(points, schema, version.extra.value("horizon").toString(), false), error) &&
+         WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
+             wellFormationUpdates(points, schema, false), error);
 }
 QVariantList MappingWorkbench::removalProducts(const QString &layerId, QString *error) const {
   if (!layerId.startsWith("product.") && !layerId.startsWith("draft.")) {

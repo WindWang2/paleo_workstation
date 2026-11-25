@@ -3329,30 +3329,37 @@ void TestEditTools::toolbarSelectionIsReadOnlyAndToolsFollowCanvas()
 
 void TestEditTools::ambiguousPointPickingAndDeletion_data()
 {
-  QTest::addColumn<bool>("points");
-  QTest::newRow("coincident points") << true;
-  QTest::newRow("crossing lines") << false;
+  QTest::addColumn<QString>("type");
+  QTest::newRow("coincident points") << QStringLiteral("Point");
+  QTest::newRow("crossing lines") << QStringLiteral("LineString");
+  QTest::newRow("shared polygon edge") << QStringLiteral("Polygon");
 }
 
 void TestEditTools::ambiguousPointPickingAndDeletion()
 {
-  QFETCH(bool, points);
+  QFETCH(QString, type);
+  const bool points = type == QLatin1String("Point");
+  const bool polygons = type == QLatin1String("Polygon");
   QgsMapCanvas canvas;
   canvas.setDestinationCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:3857")));
   canvas.resize(512, 512);
   canvas.show();
   canvas.setExtent(QgsRectangle(0, 0, 512, 512));
   QCoreApplication::processEvents();
-  QgsVectorLayer layer(points ? "Point?crs=EPSG:3857" : "LineString?crs=EPSG:3857", "test", "memory");
+  qInfo() << "pick fixture" << type << "map scale" << canvas.scale() << "device pixel ratio" << canvas.devicePixelRatioF();
+  QgsVectorLayer layer(type + "?crs=EPSG:3857", "test", "memory");
   canvas.setLayers({&layer});
   canvas.setCurrentLayer(&layer);
   const auto geom = [&](int x1, int y1, int x2, int y2) {
+    if (polygons)
+      return QgsGeometry::fromRect(QgsRectangle(mapPt(canvas,x1,y1), mapPt(canvas,x2,y2)));
     return points ? QgsGeometry::fromPointXY(mapPt(canvas, x1, y1))
                   : QgsGeometry::fromPolylineXY({mapPt(canvas, x1, y1), mapPt(canvas, x2, y2)});
   };
-  const auto isolated = seedFeature(layer, geom(60, 60, 110, 60));
-  const auto first = seedFeature(layer, geom(points ? 190 : 140, 190, 240, 190));
-  const auto second = seedFeature(layer, geom(190, points ? 190 : 140, 190, 240));
+  const auto isolated = seedFeature(layer, geom(60, 60, 90, polygons ? 75 : 60));
+  const auto first = seedFeature(layer, geom(points ? 190 : 140, polygons ? 140 : 190,
+                                             polygons ? 190 : 240, polygons ? 240 : 190));
+  const auto second = seedFeature(layer, geom(190, points ? 190 : 140, polygons ? 240 : 190, 240));
   layer.updateExtents();
   const auto preservedGeometry = layer.getFeature(first).geometry().asWkb();
   PaleoEditingToolbar bar(&canvas);

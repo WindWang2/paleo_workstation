@@ -339,6 +339,18 @@ private slots:
     const auto reloaded = f.work.generatedExplanationForFeature(draft, uid);
     QCOMPARE(reloaded.value(QStringLiteral("generator")).toString(), QStringLiteral("ai"));
     QVERIFY(reloaded.value(QStringLiteral("text")).toString().contains(QStringLiteral("Well-B2")));
+    QVERIFY(reloaded.value("pending_adoption").toBool());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, savedVersion.id);
+    QVERIFY(f.work.adoptExplanation(draft, uid, reloaded.value("request_id").toString()));
+    QVERIFY(f.work.hasUnpublishedChanges(draft));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto next = f.work.versionForLayer(draft);
+    QVERIFY(next.id != savedVersion.id);
+    QCOMPARE(next.extra.value("auto_explanations").toMap().value(uid).toMap().value("request_id"), reloaded.value("request_id"));
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QCOMPARE(QJsonDocument::fromVariant(f.catalog.versionById(savedVersion.id).extra).toJson(QJsonDocument::Compact),
+             savedExtraBefore);
   }
 
   void aiFailureFallsBackHonestlyToLocalSummary() {
@@ -508,6 +520,35 @@ private slots:
     QCOMPARE(readySpy.count(), 3);
   }
 
+  void formAndExplanationStayWithTheirDraft() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto first = f.work.createBlankMap("D61", &error);
+    const auto second = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!first.isEmpty() && !second.isEmpty(), qPrintable(error));
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.selectLayer(first);
+    auto *text = page.findChild<QPlainTextEdit *>("editBasisText");
+    QVERIFY(text);
+    text->setPlainText("first note");
+    QVERIFY(f.work.setEditEvidence("D61", {{"layer", first}, {"text", text->toPlainText()}}, &error));
+    page.selectLayer(second);
+    QVERIFY(text->toPlainText().isEmpty());
+    QVERIFY(f.work.editEvidenceForLayer(second).isEmpty());
+    QSignalSpy ready(&f.work, &MappingWorkbench::autoExplanationReady);
+    QVERIFY(f.work.requestBackgroundExplanation("D61", first, {}, {}, true, &error));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 5000);
+    QVERIFY(text->toPlainText().isEmpty());
+    QVERIFY(f.work.explanationForTarget(second, {}).isEmpty());
+    text->setPlainText("second note");
+    page.selectLayer(first);
+    QCOMPARE(text->toPlainText(), QStringLiteral("first note"));
+    page.selectLayer(second);
+    QCOMPARE(text->toPlainText(), QStringLiteral("second note"));
+  }
+
   void uiStreamlinedFlowAndOptionalEditBasis() {
     WorkbenchFixture f;
     QVERIFY(f.init());
@@ -517,6 +558,7 @@ private slots:
 
     MappingWorkbenchPage page(QStringLiteral("compose"), &f.work);
     page.setHorizon(QStringLiteral("D61"));
+    page.selectLayer(draft);
     page.show();
     QCoreApplication::processEvents();
 

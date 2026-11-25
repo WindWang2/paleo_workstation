@@ -133,5 +133,23 @@ void MappingWorkbenchPage::buildDeliveryStep(QWidget *body, QVBoxLayout *layout)
   auto *basis = new MappingEditBasis(m_workbench, body);
   layout->addWidget(basis);
   connect(this, &MappingWorkbenchPage::horizonChanged, basis, &MappingEditBasis::setHorizon);
+  connect(this, &MappingWorkbenchPage::targetLayerChanged, this, &MappingWorkbenchPage::syncEditBasisTarget);
   connect(basis, &MappingEditBasis::commandRequested, this, &MappingWorkbenchPage::commandRequested);
+}
+
+void MappingWorkbenchPage::syncEditBasisTarget() {
+  auto *basis = findChild<MappingEditBasis *>();
+  if (!basis) return;
+  const auto id = selectedLayer();
+  const auto selected = m_workbench->selectedFeatures(id);
+  const auto uid = selected.size() == 1 && nativeSelectionMatchesEvidence()
+      ? m_evidenceSnapshot.value("feature_uid").toString() : QString();
+  basis->setTarget(id, uid);
+}
+
+void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
+  m_evidenceSnapshotOwned = true;
+  m_evidenceSnapshot = snapshot;
+  syncEditBasisTarget();
+  updateState();
 }

@@ -353,9 +353,12 @@ bool MappingWorkbench::registerEditingVersion(const QString &id, const QString &
   QHash<QString, int> qualityCounts;
   QHash<QString, int> stateCounts;
   qint64 evidenceCount = 0;
-  const auto drafts = loadDraftExplanations(id);
+  auto drafts = loadDraftExplanations(id);
+  const auto archivedDrafts = previous.extra.value("auto_explanations").toMap();
+  for (auto it = drafts.begin(); it != drafts.end(); ++it)
+    if (it->value("pending_adoption").toBool()) it.value() = archivedDrafts.value(it.key()).toMap();
   QVariantMap currentDrafts;
-  if (drafts.contains(QStringLiteral("__map__")))
+  if (!drafts.value(QStringLiteral("__map__")).isEmpty())
     currentDrafts.insert(QStringLiteral("__map__"), drafts.value(QStringLiteral("__map__")));
   auto evidenceFeatures = layer->getFeatures(); QgsFeature evidenceFeature;
   while (evidenceFeatures.nextFeature(evidenceFeature)) {
@@ -480,6 +483,7 @@ bool MappingWorkbench::registerEditingVersion(const QString &id, const QString &
   }
   const auto revision = MappingFeatureIdentity::layerRevision(layer);
   if (!revision.isEmpty() && previous.extra.value("edit_revision").toString() == revision &&
+      previous.extra.value("auto_explanations").toMap() == currentDrafts &&
       previous.extra.value("pinned_levels") == extra.value("pinned_levels") &&
       previous.extra.value("display_mode") == extra.value("display_mode")) {
     if (observer) observer->acknowledge();

@@ -1026,7 +1026,12 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
 bool MappingWorkbench::appendEditEvidence(const QString &id, qint64 fid, QString *error) {
   const auto version = versionForLayer(id);
   const auto horizon = declaration(id).horizon;
-  const auto context = editEvidence(horizon);
+  // A note entered before creating a map belongs to the first draft that uses it.
+  if (!m_draftEvidence.contains(id) && !editEvidence(horizon).isEmpty()) {
+    m_draftEvidence.insert(id, m_editEvidence);
+    m_editEvidence.clear();
+  }
+  const auto context = editEvidenceForLayer(id);
   if (context.isEmpty())
     return !needsEditEvidence(id) ||
         reject(error, tr("请先设置本次解释说明，再绘制或修改相面"));
@@ -1081,7 +1086,7 @@ bool MappingWorkbench::hasUnpublishedEdits(const QString &id) const {
 }
 
 bool MappingWorkbench::hasUnpublishedChanges(const QString &id) const {
-  if (pendingEditSave(id) != EditSaveStage::Idle) return true;
+  if (pendingEditSave(id) != EditSaveStage::Idle || hasPendingExplanationAdoption(id)) return true;
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   if (layer && layer->isModified()) return true;
   const auto *observer = layer ? MappingFeatureIdentity::Observer::of(layer) : nullptr;
@@ -1215,7 +1220,7 @@ void MappingWorkbench::materializePendingExplanations(QgsVectorLayer *layer, con
     if (uid.isEmpty() || !entries.contains(uid))
       continue;
     auto generated = entries.value(uid);
-    if (generated.value(QStringLiteral("materialized")).toBool())
+    if (generated.value(QStringLiteral("materialized")).toBool() || generated.value("pending_adoption").toBool())
       continue;
     if (generated.value(QStringLiteral("geometry_hash")).toString() !=
             MappingFeatureIdentity::geometryFingerprint(feature) ||
@@ -1225,7 +1230,7 @@ void MappingWorkbench::materializePendingExplanations(QgsVectorLayer *layer, con
     QVariantList records;
     QVariantMap interpretation;
     QString err;
-    if (!read(feature, &records, &interpretation, &err))
+    if (!read(feature, &records, &interpretation, &err) || interpretation.value("status") == "Confirmed")
       continue;
     const QString autoId = QStringLiteral("auto:") + generated.value(QStringLiteral("request_id")).toString();
     bool exists = false;

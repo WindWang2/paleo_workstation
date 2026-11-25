@@ -240,6 +240,7 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_loadedDraftExplanations.clear();
   m_lastAutoExplanations.clear();
   m_editEvidence.clear();
+  m_draftEvidence.clear();
   emit editEvidenceChanged();
   emit explanationStatusChanged();
   m_catalog = catalog;

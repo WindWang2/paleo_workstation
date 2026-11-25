@@ -126,8 +126,12 @@ public:
   QString createBlankMap(const QString &horizon, QString *error, const QVariantMap &boundary = {});
   bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);
   QVariantMap editEvidence(const QString &horizon) const;
+  QVariantMap editEvidenceForLayer(const QString &id) const;
+  QVariantMap explanationForTarget(const QString &id, const QString &featureUid) const;
+  bool adoptExplanation(const QString &id, const QString &featureUid, const QString &requestId);
+  bool hasPendingExplanationAdoption(const QString &id) const;
   bool needsEditEvidence(const QString &layerId) const;
-  void clearEditEvidence();
+  void clearEditEvidence(const QString &layerId = {});
   void setManualEvidenceRequired(bool required);
   bool manualEvidenceRequired() const { return m_manualEvidenceRequired; }
   // 编图后台自动解释（独立工作线程；配置可用 AI 时优先调用 AI，否则自动生成本地事实摘要）。
@@ -587,6 +591,7 @@ private:
   paleo::strat::UnitSelection m_analysisUnit;
   double m_displayScale = 0;
   bool m_suppressNextProductZoom = false;
+  QHash<QString, QVariantMap> m_draftEvidence;
   QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。
   bool m_manualEvidenceRequired = false;
   bool m_catalogSyncQueued = false;

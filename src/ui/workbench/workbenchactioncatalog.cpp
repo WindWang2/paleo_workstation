@@ -20,6 +20,7 @@ const ActionSpec kActions[] = {
     {"setEditEvidence", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
     {"clearEditEvidence", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
     {"setAutoExplain", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
+    {"adoptEditExplanation", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
     {"generateEditExplanation", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
     {"cancelEditExplanation", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
     {"checkTopology", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},

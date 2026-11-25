@@ -118,6 +118,7 @@
 #include <QSqlQuery>
 #include <atomic>
 #include <memory>
+#include <filesystem>
 #include <gdal.h>
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
@@ -2444,6 +2445,43 @@ private slots:
     toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
     QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
   }
+  void managedVersionsAndOpenEditsSurviveDirectoryAliases() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const QString id = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!id.isEmpty(), qPrintable(error));
+    const auto original = f.work.versionForLayer(id);
+    QVERIFY(!original.id.isEmpty());
+    QTemporaryDir aliases;
+    const auto aliasDir = aliases.filePath("same-project");
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(QDir(f.dir.path()).filesystemPath(), QDir(aliasDir).filesystemPath(), ec);
+    if (ec) QSKIP(qPrintable(QString::fromStdString(ec.message())));
+    auto aliasPath = [&](const QString &path) {
+      return QDir(aliasDir).filePath(QDir(f.dir.path()).relativeFilePath(path));
+    };
+    auto declared = f.layers.declaration(id);
+    auto *open = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(id, &error));
+    QVERIFY(open && open->startEditing());
+    const int separator = declared.source.indexOf('|');
+    QVERIFY(separator > 0);
+    declared.source = aliasPath(declared.source.left(separator)) + declared.source.mid(separator);
+    QVERIFY2(f.layers.declare(declared, &error), qPrintable(error));
+    QCOMPARE(f.layers.layer(id), open);
+    QVERIFY(open->isEditable());
+    auto anotherTable = declared;
+    anotherTable.source = declared.source.section('|', 0, 0) + "|layername=another_table";
+    QVERIFY(!f.layers.declare(anotherTable, &error));
+    QCOMPARE(f.layers.layer(id), open);
+    QVERIFY(open->rollBack());
+    auto alias = declared;
+    alias.layerId = "reference.alias";
+    alias.source = aliasPath(DataCatalog::resolvedVersionPath(f.dir.path(), original)) + "|layername=features";
+    QVERIFY2(f.layers.declare(alias, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(alias.layerId).id, original.id);
+  }
+
   void taskGuideChoosesBetweenTwoWorkingCopies() {
     Fixture f;
     QVERIFY(f.init());

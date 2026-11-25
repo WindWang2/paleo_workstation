@@ -136,6 +136,12 @@ MappingTaskGuide::MappingTaskGuide(const QString &mode, MappingWorkbench *workbe
     focusAnchor(m_next->property("target").toString());
   });
   buildSteps();
+  connect(m_workbench, &MappingWorkbench::catalogBound, this, [this] {
+    ++m_projectEpoch;
+    m_activeDraft.clear();
+    m_draftTools.clear();
+    refresh();
+  });
 }
 
 void MappingTaskGuide::buildSteps() {

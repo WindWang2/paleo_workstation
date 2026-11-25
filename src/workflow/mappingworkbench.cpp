@@ -77,7 +77,12 @@ QString versionPathKey(const QString &source) {
   const auto path = filePath(source);
   if (path.isEmpty()) return {};
   const auto canonical = QFileInfo(path).canonicalFilePath();
-  return canonical.isEmpty() ? path : canonical;
+  if (canonical.isEmpty()) return path;
+#ifdef Q_OS_WIN
+  return canonical.toCaseFolded();
+#else
+  return canonical;
+#endif
 }
 void rememberNativeFailure(QgsVectorLayer *layer, const QString &target, const QString &error) {
   auto failures = FaciesPartitionState::evidenceFailures(layer);

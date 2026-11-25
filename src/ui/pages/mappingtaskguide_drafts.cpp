@@ -28,12 +28,6 @@ void MappingTaskGuide::watchEditor(PaleoEditingToolbar *editor) {
       }
     });
   }
-  connect(m_workbench, &MappingWorkbench::catalogBound, this, [this] {
-    ++m_projectEpoch;
-    m_activeDraft.clear();
-    m_draftTools.clear();
-    refresh();
-  });
   sync();
 }
 

@@ -3390,15 +3390,25 @@ void TestEditTools::ambiguousPointPickingAndDeletion()
 
   bar.actionDeleteFeatures()->trigger();
   QVERIFY(bar.isEditing());
+  if (!shotDir.isEmpty()) {
+    canvas.refresh();
+    canvas.waitWhileRendering();
+  }
   clickMap(QPoint(190, 190));
   QTRY_VERIFY(popup());
   if (!shotDir.isEmpty()) {
     QVERIFY(QDir().mkpath(shotDir));
-    canvas.refresh();
-    canvas.waitWhileRendering();
     const auto stem = QDir(shotDir).filePath(type + (dark ? "-dark" : "-light"));
+    const QPointer<QMenu> candidates = popup();
+    QVERIFY(candidates);
+    const auto menuImage = candidates->grab();
+    QVERIFY(menuImage.save(stem + "-candidates.png"));
     QVERIFY(canvas.grab().save(stem + "-canvas.png"));
-    QVERIFY(popup()->grab().save(stem + "-candidates.png"));
+    // Some platform plugins close popups while grabbing a different window.
+    if (!popup()) {
+      clickMap(QPoint(190, 190));
+      QTRY_VERIFY(popup());
+    }
   }
   QTest::keyClick(popup(), Qt::Key_Escape);
   QCOMPARE(layer.featureCount(), 3);

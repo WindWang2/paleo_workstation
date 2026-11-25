@@ -307,7 +307,9 @@ bool validate(QgsVectorLayer *v, QString *error) {
   if (FaciesPartitionState::hasFrozenFootprint(v)) {
     QgsGeometry baseline;
     baseline.fromWkb(QByteArray::fromBase64(FaciesPartitionState::frozenFootprint(v).toLatin1()));
-    const auto current = united(v);
+    // The coverage check above already established matching edges and no
+    // overlaps. GEOS can dissolve these faces without renoding the entire map.
+    const auto current = coverage.unionCoverage();
     if (current.isEmpty() || !baseline.isGeosEqual(current))
       return fail(error, QObject::tr("相图覆盖范围发生变化，存在新增空洞、误删或越界；请撤销或使用覆盖绘制保持完整分区"));
   }
@@ -366,9 +368,8 @@ bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *err
   if (!clipped.lastError().isEmpty()) return fail(error, clipped.lastError());
   if (clipped.isEmpty() || clipped.area() <= 0) return fail(error, QObject::tr("新面必须覆盖现有相图中的有效区域"));
   Plan plan; QgsFeatureList sources;
-  auto it = v->getFeatures(); QgsFeature f;
+  auto it = v->getFeatures(QgsFeatureRequest().setFilterRect(clipped.boundingBox())); QgsFeature f;
   while (it.nextFeature(f)) {
-    if (!f.geometry().boundingBox().intersects(clipped.boundingBox())) continue;
     const auto intersection = f.geometry().intersection(clipped);
     if (!intersection.lastError().isEmpty()) return fail(error, intersection.lastError());
     if (intersection.isEmpty() || intersection.area() <= 0) continue;

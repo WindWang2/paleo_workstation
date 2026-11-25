@@ -566,7 +566,10 @@ private:
   // 测井相点的井段 → 每井每个地层单位（组/段）的优势相行；地层单位取自该井
   // tops（顶 = 本层位顶，底 = 下一层位顶，最末取预测底）。predicted=false 为
   // 人工修订：只更新维护的优势相，不动「预测优势相」。
+  bool reserveEditSave(const QString &id, QString *newToken) const;
+  void discardEditSaveReservation(const QString &id, const QString &token) const;
   bool isWorkingLayerEditing(const QString &id) const;
+  QString committedWorkingRevision(const QString &id) const;
   bool registerEditingVersion(const QString &id, const QString &token, QString *error);
   bool syncSavedWellAttributes(const CatalogVersion &version, QString *error);
   QSet<QString> m_savingDrafts;

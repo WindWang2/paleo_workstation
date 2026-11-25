@@ -793,6 +793,8 @@ void MappingWorkbenchCommandController::handleCommand(const QString &action, con
     message = error.isEmpty() ? WorkbenchText::tr("操作未完成，请检查输入。") : error;
   else if (detailed)
     message = statusDetail;
+  else if (action == "save")
+    message = WorkbenchText::tr("画布编辑已保存，当前成果版本为 v%1。").arg(d.workbench->versionForLayer(id).versionNumber);
   else if (action == "predict")
     message = WorkbenchText::tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
   else if (action == "impactAnalysis")

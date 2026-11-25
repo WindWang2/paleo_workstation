@@ -1202,7 +1202,12 @@ void MappingWorkbench::styleLayer(const QString &id) {
         styleLayer(id);
         emit displayChanged(id);
       });
-      connect(vector, &QgsVectorLayer::afterRollBack, this, [this, id] {
+      connect(vector, &QgsVectorLayer::afterCommitChanges, this, [vector] {
+        vector->setProperty("paleoEditSaveReservation", {});
+      });
+      connect(vector, &QgsVectorLayer::afterRollBack, this, [this, id, vector] {
+        discardEditSaveReservation(id, vector->property("paleoEditSaveReservation").toString());
+        vector->setProperty("paleoEditSaveReservation", {});
         styleLayer(id);
         emit displayChanged(id);
       });
@@ -1232,8 +1237,24 @@ void MappingWorkbench::styleLayer(const QString &id) {
                     MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error);
                 if (synced)
                   materializePendingExplanations(vector, id);
-                const bool ok = synced &&
-                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
+                bool ok = synced && validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
+                vector->setProperty("paleoEditSaveError", {});
+                if (ok && vector->isModified()) {
+                  QString token;
+                  ok = reserveEditSave(id, &token);
+                  if (!token.isEmpty()) vector->setProperty("paleoEditSaveReservation", token);
+                  if (!ok) {
+                    error = tr("无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。");
+                    vector->setProperty("paleoEditSaveError", error);
+                    // The veto covers this provider write. Restore it on return to the
+                    // event loop so a repaired directory can be retried in the same session.
+                    QMetaObject::invokeMethod(vector, [vector] {
+                      if (vector->isEditable() && vector->property("paleoEditSaveError").isValid() &&
+                          FaciesPartitionState::evidenceFailure(vector).isEmpty() &&
+                          !FaciesPartitionState::commitRejected(vector)) vector->setAllowCommit(true);
+                    }, Qt::QueuedConnection);
+                  }
+                }
                 // Never override a rejection from an earlier beforeCommit consumer.
                 vector->setAllowCommit(ok && vector->allowCommit());
                 if (!ok && error.isEmpty()) error = tr("图层提交已被证据或图元身份校验拒绝，请修复或撤销修改");

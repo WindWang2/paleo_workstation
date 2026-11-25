@@ -17316,6 +17316,26 @@ Crossline: %3 ~ %4</source>
         <source>无法读取已登记版本的测井属性快照</source>
         <translation>无法读取已登记版本的测井属性快照</translation>
     </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="97"/>
+        <source>成果版本 %1 已同步，无法读取工作副本来核对最新修订。</source>
+        <translation>成果版本 %1 已同步，无法读取工作副本来核对最新修订。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="100"/>
+        <source>成果版本 %1 已同步，工作副本还有未登记的修订，更新保存记录失败。</source>
+        <translation>成果版本 %1 已同步，工作副本还有未登记的修订，更新保存记录失败。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingeditsave.cpp" line="102"/>
+        <source>成果版本 %1 已同步，工作副本还有更新的修订，请登记当前工作副本。</source>
+        <translation>成果版本 %1 已同步，工作副本还有更新的修订，请登记当前工作副本。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench.cpp" line="1247"/>
+        <source>无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。</source>
+        <translation>无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>
@@ -24499,16 +24519,6 @@ PDF：%3
         <translation>操作未完成，请检查输入。</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="426"/>
-        <source>画布编辑已保存并生成图件新版本。</source>
-        <translation>画布编辑已保存并生成图件新版本。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="429"/>
-        <source>画布编辑已保存，并登记了新的图件版本。</source>
-        <translation>画布编辑已保存，并登记了新的图件版本。</translation>
-    </message>
-    <message>
         <location filename="../src/ui/paleomainwindow_sections.cpp" line="131"/>
         <source>连井 / 时深对齐</source>
         <translation>连井 / 时深对齐</translation>
@@ -25569,6 +25579,11 @@ PDF：%3
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="791"/>
         <source>已保存「%1」：%2</source>
         <translation>已保存「%1」：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="482"/>
+        <source>画布编辑已保存，当前成果版本为 v%1。</source>
+        <translation>画布编辑已保存，当前成果版本为 v%1。</translation>
     </message>
 </context>
 <context>

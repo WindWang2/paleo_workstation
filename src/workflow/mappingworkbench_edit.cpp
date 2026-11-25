@@ -251,6 +251,14 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   emit productReady(d.horizon, draft);
   return draft;
 }
+QString MappingWorkbench::committedWorkingRevision(const QString &id) const {
+  auto *live = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  if (live && !live->isEditable()) return MappingFeatureIdentity::layerRevision(live);
+  const auto source = live ? live->source() : declaration(id).source;
+  QgsVectorLayer committed(source, id, QStringLiteral("ogr"));
+  return committed.isValid() ? MappingFeatureIdentity::layerRevision(&committed) : QString();
+}
+
 bool MappingWorkbench::isWorkingLayerEditing(const QString &id) const {
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   return layer && layer->isEditable();

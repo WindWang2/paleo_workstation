@@ -25,6 +25,22 @@ bool writeToken(const QString &path, const QString &token) {
 }
 }
 
+bool MappingWorkbench::reserveEditSave(const QString &id, QString *newToken) const {
+  const auto path = journalPath(m_dir, id);
+  if (path.isEmpty()) return false;
+  if (QFileInfo::exists(path)) return !readToken(path).isEmpty();
+  const auto token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  if (!writeToken(path, token)) return false;
+  if (newToken) *newToken = token;
+  return true;
+}
+
+void MappingWorkbench::discardEditSaveReservation(const QString &id, const QString &token) const {
+  if (token.isEmpty()) return;
+  const auto path = journalPath(m_dir, id);
+  if (!path.isEmpty() && readToken(path) == token) QFile::remove(path);
+}
+
 MappingWorkbench::EditSaveStage MappingWorkbench::pendingEditSave(const QString &id) const {
   const auto path = journalPath(m_dir, id);
   if (path.isEmpty() || !QFileInfo::exists(path)) return EditSaveStage::Idle;
@@ -62,7 +78,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   // projection resumes the same version, even if the editable layer has since changed.
   auto saved = versionForLayer(id);
   QString why;
-  if (saved.extra.value("edit_save_token").toString() != token) {
+  const bool resumingSync = saved.extra.value("edit_save_token").toString() == token;
+  if (!resumingSync) {
     if (!registerEditingVersion(id, token, &why)) {
       emit displayChanged(id);
       return reject(tr("工作副本已保存，成果版本未登记。%1").arg(why));
@@ -73,6 +90,17 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
       !syncSavedWellAttributes(saved, &why)) {
     emit displayChanged(id);
     return reject(tr("成果版本 %1 已登记，井属性尚未同步。%2").arg(saved.id, why));
+  }
+  if (resumingSync) {
+    const auto revision = committedWorkingRevision(id);
+    if (revision.isEmpty())
+      return reject(tr("成果版本 %1 已同步，无法读取工作副本来核对最新修订。").arg(saved.id));
+    if (saved.extra.value("edit_revision").toString() != revision || hasPendingExplanationAdoption(id)) {
+      if (!writeToken(path, QUuid::createUuid().toString(QUuid::WithoutBraces)))
+        return reject(tr("成果版本 %1 已同步，工作副本还有未登记的修订，更新保存记录失败。").arg(saved.id));
+      emit displayChanged(id);
+      return reject(tr("成果版本 %1 已同步，工作副本还有更新的修订，请登记当前工作副本。").arg(saved.id));
+    }
   }
   if (!QFile::remove(path))
     return reject(tr("成果版本 %1 已登记，保存记录尚未清理，可重试。").arg(saved.id));

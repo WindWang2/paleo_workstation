@@ -479,11 +479,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                 return;
               QString error;
               const bool ok = workbench->saveEditingVersion(id, &error);
-              statusBar()->showMessage(
-                  ok ? tr("画布编辑已保存并生成图件新版本。") : error, 15000);
+              const auto message = ok ? tr("画布编辑已保存，当前成果版本为 v%1。").arg(workbench->versionForLayer(id).versionNumber) : error;
+              statusBar()->showMessage(message, 15000);
               for (auto *page : pages) {
                 if (!ok && page->horizon() == workbench->declaration(id).horizon) page->selectLayer(id);
-                page->showMessage(ok ? tr("画布编辑已保存，并登记了新的图件版本。") : error);
+                page->showMessage(message);
               }
             };
   if (m_editSvc) connect(m_editSvc, &QgisEditingService::editCommitted, this, publishCommit);

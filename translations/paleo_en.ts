@@ -17248,6 +17248,26 @@ Crossline: %3 ~ %4</source>
             <source>无法读取已登记版本的测井属性快照</source>
             <translation>Could not read the well attribute snapshot from the registered version.</translation>
         </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="97" />
+            <source>成果版本 %1 已同步，无法读取工作副本来核对最新修订。</source>
+            <translation>Version %1 was synchronized. The working copy could not be read to verify its latest revision.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="100" />
+            <source>成果版本 %1 已同步，工作副本还有未登记的修订，更新保存记录失败。</source>
+            <translation>Version %1 was synchronized. The working copy has an unregistered revision, and its save record could not be updated.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="102" />
+            <source>成果版本 %1 已同步，工作副本还有更新的修订，请登记当前工作副本。</source>
+            <translation>Version %1 was synchronized. Register the working copy to save its newer edits.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench.cpp" line="1247" />
+            <source>无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。</source>
+            <translation>The version registration record could not be written. Your edits are still in the layer buffer. Restore write access to the project folder and try again.</translation>
+        </message>
 </context>
     <context>
         <name>MappingWorkbenchPage</name>
@@ -24395,16 +24415,6 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="426" />
-            <source>画布编辑已保存并生成图件新版本。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="429" />
-            <source>画布编辑已保存，并登记了新的图件版本。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
             <location filename="../src/ui/paleomainwindow_sections.cpp" line="131" />
             <source>连井 / 时深对齐</source>
             <translation type="unfinished" />
@@ -25463,6 +25473,11 @@ PDF：%3
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="791" />
             <source>已保存「%1」：%2</source>
             <translation>Saved “%1”: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="482" />
+            <source>画布编辑已保存，当前成果版本为 v%1。</source>
+            <translation>Canvas edits saved. The current map version is v%1.</translation>
         </message>
 </context>
     <context>

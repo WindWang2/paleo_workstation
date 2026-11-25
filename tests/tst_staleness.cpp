@@ -99,6 +99,7 @@ private slots:
 
   void previewShaMismatchMarksDerivedStale();
   void previewShaMismatchIsIdempotentNoRevisionGrowth();
+  void historicalMapIsFrozenOnSaveButStillTracksExternalInputs();
   void publishAdvisoryCountsStaleDerived();
   void publishAdvisorySurvivesCatalogReopen();
   void staleBadgeMarksPreviewTabTitle();
@@ -194,6 +195,31 @@ void TestStaleness::previewShaMismatchIsIdempotentNoRevisionGrowth()
 // 发布门 advisory 的数据口径：只数带 extra["stale"] 的 DERIVED 版本；
 // RAW/INTERMEDIATE/未标的不计。文案如实带计数且声明不阻断；零 stale →
 // 空文案（确认对话不加行）。
+void TestStaleness::historicalMapIsFrozenOnSaveButStillTracksExternalInputs() {
+  QTemporaryDir tmp;
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  for (const auto &id : {"wells", "map", "downstream"}) QVERIFY(cat.addAsset(makeAsset(id)));
+  auto wells = makeVersion("well1", "wells");
+  QVERIFY(cat.addVersion(wells));
+  auto map = makeVersion("map1", "map", "DERIVED", {wells.id});
+  map.extra.insert("draft_id", "draft.test");
+  QVERIFY(cat.addVersion(map));
+  const auto second = [&] {
+    auto v = map; v.id = "map2"; v.versionNumber = 2; v.parentVersionIds = {map.id}; return v;
+  }();
+  QVERIFY(cat.addVersion(second));
+  QVERIFY(cat.addVersion(makeVersion("contours1", "downstream", "DERIVED", {second.id})));
+  auto next = second; next.id = "map3"; next.versionNumber = 3; next.parentVersionIds = {second.id};
+  QVERIFY(cat.addVersion(next));
+  QCOMPARE(cat.versionById(second.id).extra, second.extra);
+  QVERIFY(cat.versionById("contours1").extra.value("stale").toBool());
+  wells.id = "well2"; wells.versionNumber = 2;
+  QVERIFY(cat.addVersion(wells));
+  QVERIFY(cat.versionById(second.id).extra.value("stale").toBool());
+  QVERIFY(cat.versionById(next.id).extra.value("stale").toBool());
+}
+
 void TestStaleness::publishAdvisoryCountsStaleDerived()
 {
   QTemporaryDir dir;

@@ -1,6 +1,8 @@
 // 层：测试壳
 #include <QtTest/QtTest>
 #include <QCheckBox>
+#include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -189,6 +191,73 @@ struct WorkbenchFixture {
 class TestMappingAsyncExplanation : public QObject {
   Q_OBJECT
 private slots:
+  void saveReservationFailureKeepsProviderUnchangedAndRetryable() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    f.work.styleLayer(draft);
+    f.work.setAutoExplainEnabled(false);
+    QVERIFY(layer->startEditing());
+    QVERIFY(FaciesPartitionEditor::paint(layer, QgsGeometry::fromWkt("POLYGON((0 0,10 0,10 10,0 0))"), 1, &error));
+    const auto marker = f.dir.filePath(QStringLiteral("artifacts/working/%1/pending-save").arg(draft));
+    QVERIFY(QDir().mkdir(marker)); // A directory at the journal path cannot hold the registration token.
+    QVERIFY(!layer->commitChanges());
+    QVERIFY(layer->isEditable() && layer->isModified());
+    QCOMPARE(layer->featureCount(), 1);
+    QgsVectorLayer disk(layer->source(), "source", "ogr");
+    QVERIFY(disk.isValid());
+    QCOMPARE(disk.featureCount(), 0);
+    QVERIFY(QDir().rmdir(marker));
+    QTRY_VERIFY(layer->allowCommit());
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Registration);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, version.id);
+  }
+
+  void syncRetryLeavesNewerCommittedRevisionPendingAcrossReopen() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    f.work.styleLayer(draft);
+    f.work.setAutoExplainEnabled(false);
+    QVERIFY(layer->startEditing());
+    QVERIFY(FaciesPartitionEditor::paint(layer, QgsGeometry::fromWkt("POLYGON((0 0,10 0,10 10,0 0))"), 1, &error));
+    QVERIFY(layer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto first = f.work.versionForLayer(draft);
+    QFile marker(f.dir.filePath(QStringLiteral("artifacts/working/%1/pending-save").arg(draft)));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    QVERIFY(marker.write(first.extra.value("edit_save_token").toString().toLatin1()) > 0);
+    marker.close();
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::WellSync);
+    QVERIFY(layer->startEditing());
+    QVERIFY(layer->addAttribute(QgsField("review_note", QMetaType::Type::QString)));
+    QVERIFY(layer->commitChanges());
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QVERIFY(!f.work.saveEditingVersion(draft, &error));
+    QVERIFY2(error.contains(QStringLiteral("还有更新的修订")), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, first.id);
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Registration);
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Registration);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto next = f.work.versionForLayer(draft);
+    QVERIFY(first.id != next.id);
+    QCOMPARE(next.versionNumber, first.versionNumber+1);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, next.id);
+  }
+
   void unblockedCompilationAndLocalBackgroundExplanation() {
     WorkbenchFixture f;
     QVERIFY(f.init());
@@ -349,8 +418,11 @@ private slots:
     QVERIFY(next.id != savedVersion.id);
     QCOMPARE(next.extra.value("auto_explanations").toMap().value(uid).toMap().value("request_id"), reloaded.value("request_id"));
     QVERIFY(!f.work.hasUnpublishedChanges(draft));
-    QCOMPARE(QJsonDocument::fromVariant(f.catalog.versionById(savedVersion.id).extra).toJson(QJsonDocument::Compact),
-             savedExtraBefore);
+    QVERIFY(!f.catalog.updateVersionExtra(savedVersion.id, QStringLiteral("auto_explanations"), next.extra.value("auto_explanations"), &error));
+    const auto archived = f.catalog.versionById(savedVersion.id);
+    QCOMPARE(archived.extra.value("stale"), savedVersion.extra.value("stale"));
+    QCOMPARE(archived.extra.value("staleReason"), savedVersion.extra.value("staleReason"));
+    QCOMPARE(QJsonDocument::fromVariant(archived.extra).toJson(QJsonDocument::Compact), savedExtraBefore);
   }
 
   void aiFailureFallsBackHonestlyToLocalSummary() {

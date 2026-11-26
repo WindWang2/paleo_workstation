@@ -12,6 +12,7 @@
 #include <QAbstractButton>
 #include <QDateTime>
 #include <QDialog>
+#include <QDomDocument>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -61,6 +62,8 @@
 #include "../src/workflow/wellsitingworkflow.h"
 
 #include <qgsproject.h>
+#include <qgsmapcanvas.h>
+#include <qgssnappingutils.h>
 
 namespace
 {
@@ -981,6 +984,75 @@ private slots:
     if (m_ctx->aiChat())
       QVERIFY2(m_ctx->aiChat()->projectBrief().contains(QStringLiteral("未打开")),
                qPrintable(m_ctx->aiChat()->projectBrief()));
+  }
+
+  void reopeningPreservesSavedSnapping_data()
+  {
+    QTest::addColumn<bool>("background");
+    QTest::addColumn<bool>("enabled");
+    QTest::newRow("sync-disabled") << false << false;
+    QTest::newRow("async-disabled") << true << false;
+    QTest::newRow("async-map-units") << true << true;
+  }
+  void reopeningPreservesSavedSnapping()
+  {
+    QFETCH(bool, background);
+    QFETCH(bool, enabled);
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("snapping.qgz"));
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([service] { service->closeProject(); });
+    QVERIFY(service->createProject(path));
+    auto *project = service->project();
+    QVERIFY(project->snappingConfig().enabled());
+    auto config = project->snappingConfig();
+    config.setEnabled(enabled);
+    config.setTolerance(17.5);
+    config.setUnits(enabled ? Qgis::MapToolUnit::Project : Qgis::MapToolUnit::Pixels);
+    project->setSnappingConfig(config);
+    QVERIFY(service->writeProject());
+    service->closeProject();
+    if (background) {
+      QSignalSpy opened(service, &QgisProjectService::projectOpened);
+      QVERIFY(service->openProjectAsync(path));
+      QTRY_COMPARE_WITH_TIMEOUT(opened.size(), 1, 30000);
+    } else QVERIFY(service->openProject(path));
+    const auto restored = project->snappingConfig();
+    QCOMPARE(restored.enabled(), enabled);
+    QCOMPARE(restored.units(), config.units());
+    QCOMPARE(restored.tolerance(), config.tolerance());
+    const auto canvas = m_ctx->canvasCtl()->canvas()->snappingUtils()->config();
+    QCOMPARE(canvas.enabled(), enabled);
+    QCOMPARE(canvas.units(), config.units());
+    QCOMPARE(canvas.tolerance(), config.tolerance());
+    QVERIFY(!project->isDirty());
+    QVERIFY(!m_win->isWindowModified());
+  }
+  void openingLegacyProjectWithoutSnappingUsesWorkspaceDefaults()
+  {
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("legacy.qgs"));
+    QgsProject saved;
+    QVERIFY(saved.write(path));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QDomDocument document;
+    QVERIFY(document.setContent(file.readAll()));
+    file.close();
+    auto root = document.documentElement();
+    auto snapping = root.firstChildElement(QStringLiteral("snapping-settings"));
+    QVERIFY(!snapping.isNull());
+    root.removeChild(snapping);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QVERIFY(file.write(document.toByteArray()) > 0);
+    file.close();
+    auto *service = m_ctx->projectSvc();
+    QVERIFY(service->openProject(path));
+    const auto config = service->project()->snappingConfig();
+    QVERIFY(config.enabled());
+    QCOMPARE(config.units(), Qgis::MapToolUnit::Pixels);
+    QCOMPARE(config.tolerance(), QgisCanvasController::nativeSnappingConfig().tolerance());
+    service->closeProject();
   }
 };
 

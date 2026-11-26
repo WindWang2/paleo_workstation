@@ -688,6 +688,7 @@ private slots:
     canvas->setRotation(17); canvas->setExtent(QgsRectangle(20, 20, 80, 80)); canvas->refresh();
     QTest::qWait(150);
     const auto extent = canvas->extent(); const auto scale = canvas->scale(); const auto rotation = canvas->rotation();
+    const auto previousSize = canvas->viewport()->size();
     auto *editor = window.findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(editor);
     const auto changeFacies = [canvas](int codeIndex) {
       const auto pixel = canvas->mapSettings().mapToPixel().transform(QgsPointXY(50, 50));
@@ -706,6 +707,7 @@ private slots:
     QVERIFY2(editor->isEditing(), qPrintable(window.statusBar()->currentMessage()));
     auto *draft = editor->currentLayer(); QVERIFY(draft);
     QVERIFY(draft->customProperty("paleoLayerId").toString().startsWith("draft."));
+    QCOMPARE(canvas->viewport()->size(), previousSize);
     QCOMPARE(canvas->extent(), extent); QVERIFY(qFuzzyCompare(canvas->scale(), scale));
     QCOMPARE(canvas->rotation(), rotation);
     if (contextMenu) {
@@ -716,6 +718,7 @@ private slots:
       QVERIFY(qFuzzyCompare(canvas->scale(), scale));
     }
     QVERIFY(editor->saveEditing()); QTest::qWait(150);
+    QCOMPARE(canvas->viewport()->size(), previousSize);
     QCOMPARE(canvas->extent(), extent); QVERIFY(qFuzzyCompare(canvas->scale(), scale));
     editor->setCurrentLayer(draft); // 保存后当前展示的是只读成果，重新选择可写工作副本。
     QVERIFY(editor->actionEditMode()->isEnabled()); editor->actionEditMode()->trigger();

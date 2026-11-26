@@ -321,8 +321,8 @@ void PaleoMainWindow::buildCenterArea()
     QgsMapCanvas *canvas = m_canvasCtl->canvas();
     canvas->setProperty("workspaceMapToolKeys", true);
     canvas->viewport()->setProperty("workspaceMapToolKeys", true);
-    // Context belongs to the map surface, so it disappears on the data page.
-    auto *contextRow = new QWidget(canvasPane);
+    // An operation hint must never resize the map or change its scale while editing.
+    auto *contextRow = new QWidget(canvas);
     contextRow->setObjectName(QStringLiteral("mapInteractionContext"));
     auto *contextLayout = new QHBoxLayout(contextRow);
     contextLayout->setContentsMargins(PaleoTheme::tokens().spacingSm, 0,
@@ -368,10 +368,10 @@ void PaleoMainWindow::buildCenterArea()
       syncContext();
     });
     connect(canvas, &QgsMapCanvas::currentLayerChanged, contextRow, syncContext);
-    syncContext();
     contextLayout->addWidget(context, 1);
     contextLayout->addWidget(stop);
-    canvasLay->addWidget(contextRow);
+    canvas->addOverlayWidget(contextRow, Qt::TopEdge);
+    syncContext();
     canvasLay->addWidget(new WorkspaceComparison(canvas, canvasPane), 1);
   }
   else

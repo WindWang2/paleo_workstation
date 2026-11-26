@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "metadata/managedpath.h"
 #include "qgisprojectservice.h"
+#include "qgiscanvascontroller.h"
 #include "../io/areamodel.h"
 
 #include "manifestprojection.h"
@@ -11,6 +12,7 @@
 #include "../catalog/datacatalog.h"
 
 #include <QDir>
+#include <QDomDocument>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -28,6 +30,24 @@ namespace
   // 同款「自定义属性字符串」通道，形状 = project.paleo 的 georeference 节。
   constexpr auto kGeoScope = "paleo";
   constexpr auto kGeoKey = "georeference";
+
+  void setDefaultSnapping(QgsProject *project)
+  {
+    auto config = QgisCanvasController::nativeSnappingConfig();
+    config.setProject(project);
+    project->setSnappingConfig(config);
+  }
+
+  bool hasSavedSnapping(const QDomDocument &doc)
+  {
+    const auto root = doc.documentElement();
+    if (!root.firstChildElement(QStringLiteral("snapping-settings")).isNull()) return true;
+    // QGIS 2 stored named snapping settings under properties/Digitizing.
+    const auto legacy = root.firstChildElement(QStringLiteral("properties")).firstChildElement(QStringLiteral("Digitizing"));
+    for (auto setting = legacy.firstChildElement(); !setting.isNull(); setting = setting.nextSiblingElement())
+      if (setting.tagName().contains(QStringLiteral("snap"), Qt::CaseInsensitive)) return true;
+    return false;
+  }
 
   void embedGeoreferenceProperty(QgsProject *project,
                                  const PaleoGeoreference &g)
@@ -84,6 +104,9 @@ QgisProjectService::QgisProjectService( QObject *parent )
   : QObject( parent )
   , m_project( new QgsProject( this ) )
 {
+  connect(m_project, &QgsProject::readProject, this, [this](const QDomDocument &doc) {
+    if (!hasSavedSnapping(doc)) setDefaultSnapping(m_project);
+  });
   QgsProject::setInstance( m_project );
 }
 
@@ -359,6 +382,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   m_project->clear();
   m_entryPath.clear();
   m_path = qgzPath;
+  setDefaultSnapping(m_project);
   m_readOnly = readOnly;
   m_georeference.reset();
   m_mapConfiguration = {};

@@ -32,8 +32,10 @@
 #include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
+#include <qgsapplication.h>
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
+#include <qgstaskmanager.h>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -150,6 +152,13 @@ void runDesktopIoMapCase(AppContext &ctx, PaleoMainWindow &window)
   const QDir project(out.filePath(name));
   const QString projectPath = project.filePath(name + ".qgz");
   qInfo().noquote() << "Acceptance project" << projectPath;
+  auto *nativeTasks = QgsApplication::taskManager();
+  const auto logProjectStep = [nativeTasks](const char *step) {
+    QStringList active;
+    for (const auto *task : nativeTasks->activeTasks())
+      active.append(QStringLiteral("%1 (%2)").arg(task->description()).arg(int(task->status())));
+    qInfo() << step << "active QGIS tasks" << active;
+  };
   const auto shot = [&](QWidget &widget, const QString &stage) {
     QCoreApplication::processEvents();
     QVERIFY(widget.grab().save(out.filePath(stage + ".png")));
@@ -320,13 +329,17 @@ void runDesktopIoMapCase(AppContext &ctx, PaleoMainWindow &window)
   QTRY_VERIFY_WITH_TIMEOUT(registered(), 10000);
   auto *save = window.findChild<QAction *>("saveProjectAction");
   QVERIFY(save && save->isEnabled());
+  logProjectStep("Saving exported map project");
   save->trigger();
+  logProjectStep("Closing saved map project");
   ctx.projectSvc()->closeProject();
   auto *open = window.findChild<QAction *>("fileOpenProjectAction");
   QVERIFY(open && open->isEnabled());
+  logProjectStep("Opening saved map project from the File menu");
   pickFile(projectPath, [&] { open->trigger(); });
   QTRY_COMPARE_WITH_TIMEOUT(QFileInfo(ctx.projectSvc()->projectPath()).canonicalFilePath(),
                             QFileInfo(projectPath).canonicalFilePath(), 60000);
+  logProjectStep("Reopened map project, checking its layers and output versions");
   QTRY_VERIFY(registered());
   QCOMPARE(normalized().id, version.id);
   showImportedMap(window, horizon, layerId);

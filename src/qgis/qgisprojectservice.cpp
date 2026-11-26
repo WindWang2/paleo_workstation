@@ -299,13 +299,17 @@ bool QgisProjectService::openProject( const QString &qgzPath )
         m_georeference = g;
     }
   }
-  adoptConfirmedGeoreference(QFileInfo(m_path).absolutePath());
-  if ( m_georeference )
-    embedGeoreferenceProperty( m_project, *m_georeference );
-  else
-    m_project->removeEntry(kGeoScope, kGeoKey);
-
-  applyMapConfiguration();
+  {
+    // Restoring the persisted map settings updates QgsProject entries and its CRS.
+    // These writes belong to the read, before projectOpened exposes the editable project.
+    QgsProjectDirtyBlocker restoring(m_project);
+    adoptConfirmedGeoreference(QFileInfo(m_path).absolutePath());
+    if (m_georeference)
+      embedGeoreferenceProperty(m_project, *m_georeference);
+    else
+      m_project->removeEntry(kGeoScope, kGeoKey);
+    applyMapConfiguration();
+  }
 
   // 成功读完后才收养裸 QGZ，并将其已恢复的配准/底图一起写入权威清单。
   const QString directory = QFileInfo(m_path).absolutePath();

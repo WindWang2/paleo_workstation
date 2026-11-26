@@ -1027,6 +1027,11 @@ private slots:
     QCOMPARE(canvas.tolerance(), config.tolerance());
     QVERIFY(!project->isDirty());
     QVERIFY(!m_win->isWindowModified());
+    auto edited = restored;
+    edited.setEnabled(!enabled);
+    project->setSnappingConfig(edited);
+    QVERIFY(project->isDirty());
+    QVERIFY(m_win->isWindowModified());
   }
   void openingLegacyProjectWithoutSnappingUsesWorkspaceDefaults()
   {

@@ -168,7 +168,6 @@ class TestUiShell : public QObject
     {
       if (qEnvironmentVariableIsEmpty("PALEO_DESKTOP_IO_OUTPUT"))
         QSKIP("Set PALEO_DESKTOP_IO_OUTPUT, PALEO_DESKTOP_IO_SOURCE and PALEO_DESKTOP_IO_MAP to run the local-data acceptance.");
-      m_win->setSharedPreviewServices(m_ctx->previewDoc(), m_ctx->seismicTaskSvc());
       attachShellWorkflows();
       m_win->attachDocumentSession(m_ctx->documentSession());
       m_win->attachMapping(m_ctx->mappingWf(), m_ctx->versionCtl(), m_ctx->versionStore(),
@@ -189,6 +188,7 @@ class TestUiShell : public QObject
               m_ctx->styleSvc());
       m_win = new PaleoMainWindow(m_ctx->canvasCtl(), m_ctx->projectSvc(),
                                   m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+      m_win->setSharedPreviewServices(m_ctx->previewDoc(), m_ctx->seismicTaskSvc());
     }
 
     void cleanupTestCase()
@@ -2359,11 +2359,18 @@ class TestUiShell : public QObject
       // 方向51：产品装配装的是真 router（无远端配置→如实失败），本用例需要
       // 能出层的预测结果——显式注入 tests/ 替身（口径同 tst_mappingworkbench）。
       MockRemotePredictionService predictionMock;
-      m_ctx->mappingWorkbench()->setPredictionService(&predictionMock);
+      auto *workbench = m_ctx->mappingWorkbench();
+      const auto restoreServices = qScopeGuard([workbench, remote = workbench->predictionService(),
+                                                wells = workbench->wellPredictionService()] {
+        workbench->setPredictionService(remote);
+        workbench->setWellPredictionService(wells);
+      });
+      workbench->setPredictionService(&predictionMock);
       // 测井预测走通用远端路径交给 Mock（装配的真 WellPredictionService 走
       // current-formation 口径——本用例断言的是逐井段预测相面板）。
-      m_ctx->mappingWorkbench()->setWellPredictionService(nullptr);
+      workbench->setWellPredictionService(nullptr);
       QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("mapping.qgz")));
+      const auto closeProject = qScopeGuard([this] { m_ctx->projectSvc()->closeProject(); });
       m_win->attachWorkflows(m_ctx->predictionWf(),m_ctx->constraintWf(),m_ctx->compositionWf(),m_ctx->validationWf(),m_ctx->importSvc(),m_ctx->seismicLink(),m_ctx->processingSvc(),m_ctx->store(),m_ctx->editingSvc(),m_ctx->layoutSvc(),m_ctx->taskSvc());
       m_win->attachWorkbench(m_ctx->mappingWorkbench());
       // 输入列表走「catalog changed→workbench changed→页 0ms 定时器刷新」

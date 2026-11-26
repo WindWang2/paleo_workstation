@@ -858,12 +858,16 @@ private slots:
     { QgisProjectService writer; QVERIFY(writer.createProject(path)); }
     auto entered = std::make_shared<std::atomic_bool>(false);
     auto release = std::make_shared<QSemaphore>();
-    const auto releaseOnExit = qScopeGuard([release] { release->release(); });
-    m_ctx->projectSvc()->setOpenPreparation([=](const QString &) {
+    auto *service = m_ctx->projectSvc();
+    const auto restore = qScopeGuard([service, previous = service->openPreparation(), release] {
+      service->setOpenPreparation(previous);
+      release->release();
+    });
+    service->setOpenPreparation([=](const QString &) {
       return [=](const std::function<bool()> &) { entered->store(true); release->acquire(); };
     });
-    QSignalSpy drained(m_ctx->projectSvc(), &QgisProjectService::openWorkerFinished);
-    QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
+    QSignalSpy drained(service, &QgisProjectService::openWorkerFinished);
+    QVERIFY(service->openProjectAsync(path));
     QTRY_VERIFY_WITH_TIMEOUT(entered->load(), 10000);
     ProjectDirLock competitor(directory.path());
     QVERIFY(!competitor.tryLock());
@@ -871,13 +875,13 @@ private slots:
     auto *cancel = m_win->findChild<QToolButton *>(QStringLiteral("cancelProjectOpenButton"));
     QVERIFY(cancel && cancel->isEnabled());
     QTest::mouseClick(cancel, Qt::LeftButton);
-    QVERIFY(m_ctx->projectSvc()->lastOpenCancelled());
+    QVERIFY(service->lastOpenCancelled());
     m_ctx->closeProject();
     QVERIFY(!competitor.tryLock());
     release->release();
     QTRY_COMPARE(drained.count(), 1);
     QVERIFY(competitor.tryLock());
-    QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
+    QVERIFY(service->projectPath().isEmpty());
   }
   void backgroundOpenBlocksEditingInputAndRestoresItOnCancel()
   {

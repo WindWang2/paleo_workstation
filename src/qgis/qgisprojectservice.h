@@ -36,6 +36,7 @@ class QgisProjectService : public QObject
     using OpenPreparation =
         std::function<std::function<void(const std::function<bool()> &cancelled)>(
             const QString &projectDir)>;
+    OpenPreparation openPreparation() const { return m_openPreparation; }
     void setOpenPreparation(const OpenPreparation &prepare) { m_openPreparation = prepare; }
     // 旧工厂不接收谓词（工人闭包看不到取消）。适配后仍可登记，谓词被忽略。
     void setOpenPreparation(

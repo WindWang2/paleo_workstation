@@ -41013,6 +41013,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>该来源或井筒标识已有不同归属，请核对。</translation>
     </message>
     <message>
+        <location filename="../src/workflow/documentsession_wellbores.cpp" line="66"/>
+        <source>无法将这份 LAS 确认到所选井。请核对 LAS 解析出的所属井和资料关联，两者须指向同一口井。</source>
+        <translation>无法将这份 LAS 确认到所选井。请核对 LAS 解析出的所属井和资料关联，两者须指向同一口井。</translation>
+    </message>
+    <message>
         <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="43"/>
         <source>请填写井筒标识和名称。</source>
         <translation>请填写井筒标识和名称。</translation>

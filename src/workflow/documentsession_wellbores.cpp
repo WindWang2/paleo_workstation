@@ -61,6 +61,9 @@ SourceCommandResult DocumentSession::confirmWellboreSource(const WellboreSourceC
         result.code = "wellbore_source_confirmed";
         result.versionId = version.id;
         emit sourcesChanged({m_epoch, m_revision, result.operationId, {}, {record.ref.key()}});
+    } else if (result.error == QStringLiteral("SourceWellMismatch")) {
+        result.code = "wellbore_source_well_mismatch";
+        result.error = QObject::tr("无法将这份 LAS 确认到所选井。请核对 LAS 解析出的所属井和资料关联，两者须指向同一口井。");
     } else {
         result.code = result.error.startsWith("WellboreConflict") ? "wellbore_conflict" : "wellbore_source_write_failed";
     }

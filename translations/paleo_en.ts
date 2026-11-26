@@ -40868,6 +40868,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <translation>This source or wellbore ID already has a different assignment. Check the assignment.</translation>
         </message>
         <message>
+            <location filename="../src/workflow/documentsession_wellbores.cpp" line="66" />
+            <source>无法将这份 LAS 确认到所选井。请核对 LAS 解析出的所属井和资料关联，两者须指向同一口井。</source>
+            <translation>Cannot confirm this LAS for the selected well. Check that the LAS resolves to a single well and that the catalog links it to the same well.</translation>
+        </message>
+        <message>
             <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="43" />
             <source>请填写井筒标识和名称。</source>
             <translation>Enter the wellbore ID and name.</translation>

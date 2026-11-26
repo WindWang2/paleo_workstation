@@ -555,6 +555,7 @@ private slots:
     PaleoMainWindow window(&canvas, &f.project, &f.layers, nullptr, &selection);
     window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, nullptr, nullptr, &f.processing, &f.store);
     window.attachWorkbench(&f.work);
+    window.resize(730, 600);
     window.show(); window.showPage("compose"); selection.setActiveHorizon("D61");
     QString error;
     const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
@@ -577,7 +578,6 @@ private slots:
     auto *reference = evidence->views().first();
     QVERIFY(reference->hasReference());
     QCOMPARE(reference->property("paleo.referenceVersion").toString(), sources.first());
-    window.resize(730, 600);
     auto *tabs = window.findChild<QTabBar *>("comparisonMapTabs"); QVERIFY(tabs);
     auto *split = window.findChild<QWidget *>("comparisonSplitter"); QVERIFY(split);
     auto *settings = window.findChild<QToolButton *>("comparisonReferenceSettings"); QVERIFY(settings);
@@ -586,8 +586,17 @@ private slots:
     QVERIFY(!settings->isChecked() && !choices->isVisible());
     QVERIFY(tabs->tabToolTip(1).contains(sources.first()));
     auto *referenceCanvas = reference->canvas(); QVERIFY(referenceCanvas);
+    QTRY_COMPARE(referenceCanvas->size(), split->contentsRect().size());
     tabs->setCurrentIndex(0);
     QTRY_COMPARE(canvas.canvas()->geometry(), split->contentsRect());
+    const QSize frame = canvas.canvas()->size() - canvas.canvas()->viewport()->size();
+    tabs->setCurrentIndex(1);
+    // The host can receive another layout pass after show(). Wait for the
+    // real viewport to fill the current splitter rectangle before caching its size.
+    QTRY_COMPARE(referenceCanvas->viewport()->size(), split->contentsRect().size() - frame);
+    const QSize referenceSize = referenceCanvas->viewport()->size();
+    tabs->setCurrentIndex(0);
+    QTRY_COMPARE(canvas.canvas()->viewport()->size(), referenceSize);
     const QSize primarySize = canvas.canvas()->viewport()->size();
     tabs->setCurrentIndex(1);
     QTRY_COMPARE(referenceCanvas->viewport()->size(), primarySize);

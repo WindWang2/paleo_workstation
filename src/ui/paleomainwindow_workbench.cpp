@@ -450,12 +450,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
             [this, show, shown, pages](const QString &h) {
               QMetaObject::invokeMethod(
                   this,
-                  [this, show, shown, pages, h] {
+                  [this, show, shown, pages, h, id = shown->value(h)] {
                     // 排队回调执行时选择服务可能已被拆除（#994）：判空后跳过。
-                    if (!m_selection || m_selection->activeHorizon() != h || !shown->contains(h))
+                    if (!m_selection || m_selection->activeHorizon() != h ||
+                        id.isEmpty() || shown->value(h) != id)
                       return;
                     QString error;
-                    const auto id = shown->value(h);
                     if (show(id, &error))
                       for (auto *page : pages)
                         if (page->horizon() == h)
@@ -559,14 +559,22 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
     auto *canvas = m_canvasCtl->canvas();
     const auto visible = canvas->layers();
     const auto eligible = [&](QgsMapLayer *layer) {
-      if (!layer || !visible.contains(layer) || !layer->isInScaleRange(canvas->scale())) return false;
+      if (!layer || !layer->isInScaleRange(canvas->scale())) return false;
       const auto layerId = layer->customProperty("paleoLayerId").toString();
       const auto d = workbench->declaration(layerId);
       const auto extra = workbench->versionForLayer(layerId).extra;
+      const bool raw = paleo::seismic::isRawClusterProduct(extra.value("kind").toString());
+      if (!visible.contains(layer)) {
+        // On an explicit cluster switch the native tree has already changed, while
+        // its canvas bridge is still queued. Other legends follow the rendered layers.
+        if (!raw || (layerId != id && layer != canvas->currentLayer())) return false;
+        const auto *node = canvas->project() ? canvas->project()->layerTreeRoot()->findLayer(layer->id()) : nullptr;
+        if (!node || !node->isVisible()) return false;
+      }
       const auto horizon = d.horizon.isEmpty() ? extra.value("horizon").toString() : d.horizon;
       if (!horizon.isEmpty() && !matchesWorkbenchHorizon(m_selection,horizon)) return false;
       return !layer->customProperty("paleo/faciesDisplayLegend").toList().isEmpty() ||
-          paleo::seismic::isRawClusterProduct(extra.value("kind").toString()) ||
+          raw ||
           workbench->supportsFaciesDisplay(layerId) ||
           paleo::singlefactor::isAnalysisFactorRaster(extra.value("kind").toString(), extra.value("value_source").toString()) ||
           paleo::singlefactor::rejectsQuantitativeUse(extra.value("kind").toString(), extra.value("value_source").toString());

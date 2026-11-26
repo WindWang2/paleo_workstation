@@ -90,6 +90,12 @@ QString readColumns(data::DataService &service,const AnalysisReadPlan &plan,QVec
     if(entries.size()!=1 || entries.front().id!=selection.curveId || entries.front().wellId!=selection.wellId ||
         entries.front().parentId!=selection.logSetId || entries.front().sourceId!=selection.source.ref.sourceId)
       return "python_analysis_curve_mismatch";
+    if(!selection.wellboreKey.isEmpty()) {
+      std::optional<data::WellboreRef> bore;
+      if(!service.findWellbore(data::SourceWellboreKey{sourceId,"file"},bore,error))return "wellbore_query_unavailable";
+      if(!bore)return "wellbore_source_unconfirmed";
+      if(bore->wellId!=selection.wellId || bore->key!=selection.wellboreKey.toStdString())return "wellbore_source_mismatch";
+    }
     data::CurveReadOptions budget;budget.maxSamples=selection.sampleCount;budget.maxLegacyBytes=0;
     budget.maxReadBytes=plan.readByteBudget-metrics.payloadBytes-metrics.metadataTextBytes;budget.cancelled=cancelled;
     if(budget.maxReadBytes<1)return "python_analysis_read_budget";

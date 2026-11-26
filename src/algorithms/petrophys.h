@@ -1,5 +1,6 @@
 // 层：数据
 #pragma once
+#include "domain/petrophysquality.h"
 
 // petrophys — 测井岩石物理公式核 + 深度对齐 + 曲线 QC（纯数值，无 Qt/GIS 依赖）。
 // 输入输出均为平凡 double 缓冲（与 LasCurve::values 同元素类型），逐点运算；
@@ -83,26 +84,8 @@ bool resampleLinear(const std::vector<double> &refDepths,
                     std::vector<double> &out);
 
 // ---- 曲线 QC --------------------------------------------------------------------
-struct CurveStats
-{
-  int n = 0;               // 总样本数（含 null）
-  int valid = 0;           // 非 NaN 样本
-  int nulls = 0;           // NaN 样本
-  double nullRate = 0.0;   // nulls / n（n=0 时 0）
-  double min = 0.0, max = 0.0;
-  double mean = 0.0;
-  double stddev = 0.0;     // 样本标准差（n−1 分母；valid<2 → NaN）
-};
-
 // 摘要统计：valid==0 时 min/max/mean/stddev = NaN（无数据不臆造 0）。
 CurveStats curveStats(const double *x, int n);
-
-struct DepthInterval
-{
-  double from = 0.0, to = 0.0;  // 起止深度（区间内首末样本深度）
-  int fromIndex = -1, toIndex = -1;
-  int samples = 0;              // 段内样本数
-};
 
 // 异常区间：value < lo 或 value > hi 的连续非空样本段。NaN 断段——缺失样本
 // 无证据，不得把两侧越界段连通。返回段按深度升序。

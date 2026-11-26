@@ -13,6 +13,7 @@ struct Plan {
   QVariantList relations, entities, links;
   QStringList failures, warnings;
   qint64 bytes = 0;
+  QString projectId;
 };
 using Cancel = std::function<bool()>;
 using Progress = std::function<void(qint64, qint64, const QString &)>;

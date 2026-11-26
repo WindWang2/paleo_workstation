@@ -84,6 +84,8 @@ add_paleo_test(tst_tracking_input LIBS paleo_app_agentproviders paleo_workflow P
 # 视图层：助手 dock + 配置对话框（方向62）+ 工具结果结构化视图（方向93）。
 target_sources(paleo_ui PRIVATE
   src/ui/ai/aiassistdock.cpp
+  src/ui/ai/aiassistdock_layout.cpp
+  src/ui/ai/aiassistdock_transcript.cpp
   src/ui/ai/aiassistdock_import.cpp
   src/ui/paleomainwindow_agentimport.cpp
   src/ui/ai/llmconfigdialog.cpp

@@ -15,13 +15,16 @@ class AiOperationDetailWidget;
 class AiPlanReviewWidget;
 class AiContextBar;
 namespace paleo::chat { class AiOperationPresentation; class AiPlanPresentation; }
+class QAction;
 class QComboBox;
 class QHBoxLayout;
 class QLabel;
 class QPushButton;
 class QFrame;
+class QScrollArea;
 class QTextBrowser;
 class QTextEdit;
+class QTimer;
 class QVBoxLayout;
 
 // ui/ai/ — AI 地质对话助手 dock（方向51 骨架，方向61 工具两态卡片、方向62
@@ -74,6 +77,9 @@ protected:
   void changeEvent(QEvent *event) override;
 
 private:
+  void buildSessionHeader(QVBoxLayout *layout);
+  void buildComposer(QVBoxLayout *layout);
+  void updateSendButton();
   void buildFileImportControls(QHBoxLayout *actions, QVBoxLayout *layout);
   bool filterFileDrop(QObject *watched, QEvent *event);
   void chooseFilesForImport();
@@ -91,7 +97,19 @@ private:
   void syncCardOperationControls(AiConversationCard *card);
   void retireCard(AiConversationCard *card);
   QList<AiConversationCard *> operationCards(const QString &operationId) const;
-  void writeBlock(const QString &html);
+  struct TranscriptEntry {
+    QString label;
+    QString text;
+    bool markdown = false;
+    bool error = false;
+  };
+  QTextBrowser *createTranscript();
+  void clearTranscript();
+  void appendEntry(const TranscriptEntry &entry);
+  void renderAssistantDraft();
+  void refreshTranscriptTheme();
+  QList<TranscriptEntry> m_transcriptEntries;
+  PaleoTheme::Theme m_transcriptTheme = PaleoTheme::currentTheme();
   void bindController();
   // 会话面（方向62）
   void renderSession();    // 按编排器历史整页重画（切换/重发截断后）
@@ -104,7 +122,7 @@ private:
   static QString displayNameOf(const paleo::chat::ChatSessionSummary &recent);
   void renameComboSession(); // 弹标题输入（视图本地输入框，非业务对话框）
   // 消息面（方向62）
-  void finalizeAssistantBlock(); // 流结束：增量纯文本 → markdown 渲染定型
+  void finalizeAssistantBlock(); // 流结束时立即显示最后一批增量。
   void copyTranscript();
   void exportSession();
   void updateActionStates(); // 操作按钮可用性（复制/导出/重发/重命名/删除）
@@ -127,12 +145,13 @@ private:
   AiPlanReviewWidget *m_planReview = nullptr; // H5：计划审阅面板（默认隐藏）
   QLabel *m_status = nullptr;
   QComboBox *m_sessions = nullptr;
-  QPushButton *m_rename = nullptr;
-  QPushButton *m_delete = nullptr;
+  QAction *m_rename = nullptr;
+  QAction *m_delete = nullptr;
   QTextBrowser *m_transcript = nullptr;
   class PaleoEmptyStateLabel *m_emptyState = nullptr; // #870 对话区空态指引
   void updateEmptyState();
   QWidget *m_cards = nullptr;
+  QScrollArea *m_cardScroll = nullptr;
   QVBoxLayout *m_cardLayout = nullptr;
   QLabel *m_historyNote = nullptr;    // W8：更早结果窗口注记
   QPushButton *m_historyOlder = nullptr;
@@ -140,11 +159,9 @@ private:
   QTextEdit *m_input = nullptr;
   QPushButton *m_send = nullptr;
   QPushButton *m_stop = nullptr;
-  QPushButton *m_new = nullptr;
-  QPushButton *m_configure = nullptr;
-  QPushButton *m_copy = nullptr;
-  QPushButton *m_export = nullptr;
-  QPushButton *m_resend = nullptr;
+  QAction *m_copy = nullptr;
+  QAction *m_export = nullptr;
+  QAction *m_resend = nullptr;
   QPushButton *m_importFiles = nullptr;
   QLabel *m_importStatus = nullptr;
   quint64 m_importProjectSession = 0;
@@ -157,8 +174,10 @@ private:
   // W7：每会话未发送草稿（UI 内保存/恢复；不进模型历史/会话存储）。
   QHash<QString, QString> m_drafts;
   bool m_restoringDraft = false;
-  // 流式块记账：起点位置 + 增量累积（finalize 时一次性替换为 markdown）。
+  // 流式预览只排版当前回复；已完成的历史消息保留原文供换主题时重绘。
   int m_assistantStart = -1;
+  QTimer *m_previewTimer = nullptr;
+  qsizetype m_previewLength = -1;
   QString m_assistantDraft;
   QHash<QString, AiConversationCard *> m_toolCards; // key = tool_call id（实时）
   QVector<paleo::chat::HistoryToolCall> m_historyTools; // W2 只读投影

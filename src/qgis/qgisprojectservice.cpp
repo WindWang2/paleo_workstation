@@ -1,4 +1,5 @@
 // 层：QGIS 封装
+#include "metadata/managedpath.h"
 #include "qgisprojectservice.h"
 #include "../io/areamodel.h"
 
@@ -156,6 +157,11 @@ void QgisProjectService::closeProject()
   emit projectClosed();
 }
 
+bool QgisProjectService::allowsProjectWritesAt(const QString &directory) const
+{
+  return m_writableProjectRoot.isEmpty() || paleo::managedpath::isWithinRoot(m_writableProjectRoot, directory);
+}
+
 bool QgisProjectService::openProject( const QString &qgzPath )
 {
   if (m_opening || m_openFuture.isRunning())
@@ -250,6 +256,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     return false;
   }
 
+  m_entryPath = QFileInfo(qgzPath).absoluteFilePath();
   m_path = qgzFile;
   m_readOnly = readOnly;
 
@@ -350,6 +357,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   }
   notifyAboutToClose();
   m_project->clear();
+  m_entryPath.clear();
   m_path = qgzPath;
   m_readOnly = readOnly;
   m_georeference.reset();

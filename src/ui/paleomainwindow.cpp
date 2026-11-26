@@ -577,7 +577,7 @@ void PaleoMainWindow::setProjectReadOnly(bool readOnly)
         paleo::shortcuts::keyFor(QStringLiteral("main.project.save")));
     const QString enabledTip =
         saveKey.isEmpty() ? tr("保存工程") : tr("保存工程（%1）").arg(saveKey);
-    saveAct->setToolTip(readOnly ? tr("工程处于只读模式（另一个实例持有写锁）") : enabledTip);
+    saveAct->setToolTip(readOnly ? tr("工程处于只读模式") : enabledTip);
   }
 
   if (auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
@@ -587,7 +587,9 @@ void PaleoMainWindow::setProjectReadOnly(bool readOnly)
 
   if (statusBar() && readOnly)
   {
-    statusBar()->showMessage(tr("工程以只读模式运行（写操作已禁用）"), 10000);
+    const bool external = m_projectSvc && !m_projectSvc->allowsProjectWritesAt(QFileInfo(m_projectSvc->projectPath()).absolutePath());
+    statusBar()->showMessage(external ? tr("工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。")
+                                      : tr("工程以只读模式运行（写操作已禁用）"), 10000);
   }
 }
 

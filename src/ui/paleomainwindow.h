@@ -466,6 +466,7 @@ public:
     // 「多选文件导入」：与文件夹导入同一确认表/两阶段导入语义，数据源是
     // 显式文件清单（识别不了的类型按分类器落 document/unknown → 辅助资料）。
     void runFilesImportAt(DataImportService *svc, const QStringList &paths, const QString &kind = {});
+    void pickOriginalPackage(quint64 session);
     using FileImportReport = std::function<void(const QVector<FolderRowResult> &, const QString &, bool)>;
     void confirmFileImport(const QStringList &paths, const QVector<FolderPreviewRow> &preview,
                            const QString &kind, quint64 session, const FileImportReport &report = {});

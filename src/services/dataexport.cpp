@@ -2,6 +2,10 @@
 #include "dataexport.h"
 #include "datagraph.h"
 #include "evidenceindex.h"
+#include "io/sourcefingerprint.h"
+#include "io/horizongridexchange.h"
+#include "io/checkshotexchange.h"
+#include "metadata/paleoprojectfile.h"
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -11,11 +15,27 @@
 #include <QJsonDocument>
 #include <QQueue>
 #include <QSaveFile>
+#include <QStorageInfo>
 #include <QTemporaryDir>
 
 namespace paleo::exporting {
 namespace {
 bool stopped(const Cancel &cancel) { return cancel && cancel(); }
+bool isRegisteredHorizon(const Item &item) {
+  const auto origin = item.version.extra.value("origin").toString();
+  return item.asset.type == "horizon" && item.version.stage == "DERIVED" &&
+      (origin == "seismic-interpretation" || origin == "seismic-propagation");
+}
+QVariantMap horizonSource(const Item &item, const QString &project, const QString &sha) {
+  const auto &v = item.version;
+  QString name = v.extra.value("horizonName").toString();
+  const QString legacyPrefix = QStringLiteral("seis_horizon_%1_").arg(v.sourceUri);
+  if (name.isEmpty() && item.asset.id.startsWith(legacyPrefix)) name = item.asset.id.mid(legacyPrefix.size());
+  return {{"project_id",project}, {"asset_id",item.asset.id}, {"version_id",v.id}, {"parent_asset_id",v.sourceUri},
+      {"parent_version_id",v.parentVersionIds.size() == 1 ? v.parentVersionIds.first() : QString()},
+      {"horizon_name",name}, {"survey_ids",v.extra.value("horizonSurveyIds").toStringList()},
+      {"time_unit","ms"}, {"time_type","TWT"}, {"time_reference",QStringLiteral("")}, {"payload_sha256",sha}};
+}
 // QTemporaryDir 的随机段是 6 个字母数字；只认本仓导出/导入暂存根的字面量，
 // 不碰用户自己的隐藏目录。根清单须与各创建点保持同口径（B-02：#540 清扫器
 // 漏了 .mapbook-/.thickness-/.paleomap-import- 三个现存创建点）。
@@ -73,6 +93,16 @@ QString safeName(const QString &name) {
 bool copyChecked(const QString &source, const QString &destination, const QString &expected,
                  const Cancel &cancel, const Progress &progress, qint64 &done, qint64 total,
                  QString *sha, QString *error) {
+  using namespace paleo::document;
+  const auto fingerprint = SourceFingerprint::fromStored(expected);
+  if (!expected.isEmpty() && !fingerprint.valid()) {
+    *error = QObject::tr("来源版本指纹格式无效：%1").arg(source); return false;
+  }
+  auto stamp = sourceFileStamp(source);
+  if (fingerprint.kind == FingerprintKind::SegyQuickV1) {
+    qint64 headerBytes = 0;
+    if (!verifySourceFingerprint(source, fingerprint, stamp, headerBytes, error, cancel)) return false;
+  }
   QFile input(source);
   QSaveFile output(destination);
   output.setDirectWriteFallback(false);
@@ -81,16 +111,20 @@ bool copyChecked(const QString &source, const QString &destination, const QStrin
   }
   QCryptographicHash hash(QCryptographicHash::Sha256);
   QElapsedTimer clock; clock.start();
+  qint64 copied = 0;
   while (!input.atEnd()) {
     if (stopped(cancel)) { output.cancelWriting(); return false; }
     const auto bytes = input.read(1024 * 1024);
     if (bytes.isEmpty() && input.error() != QFile::NoError) { *error = input.errorString(); return false; }
     if (output.write(bytes) != bytes.size()) { *error = output.errorString(); return false; }
-    hash.addData(bytes); done += bytes.size();
+    hash.addData(bytes); copied += bytes.size(); done += bytes.size();
     if (progress && clock.elapsed() >= 50) { progress(done, total, QFileInfo(source).fileName()); clock.restart(); }
   }
+  if (input.error() != QFile::NoError || copied != stamp.size || sourceFileStamp(source) != stamp) {
+    *error = QObject::tr("复制期间来源文件发生变化或读取不完整：%1").arg(source); return false;
+  }
   *sha = QString::fromLatin1(hash.result().toHex());
-  if (!expected.isEmpty() && sha->compare(expected, Qt::CaseInsensitive) != 0) {
+  if (fingerprint.kind == FingerprintKind::Sha256 && *sha != fingerprint.value) {
     *error = QObject::tr("文件内容与版本留底 SHA-256 不符：%1").arg(source); return false;
   }
   if (stopped(cancel)) { output.cancelWriting(); return false; }
@@ -196,6 +230,11 @@ QHash<QString, QStringList> versionIdsForPaths(const DataCatalog &catalog, const
 
 Plan plan(const DataCatalog &snapshot, const QString &projectDir, const DataRequest &request, const Cancel &cancel) {
   Plan result; result.request = request;
+  bool manifestOk = false;
+  const auto project = readProjectFile(paleoProjectFilePath(projectDir), &manifestOk, nullptr, 16 * 1024 * 1024);
+  if (manifestOk) result.projectId = project.projectId;
+  if (result.projectId.isEmpty())
+    result.warnings << QObject::tr("缺少持久工程标识；本批数据可导出，接收方需核实来源工程。");
   if (request.scope == Scope::Original && request.format != DataFormat::Native) {
     result.failures << QObject::tr("原始文件导出必须保持原格式"); return result;
   }
@@ -312,6 +351,12 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
     result.error = QObject::tr("导出目标必须是已有父目录中的新目录"); return result;
   }
   sweepStaleStagingRoots(destination.absoluteDir().path()); // 崩溃残留的 .paleo-export-*（#540）
+  const QStorageInfo volume(destination.absoluteDir().absolutePath());
+  if (plan.request.format == DataFormat::Native && volume.isValid() && volume.isReady() &&
+      volume.bytesAvailable() >= 0 && volume.bytesAvailable() < plan.bytes) {
+    result.error = QObject::tr("原件交付需要 %1 字节，目标卷可用 %2 字节").arg(plan.bytes).arg(volume.bytesAvailable());
+    return result;
+  }
   QTemporaryDir staging(destination.absoluteDir().filePath(".paleo-export-XXXXXX"));
   if (!staging.isValid()) { result.error = QObject::tr("无法创建导出暂存目录"); return result; }
   QVariantList manifest;
@@ -328,8 +373,18 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
     QString error, sourceSha;
     QStringList files;
     QVariantMap description;
-    // Pin and verify bytes before handing the private copy to a format writer.
-    // File backed layers are never reconstructed from a mutable live URI.
+    const bool convert = plan.request.format != DataFormat::Native &&
+        !(plan.request.scope == Scope::Sources && !plan.request.versionIds.contains(v.id));
+    const bool keepCsv = convert && QFileInfo(item.path).suffix().compare("csv", Qt::CaseInsensitive) == 0 &&
+        (plan.request.format == DataFormat::Exchange || plan.request.format == DataFormat::Csv);
+    const bool exchangeGrid = convert && plan.request.format == DataFormat::Exchange && isRegisteredHorizon(item);
+    const bool timeDepth = convert && plan.request.format == DataFormat::Exchange && item.asset.type == "time_depth";
+    const bool exchangeTd = timeDepth && io::isPetrelCheckshotSource(item.path);
+    const bool preserveBytes = !convert || (keepCsv && !exchangeGrid && !exchangeTd) ||
+        (timeDepth && !v.extra.value("checkshotExchange").toMap().isEmpty());
+    QHash<QString, QString> copiedHashes;
+    // Conversion needs a frozen input. For byte-preserving formats, the verified
+    // copy is already the final member of the private, same-volume export batch.
     QTemporaryDir input(staging.filePath(".input-XXXXXX"));
     if (!input.isValid()) { result.error = QObject::tr("无法创建导出暂存目录"); return result; }
     const auto parts = companions(item.path, &error, v.extra.value("bundle_members").toList());
@@ -339,7 +394,9 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
       error = QObject::tr("VRT 外部依赖暂不能冻结，请先保存为 GeoTIFF 再导出");
     }
     for (const auto &part : inputs) {
-      const auto target = input.filePath(QFileInfo(part).fileName());
+      const auto name = keepCsv ? safeName(part) : QFileInfo(part).fileName();
+      const auto target = preserveBytes ? QDir(directory).filePath(name) : input.filePath(name);
+      if (QFileInfo::exists(target)) { error = QObject::tr("导出文件重名：%1").arg(name); break; }
       QString digest;
       QString expected = part == item.path ? v.sha256 : QString();
       for (const auto &entry : v.extra.value("bundle_members").toList())
@@ -347,39 +404,39 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
       if (!copyChecked(part, target, expected, cancel, progress,
                        done, plan.bytes, &digest, &error)) break;
       if (part == item.path) sourceSha = digest;
+      if (preserveBytes) {
+        files << target;
+        copiedHashes.insert(target, digest);
+      }
     }
     if (stopped(cancel)) { result.cancelled = true; return result; }
-    const bool convert = plan.request.format != DataFormat::Native &&
-        !(plan.request.scope == Scope::Sources && !plan.request.versionIds.contains(v.id));
-    if (error.isEmpty() && convert) {
-      if (QFileInfo(item.path).suffix().compare("csv", Qt::CaseInsensitive) == 0 &&
-          (plan.request.format == DataFormat::Exchange || plan.request.format == DataFormat::Csv)) {
-        for (const auto &part : inputs) {
-          const auto name = safeName(part);
-          const auto path = QDir(directory).filePath(name);
-          // 暂存内键与落盘名解耦（#540）：写入暂存时用的键是
-          // QFileInfo(part).fileName()（与上面拷贝入暂存同键），safeName 只作用
-          // 于最终落盘名——否则段名不合法时这里必然假失败。
-          if (QFile::copy(input.filePath(QFileInfo(part).fileName()), path)) files << path;
-          else { error = QObject::tr("无法写出 CSV 及配套文件"); break; }
+    if (error.isEmpty() && !preserveBytes) {
+      if (exchangeTd) {
+        const auto inputFile = input.filePath(QFileInfo(item.path).fileName());
+        const auto output = QDir(directory).filePath(QStringLiteral("time-depth.checkshots"));
+        const QVariantMap source{{"project_id",plan.projectId},{"asset_id",item.asset.id},{"version_id",v.id},
+            {"source_name",v.fileName.isEmpty() ? QFileInfo(item.path).fileName() : v.fileName},{"payload_sha256",sourceSha}};
+        if (io::writeCheckshotExchange(inputFile, output, source, &error, cancel)) {
+          files.append(output); description.insert("profile", QLatin1String(io::checkshotProfile));
+        }
+      } else if (exchangeGrid) {
+        const auto name = QFileInfo(item.path).fileName();
+        const auto output = QDir(directory).filePath(name);
+        const auto source = horizonSource(item, plan.projectId, sourceSha);
+        if (io::writeHorizonGridExchange(input.filePath(name), output, source, &error, cancel)) {
+          files.append(output); description.insert("profile", QStringLiteral("paleo_horizon_grid_v1"));
         }
       } else if (!converter) error = QObject::tr("该格式的写出服务尚未连接");
       else if (!converter(input.filePath(QFileInfo(item.path).fileName()), directory,
                      plan.request.format, &files, &description, &error, cancel) && error.isEmpty())
         error = QObject::tr("交换格式写出失败");
-    } else if (error.isEmpty()) {
-      for (const auto &part : inputs) {
-        const auto path = QDir(directory).filePath(QFileInfo(part).fileName());
-        if (!QFile::copy(input.filePath(QFileInfo(part).fileName()), path)) { error = QObject::tr("无法提交数据文件"); break; }
-        files << path;
-      }
     }
     if (stopped(cancel)) { result.cancelled = true; return result; }
     if (!error.isEmpty()) { result.failures << v.id + "：" + error; QDir(directory).removeRecursively(); continue; }
     QVariantList outputs;
     for (const auto &file : files) {
       const auto rel = QDir(staging.path()).relativeFilePath(file);
-      const auto hash = DataCatalog::sha256FileHex(file, &error, cancel);
+      const auto hash = preserveBytes ? copiedHashes.value(file) : DataCatalog::sha256FileHex(file, &error, cancel);
       if (stopped(cancel)) { result.cancelled = true; return result; }
       if (hash.isEmpty()) break;
       outputs.append(QVariantMap{{"path", rel}, {"sha256", hash}, {"bytes", QFileInfo(file).size()}});
@@ -389,17 +446,20 @@ Result execute(const Plan &plan, const Cancel &cancel, const Progress &progress,
     if (description.contains("warning")) result.warnings << description.value("warning").toString();
     manifest.append(QVariantMap{{"asset_id", item.asset.id}, {"version_id", v.id},
         {"name", item.asset.displayName}, {"stage", v.stage}, {"version", v.versionNumber},
+        {"file_name", QFileInfo(item.path).fileName()}, {"source_fingerprint", v.sha256},
         {"source_sha256", sourceSha}, {"parent_version_ids", v.parentVersionIds},
         {"metadata", v.extra}, {"description", description}, {"files", outputs}});
     ++result.succeeded;
   }
   if (stopped(cancel)) { result.cancelled = true; return result; }
-  const auto metadata = QJsonDocument::fromVariant(QVariantMap{{"schema", "paleo_export_v1"},
+  QVariantMap batch{{"schema", "paleo_export_v1"},
       {"exported_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
       {"scope", int(plan.request.scope)}, {"format", int(plan.request.format)},
       {"root_versions", plan.request.versionIds}, {"complete", result.complete()},
       {"assets", manifest}, {"relations", plan.relations}, {"entities", plan.entities}, {"links", plan.links},
-      {"failures", result.failures}, {"warnings", result.warnings}}).toJson(QJsonDocument::Indented);
+      {"failures", result.failures}, {"warnings", result.warnings}};
+  if (!plan.projectId.isEmpty()) batch.insert("project_id", plan.projectId);
+  const auto metadata = QJsonDocument::fromVariant(batch).toJson(QJsonDocument::Indented);
   QSaveFile file(staging.filePath("metadata.json"));
   if (!file.open(QIODevice::WriteOnly) || file.write(metadata) != metadata.size() || !file.commit()) {
     result.error = QObject::tr("导出说明写入失败"); return result;

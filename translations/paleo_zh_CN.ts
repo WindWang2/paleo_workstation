@@ -87,208 +87,117 @@
 </context>
 <context>
     <name>AiAssistDock</name>
-        <message>
-            <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
-            <translation>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</translation>
-        </message>
-        <message>
-            <source>超限会话：%1</source>
-            <translation>超限会话：%1</translation>
-        </message>
-        <message>
-            <source>档案异常（%2）：%1</source>
-            <translation>档案异常（%2）：%1</translation>
-        </message>
-        <message>
-            <source>%1…</source>
-            <translation>%1…</translation>
-        </message>
-        <message>
-            <source>（列表可能不完整：部分会话尚未校验）</source>
-            <translation>（列表可能不完整：部分会话尚未校验）</translation>
-        </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="64"/>
-        <source>未配置</source>
-        <translation>未配置</translation>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="69"/>
+        <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
+        <translation>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="71"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="47"/>
+        <source>超限会话：%1</source>
+        <translation>超限会话：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="49"/>
+        <source>档案异常（%2）：%1</source>
+        <translation>档案异常（%2）：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="78"/>
+        <source>%1…</source>
+        <translation>%1…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="62"/>
+        <source>（列表可能不完整：部分会话尚未校验）</source>
+        <translation>（列表可能不完整：部分会话尚未校验）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="46"/>
         <source>新会话</source>
         <translation>新会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="73"/>
-        <source>配置…</source>
-        <translation>配置…</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="82"/>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="465"/>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="38"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="761"/>
         <source>会话</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="86"/>
-        <source>重命名</source>
-        <translation>重命名</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="88"/>
-        <source>删除</source>
-        <translation>删除</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="119"/>
-        <source>向助手提问（Enter 发送，Shift+Enter 换行）</source>
-        <translation>向助手提问（Enter 发送，Shift+Enter 换行）</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="127"/>
-        <source>复制</source>
-        <translation>复制</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="129"/>
-        <source>导出…</source>
-        <translation>导出…</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="131"/>
-        <source>重发</source>
-        <translation>重发</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="133"/>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="130"/>
         <source>发送</source>
         <translation>发送</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="135"/>
-        <source>停止</source>
-        <translation>停止</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="276"/>
-        <source>未接入助手编排</source>
-        <translation>未接入助手编排</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="289"/>
-        <source>助手尚未接入 — 打开工程后再使用 AI 助手</source>
-        <translation>助手尚未接入 — 打开工程后再使用 AI 助手</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="290"/>
-        <source>还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题</source>
-        <translation>还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="291"/>
-        <source>助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问</source>
-        <translation>助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="319"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="34"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="42"/>
         <source>（未命名会话）</source>
         <translation>（未命名会话）</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="339"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="88"/>
         <source>重命名会话</source>
         <translation>重命名会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="339"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="88"/>
         <source>会话标题：</source>
         <translation>会话标题：</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="382"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="111"/>
         <source>结果已回传模型（%1 字符）</source>
         <translation>结果已回传模型（%1 字符）</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="456"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="752"/>
         <source>对话内容</source>
         <translation>对话内容</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="765"/>
         <source>导出会话</source>
         <translation>导出会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="765"/>
         <source>Markdown 文件 (*.md)</source>
         <translation>Markdown 文件 (*.md)</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="474"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="770"/>
         <source>导出失败</source>
         <translation>导出失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="511"/>
-        <source>待执行</source>
-        <translation>待执行</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="541"/>
-        <source>执行中</source>
-        <translation>执行中</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="551"/>
-        <source>已完成</source>
-        <translation>已完成</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="551"/>
-        <source>失败</source>
-        <translation>失败</translation>
-    </message>
-    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="121"/>
         <source>◀ 更早结果</source>
         <translation>◀ 更早结果</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="123"/>
         <source>更新结果 ▶</source>
         <translation>更新结果 ▶</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="411"/>
         <source>操作服务未接入（查询/取消/恢复不可用）</source>
         <translation>操作服务未接入（查询/取消/恢复不可用）</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="507"/>
         <source>（未知工具）</source>
         <translation>（未知工具）</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="508"/>
         <source>历史记录</source>
         <translation>历史记录</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="537"/>
         <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
         <translation>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</translation>
-    </message>
-    <message>
-        <source>状态已刷新（修订 %1）</source>
-        <translation>状态已刷新（修订 %1）</translation>
-    </message>
-    <message>
-        <source>状态查询失败：%1</source>
-        <translation>状态查询失败：%1</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="566"/>
-        <source>输入问题，或将文件拖到此处导入当前工程。</source>
-        <translation>输入问题，或将文件拖到此处导入当前工程。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="567"/>
-        <source>将文件拖到此处导入当前工程。要与助手对话，请先配置模型。</source>
-        <translation>将文件拖到此处导入当前工程。要与助手对话，请先配置模型。</translation>
     </message>
     <message>
         <location filename="../src/ui/ai/aiassistdock_import.cpp" line="16"/>
@@ -314,6 +223,154 @@
         <location filename="../src/ui/ai/aiassistdock_import.cpp" line="59"/>
         <source>工程已变化，请重新选择文件。</source>
         <translation>工程已变化，请重新选择文件。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="42"/>
+        <source>当前会话</source>
+        <translation>当前会话</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="50"/>
+        <source>更多会话操作</source>
+        <translation>更多会话操作</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="51"/>
+        <source>更多</source>
+        <translation>更多</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="59"/>
+        <source>重发上一条消息</source>
+        <translation>重发上一条消息</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="61"/>
+        <source>复制对话</source>
+        <translation>复制对话</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="63"/>
+        <source>导出会话…</source>
+        <translation>导出会话…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="66"/>
+        <source>重命名会话…</source>
+        <translation>重命名会话…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="68"/>
+        <source>删除会话…</source>
+        <translation>删除会话…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="109"/>
+        <source>消息输入框</source>
+        <translation>消息输入框</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="110"/>
+        <source>输入消息…（Shift+Enter 换行）</source>
+        <translation>输入消息…（Shift+Enter 换行）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="128"/>
+        <source>模型设置…</source>
+        <translation>模型设置…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="132"/>
+        <source>停止生成</source>
+        <translation>停止生成</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="63"/>
+        <source>对话记录</source>
+        <translation>对话记录</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="102"/>
+        <source>文件导入</source>
+        <translation>文件导入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="107"/>
+        <source>你</source>
+        <translation>你</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="108"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="126"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="149"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="186"/>
+        <source>助手</source>
+        <translation>助手</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="109"/>
+        <source>系统</source>
+        <translation>系统</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="111"/>
+        <source>工具</source>
+        <translation>工具</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="159"/>
+        <source>错误</source>
+        <translation>错误</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="137"/>
+        <source>工具结果</source>
+        <translation>工具结果</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="439"/>
+        <source>助手尚未接入</source>
+        <translation>助手尚未接入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="441"/>
+        <source>Enter 发送，Shift+Enter 换行</source>
+        <translation>Enter 发送，Shift+Enter 换行</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="451"/>
+        <source>发送消息（Enter）</source>
+        <translation>发送消息（Enter）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="451"/>
+        <source>输入消息后即可发送</source>
+        <translation>输入消息后即可发送</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="464"/>
+        <source>输入问题，或拖入文件以导入当前工程。</source>
+        <translation>输入问题，或拖入文件以导入当前工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="465"/>
+        <source>拖入文件即可导入当前工程。配置模型后还可以提问。</source>
+        <translation>拖入文件即可导入当前工程。配置模型后还可以提问。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="466"/>
+        <source>输入问题，按 Enter 发送。</source>
+        <translation>输入问题，按 Enter 发送。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="467"/>
+        <source>点击「模型设置…」配置模型，即可开始对话。</source>
+        <translation>点击「模型设置…」配置模型，即可开始对话。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="468"/>
+        <source>助手尚未接入。</source>
+        <translation>助手尚未接入。</translation>
     </message>
 </context>
 <context>
@@ -1099,6 +1156,57 @@
         <source>原始内容（已截断，保留前 %1 字符）</source>
         <translation>原始内容（已截断，保留前 %1 字符）</translation>
     </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="340"/>
+        <source>%1（%2）</source>
+        <translation>%1（%2）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="339"/>
+        <source>主井筒</source>
+        <translation>主井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="335"/>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="336"/>
+        <source>井筒</source>
+        <translation>井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="336"/>
+        <source>井筒资料暂不可读取</source>
+        <translation>井筒资料暂不可读取</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="339"/>
+        <source>已登记分支井筒</source>
+        <translation>已登记分支井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="335"/>
+        <source>所属井尚待确认</source>
+        <translation>所属井尚待确认</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="370"/>
+        <source>归属冲突</source>
+        <translation>归属冲突</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="369"/>
+        <source>待确认</source>
+        <translation>待确认</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="371"/>
+        <source>来源待核验</source>
+        <translation>来源待核验</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aitoolresultview.cpp" line="355"/>
+        <source>来源所属井筒</source>
+        <translation>来源所属井筒</translation>
+    </message>
 </context>
 <context>
     <name>AlgorithmSpec</name>
@@ -1197,6 +1305,11 @@
         <location filename="../src/app/appcontext_layers.cpp" line="190"/>
         <source>测区范围</source>
         <translation>测区范围</translation>
+    </message>
+    <message>
+        <location filename="../src/app/appcontext.cpp" line="522"/>
+        <source>请将新工程保存到可用的数据盘 %1。</source>
+        <translation>请将新工程保存到可用的数据盘 %1。</translation>
     </message>
 </context>
 <context>
@@ -8870,6 +8983,16 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <source>工程处于只读模式，撤销/重做已禁用</source>
         <translation>工程处于只读模式，撤销/重做已禁用</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="26"/>
+        <source>接收原件包</source>
+        <translation>接收原件包</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="27"/>
+        <source>选择另一工程导出的原件包目录，校验并保存 LAS 或 SEG-Y，再确认导入</source>
+        <translation>选择另一工程导出的原件包目录，校验并保存 LAS 或 SEG-Y，再确认导入</translation>
+    </message>
 </context>
 <context>
     <name>DataPage</name>
@@ -10051,6 +10174,18 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
     <message>
         <source>预览页面已关闭</source>
         <translation>预览页面已关闭</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546"/>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607"/>
+        <source>地震转码</source>
+        <translation>地震转码</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546"/>
+        <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607"/>
+        <source>无法创建工程工作区</source>
+        <translation>无法创建工程工作区</translation>
     </message>
 </context>
 <context>
@@ -13169,6 +13304,21 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/workflow/folderimport_agent.cpp" line="51"/>
         <source>请选择可读取的非空本地文件。</source>
         <translation>请选择可读取的非空本地文件。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/folderimport_originals.cpp" line="34"/>
+        <source>工程已切换，请在原工程查看收件结果。</source>
+        <translation>工程已切换，请在原工程查看收件结果。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/folderimport_originals.cpp" line="52"/>
+        <source>校验并接收原件包</source>
+        <translation>校验并接收原件包</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/folderimport_originals.cpp" line="19"/>
+        <source>请先打开可写工程，再接收原件包。</source>
+        <translation>请先打开可写工程，再接收原件包。</translation>
     </message>
 </context>
 <context>
@@ -25585,6 +25735,56 @@ PDF：%3
         <source>画布编辑已保存，当前成果版本为 v%1。</source>
         <translation>画布编辑已保存，当前成果版本为 v%1。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="47"/>
+        <source>原件已收 %1 份，其中 %2 份为此前收件。</source>
+        <translation>原件已收 %1 份，其中 %2 份为此前收件。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="48"/>
+        <source>接收已取消。</source>
+        <translation>接收已取消。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="69"/>
+        <source>旧包的来源工程</source>
+        <translation>旧包的来源工程</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="70"/>
+        <source>输入发送方的稳定工程标识。再次接收同一工程的资料时请使用相同标识。</source>
+        <translation>输入发送方的稳定工程标识。再次接收同一工程的资料时请使用相同标识。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="55"/>
+        <source>选择 LAS 或 SEG-Y 原件包目录</source>
+        <translation>选择 LAS 或 SEG-Y 原件包目录</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="54"/>
+        <source>复制工程到数据盘并打开…</source>
+        <translation>复制工程到数据盘并打开…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="591"/>
+        <source>工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。</source>
+        <translation>工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="65"/>
+        <source>选择数据盘上的目标父目录（将复制清单成员和受管资料）</source>
+        <translation>选择数据盘上的目标父目录（将复制清单成员和受管资料）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_project.cpp" line="286"/>
+        <source>以下来源仍引用原工程中的文件。请在数据页核对并重定位到所需副本（最多列出 20 条）。</source>
+        <translation>以下来源仍引用原工程中的文件。请在数据页核对并重定位到所需副本（最多列出 20 条）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_project.cpp" line="285"/>
+        <source>工程副本中有旧路径来源</source>
+        <translation>工程副本中有旧路径来源</translation>
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -28901,6 +29101,21 @@ PDF：%3
         <source>写入工程清单失败</source>
         <translation>写入工程清单失败</translation>
     </message>
+    <message>
+        <location filename="../src/workflow/projectopen.cpp" line="53"/>
+        <source>复制并校验工程</source>
+        <translation>复制并校验工程</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectopen.cpp" line="61"/>
+        <source>工程复制失败</source>
+        <translation>工程复制失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectopen.cpp" line="134"/>
+        <source>请使用新建工程向导，在数据盘创建工程并选择此资料目录。</source>
+        <translation>请使用新建工程向导，在数据盘创建工程并选择此资料目录。</translation>
+    </message>
 </context>
 <context>
     <name>ProjectSetupDialog</name>
@@ -29536,6 +29751,16 @@ PDF：%3
         <location filename="../src/workflow/projectsetup_area.cpp" line="136"/>
         <source>资料未提供可唯一确定的 EPSG，工程基准已默认采用 EPSG:32650。</source>
         <translation>资料未提供可唯一确定的 EPSG，工程基准已默认采用 EPSG:32650。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectsetup.cpp" line="120"/>
+        <source>请为新工程和原始资料选择相互独立的目录。</source>
+        <translation>请为新工程和原始资料选择相互独立的目录。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/projectsetup.cpp" line="116"/>
+        <source>请将新工程保存到可用的数据盘 %1。</source>
+        <translation>请将新工程保存到可用的数据盘 %1。</translation>
     </message>
 </context>
 <context>
@@ -30366,6 +30591,38 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
+        <translation>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</translation>
+    </message>
+    <message>
+        <source>提交不确定（commit_uncertain）：提交状态以服务事实为准</source>
+        <translation>提交不确定（commit_uncertain）：提交状态以服务事实为准</translation>
+    </message>
+    <message>
+        <source>已请求取消（等待执行面确认，不提前宣称已停止）</source>
+        <translation>已请求取消（等待执行面确认，不提前宣称已停止）</translation>
+    </message>
+    <message>
+        <source>取消请求失败：%1</source>
+        <translation>取消请求失败：%1</translation>
+    </message>
+    <message>
+        <source>恢复已受理（原 operationId 继续执行）</source>
+        <translation>恢复已受理（原 operationId 继续执行）</translation>
+    </message>
+    <message>
+        <source>恢复失败：%1</source>
+        <translation>恢复失败：%1</translation>
+    </message>
+    <message>
+        <source>状态已刷新（修订 %1）</source>
+        <translation>状态已刷新（修订 %1）</translation>
+    </message>
+    <message>
+        <source>状态查询失败：%1</source>
+        <translation>状态查询失败：%1</translation>
+    </message>
         <message>
             <source>会话消息数超过档案结构上限（%1）</source>
             <translation>会话消息数超过档案结构上限（%1）</translation>
@@ -40459,6 +40716,317 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>工作副本已变化，请重新选择编图范围。</source>
         <translation>工作副本已变化，请重新选择编图范围。</translation>
     </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="60"/>
+        <source>仅可接收每个 RAW 版本含一个 LAS 或 SEG-Y 原件的资料包</source>
+        <translation>仅可接收每个 RAW 版本含一个 LAS 或 SEG-Y 原件的资料包</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="168"/>
+        <source>写入收件文件失败</source>
+        <translation>写入收件文件失败</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="66"/>
+        <source>原件不在清单声明的资产版本目录</source>
+        <translation>原件不在清单声明的资产版本目录</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="356"/>
+        <source>原件交付需要 %1 字节，目标卷可用 %2 字节</source>
+        <translation>原件交付需要 %1 字节，目标卷可用 %2 字节</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="164"/>
+        <source>原件传输中断</source>
+        <translation>原件传输中断</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="78"/>
+        <source>原件位置或长度与清单不符</source>
+        <translation>原件位置或长度与清单不符</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="176"/>
+        <source>原件完整性核验失败</source>
+        <translation>原件完整性核验失败</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="150"/>
+        <source>原件或已收文件长度不符</source>
+        <translation>原件或已收文件长度不符</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="75"/>
+        <source>原件缺少一致的完整摘要或长度</source>
+        <translation>原件缺少一致的完整摘要或长度</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="123"/>
+        <source>复制期间来源文件发生变化或读取不完整：%1</source>
+        <translation>复制期间来源文件发生变化或读取不完整：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/dataimport_geodata.cpp" line="228"/>
+        <source>外部时间域层位 %1，来源体版本 %2，待关联本工区测区</source>
+        <translation>外部时间域层位 %1，来源体版本 %2，待关联本工区测区</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="395"/>
+        <source>导出文件重名：%1</source>
+        <translation>导出文件重名：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="166"/>
+        <source>工程内已有文件与本次原件不同</source>
+        <translation>工程内已有文件与本次原件不同</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="226"/>
+        <source>工程收件区不可写</source>
+        <translation>工程收件区不可写</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="154"/>
+        <source>工程盘不可用或剩余空间不足</source>
+        <translation>工程盘不可用或剩余空间不足</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="207"/>
+        <source>收件发布失败，可重新接收</source>
+        <translation>收件发布失败，可重新接收</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="118"/>
+        <source>收件回执位置无效</source>
+        <translation>收件回执位置无效</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="196"/>
+        <source>收件文件位置无效</source>
+        <translation>收件文件位置无效</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="185"/>
+        <source>收件目录越界或不可用</source>
+        <translation>收件目录越界或不可用</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="134"/>
+        <source>无法写入收件回执</source>
+        <translation>无法写入收件回执</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="191"/>
+        <source>无法创建工程收件暂存目录</source>
+        <translation>无法创建工程收件暂存目录</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="147"/>
+        <source>无法打开原件或工程收件文件</source>
+        <translation>无法打开原件或工程收件文件</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="46"/>
+        <source>无法读取清单或清单过大</source>
+        <translation>无法读取清单或清单过大</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="96"/>
+        <source>旧资料包缺少来源工程身份，请在资料页接收时指定来源工程标识</source>
+        <translation>旧资料包缺少来源工程身份，请在资料页接收时指定来源工程标识</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="92"/>
+        <source>来源工程身份与清单不一致</source>
+        <translation>来源工程身份与清单不一致</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="98"/>
+        <source>来源版本指纹格式无效：%1</source>
+        <translation>来源版本指纹格式无效：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="52"/>
+        <source>清单格式无效</source>
+        <translation>清单格式无效</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="127"/>
+        <source>相同来源工程与版本已有不同内容或身份的收件记录</source>
+        <translation>相同来源工程与版本已有不同内容或身份的收件记录</translation>
+    </message>
+    <message>
+        <location filename="../src/services/dataexport.cpp" line="236"/>
+        <source>缺少持久工程标识；本批数据可导出，接收方需核实来源工程。</source>
+        <translation>缺少持久工程标识；本批数据可导出，接收方需核实来源工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="220"/>
+        <source>缺少接收工程或资料包目录</source>
+        <translation>缺少接收工程或资料包目录</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="70"/>
+        <source>该文件不是 LAS 或 SEG-Y 原件</source>
+        <translation>该文件不是 LAS 或 SEG-Y 原件</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="188"/>
+        <source>该版本正在接收或收件目录不可写，请稍后重试</source>
+        <translation>该版本正在接收或收件目录不可写，请稍后重试</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="89"/>
+        <source>请选择已完成的原生格式资料导出包</source>
+        <translation>请选择已完成的原生格式资料导出包</translation>
+    </message>
+    <message>
+        <location filename="../src/io/originalpackage.cpp" line="104"/>
+        <source>资料包版本重复或文件总量超出可处理范围</source>
+        <translation>资料包版本重复或文件总量超出可处理范围</translation>
+    </message>
+    <message>
+        <location filename="../src/ai/chat/domaintools.cpp" line="451"/>
+        <source>well_curves 可指定 well_details 中的井筒标识；返回该井筒已确认 LAS 来源的曲线引用及待确认数量</source>
+        <translation>well_curves 可指定 well_details 中的井筒标识；返回该井筒已确认 LAS 来源的曲线引用及待确认数量</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="30"/>
+        <source>主井筒填 main，侧钻井筒填稳定编号</source>
+        <translation>主井筒填 main，侧钻井筒填稳定编号</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="33"/>
+        <source>井筒名称</source>
+        <translation>井筒名称</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="32"/>
+        <source>井筒标识</source>
+        <translation>井筒标识</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="112"/>
+        <source>复制工程需要 %1 字节，目标可用 %2 字节。</source>
+        <translation>复制工程需要 %1 字节，目标可用 %2 字节。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="128"/>
+        <source>复制期间工程发生变化，请关闭编辑后重试。</source>
+        <translation>复制期间工程发生变化，请关闭编辑后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="44"/>
+        <source>工程中有链接目录或文件，请先处理后再迁移：%1</source>
+        <translation>工程中有链接目录或文件，请先处理后再迁移：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopylayers.cpp" line="47"/>
+        <source>工程中的 QGIS XML 无法读取。</source>
+        <translation>工程中的 QGIS XML 无法读取。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopylayers.cpp" line="109"/>
+        <source>工程包中缺少 QGIS 工程文件。</source>
+        <translation>工程包中缺少 QGIS 工程文件。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopylayers.cpp" line="103"/>
+        <source>工程包有多个 QGIS 工程文件，无法确定入口。</source>
+        <translation>工程包有多个 QGIS 工程文件，无法确定入口。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="74"/>
+        <source>工程文件校验失败：%1</source>
+        <translation>工程文件校验失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="46"/>
+        <source>工程正在被编辑，关闭写入它的实例后再迁移。</source>
+        <translation>工程正在被编辑，关闭写入它的实例后再迁移。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="107"/>
+        <source>工程清单中的 QGIS 文件缺失：%1</source>
+        <translation>工程清单中的 QGIS 文件缺失：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="39"/>
+        <location filename="../src/io/projectcopy.cpp" line="62"/>
+        <source>已取消复制工程。</source>
+        <translation>已取消复制工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="28"/>
+        <source>所属井</source>
+        <translation>所属井</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="102"/>
+        <source>所选 QGIS 文件不属于该目录的工程清单，请打开对应的 project.paleo。</source>
+        <translation>所选 QGIS 文件不属于该目录的工程清单，请打开对应的 project.paleo。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="118"/>
+        <source>无法创建工程副本目录：%1</source>
+        <translation>无法创建工程副本目录：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="129"/>
+        <source>无法发布已校验的工程副本：%1</source>
+        <translation>无法发布已校验的工程副本：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="52"/>
+        <source>无法完整读取工程目录：%1</source>
+        <translation>无法完整读取工程目录：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="47"/>
+        <source>无法读取工程成员：%1</source>
+        <translation>无法读取工程成员：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="96"/>
+        <source>此 QGIS 文件没有工程清单 project.paleo，无法确认要复制的资料。请先提供带清单的工程束。</source>
+        <translation>此 QGIS 文件没有工程清单 project.paleo，无法确认要复制的资料。请先提供带清单的工程束。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="93"/>
+        <source>目标目录已经存在，请选择其他位置：%1</source>
+        <translation>目标目录已经存在，请选择其他位置：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="25"/>
+        <source>确认 LAS 所属井筒</source>
+        <translation>确认 LAS 所属井筒</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="20"/>
+        <source>确认 LAS 所属井筒…</source>
+        <translation>确认 LAS 所属井筒…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="51"/>
+        <source>该来源或井筒标识已有不同归属，请核对。</source>
+        <translation>该来源或井筒标识已有不同归属，请核对。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="43"/>
+        <source>请填写井筒标识和名称。</source>
+        <translation>请填写井筒标识和名称。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="90"/>
+        <source>请选择数据盘中位于原工程目录以外的目标目录。</source>
+        <translation>请选择数据盘中位于原工程目录以外的目标目录。</translation>
+    </message>
+    <message>
+        <location filename="../src/io/projectcopy.cpp" line="87"/>
+        <source>请选择独立工程目录中的工程文件。</source>
+        <translation>请选择独立工程目录中的工程文件。</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -41764,6 +42332,16 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/realizationworkflow.cpp" line="1367"/>
         <source>两集合均值差：%1 vs %2</source>
         <translation>两集合均值差：%1 vs %2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/realizationworkflow.cpp" line="1285"/>
+        <source>无法创建差值面暂存目录</source>
+        <translation>无法创建差值面暂存目录</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/realizationworkflow.cpp" line="1000"/>
+        <source>无法创建统计面暂存目录</source>
+        <translation>无法创建统计面暂存目录</translation>
     </message>
 </context>
 <context>
@@ -59670,6 +60248,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>AiConversationCard</name>
+    <message>
+        <source>待执行</source>
+        <translation>待执行</translation>
+    </message>
+    <message>
+        <source>执行中</source>
+        <translation>执行中</translation>
+    </message>
+    <message>
+        <source>已完成</source>
+        <translation>已完成</translation>
+    </message>
+    <message>
+        <source>失败</source>
+        <translation>失败</translation>
+    </message>
     <message>
         <source>详情</source>
         <translation>详情</translation>

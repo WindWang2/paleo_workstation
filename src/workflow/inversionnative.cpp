@@ -101,8 +101,8 @@ bool prepareRegisteredInversion(const InversionWorkflow::InversionJobRequest& re
  // DDS reads one complete inline; budget includes its full crossline extent.
  if(qint64(grid.crosslineCount)*job->nS>64000000)return fail(error,QStringLiteral("单测线超过 DataService 读取预算，请缩短时间窗口"));
  const double outputBytes=double(job->nIl)*job->nXl*job->nS*4+65546;
- for(const auto& path:{QDir::tempPath(),req.projectDirectory}){
-  const QStorageInfo disk(path);
+ {
+  const QStorageInfo disk(req.projectDirectory);
   if(disk.isValid()&&disk.bytesAvailable()>=0&&double(disk.bytesAvailable())<outputBytes*2+64*1024*1024)
    return fail(error,QStringLiteral("反演落盘与发布需要约 %1 GiB 可用空间，当前不足；请缩小范围")
       .arg(outputBytes*2/double(1ull<<30),0,'f',2));

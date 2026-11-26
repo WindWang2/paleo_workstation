@@ -1,4 +1,6 @@
 // 层：组装根
+#include "qgis/qgisprojectservice.h"
+#include "metadata/managedpath.h"
 #include "appcontext.h"
 #include "aiconversationwiring.h" // G5：AI 页签操作展示 adapter 装配
 #include "agentmapdisplaywiring.h" // I3：地图显示原子装配
@@ -110,6 +112,7 @@ namespace
 int main(int argc, char *argv[])
 {
   StartupTrace::mark(QStringLiteral("main_entry"));
+  paleo::managedpath::configureApplicationDataLocations();
 
   // 内嵌 WebEngine 只承载本机 127.0.0.1 服务（office 编辑页），但 Chromium
   // 内核对系统代理回环 bypass 的处理不可靠——系统代理开着时内嵌页会
@@ -270,6 +273,8 @@ int main(int argc, char *argv[])
                  qPrintable(qgisPrefix));
     return 1;
   }
+
+  ctx.projectSvc()->setWritableProjectRoot(paleo::managedpath::defaultProjectVolume());
 
   // --- Dynamic Locale & Translation Initialization (R4) ---
   // Precedence: CLI option (--lang/--locale) > PALEO_LOCALE > QLocale::system().name()

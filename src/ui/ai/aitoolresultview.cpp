@@ -331,6 +331,14 @@ void AiToolResultView::buildKeyValueWithLinks(const QJsonObject &payload) {
   else {
     addRow(tr("井名"), payload.value(QStringLiteral("well")).toString());
     addRow(tr("井 ID"), payload.value(QStringLiteral("well_id")).toString());
+    const auto boreStatus = payload.value(QStringLiteral("wellbore_status")).toString();
+    if (boreStatus == QLatin1String("unconfirmed")) addRow(tr("井筒"), tr("所属井尚待确认"));
+    else if (!boreStatus.isEmpty() && boreStatus != QLatin1String("available")) addRow(tr("井筒"), tr("井筒资料暂不可读取"));
+    for (const auto &value : payload.value(QStringLiteral("wellbores")).toArray()) {
+      const auto bore = value.toObject();
+      const auto label = bore.value(QStringLiteral("main")).toBool() ? tr("主井筒") : tr("已登记分支井筒");
+      addRow(label, tr("%1（%2）").arg(bore.value(QStringLiteral("name")).toString(), bore.value(QStringLiteral("key")).toString()));
+    }
   }
   addRow(payload.contains(QStringLiteral("hasMore")) ? tr("本页关联资产") : tr("关联资产"), QString::number(links.size()));
   const QString truncated =
@@ -341,16 +349,27 @@ void AiToolResultView::buildKeyValueWithLinks(const QJsonObject &payload) {
     addRow(tr("截断"), truncated);
   layout->addWidget(head);
 
-  QTableWidget *table =
-    makeCompactTable(5, {tr("角色"), tr("资产"), tr("主用"), tr("版本"), tr("阶段")});
+  QStringList headings{tr("角色"), tr("资产"), tr("主用"), tr("版本"), tr("阶段")};
+  bool hasAssignments = false;
+  for (const auto &link : links) hasAssignments |= link.toObject().contains("wellbore_assignment");
+  if (hasAssignments) headings << tr("来源所属井筒");
+  QTableWidget *table = makeCompactTable(int(headings.size()), headings);
   table->setObjectName(QStringLiteral("aiResultTable"));
   table->setRowCount(int(links.size()));
   for (int i = 0; i < links.size(); ++i) {
     const QJsonObject entry = links.at(i).toObject();
-    const QStringList cells = {
+    QStringList cells = {
       cellText(entry, "role"), cellText(entry, "asset"),
       entry.value(QStringLiteral("primary")).toBool() ? tr("是") : QString(),
       cellText(entry, "version_number"), cellText(entry, "stage")};
+    if (entry.contains("wellbore_assignment")) {
+      const auto assignment = entry.value("wellbore_assignment").toObject();
+      const auto status = assignment.value("status").toString();
+      if (status == QLatin1String("confirmed")) cells << assignment.value("key").toString();
+      else if (status == QLatin1String("unconfirmed")) cells << tr("待确认");
+      else if (status == QLatin1String("conflict")) cells << tr("归属冲突");
+      else cells << tr("来源待核验");
+    }
     for (int c = 0; c < cells.size(); ++c) {
       auto *item = new QTableWidgetItem(cells.at(c));
       item->setData(Qt::UserRole, cellText(entry, "asset_id"));

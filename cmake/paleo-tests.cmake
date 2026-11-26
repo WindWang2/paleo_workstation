@@ -62,7 +62,7 @@ add_paleo_test(tst_dsp_fft LIBS paleo_algorithms)          # #559：dsp radix-2 
 add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
 add_paleo_test(tst_seismicattrscan LIBS paleo_services)  # goal/attr-volume：时间切片/属性体扫描编排
 add_paleo_test(tst_workerexceptionsink LIBS paleo_services) # PW-014：工作分片异常转运
-add_paleo_test(tst_projectfile_safety LIBS paleo_store)  # PW-075/126：project.paleo 成员越界与版本缺失
+add_paleo_test(tst_projectfile_safety LIBS paleo_io)  # PW-075/126：project.paleo 成员越界与版本缺失
 add_paleo_test(tst_boundedread LIBS paleo_io)  # PW-076：有界整读 helper
 add_paleo_test(tst_segy_endian LIBS paleo_io)   # PW-070/071/125 字节序/格式/共用 ns 判定
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)

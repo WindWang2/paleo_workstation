@@ -23,7 +23,7 @@ int integer(const QJsonObject &args, const char *key, int fallback, int maximum)
 qint64 stateBytes(const QueryState &state) {
   qint64 bytes = 1024;
   for (const auto &text : QStringList{state.kind,state.topic,state.queryDigest,state.queryId,state.modelToken,state.after,
-       state.target,state.assetId,state.wellAfter,state.modelEntityAfter,state.scope.documentId,state.scope.chatSessionId})
+       state.target,state.assetId,state.wellAfter,state.modelEntityAfter,state.wellboreAfter,state.scope.documentId,state.scope.chatSessionId})
     bytes += 128 + text.size() * 2;
   for (auto it = state.visited.cbegin(); it != state.visited.cend(); ++it) bytes += 128 + it.key().second.size() * 2;
   for (const auto &id : state.emitted) bytes += 96 + id.size() * 2;
@@ -184,7 +184,8 @@ QJsonObject ProjectQueryCapability::Impl::run(const QJsonObject &args, bool grap
   result.insert("coverage", QJsonObject{{"documentId",scope.documentId},{"epoch",QString::number(scope.epoch)},
     {"catalogRevision",QString::number(state.revision)},{"mutationSequence",QString::number(state.mutation)},
     {"modelSnapshot",state.modelToken},{"sortVersion",graph?"directional-bfs@1":state.topic==QLatin1String("version_parents")?
-       "parent-ordinal@1":state.topic==QLatin1String("well_details")?"link-row@1":"id@1"},{"complete",!more}});
+       "parent-ordinal@1":state.topic==QLatin1String("well_details") && args.value("role").toString().isEmpty()?
+       "link-row+bore-key@2":state.topic==QLatin1String("well_details")?"link-row@1":"id@1"},{"complete",!more}});
   prune(); QString next;
   if (!cursor.isEmpty() && !cursors.contains(cursor)) return queryFailure("cursor_expired");
   // Consuming the next continuation proves receipt of the previous page. Keep

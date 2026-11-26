@@ -980,6 +980,43 @@ private slots:
     }
     QCOMPARE(rawSources, QSet<QString>({selected, nested}));
   }
+  void supplementVerifiesTheReceiptInTheActiveProjectBeforeStaging() {
+    QTemporaryDir dir;
+    QgisProjectService project;
+    PaleoProjectStore store;
+    DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service, [&](const QString &path) {
+      service.setProjectDir(QFileInfo(path).absolutePath());
+    });
+    FolderImportWorkflow imports(&service, nullptr);
+    ProjectSetupWorkflow workflow(&project, &imports);
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    const auto target = dir.filePath("output/project.qgz");
+    QString error;
+    QVERIFY2(workflow.create(target, {}, {}, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    QVERIFY(finished.takeFirst()[1].toBool());
+
+    const QByteArray original = "~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nWELL. A1 :\nNULL. -999.25 :\n"
+                                "~Curve\nDEPT.M :\nGR.API :\n~A\n100 60\n101 70\n";
+    const QString id(64, QLatin1Char('a'));
+    const auto inbox = dir.filePath("output/artifacts/received/" + id);
+    const auto path = inbox + "/A1.las";
+    const QJsonObject receipt{{"schema", "paleo_received_original_v1"}, {"receipt_id", id}, {"file_name", "A1.las"},
+      {"sha256", QString::fromLatin1(QCryptographicHash::hash(original, QCryptographicHash::Sha256).toHex())}};
+    QVERIFY(write(inbox + "/receipt.json", QJsonDocument(receipt).toJson()));
+    QVERIFY(write(path, QByteArray(original).replace("100 60", "100 61")));
+    auto sources = workflow.currentSources();
+    sources.wells = path;
+    const auto preview = scanProjectSources(sources);
+    QCOMPARE(preview.paths, QStringList{path});
+    QVERIFY2(workflow.applySources(sources, preview, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 20000);
+    const auto result = finished.takeFirst();
+    QVERIFY(!result[1].toBool());
+    QVERIFY2(result[0].toString().contains(QStringLiteral("原件完整性")), qPrintable(result[0].toString()));
+    QVERIFY(service.catalog()->versions().isEmpty());
+  }
   void unknownPointCrsDoesNotBlockOtherSources() {
     QTemporaryDir dir;
     const auto heads = dir.filePath("points.csv"); QVERIFY(write(heads, "WELL,X,Y\nB1,10,20\n"));
@@ -1021,15 +1058,18 @@ private slots:
   }
   void wizardAllowsPartialSources() {
     QTemporaryDir dir;
-    const auto heads = dir.filePath("wellheads.csv"); QVERIFY(write(heads, "WELL,X,Y\nB1,bad,20\n"));
+    const QString source = dir.filePath("originals");
+    const QString heads = QDir(source).filePath("wellheads.csv"), log = QDir(source).filePath("well_logs/B1.las");
+    QVERIFY(write(heads, "WELL,X,Y\nB1,bad,20\n"));
+    QVERIFY(write(log, "~Version\nVERS. 2.0 :\nWRAP. NO :\n~Well\nWELL. B1 :\nNULL. -9999.25 :\n"
+                       "~Curve\nDEPT.M :\nGR.API :\n~ASCII\n100 45\n101 47\n"));
     QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
     FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
     ProjectSetupDialog dialog(&workflow);
-    // #694 起离开第一页就做保存位置预检；默认位置（Documents/Paleo）会被
-    // 本机安全软件拦截新编译的测试进程，测试改指私有临时目录保持密闭。
     dialog.findChild<QLineEdit *>("projectDirectoryEdit")->setText(dir.filePath("out"));
-    dialog.setSourceRoot(dir.path());
+    dialog.setSourceRoot(source);
     QTRY_VERIFY_WITH_TIMEOUT(dialog.preview().sourceProblems.contains(heads), 20000);
+    QVERIFY(dialog.preview().paths.contains(log));
     auto *next = dialog.findChild<QPushButton *>("projectSetupNextButton"); QVERIFY(next); QVERIFY(next->isEnabled());
     auto *steps = dialog.findChild<QTabBar *>(); QVERIFY(steps); steps->setCurrentIndex(3);
     next->click(); QCOMPARE(dialog.result(), int(QDialog::Accepted));

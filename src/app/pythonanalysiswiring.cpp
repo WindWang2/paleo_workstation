@@ -4,6 +4,7 @@
 #include "catalog/datacatalog.h"
 #include "domain/wellref.h"
 #include "services/pythonanalysisselection.h"
+#include "services/querywellprojection.h"
 #include "services/pythonanalysiscapabilityspec.h"
 #include "services/pythontrustedreadiness.h"
 #include "services/pythongenerated.h"
@@ -43,6 +44,13 @@ QString templateStatus(const QString &root,python::AnalysisKind kind,const pytho
   return bytes.size()<=policy.codeBytes && QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex())==python::analysisTemplateSha256(kind)?
     QString():QStringLiteral("python_template_changed");
 }
+QString checkBoreSelection(const DataCatalog &catalog,const document::WellRef &well,const python::AnalysisCurveSelection &selected) {
+  if(selected.wellboreKey.isEmpty())return {};
+  if(!query::currentWellboreMapping(catalog,well))return "wellbore_mapping_unconfirmed";
+  if(!query::currentWellboreLas(catalog,well,catalog.versionById(selected.sourceVersionId),selected.source.ref.sourceId))
+    return "wellbore_source_unconfirmed";
+  return {};
+}
 }
 paleo::python::AnalysisPlanProvider assemblePythonAnalysisProvider(DataCatalog *catalog,
     paleo::document::DocumentSession *document,paleo::capability::CapabilityHost *host) {
@@ -74,6 +82,8 @@ paleo::python::AnalysisPlanProvider assemblePythonAnalysisProvider(DataCatalog *
       if(source.ref!=selected.source.ref || source.versionId!=selected.sourceVersionId ||
           source.fingerprint.stored()!=source.ref.fileRevisionId || QFileInfo(source.modelDirectory).canonicalFilePath()!=model)
         return QStringLiteral("python_analysis_source_mismatch");
+      const auto boreIssue=checkBoreSelection(*scope.catalog,selection.well,selected);
+      if(!boreIssue.isEmpty()){plan={};return boreIssue;}
       selected.source=source;plan.curves.append(selected);
     }
     const auto sources=plan.curves;const auto well=selection.well;
@@ -85,6 +95,7 @@ paleo::python::AnalysisPlanProvider assemblePythonAnalysisProvider(DataCatalog *
         if(current.ref!=selected.source.ref || current.versionId!=selected.sourceVersionId || current.path!=selected.source.path ||
             QFileInfo(current.modelDirectory).canonicalFilePath()!=QFileInfo(selected.source.modelDirectory).canonicalFilePath())
           return QStringLiteral("source_revision_changed");
+        code=checkBoreSelection(*scope.catalog,well,selected);if(!code.isEmpty())return code;
       }
       return QString();
     };

@@ -98,7 +98,7 @@ QWidget *ProjectSetupDialog::projectPage()
   auto *text = new QLabel(tr("选择资料目录后，系统会递归导入支持的文件，建立工区数据模型。数据列表和地层图读取该模型；井点坐标和图层配置可稍后补充。"), page); text->setWordWrap(true); layout->addWidget(text);
   auto *form = new QFormLayout;
   m_name = new QLineEdit(tr("未命名工程"), page); m_name->setObjectName(QStringLiteral("projectNameEdit"));
-  m_output = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Paleo"), page); m_output->setObjectName(QStringLiteral("projectDirectoryEdit"));
+  m_output = new QLineEdit(ProjectSetupWorkflow::defaultProjectDirectory(), page); m_output->setObjectName(QStringLiteral("projectDirectoryEdit"));
   m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("projectSourceRootEdit")); m_root->setPlaceholderText(tr("选择需要导入的资料目录，无需预先整理为固定文件夹结构"));
   form->addRow(tr("工程名称"), m_name); form->addRow(tr("工程保存位置"), pathRow(m_output, true)); form->addRow(tr("资料总目录（可选）"), pathRow(m_root, true));
   m_projectCrs = new PaleoCrsSelector(true, page);
@@ -338,7 +338,7 @@ void ProjectSetupDialog::showStep(int step)
 {
   QString locationError;
   if (step > 0 && m_existingPath.isEmpty() &&
-      !ProjectSetupWorkflow::checkProjectLocation(projectPath(), &locationError)) {
+      !ProjectSetupWorkflow::checkProjectLocation(projectPath(), &locationError, m_root->text(), m_workflow ? m_workflow->requiredProjectRoot() : QString())) {
     showCreationError(locationError); return;
   }
   if (step > 0) setProperty("paleo.creationError", QVariant());
@@ -359,7 +359,7 @@ void ProjectSetupDialog::finish()
   const QString name = m_name->text().trimmed();
   if (name.isEmpty() || name == "." || name == ".." || name.contains(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]"))) || m_output->text().trimmed().isEmpty()) { m_empty = false; m_status->setText(tr("请填写有效的工程名称和保存位置。")); return; }
   QString locationError;
-  if (m_existingPath.isEmpty() && !ProjectSetupWorkflow::checkProjectLocation(projectPath(), &locationError)) {
+  if (m_existingPath.isEmpty() && !ProjectSetupWorkflow::checkProjectLocation(projectPath(), &locationError, m_root->text(), m_workflow ? m_workflow->requiredProjectRoot() : QString())) {
     showCreationError(locationError); return;
   }
   setProperty("paleo.creationError", QVariant());

@@ -16,6 +16,7 @@ namespace paleo::document {
 class DocumentSourceStore;
 struct SourceJob;
 struct RelationJob;
+struct WellboreSourceConfirmation;
 struct RelationChoiceView {
     RelationUseSpec use;
     QVector<SourceBinding> choices;
@@ -59,6 +60,7 @@ public:
     SourceState observedState(const SourceRef &ref) const;
     SourceCommand command(SourceCommand::Kind kind) const;
     SourceCommandResult execute(SourceCommand command);
+    SourceCommandResult confirmWellboreSource(const WellboreSourceConfirmation &confirmation);
     RelationChoiceView relationView(const RelationUseSpec &use) const;
     RelationResolveRequest relationRequest(const RelationUseSpec &use,QString *error=nullptr) const;
     SourceCommandResult resolveRelation(const RelationUseSpec &use);

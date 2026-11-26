@@ -4,9 +4,10 @@
 
 #include "../io/dataimportservice.h"
 #include "../io/importclassification.h"
+#include "../io/originalpackage.h"
 #include "../catalog/datacatalog.h"
 #include "../services/paleotaskservice.h"
-#include "importledger.h"
+#include "catalog/importledger.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -26,8 +27,7 @@ bool sameProjectSession(DataCatalog *cat, const ImportSession &s)
 {
   if (!cat || s.projectDir.isEmpty())
     return false;
-  const QString catDir =
-      QDir::cleanPath(cat->catalogPath() + QStringLiteral("/../../.."));
+  const QString catDir = QDir::cleanPath(cat->projectDir());
   const QString sessionDir = QDir::cleanPath(s.projectDir);
   if (catDir == sessionDir)
     return true;
@@ -390,6 +390,10 @@ void FolderImportWorkflow::recordLedger(const QString &dir, const QDateTime &sta
       ++batch.skipped;
       break;
     }
+    const auto receiptError = paleo::exchange::recordReceivedImport(*cat, r, lr.outcome);
+    if (!receiptError.isEmpty())
+      paleo::workflow_detail::raiseToErrorHub(ErrorHub::Level::Warning, QStringLiteral("folderimport"),
+                                              tr("导入台账写入失败"), receiptError);
     batch.rows.append(lr);
   }
   QString lerr;

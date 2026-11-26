@@ -1,4 +1,5 @@
 // 层：功能
+#include "metadata/managedpath.h"
 #include "algorithms/inversion/lowfreq.h"
 #include "algorithms/inversion/wavelet.h"
 #include "algorithms/inversion/volume.h"
@@ -824,11 +825,9 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
         header.insert(QStringLiteral("maxIterations"), job->req.maxIterations);
     }
 
-    const QString tempDir = QDir(QDir::temp()).filePath(
-        QStringLiteral("paleo-inv-%1").arg(QUuid::createUuid().toString(QUuid::Id128)));
-    if (!QDir().mkpath(tempDir))
-        return setError(&job->error, QStringLiteral("临时目录创建失败: %1").arg(tempDir));
-    job->tempVolumePath = QDir(tempDir).filePath(QStringLiteral("impedance.iimp"));
+    auto scratch = paleo::managedpath::temporaryDirectory(job->req.projectDirectory, QStringLiteral("paleo-inv"));
+    if (!scratch) return setError(&job->error, QStringLiteral("反演暂存目录创建失败"));
+    job->tempVolumePath = scratch->filePath(QStringLiteral("impedance.iimp"));
     QFile out(job->tempVolumePath);
     if (!out.open(QIODevice::WriteOnly))
         return setError(&job->error, QStringLiteral("临时体写入失败: %1").arg(job->tempVolumePath));
@@ -836,6 +835,7 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     if (out.write(blob) != blob.size())
         return setError(&job->error, QStringLiteral("临时体写入不完整"));
     out.close();
+    scratch->setAutoRemove(false); // publishing owns the completed volume
 
     job->ok = true;
     if (progress)

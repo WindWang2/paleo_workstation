@@ -3,6 +3,7 @@
 #include "folderimport.h"
 #include "../io/areamodel.h"
 #include "../io/areamodelpublication.h"
+#include "../io/originalpackage.h"
 #include "../io/projectcoordinates.h"
 #include "../io/dataimportservice.h"
 #include "../qgis/qgisprojectservice.h"
@@ -138,6 +139,10 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       if (input.directory && !QFileInfo(input.path).isDir()) continue;
       paleo::data::ImportReport report;
       QString error;
+      if (!input.directory) {
+        error = paleo::exchange::verifyReceivedOriginal(project, input.path, {}, cancelled);
+        if (!error.isEmpty()) { promise.addResult(error); return; }
+      }
       const bool imported = input.directory
           ? paleo::area_model::importDirectoryWithCrs(staging->path(), input.path, report, &error,
                 cancelled, {QDir(project).filePath("artifacts"), staging->path(),

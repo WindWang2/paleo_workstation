@@ -1,4 +1,5 @@
 // 层：功能
+#include "metadata/managedpath.h"
 #include "algorithms/inversion/volume.h"
 #include "algorithms/inversion/bandlimit.h"
 #include "algorithms/inversion/sparse.h"
@@ -73,11 +74,11 @@ bool computeRegisteredInversion(InversionWorkflow::InversionJob* job,
     volume.sampling.timeType!="TWT"||volume.sampling.timeReference!=job->req.timeReference.toStdString())
   return fail(QStringLiteral("地震体坐标或时间声明在准备后发生变化，未发布"));
  const double unit=volume.sampling.timeUnit=="s"?1000.:1.;
- const QString directory=QDir::temp().filePath(QStringLiteral("paleo-inv-%1").arg(QUuid::createUuid().toString(QUuid::Id128)));
- if(!QDir().mkpath(directory))return fail(QStringLiteral("反演临时目录创建失败"));
- job->tempVolumePath=QDir(directory).filePath(QStringLiteral("impedance.iimp"));
+ auto scratch=paleo::managedpath::temporaryDirectory(job->req.projectDirectory,QStringLiteral("paleo-inv"));
+ if(!scratch){job->error=QStringLiteral("反演暂存目录创建失败");return false;}
+ job->tempVolumePath=scratch->filePath(QStringLiteral("impedance.iimp"));
  // A failed/cancelled run owns only this freshly created directory.
- auto cleanup=qScopeGuard([&]{if(!job->ok)InversionWorkflow::reclaimTempVolume(job->tempVolumePath);});
+ auto cleanup=qScopeGuard([&]{if(job->ok)scratch->setAutoRemove(false);});
  inversion::ImpedanceVolumeStream stream(job->tempVolumePath);
  if(!stream.open(headerFor(*job),&reason))return fail(reason);
  const int threads=std::clamp(job->req.maxThreads>0?job->req.maxThreads:4,1,4);

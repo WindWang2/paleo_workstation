@@ -24,6 +24,20 @@
 class TestDataServiceImportWizard : public QObject {
   Q_OBJECT
 private slots:
+  void scopedProjectLocationPreservesReadOnlySources() {
+    QTemporaryDir dir;
+    const QString data = dir.filePath("data"), originals = dir.filePath("sources");
+    QVERIFY(QDir().mkpath(data)); QVERIFY(QDir().mkpath(originals));
+    QString error;
+    QVERIFY(ProjectSetupWorkflow::checkProjectLocation(data + "/new/project/one.qgz", &error, originals, data));
+    QVERIFY(!QFileInfo::exists(data + "/new"));
+    QVERIFY(!ProjectSetupWorkflow::checkProjectLocation(data + "/one/one.qgz", &error, originals, dir.filePath("offline")));
+    QVERIFY(!ProjectSetupWorkflow::checkProjectLocation(originals + "/one/one.qgz", &error, originals, data));
+    QVERIFY(!ProjectSetupWorkflow::checkProjectLocation(originals + "/one/one.qgz", &error, originals));
+#ifdef Q_OS_WIN
+    QCOMPARE(ProjectSetupWorkflow::defaultProjectDirectory(), QStringLiteral("D:/PaleoProjects"));
+#endif
+  }
   void validatesCoordinatesOnTheirOwnPage() {
     QTemporaryDir temp; const QString input=temp.filePath("input"); QVERIFY(QDir().mkpath(input));
     DataServiceImportWizard wizard(nullptr);

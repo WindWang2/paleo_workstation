@@ -4,6 +4,9 @@
 // 共用同一个 AppContext + PaleoMainWindow + attachWorkflows 真实壳，驱动
 // 「工程生命周期 × 组装根接线」边界：入口调用时现取 projectDir/gpkg（#275）、
 // 关窗/切工程检查 QgsProject 脏状态（#282）、切工程状态残留（#236）。
+#include "metadata/releasestore.h"
+#include "metadata/metastore.h"
+#include "workflow/projectopen.h"
 #include <QApplication>
 #include <QAction>
 #include <QAbstractButton>
@@ -27,6 +30,7 @@
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QToolButton>
 #include <QtTest>
 #include <QListWidget>
@@ -751,6 +755,57 @@ private slots:
              qPrintable(joined));
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 60000);
     m_ctx->closeProject();
+  }
+
+  void outsideDataRootOpensReadOnlyAndMigratesWithoutTouchingSource()
+  {
+    m_ctx->closeProject();
+    QTemporaryDir old, data;
+    QVERIFY(old.isValid() && data.isValid());
+    auto *service = m_ctx->projectSvc();
+    service->setWritableProjectRoot(data.path());
+    const auto restore = qScopeGuard([&]{ m_ctx->closeProject(); service->setWritableProjectRoot({}); });
+    const QString qgz = old.filePath("old.qgz");
+    { QgsProject layerProject; QVERIFY(layerProject.write(qgz)); }
+    const auto listed = [&]{ return QDir(old.path()).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot); };
+    const auto bare = listed();
+    QVERIFY(service->openProject(qgz));
+    QVERIFY(m_ctx->isProjectReadOnly());
+    QVERIFY(!service->writeProject());
+    m_ctx->closeProject();
+    QCOMPARE(listed(), bare);
+    QVERIFY(!service->createProject(old.filePath("refused.qgz")));
+    QCOMPARE(listed(), bare);
+    QVERIFY(writeProjectFile(old.path(), projectFileForQgz(qgz)));
+    const QString db = qgz + ".project.sqlite";
+    { ReleaseStore history(db); QVERIFY(!history.createRelease("existing-release", {}, {}).isEmpty()); }
+    MetaStore::closeConnectionsFor(db);
+    const auto readDb = [&] { QFile file(db); return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray(); };
+    const QByteArray initialDb = readDb();
+    QVERIFY(!initialDb.isEmpty());
+    const auto bundled = listed();
+    QSignalSpy opened(service, &QgisProjectService::openFinished);
+    QVERIFY(service->openProjectAsync(paleoProjectFilePath(old.path())));
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 60000);
+    QVERIFY(service->isReadOnly());
+    QCOMPARE(listed(), bundled);
+    auto *releaseList = m_win->findChild<QTreeWidget *>("releaseList");
+    QVERIFY(releaseList && releaseList->topLevelItemCount() == 1);
+    QCOMPARE(releaseList->topLevelItem(0)->text(1), QStringLiteral("existing-release"));
+    QCOMPARE(readDb(), initialDb);
+    ProjectOpenWorkflow workflow(service);
+    QVERIFY(workflow.needsDataVolumeCopy());
+    workflow.copyCurrentTo(data.path(), m_ctx->taskSvc());
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 2, 60000);
+    QVERIFY(opened.last().first().toBool());
+    QVERIFY(service->allowsProjectWritesAt(QFileInfo(service->projectPath()).absolutePath()));
+    QVERIFY(!m_ctx->isProjectReadOnly());
+    QVERIFY(service->writeProject());
+    QCOMPARE(listed(), bundled);
+    QCOMPARE(readDb(), initialDb); // Switching directly from read-only to writable cannot touch the old store.
+    m_ctx->closeProject();
+    QVERIFY(service->openProject(qgz));
+    QVERIFY(m_ctx->isProjectReadOnly());
   }
 
   void nestedManifestUsesQgisDirectoryLockAndDoesNotAdoptReadOnly()

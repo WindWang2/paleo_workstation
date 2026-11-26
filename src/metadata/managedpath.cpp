@@ -4,6 +4,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QStandardPaths>
 #include <QFile>
 #include <QFileInfo>
 #include <QStringList>
@@ -11,6 +12,9 @@
 namespace paleo::managedpath
 {
 using paleo::store_detail::setError;
+namespace {
+QString applicationScratchRelative; // Configured by the Windows composition root before workers start.
+}
 
 QString resolveManagedPath(const QString &projectDir, const QString &relativePath)
 {
@@ -35,10 +39,99 @@ QString resolveManagedPath(const QString &projectDir, const QString &relativePat
       // 在 Windows 是 '\'，拼进前缀会让 startsWith 永假——曾致全部受管导入
       // 在 Windows 报 "unsafe managed path/destination"。
       const QString canonical = info.canonicalFilePath();
-      if (!canonical.startsWith(root + QLatin1Char('/'))) return QString();
+      const QString relative = QDir(root).relativeFilePath(canonical);
+      if (QDir::isAbsolutePath(relative) || relative == QStringLiteral("..") || relative.startsWith(QStringLiteral("../"))) return QString();
     }
   }
   return current;
+}
+
+bool isWithinRoot(const QString &root, const QString &path)
+{
+  if (root.isEmpty() || path.isEmpty()) return false;
+  const QString base = QFileInfo(root).canonicalFilePath();
+  if (base.isEmpty()) return false;
+  QFileInfo existing(path);
+  while (!existing.exists()) {
+    if (existing.isSymbolicLink() || existing.isJunction() || existing.absoluteFilePath() == existing.absolutePath()) return false;
+    existing.setFile(existing.absolutePath());
+  }
+  const QString actual = existing.canonicalFilePath();
+  if (actual.isEmpty()) return false;
+  const QString relative = QDir(base).relativeFilePath(actual);
+  return !QDir::isAbsolutePath(relative) && relative != QStringLiteral("..") && !relative.startsWith(QStringLiteral("../"));
+}
+
+QString defaultProjectVolume()
+{
+#ifdef Q_OS_WIN
+  return QStringLiteral("D:/");
+#else
+  return {};
+#endif
+}
+
+QString defaultProjectDirectory()
+{
+  const QString volume = defaultProjectVolume();
+  return volume.isEmpty() ? QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(QStringLiteral("Paleo"))
+                          : QDir(volume).filePath(QStringLiteral("PaleoProjects"));
+}
+
+void configureApplicationDataLocations()
+{
+#ifdef Q_OS_WIN
+  // The shared seismic engine reads this setting in worker threads. Bind it
+  // once before the first worker, independently of project switches.
+  const QByteArray profile = QDir::homePath().toCaseFolded().toUtf8();
+  const QByteArray identity = QCryptographicHash::hash(profile, QCryptographicHash::Sha256).toHex();
+  applicationScratchRelative = QDir(defaultProjectVolume()).relativeFilePath(defaultProjectDirectory()) +
+                               QStringLiteral("/.cache/") + QString::fromLatin1(identity);
+  if (qEnvironmentVariableIsEmpty("SEISMIC_INDEX_CACHE_DIR")) {
+    const QString root = QDir(defaultProjectVolume()).filePath(applicationScratchRelative + QStringLiteral("/seismic-index"));
+    qputenv("SEISMIC_INDEX_CACHE_DIR", root.toUtf8());
+  }
+#endif
+}
+
+QString workLocationRoot(const QString &projectDir, QString &relative)
+{
+  if (applicationScratchRelative.isEmpty()) return projectDir;
+  const QString volume = defaultProjectVolume();
+  const QString canonical = QFileInfo(projectDir).canonicalFilePath();
+  const QString location = QDir(volume).relativeFilePath(canonical);
+  if (!projectDir.isEmpty() && !QDir::isAbsolutePath(location) && location != QStringLiteral("..") && !location.startsWith(QStringLiteral("../")))
+    return projectDir;
+  const QString key = projectDir.isEmpty() ? QStringLiteral("preview") : QString::fromLatin1(
+      QCryptographicHash::hash(canonical.toCaseFolded().toUtf8(), QCryptographicHash::Sha256).toHex());
+  relative = applicationScratchRelative + '/' + key + '/' + relative;
+  return volume;
+}
+
+std::unique_ptr<QTemporaryDir> temporaryDirectory(const QString &projectDir, const QString &prefix)
+{
+  if (!isSafePathSegment(prefix)) return {};
+  if (!projectDir.isEmpty() && !QFileInfo(projectDir).isDir()) return {};
+  QString relative = QStringLiteral("artifacts/staging");
+  const QString root = workLocationRoot(projectDir, relative);
+  QString parent = QDir::tempPath();
+  if (!root.isEmpty()) {
+    parent = resolveManagedPath(root, relative);
+    if (parent.isEmpty() || !QDir().mkpath(parent) || resolveManagedPath(root, relative) != parent)
+      return {};
+  }
+  auto dir = std::make_unique<QTemporaryDir>(QDir(parent).filePath(prefix + QStringLiteral("-XXXXXX")));
+  if (!dir->isValid()) return {};
+  return dir;
+}
+
+std::unique_ptr<QTemporaryDir> temporaryPreviewDirectory(const QString &projectDir, const QString &prefix)
+{
+  auto result = temporaryDirectory(projectDir, prefix);
+  if (result || projectDir.isEmpty() || !QFileInfo(projectDir).isDir()) return result;
+  // A read-only old project can render from a private disposable workspace.
+  // Production Windows config pins the projectless location to the data drive.
+  return temporaryDirectory({}, prefix);
 }
 
 QString sha256FileHex(const QString &path, QString *error, const std::function<bool()> &cancelled)

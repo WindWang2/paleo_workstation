@@ -35,10 +35,26 @@ void bindAttachmentHashes(QVector<FolderPreviewRow> &rows,
 
 void FolderImportWorkflow::importAgentAttachments(const QStringList &paths,
     const ProjectGuard &projectStillCurrent, const ImportDone &done,
-    const AttachmentReview &needsReview)
+    const AttachmentReview &needsReview, const OriginalsReceived &received,
+    const std::function<QString()> &identifySender)
 {
   if (!projectStillCurrent || !projectStillCurrent()) {
     if (done) done({}, tr("工程已变化，请重新选择资料。"), false);
+    return;
+  }
+  if (paths.size() == 1 && QFileInfo(paths.first()).isDir()) {
+    receiveOriginalPackage(paths.first(), projectStillCurrent,
+      [this, received, done, needsReview, projectStillCurrent](const QStringList &files,
+          qsizetype reused, const QString &error, bool cancelled) {
+        const QPointer<FolderImportWorkflow> alive(this);
+        if (received) received(files, reused, error, cancelled);
+        if (!alive) return;
+        if (files.isEmpty() || cancelled || !projectStillCurrent()) {
+          if (done) done({}, error, cancelled);
+        } else {
+          importAgentAttachments(files, projectStillCurrent, done, needsReview);
+        }
+      }, identifySender);
     return;
   }
   QStringList files;

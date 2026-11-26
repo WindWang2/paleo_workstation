@@ -220,6 +220,15 @@ QString importHorizonFamily(FamilyContext &ctx)
   const QString &versionId = ctx.versionId;
   const QFileInfo &fi = ctx.fi;
   QString &manifestLayerId = ctx.manifestLayerId;
+  const auto exchange = ctx.version.extra.value("horizonExchange").toMap();
+  if (!exchange.isEmpty()) {
+    EntityAssetLink relation;
+    relation.assetId = assetId; relation.entityType = QStringLiteral("seismic_survey");
+    relation.role = QStringLiteral("horizon"); relation.unresolved = true; relation.isPrimary = false;
+    relation.note = QObject::tr("外部时间域层位 %1，来源体版本 %2，待关联本工区测区")
+        .arg(exchange.value("horizon_name").toString(), exchange.value("parent_version_id").toString());
+    return cat->addLink(relation, error) ? QString() : *error;
+  }
     const bool known = isKnownSequenceBoundary(stem);
     const QString sbId = QStringLiteral("sb-%1").arg(stem.toUpper());
     if (!cat->hasEntity(sbId))

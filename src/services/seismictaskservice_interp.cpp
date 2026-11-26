@@ -734,6 +734,12 @@ bool writeDerivedCsv(const QString &filePath, const QByteArray &header,
 // LayerDeclaration 回填）：registerHorizonAsset（IDW 网格化拾取）与
 // registerPropagatedHorizonAsset（直接成格前沿）共用——同一文件格式与
 // 上图管线，不开平行格式。返回 CSV 路径（空 = 失败，error 已填）。
+template <typename T> QString csvGridValue(T value, int places)
+{
+  const auto rounded = QString::number(value, 'f', places);
+  return static_cast<T>(rounded.toDouble()) == value ? rounded
+      : QString::number(value, 'g', std::numeric_limits<T>::max_digits10);
+}
 QString writeHorizonAssetFiles(const SeismicHorizonGrid &grid,
                                const QString &horizonName,
                                const QString &outputDir, QString *error,
@@ -763,8 +769,8 @@ QString writeHorizonAssetFiles(const SeismicHorizonGrid &grid,
                     QStringLiteral("%1,%2,%3,%4\n")
                         .arg(grid.inlineMin + gi * grid.inlineStep)
                         .arg(grid.xlineMin + gx * grid.xlineStep)
-                        .arg(QString::number(twt, 'f', 2))
-                        .arg(QString::number(conf, 'f', 3))
+                        .arg(csvGridValue(twt, 2))
+                        .arg(csvGridValue(conf, 3))
                         .toUtf8();
                 if (f.write(line) != qint64(line.size()))
                   return false;
@@ -863,6 +869,13 @@ QString registerHorizonVersionEntry(
   v.parentVersionIds = QStringList{seismicVersionId};
   v.extra.insert(QStringLiteral("origin"), origin);
   v.extra.insert(QStringLiteral("pickCount"), pickCount);
+  v.extra.insert(QStringLiteral("horizonName"), horizonName);
+  QStringList surveyIds;
+  for (const auto &link : catalog->linksForAsset(seismicAssetId))
+    if (link.entityType == QLatin1String("seismic_survey") && !link.unresolved && !link.entityId.isEmpty())
+      surveyIds.append(link.entityId);
+  surveyIds.removeDuplicates();
+  v.extra.insert(QStringLiteral("horizonSurveyIds"), surveyIds);
   // finding-95：登记幂等——产物路径同名原地覆盖，旧实现每次登记都新建版本行
   // （UUID 全新 + versionNumber=1），标准迭代流程（拾取→登记→再拾取→再登记）
   // 让被覆盖的旧版本行 sha256 失真、版本表无限膨胀；下面 addVersion 失败

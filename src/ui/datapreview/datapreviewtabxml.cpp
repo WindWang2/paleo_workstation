@@ -251,7 +251,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
   const qlonglong modelWell = catalog
       ? catalog->entityById(m_wellEntityOfAsset.value(assetId)).extra.value("areaModelWellId").toLongLong() : 0;
   if(modelSource>0 && modelWell>0)session->setDocumentSession(m_document,m_wellEntityOfAsset.value(assetId));
-  session->open(abs, expectedSha, catalogProjectDir(catalog), modelSource, modelWell);
+  session->open(abs, expectedSha, catalogProjectDir(catalog), modelSource, modelWell, catalog && catalog->refusesWrites());
   return host;
 }
 

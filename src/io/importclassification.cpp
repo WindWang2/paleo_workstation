@@ -1,5 +1,7 @@
 // 层：数据
 #include "importclassification.h"
+#include "horizongridexchange.h"
+#include "checkshotexchange.h"
 #include "welllogtext.h"
 #include "welltable.h"
 #include "wellfactorfile.h"
@@ -52,6 +54,14 @@ ImportClassificationDetail classifyImportFileDetailed(const QString &path, const
   };
   if (cancel && cancel())
     return cancelled();
+  if (paleo::io::isCheckshotExchange(path)) {
+    detail.cls = {QStringLiteral("time_depth"), QStringLiteral("checkshots"), QStringLiteral("input")};
+    return detail;
+  }
+  if (paleo::io::isHorizonGridExchange(path)) {
+    detail.cls = {QStringLiteral("horizon"), QStringLiteral("csv"), QStringLiteral("input")};
+    return detail;
+  }
   if (paleo::io::isWellFactorFile(path)) { detail.cls = {QStringLiteral("tabular"), QStringLiteral("csv"), QStringLiteral("input")}; return detail; }
   if (paleo::io::isWellTableContainer(path) && QFileInfo(path).size() <= 64ll * 1024 * 1024) {
     // issue-810：分类期先做有界预览——readWellTable 会把整表读进来（百万行

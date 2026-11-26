@@ -1293,6 +1293,7 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
   job->generation = ++m_publishGeneration;
   // P3/W2：job.horizon 承载分析成果键（factor.<key>.<fid>）；约束/井点查找
   // 一律走 params["constraintHorizon"]（factorConstraintHorizonKey）。
+  job->projectDir = m_projectDir;
   job->horizon = identity.analysisLayerKey;
   job->factorId = factorId;
   job->method = method;
@@ -1486,9 +1487,9 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   if ( !sampleGeostatWells( job, cancelled, samples, supportingWells, skippedWells, sampleCrs ) )
     return false;
 
-  const QString tempDir = QDir( QDir::tempPath() )
-                              .filePath( QStringLiteral( "paleo-gs-%1" ).arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
-  if ( !QDir().mkpath( tempDir ) )
+  job->scratch = paleo::managedpath::temporaryDirectory(job->projectDir, QStringLiteral("paleo-gs"));
+  const QString tempDir = job->scratch ? job->scratch->path() : QString();
+  if (!job->scratch)
   {
     job->error = tr( "无法创建临时计算目录" );
     return false;

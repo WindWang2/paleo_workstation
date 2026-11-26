@@ -5,6 +5,7 @@
 #include "services/projectquerycapability.h"
 #include "services/pythonanalysis_internal.h"
 #include "services/pythonanalysisselection.h"
+#include "workflow/assetassociation.h"
 #include "workflow/wellboresourceconfirmation.h"
 
 using namespace document_fixture;
@@ -12,6 +13,101 @@ using namespace paleo;
 class WellboreCurveWindowTest : public QObject {
     Q_OBJECT
 private slots:
+    void relinkingLasToAnotherWellCannotConfirmItsBore() {
+        Fixture f;
+        QVERIFY2(f.init(), qPrintable(f.error));
+        for (const QString &name : QStringList{"A", "B"}) {
+            const auto las = QStringLiteral("~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. %1\n"
+                                            "~Parameter\nDREF. KB : depth reference\n"
+                                            "~Curve\nMD.M : measured depth\nGR.API : gamma ray\n"
+                                            "~Ascii\n100 %2\n101 %3\n")
+                                 .arg(name).arg(name == "A" ? 10 : 110).arg(name == "A" ? 20 : 120);
+            const auto path = f.temp.filePath(name + ".las");
+            QVERIFY(write(path, las.toUtf8()));
+            QVERIFY2(f.importModel(path), qPrintable(f.error));
+        }
+        const auto wellA = f.catalog.wellsMatchingName("A").value(0);
+        const auto wellB = f.catalog.wellsMatchingName("B").value(0);
+        QVERIFY(!wellA.isEmpty() && !wellB.isEmpty() && wellA != wellB);
+        const auto modelWellA = f.catalog.storedEntityById(wellA).extra.value("areaModelWellId").toLongLong();
+        const auto modelWellB = f.catalog.storedEntityById(wellB).extra.value("areaModelWellId").toLongLong();
+        QVERIFY(modelWellA > 0 && modelWellB > 0 && modelWellA != modelWellB);
+        const auto modelDirectory = area_model::directory(f.project).toStdString();
+        data::DataService model;
+        std::string why;
+        QVERIFY2(model.openProject(modelDirectory, why), why.c_str());
+        std::vector<data::DataEntry> curves;
+        QVERIFY2(model.listData("curves", modelWellA, curves, why), why.c_str());
+        QCOMPARE(curves.size(), size_t(1));
+        const auto curve = curves.front();
+        data::DepthInfo depth;
+        depth.mdReference = "KB";
+        QVERIFY2(model.saveLogSetDepthInfo(curve.parentId, depth, why), why.c_str());
+        model.closeProject();
+
+        QVERIFY2(f.bind(), qPrintable(f.error));
+        SourceRecord source;
+        for (const auto &record : f.session.sources())
+            if (record.kind == "well_log" && QFileInfo(record.originalPath).fileName() == "A.las") source = record;
+        QVERIFY(source.ref.valid());
+        QCOMPARE(source.ref.sourceId, curve.sourceId);
+        const auto moveLink = [&](const QString &from, const QString &to) {
+            const auto links = f.catalog.links();
+            for (int i = 0; i < links.size(); ++i) {
+                if (links[i].assetId == source.assetId && links[i].entityId == from)
+                    return assetassociation::apply(&f.catalog, {source.assetId, to, links[i].role, f.catalog.mutationSeq(), i, false}, &f.error);
+            }
+            f.error = "Expected the LAS to be linked to " + from;
+            return false;
+        };
+        const auto confirm = [&](const QString &well) {
+            return f.session.confirmWellboreSource({source.ref, source.versionId, well, "side", "侧钻",
+                                                    f.session.epoch(), f.session.revision()});
+        };
+        QVERIFY2(moveLink(wellA, wellB), qPrintable(f.error));
+        const auto moved = f.catalog.linksForAsset(source.assetId);
+        QCOMPARE(moved.size(), 1);
+        QCOMPARE(moved.front().entityId, wellB);
+        const auto rejected = confirm(wellB);
+        QVERIFY(!rejected.ok);
+        QCOMPARE(rejected.code, QString("wellbore_source_well_mismatch"));
+
+        QVERIFY2(model.openProjectReadOnly(modelDirectory, why), why.c_str());
+        std::optional<data::WellboreRef> binding;
+        QVERIFY2(model.findWellbore(data::SourceWellboreKey{source.ref.sourceId, "file"}, binding, why), why.c_str());
+        QVERIFY(!binding);
+        data::WellborePage bores;
+        QVERIFY2(model.listWellbores(modelWellB, {}, 10, bores, why), why.c_str());
+        QCOMPARE(bores.items.size(), size_t(1));
+        QCOMPARE(QString::fromStdString(bores.items.front().ref.key), QString("main"));
+        model.closeProject();
+
+        QVERIFY2(moveLink(wellB, wellA), qPrintable(f.error));
+        const auto accepted = confirm(wellA);
+        QVERIFY2(accepted.ok, qPrintable(accepted.error));
+        query::ProjectQueryCapability query;
+        query.bind(&f.catalog, {f.session.documentId(), 1, 1});
+        query.setSourceResolver([&](const SourceRef &ref) { return f.session.source(ref); });
+        const auto wellRef = query.query({{"topic", "well_details"}, {"well_id", wellA}}).value("well_ref").toObject();
+        const auto page = query.query({{"topic", "well_curves"}, {"well_ref", wellRef}, {"wellbore_key", "side"}});
+        QVERIFY2(page.value("ok").toBool(), qPrintable(QJsonDocument(page).toJson()));
+        const auto rows = page.value("curves").toArray();
+        QCOMPARE(rows.size(), 1);
+        const auto input = rows.first().toObject().value("input_ref").toObject();
+        QCOMPARE(input.value("wellbore_key").toString(), QString("side"));
+        QCOMPARE(input.value("source_version_id").toString(), source.versionId);
+        data::CurveWindowQuery window;
+        window.curveId = input.value("curve_id").toString().toLongLong();
+        QCOMPARE(window.curveId, curve.id);
+        window.sampleCount = 2;
+        window.processed = false;
+        data::CurveWindowResult samples;
+        QVERIFY2(model.openProjectReadOnly(modelDirectory, why), why.c_str());
+        QVERIFY2(model.readCurveWindow(window, samples, why), why.c_str());
+        QCOMPARE(samples.curve.values.size(), size_t(2));
+        QCOMPARE(samples.curve.values[0], 10.);
+        QCOMPARE(samples.curve.values[1], 20.);
+    }
     void sameNamedCurvesReadOnlyTheirConfirmedLas() {
         Fixture f;
         QVERIFY2(f.init(), qPrintable(f.error));

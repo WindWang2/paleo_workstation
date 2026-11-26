@@ -96,6 +96,7 @@
 #include "../src/workflow/seismicwellintervals.h"
 #include <QAction>
 #include <QComboBox>
+#include <QTabBar>
 #include <QCheckBox>
 #include <QToolButton>
 #include <QCryptographicHash>
@@ -542,6 +543,91 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void workingMapComparisonUsesSourceAndKeepsManualReference() {
+    QObject owner;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&owner);
+    QgisCanvasController canvas(&owner);
+    canvas.setLayerResolver([&](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&canvas, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, nullptr, nullptr, &f.processing, &f.store);
+    window.attachWorkbench(&f.work);
+    window.show(); window.showPage("compose"); selection.setActiveHorizon("D61");
+    QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    const auto current = f.work.versionForLayer(draft);
+    const auto sources = current.extra.value("computational_parent_versions").toStringList();
+    QVERIFY(!sources.isEmpty() && sources.first() != current.id);
+    auto *page = window.findChild<MappingWorkbenchPage *>("mappingWorkbench.compose"); QVERIFY(page);
+    page->refresh(); page->selectLayer(draft); page->commandButton("show")->click();
+    auto *primary = canvas.canvas()->currentLayer(); QVERIFY(primary);
+    auto *documents = window.findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+    QVERIFY(documents);
+    const auto activeCaption = [&] { return documents->accessibleTabName(documents->currentIndex()); };
+    QTRY_VERIFY(activeCaption().startsWith(QStringLiteral("工作副本 · ")));
+    QVERIFY(!activeCaption().endsWith(QStringLiteral(" · v%1").arg(current.versionNumber)));
+    QVERIFY(documents->tabToolTip(documents->currentIndex()).contains(
+        QStringLiteral("已登记版本 v%1").arg(current.versionNumber)));
+    auto *tool = canvas.canvas()->mapTool();
+    page->commandButton("compare")->click();
+    auto *evidence = window.findChild<MappingEvidencePanel *>(); QVERIFY(evidence && !evidence->views().isEmpty());
+    auto *reference = evidence->views().first();
+    QVERIFY(reference->hasReference());
+    QCOMPARE(reference->property("paleo.referenceVersion").toString(), sources.first());
+    window.resize(730, 600);
+    auto *tabs = window.findChild<QTabBar *>("comparisonMapTabs"); QVERIFY(tabs);
+    auto *split = window.findChild<QWidget *>("comparisonSplitter"); QVERIFY(split);
+    auto *settings = window.findChild<QToolButton *>("comparisonReferenceSettings"); QVERIFY(settings);
+    auto *choices = reference->findChild<QComboBox *>("referenceSource"); QVERIFY(choices);
+    QTRY_VERIFY(tabs->isVisible() && settings->isVisible());
+    QVERIFY(!settings->isChecked() && !choices->isVisible());
+    QVERIFY(tabs->tabToolTip(1).contains(sources.first()));
+    auto *referenceCanvas = reference->canvas(); QVERIFY(referenceCanvas);
+    tabs->setCurrentIndex(0);
+    QTRY_COMPARE(canvas.canvas()->geometry(), split->contentsRect());
+    const QSize primarySize = canvas.canvas()->viewport()->size();
+    tabs->setCurrentIndex(1);
+    QTRY_COMPARE(referenceCanvas->viewport()->size(), primarySize);
+    settings->click();
+    QTRY_VERIFY(choices->isVisible() && reference->findChild<QToolButton *>("referenceLinked")->isVisible());
+    QVERIFY(evidence->findChild<QPushButton *>("referenceAddView")->isVisible());
+    settings->click();
+    QTRY_COMPARE(referenceCanvas->viewport()->size(), primarySize);
+    QCOMPARE(reference->canvas(), referenceCanvas);
+    auto *router = window.findChild<paleo::workbench::MappingReferenceController *>(); QVERIFY(router);
+    const auto original = reference->sourceId();
+    QCOMPARE(router->comparisonSources(original), QStringList{original});
+    page->commandButton("compare")->click();
+    settings->click();
+    const int selected = choices->findData(draft); QVERIFY(selected > 0);
+    choices->setCurrentIndex(selected);
+    emit choices->activated(selected);
+    page->commandButton("compare")->click();
+    QCOMPARE(reference->property("paleo.referenceVersion").toString(), current.id);
+    QCOMPARE(canvas.canvas()->currentLayer(), primary); QCOMPARE(canvas.canvas()->mapTool(), tool);
+    auto *toggle = window.findChild<QToolButton *>("comparisonLegends"); QVERIFY(toggle);
+    auto *mainLegend = window.findChild<PaleoDecorationManager *>(QString(), Qt::FindDirectChildrenOnly);
+    auto *referenceLegend = reference->findChild<PaleoDecorationManager *>(); QVERIFY(mainLegend && referenceLegend);
+    QTRY_VERIFY(toggle->isVisible() && mainLegend->hasFaciesLegend());
+    const auto items = mainLegend->decorationItems();
+    const bool preference = toggle->isChecked();
+    toggle->setChecked(false); QVERIFY(!mainLegend->comparisonLegendVisible() && !referenceLegend->comparisonLegendVisible());
+    QCOMPARE(mainLegend->decorationItems(), items);
+    toggle->setChecked(true); QVERIFY(mainLegend->comparisonLegendVisible() && referenceLegend->comparisonLegendVisible());
+    toggle->setChecked(false);
+    window.findChild<QToolButton *>("closeComparison")->click();
+    QVERIFY(mainLegend->comparisonLegendVisible());
+    toggle->setChecked(preference);
+    const auto published = f.work.layerForVersion(current.id, &error);
+    QVERIFY2(!published.isEmpty(), qPrintable(error));
+    page->refresh(); page->selectLayer(published); page->commandButton("show")->click();
+    QTRY_VERIFY(!activeCaption().startsWith(QStringLiteral("工作副本 · ")));
+    QTRY_VERIFY(activeCaption().contains(QStringLiteral("v%1").arg(current.versionNumber)));
+  }
+
   void predictionInputsKeepUnlocatedCurveWells() {
     Fixture fixture;
     QVERIFY(fixture.init());

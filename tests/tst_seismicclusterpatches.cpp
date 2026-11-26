@@ -108,6 +108,30 @@ private slots:
     QCOMPARE(digest(patches), fingerprint);
     QCOMPARE(byPatch(automatic), suggested);
   }
+  void batchEditsResolveOverlapsInApplicationOrder() {
+    QTemporaryDir dir;
+    const auto input = dir.filePath("clusters.tif"), patches = dir.filePath("patches.gpkg");
+    const auto output = dir.filePath("interpreted.gpkg");
+    QString error;
+    QVERIFY(raster(input));
+    QVERIFY2(polygonize(input, patches, {}, &error), qPrintable(error));
+    const auto original = digest(patches);
+    const auto rows = byPatch(patches);
+    const auto edit = [&](int patch, bool group, int code) {
+      return QVariantMap{{"feature_id", rows.value(patch).value("feature_id")}, {"patch_id", patch},
+                         {"whole_cluster", group}, {"facies_code", code}};
+    };
+    int changed = 0;
+    QVERIFY2(writeManualAssignments(patches, output, schema, {edit(0, true, 1), edit(4, false, 2)},
+                                    &changed, &error), qPrintable(error));
+    QCOMPARE(byPatch(output)[0]["facies_code"].toInt(), 1);
+    QCOMPARE(byPatch(output)[4]["facies_code"].toInt(), 2);
+    const auto failPath = dir.filePath("rejected.gpkg");
+    QVERIFY(!writeManualAssignments(patches, failPath, schema, {edit(0, true, 1), edit(4, false, 999)},
+                                    &changed, &error));
+    QVERIFY(!QFile::exists(failPath));
+    QCOMPARE(digest(patches), original);
+  }
   void rejectsMismatchedInputs() {
     QTemporaryDir dir;
     const auto raw = dir.filePath("cluster.tif"), patches = dir.filePath("patches.gpkg"), output = dir.filePath("invalid.gpkg");

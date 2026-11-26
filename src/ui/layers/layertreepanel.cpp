@@ -121,7 +121,11 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(0);
-  layout->addWidget(new PaleoToolRow(buildToolbar(), this));
+  layout->addWidget(buildFilterRow());
+  auto *tools = new PaleoToolRow(buildToolbar(), this);
+  tools->setVisible(false);
+  connect(m_moreTools, &QToolButton::toggled, tools, &QWidget::setVisible);
+  layout->addWidget(tools);
   layout->addWidget(m_view, 1);
 
   buildContextMenu();
@@ -300,12 +304,31 @@ QWidget *LayerTreePanel::buildToolbar()
   connect(collapseAct, &QAction::triggered, m_view, &QgsLayerTreeView::collapseAllNodes);
   lay->addWidget(mkButton(QStringLiteral("layerTreeCollapseAllButton"), collapseAct));
 
+  lay->addStretch();
+  return bar;
+}
+
+QWidget *LayerTreePanel::buildFilterRow()
+{
+  auto *bar = new QWidget(this);
+  auto *lay = new QHBoxLayout(bar);
+  const auto &tokens = PaleoTheme::tokens();
+  lay->setContentsMargins(tokens.spacingSm, tokens.spacingXs, tokens.spacingSm, tokens.spacingXs);
+  lay->setSpacing(tokens.spacingXs);
   m_filterEdit = new QLineEdit(bar);
   m_filterEdit->setObjectName(QStringLiteral("layerTreeFilterEdit"));
   m_filterEdit->setPlaceholderText(tr("筛选图层…"));
   m_filterEdit->setClearButtonEnabled(true);
   connect(m_filterEdit, &QLineEdit::textChanged, this, &LayerTreePanel::setFilterText);
   lay->addWidget(m_filterEdit, 1);
+  m_moreTools = new QToolButton(bar);
+  m_moreTools->setObjectName(QStringLiteral("layerTreeToolsToggle"));
+  m_moreTools->setText(QStringLiteral("⋯"));
+  m_moreTools->setAccessibleName(tr("图层工具"));
+  m_moreTools->setToolTip(tr("展开或收起图层工具"));
+  m_moreTools->setAutoRaise(true);
+  m_moreTools->setCheckable(true);
+  lay->addWidget(m_moreTools);
   return bar;
 }
 
@@ -927,7 +950,12 @@ void LayerTreePanel::expandNewLayerNodes(const QList<QgsMapLayer *> &layers)
   {
     if (!l)
       continue;
-    if (QgsLayerTreeNode *node = model->rootGroup()->findLayer(l->id()))
-      node->setExpanded(true); // 新增图层 legend 符号节点展开
+    if (QgsLayerTreeNode *node = model->rootGroup()->findLayer(l->id())) {
+      const QString id = l->customProperty(QStringLiteral("paleoLayerId")).toString();
+      // A newly added interpretation version gets one row. Its full renderer
+      // tree remains available under that row and on the map itself.
+      node->setExpanded(!id.startsWith(QLatin1String("product.")) &&
+                        !id.startsWith(QLatin1String("draft.")));
+    }
   }
 }

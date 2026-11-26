@@ -7,6 +7,7 @@
 // 定位、D11 临时配准、地震体后台装载。页切换在 _pages.cpp、工程打开/导入
 // 编排在 _project.cpp。
 #include "paleomainwindow.h"
+#include "workspacefocus.h"
 #include "../workflow/stratigraphyworkflow.h"
 #include "paleomainwindow_internal.h"
 #include <cmath>
@@ -288,7 +289,7 @@ void PaleoMainWindow::buildShell()
              paleo::mainwindow_internal::applyPageDockPolicy(
                  m_currentPage, {m_leftDock, m_dataListDock, m_bottomDock,
                                  m_wellSectionDock, m_previewMaximized,
-                                m_bottomDockAutoShown, m_rightDock}, this);
+                                m_rightDock}, this);
          }
        }});
   // R6 #835（用户 2026-10-31 决定「不要限制」，取代 PLAN §42.11 的 1280×800 最小窗口）：
@@ -434,6 +435,11 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
 
 void PaleoMainWindow::onProjectOpened()
 {
+  if (!property("workspaceRibbonInitialized").toBool()) {
+    QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    ribbonBar()->setMinimumMode(settings.value(QStringLiteral("ui/workspace/compactRibbon"), true).toBool());
+    setProperty("workspaceRibbonInitialized", true);
+  }
   if (m_rightDock) m_rightDock->setProgrammaticVisible(m_rightDock->userWantsVisible());
   if (m_centerStack)
     m_centerStack->setCurrentIndex(1); // startup -> workspace canvas
@@ -568,6 +574,8 @@ void PaleoMainWindow::updateWindowTitle()
 void PaleoMainWindow::setProjectReadOnly(bool readOnly)
 {
   m_isProjectReadOnly = readOnly;
+  if (auto *inspector = findChild<QWidget *>(QStringLiteral("clusterPatchInspector")))
+    inspector->setProperty("readOnly", readOnly);
   updateUndoProjectGate(readOnly);
   updateWindowTitle();
 
@@ -588,42 +596,13 @@ void PaleoMainWindow::setProjectReadOnly(bool readOnly)
   if (statusBar() && readOnly)
   {
     const bool external = m_projectSvc && !m_projectSvc->allowsProjectWritesAt(QFileInfo(m_projectSvc->projectPath()).absolutePath());
-    statusBar()->showMessage(external ? tr("工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。")
-                                      : tr("工程以只读模式运行（写操作已禁用）"), 10000);
+    const QString message = external ? tr("工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。")
+                                     : tr("工程以只读模式运行（写操作已禁用）");
+    statusBar()->setProperty("projectReadOnlyNotice", message);
+    statusBar()->showMessage(message, 10000);
+  } else if (statusBar() && statusBar()->currentMessage() == statusBar()->property("projectReadOnlyNotice").toString()) {
+    statusBar()->clearMessage();
   }
-}
-
-void PaleoMainWindow::saveWindowState()
-{
-  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
-  s.setValue(QStringLiteral("windowGeometry"), saveGeometry());
-  s.setValue(QStringLiteral("windowState"),
-             m_currentPage == QLatin1String("correlation") && !m_beforeCorrelationWindowState.isEmpty()
-                 ? m_beforeCorrelationWindowState : saveState());
-  s.setValue(QStringLiteral("windowDockIntent"), m_dockManager->captureIntent());
-  // lastPage 不再写入：#565 起恢复侧固定打开工区看板（读取已删，写即死写）。
-}
-
-void PaleoMainWindow::restoreWindowState()
-{
-  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
-  const QByteArray geom = s.value(QStringLiteral("windowGeometry")).toByteArray();
-  if (!geom.isEmpty())
-    restoreGeometry(geom);
-  else if (!paleo::ui_detail::isOffscreen())
-    // R6 #835：首次启动按所在屏 90% 起步，而不是停在最小尺寸、四周留白。
-    resize(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), paleo::ui_detail::availableSizeFor(this)));
-  const QByteArray state = s.value(QStringLiteral("windowState")).toByteArray();
-  if (!state.isEmpty())
-  {
-    // 旧版设置没有 windowDockIntent：意愿还原用恢复前的快照兜底。
-    QVariantMap intent;
-    const bool hasIntent = s.contains(QStringLiteral("windowDockIntent"));
-    if (hasIntent)
-      intent = s.value(QStringLiteral("windowDockIntent")).toMap();
-    m_dockManager->restoreLayout(state, hasIntent ? &intent : nullptr);
-  }
-  // Page restore happens in onProjectOpened (a page without a project is empty).
 }
 
 void PaleoMainWindow::saveCanvasExtent()
@@ -898,6 +877,7 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
 // 返回 false = 取消。offscreen 且无 seam 时直接放行（无头自动化旧行为）。
 bool PaleoMainWindow::maybeSaveProject()
 {
+  if (!resolveClusterDrafts()) return false;
   if(m_stratigraphy&&m_stratigraphy->isRunning()) {
     PaleoNotify::warning(this,tr("地层对比仍在计算"),tr("请等待计算完成或取消计算后再关闭或切换工程。"));return false;
   }

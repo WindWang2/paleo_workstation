@@ -15,6 +15,7 @@
 #include "pages/mappingtaskguide.h"
 #include "pages/wellpredictionpanel.h"
 #include "workbench/mappingworkbenchcommandcontroller.h"
+#include "workbench/mappingreferencecontroller.h"
 #include <QStatusBar>
 
 namespace {
@@ -67,6 +68,18 @@ void PaleoMainWindow::attachWorkbenchCommands(
   context.legend = legend;
   context.show = show;
   context.compare = compare;
+  context.comparePrimary = [this, compare](const QString &id, QString *error) {
+    auto *dock = prepareMappingReferenceDock();
+    auto *controller = dock ? dock->findChild<paleo::workbench::MappingReferenceController *>() : nullptr;
+    if (!controller) return compare(id, error);
+    for (const auto &candidate : controller->comparisonSources(id)) {
+      if (compare(candidate, error)) {
+        if (error) error->clear();
+        return true;
+      }
+    }
+    return false;
+  };
   context.openWells = wells.openWells;
   context.beginEdit = wells.beginEdit;
   context.shown = shown;

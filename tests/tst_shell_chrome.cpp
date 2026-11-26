@@ -31,6 +31,9 @@
 #include "../src/ui/pages/pageshared.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include <qgsvectorlayer.h>
+#include <qgsmapcanvas.h>
+#include <qgsmaptool.h>
+#include "../src/services/paleotaskservice.h"
 
 class TestShellChrome : public QObject
 {
@@ -101,6 +104,170 @@ private slots:
       QDir().mkpath(qa);
       QVERIFY(win.grab().save(qa + QStringLiteral("/shell-four-steps.png")));
     }
+  }
+
+  void workspaceFocusRestoresDocumentLayoutAndIntent()
+  {
+    QTemporaryDir project;
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+    win.attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+                        m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
+                        m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
+                        m_ctx->layoutSvc(), m_ctx->taskSvc());
+    win.attachWorkbench(m_ctx->mappingWorkbench());
+    const auto closeProject = qScopeGuard([this] { m_ctx->projectSvc()->closeProject(); });
+    win.resize(1440, 900);
+    win.show();
+    win.activateWindow();
+    QCoreApplication::processEvents();
+    QVERIFY(m_ctx->projectSvc()->createProject(project.filePath(QStringLiteral("focus.qgz"))));
+    win.showPage(QStringLiteral("compose"));
+    auto *tabs = win.findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+    auto *left = win.findChild<PaleoDockWidget *>(QStringLiteral("layerTreeDock"));
+    auto *right = win.findChild<PaleoDockWidget *>(QStringLiteral("pagePanelDock"));
+    auto *focus = win.findChild<QToolButton *>(QStringLiteral("workspaceFocusButton"));
+    QVERIFY(tabs && left && right && focus);
+    QTRY_VERIFY(left->isVisible() && right->isHidden());
+    QVERIFY(win.ribbonBar()->isMinimumMode());
+    const int active = tabs->currentIndex();
+    QVERIFY(tabs->count() > 1);
+    canvas.canvas()->setExtent(QgsRectangle(100, 250, 900, 750));
+    canvas.canvas()->refresh();
+    QCoreApplication::processEvents();
+    const auto originalExtent = canvas.canvas()->extent();
+    const QSize canvasBefore = canvas.canvas()->viewport()->size();
+    const auto surfaceRatio = [&] {
+      const QSize area = canvas.canvas()->viewport()->size();
+      return double(area.width()) * area.height() / (double(win.width()) * win.height());
+    };
+    const auto record = [&](const QString &state) {
+      qInfo() << state << "window" << win.size() << "canvas" << canvas.canvas()->viewport()->size()
+              << "left" << (left->isVisible() ? left->width() : 0)
+              << "right" << (right->isVisible() ? right->width() : 0)
+              << "ribbon" << win.ribbonBar()->height() << "ratio" << surfaceRatio();
+      const QString dir = qEnvironmentVariable("PALEO_WORKSPACE_QA_DIR");
+      if (!dir.isEmpty()) {
+        QVERIFY(QDir().mkpath(dir));
+        QVERIFY(win.grab().save(QDir(dir).filePath(state + QStringLiteral(".png"))));
+      }
+    };
+    record(QStringLiteral("workspace-browse"));
+    QVERIFY(surfaceRatio() >= 0.65);
+    const bool wantLeft = left->userWantsVisible();
+    tabs->setFocus();
+    QTRY_VERIFY(tabs->hasFocus());
+    QTest::keyClick(&win, Qt::Key_F8);
+    QTRY_VERIFY(focus->isChecked());
+    QVERIFY(focus->isVisible() && tabs->isVisible() && win.ribbonBar()->ribbonTabBar()->isVisible());
+    QVERIFY(left->isHidden() && right->isHidden());
+    QVERIFY(win.ribbonBar()->quickAccessBar()->isHidden());
+    QCOMPARE(left->userWantsVisible(), wantLeft);
+    QCOMPARE(tabs->currentIndex(), active);
+    QTRY_VERIFY(canvas.canvas()->viewport()->width() > canvasBefore.width());
+    record(QStringLiteral("workspace-focus"));
+    QVERIFY(surfaceRatio() >= 0.82);
+    for (int n = 0; n < 5; ++n) {
+      QTest::keyClick(&win, static_cast<Qt::Key>(Qt::Key_1 + n), Qt::ControlModifier);
+      QTRY_COMPARE(win.ribbonBar()->ribbonTabBar()->currentIndex(), n);
+      QCOMPARE(tabs->currentIndex(), active);
+      QVERIFY(win.ribbonBar()->ribbonStackedWidget()->isHidden());
+    }
+    QTest::keyClick(&win, Qt::Key_Tab, Qt::ControlModifier);
+    QTRY_VERIFY(tabs->currentIndex() != active);
+    QVERIFY(focus->isChecked());
+    QTest::keyClick(&win, Qt::Key_Tab, Qt::ControlModifier | Qt::ShiftModifier);
+    QTRY_COMPARE(tabs->currentIndex(), active);
+    QVERIFY(focus->isChecked());
+    QScopedPointer<QMenu> menu;
+    auto *save = layoutAction(win, tr("保存当前布局"), menu);
+    QVERIFY(save);
+    save->trigger();
+    QVERIFY(focus->isChecked() && left->isHidden());
+    QTest::keyClick(&win, Qt::Key_Escape);
+    QTRY_VERIFY(!focus->isChecked());
+    QCOMPARE(tabs->currentIndex(), active);
+    QTRY_VERIFY(left->isVisible() && right->isHidden());
+    QTRY_COMPARE(canvas.canvas()->viewport()->size(), canvasBefore);
+    QVERIFY(tabs->hasFocus());
+    const auto restoredExtent = canvas.canvas()->extent();
+    QVERIFY(qAbs(restoredExtent.center().x() - originalExtent.center().x()) < 0.01);
+    QVERIFY(qAbs(restoredExtent.center().y() - originalExtent.center().y()) < 0.01);
+    QVERIFY(qAbs(restoredExtent.width() - originalExtent.width()) < 0.01);
+    QVERIFY(qAbs(restoredExtent.height() - originalExtent.height()) < 0.01);
+    // Persisted layout commands also see the ordinary dock state.
+    left->hide();
+    auto *restore = layoutAction(win, tr("恢复保存的布局"), menu);
+    QVERIFY(restore);
+    restore->trigger();
+    QTRY_VERIFY(left->isVisible() && left->userWantsVisible());
+  }
+
+  void workspaceEscapeAfterCapturePopupAndIdleInput()
+  {
+    QTemporaryDir project;
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+    const auto closeProject = qScopeGuard([this] { m_ctx->projectSvc()->closeProject(); });
+    win.show();
+    win.activateWindow();
+    QVERIFY(m_ctx->projectSvc()->createProject(project.filePath(QStringLiteral("escape.qgz"))));
+    win.showPage(QStringLiteral("compose"));
+    auto *focus = win.findChild<QToolButton *>(QStringLiteral("workspaceFocusButton"));
+    QVERIFY(focus);
+    focus->click();
+    QVERIFY(focus->isChecked());
+
+    // The tool deactivates synchronously and then propagates the original Escape.
+    class CancelCapture final : public QgsMapTool {
+    public:
+      explicit CancelCapture(QgsMapCanvas *map) : QgsMapTool(map) {}
+      void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Escape) canvas()->unsetMapTool(this);
+        event->ignore();
+      }
+    } capture(canvas.canvas());
+    canvas.setMapTool(&capture);
+    QTest::keyClick(canvas.canvas(), Qt::Key_Escape);
+    QVERIFY(!canvas.activeTool());
+    QVERIFY(focus->isChecked());
+
+    QLineEdit field(win.centralWidget());
+    field.show();
+    field.raise();
+    field.setFocus();
+    QMenu popup(&field);
+    popup.addAction(QStringLiteral("A"));
+    popup.popup(field.mapToGlobal(field.rect().bottomLeft()));
+    QTRY_VERIFY(popup.isVisible());
+    QTest::keyClick(&popup, Qt::Key_Escape);
+    QTRY_VERIFY(!popup.isVisible());
+    QVERIFY(focus->isChecked());
+    field.setFocus();
+    QTest::keyClick(&field, Qt::Key_Escape);
+    QTRY_VERIFY(!focus->isChecked());
+  }
+
+  void backgroundTasksUseStatusUntilExplicitlyOpened()
+  {
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+    win.attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+                        m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
+                        m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
+                        m_ctx->layoutSvc(), m_ctx->taskSvc());
+    win.show();
+    auto *bottom = win.findChild<PaleoDockWidget *>(QStringLiteral("bottomDock"));
+    auto *status = win.findChild<QToolButton *>(QStringLiteral("workspaceTaskStatus"));
+    QVERIFY(bottom && status);
+    auto *task = m_ctx->taskSvc()->beginExternal(QStringLiteral("workspace QA"));
+    QVERIFY(task);
+    const auto finish = qScopeGuard([task] { task->finishExternal(); });
+    task->reportStage(QStringLiteral("index"), 45);
+    QTRY_VERIFY(status->toolTip().contains(QStringLiteral("45%")));
+    QVERIFY(bottom->isHidden() && !bottom->userWantsVisible());
+    status->click();
+    QTRY_VERIFY(bottom->isVisible() && bottom->userWantsVisible());
   }
 
   void homeRoundTripRestoresParameterDockIntent()

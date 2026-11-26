@@ -1,5 +1,6 @@
 // 层：功能
 #include "aichatcontroller.h"
+#include "ai/chat/chatworkspacecontext.h"
 #include "aichatcontextprojection.h"
 #include "aichatrecentsummaries.h"
 #include "chatinvocationbinding.h"
@@ -466,7 +467,7 @@ void AiChatController::appendMessage(const ChatMessage &message) {
   m_session.updatedAt = QDateTime::currentDateTime();
   if (m_session.messages.size() == 1 && message.role == ChatRole::User &&
       m_session.title.isEmpty())
-    m_session.title = message.content.trimmed().left(40);
+    m_session.title = paleo::chat::questionTitleText(message.content).left(40);
   emit messageAppended(message);
 }
 

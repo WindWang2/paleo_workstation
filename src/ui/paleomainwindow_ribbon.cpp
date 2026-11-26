@@ -4,6 +4,8 @@
 // .cpp 的 registerPageShortcuts，调用点保持原行序）+ 面板菜单与右键入口 +
 // categoryForPage 查找。
 #include "paleomainwindow.h"
+#include "workspacefocus.h"
+#include <QSettings>
 #include "paleomainwindow_internal.h"
 
 #include "paleoicons.h"
@@ -106,6 +108,10 @@ void PaleoMainWindow::buildRibbon()
     action->setWhatsThis(help);
     panel->addLargeAction(action);
     bindCommand(commandId, [this, page, type](const QVariantMap &) {
+      if (page == QLatin1String("predict") || page == QLatin1String("constraint")) {
+        exitWorkspaceFocus(this);
+        m_rightDock->show();
+      }
       showPage(page);
       if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictTypeCombo")))
         combo->setCurrentIndex(combo->findData(type));
@@ -163,6 +169,11 @@ void PaleoMainWindow::buildRibbon()
     modeButton->setArrowType(bar->isMinimumMode() ? Qt::DownArrow : Qt::UpArrow);
   };
   connect(bar, &SARibbonBar::ribbonModeChanged, this, syncRibbonMode);
+  connect(bar, &SARibbonBar::ribbonModeChanged, this, [this, bar] {
+    if (property("workspaceRibbonInitialized").toBool() && !property("workspaceFocused").toBool())
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).setValue(
+          QStringLiteral("ui/workspace/compactRibbon"), bar->isMinimumMode());
+  });
   syncRibbonMode();
 
   // vendor SARibbon 把命令钮设成 NoFocus：补 TabFocus + 聚焦滚入；滚动按钮

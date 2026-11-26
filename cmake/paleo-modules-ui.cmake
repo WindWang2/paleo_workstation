@@ -144,6 +144,10 @@ add_library(paleo_ui STATIC
   src/ui/workbench/mappingworkbenchcommandcontroller.cpp  # #749：制图工作台命令控制器（原 #473 _commands.cpp）
   src/ui/workbench/mappingworkbenchcommandcontroller.h    # #749：Q_OBJECT 头（AUTOMOC）
   src/ui/workbench/mappingreferencecontroller.cpp
+  src/ui/workbench/workspacecomparison.cpp
+  src/ui/workbench/clusterpatchinspector.cpp
+  src/ui/workspacefocus.cpp
+  src/ui/workspacedockdocuments.cpp
   src/ui/workbench/mappingreferencecontroller.h
   src/ui/workbench/workbenchcommandhandler.h             # #749：工作台命令处理器接口
   src/ui/paleomainwindow_workbench_evidence.cpp   # #473：证据面板/图谱联动接线

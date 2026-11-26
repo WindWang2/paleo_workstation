@@ -15,6 +15,7 @@
 #include <QDockWidget>
 #include <QFileInfo>
 #include <QMainWindow>
+#include <QMap>
 
 namespace paleo::workbench {
 
@@ -58,18 +59,22 @@ MappingReferenceController::MappingReferenceController(
     connect(&dock, &QDockWidget::topLevelChanged, &dock, sizeDock);
     connect(&dock, &QDockWidget::dockLocationChanged, &dock, sizeDock);
     connect(&dock, &QDockWidget::visibilityChanged, &dock, [sizeDock](bool visible) { if (visible) sizeDock(); });
-    connect(&dock, &QDockWidget::visibilityChanged, m_panel, &MappingEvidencePanel::setViewActive);
     connect(m_panel, &MappingEvidencePanel::referenceRequested,
             this, &MappingReferenceController::loadReference);
     connect(&workbench, &MappingWorkbench::changed, this, &MappingReferenceController::refreshSources);
     connect(&selection, &SelectionContext::activeHorizonChanged,
             this, &MappingReferenceController::refreshSources);
     connect(&workbench, &MappingWorkbench::catalogBound, this, [this] {
+        m_primaryId.clear();
+        m_userSource.clear();
         m_panel->reloadProjectLayout();
         m_panel->clearReferences(QCoreApplication::translate(
             "PaleoMainWindow", "工程已切换，请选择当前工程的参考证据。"));
     });
     m_panel->enableCompactDock();
+    connect(m_panel, &MappingEvidencePanel::sourceChosen, this, [this](const QString &source) {
+        if (!m_primaryId.isEmpty()) m_userSource.insert(m_primaryId, source);
+    });
     refreshSources();
 }
 
@@ -114,6 +119,40 @@ bool MappingReferenceController::showSource(const QString &layerId, QString *err
     if (error)
         *error = QCoreApplication::translate("PaleoMainWindow", "参考图件无法读取，请在参考面板中重新选择");
     return false;
+}
+
+QStringList MappingReferenceController::comparisonSources(const QString &primaryId)
+{
+    m_primaryId = primaryId;
+    const auto current = m_workbench->versionForLayer(primaryId);
+    QStringList candidates;
+    const auto chosen = m_userSource.value(primaryId);
+    for (const auto *view : m_panel->views())
+        if (view->hasReference() && view->sourceId() == chosen) candidates << chosen;
+    QStringList versions{current.extra.value("cluster_patches_version").toString(),
+                         current.extra.value("cluster_raster_version").toString()};
+    versions << current.extra.value("computational_parent_versions").toStringList() << current.parentVersionIds;
+    // Resolve only declared spatial versions. Opening a reference never materializes a main-map layer.
+    QHash<QString, QString> registered;
+    QMap<int, QString> earlier;
+    const auto products = m_workbench->products(QString());
+    for (const auto &item : products) {
+        const auto row = item.toMap();
+        if (row.value("draft").toBool() || (row.value("type") != "vector" && row.value("type") != "raster")) continue;
+        const QString id = row.value("id").toString(), version = row.value("version_id").toString();
+        if (version.isEmpty() || version == current.id) continue;
+        if (!registered.contains(version) || id == QStringLiteral("product.") + version)
+            registered.insert(version, id);
+        const int revision = row.value("version").toInt();
+        if (!current.assetId.isEmpty() && row.value("asset_id") == current.assetId &&
+            revision > 0 && revision < current.versionNumber) earlier.insert(revision, version);
+    }
+    for (auto it = earlier.cend(); it != earlier.cbegin();) versions << (--it).value();
+    for (const auto &version : versions)
+        if (registered.contains(version)) candidates << registered.value(version);
+    candidates << primaryId;
+    candidates.removeDuplicates();
+    return candidates;
 }
 
 } // namespace paleo::workbench

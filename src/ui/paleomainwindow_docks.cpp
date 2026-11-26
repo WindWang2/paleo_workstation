@@ -4,11 +4,15 @@
 // dock 族。原 buildShell 六段中的三段，按原文行序自本体移入（初始化序/
 // 连接序逐行保持；编排见 paleomainwindow.cpp 的 buildShell）。
 #include "paleomainwindow.h"
+#include "workspacefocus.h"
+#include "workspacedockdocuments.h"
+#include <QSettings>
 #include "paleomainwindow_internal.h"
 #include "uienv_internal.h"
 #include "../workflow/projectsetup.h"
 
 #include "paleodockmanager.h"
+#include "workbench/workspacecomparison.h"
 #include "paleoviewport.h" // PaleoViewportStack + PaleoPanelHost
 #include "paleoemptystate.h" // T31 空态卡片共享组件
 #include "paleotheme.h"
@@ -49,6 +53,8 @@
 #include <qgis.h> // Qgis::MessageLevel
 #include <qgsmapcanvas.h>
 #include <qgsmaptool.h> // syncContext 的活动工具面（mapTool()/action()）
+#include <qgsmaptoolpan.h>
+#include <qgsmaptoolzoom.h>
 #include <qgsproject.h>
 #include <qgsmessagelog.h>
 #include <qgsmessagelogviewer.h>
@@ -314,11 +320,14 @@ void PaleoMainWindow::buildCenterArea()
   if (m_canvasCtl)
   {
     QgsMapCanvas *canvas = m_canvasCtl->canvas();
+    canvas->setProperty("workspaceMapToolKeys", true);
+    canvas->viewport()->setProperty("workspaceMapToolKeys", true);
     // Context belongs to the map surface, so it disappears on the data page.
     auto *contextRow = new QWidget(canvasPane);
     contextRow->setObjectName(QStringLiteral("mapInteractionContext"));
     auto *contextLayout = new QHBoxLayout(contextRow);
-    contextLayout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    contextLayout->setContentsMargins(PaleoTheme::tokens().spacingSm, 0,
+                                      PaleoTheme::tokens().spacingSm, 0);
     contextLayout->setSpacing(PaleoTheme::tokens().spacingSm);
     auto *context = new QLabel(contextRow);
     context->setObjectName(QStringLiteral("mapInteractionHint"));
@@ -331,8 +340,13 @@ void PaleoMainWindow::buildCenterArea()
     stop->setToolTip(tr("结束当前地图操作，保留尚未保存的图层编辑"));
     stop->setAccessibleName(stop->toolTip());
     connect(stop, &QToolButton::clicked, this, [this] { m_canvasCtl->deactivateTool(); });
-    const auto syncContext = [context, stop, canvas] {
+    const auto syncContext = [contextRow, context, stop, canvas] {
       QgsMapTool *tool = canvas->mapTool();
+      // Pan and zoom are ordinary navigation, including the pan tool installed
+      // after opening a real workbench product. Only operations need a stop row.
+      const bool operation = tool && !qobject_cast<QgsMapToolPan *>(tool)
+                                  && !qobject_cast<QgsMapToolZoom *>(tool);
+      contextRow->setVisible(operation);
       QAction *action = tool ? tool->action() : nullptr;
       const QString mode = action ? action->text().remove(QLatin1Char('&'))
                                   : tool ? tool->toolName() : tr("浏览");
@@ -345,8 +359,8 @@ void PaleoMainWindow::buildCenterArea()
       context->setText(text);
       context->setToolTip(text);
       context->setAccessibleName(text);
-      stop->setEnabled(tool != nullptr);
-      stop->setToolTip(tool ? tr("结束当前地图操作，保留尚未保存的图层编辑")
+      stop->setEnabled(operation);
+      stop->setToolTip(operation ? tr("结束当前地图操作，保留尚未保存的图层编辑")
                             : tr("当前没有活动地图工具"));
     };
     connect(canvas, &QgsMapCanvas::mapToolSet, contextRow, [context, syncContext](QgsMapTool *tool, QgsMapTool *old) {
@@ -359,7 +373,7 @@ void PaleoMainWindow::buildCenterArea()
     contextLayout->addWidget(context, 1);
     contextLayout->addWidget(stop);
     canvasLay->addWidget(contextRow);
-    canvasLay->addWidget(canvas, 1);
+    canvasLay->addWidget(new WorkspaceComparison(canvas, canvasPane), 1);
   }
   else
     canvasLay->addStretch(1);
@@ -380,6 +394,10 @@ void PaleoMainWindow::buildCenterArea()
   m_previewTabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
   m_workspaceStack->addWidget(m_previewTabs); // 1: all remaining space is visualization
   buildVisualizationWorkspace();
+  connect(m_previewTabs, &DataPreviewTabs::activePreviewCaptionChanged, this,
+          [this](const QString &title, const QString &detail) {
+    setWorkspaceDocumentCaption(m_visualizationTabs, QStringLiteral("data"), title, detail);
+  });
 
   // 画布装饰管理器（D11 临时配准水印等）：parent 到 canvas，renderComplete
   // 自连；各项默认关，按需 setEnabled。
@@ -388,13 +406,14 @@ void PaleoMainWindow::buildCenterArea()
 
   connect(m_previewTabs, &DataPreviewTabs::previewMaximizeToggled, this,
           [this](bool on) {
+    WorkspaceLayoutScope ordinaryLayout(this);
     m_previewMaximized = on;
     if (on) {
       m_preMaxWindowState = saveState();
       m_dataListDock->setProgrammaticVisible(false);
       m_rightDock->setProgrammaticVisible(false);
     } else if (!m_preMaxWindowState.isEmpty()) {
-      restoreState(m_preMaxWindowState);
+      m_dockManager->restoreLayout(m_preMaxWindowState, nullptr);
       m_preMaxWindowState.clear();
     }
   });
@@ -558,6 +577,8 @@ void PaleoMainWindow::buildPageDocks()
   }
   m_rightDock->setWidget(panelHost);
   addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
+  m_rightDock->setUserWantsVisible(false);
+  m_rightDock->setProgrammaticVisible(false);
 
   // ---- bottom dock: log + tasks tabs ----
   m_bottomDock = new PaleoDockWidget(tr("日志 / 任务"), this);
@@ -581,17 +602,18 @@ void PaleoMainWindow::buildPageDocks()
   m_seismicSectionDock = new seismic::SeismicSectionDockWidget(tr("地震剖面 / 井震综合"), this);
   m_seismicSectionDock->setObjectName(QStringLiteral("seismicSectionDock"));
   auto *router = undoRouter();
-  const auto bindSectionUndo = [dock = m_seismicSectionDock, router] {
-    router->registerScope(dock, dock->interpretationNativeUndoStack(), dock->interpretationUndoTarget());
+  QWidget *sectionContent = m_seismicSectionDock->widget();
+  const auto bindSectionUndo = [dock = m_seismicSectionDock, sectionContent, router] {
+    router->registerScope(sectionContent, dock->interpretationNativeUndoStack(), dock->interpretationUndoTarget());
   };
   bindSectionUndo();
   connect(m_seismicSectionDock, &seismic::SeismicSectionDockWidget::interpretationUndoScopeChanged,
           router, bindSectionUndo);
   connect(m_seismicSectionDock, &seismic::SeismicSectionDockWidget::interpretationUndoStateChanged,
           router, &PaleoUndoGroupRouter::targetChanged);
-  connect(m_seismicSectionDock, &QDockWidget::visibilityChanged, router, [dock = m_seismicSectionDock, router](bool visible) {
+  connect(m_seismicSectionDock, &QDockWidget::visibilityChanged, router, [sectionContent, router](bool visible) {
     if (!visible)
-      router->clearScopeFocus(dock);
+      router->clearScopeFocus(sectionContent);
   });
   addDockWidget(Qt::BottomDockWidgetArea, m_seismicSectionDock);
   tabifyDockWidget(m_bottomDock, m_seismicSectionDock);
@@ -714,14 +736,28 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
   m_visualizationTabs->setExpanding(false);
   m_visualizationTabs->setUsesScrollButtons(true);
   m_visualizationTabs->setTabsClosable(true);
-  connect(m_visualizationTabs, &QTabBar::tabCloseRequested, this, [this](int index) {
+  auto *documents = new WorkspaceDockDocuments(m_visualizationTabs, m_workspaceStack);
+  connect(m_visualizationTabs, &QTabBar::tabCloseRequested, this, [this, documents](int index) {
     if (m_visualizationTabs->tabData(index).toMap().value(QStringLiteral("surface")) == QStringLiteral("compose")) return;
+    documents->release(index, true);
     m_visualizationTabs->removeTab(index);
     if (m_visualizationTabs->count() == 0) showStartup();
   });
-  visualLayout->addWidget(m_visualizationTabs); visualLayout->addWidget(m_workspaceStack);
-  connect(m_visualizationTabs, &QTabBar::currentChanged, this, [this](int index) {
-    if (index >= 0) showPage(m_visualizationTabs->tabData(index).toMap().value(QStringLiteral("page")).toString());
+  installWorkspaceFocus(this, m_visualizationTabs, visualLayout);
+  visualLayout->addWidget(m_workspaceStack, 1);
+  connect(m_visualizationTabs, &QTabBar::currentChanged, this, [this, documents](int index) {
+    if (index < 0) return;
+    if (m_visualizationTabs->tabData(index).toMap().contains(QStringLiteral("dockDocument"))) {
+      if (m_currentPage == QLatin1String("correlation") || m_currentPage == QLatin1String("data") ||
+          m_currentPage == QLatin1String("startup")) {
+        showPage(QStringLiteral("compose"));
+        const QSignalBlocker block(m_visualizationTabs);
+        m_visualizationTabs->setCurrentIndex(index);
+      }
+      documents->activate(index);
+    } else {
+      showPage(m_visualizationTabs->tabData(index).toMap().value(QStringLiteral("page")).toString());
+    }
   });
   m_centerStack->addWidget(visualizations);
 
@@ -754,13 +790,59 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
       if (auto *unit = findChild<SubIntervalSelectorBar *>())
         unit->reloadFromProject(dir, {});
     });
-    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this] {
+    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this, documents] {
       m_stratigraphy->setProject({}, false);
       if (auto *unit = findChild<SubIntervalSelectorBar *>())
         unit->reloadFromBoundaries({});
       QSignalBlocker blocker(m_visualizationTabs);
+      documents->clear();
+      setWorkspaceDocumentCaption(m_visualizationTabs, QStringLiteral("data"), {});
+      setWorkspaceDocumentCaption(m_visualizationTabs, QStringLiteral("compose"), {});
       while (m_visualizationTabs->count()) m_visualizationTabs->removeTab(0);
     });
   }
 
+}
+
+void PaleoMainWindow::saveWindowState()
+{
+  WorkspaceLayoutScope ordinaryLayout(this);
+  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  s.setValue(QStringLiteral("windowGeometry"), saveGeometry());
+  s.setValue(QStringLiteral("windowState"),
+             m_currentPage == QLatin1String("correlation") && !m_beforeCorrelationWindowState.isEmpty()
+                 ? m_beforeCorrelationWindowState : saveState());
+  s.setValue(QStringLiteral("windowDockIntent"), m_dockManager->captureIntent());
+  // lastPage 不再写入：#565 起恢复侧固定打开工区看板（读取已删，写即死写）。
+}
+
+void PaleoMainWindow::restoreWindowState()
+{
+  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  const QByteArray geom = s.value(QStringLiteral("windowGeometry")).toByteArray();
+  if (!geom.isEmpty())
+    restoreGeometry(geom);
+  else if (!paleo::ui_detail::isOffscreen())
+    // R6 #835：首次启动按所在屏 90% 起步，而不是停在最小尺寸、四周留白。
+    resize(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), paleo::ui_detail::availableSizeFor(this)));
+  const QByteArray state = s.value(QStringLiteral("windowState")).toByteArray();
+  if (!state.isEmpty())
+  {
+    // 旧版设置没有 windowDockIntent：意愿还原用恢复前的快照兜底。
+    QVariantMap intent;
+    const bool hasIntent = s.contains(QStringLiteral("windowDockIntent"));
+    if (hasIntent)
+      intent = s.value(QStringLiteral("windowDockIntent")).toMap();
+    else
+      m_rightDock->setUserWantsVisible(true); // 原版有布局、无意愿键时的参数面板默认值
+    if (!m_dockManager->restoreLayout(state, hasIntent ? &intent : nullptr)) {
+      m_dockManager->restoreDefaultLayout();
+      statusBar()->showMessage(tr("窗口布局无法读取，已恢复默认布局。"), 8000);
+    }
+  }
+  else {
+    const int width = PaleoTheme::tokens().spacingLg * 9;
+    resizeDocks({m_leftDock, m_dataListDock}, {width, width}, Qt::Horizontal);
+  }
+  // Page restore happens in onProjectOpened (a page without a project is empty).
 }

@@ -237,6 +237,7 @@ private:
     QString volumeSettingsKey() const;
 
     SeismicSectionCanvas *m_canvas = nullptr;
+    QPointer<QToolButton> m_horizonOverlayToggle;
     std::shared_ptr<const SgyVolume> m_volume;
     bool m_wellTraceBusy = false; // PW-100：井旁道异步提取在途
     // 井旁道单线提取在途任务（SeismicTaskService 通道，#773）：退出/销毁时

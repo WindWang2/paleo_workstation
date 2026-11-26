@@ -449,9 +449,8 @@ public:
     // setWindowModified，工程 isDirtyChanged/projectSaved 驱动）。无工程时
     // 只有产品名。工程打开/保存后由接线刷新。
     void updateWindowTitle();
-    // W2 长任务可见性：有运行中任务时自动露出底栏任务页（程序化显隐，不动
-    // userWantsVisible）；任务清空后恢复用户原可见态。
-    void syncBottomDockForTasks();
+    void wireWorkspaceTaskStatus(PaleoTaskService *taskSvc);
+    void syncTaskStatus();
     // m2(D) 页面图层档案：四个编图页切到/层位 chip 切换后重应用当前页档案
     // （QgisLayerProfileService::applyPageProfile）。数据页无档案，no-op。
     void applyCurrentPageProfile();
@@ -560,7 +559,6 @@ public:
     PaleoDockWidget *m_leftDock = nullptr;
     PaleoDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;
-    bool m_bottomDockAutoShown = false; // W2：任务驱动的自动露出（恢复用）
     // ---- wave/layer-platform：左 dock 图层平台（面板 + 档案工具条 + 服务） ----
     LayerTreePanel *m_layerPanel = nullptr;
     QgisLayerProfileService *m_profileSvc = nullptr;
@@ -676,6 +674,8 @@ public:
     // 命令分发链已迁出为 workbench/mappingworkbenchcommandcontroller（#749）。
     using WorkbenchLegendFn = std::function<void(const QString &)>;
     using WorkbenchShowFn = std::function<bool(const QString &, QString *)>;
+    void attachClusterInspector(MappingWorkbench *, const WorkbenchShowFn &);
+    bool resolveClusterDrafts();
     using WorkbenchOpenWellsFn = std::function<void(const QString &)>;
     using WorkbenchBeginEditFn = std::function<bool(const QString &)>;
     // 证据面板/图谱联动接线（_evidence.cpp）。

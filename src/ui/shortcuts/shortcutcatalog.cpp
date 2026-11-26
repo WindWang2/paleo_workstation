@@ -139,14 +139,8 @@ const BuiltRegistry &built()
   }();
   return instance;
 }
-} // namespace
-
-// clang-format off
-QList<ShortcutEntry> catalogEntries()
+void appendWorkspaceNavigation(QList<ShortcutEntry> &out, const char *mainPanel)
 {
-  QList<ShortcutEntry> out;
-  const char *mainPanel = QT_TRANSLATE_NOOP("PaleoShortcuts", "主窗口");
-
   // ===== 全局导航（paleomainwindow.cpp buildRibbon / attach_shell）=====
   // W5：Ctrl+1..N 直切工作流 ribbon 页（N = kRibbonIds.size()）——id 尾段 = 页 id，键序 = 页序 + 1。
   for (int i = 0; i < pagesinternal::kRibbonIds.size(); ++i)
@@ -158,6 +152,18 @@ QList<ShortcutEntry> catalogEntries()
     e.id = QStringLiteral("main.page.") + pageId;
     out.append(e);
   }
+  out << make("main.workspace.focus", QKeySequence(Qt::Key_F8), "main", S, "navigation",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "切换专注工作区"), mainPanel, "src/ui/workspacefocus.cpp");
+}
+} // namespace
+
+// clang-format off
+QList<ShortcutEntry> catalogEntries()
+{
+  QList<ShortcutEntry> out;
+  const char *mainPanel = QT_TRANSLATE_NOOP("PaleoShortcuts", "主窗口");
+
+  appendWorkspaceNavigation(out, mainPanel);
   out << make("main.page.next", QKeySequence(QStringLiteral("Ctrl+Tab")), "main", S, "navigation",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "循环切换到下一个视图页签"), mainPanel,
               "src/ui/paleomainwindow.cpp")

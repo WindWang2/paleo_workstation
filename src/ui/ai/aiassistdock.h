@@ -8,6 +8,7 @@
 #include <QString>
 #include <QVector>
 #include <QWidget>
+#include <functional>
 
 class AiChatController;
 class AiConversationCard;
@@ -49,6 +50,7 @@ public:
   // G5：注入/重挂操作展示 adapter（幂等；null = 解绑）。adapter 由组装根
   // 按真实 CapabilityHost/DocumentSession/controller 创建，面板不建服务。
   void attachOperationPresenter(paleo::chat::AiOperationPresentation *presenter);
+  void setWorkspaceLabels(std::function<QStringList()> labels) { m_workspaceLabels = std::move(labels); }
   // H5：注入/重挂计划审阅 adapter（幂等；null = 解绑）。同上由组装根创建。
   void attachPlanPresenter(paleo::chat::AiPlanPresentation *presenter);
   void setFileImportContext(quint64 projectSession, const QString &unavailableReason);
@@ -84,6 +86,7 @@ private:
   bool filterFileDrop(QObject *watched, QEvent *event);
   void chooseFilesForImport();
   void sendCurrentText();
+  QString messageWithWorkspace(const QString &text) const;
   void appendMessage(const ChatMessage &message);
   void appendDelta(const QString &text);
   void appendError(const QString &message);
@@ -141,6 +144,7 @@ private:
   paleo::chat::AiOperationPresentation *m_presenter = nullptr; // 弱引用（组装根拥有）
   paleo::chat::AiPlanPresentation *m_planPresenter = nullptr; // H5：同上弱引用
   AiContextBar *m_contextBar = nullptr;
+  std::function<QStringList()> m_workspaceLabels;
   AiOperationDetailWidget *m_detail = nullptr;
   AiPlanReviewWidget *m_planReview = nullptr; // H5：计划审阅面板（默认隐藏）
   QLabel *m_status = nullptr;

@@ -16,6 +16,9 @@ bool writeWellAssignment(const QString &sourcePath, const QString &outputPath,
                         const QVariantList &facies, const QVariantList &clusterMapping,
                         const QVariantList &supportingWells, QString *error,
                         const std::function<bool()> &cancel = {});
+bool writeManualAssignments(const QString &sourcePath, const QString &outputPath,
+                            const QVariantList &facies, const QVariantList &assignments,
+                            int *changedCount, QString *error);
 bool writeManualAssignment(const QString &sourcePath, const QString &outputPath,
                            const QVariantList &facies, qint64 patchId, bool wholeCluster,
                            int faciesCode, int *changedCount, QString *error, qint64 featureId = -1);

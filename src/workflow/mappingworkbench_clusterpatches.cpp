@@ -3,7 +3,10 @@
 #include "analysisresultsync.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/seismicclusterpatches.h"
+#include "../services/futuretask.h"
+#include <QtConcurrent>
 #include <QDir>
+#include <QScopedValueRollback>
 #include <QUuid>
 
 namespace {
@@ -33,11 +36,37 @@ qint64 MappingWorkbench::clusterSelection(const QString &id, int cluster, QList<
   return SeismicClusterPatches::clusterSelection(DataCatalog::resolvedVersionPath(m_dir, version), cluster, highlight, error);
 }
 
+void MappingWorkbench::previewClusterScope(const QString &id, int cluster, QObject *receiver, ClusterScopeReady completed) {
+  const auto version = versionForLayer(id);
+  if (!isClusterSurface(version)) { completed(-1, {}, tr("请选择已保存的聚类面或其赋相版本")); return; }
+  struct Scope { qint64 count; QList<qint64> ids; QString error; };
+  const auto path = DataCatalog::resolvedVersionPath(m_dir, version);
+  auto *watcher = new QFutureWatcher<Scope>(receiver);
+  connect(watcher, &QFutureWatcherBase::finished, receiver, [watcher, completed] {
+    const auto result = watcher->result();
+    watcher->deleteLater();
+    completed(result.count, result.ids, result.error);
+  });
+  watcher->setFuture(QtConcurrent::run(paleo::tasks::pool(m_taskSvc), [path, cluster] {
+    Scope result{};
+    result.count = SeismicClusterPatches::clusterSelection(path, cluster, result.ids, &result.error);
+    return result;
+  }));
+}
+
 QString MappingWorkbench::assignClusterFacies(const QString &id, qint64 patchId, bool wholeCluster,
                                              int faciesCode, QString *error, qint64 featureId) {
+  const QVariantMap assignment{{"patch_id", patchId}, {"feature_id", featureId},
+                               {"whole_cluster", wholeCluster}, {"facies_code", faciesCode}};
+  return saveClusterAssignments(id, {assignment}, {}, error);
+}
+
+QString MappingWorkbench::saveClusterAssignments(const QString &id, const QVariantList &assignments,
+                                                const QVariantList &expectedSchema, QString *error) {
   const auto version = versionForLayer(id);
   const auto h = version.extra.value("horizon").toString();
-  if (!isClusterSurface(version) || !ready(h, error)) {
+  const auto unit = paleo::strat::fromMap(version.extra.value("unitSelection").toMap());
+  if (!isClusterSurface(version) || !ready(h, error, unit.isValid() ? &unit : nullptr)) {
     if (error && !isClusterSurface(version)) *error = tr("请选择已保存的聚类面或其赋相版本");
     return {};
   }
@@ -51,8 +80,12 @@ QString MappingWorkbench::assignClusterFacies(const QString &id, qint64 patchId,
     return {};
   }
   const bool raw = version.extra.value("kind") == QLatin1String("seismic_cluster_patches");
-  if (raw && schemaVersion(h).isEmpty() && !saveFacies(h, facies(h), error)) return {};
   const auto schema = raw ? facies(h) : version.extra.value("facies").toList();
+  if (!expectedSchema.isEmpty() && schema != expectedSchema) {
+    if (error) *error = tr("微相分类已经改变，请重新核对草稿");
+    return {};
+  }
+  if (raw && schemaVersion(h).isEmpty() && !saveFacies(h, schema, error)) return {};
   const auto schemaId = raw ? schemaVersion(h) : version.extra.value("schema_version").toString();
   const auto staging = QDir(m_dir).filePath("artifacts/staging");
   if (!QDir().mkpath(staging)) {
@@ -61,18 +94,28 @@ QString MappingWorkbench::assignClusterFacies(const QString &id, qint64 patchId,
   }
   const auto path = QDir(staging).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces) + ".gpkg");
   int changed = 0;
-  if (!SeismicClusterPatches::writeManualAssignment(source, path, schema, patchId,
-                                                   wholeCluster, faciesCode, &changed, error, featureId)) return {};
+  if (!SeismicClusterPatches::writeManualAssignments(source, path, schema, assignments, &changed, error)) return {};
   QStringList parents{version.id};
   if (!schemaId.isEmpty()) parents << schemaId;
-  const QVariantMap extra{{"method", "manual-seismic-cluster-assignment"},
+  QVariantMap extra{{"method", "manual-seismic-cluster-assignment"},
       {"result_kind", "manual_cluster_interpretation"}, {"result_scope", "area"},
-      {"patch_id", patchId}, {"source_feature_id", featureId}, {"assignment_scope", wholeCluster ? "cluster" : "patch"},
-      {"facies_code", faciesCode}, {"changed_patches", changed}, {"facies", schema},
+      {"assignments", assignments}, {"changed_patches", changed}, {"facies", schema},
       {"schema_version", schemaId}, {"computational_parent_versions", parents},
       {"cluster_patches_version", raw ? version.id : version.extra.value("cluster_patches_version").toString()},
       {"cluster_raster_version", version.extra.value("cluster_raster_version")},
       {"unitSelection", version.extra.value("unitSelection")}};
+  if (version.extra.contains("cluster_facies_mapping"))
+    extra.insert("cluster_facies_mapping", version.extra.value("cluster_facies_mapping"));
+  if (assignments.size() == 1) {
+    const auto row = assignments.first().toMap();
+    extra.insert("patch_id", row.value("patch_id"));
+    extra.insert("source_feature_id", row.value("feature_id"));
+    extra.insert("assignment_scope", row.value("whole_cluster").toBool() ? "cluster" : "patch");
+    extra.insert("facies_code", row.value("facies_code"));
+  }
+  // Multiple synchronous layer-tree and product notifications can present the same version.
+  // Preserve the view for the entire registration, just like an editing working copy.
+  QScopedValueRollback<bool> preserveViewport(m_preserveEditingView, true);
   const auto output = record(path, h, "edited_facies", tr("%1 · 聚类面人工解释").arg(h),
                              "vector", parents, extra, error, "|layername=cluster_patches");
   if (!output.isEmpty()) {

@@ -2,6 +2,8 @@
 #include "paleomainwindow.h"
 #include "paleomainwindow_internal.h"
 #include "workbench/mappingreferencecontroller.h"
+#include "workbench/workspacecomparison.h"
+#include "pages/mappingreferencepanel.h"
 #include "qgis/projectscope.h"
 #include "qgis/qgisprojectservice.h"
 #include <QCoreApplication>
@@ -27,15 +29,61 @@ public:
         });
     }
 
-    void rememberGlobalLayout() {
+    void rememberGlobalLayout(bool restored) {
         m_defaultPlacement = placement();
+        const bool standard = !isFloating() && m_window->dockWidgetArea(this) == Qt::BottomDockWidgetArea &&
+                              m_window->tabifiedDockWidgets(this).isEmpty();
+        m_defaultPlacement.insert("workspace", !restored || standard);
         m_defaultVisible = userWantsVisible();
+    }
+
+    void connectWorkspace(WorkspaceComparison *workspace, MappingEvidencePanel *panel) {
+        if (!workspace) return;
+        m_workspace = workspace;
+        m_panel = panel;
+        connect(panel, &MappingEvidencePanel::legendCreated, workspace, &WorkspaceComparison::refreshLegends);
+        connect(workspace, &WorkspaceComparison::closeRequested, this, [this] { closeWorkspace(); });
+        connect(workspace, &WorkspaceComparison::dockRequested, this, [this] {
+            returnToDock();
+            m_useWorkspace = false;
+            show();
+            raise();
+            savePlacement();
+        });
+        connect(panel, &MappingEvidencePanel::workspaceRequested, this, [this] {
+            m_useWorkspace = true;
+            openWorkspace();
+        });
+        connect(panel, &MappingEvidencePanel::lastViewRemoved, this, [this] {
+            if (inWorkspace()) closeWorkspace();
+        });
+        connect(panel, &MappingEvidencePanel::referenceRequested, this, [this](auto *, const QString &) {
+            if (isVisible() && usesWorkspace() && !m_restoring) openWorkspace();
+        });
+        connect(this, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+            if (visible && inWorkspace()) {
+                returnToDock();
+                m_useWorkspace = false;
+                savePlacement();
+            }
+        });
+        const auto rememberNative = [this] {
+            if (!m_restoring && !m_scope.isEmpty() && !inWorkspace()) m_useWorkspace = false;
+        };
+        connect(this, &QDockWidget::dockLocationChanged, this, rememberNative);
+        connect(this, &QDockWidget::topLevelChanged, this, rememberNative);
+    }
+
+    void present(bool sourceSelected) {
+        if (usesWorkspace() && (sourceSelected || !m_panel->compact())) openWorkspace();
+        else { show(); raise(); }
     }
 
     void finishSaving() {
         m_saveTimer.stop();
         savePlacement();
         m_restoring = true;
+        returnToDock();
         m_scope.clear();
         m_window = nullptr;
     }
@@ -46,6 +94,7 @@ public:
         m_saveTimer.stop();
         savePlacement();
         QScopedValueRollback restoring(m_restoring, true);
+        returnToDock();
         m_scope = scope;
         m_bound = true;
         if (scope.isEmpty()) {
@@ -55,7 +104,10 @@ public:
         const QSettings settings("paleo", "paleo");
         const auto saved = settings.value(placementKey(), m_defaultPlacement).toMap();
         restorePlacement(saved);
+        m_useWorkspace = saved.value("workspace", false).toBool();
+        if (m_workspace) m_workspace->restoreSplit(saved.value("split").toByteArray());
         setUserWantsVisible(settings.value(visibilityKey(), m_defaultVisible).toBool());
+        if (usesWorkspace() && saved.value("workspaceOpen").toBool()) openWorkspace();
     }
 
 protected:
@@ -71,6 +123,33 @@ protected:
     }
 
 private:
+    bool inWorkspace() const { return m_workspace && m_workspace->comparing(); }
+    bool usesWorkspace() const {
+        return m_useWorkspace && m_workspace;
+    }
+    void openWorkspace() {
+        if (!inWorkspace()) {
+            setProgrammaticVisible(false);
+            setUserWantsVisible(false);
+            m_panel->setInWorkspace(true);
+        }
+        m_workspace->present(m_panel);
+        savePlacement();
+    }
+    void returnToDock() {
+        if (!inWorkspace()) return;
+        m_workspace->release();
+        m_panel->setInWorkspace(false);
+        setWidget(m_panel);
+        m_panel->show();
+    }
+    void closeWorkspace() {
+        returnToDock();
+        setProgrammaticVisible(false);
+        setUserWantsVisible(false);
+        if (!m_scope.isEmpty()) QSettings("paleo", "paleo").setValue(visibilityKey(), false);
+        savePlacement();
+    }
     QString visibilityKey() const { return QStringLiteral("mappingEvidence/visible/") + m_scope; }
     QString placementKey() const { return QStringLiteral("mappingEvidence/placement/") + m_scope; }
     void scheduleSave() {
@@ -78,7 +157,9 @@ private:
     }
     QVariantMap placement() {
         const auto area = m_window->dockWidgetArea(this);
-        QVariantMap value{{"area", int(area)}, {"floating", isFloating()}};
+        QVariantMap value{{"area", int(area)}, {"floating", isFloating()},
+                          {"workspace", m_useWorkspace}, {"workspaceOpen", inWorkspace()}};
+        if (m_workspace) value.insert("split", m_workspace->splitState());
         if (isFloating()) value.insert("geometry", saveGeometry());
         else {
             const auto peers = m_window->tabifiedDockWidgets(this);
@@ -112,6 +193,9 @@ private:
         if (floating && !geometry.isEmpty()) restoreGeometry(geometry);
     }
     QMainWindow *m_window;
+    QPointer<WorkspaceComparison> m_workspace;
+    MappingEvidencePanel *m_panel = nullptr;
+    bool m_useWorkspace = true;
     QTimer m_saveTimer;
     QVariantMap m_defaultPlacement;
     QString m_scope;
@@ -136,7 +220,7 @@ PaleoDockWidget *PaleoMainWindow::prepareMappingReferenceDock()
         dock = new ReferenceDock(tr("参考证据"), this);
         dock->setObjectName(QStringLiteral("mappingReferenceDock"));
         dock->setProperty("paleo.mappingReference", true);
-        new MappingReferenceController(
+        auto *controller = new MappingReferenceController(
             *dock, *m_workbench, *m_canvasCtl, *m_layerSvc, m_projectSvc, *m_selection);
         const bool restored = restoreDockWidget(dock);
         if (!restored) {
@@ -145,8 +229,11 @@ PaleoDockWidget *PaleoMainWindow::prepareMappingReferenceDock()
             // own row below the existing native bottom tab group.
             QMainWindow::addDockWidget(Qt::BottomDockWidgetArea, dock, Qt::Vertical);
         }
-        dock->setUserWantsVisible(!restored || !dock->isHidden());
-        dock->rememberGlobalLayout();
+        dock->setUserWantsVisible(restored && !dock->isHidden());
+        auto *workspace = findChild<WorkspaceComparison *>();
+        if (workspace) workspace->setPrimaryLegend(m_decorMgr);
+        dock->connectWorkspace(workspace, controller->panel());
+        dock->rememberGlobalLayout(restored);
         connect(m_workbench, &MappingWorkbench::catalogBound, dock, [this, dock] {
             QTimer::singleShot(0, dock, [this, dock] {
                 prepareMappingReferenceDock();
@@ -165,7 +252,7 @@ bool PaleoMainWindow::showMappingReference(const QString &layerId, QString *erro
     auto *dock = prepareMappingReferenceDock();
     if (!dock) return false;
     auto *controller = dock->findChild<paleo::workbench::MappingReferenceController *>();
-    dock->show();
-    dock->raise();
-    return controller && controller->showSource(layerId, error);
+    if (!controller) return false;
+    static_cast<ReferenceDock *>(dock)->present(!layerId.isEmpty());
+    return controller->showSource(layerId, error);
 }

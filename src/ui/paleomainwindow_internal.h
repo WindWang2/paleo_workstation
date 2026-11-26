@@ -32,7 +32,6 @@ struct PageDockState
   PaleoDockWidget *bottom;
   PaleoDockWidget *wellSection;
   bool previewMaximized;
-  bool bottomAutoShown;
   PaleoDockWidget *right = nullptr;
 };
 

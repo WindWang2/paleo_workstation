@@ -1,5 +1,6 @@
 // 层：视图
 #include "datapreviewtabs.h"
+#include "domain/mapproductcaption.h"
 
 #include "../paleotheme.h" // DESIGN.md token 出口（颜色/字阶/活体样式共用）
 #include "../paleoicons.h" // 角落最大化/还原自绘图标
@@ -175,6 +176,10 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
     if (index >= 0)
       focusWellIfNeeded(assetIdAt(index), m_tabs->widget(index));
     syncDetails();
+    auto *page = m_tabs->widget(index);
+    emit activePreviewCaptionChanged(page && page->property("workspaceCaption").isValid()
+        ? page->property("workspaceCaption").toString() : m_tabs->tabText(index),
+        page ? page->property("workspaceCaptionDetail").toString() : QString());
   });
   m_tabs->tabBar()->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_tabs->tabBar(), &QWidget::customContextMenuRequested, this, [this](const QPoint &point) {
@@ -633,6 +638,11 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
   if (shown.extra.value(QStringLiteral("stale")).toBool())
     title += QStringLiteral(" · ") + tr("过时");
   m_tabs->setTabText(idx, title);
+  const QString caption = shown.id.isEmpty() ? title : workspaceVersionCaption(title, shown.versionNumber);
+  page->setProperty("workspaceCaption", caption);
+  page->setProperty("workspaceCaptionDetail", shown.sourceUri);
+  if (idx == m_tabs->currentIndex())
+    emit activePreviewCaptionChanged(caption, shown.sourceUri);
 }
 
 void DataPreviewTabs::drainDeferredRebuilds()

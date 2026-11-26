@@ -68,6 +68,7 @@
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
 #include "../src/ui/pages/mappingreferencepanel.h"
+#include "../src/ui/workbench/workspacecomparison.h"
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/pages/dataopspalette.h"
 #include "../src/ui/pages/dataopspanelextra.h"
@@ -150,6 +151,15 @@ class TestUiShell : public QObject
   private:
     AppContext *m_ctx;
     PaleoMainWindow *m_win = nullptr;
+
+  private:
+    void attachShellWorkflows()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(), m_ctx->processingSvc(),
+                             m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+    }
 
   private slots:
     void initTestCase()
@@ -1146,6 +1156,32 @@ class TestUiShell : public QObject
 
       QVERIFY(m_ctx->projectSvc()->openProject(qgzA));
       QTRY_COMPARE_WITH_TIMEOUT(corr->wellCount(), wellLogs, 3000); // #156：从 catalog 重灌
+    }
+
+    void comparisonUsesAvailableMapWidth()
+    {
+      auto *map = new QWidget;
+      WorkspaceComparison host(map);
+      auto *reference = new QWidget;
+      host.resize(900, 580);
+      host.show();
+      host.present(reference);
+      auto *tabs = host.findChild<QTabBar *>("comparisonMapTabs");
+      auto *split = host.findChild<QSplitter *>("comparisonSplitter");
+      QVERIFY(tabs && split);
+      QTRY_VERIFY(map->isVisible() && reference->isVisible() && !tabs->isVisible());
+      QVERIFY(reference->geometry().left() > map->geometry().right());
+      host.resize(779, 580);
+      QTRY_VERIFY(tabs->isVisible() && reference->isVisible() && !map->isVisible());
+      QTRY_COMPARE(split->width(), 779);
+      QTRY_COMPARE(reference->geometry(), split->contentsRect());
+      tabs->setCurrentIndex(0);
+      QTRY_VERIFY(map->isVisible() && !reference->isVisible());
+      QTRY_COMPARE(map->geometry(), split->contentsRect());
+      host.resize(780, 580);
+      QTRY_VERIFY(!tabs->isVisible() && map->isVisible() && reference->isVisible());
+      QTRY_VERIFY(reference->width() < split->width() && map->width() < split->width() &&
+                  reference->geometry().left() > map->geometry().right());
     }
 
     void referenceDockPlacementFollowsProject()
@@ -2383,6 +2419,29 @@ class TestUiShell : public QObject
       // 等去抖落地再断言同一内容，不放宽断言本身。
       QTRY_VERIFY(decor->legendTitle().contains("D61"));QVERIFY(decor->legendTitle().contains("Mock"));
       const auto mapVersion=m_ctx->mappingWorkbench()->versionForLayer(id);
+      auto *documents = m_win->findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+      QVERIFY(documents);
+      auto documentTitle = mapVersion.extra.value(QStringLiteral("title")).toString();
+      const auto documentUnit = paleo::strat::fromMap(mapVersion.extra.value(QStringLiteral("unitSelection")).toMap());
+      const auto unitKey = paleo::strat::analysisLayerKey(documentUnit);
+      if (!unitKey.isEmpty() && !documentUnit.displayName.isEmpty())
+        documentTitle.replace(unitKey, documentUnit.displayName);
+      const auto shownTitle = [&] { return documents->tabToolTip(documents->currentIndex()); };
+      QTRY_VERIFY(shownTitle().contains(QStringLiteral("v%1").arg(mapVersion.versionNumber)));
+      if (!documentTitle.isEmpty()) QVERIFY(shownTitle().contains(documentTitle));
+      auto *mapCanvas = m_ctx->canvasCtl()->canvas();
+      auto *mapHint = m_win->findChild<QWidget *>(QStringLiteral("mapInteractionContext"));
+      auto *focusView = m_win->findChild<QToolButton *>(QStringLiteral("workspaceFocusButton"));
+      QVERIFY(mapHint && focusView && mapCanvas);
+      QVERIFY(qobject_cast<QgsMapToolPan *>(mapCanvas->mapTool()));
+      QVERIFY(mapHint->isHidden());
+      const QSize originalWindowSize = m_win->size();
+      m_win->resize(1440, 900);
+      focusView->click();
+      QTRY_VERIFY(double(mapCanvas->viewport()->width()) * mapCanvas->viewport()->height() >=
+                  0.82 * m_win->width() * m_win->height());
+      focusView->click();
+      m_win->resize(originalWindowSize);
       page->commandButton("catalog")->click(); QCOMPARE(m_win->currentPage(),QString("data"));
       auto *dataPage=m_win->findChild<DataPage *>(); QVERIFY(dataPage);
       QCOMPARE(dataPage->property("paleo.page.assetId").toString(),mapVersion.assetId);
@@ -2410,19 +2469,28 @@ class TestUiShell : public QObject
       QVERIFY(!dataRefWindow->isFloating());
       QCOMPARE(m_win->dockWidgetArea(dataRefWindow), Qt::BottomDockWidgetArea);
       QVERIFY(m_win->findChildren<QDialog *>("mappingReferenceWindow").isEmpty());
-      auto *evidencePanel = dataRefWindow->findChild<MappingEvidencePanel *>(); QVERIFY(evidencePanel);
-      // #746：默认视图数按停靠视口宽推导（≤4），宽停靠下至少两视图并排。
+      auto *evidencePanel = m_win->findChild<MappingEvidencePanel *>(); QVERIFY(evidencePanel);
+      auto *comparison = m_win->findChild<WorkspaceComparison *>(); QVERIFY(comparison);
+      if (!comparison->comparing()) emit evidencePanel->workspaceRequested();
+      QVERIFY(comparison->isAncestorOf(evidencePanel));
+      auto *closeComparison = comparison->findChild<QToolButton *>("closeComparison");
+      QVERIFY(closeComparison);
       const int defaultViews = int(evidencePanel->views().size());
-      QVERIFY(defaultViews >= 2 && defaultViews <= MappingEvidencePanel::kDefaultViewCount);
+      QVERIFY(defaultViews >= 1 && defaultViews <= MappingEvidencePanel::kDefaultViewCount);
       QCOMPARE(evidencePanel->views().first()->property("paleo.referenceVersion").toString(), mapVersion.id);
       QCOMPARE(m_ctx->selection()->activeHorizon(),QString("D61"));
       QCOMPARE(page->selectedLayer(),id);
-      dataRefWindow->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      closeComparison->click(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      QVERIFY(!comparison->comparing() && !dataRefWindow->isVisible());
       dataPage->focusVersion(st.assetId,st.versionId); QVERIFY(!dataReference->isEnabled());
       m_win->showPage("predict");
-      page->commandButton("compare")->click();auto *ref=referenceDock();QVERIFY(ref);auto *referenceCanvas=ref->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
+      page->commandButton("compare")->click();QVERIFY(comparison->comparing());auto *referenceCanvas=evidencePanel->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
+      auto *referenceCaption = evidencePanel->findChild<QLabel *>("referenceVersionCaption");
+      QVERIFY(referenceCaption && referenceCaption->text().contains(QStringLiteral("只读参考")));
+      QVERIFY(referenceCaption->text().contains(QStringLiteral("D61")));
+      QVERIFY(referenceCaption->text().contains(QStringLiteral("v%1").arg(mapVersion.versionNumber)));
       auto *display=page->findChild<QComboBox *>("faciesDisplayLevel"); QVERIFY(display); display->setCurrentIndex(1); QVERIFY(decor->legendTitle().contains(QStringLiteral("相（1 级）")));
-      auto *linked=ref->findChild<QToolButton *>("referenceLinked"); QVERIFY(linked && linked->isChecked());
+      auto *linked=evidencePanel->findChild<QToolButton *>("referenceLinked"); QVERIFY(linked && linked->isChecked());
       auto *mainCanvas=m_ctx->canvasCtl()->canvas(); mainCanvas->setExtent(QgsRectangle(100,200,400,500));
       QCOMPARE(referenceCanvas->extent().center(),mainCanvas->extent().center());
       linked->setChecked(false); const auto independentExtent=referenceCanvas->extent(); mainCanvas->setExtent(QgsRectangle(200,300,500,600)); QCOMPARE(referenceCanvas->extent(),independentExtent);
@@ -2431,7 +2499,7 @@ class TestUiShell : public QObject
       // #528（DESIGN.md「无内容时隐藏，不回退显示整套分类」）：D62 尚无可见相图件，
       // 图例经去抖刷新后隐藏，且不得残留 D61 成果的标题。
       QTRY_VERIFY(decor->legendFacies().isEmpty());QVERIFY(!decor->legendTitle().contains("D61"));
-      d61->click();QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));QTRY_COMPARE(page->selectedLayer(),id);page->commandButton("show")->click();ref->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      d61->click();QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));QTRY_COMPARE(page->selectedLayer(),id);page->commandButton("show")->click();closeComparison->click();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       if (PaleoTheme::currentTheme() != PaleoTheme::Theme::Light) PaleoTheme::applyLightTheme();
       m_win->resize(1600,1000);m_win->show();QTest::qWait(350);
       QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));
@@ -2519,12 +2587,14 @@ class TestUiShell : public QObject
         if (dock->property("paleo.mappingReference").toBool()) ++referenceCount;
       QCOMPARE(referenceCount, 1);
       QCOMPARE(evidencePanel->views().size(), defaultViews); // 再次打开入口不再创建面板或空视图。
+      if (defaultViews == 1) evidencePanel->findChild<QPushButton *>("referenceAddView")->click();
+      const auto twoViewCount = evidencePanel->views().size();
       auto *newReference = evidencePanel->views()[1];
       QCOMPARE(newReference->findChildren<QComboBox *>().size(), 1);
       newReference->selectSource(id);
       QVERIFY(newReference->hasReference());
       captureMapArea("two-references");
-      auto *firstReferenceCanvas = editingRef->findChild<QgsMapCanvas *>("referenceCanvas");
+      auto *firstReferenceCanvas = evidencePanel->findChild<QgsMapCanvas *>("referenceCanvas");
       QVERIFY(firstReferenceCanvas);
       QTRY_VERIFY(qAbs(firstReferenceCanvas->scale() - newReference->canvas()->scale()) <
           qMax(firstReferenceCanvas->scale(), newReference->canvas()->scale()) * 0.02);
@@ -2536,11 +2606,11 @@ class TestUiShell : public QObject
         QTRY_VERIFY(!firstReferenceCanvas->isDrawing() && !newReference->canvas()->isDrawing());
         QVERIFY(m_win->grab().save(qa + "/evidence-panels-light.png"));
       }
-      const QRect panelGeometry = editingRef->geometry();
+      const QRect panelGeometry = evidencePanel->geometry();
       evidencePanel->findChild<QPushButton *>("referenceAddView")->click();
-      QCOMPARE(evidencePanel->views().size(), defaultViews + 1);
+      QCOMPARE(evidencePanel->views().size(), twoViewCount + 1);
       QCoreApplication::processEvents();
-      QCOMPARE(editingRef->geometry(), panelGeometry);
+      QCOMPARE(evidencePanel->geometry(), panelGeometry);
       QCOMPARE(m_win->findChildren<MappingEvidencePanel *>().size(), 1);
       QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
       auto *thirdView = evidencePanel->views().last();
@@ -2551,11 +2621,14 @@ class TestUiShell : public QObject
       if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty())
         QVERIFY(m_win->grab().save(qa + "/evidence-panels-five-light.png"));
       thirdView->findChild<QToolButton *>("referenceRemoveView")->click();
-      QCOMPARE(evidencePanel->views().size(), defaultViews);
+      QCOMPARE(evidencePanel->views().size(), twoViewCount);
       m_win->showPage("data");
       QVERIFY(editingRef->isHidden());
       m_win->showPage("compose");
-      QVERIFY(!editingRef->isHidden());
+      QVERIFY(comparison->comparing());
+      comparison->findChild<QToolButton *>("dockComparison")->click();
+      QVERIFY(!comparison->comparing() && editingRef->isVisible());
+      QCOMPARE(editingRef->widget(), evidencePanel);
       editingRef->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
       m_win->showPage("compose");auto *compose=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");compose->selectLayer(draft);auto *save=m_win->findChild<QAction *>("ribbonSaveVersion");QVERIFY(save && save->isEnabled());QCOMPARE(save->text(),compose->commandButton("save")->text());
@@ -2671,7 +2744,7 @@ class TestUiShell : public QObject
       QVERIFY(visuals);QVERIFY(workspace);
       QVERIFY(!m_win->findChild<QAction *>(QStringLiteral("ribbonOpenTask.compose.compose")));
       int map=-1;
-      for(int i=0;i<visuals->count();++i)if(visuals->tabText(i)==QStringLiteral("QGIS 视图"))map=i;
+      for(int i=0;i<visuals->count();++i)if(visuals->tabData(i).toMap().value(QStringLiteral("surface"))==QStringLiteral("compose"))map=i;
       QVERIFY(map>=0);
       m_win->showPage(QStringLiteral("data"));const int before=workspace->currentIndex();
       m_win->ribbonBar()->raiseCategory(m_win->categoryForPage(QStringLiteral("compose")));
@@ -2703,6 +2776,9 @@ class TestUiShell : public QObject
       auto *mode = bar->minimumModeAction();
       QVERIFY(mode && mode->isVisible());
       const int view = visuals->currentIndex();
+      // A fresh project opens with compact commands. Exercise both explicit settings.
+      bar->setMinimumMode(false);
+      QCoreApplication::processEvents();
       const int expandedHeight = bar->height();
       mode->trigger();
       QVERIFY(bar->isMinimumMode());
@@ -2753,6 +2829,131 @@ class TestUiShell : public QObject
         QVERIFY(setTheme(false));
       }
       m_win->showPage(QStringLiteral("compose"));QCOMPARE(workspace->currentIndex(),0);
+    }
+
+    void sectionCommandsReuseNativeViewsInCentralDocuments()
+    {
+      attachShellWorkflows();
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("sections.qgz")));
+      m_win->showPage(QStringLiteral("compose"));
+      auto *tabs = m_win->findChild<QTabBar *>("visualizationTabs");
+      auto *stack = m_win->findChild<QStackedWidget *>("workspaceStack");
+      QVERIFY(tabs && stack);
+      const int map = tabs->currentIndex();
+      QWidget *mapPage = stack->currentWidget();
+      m_win->show();
+      for (const auto &[actionName, dockName] : {
+               qMakePair("ribbonActionSeismic2D", "seismicSectionDock"),
+               qMakePair("ribbonWellSectionAction", "wellSectionDock")}) {
+        auto *action = m_win->findChild<QAction *>(QLatin1String(actionName));
+        auto *dock = m_win->findChild<QDockWidget *>(QLatin1String(dockName));
+        QVERIFY(action && dock && dock->widget());
+        QWidget *view = dock->widget();
+        const int count = tabs->count();
+        action->trigger();
+        QCOMPARE(stack->currentWidget(), view);
+        QCOMPARE(tabs->count(), count + 1);
+        const int section = tabs->currentIndex();
+        tabs->setCurrentIndex(map);
+        QCOMPARE(stack->currentWidget(), mapPage);
+        action->trigger();
+        QCOMPARE(tabs->currentIndex(), section);
+        QCOMPARE(stack->currentWidget(), view);
+        QCOMPARE(tabs->count(), count + 1);
+        QVERIFY(QMetaObject::invokeMethod(tabs, "tabCloseRequested", Q_ARG(int, section)));
+        QCOMPARE(dock->widget(), view);
+        QCOMPARE(tabs->count(), count);
+        tabs->setCurrentIndex(map);
+      }
+      auto *section = m_win->findChild<QDockWidget *>("wellSectionDock");
+      auto *open = m_win->findChild<QAction *>("ribbonWellSectionAction");
+      section->show();
+      QWidget *view = section->widget();
+      m_win->showPage(QStringLiteral("correlation"));
+      open->trigger();
+      const int promoted = tabs->currentIndex();
+      QCOMPARE(stack->currentWidget(), view);
+      m_win->showPage(QStringLiteral("data"));
+      tabs->setCurrentIndex(promoted);
+      QCoreApplication::processEvents();
+      QCOMPARE(stack->currentWidget(), view);
+      QVERIFY(section->isHidden());
+      auto *scroll = qobject_cast<QScrollArea *>(view);
+      QWidget *editor = scroll && scroll->widget() ? scroll->widget() : view;
+      QWidget *focus = m_win->focusWidget();
+      QVERIFY(focus == editor || editor->isAncestorOf(focus));
+      section->toggleViewAction()->trigger();
+      QCOMPARE(section->widget(), view);
+      QVERIFY(!section->isHidden());
+      m_ctx->projectSvc()->closeProject();
+    }
+
+    void focusKeepsImportedImageDocument()
+    {
+      attachShellWorkflows();
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("image.qgz")));
+      const auto cleanup = qScopeGuard([this] { m_ctx->projectSvc()->closeProject(); });
+      QString source = qEnvironmentVariable("PALEO_WORKSPACE_LOCAL_IMAGE");
+      if (source.isEmpty()) source = QFINDTESTDATA("../testdata/project_area/tiny.png");
+      QString error;
+      const auto asset = m_ctx->importSvc()->importProjectFile(source, &error);
+      QVERIFY2(!asset.isEmpty(), qPrintable(error));
+      m_win->resize(1440, 900);
+      m_win->show();
+      m_win->showPage(QStringLiteral("data"));
+      auto *preview = m_win->findChild<DataPreviewTabs *>("dataPreview");
+      auto *tabs = preview ? preview->findChild<QTabWidget *>("dataPreviewTabs") : nullptr;
+      auto *focus = m_win->findChild<QToolButton *>("workspaceFocusButton");
+      QVERIFY(tabs && focus);
+      preview->openAsset(asset);
+      QTRY_VERIFY(tabs->currentWidget() && tabs->tabText(tabs->currentIndex()).contains(QFileInfo(source).completeBaseName()));
+      QWidget *document = tabs->currentWidget();
+      QTRY_VERIFY(document->isVisible());
+      focus->click();
+      QVERIFY(focus->isChecked());
+      QCOMPARE(tabs->currentWidget(), document);
+      const QString capture = qEnvironmentVariable("PALEO_WORKSPACE_IMAGE_CAPTURE");
+      if (!capture.isEmpty()) {
+        QTest::qWait(400);
+        QVERIFY(m_win->grab().save(capture));
+      }
+      focus->click();
+      QVERIFY(!focus->isChecked());
+      QCOMPARE(tabs->currentWidget(), document);
+    }
+
+    void promotedSeismicDocumentPreservesDockLayoutAndHorizonControl()
+    {
+      attachShellWorkflows();
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("seismic-layout.qgz")));
+      m_win->showPage(QStringLiteral("compose"));
+      m_win->show();
+      auto *dock = m_win->findChild<seismic::SeismicSectionDockWidget *>("seismicSectionDock");
+      auto *open = m_win->findChild<QAction *>("ribbonActionSeismic2D");
+      auto *manager = m_win->findChild<PaleoDockManager *>("dockLayoutManager");
+      auto *tabs = m_win->findChild<QTabBar *>("visualizationTabs");
+      QVERIFY(dock && open && manager && tabs);
+      auto *horizons = dock->findChild<QToolButton *>("sectionHorizonToggle");
+      QVERIFY(horizons);
+      for (bool shown : {true, false}) {
+        dock->setVisible(shown);
+        open->trigger();
+        QVERIFY(dock->isHidden());
+        QVERIFY(!dock->isAncestorOf(horizons));
+        horizons->setChecked(false);
+        dock->showMajorHorizonConnections();
+        QVERIFY(horizons->isChecked());
+        const auto state = m_win->saveState();
+        const auto intent = manager->captureIntent();
+        QVERIFY(QMetaObject::invokeMethod(tabs, "tabCloseRequested", Q_ARG(int, tabs->currentIndex())));
+        dock->setVisible(!shown);
+        QVERIFY(manager->restoreLayout(state, &intent));
+        QCOMPARE(!dock->isHidden(), shown);
+      }
+      m_ctx->projectSvc()->closeProject();
     }
 
 };

@@ -280,7 +280,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   });
   auto *actions = new QGridLayout;
   actions->addWidget(button("show", tr("显示 / 定位")), 0, 0);
-  actions->addWidget(button("compare", tr("在参考面板中查看")), 0, 1);
+  actions->addWidget(button("compare", tr("与主图对照")), 0, 1);
   actions->addWidget(button("polygonize", tr("相栅格转相面")), 1, 0);
   actions->addWidget(button("copy", tr("复制底图并编辑")), 1, 1);
   if (mode != "compose") actions->addWidget(button("save", tr("保存图件新版本")), 2, 0);

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QVariantMap>
+#include <functional>
 
 class QgsMapCanvas;
 class QgsMapLayer;
@@ -27,6 +28,7 @@ public:
   virtual bool hasReference() const = 0;
   virtual void setLinked(bool linked) = 0;
   virtual void setViewActive(bool active) = 0;
+  virtual void onLegendChanged(QObject *receiver, std::function<void(const QVariantList &)> handler) = 0;
 };
 
 // 唯一构造点（qgis 层实现）。返回值随 parent 一起销毁。

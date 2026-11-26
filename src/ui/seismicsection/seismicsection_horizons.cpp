@@ -24,14 +24,15 @@ void SeismicSectionCanvas::paintHorizonOverlays(QPainter& painter,const QRect& v
 void SeismicSectionDockWidget::showMajorHorizonConnections(){
   m_majorHorizonConnectionsNext=true;
   m_canvas->setMajorHorizonsOnly(true);m_canvas->setHorizonOverlaysVisible(true);
-  if(auto *button=findChild<QToolButton *>("sectionHorizonToggle"))button->setChecked(true);
+  if(m_horizonOverlayToggle)m_horizonOverlayToggle->setChecked(true);
 }
 void SeismicSectionDockWidget::setupHorizonOverlayControl(QWidget *toolbar){
   auto *button=new SectionHorizonButton(toolbar);toolbar->layout()->addWidget(button);
+  m_horizonOverlayToggle=button;
   connect(button,&QToolButton::toggled,this,[this](bool on){if(m_canvas)m_canvas->setHorizonOverlaysVisible(on);});
   // setupUi constructs the canvas after this toolbar. Defer only connection setup.
-  QTimer::singleShot(0,this,[this,button]{
-    if(!m_canvas)return;
+  QTimer::singleShot(0,this,[this,button=QPointer<SectionHorizonButton>(button)]{
+    if(!m_canvas || !button)return;
     connect(m_canvas,&SeismicSectionCanvas::horizonOverlaysChanged,button,[this,button]{
       button->setOverlayStatus(m_canvas->horizonOverlays());button->setEnabled(m_canvas->orientation()==SectionOrientation::Vertical);
     });

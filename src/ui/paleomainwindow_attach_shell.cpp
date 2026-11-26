@@ -93,15 +93,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                       .arg(removed.size()),
                   12000);
             });
-  // W2 长任务可见性：任务进场/终态时重估底栏露出（本体在主 TU，
-  // syncBottomDockForTasks——露出/恢复都走程序化显隐，不动用户意愿）。
-  if (taskSvc)
-    connect(taskSvc, &PaleoTaskService::taskAdded, this, [this](PaleoTask *task) {
-      if (task)
-        connect(task, &PaleoTask::finished, this,
-                [this] { syncBottomDockForTasks(); });
-      syncBottomDockForTasks();
-    });
+  wireWorkspaceTaskStatus(taskSvc);
 
   // ---- ribbon 右侧组的搜索槽 + 快速访问栏的保存 ----
   if (auto *topBar = findChild<QWidget *>(QStringLiteral("locatorSlot")))
@@ -633,6 +625,19 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
     return;
   }
   auto *dock = new AiAssistDock(controller, bottomTabs);
+  dock->setWorkspaceLabels([this] {
+    QStringList labels;
+    if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
+      labels << tr("工程 %1").arg(QFileInfo(m_projectSvc->projectPath()).completeBaseName());
+    const auto *layer = m_canvasCtl && m_canvasCtl->canvas() ? m_canvasCtl->canvas()->currentLayer() : nullptr;
+    const auto layerId = layer ? layer->customProperty("paleoLayerId").toString() : QString();
+    const auto version = m_workbench && !layerId.isEmpty() ? m_workbench->versionForLayer(layerId) : CatalogVersion{};
+    if (!version.id.isEmpty())
+      labels << tr("主图 %1 · v%2（%3）").arg(layer->name()).arg(version.versionNumber).arg(version.id);
+    else
+      labels << tr("主图无已登记版本");
+    return labels;
+  });
   dock->setObjectName(QStringLiteral("aiAssistantDock"));
   bottomTabs->addTab(dock, tr("AI 助手"));
   wireAgentFileImport(dock);
@@ -806,4 +811,18 @@ void PaleoMainWindow::showProjectSaveFeedback()
   bar->addPermanentWidget(button);
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, button, &QWidget::hide);
   bar->showMessage(tr("工程已保存，以下图层仍有修改：%1").arg(names.join(QStringLiteral("、"))), 15000);
+}
+
+void PaleoMainWindow::wireWorkspaceTaskStatus(PaleoTaskService *taskSvc)
+{
+  if (taskSvc) {
+    const auto watch = [this](PaleoTask *task) {
+      if (task && !task->quiet())
+        connect(task, &PaleoTask::changed, this, &PaleoMainWindow::syncTaskStatus);
+      syncTaskStatus();
+    };
+    for (auto *task : taskSvc->tasks()) watch(task);
+    connect(taskSvc, &PaleoTaskService::taskAdded, this, watch);
+    connect(taskSvc, &PaleoTaskService::tasksChanged, this, &PaleoMainWindow::syncTaskStatus);
+  }
 }

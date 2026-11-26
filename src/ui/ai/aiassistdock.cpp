@@ -7,6 +7,7 @@
 
 #include "aiconversationcard.h"
 #include "aicontextbar.h"
+#include "ai/chat/chatworkspacecontext.h"
 #include "aioperationdetailwidget.h"
 #include "aitoolresultview.h"
 
@@ -595,6 +596,22 @@ QList<AiConversationCard *> AiAssistDock::operationCards(const QString &operatio
   return cards;
 }
 
+QString AiAssistDock::messageWithWorkspace(const QString &text) const {
+  if (!m_presenter) return text;
+  const auto host = m_presenter->currentContext();
+  QStringList summary;
+  if (host.open) {
+    if (m_workspaceLabels) summary = m_workspaceLabels();
+    summary << tr("工程标识 %1").arg(host.documentId)
+            << tr("层位 %1").arg(host.horizon.isEmpty() ? tr("未选择") : host.horizon);
+    if (!host.unitId.isEmpty()) summary << tr("层段 %1").arg(host.unitId);
+    summary << (host.readOnly ? tr("工程只读") : tr("工程可写"));
+  } else if (host.unavailableCode == QLatin1String("document_unavailable")) {
+    summary << tr("工程未打开");
+  }
+  return summary.isEmpty() ? text : text + paleo::chat::workspaceContextSeparator() + summary.join(QStringLiteral(" · "));
+}
+
 void AiAssistDock::sendCurrentText() {
   if (!m_controller)
     return;
@@ -604,7 +621,8 @@ void AiAssistDock::sendCurrentText() {
   // W7：未接受的文本不清理。controller 同步拒绝（未配置/上一轮进行中）会发
   // errorOccurred；草稿留在输入框，用户可编辑或停止后重发。
   const qsizetype before = m_controller->messages().size();
-  m_controller->sendUserText(text);
+  const QString message = messageWithWorkspace(text);
+  m_controller->sendUserText(message);
   if (!m_controller)
     return; // 发送路径上控制器被拆（防御）
   // 接受判据：历史确实新增了一条内容相同的 user 消息（sendUserText 同步
@@ -614,7 +632,7 @@ void AiAssistDock::sendCurrentText() {
   for (qsizetype i = messages.size() - 1; i >= 0; --i) {
     if (messages.at(i).role != ChatRole::User)
       continue;
-    accepted = accepted && messages.at(i).content == text;
+    accepted = accepted && messages.at(i).content == message;
     break;
   }
   if (accepted) {

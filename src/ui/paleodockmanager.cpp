@@ -1,5 +1,7 @@
 // 层：视图
 #include "paleodockmanager.h"
+#include "workspacefocus.h"
+#include "workspacedockdocuments.h"
 #include "paleotheme.h"
 
 #include <QApplication>
@@ -33,7 +35,11 @@ public:
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   }
-  QSize sizeHint() const override { return {320, 240}; }
+  QSize sizeHint() const override {
+    const QString name = parentWidget() ? parentWidget()->objectName() : QString();
+    const bool navigation = name == QLatin1String("layerTreeDock") || name == QLatin1String("dataListDock");
+    return {navigation ? PaleoTheme::tokens().spacingLg * 9 : 320, 240};
+  }
   QSize minimumSizeHint() const override { return {120, 80}; }
 };
 constexpr Qt::DockWidgetArea areas[] = {Qt::LeftDockWidgetArea, Qt::RightDockWidgetArea,
@@ -111,6 +117,7 @@ void PaleoDockManager::captureDefaultLayout()
 
 void PaleoDockManager::restoreDefaultLayout()
 {
+  WorkspaceLayoutScope ordinaryLayout(m_window);
   if (m_defaultState.isEmpty())
     return;
   // Late-created panels are not part of the initial snapshot.
@@ -131,18 +138,27 @@ void PaleoDockManager::setIntentHooks(IntentHooks hooks)
 
 QVariantMap PaleoDockManager::captureIntent() const
 {
-  return m_intentHooks.capture ? m_intentHooks.capture() : QVariantMap();
+  auto intent = m_intentHooks.capture ? m_intentHooks.capture() : QVariantMap();
+  if (auto *docs = m_window->findChild<WorkspaceDockDocuments *>()) {
+    const auto visibility = docs->promotedDockVisibility();
+    if (!visibility.isEmpty()) intent.insert(QStringLiteral("workspaceDockVisibility"), visibility);
+  }
+  return intent;
 }
 
 bool PaleoDockManager::restoreLayout(const QByteArray &state, const QVariantMap *savedIntent)
 {
+  WorkspaceLayoutScope ordinaryLayout(m_window);
   const QVariantMap before = captureIntent();
   // restoreState 驱动 dock->setVisible，PaleoDockWidget 会把它当作用户意愿；
   // 恢复后先还原意愿快照，再让宿主按当前页策略重落显隐。
   if (!m_window->restoreState(state))
     return false;
+  const auto &intent = savedIntent ? *savedIntent : before;
+  if (auto *docs = m_window->findChild<WorkspaceDockDocuments *>())
+    docs->restoreDockVisibility(m_window, intent.value(QStringLiteral("workspaceDockVisibility")).toMap());
   if (m_intentHooks.apply)
-    m_intentHooks.apply(savedIntent ? *savedIntent : before);
+    m_intentHooks.apply(intent);
   return true;
 }
 
@@ -194,6 +210,7 @@ QMenu *PaleoDockManager::createMenu(QWidget *parent)
   menu->addAction(tr("自适应布局"), this, &PaleoDockManager::fitLayout);
   menu->addAction(tr("保存当前布局"), this, [this] {
     QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    WorkspaceLayoutScope ordinaryLayout(m_window);
     settings.setValue(m_settingsKey, m_window->saveState());
     const QString intentKey = m_settingsKey + QStringLiteral("Intent");
     const QVariantMap intent = captureIntent();

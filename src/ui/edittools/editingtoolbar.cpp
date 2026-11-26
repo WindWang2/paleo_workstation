@@ -443,20 +443,16 @@ void PaleoEditingToolbar::buildUi()
   mSnapTolerance->setValue(QSettings().value(QStringLiteral("editing/snapTolerancePx"), 10).toInt());
   mToolBar->addWidget(mSnapTolerance);
   connect(mSnapTolerance, &QSpinBox::valueChanged, this, [this](int px) {
+    auto *project = mProject ? mProject.data() : QgsProject::instance();
     auto config = mCanvas->snappingUtils()->config();
+    if (project && config.project() != project) config.setProject(project);
     config.setEnabled(true);
     config.setMode(Qgis::SnappingMode::AllLayers);
     config.setTypeFlag(Qgis::SnappingType::Vertex | Qgis::SnappingType::Segment);
     config.setTolerance(px);
     config.setUnits(Qgis::MapToolUnit::Pixels);
     mCanvas->snappingUtils()->setConfig(config);
-    if (auto *project = mProject ? mProject.data() : QgsProject::instance())
-    {
-      // 同 paleomainwindow 镜像点：config 须挂 project 指针，否则重开工程
-      // 时 readProject 在空 project 上调 mapLayer 崩溃。
-      config.setProject(project);
-      project->setSnappingConfig(config);
-    }
+    if (project) project->setSnappingConfig(config);
     QSettings().setValue(QStringLiteral("editing/snapTolerancePx"), px);
   });
   auto config = mCanvas->snappingUtils()->config();

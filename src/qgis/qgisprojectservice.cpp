@@ -33,9 +33,7 @@ namespace
 
   void setDefaultSnapping(QgsProject *project)
   {
-    auto config = QgisCanvasController::nativeSnappingConfig();
-    config.setProject(project);
-    project->setSnappingConfig(config);
+    project->setSnappingConfig(QgisCanvasController::nativeSnappingConfig(project));
   }
 
   bool hasSavedSnapping(const QDomDocument &doc)

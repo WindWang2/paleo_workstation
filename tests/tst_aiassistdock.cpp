@@ -1,8 +1,10 @@
 // 层：测试壳
 #include <QtTest>
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
+#include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QElapsedTimer>
@@ -11,7 +13,9 @@
 #include <QHostAddress>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMimeData>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QScopeGuard>
@@ -21,14 +25,17 @@
 #include <QTcpSocket>
 #include <QTemporaryFile>
 #include <QTextBrowser>
+#include <QTextBlock>
 #include <QTextCursor>
-#include <QTextFrame>
+#include <QTextTable>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolButton>
 #include <functional>
 
 #include "../src/ai/chat/llmclient.h"
 #include "../src/ui/ai/aiassistdock.h"
+#include "../src/ui/ai/aicontextbar.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/aichatcontroller.h"
 
@@ -46,18 +53,20 @@ const char kToolChunk[] =
   "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\","
   "\"function\":{\"name\":\"paleo.query_project\",\"arguments\":\"{\\\"topic\\\":\\\"well_facies_models\\\"}\"}}]}}]}\n\n"
   "data: [DONE]\n\n";
-// 方向62：markdown 形态回答（表格 + 粗体 + 行内代码），验证流结束后的
-// 定型渲染（流式期间是纯文本，结束后替换为富文本）。
+// 流式响应和截图共用一个示例，便于核对实际 QTextDocument 与历史重放。
+const QString kComparisonQuestion = QStringLiteral("对比 A1、B2 两井 S1 段的砂岩厚度。");
 const char kMarkdownChunk[] =
-  "data: {\"choices\":[{\"delta\":{\"content\":\"| 井号 | 岩性 |\\n|---|---|\\n"
-  "| A1 | 砂岩 |\\n**结论**：粗粒砂岩为主\"}}]}\n\n"
+  R"(data: {"choices":[{"delta":{"content":"## S1 砂岩厚度对比\n\n**A1 井**比 B2 井厚 6.5 m。\n\n)"
+  R"(| 井号 | 砂岩厚度（m） | 优势岩性 |\n|---|---:|---|\n| A1 | 18.5 | 粗砂岩 |\n| B2 | 12.0 | 细砂岩 |\n\n)"
+  R"(> 两井均采用 S1 顶、底界内的井深厚度。\n\n- 复核 B2 井的薄层识别。\n- 对照 `GR` 曲线检查层界。\n\n)"
+  R"(```python\ndelta_m = 18.5 - 12.0\n```"}}]})" "\n\n"
   "data: [DONE]\n\n";
 } // namespace
 
 class FakeLlmServer : public QObject {
   Q_OBJECT
 public:
-  enum class Mode { Stream, ToolCalls, ToolCallsOnce, Unauthorized, Markdown };
+  enum class Mode { Stream, ToolCalls, ToolCallsOnce, Unauthorized, Markdown, PausedMarkdown };
   bool start(Mode mode) {
     m_mode = mode;
     connect(&m_server, &QTcpServer::newConnection, this,
@@ -69,6 +78,12 @@ public:
                   .arg(m_server.serverPort()));
   }
   int requestCount() const { return m_requests; }
+  void finishPausedMarkdown() {
+    if (m_paused) {
+      m_paused->write(kDone);
+      m_paused->disconnectFromHost();
+    }
+  }
 
 private:
   void serve(QTcpSocket *sock) {
@@ -101,6 +116,11 @@ private:
     }
     sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
                 "Content-Type: text/event-stream\r\n\r\n");
+    if (m_mode == Mode::PausedMarkdown) {
+      m_paused = sock;
+      sock->write(R"(data: {"choices":[{"delta":{"content":"| 井号 | 厚度 |\n|---|---|\n| A1 | 18.5 |\n\n"}}]})" "\n\n");
+      return;
+    }
     if (m_mode == Mode::Markdown) {
       // markdown 回答一整块下发（表头必须在行首，不能被前缀文本污染）。
       QTimer::singleShot(20, sock, [sock] {
@@ -122,6 +142,7 @@ private:
   Mode m_mode = Mode::Stream;
   int m_requestCount = 0;
   QTcpServer m_server;
+  QPointer<QTcpSocket> m_paused;
   int m_requests = 0;
 };
 
@@ -134,6 +155,7 @@ private slots:
   void fileDropUsesCurrentProjectAndPreservesDraft();
   void filePickerOpensWithoutModelAndRejectsChangedProject();
   void streamingRendersIntoTranscript();
+  void completedTableIsReadableWhileReplyStreams();
   void toolCallRendersPlaceholderCard();
   void errorStateIsRenderedWithReason();
   void markdownAnswerIsFormattedAfterStreamEnds();
@@ -288,11 +310,14 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
   auto *transcript =
     dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
   QVERIFY(input && send && transcript);
-  QVERIFY(send->isEnabled()); // 配置齐全 → 可用
+  QVERIFY(!send->isEnabled());
+  input->setPlainText(QStringLiteral("  \n "));
+  QVERIFY(!send->isEnabled());
   auto *empty = dock.findChild<QLabel *>(QStringLiteral("aiAssistantEmptyState"));
   QVERIFY(empty && !empty->isHidden()); // #870：开局空态
 
   input->setPlainText(QStringLiteral("这段是什么岩性？"));
+  QVERIFY(send->isEnabled());
   send->click();
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "流式必须结束（或超时报错）");
@@ -301,6 +326,48 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
   QVERIFY2(text.contains(QStringLiteral("这段是什么岩性？")),
            qPrintable(text)); // 用户那条也要上屏
   QVERIFY(empty->isHidden()); // #870：有对话即隐藏空态
+}
+
+void TestAiAssistDock::completedTableIsReadableWhileReplyStreams() {
+  const auto original = PaleoTheme::currentTheme();
+  const auto restore = qScopeGuard([original] { PaleoTheme::applyTheme(original); });
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::PausedMarkdown));
+  AiChatController controller;
+  auto config = makeConfig(server.endpoint());
+  config.timeoutMs = 30000;
+  controller.setConfig(config);
+  AiAssistDock dock(&controller);
+  dock.show();
+  auto *transcript = dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
+  QVERIFY(transcript);
+  controller.sendUserText(QStringLiteral("列出各井的厚度。"));
+  const auto tableVisible = [transcript] {
+    const auto cell = transcript->document()->find(QStringLiteral("18.5"));
+    return !cell.isNull() && cell.currentTable();
+  };
+  QVERIFY(spinUntil(tableVisible));
+  QVERIFY(controller.streaming());
+  const QString beforeStyle = transcript->document()->defaultStyleSheet();
+  const auto selectedQuestion = transcript->document()->find(QStringLiteral("各井"));
+  QVERIFY(!selectedQuestion.isNull());
+  transcript->setTextCursor(selectedQuestion);
+  PaleoTheme::applyTheme(original == PaleoTheme::Theme::Dark
+                          ? PaleoTheme::Theme::Light : PaleoTheme::Theme::Dark);
+  QTRY_VERIFY(transcript->document()->defaultStyleSheet() != beforeStyle);
+  QVERIFY(tableVisible());
+  QCOMPARE(transcript->textCursor().selectedText(), QStringLiteral("各井"));
+  AiAssistDock reopened(&controller);
+  auto *reopenedTranscript = reopened.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
+  QVERIFY(reopenedTranscript);
+  transcript->setTextCursor(transcript->document()->find(QStringLiteral("18.5")));
+  server.finishPausedMarkdown();
+  QVERIFY(spinUntil([&controller] { return !controller.streaming(); }));
+  QVERIFY(tableVisible());
+  QCOMPARE(transcript->textCursor().selectedText(), QStringLiteral("18.5"));
+  QCOMPARE(transcript->toPlainText().count(QStringLiteral("18.5")), 1);
+  QCOMPARE(transcript->toPlainText().count(QStringLiteral("已完成")), 1);
+  QCOMPARE(reopenedTranscript->toPlainText(), transcript->toPlainText());
 }
 
 void TestAiAssistDock::toolCallRendersPlaceholderCard() {
@@ -352,8 +419,7 @@ void TestAiAssistDock::errorStateIsRenderedWithReason() {
   QVERIFY(!controller.streaming());
 }
 
-// 方向62：流式期间纯文本，流结束整块替换为 markdown 渲染（表格要成为
-// QTextTable 子帧——纯 insertText 永远不会产生帧结构）。
+// 流式回复和历史回放应产生相同的文档结构，包括标题、表格和列表。
 void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Markdown));
@@ -362,25 +428,40 @@ void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
   AiAssistDock dock(&controller);
   auto *transcript =
     dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
-  dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))
-    ->setPlainText(QStringLiteral("列表对比一下岩性"));
+  dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))->setPlainText(kComparisonQuestion);
   dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"))->click();
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "markdown 流必须结束");
-  const QString text = transcript->toPlainText();
-  QVERIFY2(text.contains(QStringLiteral("井号")), qPrintable(text));
-  QVERIFY2(text.contains(QStringLiteral("A1")), qPrintable(text));
-  QVERIFY2(text.contains(QStringLiteral("结论")), qPrintable(text));
-  // 富文本结构证据：文档里出现子帧（表格）；流式纯文本阶段不会有帧。
-  bool hasTableFrame = false;
-  QTextFrame *root = transcript->document()->rootFrame();
-  for (QTextFrame::Iterator it = root->begin(); !it.atEnd(); ++it) {
-    if (it.currentFrame()) {
-      hasTableFrame = true;
-      break;
+  const QString sessionId = controller.session().id;
+  const QString liveText = transcript->toPlainText();
+  for (const bool replay : {false, true}) {
+    if (replay) {
+      controller.newSession();
+      QVERIFY(transcript->toPlainText().isEmpty());
+      QVERIFY(controller.loadSession(sessionId));
+      QCOMPARE(transcript->toPlainText(), liveText);
     }
+    QTextDocument *doc = transcript->document();
+    const auto question = doc->find(kComparisonQuestion);
+    const auto heading = doc->find(QStringLiteral("S1 砂岩厚度对比"));
+    QVERIFY(!question.isNull() && !heading.isNull());
+    QCOMPARE(question.block().text(), kComparisonQuestion);
+    QCOMPARE(heading.blockFormat().headingLevel(), 2);
+    QVERIFY(question.blockNumber() < heading.blockNumber());
+    const auto cell = doc->find(QStringLiteral("粗砂岩"));
+    QVERIFY(!cell.isNull());
+    const auto *table = cell.currentTable();
+    QVERIFY(table);
+    QCOMPARE(table->rows(), 3);
+    QCOMPARE(table->columns(), 3);
+    QVERIFY(doc->find(QStringLiteral("复核 B2 井的薄层识别。")).currentList());
+    const auto quote = doc->find(QStringLiteral("两井均采用 S1 顶、底界内的井深厚度。"));
+    QVERIFY(!quote.isNull());
+    QCOMPARE(quote.block().text().trimmed(), quote.selectedText());
+    QVERIFY(!doc->find(QStringLiteral("delta_m = 18.5 - 12.0")).isNull());
+    QVERIFY(doc->find(QStringLiteral("```")).isNull());
+    QVERIFY(doc->find(QStringLiteral("**")).isNull());
   }
-  QVERIFY2(hasTableFrame, "markdown 表格必须渲染成 QTextTable（帧结构）");
 }
 
 // 方向62：会话切换 round-trip——openSessionRequested 真实 emit + 装配侧
@@ -496,8 +577,9 @@ void TestAiAssistDock::copyButtonPutsSelectionOrWholeTranscriptOnClipboard() {
   AiAssistDock dock(&controller);
   auto *transcript =
     dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
-  auto *copy =
-    dock.findChild<QPushButton *>(QStringLiteral("aiAssistantCopy"));
+  auto *more = dock.findChild<QToolButton *>(QStringLiteral("aiAssistantMore"));
+  auto *copy = dock.findChild<QAction *>(QStringLiteral("aiAssistantCopy"));
+  QVERIFY(more && more->menu() && copy && more->menu()->actions().contains(copy));
   dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))
     ->setPlainText(QStringLiteral("这段是什么岩性？"));
   dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"))->click();
@@ -506,19 +588,19 @@ void TestAiAssistDock::copyButtonPutsSelectionOrWholeTranscriptOnClipboard() {
   QVERIFY(copy->isEnabled());
 
   // 无选区：整段（用户消息 + 回答都在）。
-  copy->click();
+  copy->trigger();
+  QVERIFY(QApplication::clipboard()->mimeData()->hasHtml());
   const QString whole = QApplication::clipboard()->text();
   QVERIFY2(whole.contains(QStringLiteral("这段是什么岩性？")), qPrintable(whole));
   QVERIFY2(whole.contains(QStringLiteral("砂岩")), qPrintable(whole));
 
   // 有选区：只复制选中的两个字。
-  QTextCursor cursor = transcript->textCursor();
-  cursor.setPosition(0);
-  cursor.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, 2);
+  const auto cursor = transcript->document()->find(QStringLiteral("岩性"));
+  QVERIFY(!cursor.isNull());
   transcript->setTextCursor(cursor);
-  copy->click();
-  QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("你：")
-                                                  .left(2));
+  copy->trigger();
+  QVERIFY(QApplication::clipboard()->mimeData()->hasHtml());
+  QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("岩性"));
 }
 
 // 方向62：重发最后一条用户消息——新请求发出（服务器计数 +1），历史不
@@ -531,8 +613,9 @@ void TestAiAssistDock::resendIssuesNewRequestWithoutDuplicatingHistory() {
   AiAssistDock dock(&controller);
   auto *transcript =
     dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
-  auto *resend =
-    dock.findChild<QPushButton *>(QStringLiteral("aiAssistantResend"));
+  auto *more = dock.findChild<QToolButton *>(QStringLiteral("aiAssistantMore"));
+  auto *resend = dock.findChild<QAction *>(QStringLiteral("aiAssistantResend"));
+  QVERIFY(more && more->menu() && resend && more->menu()->actions().contains(resend));
   dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))
     ->setPlainText(QStringLiteral("这段是什么岩性？"));
   dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"))->click();
@@ -543,7 +626,7 @@ void TestAiAssistDock::resendIssuesNewRequestWithoutDuplicatingHistory() {
   const QString firstAnswer = controller.messages().last().content;
   QVERIFY(!firstAnswer.isEmpty());
   QVERIFY(resend->isEnabled());
-  resend->click();
+  resend->trigger();
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "重发的一轮必须结束");
   QCOMPARE(server.requestCount(), 2);
@@ -552,29 +635,50 @@ void TestAiAssistDock::resendIssuesNewRequestWithoutDuplicatingHistory() {
   QCOMPARE(transcript->toPlainText().count(firstAnswer), 1);   // 旧回答被截掉
 }
 
-// 方向62 ledger 截图（无人值守证据）：默认跳过；设 PALEO_AI_SHOT_DIR 时
-// 落两张 PNG（markdown 定型后的 dock 全貌 + 会话下拉展开态）。产物提交
-// docs/progress/ai-ux-shots/（先例：crossplot-facies-shots）。
+// 可选截图沿用实际面板，覆盖现有内容换主题和收窄后的排版。
 void TestAiAssistDock::captureLedgerScreenshots() {
   const QString dir =
     QString::fromUtf8(qgetenv("PALEO_AI_SHOT_DIR"));
   if (dir.isEmpty())
     QSKIP("截图按需采集（PALEO_AI_SHOT_DIR 未设）");
+  QVERIFY(QDir().mkpath(dir));
+  const auto originalTheme = PaleoTheme::currentTheme();
+  const auto restoreTheme = qScopeGuard([originalTheme] { PaleoTheme::applyTheme(originalTheme); });
+  PaleoTheme::applyLightTheme();
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Markdown));
   AiChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
-  dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))
-    ->setPlainText(QStringLiteral("列表对比一下岩性"));
+  dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))->setPlainText(kComparisonQuestion);
   dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"))->click();
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "markdown 流必须结束（定型渲染后截图）");
-  dock.resize(520, 420);
+  auto *transcript = dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
+  QVERIFY(transcript);
+  auto *context = dock.findChild<AiContextBar *>();
+  QVERIFY(context);
+  context->present(QStringLiteral("示例工区 · S1 层段"), false, {}, true, false,
+                   QStringLiteral("S1"), QStringLiteral("S1"), QStringLiteral("sample"), 1, {}, {});
+  dock.setFileImportContext(1, {});
+  auto *composer = dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"));
+  QVERIFY(composer);
+  composer->setPlainText(QStringLiteral("列出这两口井的有效厚度区间。"));
+  dock.resize(720, 640);
   dock.show();
-  QVERIFY2(dock.grab()
-             .save(dir + QStringLiteral("/ai-ux-dock-markdown.png")),
-           "dock 截图落盘失败");
+  composer->setFocus();
+  const auto capture = [&](const QString &name) {
+    QCoreApplication::processEvents();
+    transcript->verticalScrollBar()->setValue(0);
+    return dock.grab().save(QDir(dir).filePath(name));
+  };
+  QVERIFY(capture(QStringLiteral("ai-ux-dock-markdown.png")));
+  dock.resize(400, 520);
+  QVERIFY(capture(QStringLiteral("ai-ux-dock-narrow.png")));
+  QCOMPARE(dock.width(), 400);
+  PaleoTheme::applyDarkTheme();
+  dock.resize(720, 640);
+  QVERIFY(capture(QStringLiteral("ai-ux-dock-dark.png")));
 }
 
 QTEST_MAIN(TestAiAssistDock)

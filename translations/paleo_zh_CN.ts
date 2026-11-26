@@ -87,208 +87,117 @@
 </context>
 <context>
     <name>AiAssistDock</name>
-        <message>
-            <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
-            <translation>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</translation>
-        </message>
-        <message>
-            <source>超限会话：%1</source>
-            <translation>超限会话：%1</translation>
-        </message>
-        <message>
-            <source>档案异常（%2）：%1</source>
-            <translation>档案异常（%2）：%1</translation>
-        </message>
-        <message>
-            <source>%1…</source>
-            <translation>%1…</translation>
-        </message>
-        <message>
-            <source>（列表可能不完整：部分会话尚未校验）</source>
-            <translation>（列表可能不完整：部分会话尚未校验）</translation>
-        </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="64"/>
-        <source>未配置</source>
-        <translation>未配置</translation>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="69"/>
+        <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
+        <translation>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="71"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="47"/>
+        <source>超限会话：%1</source>
+        <translation>超限会话：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="49"/>
+        <source>档案异常（%2）：%1</source>
+        <translation>档案异常（%2）：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="78"/>
+        <source>%1…</source>
+        <translation>%1…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="62"/>
+        <source>（列表可能不完整：部分会话尚未校验）</source>
+        <translation>（列表可能不完整：部分会话尚未校验）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="46"/>
         <source>新会话</source>
         <translation>新会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="73"/>
-        <source>配置…</source>
-        <translation>配置…</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="82"/>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="465"/>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="38"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="761"/>
         <source>会话</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="86"/>
-        <source>重命名</source>
-        <translation>重命名</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="88"/>
-        <source>删除</source>
-        <translation>删除</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="119"/>
-        <source>向助手提问（Enter 发送，Shift+Enter 换行）</source>
-        <translation>向助手提问（Enter 发送，Shift+Enter 换行）</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="127"/>
-        <source>复制</source>
-        <translation>复制</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="129"/>
-        <source>导出…</source>
-        <translation>导出…</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="131"/>
-        <source>重发</source>
-        <translation>重发</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="133"/>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="130"/>
         <source>发送</source>
         <translation>发送</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="135"/>
-        <source>停止</source>
-        <translation>停止</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="276"/>
-        <source>未接入助手编排</source>
-        <translation>未接入助手编排</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="289"/>
-        <source>助手尚未接入 — 打开工程后再使用 AI 助手</source>
-        <translation>助手尚未接入 — 打开工程后再使用 AI 助手</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="290"/>
-        <source>还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题</source>
-        <translation>还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="291"/>
-        <source>助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问</source>
-        <translation>助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="319"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="34"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="42"/>
         <source>（未命名会话）</source>
         <translation>（未命名会话）</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="339"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="88"/>
         <source>重命名会话</source>
         <translation>重命名会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="339"/>
+        <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="88"/>
         <source>会话标题：</source>
         <translation>会话标题：</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="382"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="111"/>
         <source>结果已回传模型（%1 字符）</source>
         <translation>结果已回传模型（%1 字符）</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="456"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="752"/>
         <source>对话内容</source>
         <translation>对话内容</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="765"/>
         <source>导出会话</source>
         <translation>导出会话</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="765"/>
         <source>Markdown 文件 (*.md)</source>
         <translation>Markdown 文件 (*.md)</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="474"/>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="770"/>
         <source>导出失败</source>
         <translation>导出失败</translation>
     </message>
     <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="511"/>
-        <source>待执行</source>
-        <translation>待执行</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="541"/>
-        <source>执行中</source>
-        <translation>执行中</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="551"/>
-        <source>已完成</source>
-        <translation>已完成</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="551"/>
-        <source>失败</source>
-        <translation>失败</translation>
-    </message>
-    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="121"/>
         <source>◀ 更早结果</source>
         <translation>◀ 更早结果</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="123"/>
         <source>更新结果 ▶</source>
         <translation>更新结果 ▶</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="411"/>
         <source>操作服务未接入（查询/取消/恢复不可用）</source>
         <translation>操作服务未接入（查询/取消/恢复不可用）</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="507"/>
         <source>（未知工具）</source>
         <translation>（未知工具）</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="508"/>
         <source>历史记录</source>
         <translation>历史记录</translation>
     </message>
     <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="537"/>
         <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
         <translation>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</translation>
-    </message>
-    <message>
-        <source>状态已刷新（修订 %1）</source>
-        <translation>状态已刷新（修订 %1）</translation>
-    </message>
-    <message>
-        <source>状态查询失败：%1</source>
-        <translation>状态查询失败：%1</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="566"/>
-        <source>输入问题，或将文件拖到此处导入当前工程。</source>
-        <translation>输入问题，或将文件拖到此处导入当前工程。</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/ai/aiassistdock.cpp" line="567"/>
-        <source>将文件拖到此处导入当前工程。要与助手对话，请先配置模型。</source>
-        <translation>将文件拖到此处导入当前工程。要与助手对话，请先配置模型。</translation>
     </message>
     <message>
         <location filename="../src/ui/ai/aiassistdock_import.cpp" line="16"/>
@@ -314,6 +223,154 @@
         <location filename="../src/ui/ai/aiassistdock_import.cpp" line="59"/>
         <source>工程已变化，请重新选择文件。</source>
         <translation>工程已变化，请重新选择文件。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="42"/>
+        <source>当前会话</source>
+        <translation>当前会话</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="50"/>
+        <source>更多会话操作</source>
+        <translation>更多会话操作</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="51"/>
+        <source>更多</source>
+        <translation>更多</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="59"/>
+        <source>重发上一条消息</source>
+        <translation>重发上一条消息</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="61"/>
+        <source>复制对话</source>
+        <translation>复制对话</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="63"/>
+        <source>导出会话…</source>
+        <translation>导出会话…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="66"/>
+        <source>重命名会话…</source>
+        <translation>重命名会话…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="68"/>
+        <source>删除会话…</source>
+        <translation>删除会话…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="109"/>
+        <source>消息输入框</source>
+        <translation>消息输入框</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="110"/>
+        <source>输入消息…（Shift+Enter 换行）</source>
+        <translation>输入消息…（Shift+Enter 换行）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="128"/>
+        <source>模型设置…</source>
+        <translation>模型设置…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="132"/>
+        <source>停止生成</source>
+        <translation>停止生成</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="63"/>
+        <source>对话记录</source>
+        <translation>对话记录</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="102"/>
+        <source>文件导入</source>
+        <translation>文件导入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="107"/>
+        <source>你</source>
+        <translation>你</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="108"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="126"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="149"/>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="186"/>
+        <source>助手</source>
+        <translation>助手</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="109"/>
+        <source>系统</source>
+        <translation>系统</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="111"/>
+        <source>工具</source>
+        <translation>工具</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="159"/>
+        <source>错误</source>
+        <translation>错误</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="137"/>
+        <source>工具结果</source>
+        <translation>工具结果</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="439"/>
+        <source>助手尚未接入</source>
+        <translation>助手尚未接入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="441"/>
+        <source>Enter 发送，Shift+Enter 换行</source>
+        <translation>Enter 发送，Shift+Enter 换行</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="451"/>
+        <source>发送消息（Enter）</source>
+        <translation>发送消息（Enter）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="451"/>
+        <source>输入消息后即可发送</source>
+        <translation>输入消息后即可发送</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="464"/>
+        <source>输入问题，或拖入文件以导入当前工程。</source>
+        <translation>输入问题，或拖入文件以导入当前工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="465"/>
+        <source>拖入文件即可导入当前工程。配置模型后还可以提问。</source>
+        <translation>拖入文件即可导入当前工程。配置模型后还可以提问。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="466"/>
+        <source>输入问题，按 Enter 发送。</source>
+        <translation>输入问题，按 Enter 发送。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="467"/>
+        <source>点击「模型设置…」配置模型，即可开始对话。</source>
+        <translation>点击「模型设置…」配置模型，即可开始对话。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="468"/>
+        <source>助手尚未接入。</source>
+        <translation>助手尚未接入。</translation>
     </message>
 </context>
 <context>
@@ -30534,6 +30591,38 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
+        <translation>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</translation>
+    </message>
+    <message>
+        <source>提交不确定（commit_uncertain）：提交状态以服务事实为准</source>
+        <translation>提交不确定（commit_uncertain）：提交状态以服务事实为准</translation>
+    </message>
+    <message>
+        <source>已请求取消（等待执行面确认，不提前宣称已停止）</source>
+        <translation>已请求取消（等待执行面确认，不提前宣称已停止）</translation>
+    </message>
+    <message>
+        <source>取消请求失败：%1</source>
+        <translation>取消请求失败：%1</translation>
+    </message>
+    <message>
+        <source>恢复已受理（原 operationId 继续执行）</source>
+        <translation>恢复已受理（原 operationId 继续执行）</translation>
+    </message>
+    <message>
+        <source>恢复失败：%1</source>
+        <translation>恢复失败：%1</translation>
+    </message>
+    <message>
+        <source>状态已刷新（修订 %1）</source>
+        <translation>状态已刷新（修订 %1）</translation>
+    </message>
+    <message>
+        <source>状态查询失败：%1</source>
+        <translation>状态查询失败：%1</translation>
+    </message>
         <message>
             <source>会话消息数超过档案结构上限（%1）</source>
             <translation>会话消息数超过档案结构上限（%1）</translation>
@@ -60159,6 +60248,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>AiConversationCard</name>
+    <message>
+        <source>待执行</source>
+        <translation>待执行</translation>
+    </message>
+    <message>
+        <source>执行中</source>
+        <translation>执行中</translation>
+    </message>
+    <message>
+        <source>已完成</source>
+        <translation>已完成</translation>
+    </message>
+    <message>
+        <source>失败</source>
+        <translation>失败</translation>
+    </message>
     <message>
         <source>详情</source>
         <translation>详情</translation>

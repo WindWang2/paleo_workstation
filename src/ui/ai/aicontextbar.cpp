@@ -33,6 +33,8 @@ AiContextBar::AiContextBar(QWidget *parent) : QWidget(parent) {
   m_summary = new QLabel(row);
   m_summary->setObjectName(QStringLiteral("aiContextSummary"));
   m_summary->setTextFormat(Qt::PlainText);
+  // 工程简报可长于整个停靠区，完整文字仍可在「上下文」中查看。
+  m_summary->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   m_summary->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
   PaleoTheme::applyThemedStyleSheet(
     m_summary, [] { return PaleoTheme::mutedCaptionStyleSheet(); });

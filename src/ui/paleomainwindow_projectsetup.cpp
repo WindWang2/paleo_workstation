@@ -16,6 +16,7 @@ void PaleoMainWindow::runNewProject(const QString &sourceRoot, bool supplement)
   auto *workflow = new ProjectSetupWorkflow(m_projectSvc, folderImportWorkflow(), this);
   workflow->setRequiredProjectRoot(ProjectSetupWorkflow::defaultProjectVolume());
   workflow->setMapImportServices(m_layerSvc, m_taskSvc);
+  connect(workflow, &ProjectSetupWorkflow::projectHorizonsChanged, this, &PaleoMainWindow::refreshMappingHorizons);
   connect(workflow, &ProjectSetupWorkflow::finished, this, [this, workflow](const QString &summary, bool success) {
     if (success) PaleoNotify::information(this, tr("工程已创建"), summary);
     else PaleoNotify::warning(this, tr("工程资料导入结果"), summary);

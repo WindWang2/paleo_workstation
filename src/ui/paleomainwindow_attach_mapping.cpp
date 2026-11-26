@@ -260,9 +260,6 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
   connect(composePage, &ComposePage::exportPdfRequested, this,
           [this, versionStore, catalog, activeHorizon, analysisBind, status]() {
     const auto bind = analysisBind();
-    // 发布上下文优先挂稳定 SubIntervalId；无单元时仍可用界面标签作 legacy 显示。
-    const auto horizon = !bind.analysisKey.isEmpty() ? bind.analysisKey : activeHorizon();
-    const auto publishId = bind.publishIdentity();
     auto *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
     if (!canvas || !m_projectSvc || !m_projectSvc->project() || !catalog || !catalog->isOpen()) {
       status(tr("请先打开工程并选择地图")); return;
@@ -282,17 +279,37 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
     QList<QPointer<QgsMapLayer>> layerGuards;
     for (auto *layer : layers) layerGuards << layer;
     PaleoGeologicalMapLayout::Settings settings;
-    settings.horizon = horizon;
     settings.kind = PaleoStandardElements::FigureKind::WellPosition;
+    QgsMapLayer *primary = layers.isEmpty() ? nullptr : layers.first();
     QString primaryName;
     for (auto *layer : layers) {
       const auto id = layer->customProperty("paleoLayerId").toString();
-      if (id.startsWith("facies.") || (m_layerSvc && m_layerSvc->declaration(id).group == "05_PaleoMap")) {
-        settings.kind = PaleoStandardElements::FigureKind::Facies; primaryName = layer->name(); break;
+      if (id.startsWith("facies.") || PaleoGeologicalMapLayout::isFaciesPolygon(layer) ||
+          (m_layerSvc && m_layerSvc->declaration(id).group == "05_PaleoMap")) {
+        settings.kind = PaleoStandardElements::FigureKind::Facies; primary = layer; primaryName = layer->name(); break;
       }
-      if (layer->type() == Qgis::LayerType::Raster && layer->providerType() == "gdal") {
-        settings.kind = PaleoStandardElements::FigureKind::SingleFactor; primaryName = layer->name();
+      if (layer->type() == Qgis::LayerType::Raster && layer->providerType() == "gdal" && primaryName.isEmpty()) {
+        settings.kind = PaleoStandardElements::FigureKind::SingleFactor; primary = layer; primaryName = layer->name();
       }
+    }
+    if (primary) settings.primaryLayerId = primary->id();
+    // An imported boundary map can be visible as a reference while a subinterval
+    // is selected. Its printed title and publication record belong to that map.
+    const auto primaryLayer = primary && m_layerSvc
+        ? m_layerSvc->declaration(primary->customProperty("paleoLayerId").toString()) : LayerDeclaration{};
+    const bool boundaryMap = !primaryLayer.horizon.isEmpty() && primaryLayer.group == QLatin1String("05_PaleoMap") &&
+        (primaryLayer.layerId.startsWith(QLatin1String("paleomap.")) || (m_workbench &&
+         m_workbench->versionForLayer(primaryLayer.layerId).extra.value("kind").toString() == QLatin1String("existing_paleomap")));
+    QString horizon = bind.analysisKey.isEmpty() ? activeHorizon() : bind.analysisKey;
+    auto publishId = bind.publishIdentity();
+    if (boundaryMap && primaryLayer.horizon != bind.analysisKey) {
+      horizon = primaryLayer.horizon;
+      publishId = {{"source_horizon", horizon}};
+    }
+    settings.horizon = horizon;
+    if (PaleoGeologicalMapLayout::isFaciesPolygon(primary)) {
+      auto *polygons = qobject_cast<QgsVectorLayer *>(primary);
+      settings.showPatchLabels = polygons->featureCount() < 100;
     }
     settings.title = (horizon + " " + PaleoStandardElements::figureKindTitle(settings.kind)).trimmed();
     if (!primaryName.isEmpty()) settings.subtitle = tr("层位：%1 · %2 · 当前地图快照").arg(horizon, primaryName);

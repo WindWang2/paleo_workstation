@@ -53,7 +53,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PaleoMainWindow", "subIntervalSchemeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层解释方案。可输入关键字过滤，超多方案时分页；选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。"), nullptr},
     {"PaleoMainWindow", "subIntervalRevisionCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "方案修订快照。可输入关键字过滤，超多修订时分页；选择后写入 UnitSelection.revision；分析成果按修订对齐。"), nullptr},
 
-    {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。"), nullptr},
+    {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择资料目录，设置工程保存位置和坐标系。创建后在后台导入，完成时可在数据管理中核对井、地震和层位。"), nullptr},
     {"PaleoMainWindow", "openProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "打开已有的 Paleo 工程。"), nullptr},
     {"PaleoMainWindow", "importFromFolderButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择工区文件夹：已有工程直接打开，否则在该文件夹内新建工程并导入其中的数据。"), nullptr},
     {"PaleoMainWindow", "recentProjectsList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "最近打开的工程，双击或回车即可打开。"), nullptr},

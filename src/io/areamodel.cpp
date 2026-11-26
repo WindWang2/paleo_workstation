@@ -8,6 +8,7 @@
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
+#include <algorithm>
 
 namespace paleo::area_model {
 namespace {
@@ -65,6 +66,24 @@ bool indexedSource(const QString &root, const QString &wanted, long long &id, QS
   return true;
 }
 }
+QStringList mappingBoundaries(const QString &project) {
+  const QString root = directory(project);
+  if (!QFileInfo::exists(QDir(root).filePath(QStringLiteral("data.sqlite")))) return {};
+  paleo::data::DataService reader;
+  paleo::data::StratigraphicScheme scheme;
+  std::string detail;
+  if (!reader.openProjectReadOnly(root.toUtf8().toStdString(), detail) ||
+      !reader.readStratigraphicScheme("default", {}, scheme, detail)) return {};
+  std::stable_sort(scheme.boundaries.begin(), scheme.boundaries.end(),
+                   [](const auto &a, const auto &b) { return a.order < b.order; });
+  QStringList names;
+  for (const auto &boundary : scheme.boundaries) {
+    const QString name = QString::fromUtf8(boundary.name).trimmed();
+    if (!name.isEmpty() && !names.contains(name, Qt::CaseInsensitive)) names.append(name);
+  }
+  return names;
+}
+
 void registerProject(const QString &project, const void *owner) {
   QMutexLocker lock(&mutex);
   projects.insert(owner, directory(project));

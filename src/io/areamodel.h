@@ -10,6 +10,8 @@ class DataCatalog;
 namespace paleo::area_model {
 bool ensureProject(const QString &project, QString *error);
 QString directory(const QString &project);
+// Ordered mapping horizons from the published seismic stratigraphic scheme.
+QStringList mappingBoundaries(const QString &project);
 QString confirmedProjectCrs(const QString &project);
 enum class ImportFinalization { Immediate, Deferred };
 // Complete derived-model work once after all inputs in a prepared batch.

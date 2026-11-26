@@ -27,6 +27,7 @@
 #include "../src/ui/paleodockmanager.h"
 #include "../src/services/toolavailability.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/ui/windowsizing_internal.h"
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/pages/pageshared.h"
 #include "../src/ui/edittools/editingtoolbar.h"
@@ -71,6 +72,44 @@ private slots:
   void initTestCase() { QVERIFY2(m_ctx->ready(), "AppContext failed to bring up QgisRuntime"); }
   void init() { clearSettings(); }
   void cleanup() { clearSettings(); }
+
+  void startupGeometryRecoversWhenSavedLayoutIsUnusable()
+  {
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(),
+                        m_ctx->selection());
+    const QSize initial = paleo::ui_detail::boundedToAvailable(QSize(1920, 1200),
+                                                               paleo::ui_detail::availableSizeFor(&win));
+    QCOMPARE(win.size(), initial);
+    win.show();
+    QCoreApplication::processEvents();
+
+    const QSize selected = QSize(640, 480).boundedTo(initial);
+    win.resize(selected);
+    QCOMPARE(win.size(), selected);
+    win.saveWindowState();
+    win.resize(initial);
+    win.restoreWindowState();
+    QCOMPARE(win.size(), selected);
+
+    QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    settings.setValue(QStringLiteral("windowGeometry"), QByteArrayLiteral("unusable saved geometry"));
+    win.restoreWindowState();
+    QCOMPARE(win.size(), initial);
+
+    QWidget tiny;
+    tiny.resize(200, 200);
+    settings.setValue(QStringLiteral("windowGeometry"), tiny.saveGeometry());
+    win.restoreWindowState();
+    QCOMPARE(win.size(), initial);
+
+    win.showMaximized();
+    QTRY_VERIFY(win.isMaximized());
+    win.saveWindowState();
+    win.showNormal();
+    win.restoreWindowState();
+    QVERIFY(win.isMaximized());
+  }
 
   void singleFactorRibbonFollowsFourSteps()
   {

@@ -34,12 +34,24 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
   m_scale = new QDoubleSpinBox(controls); m_scale->setRange(0, 1e10); m_scale->setDecimals(0);
   m_scale->setSpecialValueText(tr("按当前地图范围")); m_scale->setPrefix("1 : ");
   m_kind = new QComboBox(controls); m_kind->addItems({tr("井位图"), tr("单因素图"), tr("沉积相图")}); m_kind->setCurrentIndex(int(settings.kind));
+  m_kind->setObjectName("mapExportFigureKind");
   m_paper = new QComboBox(controls); m_paper->addItems({"A4", "A3"});
   m_orientation = new QComboBox(controls); m_orientation->addItems({tr("横向"), tr("纵向")});
   m_dpi = new QSpinBox(controls); m_dpi->setObjectName("mapExportDpi"); m_dpi->setRange(72, 1200); m_dpi->setValue(300);
   m_author = new QLineEdit(settings.author, controls); m_reviewer = new QLineEdit(settings.reviewer, controls);
+  m_crs = new QComboBox(controls); m_crs->setObjectName("mapExportCrs");
+  m_crs->addItems({tr("当前地图坐标系"), tr("主图层原始坐标系")});
+  m_crs->setCurrentIndex(settings.usePrimaryLayerCrs ? 1 : 0);
+  m_patchLabels = new QCheckBox(tr("显示相图斑名称"), controls);
+  m_patchLabels->setObjectName("mapExportPatchLabels");
+  m_patchLabels->setChecked(settings.showPatchLabels);
+  m_patchLabels->setVisible(settings.kind == PaleoStandardElements::FigureKind::Facies);
+  connect(m_kind, &QComboBox::currentIndexChanged, m_patchLabels, [this](int kind) {
+    m_patchLabels->setVisible(kind == int(PaleoStandardElements::FigureKind::Facies));
+  });
   form->addRow(tr("图名"), m_title); form->addRow(tr("层位／时代及说明"), m_subtitle); form->addRow(tr("比例尺"), m_scale); form->addRow(tr("图件类型"), m_kind); form->addRow(tr("纸张"), m_paper);
   form->addRow(tr("方向"), m_orientation); form->addRow(tr("分辨率（DPI）"), m_dpi);
+  form->addRow(tr("图面坐标"), m_crs); form->addRow(m_patchLabels);
   form->addRow(tr("编制"), m_author); form->addRow(tr("审核"), m_reviewer);
   auto *formats = new QWidget(controls); auto *formatLayout = new QHBoxLayout(formats); formatLayout->setContentsMargins(0, 0, 0, 0);
   m_png = new QCheckBox(tr("PNG"), formats); m_pdf = new QCheckBox(tr("PDF"), formats); m_svg = new QCheckBox(tr("SVG"), formats); m_tiff = new QCheckBox(tr("TIFF"), formats);
@@ -91,14 +103,15 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
   buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
   m_save = buttons->button(QDialogButtonBox::Save); m_save->setText(tr("开始导出"));
   root->addWidget(buttons);
-  connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::accepted, this, &GeologicalExportDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
   // 预览重建防抖（#540a）：13 条输入连接全部经 200ms 单发定时器合流——逐键
   // 重建版面会把 GUI 线程占满（与 dataexportdialog.cpp 的预览定时器同口径）。
   m_rebuildTimer = new QTimer(this); m_rebuildTimer->setSingleShot(true); m_rebuildTimer->setInterval(200);
   connect(m_rebuildTimer, &QTimer::timeout, this, [this] { rebuild(); });
-  for (auto *combo : {m_kind, m_paper, m_orientation}) connect(combo, &QComboBox::currentIndexChanged, this, [this] { scheduleRebuild(); });
-  for (auto *edit : {m_title, m_subtitle, m_author, m_reviewer}) connect(edit, &QLineEdit::editingFinished, this, [this] { scheduleRebuild(); });
+  for (auto *combo : {m_kind, m_paper, m_orientation, m_crs}) connect(combo, &QComboBox::currentIndexChanged, this, [this] { scheduleRebuild(); });
+  connect(m_patchLabels, &QCheckBox::toggled, this, [this] { scheduleRebuild(); });
+  for (auto *edit : {m_title, m_subtitle, m_author, m_reviewer}) connect(edit, &QLineEdit::textChanged, this, [this] { scheduleRebuild(); });
   for (auto *box : {m_png, m_pdf, m_svg, m_tiff}) connect(box, &QCheckBox::toggled, this, [this] { scheduleRebuild(); });
   connect(m_dpi, &QSpinBox::valueChanged, this, [this] { scheduleRebuild(); });
   connect(m_scale, &QDoubleSpinBox::valueChanged, this, [this] { scheduleRebuild(); });
@@ -106,11 +119,21 @@ GeologicalExportDialog::GeologicalExportDialog(const PaleoGeologicalMapLayout::S
   paleo::ui_detail::resizeWithinScreen(this, QSize(1100, 720)); destinationChanged(); // R6 #844
 }
 GeologicalExportDialog::~GeologicalExportDialog() { delete m_preview; }
+void GeologicalExportDialog::accept() {
+  // Save can be activated while the last edit is still waiting for the preview timer.
+  if (m_rebuildTimer->isActive()) {
+    m_rebuildTimer->stop();
+    rebuild();
+  }
+  if (m_save->isEnabled()) QDialog::accept();
+}
 void GeologicalExportDialog::scheduleRebuild() { m_rebuildTimer->start(); }
 PaleoLayoutExport::LayoutHandle *GeologicalExportDialog::layout() const { return m_layout.get(); }
 void GeologicalExportDialog::rebuild() {
   m_settings.subtitle = m_subtitle->text(); m_settings.scale = m_scale->value();
+  m_settings.usePrimaryLayerCrs = m_crs->currentIndex() == 1;
   m_settings.title = m_title->text(); m_settings.kind = PaleoStandardElements::FigureKind(m_kind->currentIndex());
+  m_settings.showPatchLabels = m_settings.kind != PaleoStandardElements::FigureKind::Facies || m_patchLabels->isChecked();
   m_settings.page.sizeName = m_paper->currentText(); m_settings.page.landscape = m_orientation->currentIndex() == 0;
   m_settings.author = m_author->text(); m_settings.reviewer = m_reviewer->text();
   QString error;

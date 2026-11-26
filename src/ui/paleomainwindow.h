@@ -197,6 +197,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void openTaskCenter();
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
+    void refreshMappingHorizons();
     // #153/#154/#156/#158：工程即将关闭/切换（QgisProjectService::
     // projectAboutToClose）——清掉所有工程作用域的视图状态：预览标签与
     // PreviewDoc 会话缓存、测井对比井集、3D/剖面地震体、属性建模在途作业。

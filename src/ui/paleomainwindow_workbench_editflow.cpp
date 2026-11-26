@@ -11,6 +11,7 @@
 #include "pages/composepage.h"
 #include "pages/constraintpage.h"
 #include "pages/datapage.h"
+#include "pages/mappingbasemapselector.h"
 #include "pages/mappingworkbenchpage.h"
 #include "pages/mappingtaskguide.h"
 #include "pages/wellpredictionpanel.h"
@@ -20,9 +21,11 @@
 
 namespace {
 void bindWorkbenchPageHorizon(MappingWorkbenchPage *page, SelectionContext *selection) {
-  const auto apply = [page, selection] {
+  auto *baseMaps = page->findChild<MappingBaseMapSelector *>();
+  const auto apply = [page, selection, baseMaps] {
     const auto unit = selection->activeUnit();
     const auto key = paleo::strat::analysisLayerKey(unit);
+    if (baseMaps) baseMaps->setReferenceBoundary(key.isEmpty() ? QString() : selection->activeHorizon());
     page->setProperty("paleo.unitDisplayName", key.isEmpty() ? QString() : unit.displayName);
     page->setHorizon(key.isEmpty() ? selection->activeHorizon() : key);
   };

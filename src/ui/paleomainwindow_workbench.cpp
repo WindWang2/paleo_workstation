@@ -712,9 +712,13 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
                          ? m_projectSvc->project()->layerTreeRoot()
                          : nullptr;
     if (treeRoot) {
+      // The imported original can be an opaque polygon above its classified
+      // copy. Keep unrelated reference maps visible when showing the result.
+      const auto rawVersion = workbench->versionForLayer(id).extra.value("source_raw_version_id").toString();
+      const auto original = rawVersion.isEmpty() ? QString() : QStringLiteral("paleomap.") + rawVersion;
       for (const auto &other : m_layerSvc->declared())
         if (other.layerId != id && other.horizon == d.horizon &&
-            (other.layerId.startsWith("product.") ||
+            (other.layerId == original || other.layerId.startsWith("product.") ||
              other.layerId.startsWith("factor.") ||
              other.layerId.startsWith("contours.") ||
              other.layerId.startsWith("cartographic.") ||

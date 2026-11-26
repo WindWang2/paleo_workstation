@@ -8,7 +8,6 @@
 #include "workspacedockdocuments.h"
 #include <QSettings>
 #include "paleomainwindow_internal.h"
-#include "uienv_internal.h"
 #include "../workflow/projectsetup.h"
 
 #include "paleodockmanager.h"
@@ -787,8 +786,6 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
     connect(m_projectSvc, &QgisProjectService::projectOpened, this, [this](const QString &path) {
       const QString dir = QFileInfo(path).absolutePath();
       m_stratigraphy->setProject(dir, m_projectSvc->isReadOnly());
-      if (auto *unit = findChild<SubIntervalSelectorBar *>())
-        unit->reloadFromProject(dir, {});
     });
     connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this, documents] {
       m_stratigraphy->setProject({}, false);
@@ -820,11 +817,14 @@ void PaleoMainWindow::restoreWindowState()
 {
   QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
   const QByteArray geom = s.value(QStringLiteral("windowGeometry")).toByteArray();
-  if (!geom.isEmpty())
-    restoreGeometry(geom);
-  else if (!paleo::ui_detail::isOffscreen())
-    // R6 #835：首次启动按所在屏 90% 起步，而不是停在最小尺寸、四周留白。
-    resize(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), paleo::ui_detail::availableSizeFor(this)));
+  const QSize fallback = paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), paleo::ui_detail::availableSizeFor(this));
+  const bool restored = !geom.isEmpty() && restoreGeometry(geom);
+  // Only at startup: an old normal window can fit little more than the title and
+  // ribbon. Recover a usable canvas without imposing any live resize constraint.
+  const QSize minimumRestore = QSize(360, 240).boundedTo(fallback);
+  if (!restored || (!isMaximized() && !isFullScreen() &&
+                    (width() < minimumRestore.width() || height() < minimumRestore.height())))
+    resize(fallback);
   const QByteArray state = s.value(QStringLiteral("windowState")).toByteArray();
   if (!state.isEmpty())
   {

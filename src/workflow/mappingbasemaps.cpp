@@ -36,11 +36,17 @@ bool MappingWorkbench::seedMapBoundary(const QString &draft, const QVariantMap &
   return FaciesMapBoundary::seed(m_layers ? m_layers->layer(draft) : nullptr, boundary, code, error);
 }
 
-QVariantList MappingWorkbench::baseMapCandidates(const QString &horizon) const {
+QVariantList MappingWorkbench::baseMapCandidates(const QString &horizon, const QString &referenceBoundary) const {
   QVariantList out;
-  for (const auto &value : products(horizon)) {
-    auto row = value.toMap(); if (row.value("horizon").toString() != horizon) continue;
+  const bool includeReference = !horizon.isEmpty() && !referenceBoundary.isEmpty() && referenceBoundary != horizon;
+  auto candidates = products(horizon);
+  if (includeReference) candidates += products(referenceBoundary);
+  for (const auto &value : candidates) {
+    auto row = value.toMap();
+    const auto sourceHorizon = row.value("horizon").toString();
     const auto metadata = row.value("parameters").toMap(); const auto kind = row.value("kind").toString();
+    const bool reference = includeReference && sourceHorizon == referenceBoundary && kind == "existing_paleomap";
+    if (sourceHorizon != horizon && !reference) continue;
     QString category, title, action;
     if (kind == "existing_paleomap" && metadata.value("spatial").toBool()) { category = "existing"; title = tr("现有古地理图"); }
     else if (paleo::singlefactor::isAnalysisFactorRaster(kind, metadata.value("value_source").toString())) {
@@ -49,7 +55,8 @@ QVariantList MappingWorkbench::baseMapCandidates(const QString &horizon) const {
     } else if (kind == "seismic_prediction") { category = "seismic"; title = tr("地震相图"); }
     else if (QStringList{"facies_polygons", "composed_facies", "edited_facies"}.contains(kind)) { category = "facies"; title = tr("其他相图"); }
     else continue;
-    if (action.isEmpty() && !metadata.value("facies").toList().isEmpty()) action = row.value("type") == "raster" ? "polygonize" : "copy";
+    if (!reference && action.isEmpty() && !metadata.value("facies").toList().isEmpty()) action = row.value("type") == "raster" ? "polygonize" : "copy";
+    if (reference) row.insert("reference_boundary", sourceHorizon);
     row.insert("category", category); row.insert("category_title", title); row.insert("start_action", action);
     row.insert("reference_only", action.isEmpty()); out << row;
   }

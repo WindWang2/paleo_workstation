@@ -92,7 +92,7 @@ public:
                   QString *error);
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
-  QVariantList baseMapCandidates(const QString &horizon) const;
+  QVariantList baseMapCandidates(const QString &horizon, const QString &referenceBoundary = {}) const;
   QVariantList mapBoundaries() const;
   QVariantMap prepareMapBoundary(const QString &id, QString *error) const;
   bool seedMapBoundary(const QString &draft, const QVariantMap &boundary, int code, QString *error);

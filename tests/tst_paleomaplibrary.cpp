@@ -915,6 +915,13 @@ private slots:
     QCOMPARE(commands.first()[0].toString(), QString("show")); QCOMPARE(commands.first()[1].toMap().value("horizon").toString(), QString("D61"));
     selector.setHorizon("D62"); QVERIFY(!show->isEnabled()); QVERIFY(start->isEnabled());
     QCOMPARE(category->currentData().toString(), QString("new"));
+    selector.setReferenceBoundary("D61");
+    category->setCurrentIndex(category->findData("existing"));
+    QCOMPARE(sourceBox->count(), 1); QVERIFY(show->isEnabled()); QVERIFY(!start->isEnabled());
+    show->click();
+    QCOMPARE(commands.last()[1].toMap().value("horizon").toString(), QString("D61"));
+    selector.setReferenceBoundary({});
+    QCOMPARE(category->findData("existing"), -1);
     selector.setHorizon("D61"); category->setCurrentIndex(category->findData("existing"));
     PreviewDocService doc(&f.importer); DataPreviewTabs mapPreview; mapPreview.setDocService(&doc); mapPreview.setProject(f.project.project()); mapPreview.openAsset(result.assets.first());
     bool foundSource = false;
@@ -939,11 +946,18 @@ private slots:
     }
   }
   void realImportedMapMainCanvas() {
-    const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT"); if (root.isEmpty()) QSKIP("Set PALEO_SETUP_SAMPLE_ROOT");
+    const QString root = qEnvironmentVariable("PALEO_SETUP_SAMPLE_ROOT");
+    QTemporaryDir local;
+    QString source = QDir(root).filePath(QStringLiteral("古地理图/D62_historical_facies_map.gpkg"));
+    if (root.isEmpty()) {
+      source = local.filePath("D62.shp");
+      QVERIFY(microShape(source, {QVariantMap{{"microfacies", QStringLiteral("分流河道")}},
+                                  QVariantMap{{"microfacies", QStringLiteral("分流间湾")}}}));
+    }
     QObject context; Fixture f; QVERIFY(f.init());
     auto config = f.project.mapConfiguration(); PaleoGeoreference ref; ref.kind = "crs"; ref.sourceCrs = "EPSG:32649"; ref.targetCrs = "EPSG:4326"; config.georeference = ref;
     QString error; QVERIFY2(f.project.updateMapConfiguration(config, &error), qPrintable(error));
-    PaleoMapLibrary::Request request; request.files = {QDir(root).filePath(QStringLiteral("古地理图/D62_historical_facies_map.gpkg"))}; request.horizon = "D62";
+    PaleoMapLibrary::Request request; request.files = {source}; request.horizon = "D62";
     auto result = f.run(request); QVERIFY2(result.errors.isEmpty(), qPrintable(result.errors.join('\n'))); QCOMPARE(result.assets.size(), 1);
     const auto snapshot = qEnvironmentVariable("PALEO_MAP_PROJECT_SNAPSHOT");
     if (!snapshot.isEmpty()) {
@@ -964,12 +978,16 @@ private slots:
     window.resize(1400, 1000); window.show();
     const auto v = f.importer.catalog()->currentVersion(result.assets.first()); const auto id = v.extra.value("layer_id").toString();
     const auto raw = f.importer.catalog()->versionById(v.parentVersionIds.first());
-    for (const auto &shownId : {id, raw.extra.value("layer_id").toString()})
+    const QString original = raw.extra.value("layer_id").toString();
+    QVERIFY(!original.isEmpty() && original != id);
+    for (const auto &shownId : {original, id, original})
     for (const auto &mode : {QString("constraint"), QString("compose")}) {
       window.showPage(mode); QTest::qWait(150);
       auto *page = window.findChild<MappingWorkbenchPage *>("mappingWorkbench." + mode); QVERIFY(page);
       page->commandRequested("show", {{"horizon", "D62"}, {"layer", shownId}}); QTest::qWait(150);
       auto *canvas = controller.canvas(); QVERIFY(canvas->layers().contains(f.layers.layer(shownId)));
+      const auto other = shownId == id ? original : id;
+      QTRY_VERIFY(!canvas->layers().contains(f.layers.layer(other)));
       QgsMapRendererSequentialJob job(canvas->mapSettings()); job.start(); job.waitForFinished();
       const auto image = job.renderedImage(); int painted = 0;
       for (int y = 0; y < image.height(); ++y) for (int x = 0; x < image.width(); ++x)

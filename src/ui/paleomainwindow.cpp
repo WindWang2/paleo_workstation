@@ -489,16 +489,31 @@ void PaleoMainWindow::onProjectOpened()
   // #156：测井对比井集来自 catalog（不再只由本会话的导入事件填充）。
   refreshCorrelationWells();
 
+  refreshMappingHorizons();
+  // 工区打开默认进入数据看板；具体预览页在目录绑定完成后由 attachDataPage 激活。
+  showPage(QStringLiteral("data"));
+}
+
+void PaleoMainWindow::refreshMappingHorizons()
+{
   // 工程级参数驱动的层位 UI（AreaRules 已在 AppContext::projectOpened 装载）：
   // chip 条按新词表重建；标定层位相关文案重写。
-  if (auto *bar = findChild<HorizonChipBar *>())
+  const QStringList horizonWords = mappingHorizons();
+  const QString project = m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+                            ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
+  for (auto *bar : findChildren<HorizonChipBar *>())
     bar->reloadHorizons();
-  if (auto *unit = findChild<SubIntervalSelectorBar *>())
-    unit->reloadFromBoundaries(mappingHorizons());
+  for (auto *unit : findChildren<SubIntervalSelectorBar *>())
+    unit->reloadFromProject(project, horizonWords);
+  if (m_selection && !m_selection->activeHorizon().isEmpty() &&
+      !horizonWords.isEmpty() && !horizonWords.contains(m_selection->activeHorizon()))
+  {
+    m_selection->setActiveHorizon(horizonWords.first());
+    if (m_layerSvc) m_layerSvc->setActiveHorizon(horizonWords.first());
+  }
   // 同一词表填充预测/单因素页的层位下拉（此前生产链从未填充，页面发出的
   // 意图恒携带空层位）；已选层位原样跟随，未选时下拉给词表首项。
   {
-    const QStringList horizonWords = mappingHorizons();
     if (auto *pp = findChild<PredictPage *>())
       pp->setHorizons(horizonWords);
     auto *cp = findChild<ConstraintPage *>();
@@ -531,9 +546,6 @@ void PaleoMainWindow::onProjectOpened()
                      .arg(AreaRules::active().onnxGrid.rows)
                      .arg(AreaRules::active().onnxGrid.cols));
   }
-
-  // 工区打开默认进入数据看板；具体预览页在目录绑定完成后由 attachDataPage 激活。
-  showPage(QStringLiteral("data"));
 }
 
 void PaleoMainWindow::closeEvent(QCloseEvent *event)

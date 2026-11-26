@@ -13516,6 +13516,22 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>GeologicalExportDialog</name>
+        <message>
+            <source>当前地图坐标系</source>
+            <translation>当前地图坐标系</translation>
+        </message>
+        <message>
+            <source>主图层原始坐标系</source>
+            <translation>主图层原始坐标系</translation>
+        </message>
+        <message>
+            <source>显示相图斑名称</source>
+            <translation>显示相图斑名称</translation>
+        </message>
+        <message>
+            <source>图面坐标</source>
+            <translation>图面坐标</translation>
+        </message>
     <message>
         <location filename="../src/ui/dialogs/geologicalexportdialog.cpp" line="27"/>
         <source>导出地质图</source>
@@ -14877,6 +14893,10 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>MappingBaseMapSelector</name>
+    <message>
+        <source>此图归属界面 %1，可作为当前子层段的空间参考。</source>
+        <translation>此图归属界面 %1，可作为当前子层段的空间参考。</translation>
+    </message>
     <message>
         <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="21"/>
         <source>1 · 选择基础图</source>
@@ -27636,8 +27656,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="56"/>
-        <source>通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。</source>
-        <translation>通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。</translation>
+        <source>选择资料目录，设置工程保存位置和坐标系。创建后在后台导入，完成时可在数据管理中核对井、地震和层位。</source>
+        <translation>选择资料目录，设置工程保存位置和坐标系。创建后在后台导入，完成时可在数据管理中核对井、地震和层位。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="57"/>
@@ -31008,6 +31028,18 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+        <message>
+            <source>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</source>
+            <translation>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</translation>
+        </message>
+        <message>
+            <source>无法将当前范围转换至主图层坐标系：%1</source>
+            <translation>无法将当前范围转换至主图层坐标系：%1</translation>
+        </message>
+        <message>
+            <source>当前范围在主图层坐标系中无效。</source>
+            <translation>当前范围在主图层坐标系中无效。</translation>
+        </message>
     <message>
         <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
         <translation>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</translation>

@@ -141,6 +141,8 @@ struct DataOpsWidthCtx
 // App-shell acceptance (§42): the five-page workflow chrome over the P0 spine.
 // AppContext owns the QgsApplication — main() builds the context (which brings
 // the QApplication up), never a QApplication of its own.
+void runDesktopIoMapCase(AppContext &ctx, PaleoMainWindow &window);
+
 class TestUiShell : public QObject
 {
   Q_OBJECT
@@ -162,6 +164,19 @@ class TestUiShell : public QObject
     }
 
   private slots:
+    void localSourcesToExportedFaciesMap()
+    {
+      if (qEnvironmentVariableIsEmpty("PALEO_DESKTOP_IO_OUTPUT"))
+        QSKIP("Set PALEO_DESKTOP_IO_OUTPUT, PALEO_DESKTOP_IO_SOURCE and PALEO_DESKTOP_IO_MAP to run the local-data acceptance.");
+      m_win->setSharedPreviewServices(m_ctx->previewDoc(), m_ctx->seismicTaskSvc());
+      attachShellWorkflows();
+      m_win->attachDocumentSession(m_ctx->documentSession());
+      m_win->attachMapping(m_ctx->mappingWf(), m_ctx->versionCtl(), m_ctx->versionStore(),
+                           m_ctx->projectData(), m_ctx->importSvc()->catalog());
+      m_win->attachWorkbench(m_ctx->mappingWorkbench(), m_ctx->evidenceInteraction());
+      runDesktopIoMapCase(*m_ctx, *m_win);
+    }
+
     void initTestCase()
     {
       QVERIFY2(m_ctx->ready(), "AppContext failed to bring up QgisRuntime");
@@ -2964,6 +2979,8 @@ int main(int argc, char *argv[])
   // QgsApplication inside its ctor (env must be set before QApplication).
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
+  if (!qEnvironmentVariableIsEmpty("PALEO_DESKTOP_IO_OUTPUT"))
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs); // Inspect file pickers with QtTest.
 
   // 每运行一次的临时目录（对齐 tst_seismic_sectionui 惯例）：既隔离直跑时
   // 的真实用户配置，也消除固定 /tmp 路径跨运行/跨用户的陈旧状态向量

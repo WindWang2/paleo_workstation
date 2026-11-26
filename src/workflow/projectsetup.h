@@ -30,6 +30,7 @@ public:
   void setMapImportServices(QgisLayerService *layers, PaleoTaskService *tasks);
 signals:
   void previewReady(const ProjectSetupPreview &preview);
+  void projectHorizonsChanged();
   void finished(const QString &summary, bool success);
 private:
   void importAreaSources(const ProjectSetupSources &sources, const ProjectSetupPreview &preview, quint64 session);

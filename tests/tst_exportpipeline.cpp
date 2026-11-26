@@ -31,6 +31,10 @@
 #include <qgsprintlayout.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectordataprovider.h>
+#include <qgscoordinatetransform.h>
+#include <qgspallabeling.h>
+#include <qgsvectorlayerlabeling.h>
+#include <QDomDocument>
 #include <qgslayoutitemlabel.h>
 #include <qgslayoutitemmap.h>
 #include <qgslayoutitemlegend.h>
@@ -51,6 +55,53 @@ class TestExportPipeline : public QObject {
     project.addMapLayer(layer); project.setCrs(layer->crs()); return layer;
   }
 private slots:
+  void regionalMapUsesPrimaryCrsAndSuppressesOnlyPrintPatchLabels() {
+    QgsProject project;
+    auto *wells = points(project);
+    auto *facies = new QgsVectorLayer("Polygon?crs=EPSG:32650&field=microfacies:string", "相图斑", "memory");
+    const QgsRectangle extent(320000, 2350000, 330000, 2360000);
+    QgsFeature patch(facies->fields());
+    patch.setAttribute(0, "分流河道");
+    patch.setGeometry(QgsGeometry::fromRect(extent));
+    QgsFeatureList patches{patch};
+    QVERIFY(facies->dataProvider()->addFeatures(patches));
+    facies->updateExtents();
+    QgsPalLayerSettings labels;
+    labels.fieldName = "microfacies";
+    facies->setLabeling(new QgsVectorLayerSimpleLabeling(labels));
+    facies->setLabelsEnabled(true);
+    project.addMapLayer(facies);
+    QgsCoordinateTransform toCanvas(facies->crs(), project.crs(), project.transformContext());
+    const auto canvasExtent = toCanvas.transformBoundingBox(extent);
+    PaleoGeologicalMapLayout::Settings settings;
+    settings.kind = PaleoStandardElements::FigureKind::Facies;
+    settings.primaryLayerId = facies->id();
+    auto regular = PaleoGeologicalMapLayout::buildHandle(&project, {wells, facies}, canvasExtent, settings);
+    QVERIFY(regular);
+    auto *original = qobject_cast<QgsLayoutItemMap *>(regular->layout()->itemById("map"));
+    QVERIFY(original); QCOMPARE(original->crs(), project.crs()); QVERIFY(original->layerStyleOverrides().isEmpty());
+    settings.usePrimaryLayerCrs = true;
+    settings.showPatchLabels = false;
+    auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {wells, facies}, canvasExtent, settings);
+    QVERIFY(layout);
+    auto *map = qobject_cast<QgsLayoutItemMap *>(layout->layout()->itemById("map"));
+    auto *inset = qobject_cast<QgsLayoutItemMap *>(layout->layout()->itemById("inset"));
+    QVERIFY(map); QVERIFY(inset);
+    QCOMPARE(map->crs(), facies->crs()); QCOMPARE(inset->crs(), facies->crs());
+    QVERIFY(map->extent().contains(extent.center()));
+    QVERIFY(inset->extent().contains(extent.center()));
+    QVERIFY(map->extent().width() < 30000); QVERIFY(map->scale() > 0);
+    for (auto *frame : {map, inset}) {
+      const auto styles = frame->layerStyleOverrides();
+      QVERIFY(!styles.contains(wells->id()));
+      QDomDocument style; QVERIFY(style.setContent(styles.value(facies->id())));
+      QCOMPARE(style.documentElement().attribute("labelsEnabled"), QString("0"));
+    }
+    QVERIFY(facies->labelsEnabled()); QCOMPARE(facies->featureCount(), 1);
+    const auto metadata = PaleoGeologicalMapLayout::describe(layout->layout());
+    QCOMPARE(metadata.value("map_crs").toString(), QString("EPSG:32650"));
+    QVERIFY(!metadata.value("patch_labels").toBool());
+  }
   void externalFiguresKeepTheProjectCatalogUnchanged() {
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "D61";
@@ -375,6 +426,44 @@ private slots:
     }
     auto *buttons = dialog.findChild<QDialogButtonBox *>(); QVERIFY(buttons);
     QVERIFY(!buttons->button(QDialogButtonBox::Save)->isEnabled());
+  }
+  void immediateExportUsesTheLastEditsAndRevalidatesTheLayout() {
+    QTemporaryDir output;
+    QgsProject project;
+    auto *layer = points(project);
+    PaleoGeologicalMapLayout::Settings settings;
+    settings.title = QStringLiteral("原图名");
+    QString builtTitle;
+    GeologicalExportDialog dialog(settings, [&](const auto &current, QString *error) {
+      builtTitle = current.title;
+      if (current.title == QStringLiteral("invalid")) {
+        *error = QStringLiteral("数据源失效");
+        return std::unique_ptr<PaleoLayoutExport::LayoutHandle>{};
+      }
+      return PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), current, error);
+    }, false, nullptr, {}, output.path());
+    auto *title = dialog.findChild<QLineEdit *>("mapExportTitle");
+    auto *buttons = dialog.findChild<QDialogButtonBox *>();
+    QVERIFY(title && buttons && buttons->button(QDialogButtonBox::Save)->isEnabled());
+    dialog.show();
+    auto *kind = dialog.findChild<QComboBox *>("mapExportFigureKind");
+    auto *patchLabels = dialog.findChild<QCheckBox *>("mapExportPatchLabels");
+    QVERIFY(kind && patchLabels);
+    kind->setCurrentIndex(0);
+    QVERIFY(patchLabels->isHidden());
+    kind->setCurrentIndex(int(PaleoStandardElements::FigureKind::Facies));
+    QVERIFY(!patchLabels->isHidden());
+    title->setText(QStringLiteral("invalid"));
+    buttons->button(QDialogButtonBox::Save)->click();
+    QCOMPARE(builtTitle, QStringLiteral("invalid"));
+    QVERIFY(dialog.isVisible());
+    title->setText(QStringLiteral("T70–T72 微相图"));
+    QTRY_VERIFY(buttons->button(QDialogButtonBox::Save)->isEnabled());
+    title->setText(QStringLiteral("T70–T72 最终微相图"));
+    buttons->button(QDialogButtonBox::Save)->click();
+    QCOMPARE(dialog.result(), int(QDialog::Accepted));
+    QCOMPARE(builtTitle, title->text());
+    QVERIFY(dialog.layout() && dialog.layout()->layout());
   }
   void tiffIsCapabilityGated() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project);

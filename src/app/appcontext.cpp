@@ -3,6 +3,7 @@
 #include "capabilityhostwiring.h"
 #include "workflow/documentsession.h"
 #include "io/areamodelpublication.h"
+#include "io/areamodel.h"
 #include "../ai/chat/llmclient.h" // 方向51：LLM 配置 + 助手编排
 #include "../ai/chat/llmkeystore.h"
 #include "../ai/remotepredictconfig.h"
@@ -791,7 +792,7 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
   // 分类规则/SEG-Y 偏移/ONNX 网格/标定层位。必须在 importSvc/
   // catalog 之前装载——分类器与层位词表消费 active()。坏 JSON
   // 如实上报（active 保持默认），不静默。
-  AreaRules::setProjectDir(fi.absolutePath());
+  AreaRules::setProjectDir(fi.absolutePath(), paleo::area_model::mappingBoundaries(fi.absolutePath()));
   if (!AreaRules::lastError().isEmpty())
   {
     qWarning() << "AppContext: area rules rejected:" << AreaRules::lastError();
@@ -805,8 +806,13 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
       prepared && prepared->directory == fi.absolutePath() ? prepared->catalog : nullptr);
   const auto documentFile = readProjectFile(paleoProjectFilePath(fi.absolutePath()));
   QString sourceError;
-  if (m_import->catalog() && !paleo::area_model::recoverModelPublication(*m_import->catalog(),&sourceError))
-    qWarning() << "AppContext: model publication needs recovery:" << sourceError;
+  if (m_import->catalog() && paleo::area_model::hasPendingModelPublication(fi.absolutePath()))
+  {
+    if (paleo::area_model::recoverModelPublication(*m_import->catalog(), &sourceError))
+      AreaRules::setProjectDir(fi.absolutePath(), paleo::area_model::mappingBoundaries(fi.absolutePath()));
+    else
+      qWarning() << "AppContext: model publication needs recovery:" << sourceError;
+  }
   if (!m_documentSession->bind(m_import->catalog(), metaPath, documentFile.projectId, !writable, &sourceError))
     qWarning() << "AppContext: document sources unavailable:" << sourceError;
   // 工程级地理配准（project.paleo georeference 节）：导入服务带上

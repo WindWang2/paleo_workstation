@@ -260,8 +260,9 @@ bool MappingWorkbench::predict(const QString &horizon, const QString &kind,
     auto source = SeismicHorizonSource::Scatter;
     const bool useDataServiceWindow=!request.unitSelection.isEmpty();
     if(!useDataServiceWindow){
-      const QString selectedName = QFileInfo(horizonFile).completeBaseName().toUpper();
-      if (!horizonFile.isEmpty() && isMappingHorizon(selectedName) && selectedName != h) {
+      const QString selectedName = QFileInfo(horizonFile).completeBaseName();
+      if (!horizonFile.isEmpty() && mappingHorizons().contains(selectedName, Qt::CaseInsensitive) &&
+          selectedName.compare(h, Qt::CaseInsensitive) != 0) {
         fail(error, tr("所选文件属于 %1，当前编图层位是 %2，请选择对应层位的文件").arg(selectedName, h));
         return false;
       }

@@ -211,7 +211,7 @@ target 的路径。configure 缓存指向其他前缀时，另用新构建目录
 
 ## Windows OSGeo4W 离线供货
 
-在可联网的机器上运行 `./paleo-dev.ps1 bootstrap fetch-only`，准备 Windows x64 缓存并得到一份已校验的安装树。将 `vendor/cache/osgeo4w-offline`、`vendor/cache/onnxruntime` 和 `vendor/cache/tarballs` 一起复制到离线工作树。最后一个目录须包含 manifest 所列的 Zstd 源码包及 opencl-source.lock.json 所列的 OpenCL-Headers 和 OpenCL-ICD-Loader 源码包。构建还需要按独立 worktree 的约定提供已经准备好的 Office 编辑组件 `vendor/ranuts-document`。使用 PowerShell 重放：
+在可联网的机器上运行 `./paleo-dev.ps1 bootstrap fetch-only`，准备 Windows x64 缓存并得到一份已校验的安装树。将 `vendor/cache/osgeo4w-offline`、`vendor/cache/onnxruntime` 和 `vendor/cache/tarballs` 一起复制到离线工作树。最后一个目录须包含 manifest 所列的 Zstd 源码包及 opencl-source.lock.json 所列的 OpenCL-Headers 和 OpenCL-ICD-Loader 源码包，以及下文的 PDAL Arrow 源码缓存。构建还需要按独立 worktree 的约定提供已经准备好的 Office 编辑组件 `vendor/ranuts-document`。使用 PowerShell 重放：
 
 ```powershell
 $env:PALEO_VENDOR_OFFLINE = '1'
@@ -225,6 +225,18 @@ $env:PALEO_CTEST_ARGS = '-j1 -LE perf --no-tests=error'
 `vendor/osgeo4w-offline.lock.json` 固定安装器、离线索引及每个归档的字节数和 SHA-256。bootstrap 先校验镜像，再以本地安装模式运行安装器，最后逐包校对 `installed.db`（包含 OSGeo4W 的打包修订号）。缺包或坏包会指出文件，原样保留以供诊断。用同一份锁从可信缓存补齐它，再重新运行。每次准备都会重新核对缓存。首次从锁内归档安装并编译补件后记录前缀文件摘要；复用时逐文件核对。没有文件摘要的旧安装树或锁变更后的安装树应移到其他目录，由 bootstrap 在目标路径重装。
 
 有意升级时，准备 OSGeo4W 官方 `setup.ini` 中当前范围选中的归档与安装器。先用 `python -B tools/pin_osgeo4w.py --setup-ini <完整索引>` 更新 manifest，再用 `python -B tools/osgeo4w_offline.py generate --cache <镜像根> --installer <安装器> --index <新索引> --lock <新锁>` 生成新文件。镜像根下应有 `x86_64/setup.ini` 及 `x86_64/release`；生成命令写入新文件，避免覆盖当前锁。审查锁差异及上游来源、复跑本地离线验收后替换仓库中的索引与锁。保存按锁验证的缓存，供滚动上游下架历史包后重放。
+
+Windows 桌面前缀中的 PDAL 2.10.0 读写插件由锁定的上游源码重编译，以匹配 Arrow 26、Parquet 与 GDAL 3.13.3。源文件、头文件包及兼容补丁的 SHA-256 记录在 `vendor/pdal-arrow-source.lock.json`，离线输入位于 `vendor/cache/tarballs/pdal-arrow/`。OSGeo4W 原始归档维持既有锁定。新前缀会写入、重新读取跨行组的 Parquet 三维点，并用 GDAL 独立复验。可分别运行 `python tools/check_pdal_arrow.py vendor/osgeo4w` 和 `python tools/osgeo4w_prefix.py verify vendor/osgeo4w` 复验功能及完整收据。
+
+已有完整收据的旧桌面前缀可直接运行 `./paleo-dev.ps1 bootstrap fetch-only`。它会校验既有文件，重建读写插件，通过往返测试后更新收据。关闭仍在使用旧 DLL 的工作站后可以重试，先前的安装内容会保留。
+
+若旧前缀缺少完整收据、其他依赖锁不同或校验发现额外文件有变，请先关闭使用该目录的程序，再在工作树根目录按以下命令保留原目录并使用已验证缓存建立新前缀。使用目录联接的工作树也应只重命名当前工作树下的联接。
+
+```powershell
+$backupName = 'osgeo4w.previous-' + (Get-Date -Format 'yyyyMMddHHmmss')
+Rename-Item -LiteralPath ./vendor/osgeo4w -NewName $backupName
+./paleo-dev.ps1 bootstrap fetch-only
+```
 
 ## 独立 SDK 与原生性能测试
 

@@ -25,4 +25,7 @@ vendor/fetch-ranuts-document.sh text eol=lf
 /vendor/osgeo4w-setup.ini text eol=lf
 /vendor/osgeo4w-offline.lock.json text eol=lf
 /vendor/opencl-source.lock.json text eol=lf
+/vendor/pdal-arrow-source.lock.json text eol=lf
+# Unified diff uses a single space for an empty context line.
+/vendor/patches/pdal-arrow26.patch text eol=lf whitespace=-blank-at-eol
 /tools/paleo-portable-linux.sh text eol=lf

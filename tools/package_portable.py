@@ -104,6 +104,7 @@ def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin
     prefix = Path(cache["QGIS_PREFIX"]).resolve(strict=True)
     verify_receipt(prefix, ".paleo-osgeo4w-lock.sha256", "vendor/osgeo4w-offline.lock.json")
     verify_receipt(prefix, ".paleo-opencl-source.sha256", "vendor/opencl-source.lock.json")
+    verify_receipt(prefix, ".paleo-pdal-arrow-source.sha256", "vendor/pdal-arrow-source.lock.json")
     qt = prefix / "apps/qt6"
     gis = prefix / "apps/qgis"
     gdal = prefix / "apps/gdal"
@@ -112,6 +113,11 @@ def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin
     entries.append(files.copy(qt / "bin/QtWebEngineProcess.exe", "QtWebEngineProcess.exe",
                               "osgeo4w", prefix))
     # Runtime loaders reach these plugins without an import from paleo.exe.
+    for kind in ("reader", "writer"):
+        plugin = f"libpdal_plugin_{kind}_arrow.dll"
+        entries.append(files.copy(prefix / "bin" / plugin, plugin, "osgeo4w", prefix))
+    files.copy(REPO_ROOT / "vendor/patches/pdal-arrow-notices.txt", "share/paleo/licenses/pdal-arrow.txt",
+               "source", REPO_ROOT)
     for group in QT_PLUGIN_GROUPS:
         source = qt / "plugins" / group
         if source.is_dir():
@@ -217,7 +223,7 @@ def main():
             files = PackageFiles(package)
             stage_windows(files, build, office, cache, find_dumpbin())
             files.write(["vendor/osgeo4w-offline.lock.json", "vendor/manifest.json",
-                         "vendor/opencl-source.lock.json",
+                         "vendor/opencl-source.lock.json", "vendor/pdal-arrow-source.lock.json",
                          "vendor/office-editor-required.txt", "vendor/fetch-ranuts-document.sh"])
             if args.verify:
                 verify_windows(package)

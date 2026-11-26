@@ -125,6 +125,8 @@ function Install-Osgeo4wPayload([string]$Prefix, [string]$Cache, [string[]]$Pack
   if ($Native) { $profile += '--native' }
   & "$Vendor/build-osgeo4w-zstd.ps1" -Prefix $Prefix -PrepareOnly
   if (!$Native) {
+    & $python -B (Join-Path $Root 'tools/build_pdal_arrow.py') prepare $Prefix
+    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the pinned PDAL Arrow build inputs' }
     & "$Vendor/build-osgeo4w-opencl.ps1" -Prefix $Prefix -PrepareOnly
     & $python -I (Join-Path $Vendor 'fetch-onnxruntime.py')
     if ($LASTEXITCODE -ne 0) { throw 'ONNX Runtime bootstrap failed' }
@@ -137,6 +139,10 @@ function Install-Osgeo4wPayload([string]$Prefix, [string]$Cache, [string[]]$Pack
   $receipt = Join-Path $Root 'tools/osgeo4w_prefix.py'
   if (!$fresh) {
     Assert-Osgeo4wLockStamp $Prefix
+    if (!$Native) {
+      & $python -B (Join-Path $Root 'tools/build_pdal_arrow.py') upgrade-prefix $Prefix
+      if ($LASTEXITCODE -ne 0) { throw 'Could not safely update the existing PDAL Arrow plugins. See BUILDING.md.' }
+    }
     & $python -B $receipt verify $Prefix @profile
     if ($LASTEXITCODE -ne 0) { throw 'Prefix integrity check failed. Move it aside and bootstrap again.' }
   } else {
@@ -153,7 +159,15 @@ function Install-Osgeo4wPayload([string]$Prefix, [string]$Cache, [string[]]$Pack
   & $python -B $tool check-installed $database @profile
   if ($LASTEXITCODE -ne 0) { throw 'Installed OSGeo4W prefix does not match the lock' }
   & "$Vendor/build-osgeo4w-zstd.ps1" -Prefix $Prefix
-  if (!$Native) { & "$Vendor/build-osgeo4w-opencl.ps1" -Prefix $Prefix }
+  if (!$Native) {
+    & "$Vendor/build-osgeo4w-opencl.ps1" -Prefix $Prefix
+    & $python -B (Join-Path $Root 'tools/build_pdal_arrow.py') build $Prefix
+    if ($LASTEXITCODE -ne 0) { throw 'Could not build the PDAL Arrow plugins' }
+    if ($fresh) {
+      & $python -B (Join-Path $Root 'tools/check_pdal_arrow.py') $Prefix
+      if ($LASTEXITCODE -ne 0) { throw 'The installed PDAL/GDAL Parquet round trip failed' }
+    }
+  }
   if ($fresh) {
     & $python -B $receipt record $Prefix @profile
     if ($LASTEXITCODE -ne 0) { throw 'Could not record the new OSGeo4W prefix' }
@@ -194,6 +208,7 @@ function Enter-VendorEnvironment {
   $gdalData = Join-Path $osgeo 'apps\gdal\share\gdal'
   $env:GDAL_DATA = $gdalData
   $env:GDAL_DRIVER_PATH = Join-Path $osgeo 'apps\gdal\lib\gdalplugins'
+  $env:PDAL_DRIVER_PATH = Join-Path $osgeo 'bin'
   $projData = Join-Path $osgeo 'share\proj'
   $env:PROJ_LIB = $projData
   $env:PROJ_DATA = $projData

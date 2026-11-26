@@ -31,7 +31,10 @@ void FolderImportWorkflow::receiveFromSender(const QString &directory, const QSt
   };
   const auto finish = [this, directory, projectStillCurrent, identifySender, done, result] {
     if (!projectStillCurrent()) {
-      done({}, 0, tr("工程已切换，请在原工程查看收件结果。"), true);
+      QString detail = result->error;
+      if (!detail.isEmpty()) detail += QLatin1Char('\n');
+      detail += tr("工程已切换，请在原工程查看收件结果。");
+      done(result->files, result->reused.size(), detail, result->cancelled);
       return;
     }
     if (!result->cancelled && result->needsSenderId && identifySender) {

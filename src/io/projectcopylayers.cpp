@@ -40,8 +40,14 @@ struct CopyPaths {
     const bool copied = !QDir::isAbsolutePath(relative) && relative != QStringLiteral("..") &&
                         !relative.startsWith(QStringLiteral("../")) && QFileInfo::exists(staged.filePath(relative));
     if ((copied && !absolute) || (!copied && absolute)) return value;
-    const QString mapped = copied ? target.filePath(relative) : source;
-    return (uri ? QUrl::fromLocalFile(mapped).toString() : mapped) + (suffix < 0 ? QString() : value.mid(suffix));
+    QString mapped = copied ? target.filePath(relative) : source;
+    if (uri) {
+      QUrl relocated = QUrl::fromLocalFile(mapped);
+      relocated.setQuery(url.query(QUrl::FullyEncoded), QUrl::StrictMode);
+      relocated.setFragment(url.fragment(QUrl::FullyEncoded), QUrl::StrictMode);
+      mapped = relocated.toString(QUrl::FullyEncoded);
+    }
+    return mapped + (suffix < 0 ? QString() : value.mid(suffix));
   }
 };
 

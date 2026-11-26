@@ -19,6 +19,8 @@ private slots:
   void lists();
   void tables();
   void codeFence();
+  void codeFenceInList_data();
+  void codeFenceInList();
   void quoteTaskAndNestedList();
   void alignedTableInDocument();
   void webLinksAndStrikethrough();
@@ -86,6 +88,26 @@ void TestAiMarkdown::codeFence() {
   const QString raw = AiMarkdown::toHtml(QStringLiteral("```\n**not bold**\n```"));
   QVERIFY(raw.contains(QStringLiteral("**not bold**")));
   QVERIFY(!raw.contains(QStringLiteral("<b>")));
+}
+
+void TestAiMarkdown::codeFenceInList_data() {
+  QTest::addColumn<QString>("opening");
+  QTest::newRow("immediate") << QStringLiteral("1. 示例\n   ```python");
+  QTest::newRow("after-blank-line") << QStringLiteral("1. 示例\n\n   ```python");
+  QTest::newRow("at-item-start") << QStringLiteral("1. ```python");
+}
+
+void TestAiMarkdown::codeFenceInList() {
+  QFETCH(QString, opening);
+  const auto html = AiMarkdown::toHtml(opening + QStringLiteral(
+    "\n   if depth < top:\n       return '**GR**'\n\n   ```\n2. 继续"));
+  QVERIFY2(html.contains(QStringLiteral("<pre>if depth &lt; top:<br>    return '**GR**'<br></pre></li><li>继续")), qPrintable(html));
+  QTextDocument doc;
+  doc.setHtml(html);
+  const auto text = doc.toPlainText();
+  QVERIFY2(text.contains(QStringLiteral("    return '**GR**'")), qPrintable(text));
+  QVERIFY(!text.contains(QStringLiteral("```")));
+  QVERIFY(doc.find(QStringLiteral("继续")).block().textList());
 }
 
 void TestAiMarkdown::unknownSyntaxFallsBackToPlainText() {

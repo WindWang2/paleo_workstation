@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QtTest>
 
 class TestProjectFileSafety : public QObject
@@ -52,9 +53,19 @@ private slots:
     };
     const QString qgz = old.filePath("old.qgz"), member = "artifacts/raw/file.sgy";
     QVERIFY(writeBytes(old.filePath(member), "managed"));
+    const QString points = QStringLiteral("artifacts/raw/well points.csv");
+    QVERIFY(writeBytes(old.filePath(points), "X,Y\n1,2\n"));
+    const auto pointsUri = [&](const QDir &dir) {
+      QUrl url = QUrl::fromLocalFile(dir.filePath(points));
+      url.setQuery(QStringLiteral("delimiter=%2C&xField=X&yField=Y"), QUrl::StrictMode);
+      url.setFragment(QStringLiteral("points"));
+      return url.toString(QUrl::FullyEncoded);
+    };
     QVERIFY(writeBytes(old.filePath("unrelated.sgy"), "outside"));
     const QString text = QStringLiteral("<qgis><maplayer><datasource>%1</datasource></maplayer>"
-      "<maplayer><datasource>./unrelated.sgy</datasource></maplayer></qgis>").arg(old.filePath(member));
+      "<maplayer><datasource>./unrelated.sgy</datasource></maplayer>"
+      "<maplayer><provider>delimitedtext</provider><datasource>%2</datasource></maplayer></qgis>")
+      .arg(old.filePath(member), pointsUri(QDir(old.path())).toHtmlEscaped());
     QString error;
     QVERIFY(paleo::io::zipWriteArchive(qgz, {{"old.qgs", text.toUtf8()}}, {}, &error));
     const QString entry = paleoProjectFilePath(old.path());
@@ -117,6 +128,7 @@ private slots:
     QVERIFY(paleo::io::zipExtractBytes(paleo::io::zipReadArchive(root.filePath("old.qgz"), &error), "old.qgs", &xml, &error));
     QVERIFY(xml.contains(root.filePath(member).toUtf8()));
     QVERIFY(xml.contains(old.filePath("unrelated.sgy").toUtf8()));
+    QVERIFY(xml.contains(pointsUri(root).toHtmlEscaped().toUtf8()));
     QVERIFY(paleo::projectcopy::copyVerified(entry, data.path(), data.path(), error).isEmpty());
   }
   void nativeBackendRoundTripAndUnknownBackendRejected()

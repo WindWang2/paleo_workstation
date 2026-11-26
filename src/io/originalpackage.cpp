@@ -238,24 +238,47 @@ ReceiveResult receiveOriginalPackage(const QString &projectDir, const QString &p
     return result;
 }
 
-QString recordReceivedImport(const DataCatalog &catalog, const FolderRowResult &row, const QString &outcome) {
-    const QDir project(catalog.projectDir());
-    const auto relative = project.relativeFilePath(row.path);
-    if (!relative.startsWith(QStringLiteral("artifacts/received/"))) return {};
+namespace {
+QString receivedDigest(const QString &projectDir, const QString &path, QString &error) {
+    const QDir inbox(QDir(projectDir).filePath(QStringLiteral("artifacts/received")));
+    const auto relative = inbox.relativeFilePath(QFileInfo(path).absoluteFilePath());
+    if (QDir::isAbsolutePath(relative) || relative == QStringLiteral("..") ||
+        relative.startsWith(QStringLiteral("../"))) return {};
     const auto parts = relative.split('/');
+    const auto invalid = [&] { error = failText(QObject::tr("收件文件位置无效"), path); return QString(); };
     static const QRegularExpression digest(QStringLiteral("^[0-9a-f]{64}$"));
-    if (parts.size() != 4 || !digest.match(parts[2]).hasMatch() || !validSegment(parts[3])) return {};
-    const auto directory = resolveManagedPath(project.path(), parts.mid(0, 3).join('/'));
-    if (directory.isEmpty() || resolveManagedPath(directory, parts[3]).isEmpty())
-        return failText(QObject::tr("收件文件位置无效"), row.path);
-    QString error;
+    if (parts.size() != 2 || !digest.match(parts[0]).hasMatch() || !validSegment(parts[1])) return invalid();
+    const auto directory = resolveManagedPath(projectDir, QStringLiteral("artifacts/received/") + parts[0]);
+    if (directory.isEmpty() || resolveManagedPath(directory, parts[1]).isEmpty())
+        return invalid();
     const auto original = readObject(resolveManagedPath(directory, "receipt.json"), 64 * 1024, error);
-    if (!error.isEmpty()) return error;
+    if (!error.isEmpty()) return {};
     const auto sha = original.value("sha256").toString();
-    if (original.value("schema") != "paleo_received_original_v1" || original.value("receipt_id") != parts[2] ||
-        original.value("file_name") != parts[3] || !digest.match(sha).hasMatch())
-        return failText(QObject::tr("清单格式无效"), row.path);
-    QJsonObject entry{{"schema", "paleo_original_import_v1"}, {"receipt_id", parts[2]},
+    if (original.value("schema") != "paleo_received_original_v1" || original.value("receipt_id") != parts[0] ||
+        original.value("file_name") != parts[1] || !digest.match(sha).hasMatch()) {
+        error = failText(QObject::tr("清单格式无效"), path);
+        return {};
+    }
+    return sha;
+}
+}
+
+QString verifyReceivedOriginal(const QString &projectDir, const QString &path, const QString &actualSha,
+                               const std::function<bool()> &cancelled) {
+    QString error;
+    const auto expected = receivedDigest(projectDir, path, error);
+    if (expected.isEmpty()) return error;
+    const auto actual = actualSha.isEmpty() ? managedpath::sha256FileHex(path, &error, cancelled) : actualSha;
+    if (!error.isEmpty()) return error;
+    return actual == expected ? QString() : failText(QObject::tr("原件完整性核验失败"), path);
+}
+
+QString recordReceivedImport(const DataCatalog &catalog, const FolderRowResult &row, const QString &outcome) {
+    QString error;
+    const auto sha = receivedDigest(catalog.projectDir(), row.path, error);
+    if (sha.isEmpty()) return error;
+    const auto directory = QFileInfo(row.path).absolutePath();
+    QJsonObject entry{{"schema", "paleo_original_import_v1"}, {"receipt_id", QDir(directory).dirName()},
                       {"source_sha256", sha}, {"outcome", outcome}, {"type", row.classifiedType},
                       {"asset_id", row.assetId}, {"entity", row.entityName}, {"message", row.message}};
     QStringList matchingVersions;

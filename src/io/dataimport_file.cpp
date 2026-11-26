@@ -6,6 +6,7 @@
 #include "dataimportservice.h"
 #include "horizongridexchange.h"
 #include "checkshotexchange.h"
+#include "originalpackage.h"
 
 #include "lascache.h"
 #include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
@@ -210,6 +211,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   const qint64 hashMs = timer.elapsed();
   if (sourceSha.isEmpty())
     return fail(QCoreApplication::translate("DataImportService", "无法读取或哈希源文件：%1").arg(sourcePath));
+  const QString receiptError = paleo::exchange::verifyReceivedOriginal(s.projectDir, sourcePath, sourceSha);
+  if (!receiptError.isEmpty()) return fail(receiptError);
   if (!options.expectedSourceSha256.isEmpty() && sourceSha != options.expectedSourceSha256)
   {
     // 预期指纹来自预览（plan 期缓存值可能已失真）——让缓存失效，下次预览重算。

@@ -8,8 +8,10 @@
 #include <QTemporaryDir>
 #include "catalog/areasourceprojection.h"
 #include "io/areamodel.h"
+#include "io/ingestplan.h"
 #include "io/originalpackage.h"
 #include "metadata/paleoprojectfile.h"
+#include "metadata/paleoprojectstore.h"
 #include "services/dataexport.h"
 #include <paleo_data/service.h>
 #include <algorithm>
@@ -89,6 +91,49 @@ private slots:
         std::vector<paleo::data::DataEntry> volumes;
         QVERIFY(reopened.listData("volumes", 0, volumes, detail));
         QCOMPARE(volumes.size(), size_t(1));
+    }
+    void changedReceivedLasCannotBeImportedOrReused() {
+        Fixture f;
+        const QDir fixtures(QStringLiteral(PALEO_ORIGINAL_FIXTURES));
+        f.content = bytesAt(fixtures.filePath("tests/fixtures/io_robustness/unit_metre.las"));
+        QVERIFY(f.content.contains("100 10"));
+        QVERIFY(f.prepare());
+        const auto received = receiveOriginalPackage(f.receiver, f.package);
+        QCOMPARE(received.files.size(), 1);
+        const auto path = received.files.first();
+        auto changed = f.content;
+        changed.replace("100 10", "100 11");
+        QVERIFY(writeBytes(path, changed));
+
+        PaleoProjectStore store;
+        store.setProjectPaths(f.receiver + "/project.qgz", f.receiver + "/project.gpkg", f.receiver + "/project.sqlite");
+        DataImportService imports(&store);
+        imports.setProjectDir(f.receiver);
+        QString error;
+        const auto rejected = imports.importProjectFileEx(path, &error);
+        QCOMPARE(rejected.outcome, DataImportService::ImportOutcome::Failed);
+        QVERIFY2(error.contains(QStringLiteral("原件完整性")), qPrintable(error));
+        QVERIFY(imports.catalog()->versions().isEmpty());
+
+        paleo::data::ImportReport report;
+        QVERIFY(!paleo::area_model::importFileWithCrs(f.receiver, path, report, &error, {}, {}, {}, {}));
+        QVERIFY2(error.contains(QStringLiteral("原件完整性")), qPrintable(error));
+        QVERIFY(!QFileInfo::exists(paleo::area_model::directory(f.receiver) + "/data.sqlite"));
+
+        QVERIFY(writeBytes(path, f.content));
+        QVERIFY2(!imports.importProjectFileEx(path, &error).assetId.isEmpty(), qPrintable(error));
+        QCOMPARE(imports.catalog()->versions().size(), 1);
+        const auto version = imports.catalog()->versions().first();
+        PlannedItem duplicate;
+        duplicate.path = path;
+        duplicate.sha256 = version.sha256;
+        duplicate.decision = QStringLiteral("skip");
+        duplicate.duplicateOfVersionId = version.id;
+        QVERIFY(writeBytes(path, changed));
+        const auto row = imports.executePlannedItem(duplicate, &error);
+        QCOMPARE(row.outcome, FolderRowResult::Outcome::Failed);
+        QVERIFY2(row.message.contains(QStringLiteral("原件完整性")), qPrintable(row.message));
+        QCOMPARE(imports.catalog()->versions().size(), 1);
     }
     void rejectConflictAndCorruptionPreservingReceipt() {
         Fixture f; QVERIFY(f.prepare());

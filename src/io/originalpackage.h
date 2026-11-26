@@ -21,6 +21,11 @@ ReceiveResult receiveOriginalPackage(const QString &projectDir, const QString &p
     const QString &senderOverride = {}, const std::function<bool()> &cancelled = {},
     const std::function<void(qint64, qint64, const QString &)> &progress = {});
 
+// For a received original, compare the bytes being imported with its transfer receipt.
+// A caller that has already hashed the source can reuse that digest.
+QString verifyReceivedOriginal(const QString &projectDir, const QString &path, const QString &actualSha,
+                              const std::function<bool()> &cancelled = {});
+
 // Persist the local import outcome separately from the immutable transfer receipt.
 // Ordinary imports outside the managed inbox do not have a transfer receipt.
 QString recordReceivedImport(const DataCatalog &catalog, const FolderRowResult &row,

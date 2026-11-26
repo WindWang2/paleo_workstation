@@ -182,6 +182,28 @@ QRegularExpressionMatch listMatch(const QString &line) {
   return marker.match(line);
 }
 
+QString takeFence(const QString &opening, const QStringList &lines, qsizetype &i, qsizetype indent = 0) {
+  static const QRegularExpression fence(QStringLiteral(R"(^(\x60{3,}|~{3,})(.*)$)"));
+  const auto match = fence.match(opening);
+  if (!match.hasMatch())
+    return {};
+  const QString delimiter = match.captured(1);
+  QStringList content;
+  for (++i; i < lines.size(); ++i) {
+    const QString trimmed = lines[i].trimmed();
+    // A dedented line belongs to the enclosing list or document, even when
+    // streaming has not supplied a closing fence yet.
+    if (indent && !trimmed.isEmpty() && lines[i].indexOf(trimmed.front()) < indent)
+      break;
+    if (trimmed.startsWith(delimiter) && trimmed.count(delimiter.front()) == trimmed.size()) {
+      ++i;
+      break;
+    }
+    content << lines[i].mid(indent).toHtmlEscaped();
+  }
+  return QStringLiteral("<pre>%1</pre>").arg(content.join(QStringLiteral("<br>")));
+}
+
 QString takeList(const QStringList &lines, qsizetype &i, int depth) {
   const auto first = listMatch(lines[i]);
   const qsizetype indent = first.capturedLength(1);
@@ -205,9 +227,20 @@ QString takeList(const QStringList &lines, qsizetype &i, int depth) {
                                                       : QStringLiteral(" class=\"checked\"");
       body = check.captured(2);
     }
-    html += QStringLiteral("<li%1>%2").arg(attr, inlineMarkdown(body));
-    ++i;
-    while (i < lines.size() && !lines[i].trimmed().isEmpty()) {
+    const auto contentIndent = marker.capturedStart(3);
+    html += QStringLiteral("<li%1>").arg(attr);
+    if (const QString code = takeFence(body, lines, i, contentIndent); !code.isEmpty()) {
+      html += code;
+    } else {
+      html += inlineMarkdown(body);
+      ++i;
+    }
+    while (i < lines.size()) {
+      const QString bodyLine = lines[i].trimmed();
+      if (bodyLine.isEmpty()) {
+        ++i;
+        continue;
+      }
       const auto next = listMatch(lines[i]);
       if (next.hasMatch()) {
         if (depth >= 16 || next.capturedLength(1) <= indent)
@@ -215,10 +248,13 @@ QString takeList(const QStringList &lines, qsizetype &i, int depth) {
         html += takeList(lines, i, depth + 1);
         continue;
       }
-      const QString bodyLine = lines[i].trimmed();
       const qsizetype leadingSpace = lines[i].indexOf(bodyLine.front());
-      if (leadingSpace < marker.capturedStart(3))
+      if (leadingSpace < contentIndent)
         break;
+      if (const QString code = takeFence(bodyLine, lines, i, contentIndent); !code.isEmpty()) {
+        html += code;
+        continue;
+      }
       html += QStringLiteral("<br>") + inlineMarkdown(bodyLine);
       ++i;
     }
@@ -229,7 +265,6 @@ QString takeList(const QStringList &lines, qsizetype &i, int depth) {
 
 QString blocks(const QStringList &lines, int quoteDepth = 0) {
   static const QRegularExpression heading(QStringLiteral(R"(^(#{1,6})\s+(.+?)\s*#*\s*$)"));
-  static const QRegularExpression fence(QStringLiteral(R"(^(\x60{3,}|~{3,})(.*)$)"));
   static const QRegularExpression rule(QStringLiteral(R"(^([-*_])\s*\1\s*\1(?:\s*\1)*$)"));
   QString html;
   QStringList paragraph;
@@ -242,20 +277,9 @@ QString blocks(const QStringList &lines, int quoteDepth = 0) {
   qsizetype i = 0;
   while (i < lines.size()) {
     const QString line = lines[i].trimmed();
-    const auto code = fence.match(line);
-    if (code.hasMatch()) {
+    if (const QString code = takeFence(line, lines, i); !code.isEmpty()) {
       flush();
-      const QString delimiter = code.captured(1);
-      QStringList content;
-      for (++i; i < lines.size(); ++i) {
-        const QString closing = lines[i].trimmed();
-        if (closing.startsWith(delimiter) && closing.count(delimiter.front()) == closing.size()) {
-          ++i;
-          break;
-        }
-        content << lines[i].toHtmlEscaped();
-      }
-      html += QStringLiteral("<pre>%1</pre>").arg(content.join(QStringLiteral("<br>")));
+      html += code;
       continue;
     }
     if (line.isEmpty()) {

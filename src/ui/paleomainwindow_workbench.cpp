@@ -5,6 +5,8 @@
 #include "../domain/faciestaxonomy.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
+#include "../domain/seismicclusterproduct.h"
+#include "../qgis/qgisstyleservice.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/qgislayerorganizer.h"
 #include "pages/faciesconsistencydialog.h"
@@ -564,6 +566,7 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
       const auto horizon = d.horizon.isEmpty() ? extra.value("horizon").toString() : d.horizon;
       if (!horizon.isEmpty() && !matchesWorkbenchHorizon(m_selection,horizon)) return false;
       return !layer->customProperty("paleo/faciesDisplayLegend").toList().isEmpty() ||
+          paleo::seismic::isRawClusterProduct(extra.value("kind").toString()) ||
           workbench->supportsFaciesDisplay(layerId) ||
           paleo::singlefactor::isAnalysisFactorRaster(extra.value("kind").toString(), extra.value("value_source").toString()) ||
           paleo::singlefactor::rejectsQuantitativeUse(extra.value("kind").toString(), extra.value("value_source").toString());
@@ -582,6 +585,11 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
     auto v = workbench->versionForLayer(layerId);
     auto d = workbench->declaration(layerId);
     const auto legendKind = v.extra.value("kind").toString();
+    if (paleo::seismic::isRawClusterProduct(legendKind)) {
+      m_decorMgr->setFaciesLegend(tr("%1 · 地震聚类 · v%2").arg(h).arg(v.versionNumber),
+          QgisStyleService::seismicClusterLegend(v.extra.value("cluster_ids").toList()));
+      return;
+    }
     const auto legendSource = v.extra.value("value_source").toString();
     const bool analysisRaster =
         paleo::singlefactor::isAnalysisFactorRaster(legendKind, legendSource);

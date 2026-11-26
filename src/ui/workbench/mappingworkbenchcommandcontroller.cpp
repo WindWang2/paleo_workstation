@@ -21,6 +21,7 @@
 #include "../../workflow/mappingworkbench.h"
 #include "../../domain/facieshierarchy.h" // #754：pinFaciesLevel 文案携带层级名
 #include "../dialogs/dataexportdialog.h"
+#include "../dialogs/seismicclusterinterpretation.h"
 #include "../notifications/paleonotify.h"
 #include "../pages/constraintpage.h"
 #include "../pages/mappingeditbasis.h"
@@ -108,6 +109,39 @@ bool postModalUsable(const CommandContext &d, const QString &action, QString *er
 // 分支只填文本不自行显示，由入口统一张贴（20s）——此前分支当场 showMessage
 // 后，入口尾部又以 10s 通用文案「操作完成，图件与版本已更新。」覆盖状态栏，
 // 量化结果用户实际不可见。
+WbCmdStep interpretClusters(const CommandContext &d, const QString &action, const QString &id,
+                            bool &ok, QString &error) {
+  const auto session = d.projectSession ? d.projectSession() : 0;
+  const auto unit = d.workbench->analysisUnit();
+  const auto version = d.workbench->versionForLayer(id).id;
+  const bool manual = action == QLatin1String("clusterManualAssignment");
+  QVariantMap choice;
+  if (manual) {
+    if (!d.show(id, &error)) { ok = false; return WbCmdStep::Handled; }
+    QPointer<QgsVectorLayer> patches = qobject_cast<QgsVectorLayer *>(d.layerSvc->layer(id));
+    const auto highlight = [patches](const QList<qint64> &ids) {
+      if (patches) patches->selectByIds(QgsFeatureIds(ids.cbegin(), ids.cend()));
+    };
+    choice = SeismicClusterInterpretation::chooseManual(d.workbench, id, highlight, d.dialogParent, &error);
+    if (choice.isEmpty() && error.isEmpty()) return WbCmdStep::Return;
+  } else if (!SeismicClusterInterpretation::previewWells(d.workbench, id, d.dialogParent, &error) && error.isEmpty()) {
+    return WbCmdStep::Return;
+  }
+  ok = error.isEmpty() && postModalUsable(d, action, &error);
+  if (!ok) return WbCmdStep::Handled;
+  if ((d.projectSession && d.projectSession() != session) || d.workbench->analysisUnit() != unit ||
+      version.isEmpty() || d.workbench->versionForLayer(id).id != version) {
+    ok = false; error = WorkbenchText::tr("工程或层段已切换，请重新选择聚类面"); return WbCmdStep::Handled;
+  }
+  if (manual)
+    ok = !d.workbench->assignClusterFacies(id, choice.value("patch_id").toLongLong(),
+              choice.value("whole_cluster").toBool(), choice.value("facies_code").toInt(), &error,
+              choice.value("feature_id").toLongLong()).isEmpty();
+  else
+    ok = d.workbench->applyClusterWellPreview(id, &error);
+  return WbCmdStep::Handled;
+}
+
 WbCmdStep runWorkbenchQueryFamily(const CommandContext &d,
                                   const QString &action, const QString &h,
                                   const QString &id,
@@ -116,7 +150,9 @@ WbCmdStep runWorkbenchQueryFamily(const CommandContext &d,
                                   QString &error, QString &statusDetail) {
   if (action == "predict")
     ok = d.workbench->predict(h, p.value("kind").toString(), inputs,
-                              &error, p.value("horizon_file").toString());
+                              &error, p.value("horizon_file").toString(), p.value("cluster_count", 4).toInt());
+  else if (action == "clusterWellAssignment" || action == "clusterManualAssignment")
+    return interpretClusters(d, action, id, ok, error);
   else if (action == "wellattributes") {
     const auto layer = d.workbench->openWellAttributes(&error);
     ok = !layer.isEmpty();

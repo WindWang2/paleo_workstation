@@ -37,6 +37,7 @@ add_library(paleo_workflow STATIC
   src/workflow/xmlpreviewsession.cpp
   src/workflow/welltracksourcesession.cpp
   src/workflow/mappingworkbench.cpp
+  src/workflow/mappingworkbench_clusterpatches.cpp
   src/workflow/mappingworkbench_readiness.cpp     # 预测专项：测井批量准备检查（干跑）
   src/workflow/mappingworkbench_predict.cpp       # 预测管线（predict/finish/任务行）——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_edit.cpp          # 编辑副本/资产移除/约束导入——core-deepening A-R2 拆分
@@ -127,6 +128,8 @@ add_library(paleo_ui STATIC
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/pages/mappingworkbenchpage_flow.cpp
+  src/ui/pages/mappingworkbenchpage_cluster.cpp
+  src/ui/dialogs/seismicclusterinterpretation.cpp
   src/ui/pages/mappingworkbenchpage_references.cpp
   src/ui/pages/mappingworkbenchpage_schema.cpp
   src/ui/pages/mappingtaskguide.cpp

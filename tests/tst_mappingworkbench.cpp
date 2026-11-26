@@ -65,6 +65,7 @@
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include "../src/io/constraintstore.h"
+#include "../src/io/areamodel.h"
 #include "../src/qgis/qgiseditingservice.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
@@ -92,6 +93,7 @@
 #include "mockremotepredictionservice.h"
 #include "seismichorizonfixture.h"
 #include "../src/qgis/seismicwellcalibration.h"
+#include "../src/workflow/seismicwellintervals.h"
 #include <QAction>
 #include <QComboBox>
 #include <QCheckBox>
@@ -1180,6 +1182,55 @@ private slots:
     while (iterator.nextFeature(feature)) ids.insert(feature.id()); iterator.close();
     QVERIFY(layer->dataProvider()->deleteFeatures(ids)); layer->reload();
     QTRY_VERIFY(decorations->legendFacies().isEmpty());
+  }
+  void rawClusterLegendsFollowTheSelectedMapAndStandaloneReference() {
+    QObject context;
+    Fixture f; QVERIFY(f.init());
+    f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkbench(&f.work);
+    window.showPage("compose");
+    selection.setActiveHorizon("D61");
+    auto *decor = window.findChild<PaleoDecorationManager *>(); QVERIFY(decor);
+    QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *other = f.layers.instantiate(draft, &error); QVERIFY(other);
+    auto *otherNode = f.project.project()->layerTreeRoot()->findLayer(other->id()); QVERIFY(otherNode);
+    otherNode->setItemVisibilityCheckedParentRecursive(true);
+    controller.canvas()->setCurrentLayer(other);
+    QTRY_VERIFY(!decor->legendFacies().isEmpty());
+
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto stage = registrar.stage("seismic_clusters", "clusters", "grid.tif", &error);
+    QVERIFY(stage.isValid());
+    QVERIFY(MappingArtifactWriter::raster(stage.absolutePath, {1,3}, 2, 1, QRectF(0,0,30,15), &error));
+    const QVariantList ids{1, 3};
+    const QVariantMap meta{{"kind","seismic_clusters"}, {"horizon","D61"}, {"layer_type","raster"},
+                           {"mapping_product",true}, {"cluster_ids",ids}, {"group","02_Prediction"}};
+    QVERIFY(registrar.commit(stage, {}, "fixture", meta, &error));
+    const auto raw = f.work.layerForVersion(stage.versionId, &error); QVERIFY2(!raw.isEmpty(), qPrintable(error));
+    auto *layer = f.layers.instantiate(raw, &error); QVERIFY(layer);
+    auto *node = f.project.project()->layerTreeRoot()->findLayer(layer->id()); QVERIFY(node);
+    node->setItemVisibilityCheckedParentRecursive(true);
+    controller.canvas()->setCurrentLayer(layer);
+    QTRY_COMPARE(decor->legendFacies().size(), 2);
+    QTRY_COMPARE(decor->legendFacies()[1].toMap().value("cluster_id").toInt(), 3);
+    QCOMPARE(decor->legendFacies()[0].toMap().value("name").toString(), QStringLiteral("簇 1"));
+    QVERIFY(!decor->legendFacies()[0].toMap().contains("microfacies"));
+
+    MappingReferencePanel reference(controller.canvas(), f.project.project());
+    reference.setReference(new QgsRasterLayer(stage.absolutePath, "raw reference", "gdal"), meta);
+    auto *list = reference.findChild<QListWidget *>("referenceClusterLegend");
+    QVERIFY(list); QCOMPARE(list->count(), 2); QVERIFY(list->isHidden());
+    QCOMPARE(list->item(1)->text(), QStringLiteral("簇 3"));
+    auto *raster = qobject_cast<QgsRasterLayer *>(reference.canvas()->layers().first());
+    QVERIFY(raster && raster->renderer());
+    QCOMPARE(raster->renderer()->type(), QStringLiteral("paletted"));
+    reference.clearReference();
+    QCOMPARE(list->count(), 0);
   }
   void collapsedGroupsRememberStatePerMode() {
     // M4：外观/来源/字段折叠组记忆展开状态（按页模式分键），重建页后恢复；
@@ -5781,14 +5832,77 @@ private slots:
     // 非相结果被拒。
     QVERIFY(f.work.faciesConsistency(QStringLiteral("nope"), &error).isEmpty());
   }
-  void seismicMockRequiresSavedWellPredictions() {
-    Fixture f; QVERIFY(f.init());
-    const auto input = f.seismic(); QVERIFY(!input.isEmpty());
+  void seismicClustersRunWithoutWellsOrFaciesSchema() {
+    Fixture f;
+    QVERIFY(f.init());
+    f.work.setPredictionService(nullptr);
     QString error;
-    QVERIFY(!f.work.predict("D61", "seismic_mock", {input}, &error));
-    QVERIFY(error.contains(QStringLiteral("测井相预测")));
-    QVERIFY(!f.work.busy());
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto volume = registrar.stage("seismic", "volume", "volume.sgy", &error);
+    QVERIFY(volume.isValid());
+    QVERIFY(SeismicHorizonFixture::writeFile(volume.absolutePath, SeismicHorizonFixture::buildVolume()));
+    QVERIFY2(registrar.commit(volume, {}, "fixture", {}, &error), qPrintable(error));
+    const auto horizon = f.dir.filePath("D61.dat");
+    QVERIFY(SeismicHorizonFixture::writeFile(horizon, SeismicHorizonFixture::buildHorizon(100)));
+    QSignalSpy failures(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY(!f.work.predict("D61", "seismic_clusters", {volume.assetId}, &error, horizon, 65));
+    QVERIFY(error.contains("64"));
+    error.clear();
+    QVERIFY2(f.work.predict("D61", "seismic_clusters", {volume.assetId}, &error, horizon, 2), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 30000);
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(), 30000);
+    QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures[0][0].toString()));
+    const auto raster = f.work.versionForLayer(f.latest("seismic_clusters"));
+    QVERIFY(!raster.id.isEmpty());
+    QCOMPARE(raster.extra.value("cluster_count").toInt(), 2);
+    QCOMPARE(raster.extra.value("cluster_ids").toList(), QVariantList({1, 2}));
+    QCOMPARE(raster.extra.value("window_half_ms").toDouble(), 12.);
+    QVERIFY(raster.parentVersionIds.contains(volume.versionId));
+    QVERIFY(!raster.extra.contains("facies"));
+    QVERIFY(!f.latest("seismic_cluster_patches").isEmpty());
     QVERIFY(f.latest("seismic_prediction").isEmpty());
+    for (const auto &asset : f.catalog.assets()) QVERIFY(asset.type != QStringLiteral("facies_schema"));
+  }
+  void singleWellIntervalsVoteOnceAndBlockOlderPointOnTie() {
+    QTemporaryDir dir;
+    const auto schema=FaciesCatalog::defaults().mid(0,2);
+    const auto name=[&](int i){return schema[i].toMap().value("microfacies").toString();};
+    QJsonObject document{{"facies",QJsonArray::fromVariantList(schema)},
+      {"intervals",QJsonArray{QJsonObject{{"top",10},{"base",20},{"facies",name(0)}},
+                              QJsonObject{{"top",20},{"base",40},{"facies",name(1)}}}}};
+    const QString path=dir.filePath("prediction.json");
+    QVERIFY(SeismicHorizonFixture::writeFile(path,QJsonDocument(document).toJson()));
+    QVariantMap single{{"format","intervals"},{"path",path},{"version_id","single-v2"},{"well_id","a"},
+      {"sha256",DataCatalog::sha256FileHex(path)},{"top",16},{"base",30},
+      {"position",QVariantMap{{"crs","EPSG:3857"},{"x",5},{"y",6}}}};
+    const auto old=dir.filePath("old.geojson"); QString error;
+    QVERIFY(MappingArtifactWriter::points(old,{QVariantMap{{"id","a"},{"x",5},{"y",6},{"facies_code",1}}},QgsCoordinateReferenceSystem("EPSG:3857").toWkt(),&error));
+    const QVariantMap batch{{"path",old},{"sha256",DataCatalog::sha256FileHex(old)},{"version_id","batch-v1"},{"facies",schema}};
+    QVariantList sources{single,batch};
+    const auto crs=QgsCoordinateReferenceSystem("EPSG:3857").toWkt();
+    QStringList versions;
+    const auto read=[&](QVariantMap &source,QString *detail){ return readSeismicWellInterval(source,schema,{},detail); };
+    const auto wells=readSeismicCalibrationWells(sources,schema,crs,{},&versions,&error,{},nullptr,read);
+    QVERIFY2(error.isEmpty(),qPrintable(error)); QCOMPARE(wells.size(),1);
+    QCOMPARE(wells.first().code,schema[1].toMap().value("code").toInt());
+    QCOMPARE(wells.first().coordinateSource,QString("dataservice_wellhead"));
+    QCOMPARE(versions,QStringList{"single-v2"});
+    auto older=single;
+    older.insert("version_id","single-v1"); older.insert("sha256",QString(64,'0'));
+    QVERIFY(readSeismicCalibrationWells({single,older},schema,crs,{},&versions,&error,{},nullptr,read,true).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("已改变")));
+    QCOMPARE(readSeismicCalibrationWells({single,older},schema,crs,{},&versions,&error,{},nullptr,read).size(),1);
+    QVERIFY(error.isEmpty());
+    auto contradictory=single;
+    contradictory.insert("position",QVariantMap{{"crs","EPSG:4326"},{"x",5.},{"y",6.}});
+    QVERIFY(readSeismicCalibrationWells({contradictory},schema,crs,{},&versions,&error,{},nullptr,read).isEmpty());
+    QVERIFY(!error.isEmpty());
+    single.insert("top",10); single.insert("base",30);
+    sources={single,batch};
+    QVariantList excluded;
+    const auto tied=readSeismicCalibrationWells(sources,schema,crs,{},&versions,&error,{},&excluded,read);
+    QVERIFY2(error.isEmpty(),qPrintable(error)); QVERIFY(tied.isEmpty());
+    QCOMPARE(excluded.size(),1); QCOMPARE(excluded.first().toMap().value("reason").toString(),QString("thickness_tie"));
   }
   void seismicCalibrationTransformsCoordinatesAndMatchesFrozenClassPaths() {
     QTemporaryDir dir;
@@ -5814,7 +5928,7 @@ private slots:
         QgsCoordinateReferenceSystem("EPSG:3857").toWkt(), QgsCoordinateTransformContext(), &versions, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("已改变")));
   }
-  void seismicMockUsesLatestWellMajoritiesAndRecordsTheirVersions() {
+  void seismicClusterWellPreviewFreezesVotesAndPublishesSeparateVersions() {
     Fixture f; QVERIFY(f.init()); QString error;
     QVERIFY2(f.work.saveFacies("D61", FaciesCatalog::defaults().mid(0, 7), &error), qPrintable(error)); // explicit seven-class numerical fixture
 
@@ -5835,6 +5949,13 @@ private slots:
               {"mapping_product", true}, {"facies", FaciesCatalog::defaults()}}, &error)) return QString();
       return st.versionId;
     };
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict("D61", "seismic_mock", {volume.assetId}, &error, horizon, 2), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 30000);
+    QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.latest("seismic_cluster_patches").isEmpty(), 30000);
+    const auto patchLayer = f.latest("seismic_cluster_patches");
+    const auto raw = f.work.versionForLayer(f.latest("seismic_clusters"));
     const auto old = save("old", {point("a", 2, 2), point("b", 3, 2), point("c", 4, 2),
         point("d", 12, 7), point("e", 13, 7), point("skip", 14, 7)});
     QVERIFY2(!old.isEmpty(), qPrintable(error));
@@ -5843,20 +5964,49 @@ private slots:
     QVERIFY2(!current.isEmpty(), qPrintable(error));
     const auto tail = save("later-partial-batch", {point("d", 12, 2)});
     QVERIFY2(!tail.isEmpty(), qPrintable(error));
-    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
-    QVERIFY2(f.work.predict("D61", "seismic_mock", {volume.assetId}, &error, horizon), qPrintable(error));
-    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 30000);
+    QVERIFY(!raw.parentVersionIds.contains(current));
+    QSignalSpy previews(&f.work, &MappingWorkbench::clusterWellPreviewReady);
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!errors.isEmpty() || !previews.isEmpty(), 30000);
+    QVERIFY(previews.isEmpty());
+    QVERIFY(errors.takeFirst().first().toString().contains("DataService"));
+    QVERIFY(f.latest("seismic_prediction").isEmpty());
+
+    // Legacy engineering coordinates need independent, metre-based native wellheads.
+    QVERIFY2(paleo::area_model::ensureProject(f.dir.path(), &error), qPrintable(error));
+    {
+      paleo::data::DataService ds;
+      std::string detail;
+      QVERIFY2(ds.openProject(paleo::area_model::directory(f.dir.path()).toStdString(),detail), detail.c_str());
+      const QMap<QString,double> wellheads{{"a",2},{"b",3},{"c",4},{"d",12},{"e",13},{"skip",14},{"distant",9999}};
+      for (auto it=wellheads.cbegin(); it!=wellheads.cend(); ++it) {
+        paleo::data::WellInfo well;
+        well.wellName=it.key().toStdString(); well.wellheadX=it.value(); well.wellheadY=65.;
+        well.coordinateUnit="m"; well.coordinateSystem=DataCatalog::localGridCrsWkt().toStdString();
+        qlonglong nativeId=0;
+        QVERIFY2(ds.createWell(well,nativeId,detail), detail.c_str());
+        CatalogEntity entity; entity.id=it.key(); entity.name=it.key(); entity.entityType="well";
+        entity.extra.insert("areaModelWellId",nativeId);
+        QVERIFY2(f.catalog.addEntity(entity,&error), qPrintable(error));
+      }
+    }
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==1 || !errors.isEmpty(), 30000);
     QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
+    QCOMPARE(previews.first().at(1).toMap().value("voting_wells").toInt(),5);
+    QVERIFY2(f.work.applyClusterWellPreview(patchLayer, &error), qPrintable(error));
     const auto id = f.latest("seismic_prediction"); QVERIFY(!id.isEmpty());
     const auto version = f.work.versionForLayer(id);
-    QVERIFY(version.extra.value("mock").toBool());
-    QCOMPARE(version.extra.value("display_mode").toString(), QString("micro_facies"));
-    f.work.updateDisplayScale(1000000);
-    QCOMPARE(f.work.resolvedLevel(id), QString("micro_facies"));
-    QCOMPARE(version.extra.value("window_half_ms").toDouble(), 12.0);
+    const auto firstSurface = f.latest("facies_polygons");
+    const auto rows = f.work.clusterPatchChoices(firstSurface, &error);
+    QVERIFY2(!rows.isEmpty(), qPrintable(error));
+    const auto patch = rows.first().toMap().value("patch_id").toLongLong();
+    const auto manual = f.work.assignClusterFacies(firstSurface, patch, false, 1, &error);
+    QVERIFY2(!manual.isEmpty(), qPrintable(error));
+    const auto interpretation = f.work.versionForLayer(manual);
     QVERIFY(version.parentVersionIds.contains(current)); QVERIFY(version.parentVersionIds.contains(tail));
     QVERIFY(!version.parentVersionIds.contains(old));
-    QCOMPARE(version.extra.value("wells").toList().size(), 5);
+    QCOMPARE(version.extra.value("supporting_wells").toList().size(), 6);
     const auto mapping = version.extra.value("cluster_facies_mapping").toList();
     QCOMPARE(mapping.size(), 2);
     QCOMPARE(mapping[0].toMap().value("vote_count").toInt(), 3);
@@ -5872,6 +6022,50 @@ private slots:
       const double code = raster->dataProvider()->sample(QgsPointXY(column * 10, 65), 1, &ok);
       QVERIFY(ok); QCOMPARE(int(code), column % 2 == 0 ? 7 : 2);
     }
+    // A new relevant default source invalidates this preview. Explicitly
+    // selected versions remain valid even when another batch is registered.
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error),qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==2 || !errors.isEmpty(), 30000);
+    const auto another=save("revised", {point("a",2,2),point("b",3,2)});
+    QVERIFY2(!another.isEmpty(),qPrintable(error));
+    QVERIFY(!f.work.applyClusterWellPreview(patchLayer,&error));
+    QCOMPARE(f.work.versionForLayer(f.latest("seismic_prediction")).id,version.id);
+    error.clear();
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {old,current,tail}, &error),qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==3 || !errors.isEmpty(), 30000);
+    QVERIFY(!save("later-outside", {point("distant",9999,1)}).isEmpty());
+    QVERIFY2(f.work.applyClusterWellPreview(patchLayer,&error),qPrintable(error));
+    const auto explicitVersion=f.work.versionForLayer(f.latest("seismic_prediction"));
+    QVERIFY(!explicitVersion.parentVersionIds.contains(another));
+    QVERIFY(!explicitVersion.parentVersionIds.contains(old));
+    QCOMPARE(explicitVersion.extra.value("selected_well_versions").toStringList(),(QStringList{tail,current,old}));
+    QCOMPARE(explicitVersion.extra.value("well_selection_mode").toString(),QString("explicit"));
+    // Cancelling a pending preview cannot publish intermediate files.
+    const auto explicitId=f.latest("seismic_prediction");
+    QVERIFY(f.work.previewClusterWells(patchLayer, {}, &error));
+    f.work.cancelClusterWellPreview();
+    QVERIFY(!f.work.applyClusterWellPreview(patchLayer,&error));
+    QCOMPARE(f.latest("seismic_prediction"),explicitId);
+    error.clear();
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==4 || !errors.isEmpty(), 30000);
+    QVERIFY2(f.work.applyClusterWellPreview(patchLayer,&error),qPrintable(error));
+    const auto revised=f.work.versionForLayer(f.latest("seismic_prediction"));
+    QVERIFY(revised.id!=version.id);
+    QVERIFY(revised.parentVersionIds.contains(another));
+    QCOMPARE(revised.extra.value("cluster_facies_mapping").toList().first().toMap().value("facies_code").toInt(),2);
+    QCOMPARE(DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(f.dir.path(),raw)),raw.sha256);
+    QCOMPARE(DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(f.dir.path(),version)),version.sha256);
+    QVERIFY(f.project.writeProject());
+    QVERIFY(f.project.openProject(f.project.projectPath()));
+    for (const auto &entry : {raw, version, revised, interpretation}) {
+      auto *layer = f.layers.instantiate(f.work.layerForVersion(entry.id), &error);
+      QVERIFY2(layer && layer->isValid(), qPrintable(error));
+    }
+    const auto reopened = f.work.clusterPatchChoices(f.work.layerForVersion(interpretation.id), &error);
+    QVERIFY2(!reopened.isEmpty(), qPrintable(error));
+    QCOMPARE(reopened.first().toMap().value("patch_id").toLongLong(), patch);
+    QCOMPARE(reopened.first().toMap().value("facies_code").toInt(), 1);
   }
   // #536：原生属性表改编码的写路径必须与 place() 读路径同一口径。旧七列错位
   // 草稿（#526 之前存进版本 extra 的元组：microfacies=色值、color=SVG、

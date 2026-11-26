@@ -130,6 +130,9 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisconstrainteditsession.cpp
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
+  src/qgis/seismicclusterstyle.cpp
+  src/qgis/seismicclusterpatches.cpp
+  src/qgis/seismicpatchassignment.cpp
   src/qgis/geopatterns.cpp                           # 方向31：地质符号语义注册表（花纹/线型词表 + 符号构造）
   src/qgis/semanticlegend.cpp                        # 方向31：语义图例自动生成（渲染器类目→swatch+词面，增删/renderer 联动）
   src/qgis/qgislayoutservice.cpp

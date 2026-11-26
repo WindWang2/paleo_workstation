@@ -15306,6 +15306,11 @@ Crossline: %3 ~ %4</source>
             <source>将关闭最后一个证据视图（可随时再添加）</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="101" />
+            <source>聚类图例</source>
+            <translation>Cluster legend</translation>
+        </message>
     </context>
     <context>
         <name>MappingTaskGuide</name>
@@ -15617,6 +15622,11 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/ui/pages/mappingtaskguide_drafts.cpp" line="80" />
             <source>%1 · %2</source>
             <translation>%1 · %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="274" />
+            <source>勾选地震体并设置聚类数。运行后可查看原始簇图或选择聚类面赋相。</source>
+            <translation>Select a seismic volume and set the cluster count. Once clustering is complete, view the original clusters or assign facies to the cluster polygons.</translation>
         </message>
 </context>
     <context>
@@ -17417,6 +17427,139 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/workflow/mappingworkbench.cpp" line="1247" />
             <source>无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。</source>
             <translation>The version registration record could not be written. Your edits are still in the layer buffer. Restore write access to the project folder and try again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="160" />
+            <source> 井赋相栅格</source>
+            <translation> well-assigned facies raster</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="163" />
+            <source> 井赋相面</source>
+            <translation> well-assigned facies polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="208" />
+            <source>%1 · 聚类面</source>
+            <translation>%1 · Cluster polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="67" />
+            <source>%1 · 聚类面人工解释</source>
+            <translation>%1 · Manually interpreted cluster polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="587" />
+            <source>%1 地震聚类</source>
+            <translation>%1 seismic clusters</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="231" />
+            <source>井赋相成果已保存，工程视图保存失败</source>
+            <translation>The well-based facies assignment was saved, but the project view could not be saved.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="197" />
+            <source>井预测、井位或相分类已变化，请重新预览</source>
+            <translation>The well predictions, well locations, or facies taxonomy changed. Run the preview again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="199" />
+            <source>井预测或聚类文件已变化，请重新预览</source>
+            <translation>A well prediction or cluster file changed. Run the preview again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="136" />
+            <source>原始簇图已过期或缺失</source>
+            <translation>The original cluster map is missing or out of date.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="337" />
+            <source>地震聚类 · %1</source>
+            <translation>Seismic clustering · %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="593" />
+            <source>已保存原始聚类栅格</source>
+            <translation>Original cluster raster saved</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="36" />
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="150" />
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="192" />
+            <source>当前工程位置不可写</source>
+            <translation>The current project location is read-only.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="152" />
+            <source>所选井预测已过期或不属于当前层段</source>
+            <translation>The selected well prediction is out of date or belongs to a different interval.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="327" />
+            <source>无法创建聚类暂存目录</source>
+            <translation>Could not create the staging directory for clustering.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="50" />
+            <source>无法创建聚类面暂存目录</source>
+            <translation>Could not create the staging directory for cluster polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="205" />
+            <source>无法登记井赋相使用的分类版本</source>
+            <translation>Could not register the taxonomy version used for well-based facies assignment.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="149" />
+            <source>聚类数须在 1–64 之间</source>
+            <translation>The cluster count must be between 1 and 64.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="118" />
+            <source>聚类栅格在转面期间已改变，请重新生成</source>
+            <translation>The cluster raster changed during polygonization. Generate the polygons again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="596" />
+            <source>聚类栅格已保存，可重试生成聚类面：%1</source>
+            <translation>The cluster raster was saved. Retry creating the cluster polygons: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="112" />
+            <source>聚类栅格文件与登记版本不一致，请重新生成</source>
+            <translation>The cluster raster file does not match its registered version. Generate it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="41" />
+            <source>聚类面文件与登记版本不一致，请重新生成</source>
+            <translation>The cluster polygon file does not match its registered version. Generate it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_compose.cpp" line="110" />
+            <source>请先给聚类面赋相，再用于编图</source>
+            <translation>Assign facies to these cluster polygons before using them in a facies map.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="190" />
+            <source>请先预览至少一口落入聚类区的有效井</source>
+            <translation>Preview at least one valid well inside the clustered area.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_consistency.cpp" line="89" />
+            <source>请选择同一层段中用于比对的测井相或已赋相地震成果</source>
+            <translation>Select well facies or a facies-assigned seismic result from the same interval for comparison.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="130" />
+            <source>请选择已保存的原始聚类面</source>
+            <translation>Select a saved original cluster polygon layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="21" />
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="32" />
+            <source>请选择已保存的聚类面或其赋相版本</source>
+            <translation>Select a saved cluster polygon layer or a facies-assigned version.</translation>
         </message>
 </context>
     <context>
@@ -19380,6 +19523,41 @@ Feature %4 · version %5</translation>
             <location filename="../src/ui/pages/mappingworkbenchpage_flow.cpp" line="106" />
             <source>重试登记当前工作副本</source>
             <translation>Retry registration of this working copy</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="293" />
+            <source>人工调整微相…</source>
+            <translation>Adjust microfacies manually…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="110" />
+            <source>地震层段窗聚类 → 原始簇图</source>
+            <translation>Seismic interval clustering → original cluster map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="292" />
+            <source>用井预测赋相…</source>
+            <translation>Assign facies from well predictions…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage_cluster.cpp" line="19" />
+            <source>聚类数 K</source>
+            <translation>Number of clusters (K)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="659" />
+            <source>请选择原始聚类面</source>
+            <translation>Select an original cluster polygon layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="660" />
+            <source>请选择聚类面或已赋相的解释面</source>
+            <translation>Select cluster polygons or a facies-assigned interpretation layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="100" />
+            <source>选择地震体和聚类数。聚类完成后可查看簇图、用井预测赋相或人工指定微相。</source>
+            <translation>Select a seismic volume and a cluster count. Once clustering is complete, view the clusters, assign facies from well predictions, or assign microfacies manually.</translation>
         </message>
 </context>
     <context>
@@ -25678,6 +25856,16 @@ PDF：%3
             <location filename="../src/ui/paleomainwindow_project.cpp" line="285" />
             <source>工程副本中有旧路径来源</source>
             <translation>Some sources in the copied project still use old paths</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="134" />
+            <source>工程或层段已切换，请重新选择聚类面</source>
+            <translation>The project or interval changed. Select the cluster polygons again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="589" />
+            <source>%1 · 地震聚类 · v%2</source>
+            <translation>%1 · Seismic clusters · v%2</translation>
         </message>
 </context>
     <context>
@@ -40887,6 +41075,352 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>请选择独立工程目录中的工程文件。</source>
             <translation>Select a project file in a dedicated project folder.</translation>
         </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="55" />
+            <source> · 支持率 %1%</source>
+            <translation> · %1% support</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="121" />
+            <source>%1 · 井赋相栅格</source>
+            <translation>%1 · Well-assigned facies raster</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="121" />
+            <source>%1 · 井赋相面</source>
+            <translation>%1 · Well-assigned facies polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="131" />
+            <source>井像元所属聚类面不唯一</source>
+            <translation>The well's grid cell does not map to a unique cluster polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="52" />
+            <source>井口坐标无法转换到地震网格</source>
+            <translation>Could not transform the wellhead coordinates to the seismic grid.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="57" />
+            <source>井口坐标转换失败</source>
+            <translation>Wellhead coordinate transformation failed.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="23" />
+            <source>井段顶底深度无法核对</source>
+            <translation>Could not verify the top and base depths of the well interval.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="135" />
+            <source>井的原始聚类像元与图斑不匹配</source>
+            <translation>The well's original cluster cell does not match the polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="124" />
+            <source>井的聚类像元中心无效</source>
+            <translation>The centre of the well's cluster cell is invalid.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="81" />
+            <source>井预测文件缺失或摘要无效</source>
+            <translation>The well prediction file is missing or has an invalid checksum.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="25" />
+            <source>仅有全井预测</source>
+            <translation>Only a whole-well prediction is available</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="22" />
+            <source>优势相厚度相同</source>
+            <translation>The dominant facies are tied by thickness</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="89" />
+            <source>保存聚类赋相失败</source>
+            <translation>Could not save the cluster facies assignment.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="121" />
+            <source>写入聚类面编号失败</source>
+            <translation>Could not write the cluster polygon ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="38" />
+            <source>单井分段预测缺少唯一井身份或有效的井口坐标</source>
+            <translation>The single-well interval prediction lacks a unique well ID or valid wellhead coordinates.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="188" />
+            <source>原始图斑已分割，请从解释图中选择具体的面</source>
+            <translation>The original patch has been split. Select a polygon in the interpretation layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="116" />
+            <source>原始聚类栅格转面失败</source>
+            <translation>Could not polygonize the original cluster raster.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="73" />
+            <source>图斑 %1</source>
+            <translation>Patch %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="21" />
+            <source>地震缺测</source>
+            <translation>No seismic data</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="22" />
+            <source>层段无预测覆盖</source>
+            <translation>No prediction coverage in the interval</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="191" />
+            <source>所选聚类面已改变，请重新选择</source>
+            <translation>The selected cluster polygon has changed. Select it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="193" />
+            <source>所选面包含多个聚类，请按当前面调整</source>
+            <translation>The selected polygon spans multiple clusters. Apply the change to this polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="124" />
+            <source>提交聚类面失败</source>
+            <translation>Could not commit the cluster polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="154" />
+            <source>支持井缺少图斑编号</source>
+            <translation>A supporting well has no patch ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="51" />
+            <source>无井支持</source>
+            <translation>No supporting wells</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="82" />
+            <source>无法保存聚类图斑的格网边界</source>
+            <translation>Could not save the grid-aligned boundary of the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="86" />
+            <source>无法写入聚类图斑</source>
+            <translation>Could not write the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="79" />
+            <source>无法准备赋相属性</source>
+            <translation>Could not prepare the facies assignment attributes.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="70" />
+            <source>无法创建聚类赋相文件</source>
+            <translation>Could not create the cluster facies assignment file.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="72" />
+            <source>无法创建聚类赋相面</source>
+            <translation>Could not create the facies-assigned cluster polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="112" />
+            <source>无法创建聚类面属性</source>
+            <translation>Could not create the cluster polygon attributes.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="105" />
+            <source>无法创建聚类面文件</source>
+            <translation>Could not create the cluster polygon file.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="83" />
+            <source>无法复制聚类图斑</source>
+            <translation>Could not copy the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="76" />
+            <source>无法复制聚类面字段</source>
+            <translation>Could not copy the cluster polygon fields.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="185" />
+            <source>无法定位所选聚类面</source>
+            <translation>Could not locate the selected cluster polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="95" />
+            <source>无法打开原始聚类栅格</source>
+            <translation>Could not open the original cluster raster.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="43" />
+            <source>无法解析已保存的单井分段预测</source>
+            <translation>Could not read the saved interval predictions for this well.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="31" />
+            <source>无法读取原始聚类面的编号或像元数</source>
+            <translation>Could not read an original cluster polygon's IDs or cell count.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="52" />
+            <source>有分歧</source>
+            <translation>Conflicting votes</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="69" />
+            <source>未计入的井</source>
+            <translation>Excluded wells</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="63" />
+            <source>来源文件缺失或已改变，请重新选择成果</source>
+            <translation>The source file is missing or has changed. Select the result again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="62" />
+            <source>簇 %1</source>
+            <translation>Cluster %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="24" />
+            <source>缺少预测或井点</source>
+            <translation>Missing prediction or well location</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="21" />
+            <source>网格外</source>
+            <translation>Outside the grid</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="56" />
+            <source>聚类图斑几何无效</source>
+            <translation>Invalid cluster patch geometry.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="60" />
+            <source>聚类图斑外环无效</source>
+            <translation>Invalid exterior ring of the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="74" />
+            <source>聚类图斑的网格编号或覆盖无效</source>
+            <translation>Invalid grid ID or cell coverage for the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="99" />
+            <source>聚类图斑需要有效的北向上网格</source>
+            <translation>Cluster patches require a valid north-up grid.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="108" />
+            <source>聚类栅格坐标系无效</source>
+            <translation>Invalid cluster raster coordinate reference system.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="66" />
+            <source>聚类赋相输出路径不可用</source>
+            <translation>The cluster facies assignment output path is unavailable.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="159" />
+            <source>聚类面缺少对应的井票记录</source>
+            <translation>No well vote record matches this cluster polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="101" />
+            <source>聚类面输出驱动或路径不可用</source>
+            <translation>The cluster polygon output driver or path is unavailable.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="176" />
+            <source>请选择目标分类中的微相</source>
+            <translation>Select a microfacies from the target taxonomy.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="53" />
+            <source>（单井支持）</source>
+            <translation> (one supporting well)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="67" />
+            <source>%1 · 要素 %2</source>
+            <translation>%1 · Feature %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="66" />
+            <source>合并图斑</source>
+            <translation>Merged patch</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="113" />
+            <source>无法读取聚类面编号</source>
+            <translation>Could not read the cluster polygon ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="65" />
+            <source>簇 %1 · 图斑 %2</source>
+            <translation>Cluster %1 · Patch %2</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="101" />
+            <source>聚类面缺少要素编号</source>
+            <translation>The cluster polygon has no feature ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="152" />
+            <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="254" />
+            <source>待赋相</source>
+            <translation>Unassigned facies</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="30" />
+            <source>单井分段预测文件已改变</source>
+            <translation>The well interval prediction file has changed.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="34" />
+            <source>单井分段预测格式无效</source>
+            <translation>Invalid format for this well’s interval predictions.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="25" />
+            <source>原始簇图尺寸无效</source>
+            <translation>Invalid original cluster grid dimensions.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="20" />
+            <source>原始簇图缺少北向上的分类网格</source>
+            <translation>The original cluster map does not have a north-up categorical grid.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="30" />
+            <source>原始簇图缺少坐标系</source>
+            <translation>The original cluster grid has no coordinate reference system.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="27" />
+            <source>无法读取单井分段预测</source>
+            <translation>Could not read the interval predictions for this well.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="38" />
+            <source>无法读取原始簇栅格</source>
+            <translation>Could not read the original cluster raster.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="43" />
+            <source>预测井段顶底无效</source>
+            <translation>Invalid top or base depth for the predicted well interval.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="49" />
+            <source>预测微相与所选分类的完整路径不一致</source>
+            <translation>The full path of the predicted microfacies does not match the selected taxonomy.</translation>
+        </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -41724,6 +42258,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/qgis/qgisstyleservice.cpp" line="947" />
             <source>未分类断层</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterstyle.cpp" line="17" />
+            <source>簇 %1</source>
+            <translation>Cluster %1</translation>
         </message>
     </context>
     <context>
@@ -60868,6 +61407,129 @@ Strict rules:
             <location filename="../src/qgis/topologygesture.cpp" line="137" />
             <source>跨层编辑状态已变化，请重新检查图层</source>
             <translation>The cross-layer editing state has changed. Check the layers again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>SeismicClusterInterpretation</name>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186" />
+            <source>井票 / 图斑</source>
+            <translation>Well votes / patches</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="213" />
+            <source>井预测版本已更改，请重新预览</source>
+            <translation>The well prediction versions changed. Run the preview again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="91" />
+            <source>人工调整微相</source>
+            <translation>Adjust microfacies manually</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="221" />
+            <source>共 %1 口井参与投票。展开簇可查看井和图斑。</source>
+            <translation>%1 wells voted. Expand a cluster to see its wells and patches.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="173" />
+            <source>参与赋值的井预测版本</source>
+            <translation>Well prediction versions used for assignment</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="144" />
+            <source>图斑</source>
+            <translation>Patch</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="94" />
+            <source>应用到同簇的所有图斑</source>
+            <translation>Apply to all patches in this cluster</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186" />
+            <source>建议微相</source>
+            <translation>Suggested microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="167" />
+            <source>当前层段尚无可用的井预测，可先人工指定微相</source>
+            <translation>No well predictions are available for this interval yet. You can assign microfacies manually.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="141" />
+            <source>当前微相为%1。%2将更新 %3 个图斑。</source>
+            <translation>Current microfacies: %1. %2 will update %3 patches.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="142" />
+            <source>待定</source>
+            <translation>Undetermined</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="205" />
+            <source>正在核对井位并统计各簇票数…</source>
+            <translation>Checking well locations and counting votes for each cluster…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="171" />
+            <source>用井预测赋相</source>
+            <translation>Assign facies from well predictions</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="146" />
+            <source>目标微相</source>
+            <translation>Target microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186" />
+            <source>簇 / 井</source>
+            <translation>Cluster / well</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="88" />
+            <source>请先为该层位保存微相分类</source>
+            <translation>Save the microfacies taxonomy for this horizon first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="200" />
+            <source>请选择至少一个井预测版本</source>
+            <translation>Select at least one well prediction version.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="116" />
+            <source>选择微相</source>
+            <translation>Select microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="183" />
+            <source>预览井票</source>
+            <translation>Preview well votes</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="206" />
+            <source> 当前高亮 %1 个图斑。</source>
+            <translation> %1 patches highlighted.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="223" />
+            <source>层位微相分类已更改，请重新选择微相</source>
+            <translation>The horizon microfacies taxonomy has changed. Select the microfacies again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="165" />
+            <source>聚类面没有可调整的图斑</source>
+            <translation>No patches in this cluster polygon layer can be adjusted.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="203" />
+            <source>原始图斑支持井数为 %1。</source>
+            <translation>Supporting wells in the original patch: %1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="205" />
+            <source>原始簇支持井数为 %1。</source>
+            <translation>Supporting wells in the original cluster: %1.</translation>
         </message>
     </context>
 </TS>

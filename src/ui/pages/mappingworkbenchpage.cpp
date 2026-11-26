@@ -8,6 +8,7 @@
 #include "../../domain/faciescatalog.h"
 #include "../../domain/facieshierarchy.h"
 #include "../../domain/singlefactorrequest.h"
+#include "../../domain/seismicclusterproduct.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/mappingworkbench.h"
 #include "wellreadinesspanel.h"
@@ -16,7 +17,7 @@
 #include "ui/paleotheme.h"
 #include <QComboBox>
 #include <QDoubleSpinBox>
-#include <QFileDialog>
+#include <QSpinBox>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -87,11 +88,6 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     layout->addLayout(form);
   } else { delete form; form = nullptr; }
   if (mode == "predict") {
-    label(tr("地震层位窗聚类／预测服务 · 结果待复核\n"
-             "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
-             "生成。测井仅节选当前地层顶底深范围调用远端服务，"
-             "每口井显示一个预测微相点及其亚相、相归属，"
-             "并同步工区井段与地层预测信息。"));
     m_status = new QLabel(body);
     m_status->setObjectName("workbenchPredictionStatus");
     m_status->setWordWrap(true);
@@ -101,7 +97,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     const auto showStatus = [this] {
       if (m_status && m_workbench)
         m_status->setText(m_kind && m_kind->currentData() == "seismic_mock"
-          ? tr("Mock：先保存当前层段测井相预测；从所选地震体读取当前 S1–S4 顶底界内的反射特征聚类，按簇内测井相多数票定类，无井簇仅从已有测井类别中随机选择。旧界面工程仍用 ±12 ms 窗。")
+          ? tr("选择地震体和聚类数。聚类完成后可查看簇图、用井预测赋相或人工指定微相。")
           : m_kind && m_kind->currentData() == "wells"
               ? m_workbench->wellPredictionStatusHint() : m_workbench->predictionStatusHint());
     };
@@ -111,7 +107,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind = new QComboBox(body);
     m_kind->setObjectName("predictionKind");
     m_kind->setAccessibleName(tr("预测类型"));
-    m_kind->addItem(tr("地震层段窗聚类 → 微相图（Mock）"), "seismic_mock");
+    m_kind->addItem(tr("地震层段窗聚类 → 原始簇图"), "seismic_mock");
     m_kind->addItem(tr("地震体 → 微相栅格（预测服务）"), "seismic");
     m_kind->addItem(tr("测井 → 当前地层预测微相"), "wells");
     // 井点的相 = 该井在当前层位地层（本层位顶 → 下一层位顶）内厚度最大的相，
@@ -121,30 +117,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                            "结果按井、按地层写入「测井分层沉积相属性」表，与数据管理共用"),
                         Qt::ToolTipRole);
     form->addRow(tr("预测类型"), m_kind);
+    buildClusterInputs(body, form);
     m_kind->setCurrentIndex(m_kind->findData(QStringLiteral("wells")));
-    m_horizonSourceRow = new QWidget(body);
-    auto *horizonSource = new QHBoxLayout(m_horizonSourceRow);
-    horizonSource->setContentsMargins(0, 0, 0, 0);
-    horizonSource->setSpacing(PaleoTheme::tokens().spacingSm);
-    horizonSource->addWidget(new QLabel(tr("层位文件"), m_horizonSourceRow));
-    m_horizonFile = new QLineEdit(m_horizonSourceRow);
-    m_horizonFile->setObjectName("workbenchHorizonFile");
-    m_horizonFile->setAccessibleName(tr("当前层位原始文件"));
-    m_horizonFile->setPlaceholderText(tr("自动使用已导入层位，或直接选择 DAT"));
-    m_horizonFile->setToolTip(tr("按文件中的 Inline、Crossline、时间（ms）直接提取地震窗；无需预先生成时间栅格。"));
-    horizonSource->addWidget(m_horizonFile, 1);
-    m_chooseHorizonFile = new QPushButton(tr("选择…"), m_horizonSourceRow);
-    m_chooseHorizonFile->setObjectName("workbenchChooseHorizonFile");
-    m_chooseHorizonFile->setAccessibleName(tr("选择当前层位原始文件"));
-    horizonSource->addWidget(m_chooseHorizonFile);
-    form->addRow(m_horizonSourceRow);
-    connect(m_chooseHorizonFile, &QPushButton::clicked, this, [this] {
-      const auto path = QFileDialog::getOpenFileName(this,
-          tr("选择 %1 的层位时间文件").arg(m_horizon), m_horizonFile->text(),
-          tr("SMI 层位文件 (*.dat *.txt);;所有文件 (*)"));
-      if (!path.isEmpty()) m_horizonFile->setText(path);
-    });
-    connect(workbench, &MappingWorkbench::catalogBound, m_horizonFile, &QLineEdit::clear);
     connect(m_kind, &QComboBox::currentIndexChanged, this, showStatus);
     showStatus();
     m_inputs = new QListWidget(body);
@@ -313,9 +287,11 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("catalog", tr("在数据管理中定位")), 2, 1);
   actions->addWidget(button("delete", tr("删除图件")), 3, 0);
   actions->addWidget(button("graph", tr("资料关联 / 成果追溯")), 3, 1);
-  if (mode == "predict")
-    actions->addWidget(button("welltracks", tr("查看井道 / 修订预测相")), 4, 0,
-                       1, 2);
+  if (mode == "predict") {
+    actions->addWidget(button("welltracks", tr("查看井道 / 修订预测相")), 4, 0, 1, 2);
+    actions->addWidget(button("clusterWellAssignment", tr("用井预测赋相…")), 6, 0);
+    actions->addWidget(button("clusterManualAssignment", tr("人工调整微相…")), 6, 1);
+  }
   actions->addWidget(button("consistency", tr("地震相 × 测井相一致性报告")), 5,
                      0, 1, 2);
   layout->addLayout(actions);
@@ -466,7 +442,7 @@ void MappingWorkbenchPage::refreshInputs() {
   for (const auto &v : rows) {
     auto row = v.toMap();
     if (m_mode == "compose" &&
-        (row.value("horizon").toString() != m_horizon ||
+        (row.value("horizon").toString() != m_horizon || paleo::seismic::isRawClusterProduct(row.value("kind").toString()) ||
          row.value("kind").toString().startsWith("constraint")))
       continue;
     // 约束页输入与编图同口径：只收当前层位与无层位项（products("")
@@ -653,14 +629,7 @@ void MappingWorkbenchPage::updateState() {
     m_kind->setEnabled(!busy);
     m_kind->setToolTip(busy ? readiness : tr("选择预测所用的数据类型"));
   }
-  if (m_horizonSourceRow) {
-    m_horizonSourceRow->setVisible(m_kind->currentData() == "seismic_mock"&&!m_workbench->analysisUnit().isValid());
-    m_horizonFile->setEnabled(horizon && !busy);
-    m_chooseHorizonFile->setEnabled(horizon && !busy);
-    m_chooseHorizonFile->setToolTip(horizon && !busy
-        ? tr("选择 %1 的原始层位时间文件，直接从地震体提取").arg(m_horizon)
-        : readiness);
-  }
+  refreshClusterInputs(horizon, busy, readiness);
   if (m_inputs) {
     m_inputs->setEnabled(m_mode != "predict" || !busy);
     m_inputs->setToolTip(readiness);
@@ -684,6 +653,11 @@ void MappingWorkbenchPage::updateState() {
        tr("选择样点并填写数值字段"));
   const auto parameters = row.value("parameters").toMap();
   const auto kind = row.value("kind").toString();
+  const bool rawPatches = kind == QLatin1String("seismic_cluster_patches");
+  const bool interpretedPatches = !parameters.value("cluster_patches_version").toString().isEmpty()
+      && row.value("type") == "vector" && !row.value("draft").toBool();
+  gate("clusterWellAssignment", rawPatches && !busy, tr("请选择原始聚类面"));
+  gate("clusterManualAssignment", (rawPatches || interpretedPatches) && !busy, tr("请选择聚类面或已赋相的解释面"));
   const auto valueSource = parameters.value("value_source").toString();
   const bool analysisRaster =
       paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
@@ -844,7 +818,7 @@ void MappingWorkbenchPage::updateState() {
        cartographic ? tr("解释性制图工作场不能参与分相或转面")
                     : tr("选择相类别栅格；连续单因素须先分相"));
   gate("copy",
-       selected && row.value("type") == "vector" &&
+       selected && row.value("type") == "vector" && !rawPatches &&
            !row.value("horizon").toString().isEmpty() &&
            !row.value("kind").toString().startsWith("constraint") &&
            row.value("kind") != "contour_lines",
@@ -917,8 +891,10 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
   p.insert("inputs", action == "copy" ? QStringList() : checkedInputs());
   if (action == "predict") {
     p.insert("kind", m_kind->currentData());
-    if (m_kind->currentData() == "seismic_mock")
+    if (m_kind->currentData() == "seismic_mock") {
+      p.insert("cluster_count", m_clusterCount->value());
       p.insert("horizon_file", m_horizonFile->text().trimmed());
+    }
   }
   if (action == "factor") {
     p.insert("factor", m_factor->currentData());

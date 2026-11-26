@@ -232,6 +232,8 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"result_scope", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("current_formation") : source.extra.value("result_scope").toString()},
       {"result_kind", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("formation_prediction") : source.extra.value("result_kind").toString()},
       {"method", "manual-edit-copy"}};
+  for (const auto *key : {"cluster_raster_version", "cluster_patches_version", "schema_version", "unitSelection"})
+    if (source.extra.contains(key)) extra.insert(key, source.extra.value(key));
   for (auto it = footprintExtra.constBegin(); it != footprintExtra.constEnd(); ++it)
     extra.insert(it.key(), it.value());
   const auto editTitle = layer->fields().indexOf("facies_intervals") >= 0

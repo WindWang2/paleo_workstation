@@ -2275,6 +2275,28 @@ class TestUiShell : public QObject
       QCOMPARE(m_ctx->canvasCtl()->canvas()->snappingUtils()->config().tolerance(), 13.0);
     }
 
+    void seismicRibbonOpensLocalClusters()
+    {
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("cluster-ribbon.qgz")));
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+          m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(), m_ctx->processingSvc(),
+          m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      m_win->attachWorkbench(m_ctx->mappingWorkbench());
+      m_win->showPage("predict");
+      auto *kind = m_win->findChild<QComboBox *>("predictionKind");
+      QVERIFY(kind);
+      kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
+      auto *action = m_win->findChild<QAction *>("ribbonOpenTask.seismic.predictseismic_facies");
+      QVERIFY(action && action->isEnabled());
+      action->trigger();
+      QCOMPARE(kind->currentData().toString(), QStringLiteral("seismic_mock"));
+      auto *count = m_win->findChild<QSpinBox *>("seismicClusterCount");
+      QVERIFY(count && !count->isHidden());
+      QCOMPARE(count->minimum(), 1);
+      QCOMPARE(count->maximum(), 64);
+    }
+
     void mappingWorkbenchCanvasRibbonAndReferences()
     {
       const auto referenceDock = [this]() -> PaleoDockWidget * {

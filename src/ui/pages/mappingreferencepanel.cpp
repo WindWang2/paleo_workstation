@@ -3,6 +3,8 @@
 
 #include "../../qgis/projectscope.h"
 #include "../../qgis/referenceview.h"
+#include "../../qgis/qgisstyleservice.h"
+#include "../../domain/seismicclusterproduct.h"
 #include "../decorations/paleodecorations.h"
 #include "../paleotheme.h"
 
@@ -19,6 +21,7 @@
 #include <QKeyEvent>
 #include <QChildEvent>
 #include <QLabel>
+#include <QListWidget>
 #include <QPushButton>
 #include <QMouseEvent>
 #include <QSettings>
@@ -94,6 +97,19 @@ void MappingReferencePanel::ensureView()
   m_view = createReferenceView(m_mainCanvas, m_project, m_viewHost);
   m_view->widget()->setMinimumSize(fontMetrics().averageCharWidth() * 12, fontMetrics().lineSpacing() * 5);
   m_viewHost->layout()->addWidget(m_view->widget());
+  m_clusterLegendButton = new QToolButton(m_viewHost);
+  m_clusterLegendButton->setText(tr("聚类图例"));
+  m_clusterLegendButton->setCheckable(true);
+  m_clusterLegendButton->hide();
+  m_viewHost->layout()->addWidget(m_clusterLegendButton);
+  m_clusterLegend = new QListWidget(m_viewHost);
+  m_clusterLegend->setObjectName(QStringLiteral("referenceClusterLegend"));
+  m_clusterLegend->setAccessibleName(m_clusterLegendButton->text());
+  m_clusterLegend->setSelectionMode(QAbstractItemView::NoSelection);
+  m_clusterLegend->setMaximumHeight(fontMetrics().lineSpacing() * 5);
+  m_clusterLegend->hide();
+  m_viewHost->layout()->addWidget(m_clusterLegend);
+  connect(m_clusterLegendButton, &QToolButton::toggled, m_clusterLegend, &QWidget::setVisible);
   m_view->widget()->hide();
   m_decor = new PaleoDecorationManager(canvas());
   m_decor->setScaleBarEnabled(true);
@@ -187,6 +203,14 @@ void MappingReferencePanel::setReference(QgsMapLayer *layer, const QVariantMap &
   m_viewHost->show();
   m_view->widget()->show();
   m_view->setReference(layer, metadata);
+  if (paleo::seismic::isRawClusterProduct(metadata.value("kind").toString())) {
+    for (const auto &entry : QgisStyleService::seismicClusterLegend(metadata.value("cluster_ids").toList())) {
+      const auto row = entry.toMap();
+      auto *item = new QListWidgetItem(row.value("name").toString(), m_clusterLegend);
+      item->setData(Qt::DecorationRole, QColor(row.value("color").toString()));
+    }
+    m_clusterLegendButton->setVisible(m_clusterLegend->count() > 0);
+  }
   updateCaption();
   setProperty("paleo.referenceVersion", selectedSource().value("version_id"));
   emit referenceChanged(selectedSource().value("name").toString(), selectedSource().value("version_id").toString());
@@ -197,6 +221,9 @@ void MappingReferencePanel::clearReference(const QString &message)
   if (m_view) {
     m_view->clearReference();
     m_view->widget()->hide();
+    m_clusterLegendButton->setChecked(false);
+    m_clusterLegendButton->hide();
+    m_clusterLegend->clear();
   }
   if (m_viewHost) m_viewHost->hide();
   m_metadata.clear();

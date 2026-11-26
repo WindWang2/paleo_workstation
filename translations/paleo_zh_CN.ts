@@ -15374,6 +15374,11 @@ Crossline: %3 ~ %4</source>
         <source>将关闭最后一个证据视图（可随时再添加）</source>
         <translation>将关闭最后一个证据视图（可随时再添加）</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="101"/>
+        <source>聚类图例</source>
+        <translation>聚类图例</translation>
+    </message>
 </context>
 <context>
     <name>MappingTaskGuide</name>
@@ -15685,6 +15690,11 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingtaskguide_drafts.cpp" line="80"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingtaskguide.cpp" line="274"/>
+        <source>勾选地震体并设置聚类数。运行后可查看原始簇图或选择聚类面赋相。</source>
+        <translation>勾选地震体并设置聚类数。运行后可查看原始簇图或选择聚类面赋相。</translation>
     </message>
 </context>
 <context>
@@ -17485,6 +17495,139 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/workflow/mappingworkbench.cpp" line="1247"/>
         <source>无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。</source>
         <translation>无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="160"/>
+        <source> 井赋相栅格</source>
+        <translation> 井赋相栅格</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="163"/>
+        <source> 井赋相面</source>
+        <translation> 井赋相面</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="208"/>
+        <source>%1 · 聚类面</source>
+        <translation>%1 · 聚类面</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="67"/>
+        <source>%1 · 聚类面人工解释</source>
+        <translation>%1 · 聚类面人工解释</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_predict.cpp" line="587"/>
+        <source>%1 地震聚类</source>
+        <translation>%1 地震聚类</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="231"/>
+        <source>井赋相成果已保存，工程视图保存失败</source>
+        <translation>井赋相成果已保存，工程视图保存失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="197"/>
+        <source>井预测、井位或相分类已变化，请重新预览</source>
+        <translation>井预测、井位或相分类已变化，请重新预览</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="199"/>
+        <source>井预测或聚类文件已变化，请重新预览</source>
+        <translation>井预测或聚类文件已变化，请重新预览</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="136"/>
+        <source>原始簇图已过期或缺失</source>
+        <translation>原始簇图已过期或缺失</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_predict.cpp" line="337"/>
+        <source>地震聚类 · %1</source>
+        <translation>地震聚类 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_predict.cpp" line="593"/>
+        <source>已保存原始聚类栅格</source>
+        <translation>已保存原始聚类栅格</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="36"/>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="150"/>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="192"/>
+        <source>当前工程位置不可写</source>
+        <translation>当前工程位置不可写</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="152"/>
+        <source>所选井预测已过期或不属于当前层段</source>
+        <translation>所选井预测已过期或不属于当前层段</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_predict.cpp" line="327"/>
+        <source>无法创建聚类暂存目录</source>
+        <translation>无法创建聚类暂存目录</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="50"/>
+        <source>无法创建聚类面暂存目录</source>
+        <translation>无法创建聚类面暂存目录</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="205"/>
+        <source>无法登记井赋相使用的分类版本</source>
+        <translation>无法登记井赋相使用的分类版本</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_predict.cpp" line="149"/>
+        <source>聚类数须在 1–64 之间</source>
+        <translation>聚类数须在 1–64 之间</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="118"/>
+        <source>聚类栅格在转面期间已改变，请重新生成</source>
+        <translation>聚类栅格在转面期间已改变，请重新生成</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_predict.cpp" line="596"/>
+        <source>聚类栅格已保存，可重试生成聚类面：%1</source>
+        <translation>聚类栅格已保存，可重试生成聚类面：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="112"/>
+        <source>聚类栅格文件与登记版本不一致，请重新生成</source>
+        <translation>聚类栅格文件与登记版本不一致，请重新生成</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="41"/>
+        <source>聚类面文件与登记版本不一致，请重新生成</source>
+        <translation>聚类面文件与登记版本不一致，请重新生成</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_compose.cpp" line="110"/>
+        <source>请先给聚类面赋相，再用于编图</source>
+        <translation>请先给聚类面赋相，再用于编图</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="190"/>
+        <source>请先预览至少一口落入聚类区的有效井</source>
+        <translation>请先预览至少一口落入聚类区的有效井</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_consistency.cpp" line="89"/>
+        <source>请选择同一层段中用于比对的测井相或已赋相地震成果</source>
+        <translation>请选择同一层段中用于比对的测井相或已赋相地震成果</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="130"/>
+        <source>请选择已保存的原始聚类面</source>
+        <translation>请选择已保存的原始聚类面</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="21"/>
+        <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="32"/>
+        <source>请选择已保存的聚类面或其赋相版本</source>
+        <translation>请选择已保存的聚类面或其赋相版本</translation>
     </message>
 </context>
 <context>
@@ -19467,6 +19610,41 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingworkbenchpage_flow.cpp" line="106"/>
         <source>重试登记当前工作副本</source>
         <translation>重试登记当前工作副本</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="293"/>
+        <source>人工调整微相…</source>
+        <translation>人工调整微相…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="110"/>
+        <source>地震层段窗聚类 → 原始簇图</source>
+        <translation>地震层段窗聚类 → 原始簇图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="292"/>
+        <source>用井预测赋相…</source>
+        <translation>用井预测赋相…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage_cluster.cpp" line="19"/>
+        <source>聚类数 K</source>
+        <translation>聚类数 K</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="659"/>
+        <source>请选择原始聚类面</source>
+        <translation>请选择原始聚类面</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="660"/>
+        <source>请选择聚类面或已赋相的解释面</source>
+        <translation>请选择聚类面或已赋相的解释面</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="100"/>
+        <source>选择地震体和聚类数。聚类完成后可查看簇图、用井预测赋相或人工指定微相。</source>
+        <translation>选择地震体和聚类数。聚类完成后可查看簇图、用井预测赋相或人工指定微相。</translation>
     </message>
 </context>
 <context>
@@ -25784,6 +25962,16 @@ PDF：%3
         <location filename="../src/ui/paleomainwindow_project.cpp" line="285"/>
         <source>工程副本中有旧路径来源</source>
         <translation>工程副本中有旧路径来源</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="134"/>
+        <source>工程或层段已切换，请重新选择聚类面</source>
+        <translation>工程或层段已切换，请重新选择聚类面</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="589"/>
+        <source>%1 · 地震聚类 · v%2</source>
+        <translation>%1 · 地震聚类 · v%2</translation>
     </message>
 </context>
 <context>
@@ -41032,6 +41220,352 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>请选择独立工程目录中的工程文件。</source>
         <translation>请选择独立工程目录中的工程文件。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="55"/>
+        <source> · 支持率 %1%</source>
+        <translation> · 支持率 %1%</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="121"/>
+        <source>%1 · 井赋相栅格</source>
+        <translation>%1 · 井赋相栅格</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="121"/>
+        <source>%1 · 井赋相面</source>
+        <translation>%1 · 井赋相面</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="131"/>
+        <source>井像元所属聚类面不唯一</source>
+        <translation>井像元所属聚类面不唯一</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicwellcalibration.cpp" line="52"/>
+        <source>井口坐标无法转换到地震网格</source>
+        <translation>井口坐标无法转换到地震网格</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicwellcalibration.cpp" line="57"/>
+        <source>井口坐标转换失败</source>
+        <translation>井口坐标转换失败</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="23"/>
+        <source>井段顶底深度无法核对</source>
+        <translation>井段顶底深度无法核对</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="135"/>
+        <source>井的原始聚类像元与图斑不匹配</source>
+        <translation>井的原始聚类像元与图斑不匹配</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="124"/>
+        <source>井的聚类像元中心无效</source>
+        <translation>井的聚类像元中心无效</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="81"/>
+        <source>井预测文件缺失或摘要无效</source>
+        <translation>井预测文件缺失或摘要无效</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="25"/>
+        <source>仅有全井预测</source>
+        <translation>仅有全井预测</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="22"/>
+        <source>优势相厚度相同</source>
+        <translation>优势相厚度相同</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="89"/>
+        <source>保存聚类赋相失败</source>
+        <translation>保存聚类赋相失败</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="121"/>
+        <source>写入聚类面编号失败</source>
+        <translation>写入聚类面编号失败</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicwellcalibration.cpp" line="38"/>
+        <source>单井分段预测缺少唯一井身份或有效的井口坐标</source>
+        <translation>单井分段预测缺少唯一井身份或有效的井口坐标</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="188"/>
+        <source>原始图斑已分割，请从解释图中选择具体的面</source>
+        <translation>原始图斑已分割，请从解释图中选择具体的面</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="116"/>
+        <source>原始聚类栅格转面失败</source>
+        <translation>原始聚类栅格转面失败</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="73"/>
+        <source>图斑 %1</source>
+        <translation>图斑 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="21"/>
+        <source>地震缺测</source>
+        <translation>地震缺测</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="22"/>
+        <source>层段无预测覆盖</source>
+        <translation>层段无预测覆盖</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="191"/>
+        <source>所选聚类面已改变，请重新选择</source>
+        <translation>所选聚类面已改变，请重新选择</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="193"/>
+        <source>所选面包含多个聚类，请按当前面调整</source>
+        <translation>所选面包含多个聚类，请按当前面调整</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="124"/>
+        <source>提交聚类面失败</source>
+        <translation>提交聚类面失败</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="154"/>
+        <source>支持井缺少图斑编号</source>
+        <translation>支持井缺少图斑编号</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="51"/>
+        <source>无井支持</source>
+        <translation>无井支持</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="82"/>
+        <source>无法保存聚类图斑的格网边界</source>
+        <translation>无法保存聚类图斑的格网边界</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="86"/>
+        <source>无法写入聚类图斑</source>
+        <translation>无法写入聚类图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="79"/>
+        <source>无法准备赋相属性</source>
+        <translation>无法准备赋相属性</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="70"/>
+        <source>无法创建聚类赋相文件</source>
+        <translation>无法创建聚类赋相文件</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="72"/>
+        <source>无法创建聚类赋相面</source>
+        <translation>无法创建聚类赋相面</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="112"/>
+        <source>无法创建聚类面属性</source>
+        <translation>无法创建聚类面属性</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="105"/>
+        <source>无法创建聚类面文件</source>
+        <translation>无法创建聚类面文件</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="83"/>
+        <source>无法复制聚类图斑</source>
+        <translation>无法复制聚类图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="76"/>
+        <source>无法复制聚类面字段</source>
+        <translation>无法复制聚类面字段</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="185"/>
+        <source>无法定位所选聚类面</source>
+        <translation>无法定位所选聚类面</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="95"/>
+        <source>无法打开原始聚类栅格</source>
+        <translation>无法打开原始聚类栅格</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicwellcalibration.cpp" line="43"/>
+        <source>无法解析已保存的单井分段预测</source>
+        <translation>无法解析已保存的单井分段预测</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="31"/>
+        <source>无法读取原始聚类面的编号或像元数</source>
+        <translation>无法读取原始聚类面的编号或像元数</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="52"/>
+        <source>有分歧</source>
+        <translation>有分歧</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="69"/>
+        <source>未计入的井</source>
+        <translation>未计入的井</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="63"/>
+        <source>来源文件缺失或已改变，请重新选择成果</source>
+        <translation>来源文件缺失或已改变，请重新选择成果</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="62"/>
+        <source>簇 %1</source>
+        <translation>簇 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="24"/>
+        <source>缺少预测或井点</source>
+        <translation>缺少预测或井点</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="21"/>
+        <source>网格外</source>
+        <translation>网格外</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="56"/>
+        <source>聚类图斑几何无效</source>
+        <translation>聚类图斑几何无效</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="60"/>
+        <source>聚类图斑外环无效</source>
+        <translation>聚类图斑外环无效</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="74"/>
+        <source>聚类图斑的网格编号或覆盖无效</source>
+        <translation>聚类图斑的网格编号或覆盖无效</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="99"/>
+        <source>聚类图斑需要有效的北向上网格</source>
+        <translation>聚类图斑需要有效的北向上网格</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="108"/>
+        <source>聚类栅格坐标系无效</source>
+        <translation>聚类栅格坐标系无效</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="66"/>
+        <source>聚类赋相输出路径不可用</source>
+        <translation>聚类赋相输出路径不可用</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="159"/>
+        <source>聚类面缺少对应的井票记录</source>
+        <translation>聚类面缺少对应的井票记录</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterpatches.cpp" line="101"/>
+        <source>聚类面输出驱动或路径不可用</source>
+        <translation>聚类面输出驱动或路径不可用</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="176"/>
+        <source>请选择目标分类中的微相</source>
+        <translation>请选择目标分类中的微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="53"/>
+        <source>（单井支持）</source>
+        <translation>（单井支持）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="67"/>
+        <source>%1 · 要素 %2</source>
+        <translation>%1 · 要素 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="66"/>
+        <source>合并图斑</source>
+        <translation>合并图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="113"/>
+        <source>无法读取聚类面编号</source>
+        <translation>无法读取聚类面编号</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="65"/>
+        <source>簇 %1 · 图斑 %2</source>
+        <translation>簇 %1 · 图斑 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="101"/>
+        <source>聚类面缺少要素编号</source>
+        <translation>聚类面缺少要素编号</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="152"/>
+        <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="254"/>
+        <source>待赋相</source>
+        <translation>待赋相</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/seismicwellintervals.cpp" line="30"/>
+        <source>单井分段预测文件已改变</source>
+        <translation>单井分段预测文件已改变</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/seismicwellintervals.cpp" line="34"/>
+        <source>单井分段预测格式无效</source>
+        <translation>单井分段预测格式无效</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/clusterassignmentgrid.cpp" line="25"/>
+        <source>原始簇图尺寸无效</source>
+        <translation>原始簇图尺寸无效</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/clusterassignmentgrid.cpp" line="20"/>
+        <source>原始簇图缺少北向上的分类网格</source>
+        <translation>原始簇图缺少北向上的分类网格</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/clusterassignmentgrid.cpp" line="30"/>
+        <source>原始簇图缺少坐标系</source>
+        <translation>原始簇图缺少坐标系</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/seismicwellintervals.cpp" line="27"/>
+        <source>无法读取单井分段预测</source>
+        <translation>无法读取单井分段预测</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/clusterassignmentgrid.cpp" line="38"/>
+        <source>无法读取原始簇栅格</source>
+        <translation>无法读取原始簇栅格</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/seismicwellintervals.cpp" line="43"/>
+        <source>预测井段顶底无效</source>
+        <translation>预测井段顶底无效</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/seismicwellintervals.cpp" line="49"/>
+        <source>预测微相与所选分类的完整路径不一致</source>
+        <translation>预测微相与所选分类的完整路径不一致</translation>
+    </message>
 </context>
 <context>
     <name>QgisCanvasController</name>
@@ -41867,6 +42401,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/qgis/qgisstyleservice.cpp" line="947"/>
         <source>未分类断层</source>
         <translation>未分类断层</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicclusterstyle.cpp" line="17"/>
+        <source>簇 %1</source>
+        <translation>簇 %1</translation>
     </message>
 </context>
 <context>
@@ -61077,6 +61616,129 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/qgis/topologygesture.cpp" line="137"/>
         <source>跨层编辑状态已变化，请重新检查图层</source>
         <translation>跨层编辑状态已变化，请重新检查图层</translation>
+    </message>
+</context>
+<context>
+    <name>SeismicClusterInterpretation</name>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186"/>
+        <source>井票 / 图斑</source>
+        <translation>井票 / 图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="213"/>
+        <source>井预测版本已更改，请重新预览</source>
+        <translation>井预测版本已更改，请重新预览</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="91"/>
+        <source>人工调整微相</source>
+        <translation>人工调整微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="221"/>
+        <source>共 %1 口井参与投票。展开簇可查看井和图斑。</source>
+        <translation>共 %1 口井参与投票。展开簇可查看井和图斑。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="173"/>
+        <source>参与赋值的井预测版本</source>
+        <translation>参与赋值的井预测版本</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="144"/>
+        <source>图斑</source>
+        <translation>图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="94"/>
+        <source>应用到同簇的所有图斑</source>
+        <translation>应用到同簇的所有图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186"/>
+        <source>建议微相</source>
+        <translation>建议微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="167"/>
+        <source>当前层段尚无可用的井预测，可先人工指定微相</source>
+        <translation>当前层段尚无可用的井预测，可先人工指定微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="141"/>
+        <source>当前微相为%1。%2将更新 %3 个图斑。</source>
+        <translation>当前微相为%1。%2将更新 %3 个图斑。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="142"/>
+        <source>待定</source>
+        <translation>待定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="205"/>
+        <source>正在核对井位并统计各簇票数…</source>
+        <translation>正在核对井位并统计各簇票数…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="171"/>
+        <source>用井预测赋相</source>
+        <translation>用井预测赋相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="146"/>
+        <source>目标微相</source>
+        <translation>目标微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186"/>
+        <source>簇 / 井</source>
+        <translation>簇 / 井</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="88"/>
+        <source>请先为该层位保存微相分类</source>
+        <translation>请先为该层位保存微相分类</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="200"/>
+        <source>请选择至少一个井预测版本</source>
+        <translation>请选择至少一个井预测版本</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="116"/>
+        <source>选择微相</source>
+        <translation>选择微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="183"/>
+        <source>预览井票</source>
+        <translation>预览井票</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="206"/>
+        <source> 当前高亮 %1 个图斑。</source>
+        <translation> 当前高亮 %1 个图斑。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="223"/>
+        <source>层位微相分类已更改，请重新选择微相</source>
+        <translation>层位微相分类已更改，请重新选择微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="165"/>
+        <source>聚类面没有可调整的图斑</source>
+        <translation>聚类面没有可调整的图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="203"/>
+        <source>原始图斑支持井数为 %1。</source>
+        <translation>原始图斑支持井数为 %1。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="205"/>
+        <source>原始簇支持井数为 %1。</source>
+        <translation>原始簇支持井数为 %1。</translation>
     </message>
 </context>
 </TS>

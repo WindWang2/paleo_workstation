@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "../domain/seismicclusterproduct.h"
 #include "mappingexplanationservice.h"
 #include "../services/canonicalfilepath.h"
 #include "../services/faciesdisplaysettings.h"
@@ -225,6 +226,7 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
   // constraints.<horizon> 声明图层（直读 store，reload 即新）。
 }
 MappingWorkbench::~MappingWorkbench() {
+  cancelClusterWellPreview();
   cancelBackgroundExplanation();
   delete m_explanationSvc;
   m_explanationSvc = nullptr;
@@ -236,6 +238,7 @@ MappingWorkbench::~MappingWorkbench() {
     m_prepareCancelled->store(true);
 }
 void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
+  cancelClusterWellPreview();
   m_propertyEdits.clear(); // #741：旧工程的属性撤销历史随工程切换作废
   cancelPrediction();
   if (m_composeRunner)
@@ -757,7 +760,7 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   });
   const auto id = QStringLiteral("product.%1").arg(st.versionId);
   const auto group =
-      kind.contains("prediction")   ? QStringLiteral("02_Prediction")
+      (kind.contains("prediction") || paleo::seismic::isRawClusterProduct(kind)) ? QStringLiteral("02_Prediction")
       : kind.contains("constraint") ? PaleoLayerVocabulary::kConstraintsGroup
                                     : QStringLiteral("05_PaleoMap");
   if (extra.contains("spatial_edit_events")) {
@@ -790,7 +793,7 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
     if (source.value("mock").toBool()) extra.insert("mock", true);
     if (source.value("synthetic_input").toBool()) extra.insert("synthetic_input", true);
   }
-  if (!extra.contains("facies"))
+  if (!extra.contains("facies") && !paleo::seismic::isRawClusterProduct(kind))
     extra.insert("facies", facies(h));
   // facies-ux 5：证据链（输入版本 + 模型/参数指纹 + 支撑井/地震属性 + 软件版本）。
   if (!extra.contains("evidence"))
@@ -1113,6 +1116,10 @@ void MappingWorkbench::styleLayer(const QString &id) {
   layer->setCustomProperty("paleoAssetId", v.assetId);
   layer->setCustomProperty("paleoVersionId", v.id);
   const auto styledKind = v.extra.value("kind").toString();
+  if (paleo::seismic::isRawClusterProduct(styledKind)) {
+    QgisStyleService::applySeismicClusterStyle(layer, v.extra.value("cluster_ids").toList());
+    return;
+  }
   const auto styledSource = v.extra.value("value_source").toString();
   const bool analysisRaster =
       paleo::singlefactor::isAnalysisFactorRaster(styledKind, styledSource);

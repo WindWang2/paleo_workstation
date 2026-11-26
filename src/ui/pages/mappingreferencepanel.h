@@ -9,6 +9,7 @@
 
 class QComboBox;
 class QLabel;
+class QListWidget;
 class QPushButton;
 class QToolButton;
 class QHBoxLayout;
@@ -59,6 +60,8 @@ private:
   QgsProject *m_project = nullptr;
   QWidget *m_viewHost = nullptr; // 画布容器：ensureView() 时才装入控件
   PaleoDecorationManager *m_decor = nullptr;
+  QToolButton *m_clusterLegendButton = nullptr;
+  QListWidget *m_clusterLegend = nullptr;
   ReferenceView *m_view = nullptr;
   QComboBox *m_sources = nullptr;
   QToolButton *m_remove = nullptr;

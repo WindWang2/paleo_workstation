@@ -6,11 +6,11 @@ struct SeismicClusterWell {
   QString id, versionId;
   double x = 0, y = 0; // already transformed to the output grid CRS
   int code = 0;
-  QString coordinateSource;
+  QString coordinateSource, name;
 };
 
-// One vote per well. Ties choose the lowest code; unobserved clusters use a
-// reproducible random choice restricted to the observed well facies.
+// One vote per well. Only a strict majority yields a facies code. Unresolved
+// cells in the derived grid use NoData; the input cluster grid is immutable.
 SeismicClusterResult labelSeismicClusters(
     SeismicClusterResult grid, const QVector<SeismicClusterWell> &wells,
-    quint32 seed = 42, const std::function<bool()> &cancel = {});
+    const std::function<bool()> &cancel = {});

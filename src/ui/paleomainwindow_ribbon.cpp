@@ -110,7 +110,7 @@ void PaleoMainWindow::buildRibbon()
       if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictTypeCombo")))
         combo->setCurrentIndex(combo->findData(type));
       if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictionKind")))
-        combo->setCurrentIndex(combo->findData(type == "well_log_facies" ? "wells" : "seismic"));
+        combo->setCurrentIndex(combo->findData(type == "well_log_facies" ? "wells" : "seismic_mock"));
       if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("workbenchTabs.") + page)) tabs->setCurrentIndex(0);
     });
     routeCommand(action, commandId);

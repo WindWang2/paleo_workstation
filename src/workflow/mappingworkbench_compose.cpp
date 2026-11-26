@@ -3,6 +3,7 @@
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
 #include "mappingworkbench.h"
+#include "../domain/seismicclusterproduct.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
@@ -105,6 +106,10 @@ bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
 
     const auto v = m_catalog->versionById(version);
     const auto inputKind = v.extra.value("kind").toString();
+    if (paleo::seismic::isRawClusterProduct(inputKind)) {
+      fail(error, tr("请先给聚类面赋相，再用于编图"));
+      return false;
+    }
     const auto inputSource = v.extra.value("value_source").toString();
     if (paleo::singlefactor::rejectsQuantitativeUse(inputKind, inputSource)) {
       fail(error, tr("解释性制图工作场不能参与连续融合、分相或厚度统计"));

@@ -1162,7 +1162,6 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
                               qint64 traceCount, QString *error, const SegyOptions *opts,
                               bool xlineFromCdp, bool cornerFromCdpXY)
 {
-  Q_UNUSED(file);
   const QString path = m_path;
   const AreaRules::SegyIndexing sidx = m_indexingRules;
   const int ns = m_samplesPerTrace;
@@ -1183,7 +1182,18 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
       QVector<qint64> offsets, bad;
       QVector<double> xs, ys;
   };
-  const int maxThreads = qBound(1, qMin(4, QThread::idealThreadCount()), 4);
+  // A compact survey can be scanned from one bounded read on the already-open
+  // file. Large or widely spaced traces keep the sparse, per-shard I/O path.
+  QByteArray compact;
+  const qint64 bytes = traceCount * traceSize; // derived from the verified fixed-stride file size
+  if (traceSize <= 4096 && bytes <= 8 * 1024 * 1024) {
+    if (!file.seek(firstTraceOffset) || (compact = file.read(bytes)).size() != bytes) {
+      if (error) *error = QStringLiteral("Truncated fixed-stride SEG-Y data");
+      return false;
+    }
+  }
+  const auto *data = compact.isEmpty() ? nullptr : reinterpret_cast<const uchar *>(compact.constData());
+  const int maxThreads = data ? 1 : qBound(1, QThread::idealThreadCount(), 4);
   const int shardCount = static_cast<int>(qMin<qint64>(traceCount, maxThreads));
   std::vector<Shard> shards(static_cast<size_t>(shardCount));
   const qint64 per = traceCount / shardCount;
@@ -1204,15 +1214,16 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
   for (int s = 0; s < shardCount; ++s)
   {
     Shard &sh = shards[static_cast<size_t>(s)];
-    pool.start([&sh, &cancelled, &progressMutex, path, firstTraceOffset, traceSize, traceCount, &sidx, ns, le,
+    auto scan = [&sh, &cancelled, &progressMutex, data, path, firstTraceOffset, traceSize, traceCount, &sidx, ns, le,
                 xlineOff, coordXOff, coordYOff, opts]() {
       QFile local(path);
-      if (!local.open(QIODevice::ReadOnly))
+      const auto mode = traceSize > 4096 ? QIODevice::ReadOnly | QIODevice::Unbuffered : QIODevice::ReadOnly;
+      if (!data && !local.open(mode))
       {
         sh.err = QStringLiteral("cannot reopen %1").arg(path);
         return;
       }
-      uchar h[240];
+      uchar header[240];
       for (qint64 i = sh.from; i < sh.to; ++i)
       {
         if ((i & 127) == 0 &&
@@ -1224,8 +1235,9 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
           return;
         }
         const qint64 offset = firstTraceOffset + i * traceSize;
-        if (!local.seek(offset) ||
-            local.read(reinterpret_cast<char *>(h), 240) != 240)
+        const uchar *h = data ? data + i * traceSize : header;
+        if (!data && (!local.seek(offset) ||
+            local.read(reinterpret_cast<char *>(header), sizeof(header)) != sizeof(header)))
         {
           sh.err = QStringLiteral("Truncated trace header at offset %1").arg(offset);
           return;
@@ -1267,7 +1279,11 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
         }
       }
       sh.ok = true;
-    });
+    };
+    if (data)
+      scan();
+    else
+      pool.start(scan);
   }
   while (!pool.waitForDone(50))
   {

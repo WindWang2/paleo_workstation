@@ -165,10 +165,12 @@ bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
   if (!manifestEnsureOpen(m_dbPath, m_readOnly, error))
     return false;
 
-    // 'instantiated' is intentionally not written: schema has no column for it.
+  // Project-open declares existing layers again. Preserve REPLACE semantics
+  // for changed declarations, while matching every persisted column (including NULL).
   QSqlQuery q(QSqlDatabase::database(manifestConnectionName(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral("INSERT OR REPLACE INTO layer_declarations(") + kColumns +
-            QStringLiteral(") VALUES(?,?,?,?,?,?,?)"));
+            QStringLiteral(") SELECT ?,?,?,?,?,?,? EXCEPT SELECT ") + kColumns +
+            QStringLiteral(" FROM layer_declarations WHERE layer_id=?"));
   q.addBindValue(decl.layerId);
   q.addBindValue(decl.horizon);
   q.addBindValue(decl.type);
@@ -176,6 +178,7 @@ bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
   q.addBindValue(decl.styleRef);
   q.addBindValue(decl.group);
   q.addBindValue(decl.title);
+  q.addBindValue(decl.layerId);
   if (!q.exec())
   {
     setError(error, q.lastError().text());

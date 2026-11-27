@@ -63,13 +63,10 @@ auto connectCatalogRefresh(DataCatalog *catalog, QgisProjectService *project, Da
     else refresh();
   });
   if (project)
-    QObject::connect(project, &QgisProjectService::openFinished, page, [page, pending] {
+    QObject::connect(project, &QgisProjectService::openFinished, page, [refresh, pending] {
       // Catalog adoption and projectOpened can invalidate the same view.
       // On cancellation, present any pending change to the surviving catalog.
-      if (*pending) {
-        *pending = false;
-        page->refreshAssetTable();
-      }
+      if (*pending) refresh();
     });
   return refresh;
 }

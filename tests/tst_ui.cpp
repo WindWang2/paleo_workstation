@@ -2348,6 +2348,34 @@ class TestUiShell : public QObject
       QCOMPARE(count->maximum(), 64);
     }
 
+    void newProjectDropsPreviousAnalysisUnitAndLayerDeclarations()
+    {
+      QTemporaryDir first, second;
+      auto *projects = m_ctx->projectSvc();
+      const auto close = qScopeGuard([projects] { projects->closeProject(); });
+      const QString firstPath = first.filePath("first.qgz");
+      QVERIFY(projects->createProject(firstPath));
+      LayerDeclaration source;
+      source.layerId = QStringLiteral("first-project-only");
+      source.type = QStringLiteral("vector");
+      source.source = QStringLiteral("memory:Point");
+      QVERIFY(m_ctx->manifest()->upsert(source));
+      QVERIFY(projects->writeProject());
+      auto *sub = m_win->findChild<QToolButton *>("subIntervalS1");
+      QVERIFY(sub && sub->isEnabled());
+      sub->click();
+      QVERIFY(m_ctx->selection()->activeUnit().isValid());
+
+      QVERIFY(projects->createProject(second.filePath("second.qgz")));
+      QVERIFY(!m_ctx->selection()->activeUnit().isValid());
+      LayerDeclaration result;
+      QVERIFY(m_ctx->manifest()->find(source.layerId, &result));
+      QVERIFY(result.layerId.isEmpty());
+      QVERIFY(projects->openProject(firstPath));
+      QVERIFY(m_ctx->manifest()->find(source.layerId, &result));
+      QCOMPARE(result.source, source.source);
+    }
+
     void mappingWorkbenchCanvasRibbonAndReferences()
     {
       const auto referenceDock = [this]() -> PaleoDockWidget * {
@@ -2425,7 +2453,17 @@ class TestUiShell : public QObject
       // 预测类型默认是本地层位窗聚类（seismic_mock，需层位数据）；本用例
       // 验证注入的远端替身——先切到「地震体 → 相栅格（预测服务）」。
       auto *kindBox=page->findChild<QComboBox *>("predictionKind");QVERIFY(kindBox);QVERIFY(kindBox->findData(QStringLiteral("seismic"))>=0);kindBox->setCurrentIndex(kindBox->findData(QStringLiteral("seismic")));
-      auto *run=m_win->findChild<QAction *>("ribbonRunPrediction");QVERIFY(run && run->isEnabled());run->trigger();QVERIFY(m_ctx->mappingWorkbench()->busy());QVERIFY(!run->isEnabled());QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(),5000);
+      QCOMPARE(page->horizon(), QStringLiteral("D61"));
+      auto *run = m_win->findChild<QAction *>("ribbonRunPrediction");
+      QVERIFY(run && run->isEnabled());
+      QSignalSpy busyChanges(workbench, &MappingWorkbench::predictionBusyChanged);
+      run->trigger();
+      QVERIFY2(!busyChanges.isEmpty(), qPrintable(m_win->statusBar()->currentMessage()));
+      QCOMPARE(busyChanges.first().first().toBool(), true);
+      QVERIFY(workbench->busy());
+      QVERIFY(!run->isEnabled());
+      QTRY_VERIFY_WITH_TIMEOUT(!workbench->busy(), 5000);
+      QCOMPARE(busyChanges.last().first().toBool(), false);
       // #824：地震相预测成功后自动转面，选中随之落到相面成果（源为本次相栅格）。
       const auto rasterId=page->selectedLayer();QVERIFY(!rasterId.isEmpty());
       QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->polygonizeBusy(),60000);

@@ -205,7 +205,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   // instead of silently embedding an empty declaration set.
   m_projectSvc->setDeclarationProvider(
       [this](QVector<LayerDeclaration> *out, QString *error) {
-        return m_layerSvc->tryDeclared(out, error);
+        const QString target = manifestPathFor(m_projectSvc->projectPath());
+        if (target == m_metaPath) return m_layerSvc->tryDeclared(out, error);
+        // createProject writes the destination before projectContextRequested
+        // binds its stores. An existing destination owns its own declarations.
+        out->clear();
+        return !QFileInfo::exists(target) || LayerManifest(target).readAll(out, error);
       });
 
   m_import = new DataImportService(m_store, this);
@@ -445,6 +450,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
     return true;
   });
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
+    m_selection->clearActiveUnit();
     m_projectLayerRefresh->cancel();
     if (m_mappingWorkbench)
       m_mappingWorkbench->cancelBackgroundExplanation();

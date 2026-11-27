@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QtEndian>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include "io/areamodel.h"
@@ -100,6 +101,52 @@ private slots:
    const auto before=catalog.versions().size();QVERIFY(!workflow.publishInversionJob(job,registrar,&f.error).ok);
    QCOMPARE(catalog.versions().size(),before);
   }
+ }
+ void externalSourceMustStillMatchPreparedGrid_data(){
+  QTest::addColumn<int>("changedWord");
+  QTest::newRow("additional-inline") << 188;
+  QTest::newRow("same-size-shifted-crosslines") << 192;
+  QTest::newRow("same-axis-shifted-coordinates") << 72;
+ }
+ void externalSourceMustStillMatchPreparedGrid(){
+  QFETCH(int,changedWord);
+  Fixture f;QVERIFY2(f.init(true),f.detail.c_str());
+  auto req=f.request();req.projectDirectory.clear();req.lowFreqWells.clear();
+  paleo::inv::InversionWorkflow workflow;paleo::inv::InversionWorkflow::InversionJob job;
+  QVERIFY2(workflow.prepareInversionJob(req,&job,&f.error),qPrintable(f.error));
+  QVERIFY(!job.dataServiceSource);
+  const auto original=QFileInfo(f.path).lastModified();
+  QFile body(f.path);QVERIFY(body.open(QIODevice::ReadWrite));
+  for(int trace=0;trace<(changedWord==188?1:9);++trace){
+   const qint64 header=3600+trace*(240+256*4);
+   QVERIFY(body.seek(header+changedWord));
+   const qint32 number=changedWord==188?103:changedWord==192?300+trace%3:310000+100*(trace%3);
+   char value[4];qToBigEndian(number,value);
+   QCOMPARE(body.write(value,4),qint64(4));
+  }
+  body.close();
+  QVERIFY(body.open(QIODevice::ReadWrite));
+  QVERIFY(body.setFileTime(original,QFileDevice::FileModificationTime));body.close();
+  QCOMPARE(QFileInfo(f.path).lastModified().toMSecsSinceEpoch(),original.toMSecsSinceEpoch());
+  QVERIFY(!workflow.computeInversionJob(&job));
+  QVERIFY2(job.error.contains("网格"),qPrintable(job.error));
+  QVERIFY(!job.ok);QVERIFY(job.tempVolumePath.isEmpty());QCOMPARE(job.processedTraces,0);
+ }
+ void externalInversionHonoursCancellationAfterLastTrace(){
+  Fixture f;QVERIFY2(f.init(true),f.detail.c_str());
+  auto req=f.request();req.projectDirectory.clear();req.lowFreqWells.clear();
+  paleo::inv::InversionWorkflow workflow;paleo::inv::InversionWorkflow::InversionJob job;
+  QVERIFY2(workflow.prepareInversionJob(req,&job,&f.error),qPrintable(f.error));
+  QVERIFY(!job.dataServiceSource);
+  const auto existing=f.temp.filePath("existing-output.iimp");QFile saved(existing);
+  QVERIFY(saved.open(QIODevice::WriteOnly));QCOMPARE(saved.write("original",8),qint64(8));saved.close();
+  job.tempVolumePath=existing;
+  std::atomic<bool> cancel{false};
+  QVERIFY(!workflow.computeInversionJob(&job,[&]{return cancel.load();},
+      [&](double progress){if(progress>=0.97)cancel.store(true);}));
+  QVERIFY(cancel.load());QVERIFY(job.error.contains("取消"));
+  QVERIFY(!job.ok);QVERIFY(job.tempVolumePath.isEmpty());
+  QVERIFY(saved.open(QIODevice::ReadOnly));QCOMPARE(saved.readAll(),QByteArray("original"));
  }
  void unsuccessfulRecomputeCannotPublishOldSuccess(){
   Fixture f;QVERIFY2(f.init(true),f.detail.c_str());paleo::inv::InversionWorkflow workflow;

@@ -74,6 +74,12 @@ PreviewMapCanvas::PreviewMapCanvas( QWidget *parent )
     m_renderTimer.restart();
     emit renderStarted();
   } );
+  connect( m_canvas, &QgsMapCanvas::mapRefreshCanceled, this, [this] {
+    // QGIS clears its canceled job before this signal. A replacement job owns its own status.
+    if ( m_teardown || !m_rendering || m_canvas->isDrawing() ) return;
+    m_rendering = false;
+    emit renderCanceled();
+  } );
   connect( m_canvas, &QgsMapCanvas::mapCanvasRefreshed, this, [this] {
     m_rendering = false;
     m_lastRenderMs = m_renderTimer.isValid() ? m_renderTimer.elapsed() : 0;
@@ -561,6 +567,7 @@ void PreviewMapCanvas::showPreviewOverlay( const QImage &image )
   if ( !m_overlay )
   {
     m_overlay = new QLabel( m_canvas );
+    m_overlay->setAttribute( Qt::WA_TransparentForMouseEvents );
     m_overlay->setObjectName( QStringLiteral( "previewSnapshotOverlay" ) );
     m_overlay->setAlignment( Qt::AlignCenter );
     m_overlay->setScaledContents( true );

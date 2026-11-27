@@ -77,6 +77,7 @@ class TestPreviewMapPage : public QObject
     }
     void renderCacheStoresOnCompletion();
     void lowResSnapshotShowsOverlay();
+    void cacheOverlayTracksExtentAndCancellation();
 
     void pageLayerManagementApi();
     void measureAreaReadoutLandsInStatusBar();
@@ -444,6 +445,57 @@ void TestPreviewMapPage::lowResSnapshotShowsOverlay()
   QVERIFY(m_page->mapCanvas()->overlayVisible()); // 缓存命中才先上。
   // 真渲完成后 overlay 让位。
   QTRY_VERIFY_WITH_TIMEOUT(!m_page->mapCanvas()->overlayVisible(), 5000);
+}
+
+void TestPreviewMapPage::cacheOverlayTracksExtentAndCancellation()
+{
+  auto *view = m_page->mapCanvas();
+  auto *canvas = view->canvas();
+  addPointLayer(3);
+  m_page->show();
+  QVERIFY(QTest::qWaitForWindowExposed(m_page.get()));
+  view->zoomToFullExtent();
+  QTRY_VERIFY_WITH_TIMEOUT(m_page->renderReadout().contains(QStringLiteral("ms")), 5000);
+  const QString asset = QStringLiteral("cancel-preview");
+  const auto extent = view->currentExtent();
+  m_page->setRenderCacheIdentity(asset, "v1");
+  const auto key = PreviewRenderCache::makeKey(asset, "v1", extent, canvas->width(), canvas->height(),
+                                               canvas->devicePixelRatioF());
+  QImage image(32, 24, QImage::Format_RGB32);
+  image.fill(Qt::red);
+  PreviewRenderCache::instance().store(key, image);
+  m_page->primeRenderCache();
+  QVERIFY(view->overlayVisible());
+
+  QSignalSpy canceled(view, &PreviewMapCanvas::renderCanceled);
+  bool activeAfterLateCancel = false;
+  connect(view, &PreviewMapCanvas::renderStarted, m_page.get(), [&] {
+    canvas->mapRefreshCanceled(); // Old notification while the replacement job still owns the canvas.
+    activeAfterLateCancel = view->isRendering() && canceled.isEmpty();
+    view->cancelRendering(); // QGIS stops the real job and clears its active-job pointer.
+    canvas->freeze(true);
+  }, Qt::SingleShotConnection);
+  canvas->refresh();
+  QTRY_COMPARE_WITH_TIMEOUT(canceled.count(), 1, 5000);
+  QVERIFY(activeAfterLateCancel);
+  QVERIFY(!view->isRendering());
+  QVERIFY(m_page->renderReadout().isEmpty());
+  QVERIFY(view->overlayVisible()); // The current extent still matches the cached fallback.
+
+  auto shifted = extent;
+  shifted.scale(2.0);
+  canvas->setExtent(shifted);
+  QVERIFY(!view->overlayVisible());
+  m_page->primeRenderCache();
+  QVERIFY(!view->overlayVisible());
+  canvas->setExtent(extent);
+  m_page->primeRenderCache();
+  QVERIFY(view->overlayVisible());
+  m_page->setRenderCacheIdentity({}, {});
+  QVERIFY(!view->overlayVisible());
+  m_page->primeRenderCache();
+  QVERIFY(!view->overlayVisible());
+  canvas->freeze(false);
 }
 
 void TestPreviewMapPage::pageLayerManagementApi()

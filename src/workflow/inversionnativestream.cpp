@@ -164,6 +164,7 @@ bool computeRegisteredInversion(InversionWorkflow::InversionJob* job,
  else job->meanLowFreqVarianceFraction=sum/succeeded;
  if(cancelled&&cancelled())return fail(QStringLiteral("已取消"));
  if(!stream.finish(headerFor(*job),&reason))return fail(reason);
+ if(cancelled&&cancelled())return fail(QStringLiteral("已取消"));
  scratch->setAutoRemove(false);job->tempVolumePath=outputPath;job->ok=true;
  if(progress)progress(1);return true;
 }

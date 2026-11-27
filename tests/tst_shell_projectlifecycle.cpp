@@ -1048,12 +1048,16 @@ private slots:
     QSignalSpy rebuilds(listPanel(), &DataListPanel::graphDataChanged);
     QVERIFY(service->openProjectAsync(target));
     QVERIFY(addHorizonAsset(m_ctx->importSvc()->catalog(), QDir(dir.path()), "ast-while-opening"));
+    const auto seismicId = QStringLiteral("seismic-while-opening");
+    QVERIFY(addSeismicAsset(m_ctx->importSvc()->catalog(), seismicId));
     QCOMPARE(rebuilds.size(), 0);
     if (cancel) service->cancelOpen();
     QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
     QVERIFY(!finished.first().first().toBool());
     QCOMPARE(service->projectPath(), original);
     QCOMPARE(rebuilds.size(), 1);
+    QVERIFY(sectionDock());
+    QCOMPARE(sectionDock()->interpretationAssetId(), seismicId);
     auto *types = listPanel()->findChild<QComboBox *>("assetTypeFilter");
     QVERIFY(types && types->findData(QStringLiteral("horizon")) >= 0);
     QTRY_VERIFY_WITH_TIMEOUT(!service->findChild<QFutureWatcherBase *>("projectOpenWatcher"), 30000);

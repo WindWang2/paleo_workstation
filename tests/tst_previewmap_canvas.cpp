@@ -70,6 +70,7 @@ class TestPreviewMapCanvas : public QObject
     void cacheKeyIgnoresSmallJitter();
     void cacheLruEviction();
     void cacheDiskRoundTrip();
+    void expiredDiskEntryCannotBeResurrected();
 
     void setViewExtentIsExact();
     void cancelRenderingWithoutJobIsSafe();
@@ -493,6 +494,35 @@ void TestPreviewMapCanvas::cacheDiskRoundTrip()
   QCOMPARE(back.size(), img.size());
   QCOMPARE(back.devicePixelRatio(), img.devicePixelRatio());
   QCOMPARE(QFileInfo(file).lastModified(), storedAt); // A disk hit only reads and promotes the PNG.
+}
+
+void TestPreviewMapCanvas::expiredDiskEntryCannotBeResurrected()
+{
+  auto &cache = PreviewRenderCache::instance();
+  const QString key = QStringLiteral("expired-retina");
+  const QString path = QDir(cache.diskDirPath()).filePath(key + ".png");
+  QImage img(8, 6, QImage::Format_ARGB32);
+  img.setDevicePixelRatio(1.5);
+  img.fill(Qt::red);
+  cache.store(key, img);
+  for (int i = 0; i < 64; ++i)
+    cache.store(QStringLiteral("evict-disk-%1").arg(i), img);
+  cache.clearMemoryForTesting();
+  // Reproduce the on-disk state after a Windows sharing violation prevented removal.
+  QVERIFY(img.save(path, "PNG"));
+  QVERIFY(cache.lookup(key).isNull());
+  cache.store(key, img);
+  cache.clearMemoryForTesting();
+  QCOMPARE(cache.lookup(key).devicePixelRatio(), 1.5);
+
+  cache.clearMemoryForTesting();
+  QFile broken(path);
+  QVERIFY(broken.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  broken.close();
+  QVERIFY(cache.lookup(key).isNull());
+  QVERIFY(img.save(path, "PNG"));
+  QVERIFY(cache.lookup(key).isNull()); // Only a successful store can register it again.
+  QVERIFY(QFile::remove(path));
 }
 
 void TestPreviewMapCanvas::setViewExtentIsExact()

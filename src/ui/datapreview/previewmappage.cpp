@@ -319,19 +319,7 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
   };
 
   // ---- 画布信号 → 状态条 / 鹰眼 ----
-  connect( m_canvas, &PreviewMapCanvas::renderStarted, this, &PreviewMapPage::onRenderStarted );
-  // D6.2/#376：渲染 settle 后才缓存（去抖 300ms）——平移/缩放中间帧不再
-  // 每帧整幅 grab+PNG 编码落盘，视图稳定后缓存一次终态即可。
-  m_cacheSettleTimer = new QTimer( this );
-  m_cacheSettleTimer->setSingleShot( true );
-  m_cacheSettleTimer->setInterval( 300 );
-  connect( m_cacheSettleTimer, &QTimer::timeout, this, [this] {
-    if ( m_cacheAssetId.isEmpty() || !m_canvas->canvas()->isVisible() )
-      return;
-    m_awaitingFirstSettledFrame = false;
-    m_canvas->hidePreviewOverlay(); // A queued resize may have primed again after renderCompleted.
-    PreviewRenderCache::instance().store( currentRenderCacheKey(), m_canvas->canvas()->grab().toImage() );
-  } );
+  setupRenderCache();
   connect( m_canvas, &PreviewMapCanvas::renderCompleted, this,
            [this]( qint64 ms, int layers, qint64 elements ) {
              m_renderLabel->setText( QObject::tr( "%1 层 · %2 图元 · %3 ms" )
@@ -340,9 +328,6 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
                                          .arg( ms ) );
              if ( m_overview )
                m_overview->updateViewportRect();
-             // identity 在场即预约缓存——中间帧只重置定时器，不落盘。
-             if ( !m_cacheAssetId.isEmpty() )
-               m_cacheSettleTimer->start();
            } );
   connect( m_canvas, &PreviewMapCanvas::scaleChanged, this, [this]( double s ) {
     m_scaleLabel->setText( scaleText( s ) );
@@ -925,6 +910,16 @@ void PreviewMapPage::showLowResSnapshot()
 {
   primeRenderCache();
   m_canvas->canvas()->refresh();
+}
+
+void PreviewMapPage::storeSettledSnapshot()
+{
+  if ( !m_canvas->isVisible() || m_completedKey != currentRenderCacheKey() || m_completedKey.isEmpty() )
+    return;
+  m_awaitingFirstSettledFrame = false;
+  m_canvas->hidePreviewOverlay();
+  m_snapshotKey.clear();
+  PreviewRenderCache::instance().store( m_completedKey, m_canvas->canvas()->grab().toImage() );
 }
 
 QString PreviewMapPage::currentRenderCacheKey() const

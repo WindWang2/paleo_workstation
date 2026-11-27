@@ -815,7 +815,7 @@ void PaleoMainWindow::buildVisualizationWorkspace() {
     connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this, documents] {
       m_stratigraphy->setProject({}, false);
       if (auto *unit = findChild<SubIntervalSelectorBar *>())
-        unit->reloadFromBoundaries({});
+        unit->reloadFromProject({}, {});
       QSignalBlocker blocker(m_visualizationTabs);
       documents->clear();
       setWorkspaceDocumentCaption(m_visualizationTabs, QStringLiteral("data"), {});

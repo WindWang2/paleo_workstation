@@ -122,6 +122,9 @@ class PreviewMapPage : public QWidget
   private:
     bool eventFilter( QObject *watched, QEvent *event ) override;
     QString currentRenderCacheKey() const;
+    void setupRenderCache();
+    void storeSettledSnapshot();
+    void discardStaleSnapshot();
     void onRenderStarted();
     void buildToolBar();
     void buildStatusBar();
@@ -180,8 +183,11 @@ class PreviewMapPage : public QWidget
     QString m_assetKey;
     QString m_cacheAssetId;
     QString m_cacheVersionId;
+    QString m_snapshotKey;
+    QString m_completedKey;
     class QTimer *m_cacheSettleTimer = nullptr; // #376 渲染 settle 去抖
     QgsPointXY m_lastMousePos;
     bool m_hasMousePos = false;
-    bool m_awaitingFirstSettledFrame = true;
+    bool m_awaitingFirstSettledFrame = false;
+    bool m_renderMatchesIdentity = false;
 };

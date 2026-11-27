@@ -39,6 +39,7 @@ class PreviewRenderCache
 
   private:
     void rememberInMemory( const QString &key, const QImage &image );
+    void discardDiskEntry( const QString &key );
     PreviewRenderCache();
     ~PreviewRenderCache(); // #419：m_dir 出 unique_ptr——进程退出真正清盘
     static constexpr int kMemLimit = 16;

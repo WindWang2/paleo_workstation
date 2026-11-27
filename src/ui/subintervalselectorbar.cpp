@@ -404,9 +404,17 @@ void SubIntervalSelectorBar::reloadFromBoundaries( const QStringList &orderedBou
   rebuildSchemeCombo();
   rebuildRevisionCombo();
   rebuildParentCombo();
-  rebuildSubButtons();
-  rebuildStatusPanel();
-  setStatusText( readinessText() );
+  // A refreshed draft may retain a valid choice, but a different project or
+  // a removed interval must also clear the shared prediction context.
+  const auto candidate = paleo::strat::makeSelection( m_scheme, m_current.intervalId, m_current.subIndex );
+  if ( m_current.isValid() && !( candidate == m_current ) )
+    applySelection( {}, true );
+  else
+  {
+    rebuildSubButtons();
+    rebuildStatusPanel();
+    setStatusText( readinessText() );
+  }
   if ( orderedBoundaries.size() < 2 )
     emit readinessMessage( tr( "界限不足两条，无法构成父层间单元。请在工程参数中配置层序界限。" ) );
 }
@@ -473,27 +481,8 @@ void SubIntervalSelectorBar::applyLoadedScheme( const paleo::data::Stratigraphic
   rebuildParentCombo();
   // 尽量保留当前子序号偏好。
   int prefer = ( m_current.isValid() && !m_current.aggregate && m_current.subIndex >= 1 ) ? m_current.subIndex : 1;
-  if ( m_parent && m_parent->count() > 0 )
-  {
-    const QString iid = m_parent->currentData().toString();
-    const UnitSelection sel = paleo::strat::makeSelection( m_scheme, iid, prefer );
-    if ( sel.isValid() )
-      applySelection( sel, broadcast );
-    else
-    {
-      m_current = {};
-      rebuildSubButtons();
-      setStatusText( readinessText() );
-      rebuildStatusPanel();
-    }
-  }
-  else
-  {
-    m_current = {};
-    rebuildSubButtons();
-    setStatusText( readinessText() );
-    rebuildStatusPanel();
-  }
+  const QString iid = m_parent ? m_parent->currentData().toString() : QString();
+  applySelection( paleo::strat::makeSelection( m_scheme, iid, prefer ), broadcast );
 }
 
 void SubIntervalSelectorBar::rebuildSchemeCombo( const paleo::strat::SchemeSelectorChoices *choices )

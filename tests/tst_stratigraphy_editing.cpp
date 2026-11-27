@@ -2,6 +2,8 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QPushButton>
+#include <QMessageBox>
+#include <QTimer>
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QLineEdit>
@@ -204,7 +206,18 @@ private slots:
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));StratigraphyWorkflow wf(nullptr);wf.setProject(fixture.directory.path(),false);
   StratigraphyPage page(&wf);page.show();QVERIFY(QTest::qWaitForWindowExposed(&page));
   const auto id=fixture.first;wf.addBoundary(id,120,"Manual pick");QVERIFY(wf.hasUnsavedChanges());const auto cycles=well(wf,id).cycles.size();
-  auto* load=page.findChild<QPushButton*>("loadCorrelationWells");QVERIFY(load);load->click();
+  auto* load=page.findChild<QPushButton*>("loadCorrelationWells");QVERIFY(load);
+  const bool nativeDialogsDisabled=QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+  QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+  const auto restoreDialogs=qScopeGuard([nativeDialogsDisabled]{QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,nativeDialogsDisabled);});
+  bool cancelIsDefault=false;
+  QTimer::singleShot(0,&page,[&cancelIsDefault]{
+    if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){
+      cancelIsDefault=box->defaultButton()==box->button(QMessageBox::Cancel);
+      box->reject();
+    }
+  });
+  load->click();QVERIFY(cancelIsDefault);
   QVERIFY(wf.hasUnsavedChanges());QCOMPARE(well(wf,id).cycles.size(),cycles);
   QVERIFY(wf.canUndo());auto* undoButton=page.findChild<QPushButton*>("undoInterpretation");QVERIFY(undoButton);QTRY_VERIFY(undoButton->isEnabled());
   page.activateWindow();QVERIFY(QTest::qWaitForWindowActive(&page));page.setFocus();

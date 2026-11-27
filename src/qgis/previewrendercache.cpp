@@ -66,13 +66,16 @@ QImage PreviewRenderCache::lookup( const QString &key )
     m_lru.append( key );
     return mem.value();
   }
-  const QString path = m_dir->filePath( key + QStringLiteral( ".png" ) );
-  if ( !QFile::exists( path ) )
+  const auto scale = m_diskPixelRatios.constFind( key );
+  if ( scale == m_diskPixelRatios.cend() )
     return QImage();
-  QImage img( path );
+  QImage img( m_dir->filePath( key + QStringLiteral( ".png" ) ) );
   if ( img.isNull() )
+  {
+    discardDiskEntry( key );
     return QImage();
-  img.setDevicePixelRatio( m_diskPixelRatios.value( key, 1.0 ) );
+  }
+  img.setDevicePixelRatio( scale.value() );
   rememberInMemory( key, img );
   m_diskLru.removeAll( key );
   m_diskLru.append( key );
@@ -91,6 +94,14 @@ void PreviewRenderCache::rememberInMemory( const QString &key, const QImage &ima
   }
 }
 
+void PreviewRenderCache::discardDiskEntry( const QString &key )
+{
+  if ( !m_diskPixelRatios.remove( key ) ) return;
+  m_diskLru.removeAll( key );
+  // A file locked by another Windows process may remain until temporary-directory cleanup.
+  QFile::remove( m_dir->filePath( key + QStringLiteral( ".png" ) ) );
+}
+
 void PreviewRenderCache::store( const QString &key, const QImage &image )
 {
   if ( key.isEmpty() || image.isNull() )
@@ -100,6 +111,7 @@ void PreviewRenderCache::store( const QString &key, const QImage &image )
   {
     // #396：落盘失败不得静默——键非法/盘满时磁盘层假死只剩内存层。
     qWarning( "PreviewRenderCache: PNG store failed for key %s", qPrintable( key ) );
+    discardDiskEntry( key );
     return;
   }
   // #376：磁盘层同设上限——按落盘次序逐最远删文件，长会话不再无限增长。
@@ -108,9 +120,8 @@ void PreviewRenderCache::store( const QString &key, const QImage &image )
   m_diskLru.append( key );
   while ( m_diskLru.size() > kDiskLimit )
   {
-    const QString oldest = m_diskLru.takeFirst();
-    m_diskPixelRatios.remove( oldest );
-    QFile::remove( m_dir->filePath( oldest + QStringLiteral( ".png" ) ) );
+    const QString oldest = m_diskLru.first();
+    discardDiskEntry( oldest );
   }
 }
 

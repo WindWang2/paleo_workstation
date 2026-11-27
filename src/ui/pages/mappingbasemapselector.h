@@ -12,6 +12,7 @@ class MappingBaseMapSelector : public QWidget {
 public:
   MappingBaseMapSelector(MappingWorkbench *workbench, QWidget *parent = nullptr);
   void setHorizon(const QString &horizon);
+  void setReferenceBoundary(const QString &boundary);
 signals:
   void commandRequested(const QString &action, const QVariantMap &parameters);
 private:
@@ -20,6 +21,7 @@ private:
   bool updateBoundary(const QString &id);
   MappingWorkbench *m_workbench;
   QString m_horizon;
+  QString m_referenceBoundary;
   QComboBox *m_category, *m_source;
   QLineEdit *m_thresholds;
   QComboBox *m_initialFacies;

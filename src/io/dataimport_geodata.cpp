@@ -62,9 +62,12 @@ namespace
 
   // 编图层序界面集合（plan §3/§5E）。名单经 AreaRules（本工区默认
   // C3/C6/D53/D61/D62/D63/D71/D72；第二工区经 project_area.json 换名单）。
-  bool isKnownSequenceBoundary(const QString &stem)
+  QString mappingBoundaryName(const QString &stem)
   {
-    return AreaRules::active().sequenceBoundaries.contains(stem.toUpper());
+    const auto boundaries = AreaRules::active().sequenceBoundaries;
+    for (const auto &name : boundaries)
+      if (name.compare(stem, Qt::CaseInsensitive) == 0) return name;
+    return {};
   }
 
   // ASCII 字母数字才当井名边界的一部分：井名常与中文目录词直接相连
@@ -229,14 +232,15 @@ QString importHorizonFamily(FamilyContext &ctx)
         .arg(exchange.value("horizon_name").toString(), exchange.value("parent_version_id").toString());
     return cat->addLink(relation, error) ? QString() : *error;
   }
-    const bool known = isKnownSequenceBoundary(stem);
+    const QString boundary = mappingBoundaryName(stem);
+    const bool known = !boundary.isEmpty();
     const QString sbId = QStringLiteral("sb-%1").arg(stem.toUpper());
     if (!cat->hasEntity(sbId))
     {
       CatalogEntity sb;
       sb.id = sbId;
       sb.entityType = QStringLiteral("sequence_boundary");
-      sb.name = stem.toUpper();
+      sb.name = known ? boundary : stem.toUpper();
       if (!known)
         sb.extra.insert(QStringLiteral("pending"), true); // 未决层位，不进编图 chip
       if (!cat->addEntity(sb, error))
@@ -256,7 +260,7 @@ QString importHorizonFamily(FamilyContext &ctx)
     if (known)
     {
       const QString derivedVersionId = cat->nextVersionId();
-      const QString tifName = stem.toUpper() + QStringLiteral(".tif");
+      const QString tifName = boundary + QStringLiteral(".tif");
       const QString derivedRel = DataCatalog::managedPath(QStringLiteral("derived"), assetId,
                                                           derivedVersionId, tifName);
       if (derivedRel.isEmpty())
@@ -281,8 +285,8 @@ QString importHorizonFamily(FamilyContext &ctx)
 
       // 图层清单只登记要画的结果（§2）：北向上时间栅格 + 局部测网 CRS。
       LayerDeclaration decl;
-      decl.layerId = QStringLiteral("horizon.%1").arg(stem.toUpper());
-      decl.horizon = stem.toUpper();
+      decl.layerId = QStringLiteral("horizon.%1").arg(boundary);
+      decl.horizon = boundary;
       decl.type = QStringLiteral("raster");
       decl.source = tifPath;
       decl.group = QStringLiteral("00_Data");
@@ -482,9 +486,9 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
                              const CatalogVersion &existing, const QString &sourcePath,
                              const QString &inputCrs, QString *error)
 {
-      const QString horizon = QFileInfo(existing.fileName.isEmpty() ? sourcePath : existing.fileName)
-                                  .completeBaseName().toUpper();
-      if (isKnownSequenceBoundary(horizon))
+      const QString horizon = mappingBoundaryName(
+          QFileInfo(existing.fileName.isEmpty() ? sourcePath : existing.fileName).completeBaseName());
+      if (!horizon.isEmpty())
       {
         CatalogVersion derived;
         const QVector<CatalogVersion> siblings =

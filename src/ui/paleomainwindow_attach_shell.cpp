@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_shell — 壳面与全局组件接线（W4 拆分段）
 #include "ribbontitlefit.h"
+#include "workspacefocus.h"
 #include <algorithm>
 #include "paleomainwindow.h"
 #include "commandactionbinder.h"
@@ -60,6 +61,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QLineEdit>
+#include <QLayout>
 #include <QMenu>
 #include "notifications/paleonotify.h"
 #include <QShortcut>
@@ -93,15 +95,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                       .arg(removed.size()),
                   12000);
             });
-  // W2 长任务可见性：任务进场/终态时重估底栏露出（本体在主 TU，
-  // syncBottomDockForTasks——露出/恢复都走程序化显隐，不动用户意愿）。
-  if (taskSvc)
-    connect(taskSvc, &PaleoTaskService::taskAdded, this, [this](PaleoTask *task) {
-      if (task)
-        connect(task, &PaleoTask::finished, this,
-                [this] { syncBottomDockForTasks(); });
-      syncBottomDockForTasks();
-    });
+  wireWorkspaceTaskStatus(taskSvc);
 
   // ---- ribbon 右侧组的搜索槽 + 快速访问栏的保存 ----
   if (auto *topBar = findChild<QWidget *>(QStringLiteral("locatorSlot")))
@@ -114,14 +108,14 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       const QString locatorKey = paleo::shortcuts::displayKey(
           paleo::shortcuts::keyFor(QStringLiteral("main.locator.focus")));
       locatorWidget->setPlaceholderText(
-          locatorKey.isEmpty() ? tr("搜索井位/层位")
-                               : tr("搜索井位/层位  %1").arg(locatorKey));
+          locatorKey.isEmpty() ? tr("搜索命令、井、层位")
+                               : tr("搜索命令、井、层位  %1").arg(locatorKey));
       // QGIS 定位器把 Tab 留给补全/下一条、Esc 只收结果列表：键盘进了搜索框
       // 就出不来。装 Esc 出口（Tab 不动）；顺手给输入框补无障碍名。
       installLocatorKeyboardExit(locatorWidget);
       for (auto *edit : locatorWidget->findChildren<QLineEdit *>())
         if (edit->inherits("QgsLocatorLineEdit") && edit->accessibleName().isEmpty())
-          edit->setAccessibleName(tr("搜索井位 / 层位"));
+          edit->setAccessibleName(tr("搜索命令、井位和层位"));
 
       // Wells filter: resolve the declared "wells" layer lazily (instantiate
       // on demand — the search must not force materialization at open time).
@@ -615,26 +609,52 @@ void PaleoMainWindow::attachMapBookSurface()
 }
 
 // ---------------------------------------------------------------------------
-// 方向51：AI 助手 dock 装配。幂等（页签已建则只重挂控制器）。
+// AI Agent 停靠面板装配。重挂控制器保留原面板。
 // ---------------------------------------------------------------------------
 void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
 {
   if (!controller)
     return;
-  auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
-  if (!bottomTabs)
-    return;
-  auto *existing = bottomTabs->findChild<AiAssistDock *>(
-      QStringLiteral("aiAssistantDock"));
+  auto *panel = findChild<QDockWidget *>(QStringLiteral("aiAgentDock"));
+  auto *host = panel->findChild<QWidget *>(QStringLiteral("aiAgentPanelHost"));
+  auto *existing = host->findChild<AiAssistDock *>(QStringLiteral("aiAssistantDock"));
   if (existing)
   {
     // 幂等分支：只把新控制器交给面板（面本身不重建，避免丢滚动位置）。
     existing->attachController(controller);
     return;
   }
-  auto *dock = new AiAssistDock(controller, bottomTabs);
+  auto *dock = new AiAssistDock(controller, host);
+  dock->setWorkspaceLabels([this] {
+    QStringList labels;
+    if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
+      labels << tr("工程 %1").arg(QFileInfo(m_projectSvc->projectPath()).completeBaseName());
+    const auto *layer = m_canvasCtl && m_canvasCtl->canvas() ? m_canvasCtl->canvas()->currentLayer() : nullptr;
+    const auto layerId = layer ? layer->customProperty("paleoLayerId").toString() : QString();
+    const auto version = m_workbench && !layerId.isEmpty() ? m_workbench->versionForLayer(layerId) : CatalogVersion{};
+    if (!version.id.isEmpty())
+      labels << tr("主图 %1 · v%2（%3）").arg(layer->name()).arg(version.versionNumber).arg(version.id);
+    else
+      labels << tr("主图无已登记版本");
+    return labels;
+  });
   dock->setObjectName(QStringLiteral("aiAssistantDock"));
-  bottomTabs->addTab(dock, tr("AI 助手"));
+  host->layout()->addWidget(dock);
+  panel->toggleViewAction()->setEnabled(true);
+  auto *open = findChild<QAction *>(QStringLiteral("openAiAgentAction"));
+  panel->addAction(open);
+  open->setEnabled(true);
+  connect(open, &QAction::triggered, dock, [this, panel, dock] {
+    exitWorkspaceFocus(this);
+    setProperty("inspectorBeforeAgent", false);
+    panel->show();
+    panel->raise();
+    if (panel->isFloating()) panel->activateWindow();
+    dock->focusComposer();
+  });
+  connect(panel->toggleViewAction(), &QAction::triggered, dock, [open](bool visible) {
+    if (visible) open->trigger();
+  });
   wireAgentFileImport(dock);
   // 「配置…」打开图形化配置对话框（方向62）。对话框只出表单值意图；
   // 落盘/钥匙串/应用编排走 controller->applyConfig（功能层），
@@ -806,4 +826,18 @@ void PaleoMainWindow::showProjectSaveFeedback()
   bar->addPermanentWidget(button);
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, button, &QWidget::hide);
   bar->showMessage(tr("工程已保存，以下图层仍有修改：%1").arg(names.join(QStringLiteral("、"))), 15000);
+}
+
+void PaleoMainWindow::wireWorkspaceTaskStatus(PaleoTaskService *taskSvc)
+{
+  if (taskSvc) {
+    const auto watch = [this](PaleoTask *task) {
+      if (task && !task->quiet())
+        connect(task, &PaleoTask::changed, this, &PaleoMainWindow::syncTaskStatus);
+      syncTaskStatus();
+    };
+    for (auto *task : taskSvc->tasks()) watch(task);
+    connect(taskSvc, &PaleoTaskService::taskAdded, this, watch);
+    connect(taskSvc, &PaleoTaskService::tasksChanged, this, &PaleoMainWindow::syncTaskStatus);
+  }
 }

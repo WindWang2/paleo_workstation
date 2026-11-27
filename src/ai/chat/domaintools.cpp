@@ -451,7 +451,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     {QStringLiteral("wellbore_key"),QStringLiteral("string"),QObject::tr("well_curves 可指定 well_details 中的井筒标识；返回该井筒已确认 LAS 来源的曲线引用及待确认数量"),false},
     {QStringLiteral("model_id"),QStringLiteral("string"),QObject::tr("well_facies_models 精确模型详情；缺省只列 id/version/readiness"),false},
     {QStringLiteral("version_id"),QStringLiteral("string"),
-     QObject::tr("精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）"),false},
+     QObject::tr("version 和 version_parents 的精确目录版本标识。version 返回成果类型和已登记的分析层段。"),false},
     {QStringLiteral("catalog_revision"),QStringLiteral("integer"),
      QObject::tr("目录修订条件（version/version_parents；缺省使用本次宿主目录修订）"),false},
     {QStringLiteral("well_name"), QStringLiteral("string"),

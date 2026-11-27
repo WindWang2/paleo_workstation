@@ -44,7 +44,8 @@ DataImportService::~DataImportService()
   paleo::native_model::unregisterCatalog(this);
 }
 
-void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared)
+void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared,
+                                      const QString &verifiedHorizonStamp)
 {
   paleo::native_model::unregisterCatalog(this);
   const bool projectChanged = QDir::cleanPath(m_projectDir) != QDir::cleanPath(dir);
@@ -69,7 +70,7 @@ void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<
   if (m_catalogReady && projectChanged && !m_catalog->isLockedReadOnly())
     m_catalogReady = paleo::dataimport_detail::recoverImportIntents(dir, *m_catalog, &err);
   if(m_catalogReady&&projectChanged&&!m_catalog->isLockedReadOnly())
-    m_catalogReady=paleo::area_model::inheritProjectHorizonConventions(dir,&err);
+    m_catalogReady=paleo::area_model::inheritProjectHorizonConventions(dir,&err,verifiedHorizonStamp);
   // T20a：记错误面 + 发信号——catalog 已进入拒绝写入态，后续 mutator
   // 都如实失败。状态栏/消息区接线归 paleomainwindow。
   m_catalogOpenError = m_catalogReady ? QString() : err;
@@ -82,7 +83,7 @@ void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<
   // #155：上次进程崩溃残留的 artifacts/staging/<uuid> 无人回收。只在真正
   // 切到另一工程、且本实例拿到写锁（无别的进程在用该工程）时清扫——本进程
   // 的在途 session 都属于旧工程目录，同目录重设不扫。
-  else if (!prepared && projectChanged && !m_catalog->isLockedReadOnly())
+  else if (projectChanged && !m_catalog->isLockedReadOnly())
     sweepStaleStaging(dir);
 }
 

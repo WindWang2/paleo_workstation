@@ -139,6 +139,7 @@ class DataPreviewTabs : public QWidget
 
   signals:
     void graphRequested(const QString &assetId, const QString &versionId);
+    void activePreviewCaptionChanged(const QString &title, const QString &detail);
     void versionContextChanged(const QString &assetId, const QString &versionId);
     // well_head 标签被选中/聚焦时，地图高亮该井（§4）。
     void wellSelected(const QString &wellEntityId);

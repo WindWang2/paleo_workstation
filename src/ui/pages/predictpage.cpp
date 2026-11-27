@@ -26,6 +26,7 @@
 #include <QListWidget>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScopedValueRollback>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QToolButton>
@@ -322,10 +323,12 @@ void PredictPage::setHorizons(const QStringList &horizons)
 {
   if (auto *combo = child<QComboBox>(this, "horizonCombo"))
   {
+    const QScopedValueRollback<bool> replacing(m_replacingHorizons, true);
     combo->clear();
-    combo->addItems(horizons); // clear/addItems 触发 currentIndexChanged → 历史清单随层位刷新
+    combo->addItems(horizons);
   }
   updateReadiness();
+  refreshHistory();
 }
 
 void PredictPage::setAlgorithms(const QStringList &algIds)
@@ -877,8 +880,23 @@ void PredictPage::setMamclBusy(bool busy)
 // m2(A)：历史结果清单
 // ---------------------------------------------------------------------------
 
+void PredictPage::showEvent(QShowEvent *event)
+{
+  QWidget::showEvent(event);
+  if (m_historyPending)
+    refreshHistory();
+}
+
 void PredictPage::refreshHistory()
 {
+  if (m_replacingHorizons)
+    return;
+  if (parentWidget() && !isVisible())
+  {
+    m_historyPending = true;
+    return;
+  }
+  m_historyPending = false;
   auto *list = child<QListWidget>(this, "historyList");
   auto *horizons = child<QComboBox>(this, "horizonCombo");
   if (!list)

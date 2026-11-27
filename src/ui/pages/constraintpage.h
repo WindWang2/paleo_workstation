@@ -110,6 +110,9 @@ class ConstraintPage : public QWidget
   protected:
     void showEvent(QShowEvent *event) override;
   private:
+    void refreshHorizonData(bool horizonChanged);
+    bool m_horizonDataPending = false;
+    bool m_replacingHorizons = false;
     void suggestFactorCellSize();
     void arrangeFactorFlow(QWidget *content, QVBoxLayout *layout);
     void refreshFactorDefaultsHint();

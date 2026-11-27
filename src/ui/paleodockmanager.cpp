@@ -1,5 +1,7 @@
 // 层：视图
 #include "paleodockmanager.h"
+#include "workspacefocus.h"
+#include "workspacedockdocuments.h"
 #include "paleotheme.h"
 
 #include <QApplication>
@@ -33,7 +35,11 @@ public:
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   }
-  QSize sizeHint() const override { return {320, 240}; }
+  QSize sizeHint() const override {
+    const QString name = parentWidget() ? parentWidget()->objectName() : QString();
+    const bool navigation = name == QLatin1String("layerTreeDock") || name == QLatin1String("dataListDock");
+    return {navigation ? PaleoTheme::tokens().spacingLg * 9 : 320, 240};
+  }
   QSize minimumSizeHint() const override { return {120, 80}; }
 };
 constexpr Qt::DockWidgetArea areas[] = {Qt::LeftDockWidgetArea, Qt::RightDockWidgetArea,
@@ -66,7 +72,7 @@ PaleoDockManager::PaleoDockManager(QMainWindow *window, const QString &settingsK
     m_guides.append(guide);
   }
   m_dragTimer.setInterval(16);
-  connect(&m_dragTimer, &QTimer::timeout, this, &PaleoDockManager::updateDrag);
+  connect(&m_dragTimer, &QTimer::timeout, this, &PaleoDockManager::pollDrag);
   qApp->installEventFilter(this);
 }
 
@@ -111,6 +117,7 @@ void PaleoDockManager::captureDefaultLayout()
 
 void PaleoDockManager::restoreDefaultLayout()
 {
+  WorkspaceLayoutScope ordinaryLayout(m_window);
   if (m_defaultState.isEmpty())
     return;
   // Late-created panels are not part of the initial snapshot.
@@ -131,18 +138,27 @@ void PaleoDockManager::setIntentHooks(IntentHooks hooks)
 
 QVariantMap PaleoDockManager::captureIntent() const
 {
-  return m_intentHooks.capture ? m_intentHooks.capture() : QVariantMap();
+  auto intent = m_intentHooks.capture ? m_intentHooks.capture() : QVariantMap();
+  if (auto *docs = m_window->findChild<WorkspaceDockDocuments *>()) {
+    const auto visibility = docs->promotedDockVisibility();
+    if (!visibility.isEmpty()) intent.insert(QStringLiteral("workspaceDockVisibility"), visibility);
+  }
+  return intent;
 }
 
 bool PaleoDockManager::restoreLayout(const QByteArray &state, const QVariantMap *savedIntent)
 {
+  WorkspaceLayoutScope ordinaryLayout(m_window);
   const QVariantMap before = captureIntent();
   // restoreState 驱动 dock->setVisible，PaleoDockWidget 会把它当作用户意愿；
   // 恢复后先还原意愿快照，再让宿主按当前页策略重落显隐。
   if (!m_window->restoreState(state))
     return false;
+  const auto &intent = savedIntent ? *savedIntent : before;
+  if (auto *docs = m_window->findChild<WorkspaceDockDocuments *>())
+    docs->restoreDockVisibility(m_window, intent.value(QStringLiteral("workspaceDockVisibility")).toMap());
   if (m_intentHooks.apply)
-    m_intentHooks.apply(savedIntent ? *savedIntent : before);
+    m_intentHooks.apply(intent);
   return true;
 }
 
@@ -194,6 +210,7 @@ QMenu *PaleoDockManager::createMenu(QWidget *parent)
   menu->addAction(tr("自适应布局"), this, &PaleoDockManager::fitLayout);
   menu->addAction(tr("保存当前布局"), this, [this] {
     QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    WorkspaceLayoutScope ordinaryLayout(m_window);
     settings.setValue(m_settingsKey, m_window->saveState());
     const QString intentKey = m_settingsKey + QStringLiteral("Intent");
     const QVariantMap intent = captureIntent();
@@ -291,6 +308,8 @@ bool PaleoDockManager::eventFilter(QObject *object, QEvent *event)
           mouse->position().y() < content.top() && !content.contains(mouse->position().toPoint())))) {
       m_dragDock = dock;
       m_pressPosition = mouse->globalPosition().toPoint();
+      m_pointerPosition = m_pressPosition;
+      m_lastSystemCursor = QCursor::pos();
       m_dragTimer.start();
     }
   }
@@ -298,25 +317,44 @@ bool PaleoDockManager::eventFilter(QObject *object, QEvent *event)
       static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape)
     endDrag(false);
   if (m_dragDock && (event->type() == QEvent::MouseMove ||
-                     (object == m_dragDock && event->type() == QEvent::Move)))
-    updateDrag();
+                     event->type() == QEvent::NonClientAreaMouseMove)) {
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->buttons().testFlag(Qt::LeftButton)) {
+      m_lastSystemCursor = QCursor::pos();
+      updateDrag(mouse->globalPosition().toPoint(), mouse->modifiers());
+    }
+  }
   if (m_dragDock && (event->type() == QEvent::MouseButtonRelease ||
-                    event->type() == QEvent::NonClientAreaMouseButtonRelease))
-    endDrag(true);
+                    event->type() == QEvent::NonClientAreaMouseButtonRelease)) {
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->button() == Qt::LeftButton) {
+      updateDrag(mouse->globalPosition().toPoint(), mouse->modifiers());
+      endDrag(true);
+    }
+  }
   return QObject::eventFilter(object, event);
 }
 
-void PaleoDockManager::updateDrag()
+void PaleoDockManager::pollDrag()
 {
   if (!m_dragDock) {
     endDrag(false);
     return;
   }
-  if (!(QApplication::mouseButtons() & Qt::LeftButton)) {
-    endDrag(true);
-    return;
-  }
   const QPoint global = QCursor::pos();
+  // Window managers can move a floating dock without delivering Qt mouse
+  // moves. Only a new system position may supersede a delivered pointer event.
+  if (global != m_lastSystemCursor)
+    m_pointerPosition = global;
+  m_lastSystemCursor = global;
+  updateDrag(m_pointerPosition, QApplication::keyboardModifiers());
+  if (!(QApplication::mouseButtons() & Qt::LeftButton))
+    endDrag(true);
+}
+
+void PaleoDockManager::updateDrag(const QPoint &global, Qt::KeyboardModifiers modifiers)
+{
+  m_pointerPosition = global;
   if (!m_dragging && (global - m_pressPosition).manhattanLength() < QApplication::startDragDistance())
     return;
   m_dragging = true;
@@ -336,7 +374,7 @@ void PaleoDockManager::updateDrag()
     QRect(QPoint(c.x() - labelSize.width() / 2, bounds.bottom() - 32), labelSize)};
   m_target = Qt::NoDockWidgetArea;
   const bool allowed = m_window->isVisible() && bounds.contains(pos) &&
-                       !(QApplication::keyboardModifiers() & Qt::ControlModifier);
+                       !modifiers.testFlag(Qt::ControlModifier);
   const auto &t = PaleoTheme::tokens(PaleoTheme::currentTheme());
   for (int i = 0; i < 4; ++i) {
     const bool active = allowed && targets[i].adjusted(-8, -8, 8, 8).contains(pos);

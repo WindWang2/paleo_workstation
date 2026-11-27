@@ -42,6 +42,11 @@ MappingReferenceCanvas::~MappingReferenceCanvas() { clearReference(); }
 QgsMapCanvas *MappingReferenceCanvas::canvas() const { return PreviewMapCanvas::canvas(); }
 bool MappingReferenceCanvas::hasReference() const { return !m_layer.isNull(); }
 
+void MappingReferenceCanvas::onLegendChanged(QObject *receiver, std::function<void(const QVariantList &)> handler)
+{
+  connect(this, &MappingReferenceCanvas::legendChanged, receiver, std::move(handler));
+}
+
 // 参考证据画布的唯一构造点（issue #825）：视图层经 qgis/referenceview.h 的
 // 工厂拿接口，不 include 本 TU 的头，避免 QtWidgets 传递记录边。
 ReferenceView *createReferenceView(QgsMapCanvas *mainCanvas, QgsProject *project,

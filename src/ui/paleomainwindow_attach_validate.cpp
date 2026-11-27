@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_validate — 验证与布井辅助接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "workspacedockdocuments.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../linkage/threewaylocator.h"
@@ -50,9 +51,7 @@ void PaleoMainWindow::attachValidatePage(ValidatePage *validatePage,
             [this](const QString &tabId) {
               if (tabId == QLatin1String("correlation") && m_wellSectionDock)
               {
-                // 定位请求是显式用户意图：连 dock 一起 show+raise。
-                m_wellSectionDock->setVisible(true);
-                m_wellSectionDock->raise();
+                WorkspaceDockDocuments::open(this, m_wellSectionDock);
               }
             });
     connect(threeWay, &ThreeWayLocator::correlationFocusRequested, this,

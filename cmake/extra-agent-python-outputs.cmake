@@ -13,4 +13,9 @@ endif()
 option(PALEO_TEST_PI_GENERATED_OUTPUTS_NATIVE "Register actual Pi/Host/SDK/Python output acceptance" OFF)
 if(PALEO_TEST_PI_GENERATED_OUTPUTS_NATIVE)
   add_paleo_test(tst_pigeneratedoutputs_native LIBS paleo_app_agentproviders Qt6::Concurrent Qt6::Gui Qt6::Network)
+  if(WIN32)
+    # AppContainer creates its ephemeral profile in the real per-user registry.
+    set_property(TEST tst_pigeneratedoutputs_native APPEND PROPERTY
+      ENVIRONMENT_MODIFICATION "PALEO_TEST_REGISTRY_HIVE=set:native")
+  endif()
 endif()

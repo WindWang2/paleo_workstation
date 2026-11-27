@@ -92,7 +92,7 @@ public:
                   QString *error);
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
-  QVariantList baseMapCandidates(const QString &horizon) const;
+  QVariantList baseMapCandidates(const QString &horizon, const QString &referenceBoundary = {}) const;
   QVariantList mapBoundaries() const;
   QVariantMap prepareMapBoundary(const QString &id, QString *error) const;
   bool seedMapBoundary(const QString &draft, const QVariantMap &boundary, int code, QString *error);
@@ -115,8 +115,12 @@ public:
   QString polygonize(const QString &layerId, QString *error);
   QVariantList clusterPatchChoices(const QString &layerId, QString *error, qint64 firstFid = 0, int limit = 129) const;
   qint64 clusterSelection(const QString &layerId, int cluster, QList<qint64> &highlight, QString *error) const;
+  using ClusterScopeReady = std::function<void(qint64, QList<qint64>, const QString &)>;
+  void previewClusterScope(const QString &layerId, int cluster, QObject *receiver, ClusterScopeReady completed);
   QString assignClusterFacies(const QString &layerId, qint64 patchId, bool wholeCluster,
                               int faciesCode, QString *error, qint64 featureId = -1);
+  QString saveClusterAssignments(const QString &layerId, const QVariantList &assignments,
+                                 const QVariantList &expectedSchema, QString *error);
   // 相栅格转面后台任务（任务中心可见、可取消）：prepare 在主线程做与同步
   // 路径相同的校验并冻结输入（栅格 URI、父版本、相分类、工程目录），worker
   // 上独立建层跑 paleo:paleo_facies_polygonize 并同步相属性，commit 回主线程
@@ -400,7 +404,11 @@ private:
                                QString *error, const DerivedFileFingerprint *fingerprint = nullptr,
                                const QVariantMap &importMeta = {});
   void ensureVersionIndex() const;
-  bool ready(const QString &horizon, QString *error) const;
+  bool ready(const QString &horizon, QString *error, const paleo::strat::UnitSelection *sourceUnit = nullptr) const;
+  bool readyClusterSurface(const CatalogVersion &surface, paleo::strat::UnitSelection &unit, QString *error) const;
+  QVariantList wellSourcesForSurface(const CatalogVersion &surface, paleo::strat::UnitSelection &unit, QString *error);
+  bool saveFaciesForUnit(const QString &horizon, const QVariantList &items,
+                         const paleo::strat::UnitSelection &unit, QString *error);
   QString schemaVersion(const QString &horizon) const;
   QString record(const QString &path, const QString &horizon,
                  const QString &kind, const QString &title, const QString &type,

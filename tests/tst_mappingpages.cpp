@@ -10,6 +10,7 @@
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QStackedWidget>
 #include <QTreeWidget>
 #include <QGroupBox>
 #include "../src/ui/propertymodel/propertymodelpanel.h"
@@ -53,6 +54,7 @@
 
 #include "../src/metadata/layermanifest.h"
 #include "../src/catalog/datacatalog.h"
+#include "../src/linkage/selectioncontext.h"
 #include "../src/workflow/workflows.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/services/algoparamschema.h"
@@ -80,6 +82,7 @@ class PredictPageTests : public QObject
     void readinessSummaryGatesRun();                    // 预测专项 P0：准备检查
     void onnxRawTensorInputIsCollapsedAdvanced();       // 预测专项 P1：张量入口降级为高级/调试           // m2(A)：任务化忙碌/取消/进度
     void historyListFiltersAndShows();          // m2(A)：历史清单过滤/显示/刷新
+    void hiddenPredictionHistoryFollowsLatestHorizonOnShow();
 
   private:
     static LayerDeclaration makeDecl(const QString &layerId, const QString &horizon,
@@ -603,6 +606,31 @@ void PredictPageTests::historyListFiltersAndShows()
   QCOMPARE(history->count(), 4);
 }
 
+void PredictPageTests::hiddenPredictionHistoryFollowsLatestHorizonOnShow()
+{
+  QTemporaryDir dir;
+  LayerManifest manifest(dir.filePath("project.sqlite"));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+  QStackedWidget stack;
+  stack.addWidget(new QWidget);
+  auto *page = new PredictPage(nullptr, &layers, &stack);
+  stack.addWidget(page);
+  stack.show();
+  auto *history = page->findChild<QListWidget *>("historyList");
+  auto *horizons = page->findChild<QComboBox *>("horizonCombo");
+  QVERIFY(history && horizons);
+  page->setHorizons({"T1", "T2"});
+  QString error;
+  for (const QString &horizon : QStringList{"T1", "T2"})
+    QVERIFY2(layers.declare(makeDecl("predict." + horizon, horizon, "02_Prediction"), &error), qPrintable(error));
+  horizons->setCurrentIndex(1);
+  QCOMPARE(history->count(), 0);
+  stack.setCurrentWidget(page);
+  QCOMPARE(history->count(), 1);
+  QCOMPARE(history->item(0)->data(Qt::UserRole).toString(), QStringLiteral("predict.T2"));
+}
+
 // ---- 任务 B（单因素图页）：词表/双区/信号/互斥/折叠区（平面栈）。------
 // 真实栈（生成链 declare/样式落盘/等值线）在 tst_factorworkflow.cpp。
 class FactorPageTests : public QObject
@@ -641,6 +669,7 @@ class FactorPageTests : public QObject
     void factorResultsTableShowsLineageColumn();   // P4：成果表第 4 列「来源与质控」+ 明细 tooltip
     void interpretiveResultsShowInFactorResultsTable(); // U7：制图工作场进成果表 + 解释性等值线回执即时刷新
     void wellFactorFieldFetchesAreCached();        // U10：字段清单按（层位,数据世代）缓存，勾选不重取
+    void hiddenFactorPageReadsFieldsOnceForLatestUnit();
     void wellFactorCacheInvalidatesOnLayerFileEdit(); // U10/S5：wells 图层文件就地编辑后缓存失效
     void parseLevelsAboveCapCountsDropped();       // U9：固定级别数上限——超限 token 按 dropped 计数（UI 层）
 };
@@ -959,6 +988,42 @@ void FactorPageTests::wellFactorFieldFetchesAreCached()
   QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 2 );
   factors->item( 1, 0 )->setCheckState( Qt::Checked );
   QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 2 );
+}
+
+void FactorPageTests::hiddenFactorPageReadsFieldsOnceForLatestUnit()
+{
+  QTemporaryDir dir;
+  DataCatalog catalog;
+  QString error;
+  QVERIFY2(catalog.open(dir.path(), &error), qPrintable(error));
+  ConstraintWorkflow workflow(nullptr, nullptr);
+  workflow.setCatalog(&catalog, dir.path());
+  SelectionContext selection;
+  QStackedWidget stack;
+  stack.addWidget(new QWidget);
+  auto *page = new ConstraintPage(&workflow, &stack);
+  stack.addWidget(page);
+  stack.show();
+  page->setProperty("paleo.selection", QVariant::fromValue<QObject *>(&selection));
+  connect(&selection, &SelectionContext::activeUnitChanged, page, &ConstraintPage::refreshAnalysisUnit);
+  const int before = page->property("paleo.page.fieldrefreshcount").toInt();
+  page->setHorizons({"T1", "T2"});
+  paleo::strat::UnitSelection unit;
+  unit.schemeId = "scheme";
+  unit.revision = "r1";
+  unit.aggregate = true;
+  for (const QString &top : QStringList{"T1", "T2"}) {
+    unit.topBoundary = top;
+    unit.intervalId = top + "-base";
+    selection.setActiveUnit(unit);
+  }
+  const auto *horizons = page->findChild<QComboBox *>("horizonCombo");
+  QVERIFY(horizons);
+  QCOMPARE(horizons->currentText(), QStringLiteral("T2"));
+  QCOMPARE(page->property("paleo.page.fieldrefreshcount").toInt(), before);
+  stack.setCurrentWidget(page);
+  QCOMPARE(page->property("paleo.page.fieldrefreshcount").toInt(), before + 1);
+  QCOMPARE(page->wellFactorParams().value("unitSelection").toMap(), paleo::strat::toMap(unit));
 }
 
 // U10/S5-Med：缓存键须含 wells 声明 source 的 size+mtime——既有 wells 图层被

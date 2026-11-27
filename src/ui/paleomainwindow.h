@@ -197,6 +197,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void openTaskCenter();
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
+    void refreshMappingHorizons();
     // #153/#154/#156/#158：工程即将关闭/切换（QgisProjectService::
     // projectAboutToClose）——清掉所有工程作用域的视图状态：预览标签与
     // PreviewDoc 会话缓存、测井对比井集、3D/剖面地震体、属性建模在途作业。
@@ -258,9 +259,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // goal/facies-automapping：证据合成 + QA 报告面板。幂等（dock 已建则只
     // 更新指针）。面板只发意图，链路在 FaciesMappingWorkflow。
     void attachFaciesMapping(FaciesMappingWorkflow *wf);
-    // 方向51：AI 地质对话助手——底栏加「AI 助手」页签，挂 AppContext 持有的
-    // AiChatController。编排与会话落盘全在 workflow 层，这里只装配面板 +
-    // 把「配置…」意图翻成状态栏提示（配置对话框递延，见 TODOS.md）。
+    // 为独立的 AI Agent 停靠面板连接 AppContext 的会话控制器与工程上下文。
     void attachAiAssistant(class AiChatController *controller);
     // I4：语义导航适配器工厂——把主窗持有的预览标签宿主/选择总线/井地图
     // 链接装进 AgentNavigationAdapter（窄接线，parent=主窗；幂等）。空入参
@@ -449,9 +448,8 @@ public:
     // setWindowModified，工程 isDirtyChanged/projectSaved 驱动）。无工程时
     // 只有产品名。工程打开/保存后由接线刷新。
     void updateWindowTitle();
-    // W2 长任务可见性：有运行中任务时自动露出底栏任务页（程序化显隐，不动
-    // userWantsVisible）；任务清空后恢复用户原可见态。
-    void syncBottomDockForTasks();
+    void wireWorkspaceTaskStatus(PaleoTaskService *taskSvc);
+    void syncTaskStatus();
     // m2(D) 页面图层档案：四个编图页切到/层位 chip 切换后重应用当前页档案
     // （QgisLayerProfileService::applyPageProfile）。数据页无档案，no-op。
     void applyCurrentPageProfile();
@@ -549,18 +547,15 @@ public:
     StratigraphyPage *m_stratigraphyPage = nullptr;
     QTabBar *m_visualizationTabs = nullptr;
     QList<QPointer<QDockWidget>> m_correlationHiddenDocks;
-    QByteArray m_beforeCorrelationWindowState;
     QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=workspace
     QStackedWidget *m_workspaceStack = nullptr; // page0=画布面，page1=数据面，page2=地层对比
     PaleoDockWidget *m_dataListDock = nullptr;
     QWidget *m_dataListHost = nullptr;
     DataPreviewTabs *m_previewTabs = nullptr;
     bool m_previewMaximized = false;
-    QByteArray m_preMaxWindowState;
     PaleoDockWidget *m_leftDock = nullptr;
     PaleoDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;
-    bool m_bottomDockAutoShown = false; // W2：任务驱动的自动露出（恢复用）
     // ---- wave/layer-platform：左 dock 图层平台（面板 + 档案工具条 + 服务） ----
     LayerTreePanel *m_layerPanel = nullptr;
     QgisLayerProfileService *m_profileSvc = nullptr;
@@ -676,6 +671,8 @@ public:
     // 命令分发链已迁出为 workbench/mappingworkbenchcommandcontroller（#749）。
     using WorkbenchLegendFn = std::function<void(const QString &)>;
     using WorkbenchShowFn = std::function<bool(const QString &, QString *)>;
+    void attachClusterInspector(MappingWorkbench *, const WorkbenchShowFn &);
+    bool resolveClusterDrafts();
     using WorkbenchOpenWellsFn = std::function<void(const QString &)>;
     using WorkbenchBeginEditFn = std::function<bool(const QString &)>;
     // 证据面板/图谱联动接线（_evidence.cpp）。

@@ -1,6 +1,7 @@
 // 层：功能
 #include "projectsetup.h"
 #include "folderimport.h"
+#include "../domain/arearules.h"
 #include "../io/areamodel.h"
 #include "../io/areamodelpublication.h"
 #include "../io/originalpackage.h"
@@ -90,6 +91,8 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       emit finished(publicationError, false); return;
     }
     paleo::area_model::registerProject(project, m_imports->importService());
+    AreaRules::setProjectDir(project, paleo::area_model::mappingBoundaries(project));
+    emit projectHorizonsChanged();
     auto projection = preview;
     const auto crs = QString::fromUtf8(coordinates->coordinateSystem);
     const bool confirmed = coordinates->selectionBasis == "import" || coordinates->selectionBasis == "default";

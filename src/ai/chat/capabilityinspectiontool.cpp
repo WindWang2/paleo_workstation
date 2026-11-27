@@ -52,6 +52,8 @@ void appendCapabilityInspectionTool(QVector<AiToolSpec> &specs) {
        {QStringLiteral("default"), QStringLiteral("capabilities"),
         QStringLiteral("algorithms"), QStringLiteral("tools"),
         QStringLiteral("commands")}},
+      {QStringLiteral("query"), QStringLiteral("string"),
+       QObject::tr("list 搜索名称、标识或说明，多个关键词用空格分隔，最多 128 个字符"), false},
       {QStringLiteral("candidate"), QStringLiteral("object"),
        QObject::tr("check 候选（二选一）：{tool,arguments} 或 "
                    "{algorithm,contract_version,parameters}；实参只是数据，"

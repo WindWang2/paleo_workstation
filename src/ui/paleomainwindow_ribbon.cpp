@@ -4,6 +4,8 @@
 // .cpp 的 registerPageShortcuts，调用点保持原行序）+ 面板菜单与右键入口 +
 // categoryForPage 查找。
 #include "paleomainwindow.h"
+#include "workspacefocus.h"
+#include <QSettings>
 #include "paleomainwindow_internal.h"
 
 #include "paleoicons.h"
@@ -13,6 +15,7 @@
 #include "commandactionbinder.h" // U1：文件菜单/任务/右键菜单动作 → 命令
 #include "../workflow/commanddispatcher.h"
 #include "ribboncollapse.h"  // #860 分组自适应折叠
+#include "shortcuts/shortcutcatalog.h"
 #include "help/helpsurface.h" // 方向63 帮助面（菜单 + F1 总表挂主窗）
 #include "pages/pageshared.h" // kPageIds（页签序）
 #include "datapreview/datapreviewtabs.h" // mapConfigurationChanged 重开测区标签
@@ -69,8 +72,8 @@ void PaleoMainWindow::buildRibbon()
   SARibbonBar *bar = ribbonBar();
   if (!bar)
     return;
-  // 快速访问放在页签上方，窄窗优先把空间留给工作流。
-  bar->setRibbonStyle(SARibbonBar::RibbonStyleLooseThreeRow);
+  // Compact shares the navigation row; ThreeRow keeps the expanded command groups intact.
+  bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
   auto *quickAccess = bar->quickAccessBar();
   quickAccess->setIconSize(QSize(16, 16));
   // R6 #860：字换行让按钮按固定列宽折行（不再被长标签撑宽），组间距收紧；
@@ -106,6 +109,10 @@ void PaleoMainWindow::buildRibbon()
     action->setWhatsThis(help);
     panel->addLargeAction(action);
     bindCommand(commandId, [this, page, type](const QVariantMap &) {
+      if (page == QLatin1String("predict") || page == QLatin1String("constraint")) {
+        exitWorkspaceFocus(this);
+        m_rightDock->show();
+      }
       showPage(page);
       if (!type.isEmpty()) if (auto *combo = findChild<QComboBox *>(QStringLiteral("predictTypeCombo")))
         combo->setCurrentIndex(combo->findData(type));
@@ -163,6 +170,11 @@ void PaleoMainWindow::buildRibbon()
     modeButton->setArrowType(bar->isMinimumMode() ? Qt::DownArrow : Qt::UpArrow);
   };
   connect(bar, &SARibbonBar::ribbonModeChanged, this, syncRibbonMode);
+  connect(bar, &SARibbonBar::ribbonModeChanged, this, [this, bar] {
+    if (property("workspaceRibbonInitialized").toBool() && !property("workspaceFocused").toBool())
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).setValue(
+          QStringLiteral("ui/workspace/compactRibbon"), bar->isMinimumMode());
+  });
   syncRibbonMode();
 
   // vendor SARibbon 把命令钮设成 NoFocus：补 TabFocus + 聚焦滚入；滚动按钮
@@ -242,6 +254,21 @@ void PaleoMainWindow::buildRibbonRightGroup(SARibbonBar *bar)
   // SARibbon 原生标题行固定高度；纵向留白会裁切搜索文字，保持零内外留白。
   slotLay->setContentsMargins(0, 0, PaleoTheme::tokens().spacingSm, 0);
   right->addWidget(locatorSlot);
+
+  auto *openAgent = new QAction(PaleoIcons::commandIcon(QStringLiteral("aiAssistant")), tr("AI Agent"), this);
+  openAgent->setObjectName(QStringLiteral("openAiAgentAction"));
+  openAgent->setEnabled(false);
+  paleo::shortcuts::bindAction(QStringLiteral("main.agent.open"), openAgent);
+  openAgent->setToolTip(tr("打开 AI Agent（%1）").arg(openAgent->shortcut().toString(QKeySequence::NativeText)));
+  addAction(openAgent);
+  auto *agentButton = new QToolButton(right);
+  agentButton->setObjectName(QStringLiteral("aiAgentButton"));
+  agentButton->setDefaultAction(openAgent);
+  agentButton->setAccessibleName(openAgent->text());
+  agentButton->setFocusPolicy(Qt::TabFocus);
+  agentButton->setAutoRaise(true);
+  agentButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  right->addWidget(agentButton)->setProperty("paleo.keepInTitleRow", true);
 
   // 布局管理入口：右键 dock 标题栏使用同一菜单，包含显隐与布局命令。
   auto *panelsBtn = new QToolButton(right);

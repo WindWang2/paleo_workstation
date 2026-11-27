@@ -66,6 +66,7 @@ class TestI5CapabilityInspection : public QObject {
 private slots:
   void listIsStableSortedPaginatedAndCursorBound();
   void commandsOnlyWithExplicitFilter();
+  void keywordSearchMatchesLocatorAndBindsPagination();
   void describeCapabilityExactVersionAliasAndNoFallback();
   void describeAlgorithmVersionsWithoutMerging();
   void describeToolReflectsRealContractAndHonestRelations();
@@ -129,6 +130,36 @@ void TestI5CapabilityInspection::commandsOnlyWithExplicitFilter() {
     QCOMPARE(entry.value("kind").toString(), QStringLiteral("command"));
     // View 命令在清单里只是声明事实，不带执行入口。
     QVERIFY(!entry.contains(QStringLiteral("target")));
+  }
+}
+
+void TestI5CapabilityInspection::keywordSearchMatchesLocatorAndBindsPagination() {
+  QJsonObject args{{"mode", "list"}, {"filter", "commands"}, {"query", QStringLiteral("井位  导入")}};
+  auto result = inspect(args);
+  QVERIFY(result.ok);
+  const auto rows = payloadJson(result).value("entries").toArray();
+  bool found = false;
+  for (const auto row : rows)
+    if (row.toObject().value("id") == QLatin1String("data.import.wells")) {
+      found = true;
+      QVERIFY(!row.toObject().value("title").toString().isEmpty());
+    }
+  QVERIFY(found);
+  args["query"] = QStringLiteral("井位 无此命令");
+  QCOMPARE(payloadJson(inspect(args)).value("totalCount").toInt(), 0);
+  args["query"] = QStringLiteral("project");
+  args["page_size"] = 1;
+  const QString cursor = payloadJson(inspect(args)).value("nextCursor").toString();
+  QVERIFY(!cursor.isEmpty());
+  args["cursor"] = cursor;
+  args["query"] = QStringLiteral("  PROJECT  ");
+  QVERIFY(inspect(args).ok);
+  args["query"] = QStringLiteral("projec");
+  QCOMPARE(inspect(args).code, QStringLiteral("cursor_stale"));
+  args.remove("cursor");
+  for (const QJsonValue &invalid : {QJsonValue(17), QJsonValue(QString(129, u'x'))}) {
+    args["query"] = invalid;
+    QVERIFY(!inspect(args).ok);
   }
 }
 

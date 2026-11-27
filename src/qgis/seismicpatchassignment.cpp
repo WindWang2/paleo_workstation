@@ -201,35 +201,65 @@ bool SeismicClusterPatches::writeWellAssignment(const QString &sourcePath, const
 bool SeismicClusterPatches::writeManualAssignment(const QString &sourcePath, const QString &outputPath,
     const QVariantList &facies, qint64 patchId, bool wholeCluster, int faciesCode,
     int *changedCount, QString *error, qint64 featureId) {
-  const bool validCode = std::any_of(facies.begin(), facies.end(), [faciesCode](const QVariant &entry) {
-    return entry.toMap().value("code").toInt() == faciesCode && faciesCode > 0;
-  });
-  if (!validCode) return fail(error, QObject::tr("请选择目标分类中的微相"));
-  OGRLayer *layer = nullptr;
-  const auto ds = openPatches(sourcePath, layer, error);
-  if (!ds) return false;
-  OGRFeatureUniquePtr selected;
-  if (featureId >= 0) {
-    selected.reset(layer->GetFeature(featureId));
-  } else {
-    if (layer->SetAttributeFilter(QStringLiteral("patch_id = %1").arg(patchId).toUtf8().constData()) != OGRERR_NONE)
+  return writeManualAssignments(sourcePath, outputPath, facies,
+      {QVariantMap{{"patch_id", patchId}, {"feature_id", featureId}, {"whole_cluster", wholeCluster},
+                   {"facies_code", faciesCode}}}, changedCount, error);
+}
+
+namespace {
+struct Assignment { int order = -1, code = 0; };
+bool resolveScope(OGRLayer *layer, const QVariantMap &row, OGRFeatureUniquePtr &selected, QString *error) {
+  const auto fid = row.value("feature_id", -1).toLongLong();
+  const auto patch = row.value("patch_id").toLongLong();
+  if (fid >= 0) selected.reset(layer->GetFeature(fid));
+  else {
+    if (layer->SetAttributeFilter(QStringLiteral("patch_id = %1").arg(patch).toUtf8().constData()) != OGRERR_NONE)
       return fail(error, QObject::tr("无法定位所选聚类面"));
     selected.reset(layer->GetNextFeature());
     OGRFeatureUniquePtr duplicate(layer->GetNextFeature());
+    layer->SetAttributeFilter(nullptr);
     if (duplicate) return fail(error, QObject::tr("原始图斑已分割，请从解释图中选择具体的面"));
   }
-  if (!selected || (!field(selected.get(), "patch_id").isNull() && selected->GetFieldAsInteger64("patch_id") != patchId))
+  if (!selected || (!field(selected.get(), "patch_id").isNull() && selected->GetFieldAsInteger64("patch_id") != patch))
     return fail(error, QObject::tr("所选聚类面已改变，请重新选择"));
-  const int cluster = selected->GetFieldAsInteger("cluster_id");
-  if (wholeCluster && cluster <= 0) return fail(error, QObject::tr("所选面包含多个聚类，请按当前面调整"));
+  return true;
+}
+}
+
+bool SeismicClusterPatches::writeManualAssignments(const QString &sourcePath, const QString &outputPath,
+    const QVariantList &facies, const QVariantList &assignments, int *changedCount, QString *error) {
+  if (assignments.isEmpty()) return fail(error, QObject::tr("当前没有待保存的调整"));
+  OGRLayer *layer = nullptr;
+  const auto ds = openPatches(sourcePath, layer, error);
+  if (!ds) return false;
+  QHash<int, Assignment> clusters;
+  QHash<qint64, Assignment> patches;
+  int order = 0;
+  for (const auto &value : assignments) {
+    const auto row = value.toMap();
+    const int code = row.value("facies_code").toInt();
+    if (code <= 0 || std::none_of(facies.begin(), facies.end(), [code](const QVariant &entry) {
+      return entry.toMap().value("code").toInt() == code;
+    })) return fail(error, QObject::tr("请选择目标分类中的微相"));
+    OGRFeatureUniquePtr selected;
+    if (!resolveScope(layer, row, selected, error)) return false;
+    if (row.value("whole_cluster").toBool()) {
+      const int cluster = selected->GetFieldAsInteger("cluster_id");
+      if (cluster <= 0) return fail(error, QObject::tr("所选面包含多个聚类，请按当前面调整"));
+      clusters.insert(cluster, {order++, code});
+    } else patches.insert(selected->GetFID(), {order++, code});
+  }
   int count = 0;
-  const bool saved = writeSnapshot(sourcePath, outputPath, [&](OGRFeature &f, QString *) {
-    if (wholeCluster ? f.GetFieldAsInteger("cluster_id") == cluster : f.GetFID() == selected->GetFID()) {
-      setCode(f, facies, faciesCode);
-      f.SetField("assignment_status", "manual");
+  const bool saved = writeSnapshot(sourcePath, outputPath, [&](OGRFeature &feature, QString *) {
+    const auto group = clusters.value(feature.GetFieldAsInteger("cluster_id"));
+    const auto patch = patches.value(feature.GetFID());
+    const auto applied = group.order > patch.order ? group : patch;
+    if (applied.order >= 0) {
+      setCode(feature, facies, applied.code);
+      feature.SetField("assignment_status", "manual");
       ++count;
-    } else if (!f.IsFieldSetAndNotNull(f.GetFieldIndex("assignment_status"))) {
-      f.SetField("assignment_status", "unassigned");
+    } else if (!feature.IsFieldSetAndNotNull(feature.GetFieldIndex("assignment_status"))) {
+      feature.SetField("assignment_status", "unassigned");
     }
     return true;
   }, {}, error);

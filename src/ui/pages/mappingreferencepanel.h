@@ -32,6 +32,9 @@ public:
   void selectSource(const QString &id);
   QString sourceId() const;
   bool hasReference() const;
+  QString compactTabTitle() const;
+  QString sourceDescription() const;
+  void setMapOnly(bool mapOnly);
   // 接管独立图层，关闭/换源前停止渲染；metadata 为已保存版本的 extra。
   void setReference(QgsMapLayer *layer, const QVariantMap &metadata);
   void clearReference(const QString &message = {});
@@ -43,6 +46,7 @@ public:
 
 signals:
   void referenceRequested(const QString &layerId);
+  void sourceChosen(const QString &layerId);
   void removeViewRequested();
   void referenceChanged(const QString &title, const QString &versionId);
   // #746：画布延迟创建——宿主要在拿到控件后补装滚轮/尺寸过滤器。
@@ -59,6 +63,8 @@ private:
   QgsMapCanvas *m_mainCanvas = nullptr;
   QgsProject *m_project = nullptr;
   QWidget *m_viewHost = nullptr; // 画布容器：ensureView() 时才装入控件
+  QWidget *m_toolbar = nullptr;
+  bool m_mapOnly = false;
   PaleoDecorationManager *m_decor = nullptr;
   QToolButton *m_clusterLegendButton = nullptr;
   QListWidget *m_clusterLegend = nullptr;
@@ -67,6 +73,7 @@ private:
   QToolButton *m_remove = nullptr;
   QToolButton *m_linked = nullptr;
   QLabel *m_empty = nullptr;
+  QLabel *m_caption = nullptr;
   QVariantList m_rows;
   QVariantMap m_metadata;
   QString m_activeHorizon;
@@ -93,6 +100,8 @@ public:
   int visibleViewCount() const; // 当前视口内（至少部分）可见的视图数
   static constexpr int kDefaultViewCount = 2;
   void enableCompactDock();
+  void setInWorkspace(bool inWorkspace);
+  void setMapOnly(bool mapOnly);
   void reloadProjectLayout();
   bool compact() const { return m_compact; }
   // #875：视图最窄/最矮按字体推导（随 DPI/字号缩放），不再是硬 260/200 像素。
@@ -105,6 +114,11 @@ public:
 
 signals:
   void compactChanged(bool compact);
+  void workspaceViewChanged();
+  void workspaceRequested();
+  void sourceChosen(const QString &layerId);
+  void legendCreated();
+  void lastViewRemoved();
   void referenceRequested(MappingReferencePanel *view, const QString &layerId);
 
 private:
@@ -115,10 +129,12 @@ private:
   void removeView(MappingReferencePanel *view);
   void layoutViews();
   void updateViewSizes();
+  void reveal(MappingReferencePanel *view);
   int defaultViewWidth() const;
   void saveWidths();
   bool eventFilter(QObject *watched, QEvent *event) override;
   void showEvent(QShowEvent *event) override;
+  void hideEvent(QHideEvent *event) override;
   // #746：首次可见时按视口宽补足默认视图数 max(1, 视口/最窄视图)，上限 kDefaultViewCount；
   // 用户手动增删视图后不再自动补。
   void fillDefaultViews();
@@ -126,10 +142,14 @@ private:
   QgsMapCanvas *m_mainCanvas; // 非拥有；宿主与现有参考画布共享生命周期。
   QgsProject *m_project;
   bool m_dockMode = false;
+  bool m_inWorkspace = false;
+  bool m_mapOnly = false;
+  QWidget *m_toolbar = nullptr;
   bool m_compact = false;
   bool m_restoring = false;
   QComboBox *m_picker = nullptr;
   QPushButton *m_add = nullptr;
+  QToolButton *m_workspaceButton = nullptr;
   QString m_widthKey;
   QStringList m_pendingSources;
   QScrollArea *m_scroll;

@@ -25,7 +25,7 @@
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/ai/aiassistdock.h"
 #include "../src/ui/paleotheme.h"
-#include "../src/workflow/aichatcontroller.h"
+#include "pichattestcontroller.h"
 
 // H2（agent-session-archive）W7：最近会话 Combo 接入轻量元信息。
 // 真实 checkpoint 信号链（sessionListChanged → refreshSessions → 元信息查询
@@ -336,7 +336,7 @@ void TestH2SessionCombo::draftSurvivesRefreshAndSelectionStable() {
   seedSession(QStringLiteral("h2-combo-draft"), QStringLiteral("草稿存活验证"), 5);
   FakeLlmServer server;
   QVERIFY(server.start());
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *input = dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"));

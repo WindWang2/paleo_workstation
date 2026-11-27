@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Paleo Workbench · 工作区交互原型</title>
+  <link rel="stylesheet" href="workspace.css">
+  <script defer src="geo.js"></script><script defer src="workspace.js"></script>
+</head>
+<body>
+<div id="app">
+  <header class="quickbar">
+    <div class="brand"><i data-icon="strata"></i><strong>Paleo Workbench</strong></div>
+    <span class="bar-rule"></span><span class="project-name">HY 三角洲演示工区</span>
+    <div class="quicktools" aria-label="快速访问"><button data-act="save" data-icon="save" title="保存解释版本"></button><button data-act="undo" data-icon="undo" title="撤销改相"></button><button data-act="redo" data-icon="redo" title="重做改相"></button></div>
+    <span class="push"></span><button class="text-icon" data-act="theme" title="切换浅色与深色主题"><i data-icon="theme"></i><span id="themeText">深色</span></button><button data-act="help" data-icon="keys" title="操作与快捷键"></button>
+  </header>
+  <nav class="workflow" aria-label="工作流"><button class="file-button" data-act="file">文件</button><div id="flows"></div><span class="push"></span><button class="ribbon-toggle" data-act="ribbon" title="展开或收起命令区"><i data-icon="ribbon"></i><span>功能区</span></button></nav>
+  <div id="ribbon" hidden></div>
+  <main id="shell">
+    <aside id="layers" aria-label="工程图层">
+      <div class="dock-h"><span><i data-icon="layers"></i>工程资源</span><button data-act="left" data-icon="sidebar" title="收起资源栏"></button></div>
+      <div class="pane-tabs" role="tablist" aria-label="工程资源"><button id="layerTab" role="tab" data-act="layers">图层</button><button id="versionTab" role="tab" data-act="versions">版本</button></div>
+      <div class="side-scroll" id="resourceBody"></div>
+      <div class="side-foot"><button class="text-icon" data-act="catalog"><i data-icon="table"></i>资料目录<i class="right-icon" data-icon="arrow"></i></button></div>
+    </aside>
+    <section id="work" aria-label="可视化工作区">
+      <div class="document-bar"><button id="restoreLeft" data-act="left" data-icon="sidebar" title="展开资源栏" hidden></button><div id="docs" role="tablist" aria-label="已打开的视图"></div><span class="push"></span><button id="focusBtn" class="text-icon" data-act="focus"><i data-icon="focus"></i><span>专注</span></button></div>
+      <div class="scope-row"><span class="muted">层段</span><strong class="numeric">T70–T72</strong><span class="tiny-rule"></span><span class="chip" title="演示工程的当前子层段">S1</span><span class="push"></span><span id="viewInfo"></span><button id="swapBtn" class="text-icon compare-btn" data-act="swap" hidden></button><button id="compareBtn" class="text-icon compare-btn" data-act="compare"><i data-icon="split"></i><span>对照</span></button><button id="objectBtn" data-act="inspector" data-icon="panel" title="对象与属性"></button></div>
+      <div id="maps">
+        <section id="mainSheet" class="sheet" aria-label="主地图">
+          <canvas id="map" tabindex="0" aria-label="解释地图，可点击图斑。按回车选择图斑，方向键切换图斑。"></canvas>
+          <div class="sheet-title"><div class="sheet-kicker" id="mapMeta"></div><h1 id="mapTitle">三角洲前缘微相图</h1></div>
+          <div class="legend-box"><button class="legend-h" data-act="legend" aria-expanded="true"><span id="legendTitle">微相图例</span><i data-icon="up"></i></button><div id="legendRows"></div></div>
+          <div class="map-tools" aria-label="地图工具"><button data-act="select" data-icon="pointer" title="选择图斑"></button><button data-act="pan" data-icon="hand" title="平移"></button><hr><button data-act="zoomIn" data-icon="plus" title="放大"></button><button data-act="zoomOut" data-icon="minus" title="缩小"></button><button data-act="fit" data-icon="extent" title="显示全区"></button></div>
+        </section>
+        <section id="refSheet" class="sheet" aria-label="参考证据" hidden><canvas id="refMap" tabindex="0" aria-label="参考地图，只读"></canvas><div class="ref-controls"><label for="refVersion">参考证据</label><select id="refVersion"></select><button data-act="link" data-icon="link" title="联动视野与光标"></button><button data-act="compare" data-icon="close" title="关闭对照"></button></div><div class="legend-box"><button class="legend-h" data-act="refLegend"><span id="refLegendTitle"></span><i data-icon="up"></i></button><div id="refLegendRows"></div></div></section>
+      </div>
+      <div id="otherDoc" hidden></div>
+      <div id="activity" hidden></div>
+    </section>
+    <aside id="inspect" hidden aria-label="对象属性"><div class="dock-h"><span id="inspectHead"></span><button data-act="closeInspector" data-icon="close" title="关闭属性面板"></button></div><div id="inspectBody" class="side-scroll"></div></aside>
+  </main>
+  <footer><span id="statusLead"><i data-icon="pointer"></i><span id="statusText" role="status">点选图斑，查看井证据或调整微相</span></span><span class="push"></span><span class="readout" id="xy">—</span><span class="status-rule"></span><span class="numeric" id="crs">EPSG:32650</span><span class="status-rule"></span><button class="text-icon" data-act="activity"><i data-icon="list"></i>活动</button><button class="text-icon" data-act="agent"><i data-icon="agent"></i>助手</button></footer>
+</div>
+<dialog id="dialog"><div class="dialog-h"><h2 id="dialogTitle"></h2><button data-act="cancelDialog" data-icon="close" title="关闭"></button></div><div id="dialogBody"></div></dialog>
+</body>
+</html>

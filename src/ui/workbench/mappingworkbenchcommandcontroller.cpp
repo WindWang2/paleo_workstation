@@ -318,9 +318,12 @@ WbCmdStep runWorkbenchEditFamily(const CommandContext &d,
         break;
       }
     }
-  } else if (action == "compare")
-    ok = d.compare(id, &error);
-  else if (action == "consistency") {
+  } else if (action == "compare") {
+    auto *canvas = d.canvasCtl ? d.canvasCtl->canvas() : nullptr;
+    const auto *layer = canvas ? canvas->currentLayer() : nullptr;
+    const bool primary = layer && layer->customProperty("paleoLayerId").toString() == id;
+    ok = (primary && d.comparePrimary ? d.comparePrimary : d.compare)(id, &error);
+  } else if (action == "consistency") {
     ok = d.workbench->startFaciesConsistency(id, &error);
   } else if (action == "polygonize")
     ok = d.workbench->startPolygonize(id, &error);

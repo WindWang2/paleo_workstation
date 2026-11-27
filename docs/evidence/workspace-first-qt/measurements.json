@@ -1,0 +1,418 @@
+[
+  {
+    "edition": "after",
+    "physical": [
+      1366,
+      768
+    ],
+    "percent": 100,
+    "theme": "light",
+    "client": [
+      1366,
+      768
+    ],
+    "browse": {
+      "viewport": [
+        1138,
+        613
+      ],
+      "fraction": 0.664953,
+      "dpr": 1.0,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        1360,
+        639
+      ],
+      "fraction": 0.828377,
+      "dpr": 1.0,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "parallel",
+      "host": [
+        1140,
+        615
+      ],
+      "main": [
+        566,
+        588
+      ],
+      "reference": [
+        526,
+        468
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "after",
+    "physical": [
+      1366,
+      768
+    ],
+    "percent": 125,
+    "theme": "dark",
+    "client": [
+      1093,
+      614
+    ],
+    "browse": {
+      "viewport": [
+        865,
+        425
+      ],
+      "fraction": 0.547793,
+      "dpr": 1.25,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        1087,
+        485
+      ],
+      "fraction": 0.785566,
+      "dpr": 1.25,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "parallel",
+      "host": [
+        867,
+        427
+      ],
+      "main": [
+        430,
+        400
+      ],
+      "reference": [
+        389,
+        280
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "after",
+    "physical": [
+      1366,
+      768
+    ],
+    "percent": 150,
+    "theme": "light",
+    "client": [
+      911,
+      512
+    ],
+    "browse": {
+      "viewport": [
+        683,
+        323
+      ],
+      "fraction": 0.472971,
+      "dpr": 1.5,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        905,
+        349
+      ],
+      "fraction": 0.677151,
+      "dpr": 1.5,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "switch",
+      "host": [
+        685,
+        325
+      ],
+      "main": [
+        683,
+        293
+      ],
+      "reference": [
+        683,
+        293
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "after",
+    "physical": [
+      1440,
+      900
+    ],
+    "percent": 100,
+    "theme": "light",
+    "client": [
+      1440,
+      900
+    ],
+    "browse": {
+      "viewport": [
+        1212,
+        745
+      ],
+      "fraction": 0.696713,
+      "dpr": 1.0,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        1434,
+        771
+      ],
+      "fraction": 0.853097,
+      "dpr": 1.0,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "parallel",
+      "host": [
+        1214,
+        747
+      ],
+      "main": [
+        603,
+        720
+      ],
+      "reference": [
+        563,
+        600
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "after",
+    "physical": [
+      1920,
+      1080
+    ],
+    "percent": 100,
+    "theme": "dark",
+    "client": [
+      1920,
+      1080
+    ],
+    "browse": {
+      "viewport": [
+        1692,
+        925
+      ],
+      "fraction": 0.754774,
+      "dpr": 1.0,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        1914,
+        951
+      ],
+      "fraction": 0.877804,
+      "dpr": 1.0,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "parallel",
+      "host": [
+        1694,
+        927
+      ],
+      "main": [
+        843,
+        900
+      ],
+      "reference": [
+        803,
+        780
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "after",
+    "physical": [
+      1920,
+      1080
+    ],
+    "percent": 125,
+    "theme": "light",
+    "client": [
+      1536,
+      864
+    ],
+    "browse": {
+      "viewport": [
+        1308,
+        709
+      ],
+      "fraction": 0.698794,
+      "dpr": 1.25,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        1530,
+        735
+      ],
+      "fraction": 0.847371,
+      "dpr": 1.25,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "parallel",
+      "host": [
+        1310,
+        711
+      ],
+      "main": [
+        651,
+        684
+      ],
+      "reference": [
+        611,
+        564
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "after",
+    "physical": [
+      1920,
+      1080
+    ],
+    "percent": 150,
+    "theme": "dark",
+    "client": [
+      1280,
+      720
+    ],
+    "browse": {
+      "viewport": [
+        1052,
+        565
+      ],
+      "fraction": 0.644944,
+      "dpr": 1.5,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        1274,
+        591
+      ],
+      "fraction": 0.816986,
+      "dpr": 1.5,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "parallel",
+      "host": [
+        1054,
+        567
+      ],
+      "main": [
+        523,
+        540
+      ],
+      "reference": [
+        483,
+        420
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "after",
+    "physical": [
+      730,
+      600
+    ],
+    "percent": 100,
+    "theme": "light",
+    "client": [
+      730,
+      600
+    ],
+    "browse": {
+      "viewport": [
+        502,
+        411
+      ],
+      "fraction": 0.471055,
+      "dpr": 1.0,
+      "left": 216,
+      "right": 0
+    },
+    "focus": {
+      "viewport": [
+        724,
+        437
+      ],
+      "fraction": 0.722347,
+      "dpr": 1.0,
+      "left": 0,
+      "right": 0
+    },
+    "comparison": {
+      "layout": "switch",
+      "host": [
+        504,
+        413
+      ],
+      "main": [
+        502,
+        381
+      ],
+      "reference": [
+        502,
+        381
+      ]
+    },
+    "pass": true
+  },
+  {
+    "edition": "before",
+    "physical": [
+      1440,
+      900
+    ],
+    "percent": 100,
+    "theme": "light",
+    "client": [
+      1440,
+      900
+    ],
+    "browse": {
+      "viewport": [
+        782,
+        514
+      ],
+      "fraction": 0.310145,
+      "dpr": 1.0,
+      "left": 320,
+      "right": 320
+    },
+    "pass": true
+  }
+]

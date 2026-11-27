@@ -5,6 +5,7 @@
 #include <QThread>
 #include <QElapsedTimer>
 #include <atomic>
+#include <memory>
 #include <QScopeGuard>
 #include <QTreeWidget>
 
@@ -20,6 +21,125 @@ class TestTaskService : public QObject
 {
   Q_OBJECT
 private slots:
+  void interruptionCallbackCanRemoveAnotherTask_data()
+  {
+    QTest::addColumn<bool>("shutdown");
+    QTest::newRow("project switch") << false;
+    QTest::newRow("shutdown") << true;
+  }
+
+  void interruptionCallbackCanRemoveAnotherTask()
+  {
+    QFETCH(bool, shutdown);
+    PaleoTaskService service;
+    auto *first = service.beginExternal("first");
+    QPointer<PaleoTask> removed = service.beginExternal("removed");
+    auto *survivor = service.beginExternal("survivor");
+    QPointer<PaleoTask> fresh;
+    connect(first, &PaleoTask::cancelAsked, this, [&] {
+      delete removed.data();
+      if (!shutdown) fresh = service.beginExternal("new project");
+    });
+    if (shutdown) QVERIFY(service.shutdown(1000));
+    else service.beginNewSession();
+    QVERIFY(removed.isNull());
+    QVERIFY(survivor->cancelRequested());
+    if (!shutdown) {
+      QVERIFY(fresh);
+      QCOMPARE(fresh->session(), service.session());
+      QVERIFY(!fresh->cancelRequested());
+    }
+  }
+
+  void terminalObserverCanCloseTheTaskOwner_data()
+  {
+    QTest::addColumn<bool>("onChanged");
+    QTest::newRow("status update") << true;
+    QTest::newRow("completion receipt") << false;
+  }
+
+  void terminalObserverCanCloseTheTaskOwner()
+  {
+    QFETCH(bool, onChanged);
+    PaleoProjectStore store;
+    auto service = std::make_unique<PaleoTaskService>(&store);
+    QPointer<PaleoTask> task = service->beginExternal("import", "import-layer");
+    connect(task, onChanged ? &PaleoTask::changed : &PaleoTask::finished, this, [&] {
+      service.reset();
+    });
+    task->finishExternal();
+    QTRY_VERIFY(task.isNull());
+    QVERIFY(!store.layerBusy("import-layer"));
+  }
+
+  void cancellingQueuedWorkReleasesItsLayerBeforeAWorkerIsFree()
+  {
+    PaleoProjectStore store;
+    PaleoTaskService service(&store);
+    service.setMaxWorkerThreads(1);
+    QSemaphore entered, release;
+    std::atomic_bool ran{false};
+    const auto cleanup = qScopeGuard([&] { release.release(); service.shutdown(5000); });
+    auto *active = service.start("active", [&](PaleoTask *) {
+      entered.release();
+      release.acquire();
+      return QString();
+    }, "active-layer");
+    QVERIFY(entered.tryAcquire(1, 3000));
+
+    auto payload = std::make_shared<int>(1);
+    std::weak_ptr<int> pendingPayload = payload;
+    QPointer<PaleoTask> queued = service.start("queued", [payload, &ran](PaleoTask *) {
+      ran.store(true);
+      return QString();
+    }, "queued-layer");
+    payload.reset();
+    QVERIFY(store.layerBusy("queued-layer"));
+    QSignalSpy finished(queued, &PaleoTask::finished);
+    queued->requestCancel();
+    queued->requestCancel();
+    QCOMPARE(finished.size(), 0); // Callers connect completion observers after start() returns.
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 3000);
+    QCOMPARE(queued->state(), PaleoTask::State::Cancelled);
+    QVERIFY(!store.layerBusy("queued-layer"));
+    QVERIFY(pendingPayload.expired());
+    service.clearFinished();
+    QTRY_VERIFY(queued.isNull());
+
+    active->requestCancel();
+    QVERIFY(active->running());
+    QVERIFY(store.layerBusy("active-layer"));
+    release.release();
+    QTRY_VERIFY_WITH_TIMEOUT(!active->running(), 3000);
+    QCOMPARE(active->state(), PaleoTask::State::Cancelled);
+    QVERIFY(!store.layerBusy("active-layer"));
+    QVERIFY(!ran.load());
+  }
+
+  void shutdownDoesNotReportDiscardedNonCancellableWorkAsSuccessful()
+  {
+    PaleoTaskService service;
+    service.setMaxWorkerThreads(1);
+    QSemaphore entered, release;
+    std::atomic_bool published{false};
+    const auto cleanup = qScopeGuard([&] { release.release(); service.shutdown(5000); });
+    service.start("occupied", [&](PaleoTask *) {
+      entered.release();
+      release.acquire();
+      return QString();
+    });
+    QVERIFY(entered.tryAcquire(1, 3000));
+    auto *queued = service.startApplication("pending write", [&](PaleoTask *) {
+      published = true;
+      return QString();
+    });
+    queued->setCancellable(false);
+    QVERIFY(!service.shutdown(0, false));
+    QTRY_COMPARE(queued->state(), PaleoTask::State::Failed);
+    QVERIFY(!queued->errorText().isEmpty());
+    QVERIFY(!published.load());
+  }
+
   void applicationScopeSurvivesSessionButSharesShutdownAndCancellation() {
     PaleoTaskService service; service.setMaxWorkerThreads(1);
     QSemaphore entered, release;

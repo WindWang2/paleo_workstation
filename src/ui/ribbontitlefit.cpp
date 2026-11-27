@@ -19,6 +19,7 @@
 #include <QToolButton>
 #include <QWidgetAction>
 
+#include <utility>
 #include <vector>
 
 namespace
@@ -57,6 +58,8 @@ namespace
 
       bool searchCollapsed() const { return m_searchCollapsed; }
 
+      bool takeQuickAccessFold() { return std::exchange(m_qabHidden, false); }
+
       bool reveal()
       {
         if (!m_searchCollapsed || !m_search)
@@ -74,7 +77,7 @@ namespace
         ensureHelpers();
         restoreAll();
         const QFontMetrics fm(m_right->font());
-        const int prefW = fm.averageCharWidth() * 24; // 「搜索井位/层位  Ctrl+K」放得下
+        const int prefW = fm.averageCharWidth() * 24; // 「搜索命令、井、层位  Ctrl+K」放得下
         const int minW = fm.averageCharWidth() * 12;
         if (m_search)
           m_search->setFixedWidth(prefW);
@@ -244,7 +247,7 @@ namespace
         if (sb->icon().isNull())
           sb->setIcon(sb->style()->standardIcon(QStyle::SP_FileDialogContentsView));
         sb->setText(tr("搜索"));
-        sb->setToolTip(tr("搜索井位 / 层位"));
+        sb->setToolTip(tr("搜索命令、井位和层位"));
         sb->setAccessibleName(tr("展开搜索"));
         sb->setToolButtonStyle(Qt::ToolButtonIconOnly);
         connect(sb, &QToolButton::clicked, this, [this] { expandSearch(); });
@@ -304,6 +307,7 @@ namespace
         std::vector<QAction *> out;
         for (QAction *a : m_right->actions())
           if (a != m_slotAction && a != m_searchBtnAction && a != m_moreAction && a->isVisible() &&
+              !a->property("paleo.keepInTitleRow").toBool() &&
               qobject_cast<QToolButton *>(m_right->widgetForAction(a)))
             out.push_back(a);
         return out;
@@ -500,5 +504,15 @@ namespace PaleoRibbon
   {
     if (TitleRowFitter *f = fitterOf(bar))
       f->fit();
+  }
+
+  bool hideQuickAccessForFocus(SARibbonBar *bar)
+  {
+    auto *fitter = fitterOf(bar);
+    const bool folded = fitter && fitter->takeQuickAccessFold();
+    auto *quick = bar->quickAccessBar();
+    const bool wanted = folded || !quick->isHidden();
+    quick->hide();
+    return wanted;
   }
 } // namespace PaleoRibbon

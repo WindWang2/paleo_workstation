@@ -11,6 +11,19 @@
 #include <QScopeGuard>
 #include <QTimer>
 #include "ui/dialogs/seismicclusterinterpretation.h"
+#include "ui/paleomainwindow.h"
+#include "ui/workbench/clusterpatchinspector.h"
+#include "linkage/selectioncontext.h"
+#include "qgis/qgiscanvascontroller.h"
+#include <qgsmapcanvas.h>
+#include <qgslayertree.h>
+#include <qgslayertreeview.h>
+#include "ui/layers/layertreepanel.h"
+#include <qgsmaptoolpan.h>
+#include <QLabel>
+#include <QDir>
+#include <QTabWidget>
+#include <QToolButton>
 #include <QThreadPool>
 #include <QElapsedTimer>
 #include <qgsgui.h>
@@ -107,6 +120,152 @@ struct MockUnitFixture {
     return stage.versionId;
   }
 };
+static void verifyMapPatchInspector(MockUnitFixture &f, const QString &layerId) {
+  QObject services;
+  auto *oldParent = f.qgis.parent();
+  f.qgis.setParent(&services);
+  const auto detach = qScopeGuard([&] { f.qgis.setParent(oldParent); });
+  QgisCanvasController controller(&services);
+  controller.setLayerResolver([&](const QString &id) { return f.layers.layer(id); });
+  SelectionContext selection;
+  selection.setActiveUnit(f.unit());
+  PredictionWorkflow predict(&f.processing, &f.layers);
+  CompositionWorkflow compose(&f.processing, &f.layers);
+  ValidationWorkflow validate(&f.layers, &f.store);
+  PaleoMainWindow window(&controller, &f.qgis, &f.layers, nullptr, &selection);
+  window.attachWorkflows(&predict, &f.constraints, &compose, &validate, nullptr, nullptr, &f.processing, &f.store);
+  window.attachWorkbench(&f.work);
+  window.resize(1366, 768);
+  window.onProjectOpened();
+  window.show();
+  window.showPage("compose");
+  selection.setActiveUnit(f.unit());
+  auto *page = window.findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");
+  QVERIFY(page);
+  page->refresh();
+  page->selectLayer(layerId);
+  page->commandButton("show")->click();
+  auto *canvas = controller.canvas();
+  auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(layerId));
+  QVERIFY(layer);
+  QTRY_VERIFY(canvas->currentLayer() == layer && canvas->layers().contains(layer));
+  QgsMapToolPan pan(canvas);
+  canvas->setMapTool(&pan);
+  canvas->setDestinationCrs(layer->crs());
+  canvas->setExtent(layer->extent());
+  canvas->refresh();
+  auto features = layer->getFeatures(QgsFeatureRequest().setFilterExpression(QStringLiteral("cluster_wells > 0")));
+  QgsFeature selected;
+  QVERIFY(features.nextFeature(selected));
+  const auto point = selected.geometry().pointOnSurface().asPoint();
+  const auto click = [&] {
+    const auto pixel = canvas->mapSettings().mapToPixel().transform(point);
+    QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier,
+                                            QPoint(qRound(pixel.x()), qRound(pixel.y()))); };
+  auto *panel = window.findChild<ClusterPatchInspector *>();
+  auto *tabs = window.findChild<QTabWidget *>("workspaceContextTabs");
+  QVERIFY(panel && tabs);
+  auto *target = panel->findChild<QComboBox *>("clusterInspectorTarget");
+  auto *whole = panel->findChild<QCheckBox *>("clusterInspectorWhole");
+  auto *apply = panel->findChild<QPushButton *>("clusterInspectorApply");
+  auto *save = panel->findChild<QPushButton *>("clusterInspectorSave");
+  auto *status = panel->findChild<QLabel *>("clusterInspectorStatus");
+  QVERIFY(target && whole && apply && save && status);
+  const auto *sourceLabel = panel->findChild<QLabel *>("clusterInspectorSource");
+  QVERIFY(sourceLabel);
+  const auto source = f.work.versionForLayer(layerId);
+  const auto path = DataCatalog::resolvedVersionPath(f.project, source);
+  QSignalSpy versions(&f.work, &MappingWorkbench::productReady);
+  auto *dock = window.findChild<PaleoDockWidget *>("pagePanelDock");
+  auto *open = window.findChild<QToolButton *>("workspaceInspectorButton");
+  auto *focus = window.findChild<QToolButton *>("workspaceFocusButton");
+  QVERIFY(dock && open && focus);
+  dock->setProgrammaticVisible(false);
+  focus->click();
+  click();
+  QVERIFY(dock->isHidden());
+  focus->click();
+  click();
+  QTRY_COMPARE(tabs->currentWidget(), static_cast<QWidget *>(panel));
+  QTRY_VERIFY(dock->isVisible());
+  QVERIFY(sourceLabel->text().contains(f.unit().displayName));
+  QVERIFY(!sourceLabel->text().contains(analysisLayerKey(f.unit())));
+  dock->hide();
+  click();
+  QVERIFY(dock->isHidden());
+  open->click();
+  QTRY_VERIFY(dock->isVisible());
+  tabs->setCurrentIndex(0);
+  click();
+  QCOMPARE(tabs->currentIndex(), 0);
+  tabs->setCurrentIndex(1);
+  QCoreApplication::processEvents();
+  QVERIFY(!whole->isChecked());
+  QVERIFY(!save->isEnabled());
+  window.setProjectReadOnly(true);
+  QVERIFY(!target->isEnabled());
+  window.setProjectReadOnly(false);
+  target->setCurrentIndex(0);
+  whole->setChecked(true);
+  auto *cancel = panel->findChild<QPushButton *>("clusterInspectorCancel");
+  QVERIFY(cancel && cancel->isEnabled());
+  cancel->click();
+  QVERIFY(!whole->isChecked());
+  QVERIFY(!apply->isEnabled());
+  QVERIFY(!save->isEnabled());
+  target->setCurrentIndex(0);
+  whole->setChecked(true);
+  QTRY_VERIFY(apply->isEnabled());
+  const auto evidenceDir = qEnvironmentVariable("PALEO_WORKSPACE_INSPECT_EVIDENCE");
+  auto capture = [&](const QString &name) {
+    if (evidenceDir.isEmpty()) return;
+    QVERIFY(QDir().mkpath(evidenceDir));
+    if (auto *dock = window.findChild<QDockWidget *>("pagePanelDock")) dock->show();
+    QTest::qWait(120);
+    QVERIFY(window.grab().save(QDir(evidenceDir).filePath(name)));
+  };
+  capture(QStringLiteral("workspace-cluster-scope.png"));
+  apply->click();
+  capture(QStringLiteral("workspace-cluster-draft.png"));
+  QCOMPARE(versions.count(), 0);
+  QVERIFY(save->isEnabled());
+  QVERIFY(panel->step(true));
+  QVERIFY(!save->isEnabled());
+  QVERIFY(panel->step(false));
+  selection.setActiveUnit(f.unit(2));
+  QVERIFY(!panel->canStep(true));
+  selection.setActiveUnit(f.unit());
+  click();
+  QVERIFY(save->isEnabled());
+  QVERIFY(!whole->isChecked());
+  f.qgis.setReadOnly(true);
+  save->click();
+  QVERIFY(save->isEnabled());
+  QCOMPARE(versions.count(), 0);
+  f.qgis.setReadOnly(false);
+  // Immediately before the save, choose a distinctive inspection scale so auto-fit cannot pass.
+  auto detail = canvas->extent();
+  detail.scale(0.63);
+  canvas->setExtent(detail);
+  canvas->refresh();
+  QTest::qWait(150);
+  const auto extent = canvas->extent();
+  const auto size = canvas->viewport()->size();
+  const auto scale = canvas->scale();
+  save->click();
+  QCoreApplication::processEvents();
+  QCOMPARE(versions.count(), 1);
+  QCOMPARE(DataCatalog::sha256FileHex(path), source.sha256);
+  const auto actual = canvas->extent();
+  QVERIFY2(actual == extent, qPrintable(QStringLiteral("before %1 (%2x%3, 1:%4) after %5 (%6x%7, 1:%8)")
+      .arg(extent.toString(12)).arg(size.width()).arg(size.height()).arg(scale)
+      .arg(actual.toString(12)).arg(canvas->viewport()->width()).arg(canvas->viewport()->height()).arg(canvas->scale())));
+  const auto saved = f.work.versionForLayer(versions.first().at(1).toString());
+  QVERIFY(saved.parentVersionIds.contains(source.id));
+  QCOMPARE(saved.extra.value("assignment_scope").toString(), QStringLiteral("cluster"));
+  capture(QStringLiteral("workspace-cluster-saved.png"));
+}
+
 static void verifyManualAssignmentDialog(MockUnitFixture &f, const QString &layerId) {
   const auto patches = f.work.clusterPatchChoices(layerId, &f.error);
   QVERIFY2(!patches.isEmpty(), qPrintable(f.error));
@@ -303,6 +462,15 @@ private slots:
     const auto path = DataCatalog::resolvedVersionPath(f.project, version);
     const auto rawHash = DataCatalog::sha256FileHex(path);
     QVERIFY(!rawHash.isEmpty());
+    QVERIFY(!f.saveWells(f.unit()).isEmpty());
+    QSignalSpy previews(&f.work, &MappingWorkbench::clusterWellPreviewReady);
+    QVERIFY2(f.work.previewClusterWells(polygonId, {}, &f.error), qPrintable(f.error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size() == 1 || !failures.isEmpty(), 30000);
+    QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures.first().first().toString()));
+    QSignalSpy assigned(&f.work, &MappingWorkbench::productReady);
+    QVERIFY2(f.work.applyClusterWellPreview(polygonId, &f.error), qPrintable(f.error));
+    QCOMPARE(assigned.size(), 1);
+    verifyMapPatchInspector(f, assigned.first().at(1).toString());
     verifyManualAssignmentDialog(f, polygonId);
     verifyClusterManualLifecycle(f, polygonId, rasterId);
     QVERIFY(!f.saveWells(f.unit(), "calibration", {}, true).isEmpty());
@@ -316,6 +484,33 @@ private slots:
     QVERIFY(ok && (code == 1 || code == 2));
     auto *faces = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(polygonId));
     QVERIFY(faces && faces->isValid() && faces->featureCount() > 0);
+    {
+      QVERIFY(key.startsWith(QStringLiteral("sub-")));
+      const auto generated = faces->name();
+      const auto tag = QStringLiteral("v%1").arg(patches.versionNumber);
+      QVERIFY2(generated.startsWith(tag) && generated.contains(f.unit().displayName) &&
+               !generated.contains(key), qPrintable(generated));
+      LayerTreePanel tree(f.qgis.project(), nullptr, &f.layers);
+      auto *node = f.qgis.project()->layerTreeRoot()->findLayer(faces->id());
+      QVERIFY(node);
+      const auto index = tree.treeView()->node2index(node);
+      QVERIFY(index.isValid());
+      for (const auto &query : {tag, f.unit().displayName, polygonId}) {
+        tree.setFilterText(query);
+        QVERIFY(!tree.treeView()->isRowHidden(index.row(), index.parent()));
+      }
+      const auto id = faces->id(), source = faces->source();
+      const QString legacy = patches.extra.value("title").toString() + QStringLiteral(" · ") + tag;
+      faces->setName(legacy);
+      f.work.layerForVersion(patches.id);
+      QCOMPARE(faces->name(), generated);
+      faces->setName(QStringLiteral("人工核对图"));
+      f.work.layerForVersion(patches.id);
+      QCOMPARE(faces->name(), QStringLiteral("人工核对图"));
+      QCOMPARE(faces->id(), id);
+      QCOMPARE(faces->source(), source);
+      faces->setName(generated);
+    }
     QVERIFY(faces->fields().indexOf("patch_id") >= 0);
     QVERIFY(faces->fields().indexOf("cluster_id") >= 0);
     QCOMPARE(DataCatalog::sha256FileHex(path), rawHash);

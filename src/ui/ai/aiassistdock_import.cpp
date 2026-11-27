@@ -1,5 +1,6 @@
 // 层：视图
 #include "aiassistdock.h"
+#include "../paleoicons.h"
 
 #include <QDropEvent>
 #include <QFileDialog>
@@ -7,13 +8,16 @@
 #include <QLabel>
 #include <QMimeData>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QTextBrowser>
 #include <QTextEdit>
 #include <QUrl>
 #include <QVBoxLayout>
 
 void AiAssistDock::buildFileImportControls(QHBoxLayout *actions, QVBoxLayout *layout) {
-  m_importFiles = new QPushButton(tr("导入文件…"), this);
+  m_importFiles = new QPushButton(PaleoIcons::commandIcon(QStringLiteral("importFiles")),
+                                  tr("导入文件…"), this);
+  m_importFiles->setIconSize(PaleoIcons::toolbarSize());
   m_importFiles->setObjectName(QStringLiteral("aiAssistantImportFiles"));
   actions->addWidget(m_importFiles);
   connect(m_importFiles, &QPushButton::clicked, this, &AiAssistDock::chooseFilesForImport);
@@ -31,6 +35,8 @@ void AiAssistDock::buildFileImportControls(QHBoxLayout *actions, QVBoxLayout *la
   // 编辑区默认会把 file URL 当成文本粘贴；只截获 URL，普通文本拖放仍归编辑器。
   m_input->viewport()->installEventFilter(this);
   m_transcript->viewport()->installEventFilter(this);
+  m_welcome->viewport()->setAcceptDrops(true);
+  m_welcome->viewport()->installEventFilter(this);
 }
 
 void AiAssistDock::setFileImportContext(quint64 projectSession, const QString &unavailableReason) {
@@ -69,7 +75,8 @@ bool AiAssistDock::filterFileDrop(QObject *watched, QEvent *event) {
       event->type() != QEvent::Drop)
     return false;
   if (!m_importFiles || (watched != this && watched != m_input &&
-      watched != m_input->viewport() && watched != m_transcript->viewport()))
+      watched != m_input->viewport() && watched != m_transcript->viewport() &&
+      watched != m_welcome->viewport()))
     return false;
   auto *drop = static_cast<QDropEvent *>(event);
   if (!drop->mimeData() || !drop->mimeData()->hasUrls())

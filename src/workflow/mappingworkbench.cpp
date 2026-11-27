@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "domain/mapproductcaption.h"
 #include "../domain/seismicclusterproduct.h"
 #include "mappingexplanationservice.h"
 #include "../services/canonicalfilepath.h"
@@ -314,7 +315,10 @@ void MappingWorkbench::synchronizeCatalogLayers() {
   QHash<QString, LayerDeclaration> known;
   for (const auto &d : declarations)
     known.insert(d.layerId, d);
-  const auto declareMissing = [this, &known](const LayerDeclaration &d) {
+  const auto declareMissing = [this, &known](const LayerDeclaration &d, const QString &legacyTitle) {
+    // Reopened QGIS projects may still have the original generated display name.
+    if (auto *layer = m_layers->layer(d.layerId); layer && layer->name() == legacyTitle && legacyTitle != d.title)
+      layer->setName(d.title);
     const auto old = known.value(d.layerId);
     if (old.source == d.source && old.horizon == d.horizon &&
         old.type == d.type && old.title == d.title && old.group == d.group)
@@ -342,15 +346,17 @@ void MappingWorkbench::synchronizeCatalogLayers() {
       d.source = DataCatalog::resolvedVersionPath(m_dir, v) +
                  e.value("source_suffix").toString();
       d.group = e.value("group").toString();
-      d.title = e.value("title", a.displayName).toString() +
-                tr(" · v%1").arg(v.versionNumber);
+      const auto title = e.value("title", a.displayName).toString();
+      const auto unit = e.value("unitSelection").toMap();
+      const auto legacyTitle = title + tr(" · v%1").arg(v.versionNumber);
+      d.title = paleo::mapcaption::productTitle(title, d.horizon, unit, m_analysisUnit, v.versionNumber, true);
       d.title.replace(QStringLiteral("测井优势相"), QStringLiteral("测井相"));
       if (e.value("kind") == "constraint_snapshot" &&
           m_catalog->currentVersion(a.id).id != v.id) {
         m_layers->removeDeclaration(d.layerId);
         continue;
       }
-      declareMissing(d);
+      declareMissing(d, legacyTitle);
       if (e.value("kind") == "constraint_snapshot")
         m_constraints->setConstraintSnapshotPath( // L-01：typed 通道替代动态属性
             d.horizon, filePath(d.source));
@@ -364,9 +370,10 @@ void MappingWorkbench::synchronizeCatalogLayers() {
         if (!wp.isEmpty() && QFileInfo::exists(wp)) {
           d.layerId = draftId;
           d.source = wp + QStringLiteral("|layername=features");
-          d.title = e.value("title").toString() + tr(" · 工作副本");
+          const auto legacyDraft = e.value("title").toString() + tr(" · 工作副本");
+          d.title = paleo::mapcaption::productTitle(legacyDraft, d.horizon, unit, m_analysisUnit, 0, true);
           d.title.replace(QStringLiteral("测井优势相"), QStringLiteral("测井相"));
-          declareMissing(d);
+          declareMissing(d, legacyDraft);
         }
       }
     }
@@ -464,24 +471,25 @@ void MappingWorkbench::setPredictionStatusHint(const QString &hint) {
   m_predictionHint = hint;
   emit predictionStatusChanged();
 }
-bool MappingWorkbench::ready(const QString &h, QString *error) const {
+bool MappingWorkbench::ready(const QString &h, QString *error, const paleo::strat::UnitSelection *sourceUnit) const {
+  const auto &unit = sourceUnit ? *sourceUnit : m_analysisUnit;
   if (!m_catalog || !m_catalog->isOpen() || m_dir.isEmpty()) {
     fail(error, tr("请先打开可写工程"));
     return false;
   }
   if (h.isEmpty() || !DataCatalog::isSafePathSegment(h) ||
-      (!isMappingHorizon(h) && h!=paleo::strat::analysisLayerKey(m_analysisUnit))) {
+      (!isMappingHorizon(h) && h!=paleo::strat::analysisLayerKey(unit))) {
     fail(error, tr("请先选择有效编图层位"));
     return false;
   }
   if(!isMappingHorizon(h)) {
     paleo::data::StratigraphicScheme scheme;
-    if(m_analysisUnit.revision.isEmpty()){fail(error,tr("请先选择有效编图层位"));return false;}
-    if(!paleo::strat::loadProjectSchemeFromDir(m_dir,m_analysisUnit.schemeId,m_analysisUnit.revision,scheme,nullptr,error))return false;
-    const auto *sub=paleo::data::framework::findSubInterval(scheme,{m_analysisUnit.subIntervalId.toStdString()});
-    const bool valid=m_analysisUnit.aggregate
-        ? paleo::data::framework::findInterval(scheme,{m_analysisUnit.intervalId.toStdString()})!=nullptr
-        : sub && sub->interval.value==m_analysisUnit.intervalId.toStdString();
+    if(unit.revision.isEmpty()){fail(error,tr("请先选择有效编图层位"));return false;}
+    if(!paleo::strat::loadProjectSchemeFromDir(m_dir,unit.schemeId,unit.revision,scheme,nullptr,error))return false;
+    const auto *sub=paleo::data::framework::findSubInterval(scheme,{unit.subIntervalId.toStdString()});
+    const bool valid=unit.aggregate
+        ? paleo::data::framework::findInterval(scheme,{unit.intervalId.toStdString()})!=nullptr
+        : sub && sub->interval.value==unit.intervalId.toStdString();
     if(!valid) {
       fail(error,tr("请先选择有效编图层位"));return false;
     }
@@ -510,7 +518,11 @@ QVariantList MappingWorkbench::facies(const QString &h) const {
 }
 bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
                                   QString *error) {
-  if (!ready(h, error))
+  return saveFaciesForUnit(h, items, m_analysisUnit, error);
+}
+bool MappingWorkbench::saveFaciesForUnit(const QString &h, const QVariantList &items,
+                                         const paleo::strat::UnitSelection &unit, QString *error) {
+  if (!ready(h, error, &unit))
     return false;
   if (items.isEmpty() || items.size() > 32) {
     fail(error, tr("每个层位需要 1–32 个相类别"));
@@ -547,12 +559,14 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
   // algo-atom：相图式元数据经 publishArtifacts（staging 路径 ≡ commit；非 Processing OUTPUT，但仍是 DERIVED 登记）
   AlgorithmRunResult schemaRun = paleo::runResultFromOutputPath( st.absolutePath );
   schemaRun.diagnostics.insert( QStringLiteral( "asset_role" ), QStringLiteral( "facies_schema" ) );
-  const QVariantMap schemaExtra = {
+  QVariantMap schemaExtra = {
     { QStringLiteral( "horizon" ), h },
     { QStringLiteral( "facies" ), normalized },
     { QStringLiteral( "facies_schema" ), QStringLiteral( "paleo_facies_hierarchy_v1" ) },
     { QStringLiteral( "prediction_level" ), QStringLiteral( "micro_facies" ) },
   };
+  if (unit.isValid() && h == paleo::strat::analysisLayerKey(unit))
+    schemaExtra.insert(QStringLiteral("unitSelection"), paleo::strat::toMap(unit));
   const bool ok = paleo::publishArtifacts( r, st, schemaRun, parents,
                                            QStringLiteral( "facies-schema" ), schemaExtra, error );
   if (ok) {
@@ -828,7 +842,8 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   d.type = type;
   d.source = registeredPath + suffix;
   d.group = group;
-  d.title = title + tr(" · v%1").arg(registered.versionNumber);
+  d.title = paleo::mapcaption::productTitle(title, h, registered.extra.value("unitSelection").toMap(),
+                                           m_analysisUnit, registered.versionNumber, true);
   if (!m_layers->declare(d, error)) {
     discardStagingInput();
     return {};

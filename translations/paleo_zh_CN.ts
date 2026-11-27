@@ -372,6 +372,111 @@
         <source>助手尚未接入。</source>
         <translation>助手尚未接入。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="606"/>
+        <source>层位 %1</source>
+        <translation>层位 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="607"/>
+        <source>层段 %1</source>
+        <translation>层段 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="608"/>
+        <source>工程只读</source>
+        <translation>工程只读</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="608"/>
+        <source>工程可写</source>
+        <translation>工程可写</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="610"/>
+        <source>工程未打开</source>
+        <translation>工程未打开</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="605"/>
+        <source>工程标识 %1</source>
+        <translation>工程标识 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="606"/>
+        <source>未选择</source>
+        <translation>未选择</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="74"/>
+        <source>开始新对话</source>
+        <translation>开始新对话</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="93"/>
+        <source>梳理工程资料</source>
+        <translation>梳理工程资料</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="95"/>
+        <source>查找可用工具</source>
+        <translation>查找可用工具</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="97"/>
+        <source>选择工区文件…</source>
+        <translation>选择工区文件…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="99"/>
+        <source>配置对话模型…</source>
+        <translation>配置对话模型…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="111"/>
+        <source>梳理当前工程的井、地震和层位资料，列出还需要核对的项目。</source>
+        <translation>梳理当前工程的井、地震和层位资料，列出还需要核对的项目。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="112"/>
+        <source>当前有哪些工具可以用于资料检查和成图？请按用途列出。</source>
+        <translation>当前有哪些工具可以用于资料检查和成图？请按用途列出。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="212"/>
+        <source>询问 AI Agent…</source>
+        <translation>询问 AI Agent…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="251"/>
+        <source>Agent 正在处理请求</source>
+        <translation>Agent 正在处理请求</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="466"/>
+        <source>询问工区资料，或将文件拖到这里导入。</source>
+        <translation>询问工区资料，或将文件拖到这里导入。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="467"/>
+        <source>询问可用工具，或写下要处理的问题。</source>
+        <translation>询问可用工具，或写下要处理的问题。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
+        <source>可直接导入工区文件。配置模型后即可对话。</source>
+        <translation>可直接导入工区文件。配置模型后即可对话。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="471"/>
+        <source>配置模型后，即可在这里对话和调用工具。</source>
+        <translation>配置模型后，即可在这里对话和调用工具。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="146"/>
+        <source>AI Agent</source>
+        <translation>AI Agent</translation>
+    </message>
 </context>
 <context>
     <name>AiAssistWorkflow</name>
@@ -7513,6 +7618,11 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <translation>%1 · v%2</translation>
     </message>
     <message>
+        <location filename="../src/ui/pages/datalist_paleomaps.cpp" line="40"/>
+        <source>%1 · v%2 · %3</source>
+        <translation>%1 · v%2 · %3</translation>
+    </message>
+    <message>
         <location filename="../src/ui/pages/datalist_paleomaps.cpp" line="48"/>
         <source>工区概况</source>
         <translation>工区概况</translation>
@@ -10186,6 +10296,11 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607"/>
         <source>无法创建工程工作区</source>
         <translation>无法创建工程工作区</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="641"/>
+        <source>%1 · v%2</source>
+        <translation>%1 · v%2</translation>
     </message>
 </context>
 <context>
@@ -13241,6 +13356,10 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>FolderImportWorkflow</name>
     <message>
+        <source>后台任务已关闭，请重试。</source>
+        <translation>后台任务已关闭，请重试。</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/folderimport.cpp" line="317"/>
         <source>扫描工区文件夹</source>
         <translation>扫描工区文件夹</translation>
@@ -13476,6 +13595,22 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>GeologicalExportDialog</name>
+        <message>
+            <source>当前地图坐标系</source>
+            <translation>当前地图坐标系</translation>
+        </message>
+        <message>
+            <source>主图层原始坐标系</source>
+            <translation>主图层原始坐标系</translation>
+        </message>
+        <message>
+            <source>显示相图斑名称</source>
+            <translation>显示相图斑名称</translation>
+        </message>
+        <message>
+            <source>图面坐标</source>
+            <translation>图面坐标</translation>
+        </message>
     <message>
         <location filename="../src/ui/dialogs/geologicalexportdialog.cpp" line="27"/>
         <source>导出地质图</source>
@@ -14311,6 +14446,16 @@ Crossline: %3 ~ %4</source>
         <source>该图层属于层位 %1（未激活）</source>
         <translation>该图层属于层位 %1（未激活）</translation>
     </message>
+    <message>
+        <location filename="../src/ui/layers/layertreepanel.cpp" line="327"/>
+        <source>图层工具</source>
+        <translation>图层工具</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layertreepanel.cpp" line="328"/>
+        <source>展开或收起图层工具</source>
+        <translation>展开或收起图层工具</translation>
+    </message>
 </context>
 <context>
     <name>LlmDiagnosticsPanel</name>
@@ -14828,6 +14973,10 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>MappingBaseMapSelector</name>
     <message>
+        <source>此图归属界面 %1，可作为当前子层段的空间参考。</source>
+        <translation>此图归属界面 %1，可作为当前子层段的空间参考。</translation>
+    </message>
+    <message>
         <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="21"/>
         <source>1 · 选择基础图</source>
         <translation>1 · 选择基础图</translation>
@@ -15243,6 +15392,16 @@ Crossline: %3 ~ %4</source>
         <source>添加参考</source>
         <translation>添加参考</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="393"/>
+        <source>将主图和参考图放在中央工作区对照</source>
+        <translation>将主图和参考图放在中央工作区对照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="392"/>
+        <source>工作区对照</source>
+        <translation>工作区对照</translation>
+    </message>
 </context>
 <context>
     <name>MappingFeatureIdentity::Observer</name>
@@ -15378,6 +15537,36 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="101"/>
         <source>聚类图例</source>
         <translation>聚类图例</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="256"/>
+        <source>v%1</source>
+        <translation>v%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="253"/>
+        <source>井建议</source>
+        <translation>井建议</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="254"/>
+        <source>人工解释</source>
+        <translation>人工解释</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="252"/>
+        <source>原始簇</source>
+        <translation>原始簇</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="123"/>
+        <source>参考图例</source>
+        <translation>参考图例</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="250"/>
+        <source>只读参考</source>
+        <translation>只读参考</translation>
     </message>
 </context>
 <context>
@@ -17542,6 +17731,18 @@ Crossline: %3 ~ %4</source>
         <translation>原始簇图已过期或缺失</translation>
     </message>
     <message>
+        <source>聚类成果已过期，请重新计算</source>
+        <translation>聚类成果已过期，请重新计算</translation>
+    </message>
+    <message>
+        <source>聚类面与原始簇图的层段不一致，请重新选择成果</source>
+        <translation>聚类面与原始簇图的层段不一致，请重新选择成果</translation>
+    </message>
+    <message>
+        <source>聚类面来源或层段已变化，请重新预览</source>
+        <translation>聚类面来源或层段已变化，请重新预览</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/mappingworkbench_predict.cpp" line="337"/>
         <source>地震聚类 · %1</source>
         <translation>地震聚类 · %1</translation>
@@ -17628,6 +17829,11 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="32"/>
         <source>请选择已保存的聚类面或其赋相版本</source>
         <translation>请选择已保存的聚类面或其赋相版本</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="84"/>
+        <source>微相分类已经改变，请重新核对草稿</source>
+        <translation>微相分类已经改变，请重新核对草稿</translation>
     </message>
 </context>
 <context>
@@ -19646,6 +19852,26 @@ Crossline: %3 ~ %4</source>
         <source>选择地震体和聚类数。聚类完成后可查看簇图、用井预测赋相或人工指定微相。</source>
         <translation>选择地震体和聚类数。聚类完成后可查看簇图、用井预测赋相或人工指定微相。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="283"/>
+        <source>与主图对照</source>
+        <translation>与主图对照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="15"/>
+        <source>对照勾选的输入</source>
+        <translation>对照勾选的输入</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="14"/>
+        <source>打开参考证据</source>
+        <translation>打开参考证据</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="11"/>
+        <source>选择地震相、测井相、单因素图或参考相图与主图对照。可添加多个参考视图。</source>
+        <translation>选择地震相、测井相、单因素图或参考相图与主图对照。可添加多个参考视图。</translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkflow</name>
@@ -20683,6 +20909,10 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>PaleoEditingToolbar</name>
+    <message>
+        <source>请先在当前图层选择要素</source>
+        <translation>请先在当前图层选择要素</translation>
+    </message>
     <message>
         <location filename="../src/ui/edittools/editingtoolbar.cpp" line="396"/>
         <source>先保存或取消图层 %1 的编辑，再切换图层</source>
@@ -22204,6 +22434,22 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>PaleoMainWindow</name>
+    <message>
+        <source>仅数据盘以外的只读工程需要复制</source>
+        <translation>仅数据盘以外的只读工程需要复制</translation>
+    </message>
+    <message>
+        <source>任务服务尚未就绪</source>
+        <translation>任务服务尚未就绪</translation>
+    </message>
+        <message>
+            <source>工作副本 · %1</source>
+            <translation>工作副本 · %1</translation>
+        </message>
+        <message>
+            <source>已登记版本 v%1</source>
+            <translation>已登记版本 v%1</translation>
+        </message>
         <message>
             <source>命令不可用：%1</source>
             <translation>命令不可用：%1</translation>
@@ -23580,13 +23826,13 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="115"/>
-        <source>搜索井位/层位</source>
-        <translation>搜索井位/层位</translation>
+        <source>搜索命令、井、层位</source>
+        <translation>搜索命令、井、层位</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="122"/>
-        <source>搜索井位 / 层位</source>
-        <translation>搜索井位 / 层位</translation>
+        <source>搜索命令、井位和层位</source>
+        <translation>搜索命令、井位和层位</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="178"/>
@@ -23595,8 +23841,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="116"/>
-        <source>搜索井位/层位  %1</source>
-        <translation>搜索井位/层位  %1</translation>
+        <source>搜索命令、井、层位  %1</source>
+        <translation>搜索命令、井、层位  %1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="757"/>
@@ -25973,6 +26219,117 @@ PDF：%3
         <source>%1 · 地震聚类 · v%2</source>
         <translation>%1 · 地震聚类 · v%2</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="266"/>
+        <source> · %1</source>
+        <translation> · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="259"/>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="636"/>
+        <source>主图 %1 · v%2（%3）</source>
+        <translation>主图 %1 · v%2（%3）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="638"/>
+        <source>主图无已登记版本</source>
+        <translation>主图无已登记版本</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="270"/>
+        <source>任务中心 · %1</source>
+        <translation>任务中心 · %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="802"/>
+        <source>右侧工作面板</source>
+        <translation>右侧工作面板</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="265"/>
+        <source>后台任务 %1</source>
+        <translation>后台任务 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="807"/>
+        <source>对象属性</source>
+        <translation>对象属性</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="265"/>
+        <source>就绪</source>
+        <translation>就绪</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="631"/>
+        <source>工程 %1</source>
+        <translation>工程 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="46"/>
+        <source>建立索引</source>
+        <translation>建立索引</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="269"/>
+        <source>打开任务中心</source>
+        <translation>打开任务中心</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="44"/>
+        <source>扫描</source>
+        <translation>扫描</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="49"/>
+        <source>构建</source>
+        <translation>构建</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="48"/>
+        <source>校验</source>
+        <translation>校验</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="267"/>
+        <source>正在处理数据 100%</source>
+        <translation>正在处理数据 100%</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="45"/>
+        <source>解析</source>
+        <translation>解析</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_pages.cpp" line="47"/>
+        <source>解码</source>
+        <translation>解码</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="188"/>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="840"/>
+        <source>调整图斑微相</source>
+        <translation>调整图斑微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="838"/>
+        <source>窗口布局无法读取，已恢复默认布局。</source>
+        <translation>窗口布局无法读取，已恢复默认布局。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="590"/>
+        <source>AI Agent</source>
+        <translation>AI Agent</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="262"/>
+        <source>打开 AI Agent（%1）</source>
+        <translation>打开 AI Agent（%1）</translation>
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -27171,6 +27528,16 @@ PDF：%3
         <source>停靠面板拖动中</source>
         <translation>停靠面板拖动中</translation>
     </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="156"/>
+        <source>切换专注工作区</source>
+        <translation>切换专注工作区</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="156"/>
+        <source>打开 AI Agent</source>
+        <translation>打开 AI Agent</translation>
+    </message>
 </context>
 <context>
     <name>PaleoStartupScreen</name>
@@ -27362,8 +27729,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="31"/>
-        <source>顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。</source>
-        <translation>顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。</translation>
+        <source>输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。</source>
+        <translation>输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="32"/>
@@ -27407,8 +27774,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="56"/>
-        <source>通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。</source>
-        <translation>通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。</translation>
+        <source>选择资料目录，设置工程保存位置和坐标系。创建后在后台导入，完成时可在数据管理中核对井、地震和层位。</source>
+        <translation>选择资料目录，设置工程保存位置和坐标系。创建后在后台导入，完成时可在数据管理中核对井、地震和层位。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="57"/>
@@ -30779,6 +31146,23 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <location filename="../src/services/paleotaskservice.cpp" line="35"/>
+        <source>任务在执行前已随工作台关闭</source>
+        <translation>任务在执行前已随工作台关闭</translation>
+    </message>
+        <message>
+            <source>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</source>
+            <translation>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</translation>
+        </message>
+        <message>
+            <source>无法将当前范围转换至主图层坐标系：%1</source>
+            <translation>无法将当前范围转换至主图层坐标系：%1</translation>
+        </message>
+        <message>
+            <source>当前范围在主图层坐标系中无效。</source>
+            <translation>当前范围在主图层坐标系中无效。</translation>
+        </message>
     <message>
         <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
         <translation>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</translation>
@@ -40068,8 +40452,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="219" />
-        <source>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</source>
-        <translation>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</translation>
+        <source>version 和 version_parents 的精确目录版本标识。version 返回成果类型和已登记的分析层段。</source>
+        <translation>version 和 version_parents 的精确目录版本标识。version 返回成果类型和已登记的分析层段。</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="228" />
@@ -40845,6 +41229,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <translation>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</translation>
     </message>
     <message>
+        <source>list 搜索名称、标识或说明，多个关键词用空格分隔，最多 128 个字符</source>
+        <translation>list 搜索名称、标识或说明，多个关键词用空格分隔，最多 128 个字符</translation>
+    </message>
+    <message>
         <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="49"/>
         <source>list 筛选：default=capability+algorithm+tool；另有 capabilities/algorithms/tools/commands 精确子集</source>
         <translation>list 筛选：default=capability+algorithm+tool；另有 capabilities/algorithms/tools/commands 精确子集</translation>
@@ -41565,6 +41953,21 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/workflow/seismicwellintervals.cpp" line="49"/>
         <source>预测微相与所选分类的完整路径不一致</source>
         <translation>预测微相与所选分类的完整路径不一致</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="25"/>
+        <source>%1 口</source>
+        <translation>%1 口</translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/seismicpatchassignment.cpp" line="231"/>
+        <source>当前没有待保存的调整</source>
+        <translation>当前没有待保存的调整</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="25"/>
+        <source>暂无统计</source>
+        <translation>暂无统计</translation>
     </message>
 </context>
 <context>
@@ -47122,8 +47525,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/ribbontitlefit.cpp" line="249"/>
-        <source>搜索井位 / 层位</source>
-        <translation>搜索井位 / 层位</translation>
+        <source>搜索命令、井位和层位</source>
+        <translation>搜索命令、井位和层位</translation>
     </message>
     <message>
         <location filename="../src/ui/ribbontitlefit.cpp" line="250"/>
@@ -59329,6 +59732,38 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>PaleoCommands</name>
     <message>
+        <source>复制工程到数据盘并打开</source>
+        <translation>复制工程到数据盘并打开</translation>
+    </message>
+    <message>
+        <source>将只读工程复制到数据盘，校验后打开副本</source>
+        <translation>将只读工程复制到数据盘，校验后打开副本</translation>
+    </message>
+    <message>
+        <source>删除所选要素</source>
+        <translation>删除所选要素</translation>
+    </message>
+    <message>
+        <source>删除当前矢量图层中已选中的要素</source>
+        <translation>删除当前矢量图层中已选中的要素</translation>
+    </message>
+    <message>
+        <source>地统计普通克里金</source>
+        <translation>地统计普通克里金</translation>
+    </message>
+    <message>
+        <source>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</source>
+        <translation>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</translation>
+    </message>
+    <message>
+        <source>序贯高斯模拟</source>
+        <translation>序贯高斯模拟</translation>
+    </message>
+    <message>
+        <source>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</source>
+        <translation>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</translation>
+    </message>
+    <message>
         <source>新建工程</source>
         <translation>新建工程</translation>
     </message>
@@ -61739,6 +62174,286 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="205"/>
         <source>原始簇支持井数为 %1。</source>
         <translation>原始簇支持井数为 %1。</translation>
+    </message>
+</context>
+<context>
+    <name>ChatWorkspaceContext</name>
+    <message>
+        <location filename="../src/ai/chat/chatworkspacecontext.h" line="9"/>
+        <source>发送时的工作区</source>
+        <translation>发送时的工作区</translation>
+    </message>
+</context>
+<context>
+    <name>ClusterPatchInspector</name>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="126"/>
+        <source>
+井预测有分歧</source>
+        <translation>
+井预测有分歧</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="127"/>
+        <source>
+暂无井支持</source>
+        <translation>
+暂无井支持</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="123"/>
+        <source>%1 · v%2</source>
+        <translation>%1 · v%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="64"/>
+        <source>井证据</source>
+        <translation>井证据</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="81"/>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="261"/>
+        <source>保存新版本</source>
+        <translation>保存新版本</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="125"/>
+        <source>原图斑 %1
+全簇 %2</source>
+        <translation>原图斑 %1
+全簇 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="261"/>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="122"/>
+        <source>合并图斑 · 要素 %1</source>
+        <translation>合并图斑 · 要素 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="259"/>
+        <source>图斑解释尚未保存</source>
+        <translation>图斑解释尚未保存</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="142"/>
+        <source>在地图上点选一个聚类图斑，查看微相和井证据。</source>
+        <translation>在地图上点选一个聚类图斑，查看微相和井证据。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="141"/>
+        <source>对象属性</source>
+        <translation>对象属性</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="205"/>
+        <source>工程只读</source>
+        <translation>工程只读</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="76"/>
+        <source>应用到草稿</source>
+        <translation>应用到草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="63"/>
+        <source>当前微相</source>
+        <translation>当前微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="199"/>
+        <source>待定</source>
+        <translation>待定</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="214"/>
+        <source>微相分类已经改变，请核对原草稿</source>
+        <translation>微相分类已经改变，请核对原草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="79"/>
+        <source>撤销</source>
+        <translation>撤销</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="261"/>
+        <source>放弃草稿</source>
+        <translation>放弃草稿</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="71"/>
+        <source>整簇图斑</source>
+        <translation>整簇图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="260"/>
+        <source>有 %1 幅图件包含未保存的人工解释。</source>
+        <translation>有 %1 幅图件包含未保存的人工解释。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="205"/>
+        <source>未保存 · %1 次调整</source>
+        <translation>未保存 · %1 次调整</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="167"/>
+        <source>正在统计整簇图斑…</source>
+        <translation>正在统计整簇图斑…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="159"/>
+        <source>涉及 %1 个图斑</source>
+        <translation>涉及 %1 个图斑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="159"/>
+        <source>涉及 %1 个图斑，已描亮 %2 个</source>
+        <translation>涉及 %1 个图斑，已描亮 %2 个</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="67"/>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="70"/>
+        <source>目标微相</source>
+        <translation>目标微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="122"/>
+        <source>簇 %1 · 图斑 %2</source>
+        <translation>簇 %1 · 图斑 %2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="73"/>
+        <source>调整范围</source>
+        <translation>调整范围</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="69"/>
+        <source>选择目标微相</source>
+        <translation>选择目标微相</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="80"/>
+        <source>重做</source>
+        <translation>重做</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="145"/>
+        <source>
+井建议：%1</source>
+        <translation>
+井建议：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="77"/>
+        <source>取消调整</source>
+        <translation>取消调整</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="140"/>
+        <source>%1
+%2</source>
+        <translation>%1
+%2</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="137"/>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+</context>
+<context>
+    <name>WorkspaceComparison</name>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="31"/>
+        <source>主图</source>
+        <translation>主图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="26"/>
+        <source>主图与参考对照</source>
+        <translation>主图与参考对照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="37"/>
+        <source>停靠面板</source>
+        <translation>停靠面板</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="32"/>
+        <source>参考图</source>
+        <translation>参考图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="29"/>
+        <source>对照地图</source>
+        <translation>对照地图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="38"/>
+        <source>移到可浮动的参考证据面板</source>
+        <translation>移到可浮动的参考证据面板</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="42"/>
+        <source>结束对照</source>
+        <translation>结束对照</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="39"/>
+        <source>图例</source>
+        <translation>图例</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="40"/>
+        <source>显示主图和参考图的图例</source>
+        <translation>显示主图和参考图的图例</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workbench/workspacecomparison.cpp" line="41"/>
+        <source>参考设置</source>
+        <translation>参考设置</translation>
+    </message>
+</context>
+<context>
+    <name>WorkspaceFocus</name>
+    <message>
+        <location filename="../src/ui/workspacefocus.cpp" line="58"/>
+        <location filename="../src/ui/workspacefocus.cpp" line="153"/>
+        <source>专注</source>
+        <translation>专注</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workspacefocus.cpp" line="60"/>
+        <source>切换专注工作区 (F8)</source>
+        <translation>切换专注工作区 (F8)</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workspacefocus.cpp" line="56"/>
+        <source>导航</source>
+        <translation>导航</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workspacefocus.cpp" line="57"/>
+        <source>属性</source>
+        <translation>属性</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workspacefocus.cpp" line="153"/>
+        <source>退出专注</source>
+        <translation>退出专注</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workspacefocus.cpp" line="65"/>
+        <source>打开当前文档或所选对象的属性</source>
+        <translation>打开当前文档或所选对象的属性</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/workspacefocus.cpp" line="63"/>
+        <source>显示或收起当前文档的导航栏</source>
+        <translation>显示或收起当前文档的导航栏</translation>
     </message>
 </context>
 </TS>

@@ -622,11 +622,26 @@ void previewFolderAsyncOnTaskPool()
         rows = r;
         err = e;
       });
+  PaleoTask *filePreview = nullptr;
+  connect(&tasks, &PaleoTaskService::taskAdded, &wf, [&](PaleoTask *task) {
+    filePreview = task;
+  });
+  bool cancelledPreviewFinished = false;
+  wf.previewFilesAsync({tmp.filePath(QStringLiteral("src_area/A1.Las"))},
+      [&](const auto &fileRows, const QString &error) {
+        cancelledPreviewFinished = true;
+        QVERIFY(fileRows.isEmpty());
+        QVERIFY(!error.isEmpty());
+      });
+  QVERIFY(filePreview);
+  filePreview->requestCancel();
+  QCOMPARE(activeSpy.count(), 1);
   QElapsedTimer clock;
   clock.start();
-  while (!doneCalled && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(15000))
+  while ((!doneCalled || !cancelledPreviewFinished) && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(15000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(doneCalled);
+  QVERIFY(cancelledPreviewFinished);
   QVERIFY2(err.isEmpty(), qPrintable(err));
   QCOMPARE(rows.size(), 2); // 井口 + LAS（与同步路径同一行集）
   QCOMPARE(activeSpy.count(), 2);
@@ -882,6 +897,18 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
     rows = r;
     err = e;
   });
+  int rejected = 0;
+  wf.importFiles({las}, {}, {}, [&](const auto &result, const QString &error, bool cancelled) {
+    QVERIFY(result.isEmpty());
+    QVERIFY(!error.isEmpty());
+    QVERIFY(!cancelled);
+    ++rejected;
+  });
+  wf.importFile(QStringLiteral("well_log"), las, [&](const QString &asset, const QString &error) {
+    QVERIFY(asset.isEmpty());
+    QVERIFY(!error.isEmpty());
+    ++rejected;
+  });
   stack->importSvc->setProjectDir(projectB); // produce 在途：切到工程 B
   DataCatalog *catB = stack->importSvc->catalog();
   QVERIFY(catB && catB->isOpen());
@@ -891,6 +918,7 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   while (!done && clock.elapsed() < paleo::perfbudget::relaxedBudgetMs(30000))
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
+  QCOMPARE(rejected, 2);
   QVERIFY2(err.contains(QStringLiteral("工程已切换")), qPrintable(err));
   QVERIFY(!rows.isEmpty());
   for (const FolderRowResult &r : rows)
@@ -993,7 +1021,8 @@ void batchTerminalGuardDiscardsProducedCatalog()
   bool done = false;
   QString error;
   QVector<FolderRowResult> results;
-  workflow.importFiles({head, log}, {}, {}, [&](const auto &rows, const QString &message, bool) {
+  workflow.importFiles({head, log}, {}, {}, [&](const auto &rows, const QString &message, bool cancelled) {
+    QCOMPARE(cancelled, cancel);
     results = rows;
     error = message;
     done = true;
@@ -1096,13 +1125,18 @@ void queuedBatchCancellationHandleNeverStartsWorker()
     ++completions;
   });
   QString cancelledError;
-  const auto cancel = workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error, bool) {
+  const auto cancel = workflow.importFiles({log}, {}, {}, [&](const auto &rows, const auto &error, bool cancelled) {
+    QVERIFY(cancelled);
     QVERIFY(rows.isEmpty());
     cancelledError = error;
     ++completions;
   });
   QVERIFY(cancel);
   cancel();
+  QCOMPARE(completions, 1); // 已排队的文件无需等待前一目录批结束。
+  QCOMPARE(workflow.pendingImportJobs(), 1);
+  cancel();
+  QCOMPARE(completions, 1);
   QTRY_COMPARE_WITH_TIMEOUT(completions, 2, paleo::perfbudget::relaxedBudgetMs(30000));
   QVERIFY(cancelledError.contains(QStringLiteral("已取消")));
   QCOMPARE(added.count(), 1);

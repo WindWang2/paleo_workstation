@@ -10,6 +10,7 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocumentFragment>
+#include <QTextFrame>
 #include <QTimer>
 #include <QUrl>
 
@@ -31,21 +32,31 @@ QString transcriptStyles() {
          t.border.name(), t.primaryText.name());
 }
 
-void beginEntry(QTextCursor &cursor, const QString &label, bool error = false) {
+void beginEntry(QTextCursor &cursor, const QString &label, ChatRole role, bool error = false) {
   const auto &t = PaleoTheme::tokens();
   QTextBlockFormat heading;
   heading.setTopMargin(cursor.atStart() ? 0 : t.spacingMd);
   heading.setBottomMargin(t.spacingXs);
   QTextCharFormat caption;
-  caption.setFont(PaleoTheme::bodyFont(t.labelPt));
+  const bool assistant = role == ChatRole::Assistant;
+  if (assistant)
+    heading.setHeadingLevel(2);
+  if (role == ChatRole::User) {
+    heading.setAlignment(Qt::AlignRight);
+    heading.setRightMargin(t.spacingSm);
+  }
+  caption.setFont(PaleoTheme::bodyFont(assistant ? t.titlePt : t.labelPt));
   caption.setFontWeight(QFont::DemiBold);
-  caption.setForeground(error ? t.errorText : t.textMuted);
-  if (cursor.atStart())
+  caption.setForeground(error ? t.errorText : assistant ? t.text : t.textMuted);
+  // A frame already leaves an empty paragraph after it. Reuse it for the next speaker.
+  if (cursor.atStart() || (cursor.atBlockStart() &&
+      cursor.document()->frameAt(cursor.position() - 1) != cursor.currentFrame()))
     cursor.setBlockFormat(heading);
   else
     cursor.insertBlock(heading, caption);
   cursor.insertText(label, caption);
-  cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
+  if (role != ChatRole::User)
+    cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
 }
 
 bool followsLatest(QTextBrowser *browser) {
@@ -54,8 +65,20 @@ bool followsLatest(QTextBrowser *browser) {
          scroll->value() >= scroll->maximum() - scroll->singleStep();
 }
 
-void insertBody(QTextCursor &cursor, const QString &text, bool markdown) {
-  if (!markdown) {
+void insertBody(QTextCursor &cursor, const QString &text, ChatRole role) {
+  if (role == ChatRole::User) {
+    const auto &t = PaleoTheme::tokens();
+    QTextFrameFormat format;
+    format.setLeftMargin(t.spacingMd);
+    format.setPadding(t.spacingSm);
+    format.setBackground(t.surfaceAlt);
+    auto *frame = cursor.insertFrame(format);
+    cursor.setBlockFormat(QTextBlockFormat());
+    cursor.insertText(text, QTextCharFormat());
+    cursor.setPosition(frame->lastPosition() + 1);
+    return;
+  }
+  if (role != ChatRole::Assistant) {
     cursor.insertText(text, QTextCharFormat());
     return;
   }
@@ -122,8 +145,8 @@ void AiAssistDock::appendEntry(const TranscriptEntry &entry) {
   QTextCursor cursor(m_transcript->document());
   cursor.movePosition(QTextCursor::End);
   cursor.beginEditBlock();
-  beginEntry(cursor, entry.label, entry.error);
-  insertBody(cursor, entry.text, entry.markdown);
+  beginEntry(cursor, entry.label, entry.role, entry.error);
+  insertBody(cursor, entry.text, entry.role);
   cursor.endEditBlock();
   m_transcriptEntries.append(entry);
   if (follow)
@@ -142,11 +165,11 @@ void AiAssistDock::appendMessage(const ChatMessage &message) {
     return;
   }
   switch (message.role) {
-  case ChatRole::User:      appendEntry({tr("你"), message.content}); break;
-  case ChatRole::Assistant: appendEntry({tr("助手"), message.content, true}); break;
-  case ChatRole::System:    appendEntry({tr("系统"), message.content}); break;
+  case ChatRole::User:      appendEntry({tr("你"), message.content, message.role}); break;
+  case ChatRole::Assistant: appendEntry({tr("AI Agent"), message.content, message.role}); break;
+  case ChatRole::System:    appendEntry({tr("系统"), message.content, message.role}); break;
   case ChatRole::Tool:
-    appendEntry({tr("工具"), tr("结果已回传模型（%1 字符）").arg(message.content.size())});
+    appendEntry({tr("工具"), tr("结果已回传模型（%1 字符）").arg(message.content.size()), message.role});
     break;
   }
 }
@@ -161,7 +184,7 @@ void AiAssistDock::appendDelta(const QString &text) {
     const bool follow = followsLatest(m_transcript);
     QTextCursor cursor(m_transcript->document());
     cursor.movePosition(QTextCursor::End);
-    beginEntry(cursor, tr("助手"));
+    beginEntry(cursor, tr("AI Agent"), ChatRole::Assistant);
     m_assistantStart = cursor.position();
     m_previewLength = -1;
     m_previewTimer->setInterval(100);
@@ -191,7 +214,7 @@ void AiAssistDock::renderAssistantDraft() {
   cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
   cursor.beginEditBlock();
   cursor.removeSelectedText();
-  insertBody(cursor, m_assistantDraft, true);
+  insertBody(cursor, m_assistantDraft, ChatRole::Assistant);
   cursor.endEditBlock();
   if (!selected.isEmpty()) {
     restoreSelection(m_transcript, anchor, position, selected, m_assistantStart);
@@ -211,7 +234,7 @@ void AiAssistDock::finalizeAssistantBlock() {
     return;
   }
   renderAssistantDraft();
-  m_transcriptEntries.append({tr("助手"), m_assistantDraft, true});
+  m_transcriptEntries.append({tr("AI Agent"), m_assistantDraft, ChatRole::Assistant});
   m_assistantDraft.clear();
   m_assistantStart = -1;
   updateActionStates();
@@ -219,13 +242,15 @@ void AiAssistDock::finalizeAssistantBlock() {
 
 void AiAssistDock::appendError(const QString &message) {
   finalizeAssistantBlock();
-  appendEntry({tr("错误"), message, false, true});
+  appendEntry({tr("错误"), message, ChatRole::System, true});
 }
 
 void AiAssistDock::changeEvent(QEvent *event) {
   QWidget::changeEvent(event);
-  if (m_transcript && m_transcriptTheme != PaleoTheme::currentTheme())
+  if (m_transcript && m_transcriptTheme != PaleoTheme::currentTheme()) {
+    updateWelcomeIcon();
     refreshTranscriptTheme();
+  }
 }
 
 void AiAssistDock::refreshTranscriptTheme() {
@@ -243,13 +268,13 @@ void AiAssistDock::refreshTranscriptTheme() {
   cursor.select(QTextCursor::Document);
   cursor.removeSelectedText();
   for (const auto &entry : m_transcriptEntries) {
-    beginEntry(cursor, entry.label, entry.error);
-    insertBody(cursor, entry.text, entry.markdown);
+    beginEntry(cursor, entry.label, entry.role, entry.error);
+    insertBody(cursor, entry.text, entry.role);
   }
   if (m_assistantStart >= 0) {
-    beginEntry(cursor, tr("助手"));
+    beginEntry(cursor, tr("AI Agent"), ChatRole::Assistant);
     m_assistantStart = cursor.position();
-    insertBody(cursor, m_assistantDraft, true);
+    insertBody(cursor, m_assistantDraft, ChatRole::Assistant);
     m_previewLength = m_assistantDraft.size();
   }
   cursor.endEditBlock();

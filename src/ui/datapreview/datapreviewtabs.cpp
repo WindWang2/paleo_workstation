@@ -1,5 +1,7 @@
 // 层：视图
 #include "datapreviewtabs.h"
+#include "../mapoutputtitle_internal.h"
+#include "domain/mapproductcaption.h"
 
 #include "../paleotheme.h" // DESIGN.md token 出口（颜色/字阶/活体样式共用）
 #include "../paleoicons.h" // 角落最大化/还原自绘图标
@@ -175,6 +177,10 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
     if (index >= 0)
       focusWellIfNeeded(assetIdAt(index), m_tabs->widget(index));
     syncDetails();
+    auto *page = m_tabs->widget(index);
+    emit activePreviewCaptionChanged(page && page->property("workspaceCaption").isValid()
+        ? page->property("workspaceCaption").toString() : m_tabs->tabText(index),
+        page ? page->property("workspaceCaptionDetail").toString() : QString());
   });
   m_tabs->tabBar()->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_tabs->tabBar(), &QWidget::customContextMenuRequested, this, [this](const QPoint &point) {
@@ -617,9 +623,14 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
   const int idx = m_tabs->indexOf(page);
   if (idx < 0)
     return;
-  // §4：标题是「文件名 · 井名」/「文件名 · 测线」；无过滤时只有文件名。
+  const CatalogVersion shown = !m_doc ? CatalogVersion()
+      : m_chosenVersionOfAsset.value(assetId).isEmpty() ? m_doc->catalog()->currentVersion(assetId)
+      : m_doc->versionForPreview(m_chosenVersionOfAsset.value(assetId));
   QString title =
       m_doc ? m_doc->catalog()->assetById(assetId).displayName : assetId;
+  const QString mapTitle = paleo::ui_detail::mapOutputTitle(shown);
+  if (!mapTitle.isEmpty())
+    title = shown.fileName.isEmpty() ? mapTitle : mapTitle + QStringLiteral(" · ") + shown.fileName;
   if (title.isEmpty())
     title = assetId;
   const QString suffix = m_titleSuffixOfAsset.value(assetId);
@@ -627,12 +638,14 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
     title += QStringLiteral(" · ") + suffix;
   // B 包 staleness-lite：实际预览版本被标 stale（上游 sha 失配/被取代）→
   // 标题带「过时」徽标——下游产物过期在数据页如实可见。
-  const CatalogVersion shown = !m_doc ? CatalogVersion()
-      : m_chosenVersionOfAsset.value(assetId).isEmpty() ? m_doc->catalog()->currentVersion(assetId)
-      : m_doc->versionForPreview(m_chosenVersionOfAsset.value(assetId));
   if (shown.extra.value(QStringLiteral("stale")).toBool())
     title += QStringLiteral(" · ") + tr("过时");
   m_tabs->setTabText(idx, title);
+  const QString caption = shown.id.isEmpty() ? title : workspaceVersionCaption(title, shown.versionNumber);
+  page->setProperty("workspaceCaption", caption);
+  page->setProperty("workspaceCaptionDetail", shown.sourceUri);
+  if (idx == m_tabs->currentIndex())
+    emit activePreviewCaptionChanged(caption, shown.sourceUri);
 }
 
 void DataPreviewTabs::drainDeferredRebuilds()

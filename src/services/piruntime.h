@@ -10,6 +10,8 @@ struct RuntimeConfig {
   bool enabled=false;
   QString root,manifestSha256; // One complete identity from trusted host configuration.
 };
+// Locates the pinned package relative to the executable in a build or installed tree.
+RuntimeConfig bundledRuntime();
 struct RuntimeInspection;
 class VerifiedRuntime final {
 public:
@@ -24,7 +26,6 @@ public:
 private:
   VerifiedRuntime()=default;
   QString m_root,m_manifestSha256,m_node,m_entry,m_nodeVersion,m_platform,m_upstream,m_coreVersion;
-  std::shared_ptr<void> m_retention;
   friend RuntimeInspection inspectRuntime(const RuntimeConfig&,const std::function<bool()>&);
 };
 struct RuntimeInspection {

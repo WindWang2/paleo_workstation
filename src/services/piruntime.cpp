@@ -6,14 +6,9 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
-#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QLockFile>
-#include <QMutex>
-#include <QScopeGuard>
 #include <QSet>
-#include <QStandardPaths>
 #include <QSysInfo>
 #include <QThread>
 #include <cmath>
@@ -68,23 +63,38 @@ QByteArray hashFile(QFile &file,qint64 expected,const std::function<bool()> &sto
   if(!file.read(1).isEmpty()||file.error()!=QFileDevice::NoError)return {};
   return hash.result().toHex();
 }
-std::shared_ptr<void> lease(const QString &root,const QString &anchor) {
-  struct Pool {QMutex mutex;QHash<QString,std::weak_ptr<void>> entries;};static Pool pool;
-#ifdef Q_OS_WIN
-  const auto key=root.toCaseFolded()+QChar(0)+anchor;
-#else
-  const auto key=root+QChar(0)+anchor;
+}
+RuntimeConfig bundledRuntime() {
+  const QString sha = QStringLiteral(PALEO_AGENT_PI_MANIFEST_SHA);
+  const QString generation = QStringLiteral("libexec/pi-agent/generations/") + sha;
+  const QDir binary(QCoreApplication::applicationDirPath());
+  const QString local = binary.filePath(generation);
+  if (QFileInfo::exists(local)) return {true, local, sha};
+  const QString installed = binary.filePath(QStringLiteral(PALEO_AGENT_PI_FROM_BINDIR) + '/' + generation);
+  return {true, QDir::cleanPath(installed), sha};
+}
+#ifdef Q_OS_LINUX
+namespace detail {
+QString verifiedPiLoaderDirectory() {
+  const QDir runtime(bundledRuntime().root);
+  const QString path = QDir::cleanPath(runtime.filePath(QStringLiteral("../../loaders/" PALEO_PI_LOADER_ID)));
+  const QDir directory(path);
+  const QStringList names{QStringLiteral("libgcc_s.so.1"), QStringLiteral("libstdc++.so.6")};
+  if (path.contains(':') || linked(QFileInfo(path)) ||
+      directory.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDir::Name) != names)
+    return {};
+  for (const QString &name : names) {
+    const QFileInfo info(directory.filePath(name));
+    QFile file(info.absoluteFilePath());
+    if (!info.isFile() || linked(info) || info.size() < 1 || info.size() > 64 * 1024 * 1024 || !file.open(QIODevice::ReadOnly))
+      return {};
+    const auto expected = name == names.first() ? PALEO_PI_GCC_SHA : PALEO_PI_CXX_SHA;
+    if (hashFile(file, info.size(), [] { return false; }) != expected) return {};
+  }
+  return path;
+}
+}
 #endif
-  QMutexLocker locker(&pool.mutex);
-  for(auto it=pool.entries.begin();it!=pool.entries.end();)if(it.value().expired())it=pool.entries.erase(it);else ++it;
-  if(auto current=pool.entries.value(key).lock())return current;
-  const auto directory=QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)+"/paleo/pi-runtime-leases";
-  if(!QDir().mkpath(directory))return {};
-  const auto token=QCryptographicHash::hash(key.toUtf8(),QCryptographicHash::Sha256).toHex();
-  auto current=std::make_shared<QLockFile>(directory+'/'+QString::fromLatin1(token)+".lock");current->setStaleLockTime(0);
-  if(!current->tryLock(0))return {};pool.entries.insert(key,current);return current;
-}
-}
 RuntimeInspection inspectRuntime(const RuntimeConfig &config,const std::function<bool()> &cancelled) {
   RuntimeInspection out;out.status={{"enabled",config.enabled},{"integrityVerified",false},{"executionReady",false},
     {"isSandbox",false},{"osMemoryLimitEnforced",false},{"osCpuLimitEnforced",false},{"modelTransportReady",false}};
@@ -96,7 +106,6 @@ RuntimeInspection inspectRuntime(const RuntimeConfig &config,const std::function
   if(platform().isEmpty())return fail("pi_platform_unsupported");
   const QFileInfo rootInfo(config.root);const auto root=rootInfo.canonicalFilePath();
   if(config.root.isEmpty()||root.isEmpty()||!rootInfo.isDir()||linked(rootInfo))return fail("pi_runtime_missing");
-  auto retained=lease(root,config.manifestSha256);if(!retained)return fail("pi_runtime_busy");
   QFile file(root+"/pi-manifest.json");const QFileInfo manifestInfo(file);
   if(!manifestInfo.isFile()||linked(manifestInfo)||manifestInfo.size()<1||manifestInfo.size()>1024*1024||
       !file.open(QIODevice::ReadOnly))return fail("pi_manifest_invalid");
@@ -145,7 +154,7 @@ RuntimeInspection inspectRuntime(const RuntimeConfig &config,const std::function
   auto verified=std::shared_ptr<VerifiedRuntime>(new VerifiedRuntime);verified->m_root=root;verified->m_manifestSha256=config.manifestSha256;
   verified->m_node=root+'/'+node;verified->m_entry=root+"/agent/sidecar.mjs";verified->m_nodeVersion=manifest.value("nodeVersion").toString();
   verified->m_platform=platform();verified->m_upstream=manifest.value("upstreamCommit").toString();verified->m_coreVersion=manifest.value("coreVersion").toString();
-  verified->m_retention=std::move(retained);out.runtime=std::move(verified);out.code="ok";out.status.insert("code",out.code);
+  out.runtime=std::move(verified);out.code="ok";out.status.insert("code",out.code);
   out.status.insert("integrityVerified",true);out.status.insert("nodeVersion",out.runtime->nodeVersion());return out;
 }
 }

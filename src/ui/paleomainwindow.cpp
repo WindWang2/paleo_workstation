@@ -7,6 +7,7 @@
 // 定位、D11 临时配准、地震体后台装载。页切换在 _pages.cpp、工程打开/导入
 // 编排在 _project.cpp。
 #include "paleomainwindow.h"
+#include "workspacefocus.h"
 #include "../workflow/stratigraphyworkflow.h"
 #include "paleomainwindow_internal.h"
 #include <cmath>
@@ -33,6 +34,7 @@
 #include "shortcuts/shortcutcatalog.h" // 方向63：注册表健康度进启动日志
 #include "help/whatsthiscatalog.h"     // 方向63：壳控件 whatsThis 回填
 #include <QComboBox> // findChildren<QComboBox*>（层位下拉 chip 联动）
+#include <QSignalBlocker>
 #include <QGuiApplication>
 #include <QScreen>
 #include "ui/seismic3d/seismic3dviewpanel.h"
@@ -288,7 +290,7 @@ void PaleoMainWindow::buildShell()
              paleo::mainwindow_internal::applyPageDockPolicy(
                  m_currentPage, {m_leftDock, m_dataListDock, m_bottomDock,
                                  m_wellSectionDock, m_previewMaximized,
-                                m_bottomDockAutoShown, m_rightDock}, this);
+                                m_rightDock}, this);
          }
        }});
   // R6 #835（用户 2026-10-31 决定「不要限制」，取代 PLAN §42.11 的 1280×800 最小窗口）：
@@ -434,7 +436,11 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
 
 void PaleoMainWindow::onProjectOpened()
 {
-  if (m_rightDock) m_rightDock->setProgrammaticVisible(m_rightDock->userWantsVisible());
+  if (!property("workspaceRibbonInitialized").toBool()) {
+    QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+    ribbonBar()->setMinimumMode(settings.value(QStringLiteral("ui/workspace/compactRibbon"), true).toBool());
+    setProperty("workspaceRibbonInitialized", true);
+  }
   if (m_centerStack)
     m_centerStack->setCurrentIndex(1); // startup -> workspace canvas
 
@@ -460,22 +466,18 @@ void PaleoMainWindow::onProjectOpened()
     }
   }
 
-  // 捕捉配置镜像进工程（QGIS_NATIVE_ADOPTION）：随 .qgz 持久化；画布侧
-  // 配置在 canvas() 创建时已装到 snappingUtils（同一 nativeSnappingConfig）。
-  // setProject 必须补：nativeSnappingConfig 是无 project 的静态构造，缺它
-  // 则重开工程时 QgsSnappingConfig::readProject 在空 project 上调 mapLayer
-  // 崩溃（QGIS 4.2 setSnappingConfig 不代挂 project 指针）。
   if (m_projectSvc && m_projectSvc->project())
   {
-    auto config = m_projectSvc->project()->snappingConfig();
-    if (!config.enabled() || config.units() != Qgis::MapToolUnit::Pixels)
-      config = QgisCanvasController::nativeSnappingConfig();
-    config.setProject(m_projectSvc->project());
-    m_projectSvc->project()->setSnappingConfig(config);
+    const auto config = m_projectSvc->project()->snappingConfig();
     if (m_canvasCtl)
       m_canvasCtl->canvas()->snappingUtils()->setConfig(config);
-    if (auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
-      toolbar->snapToleranceSpin()->setValue(qRound(config.tolerance()));
+    if (config.units() == Qgis::MapToolUnit::Pixels)
+      if (auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+      {
+        auto *spin = toolbar->snapToleranceSpin();
+        const QSignalBlocker blocker(spin);
+        spin->setValue(qRound(config.tolerance()));
+      }
   }
 
   restoreCanvasExtent(); // per-project display state from the .qgz
@@ -483,16 +485,31 @@ void PaleoMainWindow::onProjectOpened()
   // #156：测井对比井集来自 catalog（不再只由本会话的导入事件填充）。
   refreshCorrelationWells();
 
+  refreshMappingHorizons();
+  // 工区打开默认进入数据看板；具体预览页在目录绑定完成后由 attachDataPage 激活。
+  showPage(QStringLiteral("data"));
+}
+
+void PaleoMainWindow::refreshMappingHorizons()
+{
   // 工程级参数驱动的层位 UI（AreaRules 已在 AppContext::projectOpened 装载）：
   // chip 条按新词表重建；标定层位相关文案重写。
-  if (auto *bar = findChild<HorizonChipBar *>())
+  const QStringList horizonWords = mappingHorizons();
+  const QString project = m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+                            ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
+  for (auto *bar : findChildren<HorizonChipBar *>())
     bar->reloadHorizons();
-  if (auto *unit = findChild<SubIntervalSelectorBar *>())
-    unit->reloadFromBoundaries(mappingHorizons());
+  for (auto *unit : findChildren<SubIntervalSelectorBar *>())
+    unit->reloadFromProject(project, horizonWords);
+  if (m_selection && !m_selection->activeHorizon().isEmpty() &&
+      !horizonWords.isEmpty() && !horizonWords.contains(m_selection->activeHorizon()))
+  {
+    m_selection->setActiveHorizon(horizonWords.first());
+    if (m_layerSvc) m_layerSvc->setActiveHorizon(horizonWords.first());
+  }
   // 同一词表填充预测/单因素页的层位下拉（此前生产链从未填充，页面发出的
   // 意图恒携带空层位）；已选层位原样跟随，未选时下拉给词表首项。
   {
-    const QStringList horizonWords = mappingHorizons();
     if (auto *pp = findChild<PredictPage *>())
       pp->setHorizons(horizonWords);
     auto *cp = findChild<ConstraintPage *>();
@@ -525,9 +542,6 @@ void PaleoMainWindow::onProjectOpened()
                      .arg(AreaRules::active().onnxGrid.rows)
                      .arg(AreaRules::active().onnxGrid.cols));
   }
-
-  // 工区打开默认进入数据看板；具体预览页在目录绑定完成后由 attachDataPage 激活。
-  showPage(QStringLiteral("data"));
 }
 
 void PaleoMainWindow::closeEvent(QCloseEvent *event)
@@ -568,6 +582,8 @@ void PaleoMainWindow::updateWindowTitle()
 void PaleoMainWindow::setProjectReadOnly(bool readOnly)
 {
   m_isProjectReadOnly = readOnly;
+  if (auto *inspector = findChild<QWidget *>(QStringLiteral("clusterPatchInspector")))
+    inspector->setProperty("readOnly", readOnly);
   updateUndoProjectGate(readOnly);
   updateWindowTitle();
 
@@ -588,42 +604,13 @@ void PaleoMainWindow::setProjectReadOnly(bool readOnly)
   if (statusBar() && readOnly)
   {
     const bool external = m_projectSvc && !m_projectSvc->allowsProjectWritesAt(QFileInfo(m_projectSvc->projectPath()).absolutePath());
-    statusBar()->showMessage(external ? tr("工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。")
-                                      : tr("工程以只读模式运行（写操作已禁用）"), 10000);
+    const QString message = external ? tr("工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。")
+                                     : tr("工程以只读模式运行（写操作已禁用）");
+    statusBar()->setProperty("projectReadOnlyNotice", message);
+    statusBar()->showMessage(message, 10000);
+  } else if (statusBar() && statusBar()->currentMessage() == statusBar()->property("projectReadOnlyNotice").toString()) {
+    statusBar()->clearMessage();
   }
-}
-
-void PaleoMainWindow::saveWindowState()
-{
-  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
-  s.setValue(QStringLiteral("windowGeometry"), saveGeometry());
-  s.setValue(QStringLiteral("windowState"),
-             m_currentPage == QLatin1String("correlation") && !m_beforeCorrelationWindowState.isEmpty()
-                 ? m_beforeCorrelationWindowState : saveState());
-  s.setValue(QStringLiteral("windowDockIntent"), m_dockManager->captureIntent());
-  // lastPage 不再写入：#565 起恢复侧固定打开工区看板（读取已删，写即死写）。
-}
-
-void PaleoMainWindow::restoreWindowState()
-{
-  QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
-  const QByteArray geom = s.value(QStringLiteral("windowGeometry")).toByteArray();
-  if (!geom.isEmpty())
-    restoreGeometry(geom);
-  else if (!paleo::ui_detail::isOffscreen())
-    // R6 #835：首次启动按所在屏 90% 起步，而不是停在最小尺寸、四周留白。
-    resize(paleo::ui_detail::boundedToAvailable(QSize(1920, 1200), paleo::ui_detail::availableSizeFor(this)));
-  const QByteArray state = s.value(QStringLiteral("windowState")).toByteArray();
-  if (!state.isEmpty())
-  {
-    // 旧版设置没有 windowDockIntent：意愿还原用恢复前的快照兜底。
-    QVariantMap intent;
-    const bool hasIntent = s.contains(QStringLiteral("windowDockIntent"));
-    if (hasIntent)
-      intent = s.value(QStringLiteral("windowDockIntent")).toMap();
-    m_dockManager->restoreLayout(state, hasIntent ? &intent : nullptr);
-  }
-  // Page restore happens in onProjectOpened (a page without a project is empty).
 }
 
 void PaleoMainWindow::saveCanvasExtent()
@@ -898,6 +885,7 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
 // 返回 false = 取消。offscreen 且无 seam 时直接放行（无头自动化旧行为）。
 bool PaleoMainWindow::maybeSaveProject()
 {
+  if (!resolveClusterDrafts()) return false;
   if(m_stratigraphy&&m_stratigraphy->isRunning()) {
     PaleoNotify::warning(this,tr("地层对比仍在计算"),tr("请等待计算完成或取消计算后再关闭或切换工程。"));return false;
   }

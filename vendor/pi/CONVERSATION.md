@@ -2,22 +2,18 @@
 
 `paleo.pi-conversation.v1` is distinct from the A1 handshake protocol. A1
 `hello`/`close` retains its original meaning and deadlines. This contract is for
-the fixed reviewed optional entry only, with `Agent.toolExecution=sequential`, a
+the fixed reviewed Agent entry, with `Agent.toolExecution=sequential`, a
 custom `streamFn`, and host-proxy tools. It enables no coding-agent tools,
 generated JavaScript, extensions, Shell, filesystem APIs or network providers.
-Node remains trusted optional orchestration code, not an OS sandbox.
+The bundled Node process runs trusted orchestration code.
 
-## Host selection
+## Runtime and host responsibilities
 
-The default engine is the existing native C++ loop. App assembly selects Pi only
-when the trusted host provides `PALEO_AGENT_PI_ENABLE=1`,
-`PALEO_AGENT_PI_ROOT=<prepared-generation>` and
-`PALEO_AGENT_PI_MANIFEST_SHA256=<independently-approved-manifest-SHA>` together.
-These are operator configuration, never model/tool/project arguments. No PATH
-lookup, npm installation or provider credentials participate. An explicitly
-selected missing or incompatible runtime reports failure; it does not replay the
-turn through the native engine. Existing model endpoint, key and LlmClient
-configuration continue to live exclusively in C++.
+Every Agent turn uses the bundled Pi engine. The application locates its runtime
+relative to the executable and verifies it against the platform manifest SHA
+pinned in the repository. User configuration supplies the model endpoint and
+credentials to the C++ LlmClient. A missing or incompatible runtime stops the
+turn before a model request and the host reports the failure.
 
 Host session JSON may contain `host_turn_id` and bounded `host_tool_bindings`.
 The latter commits session/turn/call identity, document and canonical admitted
@@ -29,9 +25,8 @@ Host call IDs derive from session, turn, model round and admitted call ordinal.
 Provider-generated call IDs are used only to deduplicate one response. A retry
 therefore retains its original durable identity even when the provider assigns
 fresh IDs; changed content at an existing ordinal conflicts before dispatch.
-This admission/persistence boundary is shared by the native and Pi engines.
-Switching an existing turn from Pi to native does not mint fresh request IDs.
-The client request key depends only on the host tuple/document; the separately
+On a retry the host reuses the persisted binding. The client request key
+depends only on the host tuple/document; the separately
 stored canonical-call digest detects changed content, and OperationLog's request
 hash remains authoritative even when a chat binding is unavailable.
 
@@ -86,7 +81,7 @@ The declared tool set is fixed for this host turn; new grants become visible on
 the next turn. Current permissions/readiness are checked by the same C++ Runner
 at dispatch, so a revoked tool is never made executable by its old declaration.
 
-The host admits the complete model response with the same native limits:
+The host admits the complete model response within its existing limits:
 5 tool rounds, 8 calls per response, 16 calls per host turn, existing argument
 and character-estimated history budgets. Before forwarding calls as executable,
 it atomically saves the host session/turn/call binding and canonical admitted
@@ -111,11 +106,11 @@ occupying a TaskService worker waiting for a permit. The host requires at least
 two workers so the sidecar cannot occupy the only worker needed by its tools.
 Normal completion requires
 validated idle, close, closed and normal exit zero. The host turn wall bound is
-30 minutes; this is an optional-engine deadline, not an OS CPU/memory quota.
+30 minutes.
 On cancellation/context invalidation the host cancels existing LLM/tools, pads
 unanswered tool calls, sends abort and allows at most 2 seconds for shutdown
 before bounded kill/reap. Late generation frames cannot dispatch tools or mutate
-the host transcript. The selected engine never automatically fails over/replays.
+the host transcript. A failed turn stops without automatically replaying tool calls.
 
 Acceptance includes wrong nonce/session/epoch/turn/sequence; malformed/duplicate
 JSON, encoding, partial/oversized/flood frames; duplicate or unadmitted tool

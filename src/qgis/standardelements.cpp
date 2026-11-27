@@ -25,6 +25,7 @@
 #include <qgslayoutsize.h>
 #include <qgslayoutundostack.h>
 #include <qgsmaplayer.h>
+#include <qgsmaplayerutils.h>
 #include <qgsprintlayout.h>
 #include <qgsproject.h>
 #include <qgsrectangle.h>
@@ -71,21 +72,6 @@ namespace
     return mantissa * std::pow( 10.0, exponent );
   }
 
-  // 图层全幅（插图的「全图」范围）：空集回空矩形。
-  QgsRectangle combinedExtent( const QList<QgsMapLayer *> &layers )
-  {
-    QgsRectangle extent;
-    for ( QgsMapLayer *layer : layers )
-    {
-      if ( !layer )
-        continue;
-      if ( extent.isNull() )
-        extent = layer->extent();
-      else
-        extent.combineExtentWith( layer->extent() );
-    }
-    return extent;
-  }
 
   // 地图项在 scene 里的毫米矩形（装饰定位基准）。
   QRectF mapSceneRectMm( QgsLayoutItemMap *map )
@@ -206,7 +192,8 @@ QgsLayoutItemMap *addInsetMap( QgsPrintLayout *layout, QgsLayoutItemMap *mainMap
     return nullptr;
 
   // 插图范围 = 主图图层的全幅（主图范围是里面被 overview 框出的那块）。
-  QgsRectangle full = combinedExtent( mainMap->layers() );
+  QgsRectangle full = QgsMapLayerUtils::combinedExtent( mainMap->layers(), mainMap->crs(),
+                                                        layout->project()->transformContext() );
   if ( full.isNull() || full.isEmpty() )
   {
     full = mainMap->extent();
@@ -214,6 +201,7 @@ QgsLayoutItemMap *addInsetMap( QgsPrintLayout *layout, QgsLayoutItemMap *mainMap
   }
 
   auto *inset = new QgsLayoutItemMap( layout );
+  inset->setCrs( mainMap->crs() );
   inset->setId( QStringLiteral( "inset" ) );
   layout->addLayoutItem( inset );
   inset->attemptResize( QgsLayoutSize( 42, 30, Qgis::LayoutUnit::Millimeters ) );
@@ -452,6 +440,14 @@ bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSe
                            const QList<QgsMapLayer *> &layers, const QgsRectangle &extent,
                            QString *error )
 {
+  const auto crs = layout && layout->project() ? layout->project()->crs() : QgsCoordinateReferenceSystem();
+  return populateFigureLayout( layout, kind, setup, layers, extent, crs, error );
+}
+
+bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSetup &setup,
+                           const QList<QgsMapLayer *> &layers, const QgsRectangle &extent,
+                           const QgsCoordinateReferenceSystem &mapCrs, QString *error )
+{
   if ( !layout )
   {
     if ( error )
@@ -487,6 +483,7 @@ bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSe
   double mapRight = W - 10.0;
 
   QgsLayoutItemMap *map = addMainMap( layout, layers, extent );
+  map->setCrs( mapCrs );
 
   // 图例列宽随种类：井位图无列（图例浮在图内），单因素 58mm，沉积相 66mm。
   double legendColumnW = 0.0;

@@ -105,6 +105,7 @@ if(WIN32)
   set_tests_properties(tst_mappingworkbench PROPERTIES TIMEOUT 600)
 endif()
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
+target_sources(tst_ui PRIVATE tests/desktopiomapcase.cpp)
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
 # RUN_SERIAL 独占机器跑：dataops_d2_filterPerformance10k 的 100ms 墙钟断言
 # 在 -j8 并行负载下偶发超限（108ms 实测）——同 tst_perf/tst_correlation_full

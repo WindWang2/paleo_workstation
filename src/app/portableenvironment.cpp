@@ -27,7 +27,7 @@ namespace
   {
     static const QList<QPair<QString, QString>> bindings{
       {"QGIS_PREFIX_PATH", "qgis"}, {"PROJ_DATA", "share/proj"},
-      {"PROJ_LIB", "share/proj"}, {"GDAL_DATA", "share/gdal"},
+      {"PROJ_LIB", "share/proj"}, {"GDAL_DATA", "share/gdal"}, {"PDAL_DRIVER_PATH", "."},
       {"QT_PLUGIN_PATH", "plugins"}, {"QML2_IMPORT_PATH", "qml"},
       {"QTWEBENGINEPROCESS_PATH", "QtWebEngineProcess.exe"}};
     return bindings;
@@ -134,7 +134,7 @@ PortableEnvironment inspectPortableEnvironment(const QString &directory,
   // precedence over the legacy PROJ_LIB in modern PROJ.
   const QDir bindingRoot(anchor.isEmpty() ? directory : anchor);
   for (const auto &entry : portableEnvBindings())
-    result.values.insert(entry.first, bindingRoot.absoluteFilePath(entry.second));
+    result.values.insert(entry.first, QDir::cleanPath(bindingRoot.absoluteFilePath(entry.second)));
   if (QFileInfo::exists(root.filePath(QStringLiteral("RUNTIME_SOURCES.json")))) {
     for (const auto &entry : packageEnvBindings()) {
       const auto path = bindingRoot.absoluteFilePath(entry.second);

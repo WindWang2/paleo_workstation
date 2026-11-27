@@ -51,8 +51,10 @@ class DataImportService : public QObject
     explicit DataImportService(PaleoProjectStore *store = nullptr, QObject *parent = nullptr);
     ~DataImportService() override;
 
-    void setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared = {});
+    void setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared = {},
+                       const QString &verifiedHorizonStamp = {});
     QString projectDir() const { return m_projectDir; }
+    quint64 catalogEpoch() const { return m_catalogEpoch; }
 
     // 工程级地理配准（project.paleo georeference 节注入）：建井时把局部网格
     // surfaceX/Y 换算成 WGS84 经纬度——coordinateStatus="ok"、extra 记

@@ -3,6 +3,7 @@
 // paleomainwindow.cpp 迁出（仍是 PaleoMainWindow 成员函数，定义在本 TU）。
 // 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
 #include "paleomainwindow.h"
+#include "workspacedockdocuments.h"
 #include "windowsizing_internal.h"
 
 #include "paleotheme.h"
@@ -162,8 +163,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                                              tr("按地层连井：多井对比、分层连线与井间地震"),
                                              "ribbonWellSectionAction"),
                                    "view.wellSection", [this](const QVariantMap &) {
-      m_wellSectionDock->setVisible(true);
-      m_wellSectionDock->raise();
+      WorkspaceDockDocuments::open(this, m_wellSectionDock);
     });
   }
   QAction *attrAct = bottomAction(findChild<QWidget *>(QStringLiteral("attributeTablePanel")), "view.attributeTable",
@@ -429,10 +429,7 @@ void PaleoMainWindow::bindSeismicViewCommands()
   });
   bindCommand(QStringLiteral("view.seismic2d"), [this](const QVariantMap &) {
     syncSeismicVolumeToDocks();
-    if (m_seismicSectionDock) {
-      m_seismicSectionDock->show();
-      m_seismicSectionDock->raise();
-    }
+    WorkspaceDockDocuments::open(this, m_seismicSectionDock);
   });
 }
 
@@ -467,7 +464,8 @@ void PaleoMainWindow::bindEditingCommands(PaleoEditingToolbar *editTb)
   const std::pair<QAction *, const char *> natives[] = {
       {editTb->actionSelect(), "edit.select"},       {editTb->actionAddFeature(), "edit.addFeature"},
       {editTb->actionReshape(), "edit.reshape"},     {editTb->actionMove(), "edit.move"},
-      {editTb->actionDeleteFeatures(), "edit.deleteFeatures"}, {editTb->actionVertexEdit(), "edit.vertex"},
+      {editTb->actionVertexEdit(), "edit.vertex"},
+      {editTb->actionDeleteSelection(), "edit.deleteSelection"},
       {editTb->actionFaciesOperations(), "edit.faciesOperations"},
       {editTb->actionAddPoint(), "edit.addPoint"},   {editTb->actionAddLine(), "edit.addLine"},
       {editTb->actionAddPolygon(), "edit.addPolygon"}, {editTb->actionSplitFacies(), "edit.facies.split"},
@@ -478,6 +476,8 @@ void PaleoMainWindow::bindEditingCommands(PaleoEditingToolbar *editTb)
       {editTb->actionRedo(), "edit.redo"}};
   for (const auto &[action, id] : natives)
     commandBinder()->bindNative(action, QLatin1String(id));
+  commandBinder()->bindNative(editTb->actionDeleteFeatures(), QStringLiteral("edit.deleteFeatures"),
+                              CommandActionBinder::MenuBehavior::TriggerPrimaryAction);
 }
 
 void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb,

@@ -4,6 +4,7 @@
 #include <QString>
 
 class QgsLayoutItem;
+class QgsCoordinateReferenceSystem;
 class QgsLayoutItemLabel;
 class QgsLayoutItemLegend;
 class QgsLayoutItemMap;
@@ -118,5 +119,9 @@ QgsPrintLayout *buildFigureLayout( FigureKind kind, const PageSetup &setup, QgsP
 bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSetup &setup,
                            const QList<QgsMapLayer *> &layers, const QgsRectangle &extent,
                            QString *error = nullptr );
+// The extent is expressed in mapCrs. Use the same CRS for grids, inset and scale.
+bool populateFigureLayout( QgsPrintLayout *layout, FigureKind kind, const PageSetup &setup,
+                           const QList<QgsMapLayer *> &layers, const QgsRectangle &extent,
+                           const QgsCoordinateReferenceSystem &mapCrs, QString *error );
 
 } // namespace PaleoStandardElements

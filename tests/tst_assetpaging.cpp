@@ -257,6 +257,53 @@ private slots:
     QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Unchanged));
   }
 
+  void mapOutputsDistinguishTitlesAndHistoricalSources() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataImportService importer;
+    importer.setProjectDir(dir.path());
+    const QString horizon = QStringLiteral("T70-T72-S1");
+    const auto historical = [&](const QString &name) {
+      const QVariantMap layer{{"version_id", "source"}, {"title", name}};
+      const QVariantMap context{{"horizon", horizon}, {"layers", QVariantList{layer, layer}}};
+      return QVariantMap{{"inputs", QStringList{"source"}}, {"context", context}};
+    };
+    const auto add = [&](const QString &id, const QVariantList &history) {
+      CatalogAsset asset{id, "document", "pdf", "map.pdf"};
+      CatalogVersion version;
+      version.id = "ver-" + id; version.assetId = id; version.stage = "OUTPUT";
+      version.fileName = "map.pdf"; version.path = id + "/map.pdf";
+      version.extra = {{"horizon", horizon}, {"map_exports", history}};
+      QString error;
+      QVERIFY2(importer.catalog()->addAsset(asset, &error), qPrintable(error));
+      QVERIFY2(importer.catalog()->addVersion(version, &error), qPrintable(error));
+    };
+    auto named = historical("source label");
+    named.insert("title", QStringLiteral("最终井赋相图"));
+    const QVariantMap other{{"title", "other horizon"}, {"context", QVariantMap{{"horizon", "other"}}}};
+    add("new", {historical("earlier"), named, other});
+    add("old", {historical(QStringLiteral("地震聚类面"))});
+    auto multiple = historical("not a unique source");
+    multiple.insert("inputs", QStringList{"source", "another"});
+    add("many", {multiple});
+    PreviewDocService doc(&importer);
+    DataListPanel panel;
+    panel.setDocService(&doc); panel.setViewMode(0); panel.refreshAssetTable();
+    auto *root = topLevelRootByPrefix(panel.findChild<QTreeWidget *>("dataTree"), QStringLiteral("工区图件输出"));
+    QVERIFY(root); QCOMPARE(root->childCount(), 1);
+    auto *group = root->child(0);
+    QCOMPARE(group->text(0), horizon); QCOMPARE(group->childCount(), 3);
+    const QMap<QString, QString> titles{{"new", QStringLiteral("最终井赋相图")},
+                                       {"old", QStringLiteral("地震聚类面")}, {"many", "map.pdf"}};
+    for (int i = 0; i < group->childCount(); ++i) {
+      const auto *leaf = group->child(i);
+      const auto id = leaf->data(0, Qt::UserRole).toString();
+      QCOMPARE(leaf->text(0), titles.value(id));
+      QVERIFY(leaf->text(1).contains("PDF · v1 · ver-" + id));
+      QVERIFY(leaf->toolTip(0).contains(id + "/map.pdf"));
+    }
+  }
+
   // 数据导航树（用户契约）：大 catalog（>200，原降级分页树阈值）不再走
   // 「测区+当页拍平」——完整实体树，实体分组（测井/地震/成果图件/辅助资料
   // /计划井）全部默认收拢；#565 起树顶另有「工区概况」（按设计默认展开）、

@@ -24,6 +24,7 @@ public:
   bool hasReference() const override;
   void setLinked(bool linked) override;
   void setViewActive(bool active) override;
+  void onLegendChanged(QObject *receiver, std::function<void(const QVariantList &)> handler) override;
 
 signals:
   void legendChanged(const QVariantList &entries);

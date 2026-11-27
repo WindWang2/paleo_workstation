@@ -12,12 +12,24 @@
 using paleo::capability::ArtifactVersionCapability;
 using paleo::capability::ArtifactVersionRequest;
 namespace {
-bool seed(DataCatalog &catalog) {
+bool seed(DataCatalog &catalog, bool clusterResults = false) {
   for(int i=1;i<=2;++i) {
     CatalogAsset asset;asset.id=QString("asset-%1").arg(i);asset.type="well_log";asset.displayName="same-name";
+    if (clusterResults) asset.type = i == 1 ? "seismic_cluster_patches" : "facies_polygons";
     if(!catalog.addAsset(asset))return false;
     CatalogVersion version;version.id=QString("version-%1").arg(i);version.assetId=asset.id;version.stage="RAW";
     version.managed=false;version.path=QString("Z:/offline/source-%1.dat").arg(i);version.fileName=QString("source-%1.dat").arg(i);
+    if (clusterResults) {
+      version.stage = "DERIVED";
+      version.extra.insert("kind", asset.type);
+      if (i == 2) {
+        const QVariantMap unit{{"schemeId","scheme"},{"revision","r1"},{"intervalId","T70-T72"},
+                               {"subIntervalId","S1"},{"displayName","T70–T72 / S1"},{"private","hidden"}};
+        version.extra.insert("result_kind", "well_assigned_cluster_patches");
+        version.extra.insert("horizon", "unit1");
+        version.extra.insert("algorithm_parameters", QVariantMap{{"unitSelection",unit},{"private","hidden"}});
+      }
+    }
     if(i==2) for(int p=0;p<140;++p)version.parentVersionIds.append(QString("parent-%1").arg(p));
     version.extra.insert("opaqueLegacyPayload",QString(100000,'x'));
     if(!catalog.addVersion(version))return false;
@@ -64,9 +76,16 @@ void ArtifactVersionCapabilityTests::returnedMetadataIsBoundedAndMatchesSchema()
   QCOMPARE(result.toJson().keys(),schema.value("properties").toObject().keys());
   const auto cardSchema=schema.value("properties").toObject().value("version").toObject().value("oneOf").toArray()[0].toObject();
   QCOMPARE(result.version.keys(),cardSchema.value("properties").toObject().keys());
+  QVariantMap oversized{{"schemeId","scheme"},{"revision","r1"},{"intervalId","i"},
+                        {"subIntervalId",QString(257,'a')}};
+  QVERIFY(catalog.updateVersionExtra("version-2", {{"unitSelection",oversized},{"result_kind","private/freeform"}}, nullptr));
+  const auto bounded=ArtifactVersionCapability::describe(&catalog,"doc-1",{"doc-1","version-2",catalog.catalogRevision()});
+  QVERIFY(bounded.ok); QVERIFY(bounded.version.value("labelsTruncated").toBool());
+  QVERIFY(bounded.version.value("unitSelection").toObject().isEmpty());
+  QVERIFY(bounded.version.value("resultKind").toString().isEmpty());
 }
 void ArtifactVersionCapabilityTests::nativeAndAgentShareDescriptorAndResult() {
-  QTemporaryDir dir;DataCatalog catalog;QVERIFY(catalog.open(dir.path()));QVERIFY(seed(catalog));
+  QTemporaryDir dir;DataCatalog catalog;QVERIFY(catalog.open(dir.path()));QVERIFY(seed(catalog, true));
   const auto native=ArtifactVersionCapability::describe(&catalog,"doc-1",{"doc-1","version-2",catalog.catalogRevision()});QVERIFY(native.ok);
   AiChatToolRunner runner;AiChatToolRunner::Context context;context.catalog=&catalog;context.documentId="doc-1";runner.setContext(context);
   QSignalSpy finished(&runner,&AiChatToolRunner::toolFinished);
@@ -75,6 +94,20 @@ void ArtifactVersionCapabilityTests::nativeAndAgentShareDescriptorAndResult() {
   runner.run(call);QTRY_COMPARE(finished.size(),1);QVERIFY(finished.first()[1].toBool());
   const auto payload=QJsonDocument::fromJson(finished.first()[2].toString().toUtf8()).object();
   QCOMPARE(payload.value("version").toObject(),native.toJson());
+  const auto card=native.version;
+  QCOMPARE(card.value("assetType").toString(), QString("facies_polygons"));
+  QCOMPARE(card.value("resultKind").toString(), QString("well_assigned_cluster_patches"));
+  QCOMPARE(card.value("horizon").toString(), QString("unit1"));
+  QCOMPARE(card.value("unitSelection").toObject().value("subIntervalId").toString(), QString("S1"));
+  QCOMPARE(card.value("unitSelection").toObject().value("revision").toString(), QString("r1"));
+  QVERIFY(!card.value("unitSelection").toObject().contains("private"));
+  finished.clear(); call.id="assets";
+  call.argumentsJson=QStringLiteral(R"({"topic":"assets"})");
+  runner.run(call); QTRY_COMPARE(finished.size(),1); QVERIFY(finished.first()[1].toBool());
+  const auto assets=QJsonDocument::fromJson(finished.first()[2].toString().toUtf8()).object().value("assets").toArray();
+  QCOMPARE(assets.size(),2);
+  QCOMPARE(assets[0].toObject().value("result_kind").toString(), QString("seismic_cluster_patches"));
+  QCOMPARE(assets[1].toObject().value("result_kind").toString(), card.value("resultKind").toString());
   const auto query=aiToolSpec("paleo.query_project");
   const auto schema=QJsonDocument::fromJson(query.resultSchemaJson.toUtf8()).object();
   QCOMPARE(schema.value("properties").toObject().value("version").toObject(),ArtifactVersionCapability::resultSchema());

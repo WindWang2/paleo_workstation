@@ -233,6 +233,14 @@ class TestLayerTreePanel : public QObject
 
       auto *filterEdit = panel.findChild<QLineEdit *>(QStringLiteral("layerTreeFilterEdit"));
       QVERIFY(filterEdit);
+      auto *more = panel.findChild<QToolButton *>(QStringLiteral("layerTreeToolsToggle"));
+      auto *add = panel.findChild<QToolButton *>(QStringLiteral("layerTreeAddGroupButton"));
+      QVERIFY(more && add && !more->isChecked());
+      QVERIFY(filterEdit->isVisibleTo(&panel) && !add->isVisibleTo(&panel));
+      more->click();
+      QVERIFY(add->isVisibleTo(&panel));
+      more->click();
+      QVERIFY(filterEdit->isVisibleTo(&panel) && !add->isVisibleTo(&panel));
       QVERIFY2(filterEdit->placeholderText().contains(QString::fromUtf8("筛选图层")),
                "占位文案钉死：筛选图层…");
     }
@@ -352,6 +360,14 @@ class TestLayerTreePanel : public QObject
       QTRY_VERIFY(model->rootGroup()->findLayer(vl->id()) != nullptr);
       QVERIFY2(model->rootGroup()->findLayer(vl->id())->isExpanded(),
                "新增图层 legend 节点应展开");
+      auto *version = new QgsVectorLayer(QStringLiteral("Polygon"),
+                                         QStringLiteral("T70 · v2"), QStringLiteral("memory"));
+      version->setCustomProperty(QStringLiteral("paleoLayerId"), QStringLiteral("product.version-2"));
+      QgsProject::instance()->addMapLayer(version);
+      auto *versionNode = model->rootGroup()->findLayer(version->id());
+      QVERIFY(versionNode && !versionNode->isExpanded());
+      versionNode->setExpanded(true);
+      QVERIFY(versionNode->isExpanded());
     }
 
     // 上移/下移/置顶：序号 0 是所在组最上层（绘制盖住同组其余节点）。

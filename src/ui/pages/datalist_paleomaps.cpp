@@ -1,5 +1,6 @@
 // 层：视图
 #include "datalist_navspec_internal.h"
+#include "../mapoutputtitle_internal.h"
 #include "../../services/previewdoc.h"
 #include "../../catalog/datacatalog.h"
 #include "../../domain/mappinghorizons.h"
@@ -33,8 +34,15 @@ QVector<DataListPanel::NavNodeSpec> DataListPanel::buildPaleomapNavSpec() const 
     const auto version = cat->currentVersion(asset.id);
     if (version.stage != "OUTPUT" || version.extra.value("map_exports").toList().isEmpty()) continue;
     const auto h = version.extra.value("horizon").toString(); NavNodeSpec leaf;
-    leaf.id = asset.id; leaf.type = "map_output"; leaf.text0 = asset.displayName; leaf.text1 = tr("%1 · v%2").arg(asset.format.toUpper()).arg(version.versionNumber);
-    leaf.icon = "mActionSaveMapAsImage.svg"; leaf.tooltip0 = version.path; figures[h] << leaf;
+    const QString title = paleo::ui_detail::mapOutputTitle(version);
+    leaf.id = asset.id; leaf.type = "map_output";
+    leaf.text0 = title.isEmpty() ? asset.displayName : title;
+    leaf.text1 = tr("%1 · v%2 · %3").arg(asset.format.toUpper()).arg(version.versionNumber).arg(version.id);
+    if (!version.fileName.isEmpty() && version.fileName != leaf.text0)
+      leaf.text1.prepend(version.fileName + QStringLiteral(" · "));
+    leaf.icon = "mActionSaveMapAsImage.svg";
+    leaf.tooltip0 = leaf.text0 + QLatin1Char('\n') + leaf.text1 + QLatin1Char('\n') + version.path;
+    figures[h] << leaf;
   }
   for (auto it = figures.begin(); it != figures.end(); ++it) { NavNodeSpec group; group.type = "category"; group.sub = "outputs_" + it.key();
     group.text0 = it.key().isEmpty() ? tr("未指定层位") : it.key(); group.children = it.value(); output.children << group;

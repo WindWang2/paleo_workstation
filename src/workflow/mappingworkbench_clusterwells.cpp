@@ -9,7 +9,6 @@
 #include "qgis/seismicclusterpatches.h"
 #include "qgis/seismicwellcalibration.h"
 #include "services/algorithmspec.h"
-#include "services/analysisunitcontext.h"
 #include "services/futuretask.h"
 #include <QDir>
 #include <QFile>
@@ -21,6 +20,7 @@ struct ClusterWellPreview {
   QVariantList sources, schema;
   QVariantMap summary;
   CatalogVersion raster, patches;
+  paleo::strat::UnitSelection unit;
   QVector<DerivedFileFingerprint> inputs;
   DerivedPreparedSet outputs;
   std::atomic_bool cancelled{false};
@@ -129,34 +129,36 @@ DerivedPreparedMember member(const DerivedStaging &target, bool raster, const QS
 }
 
 QVariantList MappingWorkbench::clusterWellSources(const QString &patchLayerId,QString *error) {
+  paleo::strat::UnitSelection unit;
+  return wellSourcesForSurface(versionForLayer(patchLayerId), unit, error);
+}
+
+QVariantList MappingWorkbench::wellSourcesForSurface(const CatalogVersion &patch, paleo::strat::UnitSelection &unit,
+                                                    QString *error) {
   if(error) error->clear();
-  const auto patch = versionForLayer(patchLayerId);
   if (patch.extra.value("kind") != "seismic_cluster_patches") {
     fail(error,tr("请选择已保存的原始聚类面")); return {};
   }
   const auto h = patch.extra.value("horizon").toString();
-  if (!ready(h,error)) return {};
   const auto raw = m_catalog->versionById(patch.extra.value("cluster_raster_version").toString());
-  if (raw.extra.value("kind") != "seismic_clusters" || raw.extra.value("stale").toBool()) {
+  if (raw.extra.value("kind") != "seismic_clusters") {
     fail(error,tr("原始簇图已过期或缺失")); return {};
   }
-  const auto unit = analysisResultUnitSelection(m_catalog,raw);
-  if(unit.isValid() && !paleo::strat::analysisUnitGeometryCurrentFor(m_dir,unit,
-          paleo::strat::AnalysisGeometryDependency::SeismicSurface,0,error)) return {};
+  if (!readyClusterSurface(patch, unit, error)) return {};
   return mockSeismicCalibrationSources(m_catalog,m_dir,h,unit);
 }
 
 bool MappingWorkbench::previewClusterWells(const QString &id,const QStringList &versions,QString *error) {
   cancelClusterWellPreview();
   auto job = std::make_shared<ClusterWellPreview>();
-  const auto all = clusterWellSources(id,&job->error);
+  job->patches=versionForLayer(id);
+  const auto all = wellSourcesForSurface(job->patches,job->unit,&job->error);
   if(!job->error.isEmpty()) return fail(error,job->error);
   if(!m_catalog || m_catalog->refusesWrites() || !m_project || m_project->isReadOnly() || !m_project->allowsProjectWritesAt(m_dir))
     return fail(error,tr("当前工程位置不可写"));
   job->sources = selectedSources(all,versions);
   if(!versions.isEmpty() && job->sources.size()!=versions.size()) return fail(error,tr("所选井预测已过期或不属于当前层段"));
   job->patchLayer=id; job->projectDir=m_dir; job->selectedVersions=versions;
-  job->patches=versionForLayer(id);
   job->raster=m_catalog->versionById(job->patches.extra.value("cluster_raster_version").toString());
   job->horizon=job->patches.extra.value("horizon").toString();
   job->schemaId=schemaVersion(job->horizon);
@@ -190,14 +192,18 @@ void MappingWorkbench::cancelClusterWellPreview() {
 
 bool MappingWorkbench::applyClusterWellPreview(const QString &id,QString *error) {
   auto job=m_clusterPreview;
+  const auto patch=versionForLayer(id);
   if(!job || !job->ready || job->patchLayer!=id || job->projectDir!=m_dir ||
-     job->patches.id!=versionForLayer(id).id || !job->summary.value("voting_wells").toInt())
+     job->patches.id!=patch.id || !job->summary.value("voting_wells").toInt())
     return fail(error,tr("请先预览至少一口落入聚类区的有效井"));
   if(!m_catalog || m_catalog->refusesWrites() || !m_project || m_project->isReadOnly() || !m_project->allowsProjectWritesAt(m_dir))
     return fail(error,tr("当前工程位置不可写"));
   QString refreshError;
-  const auto all=clusterWellSources(id,&refreshError);
+  paleo::strat::UnitSelection unit;
+  const auto all=wellSourcesForSurface(patch,unit,&refreshError);
   if(!refreshError.isEmpty()) return fail(error,refreshError);
+  if (unit != job->unit || patch.extra.value("cluster_raster_version").toString() != job->raster.id)
+    return fail(error,tr("聚类面来源或层段已变化，请重新预览"));
   if(schemaVersion(job->horizon)!=job->schemaId || selectedSources(all,job->selectedVersions)!=job->sources)
     return fail(error,tr("井预测、井位或相分类已变化，请重新预览"));
   for(const auto &input : job->inputs)
@@ -205,7 +211,7 @@ bool MappingWorkbench::applyClusterWellPreview(const QString &id,QString *error)
   // A partner can supply the first well result before a project taxonomy
   // has ever been saved. Freeze a real taxonomy version on the Save action.
   if(job->schemaId.isEmpty()) {
-    if(!saveFacies(job->horizon,job->schema,error)) return false;
+    if(!saveFaciesForUnit(job->horizon,job->schema,unit,error)) return false;
     job->schemaId=schemaVersion(job->horizon);
     if(job->schemaId.isEmpty()) return fail(error,tr("无法登记井赋相使用的分类版本"));
   }
@@ -213,7 +219,7 @@ bool MappingWorkbench::applyClusterWellPreview(const QString &id,QString *error)
   parents.append(job->patches.id); parents.append(job->raster.id);
   if(!job->schemaId.isEmpty()) parents.append(job->schemaId);
   QVariantMap extra=job->summary;
-  extra.insert("unitSelection",job->raster.extra.value("unitSelection"));
+  extra.insert("unitSelection",paleo::strat::toMap(unit));
   extra.insert("mock",job->raster.extra.value("mock").toBool());
   extra.insert("synthetic_input",job->raster.extra.value("synthetic_input").toBool());
   extra.insert("mapping_product",true); extra.insert("schema_version",job->schemaId);

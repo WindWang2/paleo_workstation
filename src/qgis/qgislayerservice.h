@@ -82,7 +82,7 @@ class QgisLayerService : public QObject
     void purgeDanglingInstances();
     void trackInstance(const QString &layerId, QgsMapLayer *layer);
     // Re-register .qgz-restored layers (paleoLayerId custom property) into
-    // m_instances on projectOpened — see .cpp for the full #287 rationale.
+    // m_instances before the application binds its project stores (#287).
     void adoptProjectLayers();
     // Repair old range instances whose QML erased the stable identity. Only
     // the declared source (or explicitly tagged range copies) is eligible.

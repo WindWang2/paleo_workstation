@@ -394,9 +394,11 @@ private slots:
     QTemporaryDir tmp; DataCatalog cat; QVERIFY(cat.open(tmp.path())); PaleoTaskService tasks;
     QgsProject project; auto *layer = points(project);
     PaleoGeologicalMapLayout::Settings settings; settings.horizon = "C6";
+    settings.title = QStringLiteral("C6 沉积相成果图");
     auto layout = PaleoGeologicalMapLayout::buildHandle(&project, {layer}, QgsRectangle(0, 0, 1000, 1000), settings); QVERIFY(layout);
     PaleoGeologicalExport::Request request; request.destination = qEnvironmentVariable("PALEO_EXPORT_QA_DIR", tmp.filePath("maps")); request.dpi = 72; request.includeData = true;
-    request.formats = {PaleoLayoutExport::Format::Pdf, PaleoLayoutExport::Format::Png, PaleoLayoutExport::Format::Svg};
+    request.context = {{"horizon", settings.horizon}, {"title", "Earlier draft"}};
+    request.formats = {PaleoLayoutExport::Format::Png, PaleoLayoutExport::Format::Pdf, PaleoLayoutExport::Format::Svg};
     bool called = false; PaleoGeologicalExport::Result result; QString error;
     auto *task = PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this,
         [&](const auto &r) { result = r; called = true; }, &error);
@@ -408,12 +410,55 @@ private slots:
     QImage image(QDir(request.destination).filePath("map.png")); QVERIFY(!image.isNull());
     QVERIFY(qAbs(image.width() - 297 * 72. / 25.4) < 2);
     QSet<QString> formats;
-    for (const auto &asset : result.assetIds) formats.insert(cat.assetById(asset).format);
+    CatalogVersion png;
+    for (const auto &asset : result.assetIds) {
+      const auto format = cat.assetById(asset).format;
+      formats.insert(format);
+      const auto version = cat.currentVersion(asset);
+      const auto history = version.extra.value("map_exports").toList();
+      QCOMPARE(history.size(), 1);
+      QCOMPARE(history.first().toMap().value("title").toString(), settings.title);
+      QCOMPARE(history.first().toMap().value("batch").toString(), request.destination);
+      if (format == "png") png = version;
+    }
     QCOMPARE(formats, QSet<QString>({"png", "pdf", "svg"}));
     QCOMPARE(cat.assetById(result.pdfAssetId).format, QString("pdf"));
     QVERIFY(QFileInfo::exists(result.pdfPath));
     QFile metadata(QDir(request.destination).filePath("metadata.json")); QVERIFY(metadata.open(QIODevice::ReadOnly));
-    QCOMPARE(QJsonDocument::fromJson(metadata.readAll()).object().value("schema").toString(), QString("paleo_map_export_v1"));
+    const auto manifest = QJsonDocument::fromJson(metadata.readAll()).object();
+    QCOMPARE(manifest.value("schema").toString(), QString("paleo_map_export_v1"));
+    QCOMPARE(manifest.value("context").toObject().value("title").toString(), settings.title);
+
+    const auto firstPng = QDir(request.destination).filePath("map.png");
+    const auto firstHash = DataCatalog::sha256FileHex(firstPng, &error);
+    QVERIFY2(!firstHash.isEmpty(), qPrintable(error));
+    QCOMPARE(png.sha256, firstHash);
+    QCOMPARE(registerMapPdfAsset(&cat, tmp.path(), firstPng, nullptr, nullptr, &error, "png", settings.horizon), png.assetId);
+    const auto firstHistory = png.extra.value("map_exports").toList();
+    request.destination = tmp.filePath("repeat"); request.formats = {PaleoLayoutExport::Format::Png};
+    request.includeData = false; called = false;
+    QVERIFY(PaleoGeologicalExport::start(layout.get(), &cat, &tasks, request, this,
+        [&](const auto &r) { result = r; called = true; }, &error));
+    QTRY_VERIFY_WITH_TIMEOUT(called, 30000);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.assetIds.size(), 1);
+    const auto secondHash = DataCatalog::sha256FileHex(QDir(request.destination).filePath("map.png"), &error);
+    QVERIFY2(!secondHash.isEmpty(), qPrintable(error));
+    const auto repeated = cat.currentVersion(result.assetIds.first());
+    QCOMPARE(repeated.sha256, secondHash);
+    const auto receipts = repeated.extra.value("map_exports").toList();
+    if (firstHash == secondHash) {
+      QCOMPARE(repeated.assetId, png.assetId); QCOMPARE(repeated.id, png.id);
+      QCOMPARE(receipts.size(), 2); QCOMPARE(receipts.first(), firstHistory.first());
+    } else {
+      QVERIFY(repeated.assetId != png.assetId); QVERIFY(repeated.id != png.id);
+      QCOMPARE(receipts.size(), 1);
+      const auto original = cat.currentVersion(png.assetId);
+      QCOMPARE(original.id, png.id); QCOMPARE(original.sha256, firstHash);
+      QCOMPARE(original.extra.value("map_exports").toList(), firstHistory);
+    }
+    QCOMPARE(receipts.last().toMap().value("batch").toString(), request.destination);
+    QCOMPARE(receipts.last().toMap().value("title").toString(), settings.title);
   }
   void dialogRequiresDestinationAndFormat() {
     QgsProject project; auto *layer = points(project); PaleoGeologicalMapLayout::Settings settings; settings.horizon = "C6";
@@ -464,6 +509,7 @@ private slots:
     QCOMPARE(dialog.result(), int(QDialog::Accepted));
     QCOMPARE(builtTitle, title->text());
     QVERIFY(dialog.layout() && dialog.layout()->layout());
+    QCOMPARE(PaleoGeologicalMapLayout::describe(dialog.layout()->layout()).value("title").toString(), title->text());
   }
   void tiffIsCapabilityGated() {
     QTemporaryDir tmp; QgsProject project; auto *layer = points(project);

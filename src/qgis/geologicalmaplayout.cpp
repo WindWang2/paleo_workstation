@@ -149,7 +149,8 @@ QVariantMap describe(QgsPrintLayout *layout) {
         {"version_id", layer->customProperty("paleoVersionId")}, {"title", layer->name()},
         {"crs_wkt", layer->crs().toWkt()}, {"source", layer->source()}});
   auto *map = qobject_cast<QgsLayoutItemMap *>(layout->itemById("map"));
-  return {{"horizon", layout->customProperty("paleo/export_horizon")},
+  const auto *title = qobject_cast<QgsLayoutItemLabel *>(layout->itemById("title"));
+  return {{"title", title ? title->text() : QString()}, {"horizon", layout->customProperty("paleo/export_horizon")},
       {"map_crs", map ? map->crs().authid() : QString()}, {"map_crs_wkt", map ? map->crs().toWkt() : QString()},
       {"patch_labels", layout->customProperty("paleo/print_patch_labels", true)},
       {"version", layout->customProperty("paleo/export_version")},

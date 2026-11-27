@@ -7548,6 +7548,11 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</translati
         <translation>%1 · v%2</translation>
     </message>
     <message>
+        <location filename="../src/ui/pages/datalist_paleomaps.cpp" line="40"/>
+        <source>%1 · v%2 · %3</source>
+        <translation>%1 · v%2 · %3</translation>
+    </message>
+    <message>
         <location filename="../src/ui/pages/datalist_paleomaps.cpp" line="48"/>
         <source>工区概况</source>
         <translation>工区概况</translation>

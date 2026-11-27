@@ -135,7 +135,7 @@ QString directoryDigest(const QVector<DirectoryEntry> &entries, const QString &f
 // 游标绑定查询身份（filter + 全序摘要 + offset）；无密钥——本目录是全局
 // 静态注册内容，伪造游标最多换来同一公开投影的另一页，不构成任何权限。
 bool decodeListCursor(const QString &cursor, const QString &filter,
-                      const QVector<DirectoryEntry> &entries, const QString &digestKey, int *offset) {
+                      const QString &digest, qsizetype count, int *offset) {
   if (cursor.toUtf8().size() > kMaxCursorBytes)
     return false;
   const auto payload = QByteArray::fromBase64(cursor.toUtf8(),
@@ -146,26 +146,22 @@ bool decodeListCursor(const QString &cursor, const QString &filter,
   const auto object = document.object();
   if (object.value("v").toInt() != 1 ||
       object.value("filter").toString() != filter ||
-      object.value("d").toString() != directoryDigest(entries, digestKey))
+      object.value("d").toString() != digest)
     return false;
   // F3（评审）：offset 严格整数解码——文本/分数/布尔不被 QJsonValue::toInt
   // 静默解释成 0（与 strictIntArg 同口径，伪造游标按 cursor_stale 拒）。
   const auto offsetValue = object.value("offset");
-  if (!offsetValue.isDouble() || !std::isfinite(offsetValue.toDouble()) ||
-      std::floor(offsetValue.toDouble()) != offsetValue.toDouble())
+  const double position = offsetValue.toDouble(-1);
+  if (!std::isfinite(position) || position < 0 || position > count || std::floor(position) != position)
     return false;
-  const int position = int(offsetValue.toDouble());
-  if (position < 0 || position > entries.size())
-    return false;
-  *offset = position;
+  *offset = int(position);
   return true;
 }
 
-QString encodeListCursor(const QString &filter, const QVector<DirectoryEntry> &entries,
-                         const QString &digestKey, int offset) {
+QString encodeListCursor(const QString &filter, const QString &digest, qsizetype offset) {
   const QJsonObject object{{"v", 1},
                            {"filter", filter},
-                           {"d", directoryDigest(entries, digestKey)},
+                           {"d", digest},
                            {"offset", offset}};
   return QString::fromLatin1(QJsonDocument(object).toJson(QJsonDocument::Compact).toBase64(
       QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
@@ -589,26 +585,16 @@ InspectionResult runList(const QJsonObject &args) {
   const OperationSearch search(queryArg.toString());
   const QVector<DirectoryEntry> entries = buildDirectory(filter, search);
   const QString digestKey = search.phrase.isEmpty() ? filter : filter + u'/' + search.phrase;
+  const QString digest = directoryDigest(entries, digestKey);
   int offset = 0;
   if (args.contains("cursor")) {
     const QString cursor = args.value("cursor").toString();
-    if (!decodeListCursor(cursor, filter, entries, digestKey, &offset))
+    if (!decodeListCursor(cursor, filter, digest, entries.size(), &offset))
       return failure(QStringLiteral("cursor_stale"), QStringLiteral("cursor"));
   }
   QJsonArray cards;
-  int position = offset;
-  for (; position < entries.size() && cards.size() < pageSize; ++position)
+  for (int position = offset; position < entries.size() && cards.size() < pageSize; ++position)
     cards.append(entries.at(position).card);
-  // 字节预算：超限时从尾部整条移除（不截半个条目），coverage 如实汇报。
-  while (compactBytes(QJsonObject{{"entries", cards}}) > maxBytes && cards.size() > 1) {
-    cards.removeLast();
-    --position;
-  }
-  // F2（评审）：首条即超预算时不能返回「空页 + 原游标」的可重复成功——
-  // 模型会无限重翻同一页；明确报 page_budget_exceeded（换更小筛选/更大
-  // max_bytes 或改用 describe）。
-  if (!cards.isEmpty() && compactBytes(QJsonObject{{"entries", cards}}) > maxBytes)
-    return failure(QStringLiteral("page_budget_exceeded"), QStringLiteral("max_bytes"));
 
   QJsonObject payload{{"contract", QLatin1String(kCapabilityInspectContract)},
                       {"tool", QLatin1String(paleo::chat::kCapabilityInspectTool)},
@@ -616,17 +602,24 @@ InspectionResult runList(const QJsonObject &args) {
                       {"ok", true},
                       {"code", QStringLiteral("ok")},
                       {"filter", filter},
-                      {"entries", cards},
-                      {"returnedCount", cards.size()},
                       {"totalCount", entries.size()}};
-  const bool hasMore = position < entries.size();
-  payload.insert(QStringLiteral("hasMore"), hasMore);
-  if (hasMore)
-    payload.insert(QStringLiteral("nextCursor"), encodeListCursor(filter, entries, digestKey, position));
-  payload.insert(QStringLiteral("coverage"), QJsonObject{
-      {"complete", !hasMore},
-      {"selection", search.phrase.isEmpty() ? QStringLiteral("stable id/version order; continuation binds filter and directory digest")
-                                            : QStringLiteral("relevance, then stable id/version order; continuation binds query")}});
+  const QString selection = search.phrase.isEmpty() ? QStringLiteral("stable id/version order; continuation binds filter and directory digest")
+                                                     : QStringLiteral("relevance, then stable id/version order; continuation binds query");
+  for (;;) {
+    const qsizetype position = offset + cards.size();
+    const bool hasMore = position < entries.size();
+    payload.insert(QStringLiteral("entries"), cards);
+    payload.insert(QStringLiteral("returnedCount"), cards.size());
+    payload.insert(QStringLiteral("hasMore"), hasMore);
+    if (hasMore)
+      payload.insert(QStringLiteral("nextCursor"), encodeListCursor(filter, digest, position));
+    payload.insert(QStringLiteral("coverage"), QJsonObject{{"complete", !hasMore}, {"selection", selection}});
+    if (compactBytes(payload) <= maxBytes)
+      break;
+    if (cards.size() <= 1)
+      return failure(QStringLiteral("page_budget_exceeded"), QStringLiteral("max_bytes"));
+    cards.removeLast();
+  }
   InspectionResult out;
   out.ok = true;
   out.payload = payload;

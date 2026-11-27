@@ -8,6 +8,7 @@
 #include "../src/services/artifactversioncapability.h"
 #include "../src/ai/chat/domaintools.h"
 #include "../src/workflow/aichattoolrunner.h"
+#include "../src/workflow/analysisresultsync.h"
 
 using paleo::capability::ArtifactVersionCapability;
 using paleo::capability::ArtifactVersionRequest;
@@ -44,6 +45,7 @@ private slots:
   void wrongDocumentAndStaleRevisionAreRejected();
   void returnedMetadataIsBoundedAndMatchesSchema();
   void nativeAndAgentShareDescriptorAndResult();
+  void derivedVersionsResolveTheSameFrozenUnitInWorkbenchAndPi();
   void typedToolRequiresHostDocumentIdentityAndVersion();
   void tileSchemaDescribesActualSummary();
 };
@@ -84,6 +86,72 @@ void ArtifactVersionCapabilityTests::returnedMetadataIsBoundedAndMatchesSchema()
   QVERIFY(bounded.version.value("unitSelection").toObject().isEmpty());
   QVERIFY(bounded.version.value("resultKind").toString().isEmpty());
 }
+void ArtifactVersionCapabilityTests::derivedVersionsResolveTheSameFrozenUnitInWorkbenchAndPi() {
+  QTemporaryDir project;
+  DataCatalog catalog;
+  QVERIFY(catalog.open(project.path()));
+  QVERIFY(seed(catalog, true));
+  const auto source = catalog.versionById("version-2");
+  const auto frozen = source.extra.value("algorithm_parameters").toMap().value("unitSelection").toMap();
+  auto renamed = frozen;
+  renamed["displayName"] = "S1 renamed";
+  auto other = frozen;
+  other["subIntervalId"] = "S2";
+
+  const auto add = [&](const QString &id, const QStringList &parents, const QVariantMap &unit = {}) {
+    CatalogVersion version;
+    version.id = id;
+    version.assetId = source.assetId;
+    version.stage = "DERIVED";
+    version.parentVersionIds = parents;
+    if (!unit.isEmpty()) version.extra.insert("unitSelection", unit);
+    return catalog.addVersion(version);
+  };
+  QVERIFY(add("edited", {source.id}));
+  QVERIFY(add("renamed", {}, renamed));
+  QVERIFY(add("same-unit", {"edited", "renamed"}));
+  QVERIFY(add("other-unit", {}, other));
+  QVERIFY(add("mixture", {"edited", "other-unit"}));
+  QVERIFY(add("nested-mixture", {"mixture", "edited"}));
+  QVERIFY(add("explicit-unit", {"mixture"}, other));
+  QVERIFY(add("malformed-unit", {"edited"}));
+  QVERIFY(catalog.updateVersionExtra("malformed-unit", "unitSelection", QStringLiteral("S2")));
+
+  AiChatToolRunner runner;
+  AiChatToolRunner::Context context;
+  context.catalog = &catalog;
+  context.documentId = "doc";
+  runner.setContext(context);
+  QSignalSpy finished(&runner, &AiChatToolRunner::toolFinished);
+  const auto check = [&](const QString &id, const QString &expected) {
+    const auto workbench = analysisResultUnitSelection(&catalog, catalog.versionById(id));
+    QCOMPARE(workbench.subIntervalId, expected);
+    ChatToolCall call;
+    call.id = id;
+    call.name = "paleo.query_project";
+    call.argumentsJson = QString::fromUtf8(QJsonDocument(QJsonObject{
+        {"topic", "version"}, {"version_id", id}}).toJson(QJsonDocument::Compact));
+    runner.run(call);
+    QTRY_COMPARE(finished.size(), 1);
+    const auto reply = finished.takeFirst();
+    QVERIFY(reply[1].toBool());
+    const auto card = QJsonDocument::fromJson(reply[2].toString().toUtf8()).object()
+                          .value("version").toObject().value("version").toObject();
+    const auto unit = card.value("unitSelection").toObject();
+    QCOMPARE(unit.value("subIntervalId").toString(), expected);
+    QCOMPARE(unit.value("revision").toString(), workbench.revision);
+    QVERIFY(!unit.contains("private"));
+  };
+  check("edited", "S1");
+  check("same-unit", "S1");
+  check("nested-mixture", {});
+  check("explicit-unit", "S2");
+  check("malformed-unit", {});
+  bool inconsistent = false;
+  analysisResultUnitSelection(&catalog, catalog.versionById("malformed-unit"), &inconsistent);
+  QVERIFY(inconsistent);
+}
+
 void ArtifactVersionCapabilityTests::nativeAndAgentShareDescriptorAndResult() {
   QTemporaryDir dir;DataCatalog catalog;QVERIFY(catalog.open(dir.path()));QVERIFY(seed(catalog, true));
   const auto native=ArtifactVersionCapability::describe(&catalog,"doc-1",{"doc-1","version-2",catalog.catalogRevision()});QVERIFY(native.ok);

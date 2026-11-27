@@ -102,7 +102,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
                               const Hooks &hooks);
 // 方向 D1：「复制进工程」勾选状态（folderImportCopyCheck，确认按钮区上方，
 // 默认不勾选）。确认动作在对话框内经 hooks 发起，壳在 importAllWithWells
-// 出口里读它调 FolderImportWorkflow::setLinkExternal(!copyIntoProject)——
+// 出口把该选择传给本次导入或单行重试。
 // 不勾选 = 只建索引（外链），勾选 = 旧受管复制语义。dlg 未经
 // buildFolderConfirmDialog 搭建（或勾选框已销毁）→ false（保持只建索引默认）。
 bool folderImportCopyIntoProject(const QDialog *dlg);

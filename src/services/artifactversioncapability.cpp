@@ -2,7 +2,7 @@
 #include "artifactversioncapability.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/seismicclusterproduct.h"
-#include "../domain/stratigraphicunit.h"
+#include "../catalog/catalogversionunit.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QThread>
@@ -16,11 +16,7 @@ QJsonObject object(const QJsonObject &properties) {
   return {{"type","object"},{"properties",properties},{"required",required},{"additionalProperties",false}};
 }
 
-QJsonObject frozenUnit(const CatalogVersion &version, bool &truncated) {
-  auto metadata = version.extra.value("unitSelection").toMap();
-  if (metadata.isEmpty())
-    metadata = version.extra.value("algorithm_parameters").toMap().value("unitSelection").toMap();
-  const auto unit = paleo::strat::fromMap(metadata);
+QJsonObject frozenUnit(const paleo::strat::UnitSelection &unit, bool &truncated) {
   if (!unit.isValid() || unit.revision.isEmpty()) return {};
   // Never shorten an identifier into a different, seemingly valid reference.
   if (unit.schemeId.size() > 256 || unit.revision.size() > 256 ||
@@ -76,7 +72,7 @@ ArtifactVersionResult ArtifactVersionCapability::describe(const DataCatalog *cat
   const auto horizon = version.extra.value("horizon").toString();
   bool truncated = asset.displayName.size()>512 || version.fileName.size()>512 || version.stage.size()>64 ||
       asset.type.size()>128 || horizon.size()>256;
-  const auto unit = frozenUnit(version, truncated);
+  const auto unit = frozenUnit(analysisResultUnitSelection(catalog, version), truncated);
   out.version={{"id",version.id},{"assetId",version.assetId},{"displayName",asset.displayName.left(512)},
       {"assetType",asset.type.left(128)},{"resultKind",resultKind(version)},{"horizon",horizon.left(256)},{"unitSelection",unit},
       {"fileName",version.fileName.left(512)},{"stage",version.stage.left(64)},

@@ -299,6 +299,7 @@ void AiChatController::stopCurrentRound(bool explicitRequest) {
   const auto completed = pairUnansweredToolCalls(reason, explicitRequest ? "tool_cancelled" : "stale_session");
   m_streaming = false; // Logical state precedes cancellation signals and prevents reentrant old-round work.
   m_piBridge.abort(explicitRequest);
+  if (!guard) return;
   if(explicitRequest)m_runner.cancel();else m_runner.interrupt();
   if (!guard) return;
   m_client.cancel();

@@ -1,5 +1,6 @@
 // 层：数据
 #include "datacatalog.h"
+#include "catalogversionunit.h"
 #include "datacatalog_internal.h"
 #include "externalsourceverification.h"
 #include "../metadata/managedpath.h"
@@ -456,6 +457,44 @@ CatalogVersion DataCatalog::versionById(const QString &id) const
     return {};
   const int row = m_idx.versionRow(id); // D5.1 O(1)
   return row >= 0 ? m_versions.at(row) : CatalogVersion();
+}
+
+paleo::strat::UnitSelection analysisResultUnitSelection(const DataCatalog *catalog,
+    const CatalogVersion &version, bool *inconsistent)
+{
+  if (inconsistent) *inconsistent = false;
+  if (!catalog || version.id.isEmpty())
+    return {};
+
+  paleo::strat::UnitSelection resolved;
+  QSet<QString> seen{version.id};
+  QStringList pending;
+  CatalogVersion current = version;
+  for (;;) {
+    auto field = current.extra.value("unitSelection");
+    if (field.isNull() || (field.canConvert<QVariantMap>() && field.toMap().isEmpty()))
+      field = current.extra.value("algorithm_parameters").toMap().value("unitSelection");
+    const auto metadata = field.toMap();
+    // Empty maps occur in legacy products. An explicit scalar or array is a
+    // malformed declaration and cannot be replaced by a parent's identity.
+    if (!metadata.isEmpty() || (!field.isNull() && !field.canConvert<QVariantMap>())) {
+      const auto unit = paleo::strat::fromMap(metadata);
+      if (!unit.isValid() || (resolved.isValid() && resolved != unit)) {
+        if (inconsistent) *inconsistent = true;
+        return {};
+      }
+      if (!resolved.isValid()) resolved = unit;
+    } else {
+      for (auto it = current.parentVersionIds.crbegin(); it != current.parentVersionIds.crend(); ++it) {
+        if (!seen.contains(*it)) {
+          seen.insert(*it);
+          pending.append(*it);
+        }
+      }
+    }
+    if (pending.isEmpty()) return resolved;
+    current = catalog->versionById(pending.takeLast());
+  }
 }
 
 CatalogVersion DataCatalog::currentVersion(const QString &assetId) const

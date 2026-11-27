@@ -28,7 +28,7 @@ struct DialogState : std::enable_shared_from_this<DialogState> {
   QPushButton *showUnresolved = nullptr;
   // 方向 D1：「复制进工程」勾选（确认按钮区上方，默认不勾选 = 只建索引）。
   // 确认动作在对话框内经 hooks 发起——壳在 importAllWithWells 出口里读它
-  //（folderImportCopyIntoProject）调 FolderImportWorkflow::setLinkExternal。
+  //（folderImportCopyIntoProject），选项仅应用于该确认表的批次和重试。
   QCheckBox *copyCheck = nullptr;
   QVector<QComboBox *> typeChoices;
   QMap<int, QComboBox *> wellChoices;

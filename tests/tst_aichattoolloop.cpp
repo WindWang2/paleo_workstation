@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -16,6 +17,7 @@
 #include <QThread>
 #include <QTimer>
 
+#include <algorithm>
 #include <atomic>
 #include <thread>
 #include <functional>
@@ -214,6 +216,7 @@ private slots:
   // UB / 漏派后续调用卡在「正在执行领域工具…」）。
   void syncFailingFirstCallStillDispatchesRestOfRound();
   void unboundFaciesIsHonestErrorNotFakeSuccess();
+  void cancelDuringToolExecutionInvalidatesAndKeepsProtocolValid_data();
   void cancelDuringToolExecutionInvalidatesAndKeepsProtocolValid();
   void toolRoundCapStopsEndlessLooping();
   void sendWhileBusyIsRejected();
@@ -587,7 +590,13 @@ void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
 
 // Oracle 3：在途工具执行时取消——无悬垂回调/无第二条请求；未应答帧补
 // 「已取消」role=tool 应答（协议完整）；tile 任务协作取消不写产品。
+void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolValid_data() {
+  QTest::addColumn<bool>("fromTaskCenter");
+  QTest::newRow("dock") << false;
+  QTest::newRow("task-center") << true;
+}
 void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolValid() {
+  QFETCH(bool, fromTaskCenter);
   Fixture f;
   QVERIFY(initFixture(f));
   ScriptedLlmServer server;
@@ -602,11 +611,12 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
   context.horizon = QStringLiteral("T1");
   // #421：取消稳定落进「执行中」由门闩保证，不再靠每 tile 30ms 凑时机——
   // cancel() 之后 release 放行，协作取消收尾；10s 保险丝防挂死。
-  std::atomic_bool fetchRelease{false};
-  context.gridFetch = [&fetchRelease](int row0, int col0, int rows, int cols,
+  auto fetchRelease = std::make_shared<std::atomic_bool>(false);
+  const auto releaseOnExit = qScopeGuard([fetchRelease] { fetchRelease->store(true); });
+  context.gridFetch = [fetchRelease](int row0, int col0, int rows, int cols,
                                       QVector<float> &out, QString &) -> bool {
     for (QDeadlineTimer t(10'000);
-         !fetchRelease.load(std::memory_order_acquire) && !t.hasExpired();)
+         !fetchRelease->load(std::memory_order_acquire) && !t.hasExpired();)
       QThread::msleep(5);
     QString unused;
     return syntheticFetch(row0, col0, rows, cols, out, unused);
@@ -618,9 +628,18 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
   controller.sendUserText(QStringLiteral("分类"));
   QVERIFY2(spinUntil([&started] { return started.size() >= 1; }),
            "工具必须先进入执行中");
-  controller.cancel();
+  if (fromTaskCenter) {
+    const auto tasks = controller.toolRunner()->taskService()->tasks();
+    auto row = std::find_if(tasks.cbegin(), tasks.cend(), [](const PaleoTask *task) {
+      return task->title() == PiChatBridge::tr("Pi 对话编排") && task->running();
+    });
+    QVERIFY(row != tasks.cend());
+    (*row)->requestCancel();
+  } else {
+    controller.cancel();
+  }
   QVERIFY(!controller.streaming());
-  fetchRelease.store(true, std::memory_order_release); // 放行取数走协作取消收尾
+  fetchRelease->store(true, std::memory_order_release); // 放行取数走协作取消收尾
 
   // 作废：无后续 LLM 请求、无结果卡片（迟到执行结果不回灌）。
   QTest::qWait(120);
@@ -645,6 +664,8 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
   QCOMPARE(messages.at(1).toolCalls.size(), 1);
   QCOMPARE(messages.at(2).role, ChatRole::Tool);
   QCOMPARE(messages.at(2).toolCallId, messages.at(1).toolCalls.first().id);
+  const auto reply = QJsonDocument::fromJson(messages.at(2).content.toUtf8()).object();
+  QCOMPARE(reply.value("data").toObject().value("code").toString(), QStringLiteral("tool_cancelled"));
   QVERIFY2(messages.at(2).content.contains(QStringLiteral("取消")),
            qPrintable(messages.at(2).content));
   // 控制器存活销毁（无 UAF）：本用例结束即析构 controller（先于 fixture）。

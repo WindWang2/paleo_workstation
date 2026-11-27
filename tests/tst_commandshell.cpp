@@ -260,6 +260,24 @@ private slots:
     QCOMPARE(hit.first().second, 0.9);
   }
 
+  void locatorRanksAvailableMatchesBeforeDisabledExactTitles()
+  {
+    CommandLocatorEntry unavailable;
+    unavailable.title = QStringLiteral("连井剖面");
+    unavailable.commandId = QStringLiteral("view.wellSection");
+    unavailable.reason = QStringLiteral("请先选择井");
+    CommandLocatorEntry available;
+    available.title = QStringLiteral("更多");
+    available.tooltip = QStringLiteral("连井剖面、井震剖面、地图导航、相图显示、捕捉与撤销");
+    available.enabled = true;
+    available.commandId = QStringLiteral("view.more.constraint");
+    const auto matches = CommandLocatorFilter::match({unavailable, available}, unavailable.title);
+    QCOMPARE(matches.size(), 2);
+    QCOMPARE(matches.front().first.commandId, available.commandId);
+    QCOMPARE(matches.back().first.reason, unavailable.reason);
+    QVERIFY(matches.front().second > matches.back().second);
+  }
+
   // 审查 P2#1：勾选类命令缺 checked（Ctrl+K / Agent）= 取反当前态；显式 checked 照旧幂等。
   void targetCheckedSemantics()
   {

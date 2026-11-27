@@ -10,6 +10,7 @@
 #include <QVariantMap>
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include "../domain/importrows.h" // FolderPreviewRow / FolderRowResult（domain 纯数据）
 
@@ -58,9 +59,7 @@ class FolderImportWorkflow : public QObject
     DataImportService *importService() const; // 服务已析构 → nullptr
     void setTaskService(PaleoTaskService *taskSvc);
 
-    // UI 导入默认只建索引（方向 D1）：整批/文件夹/文件清单链在 session 配置点
-    // 统一注入 ImportSession.linkExternal；false = 恢复旧受管复制默认（确认表
-    // 「复制进工程」勾选）。默认 true。
+    // 未指定存储方式的调用采用此默认值。确认表的选择仅随本批请求传入。
     void setLinkExternal(bool on) { m_linkExternal = on; }
     bool linkExternal() const { return m_linkExternal; }
 
@@ -77,7 +76,9 @@ class FolderImportWorkflow : public QObject
     FolderRowResult importFolderRow(const QString &path, const QString &forceType,
                                     QString *error = nullptr,
                                     const QString &wellTarget = {},
-                                    const QString &expectedHash = {});
+                                    const QString &expectedHash = {},
+                                    std::optional<bool> linkExternal = {},
+                                    const QString &displayName = {});
     // 整批导入：异步（任务池在场）或同步；done 总在 GUI 线程调用。
     // nameOverrides：确认表「显示名」列——源路径 → 编辑后显示名（空 = 原
     // 文件 basename；io 侧空白值忽略）。透传 DataImportService::produceFolder。
@@ -100,7 +101,8 @@ class FolderImportWorkflow : public QObject
                       const QStringList &skippedPaths = {},
                       const QStringList &previewedPaths = {},
                       const QMap<QString, QString> &nameOverrides = {},
-                      const ProjectGuard &projectStillCurrent = {});
+                      const ProjectGuard &projectStillCurrent = {},
+                      std::optional<bool> linkExternal = {});
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
     // linkExternal 默认 true（方向：UI 默认只建索引）；displayName 非空 →
     // 覆盖资产显示名（导入时命名）。
@@ -118,7 +120,8 @@ class FolderImportWorkflow : public QObject
                      const QStringList &previewedPaths = {},
                      const QMap<QString, QString> &nameOverrides = {},
                      const QMap<QString, QVariantMap> &tableMappings = {},
-                     const ProjectGuard &projectStillCurrent = {});
+                     const ProjectGuard &projectStillCurrent = {},
+                      std::optional<bool> linkExternal = {});
     // Explicit local attachment selection. Publish automatic results first, then
     // present only the files that need an operator's type or well selection.
     // Receipt is delivered before any domain parsing or well choice. Repeated
@@ -191,7 +194,7 @@ class FolderImportWorkflow : public QObject
     QVector<FolderRowResult> runInlineImport(
         const std::function<void(ImportSession &)> &produce,
         const QMap<QString, QString> &wellTargets,
-        const QMap<QString, QString> &expectedHashes, QString *error,
+        const QMap<QString, QString> &expectedHashes, QString *error, bool linkExternal,
         const QStringList &skippedPaths = {},
         const QStringList &previewedPaths = {});
     // 方向 30：整批导入完成后写台账（.paleo/import_ledger.json，窗口 50 批）。

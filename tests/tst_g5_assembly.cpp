@@ -4,34 +4,47 @@
 #include "app/capabilityhostwiring.h"
 #include "../src/ai/chat/llmclient.h"
 #include "../src/app/appcontext.h"
+#include "../src/io/dataimportservice.h"
+#include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/ui/ai/aiconversationcard.h"
 #include "../src/ui/ai/aiassistdock.h"
 #include "../src/ui/ai/aicontextbar.h"
+#include "../src/ui/paleodockmanager.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/aioperationpresentation.h"
 #include <QApplication>
+#include <QDialog>
 #include <QDir>
+#include <QDockWidget>
+#include <QDropEvent>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QLabel>
+#include <QMenu>
+#include <QMimeData>
 #include <QPushButton>
 #include <QSettings>
+#include <QScopeGuard>
+#include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTextBrowser>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolButton>
 #include <QTranslator>
 #include "../src/ui/paleotheme.h"
 
 // G5 W9：真实装配路径验证——AppContext + PaleoMainWindow +
 // attachAiAssistant + installConversationPresentation 全链。普通 QWidget
 // offscreen 测试不替代这条真实主窗装配证据；PALEO_G5_SHOT_DIR 设置时
-// 走查真实 AI 页签（发送→实时结果→历史恢复→操作详情）并落浅/暗/窄截图。
+// 走查独立 Agent 面板（发送→实时结果→历史恢复→操作详情）并落浅/暗/窄截图。
 namespace {
 const char kShotStream[] =
   "data: {\"choices\":[{\"delta\":{\"content\":\"砂岩为主，泥岩次之\"}}]}\n\n"
@@ -92,8 +105,13 @@ public:
 
 private slots:
   void dockAndPresenterAreWiredIntoTheRealWindow();
+  void launcherKeepsDraftAndDocumentAcrossWorkflows();
+  void savedLayoutRestoresIndependentAgentDock();
+  void agentStartupLayout_data();
+  void agentStartupLayout();
   void contextBarReflectsHostContext();
   void presenterIsIdempotentOnReinstall();
+  void droppingAFileImportsItIntoTheOpenProjectWithoutAModel();
   void captureAssemblyScreenshots();
 
 private:
@@ -105,8 +123,19 @@ void TestG5Assembly::dockAndPresenterAreWiredIntoTheRealWindow() {
   auto *tabs = m_win->findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
   QVERIFY(tabs);
   auto *dock = m_win->findChild<AiAssistDock *>(QStringLiteral("aiAssistantDock"));
-  QVERIFY2(dock, "attachAiAssistant 必须已建 AI 助手页签");
-  QVERIFY(tabs->indexOf(dock) >= 0);
+  auto *shell = m_win->findChild<QDockWidget *>("aiAgentDock", Qt::FindDirectChildrenOnly);
+  QVERIFY(dock && shell && shell->isAncestorOf(dock));
+  QVERIFY(!tabs->isAncestorOf(dock));
+  QVERIFY(shell->features().testFlag(QDockWidget::DockWidgetFloatable));
+  QVERIFY(shell->features().testFlag(QDockWidget::DockWidgetClosable));
+  QVERIFY(shell->features().testFlag(QDockWidget::DockWidgetMovable));
+  auto *manager = m_win->findChild<PaleoDockManager *>(QString(), Qt::FindDirectChildrenOnly);
+  QVERIFY(manager);
+  QScopedPointer<QMenu> layoutMenu(manager->createMenu());
+  QVERIFY(layoutMenu->actions().contains(shell->toggleViewAction()));
+  m_win->attachAiAssistant(m_ctx->aiChat());
+  QCOMPARE(m_win->findChildren<AiAssistDock *>().size(), 1);
+  QCOMPARE(m_win->findChildren<QDockWidget *>("aiAgentDock").size(), 1);
   QVERIFY(dock->controller() == m_ctx->aiChat());
   auto *presenter =
     m_win->findChild<paleo::chat::AiOperationPresentation *>(
@@ -120,6 +149,170 @@ void TestG5Assembly::dockAndPresenterAreWiredIntoTheRealWindow() {
   QVERIFY(summary);
   QVERIFY2(summary->text().contains(QStringLiteral("工程未打开")),
            qPrintable(summary->text()));
+}
+
+void TestG5Assembly::savedLayoutRestoresIndependentAgentDock() {
+  auto *shell = m_win->findChild<QDockWidget *>("aiAgentDock");
+  auto *manager = m_win->findChild<PaleoDockManager *>(QString(), Qt::FindDirectChildrenOnly);
+  QVERIFY(shell && manager);
+  m_win->show();
+  const QByteArray originalLayout = m_win->saveState();
+  const QVariantMap originalIntent = manager->captureIntent();
+  const auto reset = qScopeGuard([&] {
+    manager->restoreLayout(originalLayout, &originalIntent);
+  });
+  m_win->addDockWidget(Qt::LeftDockWidgetArea, shell);
+  shell->show();
+  shell->raise();
+  const QByteArray leftVisible = m_win->saveState();
+  const QVariantMap visibleIntent = manager->captureIntent();
+  shell->close();
+  m_win->addDockWidget(Qt::BottomDockWidgetArea, shell);
+  QVERIFY(shell->isHidden());
+  QVERIFY(manager->restoreLayout(leftVisible, &visibleIntent));
+  QTRY_VERIFY(shell->isVisible());
+  QCOMPARE(m_win->dockWidgetArea(shell), Qt::LeftDockWidgetArea);
+}
+
+void TestG5Assembly::agentStartupLayout_data() {
+  QTest::addColumn<QString>("selected");
+  QTest::newRow("layout-before-agent") << QStringLiteral("legacy");
+  QTest::newRow("agent-front") << QStringLiteral("aiAgentDock");
+  QTest::newRow("inspector-front") << QStringLiteral("pagePanelDock");
+}
+
+void TestG5Assembly::agentStartupLayout() {
+  QFETCH(QString, selected);
+  QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
+  QVariantMap backup;
+  const QStringList keys{"windowState", "windowDockIntent", "windowGeometry"};
+  for (const auto &key : keys) backup.insert(key, settings.value(key));
+  const auto reset = qScopeGuard([&] {
+    for (const auto &key : keys) {
+      if (backup.value(key).isValid()) settings.setValue(key, backup.value(key));
+      else settings.remove(key);
+    }
+  });
+  for (const auto &key : keys) settings.remove(key);
+  const bool legacy = selected == QLatin1String("legacy");
+  if (legacy) {
+    QMainWindow previous;
+    auto *inspector = new QDockWidget(&previous);
+    inspector->setObjectName("pagePanelDock");
+    previous.addDockWidget(Qt::RightDockWidgetArea, inspector);
+    settings.setValue("windowState", previous.saveState());
+  } else {
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow previous(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(),
+                             m_ctx->toolSvc(), m_ctx->selection());
+    previous.show();
+    previous.showPage(QStringLiteral("compose"));
+    auto *inspector = previous.findChild<QDockWidget *>("pagePanelDock");
+    auto *agent = previous.findChild<QDockWidget *>("aiAgentDock");
+    QVERIFY(inspector && agent);
+    previous.tabifyDockWidget(inspector, agent);
+    inspector->show();
+    agent->show();
+    auto *front = previous.findChild<QDockWidget *>(selected);
+    front->raise();
+    QTRY_VERIFY(!front->visibleRegion().isEmpty());
+    previous.saveWindowState();
+  }
+
+  QgisCanvasController canvas(m_ctx);
+  PaleoMainWindow recovered(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(),
+                            m_ctx->toolSvc(), m_ctx->selection());
+  recovered.attachAiAssistant(m_ctx->aiChat());
+  recovered.show();
+  auto *agent = recovered.findChild<QDockWidget *>("aiAgentDock");
+  auto *button = recovered.findChild<QToolButton *>("aiAgentButton");
+  QVERIFY(agent && button && button->isEnabled());
+  QCOMPARE(agent->isHidden(), legacy);
+  recovered.showPage(QStringLiteral("compose"));
+  if (!legacy) {
+    auto *inspector = recovered.findChild<QDockWidget *>("pagePanelDock");
+    QVERIFY(recovered.tabifiedDockWidgets(inspector).contains(agent));
+    auto *front = recovered.findChild<QDockWidget *>(selected);
+    QTRY_VERIFY(!front->visibleRegion().isEmpty());
+    auto *behind = front == agent ? inspector : agent;
+    QTRY_VERIFY(behind->visibleRegion().isEmpty());
+  }
+  QTest::mouseClick(button, Qt::LeftButton);
+  QTRY_VERIFY(!agent->visibleRegion().isEmpty());
+}
+
+void TestG5Assembly::launcherKeepsDraftAndDocumentAcrossWorkflows() {
+  auto *shell = m_win->findChild<QDockWidget *>("aiAgentDock");
+  auto *launcher = m_win->findChild<QToolButton *>("aiAgentButton");
+  auto *input = m_win->findChild<QTextEdit *>("aiAssistantInput");
+  auto *documents = m_win->findChild<QTabBar *>("visualizationTabs");
+  auto *focus = m_win->findChild<QToolButton *>("workspaceFocusButton");
+  QVERIFY(shell && launcher && input && documents && focus);
+  QVERIFY(!launcher->icon().isNull());
+
+  QTemporaryDir project;
+  QVERIFY(project.isValid());
+  const auto closeProject = qScopeGuard([this] { m_ctx->closeProject(); });
+  const QSize originalSize = m_win->size();
+  const auto restoreSize = qScopeGuard([&] { m_win->resize(originalSize); });
+  auto *chat = m_ctx->aiChat();
+  const auto previousConfig = chat->config();
+  const auto reset = qScopeGuard([&] {
+    if (focus->isChecked()) focus->click();
+    input->clear();
+    shell->setFloating(false);
+    shell->close();
+    chat->setConfig(previousConfig);
+    m_win->showStartup();
+  });
+  LlmConfig config;
+  config.endpoint = QUrl("http://127.0.0.1:1/v1");
+  config.model = "draft-only";
+  config.apiKey = "fixture";
+  chat->setConfig(config);
+  m_win->show();
+  m_win->activateWindow();
+  m_win->resize(640, 600);
+  QTRY_VERIFY(launcher->isVisible() && launcher->isEnabled());
+  QTRY_COMPARE(m_win->childAt(launcher->mapTo(m_win, launcher->rect().center())),
+               static_cast<QWidget *>(launcher));
+  QVERIFY(shell->isHidden());
+  const auto page = m_win->currentPage();
+  const int document = documents->currentIndex();
+  QTest::mouseClick(launcher, Qt::LeftButton);
+  QTRY_VERIFY(shell->isVisible() && input->hasFocus());
+  QCOMPARE(m_win->currentPage(), page);
+  QCOMPARE(documents->currentIndex(), document);
+  m_win->resize(originalSize);
+  QVERIFY(m_ctx->projectSvc()->createProject(project.filePath("agent-dock.qgz")));
+  const QString draft = QStringLiteral("按当前层位核对井资料");
+  input->setPlainText(draft);
+
+  m_win->showPage(QStringLiteral("correlation"));
+  QTRY_VERIFY(shell->isVisible());
+  shell->setFloating(true);
+  QTRY_VERIFY(shell->isFloating());
+  shell->close();
+  m_win->showPage(QStringLiteral("compose"));
+  QVERIFY(shell->isHidden());
+  m_win->activateWindow();
+  QTRY_VERIFY(m_win->isActiveWindow());
+  const int mapTab = documents->currentIndex();
+  QTest::keyClick(m_win, Qt::Key_J, Qt::ControlModifier);
+  QTRY_VERIFY(shell->isVisible() && shell->isFloating());
+  QCOMPARE(input->toPlainText(), draft);
+  QCOMPARE(m_win->currentPage(), QStringLiteral("compose"));
+  QCOMPARE(documents->currentIndex(), mapTab);
+
+  shell->setFloating(false);
+  QTRY_VERIFY(focus->isVisible());
+  focus->click();
+  QTRY_VERIFY(focus->isChecked() && shell->isHidden());
+  QVERIFY(launcher->isVisible());
+  QTest::mouseClick(launcher, Qt::LeftButton);
+  QTRY_VERIFY(!focus->isChecked() && shell->isVisible() && input->hasFocus());
+  QCOMPARE(documents->currentIndex(), mapTab);
+  QCOMPARE(input->toPlainText(), draft);
 }
 
 void TestG5Assembly::contextBarReflectsHostContext() {
@@ -146,16 +339,63 @@ void TestG5Assembly::presenterIsIdempotentOnReinstall() {
   QCOMPARE(presenters.size(), 1);
 }
 
+void TestG5Assembly::droppingAFileImportsItIntoTheOpenProjectWithoutAModel() {
+  QTemporaryDir project, files;
+  QVERIFY(project.isValid() && files.isValid());
+  const auto closeProject = qScopeGuard([this] { m_ctx->closeProject(); });
+  QVERIFY2(m_ctx->projectSvc()->createProject(project.filePath("import.qgz")),
+           qPrintable(m_ctx->projectSvc()->lastErrors().join(';')));
+  auto *chat = m_ctx->aiChat();
+  chat->setConfig({});
+  chat->newSession();
+  const auto session = chat->session().id;
+  const auto removeChat = qScopeGuard([chat, session] { chat->removeSession(session); });
+  auto *dock = m_win->findChild<AiAssistDock *>("aiAssistantDock");
+  QVERIFY(dock);
+  const QString source = files.filePath("survey.dat");
+  QVERIFY(QFile::copy(QFINDTESTDATA("../testdata/project_area/ExportWellHead.dat"), source));
+
+  bool prompted = false;
+  QTimer dismissUnexpectedPrompt;
+  connect(&dismissUnexpectedPrompt, &QTimer::timeout, this, [&] {
+    if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+      prompted = true;
+      dialog->reject();
+    }
+  });
+  dismissUnexpectedPrompt.start(50);
+  QMimeData data;
+  data.setUrls({QUrl::fromLocalFile(source)});
+  QDragEnterEvent enter(QPoint(8, 8), Qt::CopyAction, &data, Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(dock, &enter);
+  QVERIFY(enter.isAccepted());
+  QDropEvent drop(QPointF(8, 8), Qt::CopyAction, &data, Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(dock, &drop);
+  QVERIFY(drop.isAccepted());
+  QVERIFY(spinUntil([chat] { return chat->messages().size() >= 2; }));
+  QVERIFY2(!prompted, "A self-describing well-head table should import directly");
+  const auto assets = m_ctx->importSvc()->assets("well_head");
+  QCOMPARE(assets.size(), 1);
+  const auto receipt = chat->messages().last();
+  QVERIFY(receipt.localImportReceipt);
+  QVERIFY(receipt.content.contains(assets.first()));
+  QVERIFY(receipt.content.contains("survey.dat"));
+  QVERIFY(!receipt.content.contains(files.path()));
+  QVERIFY(!chat->streaming());
+}
+
 void TestG5Assembly::captureAssemblyScreenshots() {
   const QString dir = QString::fromUtf8(qgetenv("PALEO_G5_SHOT_DIR"));
   if (dir.isEmpty())
     QSKIP("截图按需采集（PALEO_G5_SHOT_DIR 未设）");
   auto *dock = m_win->findChild<AiAssistDock *>(QStringLiteral("aiAssistantDock"));
   QVERIFY(dock);
-  auto *tabs = m_win->findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
-  tabs->setCurrentWidget(dock);
   m_win->resize(1280, 800);
   m_win->show();
+  auto *launcher = m_win->findChild<QToolButton *>("aiAgentButton");
+  QVERIFY(launcher && launcher->isVisible());
+  launcher->click();
+  QTRY_VERIFY(dock->isVisible());
 
   // 真实主窗走查（W9.4）：上下文→发送（实时工具卡）→落盘→历史恢复→操作详情。
   // 端点为 127.0.0.1 loopback（真实 controller/runner/渲染链，不发外网）。
@@ -251,6 +491,7 @@ int main(int argc, char *argv[]) {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   static QTemporaryDir settingsDir;
+  QStandardPaths::setTestModeEnabled(true);
   QSettings::setDefaultFormat(QSettings::IniFormat);
   QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
   AppContext ctx(qEnvironmentVariable("QGIS_PREFIX_PATH"));

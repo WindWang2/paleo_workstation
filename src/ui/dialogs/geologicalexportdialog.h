@@ -22,6 +22,7 @@ public:
   GeologicalExportDialog(const PaleoGeologicalMapLayout::Settings &settings, Builder builder,
       bool hasInputs, QWidget *parent = nullptr, const QStringList &unboundLayers = {}, const QString &projectDirectory = {});
   ~GeologicalExportDialog() override;
+  void accept() override;
   PaleoLayoutExport::LayoutHandle *layout() const;
   PaleoGeologicalExport::Request request() const;
 private:
@@ -35,7 +36,8 @@ private:
   // 传递债记边。
   QWidget *m_preview;
   QTimer *m_rebuildTimer;
-  QComboBox *m_kind, *m_paper, *m_orientation, *m_destinationMode;
+  QComboBox *m_kind, *m_paper, *m_orientation, *m_destinationMode, *m_crs;
+  QCheckBox *m_patchLabels;
   QString m_projectDirectory;
   QLineEdit *m_subtitle;
   QDoubleSpinBox *m_scale;

@@ -21,6 +21,9 @@ class SgyVolume;
 // 常量会在 main 前静态初始化，漏翻译。
 namespace paleo::mainwindow_internal {
 
+// Flush before QMainWindow starts dismantling its native dock layout.
+void finishReferenceDockLayout(QMainWindow *window);
+
 // 页策略作用的 dock 面：showPage 与 dock 布局恢复后的策略重落共用。
 struct PageDockState
 {
@@ -29,13 +32,15 @@ struct PageDockState
   PaleoDockWidget *bottom;
   PaleoDockWidget *wellSection;
   bool previewMaximized;
-  bool bottomAutoShown;
   PaleoDockWidget *right = nullptr;
 };
 
 void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
                          QMainWindow *window = nullptr);
 void hideAllDocksForCorrelation(QMainWindow *win);
+// The project inspector can be temporarily masked on home/correlation while
+// a tabified Agent stays visible. Remember the user's front tab across the mask.
+bool inspectorPrecedesAgent(QMainWindow *window);
 
 // Tab order = reading order = right-panel stack order：页序表收敛到
 // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。

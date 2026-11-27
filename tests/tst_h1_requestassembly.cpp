@@ -2,9 +2,9 @@
 // H1 装配验收（aichatcontroller sendRound 接缝）：驱动真实
 // sendUserText/retry/工具续轮，捕获**实际 HTTP 请求体**——单一宿主 System、
 // 空占位不上送、连续后缀、legacy 终形 envelope、当前轮拒绝零 HTTP、
-// 原档案不改动，以及一条受控 Pi peer 编排链与原生链同一投影 oracle。
+// 原档案不改动，以及受控 Pi peer 与实际 Pi 使用同一投影。
 // 组件语义矩阵在 tst_h1_contextprojection，此处只验收生产装配路径。
-#include "workflow/aichatcontroller.h"
+#include "pichattestcontroller.h"
 #include "workflow/aichatcontextprojection.h"
 #include "workflow/capabilityhost.h"
 #include "catalog/datacatalog.h"
@@ -327,7 +327,7 @@ void TestH1RequestAssembly::basicRoundSendsSingleSystemWithoutPlaceholder() {
   ScriptedLlmServer server;
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("好的。")));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   ChatSession stored;
@@ -370,7 +370,7 @@ void TestH1RequestAssembly::legacyHistorySanitizedOnWireAndArchiveUntouched() {
   ScriptedLlmServer server;
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("好的。")));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   ChatSession stored;
   stored.id = ChatSessionStore::newSessionId();
@@ -453,7 +453,7 @@ void TestH1RequestAssembly::damagedOlderTurnExcludedOnWireWithContiguousSuffix()
   ScriptedLlmServer server;
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("好的。")));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   ChatSession stored;
   stored.id = ChatSessionStore::newSessionId();
@@ -487,7 +487,7 @@ void TestH1RequestAssembly::conversionPricedTurnDropsOnWire() {
   ScriptedLlmServer server;
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("好的。")));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   // 12 组调用 × legacy 结果：原 content 计价（每组 ~473 估算 token）合计
   // ~5700 进得了 6000 窗；终形 envelope（协议结构 + ok/data/transport 包装
@@ -536,7 +536,7 @@ void TestH1RequestAssembly::conversionPricedTurnDropsOnWire() {
 void TestH1RequestAssembly::currentTurnOverBudgetStopsRoundWithZeroRequests() {
   ScriptedLlmServer server;
   QVERIFY(server.start());
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy errors(&controller, &AiChatController::errorOccurred);
@@ -551,7 +551,8 @@ void TestH1RequestAssembly::currentTurnOverBudgetStopsRoundWithZeroRequests() {
   // 用户问题保留；无假成功回答（assistant 数为 0——占位已撤）。
   QCOMPARE(countRole(controller.messages(), ChatRole::User), 1);
   QCOMPARE(countRole(controller.messages(), ChatRole::Assistant), 0);
-  QVERIFY(controller.canRetry());
+  QTRY_VERIFY(controller.canRetry()); // Pi 回收后可重试。
+  QCOMPARE(errors.count(), 1);
 }
 
 // oracle 6：短旧轮—巨大中间轮—短当前轮——巨大轮截断后不得跳过去捞短旧轮。
@@ -559,7 +560,7 @@ void TestH1RequestAssembly::overBudgetMiddleTurnNotSkippedForOlderTurn() {
   ScriptedLlmServer server;
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("好的。")));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   ChatSession stored;
   stored.id = ChatSessionStore::newSessionId();
@@ -594,7 +595,7 @@ void TestH1RequestAssembly::retryLastReprojectsCleanSuffix() {
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("第一次答。")));
   server.enqueue(textAnswerSse(QStringLiteral("重试答。")));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.sendUserText(QStringLiteral("问题甲"));
@@ -618,7 +619,7 @@ void TestH1RequestAssembly::retryLastReprojectsCleanSuffix() {
   QVERIFY(assistants.isEmpty()); // 被截回答不再上送，空占位也不上送
 }
 
-// oracle 8：受控 Pi peer 编排链（真实模型 HTTP 仍经 LlmClient）与原生链同
+// oracle 8：受控 Pi peer 编排链（真实模型 HTTP 仍经 LlmClient）与实际 Pi 同
 // 一投影：单一宿主 System、无空占位、连续后缀。真实 Node runtime 不在测试
 // 面（明确区分受控 peer 与未运行的真进程）。
 void TestH1RequestAssembly::controlledPiPeerChainMatchesProjectionOracle() {
@@ -630,7 +631,6 @@ void TestH1RequestAssembly::controlledPiPeerChainMatchesProjectionOracle() {
   QVERIFY2(host.bind(controller), qPrintable(host.bindError));
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
-  controller.setPiRuntime({true, {}, {}});
   ControlledPeer peer;
   controller.piBridge()->setWorkerDriver([&peer](PaleoTask *task,
       const std::shared_ptr<paleo::pi::ConversationChannel> &channel,

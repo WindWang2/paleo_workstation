@@ -4,6 +4,26 @@
 #include <QSignalSpy>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QScopeGuard>
+#include <QTimer>
+#include "ui/dialogs/seismicclusterinterpretation.h"
+#include "ui/paleomainwindow.h"
+#include "ui/workbench/clusterpatchinspector.h"
+#include "linkage/selectioncontext.h"
+#include "qgis/qgiscanvascontroller.h"
+#include <qgsmapcanvas.h>
+#include <qgslayertree.h>
+#include <qgslayertreeview.h>
+#include "ui/layers/layertreepanel.h"
+#include <qgsmaptoolpan.h>
+#include <QLabel>
+#include <QDir>
+#include <QTabWidget>
+#include <QToolButton>
 #include <QThreadPool>
 #include <QElapsedTimer>
 #include <qgsgui.h>
@@ -100,6 +120,268 @@ struct MockUnitFixture {
     return stage.versionId;
   }
 };
+static void verifyMapPatchInspector(MockUnitFixture &f, const QString &layerId) {
+  QObject services;
+  auto *oldParent = f.qgis.parent();
+  f.qgis.setParent(&services);
+  const auto detach = qScopeGuard([&] { f.qgis.setParent(oldParent); });
+  QgisCanvasController controller(&services);
+  controller.setLayerResolver([&](const QString &id) { return f.layers.layer(id); });
+  SelectionContext selection;
+  selection.setActiveUnit(f.unit());
+  PredictionWorkflow predict(&f.processing, &f.layers);
+  CompositionWorkflow compose(&f.processing, &f.layers);
+  ValidationWorkflow validate(&f.layers, &f.store);
+  PaleoMainWindow window(&controller, &f.qgis, &f.layers, nullptr, &selection);
+  window.attachWorkflows(&predict, &f.constraints, &compose, &validate, nullptr, nullptr, &f.processing, &f.store);
+  window.attachWorkbench(&f.work);
+  window.resize(1366, 768);
+  window.onProjectOpened();
+  window.show();
+  window.showPage("compose");
+  selection.setActiveUnit(f.unit());
+  auto *page = window.findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");
+  QVERIFY(page);
+  page->refresh();
+  page->selectLayer(layerId);
+  page->commandButton("show")->click();
+  auto *canvas = controller.canvas();
+  auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(layerId));
+  QVERIFY(layer);
+  QTRY_VERIFY(canvas->currentLayer() == layer && canvas->layers().contains(layer));
+  QgsMapToolPan pan(canvas);
+  canvas->setMapTool(&pan);
+  canvas->setDestinationCrs(layer->crs());
+  canvas->setExtent(layer->extent());
+  canvas->refresh();
+  auto features = layer->getFeatures(QgsFeatureRequest().setFilterExpression(QStringLiteral("cluster_wells > 0")));
+  QgsFeature selected;
+  QVERIFY(features.nextFeature(selected));
+  const auto point = selected.geometry().pointOnSurface().asPoint();
+  const auto click = [&] {
+    const auto pixel = canvas->mapSettings().mapToPixel().transform(point);
+    QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier,
+                                            QPoint(qRound(pixel.x()), qRound(pixel.y()))); };
+  auto *panel = window.findChild<ClusterPatchInspector *>();
+  auto *tabs = window.findChild<QTabWidget *>("workspaceContextTabs");
+  QVERIFY(panel && tabs);
+  auto *target = panel->findChild<QComboBox *>("clusterInspectorTarget");
+  auto *whole = panel->findChild<QCheckBox *>("clusterInspectorWhole");
+  auto *apply = panel->findChild<QPushButton *>("clusterInspectorApply");
+  auto *save = panel->findChild<QPushButton *>("clusterInspectorSave");
+  auto *status = panel->findChild<QLabel *>("clusterInspectorStatus");
+  QVERIFY(target && whole && apply && save && status);
+  const auto *sourceLabel = panel->findChild<QLabel *>("clusterInspectorSource");
+  QVERIFY(sourceLabel);
+  const auto source = f.work.versionForLayer(layerId);
+  const auto path = DataCatalog::resolvedVersionPath(f.project, source);
+  QSignalSpy versions(&f.work, &MappingWorkbench::productReady);
+  auto *dock = window.findChild<PaleoDockWidget *>("pagePanelDock");
+  auto *open = window.findChild<QToolButton *>("workspaceInspectorButton");
+  auto *focus = window.findChild<QToolButton *>("workspaceFocusButton");
+  QVERIFY(dock && open && focus);
+  dock->setProgrammaticVisible(false);
+  focus->click();
+  click();
+  QVERIFY(dock->isHidden());
+  focus->click();
+  click();
+  QTRY_COMPARE(tabs->currentWidget(), static_cast<QWidget *>(panel));
+  QTRY_VERIFY(dock->isVisible());
+  QVERIFY(sourceLabel->text().contains(f.unit().displayName));
+  QVERIFY(!sourceLabel->text().contains(analysisLayerKey(f.unit())));
+  dock->hide();
+  click();
+  QVERIFY(dock->isHidden());
+  open->click();
+  QTRY_VERIFY(dock->isVisible());
+  tabs->setCurrentIndex(0);
+  click();
+  QCOMPARE(tabs->currentIndex(), 0);
+  tabs->setCurrentIndex(1);
+  QCoreApplication::processEvents();
+  QVERIFY(!whole->isChecked());
+  QVERIFY(!save->isEnabled());
+  window.setProjectReadOnly(true);
+  QVERIFY(!target->isEnabled());
+  window.setProjectReadOnly(false);
+  target->setCurrentIndex(0);
+  whole->setChecked(true);
+  auto *cancel = panel->findChild<QPushButton *>("clusterInspectorCancel");
+  QVERIFY(cancel && cancel->isEnabled());
+  cancel->click();
+  QVERIFY(!whole->isChecked());
+  QVERIFY(!apply->isEnabled());
+  QVERIFY(!save->isEnabled());
+  target->setCurrentIndex(0);
+  whole->setChecked(true);
+  QTRY_VERIFY(apply->isEnabled());
+  const auto evidenceDir = qEnvironmentVariable("PALEO_WORKSPACE_INSPECT_EVIDENCE");
+  auto capture = [&](const QString &name) {
+    if (evidenceDir.isEmpty()) return;
+    QVERIFY(QDir().mkpath(evidenceDir));
+    if (auto *dock = window.findChild<QDockWidget *>("pagePanelDock")) dock->show();
+    QTest::qWait(120);
+    QVERIFY(window.grab().save(QDir(evidenceDir).filePath(name)));
+  };
+  capture(QStringLiteral("workspace-cluster-scope.png"));
+  apply->click();
+  capture(QStringLiteral("workspace-cluster-draft.png"));
+  QCOMPARE(versions.count(), 0);
+  QVERIFY(save->isEnabled());
+  QVERIFY(panel->step(true));
+  QVERIFY(!save->isEnabled());
+  QVERIFY(panel->step(false));
+  selection.setActiveUnit(f.unit(2));
+  QVERIFY(!panel->canStep(true));
+  selection.setActiveUnit(f.unit());
+  click();
+  QVERIFY(save->isEnabled());
+  QVERIFY(!whole->isChecked());
+  f.qgis.setReadOnly(true);
+  save->click();
+  QVERIFY(save->isEnabled());
+  QCOMPARE(versions.count(), 0);
+  f.qgis.setReadOnly(false);
+  // Immediately before the save, choose a distinctive inspection scale so auto-fit cannot pass.
+  auto detail = canvas->extent();
+  detail.scale(0.63);
+  canvas->setExtent(detail);
+  canvas->refresh();
+  QTest::qWait(150);
+  const auto extent = canvas->extent();
+  const auto size = canvas->viewport()->size();
+  const auto scale = canvas->scale();
+  save->click();
+  QCoreApplication::processEvents();
+  QCOMPARE(versions.count(), 1);
+  QCOMPARE(DataCatalog::sha256FileHex(path), source.sha256);
+  const auto actual = canvas->extent();
+  QVERIFY2(actual == extent, qPrintable(QStringLiteral("before %1 (%2x%3, 1:%4) after %5 (%6x%7, 1:%8)")
+      .arg(extent.toString(12)).arg(size.width()).arg(size.height()).arg(scale)
+      .arg(actual.toString(12)).arg(canvas->viewport()->width()).arg(canvas->viewport()->height()).arg(canvas->scale())));
+  const auto saved = f.work.versionForLayer(versions.first().at(1).toString());
+  QVERIFY(saved.parentVersionIds.contains(source.id));
+  QCOMPARE(saved.extra.value("assignment_scope").toString(), QStringLiteral("cluster"));
+  capture(QStringLiteral("workspace-cluster-saved.png"));
+}
+
+static void verifyManualAssignmentDialog(MockUnitFixture &f, const QString &layerId) {
+  const auto patches = f.work.clusterPatchChoices(layerId, &f.error);
+  QVERIFY2(!patches.isEmpty(), qPrintable(f.error));
+  const auto wanted = patches.last().toMap();
+  const auto fid = wanted.value("feature_id").toLongLong();
+  for (const bool wholeCluster : {false, true}) {
+    QList<qint64> highlighted;
+    QList<qint64> expected;
+    for (const auto &item : patches) {
+      const auto row = item.toMap();
+      if (wholeCluster ? row.value("cluster_id") == wanted.value("cluster_id")
+                       : row.value("feature_id").toLongLong() == fid)
+        expected << row.value("feature_id").toLongLong();
+    }
+    QTimer::singleShot(0, qApp, [&] {
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      QVERIFY(dialog);
+      const auto closeDialog = qScopeGuard([&] { if (dialog->isVisible()) dialog->reject(); });
+      auto *patch = dialog->findChild<QComboBox *>("clusterManualPatch");
+      auto *facies = dialog->findChild<QComboBox *>("clusterManualFacies");
+      auto *whole = dialog->findChild<QCheckBox *>("clusterManualWhole");
+      auto *box = dialog->findChild<QDialogButtonBox *>();
+      QVERIFY(patch && facies && whole && box);
+      auto *save = box->button(QDialogButtonBox::Save);
+      QVERIFY(save && !save->isEnabled());
+      int patchIndex = -1;
+      for (int i = 0; i < patch->count(); ++i)
+        if (patch->itemData(i).toMap().value("feature_id").toLongLong() == fid) patchIndex = i;
+      QVERIFY(patchIndex >= 0);
+      patch->setCurrentIndex(patchIndex);
+      whole->setChecked(wholeCluster);
+      const int target = facies->findData(2);
+      QVERIFY(target >= 0);
+      facies->setCurrentIndex(target);
+      QCOMPARE(highlighted, expected);
+      QVERIFY(save->isEnabled());
+      save->click();
+    });
+    const auto choice = SeismicClusterInterpretation::chooseManual(&f.work, layerId,
+        [&](const QList<qint64> &fids) { highlighted = fids; }, nullptr, &f.error);
+    QVERIFY2(!choice.isEmpty(), qPrintable(f.error));
+    QCOMPARE(choice.value("patch_id"), wanted.value("patch_id"));
+    QCOMPARE(choice.value("feature_id").toLongLong(), fid);
+    QCOMPARE(choice.value("whole_cluster").toBool(), wholeCluster);
+    QCOMPARE(choice.value("facies_code").toInt(), 2);
+  }
+}
+
+static void verifyClusterManualLifecycle(MockUnitFixture &f, const QString &patchLayer, const QString &rawRaster) {
+  const auto rows = f.work.clusterPatchChoices(patchLayer, &f.error);
+  QVERIFY2(rows.size() >= 2, qPrintable(f.error));
+  const auto original = f.work.versionForLayer(patchLayer);
+  const auto patchId = rows.first().toMap().value("patch_id").toLongLong();
+  const auto code = f.schema.first().toMap().value("code").toInt();
+  const auto manual = f.work.assignClusterFacies(patchLayer, patchId, false, code, &f.error);
+  QVERIFY2(!manual.isEmpty(), qPrintable(f.error));
+  const auto interpreted = f.work.versionForLayer(manual);
+  QCOMPARE(interpreted.extra.value("cluster_patches_version").toString(), original.id);
+  for (const auto &candidate : f.work.consistencyCandidates(analysisLayerKey(f.unit()))) {
+    QVERIFY(candidate.toMap().value("id") != rawRaster);
+    QVERIFY(candidate.toMap().value("id") != patchLayer);
+  }
+  const auto draft = f.work.copyForEditing(manual, {}, &f.error);
+  QVERIFY2(!draft.isEmpty(), qPrintable(f.error));
+  auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &f.error));
+  QVERIFY(layer && layer->startEditing());
+  QMap<QPair<double,double>, QSet<qint64>> owners;
+  QMap<qint64, QgsGeometry> shapes;
+  QList<QgsGeometry> coverageParts;
+  auto it = layer->getFeatures();
+  QgsFeature face;
+  while (it.nextFeature(face)) {
+    const auto geometry = face.geometry().densifyByCount(1);
+    coverageParts << geometry;
+    shapes.insert(face.id(), geometry);
+    auto vertices = geometry.vertices();
+    while (vertices.hasNext()) {
+      const auto p = vertices.next();
+      owners[{p.x(), p.y()}].insert(face.id());
+    }
+  }
+  it.close();
+  const auto coverage = QgsGeometry::unaryUnion(coverageParts);
+  auto shared = owners.constBegin();
+  while (shared != owners.constEnd()) {
+    const auto xy = shared.key();
+    if (shared.value().size() >= 2 && coverage.contains(QgsGeometry::fromPointXY(QgsPointXY(xy.first,xy.second)))) break;
+    ++shared;
+  }
+  QVERIFY(shared != owners.constEnd());
+  const auto vertex = shared.key();
+  layer->beginEditCommand("adjust shared interpretation boundary");
+  for (auto shape = shapes.begin(); shape != shapes.end(); ++shape) {
+    shape.value().transformVertices([&](QgsPoint p) {
+      if (p.x() == vertex.first && p.y() == vertex.second) { p.setX(p.x()+0.1); p.setY(p.y()+0.1); }
+      return p;
+    });
+    QVERIFY(layer->changeGeometry(shape.key(), shape.value()));
+  }
+  layer->endEditCommand();
+  QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(" ")));
+  QVERIFY2(f.work.saveEditingVersion(draft, &f.error), qPrintable(f.error));
+  const auto revised = f.work.versionForLayer(draft);
+  QCOMPARE(revised.extra.value("cluster_patches_version").toString(), original.id);
+  QVERIFY(revised.id != interpreted.id);
+  QVERIFY(f.qgis.writeProject());
+  QVERIFY(f.qgis.openProject(f.qgis.projectPath()));
+  const auto restored = f.work.clusterPatchChoices(f.work.layerForVersion(revised.id), &f.error);
+  QCOMPARE(restored.size(),rows.size());
+  for (const auto &value : restored) {
+    const auto patch = value.toMap();
+    if (patch.value("patch_id").toLongLong() == patchId) QCOMPARE(patch.value("facies_code").toInt(), code);
+    else QVERIFY(patch.value("facies_code").isNull());
+  }
+}
+
 class MockSeismicUnitTest:public QObject {
   Q_OBJECT
 private slots:
@@ -131,22 +413,22 @@ private slots:
   }
   void nativeWindowHasSelectedCrsFullGeometryAndMissingMask(){
     MockUnitFixture f;QVERIFY2(f.init(),qPrintable(f.error+QString::fromStdString(f.detail)));
-    const auto grid=clusterSeismicStratigraphicWindow(f.project,f.unit(),f.source,{2,7});
+    const auto grid=clusterSeismicStratigraphicWindow(f.project,f.unit(),f.source,2);
     QVERIFY2(grid.error.isEmpty(),qPrintable(grid.error));QVERIFY(QgsCoordinateReferenceSystem::fromWkt(grid.crsWkt)==QgsCoordinateReferenceSystem("EPSG:32650"));
     QCOMPARE(grid.validCells,11);QCOMPARE(grid.cells.size(),16);QCOMPARE(fromMap(grid.parameters.value("unitSelection").toMap()),f.unit());
     QCOMPARE(grid.parameters.value("resampled_samples_per_trace").toInt(),16);
     QCOMPARE(grid.parameters.value("window_type").toString(),QString("stratigraphic_unit"));
     QVERIFY(std::abs(grid.extent.right()-30.-grid.extent.width()/8)<1e-8);
     for(int row=0;row<4;++row)QCOMPARE(grid.cells[row*4+3],-9999); // Missing outer column must not shrink the grid.
-    const auto again=clusterSeismicStratigraphicWindow(f.project,f.unit(),f.source,{2,7});QCOMPARE(again.cells,grid.cells);
-    const auto last=clusterSeismicStratigraphicWindow(f.project,f.unit(4),f.source,{2,7});QVERIFY2(last.error.isEmpty(),qPrintable(last.error));QVERIFY(last.cells!=grid.cells);
+    const auto again=clusterSeismicStratigraphicWindow(f.project,f.unit(),f.source,2);QCOMPARE(again.cells,grid.cells);
+    const auto last=clusterSeismicStratigraphicWindow(f.project,f.unit(4),f.source,2);QVERIFY2(last.error.isEmpty(),qPrintable(last.error));QVERIFY(last.cells!=grid.cells);
     const auto other=f.temp.filePath("other.sgy");auto bytes=SeismicHorizonFixture::buildVolume();bytes[3600+240]=char(0x41);
     QVERIFY(SeismicHorizonFixture::writeFile(other,bytes));paleo::data::ImportOptions options;options.copySources=false;paleo::data::ImportReport report;
     QVERIFY(f.ds.importFile(other.toStdString(),options,report,f.detail));
-    const auto selected=clusterSeismicStratigraphicWindow(f.project,f.unit(),other,{2,7});QVERIFY2(selected.error.isEmpty(),qPrintable(selected.error));
+    const auto selected=clusterSeismicStratigraphicWindow(f.project,f.unit(),other,2);QVERIFY2(selected.error.isEmpty(),qPrintable(selected.error));
     QCOMPARE(selected.parameters.value("seismic_source").toString(),other);QVERIFY(selected.parameters.value("seismic_volume_id")!=grid.parameters.value("seismic_volume_id"));
-    QVERIFY(!clusterSeismicStratigraphicWindow(f.project,f.unit(),{},{2,7}).error.isEmpty());
-    const auto stopped=clusterSeismicStratigraphicWindow(f.project,f.unit(),f.source,{2,7},{},[]{return true;});QVERIFY(!stopped.error.isEmpty());QVERIFY(stopped.cells.isEmpty());
+    QVERIFY(!clusterSeismicStratigraphicWindow(f.project,f.unit(),{},2).error.isEmpty());
+    const auto stopped=clusterSeismicStratigraphicWindow(f.project,f.unit(),f.source,2,{},[]{return true;});QVERIFY(!stopped.error.isEmpty());QVERIFY(stopped.cells.isEmpty());
   }
   void calibrationRejectsSameLabelFromDifferentSubinterval(){
     MockUnitFixture f;QVERIFY(f.init());const auto key=analysisLayerKey(f.unit());
@@ -155,35 +437,89 @@ private slots:
     const auto saved=f.saveWells(f.unit());QVERIFY(!saved.isEmpty());
     const auto sources=mockSeismicCalibrationSources(&f.catalog,f.project,key,f.unit());QCOMPARE(sources.size(),1);QCOMPARE(sources[0].toMap().value("version_id").toString(),saved);
   }
-  void predictionPublishesNativeRasterPolygonAndDataServiceBinding(){
-    MockUnitFixture f;QVERIFY(f.init());const auto saved=f.saveWells(f.unit(),"calibration",{},true);QVERIFY2(!saved.isEmpty(),qPrintable(f.error));
+  void rawClustersPublishExactNativeGridAndReopen(){
+    MockUnitFixture f;QVERIFY(f.init());
     const auto key=analysisLayerKey(f.unit());QSignalSpy failures(&f.work,&MappingWorkbench::errorOccurred);
     QSignalSpy polygons(&f.work,&MappingWorkbench::polygonizeFinished);
     MappingWorkbenchPage page("predict",&f.work);page.setHorizon(key);auto *kind=page.findChild<QComboBox *>("predictionKind");QVERIFY(kind);kind->setCurrentIndex(kind->findData("seismic_mock"));
     QVERIFY(page.findChild<QLineEdit *>("workbenchHorizonFile")->parentWidget()->isHidden());
-    QVERIFY2(f.work.predict(key,"seismic_mock",{"volume"},&f.error,"D61-does-not-exist.dat"),qPrintable(f.error));
+    QVERIFY2(f.work.predict(key,"seismic_mock",{"volume"},&f.error,"D61-does-not-exist.dat", 2),qPrintable(f.error));
     QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(),20000);QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(),20000);
     QTRY_COMPARE_WITH_TIMEOUT(polygons.size(),1,5000);QVERIFY2(polygons[0][2].toString().isEmpty(),qPrintable(polygons[0][2].toString()));
     QVERIFY2(failures.isEmpty(),failures.isEmpty()?"":qPrintable(failures[0][0].toString()));
     QString rasterId,polygonId;for(const auto &entry:f.work.products(key)){const auto row=entry.toMap();
-      if(row.value("kind")=="seismic_prediction")rasterId=row.value("id").toString();
-      if(row.value("kind")=="facies_polygons")polygonId=row.value("id").toString();}
+      if(row.value("kind")=="seismic_clusters")rasterId=row.value("id").toString();
+      if(row.value("kind")=="seismic_cluster_patches")polygonId=row.value("id").toString();}
     QVERIFY(!rasterId.isEmpty());QVERIFY(!polygonId.isEmpty());const auto version=f.work.versionForLayer(rasterId);
-    QVERIFY(version.extra.value("mock").toBool());QCOMPARE(fromMap(version.extra.value("unitSelection").toMap()),f.unit());
-    QCOMPARE(version.extra.value("window_type").toString(),QString("stratigraphic_unit"));QVERIFY(!version.extra.contains("window_half_ms"));QVERIFY(version.parentVersionIds.contains(saved));
-    QVERIFY(version.extra.value("wells").toList().first().toMap().value("coordinate_source").toString().startsWith("dataservice_verified_legacy:"));
-    auto *raster=qobject_cast<QgsRasterLayer *>(f.layers.instantiate(rasterId));QVERIFY(raster&&raster->isValid());QCOMPARE(raster->crs().authid(),QString("EPSG:32650"));
-    bool ok=false;const auto code=raster->dataProvider()->sample(QgsPointXY(0,40),1,&ok);QVERIFY(ok);QVERIFY(code==1||code==2);
-    QCOMPARE(syncAnalysisResults(&f.catalog,f.project),QString());std::vector<paleo::data::SubIntervalResultBinding> bindings;
-    QVERIFY(f.ds.listSubIntervalResults(f.scheme.id,{},bindings,f.detail));bool found=false;
-    for(const auto &binding:bindings)if(binding.assetRef==version.id.toStdString()){found=true;QCOMPARE(binding.kind,std::string("seismic_facies"));QCOMPARE(binding.status,std::string("current"));}
-    QVERIFY(found);
-    auto changed=f.scheme;changed.divisions.front().fractions={.2,.5,.75};changed.divisions.front().mode="interpreted";
-    paleo::data::StratigraphicScheme next;std::vector<paleo::data::FrameworkIssue> issues;
-    QVERIFY(f.ds.commitStratigraphicScheme(changed,f.scheme.revision.value,next,issues,f.detail));
-    QCOMPARE(syncAnalysisResults(&f.catalog,f.project),QString());bindings.clear();
-    QVERIFY(f.ds.listSubIntervalResults(f.scheme.id,{},bindings,f.detail));
-    for(const auto &binding:bindings)if(binding.assetRef==version.id.toStdString())QCOMPARE(binding.status,std::string("stale"));
+    QCOMPARE(fromMap(version.extra.value("unitSelection").toMap()), f.unit());
+    QCOMPARE(version.extra.value("window_type").toString(), QString("stratigraphic_unit"));
+    QCOMPARE(version.extra.value("cluster_count").toInt(), 2);
+    QVERIFY(!version.extra.contains("window_half_ms"));
+    QVERIFY(!version.extra.contains("facies"));
+    QCOMPARE(version.parentVersionIds, QStringList{"volume-v1"});
+    const auto patches = f.work.versionForLayer(polygonId);
+    QVERIFY(patches.parentVersionIds.contains(version.id));
+    const auto path = DataCatalog::resolvedVersionPath(f.project, version);
+    const auto rawHash = DataCatalog::sha256FileHex(path);
+    QVERIFY(!rawHash.isEmpty());
+    QVERIFY(!f.saveWells(f.unit()).isEmpty());
+    QSignalSpy previews(&f.work, &MappingWorkbench::clusterWellPreviewReady);
+    QVERIFY2(f.work.previewClusterWells(polygonId, {}, &f.error), qPrintable(f.error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size() == 1 || !failures.isEmpty(), 30000);
+    QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures.first().first().toString()));
+    QSignalSpy assigned(&f.work, &MappingWorkbench::productReady);
+    QVERIFY2(f.work.applyClusterWellPreview(polygonId, &f.error), qPrintable(f.error));
+    QCOMPARE(assigned.size(), 1);
+    verifyMapPatchInspector(f, assigned.first().at(1).toString());
+    verifyManualAssignmentDialog(f, polygonId);
+    verifyClusterManualLifecycle(f, polygonId, rasterId);
+    QVERIFY(!f.saveWells(f.unit(), "calibration", {}, true).isEmpty());
+    QVERIFY2(f.qgis.writeProject(), qPrintable(f.error));
+    QVERIFY(f.qgis.openProject(f.qgis.projectPath()));
+    auto *raster = qobject_cast<QgsRasterLayer *>(f.layers.instantiate(rasterId));
+    QVERIFY(raster && raster->isValid());
+    QCOMPARE(raster->crs().authid(), QString("EPSG:32650"));
+    bool ok = false;
+    const auto code = raster->dataProvider()->sample(QgsPointXY(0, 40), 1, &ok);
+    QVERIFY(ok && (code == 1 || code == 2));
+    auto *faces = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(polygonId));
+    QVERIFY(faces && faces->isValid() && faces->featureCount() > 0);
+    {
+      QVERIFY(key.startsWith(QStringLiteral("sub-")));
+      const auto generated = faces->name();
+      const auto tag = QStringLiteral("v%1").arg(patches.versionNumber);
+      QVERIFY2(generated.startsWith(tag) && generated.contains(f.unit().displayName) &&
+               !generated.contains(key), qPrintable(generated));
+      LayerTreePanel tree(f.qgis.project(), nullptr, &f.layers);
+      auto *node = f.qgis.project()->layerTreeRoot()->findLayer(faces->id());
+      QVERIFY(node);
+      const auto index = tree.treeView()->node2index(node);
+      QVERIFY(index.isValid());
+      for (const auto &query : {tag, f.unit().displayName, polygonId}) {
+        tree.setFilterText(query);
+        QVERIFY(!tree.treeView()->isRowHidden(index.row(), index.parent()));
+      }
+      const auto id = faces->id(), source = faces->source();
+      const QString legacy = patches.extra.value("title").toString() + QStringLiteral(" · ") + tag;
+      faces->setName(legacy);
+      f.work.layerForVersion(patches.id);
+      QCOMPARE(faces->name(), generated);
+      faces->setName(QStringLiteral("人工核对图"));
+      f.work.layerForVersion(patches.id);
+      QCOMPARE(faces->name(), QStringLiteral("人工核对图"));
+      QCOMPARE(faces->id(), id);
+      QCOMPARE(faces->source(), source);
+      faces->setName(generated);
+    }
+    QVERIFY(faces->fields().indexOf("patch_id") >= 0);
+    QVERIFY(faces->fields().indexOf("cluster_id") >= 0);
+    QCOMPARE(DataCatalog::sha256FileHex(path), rawHash);
+    QCOMPARE(syncAnalysisResults(&f.catalog, f.project), QString());
+    std::vector<paleo::data::SubIntervalResultBinding> bindings;
+    QVERIFY(f.ds.listSubIntervalResults(f.scheme.id, {}, bindings, f.detail));
+    for (const auto &binding : bindings)
+      if (binding.assetRef == version.id.toStdString() || binding.assetRef == patches.id.toStdString())
+        QVERIFY(binding.kind != "seismic_facies" && binding.kind != "map");
   }
   void legacyWellCrsRequiresNativeIdentityAndExactPosition(){
     MockUnitFixture f;QVERIFY(f.init());QVERIFY(!f.saveWells(f.unit(),"legacy",{},true).isEmpty());
@@ -212,7 +548,7 @@ private slots:
   void cancelledPredictionDoesNotPublish(){
     MockUnitFixture f;QVERIFY(f.init());QVERIFY(!f.saveWells(f.unit()).isEmpty());const auto key=analysisLayerKey(f.unit());
     QVERIFY(f.work.predict(key,"seismic_mock",{"volume"},&f.error));f.work.cancelPrediction();QVERIFY(f.tasks.workerPool()->waitForDone(10000));QTest::qWait(50);
-    QVERIFY(!f.work.busy());for(const auto &entry:f.work.products(key))QVERIFY(entry.toMap().value("kind")!="seismic_prediction");
+    QVERIFY(!f.work.busy());for(const auto &entry:f.work.products(key))QVERIFY(entry.toMap().value("kind")!="seismic_clusters");
   }
   void realCurrentVolumeAndSavedWellCalibration(){
     const auto project=qEnvironmentVariable("PALEO_MOCK_REAL_PROJECT"),source=qEnvironmentVariable("PALEO_MOCK_REAL_SOURCE");
@@ -226,11 +562,11 @@ private slots:
     }
     QVERIFY(unit.isValid());DataCatalog catalog;catalog.setLockedReadOnly(true);QVERIFY2(catalog.open(project,&error),qPrintable(error));
     const auto sources=mockSeismicCalibrationSources(&catalog,project,analysisLayerKey(unit),unit);QVERIFY(!sources.isEmpty());
-    const auto schema=sources.first().toMap().value("facies").toList();QVector<int> codes;for(int i=0;i<schema.size();++i)codes<<i+1;
-    auto grid=clusterSeismicStratigraphicWindow(project,unit,source,codes,{},[&]{return timer.elapsed()>45000;});
+    const auto schema=sources.first().toMap().value("facies").toList();
+    auto grid=clusterSeismicStratigraphicWindow(project,unit,source,int(schema.size()),{},[&]{return timer.elapsed()>45000;});
     QVERIFY2(grid.error.isEmpty(),qPrintable(grid.error));QVERIFY(grid.validCells>0);const auto clusteredMs=timer.elapsed();
     QStringList versions;const auto wells=readSeismicCalibrationWells(sources,schema,grid.crsWkt,QgsCoordinateTransformContext{},&versions,&error);
-    QVERIFY2(error.isEmpty(),qPrintable(error));QVERIFY(!wells.isEmpty());grid=labelSeismicClusters(std::move(grid),wells,42);
+    QVERIFY2(error.isEmpty(),qPrintable(error));QVERIFY(!wells.isEmpty());grid=labelSeismicClusters(std::move(grid),wells);
     QVERIFY2(grid.error.isEmpty(),qPrintable(grid.error));QTemporaryDir output;const auto file=output.filePath("mock.tif");
     QVERIFY2(MappingArtifactWriter::raster(file,grid.cells,grid.columns,grid.rows,grid.extent,grid.crsWkt,&error),qPrintable(error));
     QgsRasterLayer raster(file,"mock");QVERIFY(raster.isValid());QVERIFY(raster.crs().isValid());

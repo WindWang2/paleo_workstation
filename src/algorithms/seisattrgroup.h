@@ -26,6 +26,9 @@ enum class TraceAttribute {
 void computeTraceAttribute(TraceAttribute kind, const float *trace, int n, int halfWindow,
                            double sampleIntervalMs, float *out);
 
+// 默认道组输出总字节预算上限（#964：防止近 INT_MAX 形状在校验前触发巨量分配）。
+inline constexpr std::int64_t kDefaultMaxGroupOutputBytes = 512ll * 1024 * 1024;
+
 struct TraceGroupRequest {
   const float *traces = nullptr; // nTraces 条，每条 traceLength 个样，步长 stride
   int nTraces = 0;
@@ -39,6 +42,7 @@ struct TraceGroupRequest {
   bool wantEnvelope = false;
   bool wantPhase = false;
   bool fullTrace = true; // 包络/相位为假时拒绝，不能把短窗当整道
+  std::int64_t maxOutputBytes = 0; // <=0 时使用 kDefaultMaxGroupOutputBytes（<0 拒绝）
 };
 
 struct TraceGroupResult {

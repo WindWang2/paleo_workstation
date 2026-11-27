@@ -20,6 +20,7 @@ class QgisLayerService;
 class QEvent;
 class QLabel;
 class QLineEdit;
+class QToolButton;
 class QAction;
 class QMenu;
 
@@ -79,6 +80,7 @@ class LayerTreePanel : public QWidget
   private:
     // ---- 构建与刷新 ----
     QWidget *buildToolbar();
+    QWidget *buildFilterRow();
     void buildContextMenu();
     void updateEmptyState();
     void updatePaleoActionStates();
@@ -117,6 +119,7 @@ class LayerTreePanel : public QWidget
     QgisLayerService *m_layerService = nullptr;
     QgsLayerTreeView *m_view = nullptr;
     QLineEdit *m_filterEdit = nullptr;
+    QToolButton *m_moreTools = nullptr;
     QLabel *m_emptyState = nullptr; // PaleoEmptyStateLabel（共享空态组件）
     QMenu *m_menu = nullptr;
     QAction *m_addGroupAction = nullptr;       // 复用 defaultActions()

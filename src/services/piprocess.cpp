@@ -70,6 +70,7 @@ HandshakeResult runHandshake(const HandshakeRequest &request) {
   const auto &runtime=*verified.runtime;
   QTemporaryDir directory;if(!directory.isValid()){result.code="pi_work_directory_failed";return finish();}
   const auto environment=detail::isolatedProcessEnvironment(directory.path());
+  if(environment.isEmpty()){result.code="pi_loader_unavailable";return finish();}
   detail::ProcessTree tree;
   if(!tree.available()){result.code="pi_process_tree_unavailable";return finish();}
   QProcess process;process.setProcessEnvironment(environment);process.setWorkingDirectory(directory.path());

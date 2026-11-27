@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #pragma once
 #include <QHash>
+#include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -17,6 +18,8 @@ class QgisStyleService : public QObject
 {
   Q_OBJECT
   public:
+    static void applySeismicClusterStyle(QgsMapLayer *layer, const QVariantList &clusterIds);
+    static QVariantList seismicClusterLegend(const QVariantList &clusterIds);
     explicit QgisStyleService(QObject *parent = nullptr);
 
     void setStylesRoot(const QString &dir);            // styles/<ref>.qml

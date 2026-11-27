@@ -12,6 +12,7 @@
 #include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingreferencecanvas.h"
 #include "../src/qgis/mappingartifactwriter.h"
+#include "../src/qgis/seismicclusterpatches.h"
 #include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/linkage/selectioncontext.h"
@@ -65,6 +66,7 @@
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include "../src/io/constraintstore.h"
+#include "../src/io/areamodel.h"
 #include "../src/qgis/qgiseditingservice.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
@@ -92,8 +94,10 @@
 #include "mockremotepredictionservice.h"
 #include "seismichorizonfixture.h"
 #include "../src/qgis/seismicwellcalibration.h"
+#include "../src/workflow/seismicwellintervals.h"
 #include <QAction>
 #include <QComboBox>
+#include <QTabBar>
 #include <QCheckBox>
 #include <QToolButton>
 #include <QCryptographicHash>
@@ -118,6 +122,7 @@
 #include <QSqlQuery>
 #include <atomic>
 #include <memory>
+#include <filesystem>
 #include <gdal.h>
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
@@ -539,6 +544,100 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void workingMapComparisonUsesSourceAndKeepsManualReference() {
+    QObject owner;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&owner);
+    QgisCanvasController canvas(&owner);
+    canvas.setLayerResolver([&](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&canvas, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, nullptr, nullptr, &f.processing, &f.store);
+    window.attachWorkbench(&f.work);
+    window.resize(730, 600);
+    window.show(); window.showPage("compose"); selection.setActiveHorizon("D61");
+    QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    const auto current = f.work.versionForLayer(draft);
+    const auto sources = current.extra.value("computational_parent_versions").toStringList();
+    QVERIFY(!sources.isEmpty() && sources.first() != current.id);
+    auto *page = window.findChild<MappingWorkbenchPage *>("mappingWorkbench.compose"); QVERIFY(page);
+    page->refresh(); page->selectLayer(draft); page->commandButton("show")->click();
+    auto *primary = canvas.canvas()->currentLayer(); QVERIFY(primary);
+    auto *documents = window.findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
+    QVERIFY(documents);
+    const auto activeCaption = [&] { return documents->accessibleTabName(documents->currentIndex()); };
+    QTRY_VERIFY(activeCaption().startsWith(QStringLiteral("工作副本 · ")));
+    QVERIFY(!activeCaption().endsWith(QStringLiteral(" · v%1").arg(current.versionNumber)));
+    QVERIFY(documents->tabToolTip(documents->currentIndex()).contains(
+        QStringLiteral("已登记版本 v%1").arg(current.versionNumber)));
+    auto *tool = canvas.canvas()->mapTool();
+    page->commandButton("compare")->click();
+    auto *evidence = window.findChild<MappingEvidencePanel *>(); QVERIFY(evidence && !evidence->views().isEmpty());
+    auto *reference = evidence->views().first();
+    QVERIFY(reference->hasReference());
+    QCOMPARE(reference->property("paleo.referenceVersion").toString(), sources.first());
+    auto *tabs = window.findChild<QTabBar *>("comparisonMapTabs"); QVERIFY(tabs);
+    auto *split = window.findChild<QWidget *>("comparisonSplitter"); QVERIFY(split);
+    auto *settings = window.findChild<QToolButton *>("comparisonReferenceSettings"); QVERIFY(settings);
+    auto *choices = reference->findChild<QComboBox *>("referenceSource"); QVERIFY(choices);
+    QTRY_VERIFY(tabs->isVisible() && settings->isVisible());
+    QVERIFY(!settings->isChecked() && !choices->isVisible());
+    QVERIFY(tabs->tabToolTip(1).contains(sources.first()));
+    auto *referenceCanvas = reference->canvas(); QVERIFY(referenceCanvas);
+    QTRY_COMPARE(referenceCanvas->size(), split->contentsRect().size());
+    tabs->setCurrentIndex(0);
+    QTRY_COMPARE(canvas.canvas()->geometry(), split->contentsRect());
+    const QSize frame = canvas.canvas()->size() - canvas.canvas()->viewport()->size();
+    tabs->setCurrentIndex(1);
+    // The host can receive another layout pass after show(). Wait for the
+    // real viewport to fill the current splitter rectangle before caching its size.
+    QTRY_COMPARE(referenceCanvas->viewport()->size(), split->contentsRect().size() - frame);
+    const QSize referenceSize = referenceCanvas->viewport()->size();
+    tabs->setCurrentIndex(0);
+    QTRY_COMPARE(canvas.canvas()->viewport()->size(), referenceSize);
+    const QSize primarySize = canvas.canvas()->viewport()->size();
+    tabs->setCurrentIndex(1);
+    QTRY_COMPARE(referenceCanvas->viewport()->size(), primarySize);
+    settings->click();
+    QTRY_VERIFY(choices->isVisible() && reference->findChild<QToolButton *>("referenceLinked")->isVisible());
+    QVERIFY(evidence->findChild<QPushButton *>("referenceAddView")->isVisible());
+    settings->click();
+    QTRY_COMPARE(referenceCanvas->viewport()->size(), primarySize);
+    QCOMPARE(reference->canvas(), referenceCanvas);
+    auto *router = window.findChild<paleo::workbench::MappingReferenceController *>(); QVERIFY(router);
+    const auto original = reference->sourceId();
+    QCOMPARE(router->comparisonSources(original), QStringList{original});
+    page->commandButton("compare")->click();
+    settings->click();
+    const int selected = choices->findData(draft); QVERIFY(selected > 0);
+    choices->setCurrentIndex(selected);
+    emit choices->activated(selected);
+    page->commandButton("compare")->click();
+    QCOMPARE(reference->property("paleo.referenceVersion").toString(), current.id);
+    QCOMPARE(canvas.canvas()->currentLayer(), primary); QCOMPARE(canvas.canvas()->mapTool(), tool);
+    auto *toggle = window.findChild<QToolButton *>("comparisonLegends"); QVERIFY(toggle);
+    auto *mainLegend = window.findChild<PaleoDecorationManager *>(QString(), Qt::FindDirectChildrenOnly);
+    auto *referenceLegend = reference->findChild<PaleoDecorationManager *>(); QVERIFY(mainLegend && referenceLegend);
+    QTRY_VERIFY(toggle->isVisible() && mainLegend->hasFaciesLegend());
+    const auto items = mainLegend->decorationItems();
+    const bool preference = toggle->isChecked();
+    toggle->setChecked(false); QVERIFY(!mainLegend->comparisonLegendVisible() && !referenceLegend->comparisonLegendVisible());
+    QCOMPARE(mainLegend->decorationItems(), items);
+    toggle->setChecked(true); QVERIFY(mainLegend->comparisonLegendVisible() && referenceLegend->comparisonLegendVisible());
+    toggle->setChecked(false);
+    window.findChild<QToolButton *>("closeComparison")->click();
+    QVERIFY(mainLegend->comparisonLegendVisible());
+    toggle->setChecked(preference);
+    const auto published = f.work.layerForVersion(current.id, &error);
+    QVERIFY2(!published.isEmpty(), qPrintable(error));
+    page->refresh(); page->selectLayer(published); page->commandButton("show")->click();
+    QTRY_VERIFY(!activeCaption().startsWith(QStringLiteral("工作副本 · ")));
+    QTRY_VERIFY(activeCaption().contains(QStringLiteral("v%1").arg(current.versionNumber)));
+  }
+
   void predictionInputsKeepUnlocatedCurveWells() {
     Fixture fixture;
     QVERIFY(fixture.init());
@@ -590,6 +689,7 @@ private slots:
     canvas->setRotation(17); canvas->setExtent(QgsRectangle(20, 20, 80, 80)); canvas->refresh();
     QTest::qWait(150);
     const auto extent = canvas->extent(); const auto scale = canvas->scale(); const auto rotation = canvas->rotation();
+    const auto previousSize = canvas->viewport()->size();
     auto *editor = window.findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(editor);
     const auto changeFacies = [canvas](int codeIndex) {
       const auto pixel = canvas->mapSettings().mapToPixel().transform(QgsPointXY(50, 50));
@@ -608,6 +708,7 @@ private slots:
     QVERIFY2(editor->isEditing(), qPrintable(window.statusBar()->currentMessage()));
     auto *draft = editor->currentLayer(); QVERIFY(draft);
     QVERIFY(draft->customProperty("paleoLayerId").toString().startsWith("draft."));
+    QCOMPARE(canvas->viewport()->size(), previousSize);
     QCOMPARE(canvas->extent(), extent); QVERIFY(qFuzzyCompare(canvas->scale(), scale));
     QCOMPARE(canvas->rotation(), rotation);
     if (contextMenu) {
@@ -618,6 +719,7 @@ private slots:
       QVERIFY(qFuzzyCompare(canvas->scale(), scale));
     }
     QVERIFY(editor->saveEditing()); QTest::qWait(150);
+    QCOMPARE(canvas->viewport()->size(), previousSize);
     QCOMPARE(canvas->extent(), extent); QVERIFY(qFuzzyCompare(canvas->scale(), scale));
     editor->setCurrentLayer(draft); // 保存后当前展示的是只读成果，重新选择可写工作副本。
     QVERIFY(editor->actionEditMode()->isEnabled()); editor->actionEditMode()->trigger();
@@ -908,9 +1010,18 @@ private slots:
     window.attachWorkbench(&f.work); window.showPage("compose"); selection.setActiveHorizon("D61");
     const auto controls = window.findChildren<FaciesDisplayControl *>(); QCOMPARE(controls.size(), 3);
     QString error; const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
-    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY(layer);
-    auto *node = f.project.project()->layerTreeRoot()->findLayer(layer->id()); QVERIFY(node);
-    node->setItemVisibilityCheckedParentRecursive(true); controller.canvas()->setCurrentLayer(layer);
+    // Tree nodes belong to the current tree. Resolve both the instance and its node
+    // from the declared layer ID whenever the fixture changes visibility.
+    const auto setVisible = [&](const QString &id, bool visible) -> QgsMapLayer * {
+      auto *current = f.layers.instantiate(id, &error);
+      auto *node = current ? f.project.project()->layerTreeRoot()->findLayer(current->id()) : nullptr;
+      if (!node) return nullptr;
+      if (visible) node->setItemVisibilityCheckedParentRecursive(true);
+      else node->setItemVisibilityChecked(false);
+      return current;
+    };
+    auto *layer = qobject_cast<QgsVectorLayer *>(setVisible(draft, true)); QVERIFY2(layer, qPrintable(error));
+    controller.canvas()->setCurrentLayer(layer);
     auto *mode = controls.first()->findChild<QComboBox *>("ribbonFaciesDisplayMode"); QVERIFY(mode);
     QTRY_VERIFY(mode->isEnabled());
     MappingWorkbenchPage *page = nullptr;
@@ -924,10 +1035,8 @@ private slots:
     const auto snapshot = f.work.snapshotConstraints("D61", {}, &error);
     QVERIFY2(!snapshot.isEmpty(), qPrintable(error));
     QVERIFY(!f.work.versionForLayer(snapshot).extra.value("facies").toList().isEmpty());
-    auto *constraint = f.layers.instantiate(snapshot, &error); QVERIFY(constraint);
-    auto *constraintNode = f.project.project()->layerTreeRoot()->findLayer(constraint->id()); QVERIFY(constraintNode);
-    constraintNode->setItemVisibilityCheckedParentRecursive(true);
-    node->setItemVisibilityCheckedParentRecursive(true); // productReady focuses the new snapshot
+    auto *constraint = setVisible(snapshot, true); QVERIFY2(constraint, qPrintable(error));
+    layer = qobject_cast<QgsVectorLayer *>(setVisible(draft, true)); QVERIFY2(layer, qPrintable(error));
     controller.canvas()->setCurrentLayer(constraint);
     QTRY_VERIFY(controller.canvas()->layers().contains(constraint));
     QTRY_VERIFY(controller.canvas()->layers().contains(layer)); QTRY_VERIFY(mode->isEnabled());
@@ -991,11 +1100,12 @@ private slots:
     layer->setScaleBasedVisibility(true); layer->setMinimumScale(200000); layer->setMaximumScale(50000);
     controller.canvas()->zoomScale(1000000); QTRY_VERIFY(!mode->isEnabled());
     layer->setScaleBasedVisibility(false);
-    node->setItemVisibilityChecked(false); QTRY_VERIFY(!mode->isEnabled());
+    QVERIFY(setVisible(draft, false)); QTRY_VERIFY(!mode->isEnabled());
     QVERIFY(!f.work.setDisplayMode(snapshot, "micro_facies", &error));
     QVERIFY(!constraint->customProperty("paleo/faciesDisplayMode").isValid());
     page->selectLayer(snapshot); QTRY_VERIFY(!sideMode->isEnabled());
-    selection.setActiveHorizon("D62"); node->setItemVisibilityCheckedParentRecursive(true);
+    selection.setActiveHorizon("D62");
+    layer = qobject_cast<QgsVectorLayer *>(setVisible(draft, true)); QVERIFY2(layer, qPrintable(error));
     controller.canvas()->setCurrentLayer(layer); QTRY_VERIFY(!mode->isEnabled());
     QCOMPARE(page->horizon(), QString("D62"));
     paleo::strat::UnitSelection unit;
@@ -1007,6 +1117,67 @@ private slots:
     QCOMPARE(page->horizon(), paleo::strat::analysisLayerKey(unit));
     selection.clearActiveUnit();
     QCOMPARE(page->horizon(), QString("D63"));
+  }
+  void resizedCanvasRestoresAutomaticFaciesAndLegend() {
+    QObject context;
+    Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection;
+    PredictionWorkflow prediction(&f.processing, &f.layers);
+    CompositionWorkflow composition(&f.processing, &f.layers);
+    ValidationWorkflow validation(&f.layers, &f.store);
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkflows(&prediction, &f.constraints, &composition, &validation, nullptr, nullptr, &f.processing, &f.store);
+    window.attachWorkbench(&f.work);
+    window.resize(1600, 1000); window.show(); window.showPage("compose");
+    selection.setActiveHorizon("D61");
+    MappingWorkbenchPage *page = nullptr;
+    for (auto *candidate : window.findChildren<MappingWorkbenchPage *>())
+      if (candidate->mode() == "compose") page = candidate;
+    QVERIFY(page);
+    QString error; const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    page->refresh(); page->selectLayer(draft);
+    auto *show = page->commandButton("show"); QVERIFY(show && show->isEnabled());
+    show->click();
+    auto *canvas = controller.canvas();
+    auto *layer = f.layers.layer(draft); QVERIFY(layer);
+    QTRY_VERIFY(canvas->layers().contains(layer));
+    QTRY_COMPARE(canvas->currentLayer(), layer);
+    auto *mode = page->findChild<QComboBox *>("faciesDisplayLevel");
+    auto *state = window.findChild<QLabel *>("ribbonFaciesDisplayState");
+    auto *scale = window.findChild<QLabel *>("statusScale");
+    auto *legend = window.findChild<PaleoDecorationManager *>();
+    QVERIFY(mode && state && scale && legend); QTRY_VERIFY(mode->isEnabled());
+    mode->setCurrentIndex(mode->findData("micro_facies"));
+    QTRY_COMPARE(f.work.displayMode(draft), QString("micro_facies"));
+    const auto check = [&](const QString &stage, const QString &expected) {
+      QTRY_COMPARE(scale->text(), QStringLiteral("1:%1").arg(static_cast<qlonglong>(canvas->scale())));
+      QTRY_COMPARE(f.work.resolvedLevel(draft), expected);
+      QTRY_COMPARE(layer->customProperty("paleo/faciesResolvedLevel").toString(), expected);
+      QTRY_VERIFY2(state->text().contains(FaciesHierarchy::title(expected)), qPrintable(state->text()));
+      QTRY_VERIFY2(legend->legendTitle().contains(FaciesHierarchy::title(expected)), qPrintable(legend->legendTitle()));
+      QVERIFY(!legend->legendFacies().isEmpty());
+      for (const auto &value : legend->legendFacies()) {
+        const auto row = value.toMap();
+        if (!row.value("heading").toBool()) QCOMPARE(row.value("level").toString(), expected);
+      }
+      qInfo().noquote() << "FACIES_RESIZE" << stage << window.size() << canvas->viewport()->size()
+                        << "canvas" << QString::number(canvas->scale(), 'f', 2) << "status" << scale->text()
+                        << "ribbon" << state->text() << "legend" << legend->legendTitle();
+      const auto shots = qEnvironmentVariable("PALEO_FACIES_RESIZE_QA");
+      if (!shots.isEmpty()) QVERIFY(window.grab().save(QDir(shots).filePath(stage + ".png")));
+    };
+    canvas->zoomScale(225000);
+    check(QStringLiteral("fixed-before"), QStringLiteral("micro_facies"));
+    const auto largeViewport = canvas->viewport()->size();
+    QSignalSpy frames(canvas, &QgsMapCanvas::mapCanvasRefreshed);
+    window.resize(1040, 720);
+    QTRY_VERIFY(canvas->viewport()->size() != largeViewport && !frames.isEmpty());
+    check(QStringLiteral("fixed-after"), QStringLiteral("micro_facies"));
+    mode->setCurrentIndex(mode->findData("auto"));
+    QTRY_COMPARE(f.work.displayMode(draft), QString("auto"));
+    check(QStringLiteral("automatic"), FaciesHierarchy::resolveLevel("auto", canvas->scale(), f.work.displayThresholds()));
   }
   void predictionProductsKeepMicrofaciesAtEveryScale() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -1110,6 +1281,62 @@ private slots:
     while (iterator.nextFeature(feature)) ids.insert(feature.id()); iterator.close();
     QVERIFY(layer->dataProvider()->deleteFeatures(ids)); layer->reload();
     QTRY_VERIFY(decorations->legendFacies().isEmpty());
+  }
+  void rawClusterLegendsFollowTheSelectedMapAndStandaloneReference() {
+    QObject context;
+    Fixture f; QVERIFY(f.init());
+    f.project.setParent(&context);
+    QgisCanvasController controller(&context);
+    controller.setLayerResolver([&](const QString &id) { return f.layers.layer(id); });
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    PaleoMainWindow window(&controller, &f.project, &f.layers, nullptr, &selection);
+    window.attachWorkbench(&f.work);
+    window.showPage("compose");
+    selection.setActiveHorizon("D61");
+    auto *decor = window.findChild<PaleoDecorationManager *>(); QVERIFY(decor);
+    QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *other = f.layers.instantiate(draft, &error); QVERIFY(other);
+    auto *otherNode = f.project.project()->layerTreeRoot()->findLayer(other->id()); QVERIFY(otherNode);
+    otherNode->setItemVisibilityCheckedParentRecursive(true);
+    controller.canvas()->setCurrentLayer(other);
+    QTRY_VERIFY(!decor->legendFacies().isEmpty());
+
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto stage = registrar.stage("seismic_clusters", "clusters", "grid.tif", &error);
+    QVERIFY(stage.isValid());
+    QVERIFY(MappingArtifactWriter::raster(stage.absolutePath, {1,3}, 2, 1, QRectF(0,0,30,15), &error));
+    const QVariantList ids{1, 3};
+    const QVariantMap meta{{"kind","seismic_clusters"}, {"horizon","D61"}, {"layer_type","raster"},
+                           {"mapping_product",true}, {"cluster_ids",ids}, {"group","02_Prediction"}};
+    QVERIFY(registrar.commit(stage, {}, "fixture", meta, &error));
+    const auto raw = f.work.layerForVersion(stage.versionId, &error); QVERIFY2(!raw.isEmpty(), qPrintable(error));
+    auto *page=window.findChild<MappingWorkbenchPage *>("mappingWorkbench.compose"); QVERIFY(page);
+    page->commandRequested("show", {{"layer",raw}});
+    auto *layer = f.layers.layer(raw); QVERIFY(layer);
+    QTRY_VERIFY(controller.canvas()->layers().contains(layer));
+    auto *node = f.project.project()->layerTreeRoot()->findLayer(layer->id()); QVERIFY(node);
+    QVERIFY(node->isVisible());
+    QTRY_COMPARE(controller.canvas()->currentLayer(),layer);
+    otherNode=f.project.project()->layerTreeRoot()->findLayer(other->id()); QVERIFY(otherNode);
+    otherNode->setItemVisibilityCheckedParentRecursive(true);
+    QTRY_VERIFY(controller.canvas()->layers().contains(other));
+    QCOMPARE(controller.canvas()->currentLayer(),layer);
+    QTRY_COMPARE(decor->legendFacies().size(), 2);
+    QTRY_COMPARE(decor->legendFacies()[1].toMap().value("cluster_id").toInt(), 3);
+    QCOMPARE(decor->legendFacies()[0].toMap().value("name").toString(), QStringLiteral("簇 1"));
+    QVERIFY(!decor->legendFacies()[0].toMap().contains("microfacies"));
+
+    MappingReferencePanel reference(controller.canvas(), f.project.project());
+    reference.setReference(new QgsRasterLayer(stage.absolutePath, "raw reference", "gdal"), meta);
+    auto *list = reference.findChild<QListWidget *>("referenceClusterLegend");
+    QVERIFY(list); QCOMPARE(list->count(), 2); QVERIFY(list->isHidden());
+    QCOMPARE(list->item(1)->text(), QStringLiteral("簇 3"));
+    auto *raster = qobject_cast<QgsRasterLayer *>(reference.canvas()->layers().first());
+    QVERIFY(raster && raster->renderer());
+    QCOMPARE(raster->renderer()->type(), QStringLiteral("paletted"));
+    reference.clearReference();
+    QCOMPARE(list->count(), 0);
   }
   void collapsedGroupsRememberStatePerMode() {
     // M4：外观/来源/字段折叠组记忆展开状态（按页模式分键），重建页后恢复；
@@ -1343,10 +1570,14 @@ private slots:
     QVERIFY(panel && !panel->views().isEmpty());
     auto *view = panel->views().first();
     QCOMPARE(view->property("paleo.referenceVersion").toString(), after);
+    QPointer<QgsMapLayer> previousReference = view->canvas()->layers().first();
     f.work.bindCatalog(&f.catalog, f.dir.path());
     QVERIFY(!recompute->isEnabled());
-    QVERIFY(!view->hasReference());
-    QVERIFY(referenceDock.isHidden());
+    QVERIFY(previousReference.isNull());
+    QVERIFY(!referenceDock.isHidden());
+    QTRY_VERIFY(!panel->views().isEmpty() && panel->views().first()->hasReference());
+    QCOMPARE(panel->views().first()->sourceId(), reportLayer);
+    QCOMPARE(panel->views().first()->property("paleo.referenceVersion").toString(), after);
   }
   void impactCommandsAreGatedWithReasons() {
     Fixture f;
@@ -2436,6 +2667,99 @@ private slots:
     toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
     QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
   }
+  void managedVersionsAndOpenEditsSurviveDirectoryAliases() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const QString id = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!id.isEmpty(), qPrintable(error));
+    const auto original = f.work.versionForLayer(id);
+    QVERIFY(!original.id.isEmpty());
+    QTemporaryDir aliases;
+    QVERIFY(aliases.isValid());
+    const auto aliasDir = aliases.filePath("same project & copy");
+#ifdef Q_OS_WIN
+    QProcess junction;
+    junction.setProgram(QDir(qEnvironmentVariable("SystemRoot")).filePath("System32/cmd.exe"));
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert("PALEO_TEST_JUNCTION_LINK", QDir::toNativeSeparators(aliasDir));
+    environment.insert("PALEO_TEST_JUNCTION_TARGET", QDir::toNativeSeparators(f.dir.path()));
+    junction.setProcessEnvironment(environment);
+    junction.setNativeArguments(QStringLiteral(
+        "/d /v:off /s /c \"mklink /J \"%PALEO_TEST_JUNCTION_LINK%\" \"%PALEO_TEST_JUNCTION_TARGET%\"\""));
+    junction.start();
+    QVERIFY2(junction.waitForFinished(), qPrintable(junction.errorString()));
+    QCOMPARE(junction.exitStatus(), QProcess::NormalExit);
+    QVERIFY2(junction.exitCode() == 0, junction.readAllStandardError().constData());
+    QVERIFY(QFileInfo(aliasDir).isJunction());
+    const auto unlinkJunction = qScopeGuard([&] { QDir().rmdir(aliasDir); });
+#else
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(QDir(f.dir.path()).filesystemPath(), QDir(aliasDir).filesystemPath(), ec);
+    if (ec) QSKIP(qPrintable(QString::fromStdString(ec.message())));
+#endif
+    auto aliasPath = [&](const QString &path) {
+      return QDir(aliasDir).filePath(QDir(f.dir.path()).relativeFilePath(path));
+    };
+    auto declared = f.layers.declaration(id);
+    auto *open = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(id, &error));
+    QVERIFY(open && open->startEditing());
+    QgsFeature pending(open->fields());
+    pending.setGeometry(QgsGeometry::fromRect(QgsRectangle(1, 1, 2, 2)));
+    QVERIFY(open->addFeature(pending));
+    const int separator = declared.source.indexOf('|');
+    QVERIFY(separator > 0);
+    declared.source = aliasPath(declared.source.left(separator)) + declared.source.mid(separator);
+    QVERIFY2(f.layers.declare(declared, &error), qPrintable(error));
+    QCOMPARE(f.layers.layer(id), open);
+    QVERIFY(open->isEditable());
+    QVERIFY(open->getFeature(pending.id()).isValid());
+    auto anotherTable = declared;
+    anotherTable.source = declared.source.section('|', 0, 0) + "|layername=another_table";
+    QVERIFY(!f.layers.declare(anotherTable, &error));
+    QCOMPARE(f.layers.layer(id), open);
+    QVERIFY(!MappingArtifactWriter::vectorSnapshot(open, declared.source.section('|', 0, 0), &error));
+    QCOMPARE(error, QObject::tr("图件快照必须使用新文件，不能覆盖来源版本"));
+    QVERIFY(open->getFeature(pending.id()).isValid());
+    QVERIFY(open->rollBack());
+    auto alias = declared;
+    alias.layerId = "reference.alias";
+    alias.source = aliasPath(DataCatalog::resolvedVersionPath(f.dir.path(), original)) + "|layername=features";
+    QVERIFY2(f.layers.declare(alias, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(alias.layerId).id, original.id);
+  }
+
+  void taskGuideChoosesBetweenTwoWorkingCopies() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto first = f.work.createBlankMap("D61", &error);
+    const auto second = f.work.createBlankMap("D61", &error);
+    QVERIFY(!first.isEmpty() && !second.isEmpty() && first != second);
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.show();
+    page.refresh();
+    QSignalSpy requested(&page, &MappingWorkbenchPage::commandRequested);
+    auto *next = page.findChild<QPushButton *>("mappingTaskNext");
+    QVERIFY(next);
+    next->click();
+    auto *menu = page.findChild<QMenu *>("resumeDraftMenu");
+    QVERIFY(menu && menu->isVisible());
+    QCOMPARE(menu->actions().size(), 2);
+    QTest::keyClick(menu, Qt::Key_Escape);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCOMPARE(requested.count(), 0);
+    next->click();
+    menu = page.findChild<QMenu *>("resumeDraftMenu");
+    QVERIFY(menu);
+    for (auto *action : menu->actions())
+      if (action->data().toString() == second) action->trigger();
+    QCOMPARE(requested.count(), 1);
+    QCOMPARE(requested.first().at(0).toString(), QString("resumeEdit"));
+    QCOMPARE(requested.first().at(1).toMap().value("layer").toString(), second);
+  }
+
   void taskGuideWalksPredictAndCompose() {
     Fixture f; QVERIFY(f.init()); QString error;
     MappingWorkbenchPage predict("predict", &f.work);
@@ -2468,7 +2792,11 @@ private slots:
     auto *editStep = page.findChild<QPushButton *>("mappingTaskStep.edit");
     QVERIFY(!editStep->property("taskBlocked").toBool());
     QCOMPARE(page.findChild<QPushButton *>("mappingTaskNext")->property("target").toString(),
-             QStringLiteral("workbenchResults"));
+             QStringLiteral("resumeEdit"));
+    QSignalSpy resume(&page, &MappingWorkbenchPage::commandRequested);
+    page.findChild<QPushButton *>("mappingTaskNext")->click();
+    QCOMPARE(resume.count(), 1);
+    QCOMPARE(resume.first().at(1).toMap().value("layer").toString(), draft);
 
     // The real newMap command enters editing without requiring an edit basis first.
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
@@ -2804,6 +3132,10 @@ private slots:
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error)); QVERIFY(layer);
     auto *edit = window.findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(edit);
     edit->refreshFromProject(); edit->setCurrentLayer(layer);
+    const auto versionBeforeEditing = f.work.versionForLayer(draft).id;
+    QVERIFY(edit->startEditing());
+    QVERIFY(edit->saveEditing());
+    QCOMPARE(f.work.versionForLayer(draft).id, versionBeforeEditing);
     edit->partitionCodeCombo()->setCurrentIndex(edit->partitionCodeCombo()->findData(1));
     auto *tabs = window.findChild<QTabWidget *>("workbenchTabs.compose"); QVERIFY(tabs);
     auto *page = qobject_cast<MappingWorkbenchPage *>(tabs->widget(0)); QVERIFY(page);
@@ -2832,16 +3164,15 @@ private slots:
     const auto qa = qEnvironmentVariable("PALEO_MAPPING_BASIS_QA_DIR");
     if (!qa.isEmpty()) { QDir().mkpath(qa); QVERIFY(window.grab().save(qa + "/explanation-entry.png")); }
     text->setPlainText(QStringLiteral("测试观察：依据当前层位的井相与砂地比调整相界"));
-    entry->trigger(); QTRY_VERIFY(reason->hasFocus());
-    auto *apply = page->commandButton("setEditEvidence"); QVERIFY(apply); QVERIFY(!apply->isEnabled());
-    reason->setText(QStringLiteral("测试工作副本：绘制首个相面"));
+    entry->trigger(); QTRY_VERIFY(text->hasFocus());
+    auto *apply = page->commandButton("setEditEvidence"); QVERIFY(apply); QVERIFY(reason->text().isEmpty());
     QVERIFY(apply->isEnabled()); apply->click(); QVERIFY(!f.work.needsEditEvidence(draft));
     QVERIFY2(FaciesPartitionEditor::paint(layer, QgsGeometry::fromRect(QgsRectangle(40, 0, 60, 100)), 2, &error), qPrintable(error));
     const auto evidence = f.work.featureEvidence(draft, layer->selectedFeatureIds().values());
     QVERIFY(!evidence.value("records").toList().isEmpty());
     bool sawManual = false;
     for (const auto &rec : evidence.value("records").toList())
-      sawManual |= rec.toMap().value("text").toString().section('\n', 0, 0) == text->toPlainText();
+      sawManual |= rec.toMap().value("text").toString() == text->toPlainText();
     QVERIFY(sawManual);
     if (!qa.isEmpty()) { QCoreApplication::processEvents(); QVERIFY(window.grab().save(qa + "/explanation-enabled.png")); }
     f.work.clearEditEvidence();
@@ -2870,6 +3201,65 @@ private slots:
     auto changed=unit;changed.revision="missing";f.work.setAnalysisUnit(changed);
     QVERIFY(f.work.editEvidence(key).isEmpty());QVERIFY(f.work.createBlankMap(key,&error).isEmpty());
   }
+  void chooseSurveyBoundaryAndReopenSavedPartition() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QgsVectorLayer boundary("MultiPolygon?crs=EPSG:3857", "survey", "memory");
+    auto outline = QgsGeometry::fromWkt("MULTIPOLYGON(((0 0,50 0,50 50,0 50,0 0),"
+        "(10 10,10 20,20 20,20 10,10 10)),((70 0,80 0,80 10,70 10,70 0)))");
+    QgsFeature area; area.setGeometry(outline);
+    QgsFeatureList features{area};
+    QVERIFY(boundary.dataProvider()->addFeatures(features));
+    const auto path = f.dir.filePath("survey.gpkg");
+    QVERIFY2(MappingArtifactWriter::vectorSnapshot(&boundary, path, &error), qPrintable(error));
+    LayerDeclaration source;
+    source.layerId = "boundary.survey"; source.type = "vector"; source.title = "Survey";
+    source.source = path + "|layername=features"; source.group = "00_Data";
+    QVERIFY2(f.layers.declare(source, &error), qPrintable(error));
+    source.layerId = "survey.area";
+    QVERIFY2(f.layers.declare(source, &error), qPrintable(error));
+    QCOMPARE(f.work.mapBoundaries().size(), 2);
+    QWidget window; QStatusBar status(&window);
+    MappingWorkbenchPage page("compose", &f.work, &window);
+    page.setHorizon("D61");
+    using paleo::workbench::MappingWorkbenchCommandController;
+    MappingWorkbenchCommandController::Context context;
+    context.workbench = &f.work; context.page = &page; context.dialogParent = &window; context.statusBar = &status;
+    context.show = [&](const QString &id, QString *why) { return f.layers.instantiate(id, why) != nullptr; };
+    QString draft;
+    context.beginEdit = [&](const QString &id) {
+      draft = id;
+      auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(id));
+      return layer && layer->startEditing();
+    };
+    MappingWorkbenchCommandController handler(context, &page);
+    connect(&page, &MappingWorkbenchPage::commandRequested, &handler, &MappingWorkbenchCommandController::handleCommand);
+    auto *sources = page.findChild<QComboBox *>("baseMapSource");
+    auto *leaf = page.findChild<QComboBox *>("initialBoundaryFacies");
+    auto *start = page.findChild<QPushButton *>("baseMapStart");
+    QVERIFY(sources && leaf && start);
+    for (int i = 0; i < sources->count(); ++i)
+      if (sources->itemData(i).toMap().value("boundary") == source.layerId) sources->setCurrentIndex(i);
+    QCOMPARE(sources->currentData().toMap().value("boundary").toString(), source.layerId);
+    QVERIFY(!start->isEnabled());
+    leaf->setCurrentIndex(leaf->findData(2)); QVERIFY(start->isEnabled());
+    start->click(); QVERIFY2(!draft.isEmpty(), qPrintable(status.currentMessage()));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.layer(draft));
+    QVERIFY(layer); QCOMPARE(layer->featureCount(), 2); QCOMPARE(layer->crs(), boundary.crs());
+    QCOMPARE(layer->undoStack()->count(), 1);
+    layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), 0);
+    layer->undoStack()->redo();
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "saved", "ogr");
+    QVERIFY(reopened.isValid()); QCOMPARE(reopened.featureCount(), 2);
+    QVector<QgsGeometry> parts; QgsFeature piece; auto it = reopened.getFeatures();
+    while (it.nextFeature(piece)) {
+      QCOMPARE(piece.attribute("facies_code").toInt(), 2);
+      parts << piece.geometry();
+    }
+    QVERIFY(QgsGeometry::unaryUnion(parts).isGeosEqual(outline));
+  }
   void blankMapRequiresEvidenceAndKeepsUndoAndCoverage() {
     Fixture f; QVERIFY(f.init()); QString error;
     const auto draft = f.work.createBlankMap("D61", &error);
@@ -2883,7 +3273,9 @@ private slots:
     // Blank map painting succeeds immediately without requiring pre-filled edit evidence.
     QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
     QCOMPARE(layer->featureCount(), 1);
-    QVERIFY(!f.work.setEditEvidence("D61", {{"text", "observation"}}, &error));
+    QVERIFY(!f.work.setEditEvidence("D61", {{"text", "  "}, {"reason", "purpose"}}, &error));
+    QVERIFY(f.work.setEditEvidence("D61", {{"text", "observation"}}, &error));
+    QVERIFY(f.work.editEvidence("D61").value("reason").toString().isEmpty());
     const QVariantMap context{{"text", "well and sand thickness observation"}, {"reason", "draw initial outline"}};
     QVERIFY2(f.work.setEditEvidence("D61", context, &error), qPrintable(error));
     QVERIFY(f.work.hasUnpublishedEdits(draft));
@@ -3630,7 +4022,9 @@ private slots:
             [](MappingReferencePanel *view, const QString &) {
       view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "evidence", "memory"), {});
     });
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
+    panel.addView();
+    panel.addView();
     // 关闭两个空视图后继续覆盖添加、移除和来源选择的完整生命周期。
     panel.views()[3]->findChild<QToolButton *>("referenceRemoveView")->click();
     panel.views()[2]->findChild<QToolButton *>("referenceRemoveView")->click();
@@ -3710,7 +4104,8 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(800, 360); panel.show();
-    panel.addView();
+    QCOMPARE(panel.views().size(), 2);
+    for (int i = 0; i < 3; ++i) panel.addView();
     QCOMPARE(panel.views().size(), 5);
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     auto *add = panel.findChild<QPushButton *>("referenceAddView"); QVERIFY(add);
@@ -3772,7 +4167,7 @@ private slots:
     }
     panel.resize(900, 400); QCoreApplication::processEvents();
     QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() == 0);
-    QCOMPARE(panel.visibleViewCount(), 4);
+    QCOMPARE(panel.visibleViewCount(), 2);
     main.stopRendering();
   }
 
@@ -3803,7 +4198,7 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(800, 360); panel.show();
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
     QCOMPARE(panel.findChildren<QgsMapCanvas *>("referenceCanvas").size(), 0);
     for (auto *view : panel.views()) QVERIFY(view->canvas() == nullptr);
     const QVariantList rows{QVariantMap{{"id", "wells"}, {"name", "D61 测井相 v1"},
@@ -3824,6 +4219,40 @@ private slots:
   }
 
   // #745：宽度按工程存；删视图立刻落盘，后续视图不再左移套用别人的宽度。
+  void compactReferencePickerRestoresProjectSources() {
+    QTemporaryDir dir;
+    QgsProject project;
+    project.setFileName(dir.filePath("one.qgz"));
+    QgsMapCanvas main;
+    const QVariantList rows{QVariantMap{{"id", "ref1"}, {"name", "参考一"}, {"type", "vector"}}};
+    MappingEvidencePanel panel(&main, &project);
+    panel.enableCompactDock();
+    panel.setSources(rows, {});
+    panel.show();
+    auto *picker = panel.findChild<QComboBox *>("referenceCompactPicker");
+    QVERIFY(picker && !picker->isHidden() && !picker->accessibleName().isEmpty());
+    QVERIFY(panel.compact() && panel.views().isEmpty());
+    const int compactHeight = panel.sizeHint().height();
+    connect(&panel, &MappingEvidencePanel::referenceRequested, &panel,
+            [](MappingReferencePanel *view, const QString &) {
+      view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "reference", "memory"), {});
+    });
+    picker->setCurrentIndex(1);
+    QMetaObject::invokeMethod(picker, "activated", Q_ARG(int, 1));
+    QCOMPARE(panel.views().size(), 2);
+    QVERIFY(!panel.compact() && panel.sizeHint().height() > compactHeight);
+    QVERIFY(panel.views().first()->hasReference() && !panel.views().last()->canvas());
+    project.setFileName(dir.filePath("two.qgz"));
+    panel.setSources({}, {});
+    QVERIFY(panel.compact() && panel.views().isEmpty());
+    project.setFileName(dir.filePath("one.qgz"));
+    panel.setSources(rows, {});
+    QCOMPARE(panel.views().size(), 2);
+    QVERIFY(panel.views().first()->hasReference());
+    QCOMPARE(panel.views().first()->sourceId(), QString("ref1"));
+    QSettings("paleo", "paleo").remove(evidenceWidthsKey(&project));
+  }
+
   void evidenceViewWidthsFollowProjectAndDeletion() {
     QTemporaryDir dirA, dirB;
     QVERIFY(dirA.isValid() && dirB.isValid());
@@ -3837,6 +4266,7 @@ private slots:
     };
     clean();
     const auto cleanup = qScopeGuard([&clean] { clean(); });
+    settings.setValue(evidenceWidthsKey(&projectA), QVariantList{0, 0, 0, 0});
     const int distinctive = 333;
     QgsMapCanvas main;
     main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
@@ -3864,7 +4294,7 @@ private slots:
     {
       MappingEvidencePanel panel(&main, &projectB);
       panel.resize(800, 360); panel.show();
-      QCOMPARE(panel.views().size(), 4);
+      QCOMPARE(panel.views().size(), 2);
       for (auto *view : panel.views()) QVERIFY(panel.viewWidth(view) != distinctive);
     }
   }
@@ -3878,7 +4308,9 @@ private slots:
     main.setExtent(QgsRectangle(0, 0, 600, 400));
     MappingEvidencePanel panel(&main, nullptr);
     panel.resize(1200, 360); panel.show();
-    QCOMPARE(panel.views().size(), 4);
+    QCOMPARE(panel.views().size(), 2);
+    panel.addView();
+    panel.addView();
     QCoreApplication::processEvents();
     auto *scroll = panel.findChild<QScrollArea *>("referenceViewsScroll"); QVERIFY(scroll);
     const auto handles = panel.findChildren<QWidget *>("referenceViewResizeHandle");
@@ -3908,23 +4340,31 @@ private slots:
       QMouseEvent ev(type, handle->mapFromGlobal(global), global, Qt::LeftButton, buttons, Qt::NoModifier);
       QApplication::sendEvent(handle, &ev);
     };
+    const int dragDistance = scroll->viewport()->width();
     sendMouse(QEvent::MouseButtonPress, 0, Qt::LeftButton);
-    sendMouse(QEvent::MouseMove, 300, Qt::LeftButton);
-    sendMouse(QEvent::MouseButtonRelease, 600, Qt::NoButton);
+    sendMouse(QEvent::MouseMove, dragDistance / 2, Qt::LeftButton);
+    sendMouse(QEvent::MouseButtonRelease, dragDistance, Qt::NoButton);
     QCoreApplication::processEvents();
-    QCOMPARE(first->width(), panel.minViewWidth() + 600);
+    QCOMPARE(first->width(), panel.minViewWidth() + dragDistance);
     QTRY_VERIFY(scroll->horizontalScrollBar()->isVisible());
+    auto *bar = scroll->horizontalScrollBar();
+    bar->setValue(bar->minimum());
+    auto *last = panel.views().last();
+    const auto lastRect = [&] { return QRect(last->mapTo(scroll->viewport(), QPoint()), last->size()); };
+    QVERIFY(!scroll->viewport()->rect().intersects(lastRect()));
     QVERIFY(panel.visibleViewCount() < 4);
+    bar->setValue(bar->maximum());
+    QTRY_VERIFY(lastRect().left() >= 0 && lastRect().right() < scroll->viewport()->width());
     const auto saved = QSettings("paleo", "paleo").value(evidenceWidthsKey()).toList();
     QCOMPARE(saved.size(), 4);
-    QCOMPARE(saved.first().toInt(), panel.minViewWidth() + 600);
+    QCOMPARE(saved.first().toInt(), panel.minViewWidth() + dragDistance);
     if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {
       QDir().mkpath(qa); QVERIFY(panel.grab().save(qa + QString("/evidence-resizable.png")));
     }
     // 新面板沿用保存的宽度。
     {
       MappingEvidencePanel again(&main, nullptr);
-      QCOMPARE(again.viewWidth(again.views().first()), again.minViewWidth() + 600);
+      QCOMPARE(again.viewWidth(again.views().first()), again.minViewWidth() + dragDistance);
     }
     main.stopRendering();
   }
@@ -5506,14 +5946,145 @@ private slots:
     // 非相结果被拒。
     QVERIFY(f.work.faciesConsistency(QStringLiteral("nope"), &error).isEmpty());
   }
-  void seismicMockRequiresSavedWellPredictions() {
-    Fixture f; QVERIFY(f.init());
-    const auto input = f.seismic(); QVERIFY(!input.isEmpty());
+  void seismicClustersRunWithoutWellsOrFaciesSchema() {
+    Fixture f;
+    QVERIFY(f.init());
+    f.work.setPredictionService(nullptr);
     QString error;
-    QVERIFY(!f.work.predict("D61", "seismic_mock", {input}, &error));
-    QVERIFY(error.contains(QStringLiteral("测井相预测")));
-    QVERIFY(!f.work.busy());
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto volume = registrar.stage("seismic", "volume", "volume.sgy", &error);
+    QVERIFY(volume.isValid());
+    QVERIFY(SeismicHorizonFixture::writeFile(volume.absolutePath, SeismicHorizonFixture::buildVolume()));
+    QVERIFY2(registrar.commit(volume, {}, "fixture", {}, &error), qPrintable(error));
+    const auto horizon = f.dir.filePath("D61.dat");
+    QVERIFY(SeismicHorizonFixture::writeFile(horizon, SeismicHorizonFixture::buildHorizon(100)));
+    QSignalSpy failures(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY(!f.work.predict("D61", "seismic_clusters", {volume.assetId}, &error, horizon, 65));
+    QVERIFY(error.contains("64"));
+    error.clear();
+    QVERIFY2(f.work.predict("D61", "seismic_clusters", {volume.assetId}, &error, horizon, 2), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 30000);
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(), 30000);
+    QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures[0][0].toString()));
+    const auto raster = f.work.versionForLayer(f.latest("seismic_clusters"));
+    QVERIFY(!raster.id.isEmpty());
+    QCOMPARE(raster.extra.value("cluster_count").toInt(), 2);
+    QCOMPARE(raster.extra.value("cluster_ids").toList(), QVariantList({1, 2}));
+    QCOMPARE(raster.extra.value("window_half_ms").toDouble(), 12.);
+    QVERIFY(raster.parentVersionIds.contains(volume.versionId));
+    QVERIFY(!raster.extra.contains("facies"));
+    QVERIFY(!f.latest("seismic_cluster_patches").isEmpty());
     QVERIFY(f.latest("seismic_prediction").isEmpty());
+    for (const auto &asset : f.catalog.assets()) QVERIFY(asset.type != QStringLiteral("facies_schema"));
+  }
+  void reopenedClusterSurfaceUsesItsFrozenUnitForWellAndManualAssignment() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY2(paleo::area_model::ensureProject(f.dir.path(), &error), qPrintable(error));
+    paleo::data::DataService ds;
+    std::string detail;
+    QVERIFY(ds.openProject(paleo::area_model::directory(f.dir.path()).toStdString(), detail));
+    auto draft = paleo::strat::draftScheme("scheme", "test", {"A", "B"}, {});
+    paleo::data::StratigraphicScheme scheme;
+    std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY2(ds.commitStratigraphicScheme(draft, {}, scheme, issues, detail), detail.c_str());
+    const auto interval = paleo::strat::selectorOptions(scheme).front().intervalId;
+    const auto original = paleo::strat::makeSelection(scheme, interval, 1);
+    const auto other = paleo::strat::makeSelection(scheme, interval, 2);
+    const auto key = paleo::strat::analysisLayerKey(original);
+    f.work.setAnalysisUnit(other);
+
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto crs = QgsCoordinateReferenceSystem("EPSG:3857").toWkt();
+    const auto raster = registrar.stage("seismic_clusters", "clusters", "raw.tif", &error);
+    QVERIFY(raster.isValid());
+    QVERIFY(MappingArtifactWriter::raster(raster.absolutePath, {1, 1}, 2, 1, QRectF(0, 0, 20, 10), crs, &error));
+    const auto patches = registrar.stage("seismic_cluster_patches", "patches", "patches.gpkg", &error);
+    QVERIFY(patches.isValid());
+    QVERIFY2(SeismicClusterPatches::polygonize(raster.absolutePath, patches.absolutePath, crs, &error), qPrintable(error));
+    QVERIFY(registrar.commit(raster, {}, "fixture", {{"kind","seismic_clusters"},{"horizon",key},
+        {"unitSelection",paleo::strat::toMap(original)}}, &error));
+    // Older patch versions inherit the unit from their source raster.
+    QVERIFY(registrar.commit(patches, {raster.versionId}, "fixture", {{"kind","seismic_cluster_patches"},
+        {"horizon",key},{"cluster_raster_version",raster.versionId}}, &error));
+    const auto predicted = registrar.stage("wells_prediction", "well", "points.geojson", &error);
+    QVERIFY(predicted.isValid());
+    const auto schema = FaciesCatalog::defaults();
+    const int code = schema.first().toMap().value("code").toInt();
+    QVERIFY(MappingArtifactWriter::points(predicted.absolutePath,
+        {QVariantMap{{"id","W1"},{"x",5.},{"y",5.},{"facies_code",code}}}, crs, &error));
+    QVERIFY(registrar.commit(predicted, {}, "fixture", {{"kind","wells_prediction"},{"horizon",key},
+        {"unitSelection",paleo::strat::toMap(original)},{"facies",schema}}, &error));
+    const auto layer = "product." + patches.versionId;
+    const auto sources = f.work.clusterWellSources(layer, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(sources.size(), 1);
+    QCOMPARE(sources.first().toMap().value("version_id").toString(), predicted.versionId);
+    QSignalSpy previews(&f.work, &MappingWorkbench::clusterWellPreviewReady);
+    QSignalSpy failures(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.previewClusterWells(layer, {predicted.versionId}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!previews.isEmpty() || !failures.isEmpty(), 30000);
+    QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures.first().first().toString()));
+    QCOMPARE(previews.first()[1].toMap().value("voting_wells").toInt(), 1);
+    QVERIFY2(f.work.applyClusterWellPreview(layer, &error), qPrintable(error));
+    const auto assigned = f.catalog.assetPage("facies_polygons", {}, 2).items;
+    QCOMPARE(assigned.size(), 1);
+    const auto surface = f.catalog.currentVersion(assigned.first().id);
+    const auto classes = f.catalog.versionById(surface.extra.value("schema_version").toString());
+    QCOMPARE(paleo::strat::fromMap(surface.extra.value("unitSelection").toMap()), original);
+    QCOMPARE(paleo::strat::fromMap(classes.extra.value("unitSelection").toMap()), original);
+    const auto rows = f.work.clusterPatchChoices(layer, &error);
+    QVERIFY2(!rows.isEmpty(), qPrintable(error));
+    const auto patchId = rows.first().toMap().value("patch_id").toLongLong();
+    const auto edited = f.work.assignClusterFacies(layer, patchId, false, code, &error);
+    QVERIFY2(!edited.isEmpty(), qPrintable(error));
+    QCOMPARE(paleo::strat::fromMap(f.work.versionForLayer(edited).extra.value("unitSelection").toMap()), original);
+    QCOMPARE(f.work.analysisUnit(), other);
+    QVERIFY(f.catalog.updateVersionExtra(patches.versionId, "stale", true, &error));
+    QVERIFY(f.work.clusterWellSources(layer, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("过期")));
+    QVERIFY(f.work.assignClusterFacies(layer, patchId, false, code, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("过期")));
+  }
+  void singleWellIntervalsVoteOnceAndBlockOlderPointOnTie() {
+    QTemporaryDir dir;
+    const auto schema=FaciesCatalog::defaults().mid(0,2);
+    const auto name=[&](int i){return schema[i].toMap().value("microfacies").toString();};
+    QJsonObject document{{"facies",QJsonArray::fromVariantList(schema)},
+      {"intervals",QJsonArray{QJsonObject{{"top",10},{"base",20},{"facies",name(0)}},
+                              QJsonObject{{"top",20},{"base",40},{"facies",name(1)}}}}};
+    const QString path=dir.filePath("prediction.json");
+    QVERIFY(SeismicHorizonFixture::writeFile(path,QJsonDocument(document).toJson()));
+    QVariantMap single{{"format","intervals"},{"path",path},{"version_id","single-v2"},{"well_id","a"},
+      {"sha256",DataCatalog::sha256FileHex(path)},{"top",16},{"base",30},
+      {"position",QVariantMap{{"crs","EPSG:3857"},{"x",5},{"y",6}}}};
+    const auto old=dir.filePath("old.geojson"); QString error;
+    QVERIFY(MappingArtifactWriter::points(old,{QVariantMap{{"id","a"},{"x",5},{"y",6},{"facies_code",1}}},QgsCoordinateReferenceSystem("EPSG:3857").toWkt(),&error));
+    const QVariantMap batch{{"path",old},{"sha256",DataCatalog::sha256FileHex(old)},{"version_id","batch-v1"},{"facies",schema}};
+    QVariantList sources{single,batch};
+    const auto crs=QgsCoordinateReferenceSystem("EPSG:3857").toWkt();
+    QStringList versions;
+    const auto read=[&](QVariantMap &source,QString *detail){ return readSeismicWellInterval(source,schema,{},detail); };
+    const auto wells=readSeismicCalibrationWells(sources,schema,crs,{},&versions,&error,{},nullptr,read);
+    QVERIFY2(error.isEmpty(),qPrintable(error)); QCOMPARE(wells.size(),1);
+    QCOMPARE(wells.first().code,schema[1].toMap().value("code").toInt());
+    QCOMPARE(wells.first().coordinateSource,QString("dataservice_wellhead"));
+    QCOMPARE(versions,QStringList{"single-v2"});
+    auto older=single;
+    older.insert("version_id","single-v1"); older.insert("sha256",QString(64,'0'));
+    QVERIFY(readSeismicCalibrationWells({single,older},schema,crs,{},&versions,&error,{},nullptr,read,true).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("已改变")));
+    QCOMPARE(readSeismicCalibrationWells({single,older},schema,crs,{},&versions,&error,{},nullptr,read).size(),1);
+    QVERIFY(error.isEmpty());
+    auto contradictory=single;
+    contradictory.insert("position",QVariantMap{{"crs","EPSG:4326"},{"x",5.},{"y",6.}});
+    QVERIFY(readSeismicCalibrationWells({contradictory},schema,crs,{},&versions,&error,{},nullptr,read).isEmpty());
+    QVERIFY(!error.isEmpty());
+    single.insert("top",10); single.insert("base",30);
+    sources={single,batch};
+    QVariantList excluded;
+    const auto tied=readSeismicCalibrationWells(sources,schema,crs,{},&versions,&error,{},&excluded,read);
+    QVERIFY2(error.isEmpty(),qPrintable(error)); QVERIFY(tied.isEmpty());
+    QCOMPARE(excluded.size(),1); QCOMPARE(excluded.first().toMap().value("reason").toString(),QString("thickness_tie"));
   }
   void seismicCalibrationTransformsCoordinatesAndMatchesFrozenClassPaths() {
     QTemporaryDir dir;
@@ -5539,7 +6110,7 @@ private slots:
         QgsCoordinateReferenceSystem("EPSG:3857").toWkt(), QgsCoordinateTransformContext(), &versions, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("已改变")));
   }
-  void seismicMockUsesLatestWellMajoritiesAndRecordsTheirVersions() {
+  void seismicClusterWellPreviewFreezesVotesAndPublishesSeparateVersions() {
     Fixture f; QVERIFY(f.init()); QString error;
     QVERIFY2(f.work.saveFacies("D61", FaciesCatalog::defaults().mid(0, 7), &error), qPrintable(error)); // explicit seven-class numerical fixture
 
@@ -5560,6 +6131,13 @@ private slots:
               {"mapping_product", true}, {"facies", FaciesCatalog::defaults()}}, &error)) return QString();
       return st.versionId;
     };
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict("D61", "seismic_mock", {volume.assetId}, &error, horizon, 2), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 30000);
+    QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.latest("seismic_cluster_patches").isEmpty(), 30000);
+    const auto patchLayer = f.latest("seismic_cluster_patches");
+    const auto raw = f.work.versionForLayer(f.latest("seismic_clusters"));
     const auto old = save("old", {point("a", 2, 2), point("b", 3, 2), point("c", 4, 2),
         point("d", 12, 7), point("e", 13, 7), point("skip", 14, 7)});
     QVERIFY2(!old.isEmpty(), qPrintable(error));
@@ -5568,20 +6146,49 @@ private slots:
     QVERIFY2(!current.isEmpty(), qPrintable(error));
     const auto tail = save("later-partial-batch", {point("d", 12, 2)});
     QVERIFY2(!tail.isEmpty(), qPrintable(error));
-    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
-    QVERIFY2(f.work.predict("D61", "seismic_mock", {volume.assetId}, &error, horizon), qPrintable(error));
-    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 30000);
+    QVERIFY(!raw.parentVersionIds.contains(current));
+    QSignalSpy previews(&f.work, &MappingWorkbench::clusterWellPreviewReady);
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!errors.isEmpty() || !previews.isEmpty(), 30000);
+    QVERIFY(previews.isEmpty());
+    QVERIFY(errors.takeFirst().first().toString().contains("DataService"));
+    QVERIFY(f.latest("seismic_prediction").isEmpty());
+
+    // Legacy engineering coordinates need independent, metre-based native wellheads.
+    QVERIFY2(paleo::area_model::ensureProject(f.dir.path(), &error), qPrintable(error));
+    {
+      paleo::data::DataService ds;
+      std::string detail;
+      QVERIFY2(ds.openProject(paleo::area_model::directory(f.dir.path()).toStdString(),detail), detail.c_str());
+      const QMap<QString,double> wellheads{{"a",2},{"b",3},{"c",4},{"d",12},{"e",13},{"skip",14},{"distant",9999}};
+      for (auto it=wellheads.cbegin(); it!=wellheads.cend(); ++it) {
+        paleo::data::WellInfo well;
+        well.wellName=it.key().toStdString(); well.wellheadX=it.value(); well.wellheadY=65.;
+        well.coordinateUnit="m"; well.coordinateSystem=DataCatalog::localGridCrsWkt().toStdString();
+        qlonglong nativeId=0;
+        QVERIFY2(ds.createWell(well,nativeId,detail), detail.c_str());
+        CatalogEntity entity; entity.id=it.key(); entity.name=it.key(); entity.entityType="well";
+        entity.extra.insert("areaModelWellId",nativeId);
+        QVERIFY2(f.catalog.addEntity(entity,&error), qPrintable(error));
+      }
+    }
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==1 || !errors.isEmpty(), 30000);
     QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
+    QCOMPARE(previews.first().at(1).toMap().value("voting_wells").toInt(),5);
+    QVERIFY2(f.work.applyClusterWellPreview(patchLayer, &error), qPrintable(error));
     const auto id = f.latest("seismic_prediction"); QVERIFY(!id.isEmpty());
     const auto version = f.work.versionForLayer(id);
-    QVERIFY(version.extra.value("mock").toBool());
-    QCOMPARE(version.extra.value("display_mode").toString(), QString("micro_facies"));
-    f.work.updateDisplayScale(1000000);
-    QCOMPARE(f.work.resolvedLevel(id), QString("micro_facies"));
-    QCOMPARE(version.extra.value("window_half_ms").toDouble(), 12.0);
+    const auto firstSurface = f.latest("facies_polygons");
+    const auto rows = f.work.clusterPatchChoices(firstSurface, &error);
+    QVERIFY2(!rows.isEmpty(), qPrintable(error));
+    const auto patch = rows.first().toMap().value("patch_id").toLongLong();
+    const auto manual = f.work.assignClusterFacies(firstSurface, patch, false, 1, &error);
+    QVERIFY2(!manual.isEmpty(), qPrintable(error));
+    const auto interpretation = f.work.versionForLayer(manual);
     QVERIFY(version.parentVersionIds.contains(current)); QVERIFY(version.parentVersionIds.contains(tail));
     QVERIFY(!version.parentVersionIds.contains(old));
-    QCOMPARE(version.extra.value("wells").toList().size(), 5);
+    QCOMPARE(version.extra.value("supporting_wells").toList().size(), 6);
     const auto mapping = version.extra.value("cluster_facies_mapping").toList();
     QCOMPARE(mapping.size(), 2);
     QCOMPARE(mapping[0].toMap().value("vote_count").toInt(), 3);
@@ -5597,6 +6204,50 @@ private slots:
       const double code = raster->dataProvider()->sample(QgsPointXY(column * 10, 65), 1, &ok);
       QVERIFY(ok); QCOMPARE(int(code), column % 2 == 0 ? 7 : 2);
     }
+    // A new relevant default source invalidates this preview. Explicitly
+    // selected versions remain valid even when another batch is registered.
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error),qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==2 || !errors.isEmpty(), 30000);
+    const auto another=save("revised", {point("a",2,2),point("b",3,2)});
+    QVERIFY2(!another.isEmpty(),qPrintable(error));
+    QVERIFY(!f.work.applyClusterWellPreview(patchLayer,&error));
+    QCOMPARE(f.work.versionForLayer(f.latest("seismic_prediction")).id,version.id);
+    error.clear();
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {old,current,tail}, &error),qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==3 || !errors.isEmpty(), 30000);
+    QVERIFY(!save("later-outside", {point("distant",9999,1)}).isEmpty());
+    QVERIFY2(f.work.applyClusterWellPreview(patchLayer,&error),qPrintable(error));
+    const auto explicitVersion=f.work.versionForLayer(f.latest("seismic_prediction"));
+    QVERIFY(!explicitVersion.parentVersionIds.contains(another));
+    QVERIFY(!explicitVersion.parentVersionIds.contains(old));
+    QCOMPARE(explicitVersion.extra.value("selected_well_versions").toStringList(),(QStringList{tail,current,old}));
+    QCOMPARE(explicitVersion.extra.value("well_selection_mode").toString(),QString("explicit"));
+    // Cancelling a pending preview cannot publish intermediate files.
+    const auto explicitId=f.latest("seismic_prediction");
+    QVERIFY(f.work.previewClusterWells(patchLayer, {}, &error));
+    f.work.cancelClusterWellPreview();
+    QVERIFY(!f.work.applyClusterWellPreview(patchLayer,&error));
+    QCOMPARE(f.latest("seismic_prediction"),explicitId);
+    error.clear();
+    QVERIFY2(f.work.previewClusterWells(patchLayer, {}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(previews.size()==4 || !errors.isEmpty(), 30000);
+    QVERIFY2(f.work.applyClusterWellPreview(patchLayer,&error),qPrintable(error));
+    const auto revised=f.work.versionForLayer(f.latest("seismic_prediction"));
+    QVERIFY(revised.id!=version.id);
+    QVERIFY(revised.parentVersionIds.contains(another));
+    QCOMPARE(revised.extra.value("cluster_facies_mapping").toList().first().toMap().value("facies_code").toInt(),2);
+    QCOMPARE(DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(f.dir.path(),raw)),raw.sha256);
+    QCOMPARE(DataCatalog::sha256FileHex(DataCatalog::resolvedVersionPath(f.dir.path(),version)),version.sha256);
+    QVERIFY(f.project.writeProject());
+    QVERIFY(f.project.openProject(f.project.projectPath()));
+    for (const auto &entry : {raw, version, revised, interpretation}) {
+      auto *layer = f.layers.instantiate(f.work.layerForVersion(entry.id), &error);
+      QVERIFY2(layer && layer->isValid(), qPrintable(error));
+    }
+    const auto reopened = f.work.clusterPatchChoices(f.work.layerForVersion(interpretation.id), &error);
+    QVERIFY2(!reopened.isEmpty(), qPrintable(error));
+    QCOMPARE(reopened.first().toMap().value("patch_id").toLongLong(), patch);
+    QCOMPARE(reopened.first().toMap().value("facies_code").toInt(), 1);
   }
   // #536：原生属性表改编码的写路径必须与 place() 读路径同一口径。旧七列错位
   // 草稿（#526 之前存进版本 extra 的元组：microfacies=色值、color=SVG、

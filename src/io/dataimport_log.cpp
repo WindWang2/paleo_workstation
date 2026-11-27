@@ -171,7 +171,10 @@ void fillLogPreview(const DataCatalog &cat, FolderPreviewRow &row)
     for (const auto &name : info.header.curveNames.mid(1))
       if (names.contains(name)) collisions << name;
     if (!collisions.isEmpty() && row.decision != QLatin1String("skip"))
+    {
+      row.needsImportReview = true;
       row.issues << tr("与已有曲线同名：%1。确认后保留两份并标明来源，不覆盖已有数据。").arg(collisions.join(QStringLiteral(", ")));
+    }
   }
   else if (!row.proposedWellName.isEmpty() && matches.isEmpty())
     row.entityPreview = tr("新井 %1（来自文件内容）").arg(row.proposedWellName);

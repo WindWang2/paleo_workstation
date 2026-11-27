@@ -4,6 +4,7 @@
 #include "support/paleo_test_tempdir.h"
 #include <QElapsedTimer>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QThreadPool>
 #include <QDirIterator>
 #include <QSqlDatabase>
@@ -17,6 +18,7 @@
 #endif
 
 #include "../src/catalog/datacatalog.h"
+#include "../src/domain/arearules.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/geojsonaffine.h"
 #include "../src/io/ingestplan.h"
@@ -588,24 +590,36 @@ private slots:
 
   // D61 → RAW + DERIVED 栅格（父版本指向 RAW）+ 图层声明；authid 非 4326；
   // A1 落点压在栅格非空像元上（半像元容差）。
+  void horizonDerivedRasterAndCrs_data()
+  {
+    QTest::addColumn<QString>("fileStem");
+    QTest::addColumn<QString>("horizon");
+    QTest::newRow("built-in") << QStringLiteral("D61") << QStringLiteral("D61");
+    QTest::newRow("model-spelling") << QStringLiteral("TG") << QStringLiteral("Tg");
+  }
   void horizonDerivedRasterAndCrs()
   {
+    QFETCH(QString, fileStem);
+    QFETCH(QString, horizon);
     PaleoTempDir tmp;
     const QString projectDir = tmp.filePath(QStringLiteral("proj"));
     QVERIFY(QDir().mkpath(projectDir));
     auto stack = makeStack(projectDir);
     QVERIFY(stack != nullptr);
+    const auto resetRules = qScopeGuard([] { AreaRules::reset(); });
+    if (fileStem != horizon) AreaRules::setProjectDir(projectDir, {horizon});
     DataImportService &svc = *stack->importSvc;
     QString err;
     const QString staged = stageFixture(tmp, QString::fromUtf8("层位"),
-                                        QStringLiteral("D61_sample.dat"), QStringLiteral("D61.dat"));
+                                        QStringLiteral("D61_sample.dat"), fileStem + QStringLiteral(".dat"));
     QVERIFY(!staged.isEmpty());
     const QString assetId = svc.importProjectFile(staged, &err);
     QVERIFY2(!assetId.isEmpty(), qPrintable(err));
 
     DataCatalog *cat = svc.catalog();
-    const CatalogEntity sb = cat->entityById(QStringLiteral("sb-D61"));
+    const CatalogEntity sb = cat->entityById(QStringLiteral("sb-") + fileStem);
     QCOMPARE(sb.entityType, QStringLiteral("sequence_boundary"));
+    QCOMPARE(sb.name, horizon);
     QVERIFY(!sb.extra.contains(QStringLiteral("pending")));
 
     const QVector<CatalogVersion> versions = cat->versionsForAsset(assetId);
@@ -619,12 +633,13 @@ private slots:
     // 图层清单只登记要画的结果
     const QVector<LayerDeclaration> decls = stack->manifest->all();
     QCOMPARE(decls.size(), 1);
-    QCOMPARE(decls.at(0).layerId, QStringLiteral("horizon.D61"));
-    QCOMPARE(decls.at(0).horizon, QStringLiteral("D61"));
+    const QString layerId = QStringLiteral("horizon.") + horizon;
+    QCOMPARE(decls.at(0).layerId, layerId);
+    QCOMPARE(decls.at(0).horizon, horizon);
     QCOMPARE(decls.at(0).type, QStringLiteral("raster"));
 
     // 实例化后图层 CRS 不是 EPSG:4326
-    QgsMapLayer *layer = stack->layerSvc->instantiate(QStringLiteral("horizon.D61"), &err);
+    QgsMapLayer *layer = stack->layerSvc->instantiate(layerId, &err);
     QVERIFY2(layer != nullptr, qPrintable(err));
     const QString authid = layer->crs().authid();
     QVERIFY2(authid != QLatin1String("EPSG:4326"),

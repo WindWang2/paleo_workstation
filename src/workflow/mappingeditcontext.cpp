@@ -18,6 +18,7 @@
 void MappingWorkbench::setAnalysisUnit(const paleo::strat::UnitSelection &unit) {
   if (m_analysisUnit == unit)
     return;
+  cancelClusterWellPreview();
   if (!m_request.id.isEmpty() || !m_readinessId.isEmpty())
     cancelPrediction();
   m_analysisUnit = unit;
@@ -28,11 +29,14 @@ void MappingWorkbench::setManualEvidenceRequired(bool required) {
   if (m_manualEvidenceRequired == required)
     return;
   m_manualEvidenceRequired = required;
-  if (!required)
+  if (!required) {
+    m_draftEvidence.clear();
     clearEditEvidence();
+  }
 }
 
-void MappingWorkbench::clearEditEvidence() {
+void MappingWorkbench::clearEditEvidence(const QString &layerId) {
+  if (!layerId.isEmpty()) m_draftEvidence.remove(layerId);
   m_editEvidence.clear();
   emit editEvidenceChanged();
 }
@@ -41,10 +45,15 @@ QVariantMap MappingWorkbench::editEvidence(const QString &horizon) const {
   return m_editEvidence.value("horizon").toString() == horizon ? m_editEvidence : QVariantMap{};
 }
 
+QVariantMap MappingWorkbench::editEvidenceForLayer(const QString &layerId) const {
+  const auto it = m_draftEvidence.constFind(layerId);
+  return it == m_draftEvidence.cend() ? editEvidence(declaration(layerId).horizon) : it.value();
+}
+
 bool MappingWorkbench::needsEditEvidence(const QString &layerId) const {
   // 编图过程不必需预先填写解释说明；仅当调用方显式开启严格手动依据模式
   // (setManualEvidenceRequired(true)) 时才要求先设置本次依据。
-  return m_manualEvidenceRequired && editEvidence(declaration(layerId).horizon).isEmpty();
+  return m_manualEvidenceRequired && editEvidenceForLayer(layerId).isEmpty();
 }
 
 bool MappingWorkbench::setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error) {
@@ -57,8 +66,8 @@ bool MappingWorkbench::setEditEvidence(const QString &horizon, const QVariantMap
   };
   const auto text = context.value("text").toString().trimmed();
   const auto reason = context.value("reason").toString().trimmed();
-  if (text.isEmpty() || text.size() + reason.size() > 9000 || reason.isEmpty())
-    return reject(tr("请填写解释依据和修改目的（合计不超过 9000 字）"));
+  if (text.isEmpty() || text.size() + reason.size() > 9000)
+    return reject(tr("请填写解释说明，说明与修改目的合计不超过 9000 字"));
   QVariantList references;
   QSet<QString> seen;
   for (const auto &id : context.value("source_versions").toStringList()) {
@@ -82,11 +91,16 @@ bool MappingWorkbench::setEditEvidence(const QString &horizon, const QVariantMap
   }
   if (references.size() > 16)
     return reject(tr("本次解释最多引用 16 个参考版本"));
-  m_editEvidence = {{"horizon", horizon},
+  const auto layerId = context.value("layer").toString();
+  if (!layerId.isEmpty() && (!layerId.startsWith("draft.") || declaration(layerId).horizon != horizon))
+    return reject(tr("请先选择当前层位的工作副本"));
+  QVariantMap note{{"horizon", horizon},
                     {"text", text},
                     {"reason", reason},
                     {"references", references},
                     {"source_versions", context.value("source_versions")}};
+  if (layerId.isEmpty()) m_editEvidence = note;
+  else m_draftEvidence.insert(layerId, note);
   emit editEvidenceChanged();
   return true;
 }
@@ -192,12 +206,51 @@ QVariantMap MappingWorkbench::generatedExplanationForFeature(const QString &laye
   return entries.value(featureUid);
 }
 
-QVariantMap MappingWorkbench::collectVersionAutoExplanations(const QString &layerId) const {
-  const auto entries = loadDraftExplanations(layerId);
-  QVariantMap out;
+QVariantMap MappingWorkbench::explanationForTarget(const QString &id, const QString &featureUid) const {
+  if (id.isEmpty()) return {};
+  const auto key = featureUid.isEmpty() ? QStringLiteral("__map__") : featureUid;
+  const auto record = loadDraftExplanations(id).value(key);
+  if (record.isEmpty() || !explanationTargetMatches(MappingExplanationResult::fromVariantMap(record))) return {};
+  auto result = record;
+  const auto version = versionForLayer(id);
+  const auto archived = version.extra.value("auto_explanations").toMap().value(key).toMap();
+  if (archived.value("request_id") == result.value("request_id")) result.insert("saved_version", version.versionNumber);
+  return result;
+}
+
+bool MappingWorkbench::adoptExplanation(const QString &id, const QString &featureUid, const QString &requestId) {
+  if (!m_catalog || m_catalog->refusesWrites() || !id.startsWith("draft.") || requestId.isEmpty()) return false;
+  const auto current = explanationForTarget(id, featureUid);
+  if (current.value("request_id").toString() != requestId) return false;
+  auto &record = m_generatedExplanations[id][featureUid.isEmpty() ? QStringLiteral("__map__") : featureUid];
+  record.remove("pending_adoption");
+  record.insert("adopted", true);
+  saveDraftExplanations(id);
+  emit displayChanged(id);
+  return true;
+}
+
+bool MappingWorkbench::hasPendingExplanationAdoption(const QString &id) const {
+  if (!id.startsWith("draft.")) return false;
+  const auto entries = loadDraftExplanations(id);
+  const auto archived = versionForLayer(id).extra.value("auto_explanations").toMap();
   for (auto it = entries.cbegin(); it != entries.cend(); ++it)
-    out.insert(it.key(), it.value());
-  return out;
+    if (it->value("adopted").toBool() && it->value("request_id") != archived.value(it.key()).toMap().value("request_id") &&
+        explanationTargetMatches(MappingExplanationResult::fromVariantMap(it.value()))) return true;
+  return false;
+}
+
+void MappingWorkbench::refreshLastExplanation(const QString &layerId) {
+  if (m_lastAutoExplanations.isEmpty())
+    return;
+  const auto horizon = declaration(layerId).horizon;
+  const auto record = m_lastAutoExplanations.value(horizon);
+  if (record.value(QStringLiteral("layer_id")).toString() == layerId &&
+      !record.value(QStringLiteral("feature_uid")).toString().isEmpty() &&
+      !explanationTargetMatches(MappingExplanationResult::fromVariantMap(record))) {
+    m_lastAutoExplanations.remove(horizon);
+    emit explanationStatusChanged();
+  }
 }
 
 void MappingWorkbench::scheduleAutoExplanation(const QString &layerId,
@@ -207,7 +260,7 @@ void MappingWorkbench::scheduleAutoExplanation(const QString &layerId,
   if (!autoExplainEnabled() || layerId.isEmpty())
     return;
   const auto horizon = declaration(layerId).horizon;
-  if (horizon.isEmpty() || !editEvidence(horizon).isEmpty())
+  if (horizon.isEmpty() || !editEvidenceForLayer(layerId).isEmpty())
     return;
   for (auto &existing : m_pendingExplanations) {
     if (existing.layerId == layerId && existing.featureUid == featureUid) {
@@ -239,7 +292,7 @@ void MappingWorkbench::flushPendingExplanations() {
   m_pendingExplanations.clear();
   for (const auto &item : items) {
     const auto horizon = declaration(item.layerId).horizon;
-    if (horizon.isEmpty() || !editEvidence(horizon).isEmpty())
+    if (horizon.isEmpty() || !editEvidenceForLayer(item.layerId).isEmpty())
       continue;
     MappingExplanationRequest request;
     if (!captureExplanationSnapshot(horizon, item.layerId, item.featureUid, item.kind,
@@ -288,10 +341,12 @@ void MappingWorkbench::cancelBackgroundExplanation() {
 void MappingWorkbench::onBackgroundExplanationReady(const MappingExplanationResult &result) {
   if (result.cancelled || result.text.trimmed().isEmpty())
     return;
-  if (!m_dir.isEmpty() && !result.projectDir.isEmpty() && m_dir != result.projectDir)
+  if (m_dir != result.projectDir || !explanationTargetMatches(result))
     return;
   auto record = result.toVariantMap();
   record.insert(QStringLiteral("materialized"), false);
+  if (!result.layerId.isEmpty() && result.versionId != versionForLayer(result.layerId).id)
+    record.insert(QStringLiteral("pending_adoption"), true);
   const QString key = result.featureUid.isEmpty() ? QStringLiteral("__map__") : result.featureUid;
   if (!result.layerId.isEmpty()) {
     loadDraftExplanations(result.layerId);
@@ -306,7 +361,7 @@ void MappingWorkbench::onBackgroundExplanationReady(const MappingExplanationResu
     emit displayChanged(result.layerId);
 }
 
-QString MappingWorkbench::createBlankMap(const QString &horizon, QString *error) {
+QString MappingWorkbench::createBlankMap(const QString &horizon, QString *error, const QVariantMap &boundary) {
   if (!ready(horizon, error))
     return {};
   QVariantList schema;
@@ -316,17 +371,20 @@ QString MappingWorkbench::createBlankMap(const QString &horizon, QString *error)
   const auto relative = QStringLiteral("artifacts/working/%1/features.gpkg").arg(draft);
   const auto path = QDir(m_dir).filePath(relative);
   if (!QDir().mkpath(QFileInfo(path).absolutePath()) ||
-      !MappingArtifactWriter::emptyFacies(path, schema, error)) {
+      !MappingArtifactWriter::emptyFacies(path, schema, error, boundary.value("crs").toString())) {
     QDir(QFileInfo(path).absolutePath()).removeRecursively();
     return {};
   }
-  const QVariantMap extra{{"draft_id", draft},
+  QVariantMap extra{{"draft_id", draft},
                           {"working_path", relative},
                           {"facies", schema},
                           {"requires_edit_evidence", false},
                           {"hierarchy_model", "shared-polygon-partition-v1"},
                           {"method", "manual-blank-map"},
                           {"display_mode", "micro_facies"}};
+  if (!boundary.isEmpty())
+    extra.insert("initial_boundary", QVariantMap{{"layer", boundary.value("layer")}, {"name", boundary.value("name")},
+        {"crs", boundary.value("crs")}, {"digest", QString::fromLatin1(boundary.value("digest").toByteArray())}});
   const auto product = record(path, horizon, "edited_facies", tr("%1 新建古地理图").arg(horizon), "vector",
                               {}, extra, error, "|layername=features", draft);
   if (product.isEmpty()) {

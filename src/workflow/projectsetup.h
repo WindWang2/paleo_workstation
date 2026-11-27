@@ -17,7 +17,12 @@ public:
   ~ProjectSetupWorkflow() override;
   static ProjectSetupSources discover(const QString &root);
   static bool containsProject(const QString &root);
-  static bool checkProjectLocation(const QString &path, QString *error);
+  static QString defaultProjectDirectory();
+  static QString defaultProjectVolume();
+  static bool checkProjectLocation(const QString &path, QString *error, const QString &sourceRoot = {},
+                                   const QString &requiredRoot = {});
+  void setRequiredProjectRoot(const QString &root) { m_requiredRoot = root; }
+  QString requiredProjectRoot() const { return m_requiredRoot; }
   void scan(const ProjectSetupSources &sources);
   bool create(const QString &path, const ProjectSetupSources &sources, const ProjectSetupPreview &preview, QString *error);
   bool applySources(const ProjectSetupSources &sources, const ProjectSetupPreview &input, QString *error);
@@ -25,6 +30,7 @@ public:
   void setMapImportServices(QgisLayerService *layers, PaleoTaskService *tasks);
 signals:
   void previewReady(const ProjectSetupPreview &preview);
+  void projectHorizonsChanged();
   void finished(const QString &summary, bool success);
 private:
   void importAreaSources(const ProjectSetupSources &sources, const ProjectSetupPreview &preview, quint64 session);
@@ -37,6 +43,7 @@ private:
   QPointer<PaleoTaskService> m_mapTasks;
   std::shared_ptr<std::atomic_bool> m_stop;
   std::shared_ptr<std::atomic_bool> m_areaStop;
+  QString m_requiredRoot;
   quint64 m_areaGeneration = 0;
   quint64 m_generation = 0;
 };

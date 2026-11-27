@@ -23,6 +23,10 @@
 #include <qgssymbol.h>
 #include <qgsvectorlayer.h>
 namespace {
+bool isClusterInterpretation(const QgsVectorLayer *layer) {
+  return layer && layer->fields().indexOf("cluster_id") >= 0 &&
+      layer->fields().indexOf("assignment_status") >= 0;
+}
 // 地图过滤的命中结果必须包含祖先 key，否则 QGIS 会删掉没有自身几何的父标题。
 class HierarchyCategories final : public QgsCategorizedSymbolRenderer {
 public:
@@ -141,6 +145,15 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
   } else {
     entries = FaciesHierarchy::legend(styled, level, present);
   }
+  if (isClusterInterpretation(polygon)) {
+    for (auto &entry : entries) {
+      auto row = entry.toMap();
+      if (row.value("key") == "unknown") {
+        row.insert("name", QObject::tr("待赋相"));
+        entry = row;
+      }
+    }
+  }
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
       v && v->geometryType() == Qgis::GeometryType::Point)
     for (auto &entry : entries) {
@@ -237,13 +250,12 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       }
     }
     keyExpression += "ELSE 'unknown' END";
-    nameExpression +=
-        "ELSE " + QgsExpression::quotedString(QObject::tr("其他 / 未分类")) +
-        " END";
+    const auto unknown = QgsExpression::quotedString(isClusterInterpretation(v)
+        ? QObject::tr("待赋相") : QObject::tr("其他 / 未分类"));
+    nameExpression += "ELSE " + unknown + " END";
     if (!hasCodes) {
       keyExpression = "'unknown'";
-      nameExpression =
-          QgsExpression::quotedString(QObject::tr("其他 / 未分类"));
+      nameExpression = unknown;
     }
     auto *renderer =
         new HierarchyCategories(keyExpression, categories);

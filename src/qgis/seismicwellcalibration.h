@@ -9,4 +9,6 @@ QVector<SeismicClusterWell> readSeismicCalibrationWells(
     const QVariantList &sources, const QVariantList &schema,
     const QString &gridCrsWkt, const QgsCoordinateTransformContext &context,
     QStringList *usedVersions, QString *error,
-    const std::function<bool()> &cancel = {});
+    const std::function<bool()> &cancel = {}, QVariantList *excluded = nullptr,
+    const std::function<bool(QVariantMap &, QString *)> &readIntervals = {},
+    bool verifySkippedIntervals = false);

@@ -12,6 +12,8 @@ class QComboBox;
 class QCheckBox;
 class QLineEdit;
 class QDoubleSpinBox;
+class QFormLayout;
+class QSpinBox;
 class QLabel;
 class QPushButton;
 class QProgressBar;
@@ -65,11 +67,14 @@ protected:
   void showEvent(QShowEvent *event) override;
 
 private:
+  void buildClusterInputs(QWidget *body, QFormLayout *form);
+  void refreshClusterInputs(bool horizon, bool busy, const QString &readiness);
   void buildComposeAdvanced(QWidget *body, QVBoxLayout *layout);
   void buildDeliveryStep(QWidget *body, QVBoxLayout *layout);
   void buildBaseMapStep(QWidget *body, QVBoxLayout *layout);
   void installTaskGuide(QVBoxLayout *outer);
   void refreshInputs();
+  void syncEditBasisTarget();
   void buildFaciesSchema(QWidget *schemaBody);
   void wireFaciesUpdates();
   QVariantList faciesRows() const;
@@ -111,6 +116,7 @@ private:
   QLineEdit *m_horizonFile = nullptr;
   QPushButton *m_chooseHorizonFile = nullptr;
   QDoubleSpinBox *m_cell = nullptr, *m_interval = nullptr;
+  QSpinBox *m_clusterCount = nullptr;
   QProgressBar *m_progress = nullptr;
   QTableWidget *m_facies = nullptr;
   QMap<QString, QVariantList> m_faciesDrafts;

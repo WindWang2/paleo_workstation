@@ -3,6 +3,8 @@
 #include "capabilityhostwiring.h"
 #include "workflow/documentsession.h"
 #include "io/areamodelpublication.h"
+#include "io/areamodel.h"
+#include "io/areamodel_conventions.h"
 #include "../ai/chat/llmclient.h" // 方向51：LLM 配置 + 助手编排
 #include "../ai/chat/llmkeystore.h"
 #include "../ai/remotepredictconfig.h"
@@ -99,6 +101,9 @@
 struct AppProjectOpenData {
   QString directory;
   std::shared_ptr<DataCatalog> catalog;
+  QStringList mappingBoundaries;
+  QString mappingStamp;
+  QString verifiedHorizonStamp;
   QByteArray wellsBytes, trajectoryBytes;
   bool wellsPrepared = false, trajectoriesPrepared = false;
 #if PALEO_HAVE_ORT
@@ -466,7 +471,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
   });
 
   // ensureManifest-on-open: first point a per-project path is derivable.
-  connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+  connect(m_projectSvc, &QgisProjectService::projectContextRequested, this,
           [this](const QString &qgzPath) { bindProjectOpened(qgzPath); });
   m_projectSvc->setOpenPreparation([this](const QString &directory) {
     auto data = std::make_shared<AppProjectOpenData>();
@@ -480,8 +485,14 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent,
       if (stopped()) return;
       data->catalog = DataCatalog::prepareOpen(data->directory, readOnly);
       if (stopped()) return;
+      const auto root = paleo::area_model::directory(data->directory);
+      auto stamp = paleo::area_model::databaseStamp(root);
+      data->mappingBoundaries = paleo::area_model::mappingBoundaries(data->directory);
+      if (stamp == paleo::area_model::databaseStamp(root)) data->mappingStamp = stamp;
+      if (stopped()) return;
       if (data->catalog->isOpen() && !readOnly) {
-        if (projectChanged) DataImportService::sweepStaleStaging(data->directory);
+        if (projectChanged)
+          data->verifiedHorizonStamp = paleo::area_model::verifiedHorizonConventionsStamp(data->directory);
         if (stopped()) return;
         const auto layers = ProjectLayerRefreshWorkflow::prepare(*data->catalog, data->directory);
         data->wellsBytes = layers.wellsBytes;
@@ -517,6 +528,14 @@ bool AppContext::acquireProjectLock(const QString &projectDir, bool creating, QS
   m_pendingLock.reset();
   m_pendingLockReuse = false;
   auto candidate = std::make_unique<ProjectDirLock>(projectDir);
+  if (!m_projectSvc->allowsProjectWritesAt(projectDir)) {
+    if (creating) {
+      if (error) *error = tr("请将新工程保存到可用的数据盘 %1。").arg(m_projectSvc->writableProjectRoot());
+      return false;
+    }
+    m_pendingLock = std::move(candidate); // Preflight never creates lock directories on the original volume.
+    return true;
+  }
   if (m_projectLock && m_projectLock->isHeld() &&
       m_projectLock->lockPath() == candidate->lockPath())
   {
@@ -609,13 +628,13 @@ void AppContext::releaseProjectSession()
   }
   m_projectLock.reset();
   m_lastReadOnlyNotified = false;
-  if (m_store)
+  if (m_store) {
+    // readOnlyChanged is synchronous: observers must already see a closed store.
+    m_store->setProjectPaths({}, {}, {});
     m_store->setReadOnly(false);
-  if (m_import)
-  {
-    if (DataCatalog *cat = m_import->catalog())
-      cat->setLockedReadOnly(false);
   }
+  if (m_import && m_import->catalog())
+    m_import->catalog()->setLockedReadOnly(true); // The previous catalog has no active write lock.
 
   // M-06: 显式重置断层解释与井位编排器，杜绝跨会话脏数据残留
   if (m_faultCtl)
@@ -693,6 +712,15 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
   // T4 单写实例降级：锁失败 = 真只读。四个落盘面全部接线——
   // catalog（save/mutator 回滚）、工程存储（gpkg/qgz/journal）、
   // 图层清单（manifest sqlite）、版本库（map_versions）。读面照常。
+  // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
+  // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
+  // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
+  if (!m_metaPath.isEmpty())
+    MetaStore::closeConnectionsFor(m_metaPath);
+  const QString metaPath = manifestPathFor(qgzPath);
+  const bool metaExisted = QFileInfo::exists(metaPath);
+  m_metaPath = metaPath;
+  m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
   const bool writable = m_projectLock->isHeld();
   m_store->setReadOnly(!writable);
   m_projectSvc->setReadOnly(!writable);
@@ -704,15 +732,6 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
     m_lastReadOnlyNotified = !writable;
     emit projectReadOnlyChanged(!writable);
   }
-  // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
-  // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
-  // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
-  if (!m_metaPath.isEmpty())
-    MetaStore::closeConnectionsFor(m_metaPath);
-  const QString metaPath = manifestPathFor(qgzPath);
-  const bool metaExisted = QFileInfo::exists(metaPath);
-  m_metaPath = metaPath;
-  m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
   // 发布记档与工程提交记档同目录。先补登记中断的发布，再扫描未完成
   // 记档，避免一次已经补完的发布仍被报成未完成。只读实例不补登记。
@@ -783,7 +802,11 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
   // 分类规则/SEG-Y 偏移/ONNX 网格/标定层位。必须在 importSvc/
   // catalog 之前装载——分类器与层位词表消费 active()。坏 JSON
   // 如实上报（active 保持默认），不静默。
-  AreaRules::setProjectDir(fi.absolutePath());
+  const bool preparedForProject = prepared && prepared->directory == fi.absolutePath();
+  const bool boundariesCurrent = preparedForProject && !prepared->mappingStamp.isEmpty() &&
+      prepared->mappingStamp == paleo::area_model::databaseStamp(paleo::area_model::directory(fi.absolutePath()));
+  AreaRules::setProjectDir(fi.absolutePath(), boundariesCurrent ? prepared->mappingBoundaries
+                                                              : paleo::area_model::mappingBoundaries(fi.absolutePath()));
   if (!AreaRules::lastError().isEmpty())
   {
     qWarning() << "AppContext: area rules rejected:" << AreaRules::lastError();
@@ -793,12 +816,17 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
             .arg(AreaRules::lastError()),
         QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
   }
-  m_import->setProjectDir(fi.absolutePath(),
-      prepared && prepared->directory == fi.absolutePath() ? prepared->catalog : nullptr);
+  m_import->setProjectDir(fi.absolutePath(), preparedForProject ? prepared->catalog : nullptr,
+                          preparedForProject ? prepared->verifiedHorizonStamp : QString());
   const auto documentFile = readProjectFile(paleoProjectFilePath(fi.absolutePath()));
   QString sourceError;
-  if (m_import->catalog() && !paleo::area_model::recoverModelPublication(*m_import->catalog(),&sourceError))
-    qWarning() << "AppContext: model publication needs recovery:" << sourceError;
+  if (m_import->catalog() && paleo::area_model::hasPendingModelPublication(fi.absolutePath()))
+  {
+    if (paleo::area_model::recoverModelPublication(*m_import->catalog(), &sourceError))
+      AreaRules::setProjectDir(fi.absolutePath(), paleo::area_model::mappingBoundaries(fi.absolutePath()));
+    else
+      qWarning() << "AppContext: model publication needs recovery:" << sourceError;
+  }
   if (!m_documentSession->bind(m_import->catalog(), metaPath, documentFile.projectId, !writable, &sourceError))
     qWarning() << "AppContext: document sources unavailable:" << sourceError;
   // 工程级地理配准（project.paleo georeference 节）：导入服务带上
@@ -881,9 +909,13 @@ void AppContext::bindProjectOpened(const QString &qgzPath)
   if (m_projectSvc->isOpening()) {
     const auto directory = m_projectDir;
     const auto session = m_projectSvc->sessionId();
-    QTimer::singleShot(16, this, [this, directory, session, wellsPrepared, trajectoriesPrepared] {
-      restoreProjectLayers(directory, session, wellsPrepared, trajectoriesPrepared);
-    });
+    connect(m_projectSvc, &QgisProjectService::openFinished, this,
+            [this, directory, session, wellsPrepared, trajectoriesPrepared](bool success) {
+      if (!success) return;
+      QTimer::singleShot(16, this, [this, directory, session, wellsPrepared, trajectoriesPrepared] {
+        restoreProjectLayers(directory, session, wellsPrepared, trajectoriesPrepared);
+      });
+    }, Qt::SingleShotConnection);
   } else {
     m_layerSvc->refreshBasemaps();
     refreshSurveyLayer();

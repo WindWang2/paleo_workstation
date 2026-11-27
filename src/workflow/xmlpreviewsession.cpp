@@ -1,4 +1,5 @@
 // 层：功能
+#include "metadata/managedpath.h"
 #include "xmlpreviewsession.h"
 #include "documentsession.h"
 #include "../catalog/datacatalog.h"
@@ -52,7 +53,7 @@ void XmlPreviewSession::setDocumentSession(paleo::document::DocumentSession *ses
 }
 
 void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
-                             const QString &modelProject, qlonglong modelSource, qlonglong modelWell)
+                             const QString &modelProject, qlonglong modelSource, qlonglong modelWell, bool readOnly)
 {
   if (m_verificationCancelled) m_verificationCancelled->store(true);
   m_verificationCancelled = std::make_shared<std::atomic_bool>(false);
@@ -60,7 +61,7 @@ void XmlPreviewSession::open(const QString &path, const QString &expectedSha,
   const auto generation = ++m_generation;
   const auto interpretation=chartSelection(m_document,m_wellId);
   // 会话独占副本：摘要和解析都只看这份，不回读调用方路径。
-  m_directory = std::make_shared<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-xml-XXXXXX"));
+  m_directory = paleo::managedpath::temporaryPreviewDirectory(readOnly ? QString() : modelProject, QStringLiteral("paleo-xml"));
   const auto directory = m_directory;
   auto *watcher = new QFutureWatcher<XmlPreviewData>(this);
   connect(watcher, &QFutureWatcherBase::finished, this,

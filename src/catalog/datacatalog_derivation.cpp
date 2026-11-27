@@ -50,6 +50,11 @@ int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &
                                        const QString &excludeId)
 {
   const QVector<CatalogVersion> downstream = downstreamClosure(versionId);
+  // A revision of the same working copy is an archived edition, even though
+  // lineage also records its predecessor as an input. Traverse it to reach
+  // external derivatives without rewriting its frozen catalog record.
+  const auto publishing = excludeId.isEmpty() ? CatalogVersion{} : versionById(excludeId);
+  const auto workingCopy = publishing.extra.value(QStringLiteral("draft_id")).toString();
   int changed = 0;
   for (const CatalogVersion &d : downstream)
   {
@@ -57,7 +62,8 @@ int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &
     // 参与溯源穿透（DERIVED 的祖先可以是任意阶段），但自身不记 stale。
     if (d.stage != QLatin1String("DERIVED"))
       continue;
-    if (!excludeId.isEmpty() && d.id == excludeId)
+    if ((!excludeId.isEmpty() && d.id == excludeId) ||
+        (!workingCopy.isEmpty() && d.assetId == publishing.assetId && d.extra.value(QStringLiteral("draft_id")) == workingCopy))
       continue;
     // WP2：行号走邻接索引 O(1)——旧实现每次全表建 id→row QHash，是
     // addVersion 路径隐藏的 O(N)/调用（N 次导入即 O(N²)）。

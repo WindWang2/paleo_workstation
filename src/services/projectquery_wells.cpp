@@ -85,7 +85,11 @@ QJsonObject ProjectQueryCapability::Impl::wellDetails(QueryState &state, const Q
     result.insert("resolution", "searching"); result.insert("returnedCount", 0); result.insert("totalCount", QJsonValue::Null);
     return result;
   }
-  auto well = catalog->storedEntityById(state.target); error = model.overlay(well);
+  auto well = catalog->storedEntityById(state.target);
+  const auto boundWell = well.extra.value(QStringLiteral("areaModelWellId")).toLongLong();
+  const bool currentWell = boundWell > 0 && well.extra.value("areaModelWellActive", true).toBool() &&
+    model.matchesGeneration(catalog->projectionCheckpoint("area-sources"), well.extra.value("areaModelGeneration").toString());
+  error = model.overlay(well);
   if (!error.isEmpty()) return queryFailure(error);
   const auto page = catalog->linkPage(state.target, args.value("role").toString(), state.after, rows);
   QJsonArray entries;
@@ -93,14 +97,47 @@ QJsonObject ProjectQueryCapability::Impl::wellDetails(QueryState &state, const Q
     const auto &link = page.items.at(i); const auto asset = catalog->assetById(link.assetId);
     QJsonObject entry{{"role",link.role},{"asset",queryDisplayName(asset)},{"asset_id",link.assetId},{"primary",link.isPrimary}};
     queryVersionCitation(entry, catalog, link.assetId);
+    if (currentWell && !link.unresolved && asset.type == QLatin1String("well_log")) {
+      const auto assignment = model.sourceBore(boundWell, catalog->versionById(entry.value("version_id").toString()));
+      if (!assignment.isEmpty()) entry.insert("wellbore_assignment", assignment);
+    }
     if (!appendWithinBudget(entries, entry, bytes, 1536)) {
       if (entries.isEmpty()) return queryFailure("query_entry_too_large");
       more = true; break;
     }
     state.after = page.itemKeys.at(i);
   }
-  error = model.verify(); if (!error.isEmpty()) return queryFailure(error);
   more = more || page.hasMore;
+  if (args.value("role").toString().isEmpty()) {
+    QJsonArray bores;
+    QString status = QStringLiteral("unconfirmed");
+    if (boundWell > 0) {
+      status = QStringLiteral("model_unavailable");
+      if (model.exists() && !currentWell) status = QStringLiteral("unconfirmed");
+      else if (model.exists() && well.extra.value(QStringLiteral("queryModelAvailable")).toBool()) {
+        status = QStringLiteral("available");
+        const int remaining = rows - int(entries.size());
+        if (!more && remaining > 0) {
+          QJsonArray candidates; bool tail = false;
+          const auto issue = model.borePage(boundWell, state.wellboreAfter, remaining, candidates, tail);
+          if (!issue.isEmpty()) status = issue;
+          const auto linkBytes = QJsonDocument(entries).toJson(QJsonDocument::Compact).size();
+          for (const auto &candidate : candidates) {
+            const auto bore = candidate.toObject();
+            if (!appendWithinBudget(bores, bore, bytes, 1536 + int(linkBytes))) {
+              if (entries.isEmpty() && bores.isEmpty()) return queryFailure("query_entry_too_large");
+              more = true; break;
+            }
+            state.wellboreAfter = bore.value("key").toString();
+          }
+          more = more || tail;
+        } else more = true;
+      }
+    }
+    result.insert("wellbore_status", status);
+    result.insert("wellbores", bores);
+  }
+  error = model.verify(); if (!error.isEmpty()) return queryFailure(error);
   result.insert("well", well.name.isEmpty() ? well.id : well.name); result.insert("well_id", well.id);
   const auto ref = queryWellReference(well, state); if (ref.isEmpty()) return queryFailure("invalid_well_ref");
   result.insert("well_ref", ref);

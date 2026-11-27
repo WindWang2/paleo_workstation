@@ -14,6 +14,7 @@ class AiContextBar : public QWidget {
   Q_OBJECT
 public:
   AiContextBar(QWidget *parent = nullptr);
+  bool hasOpenProject() const { return m_hostKnown && m_hostOpen; }
   // 操作服务未接入（宿主上下文未知，不冒称未打开）：reason 给出原因。
   void presentUnavailable(const QString &projectBrief, bool streaming,
                           const QString &hostTurnId, const QString &reason);

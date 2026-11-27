@@ -38,10 +38,12 @@ QJsonObject metadata(const AnalysisReadPlan &plan,const QVector<data::CurveWindo
     const auto &selected=plan.curves[i];const auto &window=columns[i];
     fields.append(QJsonObject{{"curveId",QString::number(selected.curveId)},{"name",QString::fromStdString(window.curve.name)},
       {"unit",selected.unit},{"processed",selected.processed},{"nullPolicy","sdk_quality_bits_1_missing_2_abnormal_4_edited_and_nonfinite"}});
-    sources.append(QJsonObject{{"source",document::sourceRefJson(selected.source.ref)},{"sourceVersionId",selected.sourceVersionId},
+    QJsonObject source{{"source",document::sourceRefJson(selected.source.ref)},{"sourceVersionId",selected.sourceVersionId},
       {"wellId",QString::number(selected.wellId)},{"logSetId",QString::number(selected.logSetId)},{"curveId",QString::number(selected.curveId)},
       {"firstSample",QString::number(selected.firstSample)},{"sampleCount",selected.sampleCount},
-      {"sourceTotalSamples",QString::number(window.totalSamples)},{"processed",selected.processed}});
+      {"sourceTotalSamples",QString::number(window.totalSamples)},{"processed",selected.processed}};
+    if(!selected.wellboreKey.isEmpty())source.insert("wellboreKey",selected.wellboreKey);
+    sources.append(source);
   }
   const auto &first=plan.curves.first();
   const QJsonObject axis{{"kind",first.depthType},{"unit",first.depthUnit},{"reference",first.depthReference},

@@ -6,8 +6,9 @@
 #include <QVector>
 #include <functional>
 #include <limits>
+#include <memory>
 
-#include "algorithms/petrophys.h" // CurveStats / DepthInterval（QC 结果型）
+#include "domain/petrophysquality.h"
 
 // services/ — PetroPhysTaskService: 测井岩石物理批处理任务面（seismic
 // startAttributeSlice 同构：PaleoTaskService::start 池化 worker + 协作取消 +
@@ -174,6 +175,14 @@ public:
   static QString formulaName(Formula f);  // 显示名（中文 UI 用）
 
 private:
+  struct BatchInputs;
+  static std::shared_ptr<const BatchInputs> prepareInputs(DataCatalog *catalog, BatchRequest &request);
+  static WellResult processWell(const BatchInputs &inputs, const BatchRequest &request,
+                                const WellRef &well, const QString &outputDir, PaleoProjectStore *store,
+                                const std::function<void()> &computing);
+  static bool writeWellProduct(const BatchRequest &request, const WellRef &well,
+                               const QVector<LasCurve> &curves, WellResult &result,
+                               const QString &outputDir, PaleoProjectStore *store);
   static bool computeWell(const BatchRequest &req, const QVector<LasCurve> &curves,
                           WellResult *out, QString *error);
 

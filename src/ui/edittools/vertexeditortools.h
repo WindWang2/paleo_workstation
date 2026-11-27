@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QString>
 #include <QList>
+#include <functional>
 #include <memory>
 
 class QgsMapCanvas;
@@ -68,9 +69,8 @@ class QgisTopologicalIndex;
 // NEIGHBOR vector layers that (a) share the target layer's CRS and (b) are
 // themselves in an edit session (QGIS can only write editable layers — same
 // rule as native cross-layer topo). Participants are collected from the
-// canvas project at each gesture. Undo is per-layer native stacks: a
-// cross-layer gesture is one edit command per touched layer — undo steps
-// layer by layer (QGIS has no cross-layer undo stack; same as upstream).
+// canvas project at each gesture. The canvas undo route advances all participating
+// native stacks together, after verifying each still owns the same adjacent group.
 // OFF by default — host-driven (PaleoEditingToolbar mirror +
 // "paleo/crossLayerTopologicalEditing" project custom property).
 //
@@ -121,6 +121,8 @@ class PaleoVertexTool : public QgsMapToolEdit
     void keyPressEvent( QKeyEvent *e ) override;                 // Esc
 
   private:
+    void commitGesture( const QList<QgsVectorLayer *> &layers, const QString &title,
+                        const std::function<bool(QgsVectorLayer *)> &write );
     bool validatePartition(QgsVectorLayer *layer);
     // Internal drag bookkeeping (defined in the .cpp to keep this header
     // free of geometry includes): one in-flight vertex identified by

@@ -88,198 +88,395 @@
     <context>
         <name>AiAssistDock</name>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="64" />
-            <source>未配置</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="71" />
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="46" />
             <source>新会话</source>
-            <translation type="unfinished" />
+            <translation>New conversation</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="73" />
-            <source>配置…</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="82" />
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="465" />
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="38" />
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="761" />
             <source>会话</source>
-            <translation type="unfinished" />
+            <translation>Conversation</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="86" />
-            <source>重命名</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="88" />
-            <source>删除</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="119" />
-            <source>向助手提问（Enter 发送，Shift+Enter 换行）</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="127" />
-            <source>复制</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="129" />
-            <source>导出…</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="78" />
             <source>%1…</source>
-            <translation type="unfinished" />
+            <translation>%1…</translation>
         </message>
         <message>
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="49" />
             <source>档案异常（%2）：%1</source>
-            <translation type="unfinished" />
+            <translation>Archive error (%2): %1</translation>
         </message>
         <message>
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="47" />
             <source>超限会话：%1</source>
-            <translation type="unfinished" />
+            <translation>Conversation exceeds limits: %1</translation>
         </message>
         <message>
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="69" />
             <source>部分会话尚未校验（索引修复中或不可用），当前列表可能不完整</source>
-            <translation type="unfinished" />
+            <translation>The index is being repaired or is unavailable. Some conversations have not been verified and may be missing from this list.</translation>
         </message>
         <message>
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="62" />
             <source>（列表可能不完整：部分会话尚未校验）</source>
-            <translation type="unfinished" />
+            <translation>(Some conversations are pending verification. The list may be incomplete.)</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="131" />
-            <source>重发</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="133" />
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="130" />
             <source>发送</source>
-            <translation type="unfinished" />
+            <translation>Send</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="135" />
-            <source>停止</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="276" />
-            <source>未接入助手编排</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="289" />
-            <source>助手尚未接入 — 打开工程后再使用 AI 助手</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="290" />
-            <source>还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="291" />
-            <source>助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="319" />
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="34" />
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="42" />
             <source>（未命名会话）</source>
-            <translation type="unfinished" />
+            <translation>(Untitled conversation)</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="339" />
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="88" />
             <source>重命名会话</source>
-            <translation type="unfinished" />
+            <translation>Rename conversation</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="339" />
+            <location filename="../src/ui/ai/aiassistdock_sessions.cpp" line="88" />
             <source>会话标题：</source>
-            <translation type="unfinished" />
+            <translation>Conversation title:</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="382" />
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="111" />
             <source>结果已回传模型（%1 字符）</source>
-            <translation type="unfinished" />
+            <translation>Result returned to the model (%1 characters)</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="456" />
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="752" />
             <source>对话内容</source>
-            <translation type="unfinished" />
+            <translation>Conversation</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="469" />
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="765" />
             <source>导出会话</source>
-            <translation type="unfinished" />
+            <translation>Export conversation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="765" />
+            <source>Markdown 文件 (*.md)</source>
+            <translation>Markdown files (*.md)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="770" />
+            <source>导出失败</source>
+            <translation>Export failed</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="121" />
+            <source>◀ 更早结果</source>
+            <translation>◀ Older results</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="123" />
+            <source>更新结果 ▶</source>
+            <translation>Newer results ▶</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="411" />
+            <source>操作服务未接入（查询/取消/恢复不可用）</source>
+            <translation>Operation service disconnected (query, cancel, and resume unavailable)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="507" />
+            <source>（未知工具）</source>
+            <translation>(Unknown tool)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="508" />
+            <source>历史记录</source>
+            <translation>History</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="537" />
+            <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
+            <translation>Tool results %1–%2 of %3 (all messages are kept in the conversation and export)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="16" />
+            <source>导入文件…</source>
+            <translation>Import Files…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="28" />
+            <source>请先打开可写工程</source>
+            <translation>Open a writable project first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="42" />
+            <source>选择文件或将文件拖到助手中，自动识别并导入当前工程</source>
+            <translation>Choose files or drop them here. The assistant will identify them and import them into the current project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="53" />
+            <source>选择要导入当前工程的文件</source>
+            <translation>Choose files to import into the current project</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_import.cpp" line="59" />
+            <source>工程已变化，请重新选择文件。</source>
+            <translation>The project has changed. Select the files again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="42" />
+            <source>当前会话</source>
+            <translation>Current conversation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="50" />
+            <source>更多会话操作</source>
+            <translation>More conversation actions</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="51" />
+            <source>更多</source>
+            <translation>More</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="59" />
+            <source>重发上一条消息</source>
+            <translation>Resend last message</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="61" />
+            <source>复制对话</source>
+            <translation>Copy conversation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="63" />
+            <source>导出会话…</source>
+            <translation>Export conversation…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="66" />
+            <source>重命名会话…</source>
+            <translation>Rename conversation…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="68" />
+            <source>删除会话…</source>
+            <translation>Delete conversation…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="109" />
+            <source>消息输入框</source>
+            <translation>Message input</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="110" />
+            <source>输入消息…（Shift+Enter 换行）</source>
+            <translation>Type a message… (Shift+Enter for a new line)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="128" />
+            <source>模型设置…</source>
+            <translation>Model settings…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="132" />
+            <source>停止生成</source>
+            <translation>Stop generating</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="63" />
+            <source>对话记录</source>
+            <translation>Transcript</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="102" />
+            <source>文件导入</source>
+            <translation>File import</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="107" />
+            <source>你</source>
+            <translation>You</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="108" />
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="126" />
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="149" />
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="186" />
+            <source>助手</source>
+            <translation>Assistant</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="109" />
+            <source>系统</source>
+            <translation>System</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="111" />
+            <source>工具</source>
+            <translation>Tool</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="159" />
+            <source>错误</source>
+            <translation>Error</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="137" />
+            <source>工具结果</source>
+            <translation>Tool results</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="439" />
+            <source>助手尚未接入</source>
+            <translation>Assistant disconnected</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="441" />
+            <source>Enter 发送，Shift+Enter 换行</source>
+            <translation>Enter to send, Shift+Enter for a new line</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="451" />
+            <source>发送消息（Enter）</source>
+            <translation>Send message (Enter)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="451" />
+            <source>输入消息后即可发送</source>
+            <translation>Type a message to send it</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="464" />
+            <source>输入问题，或拖入文件以导入当前工程。</source>
+            <translation>Ask a question or drop files here to import them into this project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="465" />
+            <source>拖入文件即可导入当前工程。配置模型后还可以提问。</source>
+            <translation>Drop files here to import them into this project. Set up a model to ask questions.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="466" />
+            <source>输入问题，按 Enter 发送。</source>
+            <translation>Type a question and press Enter to send.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="467" />
+            <source>点击「模型设置…」配置模型，即可开始对话。</source>
+            <translation>Open “Model settings…” to set up a model and start chatting.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="468" />
+            <source>助手尚未接入。</source>
+            <translation>The assistant is disconnected.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="606" />
+            <source>层位 %1</source>
+            <translation>Horizon %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="607" />
+            <source>层段 %1</source>
+            <translation>Interval %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="608" />
+            <source>工程只读</source>
+            <translation>Read-only project</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="608" />
+            <source>工程可写</source>
+            <translation>Writable project</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="610" />
+            <source>工程未打开</source>
+            <translation>No project open</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="605" />
+            <source>工程标识 %1</source>
+            <translation>Project ID %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="606" />
+            <source>未选择</source>
+            <translation>None selected</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="74" />
+            <source>开始新对话</source>
+            <translation>Start a conversation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="93" />
+            <source>梳理工程资料</source>
+            <translation>Review project data</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="95" />
+            <source>查找可用工具</source>
+            <translation>Explore available tools</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="97" />
+            <source>选择工区文件…</source>
+            <translation>Choose project files…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="99" />
+            <source>配置对话模型…</source>
+            <translation>Set up a chat model…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="111" />
+            <source>梳理当前工程的井、地震和层位资料，列出还需要核对的项目。</source>
+            <translation>Review the wells, seismic data and horizons in this project. List anything that still needs checking.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="112" />
+            <source>当前有哪些工具可以用于资料检查和成图？请按用途列出。</source>
+            <translation>Which tools can I use to check data and create maps? Group them by purpose.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="212" />
+            <source>询问 AI Agent…</source>
+            <translation>Ask AI Agent…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="251" />
+            <source>Agent 正在处理请求</source>
+            <translation>AI Agent is working on your request</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="466" />
+            <source>询问工区资料，或将文件拖到这里导入。</source>
+            <translation>Ask about project data, or drop files here to import them.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="467" />
+            <source>询问可用工具，或写下要处理的问题。</source>
+            <translation>Explore the available tools or ask a question.</translation>
         </message>
         <message>
             <location filename="../src/ui/ai/aiassistdock.cpp" line="469" />
-            <source>Markdown 文件 (*.md)</source>
-            <translation type="unfinished" />
+            <source>可直接导入工区文件。配置模型后即可对话。</source>
+            <translation>You can import project files now. Connect a model to start chatting.</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="474" />
-            <source>导出失败</source>
-            <translation type="unfinished" />
+            <location filename="../src/ui/ai/aiassistdock.cpp" line="471" />
+            <source>配置模型后，即可在这里对话和调用工具。</source>
+            <translation>Connect a model to chat and use tools here.</translation>
         </message>
         <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="511" />
-            <source>待执行</source>
-            <translation type="unfinished" />
+            <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="146" />
+            <source>AI Agent</source>
+            <translation>AI Agent</translation>
         </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="541" />
-            <source>执行中</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="551" />
-            <source>已完成</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/ai/aiassistdock.cpp" line="551" />
-            <source>失败</source>
-            <translation type="unfinished" />
-        </message>
-    <message>
-        <source>◀ 更早结果</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>更新结果 ▶</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>操作服务未接入（查询/取消/恢复不可用）</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>（未知工具）</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>历史记录</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>状态已刷新（修订 %1）</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
-        <source>状态查询失败：%1</source>
-        <translation type="unfinished" />
-    </message>
     </context>
     <context>
         <name>AiAssistWorkflow</name>
@@ -529,6 +726,18 @@
 可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：
 %1</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_import.cpp" line="22" />
+            <source>文件导入记录为空</source>
+            <translation>The file import record is empty.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/aichatcontroller_import.cpp" line="40" />
+            <source>文件导入记录
+%1</source>
+            <translation>File import record
+%1</translation>
         </message>
     </context>
     <context>
@@ -1034,6 +1243,57 @@
         <source>原始内容（已截断，保留前 %1 字符）</source>
         <translation type="unfinished" />
     </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="340" />
+            <source>%1（%2）</source>
+            <translation>%1 (%2)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="339" />
+            <source>主井筒</source>
+            <translation>Main wellbore</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="335" />
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="336" />
+            <source>井筒</source>
+            <translation>Wellbores</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="336" />
+            <source>井筒资料暂不可读取</source>
+            <translation>Wellbore data is currently unavailable</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="339" />
+            <source>已登记分支井筒</source>
+            <translation>Registered branch wellbore</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="335" />
+            <source>所属井尚待确认</source>
+            <translation>Parent well awaits confirmation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="370" />
+            <source>归属冲突</source>
+            <translation>Conflicting assignment</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="369" />
+            <source>待确认</source>
+            <translation>Awaiting confirmation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="371" />
+            <source>来源待核验</source>
+            <translation>Source verification pending</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/ai/aitoolresultview.cpp" line="355" />
+            <source>来源所属井筒</source>
+            <translation>Wellbore assigned to this source</translation>
+        </message>
     </context>
     <context>
         <name>AlgorithmSpec</name>
@@ -1128,6 +1388,11 @@
             <location filename="../src/app/appcontext_layers.cpp" line="190" />
             <source>测区范围</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/app/appcontext.cpp" line="522" />
+            <source>请将新工程保存到可用的数据盘 %1。</source>
+            <translation>Save the new project to the available data drive %1.</translation>
         </message>
     </context>
     <context>
@@ -7325,6 +7590,11 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
             <translation type="unfinished" />
         </message>
         <message>
+            <location filename="../src/ui/pages/datalist_paleomaps.cpp" line="40"/>
+            <source>%1 · v%2 · %3</source>
+            <translation>%1 · v%2 · %3</translation>
+        </message>
+        <message>
             <location filename="../src/ui/pages/datalist_paleomaps.cpp" line="48" />
             <source>工区概况</source>
             <translation type="unfinished" />
@@ -8786,6 +9056,16 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
         <source>工程处于只读模式，撤销/重做已禁用</source>
         <translation>The project is read-only; undo/redo is disabled</translation>
     </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="26" />
+            <source>接收原件包</source>
+            <translation>Receive original files</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/datalist_importbuttons.cpp" line="27" />
+            <source>选择另一工程导出的原件包目录，校验并保存 LAS 或 SEG-Y，再确认导入</source>
+            <translation>Select an original-file package from another project, verify and save the LAS or SEG-Y files, then confirm the import</translation>
+        </message>
 </context>
     <context>
         <name>DataPage</name>
@@ -9961,6 +10241,23 @@ GeoJSON 需要有效经纬度变换；Shapefile 可能截短字段。</source>
         <source>预览页面已关闭</source>
         <translation>Preview page closed</translation>
     </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546" />
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607" />
+            <source>地震转码</source>
+            <translation>Seismic transcoding</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="546" />
+            <location filename="../src/ui/datapreview/datapreviewtabseismic.cpp" line="607" />
+            <source>无法创建工程工作区</source>
+            <translation>Cannot create the project workspace</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="641" />
+            <source>%1 · v%2</source>
+            <translation>%1 · v%2</translation>
+        </message>
 </context>
     <context>
         <name>DataServiceImportWizard</name>
@@ -12858,9 +13155,49 @@ Crossline: %3 ~ %4</source>
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/qgis/faciespartitiontool.cpp" line="41" />
-            <source>编辑目标已切换，请重新选择相面工具</source>
-            <translation type="unfinished" />
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="77" />
+            <source>实线内将保留，斜线部分将裁掉。再次右键确认，或退格修正笔画。</source>
+            <translation>The area inside the solid outline will be kept. The hatched area will be clipped. Right-click again to confirm, or press Backspace to revise the sketch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="109" />
+            <source>未吸附</source>
+            <translation>Not snapped</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="110" />
+            <source>左键加点，右键取消</source>
+            <translation>Left-click to add a vertex, right-click to cancel</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="110" />
+            <source>右键完成，退格撤回一点</source>
+            <translation>Right-click to finish, Backspace to remove the last vertex</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="111" />
+            <source>%1 个顶点 · %2 · %3</source>
+            <translation>%1 vertices · %2 · %3</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="140" />
+            <source>%1。Shift + 左键移动末点，退格撤回一点，或继续加点后右键重试。</source>
+            <translation>%1. Shift-click to move the last vertex, press Backspace to remove it, or add vertices and right-click to try again.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="116" />
+            <source>吸附到交点</source>
+            <translation>Snapped to intersection</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="120" />
+            <source>吸附到「%1」的要素 %2</source>
+            <translation>Snapped to feature %2 in “%1”</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciespartitiontool.cpp" line="121" />
+            <source>吸附到要素 %1</source>
+            <translation>Snapped to feature %1</translation>
         </message>
     </context>
     <context>
@@ -12956,6 +13293,10 @@ Crossline: %3 ~ %4</source>
     <context>
         <name>FolderImportWorkflow</name>
         <message>
+            <source>后台任务已关闭，请重试。</source>
+            <translation>The background task closed. Please try again.</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/folderimport.cpp" line="317" />
             <source>扫描工区文件夹</source>
             <translation type="unfinished" />
@@ -12969,7 +13310,7 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="105" />
             <source>已取消导入，未写入工程</source>
-            <translation type="unfinished" />
+            <translation>Import canceled. No data was written to the project.</translation>
         </message>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="199" />
@@ -12994,7 +13335,7 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="514" />
             <source>扫描所选文件</source>
-            <translation type="unfinished" />
+            <translation>Scan selected files</translation>
         </message>
         <message>
             <location filename="../src/workflow/folderimport.cpp" line="547" />
@@ -13005,6 +13346,35 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/workflow/folderimport.cpp" line="595" />
             <source>导入 %1</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport.cpp" line="124" />
+            <location filename="../src/workflow/folderimport.cpp" line="248" />
+            <location filename="../src/workflow/folderimport.cpp" line="588" />
+            <location filename="../src/workflow/folderimport_agent.cpp" line="38" />
+            <location filename="../src/workflow/folderimport_agent.cpp" line="73" />
+            <source>工程已变化，请重新选择资料。</source>
+            <translation>The project has changed. Select the data files again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_agent.cpp" line="51" />
+            <source>请选择可读取的非空本地文件。</source>
+            <translation>Select a local file that is readable and contains data.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_originals.cpp" line="34" />
+            <source>工程已切换，请在原工程查看收件结果。</source>
+            <translation>The active project has changed. Open the original project to view the receipt.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_originals.cpp" line="52" />
+            <source>校验并接收原件包</source>
+            <translation>Verify and receive original files</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/folderimport_originals.cpp" line="19" />
+            <source>请先打开可写工程，再接收原件包。</source>
+            <translation>Open a writable project before receiving original files.</translation>
         </message>
     </context>
     <context>
@@ -13162,6 +13532,22 @@ Crossline: %3 ~ %4</source>
     </context>
     <context>
         <name>GeologicalExportDialog</name>
+        <message>
+            <source>当前地图坐标系</source>
+            <translation>Current map coordinate system</translation>
+        </message>
+        <message>
+            <source>主图层原始坐标系</source>
+            <translation>Primary layer coordinate system</translation>
+        </message>
+        <message>
+            <source>显示相图斑名称</source>
+            <translation>Show facies patch labels</translation>
+        </message>
+        <message>
+            <source>图面坐标</source>
+            <translation>Print coordinate system</translation>
+        </message>
         <message>
             <location filename="../src/ui/dialogs/geologicalexportdialog.cpp" line="27" />
             <source>导出地质图</source>
@@ -13996,6 +14382,16 @@ Crossline: %3 ~ %4</source>
             <source>该图层属于层位 %1（未激活）</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/layers/layertreepanel.cpp" line="327" />
+            <source>图层工具</source>
+            <translation>Layer tools</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/layers/layertreepanel.cpp" line="328" />
+            <source>展开或收起图层工具</source>
+            <translation>Show or hide layer tools</translation>
+        </message>
     </context>
     <context>
         <name>LlmDiagnosticsPanel</name>
@@ -14510,6 +14906,10 @@ Crossline: %3 ~ %4</source>
     <context>
         <name>MappingBaseMapSelector</name>
         <message>
+            <source>此图归属界面 %1，可作为当前子层段的空间参考。</source>
+            <translation>This map belongs to boundary %1 and can be displayed as a spatial reference for the current subinterval.</translation>
+        </message>
+        <message>
             <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="21" />
             <source>1 · 选择基础图</source>
             <translation type="unfinished" />
@@ -14548,11 +14948,6 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="38" />
             <source>从零编制</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="41" />
-            <source>新建空白古地理图</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -14624,6 +15019,41 @@ Crossline: %3 ~ %4</source>
         <source>建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。</source>
         <translation>After creating a blank three-level facies map, select a target microfacies and draw the first closed polygon directly; explanations can be generated automatically in the background and are not required upfront.</translation>
     </message>
+        <message>
+            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="31" />
+            <source>初始微相</source>
+            <translation>Initial microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="33" />
+            <source>工区边界轮廓预览</source>
+            <translation>Study area boundary preview</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="56" />
+            <source>选择范围内的初始微相</source>
+            <translation>Choose the initial microfacies for the area</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="76" />
+            <source>范围取自「%1」，坐标系为 %2。选定初始微相后，可在这个范围内细分。</source>
+            <translation>The boundary comes from “%1” in %2. Choose the initial microfacies to subdivide this area.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="87" />
+            <source>手绘编图范围</source>
+            <translation>Draw the map boundary</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="92" />
+            <source>使用工区边界 · %1</source>
+            <translation>Use study area boundary · %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingbasemapselector.cpp" line="122" />
+            <source>选择初始微相后，第一笔闭合面将确定整图编制范围。后续图斑在该范围内细分，首次保存前可撤销首笔。</source>
+            <translation>Choose the initial microfacies, then draw a closed polygon to set the map boundary. Subsequent polygons subdivide this area. You can undo the first polygon before the first save.</translation>
+        </message>
 </context>
     <context>
         <name>MappingEditBasis</name>
@@ -14819,6 +15249,43 @@ Crossline: %3 ~ %4</source>
         <source>手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。</source>
         <translation>Manual basis form modified; edits still use the previously enabled basis until re-enabled.</translation>
     </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="313" />
+            <source>填写解释说明即可启用，修改目的可选（合计不超过 9000 字）</source>
+            <translation>Enter an interpretation note to enable the manual basis. The purpose is optional. Both fields together allow up to 9,000 characters.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="180" />
+            <source>给当前图斑加备注</source>
+            <translation>Add a note to the current polygon</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="184" />
+            <source>后续编辑沿用这条说明</source>
+            <translation>Use this note for subsequent edits</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="396" />
+            <source>%1 · 图斑 %2</source>
+            <translation>%1 · Polygon %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="398" />
+            <source>已随 v%1 保存</source>
+            <translation>Saved in v%1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="398" />
+            <source>工作副本草稿</source>
+            <translation>Working copy draft</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingeditbasis.cpp" line="399" />
+            <source>%1 · %2
+%3</source>
+            <translation>%1 · %2
+%3</translation>
+        </message>
 </context>
     <context>
         <name>MappingEvidencePanel</name>
@@ -14851,6 +15318,22 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="453" />
             <source>%1 个视图</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="333" />
+            <location filename="../src/ui/pages/mappingreferencepanel_layout.cpp" line="56" />
+            <source>添加参考</source>
+            <translation>Add reference</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="393" />
+            <source>将主图和参考图放在中央工作区对照</source>
+            <translation>Compare the main and reference maps in the central workspace</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="392" />
+            <source>工作区对照</source>
+            <translation>Compare in workspace</translation>
         </message>
     </context>
     <context>
@@ -14981,6 +15464,41 @@ Crossline: %3 ~ %4</source>
             <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="243" />
             <source>将关闭最后一个证据视图（可随时再添加）</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="101" />
+            <source>聚类图例</source>
+            <translation>Cluster legend</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="256" />
+            <source>v%1</source>
+            <translation>v%1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="253" />
+            <source>井建议</source>
+            <translation>Well-based suggestion</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="254" />
+            <source>人工解释</source>
+            <translation>Manual interpretation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="252" />
+            <source>原始簇</source>
+            <translation>Original clusters</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="123" />
+            <source>参考图例</source>
+            <translation>Reference legend</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingreferencepanel.cpp" line="250" />
+            <source>只读参考</source>
+            <translation>Read-only reference</translation>
         </message>
     </context>
     <context>
@@ -15279,6 +15797,26 @@ Crossline: %3 ~ %4</source>
         <source>无需先填解释，直接选中或绘制相面；分割、覆盖和合并后自动记录或后台生成草稿</source>
         <translation>No upfront explanation required—select or paint facies directly; drafts are recorded or generated in the background after split, overlay, or merge</translation>
     </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="333" />
+            <source>选择要继续编辑的副本…</source>
+            <translation>Choose a working copy to continue editing…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="333" />
+            <source>继续编辑 · %1</source>
+            <translation>Continue editing · %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide_drafts.cpp" line="80" />
+            <source>%1 · %2</source>
+            <translation>%1 · %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingtaskguide.cpp" line="274" />
+            <source>勾选地震体并设置聚类数。运行后可查看原始簇图或选择聚类面赋相。</source>
+            <translation>Select a seismic volume and set the cluster count. Once clustering is complete, view the original clusters or assign facies to the cluster polygons.</translation>
+        </message>
 </context>
     <context>
         <name>MappingWorkbench</name>
@@ -15778,11 +16316,6 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/workflow/mappingworkbench_edit.cpp" line="469" />
             <source>无法创建编图版本暂存目录</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/workflow/mappingworkbench_edit.cpp" line="503" />
-            <source>图件版本已保存（%1），但测井属性同步失败：%2。修正后可再次保存，编辑事件不会重复入档。</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -16407,7 +16940,7 @@ Crossline: %3 ~ %4</source>
         <message>
             <location filename="../src/workflow/mappingevidencereview.cpp" line="971" />
             <source>本次修订：%1（修订 %2）</source>
-            <translation type="unfinished" />
+            <translation>Reason for this change: %1 (revision %2)</translation>
         </message>
         <message>
             <location filename="../src/workflow/mappingevidencereview.cpp" line="979" />
@@ -16994,6 +17527,246 @@ Crossline: %3 ~ %4</source>
         <source>后台自动生成编图解释草稿</source>
         <translation>Auto-generated mapping explanation draft in background</translation>
     </message>
+        <message>
+            <location filename="../src/workflow/mappingeditcontext.cpp" line="61" />
+            <source>请填写解释说明，说明与修改目的合计不超过 9000 字</source>
+            <translation>Enter an interpretation note. The note and the optional purpose together allow up to 9,000 characters.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingevidencereview.cpp" line="1032" />
+            <source>请先设置本次解释说明，再绘制或修改相面</source>
+            <translation>Enter an interpretation note before drawing or editing facies polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingevidencereview.cpp" line="1043" />
+            <source>记录手动解释说明</source>
+            <translation>Record manual interpretation note</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingbasemaps.cpp" line="19" />
+            <source>所选工区边界已失效。</source>
+            <translation>The selected study area boundary is no longer available.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditcontext.cpp" line="95" />
+            <source>请先选择当前层位的工作副本</source>
+            <translation>Select a working copy for the current horizon.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="45" />
+            <source>当前工程只读，无法保存图件版本</source>
+            <translation>The project is read-only. The map version cannot be saved.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="47" />
+            <source>无法定位工作副本保存记录</source>
+            <translation>Could not locate the save record for this working copy.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="48" />
+            <source>正在保存该工作副本</source>
+            <translation>This working copy is being saved.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="54" />
+            <source>工作副本的保存记录损坏，无法继续登记</source>
+            <translation>The save record for this working copy is damaged. Version registration cannot continue.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="57" />
+            <source>工作副本已落盘，但无法写入版本登记记录</source>
+            <translation>The working copy was saved, but its version registration record could not be written.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="65" />
+            <source>工作副本已保存，成果版本未登记。%1</source>
+            <translation>The working copy was saved. The map version has not been registered. %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="70" />
+            <source>成果版本 %1 已登记，井属性尚未同步。%2</source>
+            <translation>Map version %1 was registered. Well attributes still need to be synchronized. %2</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="72" />
+            <source>成果版本 %1 已登记，保存记录尚未清理，可重试。</source>
+            <translation>Map version %1 was registered. Retry to clear the pending save record.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_edit.cpp" line="525" />
+            <source>无法读取已登记版本的测井属性快照</source>
+            <translation>Could not read the well attribute snapshot from the registered version.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="97" />
+            <source>成果版本 %1 已同步，无法读取工作副本来核对最新修订。</source>
+            <translation>Version %1 was synchronized. The working copy could not be read to verify its latest revision.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="100" />
+            <source>成果版本 %1 已同步，工作副本还有未登记的修订，更新保存记录失败。</source>
+            <translation>Version %1 was synchronized. The working copy has an unregistered revision, and its save record could not be updated.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingeditsave.cpp" line="102" />
+            <source>成果版本 %1 已同步，工作副本还有更新的修订，请登记当前工作副本。</source>
+            <translation>Version %1 was synchronized. Register the working copy to save its newer edits.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench.cpp" line="1247" />
+            <source>无法写入版本登记记录，图层修改保留在编辑缓冲区。请恢复工程目录的写入权限后重试。</source>
+            <translation>The version registration record could not be written. Your edits are still in the layer buffer. Restore write access to the project folder and try again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="160" />
+            <source> 井赋相栅格</source>
+            <translation> well-assigned facies raster</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="163" />
+            <source> 井赋相面</source>
+            <translation> well-assigned facies polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="208" />
+            <source>%1 · 聚类面</source>
+            <translation>%1 · Cluster polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="67" />
+            <source>%1 · 聚类面人工解释</source>
+            <translation>%1 · Manually interpreted cluster polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="587" />
+            <source>%1 地震聚类</source>
+            <translation>%1 seismic clusters</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="231" />
+            <source>井赋相成果已保存，工程视图保存失败</source>
+            <translation>The well-based facies assignment was saved, but the project view could not be saved.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="197" />
+            <source>井预测、井位或相分类已变化，请重新预览</source>
+            <translation>The well predictions, well locations, or facies taxonomy changed. Run the preview again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="199" />
+            <source>井预测或聚类文件已变化，请重新预览</source>
+            <translation>A well prediction or cluster file changed. Run the preview again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="136" />
+            <source>原始簇图已过期或缺失</source>
+            <translation>The original cluster map is missing or out of date.</translation>
+        </message>
+        <message>
+            <source>聚类成果已过期，请重新计算</source>
+            <translation>The cluster result is out of date. Run clustering again.</translation>
+        </message>
+        <message>
+            <source>聚类面与原始簇图的层段不一致，请重新选择成果</source>
+            <translation>The cluster polygons and the original raster belong to different stratigraphic units. Select a matching result.</translation>
+        </message>
+        <message>
+            <source>聚类面来源或层段已变化，请重新预览</source>
+            <translation>The cluster polygons' source or stratigraphic unit has changed. Run the preview again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="337" />
+            <source>地震聚类 · %1</source>
+            <translation>Seismic clustering · %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="593" />
+            <source>已保存原始聚类栅格</source>
+            <translation>Original cluster raster saved</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="36" />
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="150" />
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="192" />
+            <source>当前工程位置不可写</source>
+            <translation>The current project location is read-only.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="152" />
+            <source>所选井预测已过期或不属于当前层段</source>
+            <translation>The selected well prediction is out of date or belongs to a different interval.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="327" />
+            <source>无法创建聚类暂存目录</source>
+            <translation>Could not create the staging directory for clustering.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="50" />
+            <source>无法创建聚类面暂存目录</source>
+            <translation>Could not create the staging directory for cluster polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="205" />
+            <source>无法登记井赋相使用的分类版本</source>
+            <translation>Could not register the taxonomy version used for well-based facies assignment.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="149" />
+            <source>聚类数须在 1–64 之间</source>
+            <translation>The cluster count must be between 1 and 64.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="118" />
+            <source>聚类栅格在转面期间已改变，请重新生成</source>
+            <translation>The cluster raster changed during polygonization. Generate the polygons again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_predict.cpp" line="596" />
+            <source>聚类栅格已保存，可重试生成聚类面：%1</source>
+            <translation>The cluster raster was saved. Retry creating the cluster polygons: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_polygonize.cpp" line="112" />
+            <source>聚类栅格文件与登记版本不一致，请重新生成</source>
+            <translation>The cluster raster file does not match its registered version. Generate it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="41" />
+            <source>聚类面文件与登记版本不一致，请重新生成</source>
+            <translation>The cluster polygon file does not match its registered version. Generate it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_compose.cpp" line="110" />
+            <source>请先给聚类面赋相，再用于编图</source>
+            <translation>Assign facies to these cluster polygons before using them in a facies map.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="190" />
+            <source>请先预览至少一口落入聚类区的有效井</source>
+            <translation>Preview at least one valid well inside the clustered area.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_consistency.cpp" line="89" />
+            <source>请选择同一层段中用于比对的测井相或已赋相地震成果</source>
+            <translation>Select well facies or a facies-assigned seismic result from the same interval for comparison.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="130" />
+            <source>请选择已保存的原始聚类面</source>
+            <translation>Select a saved original cluster polygon layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="21" />
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="32" />
+            <source>请选择已保存的聚类面或其赋相版本</source>
+            <translation>Select a saved cluster polygon layer or a facies-assigned version.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterpatches.cpp" line="84" />
+            <source>微相分类已经改变，请重新核对草稿</source>
+            <translation>The microfacies classification has changed. Review the draft again.</translation>
+        </message>
 </context>
     <context>
         <name>MappingWorkbenchPage</name>
@@ -18947,6 +19720,71 @@ Feature %4 · version %5</translation>
         <source>相、亚相、微相共用一套相面分区。先检查并保存新版本，再导出（无需等待解释生成）。显示层级可按图层固定，也可锁定选中相面；导出图例沿用实际显示。</source>
         <translation>Facies, subfacies, and microfacies share one partition. Check topology and save a new version before exporting (no need to wait for explanations). Display levels can be fixed per layer or locked per polygon; exported legends match the displayed view.</translation>
     </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage_flow.cpp" line="105" />
+            <source>重试井属性同步</source>
+            <translation>Retry well attribute synchronization</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage_flow.cpp" line="106" />
+            <source>重试登记当前工作副本</source>
+            <translation>Retry registration of this working copy</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="293" />
+            <source>人工调整微相…</source>
+            <translation>Adjust microfacies manually…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="110" />
+            <source>地震层段窗聚类 → 原始簇图</source>
+            <translation>Seismic interval clustering → original cluster map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="292" />
+            <source>用井预测赋相…</source>
+            <translation>Assign facies from well predictions…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage_cluster.cpp" line="19" />
+            <source>聚类数 K</source>
+            <translation>Number of clusters (K)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="659" />
+            <source>请选择原始聚类面</source>
+            <translation>Select an original cluster polygon layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="660" />
+            <source>请选择聚类面或已赋相的解释面</source>
+            <translation>Select cluster polygons or a facies-assigned interpretation layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="100" />
+            <source>选择地震体和聚类数。聚类完成后可查看簇图、用井预测赋相或人工指定微相。</source>
+            <translation>Select a seismic volume and a cluster count. Once clustering is complete, view the clusters, assign facies from well predictions, or assign microfacies manually.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="283" />
+            <source>与主图对照</source>
+            <translation>Compare with main map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="15" />
+            <source>对照勾选的输入</source>
+            <translation>Compare checked inputs</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="14" />
+            <source>打开参考证据</source>
+            <translation>Open reference evidence</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/pages/mappingworkbenchpage_references.cpp" line="11" />
+            <source>选择地震相、测井相、单因素图或参考相图与主图对照。可添加多个参考视图。</source>
+            <translation>Compare the main map with seismic facies, log facies, single-factor maps or reference facies maps. Add a reference view for each source.</translation>
+        </message>
 </context>
     <context>
         <name>MappingWorkflow</name>
@@ -19805,6 +20643,11 @@ Feature %4 · version %5</translation>
             <source>已删除 %1 个要素</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtools.cpp" line="549" />
+            <source>删除要素失败</source>
+            <translation>Could not delete the feature</translation>
+        </message>
     </context>
     <context>
         <name>PaleoDockManager</name>
@@ -19980,6 +20823,10 @@ Feature %4 · version %5</translation>
     <context>
         <name>PaleoEditingToolbar</name>
         <message>
+            <source>请先在当前图层选择要素</source>
+            <translation>Select features in the current layer first</translation>
+        </message>
+        <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="396" />
             <source>先保存或取消图层 %1 的编辑，再切换图层</source>
             <translation type="unfinished" />
@@ -20103,7 +20950,7 @@ Feature %4 · version %5</translation>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="467" />
             <source>本段编辑尚未确认保存。保存编辑，或放弃本段修改？</source>
-            <translation type="unfinished" />
+            <translation>This edit session has unsaved changes. Save or discard them?</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="468" />
@@ -20148,11 +20995,6 @@ Feature %4 · version %5</translation>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="553" />
             <source>跨层</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="553" />
-            <source>跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -20319,17 +21161,17 @@ Feature %4 · version %5</translation>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="799" />
             <source>编辑中：%1</source>
-            <translation type="unfinished" />
+            <translation>Editing: %1</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="804" />
             <source>浏览：%1</source>
-            <translation type="unfinished" />
+            <translation>Browsing: %1</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="805" />
             <source>未选择矢量图层</source>
-            <translation type="unfinished" />
+            <translation>No vector layer selected</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="849" />
@@ -20340,7 +21182,7 @@ Feature %4 · version %5</translation>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="943" />
             <source>图层 %1 已在编辑中</source>
-            <translation type="unfinished" />
+            <translation>Layer %1 is already being edited.</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="949" />
@@ -20470,8 +21312,33 @@ Feature %4 · version %5</translation>
         </message>
         <message>
             <location filename="../src/ui/edittools/editingtoolbar_partition.cpp" line="79" />
-            <source>三级相面共用基础分区，跨层独立撤销会破坏一致性；请在当前工作副本编辑</source>
-            <translation type="unfinished" />
+            <source>三级相面的拓扑校验限于当前工作副本，跨层编辑仅适用于普通图层</source>
+            <translation>Topology checks for the three-level facies partition apply to the current working copy. Cross-layer editing is available for ordinary layers.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="974" />
+            <source>已保存「%1」：%2</source>
+            <translation>Saved “%1”: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="376" />
+            <source>跨层拓扑：同坐标系普通图层的共点节点一起编辑和撤销</source>
+            <translation>Cross-layer topology: edit and undo shared vertices together on ordinary layers with the same CRS</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="925" />
+            <source>删除所选要素</source>
+            <translation>Delete selected features</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="928" />
+            <source>删除所选要素失败</source>
+            <translation>Could not delete the selected features</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/edittools/editingtoolbar.cpp" line="939" />
+            <source>删除所选 %1 项</source>
+            <translation>Delete %1 selected items</translation>
         </message>
     </context>
     <context>
@@ -21481,6 +22348,22 @@ Feature %4 · version %5</translation>
     <context>
         <name>PaleoMainWindow</name>
         <message>
+            <source>仅数据盘以外的只读工程需要复制</source>
+            <translation>Only read-only projects outside the data drive need a copy</translation>
+        </message>
+        <message>
+            <source>任务服务尚未就绪</source>
+            <translation>The task service is not ready</translation>
+        </message>
+        <message>
+            <source>工作副本 · %1</source>
+            <translation>Working copy · %1</translation>
+        </message>
+        <message>
+            <source>已登记版本 v%1</source>
+            <translation>Registered version v%1</translation>
+        </message>
+        <message>
             <source>命令不可用：%1</source>
             <translation>Command unavailable: %1</translation>
         </message>
@@ -22031,8 +22914,9 @@ Feature %4 · version %5</translation>
         <message numerus="yes">
             <location filename="../src/ui/paleomainwindow_project.cpp" line="148" />
             <source>%n 个所选文件</source>
-            <translation type="unfinished">
-                <numerusform />
+            <translation>
+                <numerusform>%n selected file</numerusform>
+                <numerusform>%n selected files</numerusform>
             </translation>
         </message>
         <message>
@@ -22130,11 +23014,6 @@ Feature %4 · version %5</translation>
             <location filename="../src/ui/paleomainwindow.cpp" line="827" />
             <location filename="../src/ui/paleomainwindow.cpp" line="829" />
             <source>未保存的编辑</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/paleomainwindow.cpp" line="844" />
-            <source>图层「%1」的编辑未能提交，操作中止。</source>
             <translation type="unfinished" />
         </message>
         <message>
@@ -22265,7 +23144,7 @@ Feature %4 · version %5</translation>
             <location filename="../src/ui/paleomainwindow_project.cpp" line="155" />
             <location filename="../src/ui/paleomainwindow_project.cpp" line="181" />
             <source>工程已变化，请重新选择资料。</source>
-            <translation type="unfinished" />
+            <translation>The project has changed. Select the data files again.</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow.cpp" line="830" />
@@ -22853,13 +23732,13 @@ Feature %4 · version %5</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="115" />
-            <source>搜索井位/层位</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井、层位</source>
+            <translation>Find commands, wells, horizons</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="122" />
-            <source>搜索井位 / 层位</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井位和层位</source>
+            <translation>Find commands, wells and horizons</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow.cpp" line="178" />
@@ -22868,8 +23747,8 @@ Feature %4 · version %5</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="116" />
-            <source>搜索井位/层位  %1</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井、层位  %1</source>
+            <translation>Find commands, wells, horizons  %1</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="757" />
@@ -24110,16 +24989,6 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="426" />
-            <source>画布编辑已保存并生成图件新版本。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="429" />
-            <source>画布编辑已保存，并登记了新的图件版本。</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
             <location filename="../src/ui/paleomainwindow_sections.cpp" line="131" />
             <source>连井 / 时深对齐</source>
             <translation type="unfinished" />
@@ -24978,6 +25847,383 @@ PDF：%3
         <source>已取消后台解释生成。</source>
         <translation>Background explanation generation cancelled.</translation>
     </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="15" />
+            <source>已导入</source>
+            <translation>Imported</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="16" />
+            <source>已登记，关联待解析</source>
+            <translation>Registered; association pending</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="17" />
+            <source>导入失败</source>
+            <translation>Import failed</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="18" />
+            <source>已跳过</source>
+            <translation>Skipped</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="25" />
+            <source>工程「%1」文件导入结果</source>
+            <translation>File import results for project “%1”</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="26" />
+            <source>已取消导入。</source>
+            <translation>Import canceled.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="27" />
+            <source>导入遇到错误。</source>
+            <translation>An error occurred during import.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="33" />
+            <source>资产 ID %1</source>
+            <translation>Asset ID %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="37" />
+            <source>共 %1 项，已列出前 %2 项。</source>
+            <translation>Showing the first %2 of %1 items.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="43" />
+            <source>请先打开可写工程</source>
+            <translation>Open a writable project first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="44" />
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="60" />
+            <source>工程正在切换，请稍后再导入</source>
+            <translation>The project is switching. Try importing again shortly.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="45" />
+            <source>当前工程只读，无法导入文件</source>
+            <translation>The current project is read-only. Open a writable project to import files.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="46" />
+            <source>工程导入服务未接入</source>
+            <translation>The project import service is unavailable.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="75" />
+            <source>无法导入；请在当前可写工程中重新选择文件。</source>
+            <translation>Unable to import. Select the files again in the current writable project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="84" />
+            <source>文件导入记录未能保存：%1</source>
+            <translation>Could not save the file import record: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="86" />
+            <source>已选择 %1 个文件导入工程「%2」。</source>
+            <translation>Files selected for import into project “%2”: %1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="88" />
+            <source>工程已变化，所选文件尚未导入。</source>
+            <translation>The project has changed. The selected files have not been imported.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="91" />
+            <source>正在识别并导入所选文件…</source>
+            <translation>Identifying and importing the selected files…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="104" />
+            <source>%1：%2</source>
+            <translation>%1: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="112" />
+            <source>请核对待确认文件的类型或关联。</source>
+            <translation>Review the file types or associations that need confirmation.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="531" />
+            <source>请填写右侧的解释说明，点击“启用手动解释依据”后再选择相面编辑工具。</source>
+            <translation>Enter an interpretation note on the right, click “Enable Manual Basis”, then select a facies editing tool.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="19" />
+            <source>项目中已有相同内容</source>
+            <translation>Identical content already exists in this project</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow.cpp" line="866" />
+            <source>提交失败：%1。%2</source>
+            <translation>Commit failed for %1. %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow.cpp" line="867" />
+            <source>已提交：%1</source>
+            <translation>Committed: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow.cpp" line="868" />
+            <source>尚未提交：%1</source>
+            <translation>Still to commit: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="767" />
+            <source>保存图层编辑</source>
+            <translation>Save layer edits</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="782" />
+            <source>图层编辑未提交：%1</source>
+            <translation>Layer edits were not committed: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="799" />
+            <source>工程已保存，以下图层仍有修改：%1</source>
+            <translation>Project saved. These layers still have edits: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="295" />
+            <source>该相面工作副本已不可用，请重新选择。</source>
+            <translation>This facies working copy is no longer available. Select another copy.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="308" />
+            <source>正在编辑 %1</source>
+            <translation>Editing %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="311" />
+            <source>无法进入所选工作副本。</source>
+            <translation>Could not open the selected working copy for editing.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="350" />
+            <source>边界已变化，请重新预览后建立相图。</source>
+            <translation>The boundary has changed. Preview it again before creating the facies map.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="354" />
+            <source>请选择当前层位的初始微相。</source>
+            <translation>Select the initial microfacies for this horizon.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="554" />
+            <source>目标图斑或草稿已改变，请重新选择</source>
+            <translation>The target polygon or draft has changed. Select it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="750" />
+            <source>切换编辑图层</source>
+            <translation>Switch editing layers</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="750" />
+            <source>当前正在编辑「%1」。如何处理本次编辑？</source>
+            <translation>You are editing “%1”. What would you like to do with these edits?</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="751" />
+            <source>保存并继续</source>
+            <translation>Save and continue</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="751" />
+            <source>放弃并继续</source>
+            <translation>Discard and continue</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="751" />
+            <source>返回当前副本</source>
+            <translation>Return to the current working copy</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="791" />
+            <source>已保存「%1」：%2</source>
+            <translation>Saved “%1”: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="482" />
+            <source>画布编辑已保存，当前成果版本为 v%1。</source>
+            <translation>Canvas edits saved. The current map version is v%1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="47" />
+            <source>原件已收 %1 份，其中 %2 份为此前收件。</source>
+            <translation>Received %1 original files, including %2 previously received.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="48" />
+            <source>接收已取消。</source>
+            <translation>Transfer cancelled.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="69" />
+            <source>旧包的来源工程</source>
+            <translation>Source project for this legacy package</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="70" />
+            <source>输入发送方的稳定工程标识。再次接收同一工程的资料时请使用相同标识。</source>
+            <translation>Enter the sender's stable project ID. Use the same ID for future packages from that project.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_agentimport.cpp" line="55" />
+            <source>选择 LAS 或 SEG-Y 原件包目录</source>
+            <translation>Select a LAS or SEG-Y original-file package directory</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="54" />
+            <source>复制工程到数据盘并打开…</source>
+            <translation>Copy project to the data drive and open…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow.cpp" line="591" />
+            <source>工程位于数据盘以外，以只读模式打开。要继续编辑，请在工程菜单中选择“复制工程到数据盘并打开”。</source>
+            <translation>This project is open read-only because it is outside the data drive. To edit it, choose “Copy project to the data drive and open” in the project menu.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_projectsetup.cpp" line="65" />
+            <source>选择数据盘上的目标父目录（将复制清单成员和受管资料）</source>
+            <translation>Choose a parent folder on the data drive for the project members and managed data</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_project.cpp" line="286" />
+            <source>以下来源仍引用原工程中的文件。请在数据页核对并重定位到所需副本（最多列出 20 条）。</source>
+            <translation>The following sources still reference files in the original project. Review them on the Data page and relocate them to the desired copies (up to 20 shown).</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_project.cpp" line="285" />
+            <source>工程副本中有旧路径来源</source>
+            <translation>Some sources in the copied project still use old paths</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/mappingworkbenchcommandcontroller.cpp" line="134" />
+            <source>工程或层段已切换，请重新选择聚类面</source>
+            <translation>The project or interval changed. Select the cluster polygons again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="589" />
+            <source>%1 · 地震聚类 · v%2</source>
+            <translation>%1 · Seismic clusters · v%2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="266" />
+            <source> · %1</source>
+            <translation> · %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="259" />
+            <source>%1%</source>
+            <translation>%1%</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="636" />
+            <source>主图 %1 · v%2（%3）</source>
+            <translation>Main map %1 · v%2 (%3)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="638" />
+            <source>主图无已登记版本</source>
+            <translation>Main map has no registered version</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="270" />
+            <source>任务中心 · %1</source>
+            <translation>Task center · %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="802" />
+            <source>右侧工作面板</source>
+            <translation>Right workspace panel</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="265" />
+            <source>后台任务 %1</source>
+            <translation>Background tasks: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="807" />
+            <source>对象属性</source>
+            <translation>Object properties</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="265" />
+            <source>就绪</source>
+            <translation>Ready</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="631" />
+            <source>工程 %1</source>
+            <translation>Project %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="46" />
+            <source>建立索引</source>
+            <translation>Indexing</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="269" />
+            <source>打开任务中心</source>
+            <translation>Open task center</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="44" />
+            <source>扫描</source>
+            <translation>Scanning</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="49" />
+            <source>构建</source>
+            <translation>Building</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="48" />
+            <source>校验</source>
+            <translation>Validating</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="267" />
+            <source>正在处理数据 100%</source>
+            <translation>Processing data 100%</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="45" />
+            <source>解析</source>
+            <translation>Parsing</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_pages.cpp" line="47" />
+            <source>解码</source>
+            <translation>Decoding</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="188" />
+            <location filename="../src/ui/paleomainwindow_workbench.cpp" line="840" />
+            <source>调整图斑微相</source>
+            <translation>Change patch microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_docks.cpp" line="838" />
+            <source>窗口布局无法读取，已恢复默认布局。</source>
+            <translation>The saved window layout could not be read. The default layout has been restored.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_docks.cpp" line="590" />
+            <source>AI Agent</source>
+            <translation>AI Agent</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="262" />
+            <source>打开 AI Agent（%1）</source>
+            <translation>Open AI Agent (%1)</translation>
+        </message>
 </context>
     <context>
         <name>PaleoMapBookController</name>
@@ -26176,6 +27422,16 @@ PDF：%3
             <source>停靠面板拖动中</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="156" />
+            <source>切换专注工作区</source>
+            <translation>Toggle focus mode</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="156" />
+            <source>打开 AI Agent</source>
+            <translation>Open AI Agent</translation>
+        </message>
     </context>
     <context>
         <name>PaleoStartupScreen</name>
@@ -26298,16 +27554,6 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/edittools/vertexeditortools.cpp" line="712" />
-            <source>部分图层拒绝了节点删除</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/edittools/vertexeditortools.cpp" line="713" />
-            <source>无法删除节点</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
             <location filename="../src/ui/edittools/vertexeditortools.cpp" line="741" />
             <source>编辑已停止——节点移动已丢弃</source>
             <translation type="unfinished" />
@@ -26318,16 +27564,6 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
-            <location filename="../src/ui/edittools/vertexeditortools.cpp" line="810" />
-            <source>部分图层的编辑已停止——这些移动已丢弃</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/edittools/vertexeditortools.cpp" line="811" />
-            <source>无法移动节点</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
             <location filename="../src/ui/edittools/vertexeditortools.cpp" line="827" />
             <source>请先开始编辑，再添加节点</source>
             <translation type="unfinished" />
@@ -26335,16 +27571,6 @@ PDF：%3
         <message>
             <location filename="../src/ui/edittools/vertexeditortools.cpp" line="886" />
             <source>添加节点</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/edittools/vertexeditortools.cpp" line="919" />
-            <source>部分图层拒绝了节点插入</source>
-            <translation type="unfinished" />
-        </message>
-        <message>
-            <location filename="../src/ui/edittools/vertexeditortools.cpp" line="920" />
-            <source>无法添加节点</source>
             <translation type="unfinished" />
         </message>
     </context>
@@ -26397,8 +27623,8 @@ PDF：%3
         </message>
         <message>
             <location filename="../src/ui/help/whatsthiscatalog.cpp" line="31" />
-            <source>顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。</source>
-            <translation type="unfinished" />
+            <source>输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。</source>
+            <translation>Enter a well or horizon name to locate it. Selecting a horizon makes it active. Type “cmd ” to list commands. Use spaces to combine keywords, for example “cmd import wells”. Type “well ” before a well name or “hor ” before a horizon name to narrow your search.</translation>
         </message>
         <message>
             <location filename="../src/ui/help/whatsthiscatalog.cpp" line="32" />
@@ -26442,8 +27668,8 @@ PDF：%3
         </message>
         <message>
             <location filename="../src/ui/help/whatsthiscatalog.cpp" line="56" />
-            <source>通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。</source>
-            <translation type="unfinished" />
+            <source>选择资料目录，设置工程保存位置和坐标系。创建后在后台导入，完成时可在数据管理中核对井、地震和层位。</source>
+            <translation>Choose a data folder, project location and coordinate system. Import runs in the background. When it finishes, review the wells, seismic data and horizons in Data Management.</translation>
         </message>
         <message>
             <location filename="../src/ui/help/whatsthiscatalog.cpp" line="57" />
@@ -28316,6 +29542,21 @@ PDF：%3
             <source>写入工程清单失败</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/workflow/projectopen.cpp" line="53" />
+            <source>复制并校验工程</source>
+            <translation>Copy and verify project</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/projectopen.cpp" line="61" />
+            <source>工程复制失败</source>
+            <translation>Project copy failed</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/projectopen.cpp" line="134" />
+            <source>请使用新建工程向导，在数据盘创建工程并选择此资料目录。</source>
+            <translation>Use the New Project wizard to create a project on the data drive and select this source folder.</translation>
+        </message>
     </context>
     <context>
         <name>ProjectSetupDialog</name>
@@ -28934,6 +30175,16 @@ PDF：%3
             <location filename="../src/workflow/projectsetup_area.cpp" line="136" />
             <source>资料未提供可唯一确定的 EPSG，工程基准已默认采用 EPSG:32650。</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/projectsetup.cpp" line="120" />
+            <source>请为新工程和原始资料选择相互独立的目录。</source>
+            <translation>Choose separate directories for the new project and the source data.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/projectsetup.cpp" line="116" />
+            <source>请将新工程保存到可用的数据盘 %1。</source>
+            <translation>Save the new project to the available data drive %1.</translation>
         </message>
     </context>
     <context>
@@ -29762,6 +31013,55 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
+        <message>
+            <location filename="../src/services/paleotaskservice.cpp" line="35" />
+            <source>任务在执行前已随工作台关闭</source>
+            <translation>The workbench shut down before this task could start.</translation>
+        </message>
+        <message>
+            <source>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</source>
+            <translation>Cannot determine the primary layer or map coordinate system. Use the current map coordinate system.</translation>
+        </message>
+        <message>
+            <source>无法将当前范围转换至主图层坐标系：%1</source>
+            <translation>Cannot transform the current extent to the primary layer coordinate system: %1</translation>
+        </message>
+        <message>
+            <source>当前范围在主图层坐标系中无效。</source>
+            <translation>The current extent is invalid in the primary layer coordinate system.</translation>
+        </message>
+        <message>
+            <source>操作已提交，取消请求不影响已提交成果（cancel_after_commit）</source>
+            <translation>The operation was committed. Cancellation does not affect its saved results (cancel_after_commit).</translation>
+        </message>
+        <message>
+            <source>提交不确定（commit_uncertain）：提交状态以服务事实为准</source>
+            <translation>Commit unconfirmed (commit_uncertain). Check the service for the current commit status.</translation>
+        </message>
+        <message>
+            <source>已请求取消（等待执行面确认，不提前宣称已停止）</source>
+            <translation>Cancellation requested. Waiting for the running operation to confirm.</translation>
+        </message>
+        <message>
+            <source>取消请求失败：%1</source>
+            <translation>Cancellation request failed: %1</translation>
+        </message>
+        <message>
+            <source>恢复已受理（原 operationId 继续执行）</source>
+            <translation>Resume accepted. The operation continues under its original ID.</translation>
+        </message>
+        <message>
+            <source>恢复失败：%1</source>
+            <translation>Resume failed: %1</translation>
+        </message>
+        <message>
+            <source>状态已刷新（修订 %1）</source>
+            <translation>Status refreshed (revision %1)</translation>
+        </message>
+        <message>
+            <source>状态查询失败：%1</source>
+            <translation>Status query failed: %1</translation>
+        </message>
     <message>
         <source>well_facies_inputs/well_curves 所属精确 WellRef；元数据查询不读曲线数值，well_curves 返回可解析的 input_ref，不表示已验收数值或执行</source>
         <translation>Exact WellRef for well_facies_inputs/well_curves. Metadata queries do not read numerical samples; well_curves returns resolvable input_ref values, without certifying numerical input or execution readiness.</translation>
@@ -39007,8 +40307,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="219" />
-            <source>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</source>
-            <translation>Exact catalog version ID (required for topic=version/version_parents; no name fallback)</translation>
+            <source>version 和 version_parents 的精确目录版本标识。version 返回成果类型和已登记的分析层段。</source>
+            <translation>Exact catalog version ID for version and version_parents. The version topic returns the result type and any recorded analysis unit.</translation>
         </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="228" />
@@ -39748,6 +41048,782 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <source>受管图层的显示快照与受限修改：可见性/透明度/样式经宿主 Read|Presentation 门，回执回读原生状态且未保存工程文件</source>
         <translation>Display snapshots and restricted mutations of managed layers: visibility/opacity/styles pass the host Read|Presentation gates; receipts read back native state and note the unsaved project file</translation>
     </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="14" />
+            <source>能力目录与契约检查</source>
+            <translation>Capability catalog and contract inspection</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="15" />
+            <source>只读查询 Agent 可用的业务能力与工具目录：list 分页列出已登记的 capability/algorithm/tool（UI 命令全集仅在 filter=commands 时给出）；describe 按精确 ID+版本读取参数/端口/效果合同（sections 可选节，超预算时整节省略并在 coverage 声明）；check 对候选实参复用既有纯验证器返回分层结论（declaration/route/parameter/policy/runtime 相互独立，policy 只反映当前宿主静态策略，动态前提恒为 not_checked）。本工具不执行任何能力、不发放执行票据——检查结论不豁免原工具调用时的既有门禁。</source>
+            <translation>Inspect the catalog of domain capabilities and tools available to the agent. Use list to page through registered capabilities, algorithms, and tools. Set filter=commands to list all UI commands. Use describe with an exact ID and version to read the parameter, port, and effect contracts. Select sections with the sections parameter. Sections omitted to meet the size limit are listed in coverage. Use check to validate candidate arguments. Existing side-effect-free validators report declaration, route, parameter, policy, and runtime independently. The policy result reflects the current host’s static policy. Runtime prerequisites are always reported as not_checked. This read-only tool neither runs capabilities nor issues execution tickets. The original tool still applies its usual checks when called.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="28" />
+            <source>查询模式：list=分页目录；describe=精确合同；check=候选参数预检</source>
+            <translation>Query mode: list pages through the catalog, describe reads an exact contract, and check validates candidate arguments.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="32" />
+            <source>describe 目标类型：capability/algorithm/command/tool</source>
+            <translation>Target kind for describe: capability, algorithm, command, or tool.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="36" />
+            <source>精确注册表 ID（capability/command 支持 registry 声明的别名；别名冲突时不猜测）</source>
+            <translation>Exact registry ID. Capabilities and commands also accept aliases declared in the registry. Conflicting aliases are rejected.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="40" />
+            <source>目标契约版本（0=当前登记最高版，缺省 0；给定版本精确匹配不回落）</source>
+            <translation>Target contract version. The default, 0, selects the highest registered version. Any other value must match exactly.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="43" />
+            <source>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</source>
+            <translation>Sections to return for describe (up to 16, all by default). Capabilities and algorithms accept identity, contract, params, ports, lifecycle, and related. Commands accept identity, contract, and related. Tools also accept route. An unsupported section returns invalid_section.</translation>
+        </message>
+        <message>
+            <source>list 搜索名称、标识或说明，多个关键词用空格分隔，最多 128 个字符</source>
+            <translation>In list mode, search names, identifiers or descriptions. Separate keywords with spaces. Up to 128 characters.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="49" />
+            <source>list 筛选：default=capability+algorithm+tool；另有 capabilities/algorithms/tools/commands 精确子集</source>
+            <translation>Filter for list. The default includes capabilities, algorithms, and tools. Use capabilities, algorithms, tools, or commands to select a single group.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="56" />
+            <source>check 候选（二选一）：{tool,arguments} 或 {algorithm,contract_version,parameters}；实参只是数据，approved/scope/路径不构成许可</source>
+            <translation>Candidate for check: provide either {tool,arguments} or {algorithm,contract_version,parameters}. Arguments are data. An approved flag, scope, or path does not grant permission.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="60" />
+            <source>上一页 nextCursor；绑定筛选与目录摘要，注册表演进后报 cursor_stale</source>
+            <translation>The nextCursor from the previous page. It is tied to the filter and catalog digest. A registry change returns cursor_stale.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="63" />
+            <source>list 每页条数（1–32，缺省 16）</source>
+            <translation>Entries per list page (1–32, default 16).</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="65" />
+            <source>本页 JSON 字节预算（2048–8192，缺省 8192；与传输层内联页上限对齐，更大结果经 paleo.read_result 引用续读）</source>
+            <translation>JSON byte limit for this page (2048–8192, default 8192), capped at the transport’s inline page limit. Use the result reference with paleo.read_result to continue reading larger results.</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="696" />
+            <source>只读能力目录与候选参数预检；执行仍由原工具与宿主门禁决定</source>
+            <translation>Read-only capability catalog and candidate argument validation. Execution remains subject to the original tool and host checks.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciesmapboundary.cpp" line="17" />
+            <source>请选择已登记的面状工区边界。</source>
+            <translation>Select a registered polygon boundary for the study area.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciesmapboundary.cpp" line="20" />
+            <source>工区边界需要已知的米制坐标系，请先完成配准。</source>
+            <translation>The study area boundary requires a known CRS in metres. Georeference it first.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciesmapboundary.cpp" line="22" />
+            <source>工区边界有未提交的修改，请先保存边界。</source>
+            <translation>Save the pending edits to the study area boundary first.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciesmapboundary.cpp" line="29" />
+            <source>工区边界含有空或无效的面，请先修复。</source>
+            <translation>The study area boundary contains empty or invalid polygons. Repair them first.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciesmapboundary.cpp" line="34" />
+            <source>无法建立有效的工区覆盖范围。</source>
+            <translation>Could not create a valid study area extent.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/faciesmapboundary.cpp" line="72" />
+            <source>工作副本已变化，请重新选择编图范围。</source>
+            <translation>The working copy has changed. Select the map boundary again.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="60" />
+            <source>仅可接收每个 RAW 版本含一个 LAS 或 SEG-Y 原件的资料包</source>
+            <translation>Each RAW version in the package must contain a single original LAS or SEG-Y file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="168" />
+            <source>写入收件文件失败</source>
+            <translation>Could not write the received file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="66" />
+            <source>原件不在清单声明的资产版本目录</source>
+            <translation>The original file is outside the asset version directory declared in the manifest</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="356" />
+            <source>原件交付需要 %1 字节，目标卷可用 %2 字节</source>
+            <translation>Delivering the original files requires %1 bytes. The destination volume has %2 bytes available</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="164" />
+            <source>原件传输中断</source>
+            <translation>Original file transfer interrupted</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="78" />
+            <source>原件位置或长度与清单不符</source>
+            <translation>The original file location or size does not match the manifest</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="176" />
+            <source>原件完整性核验失败</source>
+            <translation>Original file integrity check failed</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="150" />
+            <source>原件或已收文件长度不符</source>
+            <translation>The original or previously received file has an unexpected size</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="75" />
+            <source>原件缺少一致的完整摘要或长度</source>
+            <translation>The original file is missing a consistent full-file checksum or size</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="123" />
+            <source>复制期间来源文件发生变化或读取不完整：%1</source>
+            <translation>The source file changed during copying or could not be read in full: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/dataimport_geodata.cpp" line="228" />
+            <source>外部时间域层位 %1，来源体版本 %2，待关联本工区测区</source>
+            <translation>External time-domain horizon %1 from volume version %2 awaits association with a survey in this project</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="395" />
+            <source>导出文件重名：%1</source>
+            <translation>Duplicate export filename: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="166" />
+            <source>工程内已有文件与本次原件不同</source>
+            <translation>The existing project file differs from the incoming original</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="226" />
+            <source>工程收件区不可写</source>
+            <translation>The project receiving directory is not writable</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="154" />
+            <source>工程盘不可用或剩余空间不足</source>
+            <translation>The project drive is unavailable or has insufficient free space</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="207" />
+            <source>收件发布失败，可重新接收</source>
+            <translation>Publishing the received file failed. You can retry the transfer</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="118" />
+            <source>收件回执位置无效</source>
+            <translation>Invalid receipt location</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="196" />
+            <source>收件文件位置无效</source>
+            <translation>Invalid location for the received file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="185" />
+            <source>收件目录越界或不可用</source>
+            <translation>The receiving directory is outside the project or is unavailable</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="134" />
+            <source>无法写入收件回执</source>
+            <translation>Cannot write the transfer receipt</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="191" />
+            <source>无法创建工程收件暂存目录</source>
+            <translation>Cannot create the project's transfer staging directory</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="147" />
+            <source>无法打开原件或工程收件文件</source>
+            <translation>Cannot open the original file or the project's receiving file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="46" />
+            <source>无法读取清单或清单过大</source>
+            <translation>The manifest is unreadable or too large</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="96" />
+            <source>旧资料包缺少来源工程身份，请在资料页接收时指定来源工程标识</source>
+            <translation>This legacy package has no source project ID. Specify one when receiving it on the Data page</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="92" />
+            <source>来源工程身份与清单不一致</source>
+            <translation>The source project ID does not match the manifest</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="98" />
+            <source>来源版本指纹格式无效：%1</source>
+            <translation>Invalid source version fingerprint format: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="52" />
+            <source>清单格式无效</source>
+            <translation>Invalid manifest format</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="127" />
+            <source>相同来源工程与版本已有不同内容或身份的收件记录</source>
+            <translation>A receipt with different content or identity already exists for this source project and version</translation>
+        </message>
+        <message>
+            <location filename="../src/services/dataexport.cpp" line="236" />
+            <source>缺少持久工程标识；本批数据可导出，接收方需核实来源工程。</source>
+            <translation>No persistent project ID is available. This batch can be exported, but the recipient must verify the source project.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="220" />
+            <source>缺少接收工程或资料包目录</source>
+            <translation>A receiving project and a package directory are required</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="70" />
+            <source>该文件不是 LAS 或 SEG-Y 原件</source>
+            <translation>This file is not an original LAS or SEG-Y file</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="188" />
+            <source>该版本正在接收或收件目录不可写，请稍后重试</source>
+            <translation>This version is being received or the receiving directory is not writable. Try again later</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="89" />
+            <source>请选择已完成的原生格式资料导出包</source>
+            <translation>Select a completed native-format export package</translation>
+        </message>
+        <message>
+            <location filename="../src/io/originalpackage.cpp" line="104" />
+            <source>资料包版本重复或文件总量超出可处理范围</source>
+            <translation>The package contains duplicate versions or exceeds the supported total file size</translation>
+        </message>
+        <message>
+            <location filename="../src/ai/chat/domaintools.cpp" line="451" />
+            <source>well_curves 可指定 well_details 中的井筒标识；返回该井筒已确认 LAS 来源的曲线引用及待确认数量</source>
+            <translation>well_curves accepts a wellbore ID from well_details and returns curve references from confirmed LAS sources and the number awaiting confirmation.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="30" />
+            <source>主井筒填 main，侧钻井筒填稳定编号</source>
+            <translation>Enter main for the main bore or a stable ID for a sidetrack</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="33" />
+            <source>井筒名称</source>
+            <translation>Wellbore name</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="32" />
+            <source>井筒标识</source>
+            <translation>Wellbore ID</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="112" />
+            <source>复制工程需要 %1 字节，目标可用 %2 字节。</source>
+            <translation>The project copy requires %1 bytes. The destination has %2 bytes available.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="128" />
+            <source>复制期间工程发生变化，请关闭编辑后重试。</source>
+            <translation>The project changed during copying. Close the editing session and try again.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="44" />
+            <source>工程中有链接目录或文件，请先处理后再迁移：%1</source>
+            <translation>Resolve this linked file or folder before migrating the project: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopylayers.cpp" line="47" />
+            <source>工程中的 QGIS XML 无法读取。</source>
+            <translation>The QGIS project XML could not be read.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopylayers.cpp" line="109" />
+            <source>工程包中缺少 QGIS 工程文件。</source>
+            <translation>The QGIS project file is missing from the bundle.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopylayers.cpp" line="103" />
+            <source>工程包有多个 QGIS 工程文件，无法确定入口。</source>
+            <translation>The bundle contains multiple QGIS project files. Its entry point is ambiguous.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="74" />
+            <source>工程文件校验失败：%1</source>
+            <translation>Project file verification failed: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="46" />
+            <source>工程正在被编辑，关闭写入它的实例后再迁移。</source>
+            <translation>Close the instance editing this project before migrating it.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="107" />
+            <source>工程清单中的 QGIS 文件缺失：%1</source>
+            <translation>The QGIS file named in the project manifest is missing: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="39" />
+            <location filename="../src/io/projectcopy.cpp" line="62" />
+            <source>已取消复制工程。</source>
+            <translation>Project copy cancelled.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="28" />
+            <source>所属井</source>
+            <translation>Parent well</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="102" />
+            <source>所选 QGIS 文件不属于该目录的工程清单，请打开对应的 project.paleo。</source>
+            <translation>The selected QGIS file does not belong to this folder’s project manifest. Open the matching project.paleo file.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="118" />
+            <source>无法创建工程副本目录：%1</source>
+            <translation>Could not create the project copy folder: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="129" />
+            <source>无法发布已校验的工程副本：%1</source>
+            <translation>Could not publish the verified project copy: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="52" />
+            <source>无法完整读取工程目录：%1</source>
+            <translation>Could not read the entire project folder: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="47" />
+            <source>无法读取工程成员：%1</source>
+            <translation>Could not read project member: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="96" />
+            <source>此 QGIS 文件没有工程清单 project.paleo，无法确认要复制的资料。请先提供带清单的工程束。</source>
+            <translation>This QGIS file has no project.paleo manifest to identify the files to copy. Select a project bundle that includes a manifest.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="93" />
+            <source>目标目录已经存在，请选择其他位置：%1</source>
+            <translation>The destination folder already exists. Choose another location: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="25" />
+            <source>确认 LAS 所属井筒</source>
+            <translation>Confirm LAS wellbore assignment</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="20" />
+            <source>确认 LAS 所属井筒…</source>
+            <translation>Confirm LAS wellbore assignment…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="51" />
+            <source>该来源或井筒标识已有不同归属，请核对。</source>
+            <translation>This source or wellbore ID already has a different assignment. Check the assignment.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/documentsession_wellbores.cpp" line="66" />
+            <source>无法将这份 LAS 确认到所选井。请核对 LAS 解析出的所属井和资料关联，两者须指向同一口井。</source>
+            <translation>Cannot confirm this LAS for the selected well. Check that the LAS resolves to a single well and that the catalog links it to the same well.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/datapreview/wellboresourcebutton.cpp" line="43" />
+            <source>请填写井筒标识和名称。</source>
+            <translation>Enter the wellbore ID and name.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="90" />
+            <source>请选择数据盘中位于原工程目录以外的目标目录。</source>
+            <translation>Choose a destination on the data drive outside the original project folder.</translation>
+        </message>
+        <message>
+            <location filename="../src/io/projectcopy.cpp" line="87" />
+            <source>请选择独立工程目录中的工程文件。</source>
+            <translation>Select a project file in a dedicated project folder.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="55" />
+            <source> · 支持率 %1%</source>
+            <translation> · %1% support</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="121" />
+            <source>%1 · 井赋相栅格</source>
+            <translation>%1 · Well-assigned facies raster</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="121" />
+            <source>%1 · 井赋相面</source>
+            <translation>%1 · Well-assigned facies polygons</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="131" />
+            <source>井像元所属聚类面不唯一</source>
+            <translation>The well's grid cell does not map to a unique cluster polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="52" />
+            <source>井口坐标无法转换到地震网格</source>
+            <translation>Could not transform the wellhead coordinates to the seismic grid.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="57" />
+            <source>井口坐标转换失败</source>
+            <translation>Wellhead coordinate transformation failed.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="23" />
+            <source>井段顶底深度无法核对</source>
+            <translation>Could not verify the top and base depths of the well interval.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="135" />
+            <source>井的原始聚类像元与图斑不匹配</source>
+            <translation>The well's original cluster cell does not match the polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="124" />
+            <source>井的聚类像元中心无效</source>
+            <translation>The centre of the well's cluster cell is invalid.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="81" />
+            <source>井预测文件缺失或摘要无效</source>
+            <translation>The well prediction file is missing or has an invalid checksum.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="25" />
+            <source>仅有全井预测</source>
+            <translation>Only a whole-well prediction is available</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="22" />
+            <source>优势相厚度相同</source>
+            <translation>The dominant facies are tied by thickness</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="89" />
+            <source>保存聚类赋相失败</source>
+            <translation>Could not save the cluster facies assignment.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="121" />
+            <source>写入聚类面编号失败</source>
+            <translation>Could not write the cluster polygon ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="38" />
+            <source>单井分段预测缺少唯一井身份或有效的井口坐标</source>
+            <translation>The single-well interval prediction lacks a unique well ID or valid wellhead coordinates.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="188" />
+            <source>原始图斑已分割，请从解释图中选择具体的面</source>
+            <translation>The original patch has been split. Select a polygon in the interpretation layer.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="116" />
+            <source>原始聚类栅格转面失败</source>
+            <translation>Could not polygonize the original cluster raster.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="73" />
+            <source>图斑 %1</source>
+            <translation>Patch %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="21" />
+            <source>地震缺测</source>
+            <translation>No seismic data</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="22" />
+            <source>层段无预测覆盖</source>
+            <translation>No prediction coverage in the interval</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="191" />
+            <source>所选聚类面已改变，请重新选择</source>
+            <translation>The selected cluster polygon has changed. Select it again.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="193" />
+            <source>所选面包含多个聚类，请按当前面调整</source>
+            <translation>The selected polygon spans multiple clusters. Apply the change to this polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="124" />
+            <source>提交聚类面失败</source>
+            <translation>Could not commit the cluster polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="154" />
+            <source>支持井缺少图斑编号</source>
+            <translation>A supporting well has no patch ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="51" />
+            <source>无井支持</source>
+            <translation>No supporting wells</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="82" />
+            <source>无法保存聚类图斑的格网边界</source>
+            <translation>Could not save the grid-aligned boundary of the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="86" />
+            <source>无法写入聚类图斑</source>
+            <translation>Could not write the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="79" />
+            <source>无法准备赋相属性</source>
+            <translation>Could not prepare the facies assignment attributes.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="70" />
+            <source>无法创建聚类赋相文件</source>
+            <translation>Could not create the cluster facies assignment file.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="72" />
+            <source>无法创建聚类赋相面</source>
+            <translation>Could not create the facies-assigned cluster polygons.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="112" />
+            <source>无法创建聚类面属性</source>
+            <translation>Could not create the cluster polygon attributes.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="105" />
+            <source>无法创建聚类面文件</source>
+            <translation>Could not create the cluster polygon file.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="83" />
+            <source>无法复制聚类图斑</source>
+            <translation>Could not copy the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="76" />
+            <source>无法复制聚类面字段</source>
+            <translation>Could not copy the cluster polygon fields.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="185" />
+            <source>无法定位所选聚类面</source>
+            <translation>Could not locate the selected cluster polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="95" />
+            <source>无法打开原始聚类栅格</source>
+            <translation>Could not open the original cluster raster.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicwellcalibration.cpp" line="43" />
+            <source>无法解析已保存的单井分段预测</source>
+            <translation>Could not read the saved interval predictions for this well.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="31" />
+            <source>无法读取原始聚类面的编号或像元数</source>
+            <translation>Could not read an original cluster polygon's IDs or cell count.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="52" />
+            <source>有分歧</source>
+            <translation>Conflicting votes</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="69" />
+            <source>未计入的井</source>
+            <translation>Excluded wells</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingworkbench_clusterwells.cpp" line="63" />
+            <source>来源文件缺失或已改变，请重新选择成果</source>
+            <translation>The source file is missing or has changed. Select the result again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="62" />
+            <source>簇 %1</source>
+            <translation>Cluster %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="24" />
+            <source>缺少预测或井点</source>
+            <translation>Missing prediction or well location</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="21" />
+            <source>网格外</source>
+            <translation>Outside the grid</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="56" />
+            <source>聚类图斑几何无效</source>
+            <translation>Invalid cluster patch geometry.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="60" />
+            <source>聚类图斑外环无效</source>
+            <translation>Invalid exterior ring of the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="74" />
+            <source>聚类图斑的网格编号或覆盖无效</source>
+            <translation>Invalid grid ID or cell coverage for the cluster patch.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="99" />
+            <source>聚类图斑需要有效的北向上网格</source>
+            <translation>Cluster patches require a valid north-up grid.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="108" />
+            <source>聚类栅格坐标系无效</source>
+            <translation>Invalid cluster raster coordinate reference system.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="66" />
+            <source>聚类赋相输出路径不可用</source>
+            <translation>The cluster facies assignment output path is unavailable.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="159" />
+            <source>聚类面缺少对应的井票记录</source>
+            <translation>No well vote record matches this cluster polygon.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterpatches.cpp" line="101" />
+            <source>聚类面输出驱动或路径不可用</source>
+            <translation>The cluster polygon output driver or path is unavailable.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="176" />
+            <source>请选择目标分类中的微相</source>
+            <translation>Select a microfacies from the target taxonomy.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="53" />
+            <source>（单井支持）</source>
+            <translation> (one supporting well)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="67" />
+            <source>%1 · 要素 %2</source>
+            <translation>%1 · Feature %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="66" />
+            <source>合并图斑</source>
+            <translation>Merged patch</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="113" />
+            <source>无法读取聚类面编号</source>
+            <translation>Could not read the cluster polygon ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="65" />
+            <source>簇 %1 · 图斑 %2</source>
+            <translation>Cluster %1 · Patch %2</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="101" />
+            <source>聚类面缺少要素编号</source>
+            <translation>The cluster polygon has no feature ID.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="152" />
+            <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="254" />
+            <source>待赋相</source>
+            <translation>Unassigned facies</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="30" />
+            <source>单井分段预测文件已改变</source>
+            <translation>The well interval prediction file has changed.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="34" />
+            <source>单井分段预测格式无效</source>
+            <translation>Invalid format for this well’s interval predictions.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="25" />
+            <source>原始簇图尺寸无效</source>
+            <translation>Invalid original cluster grid dimensions.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="20" />
+            <source>原始簇图缺少北向上的分类网格</source>
+            <translation>The original cluster map does not have a north-up categorical grid.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="30" />
+            <source>原始簇图缺少坐标系</source>
+            <translation>The original cluster grid has no coordinate reference system.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="27" />
+            <source>无法读取单井分段预测</source>
+            <translation>Could not read the interval predictions for this well.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/clusterassignmentgrid.cpp" line="38" />
+            <source>无法读取原始簇栅格</source>
+            <translation>Could not read the original cluster raster.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="43" />
+            <source>预测井段顶底无效</source>
+            <translation>Invalid top or base depth for the predicted well interval.</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/seismicwellintervals.cpp" line="49" />
+            <source>预测微相与所选分类的完整路径不一致</source>
+            <translation>The full path of the predicted microfacies does not match the selected taxonomy.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="25" />
+            <source>%1 口</source>
+            <translation>%1 wells</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/seismicpatchassignment.cpp" line="231" />
+            <source>当前没有待保存的调整</source>
+            <translation>No changes to save</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="25" />
+            <source>暂无统计</source>
+            <translation>No statistics available</translation>
+        </message>
 </context>
     <context>
         <name>QgisCanvasController</name>
@@ -39926,6 +42002,46 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/qgis/qgiseditingservice.cpp" line="244" />
             <source>%1 is invalid: %2%3</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="90" />
+            <source>新增 %1 个要素</source>
+            <translation>Features added: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="91" />
+            <source>删除 %1 个要素</source>
+            <translation>Features deleted: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="92" />
+            <source>修改 %1 个要素的几何</source>
+            <translation>Features with geometry changes: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="93" />
+            <source>修改 %1 个要素的属性</source>
+            <translation>Features with attribute changes: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="94" />
+            <source>新增 %1 个字段</source>
+            <translation>Fields added: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="95" />
+            <source>删除 %1 个字段</source>
+            <translation>Fields deleted: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="97" />
+            <source>其他图层编辑</source>
+            <translation>Other layer edits</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/qgiseditingservice.cpp" line="98" />
+            <source>，</source>
+            <translation>, </translation>
         </message>
     </context>
     <context>
@@ -40546,6 +42662,11 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <source>未分类断层</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <location filename="../src/qgis/seismicclusterstyle.cpp" line="17" />
+            <source>簇 %1</source>
+            <translation>Cluster %1</translation>
+        </message>
     </context>
     <context>
         <name>RealizationPanel</name>
@@ -41015,6 +43136,16 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/workflow/realizationworkflow.cpp" line="1367" />
             <source>两集合均值差：%1 vs %2</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <location filename="../src/workflow/realizationworkflow.cpp" line="1285" />
+            <source>无法创建差值面暂存目录</source>
+            <translation>Cannot create a staging directory for the difference surface</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/realizationworkflow.cpp" line="1000" />
+            <source>无法创建统计面暂存目录</source>
+            <translation>Cannot create a staging directory for the statistics surfaces</translation>
         </message>
     </context>
     <context>
@@ -45227,8 +47358,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/ui/ribbontitlefit.cpp" line="249" />
-            <source>搜索井位 / 层位</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井位和层位</source>
+            <translation>Find commands, wells and horizons</translation>
         </message>
         <message>
             <location filename="../src/ui/ribbontitlefit.cpp" line="250" />
@@ -57393,6 +59524,38 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>PaleoCommands</name>
         <message>
+            <source>复制工程到数据盘并打开</source>
+            <translation>Copy project to the data drive and open it</translation>
+        </message>
+        <message>
+            <source>将只读工程复制到数据盘，校验后打开副本</source>
+            <translation>Copy the read-only project to the data drive, verify it, and open the copy</translation>
+        </message>
+        <message>
+            <source>删除所选要素</source>
+            <translation>Delete selected features</translation>
+        </message>
+        <message>
+            <source>删除当前矢量图层中已选中的要素</source>
+            <translation>Delete the selected features in the current vector layer</translation>
+        </message>
+        <message>
+            <source>地统计普通克里金</source>
+            <translation>Geostatistical ordinary kriging</translation>
+        </message>
+        <message>
+            <source>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</source>
+            <translation>Ordinary kriging of managed well-point samples (OUTPUT estimate + VARIANCE kriging-variance rasters); results are catalog-managed versions and are not displayed automatically. Unconstrained geostatistics: project constraints, barriers and covariates are not consumed. prepare materializes the sample snapshot and returns the frozen plan (sample count/unit/grid/resource estimate); compute-only computes from the frozen plan; publish only publishes an already computed result.</translation>
+        </message>
+        <message>
+            <source>序贯高斯模拟</source>
+            <translation>Sequential Gaussian simulation</translation>
+        </message>
+        <message>
+            <source>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</source>
+            <translation>Seeded sequential Gaussian simulation of managed well-point samples (OUTPUT mean + STD simulation-spread raster; STD is the dispersion between realizations, not a kriging variance, confidence or pass threshold); results are catalog-managed versions and are not displayed automatically. This version freezes persistRealizations=false: no MEMBER_n realization files are produced. Unconstrained geostatistics, the same scope as the kriging tool.</translation>
+        </message>
+        <message>
             <source>新建工程</source>
             <translation>New project</translation>
         </message>
@@ -58857,6 +61020,22 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>AiConversationCard</name>
     <message>
+        <source>待执行</source>
+        <translation>Pending</translation>
+    </message>
+    <message>
+        <source>执行中</source>
+        <translation>Running</translation>
+    </message>
+    <message>
+        <source>已完成</source>
+        <translation>Completed</translation>
+    </message>
+    <message>
+        <source>失败</source>
+        <translation>Failed</translation>
+    </message>
+    <message>
         <source>详情</source>
         <translation type="unfinished" />
     </message>
@@ -59598,5 +61777,474 @@ Strict rules:
         <source>后台自动记录：%1%2</source>
         <translation>Background auto-record: %1%2</translation>
     </message>
+        <message>
+            <location filename="../src/workflow/mappingexplanationservice.cpp" line="533" />
+            <source>%1层位编图现状</source>
+            <translation>Current map for horizon %1</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingexplanationservice.cpp" line="535" />
+            <source>所选相面为「%1」（编码 %2）</source>
+            <translation>The selected facies polygon is classified as “%1” (code %2)</translation>
+        </message>
+        <message>
+            <location filename="../src/workflow/mappingexplanationservice.cpp" line="547" />
+            <source>%1层位执行%2</source>
+            <translation>Operation on horizon %1: %2</translation>
+        </message>
 </context>
+    <context>
+        <name>MapFeaturePicker</name>
+        <message>
+            <location filename="../src/qgis/mapfeaturepicker.cpp" line="110" />
+            <source>选择目标要素</source>
+            <translation>Choose the target feature</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/mapfeaturepicker.cpp" line="111" />
+            <source>选择要删除的要素</source>
+            <translation>Choose a feature to delete</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/mapfeaturepicker.cpp" line="111" />
+            <source>选择要素</source>
+            <translation>Select a feature</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/mapfeaturepicker.cpp" line="114" />
+            <source>要素 %1</source>
+            <translation>Feature %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>TopologyGesture</name>
+        <message>
+            <location filename="../src/qgis/topologygesture.cpp" line="47" />
+            <source>图层「%1」的编辑历史已改变，无法整组撤销或重做</source>
+            <translation>The edit history for “%1” has changed. The group cannot be undone or redone.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/topologygesture.cpp" line="84" />
+            <source>参与图层已停止编辑或不能共同修改</source>
+            <translation>A participating layer has stopped editing or cannot be edited with the group.</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/topologygesture.cpp" line="92" />
+            <source>节点编辑未完成，已撤回本次修改：%1</source>
+            <translation>The vertex edit could not be completed. Its changes were rolled back: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/topologygesture.cpp" line="116" />
+            <source>%1（%2 个图层）</source>
+            <translation>%1 (%2 layers)</translation>
+        </message>
+        <message>
+            <location filename="../src/qgis/topologygesture.cpp" line="137" />
+            <source>跨层编辑状态已变化，请重新检查图层</source>
+            <translation>The cross-layer editing state has changed. Check the layers again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>SeismicClusterInterpretation</name>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186" />
+            <source>井票 / 图斑</source>
+            <translation>Well votes / patches</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="213" />
+            <source>井预测版本已更改，请重新预览</source>
+            <translation>The well prediction versions changed. Run the preview again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="91" />
+            <source>人工调整微相</source>
+            <translation>Adjust microfacies manually</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="221" />
+            <source>共 %1 口井参与投票。展开簇可查看井和图斑。</source>
+            <translation>%1 wells voted. Expand a cluster to see its wells and patches.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="173" />
+            <source>参与赋值的井预测版本</source>
+            <translation>Well prediction versions used for assignment</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="144" />
+            <source>图斑</source>
+            <translation>Patch</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="94" />
+            <source>应用到同簇的所有图斑</source>
+            <translation>Apply to all patches in this cluster</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186" />
+            <source>建议微相</source>
+            <translation>Suggested microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="167" />
+            <source>当前层段尚无可用的井预测，可先人工指定微相</source>
+            <translation>No well predictions are available for this interval yet. You can assign microfacies manually.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="141" />
+            <source>当前微相为%1。%2将更新 %3 个图斑。</source>
+            <translation>Current microfacies: %1. %2 will update %3 patches.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="142" />
+            <source>待定</source>
+            <translation>Undetermined</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="205" />
+            <source>正在核对井位并统计各簇票数…</source>
+            <translation>Checking well locations and counting votes for each cluster…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="171" />
+            <source>用井预测赋相</source>
+            <translation>Assign facies from well predictions</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="146" />
+            <source>目标微相</source>
+            <translation>Target microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="186" />
+            <source>簇 / 井</source>
+            <translation>Cluster / well</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="88" />
+            <source>请先为该层位保存微相分类</source>
+            <translation>Save the microfacies taxonomy for this horizon first.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="200" />
+            <source>请选择至少一个井预测版本</source>
+            <translation>Select at least one well prediction version.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="116" />
+            <source>选择微相</source>
+            <translation>Select microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="183" />
+            <source>预览井票</source>
+            <translation>Preview well votes</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="206" />
+            <source> 当前高亮 %1 个图斑。</source>
+            <translation> %1 patches highlighted.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="223" />
+            <source>层位微相分类已更改，请重新选择微相</source>
+            <translation>The horizon microfacies taxonomy has changed. Select the microfacies again.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="165" />
+            <source>聚类面没有可调整的图斑</source>
+            <translation>No patches in this cluster polygon layer can be adjusted.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="203" />
+            <source>原始图斑支持井数为 %1。</source>
+            <translation>Supporting wells in the original patch: %1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/dialogs/seismicclusterinterpretation.cpp" line="205" />
+            <source>原始簇支持井数为 %1。</source>
+            <translation>Supporting wells in the original cluster: %1.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ChatWorkspaceContext</name>
+        <message>
+            <location filename="../src/ai/chat/chatworkspacecontext.h" line="9" />
+            <source>发送时的工作区</source>
+            <translation>Workspace when sent</translation>
+        </message>
+    </context>
+    <context>
+        <name>ClusterPatchInspector</name>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="126" />
+            <source>
+井预测有分歧</source>
+            <translation>
+Well predictions disagree</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="127" />
+            <source>
+暂无井支持</source>
+            <translation>
+No supporting wells</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="123" />
+            <source>%1 · v%2</source>
+            <translation>%1 · v%2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="64" />
+            <source>井证据</source>
+            <translation>Well evidence</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="81" />
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="261" />
+            <source>保存新版本</source>
+            <translation>Save new version</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="125" />
+            <source>原图斑 %1
+全簇 %2</source>
+            <translation>Original patch: %1
+Entire cluster: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="261" />
+            <source>取消</source>
+            <translation>Cancel</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="122" />
+            <source>合并图斑 · 要素 %1</source>
+            <translation>Merged patch · Feature %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="259" />
+            <source>图斑解释尚未保存</source>
+            <translation>Unsaved patch interpretation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="142" />
+            <source>在地图上点选一个聚类图斑，查看微相和井证据。</source>
+            <translation>Select a cluster patch on the map to see its microfacies and supporting wells.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="141" />
+            <source>对象属性</source>
+            <translation>Object properties</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="205" />
+            <source>工程只读</source>
+            <translation>Read-only project</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="76" />
+            <source>应用到草稿</source>
+            <translation>Apply to draft</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="63" />
+            <source>当前微相</source>
+            <translation>Current microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="199" />
+            <source>待定</source>
+            <translation>Undetermined</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="214" />
+            <source>微相分类已经改变，请核对原草稿</source>
+            <translation>The microfacies classification has changed. Review the original draft.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="79" />
+            <source>撤销</source>
+            <translation>Undo</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="261" />
+            <source>放弃草稿</source>
+            <translation>Discard draft</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="71" />
+            <source>整簇图斑</source>
+            <translation>All patches in the cluster</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="260" />
+            <source>有 %1 幅图件包含未保存的人工解释。</source>
+            <translation>Maps with unsaved manual interpretations: %1.</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="205" />
+            <source>未保存 · %1 次调整</source>
+            <translation>Unsaved · %1 changes</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="167" />
+            <source>正在统计整簇图斑…</source>
+            <translation>Counting patches in the cluster…</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="159" />
+            <source>涉及 %1 个图斑</source>
+            <translation>Affected patches: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="159" />
+            <source>涉及 %1 个图斑，已描亮 %2 个</source>
+            <translation>Affected patches: %1 · Highlighted: %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="67" />
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="70" />
+            <source>目标微相</source>
+            <translation>Target microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="122" />
+            <source>簇 %1 · 图斑 %2</source>
+            <translation>Cluster %1 · Patch %2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="73" />
+            <source>调整范围</source>
+            <translation>Apply changes to</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="69" />
+            <source>选择目标微相</source>
+            <translation>Select target microfacies</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="80" />
+            <source>重做</source>
+            <translation>Redo</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="145" />
+            <source>
+井建议：%1</source>
+            <translation>
+Well-based suggestion: %1</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="77" />
+            <source>取消调整</source>
+            <translation>Cancel changes</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="140" />
+            <source>%1
+%2</source>
+            <translation>%1
+%2</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/clusterpatchinspector.cpp" line="137" />
+            <source>%1 · %2</source>
+            <translation>%1 · %2</translation>
+        </message>
+    </context>
+    <context>
+        <name>WorkspaceComparison</name>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="31" />
+            <source>主图</source>
+            <translation>Main map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="26" />
+            <source>主图与参考对照</source>
+            <translation>Main and reference maps</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="37" />
+            <source>停靠面板</source>
+            <translation>Dock panel</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="32" />
+            <source>参考图</source>
+            <translation>Reference map</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="29" />
+            <source>对照地图</source>
+            <translation>Map comparison</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="38" />
+            <source>移到可浮动的参考证据面板</source>
+            <translation>Move to the dockable reference panel</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="42" />
+            <source>结束对照</source>
+            <translation>Close comparison</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="39" />
+            <source>图例</source>
+            <translation>Legends</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="40" />
+            <source>显示主图和参考图的图例</source>
+            <translation>Show legends on the main and reference maps</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workbench/workspacecomparison.cpp" line="41" />
+            <source>参考设置</source>
+            <translation>Reference settings</translation>
+        </message>
+    </context>
+    <context>
+        <name>WorkspaceFocus</name>
+        <message>
+            <location filename="../src/ui/workspacefocus.cpp" line="58" />
+            <location filename="../src/ui/workspacefocus.cpp" line="153" />
+            <source>专注</source>
+            <translation>Focus</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workspacefocus.cpp" line="60" />
+            <source>切换专注工作区 (F8)</source>
+            <translation>Toggle focus mode (F8)</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workspacefocus.cpp" line="56" />
+            <source>导航</source>
+            <translation>Navigation</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workspacefocus.cpp" line="57" />
+            <source>属性</source>
+            <translation>Properties</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workspacefocus.cpp" line="153" />
+            <source>退出专注</source>
+            <translation>Exit focus mode</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workspacefocus.cpp" line="65" />
+            <source>打开当前文档或所选对象的属性</source>
+            <translation>Open properties for this document or the selected object</translation>
+        </message>
+        <message>
+            <location filename="../src/ui/workspacefocus.cpp" line="63" />
+            <source>显示或收起当前文档的导航栏</source>
+            <translation>Show or hide this document’s navigation panel</translation>
+        </message>
+    </context>
 </TS>

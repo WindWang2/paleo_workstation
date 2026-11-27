@@ -49,7 +49,8 @@ protected:
   bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
-  void updateDrag();
+  void pollDrag();
+  void updateDrag(const QPoint &global, Qt::KeyboardModifiers modifiers);
   void endDrag(bool commit);
   void showLayoutMessage(const QString &text);
   QMainWindow *m_window;
@@ -60,6 +61,8 @@ private:
   QVector<QPointer<QDockWidget>> m_docks;
   QPointer<QDockWidget> m_dragDock;
   QPoint m_pressPosition;
+  QPoint m_pointerPosition;
+  QPoint m_lastSystemCursor;
   bool m_dragging = false;
   Qt::DockWidgetArea m_target = Qt::NoDockWidgetArea;
   QTimer m_dragTimer;

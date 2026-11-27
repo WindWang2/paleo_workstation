@@ -8,6 +8,18 @@ import shutil
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_NAME = "RUNTIME_SOURCES.json"
+PI_LOCKS = ("vendor/pi/source.lock.json", "vendor/pi/runtime-manifests.lock.json")
+
+
+def verified_pi_generation(prefix: Path, platform: str) -> Path:
+    from pi_supply_common import load_lock, verify_runtime
+
+    anchors = json.loads((REPO_ROOT / PI_LOCKS[1]).read_text(encoding="utf-8"))
+    anchor = anchors[platform]
+    root = prefix / "libexec/pi-agent/generations" / anchor
+    lock, _ = load_lock()
+    verify_runtime(root, anchor, lock)
+    return root
 
 
 def digest(path: Path) -> str:

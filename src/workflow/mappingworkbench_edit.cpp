@@ -232,6 +232,8 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"result_scope", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("current_formation") : source.extra.value("result_scope").toString()},
       {"result_kind", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("formation_prediction") : source.extra.value("result_kind").toString()},
       {"method", "manual-edit-copy"}};
+  for (const auto *key : {"cluster_raster_version", "cluster_patches_version", "schema_version", "unitSelection"})
+    if (source.extra.contains(key)) extra.insert(key, source.extra.value(key));
   for (auto it = footprintExtra.constBegin(); it != footprintExtra.constEnd(); ++it)
     extra.insert(it.key(), it.value());
   const auto editTitle = layer->fields().indexOf("facies_intervals") >= 0
@@ -251,7 +253,20 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   emit productReady(d.horizon, draft);
   return draft;
 }
-bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
+QString MappingWorkbench::committedWorkingRevision(const QString &id) const {
+  auto *live = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  if (live && !live->isEditable()) return MappingFeatureIdentity::layerRevision(live);
+  const auto source = live ? live->source() : declaration(id).source;
+  QgsVectorLayer committed(source, id, QStringLiteral("ogr"));
+  return committed.isValid() ? MappingFeatureIdentity::layerRevision(&committed) : QString();
+}
+
+bool MappingWorkbench::isWorkingLayerEditing(const QString &id) const {
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+  return layer && layer->isEditable();
+}
+
+bool MappingWorkbench::registerEditingVersion(const QString &id, const QString &token, QString *error) {
   if (!id.startsWith("draft.")) {
     fail(error, tr("只有人工编辑副本可以保存编辑版本"));
     return false;
@@ -353,22 +368,34 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   QHash<QString, int> qualityCounts;
   QHash<QString, int> stateCounts;
   qint64 evidenceCount = 0;
+  auto drafts = loadDraftExplanations(id);
+  const auto archivedDrafts = previous.extra.value("auto_explanations").toMap();
+  for (auto it = drafts.begin(); it != drafts.end(); ++it)
+    if (it->value("pending_adoption").toBool()) it.value() = archivedDrafts.value(it.key()).toMap();
+  QVariantMap currentDrafts;
+  if (!drafts.value(QStringLiteral("__map__")).isEmpty())
+    currentDrafts.insert(QStringLiteral("__map__"), drafts.value(QStringLiteral("__map__")));
   auto evidenceFeatures = layer->getFeatures(); QgsFeature evidenceFeature;
   while (evidenceFeatures.nextFeature(evidenceFeature)) {
+    const auto uid = MappingFeatureIdentity::uid(evidenceFeature);
     QVariantList records; QVariantMap interpretation;
     if (layer->fields().indexOf("facies_evidence") >= 0 &&
         !paleo::evidence::decodeRecords(evidenceFeature.attribute("facies_evidence").toString(), &records, error)) return false;
     if (layer->fields().indexOf("paleo_interpretation") >= 0 &&
         !paleo::evidence::decodeInterpretation(evidenceFeature.attribute("paleo_interpretation").toString(), &interpretation, error)) return false;
     if (!interpretation.isEmpty() &&
-        (interpretation.value("feature_uid").toString() != MappingFeatureIdentity::uid(evidenceFeature) ||
+        (interpretation.value("feature_uid").toString() != uid ||
          interpretation.value("horizon").toString() != d.horizon)) {
       fail(error, tr("解释身份或层位与当前图斑不一致，请先复核")); return false;
     }
     ++stateCounts[interpretation.value("status", "Proposed").toString()];
-    const QVariantMap target{{"feature_uid", MappingFeatureIdentity::uid(evidenceFeature)},
+    const QVariantMap target{{"feature_uid", uid},
                             {"horizon", d.horizon},
                             {"geometry_hash", MappingFeatureIdentity::geometryFingerprint(evidenceFeature)}};
+    const auto draft = drafts.constFind(uid);
+    if (draft != drafts.cend() && draft->value("geometry_hash") == target.value("geometry_hash") &&
+        draft->value("facies_code").toInt() == evidenceFeature.attribute("facies_code").toInt())
+      currentDrafts.insert(uid, *draft);
     for (const auto &finding : paleo::evidence::check(records, interpretation, target)) {
       const auto severity = finding.toMap().value("severity").toString();
       ++qualityCounts[severity];
@@ -459,16 +486,21 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   extra.insert("feature_summary", QVariantMap{{"feature_count", layer->featureCount()},
                                               {"evidence_count", evidenceCount}, {"statuses", states},
                                               {"quality_counts", severities}});
-  const auto autoExplanations = collectVersionAutoExplanations(id);
-  if (!autoExplanations.isEmpty())
-    extra.insert(QStringLiteral("auto_explanations"), autoExplanations);
+  extra.remove(QStringLiteral("auto_explanations"));
+  if (!currentDrafts.isEmpty())
+    extra.insert(QStringLiteral("auto_explanations"), currentDrafts);
   extra.insert("feature_identity", QStringLiteral("paleo_feature_uid"));
-  if (layer->fields().indexOf("facies_intervals") >= 0) {
-    for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {
-      auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
-      if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
-    }
+  const auto revision = MappingFeatureIdentity::layerRevision(layer);
+  if (!revision.isEmpty() && previous.extra.value("edit_revision").toString() == revision &&
+      previous.extra.value("auto_explanations").toMap() == currentDrafts &&
+      previous.extra.value("pinned_levels") == extra.value("pinned_levels") &&
+      previous.extra.value("display_mode") == extra.value("display_mode")) {
+    if (observer) observer->acknowledge();
+    return true;
   }
+  extra.insert("edit_revision", revision);
+  extra.insert("edit_save_token", token);
+  extra.insert("sync_well_attributes", layer->fields().indexOf("facies_intervals") >= 0);
   const auto snapshotPath = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!QDir().mkpath(QFileInfo(snapshotPath).absolutePath())) {
     fail(error, tr("无法创建编图版本暂存目录")); return false;
@@ -490,28 +522,38 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     // 记录再追加一遍（新 event_id，无法判重）。故版本登记成功即确认。
     if (observer) observer->acknowledge();
     styleLayer(id);
-    if (layer->fields().indexOf("facies_intervals") >= 0) {
-      QVariantList points;
-      auto it = layer->getFeatures(); QgsFeature feature;
-      while (it.nextFeature(feature)) {
-        QVariantMap point;
-        for (const auto &field : {"id", "facies_intervals", "depth_mock", "formation_intervals"})
-          if (layer->fields().indexOf(field) >= 0) point.insert(field, feature.attribute(field));
-        points << point;
-      }
-      QString mergeError;
-      if (!WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
-          wellAttributeUpdates(points, previous.extra.value("facies").toList(), d.horizon, false), &mergeError) ||
-          !WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
-          wellFormationUpdates(points, previous.extra.value("facies").toList(), false), &mergeError)) {
-        // 部分完成态如实披露：版本已存在，失败的只是井属性同步。
-        fail(error, tr("图件版本已保存（%1），但测井属性同步失败：%2。修正后可再次保存，"
-                       "编辑事件不会重复入档。").arg(output, mergeError));
-        return false;
-      }
-    }
   }
   return !output.isEmpty();
+}
+
+bool MappingWorkbench::syncSavedWellAttributes(const CatalogVersion &version, QString *error) {
+  if (!version.extra.value("sync_well_attributes").toBool()) return true;
+  for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {
+    auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+    if (attributes && attributes->isEditable()) {
+      fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑"));
+      return false;
+    }
+  }
+  const auto path = DataCatalog::resolvedVersionPath(m_dir, version);
+  QgsVectorLayer layer(path + QStringLiteral("|layername=features"), version.id, QStringLiteral("ogr"));
+  if (!layer.isValid() || layer.fields().indexOf("facies_intervals") < 0) {
+    fail(error, tr("无法读取已登记版本的测井属性快照"));
+    return false;
+  }
+  QVariantList points;
+  auto it = layer.getFeatures(); QgsFeature feature;
+  while (it.nextFeature(feature)) {
+    QVariantMap point;
+    for (const auto &field : {"id", "facies_intervals", "depth_mock", "formation_intervals"})
+      if (layer.fields().indexOf(field) >= 0) point.insert(field, feature.attribute(field));
+    points << point;
+  }
+  const auto schema = version.extra.value("facies").toList();
+  return WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
+             wellAttributeUpdates(points, schema, version.extra.value("horizon").toString(), false), error) &&
+         WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
+             wellFormationUpdates(points, schema, false), error);
 }
 QVariantList MappingWorkbench::removalProducts(const QString &layerId, QString *error) const {
   if (!layerId.startsWith("product.") && !layerId.startsWith("draft.")) {

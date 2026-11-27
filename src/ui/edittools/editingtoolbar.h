@@ -99,6 +99,7 @@ class PaleoEditingToolbar : public QWidget
     QAction *actionReshape() const { return mActionReshape; }
     QAction *actionMove() const { return mActionMove; }
     QAction *actionDeleteFeatures() const { return mActionDeleteFeatures; }
+    QAction *actionDeleteSelection() const { return mDeleteSelection; }
     QAction *actionVertexEdit() const { return mActionVertexEdit; }
     QAction *actionSplitFacies() const { return mActionSplitFacies; }
     QAction *actionPaintFacies() const { return mActionPaintFacies; }
@@ -149,6 +150,9 @@ class PaleoEditingToolbar : public QWidget
   private:
     void buildUi();
     void buildPartitionControls();
+    void buildAddFeatureControl();
+    void buildDeleteSelectionAction();
+    void updateDeleteSelectionAction();
     void wireToolActions();
     void installCanvasUndoShortcuts( QWidget *canvas );
     void uncheckTools();
@@ -194,6 +198,7 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionReshape = nullptr;
     QAction *mActionMove = nullptr;
     QAction *mActionDeleteFeatures = nullptr;
+    QAction *mDeleteSelection = nullptr;
     QAction *mActionVertexEdit = nullptr;
     QAction *mActionSplitFacies = nullptr, *mActionPaintFacies = nullptr, *mActionMergeFacies = nullptr;
     QAction *mActionFaciesOperations = nullptr;
@@ -208,6 +213,7 @@ class PaleoEditingToolbar : public QWidget
     PaleoUndoTarget mSecondaryUndo;
     QPointer<PaleoUndoGroupRouter> mUndoRouter;
     QPointer<QStatusBar> mUndoStatus;
+    QString m_saveSummary;
     void routeUndo( bool undo );
     PaleoUndoStep describeCanvasUndo( bool undo ) const;
     bool stepCanvasUndo( bool undo );

@@ -19,8 +19,8 @@ QString officeStatusStyleSheet(bool error)
 OfficePreviewWidget::OfficePreviewWidget(const QString &path,
                                          const QString &expectedSha,
                                          QWidget *parent,
-                                         PaleoTaskService *tasks)
-    : QWidget(parent), m_path(path), m_sha(expectedSha),
+                                         PaleoTaskService *tasks, const QString &projectDir)
+    : QWidget(parent), m_path(path), m_sha(expectedSha), m_projectDir(projectDir),
       m_session(new OfficePreviewSession(this)), m_web(new WebViewPanel(this)),
       m_status(new QLabel(this)), m_retry(new QPushButton(tr("重试"), this)) {
   m_session->setTaskService(tasks);
@@ -95,5 +95,5 @@ void OfficePreviewWidget::open()
 {
   showMessage(tr("正在准备文档…"));
   m_retry->hide();
-  m_session->open(m_path, m_sha);
+  m_session->open(m_path, m_sha, m_projectDir);
 }

@@ -10,6 +10,7 @@
 #include <QUuid>
 
 #include "algorithms/curveexpr.h"
+#include "algorithms/petrophys.h"
 #include "catalog/datacatalog.h"
 #include "io/lasalias.h"
 #include "io/lascache.h"
@@ -19,7 +20,6 @@
 #include "io/wellfileparsers.h" // parseTimeDepthText（方向44 TIME 基准对齐）
 #include "metadata/paleoprojectstore.h"
 #include "errorhub.h" // #556：深度单位假设/非单调 NaN 风险入账（用户可见）
-#include "paleotaskservice.h"
 #include "welllogset.h"
 
 #include <algorithm>
@@ -161,13 +161,6 @@ QVariantMap paramsToMap(const PetroPhysTaskService::BatchRequest &req)
 }
 
 const double kNan = std::numeric_limits<double>::quiet_NaN();
-
-QString projectDirOf(const DataCatalog *catalog)
-{
-  if (!catalog)
-    return {};
-  return QDir::cleanPath(catalog->catalogPath() + QStringLiteral("/../../.."));
-}
 
 // 表达式标识符（跳过函数名）。大小写保留，匹配曲线时再忽略大小写。
 QStringList expressionIdentifiers(const QString &expression)
@@ -1252,243 +1245,92 @@ QString PetroPhysTaskService::registerComputedCurveAsset(DataCatalog *catalog,
   return id;
 }
 
-PaleoTask *PetroPhysTaskService::startBatch(
-    const BatchRequest &req, DataCatalog *catalog, const QString &outputDir,
-    std::function<void(bool ok, const BatchResult &)> onFinished)
+struct PetroPhysTaskService::BatchInputs {
+  QHash<QString, WellMergePlan> wells;
+};
+
+std::shared_ptr<const PetroPhysTaskService::BatchInputs>
+PetroPhysTaskService::prepareInputs(DataCatalog *catalog, BatchRequest &request)
 {
-  const QString validation = validateRequest(req);
-  if (!validation.isEmpty())
-  {
-    BatchResult r;
-    r.error = validation;
-    if (onFinished)
-      onFinished(false, r);
-    return nullptr;
+  auto inputs = std::make_shared<BatchInputs>();
+  if (!catalog) return inputs;
+  const auto project = catalog ? catalog->projectDir() : QString{};
+  for (auto &well : request.wells) {
+    const auto plan = planWellMerge(catalog, project, well, request);
+    if (!plan.active) continue;
+    const bool driverChanged = QDir::cleanPath(well.lasPath) != QDir::cleanPath(plan.driverPath);
+    well.lasPath = plan.driverPath;
+    if (!plan.driverVersionId.isEmpty() && (driverChanged || !well.sourceVersionId.isEmpty()))
+      well.sourceVersionId = plan.driverVersionId;
+    inputs->wells.insert(well.wellId, plan);
   }
-  if (!m_taskSvc)
-  {
-    BatchResult r;
-    r.error = QStringLiteral("任务服务不可用");
-    if (onFinished)
-      onFinished(false, r);
-    return nullptr;
+  return inputs;
+}
+
+bool PetroPhysTaskService::writeWellProduct(const BatchRequest &req, const WellRef &well,
+    const QVector<LasCurve> &curves, WellResult &r, const QString &outputDir, PaleoProjectStore *store)
+{
+  const LasCurve &depth = curves.first();
+  LasCurve outCurve;
+  outCurve.name = req.outputMnemonic;
+  outCurve.unit = req.outputUnit;
+  outCurve.descr = req.outputDescr.isEmpty()
+                       ? QStringLiteral("petrophysics %1")
+                             .arg(formulaKey(req.formula))
+                       : req.outputDescr;
+  outCurve.values = r.values;
+  LasWriteOptions wo;
+  wo.wellName = well.wellId.startsWith(QStringLiteral("well-"))
+                    ? well.wellId.mid(5)
+                    : well.wellId;
+  // #157：不覆盖既有产物——旧版本（managed=false、sha256 为凭）仍指向
+  // 它；重名时追加 _2、_3… 序号另起文件。
+  const QString base = QStringLiteral("%1/%2_%3_%4")
+                           .arg(outputDir, sanitizeToken(well.wellId),
+                                formulaKey(req.formula),
+                                sanitizeToken(req.outputMnemonic));
+  // L-14：查重必须在单写者队列内做——两个同 (井,公式,输出名) 批次
+  // 并发在飞时，队外查重会选中同一路径：后写者覆盖先写者产物，
+  // 先完成批的 finished 回调再对被覆盖后的字节取 sha 登记版本，
+  // 登记内容与用户实得曲线张冠李戴。enqueueWrite 同步互斥执行，
+  // 探查+写入在队列内原子化（path 经引用回传）。
+  const auto write = [&]() -> PaleoProjectStore::WriteResult {
+    if (!QDir().mkpath(outputDir)) return {false, QStringLiteral("无法创建产物目录")};
+    QString path = base + QStringLiteral(".las");
+    for (int k = 2; QFileInfo::exists(path); ++k)
+      path = QStringLiteral("%1_%2.las").arg(base).arg(k);
+    QString error;
+    if (!LasWriter::writeLasFile(path, {depth, outCurve}, wo, &error)) return {false, error};
+    r.productPath = path;
+    return {true, {}};
+  };
+  const auto written = store ? store->enqueueWrite(write) : write();
+  if (!written.ok) r.error = QStringLiteral("产物写出失败：%1").arg(written.error);
+  return written.ok;
+}
+
+PetroPhysTaskService::WellResult PetroPhysTaskService::processWell(
+    const BatchInputs &inputs, const BatchRequest &request, const WellRef &well,
+    const QString &outputDir, PaleoProjectStore *store, const std::function<void()> &computing)
+{
+  WellResult result;
+  result.wellId = well.wellId;
+  QElapsedTimer timer;
+  timer.start();
+  QVector<LasCurve> curves;
+  const bool loaded = loadWellCurves(well, inputs.wells.value(well.wellId), &curves, &result.error, &result.notes);
+  result.parseMs = nowMs(timer);
+  if (!loaded) return result;
+  computing();
+  timer.restart();
+  QString computeError;
+  if (!computeWell(request, curves, &result, &computeError)) {
+    result.error = computeError;
+    return result;
   }
-
-  const auto request = std::make_shared<BatchRequest>(req);
-  const auto result = std::make_shared<BatchResult>();
-  const auto plans = std::make_shared<QHash<QString, WellMergePlan>>();
-  PaleoProjectStore *store = m_store;
-  // 并集与驱动文件在服务线程定下来（worker 不碰 catalog）。无 catalog
-  // 或索不到已决 LAS 时计划为空，worker 仍只解析 WellRef::lasPath。
-  if (catalog)
-  {
-    const QString projectDir = projectDirOf(catalog);
-    for (WellRef &well : request->wells)
-    {
-      const WellMergePlan plan = planWellMerge(catalog, projectDir, well, *request);
-      if (!plan.active)
-        continue;
-      const QString oldPath = QDir::cleanPath(well.lasPath);
-      const QString newPath = QDir::cleanPath(plan.driverPath);
-      well.lasPath = plan.driverPath;
-      if (!plan.driverVersionId.isEmpty()
-          && (!well.sourceVersionId.isEmpty() || oldPath != newPath))
-        well.sourceVersionId = plan.driverVersionId;
-      plans->insert(well.wellId, plan);
-    }
-  }
-
-  PaleoTask *task = m_taskSvc->start(
-      QStringLiteral("测井计算：%1 × %2 井")
-          .arg(formulaName(req.formula))
-          .arg(req.wells.size()),
-      [request, result, outputDir, store, plans](PaleoTask *task) -> QString {
-        QElapsedTimer totalClock;
-        totalClock.start();
-        const qint64 totalUnits = qint64(request->wells.size()) * 1000;
-        task->reportStage(QStringLiteral("scan"));
-        task->reportBytes(0, totalUnits);
-        if (request->writeProduct)
-          QDir().mkpath(outputDir);
-
-        for (int w = 0; w < request->wells.size(); ++w)
-        {
-          if (task->cancelRequested())
-          {
-            result->error = QStringLiteral("cancelled");
-            result->totalMs = nowMs(totalClock);
-            return QString(); // 已完成井的成果保留在 result->wells
-          }
-          const WellRef &well = request->wells.at(w);
-          WellResult r;
-          r.wellId = well.wellId;
-
-          QElapsedTimer parseClock;
-          parseClock.start();
-          task->reportStage(QStringLiteral("parse"));
-          QVector<LasCurve> curves;
-          QString loadErr;
-          QStringList alignNotes;
-          if (!loadWellCurves(well, plans->value(well.wellId), &curves, &loadErr,
-                              &alignNotes))
-          {
-            r.parseMs = nowMs(parseClock);
-            r.error = loadErr;
-            r.notes = alignNotes;
-            result->wells.append(r);
-            task->reportBytes(qint64(w + 1) * 1000, totalUnits);
-            task->reportDetail(QStringLiteral("%1：解析失败").arg(well.wellId));
-            continue;
-          }
-          r.parseMs = nowMs(parseClock);
-          r.notes = alignNotes;
-
-          task->reportStage(QStringLiteral("compute"));
-          QElapsedTimer computeClock;
-          computeClock.start();
-          QString err;
-          if (!computeWell(*request, curves, &r, &err))
-          {
-            r.error = err;
-          }
-          else
-          {
-            r.computeMs = nowMs(computeClock);
-            if (request->writeProduct)
-            {
-              LasCurve depth = curves.first();
-              LasCurve outCurve;
-              outCurve.name = request->outputMnemonic;
-              outCurve.unit = request->outputUnit;
-              outCurve.descr = request->outputDescr.isEmpty()
-                                   ? QStringLiteral("petrophysics %1")
-                                         .arg(formulaKey(request->formula))
-                                   : request->outputDescr;
-              outCurve.values = r.values;
-              LasWriteOptions wo;
-              wo.wellName = well.wellId.startsWith(QStringLiteral("well-"))
-                                ? well.wellId.mid(5)
-                                : well.wellId;
-              // #157：不覆盖既有产物——旧版本（managed=false、sha256 为凭）仍指向
-              // 它；重名时追加 _2、_3… 序号另起文件。
-              const QString base = QStringLiteral("%1/%2_%3_%4")
-                                       .arg(outputDir, sanitizeToken(well.wellId),
-                                            formulaKey(request->formula),
-                                            sanitizeToken(request->outputMnemonic));
-              // L-14：查重必须在单写者队列内做——两个同 (井,公式,输出名) 批次
-              // 并发在飞时，队外查重会选中同一路径：后写者覆盖先写者产物，
-              // 先完成批的 finished 回调再对被覆盖后的字节取 sha 登记版本，
-              // 登记内容与用户实得曲线张冠李戴。enqueueWrite 同步互斥执行，
-              // 探查+写入在队列内原子化（path 经引用回传）。
-              QString path;
-              QString writeErr;
-              bool writeOk = false;
-              if (store)
-              {
-                // 产物写入走单写者队列（禁区：不旁路直写工程目录）
-                const PaleoProjectStore::WriteResult wr = store->enqueueWrite([&]() {
-                  QString e;
-                  path = base + QStringLiteral(".las");
-                  for (int k = 2; QFileInfo::exists(path); ++k)
-                    path = QStringLiteral("%1_%2.las").arg(base).arg(k);
-                  if (!LasWriter::writeLasFile(path, {depth, outCurve}, wo, &e))
-                    return PaleoProjectStore::WriteResult{false, e};
-                  return PaleoProjectStore::WriteResult{true, QString()};
-                });
-                writeOk = wr.ok;
-                writeErr = wr.error;
-              }
-              else
-              {
-                path = base + QStringLiteral(".las");
-                for (int k = 2; QFileInfo::exists(path); ++k)
-                  path = QStringLiteral("%1_%2.las").arg(base).arg(k);
-                writeOk = LasWriter::writeLasFile(path, {depth, outCurve}, wo, &writeErr);
-              }
-              if (writeOk)
-                r.productPath = path;
-              else
-              {
-                r.ok = false;
-                r.error = QStringLiteral("产物写出失败：%1").arg(writeErr);
-              }
-            }
-          }
-          r.ok = r.error.isEmpty();
-          result->wells.append(r);
-          task->reportBytes(qint64(w + 1) * 1000, totalUnits);
-          QString noteSuffix;
-          if (!r.notes.isEmpty())
-            noteSuffix = QStringLiteral("；") + r.notes.join(QStringLiteral("；"));
-          task->reportDetail(r.ok
-                                 ? QStringLiteral("%1：完成（%2 样本，null %3%）%4")
-                                       .arg(well.wellId)
-                                       .arg(r.stats.n)
-                                       .arg(r.stats.nullRate * 100.0, 0, 'f', 1)
-                                       .arg(noteSuffix)
-                                 : QStringLiteral("%1：%2%3")
-                                       .arg(well.wellId, r.error, noteSuffix));
-        }
-        result->totalMs = nowMs(totalClock);
-        return QString(); // 单井失败记入 wells（分井处置），任务本身不算败
-      },
-      QString(), false);
-
-  if (!task)
-  {
-    BatchResult r;
-    r.error = QStringLiteral("任务提交失败");
-    if (onFinished)
-      onFinished(false, r);
-    return nullptr;
-  }
-
-  connect(task, &PaleoTask::finished, this,
-          [this, task, request, result, catalog, onFinished]() {
-            // catalog 登记在服务线程做（catalog 非线程安全，worker 不碰；
-            // 取消时已完成井也登记——部分成果如实交付）
-            if (catalog && request->writeProduct)
-            {
-              for (WellResult &r : result->wells)
-              {
-                if (!r.ok || r.productPath.isEmpty())
-                  continue;
-                WellRef well;
-                for (const WellRef &w : request->wells)
-                {
-                  if (w.wellId == r.wellId)
-                  {
-                    well = w;
-                    break;
-                  }
-                }
-                QString err;
-                const QString asset =
-                    registerComputedCurveAsset(catalog, well, *request, r, &err);
-                if (asset.isEmpty())
-                {
-                  r.ok = false;
-                  r.error = QStringLiteral("catalog 登记失败：%1").arg(err);
-                }
-                else
-                {
-                  r.assetId = asset;
-                }
-              }
-            }
-            const bool cancelled = task->cancelRequested();
-            result->succeeded = 0;
-            result->failed = 0;
-            for (const WellResult &r : result->wells)
-              r.ok ? ++result->succeeded : ++result->failed;
-            result->ok = !cancelled && result->failed == 0 && result->succeeded > 0;
-            if (result->error.isEmpty() && result->failed > 0 && !cancelled)
-              result->error =
-                  QStringLiteral("%1/%2 井失败").arg(result->failed).arg(result->wells.size());
-            if (onFinished)
-              onFinished(result->ok, *result);
-          });
-  return task;
+  result.computeMs = nowMs(timer);
+  result.ok = !request.writeProduct || writeWellProduct(request, well, curves, result, outputDir, store);
+  return result;
 }
 
 } // namespace paleo::petrophys

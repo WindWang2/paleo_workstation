@@ -70,6 +70,7 @@ struct CommandState {
   bool checkable = false;
 };
 
+QStringList commandTitleAliases(const CommandSpec &spec);
 QString commandKindName(CommandKind kind);
 
 class CommandRegistry {

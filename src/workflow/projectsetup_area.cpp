@@ -1,8 +1,10 @@
 // 层：功能
 #include "projectsetup.h"
 #include "folderimport.h"
+#include "../domain/arearules.h"
 #include "../io/areamodel.h"
 #include "../io/areamodelpublication.h"
+#include "../io/originalpackage.h"
 #include "../io/projectcoordinates.h"
 #include "../io/dataimportservice.h"
 #include "../qgis/qgisprojectservice.h"
@@ -89,6 +91,8 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       emit finished(publicationError, false); return;
     }
     paleo::area_model::registerProject(project, m_imports->importService());
+    AreaRules::setProjectDir(project, paleo::area_model::mappingBoundaries(project));
+    emit projectHorizonsChanged();
     auto projection = preview;
     const auto crs = QString::fromUtf8(coordinates->coordinateSystem);
     const bool confirmed = coordinates->selectionBasis == "import" || coordinates->selectionBasis == "default";
@@ -138,6 +142,10 @@ void ProjectSetupWorkflow::importAreaSources(const ProjectSetupSources &sources,
       if (input.directory && !QFileInfo(input.path).isDir()) continue;
       paleo::data::ImportReport report;
       QString error;
+      if (!input.directory) {
+        error = paleo::exchange::verifyReceivedOriginal(project, input.path, {}, cancelled);
+        if (!error.isEmpty()) { promise.addResult(error); return; }
+      }
       const bool imported = input.directory
           ? paleo::area_model::importDirectoryWithCrs(staging->path(), input.path, report, &error,
                 cancelled, {QDir(project).filePath("artifacts"), staging->path(),

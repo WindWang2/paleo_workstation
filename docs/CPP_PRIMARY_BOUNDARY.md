@@ -9,7 +9,7 @@
 [AGENTS.md](../AGENTS.md) 的层表与 [docs/UI_LAYER_PLAN.md](UI_LAYER_PLAN.md)
 为准，本文不重复。
 
-## 现状锚点（2026-11-15）
+## 现状锚点（2026-11-27）
 
 - `src/` **零 `.py` 文件**；全仓非 vendor 的 `.py` 不含业务/运行时的
   qgis/PyQt 导入（开发工具的可选导入除外，如 `tools/verify_l10n_offscreen.py`
@@ -38,8 +38,8 @@
   C++ `piruntime` 逐文件核验宿主信任锚，`piprocess` 保留固定 hello/close 握手，
   A2 的独立会话协议仅桥接既有 C++ `LlmClient` 与 Runner/Host；
   不加载 coding-agent、工程脚本、默认文件/Shell 工具、扩展或 provider 网络实现。
-  默认构建和启动不发现、安装或运行 Node。显式选择 Pi 的会话才使用该可选编排；
-  C++ 的会话、权限、密钥、调度与持久提交权威不变。
+  Pi 是工作台唯一的 Agent 对话引擎。普通构建及安装随附锁定的 Node 和 Pi，
+  对话开始时按应用位置定位运行时并核验。C++ 管理会话记录、密钥、权限、任务与持久提交。
   这是可执行 JS 的明确例外，不能按 Office 静态资源处理；供货与有限边界见
   [Pi 清单](../vendor/pi/README.md)、[握手](../vendor/pi/PROTOCOL.md)与
   [会话协议](../vendor/pi/CONVERSATION.md)。
@@ -53,8 +53,9 @@ build/paleo                    # 主程序（GUI）
 build/paleo_selfcheck          # QGIS 运行时自检
 ```
 
-安装面是「最小可用面」（`cmake/extra-install.cmake`）：只装主程序与
-selfcheck；QGIS/GDAL 运行时闭包不随默认安装复制，MAMCL 外部工具包经
+常规安装包含主程序、selfcheck 和 Pi Agent 运行时
+（`cmake/extra-install.cmake`、`cmake/extra-pi-agent.cmake`）。
+QGIS/GDAL 运行时闭包不随默认安装复制，MAMCL 外部工具包经
 运行时解包（`cmake/extra-mamcl.cmake`，SHA-256 编译期核对）。
 
 ## Python 的三类合法用途
@@ -83,13 +84,14 @@ selfcheck；QGIS/GDAL 运行时闭包不随默认安装复制，MAMCL 外部工�
 - 归档件只读保留，不得从中把 Python GUI/业务实现「复活」回主程序
   （见下节闸门）。
 
-## 可选 Pi 有源 JavaScript 边界
+## Pi Agent 的 JavaScript 运行边界
 
 `paleo_services_piagent` 只依赖 QtCore；完整 Node 程序和最终单文件 bundle 的 SHA
-由源码锁编入 C++。供货端显式运行 `tools/prepare_pi_agent.py`，以锁版 Node/esbuild
-离线构建，不运行 npm/package scripts；应用 configure/启动均不运行该工具。
-`AgentPiRuntime` 安装组件使用 `EXCLUDE_FROM_ALL`，仅显式安装已准备并外部锚定的
-generation，安装不执行 Node、不切 active、不授执行权限，默认安装无 JS/Node。
+由源码锁编入 C++。默认构建使用锁版 Node 和 esbuild 生成 Pi 运行时，也可直接提供
+预制的离线 generation。构建与安装分别在应用目录和安装前缀的
+`libexec/pi-agent/generations/<SHA>` 部署核验后的完整目录。
+`AgentPiRuntime` 是默认安装组件。应用按仓库锁定的平台清单 SHA 核验随附程序；
+工作站的模型配置和授权由 C++ 宿主管理。见 [构建说明](../BUILDING.md#ai-agent-的-pi-运行时)。
 
 Pi 是受信任组件，`isSandbox=false`。A1 的固定入口无模型网络或文件工具，不能据此
 宣称 Node 被 OS 限制为不可联网/读写。短进程的取消、宿主死亡回收与 wall deadline
@@ -130,7 +132,7 @@ ctest 项 `cpp_mainline` / `cpp_mainline_selftest`（无标签，随
 selftest 在合成夹具树上对七条规则做正反向验证（含归档目录存在/不存在
 两种容忍态），检查器自身坏掉不会静默变绿。
 `pi_agent` / `pi_agent_selftest` 另核对源码/工具链/Node 官方哈希证据、许可证、
-零外部 import 的 bundle 图及可选安装声明；无 Node 即可运行这两个闸门。
+零外部 import 的 bundle 图及默认构建与安装接线；这两个源码闸门可独立于 Node 运行。
 
 ## 质量验证流程（与主仓一致）
 

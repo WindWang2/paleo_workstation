@@ -1,9 +1,11 @@
 // 层：数据
 #include "areamodel_conventions.h"
+#include "areamodel.h"
 #include <paleo_data/service.h>
 
 namespace paleo::area_model {
-bool inheritSurveyHorizonConventions(paleo::data::DataService &service,QString *error) {
+namespace {
+bool checkSurveyHorizonConventions(paleo::data::DataService &service,QString *error,bool apply) {
   std::string detail;std::vector<paleo::data::DataEntry> volumes,horizons;
   const auto fail=[&]{if(error)*error=QString::fromUtf8(detail);return false;};
   if(!service.listData("volumes",0,volumes,detail))return fail();
@@ -28,8 +30,25 @@ bool inheritSurveyHorizonConventions(paleo::data::DataService &service,QString *
     fill(h.coordinateSystem,g.coordinateSystem);fill(h.coordinateUnit,g.coordinateUnit);
     fill(h.timeUnit,s.timeUnit);fill(h.timeType,s.timeType);fill(h.timeReference,s.timeReference);
     // Metadata only: saveHorizonInfo records a change, never rewrites points.
-    if(changed&&!service.saveHorizonInfo(entry.id,h,detail))return fail();
+    if(changed) {
+      if(!apply)return false;
+      if(!service.saveHorizonInfo(entry.id,h,detail))return fail();
+    }
   }
   return true;
+}
+}
+bool inheritSurveyHorizonConventions(paleo::data::DataService &service,QString *error) {
+  return checkSurveyHorizonConventions(service,error,true);
+}
+QString verifiedHorizonConventionsStamp(const QString &project) {
+  const auto root=directory(project);
+  const auto stamp=databaseStamp(root);
+  paleo::data::DataService reader;std::string detail;
+  paleo::data::ModelChangeHead head;
+  if(!reader.openProjectReadOnly(root.toStdString(),detail) ||
+     !reader.readModelChangeHead(head,detail) || !head.available ||
+     !checkSurveyHorizonConventions(reader,nullptr,false))return {};
+  return stamp==databaseStamp(root) ? stamp : QString();
 }
 }

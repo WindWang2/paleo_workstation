@@ -18,7 +18,7 @@ QList<QueryTopicRule> buildRules() {
      {QStringLiteral("topic"), QStringLiteral("well_id"), QStringLiteral("well_name"), QStringLiteral("role"),
       QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")}},
     {QStringLiteral("well_curves"), {QStringLiteral("well_ref")},
-     {QStringLiteral("topic"), QStringLiteral("well_ref"), QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")},
+     {QStringLiteral("topic"), QStringLiteral("well_ref"), QStringLiteral("wellbore_key"), QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")},
      1, 16, 16},
     {QStringLiteral("version"), {QStringLiteral("version_id")},
      {QStringLiteral("topic"), QStringLiteral("version_id"), QStringLiteral("catalog_revision")}},

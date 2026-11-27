@@ -23,7 +23,8 @@ namespace
 Q_LOGGING_CATEGORY(lcCommands, "paleo.commands")
 
 // 动作自身的使能/提示即命令状态：禁用时 tooltip 承载原因（镜像同步与 applyGate 都写它）。
-CommandState actionState(const QPointer<QAction> &a)
+using MenuBehavior = CommandActionBinder::MenuBehavior;
+CommandState actionState(const QPointer<QAction> &a, MenuBehavior menuBehavior = MenuBehavior::OpenMenu)
 {
   CommandState st;
   if (!a)
@@ -34,7 +35,7 @@ CommandState actionState(const QPointer<QAction> &a)
   if (!st.enabled)
     st.reason = a->toolTip();
   // 子菜单型动作：命令 = 弹出子菜单，至少要有一个可用子项，否则禁用并说明。
-  if (st.enabled && a->menu())
+  if (st.enabled && a->menu() && menuBehavior == MenuBehavior::OpenMenu)
   {
     const QList<QAction *> items = a->menu()->actions();
     const bool any = std::any_of(items.cbegin(), items.cend(), [](const QAction *i) {
@@ -112,7 +113,7 @@ QAction *CommandActionBinder::bindMirror(QAction *action, const QString &command
   return route(action, commandId);
 }
 
-QAction *CommandActionBinder::bindNative(QAction *action, const QString &commandId)
+QAction *CommandActionBinder::bindNative(QAction *action, const QString &commandId, MenuBehavior menuBehavior)
 {
   if (!action || !m_dispatcher)
     return action;
@@ -123,10 +124,10 @@ QAction *CommandActionBinder::bindNative(QAction *action, const QString &command
   QString error;
   if (!m_dispatcher->bind(
           commandId,
-          [a](const CommandContext &, const QVariantMap &params) {
+          [a, menuBehavior](const CommandContext &, const QVariantMap &params) {
             if (!a)
               return;
-            if (a->menu())
+            if (a->menu() && menuBehavior == MenuBehavior::OpenMenu)
             {
               popupMenuFor(a); // 子菜单型：与 ribbon 工具按钮同一菜单，由用户挑子项
               return;
@@ -138,7 +139,7 @@ QAction *CommandActionBinder::bindNative(QAction *action, const QString &command
               return;
             a->trigger();
           },
-          [a](const CommandContext &) { return actionState(a); }, &error))
+          [a, menuBehavior](const CommandContext &) { return actionState(a, menuBehavior); }, &error))
     qCWarning(lcCommands) << error;
   return action;
 }

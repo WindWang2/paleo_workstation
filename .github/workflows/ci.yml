@@ -545,7 +545,7 @@ jobs:
             vendor/cache/osgeo4w-offline
             vendor/cache/onnxruntime
             vendor/cache/tarballs
-          key: ${{ runner.os }}-offline-vendor-${{ hashFiles('vendor/osgeo4w-offline.lock.json', 'vendor/opencl-source.lock.json', 'vendor/manifest.json') }}
+          key: ${{ runner.os }}-offline-vendor-${{ hashFiles('vendor/osgeo4w-offline.lock.json', 'vendor/opencl-source.lock.json', 'vendor/pdal-arrow-source.lock.json', 'vendor/manifest.json') }}
       # #134：Vendor 只取依赖；编译错误落在 Build 步骤（CI 下 ninja -k 0 一次暴露全部错误）。
       - name: Vendor dependencies (OSGeo4W route per docs/phase0/et0-vendor-comparison.md)
         shell: pwsh

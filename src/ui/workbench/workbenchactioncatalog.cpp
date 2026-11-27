@@ -20,6 +20,7 @@ const ActionSpec kActions[] = {
     {"setEditEvidence", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
     {"clearEditEvidence", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
     {"setAutoExplain", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
+    {"adoptEditExplanation", Family::EditFlow, Effect::Mutating, Outcome::FlowOwned, kNone},
     {"generateEditExplanation", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
     {"cancelEditExplanation", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
     {"checkTopology", Family::EditFlow, Effect::Read, Outcome::FlowOwned, kNone},
@@ -30,6 +31,8 @@ const ActionSpec kActions[] = {
 
     // ---- Query（runWorkbenchQueryFamily）----
     {"predict", Family::Query, Effect::Mutating, Outcome::Queued, kNone},
+    {"clusterWellAssignment", Family::Query, Effect::Mutating, Outcome::Standard, kNone},
+    {"clusterManualAssignment", Family::Query, Effect::Mutating, Outcome::Standard, kLayerService | kShow},
     // 打开属性表面需要导航回调：缺了只开图层不显表，成功文案会失真——按必需依赖拒绝。
     {"wellattributes", Family::Query, Effect::Mutating, Outcome::Standard, kNavTable},
     {"wellformations", Family::Query, Effect::Mutating, Outcome::Standard, kNavTable},
@@ -63,6 +66,7 @@ const ActionSpec kActions[] = {
     {"compare", Family::Edit, Effect::Read, Outcome::Standard, kCompare},
     {"consistency", Family::Edit, Effect::Mutating, Outcome::Queued, kNone},
     {"polygonize", Family::Edit, Effect::Mutating, Outcome::Queued, kNone},
+    {"resumeEdit", Family::Edit, Effect::Mutating, Outcome::Standard, kShow | kBeginEdit},
     {"copy", Family::Edit, Effect::Mutating, Outcome::Standard, kNone},
     {"save", Family::Edit, Effect::Mutating, Outcome::Standard, kLayerService},
 

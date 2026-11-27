@@ -42,6 +42,7 @@ public:
     // 渐进 LOD（wave/seismic-engine-deep 主线4）：显式 .sf3p 分页工作区。
     // 拖动滑杆期间切到最粗层（交互跟手），静止 ~350ms 后升回 L0 并重取三槽
     // 切片；仅 paged 通道生效，未设置时保持 Auto 直读/工作区行为。
+    void setChunkWorkspace(const QString &metaPath) { chunkWorkspace_ = metaPath; }
     void setPagedWorkspace(const QString &sf3pPath);
     [[nodiscard]] QString pagedWorkspace() const { return pagedPath_; }
     [[nodiscard]] int activeLodLevel() const { return activeLod_; }
@@ -194,7 +195,7 @@ private:
     QLabel *timeMsLabel_ = nullptr;
 
     // Paged/LOD state
-    QString pagedPath_;
+    QString pagedPath_, chunkWorkspace_;
     int coarsestLod_ = 0;         // progressive 打开后的最粗层级（0 = 无）
     int activeLod_ = 0;
     bool lodSwitchInFlight_ = false;

@@ -46,13 +46,14 @@ struct FolderPreviewRow
   // 确认表「显示名」列的默认值（预览期填原文件 basename）；导入后成为资产
   // displayName（物理 fileName 恒不动）。确认表编辑该列 → nameOverrides。
   QString displayName;
+  bool needsImportReview = false; // 身份匹配歧义或已有同名曲线，需要确认
 };
 
 // 导入行结果（两阶段导入 / 单行重导 / plan 执行共用口径）。
 struct FolderRowResult
 {
   QString path;            // 源路径（所选目录内）
-  QString assetId;         // 入库成功后的资产 id；失败/跳过为空
+  QString assetId;         // 已入库的资产 ID（含按相同内容跳过的已有资产）
   QString classifiedType;  // 分类器类型（well_head/well_log/tops/...）
   QString entityName;      // 已解析实体名；多个主关联用 ", " 连接；未决/失败为空
   enum class Outcome { Imported, Unresolved, Failed, Skipped };

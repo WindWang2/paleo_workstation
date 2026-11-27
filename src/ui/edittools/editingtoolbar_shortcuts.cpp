@@ -1,6 +1,7 @@
 // 层：视图
 // PaleoEditingToolbar：画布撤销/重做快捷键（file-budget 拆分自 editingtoolbar.cpp）。
 #include "editingtoolbar.h"
+#include "../../qgis/topologygesture.h"
 #include "../shortcuts/shortcutcatalog.h"
 #include <QAction>
 #include <QShortcut>
@@ -44,6 +45,9 @@ PaleoUndoTarget PaleoEditingToolbar::canvasUndoTarget()
 
 PaleoUndoStep PaleoEditingToolbar::describeCanvasUndo( bool undo ) const
 {
+  if ( mUndoStack )
+    if ( const auto step = QgisTopologyGesture::describe( mUndoStack->layer(), undo ) )
+      return { step->available, step->text };
   if ( mUndoStack && ( undo ? mUndoStack->canUndo() : mUndoStack->canRedo() ) )
     return { true, undo ? mUndoStack->undoText() : mUndoStack->redoText() };
   return mSecondaryUndo.describe ? mSecondaryUndo.describe( undo ) : PaleoUndoStep{};
@@ -51,6 +55,14 @@ PaleoUndoStep PaleoEditingToolbar::describeCanvasUndo( bool undo ) const
 
 bool PaleoEditingToolbar::stepCanvasUndo( bool undo )
 {
+  if ( mUndoStack && QgisTopologyGesture::describe( mUndoStack->layer(), undo ) )
+  {
+    QString reason;
+    const bool done = QgisTopologyGesture::step( mUndoStack->layer(), undo, &reason );
+    if ( !done && !reason.isEmpty() ) emit editRefused( reason );
+    refreshUndoActions();
+    return done;
+  }
   if ( mUndoStack && ( undo ? mUndoStack->canUndo() : mUndoStack->canRedo() ) )
   {
     undo ? mUndoStack->undo() : mUndoStack->redo();
@@ -75,7 +87,7 @@ void PaleoEditingToolbar::refreshUndoActions()
   const auto sync = [this]( QAction *action, bool undo, const QString &verb, const QString &unavailable ) {
     const auto step = mUndoRouter ? mUndoRouter->describe( undo ) : describeCanvasUndo( undo );
     const auto hint = step.text.isEmpty() ? action->property( "hint" ).toString() : tr( "%1：%2" ).arg( verb, step.text );
-    action->setToolTip( step.available ? hint : unavailable );
+    action->setToolTip( step.available || !step.text.isEmpty() ? hint : unavailable );
     action->setEnabled( step.available );
   };
   // Disabling a focused button can move focus synchronously. Query each action

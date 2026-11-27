@@ -3,6 +3,8 @@
 // 分阶段聚合进度单调、断点探测三态、并行编码一致性、质量报告字段、坏道跳过、
 // 同输出互斥、取消无假完成态（Auto 不升级）、坏 meta 识别与重建、
 // 自适应金字塔层数、结构化日志可解析、续跑跳块、.partial 探测、scanning 阶段。
+#include "catalog/datacatalog.h"
+#include "services/seismicworkspacepaths.h"
 #include <QtTest>
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -142,6 +144,40 @@ private slots:
   void initTestCase()
   {
     QVERIFY(writeStandardSegy(sgy(), 6, 5, 64));
+  }
+
+  void projectCacheSeparatesSourceAndRevision()
+  {
+    QTemporaryDir source, project;
+    QVERIFY(source.isValid() && project.isValid());
+    const QString raw = source.filePath(QStringLiteral("volume.sgy"));
+    QVERIFY(writeStandardSegy(raw, 6, 5, 64));
+    const auto paths = workspaceLocations(project.path(), QStringLiteral("version-1"), raw);
+    QVERIFY(paths.readyPaged.isEmpty());
+    QVERIFY(paths.chunkBase.startsWith(project.path() + '/'));
+    QVERIFY(!QFileInfo::exists(QFileInfo(paths.chunkBase).absolutePath()));
+    const auto next = workspaceLocations(project.path(), QStringLiteral("version-2"), raw);
+    QVERIFY(next.pagedFile != paths.pagedFile);
+    QVERIFY(paths.prepareOutput());
+    engine::PagedPipelineOptions options;
+    const auto result = engine::TranscodeSegyToPagedWorkspace(toPath(raw), toPath(paths.pagedFile), options, nullptr, {});
+    QVERIFY(result.status.ok());
+    QCOMPARE(workspaceLocations(project.path(), QStringLiteral("version-1"), raw).readyPaged, paths.pagedFile);
+    const QString legacy = raw + QStringLiteral(".sf3p");
+    QVERIFY(!QFileInfo::exists(legacy));
+    QVERIFY(QFile::copy(paths.pagedFile, legacy));
+    CatalogEntity survey;
+    survey.entityType = QStringLiteral("seismic_survey");
+    survey.inlineMin = 1000; survey.inlineMax = 1005; survey.xlineMin = 2000; survey.xlineMax = 2004;
+    QCOMPARE(workspaceLocations(project.path(), QStringLiteral("version-2"), raw, &survey).readyPaged, legacy);
+    survey.inlineMax += 1;
+    QVERIFY(workspaceLocations(project.path(), QStringLiteral("version-2"), raw, &survey).readyPaged.isEmpty());
+    QVERIFY(QFile::rename(legacy, legacy + QStringLiteral(".partial")));
+    QVERIFY(workspaceLocations(project.path(), QStringLiteral("version-2"), raw).readyPaged.isEmpty());
+    QVERIFY(QFileInfo::exists(legacy + QStringLiteral(".partial")));
+    QVERIFY(writeStandardSegy(raw, 7, 5, 64));
+    QVERIFY(!paths.prepareOutput());
+    QVERIFY(workspaceLocations(project.path(), QStringLiteral("version-1"), raw).readyPaged.isEmpty());
   }
 
   // ---- D1.2/D1.6/D1.8：断点探测三态 ----

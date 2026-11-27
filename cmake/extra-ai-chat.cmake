@@ -49,6 +49,7 @@ target_link_libraries(paleo_services PUBLIC paleo_services_query)
 # 编排面（功能层）：会话 + 客户端 + 工具分发/执行回路的对外那一层。
 target_sources(paleo_workflow PRIVATE
   src/workflow/aichatcontroller.cpp
+  src/workflow/aichatcontroller_import.cpp
   src/workflow/aichatcontroller_pythonenvironment.cpp
   src/workflow/aichattoolrunner.cpp
   src/workflow/aichattoolrunner_results.cpp
@@ -83,6 +84,10 @@ add_paleo_test(tst_tracking_input LIBS paleo_app_agentproviders paleo_workflow P
 # 视图层：助手 dock + 配置对话框（方向62）+ 工具结果结构化视图（方向93）。
 target_sources(paleo_ui PRIVATE
   src/ui/ai/aiassistdock.cpp
+  src/ui/ai/aiassistdock_layout.cpp
+  src/ui/ai/aiassistdock_transcript.cpp
+  src/ui/ai/aiassistdock_import.cpp
+  src/ui/paleomainwindow_agentimport.cpp
   src/ui/ai/llmconfigdialog.cpp
   src/ui/ai/aiconfigurationwiring.cpp
   src/ui/ai/pythonenvironmentdialog.cpp

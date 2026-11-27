@@ -28,6 +28,7 @@ target_compile_definitions(tst_pythonanalysis PRIVATE
 add_paleo_test(tst_pythonanalysisreport LIBS paleo_services_pythonanalysis)
 add_paleo_test(tst_pythonanalysisselection LIBS paleo_services_pythonanalysis paleo_ai)
 add_paleo_test(tst_pythonanalysisquery LIBS paleo_services_query)
+add_paleo_test(tst_wellbore_curve_window LIBS paleo_workflow paleo_services_pythonanalysis Paleo::paleo_data_service Qt6::Sql)
 add_paleo_test(tst_pythonanalysiswiring LIBS paleo_app_agentproviders)
 target_compile_definitions(tst_pythonanalysiswiring PRIVATE
   PALEO_TEST_PYTHON_ANALYSIS_TEMPLATES="${CMAKE_SOURCE_DIR}/vendor/agent-python/templates")

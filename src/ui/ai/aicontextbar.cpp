@@ -27,12 +27,20 @@ AiContextBar::AiContextBar(QWidget *parent) : QWidget(parent) {
 
   auto *row = new QWidget(this);
   row->setObjectName(QStringLiteral("aiContextRow"));
+  row->setAttribute(Qt::WA_StyledBackground);
+  PaleoTheme::applyThemedStyleSheet(row, [] {
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+      "QWidget#aiContextRow {background: %1; border-radius: {rounded.sm}px;}"))
+        .arg(PaleoTheme::tokens().surfaceAlt.name());
+  });
   auto *rowLayout = new QHBoxLayout(row);
   rowLayout->setContentsMargins(tokens.spacingXs, 0, 0, 0);
   rowLayout->setSpacing(tokens.spacingXs);
   m_summary = new QLabel(row);
   m_summary->setObjectName(QStringLiteral("aiContextSummary"));
   m_summary->setTextFormat(Qt::PlainText);
+  // 工程简报可长于整个停靠区，完整文字仍可在「上下文」中查看。
+  m_summary->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   m_summary->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
   PaleoTheme::applyThemedStyleSheet(
     m_summary, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
@@ -41,7 +49,9 @@ AiContextBar::AiContextBar(QWidget *parent) : QWidget(parent) {
   m_toggle->setObjectName(QStringLiteral("aiContextToggle"));
   m_toggle->setText(tr("上下文"));
   m_toggle->setCheckable(true);
-  m_toggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  m_toggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  m_toggle->setAutoRaise(true);
+  m_toggle->setFocusPolicy(Qt::StrongFocus);
   m_toggle->setArrowType(Qt::RightArrow);
   rowLayout->addWidget(m_toggle);
   layout->addWidget(row);
@@ -100,6 +110,7 @@ void AiContextBar::presentUnavailable(const QString &projectBrief, bool streamin
   m_hostTurnId = hostTurnId;
   m_hostUnavailableCode = reason;
   m_summary->setText(summaryLine());
+  m_summary->setToolTip(m_summary->text());
   m_detailBody->setText(detailText());
 }
 
@@ -122,6 +133,7 @@ void AiContextBar::present(const QString &projectBrief, bool streaming,
   m_hostTurnId = hostTurnId;
   m_turnContextNote = turnContextNote;
   m_summary->setText(summaryLine());
+  m_summary->setToolTip(m_summary->text());
   m_detailBody->setText(detailText()); // 详情文本始终随快照更新（未展开也保鲜）
 }
 

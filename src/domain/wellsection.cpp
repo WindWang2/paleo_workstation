@@ -311,6 +311,10 @@ Interval formationInterval(const Well &w, const QString &activeTop,
 }
 
 namespace {
+QString exportDepth(double value) {
+  const QString hundredths = QString::number(value, 'f', 2);
+  return hundredths.toDouble() == value ? hundredths : QString::number(value, 'g', 17);
+}
 QString csvCell(const QString &s) {
   if (!s.contains(QLatin1Char(',')) && !s.contains(QLatin1Char('"')) &&
       !s.contains(QLatin1Char('\n')) && !s.contains(QLatin1Char('\r')))
@@ -355,14 +359,14 @@ TopsTable topsTable(const QVector<Well> &wells, const Datum &datum,
     for (const Top &top : w.tops) {
       if (!std::isfinite(top.md))
         continue;
-      QStringList row{w.name, top.name, QString::number(top.md, 'f', 2)};
+      QStringList row{w.name, top.name, exportDepth(top.md)};
       if (tvd) {
         // NoSurvey 井 TVD 语义不可用（.h 三态契约：不得静默冒充）——导出
         // 面与显示面同口径：仅真实测斜井（Surveyed）出值，其余留空。
         const double tv = w.tvdStatus() == TvdStatus::Surveyed
                               ? w.tvdOf(top.md)
                               : qQNaN();
-        row << (std::isfinite(tv) ? QString::number(tv, 'f', 2)
+        row << (std::isfinite(tv) ? exportDepth(tv)
                                   : QString()); // 无测斜/坏表井留空不伪造
       }
       t.rows.push_back(row);

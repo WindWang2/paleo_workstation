@@ -1,5 +1,6 @@
 // 层：数据
 #include "areamodel.h"
+#include "originalpackage.h"
 #include "areamodel_conventions.h"
 #include <paleo_data/service.h>
 #include <QDir>
@@ -19,8 +20,10 @@ bool ensureProject(const QString &project, QString *error) {
   if (error) *error = QString::fromUtf8(detail);
   return ok && inheritSurveyHorizonConventions(service,error);
 }
-bool inheritProjectHorizonConventions(const QString &project,QString *error) {
-  return !QFileInfo::exists(directory(project)+QStringLiteral("/data.sqlite"))||ensureProject(project,error);
+bool inheritProjectHorizonConventions(const QString &project,QString *error,const QString &verifiedStamp) {
+  const auto root=directory(project);
+  if(!verifiedStamp.isEmpty() && verifiedStamp==databaseStamp(root))return true;
+  return !QFileInfo::exists(root+QStringLiteral("/data.sqlite"))||ensureProject(project,error);
 }
 bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,
@@ -131,6 +134,11 @@ bool importFileWithCrs(const QString &project, const QString &source,
                        const std::function<bool()> &cancelled,
                        const std::function<void(int, int, const QString &)> &progress,
                        const QString &crs, const QString &crsUnit, ImportFinalization finalization) {
+  const auto receiptError = paleo::exchange::verifyReceivedOriginal(project, source, {}, cancelled);
+  if (!receiptError.isEmpty()) {
+    if (error) *error = receiptError;
+    return false;
+  }
   return importWithCrs(project, source, true, report, error, cancelled, {}, progress, crs, crsUnit, finalization);
 }
 }

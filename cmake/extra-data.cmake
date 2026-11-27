@@ -6,3 +6,9 @@ target_sources(paleo_algorithms PRIVATE src/algorithms/welldist.cpp) # T11 welld
 add_paleo_test(tst_ingestplan LIBS paleo_qgis)
 target_compile_definitions(tst_ingestplan PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+
+target_sources(paleo_io PRIVATE src/io/originalpackage.cpp src/io/sectiontopscsv.cpp src/io/horizongridexchange.cpp src/io/checkshotexchange.cpp)
+add_paleo_test(tst_originalpackage LIBS paleo_services paleo_io Paleo::paleo_data_service)
+target_compile_definitions(tst_originalpackage PRIVATE PALEO_ORIGINAL_FIXTURES="${CMAKE_SOURCE_DIR}")
+add_paleo_test(tst_sectiontopsexchange LIBS paleo_workflow Paleo::paleo_data_service)
+add_paleo_test(tst_horizonexchange LIBS paleo_services paleo_io)

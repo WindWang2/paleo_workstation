@@ -11,7 +11,7 @@
 
 class PaleoTaskService;
 class PaleoTask;
-// One fixed optional core loop. No model settings/auth client or tool executor
+// The Pi conversation loop. No model settings/auth client or tool executor
 // lives here: the existing controller receives requests and remains authority.
 class PiChatBridge : public QObject {
   Q_OBJECT

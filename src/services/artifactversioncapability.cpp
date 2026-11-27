@@ -1,6 +1,8 @@
 // 层：数据
 #include "artifactversioncapability.h"
 #include "../catalog/datacatalog.h"
+#include "../domain/seismicclusterproduct.h"
+#include "../domain/stratigraphicunit.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QThread>
@@ -13,8 +15,33 @@ QJsonObject object(const QJsonObject &properties) {
   for (auto it=properties.begin();it!=properties.end();++it) required.append(it.key());
   return {{"type","object"},{"properties",properties},{"required",required},{"additionalProperties",false}};
 }
+
+QJsonObject frozenUnit(const CatalogVersion &version, bool &truncated) {
+  auto metadata = version.extra.value("unitSelection").toMap();
+  if (metadata.isEmpty())
+    metadata = version.extra.value("algorithm_parameters").toMap().value("unitSelection").toMap();
+  const auto unit = paleo::strat::fromMap(metadata);
+  if (!unit.isValid() || unit.revision.isEmpty()) return {};
+  // Never shorten an identifier into a different, seemingly valid reference.
+  if (unit.schemeId.size() > 256 || unit.revision.size() > 256 ||
+      unit.intervalId.size() > 256 || unit.subIntervalId.size() > 256) {
+    truncated = true;
+    return {};
+  }
+  truncated |= unit.displayName.size() > 256;
+  return {{"schemeId",unit.schemeId},{"revision",unit.revision},{"intervalId",unit.intervalId},
+          {"subIntervalId",unit.subIntervalId},{"aggregate",unit.aggregate},{"displayName",unit.displayName.left(256)}};
+}
 }
 QString ArtifactVersionCapability::id() {return QStringLiteral("catalog.version.describe.v1");}
+QString ArtifactVersionCapability::resultKind(const CatalogVersion &version) {
+  const auto kind = version.extra.value("kind").toString();
+  if (paleo::seismic::isRawClusterProduct(kind)) return kind;
+  const auto result = version.extra.value("result_kind").toString();
+  static const QStringList known{"well_assigned_cluster_raster", "well_assigned_cluster_patches",
+                                 "manual_cluster_interpretation", "formation_prediction", "dominant_facies"};
+  return known.contains(result) ? result : QString();
+}
 QJsonObject ArtifactVersionCapability::requestSchema() {
   return object({{"documentId",scalar("string")},{"versionId",scalar("string")},
                  {"expectedCatalogRevision",scalar("integer")}});
@@ -46,11 +73,16 @@ ArtifactVersionResult ArtifactVersionCapability::describe(const DataCatalog *cat
     if (version.parentVersionIds[i].size()>256) return fail("invalid_version_ref",QStringLiteral("输入版本标识超出协议上限"));
     parents.append(version.parentVersionIds[i]);
   }
+  const auto horizon = version.extra.value("horizon").toString();
+  bool truncated = asset.displayName.size()>512 || version.fileName.size()>512 || version.stage.size()>64 ||
+      asset.type.size()>128 || horizon.size()>256;
+  const auto unit = frozenUnit(version, truncated);
   out.version={{"id",version.id},{"assetId",version.assetId},{"displayName",asset.displayName.left(512)},
+      {"assetType",asset.type.left(128)},{"resultKind",resultKind(version)},{"horizon",horizon.left(256)},{"unitSelection",unit},
       {"fileName",version.fileName.left(512)},{"stage",version.stage.left(64)},
       {"versionNumber",version.versionNumber},{"managed",version.managed},{"sha256",version.sha256.left(64)},
       {"stale",version.extra.value("stale").toBool()},
-      {"labelsTruncated",asset.displayName.size()>512 || version.fileName.size()>512 || version.stage.size()>64},
+      {"labelsTruncated",truncated},
       {"parentCount",QString::number(version.parentVersionIds.size())},
       {"parentsTruncated",version.parentVersionIds.size()>128},{"parentVersionIds",parents}};
   out.ok=true;out.code="described";

@@ -18,6 +18,7 @@ add_library(paleo_workflow STATIC
   src/workflow/algorithmpublish_prepare.cpp
   src/workflow/documentsession.cpp
   src/workflow/documentsession_bindings.cpp
+  src/workflow/documentsession_wellbores.cpp
   src/workflow/documentsession_jobs.cpp
   src/workflow/documentsession_relocation.cpp
   src/workflow/documentsession_relations.cpp
@@ -36,6 +37,7 @@ add_library(paleo_workflow STATIC
   src/workflow/xmlpreviewsession.cpp
   src/workflow/welltracksourcesession.cpp
   src/workflow/mappingworkbench.cpp
+  src/workflow/mappingworkbench_clusterpatches.cpp
   src/workflow/mappingworkbench_readiness.cpp     # 预测专项：测井批量准备检查（干跑）
   src/workflow/mappingworkbench_predict.cpp       # 预测管线（predict/finish/任务行）——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_edit.cpp          # 编辑副本/资产移除/约束导入——core-deepening A-R2 拆分
@@ -59,6 +61,8 @@ add_library(paleo_workflow STATIC
   src/workflow/constraintfactorjobs_contours.cpp   # 方向57：分析等值线族 + 制图工作场
   src/workflow/constraintfactorjobs_interpretive.cpp # 方向57：解释性等值线族三段式
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
+  src/workflow/folderimport_agent.cpp
+  src/workflow/folderimport_originals.cpp
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
   src/workflow/registration.cpp                    # W3 临时配准编排
   src/workflow/mappingworkflow.cpp                 # 厚度→约束IDW→相多边形链路
@@ -94,7 +98,6 @@ add_library(paleo_workflow STATIC
   src/workflow/storagegovernancecontroller.cpp
   src/workflow/assetassociation.cpp
   src/workflow/assetops.cpp                        # 方向30：版本回滚/对比 + 物理清理 + 未决归位
-  src/workflow/importledger.cpp                    # 方向30：文件夹导入批次台账（sidecar 持久化）
   src/workflow/boundaryeditrules.cpp               # 方向39：相界类型编辑规则（赋类/带域/开放端）
   src/workflow/wellattachmentops.cpp               # 方向79：井附件锚深后补编辑编排（校验/列表面）
 )
@@ -125,10 +128,14 @@ add_library(paleo_ui STATIC
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/pages/mappingworkbenchpage_flow.cpp
+  src/ui/pages/mappingworkbenchpage_cluster.cpp
+  src/ui/dialogs/seismicclusterinterpretation.cpp
   src/ui/pages/mappingworkbenchpage_references.cpp
   src/ui/pages/mappingworkbenchpage_schema.cpp
   src/ui/pages/mappingtaskguide.cpp
+  src/ui/pages/mappingtaskguide_drafts.cpp
   src/ui/pages/mappingreferencepanel.cpp
+    src/ui/pages/mappingreferencepanel_layout.cpp
   src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow_undogroup.cpp           # #748 主窗口撤销组
@@ -137,6 +144,10 @@ add_library(paleo_ui STATIC
   src/ui/workbench/mappingworkbenchcommandcontroller.cpp  # #749：制图工作台命令控制器（原 #473 _commands.cpp）
   src/ui/workbench/mappingworkbenchcommandcontroller.h    # #749：Q_OBJECT 头（AUTOMOC）
   src/ui/workbench/mappingreferencecontroller.cpp
+  src/ui/workbench/workspacecomparison.cpp
+  src/ui/workbench/clusterpatchinspector.cpp
+  src/ui/workspacefocus.cpp
+  src/ui/workspacedockdocuments.cpp
   src/ui/workbench/mappingreferencecontroller.h
   src/ui/workbench/workbenchcommandhandler.h             # #749：工作台命令处理器接口
   src/ui/paleomainwindow_workbench_evidence.cpp   # #473：证据面板/图谱联动接线
@@ -234,6 +245,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/timeslicereadcontrols.cpp
   src/ui/datapreview/datapreviewtabhorizon.cpp      # 方向20 轮4：horizon 预览分支析出
   src/ui/datapreview/datapreviewtabwelllog.cpp      # 方向20 轮4：well_log 预览分支析出
+  src/ui/datapreview/wellboresourcebutton.cpp
   src/ui/datapreview/datapreviewtabimage.cpp         # 方向20 轮4：image_reference 分支析出
   src/ui/datapreview/datapreviewtabgeojson.cpp        # 方向20 轮4：geojson 分支析出
   src/ui/datapreview/datapreviewtabworkbook.cpp       # outsource_workbook 原生表格预览 + LO 打开

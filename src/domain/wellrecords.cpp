@@ -20,8 +20,11 @@ WellXmlKind sniffWellXml(const QByteArray &content)
   int elements = 0;
   while (!xml.atEnd() && elements < 100000)
   {
-    xml.readNext();
-    if (xml.isStartElement())
+    const QXmlStreamReader::TokenType token = xml.readNext();
+    // #1023：前缀 XML 嗅探与完整解析保持同一 DTD 拒绝策略，避免消费/展开内部实体。
+    if (token == QXmlStreamReader::DTD)
+      return WellXmlKind::Unknown;
+    if (token == QXmlStreamReader::StartElement)
     {
       ++elements;
       const QString local = xml.name().toString().toLower();

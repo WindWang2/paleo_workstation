@@ -1,4 +1,5 @@
 // 层：数据
+#include "metadata/managedpath.h"
 #include "previewdoc.h"
 
 #include "../catalog/datacatalog.h"
@@ -256,8 +257,9 @@ void PreviewDocService::requestHorizonPreview(
     ready(*result);
     return;
   }
-  result->storage = std::make_shared<QTemporaryDir>();
+  result->storage = paleo::managedpath::temporaryPreviewDirectory(catalog() && !catalog()->refusesWrites() ? catalog()->projectDir() : QString(), QStringLiteral("horizon-preview"));
   const auto work = [source, result](PaleoTask *task) -> QString {
+    if (!result->storage) return QStringLiteral("无法创建层位预览目录");
     BinnedHorizon grid;QString error;
     const auto model=readModelHorizonPreview(source,grid,&error,[task]{return task&&task->cancelRequested();});
     if(model==paleo::area_model::Read::Failed)return error;

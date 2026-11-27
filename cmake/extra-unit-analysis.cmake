@@ -4,3 +4,7 @@ target_sources(paleo_workflow PRIVATE src/workflow/mappingworkbench_seismicunit.
 target_sources(paleo_workflow PRIVATE src/workflow/mockseismicinputs.cpp)
 add_paleo_test(tst_analysisunitcontext LIBS paleo_services Paleo::paleo_data_service)
 add_paleo_test(tst_mockseismicunit LIBS paleo_ui paleo_workflow Paleo::paleo_data_service)
+add_paleo_test(tst_seismicclusterpatches LIBS paleo_qgis)
+
+target_sources(paleo_qgis PRIVATE src/qgis/clusterassignmentgrid.cpp)
+target_sources(paleo_workflow PRIVATE src/workflow/seismicwellintervals.cpp src/workflow/mappingworkbench_clusterwells.cpp)

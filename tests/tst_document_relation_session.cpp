@@ -1,6 +1,8 @@
 #include <QtTest>
 #include "fixtures/documentsourcefixture.h"
 #include "domain/documentrelation.h"
+#include "services/projectquerycapability.h"
+#include "workflow/wellboresourceconfirmation.h"
 #include <paleo_data/object_descriptor.h>
 #include <QElapsedTimer>
 #include <QSqlDatabase>
@@ -74,6 +76,47 @@ struct RelationFixture:Fixture {
 class TestDocumentRelationSession:public QObject {
     Q_OBJECT
 private slots:
+    void confirmsCurrentSingleWellLasBoreThroughDocument() {
+        Fixture f;
+        QVERIFY(f.init());
+        const auto path = f.temp.filePath("A.las");
+        QVERIFY(write(path, "~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. A\n~Curve\nMD.M\nGR.API\n~Ascii\n100 10\n101 20\n"));
+        QVERIFY2(f.importModel(path), qPrintable(f.error));
+        QVERIFY2(f.bind(), qPrintable(f.error));
+        SourceRecord selected;
+        for (const auto &record : f.session.sources()) if (record.kind == "well_log") selected = record;
+        QVERIFY(selected.ref.valid());
+        const auto wellId = f.catalog.wellsMatchingName("A").value(0);
+        QVERIFY(!wellId.isEmpty());
+        WellboreSourceConfirmation input{selected.ref, selected.versionId, wellId, "A-side", "侧钻 A",
+                                         f.session.epoch(), f.session.revision()};
+        const auto result = f.session.confirmWellboreSource(input);
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QVERIFY(f.session.confirmWellboreSource(input).ok);
+        input.boreKey = "conflicting-side";
+        QCOMPARE(f.session.confirmWellboreSource(input).code, QString("wellbore_conflict"));
+        paleo::data::DataService reader;
+        std::string detail;
+        QVERIFY(reader.openProjectReadOnly(selected.modelDirectory.toStdString(), detail));
+        std::optional<paleo::data::WellboreRef> found;
+        QVERIFY(reader.findWellbore(paleo::data::SourceWellboreKey{selected.ref.sourceId, "file"}, found, detail));
+        QVERIFY(found && found->key == "A-side");
+        QCOMPARE(found->wellId, static_cast<long long>(f.catalog.storedEntityById(wellId).extra.value("areaModelWellId").toLongLong()));
+        paleo::query::ProjectQueryCapability query;
+        query.bind(&f.catalog, {f.session.documentId(), 1, 1});
+        const auto detailPage = query.query({{"topic", "well_details"}, {"well_id", wellId}, {"role", "well_log"}});
+        QVERIFY(detailPage.value("ok").toBool());
+        const auto links = detailPage.value("links").toArray();
+        QCOMPARE(links.size(), 1);
+        const auto assignment = links.first().toObject().value("wellbore_assignment").toObject();
+        QCOMPARE(assignment.value("status").toString(), QString("confirmed"));
+        QCOMPARE(assignment.value("key").toString(), QString("A-side"));
+        QVERIFY2(f.bind(true), qPrintable(f.error));
+        QCOMPARE(f.session.confirmWellboreSource(input).code, QString("stale_command"));
+        input.expectedEpoch = f.session.epoch();
+        input.expectedRevision = f.session.revision();
+        QCOMPARE(f.session.confirmWellboreSource(input).code, QString("read_only"));
+    }
     void typedChoicesAndEveryResolutionAreAsynchronous() {
         RelationFixture f;QVERIFY2(f.setup(),qPrintable(f.error));const auto before=digest(f.selected.path);
         QVERIFY2(f.choose(),qPrintable(f.error));const auto view=f.session.relationView(f.use);

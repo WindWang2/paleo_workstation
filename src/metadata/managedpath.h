@@ -9,6 +9,8 @@
 #include <QString>
 
 #include <functional>
+#include <memory>
+#include <QTemporaryDir>
 
 namespace paleo::managedpath
 {
@@ -19,4 +21,14 @@ QString sha256FileHex(const QString &path, QString *error = nullptr,
 bool isSafePathSegment(const QString &segment);
 // 工程相对受管路径 → 绝对路径；空路径/不安全/越界/符号链接回空串。
 QString resolveManagedPath(const QString &projectDir, const QString &relativePath);
+bool isWithinRoot(const QString &root, const QString &path);
+QString defaultProjectDirectory();
+QString defaultProjectVolume();
+void configureApplicationDataLocations();
+// Resolve writable project data to the configured volume, including old projects opened elsewhere.
+QString workLocationRoot(const QString &projectDir, QString &relative);
+// data-size scratch stays on the project volume. Empty project is permitted only
+// for standalone preview tools without a project.
+std::unique_ptr<QTemporaryDir> temporaryDirectory(const QString &projectDir, const QString &prefix);
+std::unique_ptr<QTemporaryDir> temporaryPreviewDirectory(const QString &projectDir, const QString &prefix);
 } // namespace paleo::managedpath

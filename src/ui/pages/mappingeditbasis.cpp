@@ -64,12 +64,14 @@ MappingEditBasis::MappingEditBasis(MappingWorkbench *workbench, QWidget *parent)
   connect(workbench, &MappingWorkbench::explanationStatusChanged, this, &MappingEditBasis::updateState);
   connect(workbench, &MappingWorkbench::autoExplanationReady, this, &MappingEditBasis::onAutoExplanationReady);
   connect(workbench, &MappingWorkbench::catalogBound, this, [this] {
+    m_forms.clear();
+    m_layerId.clear();
+    m_featureUid.clear();
     m_sources->clear();
     m_text->clear();
     m_reason->clear();
     m_latestDraft.clear();
-    m_lastAutoFilledText.clear();
-    m_lastAutoFilledReason.clear();
+    m_formEdited = false;
     updateState();
   });
   updateState();
@@ -106,7 +108,7 @@ void MappingEditBasis::buildAutoSection(QWidget *parent, QVBoxLayout *layout) {
     for (int i = 0; i < m_sources->count(); ++i)
       versions << m_sources->item(i)->data(Qt::UserRole).toString();
     emit commandRequested(QStringLiteral("generateEditExplanation"),
-                          {{QStringLiteral("horizon"), m_horizon},
+                          {{QStringLiteral("layer"), m_layerId}, {QStringLiteral("horizon"), m_horizon},
                            {QStringLiteral("source_versions"), versions},
                            {QStringLiteral("apply_to_edit_basis"), true}});
   });
@@ -125,7 +127,13 @@ void MappingEditBasis::buildAutoSection(QWidget *parent, QVBoxLayout *layout) {
   m_adoptBtn->setObjectName(QStringLiteral("editBasisAdoptDraft"));
   m_adoptBtn->hide();
   layout->addWidget(m_adoptBtn);
-  connect(m_adoptBtn, &QPushButton::clicked, this, [this] { applyDraftToForm(m_latestDraft); });
+  connect(m_adoptBtn, &QPushButton::clicked, this, [this] {
+    const auto draft = m_latestDraft;
+    emit commandRequested(QStringLiteral("adoptEditExplanation"),
+                          {{"layer", m_layerId}, {"feature_uid", m_featureUid}, {"request_id", draft.value("request_id")}});
+    if (m_layerId == draft.value("layer_id").toString() && m_featureUid == draft.value("feature_uid").toString())
+      applyDraftToForm(draft);
+  });
 }
 
 void MappingEditBasis::buildManualSection(QWidget *parent, QVBoxLayout *layout) {
@@ -169,7 +177,11 @@ void MappingEditBasis::buildManualSection(QWidget *parent, QVBoxLayout *layout) 
   layout->addLayout(form, 2);
 
   auto *manualActions = new QHBoxLayout;
-  auto *apply = new QPushButton(tr("启用手动解释依据"), parent);
+  auto *feature = new QPushButton(tr("给当前图斑加备注"), parent);
+  feature->setObjectName(QStringLiteral("editBasisFeatureNote"));
+  layout->addWidget(feature);
+  connect(feature, &QPushButton::clicked, this, [this] { sendManualNote(true); });
+  auto *apply = new QPushButton(tr("后续编辑沿用这条说明"), parent);
   apply->setObjectName(QStringLiteral("workbench.setEditEvidence"));
   auto *clear = new QPushButton(tr("清空手动依据"), parent);
   clear->setObjectName(QStringLiteral("workbench.clearEditEvidence"));
@@ -177,18 +189,9 @@ void MappingEditBasis::buildManualSection(QWidget *parent, QVBoxLayout *layout) 
   manualActions->addWidget(clear);
   layout->addLayout(manualActions);
 
-  connect(apply, &QPushButton::clicked, this, [this] {
-    QStringList versions;
-    for (int i = 0; i < m_sources->count(); ++i)
-      versions << m_sources->item(i)->data(Qt::UserRole).toString();
-    emit commandRequested(QStringLiteral("setEditEvidence"),
-                          {{QStringLiteral("horizon"), m_horizon},
-                           {QStringLiteral("text"), m_text->toPlainText()},
-                           {QStringLiteral("reason"), m_reason->text()},
-                           {QStringLiteral("source_versions"), versions}});
-  });
+  connect(apply, &QPushButton::clicked, this, [this] { sendManualNote(false); });
   connect(clear, &QPushButton::clicked, this, [this] {
-    emit commandRequested(QStringLiteral("clearEditEvidence"), {{QStringLiteral("horizon"), m_horizon}});
+    emit commandRequested(QStringLiteral("clearEditEvidence"), {{"horizon", m_horizon}, {"layer", m_layerId}});
   });
 
   m_state = new QLabel(parent);
@@ -197,9 +200,41 @@ void MappingEditBasis::buildManualSection(QWidget *parent, QVBoxLayout *layout) 
   m_state->setTextFormat(Qt::PlainText);
   layout->addWidget(m_state);
 
-  connect(m_text, &QPlainTextEdit::textChanged, this, &MappingEditBasis::updateState);
-  connect(m_reason, &QLineEdit::textChanged, this, &MappingEditBasis::updateState);
+  const auto onFormEdited = [this] {
+    m_formEdited = true;
+    updateState();
+  };
+  connect(m_text, &QPlainTextEdit::textChanged, this, onFormEdited);
+  connect(m_reason, &QLineEdit::textChanged, this, onFormEdited);
   connect(m_sources, &QListWidget::currentRowChanged, this, &MappingEditBasis::updateState);
+}
+
+QVariantList MappingEditBasis::references() const {
+  QVariantList result;
+  for (int i = 0; i < m_sources->count(); ++i) {
+    const auto *item = m_sources->item(i);
+    result << QVariantMap{{"name", item->text()}, {"version_id", item->data(Qt::UserRole)}};
+  }
+  return result;
+}
+
+void MappingEditBasis::sendManualNote(bool featureOnly) {
+  QVariantMap data{{"horizon", m_horizon}, {"layer", m_layerId}, {"text", m_text->toPlainText()},
+                   {"reason", m_reason->text()}};
+  if (featureOnly) {
+    if (m_featureUid.isEmpty()) return;
+    data.insert("type", "manual");
+    data.insert("role", "SUPPORTED_BY");
+    data.insert("target_feature_uid", m_featureUid);
+    data.insert("target_version", m_workbench->versionForLayer(m_layerId).id);
+    if (m_reason->text().trimmed().isEmpty()) data.insert("reason", m_text->toPlainText());
+    emit commandRequested(QStringLiteral("addEvidence"), data);
+  } else {
+    QStringList versions;
+    for (const auto &source : references()) versions << source.toMap().value("version_id").toString();
+    data.insert("source_versions", versions);
+    emit commandRequested(QStringLiteral("setEditEvidence"), data);
+  }
 }
 
 void MappingEditBasis::setExpanded(bool expanded) {
@@ -212,16 +247,37 @@ bool MappingEditBasis::isExpanded() const {
 }
 
 void MappingEditBasis::setHorizon(const QString &horizon) {
-  if (m_horizon != horizon) {
-    m_workbench->clearEditEvidence();
-    m_sources->clear();
+  if (m_horizon == horizon) return;
+  m_workbench->clearEditEvidence();
+  setTarget({}, {});
+  m_horizon = horizon;
+  m_text->clear();
+  m_reason->clear();
+  m_sources->clear();
+  m_formEdited = false;
+  updateState();
+}
+
+void MappingEditBasis::setTarget(const QString &id, const QString &featureUid) {
+  if (m_layerId == id && m_featureUid == featureUid) return;
+  QSignalBlocker text(m_text), reason(m_reason), sources(m_sources);
+  const bool changedLayer = m_layerId != id;
+  if (changedLayer && !m_layerId.isEmpty())
+    m_forms.insert(m_layerId, {m_text->toPlainText(), m_reason->text(), m_featureUid, references(), m_formEdited});
+  m_layerId = id;
+  m_featureUid = featureUid;
+  if (changedLayer) {
+    const auto form = m_forms.value(id);
+    const bool restore = form.edited || featureUid == form.featureUid;
+    m_text->setPlainText(restore ? form.text : QString());
+    m_reason->setText(restore ? form.reason : QString());
+    m_formEdited = form.edited;
+    setReferences(form.sources);
+  } else if (!m_formEdited) {
     m_text->clear();
     m_reason->clear();
-    m_latestDraft = m_workbench->lastAutoExplanation(horizon);
-    m_lastAutoFilledText.clear();
-    m_lastAutoFilledReason.clear();
   }
-  m_horizon = horizon;
+  m_latestDraft.clear();
   updateState();
 }
 
@@ -241,27 +297,18 @@ void MappingEditBasis::applyDraftToForm(const QVariantMap &draft) {
     return;
   const QString text = draft.value(QStringLiteral("text")).toString().trimmed();
   const QString reason = draft.value(QStringLiteral("reason")).toString().trimmed();
-  if (!text.isEmpty()) {
-    m_text->setPlainText(text);
-    m_lastAutoFilledText = text;
-  }
-  if (!reason.isEmpty()) {
-    m_reason->setText(reason);
-    m_lastAutoFilledReason = reason;
-  }
+  m_text->setPlainText(text);
+  m_reason->setText(reason);
+  m_formEdited = false;
   updateState();
 }
 
 void MappingEditBasis::onAutoExplanationReady(const QString &horizon, const QVariantMap &explanation) {
-  if (horizon != m_horizon)
+  if (horizon != m_horizon || explanation.value("layer_id").toString() != m_layerId ||
+      explanation.value("feature_uid").toString() != m_featureUid)
     return;
   m_latestDraft = explanation;
-  const QString currentText = m_text->toPlainText().trimmed();
-  const QString currentReason = m_reason->text().trimmed();
-  const bool userUntouched =
-      (currentText.isEmpty() || currentText == m_lastAutoFilledText) &&
-      (currentReason.isEmpty() || currentReason == m_lastAutoFilledReason);
-  if (explanation.value(QStringLiteral("apply_to_edit_basis")).toBool() && userUntouched)
+  if (explanation.value(QStringLiteral("apply_to_edit_basis")).toBool() && !m_formEdited)
     applyDraftToForm(explanation);
   else
     updateState();
@@ -290,36 +337,18 @@ void MappingEditBasis::updateState() {
     m_cancelBtn->setEnabled(busy);
     m_cancelBtn->setToolTip(busy ? tr("取消当前后台解释生成") : tr("当前没有进行中的后台解释任务"));
   }
-  if (m_latestDraft.isEmpty() && !m_horizon.isEmpty())
-    m_latestDraft = m_workbench->lastAutoExplanation(m_horizon);
-  const QString statusLine = m_workbench->explanationStatus();
-  if (!m_latestDraft.isEmpty() && !busy) {
-    const bool ai = m_latestDraft.value(QStringLiteral("ai_generated")).toBool();
-    const QString model = m_latestDraft.value(QStringLiteral("model")).toString();
-    const QString fallback = m_latestDraft.value(QStringLiteral("fallback_reason")).toString();
-    const QString badge = ai && !model.isEmpty()
-                              ? tr("AI 草稿已生成（%1 · 待复核）").arg(model)
-                              : ai ? tr("AI 草稿已生成（待复核）")
-                                   : tr("后台事实摘要已生成（待复核）");
-    m_autoStatus->setText(fallback.isEmpty() ? tr("%1 · %2").arg(badge, statusLine)
-                                             : tr("%1（%2）").arg(badge, fallback));
-    m_draftPreview->setText(tr("最新后台草稿：%1").arg(m_latestDraft.value(QStringLiteral("text")).toString()));
-    m_draftPreview->show();
-    m_adoptBtn->show();
-  } else {
-    m_autoStatus->setText(statusLine);
-    m_draftPreview->hide();
-    m_adoptBtn->hide();
-  }
-
-  const auto current = m_workbench->editEvidence(m_horizon);
+  renderDraft();
+  const auto current = m_layerId.isEmpty() ? m_workbench->editEvidence(m_horizon)
+                                           : m_workbench->editEvidenceForLayer(m_layerId);
   if (auto *apply = findChild<QPushButton *>(QStringLiteral("workbench.setEditEvidence"))) {
     const bool valid = !m_horizon.isEmpty() && !m_text->toPlainText().trimmed().isEmpty() &&
-                       !m_reason->text().trimmed().isEmpty() &&
                        m_text->toPlainText().size() + m_reason->text().size() <= 9000;
-    apply->setEnabled(valid);
+    const bool writable = m_layerId.isEmpty() || m_layerId.startsWith("draft.");
+    apply->setEnabled(valid && writable);
+    if (auto *feature = findChild<QPushButton *>(QStringLiteral("editBasisFeatureNote")))
+      feature->setEnabled(valid && writable && !m_featureUid.isEmpty());
     apply->setToolTip(valid ? tr("将手动说明优先用于后续相面修改")
-                            : tr("可选：填写解释说明和修改目的（合计不超过 9000 字）后可手动启用"));
+                            : tr("填写解释说明即可启用，修改目的可选（合计不超过 9000 字）"));
   }
   if (auto *clear = findChild<QPushButton *>(QStringLiteral("workbench.clearEditEvidence"))) {
     clear->setEnabled(!current.isEmpty());
@@ -338,4 +367,42 @@ void MappingEditBasis::updateState() {
                    : same ? tr("已启用手动依据（%1 个参考版本）。后续编辑优先记录此人工说明；解释仍需复核。")
                                 .arg(current.value(QStringLiteral("references")).toList().size())
                           : tr("手动依据表单已改动；当前编辑仍沿用上次启用的依据，重新启用后生效。"));
+}
+
+void MappingEditBasis::renderDraft() {
+  const auto latest = m_layerId.isEmpty() ? m_workbench->lastAutoExplanation(m_horizon)
+                                          : m_workbench->explanationForTarget(m_layerId, m_featureUid);
+  const bool belongs = latest.value("layer_id").toString() == m_layerId && latest.value("feature_uid").toString() == m_featureUid;
+  if ((!belongs || latest.isEmpty()) && !m_latestDraft.isEmpty() && !m_formEdited &&
+      m_text->toPlainText() == m_latestDraft.value(QStringLiteral("text")).toString() &&
+      m_reason->text() == m_latestDraft.value(QStringLiteral("reason")).toString()) {
+    QSignalBlocker blockText(m_text), blockReason(m_reason);
+    m_text->clear();
+    m_reason->clear();
+  }
+  m_latestDraft = belongs ? latest : QVariantMap{};
+  const QString statusLine = m_workbench->explanationStatus();
+  if (!m_latestDraft.isEmpty()) {
+    const bool ai = m_latestDraft.value(QStringLiteral("ai_generated")).toBool();
+    const QString model = m_latestDraft.value(QStringLiteral("model")).toString();
+    const QString fallback = m_latestDraft.value(QStringLiteral("fallback_reason")).toString();
+    const QString badge = ai && !model.isEmpty()
+                              ? tr("AI 草稿已生成（%1 · 待复核）").arg(model)
+                              : ai ? tr("AI 草稿已生成（待复核）")
+                                   : tr("后台事实摘要已生成（待复核）");
+    m_autoStatus->setText(fallback.isEmpty() ? tr("%1 · %2").arg(badge, statusLine)
+                                             : tr("%1（%2）").arg(badge, fallback));
+    const QString owner = m_featureUid.isEmpty() ? m_workbench->declaration(m_layerId).title
+                                                  : tr("%1 · 图斑 %2").arg(m_workbench->declaration(m_layerId).title, m_featureUid);
+    const auto saved = m_latestDraft.value("saved_version");
+    const QString location = saved.isValid() ? tr("已随 v%1 保存").arg(saved.toInt()) : tr("工作副本草稿");
+    m_draftPreview->setText(tr("%1 · %2\n%3").arg(owner, location, m_latestDraft.value("text").toString()));
+    m_draftPreview->show();
+    m_adoptBtn->show();
+  } else {
+    m_autoStatus->setText(statusLine);
+    m_draftPreview->hide();
+    m_adoptBtn->hide();
+  }
+
 }

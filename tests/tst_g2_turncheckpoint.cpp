@@ -1,8 +1,9 @@
 // 层：测试壳
 // G2 回合执行闭环（controller 侧矩阵）：工具结果先落盘再续轮（W2）、保存
 // 欠账薄门与切换/删除保护（W3）、取消单次结算（W4）、本轮冻结（W1）、受控
-// Pi 引擎链与原生链同一结算口径（W8）。真实可发布工具的恢复重试链在
+// Pi 工具调用与会话保存（W8）。真实可发布工具的恢复重试链在
 // tst_pigeneratedoperations（受控 Python 环境存在时执行）。
+#include "fixtures/chatsessionstoragebreaker.h"
 #include "workflow/aichatcontroller.h"
 #include "workflow/capabilityhost.h"
 #include "catalog/datacatalog.h"
@@ -79,43 +80,6 @@ struct Host {
     controller.toolRunner()->setTaskService(&tasks); AiChatToolContext context;
     context.catalog = &catalog; context.projectDir = project.path(); context.documentId = "host-document"; context.documentEpoch = 1;
     context.capabilityHost = &capability; context.requireCapabilityHost = true; controller.toolRunner()->setContext(context); return true;
-  }
-};
-// A directory at the exact target prevents QSaveFile from replacing it on
-// every supported OS. Other sessions and the preceding checkpoint stay readable.
-struct StorageBreaker {
-  QString target;
-  QString checkpoint;
-  bool engage(const QString &sessionId) {
-    const auto path = ChatSessionStore::pathFor(sessionId);
-    if (path.isEmpty()) return false;
-    const auto saved = path + QStringLiteral(".test-checkpoint");
-    const bool existed = QFileInfo::exists(path);
-    if (existed && !QFile::rename(path, saved))
-      return false;
-    if (!QDir().mkdir(path)) {
-      if (existed) QFile::rename(saved, path);
-      return false;
-    }
-    target = path;
-    if (existed) checkpoint = saved;
-    return true;
-  }
-  bool restore() {
-    if (target.isEmpty()) return true;
-    if (QFileInfo(target).isDir() && !QDir().rmdir(target)) return false;
-    if (!checkpoint.isEmpty() && !QFile::rename(checkpoint, target)) return false;
-    target.clear();
-    checkpoint.clear();
-    return true;
-  }
-  bool loadCheckpoint(ChatSession *session) const {
-    QFile file(checkpoint);
-    if (!file.open(QIODevice::ReadOnly)) return false;
-    const auto record = QJsonDocument::fromJson(file.readAll());
-    if (!record.isObject()) return false;
-    *session = ChatSession::fromJson(record.object());
-    return true;
   }
 };
 int countRole(const QVector<ChatMessage> &messages, ChatRole role) {
@@ -220,8 +184,8 @@ private slots:
   // G2-W2：第一项真实结果后保存失败——第二项工具与下一模型请求均未开始，
   // 已收到结果保留在内存且不被改判执行失败；磁盘停在最后可信 checkpoint；
   // 恢复存储后 retryLast 先清欠账再续轮（G2-W7）。
-  void nativeFirstResultSaveFailureStopsQueueAndNextRequest() {
-    StorageBreaker breaker; Host host; Model model; QVERIFY(model.open());
+  void bundledPiFirstResultSaveFailureStopsQueueAndNextRequest() {
+    ChatSessionStorageBreaker breaker; Host host; Model model; QVERIFY(model.open());
     AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config());
     QSignalSpy errors(&controller, &AiChatController::errorOccurred),
@@ -253,6 +217,7 @@ private slots:
     QCOMPARE(countRole(stored.messages, ChatRole::Tool), 0);
     QCOMPARE(stored.hostToolBindings.size(), 2);
     QVERIFY(breaker.restore());
+    QTRY_VERIFY_WITH_TIMEOUT(controller.canRetry(), 15000);
     errors.clear();
     controller.retryLast();
     QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 15000);
@@ -266,7 +231,7 @@ private slots:
   // G2-W3：最终回答写盘失败——回答保留内存、状态如实、切换/删除被拒、
   // 重试先清欠账；恢复后同一入口正常完成，不加新确认。
   void finalAnswerSaveFailureIsHonestAndBlocksSilentSwitch() {
-    StorageBreaker breaker; Host host; Model model; model.firstTools = false; QVERIFY(model.open());
+    ChatSessionStorageBreaker breaker; Host host; Model model; model.firstTools = false; QVERIFY(model.open());
     AiChatController controller; QVERIFY(host.bind(controller));
     const auto session = controller.session().id; m_sessions.append(session);
     controller.setConfig(model.config());
@@ -274,7 +239,9 @@ private slots:
     ChatSession other; other.id = ChatSessionStore::newSessionId(); m_sessions.append(other.id);
     other.messages = {ChatMessage{}};
     QString otherError; QVERIFY2(ChatSessionStore::save(other, &otherError), qPrintable(otherError));
-    QVERIFY(breaker.engage(controller.session().id));
+    connect(controller.piBridge(), &PiChatBridge::modelRequested, this, [&] {
+      QVERIFY(breaker.engage(session)); // Fail the final save after the turn checkpoint has succeeded.
+    }, Qt::SingleShotConnection);
     const auto restore = qScopeGuard([&] { breaker.restore(); });
     Q_UNUSED(restore)
     QSignalSpy errors(&controller, &AiChatController::errorOccurred),
@@ -313,6 +280,7 @@ private slots:
     QCOMPARE(controller.messages(), memoryBefore);
     QVERIFY(breaker.restore());
     // 恢复后：retryLast 先补保存再重发，一切照常。
+    QTRY_VERIFY_WITH_TIMEOUT(controller.canRetry(), 15000);
     errors.clear();
     controller.retryLast();
     QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 15000);
@@ -371,7 +339,7 @@ private slots:
     QVERIFY(controller.turnContext().isEmpty());
   }
 
-  void contextChangesCannotMoveLaterNativeCallsToAnotherProject() {
+  void contextChangesCannotMoveLaterToolCallsToAnotherProject() {
     Host original, replacement;
     Model model;
     QVERIFY(model.open());
@@ -438,7 +406,6 @@ private slots:
     Host host; Model model; QVERIFY(model.open());
     AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config());
-    controller.setPiRuntime({true, {}, {}});
     ControlledPeer peer;
     std::atomic<int> gateChecks{0};
     const auto sessionId = controller.session().id;
@@ -472,13 +439,12 @@ private slots:
     QCOMPARE(host.catalog.versions().size(), 0);
   }
 
-  // G2-W2/W8：Pi 链第一项结果后保存失败——与原生同一结算口径：停止续轮与
+  // G2-W2/W8：Pi 链第一项结果后保存失败：停止续轮与
   // Pi 请求、结果保留内存、磁盘停在准入 checkpoint；恢复后 retry 收口。
-  void controlledPiChainSaveFailureSettlesLikeNative() {
-    StorageBreaker breaker; Host host; Model model; QVERIFY(model.open());
+  void controlledPiChainStopsOnSaveFailure() {
+    ChatSessionStorageBreaker breaker; Host host; Model model; QVERIFY(model.open());
     AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config());
-    controller.setPiRuntime({true, {}, {}});
     ControlledPeer peer;
     controller.piBridge()->setWorkerDriver([&peer](PaleoTask *task,
         const std::shared_ptr<paleo::pi::ConversationChannel> &channel, const std::function<void()> &notify) {
@@ -518,7 +484,7 @@ private slots:
   // G2-W4：保存失败窗口内用户取消——首个有效原因一次结算（取消），配对
   // 完整、无孤儿帧、无重复错误；欠账薄门仍然生效。
   void userCancelDuringBrokenStorageSettlesOnce() {
-    StorageBreaker breaker; Host host; Model model; QVERIFY(model.open());
+    ChatSessionStorageBreaker breaker; Host host; Model model; QVERIFY(model.open());
     AiChatController controller; QVERIFY(host.bind(controller));
     const auto session = controller.session().id; m_sessions.append(session);
     controller.setConfig(model.config());

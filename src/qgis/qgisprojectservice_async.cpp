@@ -28,7 +28,7 @@
 #include <qgsvectorlayer.h>
 
 struct ProjectLoadState {
-  QString path, error;
+  QString path, entryPath, error;
   QStringList warnings;
   bool readOnly = false;
   std::optional<PaleoGeoreference> georeference;
@@ -39,6 +39,7 @@ struct ProjectLoadState {
   std::atomic_bool cancelled{false};
   std::atomic_bool started{false}; // worker 已开跑（析构排空等待的前提）
   bool handoffStarted = false; // owner-thread only
+  bool contextRequested = false; // native layers and application stores are bound
   QDateTime modified;
   qint64 size = 0;
 };
@@ -61,7 +62,7 @@ void QgisProjectService::setOpenPreparation(
 
 void QgisProjectService::cancelOpen()
 {
-  if (!m_opening)
+  if (!m_opening || (m_pendingLoad && m_pendingLoad->cancelled.load()))
     return;
   ++m_openGeneration;
   // #773：取消 future——worker 经 promise.future().isCanceled() 在阶段之间
@@ -70,6 +71,8 @@ void QgisProjectService::cancelOpen()
   if (m_pendingLoad) {
     m_pendingLoad->cancelled.store(true);
     if (m_pendingLoad->handoffStarted) {
+      if (m_pendingLoad->contextRequested)
+        notifyAboutToClose();
       m_project->clear();
       m_georeference.reset();
       m_mapConfiguration = {};
@@ -100,6 +103,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
   }
   auto state = std::make_shared<ProjectLoadState>();
   state->path = source.absoluteFilePath();
+  state->entryPath = state->path;
   const QString manifestDir = source.absolutePath();
   std::optional<PaleoProjectFile> selectedManifest;
   if (input.endsWith(QLatin1String(".paleo"), Qt::CaseInsensitive))
@@ -389,18 +393,26 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
         m_errors << tr("无法收养工程清单：%1").arg(error);
       else m_mapConfiguration = adopted;
     }
-  } else {
+  } else if (phase == 3) {
+    // The layers and settings now belong to the live project. Retiring the
+    // temporary project can close slow providers, so give it its own event turn.
+    state->project.reset();
+  } else if (phase == 4) {
+    m_entryPath = state->entryPath;
     m_path = state->path;
     ++m_sessionId;
     m_project->setDirty(false);
     emit openProgress(96, tr("装配工程数据与面板"));
     if (generation != m_openGeneration || state->cancelled.load()) return;
-    emit projectOpened(m_path);
+    state->contextRequested = true;
+    emit projectContextRequested(state->path);
+  } else {
+    emit projectOpened(state->path);
     if (generation != m_openGeneration || state->cancelled.load()) return;
     emit openProgress(100, tr("工程打开完成"));
   }
   if (generation != m_openGeneration || state->cancelled.load()) return;
-  if (success && phase < 3) {
+  if (success && phase < 5) {
     QTimer::singleShot(16, this, [this, state, generation, phase] {
       adoptBackgroundOpen(state, generation, phase + 1);
     });

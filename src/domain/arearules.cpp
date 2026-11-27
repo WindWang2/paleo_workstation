@@ -26,6 +26,13 @@ QString errAt(const QString &where, const QString &what)
   return QStringLiteral("%1: %2").arg(where, what);
 }
 
+QString matchingBoundary(const QStringList &names, const QString &candidate)
+{
+  for (const auto &name : names)
+    if (name.compare(candidate, Qt::CaseInsensitive) == 0) return name;
+  return {};
+}
+
 // 未知键 = 拒用：配置拼错键名（boundaries vs sequence_boundaries）若被静默
 // 忽略，等于带病运行默认值——与「坏 JSON 不静默回退」同一纪律。
 bool checkKeys(const QJsonObject &o, std::initializer_list<const char *> allowed,
@@ -243,7 +250,8 @@ bool applyConfigObject(const QJsonObject &o, Rules *out, QString *error)
                      QStringLiteral("'target_horizon' expects a non-empty string"));
       return false;
     }
-    out->targetHorizon = target.toString().toUpper();
+    out->targetHorizon = matchingBoundary(out->sequenceBoundaries, target.toString());
+    if (out->targetHorizon.isEmpty()) out->targetHorizon = target.toString().toUpper();
   }
   // target_horizon 必须是有序集合的成员——标定一个集合外层位 = 配置错误，
   // 如实拒绝而不是带着一个永远不会命中的目标跑。
@@ -364,12 +372,19 @@ QString configFilePath(const QString &projectDir)
   return QDir(projectDir).filePath(QString::fromLatin1(kConfigFileName));
 }
 
-bool loadFromProjectDir(const QString &projectDir, Rules *out, QString *error)
+bool loadFromProjectDir(const QString &projectDir, Rules *out, QString *error,
+                        const QStringList &modelBoundaries)
 {
   QString sink;
   QString *err = error ? error : &sink;
   err->clear();
   *out = defaults();
+  if (!modelBoundaries.isEmpty())
+  {
+    out->sequenceBoundaries = modelBoundaries;
+    const QString target = matchingBoundary(modelBoundaries, out->targetHorizon);
+    out->targetHorizon = target.isEmpty() ? modelBoundaries.first() : target;
+  }
   const QString path = configFilePath(projectDir);
   QFile f(path);
   if (!f.exists())
@@ -393,6 +408,9 @@ bool loadFromProjectDir(const QString &projectDir, Rules *out, QString *error)
     *err = errAt(path, QStringLiteral("expects a JSON object"));
     return false;
   }
+  // Explicitly configured boundaries and their target retain the legacy contract.
+  if (doc.object().contains(QStringLiteral("sequence_boundaries")))
+    *out = defaults();
   if (!applyConfigObject(doc.object(), out, err))
   {
     if (err->isEmpty())
@@ -402,7 +420,7 @@ bool loadFromProjectDir(const QString &projectDir, Rules *out, QString *error)
   return true;
 }
 
-void setProjectDir(const QString &projectDir)
+void setProjectDir(const QString &projectDir, const QStringList &modelBoundaries)
 {
   QMutexLocker lock(&g_mutex);
   g_lastError.clear();
@@ -414,7 +432,7 @@ void setProjectDir(const QString &projectDir)
   }
   Rules loaded;
   QString err;
-  if (!loadFromProjectDir(projectDir, &loaded, &err))
+  if (!loadFromProjectDir(projectDir, &loaded, &err, modelBoundaries))
   {
     // 坏 JSON 拒用：active 保持默认值，错误如实外露（调用方决定怎么呈现）。
     g_rules = defaults();

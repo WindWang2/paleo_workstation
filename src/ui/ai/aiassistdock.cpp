@@ -1,20 +1,20 @@
 // 层：视图
 #include "aiassistdock.h"
 #include "aiplanreviewwidget.h"
-#include "../paleoemptystate.h"
 #include <QTextDocument>
 #include "../notifications/paleonotify.h"
 
 #include "aiconversationcard.h"
 #include "aicontextbar.h"
+#include "ai/chat/chatworkspacecontext.h"
 #include "aioperationdetailwidget.h"
 #include "aitoolresultview.h"
 
-#include "../../ai/chat/markdown.h"
 #include "../../workflow/aichatcontroller.h"
 #include "../../workflow/aioperationpresentation.h"
 #include "../paleotheme.h"
 
+#include <QAction>
 #include <QClipboard>
 #include <QComboBox>
 #include <QEvent>
@@ -26,21 +26,23 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMimeData>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QStackedWidget>
 #include <QTextBrowser>
 #include <QTextCursor>
+#include <QTextDocumentFragment>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
 // ui/ai/ — 助手 dock 实现（方向51 骨架，方向62 会话/排版/消息操作，G5
 // 会话工作台：上下文归属、历史结果卡恢复、操作详情、草稿/键盘生命周期）。
 //
-// 渲染纪律：全部文本经 toHtmlEscaped 或 AiMarkdown（内部先整体转义），
-// 模型输出按不可信文本处理；色/字体/spacing 一律 PaleoTheme::tokens()，
-// 本文件不写任何颜色字面量（check_ui_invariants 门禁）。
+// 对话正文的排版与主题切换见 aiassistdock_transcript.cpp。
 
 namespace {
 // 控制动作结果的可解释文案（与详情面同口径：服务事实、不夸大不吞错）。
@@ -65,19 +67,6 @@ QString actionNoteText(const QString &action, const QJsonObject &response) {
       .arg(response.value(QStringLiteral("revision")).toString());
   return QObject::tr("状态查询失败：%1").arg(code);
 }
-QString roleLabel(ChatRole role) {
-  switch (role) {
-  case ChatRole::System:
-    return QObject::tr("系统");
-  case ChatRole::User:
-    return QObject::tr("你");
-  case ChatRole::Assistant:
-    return QObject::tr("助手");
-  case ChatRole::Tool:
-    return QObject::tr("工具");
-  }
-  return QObject::tr("消息");
-}
 } // namespace
 
 AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
@@ -88,56 +77,14 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
                              tokens.spacingSm, tokens.spacingSm);
   layout->setSpacing(tokens.spacingXs);
 
-  auto *header = new QHBoxLayout;
-  m_status = new QLabel(tr("未配置"), this);
-  m_status->setObjectName(QStringLiteral("aiAssistantStatus"));
-  m_status->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
-  // P2(review)：muted 色走活体样式（applyTheme 在 dock 建前执行，palette
-  // 事件不可靠；applyThemedStyleSheet 构造即设且随主题自动重算）。
-  PaleoTheme::applyThemedStyleSheet(
-    m_status, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-  header->addWidget(m_status, 1);
-  m_new = new QPushButton(tr("新会话"), this);
-  m_new->setObjectName(QStringLiteral("aiAssistantNew"));
-  m_configure = new QPushButton(tr("配置…"), this);
-  m_configure->setObjectName(QStringLiteral("aiAssistantConfigure"));
-  header->addWidget(m_new);
-  header->addWidget(m_configure);
-  layout->addLayout(header);
-
-  // 会话行（方向62）：历史会话入口。下拉选择 = 打开意图（emit 信号，
-  // 装配侧落控制器）；重命名/删除同样只发意图，确认对话框归宿主。
-  auto *sessionRow = new QHBoxLayout;
-  auto *sessionLabel = new QLabel(tr("会话"), this);
-  sessionLabel->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
-  m_sessions = new QComboBox(this);
-  m_sessions->setObjectName(QStringLiteral("aiAssistantSessions"));
-  m_rename = new QPushButton(tr("重命名"), this);
-  m_rename->setObjectName(QStringLiteral("aiAssistantRename"));
-  m_delete = new QPushButton(tr("删除"), this);
-  m_delete->setObjectName(QStringLiteral("aiAssistantDelete"));
-  sessionRow->addWidget(sessionLabel);
-  sessionRow->addWidget(m_sessions, 1);
-  sessionRow->addWidget(m_rename);
-  sessionRow->addWidget(m_delete);
-  layout->addLayout(sessionRow);
+  buildSessionHeader(layout);
 
   // G5 W1：上下文归属条（当前宿主上下文 vs 回合归属；只读投影）。
   m_contextBar = new AiContextBar(this);
   m_contextBar->setObjectName(QStringLiteral("aiAssistantContextBar"));
   layout->addWidget(m_contextBar);
 
-  m_transcript = new QTextBrowser(this);
-  m_transcript->setObjectName(QStringLiteral("aiAssistantTranscript"));
-  m_transcript->setReadOnly(true);
-  m_transcript->setOpenExternalLinks(false);
-  m_transcript->setFont(PaleoTheme::bodyFont());
-  layout->addWidget(m_transcript, 1);
-  // #870：对话区无内容时居中给下一步指引。
-  m_emptyState = new PaleoEmptyStateLabel(QString(), m_transcript->viewport());
-  m_emptyState->setObjectName(QStringLiteral("aiAssistantEmptyState"));
-  connect(m_transcript->document(), &QTextDocument::contentsChanged, this,
-          &AiAssistDock::updateEmptyState);
+  buildConversationArea(layout);
 
   // G5 W6：操作详情面（从结果卡「操作详情」显式打开；默认隐藏）。
   m_detail = new AiOperationDetailWidget(this);
@@ -176,79 +123,19 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
   historyNav->addWidget(m_historyNote, 1);
   historyNav->addWidget(m_historyNewer);
   m_cardLayout->addLayout(historyNav);
-  layout->addWidget(m_cards);
+  m_cardLayout->setAlignment(Qt::AlignTop);
+  m_cardScroll = new QScrollArea(this);
+  m_cardScroll->setObjectName(QStringLiteral("aiAssistantToolResults"));
+  m_cardScroll->setAccessibleName(tr("工具结果"));
+  m_cardScroll->setFrameShape(QFrame::NoFrame);
+  m_cardScroll->setWidgetResizable(true);
+  m_cardScroll->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+  m_cardScroll->setMaximumHeight(fontMetrics().lineSpacing() * 10 + tokens.spacingSm);
+  m_cardScroll->setWidget(m_cards);
+  m_cardScroll->hide();
+  layout->addWidget(m_cardScroll);
 
-  m_input = new QTextEdit(this);
-  m_input->setObjectName(QStringLiteral("aiAssistantInput"));
-  m_input->setPlaceholderText(
-    tr("向助手提问（Enter 发送，Shift+Enter 换行）"));
-  m_input->setFont(PaleoTheme::bodyFont());
-  m_input->installEventFilter(this); // W7：键盘生命周期
-  // #851/#881：三行输入高度完全按字体推导（去掉硬 64px 地板）。
-  m_input->setFixedHeight(m_input->fontMetrics().lineSpacing() * 3 +
-                          2 * m_input->frameWidth() + 8);
-  layout->addWidget(m_input);
-  // W7：草稿按会话保存（textChanged 持续记账；接受后才清理）。
-  connect(m_input, &QTextEdit::textChanged, this, [this] {
-    if (!m_restoringDraft)
-      saveCurrentDraft();
-  });
-
-  auto *actions = new QHBoxLayout;
-  m_copy = new QPushButton(tr("复制"), this);
-  m_copy->setObjectName(QStringLiteral("aiAssistantCopy"));
-  m_export = new QPushButton(tr("导出…"), this);
-  m_export->setObjectName(QStringLiteral("aiAssistantExport"));
-  m_resend = new QPushButton(tr("重发"), this);
-  m_resend->setObjectName(QStringLiteral("aiAssistantResend"));
-  m_send = new QPushButton(tr("发送"), this);
-  m_send->setObjectName(QStringLiteral("aiAssistantSend"));
-  m_stop = new QPushButton(tr("停止"), this);
-  m_stop->setObjectName(QStringLiteral("aiAssistantStop"));
-  actions->addWidget(m_copy);
-  actions->addWidget(m_export);
-  actions->addWidget(m_resend);
-  actions->addStretch(1);
-  actions->addWidget(m_stop);
-  actions->addWidget(m_send);
-  layout->addLayout(actions);
-
-  connect(m_send, &QPushButton::clicked, this, &AiAssistDock::sendCurrentText);
-  connect(m_new, &QPushButton::clicked, this, [this] {
-    if (m_controller)
-      m_controller->newSession();
-  });
-  connect(m_stop, &QPushButton::clicked, this, [this] {
-    if (m_controller)
-      m_controller->cancel();
-  });
-  connect(m_configure, &QPushButton::clicked, this,
-          &AiAssistDock::configureRequested);
-  // activated 只在用户主动选择时触发（程序化重建不触发），不会反馈环。
-  connect(m_sessions, &QComboBox::activated, this, [this](int index) {
-    if (!m_controller || index < 0 || index >= m_sessionIds.size())
-      return;
-    const QString id = m_sessionIds.at(index);
-    if (id.isEmpty())
-      return; // 「列表可能不完整」说明行不对应会话（禁用行，防御性兜底）
-    if (id == m_controller->session().id)
-      return; // 选的就是当前会话：无事发生
-    emit openSessionRequested(id);
-  });
-  connect(m_rename, &QPushButton::clicked, this,
-          &AiAssistDock::renameComboSession);
-  connect(m_delete, &QPushButton::clicked, this, [this] {
-    const int index = m_sessions->currentIndex();
-    if (index < 0 || index >= m_sessionIds.size())
-      return;
-    emit deleteSessionRequested(m_sessionIds.at(index));
-  });
-  connect(m_copy, &QPushButton::clicked, this, &AiAssistDock::copyTranscript);
-  connect(m_export, &QPushButton::clicked, this, &AiAssistDock::exportSession);
-  connect(m_resend, &QPushButton::clicked, this, [this] {
-    if (m_controller)
-      m_controller->retryLast();
-  });
+  buildComposer(layout);
   connect(m_historyOlder, &QPushButton::clicked, this,
           [this] { navigateHistory(-1); });
   connect(m_historyNewer, &QPushButton::clicked, this,
@@ -278,14 +165,13 @@ void AiAssistDock::attachController(AiChatController *controller) {
     m_controller->disconnect(this);
   }
   m_controller = controller;
+  showFileImportStatus({});
   if (m_controller) {
     bindController();
     // 换了编排器：整页按新控制器重画；滚动/卡片/草稿记账一并复位。
     m_currentSessionId = m_controller->session().id;
-    m_assistantStart = -1;
-    m_assistantDraft.clear();
     m_scrollPositions.clear();
-    m_transcript->clear();
+    clearTranscript();
     clearToolCards();
     renderSession();
     restoreDraft(m_currentSessionId);
@@ -323,19 +209,18 @@ void AiAssistDock::bindController() {
             refresh();
             refreshContextBar();
             if (!streaming)
-              finalizeAssistantBlock(); // 流结束：纯文本块 → markdown 定型
+              finalizeAssistantBlock(); // 立即显示最后一批文本并收录本条回复。
           });
   connect(m_controller, &AiChatController::projectBriefChanged, this,
           &AiAssistDock::refreshContextBar);
   connect(m_controller, &AiChatController::sessionChanged, this, [this] {
+    showFileImportStatus({});
     // 切换前记住旧会话滚动位置；文档清空后流式块记账一并失效。
     if (!m_currentSessionId.isEmpty())
       m_scrollPositions.insert(m_currentSessionId,
                                m_transcript->verticalScrollBar()->value());
-    m_transcript->clear();
+    clearTranscript();
     clearToolCards();
-    m_assistantStart = -1;
-    m_assistantDraft.clear();
     m_currentSessionId =
       m_controller ? m_controller->session().id : QString();
     renderSession();
@@ -516,6 +401,7 @@ void AiAssistDock::refreshContextBar() {
     // 服务未接入单独陈述；历史仍可读。
     m_contextBar->presentUnavailable(brief, streaming, turnId,
                                      tr("操作服务未接入（查询/取消/恢复不可用）"));
+    updateEmptyState();
     return;
   }
   const auto view = m_presenter->currentContext();
@@ -534,33 +420,56 @@ void AiAssistDock::refreshContextBar() {
   m_contextBar->present(brief, streaming, view.unavailableCode, view.open,
                         view.readOnly, view.horizon, view.unitId, view.documentId,
                         view.epoch, turnId, identity.join(QStringLiteral(", ")));
+  updateEmptyState();
 }
 
 void AiAssistDock::refresh() {
   const bool ready = m_controller && m_controller->enabled();
   const bool streaming = m_controller && m_controller->streaming();
   m_input->setEnabled(ready && !streaming);
-  m_send->setEnabled(ready && !streaming);
+  m_send->setVisible(!streaming);
   m_stop->setEnabled(streaming);
-  if (m_controller)
-    m_status->setText(m_controller->statusText());
-  else
-    m_status->setText(tr("未接入助手编排"));
+  m_stop->setVisible(streaming);
+  m_activity->setVisible(streaming);
+  m_status->setText(m_controller ? m_controller->statusText() : tr("助手尚未接入"));
+  m_status->setToolTip(m_status->text());
+  m_input->setToolTip(ready && !streaming ? tr("Enter 发送，Shift+Enter 换行") : m_status->text());
+  updateSendButton();
   updateActionStates();
+}
+
+void AiAssistDock::updateSendButton() {
+  const bool available = m_input->isEnabled();
+  const bool hasDraft = !m_input->toPlainText().trimmed().isEmpty();
+  m_send->setEnabled(available && hasDraft);
+  m_send->setToolTip(!available ? m_status->text()
+                                : hasDraft ? tr("发送消息（Enter）") : tr("输入消息后即可发送"));
 }
 
 void AiAssistDock::updateEmptyState() {
   if (!m_emptyState)
     return;
   const bool empty = m_transcript->document()->isEmpty();
+  m_conversationArea->setCurrentIndex(empty ? 0 : 1);
   m_emptyState->setVisible(empty);
   if (!empty)
     return;
   const bool ready = m_controller && m_controller->enabled();
-  m_emptyState->setDetailText(
-    !m_controller ? tr("助手尚未接入 — 打开工程后再使用 AI 助手")
-    : ready       ? tr("还没有对话 — 在下方输入问题并按「发送」，或点「新会话」开始新的话题")
-                  : tr("助手尚未配置 — 点上方「配置…」设置大模型服务后即可提问"));
+  const bool canImport = m_importFiles && m_importFiles->isEnabled();
+  const bool canSuggest = ready && !m_controller->streaming() && m_input &&
+                          m_input->toPlainText().isEmpty();
+  m_projectPrompt->setVisible(canSuggest && (canImport || m_contextBar->hasOpenProject()));
+  m_toolsPrompt->setVisible(canSuggest);
+  m_welcomeConfigure->setVisible(!ready && m_controller);
+  m_welcomeImport->setVisible(!ready && canImport);
+  if (ready)
+    m_emptyState->setText(canImport ? tr("询问工区资料，或将文件拖到这里导入。")
+                                    : tr("询问可用工具，或写下要处理的问题。"));
+  else if (canImport)
+    m_emptyState->setText(tr("可直接导入工区文件。配置模型后即可对话。"));
+  else
+    m_emptyState->setText(m_controller ? tr("配置模型后，即可在这里对话和调用工具。")
+                                       : tr("助手尚未接入。"));
 }
 
 void AiAssistDock::updateActionStates() {
@@ -579,8 +488,15 @@ void AiAssistDock::updateActionStates() {
 void AiAssistDock::renderSession() {
   if (!m_controller)
     return;
-  for (const ChatMessage &message : m_controller->messages())
-    appendMessage(message);
+  const auto messages = m_controller->messages();
+  for (qsizetype i = 0; i < messages.size(); ++i) {
+    const auto &message = messages.at(i);
+    if (i + 1 == messages.size() && m_controller->streaming() &&
+        message.role == ChatRole::Assistant)
+      appendDelta(message.content);
+    else
+      appendMessage(message);
+  }
   // G5 W2：历史工具卡恢复（与实时卡同一 renderer；重放零模型请求/零执行）。
   m_historyTools = paleo::chat::projectSessionTools(m_controller->session());
   m_historyWindowStart =
@@ -626,6 +542,8 @@ void AiAssistDock::buildHistoryCards() {
   const bool pageable = count > kCardWidgetCap;
   m_historyOlder->setVisible(pageable && start > 0);
   m_historyNewer->setVisible(pageable && end < count);
+  m_historyNote->setVisible(pageable);
+  m_cardScroll->setVisible(count > 0 || !m_toolCards.isEmpty());
   m_historyNote->setText(
     pageable ? tr("历史工具结果 %1–%2 / 共 %3 张（消息与导出不受此窗口影响）")
                  .arg(start + 1)
@@ -681,6 +599,22 @@ QList<AiConversationCard *> AiAssistDock::operationCards(const QString &operatio
   return cards;
 }
 
+QString AiAssistDock::messageWithWorkspace(const QString &text) const {
+  if (!m_presenter) return text;
+  const auto host = m_presenter->currentContext();
+  QStringList summary;
+  if (host.open) {
+    if (m_workspaceLabels) summary = m_workspaceLabels();
+    summary << tr("工程标识 %1").arg(host.documentId)
+            << tr("层位 %1").arg(host.horizon.isEmpty() ? tr("未选择") : host.horizon);
+    if (!host.unitId.isEmpty()) summary << tr("层段 %1").arg(host.unitId);
+    summary << (host.readOnly ? tr("工程只读") : tr("工程可写"));
+  } else if (host.unavailableCode == QLatin1String("document_unavailable")) {
+    summary << tr("工程未打开");
+  }
+  return summary.isEmpty() ? text : text + paleo::chat::workspaceContextSeparator() + summary.join(QStringLiteral(" · "));
+}
+
 void AiAssistDock::sendCurrentText() {
   if (!m_controller)
     return;
@@ -690,7 +624,8 @@ void AiAssistDock::sendCurrentText() {
   // W7：未接受的文本不清理。controller 同步拒绝（未配置/上一轮进行中）会发
   // errorOccurred；草稿留在输入框，用户可编辑或停止后重发。
   const qsizetype before = m_controller->messages().size();
-  m_controller->sendUserText(text);
+  const QString message = messageWithWorkspace(text);
+  m_controller->sendUserText(message);
   if (!m_controller)
     return; // 发送路径上控制器被拆（防御）
   // 接受判据：历史确实新增了一条内容相同的 user 消息（sendUserText 同步
@@ -700,7 +635,7 @@ void AiAssistDock::sendCurrentText() {
   for (qsizetype i = messages.size() - 1; i >= 0; --i) {
     if (messages.at(i).role != ChatRole::User)
       continue;
-    accepted = accepted && messages.at(i).content == text;
+    accepted = accepted && messages.at(i).content == message;
     break;
   }
   if (accepted) {
@@ -728,6 +663,8 @@ void AiAssistDock::restoreDraft(const QString &sessionId) {
 }
 
 bool AiAssistDock::eventFilter(QObject *watched, QEvent *event) {
+  if (filterFileDrop(watched, event))
+    return true;
   // W7.1：Enter 发送 / Shift+Enter 换行；IME 组字中的 Enter 属输入法确认
   // 不发送；按住不放的重复 Enter 不重复发送。
   if (watched == m_input && event->type() == QEvent::KeyPress) {
@@ -744,82 +681,6 @@ bool AiAssistDock::eventFilter(QObject *watched, QEvent *event) {
     }
   }
   return QWidget::eventFilter(watched, event);
-}
-
-void AiAssistDock::changeEvent(QEvent *event) {
-  // W8.3：主题切换刷新既有呈现（卡片/状态条各自经活体样式或 changeEvent
-  // 重建 token 样式）。
-  QWidget::changeEvent(event);
-}
-
-void AiAssistDock::writeBlock(const QString &html) {
-  QTextCursor cursor(m_transcript->document());
-  cursor.movePosition(QTextCursor::End);
-  cursor.insertHtml(html);
-  m_transcript->ensureCursorVisible();
-  updateActionStates();
-}
-
-void AiAssistDock::appendMessage(const ChatMessage &message) {
-  if (message.role == ChatRole::Assistant && message.isEmpty())
-    return; // 流式占位：等增量到了再显示，避免先出现一条空白
-  finalizeAssistantBlock(); // 防御：上一轮流式块若未定型，先定型再上新消息
-  const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
-  if (message.role == ChatRole::Tool) {
-    // 工具结果不灌 JSON 进正文（可读性）；完整呈现走工具卡（实时+历史）。
-    writeBlock(
-      QStringLiteral("<div style=\"color:%1\">%2：%3</div>")
-        .arg(tokens.textMuted.name(), roleLabel(message.role).toHtmlEscaped(),
-             tr("结果已回传模型（%1 字符）").arg(message.content.size())));
-    return;
-  }
-  const QString color = message.role == ChatRole::User
-                          ? tokens.primaryText.name()
-                          : tokens.text.name();
-  const QString body = message.role == ChatRole::Assistant
-                         ? AiMarkdown::toHtml(message.content)
-                         : message.content.toHtmlEscaped();
-  writeBlock(QStringLiteral("<div><b style=\"color:%1\">%2</b>：%3</div>")
-               .arg(color, roleLabel(message.role).toHtmlEscaped(), body));
-}
-
-void AiAssistDock::appendDelta(const QString &text) {
-  if (m_assistantStart < 0)
-    m_assistantStart = m_transcript->document()->characterCount() - 1;
-  m_assistantDraft += text;
-  QTextCursor cursor(m_transcript->document());
-  cursor.movePosition(QTextCursor::End);
-  cursor.insertText(text);
-  // 用户正在看旧消息时不抢滚动/选择；回底由用户主动操作。
-  QScrollBar *scroll = m_transcript->verticalScrollBar();
-  if (scroll->value() >= scroll->maximum() - scroll->singleStep())
-    m_transcript->ensureCursorVisible();
-}
-
-void AiAssistDock::finalizeAssistantBlock() {
-  if (m_assistantStart < 0)
-    return;
-  QTextCursor cursor(m_transcript->document());
-  cursor.setPosition(m_assistantStart);
-  cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
-  cursor.removeSelectedText();
-  m_assistantStart = -1;
-  const QString draft = m_assistantDraft;
-  m_assistantDraft.clear();
-  if (draft.trimmed().isEmpty())
-    return;
-  const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
-  writeBlock(QStringLiteral("<div><b style=\"color:%1\">%2</b>：%3</div>")
-               .arg(tokens.text.name(),
-                    roleLabel(ChatRole::Assistant).toHtmlEscaped(),
-                    AiMarkdown::toHtml(draft)));
-}
-
-void AiAssistDock::appendError(const QString &message) {
-  finalizeAssistantBlock();
-  const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
-  writeBlock(QStringLiteral("<div style=\"color:%1\">⚠ %2</div>")
-               .arg(tokens.error.name(), message.toHtmlEscaped()));
 }
 
 void AiAssistDock::clearToolCards() {
@@ -845,7 +706,9 @@ void AiAssistDock::clearToolCards() {
   m_cardLayout->addLayout(historyNav);
   m_historyOlder->hide();
   m_historyNewer->hide();
+  m_historyNote->hide();
   m_historyNote->clear();
+  m_cardScroll->hide();
 }
 
 void AiAssistDock::addToolCard(const ChatToolCall &call,
@@ -873,6 +736,7 @@ void AiAssistDock::addToolCard(const ChatToolCall &call,
   card->setOperationControlsAllowed(m_presenter != nullptr);
   m_cardLayout->addWidget(card);
   m_toolCards.insert(call.id, card);
+  m_cardScroll->show();
   handleCardOperationIntents(card);
 }
 
@@ -904,15 +768,15 @@ void AiAssistDock::showToolResult(const ChatToolCall &call, bool ok,
 }
 
 void AiAssistDock::copyTranscript() {
-  QString text;
-  if (m_transcript->textCursor().hasSelection()) {
-    text = m_transcript->textCursor().selectedText();
-    text.replace(QChar(0x2029), QChar::fromLatin1('\n'));
-  } else {
-    text = m_transcript->toPlainText();
-  }
+  auto cursor = m_transcript->textCursor();
+  if (!cursor.hasSelection())
+    cursor.select(QTextCursor::Document);
   if (QClipboard *clipboard = QGuiApplication::clipboard()) {
-    clipboard->setText(text);
+    const QTextDocumentFragment fragment = cursor.selection();
+    auto *mime = new QMimeData;
+    mime->setText(fragment.toPlainText());
+    mime->setHtml(fragment.toHtml());
+    clipboard->setMimeData(mime);
     PaleoNotify::copied(this, tr("对话内容"));
   }
 }

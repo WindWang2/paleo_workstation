@@ -1,5 +1,6 @@
 // 层：数据
 #pragma once
+#include "domain/petrophysquality.h"
 
 // petrophys — 测井岩石物理公式核 + 深度对齐 + 曲线 QC（纯数值，无 Qt/GIS 依赖）。
 // 输入输出均为平凡 double 缓冲（与 LasCurve::values 同元素类型），逐点运算；
@@ -65,10 +66,14 @@ void phiSonicWyllie(const double *dt, int n, double dtMa, double dtFluid,
 // ---- 含水饱和度 -----------------------------------------------------------------
 // Archie：Sw = (a·Rw / (φ^m · Rt))^(1/n)。
 // 域约定：φ ≤ 0 或 φ > 1 → NaN（孔隙度物理域外，无饱和度意义）；Rt ≤ 0 →
-// NaN；a/Rw/m/n ≤ 0 → 全 NaN（公式参数域外）。φ>0 且 Rt>0 时 IEEE 如实
-// （可 >1，气洗/轻烃带真实现象，QC 面标记）。
+// NaN；a/Rw/m/n ≤ 0 或非有限 → 全 NaN（公式参数域外）；中间溢出 ±Inf → NaN。
+// 上界约定（#838 / #964）：clampToOne=true（默认）将物理含水饱和度钳制到
+// ≤ 1.0，恰好等于或被钳制到 1.0 的样点位于默认 QC 上界 qcHi=1.0 闭区间内，
+// 不触发 anomalyIntervals(..., 0.0, 1.0) 的超界告警；需要保留原始 Sw>1
+// 供 QC 标记（如气洗/淡地层水/高 Rw 排查）的调用方可显式传 clampToOne=false。
 void swArchie(const double *phi, const double *rt, int n,
-              double a, double m, double nSat, double rw, double *out);
+              double a, double m, double nSat, double rw, double *out,
+              bool clampToOne = true);
 
 // ---- 深度对齐（轮1 钉死策略）---------------------------------------------------
 // 把 (srcDepths → srcValues) 线性重采样到 refDepths 网格：
@@ -83,26 +88,8 @@ bool resampleLinear(const std::vector<double> &refDepths,
                     std::vector<double> &out);
 
 // ---- 曲线 QC --------------------------------------------------------------------
-struct CurveStats
-{
-  int n = 0;               // 总样本数（含 null）
-  int valid = 0;           // 非 NaN 样本
-  int nulls = 0;           // NaN 样本
-  double nullRate = 0.0;   // nulls / n（n=0 时 0）
-  double min = 0.0, max = 0.0;
-  double mean = 0.0;
-  double stddev = 0.0;     // 样本标准差（n−1 分母；valid<2 → NaN）
-};
-
 // 摘要统计：valid==0 时 min/max/mean/stddev = NaN（无数据不臆造 0）。
 CurveStats curveStats(const double *x, int n);
-
-struct DepthInterval
-{
-  double from = 0.0, to = 0.0;  // 起止深度（区间内首末样本深度）
-  int fromIndex = -1, toIndex = -1;
-  int samples = 0;              // 段内样本数
-};
 
 // 异常区间：value < lo 或 value > hi 的连续非空样本段。NaN 断段——缺失样本
 // 无证据，不得把两侧越界段连通。返回段按深度升序。

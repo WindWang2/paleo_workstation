@@ -11,16 +11,21 @@
 #include "pages/composepage.h"
 #include "pages/constraintpage.h"
 #include "pages/datapage.h"
+#include "pages/mappingbasemapselector.h"
 #include "pages/mappingworkbenchpage.h"
+#include "pages/mappingtaskguide.h"
 #include "pages/wellpredictionpanel.h"
 #include "workbench/mappingworkbenchcommandcontroller.h"
+#include "workbench/mappingreferencecontroller.h"
 #include <QStatusBar>
 
 namespace {
 void bindWorkbenchPageHorizon(MappingWorkbenchPage *page, SelectionContext *selection) {
-  const auto apply = [page, selection] {
+  auto *baseMaps = page->findChild<MappingBaseMapSelector *>();
+  const auto apply = [page, selection, baseMaps] {
     const auto unit = selection->activeUnit();
     const auto key = paleo::strat::analysisLayerKey(unit);
+    if (baseMaps) baseMaps->setReferenceBoundary(key.isEmpty() ? QString() : selection->activeHorizon());
     page->setProperty("paleo.unitDisplayName", key.isEmpty() ? QString() : unit.displayName);
     page->setHorizon(key.isEmpty() ? selection->activeHorizon() : key);
   };
@@ -66,6 +71,18 @@ void PaleoMainWindow::attachWorkbenchCommands(
   context.legend = legend;
   context.show = show;
   context.compare = compare;
+  context.comparePrimary = [this, compare](const QString &id, QString *error) {
+    auto *dock = prepareMappingReferenceDock();
+    auto *controller = dock ? dock->findChild<paleo::workbench::MappingReferenceController *>() : nullptr;
+    if (!controller) return compare(id, error);
+    for (const auto &candidate : controller->comparisonSources(id)) {
+      if (compare(candidate, error)) {
+        if (error) error->clear();
+        return true;
+      }
+    }
+    return false;
+  };
   context.openWells = wells.openWells;
   context.beginEdit = wells.beginEdit;
   context.shown = shown;
@@ -86,11 +103,13 @@ void PaleoMainWindow::attachWorkbenchCommands(
       emit compose->exportPdfRequested();
   };
   // C-W2：宿主状态钩子——触发时刻现读（只读翻转/工程切换即时生效）。
+  context.projectSession = [this] { return m_projectSvc ? m_projectSvc->sessionId() : 0; };
   context.projectReadOnly = [this] { return isProjectReadOnly(); };
   context.projectSwitching = [this] { return m_projectSvc && m_projectSvc->isOpening(); };
   for (auto *page : pages) {
     if (m_selection) bindWorkbenchPageHorizon(page, m_selection);
     impact->addPage(page);
+    if (auto *guide = page->findChild<MappingTaskGuide *>()) guide->watchEditor(edit);
     context.page = page;
     auto *commands = new MappingWorkbenchCommandController(context, page);
     connect(page, &MappingWorkbenchPage::commandRequested, commands,

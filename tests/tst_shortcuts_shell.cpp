@@ -206,22 +206,26 @@ private slots:
     // 1. 文案跟随当前注册表真实键位
     const QString locKey = displayKey(keyFor(QStringLiteral("main.locator.focus")));
     const QString saveKey = displayKey(keyFor(QStringLiteral("main.project.save")));
+    auto *agent = m_win->findChild<QAction *>(QStringLiteral("openAiAgentAction"));
+    QVERIFY(agent);
+    QCOMPARE(agent->shortcut(), keyFor(QStringLiteral("main.agent.open")));
+    QCOMPARE(agent->toolTip(), PaleoMainWindow::tr("打开 AI Agent（%1）").arg(displayKey(agent->shortcut())));
     QLineEdit *edit = locator->findChild<QLineEdit *>();
     QVERIFY(edit);
-    QCOMPARE(edit->placeholderText(), PaleoMainWindow::tr("搜索井位/层位  %1").arg(locKey));
+    QCOMPARE(edit->placeholderText(), PaleoMainWindow::tr("搜索命令、井、层位  %1").arg(locKey));
     QCOMPARE(save->toolTip(), PaleoMainWindow::tr("保存工程（%1）").arg(saveKey));
 
     // 2. 只读模式下保存按钮文案切换与恢复
     m_win->setProjectReadOnly(true);
-    QCOMPARE(save->toolTip(), PaleoMainWindow::tr("工程处于只读模式（另一个实例持有写锁）"));
+    QCOMPARE(save->toolTip(), PaleoMainWindow::tr("工程处于只读模式"));
     m_win->setProjectReadOnly(false);
     QCOMPARE(save->toolTip(), PaleoMainWindow::tr("保存工程（%1）").arg(saveKey));
 
     // 3. Mutation: 变异注册表键位后动态构造文案跟随
     const auto formatLocator = [](const QKeySequence &k) {
       const QString s = displayKey(k);
-      return s.isEmpty() ? PaleoMainWindow::tr("搜索井位/层位")
-                         : PaleoMainWindow::tr("搜索井位/层位  %1").arg(s);
+      return s.isEmpty() ? PaleoMainWindow::tr("搜索命令、井、层位")
+                         : PaleoMainWindow::tr("搜索命令、井、层位  %1").arg(s);
     };
     const auto formatSave = [](const QKeySequence &k) {
       const QString s = displayKey(k);
@@ -229,8 +233,8 @@ private slots:
                          : PaleoMainWindow::tr("保存工程（%1）").arg(s);
     };
     QCOMPARE(formatLocator(QKeySequence(QStringLiteral("Ctrl+Shift+F"))),
-             PaleoMainWindow::tr("搜索井位/层位  Ctrl+Shift+F"));
-    QCOMPARE(formatLocator(QKeySequence()), PaleoMainWindow::tr("搜索井位/层位"));
+             PaleoMainWindow::tr("搜索命令、井、层位  Ctrl+Shift+F"));
+    QCOMPARE(formatLocator(QKeySequence()), PaleoMainWindow::tr("搜索命令、井、层位"));
     QCOMPARE(formatSave(QKeySequence(QStringLiteral("Ctrl+Alt+S"))),
              PaleoMainWindow::tr("保存工程（Ctrl+Alt+S）"));
     QCOMPARE(formatSave(QKeySequence()), PaleoMainWindow::tr("保存工程"));

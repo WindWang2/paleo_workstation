@@ -40,6 +40,7 @@ QVector<WellTopRecord> readWellTableBases(const QString &path);
 QByteArray writeWellLayerTable(const QVector<WellTopRecord> &tops, const QVector<WellTopRecord> &bases);
 bool resolveImportedWellDepths(ImportSession &session, QString *error);
 struct ValidatedWellInput {
+  QString declaredTopDepthUnit;
   QVector<WellHeadRecord> heads;
   QVector<WellTopRecord> tops;
   TimeDepthTable td;

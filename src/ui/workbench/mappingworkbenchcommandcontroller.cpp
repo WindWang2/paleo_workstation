@@ -17,9 +17,11 @@
 #include "../../services/paleotaskservice.h"
 #include "../../workflow/dataexportworkflow.h"
 #include "../../workflow/constraintimport.h" // ConstraintImportFailure 机器可判定原因码
+#include "../../domain/faciescatalog.h"
 #include "../../workflow/mappingworkbench.h"
 #include "../../domain/facieshierarchy.h" // #754：pinFaciesLevel 文案携带层级名
 #include "../dialogs/dataexportdialog.h"
+#include "../dialogs/seismicclusterinterpretation.h"
 #include "../notifications/paleonotify.h"
 #include "../pages/constraintpage.h"
 #include "../pages/mappingeditbasis.h"
@@ -107,6 +109,39 @@ bool postModalUsable(const CommandContext &d, const QString &action, QString *er
 // 分支只填文本不自行显示，由入口统一张贴（20s）——此前分支当场 showMessage
 // 后，入口尾部又以 10s 通用文案「操作完成，图件与版本已更新。」覆盖状态栏，
 // 量化结果用户实际不可见。
+WbCmdStep interpretClusters(const CommandContext &d, const QString &action, const QString &id,
+                            bool &ok, QString &error) {
+  const auto session = d.projectSession ? d.projectSession() : 0;
+  const auto unit = d.workbench->analysisUnit();
+  const auto version = d.workbench->versionForLayer(id).id;
+  const bool manual = action == QLatin1String("clusterManualAssignment");
+  QVariantMap choice;
+  if (manual) {
+    if (!d.show(id, &error)) { ok = false; return WbCmdStep::Handled; }
+    QPointer<QgsVectorLayer> patches = qobject_cast<QgsVectorLayer *>(d.layerSvc->layer(id));
+    const auto highlight = [patches](const QList<qint64> &ids) {
+      if (patches) patches->selectByIds(QgsFeatureIds(ids.cbegin(), ids.cend()));
+    };
+    choice = SeismicClusterInterpretation::chooseManual(d.workbench, id, highlight, d.dialogParent, &error);
+    if (choice.isEmpty() && error.isEmpty()) return WbCmdStep::Return;
+  } else if (!SeismicClusterInterpretation::previewWells(d.workbench, id, d.dialogParent, &error) && error.isEmpty()) {
+    return WbCmdStep::Return;
+  }
+  ok = error.isEmpty() && postModalUsable(d, action, &error);
+  if (!ok) return WbCmdStep::Handled;
+  if ((d.projectSession && d.projectSession() != session) || d.workbench->analysisUnit() != unit ||
+      version.isEmpty() || d.workbench->versionForLayer(id).id != version) {
+    ok = false; error = WorkbenchText::tr("工程或层段已切换，请重新选择聚类面"); return WbCmdStep::Handled;
+  }
+  if (manual)
+    ok = !d.workbench->assignClusterFacies(id, choice.value("patch_id").toLongLong(),
+              choice.value("whole_cluster").toBool(), choice.value("facies_code").toInt(), &error,
+              choice.value("feature_id").toLongLong()).isEmpty();
+  else
+    ok = d.workbench->applyClusterWellPreview(id, &error);
+  return WbCmdStep::Handled;
+}
+
 WbCmdStep runWorkbenchQueryFamily(const CommandContext &d,
                                   const QString &action, const QString &h,
                                   const QString &id,
@@ -115,7 +150,9 @@ WbCmdStep runWorkbenchQueryFamily(const CommandContext &d,
                                   QString &error, QString &statusDetail) {
   if (action == "predict")
     ok = d.workbench->predict(h, p.value("kind").toString(), inputs,
-                              &error, p.value("horizon_file").toString());
+                              &error, p.value("horizon_file").toString(), p.value("cluster_count", 4).toInt());
+  else if (action == "clusterWellAssignment" || action == "clusterManualAssignment")
+    return interpretClusters(d, action, id, ok, error);
   else if (action == "wellattributes") {
     const auto layer = d.workbench->openWellAttributes(&error);
     ok = !layer.isEmpty();
@@ -281,13 +318,38 @@ WbCmdStep runWorkbenchEditFamily(const CommandContext &d,
         break;
       }
     }
-  } else if (action == "compare")
-    ok = d.compare(id, &error);
-  else if (action == "consistency") {
+  } else if (action == "compare") {
+    auto *canvas = d.canvasCtl ? d.canvasCtl->canvas() : nullptr;
+    const auto *layer = canvas ? canvas->currentLayer() : nullptr;
+    const bool primary = layer && layer->customProperty("paleoLayerId").toString() == id;
+    ok = (primary && d.comparePrimary ? d.comparePrimary : d.compare)(id, &error);
+  } else if (action == "consistency") {
     ok = d.workbench->startFaciesConsistency(id, &error);
   } else if (action == "polygonize")
     ok = d.workbench->startPolygonize(id, &error);
-  else if (action == "copy") {
+  else if (action == "resumeEdit") {
+    const auto declaration = d.workbench->declaration(id);
+    if (!id.startsWith(QLatin1String("draft.")) || declaration.type != QLatin1String("vector") ||
+        declaration.horizon != p.value("horizon").toString() || d.workbench->isWellPrediction(id)) {
+      error = WorkbenchText::tr("该相面工作副本已不可用，请重新选择。");
+      ok = false;
+    } else {
+      const bool active = d.edit && d.edit->isEditing() && d.edit->currentLayer() &&
+          d.edit->currentLayer()->customProperty("paleoLayerId").toString() == id;
+      if (!active) {
+        d.workbench->suppressNextProductZoom();
+        ok = d.show(id, &error) && d.beginEdit(id);
+        d.workbench->clearSuppressedProductZoom();
+      }
+      if (ok) {
+        d.page->selectLayer(id);
+        if (d.canvasCtl && d.canvasCtl->canvas()) d.canvasCtl->canvas()->setFocus(Qt::OtherFocusReason);
+        d.page->showMessage(WorkbenchText::tr("正在编辑 %1").arg(declaration.title));
+        return WbCmdStep::Return;
+      }
+      if (error.isEmpty()) error = WorkbenchText::tr("无法进入所选工作副本。");
+    }
+  } else if (action == "copy") {
     const auto draft = d.workbench->copyForEditing(id, inputs, &error, false);
     ok = !draft.isEmpty();
     if (ok && d.edit) {
@@ -316,6 +378,31 @@ WbCmdStep runWorkbenchEditFamily(const CommandContext &d,
   return WbCmdStep::Handled;
 }
 
+bool startBlankMap(const CommandContext &d, const QString &horizon, const QVariantMap &params, QString *error) {
+  QVariantMap boundary;
+  const QString source = params.value("boundary").toString();
+  const int code = params.value("initial_facies").toInt();
+  if (!source.isEmpty()) {
+    boundary = d.workbench->prepareMapBoundary(source, error);
+    if (boundary.isEmpty()) return false;
+    if (boundary.value("digest") != params.value("boundary_digest")) {
+      *error = WorkbenchText::tr("边界已变化，请重新预览后建立相图。");
+      return false;
+    }
+    if (FaciesCatalog::find(d.workbench->facies(horizon), code).isEmpty()) {
+      *error = WorkbenchText::tr("请选择当前层位的初始微相。");
+      return false;
+    }
+  }
+  const auto draft = d.workbench->createBlankMap(horizon, error, boundary);
+  if (draft.isEmpty()) return false;
+  if (!d.show(draft, error) || !d.beginEdit(draft)) {
+    if (error->isEmpty()) *error = WorkbenchText::tr("空白图已创建，请先结束其他图层的编辑");
+    return false;
+  }
+  return boundary.isEmpty() || d.workbench->seedMapBoundary(draft, boundary, code, error);
+}
+
 // 生命周期族：delete / import / draw / factor / contours / compose / schema。
 WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
                                       const QString &action, const QString &h,
@@ -324,12 +411,7 @@ WbCmdStep runWorkbenchLifecycleFamily(const CommandContext &d,
                                       const QVariantMap &p, bool &ok,
                                       QString &error, bool &declarationOnly) {
   if (action == "newMap") {
-    const auto draft = d.workbench->createBlankMap(h, &error);
-    ok = !draft.isEmpty();
-    if (ok) {
-      ok = d.show(draft, &error) && d.beginEdit(draft);
-      if (!ok && error.isEmpty()) error = WorkbenchText::tr("空白图已创建，请先结束其他图层的编辑");
-    }
+    ok = startBlankMap(d, h, p, &error);
   } else if (action == "delete") {
     const auto title = d.workbench->declaration(id).title;
     const auto products = d.workbench->removalProducts(id, &error);
@@ -499,13 +581,16 @@ bool runMappingEditFlow(const CommandContext &d, const QString &action,
     const bool ok = d.workbench->setEditEvidence(horizon, parameters, &error);
     notify(ok ? WorkbenchText::tr("已启用手动解释依据，之后的相面修改将优先记录此说明。") : error);
   } else if (action == "clearEditEvidence") {
-    d.workbench->clearEditEvidence();
+    d.workbench->clearEditEvidence(parameters.value(QStringLiteral("layer")).toString());
     notify(WorkbenchText::tr("已清空手动解释依据；编图可直接继续，修改后将由后台自动生成解释草稿。"));
   } else if (action == "setAutoExplain") {
     const bool enabled = parameters.value(QStringLiteral("enabled"), true).toBool();
     d.workbench->setAutoExplainEnabled(enabled);
     notify(enabled ? WorkbenchText::tr("已开启后台自动生成编图解释（不阻塞编图）。")
                    : WorkbenchText::tr("已暂停后台自动生成编图解释；编图仍可直接进行。"));
+  } else if (action == "adoptEditExplanation") {
+    if (!d.workbench->adoptExplanation(id, parameters.value("feature_uid").toString(), parameters.value("request_id").toString()))
+      notify(WorkbenchText::tr("目标图斑或草稿已改变，请重新选择"));
   } else if (action == "generateEditExplanation") {
     const QString targetLayer = !id.isEmpty() ? id : d.page->selectedLayer();
     const auto selected = targetLayer.isEmpty() ? QList<qint64>{} : d.workbench->selectedFeatures(targetLayer);
@@ -695,6 +780,23 @@ void MappingWorkbenchCommandController::handleCommand(const QString &action, con
   const auto h = p.value("horizon").toString(),
              id = p.value("layer").toString();
   const auto inputs = p.value("inputs").toStringList();
+  if ((action == "newMap" || action == "copy" || action == "resumeEdit") && d.edit && d.edit->isEditing()) {
+    QPointer<QgsVectorLayer> previous = d.edit->currentLayer();
+    const auto previousId = previous ? previous->customProperty("paleoLayerId").toString() : QString();
+    if (action != "resumeEdit" || previousId != id) {
+      const auto session = d.projectSession ? d.projectSession() : 0;
+      const auto choice = PaleoNotify::askSaveDiscard(d.dialogParent, PaleoNotify::AskIcon::Question,
+          WorkbenchText::tr("切换编辑图层"), WorkbenchText::tr("当前正在编辑「%1」。如何处理本次编辑？").arg(previous ? previous->name() : QString()),
+          WorkbenchText::tr("保存并继续"), WorkbenchText::tr("放弃并继续"), WorkbenchText::tr("返回当前副本"));
+      if (choice == PaleoNotify::SaveChoice::Cancel || !previous || !postModalUsable(d, action, &error) ||
+          !d.edit || !d.edit->isEditing() || previous != d.edit->currentLayer() ||
+          (d.projectSession && session != d.projectSession()) || d.page->horizon() != h) return;
+      if (choice == PaleoNotify::SaveChoice::Save) {
+        if (!d.edit->saveEditing() || !d.workbench || d.workbench->hasUnpublishedChanges(previousId)) return;
+      } else if (!d.edit->cancelEditing()) return;
+      if (!postModalUsable(d, action, &error) || (d.projectSession && session != d.projectSession())) return;
+    }
+  }
   // C-W1：分派由单份目录的 family 直达唯一处理入口，不再依次试探四段
   // Skip 链——登记与分族不再可能漏配。
   WbCmdStep step = WbCmdStep::Skip;
@@ -730,6 +832,8 @@ void MappingWorkbenchCommandController::handleCommand(const QString &action, con
     message = error.isEmpty() ? WorkbenchText::tr("操作未完成，请检查输入。") : error;
   else if (detailed)
     message = statusDetail;
+  else if (action == "save")
+    message = WorkbenchText::tr("画布编辑已保存，当前成果版本为 v%1。").arg(d.workbench->versionForLayer(id).versionNumber);
   else if (action == "predict")
     message = WorkbenchText::tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
   else if (action == "impactAnalysis")

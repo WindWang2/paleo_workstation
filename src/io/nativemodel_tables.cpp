@@ -1,5 +1,6 @@
 // 层：数据
 #include "nativemodel_internal.h"
+#include "checkshotexchange.h"
 #include "dataimport_internal.h"
 #include <paleo_data/service.h>
 #include <QJsonDocument>
@@ -93,6 +94,13 @@ Read timeDepth(const QString &path,TimeDepthTable &table,QString *error) {
   const auto fail=[&] { if(error)*error=q(detail); return Read::Failed; };
   if(!service.listData("time_depth",0,entries,detail))return fail();
   TimeDepthTable next; next.wellName=binding.value("wellName").toString();
+  if(binding.value("checkshotExchange").toBool()) {
+    if(entries.size()!=1) { detail="single-well checkshot relation missing"; return fail(); }
+    paleo::data::TimeDepthTable relation;
+    if(!service.readTimeDepth(entries.front().id,relation,detail))return fail();
+    if(!paleo::io::checkshotSamples(relation,next,error))return Read::Failed;
+    table=std::move(next); return Read::Ready;
+  }
   for(const auto &entry:entries) {
     paleo::data::TimeDepthTable relation;
     if(!service.readTimeDepth(entry.id,relation,detail))return fail();

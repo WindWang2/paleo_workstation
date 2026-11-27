@@ -216,6 +216,7 @@ PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, 
     }
     auto context = job->description;
     for (auto i = request.context.begin(); i != request.context.end(); ++i) context.insert(i.key(), i.value());
+    context.insert("title", job->description.value("title"));
     job->metadata = {{"schema", "paleo_map_export_v1"},
         {"registered_in_project", request.registerInProject}, {"exported_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"qgis_version", PaleoLayoutExport::qgisVersion()},
         {"dpi", request.dpi}, {"world_file", request.options.worldFile}, {"geo_pdf", request.options.geoPdf},
@@ -231,7 +232,8 @@ PaleoTask *start(PaleoLayoutExport::LayoutHandle *layout, DataCatalog *catalog, 
       const auto version = job->catalog->currentVersion(asset);
       auto history = version.extra.value("map_exports").toList();
       if (!job->catalog->updateVersionExtra(version.id, "horizon", context.value("horizon"), &error)) return fail(error);
-      history.append(QVariantMap{{"context", context}, {"inputs", request.sourceVersionIds}, {"batch", request.destination}});
+      history.append(QVariantMap{{"title", context.value("title")}, {"context", context},
+                                 {"inputs", request.sourceVersionIds}, {"batch", request.destination}});
       if (!job->catalog->updateVersionExtra(version.id, "map_exports", history, &error)) return fail(error);
     }
     job->journal = job->catalog->journal();

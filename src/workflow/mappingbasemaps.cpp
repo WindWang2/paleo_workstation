@@ -2,11 +2,51 @@
 #include "mappingworkbench.h"
 #include "../domain/singlefactorrequest.h"
 #include "../services/singlefactordef.h"
-QVariantList MappingWorkbench::baseMapCandidates(const QString &horizon) const {
+#include "../qgis/faciesmapboundary.h"
+#include "../qgis/qgislayerservice.h"
+
+namespace {
+bool isStudyBoundary(const LayerDeclaration &layer) {
+  return layer.type == "vector" && (layer.layerId == "survey.area" || layer.layerId.startsWith("boundary."));
+}
+}
+
+QVariantList MappingWorkbench::mapBoundaries() const {
+  QVariantList result;
+  if (!m_layers) return result;
+  for (const auto &decl : m_layers->declared())
+    if (isStudyBoundary(decl))
+      result << QVariantMap{{"id", decl.layerId}, {"name", decl.title}};
+  return result;
+}
+
+QVariantMap MappingWorkbench::prepareMapBoundary(const QString &id, QString *error) const {
+  if (!m_layers || !isStudyBoundary(m_layers->declaration(id))) {
+    if (error) *error = tr("所选工区边界已失效。");
+    return {};
+  }
+  auto *layer = m_layers->instantiate(id, error);
+  if (!layer) return {};
+  auto boundary = FaciesMapBoundary::inspect(layer, error);
+  if (!boundary.isEmpty()) boundary.insert("layer", id);
+  return boundary;
+}
+
+bool MappingWorkbench::seedMapBoundary(const QString &draft, const QVariantMap &boundary, int code, QString *error) {
+  return FaciesMapBoundary::seed(m_layers ? m_layers->layer(draft) : nullptr, boundary, code, error);
+}
+
+QVariantList MappingWorkbench::baseMapCandidates(const QString &horizon, const QString &referenceBoundary) const {
   QVariantList out;
-  for (const auto &value : products(horizon)) {
-    auto row = value.toMap(); if (row.value("horizon").toString() != horizon) continue;
+  const bool includeReference = !horizon.isEmpty() && !referenceBoundary.isEmpty() && referenceBoundary != horizon;
+  auto candidates = products(horizon);
+  if (includeReference) candidates += products(referenceBoundary);
+  for (const auto &value : candidates) {
+    auto row = value.toMap();
+    const auto sourceHorizon = row.value("horizon").toString();
     const auto metadata = row.value("parameters").toMap(); const auto kind = row.value("kind").toString();
+    const bool reference = includeReference && sourceHorizon == referenceBoundary && kind == "existing_paleomap";
+    if (sourceHorizon != horizon && !reference) continue;
     QString category, title, action;
     if (kind == "existing_paleomap" && metadata.value("spatial").toBool()) { category = "existing"; title = tr("现有古地理图"); }
     else if (paleo::singlefactor::isAnalysisFactorRaster(kind, metadata.value("value_source").toString())) {
@@ -15,7 +55,8 @@ QVariantList MappingWorkbench::baseMapCandidates(const QString &horizon) const {
     } else if (kind == "seismic_prediction") { category = "seismic"; title = tr("地震相图"); }
     else if (QStringList{"facies_polygons", "composed_facies", "edited_facies"}.contains(kind)) { category = "facies"; title = tr("其他相图"); }
     else continue;
-    if (action.isEmpty() && !metadata.value("facies").toList().isEmpty()) action = row.value("type") == "raster" ? "polygonize" : "copy";
+    if (!reference && action.isEmpty() && !metadata.value("facies").toList().isEmpty()) action = row.value("type") == "raster" ? "polygonize" : "copy";
+    if (reference) row.insert("reference_boundary", sourceHorizon);
     row.insert("category", category); row.insert("category_title", title); row.insert("start_action", action);
     row.insert("reference_only", action.isEmpty()); out << row;
   }

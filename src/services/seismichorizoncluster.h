@@ -24,13 +24,13 @@ struct SeismicClusterResult {
   QVariantMap parameters; // Actual native volume, frozen unit and feature-window provenance.
 };
 
-// 当前层位 TWT 窗内的真实反射特征 + 确定性聚类；解释类别映射为 Mock。
+// 当前层位反射特征的确定性聚类，像元值是本次运行的簇号 1..clusterCount。
 // Scatter 直接用 SMI 原始点的 Inline/Crossline/TWT 提取，逐道核对实际 XY；
 // 输出按实际 XY 装入同尺寸北向上网格，同像元取距格心最近的原始点。
 // 不外推层位，不填补测网外/缺道数据。调用方把工作放在任务线程。
 SeismicClusterResult clusterSeismicHorizon(
     const QString &seismicPath, const QString &horizonPath,
-    const QString &cacheDir, const QVector<int> &faciesCodes,
+    const QString &cacheDir, int clusterCount,
     const std::function<void(int)> &progress = {},
     const std::function<bool()> &cancel = {},
     SeismicHorizonSource source = SeismicHorizonSource::TimeRaster);
@@ -38,12 +38,12 @@ SeismicClusterResult clusterSeismicHorizon(
 SeismicClusterResult clusterSeismicStratigraphicWindow(
     const QString &projectDir, const QString &targetUnitOrHorizon,
     const QString &schemeId, const QString &revision,
-    const QVector<int> &faciesCodes,
+    int clusterCount,
     const std::function<void(int)> &progress = {},
     const std::function<bool()> &cancel = {});
 
 namespace paleo::strat { struct UnitSelection; }
 SeismicClusterResult clusterSeismicStratigraphicWindow(
     const QString &projectDir,const paleo::strat::UnitSelection &unit,const QString &seismicPath,
-    const QVector<int> &faciesCodes,const std::function<void(int)> &progress={},
+    int clusterCount,const std::function<void(int)> &progress={},
     const std::function<bool()> &cancel={});

@@ -3,6 +3,7 @@
 // paleomainwindow.cpp 迁出（仍是 PaleoMainWindow 成员函数，定义在本 TU）。
 // 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
 #include "paleomainwindow.h"
+#include "workspacedockdocuments.h"
 #include "windowsizing_internal.h"
 
 #include "paleotheme.h"
@@ -162,8 +163,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                                              tr("按地层连井：多井对比、分层连线与井间地震"),
                                              "ribbonWellSectionAction"),
                                    "view.wellSection", [this](const QVariantMap &) {
-      m_wellSectionDock->setVisible(true);
-      m_wellSectionDock->raise();
+      WorkspaceDockDocuments::open(this, m_wellSectionDock);
     });
   }
   QAction *attrAct = bottomAction(findChild<QWidget *>(QStringLiteral("attributeTablePanel")), "view.attributeTable",
@@ -429,15 +429,12 @@ void PaleoMainWindow::bindSeismicViewCommands()
   });
   bindCommand(QStringLiteral("view.seismic2d"), [this](const QVariantMap &) {
     syncSeismicVolumeToDocks();
-    if (m_seismicSectionDock) {
-      m_seismicSectionDock->show();
-      m_seismicSectionDock->raise();
-    }
+    WorkspaceDockDocuments::open(this, m_seismicSectionDock);
   });
 }
 
 namespace {
-void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar) {
+SARibbonPanel *addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar) {
   auto *panel = category->addPanel(QObject::tr("相面分区"));
   panel->setObjectName("ribbonFaciesPartitionPanel");
   panel->addLargeAction(toolbar->actionFaciesOperations(), QToolButton::InstantPopup);
@@ -455,6 +452,7 @@ void addPartitionPanel(SARibbonCategory *category, PaleoEditingToolbar *toolbar)
   QObject::connect(master, &QComboBox::currentIndexChanged, combo, sync);
   QObject::connect(toolbar, &PaleoEditingToolbar::stateChanged, combo, sync);
   sync();
+  return panel;
 }
 }
 // 编辑条共享动作本身即实现（QAction 由 PaleoEditingToolbar 门控/勾选）：只打 commandId，
@@ -466,7 +464,8 @@ void PaleoMainWindow::bindEditingCommands(PaleoEditingToolbar *editTb)
   const std::pair<QAction *, const char *> natives[] = {
       {editTb->actionSelect(), "edit.select"},       {editTb->actionAddFeature(), "edit.addFeature"},
       {editTb->actionReshape(), "edit.reshape"},     {editTb->actionMove(), "edit.move"},
-      {editTb->actionDeleteFeatures(), "edit.deleteFeatures"}, {editTb->actionVertexEdit(), "edit.vertex"},
+      {editTb->actionVertexEdit(), "edit.vertex"},
+      {editTb->actionDeleteSelection(), "edit.deleteSelection"},
       {editTb->actionFaciesOperations(), "edit.faciesOperations"},
       {editTb->actionAddPoint(), "edit.addPoint"},   {editTb->actionAddLine(), "edit.addLine"},
       {editTb->actionAddPolygon(), "edit.addPolygon"}, {editTb->actionSplitFacies(), "edit.facies.split"},
@@ -477,6 +476,8 @@ void PaleoMainWindow::bindEditingCommands(PaleoEditingToolbar *editTb)
       {editTb->actionRedo(), "edit.redo"}};
   for (const auto &[action, id] : natives)
     commandBinder()->bindNative(action, QLatin1String(id));
+  commandBinder()->bindNative(editTb->actionDeleteFeatures(), QStringLiteral("edit.deleteFeatures"),
+                              CommandActionBinder::MenuBehavior::TriggerPrimaryAction);
 }
 
 void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb,
@@ -534,13 +535,13 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   context->addSmallWidget(state);
 
   bindEditingCommands(editTb);
-  p->addLargeAction(editTb->actionSelect());
-  p->addLargeAction(editTb->actionAddFeature(), QToolButton::InstantPopup);
+  context->addSmallAction(editTb->actionSelect());
+  p->addLargeAction(editTb->actionAddFeature(), QToolButton::MenuButtonPopup);
   p->addSmallAction(editTb->actionReshape());
   p->addSmallAction(editTb->actionMove());
-  p->addSmallAction(editTb->actionDeleteFeatures());
+  p->addSmallAction(editTb->actionDeleteFeatures(), QToolButton::MenuButtonPopup);
   p->addSmallAction(editTb->actionVertexEdit());
-  addPartitionPanel(category, editTb);
+  auto *partition = addPartitionPanel(category, editTb);
   auto *session = category->addPanel(tr("编辑会话"));
   session->setObjectName(QStringLiteral("ribbonEditSessionPanel"));
   session->addSmallAction(editTb->actionTopological());
@@ -548,7 +549,14 @@ void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingTo
   session->addSmallAction(editTb->actionEditMode());
   session->addSmallAction(editTb->actionSave());
   session->addSmallAction(editTb->actionCancel());
-  // 工具固定在位，未选层/只读/类型不符时由共享 QAction 置灰并给出原因。
+  const auto showTargetTools = [p, session, partition, editTb] {
+    const bool writable = editTb->actionEditMode()->isEnabled();
+    p->setVisible(writable);
+    session->setVisible(writable);
+    partition->setVisible(editTb->actionFaciesOperations()->isEnabled());
+  };
+  connect(editTb, &PaleoEditingToolbar::stateChanged, p, showTargetTools);
+  showTargetTools();
   auto *settings = category->addPanel(tr("吸附与撤销"));
   settings->setObjectName(QStringLiteral("ribbonEditingSettingsPanel"));
   const auto mirrorSpin = [settings](QSpinBox *source, const QString &name, const QString &prefix) {

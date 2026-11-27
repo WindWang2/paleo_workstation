@@ -136,6 +136,12 @@ MappingTaskGuide::MappingTaskGuide(const QString &mode, MappingWorkbench *workbe
     focusAnchor(m_next->property("target").toString());
   });
   buildSteps();
+  connect(m_workbench, &MappingWorkbench::catalogBound, this, [this] {
+    ++m_projectEpoch;
+    m_activeDraft.clear();
+    m_draftTools.clear();
+    refresh();
+  });
 }
 
 void MappingTaskGuide::buildSteps() {
@@ -161,7 +167,7 @@ void MappingTaskGuide::buildSteps() {
   if (m_mode == QLatin1String("compose")) {
     add(QStringLiteral("basemap"), tr("1 基础图"), QStringLiteral("mappingBaseMapSelector"),
         tr("选择已有图件，或新建空白相图"));
-    add(QStringLiteral("edit"), tr("2 相面编辑"), QStringLiteral("workbenchResults"),
+    add(QStringLiteral("edit"), tr("2 相面编辑"), QStringLiteral("resumeEdit"),
         tr("直接绘制、分割、覆盖或合并相面；解释说明可后台自动生成，非必需步骤"));
     add(QStringLiteral("deliver"), tr("3 保存输出"), QStringLiteral("workbench.checkTopology"),
         tr("检查三级相面拓扑，保存新版本后再导出"));
@@ -191,7 +197,7 @@ void MappingTaskGuide::apply(int stage, const QString &hint, const QString &next
   m_next->setText(nextEnabled ? nextText : tr("请先完成上一步"));
   m_next->setEnabled(nextEnabled);
   m_next->setProperty("target", nextEnabled ? anchor : QString());
-  m_next->setToolTip(nextEnabled ? tr("滚到这一步的控件") : hint);
+  m_next->setToolTip(anchor == QLatin1String("resumeEdit") ? nextText : nextEnabled ? tr("滚到这一步的控件") : hint);
 }
 
 void MappingTaskGuide::markStep(const QString &id, bool done, bool current, bool blocked,
@@ -210,6 +216,12 @@ void MappingTaskGuide::markStep(const QString &id, bool done, bool current, bool
 void MappingTaskGuide::focusAnchor(const QString &name) {
   if (name.isEmpty() || !m_page)
     return;
+  if (name == QLatin1String("resumeEdit")) { chooseDraft(); return; }
+  if (name == QLatin1String("workbench.checkTopology") && !m_drafts.isEmpty()) {
+    auto *page = qobject_cast<MappingWorkbenchPage *>(m_page);
+    const auto draft = resolveDrafts();
+    if (page && !draft.isEmpty()) page->selectLayer(draft);
+  }
   auto *target = m_page->findChild<QWidget *>(name);
   if (!target)
     return;
@@ -259,7 +271,7 @@ void MappingTaskGuide::refreshPredict() {
     hint = kindId == QLatin1String("wells")
                ? tr("勾选本层位的井。每口井得到当前地层的预测微相，分析时可打开井道。")
            : kindId == QLatin1String("seismic_mock")
-               ? tr("勾选一个地震体。Mock 会沿层位窗聚类，结果需要地质复核。")
+               ? tr("勾选地震体并设置聚类数。运行后可查看原始簇图或选择聚类面赋相。")
                : tr("勾选一个地震体，按当前层位调用预测服务。");
     nextText = tr("去勾选");
     anchor = QStringLiteral("workbenchInputs");
@@ -277,24 +289,12 @@ void MappingTaskGuide::refreshPredict() {
 void MappingTaskGuide::refreshCompose() {
   auto *page = qobject_cast<MappingWorkbenchPage *>(m_page);
   const QString horizon = page ? page->horizon() : QString();
-  const auto evidence = m_workbench->editEvidence(horizon);
+  const auto draft = resolveDrafts();
+  const auto evidence = draft.isEmpty() ? m_workbench->editEvidence(horizon) : m_workbench->editEvidenceForLayer(draft);
   const bool armed = !evidence.isEmpty();
   const bool drift = evidenceDrift(m_page, evidence);
-  bool workCopy = false;
-  bool pendingSave = false;
-  if (auto *tree = m_page->findChild<QTreeWidget *>(QStringLiteral("workbenchResults"))) {
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-      const auto row = tree->topLevelItem(i)->data(0, Qt::UserRole).toMap();
-      if (!rowInHorizon(row, horizon))
-        continue;
-      const auto id = row.value("id").toString();
-      const bool copy = row.value("draft").toBool() && id.startsWith(QLatin1String("draft.")) &&
-                        !m_workbench->isWellPrediction(id);
-      workCopy = workCopy || copy;
-      if (copy && m_workbench->hasUnpublishedChanges(id))
-        pendingSave = true;
-    }
-  }
+  const bool workCopy = !m_drafts.isEmpty();
+  const bool pendingSave = !draft.isEmpty() && m_workbench->hasUnpublishedChanges(draft);
   const int stage = horizon.isEmpty() || !workCopy ? 0 : pendingSave ? 2 : 1;
   const bool autoExplain = m_workbench->autoExplainEnabled();
   const bool aiReady = m_workbench->aiExplanationAvailable();
@@ -334,6 +334,10 @@ void MappingTaskGuide::refreshCompose() {
     hint = tr("工作副本已就绪，可直接绘制、分割、覆盖或合并相面；解释说明可在需要时随时补充或手动生成。");
     nextText = tr("去编相面");
     anchor = QStringLiteral("workbenchResults");
+  }
+  if (stage == 1) {
+    nextText = draft.isEmpty() ? tr("选择要继续编辑的副本…") : tr("继续编辑 · %1").arg(m_drafts.value(draft));
+    anchor = QStringLiteral("resumeEdit");
   }
   markStep(QStringLiteral("basemap"), workCopy, stage == 0, false, QString());
   markStep(QStringLiteral("edit"), pendingSave, stage == 1, false,

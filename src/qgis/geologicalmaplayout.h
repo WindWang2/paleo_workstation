@@ -12,7 +12,11 @@ struct Settings {
   double rotation = 0, scale = 0;
   PaleoStandardElements::FigureKind kind = PaleoStandardElements::FigureKind::Facies;
   PaleoStandardElements::PageSetup page;
+  QString primaryLayerId;
+  bool usePrimaryLayerCrs = false;
+  bool showPatchLabels = true;
 };
+bool isFaciesPolygon(QgsMapLayer *layer);
 QgsPrintLayout *build(QgsProject *project, const QList<QgsMapLayer *> &layers,
     const QgsRectangle &extent, const Settings &settings, QString *error = nullptr);
 // build() 的句柄化入口（#531）：把版面装进 PaleoLayoutExport::LayoutHandle 交给

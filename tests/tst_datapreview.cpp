@@ -35,6 +35,9 @@
 
 #include <QComboBox>
 #include <QLabel>
+#include <QGraphicsPixmapItem>
+#include <QGraphicsScene>
+#include <QGraphicsView>
 #include <QPdfDocument>
 #include <QPdfView>
 #include <QPushButton>
@@ -68,6 +71,7 @@ private slots:
   void missingExternalSourceShowsState();
   void horizonTabOffersShowOnMap();
   void everyTypeOpensContent();
+  void unregisteredMapFitsViewportOnResize();
   void wellLogPreviewShowsCuttingsLithologyTrack();
   void captureSynchronousLoadingState();
   void topsTimeColumnStaysBlank();
@@ -126,6 +130,7 @@ void TestDataPreview::reselectFocusesExistingTab()
   QVERIFY(!ids.las.isEmpty());
   QVERIFY(!ids.td.isEmpty());
 
+  QSignalSpy captions(st->preview.get(), &DataPreviewTabs::activePreviewCaptionChanged);
   st->preview->openAsset(ids.las);
   st->preview->openAsset(ids.td);
   QCOMPARE(st->preview->tabCount(), 2);
@@ -136,6 +141,14 @@ void TestDataPreview::reselectFocusesExistingTab()
   st->preview->openAsset(ids.las); // 重选 → 聚焦已有标签，不开新
   QCOMPARE(st->preview->tabCount(), 2);
   QCOMPARE(tabs->tabText(tabs->currentIndex()), QStringLiteral("A1.Las · A1"));
+
+  const auto loadedVersion = st->importSvc->catalog()->currentVersion(ids.las);
+  QVERIFY(!captions.isEmpty());
+  const auto caption = captions.last();
+  const QString expected = tabs->tabText(tabs->currentIndex());
+  QCOMPARE(caption.at(0).toString(), loadedVersion.versionNumber > 0
+      ? QStringLiteral("%1 · v%2").arg(expected).arg(loadedVersion.versionNumber) : expected);
+  QCOMPARE(caption.at(1).toString(), loadedVersion.sourceUri);
 
   // 阶段 B 验收语义：切到时深再切回，标签仍在
   st->preview->openAsset(ids.td);
@@ -334,6 +347,49 @@ void TestDataPreview::wellLogPreviewShowsCuttingsLithologyTrack()
     else
       QCOMPARE(interval.unitType, QStringLiteral("段"));
   }
+}
+
+void TestDataPreview::unregisteredMapFitsViewportOnResize()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("project")));
+  QVERIFY(st);
+  const auto path = tmp.filePath(QStringLiteral("wide-facies-map.png"));
+  QImage source(1500, 900, QImage::Format_RGB32);
+  source.fill(Qt::darkCyan);
+  QVERIFY(source.save(path));
+  const auto original = DataCatalog::sha256FileHex(path);
+  QString error;
+  const auto asset = st->importSvc->importProjectFile(path, &error);
+  QVERIFY2(!asset.isEmpty(), qPrintable(error));
+  auto *preview = st->preview.get();
+  preview->resize(900, 620);
+  preview->show();
+  preview->openAsset(asset);
+  auto *view = preview->findChild<QGraphicsView *>(QStringLiteral("unregisteredMapImageView"));
+  QVERIFY(view);
+  QVERIFY(preview->findChild<QPushButton *>(QStringLiteral("goRegisterGuideBtn")));
+  const auto items = view->scene()->items();
+  QCOMPARE(items.size(), 1);
+  auto *item = qgraphicsitem_cast<QGraphicsPixmapItem *>(items.first());
+  QVERIFY(item);
+  const auto decoded = item->pixmap().cacheKey();
+  auto verifyFit = [&] {
+    QCoreApplication::processEvents();
+    const QRect viewport = view->viewport()->rect();
+    const QRect drawn = view->mapFromScene(view->sceneRect()).boundingRect();
+    const QSize expected = source.size().scaled(viewport.size(), Qt::KeepAspectRatio);
+    QVERIFY(qAbs(drawn.width() - expected.width()) <= 6);
+    QVERIFY(qAbs(drawn.height() - expected.height()) <= 6);
+    QVERIFY((viewport.center() - drawn.center()).manhattanLength() <= 2);
+    QCOMPARE(item->pixmap().cacheKey(), decoded);
+  };
+  verifyFit();
+  preview->resize(600, 760);
+  verifyFit();
+  preview->resize(1160, 520);
+  verifyFit();
+  QCOMPARE(DataCatalog::sha256FileHex(path), original);
 }
 
 void TestDataPreview::everyTypeOpensContent()

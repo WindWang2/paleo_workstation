@@ -89,12 +89,14 @@ class MappingWorkbenchCommandController : public QObject, public WorkbenchComman
         LegendFn legend;
         ShowFn show;
         ShowFn compare;
+        ShowFn comparePrimary;
         OpenWellsFn openWells;
         BeginEditFn beginEdit;
         std::shared_ptr<QHash<QString, QString>> shown;
         // C-W2：宿主状态钩子（触发时刻现读，不是装配快照）。留空的测试壳按
         // 可写、非切换处理；生产装配由 attachWorkbenchCommands 注入。
         std::function<bool()> projectReadOnly;  // 工程只读（Mutating 拒绝）
+        std::function<quint64()> projectSession;
         std::function<bool()> projectSwitching; // 工程打开/切换中（一律拒绝）
     };
 

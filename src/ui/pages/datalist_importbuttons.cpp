@@ -23,6 +23,8 @@ void DataListPanel::buildImportButtons(QVBoxLayout *importLay, QWidget *importSe
     {"importPaleomap", QT_TR_NOOP("导入现有古地理图"), "paleomap", QT_TR_NOOP("按层位管理古地理图，Shapefile 配套文件作为一项")},
     {"importPaleomapFolder", QT_TR_NOOP("导入古地理图文件夹"), "paleomap_folder", QT_TR_NOOP("递归导入并识别图件层位")},
     {"importFiles", QT_TR_NOOP("导入文件"), "files", QT_TR_NOOP("选择一个或多个资料文件导入")},
+    {"receiveOriginalPackage", QT_TR_NOOP("接收原件包"), "original_package",
+     QT_TR_NOOP("选择另一工程导出的原件包目录，校验并保存 LAS 或 SEG-Y，再确认导入")},
     {"importWells", QT_TR_NOOP("导入井数据"), "wells",
      QT_TR_NOOP("选择一个或多个井位/分层文件入库")},
     {"importWellLogs", QT_TR_NOOP("导入测井数据"), "well_log",

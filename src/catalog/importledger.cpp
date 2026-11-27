@@ -1,7 +1,8 @@
-// 层：功能
+// 层：数据
 #include "importledger.h"
 
-#include "../catalog/datacatalog.h"
+#include "datacatalog.h"
+#include "metadata/managedpath.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -19,20 +20,6 @@ namespace paleo::imports
 
 namespace
 {
-
-// <projectDir>/artifacts/metadata/catalog.json → 工程目录 = 文件上三级
-// （与 dataops sidecar 的修正后口径一致；纯词法，不查盘）。
-QString projectDirForLedger(DataCatalog *cat)
-{
-  if (!cat || !cat->isOpen())
-    return QString();
-  const QString cp = cat->catalogPath();
-  if (cp.isEmpty())
-    return QString();
-  return QFileInfo(QFileInfo(QFileInfo(cp).dir().absolutePath()).dir().absolutePath())
-      .dir()
-      .absolutePath();
-}
 
 QString stringOrEmpty(const QVariantMap &m, const char *key)
 {
@@ -172,10 +159,11 @@ void ImportLedger::load(DataCatalog *cat)
   m_batches.clear();
   m_path = QString();
   m_loadWarning.clear();
-  const QString pd = projectDirForLedger(cat);
-  if (pd.isEmpty())
+  if (!cat || !cat->isOpen())
     return;
-  m_path = QDir(pd).filePath(QStringLiteral(".paleo/import_ledger.json"));
+  m_path = managedpath::resolveManagedPath(cat->projectDir(), QStringLiteral(".paleo/import_ledger.json"));
+  if (m_path.isEmpty())
+    return;
   QFile f(m_path);
   if (!f.exists())
     return; // 无台账 = 空历史，不是错误

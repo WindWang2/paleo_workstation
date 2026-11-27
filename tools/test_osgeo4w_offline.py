@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ensure_qgis_resources import Fail, osgeo4w_database
-from osgeo4w_prefix import check as check_prefix
+from osgeo4w_prefix import RECEIPT, check as check_prefix, upgrade_legacy_pdal
+from build_pdal_arrow import PLUGINS, STAMP
 from osgeo4w_offline import build_lock, check_installed, fetch, materialize
 
 
@@ -87,6 +88,41 @@ class OfflinePackagesTest(unittest.TestCase):
         database.unlink()
         with self.assertRaisesRegex(ValueError, "srs.db"):
             check_prefix(prefix, False)
+
+    def test_verified_legacy_prefix_upgrade_retries_only_its_two_plugins(self):
+        prefix = self.root / "prefix"
+        binary = prefix / "bin"
+        binary.mkdir(parents=True)
+        unrelated = binary / "gdal.dll"
+        unrelated.write_bytes(b"original")
+        for dll in PLUGINS.values():
+            (binary / dll).write_bytes(b"upstream")
+        check_prefix(prefix, False, record=True)
+        receipt = prefix / RECEIPT
+        original = json.loads(receipt.read_text(encoding="utf-8"))
+        source_lock = original["locks"].pop("pdal_arrow")
+        receipt.write_text(json.dumps(original), encoding="utf-8")
+
+        def interrupted():
+            (binary / PLUGINS["Reader"]).write_bytes(b"rebuilt")
+            raise OSError("writer is open")
+
+        unrelated.write_bytes(b"changed")
+        with self.assertRaisesRegex(ValueError, "gdal.dll"):
+            upgrade_legacy_pdal(prefix, self.fail)
+        unrelated.write_bytes(b"original")
+        with self.assertRaisesRegex(OSError, "writer is open"):
+            upgrade_legacy_pdal(prefix, interrupted)
+        self.assertEqual(json.loads(receipt.read_text(encoding="utf-8")), original)
+
+        def complete():
+            for dll in PLUGINS.values():
+                (binary / dll).write_bytes(b"rebuilt")
+            (prefix / STAMP).write_text(source_lock, encoding="ascii")
+
+        upgrade_legacy_pdal(prefix, complete)
+        check_prefix(prefix, False)
+        upgrade_legacy_pdal(prefix, self.fail)
 
     def test_recover_only_locked_windows_srs(self):
         # Build a real, digest-locked package and index with the production name.

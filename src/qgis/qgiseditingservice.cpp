@@ -11,6 +11,7 @@
 #include <qgsgeometry.h>
 #include <qgsgeometryvalidator.h>
 #include <qgsvectorlayer.h>
+#include <qgsvectorlayereditbuffer.h>
 
 namespace
 {
@@ -74,6 +75,27 @@ QString QgisEditingService::availabilityError(const QgsVectorLayer *layer) const
   if (!layer->isEditable() && m_store->layerBusy(busyKey(layer), &busy))
     return busy;
   return {};
+}
+
+QString QgisEditingService::pendingEditSummary(const QgsVectorLayer *layer)
+{
+  const auto *buffer = layer ? layer->editBuffer() : nullptr;
+  if (!buffer)
+    return {};
+  QStringList changes;
+  const auto count = [&changes](const QString &label, qsizetype value) {
+    if (value > 0)
+      changes << label.arg(value);
+  };
+  count(tr("新增 %1 个要素"), buffer->addedFeatures().size());
+  count(tr("删除 %1 个要素"), buffer->deletedFeatureIds().size());
+  count(tr("修改 %1 个要素的几何"), buffer->changedGeometries().size());
+  count(tr("修改 %1 个要素的属性"), buffer->changedAttributeValues().size());
+  count(tr("新增 %1 个字段"), buffer->addedAttributes().size());
+  count(tr("删除 %1 个字段"), buffer->deletedAttributeIds().size());
+  if (changes.isEmpty() && buffer->isModified())
+    return tr("其他图层编辑");
+  return changes.join(tr("，"));
 }
 
 bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
@@ -175,8 +197,10 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
     {
       if (!layer->isEditable())
         return {false, QObject::tr("图层「%1」没有进行中的编辑").arg(layer->id())};
-      if (!layer->commitChanges())
-        return {false, QObject::tr("图层「%1」保存编辑失败").arg(layer->id())};
+      if (!layer->commitChanges()) {
+        const auto detail = layer->property("paleoEditSaveError").toString();
+        return {false, detail.isEmpty() ? QObject::tr("图层「%1」保存编辑失败").arg(layer->id()) : detail};
+      }
       return {true, QString()};
     });
 

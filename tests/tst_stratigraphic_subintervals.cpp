@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLockFile>
 #include <cmath>
 #include <paleo_data/service.h>
 #include "../src/domain/mappinghorizons.h"
@@ -14,6 +15,7 @@
 #include "../src/linkage/unitselectionbridge.h"
 #include "../src/linkage/selectioncontext.h"
 #include "../src/services/subintervalfactors.h"
+#include "../src/io/areamodel.h"
 #include "../src/domain/wellsection.h"
 
 namespace fw = paleo::data::framework;
@@ -33,6 +35,42 @@ private:
   }
 
 private slots:
+  void existingSchemeQueriesDoNotRequireTheWriter()
+  {
+    QTemporaryDir project;
+    QVERIFY( project.isValid() );
+    const auto root = paleo::area_model::directory( project.path() );
+    paleo::data::StratigraphicScheme committed;
+    {
+      paleo::data::DataService ds;
+      std::string error;
+      QVERIFY2( ds.createProject( root.toStdString(), "HY", error ), error.c_str() );
+      const auto draft = draftScheme( "default", "HY", boundaries(), tops() );
+      std::vector<paleo::data::FrameworkIssue> issues;
+      QVERIFY2( ds.commitStratigraphicScheme( draft, {}, committed, issues, error ), error.c_str() );
+    }
+
+    QLockFile otherWriter( root + QStringLiteral( ".write.lock" ) );
+    QVERIFY( otherWriter.tryLock( 0 ) );
+    QString error;
+    const QString head = QString::fromStdString( committed.revision.value );
+    QVector<SchemeChoice> schemes;
+    QVERIFY2( listProjectSchemesFromDir( project.path(), schemes, &error ), qPrintable( error ) );
+    QCOMPARE( schemes.size(), 1 );
+    QCOMPARE( schemes.first().headRevision, head );
+    QVector<SchemeRevisionChoice> revisions;
+    QVERIFY2( listProjectSchemeRevisionsFromDir( project.path(), "default", revisions, &error ), qPrintable( error ) );
+    QCOMPARE( revisions.size(), 1 );
+    QCOMPARE( revisions.first().revision, head );
+    paleo::data::StratigraphicScheme loaded;
+    std::vector<paleo::data::SubIntervalResultBinding> bindings;
+    QVERIFY2( loadProjectSchemeFromDir( project.path(), {}, {}, loaded, &bindings, &error ), qPrintable( error ) );
+    QCOMPARE( QString::fromStdString( loaded.revision.value ), head );
+    QVERIFY2( loadProjectSchemeFromDir( project.path(), "default", head, loaded, &bindings, &error ), qPrintable( error ) );
+    QVERIFY( !loadProjectSchemeFromDir( project.path(), "default", "absent", loaded, nullptr, &error ) );
+    QVERIFY2( error.contains( QStringLiteral( "修订不存在" ) ), qPrintable( error ) );
+  }
+
   void labelsAreClassifiedNotRenamed()
   {
     QCOMPARE( classifyLabel( "T70", boundaries() ).kind, LabelKind::Boundary );

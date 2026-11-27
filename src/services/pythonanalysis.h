@@ -16,6 +16,7 @@ struct AnalysisCurveSelection {
   int sampleCount=0;
   bool processed=true;
   QString unit, depthType, depthUnit, depthReference;
+  QString wellboreKey; // Empty preserves the original well-level selection.
 };
 struct AnalysisReadPlan {
   AnalysisKind kind=AnalysisKind::WellQuality;

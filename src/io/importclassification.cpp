@@ -1,11 +1,48 @@
 // 层：数据
 #include "importclassification.h"
+#include "horizongridexchange.h"
+#include "checkshotexchange.h"
 #include "welllogtext.h"
 #include "welltable.h"
 #include "wellfactorfile.h"
+#include "xmlstreamsafety.h"
 #include <QFileInfo>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QXmlStreamReader>
+
+namespace {
+// Generic JSON may contain an embedded map or a project setting named
+// "features". Only the complete root document can identify the attachment.
+bool isGeoJsonFeature(const QJsonObject &feature)
+{
+  if (feature.value("type").toString() != QLatin1String("Feature")) return false;
+  const auto properties = feature.value("properties");
+  if (!properties.isNull() && !properties.isObject()) return false;
+  const auto value = feature.value("geometry");
+  if (value.isNull()) return true;
+  const auto geometry = value.toObject();
+  const auto type = geometry.value("type").toString();
+  if (type == QLatin1String("GeometryCollection")) return geometry.value("geometries").isArray();
+  static const QStringList coordinateTypes{"Point", "MultiPoint", "LineString", "MultiLineString",
+                                           "Polygon", "MultiPolygon"};
+  return coordinateTypes.contains(type) && geometry.value("coordinates").isArray();
+}
+
+bool isGeoJsonDocument(const QByteArray &bytes)
+{
+  const auto root = QJsonDocument::fromJson(bytes).object();
+  if (isGeoJsonFeature(root)) return true;
+  if (root.value("type").toString() != QLatin1String("FeatureCollection") ||
+      !root.value("features").isArray()) return false;
+  const auto features = root.value("features").toArray();
+  for (const auto &feature : features)
+    if (!isGeoJsonFeature(feature.toObject())) return false;
+  return true;
+}
+}
 
 ImportClassificationDetail classifyImportFileDetailed(const QString &path, const std::function<bool()> &cancel)
 {
@@ -18,6 +55,14 @@ ImportClassificationDetail classifyImportFileDetailed(const QString &path, const
   };
   if (cancel && cancel())
     return cancelled();
+  if (paleo::io::isCheckshotExchange(path)) {
+    detail.cls = {QStringLiteral("time_depth"), QStringLiteral("checkshots"), QStringLiteral("input")};
+    return detail;
+  }
+  if (paleo::io::isHorizonGridExchange(path)) {
+    detail.cls = {QStringLiteral("horizon"), QStringLiteral("csv"), QStringLiteral("input")};
+    return detail;
+  }
   if (paleo::io::isWellFactorFile(path)) { detail.cls = {QStringLiteral("tabular"), QStringLiteral("csv"), QStringLiteral("input")}; return detail; }
   if (paleo::io::isWellTableContainer(path) && QFileInfo(path).size() <= 64ll * 1024 * 1024) {
     // issue-810：分类期先做有界预览——readWellTable 会把整表读进来（百万行
@@ -60,6 +105,17 @@ ImportClassificationDetail classifyImportFileDetailed(const QString &path, const
   if (!file.open(QIODevice::ReadOnly)) { detail.cls = classifyProjectPath(path); return detail; }
   const QByteArray prefix = file.read(65536);
   classification = classifyProjectImport(path, prefix);
+  if (classification.type == QLatin1String("unknown") &&
+      QFileInfo(path).suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0) {
+    constexpr qint64 maxJsonProbe = 2 * 1024 * 1024;
+    if (file.size() <= maxJsonProbe) {
+      const QByteArray bytes = prefix + file.read(maxJsonProbe - prefix.size() + 1);
+      if (bytes.size() <= maxJsonProbe && file.atEnd() && isGeoJsonDocument(bytes)) {
+        detail.cls = {QStringLiteral("geojson"), QStringLiteral("geojson"), QStringLiteral("input")};
+        return detail;
+      }
+    }
+  }
   if ((classification.type != QLatin1String("unknown") && classification.type != QLatin1String("well_deviation")) ||
       !WellLogText::sniffSpreadsheetXml(prefix) || file.size() <= prefix.size() ||
       file.size() > 1024ll * 1024 * 1024) { detail.cls = classification; return detail; }
@@ -69,8 +125,13 @@ ImportClassificationDetail classifyImportFileDetailed(const QString &path, const
   while (!xml.atEnd())
   {
     const auto token = xml.readNext();
-    // P1-W3（#1023）：流式分类扫描与完整读取同一 DTD 策略。
-    if (token == QXmlStreamReader::DTD) break;
+    // P1-W3（#1023）：流式分类扫描与完整读取同一 DTD 策略（走 xmlsafe 并记
+    // 容器错误，避免带 DTD 的大 XML 静默通过分类）。
+    if (paleo::io::xmlsafe::rejectDtdToken(token, path, &detail.containerError))
+    {
+      detail.cls = classifyProjectPath(path);
+      return detail;
+    }
     if (!xml.isStartElement() || xml.name() != QLatin1String("Worksheet")) continue;
     for (const auto &attribute : xml.attributes())
     {

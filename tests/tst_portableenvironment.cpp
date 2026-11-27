@@ -18,6 +18,7 @@ private slots:
     QProcessEnvironment env;
     env.insert("QGIS_PREFIX_PATH", "/configured/vendor");
     env.insert("PROJ_DATA", "/configured/proj");
+    env.insert("PDAL_DRIVER_PATH", "/configured/pdal");
     const auto result = inspectPortableEnvironment(root.path(), env);
     QVERIFY(!result.detected); QCOMPARE(result.values, env);
   }
@@ -34,6 +35,7 @@ private slots:
     foreign.insert("QGIS_PREFIX_PATH", "C:/build-machine/qgis");
     foreign.insert("GDAL_DATA", "C:/other-gdal");
     foreign.insert("QT_PLUGIN_PATH", "C:/other-qt/plugins");
+    foreign.insert("PDAL_DRIVER_PATH", "C:/other-gis/pdal-plugins");
     const auto result = inspectPortableEnvironment(root, foreign);
     QVERIFY(result.detected); QVERIFY(result.missing.isEmpty());
     QCOMPARE(result.values.value("PROJ_DATA"), root + "/share/proj");
@@ -41,6 +43,7 @@ private slots:
     QCOMPARE(result.values.value("QGIS_PREFIX_PATH"), root + "/qgis");
     QCOMPARE(result.values.value("GDAL_DATA"), root + "/share/gdal");
     QCOMPARE(result.values.value("QT_PLUGIN_PATH"), root + "/plugins");
+    QCOMPARE(result.values.value("PDAL_DRIVER_PATH"), root);
   }
   void anchoredBindingsUseAnchorRoot() {
     QTemporaryDir parent;
@@ -56,6 +59,7 @@ private slots:
     QCOMPARE(result.values.value("PROJ_DATA"), anchor + "/share/proj");
     QCOMPARE(result.values.value("QGIS_PREFIX_PATH"), anchor + "/qgis");
     QCOMPARE(result.values.value("QT_PLUGIN_PATH"), anchor + "/plugins");
+    QCOMPARE(result.values.value("PDAL_DRIVER_PATH"), anchor);
     // 缺件诊断仍按真实安装根报告，用户拿到的是可定位的长路径。
     QVERIFY(result.missing.isEmpty());
   }

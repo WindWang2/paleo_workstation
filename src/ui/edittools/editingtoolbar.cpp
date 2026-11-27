@@ -2,36 +2,30 @@
 #include "editingtoolbar.h"
 
 #include <QAction>
+#include "../../qgis/mapfeaturepicker.h"
 #include <QActionGroup>
 #include <QComboBox>
 #include <QCoreApplication>
-#include <QCursor>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLayout>
 #include <QMenu>
 #include "../notifications/paleonotify.h"
 #include <QPoint>
-#include <QRect>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVariant>
 #include <QSpinBox>
 #include <QSettings>
+#include <QStatusBar>
 #include <QPushButton>
 #include <qgssnappingutils.h>
 
 #include <qgsadvanceddigitizingdockwidget.h>
-#include <qgscoordinatereferencesystem.h>
-#include <qgscoordinatetransform.h>
-#include <qgsexception.h>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
-#include <qgsmapmouseevent.h>
 #include <qgsmaptool.h>
-#include <qgsmaptoolselectutils.h>
 #include <qgsproject.h>
-#include <qgsrectangle.h>
 #include <qgsrubberband.h>
 #include <qgsvectorlayer.h>
 
@@ -42,148 +36,9 @@
 #include "../../qgis/faciespartitioneditor.h" // #533：相面捕获工具经此门面创建——faciespartitiontool.h 的 QtWidgets 边归 QGIS 封装层
 #include "vertexeditortools.h"
 
-// ui/edittools/ — PaleoEditingToolbar implementation notes:
-//
-//   · tool lifetime: the installed tool is NOT owned by the canvas — installTool()
-//     swaps it out with unsetMapTool() + deleteLater() (deferred, because the
-//     swap can run from inside the tool's own editAborted emission);
-//   · CAD dock: ONE shared QgsAdvancedDigitizingDockWidget is injected into
-//     every capture tool (decision B of the two sanctioned options). The
-//     alternative — cadDock = nullptr and let each tool fabricate a
-//     canvas-parented dock (resolveCadDock in editingtools.cpp) — leaks one
-//     dock per tool swap for the life of the canvas. The contract header pins
-//     the member list, so the dock lives as an objectName-tagged child of this
-//     widget and is located via findChild();
-//   · the ● combo marker and the warning-colored state label are the only
-//     "editing in progress" chrome — both plain text, no custom painting.
-
 namespace
 {
-// File-local select tool: drag a rectangle rubber band, release selects the
-// canvas current layer's features intersecting the box. QGIS 4.2.2 build note:
-// qgsmaptoolselectutils.h DECLARES selectMultipleFeatures/selectSingleFeature,
-// but nm -D libqgis_gui.so shows only setRubberBand/expandSelectRectangle are
-// exported (the selectors carry no GUI_EXPORT — same verdict as QgsVertexTool,
-// symbols not linkable). Degrade sanctioned: the exported setRubberBand builds
-// the map-CRS selection geometry, and selection itself goes through
-// QgsVectorLayer::selectByRect — the same native core path the util's
-// selectors drive internally. No Q_OBJECT on purpose: the class declares no
-// signals of its own and the standalone build recipe does not moc this .cpp
-// (emitting the inherited QgsMapTool::messageEmitted needs no moc).
-class PaleoSelectTool : public QgsMapTool
-{
-  public:
-    explicit PaleoSelectTool( QgsMapCanvas *canvas )
-      : QgsMapTool( canvas )
-
-    {
-      setToolName( QCoreApplication::translate( "PaleoEditingToolbar", "选择要素" ) );
-      setCursor( QCursor( Qt::ArrowCursor ) );
-    }
-
-    Flags flags() const override { return ShowContextMenu; }
-
-    ~PaleoSelectTool() override
-    {
-      // QGIS 4: QgsMapCanvasItem is no longer a QObject — delete, don't hide
-      delete mRubberBand;
-    }
-
-    void activate() override
-    {
-      if ( !mRubberBand )
-        mRubberBand = new QgsRubberBand( canvas(), Qgis::GeometryType::Polygon );
-      QgsMapTool::activate();
-    }
-
-    void deactivate() override
-    {
-      mDragging = false;
-      delete mRubberBand;
-      mRubberBand = nullptr;
-      QgsMapTool::deactivate();
-    }
-
-  protected:
-    void canvasPressEvent( QgsMapMouseEvent *e ) override
-    {
-      if ( e->button() != Qt::LeftButton )
-        return;
-      mPressPos = e->pixelPoint();
-      mDragging = true;
-    }
-
-    void canvasMoveEvent( QgsMapMouseEvent *e ) override
-    {
-      if ( !mDragging )
-        return;
-      QRect rect = QRect( mPressPos, e->pixelPoint() ).normalized();
-      QgsMapToolSelectUtils::setRubberBand( canvas(), rect, mRubberBand );
-    }
-
-    void canvasReleaseEvent( QgsMapMouseEvent *e ) override
-    {
-      if ( e->button() != Qt::LeftButton || !mDragging )
-        return;
-      mDragging = false;
-      // setRubberBand converts the device-coords rect into a map-CRS geometry
-      // carried by the band; a click without drag yields an empty rect that
-      // simply matches nothing (same behavior as QGIS's rectangle select).
-      QRect rect = QRect( mPressPos, e->pixelPoint() ).normalized();
-      // D6 点选：零尺寸按 ±4 设备像素膨胀成小矩形——单击也能拾取点要素
-      // （井位层地图→表联动靠这条路径把 fid 送进 selectionChanged）。
-      if ( rect.width() < 1 && rect.height() < 1 )
-        rect.adjust( -4, -4, 4, 4 );
-      QgsMapToolSelectUtils::setRubberBand( canvas(), rect, mRubberBand );
-
-      QgsVectorLayer *vl = qobject_cast<QgsVectorLayer *>( canvas()->currentLayer() );
-      if ( !vl )
-      {
-        emit messageEmitted( QCoreApplication::translate( "PaleoEditingToolbar",
-                                   "选择操作需要当前图层为矢量图层" ),
-                             Qgis::MessageLevel::Warning );
-        mRubberBand->reset( Qgis::GeometryType::Polygon );
-        return;
-      }
-
-      QgsRectangle layerRect = mRubberBand->asGeometry().boundingBox(); // map CRS
-      const QgsCoordinateReferenceSystem mapCrs = canvas()->mapSettings().destinationCrs();
-      if ( mapCrs.isValid() && vl->crs().isValid() && mapCrs != vl->crs() )
-      {
-        try
-        {
-          layerRect = QgsCoordinateTransform( mapCrs, vl->crs(),
-                                              canvas()->mapSettings().transformContext() )
-                          .transformBoundingBox( layerRect );
-        }
-        catch ( QgsCsException & )
-        {
-          emit messageEmitted( QCoreApplication::translate( "PaleoEditingToolbar",
-                                     "无法将选择矩形转换到图层坐标系" ),
-                               Qgis::MessageLevel::Warning );
-          mRubberBand->reset( Qgis::GeometryType::Polygon );
-          return;
-        }
-      }
-
-      // Modifier semantics mirror QGIS's rectangle select: plain = replace,
-      // Shift = add, Ctrl = subtract.
-      Qgis::SelectBehavior behavior = Qgis::SelectBehavior::SetSelection;
-      if ( e->modifiers() & Qt::ShiftModifier )
-        behavior = Qgis::SelectBehavior::AddToSelection;
-      else if ( e->modifiers() & Qt::ControlModifier )
-        behavior = Qgis::SelectBehavior::RemoveFromSelection;
-      vl->selectByRect( layerRect, behavior );
-      mRubberBand->reset( Qgis::GeometryType::Polygon );
-    }
-
-  private:
-    QgsRubberBand *mRubberBand = nullptr; // owned canvas item (drag box)
-    QPoint mPressPos;
-    bool mDragging = false;
-};
-
-// The one shared CAD dock (see file-header notes). Created lazily so a
+// One lazily created CAD dock is shared by capture tools so a
 // toolbar that never arms a capture tool never builds the dock.
 QgsAdvancedDigitizingDockWidget *sharedCadDock( PaleoEditingToolbar *host, QgsMapCanvas *canvas )
 {
@@ -243,6 +98,7 @@ PaleoEditingToolbar::PaleoEditingToolbar( QgsMapCanvas *canvas, QWidget *parent 
   // Layer-switch refusals (dirty native stack) surface as editRefused reasons.
   connect( mUndoStack.get(), &PaleoUndoStack::switchRefused, this,
            [this]( const QString &, const QString &reason ) { emit editRefused( reason ); } );
+  connect( this, &PaleoEditingToolbar::featureEdited, this, &PaleoEditingToolbar::refreshUndoActions );
   connect( mActionUndo, &QAction::triggered, this, [this] { routeUndo( true ); } );
   connect( mActionRedo, &QAction::triggered, this, [this] { routeUndo( false ); } );
 
@@ -269,7 +125,11 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
 {
   for ( const auto &layer : std::as_const( mLayers ) )
     if ( layer )
+    {
       disconnect( layer, nullptr, this, nullptr );
+      disconnect( layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::refreshUndoActions );
+      disconnect(layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::updateStateLabel);
+    }
   for (const auto &connection : mHighlightConnections)
     disconnect(connection);
   mHighlightConnections.clear();
@@ -286,8 +146,17 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
       refreshCombo();
       updateActionStates();
     } );
+    connect( layer, &QgsVectorLayer::editCommandEnded, this, &PaleoEditingToolbar::refreshUndoActions );
     connect( layer, &QgsVectorLayer::readOnlyChanged, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::supportsEditingChanged, this, &PaleoEditingToolbar::updateActionStates );
+    connect( layer, &QgsVectorLayer::editingStarted, this, &PaleoEditingToolbar::updateActionStates );
+    connect( layer, &QgsVectorLayer::editingStopped, this, &PaleoEditingToolbar::updateActionStates );
+    connect( layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::refreshUndoActions );
+    connect(layer->undoStack(), &QUndoStack::indexChanged, this, &PaleoEditingToolbar::updateStateLabel, Qt::UniqueConnection);
+    connect(layer, &QgsVectorLayer::beforeCommitChanges, this, [this, layer](bool stopEditing) {
+      if (stopEditing && layer == mEditLayer)
+        m_saveSummary = QgisEditingService::pendingEditSummary(layer);
+    });
     connect(layer, &QgsVectorLayer::selectionChanged, this, [this] { updateActionStates(); });
   }
   if (isEditing())
@@ -429,6 +298,8 @@ void PaleoEditingToolbar::buildUi()
   mLayerCombo = new QComboBox( this );
   mLayerCombo->setPlaceholderText( tr( "选择可编辑图层" ) );
   mStateLabel = new QLabel( this );
+  mStateLabel->setObjectName(QStringLiteral("canvasEditStatus"));
+  mStateLabel->setTextFormat(Qt::PlainText);
 
   auto newToolAction = [this]( const QString &text, const QString &hint,
                                const QString &iconName ) -> QAction * {
@@ -462,7 +333,8 @@ void PaleoEditingToolbar::buildUi()
       {
         const auto choice = PaleoNotify::askSaveDiscard(
             this, PaleoNotify::AskIcon::Question, tr("退出编辑"),
-            tr("本段编辑尚未确认保存。保存编辑，或放弃本段修改？"),
+            QgisEditingService::pendingEditSummary(mEditLayer) + QLatin1Char('\n') +
+                tr("本段编辑尚未确认保存。保存编辑，或放弃本段修改？"),
             tr("保存"), tr("放弃"), tr("取消"));
         if (choice == PaleoNotify::SaveChoice::Save)
           saveEditing();
@@ -475,51 +347,7 @@ void PaleoEditingToolbar::buildUi()
   mActionSelect = newToolAction( tr( "选择" ), tr( "单击或框选要素（Shift 追加 / Ctrl 去除）" ),
                                  QStringLiteral( "mActionSelectRectangle.svg" ) );
 
-  // Add-feature entry: one native QToolButton with a menu of the three capture
-  // modes (点/线/面). The children are the checkable group members; the parent
-  // action only hosts the affordance — InstantPopup keeps the semantics plain.
-  mActionAddFeature = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionAdd.svg" ) ),
-                                   tr( "添加" ), this );
-  const QString addHint = tr( "添加要素：点 / 线 / 面" );
-  mActionAddFeature->setProperty( "hint", addHint );
-  mActionAddFeature->setToolTip( addHint );
-  QMenu *addMenu = new QMenu( mToolBar );
-  auto newCaptureAction = [this, addMenu]( const QString &text, const QString &hint,
-                                         const QString &iconName ) -> QAction * {
-    QAction *a = new QAction( PaleoIcons::qgisTheme( iconName ), text, this );
-    a->setProperty( "hint", hint );
-    a->setToolTip( hint );
-    a->setCheckable( true );
-    addMenu->addAction( a );
-    return a;
-  };
-  mActionAddPoint = newCaptureAction( tr( "添加点" ), tr( "单击添加点；Esc 结束工具" ),
-                                      QStringLiteral( "mActionCapturePoint.svg" ) );
-  mActionAddLine = newCaptureAction( tr( "添加线" ), tr( "左键添加节点，右键完成线；Esc 结束工具" ),
-                                     QStringLiteral( "mActionCaptureLine.svg" ) );
-  mActionAddPolygon = newCaptureAction( tr( "添加面" ), tr( "左键添加节点，右键完成面；Esc 结束工具" ),
-                                        QStringLiteral( "mActionCapturePolygon.svg" ) );
-  // 菜单挂在动作上：宿主（ribbon「要素编辑」组）用同一颗动作建按钮时也带
-  // 点/线/面下拉。
-  mActionAddFeature->setMenu( addMenu );
-  addMenu->setToolTipsVisible( true );
-  mActionAddFeature->setCheckable( true );
-  connect( mCanvas, &QgsMapCanvas::mapToolSet, this, [this]( QgsMapTool *tool, QgsMapTool * ) {
-    QAction *active = tool ? tool->action() : nullptr;
-    for ( QAction *action : { mActionSelect, mActionAddPoint, mActionAddLine,
-                              mActionAddPolygon, mActionReshape, mActionMove,
-                              mActionDeleteFeatures, mActionVertexEdit, mActionSplitFacies, mActionPaintFacies } )
-      action->setChecked( action == active );
-    const bool capture = active == mActionAddPoint || active == mActionAddLine || active == mActionAddPolygon;
-    mActionAddFeature->setChecked( capture );
-    mActionAddFeature->setText( capture ? active->text() : tr( "添加" ) );
-  } );
-  QToolButton *addButton = new QToolButton( mToolBar );
-  addButton->setDefaultAction( mActionAddFeature );
-  addButton->setMenu( addMenu );
-  addButton->setPopupMode( QToolButton::InstantPopup );
-  addButton->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
-  mToolBar->addWidget( addButton );
+  buildAddFeatureControl();
 
   mActionReshape = newToolAction( tr( "整形" ), tr( "沿画线重构所选要素的几何" ),
                                   QStringLiteral( "mActionReshape.svg" ) );
@@ -530,6 +358,7 @@ void PaleoEditingToolbar::buildUi()
   mActionVertexEdit = newToolAction( tr( "节点" ), tr( "编辑所选要素的节点" ),
                                      QStringLiteral( "mActionVertexTool.svg" ) );
   buildPartitionControls();
+  buildDeleteSelectionAction();
   // Mode toggle (checkable, NOT in the exclusive tool group): same-layer
   // topological editing for the vertex tool — coincident vertices move/insert/
   // delete together. State mirrors QgsProject::topologicalEditing so it
@@ -546,9 +375,9 @@ void PaleoEditingToolbar::buildUi()
   } );
 
   // 跨层拓扑（mapping 主线2）：写集延伸到「同 CRS 且处于编辑会话的相邻层」。
-  // 参与层必须可写（native 语义），undo 按层各一步。持久化走工程自定义属性
+  // 参与层必须可写（native 语义），画布撤销整组进行。持久化走工程自定义属性
   // paleo/crossLayerTopologicalEditing（随 .qgz）。仅在拓扑编辑开启时可用。
-  mActionCrossLayerTopo = newToolAction( tr( "跨层" ), tr( "跨层拓扑：共点节点延伸到同 CRS 的其他编辑层（各层 undo 独立）" ),
+  mActionCrossLayerTopo = newToolAction( tr( "跨层" ), tr( "跨层拓扑：同坐标系普通图层的共点节点一起编辑和撤销" ),
                                          QStringLiteral( "mIconTopologicalEditing.svg" ) );
   mActionCrossLayerTopo->setObjectName( QStringLiteral( "actionCrossLayerTopo" ) );
   connect( mActionCrossLayerTopo, &QAction::toggled, this, [this]( bool on ) {
@@ -614,20 +443,16 @@ void PaleoEditingToolbar::buildUi()
   mSnapTolerance->setValue(QSettings().value(QStringLiteral("editing/snapTolerancePx"), 10).toInt());
   mToolBar->addWidget(mSnapTolerance);
   connect(mSnapTolerance, &QSpinBox::valueChanged, this, [this](int px) {
+    auto *project = mProject ? mProject.data() : QgsProject::instance();
     auto config = mCanvas->snappingUtils()->config();
+    if (project && config.project() != project) config.setProject(project);
     config.setEnabled(true);
     config.setMode(Qgis::SnappingMode::AllLayers);
     config.setTypeFlag(Qgis::SnappingType::Vertex | Qgis::SnappingType::Segment);
     config.setTolerance(px);
     config.setUnits(Qgis::MapToolUnit::Pixels);
     mCanvas->snappingUtils()->setConfig(config);
-    if (auto *project = mProject ? mProject.data() : QgsProject::instance())
-    {
-      // 同 paleomainwindow 镜像点：config 须挂 project 指针，否则重开工程
-      // 时 readProject 在空 project 上调 mapLayer 崩溃。
-      config.setProject(project);
-      project->setSnappingConfig(config);
-    }
+    if (project) project->setSnappingConfig(config);
     QSettings().setValue(QStringLiteral("editing/snapTolerancePx"), px);
   });
   auto config = mCanvas->snappingUtils()->config();
@@ -667,7 +492,10 @@ void PaleoEditingToolbar::installTool( QgsMapTool *tool )
 
 void PaleoEditingToolbar::refreshCombo()
 {
-  const QString keepId = currentLayer() ? currentLayer()->id() : QString();
+  QgsMapLayer *canvasLayer = mCanvas ? mCanvas->currentLayer() : nullptr;
+  QgsVectorLayer *preferred = mEditLayer ? mEditLayer.data() : qobject_cast<QgsVectorLayer *>(canvasLayer);
+  if (!preferred && !canvasLayer)
+    preferred = currentLayer();
   QgsVectorLayer *watched = mUndoStack ? mUndoStack->layer() : nullptr;
 
   {
@@ -685,21 +513,8 @@ void PaleoEditingToolbar::refreshCombo()
                                : lyr->name();
       mLayerCombo->addItem( text, QVariant::fromValue( lyr ) );
     }
-    // restore: previous selection first, else the edit layer, else the first
-    // item — priority matters when both are listed in either order
-    int idx = -1;
-    for ( int i = 0; i < mLayerCombo->count() && idx < 0; ++i )
-    {
-      QgsVectorLayer *lyr = qvariant_cast<QgsVectorLayer *>( mLayerCombo->itemData( i ) );
-      if ( !keepId.isEmpty() && lyr && lyr->id() == keepId )
-        idx = i;
-    }
-    for ( int i = 0; i < mLayerCombo->count() && idx < 0; ++i )
-    {
-      if ( qvariant_cast<QgsVectorLayer *>( mLayerCombo->itemData( i ) ) == mEditLayer )
-        idx = i;
-    }
-    if ( idx < 0 && mLayerCombo->count() > 0 )
+    int idx = comboIndexForLayer(mLayerCombo, preferred);
+    if (idx < 0 && !canvasLayer && mLayerCombo->count() > 0)
       idx = 0;
     mLayerCombo->setCurrentIndex( idx );
   }
@@ -714,7 +529,8 @@ void PaleoEditingToolbar::refreshCombo()
       sel = mUndoStack->layer();
       selectComboLayer( mLayerCombo, sel );
     }
-    mCanvas->setCurrentLayer( sel );
+    if (mCanvas && sel)
+      mCanvas->setCurrentLayer(sel);
   }
 }
 
@@ -726,6 +542,7 @@ void PaleoEditingToolbar::updateActionStates()
   const QString noEdit = !hasTarget ? noTarget
       : target->readOnly() ? tr( "当前图层为只读，可选择要素，不能修改" )
       : !target->supportsEditing() ? tr( "当前图层的数据源不支持编辑" )
+      : target->isEditable() && target != mEditLayer ? tr( "图层 %1 已在编辑中" ).arg(target->name())
       : QgisEditingService::isConstraintLayer(target) && !mEditingService ? tr("约束编辑需要工程 store 同步服务")
       : mEditingService ? mEditingService->availabilityError(target) : QString();
   const auto gate = []( QAction *action, const QString &reason ) {
@@ -778,6 +595,7 @@ void PaleoEditingToolbar::updateActionStates()
   refreshUndoActions();
 
   updatePartitionControls(noEdit);
+  updateDeleteSelectionAction();
   updateStateLabel();
   emit stateChanged();
 }
@@ -785,21 +603,15 @@ void PaleoEditingToolbar::updateActionStates()
 void PaleoEditingToolbar::updateStateLabel()
 {
   QPalette palette = mStateLabel->palette();
-  // DESIGN.md text-muted——状态文字（浏览/编辑中）是说明性 chrome，非告警。
-  const QColor stateColor = PaleoTheme::tokens().textMuted;
-  if ( isEditing() )
-  {
-    // Editing is an ordinary operation, not an error or review warning.
-    mStateLabel->setText( tr( "编辑中：%1" ).arg( mEditLayer->name() ) );
-    palette.setColor( QPalette::WindowText, stateColor );
-  }
-  else
-  {
-    mStateLabel->setText( currentLayer() ? tr( "浏览：%1" ).arg( currentLayer()->name() )
-                                        : tr( "未选择矢量图层" ) );
-    palette.setColor( QPalette::WindowText, stateColor );
-  }
-  mStateLabel->setPalette( palette );
+  palette.setColor(QPalette::WindowText, PaleoTheme::tokens().textMuted);
+  mStateLabel->setPalette(palette);
+  if (isEditing()) {
+    const auto changes = QgisEditingService::pendingEditSummary(mEditLayer);
+    auto label = tr("编辑中：%1").arg(mEditLayer->name());
+    if (!changes.isEmpty()) label += QStringLiteral(" · ") + changes;
+    mStateLabel->setText(label);
+  } else
+    mStateLabel->setText(currentLayer() ? tr("浏览：%1").arg(currentLayer()->name()) : tr("未选择矢量图层"));
 }
 
 void PaleoEditingToolbar::updateEditHighlight()
@@ -845,7 +657,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
     updateActionStates();
     return;
   }
-  if ( action != mActionSelect && (!allowMutation() || (!target->isEditable() && !startEditing())) )
+  if (action != mActionSelect && (!allowMutation() || !startEditing()))
   {
     action->setChecked( false ); // preflight/session refused — no mutation tool
     updateActionStates();
@@ -869,7 +681,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
   QgsMapTool *tool = nullptr;
   QgsAdvancedDigitizingDockWidget *cadDock = sharedCadDock( this, mCanvas );
   if ( action == mActionSelect )
-    tool = new PaleoSelectTool( mCanvas ); // no abort wiring: selection never aborts
+    tool = MapFeaturePicker::createSelectionTool(mCanvas); // no abort wiring: selection never aborts
   else if ( action == mActionAddPoint )
     tool = wireAborted( new PaleoAddFeatureTool( mCanvas, cadDock, QgsMapToolCapture::CapturePoint, target ) );
   else if ( action == mActionAddLine )
@@ -960,6 +772,7 @@ bool PaleoEditingToolbar::startEditing()
   }
 
   mEditLayer = target;
+  m_saveSummary.clear();
   mHighlightConnections.append(connect(target, &QgsVectorLayer::selectionChanged, this, [this] { updateEditHighlight(); }));
   mHighlightConnections.append(connect(target, &QgsVectorLayer::geometryChanged, this, [this] { updateEditHighlight(); }));
   updateEditHighlight();
@@ -979,6 +792,8 @@ void PaleoEditingToolbar::finishSession(const QString &id, bool saved)
     disconnect(connection);
   mHighlightConnections.clear();
   mEditHighlight.reset();
+  if (saved && mUndoStatus && !m_saveSummary.isEmpty())
+    mUndoStatus->showMessage(tr("已保存「%1」：%2").arg(mEditLayer->name(), m_saveSummary), 8000);
   mEditLayer = nullptr;
   installTool(nullptr);
   uncheckTools();
@@ -1095,4 +910,87 @@ bool PaleoEditingToolbar::cancelEditing()
 
   finishSession(id, false);
   return true;
+}
+
+void PaleoEditingToolbar::buildDeleteSelectionAction() {
+  auto *menu = new QMenu(mToolBar);
+  mDeleteSelection = menu->addAction(QString());
+  mDeleteSelection->setObjectName(QStringLiteral("deleteSelectedFeatures"));
+  mActionDeleteFeatures->setMenu(menu);
+  if (auto *button = qobject_cast<QToolButton *>(mToolBar->widgetForAction(mActionDeleteFeatures)))
+    button->setPopupMode(QToolButton::MenuButtonPopup);
+  connect(mDeleteSelection, &QAction::triggered, this, [this] {
+    auto *layer = currentLayer();
+    if (!layer || !mActionDeleteFeatures->isEnabled() || !allowMutation()) return;
+    const auto ids = layer->selectedFeatureIds();
+    if (ids.isEmpty() || !startEditing() || currentLayer() != layer || layer->selectedFeatureIds() != ids) return;
+    layer->beginEditCommand(tr("删除所选要素"));
+    if (!layer->deleteFeatures(ids)) {
+      layer->destroyEditCommand();
+      emit editRefused(tr("删除所选要素失败"));
+      return;
+    }
+    layer->endEditCommand();
+    emit featureEdited(layer->id());
+  });
+}
+
+void PaleoEditingToolbar::updateDeleteSelectionAction() {
+  auto *layer = currentLayer();
+  const auto count = layer ? layer->selectedFeatureCount() : 0;
+  mDeleteSelection->setText(tr("删除所选 %1 项").arg(count));
+  mDeleteSelection->setEnabled(mActionDeleteFeatures->isEnabled() && count > 0);
+  mDeleteSelection->setToolTip(!mActionDeleteFeatures->isEnabled() ? mActionDeleteFeatures->toolTip() :
+                              count ? tr("删除所选要素") : tr("请先在当前图层选择要素"));
+}
+
+void PaleoEditingToolbar::buildAddFeatureControl()
+{
+  // Geometry-specific capture actions share a single menu button.
+  mActionAddFeature = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionAdd.svg" ) ),
+                                   tr( "添加" ), this );
+  const QString addHint = tr( "添加要素：点 / 线 / 面" );
+  mActionAddFeature->setProperty( "hint", addHint );
+  mActionAddFeature->setToolTip( addHint );
+  QMenu *addMenu = new QMenu( mToolBar );
+  auto newCaptureAction = [this, addMenu]( const QString &text, const QString &hint,
+                                         const QString &iconName ) -> QAction * {
+    QAction *a = new QAction( PaleoIcons::qgisTheme( iconName ), text, this );
+    a->setProperty( "hint", hint );
+    a->setToolTip( hint );
+    a->setCheckable( true );
+    addMenu->addAction( a );
+    return a;
+  };
+  mActionAddPoint = newCaptureAction( tr( "添加点" ), tr( "单击添加点；Esc 结束工具" ),
+                                      QStringLiteral( "mActionCapturePoint.svg" ) );
+  mActionAddLine = newCaptureAction( tr( "添加线" ), tr( "左键添加节点，右键完成线；Esc 结束工具" ),
+                                     QStringLiteral( "mActionCaptureLine.svg" ) );
+  mActionAddPolygon = newCaptureAction( tr( "添加面" ), tr( "左键添加节点，右键完成面；Esc 结束工具" ),
+                                        QStringLiteral( "mActionCapturePolygon.svg" ) );
+  // 菜单挂在动作上：宿主（ribbon「要素编辑」组）用同一颗动作建按钮时也带
+  // 点/线/面下拉。
+  mActionAddFeature->setMenu( addMenu );
+  addMenu->setToolTipsVisible( true );
+  mActionAddFeature->setCheckable( true );
+  connect( mCanvas, &QgsMapCanvas::mapToolSet, this, [this]( QgsMapTool *tool, QgsMapTool * ) {
+    QAction *active = tool ? tool->action() : nullptr;
+    for ( QAction *action : { mActionSelect, mActionAddPoint, mActionAddLine,
+                              mActionAddPolygon, mActionReshape, mActionMove,
+                              mActionDeleteFeatures, mActionVertexEdit, mActionSplitFacies, mActionPaintFacies } )
+      action->setChecked( action == active );
+    const bool capture = active == mActionAddPoint || active == mActionAddLine || active == mActionAddPolygon;
+    mActionAddFeature->setChecked( capture );
+    mActionAddFeature->setText( capture ? active->text() : tr( "添加" ) );
+  } );
+  QToolButton *addButton = new QToolButton( mToolBar );
+  addButton->setDefaultAction( mActionAddFeature );
+  addButton->setMenu( addMenu );
+  addButton->setPopupMode(QToolButton::MenuButtonPopup);
+  connect(mActionAddFeature, &QAction::triggered, this, [this] {
+    for (auto *action : {mActionAddPoint, mActionAddLine, mActionAddPolygon})
+      if (action->isEnabled()) { action->trigger(); break; }
+  });
+  addButton->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );
+  mToolBar->addWidget( addButton );
 }

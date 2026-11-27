@@ -41,7 +41,7 @@ QWizardPage *DataServiceImportWizard::projectPage()
   auto *layout = new QVBoxLayout(page);
   auto *form = new QFormLayout;
   m_name = new QLineEdit(tr("未命名工程"), page); m_name->setObjectName(QStringLiteral("dataServiceProjectNameEdit"));
-  m_output = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/Paleo"), page);
+  m_output = new QLineEdit(ProjectSetupWorkflow::defaultProjectDirectory(), page);
   m_output->setObjectName(QStringLiteral("dataServiceProjectDirectoryEdit"));
   m_root = new QLineEdit(page); m_root->setObjectName(QStringLiteral("dataServiceSourceRootEdit"));
   m_root->setPlaceholderText(tr("选择需要导入的资料目录，无需按固定目录结构整理"));
@@ -190,7 +190,7 @@ bool DataServiceImportWizard::validateProjectInputs()
     showPageError(0, tr("井位坐标表不存在，请重新选择。")); return false;
   }
   QString error;
-  if (!ProjectSetupWorkflow::checkProjectLocation(projectPath(), &error)) { showPageError(0, error); return false; }
+  if (!ProjectSetupWorkflow::checkProjectLocation(projectPath(), &error, sources().root, m_workflow ? m_workflow->requiredProjectRoot() : QString())) { showPageError(0, error); return false; }
   m_status->clear(); return true;
 }
 

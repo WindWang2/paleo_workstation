@@ -24,6 +24,7 @@ inline const QString ReviewField = QStringLiteral("paleo_identity_review");
 bool ensure(QgsVectorLayer *layer, QString *error = nullptr);
 QString uid(const QgsFeature &feature);
 QString geometryFingerprint(const QgsFeature &feature);
+QString layerRevision(QgsVectorLayer *layer);
 // Invalid feature means absent or ambiguous identity; never fall back to FID.
 QgsFeature find(QgsVectorLayer *layer, const QString &uid);
 // Explicit merge lineage. Native geometry merging alone cannot infer evidence.
@@ -46,6 +47,7 @@ signals:
   void failed(const QString &reason);
   void businessEdit(qint64 featureId, const QString &kind);
   void publicationStateChanged();
+  void editHistoryChanged();
 private:
   friend bool setParents(QgsVectorLayer *, QgsFeatureId, const QStringList &, QString *);
   explicit Observer(QgsVectorLayer *layer);

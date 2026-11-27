@@ -2,6 +2,8 @@
 #include "mappingfeatureidentity.h"
 #include "../domain/interpretationevidence.h"
 #include <QCryptographicHash>
+#include <QDataStream>
+#include <algorithm>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -86,6 +88,30 @@ QVariantMap snapshot(const QgsFeature &feature) {
 QString uid(const QgsFeature &feature) {
   const int index = feature.fields().indexOf(UidField);
   return index < 0 ? QString() : feature.attribute(index).toString().trimmed();
+}
+QString layerRevision(QgsVectorLayer *layer) {
+  if (!layer) return {};
+  // Compare editable content, independent of OGR iteration order and SQLite WAL layout.
+  QList<QByteArray> rows;
+  auto it = layer->getFeatures();
+  QgsFeature f;
+  while (it.nextFeature(f)) {
+    QByteArray bytes;
+    QDataStream stream(&bytes, QIODevice::WriteOnly);
+    stream.setVersion(QDataStream::Qt_6_0);
+    stream << f.geometry().asWkb();
+    for (const auto &value : f.attributes()) stream << value;
+    rows.append(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256));
+  }
+  std::sort(rows.begin(), rows.end());
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  QByteArray schema;
+  QDataStream fields(&schema, QIODevice::WriteOnly);
+  fields.setVersion(QDataStream::Qt_6_0);
+  for (const auto &field : layer->fields()) fields << field.name() << qint32(field.type());
+  hash.addData(schema);
+  for (const auto &row : rows) hash.addData(row);
+  return QString::fromLatin1(hash.result().toHex());
 }
 QString geometryFingerprint(const QgsFeature &feature) {
   if (!feature.isValid() || feature.geometry().isEmpty()) return {};
@@ -260,6 +286,7 @@ Observer *Observer::attach(QgsVectorLayer *layer, QString *error) {
 }
 Observer::Observer(QgsVectorLayer *layer) : QObject(layer), m_layer(layer) {
   setObjectName(QStringLiteral("paleoFeatureIdentityObserver"));
+  connect(layer->undoStack(), &QUndoStack::indexChanged, this, &Observer::editHistoryChanged);
   connect(layer, &QgsVectorLayer::editingStarted, this, [this] {
     // Unsaved spatial history survives normalization sessions and failed
     // version registration. Only successful registration acknowledges it.

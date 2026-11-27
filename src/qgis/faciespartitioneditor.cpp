@@ -15,6 +15,7 @@
 #include <QThread>
 #include <QUndoStack>
 #include <QUuid>
+#include <algorithm>
 #include <cmath>
 #include <qgsgeometrycollection.h>
 #include <qgsexception.h>
@@ -42,6 +43,12 @@ QVariantList schema(QgsVectorLayer *v) { return FaciesPartitionState::schema(v);
 bool validCode(QgsVectorLayer *v, int code, QString *error) {
   return FaciesTaxonomy::complete(FaciesCatalog::find(schema(v), code)) ||
       fail(error, QObject::tr("请选择具有完整相、亚相、微相归属的目标微相"));
+}
+bool pendingClusterFacies(const QgsFeature &f) {
+  if (f.fields().indexOf("cluster_id") < 0 || f.fields().indexOf("assignment_status") < 0 ||
+      !f.attribute("facies_code").isNull()) return false;
+  const auto status = f.attribute("assignment_status").toString();
+  return status == "unsupported" || status == "conflict" || status == "unassigned";
 }
 bool ready(QgsVectorLayer *v, QString *error) {
   if (!v || QThread::currentThread() != v->thread() || !FaciesPartitionEditor::isPartition(v) ||
@@ -81,8 +88,11 @@ QgsFeature child(QgsVectorLayer *v, const QgsFeatureList &sources,
       }
     }
   for (int index : v->primaryKeyAttributes()) f.setAttribute(index, QVariant());
-  const auto attrs = FaciesCatalog::attributes(schema(v), code);
-  f.setAttribute("facies_code", code);
+  const QVariant target = code > 0 ? QVariant(code) : QVariant();
+  const auto attrs = FaciesCatalog::attributes(schema(v), target);
+  f.setAttribute("facies_code", target);
+  if (!keepRange && f.fields().indexOf("assignment_status") >= 0)
+    f.setAttribute("assignment_status", code > 0 ? "manual" : "unassigned");
   for (auto it = attrs.cbegin(); it != attrs.cend(); ++it)
     if (f.fields().indexOf(it.key()) >= 0) f.setAttribute(it.key(), it.value());
   if (!keepRange)
@@ -250,6 +260,9 @@ QVariantList choices(const QgsVectorLayer *v) {
 }
 int selectionSize(const QgsVectorLayer *v) { return v ? v->selectedFeatureCount() : 0; }
 QString layerKey(const QgsVectorLayer *v) { return v ? v->id() : QString(); }
+QString declaredLayerId(const QgsVectorLayer *v) {
+  return v ? v->customProperty(QStringLiteral("paleoLayerId")).toString() : QString();
+}
 QString footprint(QgsVectorLayer *v, QString *error) {
   if (!v || !v->isValid()) { fail(error, QObject::tr("相面图层不可用")); return {}; }
   const auto g = united(v);
@@ -285,7 +298,7 @@ bool validate(QgsVectorLayer *v, QString *error) {
   QgsGeometry coverage(collection);
   auto it = v->getFeatures(); QgsFeature f;
   while (it.nextFeature(f)) {
-    if (!classification.isEmpty()) {
+    if (!classification.isEmpty() && !pendingClusterFacies(f)) {
       bool parsed = false; const auto code = f.attribute("facies_code").toDouble(&parsed);
       if (!parsed || !std::isfinite(code) || code < 1 || code > 32767 || code != std::round(code) ||
           !FaciesTaxonomy::complete(FaciesCatalog::find(classification, int(code))))
@@ -304,7 +317,9 @@ bool validate(QgsVectorLayer *v, QString *error) {
   if (FaciesPartitionState::hasFrozenFootprint(v)) {
     QgsGeometry baseline;
     baseline.fromWkb(QByteArray::fromBase64(FaciesPartitionState::frozenFootprint(v).toLatin1()));
-    const auto current = united(v);
+    // The coverage check above already established matching edges and no
+    // overlaps. GEOS can dissolve these faces without renoding the entire map.
+    const auto current = coverage.unionCoverage();
     if (current.isEmpty() || !baseline.isGeosEqual(current))
       return fail(error, QObject::tr("相图覆盖范围发生变化，存在新增空洞、误删或越界；请撤销或使用覆盖绘制保持完整分区"));
   }
@@ -321,7 +336,7 @@ bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error) {
   Plan plan;
   for (const auto &f : v->selectedFeatures()) {
     const int code = f.attribute("facies_code").toInt();
-    if (!validCode(v, code, error)) return false;
+    if (!pendingClusterFacies(f) && !validCode(v, code, error)) return false;
     auto geometry = f.geometry(); QVector<QgsGeometry> pieces; QgsPointSequence junctions;
     const auto status = geometry.splitGeometry(points, pieces, true, junctions);
     if (status == Qgis::GeometryOperationResult::NothingHappened) continue;
@@ -334,6 +349,16 @@ bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error) {
   }
   if (plan.removed.isEmpty()) return fail(error, QObject::tr("分割线没有穿过任何所选相面"));
   return apply(v, plan, "split", QObject::tr("分割相面并继承三级归属"), error);
+}
+QgsGeometry clippedPaint(QgsVectorLayer *v, const QgsGeometry &polygon) {
+  if (!v) return {};
+  if (v->featureCount() == 0 && !FaciesPartitionState::hasFrozenFootprint(v)) return polygon;
+  QgsGeometry coverage;
+  if (FaciesPartitionState::hasFrozenFootprint(v))
+    coverage.fromWkb(QByteArray::fromBase64(FaciesPartitionState::frozenFootprint(v).toLatin1()));
+  else
+    coverage = united(v);
+  return polygon.intersection(coverage);
 }
 bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *error) {
   if (error) error->clear();
@@ -349,13 +374,12 @@ bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *err
     }
     return apply(v, initial, "create", QObject::tr("绘制首个相面及解释依据"), error);
   }
-  const auto clipped = polygon.intersection(united(v));
+  const auto clipped = clippedPaint(v, polygon);
   if (!clipped.lastError().isEmpty()) return fail(error, clipped.lastError());
   if (clipped.isEmpty() || clipped.area() <= 0) return fail(error, QObject::tr("新面必须覆盖现有相图中的有效区域"));
   Plan plan; QgsFeatureList sources;
-  auto it = v->getFeatures(); QgsFeature f;
+  auto it = v->getFeatures(QgsFeatureRequest().setFilterRect(clipped.boundingBox())); QgsFeature f;
   while (it.nextFeature(f)) {
-    if (!f.geometry().boundingBox().intersects(clipped.boundingBox())) continue;
     const auto intersection = f.geometry().intersection(clipped);
     if (!intersection.lastError().isEmpty()) return fail(error, intersection.lastError());
     if (intersection.isEmpty() || intersection.area() <= 0) continue;
@@ -365,7 +389,7 @@ bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *err
     const auto pieces = parts(remainder);
     if (pieces.size() == 1) { auto changed = f; changed.setGeometry(remainder); plan.changed << changed; }
     else {
-      if (!pieces.isEmpty() && !validCode(v, f.attribute("facies_code").toInt(), error)) return false;
+      if (!pieces.isEmpty() && !pendingClusterFacies(f) && !validCode(v, f.attribute("facies_code").toInt(), error)) return false;
       plan.removed.insert(f.id());
       for (const auto &part : pieces) plan.added << child(v, {f}, part, f.attribute("facies_code").toInt(), true);
     }
@@ -390,7 +414,8 @@ bool merge(QgsVectorLayer *v, int code, QString *error) {
     geometries << f.geometry(); plan.removed.insert(f.id()); }
   if (!code && !same) return fail(error, QObject::tr("所选面属于不同微相，请明确选择合并后的目标微相；父级聚合显示不会删除内部微相"));
   if (!code) code = firstCode;
-  if (!validCode(v, code, error)) return false;
+  const bool pending = !code && std::all_of(selected.begin(), selected.end(), pendingClusterFacies);
+  if (!pending && !validCode(v, code, error)) return false;
   const auto geometry = QgsGeometry::unaryUnion(geometries);
   if (geometry.isEmpty() || !geometry.isGeosValid() || parts(geometry).size() != 1)
     return fail(error, QObject::tr("只能合并具有公共边界的连通相面"));

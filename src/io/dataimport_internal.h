@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QString>
+#include <memory>
 
 #include "../catalog/datacatalog.h"
 #include "../domain/projectclassifier.h"
@@ -16,6 +17,7 @@
 #include "../domain/wellrecords.h"
 #include "ioerrors_internal.h"
 
+namespace paleo::data { struct ParsedFile; }
 namespace paleo::dataimport_detail
 {
 
@@ -52,6 +54,7 @@ struct FamilyContext
   QVector<WellHeadRecord> parsedHeads;
   QVector<WellTopRecord> parsedTops;
   TimeDepthTable parsedTd;
+  std::shared_ptr<paleo::data::ParsedFile> checkshotModel;
   DeviationTable parsedDev;
   QString logWellName;
   QString targetWellId;

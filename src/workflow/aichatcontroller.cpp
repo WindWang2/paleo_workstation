@@ -1,5 +1,6 @@
 // 层：功能
 #include "aichatcontroller.h"
+#include "ai/chat/chatworkspacecontext.h"
 #include "aichatcontextprojection.h"
 #include "aichatrecentsummaries.h"
 #include "chatinvocationbinding.h"
@@ -23,12 +24,15 @@
 
 AiChatController::AiChatController(QObject *parent)
   : QObject(parent), m_client(this), m_configCommitter(this), m_runner(this),
-    m_piBridge(this) {
+    m_piBridge(this), m_piConfiguration(paleo::pi::bundledRuntime()) {
   newSession();
+  connect(this, &AiChatController::streamingChanged, this, [this](bool active) {
+    if (!active) flushImportReceipts();
+  });
   connect(&m_client, &LlmClient::deltaReceived, this,
           [this](const QString &text) {
             if (!m_streaming) return;
-            if (m_piBridge.busy() && !m_piBridge.modelDelta(text)) return;
+            if (!m_piBridge.modelDelta(text)) return;
             if (m_session.messages.isEmpty() ||
                 m_session.messages.last().role != ChatRole::Assistant)
               return; // 没有占位消息就不往历史里写（防御：协议外增量）
@@ -113,7 +117,8 @@ AiChatController::AiChatController(QObject *parent)
   });
   connect(&m_piBridge, &PiChatBridge::failed, this, &AiChatController::failTurn);
   connect(&m_piBridge, &PiChatBridge::finished, this, [this](const QString &code) {
-    if (!m_streaming) return;
+    // A cancelled or rejected turn becomes retryable once the worker has exited.
+    if (!m_streaming) { emit statusChanged(statusText()); return; }
     if (code != "ok") { failTurn(code); return; }
     const QPointer<AiChatController> guard(this); const auto sequence = m_turnSequence;
     setStreaming(false); if (guard && sequence == m_turnSequence) {
@@ -173,8 +178,9 @@ QString AiChatController::systemPrompt() const {
 
 QString AiChatController::buildSystemPrompt(const QVector<AiToolSpec> &tools, const QString &brief) const {
   QString declarations;
+  // The tool schemas sent with the model request already contain the full descriptions.
   for (const AiToolSpec &spec : tools)
-    declarations += QStringLiteral("  · %1 — %2\n").arg(spec.name, spec.description);
+    declarations += QStringLiteral("  · %1\n").arg(spec.name);
   QString prompt = tr(
     "你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/"
     "地震解释行业惯例。\n"
@@ -403,7 +409,7 @@ bool AiChatController::canRetry() const {
     return false;
   for (int i = m_session.messages.size() - 1; i >= 0; --i)
     if (m_session.messages.at(i).role == ChatRole::User)
-      return true;
+      return !m_session.messages.at(i).localImportReceipt;
   return false;
 }
 
@@ -463,7 +469,7 @@ void AiChatController::appendMessage(const ChatMessage &message) {
   m_session.updatedAt = QDateTime::currentDateTime();
   if (m_session.messages.size() == 1 && message.role == ChatRole::User &&
       m_session.title.isEmpty())
-    m_session.title = message.content.trimmed().left(40);
+    m_session.title = paleo::chat::questionTitleText(message.content).left(40);
   emit messageAppended(message);
 }
 

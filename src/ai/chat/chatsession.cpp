@@ -1,5 +1,6 @@
 // 层：功能
 #include "chatsession.h"
+#include "chatworkspacecontext.h"
 
 #include "chatsessionarchive.h"
 #include "chatsessionindex.h"
@@ -22,7 +23,7 @@ QString ChatSession::displayTitle() const {
   for (const ChatMessage &message : messages) {
     if (message.role != ChatRole::User || message.content.trimmed().isEmpty())
       continue;
-    const QString text = message.content.trimmed();
+    const QString text = paleo::chat::questionTitleText(message.content);
     return text.length() <= 40 ? text : text.left(40) + QStringLiteral("…");
   }
   return QString();

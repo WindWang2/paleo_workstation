@@ -20,15 +20,20 @@ struct Snapshot {
 };
 QMutex cacheMutex;
 QHash<QString, Snapshot> cache;
+QString databaseStamp(const QString &root) {
+  QString stamp;
+  for (const auto &suffix : {"/data.sqlite", "/data.sqlite-wal"}) {
+    const QFileInfo f(root + suffix);
+    stamp += QString(":%1:%2:%3:%4").arg(f.size()).arg(f.lastModified().toMSecsSinceEpoch())
+        .arg(f.metadataChangeTime().toMSecsSinceEpoch()).arg(f.birthTime().toMSecsSinceEpoch());
+  }
+  return stamp;
+}
 Snapshot snapshot(const QString &project) {
   const QString root = QDir(project).absoluteFilePath("artifacts/metadata/area-model");
   Snapshot out; out.exists = QFileInfo::exists(root + "/data.sqlite");
   if (!out.exists) return out;
-  for (const auto &suffix : {"/data.sqlite", "/data.sqlite-wal"}) {
-    const QFileInfo f(root + suffix);
-    out.stamp += QString(":%1:%2:%3:%4").arg(f.size()).arg(f.lastModified().toMSecsSinceEpoch())
-        .arg(f.metadataChangeTime().toMSecsSinceEpoch()).arg(f.birthTime().toMSecsSinceEpoch());
-  }
+  out.stamp = databaseStamp(root);
   { QMutexLocker lock(&cacheMutex); const auto found = cache.constFind(root);
     if (found != cache.cend() && found->stamp == out.stamp) return *found;
   }
@@ -59,7 +64,9 @@ Snapshot snapshot(const QString &project) {
     out.names.insert(entity.name, out.names.contains(entity.name) ? -1 : out.rows.size());
     out.rows << entity;
   }
-  { QMutexLocker lock(&cacheMutex); if (cache.size() >= 64) cache.clear(); cache.insert(root, out); }
+  if (out.stamp == databaseStamp(root)) {
+    QMutexLocker lock(&cacheMutex); if (cache.size() >= 64) cache.clear(); cache.insert(root, out);
+  }
   return out;
 }
 }
@@ -110,6 +117,15 @@ CatalogEntity resolve(const Snapshot &data, const CatalogEntity &stored) {
 CatalogEntity projectAreaWell(const QString &project, const CatalogEntity &stored) {
   if (stored.entityType != "well" || project.isEmpty()) return stored;
   return resolve(snapshot(project), stored);
+}
+bool cachedAreaWellRows(const QString &project, QVector<CatalogEntity> &rows) {
+  const QString root = QDir(project).absoluteFilePath("artifacts/metadata/area-model");
+  const QString stamp = databaseStamp(root);
+  QMutexLocker lock(&cacheMutex);
+  const auto found = cache.constFind(root);
+  if (found == cache.cend() || found->stamp != stamp) return false;
+  rows = found->rows;
+  return true;
 }
 void projectAreaWells(const QString &project, QVector<CatalogEntity> &stored) {
   if (project.isEmpty()) return;

@@ -11,6 +11,7 @@
 #include <QThread>
 #include <QThreadPool>
 #include <QTimer>
+#include <memory>
 
 namespace
 {
@@ -18,7 +19,7 @@ namespace
 // matches the D2 spec (「10s byte-linear ETA」).
 constexpr qint64 kEtaWindowMs = 10 * 1000;
 
-class TaskRunner : public QRunnable
+class TaskRunner
 {
 public:
   TaskRunner(PaleoTask *task, std::function<QString(PaleoTask *)> work)
@@ -26,12 +27,55 @@ public:
   {
   }
 
-  void run() override
+  ~TaskRunner()
   {
+    // QThreadPool::clear() can discard an unstarted, non-cancellable job at
+    // shutdown. It never produced a result and must not publish a success.
+    if (!m_claimed.load() && m_task)
+      postFinish(QObject::tr("任务在执行前已随工作台关闭"));
+  }
+
+  static void submit(QThreadPool *pool, PaleoTask *task,
+                     std::function<QString(PaleoTask *)> work, PaleoTask::Priority priority)
+  {
+    auto runner = std::make_shared<TaskRunner>(task, std::move(work));
+    const std::weak_ptr<TaskRunner> pending = runner;
+    QObject::connect(task, &PaleoTask::cancelAsked, task, [pending] {
+      if (const auto runner = pending.lock())
+        runner->cancelQueued();
+    });
+    if (task->cancelRequested()) { // A taskAdded observer can cancel before submission.
+      runner->cancelQueued();
+      return;
+    }
+    pool->start([runner] { runner->run(); }, static_cast<int>(priority));
+  }
+
+private:
+  // Cancellation and dequeue compete for exclusive access to the callback.
+  // Once cancellation wins, clearing the terminal row is safe even while
+  // the pool is still occupied. The queued stub never reads the task again.
+  void cancelQueued()
+  {
+    if (m_claimed.exchange(true))
+      return;
+    postFinish({});
+    m_work = {};
+  }
+
+  void postFinish(const QString &error)
+  {
+    QMetaObject::invokeMethod(m_task.data(), "applyFinish", Qt::QueuedConnection,
+                              Q_ARG(QString, error));
+  }
+
+  void run()
+  {
+    if (m_claimed.exchange(true))
+      return;
     PaleoTask *t = m_task;
     if (!t)
       return;
-    QMetaObject::invokeMethod(t, "markStarted", Qt::DirectConnection);
     QString error;
     try
     {
@@ -52,14 +96,27 @@ public:
     // clearFinished), but a shutdown may orphan the event loop — the queued
     // invoke is simply dropped then. applyFinish is private/Q_INVOKABLE —
     // string-based invoke reaches it without friending the runner.
-    QMetaObject::invokeMethod(t, "applyFinish", Qt::QueuedConnection,
-                              Q_ARG(QString, error));
+    postFinish(error);
   }
 
-private:
+  std::atomic_bool m_claimed{false};
   QPointer<PaleoTask> m_task;
   std::function<QString(PaleoTask *)> m_work;
 };
+
+void interruptTasks(const QVector<PaleoTask *> &tasks, bool includeApplication)
+{
+  // cancelAsked synchronously enters workflow callbacks. Capture the original
+  // tasks before a callback can remove a peer or register a new-session task.
+  QVector<QPointer<PaleoTask>> snapshot;
+  snapshot.reserve(tasks.size());
+  for (auto *task : tasks)
+    if (includeApplication || task->scope() == PaleoTask::Scope::Document)
+      snapshot.append(task);
+  for (const auto &task : snapshot)
+    if (task && task->running())
+      task->requestInterruption();
+}
 } // namespace
 
 PaleoTask::PaleoTask(qint64 id, const QString &title, const QString &layerId,
@@ -194,11 +251,6 @@ void PaleoTask::applyStage(const QString &stage, int percent)
   emit changed();
 }
 
-void PaleoTask::markStarted()
-{
-  m_started.store(true);
-}
-
 void PaleoTask::applyFinish(const QString &error)
 {
   if (m_state != State::Running)
@@ -212,9 +264,12 @@ void PaleoTask::applyFinish(const QString &error)
   }
   else
     m_state = State::Succeeded;
+  const QPointer<PaleoTask> alive(this);
   emit changed();
+  if (!alive)
+    return;
   emit finished();
-  if (!parent())
+  if (alive && !parent())
     deleteLater();
 }
 
@@ -259,19 +314,14 @@ PaleoTaskService::~PaleoTaskService()
 
 bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
 {
+  m_shutdownRequested = true;
   if (!m_pool)
     return true;
-  for (PaleoTask *t : m_tasks)
-    if (t->running())
-      t->requestInterruption();
+  const QPointer<PaleoTaskService> alive(this);
+  interruptTasks(m_tasks, true);
+  if (!alive)
+    return false;
   m_pool->clear(); // 未出队的任务直接丢弃（其闭包随 QRunnable 析构）
-  // #416：被 clear 丢弃的排队任务 runner 永不执行——没有它就没有终态回包，
-  // 任务行会永远挂在 Running。补发终态（m_cancel 已置 → Cancelled）；已开跑
-  // 的任务由自身回包落终态，applyFinish 的运行态闸挡双到。
-  for (PaleoTask *t : m_tasks)
-    if (t->running() && !t->m_started.load())
-      QMetaObject::invokeMethod(t, "applyFinish", Qt::QueuedConnection,
-                                Q_ARG(QString, QString()));
   if (!pumpEvents || !QCoreApplication::instance() ||
       QThread::currentThread() != QCoreApplication::instance()->thread())
     return m_pool->waitForDone(timeoutMs);
@@ -285,6 +335,8 @@ bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
     if (timeoutMs >= 0 && clock.elapsed() > timeoutMs)
       return false;
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+    if (!alive)
+      return false;
   }
   return true;
 }
@@ -329,7 +381,6 @@ PaleoTask *PaleoTaskService::beginExternal(const QString &title,
   const QPointer<PaleoTask> task = createTask(title, layerId, quiet);
   if (!task)
     return nullptr;
-  task->m_started = true; // 外部驱动不占池——shutdown 排队补偿不适用于它
   task->applyProgress(0, 100);
   return task.data();
 }
@@ -338,14 +389,7 @@ PaleoTask *PaleoTaskService::start(const QString &title,
                                    std::function<QString(PaleoTask *)> work,
                                    const QString &layerId, bool quiet)
 {
-  PaleoTask *task = createTask(title, layerId, quiet);
-  if (!task)
-    return nullptr;
-  // 头注释口径「3/4 参版默认 Normal」：显式传 Normal（池默认是 0=Low，
-  // 不传会把交互任务压到与预取/批量同档）。
-  m_pool->start(new TaskRunner(task, std::move(work)),
-                static_cast<int>(PaleoTask::Priority::Normal));
-  return task;
+  return start(title, std::move(work), layerId, PaleoTask::Priority::Normal, quiet);
 }
 
 PaleoTask *PaleoTaskService::start(const QString &title,
@@ -357,24 +401,22 @@ PaleoTask *PaleoTaskService::start(const QString &title,
   if (!task)
     return nullptr;
   // QThreadPool 优先级：数值大者先出队（D4.6 预取 Low 不挡用户点击 High）。
-  m_pool->start(new TaskRunner(task, std::move(work)), static_cast<int>(priority));
+  TaskRunner::submit(m_pool, task, std::move(work), priority);
   return task;
 }
 
 quint64 PaleoTaskService::beginNewSession()
 {
-  ++m_session;
-  for (PaleoTask *t : m_tasks)
-    if (t->running() && t->scope() == PaleoTask::Scope::Document)
-      t->requestInterruption();
-  return m_session;
+  const quint64 session = ++m_session;
+  interruptTasks(m_tasks, false);
+  return session;
 }
 
 PaleoTask *PaleoTaskService::startApplication(const QString &title,
     std::function<QString(PaleoTask *)> work, PaleoTask::Priority priority, bool quiet) {
   auto *task = createTask(title, {}, quiet, PaleoTask::Scope::Application);
   if (!task) return nullptr;
-  m_pool->start(new TaskRunner(task, std::move(work)), static_cast<int>(priority));
+  TaskRunner::submit(m_pool, task, std::move(work), priority);
   return task;
 }
 

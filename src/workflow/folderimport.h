@@ -49,12 +49,14 @@ class FolderImportWorkflow : public QObject
         std::function<void(const QVector<FolderRowResult> &, const QString &, bool cancelled)>;
     // 精确定向本次作业；可忽略返回值。完成后调用无效，不影响后续或同源作业。
     using CancelImport = std::function<void()>;
+    using ProjectGuard = std::function<bool()>;
+    using AttachmentReview = std::function<void(const QVector<FolderPreviewRow> &)>;
 
     FolderImportWorkflow(DataImportService *svc, PaleoTaskService *taskSvc,
                          QObject *parent = nullptr);
 
     DataImportService *importService() const; // 服务已析构 → nullptr
-    void setTaskService(PaleoTaskService *taskSvc) { m_taskSvc = taskSvc; }
+    void setTaskService(PaleoTaskService *taskSvc);
 
     // UI 导入默认只建索引（方向 D1）：整批/文件夹/文件清单链在 session 配置点
     // 统一注入 ImportSession.linkExternal；false = 恢复旧受管复制默认（确认表
@@ -97,7 +99,8 @@ class FolderImportWorkflow : public QObject
                       const QMap<QString, QString> &expectedHashes = {},
                       const QStringList &skippedPaths = {},
                       const QStringList &previewedPaths = {},
-                      const QMap<QString, QString> &nameOverrides = {});
+                      const QMap<QString, QString> &nameOverrides = {},
+                      const ProjectGuard &projectStillCurrent = {});
     // 单文件导入（数据页「导入」按钮）：同 importFolder 的双路径语义。
     // linkExternal 默认 true（方向：UI 默认只建索引）；displayName 非空 →
     // 覆盖资产显示名（导入时命名）。
@@ -114,7 +117,20 @@ class FolderImportWorkflow : public QObject
                      const QStringList &skippedPaths = {},
                      const QStringList &previewedPaths = {},
                      const QMap<QString, QString> &nameOverrides = {},
-                     const QMap<QString, QVariantMap> &tableMappings = {});
+                     const QMap<QString, QVariantMap> &tableMappings = {},
+                     const ProjectGuard &projectStillCurrent = {});
+    // Explicit local attachment selection. Publish automatic results first, then
+    // present only the files that need an operator's type or well selection.
+    // Receipt is delivered before any domain parsing or well choice. Repeated
+    // deliveries include the previously received files so parsing can be retried.
+    using OriginalsReceived = std::function<void(const QStringList &files, qsizetype reused,
+                                                  const QString &error, bool cancelled)>;
+    void receiveOriginalPackage(const QString &directory, const ProjectGuard &projectStillCurrent,
+                                const OriginalsReceived &done, const std::function<QString()> &identifySender = {});
+    void importAgentAttachments(const QStringList &paths, const ProjectGuard &projectStillCurrent,
+                                const ImportDone &done, const AttachmentReview &needsReview = {},
+                                const OriginalsReceived &received = {},
+                                const std::function<QString()> &identifySender = {});
     void previewFilesAsync(
         const QStringList &paths,
         const std::function<void(const QVector<FolderPreviewRow> &,
@@ -134,6 +150,8 @@ class FolderImportWorkflow : public QObject
     void previewActiveChanged(bool active);
 
   private:
+    void receiveFromSender(const QString &directory, const QString &senderId, const ProjectGuard &current,
+                           const OriginalsReceived &done, const std::function<QString()> &identifySender);
     struct ImportJob;
     // （#560）整批导入（importFolder/importFiles）的 produce 面：只写
     // session；进度统一经任务页回调（扫描段 total==0 跑马灯 + 文件名
@@ -142,12 +160,13 @@ class FolderImportWorkflow : public QObject
         void(ImportSession &,
              const std::function<bool(int done, int total, const QString &path)> &)>;
     // （#560）importFolder/importFiles 的作业脚手架收口：统一 job 构造
-    // （produce/finish/fail）+ importActiveChanged 双发（入队前 true、
+    // （produce/finish/fail）+ importActiveChanged 双发（实际开工时 true、
     // finish/fail 收尾 false）+ enqueue。finish 先判「同一工程」
     // （词法 → canonical 双段比较）再写台账（ledgerDir 只是台账展示位），
     // 后回调 done。
     CancelImport makeImportJob(const QString &title, const BatchProduce &produce,
-                       const QString &ledgerDir, const ImportDone &done);
+                       const QString &ledgerDir, const ImportDone &done,
+                       const ProjectGuard &projectStillCurrent = {});
     // （#560）previewFolderAsync/previewFilesAsync 的骨架收口：任务池在场
     // → 扫描/分类/哈希跑 worker（produce 只读 session 的 staging 副本，
     // 进度回报任务页），无任务服务同步走 syncPreview；done 总在 GUI 线程
@@ -159,10 +178,16 @@ class FolderImportWorkflow : public QObject
             const std::function<bool(int filesSeen, const QString &path)> &)> &produce,
         const std::function<QVector<FolderPreviewRow>(QString *)> &syncPreview,
         const std::function<void(const QVector<FolderPreviewRow> &,
-                                 const QString &)> &done);
+                                 const QString &)> &done,
+        const std::function<void()> &onCancelled = {});
     void enqueueImport(const std::shared_ptr<ImportJob> &job);
+    void setBatchActive(bool starting);
     void pumpImports();
     void runImportJob(std::shared_ptr<ImportJob> job);
+    void finishImport(const std::shared_ptr<ImportJob> &job, ImportSession *session,
+                      const QString &failure = {}, bool cancelled = false);
+    void observeTask(PaleoTask *task, const std::function<void(PaleoTask *)> &finished);
+    bool taskServiceStopped() const;
     QVector<FolderRowResult> runInlineImport(
         const std::function<void(ImportSession &)> &produce,
         const QMap<QString, QString> &wellTargets,
@@ -177,10 +202,14 @@ class FolderImportWorkflow : public QObject
     // QPointer：导入作业在飞时服务可能先析构（壳收尾/换工程）——finished
     // 处理器里的 recordLedger/finish 回调必须看到「服务已不在」而不是悬垂指针。
     QPointer<DataImportService> m_svc;
-    PaleoTaskService *m_taskSvc = nullptr;
+    QPointer<PaleoTaskService> m_taskSvc;
+    bool m_taskServiceBound = false;
     // 方向 D1：批次级「只建索引」开关（默认 true）。produce 跑在 worker 上——
     // 任务池 lambda 在 GUI 线程创建时按值快照本成员，worker 不回读 this。
     bool m_linkExternal = true;
+    int m_runningBatches = 0; // 确认表的同步单行重试可以嵌入后台批次。
+    int m_runningPreviews = 0;
+    bool m_pumping = false;
     QList<std::shared_ptr<ImportJob>> m_importQueue;
     std::shared_ptr<ImportJob> m_activeImport;
 };

@@ -75,6 +75,7 @@ add_library(paleo_store STATIC
   src/catalog/datacatalog_projection.cpp
   src/catalog/datacatalog_publications.cpp
   src/catalog/publicationreceipt.cpp
+  src/catalog/importledger.cpp
   src/catalog/areasource_delta.cpp
   src/catalog/areasource_delta_apply.cpp
   src/catalog/documentsourceprojection.cpp
@@ -132,6 +133,10 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisconstrainteditsession.cpp
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
+  src/qgis/seismicclusterstyle.cpp
+  src/qgis/seismicclusterpatches.cpp
+  src/qgis/clusterpatchpicker.cpp
+  src/qgis/seismicpatchassignment.cpp
   src/qgis/geopatterns.cpp                           # 方向31：地质符号语义注册表（花纹/线型词表 + 符号构造）
   src/qgis/semanticlegend.cpp                        # 方向31：语义图例自动生成（渲染器类目→swatch+词面，增删/renderer 联动）
   src/qgis/qgislayoutservice.cpp
@@ -142,6 +147,7 @@ add_library(paleo_qgis STATIC
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
   src/qgis/manifestprojection.cpp
   src/qgis/faciespartitioneditor.cpp
+  src/qgis/faciesmapboundary.cpp
   src/qgis/faciespartitiontool.cpp
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
   src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API
@@ -186,6 +192,8 @@ target_include_directories(paleo_qgis_attribute_table PUBLIC
 target_link_libraries(paleo_qgis_attribute_table PUBLIC paleo_qgis Qt6::Core5Compat)
 
 add_library(paleo_io STATIC
+  src/io/projectcopy.cpp
+  src/io/projectcopylayers.cpp
   src/io/areamodelpublication.cpp
   src/io/nativesourcesnapshot.cpp
   src/io/sourcefingerprint.cpp

@@ -19,7 +19,7 @@ struct QueryState {
   quint64 revision = 0, mutation = 0,bindingEpoch=0;
   Scope scope;
   QSet<QString> candidates;
-  QString wellAfter, modelEntityAfter;
+  QString wellAfter, modelEntityAfter, wellboreAfter;
   qlonglong modelAfter = 0, pendingModel = 0;
   bool storedSearchDone = false, modelSearchDone = false;
   bool pendingModelIsLast = false;

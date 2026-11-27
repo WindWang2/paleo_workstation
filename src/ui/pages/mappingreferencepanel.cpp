@@ -3,6 +3,8 @@
 
 #include "../../qgis/projectscope.h"
 #include "../../qgis/referenceview.h"
+#include "../../qgis/qgisstyleservice.h"
+#include "../../domain/seismicclusterproduct.h"
 #include "../decorations/paleodecorations.h"
 #include "../paleotheme.h"
 
@@ -19,6 +21,7 @@
 #include <QKeyEvent>
 #include <QChildEvent>
 #include <QLabel>
+#include <QListWidget>
 #include <QPushButton>
 #include <QMouseEvent>
 #include <QSettings>
@@ -36,7 +39,9 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   const auto &tokens = PaleoTheme::tokens();
   layout->setContentsMargins(tokens.spacingSm, tokens.spacingSm, tokens.spacingSm, tokens.spacingSm);
   layout->setSpacing(tokens.spacingXs);
-  auto *header = new QHBoxLayout;
+  m_toolbar = new QWidget(this);
+  auto *header = new QHBoxLayout(m_toolbar);
+  header->setContentsMargins(0, 0, 0, 0);
   header->setSpacing(tokens.spacingXs);
   m_sources = new QComboBox(this);
   m_sources->setObjectName(QStringLiteral("referenceSource"));
@@ -58,7 +63,13 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   header->addWidget(m_sources, 1);
   header->addWidget(m_linked);
   header->addWidget(m_remove);
-  layout->addLayout(header);
+  layout->addWidget(m_toolbar);
+  m_caption = new QLabel(this);
+  m_caption->setObjectName(QStringLiteral("referenceVersionCaption"));
+  m_caption->setTextFormat(Qt::PlainText);
+  m_caption->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  m_caption->hide();
+  layout->addWidget(m_caption);
   m_empty = new QLabel(tr("从上方下拉框选择参考证据。\n"
                          "可选择地震相、测井相、单因素图或参考相图。"), this);
   m_empty->setObjectName(QStringLiteral("referenceEmptyState"));
@@ -79,9 +90,10 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   connect(m_sources, &QComboBox::currentIndexChanged, this, [this] {
     clearReference();
     updateCaption();
-    if (!sourceId().isEmpty()) emit referenceRequested(sourceId());
+    emit referenceRequested(sourceId());
   });
   connect(m_linked, &QToolButton::toggled, this, &MappingReferencePanel::updateLink);
+  connect(m_sources, &QComboBox::activated, this, [this] { emit sourceChosen(sourceId()); });
   connect(m_remove, &QToolButton::clicked, this, &MappingReferencePanel::removeViewRequested);
   // #875：最小尺寸按字体推导（约 16 字宽 × 8 行），窄/矮停靠可继续收缩。
   setMinimumSize(fontMetrics().averageCharWidth() * 16, fontMetrics().lineSpacing() * 8);
@@ -94,9 +106,25 @@ void MappingReferencePanel::ensureView()
   m_view = createReferenceView(m_mainCanvas, m_project, m_viewHost);
   m_view->widget()->setMinimumSize(fontMetrics().averageCharWidth() * 12, fontMetrics().lineSpacing() * 5);
   m_viewHost->layout()->addWidget(m_view->widget());
+  m_clusterLegendButton = new QToolButton(m_viewHost);
+  m_clusterLegendButton->setText(tr("聚类图例"));
+  m_clusterLegendButton->setCheckable(true);
+  m_clusterLegendButton->hide();
+  m_viewHost->layout()->addWidget(m_clusterLegendButton);
+  m_clusterLegend = new QListWidget(m_viewHost);
+  m_clusterLegend->setObjectName(QStringLiteral("referenceClusterLegend"));
+  m_clusterLegend->setAccessibleName(m_clusterLegendButton->text());
+  m_clusterLegend->setSelectionMode(QAbstractItemView::NoSelection);
+  m_clusterLegend->setMaximumHeight(fontMetrics().lineSpacing() * 5);
+  m_clusterLegend->hide();
+  m_viewHost->layout()->addWidget(m_clusterLegend);
+  connect(m_clusterLegendButton, &QToolButton::toggled, m_clusterLegend, &QWidget::setVisible);
   m_view->widget()->hide();
   m_decor = new PaleoDecorationManager(canvas());
   m_decor->setScaleBarEnabled(true);
+  m_view->onLegendChanged(this, [this](const QVariantList &entries) {
+    m_decor->setFaciesLegend(tr("参考图例"), entries);
+  });
   // 创建前已到达的显隐/联动状态补上，避免首个证据不跟随主图。
   m_view->setLinked(m_linked->isChecked());
   m_view->setViewActive(m_active);
@@ -187,6 +215,14 @@ void MappingReferencePanel::setReference(QgsMapLayer *layer, const QVariantMap &
   m_viewHost->show();
   m_view->widget()->show();
   m_view->setReference(layer, metadata);
+  if (paleo::seismic::isRawClusterProduct(metadata.value("kind").toString())) {
+    for (const auto &entry : QgisStyleService::seismicClusterLegend(metadata.value("cluster_ids").toList())) {
+      const auto row = entry.toMap();
+      auto *item = new QListWidgetItem(row.value("name").toString(), m_clusterLegend);
+      item->setData(Qt::DecorationRole, QColor(row.value("color").toString()));
+    }
+    m_clusterLegendButton->setVisible(!m_mapOnly && m_clusterLegend->count() > 0);
+  }
   updateCaption();
   setProperty("paleo.referenceVersion", selectedSource().value("version_id"));
   emit referenceChanged(selectedSource().value("name").toString(), selectedSource().value("version_id").toString());
@@ -197,6 +233,9 @@ void MappingReferencePanel::clearReference(const QString &message)
   if (m_view) {
     m_view->clearReference();
     m_view->widget()->hide();
+    m_clusterLegendButton->setChecked(false);
+    m_clusterLegendButton->hide();
+    m_clusterLegend->clear();
   }
   if (m_viewHost) m_viewHost->hide();
   m_metadata.clear();
@@ -209,13 +248,24 @@ void MappingReferencePanel::clearReference(const QString &message)
 
 void MappingReferencePanel::updateCaption()
 {
+  const auto row = selectedSource();
+  const auto horizon = row.value("horizon").toString();
+  QStringList labels{tr("只读参考"), horizon.isEmpty() ? tr("共享资料") : horizon};
+  const auto resultKind = row.value("parameters").toMap().value("result_kind").toString();
+  if (paleo::seismic::isRawClusterProduct(row.value("kind").toString())) labels << tr("原始簇");
+  else if (resultKind.startsWith(QLatin1String("well_assigned_cluster"))) labels << tr("井建议");
+  else if (resultKind == QLatin1String("manual_cluster_interpretation")) labels << tr("人工解释");
+  if (const int version = row.value("version").toInt(); version > 0)
+    labels << tr("v%1").arg(version);
+  const QString caption = labels.join(QStringLiteral(" · "));
+  m_caption->setText(caption);
+  m_caption->setToolTip(caption + QStringLiteral("\n") + row.value("version_id").toString());
+  m_caption->setVisible(!m_mapOnly && !row.isEmpty());
   // issue-743：组合框禁用态保留 refreshSources()(:138-139) 写的禁用原因文案
   // （「暂无此类图件…」）——否则 updateCaption 的来源备注会立即覆盖它，用户看不到
   // 为何禁用。
   if (!m_sources->isEnabled())
     return;
-  const auto row = selectedSource();
-  const auto horizon = row.value("horizon").toString();
   const QString note = row.isEmpty() ? tr("选择本视图的参考证据，与主图联动对照。")
       : !horizon.isEmpty() && !m_activeHorizon.isEmpty() && horizon != m_activeHorizon
           ? tr("参考层位：%1 · 当前绘制层位：%2（跨层位对照）").arg(horizon, m_activeHorizon)
@@ -325,16 +375,37 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(tokens.spacingSm, tokens.spacingSm, tokens.spacingSm, tokens.spacingSm);
   layout->setSpacing(tokens.spacingXs);
-  auto *tools = new QHBoxLayout;
+  m_toolbar = new QWidget(this);
+  auto *tools = new QHBoxLayout(m_toolbar);
+  tools->setContentsMargins(0, 0, 0, 0);
+  tools->setSpacing(tokens.spacingXs);
   m_count = new QLabel(this);
   m_count->setObjectName(QStringLiteral("referenceViewCount"));
-  auto *add = new QPushButton(tr("添加视图"), this);
+  m_picker = new QComboBox(this);
+  m_picker->setObjectName(QStringLiteral("referenceCompactPicker"));
+  m_picker->setAccessibleName(tr("添加参考"));
+  m_picker->hide();
+  tools->addWidget(m_picker);
+  connect(m_picker, &QComboBox::activated, this, [this](int i) {
+    if (i > 0) {
+      const auto id = m_picker->itemData(i).toString();
+      showSource(id);
+      emit sourceChosen(id);
+    }
+  });
+  auto *add = m_add = new QPushButton(tr("添加视图"), this);
   add->setObjectName(QStringLiteral("referenceAddView"));
   add->setToolTip(tr("在同一行添加参考视图，左右滚动查看更多证据"));
   tools->addWidget(m_count);
   tools->addStretch();
+  m_workspaceButton = new QToolButton(this);
+  m_workspaceButton->setText(tr("工作区对照"));
+  m_workspaceButton->setToolTip(tr("将主图和参考图放在中央工作区对照"));
+  m_workspaceButton->hide();
+  tools->addWidget(m_workspaceButton);
+  connect(m_workspaceButton, &QToolButton::clicked, this, &MappingEvidencePanel::workspaceRequested);
   tools->addWidget(add);
-  layout->addLayout(tools);
+  layout->addWidget(m_toolbar);
   m_scroll = new QScrollArea(this);
   m_scroll->setObjectName(QStringLiteral("referenceViewsScroll"));
   m_scroll->setFrameShape(QFrame::NoFrame);
@@ -368,7 +439,8 @@ MappingEvidencePanel::MappingEvidencePanel(QgsMapCanvas *mainCanvas, QgsProject 
   }
   connect(add, &QPushButton::clicked, this, [this] {
     m_autoFill = false;
-    addView();
+    reveal(addView());
+    saveWidths();
   });
   // #746：先放一个视图；首次可见时按视口宽补足（窄停靠不再首屏横向滚动）。
   addView();
@@ -395,20 +467,29 @@ MappingReferencePanel *MappingEvidencePanel::addView()
   view->installEventFilter(this);
   for (auto *child : view->findChildren<QWidget *>()) child->installEventFilter(this);
   connect(view, &MappingReferencePanel::referenceRequested, this, [this, view](const QString &id) {
-    emit referenceRequested(view, id);
+    if (!id.isEmpty()) emit referenceRequested(view, id);
+    if (!m_restoring) saveDockSources();
   });
   // #746：画布延迟创建，addView 时的子控件快照装不到它——创建后补装过滤器，
   // 否则滚轮落在 canvas viewport 上不会转成横向滚动。
   connect(view, &MappingReferencePanel::viewCreated, this, [this](QWidget *created) {
+    emit legendCreated();
     created->installEventFilter(this);
     for (auto *child : created->findChildren<QWidget *>()) child->installEventFilter(this);
   });
   connect(view, &MappingReferencePanel::removeViewRequested, this, [this, view] { removeView(view); });
+  connect(view, &MappingReferencePanel::sourceChosen, this, &MappingEvidencePanel::sourceChosen);
+  connect(view, &MappingReferencePanel::referenceChanged, this, &MappingEvidencePanel::workspaceViewChanged);
   layoutViews();
+  return view;
+}
+
+void MappingEvidencePanel::reveal(MappingReferencePanel *view)
+{
+  m_scroll->ensureWidgetVisible(view);
   QTimer::singleShot(0, view, [this, view] {
     if (m_views.contains(view)) m_scroll->ensureWidgetVisible(view);
   });
-  return view;
 }
 
 void MappingEvidencePanel::removeView(MappingReferencePanel *view)
@@ -417,6 +498,7 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
   if (index < 0) return;
   m_autoFill = false;
   m_views.removeAt(index);
+  if (index < m_pendingSources.size()) m_pendingSources.removeAt(index);
   m_widths.remove(view);
   // #745：宽度按序号存，删视图必须立刻落盘——否则后续视图的宽度依次左移套到
   // 别的视图上（直到用户下次拖动才纠正）。
@@ -429,7 +511,14 @@ void MappingEvidencePanel::removeView(MappingReferencePanel *view)
   view->hide();
   view->deleteLater();
   layoutViews();
-  saveWidths(); // 用剩余视图重建序号表（已删项不留空洞）
+  if (!m_restoring) {
+    saveWidths();
+    saveDockSources();
+    if (m_dockMode && m_views.isEmpty()) {
+      setCompact(true);
+      emit lastViewRemoved();
+    }
+  }
 }
 
 void MappingEvidencePanel::layoutViews()
@@ -439,20 +528,21 @@ void MappingEvidencePanel::layoutViews()
   // All evidence views remain in one horizontal strip, including narrow docks.
   for (qsizetype i = 0; i < m_views.size(); ++i) {
     auto *view = m_views[i];
-    view->setMinimumHeight(minViewHeight());
+    view->setMinimumHeight(m_mapOnly ? 0 : minViewHeight());
     view->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     view->setRemoveHint(m_views.size() == 1);
     view->setAccessibleName(tr("证据视图 %1").arg(i + 1));
     m_row->addWidget(view);
     view->show();
     m_row->addWidget(m_handles[i]);
-    m_handles[i]->show();
+    m_handles[i]->setVisible(!m_mapOnly);
   }
   updateViewSizes();
   m_row->activate();
   m_count->setText(tr("%1 个视图").arg(m_views.size()));
-  m_scroll->setVisible(!m_views.isEmpty()); // D-12：空态收起滚动区，展示引导
-  m_emptyHint->setVisible(m_views.isEmpty());
+  m_scroll->setVisible(!m_compact && !m_views.isEmpty()); // D-12：空态收起滚动区，展示引导
+  m_emptyHint->setVisible(!m_compact && m_views.isEmpty());
+  emit workspaceViewChanged();
 }
 
 int MappingEvidencePanel::minViewWidth() const
@@ -470,17 +560,25 @@ int MappingEvidencePanel::fittingViewCount(int viewportWidth) const
 void MappingEvidencePanel::showEvent(QShowEvent *event)
 {
   QWidget::showEvent(event);
+  setViewActive(true);
   if (m_autoFill) fillDefaultViews();
+}
+
+void MappingEvidencePanel::hideEvent(QHideEvent *event)
+{
+  setViewActive(false);
+  QWidget::hideEvent(event);
 }
 
 void MappingEvidencePanel::fillDefaultViews()
 {
-  if (!m_autoFill) return;
+  if (!m_autoFill || m_compact || m_restoring) return;
   if (layout()) layout()->activate();
   const int width = m_scroll->viewport()->width();
   if (width <= 0) return;
   // 手动增删前持续随视口变宽补足（停靠初显常很窄，之后放宽仍应得到默认视图数）。
-  const int target = fittingViewCount(width);
+  const int target = m_project && !m_savedWidths.isEmpty() ? int(m_savedWidths.size())
+                     : m_inWorkspace ? 1 : fittingViewCount(width);
   while (m_views.size() < target) addView();
 }
 
@@ -492,7 +590,7 @@ int MappingEvidencePanel::minViewHeight() const
 int MappingEvidencePanel::defaultViewWidth() const
 {
   // 未调整过的视图一屏约放四个；不足四个时均分，最窄 minViewWidth()（字体推导，#875）。
-  const int per = qBound(1, int(m_views.size()), kDefaultViewCount);
+  const int per = m_inWorkspace ? 1 : qBound(1, int(m_views.size()), 4);
   const int gap = m_handles.isEmpty() ? 0 : m_handles.first()->width();
   return qMax(minViewWidth(), (m_scroll->viewport()->width() - per * gap) / per);
 }
@@ -502,15 +600,15 @@ void MappingEvidencePanel::updateViewSizes()
   const int fallback = defaultViewWidth();
   int total = 0;
   for (qsizetype i = 0; i < m_views.size(); ++i) {
-    const int width = m_widths.value(m_views[i], fallback);
+    const int width = m_mapOnly ? m_scroll->viewport()->width() : m_widths.value(m_views[i], fallback);
     m_views[i]->setFixedWidth(width);
-    total += width + m_handles[i]->width();
+    total += width + (m_mapOnly ? 0 : m_handles[i]->width());
   }
   // 总宽超过视口时出现水平滚动条（ScrollBarAsNeeded）。
   m_scroll->widget()->setMinimumWidth(total);
   // #875（取代 issue-812 的硬 200 兜底）：行高 = max(视口高, 视图最小高)；视口更矮时
   // 竖滚按需出现，视图下半（图层/底部控件）可滚到，不再被裁或压扁。
-  m_scroll->widget()->setFixedHeight(qMax(m_scroll->viewport()->height(), minViewHeight()));
+  m_scroll->widget()->setFixedHeight(qMax(m_scroll->viewport()->height(), m_mapOnly ? 0 : minViewHeight()));
 }
 
 void MappingEvidencePanel::setViewWidth(MappingReferencePanel *view, int width, bool persist)
@@ -584,7 +682,10 @@ void MappingEvidencePanel::setSources(const QVariantList &sources, const QString
 {
   m_sources = sources;
   m_horizon = horizon;
+  if (m_dockMode) restoreDockLayout(widthsKey(m_project));
   for (auto *view : m_views) view->setSources(sources, horizon);
+  if (m_dockMode) refreshDockSources();
+  emit workspaceViewChanged();
 }
 
 void MappingEvidencePanel::clearReferences(const QString &message)
@@ -600,17 +701,24 @@ void MappingEvidencePanel::setViewActive(bool active)
 
 MappingReferencePanel *MappingEvidencePanel::showSource(const QString &id)
 {
+  if (m_dockMode && (id.isEmpty() || m_picker->findData(id) < 1)) return nullptr;
+  if (m_compact) {
+    setCompact(false);
+    const int count = m_inWorkspace ? 1 : kDefaultViewCount;
+    while (m_views.size() < count) addView();
+  }
   for (auto *view : m_views)
     if (view->sourceId() == id) {
       view->selectSource(id);
-      m_scroll->ensureWidgetVisible(view);
+      reveal(view);
       return view;
     }
   auto *view = [&]() -> MappingReferencePanel * {
     for (auto *candidate : m_views) if (candidate->sourceId().isEmpty()) return candidate;
+    for (auto *candidate : m_views) if (!candidate->hasReference()) return candidate;
     return addView();
   }();
   view->selectSource(id);
-  m_scroll->ensureWidgetVisible(view);
+  reveal(view);
   return view;
 }

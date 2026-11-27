@@ -12,6 +12,7 @@ AiChatController::~AiChatController() {
   // while transcript/session members must still be alive for normal callbacks.
   const QSignalBlocker notifications(this);
   stopCurrentRound(false);
+  flushImportReceipts();
   disconnect(&m_client, nullptr, this, nullptr); disconnect(&m_runner, nullptr, this, nullptr);
   disconnect(&m_piBridge, nullptr, this, nullptr);
   m_piBridge.abort(false); m_client.cancel(); m_runner.interrupt();
@@ -69,7 +70,6 @@ void AiChatController::startEngineTurn(const QJsonObject &context) {
   setStreaming(true);
   if (!guard || sequence != m_turnSequence || !ensureTurnContext()) return;
   if (!code.isEmpty()) { failTurn(code); return; }
-  if (!m_piConfiguration.enabled) { sendRound(); return; }
   const auto sessionId = m_session.id, turn = m_hostTurn;
   QString error;
   // Reuse the existing atomic private ChatSessionStore; this is not a second

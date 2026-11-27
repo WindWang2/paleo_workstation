@@ -16,6 +16,7 @@ class MappingEditBasis : public QWidget {
 public:
   MappingEditBasis(MappingWorkbench *workbench, QWidget *parent = nullptr);
   void setHorizon(const QString &horizon);
+  void setTarget(const QString &id, const QString &featureUid);
   void setReferences(const QVariantList &references);
   void setExpanded(bool expanded);
   bool isExpanded() const;
@@ -28,9 +29,14 @@ private:
   void applyDraftToForm(const QVariantMap &draft);
   void onAutoExplanationReady(const QString &horizon, const QVariantMap &explanation);
   void updateState();
+  void renderDraft();
+  QVariantList references() const;
+  void sendManualNote(bool featureOnly);
 
   MappingWorkbench *m_workbench;
-  QString m_horizon;
+  QString m_horizon, m_layerId, m_featureUid;
+  struct Form { QString text, reason, featureUid; QVariantList sources; bool edited = false; };
+  QHash<QString, Form> m_forms;
   QToolButton *m_toggle = nullptr;
   QWidget *m_content = nullptr;
   QLabel *m_autoStatus = nullptr;
@@ -44,6 +50,5 @@ private:
   QPlainTextEdit *m_text = nullptr;
   QLineEdit *m_reason = nullptr;
   QVariantMap m_latestDraft;
-  QString m_lastAutoFilledText;
-  QString m_lastAutoFilledReason;
+  bool m_formEdited = false;
 };

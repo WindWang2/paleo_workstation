@@ -36,7 +36,7 @@ class AiChatController : public QObject {
 public:
   explicit AiChatController(QObject *parent = nullptr);
   ~AiChatController() override;
-  void setPiRuntime(const paleo::pi::RuntimeConfig &); // Host opt-in; default remains native.
+  void setPiRuntime(const paleo::pi::RuntimeConfig &); // Override the packaged Pi runtime for testing.
   paleo::pi::RuntimeConfig piRuntime() const { return m_piConfiguration; }
 
   void setConfig(const LlmConfig &config);
@@ -79,7 +79,7 @@ public:
   QVector<AiToolSpec> tools() const { return m_runner.availableTools(); }
   // 工具执行器（组合成员；装配根/测试经此绑定执行面与数据上下文）。
   AiChatToolRunner *toolRunner() { return &m_runner; }
-  // G2：可选 Pi 引擎桥（测试经此注入受控 peer；运行接线不变）。
+  // Pi 对话引擎桥（测试可经此注入受控 peer）。
   PiChatBridge *piBridge() { return &m_piBridge; }
   PythonEnvironmentController *createPythonEnvironmentController(QObject *owner);
 
@@ -97,6 +97,10 @@ public:
   bool loadSession(const QString &sessionId, QString *error = nullptr);
   bool removeSession(const QString &sessionId, QString *error = nullptr);
   bool saveCurrentSession(QString *error = nullptr);
+  // A local file selection or import result belongs to the initiating chat.
+  // Recording it does not contact a model or grant access to the source file.
+  bool recordImportReceipt(const QString &sessionId, const QString &summary,
+                           QString *error = nullptr);
   // 方向62：会话重命名（任意会话，按 id；改标题不改消息）。
   bool renameSession(const QString &sessionId, const QString &title,
                      QString *error = nullptr);
@@ -147,6 +151,7 @@ signals:
 
 private:
   void stopCurrentRound(bool explicitRequest);
+  void flushImportReceipts();
   void appendMessage(const ChatMessage &message);
   void setStreaming(bool streaming);
   void sendRound();               // 占位 + 上送（带 tools[]）
@@ -189,6 +194,7 @@ private:
   QJsonObject m_turnContext;
   QSet<QString> m_providerCalls; // Response-only deduplication; never durable identity.
   ChatSession m_session;
+  QList<QPair<QString, QString>> m_pendingImportReceipts;
   QString m_projectBrief; // 方向77：工程概况常驻段（system prompt 尾部轻注入）
   bool m_streaming = false;
   int m_pendingToolResults = 0; // 工具相：等待回灌的未应答帧数
@@ -198,7 +204,7 @@ private:
   int m_streamToolCalls = 0;
   bool m_roundRejected = false;
   QVector<ChatToolCall> m_unansweredCalls; // 本轮尚未有 role=tool 应答的帧
-  // G2-W1：本轮冻结的模型配置与协商工具表（原生/Pi 同源），见上块注释。
+  // G2-W1：本轮冻结的模型配置与协商工具表，见上块注释。
   LlmConfig m_turnConfig;
   QVector<AiToolSpec> m_turnTools;
   QString m_turnPrompt;

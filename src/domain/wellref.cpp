@@ -19,6 +19,9 @@ bool WellRef::valid() const {
   return !modelAvailable || (modelWellId > 0 && queryHead >= 0 &&
       identity(modelStoreIdentity) && identity(modelGeneration));
 }
+bool validWellboreKey(const QString &key) {
+  return !key.isEmpty() && key.trimmed() == key && key.toUtf8().size() <= 512 && !key.contains(QChar(0));
+}
 QJsonObject wellRefJson(const WellRef &ref) {
   return {{"contract_version", 1}, {"document_id", ref.documentId},
       {"catalog_entity_id", ref.catalogEntityId}, {"model_store_id", ref.modelStoreId},

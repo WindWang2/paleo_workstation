@@ -32,6 +32,7 @@ class PaleoTask;
 class PaleoTaskService;
 class MappingExplanationService;
 struct LlmConfig;
+struct SeismicClusterResult;
 struct MappingExplanationRequest;
 struct MappingExplanationResult;
 namespace paleo::jobs {
@@ -52,6 +53,7 @@ struct FrozenCompose {
 
 // One project-bound catalog writer; all QGIS/catalog mutations run on its GUI
 // thread.
+struct ClusterWellPreview;
 class MappingWorkbench : public QObject {
   Q_OBJECT
 public:
@@ -90,7 +92,10 @@ public:
                   QString *error);
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
-  QVariantList baseMapCandidates(const QString &horizon) const;
+  QVariantList baseMapCandidates(const QString &horizon, const QString &referenceBoundary = {}) const;
+  QVariantList mapBoundaries() const;
+  QVariantMap prepareMapBoundary(const QString &id, QString *error) const;
+  bool seedMapBoundary(const QString &draft, const QVariantMap &boundary, int code, QString *error);
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
@@ -103,11 +108,19 @@ public:
   void ensureWellBaseLayers();
   bool predict(const QString &horizon, const QString &kind,
                const QStringList &ids, QString *error,
-               const QString &horizonFile = {});
+               const QString &horizonFile = {}, int clusterCount = 4);
   void cancelPrediction();
   bool busy() const { return !m_request.id.isEmpty(); }
   // 同步转面（无任务服务的壳/测试；自动编图在未注入任务服务时也走这里）。
   QString polygonize(const QString &layerId, QString *error);
+  QVariantList clusterPatchChoices(const QString &layerId, QString *error, qint64 firstFid = 0, int limit = 129) const;
+  qint64 clusterSelection(const QString &layerId, int cluster, QList<qint64> &highlight, QString *error) const;
+  using ClusterScopeReady = std::function<void(qint64, QList<qint64>, const QString &)>;
+  void previewClusterScope(const QString &layerId, int cluster, QObject *receiver, ClusterScopeReady completed);
+  QString assignClusterFacies(const QString &layerId, qint64 patchId, bool wholeCluster,
+                              int faciesCode, QString *error, qint64 featureId = -1);
+  QString saveClusterAssignments(const QString &layerId, const QVariantList &assignments,
+                                 const QVariantList &expectedSchema, QString *error);
   // 相栅格转面后台任务（任务中心可见、可取消）：prepare 在主线程做与同步
   // 路径相同的校验并冻结输入（栅格 URI、父版本、相分类、工程目录），worker
   // 上独立建层跑 paleo:paleo_facies_polygonize 并同步相属性，commit 回主线程
@@ -115,16 +128,24 @@ public:
   // 重绑目录后完成的旧结果按过期丢弃。成功发 productReady（与同步路径同一
   // 收尾）；返回 false = 未启动（error 给因，含「已有转面任务」）。
   bool startPolygonize(const QString &layerId, QString *error);
+  QVariantList clusterWellSources(const QString &patchLayerId, QString *error);
+  bool previewClusterWells(const QString &patchLayerId, const QStringList &versions, QString *error);
+  bool applyClusterWellPreview(const QString &patchLayerId, QString *error);
+  void cancelClusterWellPreview();
   bool polygonizeBusy() const;
   void cancelPolygonize();
   QString copyForEditing(const QString &layerId, const QStringList &references,
                          QString *error, bool requireEvidence = false);
   // 从零编制：空白微相分区，首次闭合绘制确定覆盖范围。
-  QString createBlankMap(const QString &horizon, QString *error);
+  QString createBlankMap(const QString &horizon, QString *error, const QVariantMap &boundary = {});
   bool setEditEvidence(const QString &horizon, const QVariantMap &context, QString *error);
   QVariantMap editEvidence(const QString &horizon) const;
+  QVariantMap editEvidenceForLayer(const QString &id) const;
+  QVariantMap explanationForTarget(const QString &id, const QString &featureUid) const;
+  bool adoptExplanation(const QString &id, const QString &featureUid, const QString &requestId);
+  bool hasPendingExplanationAdoption(const QString &id) const;
   bool needsEditEvidence(const QString &layerId) const;
-  void clearEditEvidence();
+  void clearEditEvidence(const QString &layerId = {});
   void setManualEvidenceRequired(bool required);
   bool manualEvidenceRequired() const { return m_manualEvidenceRequired; }
   // 编图后台自动解释（独立工作线程；配置可用 AI 时优先调用 AI，否则自动生成本地事实摘要）。
@@ -147,6 +168,8 @@ public:
   // Actual buffer or unregistered feature changes; an empty edit session is not a change.
   bool hasUnpublishedChanges(const QString &id) const;
   bool checkEditingTopology(const QString &id, QString *error);
+  enum class EditSaveStage { Idle, Registration, WellSync };
+  EditSaveStage pendingEditSave(const QString &draftId) const;
   bool saveEditingVersion(const QString &draftId, QString *error);
   // 编辑副本创建过程及保存版本后的上图保持视图；主动显示图件仍缩放定位。
   void suppressNextProductZoom() { m_suppressNextProductZoom = true; }
@@ -352,6 +375,7 @@ signals:
   // 空 report 时 error 给因（含取消与过期丢弃）。
   void impactAnalysisReady(const QVariantMap &report, const QString &error);
   // 后台版本对比终态（GUI 线程）：口径同 impactAnalysisReady。
+  void clusterWellPreviewReady(const QString &patchLayerId, const QVariantMap &preview);
   void versionCompareReady(const QVariantMap &report, const QString &error);
   void errorOccurred(const QString &message);
 
@@ -380,7 +404,11 @@ private:
                                QString *error, const DerivedFileFingerprint *fingerprint = nullptr,
                                const QVariantMap &importMeta = {});
   void ensureVersionIndex() const;
-  bool ready(const QString &horizon, QString *error) const;
+  bool ready(const QString &horizon, QString *error, const paleo::strat::UnitSelection *sourceUnit = nullptr) const;
+  bool readyClusterSurface(const CatalogVersion &surface, paleo::strat::UnitSelection &unit, QString *error) const;
+  QVariantList wellSourcesForSurface(const CatalogVersion &surface, paleo::strat::UnitSelection &unit, QString *error);
+  bool saveFaciesForUnit(const QString &horizon, const QVariantList &items,
+                         const paleo::strat::UnitSelection &unit, QString *error);
   QString schemaVersion(const QString &horizon) const;
   QString record(const QString &path, const QString &horizon,
                  const QString &kind, const QString &title, const QString &type,
@@ -402,12 +430,13 @@ private:
                                   int beforeCode, const QStringList &referenceVersionIds,
                                   bool applyToEditBasis,
                                   MappingExplanationRequest *out, QString *error) const;
+  bool explanationTargetMatches(const MappingExplanationResult &result) const;
   void onBackgroundExplanationReady(const MappingExplanationResult &result);
   QString draftExplanationsPath(const QString &layerId) const;
   QHash<QString, QVariantMap> loadDraftExplanations(const QString &layerId) const;
   void saveDraftExplanations(const QString &layerId) const;
   void materializePendingExplanations(QgsVectorLayer *layer, const QString &layerId);
-  QVariantMap collectVersionAutoExplanations(const QString &layerId) const;
+  void refreshLastExplanation(const QString &layerId);
 public:
   struct ComposeJob {
     ~ComposeJob();
@@ -432,6 +461,8 @@ public:
     ~PolygonizeJob();
     QString sourceLayerId, horizon, title, rasterUri, outputPath, parent, dir;
     QString crsWkt; // 声明层 CRS（数据源无 CRS 时 worker 侧补齐）
+    bool rawClusters = false;
+    QString rawClusterSha256;
     QVariantList facies;
     QString valueRanges; // 分级值域 JSON（连续单因素来源才有；写相面 value_min/max）
     QVariant mock, provenance; // 算法 PROVENANCE 回执（commit 时入版本 extra）
@@ -548,6 +579,7 @@ private:
   QVariantMap consistencyImpl(const QString &layerId, QString *error,
                               const QString &counterpartId, bool background);
   void finishPrediction(const RemotePredictionResult &response);
+  void publishRawClusters(const SeismicClusterResult &clusters, const DerivedFileFingerprint &raster);
   bool startUnitSeismicPrediction(const RemotePredictionRequest &request,const QString &source);
   // 任务中心行：开一行 / 收尾（error 空 = 完成）/ 取消（取消态收尾）。
   void beginPredictionTask(const QString &title);
@@ -556,6 +588,13 @@ private:
   // 测井相点的井段 → 每井每个地层单位（组/段）的优势相行；地层单位取自该井
   // tops（顶 = 本层位顶，底 = 下一层位顶，最末取预测底）。predicted=false 为
   // 人工修订：只更新维护的优势相，不动「预测优势相」。
+  bool reserveEditSave(const QString &id, QString *newToken) const;
+  void discardEditSaveReservation(const QString &id, const QString &token) const;
+  bool isWorkingLayerEditing(const QString &id) const;
+  QString committedWorkingRevision(const QString &id) const;
+  bool registerEditingVersion(const QString &id, const QString &token, QString *error);
+  bool syncSavedWellAttributes(const CatalogVersion &version, QString *error);
+  QSet<QString> m_savingDrafts;
   QVariantList wellFormationUpdates(const QVariantList &points,
                                     const QVariantList &schema, bool predicted,
                                     const QString &method = {},
@@ -570,6 +609,7 @@ private:
   QPointer<DataCatalog> m_catalog;
   QPointer<RemotePredictionService> m_remote;
   QPointer<WellPredictionService> m_wellRemote;
+  std::shared_ptr<ClusterWellPreview> m_clusterPreview;
   QString m_readinessId, m_readinessHorizon;
   QStringList m_readinessMissing; // 勾选但不在可用输入中的井
   // 测井请求的单井条目（predict 与 checkWellReadiness 共用，口径单一）。
@@ -578,6 +618,7 @@ private:
   paleo::strat::UnitSelection m_analysisUnit;
   double m_displayScale = 0;
   bool m_suppressNextProductZoom = false;
+  QHash<QString, QVariantMap> m_draftEvidence;
   QVariantMap m_editEvidence; // 会话依据：冻结版本；切层位或工程即清空。
   bool m_manualEvidenceRequired = false;
   bool m_catalogSyncQueued = false;

@@ -58,7 +58,7 @@ public:
     emitTool=true;next={"model-provider-id",tool,QString::fromUtf8(QJsonDocument(arguments).toJson(QJsonDocument::Compact))};
   }
 };
-void bind(Fixture &fixture,AiChatController &controller,const Model &model,bool pi=true) {
+void bind(Fixture &fixture,AiChatController &controller,const Model &model) {
   const auto selected=fixture.registry->active(python::EnvironmentMode::Generated);
   controller.toolRunner()->setTaskService(&fixture.tasks);controller.toolRunner()->setPythonEnvironments(fixture.registry);
   AiChatToolContext context;context.catalog=&fixture.catalog;context.projectDir=fixture.project;context.documentId=fixture.context.documentId;
@@ -72,7 +72,6 @@ void bind(Fixture &fixture,AiChatController &controller,const Model &model,bool 
     const auto proof=active.sandbox->snapshot();return proof.value("ready").toBool()?QString():proof.value("code").toString("python_sandbox_unavailable");
   };
   controller.toolRunner()->setContext(context);controller.setConfig(model.config());
-  controller.setPiRuntime({pi,qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT"),qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")});
 }
 capability::OperationLog::Record boundRecord(Fixture &fixture,const AiChatController &controller,int index=0) {
   const auto bindings=controller.session().hostToolBindings;if(index<0||index>=bindings.size())return {};
@@ -90,13 +89,13 @@ class TestPiGeneratedOutputsNative:public QObject {
 private slots:
   void initTestCase() {
     QStandardPaths::setTestModeEnabled(true);
-    for(const auto &name:QStringList{"PALEO_TEST_AGENT_PYTHON_ROOT","PALEO_TEST_PI_NATIVE_ROOT"})QVERIFY2(!qEnvironmentVariable(name.toLatin1().constData()).isEmpty(),qPrintable(name+" required by this opt-in suite"));
-    for(const auto &name:QStringList{"PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256","PALEO_TEST_PI_NATIVE_SHA256"}) {
-      const auto sha=qEnvironmentVariable(name.toLatin1().constData());QCOMPARE(sha.size(),64);QCOMPARE(QByteArray::fromHex(sha.toLatin1()).toHex(),sha.toLatin1());
-    }
+    QVERIFY2(!qEnvironmentVariableIsEmpty("PALEO_TEST_AGENT_PYTHON_ROOT"), "Python runtime required by this opt-in suite");
+    const auto sha = qgetenv("PALEO_TEST_AGENT_PYTHON_MANIFEST_SHA256");
+    QCOMPARE(sha.size(), 64);
+    QCOMPARE(QByteArray::fromHex(sha).toHex(), sha);
   }
   void cleanupTestCase(){for(const auto &id:sessions)ChatSessionStore::remove(id,nullptr);}
-  void realPiSseSdkStrongPythonThreePortsAndStableNativeReplay() {
+  void realPiSseSdkStrongPythonThreePortsAndStablePiReplay() {
     Fixture f;QVERIFY2(f.openTrace(),qPrintable(f.error));f.tasks.setMaxWorkerThreads(2);
     QVERIFY2(f.activateRuntime(),qPrintable(f.error));f.configureOutputs();const auto identity=f.original.identity;Model model;QVERIFY(model.open());
     auto controller=std::make_unique<AiChatController>();bind(f,*controller,model);const auto session=controller->session().id;sessions.append(session);
@@ -120,11 +119,10 @@ private slots:
     QCOMPARE(plan.value("runtimeManifestSha256").toString(),identity.runtimeSha256);QVERIFY(f.derived().isEmpty());
     const auto scope=f.host->callerScope(host::Caller::Agent,session);const auto materializations=f.counts->materializations.load(),workers=f.counts->workerInvocations.load();
     QVERIFY(f.counts->ownerOnly.load());QVERIFY(f.counts->workerOffOwner.load());
-    controller->setPiRuntime({false,{},{}});model.call(QLatin1String(python::GeneratedOutputsTool),arguments);controller->retryLast();
-    QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(),180000);QVERIFY(errors.isEmpty());QCOMPARE(piModels.size(),2);
+    model.call(QLatin1String(python::GeneratedOutputsTool),arguments);controller->retryLast();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(),180000);QVERIFY(errors.isEmpty());QCOMPARE(piModels.size(),4);
     QCOMPARE(controller->session().hostToolBindings,bindings);QCOMPARE(boundRecord(f,*controller).operationId,computed.operationId);
     QCOMPARE(f.counts->materializations.load(),materializations);QCOMPARE(f.counts->workerInvocations.load(),workers);
-    controller->setPiRuntime({true,qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT"),qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")});
     QMap<QString,QByteArray> outputs;
     for(const auto &id:QStringList{"REPORT","TABLE","IMAGE"}) {
       model.call("paleo.operation_read",{{"operation_id",computed.operationId},{"port_id",id},{"offset","0"},{"max_bytes",128}});
@@ -133,7 +131,7 @@ private slots:
       QCOMPARE(first.value("portId").toString(),id);const auto prefix=QByteArray::fromBase64(first.value("data").toString().toLatin1());QVERIFY(!prefix.isEmpty()&&prefix.size()<=128);
       const auto all=f.bytesFor(computed.operationId,id,scope);QVERIFY2(!all.isEmpty(),qPrintable(f.error));QVERIFY(all.startsWith(prefix));outputs.insert(id,all);
     }
-    QCOMPARE(piModels.size(),8);QCOMPARE(outputs.value("TABLE"),expectedCsv());
+    QCOMPARE(piModels.size(),10);QCOMPARE(outputs.value("TABLE"),expectedCsv());
     const auto image=QImage::fromData(outputs.value("IMAGE"),"PNG").convertToFormat(QImage::Format_RGBA8888);QCOMPARE(image.width(),3);QCOMPARE(image.height(),1);
     const auto rgba=expectedRgba();QCOMPARE(std::memcmp(image.constScanLine(0),rgba.constData(),size_t(rgba.size())),0);
     const auto report=QJsonDocument::fromJson(outputs.value("REPORT")).object();
@@ -160,8 +158,8 @@ private slots:
     QCOMPARE(f.recordById(computed.operationId).computeCount,1);QCOMPARE(f.counts->workerInvocations.load(),workers);QCOMPARE(f.counts->materializations.load(),materializations);
     for(const auto &id:QStringList{"REPORT","TABLE","IMAGE"})QCOMPARE(f.bytesFor(computed.operationId,id,scope),outputs.value(id));
     QVERIFY(!historical.sandbox->snapshot().value("ready").toBool());
-    controller->setPiRuntime({false,{},{}});model.call(QLatin1String(python::GeneratedOutputsTool),publication);controller->retryLast();
-    QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(),180000);QVERIFY(restartErrors.isEmpty());QCOMPARE(f.derived().size(),3);QCOMPARE(restartedPi.size(),2);
+    model.call(QLatin1String(python::GeneratedOutputsTool),publication);controller->retryLast();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(),180000);QVERIFY(restartErrors.isEmpty());QCOMPARE(f.derived().size(),3);QCOMPARE(restartedPi.size(),4);
     QCOMPARE(f.recordById(computed.operationId).computeCount,1);QCOMPARE(model.responseIds.size(),model.requests);QVERIFY2(model.error.isEmpty(),qPrintable(model.error));
     QSet<QString> calls;for(const auto &id:model.providerCalls){QVERIFY(!calls.contains(id));calls.insert(id);}
   }

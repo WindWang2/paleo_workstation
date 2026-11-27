@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QHash>
+#include <QStringList>
 
 class MappingEvidencePanel;
 class MappingReferencePanel;
@@ -23,6 +25,8 @@ public:
                                QgisCanvasController &canvas, QgisLayerService &layers,
                                QgisProjectService *project, SelectionContext &selection);
     bool showSource(const QString &layerId, QString *error);
+    QStringList comparisonSources(const QString &primaryId);
+    MappingEvidencePanel *panel() const { return m_panel; }
 
 private:
     void refreshSources();
@@ -33,6 +37,8 @@ private:
     QPointer<QgisProjectService> m_project;
     QPointer<SelectionContext> m_selection;
     MappingEvidencePanel *m_panel;
+    QString m_primaryId;
+    QHash<QString, QString> m_userSource;
 };
 
 } // namespace paleo::workbench

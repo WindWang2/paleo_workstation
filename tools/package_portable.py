@@ -21,8 +21,8 @@ import sys
 import tempfile
 import zipfile
 
-from portable_manifest import (PackageFiles, REPO_ROOT, load_cmake_cache,
-                               verify, verify_receipt)
+from portable_manifest import (PI_LOCKS, PackageFiles, REPO_ROOT, load_cmake_cache,
+                               verified_pi_generation, verify, verify_receipt)
 
 
 REQUIRED_EXES = ("paleo.exe", "paleo_selfcheck.exe", "paleo_data_snapshot_worker.exe")
@@ -178,14 +178,24 @@ def stage_windows(
     prefix, roots = resolve_prefix_and_roots(cache, qgis_prefix=qgis_prefix, deps=deps, qt_pdf=qt_pdf)
     verify_receipt(prefix, ".paleo-osgeo4w-lock.sha256", "vendor/osgeo4w-offline.lock.json")
     verify_receipt(prefix, ".paleo-opencl-source.sha256", "vendor/opencl-source.lock.json")
+    verify_receipt(prefix, ".paleo-pdal-arrow-source.sha256", "vendor/pdal-arrow-source.lock.json")
     qt = prefix / "apps/qt6"
     gis = prefix / "apps/qgis"
     gdal = prefix / "apps/gdal"
     products = (*REQUIRED_EXES, *(name for name in OPTIONAL_EXES if (build / name).is_file()))
     entries = [files.copy(build / name, name, "build", build) for name in products]
+    pi_root = verified_pi_generation(build, "windows-x86_64")
+    pi_relative = pi_root.relative_to(build)
+    files.tree(pi_root, pi_relative.as_posix(), "pi-runtime", pi_root)
+    entries.append(files.output / pi_relative / "bin/node.exe")
     entries.append(files.copy(qt / "bin/QtWebEngineProcess.exe", "QtWebEngineProcess.exe",
                               "osgeo4w", prefix))
     # Runtime loaders reach these plugins without an import from paleo.exe.
+    for kind in ("reader", "writer"):
+        plugin = f"libpdal_plugin_{kind}_arrow.dll"
+        entries.append(files.copy(prefix / "bin" / plugin, plugin, "osgeo4w", prefix))
+    files.copy(REPO_ROOT / "vendor/patches/pdal-arrow-notices.txt", "share/paleo/licenses/pdal-arrow.txt",
+               "source", REPO_ROOT)
     for group in QT_PLUGIN_GROUPS:
         source = qt / "plugins" / group
         if source.is_dir():
@@ -251,6 +261,7 @@ def add_windows_resources(files: PackageFiles, prefix: Path, qt: Path, gis: Path
 
 def verify_windows(package: Path):
     verify(package)
+    verified_pi_generation(package, "windows-x86_64")
     # Build SDK, Qt/GIS prefixes and the caller's Python are absent from PATH.
     with tempfile.TemporaryDirectory(prefix="paleo-portable-check-") as scratch:
         system = Path(os.environ["SystemRoot"])
@@ -307,8 +318,8 @@ def main():
                 qt_pdf=args.qt_pdf,
                 allow_missing=args.allow_missing,
             )
-            files.write(["vendor/osgeo4w-offline.lock.json", "vendor/manifest.json",
-                         "vendor/opencl-source.lock.json",
+            files.write([*PI_LOCKS, "vendor/osgeo4w-offline.lock.json", "vendor/manifest.json",
+                         "vendor/opencl-source.lock.json", "vendor/pdal-arrow-source.lock.json",
                          "vendor/office-editor-required.txt", "vendor/fetch-ranuts-document.sh"])
             if args.verify:
                 verify_windows(package)

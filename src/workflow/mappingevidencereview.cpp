@@ -1026,10 +1026,15 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
 bool MappingWorkbench::appendEditEvidence(const QString &id, qint64 fid, QString *error) {
   const auto version = versionForLayer(id);
   const auto horizon = declaration(id).horizon;
-  const auto context = editEvidence(horizon);
+  // A note entered before creating a map belongs to the first draft that uses it.
+  if (!m_draftEvidence.contains(id) && !editEvidence(horizon).isEmpty()) {
+    m_draftEvidence.insert(id, m_editEvidence);
+    m_editEvidence.clear();
+  }
+  const auto context = editEvidenceForLayer(id);
   if (context.isEmpty())
     return !needsEditEvidence(id) ||
-        reject(error, tr("请先设置本次解释依据和修改目的，再绘制或修改相面"));
+        reject(error, tr("请先设置本次解释说明，再绘制或修改相面"));
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   if (!layer || !layer->isEditable()) return reject(error, tr("解释依据需要当前编辑事务"));
   const auto feature = layer->getFeature(fid);
@@ -1039,8 +1044,11 @@ bool MappingWorkbench::appendEditEvidence(const QString &id, qint64 fid, QString
   entries << QVariantMap{{"text", context.value("text")}, {"role", "SUPPORTED_BY"}, {"type", "manual"}};
   const auto category = FaciesCatalog::find(layerFaciesSchema(version), feature.attribute("facies_code"));
   const auto current = target(feature, version, horizon);
-  const auto text = context.value("text").toString() + "\n" +
-      tr("本次修订：%1（修订 %2）").arg(context.value("reason").toString()).arg(interpretation.value("revision").toULongLong());
+  const auto purpose = context.value("reason").toString();
+  const auto auditReason = purpose.isEmpty() ? tr("记录手动解释说明") : purpose;
+  auto text = context.value("text").toString();
+  if (!purpose.isEmpty())
+    text += "\n" + tr("本次修订：%1（修订 %2）").arg(purpose).arg(interpretation.value("revision").toULongLong());
   for (const auto &entry : entries) {
     auto link = entry.toMap();
     const auto sourceId = link.value("source_version").toString();
@@ -1056,7 +1064,7 @@ bool MappingWorkbench::appendEditEvidence(const QString &id, qint64 fid, QString
     link.insert("category_key", FaciesHierarchy::key(category, "micro_facies"));
     paleo::evidence::Revision next;
     if (!paleo::evidence::revise(records, interpretation, current, "link", link,
-        localOperator(), context.value("reason").toString(), interpretation.value("revision", 0).toULongLong(), &next, error)) return false;
+        localOperator(), auditReason, interpretation.value("revision", 0).toULongLong(), &next, error)) return false;
     records = next.records; interpretation = next.interpretation;
   }
   return store(layer, fid, {records, interpretation});
@@ -1070,6 +1078,7 @@ bool MappingWorkbench::checkEditingTopology(const QString &id, QString *error) {
 }
 
 bool MappingWorkbench::hasUnpublishedEdits(const QString &id) const {
+  if (pendingEditSave(id) == EditSaveStage::Registration) return true;
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   if (layer && layer->isEditable()) return true;
   const auto *observer = layer ? MappingFeatureIdentity::Observer::of(layer) : nullptr;
@@ -1077,6 +1086,7 @@ bool MappingWorkbench::hasUnpublishedEdits(const QString &id) const {
 }
 
 bool MappingWorkbench::hasUnpublishedChanges(const QString &id) const {
+  if (pendingEditSave(id) != EditSaveStage::Idle || hasPendingExplanationAdoption(id)) return true;
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
   if (layer && layer->isModified()) return true;
   const auto *observer = layer ? MappingFeatureIdentity::Observer::of(layer) : nullptr;
@@ -1133,7 +1143,7 @@ bool MappingWorkbench::captureExplanationSnapshot(
       req.attributionSummary = sources.join(QStringLiteral("、"));
     auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(layerId)) : nullptr;
     if (layer) {
-      req.featureCount = int(layer->featureCount());
+      req.featureCount = layer->featureCount();
       if (!featureUid.isEmpty()) {
         const auto feature = MappingFeatureIdentity::find(layer, featureUid);
         if (!feature.isValid())
@@ -1143,7 +1153,8 @@ bool MappingWorkbench::captureExplanationSnapshot(
         req.faciesCode = feature.attribute(QStringLiteral("facies_code")).toInt();
         req.faciesPath = FaciesHierarchy::path(FaciesCatalog::find(schema, req.faciesCode)).join(QStringLiteral(" / "));
         if (feature.hasGeometry()) {
-          req.areaSqm = feature.geometry().area();
+          if (layer->crs().isValid() && layer->crs().mapUnits() == Qgis::DistanceUnit::Meters)
+            req.areaSqm = feature.geometry().area();
           if (acceptsLocalGridCrs(layer->crs()) && m_catalog) {
             QHash<QString, QVariantMap> formationByWell;
             for (const auto &value : WellAttributeStore::rows(
@@ -1177,6 +1188,21 @@ bool MappingWorkbench::captureExplanationSnapshot(
   return true;
 }
 
+bool MappingWorkbench::explanationTargetMatches(const MappingExplanationResult &result) const {
+  if (result.layerId.isEmpty())
+    return true;
+  if (!m_layers || declaration(result.layerId).horizon != result.horizon)
+    return false;
+  if (result.featureUid.isEmpty())
+    return true;
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(result.layerId));
+  if (!layer)
+    return false;
+  const auto feature = MappingFeatureIdentity::find(layer, result.featureUid);
+  return feature.isValid() && MappingFeatureIdentity::geometryFingerprint(feature) == result.geometryHash &&
+         feature.attribute(QStringLiteral("facies_code")).toInt() == result.faciesCode;
+}
+
 void MappingWorkbench::materializePendingExplanations(QgsVectorLayer *layer, const QString &layerId) {
   if (!layer || !layer->isEditable() || !layerId.startsWith(QLatin1String("draft.")))
     return;
@@ -1194,7 +1220,7 @@ void MappingWorkbench::materializePendingExplanations(QgsVectorLayer *layer, con
     if (uid.isEmpty() || !entries.contains(uid))
       continue;
     auto generated = entries.value(uid);
-    if (generated.value(QStringLiteral("materialized")).toBool())
+    if (generated.value(QStringLiteral("materialized")).toBool() || generated.value("pending_adoption").toBool())
       continue;
     if (generated.value(QStringLiteral("geometry_hash")).toString() !=
             MappingFeatureIdentity::geometryFingerprint(feature) ||
@@ -1204,7 +1230,7 @@ void MappingWorkbench::materializePendingExplanations(QgsVectorLayer *layer, con
     QVariantList records;
     QVariantMap interpretation;
     QString err;
-    if (!read(feature, &records, &interpretation, &err))
+    if (!read(feature, &records, &interpretation, &err) || interpretation.value("status") == "Confirmed")
       continue;
     const QString autoId = QStringLiteral("auto:") + generated.value(QStringLiteral("request_id")).toString();
     bool exists = false;

@@ -3,6 +3,7 @@
 #include "services/piprocess.h"
 #include <QCryptographicHash>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <future>
@@ -17,6 +18,13 @@ RuntimeInspection worker(RuntimeConfig config,std::function<bool()> cancelled={}
 class TestPiRuntime:public QObject {
   Q_OBJECT
 private slots:
+  void ordinaryBuildShipsItsPinnedRuntime() {
+    const auto config = bundledRuntime();
+    QVERIFY(config.enabled);
+    QCOMPARE(QFileInfo(config.root).fileName(), config.manifestSha256);
+    const auto verified = worker(config);
+    QVERIFY2(verified.ok(), qPrintable(verified.code + QLatin1Char(' ') + config.root));
+  }
   void disabledDoesNotRequireNode() {
     static_assert(!std::is_default_constructible_v<VerifiedRuntime>);
     const auto inspected=inspectRuntime({});QCOMPARE(inspected.code,QString("pi_disabled"));QVERIFY(!inspected.runtime);

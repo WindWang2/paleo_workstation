@@ -149,6 +149,7 @@ class TestPetroPhysBatch : public QObject
 private slots:
   void testValidationRejects();
   void testBatchComputeProductAndCatalog();
+  void productStaysWithOriginAfterProjectSwitch();
   void testProgressMonotonic();
   void testCancelCooperative();
   void testExpressionBatch();
@@ -208,6 +209,37 @@ void TestPetroPhysBatch::testValidationRejects()
   bad.formula = Formula::SwArchie;
   bad.params.swPorosityMnemonic = QString();
   expectReject(bad, "archie without phi source must reject");
+}
+
+void TestPetroPhysBatch::productStaysWithOriginAfterProjectSwitch()
+{
+  QTemporaryDir first, second;
+  DataCatalog catalog;
+  QVERIFY(catalog.open(first.path()));
+  const auto source = first.filePath("source.las");
+  QVERIFY(makeHandLas(source, grWellCurves(10)));
+  PaleoProjectStore store;
+  PaleoTaskService tasks(&store);
+  PetroPhysTaskService service(&tasks, &store);
+  PetroPhysTaskService::BatchRequest request;
+  request.wells.append({QStringLiteral("well-A"), source, {}});
+  request.formula = Formula::VshGrLinear;
+  request.params = vshParams();
+  request.outputMnemonic = QStringLiteral("VSH");
+  request.writeProduct = true;
+  bool finished = false;
+  PetroPhysTaskService::BatchResult result;
+  QVERIFY(service.startBatch(request, &catalog, first.filePath("out"), [&](bool, const auto &value) {
+    finished = true;
+    result = value;
+  }));
+  QVERIFY(catalog.open(second.path()));
+  QTRY_VERIFY_WITH_TIMEOUT(finished, 15000);
+  QVERIFY(!result.ok);
+  QCOMPARE(result.wells.size(), 1);
+  QVERIFY(QFileInfo::exists(result.wells.front().productPath));
+  QVERIFY(result.wells.front().assetId.isEmpty());
+  QVERIFY(catalog.assets().isEmpty());
 }
 
 void TestPetroPhysBatch::testBatchComputeProductAndCatalog()

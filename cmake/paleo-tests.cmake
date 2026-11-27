@@ -62,7 +62,7 @@ add_paleo_test(tst_dsp_fft LIBS paleo_algorithms)          # #559：dsp radix-2 
 add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
 add_paleo_test(tst_seismicattrscan LIBS paleo_services)  # goal/attr-volume：时间切片/属性体扫描编排
 add_paleo_test(tst_workerexceptionsink LIBS paleo_services) # PW-014：工作分片异常转运
-add_paleo_test(tst_projectfile_safety LIBS paleo_store)  # PW-075/126：project.paleo 成员越界与版本缺失
+add_paleo_test(tst_projectfile_safety LIBS paleo_io)  # PW-075/126：project.paleo 成员越界与版本缺失
 add_paleo_test(tst_boundedread LIBS paleo_io)  # PW-076：有界整读 helper
 add_paleo_test(tst_segy_endian LIBS paleo_io)   # PW-070/071/125 字节序/格式/共用 ns 判定
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
@@ -106,6 +106,7 @@ if(WIN32)
   set_tests_properties(tst_mappingworkbench PROPERTIES TIMEOUT 600)
 endif()
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
+target_sources(tst_ui PRIVATE tests/desktopiomapcase.cpp)
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
 # RUN_SERIAL 独占机器跑：dataops_d2_filterPerformance10k 的 100ms 墙钟断言
 # 在 -j8 并行负载下偶发超限（108ms 实测）——同 tst_perf/tst_correlation_full
@@ -255,6 +256,7 @@ target_compile_definitions(tst_datapreview PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 # ---- W7 新接缝测试（docs/UI_LAYER_PLAN.md）----
 add_paleo_test(tst_folderimport LIBS paleo_workflow paleo_ui)
+add_paleo_test(tst_agentattachmentimport LIBS paleo_workflow)
 target_compile_definitions(tst_folderimport PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 # ---- 方向 30：工区数据管线与健康管理 ----

@@ -91,6 +91,7 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
     return false;
   *job = LocalDirectionJob();
   job->generation = ++m_publishGeneration;
+  job->projectDir = m_projectDir;
   job->horizon = identity.analysisLayerKey;
   job->factorId = factorId;
   job->params = params;
@@ -234,9 +235,9 @@ bool ConstraintWorkflow::computeLocalDirectionJobWithService(
     job->error = tr( "井点图层无法读取" );
     return false;
   }
-  const QString tempDir = QDir( QDir::tempPath() )
-                              .filePath( QStringLiteral( "paleo-sf-%1" ).arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
-  if ( !QDir().mkpath( tempDir ) )
+  job->scratch = paleo::managedpath::temporaryDirectory(job->projectDir, QStringLiteral("paleo-sf"));
+  const QString tempDir = job->scratch ? job->scratch->path() : QString();
+  if (!job->scratch)
   {
     job->error = tr( "无法创建临时计算目录" );
     return false;

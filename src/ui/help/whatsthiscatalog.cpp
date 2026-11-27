@@ -28,7 +28,7 @@ QList<WhatsThisEntry> whatsThisEntries()
   return {
     // ---- 主窗口外壳（六页共用的 chrome 与起始页）----
     {"PaleoMainWindow", "workflowTabs", QT_TRANSLATE_NOOP("PaleoWhatsThis", "工作流页签：按数据管理、地层对比、智能预测、单因素图、智能编图、验证的顺序切换六个工作页。"), nullptr},
-    {"PaleoMainWindow", "paleoLocator", QT_TRANSLATE_NOOP("PaleoWhatsThis", "顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。"), "main.locator.focus"},
+    {"PaleoMainWindow", "paleoLocator", QT_TRANSLATE_NOOP("PaleoWhatsThis", "输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。"), "main.locator.focus"},
     {"PaleoMainWindow", "panelsMenuButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "布局菜单：显示或隐藏各停靠面板、保存与恢复布局，并可切换深色模式和紧凑密度。"), nullptr},
     {"PaleoMainWindow", "processingButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "处理算法：按提供者分组列出可用算法，点击后打开该算法的参数对话框。"), nullptr},
     {"PaleoMainWindow", "webServiceButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "显示或隐藏「Web 服务」面板，在应用内打开网页服务地址。"), nullptr},
@@ -53,7 +53,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PaleoMainWindow", "subIntervalSchemeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层解释方案。可输入关键字过滤，超多方案时分页；选择后写入 UnitSelection.schemeId；无提交方案时为工程草稿。"), nullptr},
     {"PaleoMainWindow", "subIntervalRevisionCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "方案修订快照。可输入关键字过滤，超多修订时分页；选择后写入 UnitSelection.revision；分析成果按修订对齐。"), nullptr},
 
-    {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "通过可跳过的引导创建 Paleo 工程，可自动识别井点、井资料、地震和层位；也可创建空白工程。"), nullptr},
+    {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择资料目录，设置工程保存位置和坐标系。创建后在后台导入，完成时可在数据管理中核对井、地震和层位。"), nullptr},
     {"PaleoMainWindow", "openProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "打开已有的 Paleo 工程。"), nullptr},
     {"PaleoMainWindow", "importFromFolderButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择工区文件夹：已有工程直接打开，否则在该文件夹内新建工程并导入其中的数据。"), nullptr},
     {"PaleoMainWindow", "recentProjectsList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "最近打开的工程，双击或回车即可打开。"), nullptr},

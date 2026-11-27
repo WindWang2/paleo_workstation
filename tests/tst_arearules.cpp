@@ -206,12 +206,17 @@ void TestAreaRules::defaultsPinCurrentAreaValues()
 void TestAreaRules::horizonSetFollowsProjectConfig()
 {
   QTemporaryDir dir;
+  const QStringList model{QStringLiteral("Top"), QStringLiteral("d61"), QStringLiteral("Tg")};
+  AreaRules::setProjectDir(dir.path(), model);
+  QCOMPARE(mappingHorizons(), model);
+  QCOMPARE(AreaRules::active().targetHorizon, QStringLiteral("d61"));
+  QCOMPARE(baseHorizonFor(AreaRules::active().targetHorizon), QStringLiteral("Tg"));
   writeConfig(dir.path(), QByteArrayLiteral(R"({
   "schema_version": 1,
   "sequence_boundaries": ["E1", "E2", "E3"],
   "target_horizon": "e2"
 })"));
-  AreaRules::setProjectDir(dir.path());
+  AreaRules::setProjectDir(dir.path(), {QStringLiteral("T70"), QStringLiteral("T72")});
   QVERIFY(AreaRules::lastError().isEmpty());
 
   QCOMPARE(AreaRules::active().targetHorizon, QStringLiteral("E2")); // 归大写

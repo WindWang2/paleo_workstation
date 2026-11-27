@@ -3,7 +3,7 @@
 #include "ui/edittools/vertexeditortools.h"
 
 #include "qgis/topologicalindex.h"
-
+#include "../../qgis/topologygesture.h"
 
 #include <QKeyEvent>
 #include <QHash>
@@ -357,6 +357,7 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
   if ( mTopoEditing )
   {
     const QgsFeatureIds selected = layer->selectedFeatureIds();
+    QSet<QgsVectorLayer *> guarded;
     for ( const CoincidentMember &member : coincidentVertices( mDraggingVertex->grabPos ) )
     {
       bool known = false; // self + closure members are already in the set
@@ -394,12 +395,18 @@ void PaleoVertexTool::canvasPressEvent( QgsMapMouseEvent *e )
             member.fid, createRubberBand( member.layer->geometryType() ) );
       // 跨层参与层：拖拽途中（按住鼠标时事件循环仍在跑）被析构 → 丢弃整个
       // 拖拽，绝不带着悬空层指针走到 release 提交（目标层由 activate() 接线）。
-      if ( member.layer != layer )
+      if ( member.layer != layer && !guarded.contains( member.layer ) )
+      {
+        guarded.insert( member.layer );
+        const auto interrupted = [this] { if ( !mCommitting ) { clearDragState(); rebuildMarkers(); } };
+        mDraggingVertex->guardConnections.append( connect( member.layer, &QgsVectorLayer::editingStopped, this, interrupted ) );
+        mDraggingVertex->guardConnections.append( connect( member.layer->undoStack(), &QUndoStack::indexChanged, this, interrupted ) );
         mDraggingVertex->guardConnections.append(
             connect( member.layer, &QObject::destroyed, this, [this] {
               clearDragState();
               rebuildMarkers();
-            } ) ); // NB: 无 UniqueConnection——Qt6 对 functor+Unique 静默拒绝
+            } ) );
+      }
     }
   }
 
@@ -602,29 +609,14 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
       }
     }
 
-    mCommitting = true;
-    // One edit command per touched layer (native undo stacks are per-layer;
-    // cross-layer gestures undo layer by layer — see header notes).
     QHash<QgsVectorLayer *, QList<CoincidentMember>> byLayer;
     for ( const CoincidentMember &member : std::as_const( writeSet ) )
       byLayer[member.layer].append( member );
-    bool anyCommitted = false;
-    bool anyFailed = false;
-    for ( auto bl = byLayer.begin(); bl != byLayer.end(); ++bl )
-    {
-      QgsVectorLayer *writeLayer = bl.key();
-      if ( !writeLayer->isEditable() )
-      {
-        // Mid-gesture session loss on a participant: drop its members, keep
-        // the rest of the batch.
-        anyFailed = true;
-        continue;
-      }
-      writeLayer->beginEditCommand( tr( "删除节点" ) );
+    commitGesture( byLayer.keys(), tr( "删除节点" ), [&]( QgsVectorLayer *writeLayer ) {
       // Group per fid: several coincident vertices on ONE feature must delete
       // in descending vertex order — dense numbering shifts as vertices drop.
       QHash<qint64, QList<int>> byFid;
-      for ( const CoincidentMember &member : std::as_const( bl.value() ) )
+      for ( const CoincidentMember &member : byLayer.value( writeLayer ) )
         byFid[member.fid].append( member.vertexNr );
       bool layerOk = true;
       for ( auto it = byFid.begin(); it != byFid.end() && layerOk; ++it )
@@ -692,28 +684,8 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
         if ( layerOk && !writeLayer->changeGeometry( it.key(), mutated ) )
           layerOk = false;
       }
-      if ( layerOk && !validatePartition(writeLayer) ) { writeLayer->destroyEditCommand(); continue; }
-      if ( layerOk )
-      {
-        writeLayer->endEditCommand();
-        ++mEditedCount;
-        emit featureEdited( writeLayer->id() );
-        anyCommitted = true;
-      }
-      else
-      {
-        writeLayer->destroyEditCommand();
-        anyFailed = true;
-      }
-    }
-    if ( anyFailed )
-    {
-      emit messageEmitted( anyCommitted
-                               ? tr( "部分图层拒绝了节点删除" )
-                               : tr( "无法删除节点" ),
-                           Qgis::MessageLevel::Warning );
-    }
-    mCommitting = false;
+      return layerOk;
+    } );
     rebuildMarkers();
     return;}
 
@@ -756,62 +728,25 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       releasePoint = snapPos;
   }
 
-  mCommitting = true;
-  // Welded release position (target layer CRS) → map CRS once; per write
-  // layer it converts through its own (same-CRS, participation-gated)
-  // transform, so member layers land on the exact same position.
   const QgsPointXY mapRelease = toMapCoordinates( layer, releasePoint );
-  // One clone per touched feature; moveVertex keeps vertex numbering stable
-  // so every coincident member applies against its own pre-drag geometry.
-  // One edit command per layer (see header notes: native undo is per-layer).
-  bool anyCommitted = false;
-  bool anyFailed = false;
-  for ( auto lit = mDraggingVertex->originalByFid.begin();
-        lit != mDraggingVertex->originalByFid.end(); ++lit )
-  {
-    QgsVectorLayer *writeLayer = lit.key();
-    if ( !writeLayer->isEditable() )
-    {
-      // The layer was editable when the drag armed but not anymore — drop
-      // its members rather than commit into a missing edit buffer.
-      anyFailed = true;
-      continue;
-    }
+  const auto originals = mDraggingVertex->originalByFid;
+  const auto coincident = mDraggingVertex->coincident;
+  commitGesture( originals.keys(), tr( "移动节点" ), [&]( QgsVectorLayer *writeLayer ) {
+    const auto &features = originals.constFind( writeLayer ).value();
     const QgsPointXY layerRelease = toLayerCoordinates( writeLayer, mapRelease );
-    writeLayer->beginEditCommand( tr( "移动节点" ) );
     bool layerOk = true;
-    for ( auto fit = lit.value().begin(); fit != lit.value().end() && layerOk; ++fit )
+    for ( auto fit = features.begin(); fit != features.end() && layerOk; ++fit )
     {
       QgsGeometry geometry = fit.value();
-      for ( const CoincidentMember &member : std::as_const( mDraggingVertex->coincident ) )
+      for ( const CoincidentMember &member : coincident )
         if ( member.layer == writeLayer && member.fid == fit.key()
              && !geometry.moveVertex( layerRelease.x(), layerRelease.y(), member.vertexNr ) )
           layerOk = false;
       if ( layerOk && !writeLayer->changeGeometry( fit.key(), geometry ) )
         layerOk = false;
     }
-    if ( layerOk && !validatePartition(writeLayer) ) { writeLayer->destroyEditCommand(); continue; }
-    if ( layerOk )
-    {
-      writeLayer->endEditCommand();
-      ++mEditedCount;
-      emit featureEdited( writeLayer->id() );
-      anyCommitted = true;
-    }
-    else
-    {
-      writeLayer->destroyEditCommand();
-      anyFailed = true;
-    }
-  }
-  if ( anyFailed )
-  {
-    emit messageEmitted( anyCommitted
-                             ? tr( "部分图层的编辑已停止——这些移动已丢弃" )
-                             : tr( "无法移动节点" ),
-                         Qgis::MessageLevel::Warning );
-  }
-  mCommitting = false;
+    return layerOk;
+  } );
   clearDragState();
   rebuildMarkers(); // centers recomputed from the committed geometry
 }
@@ -865,27 +800,14 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
     }
   }
 
-  mCommitting = true;
-  // One edit command per touched layer; per fid the insertion indices apply
-  // in descending order (dense numbering shifts per insert).
   QHash<QgsVectorLayer *, QList<CoincidentMember>> byLayer;
   for ( const CoincidentMember &member : std::as_const( inserts ) )
     byLayer[member.layer].append( member );
-  bool anyCommitted = false;
-  bool anyFailed = false;
-  for ( auto bl = byLayer.begin(); bl != byLayer.end(); ++bl )
-  {
-    QgsVectorLayer *writeLayer = bl.key();
-    if ( !writeLayer->isEditable() )
-    {
-      anyFailed = true;
-      continue;
-    }
-    // onSegment is target-layer CRS; participation is same-CRS — direct.
-    const QgsPointXY layerPt = toLayerCoordinates( writeLayer, toMapCoordinates( layer, onSegment ) );
-    writeLayer->beginEditCommand( tr( "添加节点" ) );
+  const QgsPointXY mapPoint = toMapCoordinates( layer, onSegment );
+  commitGesture( byLayer.keys(), tr( "添加节点" ), [&]( QgsVectorLayer *writeLayer ) {
+    const QgsPointXY layerPt = toLayerCoordinates( writeLayer, mapPoint );
     QHash<qint64, QList<int>> byFid;
-    for ( const CoincidentMember &member : std::as_const( bl.value() ) )
+    for ( const CoincidentMember &member : byLayer.value( writeLayer ) )
       byFid[member.fid].append( member.vertexNr );
     bool layerOk = true;
     for ( auto it = byFid.begin(); it != byFid.end() && layerOk; ++it )
@@ -899,29 +821,36 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
       if ( layerOk && !writeLayer->changeGeometry( it.key(), geometry ) )
         layerOk = false;
     }
-    if ( layerOk && !validatePartition(writeLayer) ) { writeLayer->destroyEditCommand(); continue; }
-    if ( layerOk )
-    {
-      writeLayer->endEditCommand();
-      ++mEditedCount;
-      emit featureEdited( writeLayer->id() );
-      anyCommitted = true;
-    }
-    else
-    {
-      writeLayer->destroyEditCommand();
-      anyFailed = true;
-    }
-  }
-  if ( anyFailed )
-  {
-    emit messageEmitted( anyCommitted
-                             ? tr( "部分图层拒绝了节点插入" )
-                             : tr( "无法添加节点" ),
-                         Qgis::MessageLevel::Warning );
-  }
-  mCommitting = false;
+    return layerOk;
+  } );
   rebuildMarkers();
+}
+
+void PaleoVertexTool::commitGesture( const QList<QgsVectorLayer *> &layers, const QString &title,
+                                     const std::function<bool(QgsVectorLayer *)> &write )
+{
+  QStringList ids;
+  for ( auto *layer : layers )
+    ids.append( layer->id() );
+  bool partitionValid = true;
+  QString error;
+  mCommitting = true;
+  const bool committed = QgisTopologyGesture::apply( layers, title, [&]( QgsVectorLayer *layer ) {
+    if ( !write( layer ) ) return false;
+    partitionValid = validatePartition( layer );
+    return partitionValid;
+  }, &error );
+  mCommitting = false;
+  if ( committed )
+  {
+    for ( const auto &id : ids )
+    {
+      ++mEditedCount;
+      emit featureEdited( id );
+    }
+  }
+  else if ( partitionValid )
+    emit messageEmitted( error, Qgis::MessageLevel::Warning );
 }
 
 void PaleoVertexTool::keyPressEvent( QKeyEvent *e )
@@ -1094,13 +1023,13 @@ QList<QgsVectorLayer *> PaleoVertexTool::crossLayerParticipants() const
   QgsProject *project = mCanvas ? mCanvas->project() : nullptr;
   if ( !project )
     project = QgsProject::instance();
-  if ( !scope || !project )
+  if ( !project || !QgisTopologyGesture::crossLayerEligible( scope ) )
     return out;
   const QgsCoordinateReferenceSystem crs = scope->crs();
   const QList<QgsVectorLayer *> layers = project->layers<QgsVectorLayer *>();
   for ( QgsVectorLayer *vl : layers )
   {
-    if ( vl == scope || !vl->isEditable() || !vl->isSpatial() )
+    if ( vl == scope || !QgisTopologyGesture::crossLayerEligible( vl ) )
       continue;
     if ( !( vl->crs() == crs ) )
       continue; // 同 CRS 门槛：跨 CRS 共点没有无歧义的写路径

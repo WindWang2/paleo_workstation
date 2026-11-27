@@ -17,7 +17,7 @@
 #include "../src/ai/chat/chatmessage.h"
 #include "../src/ai/chat/chatsession.h"
 #include "../src/ai/chat/chatsessionarchive.h"
-#include "../src/workflow/aichatcontroller.h"
+#include "pichattestcontroller.h"
 #include "h2_test_filebytes.h"
 
 // H2（agent-session-archive）W3：发送/重试/重命名前的纯档案容量准入。
@@ -179,7 +179,7 @@ void TestH2CapacityGates::sendRejectKeepsSessionUntouchedAndNewSessionWorks() {
 
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Plain));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   QVERIFY(controller.enabled());
   QVERIFY(controller.loadSession(nearCap.id, &error));
@@ -274,7 +274,7 @@ void TestH2CapacityGates::retryStillWorksWhenPrefixFits() {
   paleo::chat::setChatArchiveBudgetForTesting(scaledBudget());
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Plain));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   controller.sendUserText(QStringLiteral("第一问"));
   QTRY_VERIFY(!controller.streaming());
@@ -292,7 +292,7 @@ void TestH2CapacityGates::renameOverFieldOrBudgetRefused() {
   paleo::chat::setChatArchiveBudgetForTesting(budget);
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Plain));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   controller.sendUserText(QStringLiteral("有内容的轮"));
   QTRY_VERIFY(!controller.streaming());
@@ -382,7 +382,7 @@ void TestH2CapacityGates::realTurnBytesStayWithinReserve() {
   paleo::chat::setChatArchiveBudgetForTesting(budget);
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::HeavyEscape));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   QSignalSpy errors(&controller, &AiChatController::errorOccurred);
   controller.sendUserText(QStringLiteral("问"));

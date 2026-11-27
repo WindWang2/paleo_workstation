@@ -99,8 +99,16 @@ void MappingWorkbenchPage::buildDeliveryStep(QWidget *body, QVBoxLayout *layout)
     button->setObjectName("workbench." + entry.first);
     flow->addWidget(button);
     connect(button, &QPushButton::clicked, this, [this, action = entry.first] { issue(action); });
-    if (entry.first == "save")
-      continue; // 复用页面既有保存会话门控。
+    if (entry.first == "save") {
+      const auto refreshSave = [this, button, title = entry.second] {
+        const auto stage = m_workbench->pendingEditSave(selectedLayer());
+        button->setText(stage == MappingWorkbench::EditSaveStage::WellSync ? tr("重试井属性同步")
+            : stage == MappingWorkbench::EditSaveStage::Registration ? tr("重试登记当前工作副本") : title);
+      };
+      connect(m_results, &QTreeWidget::currentItemChanged, button, refreshSave);
+      connect(m_workbench, &MappingWorkbench::displayChanged, button, refreshSave);
+      continue;
+    }
     const auto refresh = [this, button, action = entry.first] {
       const auto id = selectedLayer();
       const auto version = m_workbench->versionForLayer(id);
@@ -125,5 +133,23 @@ void MappingWorkbenchPage::buildDeliveryStep(QWidget *body, QVBoxLayout *layout)
   auto *basis = new MappingEditBasis(m_workbench, body);
   layout->addWidget(basis);
   connect(this, &MappingWorkbenchPage::horizonChanged, basis, &MappingEditBasis::setHorizon);
+  connect(this, &MappingWorkbenchPage::targetLayerChanged, this, &MappingWorkbenchPage::syncEditBasisTarget);
   connect(basis, &MappingEditBasis::commandRequested, this, &MappingWorkbenchPage::commandRequested);
+}
+
+void MappingWorkbenchPage::syncEditBasisTarget() {
+  auto *basis = findChild<MappingEditBasis *>();
+  if (!basis) return;
+  const auto id = selectedLayer();
+  const auto selected = m_workbench->selectedFeatures(id);
+  const auto uid = selected.size() == 1 && nativeSelectionMatchesEvidence()
+      ? m_evidenceSnapshot.value("feature_uid").toString() : QString();
+  basis->setTarget(id, uid);
+}
+
+void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
+  m_evidenceSnapshotOwned = true;
+  m_evidenceSnapshot = snapshot;
+  syncEditBasisTarget();
+  updateState();
 }

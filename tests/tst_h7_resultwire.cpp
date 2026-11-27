@@ -343,14 +343,14 @@ private slots:
   void cleanupTestCase() {
     for (const auto &id : m_sessions) ChatSessionStore::remove(id, nullptr);
   }
-  void nativeQueryResultIsRetrievedAcrossPages();
+  void bundledPiQueryResultIsRetrievedAcrossPages();
   void secondTurnContinuesTheSameTemporaryReference();
   void controlledPiPagesAndDuplicateFrames();
   void runnerFinalisationUsesEffectiveSubBudget();
   void multiCallFrameKeepsIndependentQuotas();
 };
 
-void TestH7ResultWire::nativeQueryResultIsRetrievedAcrossPages() {
+void TestH7ResultWire::bundledPiQueryResultIsRetrievedAcrossPages() {
   Host host;
   QStringList expected;
   AiChatController controller;
@@ -443,7 +443,8 @@ void TestH7ResultWire::secondTurnContinuesTheSameTemporaryReference() {
   Host host;
   QStringList expected;
   AiChatController controller;
-  QVERIFY(host.bind(controller, 22, &expected));
+  // The original query must overflow even the full 8 KiB transport page.
+  QVERIFY(host.bind(controller, 22, &expected, /*wellNamePadding=*/96));
   m_sessions.append(controller.session().id);
   std::atomic_int entityPages{0};
   host.catalog.setReadObserver([&](const char *what) {
@@ -527,7 +528,6 @@ void TestH7ResultWire::controlledPiPagesAndDuplicateFrames() {
   AiChatController controller;
   QVERIFY(host.bind(controller, 0, nullptr));
   m_sessions.append(controller.session().id);
-  controller.setPiRuntime({true, {}, {}});
 
   // 真实工具编码路径产生不可变临时引用（同一 store/HMAC/上限），随后由受控
   // peer 驱动 read_result，而不是把自造引用塞进 store。
@@ -668,7 +668,8 @@ void TestH7ResultWire::multiCallFrameKeepsIndependentQuotas() {
   Host host;
   QStringList expected;
   AiChatController controller;
-  QVERIFY(host.bind(controller, 22, &expected));
+  // The original query must overflow even the full 8 KiB transport page.
+  QVERIFY(host.bind(controller, 22, &expected, /*wellNamePadding=*/96));
   m_sessions.append(controller.session().id);
   std::atomic_int entityPages{0};
   host.catalog.setReadObserver([&](const char *what) {
@@ -702,8 +703,11 @@ void TestH7ResultWire::multiCallFrameKeepsIndependentQuotas() {
         {{"result_ref", refB}, {"selector", "/wells"}, {"page_size", 4}, {"max_bytes", 65536}})});
   }));
 
-  controller.setConfig(LlmConfig::fromParts(server.endpoint(), QStringLiteral("h7-fixture"),
-                                            QByteArrayLiteral("sk-h7-fixture"), false));
+  auto config = LlmConfig::fromParts(server.endpoint(), QStringLiteral("h7-fixture"),
+                                     QByteArrayLiteral("sk-h7-fixture"), false);
+  // Exercise two independent sub-page quotas instead of saturating both at 8 KiB.
+  config.maxTokens = 2048;
+  controller.setConfig(config);
   QSignalSpy started(&controller, &AiChatController::toolExecutionStarted);
   QSignalSpy errors(&controller, &AiChatController::errorOccurred);
   controller.sendUserText(QStringLiteral("同一帧查两次，再读第二个结果"));

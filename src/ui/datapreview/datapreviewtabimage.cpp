@@ -84,6 +84,9 @@ using namespace paleo::datapreview_detail;
 #include <QPdfDocument>
 #include <QPdfView>
 #include <QPixmap>
+#include <QScreen>
+#include <QtMath>
+#include "../common/fittedimageview.h"
 #include <QPushButton>
 #include <QProgressBar>
 #include <QScrollArea>
@@ -150,29 +153,26 @@ QWidget *DataPreviewTabs::buildImageReferenceContent(
     }
   }
   // 未配准 → 图片查看器（原行为）+ 「去配准」引导入口（D2.7）。
-  auto *scroll = new QScrollArea(host);
-  scroll->setWidgetResizable(true);
-  auto *imgLabel = new QLabel(scroll);
-  // 图片 LOD 通道（QImageReader 解码期降采样）而非 QPixmap 全分辨率解码：
-  // 与上面的配准栅格路径对齐大图防护——那条有 GDAL overview + 大图提示，
-  // 未配准这条同样不能把任意大小的原图整张解进 GUI 线程。边取显示宽
-  // （560）的两倍：够缩放副本与高 DPI，内存不随原图像素涨。
-  constexpr int kUnregisteredImageEdge = 1120;
-  const paleo::imagelod::TrackImage img =
-      paleo::imagelod::loadThumbnail(abs, kUnregisteredImageEdge);
+  // Decode once for a full-screen document, with a bounded physical pixel budget.
+  // Changing docks, entering focus mode and moving between screens only change the view transform.
+  constexpr int maxEdge = 4096;
+  const auto *screen = host->screen();
+  const int edge = screen ? qBound(1, qCeil(qMax(screen->size().width(), screen->size().height()) *
+                                           screen->devicePixelRatio()), maxEdge) : maxEdge;
+  const auto img = paleo::imagelod::loadThumbnail(abs, edge);
   if (img.isNull())
   {
     lay->addWidget(failureState(assetId, tr("无法解析图片"), host), 1);
     return host;
   }
-  imgLabel->setPixmap(
-      QPixmap::fromImage(img.thumbnail).scaledToWidth(560, Qt::SmoothTransformation)); // 按面板宽缩放
-  // 降采样过的图如实说明原图像素，避免用户误以为图件本身就这么糊。
+  auto *view = new paleo::ui::FittedImageView(paleo::ui::FittedImageView::Mode::FitOnly, host);
+  view->setObjectName(QStringLiteral("unregisteredMapImageView"));
+  view->setAccessibleName(asset.displayName);
+  view->setPhoto(QPixmap::fromImage(img.thumbnail));
   if (img.fullSize.isValid() && img.thumbnail.size() != img.fullSize)
-    imgLabel->setToolTip(tr("原图 %1×%2 像素，预览已降采样显示")
-                             .arg(img.fullSize.width()).arg(img.fullSize.height()));
-  scroll->setWidget(imgLabel);
-  lay->addWidget(scroll, 1);
+    view->setToolTip(tr("原图 %1×%2 像素，预览已降采样显示")
+                         .arg(img.fullSize.width()).arg(img.fullSize.height()));
+  lay->addWidget(view, 1);
   auto *regGuideBtn = new QPushButton(tr("去配准…"), host);
   regGuideBtn->setObjectName(QStringLiteral("goRegisterGuideBtn"));
   regGuideBtn->setToolTip(tr("把这张平面相图配准到工程测网"));

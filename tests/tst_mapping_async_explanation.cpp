@@ -1,6 +1,8 @@
 // 层：测试壳
 #include <QtTest/QtTest>
 #include <QCheckBox>
+#include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -189,6 +191,91 @@ struct WorkbenchFixture {
 class TestMappingAsyncExplanation : public QObject {
   Q_OBJECT
 private slots:
+  void emptyLayerCommitLeavesNoReservationAcrossReopen() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    const auto original = f.work.versionForLayer(draft).id;
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    f.work.styleLayer(draft);
+    QVERIFY(layer->startEditing());
+    QVERIFY(!layer->isModified());
+    QVERIFY(layer->commitChanges());
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Idle);
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QVERIFY(!f.work.hasUnpublishedEdits(draft));
+    QCOMPARE(f.work.versionForLayer(draft).id, original);
+  }
+
+  void saveReservationFailureKeepsProviderUnchangedAndRetryable() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    f.work.styleLayer(draft);
+    f.work.setAutoExplainEnabled(false);
+    QVERIFY(layer->startEditing());
+    QVERIFY(FaciesPartitionEditor::paint(layer, QgsGeometry::fromWkt("POLYGON((0 0,10 0,10 10,0 0))"), 1, &error));
+    const auto marker = f.dir.filePath(QStringLiteral("artifacts/working/%1/pending-save").arg(draft));
+    QVERIFY(QDir().mkdir(marker)); // A directory at the journal path cannot hold the registration token.
+    QVERIFY(!layer->commitChanges());
+    QVERIFY(layer->isEditable() && layer->isModified());
+    QCOMPARE(layer->featureCount(), 1);
+    QgsVectorLayer disk(layer->source(), "source", "ogr");
+    QVERIFY(disk.isValid());
+    QCOMPARE(disk.featureCount(), 0);
+    QVERIFY(QDir().rmdir(marker));
+    QTRY_VERIFY(layer->allowCommit());
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Registration);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, version.id);
+  }
+
+  void syncRetryLeavesNewerCommittedRevisionPendingAcrossReopen() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap("D61", &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    f.work.styleLayer(draft);
+    f.work.setAutoExplainEnabled(false);
+    QVERIFY(layer->startEditing());
+    QVERIFY(FaciesPartitionEditor::paint(layer, QgsGeometry::fromWkt("POLYGON((0 0,10 0,10 10,0 0))"), 1, &error));
+    QVERIFY(layer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto first = f.work.versionForLayer(draft);
+    QFile marker(f.dir.filePath(QStringLiteral("artifacts/working/%1/pending-save").arg(draft)));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    QVERIFY(marker.write(first.extra.value("edit_save_token").toString().toLatin1()) > 0);
+    marker.close();
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::WellSync);
+    QVERIFY(layer->startEditing());
+    QVERIFY(layer->addAttribute(QgsField("review_note", QMetaType::Type::QString)));
+    QVERIFY(layer->commitChanges());
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QVERIFY(!f.work.saveEditingVersion(draft, &error));
+    QVERIFY2(error.contains(QStringLiteral("还有更新的修订")), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, first.id);
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Registration);
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(f.work.pendingEditSave(draft), MappingWorkbench::EditSaveStage::Registration);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto next = f.work.versionForLayer(draft);
+    QVERIFY(first.id != next.id);
+    QCOMPARE(next.versionNumber, first.versionNumber+1);
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, next.id);
+  }
+
   void unblockedCompilationAndLocalBackgroundExplanation() {
     WorkbenchFixture f;
     QVERIFY(f.init());
@@ -339,6 +426,21 @@ private slots:
     const auto reloaded = f.work.generatedExplanationForFeature(draft, uid);
     QCOMPARE(reloaded.value(QStringLiteral("generator")).toString(), QStringLiteral("ai"));
     QVERIFY(reloaded.value(QStringLiteral("text")).toString().contains(QStringLiteral("Well-B2")));
+    QVERIFY(reloaded.value("pending_adoption").toBool());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, savedVersion.id);
+    QVERIFY(f.work.adoptExplanation(draft, uid, reloaded.value("request_id").toString()));
+    QVERIFY(f.work.hasUnpublishedChanges(draft));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto next = f.work.versionForLayer(draft);
+    QVERIFY(next.id != savedVersion.id);
+    QCOMPARE(next.extra.value("auto_explanations").toMap().value(uid).toMap().value("request_id"), reloaded.value("request_id"));
+    QVERIFY(!f.work.hasUnpublishedChanges(draft));
+    QVERIFY(!f.catalog.updateVersionExtra(savedVersion.id, QStringLiteral("auto_explanations"), next.extra.value("auto_explanations"), &error));
+    const auto archived = f.catalog.versionById(savedVersion.id);
+    QCOMPARE(archived.extra.value("stale"), savedVersion.extra.value("stale"));
+    QCOMPARE(archived.extra.value("staleReason"), savedVersion.extra.value("staleReason"));
+    QCOMPARE(QJsonDocument::fromVariant(archived.extra).toJson(QJsonDocument::Compact), savedExtraBefore);
   }
 
   void aiFailureFallsBackHonestlyToLocalSummary() {
@@ -363,6 +465,66 @@ private slots:
     QVERIFY(!result.value(QStringLiteral("ai_generated")).toBool());
     QVERIFY(!result.value(QStringLiteral("fallback_reason")).toString().isEmpty());
     QVERIFY(!result.value(QStringLiteral("text")).toString().isEmpty());
+  }
+
+  void undoAfterGenerationDropsStaleDraftFromTheNextVersion() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap(QStringLiteral("D61"), &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(layer, qPrintable(error));
+    const auto projectCrs = layer->crs();
+    layer->setCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")));
+    QVERIFY(layer->startEditing());
+    QSignalSpy ready(&f.work, &MappingWorkbench::autoExplanationReady);
+    const auto outline = QgsGeometry::fromWkt(QStringLiteral("POLYGON((0 0,1 0,1 1,0 1,0 0))"));
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 5000);
+    const auto generated = ready.first().at(1).toMap();
+    QVERIFY(!generated.value("text").toString().contains(QStringLiteral("m²")));
+    const auto uid = generated.value("feature_uid").toString();
+    QVERIFY(!uid.isEmpty());
+    layer->undoStack()->undo();
+    QTRY_VERIFY(f.work.lastAutoExplanation(QStringLiteral("D61")).isEmpty());
+    f.work.setAutoExplainEnabled(false);
+    layer->setCrs(projectCrs);
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 2, &error), qPrintable(error));
+    QVERIFY(layer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto saved = f.work.versionForLayer(draft).extra.value("auto_explanations").toMap();
+    QVERIFY(!saved.contains(uid));
+  }
+
+  void undoWhileExplanationIsRunningDropsTheObsoleteFeature() {
+    LoopbackLlmServer server;
+    QVERIFY(server.start());
+    server.setReply(500, QByteArrayLiteral("{}"));
+    server.setHoldResponses(true);
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    f.work.setLlmConfig(LlmConfig::fromParts(server.endpointUrl(), QStringLiteral("slow-model"),
+                                             QByteArrayLiteral("k"), false));
+    QString error;
+    const auto draft = f.work.createBlankMap(QStringLiteral("D61"), &error);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY2(layer, qPrintable(error));
+    QVERIFY(layer->startEditing());
+    QSignalSpy ready(&f.work, &MappingWorkbench::autoExplanationReady);
+    const auto outline = QgsGeometry::fromWkt(QStringLiteral("POLYGON((0 0,100 0,100 100,0 100,0 0))"));
+    QVERIFY2(FaciesPartitionEditor::paint(layer, outline, 1, &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(server.requestCount(), 1, 5000);
+    const auto uid = f.work.featureEvidenceSummary(draft, layer->selectedFeatureIds().values())
+                         .value(QStringLiteral("feature_uid")).toString();
+    QVERIFY(!uid.isEmpty());
+    layer->undoStack()->undo();
+    QCOMPARE(layer->featureCount(), 0);
+    server.releaseHeld();
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.explanationBusy(), 5000);
+    QCOMPARE(ready.count(), 0);
+    QVERIFY(f.work.lastAutoExplanation(QStringLiteral("D61")).isEmpty());
+    QVERIFY(f.work.generatedExplanationForFeature(draft, uid).isEmpty());
+    QVERIFY(layer->rollBack());
   }
 
   void cancellationDropsStaleBackgroundResult() {
@@ -448,6 +610,35 @@ private slots:
     QCOMPARE(readySpy.count(), 3);
   }
 
+  void formAndExplanationStayWithTheirDraft() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto first = f.work.createBlankMap("D61", &error);
+    const auto second = f.work.createBlankMap("D61", &error);
+    QVERIFY2(!first.isEmpty() && !second.isEmpty(), qPrintable(error));
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.selectLayer(first);
+    auto *text = page.findChild<QPlainTextEdit *>("editBasisText");
+    QVERIFY(text);
+    text->setPlainText("first note");
+    QVERIFY(f.work.setEditEvidence("D61", {{"layer", first}, {"text", text->toPlainText()}}, &error));
+    page.selectLayer(second);
+    QVERIFY(text->toPlainText().isEmpty());
+    QVERIFY(f.work.editEvidenceForLayer(second).isEmpty());
+    QSignalSpy ready(&f.work, &MappingWorkbench::autoExplanationReady);
+    QVERIFY(f.work.requestBackgroundExplanation("D61", first, {}, {}, true, &error));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 5000);
+    QVERIFY(text->toPlainText().isEmpty());
+    QVERIFY(f.work.explanationForTarget(second, {}).isEmpty());
+    text->setPlainText("second note");
+    page.selectLayer(first);
+    QCOMPARE(text->toPlainText(), QStringLiteral("first note"));
+    page.selectLayer(second);
+    QCOMPARE(text->toPlainText(), QStringLiteral("second note"));
+  }
+
   void uiStreamlinedFlowAndOptionalEditBasis() {
     WorkbenchFixture f;
     QVERIFY(f.init());
@@ -457,6 +648,7 @@ private slots:
 
     MappingWorkbenchPage page(QStringLiteral("compose"), &f.work);
     page.setHorizon(QStringLiteral("D61"));
+    page.selectLayer(draft);
     page.show();
     QCoreApplication::processEvents();
 
@@ -492,6 +684,18 @@ private slots:
              qPrintable(error));
     QTRY_VERIFY_WITH_TIMEOUT(readySpy.count() >= 1, 5000);
     QCOMPARE(text->toPlainText(), userTyped);
+    text->clear();
+    reason->clear();
+    readySpy.clear();
+    QVERIFY2(f.work.requestBackgroundExplanation(QStringLiteral("D61"), draft, {}, {}, true, &error),
+             qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(readySpy.count(), 1, 5000);
+    QVERIFY(text->toPlainText().isEmpty());
+    QVERIFY(reason->text().isEmpty());
+    auto *adopt = basis->findChild<QPushButton *>(QStringLiteral("editBasisAdoptDraft"));
+    QVERIFY(adopt);
+    adopt->click();
+    QCOMPARE(text->toPlainText(), readySpy.first().at(1).toMap().value("text").toString());
 
     // 开关和按钮发命令信号（视图只发信号不直接改状态）。
     QSignalSpy cmdSpy(&page, &MappingWorkbenchPage::commandRequested);

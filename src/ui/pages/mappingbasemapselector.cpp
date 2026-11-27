@@ -4,6 +4,7 @@
 #include "mappingeditbasis.h"
 #include "../paleotheme.h"
 #include "../../workflow/mappingworkbench.h"
+#include "../../qgis/faciesmapboundary.h"
 #include <QComboBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -25,23 +26,78 @@ MappingBaseMapSelector::MappingBaseMapSelector(MappingWorkbench *workbench, QWid
   m_category = new QComboBox(group); m_category->setObjectName("baseMapCategory"); m_source = new QComboBox(group); m_source->setObjectName("baseMapSource");
   m_thresholds = new QLineEdit(group); m_thresholds->setObjectName("baseMapThresholds"); m_thresholds->setPlaceholderText(tr("按当前分类填写递增阈值，例如 10, 25"));
   form->addRow(tr("来源分类"), m_category); form->addRow(tr("本层位基础图"), m_source); form->addRow(tr("单因素分相阈值"), m_thresholds);
+  m_initialFacies = new QComboBox(group);
+  m_initialFacies->setObjectName("initialBoundaryFacies");
+  form->addRow(tr("初始微相"), m_initialFacies);
+  m_boundaryPreview = new QLabel(group);
+  m_boundaryPreview->setAccessibleName(tr("工区边界轮廓预览"));
+  form->addRow(m_boundaryPreview);
   m_show = new QPushButton(tr("采用并显示基础图"), group); m_start = new QPushButton(tr("以此建立编图成果"), group); m_show->setObjectName("baseMapShow"); m_start->setObjectName("baseMapStart"); form->addRow(m_show, m_start);
   m_hint = new QLabel(group); m_hint->setWordWrap(true); m_hint->setTextFormat(Qt::PlainText); form->addRow(m_hint);
   connect(m_category, &QComboBox::currentIndexChanged, this, [this] { refresh(); });
   connect(m_source, &QComboBox::currentIndexChanged, this, [this] { updateState(); });
   connect(m_thresholds, &QLineEdit::textChanged, this, [this] { updateState(); });
+  connect(m_initialFacies, &QComboBox::currentIndexChanged, this, [this] {
+    m_start->setEnabled(!m_boundaryDigest.isEmpty() && m_initialFacies->currentData().toInt() > 0);
+  });
   connect(m_show, &QPushButton::clicked, this, [this] { issue(false); }); connect(m_start, &QPushButton::clicked, this, [this] { issue(true); });
   connect(workbench, &MappingWorkbench::changed, this, [this] { refresh(); });
   refresh();
 }
-void MappingBaseMapSelector::setHorizon(const QString &horizon) { m_horizon = horizon; refresh(); }
+void MappingBaseMapSelector::setHorizon(const QString &horizon) {
+  if (m_horizon != horizon) m_initialFacies->setCurrentIndex(-1);
+  m_horizon = horizon;
+  refresh();
+}
+void MappingBaseMapSelector::setReferenceBoundary(const QString &boundary) {
+  if (m_referenceBoundary == boundary) return;
+  m_referenceBoundary = boundary;
+  refresh();
+}
+void MappingBaseMapSelector::refreshInitialFacies() {
+  const int previous = m_initialFacies->currentData().toInt();
+  const QSignalBlocker blocker(m_initialFacies);
+  m_initialFacies->clear();
+  m_initialFacies->addItem(tr("选择范围内的初始微相"), 0);
+  for (const auto &item : m_workbench->facies(m_horizon)) {
+    const auto leaf = item.toMap();
+    m_initialFacies->addItem(QStringLiteral("%1 → %2 → %3").arg(leaf.value("facies").toString(),
+        leaf.value("subfacies").toString(), leaf.value("microfacies").toString()), leaf.value("code"));
+  }
+  m_initialFacies->setCurrentIndex(qMax(0, m_initialFacies->findData(previous)));
+}
+bool MappingBaseMapSelector::updateBoundary(const QString &id) {
+  m_boundaryDigest.clear();
+  m_boundaryMessage.clear();
+  m_boundaryPreview->clear();
+  if (id.isEmpty()) return true;
+  const auto snapshot = m_workbench->prepareMapBoundary(id, &m_boundaryMessage);
+  if (snapshot.isEmpty()) return false;
+  m_boundaryDigest = snapshot.value("digest").toByteArray();
+  const int row = fontMetrics().height();
+  const auto image = FaciesMapBoundary::thumbnail(snapshot.value("wkb").toByteArray(),
+      QSize(row * 13, row * 5), palette().color(QPalette::Text));
+  m_boundaryPreview->setPixmap(QPixmap::fromImage(image));
+  m_boundaryMessage = tr("范围取自「%1」，坐标系为 %2。选定初始微相后，可在这个范围内细分。")
+      .arg(snapshot.value("name").toString(), snapshot.value("crs_label").toString());
+  return true;
+}
 void MappingBaseMapSelector::refresh() {
   const auto selectedCategory = m_category->currentData().toString(), selectedSource = m_source->currentData().toMap().value("id").toString();
-  const QSignalBlocker categoryBlock(m_category), sourceBlock(m_source); const auto rows = m_workbench->baseMapCandidates(m_horizon);
+  const QSignalBlocker categoryBlock(m_category), sourceBlock(m_source); const auto rows = m_workbench->baseMapCandidates(m_horizon, m_referenceBoundary);
   m_category->clear(); m_category->addItem(tr("从零编制"), "new"); QSet<QString> categories;
   for (const auto &v : rows) { const auto row = v.toMap(); const auto key = row.value("category").toString(); if (!categories.contains(key)) { categories.insert(key); m_category->addItem(row.value("category_title").toString(), key); } }
   m_category->setCurrentIndex(qMax(0, m_category->findData(selectedCategory))); m_source->clear();
-  if (m_category->currentData() == "new") m_source->addItem(tr("新建空白古地理图"), QVariantMap{{"id", "new"}, {"start_action", "newMap"}});
+  if (m_category->currentData() == "new") {
+    m_source->addItem(tr("手绘编图范围"), QVariantMap{{"id", "new"}, {"start_action", "newMap"}});
+    for (const auto &value : m_workbench->mapBoundaries()) {
+      auto row = value.toMap();
+      row.insert("boundary", row.value("id"));
+      row.insert("start_action", "newMap");
+      m_source->addItem(tr("使用工区边界 · %1").arg(row.value("name").toString()), row);
+    }
+    refreshInitialFacies();
+  }
   for (const auto &v : rows) if (v.toMap().value("category") == m_category->currentData()) m_source->addItem(v.toMap().value("name").toString(), v);
   for (int i = 0; i < m_source->count(); ++i) if (m_source->itemData(i).toMap().value("id") == selectedSource) m_source->setCurrentIndex(i);
   updateState();
@@ -49,19 +105,30 @@ void MappingBaseMapSelector::refresh() {
 void MappingBaseMapSelector::updateState() {
   const auto row = m_source->currentData().toMap(); const auto action = row.value("start_action").toString();
   const bool continuous = action == "compose";
-  if (auto *form = qobject_cast<QFormLayout *>(m_thresholds->parentWidget()->layout())) form->setRowVisible(m_thresholds, continuous);
+  const auto boundary = row.value("boundary").toString();
+  if (auto *form = qobject_cast<QFormLayout *>(m_thresholds->parentWidget()->layout())) {
+    form->setRowVisible(m_thresholds, continuous);
+    form->setRowVisible(m_initialFacies, !boundary.isEmpty());
+    form->setRowVisible(m_boundaryPreview, !boundary.isEmpty());
+  }
   m_show->setVisible(action != "newMap"); m_show->setEnabled(action != "newMap" && !row.isEmpty());
   m_start->setText(action == "newMap" ? tr("新建并开始编制") : tr("以此建立编图成果")); m_show->setToolTip(row.isEmpty() ? tr("请先导入古地理图或生成本层位的预测／单因素成果") : tr("显示所选图件作为编图基础"));
-  bool valid = true; double previous = -std::numeric_limits<double>::infinity();
+  bool valid = updateBoundary(boundary) && (boundary.isEmpty() || m_initialFacies->currentData().toInt() > 0);
+  double previous = -std::numeric_limits<double>::infinity();
   const auto parts = m_thresholds->text().split(QRegularExpression("[,，;；\\s]+"), Qt::SkipEmptyParts);
   if (continuous) {
     valid = parts.size() == m_workbench->facies(m_horizon).size() - 1;
     for (const auto &part : parts) { bool ok; const auto number = part.toDouble(&ok); valid &= ok && std::isfinite(number) && number > previous; previous = number; }
   }
   m_start->setEnabled(!m_horizon.isEmpty() && !action.isEmpty() && valid);
-  m_start->setToolTip(action.isEmpty() ? tr("此图可作为参考底图；相面编辑需要完整三级相分类和 facies_code 字段") : !valid ? tr("阈值数须为分类数减一，且为有限递增数值") : tr("生成独立成果版本，保留原始图件"));
+  if (row.contains("reference_boundary")) {
+    const auto hint = tr("此图归属界面 %1，可作为当前子层段的空间参考。").arg(row.value("reference_boundary").toString());
+    m_start->setToolTip(hint); m_hint->setText(hint); return;
+  }
+  m_start->setToolTip(!boundary.isEmpty() ? m_initialFacies->itemText(0) : action.isEmpty() ? tr("此图可作为参考底图；相面编辑需要完整三级相分类和 facies_code 字段") : !valid ? tr("阈值数须为分类数减一，且为有限递增数值") : tr("生成独立成果版本，保留原始图件"));
   m_hint->setText(row.isEmpty() ? tr("请先在数据管理中导入本层位古地理图，或生成单因素／地震相图。") :
-      action == "newMap" ? tr("建立空白三级相图后，直接选择目标微相并绘制首个闭合面；解释说明可后台自动生成，非必需先填写。") :
+      !boundary.isEmpty() ? m_boundaryMessage :
+      action == "newMap" ? tr("选择初始微相后，第一笔闭合面将确定整图编制范围。后续图斑在该范围内细分，首次保存前可撤销首笔。") :
       action == "polygonize" ? tr("先将相栅格转为相面，完成后可复制相面进行编辑。") :
       continuous ? tr("单因素按当前相分类的编码顺序分相；不同因子分类列出，避免混用量纲。") :
       action.isEmpty() ? tr("当前图件作为空间参考；未登记三级相归属时不自动推定相类别。") : tr("复制为独立相图工作副本，原始图件保留。"));
@@ -69,7 +136,12 @@ void MappingBaseMapSelector::updateState() {
 void MappingBaseMapSelector::issue(bool start) {
   const auto row = m_source->currentData().toMap(); if (row.isEmpty()) return;
   const auto action = start ? row.value("start_action").toString() : QString("show"); if (action.isEmpty()) return;
-  QVariantMap params{{"horizon", m_horizon}, {"layer", row.value("id")}, {"inputs", QStringList{row.value("id").toString()}}};
+  QVariantMap params{{"horizon", row.value("reference_boundary", m_horizon)}, {"layer", row.value("id")}, {"inputs", QStringList{row.value("id").toString()}}};
+  if (row.contains("boundary")) {
+    params["boundary"] = row.value("boundary");
+    params["boundary_digest"] = m_boundaryDigest;
+    params["initial_facies"] = m_initialFacies->currentData();
+  }
   if (action == "copy") params["inputs"] = QStringList{};
   if (action == "compose") {
     // PW-047：非法阈值（如 "1,5"→拆分后正常；"abc"）不再静默当 0。
@@ -97,10 +169,7 @@ void MappingWorkbenchPage::showEditBasis() {
   // Wait for the restored dock/tab layout before bringing the field into view.
   QTimer::singleShot(0, this, [this, basis] {
     basis->setExpanded(true);
-    auto *text = basis->findChild<QPlainTextEdit *>("editBasisText");
-    auto *reason = basis->findChild<QLineEdit *>("editBasisReason");
-    QWidget *field = !text->toPlainText().trimmed().isEmpty() && reason->text().trimmed().isEmpty()
-                         ? static_cast<QWidget *>(reason) : text;
+    QWidget *field = basis->findChild<QPlainTextEdit *>("editBasisText");
     field->setFocus(Qt::OtherFocusReason);
     if (auto *scroll = findChild<QScrollArea *>()) {
       const auto margin = PaleoTheme::tokens().spacingSm;

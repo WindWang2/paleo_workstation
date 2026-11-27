@@ -1,5 +1,9 @@
 // 层：测试壳
 #include <QtTest>
+#include <QTextBlock>
+#include <QTextDocument>
+#include <QTextList>
+#include <QTextTable>
 
 #include "../src/ai/chat/markdown.h"
 
@@ -15,6 +19,12 @@ private slots:
   void lists();
   void tables();
   void codeFence();
+  void codeFenceInList_data();
+  void codeFenceInList();
+  void quoteTaskAndNestedList();
+  void alignedTableInDocument();
+  void webLinksAndStrikethrough();
+  void delimitersAndLiteralIdentifiers();
   void unknownSyntaxFallsBackToPlainText();
   void scriptLiteralIsEscaped();
   void imgOnerrorLiteralIsEscaped();
@@ -80,13 +90,90 @@ void TestAiMarkdown::codeFence() {
   QVERIFY(!raw.contains(QStringLiteral("<b>")));
 }
 
+void TestAiMarkdown::codeFenceInList_data() {
+  QTest::addColumn<QString>("opening");
+  QTest::newRow("immediate") << QStringLiteral("1. 示例\n   ```python");
+  QTest::newRow("after-blank-line") << QStringLiteral("1. 示例\n\n   ```python");
+  QTest::newRow("at-item-start") << QStringLiteral("1. ```python");
+}
+
+void TestAiMarkdown::codeFenceInList() {
+  QFETCH(QString, opening);
+  const auto html = AiMarkdown::toHtml(opening + QStringLiteral(
+    "\n   if depth < top:\n       return '**GR**'\n\n   ```\n2. 继续"));
+  QVERIFY2(html.contains(QStringLiteral("<pre>if depth &lt; top:<br>    return '**GR**'<br></pre></li><li>继续")), qPrintable(html));
+  QTextDocument doc;
+  doc.setHtml(html);
+  const auto text = doc.toPlainText();
+  QVERIFY2(text.contains(QStringLiteral("    return '**GR**'")), qPrintable(text));
+  QVERIFY(!text.contains(QStringLiteral("```")));
+  QVERIFY(doc.find(QStringLiteral("继续")).block().textList());
+}
+
 void TestAiMarkdown::unknownSyntaxFallsBackToPlainText() {
-  // 链接/引用/嵌套列表不支持：原样显示，不产生对应标签。
+  // 文件、相对链接及图片不触发浏览器导航或资源请求。
   const QString html = AiMarkdown::toHtml(QStringLiteral(
-    "[文档](https://example.com)\n> 引用块"));
+    "[井位](file:///D:/wells.csv) [其他](../map) "
+    "![附件](https://example.com/preview.png)"));
   QVERIFY(!html.contains(QStringLiteral("<a ")));
-  QVERIFY(!html.contains(QStringLiteral("<blockquote")));
-  QVERIFY(html.contains(QStringLiteral("[文档](https://example.com)")));
+  QVERIFY(!html.contains(QStringLiteral("<img")));
+  QVERIFY(html.contains(QStringLiteral("[井位](file:///D:/wells.csv)")));
+  QVERIFY(html.contains(QStringLiteral("![附件](https://example.com/preview.png)")));
+}
+
+void TestAiMarkdown::quoteTaskAndNestedList() {
+  const QString html = AiMarkdown::toHtml(QStringLiteral(
+    "> **依据**\n> 相邻井\n\n- [x] 核对井位\n  先查井头\n  1. 对照岩性\n- [ ] 复测\n\n---"));
+  QVERIFY(html.contains(QStringLiteral("<blockquote><p><b>依据</b><br>相邻井</p></blockquote>")));
+  QVERIFY(html.contains(QStringLiteral("<hr>")));
+  QVERIFY(html.contains(QStringLiteral("核对井位<br>先查井头<ol>")));
+  QTextDocument doc;
+  doc.setHtml(html);
+  const auto checked = doc.find(QStringLiteral("核对井位")).block();
+  const auto nested = doc.find(QStringLiteral("对照岩性")).block();
+  const auto unchecked = doc.find(QStringLiteral("复测")).block();
+  QVERIFY(checked.textList() && nested.textList());
+  QCOMPARE(checked.blockFormat().marker(), QTextBlockFormat::MarkerType::Checked);
+  QCOMPARE(unchecked.blockFormat().marker(), QTextBlockFormat::MarkerType::Unchecked);
+  QVERIFY(nested.textList()->format().indent() > checked.textList()->format().indent());
+}
+
+void TestAiMarkdown::alignedTableInDocument() {
+  QTextDocument doc;
+  doc.setHtml(AiMarkdown::toHtml(QStringLiteral(
+    "井号 | 顶深 (m)\r\n:--- | ---:\r\nA\\|1 | 1250.2")));
+  const auto cursor = doc.find(QStringLiteral("1250.2"));
+  const auto *table = cursor.currentTable();
+  QVERIFY(table);
+  QCOMPARE(table->columns(), 2);
+  QCOMPARE(table->rows(), 2);
+  QCOMPARE(table->cellAt(1, 0).firstCursorPosition().block().text(), QStringLiteral("A|1"));
+  QVERIFY(cursor.blockFormat().alignment().testFlag(Qt::AlignRight));
+}
+
+void TestAiMarkdown::webLinksAndStrikethrough() {
+  const QString html = AiMarkdown::toHtml(QStringLiteral(
+    "[**资料**](https://example.com/well_(A)?x=1&y=2) ~~旧结论~~ `**原始**`"));
+  QVERIFY(html.contains(QStringLiteral("x=1&amp;y=2")));
+  QTextDocument doc;
+  doc.setHtml(html);
+  auto link = doc.find(QStringLiteral("资料")).charFormat();
+  QCOMPARE(link.anchorHref(), QStringLiteral("https://example.com/well_(A)?x=1&y=2"));
+  QVERIFY(doc.find(QStringLiteral("旧结论")).charFormat().fontStrikeOut());
+  QVERIFY(doc.toPlainText().contains(QStringLiteral("**原始**")));
+  QCOMPARE(AiMarkdown::toHtml(QStringLiteral("~~~~\na\n~~~\nb\n~~~~")),
+           QStringLiteral("<pre>a<br>~~~<br>b</pre>"));
+}
+
+void TestAiMarkdown::delimitersAndLiteralIdentifiers() {
+  const QString html = AiMarkdown::toHtml(QStringLiteral(
+    "_可选_ __井号__ well_log_id **命令 `**` 结束** ``x`y`` \\*原文\\*"));
+  QVERIFY(html.contains(QStringLiteral("<i>可选</i> <b>井号</b> well_log_id")));
+  QVERIFY(html.contains(QStringLiteral("<b>命令 <code>**</code> 结束</b>")));
+  QVERIFY(html.contains(QStringLiteral("<code>x`y</code> *原文*")));
+
+  const QString incomplete = QStringLiteral("*open ").repeated(12000).trimmed();
+  QCOMPARE(AiMarkdown::toHtml(incomplete), QStringLiteral("<p>%1</p>").arg(incomplete));
 }
 
 void TestAiMarkdown::scriptLiteralIsEscaped() {

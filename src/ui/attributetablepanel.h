@@ -10,6 +10,7 @@
 
 class QgsAttributeTableFilterModel;
 class QgsAttributeTableModel;
+class QLabel;
 class QgsMapCanvas;
 class QgsVectorLayer;
 class QgsAttributeTableDialog;
@@ -35,6 +36,7 @@ class AttributeTablePanel : public QWidget
     void setLayerIds(const QStringList &ids, const QStringList &names = {});
     void showLayer(const QString &layerId);    // select + load its table
     QString currentLayerId() const;
+    QgsVectorLayer *currentLayer() const;
 
     // 会话注入（可选）：null → 直连降级。接线是壳面动作（见
     // docs/progress/mapping.md seam 表）。
@@ -60,7 +62,6 @@ class AttributeTablePanel : public QWidget
     void editRefused(const QString &reason);
 
   private:
-    QgsVectorLayer *currentLayer() const;
     void clearTable();
     void updateEditRowStates();
 
@@ -70,6 +71,7 @@ class AttributeTablePanel : public QWidget
     QPointer<QgsVectorLayer> m_currentLayer;
     QString m_currentLayerId;
     PaleoAttributeTableHost *m_host = nullptr;
+    QLabel *m_pendingChanges = nullptr;
     QWidget *m_tableHost = nullptr;
     QgsAttributeTableDialog *m_nativeDialog = nullptr;
     QMetaObject::Connection m_layerDestroyed;

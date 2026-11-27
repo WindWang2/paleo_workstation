@@ -4,17 +4,25 @@
 // 共用同一个 AppContext + PaleoMainWindow + attachWorkflows 真实壳，驱动
 // 「工程生命周期 × 组装根接线」边界：入口调用时现取 projectDir/gpkg（#275）、
 // 关窗/切工程检查 QgsProject 脏状态（#282）、切工程状态残留（#236）。
+#include "metadata/releasestore.h"
+#include "metadata/metastore.h"
+#include "workflow/projectopen.h"
 #include <QApplication>
 #include <QAction>
 #include <QAbstractButton>
 #include <QDateTime>
 #include <QDialog>
+#include <QDomDocument>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QLabel>
+#include <QMenu>
+#include <QMessageBox>
+#include <qgsvectorlayer.h>
+#include <qgsgeometry.h>
 #include <QPushButton>
 #include <QDirIterator>
 #include <QSettings>
@@ -24,10 +32,12 @@
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QToolButton>
 #include <QtTest>
 #include <QListWidget>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <atomic>
@@ -53,6 +63,8 @@
 #include "../src/workflow/wellsitingworkflow.h"
 
 #include <qgsproject.h>
+#include <qgsmapcanvas.h>
+#include <qgssnappingutils.h>
 
 namespace
 {
@@ -237,6 +249,7 @@ private slots:
     QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).clear();
     m_win = new PaleoMainWindow(m_ctx->canvasCtl(), m_ctx->projectSvc(),
                                 m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+    m_win->setSharedPreviewServices(m_ctx->previewDoc(), m_ctx->seismicTaskSvc());
     m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
                            m_ctx->compositionWf(), m_ctx->validationWf(),
                            m_ctx->importSvc(), m_ctx->seismicLink(),
@@ -427,6 +440,7 @@ private slots:
           ++askCount;
           return choice;
         });
+    const auto resetAsk = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
 
     // 「取消」：原地不动（仍停留在 B），目标工程不得被打开。
     emit list->itemActivated(item);
@@ -439,22 +453,28 @@ private slots:
     QTest::qWait(60); // 保证 mtime 可辨
     const QDateTime before = QFileInfo(m_qgzB).lastModified();
     choice = PaleoNotify::SaveChoice::Save;
+    QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
     emit list->itemActivated(item);
-    QApplication::processEvents();
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
     QCOMPARE(askCount, 2);
-    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzA, 5000);
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzA);
     QVERIFY2(QFileInfo(m_qgzB).lastModified() > before,
              "选保存后当前工程 .qgz 必须落盘（mtime 更新）");
 
-    m_win->setProjectSaveAskForTesting(nullptr);
   }
 
   // #282：干净的工程切换不打扰——一次询问都不弹。
   void switchCleanProjectDoesNotAsk()
   {
-    // 当前工程（上一测试切回的 A）完整落成 → 落盘清脏。
-    QVERIFY(m_ctx->projectSvc()->writeProject());
-    QVERIFY2(!m_ctx->projectSvc()->project()->isDirty(), "写盘后工程应为干净");
+    QTemporaryDir source, destination;
+    QVERIFY(source.isValid() && destination.isValid());
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
+    const auto target = destination.filePath("destination.qgz");
+    QVERIFY(service->createProject(target));
+    QVERIFY(service->createProject(source.filePath("source.qgz")));
+    QVERIFY2(service->writeProject(), qPrintable(service->lastErrors().join('\n')));
     QVERIFY2(!m_ctx->projectSvc()->project()->isDirty(), "写盘后工程应为干净");
 
     int askCount = 0;
@@ -463,23 +483,84 @@ private slots:
           ++askCount;
           return PaleoNotify::SaveChoice::Cancel;
         });
-    // 切回 B（上一测试完整落成的工程；其 .qgz 已带 native 吸附配置，
-    // 重开不再触发 snapping 替换改脏）。
+    const auto resetAsk = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
     auto *list = recentList();
     QVERIFY(list);
-    QString target;
-    for (int i = 0; i < list->count() && target.isEmpty(); ++i)
-      if (QListWidgetItem *it = list->item(i))
-        if (it->data(Qt::UserRole).toString() == m_qgzB)
-          target = m_qgzB;
-    QVERIFY2(!target.isEmpty(), "最近列表应含上一测试创建的 B");
-    auto *item = new QListWidgetItem(target, list);
-    item->setData(Qt::UserRole, target);
+    QListWidgetItem *item = nullptr;
+    for (int i = 0; i < list->count(); ++i)
+      if (list->item(i)->data(Qt::UserRole).toString() == target) { item = list->item(i); break; }
+    QVERIFY2(item, "最近列表应含本用例创建的目标工程");
+    QSignalSpy finished(service, &QgisProjectService::openFinished);
     emit list->itemActivated(item);
-    // 切换经 ProjectOpenWorkflow 异步打开——等终态再断言（不脏则一次都不问）。
-    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzB, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
+    QCOMPARE(service->projectPath(), target);
     QCOMPARE(askCount, 0); // 不脏不问
-    m_win->setProjectSaveAskForTesting(nullptr);
+  }
+
+  void projectSaveAndPartialLayerCommitKeepUnfinishedEdits() {
+    QTemporaryDir dir;
+    QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("edits.qgz")));
+    auto *project = m_ctx->projectSvc()->project();
+    QList<QgsVectorLayer *> layers;
+    for (const auto &name : {QStringLiteral("aaa"), QStringLiteral("bbb"), QStringLiteral("ccc")}) {
+      auto *layer = new QgsVectorLayer("Point?crs=EPSG:4326", name, "memory");
+      QVERIFY(project->addMapLayer(layer));
+      QVERIFY(layer->startEditing());
+      QgsFeature added(layer->fields());
+      added.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(1, 2)));
+      QVERIFY(layer->addFeature(added));
+      layers << layer;
+    }
+    std::sort(layers.begin(), layers.end(), [](const auto *a, const auto *b) { return a->id() < b->id(); });
+    auto *save = m_win->findChild<QAction *>("saveProjectAction");
+    QVERIFY(save);
+    save->trigger();
+    for (auto *layer : layers) {
+      QVERIFY(layer->isEditable() && layer->isModified());
+      QVERIFY(m_win->statusBar()->currentMessage().contains(layer->name()));
+    }
+    auto *pending = m_win->statusBar()->findChild<QToolButton *>("projectPendingEdits");
+    QVERIFY(pending && pending->menu());
+    QCOMPARE(pending->menu()->actions().size(), 3);
+    auto reject = connect(layers[1], &QgsVectorLayer::beforeCommitChanges, layers[1],
+                          [layer = layers[1]] { layer->setAllowCommit(false); });
+    m_win->setProjectSaveAskForTesting([](const QString &, const QString &) { return PaleoNotify::SaveChoice::Save; });
+    const auto cleanup = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
+    const bool expectsDialog = QApplication::platformName() != QStringLiteral("offscreen");
+    QString failureText;
+    QTimer dismissFailure;
+    connect(&dismissFailure, &QTimer::timeout, this, [&] {
+      for (auto *box : m_win->findChildren<QMessageBox *>(QString(), Qt::FindDirectChildrenOnly)) {
+        if (!box->isModal() || box->icon() != QMessageBox::Critical ||
+            box->windowTitle() != PaleoMainWindow::tr("保存编辑失败")) continue;
+        dismissFailure.stop();
+        failureText = box->text();
+        box->accept();
+        return;
+      }
+    });
+    if (expectsDialog) dismissFailure.start(10);
+    QVERIFY(!m_win->resolveDirtyLayerEdits());
+    if (expectsDialog) {
+      QVERIFY2(failureText.contains(layers[1]->name()), qPrintable(failureText));
+      QVERIFY2(failureText.contains(PaleoMainWindow::tr("已提交：%1").arg(layers[0]->name())), qPrintable(failureText));
+      QVERIFY2(failureText.contains(PaleoMainWindow::tr("尚未提交：%1").arg(layers[2]->name())), qPrintable(failureText));
+    }
+    QVERIFY(!layers[0]->isEditable());
+    QVERIFY(layers[1]->isEditable() && layers[1]->isModified());
+    QVERIFY(layers[2]->isEditable() && layers[2]->isModified());
+    disconnect(reject);
+    layers[1]->setAllowCommit(true);
+    // Retry from the same project-save menu. Each action still owns its original layer.
+    QVERIFY(!pending->menu()->actions().first()->isEnabled());
+    for (auto *action : pending->menu()->actions())
+      if (action->isEnabled()) action->trigger();
+    for (auto *layer : layers) {
+      QVERIFY(!layer->isEditable());
+      QCOMPARE(layer->featureCount(), 1);
+    }
+    QVERIFY(pending->isHidden());
   }
 
   void projectSourcesAsksOnceBeforeOpeningDialog()
@@ -586,6 +667,11 @@ private slots:
   // 没有打开工程时，空 QgsProject 被标脏也不问。关窗、再开别的工程都直接放行。
   void noOpenProjectDoesNotAskToDiscard()
   {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString other = dir.filePath(QStringLiteral("other.qgz"));
+    { QgsProject project; QVERIFY(project.write(other)); }
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
     m_ctx->closeProject();
     QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
     QgsProject *proj = m_ctx->projectSvc()->project();
@@ -598,6 +684,7 @@ private slots:
           ++askCount;
           return PaleoNotify::SaveChoice::Cancel;
         });
+    const auto resetAsk = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
     QVERIFY(m_win->maybeSaveProject());
     QCOMPARE(askCount, 0);
 
@@ -606,12 +693,12 @@ private slots:
     QVERIFY2(!m_win->isVisible(), "没有打开工程时关窗不得被放弃对话框拦住");
     QCOMPARE(askCount, 0);
 
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    const QString other = dir.filePath(QStringLiteral("other.qgz"));
+    QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
     m_win->openPath(other);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), other);
     QCOMPARE(askCount, 0);
-    m_win->setProjectSaveAskForTesting(nullptr);
   }
 
   // #226：解释登记链生产接线——打开工程即注入 catalog + 源体资产/版本 +
@@ -703,6 +790,57 @@ private slots:
     m_ctx->closeProject();
   }
 
+  void outsideDataRootOpensReadOnlyAndMigratesWithoutTouchingSource()
+  {
+    m_ctx->closeProject();
+    QTemporaryDir old, data;
+    QVERIFY(old.isValid() && data.isValid());
+    auto *service = m_ctx->projectSvc();
+    service->setWritableProjectRoot(data.path());
+    const auto restore = qScopeGuard([&]{ m_ctx->closeProject(); service->setWritableProjectRoot({}); });
+    const QString qgz = old.filePath("old.qgz");
+    { QgsProject layerProject; QVERIFY(layerProject.write(qgz)); }
+    const auto listed = [&]{ return QDir(old.path()).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot); };
+    const auto bare = listed();
+    QVERIFY(service->openProject(qgz));
+    QVERIFY(m_ctx->isProjectReadOnly());
+    QVERIFY(!service->writeProject());
+    m_ctx->closeProject();
+    QCOMPARE(listed(), bare);
+    QVERIFY(!service->createProject(old.filePath("refused.qgz")));
+    QCOMPARE(listed(), bare);
+    QVERIFY(writeProjectFile(old.path(), projectFileForQgz(qgz)));
+    const QString db = qgz + ".project.sqlite";
+    { ReleaseStore history(db); QVERIFY(!history.createRelease("existing-release", {}, {}).isEmpty()); }
+    MetaStore::closeConnectionsFor(db);
+    const auto readDb = [&] { QFile file(db); return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray(); };
+    const QByteArray initialDb = readDb();
+    QVERIFY(!initialDb.isEmpty());
+    const auto bundled = listed();
+    QSignalSpy opened(service, &QgisProjectService::openFinished);
+    QVERIFY(service->openProjectAsync(paleoProjectFilePath(old.path())));
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 60000);
+    QVERIFY(service->isReadOnly());
+    QCOMPARE(listed(), bundled);
+    auto *releaseList = m_win->findChild<QTreeWidget *>("releaseList");
+    QVERIFY(releaseList && releaseList->topLevelItemCount() == 1);
+    QCOMPARE(releaseList->topLevelItem(0)->text(1), QStringLiteral("existing-release"));
+    QCOMPARE(readDb(), initialDb);
+    ProjectOpenWorkflow workflow(service);
+    QVERIFY(workflow.needsDataVolumeCopy());
+    workflow.copyCurrentTo(data.path(), m_ctx->taskSvc());
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 2, 60000);
+    QVERIFY(opened.last().first().toBool());
+    QVERIFY(service->allowsProjectWritesAt(QFileInfo(service->projectPath()).absolutePath()));
+    QVERIFY(!m_ctx->isProjectReadOnly());
+    QVERIFY(service->writeProject());
+    QCOMPARE(listed(), bundled);
+    QCOMPARE(readDb(), initialDb); // Switching directly from read-only to writable cannot touch the old store.
+    m_ctx->closeProject();
+    QVERIFY(service->openProject(qgz));
+    QVERIFY(m_ctx->isProjectReadOnly());
+  }
+
   void nestedManifestUsesQgisDirectoryLockAndDoesNotAdoptReadOnly()
   {
     m_ctx->closeProject();
@@ -719,6 +857,9 @@ private slots:
 
     ProjectDirLock writer(child);
     QVERIFY(writer.tryLock());
+    int readOnlyDecisions = 0;
+    m_ctx->setLockConflictResolver([&](const QString &) { ++readOnlyDecisions; return true; });
+    const auto resetResolver = qScopeGuard([this] { m_ctx->setLockConflictResolver({}); });
     auto *service = m_ctx->projectSvc();
     QSignalSpy finished(service, &QgisProjectService::openFinished);
     QVERIFY(service->openProjectAsync(paleoProjectFilePath(directory.path())));
@@ -734,12 +875,14 @@ private slots:
     QVERIFY(service->isReadOnly());
     QVERIFY(!QFileInfo::exists(paleoProjectFilePath(child)));
     m_ctx->closeProject();
+    QCOMPARE(readOnlyDecisions, 2);
 
     // A subsequent writable open can still adopt a legacy bare QGIS file.
     writer.unlock();
     QVERIFY(service->openProject(qgz));
     QVERIFY(!service->isReadOnly());
     QVERIFY(QFileInfo::exists(paleoProjectFilePath(child)));
+    QCOMPARE(readOnlyDecisions, 2);
     m_ctx->closeProject();
   }
 
@@ -750,12 +893,16 @@ private slots:
     { QgisProjectService writer; QVERIFY(writer.createProject(path)); }
     auto entered = std::make_shared<std::atomic_bool>(false);
     auto release = std::make_shared<QSemaphore>();
-    const auto releaseOnExit = qScopeGuard([release] { release->release(); });
-    m_ctx->projectSvc()->setOpenPreparation([=](const QString &) {
+    auto *service = m_ctx->projectSvc();
+    const auto restore = qScopeGuard([service, previous = service->openPreparation(), release] {
+      service->setOpenPreparation(previous);
+      release->release();
+    });
+    service->setOpenPreparation([=](const QString &) {
       return [=](const std::function<bool()> &) { entered->store(true); release->acquire(); };
     });
-    QSignalSpy drained(m_ctx->projectSvc(), &QgisProjectService::openWorkerFinished);
-    QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
+    QSignalSpy drained(service, &QgisProjectService::openWorkerFinished);
+    QVERIFY(service->openProjectAsync(path));
     QTRY_VERIFY_WITH_TIMEOUT(entered->load(), 10000);
     ProjectDirLock competitor(directory.path());
     QVERIFY(!competitor.tryLock());
@@ -763,13 +910,13 @@ private slots:
     auto *cancel = m_win->findChild<QToolButton *>(QStringLiteral("cancelProjectOpenButton"));
     QVERIFY(cancel && cancel->isEnabled());
     QTest::mouseClick(cancel, Qt::LeftButton);
-    QVERIFY(m_ctx->projectSvc()->lastOpenCancelled());
+    QVERIFY(service->lastOpenCancelled());
     m_ctx->closeProject();
     QVERIFY(!competitor.tryLock());
     release->release();
     QTRY_COMPARE(drained.count(), 1);
     QVERIFY(competitor.tryLock());
-    QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
+    QVERIFY(service->projectPath().isEmpty());
   }
   void backgroundOpenBlocksEditingInputAndRestoresItOnCancel()
   {
@@ -813,20 +960,59 @@ private slots:
     QCOMPARE(floatingClicks.count(), 1);
   }
 
+  void backgroundOpenRestoresCatalogSurveyLayer()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath("survey.qgz");
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
+    QVERIFY(service->createProject(path));
+    m_ctx->closeProject();
+    {
+      // Add a survey while the project is closed. The QGZ contains no saved
+      // survey layer, so only the post-open catalog restoration can display it.
+      DataCatalog catalog;
+      QString error;
+      QVERIFY2(catalog.open(directory.path(), &error), qPrintable(error));
+      CatalogEntity survey;
+      survey.id = "test-survey"; survey.entityType = "seismic_survey"; survey.name = "Test";
+      survey.corners = {{0, 0}, {100, 0}, {100, 100}, {0, 100}};
+      QVERIFY2(catalog.addEntity(survey, &error), qPrintable(error));
+    }
+    QSignalSpy finished(service, &QgisProjectService::openFinished);
+    QVERIFY(service->openProjectAsync(path));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->layerSvc()->isInstantiated("survey.area"), 10000);
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_ctx->layerSvc()->layer("survey.area"));
+    QVERIFY(layer && layer->isValid());
+    QCOMPARE(layer->featureCount(), 1);
+  }
+
   void realProjectBackgroundResponsiveness()
   {
     const QString path = qEnvironmentVariable("PALEO_BACKGROUND_PROJECT");
     if (path.isEmpty()) QSKIP("Set PALEO_BACKGROUND_PROJECT to a disposable project copy");
     QElapsedTimer pulse; pulse.start();
     qint64 last = 0, maximum = 0;
-    QString stage, slowStage;
+    QString stage, slowStage, previousTickStage;
+    QStringList arrivals;
+    qint64 slowStart = 0;
     const auto progressConnection = connect(m_ctx->projectSvc(), &QgisProjectService::openProgress, this,
-            [&](int, const QString &text) { stage = text; });
+            [&](int percent, const QString &text) {
+      stage = text;
+      arrivals.append(QStringLiteral("%1 ms (%2%) %3").arg(pulse.elapsed()).arg(percent).arg(text));
+    });
     const auto disconnectProgress = qScopeGuard([progressConnection] { QObject::disconnect(progressConnection); });
     QTimer heartbeat; heartbeat.setInterval(10);
     connect(&heartbeat, &QTimer::timeout, this, [&] {
-      const auto now = pulse.elapsed(); const auto lag = now - last; last = now;
-      if (lag > maximum) { maximum = lag; slowStage = stage; }
+      const auto now = pulse.elapsed(); const auto lag = now - last;
+      if (lag > maximum) {
+        maximum = lag; slowStart = last;
+        slowStage = previousTickStage + QStringLiteral(" -> ") + stage;
+      }
+      last = now; previousTickStage = stage;
     }); heartbeat.start();
     QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
     QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->projectSvc()->isOpening(), 60000);
@@ -837,6 +1023,7 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(status->isHidden(), 60000);
     QTRY_COMPARE_WITH_TIMEOUT(m_ctx->taskSvc()->runningCount(), 0, 60000);
     const auto idle = [this] {
+      if (m_ctx->previewDoc()->hasPendingLasResults()) return false;
       for (auto *watcher : m_win->findChildren<QFutureWatcherBase *>()) if (watcher->isRunning()) return false;
       for (auto *preview : m_win->findChildren<PreviewDocService *>())
         if (preview->hasPendingLasResults()) return false;
@@ -844,7 +1031,8 @@ private slots:
     };
     QTRY_VERIFY_WITH_TIMEOUT(idle(), 60000);
     QTest::qWait(250);
-    qInfo() << "Maximum UI heartbeat gap:" << maximum << "ms at" << slowStage;
+    qInfo().noquote() << "Project-open progress:" << arrivals.join(QStringLiteral(" | "));
+    qInfo() << "Maximum UI heartbeat gap:" << maximum << "ms from" << slowStart << "ms at" << slowStage;
     QVERIFY2(maximum < 500, qPrintable(QString("UI blocked for %1 ms at %2").arg(maximum).arg(slowStage)));
     m_ctx->closeProject();
   }
@@ -876,6 +1064,80 @@ private slots:
     if (m_ctx->aiChat())
       QVERIFY2(m_ctx->aiChat()->projectBrief().contains(QStringLiteral("未打开")),
                qPrintable(m_ctx->aiChat()->projectBrief()));
+  }
+
+  void reopeningPreservesSavedSnapping_data()
+  {
+    QTest::addColumn<bool>("background");
+    QTest::addColumn<bool>("enabled");
+    QTest::newRow("sync-disabled") << false << false;
+    QTest::newRow("async-disabled") << true << false;
+    QTest::newRow("async-map-units") << true << true;
+  }
+  void reopeningPreservesSavedSnapping()
+  {
+    QFETCH(bool, background);
+    QFETCH(bool, enabled);
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("snapping.qgz"));
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([service] { service->closeProject(); });
+    QVERIFY(service->createProject(path));
+    auto *project = service->project();
+    QVERIFY(project->snappingConfig().enabled());
+    auto config = project->snappingConfig();
+    config.setEnabled(enabled);
+    config.setTolerance(17.5);
+    config.setUnits(enabled ? Qgis::MapToolUnit::Project : Qgis::MapToolUnit::Pixels);
+    project->setSnappingConfig(config);
+    QVERIFY(service->writeProject());
+    service->closeProject();
+    if (background) {
+      QSignalSpy opened(service, &QgisProjectService::projectOpened);
+      QVERIFY(service->openProjectAsync(path));
+      QTRY_COMPARE_WITH_TIMEOUT(opened.size(), 1, 30000);
+    } else QVERIFY(service->openProject(path));
+    const auto restored = project->snappingConfig();
+    QCOMPARE(restored.enabled(), enabled);
+    QCOMPARE(restored.units(), config.units());
+    QCOMPARE(restored.tolerance(), config.tolerance());
+    const auto canvas = m_ctx->canvasCtl()->canvas()->snappingUtils()->config();
+    QCOMPARE(canvas.enabled(), enabled);
+    QCOMPARE(canvas.units(), config.units());
+    QCOMPARE(canvas.tolerance(), config.tolerance());
+    QVERIFY(!project->isDirty());
+    QVERIFY(!m_win->isWindowModified());
+    auto edited = restored;
+    edited.setEnabled(!enabled);
+    project->setSnappingConfig(edited);
+    QVERIFY(project->isDirty());
+    QVERIFY(m_win->isWindowModified());
+  }
+  void openingLegacyProjectWithoutSnappingUsesWorkspaceDefaults()
+  {
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("legacy.qgs"));
+    QgsProject saved;
+    QVERIFY(saved.write(path));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QDomDocument document;
+    QVERIFY(document.setContent(file.readAll()));
+    file.close();
+    auto root = document.documentElement();
+    auto snapping = root.firstChildElement(QStringLiteral("snapping-settings"));
+    QVERIFY(!snapping.isNull());
+    root.removeChild(snapping);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QVERIFY(file.write(document.toByteArray()) > 0);
+    file.close();
+    auto *service = m_ctx->projectSvc();
+    QVERIFY(service->openProject(path));
+    const auto config = service->project()->snappingConfig();
+    QVERIFY(config.enabled());
+    QCOMPARE(config.units(), Qgis::MapToolUnit::Pixels);
+    QCOMPARE(config.tolerance(), QgisCanvasController::nativeSnappingConfig().tolerance());
+    service->closeProject();
   }
 };
 

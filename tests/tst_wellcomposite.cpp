@@ -88,7 +88,7 @@ private slots:
     panel.resize(1000, 700);
     const QPixmap shot = panel.grab();
     QVERIFY(!shot.isNull());
-    QCOMPARE(shot.size(), QSize(1000, 700));
+    QCOMPARE(shot.size(), panel.size() * panel.devicePixelRatioF());
   }
 
   // ---- #412 短边裁口径：depths/values 不等长时 valueAtDepth 不得越界读 ----
@@ -331,6 +331,26 @@ private slots:
       return QStringLiteral("真实井综合柱状图 XML 未配置：设 PALEO_WELLCOMPOSITE_XML=<xml> 或 "
                             "PALEO_REAL_PROJECT_AREA=<project_area> 以运行");
     return QStringLiteral("真实井综合柱状图 XML 不存在：%1").arg(xmlPath);
+  }
+
+  void opensHyCurveWorkbookInCompositePanel()
+  {
+    const auto root = qEnvironmentVariable("PALEO_HY_SOURCE_ROOT");
+    if (root.isEmpty()) QSKIP("Set PALEO_HY_SOURCE_ROOT for the HY field data check");
+    const auto path = QDir(root).filePath(QStringLiteral("单井数据/HZ28-6-1.xml"));
+    ComprehensiveWellData data;
+    QString error;
+    QVERIFY2(parseComprehensiveWellXml(path, data, &error), qPrintable(error));
+    QCOMPARE(data.wellName, QStringLiteral("HZ28-6-1"));
+    QCOMPARE(data.lithologyIntervals.size(), 72);
+    QCOMPARE(data.formationIntervals.size(), 19);
+    QVERIFY(!data.continuousCurves.isEmpty());
+    WellCompositePanel panel;
+    QVERIFY(panel.loadComprehensiveXml(path));
+    QCOMPARE(panel.wellName(), data.wellName);
+    QCOMPARE(panel.canvas()->minDepth(), 681.125);
+    QVERIFY(panel.canvas()->maxDepth() >= 2453.25);
+    QVERIFY(panel.canvas()->trackCount() >= 5);
   }
 
   void testParseComprehensiveXmlRealData()

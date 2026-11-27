@@ -1,5 +1,7 @@
 # 基准运行手册（wave/io-perf-cache P4，D8）
 
+Windows 原生工作台的实测结果涵盖工程打开、HY 井与地震数据、SMI 层位及图件导出。[工作台与模块性能复测](WINDOWS_MODULE_PERFORMANCE_20261128.md)
+
 ## 1. selfcheck perf 组（D8.1）
 
 ```bash

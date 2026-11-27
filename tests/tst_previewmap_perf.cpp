@@ -20,6 +20,7 @@
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 #include <QElapsedTimer>
+#include <QLabel>
 #include <QTabWidget>
 
 // P2 D6.x 性能预算：首次打开 <300ms（fixture 数据，D6.7）、渲染缓存二开
@@ -79,32 +80,40 @@ void TestPreviewMapPerf::renderCacheHitOnReopen()
                                 QStringLiteral("D61_sample.dat"), QStringLiteral("D61.dat"));
   const QString d61 = st->importSvc->importProjectFile(d61Path, &err);
   QVERIFY(!d61.isEmpty());
-  PreviewRenderCache::instance().clearMemoryForTesting();
-
-  // 第一次开：渲染完成后落缓存。
-  st->preview->openAsset(d61);
-  auto *page = st->preview->findChild<QWidget *>(QStringLiteral("horizonPreviewPage"));
-  QVERIFY(page);
   st->preview->resize(1100, 700);
   st->preview->show();
-  QTest::qWaitForWindowExposed(st->preview.get());
-  QTest::qWait(400); // 等 singleShot 缩放 + 首帧
-  auto *canvas = page->findChild<QgsMapCanvas *>(QStringLiteral("horizonMapCanvas"));
-  QVERIFY(canvas);
-  const QSize sz = canvas->size();
-  QVERIFY(!sz.isEmpty());
-  // 与 horizon 分支同源：预览选中最新 DERIVED 版本（identity 的 versionId）。
-  QString derivedId;
-  for (const CatalogVersion &cv : st->importSvc->catalog()->versionsForAsset(d61))
-    if (cv.stage == QLatin1String("DERIVED"))
-      derivedId = cv.id; // versionsForAsset 按 versionNumber 升序——最后即最新
-  QVERIFY(!derivedId.isEmpty());
-  const QString key = PreviewRenderCache::makeKey(d61, derivedId, canvas->extent(),
-                                                  sz.width(), sz.height());
-  // 二开同资产同范围：缓存命中给非空图（D6.2）。
-  const QImage cached = PreviewRenderCache::instance().lookup(key);
-  qInfo() << "PERF cache-hit:" << !cached.isNull() << key.left(40);
-  QVERIFY(!cached.isNull());
+  QVERIFY(QTest::qWaitForWindowExposed(st->preview.get()));
+  st->preview->openAsset(d61);
+  auto *page = st->preview->findChild<PreviewMapPage *>("horizonPreviewPage");
+  QVERIFY(page);
+  const auto *catalog = st->importSvc->catalog();
+  const QString assetKey = PreviewRenderCache::projectAssetKey(catalog->projectDir(), d61);
+  const auto version = catalog->currentVersion(d61);
+  QCOMPARE(version.stage, QStringLiteral("DERIVED"));
+  const auto keyFor = [&](PreviewMapPage *map) {
+    const auto *canvas = map->mapCanvas()->canvas();
+    return PreviewRenderCache::makeKey(assetKey, version.id, canvas->extent(), canvas->width(), canvas->height(),
+                                       canvas->devicePixelRatioF());
+  };
+  QSignalSpy rendered(page->mapCanvas(), &PreviewMapCanvas::renderCompleted);
+  QTRY_VERIFY_WITH_TIMEOUT(!rendered.isEmpty(), 10000);
+  // Wait for the completed frame's debounce, including any final layout resize.
+  auto &cache = PreviewRenderCache::instance();
+  QTRY_VERIFY_WITH_TIMEOUT(!cache.lookup(keyFor(page)).isNull(), 10000);
+  const QImage cached = cache.lookup(keyFor(page));
+  st->preview->closeAssetTab(d61);
+  QVERIFY(!st->preview->findChild<PreviewMapPage *>("horizonPreviewPage"));
+  cache.clearMemoryForTesting(); // Reopen exercises disk rehydration as well.
+  st->preview->openAsset(d61);
+  auto *reopened = st->preview->findChild<PreviewMapPage *>("horizonPreviewPage");
+  QVERIFY(reopened);
+  QSignalSpy rerendered(reopened->mapCanvas(), &PreviewMapCanvas::renderCompleted);
+  // The label is created only when the real tab's primeRenderCache found an image.
+  QTRY_VERIFY_WITH_TIMEOUT(reopened->findChild<QLabel *>("previewSnapshotOverlay"), 10000);
+  const auto pixmap = reopened->findChild<QLabel *>("previewSnapshotOverlay")->pixmap();
+  QCOMPARE(pixmap.toImage(), QPixmap::fromImage(cached).toImage());
+  QTRY_VERIFY_WITH_TIMEOUT(!rerendered.isEmpty() && !reopened->mapCanvas()->overlayVisible(), 10000);
+  qInfo() << "PERF cache-hit on reopened horizon:" << pixmap.size();
 }
 
 void TestPreviewMapPerf::snapshotRenderFast()

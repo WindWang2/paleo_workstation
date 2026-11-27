@@ -19,6 +19,7 @@ LayerT *pinPreviewCrsToLayer(PreviewMapPage *page, LayerT *layer)
 #include "../paleotheme.h"
 #include "../paleoicons.h"
 #include "../../catalog/datacatalog.h"
+#include "../../qgis/previewrendercache.h"
 #include "../../domain/faciescatalog.h"
 #include "../../domain/seismicclusterproduct.h"
 #include "../../domain/singlefactorrequest.h"
@@ -146,7 +147,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
     page->setObjectName(QStringLiteral("mapProductPreviewPage"));
     page->setAssetKey(assetId);
-    page->setRenderCacheIdentity(assetId, v.id);
+    page->setRenderCacheIdentity(PreviewRenderCache::projectAssetKey(cat->projectDir(), assetId), v.id);
     page->mapCanvas()->canvas()->setObjectName(QStringLiteral("mapProductCanvas"));
     page->decorations()->setObjectName(QStringLiteral("mapProductDecorManager"));
 
@@ -349,7 +350,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
     page->setObjectName(QStringLiteral("mapProductPreviewPage"));
     page->setAssetKey(assetId);
-    page->setRenderCacheIdentity(assetId, v.id);
+    page->setRenderCacheIdentity(PreviewRenderCache::projectAssetKey(cat->projectDir(), assetId), v.id);
     page->mapCanvas()->canvas()->setObjectName(QStringLiteral("mapProductCanvas"));
     page->decorations()->setObjectName(QStringLiteral("mapProductDecorManager"));
 

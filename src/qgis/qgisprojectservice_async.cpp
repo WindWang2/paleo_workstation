@@ -9,6 +9,8 @@
 #include <QFutureWatcher>
 #include <QTimer>
 #include <QJsonDocument>
+#include <QTemporaryDir>
+#include <QTemporaryFile>
 #include <QThread>
 #include <QtConcurrent>
 #include <atomic>
@@ -26,6 +28,14 @@
 #include <qgsprojectgpssettings.h>
 #include <qgsreadwritecontext.h>
 #include <qgsvectorlayer.h>
+#include <qgsziputils.h>
+
+namespace {
+struct SettingsArchive {
+  QString path;
+  ~SettingsArchive() { if (!path.isEmpty()) QFile::remove(path); }
+};
+}
 
 struct ProjectLoadState {
   QString path, entryPath, error;
@@ -36,6 +46,7 @@ struct ProjectLoadState {
   std::unique_ptr<QgsProject> project;
   QDomDocument document;
   QDomDocument treeDocument;
+  std::unique_ptr<SettingsArchive> settingsArchive;
   std::atomic_bool cancelled{false};
   std::atomic_bool started{false}; // worker 已开跑（析构排空等待的前提）
   bool handoffStarted = false; // owner-thread only
@@ -43,6 +54,58 @@ struct ProjectLoadState {
   QDateTime modified;
   qint64 size = 0;
 };
+
+namespace {
+// Use the native QGIS settings reader, with the same relative-path base and
+// embedded styles. Real layers and their references are adopted separately.
+// Other archive layouts (including auxiliary storage) retain the native path.
+std::unique_ptr<SettingsArchive> prepareSettingsArchive(const ProjectLoadState &state) {
+  if (state.readOnly || !QgsZipUtils::isZipFile(state.path) || state.project->mapLayers().isEmpty())
+    return {};
+  const auto files = QgsZipUtils::files(state.path);
+  const auto styleId = state.document.documentElement().firstChildElement("ProjectStyleSettings")
+                           .attribute("projectStyleId");
+  const auto style = state.project->resolveAttachmentIdentifier(styleId);
+  QString qgs;
+  QStringList members;
+  for (const auto &name : files) {
+    if (name != QFileInfo(name).fileName()) return {};
+    if (name.endsWith(".qgs", Qt::CaseInsensitive) && qgs.isEmpty()) qgs = name;
+    else if (!style.isEmpty() && name == QFileInfo(style).fileName()) members << style;
+    else return {};
+  }
+  if (qgs.isEmpty()) return {};
+  auto settings = state.document.cloneNode(true).toDocument();
+  auto root = settings.documentElement();
+  root.removeChild(root.firstChildElement("projectlayers"));
+  root.removeChild(root.firstChildElement("transformContext"));
+  // The frozen tree is restored after adoption. Loading checked or unchecked
+  // nodes for missing layers here would expose a second, unresolved tree.
+  auto tree = root.firstChildElement("layer-tree-group");
+  for (auto node = tree.firstChildElement(); !node.isNull();) {
+    const auto next = node.nextSiblingElement();
+    if (node.tagName().startsWith(QLatin1String("layer-tree-"))) tree.removeChild(node);
+    node = next;
+  }
+  QTemporaryDir staging;
+  if (!staging.isValid()) return {};
+  QFile xml(staging.filePath(qgs));
+  if (!xml.open(QIODevice::WriteOnly)) return {};
+  const auto bytes = settings.toByteArray(-1);
+  if (xml.write(bytes) != bytes.size() || !xml.flush()) return {};
+  xml.close();
+  members.prepend(xml.fileName());
+  auto archive = std::make_unique<SettingsArchive>();
+  {
+    QTemporaryFile reserved(QFileInfo(state.path).dir().filePath(QStringLiteral(".paleo-open-XXXXXX.qgz")));
+    if (!reserved.open()) return {};
+    archive->path = reserved.fileName();
+    reserved.setAutoRemove(false);
+  } // release the Windows file handle before libzip replaces the reserved file
+  if (!QgsZipUtils::zip(archive->path, members, true)) return {};
+  return archive;
+}
+}
 
 void QgisProjectService::setOpenPreparation(
     const std::function<std::function<void()>(const QString &projectDir)> &prepare)
@@ -200,7 +263,9 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     if (!file.isFile()) { state->error = tr("工程 QGIS 成员不存在"); return; }
     state->size = file.size(); state->modified = file.lastModified();
     if (cancelled()) return;
-    state->project = std::make_unique<QgsProject>();
+    // The live project restores its native style library. The staging project
+    // needs only layer styles, data providers and references.
+    state->project = std::make_unique<QgsProject>(nullptr, Qgis::ProjectCapabilities{});
     const auto documentConnection = QObject::connect(state->project.get(), &QgsProject::readProject, state->project.get(),
                      [target = state.get()](const QDomDocument &doc) { target->document = doc.cloneNode(true).toDocument(); });
     const auto loadingConnection = QObject::connect(state->project.get(), &QgsProject::loadingLayer, state->project.get(),
@@ -228,6 +293,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     QgsReadWriteContext context;
     context.setPathResolver(state->project->pathResolver());
     state->project->layerTreeRoot()->writeXml(root, context);
+    state->settingsArchive = prepareSettingsArchive(*state);
     // 读取器的临时信号捕获 promise 引用，在任务退出前拆掉。
     QObject::disconnect(documentConnection);
     QObject::disconnect(loadingConnection);
@@ -271,19 +337,21 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
       state->handoffStarted = true;
       notifyAboutToClose();
       if (generation != m_openGeneration || state->cancelled.load()) return;
-      // QGIS 读取原文件的设置与附件，但不打开数据源；重型 provider 已由 worker 读好。
-      // 用原路径可保留 QGZ 的辅助存储、附件和所有工程设置的相对路径语义。
-      success = m_project->read(state->path,
-          Qgis::ProjectReadFlag::DontResolveLayers | Qgis::ProjectReadFlag::DontLoadLayouts |
-          Qgis::ProjectReadFlag::DontLoad3DViews);
-      if (success) {
-        m_project->setFileName(state->path);
-        m_project->setOriginalPath(state->path);
-        m_project->setPresetHomePath(state->project->presetHomePath());
-        m_project->removeAllMapLayers(); // 不解析数据源的占位层由后台已读图层替换
-      }
     }
   } else if (phase == 1) {
+    const auto flags = Qgis::ProjectReadFlag::DontResolveLayers | Qgis::ProjectReadFlag::DontLoadLayouts |
+                       Qgis::ProjectReadFlag::DontLoad3DViews | Qgis::ProjectReadFlag::DontStoreOriginalStyles;
+    if (state->settingsArchive && !m_project->read(state->settingsArchive->path, flags))
+      state->settingsArchive.reset();
+    success = state->settingsArchive || m_project->read(state->path, flags);
+    if (success) {
+      m_project->setFileName(state->path);
+      m_project->setOriginalPath(state->path);
+      m_project->setPresetHomePath(state->project->presetHomePath());
+      if (state->settingsArchive) m_project->setTransformContext(state->project->transformContext());
+      m_project->removeAllMapLayers(); // 不解析数据源的占位层由后台已读图层替换
+    }
+  } else if (phase == 2) {
     const auto loadedLayers = state->project->mapLayers();
     const auto attachments = state->project->attachedFiles();
     QgsReadWriteContext context;
@@ -316,17 +384,23 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
     for (auto *layer : m_project->mapLayers())
       layer->resolveReferences(m_project);
     m_project->mainAnnotationLayer()->resolveReferences(m_project);
-  } else if (phase == 2) {
+  } else if (phase == 3) {
     QgsReadWriteContext context;
     context.setPathResolver(m_project->pathResolver());
     context.setTransformContext(m_project->transformContext());
     context.setProjectTranslator(m_project);
     auto *root = m_project->layerTreeRoot();
-    root->removeAllChildren();
     const auto tree = state->treeDocument.documentElement().firstChildElement("layer-tree-group");
+    const auto oldNodes = root->children();
+    // QGIS queues removal from the map registry when the last tree node of a
+    // layer disappears. Install its final node first, as in a native tree move.
     root->readChildrenFromXml(tree, context);
+    for (auto *node : oldNodes) root->removeChildNode(node);
     root->resolveReferences(m_project);
     root->readLayerOrderFromXml(tree);
+    auto snapping = m_project->snappingConfig();
+    snapping.readProject(state->document);
+    m_project->setSnappingConfig(snapping);
     m_project->mapThemeCollection()->readXml(state->document);
     auto labels = m_project->labelingEngineSettings();
     labels.resolveReferences(m_project);
@@ -393,11 +467,11 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
         m_errors << tr("无法收养工程清单：%1").arg(error);
       else m_mapConfiguration = adopted;
     }
-  } else if (phase == 3) {
+  } else if (phase == 4) {
     // The layers and settings now belong to the live project. Retiring the
     // temporary project can close slow providers, so give it its own event turn.
     state->project.reset();
-  } else if (phase == 4) {
+  } else if (phase == 5) {
     m_entryPath = state->entryPath;
     m_path = state->path;
     ++m_sessionId;
@@ -412,7 +486,7 @@ void QgisProjectService::adoptBackgroundOpen(const std::shared_ptr<ProjectLoadSt
     emit openProgress(100, tr("工程打开完成"));
   }
   if (generation != m_openGeneration || state->cancelled.load()) return;
-  if (success && phase < 5) {
+  if (success && phase < 6) {
     QTimer::singleShot(16, this, [this, state, generation, phase] {
       adoptBackgroundOpen(state, generation, phase + 1);
     });

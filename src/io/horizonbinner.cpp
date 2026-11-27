@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QRegularExpression>
 
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -34,6 +35,24 @@ using paleo::io_detail::setError;
     while (end < text.size() && bytes[end] != '\r' && bytes[end] != '\n') ++end;
     *position = end < text.size() ? end + 1 : end;
     return QString::fromUtf8(bytes + start, end - start);
+  }
+
+  // Data rows use ASCII whitespace between columns. Keep the numeric text as
+  // views so parsing a row needs neither a regex match nor five string copies.
+  std::array<QStringView, 5> horizonFields(QStringView line)
+  {
+    const auto isSeparator = [](QChar c) { return c == u' ' || (c >= u'\t' && c <= u'\r'); };
+    std::array<QStringView, 5> fields{};
+    for (auto &field : fields)
+    {
+      while (!line.isEmpty() && isSeparator(line.front())) line = line.sliced(1);
+      if (line.isEmpty()) break;
+      qsizetype length = 0;
+      while (length < line.size() && !isSeparator(line.at(length))) ++length;
+      field = line.first(length);
+      line = line.sliced(length);
+    }
+    return fields;
   }
 
   bool grabDouble(const QString &line, int index, double *out)
@@ -202,21 +221,19 @@ HorizonScatter parseHorizonScatter(const QByteArray &text)
 {
   HorizonScatter out;
   bool ilSeen = false, xlSeen = false;
-  const QRegularExpression spaces(QStringLiteral("\\s+"));
   qsizetype position = 0;
   while (position < text.size())
   {
     const QString raw = nextHorizonLine(text, &position);
     if (raw.isEmpty()) continue;
-    const QString line = raw.trimmed();
+    const auto line = QStringView(raw).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
     {
       ++out.skipped;
       continue;
     }
-    const QStringList t =
-        line.split(spaces, Qt::SkipEmptyParts);
-    if (t.size() < 3)
+    const auto t = horizonFields(line);
+    if (t[2].isEmpty())
     {
       ++out.skipped;
       continue;
@@ -236,7 +253,7 @@ HorizonScatter parseHorizonScatter(const QByteArray &text)
     p.y = y;
     p.z = z;
     out.points.push_back(p);
-    if (t.size() >= 5)
+    if (!t[4].isEmpty())
     {
       bool okInl = false, okXl = false;
       const int inl = t.at(3).toInt(&okInl);
@@ -314,16 +331,15 @@ bool binHorizon(const QByteArray &text, BinnedHorizon *out, QString *error)
 
   QVector<bool> filled(cellCount, false);
 
-  const QRegularExpression spaces(QStringLiteral("\\s+"));
   qsizetype position = 0;
   while (position < text.size())
   {
     const QString raw = nextHorizonLine(text, &position);
-    const QString line = raw.trimmed();
+    const auto line = QStringView(raw).trimmed();
     if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
       continue;
-    const QStringList t = line.split(spaces, Qt::SkipEmptyParts);
-    if (t.size() < 5)
+    const auto t = horizonFields(line);
+    if (t[4].isEmpty())
       continue;
     bool okInl = false, okXl = false, okZ = false;
     const int inl = t.at(3).toInt(&okInl);

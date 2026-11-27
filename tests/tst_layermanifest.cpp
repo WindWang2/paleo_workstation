@@ -2,6 +2,7 @@
 #include <QTemporaryDir>
 #include <QCoreApplication>
 #include <QSqlDatabase>
+#include <QSqlQuery>
 #include <thread>
 #include <atomic>
 
@@ -39,6 +40,39 @@ private slots:
     const auto all = manifest.all();
     QCOMPARE(all.size(), 1);
     QCOMPARE(all.first().layerId, QStringLiteral("horizon.T1"));
+  }
+
+  void unchangedDeclarationDoesNotWriteProjectDatabase()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    LayerManifest manifest(dir.filePath(QStringLiteral("project.sqlite")));
+    QString error;
+    QVERIFY2(manifest.open(&error), qPrintable(error));
+    LayerDeclaration declaration;
+    declaration.layerId = QStringLiteral("paleomap.ver-8");
+    declaration.source = QStringLiteral("result.gpkg");
+    QVERIFY2(manifest.upsert(declaration, &error), qPrintable(error));
+    const QString observerName = QStringLiteral("layerManifestChangeObserver");
+    {
+      auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), observerName);
+      db.setDatabaseName(dir.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(db.open());
+      const auto dataVersion = [&db] {
+        QSqlQuery query(db);
+        return query.exec(QStringLiteral("PRAGMA data_version")) && query.next() ? query.value(0).toInt() : -1;
+      };
+      const int original = dataVersion();
+      QVERIFY(original >= 0);
+      declaration.instantiated = true; // Runtime state is independent of persisted fields.
+      QVERIFY2(manifest.upsert(declaration, &error), qPrintable(error));
+      QCOMPARE(dataVersion(), original);
+      declaration.title = QStringLiteral("更新后的图件");
+      QVERIFY2(manifest.upsert(declaration, &error), qPrintable(error));
+      QVERIFY(dataVersion() > original);
+      QCOMPARE(manifest.all().first().title, declaration.title);
+    }
+    QSqlDatabase::removeDatabase(observerName);
   }
 
   void upsertWorkerThreadDirectWithoutQueueRejected()

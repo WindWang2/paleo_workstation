@@ -86,6 +86,18 @@ void StratigraphyPage::selectObject(qlonglong well,const QString& id,bool cycle)
  highlightSelection();
 }
 void StratigraphyPage::refresh() {
+ if (!isVisible()) {
+  m_refreshPending = true;
+  // Release the old project's plots and checked local well IDs even while hidden.
+  if (m_reloadPreview && m_workflow->wells().isEmpty() && m_workflow->document().wells.empty()) {
+   const QSignalBlocker blocker(m_wells);
+   m_wells->clear();
+   m_section->clearPanels();
+   m_results->setRowCount(0);
+  }
+  return;
+ }
+ m_refreshPending = false;
  m_refreshing=true;const auto wells=m_workflow->wells();
  QList<qlonglong> previous;QSet<qlonglong> checked;for(int i=0;i<m_wells->count();++i){auto* item=m_wells->item(i);const auto id=item->data(Qt::UserRole).toLongLong();previous.append(id);if(item->checkState()==Qt::Checked)checked.insert(id);}
  QList<qlonglong> current;for(const auto& w:wells)current.append(w.id);
@@ -95,11 +107,14 @@ void StratigraphyPage::refresh() {
   const QStringList cells={r.well,r.name,r.level,QString::number(r.top,'f',3),QString::number(r.bottom,'f',3),r.cycle?direction:r.source,r.status+(r.locked?tr(" · 保护"):QString())};
   for(int c=0;c<cells.size();++c)m_results->setItem(i,c,new QTableWidgetItem(cells[c]));
  }
- refreshVersions();updateAvailability();refreshPreview();m_refreshing=false;
+ if (m_saved->isVisible()) refreshVersions();
+ updateAvailability();refreshPreview();m_refreshing=false;
  if(!m_selectedObject.isEmpty()){const auto id=m_selectedObject;const auto well=m_selectedWell;const bool cycle=m_selectedCycle;selectObject(well,id,cycle);}
 }
 void StratigraphyPage::showEvent(QShowEvent* event){
  QWidget::showEvent(event);m_workflow->refreshWells();
+ // refreshWells normally emits changed, but a closed project or active task may skip it.
+ if (m_refreshPending) refresh();
  if(!property("initialSplitApplied").toBool()) {
   setProperty("initialSplitApplied",true);
   QTimer::singleShot(0,this,[this]{

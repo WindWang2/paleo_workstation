@@ -9,6 +9,7 @@ using namespace paleo::datapreview_detail;
 #include "../paleotheme.h" // DESIGN.md token 出口（颜色/字阶/活体样式共用）
 #include "../paleoicons.h" // 角落最大化/还原自绘图标
 #include "../../catalog/datacatalog.h"
+#include "../../qgis/previewrendercache.h"
 #include "../../domain/seismic/nicestep.h"
 #include "../../domain/wellrecords.h"     // WellTopRecord/TimeDepthTable（domain 纯数据）
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
@@ -262,7 +263,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
   page->setObjectName(QStringLiteral("horizonPreviewPage"));
   page->setAssetKey(assetId);
-  page->setRenderCacheIdentity(assetId, chosen.id);
+  page->setRenderCacheIdentity(PreviewRenderCache::projectAssetKey(cat->projectDir(), assetId), chosen.id);
   page->mapCanvas()->canvas()->setObjectName(QStringLiteral("horizonMapCanvas"));
   page->decorations()->setObjectName(QStringLiteral("horizonDecorManager"));
 
@@ -549,8 +550,9 @@ QWidget *DataPreviewTabs::buildRawHorizonContent(
   auto *status = caption8(tr("正在读取原始层位…"), host);
   layout->addWidget(status);
   const QString source = m_doc->absolutePathForVersion(version);
+  const QString cacheAsset = PreviewRenderCache::projectAssetKey(m_doc->catalog()->projectDir(), assetId);
   m_doc->requestHorizonPreview(source, host,
-      [this, host, layout, status, source, assetId, version](const PreviewDocService::HorizonPreview &result) {
+      [this, host, layout, status, source, assetId, version, cacheAsset](const PreviewDocService::HorizonPreview &result) {
     if (!result.error.isEmpty()) {
       status->hide();
       layout->addWidget(PreviewMapStates::buildErrorPage(
@@ -572,7 +574,7 @@ QWidget *DataPreviewTabs::buildRawHorizonContent(
     page->setObjectName(QStringLiteral("horizonPreviewPage"));
     page->setAssetKey(assetId);
     page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
-    page->setRenderCacheIdentity(assetId, version.id + QStringLiteral("-raw-grid"));
+    page->setRenderCacheIdentity(cacheAsset, version.id + QStringLiteral("-raw-grid"));
     page->mapCanvas()->canvas()->setObjectName(QStringLiteral("horizonMapCanvas"));
     auto *layer = raster.release();
     layer->setParent(page);

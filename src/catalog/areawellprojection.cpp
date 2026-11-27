@@ -9,7 +9,9 @@
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
+#include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace {
 struct Snapshot {
@@ -17,6 +19,7 @@ struct Snapshot {
   QVector<CatalogEntity> rows;
   QHash<qlonglong, int> ids;
   QHash<QString, int> names;
+  QMultiHash<QString, qlonglong> idsByNormalizedName;
 };
 QMutex cacheMutex;
 QHash<QString, Snapshot> cache;
@@ -61,6 +64,7 @@ Snapshot snapshot(const QString &project) {
                     {"wellType", QString::fromUtf8(w.wellType)}, {"fieldName", QString::fromUtf8(w.fieldName)},
                     {"wellRemark", QString::fromUtf8(w.remark)}};
     out.ids.insert(row.id, out.rows.size());
+    out.idsByNormalizedName.insert(DataCatalog::normalizeWellName(entity.name), row.id);
     out.names.insert(entity.name, out.names.contains(entity.name) ? -1 : out.rows.size());
     out.rows << entity;
   }
@@ -117,6 +121,37 @@ CatalogEntity resolve(const Snapshot &data, const CatalogEntity &stored) {
 CatalogEntity projectAreaWell(const QString &project, const CatalogEntity &stored) {
   if (stored.entityType != "well" || project.isEmpty()) return stored;
   return resolve(snapshot(project), stored);
+}
+QStringList matchingAreaWellIds(const QString &project, const QString &normalizedName,
+                                const CatalogIndex &index, const QVector<CatalogEntity> &entities) {
+  const auto data = project.isEmpty() ? Snapshot{} : snapshot(project);
+  QVector<int> rows;
+  const auto collect = [&rows](const auto &pageAfter) {
+    QString cursor;
+    for (;;) {
+      const auto page = pageAfter(cursor);
+      rows.append(page.items);
+      if (!page.hasMore) return;
+      cursor = page.lastKey;
+    }
+  };
+  collect([&](const QString &after) { return index.entityNamePage(normalizedName, after, 256); });
+  for (const auto id : data.idsByNormalizedName.values(normalizedName))
+    collect([&](const QString &after) { return index.modelWellPage(id, after, 256); });
+
+  // A catalog name and a model ID can find the same entity. Preserve the
+  // catalog row order used by association and ambiguous-name selection.
+  std::sort(rows.begin(), rows.end());
+  rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+  QStringList result;
+  for (const auto row : std::as_const(rows)) {
+    const auto &entity = entities.at(row);
+    if (entity.id.isEmpty()) continue; // The catalog's entity-type index excludes damaged empty IDs.
+    const auto model = data.ids.value(entity.extra.value("areaModelWellId").toLongLong(), -1);
+    const auto &name = model < 0 ? entity.name : data.rows.at(model).name;
+    if (DataCatalog::normalizeWellName(name) == normalizedName) result.append(entity.id);
+  }
+  return result;
 }
 bool cachedAreaWellRows(const QString &project, QVector<CatalogEntity> &rows) {
   const QString root = QDir(project).absoluteFilePath("artifacts/metadata/area-model");

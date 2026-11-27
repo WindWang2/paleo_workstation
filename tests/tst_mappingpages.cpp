@@ -1679,7 +1679,9 @@ void FactorPageTests::structuralBoundaryComboPrefersPolygonDefaults()
             qPrintable( err ) );
   QVERIFY2( declareVector( QStringLiteral( "survey.area" ), QStringLiteral( "测区范围" ) ), qPrintable( err ) );
 
-  ConstraintPage page( nullptr );
+  QWidget host;
+  ConstraintPage page( nullptr, &host );
+  host.show();
   page.bindLayerService( &layers );
   auto *h = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
   h->addItem( QStringLiteral( "D61" ) );
@@ -1697,8 +1699,18 @@ void FactorPageTests::structuralBoundaryComboPrefersPolygonDefaults()
   QVERIFY( boundary->findData( QStringLiteral( "welllog.attributes" ) ) < 0 );
 
   // 专有边界后补声明：清单一目之首是 boundary.*；用户之前的 survey.area 选择回填保留。
+  page.hide();
   QVERIFY2( declareVector( QStringLiteral( "boundary.imported" ), QStringLiteral( "导入边界" ) ),
             qPrintable( err ) );
+  QVERIFY( boundary->findData( QStringLiteral( "boundary.imported" ) ) < 0 );
+  page.show();
+  const int imported = boundary->findData( QStringLiteral( "boundary.imported" ) );
+  QVERIFY( imported >= 0 );
+  QCOMPARE( boundary->itemText( imported ), QStringLiteral( "导入边界" ) );
+  QCOMPARE( boundary->currentData().toString(), QStringLiteral( "survey.area" ) );
+  QVERIFY2( declareVector( QStringLiteral( "boundary.imported" ), QStringLiteral( "修订边界" ) ),
+            qPrintable( err ) );
+  QCOMPARE( boundary->itemText( imported ), QStringLiteral( "修订边界" ) );
   method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
   method->setCurrentIndex( method->findData( QStringLiteral( "structural_idw" ) ) );
   QCOMPARE( boundary->currentData().toString(), QStringLiteral( "survey.area" ) );

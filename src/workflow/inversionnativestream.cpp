@@ -18,6 +18,7 @@
 #include <thread>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace paleo::inv {
 namespace {
@@ -40,32 +41,53 @@ QJsonObject headerFor(const InversionWorkflow::InversionJob& job){
   h.insert(QStringLiteral("lambdaUsed"),job.req.lambda);h.insert(QStringLiteral("maxIterations"),job.req.maxIterations);
  }return h;
 }
-bool invertOne(const InversionWorkflow::InversionJob& job,int il,int xl,const float* samples,float* output,double& statistic,QString& reason){
- std::vector<float> low(size_t(job.nS),NAN);const float* lowPtr=nullptr;
- if(job.hasLowFreq){inversion::lowFreqTraceAt(job.lowFreq,il,xl,low.data());
-  if(std::any_of(low.begin(),low.end(),[](float v){return std::isfinite(v);}))lowPtr=low.data();}
- NativeCppAdapter adapter;
- if(job.req.method==QStringLiteral("sparse")){
-  SparseSpikeInputs input;input.trace=samples;input.n=job.nS;input.sampleIntervalMs=job.dtMs;
-  input.wavelet=&job.wavelet;input.lowFreq=lowPtr;input.options.lambda=job.req.lambda;input.options.maxIterations=job.req.maxIterations;
-  inversion::SparseSpikeResult result;const auto run=adapter.runSparseSpike(input,&result,nullptr);
-  if(!run.ok){reason=QString::fromStdString(result.reason);return false;}
-  if(result.impedance.size()!=size_t(job.nS))return false;
-  std::copy(result.impedance.begin(),result.impedance.end(),output);statistic=result.residualEnergyRatio;
- }else{
-  BandlimitedInputs input;input.trace=samples;input.n=job.nS;input.sampleIntervalMs=job.dtMs;
-  input.wavelet=&job.wavelet;input.lowFreq=lowPtr;input.options.lowCutHz=job.req.lowCutHz;
-  inversion::BandlimitedResult result;const auto run=adapter.runBandlimited(input,&result,nullptr);
-  if(!run.ok){reason=QString::fromStdString(result.reason);return false;}
-  if(result.impedance.size()!=size_t(job.nS))return false;
-  std::copy(result.impedance.begin(),result.impedance.end(),output);statistic=result.lowFreqVarianceFraction;
- }return std::any_of(output,output+job.nS,[](float v){return std::isfinite(v);});
+} // namespace
+
+bool invertImpedanceTrace(const InversionWorkflow::InversionJob &job, int il, int xl,
+                          const float *samples, std::vector<float> &lowScratch,
+                          float *output, double &statistic, QString &error)
+{
+    const float *low = nullptr;
+    const auto finite = [](float value) { return std::isfinite(value); };
+    if (job.hasLowFreq) {
+        lowScratch.resize(size_t(job.nS));
+        inversion::lowFreqTraceAt(job.lowFreq, il, xl, lowScratch.data());
+        if (std::any_of(lowScratch.begin(), lowScratch.end(), finite))
+            low = lowScratch.data();
+    }
+
+    NativeCppAdapter adapter;
+    std::vector<float> impedance;
+    if (job.req.method == QStringLiteral("sparse")) {
+        SparseSpikeInputs input;
+        input.trace = samples; input.n = job.nS; input.sampleIntervalMs = job.dtMs;
+        input.wavelet = &job.wavelet; input.lowFreq = low;
+        input.options.lambda = job.req.lambda; input.options.maxIterations = job.req.maxIterations;
+        inversion::SparseSpikeResult result;
+        if (!adapter.runSparseSpike(input, &result, &error).ok)
+            return false;
+        impedance = std::move(result.impedance);
+        statistic = result.residualEnergyRatio;
+    } else {
+        BandlimitedInputs input;
+        input.trace = samples; input.n = job.nS; input.sampleIntervalMs = job.dtMs;
+        input.wavelet = &job.wavelet; input.lowFreq = low; input.options.lowCutHz = job.req.lowCutHz;
+        inversion::BandlimitedResult result;
+        if (!adapter.runBandlimited(input, &result, &error).ok)
+            return false;
+        impedance = std::move(result.impedance);
+        statistic = result.lowFreqVarianceFraction;
+    }
+    if (impedance.size() != size_t(job.nS) || !std::any_of(impedance.begin(), impedance.end(), finite)) {
+        error = QStringLiteral("阻抗道长度不符或不含有限样点");
+        return false;
+    }
+    std::copy(impedance.begin(), impedance.end(), output);
+    return true;
 }
-}
+
 bool computeRegisteredInversion(InversionWorkflow::InversionJob* job,
  const std::function<bool()>& cancelled,const std::function<void(double)>& progress){
- job->ok=false;job->processedTraces=job->failedTraces=0;
- job->meanResidualEnergyRatio=job->meanLowFreqVarianceFraction=0;
  const auto fail=[&](const QString& reason){job->error=reason;return false;};
  SeismicDataAccess source;QString reason;std::string error;data::SeismicVolume volume;
  if(!source.openProjectSource(job->req.projectDirectory,job->req.seismicPath,&reason))return fail(reason);
@@ -76,10 +98,8 @@ bool computeRegisteredInversion(InversionWorkflow::InversionJob* job,
  const double unit=volume.sampling.timeUnit=="s"?1000.:1.;
  auto scratch=paleo::managedpath::temporaryDirectory(job->req.projectDirectory,QStringLiteral("paleo-inv"));
  if(!scratch){job->error=QStringLiteral("反演暂存目录创建失败");return false;}
- job->tempVolumePath=scratch->filePath(QStringLiteral("impedance.iimp"));
- // A failed/cancelled run owns only this freshly created directory.
- auto cleanup=qScopeGuard([&]{if(job->ok)scratch->setAutoRemove(false);});
- inversion::ImpedanceVolumeStream stream(job->tempVolumePath);
+ const auto outputPath=scratch->filePath(QStringLiteral("impedance.iimp"));
+ inversion::ImpedanceVolumeStream stream(outputPath);
  if(!stream.open(headerFor(*job),&reason))return fail(reason);
  const int threads=std::clamp(job->req.maxThreads>0?job->req.maxThreads:4,1,4);
  double sum=0;QString firstFailure;
@@ -114,10 +134,11 @@ bool computeRegisteredInversion(InversionWorkflow::InversionJob* job,
   std::vector<QString> failures(size_t(job->nXl));
   std::atomic<int> next{0};std::atomic<bool> aborted{false};WorkerExceptionSink exceptions;
   auto run=exceptions.wrap([&]{
+   std::vector<float> lowScratch;
    for(int xl=next.fetch_add(1);xl<job->nXl&&!aborted.load();xl=next.fetch_add(1)){
     if(cancelled&&cancelled()){aborted=true;break;}
     const int column=columns[size_t(xl)];if(column<0)continue;
-    success[size_t(xl)]=invertOne(*job,il,xl,line.amplitudes.data()+size_t(column)*job->nS,
+    success[size_t(xl)]=invertImpedanceTrace(*job,il,xl,line.amplitudes.data()+size_t(column)*job->nS,lowScratch,
       output.data()+size_t(xl)*job->nS,stats[size_t(xl)],failures[size_t(xl)]);
    }
   });
@@ -136,12 +157,15 @@ bool computeRegisteredInversion(InversionWorkflow::InversionJob* job,
   if(progress)progress(double(il+1)/job->nIl*.98);
  }
  const int succeeded=job->processedTraces-job->failedTraces;
- if(succeeded==0)return fail(QStringLiteral("没有成功反演的有效地震道，未发布：%1").arg(firstFailure));
+ if(succeeded==0)return fail(QStringLiteral("%1 道均未产生有效阻抗：%2").arg(job->processedTraces)
+   .arg(firstFailure.isEmpty()?QStringLiteral("所选范围内没有可用的地震道"):firstFailure));
  if(!firstFailure.isEmpty())job->spatialEvidence.insert(QStringLiteral("firstTraceFailure"),firstFailure);
  if(job->req.method==QStringLiteral("sparse"))job->meanResidualEnergyRatio=sum/succeeded;
  else job->meanLowFreqVarianceFraction=sum/succeeded;
  if(cancelled&&cancelled())return fail(QStringLiteral("已取消"));
  if(!stream.finish(headerFor(*job),&reason))return fail(reason);
- job->ok=true;if(progress)progress(1);return true;
+ if(cancelled&&cancelled())return fail(QStringLiteral("已取消"));
+ scratch->setAutoRemove(false);job->tempVolumePath=outputPath;job->ok=true;
+ if(progress)progress(1);return true;
 }
 }

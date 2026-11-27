@@ -404,9 +404,17 @@ void SubIntervalSelectorBar::reloadFromBoundaries( const QStringList &orderedBou
   rebuildSchemeCombo();
   rebuildRevisionCombo();
   rebuildParentCombo();
-  rebuildSubButtons();
-  rebuildStatusPanel();
-  setStatusText( readinessText() );
+  // A refreshed draft may retain a valid choice, but a different project or
+  // a removed interval must also clear the shared prediction context.
+  const auto candidate = paleo::strat::makeSelection( m_scheme, m_current.intervalId, m_current.subIndex );
+  if ( m_current.isValid() && !( candidate == m_current ) )
+    applySelection( {}, true );
+  else
+  {
+    rebuildSubButtons();
+    rebuildStatusPanel();
+    setStatusText( readinessText() );
+  }
   if ( orderedBoundaries.size() < 2 )
     emit readinessMessage( tr( "界限不足两条，无法构成父层间单元。请在工程参数中配置层序界限。" ) );
 }
@@ -419,14 +427,15 @@ void SubIntervalSelectorBar::reloadFromProject( const QString &projectDir,
   paleo::data::StratigraphicScheme loaded;
   std::vector<paleo::data::SubIntervalResultBinding> bindings;
   QString err;
+  paleo::strat::SchemeSelectorChoices choices;
   if ( !projectDir.isEmpty()
-       && paleo::strat::loadProjectSchemeFromDir( projectDir, {}, {}, loaded, &bindings, &err ) )
+       && paleo::strat::loadProjectSchemeFromDir( projectDir, {}, {}, loaded, &bindings, &err, &choices ) )
   {
     m_fromDataService = true;
     m_bindings = std::move( bindings );
     applyLoadedScheme( loaded, true ); // 写入 SelectionContext（含 schemeId/revision）
-    rebuildSchemeCombo();
-    rebuildRevisionCombo();
+    rebuildSchemeCombo( &choices );
+    rebuildRevisionCombo( &choices );
     emit readinessMessage( tr( "已加载地层方案「%1」修订 %2" )
                                .arg( QString::fromStdString( loaded.name ),
                                      shortRevision( QString::fromStdString( loaded.revision.value ) ) ) );
@@ -444,13 +453,14 @@ void SubIntervalSelectorBar::refreshProjectResults()
   paleo::data::StratigraphicScheme loaded;
   std::vector<paleo::data::SubIntervalResultBinding> bindings;
   QString error;
+  paleo::strat::SchemeSelectorChoices choices;
   if (!paleo::strat::loadProjectSchemeFromDir(m_projectDir, m_current.schemeId, m_current.revision,
-                                             loaded, &bindings, &error)) {
+                                             loaded, &bindings, &error, &choices)) {
     emit readinessMessage(error); return;
   }
   m_bindings = std::move(bindings);
-  rebuildSchemeCombo();
-  rebuildRevisionCombo();
+  rebuildSchemeCombo( &choices );
+  rebuildRevisionCombo( &choices );
   rebuildStatusPanel();
 }
 
@@ -471,30 +481,11 @@ void SubIntervalSelectorBar::applyLoadedScheme( const paleo::data::Stratigraphic
   rebuildParentCombo();
   // 尽量保留当前子序号偏好。
   int prefer = ( m_current.isValid() && !m_current.aggregate && m_current.subIndex >= 1 ) ? m_current.subIndex : 1;
-  if ( m_parent && m_parent->count() > 0 )
-  {
-    const QString iid = m_parent->currentData().toString();
-    const UnitSelection sel = paleo::strat::makeSelection( m_scheme, iid, prefer );
-    if ( sel.isValid() )
-      applySelection( sel, broadcast );
-    else
-    {
-      m_current = {};
-      rebuildSubButtons();
-      setStatusText( readinessText() );
-      rebuildStatusPanel();
-    }
-  }
-  else
-  {
-    m_current = {};
-    rebuildSubButtons();
-    setStatusText( readinessText() );
-    rebuildStatusPanel();
-  }
+  const QString iid = m_parent ? m_parent->currentData().toString() : QString();
+  applySelection( paleo::strat::makeSelection( m_scheme, iid, prefer ), broadcast );
 }
 
-void SubIntervalSelectorBar::rebuildSchemeCombo()
+void SubIntervalSelectorBar::rebuildSchemeCombo( const paleo::strat::SchemeSelectorChoices *choices )
 {
   if ( !m_schemeCombo )
     return;
@@ -505,15 +496,14 @@ void SubIntervalSelectorBar::rebuildSchemeCombo()
   {
     QVector<paleo::strat::SchemeChoice> schemes;
     QString err;
-    if ( paleo::strat::listProjectSchemesFromDir( m_projectDir, schemes, &err ) )
+    if ( choices ) schemes = choices->schemes;
+    else paleo::strat::listProjectSchemesFromDir( m_projectDir, schemes, &err );
+    for ( const auto &c : schemes )
     {
-      for ( const auto &c : schemes )
-      {
-        SubIntervalLabeledChoice row;
-        row.id = c.id;
-        row.label = c.name.isEmpty() ? c.id : c.name;
-        m_schemeChoices.push_back( row );
-      }
+      SubIntervalLabeledChoice row;
+      row.id = c.id;
+      row.label = c.name.isEmpty() ? c.id : c.name;
+      m_schemeChoices.push_back( row );
     }
   }
   if ( m_schemeChoices.isEmpty() )
@@ -527,7 +517,7 @@ void SubIntervalSelectorBar::rebuildSchemeCombo()
   refillSchemeComboPage();
 }
 
-void SubIntervalSelectorBar::rebuildRevisionCombo()
+void SubIntervalSelectorBar::rebuildRevisionCombo( const paleo::strat::SchemeSelectorChoices *choices )
 {
   if ( !m_revisionCombo )
     return;
@@ -540,19 +530,18 @@ void SubIntervalSelectorBar::rebuildRevisionCombo()
   {
     QVector<paleo::strat::SchemeRevisionChoice> revs;
     QString err;
-    if ( paleo::strat::listProjectSchemeRevisionsFromDir( m_projectDir, schemeId, revs, &err ) )
+    if ( choices ) revs = choices->revisions;
+    else paleo::strat::listProjectSchemeRevisionsFromDir( m_projectDir, schemeId, revs, &err );
+    for ( const auto &r : revs )
     {
-      for ( const auto &r : revs )
-      {
-        SubIntervalLabeledChoice row;
-        row.id = r.revision;
-        row.label = shortRevision( r.revision );
-        if ( !r.note.isEmpty() )
-          row.label += QStringLiteral( " · " ) + r.note;
-        else if ( !r.created.isEmpty() )
-          row.label += QStringLiteral( " · " ) + r.created;
-        m_revisionChoices.push_back( row );
-      }
+      SubIntervalLabeledChoice row;
+      row.id = r.revision;
+      row.label = shortRevision( r.revision );
+      if ( !r.note.isEmpty() )
+        row.label += QStringLiteral( " · " ) + r.note;
+      else if ( !r.created.isEmpty() )
+        row.label += QStringLiteral( " · " ) + r.created;
+      m_revisionChoices.push_back( row );
     }
   }
   if ( m_revisionChoices.isEmpty() )

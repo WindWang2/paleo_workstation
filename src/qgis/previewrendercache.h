@@ -20,10 +20,12 @@ class PreviewRenderCache
 {
   public:
     static PreviewRenderCache &instance();
+    static QString projectAssetKey( const QString &projectDir, const QString &assetId );
 
     // 组键：范围/尺寸取整（1e-3 m 与 8px 粒度）——缩放微抖不炸缓存。
     static QString makeKey( const QString &assetId, const QString &versionId,
-                            const class QgsRectangle &extent, int widthPx, int heightPx );
+                            const class QgsRectangle &extent, int widthPx, int heightPx,
+                            qreal devicePixelRatio = 1.0 );
 
     // 命中返回非空图并 LRU touch；未命中返回空 QImage。
     QImage lookup( const QString &key );
@@ -36,6 +38,8 @@ class PreviewRenderCache
     void clearMemoryForTesting();
 
   private:
+    void rememberInMemory( const QString &key, const QImage &image );
+    void discardDiskEntry( const QString &key );
     PreviewRenderCache();
     ~PreviewRenderCache(); // #419：m_dir 出 unique_ptr——进程退出真正清盘
     static constexpr int kMemLimit = 16;
@@ -44,5 +48,6 @@ class PreviewRenderCache
     std::unique_ptr<QTemporaryDir> m_dir;
     QHash<QString, QImage> m_mem;
     QStringList m_lru;     // 最近使用在尾
+    QHash<QString, qreal> m_diskPixelRatios; // PNG does not preserve Qt's logical pixel scale.
     QStringList m_diskLru; // 磁盘条目 LRU（与 m_dir 内 PNG 一一对应）
 };

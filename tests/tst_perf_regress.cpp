@@ -6,8 +6,7 @@
 #include "io/benchreport.h"
 #include "io/lascache.h"
 #include "io/perffixtures.h"
-#include "io/segyindexstore.h"
-#include "io/segyreader.h"
+#include "segydiskcachebudget.h"
 #include "io/shacache.h"
 
 #include <QDir>
@@ -16,6 +15,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+
+#include <algorithm>
+#include <array>
+#include <cstring>
 
 class PerfRegressTests : public QObject
 {
@@ -83,32 +86,72 @@ void PerfRegressTests::baselinesPresentAndWellFormed()
     QVERIFY2(b.contains(k), qPrintable(QStringLiteral("baseline 缺键 %1").arg(k)));
 }
 
+namespace
+{
+  // Every sample is the first reopen of a newly published cache file. Use a
+  // fixed sample count and retain the individual timings from the same run.
+  using CacheRatios = std::array<double, 25>;
+  double medianCacheRatio(CacheRatios ratios)
+  {
+    std::sort(ratios.begin(), ratios.end());
+    return ratios[ratios.size() / 2];
+  }
+}
+
 void PerfRegressTests::lasCacheHitRatioWithinGate()
 {
   const QJsonObject b = loadBaselines();
   if (b.isEmpty())
     QSKIP("baseline 缺失");
   const QString las = m_dir.filePath("gate.las");
-  QVERIFY(PerfFixtures::makeSyntheticLas(las, 15581));
-  LasCache::shared().setDiskRoot(m_dir.filePath("idx"));
-  LasCache::shared().invalidate();
+  QVERIFY(PerfFixtures::makeSyntheticLas(las, 93500));
+  auto &cache = LasCache::shared();
+  CacheRatios ratios{};
+  const double gate = ratioGate(b, QStringLiteral("las_cache_hit_vs_cold_max")) * 1.2;
+  qInfo().noquote() << "LAS source" << las << QFileInfo(las).size() << "bytes, 93500 rows,"
+                    << ratios.size() << "independent cache directories";
+  for (size_t i = 0; i < ratios.size(); ++i)
+  {
+    cache.setDiskRoot(m_dir.filePath(QStringLiteral("las-%1").arg(i)));
+    cache.clearMemory();
+    const auto before = cache.stats();
+    QElapsedTimer t;
+    t.start();
+    const auto cold = cache.load(las);
+    const auto coldNs = t.nsecsElapsed();
+    QVERIFY(cold.ok && coldNs > 0);
+    QCOMPARE(cache.stats().diskWrites, before.diskWrites + 1);
 
-  QElapsedTimer t;
-  t.start();
-  QVERIFY(LasCache::shared().load(las).ok);
-  const double coldMs = t.nsecsElapsed() / 1.0e6;
-
-  LasCache::shared().clearMemory();
-  t.restart();
-  QVERIFY(LasCache::shared().load(las).ok);
-  const double hitMs = t.nsecsElapsed() / 1.0e6;
-
-  const double ratio = coldMs > 0 ? hitMs / coldMs : 99.0;
-  const double gate = ratioGate(b, QStringLiteral("las_cache_hit_vs_cold_max")) * 1.2; // +20% 容差
+    cache.clearMemory();
+    t.restart();
+    const auto hit = cache.load(las);
+    const auto firstNs = t.nsecsElapsed();
+    ratios[i] = double(firstNs) / coldNs;
+    const auto timings = cache.lastTimings();
+    qInfo("LAS disk pair %zu cold_ns=%lld first_ns=%lld parse_ns=%lld disk_ns=%lld ratio=%.5f above_gate=%d",
+          i + 1, coldNs, firstNs, timings.coldParseNs, timings.diskLoadNs, ratios[i], int(ratios[i] > gate));
+    QVERIFY(hit.ok);
+    QCOMPARE(cache.stats().diskHits, before.diskHits + 1);
+    QCOMPARE(cache.stats().diskWrites, before.diskWrites + 1);
+    QCOMPARE(hit.curveNames, cold.curveNames);
+    QCOMPARE(hit.curves.size(), cold.curves.size());
+    for (qsizetype c = 0; c < cold.curves.size(); ++c)
+    {
+      const auto &expected = cold.curves[c];
+      const auto &actual = hit.curves[c];
+      QCOMPARE(actual.name, expected.name);
+      QCOMPARE(actual.unit, expected.unit);
+      QCOMPARE(actual.descr, expected.descr);
+      QCOMPARE(expected.values.size(), 93500);
+      QCOMPARE(actual.values.size(), expected.values.size());
+      QVERIFY(std::memcmp(actual.values.constData(), expected.values.constData(),
+                          actual.values.size() * sizeof(double)) == 0);
+    }
+  }
+  const double ratio = medianCacheRatio(ratios);
+  qInfo("LAS first disk hit/cold median %.4f, gate %.4f", ratio, gate);
   QVERIFY2(ratio <= gate,
-           qPrintable(QStringLiteral("hit/cold=%1 > 门限 %2（D8.2 劣化>20%%）")
-                          .arg(ratio, 0, 'f', 4)
-                          .arg(gate, 0, 'f', 4)));
+           qPrintable(QStringLiteral("hit/cold=%1 > 门限 %2").arg(ratio, 0, 'f', 4).arg(gate, 0, 'f', 4)));
 }
 
 void PerfRegressTests::segyIndexHitRatioWithinGate()
@@ -116,26 +159,7 @@ void PerfRegressTests::segyIndexHitRatioWithinGate()
   const QJsonObject b = loadBaselines();
   if (b.isEmpty())
     QSKIP("baseline 缺失");
-  const QString sgy = m_dir.filePath("gate.sgy");
-  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 100, 100, 50) > 0);
-  const QString idx = m_dir.filePath("idx");
-
-  QElapsedTimer t;
-  t.start();
-  SegyReader cold;
-  QString err;
-  QVERIFY(cold.openCached(sgy, idx, &err));
-  const double buildMs = t.nsecsElapsed() / 1.0e6;
-
-  t.restart();
-  SegyReader hit;
-  QVERIFY(hit.openCached(sgy, idx, &err));
-  const double hitMs = t.nsecsElapsed() / 1.0e6;
-
-  const double ratio = hitMs / buildMs;
-  const double gate = ratioGate(b, QStringLiteral("segy_cached_vs_rebuild_max")) * 1.2;
-  QVERIFY2(ratio <= gate,
-           qPrintable(QStringLiteral("hit/rebuild=%1 > 门限 %2").arg(ratio, 0, 'f', 4).arg(gate, 0, 'f', 4)));
+  paleo::test::verifySegyDiskCacheBudget(m_dir, ratioGate(b, QStringLiteral("segy_cached_vs_rebuild_max")) * 1.2);
 }
 
 void PerfRegressTests::shaCacheHitRatioWithinGate()

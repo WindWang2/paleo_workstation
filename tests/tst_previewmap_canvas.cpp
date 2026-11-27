@@ -1,4 +1,8 @@
 #include <QtTest>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -66,6 +70,7 @@ class TestPreviewMapCanvas : public QObject
     void cacheKeyIgnoresSmallJitter();
     void cacheLruEviction();
     void cacheDiskRoundTrip();
+    void expiredDiskEntryCannotBeResurrected();
 
     void setViewExtentIsExact();
     void cancelRenderingWithoutJobIsSafe();
@@ -446,7 +451,12 @@ void TestPreviewMapCanvas::cacheKeyIgnoresSmallJitter()
   QVERIFY(k1 != k4a); // 跨桶必不同
   const QString k4 = PreviewRenderCache::makeKey(QStringLiteral("asset"), QStringLiteral("v2"), a, 512, 384);
   QVERIFY(k1 != k4); // 版本不同必不同
-  QVERIFY(k1 != k4a);
+  QVERIFY(k1 != PreviewRenderCache::makeKey("asset", "v1", a, 512, 384, 1.5));
+  const auto projectKey = [&](const QString &dir, const QString &id) {
+    return PreviewRenderCache::makeKey(PreviewRenderCache::projectAssetKey(dir, id), "v1", a, 512, 384);
+  };
+  QVERIFY(projectKey("a-b", "ast-1") != projectKey("a_b", "ast-1"));
+  QVERIFY(projectKey("area", "ast-1") != projectKey("area", "ast_1"));
 }
 
 void TestPreviewMapCanvas::cacheLruEviction()
@@ -469,13 +479,50 @@ void TestPreviewMapCanvas::cacheDiskRoundTrip()
 {
   PreviewRenderCache::instance().clearMemoryForTesting();
   QImage img(8, 6, QImage::Format_ARGB32);
+  img.setDevicePixelRatio(1.5);
   img.fill(Qt::green);
   const QString key = QStringLiteral("diskrt");
   PreviewRenderCache::instance().store(key, img);
+  QFile file(QDir(PreviewRenderCache::instance().diskDirPath()).filePath(key + ".png"));
+  QVERIFY(file.open(QIODevice::ReadWrite));
+  QVERIFY(file.setFileTime(QDateTime::currentDateTimeUtc().addDays(-1), QFileDevice::FileModificationTime));
+  file.close();
+  const auto storedAt = QFileInfo(file).lastModified();
   PreviewRenderCache::instance().clearMemoryForTesting(); // 清内存逼走磁盘层
   const QImage back = PreviewRenderCache::instance().lookup(key);
   QVERIFY(!back.isNull());
   QCOMPARE(back.size(), img.size());
+  QCOMPARE(back.devicePixelRatio(), img.devicePixelRatio());
+  QCOMPARE(QFileInfo(file).lastModified(), storedAt); // A disk hit only reads and promotes the PNG.
+}
+
+void TestPreviewMapCanvas::expiredDiskEntryCannotBeResurrected()
+{
+  auto &cache = PreviewRenderCache::instance();
+  const QString key = QStringLiteral("expired-retina");
+  const QString path = QDir(cache.diskDirPath()).filePath(key + ".png");
+  QImage img(8, 6, QImage::Format_ARGB32);
+  img.setDevicePixelRatio(1.5);
+  img.fill(Qt::red);
+  cache.store(key, img);
+  for (int i = 0; i < 64; ++i)
+    cache.store(QStringLiteral("evict-disk-%1").arg(i), img);
+  cache.clearMemoryForTesting();
+  // Reproduce the on-disk state after a Windows sharing violation prevented removal.
+  QVERIFY(img.save(path, "PNG"));
+  QVERIFY(cache.lookup(key).isNull());
+  cache.store(key, img);
+  cache.clearMemoryForTesting();
+  QCOMPARE(cache.lookup(key).devicePixelRatio(), 1.5);
+
+  cache.clearMemoryForTesting();
+  QFile broken(path);
+  QVERIFY(broken.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  broken.close();
+  QVERIFY(cache.lookup(key).isNull());
+  QVERIFY(img.save(path, "PNG"));
+  QVERIFY(cache.lookup(key).isNull()); // Only a successful store can register it again.
+  QVERIFY(QFile::remove(path));
 }
 
 void TestPreviewMapCanvas::setViewExtentIsExact()

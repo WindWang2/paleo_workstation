@@ -41,6 +41,15 @@ namespace {
 // 连井剖面编辑产物在 project.sqlite 的节 id（单剖面 dock）。
 constexpr char kSectionId[] = "default";
 
+QVector<WellSectionPanel::WellChoice> toChoices(const QVector<WellSectionWorkflow::WellChoice> &choices)
+{
+  QVector<WellSectionPanel::WellChoice> out;
+  out.reserve(choices.size());
+  for (const auto &choice : choices)
+    out.push_back({choice.id, choice.name, choice.hasCoordinates, choice.x, choice.y, choice.alignmentStatus});
+  return out;
+}
+
 QVector<metadata::WellSectionLinkOverride>
 toStoreOverrides(const QVector<wellsection::LinkOverride> &in) {
   QVector<metadata::WellSectionLinkOverride> out;
@@ -279,20 +288,12 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
               syncSeismic();
             });
 
-  const auto toChoices = [](const QVector<WellSectionWorkflow::WellChoice> &in) {
-    QVector<WellSectionPanel::WellChoice> out;
-    out.reserve(in.size());
-    for (const auto &c : in)
-      out.push_back({c.id, c.name, c.hasCoordinates, c.x, c.y, c.alignmentStatus});
-    return out;
-  };
-
   // catalog 变更：300ms 去抖 → 刷新井选项；换工区 → 重绑编辑库并按
   // 落库行恢复井序/连线改接；同工区数据变化 → 有井即重取。
   auto *debounce = new QTimer(this);
   debounce->setSingleShot(true);
   debounce->setInterval(300);
-  const auto restoreWells = [this, wf, panel, bindStores]() {
+  const auto restoreWells = [this, wf, panel, bindStores](const QVector<WellSectionPanel::WellChoice> &choices) {
     QStringList saved;
     QVector<wellsection::LinkOverride> overrides;
     if (bindStores() && m_wellSectionStore)
@@ -325,7 +326,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             QStringLiteral("Paleo"));
     }
     QSet<QString> existing;
-    for (const auto &c : wf->wellChoices())
+    for (const auto &c : choices)
       existing.insert(c.id);
     QStringList ids;
     for (const QString &id : saved)
@@ -343,7 +344,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     panel->setWellIds(ids);
   };
   connect(debounce, &QTimer::timeout, this,
-          [this, wf, panel, catalogPath, restoreWells, toChoices,
+          [this, wf, panel, catalogPath, restoreWells,
            toTopsChoices, syncSeismic] {
             syncSeismic();
             const auto freshChoices = toChoices(wf->wellChoices());
@@ -365,7 +366,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
               panel->setBusy(false);
               panel->setWarnings({});
               panel->setSection({});
-              restoreWells();
+              restoreWells(freshChoices);
             }
             else if (!panel->wellIds().isEmpty())
             {
@@ -494,7 +495,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 栅状图（fence）：面板入口 → 单实例窗（交点井联动在部件内部接线）。
   connect(panel, &WellSectionPanel::fenceRequested, this,
-          [this, wf, taskSvc, toChoices, panel, saveSectionEdits] {
+          [this, wf, taskSvc, panel, saveSectionEdits] {
             if (m_wellSectionFence)
             {
               m_wellSectionFence->raise();
@@ -545,18 +546,20 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     });
     // AppContext 已先绑定工程元数据库；不依赖 catalogPath 是否变化或 300ms 去抖。
     connect(m_projectSvc, &QgisProjectService::projectOpened, panel,
-            [this, wf, panel, sessionClosed, catalogPath, restoreWells, toChoices] {
+            [this, wf, panel, sessionClosed, catalogPath, restoreWells] {
       *sessionClosed = false;
       *catalogPath = m_previewDoc->catalog()->catalogPath();
-      panel->setWellChoices(toChoices(wf->wellChoices()));
-      restoreWells();
+      const auto choices = toChoices(wf->wellChoices());
+      panel->setWellChoices(choices);
+      restoreWells(choices);
     });
   }
 
   // 初始装配同恢复路径。分层来源：先喂候选（面板对失效 id 自动回落
   // 默认），再按面板当前有效值同步 workflow——恢复口径单源在面板。
-  panel->setWellChoices(toChoices(wf->wellChoices()));
+  const auto initialChoices = toChoices(wf->wellChoices());
+  panel->setWellChoices(initialChoices);
   panel->setTopsSourceChoices(toTopsChoices(wf->topsSourceChoices({})));
   wf->setTopsSource(panel->topsSource());
-  restoreWells();
+  restoreWells(initialChoices);
 }

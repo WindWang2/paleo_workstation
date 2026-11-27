@@ -251,6 +251,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/datapreviewtabworkbook.cpp       # outsource_workbook 原生表格预览 + LO 打开
   src/ui/datapreview/datapreviewtabmapproduct.cpp     # 成果图件（相栅格/相面矢量/单因素）分支析出
   src/ui/datapreview/previewmappage.cpp            # P2 D1.x/D3.x 预览地图组合页（工具条/状态条/侧栏/鹰眼/书签）
+  src/ui/datapreview/previewmappage_cache.cpp
   src/ui/datapreview/previewtocpanel.cpp           # P2 D4.x 迷你 TOC + 符号快调 + 图例
   src/ui/datapreview/previewidentifypanel.cpp      # P2 D7.x identify 结果面板 + 全表模式
   src/ui/datapreview/previewprofilepanel.cpp       # P2 D5.1-5.4 层位剖面图面板

@@ -8,6 +8,9 @@ bool computeRegisteredWavelet(InversionWorkflow::WaveletJob* job,
     const std::function<bool()>& cancelled,const std::function<void(double)>& progress);
 bool prepareRegisteredInversion(const InversionWorkflow::InversionJobRequest& request,
     const paleo::inversion::Wavelet& wavelet,InversionWorkflow::InversionJob* job,QString* error);
+bool invertImpedanceTrace(const InversionWorkflow::InversionJob &job, int il, int xl,
+                          const float *samples, std::vector<float> &lowScratch,
+                          float *output, double &statistic, QString &error);
 bool computeRegisteredInversion(InversionWorkflow::InversionJob* job,
     const std::function<bool()>& cancelled,const std::function<void(double)>& progress);
 }

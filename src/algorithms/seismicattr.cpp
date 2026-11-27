@@ -9,6 +9,7 @@
 #include "algorithms/dsp/fft.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -301,76 +302,62 @@ namespace
 bool semblanceDimsFit(int nIl, int nXl, int nS, int ilHalf, int xlHalf, int timeHalf)
 {
   constexpr long long kMax = std::numeric_limits<int>::max();
-  return static_cast<long long>(nIl) * nXl * nS <= kMax && ilHalf <= (kMax - 1) / 2 &&
+  return nIl <= kMax / nXl / nS && ilHalf <= (kMax - 1) / 2 &&
          xlHalf <= (kMax - 1) / 2 && timeHalf <= (kMax - 1) / 2;
+}
+// Accumulate consecutive output windows together. A spatial stack at a given
+// time is shared by every overlapping window in the block. Summation stays
+// local to each window: a NaN or high-amplitude reflector cannot contaminate
+// subsequent windows through subtraction from a running total.
+void coherenceTrace(const float *volume, int nXl, int nS, int il, int xl,
+                    int ilHalf, int xlHalf, int timeHalf,
+                    const std::vector<double> &weight, double weightSum, float *out)
+{
+  constexpr int blockSize = 64;
+  for (int first = 0; first < nS; )
+  {
+    const int count = std::min(blockSize, nS - first);
+    const int last = first + (count - 1);
+    const int startTime = first - std::min(timeHalf, first);
+    const int endTime = last + std::min(timeHalf, nS - 1 - last);
+    std::array<double, blockSize> numerator{}, denominator{};
+    for (int t = startTime; t <= endTime; ++t)
+    {
+      double stack = 0.0, energy = 0.0;
+      std::size_t neighbor = 0;
+      for (int line = il - ilHalf; line <= il + ilHalf; ++line)
+        for (int crossline = xl - xlHalf; crossline <= xl + xlHalf; ++crossline)
+        {
+          const double v = volume[(line * nXl + crossline) * nS + t];
+          const double weighted = weight.empty() ? v : weight[neighbor] * v;
+          ++neighbor;
+          stack += weighted;
+          energy += weighted * v;
+        }
+      const int lo = std::max(first, t - timeHalf) - first;
+      const int hi = t + std::min(timeHalf, last - t) - first;
+      const double power = stack * stack;
+      for (int i = lo; i <= hi; ++i)
+      {
+        numerator[i] += power;
+        denominator[i] += energy;
+      }
+    }
+    for (int i = 0; i < count; ++i)
+    {
+      const double den = denominator[i] * weightSum;
+      out[first + i] = den > 0.0 ? float(numerator[i] / den) : kNaN;
+    }
+    first += count;
+  }
 }
 } // namespace
 
 void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
                         int ilHalf, int xlHalf, int timeHalf, float *out)
 {
-  if (!volume || !out || nIl <= 0 || nXl <= 0 || nS <= 0 ||
-      ilHalf < 0 || xlHalf < 0 || timeHalf < 0)
-    return;
-  if (!semblanceDimsFit(nIl, nXl, nS, ilHalf, xlHalf, timeHalf))
-    return;
-  const int nOut = nIl * nXl * nS;
-  for (int i = 0; i < nOut; ++i)
-    out[i] = kNaN;
-  if (ilHalf == 0 && xlHalf == 0 && timeHalf == 0)
-    return; // 退化窗：单道单样 semblance 恒 1 无意义，保持 NaN
-
-  const int traceStride = nS;                      // (il,xl) 相邻道步长
-  const int rowStride = nXl * nS;                  // 相邻 il 步长
-  const int ilDiam = 2 * ilHalf + 1;
-  const int xlDiam = 2 * xlHalf + 1;
-  const double jTraces = double(ilDiam) * double(xlDiam);
-
-  for (int il = ilHalf; il < nIl - ilHalf; ++il)
-  {
-    for (int xl = xlHalf; xl < nXl - xlHalf; ++xl)
-    {
-      const int traceBase = il * rowStride + xl * traceStride;
-      const int outBase = traceBase;
-      for (int s = 0; s < nS; ++s)
-      {
-        const int lo = s - timeHalf < 0 ? 0 : s - timeHalf;
-        const int hi = s + timeHalf > nS - 1 ? nS - 1 : s + timeHalf;
-        double num = 0.0;   // Σ_t (Σ_j u)²
-        double den = 0.0;   // Σ_t Σ_j u²（最后乘 J）
-        bool valid = true;
-        for (int t = lo; t <= hi && valid; ++t)
-        {
-          double stack = 0.0;
-          for (int dil = -ilHalf; dil <= ilHalf; ++dil)
-          {
-            for (int dxl = -xlHalf; dxl <= xlHalf; ++dxl)
-            {
-              const double v = double(volume[traceBase + dil * rowStride +
-                                             dxl * traceStride + t]);
-              if (std::isnan(v))
-              {
-                valid = false;
-                break;
-              }
-              stack += v;
-              den += v * v;
-            }
-            if (!valid)
-              break;
-          }
-          num += stack * stack;
-        }
-        if (!valid)
-          continue; // 输出保持 NaN
-        den *= jTraces;
-        // 全零窗是精确 0/0 → NaN；微小但非零的能量（如子波远尾）是合法
-        // 窗（同波形时 S=1 成立），不得用绝对阈值误杀（double 平方和非负，
-        // 仅精确零窗得 0）。
-        out[outBase + s] = den > 0.0 ? float(num / den) : kNaN;
-      }
-    }
-  }
+  semblanceCoherenceWeighted(volume, nIl, nXl, nS, ilHalf, xlHalf, timeHalf,
+                            1.0, 1.0, CoherenceWeightMode::Equal, out);
 }
 
 void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
@@ -397,16 +384,15 @@ void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
       !(ilSpacing > 0.0 && xlSpacing > 0.0))
     return; // 道距缺失：全 NaN（诚实失败，不静默降级等权）
 
-  const int traceStride = nS;
-  const int rowStride = nXl * nS;
   const int ilDiam = 2 * ilHalf + 1;
   const int xlDiam = 2 * xlHalf + 1;
 
   // 道权重表（Equal 恒 1——乘 1 不改浮点值，与无权路径逐位一致）。
-  std::vector<double> weight(std::size_t(ilDiam) * xlDiam, 1.0);
+  std::vector<double> weight;
   double weightSum = 0.0;
   if (mode == CoherenceWeightMode::InverseDistance)
   {
+    weight.resize(std::size_t(ilDiam) * xlDiam);
     const double d0 = std::min(ilSpacing, xlSpacing);
     for (int dil = -ilHalf; dil <= ilHalf; ++dil)
       for (int dxl = -xlHalf; dxl <= xlHalf; ++dxl)
@@ -428,47 +414,8 @@ void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
     if (progress)
       progress(il + 1);
     for (int xl = xlHalf; xl < nXl - xlHalf; ++xl)
-    {
-      const int traceBase = il * rowStride + xl * traceStride;
-      const int outBase = traceBase;
-      for (int s = 0; s < nS; ++s)
-      {
-        const int lo = s - timeHalf < 0 ? 0 : s - timeHalf;
-        const int hi = s + timeHalf > nS - 1 ? nS - 1 : s + timeHalf;
-        double num = 0.0;   // Σ_t (Σ_j w_j u_j)²
-        double den = 0.0;   // Σ_t Σ_j w_j u_j²（最后乘 W）
-        bool valid = true;
-        for (int t = lo; t <= hi && valid; ++t)
-        {
-          double stack = 0.0;
-          for (int dil = -ilHalf; dil <= ilHalf; ++dil)
-          {
-            for (int dxl = -xlHalf; dxl <= xlHalf; ++dxl)
-            {
-              const double v = double(volume[traceBase + dil * rowStride +
-                                             dxl * traceStride + t]);
-              if (std::isnan(v))
-              {
-                valid = false;
-                break;
-              }
-              const double w =
-                  weight[std::size_t((dil + ilHalf) * xlDiam + (dxl + xlHalf))];
-              stack += w * v;
-              den += w * v * v;
-            }
-            if (!valid)
-              break;
-          }
-          num += stack * stack;
-        }
-        if (!valid)
-          continue; // 输出保持 NaN
-        den *= weightSum;
-        // 全零窗是精确 0/0 → NaN（与等权路径同一判据）。
-        out[outBase + s] = den > 0.0 ? float(num / den) : kNaN;
-      }
-    }
+      coherenceTrace(volume, nXl, nS, il, xl, ilHalf, xlHalf, timeHalf, weight,
+                     weightSum, out + (il * nXl + xl) * nS);
   }
 }
 

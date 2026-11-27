@@ -12,12 +12,6 @@
 #include "../services/seismictaskservice.h"
 #include "../services/workerexceptionsink.h"
 
-#include "../algorithms/inversion/bandlimit.h"
-#include "algorithmadapters.h"
-#include "nativecppadapter.h"
-#include "nativeinputs_inversion.h"
-#include "../algorithms/inversion/sparse.h"
-
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -45,6 +39,41 @@ bool setError(QString *error, const QString &text)
     if (error)
         *error = text;
     return false;
+}
+
+bool externalSourceMatches(const InversionWorkflow::InversionJob &job)
+{
+    const QFileInfo file(job.req.seismicPath);
+    return file.isFile() && file.size() == job.spatialEvidence.value(QStringLiteral("sourceBytes")).toLongLong() &&
+           file.lastModified().toMSecsSinceEpoch() == job.spatialEvidence.value(QStringLiteral("sourceModifiedMs")).toLongLong();
+}
+
+QVariantList surveyCorners(const SegyGeometry &geometry)
+{
+    QVariantList corners;
+    for (int i = 0; i < 4; ++i) {
+        corners.append(geometry.cornerX[i]);
+        corners.append(geometry.cornerY[i]);
+    }
+    return corners;
+}
+
+qint32 regularAxisStep(const QVector<qint32> &axis)
+{
+    if (axis.size() < 2)
+        return 1;
+    const qint64 step = qint64(axis[1]) - axis[0];
+    return step > std::numeric_limits<qint32>::max() ? 0 : qint32(step);
+}
+
+bool axisMatchesPrepared(const QVector<qint32> &axis, int count, qint32 first, qint32 step)
+{
+    if (axis.size() != count)
+        return false;
+    for (int i = 0; i < count; ++i)
+        if (axis[i] != qint64(first) + qint64(i) * step)
+            return false;
+    return true;
 }
 
 // 井曲线 → 层界面反射系数尖峰（TWT）。与 computeSyntheticSeismogram 同口径：
@@ -484,9 +513,12 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
     }
     for(const auto& well:req.lowFreqWells)if(well.requireTrajectory)
         return setError(error,QStringLiteral("空间井约束需要工区 DataService 反演"));
-    if(double(QFileInfo(req.seismicPath).size())>kInversionMaxPeakBytes/3.)
+    const QFileInfo externalSource(req.seismicPath);
+    if(double(externalSource.size())>kInversionMaxPeakBytes/3.)
         return setError(error,QStringLiteral("外部地震文件超过旧读口预算，请先登记到工区 DataService 流式反演"));
 
+    job->spatialEvidence.insert(QStringLiteral("sourceBytes"), externalSource.size());
+    job->spatialEvidence.insert(QStringLiteral("sourceModifiedMs"), externalSource.lastModified().toMSecsSinceEpoch());
     SegyReader reader;
     QString openErr;
     if (!reader.open(req.seismicPath, &openErr))
@@ -498,25 +530,26 @@ bool InversionWorkflow::prepareInversionJob(const InversionJobRequest &req, Inve
     job->nS = reader.samplesPerTrace();
     job->dtMs = reader.sampleIntervalUs() / 1000.0;
     const SegyGeometry g = reader.geometry();
+    job->spatialEvidence.insert(QStringLiteral("sourceCorners"), surveyCorners(g));
     job->t0Ms = g.startTimeMs;
     job->inlineMin = ils.isEmpty() ? 0 : ils.front();
-    job->inlineStep = ils.size() > 1 ? ils.at(1) - ils.at(0) : 1;
+    job->inlineStep = regularAxisStep(ils);
     job->xlineMin = xls.isEmpty() ? 0 : xls.front();
-    job->xlineStep = xls.size() > 1 ? xls.at(1) - xls.at(0) : 1;
+    job->xlineStep = regularAxisStep(xls);
     if (job->nIl < 1 || job->nXl < 1 || job->nS < 16 || !(job->dtMs > 0.0))
         return setError(error, QStringLiteral("地震体网格无效（IL/XL/采样轴）"));
     // PW-144：体头与低频网格都按 min + idx*step 定位；线号不等距（抽稀/缺线）
     // 时第一个缺口之后的坐标全错——如实拒绝，不静默错位。
     for (int i = 2; i < ils.size(); ++i)
-        if (ils.at(i) - ils.at(i - 1) != job->inlineStep)
+        if (qint64(ils.at(i)) - ils.at(i - 1) != job->inlineStep)
             return setError(error, QStringLiteral("主测线号不等距（%1→%2，步长应为 %3），暂不支持不规则测网")
                                        .arg(ils.at(i - 1)).arg(ils.at(i)).arg(job->inlineStep));
     for (int j = 2; j < xls.size(); ++j)
-        if (xls.at(j) - xls.at(j - 1) != job->xlineStep)
+        if (qint64(xls.at(j)) - xls.at(j - 1) != job->xlineStep)
             return setError(error, QStringLiteral("联络测线号不等距（%1→%2，步长应为 %3），暂不支持不规则测网")
                                        .arg(xls.at(j - 1)).arg(xls.at(j)).arg(job->xlineStep));
     if (job->inlineStep == 0 || job->xlineStep == 0)
-        return setError(error, QStringLiteral("测线号步长为 0"));
+        return setError(error, QStringLiteral("测线号步长超出支持范围"));
     // PW-024：内存闸门。峰值 ≈ 全部输入道 + 输出体 + 落盘 blob（输入道在写 blob
     // 前释放，故按 2 份体计），超过上限直接拒绝而不是被 OOM 杀进程。
     {
@@ -578,6 +611,11 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
 {
     if (!job)
         return false;
+    // A completed volume belongs to its publishing caller. This run only owns its new scratch directory.
+    job->tempVolumePath.clear();
+    job->processedTraces = job->failedTraces = 0;
+    job->meanResidualEnergyRatio = job->meanLowFreqVarianceFraction = 0.0;
+    job->spatialEvidence.remove(QStringLiteral("firstTraceFailure"));
     job->ok = false;
     job->error.clear();
     if (!job->prepared)
@@ -586,11 +624,28 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
         return setError(&job->error, QStringLiteral("已取消"));
     if(job->dataServiceSource)return computeRegisteredInversion(job,cancelled,progress);
 
+    const auto sourceChanged = QStringLiteral("地震来源或网格在准备后发生变化，请重新准备反演");
+    if (!externalSourceMatches(*job))
+        return setError(&job->error, sourceChanged);
     SegyReader reader;
     QString openErr;
-    if (!reader.open(job->req.seismicPath, &openErr))
+    SegyOptions options;
+    options.cancel = cancelled;
+    if (!reader.open(job->req.seismicPath, &openErr, &options))
         return setError(&job->error, QStringLiteral("打开地震体失败: %1").arg(openErr));
-    QVector<SegyTrace> traces = reader.traces();
+    const auto ils = reader.inlineNumbers();
+    const auto xls = reader.crosslineNumbers();
+    if (!axisMatchesPrepared(ils, job->nIl, job->inlineMin, job->inlineStep) ||
+        !axisMatchesPrepared(xls, job->nXl, job->xlineMin, job->xlineStep) ||
+        reader.samplesPerTrace() != job->nS || reader.sampleIntervalUs() / 1000.0 != job->dtMs ||
+        reader.geometry().startTimeMs != job->t0Ms ||
+        surveyCorners(reader.geometry()) != job->spatialEvidence.value(QStringLiteral("sourceCorners")).toList())
+        return setError(&job->error, sourceChanged);
+    QVector<SegyTrace> traces = reader.traces(&options);
+    if (cancelled && cancelled())
+        return setError(&job->error, QStringLiteral("已取消"));
+    if (!externalSourceMatches(*job))
+        return setError(&job->error, sourceChanged);
     if (traces.isEmpty())
         return setError(&job->error, QStringLiteral("地震体无道"));
     if (progress)
@@ -598,8 +653,6 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
 
     QHash<qint32, int> ilToIdx;
     QHash<qint32, int> xlToIdx;
-    const QVector<qint32> ils = reader.inlineNumbers();
-    const QVector<qint32> xls = reader.crosslineNumbers();
     for (int i = 0; i < ils.size(); ++i)
         ilToIdx.insert(ils.at(i), i);
     for (int j = 0; j < xls.size(); ++j)
@@ -608,7 +661,6 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     const int nIl = job->nIl;
     const int nXl = job->nXl;
     const int nS = job->nS;
-    const double dtMs = job->dtMs;
     const bool sparse = job->req.method == QStringLiteral("sparse");
     std::vector<float> volume(size_t(nIl) * size_t(nXl) * size_t(nS),
                               std::numeric_limits<float>::quiet_NaN());
@@ -652,8 +704,9 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
 
     // 线程局部聚合（join 后合并），避免跨线程浮点累加竞态。
     std::vector<double> sumStat(size_t(nThreads), 0.0);
+    std::vector<QString> firstFailures(static_cast<size_t>(nThreads));
     auto invertRange = [&](int threadIdx, int t0i, int t1i) {
-        std::vector<float> lowTrace(size_t(nS), 0.0f);
+        std::vector<float> lowScratch;
         for (int ti = t0i; ti < t1i && !aborted.load(std::memory_order_relaxed); ++ti) {
             if (cancelled && cancelled()) {
                 aborted.store(true, std::memory_order_relaxed);
@@ -662,58 +715,22 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
             const SegyTrace &tr = traces.at(work[size_t(ti)]);
             const int ilIdx = ilToIdx.value(tr.lineNo, -1);
             const int xlIdx = xlToIdx.value(tr.xlineNo, -1);
-            const float *lowPtr = nullptr;
-            if (ilIdx >= 0 && xlIdx >= 0 && job->hasLowFreq) {
-                paleo::inversion::lowFreqTraceAt(job->lowFreq, ilIdx, xlIdx, lowTrace.data());
-                bool anyFinite = false;
-                for (float v : lowTrace)
-                    anyFinite = anyFinite || std::isfinite(v);
-                lowPtr = anyFinite ? lowTrace.data() : nullptr;
-            }
-            const float *samples = tr.samples.constData();
-            const int n = std::min(int(tr.samples.size()), nS);
-            bool okTrace = false;
-            if (ilIdx >= 0 && xlIdx >= 0 && n == nS && n > 0) {
+            QString failure;
+            bool ok = false;
+            if (ilIdx >= 0 && ilIdx < nIl && xlIdx >= 0 && xlIdx < nXl && tr.samples.size() >= nS) {
                 float *dst = volume.data() + (size_t(ilIdx) * size_t(nXl) + size_t(xlIdx)) * size_t(nS);
-                if (sparse) {
-                    // algo-atom：inversion:sparse_spike 经 NativeCppAdapter
-                    paleo::SparseSpikeInputs sin;
-                    sin.trace = samples;
-                    sin.n = n;
-                    sin.sampleIntervalMs = dtMs;
-                    sin.wavelet = &job->wavelet;
-                    sin.lowFreq = lowPtr;
-                    sin.options.lambda = job->req.lambda;
-                    sin.options.maxIterations = job->req.maxIterations;
-                    paleo::inversion::SparseSpikeResult sr;
-                    paleo::NativeCppAdapter native;
-                    const AlgorithmRunResult run = native.runSparseSpike(sin, &sr, nullptr);
-                    if (run.ok) {
-                        std::copy(sr.impedance.begin(), sr.impedance.end(), dst);
-                        sumStat[size_t(threadIdx)] += sr.residualEnergyRatio;
-                        okTrace = true;
-                    }
-                } else {
-                    // algo-atom：inversion:bandlimited 经 NativeCppAdapter
-                    paleo::BandlimitedInputs bin;
-                    bin.trace = samples;
-                    bin.n = n;
-                    bin.sampleIntervalMs = dtMs;
-                    bin.wavelet = &job->wavelet;
-                    bin.lowFreq = lowPtr;
-                    bin.options.lowCutHz = job->req.lowCutHz;
-                    paleo::inversion::BandlimitedResult br;
-                    paleo::NativeCppAdapter native;
-                    const AlgorithmRunResult run = native.runBandlimited(bin, &br, nullptr);
-                    if (run.ok) {
-                        std::copy(br.impedance.begin(), br.impedance.end(), dst);
-                        sumStat[size_t(threadIdx)] += br.lowFreqVarianceFraction;
-                        okTrace = true;
-                    }
-                }
+                double statistic = 0.0;
+                ok = invertImpedanceTrace(*job, ilIdx, xlIdx, tr.samples.constData(), lowScratch,
+                                          dst, statistic, failure);
+                if (ok)
+                    sumStat[size_t(threadIdx)] += statistic;
             }
-            if (!okTrace)
+            if (!ok) {
                 failed.fetch_add(1, std::memory_order_relaxed);
+                auto &first = firstFailures[size_t(threadIdx)];
+                if (first.isEmpty())
+                    first = failure.isEmpty() ? QStringLiteral("地震道长度或网格索引不符") : failure;
+            }
             const int d = done.fetch_add(1, std::memory_order_relaxed) + 1;
             if (progress && (d % 64 == 0 || d == total)) {
                 std::lock_guard<std::mutex> lock(progressMutex);
@@ -770,28 +787,25 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
         return setError(&job->error, QStringLiteral("已取消"));
     if (progress)
         progress(0.97);
+    if (cancelled && cancelled())
+        return setError(&job->error, QStringLiteral("已取消"));
     // PW-024：输入道不再需要，写 blob 前释放（峰值从 3 份降到 2 份体）。
     traces = QVector<SegyTrace>();
 
     job->processedTraces = done.load();
     job->failedTraces = failed.load();
-    // 均值分母 = 成功道数：sumStat 只累计成功道，除以含失败道的 processed
-    // 会系统性稀释均值（QC 高估稳定性——失败道越多越显得「稳定」）。成功
-    // 道为零时置 NaN 并如实展示，不冒充 0。
-    {
-        const int succeeded = job->processedTraces - job->failedTraces;
-        if (succeeded > 0) {
-            if (sparse)
-                job->meanResidualEnergyRatio /= double(succeeded);
-            else
-                job->meanLowFreqVarianceFraction /= double(succeeded);
-        } else {
-            if (sparse)
-                job->meanResidualEnergyRatio = std::numeric_limits<double>::quiet_NaN();
-            else
-                job->meanLowFreqVarianceFraction = std::numeric_limits<double>::quiet_NaN();
-        }
-    }
+    const auto first = std::find_if(firstFailures.begin(), firstFailures.end(),
+                                    [](const QString &message) { return !message.isEmpty(); });
+    if (first != firstFailures.end())
+        job->spatialEvidence.insert(QStringLiteral("firstTraceFailure"), *first);
+    const int succeeded = job->processedTraces - job->failedTraces;
+    if (succeeded == 0)
+        return setError(&job->error, QStringLiteral("%1 道均未产生有效阻抗：%2").arg(job->processedTraces)
+                                     .arg(job->spatialEvidence.value(QStringLiteral("firstTraceFailure")).toString()));
+    if (sparse)
+        job->meanResidualEnergyRatio /= double(succeeded);
+    else
+        job->meanLowFreqVarianceFraction /= double(succeeded);
 
     // 体头 + 临时落盘（发布时经 commitExternal 拷进受管目录）。
     QJsonObject header;
@@ -799,7 +813,7 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     header.insert(QStringLiteral("nXl"), nXl);
     header.insert(QStringLiteral("nS"), nS);
     header.insert(QStringLiteral("t0Ms"), job->t0Ms);
-    header.insert(QStringLiteral("dtMs"), dtMs);
+    header.insert(QStringLiteral("dtMs"), job->dtMs);
     header.insert(QStringLiteral("inlineMin"), double(job->inlineMin));
     header.insert(QStringLiteral("inlineStep"), double(job->inlineStep));
     header.insert(QStringLiteral("xlineMin"), double(job->xlineMin));
@@ -827,16 +841,21 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
 
     auto scratch = paleo::managedpath::temporaryDirectory(job->req.projectDirectory, QStringLiteral("paleo-inv"));
     if (!scratch) return setError(&job->error, QStringLiteral("反演暂存目录创建失败"));
-    job->tempVolumePath = scratch->filePath(QStringLiteral("impedance.iimp"));
-    QFile out(job->tempVolumePath);
+    const QString outputPath = scratch->filePath(QStringLiteral("impedance.iimp"));
+    QFile out(outputPath);
     if (!out.open(QIODevice::WriteOnly))
-        return setError(&job->error, QStringLiteral("临时体写入失败: %1").arg(job->tempVolumePath));
+        return setError(&job->error, QStringLiteral("临时体写入失败: %1").arg(outputPath));
     const QByteArray blob = paleo::inversion::writeImpedanceVolumeBlob(volume, header);
-    if (out.write(blob) != blob.size())
+    if (out.write(blob) != blob.size() || !out.flush())
         return setError(&job->error, QStringLiteral("临时体写入不完整"));
     out.close();
+    if (cancelled && cancelled())
+        return setError(&job->error, QStringLiteral("已取消"));
+    if (!externalSourceMatches(*job))
+        return setError(&job->error, sourceChanged);
     scratch->setAutoRemove(false); // publishing owns the completed volume
 
+    job->tempVolumePath = outputPath;
     job->ok = true;
     if (progress)
         progress(1.0);

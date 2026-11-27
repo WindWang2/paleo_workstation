@@ -8,6 +8,7 @@
 #include "metadata/metastore.h"
 #include "workflow/projectopen.h"
 #include <QApplication>
+#include <QComboBox>
 #include <QAction>
 #include <QAbstractButton>
 #include <QDateTime>
@@ -988,6 +989,78 @@ private slots:
     auto *layer = qobject_cast<QgsVectorLayer *>(m_ctx->layerSvc()->layer("survey.area"));
     QVERIFY(layer && layer->isValid());
     QCOMPARE(layer->featureCount(), 1);
+  }
+
+  void backgroundOpenBuildsDataPageOnceWithAdoptedAssets()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath("catalog-open.qgz");
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
+    QVERIFY(service->createProject(path));
+    m_ctx->closeProject();
+    {
+      DataCatalog catalog;
+      QString error;
+      QVERIFY2(catalog.open(dir.path(), &error), qPrintable(error));
+      QVERIFY(addHorizonAsset(&catalog, QDir(dir.path()), "ast-open-test"));
+    }
+    QSignalSpy rebuilds(listPanel(), &DataListPanel::graphDataChanged);
+    QObject observation;
+    connect(service, &QgisProjectService::openProgress, &observation, [&](int progress) {
+      if (progress == 96) rebuilds.clear();
+    });
+    int countAtFinish = -1;
+    int countAtOpen = -1;
+    connect(service, &QgisProjectService::projectOpened, &observation, [&] { countAtOpen = rebuilds.size(); });
+    connect(service, &QgisProjectService::openFinished, &observation, [&](bool success) {
+      if (success) countAtFinish = rebuilds.size();
+    });
+    QVERIFY(service->openProjectAsync(path));
+    QTRY_VERIFY_WITH_TIMEOUT(countAtFinish >= 0, 30000);
+    QCOMPARE(countAtOpen, 1);
+    QCOMPARE(countAtFinish, 1);
+    auto *types = listPanel()->findChild<QComboBox *>("assetTypeFilter");
+    QVERIFY(types && types->findData(QStringLiteral("horizon")) >= 0);
+  }
+
+  void interruptedOpenUpdatesSurvivingCatalog_data()
+  {
+    QTest::addColumn<bool>("cancel");
+    QTest::newRow("cancel-before-handoff") << true;
+    QTest::newRow("invalid-project") << false;
+  }
+
+  void interruptedOpenUpdatesSurvivingCatalog()
+  {
+    QFETCH(bool, cancel);
+    QTemporaryDir dir;
+    QTemporaryDir invalid;
+    QVERIFY(dir.isValid() && invalid.isValid());
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
+    const auto original = dir.filePath("kept.qgz");
+    QVERIFY(service->createProject(original));
+    const auto target = invalid.filePath("broken.qgs");
+    QVERIFY(writeFile(target, "not XML"));
+    QSignalSpy finished(service, &QgisProjectService::openFinished);
+    QSignalSpy rebuilds(listPanel(), &DataListPanel::graphDataChanged);
+    QVERIFY(service->openProjectAsync(target));
+    QVERIFY(addHorizonAsset(m_ctx->importSvc()->catalog(), QDir(dir.path()), "ast-while-opening"));
+    const auto seismicId = QStringLiteral("seismic-while-opening");
+    QVERIFY(addSeismicAsset(m_ctx->importSvc()->catalog(), seismicId));
+    QCOMPARE(rebuilds.size(), 0);
+    if (cancel) service->cancelOpen();
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(!finished.first().first().toBool());
+    QCOMPARE(service->projectPath(), original);
+    QCOMPARE(rebuilds.size(), 1);
+    QVERIFY(sectionDock());
+    QCOMPARE(sectionDock()->interpretationAssetId(), seismicId);
+    auto *types = listPanel()->findChild<QComboBox *>("assetTypeFilter");
+    QVERIFY(types && types->findData(QStringLiteral("horizon")) >= 0);
+    QTRY_VERIFY_WITH_TIMEOUT(!service->findChild<QFutureWatcherBase *>("projectOpenWatcher"), 30000);
   }
 
   void realProjectBackgroundResponsiveness()

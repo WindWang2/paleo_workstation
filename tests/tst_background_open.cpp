@@ -11,6 +11,11 @@
 #include <atomic>
 #include <qgsfeature.h>
 #include <qgsgeometry.h>
+#include <qgslayertree.h>
+#include <qgsmapthemecollection.h>
+#include <qgsmarkersymbol.h>
+#include <qgsprojectstylesettings.h>
+#include <qgsstyle.h>
 #include <qgspointxy.h>
 #include <qgsproject.h>
 #include <qgsvectorlayer.h>
@@ -312,29 +317,86 @@ private slots:
   // 接管依赖「层随 moveToThread 连 provider 亲和一起搬」的 QGIS 未书面契约。
   // vendored QGIS 升级若破坏该契约，此处在 CI 当场红掉，而不是用户侧拿到
   // 跨线程层。内存层随 .qgz 内嵌持久，无需外部数据源。
+  void asyncOpenAdoptsLayersOnOwnerThread_data() {
+    QTest::addColumn<bool>("extraAttachment");
+    QTest::newRow("layers-and-project-style") << false;
+    QTest::newRow("additional-attachment") << true;
+  }
   void asyncOpenAdoptsLayersOnOwnerThread() {
+    QFETCH(bool, extraAttachment);
     QTemporaryDir directory;
     QgisProjectService service;
     const QString path = directory.filePath("adopt.qgz");
     QVERIFY(service.createProject(path));
+    QString layerId, hiddenId, attachmentId;
+    const QString styleName = QStringLiteral("well marker");
+    const QString themeName = QStringLiteral("well view");
     {
-      auto *vl = new QgsVectorLayer(QStringLiteral("Point?field=id:int"),
+      auto *vl = new QgsVectorLayer(QStringLiteral("Polygon?field=id:int"),
                                     QStringLiteral("mem"), QStringLiteral("memory"));
       vl->setCrs(QgsCoordinateReferenceSystem::fromEpsgId(4326));
       QgsFeature f(vl->fields());
       f.setAttribute(QStringLiteral("id"), 1);
-      f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(108.0, 36.0)));
+      f.setGeometry(QgsGeometry::fromWkt(QStringLiteral("POLYGON ((108 36,109 36,109 37,108 36))")));
       vl->dataProvider()->addFeature(f);
       vl->updateExtents();
       service.project()->addMapLayer(vl);
+      layerId = vl->id();
+      auto *previous = new QgsVectorLayer("Polygon", "previous map", "memory");
+      service.project()->addMapLayer(previous);
+      hiddenId = previous->id();
+      auto *hidden = service.project()->layerTreeRoot()->findLayer(hiddenId);
+      QVERIFY(hidden);
+      hidden->setItemVisibilityChecked(false);
+      auto *style = service.project()->styleSettings()->projectStyle();
+      QVERIFY(style && style->addSymbol(styleName, new QgsMarkerSymbol(), true));
+      QgsMapThemeCollection::MapThemeRecord theme;
+      theme.addLayerRecord(QgsMapThemeCollection::MapThemeLayerRecord(vl));
+      service.project()->mapThemeCollection()->insert(themeName, theme);
+      service.project()->setAvoidIntersectionsLayers({vl});
+      QCOMPARE(service.project()->avoidIntersectionsLayers(), QList<QgsVectorLayer *>{vl});
+      auto snapping = service.project()->snappingConfig();
+      snapping.setIndividualLayerSettings(vl, {true, Qgis::SnappingType::Vertex, 17, Qgis::MapToolUnit::Pixels});
+      service.project()->setSnappingConfig(snapping);
+      if (extraAttachment) {
+        QFile file(service.project()->createAttachedFile("notes.txt"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("field notes"), 11);
+        attachmentId = service.project()->attachmentIdentifier(file.fileName());
+      }
       QVERIFY(service.writeProject());
       service.closeProject();
     }
     QSignalSpy opened(&service, &QgisProjectService::projectOpened);
     QSignalSpy failed(&service, &QgisProjectService::openAborted);
+    QSignalSpy loadingLayers(service.project(), &QgsProject::loadingLayer);
     QVERIFY(service.openProjectAsync(path));
     QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
     QCOMPARE(failed.count(), 0);
+    if (!extraAttachment) QCOMPARE(loadingLayers.count(), 0);
+    QCOMPARE(service.project()->fileName(), path);
+    auto *style = service.project()->styleSettings()->projectStyle();
+    QVERIFY(style && style->symbolNames().contains(styleName));
+    auto *adopted = qobject_cast<QgsVectorLayer *>(service.project()->mapLayer(layerId));
+    QVERIFY(adopted);
+    const auto verifyVisibility = [&] {
+      auto *tree = service.project()->layerTreeRoot();
+      auto *current = tree->findLayer(layerId);
+      auto *previous = tree->findLayer(hiddenId);
+      QVERIFY(current && current->layer() == service.project()->mapLayer(layerId) && current->isVisible());
+      QVERIFY(previous && previous->layer() && previous->layer() == service.project()->mapLayer(hiddenId));
+      QVERIFY(!previous->isVisible());
+      QCOMPARE(tree->findLayers().size(), 2);
+    };
+    verifyVisibility();
+    QCOMPARE(service.project()->mapThemeCollection()->mapThemeVisibleLayers(themeName), QList<QgsMapLayer *>{adopted});
+    QCOMPARE(service.project()->avoidIntersectionsLayers(), QList<QgsVectorLayer *>{adopted});
+    QCOMPARE(service.project()->snappingConfig().individualLayerSettings(adopted).tolerance(), 17.0);
+    if (extraAttachment) {
+      QFile file(service.project()->resolveAttachmentIdentifier(attachmentId));
+      QVERIFY(file.open(QIODevice::ReadOnly));
+      QCOMPARE(file.readAll(), QByteArray("field notes"));
+    }
     QThread *owner = QThread::currentThread();
     const auto layers = service.project()->mapLayers();
     QVERIFY2(layers.size() >= 1, "adopted project lost its layers");
@@ -343,6 +405,19 @@ private slots:
       QVERIFY(layer->dataProvider() != nullptr);
       QCOMPARE(layer->dataProvider()->thread(), owner); // provider 亲和同搬
       QVERIFY(layer->isValid());
+    }
+    QVERIFY(service.writeProject());
+    service.closeProject();
+    QVERIFY(service.openProject(path));
+    verifyVisibility();
+    auto *savedStyle = service.project()->styleSettings()->projectStyle();
+    QVERIFY(savedStyle && savedStyle->symbolNames().contains(styleName));
+    QCOMPARE(service.project()->mapThemeCollection()->mapThemeVisibleLayers(themeName),
+             QList<QgsMapLayer *>{service.project()->mapLayer(layerId)});
+    if (extraAttachment) {
+      QFile file(service.project()->resolveAttachmentIdentifier(attachmentId));
+      QVERIFY(file.open(QIODevice::ReadOnly));
+      QCOMPARE(file.readAll(), QByteArray("field notes"));
     }
     service.closeProject();
   }

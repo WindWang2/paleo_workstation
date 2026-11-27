@@ -130,6 +130,7 @@ class PreviewMapCanvas : public QWidget
     void layersChanged();
     void extentChanged( const QgsRectangle &extent );
     void renderStarted();
+    void renderCanceled();
     void renderCompleted( qint64 durationMs, int layerCount, qint64 elementCount );
     void scaleChanged( double scale );
     void crsChanged();

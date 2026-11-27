@@ -31,7 +31,13 @@ void StratigraphyPage::buildActions(QBoxLayout* layout) {
  // #869：页内键盘撤销/重做（键序登记在 ShortcutCatalog stratigraphy.*；按钮禁用时 click 无效）。
  connect(paleo::shortcuts::bindShortcut(QStringLiteral("stratigraphy.undo"),this),&QShortcut::activated,undo,&QPushButton::click);
  connect(paleo::shortcuts::bindShortcut(QStringLiteral("stratigraphy.redo"),this),&QShortcut::activated,redo,&QPushButton::click);
- auto* advanced=button(tr("更多设置与历史"),"stratigraphyAdvancedToggle",[this](bool checked){if(auto* w=findChild<QWidget*>(QStringLiteral("stratigraphyAdvanced")))w->setVisible(checked);});advanced->setCheckable(true);
+ auto* advanced=button(tr("更多设置与历史"),"stratigraphyAdvancedToggle",[this](bool checked){
+  if(auto* w=findChild<QWidget*>(QStringLiteral("stratigraphyAdvanced"))) {
+   w->setVisible(checked);
+   if(checked)refreshVersions();
+  }
+ });
+ advanced->setCheckable(true);
  button(tr("计算结果…"),"stratigraphyResultsButton",[this]{showResults();});
  auto* cancel=button(tr("取消计算"),"cancelStratigraphy",[this]{m_workflow->cancel();});cancel->hide();
  row->addStretch();
@@ -98,6 +104,7 @@ void StratigraphyPage::buildAdvanced(QBoxLayout* layout) {
 }
 void StratigraphyPage::refreshRevisions() {
  QSignalBlocker blocker(m_revision);m_revision->clear();const auto id=m_saved->currentData().toString();
+ if (id.isEmpty()) return;
  for(const auto& v:m_workflow->versions(id))m_revision->addItem(v.name+QStringLiteral(" · ")+v.id.left(8),v.id);
  const auto& doc=m_workflow->document();const QString revision=QString::fromStdString(doc.id)==id?QString::fromStdString(doc.revision):m_saved->currentData(Qt::UserRole+1).toString();
  const int at=m_revision->findData(revision);if(at>=0)m_revision->setCurrentIndex(at);

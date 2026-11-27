@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 
 class PerfRegressTests : public QObject
 {
@@ -87,9 +88,9 @@ void PerfRegressTests::baselinesPresentAndWellFormed()
 
 namespace
 {
-  // Each pair includes the first disk reopen immediately after publication.
-  // The median keeps a single delayed file open from determining the gate.
-  using CacheRatios = std::array<double, 5>;
+  // Every sample is the first reopen of a newly published cache file. Use a
+  // fixed sample count and retain the individual timings from the same run.
+  using CacheRatios = std::array<double, 25>;
   double medianCacheRatio(CacheRatios ratios)
   {
     std::sort(ratios.begin(), ratios.end());
@@ -105,7 +106,10 @@ void PerfRegressTests::lasCacheHitRatioWithinGate()
   const QString las = m_dir.filePath("gate.las");
   QVERIFY(PerfFixtures::makeSyntheticLas(las, 93500));
   auto &cache = LasCache::shared();
-  CacheRatios ratios;
+  CacheRatios ratios{};
+  const double gate = ratioGate(b, QStringLiteral("las_cache_hit_vs_cold_max")) * 1.2;
+  qInfo().noquote() << "LAS source" << las << QFileInfo(las).size() << "bytes, 93500 rows,"
+                    << ratios.size() << "independent cache directories";
   for (size_t i = 0; i < ratios.size(); ++i)
   {
     cache.setDiskRoot(m_dir.filePath(QStringLiteral("las-%1").arg(i)));
@@ -121,14 +125,30 @@ void PerfRegressTests::lasCacheHitRatioWithinGate()
     cache.clearMemory();
     t.restart();
     const auto hit = cache.load(las);
-    ratios[i] = double(t.nsecsElapsed()) / coldNs;
+    const auto firstNs = t.nsecsElapsed();
+    ratios[i] = double(firstNs) / coldNs;
+    const auto timings = cache.lastTimings();
+    qInfo("LAS disk pair %zu cold_ns=%lld first_ns=%lld parse_ns=%lld disk_ns=%lld ratio=%.5f above_gate=%d",
+          i + 1, coldNs, firstNs, timings.coldParseNs, timings.diskLoadNs, ratios[i], int(ratios[i] > gate));
     QVERIFY(hit.ok);
     QCOMPARE(cache.stats().diskHits, before.diskHits + 1);
+    QCOMPARE(cache.stats().diskWrites, before.diskWrites + 1);
     QCOMPARE(hit.curveNames, cold.curveNames);
-    QCOMPARE(hit.curves.first().values.size(), 93500);
+    QCOMPARE(hit.curves.size(), cold.curves.size());
+    for (qsizetype c = 0; c < cold.curves.size(); ++c)
+    {
+      const auto &expected = cold.curves[c];
+      const auto &actual = hit.curves[c];
+      QCOMPARE(actual.name, expected.name);
+      QCOMPARE(actual.unit, expected.unit);
+      QCOMPARE(actual.descr, expected.descr);
+      QCOMPARE(expected.values.size(), 93500);
+      QCOMPARE(actual.values.size(), expected.values.size());
+      QVERIFY(std::memcmp(actual.values.constData(), expected.values.constData(),
+                          actual.values.size() * sizeof(double)) == 0);
+    }
   }
   const double ratio = medianCacheRatio(ratios);
-  const double gate = ratioGate(b, QStringLiteral("las_cache_hit_vs_cold_max")) * 1.2;
   qInfo("LAS first disk hit/cold median %.4f, gate %.4f", ratio, gate);
   QVERIFY2(ratio <= gate,
            qPrintable(QStringLiteral("hit/cold=%1 > 门限 %2").arg(ratio, 0, 'f', 4).arg(gate, 0, 'f', 4)));

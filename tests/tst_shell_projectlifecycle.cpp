@@ -20,6 +20,7 @@
 #include <QFutureWatcher>
 #include <QLabel>
 #include <QMenu>
+#include <QMessageBox>
 #include <qgsvectorlayer.h>
 #include <qgsgeometry.h>
 #include <QPushButton>
@@ -439,6 +440,7 @@ private slots:
           ++askCount;
           return choice;
         });
+    const auto resetAsk = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
 
     // 「取消」：原地不动（仍停留在 B），目标工程不得被打开。
     emit list->itemActivated(item);
@@ -451,22 +453,28 @@ private slots:
     QTest::qWait(60); // 保证 mtime 可辨
     const QDateTime before = QFileInfo(m_qgzB).lastModified();
     choice = PaleoNotify::SaveChoice::Save;
+    QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
     emit list->itemActivated(item);
-    QApplication::processEvents();
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
     QCOMPARE(askCount, 2);
-    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzA, 5000);
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzA);
     QVERIFY2(QFileInfo(m_qgzB).lastModified() > before,
              "选保存后当前工程 .qgz 必须落盘（mtime 更新）");
 
-    m_win->setProjectSaveAskForTesting(nullptr);
   }
 
   // #282：干净的工程切换不打扰——一次询问都不弹。
   void switchCleanProjectDoesNotAsk()
   {
-    // 当前工程（上一测试切回的 A）完整落成 → 落盘清脏。
-    QVERIFY(m_ctx->projectSvc()->writeProject());
-    QVERIFY2(!m_ctx->projectSvc()->project()->isDirty(), "写盘后工程应为干净");
+    QTemporaryDir source, destination;
+    QVERIFY(source.isValid() && destination.isValid());
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
+    const auto target = destination.filePath("destination.qgz");
+    QVERIFY(service->createProject(target));
+    QVERIFY(service->createProject(source.filePath("source.qgz")));
+    QVERIFY2(service->writeProject(), qPrintable(service->lastErrors().join('\n')));
     QVERIFY2(!m_ctx->projectSvc()->project()->isDirty(), "写盘后工程应为干净");
 
     int askCount = 0;
@@ -475,23 +483,19 @@ private slots:
           ++askCount;
           return PaleoNotify::SaveChoice::Cancel;
         });
-    // 切回 B（上一测试完整落成的工程；其 .qgz 已带 native 吸附配置，
-    // 重开不再触发 snapping 替换改脏）。
+    const auto resetAsk = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
     auto *list = recentList();
     QVERIFY(list);
-    QString target;
-    for (int i = 0; i < list->count() && target.isEmpty(); ++i)
-      if (QListWidgetItem *it = list->item(i))
-        if (it->data(Qt::UserRole).toString() == m_qgzB)
-          target = m_qgzB;
-    QVERIFY2(!target.isEmpty(), "最近列表应含上一测试创建的 B");
-    auto *item = new QListWidgetItem(target, list);
-    item->setData(Qt::UserRole, target);
+    QListWidgetItem *item = nullptr;
+    for (int i = 0; i < list->count(); ++i)
+      if (list->item(i)->data(Qt::UserRole).toString() == target) { item = list->item(i); break; }
+    QVERIFY2(item, "最近列表应含本用例创建的目标工程");
+    QSignalSpy finished(service, &QgisProjectService::openFinished);
     emit list->itemActivated(item);
-    // 切换经 ProjectOpenWorkflow 异步打开——等终态再断言（不脏则一次都不问）。
-    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzB, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
+    QCOMPARE(service->projectPath(), target);
     QCOMPARE(askCount, 0); // 不脏不问
-    m_win->setProjectSaveAskForTesting(nullptr);
   }
 
   void projectSaveAndPartialLayerCommitKeepUnfinishedEdits() {
@@ -523,7 +527,24 @@ private slots:
                           [layer = layers[1]] { layer->setAllowCommit(false); });
     m_win->setProjectSaveAskForTesting([](const QString &, const QString &) { return PaleoNotify::SaveChoice::Save; });
     const auto cleanup = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
+    const bool expectsDialog = QApplication::platformName() != QStringLiteral("offscreen");
+    QString failureText;
+    QTimer dismissFailure;
+    connect(&dismissFailure, &QTimer::timeout, this, [&] {
+      auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+      if (!box || box->parentWidget() != m_win || box->icon() != QMessageBox::Critical ||
+          box->windowTitle() != PaleoMainWindow::tr("保存编辑失败")) return;
+      dismissFailure.stop();
+      failureText = box->text();
+      box->accept();
+    });
+    if (expectsDialog) dismissFailure.start(10);
     QVERIFY(!m_win->resolveDirtyLayerEdits());
+    if (expectsDialog) {
+      QVERIFY2(failureText.contains(layers[1]->name()), qPrintable(failureText));
+      QVERIFY2(failureText.contains(PaleoMainWindow::tr("已提交：%1").arg(layers[0]->name())), qPrintable(failureText));
+      QVERIFY2(failureText.contains(PaleoMainWindow::tr("尚未提交：%1").arg(layers[2]->name())), qPrintable(failureText));
+    }
     QVERIFY(!layers[0]->isEditable());
     QVERIFY(layers[1]->isEditable() && layers[1]->isModified());
     QVERIFY(layers[2]->isEditable() && layers[2]->isModified());
@@ -644,6 +665,11 @@ private slots:
   // 没有打开工程时，空 QgsProject 被标脏也不问。关窗、再开别的工程都直接放行。
   void noOpenProjectDoesNotAskToDiscard()
   {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString other = dir.filePath(QStringLiteral("other.qgz"));
+    { QgsProject project; QVERIFY(project.write(other)); }
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
     m_ctx->closeProject();
     QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
     QgsProject *proj = m_ctx->projectSvc()->project();
@@ -656,6 +682,7 @@ private slots:
           ++askCount;
           return PaleoNotify::SaveChoice::Cancel;
         });
+    const auto resetAsk = qScopeGuard([this] { m_win->setProjectSaveAskForTesting(nullptr); });
     QVERIFY(m_win->maybeSaveProject());
     QCOMPARE(askCount, 0);
 
@@ -664,12 +691,12 @@ private slots:
     QVERIFY2(!m_win->isVisible(), "没有打开工程时关窗不得被放弃对话框拦住");
     QCOMPARE(askCount, 0);
 
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    const QString other = dir.filePath(QStringLiteral("other.qgz"));
+    QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
     m_win->openPath(other);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), other);
     QCOMPARE(askCount, 0);
-    m_win->setProjectSaveAskForTesting(nullptr);
   }
 
   // #226：解释登记链生产接线——打开工程即注入 catalog + 源体资产/版本 +
@@ -828,6 +855,9 @@ private slots:
 
     ProjectDirLock writer(child);
     QVERIFY(writer.tryLock());
+    int readOnlyDecisions = 0;
+    m_ctx->setLockConflictResolver([&](const QString &) { ++readOnlyDecisions; return true; });
+    const auto resetResolver = qScopeGuard([this] { m_ctx->setLockConflictResolver({}); });
     auto *service = m_ctx->projectSvc();
     QSignalSpy finished(service, &QgisProjectService::openFinished);
     QVERIFY(service->openProjectAsync(paleoProjectFilePath(directory.path())));
@@ -843,12 +873,14 @@ private slots:
     QVERIFY(service->isReadOnly());
     QVERIFY(!QFileInfo::exists(paleoProjectFilePath(child)));
     m_ctx->closeProject();
+    QCOMPARE(readOnlyDecisions, 2);
 
     // A subsequent writable open can still adopt a legacy bare QGIS file.
     writer.unlock();
     QVERIFY(service->openProject(qgz));
     QVERIFY(!service->isReadOnly());
     QVERIFY(QFileInfo::exists(paleoProjectFilePath(child)));
+    QCOMPARE(readOnlyDecisions, 2);
     m_ctx->closeProject();
   }
 

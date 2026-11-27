@@ -364,8 +364,11 @@ private slots:
         if(std::isnan(reference.amplitudes[i]))QVERIFY(std::isnan(result.amplitudes[i]));
         else QCOMPARE(result.amplitudes[i],reference.amplitudes[i]);
       }
-      QCOMPARE(result.statistics.workerCount,workers);
-      qInfo()<<"real time ROI workers"<<workers<<"cells"<<result.amplitudes.size()<<"tiles"<<result.statistics.completedTiles<<"wall_ms"<<clock.elapsed();
+      QVERIFY(result.statistics.totalTiles>0);
+      QCOMPARE(result.statistics.completedTiles,result.statistics.totalTiles);
+      QCOMPARE(result.statistics.workerCount,std::min(workers,int(result.statistics.totalTiles)));
+      qInfo()<<"real time ROI requested workers"<<workers<<"active workers"<<result.statistics.workerCount
+             <<"cells"<<result.amplitudes.size()<<"tiles"<<result.statistics.completedTiles<<"wall_ms"<<clock.elapsed();
     }
     qInfo()<<"OS file cache uncontrolled; comparison covers ROI only, not full-slice speedup";
   }

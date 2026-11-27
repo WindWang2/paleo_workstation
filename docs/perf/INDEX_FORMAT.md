@@ -25,7 +25,7 @@ payload 长度与文件实际尺寸一致、payload CRC。
 曾因父目录未建在 rename 时报 "Publishing the cache file failed: No such
 file or directory"。**
 
-## 2. LAS 解析缓存 `.plc`（magic `PLASCHE`，version 1）
+## 2. LAS 解析缓存 `.plc`（magic `PLASCCHE`，写入版本 3）
 
 payload（cacheio 原语序）：
 
@@ -35,10 +35,16 @@ f64  null 占位             （NULL 值已在解析期映射 NaN；占位保布
 u32  curveCount
 u32  rowCount
 per curve: str name / str unit / str descr
-per curve: rowCount × f64  行主序
+per curve (v2): rowCount × f64
+per curve (v3, flags bit1): u8 encoding + rowCount × (i32 或 f64)
 ```
 
-文件名：`sha256(fingerprint)[0:24].plc`，位于
+读端支持 v2 和 v3。v3 的编码 1 将整条曲线保存为以万分之一为单位的小端
+有符号整数，`INT32_MIN` 表示 IEEE 754 位模式 `0x7ff8000000000000`。写入前逐值还原并比较
+binary64 位模式。遇到超出范围的数值、负零、自定义 NaN 或无法精确还原的
+小数时，整条曲线采用编码 0，保留各个样点的原始 64 位。
+
+文件名为 `sha256(fingerprint)[0:24].plc`，位于
 `<proj>/artifacts/index/las/`。
 
 ## 3. SEG-Y 道头索引 `.psx`（magic `PSGYIDX1`，version 6）

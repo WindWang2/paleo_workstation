@@ -1,6 +1,7 @@
 // 层：数据
 #include "nativemodel.h"
 #include "lascache.h"
+#include "lascachecodec_p.h"
 
 #include "../domain/wellnumeric.h"
 #include "pathcanon.h"
@@ -12,30 +13,64 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
-#include <cstring>
+#include <QtEndian>
+#include <bit>
+#include <limits>
 
 namespace
 {
   // v2（#167）：解析器不再把纯空白行/尾部 Ctrl-Z 解析成 NaN 幽灵行——旧缓存作废重建。
-  constexpr quint16 kLasCacheVersion = 2;
+  constexpr quint16 kOldestLasCacheVersion = 2;
+  constexpr quint16 kLasCacheVersion = 3;
   const char kLasCacheMagic[8] = {'P', 'L', 'A', 'S', 'C', 'C', 'H', 'E'};
   constexpr qint64 kDefaultMemBudget = 64 * 1024 * 1024;
 
+  constexpr double kDecimalScale = 10000.0;
+  constexpr qint32 kNullCode = std::numeric_limits<qint32>::min();
+  constexpr quint64 kNullBits = Q_UINT64_C(0x7ff8000000000000);
+  constexpr double kQuietNaN = std::bit_cast<double>(kNullBits);
+  constexpr char kBinary64 = 0;
+  constexpr char kFixed4 = 1;
+
+  bool writeFixedColumn(const QVector<double> &values, char *dst)
+  {
+    for (qsizetype i = 0; i < values.size(); ++i)
+    {
+      const double &value = values[i];
+      qint32 code = kNullCode;
+      if (std::bit_cast<quint64>(value) != kNullBits)
+      {
+        if (!(value > double(kNullCode) / kDecimalScale &&
+              value <= double(std::numeric_limits<qint32>::max()) / kDecimalScale))
+          return false;
+        code = qRound(value * kDecimalScale);
+        const double restored = double(code) / kDecimalScale;
+        if (code == kNullCode || std::bit_cast<quint64>(value) != std::bit_cast<quint64>(restored))
+          return false;
+      }
+      qToLittleEndian(code, dst + i * sizeof(code));
+    }
+    return true;
+  }
+}
+
+namespace paleo::lascache_detail {
   // 磁盘 payload 布局（cacheio 小端原语）：
   //   [str fingerprint][f64 null 占位][u32 curveCount][u32 rowCount]
   //   每曲线：[str name][str unit][str descr]
-  //   每曲线：rowCount × f64
+  //   v3 每曲线：[u8 encoding] + rowCount × (i32 / f64)。仅按位可逆才使用 i32。
   QByteArray encodeDoc(const QString &fingerprint, const LasDoc &doc)
   {
     QByteArray out;
     cacheio::putStr(&out, fingerprint);
     cacheio::putF64(&out, paleo::wellnumeric::kLasDefaultNull); // NULL 值已在解析时映射为 NaN；占位保布局
-    const quint32 curveCount = static_cast<quint32>(doc.curves.size());
-    quint32 rowCount = 0;
+    if (doc.curves.isEmpty() || doc.curves.size() > 4096) return {};
+    const qsizetype rowCount = doc.curves.first().values.size();
+    if (rowCount > 200000000) return {};
     for (const LasCurve &c : doc.curves)
-      rowCount = qMax<quint32>(rowCount, static_cast<quint32>(c.values.size()));
-    cacheio::putU32(&out, curveCount);
-    cacheio::putU32(&out, rowCount);
+      if (c.values.size() != rowCount) return {};
+    cacheio::putU32(&out, static_cast<quint32>(doc.curves.size()));
+    cacheio::putU32(&out, static_cast<quint32>(rowCount));
     for (const LasCurve &c : doc.curves)
     {
       cacheio::putStr(&out, c.name);
@@ -44,26 +79,31 @@ namespace
     }
     for (const LasCurve &c : doc.curves)
     {
-#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
-      const qint64 byteCount = static_cast<qint64>(c.values.size()) * static_cast<qint64>(sizeof(double));
-      const int oldSize = out.size();
-      out.resize(oldSize + static_cast<int>(byteCount));
-      std::memcpy(out.data() + oldSize, c.values.constData(), static_cast<size_t>(byteCount));
-#else
-      for (double v : c.values)
-        cacheio::putF64(&out, v);
-#endif
+      const qsizetype offset = out.size();
+      if (offset >= out.maxSize() || rowCount > (out.maxSize() - offset - 1) / qsizetype(sizeof(double))) return {};
+      out.resizeForOverwrite(offset + 1 + rowCount * sizeof(double));
+      char *column = out.data() + offset;
+      if (writeFixedColumn(c.values, column + 1))
+      {
+        *column = kFixed4;
+        out.truncate(offset + 1 + rowCount * sizeof(qint32));
+      }
+      else
+      {
+        *column = kBinary64;
+        qToLittleEndian<quint64>(c.values.constData(), rowCount, column + 1);
+      }
     }
     return out;
   }
 
-  bool decodeDoc(const QByteArray &payload, const QString &wantFingerprint,
+  bool decodeDoc(const QByteArray &payload, const QString &wantFingerprint, quint16 flags,
                  std::shared_ptr<LasDoc> *out)
   {
     qint64 pos = 0;
     bool ok = true;
     const QString fp = cacheio::str(payload, &pos, &ok);
-    if (!ok || fp != wantFingerprint)
+    if (!ok || fp != wantFingerprint || payload.size() - pos < 16)
       return false; // 指纹不符 = 过期条目（别的 mtime/size）
     /*double nullPlaceholder =*/ cacheio::f64(payload, &pos, &ok);
     const quint32 curveCount = cacheio::u32(payload, &pos, &ok);
@@ -76,42 +116,56 @@ namespace
     {
       LasCurve c;
       c.name = cacheio::str(payload, &pos, &ok);
+      if (!ok) return false;
       c.unit = cacheio::str(payload, &pos, &ok);
+      if (!ok) return false;
       c.descr = cacheio::str(payload, &pos, &ok);
       doc->curves.append(c);
       doc->curveNames.append(c.name);
     }
     if (!ok)
       return false;
-    const qint64 curveBytes = static_cast<qint64>(rowCount) * static_cast<qint64>(sizeof(double));
-    for (quint32 i = 0; i < curveCount && ok; ++i)
+    for (LasCurve &curve : doc->curves)
     {
-      if (pos + curveBytes > payload.size())
-        return false;
-      QVector<double> vals;
-      vals.resize(static_cast<int>(rowCount));
-#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
-      std::memcpy(vals.data(), payload.constData() + pos, static_cast<size_t>(curveBytes));
-      pos += curveBytes;
-#else
-      for (quint32 r = 0; r < rowCount && ok; ++r)
-        vals[r] = cacheio::f64(payload, &pos, &ok);
-#endif
-      doc->curves[int(i)].values = std::move(vals);
+      char encoding = kBinary64;
+      if (flags & TaggedColumns)
+      {
+        if (pos >= payload.size()) return false;
+        encoding = payload[pos++];
+        if (encoding != kBinary64 && encoding != kFixed4) return false;
+      }
+      const qint64 bytes = qint64(rowCount) * (encoding == kFixed4 ? sizeof(qint32) : sizeof(double));
+      if (bytes > payload.size() - pos) return false;
+      curve.values.resizeForOverwrite(rowCount);
+      const char *src = payload.constData() + pos;
+      if (encoding == kFixed4)
+      {
+        double *dst = curve.values.data();
+        for (quint32 r = 0; r < rowCount; ++r)
+        {
+          const qint32 code = qFromLittleEndian<qint32>(src + qsizetype(r) * sizeof(qint32));
+          dst[r] = code == kNullCode ? kQuietNaN : double(code) / kDecimalScale;
+        }
+      }
+      else if (rowCount)
+        qFromLittleEndian<quint64>(src, rowCount, curve.values.data());
+      pos += bytes;
     }
-    if (!ok)
+    if (pos != payload.size())
       return false; // 截断——自愈
     doc->ok = true;
     *out = doc;
     return true;
   }
+}
 
+namespace {
   quint16 lasCompressionFlags()
   {
 #ifdef PALEO_HAVE_ZSTD
-    return CacheFlags::ZstdCompressed;
+    return CacheFlags::ZstdCompressed | paleo::lascache_detail::TaggedColumns;
 #else
-    return CacheFlags::None;
+    return paleo::lascache_detail::TaggedColumns;
 #endif
   }
 } // namespace
@@ -180,11 +234,10 @@ QString LasCache::diskPathFor(const QString &fingerprint) const
 
 bool LasCache::writeDisk(const QString &fingerprint, const LasDoc &doc)
 {
-  if (diskRoot().isEmpty())
-    return false;
   const QString path = diskPathFor(fingerprint);
-  const QByteArray payload = encodeDoc(fingerprint, doc);
-  if (!writeCacheFileAtomic(path, QByteArray(kLasCacheMagic, 8), kLasCacheVersion,
+  if (path.isEmpty()) return false;
+  const QByteArray payload = paleo::lascache_detail::encodeDoc(fingerprint, doc);
+  if (payload.isEmpty() || !writeCacheFileAtomic(path, QByteArray(kLasCacheMagic, 8), kLasCacheVersion,
                             lasCompressionFlags(), payload))
     return false; // 无缓存继续可用（D2.1 降级口径）
   return true;
@@ -192,13 +245,13 @@ bool LasCache::writeDisk(const QString &fingerprint, const LasDoc &doc)
 
 std::shared_ptr<LasDoc> LasCache::readDisk(const QString &fingerprint)
 {
-  if (diskRoot().isEmpty())
-    return nullptr;
   const QString path = diskPathFor(fingerprint);
+  if (path.isEmpty()) return nullptr;
   QByteArray payload;
   QString reason;
-  if (!readCacheFile(path, QByteArray(kLasCacheMagic, 8), kLasCacheVersion,
-                     kLasCacheVersion, &payload, nullptr, &reason))
+  quint16 flags = 0;
+  if (!readCacheFile(path, QByteArray(kLasCacheMagic, 8), kOldestLasCacheVersion,
+                     kLasCacheVersion, &payload, &flags, &reason))
   {
     if (QFile::exists(path))
     {
@@ -208,7 +261,7 @@ std::shared_ptr<LasDoc> LasCache::readDisk(const QString &fingerprint)
     return nullptr;
   }
   std::shared_ptr<LasDoc> doc;
-  if (!decodeDoc(payload, fingerprint, &doc))
+  if (!paleo::lascache_detail::decodeDoc(payload, fingerprint, flags, &doc))
   {
     QFile::remove(path);
     bumpExtra(&CacheStats::selfHeals);

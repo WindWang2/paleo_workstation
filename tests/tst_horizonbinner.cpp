@@ -460,8 +460,25 @@ void TestHorizonBinner::writeGeoTiffRejectsNonInlineCrsForms()
   QVERIFY2(binHorizon(text, &grid, &error), qPrintable(error));
   QTemporaryDir temp;
   QVERIFY(temp.isValid());
+  // 写入真实存在的合法 WKT 文件：不带 SET_FROM_USER_INPUT_LIMITATIONS 时 GDAL 会读文件并成功；
+  // 带限制后必须明确拒绝该路径及 file:// URL。
+  const QString realWktPath = temp.filePath(QStringLiteral("existing.wkt"));
+  {
+    QFile f(realWktPath);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    const QByteArray wkt =
+        "PROJCS[\"WGS 84 / UTM zone 49N\",GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\","
+        "SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],"
+        "UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],"
+        "PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",111],"
+        "PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],"
+        "PARAMETER[\"false_northing\",0],UNIT[\"metre\",1]]";
+    QCOMPARE(f.write(wkt), wkt.size());
+  }
 
-  for (const QString &bad : {QStringLiteral("./no-such-crs.prj"),
+  for (const QString &bad : {realWktPath,
+                             QStringLiteral("file://") + realWktPath,
+                             QStringLiteral("./no-such-crs.prj"),
                              QStringLiteral("http://127.0.0.1:9/p2-proj.wkt")})
   {
     grid.coordinateSystem = bad;

@@ -109,16 +109,21 @@ struct DepthGridResult
   int nodataCells = 0;        // 输入 nodata/非有限 → 透传 NaN（不臆造深度）
   int outsideModelCells = 0;  // 输入有值但模型无答（井样点范围外）
   bool cancelled = false;     // 协作取消命中：结果不完整，调用方必须弃用
+  bool invalidShape = false;  // #964：尺寸非法/溢出/超预算或与 timeMs 长度不符
 };
+
+// 默认时间→深度栅格输出字节预算（512 MiB，128M float 像元；与 horizonbinner 同量级）。
+inline constexpr qint64 kDefaultMaxDepthGridBytes = 512ll * 1024 * 1024;
 
 // cancelled（可选）：逐行检查的协作取消谓词；命中 → r.cancelled=true 提前
 // 返回（部分 depthM 仍为 NaN，统计不完整——调用方不得把半途结果当成功）。
-// timeMs.size() 必须等于 rows×cols：不符即整体拒绝（depthM 全 NaN、
-// nodataCells=rows×cols，convertedCells=0）——旧式 QVector::value() 对越界
-// 下标静默取 0.0f，把缺幅面当成合法 TWT=0ms 换算成深度 0 的错值。
+// 入口尺寸/内存预算闸（#964）：rows/cols 非正、gt 为空、rows×cols 溢出或超
+// maxBudgetBytes，以及 timeMs.size() != rows×cols 都在分配 depthM 前直接拒绝
+// （invalidShape=true、convertedCells=0、不触发巨量分配）。
 DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
                                        const QVector<float> &timeMs, int rows, int cols,
                                        const double gt[6], double nodata,
-                                       const std::function<bool()> &cancelled = {});
+                                       const std::function<bool()> &cancelled = {},
+                                       qint64 maxBudgetBytes = kDefaultMaxDepthGridBytes);
 
 } // namespace paleo::velmodel

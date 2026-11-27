@@ -66,10 +66,14 @@ void phiSonicWyllie(const double *dt, int n, double dtMa, double dtFluid,
 // ---- 含水饱和度 -----------------------------------------------------------------
 // Archie：Sw = (a·Rw / (φ^m · Rt))^(1/n)。
 // 域约定：φ ≤ 0 或 φ > 1 → NaN（孔隙度物理域外，无饱和度意义）；Rt ≤ 0 →
-// NaN；a/Rw/m/n ≤ 0 → 全 NaN（公式参数域外）。φ>0 且 Rt>0 时 IEEE 如实
-// （可 >1，气洗/轻烃带真实现象，QC 面标记）。
+// NaN；a/Rw/m/n ≤ 0 或非有限 → 全 NaN（公式参数域外）；中间溢出 ±Inf → NaN。
+// 上界约定（#838 / #964）：clampToOne=true（默认）将物理含水饱和度钳制到
+// ≤ 1.0，恰好等于或被钳制到 1.0 的样点位于默认 QC 上界 qcHi=1.0 闭区间内，
+// 不触发 anomalyIntervals(..., 0.0, 1.0) 的超界告警；需要保留原始 Sw>1
+// 供 QC 标记（如气洗/淡地层水/高 Rw 排查）的调用方可显式传 clampToOne=false。
 void swArchie(const double *phi, const double *rt, int n,
-              double a, double m, double nSat, double rw, double *out);
+              double a, double m, double nSat, double rw, double *out,
+              bool clampToOne = true);
 
 // ---- 深度对齐（轮1 钉死策略）---------------------------------------------------
 // 把 (srcDepths → srcValues) 线性重采样到 refDepths 网格：

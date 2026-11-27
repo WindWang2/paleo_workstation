@@ -2,6 +2,7 @@
 #include "welllogtext_internal.h"
 
 #include "encodingdetect.h"
+#include "xmlstreamsafety.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -156,7 +157,10 @@ bool sniffText(const QByteArray &content)
 bool sniffSpreadsheetXml(const QByteArray &content)
 {
   QXmlStreamReader reader(content);
-  return reader.readNextStartElement() && reader.name() == QLatin1String("Workbook") &&
+  // #1023：前缀嗅探与流式/整读共用 xmlsafe 前导策略——拒绝 DTD/实体声明，
+  // 不再用裸 readNextStartElement 静默跳过前导 DTD。
+  return paleo::io::xmlsafe::advanceToRootElement(reader, QString(), nullptr) &&
+      reader.name() == QLatin1String("Workbook") &&
       reader.namespaceUri() == QLatin1String("urn:schemas-microsoft-com:office:spreadsheet");
 }
 

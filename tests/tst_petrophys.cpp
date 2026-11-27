@@ -80,6 +80,10 @@ private slots:
   // 溢出 ±inf，必须如实 NaN（与同文件 NaN 诚实传播口径一致）。
   void testSwArchieOverflowNan();
 
+  // #964：Archie 契约统一——默认钳制到 1.0 时 Sw=1 落在 QC 上界闭区间内
+  // （qcHi=1.0 不报超界）；显式 clampToOne=false 时保留 Sw>1 供 QC 告警。
+  void testSwArchieQcUpperBoundaryAndUnclampedMode();
+
   // 各族 NaN 传播：输入端一位 NaN → 输出同位 NaN（不跨点扩散）。
   void testNaNPropagation();
 
@@ -241,6 +245,52 @@ void TestPetroPhys::testSwArchieOverflowNan()
   QVERIFY(std::isnan(out[1])); // Rt=inf：φ^m 下溢叠加除 inf → 0^0 幂径
   QVERIFY(std::isfinite(out[2])); // 正常点不受邻居影响
   QVERIFY(std::fabs(out[2] - 0.565685424949238) < 1e-9);
+}
+
+void TestPetroPhys::testSwArchieQcUpperBoundaryAndUnclampedMode()
+{
+  // 样本 0：Sw < 1（sqrt(0.32)）；样本 1：精确 Sw == 1.0（0.1 / (0.5^2 * 0.4) = 1.0）；
+  // 样本 2：理论 Sw = sqrt(3.2) ≈ 1.788854 > 1.0；样本 3：正常 Sw < 1。
+  const std::vector<double> depths = {1000.0, 1001.0, 1002.0, 1003.0};
+  const std::vector<double> phi = {0.25, 0.5, 0.25, 0.25};
+  const std::vector<double> rt = {5.0, 0.4, 0.5, 50.0};
+  std::vector<double> clamped(4);
+  std::vector<double> raw(4);
+
+  swArchie(phi.data(), rt.data(), 4, 1.0, 2.0, 2.0, 0.1, clamped.data());
+  swArchie(phi.data(), rt.data(), 4, 1.0, 2.0, 2.0, 0.1, raw.data(), /*clampToOne=*/false);
+
+  // 正常值与精确边界点在两种模式下逐值一致。
+  QVERIFY2(std::fabs(clamped[0] - 0.565685424949238) < 1e-9, "normal Sw<1");
+  QCOMPARE(clamped[0], raw[0]);
+  QCOMPARE(clamped[1], 1.0);
+  QCOMPARE(raw[1], 1.0);
+  QCOMPARE(clamped[3], raw[3]);
+
+  // 默认钳制到 1.0；未钳制模式保留原始 Sw > 1。
+  QCOMPARE(clamped[2], 1.0);
+  QVERIFY2(std::fabs(raw[2] - std::sqrt(3.2)) < 1e-9,
+           qPrintable(QString("raw Sw got %1").arg(raw[2])));
+
+  // QC 闭区间 [0, 1]：Sw == 1.0 恰在上边界上，不触发 anomalyIntervals(..., 0.0, 1.0)；
+  // 收紧上界到 0.99 时则命中 [1..2] 段。
+  QVERIFY(anomalyIntervals(depths.data(), clamped.data(), 4, 0.0, 1.0).empty());
+  const auto tight = anomalyIntervals(depths.data(), clamped.data(), 4, 0.0, 0.99);
+  QCOMPARE(static_cast<int>(tight.size()), 1);
+  QCOMPARE(tight[0].fromIndex, 1);
+  QCOMPARE(tight[0].toIndex, 2);
+
+  // 未钳制模式下，qcHi=1.0 精确标记 Sw>1 的样本 2，而恰为 1.0 的样本 1 仍属正常边界。
+  const auto rawAnom = anomalyIntervals(depths.data(), raw.data(), 4, 0.0, 1.0);
+  QCOMPARE(static_cast<int>(rawAnom.size()), 1);
+  QCOMPARE(rawAnom[0].fromIndex, 2);
+  QCOMPARE(rawAnom[0].toIndex, 2);
+
+  // 非有限公式参数（如 nSat=+Inf）在两种模式下均须输出全 NaN。
+  std::vector<double> bad(4, 0.0);
+  swArchie(phi.data(), rt.data(), 4, 1.0, 2.0, std::numeric_limits<double>::infinity(), 0.1, bad.data(), false);
+  for (double v : bad)
+    QVERIFY(std::isnan(v));
 }
 
 void TestPetroPhys::testNaNPropagation()

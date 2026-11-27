@@ -52,6 +52,7 @@ class P2SeismicCacheTests : public QObject
   private slots:
     void writerRoundtripAndIdentityMetadata();
     void writerPreservesExistingTargetOnFailure();
+    void writerPreservesExistingCacheOnPostCreateFailure();
     void writerPublishFailureCleansOwnStaging();
     void writerRejectsInvalidInputs();
     void summaryRejectsGarbageNumericMetadata();
@@ -133,6 +134,51 @@ void P2SeismicCacheTests::writerPreservesExistingTargetOnFailure()
   GDALDatasetH ds = GDALOpen(original.toUtf8().constData(), GA_ReadOnly);
   QVERIFY(ds);
   GDALClose(ds);
+}
+
+void P2SeismicCacheTests::writerPreservesExistingCacheOnPostCreateFailure()
+{
+  // #1024：预置有效缓存后，在 GDALCreate 之后的元数据写入阶段注入失败（空 paramHash /
+  // 空 sourceSgyPath），旧缓存字节与可读性必须完全不变且不留悬空暂存；随后正常覆盖成功。
+  const QString dir = m_dir.filePath(QStringLiteral("postcreate_fail"));
+  QVERIFY(QDir().mkpath(dir));
+  const QString path = QDir(dir).filePath(QStringLiteral("cache.tif"));
+  QString err;
+  const auto originalGrid = makeGrid();
+  QVERIFY2(paleo::sattr::writeTimeSliceGeoTiff(path, originalGrid, kAffine, &err),
+           qPrintable(err));
+  QFile existing(path);
+  QVERIFY(existing.open(QIODevice::ReadOnly));
+  const QByteArray before = existing.readAll();
+  existing.close();
+
+  auto badHash = makeGrid();
+  badHash.paramHash.clear();
+  QVERIFY(!paleo::sattr::writeTimeSliceGeoTiff(path, badHash, kAffine, &err));
+  QVERIFY2(err.contains(QStringLiteral("元数据写入失败")), qPrintable(err));
+  QCOMPARE(allEntries(dir), QStringList{QStringLiteral("cache.tif")});
+
+  auto badSource = makeGrid();
+  badSource.sourceSgyPath.clear();
+  QVERIFY(!paleo::sattr::writeTimeSliceGeoTiff(path, badSource, kAffine, &err));
+  QVERIFY2(err.contains(QStringLiteral("元数据写入失败")), qPrintable(err));
+  QCOMPARE(allEntries(dir), QStringList{QStringLiteral("cache.tif")});
+
+  // 旧缓存字节逐位一致，GDAL 读回摘要仍是旧身份。
+  QVERIFY(existing.open(QIODevice::ReadOnly));
+  QCOMPARE(existing.readAll(), before);
+  existing.close();
+  paleo::sattr::AttrTimeSliceGrid summary;
+  QVERIFY2(paleo::sattr::readTimeSliceGeoTiffSummary(path, &summary, &err), qPrintable(err));
+  QCOMPARE(summary.paramHash, originalGrid.paramHash);
+
+  // 随后合法覆盖完整替换且无悬空暂存。
+  auto updated = makeGrid();
+  updated.paramHash = QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  QVERIFY2(paleo::sattr::writeTimeSliceGeoTiff(path, updated, kAffine, &err), qPrintable(err));
+  QCOMPARE(allEntries(dir), QStringList{QStringLiteral("cache.tif")});
+  QVERIFY2(paleo::sattr::readTimeSliceGeoTiffSummary(path, &summary, &err), qPrintable(err));
+  QCOMPARE(summary.paramHash, updated.paramHash);
 }
 
 void P2SeismicCacheTests::writerPublishFailureCleansOwnStaging()

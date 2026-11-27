@@ -113,7 +113,8 @@ void computeTraceAttribute(TraceAttribute kind, const float *trace, int n, int h
 TraceGroupResult computeAttributeGroup(const TraceGroupRequest &request) {
   TraceGroupResult result;
   if (request.nTraces < 0 || request.traceLength <= 0 || request.stride < request.traceLength ||
-      !request.traces || !(request.sampleIntervalMs > 0.0) || request.rmsHalf < 0) {
+      !request.traces || !(request.sampleIntervalMs > 0.0) || request.rmsHalf < 0 ||
+      request.maxOutputBytes < 0) {
     result.code = "invalid_shape";
     return result;
   }
@@ -132,26 +133,53 @@ TraceGroupResult computeAttributeGroup(const TraceGroupRequest &request) {
     return result;
   }
   const int nOut = end - begin;
+  // #964：分配前做受检乘法与预算闸（与 volumeIndexCount 口径统一），避免
+  // nTraces * nOut / nTraces * traceLength 溢出 int 或触发巨量分配。
+  std::int64_t totalOut = 0;
+  std::int64_t totalRead = 0;
+  std::int64_t inputSpan = 0;
+  std::int64_t outputBytes = 0;
+  const int outputChannels = (request.wantRms ? 1 : 0) + (request.wantEnvelope ? 1 : 0) + (request.wantPhase ? 1 : 0);
+  const std::int64_t outputBudget =
+      request.maxOutputBytes > 0 ? request.maxOutputBytes : kDefaultMaxGroupOutputBytes;
+  if (!checkedMul(request.nTraces, nOut, &totalOut) ||
+      totalOut > static_cast<std::int64_t>(std::numeric_limits<int>::max()) ||
+      !checkedMul(request.nTraces, request.traceLength, &totalRead) ||
+      totalRead > static_cast<std::int64_t>(std::numeric_limits<int>::max()) ||
+      !checkedMul(request.nTraces, request.stride, &inputSpan) ||
+      inputSpan > static_cast<std::int64_t>(std::numeric_limits<std::ptrdiff_t>::max()) ||
+      !checkedMul(totalOut, static_cast<std::int64_t>(outputChannels) * static_cast<std::int64_t>(sizeof(float)),
+                  &outputBytes) ||
+      outputBytes > outputBudget ||
+      static_cast<std::int64_t>(request.traceLength) >
+          kDefaultMaxGroupOutputBytes / static_cast<std::int64_t>(sizeof(float))) {
+    result.code = "invalid_shape";
+    return result;
+  }
   result.nOut = nOut;
   result.rmsHalfApplied = request.wantRms ? request.rmsHalf : 0;
-  const int total = request.nTraces * nOut;
+  const std::size_t total = static_cast<std::size_t>(totalOut);
   if (request.wantRms)
-    result.rms.assign(static_cast<std::size_t>(total), kNan);
+    result.rms.assign(total, kNan);
   if (request.wantEnvelope)
-    result.envelope.assign(static_cast<std::size_t>(total), kNan);
+    result.envelope.assign(total, kNan);
   if (request.wantPhase)
-    result.phase.assign(static_cast<std::size_t>(total), kNan);
+    result.phase.assign(total, kNan);
 
-  std::vector<float> rmsTrace(static_cast<std::size_t>(request.traceLength));
+  std::vector<float> rmsTrace;
+  if (request.wantRms && request.nTraces > 0)
+    rmsTrace.resize(static_cast<std::size_t>(request.traceLength));
+  const std::size_t outStride = static_cast<std::size_t>(nOut);
   for (int traceIndex = 0; traceIndex < request.nTraces; ++traceIndex) {
     const float *trace = request.traces + static_cast<std::ptrdiff_t>(traceIndex) * request.stride;
+    const std::size_t rowBase = static_cast<std::size_t>(traceIndex) * outStride;
     result.samplesRead += request.traceLength;
     if (request.wantEnvelope || request.wantPhase) {
       const ComplexTraceResult analytic = complexTraceAnalysis(trace, request.traceLength, request.sampleIntervalMs);
       ++result.analyticEvaluations;
       for (int i = 0; i < nOut; ++i) {
-        const std::size_t dst = static_cast<std::size_t>(traceIndex * nOut + i);
-        const std::size_t src = static_cast<std::size_t>(begin + i);
+        const std::size_t dst = rowBase + static_cast<std::size_t>(i);
+        const std::size_t src = static_cast<std::size_t>(begin) + static_cast<std::size_t>(i);
         if (request.wantEnvelope)
           result.envelope[dst] = analytic.envelope[src];
         if (request.wantPhase)
@@ -160,8 +188,10 @@ TraceGroupResult computeAttributeGroup(const TraceGroupRequest &request) {
     }
     if (request.wantRms) {
       windowedRms(trace, request.traceLength, request.rmsHalf, rmsTrace.data());
-      for (int i = 0; i < nOut; ++i)
-        result.rms[static_cast<std::size_t>(traceIndex * nOut + i)] = rmsTrace[static_cast<std::size_t>(begin + i)];
+      for (int i = 0; i < nOut; ++i) {
+        result.rms[rowBase + static_cast<std::size_t>(i)] =
+            rmsTrace[static_cast<std::size_t>(begin) + static_cast<std::size_t>(i)];
+      }
     }
   }
   result.ok = true;
@@ -214,13 +244,20 @@ CoherenceTileResult coherenceInterior(const CoherenceTile &tile, CoherenceWeight
   result.interiorIl = i1 - i0;
   result.interiorXl = x1 - x0;
   result.nS = tile.nS;
-  result.interior.resize(static_cast<std::size_t>(result.interiorIl * result.interiorXl * tile.nS));
-  int dst = 0;
+  const std::size_t interiorCount = static_cast<std::size_t>(result.interiorIl) *
+                                    static_cast<std::size_t>(result.interiorXl) *
+                                    static_cast<std::size_t>(tile.nS);
+  result.interior.resize(interiorCount);
+  std::size_t dst = 0;
+  const std::size_t nS = static_cast<std::size_t>(tile.nS);
+  const std::size_t tileNXl = static_cast<std::size_t>(tile.nXl);
   for (int il = i0; il < i1; ++il) {
     for (int xl = x0; xl < x1; ++xl) {
-      const int src = ((il * tile.nXl) + xl) * tile.nS;
-      std::copy(full.begin() + src, full.begin() + src + tile.nS, result.interior.begin() + dst);
-      dst += tile.nS;
+      const std::size_t src = (static_cast<std::size_t>(il) * tileNXl + static_cast<std::size_t>(xl)) * nS;
+      std::copy(full.begin() + static_cast<std::ptrdiff_t>(src),
+                full.begin() + static_cast<std::ptrdiff_t>(src + nS),
+                result.interior.begin() + static_cast<std::ptrdiff_t>(dst));
+      dst += nS;
     }
   }
   result.samplesRead = count;
@@ -250,7 +287,8 @@ std::vector<CoherenceXlSpan> coherenceXlSpans(int nXl, int xlHalf, int interiorC
 
 CoherenceTileResult computeCoherenceTiled(const CoherenceTile &volume, CoherenceWeightMode mode, int interiorXlChunk,
                                           const std::function<bool()> &cancelled) {
-  if (!volume.volume || interiorXlChunk <= 0)
+  int totalCount = 0;
+  if (!volume.volume || interiorXlChunk <= 0 || !volumeIndexCount(volume.nIl, volume.nXl, volume.nS, &totalCount))
     return coherenceInterior(volume, mode);
   const int i0 = volume.ilHalf;
   const int i1 = volume.nIl - volume.ilHalf;
@@ -261,7 +299,11 @@ CoherenceTileResult computeCoherenceTiled(const CoherenceTile &volume, Coherence
   combined.interiorIl = i1 - i0;
   combined.interiorXl = volume.nXl - 2 * volume.xlHalf;
   combined.nS = volume.nS;
-  combined.interior.assign(static_cast<std::size_t>(combined.interiorIl * combined.interiorXl * volume.nS), kNan);
+  const std::size_t nS = static_cast<std::size_t>(volume.nS);
+  const std::size_t volNXl = static_cast<std::size_t>(volume.nXl);
+  const std::size_t combinedNXl = static_cast<std::size_t>(combined.interiorXl);
+  combined.interior.assign(
+      static_cast<std::size_t>(combined.interiorIl) * combinedNXl * nS, kNan);
   for (const CoherenceXlSpan &span : spans) {
     if (cancelled && cancelled()) {
       combined.ok = false;
@@ -270,12 +312,15 @@ CoherenceTileResult computeCoherenceTiled(const CoherenceTile &volume, Coherence
       return combined;
     }
     const int tileNXl = span.sourceXl1 - span.sourceXl0;
-    std::vector<float> slab(static_cast<std::size_t>(volume.nIl * tileNXl * volume.nS));
+    const std::size_t tileNXlSz = static_cast<std::size_t>(tileNXl);
+    std::vector<float> slab(static_cast<std::size_t>(volume.nIl) * tileNXlSz * nS);
     for (int il = 0; il < volume.nIl; ++il) {
       for (int xl = span.sourceXl0; xl < span.sourceXl1; ++xl) {
-        const int src = ((il * volume.nXl) + xl) * volume.nS;
-        const int dst = ((il * tileNXl) + (xl - span.sourceXl0)) * volume.nS;
-        std::copy(volume.volume + src, volume.volume + src + volume.nS, slab.begin() + dst);
+        const std::size_t src = (static_cast<std::size_t>(il) * volNXl + static_cast<std::size_t>(xl)) * nS;
+        const std::size_t dst =
+            (static_cast<std::size_t>(il) * tileNXlSz + static_cast<std::size_t>(xl - span.sourceXl0)) * nS;
+        std::copy(volume.volume + src, volume.volume + src + nS,
+                  slab.begin() + static_cast<std::ptrdiff_t>(dst));
       }
     }
     CoherenceTile tile = volume;
@@ -288,11 +333,15 @@ CoherenceTileResult computeCoherenceTiled(const CoherenceTile &volume, Coherence
       combined.interior.clear();
       return combined;
     }
+    const std::size_t partNXl = static_cast<std::size_t>(part.interiorXl);
     for (int il = 0; il < part.interiorIl; ++il) {
       for (int xl = 0; xl < part.interiorXl; ++xl) {
-        const int src = ((il * part.interiorXl) + xl) * volume.nS;
-        const int dst = ((il * combined.interiorXl) + (span.interiorXl0 + xl)) * volume.nS;
-        std::copy(part.interior.begin() + src, part.interior.begin() + src + volume.nS, combined.interior.begin() + dst);
+        const std::size_t src = (static_cast<std::size_t>(il) * partNXl + static_cast<std::size_t>(xl)) * nS;
+        const std::size_t dst =
+            (static_cast<std::size_t>(il) * combinedNXl + static_cast<std::size_t>(span.interiorXl0 + xl)) * nS;
+        std::copy(part.interior.begin() + static_cast<std::ptrdiff_t>(src),
+                  part.interior.begin() + static_cast<std::ptrdiff_t>(src + nS),
+                  combined.interior.begin() + static_cast<std::ptrdiff_t>(dst));
       }
     }
     combined.samplesRead += part.samplesRead;
@@ -412,7 +461,16 @@ AttributeBudgetPlan planAttributeBudget(int nTraces, int nSamples, int rmsHalf, 
       return coherence ? coherenceTooLarge(budgetBytes) : AttributeBudgetPlan{"budget_exceeded", "finite-halo", 1, 1, 0, 0};
     plan.shape = "finite-halo";
     const int halo = std::max(0, rmsHalf);
-    const std::int64_t minimum = static_cast<std::int64_t>(nSamples + 2 * halo) * static_cast<std::int64_t>(sizeof(float));
+    std::int64_t haloTotal = 0;
+    std::int64_t minimum = 0;
+    if (!checkedMul(2, halo, &haloTotal) || !checkedAdd(nSamples, haloTotal, &haloTotal) ||
+        !checkedMul(haloTotal, static_cast<std::int64_t>(sizeof(float)), &minimum)) {
+      plan.code = "budget_exceeded";
+      plan.minimumBytes = 1;
+      plan.estimatedBytes =
+          budgetBytes < std::numeric_limits<std::int64_t>::max() ? budgetBytes + 1 : budgetBytes;
+      return plan;
+    }
     plan.minimumBytes = minimum;
     if (minimum > budgetBytes || minimum <= 0) {
       plan.code = "budget_exceeded";

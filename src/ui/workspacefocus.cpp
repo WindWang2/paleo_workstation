@@ -4,6 +4,7 @@
 #include "paleomainwindow.h"
 #include "paleoicons.h"
 #include "paleotheme.h"
+#include "ribbontitlefit.h"
 #include "shortcuts/shortcutcatalog.h"
 
 #include <QApplication>
@@ -185,7 +186,7 @@ private:
     auto *ribbon = m_window->ribbonBar();
     m_style = ribbon->currentRibbonStyle();
     m_minimized = ribbon->isMinimumMode();
-    m_showQuick = !ribbon->quickAccessBar()->isHidden();
+    m_showQuick = PaleoRibbon::hideQuickAccessForFocus(ribbon);
     m_modeEnabled = ribbon->minimumModeAction()->isEnabled();
     ribbon->setRibbonStyle(SARibbonBar::RibbonStyleCompactTwoRow);
     ribbon->setMinimumMode(true);
@@ -194,7 +195,6 @@ private:
     ribbon->ribbonStackedWidget()->setNormalMode();
     ribbon->ribbonStackedWidget()->hide();
     ribbon->setTabDoubleClickToMinimumMode(false);
-    ribbon->quickAccessBar()->hide();
     ribbon->minimumModeAction()->setEnabled(false);
     m_masked = true;
   }
@@ -210,6 +210,7 @@ private:
     ribbon->setMinimumMode(m_minimized);
     ribbon->quickAccessBar()->setVisible(m_showQuick);
     ribbon->minimumModeAction()->setEnabled(m_modeEnabled);
+    PaleoRibbon::refitTitleRow(ribbon);
     for (const auto &dock : m_visible)
       if (dock) setPresentationVisible(dock, true);
     for (const auto &dock : m_frontTabs)

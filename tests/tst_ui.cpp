@@ -2779,21 +2779,37 @@ class TestUiShell : public QObject
 
     void ribbonQuickAccessAndDisplayMode()
     {
+      attachShellWorkflows();
+      m_win->attachAiAssistant(m_ctx->aiChat());
       m_win->showPage(QStringLiteral("data"));
-      m_win->resize(1100, 700);
+      m_win->resize(1440, 800);
       m_win->show();
       auto *bar = m_win->ribbonBar();
+      auto *tabs = bar->ribbonTabBar();
+      auto *agent = bar->findChild<QToolButton *>(QStringLiteral("aiAgentButton"));
       auto *quickAccess = bar->quickAccessBar();
       auto *file = m_win->findChild<QMenu *>(QStringLiteral("fileMenu"));
       auto *visuals = m_win->findChild<QTabBar *>(QStringLiteral("visualizationTabs"));
-      QVERIFY(file);
+      QVERIFY(file && agent && agent->isEnabled());
       QVERIFY(visuals && visuals->documentMode());
       const auto fileActions = file->actions();
       const auto quickActions = quickAccess->actions();
       QVERIFY(quickActions.size() >= 2);
       QCOMPARE(quickActions.at(0), fileActions.at(0));
       QCOMPARE(quickActions.at(1), fileActions.at(1));
-      QTRY_VERIFY(quickAccess->geometry().bottom() < bar->ribbonTabBar()->geometry().top());
+      const auto sharesTabRow = [bar, tabs](QWidget *control) {
+        if (!control || !control->isVisible()) return false;
+        const QPoint center = control->mapTo(bar, control->rect().center());
+        QWidget *hit = bar->childAt(center);
+        return center.y() >= tabs->geometry().top() && center.y() <= tabs->geometry().bottom()
+               && hit && (hit == control || control->isAncestorOf(hit));
+      };
+      const auto wideHeaderFits = [&] {
+        if (!sharesTabRow(bar->applicationButton()) || !sharesTabRow(agent)) return false;
+        for (auto *action : quickActions)
+          if (!sharesTabRow(quickAccess->widgetForAction(action))) return false;
+        return true;
+      };
 
       auto *mode = bar->minimumModeAction();
       QVERIFY(mode && mode->isVisible());
@@ -2801,19 +2817,36 @@ class TestUiShell : public QObject
       // A fresh project opens with compact commands. Exercise both explicit settings.
       bar->setMinimumMode(false);
       QCoreApplication::processEvents();
+      QTRY_VERIFY(wideHeaderFits());
       const int expandedHeight = bar->height();
       mode->trigger();
       QVERIFY(bar->isMinimumMode());
       QTRY_VERIFY(bar->height() < expandedHeight);
+      QTRY_VERIFY(wideHeaderFits());
+      QVERIFY(bar->height() < 2 * tabs->height());
       QCOMPARE(visuals->currentIndex(), view);
       mode->trigger();
       QVERIFY(!bar->isMinimumMode());
       QTRY_COMPARE(bar->height(), expandedHeight);
+      QTRY_VERIFY(wideHeaderFits());
 
       m_win->resize(640, 700);
-      auto *tabs = bar->ribbonTabBar();
-      QTRY_VERIFY(quickAccess->isVisible());
       QTRY_VERIFY(tabs->tabRect(tabs->count() - 1).right() < tabs->width());
+      QTRY_VERIFY(sharesTabRow(agent));
+      const auto narrowHeaderFits = [&] {
+        for (int i = 0; i < tabs->count(); ++i) {
+          const QPoint center = tabs->mapTo(bar, tabs->tabRect(i).center());
+          if (bar->childAt(center) != tabs) return false;
+        }
+        if (quickAccess->isVisible()) return wideHeaderFits();
+        auto *more = bar->findChild<QToolButton *>(QStringLiteral("titleMoreButton"));
+        if (!more || !sharesTabRow(more) || !more->menu() ||
+            !QMetaObject::invokeMethod(more->menu(), "aboutToShow")) return false;
+        for (auto *action : quickActions)
+          if (!more->menu()->actions().contains(action)) return false;
+        return true;
+      };
+      QTRY_VERIFY(narrowHeaderFits());
     }
 
     void ribbonSelectionKeepsVisualization() {

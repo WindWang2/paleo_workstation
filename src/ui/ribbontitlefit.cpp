@@ -19,6 +19,7 @@
 #include <QToolButton>
 #include <QWidgetAction>
 
+#include <utility>
 #include <vector>
 
 namespace
@@ -56,6 +57,8 @@ namespace
       }
 
       bool searchCollapsed() const { return m_searchCollapsed; }
+
+      bool takeQuickAccessFold() { return std::exchange(m_qabHidden, false); }
 
       bool reveal()
       {
@@ -501,5 +504,15 @@ namespace PaleoRibbon
   {
     if (TitleRowFitter *f = fitterOf(bar))
       f->fit();
+  }
+
+  bool hideQuickAccessForFocus(SARibbonBar *bar)
+  {
+    auto *fitter = fitterOf(bar);
+    const bool folded = fitter && fitter->takeQuickAccessFold();
+    auto *quick = bar->quickAccessBar();
+    const bool wanted = folded || !quick->isHidden();
+    quick->hide();
+    return wanted;
   }
 } // namespace PaleoRibbon

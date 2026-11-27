@@ -45,6 +45,14 @@ class TestRibbonTitleFit : public QObject
       SARibbonTabBar *tb = bar()->ribbonTabBar();
       QWidget *right = bar()->rightButtonGroup();
       const QRect tbr = tb->geometry();
+      for (QWidget *control : QList<QWidget *>{bar()->applicationButton(), bar()->quickAccessBar(), right})
+      {
+        if (!control->isVisible()) continue;
+        const auto center = control->mapTo(bar(), control->rect().center());
+        if (center.y() < tbr.top() || center.y() > tbr.bottom())
+          return QStringLiteral("%1 is on a separate row: y=%2, tabs=%3..%4")
+              .arg(control->metaObject()->className()).arg(center.y()).arg(tbr.top()).arg(tbr.bottom());
+      }
       if (tbr.right() >= right->geometry().left())
         return QStringLiteral("tab bar %1 overlaps right group at %2").arg(tbr.right()).arg(right->x());
       for (int i = 0; i < tb->count(); ++i)

@@ -240,6 +240,18 @@ private slots:
     QVERIFY(restore);
     restore->trigger();
     QTRY_VERIFY(left->isVisible() && left->userWantsVisible());
+
+    // Resizing while focused must not turn a space-saving fold into a saved preference.
+    auto *quick = win.ribbonBar()->quickAccessBar();
+    win.resize(480, win.height());
+    QTRY_VERIFY(quick->isHidden());
+    focus->click();
+    QVERIFY(focus->isChecked());
+    win.resize(1440, win.height());
+    QTest::qWait(50); // let the deferred title-row fit run on the new width
+    QVERIFY(quick->isHidden());
+    focus->click();
+    QTRY_VERIFY(quick->isVisible());
   }
 
   void workspaceEscapeAfterCapturePopupAndIdleInput()

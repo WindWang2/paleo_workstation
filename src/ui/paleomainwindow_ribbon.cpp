@@ -72,8 +72,8 @@ void PaleoMainWindow::buildRibbon()
   SARibbonBar *bar = ribbonBar();
   if (!bar)
     return;
-  // 快速访问放在页签上方，窄窗优先把空间留给工作流。
-  bar->setRibbonStyle(SARibbonBar::RibbonStyleLooseThreeRow);
+  // Compact shares the navigation row; ThreeRow keeps the expanded command groups intact.
+  bar->setRibbonStyle(SARibbonBar::RibbonStyleCompactThreeRow);
   auto *quickAccess = bar->quickAccessBar();
   quickAccess->setIconSize(QSize(16, 16));
   // R6 #860：字换行让按钮按固定列宽折行（不再被长标签撑宽），组间距收紧；

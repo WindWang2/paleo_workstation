@@ -91,7 +91,7 @@ class TestRibbonTitleFit : public QObject
       auto *lay = new QHBoxLayout(slot);
       lay->setContentsMargins(0, 0, 0, 0);
       m_edit = new QLineEdit(slot);
-      m_edit->setPlaceholderText(QStringLiteral("搜索井位/层位  Ctrl+K"));
+      m_edit->setPlaceholderText(QStringLiteral("搜索命令、井、层位  Ctrl+K"));
       lay->addWidget(m_edit);
       right->addWidget(slot);
       m_proc = new QToolButton(right);

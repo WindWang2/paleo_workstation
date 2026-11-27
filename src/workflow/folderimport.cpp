@@ -43,8 +43,11 @@ struct FolderImportWorkflow::ImportJob
   QString title;
   std::function<void(ImportSession &, PaleoTask *)> produce;
   std::function<void(ImportSession &)> finish;
-  std::function<void()> fail; // beginImport 不可用（服务未就绪等）
+  std::function<void(const QString &, bool)> fail;
   ProjectGuard projectStillCurrent;
+  quint64 catalogEpoch = 0;
+  quint64 taskSession = 0;
+  bool batch = false;
   QPointer<PaleoTask> task;
   std::shared_ptr<std::atomic_bool> cancelled = std::make_shared<std::atomic_bool>(false);
   bool finished = false;
@@ -54,13 +57,38 @@ struct FolderImportWorkflow::ImportJob
 FolderImportWorkflow::FolderImportWorkflow(DataImportService *svc,
                                            PaleoTaskService *taskSvc,
                                            QObject *parent)
-    : QObject(parent), m_svc(svc), m_taskSvc(taskSvc)
+    : QObject(parent), m_svc(svc)
 {
+  setTaskService(taskSvc);
 }
 
 DataImportService *FolderImportWorkflow::importService() const
 {
   return m_svc.data();
+}
+
+void FolderImportWorkflow::setTaskService(PaleoTaskService *taskSvc)
+{
+  m_taskSvc = taskSvc;
+  m_taskServiceBound = taskSvc != nullptr;
+}
+
+bool FolderImportWorkflow::taskServiceStopped() const
+{
+  return m_taskServiceBound && (!m_taskSvc || m_taskSvc->shutdownRequested());
+}
+
+void FolderImportWorkflow::observeTask(PaleoTask *task, const std::function<void(PaleoTask *)> &finished)
+{
+  if (!task) {
+    finished(nullptr);
+    return;
+  }
+  const auto gone = connect(task, &QObject::destroyed, this, [finished] { finished(nullptr); });
+  connect(task, &PaleoTask::finished, this, [task, gone, finished] {
+    disconnect(gone);
+    finished(task);
+  }, Qt::SingleShotConnection);
 }
 
 int FolderImportWorkflow::pendingImportJobs() const
@@ -75,38 +103,70 @@ QString FolderImportWorkflow::classifyFile(const QString &path) const
 
 void FolderImportWorkflow::enqueueImport(const std::shared_ptr<ImportJob> &job)
 {
+  job->catalogEpoch = m_svc->catalogEpoch();
+  job->taskSession = m_taskSvc->session();
   m_importQueue.append(job);
   pumpImports();
 }
 
+void FolderImportWorkflow::setBatchActive(bool starting)
+{
+  if (starting) {
+    if (++m_runningBatches == 1) emit importActiveChanged(true);
+  } else if (--m_runningBatches == 0) {
+    emit importActiveChanged(false);
+  }
+}
+
 void FolderImportWorkflow::pumpImports()
 {
-  if (m_activeImport || m_importQueue.isEmpty())
-    return;
-  m_activeImport = m_importQueue.takeFirst();
-  runImportJob(m_activeImport);
+  if (m_pumping) return;
+  m_pumping = true;
+  const QPointer<FolderImportWorkflow> alive(this);
+  while (!m_activeImport && !m_importQueue.isEmpty()) {
+    m_activeImport = m_importQueue.takeFirst();
+    if (m_activeImport->batch) setBatchActive(true);
+    if (!alive) return;
+    runImportJob(m_activeImport);
+    if (!alive) return;
+  }
+  m_pumping = false;
+}
+
+void FolderImportWorkflow::finishImport(const std::shared_ptr<ImportJob> &job,
+                                        ImportSession *session, const QString &failure, bool cancelled)
+{
+  const QPointer<FolderImportWorkflow> alive(this);
+  job->finished = true;
+  m_activeImport.reset();
+  if (job->batch) setBatchActive(false);
+  if (!alive) return;
+  if (session) job->finish(*session);
+  else job->fail(failure, cancelled);
+  if (alive) pumpImports();
 }
 
 void FolderImportWorkflow::runImportJob(std::shared_ptr<ImportJob> job)
 {
   ++job->attempts;
-  const bool current = !job->projectStillCurrent || job->projectStillCurrent();
+  const QPointer<FolderImportWorkflow> alive(this);
+  if (!m_taskSvc || taskServiceStopped() || job->taskSession != m_taskSvc->session()) {
+    finishImport(job, nullptr, tr("已取消导入，未写入工程"), true);
+    return;
+  }
+  const bool validProject = !job->projectStillCurrent || job->projectStillCurrent();
+  if (!alive) return;
+  const bool current = validProject && (!m_svc || m_svc->catalogEpoch() == job->catalogEpoch);
   std::shared_ptr<ImportSession> session = m_svc && current ? m_svc->beginImport() : nullptr;
   if (!session || !m_taskSvc)
   {
-    job->finished = true;
-    m_activeImport.reset();
-    if (job->fail)
-      job->fail();
-    pumpImports();
+    finishImport(job, nullptr, current ? DataImportService::offThreadError() : tr("工程已变化，请重新选择资料。"));
     return;
   }
   if (job->cancelled->load()) {
-    job->finished = true;
-    m_activeImport.reset();
     session->error = tr("已取消导入，未写入工程");
-    job->finish(*session);
-    pumpImports();
+    session->cancelled = true;
+    finishImport(job, session.get());
     return;
   }
   PaleoTask *task = m_taskSvc->start(
@@ -114,16 +174,23 @@ void FolderImportWorkflow::runImportJob(std::shared_ptr<ImportJob> job)
         produce(*session, t); // worker：只写 session，活 catalog 零接触
         return session->error;
       });
+  if (!alive) return;
   job->task = task;
   QPointer<DataImportService> svc = m_svc;
-  connect(task, &PaleoTask::finished, this, [this, job, session, task, svc] {
-    if (!svc || (job->projectStillCurrent && !job->projectStillCurrent()))
+  observeTask(task, [this, alive, job, session, svc](PaleoTask *completed) {
+    const QPointer<PaleoTask> task(completed);
+    if (!task) {
+      finishImport(job, nullptr, tr("后台任务已关闭，请重试。"));
+      return;
+    }
+    const bool validProject = !job->projectStillCurrent || job->projectStillCurrent();
+    if (!alive) return;
+    if (!svc || !validProject)
     {
-      job->finished = true;
-      m_activeImport.reset();
       session->error = svc ? tr("工程已变化，请重新选择资料。")
                            : QStringLiteral("导入服务已关闭，导入结果已丢弃");
       task->failPublication(session->error);
+      if (!alive) return;
       // 未提交即丢弃：produce 期在 staging 上记成「已入库/待关联」的行一律
       // 改报失败——回调方（确认表/台账）不能看到「入库」而库里并没有。
       for (FolderRowResult &row : session->rows)
@@ -135,8 +202,7 @@ void FolderImportWorkflow::runImportJob(std::shared_ptr<ImportJob> job)
           row.message = session->error;
         }
       session->fileResult.assetId.clear();
-      job->finish(*session);
-      pumpImports();
+      finishImport(job, session.get());
       return;
     }
     // 取消过的作业不重做（用户已叫停）：冲突按失败落行。
@@ -144,7 +210,8 @@ void FolderImportWorkflow::runImportJob(std::shared_ptr<ImportJob> job)
         job->attempts < kMaxImportAttempts && !job->cancelled->load() && !task->cancelRequested();
     // 统一在 owner 提交前复核：覆盖最后一次 worker 检查到 GUI commit 的窄窗。
     // 取消/worker 失败均整批丢弃，不能把 produce 的半份 journal 当成果提交。
-    const bool cancelled = job->cancelled->load() || task->cancelRequested() ||
+    const bool cancelled = taskServiceStopped() || !m_taskSvc || job->taskSession != m_taskSvc->session() ||
+                           session->cancelled || job->cancelled->load() || task->cancelRequested() ||
                            task->state() == PaleoTask::State::Cancelled;
     const bool failed = task->state() == PaleoTask::State::Failed;
     if (cancelled || failed) {
@@ -155,6 +222,7 @@ void FolderImportWorkflow::runImportJob(std::shared_ptr<ImportJob> job)
     QString cerr;
     const DataImportService::CommitStatus st =
         svc->commitImport(*session, &cerr, /*allowConflict=*/mayRetry);
+    if (!alive) return;
     if (st == DataImportService::CommitStatus::Conflict)
     {
       qInfo("FolderImportWorkflow: catalog changed during import, re-producing "
@@ -164,13 +232,15 @@ void FolderImportWorkflow::runImportJob(std::shared_ptr<ImportJob> job)
       return;
     }
     if (st == DataImportService::CommitStatus::Failed) {
-      if (cancelled) task->discardPublication();
-      else task->failPublication(cerr);
+      // commitImport uses cancelled to discard the whole journal. The receipt
+      // must still distinguish a worker failure from a user's cancellation.
+      session->cancelled = cancelled;
+      if (task) {
+        if (cancelled) task->discardPublication();
+        else task->failPublication(cerr);
+      }
     }
-    job->finished = true;
-    m_activeImport.reset();
-    job->finish(*session);
-    pumpImports();
+    if (alive) finishImport(job, session.get());
   });
 }
 
@@ -190,6 +260,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
   const QDateTime started = QDateTime::currentDateTime();
   auto job = std::make_shared<ImportJob>();
   job->title = title;
+  job->batch = true;
   job->projectStillCurrent = projectStillCurrent;
   // 进度口径（两口径逐字同型）：扫描段 total==0（跑马灯 + 文件名
   // detail），执行段 total=行数（reportBytes + 路径 detail）；false =
@@ -229,12 +300,11 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
     qInfo() << "catalog-batch: rows=" << s.rows.size()
             << "elapsed_ms=" << started.msecsTo(QDateTime::currentDateTime())
             << "external=" << s.linkExternal << "committed=" << s.committed;
-    emit importActiveChanged(false);
     // 台账写进「当前打开」工程的 sidecar：produce 期间若已切换工程，当前
     // catalog 是另一个工程的——把别处的、整批作废的导入记进它的审计台账
     // 是串账（opt-01 P5）。此时只经回调如实报「工程已切换」，不入账。
-    if ((!projectStillCurrent || projectStillCurrent()) &&
-        sameProjectSession(m_svc ? m_svc->catalog() : nullptr, s))
+    if (m_svc && m_svc->catalogEpoch() == s.epoch &&
+        (!projectStillCurrent || projectStillCurrent()) && sameProjectSession(m_svc->catalog(), s))
       recordLedger(ledgerDir, started, s.rows, s.error);
     else
       qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
@@ -242,19 +312,25 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::makeImportJob(const QSt
     if (done)
       done(s.rows, s.error, s.cancelled);
   };
-  job->fail = [this, done, projectStillCurrent] {
-    emit importActiveChanged(false);
+  job->fail = [done](const QString &error, bool cancelled) {
     if (done)
-      done({}, projectStillCurrent && !projectStillCurrent() ? tr("工程已变化，请重新选择资料。")
-                                                             : DataImportService::offThreadError(), false);
+      done({}, error, cancelled);
   };
-  emit importActiveChanged(true);
+  const QPointer<FolderImportWorkflow> owner(this);
   enqueueImport(job);
-  return [weakJob = std::weak_ptr<ImportJob>(job)] {
-    if (const auto active = weakJob.lock(); active && !active->finished) {
-      active->cancelled->store(true);
+  return [owner, weakJob = std::weak_ptr<ImportJob>(job), ledgerDir, started] {
+    const auto active = weakJob.lock();
+    if (!owner || !active || active->finished || active->cancelled->exchange(true)) return;
+    if (!owner->m_importQueue.removeOne(active)) {
       if (active->task) active->task->requestCancel();
+      return;
     }
+    active->finished = true;
+    const QString reason = tr("已取消导入，未写入工程");
+    if (owner->m_svc && owner->m_svc->catalogEpoch() == active->catalogEpoch &&
+        (!active->projectStillCurrent || active->projectStillCurrent()))
+      owner->recordLedger(ledgerDir, started, {}, reason);
+    active->fail(reason, true);
   };
 }
 
@@ -285,6 +361,11 @@ void FolderImportWorkflow::previewAsync(
                              const QString &)> &done,
     const std::function<void()> &onCancelled)
 {
+  if (taskServiceStopped()) {
+    if (onCancelled) onCancelled();
+    else if (done) done({}, QObject::tr("已取消扫描"));
+    return;
+  }
   if (!m_svc)
   {
     if (done)
@@ -301,10 +382,14 @@ void FolderImportWorkflow::previewAsync(
         done({}, DataImportService::offThreadError());
       return;
     }
-    emit previewActiveChanged(true);
+    const QPointer<FolderImportWorkflow> alive(this);
+    const auto service = m_taskSvc;
+    const quint64 taskSession = service->session();
+    if (++m_runningPreviews == 1) emit previewActiveChanged(true);
+    if (!alive) return;
     auto outRows = std::make_shared<QVector<FolderPreviewRow>>();
     auto outErr = std::make_shared<QString>();
-    PaleoTask *task = m_taskSvc->start(
+    PaleoTask *task = !service || service->shutdownRequested() ? nullptr : service->start(
         title, [session, produce, outRows, outErr](PaleoTask *t) -> QString {
           *outRows = produce(*session, outErr.get(),
                              [t](int seen, const QString &path) {
@@ -313,18 +398,22 @@ void FolderImportWorkflow::previewAsync(
                              });
           return outErr->isEmpty() ? QString() : *outErr;
         });
-    connect(task, &PaleoTask::finished, this,
-            [this, task = QPointer<PaleoTask>(task), done, outRows, outErr, onCancelled] {
-              const QPointer<FolderImportWorkflow> guard(this);
-              emit previewActiveChanged(false);
-              if (!guard) return;
-              if (onCancelled && (!task || task->cancelRequested())) {
-                if (task) task->discardPublication();
-                onCancelled();
-                return;
-              }
-              if (done) done(*outRows, *outErr);
-            });
+    if (!alive) return;
+    observeTask(task, [this, done, outRows, outErr, onCancelled, service, taskSession](PaleoTask *completed) {
+      const QPointer<PaleoTask> task(completed);
+      const QPointer<FolderImportWorkflow> guard(this);
+      if (--m_runningPreviews == 0) emit previewActiveChanged(false);
+      if (!guard) return;
+      if (!service || service->shutdownRequested() || service->session() != taskSession || (task && task->cancelRequested())) {
+        if (task) task->discardPublication();
+        if (onCancelled) onCancelled();
+        else if (done) done({}, QObject::tr("已取消扫描"));
+      } else if (!task) {
+        if (done) done({}, tr("后台任务已关闭，请重试。"));
+      } else if (done) {
+        done(*outRows, *outErr);
+      }
+    });
     return;
   }
   QString err;
@@ -435,13 +524,21 @@ FolderImportWorkflow::importFolderRow(const QString &path, const QString &forceT
                                       QString *error, const QString &wellTarget,
                                       const QString &expectedHash)
 {
+  if (taskServiceStopped()) {
+    FolderRowResult row;
+    row.path = path;
+    row.outcome = FolderRowResult::Outcome::Failed;
+    row.message = tr("已取消导入，未写入工程");
+    if (error) *error = row.message;
+    return row;
+  }
   if (!m_svc)
   {
     if (error)
       *error = QStringLiteral("导入服务未就绪");
     return {};
   }
-  emit importActiveChanged(true);
+  setBatchActive(true);
   FolderRowResult res;
   if (wellTarget.isEmpty() && expectedHash.isEmpty())
     res = m_svc->importFolderRow(path, forceType, error);
@@ -463,7 +560,7 @@ FolderImportWorkflow::importFolderRow(const QString &path, const QString &forceT
           : tr("导入失败，未写入工程；请检查文件后重试。文件：%1").arg(path);
     }
   }
-  emit importActiveChanged(false);
+  setBatchActive(false);
   return res;
 }
 
@@ -488,8 +585,13 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
                                         const QMap<QString, QString> &expectedHashes,
                                         const QStringList &skippedPaths,
                                         const QStringList &previewedPaths,
-                                        const QMap<QString, QString> &nameOverrides)
+                                        const QMap<QString, QString> &nameOverrides,
+                                        const ProjectGuard &projectStillCurrent)
 {
+  if (taskServiceStopped()) {
+    if (done) done({}, tr("已取消导入，未写入工程"), true);
+    return {};
+  }
   if (!m_svc)
   {
     if (done)
@@ -517,16 +619,21 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
           DataImportService::produceFolder(s, dir, overrides, forceImportPaths, progress,
                                            nameOverrides);
         },
-        dir, done);
+        dir, done, projectStillCurrent);
   }
   const QDateTime started = QDateTime::currentDateTime();
-  emit importActiveChanged(true);
+  setBatchActive(true);
+  if (projectStillCurrent && !projectStillCurrent()) {
+    setBatchActive(false);
+    if (done) done({}, tr("工程已变化，请重新选择资料。"), false);
+    return {};
+  }
   QString importErr;
   const auto res = runInlineImport([&](ImportSession &session) {
     DataImportService::produceFolder(session, dir, overrides, forceImportPaths, {},
                                      nameOverrides);
   }, wellTargets, expectedHashes, &importErr, skippedPaths, previewedPaths);
-  emit importActiveChanged(false);
+  setBatchActive(false);
   recordLedger(dir, started, res, importErr);
   if (done)
     done(res, importErr, false);
@@ -561,6 +668,10 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
                                         const QMap<QString, QVariantMap> &tableMappings,
                                         const ProjectGuard &projectStillCurrent)
 {
+  if (taskServiceStopped()) {
+    if (done) done({}, tr("已取消导入，未写入工程"), true);
+    return {};
+  }
   if (!m_svc)
   {
     if (done)
@@ -592,10 +703,10 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
         ledgerDir, done, projectStillCurrent);
   }
   const QDateTime started = QDateTime::currentDateTime();
-  emit importActiveChanged(true);
+  setBatchActive(true);
   if (projectStillCurrent && !projectStillCurrent())
   {
-    emit importActiveChanged(false);
+    setBatchActive(false);
     if (done) done({}, tr("工程已变化，请重新选择资料。"), false);
     return {};
   }
@@ -605,7 +716,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
     DataImportService::produceFiles(session, paths, overrides, forceImportPaths, {},
                                     nameOverrides);
   }, wellTargets, expectedHashes, &importErr, skippedPaths, previewedPaths);
-  emit importActiveChanged(false);
+  setBatchActive(false);
   recordLedger(ledgerDir, started, res, importErr);
   if (done)
     done(res, importErr, false);
@@ -617,6 +728,10 @@ void FolderImportWorkflow::importFile(
     std::function<void(const QString &assetId, const QString &error)> done,
     bool linkExternal, const QString &displayName)
 {
+  if (taskServiceStopped()) {
+    if (done) done({}, tr("已取消导入，未写入工程"));
+    return;
+  }
   if (!m_svc)
   {
     if (done)
@@ -643,9 +758,9 @@ void FolderImportWorkflow::importFile(
       if (done)
         done(s.fileResult.assetId, s.fileResult.assetId.isEmpty() ? s.error : QString());
     };
-    job->fail = [done] {
+    job->fail = [done](const QString &error, bool) {
       if (done)
-        done(QString(), DataImportService::offThreadError());
+        done(QString(), error);
     };
     enqueueImport(job);
     return;

@@ -14,6 +14,10 @@ void FolderImportWorkflow::receiveFromSender(const QString &directory, const QSt
     const ProjectGuard &projectStillCurrent, const OriginalsReceived &done, const std::function<QString()> &identifySender)
 {
   if (!done) return;
+  if (taskServiceStopped()) {
+    done({}, 0, tr("后台任务已关闭，请重试。"), true);
+    return;
+  }
   if (!projectStillCurrent || !projectStillCurrent() || !m_svc || !m_svc->catalog() ||
       m_svc->catalog()->refusesWrites() || m_svc->projectDir().isEmpty()) {
     done({}, 0, tr("请先打开可写工程，再接收原件包。"), false);
@@ -52,9 +56,18 @@ void FolderImportWorkflow::receiveFromSender(const QString &directory, const QSt
     finish();
     return;
   }
-  auto *task = m_taskSvc->start(tr("校验并接收原件包"), receive);
-  connect(task, &PaleoTask::finished, this, [finish, result, task] {
-    result->cancelled |= task->cancelRequested();
+  const QPointer<FolderImportWorkflow> alive(this);
+  const auto service = m_taskSvc;
+  const quint64 taskSession = service->session();
+  auto *task = service->start(tr("校验并接收原件包"), receive);
+  if (!alive) return;
+  observeTask(task, [finish, result, done, service, taskSession](PaleoTask *task) {
+    if (!task) {
+      done({}, 0, tr("后台任务已关闭，请重试。"), false);
+      return;
+    }
+    result->cancelled |= task->cancelRequested() || !service || service->shutdownRequested() ||
+                         service->session() != taskSession;
     if (result->error.isEmpty() && task->state() == PaleoTask::State::Failed)
       result->error = task->errorText();
     finish();

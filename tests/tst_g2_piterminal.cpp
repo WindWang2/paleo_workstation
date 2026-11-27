@@ -178,6 +178,51 @@ class TestG2PiTerminal : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() { qRegisterMetaType<ChatToolCall>("ChatToolCall"); }
+  void stoppedQueuedTurnSettlesWithoutLaunchingItsPeer()
+  {
+    PaleoTaskService tasks;
+    tasks.setMaxWorkerThreads(2);
+    PiChatBridge bridge;
+    QSemaphore occupied, release;
+    std::atomic_bool launched{false};
+    const auto cleanup = qScopeGuard([&] { release.release(2); tasks.shutdown(5000); });
+    for (int i = 0; i < 2; ++i) {
+      tasks.start("occupied", [&](PaleoTask *) {
+        occupied.release();
+        release.acquire();
+        return QString();
+      });
+    }
+    QVERIFY(occupied.tryAcquire(2, 3000));
+    bridge.setWorkerDriver([&](PaleoTask *, const auto &, const auto &) {
+      launched.store(true);
+      return QString();
+    });
+    QSignalSpy finished(&bridge, &PiChatBridge::finished);
+    for (int i = 0; i < 3; ++i) {
+      QCOMPARE(bridge.start({true, {}, {}}, &tasks, "queued", QString::number(i + 1), {}, [] { return true; }), QString());
+      if (i == 0) bridge.abort(true);                 // Dock stop
+      else if (i == 1) tasks.tasks().last()->requestCancel(); // Task center stop
+      else tasks.beginNewSession();                    // Project switch
+      QTRY_COMPARE_WITH_TIMEOUT(finished.size(), i + 1, 3000);
+      QCOMPARE(finished.last().first().toString(), i == 2 ? QString("interrupted") : QString("cancelled"));
+      QVERIFY(!bridge.busy());
+    }
+    auto closing = std::make_unique<PiChatBridge>();
+    closing->setWorkerDriver([&](PaleoTask *, const auto &, const auto &) {
+      launched.store(true);
+      return QString();
+    });
+    connect(&tasks, &PaleoTaskService::taskAdded, this, [&](PaleoTask *) {
+      closing.reset();
+    }, Qt::SingleShotConnection);
+    QCOMPARE(closing->start({true, {}, {}}, &tasks, "queued", "closing", {}, [] { return true; }), QString("interrupted"));
+    QTRY_COMPARE_WITH_TIMEOUT(tasks.tasks().last()->state(), PaleoTask::State::Cancelled, 3000);
+    release.release(2);
+    QTRY_COMPARE_WITH_TIMEOUT(tasks.runningCount(), 0, 3000);
+    QVERIFY(!launched.load());
+  }
+
   void queuedWorkerGetsTheFullOpeningDeadline() {
     QSemaphore occupied, release;
     PaleoTaskService tasks;

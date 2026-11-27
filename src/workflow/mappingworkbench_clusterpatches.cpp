@@ -3,6 +3,7 @@
 #include "analysisresultsync.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/seismicclusterpatches.h"
+#include "../services/analysisunitcontext.h"
 #include "../services/futuretask.h"
 #include <QtConcurrent>
 #include <QDir>
@@ -16,6 +17,25 @@ bool isClusterSurface(const CatalogVersion &version) {
       (!version.extra.value("cluster_patches_version").toString().isEmpty() &&
        (kind == QLatin1String("facies_polygons") || kind == QLatin1String("edited_facies")));
 }
+}
+
+bool MappingWorkbench::readyClusterSurface(const CatalogVersion &surface, paleo::strat::UnitSelection &unit,
+                                           QString *error) const {
+  const auto raster = m_catalog->versionById(surface.extra.value("cluster_raster_version").toString());
+  if (surface.extra.value("stale").toBool() || raster.extra.value("stale").toBool()) {
+    if (error) *error = tr("聚类成果已过期，请重新计算");
+    return false;
+  }
+  unit = analysisResultUnitSelection(m_catalog, surface);
+  const auto rasterUnit = analysisResultUnitSelection(m_catalog, raster);
+  if (unit.isValid() && rasterUnit.isValid() && unit != rasterUnit) {
+    if (error) *error = tr("聚类面与原始簇图的层段不一致，请重新选择成果");
+    return false;
+  }
+  if (!unit.isValid()) unit = rasterUnit;
+  return ready(surface.extra.value("horizon").toString(), error, &unit) &&
+      (!unit.isValid() || paleo::strat::analysisUnitGeometryCurrentFor(
+          m_dir, unit, paleo::strat::AnalysisGeometryDependency::SeismicSurface, 0, error));
 }
 
 QVariantList MappingWorkbench::clusterPatchChoices(const QString &id, QString *error, qint64 firstFid, int limit) const {
@@ -65,11 +85,12 @@ QString MappingWorkbench::saveClusterAssignments(const QString &id, const QVaria
                                                 const QVariantList &expectedSchema, QString *error) {
   const auto version = versionForLayer(id);
   const auto h = version.extra.value("horizon").toString();
-  const auto unit = paleo::strat::fromMap(version.extra.value("unitSelection").toMap());
-  if (!isClusterSurface(version) || !ready(h, error, unit.isValid() ? &unit : nullptr)) {
-    if (error && !isClusterSurface(version)) *error = tr("请选择已保存的聚类面或其赋相版本");
+  if (!isClusterSurface(version)) {
+    if (error) *error = tr("请选择已保存的聚类面或其赋相版本");
     return {};
   }
+  paleo::strat::UnitSelection unit;
+  if (!readyClusterSurface(version, unit, error)) return {};
   if (m_catalog->refusesWrites() || !m_project || m_project->isReadOnly() || !m_project->allowsProjectWritesAt(m_dir)) {
     if (error) *error = tr("当前工程位置不可写");
     return {};
@@ -85,7 +106,7 @@ QString MappingWorkbench::saveClusterAssignments(const QString &id, const QVaria
     if (error) *error = tr("微相分类已经改变，请重新核对草稿");
     return {};
   }
-  if (raw && schemaVersion(h).isEmpty() && !saveFacies(h, schema, error)) return {};
+  if (raw && schemaVersion(h).isEmpty() && !saveFaciesForUnit(h, schema, unit, error)) return {};
   const auto schemaId = raw ? schemaVersion(h) : version.extra.value("schema_version").toString();
   const auto staging = QDir(m_dir).filePath("artifacts/staging");
   if (!QDir().mkpath(staging)) {
@@ -103,7 +124,7 @@ QString MappingWorkbench::saveClusterAssignments(const QString &id, const QVaria
       {"schema_version", schemaId}, {"computational_parent_versions", parents},
       {"cluster_patches_version", raw ? version.id : version.extra.value("cluster_patches_version").toString()},
       {"cluster_raster_version", version.extra.value("cluster_raster_version")},
-      {"unitSelection", version.extra.value("unitSelection")}};
+      {"unitSelection", paleo::strat::toMap(unit)}};
   if (version.extra.contains("cluster_facies_mapping"))
     extra.insert("cluster_facies_mapping", version.extra.value("cluster_facies_mapping"));
   if (assignments.size() == 1) {

@@ -99,6 +99,7 @@ class PaleoEditingToolbar : public QWidget
     QAction *actionReshape() const { return mActionReshape; }
     QAction *actionMove() const { return mActionMove; }
     QAction *actionDeleteFeatures() const { return mActionDeleteFeatures; }
+    QAction *actionDeleteSelection() const { return mDeleteSelection; }
     QAction *actionVertexEdit() const { return mActionVertexEdit; }
     QAction *actionSplitFacies() const { return mActionSplitFacies; }
     QAction *actionPaintFacies() const { return mActionPaintFacies; }

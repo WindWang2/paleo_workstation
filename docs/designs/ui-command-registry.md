@@ -16,7 +16,7 @@ Ctrl+K、快捷键、面板右键菜单，以及以后的 AI / 批处理，都�
 |---|---|---|
 | 数据层 | `src/services/commandspec.{h,cpp}` | `CommandSpec` 登记表（94 条）+ `CommandRegistry::validate()` 自检 |
 | 功能层 | `src/workflow/commanddispatcher.{h,cpp}` | 绑定处理器 / 状态（禁用必带原因）/ 触发；Compute → `PreparedPlan` → 网关 |
-| QGIS 封装 | `src/qgis/commandlocatorfilter.{h,cpp}`、`commandlocatorentry.h` | Ctrl+K 过滤器 `paleo_commands`（前缀 `c`） |
+| QGIS 封装 | `src/qgis/commandlocatorfilter.{h,cpp}`、`commandlocatorentry.h` | Ctrl+K 过滤器 `paleo_commands`（前缀 `cmd`） |
 | 视图层 | `src/ui/commandactionbinder.{h,cpp}` | QAction ↔ 命令：`route` / `bindMirror` / `bindNative` |
 | 视图层 | `src/ui/paleomainwindow_commands.cpp` | 主窗命令处理器（project.* / view.* 等）+ Ctrl+K 数据面 |
 
@@ -47,9 +47,12 @@ Agent 入口只给 `Callable` 能力（与 `CapabilityRegistry::callableIds()` �
   弹在可见按钮下方，按钮不可见时弹在活动窗口中央；没有可用子项时命令禁用并带原因。
   子项（edit.addPoint / addLine / addPolygon、edit.facies.split / paint / merge）另有独立命令，
   Ctrl+K 可以直接选。
+* 删除工具分为两个动作。`edit.deleteFeatures` 激活地图点删工具。`edit.deleteSelection` 删除当前选择，选区为空时禁用。
 * 处理器型 ribbon 动作（`bindActionCommand`）的状态跟随动作本身，禁用时带原因。
 
-### 英文搜索
+### 命令搜索
+
+Ctrl+K 输入 `cmd` 后接一个空格，可列出命令。继续输入关键词可缩小范围，例如 `cmd 导入 井位`。井位和层位也有专用入口，例如 `well W1` 和 `hor T70`。
 
 登记表的标题和说明逐条写成 `QT_TRANSLATE_NOOP("PaleoCommands", …)`，lupdate 能抽取，已并入
 `translations/paleo_zh_CN.ts` 和 `paleo_en.ts`。lrelease 同时生成 `paleo_en.qm`，嵌入

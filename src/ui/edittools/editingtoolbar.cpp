@@ -940,6 +940,8 @@ void PaleoEditingToolbar::updateDeleteSelectionAction() {
   const auto count = layer ? layer->selectedFeatureCount() : 0;
   mDeleteSelection->setText(tr("删除所选 %1 项").arg(count));
   mDeleteSelection->setEnabled(mActionDeleteFeatures->isEnabled() && count > 0);
+  mDeleteSelection->setToolTip(!mActionDeleteFeatures->isEnabled() ? mActionDeleteFeatures->toolTip() :
+                              count ? tr("删除所选要素") : tr("请先在当前图层选择要素"));
 }
 
 void PaleoEditingToolbar::buildAddFeatureControl()

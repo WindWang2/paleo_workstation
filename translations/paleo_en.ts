@@ -13293,6 +13293,10 @@ Crossline: %3 ~ %4</source>
     <context>
         <name>FolderImportWorkflow</name>
         <message>
+            <source>后台任务已关闭，请重试。</source>
+            <translation>The background task closed. Please try again.</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/folderimport.cpp" line="317" />
             <source>扫描工区文件夹</source>
             <translation type="unfinished" />
@@ -17659,6 +17663,18 @@ Crossline: %3 ~ %4</source>
             <translation>The original cluster map is missing or out of date.</translation>
         </message>
         <message>
+            <source>聚类成果已过期，请重新计算</source>
+            <translation>The cluster result is out of date. Run clustering again.</translation>
+        </message>
+        <message>
+            <source>聚类面与原始簇图的层段不一致，请重新选择成果</source>
+            <translation>The cluster polygons and the original raster belong to different stratigraphic units. Select a matching result.</translation>
+        </message>
+        <message>
+            <source>聚类面来源或层段已变化，请重新预览</source>
+            <translation>The cluster polygons' source or stratigraphic unit has changed. Run the preview again.</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/mappingworkbench_predict.cpp" line="337" />
             <source>地震聚类 · %1</source>
             <translation>Seismic clustering · %1</translation>
@@ -20807,6 +20823,10 @@ Feature %4 · version %5</translation>
     <context>
         <name>PaleoEditingToolbar</name>
         <message>
+            <source>请先在当前图层选择要素</source>
+            <translation>Select features in the current layer first</translation>
+        </message>
+        <message>
             <location filename="../src/ui/edittools/editingtoolbar.cpp" line="396" />
             <source>先保存或取消图层 %1 的编辑，再切换图层</source>
             <translation type="unfinished" />
@@ -22328,6 +22348,14 @@ Feature %4 · version %5</translation>
     <context>
         <name>PaleoMainWindow</name>
         <message>
+            <source>仅数据盘以外的只读工程需要复制</source>
+            <translation>Only read-only projects outside the data drive need a copy</translation>
+        </message>
+        <message>
+            <source>任务服务尚未就绪</source>
+            <translation>The task service is not ready</translation>
+        </message>
+        <message>
             <source>工作副本 · %1</source>
             <translation>Working copy · %1</translation>
         </message>
@@ -23704,13 +23732,13 @@ Feature %4 · version %5</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="115" />
-            <source>搜索井位/层位</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井、层位</source>
+            <translation>Find commands, wells, horizons</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="122" />
-            <source>搜索井位 / 层位</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井位和层位</source>
+            <translation>Find commands, wells and horizons</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow.cpp" line="178" />
@@ -23719,8 +23747,8 @@ Feature %4 · version %5</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="116" />
-            <source>搜索井位/层位  %1</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井、层位  %1</source>
+            <translation>Find commands, wells, horizons  %1</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="757" />
@@ -27595,8 +27623,8 @@ PDF：%3
         </message>
         <message>
             <location filename="../src/ui/help/whatsthiscatalog.cpp" line="31" />
-            <source>顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。</source>
-            <translation type="unfinished" />
+            <source>输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。</source>
+            <translation>Enter a well or horizon name to locate it. Selecting a horizon makes it active. Type “cmd ” to list commands. Use spaces to combine keywords, for example “cmd import wells”. Type “well ” before a well name or “hor ” before a horizon name to narrow your search.</translation>
         </message>
         <message>
             <location filename="../src/ui/help/whatsthiscatalog.cpp" line="32" />
@@ -30985,6 +31013,11 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
+        <message>
+            <location filename="../src/services/paleotaskservice.cpp" line="35" />
+            <source>任务在执行前已随工作台关闭</source>
+            <translation>The workbench shut down before this task could start.</translation>
+        </message>
         <message>
             <source>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</source>
             <translation>Cannot determine the primary layer or map coordinate system. Use the current map coordinate system.</translation>
@@ -40274,8 +40307,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="219" />
-            <source>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</source>
-            <translation>Exact catalog version ID (required for topic=version/version_parents; no name fallback)</translation>
+            <source>version 和 version_parents 的精确目录版本标识。version 返回成果类型和已登记的分析层段。</source>
+            <translation>Exact catalog version ID for version and version_parents. The version topic returns the result type and any recorded analysis unit.</translation>
         </message>
         <message>
             <location filename="../src/ai/chat/domaintools.cpp" line="228" />
@@ -41049,6 +41082,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="43" />
             <source>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</source>
             <translation>Sections to return for describe (up to 16, all by default). Capabilities and algorithms accept identity, contract, params, ports, lifecycle, and related. Commands accept identity, contract, and related. Tools also accept route. An unsupported section returns invalid_section.</translation>
+        </message>
+        <message>
+            <source>list 搜索名称、标识或说明，多个关键词用空格分隔，最多 128 个字符</source>
+            <translation>In list mode, search names, identifiers or descriptions. Separate keywords with spaces. Up to 128 characters.</translation>
         </message>
         <message>
             <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="49" />
@@ -47321,8 +47358,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         </message>
         <message>
             <location filename="../src/ui/ribbontitlefit.cpp" line="249" />
-            <source>搜索井位 / 层位</source>
-            <translation type="unfinished" />
+            <source>搜索命令、井位和层位</source>
+            <translation>Find commands, wells and horizons</translation>
         </message>
         <message>
             <location filename="../src/ui/ribbontitlefit.cpp" line="250" />
@@ -59486,6 +59523,38 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </context>
     <context>
         <name>PaleoCommands</name>
+        <message>
+            <source>复制工程到数据盘并打开</source>
+            <translation>Copy project to the data drive and open it</translation>
+        </message>
+        <message>
+            <source>将只读工程复制到数据盘，校验后打开副本</source>
+            <translation>Copy the read-only project to the data drive, verify it, and open the copy</translation>
+        </message>
+        <message>
+            <source>删除所选要素</source>
+            <translation>Delete selected features</translation>
+        </message>
+        <message>
+            <source>删除当前矢量图层中已选中的要素</source>
+            <translation>Delete the selected features in the current vector layer</translation>
+        </message>
+        <message>
+            <source>地统计普通克里金</source>
+            <translation>Geostatistical ordinary kriging</translation>
+        </message>
+        <message>
+            <source>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</source>
+            <translation>Ordinary kriging of managed well-point samples (OUTPUT estimate + VARIANCE kriging-variance rasters); results are catalog-managed versions and are not displayed automatically. Unconstrained geostatistics: project constraints, barriers and covariates are not consumed. prepare materializes the sample snapshot and returns the frozen plan (sample count/unit/grid/resource estimate); compute-only computes from the frozen plan; publish only publishes an already computed result.</translation>
+        </message>
+        <message>
+            <source>序贯高斯模拟</source>
+            <translation>Sequential Gaussian simulation</translation>
+        </message>
+        <message>
+            <source>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</source>
+            <translation>Seeded sequential Gaussian simulation of managed well-point samples (OUTPUT mean + STD simulation-spread raster; STD is the dispersion between realizations, not a kriging variance, confidence or pass threshold); results are catalog-managed versions and are not displayed automatically. This version freezes persistRealizations=false: no MEMBER_n realization files are produced. Unconstrained geostatistics, the same scope as the kriging tool.</translation>
+        </message>
         <message>
             <source>新建工程</source>
             <translation>New project</translation>

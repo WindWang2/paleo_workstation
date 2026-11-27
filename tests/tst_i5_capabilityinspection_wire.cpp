@@ -26,6 +26,7 @@
 #include "../src/workflow/capabilityhost.h"
 #include <QDir>
 #include <QHostAddress>
+#include <algorithm>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -399,7 +400,7 @@ void TestI5CapabilityInspectionWire::loopbackModelDrivesListDescribeCheckThenRea
     case 0:
       return toolMessage(QJsonArray{toolCall("c1", QLatin1String(paleo::chat::kCapabilityInspectTool),
                                             {{"mode", "list"}, {"filter", "capabilities"},
-                                             {"page_size", 6}})});
+                                             {"query", QStringLiteral("idw constraint")}, {"page_size", 6}})});
     case 1:
       return toolMessage(QJsonArray{toolCall("c2", QLatin1String(paleo::chat::kCapabilityInspectTool),
                                             {{"mode", "describe"}, {"target_kind", "capability"},
@@ -452,7 +453,11 @@ void TestI5CapabilityInspectionWire::loopbackModelDrivesListDescribeCheckThenRea
   QCOMPARE(listEnvelope.value("contractVersion").toString(), QStringLiteral("paleo.tool-result.v1"));
   const auto listData = listEnvelope.value("data").toObject();
   QCOMPARE(listData.value("contract").toString(), QStringLiteral("paleo.capability-inspect.v1"));
-  QVERIFY(listData.value("entries").toArray().size() >= 1);
+  const auto matched = listData.value("entries").toArray();
+  QVERIFY(!matched.isEmpty());
+  QVERIFY(std::any_of(matched.begin(), matched.end(), [](const QJsonValue &row) {
+    return row.toObject().value("id") == QLatin1String("constraint.idw");
+  }));
   // 帧 2（describe）：精确合同可读（params 节来自链接 AlgorithmSpec 单源，
   // 请求名与交付名对齐）。
   const auto describeData = lastToolEnvelope(server.body(2)).value("data").toObject();

@@ -192,23 +192,19 @@ private slots:
   {
     auto *lw = m_win->findChild<QgsLocatorWidget *>();
     QVERIFY(lw);
-    CommandLocatorFilter *filter = nullptr;
-    for (QgsLocatorFilter *f : lw->locator()->filters())
-      if (f->name() == QLatin1String("paleo_commands"))
-        filter = qobject_cast<CommandLocatorFilter *>(f);
-    QVERIFY(filter);
-    QList<QgsLocatorResult> results;
-    const QMetaObject::Connection c = connect(filter, &QgsLocatorFilter::resultFetched, this,
-                                              [&results](const QgsLocatorResult &r) { results << r; });
-    QgsLocatorContext ctx;
-    ctx.usingPrefix = true; // 前缀 "c"：空余串列出全部命令（无前缀空查询保持沉默，免得 Tab 困在定位器）
-    filter->fetchResults(QString(), ctx, nullptr);
-    const QList<QgsLocatorResult> listed = results;
-    results.clear();
-    filter->fetchResults(QString(), QgsLocatorContext(), nullptr); // usingPrefix=false：空闲沉默
-    disconnect(c); // results 是局部量：不断开会让后续用例的抓取写到悬空引用
+    QgsLocator *locator = lw->locator();
+    for (const auto &[prefix, name] : QList<QPair<QString,QString>>{
+           {"cmd", "paleo_commands"}, {"well", "paleo_wells"}, {"hor", "paleo_horizons"}}) {
+      const auto filters = locator->filters(prefix);
+      QCOMPARE(filters.size(), 1);
+      QCOMPARE(filters.first()->name(), name);
+    }
+    QList<QgsLocatorResult> listed;
+    QObject observer;
+    connect(locator, &QgsLocator::foundResult, &observer, [&listed](const QgsLocatorResult &r) { listed << r; });
+    locator->fetchResults(QStringLiteral("cmd "), QgsLocatorContext());
     QCOMPARE(listed.size(), CommandRegistry::forSurface(SurfaceLocator).size());
-    QCOMPARE(results.size(), 0);
+    QVERIFY(locatorIds(QString()).isEmpty()); // 无前缀空查询保持沉默，免得 Tab 困在定位器
     bool sawReason = false;
     for (const QgsLocatorResult &r : listed)
     {
@@ -251,6 +247,8 @@ private slots:
     QVERIFY(locatorIds(QStringLiteral("Add point")).contains(QStringLiteral("edit.addPoint")));
 #endif
     QCOMPARE(locatorIds(QStringLiteral("打开工程")).value(0), QStringLiteral("project.open"));
+    QVERIFY(locatorIds(QStringLiteral("井位  导入")).contains(QStringLiteral("data.import.wells")));
+    QVERIFY(!locatorIds(QStringLiteral("井位 无此命令")).contains(QStringLiteral("data.import.wells")));
     // 纯函数：别名参与匹配，且与显示标题同档打分。
     CommandLocatorEntry e;
     e.commandId = QStringLiteral("x.y");
@@ -334,6 +332,32 @@ private slots:
 
   // 审查 P2#2：子菜单型父动作（添加要素 / 相面分区操作 / 更多）从 Ctrl+K 选中 = 弹出同一子菜单；
   // 没有可用子项时命令禁用并带原因——不再「看着可用、选了没反应」。子项本身另有独立命令。
+  void splitDeleteRoutesPointToolAndSelectionSeparately()
+  {
+    CommandDispatcher dispatcher;
+    CommandActionBinder binder(&dispatcher);
+    QMenu menu;
+    QAction mainTool;
+    mainTool.setCheckable(true);
+    mainTool.setMenu(&menu);
+    QAction *selection = menu.addAction(QStringLiteral("delete selection"));
+    selection->setEnabled(false);
+    binder.bindNative(&mainTool, "edit.deleteFeatures", CommandActionBinder::MenuBehavior::TriggerPrimaryAction);
+    binder.bindNative(selection, "edit.deleteSelection");
+    QSignalSpy points(&mainTool, &QAction::triggered);
+    QSignalSpy deletes(selection, &QAction::triggered);
+    QVERIFY(dispatcher.trigger("edit.deleteFeatures", {}, {}));
+    QCOMPARE(points.size(), 1);
+    QVERIFY(mainTool.isChecked());
+    QVERIFY(!menu.isVisible());
+    QVERIFY(!dispatcher.trigger("edit.deleteSelection", {}, {}));
+    QCOMPARE(deletes.size(), 0);
+    selection->setEnabled(true);
+    QVERIFY(dispatcher.trigger("edit.deleteSelection", {}, {}));
+    QCOMPARE(deletes.size(), 1);
+    QCOMPARE(points.size(), 1);
+  }
+
   void menuParentCommandsPopTheirMenu()
   {
     CommandDispatcher *d = m_win->commandDispatcher();

@@ -13356,6 +13356,10 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>FolderImportWorkflow</name>
     <message>
+        <source>后台任务已关闭，请重试。</source>
+        <translation>后台任务已关闭，请重试。</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/folderimport.cpp" line="317"/>
         <source>扫描工区文件夹</source>
         <translation>扫描工区文件夹</translation>
@@ -17727,6 +17731,18 @@ Crossline: %3 ~ %4</source>
         <translation>原始簇图已过期或缺失</translation>
     </message>
     <message>
+        <source>聚类成果已过期，请重新计算</source>
+        <translation>聚类成果已过期，请重新计算</translation>
+    </message>
+    <message>
+        <source>聚类面与原始簇图的层段不一致，请重新选择成果</source>
+        <translation>聚类面与原始簇图的层段不一致，请重新选择成果</translation>
+    </message>
+    <message>
+        <source>聚类面来源或层段已变化，请重新预览</source>
+        <translation>聚类面来源或层段已变化，请重新预览</translation>
+    </message>
+    <message>
         <location filename="../src/workflow/mappingworkbench_predict.cpp" line="337"/>
         <source>地震聚类 · %1</source>
         <translation>地震聚类 · %1</translation>
@@ -20894,6 +20910,10 @@ Crossline: %3 ~ %4</source>
 <context>
     <name>PaleoEditingToolbar</name>
     <message>
+        <source>请先在当前图层选择要素</source>
+        <translation>请先在当前图层选择要素</translation>
+    </message>
+    <message>
         <location filename="../src/ui/edittools/editingtoolbar.cpp" line="396"/>
         <source>先保存或取消图层 %1 的编辑，再切换图层</source>
         <translation>先保存或取消图层 %1 的编辑，再切换图层</translation>
@@ -22414,6 +22434,14 @@ Crossline: %3 ~ %4</source>
 </context>
 <context>
     <name>PaleoMainWindow</name>
+    <message>
+        <source>仅数据盘以外的只读工程需要复制</source>
+        <translation>仅数据盘以外的只读工程需要复制</translation>
+    </message>
+    <message>
+        <source>任务服务尚未就绪</source>
+        <translation>任务服务尚未就绪</translation>
+    </message>
         <message>
             <source>工作副本 · %1</source>
             <translation>工作副本 · %1</translation>
@@ -23798,13 +23826,13 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="115"/>
-        <source>搜索井位/层位</source>
-        <translation>搜索井位/层位</translation>
+        <source>搜索命令、井、层位</source>
+        <translation>搜索命令、井、层位</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="122"/>
-        <source>搜索井位 / 层位</source>
-        <translation>搜索井位 / 层位</translation>
+        <source>搜索命令、井位和层位</source>
+        <translation>搜索命令、井位和层位</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="178"/>
@@ -23813,8 +23841,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="116"/>
-        <source>搜索井位/层位  %1</source>
-        <translation>搜索井位/层位  %1</translation>
+        <source>搜索命令、井、层位  %1</source>
+        <translation>搜索命令、井、层位  %1</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="757"/>
@@ -27701,8 +27729,8 @@ PDF：%3
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="31"/>
-        <source>顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。</source>
-        <translation>顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。</translation>
+        <source>输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。</source>
+        <translation>输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="32"/>
@@ -31118,6 +31146,11 @@ PDF：%3
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <location filename="../src/services/paleotaskservice.cpp" line="35"/>
+        <source>任务在执行前已随工作台关闭</source>
+        <translation>任务在执行前已随工作台关闭</translation>
+    </message>
         <message>
             <source>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</source>
             <translation>无法确定主图层或地图的坐标系，请使用当前地图坐标系。</translation>
@@ -40419,8 +40452,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="219" />
-        <source>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</source>
-        <translation>精确目录版本标识（topic=version/version_parents 时必填，不按名称回退）</translation>
+        <source>version 和 version_parents 的精确目录版本标识。version 返回成果类型和已登记的分析层段。</source>
+        <translation>version 和 version_parents 的精确目录版本标识。version 返回成果类型和已登记的分析层段。</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/domaintools.cpp" line="228" />
@@ -41194,6 +41227,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="43"/>
         <source>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</source>
         <translation>describe 节选择（≤16，按目标类型适用子集校验）：identity/contract/params/ports/lifecycle/related（capability/algorithm），command 另收 identity/contract/related，tool 另收 route；不适用的节名明确 invalid_section；缺省全节</translation>
+    </message>
+    <message>
+        <source>list 搜索名称、标识或说明，多个关键词用空格分隔，最多 128 个字符</source>
+        <translation>list 搜索名称、标识或说明，多个关键词用空格分隔，最多 128 个字符</translation>
     </message>
     <message>
         <location filename="../src/ai/chat/capabilityinspectiontool.cpp" line="49"/>
@@ -47488,8 +47525,8 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </message>
     <message>
         <location filename="../src/ui/ribbontitlefit.cpp" line="249"/>
-        <source>搜索井位 / 层位</source>
-        <translation>搜索井位 / 层位</translation>
+        <source>搜索命令、井位和层位</source>
+        <translation>搜索命令、井位和层位</translation>
     </message>
     <message>
         <location filename="../src/ui/ribbontitlefit.cpp" line="250"/>
@@ -59694,6 +59731,38 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>PaleoCommands</name>
+    <message>
+        <source>复制工程到数据盘并打开</source>
+        <translation>复制工程到数据盘并打开</translation>
+    </message>
+    <message>
+        <source>将只读工程复制到数据盘，校验后打开副本</source>
+        <translation>将只读工程复制到数据盘，校验后打开副本</translation>
+    </message>
+    <message>
+        <source>删除所选要素</source>
+        <translation>删除所选要素</translation>
+    </message>
+    <message>
+        <source>删除当前矢量图层中已选中的要素</source>
+        <translation>删除当前矢量图层中已选中的要素</translation>
+    </message>
+    <message>
+        <source>地统计普通克里金</source>
+        <translation>地统计普通克里金</translation>
+    </message>
+    <message>
+        <source>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</source>
+        <translation>对受管井点样本做普通克里金插值（OUTPUT 估值 + VARIANCE 克里金方差栅格），成果为 catalog 受管版本，不自动显示。无约束地统计范围：不消费工程约束、屏障或协变量。prepare 物化样本快照并回包冻结计划（样本数/单位/网格/资源估算）；compute-only 按冻结计划计算；publish 仅发布已计算结果。</translation>
+    </message>
+    <message>
+        <source>序贯高斯模拟</source>
+        <translation>序贯高斯模拟</translation>
+    </message>
+    <message>
+        <source>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</source>
+        <translation>对受管井点样本做固定种子的序贯高斯模拟（OUTPUT 均值 + STD 模拟离散度栅格；STD 是实现间的离散程度，不是克里金方差、置信度或通过阈值），成果为 catalog 受管版本，不自动显示。首版冻结 persistRealizations=false：不生成 MEMBER_n 个体实现文件。无约束地统计范围同克里金工具。</translation>
+    </message>
     <message>
         <source>新建工程</source>
         <translation>新建工程</translation>

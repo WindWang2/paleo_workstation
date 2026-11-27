@@ -40,7 +40,8 @@ public:
                       std::function<void(const QVariantMap &)> before = {});
   // 原生绑定。动作带子菜单（如「添加要素」「相面分区操作」「更多」）时，它在 ribbon 上靠工具按钮
   // 弹菜单，直接 trigger 什么也不做——分派器改为弹出同一子菜单（popupMenuFor），无可用子项则禁用。
-  QAction *bindNative(QAction *action, const QString &commandId);
+  enum class MenuBehavior { OpenMenu, TriggerPrimaryAction };
+  QAction *bindNative(QAction *action, const QString &commandId, MenuBehavior menuBehavior = MenuBehavior::OpenMenu);
   // 在动作可见的工具按钮下方弹出其子菜单；按钮不可见（页签未激活）时弹在活动窗口中央。
   static QMenu *popupMenuFor(QAction *action);
 

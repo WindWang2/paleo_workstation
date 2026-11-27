@@ -22,7 +22,12 @@ struct Result { paleo::pi::ConversationResult value; std::atomic_bool ready{fals
 PiChatBridge::PiChatBridge(QObject *parent) : QObject(parent), m_timer(this) {
   m_timer.setInterval(25); connect(&m_timer, &QTimer::timeout, this, &PiChatBridge::controlTick);
 }
-PiChatBridge::~PiChatBridge() { if (m_channel && m_active) m_channel->requestStop(false); }
+PiChatBridge::~PiChatBridge() {
+  if (!m_active) return;
+  m_active = false;
+  if (m_channel) m_channel->requestStop(false);
+  if (m_task) m_task->requestInterruption();
+}
 QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, PaleoTaskService *service,
     const QString &session, const QString &turn, const QVector<AiToolSpec> &tools, std::function<bool()> contextCurrent) {
   if (m_active) return "pi_engine_busy";
@@ -80,11 +85,23 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
     state->ready.store(true, std::memory_order_release);
     return state->value.ok() ? QString() : state->value.code;
   }, QString(), PaleoTask::Priority::High, true);
-  if (!guard || generation != m_generation) { channel->requestStop(false); return "interrupted"; }
+  if (!guard || generation != m_generation) {
+    channel->requestStop(false);
+    if (task) task->requestInterruption();
+    return "interrupted";
+  }
   if (!task) { m_active = false; return "pi_task_unavailable"; }
   m_task = task; m_timer.start();
+  // A host interruption may be the service itself disappearing. Leave that
+  // diagnosis to controlTick if there is no task left to deliver a receipt.
+  const auto stopFromTask = [this, generation] {
+    if (m_active && m_generation == generation && m_task && m_task->explicitCancelRequested())
+      m_channel->requestStop(true);
+  };
+  connect(task, &PaleoTask::cancelAsked, this, stopFromTask);
   connect(task, &PaleoTask::finished, this, [this, guard, generation, state, channel] {
     if (!guard || !m_active || generation != m_generation) return;
+    if (m_task && m_task->cancelRequested()) channel->requestStop(m_task->explicitCancelRequested());
     drain();
     if (!guard || !m_active || generation != m_generation) return;
     const auto workerCode = state->ready.load(std::memory_order_acquire) ? state->value.code : QStringLiteral("interrupted");
@@ -103,6 +120,8 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
     }
     m_timer.stop(); m_task.clear(); m_active = false; emit finished(code);
   }, Qt::SingleShotConnection);
+  if (task->cancelRequested()) stopFromTask();
+  else if (channel->stopReason()) abort(channel->stopReason() == 1);
   return {};
 }
 bool PiChatBridge::send(const QString &type, const QJsonObject &payload) {
@@ -119,8 +138,13 @@ void PiChatBridge::fail(const QString &code) {
   if (first) emit failed(code);
 }
 void PiChatBridge::abort(bool explicitUser) {
-  if (m_active && m_channel) m_channel->requestStop(explicitUser);
   m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false;
+  if (!m_active || !m_channel) return;
+  m_channel->requestStop(explicitUser);
+  if (m_task) {
+    if (explicitUser) m_task->requestCancel();
+    else m_task->requestInterruption();
+  }
 }
 void PiChatBridge::controlTick() {
   if (!m_active) return;

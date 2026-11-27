@@ -28,7 +28,7 @@ QList<WhatsThisEntry> whatsThisEntries()
   return {
     // ---- 主窗口外壳（六页共用的 chrome 与起始页）----
     {"PaleoMainWindow", "workflowTabs", QT_TRANSLATE_NOOP("PaleoWhatsThis", "工作流页签：按数据管理、地层对比、智能预测、单因素图、智能编图、验证的顺序切换六个工作页。"), nullptr},
-    {"PaleoMainWindow", "paleoLocator", QT_TRANSLATE_NOOP("PaleoWhatsThis", "顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。"), "main.locator.focus"},
+    {"PaleoMainWindow", "paleoLocator", QT_TRANSLATE_NOOP("PaleoWhatsThis", "输入井名或层位名可定位，选择层位可切换当前层位。输入“cmd ”列出命令，可用空格组合关键词，例如“cmd 导入 井位”。用“well 井名”查井位，用“hor 层位名”查层位。"), "main.locator.focus"},
     {"PaleoMainWindow", "panelsMenuButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "布局菜单：显示或隐藏各停靠面板、保存与恢复布局，并可切换深色模式和紧凑密度。"), nullptr},
     {"PaleoMainWindow", "processingButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "处理算法：按提供者分组列出可用算法，点击后打开该算法的参数对话框。"), nullptr},
     {"PaleoMainWindow", "webServiceButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "显示或隐藏「Web 服务」面板，在应用内打开网页服务地址。"), nullptr},

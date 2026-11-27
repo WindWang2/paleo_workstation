@@ -464,7 +464,8 @@ void PaleoMainWindow::bindEditingCommands(PaleoEditingToolbar *editTb)
   const std::pair<QAction *, const char *> natives[] = {
       {editTb->actionSelect(), "edit.select"},       {editTb->actionAddFeature(), "edit.addFeature"},
       {editTb->actionReshape(), "edit.reshape"},     {editTb->actionMove(), "edit.move"},
-      {editTb->actionDeleteFeatures(), "edit.deleteFeatures"}, {editTb->actionVertexEdit(), "edit.vertex"},
+      {editTb->actionVertexEdit(), "edit.vertex"},
+      {editTb->actionDeleteSelection(), "edit.deleteSelection"},
       {editTb->actionFaciesOperations(), "edit.faciesOperations"},
       {editTb->actionAddPoint(), "edit.addPoint"},   {editTb->actionAddLine(), "edit.addLine"},
       {editTb->actionAddPolygon(), "edit.addPolygon"}, {editTb->actionSplitFacies(), "edit.facies.split"},
@@ -475,6 +476,8 @@ void PaleoMainWindow::bindEditingCommands(PaleoEditingToolbar *editTb)
       {editTb->actionRedo(), "edit.redo"}};
   for (const auto &[action, id] : natives)
     commandBinder()->bindNative(action, QLatin1String(id));
+  commandBinder()->bindNative(editTb->actionDeleteFeatures(), QStringLiteral("edit.deleteFeatures"),
+                              CommandActionBinder::MenuBehavior::TriggerPrimaryAction);
 }
 
 void PaleoMainWindow::addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb,

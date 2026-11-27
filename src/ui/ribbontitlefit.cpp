@@ -77,7 +77,7 @@ namespace
         ensureHelpers();
         restoreAll();
         const QFontMetrics fm(m_right->font());
-        const int prefW = fm.averageCharWidth() * 24; // 「搜索井位/层位  Ctrl+K」放得下
+        const int prefW = fm.averageCharWidth() * 24; // 「搜索命令、井、层位  Ctrl+K」放得下
         const int minW = fm.averageCharWidth() * 12;
         if (m_search)
           m_search->setFixedWidth(prefW);
@@ -247,7 +247,7 @@ namespace
         if (sb->icon().isNull())
           sb->setIcon(sb->style()->standardIcon(QStyle::SP_FileDialogContentsView));
         sb->setText(tr("搜索"));
-        sb->setToolTip(tr("搜索井位 / 层位"));
+        sb->setToolTip(tr("搜索命令、井位和层位"));
         sb->setAccessibleName(tr("展开搜索"));
         sb->setToolButtonStyle(Qt::ToolButtonIconOnly);
         connect(sb, &QToolButton::clicked, this, [this] { expandSearch(); });

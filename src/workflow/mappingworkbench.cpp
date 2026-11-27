@@ -518,7 +518,11 @@ QVariantList MappingWorkbench::facies(const QString &h) const {
 }
 bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
                                   QString *error) {
-  if (!ready(h, error))
+  return saveFaciesForUnit(h, items, m_analysisUnit, error);
+}
+bool MappingWorkbench::saveFaciesForUnit(const QString &h, const QVariantList &items,
+                                         const paleo::strat::UnitSelection &unit, QString *error) {
+  if (!ready(h, error, &unit))
     return false;
   if (items.isEmpty() || items.size() > 32) {
     fail(error, tr("每个层位需要 1–32 个相类别"));
@@ -555,12 +559,14 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
   // algo-atom：相图式元数据经 publishArtifacts（staging 路径 ≡ commit；非 Processing OUTPUT，但仍是 DERIVED 登记）
   AlgorithmRunResult schemaRun = paleo::runResultFromOutputPath( st.absolutePath );
   schemaRun.diagnostics.insert( QStringLiteral( "asset_role" ), QStringLiteral( "facies_schema" ) );
-  const QVariantMap schemaExtra = {
+  QVariantMap schemaExtra = {
     { QStringLiteral( "horizon" ), h },
     { QStringLiteral( "facies" ), normalized },
     { QStringLiteral( "facies_schema" ), QStringLiteral( "paleo_facies_hierarchy_v1" ) },
     { QStringLiteral( "prediction_level" ), QStringLiteral( "micro_facies" ) },
   };
+  if (unit.isValid() && h == paleo::strat::analysisLayerKey(unit))
+    schemaExtra.insert(QStringLiteral("unitSelection"), paleo::strat::toMap(unit));
   const bool ok = paleo::publishArtifacts( r, st, schemaRun, parents,
                                            QStringLiteral( "facies-schema" ), schemaExtra, error );
   if (ok) {

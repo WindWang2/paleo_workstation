@@ -1,5 +1,6 @@
 // 层：数据
 #include "projectquery_internal.h"
+#include "artifactversioncapability.h"
 #include "projectquerytopics.h"
 #include "domain/wellref.h"
 #include <QCryptographicHash>
@@ -67,6 +68,8 @@ void queryVersionCitation(QJsonObject &entry, const DataCatalog *catalog, const 
   const auto version = catalog->currentVersion(assetId);
   entry.insert("version_id", version.id); entry.insert("stage", version.stage);
   entry.insert("version_number", version.versionNumber); entry.insert("path", querySafePath(catalog, version.path));
+  const auto kind = capability::ArtifactVersionCapability::resultKind(version);
+  if (!kind.isEmpty()) entry.insert("result_kind", kind);
 }
 QJsonObject queryWellReference(const CatalogEntity &entity, const QueryState &state) {
   const bool available = entity.extra.value(QStringLiteral("queryModelAvailable")).toBool();

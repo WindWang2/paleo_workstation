@@ -9,8 +9,18 @@
 
 #include <QCoreApplication>
 #include <QSet>
+#include <QTranslator>
 
 namespace paleo::command {
+
+QStringList commandTitleAliases(const CommandSpec &spec) {
+  // 读取内嵌目录，不改变应用显示语言。未装翻译时仍可用源标题和命令 ID。
+  static const struct EnglishTitles : QTranslator {
+    EnglishTitles() { (void)load(QStringLiteral(":/i18n/paleo_en.qm")); }
+  } english;
+  return {QString::fromUtf8(spec.title), english.translate("PaleoCommands", spec.title)};
+}
+
 namespace {
 
 constexpr int kUi = SurfaceRibbon | SurfaceLocator;
@@ -42,6 +52,8 @@ const Row kRows[] = {
      "stage", "", "", "main.project.save", "project"},
     {"project.sources", CommandKind::Command, "project", QT_TRANSLATE_NOOP("PaleoCommands", "工程资料设置"), QT_TRANSLATE_NOOP("PaleoCommands", "补充或调整当前工程的资料来源"), kMenu,
      "stage", "", "", "", "project"},
+    {"project.copyToDataVolume", CommandKind::Command, "project", QT_TRANSLATE_NOOP("PaleoCommands", "复制工程到数据盘并打开"),
+     QT_TRANSLATE_NOOP("PaleoCommands", "将只读工程复制到数据盘，校验后打开副本"), kMenu, "stage", "", "", "", "project"},
     {"project.mapSettings", CommandKind::Command, "project", QT_TRANSLATE_NOOP("PaleoCommands", "工程坐标与底图"), QT_TRANSLATE_NOOP("PaleoCommands", "设置工程坐标参考与底图"), kMenu,
      "stage", "", "", "", "project"},
     {"project.coordinateTools", CommandKind::View, "project", QT_TRANSLATE_NOOP("PaleoCommands", "坐标定位与转换"),
@@ -188,6 +200,8 @@ const Row kRows[] = {
     {"edit.reshape", CommandKind::Command, "edit", QT_TRANSLATE_NOOP("PaleoCommands", "整形"), "", kUi, "stage", "", "矢量编辑"},
     {"edit.move", CommandKind::Command, "edit", QT_TRANSLATE_NOOP("PaleoCommands", "移动要素"), "", kUi, "stage", "", "矢量编辑"},
     {"edit.deleteFeatures", CommandKind::Command, "edit", QT_TRANSLATE_NOOP("PaleoCommands", "删除要素"), "", kUi, "stage", "", "矢量编辑"},
+    {"edit.deleteSelection", CommandKind::Command, "edit", QT_TRANSLATE_NOOP("PaleoCommands", "删除所选要素"),
+     QT_TRANSLATE_NOOP("PaleoCommands", "删除当前矢量图层中已选中的要素"), kUi, "stage", "", "矢量编辑"},
     {"edit.vertex", CommandKind::Command, "edit", QT_TRANSLATE_NOOP("PaleoCommands", "节点编辑"), "", kUi, "stage", "", "矢量编辑"},
     {"edit.faciesOperations", CommandKind::Command, "edit", QT_TRANSLATE_NOOP("PaleoCommands", "相面分区操作"), "", kUi, "stage", "", "相面分区"},
     {"edit.facies.split", CommandKind::Command, "edit", QT_TRANSLATE_NOOP("PaleoCommands", "分割所选相面"), "", kUi, "stage", "", "相面分区"},

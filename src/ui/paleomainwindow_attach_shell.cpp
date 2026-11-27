@@ -108,14 +108,14 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       const QString locatorKey = paleo::shortcuts::displayKey(
           paleo::shortcuts::keyFor(QStringLiteral("main.locator.focus")));
       locatorWidget->setPlaceholderText(
-          locatorKey.isEmpty() ? tr("搜索井位/层位")
-                               : tr("搜索井位/层位  %1").arg(locatorKey));
+          locatorKey.isEmpty() ? tr("搜索命令、井、层位")
+                               : tr("搜索命令、井、层位  %1").arg(locatorKey));
       // QGIS 定位器把 Tab 留给补全/下一条、Esc 只收结果列表：键盘进了搜索框
       // 就出不来。装 Esc 出口（Tab 不动）；顺手给输入框补无障碍名。
       installLocatorKeyboardExit(locatorWidget);
       for (auto *edit : locatorWidget->findChildren<QLineEdit *>())
         if (edit->inherits("QgsLocatorLineEdit") && edit->accessibleName().isEmpty())
-          edit->setAccessibleName(tr("搜索井位 / 层位"));
+          edit->setAccessibleName(tr("搜索命令、井位和层位"));
 
       // Wells filter: resolve the declared "wells" layer lazily (instantiate
       // on demand — the search must not force materialization at open time).

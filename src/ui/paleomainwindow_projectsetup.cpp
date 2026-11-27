@@ -55,18 +55,23 @@ void PaleoMainWindow::attachProjectSetupAction(QMenu *menu)
   auto *copy = menu->addAction(tr("复制工程到数据盘并打开…"));
   copy->setObjectName(QStringLiteral("copyProjectToDataVolume"));
   copy->setVisible(false);
-  connect(menu, &QMenu::aboutToShow, this, [this, copy] {
+  const auto copyUnavailable = [this]() -> QString {
+    if (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) return tr("请先打开工程");
+    if (m_projectSvc->isOpening()) return tr("工程正在打开，请稍候");
+    if (!projectOpenWorkflow()->needsDataVolumeCopy()) return tr("仅数据盘以外的只读工程需要复制");
+    if (!m_taskSvc) return tr("任务服务尚未就绪");
+    return {};
+  };
+  connect(menu, &QMenu::aboutToShow, this, [copy, copyUnavailable] { copy->setVisible(copyUnavailable().isEmpty()); });
+  bindCommand(QStringLiteral("project.copyToDataVolume"), [this](const QVariantMap &) {
     auto *workflow = projectOpenWorkflow();
-    copy->setVisible(workflow && workflow->needsDataVolumeCopy());
-  });
-  connect(copy, &QAction::triggered, this, [this] {
-    auto *workflow = projectOpenWorkflow();
-    if (!workflow || !workflow->needsDataVolumeCopy()) return;
+    const auto session = m_projectSvc->sessionId();
     const QString base = ProjectSetupWorkflow::defaultProjectDirectory();
     const QString selected = QFileDialog::getExistingDirectory(this, tr("选择数据盘上的目标父目录（将复制清单成员和受管资料）"),
         QFileInfo(base).isDir() ? base : m_projectSvc->writableProjectRoot());
-    if (!selected.isEmpty()) workflow->copyCurrentTo(selected, m_taskSvc);
-  });
+    if (!selected.isEmpty() && session == m_projectSvc->sessionId()) workflow->copyCurrentTo(selected, m_taskSvc);
+  }, copyUnavailable);
+  routeCommand(copy, QStringLiteral("project.copyToDataVolume"));
   auto *action = menu->addAction(tr("工程资料设置…"));
   action->setObjectName(QStringLiteral("projectSourcesAction"));
   connect(menu, &QMenu::aboutToShow, this, [this, action] {

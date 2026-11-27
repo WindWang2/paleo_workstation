@@ -12,6 +12,7 @@
 #include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingreferencecanvas.h"
 #include "../src/qgis/mappingartifactwriter.h"
+#include "../src/qgis/seismicclusterpatches.h"
 #include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/linkage/selectioncontext.h"
@@ -4339,23 +4340,31 @@ private slots:
       QMouseEvent ev(type, handle->mapFromGlobal(global), global, Qt::LeftButton, buttons, Qt::NoModifier);
       QApplication::sendEvent(handle, &ev);
     };
+    const int dragDistance = scroll->viewport()->width();
     sendMouse(QEvent::MouseButtonPress, 0, Qt::LeftButton);
-    sendMouse(QEvent::MouseMove, 300, Qt::LeftButton);
-    sendMouse(QEvent::MouseButtonRelease, 600, Qt::NoButton);
+    sendMouse(QEvent::MouseMove, dragDistance / 2, Qt::LeftButton);
+    sendMouse(QEvent::MouseButtonRelease, dragDistance, Qt::NoButton);
     QCoreApplication::processEvents();
-    QCOMPARE(first->width(), panel.minViewWidth() + 600);
+    QCOMPARE(first->width(), panel.minViewWidth() + dragDistance);
     QTRY_VERIFY(scroll->horizontalScrollBar()->isVisible());
+    auto *bar = scroll->horizontalScrollBar();
+    bar->setValue(bar->minimum());
+    auto *last = panel.views().last();
+    const auto lastRect = [&] { return QRect(last->mapTo(scroll->viewport(), QPoint()), last->size()); };
+    QVERIFY(!scroll->viewport()->rect().intersects(lastRect()));
     QVERIFY(panel.visibleViewCount() < 4);
+    bar->setValue(bar->maximum());
+    QTRY_VERIFY(lastRect().left() >= 0 && lastRect().right() < scroll->viewport()->width());
     const auto saved = QSettings("paleo", "paleo").value(evidenceWidthsKey()).toList();
     QCOMPARE(saved.size(), 4);
-    QCOMPARE(saved.first().toInt(), panel.minViewWidth() + 600);
+    QCOMPARE(saved.first().toInt(), panel.minViewWidth() + dragDistance);
     if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {
       QDir().mkpath(qa); QVERIFY(panel.grab().save(qa + QString("/evidence-resizable.png")));
     }
     // 新面板沿用保存的宽度。
     {
       MappingEvidencePanel again(&main, nullptr);
-      QCOMPARE(again.viewWidth(again.views().first()), again.minViewWidth() + 600);
+      QCOMPARE(again.viewWidth(again.views().first()), again.minViewWidth() + dragDistance);
     }
     main.stopRendering();
   }
@@ -5967,6 +5976,74 @@ private slots:
     QVERIFY(!f.latest("seismic_cluster_patches").isEmpty());
     QVERIFY(f.latest("seismic_prediction").isEmpty());
     for (const auto &asset : f.catalog.assets()) QVERIFY(asset.type != QStringLiteral("facies_schema"));
+  }
+  void reopenedClusterSurfaceUsesItsFrozenUnitForWellAndManualAssignment() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY2(paleo::area_model::ensureProject(f.dir.path(), &error), qPrintable(error));
+    paleo::data::DataService ds;
+    std::string detail;
+    QVERIFY(ds.openProject(paleo::area_model::directory(f.dir.path()).toStdString(), detail));
+    auto draft = paleo::strat::draftScheme("scheme", "test", {"A", "B"}, {});
+    paleo::data::StratigraphicScheme scheme;
+    std::vector<paleo::data::FrameworkIssue> issues;
+    QVERIFY2(ds.commitStratigraphicScheme(draft, {}, scheme, issues, detail), detail.c_str());
+    const auto interval = paleo::strat::selectorOptions(scheme).front().intervalId;
+    const auto original = paleo::strat::makeSelection(scheme, interval, 1);
+    const auto other = paleo::strat::makeSelection(scheme, interval, 2);
+    const auto key = paleo::strat::analysisLayerKey(original);
+    f.work.setAnalysisUnit(other);
+
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto crs = QgsCoordinateReferenceSystem("EPSG:3857").toWkt();
+    const auto raster = registrar.stage("seismic_clusters", "clusters", "raw.tif", &error);
+    QVERIFY(raster.isValid());
+    QVERIFY(MappingArtifactWriter::raster(raster.absolutePath, {1, 1}, 2, 1, QRectF(0, 0, 20, 10), crs, &error));
+    const auto patches = registrar.stage("seismic_cluster_patches", "patches", "patches.gpkg", &error);
+    QVERIFY(patches.isValid());
+    QVERIFY2(SeismicClusterPatches::polygonize(raster.absolutePath, patches.absolutePath, crs, &error), qPrintable(error));
+    QVERIFY(registrar.commit(raster, {}, "fixture", {{"kind","seismic_clusters"},{"horizon",key},
+        {"unitSelection",paleo::strat::toMap(original)}}, &error));
+    // Older patch versions inherit the unit from their source raster.
+    QVERIFY(registrar.commit(patches, {raster.versionId}, "fixture", {{"kind","seismic_cluster_patches"},
+        {"horizon",key},{"cluster_raster_version",raster.versionId}}, &error));
+    const auto predicted = registrar.stage("wells_prediction", "well", "points.geojson", &error);
+    QVERIFY(predicted.isValid());
+    const auto schema = FaciesCatalog::defaults();
+    const int code = schema.first().toMap().value("code").toInt();
+    QVERIFY(MappingArtifactWriter::points(predicted.absolutePath,
+        {QVariantMap{{"id","W1"},{"x",5.},{"y",5.},{"facies_code",code}}}, crs, &error));
+    QVERIFY(registrar.commit(predicted, {}, "fixture", {{"kind","wells_prediction"},{"horizon",key},
+        {"unitSelection",paleo::strat::toMap(original)},{"facies",schema}}, &error));
+    const auto layer = "product." + patches.versionId;
+    const auto sources = f.work.clusterWellSources(layer, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(sources.size(), 1);
+    QCOMPARE(sources.first().toMap().value("version_id").toString(), predicted.versionId);
+    QSignalSpy previews(&f.work, &MappingWorkbench::clusterWellPreviewReady);
+    QSignalSpy failures(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.previewClusterWells(layer, {predicted.versionId}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!previews.isEmpty() || !failures.isEmpty(), 30000);
+    QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures.first().first().toString()));
+    QCOMPARE(previews.first()[1].toMap().value("voting_wells").toInt(), 1);
+    QVERIFY2(f.work.applyClusterWellPreview(layer, &error), qPrintable(error));
+    const auto assigned = f.catalog.assetPage("facies_polygons", {}, 2).items;
+    QCOMPARE(assigned.size(), 1);
+    const auto surface = f.catalog.currentVersion(assigned.first().id);
+    const auto classes = f.catalog.versionById(surface.extra.value("schema_version").toString());
+    QCOMPARE(paleo::strat::fromMap(surface.extra.value("unitSelection").toMap()), original);
+    QCOMPARE(paleo::strat::fromMap(classes.extra.value("unitSelection").toMap()), original);
+    const auto rows = f.work.clusterPatchChoices(layer, &error);
+    QVERIFY2(!rows.isEmpty(), qPrintable(error));
+    const auto patchId = rows.first().toMap().value("patch_id").toLongLong();
+    const auto edited = f.work.assignClusterFacies(layer, patchId, false, code, &error);
+    QVERIFY2(!edited.isEmpty(), qPrintable(error));
+    QCOMPARE(paleo::strat::fromMap(f.work.versionForLayer(edited).extra.value("unitSelection").toMap()), original);
+    QCOMPARE(f.work.analysisUnit(), other);
+    QVERIFY(f.catalog.updateVersionExtra(patches.versionId, "stale", true, &error));
+    QVERIFY(f.work.clusterWellSources(layer, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("过期")));
+    QVERIFY(f.work.assignClusterFacies(layer, patchId, false, code, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("过期")));
   }
   void singleWellIntervalsVoteOnceAndBlockOlderPointOnTie() {
     QTemporaryDir dir;

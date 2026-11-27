@@ -405,6 +405,10 @@ private:
                                const QVariantMap &importMeta = {});
   void ensureVersionIndex() const;
   bool ready(const QString &horizon, QString *error, const paleo::strat::UnitSelection *sourceUnit = nullptr) const;
+  bool readyClusterSurface(const CatalogVersion &surface, paleo::strat::UnitSelection &unit, QString *error) const;
+  QVariantList wellSourcesForSurface(const CatalogVersion &surface, paleo::strat::UnitSelection &unit, QString *error);
+  bool saveFaciesForUnit(const QString &horizon, const QVariantList &items,
+                         const paleo::strat::UnitSelection &unit, QString *error);
   QString schemaVersion(const QString &horizon) const;
   QString record(const QString &path, const QString &horizon,
                  const QString &kind, const QString &title, const QString &type,

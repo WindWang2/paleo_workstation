@@ -212,7 +212,7 @@ private slots:
     QCOMPARE(agent->toolTip(), PaleoMainWindow::tr("打开 AI Agent（%1）").arg(displayKey(agent->shortcut())));
     QLineEdit *edit = locator->findChild<QLineEdit *>();
     QVERIFY(edit);
-    QCOMPARE(edit->placeholderText(), PaleoMainWindow::tr("搜索井位/层位  %1").arg(locKey));
+    QCOMPARE(edit->placeholderText(), PaleoMainWindow::tr("搜索命令、井、层位  %1").arg(locKey));
     QCOMPARE(save->toolTip(), PaleoMainWindow::tr("保存工程（%1）").arg(saveKey));
 
     // 2. 只读模式下保存按钮文案切换与恢复
@@ -224,8 +224,8 @@ private slots:
     // 3. Mutation: 变异注册表键位后动态构造文案跟随
     const auto formatLocator = [](const QKeySequence &k) {
       const QString s = displayKey(k);
-      return s.isEmpty() ? PaleoMainWindow::tr("搜索井位/层位")
-                         : PaleoMainWindow::tr("搜索井位/层位  %1").arg(s);
+      return s.isEmpty() ? PaleoMainWindow::tr("搜索命令、井、层位")
+                         : PaleoMainWindow::tr("搜索命令、井、层位  %1").arg(s);
     };
     const auto formatSave = [](const QKeySequence &k) {
       const QString s = displayKey(k);
@@ -233,8 +233,8 @@ private slots:
                          : PaleoMainWindow::tr("保存工程（%1）").arg(s);
     };
     QCOMPARE(formatLocator(QKeySequence(QStringLiteral("Ctrl+Shift+F"))),
-             PaleoMainWindow::tr("搜索井位/层位  Ctrl+Shift+F"));
-    QCOMPARE(formatLocator(QKeySequence()), PaleoMainWindow::tr("搜索井位/层位"));
+             PaleoMainWindow::tr("搜索命令、井、层位  Ctrl+Shift+F"));
+    QCOMPARE(formatLocator(QKeySequence()), PaleoMainWindow::tr("搜索命令、井、层位"));
     QCOMPARE(formatSave(QKeySequence(QStringLiteral("Ctrl+Alt+S"))),
              PaleoMainWindow::tr("保存工程（Ctrl+Alt+S）"));
     QCOMPARE(formatSave(QKeySequence()), PaleoMainWindow::tr("保存工程"));

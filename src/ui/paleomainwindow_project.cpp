@@ -24,6 +24,16 @@
 
 using paleo::ui_detail::isOffscreen;
 
+namespace {
+auto importProjectGuard(PaleoMainWindow *owner, QgisProjectService *service, quint64 session)
+{
+  return [window = QPointer<PaleoMainWindow>(owner), project = QPointer<QgisProjectService>(service), session] {
+    return window && project && project->sessionId() == session && !project->projectPath().isEmpty() &&
+           !window->isProjectReadOnly() && !project->isReadOnly() && !project->isOpening();
+  };
+}
+}
+
 // ---------------------------------------------------------------------------
 // T22 文件夹导入确认表：类型下拉从分类器词表构建（label↔type 稳定映射，
 // type 存 Qt::UserRole——不靠显示文本反推）；HZ28-6-1 行锁定为参考；
@@ -65,9 +75,10 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
   auto *wf = folderImportWorkflow();
   if (!wf) return;
   const auto session = m_projectSvc ? m_projectSvc->sessionId() : 0;
-  wf->previewFolderAsync(dir, [this, wf, dir, kind, session](const QVector<FolderPreviewRow> &preview,
+  const auto current = importProjectGuard(this, m_projectSvc, session);
+  wf->previewFolderAsync(dir, [this, wf, dir, kind, current](const QVector<FolderPreviewRow> &preview,
                                              const QString &error) {
-    if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
+    if (!current()) {
       PaleoNotify::warning(this, tr("导入工区文件夹"), tr("工程已变化，请重新选择资料。"));
       return;
     }
@@ -77,21 +88,29 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
       return;
     }
     QDialog dlg(this);
+    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, &dlg, &QDialog::reject);
     PaleoFolderConfirm::Hooks hooks;
     auto cancelImport = std::make_shared<FolderImportWorkflow::CancelImport>();
     hooks.cancelImport = [cancelImport] { if (*cancelImport) (*cancelImport)(); };
-    hooks.importRowWithWell = [wf](const QString &path, const QString &force, const QString &target,
+    hooks.importRowWithWell = [wf, current](const QString &path, const QString &force, const QString &target,
                                       const QString &expectedHash) {
+      if (!current()) {
+        FolderRowResult row;
+        row.path = path;
+        row.outcome = FolderRowResult::Outcome::Failed;
+        row.message = tr("工程已变化，请重新选择资料。");
+        return row;
+      }
       return wf->importFolderRow(path, force, nullptr, target, expectedHash);
     };
-    hooks.importAllWithWells = [this, wf, dir, cancelImport, dlgPtr = &dlg, session](const QMap<QString, QString> &overrides,
+    hooks.importAllWithWells = [wf, dir, cancelImport, dlgPtr = &dlg, current](const QMap<QString, QString> &overrides,
                                         const QStringList &forcePaths,
                                         const QMap<QString, QString> &wellTargets,
                                         const QMap<QString, QString> &expectedHashes,
                                         const QStringList &skippedPaths,
                                         const QStringList &previewedPaths,
                                         FolderImportWorkflow::ImportDone done) {
-      if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
+      if (!current()) {
         if (done) done({}, tr("工程已变化，请重新选择资料。"), false);
         return;
       }
@@ -100,7 +119,7 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
       wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
       // 确认表「显示名」列：编辑过的行（≠原文件 basename）随批透传后端。
       *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths,
-                                       PaleoFolderConfirm::folderImportNameOverrides(dlgPtr));
+                                       PaleoFolderConfirm::folderImportNameOverrides(dlgPtr), current);
     };
     hooks.importedWellHead = [wf](const QString &rowPath) {
       return wf->importedWellHeadAsset(rowPath);
@@ -111,17 +130,17 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
         page->setUnresolvedFilter(true);
     };
     // 保持旧语义：井口入库的预览标签排队到对话框信号处理完成后开。
-    hooks.previewAsset = [this](const QString &assetId) {
+    hooks.previewAsset = [this, current](const QString &assetId) {
       QMetaObject::invokeMethod(
           this,
-          [this, assetId] {
-            if (m_previewTabs)
+          [this, assetId, current] {
+            if (current() && m_previewTabs)
               m_previewTabs->openAsset(assetId);
           },
           Qt::QueuedConnection);
     };
-    hooks.stampSourceArea = [this, dir](const QVariantMap &stats) {
-      stampSourceArea(dir, stats);
+    hooks.stampSourceArea = [this, dir, current](const QVariantMap &stats) {
+      if (current()) stampSourceArea(dir, stats);
     };
     auto rows = preview;
     for (auto &row : rows) {
@@ -144,11 +163,12 @@ void PaleoMainWindow::runFilesImportAt(DataImportService *svc, const QStringList
   if (!wf)
     return;
   const auto session = m_projectSvc ? m_projectSvc->sessionId() : 0;
+  const auto current = importProjectGuard(this, m_projectSvc, session);
   wf->previewFilesAsync(
       paths,
-      [this, paths, kind, session](const QVector<FolderPreviewRow> &preview,
+      [this, paths, kind, session, current](const QVector<FolderPreviewRow> &preview,
                                     const QString &err) {
-        if (!m_projectSvc || m_projectSvc->sessionId() != session || isProjectReadOnly() || m_projectSvc->isOpening()) {
+        if (!current()) {
           PaleoNotify::warning(this, tr("导入文件"), tr("工程已变化，请重新选择资料。"));
           return;
         }
@@ -168,11 +188,7 @@ void PaleoMainWindow::confirmFileImport(const QStringList &paths, const QVector<
   auto *wf = folderImportWorkflow();
   if (!wf || !m_projectSvc || paths.isEmpty() || preview.isEmpty())
     return;
-  const auto current = [window = QPointer<PaleoMainWindow>(this), session] {
-    return window && window->m_projectSvc && window->m_projectSvc->sessionId() == session &&
-           !window->m_projectSvc->projectPath().isEmpty() && !window->isProjectReadOnly() &&
-           !window->m_projectSvc->isReadOnly() && !window->m_projectSvc->isOpening();
-  };
+  const auto current = importProjectGuard(this, m_projectSvc, session);
   if (!current())
     return;
   const QString displayDir = QFileInfo(paths.first()).absolutePath() + QStringLiteral("/") +
@@ -230,8 +246,9 @@ void PaleoMainWindow::confirmFileImport(const QStringList &paths, const QVector<
     if (auto *page = findChild<DataPage *>())
       page->setUnresolvedFilter(true);
   };
-  hooks.previewAsset = [this](const QString &assetId) {
-    QTimer::singleShot(0, this, [this, assetId] {
+  hooks.previewAsset = [this, current](const QString &assetId) {
+    QTimer::singleShot(0, this, [this, assetId, current] {
+      if (!current()) return;
       showPage(QStringLiteral("data"));
       if (auto *page = findChild<DataPage *>())
         page->selectAsset(assetId);

@@ -2,6 +2,8 @@
 // qgis/commandlocatorfilter.cpp — 见 commandlocatorfilter.h。
 #include "commandlocatorfilter.h"
 
+#include "../domain/operationsearch.h"
+
 #include <qgsfeedback.h>
 
 #include <algorithm>
@@ -14,27 +16,14 @@ CommandLocatorFilter::CommandLocatorFilter(ListFn list, TriggerFn trigger, QObje
 QVector<QPair<CommandLocatorFilter::Entry, double>> CommandLocatorFilter::match(const QVector<Entry> &entries,
                                                                                 const QString &query)
 {
-  const QString q = query.trimmed();
+  const paleo::OperationSearch search(query);
   QVector<QPair<Entry, double>> out;
   for (const Entry &e : entries)
   {
     // 标题类候选：显示标题 + 别名（中文源串 / 英文标题）+ 命令 id，取最强匹配档。
     QStringList names{e.title, e.commandId};
     names += e.aliases;
-    const auto any = [&names, &q](auto pred) {
-      return std::any_of(names.cbegin(), names.cend(), [&](const QString &n) { return !n.isEmpty() && pred(n); });
-    };
-    double score = 0;
-    if (q.isEmpty())
-      score = 0.5;
-    else if (any([&q](const QString &n) { return n.compare(q, Qt::CaseInsensitive) == 0; }))
-      score = 1.0;
-    else if (any([&q](const QString &n) { return n.startsWith(q, Qt::CaseInsensitive); }))
-      score = 0.9;
-    else if (any([&q](const QString &n) { return n.contains(q, Qt::CaseInsensitive); }))
-      score = 0.8;
-    else if (e.tooltip.contains(q, Qt::CaseInsensitive) || e.group.contains(q, Qt::CaseInsensitive))
-      score = 0.6;
+    double score = search.score(names, {e.tooltip, e.group});
     if (score <= 0)
       continue;
     if (!e.enabled)
@@ -52,7 +41,7 @@ void CommandLocatorFilter::fetchResults(const QString &string, const QgsLocatorC
     return;
   // 空闲定位器（无前缀、查询为空）不倾倒全部命令——否则结果列表常驻，
   // Tab 被 QGIS 当成「下一条结果」，键盘焦点出不去（tst_shell_chrome）。
-  // 用户键入前缀 "c" 时 usingPrefix=true，空余串仍列出全部命令。
+  // 用户键入前缀 "cmd" 时 usingPrefix=true，空余串仍列出全部命令。
   if (string.trimmed().isEmpty() && !context.usingPrefix)
     return;
   for (const auto &[e, score] : match(m_list(), string))

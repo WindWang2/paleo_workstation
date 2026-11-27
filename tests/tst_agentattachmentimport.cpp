@@ -272,6 +272,14 @@ private slots:
     });
     QCOMPARE(completions, 2);
     QVERIFY(service.catalog()->assets().isEmpty());
+    current = true;
+    imports.importFolder(source.path(), {}, {}, [&](const auto &rows, const QString &error, bool) {
+      ++completions;
+      QVERIFY(!error.isEmpty());
+      QVERIFY(rows.isEmpty());
+    }, {}, {}, {}, {}, {}, [&] { return current; });
+    QCOMPARE(completions, 3);
+    QVERIFY(service.catalog()->assets().isEmpty());
   }
 
   void cancellingCompletedPreviewStartsNoImport()
@@ -314,6 +322,168 @@ private slots:
     QCOMPARE(importsStarted.count(), 0);
     QCOMPARE(preview->state(), PaleoTask::State::Cancelled);
     QVERIFY(service.catalog()->assets().isEmpty());
+  }
+
+  void workbenchAndAgentPreviewOnlyTheExplicitSingleImport()
+  {
+    ImportProject project;
+    QTemporaryDir source;
+    PaleoTaskService tasks;
+    FolderImportWorkflow imports(&project.service, &tasks);
+    const QString single = source.filePath("single.las");
+    const QString manual = source.filePath("manual.las");
+    const QString agent = source.filePath("agent.las");
+    QVERIFY(writeFile(single, las("S1")));
+    QVERIFY(writeFile(manual, las("M1")));
+    QVERIFY(writeFile(agent, las("P1")));
+    bool batchActive = false;
+    QList<bool> batchAtPublication;
+    connect(&imports, &FolderImportWorkflow::importActiveChanged, this,
+            [&](bool active) { batchActive = active; });
+    connect(&project.service, &DataImportService::imported, this,
+            [&] { batchAtPublication.append(batchActive); });
+    int completions = 0;
+    const auto batchDone = [&](const QVector<FolderRowResult> &rows, const QString &error, bool cancelled) {
+      ++completions;
+      QVERIFY2(error.isEmpty(), qPrintable(error));
+      QVERIFY(!cancelled);
+      QCOMPARE(rows.size(), 1);
+      QVERIFY(!rows.first().assetId.isEmpty());
+    };
+    // The Agent has finished detecting its LAS. Submit two workbench operations
+    // before that attachment queues, so worker timing cannot change the order.
+    connect(&imports, &FolderImportWorkflow::previewActiveChanged, this, [&](bool scanning) {
+      if (scanning) return;
+      imports.importFile(QStringLiteral("well_log"), single, [&](const QString &id, const QString &error) {
+        ++completions;
+        QVERIFY2(!id.isEmpty(), qPrintable(error));
+      });
+      imports.importFiles({manual}, {}, {}, batchDone);
+    });
+    imports.importAgentAttachments({agent}, [] { return true; }, batchDone);
+    QTRY_COMPARE_WITH_TIMEOUT(completions, 3, 15000);
+    QCOMPARE(batchAtPublication, QList<bool>({false, true, true}));
+    QVERIFY(!batchActive);
+  }
+
+  void unavailableTaskReleasesQueueAndCompletesAttachment()
+  {
+    ImportProject project;
+    QTemporaryDir source;
+    const QString path = source.filePath("well.las");
+    QVERIFY(writeFile(path, las("W1")));
+    PaleoTaskService tasks;
+    FolderImportWorkflow imports(&project.service, &tasks);
+    const auto drop = connect(&tasks, &PaleoTaskService::taskAdded, this,
+                              [](PaleoTask *task) { delete task; });
+    QSignalSpy busy(&imports, &FolderImportWorkflow::importActiveChanged);
+    QSignalSpy scanning(&imports, &FolderImportWorkflow::previewActiveChanged);
+    int failed = 0;
+    const auto fail = [&](const QVector<FolderRowResult> &rows, const QString &error, bool cancelled) {
+      QVERIFY(rows.isEmpty());
+      QVERIFY(!error.isEmpty());
+      QVERIFY(!cancelled);
+      ++failed;
+    };
+    imports.importFiles({path}, {}, {}, fail);
+    imports.importAgentAttachments({path}, [] { return true; }, fail);
+    QCOMPARE(failed, 2);
+    QCOMPARE(imports.pendingImportJobs(), 0);
+    QCOMPARE(busy.count(), 2);
+    QVERIFY(!busy.last().first().toBool());
+    QCOMPARE(scanning.count(), 2);
+    QVERIFY(!scanning.last().first().toBool());
+    QVERIFY(project.service.catalog()->assets().isEmpty());
+    disconnect(drop);
+    bool published = false;
+    imports.importAgentAttachments({path}, [] { return true; },
+        [&](const auto &rows, const QString &error, bool cancelled) {
+          QVERIFY2(error.isEmpty(), qPrintable(error));
+          QVERIFY(!cancelled);
+          published = rows.size() == 1 && !rows.first().assetId.isEmpty();
+        });
+    QTRY_VERIFY_WITH_TIMEOUT(published, 15000);
+  }
+
+  void closingWorkDoesNotStartAQueuedImport_data()
+  {
+    QTest::addColumn<bool>("shutdown");
+    QTest::newRow("close-project") << false;
+    QTest::newRow("exit-workbench") << true;
+  }
+
+  void closingWorkDoesNotStartAQueuedImport()
+  {
+    QFETCH(bool, shutdown);
+    ImportProject project;
+    QTemporaryDir source;
+    const QString path = source.filePath("well.las");
+    QVERIFY(writeFile(path, las("W1")));
+    PaleoTaskService tasks;
+    FolderImportWorkflow imports(&project.service, &tasks);
+    QSignalSpy started(&tasks, &PaleoTaskService::taskAdded);
+    int cancelled = 0;
+    const auto completed = [&](const auto &, const QString &, bool stopped) {
+      QVERIFY(stopped);
+      ++cancelled;
+    };
+    imports.importFolder(source.path(), {}, completed);
+    imports.importFiles({path}, {}, {}, completed);
+    QCOMPARE(started.count(), 1);
+    if (shutdown) QVERIFY(tasks.shutdown(5000, false));
+    else tasks.beginNewSession();
+    QTRY_COMPARE_WITH_TIMEOUT(cancelled, 2, 15000);
+    QCOMPARE(started.count(), 1);
+    QCOMPARE(imports.pendingImportJobs(), 0);
+    QVERIFY(project.service.catalog()->assets().isEmpty());
+    if (shutdown) {
+      imports.importAgentAttachments({path}, [] { return true; }, completed);
+      QCOMPARE(cancelled, 3);
+      QCOMPARE(started.count(), 1);
+    }
+  }
+
+  void previewCanCloseTheTaskService()
+  {
+    ImportProject project;
+    QTemporaryDir source;
+    const QString path = source.filePath("well.las");
+    QVERIFY(writeFile(path, las("W1")));
+    auto service = std::make_unique<PaleoTaskService>();
+    FolderImportWorkflow imports(&project.service, service.get());
+    connect(&imports, &FolderImportWorkflow::previewActiveChanged, this,
+            [&](bool active) { if (active) service.reset(); });
+    int stopped = 0;
+    const auto done = [&](const auto &rows, const QString &, bool cancelled) {
+      QVERIFY(cancelled);
+      QVERIFY(rows.isEmpty());
+      ++stopped;
+    };
+    imports.importAgentAttachments({path}, [] { return true; }, done);
+    imports.importFiles({path}, {}, {}, done);
+    QCOMPARE(stopped, 2);
+    QVERIFY(project.service.catalog()->assets().isEmpty());
+  }
+
+  void closingWorkflowWhileAddingTaskNeverPublishes()
+  {
+    ImportProject project;
+    QTemporaryDir source;
+    const QString path = source.filePath("well.las");
+    QVERIFY(writeFile(path, las("W1")));
+    PaleoTaskService tasks;
+    auto imports = std::make_unique<FolderImportWorkflow>(&project.service, &tasks);
+    connect(&tasks, &PaleoTaskService::taskAdded, this, [&](PaleoTask *) { imports.reset(); });
+    int callbacks = 0;
+    const auto cancel = imports->importFiles({path}, {}, {}, [&](const auto &, const QString &, bool) {
+      ++callbacks;
+    });
+    QVERIFY(!imports);
+    if (cancel) cancel();
+    QVERIFY(tasks.shutdown(5000));
+    QCoreApplication::processEvents();
+    QCOMPARE(callbacks, 0);
+    QVERIFY(project.service.catalog()->assets().isEmpty());
   }
 
   void refusesPublicationAfterProjectSwitch()

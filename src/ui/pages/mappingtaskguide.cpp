@@ -271,7 +271,7 @@ void MappingTaskGuide::refreshPredict() {
     hint = kindId == QLatin1String("wells")
                ? tr("勾选本层位的井。每口井得到当前地层的预测微相，分析时可打开井道。")
            : kindId == QLatin1String("seismic_mock")
-               ? tr("勾选一个地震体。Mock 会沿层位窗聚类，结果需要地质复核。")
+               ? tr("勾选地震体并设置聚类数。运行后可查看原始簇图或选择聚类面赋相。")
                : tr("勾选一个地震体，按当前层位调用预测服务。");
     nextText = tr("去勾选");
     anchor = QStringLiteral("workbenchInputs");

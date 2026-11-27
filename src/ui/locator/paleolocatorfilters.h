@@ -23,7 +23,7 @@ class WellLocatorFilter : public QgsLocatorFilter
     QString name() const override { return QStringLiteral("paleo_wells"); }
     QString displayName() const override { return tr("井位"); }
     Priority priority() const override { return Highest; }
-    QString prefix() const override { return QStringLiteral("w"); }
+    QString prefix() const override { return QStringLiteral("well"); }
     QgsLocatorFilter::Flags flags() const override { return FlagFast; }
     WellLocatorFilter *clone() const override { return new WellLocatorFilter(m_provider, m_canvas); }
     void fetchResults(const QString &string, const QgsLocatorContext &context,
@@ -44,7 +44,7 @@ class HorizonLocatorFilter : public QgsLocatorFilter
     HorizonLocatorFilter(HorizonListProvider provider, ActivateFn activate, QObject *parent = nullptr);
     QString name() const override { return QStringLiteral("paleo_horizons"); }
     QString displayName() const override { return tr("层位"); }
-    QString prefix() const override { return QStringLiteral("h"); }
+    QString prefix() const override { return QStringLiteral("hor"); }
     QgsLocatorFilter::Flags flags() const override { return FlagFast; }
     HorizonLocatorFilter *clone() const override { return new HorizonLocatorFilter(m_provider, m_activate); }
     void fetchResults(const QString &string, const QgsLocatorContext &context,

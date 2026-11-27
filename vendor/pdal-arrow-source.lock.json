@@ -1,0 +1,62 @@
+{
+  "pdal_version": "2.10.0",
+  "pdal_commit": "bfe12d25949e3c10f6856a5665cd85d593cecdfb",
+  "packages": {
+    "pdal-libs": "2.10.0-4",
+    "arrow-cpp": "26.0.0-1",
+    "gdal-devel": "3.13.3-4"
+  },
+  "patch_sha256": "8db7023bc571fbce1cc5131898424579a7f689246780d742bb7ee00664e06d50",
+  "sources": [
+    {
+      "path": "plugins/arrow/io/ArrowCommon.hpp",
+      "url": "https://raw.githubusercontent.com/PDAL/PDAL/bfe12d25949e3c10f6856a5665cd85d593cecdfb/plugins/arrow/io/ArrowCommon.hpp",
+      "size": 4784,
+      "sha256": "7ae001ad9fb666f79222f5c4f60f5654617d443066eee062fe90d6291359cb99"
+    },
+    {
+      "path": "plugins/arrow/io/ArrowReader.cpp",
+      "url": "https://raw.githubusercontent.com/PDAL/PDAL/bfe12d25949e3c10f6856a5665cd85d593cecdfb/plugins/arrow/io/ArrowReader.cpp",
+      "size": 21843,
+      "sha256": "05bf3f31b1fcd36c84d0650c05241fea2eb06b9d223fcfb4556d2a1d3aae51aa"
+    },
+    {
+      "path": "plugins/arrow/io/ArrowReader.hpp",
+      "url": "https://raw.githubusercontent.com/PDAL/PDAL/bfe12d25949e3c10f6856a5665cd85d593cecdfb/plugins/arrow/io/ArrowReader.hpp",
+      "size": 3612,
+      "sha256": "6bb27a4e4b1377bb7c2d1c51acb29dbd7b37918481085010aaf390842c1c8b24"
+    },
+    {
+      "path": "plugins/arrow/io/ArrowWriter.cpp",
+      "url": "https://raw.githubusercontent.com/PDAL/PDAL/bfe12d25949e3c10f6856a5665cd85d593cecdfb/plugins/arrow/io/ArrowWriter.cpp",
+      "size": 20174,
+      "sha256": "3e099c6c2abf3b4b0916f0acaa02a5eff6e6ba27e750ba782eb9201a45b4f45b"
+    },
+    {
+      "path": "plugins/arrow/io/ArrowWriter.hpp",
+      "url": "https://raw.githubusercontent.com/PDAL/PDAL/bfe12d25949e3c10f6856a5665cd85d593cecdfb/plugins/arrow/io/ArrowWriter.hpp",
+      "size": 3554,
+      "sha256": "26b3043bd8a89ec19ad4934e2878741843ede20012526a2e3fc17228c9710c85"
+    },
+    {
+      "path": "vendor/nlohmann/nlohmann/json.hpp",
+      "url": "https://raw.githubusercontent.com/PDAL/PDAL/bfe12d25949e3c10f6856a5665cd85d593cecdfb/vendor/nlohmann/nlohmann/json.hpp",
+      "size": 804150,
+      "sha256": "3d5a9e45681b830cd7fa660f4170f8eb7da2e4e4192fd3a6b0c5e615bbc21b62"
+    }
+  ],
+  "sdk": [
+    {
+      "path": "pdal-devel-2.10.0-4.tar.bz2",
+      "url": "https://download.osgeo.org/osgeo4w/v2/x86_64/release/pdal/pdal-devel/pdal-devel-2.10.0-4.tar.bz2",
+      "size": 440421,
+      "sha256": "2bfa73dcc0f85dcf7d3148cdb4a0f1203fb2d6dead1b54e167bf1fca1fe52c49"
+    },
+    {
+      "path": "arrow-cpp-devel-26.0.0-1.tar.bz2",
+      "url": "https://download.osgeo.org/osgeo4w/v2/x86_64/release/arrow-cpp/arrow-cpp-devel/arrow-cpp-devel-26.0.0-1.tar.bz2",
+      "size": 1168773,
+      "sha256": "8707539682593688f70799fbbb75d92d9ec23c1a2c6eaf1b78ed944632f2dfb2"
+    }
+  ]
+}

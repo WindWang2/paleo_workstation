@@ -72,6 +72,13 @@ private:
 // 在 horizon/coords 段之后、工程打开进度段之前接入——见该函数注记）。
 void PaleoMainWindow::buildStatusBar()
 {
+  auto *tasks = new QToolButton(this);
+  tasks->setObjectName(QStringLiteral("workspaceTaskStatus"));
+  tasks->setAutoRaise(true);
+  tasks->setFocusPolicy(Qt::TabFocus);
+  connect(tasks, &QToolButton::clicked, this, &PaleoMainWindow::openTaskCenter);
+  statusBar()->addPermanentWidget(tasks);
+  syncTaskStatus();
   // ---- status bar: active horizon ----
   //（「数据提供器：N」常驻诊断标签已移除——provider 计数是启动期自检信息，
   // 不属于用户态状态栏；诊断仍可从日志/QgisRuntime 读。）

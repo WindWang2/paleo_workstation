@@ -1,0 +1,42 @@
+--- a/plugins/arrow/io/ArrowReader.cpp
++++ b/plugins/arrow/io/ArrowReader.cpp
+@@ -337,30 +337,21 @@
+         const auto metadata = m_arrow_reader->parquet_reader()->metadata();
+         loadParquetGeoMetadata(metadata->key_value_metadata());
+ 
+-        auto batchOpenStatus = m_arrow_reader->GetRecordBatchReader({0},&m_parquetReader);
+-        if (!batchOpenStatus.ok())
+-        {
+-            std::stringstream msg;
+-            msg << "Unable to create parquet RecordBatchFileReader for file '" << m_filename << "' with message '"
+-                << result.status().ToString() <<"'";
+-            throwError(msg.str());
+-        }
+-
++        const auto openBatches = [this]() {
++            auto opened = m_arrow_reader->GetRecordBatchReader();
++            if (!opened.ok())
++                throwError("Unable to read Parquet record batches from '" + m_filename +
++                    "': " + opened.status().ToString());
++            m_parquetReader = std::move(opened).ValueOrDie();
++        };
++        openBatches();
+         for (arrow::Result<std::shared_ptr<arrow::RecordBatch>> maybe_batch : *m_parquetReader) {
+ 
+             m_batchCount++;
+         }
+         auto closeStatus = m_parquetReader->Close();
+ 
+-        batchOpenStatus = m_arrow_reader->GetRecordBatchReader({0}, &m_parquetReader);
+-        if (!batchOpenStatus.ok())
+-        {
+-            std::stringstream msg;
+-            msg << "Unable to create parquet RecordBatchFileReader for file '" << m_filename << "' with message '"
+-                << result.status().ToString() <<"'";
+-            throwError(msg.str());
+-        }
+-
++        openBatches();
+ 
+         auto batchIterator = m_parquetReader->begin();
+         auto result = *batchIterator;

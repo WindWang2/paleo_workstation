@@ -495,17 +495,24 @@ namespace PaleoTheme
                " border-bottom: 1px solid %4; padding: {spacing.xs}px {spacing.sm}px; }"
                "QStatusBar { background: %1; color: %3; }"
                "QStatusBar::item { border: none; }"
+               "QWidget#workspaceDocumentStrip { background: %1; }"
+               "QWidget#workspaceDocumentStrip QToolButton { background: transparent; color: %3;"
+               " border: 1px solid transparent; border-radius: {rounded.sm}px;"
+               " padding: {spacing.xs}px {spacing.sm}px; }"
+               "QWidget#workspaceDocumentStrip QToolButton:hover { background: %6; color: %2; }"
+               "QToolButton#workspaceFocusButton:checked { color: %7; background: %5; border-color: %7; }"
+               "QWidget#workspaceDocumentStrip QToolButton:focus { border-color: %7; }"
                "QTabBar#visualizationTabs { background: %1; border-bottom: 1px solid %4; }"
                "QTabBar#visualizationTabs::tab { background: transparent; color: %3;"
                " border: 1px solid transparent; padding: {spacing.xs}px {spacing.sm}px;"
                " border-top-left-radius: {rounded.sm}px; border-top-right-radius: {rounded.sm}px; }"
                "QTabBar#visualizationTabs::tab:hover:!selected { background: %6; color: %2; }"
                "QTabBar#visualizationTabs::tab:selected { background: %5; color: %2;"
-               " border-color: %4; border-bottom-color: %5; }"
+               " border-color: %4; border-bottom: 2px solid %7; }"
                "QWidget#mapInteractionContext { background: %1; color: %3;"
                " border-bottom: 1px solid %4; }"))
                .arg(qssHex(t.surfaceAlt), qssHex(t.text), qssHex(t.textMuted),
-                    qssHex(t.border), qssHex(t.surface), qssHex(t.surfaceAltRaised))
+                    qssHex(t.border), qssHex(t.surface), qssHex(t.surfaceAltRaised), qssHex(t.primaryText))
         // 条目视图三件套（选中/hover/斑马纹/密度 padding）统一出口——
         // goal/ui-experience-polish：三类列表控件不再各写选中态。
         + controlStyleSheet(theme) + itemViewStyleSheet(theme);

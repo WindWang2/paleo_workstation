@@ -15,6 +15,7 @@
 #include <QThread>
 #include <QUndoStack>
 #include <QUuid>
+#include <algorithm>
 #include <cmath>
 #include <qgsgeometrycollection.h>
 #include <qgsexception.h>
@@ -42,6 +43,12 @@ QVariantList schema(QgsVectorLayer *v) { return FaciesPartitionState::schema(v);
 bool validCode(QgsVectorLayer *v, int code, QString *error) {
   return FaciesTaxonomy::complete(FaciesCatalog::find(schema(v), code)) ||
       fail(error, QObject::tr("请选择具有完整相、亚相、微相归属的目标微相"));
+}
+bool pendingClusterFacies(const QgsFeature &f) {
+  if (f.fields().indexOf("cluster_id") < 0 || f.fields().indexOf("assignment_status") < 0 ||
+      !f.attribute("facies_code").isNull()) return false;
+  const auto status = f.attribute("assignment_status").toString();
+  return status == "unsupported" || status == "conflict" || status == "unassigned";
 }
 bool ready(QgsVectorLayer *v, QString *error) {
   if (!v || QThread::currentThread() != v->thread() || !FaciesPartitionEditor::isPartition(v) ||
@@ -81,8 +88,11 @@ QgsFeature child(QgsVectorLayer *v, const QgsFeatureList &sources,
       }
     }
   for (int index : v->primaryKeyAttributes()) f.setAttribute(index, QVariant());
-  const auto attrs = FaciesCatalog::attributes(schema(v), code);
-  f.setAttribute("facies_code", code);
+  const QVariant target = code > 0 ? QVariant(code) : QVariant();
+  const auto attrs = FaciesCatalog::attributes(schema(v), target);
+  f.setAttribute("facies_code", target);
+  if (!keepRange && f.fields().indexOf("assignment_status") >= 0)
+    f.setAttribute("assignment_status", code > 0 ? "manual" : "unassigned");
   for (auto it = attrs.cbegin(); it != attrs.cend(); ++it)
     if (f.fields().indexOf(it.key()) >= 0) f.setAttribute(it.key(), it.value());
   if (!keepRange)
@@ -288,7 +298,7 @@ bool validate(QgsVectorLayer *v, QString *error) {
   QgsGeometry coverage(collection);
   auto it = v->getFeatures(); QgsFeature f;
   while (it.nextFeature(f)) {
-    if (!classification.isEmpty()) {
+    if (!classification.isEmpty() && !pendingClusterFacies(f)) {
       bool parsed = false; const auto code = f.attribute("facies_code").toDouble(&parsed);
       if (!parsed || !std::isfinite(code) || code < 1 || code > 32767 || code != std::round(code) ||
           !FaciesTaxonomy::complete(FaciesCatalog::find(classification, int(code))))
@@ -326,7 +336,7 @@ bool split(QgsVectorLayer *v, const QgsGeometry &line, QString *error) {
   Plan plan;
   for (const auto &f : v->selectedFeatures()) {
     const int code = f.attribute("facies_code").toInt();
-    if (!validCode(v, code, error)) return false;
+    if (!pendingClusterFacies(f) && !validCode(v, code, error)) return false;
     auto geometry = f.geometry(); QVector<QgsGeometry> pieces; QgsPointSequence junctions;
     const auto status = geometry.splitGeometry(points, pieces, true, junctions);
     if (status == Qgis::GeometryOperationResult::NothingHappened) continue;
@@ -379,7 +389,7 @@ bool paint(QgsVectorLayer *v, const QgsGeometry &polygon, int code, QString *err
     const auto pieces = parts(remainder);
     if (pieces.size() == 1) { auto changed = f; changed.setGeometry(remainder); plan.changed << changed; }
     else {
-      if (!pieces.isEmpty() && !validCode(v, f.attribute("facies_code").toInt(), error)) return false;
+      if (!pieces.isEmpty() && !pendingClusterFacies(f) && !validCode(v, f.attribute("facies_code").toInt(), error)) return false;
       plan.removed.insert(f.id());
       for (const auto &part : pieces) plan.added << child(v, {f}, part, f.attribute("facies_code").toInt(), true);
     }
@@ -404,7 +414,8 @@ bool merge(QgsVectorLayer *v, int code, QString *error) {
     geometries << f.geometry(); plan.removed.insert(f.id()); }
   if (!code && !same) return fail(error, QObject::tr("所选面属于不同微相，请明确选择合并后的目标微相；父级聚合显示不会删除内部微相"));
   if (!code) code = firstCode;
-  if (!validCode(v, code, error)) return false;
+  const bool pending = !code && std::all_of(selected.begin(), selected.end(), pendingClusterFacies);
+  if (!pending && !validCode(v, code, error)) return false;
   const auto geometry = QgsGeometry::unaryUnion(geometries);
   if (geometry.isEmpty() || !geometry.isGeosValid() || parts(geometry).size() != 1)
     return fail(error, QObject::tr("只能合并具有公共边界的连通相面"));

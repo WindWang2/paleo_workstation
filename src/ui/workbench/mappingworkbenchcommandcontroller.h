@@ -89,6 +89,7 @@ class MappingWorkbenchCommandController : public QObject, public WorkbenchComman
         LegendFn legend;
         ShowFn show;
         ShowFn compare;
+        ShowFn comparePrimary;
         OpenWellsFn openWells;
         BeginEditFn beginEdit;
         std::shared_ptr<QHash<QString, QString>> shown;

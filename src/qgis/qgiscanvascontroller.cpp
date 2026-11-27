@@ -50,9 +50,9 @@ QgisCanvasController::~QgisCanvasController()
   m_canvas = nullptr;
 }
 
-QgsSnappingConfig QgisCanvasController::nativeSnappingConfig()
+QgsSnappingConfig QgisCanvasController::nativeSnappingConfig(QgsProject *project)
 {
-  QgsSnappingConfig cfg;
+  QgsSnappingConfig cfg(project);
   cfg.setEnabled( true );
   cfg.setMode( Qgis::SnappingMode::AllLayers );           // 全图层捕捉（编图工位默认）
   cfg.setTypeFlag( Qgis::SnappingType::Vertex |

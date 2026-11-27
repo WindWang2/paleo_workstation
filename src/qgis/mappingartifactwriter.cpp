@@ -511,6 +511,12 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
     // #419：迭代中嵌套 getFeature 对部分 provider 会重置游标/跳行——
     // 改后的 facies_code 从写入集本身追踪，不再回读图层。
     QVariant code = feature.attribute("facies_code");
+    const int assignment = feature.fields().indexOf("assignment_status");
+    if (assignment >= 0 && feature.fields().indexOf("well_suggestion") >= 0) {
+      const auto previous = feature.attribute(assignment).toString();
+      if (!code.isNull() && code.toInt() != feature.attribute("well_suggestion").toInt() && previous != "manual")
+        ok = layer->changeAttributeValue(feature.id(), assignment, "manual") && ok;
+    }
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       QVariantMap source;
       for (int i = 0; i < feature.fields().size(); ++i)

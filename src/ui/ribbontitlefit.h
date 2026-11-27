@@ -18,4 +18,6 @@ namespace PaleoRibbon
   bool revealTitleSearch(SARibbonBar *bar);
   // 立即按当前宽度重新适配（测试 / 外部改动后调用）。
   void refitTitleRow(SARibbonBar *bar);
+  // 专注模式接管快速访问栏的显隐，返回宽度折叠前的可见意愿。
+  bool hideQuickAccessForFocus(SARibbonBar *bar);
 } // namespace PaleoRibbon

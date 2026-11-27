@@ -35,8 +35,12 @@
 
 ## 2. 配置 schema：`<工程目录>/project_area.json`
 
-读取顺序（`AreaRules::loadFromProjectDir`）：**工程目录 `project_area.json`
-→ 内置默认**。缺文件 = 默认；缺键 = 该键默认（`dat_path_rules` 若出现则
+工程打开或导入向导发布模型后，编图层位优先采用 `project_area.json` 显式配置的
+`sequence_boundaries`。缺少该键时，读取工区模型已发布的默认地震层序方案，按浅到深
+排列；没有方案时使用内置名单。模型提供名单且未指定目标层位时，优先选择名单内的
+D61，否则选最浅界面。编图工作区和古地理图导入对话框即时使用同一份名单。
+
+其余参数若缺文件或缺键则采用各自默认值（`dat_path_rules` 若出现则
 **整表替换**——优先级序是表语义，不与默认表合并）；坏 JSON（语法错/类型错/
 未知键/越界值）→ `loadFromProjectDir` 返回 false + 具体原因，**拒用**（不静默
 回退——`setProjectDir` 后 `AreaRules::lastError()` 可查，active 保持默认）。

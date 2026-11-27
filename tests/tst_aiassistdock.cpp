@@ -16,7 +16,9 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QPointer>
+#include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -37,7 +39,7 @@
 #include "../src/ui/ai/aiassistdock.h"
 #include "../src/ui/ai/aicontextbar.h"
 #include "../src/ui/paleotheme.h"
-#include "../src/workflow/aichatcontroller.h"
+#include "pichattestcontroller.h"
 
 // 方向51：AI 助手 dock（视图层）——禁用态、流式渲染、工具调用占位卡片、
 // 错误态。方向62 追加：会话切换 round-trip（内容/滚动）、markdown 定型
@@ -152,6 +154,8 @@ private slots:
   void initTestCase();
   void cleanup();
   void unconfiguredControllerShowsDisabledState();
+  void suggestedQuestionsOpenEditableDrafts();
+  void openingAgentRevealsComposerInScrolledDock();
   void fileDropUsesCurrentProjectAndPreservesDraft();
   void filePickerOpensWithoutModelAndRejectsChangedProject();
   void streamingRendersIntoTranscript();
@@ -203,6 +207,7 @@ void TestAiAssistDock::cleanup() {
 void TestAiAssistDock::unconfiguredControllerShowsDisabledState() {
   AiChatController controller; // 未配置：端点/模型/密钥都没有
   AiAssistDock dock(&controller);
+  dock.show();
   auto *status = dock.findChild<QLabel *>(QStringLiteral("aiAssistantStatus"));
   auto *send = dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"));
   auto *input = dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"));
@@ -214,11 +219,93 @@ void TestAiAssistDock::unconfiguredControllerShowsDisabledState() {
   QVERIFY(!send->isEnabled());
   QVERIFY(!input->isEnabled());
   QVERIFY(!stop->isEnabled());
-  // #870：空 transcript 给空态指引，且指向「配置…」。
   auto *empty = dock.findChild<QLabel *>(QStringLiteral("aiAssistantEmptyState"));
-  QVERIFY(empty);
-  QVERIFY(!empty->isHidden());
+  auto *configure = dock.findChild<QPushButton *>("aiAssistantWelcomeConfigure");
+  auto *localImport = dock.findChild<QPushButton *>("aiAssistantWelcomeImport");
+  QVERIFY(empty && configure && localImport);
+  QVERIFY(empty->isVisible());
   QVERIFY2(empty->text().contains(QStringLiteral("配置")), qPrintable(empty->text()));
+  QVERIFY(configure->isVisible() && !localImport->isVisible());
+  QSignalSpy configureRequested(&dock, &AiAssistDock::configureRequested);
+  QTest::mouseClick(configure, Qt::LeftButton);
+  QCOMPARE(configureRequested.count(), 1);
+  dock.setFileImportContext(7, {});
+  QTRY_VERIFY(localImport->isVisible() && localImport->isEnabled());
+}
+
+void TestAiAssistDock::suggestedQuestionsOpenEditableDrafts() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::PausedMarkdown));
+  PiTestChatController controller;
+  auto config = makeConfig(server.endpoint());
+  config.timeoutMs = 30000;
+  controller.setConfig(config);
+  AiAssistDock dock(&controller);
+  dock.setFileImportContext(1, {});
+  dock.resize(400, 650);
+  dock.show();
+  dock.activateWindow();
+  auto *project = dock.findChild<QPushButton *>("aiAssistantProjectPrompt");
+  auto *tools = dock.findChild<QPushButton *>("aiAssistantToolsPrompt");
+  auto *input = dock.findChild<QTextEdit *>("aiAssistantInput");
+  auto *stop = dock.findChild<QPushButton *>("aiAssistantStop");
+  auto *activity = dock.findChild<QProgressBar *>("aiAssistantActivity");
+  QVERIFY(project && tools && input && stop && activity);
+  QTRY_VERIFY(project->isVisible() && tools->isVisible());
+  QVERIFY(!activity->isVisible());
+  QTest::mouseClick(project, Qt::LeftButton);
+  QTRY_VERIFY(input->hasFocus());
+  const QString projectDraft = input->toPlainText();
+  QVERIFY(!projectDraft.trimmed().isEmpty());
+  QCOMPARE(server.requestCount(), 0);
+  QVERIFY(!project->isVisible() && !tools->isVisible());
+  input->clear();
+  QTRY_VERIFY(tools->isVisible());
+  QTest::mouseClick(tools, Qt::LeftButton);
+  const QString toolsDraft = input->toPlainText();
+  QVERIFY(!toolsDraft.trimmed().isEmpty() && toolsDraft != projectDraft);
+  QVERIFY(controller.messages().isEmpty());
+  QTest::keyClick(input, Qt::Key_Return, Qt::ShiftModifier);
+  QVERIFY(input->toPlainText().contains(QLatin1Char('\n')));
+  QVERIFY(!controller.streaming());
+  QTest::keyClick(input, Qt::Key_Return);
+  QTRY_COMPARE(server.requestCount(), 1);
+  QVERIFY(controller.streaming());
+  QTRY_VERIFY(activity->isVisible() && stop->isVisible() && stop->isEnabled());
+  QCOMPARE(controller.messages().first().content, toolsDraft.trimmed());
+  server.finishPausedMarkdown();
+  QTRY_VERIFY(!controller.streaming() && !activity->isVisible());
+  QVERIFY(!project->isVisible() && !tools->isVisible());
+}
+
+void TestAiAssistDock::openingAgentRevealsComposerInScrolledDock() {
+  AiChatController controller;
+  controller.setConfig(makeConfig(QUrl(QStringLiteral("http://127.0.0.1:1/v1"))));
+  QScrollArea host;
+  host.resize(320, 240);
+  host.setWidgetResizable(true);
+  auto *dock = new AiAssistDock(&controller);
+  dock->setMinimumHeight(host.height() * 3);
+  host.setWidget(dock);
+  host.show();
+  host.activateWindow();
+  auto *input = dock->findChild<QTextEdit *>("aiAssistantInput");
+  auto *configure = dock->findChild<QPushButton *>("aiAssistantConfigure");
+  QVERIFY(input && configure);
+  auto inViewport = [&](QWidget *target) {
+    return host.viewport()->rect().contains(target->mapTo(host.viewport(), target->rect().center()));
+  };
+  QTRY_VERIFY(host.verticalScrollBar()->maximum() > 0);
+  host.verticalScrollBar()->setValue(0);
+  QVERIFY(!inViewport(input));
+  dock->focusComposer();
+  QTRY_VERIFY(input->hasFocus() && inViewport(input));
+  input->setPlainText(QStringLiteral("draft"));
+  controller.setConfig({});
+  host.verticalScrollBar()->setValue(0);
+  dock->focusComposer();
+  QTRY_VERIFY(configure->hasFocus() && inViewport(configure));
+  QCOMPARE(input->toPlainText(), QStringLiteral("draft"));
 }
 
 void TestAiAssistDock::fileDropUsesCurrentProjectAndPreservesDraft() {
@@ -272,7 +359,8 @@ void TestAiAssistDock::filePickerOpensWithoutModelAndRejectsChangedProject() {
   AiChatController controller;
   AiAssistDock dock(&controller);
   auto *button = dock.findChild<QPushButton *>(QStringLiteral("aiAssistantImportFiles"));
-  QVERIFY(button);
+  auto *starter = dock.findChild<QPushButton *>("aiAssistantWelcomeImport");
+  QVERIFY(button && starter);
   QVERIFY(!controller.enabled());
   dock.setFileImportContext(7, {});
   QVERIFY(button->isEnabled());
@@ -281,7 +369,7 @@ void TestAiAssistDock::filePickerOpensWithoutModelAndRejectsChangedProject() {
   QVERIFY(source.open());
   source.close();
   for (bool changeProject : {false, true}) {
-    button->click();
+    (changeProject ? button : starter)->click();
     auto *picker = dock.findChild<QFileDialog *>();
     QVERIFY(picker);
     QCOMPARE(picker->fileMode(), QFileDialog::ExistingFiles);
@@ -302,9 +390,10 @@ void TestAiAssistDock::filePickerOpensWithoutModelAndRejectsChangedProject() {
 void TestAiAssistDock::streamingRendersIntoTranscript() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
+  dock.show();
   auto *input = dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"));
   auto *send = dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"));
   auto *transcript =
@@ -314,7 +403,7 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
   input->setPlainText(QStringLiteral("  \n "));
   QVERIFY(!send->isEnabled());
   auto *empty = dock.findChild<QLabel *>(QStringLiteral("aiAssistantEmptyState"));
-  QVERIFY(empty && !empty->isHidden()); // #870：开局空态
+  QVERIFY(empty && empty->isVisible());
 
   input->setPlainText(QStringLiteral("这段是什么岩性？"));
   QVERIFY(send->isEnabled());
@@ -325,7 +414,7 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
   QVERIFY2(text.contains(QStringLiteral("砂岩")), qPrintable(text));
   QVERIFY2(text.contains(QStringLiteral("这段是什么岩性？")),
            qPrintable(text)); // 用户那条也要上屏
-  QVERIFY(empty->isHidden()); // #870：有对话即隐藏空态
+  QVERIFY(!empty->isVisible());
 }
 
 void TestAiAssistDock::completedTableIsReadableWhileReplyStreams() {
@@ -333,7 +422,7 @@ void TestAiAssistDock::completedTableIsReadableWhileReplyStreams() {
   const auto restore = qScopeGuard([original] { PaleoTheme::applyTheme(original); });
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::PausedMarkdown));
-  AiChatController controller;
+  PiTestChatController controller;
   auto config = makeConfig(server.endpoint());
   config.timeoutMs = 30000;
   controller.setConfig(config);
@@ -357,6 +446,8 @@ void TestAiAssistDock::completedTableIsReadableWhileReplyStreams() {
   QTRY_VERIFY(transcript->document()->defaultStyleSheet() != beforeStyle);
   QVERIFY(tableVisible());
   QCOMPARE(transcript->textCursor().selectedText(), QStringLiteral("各井"));
+  QCOMPARE(transcript->textCursor().currentFrame()->frameFormat().background().color(),
+           PaleoTheme::tokens().surfaceAlt);
   AiAssistDock reopened(&controller);
   auto *reopenedTranscript = reopened.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
   QVERIFY(reopenedTranscript);
@@ -373,7 +464,7 @@ void TestAiAssistDock::completedTableIsReadableWhileReplyStreams() {
 void TestAiAssistDock::toolCallRendersPlaceholderCard() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsOnce));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *cards = dock.findChild<QWidget *>(QStringLiteral("aiAssistantToolCards"));
@@ -404,7 +495,7 @@ void TestAiAssistDock::toolCallRendersPlaceholderCard() {
 void TestAiAssistDock::errorStateIsRenderedWithReason() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Unauthorized));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -423,12 +514,14 @@ void TestAiAssistDock::errorStateIsRenderedWithReason() {
 void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Markdown));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
     dock.findChild<QTextBrowser *>(QStringLiteral("aiAssistantTranscript"));
-  dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))->setPlainText(kComparisonQuestion);
+  const QString secondParagraph = QStringLiteral("请按井列出数值，并标注仍需人工确认的地层界面。");
+  dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))->setPlainText(
+      kComparisonQuestion + QLatin1Char('\n') + secondParagraph);
   dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"))->click();
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
            "markdown 流必须结束");
@@ -446,6 +539,14 @@ void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
     const auto heading = doc->find(QStringLiteral("S1 砂岩厚度对比"));
     QVERIFY(!question.isNull() && !heading.isNull());
     QCOMPARE(question.block().text(), kComparisonQuestion);
+    const auto *userFrame = question.currentFrame();
+    QVERIFY(userFrame != doc->rootFrame());
+    QCOMPARE(userFrame->frameFormat().background().color(), PaleoTheme::tokens().surfaceAlt);
+    QCOMPARE(doc->find(secondParagraph).currentFrame(), userFrame);
+    const auto agent = doc->find(QStringLiteral("AI Agent"));
+    QVERIFY(!agent.isNull());
+    QCOMPARE(agent.currentFrame(), doc->rootFrame());
+    QCOMPARE(agent.blockFormat().headingLevel(), 2);
     QCOMPARE(heading.blockFormat().headingLevel(), 2);
     QVERIFY(question.blockNumber() < heading.blockNumber());
     const auto cell = doc->find(QStringLiteral("粗砂岩"));
@@ -469,7 +570,7 @@ void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
 void TestAiAssistDock::sessionSwitchRoundTripsContentAndScroll() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -541,7 +642,7 @@ void TestAiAssistDock::sessionSwitchRoundTripsContentAndScroll() {
 void TestAiAssistDock::renameAndDeleteKeepComboInSync() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *combo =
@@ -572,7 +673,7 @@ void TestAiAssistDock::renameAndDeleteKeepComboInSync() {
 void TestAiAssistDock::copyButtonPutsSelectionOrWholeTranscriptOnClipboard() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -608,7 +709,7 @@ void TestAiAssistDock::copyButtonPutsSelectionOrWholeTranscriptOnClipboard() {
 void TestAiAssistDock::resendIssuesNewRequestWithoutDuplicatingHistory() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -647,9 +748,13 @@ void TestAiAssistDock::captureLedgerScreenshots() {
   PaleoTheme::applyLightTheme();
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Markdown));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
+  dock.resize(400, 640);
+  dock.show();
+  QCoreApplication::processEvents();
+  QVERIFY(dock.grab().save(QDir(dir).filePath(QStringLiteral("ai-agent-welcome.png"))));
   dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"))->setPlainText(kComparisonQuestion);
   dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"))->click();
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),

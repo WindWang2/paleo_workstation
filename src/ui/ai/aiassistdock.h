@@ -8,6 +8,7 @@
 #include <QString>
 #include <QVector>
 #include <QWidget>
+#include <functional>
 
 class AiChatController;
 class AiConversationCard;
@@ -20,8 +21,10 @@ class QComboBox;
 class QHBoxLayout;
 class QLabel;
 class QPushButton;
+class QProgressBar;
 class QFrame;
 class QScrollArea;
+class QStackedWidget;
 class QTextBrowser;
 class QTextEdit;
 class QTimer;
@@ -49,10 +52,12 @@ public:
   // G5：注入/重挂操作展示 adapter（幂等；null = 解绑）。adapter 由组装根
   // 按真实 CapabilityHost/DocumentSession/controller 创建，面板不建服务。
   void attachOperationPresenter(paleo::chat::AiOperationPresentation *presenter);
+  void setWorkspaceLabels(std::function<QStringList()> labels) { m_workspaceLabels = std::move(labels); }
   // H5：注入/重挂计划审阅 adapter（幂等；null = 解绑）。同上由组装根创建。
   void attachPlanPresenter(paleo::chat::AiPlanPresentation *presenter);
   void setFileImportContext(quint64 projectSession, const QString &unavailableReason);
   void showFileImportStatus(const QString &message);
+  void focusComposer();
 
 public slots:
   void refresh(); // 按 controller 状态重画（状态行/按钮可用性/历史）
@@ -78,12 +83,15 @@ protected:
 
 private:
   void buildSessionHeader(QVBoxLayout *layout);
+  void buildConversationArea(QVBoxLayout *layout);
+  void updateWelcomeIcon();
   void buildComposer(QVBoxLayout *layout);
   void updateSendButton();
   void buildFileImportControls(QHBoxLayout *actions, QVBoxLayout *layout);
   bool filterFileDrop(QObject *watched, QEvent *event);
   void chooseFilesForImport();
   void sendCurrentText();
+  QString messageWithWorkspace(const QString &text) const;
   void appendMessage(const ChatMessage &message);
   void appendDelta(const QString &text);
   void appendError(const QString &message);
@@ -100,7 +108,7 @@ private:
   struct TranscriptEntry {
     QString label;
     QString text;
-    bool markdown = false;
+    ChatRole role = ChatRole::System;
     bool error = false;
   };
   QTextBrowser *createTranscript();
@@ -141,6 +149,7 @@ private:
   paleo::chat::AiOperationPresentation *m_presenter = nullptr; // 弱引用（组装根拥有）
   paleo::chat::AiPlanPresentation *m_planPresenter = nullptr; // H5：同上弱引用
   AiContextBar *m_contextBar = nullptr;
+  std::function<QStringList()> m_workspaceLabels;
   AiOperationDetailWidget *m_detail = nullptr;
   AiPlanReviewWidget *m_planReview = nullptr; // H5：计划审阅面板（默认隐藏）
   QLabel *m_status = nullptr;
@@ -148,7 +157,14 @@ private:
   QAction *m_rename = nullptr;
   QAction *m_delete = nullptr;
   QTextBrowser *m_transcript = nullptr;
-  class PaleoEmptyStateLabel *m_emptyState = nullptr; // #870 对话区空态指引
+  QStackedWidget *m_conversationArea = nullptr;
+  QScrollArea *m_welcome = nullptr;
+  QLabel *m_welcomeIcon = nullptr;
+  QLabel *m_emptyState = nullptr;
+  QPushButton *m_projectPrompt = nullptr;
+  QPushButton *m_toolsPrompt = nullptr;
+  QPushButton *m_welcomeImport = nullptr;
+  QPushButton *m_welcomeConfigure = nullptr;
   void updateEmptyState();
   QWidget *m_cards = nullptr;
   QScrollArea *m_cardScroll = nullptr;
@@ -157,6 +173,8 @@ private:
   QPushButton *m_historyOlder = nullptr;
   QPushButton *m_historyNewer = nullptr;
   QTextEdit *m_input = nullptr;
+  QPushButton *m_configure = nullptr;
+  QProgressBar *m_activity = nullptr;
   QPushButton *m_send = nullptr;
   QPushButton *m_stop = nullptr;
   QAction *m_copy = nullptr;

@@ -35,7 +35,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/paleotaskservice.h"
-#include "../src/workflow/aichatcontroller.h"
+#include "pichattestcontroller.h"
 #include "../src/workflow/aichattoolrunner.h"
 #include "../src/services/toolresultprotocol.h"
 #include "../src/workflow/chatresultstore.h"
@@ -307,7 +307,7 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   const QString finalText = QStringLiteral("分类完成：三张产品已入草稿通道。");
   server.enqueue(textAnswerSse(finalText));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.toolRunner()->setWorkflow(&f.wf);
@@ -316,6 +316,8 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
   context.gridFetch = &syntheticFetch;
   controller.toolRunner()->setContext(context);
 
+  QSignalSpy piModels(controller.piBridge(), &PiChatBridge::modelRequested);
+  QSignalSpy piTools(controller.piBridge(), &PiChatBridge::toolRequested);
   QSignalSpy results(&controller, &AiChatController::toolResultReady);
   controller.sendUserText(QStringLiteral("帮我跑一下相分类"));
   QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
@@ -323,12 +325,12 @@ void TestAiChatToolLoop::fullTileLoopExecutesFeedsBackAndAnswers() {
 
   // 请求 1：内部适配上下文的工具描述上送（生产 readiness 过滤另有专项）。
   // + tool_choice=auto。
+  QCOMPARE(piModels.size(), 2);
+  QCOMPARE(piTools.size(), 1);
   QCOMPARE(server.requestCount(), 2);
   const QJsonObject body1 = server.body(0);
   const QJsonArray tools = body1.value(QStringLiteral("tools")).toArray();
-  // H5：+paleo.workflow_plan_preview（纯预检提案工具，会话级可用）。
-  // I5(+1 capability_inspect) + I2(+1 unit_onnx_predict) + I1(+2 geostat_kriging/geostat_sgs)：17→21。
-  QCOMPARE(tools.size(), 21);
+  QCOMPARE(tools.size(), controller.tools().size());
   QStringList toolNames;
   for (const QJsonValue &value : tools) {
     const QJsonObject entry = value.toObject();
@@ -423,7 +425,7 @@ void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
                                {QStringLiteral("call-b"), faciesArgs()}}));
   server.enqueue(textAnswerSse(QStringLiteral("两项都处理完了。")));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.toolRunner()->setWorkflow(&f.wf);
@@ -492,7 +494,7 @@ void TestAiChatToolLoop::syncFailingFirstCallStillDispatchesRestOfRound() {
      {QStringLiteral("call-second"), tileArgs()}}));
   server.enqueue(textAnswerSse(QStringLiteral("已完成能执行的那一项。")));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.toolRunner()->setWorkflow(&f.wf);
@@ -536,7 +538,7 @@ void TestAiChatToolLoop::unboundFaciesIsHonestErrorNotFakeSuccess() {
   const auto finalText=QStringLiteral("测井相调用缺少 v2 引用，未执行预测。");
   server.enqueue(textAnswerSse(finalText));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.toolRunner()->setWorkflow(&f.wf); // facies 未 setFaciesConfig
@@ -592,7 +594,7 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
   QVERIFY(server.start());
   server.enqueue(toolCallsSse({{QStringLiteral("call-x"), tileArgs()}}));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.toolRunner()->setWorkflow(&f.wf);
@@ -657,7 +659,7 @@ void TestAiChatToolLoop::toolRoundCapStopsEndlessLooping() {
   for (int i = 0; i < 10; ++i)
     server.enqueue(toolCallsSse({{QStringLiteral("call-%1").arg(i), faciesArgs()}}));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.toolRunner()->setWorkflow(&f.wf); // facies 未配置 → 快速错误轮
@@ -685,7 +687,7 @@ void TestAiChatToolLoop::sendWhileBusyIsRejected() {
   ScriptedLlmServer server;
   QVERIFY(server.start()); // 无脚本：挂起不答，保持 streaming
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy errors(&controller, &AiChatController::errorOccurred);
@@ -710,7 +712,7 @@ void TestAiChatToolLoop::historyWindowTruncatesOldTurnsButKeepsSystemAndRecent()
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("好的。")));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
 
   ChatSession stored;
@@ -812,7 +814,7 @@ void TestAiChatToolLoop::queryProjectLoopAnswersWithWellNames() {
     QStringLiteral("工程里现有两口井：W-1 与 W-2。");
   server.enqueue(textAnswerSse(finalText));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.setProjectBrief(
@@ -892,7 +894,7 @@ void TestAiChatToolLoop::projectBriefStaysInSystemPromptWithinBudget() {
   QVERIFY(server.start());
   server.enqueue(textAnswerSse(QStringLiteral("好的。")));
 
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.setProjectBrief(

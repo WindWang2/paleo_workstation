@@ -58,7 +58,7 @@ private slots:
     const auto data = warpedSurvey(scalar);
     const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
     QVERIFY(writeFile(sgy, data.first)); QVERIFY(writeFile(smi, data.second));
-    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.rows, 4); QCOMPARE(result.columns, 4);
     QVERIFY(result.validCells > 8);
@@ -68,7 +68,7 @@ private slots:
     QCOMPARE(crs.SetFromUserInput(result.crsWkt.toUtf8().constData()), OGRERR_NONE);
     QCOMPARE(QString::fromLatin1(crs.GetAuthorityCode(nullptr)), QStringLiteral("32649"));
     // 经磁盘索引恢复后仍须使用相同方言、坐标字段及 scalar。
-    const auto cached = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto cached = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QCOMPARE(cached.error, result.error); QCOMPARE(cached.cells, result.cells);
   }
   void actualTraceCoordinatesRejectWrongSurvey() {
@@ -76,7 +76,7 @@ private slots:
     auto data = warpedSurvey(0, 1000);
     const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
     QVERIFY(writeFile(sgy, data.first)); QVERIFY(writeFile(smi, data.second));
-    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY(result.error.contains(QStringLiteral("inline 100")));
     QVERIFY(result.error.contains(QStringLiteral("1000.000")));
     QVERIFY(result.cells.isEmpty());
@@ -87,13 +87,13 @@ private slots:
     data.second.replace("0.00000 0.00000 100 100 2000", "1.40000 1.20000 100 100 2000");
     const auto sgy = dir.filePath("v.sgy"), smi = dir.filePath("h.dat");
     QVERIFY(writeFile(sgy, data.first)); QVERIFY(writeFile(smi, data.second));
-    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QVERIFY(result.warnings.join(' ').contains(QStringLiteral("1.844")));
     // 同一文件若偏移到半道，仍应失败。
     data.second.replace("1.40000 1.20000 100 100 2000", "10.00000 0.00000 100 100 2000");
     QVERIFY(writeFile(smi, data.second));
-    const auto shifted = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto shifted = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY(shifted.error.contains(QStringLiteral("10.000")));
   }
   void interiorMismatchCannotHideBehindMatchingCorners() {
@@ -102,7 +102,7 @@ private slots:
     auto horizon = buildHorizon(100);
     horizon.replace("10.00000 20.00000 100.0 101 2001", "15.00000 20.00000 100.0 101 2001");
     QVERIFY(writeFile(sgy, buildVolume())); QVERIFY(writeFile(smi, horizon));
-    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY(result.error.contains(QStringLiteral("inline 101")));
     QVERIFY(result.error.contains(QStringLiteral("crossline 2001")));
     QVERIFY(result.error.contains(QStringLiteral("5.000")));
@@ -114,11 +114,11 @@ private slots:
     // 删除内部道，不应把不存在的道映射到邻道。
     volume.remove(3600 + 5 * 440, 440);
     QVERIFY(writeFile(sgy, volume)); QVERIFY(writeFile(smi, buildHorizon(100)));
-    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.validCells, 15); QCOMPARE(result.cells[(103 - 101) * 4 + 1], -9999);
     QVERIFY(writeFile(smi, buildHorizon(100) + "0 0 100 100 2000\n"));
-    const auto duplicate = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto duplicate = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY(duplicate.error.contains(QStringLiteral("重复")));
   }
   void nodataBoundaryPreservesGridExtent() {
@@ -127,7 +127,7 @@ private slots:
     auto horizon = buildHorizon(100);
     horizon.replace("0.00000 0.00000 100.0 100 2000", "0.00000 0.00000 -9999 100 2000");
     QVERIFY(writeFile(sgy, buildVolume())); QVERIFY(writeFile(smi, horizon));
-    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+    const auto result = clusterSeismicHorizon(sgy, smi, dir.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.validCells, 15); QCOMPARE(result.extent, QRectF(-5, -10, 40, 80));
   }
@@ -136,7 +136,7 @@ private slots:
     if (root.isEmpty()) QSKIP("Set PALEO_SEISMIC_MOCK_INPUT for local data acceptance");
     QTemporaryDir cache;
     const auto result = clusterSeismicHorizon(root + QStringLiteral("/地震/200P_seismic.sgy"),
-        root + QStringLiteral("/层位/D61.dat"), cache.path(), {1, 2, 3}, {}, {}, SeismicHorizonSource::Scatter);
+        root + QStringLiteral("/层位/D61.dat"), cache.path(), 3, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QVERIFY(result.validCells > 250000);
     QVERIFY(!result.crsWkt.isEmpty());
@@ -154,8 +154,10 @@ private slots:
     const auto result = labelSeismicClusters(grid, wells);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.cells[0], 7); QCOMPARE(result.cells[3], 7);
-    QCOMPARE(result.cells[1], 2); QCOMPARE(result.cells[4], 2); // tied: lowest code
-    QVERIFY(result.cells[2] == 2 || result.cells[2] == 7);
+    QCOMPARE(result.cells[1], -9999); QCOMPARE(result.cells[4], -9999); // tied
+    QCOMPARE(result.cells[2], -9999);
+    QCOMPARE(result.clusterMapping[1].toMap().value("status").toString(), QString("conflict"));
+    QCOMPARE(result.clusterMapping[2].toMap().value("status").toString(), QString("unsupported"));
     QCOMPARE(result.cells[5], -9999);
     QCOMPARE(result.clusterMapping.size(), 3);
     QCOMPARE(result.clusterMapping[0].toMap().value("vote_count").toInt(), 3);
@@ -171,10 +173,10 @@ private slots:
   void emptyAndInvalidWellPredictionsCannotCreateRandomFacies() {
     SeismicClusterResult grid;
     grid.columns = grid.rows = 1; grid.extent = QRectF(0, 0, 10, 10); grid.cells = {1};
-    QVERIFY(!labelSeismicClusters(grid, {}).error.isEmpty());
-    QVERIFY(!labelSeismicClusters(grid, {{"a", "v", 5, 5, 0}}).error.isEmpty());
-    QVERIFY(!labelSeismicClusters(grid, {{"a", "v", NAN, 5, 7}}).error.isEmpty());
-    const auto cancelled = labelSeismicClusters(grid, {{"a", "v", 5, 5, 7}}, 42, [] { return true; });
+    QCOMPARE(labelSeismicClusters(grid, {}).cells, QVector<int>{-9999});
+    QCOMPARE(labelSeismicClusters(grid, {{"a", "v", 5, 5, 0}}).cells, QVector<int>{-9999});
+    QCOMPARE(labelSeismicClusters(grid, {{"a", "v", NAN, 5, 7}}).cells, QVector<int>{-9999});
+    const auto cancelled = labelSeismicClusters(grid, {{"a", "v", 5, 5, 7}}, [] { return true; });
     QCOMPARE(cancelled.error, QStringLiteral("已取消"));
   }
   void wellVotingUsesNorthUpCellsAndDoesNotClampOutsidePoints() {
@@ -201,7 +203,7 @@ private slots:
     QVERIFY(writeFile(smi, buildHorizon(100.0)));
     QTemporaryDir cache;
     const auto result = clusterSeismicHorizon(
-        sgy, smi, cache.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+        sgy, smi, cache.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.columns, 4);
     QCOMPARE(result.rows, 4);
@@ -226,7 +228,7 @@ private slots:
     QVERIFY(writeFile(smi, buildHorizon(100.0)));
     QTemporaryDir cache;
     const auto result = clusterSeismicHorizon(
-        sgy, smi, cache.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+        sgy, smi, cache.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.extent, QRectF(-5.0, -10.0, 40.0, 80.0)); // sX=10, sY=20
   }
@@ -271,9 +273,14 @@ private slots:
     QVERIFY(writeFile(smi, buildHorizon(160.0)));
     QTemporaryDir cache;
     const auto result = clusterSeismicHorizon(
-        sgy, smi, cache.path(), {1, 2}, {}, {}, SeismicHorizonSource::Scatter);
+        sgy, smi, cache.path(), 2, {}, {}, SeismicHorizonSource::Scatter);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.validCells, 16);
+    QCOMPARE(result.parameters.value("cluster_ids").toList(), QVariantList{1});
+    const auto tooMany = clusterSeismicHorizon(
+        sgy, smi, cache.path(), 17, {}, {}, SeismicHorizonSource::Scatter);
+    QVERIFY(tooMany.error.contains("16") && tooMany.error.contains("17"));
+    QVERIFY(tooMany.cells.isEmpty());
     for (int cell = 0; cell < result.cells.size(); ++cell)
       QCOMPARE(result.cells[cell], 1);
   }
@@ -311,7 +318,7 @@ private slots:
     QVERIFY(writeFile(sgy, buildVolume()));
     QTemporaryDir cache;
     const auto result = clusterSeismicHorizon(
-        sgy, tif, cache.path(), {1, 2}, {}, {},
+        sgy, tif, cache.path(), 2, {}, {},
         SeismicHorizonSource::TimeRaster);
     QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
     QCOMPARE(result.validCells, 10);

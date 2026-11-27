@@ -14,6 +14,9 @@
 #endif
 
 namespace paleo::pi::detail {
+#ifdef Q_OS_LINUX
+QString verifiedPiLoaderDirectory();
+#endif
 inline QProcessEnvironment isolatedProcessEnvironment(const QString &directory) {
   QProcessEnvironment environment;
   environment.insert("LANG", "C.UTF-8");
@@ -21,6 +24,10 @@ inline QProcessEnvironment isolatedProcessEnvironment(const QString &directory) 
     environment.insert(key, directory);
 #ifdef Q_OS_WIN
   environment.insert("SystemRoot", qEnvironmentVariable("SystemRoot"));
+#elif defined(Q_OS_LINUX)
+  const auto loader = verifiedPiLoaderDirectory();
+  if (loader.isEmpty()) return {};
+  environment.insert("LD_LIBRARY_PATH", loader);
 #endif
   return environment;
 }

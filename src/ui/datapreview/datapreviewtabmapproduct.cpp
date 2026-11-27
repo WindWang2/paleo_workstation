@@ -20,6 +20,7 @@ LayerT *pinPreviewCrsToLayer(PreviewMapPage *page, LayerT *layer)
 #include "../paleoicons.h"
 #include "../../catalog/datacatalog.h"
 #include "../../domain/faciescatalog.h"
+#include "../../domain/seismicclusterproduct.h"
 #include "../../domain/singlefactorrequest.h"
 #include "previewhistogramwidget.h"
 #include "previewidentifypanel.h"
@@ -54,6 +55,21 @@ LayerT *pinPreviewCrsToLayer(PreviewMapPage *page, LayerT *layer)
 
 namespace
 {
+  QVariantList previewFacies(const DataCatalog *catalog, const CatalogAsset &asset,
+                             const CatalogVersion &version)
+  {
+    const auto frozen = version.extra.value(QStringLiteral("facies")).toList();
+    const auto horizon = version.extra.value(QStringLiteral("horizon")).toString();
+    if (!frozen.isEmpty() || !catalog || horizon.isEmpty() || asset.type == QLatin1String("paleogeographic_map"))
+      return frozen;
+    const QString name = QStringLiteral("facies-schema-%1").arg(horizon);
+    for (const auto &candidate : catalog->assets()) {
+      if (candidate.type == QLatin1String("facies_schema") && candidate.displayName == name)
+        return catalog->currentVersion(candidate.id).extra.value(QStringLiteral("facies")).toList();
+    }
+    return {};
+  }
+
   // 非相类点/面层的通用呈现（P5-W2 起 #538 规模闸口径下从
   // buildMapProductContent 拆出）：井点因子层走样点表达（井名 + factor_value
   // 双行实际值，与主图/历史成果/导出同一契约），不落入 name/NAME/id/fid/
@@ -149,26 +165,11 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     {
       FactorStyleWriter::applyTo(raster.get(), factorId);
     }
+    else if (paleo::seismic::isRawClusterProduct(asset.type))
+      QgisStyleService::applySeismicClusterStyle(raster.get(), v.extra.value("cluster_ids").toList());
     else if (asset.type != "paleogeographic_map" || !v.extra.value(QStringLiteral("facies")).toList().isEmpty())
     {
-      QVariantList faciesList = v.extra.value(QStringLiteral("facies")).toList();
-      if (faciesList.isEmpty() && asset.type != "paleogeographic_map")
-      {
-        const QString horizon = v.extra.value(QStringLiteral("horizon")).toString();
-        if (!horizon.isEmpty() && cat)
-        {
-          for (const auto &a : cat->assets())
-          {
-            if (a.type == QLatin1String("facies_schema") &&
-                a.displayName == QStringLiteral("facies-schema-%1").arg(horizon))
-            {
-              const auto sv = cat->currentVersion(a.id);
-              faciesList = sv.extra.value(QStringLiteral("facies")).toList();
-              break;
-            }
-          }
-        }
-      }
+      auto faciesList = previewFacies(cat, asset, v);
       if (faciesList.isEmpty() &&
           (styledKind.contains(QLatin1String("prediction")) ||
            styledKind.contains(QLatin1String("facies")) ||
@@ -359,26 +360,11 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     {
       QgisStyleService::applyContourLayerStyle(vlayer.get());
     }
+    else if (paleo::seismic::isRawClusterProduct(asset.type))
+      QgisStyleService::applySeismicClusterStyle(vlayer.get(), v.extra.value("cluster_ids").toList());
     else if (asset.type != "paleogeographic_map" || !v.extra.value(QStringLiteral("facies")).toList().isEmpty())
     {
-      QVariantList faciesList = v.extra.value(QStringLiteral("facies")).toList();
-      if (faciesList.isEmpty() && asset.type != "paleogeographic_map")
-      {
-        const QString horizon = v.extra.value(QStringLiteral("horizon")).toString();
-        if (!horizon.isEmpty() && cat)
-        {
-          for (const auto &a : cat->assets())
-          {
-            if (a.type == QLatin1String("facies_schema") &&
-                a.displayName == QStringLiteral("facies-schema-%1").arg(horizon))
-            {
-              const auto sv = cat->currentVersion(a.id);
-              faciesList = sv.extra.value(QStringLiteral("facies")).toList();
-              break;
-            }
-          }
-        }
-      }
+      auto faciesList = previewFacies(cat, asset, v);
       if (faciesList.isEmpty() && vlayer->fields().indexOf(QStringLiteral("facies_code")) >= 0)
       {
         faciesList = FaciesCatalog::defaults();

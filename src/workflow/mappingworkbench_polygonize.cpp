@@ -4,6 +4,7 @@
 #include "mappingworkbench.h"
 #include "../domain/singlefactorrequest.h"
 #include "../qgis/mappingartifactwriter.h"
+#include "../qgis/seismicclusterpatches.h"
 #include "../qgis/mappingfeatureidentity.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
@@ -67,7 +68,13 @@ bool MappingWorkbench::preparePolygonize(const QString &id, PolygonizeJob *job,
                     QUuid::createUuid().toString(QUuid::WithoutBraces) + ".gpkg";
   job->parent = parent;
   job->dir = m_dir;
-  job->facies = sourceVersion.extra.value("facies", facies(d.horizon)).toList();
+  job->rawClusters = sourceKind == QLatin1String("seismic_clusters");
+  if (job->rawClusters) {
+    job->rasterUri = DataCatalog::resolvedVersionPath(m_dir, sourceVersion);
+    job->rawClusterSha256 = sourceVersion.sha256;
+  } else {
+    job->facies = sourceVersion.extra.value("facies", facies(d.horizon)).toList();
+  }
   job->mock = sourceVersion.extra.value("mock");
   // 连续单因素分级的阈值 → 各编码值域（首类无下界、末类无上界，写 null）。
   {
@@ -98,6 +105,26 @@ bool MappingWorkbench::computePolygonize(PolygonizeJob &job,
                                          const std::function<bool()> &cancelled,
                                          const std::function<void(double)> &progress,
                                          QgisProcessingService *processing) {
+  if (job.rawClusters) {
+    const auto input = DerivedFileFingerprint::read(job.rasterUri, cancelled, &job.error);
+    if (input.sha256.isEmpty()) return false;
+    if (input.sha256 != job.rawClusterSha256) {
+      job.error = tr("聚类栅格文件与登记版本不一致，请重新生成");
+      return false;
+    }
+    if (!SeismicClusterPatches::polygonize(job.rasterUri, job.outputPath, job.crsWkt,
+                                           &job.error, cancelled, progress)) return false;
+    if (!input.matches(job.rasterUri)) {
+      job.error = tr("聚类栅格在转面期间已改变，请重新生成");
+      return false;
+    }
+    {
+      QgsVectorLayer patches(job.outputPath + "|layername=cluster_patches", "patches", "ogr");
+      if (!MappingFeatureIdentity::ensure(&patches, &job.error)) return false;
+    }
+    job.fingerprint = DerivedFileFingerprint::read(job.outputPath, cancelled, &job.error);
+    return !job.fingerprint.sha256.isEmpty();
+  }
   if (!processing) {
     job.error = tr("处理服务不可用");
     return false;
@@ -169,6 +196,18 @@ bool MappingWorkbench::commitPolygonize(PolygonizeJob &job, QString *error) {
   if (!m_catalog || m_catalog != job.catalog || m_dir != job.dir) {
     fail(error, tr("工程已切换，转面结果已丢弃"));
     return false;
+  }
+  if (job.rawClusters) {
+    const auto parent = m_catalog->versionById(job.parent);
+    const QVariantMap metadata{{"cluster_raster_version", job.parent},
+        {"cluster_ids", parent.extra.value("cluster_ids")},
+        {"computational_parent_versions", QStringList{job.parent}},
+        {"unitSelection", parent.extra.value("unitSelection")},
+        {"method", "four-connected-grid-patches"}, {"result_scope", "area"}};
+    job.productId = record(job.outputPath, job.horizon, "seismic_cluster_patches",
+        tr("%1 · 聚类面").arg(job.title), "vector", {job.parent}, metadata, error,
+        "|layername=cluster_patches", {}, &job.fingerprint);
+    return !job.productId.isEmpty();
   }
   QVariantMap extra{{"facies", QVariant(job.facies)},
                     {"computational_parent_versions", QStringList{job.parent}},

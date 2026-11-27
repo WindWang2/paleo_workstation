@@ -1,6 +1,8 @@
 // 层：QGIS 封装
 #include "geologicalmaplayout.h"
 #include <QDate>
+#include <qgscoordinatetransform.h>
+#include <qgsmaplayerstyle.h>
 #include <qgslayoutitemlabel.h>
 #include <qgslayoutitemmap.h>
 #include <qgslayoutitempicture.h>
@@ -14,6 +16,27 @@
 #include <memory>
 
 namespace PaleoGeologicalMapLayout {
+bool isFaciesPolygon(QgsMapLayer *layer) {
+  const auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+  return vector && vector->geometryType() == Qgis::GeometryType::Polygon &&
+      (vector->fields().indexOf("microfacies") >= 0 || vector->fields().indexOf("facies_code") >= 0 ||
+       (vector->fields().indexOf("cluster_id") >= 0 && vector->fields().indexOf("patch_id") >= 0));
+}
+
+static QMap<QString, QString> overviewStyles(const QList<QgsMapLayer *> &layers) {
+  QMap<QString, QString> styles;
+  for (auto *layer : layers) {
+    if (!isFaciesPolygon(layer) || !qobject_cast<QgsVectorLayer *>(layer)->labelsEnabled()) continue;
+    QgsMapLayerStyle style;
+    style.readFromLayer(layer);
+    QDomDocument doc;
+    if (!doc.setContent(style.xmlData())) continue;
+    // Override only the print map. Keep the live project's labels, symbols, and other layers intact.
+    doc.documentElement().setAttribute("labelsEnabled", "0");
+    styles.insert(layer->id(), doc.toString());
+  }
+  return styles;
+}
 bool validateBounds(QgsPrintLayout *layout, QString *error) {
   if (!layout) return false;
   for (const auto &id : QStringList{"map", "scalebar", "legend", "northArrow", "title", "subtitle", "signature", "crsCaption", "inset"}) {
@@ -43,9 +66,29 @@ QgsPrintLayout *build(QgsProject *project, const QList<QgsMapLayer *> &layers,
     if (auto *vector = qobject_cast<QgsVectorLayer *>(layer); vector && vector->isModified())
       return fail(QObject::tr("图层 %1 有未保存编辑，请先保存版本").arg(vector->name()));
   }
-  std::unique_ptr<QgsPrintLayout> layout(PaleoStandardElements::buildFigureLayout(settings.kind,
-      settings.page, project, layers, extent, error));
-  if (!layout) return nullptr;
+  const auto canvasCrs = project->crs();
+  auto printCrs = canvasCrs;
+  auto printExtent = extent;
+  if (settings.usePrimaryLayerCrs) {
+    auto *primary = settings.primaryLayerId.isEmpty() ? layers.first() : project->mapLayer(settings.primaryLayerId);
+    if (!primary || !layers.contains(primary) || !primary->crs().isValid() || !canvasCrs.isValid())
+      return fail(QObject::tr("无法确定主图层或地图的坐标系，请使用当前地图坐标系。"));
+    printCrs = primary->crs();
+    if (printCrs != canvasCrs) {
+      try {
+        QgsCoordinateTransform transform(canvasCrs, printCrs, project->transformContext());
+        printExtent = transform.transformBoundingBox(extent);
+      } catch (const QgsCsException &e) {
+        return fail(QObject::tr("无法将当前范围转换至主图层坐标系：%1").arg(e.what()));
+      }
+      if (printExtent.isEmpty() || !printExtent.isFinite())
+        return fail(QObject::tr("当前范围在主图层坐标系中无效。"));
+    }
+  }
+  auto layout = std::make_unique<QgsPrintLayout>(project);
+  layout->initializeDefaults();
+  if (!PaleoStandardElements::populateFigureLayout(layout.get(), settings.kind, settings.page, layers,
+                                                    printExtent, printCrs, error)) return nullptr;
   layout->setName(settings.horizon + "_map");
   layout->setCustomProperty("paleo/export_horizon", settings.horizon);
   layout->setCustomProperty("paleo/export_version", settings.version);
@@ -65,15 +108,25 @@ QgsPrintLayout *build(QgsProject *project, const QList<QgsMapLayer *> &layers,
              settings.reviewer.isEmpty() ? "________" : settings.reviewer, QDate::currentDate().toString(Qt::ISODate)));
   }
   auto *map = qobject_cast<QgsLayoutItemMap *>(layout->itemById("map"));
-  if (map) { map->setCrs(project->crs()); map->setKeepLayerSet(true); map->setLayers(layers); map->setMapRotation(settings.rotation); if (settings.scale > 0) map->setScale(settings.scale); }
+  if (map) { map->setKeepLayerSet(true); map->setLayers(layers); map->setMapRotation(settings.rotation); if (settings.scale > 0) map->setScale(settings.scale); }
+  if (!settings.showPatchLabels) {
+    const auto styles = overviewStyles(layers);
+    if (!styles.isEmpty()) for (auto *item : layout->items()) {
+      if (auto *frame = dynamic_cast<QgsLayoutItemMap *>(item)) {
+        frame->setLayerStyleOverrides(styles);
+        frame->setKeepLayerStyles(true);
+      }
+    }
+  }
+  layout->setCustomProperty("paleo/print_patch_labels", settings.showPatchLabels);
   if (map) layout->setReferenceMap(map);
-  const bool local = !project->crs().isValid() || project->crs().type() == Qgis::CrsType::Engineering || project->crs().type() == Qgis::CrsType::Unknown;
+  const bool local = !printCrs.isValid() || printCrs.type() == Qgis::CrsType::Engineering || printCrs.type() == Qgis::CrsType::Unknown;
   if (auto *arrow = qobject_cast<QgsLayoutItemPicture *>(layout->itemById("northArrow")))
     arrow->setNorthMode(local ? QgsLayoutItemPicture::GridNorth : QgsLayoutItemPicture::TrueNorth);
   auto *caption = new QgsLayoutItemLabel(layout.get()); caption->setId("crsCaption");
   caption->setTextFormat(PaleoStandardElements::figureTextFormat(8));
   caption->setText(local ? QObject::tr("工程坐标 · 未配准 · 箭头表示工程网格北") :
-      QObject::tr("坐标系：%1 · %2").arg(project->crs().authid().isEmpty() ? QObject::tr("自定义 CRS") : project->crs().authid(), project->crs().description()));
+      QObject::tr("坐标系：%1 · %2").arg(printCrs.authid().isEmpty() ? QObject::tr("自定义 CRS") : printCrs.authid(), printCrs.description()));
   layout->addLayoutItem(caption);
   const auto size = layout->pageCollection()->page(0)->pageSize();
   caption->attemptMove(QgsLayoutPoint(10, size.height() - 16));
@@ -95,7 +148,11 @@ QVariantMap describe(QgsPrintLayout *layout) {
         {"qgis_layer_id", layer->id()}, {"layer_id", layer->customProperty("paleoLayerId")},
         {"version_id", layer->customProperty("paleoVersionId")}, {"title", layer->name()},
         {"crs_wkt", layer->crs().toWkt()}, {"source", layer->source()}});
-  return {{"horizon", layout->customProperty("paleo/export_horizon")},
+  auto *map = qobject_cast<QgsLayoutItemMap *>(layout->itemById("map"));
+  const auto *title = qobject_cast<QgsLayoutItemLabel *>(layout->itemById("title"));
+  return {{"title", title ? title->text() : QString()}, {"horizon", layout->customProperty("paleo/export_horizon")},
+      {"map_crs", map ? map->crs().authid() : QString()}, {"map_crs_wkt", map ? map->crs().toWkt() : QString()},
+      {"patch_labels", layout->customProperty("paleo/print_patch_labels", true)},
       {"version", layout->customProperty("paleo/export_version")},
       {"kind", layout->customProperty("paleo/export_kind")},
       {"validation", layout->customProperty("paleo/validation", "unverified")}, {"layers", layers}};

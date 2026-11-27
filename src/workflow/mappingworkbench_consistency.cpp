@@ -13,6 +13,7 @@
 #include <QSaveFile>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <algorithm>
 #include <cmath>
 #include <qgscoordinatetransform.h>
 #include <qgsfeatureiterator.h>
@@ -79,6 +80,16 @@ QVariantMap MappingWorkbench::consistencyImpl(const QString &layerId,
     return {};
   }
   QString other = counterpartId;
+  if (!other.isEmpty()) {
+    const bool compatible = std::any_of(candidates.begin(), candidates.end(), [&](const QVariant &candidate) {
+      const auto row = candidate.toMap();
+      return row.value("id") == other && row.value("family") != selectedFamily;
+    });
+    if (!compatible) {
+      fail(error, tr("请选择同一层段中用于比对的测井相或已赋相地震成果"));
+      return {};
+    }
+  }
   if (other.isEmpty()) {
     // 另一侧：工作副本优先（人工修订最新），否则按登记时间取最新。
     QString bestTime;

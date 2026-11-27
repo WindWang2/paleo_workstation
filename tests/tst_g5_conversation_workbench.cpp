@@ -29,6 +29,7 @@
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/aioperationpresentation.h"
+#include "../src/workflow/capabilityhost.h"
 #include "../src/workflow/chatinvocationbinding.h"
 
 // G5 W2/W7/W8 dock 级测试：历史工具卡恢复（零模型请求）、草稿/键盘生命
@@ -90,6 +91,7 @@ public:
     return QUrl(QStringLiteral("http://127.0.0.1:%1/v1").arg(m_server.serverPort()));
   }
   int requestCount() const { return m_requests; }
+  QString lastUserMessage() const { return m_lastUserMessage; }
 
 private:
   // 与 tst_aiassistdock 同口径：等完整请求体（Content-Length）再计一次数并
@@ -108,6 +110,11 @@ private:
       if (buf->mid(headerEnd + 4).size() < contentLength)
         return;
       ++m_requests;
+      const auto messages = QJsonDocument::fromJson(buf->mid(headerEnd + 4, contentLength))
+                              .object().value("messages").toArray();
+      for (const auto &entry : messages)
+        if (entry.toObject().value("role") == QLatin1String("user"))
+          m_lastUserMessage = entry.toObject().value("content").toString();
       sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
                   "Content-Type: text/event-stream\r\n\r\n");
       QTimer::singleShot(20, sock, [sock] {
@@ -118,6 +125,7 @@ private:
   }
   QTcpServer m_server;
   int m_requests = 0;
+  QString m_lastUserMessage;
 };
 
 class TestG5ConversationWorkbench : public QObject {
@@ -131,6 +139,7 @@ private slots:
   void draftsSurviveRejectionAndRoundTripAcrossSessions();
   void enterSendsShiftEnterBreaks();
   void contextBarShowsBriefAndUpdate();
+  void sentQuestionsKeepTheirOwnWorkspace();
   void attachPresenterIdempotentAndNullPresenterKeepsReason();
   void selectedResultPortCanBeReadFromTheDetailView();
 
@@ -403,6 +412,50 @@ void TestG5ConversationWorkbench::contextBarShowsBriefAndUpdate() {
            "工程可能开着，不得冒称未打开");
   QVERIFY2(summary->text().contains(QStringLiteral("操作服务未接入")),
            qPrintable(summary->text()));
+}
+
+void TestG5ConversationWorkbench::sentQuestionsKeepTheirOwnWorkspace() {
+  FakeLlmServer server;
+  QVERIFY(server.start());
+  AiChatController controller;
+  controller.setConfig(makeConfig(server.endpoint()));
+  AiAssistDock dock(&controller);
+  paleo::capability::CapabilityHost host;
+  paleo::capability::HostBinding binding;
+  binding.context.documentId = QStringLiteral("project-A");
+  binding.context.open = true;
+  binding.context.readOnly = true;
+  binding.context.horizon = QStringLiteral("D61");
+  binding.context.unitId = QStringLiteral("D61-D62");
+  host.setBindingProvider([&binding] { return binding; });
+  paleo::chat::AiOperationPresentation presenter({&controller, &host, nullptr});
+  dock.attachOperationPresenter(&presenter);
+  QString version = QStringLiteral("主图 A · v3");
+  dock.setWorkspaceLabels([&version] { return QStringList{version}; });
+  auto *input = dock.findChild<QTextEdit *>(QStringLiteral("aiAssistantInput"));
+  auto *send = dock.findChild<QPushButton *>(QStringLiteral("aiAssistantSend"));
+  QVERIFY(input && send);
+  const QString question = QStringLiteral("这个图斑的依据是什么？");
+  input->setPlainText(question);
+  send->click();
+  QVERIFY(spinUntil([&] { return server.requestCount() == 1 && !controller.streaming(); }));
+  const QString first = server.lastUserMessage();
+  for (const auto &item : QStringList{question, version, QStringLiteral("D61-D62"), QStringLiteral("工程只读"),
+                                     binding.context.documentId}) QVERIFY(first.contains(item));
+  QCOMPARE(controller.session().title, question);
+  binding.context.readOnly = false;
+  binding.context.horizon = QStringLiteral("C6");
+  binding.context.unitId.clear();
+  version = QStringLiteral("主图 B · v1");
+  input->setPlainText(question);
+  send->click();
+  QVERIFY(spinUntil([&] { return server.requestCount() == 2 && !controller.streaming(); }));
+  const auto next = server.lastUserMessage();
+  QVERIFY(next.contains(version) && next.contains(QStringLiteral("工程可写")) && next.contains(QStringLiteral("C6")));
+  QVERIFY(!next.contains(QStringLiteral("D61")));
+  QCOMPARE(controller.session().messages.first().content, first);
+  const auto restored = ChatSession::fromJson(controller.session().toJson());
+  QCOMPARE(restored.messages.first().content, first);
 }
 
 void TestG5ConversationWorkbench::attachPresenterIdempotentAndNullPresenterKeepsReason() {

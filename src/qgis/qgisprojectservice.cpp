@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "metadata/managedpath.h"
 #include "qgisprojectservice.h"
+#include "qgiscanvascontroller.h"
 #include "../io/areamodel.h"
 
 #include "manifestprojection.h"
@@ -11,6 +12,7 @@
 #include "../catalog/datacatalog.h"
 
 #include <QDir>
+#include <QDomDocument>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -28,6 +30,22 @@ namespace
   // 同款「自定义属性字符串」通道，形状 = project.paleo 的 georeference 节。
   constexpr auto kGeoScope = "paleo";
   constexpr auto kGeoKey = "georeference";
+
+  void setDefaultSnapping(QgsProject *project)
+  {
+    project->setSnappingConfig(QgisCanvasController::nativeSnappingConfig(project));
+  }
+
+  bool hasSavedSnapping(const QDomDocument &doc)
+  {
+    const auto root = doc.documentElement();
+    if (!root.firstChildElement(QStringLiteral("snapping-settings")).isNull()) return true;
+    // QGIS 2 stored named snapping settings under properties/Digitizing.
+    const auto legacy = root.firstChildElement(QStringLiteral("properties")).firstChildElement(QStringLiteral("Digitizing"));
+    for (auto setting = legacy.firstChildElement(); !setting.isNull(); setting = setting.nextSiblingElement())
+      if (setting.tagName().contains(QStringLiteral("snap"), Qt::CaseInsensitive)) return true;
+    return false;
+  }
 
   void embedGeoreferenceProperty(QgsProject *project,
                                  const PaleoGeoreference &g)
@@ -84,6 +102,9 @@ QgisProjectService::QgisProjectService( QObject *parent )
   : QObject( parent )
   , m_project( new QgsProject( this ) )
 {
+  connect(m_project, &QgsProject::readProject, this, [this](const QDomDocument &doc) {
+    if (!hasSavedSnapping(doc)) setDefaultSnapping(m_project);
+  });
   QgsProject::setInstance( m_project );
 }
 
@@ -127,6 +148,16 @@ void QgisProjectService::notifyAboutToClose()
 {
   if ( !m_path.isEmpty() )
     emit projectAboutToClose();
+}
+
+bool QgisProjectService::finishSynchronousOpen()
+{
+  const auto session = ++m_sessionId;
+  const QString path = m_path;
+  emit projectContextRequested(path);
+  if (session != m_sessionId) return false;
+  emit projectOpened(path);
+  return true;
 }
 
 // 已发 projectAboutToClose 后 read() 失败：QgsProject::read() 先 clear()，
@@ -278,13 +309,17 @@ bool QgisProjectService::openProject( const QString &qgzPath )
         m_georeference = g;
     }
   }
-  adoptConfirmedGeoreference(QFileInfo(m_path).absolutePath());
-  if ( m_georeference )
-    embedGeoreferenceProperty( m_project, *m_georeference );
-  else
-    m_project->removeEntry(kGeoScope, kGeoKey);
-
-  applyMapConfiguration();
+  {
+    // Restoring the persisted map settings updates QgsProject entries and its CRS.
+    // These writes belong to the read, before projectOpened exposes the editable project.
+    QgsProjectDirtyBlocker restoring(m_project);
+    adoptConfirmedGeoreference(QFileInfo(m_path).absolutePath());
+    if (m_georeference)
+      embedGeoreferenceProperty(m_project, *m_georeference);
+    else
+      m_project->removeEntry(kGeoScope, kGeoKey);
+    applyMapConfiguration();
+  }
 
   // 成功读完后才收养裸 QGZ，并将其已恢复的配准/底图一起写入权威清单。
   const QString directory = QFileInfo(m_path).absolutePath();
@@ -301,9 +336,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     else m_mapConfiguration = adopted;
   }
 
-  ++m_sessionId;
-  emit projectOpened( m_path );
-  return true;
+  return finishSynchronousOpen();
 }
 
 bool QgisProjectService::createProject( const QString &qgzPath )
@@ -359,6 +392,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   m_project->clear();
   m_entryPath.clear();
   m_path = qgzPath;
+  setDefaultSnapping(m_project);
   m_readOnly = readOnly;
   m_georeference.reset();
   m_mapConfiguration = {};
@@ -392,9 +426,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
     }
   }
 
-  ++m_sessionId;
-  emit projectOpened( m_path );
-  return true;
+  return finishSynchronousOpen();
 }
 
 bool QgisProjectService::writeProject()

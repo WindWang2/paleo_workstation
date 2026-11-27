@@ -12,6 +12,7 @@ target_sources(paleo_ai PRIVATE
   src/ai/chat/capabilityinspectiontool.cpp     # 功能层：工具声明/schema/契约常量
 )
 target_sources(paleo_workflow PRIVATE
+  src/workflow/agentoperationdirectory.cpp
   src/workflow/agentcapabilityinspection.cpp   # 功能层：list/describe/check 纯检查服务
   src/workflow/aichattoolrunner_capabilities.cpp # 功能层：runner 只读分支（宿主快照注入）
 )

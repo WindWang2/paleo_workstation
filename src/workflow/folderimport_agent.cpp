@@ -118,7 +118,7 @@ void FolderImportWorkflow::importAgentAttachments(const QStringList &paths,
       const auto finish = [declined, review, done, needsReview, projectStillCurrent](
           const QVector<FolderRowResult> &rows, const QString &err, bool cancelled) {
         if (done) done(rows + declined, err, cancelled);
-        if (!cancelled && !review.isEmpty() && needsReview && projectStillCurrent()) needsReview(review);
+        if (!cancelled && err.isEmpty() && !review.isEmpty() && needsReview && projectStillCurrent()) needsReview(review);
       };
       if (ready.isEmpty()) finish({}, {}, false);
       else importFiles(ready, types, {}, finish, wells, hashes, {}, ready, {}, {}, projectStillCurrent);

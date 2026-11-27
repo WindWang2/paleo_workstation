@@ -36,7 +36,7 @@ class QgisCanvasController : public QObject
     // VertexAndSegment + 10px。canvas() 创建时装到 snappingUtils；工程打开
     // 时再镜像进 project->setSnappingConfig（随 .qgz 持久化）——capture 与
     // 编辑工具经 QgsMapCanvas::snappingUtils() 原生拾取，工具零改动。
-    static QgsSnappingConfig nativeSnappingConfig();
+    static QgsSnappingConfig nativeSnappingConfig(QgsProject *project = nullptr);
     void setMapTool(QgsMapTool *tool);            // deactivates previous
     QgsMapTool *activeTool() const;
     void deactivateTool();                        // Esc path

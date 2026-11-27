@@ -2,6 +2,7 @@
 """Complete a Linux CMake install with its locked, relocatable runtime."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,8 @@ import sys
 import tempfile
 from urllib.request import urlopen
 
-from portable_manifest import PackageFiles, REPO_ROOT, digest, load_cmake_cache, verify, verify_receipt
+from portable_manifest import (PI_LOCKS, PackageFiles, REPO_ROOT, digest, load_cmake_cache,
+                               verified_pi_generation, verify, verify_receipt)
 
 
 ABI_ROOT = Path("/usr/lib/x86_64-linux-gnu")
@@ -65,6 +67,21 @@ def ldd_resolutions(binary: Path, env: dict[str, str]):
 
 def host_abi(name, path):
     return name in GLIBC_ABI and path == (ABI_ROOT / name).resolve()
+
+
+def pi_loader_directory(output: Path) -> Path:
+    base = output / "libexec/pi-agent/loaders"
+    names = ("libgcc_s.so.1", "libstdc++.so.6")
+    loaders = list(base.iterdir())
+    if len(loaders) != 1 or loaders[0].is_symlink() or not loaders[0].is_dir():
+        raise ValueError("Expected the packaged Pi loader directory")
+    loader = loaders[0]
+    if {p.name for p in loader.iterdir()} != set(names) or any((loader / name).is_symlink() for name in names):
+        raise ValueError("Unexpected Pi loader library set")
+    identity = ":".join(digest(loader / name) for name in names)
+    if hashlib.sha256(identity.encode("ascii")).hexdigest() != loader.name:
+        raise ValueError("Pi loader libraries do not match their generation")
+    return loader
 
 
 def dependency_prefix(cache):
@@ -265,20 +282,39 @@ def stage_linux(files: PackageFiles, build: Path, scratch: Path):
     stage_shared_libs(files, seeds, approved,
                       {"PATH": "/usr/bin:/bin", "LD_LIBRARY_PATH": os.pathsep.join(map(str, lib_search))})
     install_application(files, build, cache)
+    for library in pi_loader_directory(files.output).iterdir():
+        source = next((candidate.resolve(strict=True) for candidate in (multiarch / library.name, prefix / "lib" / library.name)
+                       if candidate.is_file()), None)
+        if source is None or not source.is_relative_to(prefix) or digest(source) != digest(library):
+            raise ValueError(f"Pi loader library differs from the managed prefix: {library.name}")
+        files.origins[library.relative_to(files.output).as_posix()] = {
+            "origin": "linux-prefix", "source": source.relative_to(prefix).as_posix(), "sourceSha256": digest(source),
+        }
     rewritten = [stage_linux_resources(files, prefix, data_root)]
     stage_ca_bundle(files, scratch)
     for path in runtime_elfs(files.output):
         relative = os.path.relpath(files.output / "lib", path.parent)
         run(["patchelf", "--set-rpath", f"$ORIGIN/{relative}", str(path)])
         rewritten.append(path)
-    files.write([*locks, "vendor/manifest.json", "vendor/office-editor-required.txt",
+    files.write([*locks, *PI_LOCKS, "vendor/manifest.json", "vendor/office-editor-required.txt",
                  "vendor/fetch-ranuts-document.sh", CERT_LOCK],
                 rewritten)
 
 
 def verify_linux(output: Path):
     verify(output)
+    pi = verified_pi_generation(output, "linux-x86_64")
+    loader = pi_loader_directory(output)
     env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
+    resolved_pi = dict(ldd_resolutions(pi / "bin/node", {**env, "LD_LIBRARY_PATH": str(loader)}))
+    for name in ("libstdc++.so.6", "libgcc_s.so.1"):
+        if resolved_pi.get(name) != loader / name:
+            raise ValueError(f"Node does not load its packaged {name}")
+    for name, resolved in resolved_pi.items():
+        if resolved.parent != loader and not host_abi(name, resolved):
+            raise ValueError(f"Node loads unbundled library {resolved}")
+    from probe_pi_agent import exercise
+    exercise(pi, pi.name, loader=loader)
     for path in runtime_elfs(output):
         for name, resolved in ldd_resolutions(path, env):
             if not resolved.is_relative_to(output) and not host_abi(name, resolved):

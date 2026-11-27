@@ -215,10 +215,4 @@ void ConstraintPage::wireInputStaleness()
       markInputsStale();
       updateFactorActionStates();
     });
-  if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
-    connect(horizons, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
-      refreshConstraintList();
-      refreshFactorLayers();
-      refreshFactorResults();
-    });
 }

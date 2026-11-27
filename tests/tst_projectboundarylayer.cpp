@@ -75,6 +75,60 @@ private slots:
     QVERIFY(QFile::exists(path)); QVERIFY(QFile::exists(path + ".qml")); QVERIFY(QFile::exists(otherPath));
     project->clear();
   }
+  void projectSwitchUsesNewBoundaryManifest_data() {
+    QTest::addColumn<bool>("background");
+    QTest::newRow("synchronous") << false;
+    QTest::newRow("background") << true;
+  }
+  void projectSwitchUsesNewBoundaryManifest() {
+    QFETCH(bool, background);
+    QTemporaryDir oldDir, newDir;
+    const auto oldPath = oldDir.filePath("range.gpkg");
+    const auto newPath = newDir.filePath("range.gpkg");
+    const QgsCoordinateReferenceSystem crs("EPSG:32650");
+    QString error;
+    QVERIFY2(paleo::mapreference::writeAreaRange(oldPath, QgsRectangle(300, 400, 500, 600), crs, &error), qPrintable(error));
+    QVERIFY2(paleo::mapreference::writeAreaRange(newPath, QgsRectangle(700, 800, 900, 1000), crs, &error), qPrintable(error));
+    LayerManifest activeManifest(oldDir.filePath("manifest.sqlite"));
+    LayerManifest newManifest(newDir.filePath("manifest.sqlite"));
+    QVERIFY(activeManifest.open(&error));
+    QVERIFY(newManifest.open(&error));
+    QVERIFY(activeManifest.upsert(boundary(oldPath), &error));
+    QVERIFY(newManifest.upsert(boundary(newPath), &error));
+    QgisProjectService projectService;
+    QgisLayerService layers(&projectService, &activeManifest);
+    QVERIFY(projectService.createProject(oldDir.filePath("old.qgz")));
+    QVERIFY(layers.instantiate(boundaryId, &error));
+
+    const auto nextProject = newDir.filePath("next.qgz");
+    QString oldId, newId;
+    {
+      QgsProject saved;
+      oldId = addCopy(&saved, boundary(oldPath), boundaryId)->id();
+      newId = addCopy(&saved, boundary(newPath), boundaryId)->id();
+      QVERIFY(saved.write(nextProject));
+    }
+    // The layer service sees both restored ids before the application rebinds its manifest.
+    bool bothPresentAtRebind = false;
+    connect(&projectService, &QgisProjectService::projectContextRequested, this, [&] {
+      bothPresentAtRebind = projectService.project()->mapLayer(oldId) && projectService.project()->mapLayer(newId);
+      activeManifest = newManifest;
+    });
+    if (background) {
+      QSignalSpy finished(&projectService, &QgisProjectService::openFinished);
+      QVERIFY(projectService.openProjectAsync(nextProject));
+      QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 30000);
+      QVERIFY(finished.first().first().toBool());
+    } else {
+      QVERIFY(projectService.openProject(nextProject));
+    }
+    QVERIFY(bothPresentAtRebind);
+    QVERIFY(!projectService.project()->mapLayer(oldId));
+    auto *newBoundary = projectService.project()->mapLayer(newId);
+    QVERIFY(newBoundary);
+    QCOMPARE(layers.layer(boundaryId), newBoundary);
+    QCOMPARE(layers.instantiate(boundaryId, &error), newBoundary);
+  }
   void uncheckedCopiesStayUncheckedAndEditableCopiesArePreserved() {
     QTemporaryDir tmp; QString error; const auto path = tmp.filePath("project_range.gpkg");
     QVERIFY(paleo::mapreference::writeAreaRange(path, QgsRectangle(300000, 2300000, 310000, 2310000),

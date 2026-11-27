@@ -10,6 +10,7 @@
 #include "qgis/crsselector.h"
 #include "io/dataimportservice.h"
 #include "io/areamodel.h"
+#include "domain/mappinghorizons.h"
 #include "metadata/paleoprojectstore.h"
 #include <paleo_data/service.h>
 #include <qgsapplication.h>
@@ -116,6 +117,41 @@ private slots:
     QCOMPARE(service.catalog()->entities("well").first().surfaceX, 300000.0);
     QCOMPARE(service.catalog()->assets().size(), 1);
     project.closeProject();
+  }
+  void publishesImportedMappingHorizons() {
+    QTemporaryDir temp;
+    const QString input = temp.filePath("input");
+    const QString horizons = input + QStringLiteral("/地震层位数据");
+    QVERIFY(QDir().mkpath(horizons));
+    const QStringList expected{QStringLiteral("T70"), QStringLiteral("T72")};
+    for (const auto &name : expected) {
+      QFile horizon(QDir(horizons).filePath(name));
+      QVERIFY(horizon.open(QIODevice::WriteOnly));
+      const QByteArray time = name == expected.first() ? "100" : "200";
+      horizon.write("INLINE : 1 XLINE : 1 300000 2300000 " + time +
+                    "\nINLINE : 1 XLINE : 2 300025 2300000 " + time + "\n");
+    }
+    QgisProjectService project; PaleoProjectStore store; DataImportService service(&store);
+    connect(&project, &QgisProjectService::projectOpened, &service,
+            [&service](const QString &path) { service.setProjectDir(QFileInfo(path).absolutePath()); });
+    FolderImportWorkflow imports(&service, nullptr); ProjectSetupWorkflow workflow(&project, &imports);
+    DataServiceImportWizard wizard(&workflow);
+    wizard.findChild<QLineEdit *>("dataServiceProjectNameEdit")->setText("mapping-horizons");
+    wizard.findChild<QLineEdit *>("dataServiceProjectDirectoryEdit")->setText(temp.filePath("output"));
+    wizard.findChild<QLineEdit *>("dataServiceSourceRootEdit")->setText(input);
+    wizard.accept(); QCOMPARE(wizard.result(), int(QDialog::Accepted));
+    QSignalSpy finished(&workflow, &ProjectSetupWorkflow::finished);
+    QSignalSpy changed(&workflow, &ProjectSetupWorkflow::projectHorizonsChanged);
+    QString error;
+    QVERIFY2(workflow.create(wizard.projectPath(), wizard.sources(), wizard.preview(), &error), qPrintable(error));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY2(finished.first().at(1).toBool(), qPrintable(finished.first().at(0).toString()));
+    QCOMPARE(changed.size(), 1);
+    QCOMPARE(mappingHorizons(), expected);
+    QCOMPARE(AreaRules::active().targetHorizon, expected.first());
+    QCOMPARE(paleo::area_model::mappingBoundaries(QFileInfo(wizard.projectPath()).absolutePath()), expected);
+    project.closeProject();
+    AreaRules::reset();
   }
   void threadsComboOffersParallelSelectionAndWritesEnv() {
     const QByteArray prev = qgetenv("PALEO_IMPORT_PARSER_THREADS");

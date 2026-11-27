@@ -6,13 +6,13 @@ There is no model request, tool dispatch, operation publication or project path.
 
 ## C++ integration seam
 
-- [`piruntime.h`](../../src/services/piruntime.h): `RuntimeConfig` defaults disabled;
-  its root and manifest SHA are one trusted host identity. `inspectRuntime` is
+- [`piruntime.h`](../../src/services/piruntime.h): the application supplies the
+  bundled runtime root and pinned platform manifest SHA. `inspectRuntime` is
   worker-only and performs full file verification without starting Node. The
   returned opaque `VerifiedRuntime` retains the generation but is not permission
   to execute a model or tool. `status.executionReady` remains false in A1.
-- [`piprocess.h`](../../src/services/piprocess.h): `HandshakeRequest` separately
-  defaults disabled, takes that verified identity, host session/epoch and a
+- [`piprocess.h`](../../src/services/piprocess.h): `HandshakeRequest`
+  takes that verified identity, host session/epoch and a
   nonblocking cancellation callback. `runHandshake` revalidates before launch,
   uses a fixed program/entry, and rejects application-owner-thread execution.
 - [`piprotocol.h`](../../src/services/piprotocol.h): bounded canonical frame codec.

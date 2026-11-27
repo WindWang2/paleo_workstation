@@ -10,6 +10,7 @@
 #include "../domain/facieshierarchy.h"
 #include "../services/faciesdisplaysettings.h"
 #include "../domain/singlefactorrequest.h"
+#include "../domain/seismicclusterproduct.h"
 #include <memory>
 #include <QResizeEvent>
 #include <qgsmapcanvas.h>
@@ -40,6 +41,11 @@ MappingReferenceCanvas::MappingReferenceCanvas(QgsMapCanvas *mainCanvas,
 MappingReferenceCanvas::~MappingReferenceCanvas() { clearReference(); }
 QgsMapCanvas *MappingReferenceCanvas::canvas() const { return PreviewMapCanvas::canvas(); }
 bool MappingReferenceCanvas::hasReference() const { return !m_layer.isNull(); }
+
+void MappingReferenceCanvas::onLegendChanged(QObject *receiver, std::function<void(const QVariantList &)> handler)
+{
+  connect(this, &MappingReferenceCanvas::legendChanged, receiver, std::move(handler));
+}
 
 // 参考证据画布的唯一构造点（issue #825）：视图层经 qgis/referenceview.h 的
 // 工厂拿接口，不 include 本 TU 的头，避免 QtWidgets 传递记录边。
@@ -91,7 +97,12 @@ void MappingReferenceCanvas::setReference(QgsMapLayer *layer, const QVariantMap 
   const bool analysis = paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
   const bool cartographic = paleo::singlefactor::rejectsQuantitativeUse(kind, valueSource);
   m_facies = !kind.startsWith(QLatin1String("constraint")) && !analysis && !cartographic && !m_schema.isEmpty();
-  if (analysis || cartographic) {
+  if (paleo::seismic::isRawClusterProduct(kind)) {
+    const auto ids = metadata.value("cluster_ids").toList();
+    QgisStyleService::applySeismicClusterStyle(layer, ids);
+    m_facies = false;
+    m_schema = QgisStyleService::seismicClusterLegend(ids);
+  } else if (analysis || cartographic) {
     m_schema.clear();
     if (auto *raster = qobject_cast<QgsRasterLayer *>(layer)) {
       FactorStyleWriter::applyTo(raster, metadata.value("factor_id").toString());
@@ -135,7 +146,10 @@ void MappingReferenceCanvas::updateLegend()
     entries = FaciesHierarchyRenderer::apply(m_layer, m_schema, level);
     m_legendLevel = level;
   }
-  emit legendChanged(FaciesMapLegend::symbolEntries(m_layer, entries));
+  if (!entries.isEmpty() && entries.first().toMap().contains("cluster_id"))
+    emit legendChanged(entries);
+  else
+    emit legendChanged(FaciesMapLegend::symbolEntries(m_layer, entries));
 }
 
 void MappingReferenceCanvas::setLinked(bool linked)

@@ -604,7 +604,7 @@ void PaleoDecorationManager::paintDecorations( QPainter *painter )
   if ( mUncertaintyEnabled && mUncertainty )
   {
     qreal top = 16.0;
-    if ( mLegendEnabled && mLegend && !mLegend->facies.isEmpty() )
+    if ( mComparisonLegendVisible && mLegendEnabled && mLegend && !mLegend->facies.isEmpty() )
     {
       QFont f = painter->font();
       f.setPointSize( PaleoTheme::tokens().labelPt );
@@ -617,6 +617,7 @@ void PaleoDecorationManager::paintDecorations( QPainter *painter )
   const QList<QgsMapDecoration *> items = decorationItems();
   for ( QgsMapDecoration *d : items )
   {
+    if (!mComparisonLegendVisible && d == mLegend.get()) continue;
     painter->save();
     d->render( ms, context );
     painter->restore();
@@ -658,6 +659,15 @@ void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContex
 }
 void PaleoDecorationManager::setFaciesLegend(const QString &title,const QVariantList &facies, QgsMapLayer *symbolLayer)
 {
+  const bool hadLegend = mLegendEnabled;
   mLegend->title=title;mLegend->facies=FaciesHierarchy::legendTree(symbolLayer ? FaciesMapLegend::symbolEntries(symbolLayer, facies) : facies);mLegendEnabled=!mLegend->facies.isEmpty();
+  if (hadLegend != mLegendEnabled) emit legendAvailabilityChanged(mLegendEnabled);
   if(mOverlay){mOverlay->raise();mOverlay->update();}if(mCanvas)mCanvas->refresh();
+}
+
+void PaleoDecorationManager::setComparisonLegendVisible(bool visible)
+{
+  if (mComparisonLegendVisible == visible) return;
+  mComparisonLegendVisible = visible;
+  if (mOverlay) mOverlay->update();
 }

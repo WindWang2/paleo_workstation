@@ -3,6 +3,7 @@
 // list/describe/check 三模式的纯函数实现：注册表快照投影 + 既有纯验证器
 // （AiToolSpec 校验 / validateAndFillParams / checkContext）复用，零业务副作用。
 #include "agentcapabilityinspection.h"
+#include "agentoperationdirectory.h"
 
 #include "../ai/chat/capabilityinspectiontool.h"
 #include "../ai/chat/domaintools.h"
@@ -122,51 +123,6 @@ InspectionResult failure(const QString &code, const QString &field = {}) {
   return out;
 }
 
-// —— 目录装配（每次查询冻结一份快照；不建可变全局注册表）——
-struct DirectoryEntry {
-  int kindRank = 0;
-  QString id;
-  int version = 1;
-  QJsonObject card;
-};
-
-// W2：业务能力列表默认不混入 UI command 全集——commands 仅按精确 filter 查询
-// 或经 related 关联呈现；tools 无版本概念，恒为 1。
-QVector<DirectoryEntry> buildDirectory(const QString &filter) {
-  QVector<DirectoryEntry> entries;
-  if (filter == QLatin1String("default") || filter == QLatin1String("capabilities"))
-    for (const CapabilitySpec &spec : CapabilityRegistry::all())
-      entries.append({0, spec.capabilityId, spec.contractVersion,
-                      paleo::capability::capabilitySummaryCard(spec)});
-  if (filter == QLatin1String("default") || filter == QLatin1String("algorithms"))
-    for (const AlgorithmSpec &spec : AlgorithmSpecRegistry::allSpecsProjection())
-      entries.append({1, spec.id, spec.contractVersion,
-                      paleo::capability::algorithmSummaryCard(spec)});
-  if (filter == QLatin1String("default") || filter == QLatin1String("tools")) {
-    for (const AiToolSpec &spec : builtinAiToolSpecs()) {
-      QJsonObject card{{"kind", QStringLiteral("tool")},
-                       {"id", spec.name},
-                       {"title", spec.title},
-                       {"requires_local_ort", spec.requiresLocalOrt},
-                       {"legacy_adapter", spec.legacyAdapter},
-                       {"exposure", capabilityExposureName(spec.exposure)}};
-      entries.append({2, spec.name, 1, card});
-    }
-  }
-  if (filter == QLatin1String("commands"))
-    for (const auto &spec : paleo::command::CommandRegistry::all())
-      entries.append({3, spec.commandId, spec.contractVersion,
-                      paleo::capability::commandSummaryCard(spec)});
-  std::sort(entries.begin(), entries.end(), [](const DirectoryEntry &a, const DirectoryEntry &b) {
-    if (a.kindRank != b.kindRank)
-      return a.kindRank < b.kindRank;
-    if (a.id != b.id)
-      return a.id < b.id;
-    return a.version < b.version;
-  });
-  return entries;
-}
-
 QString directoryDigest(const QVector<DirectoryEntry> &entries, const QString &filter) {
   QByteArray basis;
   for (const DirectoryEntry &entry : entries)
@@ -179,7 +135,7 @@ QString directoryDigest(const QVector<DirectoryEntry> &entries, const QString &f
 // 游标绑定查询身份（filter + 全序摘要 + offset）；无密钥——本目录是全局
 // 静态注册内容，伪造游标最多换来同一公开投影的另一页，不构成任何权限。
 bool decodeListCursor(const QString &cursor, const QString &filter,
-                      const QVector<DirectoryEntry> &entries, int *offset) {
+                      const QVector<DirectoryEntry> &entries, const QString &digestKey, int *offset) {
   if (cursor.toUtf8().size() > kMaxCursorBytes)
     return false;
   const auto payload = QByteArray::fromBase64(cursor.toUtf8(),
@@ -190,7 +146,7 @@ bool decodeListCursor(const QString &cursor, const QString &filter,
   const auto object = document.object();
   if (object.value("v").toInt() != 1 ||
       object.value("filter").toString() != filter ||
-      object.value("d").toString() != directoryDigest(entries, filter))
+      object.value("d").toString() != directoryDigest(entries, digestKey))
     return false;
   // F3（评审）：offset 严格整数解码——文本/分数/布尔不被 QJsonValue::toInt
   // 静默解释成 0（与 strictIntArg 同口径，伪造游标按 cursor_stale 拒）。
@@ -206,10 +162,10 @@ bool decodeListCursor(const QString &cursor, const QString &filter,
 }
 
 QString encodeListCursor(const QString &filter, const QVector<DirectoryEntry> &entries,
-                         int offset) {
+                         const QString &digestKey, int offset) {
   const QJsonObject object{{"v", 1},
                            {"filter", filter},
-                           {"d", directoryDigest(entries, filter)},
+                           {"d", directoryDigest(entries, digestKey)},
                            {"offset", offset}};
   return QString::fromLatin1(QJsonDocument(object).toJson(QJsonDocument::Compact).toBase64(
       QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
@@ -627,11 +583,16 @@ InspectionResult runList(const QJsonObject &args) {
   if (!strictIntArg(args, "max_bytes", kMinPageBytes, kMaxPageBytes, kDefaultPageBytes, &maxBytes))
     return failure(QStringLiteral("argument_out_of_range"), QStringLiteral("max_bytes"));
 
-  const QVector<DirectoryEntry> entries = buildDirectory(filter);
+  const QJsonValue queryArg = args.value("query");
+  if (!queryArg.isUndefined() && (!queryArg.isString() || queryArg.toString().size() > 128))
+    return failure(QStringLiteral("argument_out_of_range"), QStringLiteral("query"));
+  const OperationSearch search(queryArg.toString());
+  const QVector<DirectoryEntry> entries = buildDirectory(filter, search);
+  const QString digestKey = search.phrase.isEmpty() ? filter : filter + u'/' + search.phrase;
   int offset = 0;
   if (args.contains("cursor")) {
     const QString cursor = args.value("cursor").toString();
-    if (!decodeListCursor(cursor, filter, entries, &offset))
+    if (!decodeListCursor(cursor, filter, entries, digestKey, &offset))
       return failure(QStringLiteral("cursor_stale"), QStringLiteral("cursor"));
   }
   QJsonArray cards;
@@ -661,10 +622,11 @@ InspectionResult runList(const QJsonObject &args) {
   const bool hasMore = position < entries.size();
   payload.insert(QStringLiteral("hasMore"), hasMore);
   if (hasMore)
-    payload.insert(QStringLiteral("nextCursor"), encodeListCursor(filter, entries, position));
+    payload.insert(QStringLiteral("nextCursor"), encodeListCursor(filter, entries, digestKey, position));
   payload.insert(QStringLiteral("coverage"), QJsonObject{
       {"complete", !hasMore},
-      {"selection", QStringLiteral("stable id/version order; continuation binds filter and directory digest")}});
+      {"selection", search.phrase.isEmpty() ? QStringLiteral("stable id/version order; continuation binds filter and directory digest")
+                                            : QStringLiteral("relevance, then stable id/version order; continuation binds query")}});
   InspectionResult out;
   out.ok = true;
   out.payload = payload;
@@ -958,7 +920,7 @@ InspectionResult runCapabilityInspection(const QJsonObject &arguments,
   static const QStringList kTopLevelFields{QStringLiteral("mode"),
       QStringLiteral("target_kind"), QStringLiteral("target_id"),
       QStringLiteral("contract_version"), QStringLiteral("sections"),
-      QStringLiteral("filter"), QStringLiteral("candidate"),
+      QStringLiteral("filter"), QStringLiteral("query"), QStringLiteral("candidate"),
       QStringLiteral("cursor"), QStringLiteral("page_size"), QStringLiteral("max_bytes")};
   for (auto it = arguments.constBegin(); it != arguments.constEnd(); ++it)
     if (!kTopLevelFields.contains(it.key()))

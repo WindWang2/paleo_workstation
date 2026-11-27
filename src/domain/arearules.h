@@ -80,13 +80,14 @@ QString configFilePath(const QString &projectDir);
 
 // 装载工程规则。缺文件 → out=defaults() 返回 true（读取顺序第一档）；
 // 坏 JSON → 返回 false、error 写明原因（拒用，不静默回退）。
-bool loadFromProjectDir(const QString &projectDir, Rules *out, QString *error);
+bool loadFromProjectDir(const QString &projectDir, Rules *out, QString *error,
+                        const QStringList &modelBoundaries = {});
 
 // 进程级 active 规则（分类器/导入/SEG-Y 读取消费）。setProjectDir 绑定工程
 // 目录并装载：成功 → active=装载结果；坏 JSON → active 保持 defaults 且
 // lastError() 写明原因（拒用）。空串 = 解绑回默认（等价 reset()）。
 // 工程打开时机由宿主接线（见 docs/AREA_PARAMETERS.md「接线点」）。
-void setProjectDir(const QString &projectDir);
+void setProjectDir(const QString &projectDir, const QStringList &modelBoundaries = {});
 void reset();
 Rules active();               // 线程安全快照（值拷贝；导入/索引在任务池上读）
 QString activeProjectDir();   // 当前绑定目录；空 = 未绑定（用内置默认）

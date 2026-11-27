@@ -5,12 +5,18 @@
 #include "../domain/faciestaxonomy.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
+#include "../domain/seismicclusterproduct.h"
+#include "../qgis/qgisstyleservice.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/qgislayerorganizer.h"
 #include "pages/faciesconsistencydialog.h"
 #include "../qgis/draftautosave.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/faciesmaplegend.h"
+#include "../qgis/clusterpatchpicker.h"
+#include "workbench/clusterpatchinspector.h"
+#include <QToolButton>
+#include <QScrollArea>
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgiscanvascontroller.h"
@@ -39,10 +45,12 @@
 #include "pages/predictpage.h"
 #include "pages/wellpredictionpanel.h"
 #include "paleoicons.h"
+#include "paleotheme.h"
 #include "paleomainwindow.h"
+#include "workspacefocus.h"
+#include "domain/mapproductcaption.h"
 #include "commandactionbinder.h"
 #include "paleoribbon.h"
-#include "taskpanel.h" // 智能预测开跑切到任务页
 #include <QAction>
 #include <QDockWidget>
 #include <QFileDialog>
@@ -161,6 +169,8 @@ void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWo
   const auto step = [window, owner](bool undo) {
     if (!window || !owner)
       return false;
+    auto *inspector = window->findChild<ClusterPatchInspector *>();
+    if (inspector && inspector->canStep(undo)) return inspector->step(undo);
     auto *stack = owner->propertyEditStack();
     if (undo ? !stack->canUndo() : !stack->canRedo())
       return false;
@@ -174,7 +184,9 @@ void routeCanvasUndo(PaleoMainWindow *self, PaleoEditingToolbar *edit, MappingWo
     return ok;
   };
   edit->setSecondaryUndo(PaleoUndoTarget{
-      [owner](bool undo) {
+      [owner, window](bool undo) {
+        auto *inspector = window ? window->findChild<ClusterPatchInspector *>() : nullptr;
+        if (inspector && inspector->canStep(undo)) return PaleoUndoStep{true, PaleoMainWindow::tr("调整图斑微相")};
         if (!owner)
           return PaleoUndoStep{};
         auto *stack = owner->propertyEditStack();
@@ -257,21 +269,6 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     return;
   m_workbench = workbench;
   bindWorkbenchSelection(workbench);
-  // 智能预测在后台执行：开跑即弹出底栏任务中心并切到任务页（底栏原本就
-  // 开着也切页），显示任务行与进度；收尾由 syncBottomDockForTasks 恢复。
-  connect(workbench, &MappingWorkbench::predictionBusyChanged, this,
-          [this](bool busy) {
-            if (!busy || !m_bottomDock)
-              return;
-            if (!m_bottomDock->isVisible()) {
-              m_bottomDockAutoShown = true;
-              m_bottomDock->setProgrammaticVisible(true);
-            }
-            if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
-              if (auto *panel = findChild<TaskPanel *>(QStringLiteral("taskPanel")))
-                tabs->setCurrentWidget(panel);
-            m_bottomDock->raise();
-          });
   if (auto *chips = findChild<HorizonChipBar *>())
     chips->setAllowEmptyHorizons(true);
   auto *edit = findChild<PaleoEditingToolbar *>("editingToolbar");
@@ -363,7 +360,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
         compare(QString(), &error);
         m_canvasCtl->canvas()->setFocus();
       });
-  // #473：井预测修订域拆至 attachWorkbenchWells（句柄沿用原局部名）；#748 画布撤销路由。
+  attachClusterInspector(workbench, show);
   routeCanvasUndo(this, edit, workbench);
   const auto wells = attachWorkbenchWells(workbench, edit, pages, legend, show, compare);
   auto *wellDock = wells.dock;
@@ -448,12 +445,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
             [this, show, shown, pages](const QString &h) {
               QMetaObject::invokeMethod(
                   this,
-                  [this, show, shown, pages, h] {
+                  [this, show, shown, pages, h, id = shown->value(h)] {
                     // 排队回调执行时选择服务可能已被拆除（#994）：判空后跳过。
-                    if (!m_selection || m_selection->activeHorizon() != h || !shown->contains(h))
+                    if (!m_selection || m_selection->activeHorizon() != h ||
+                        id.isEmpty() || shown->value(h) != id)
                       return;
                     QString error;
-                    const auto id = shown->value(h);
                     if (show(id, &error))
                       for (auto *page : pages)
                         if (page->horizon() == h)
@@ -557,13 +554,22 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
     auto *canvas = m_canvasCtl->canvas();
     const auto visible = canvas->layers();
     const auto eligible = [&](QgsMapLayer *layer) {
-      if (!layer || !visible.contains(layer) || !layer->isInScaleRange(canvas->scale())) return false;
+      if (!layer || !layer->isInScaleRange(canvas->scale())) return false;
       const auto layerId = layer->customProperty("paleoLayerId").toString();
       const auto d = workbench->declaration(layerId);
       const auto extra = workbench->versionForLayer(layerId).extra;
+      const bool raw = paleo::seismic::isRawClusterProduct(extra.value("kind").toString());
+      if (!visible.contains(layer)) {
+        // On an explicit cluster switch the native tree has already changed, while
+        // its canvas bridge is still queued. Other legends follow the rendered layers.
+        if (!raw || (layerId != id && layer != canvas->currentLayer())) return false;
+        const auto *node = canvas->project() ? canvas->project()->layerTreeRoot()->findLayer(layer->id()) : nullptr;
+        if (!node || !node->isVisible()) return false;
+      }
       const auto horizon = d.horizon.isEmpty() ? extra.value("horizon").toString() : d.horizon;
       if (!horizon.isEmpty() && !matchesWorkbenchHorizon(m_selection,horizon)) return false;
       return !layer->customProperty("paleo/faciesDisplayLegend").toList().isEmpty() ||
+          raw ||
           workbench->supportsFaciesDisplay(layerId) ||
           paleo::singlefactor::isAnalysisFactorRaster(extra.value("kind").toString(), extra.value("value_source").toString()) ||
           paleo::singlefactor::rejectsQuantitativeUse(extra.value("kind").toString(), extra.value("value_source").toString());
@@ -574,6 +580,37 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
       symbolLayer = nullptr;
       for (auto *layer : visible) if (eligible(layer)) { symbolLayer = layer; break; }
     }
+    auto *document = m_layerSvc->layer(id);
+    if (document != symbolLayer && !visible.contains(document)) document = nullptr;
+    auto *current = canvas->currentLayer();
+    if (!document && current && visible.contains(current) &&
+        !workbench->versionForLayer(current->customProperty("paleoLayerId").toString()).id.isEmpty())
+      document = current;
+    if (!document) document = symbolLayer;
+    if (!document && visible.contains(current)) document = current;
+    if (!document && !visible.isEmpty()) document = visible.first();
+    QString documentTitle, documentDetail;
+    if (document) {
+      const auto source = document->customProperty("paleoLayerId").toString();
+      const auto version = workbench->versionForLayer(source);
+      documentTitle = version.extra.value(QStringLiteral("title")).toString();
+      if (documentTitle.isEmpty()) documentTitle = document->name();
+      documentDetail = workbench->declaration(source).horizon;
+      if (documentDetail.isEmpty()) documentDetail = version.extra.value(QStringLiteral("horizon")).toString();
+      const bool draft = source.startsWith(QStringLiteral("draft."));
+      documentTitle = paleo::mapcaption::productTitle(documentTitle, documentDetail,
+          version.extra.value(QStringLiteral("unitSelection")).toMap(),
+          m_selection ? m_selection->activeUnit() : paleo::strat::UnitSelection{},
+          draft || version.id.isEmpty() ? 0 : version.versionNumber);
+      if (draft) {
+        documentTitle = tr("工作副本 · %1").arg(documentTitle);
+        if (!version.id.isEmpty() && version.versionNumber > 0) {
+          if (!documentDetail.isEmpty()) documentDetail += QLatin1Char('\n');
+          documentDetail += tr("已登记版本 v%1").arg(version.versionNumber);
+        }
+      }
+    }
+    setWorkspaceDocumentCaption(m_visualizationTabs, QStringLiteral("compose"), documentTitle, documentDetail);
     if (h.isEmpty() || !symbolLayer) {
       m_decorMgr->setFaciesLegend(QString(), {});
       return;
@@ -582,6 +619,11 @@ PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
     auto v = workbench->versionForLayer(layerId);
     auto d = workbench->declaration(layerId);
     const auto legendKind = v.extra.value("kind").toString();
+    if (paleo::seismic::isRawClusterProduct(legendKind)) {
+      m_decorMgr->setFaciesLegend(tr("%1 · 地震聚类 · v%2").arg(h).arg(v.versionNumber),
+          QgisStyleService::seismicClusterLegend(v.extra.value("cluster_ids").toList()));
+      return;
+    }
     const auto legendSource = v.extra.value("value_source").toString();
     const bool analysisRaster =
         paleo::singlefactor::isAnalysisFactorRaster(legendKind, legendSource);
@@ -670,9 +712,13 @@ PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
                          ? m_projectSvc->project()->layerTreeRoot()
                          : nullptr;
     if (treeRoot) {
+      // The imported original can be an opaque polygon above its classified
+      // copy. Keep unrelated reference maps visible when showing the result.
+      const auto rawVersion = workbench->versionForLayer(id).extra.value("source_raw_version_id").toString();
+      const auto original = rawVersion.isEmpty() ? QString() : QStringLiteral("paleomap.") + rawVersion;
       for (const auto &other : m_layerSvc->declared())
         if (other.layerId != id && other.horizon == d.horizon &&
-            (other.layerId.startsWith("product.") ||
+            (other.layerId == original || other.layerId.startsWith("product.") ||
              other.layerId.startsWith("factor.") ||
              other.layerId.startsWith("contours.") ||
              other.layerId.startsWith("cartographic.") ||
@@ -781,4 +827,77 @@ void PaleoMainWindow::attachFaciesDisplayControls(MappingWorkbench *workbench) {
         });
   }
   refresh();
+}
+
+void PaleoMainWindow::attachClusterInspector(MappingWorkbench *workbench, const WorkbenchShowFn &show) {
+  if (!m_rightDock || !m_canvasCtl || !m_rightDock->widget()) return;
+  auto *scroll = qobject_cast<QScrollArea *>(m_rightDock->widget());
+  auto *tasks = scroll ? scroll->takeWidget() : m_rightDock->widget();
+  auto *tabs = new QTabWidget(m_rightDock);
+  tabs->setObjectName(QStringLiteral("workspaceContextTabs"));
+  tabs->setAccessibleName(tr("右侧工作面板"));
+  auto *inspector = new ClusterPatchInspector(workbench, tabs);
+  inspector->setReadOnly(isProjectReadOnly());
+  tasks->setParent(tabs);
+  tabs->addTab(tasks, tr("任务"));
+  tabs->addTab(inspector, tr("对象属性"));
+  if (scroll) scroll->setWidget(tabs);
+  else m_rightDock->setWidget(tabs);
+  auto *canvas = m_canvasCtl->canvas();
+  auto *picker = new ClusterPatchPicker(canvas);
+  connect(picker, &ClusterPatchPicker::cleared, inspector, &ClusterPatchInspector::clearSelection);
+  connect(inspector, &ClusterPatchInspector::draftPreviewRequested, picker, &ClusterPatchPicker::previewDraft);
+  connect(inspector, &ClusterPatchInspector::highlightRequested, picker, [picker](const QList<qint64> &ids) {
+    picker->highlight(ids, PaleoTheme::tokens().focusRing);
+  });
+  connect(picker, &ClusterPatchPicker::picked, inspector, [this, workbench, inspector, tabs](const QString &id, qint64 fid) {
+    const auto horizon = workbench->declaration(id).horizon;
+    if (m_selection && !matchesWorkbenchHorizon(m_selection, horizon)) { inspector->clearSelection(); return; }
+    if (!inspector->inspect(id, fid) || tabs->property("preferTask").toBool() ||
+        tabs->property("inspectorManuallyHidden").toBool() || property("workspaceFocused").toBool()) return;
+    tabs->setCurrentIndex(1);
+    if (m_rightDock->isHidden()) m_rightDock->show();
+  });
+  connect(tabs, &QTabWidget::currentChanged, tabs, [tabs](int index) { tabs->setProperty("preferTask", index == 0); });
+  connect(m_rightDock, &PaleoDockWidget::userVisibilityChanged, tabs, [tabs](bool visible) {
+    tabs->setProperty("inspectorManuallyHidden", !visible);
+  });
+  connect(workbench, &MappingWorkbench::catalogBound, tabs, [tabs] {
+    tabs->setCurrentIndex(0);
+    tabs->setProperty("preferTask", false);
+    tabs->setProperty("inspectorManuallyHidden", false);
+  });
+  if (auto *open = findChild<QToolButton *>("workspaceInspectorButton")) {
+    connect(open, &QToolButton::clicked, tabs, [this, tabs, inspector] {
+      if (!m_rightDock->isHidden() && inspector->hasSelection()) tabs->setCurrentIndex(1);
+    });
+  }
+  undoRouter()->registerScope(inspector, nullptr, {
+    [inspector](bool undo) { return PaleoUndoStep{inspector->canStep(undo), tr("调整图斑微相")}; },
+    [inspector](bool undo) { return inspector->step(undo); }
+  });
+  connect(inspector, &ClusterPatchInspector::versionSaved, this, [this, workbench, canvas, inspector, show](const QString &id, qint64 fid) {
+    if (!canvas->currentLayer() || canvas->currentLayer()->customProperty("paleoLayerId").toString() != id) {
+      QString error;
+      workbench->suppressNextProductZoom();
+      if (!show(id, &error)) {
+        workbench->clearSuppressedProductZoom();
+        statusBar()->showMessage(error, 10000);
+        return;
+      }
+    }
+    inspector->inspect(id, fid);
+  });
+  if (m_selection) {
+    connect(m_selection, &SelectionContext::activeHorizonChanged, inspector, &ClusterPatchInspector::clearSelection);
+    connect(m_selection, &SelectionContext::activeUnitChanged, inspector, &ClusterPatchInspector::clearSelection);
+  }
+  if (auto *edit = findChild<PaleoEditingToolbar *>()) {
+    connect(inspector, &ClusterPatchInspector::historyChanged, edit, &PaleoEditingToolbar::refreshUndoActions);
+  }
+}
+
+bool PaleoMainWindow::resolveClusterDrafts() {
+  auto *panel = findChild<ClusterPatchInspector *>();
+  return !panel || panel->resolveDrafts();
 }

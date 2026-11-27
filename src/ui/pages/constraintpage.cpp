@@ -20,6 +20,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
+#include <QScopedValueRollback>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QShowEvent>
@@ -228,7 +229,23 @@ void ConstraintPage::showEvent( QShowEvent *event )
 {
   QWidget::showEvent( event );
   refreshThicknessSamples();
+  refreshHorizonData(false);
+}
+
+void ConstraintPage::refreshHorizonData(bool horizonChanged)
+{
+  if (m_replacingHorizons)
+    return;
+  m_horizonDataPending |= horizonChanged;
+  if (parentWidget() && !isVisible())
+    return;
+  const bool changed = m_horizonDataPending;
+  m_horizonDataPending = false;
+  if (changed)
+    invalidateWellFactors(false);
   refreshWellFactorFields();
+  if (changed)
+    applySuggestedContourInterval();
   refreshConstraintList();
   refreshFactorLayers();
   refreshFactorResults();
@@ -299,17 +316,24 @@ void ConstraintPage::setHorizons( const QStringList &horizons )
   // 兼容下拉：生成/就绪检查仍读 horizonCombo，#905 在有 selection 时直接
   // return 导致壳打开工程后词表为空、意图携带空层位。
   auto *combo = child<QComboBox>( this, "horizonCombo" );
-  if ( combo )
+  // 工程重开可能沿用同一套层位名，但井属性表和保存的提取口径已更换。
+  setProperty("paleo.page.fieldskey", QVariant());
+  setProperty("paleo.page.extractionHorizon", QVariant());
+  auto *selection = qobject_cast<SelectionContext *>(property("paleo.selection").value<QObject *>());
+  if (combo && !(selection && selection->activeUnit().isValid()))
   {
+    const QScopedValueRollback<bool> replacing(m_replacingHorizons, true);
     const QString keep = combo->currentText();
     combo->clear();
-    combo->addItems( horizons ); // clear/addItems 触发 currentIndexChanged → 约束列表/井因子随层位刷新
+    combo->addItems( horizons );
     if ( !keep.isEmpty() )
       if ( const int idx = combo->findText( keep ); idx >= 0 && idx != combo->currentIndex() )
         combo->setCurrentIndex( idx );
   }
-  if ( qobject_cast<SelectionContext *>( property( "paleo.selection" ).value<QObject *>() ) )
+  if (selection)
     refreshAnalysisUnit();
+  else
+    refreshHorizonData(true);
 }
 
 void ConstraintPage::refreshThicknessSamples()

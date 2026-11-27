@@ -31,6 +31,8 @@ const ActionSpec kActions[] = {
 
     // ---- Query（runWorkbenchQueryFamily）----
     {"predict", Family::Query, Effect::Mutating, Outcome::Queued, kNone},
+    {"clusterWellAssignment", Family::Query, Effect::Mutating, Outcome::Standard, kNone},
+    {"clusterManualAssignment", Family::Query, Effect::Mutating, Outcome::Standard, kLayerService | kShow},
     // 打开属性表面需要导航回调：缺了只开图层不显表，成功文案会失真——按必需依赖拒绝。
     {"wellattributes", Family::Query, Effect::Mutating, Outcome::Standard, kNavTable},
     {"wellformations", Family::Query, Effect::Mutating, Outcome::Standard, kNavTable},

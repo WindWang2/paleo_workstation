@@ -8,12 +8,11 @@
 // 与综合计算输入分开的参考入口：只发命令，面板选择不会改输入勾选。
 void MappingWorkbenchPage::buildReferenceEntry(QWidget *body, QVBoxLayout *layout)
 {
-  auto *hint = new QLabel(tr("绘制相面时，可并排查看地震相、测井相、单因素图和参考相图。"
-                            "在同一参考面板中添加视图，用各视图上方的下拉框选择证据。"), body);
+  auto *hint = new QLabel(tr("选择地震相、测井相、单因素图或参考相图与主图对照。可添加多个参考视图。"), body);
   hint->setWordWrap(true);
   hint->hide(); // 说明移入参考入口 tooltip，避免任务侧栏重复长文。
-  for (const auto &entry : {qMakePair(QStringLiteral("referencePanel"), tr("打开参考证据面板")),
-                            qMakePair(QStringLiteral("references"), tr("在参考面板中显示勾选输入"))}) {
+  for (const auto &entry : {qMakePair(QStringLiteral("referencePanel"), tr("打开参考证据")),
+                            qMakePair(QStringLiteral("references"), tr("对照勾选的输入"))}) {
     if (m_mode == "compose" && entry.first == "references") continue;
     auto *button = new QPushButton(entry.second, body);
     button->setObjectName(QStringLiteral("workbench.") + entry.first);

@@ -5,12 +5,25 @@
 #include <QAbstractButton>
 #include <QIconEngine>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <qgsapplication.h>
 
 namespace
 {
-enum class Glyph { Source, Maximize, Restore, Inactive, DataLine };
+enum class Glyph { Source, Maximize, Restore, Inactive, DataLine, Assistant };
+
+// A four-point sparkle stays recognizable on a toolbar and in the larger welcome view.
+void drawSparkle(QPainter &painter, QPointF center, qreal radius)
+{
+  QPainterPath path;
+  path.moveTo(center.x(), center.y() - radius);
+  path.quadTo(center, center + QPointF(radius, 0));
+  path.quadTo(center, center + QPointF(0, radius));
+  path.quadTo(center, center - QPointF(radius, 0));
+  path.quadTo(center, center - QPointF(0, radius));
+  painter.drawPath(path);
+}
 
 // QGIS 的 SVG 画布档位，不是 UI 间距：保留上游 16/20/24/32 尺寸契约。
 const QList<QSize> glyphSizes{QSize(16, 16), QSize(20, 20), QSize(24, 24), QSize(32, 32)};
@@ -88,7 +101,14 @@ public:
     pen.setWidthF(qMax(1.1, s * 0.085));
     pen.setJoinStyle(Qt::MiterJoin);
     p.setPen(pen);
-    if (m_glyph == Glyph::Inactive)
+    if (m_glyph == Glyph::Assistant)
+    {
+      p.setPen(Qt::NoPen);
+      p.setBrush(pen.color());
+      drawSparkle(p, QPointF(s * 0.42, s * 0.57), s * 0.40);
+      drawSparkle(p, QPointF(s * 0.79, s * 0.24), s * 0.21);
+    }
+    else if (m_glyph == Glyph::Inactive)
     {
       p.setPen(Qt::NoPen);
       p.setBrush(t.textDisabled);
@@ -157,6 +177,8 @@ QSize PaleoIcons::toolbarSize() { return QSize(18, 18); }
 
 QIcon PaleoIcons::commandIcon(const QString &command)
 {
+  if (command == QLatin1String("aiAssistant"))
+    return QIcon(new ThemeIconEngine({}, Glyph::Assistant));
   static const struct Entry { const char *command; const char *icon; } entries[] = {
       {"baseMapShow", "mActionShowAllLayers.svg"},
       {"baseMapStart", "mActionStart.svg"},

@@ -3,13 +3,13 @@
 // 原生地层对比页的中央面与 dock 显隐编排）、地层对比页进出时的 dock
 // 保存/恢复、任务驱动的底栏自动露出。自本体移入，逻辑逐行保持。
 #include "paleomainwindow.h"
+#include "workspacefocus.h"
 #include "paleomainwindow_internal.h"
 
 #include "../metadata/paleoprojectstore.h" // showStartup 只读态现取 store 真源（白名单六头）
 #include "datapreview/datapreviewtabs.h" // m_previewTabs 的 findChild 需完整类型（上行转换）
 #include "pages/pageshared.h" // kPageIds（页序表）
 #include "paleoribbon.h"      // makeKeyboardReachable（页签命令钮进 Tab 链）
-#include "taskpanel.h" // syncBottomDockForTasks 切到任务页
 #include "../qgis/qgiscanvascontroller.h" // 非编辑页停用活动工具
 #include "../qgis/qgislayerprofile.h" // applyPageProfile（页面档案）
 #include "../qgis/qgisprojectservice.h" // 工程在场判定（startup 逃逸）
@@ -38,6 +38,20 @@ const QStringList kEditingToolPages = {
   QStringLiteral("constraint"),
   QStringLiteral("compose"),
 };
+QString taskStageLabel(const QString &stage)
+{
+  static const QHash<QString, const char *> labels = {
+    {QStringLiteral("scan"), QT_TRANSLATE_NOOP("PaleoMainWindow", "扫描")},
+    {QStringLiteral("parse"), QT_TRANSLATE_NOOP("PaleoMainWindow", "解析")},
+    {QStringLiteral("index"), QT_TRANSLATE_NOOP("PaleoMainWindow", "建立索引")},
+    {QStringLiteral("decode"), QT_TRANSLATE_NOOP("PaleoMainWindow", "解码")},
+    {QStringLiteral("hash"), QT_TRANSLATE_NOOP("PaleoMainWindow", "校验")},
+    {QStringLiteral("build"), QT_TRANSLATE_NOOP("PaleoMainWindow", "构建")},
+    {QStringLiteral("publish"), QT_TRANSLATE_NOOP("PaleoMainWindow", "发布")}
+  };
+  const auto label = labels.value(stage);
+  return label ? PaleoMainWindow::tr(label) : stage;
+}
 } // namespace
 
 namespace paleo::mainwindow_internal
@@ -67,10 +81,9 @@ void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
   {
     if (s.left && s.left->userWantsVisible())
       s.left->setProgrammaticVisible(true);
-    // W2：任务驱动露出的底栏（m_bottomDockAutoShown）不随切页收回。
-    if (s.bottom && (s.bottom->userWantsVisible() || s.bottomAutoShown))
+    if (s.bottom && s.bottom->userWantsVisible())
       s.bottom->setProgrammaticVisible(true);
-    if (s.wellSection && s.wellSection->userWantsVisible())
+    if (s.wellSection && s.wellSection->userWantsVisible() && !s.wellSection->property("workspaceCentralDocument").toBool())
       s.wellSection->setProgrammaticVisible(true);
   }
   // 编图参考面板随地图工作区进出；保留关闭意愿，恢复布局也走同一规则。
@@ -80,14 +93,27 @@ void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
         dock->setProgrammaticVisible(kEditingToolPages.contains(pageId) && dock->userWantsVisible());
 }
 
+bool inspectorPrecedesAgent(QMainWindow *window)
+{
+  auto *inspector = window->findChild<QDockWidget *>(QStringLiteral("pagePanelDock"), Qt::FindDirectChildrenOnly);
+  auto *agent = window->findChild<QDockWidget *>(QStringLiteral("aiAgentDock"), Qt::FindDirectChildrenOnly);
+  if (inspector && agent && inspector->isVisible() && agent->isVisible() &&
+      window->tabifiedDockWidgets(inspector).contains(agent))
+    return !inspector->visibleRegion().isEmpty();
+  return window->property("inspectorBeforeAgent").toBool();
+}
+
 void hideAllDocksForCorrelation(QMainWindow *win)
 {
   // 原生地层对比页拥有井组、曲线和结果面；整片中央区域让给它。
   for (auto *dock : win->findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
+  {
+    if (dock->objectName() == QLatin1String("aiAgentDock")) continue;
     if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock))
       paleoDock->setProgrammaticVisible(false);
     else
       dock->hide();
+  }
 }
 
 } // namespace paleo::mainwindow_internal
@@ -95,7 +121,7 @@ void hideAllDocksForCorrelation(QMainWindow *win)
 void PaleoMainWindow::restoreCorrelationDocks()
 {
   for (const auto &dock : m_correlationHiddenDocks)
-    if (dock)
+    if (dock && !dock->property("workspaceCentralDocument").toBool())
     {
       // 与 applyPageDockPolicy 同一纪律：地层对比页期间用户经「布局」菜单收起面板
       // （toggleViewAction → setVisible 记下 userWantsVisible=false）后，离开
@@ -113,6 +139,7 @@ void PaleoMainWindow::restoreCorrelationDocks()
 
 void PaleoMainWindow::showPage(const QString &pageId)
 {
+  WorkspaceLayoutScope ordinaryLayout(this);
   const int idx = paleo::pagesinternal::kPageIds.indexOf(pageId);
   if (idx < 0)
   {
@@ -122,6 +149,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (pageId != QLatin1String("data") && m_previewMaximized)
     if (auto *button = m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
       button->setChecked(false);
+  auto *agent = findChild<QDockWidget *>(QStringLiteral("aiAgentDock"), Qt::FindDirectChildrenOnly);
+  const bool agentInFront = agent && !agent->visibleRegion().isEmpty();
+  const bool inspectorFirst = paleo::mainwindow_internal::inspectorPrecedesAgent(this);
   const bool enteringCorrelation = pageId == QLatin1String("correlation") &&
                                    m_currentPage != pageId;
   const bool leavingCorrelation = m_currentPage == QLatin1String("correlation") &&
@@ -130,9 +160,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
     restoreCorrelationDocks();
   if (enteringCorrelation)
   {
-    m_beforeCorrelationWindowState = saveState();
+    setProperty("inspectorBeforeAgent", inspectorFirst);
     for (auto *dock : findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
-      if (!dock->isHidden())
+      if (!dock->isHidden() && dock->objectName() != QLatin1String("aiAgentDock"))
         m_correlationHiddenDocks.append(dock);
   }
   m_currentPage = pageId;
@@ -164,6 +194,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
       }
     }
     m_visualizationTabs->setTabData(tab, QVariantMap{{QStringLiteral("surface"), surface}, {QStringLiteral("page"), pageId}});
+    refreshWorkspaceDocumentCaptions(m_visualizationTabs);
     m_visualizationTabs->setCurrentIndex(tab);
   }
   // 编图过程不必需预先填写解释说明（解释可后台自动生成，非阻断步骤）。
@@ -201,7 +232,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
     prepareMappingReferenceDock();
   paleo::mainwindow_internal::applyPageDockPolicy(
       pageId, {m_leftDock, m_dataListDock, m_bottomDock, m_wellSectionDock,
-               m_previewMaximized, m_bottomDockAutoShown, m_rightDock}, this);
+               m_previewMaximized, m_rightDock}, this);
 
   if (pageId == QLatin1String("correlation"))
   {
@@ -230,46 +261,41 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // 编辑会话经 owner 的 abort 路径拆台（等价 §42.15 的 Esc）。
   if (!kEditingToolPages.contains(pageId) && m_canvasCtl)
     m_canvasCtl->deactivateTool();
+  if (!m_rightDock->isHidden() && tabifiedDockWidgets(m_rightDock).contains(agent)) {
+    if (inspectorFirst) m_rightDock->raise();
+    else if (agentInFront) agent->raise();
+    setProperty("inspectorBeforeAgent", false);
+  }
 }
 
-void PaleoMainWindow::syncBottomDockForTasks()
+void PaleoMainWindow::syncTaskStatus()
 {
-  if (!m_bottomDock)
-    return;
-  bool anyRunning = false;
-  if (m_taskSvc)
-    for (const PaleoTask *t : m_taskSvc->tasks())
-      // quiet 交互任务（三维切片/剖面解码/预取）不拉起任务中心——交互控件
-      // 自带进度语义，弹出反而打断操作。
-      anyRunning |= t->running() && !t->quiet();
-  if (anyRunning)
-  {
-    // 有活动任务且底栏藏着 → 程序化露出并切到任务页（不动
-    // userWantsVisible）。用户中途手动关掉即尊重其选择，不再反复拉起。
-    if (m_currentPage != QLatin1String("correlation") &&
-        !m_bottomDockAutoShown && !m_bottomDock->isVisible())
-    {
-      m_bottomDockAutoShown = true;
-      m_bottomDock->setProgrammaticVisible(true);
-      if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
-        if (auto *panel = findChild<TaskPanel *>(QStringLiteral("taskPanel")))
-          tabs->setCurrentWidget(panel);
-      m_bottomDock->raise();
+  auto *status = findChild<QToolButton *>(QStringLiteral("workspaceTaskStatus"));
+  if (!status) return;
+  QStringList details;
+  QString stage;
+  if (m_taskSvc) {
+    for (const PaleoTask *task : m_taskSvc->tasks()) {
+      if (!task->running() || task->quiet()) continue;
+      const QString progress = task->stagePercent() >= 0
+          ? tr("%1%").arg(task->stagePercent()) : QString();
+      const QString step = (taskStageLabel(task->stage()) + QLatin1Char(' ') + progress).trimmed();
+      if (details.isEmpty()) stage = step;
+      details.append((task->title() + QLatin1Char(' ') + step).trimmed());
     }
   }
-  else if (m_bottomDockAutoShown)
-  {
-    // 任务清空 → 恢复用户原可见态（数据页的纯三栏布局照常隐藏底栏）。
-    m_bottomDockAutoShown = false;
-    const bool want = m_currentPage != QLatin1String("data") &&
-                      m_currentPage != QLatin1String("correlation") &&
-                      m_bottomDock->userWantsVisible();
-    m_bottomDock->setProgrammaticVisible(want);
-  }
+  QString text = details.isEmpty() ? tr("就绪") : tr("后台任务 %1").arg(details.size());
+  if (!stage.isEmpty()) text += tr(" · %1").arg(status->fontMetrics().elidedText(
+      stage, Qt::ElideRight, status->fontMetrics().horizontalAdvance(tr("正在处理数据 100%"))));
+  status->setText(text);
+  status->setToolTip(details.isEmpty() ? tr("打开任务中心") : details.join(QLatin1Char('\n')));
+  status->setAccessibleName(tr("任务中心 · %1").arg(text));
 }
 
 void PaleoMainWindow::showStartup()
 {
+  exitWorkspaceFocus(this);
+  setProperty("inspectorBeforeAgent", paleo::mainwindow_internal::inspectorPrecedesAgent(this));
   if (m_currentPage == QLatin1String("correlation"))
     restoreCorrelationDocks();
   // 只读工程（另一实例持锁打开）回起始页不得重置只读态——现取 store 真源，

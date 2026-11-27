@@ -5,6 +5,7 @@
 #include <QString>
 
 class DataCatalog;
+struct CatalogVersion;
 namespace paleo::capability {
 struct ArtifactVersionRequest {
   QString documentId, versionId;
@@ -23,6 +24,7 @@ class ArtifactVersionCapability {
 public:
   static QString id();
   static QJsonObject requestSchema();
+  static QString resultKind(const CatalogVersion &version);
   // Value-only descriptor is inline so schema adapters do not acquire the
   // execution service's link dependencies.
   static QJsonObject resultSchema() {
@@ -32,7 +34,12 @@ public:
       for(auto it=properties.begin();it!=properties.end();++it)required.append(it.key());
       return QJsonObject{{"type","object"},{"properties",properties},{"required",required},{"additionalProperties",false}};
     };
+    const auto unit = object({{"schemeId",scalar("string")},{"revision",scalar("string")},
+        {"intervalId",scalar("string")},{"subIntervalId",scalar("string")},{"aggregate",scalar("boolean")},
+        {"displayName",scalar("string")}});
     const auto card=object({{"id",scalar("string")},{"assetId",scalar("string")},
+        {"assetType",scalar("string")},{"resultKind",scalar("string")},{"horizon",scalar("string")},
+        {"unitSelection",QJsonObject{{"oneOf",QJsonArray{unit,object({})}}}},
         {"displayName",scalar("string")},{"fileName",scalar("string")},{"stage",scalar("string")},
         {"versionNumber",scalar("integer")},{"managed",scalar("boolean")},{"sha256",scalar("string")},
         {"stale",scalar("boolean")},{"labelsTruncated",scalar("boolean")},{"parentCount",scalar("string")},{"parentsTruncated",scalar("boolean")},

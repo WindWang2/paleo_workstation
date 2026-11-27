@@ -188,13 +188,7 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
             });
   }
   connect(horizons, &QComboBox::currentIndexChanged, this, [this] {
-    invalidateWellFactors(false);
-    refreshWellFactorFields();
-    // 构造期已勾上第一行，层位随后才到。口径下拉若没换索引就不会再发信号，
-    // 已保存提取必须在这里恢复，不能只靠取值方式的 currentIndexChanged。
-    restoreWellFactorDisplay();
-    applySuggestedContourInterval();
-    refreshFactorResults();
+    refreshHorizonData(true);
   });
   connect(factors, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
     if (item && item->column() == 0) {
@@ -386,11 +380,7 @@ void ConstraintPage::refreshAnalysisUnit() {
       }
     }
   }
-  invalidateWellFactors(false);
-  refreshWellFactorFields();refreshConstraintList();updateEngineRows();
-  restoreWellFactorDisplay();
-  refreshFactorLayers();
-  refreshFactorResults();
+  refreshHorizonData(true);
 }
 void ConstraintPage::refreshWellFactorGeoHint()
 {

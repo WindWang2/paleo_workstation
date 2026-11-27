@@ -36,7 +36,7 @@ class AiChatController : public QObject {
 public:
   explicit AiChatController(QObject *parent = nullptr);
   ~AiChatController() override;
-  void setPiRuntime(const paleo::pi::RuntimeConfig &); // Host opt-in; default remains native.
+  void setPiRuntime(const paleo::pi::RuntimeConfig &); // Override the packaged Pi runtime for testing.
   paleo::pi::RuntimeConfig piRuntime() const { return m_piConfiguration; }
 
   void setConfig(const LlmConfig &config);
@@ -79,7 +79,7 @@ public:
   QVector<AiToolSpec> tools() const { return m_runner.availableTools(); }
   // 工具执行器（组合成员；装配根/测试经此绑定执行面与数据上下文）。
   AiChatToolRunner *toolRunner() { return &m_runner; }
-  // G2：可选 Pi 引擎桥（测试经此注入受控 peer；运行接线不变）。
+  // Pi 对话引擎桥（测试可经此注入受控 peer）。
   PiChatBridge *piBridge() { return &m_piBridge; }
   PythonEnvironmentController *createPythonEnvironmentController(QObject *owner);
 
@@ -204,7 +204,7 @@ private:
   int m_streamToolCalls = 0;
   bool m_roundRejected = false;
   QVector<ChatToolCall> m_unansweredCalls; // 本轮尚未有 role=tool 应答的帧
-  // G2-W1：本轮冻结的模型配置与协商工具表（原生/Pi 同源），见上块注释。
+  // G2-W1：本轮冻结的模型配置与协商工具表，见上块注释。
   LlmConfig m_turnConfig;
   QVector<AiToolSpec> m_turnTools;
   QString m_turnPrompt;

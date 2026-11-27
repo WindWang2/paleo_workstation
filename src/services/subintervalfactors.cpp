@@ -436,7 +436,8 @@ QVariantList evidenceRowsFromBindings( const std::vector<paleo::data::SubInterva
   return rows;
 }
 
-bool openProjectDataService( const QString &projectDir, paleo::data::DataService &ds, QString *error )
+static bool openProjectStore( const QString &projectDir, paleo::data::DataService &ds,
+                              bool readOnly, QString *error )
 {
   const QString root = paleo::area_model::directory( projectDir );
   if ( root.isEmpty() || !QFileInfo::exists( root + QStringLiteral( "/data.sqlite" ) ) )
@@ -446,13 +447,19 @@ bool openProjectDataService( const QString &projectDir, paleo::data::DataService
     return false;
   }
   std::string err;
-  if ( !ds.openProject( root.toUtf8().toStdString(), err ) )
+  const auto path = root.toUtf8().toStdString();
+  if ( !( readOnly ? ds.openProjectReadOnly( path, err ) : ds.openProject( path, err ) ) )
   {
     if ( error )
       *error = QStringLiteral( "打开 Data Service 失败：%1" ).arg( QString::fromStdString( err ) );
     return false;
   }
   return true;
+}
+
+bool openProjectDataService( const QString &projectDir, paleo::data::DataService &ds, QString *error )
+{
+  return openProjectStore( projectDir, ds, false, error );
 }
 
 QVector<SchemeChoice> listProjectSchemes( paleo::data::DataService &ds, QString *error )
@@ -517,33 +524,81 @@ bool loadProjectScheme( paleo::data::DataService &ds, const QString &schemeId, c
   return true;
 }
 
+// Opening for write performs the SDK's additive schema migrations. A missing
+// revision or a failed payload digest must keep its original read error.
+template <typename Query>
+static bool readSchemeData( const QString &projectDir, paleo::data::DataService &ds,
+                            QString *error, Query query )
+{
+  QString detail;
+  bool ok = query( detail );
+  if ( !ok && ds.isReadOnly() && ( detail.contains( QStringLiteral( "no such table:" ), Qt::CaseInsensitive )
+                || detail.contains( QStringLiteral( "no such column:" ), Qt::CaseInsensitive ) ) )
+  {
+    if ( !openProjectDataService( projectDir, ds, error ) )
+      return false;
+    detail.clear();
+    ok = query( detail );
+  }
+  if ( error )
+    *error = detail;
+  return ok;
+}
+
+static bool projectSchemeChoices( const QString &projectDir, paleo::data::DataService &ds,
+                                  QVector<SchemeChoice> &schemes, QString *error )
+{
+  const auto readChoices = [&](QString &detail) {
+    schemes = listProjectSchemes( ds, &detail );
+    return detail.isEmpty();
+  };
+  if ( !readSchemeData( projectDir, ds, error, readChoices ) )
+    return false;
+  if ( !schemes.isEmpty() )
+    return true;
+  std::vector<paleo::data::DataEntry> horizons;
+  if ( !readSchemeData( projectDir, ds, error, [&](QString &detail) {
+         std::string nativeError;
+         const bool ok = ds.listData( "horizons", 0, horizons, nativeError );
+         detail = QString::fromStdString( nativeError );
+         return ok;
+       } ) )
+    return false;
+  if ( horizons.size() < 2 )
+    return true;
+
+  if ( ds.isReadOnly() && !openProjectDataService( projectDir, ds, error ) )
+    return false;
+  // Another publisher may have created a scheme since the first read.
+  QString detail;
+  if ( readChoices( detail ) && schemes.isEmpty() )
+  {
+    paleo::data::SeismicStratigraphyBuildReport report;
+    std::string nativeError;
+    if ( !ds.buildSeismicStratigraphicFramework( {}, report, nativeError ) )
+      detail = QString::fromStdString( nativeError );
+    else if ( report.intervalCount > 0 )
+      readChoices( detail );
+  }
+  if ( error )
+    *error = detail;
+  return detail.isEmpty();
+}
+
 bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeId, const QString &revision,
                                paleo::data::StratigraphicScheme &out,
                                std::vector<paleo::data::SubIntervalResultBinding> *bindings, QString *error )
 {
   paleo::data::DataService ds;
-  if ( !openProjectDataService( projectDir, ds, error ) )
+  if ( !openProjectStore( projectDir, ds, true, error ) )
     return false;
   QString sid = schemeId;
   QString rev = revision;
   if ( sid.isEmpty() )
   {
     QString listErr;
-    auto schemes = listProjectSchemes( ds, &listErr );
-    if ( schemes.isEmpty() )
-    {
-      std::vector<paleo::data::DataEntry> horizons;
-      std::string hErr;
-      if ( ds.listData( "horizons", 0, horizons, hErr ) && horizons.size() >= 2 )
-      {
-        paleo::data::SeismicStratigraphyBuildOptions buildOpts;
-        paleo::data::SeismicStratigraphyBuildReport buildReport;
-        std::string buildErr;
-        if ( ds.buildSeismicStratigraphicFramework( buildOpts, buildReport, buildErr ) &&
-             buildReport.intervalCount > 0 )
-          schemes = listProjectSchemes( ds, &listErr );
-      }
-    }
+    QVector<SchemeChoice> schemes;
+    projectSchemeChoices( projectDir, ds, schemes, &listErr );
     if ( schemes.isEmpty() )
     {
       if ( error )
@@ -563,15 +618,20 @@ bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeI
     if ( rev.isEmpty() )
       rev = picked->headRevision;
   }
-  if ( !loadProjectScheme( ds, sid, rev, out, error ) )
+  if ( !readSchemeData( projectDir, ds, error, [&](QString &detail) {
+         return loadProjectScheme( ds, sid, rev, out, &detail );
+       } ) )
     return false;
   if ( bindings )
   {
-    std::string err;
-    paleo::data::SubIntervalId empty;
-    if ( !ds.listSubIntervalResults( out.id, empty, *bindings, err ) && error && error->isEmpty() )
-      *error = QStringLiteral( "列举子层段成果失败：%1" ).arg( QString::fromStdString( err ) );
     // 成果列举失败不阻断方案加载——红绿灯退化为仅 occurrence。
+    readSchemeData( projectDir, ds, error, [&](QString &detail) {
+      std::string nativeError;
+      if ( ds.listSubIntervalResults( out.id, {}, *bindings, nativeError ) )
+        return true;
+      detail = QStringLiteral( "列举子层段成果失败：%1" ).arg( QString::fromStdString( nativeError ) );
+      return false;
+    } );
   }
   return true;
 }
@@ -581,24 +641,8 @@ bool listProjectSchemesFromDir( const QString &projectDir, QVector<SchemeChoice>
 {
   out.clear();
   paleo::data::DataService ds;
-  if ( !openProjectDataService( projectDir, ds, error ) )
-    return false;
-  out = listProjectSchemes( ds, error );
-  if ( out.isEmpty() )
-  {
-    std::vector<paleo::data::DataEntry> horizons;
-    std::string hErr;
-    if ( ds.listData( "horizons", 0, horizons, hErr ) && horizons.size() >= 2 )
-    {
-      paleo::data::SeismicStratigraphyBuildOptions buildOpts;
-      paleo::data::SeismicStratigraphyBuildReport buildReport;
-      std::string buildErr;
-      if ( ds.buildSeismicStratigraphicFramework( buildOpts, buildReport, buildErr ) &&
-           buildReport.intervalCount > 0 )
-        out = listProjectSchemes( ds, error );
-    }
-  }
-  return !out.isEmpty() || ( error && error->isEmpty() );
+  return openProjectStore( projectDir, ds, true, error )
+         && projectSchemeChoices( projectDir, ds, out, error );
 }
 
 bool listProjectSchemeRevisionsFromDir( const QString &projectDir, const QString &schemeId,
@@ -606,10 +650,12 @@ bool listProjectSchemeRevisionsFromDir( const QString &projectDir, const QString
 {
   out.clear();
   paleo::data::DataService ds;
-  if ( !openProjectDataService( projectDir, ds, error ) )
+  if ( !openProjectStore( projectDir, ds, true, error ) )
     return false;
-  out = listProjectSchemeRevisions( ds, schemeId, error );
-  return true;
+  return readSchemeData( projectDir, ds, error, [&](QString &detail) {
+    out = listProjectSchemeRevisions( ds, schemeId, &detail );
+    return detail.isEmpty();
+  } );
 }
 
 PagedLabeledChoices pageLabeledChoices( const QVector<LabeledIdChoice> &all, const QString &filter, int page,

@@ -14,9 +14,9 @@ class PaleoProjectStore;
 
 // services/ — PaleoTaskService: 异步任务注册中心 + 池化执行（autoplan pass-2
 // 批准的 D1/D2）。SEG-Y 道索引/SHA 校验、LAS 解析、层位装箱、单线解码、文件
-// 夹导入等长 IO 跑在 QThreadPool::global()，不再阻塞 GUI；任务经排队回调把
+// 夹导入等长 IO 跑在服务的专用线程池，不再阻塞 GUI；任务经排队回调把
 // 字节进度发回主线程，任务页以 1s 粒度刷进度条、以最近 ≤10s 字节速率线性估
-// 剩余时间；取消是协作式的——worker 在循环里自查 cancelRequested()。
+// 剩余时间；取消排队任务立即排送终态，已经执行的 worker 在循环里自查 cancelRequested()。
 //
 // worker 签名：std::function<QString(PaleoTask*)>，返回错误串（空 = 成功）。
 // 结束态由服务统一判：cancelRequested() 为真 → Cancelled（忽略返回值）；
@@ -123,9 +123,6 @@ private:
   Q_INVOKABLE void applyDetail(const QString &detail);
   Q_INVOKABLE void applyStage(const QString &stage, int percent);
   Q_INVOKABLE void applyFinish(const QString &error);
-  // worker 线程 DirectConnection 调用：标记任务已出队执行——shutdown() 的
-  // pool->clear() 丢弃未启动 runnable 后据此识别"永不到终态"的排队任务。
-  Q_INVOKABLE void markStarted();
 
   qint64 m_id;
   QString m_title, m_layerId, m_error, m_detail;
@@ -139,7 +136,6 @@ private:
   std::atomic_bool m_cancel{false};
   std::atomic_bool m_explicitCancel{false};
   std::atomic_bool m_cancellable{true};
-  std::atomic_bool m_started{false}; // 池内 runnable 是否已开跑（外部任务恒真）
   std::atomic<qint64> m_lastStageReport{0};
   qint64 m_bytesDone = 0, m_bytesTotal = -1;
   double m_rateBytesPerSec = -1.0; // 最近 ≤10s 窗口字节速率；-1 不可估
@@ -194,6 +190,9 @@ public:
   // false = 超时仍有 worker 在跑。宿主（AppContext）应在析构依赖对象之前调用；
   // 析构函数自身也会（不泵事件地）排空。幂等。
   bool shutdown(int timeoutMs = kShutdownWaitMs, bool pumpEvents = true);
+  // Owner-thread producers must not submit follow-up jobs during teardown,
+  // including from completion notifications delivered after shutdown returns.
+  bool shutdownRequested() const { return m_shutdownRequested; }
   static constexpr int kShutdownWaitMs = 10000;
 
   // D4.5 线程池纪律：本服务任务跑专用池，工作线程上限 4（j4 资源纪律精神；
@@ -236,6 +235,7 @@ private:
   int m_quietLingerMs = kDefaultQuietLingerMs;
 
   PaleoProjectStore *m_store;
+  bool m_shutdownRequested = false;
   qint64 m_nextId = 1;
   QVector<PaleoTask *> m_tasks;
   QThreadPool *m_pool = nullptr; // D4.5 专用 ≤4 工作线程池

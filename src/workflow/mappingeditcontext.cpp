@@ -18,6 +18,7 @@
 void MappingWorkbench::setAnalysisUnit(const paleo::strat::UnitSelection &unit) {
   if (m_analysisUnit == unit)
     return;
+  cancelClusterWellPreview();
   if (!m_request.id.isEmpty() || !m_readinessId.isEmpty())
     cancelPrediction();
   m_analysisUnit = unit;

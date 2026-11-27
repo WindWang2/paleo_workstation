@@ -21,13 +21,14 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTemporaryDir>
-#include <QTabWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTextBrowser>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolButton>
 #include <QTranslator>
 #include <QListWidget>
 #include <QTableWidget>
@@ -183,7 +184,7 @@ private:
 
 void TestH5PlanAssembly::planWorkbenchIsWiredIntoTheRealWindow() {
   auto *dock = m_win->findChild<AiAssistDock *>(QStringLiteral("aiAssistantDock"));
-  QVERIFY2(dock, "attachAiAssistant 必须已建 AI 助手页签");
+  QVERIFY2(dock, "attachAiAssistant 必须已建独立 Agent 面板");
   auto *presenter = m_win->findChild<paleo::chat::AiPlanPresentation *>(
     QStringLiteral("aiPlanPresenter"));
   QVERIFY2(presenter, "installConversationPresentation 必须追加计划装配");
@@ -278,10 +279,12 @@ void TestH5PlanAssembly::captureAssemblyScreenshots() {
     QSKIP("截图按需采集（PALEO_H5_SHOT_DIR 未设）");
   auto *dock = m_win->findChild<AiAssistDock *>(QStringLiteral("aiAssistantDock"));
   QVERIFY(dock);
-  auto *tabs = m_win->findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
-  tabs->setCurrentWidget(dock);
   m_win->resize(1280, 800);
   m_win->show();
+  auto *launcher = m_win->findChild<QToolButton *>("aiAgentButton");
+  QVERIFY(launcher && launcher->isVisible());
+  launcher->click();
+  QTRY_VERIFY(dock->isVisible());
 
   // 修正无效下游参数 → 有效两步图：直接注入编辑走查（面板真实控件）。
   ScriptedLlmServer server;
@@ -326,6 +329,7 @@ int main(int argc, char *argv[]) {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty())
     qputenv("QT_QPA_PLATFORM", "offscreen");
   static QTemporaryDir settingsDir;
+  QStandardPaths::setTestModeEnabled(true);
   QSettings::setDefaultFormat(QSettings::IniFormat);
   QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
   AppContext ctx(qEnvironmentVariable("QGIS_PREFIX_PATH"));

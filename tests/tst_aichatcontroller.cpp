@@ -15,7 +15,7 @@
 #include <QTemporaryDir>
 
 #include "../src/ai/chat/llmclient.h"
-#include "../src/workflow/aichatcontroller.h"
+#include "pichattestcontroller.h"
 #include "workflow/pythonenvironmentcontroller.h"
 #include "services/pythonenvironmentregistry.h"
 
@@ -251,7 +251,7 @@ void TestAiChatController::cleanup() {
 void TestAiChatController::streamingAssemblesAnswerAndSavesSession() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   QVERIFY(controller.enabled());
   QVERIFY(controller.statusText().contains(QStringLiteral("test-model")));
@@ -259,6 +259,7 @@ void TestAiChatController::streamingAssemblesAnswerAndSavesSession() {
   QStringList deltas;
   connect(&controller, &AiChatController::assistantDelta, this,
           [&deltas](const QString &text) { deltas.append(text); });
+  QSignalSpy piModelRequests(controller.piBridge(), &PiChatBridge::modelRequested);
   QSignalSpy finished(&controller, &AiChatController::streamingChanged);
   const QString id = controller.session().id;
   m_createdSessions.append(id);
@@ -268,6 +269,7 @@ void TestAiChatController::streamingAssemblesAnswerAndSavesSession() {
            "流式的结束信号必须到达（或超时报错）");
   QVERIFY(!finished.isEmpty());
 
+  QCOMPARE(piModelRequests.size(), 1);
   // 拼接结果 = 完整回答（增量顺序不乱）。
   const QVector<ChatMessage> messages = controller.messages();
   QCOMPARE(messages.size(), 2); // user + assistant
@@ -286,7 +288,7 @@ void TestAiChatController::streamingAssemblesAnswerAndSavesSession() {
 void TestAiChatController::toolCallFramesReachThePanelWithHonestStatus() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::ToolCalls));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
@@ -318,7 +320,7 @@ void TestAiChatController::toolCallFramesReachThePanelWithHonestStatus() {
 void TestAiChatController::emptyIdToolCallsAreNotDeduplicated() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsEmptyIds));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
@@ -345,7 +347,7 @@ void TestAiChatController::toolBudgetRejectsWholeFrameBeforeExecution() {
   QFETCH(int, mode);
   FakeLlmServer server;
   QVERIFY(server.start(static_cast<FakeLlmServer::Mode>(mode)));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy results(&controller, &AiChatController::toolResultReady);
@@ -366,7 +368,7 @@ void TestAiChatController::toolBudgetRejectsWholeFrameBeforeExecution() {
 void TestAiChatController::cumulativeToolBudgetStopsWithCompletePairs() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::FourCalls));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy results(&controller, &AiChatController::toolResultReady);
@@ -390,7 +392,7 @@ void TestAiChatController::cumulativeToolBudgetStopsWithCompletePairs() {
 void TestAiChatController::legacyBrokenResultsAreOnlyAdaptedForTransmission() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   auto stored = controller.session();
   m_createdSessions.append(stored.id);
@@ -422,7 +424,7 @@ void TestAiChatController::legacyBrokenResultsAreOnlyAdaptedForTransmission() {
 void TestAiChatController::synchronousCancelOnResultKeepsSingleAnswerAndStops() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::ToolCalls));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   connect(&controller, &AiChatController::messageAppended, &controller,
@@ -441,7 +443,7 @@ void TestAiChatController::synchronousCancelOnResultKeepsSingleAnswerAndStops() 
 void TestAiChatController::unauthorizedResponseIsClassifiedAsAuthError() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Unauthorized));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy errors(&controller, &AiChatController::errorOccurred);
@@ -460,7 +462,7 @@ void TestAiChatController::unauthorizedResponseIsClassifiedAsAuthError() {
 void TestAiChatController::plainJsonReplyUnderStreamFlagIsParsedNotSwallowed() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::PlainJson));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   QVERIFY(controller.config().stream); // 前提：客户端确实请求了流式
   m_createdSessions.append(controller.session().id);
@@ -486,7 +488,7 @@ void TestAiChatController::plainJsonReplyUnderStreamFlagIsParsedNotSwallowed() {
 void TestAiChatController::idleTimeoutIsClassifiedAsTimeout() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Slow));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint(), 300));
   m_createdSessions.append(controller.session().id);
   QSignalSpy errors(&controller, &AiChatController::errorOccurred);
@@ -502,13 +504,17 @@ void TestAiChatController::idleTimeoutIsClassifiedAsTimeout() {
 void TestAiChatController::cancelDropsEmptyAssistantPlaceholder() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Slow));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint(), 5000));
   m_createdSessions.append(controller.session().id);
   controller.sendUserText(QStringLiteral("hi"));
   QVERIFY(controller.streaming());
+  QVERIFY2(spinUntil([&server] { return server.requestCount() == 1; }),
+           "等待 Pi 请求模型并创建助手占位后再取消");
   controller.cancel();
   QVERIFY(!controller.streaming());
+  QSignalSpy refreshed(&controller, &AiChatController::statusChanged);
+  QVERIFY(spinUntil([&] { return !refreshed.isEmpty() && controller.canRetry(); }));
   const QVector<ChatMessage> messages = controller.messages();
   QCOMPARE(messages.size(), 1); // 只剩用户那条：空白的助手占位被摘掉
   QCOMPARE(messages.first().role, ChatRole::User);
@@ -522,7 +528,7 @@ void TestAiChatController::cancelDropsEmptyAssistantPlaceholder() {
 void TestAiChatController::errorAfterToolFramesKeepsProtocolIntegrity() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsHang));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint(), 700));
   m_createdSessions.append(controller.session().id);
   QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
@@ -556,7 +562,7 @@ void TestAiChatController::cancelDuringStreamingAfterToolFramesKeepsProtocol()
 {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsHang));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint(), 20000)); // 长超时：由 cancel 收
   m_createdSessions.append(controller.session().id);
   QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
@@ -583,7 +589,7 @@ void TestAiChatController::cancelDuringStreamingAfterToolFramesKeepsProtocol()
 }
 
 void TestAiChatController::localImportSurvivesSessionSwitchAndReachesNextRequest() {
-  AiChatController controller;
+  PiTestChatController controller;
   const auto origin = controller.session().id;
   m_createdSessions << origin;
   QString error;
@@ -615,7 +621,7 @@ void TestAiChatController::localImportSurvivesSessionSwitchAndReachesNextRequest
 void TestAiChatController::localImportDuringStreamingKeepsAnswerAndReceipt() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   const auto origin = controller.session().id;
   m_createdSessions << origin;
@@ -649,7 +655,7 @@ void TestAiChatController::disabledConfigReportsAndSendsNothing() {
 void TestAiChatController::switchingSessionsFlushesUnsavedContentToDisk() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Slow)); // 挂起：逼出未保存态
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   const QString idA = controller.session().id;
   m_createdSessions.append(idA);
@@ -690,7 +696,7 @@ void TestAiChatController::switchingSessionsFlushesUnsavedContentToDisk() {
 void TestAiChatController::retryLastResendsWithoutDuplicatingUserMessage() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.sendUserText(QStringLiteral("这段是什么岩性？"));
@@ -723,7 +729,7 @@ void TestAiChatController::retryLastResendsWithoutDuplicatingUserMessage() {
 void TestAiChatController::renameSessionPersistsTitleAndRejectsEmpty() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   const QString id = controller.session().id;
   m_createdSessions.append(id);
@@ -746,7 +752,7 @@ void TestAiChatController::renameSessionPersistsTitleAndRejectsEmpty() {
 void TestAiChatController::exportCurrentSessionWritesMarkdownMatchingSession() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   controller.sendUserText(QStringLiteral("这段是什么岩性？"));

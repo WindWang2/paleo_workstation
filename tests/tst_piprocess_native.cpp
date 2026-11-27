@@ -142,6 +142,22 @@ HandshakeResult worker(const HandshakeRequest& value){return std::async(std::lau
 class TestPiProcessNative:public QObject {
   Q_OBJECT
 private slots:
+#ifdef Q_OS_LINUX
+  void fixedNodeUsesOnlyTheBundledLoaderDirectory() {
+    QTemporaryDir scratch;
+    QVERIFY(scratch.isValid());
+    const auto previous = qgetenv("LD_LIBRARY_PATH");
+    auto restore = qScopeGuard([&] {
+      if (previous.isNull()) qunsetenv("LD_LIBRARY_PATH"); else qputenv("LD_LIBRARY_PATH", previous);
+    });
+    qputenv("LD_LIBRARY_PATH", scratch.path().toUtf8());
+    const auto loader = detail::isolatedProcessEnvironment(scratch.path()).value("LD_LIBRARY_PATH");
+    QVERIFY(!loader.isEmpty());
+    QVERIFY(loader != scratch.path());
+    QCOMPARE(QDir(loader).entryList(QDir::Files, QDir::Name),
+             QStringList({QStringLiteral("libgcc_s.so.1"), QStringLiteral("libstdc++.so.6")}));
+  }
+#endif
   void realLockedHelloAndClose() {
     const auto runtime=identity();QVERIFY2(runtime.ok(),qPrintable(runtime.code));
     const auto result=worker(request(runtime.runtime));QVERIFY2(result.ok(),qPrintable(result.code+QString::fromUtf8(result.diagnostics)));
@@ -150,16 +166,17 @@ private slots:
     QCOMPARE(result.peer.value("modelTransport").toString(),QString("host-only-unconnected"));
     QVERIFY(!result.peer.value("sandboxed").toBool());
   }
-  void processLocalLeaseAndExternalExclusion() {
-    auto first=identity();QVERIFY2(first.ok(),qPrintable(first.code));
-    auto second=identity();QVERIFY2(second.ok(),qPrintable(second.code));
-    const auto external=[] {
-      QProcess probe;probe.start(QCoreApplication::applicationFilePath(),{"--pi-lease-probe"});
-      if(!probe.waitForFinished(10000))return QByteArray("probe_timeout");return probe.readAllStandardOutput().replace("\r\n","\n");
-    };
-    QCOMPARE(external(),QByteArray("pi_runtime_busy\n"));first.runtime.reset();
-    QCOMPARE(external(),QByteArray("pi_runtime_busy\n"));second.runtime.reset();
-    QCOMPARE(external(),QByteArray("ok\n"));
+  void independentWorkstationsCanUseTheSameGeneration() {
+    const auto local = identity();
+    QVERIFY2(local.ok(), qPrintable(local.code));
+    QProcess other;
+    other.start(QCoreApplication::applicationFilePath(), {"--pi-shared-runtime-probe"});
+    QVERIFY(other.waitForStarted());
+    const auto result = worker(request(local.runtime));
+    QVERIFY2(result.ok(), qPrintable(result.code));
+    QVERIFY(other.waitForFinished(30000));
+    QCOMPARE(other.readAllStandardOutput().trimmed(), QByteArray("ok"));
+    QCOMPARE(other.exitCode(), 0);
   }
 #ifdef Q_OS_WIN
   void fixedNodeDoesNotInheritUnrelatedExclusiveHandle() {
@@ -267,8 +284,11 @@ private slots:
 };
 int main(int argc,char** argv) {
   QCoreApplication application(argc,argv);const auto arguments=application.arguments();
-  if(arguments.contains("--pi-lease-probe")) {
-    const auto found=identity();std::printf("%s\n",found.code.toUtf8().constData());return found.ok()?0:1;
+  if(arguments.contains("--pi-shared-runtime-probe")) {
+    const auto found = identity();
+    const auto code = found.ok() ? worker(request(found.runtime)).code : found.code;
+    std::printf("%s\n", code.toUtf8().constData());
+    return code == QStringLiteral("ok") ? 0 : 1;
   }
   if(arguments.contains("--pi-hostdeath")) {
     const auto found=identity();if(!found.ok()){std::fprintf(stderr,"%s\n",found.code.toUtf8().constData());return 1;}

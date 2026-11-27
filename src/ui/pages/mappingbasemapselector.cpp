@@ -49,6 +49,11 @@ void MappingBaseMapSelector::setHorizon(const QString &horizon) {
   m_horizon = horizon;
   refresh();
 }
+void MappingBaseMapSelector::setReferenceBoundary(const QString &boundary) {
+  if (m_referenceBoundary == boundary) return;
+  m_referenceBoundary = boundary;
+  refresh();
+}
 void MappingBaseMapSelector::refreshInitialFacies() {
   const int previous = m_initialFacies->currentData().toInt();
   const QSignalBlocker blocker(m_initialFacies);
@@ -79,7 +84,7 @@ bool MappingBaseMapSelector::updateBoundary(const QString &id) {
 }
 void MappingBaseMapSelector::refresh() {
   const auto selectedCategory = m_category->currentData().toString(), selectedSource = m_source->currentData().toMap().value("id").toString();
-  const QSignalBlocker categoryBlock(m_category), sourceBlock(m_source); const auto rows = m_workbench->baseMapCandidates(m_horizon);
+  const QSignalBlocker categoryBlock(m_category), sourceBlock(m_source); const auto rows = m_workbench->baseMapCandidates(m_horizon, m_referenceBoundary);
   m_category->clear(); m_category->addItem(tr("从零编制"), "new"); QSet<QString> categories;
   for (const auto &v : rows) { const auto row = v.toMap(); const auto key = row.value("category").toString(); if (!categories.contains(key)) { categories.insert(key); m_category->addItem(row.value("category_title").toString(), key); } }
   m_category->setCurrentIndex(qMax(0, m_category->findData(selectedCategory))); m_source->clear();
@@ -116,6 +121,10 @@ void MappingBaseMapSelector::updateState() {
     for (const auto &part : parts) { bool ok; const auto number = part.toDouble(&ok); valid &= ok && std::isfinite(number) && number > previous; previous = number; }
   }
   m_start->setEnabled(!m_horizon.isEmpty() && !action.isEmpty() && valid);
+  if (row.contains("reference_boundary")) {
+    const auto hint = tr("此图归属界面 %1，可作为当前子层段的空间参考。").arg(row.value("reference_boundary").toString());
+    m_start->setToolTip(hint); m_hint->setText(hint); return;
+  }
   m_start->setToolTip(!boundary.isEmpty() ? m_initialFacies->itemText(0) : action.isEmpty() ? tr("此图可作为参考底图；相面编辑需要完整三级相分类和 facies_code 字段") : !valid ? tr("阈值数须为分类数减一，且为有限递增数值") : tr("生成独立成果版本，保留原始图件"));
   m_hint->setText(row.isEmpty() ? tr("请先在数据管理中导入本层位古地理图，或生成单因素／地震相图。") :
       !boundary.isEmpty() ? m_boundaryMessage :
@@ -127,7 +136,7 @@ void MappingBaseMapSelector::updateState() {
 void MappingBaseMapSelector::issue(bool start) {
   const auto row = m_source->currentData().toMap(); if (row.isEmpty()) return;
   const auto action = start ? row.value("start_action").toString() : QString("show"); if (action.isEmpty()) return;
-  QVariantMap params{{"horizon", m_horizon}, {"layer", row.value("id")}, {"inputs", QStringList{row.value("id").toString()}}};
+  QVariantMap params{{"horizon", row.value("reference_boundary", m_horizon)}, {"layer", row.value("id")}, {"inputs", QStringList{row.value("id").toString()}}};
   if (row.contains("boundary")) {
     params["boundary"] = row.value("boundary");
     params["boundary_digest"] = m_boundaryDigest;

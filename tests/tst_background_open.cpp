@@ -254,6 +254,60 @@ private slots:
     QVERIFY(service.lastOpenCancelled()); QVERIFY(!service.isOpening());
     QVERIFY(!service.writeProject());
   }
+  void contextBindingPrecedesProjectOpened() {
+    QTemporaryDir directory;
+    QgisProjectService service;
+    const auto path = directory.filePath("context.qgz");
+    QStringList events;
+    connect(&service, &QgisProjectService::projectContextRequested, this, [&](const QString &boundPath) {
+      QCOMPARE(boundPath, service.projectPath());
+      events << "context";
+      if (service.isOpening())
+        QTimer::singleShot(0, &service, [&] { events << "event turn"; });
+    });
+    connect(&service, &QgisProjectService::projectOpened, this, [&] { events << "opened"; });
+    const QStringList synchronous{"context", "opened"};
+    QVERIFY(service.createProject(path));
+    QCOMPARE(events, synchronous);
+    service.closeProject();
+    events.clear();
+    QVERIFY(service.openProject(path));
+    QCOMPARE(events, synchronous);
+    service.closeProject();
+    events.clear();
+    QSignalSpy finished(&service, &QgisProjectService::openFinished);
+    QVERIFY(service.openProjectAsync(path));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 30000);
+    QVERIFY(finished.at(0).at(0).toBool());
+    QCOMPARE(events, QStringList({"context", "event turn", "opened"}));
+  }
+  void cancelAfterContextBindingDoesNotAnnounceReplacedProject() {
+    QTemporaryDir directory, replacement;
+    QgisProjectService service;
+    const auto path = directory.filePath("cancel.qgz");
+    QVERIFY(service.createProject(path));
+    service.closeProject();
+    QSignalSpy opened(&service, &QgisProjectService::projectOpened);
+    QSignalSpy finished(&service, &QgisProjectService::openFinished);
+    QSignalSpy closing(&service, &QgisProjectService::projectAboutToClose);
+    QSignalSpy closed(&service, &QgisProjectService::projectClosed);
+    connect(&service, &QgisProjectService::projectContextRequested, this, [&] {
+      if (service.isOpening()) QTimer::singleShot(0, &service, &QgisProjectService::cancelOpen);
+    });
+    QVERIFY(service.openProjectAsync(path));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 30000);
+    QVERIFY(!finished.at(0).at(0).toBool());
+    QCOMPARE(closing.count(), 1);
+    QCOMPARE(closed.count(), 1);
+    QCOMPARE(opened.count(), 0);
+    QVERIFY(service.projectPath().isEmpty());
+    const auto replacementPath = replacement.filePath("replacement.qgz");
+    QVERIFY(service.createProject(replacementPath));
+    QTest::qWait(50);
+    QCOMPARE(opened.count(), 1);
+    QCOMPARE(opened.at(0).at(0).toString(), replacementPath);
+    QCOMPARE(service.projectPath(), replacementPath);
+  }
   // (#483 P2) 升级 tripwire：后台 QgsProject 读层 + moveToThread/takeMapLayer
   // 接管依赖「层随 moveToThread 连 provider 亲和一起搬」的 QGIS 未书面契约。
   // vendored QGIS 升级若破坏该契约，此处在 CI 当场红掉，而不是用户侧拿到

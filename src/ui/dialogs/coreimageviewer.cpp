@@ -1,5 +1,6 @@
 // 层：视图
 #include "coreimageviewer.h"
+#include "../common/fittedimageview.h"
 #include "../../domain/wellcompositemodel.h"
 #include "../../services/imagelod.h"
 #include "../paleotheme.h"
@@ -8,85 +9,17 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileInfo>
-#include <QGraphicsScene>
-#include <QGraphicsView>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPointer>
 #include <QPushButton>
-#include <QResizeEvent>
 #include <QUuid>
 #include <QVBoxLayout>
-#include <QWheelEvent>
-#include <cmath>
 #include <functional>
 #include "ui/common/screenfit.h" // R7 #887：默认尺寸按所在屏收紧
 
 namespace {
 QString tr(const char *text) { return QCoreApplication::translate("CoreImageViewer", text); }
-
-class PhotoView final : public QGraphicsView {
-public:
-  explicit PhotoView(QWidget *parent) : QGraphicsView(parent) {
-    setObjectName(QStringLiteral("coreImageView"));
-    setAccessibleName(::tr("岩心照片放大视图"));
-    setScene(new QGraphicsScene(this));
-    setRenderHint(QPainter::SmoothPixmapTransform);
-    setDragMode(QGraphicsView::ScrollHandDrag);
-    setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
-    setResizeAnchor(QGraphicsView::AnchorViewCenter);
-  }
-  std::function<void(double)> zoomChanged;
-  void setPhoto(QPixmap pixmap) {
-    const QSizeF oldSize = sceneRect().size();
-    const QPointF oldCenter = mapToScene(viewport()->rect().center());
-    pixmap.setDevicePixelRatio(1.0);
-    scene()->clear();
-    scene()->addPixmap(pixmap);
-    setSceneRect(QRectF(QPointF(), pixmap.size()));
-    setBackgroundBrush(pixmap.hasAlpha() ? paleo::imagelod::alphaCheckerboard() : QBrush());
-    if (m_fit || oldSize.isEmpty()) fitPhoto();
-    else {
-      const double ratio = oldSize.width() / pixmap.width();
-      scale(ratio, ratio);
-      centerOn(oldCenter.x() / oldSize.width() * pixmap.width(),
-               oldCenter.y() / oldSize.height() * pixmap.height());
-      notifyZoom();
-    }
-  }
-  void fitPhoto() {
-    m_fit = true;
-    if (sceneRect().isEmpty()) return;
-    fitInView(sceneRect(), Qt::KeepAspectRatio);
-    notifyZoom();
-  }
-  void originalSize() {
-    m_fit = false;
-    resetTransform();
-    notifyZoom();
-  }
-  void zoomBy(double factor) {
-    if (sceneRect().isEmpty()) return;
-    m_fit = false;
-    const double current = transform().m11();
-    const double next = qBound(0.01, current * factor, 16.0);
-    scale(next / current, next / current);
-    notifyZoom();
-  }
-protected:
-  void wheelEvent(QWheelEvent *event) override {
-    if (!event->angleDelta().y()) { QGraphicsView::wheelEvent(event); return; }
-    zoomBy(std::pow(1.2, event->angleDelta().y() / 120.0));
-    event->accept();
-  }
-  void resizeEvent(QResizeEvent *event) override {
-    QGraphicsView::resizeEvent(event);
-    if (m_fit) fitPhoto();
-  }
-private:
-  void notifyZoom() { if (zoomChanged) zoomChanged(transform().m11()); }
-  bool m_fit = true;
-};
 
 class PhotoDialog final : public QDialog {
 public:
@@ -107,7 +40,9 @@ public:
         : ::tr("锚深：%1 m").arg(item.topDepth, 0, 'f', 2), this);
     depth->setFont(PaleoTheme::monoFont());
     layout->addWidget(depth);
-    m_view = new PhotoView(this);
+    m_view = new paleo::ui::FittedImageView(paleo::ui::FittedImageView::Mode::ZoomAndPan, this);
+    m_view->setObjectName(QStringLiteral("coreImageView"));
+    m_view->setAccessibleName(::tr("岩心照片放大视图"));
     layout->addWidget(makeControls(), 0);
     layout->addWidget(m_view, 1);
     m_status = new QLabel(this);
@@ -177,7 +112,7 @@ private:
         });
     if (!queued) m_status->setText(::tr("无法启动原图读取；请关闭窗口后重试。"));
   }
-  PhotoView *m_view = nullptr;
+  paleo::ui::FittedImageView *m_view = nullptr;
   QLabel *m_status = nullptr;
   QPushButton *m_original = nullptr;
 };

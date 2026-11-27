@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # 层：测试壳
-"""Validate the optional Pi supply closure without discovering or starting Node."""
+"""Validate the bundled Pi supply closure without discovering or starting Node."""
 from __future__ import annotations
 import argparse
 from pathlib import Path
@@ -59,16 +59,20 @@ def check_boundary():
             if required not in conversation:
                 raise ValueError("conversation boundary missing: " + required)
     cmake = (ROOT / "cmake/extra-pi-agent.cmake").read_text("utf-8")
-    for required in ("paleo_services_piagent", "EXCLUDE_FROM_ALL", "AgentPiRuntime", "pi_agent", "pi_agent_selftest"):
+    anchors, _ = read_json(VENDOR / "runtime-manifests.lock.json")
+    if set(anchors) != {"linux-x86_64", "windows-x86_64"} or not all(hex_digest(anchor) for anchor in anchors.values()):
+        raise ValueError("both Pi runtime manifest pins are required")
+    for required in ("add_dependencies(paleo_services_piagent paleo_pi_runtime)", "prepare-pi-runtime.cmake", "PALEO_AGENT_PI_MANIFEST_SHA",
+                     "runtime-manifests.lock.json", "pi_agent", "pi_agent_selftest"):
         if required not in cmake:
-            raise ValueError("optional CMake boundary missing: " + required)
+            raise ValueError("bundled Pi CMake boundary missing: " + required)
     if "extra-pi-agent.cmake" not in (ROOT / "CMakeLists.txt").read_text("utf-8"):
         raise ValueError("Pi source target is not registered")
     if "find_program(" in cmake or "execute_process(" in cmake:
         raise ValueError("Pi configure must not discover/run Node")
     installs = re.findall(r"install\s*\(([^)]*)\)", cmake)
-    if len(installs) != 1 or not re.search(r"SCRIPT\s+[^\n]+\s+COMPONENT\s+AgentPiRuntime\s+EXCLUDE_FROM_ALL", installs[0]):
-        raise ValueError("Pi active-JS install must be one explicit excluded component")
+    if len(installs) != 1 or not re.fullmatch(r'SCRIPT\s+"[^"]+"\s+COMPONENT\s+AgentPiRuntime', installs[0]):
+        raise ValueError("the default installation must include the verified Pi runtime")
     guard = (ROOT / "cmake/install-pi-agent.cmake.in").read_text("utf-8")
     if re.search(r"execute_process\s*\(|file\s*\(\s*(DOWNLOAD|UPLOAD)\b", guard, re.IGNORECASE):
         raise ValueError("Pi installer must not execute Node or access the network")

@@ -123,6 +123,9 @@ class PaleoDecorationManager : public QObject
 
     void setFaciesLegend(const QString &title, const QVariantList &facies, QgsMapLayer *symbolLayer = nullptr);
     QString legendTitle() const { return mLegend->title; }
+    bool hasFaciesLegend() const { return mLegendEnabled; }
+    bool comparisonLegendVisible() const { return mComparisonLegendVisible; }
+    void setComparisonLegendVisible(bool visible);
     QVariantList legendFacies() const { return mLegend->facies; }
     void setScaleBarEnabled( bool enabled );
     void setNorthArrowEnabled( bool enabled );
@@ -148,6 +151,9 @@ class PaleoDecorationManager : public QObject
 
     QgsMapCanvas *canvas() const { return mCanvas; }
 
+  signals:
+    void legendAvailabilityChanged(bool available);
+
   public slots:
     // Paints all enabled decorations. Connected to the canvas's
     // renderComplete signal; safe to call with any painter for tests.
@@ -160,6 +166,7 @@ class PaleoDecorationManager : public QObject
     // Owned decoration instances; enabled flags gate which are painted.
     std::unique_ptr<PaleoFaciesLegendDecoration> mLegend;
     bool mLegendEnabled = false;
+    bool mComparisonLegendVisible = true;
     std::unique_ptr<PaleoScaleBarDecoration> mScaleBar;
     std::unique_ptr<PaleoNorthArrowDecoration> mNorthArrow;
     std::unique_ptr<PaleoGridDecoration> mGrid;

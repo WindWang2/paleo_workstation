@@ -70,7 +70,6 @@ void AiChatController::startEngineTurn(const QJsonObject &context) {
   setStreaming(true);
   if (!guard || sequence != m_turnSequence || !ensureTurnContext()) return;
   if (!code.isEmpty()) { failTurn(code); return; }
-  if (!m_piConfiguration.enabled) { sendRound(); return; }
   const auto sessionId = m_session.id, turn = m_hostTurn;
   QString error;
   // Reuse the existing atomic private ChatSessionStore; this is not a second

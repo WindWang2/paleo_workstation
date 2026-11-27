@@ -18,6 +18,7 @@ def snapshot(prefix, native):
     locks["zstd"] = deps["zstd-source"]["sha256"]
     if not native:
         locks["opencl"] = digest(REPO / "vendor/opencl-source.lock.json")
+        locks["pdal_arrow"] = digest(REPO / "vendor/pdal-arrow-source.lock.json")
     files = {}
     def walk_error(error):
         raise error
@@ -42,6 +43,43 @@ def snapshot(prefix, native):
     return {"schema": 1, "locks": locks, "files": files}
 
 
+def write_receipt(receipt, current):
+    with tempfile.NamedTemporaryFile(dir=receipt.parent.parent, delete=False, mode="w", encoding="utf-8") as temp:
+        json.dump(current, temp, sort_keys=True)
+    try:
+        Path(temp.name).replace(receipt)
+    finally:
+        Path(temp.name).unlink(missing_ok=True)
+
+
+def upgrade_legacy_pdal(prefix, rebuild):
+    receipt = prefix / RECEIPT
+    if not receipt.is_file():
+        return
+    expected = json.loads(receipt.read_text(encoding="utf-8"))
+    if "pdal_arrow" in expected.get("locks", {}):
+        return
+    from build_pdal_arrow import PLUGINS, STAMP
+    replaced = {STAMP, *(f"bin/{dll}" for dll in PLUGINS.values())}
+
+    def verify_unchanged():
+        current = snapshot(prefix, False)
+        previous_locks = {key: value for key, value in current["locks"].items() if key != "pdal_arrow"}
+        if expected.get("schema") != 1 or expected.get("locks") != previous_locks:
+            raise ValueError(f"Existing prefix uses different dependency locks: {prefix}. See BUILDING.md.")
+        files = expected["files"]
+        for path in (files.keys() | current["files"].keys()) - replaced:
+            if files.get(path) != current["files"].get(path):
+                raise ValueError(f"OSGeo4W prefix file mismatch: {prefix / path}")
+        return current
+
+    # The two owned DLLs may already have been replaced by an interrupted attempt.
+    # Rebuild both from verified inputs before recording any of their bytes.
+    verify_unchanged()
+    rebuild()
+    write_receipt(receipt, verify_unchanged())
+
+
 def check(prefix, native, record=False):
     receipt = prefix / RECEIPT
     if not record and not receipt.is_file():
@@ -50,12 +88,7 @@ def check(prefix, native, record=False):
     if record:
         if receipt.exists():
             raise ValueError(f"Prefix already recorded: {receipt}")
-        with tempfile.NamedTemporaryFile(dir=prefix.parent, delete=False, mode="w", encoding="utf-8") as temp:
-            json.dump(current, temp, sort_keys=True)
-        try:
-            Path(temp.name).replace(receipt)
-        finally:
-            Path(temp.name).unlink(missing_ok=True)
+        write_receipt(receipt, current)
     else:
         expected = json.loads(receipt.read_text(encoding="utf-8"))
         if expected.get("schema") != 1 or expected.get("locks") != current["locks"]:

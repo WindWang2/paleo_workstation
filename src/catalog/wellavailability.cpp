@@ -5,12 +5,13 @@
 #include <QObject>
 
 bool readWellDataAvailability(paleo::data::DataService &service,
-                             QHash<qlonglong,WellDataAvailability> &out, QString *error) {
+                             QHash<qlonglong,WellDataAvailability> &out, QString *error,
+                             const std::vector<paleo::data::WellSummary> *knownWells) {
   out.clear(); if(error)error->clear(); std::string detail;
   const auto fail=[&]{out.clear();if(error)*error=QString::fromUtf8(detail);return false;};
   std::vector<paleo::data::WellSummary> wells;
-  if(!service.listWells(wells,detail))return fail();
-  for(const auto &w:wells)out[w.id].timeDepth=w.timeDepthTables>0;
+  if(!knownWells && !service.listWells(wells,detail))return fail();
+  for(const auto &w:knownWells ? *knownWells : wells)out[w.id].timeDepth=w.timeDepthTables>0;
   for(const auto *kind:{"curves","intervals","markers"}) {
     std::vector<paleo::data::DataEntry> rows;
     if(!service.listData(kind,0,rows,detail))return fail();

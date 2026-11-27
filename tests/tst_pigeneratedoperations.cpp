@@ -1,5 +1,6 @@
 // 层：测试壳
 #include "fixtures/pythongeneratedsdkfixture.h"
+#include "fixtures/chatsessionstoragebreaker.h"
 #include "workflow/aichatcontroller.h"
 #include "workflow/capabilityhost.h"
 #include "workflow/pythonenvironmentoperation.h"
@@ -114,7 +115,7 @@ struct Fixture : python::generated_sdk_fixture::Fixture {
     };
     host->registerExecutionAdapter(QLatin1String(python::GeneratedCapability), std::move(adapter));
   }
-  void bind(AiChatController &controller, const Model &model, bool pi = true) {
+  void bind(AiChatController &controller, const Model &model) {
     const auto selected = registry->active(python::EnvironmentMode::Generated); controller.toolRunner()->setTaskService(&tasks);
     controller.toolRunner()->setPythonEnvironments(registry); AiChatToolContext context; context.catalog = &catalog;
     context.projectDir = project; context.documentId = plan.documentId; context.documentEpoch = 1; context.capabilityHost = host.get(); context.requireCapabilityHost = true;
@@ -128,7 +129,6 @@ struct Fixture : python::generated_sdk_fixture::Fixture {
       const auto state = current.sandbox->snapshot(); return state.value("ready").toBool() ? QString() : state.value("code").toString("python_sandbox_unavailable");
     };
     controller.toolRunner()->setContext(context); controller.setConfig(model.config());
-    controller.setPiRuntime({pi, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT"), qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")});
   }
   OperationLog::Record record(const AiChatController &controller, int binding = 0) const {
     const auto id = controller.session().hostToolBindings.at(binding).toObject().value("clientRequestId").toString();
@@ -140,28 +140,6 @@ QJsonObject lastTool(const AiChatController &controller) {
   for (auto message = messages.crbegin(); message != messages.crend(); ++message)
     if (message->role == ChatRole::Tool) return QJsonDocument::fromJson(message->content.toUtf8()).object();
   return {};
-}
-// G2：会话存储断路器（目录去写位 → QSaveFile 确定性失败；恢复还原 0755）。
-struct G2StorageBreaker {
-  QString directory;
-  bool engage() {
-    directory = ChatSessionStore::directory();
-    return QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::ExeOwner |
-                                              QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                                              QFileDevice::ReadOther | QFileDevice::ExeOther);
-  }
-  bool restore() {
-    return QFile::setPermissions(directory, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
-                                                QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                                                QFileDevice::ReadOther | QFileDevice::ExeOther);
-  }
-};
-int g2DiskToolReplies(const QString &session) {
-  ChatSession stored; QString error;
-  if (!ChatSessionStore::load(session, &stored, &error)) return -1;
-  int total = 0;
-  for (const auto &message : stored.messages) total += message.role == ChatRole::Tool;
-  return total;
 }
 QJsonObject page(Fixture &fixture, const QString &scope, const QString &operation, qint64 offset) {
   QObject listener; QEventLoop wait; QTimer timer; timer.setSingleShot(true); bool done = false; QJsonObject result; QString error;
@@ -182,17 +160,13 @@ private slots:
     QVERIFY(!registry.active(python::EnvironmentMode::Generated).ok()); QVERIFY(!registry.active(python::EnvironmentMode::Trusted).ok());
     QVERIFY(!registry.status().value("allowGenerated").toBool()); QVERIFY(!registry.status().value("allowTrusted").toBool());
   }
-  void realPiManagedComputePagesRestartPublishAndStableReplay_data() {
-    QTest::addColumn<bool>("pi"); QTest::newRow("native-new-provider-ids") << false; QTest::newRow("pi-to-native-same-turn") << true;
-  }
   void realPiManagedComputePagesRestartPublishAndStableReplay() {
-    QFETCH(bool, pi);
-    if ((pi && qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT").isEmpty()) || qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT").isEmpty()) {
-      QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1" && qEnvironmentVariable("PALEO_REQUIRE_AGENT_PYTHON_EXECUTION") != "1", "Required Pi/Python runtime fixture missing"); return;
+    if (qEnvironmentVariable("PALEO_TEST_AGENT_PYTHON_ROOT").isEmpty()) {
+      QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_AGENT_PYTHON_EXECUTION") != "1", "Required Pi/Python runtime fixture missing"); return;
     }
     Fixture fixture; QVERIFY2(fixture.open(), qPrintable(fixture.error)); QString code;
     QVERIFY2(fixture.environment(false, code), qPrintable(code)); fixture.rebuildHost(); Model model; QVERIFY(model.open());
-    auto controller = std::make_unique<AiChatController>(); fixture.bind(*controller, model, pi); const auto session = controller->session().id; sessions.append(session);
+    auto controller = std::make_unique<AiChatController>(); fixture.bind(*controller, model); const auto session = controller->session().id; sessions.append(session);
     QVERIFY(!fixture.registry->status().value("allowTrusted").toBool()); QVERIFY(fixture.registry->status().value("allowGenerated").toBool());
     QJsonObject arguments{{"client_request_id", "model-must-not-own-this"}, {"binding_mode", "pinned-value"}, {"publish_intent", "compute-only"},
       {"parameters", QJsonObject{{"code", QString::fromUtf8(python::generated_sdk_fixture::sourceCode())}}}, {"inputs", fixture.selection}};
@@ -205,7 +179,6 @@ private slots:
     QCOMPARE(frozen.value("codeSha256").toString(), QString::fromLatin1(QCryptographicHash::hash(python::generated_sdk_fixture::sourceCode(), QCryptographicHash::Sha256).toHex()));
     QCOMPARE(fixture.catalog.versions().size(), 1); QVERIFY(fixture.ownerOnly.load()); QVERIFY(fixture.workerOffOwner.load());
     const auto materializations = fixture.materializations.load(); model.call(QLatin1String(python::GeneratedTool), arguments);
-    controller->setPiRuntime({false, {}, {}}); // Same durable turn, deliberately switch the optional engine off.
     controller->retryLast(); QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(), 180000);
     QVERIFY(errors.isEmpty()); QCOMPARE(fixture.record(*controller).operationId, computed.operationId); QCOMPARE(fixture.materializations.load(), materializations);
     auto changed = arguments; changed["parameters"] = QJsonObject{{"code", QString::fromUtf8(python::generated_sdk_fixture::sourceCode()) + "\n# changed\n"}};
@@ -213,7 +186,6 @@ private slots:
     QVERIFY(!errors.isEmpty()); QVERIFY(errors.last().first().toString().contains("pi_invocation_binding_conflict"));
     QCOMPARE(fixture.record(*controller).computeCount, 1); QCOMPARE(fixture.materializations.load(), materializations);
     QTRY_VERIFY_WITH_TIMEOUT(controller->canRetry(), 180000); errors.clear();
-    controller->setPiRuntime({pi, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT"), qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")});
     model.call("paleo.operation_read", {{"operation_id", computed.operationId}, {"port_id", "REPORT"}, {"offset", "0"}, {"max_bytes", 128}});
     controller->sendUserText("read the first authenticated report page"); QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(), 180000); QVERIFY(errors.isEmpty());
     const auto first = lastTool(*controller).value("data").toObject(); QVERIFY(first.value("ok").toBool());
@@ -231,7 +203,7 @@ private slots:
     QCOMPARE(value.value("codeSha256").toString(), QString::fromLatin1(QCryptographicHash::hash(python::generated_sdk_fixture::sourceCode(), QCryptographicHash::Sha256).toHex()));
     std::string reason; QVERIFY(fixture.sdk.updateCurveValue(fixture.plan.curves.first().curveId, 0, 9999, reason));
     controller.reset(); fixture.host.reset(); QVERIFY2(fixture.environment(true, code), qPrintable(code)); fixture.rebuildHost();
-    controller = std::make_unique<AiChatController>(); sessions.append(controller->session().id); QVERIFY(controller->loadSession(session)); fixture.bind(*controller, model, pi);
+    controller = std::make_unique<AiChatController>(); sessions.append(controller->session().id); QVERIFY(controller->loadSession(session)); fixture.bind(*controller, model);
     QSignalSpy restartErrors(controller.get(), &AiChatController::errorOccurred);
     const QJsonObject publication{{"client_request_id", "another-model-id"}, {"binding_mode", "pinned-value"}, {"publish_intent", "publish"},
       {"parameters", QJsonObject{}}, {"inputs", QJsonObject{{"source_operation_id", computed.operationId}}}};
@@ -239,7 +211,7 @@ private slots:
     controller->sendUserText("publish this frozen report once after host restart"); QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(), 180000);
     QVERIFY2(restartErrors.isEmpty(), restartErrors.isEmpty() ? "" : qPrintable(restartErrors.first().first().toString()));
     QCOMPARE(lastTool(*controller).value("commitState").toString(), QString("committed")); QCOMPARE(fixture.catalog.versions().size(), 2);
-    controller->setPiRuntime({false, {}, {}}); model.call(QLatin1String(python::GeneratedTool), publication);
+    model.call(QLatin1String(python::GeneratedTool), publication);
     controller->retryLast(); QTRY_VERIFY_WITH_TIMEOUT(!controller->streaming(), 180000);
     QVERIFY(restartErrors.isEmpty()); QCOMPARE(fixture.catalog.versions().size(), 2);
     OperationLog journal(fixture.project + "/.paleo/capability-ops", fixture.project, fixture.lock->claim()); QCOMPARE(journal.recordById(computed.operationId).computeCount, 1);
@@ -255,25 +227,28 @@ private slots:
     }
     Fixture fixture; QVERIFY2(fixture.open(), qPrintable(fixture.error)); QString code;
     QVERIFY2(fixture.environment(false, code), qPrintable(code)); fixture.rebuildHost(); Model model; QVERIFY(model.open());
-    AiChatController controller; fixture.bind(controller, model, false); const auto session = controller.session().id;
+    AiChatController controller; fixture.bind(controller, model); const auto session = controller.session().id;
     sessions.append(session);
     const QJsonObject arguments{{"client_request_id", "model-must-not-own-this"}, {"binding_mode", "pinned-value"}, {"publish_intent", "compute-only"},
       {"parameters", QJsonObject{{"code", QString::fromUtf8(python::generated_sdk_fixture::sourceCode())}}}, {"inputs", fixture.selection}};
     model.call(QLatin1String(python::GeneratedTool), arguments);
     QSignalSpy errors(&controller, &AiChatController::errorOccurred);
-    G2StorageBreaker breaker; bool broken = false;
+    ChatSessionStorageBreaker breaker; bool broken = false;
     connect(&controller, &AiChatController::toolExecutionStarted, this, [&](const auto &) {
-      if (!broken) { broken = true; QVERIFY(breaker.engage()); } // 提交事实发生前后、结果落盘前断电
+      if (!broken) { broken = true; QVERIFY(breaker.engage(session)); } // 提交事实发生前后、结果落盘前断电
     });
     const auto restore = qScopeGuard([&] { breaker.restore(); });
     Q_UNUSED(restore)
     controller.sendUserText("compute once then survive the save failure");
     QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
     QVERIFY(broken);
+    QCOMPARE(model.requests, 1); // The failed checkpoint stops the next model request.
     QVERIFY(!errors.isEmpty());
     QVERIFY(errors.first().first().toString().contains(QStringLiteral("保存失败")));
     // 提交事实与准入绑定：磁盘上绑定即最可信 checkpoint；结果只在内存。
-    QCOMPARE(g2DiskToolReplies(session), 0);
+    ChatSession checkpoint;
+    QVERIFY(breaker.loadCheckpoint(&checkpoint));
+    for (const auto &message : checkpoint.messages) QVERIFY(message.role != ChatRole::Tool);
     auto committed = fixture.record(controller);
     QCOMPARE(committed.computeCount, 1); QCOMPARE(committed.execution, QString("succeeded"));
     QCOMPARE(controller.session().hostToolBindings.size(), 1);
@@ -287,7 +262,7 @@ private slots:
     controller.retryLast();
     QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
     QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
-    QCOMPARE(model.requests, 2);
+    QCOMPARE(model.requests, 3); // Retry requests the same operation and then the final answer.
     auto replayed = fixture.record(controller);
     QCOMPARE(replayed.operationId, committed.operationId);
     QCOMPARE(replayed.computeCount, 1);

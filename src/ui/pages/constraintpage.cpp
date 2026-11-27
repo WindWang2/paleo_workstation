@@ -390,7 +390,9 @@ void ConstraintPage::bindLayerService( QObject *layers )
   }
   bindTrackedProperty(this, kLayersProp, svc);
   connect(svc, &QgisLayerService::layerDeclared, this, [this](const QString &id) {
-    updateEngineRows();
+    // showEvent refreshes the engine choices against the current manifest.
+    if (!parentWidget() || isVisible())
+      updateEngineRows();
     if (id.startsWith(QStringLiteral("wells"))) {
       auto *wf=qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
       auto *h=child<QComboBox>(this,"horizonCombo"); auto *table=child<QTableWidget>(this,"factorTable");

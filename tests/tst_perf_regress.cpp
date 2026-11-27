@@ -6,8 +6,7 @@
 #include "io/benchreport.h"
 #include "io/lascache.h"
 #include "io/perffixtures.h"
-#include "io/segyindexstore.h"
-#include "io/segyreader.h"
+#include "segydiskcachebudget.h"
 #include "io/shacache.h"
 
 #include <QDir>
@@ -140,36 +139,7 @@ void PerfRegressTests::segyIndexHitRatioWithinGate()
   const QJsonObject b = loadBaselines();
   if (b.isEmpty())
     QSKIP("baseline 缺失");
-  const QString sgy = m_dir.filePath("gate.sgy");
-  constexpr int traces = 200 * 200;
-  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 200, 200, 240) == traces);
-  CacheRatios ratios;
-  for (size_t i = 0; i < ratios.size(); ++i)
-  {
-    const QString idx = m_dir.filePath(QStringLiteral("segy-%1").arg(i));
-    SegyReader cold, hit;
-    QString err;
-    QElapsedTimer t;
-    t.start();
-    QVERIFY2(cold.openCached(sgy, idx, &err), qPrintable(err));
-    const auto buildNs = t.nsecsElapsed();
-    QVERIFY(buildNs > 0);
-    int progressCalls = 0;
-    SegyOptions options;
-    options.progress = [&](qint64, qint64) { ++progressCalls; };
-    t.restart();
-    QVERIFY2(hit.openCached(sgy, idx, &err, &options), qPrintable(err));
-    ratios[i] = double(t.nsecsElapsed()) / buildNs;
-    QCOMPARE(progressCalls, 1); // an index hit reports completion without scanning
-    QCOMPARE(hit.traceCount(), traces);
-    QCOMPARE(hit.inlineNumbers(), cold.inlineNumbers());
-    QCOMPARE(hit.crosslineNumbers(), cold.crosslineNumbers());
-  }
-  const double ratio = medianCacheRatio(ratios);
-  const double gate = ratioGate(b, QStringLiteral("segy_cached_vs_rebuild_max")) * 1.2;
-  qInfo("SEG-Y first disk hit/rebuild median %.4f, gate %.4f", ratio, gate);
-  QVERIFY2(ratio <= gate,
-           qPrintable(QStringLiteral("hit/rebuild=%1 > 门限 %2").arg(ratio, 0, 'f', 4).arg(gate, 0, 'f', 4)));
+  paleo::test::verifySegyDiskCacheBudget(m_dir, ratioGate(b, QStringLiteral("segy_cached_vs_rebuild_max")) * 1.2);
 }
 
 void PerfRegressTests::shaCacheHitRatioWithinGate()

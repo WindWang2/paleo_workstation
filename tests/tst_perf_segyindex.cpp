@@ -6,6 +6,7 @@
 #include "io/segyindexstore.h"
 #include "io/segyreader.h"
 #include "perfbudget_relax.h"
+#include "segydiskcachebudget.h"
 
 #include <QDir>
 #include <QTemporaryDir>
@@ -55,35 +56,7 @@ void PerfSegyIndexTests::parallelScanMatchesSequential()
 
 void PerfSegyIndexTests::cacheHitWithinBudget()
 {
-  const QString sgy = m_dir.filePath("hit.sgy");
-  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 100, 100, 50) > 0);
-  const QString idx = m_dir.filePath("idx-hit");
-  SegyReader warmup;
-  QString err;
-  QVERIFY(warmup.openCached(sgy, idx, &err));
-
-  QElapsedTimer t;
-  t.start();
-  SegyReader hit;
-  QVERIFY(hit.openCached(sgy, idx, &err));
-  const double ms = t.nsecsElapsed() / 1.0e6;
-  // goal/perf-systematize 簇3：比率化——同夹具冷重建为在测参照（实测命中
-  // ≈0.8ms/冷建 ≈6ms，ratios.json 基线 segy_cached_vs_rebuild_max=0.35；
-  // 门取基线×1.2=0.42，缓存退化时比率→1 必红）。sanity 只拦挂死。
-  const QString coldIdx = m_dir.filePath(QStringLiteral("idx-coldref"));
-  t.restart();
-  SegyReader coldRef;
-  QVERIFY(coldRef.openCached(sgy, coldIdx, &err));
-  const double coldMs = double(t.nsecsElapsed()) / 1.0e6;
-  qInfo("index hit %.2fms vs cold rebuild %.1fms (ratio %.3f)", ms, coldMs,
-        coldMs > 0 ? ms / coldMs : -1.0);
-  QVERIFY2(coldMs > 0 && ms < 0.42 * coldMs,
-           qPrintable(QStringLiteral("index hit %1ms >= 0.42×冷建 %2ms（索引缓存未生效）")
-                          .arg(ms, 0, 'f', 2)
-                          .arg(coldMs, 0, 'f', 1)));
-  QVERIFY2(ms < paleo::perfbudget::relaxedBudgetMs(500),
-           qPrintable(QStringLiteral("index hit %1ms >= 500ms（sanity）").arg(ms)));
-  QCOMPARE(hit.traceCount(), 10000);
+  paleo::test::verifySegyDiskCacheBudget(m_dir, 0.42);
 }
 
 void PerfSegyIndexTests::coldBuildWithinBudget()

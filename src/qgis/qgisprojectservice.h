@@ -109,6 +109,8 @@ class QgisProjectService : public QObject
     // 在途任务取消——此刻旧工程的 QgsProject/catalog 仍完整可读。
     void projectAboutToClose();
     void projectClosed();
+    // 工程路径与原生图层已就绪；组装根在 projectOpened 通知视图之前重绑目录和存储。
+    void projectContextRequested(const QString &path);
     void projectOpened(const QString &path);
     void projectWritten(const QString &path);
     void openActiveChanged(bool active);
@@ -122,6 +124,7 @@ class QgisProjectService : public QObject
     void adoptBackgroundOpen(const std::shared_ptr<ProjectLoadState> &state, quint64 generation, int phase);
     bool runGate( const QString &projectDir, bool creating, bool &readOnly );
     void notifyAboutToClose();
+    bool finishSynchronousOpen();
     void failAfterClose();
     void applyMapConfiguration();
     bool prepareBasemapMembers(QString *error);

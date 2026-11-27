@@ -1,19 +1,20 @@
 // 层：QGIS 封装
 #include "projectnativegrid.h"
-#include "../catalog/datacatalog.h"
+#include <QObject>
 #include <cmath>
 #include <qgscoordinatetransform.h>
 #include <qgsdatumtransform.h>
 #include <qgsexception.h>
-#include <qgsproject.h>
 #include <qgsrectangle.h>
 
-bool configureNativeProjectGrid(QgsProject *project, const QString &sourceCrs, const QString &destination, QString *error)
+namespace paleo::mapreference {
+bool prepareNativeProjectGrid(PreparedProjectGrid &grid, const QString &sourceCrs,
+                              const QString &destination, QString *error)
 {
   const QgsCoordinateReferenceSystem source(sourceCrs), target(destination);
-  const auto local = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  const auto &local = grid.crs;
   if (!source.isValid() || !target.isValid()) { if (error) *error = QObject::tr("工程或地图坐标系无效"); return false; }
-  auto context = project->transformContext();
+  auto &context = grid.context;
   QStringList targets{QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"), destination, sourceCrs};
   targets.removeDuplicates();
   try {
@@ -53,8 +54,8 @@ bool configureNativeProjectGrid(QgsProject *project, const QString &sourceCrs, c
       { if (error) *error = QObject::tr("工程坐标范围转换不可用：%1").arg(id); return false; }
     }
   } catch (const QgsCsException &e) { if (error) *error = e.what(); return false; }
-  project->setTransformContext(context);
-  project->setCrs(target);
-  project->writeEntry("paleo", "localTransformTargets", targets);
+  grid.crs = target;
+  grid.targets = targets;
   return true;
+}
 }

@@ -20,8 +20,10 @@ bool ensureProject(const QString &project, QString *error) {
   if (error) *error = QString::fromUtf8(detail);
   return ok && inheritSurveyHorizonConventions(service,error);
 }
-bool inheritProjectHorizonConventions(const QString &project,QString *error) {
-  return !QFileInfo::exists(directory(project)+QStringLiteral("/data.sqlite"))||ensureProject(project,error);
+bool inheritProjectHorizonConventions(const QString &project,QString *error,const QString &verifiedStamp) {
+  const auto root=directory(project);
+  if(!verifiedStamp.isEmpty() && verifiedStamp==databaseStamp(root))return true;
+  return !QFileInfo::exists(root+QStringLiteral("/data.sqlite"))||ensureProject(project,error);
 }
 bool importDirectory(const QString &project, const QString &source,
                      paleo::data::ImportReport &report, QString *error,

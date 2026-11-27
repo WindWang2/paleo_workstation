@@ -3,6 +3,7 @@
 #include "stratigraphygeometry.h"
 #include "../io/areamodel.h"
 #include "catalog/wellavailability.h"
+#include "catalog/areawellprojection.h"
 #include "../services/paleotaskservice.h"
 #include "../services/wellreadiness.h"
 #include <paleo_stratigraphy/quick_workflow.h>
@@ -30,6 +31,32 @@ template<class T> void checkPlan(const T &plan) {
  throw std::runtime_error(errors.empty()?"资料或模板尚未确认":errors);
 }
 
+bool listProjectInterpretations(DataService &service, const std::string &path, bool readOnly,
+                                std::vector<InterpretationSummary> &versions, std::string &error) {
+ if(service.listInterpretations(versions,error))return true;
+ if(readOnly || error.find("no such table: interpretations")==std::string::npos)return false;
+ // The pre-interpretation schema lacks both tables. A surviving revision table
+ // without its parent indicates damage: report the original catalog error.
+ std::vector<InterpretationRevisionSummary> revisions;
+ std::string revisionError;
+ if(service.listInterpretationRevisions({},revisions,revisionError) ||
+    revisionError.find("no such table: interpretation_revisions")==std::string::npos)return false;
+ return service.openProject(path,error) && service.listInterpretations(versions,error);
+}
+
+bool cachedCurveWells(const QString &project, QList<StratigraphyWell> &wells) {
+ QVector<CatalogEntity> rows;
+ if(!cachedAreaWellRows(project,rows))return false;
+ wells.clear();
+ for(const auto &row:rows) {
+  if(row.extra.value("wellHasCurveData").toBool())
+   wells.append({row.extra.value("areaModelWellId").toLongLong(),row.name});
+ }
+ // Match DataService::listWells (SQLite BINARY order on UTF-8 names).
+ std::sort(wells.begin(),wells.end(),[](const auto &a,const auto &b){return a.name.toUtf8()<b.name.toUtf8();});
+ return true;
+}
+
 }
 StratigraphyWorkflow::StratigraphyWorkflow(PaleoTaskService *tasks,QObject *parent)
  :QObject(parent),d(std::make_unique<State>()) { d->tasks=tasks; }
@@ -42,15 +69,17 @@ void StratigraphyWorkflow::setProject(const QString &project,bool readOnly) {
  d->documentError.clear();
  if(!d->path.isEmpty()) {
   DataService service;std::string error;std::vector<WellSummary> wells;
-  const bool opened=readOnly?service.openProjectReadOnly(d->path.toStdString(),error):service.openProject(d->path.toStdString(),error);
-  if(opened&&service.listWells(wells,error)) {
+  const auto path=d->path.toStdString();
+  const bool opened=service.openProjectReadOnly(path,error);
+  const bool cached=opened && cachedCurveWells(project,d->wells);
+  if(opened && (cached || service.listWells(wells,error))) {
    QHash<qlonglong,WellDataAvailability> support;QString supportError;
-   if(readWellDataAvailability(service,support,&supportError)) {
+   if(!cached && readWellDataAvailability(service,support,&supportError,&wells)) {
     // 井道预览和人工地层划分只需要曲线；井震计算在执行时校验时深。
     for(const auto &w:wells)if(support.value(w.id).curves)d->wells.append({w.id,text(w.name)});
-   } else emit statusChanged(supportError);
+   } else if(!cached) emit statusChanged(supportError);
    std::vector<InterpretationSummary> versions;
-   if(!service.listInterpretations(versions,error)) {
+   if(!listProjectInterpretations(service,path,readOnly,versions,error)) {
     d->documentError=tr("解释方案列表读取失败：%1").arg(text(error));emit statusChanged(d->documentError);
    } else if(!versions.empty()) {
     // #828：最新修订读取失败必须如实报错——readInterpretationRevision() 失败会
@@ -73,10 +102,11 @@ QList<StratigraphyWell> StratigraphyWorkflow::wells() const {return d->wells;}
 bool StratigraphyWorkflow::canEdit() const {return !d->path.isEmpty()&&!d->readOnly&&!d->task;}
 void StratigraphyWorkflow::refreshWells() {
  if(d->task||d->path.isEmpty())return;
+ if(cachedCurveWells(d->project,d->wells)){emit changed();return;}
  DataService service;std::string error;std::vector<WellSummary> wells;
  if(!service.openProjectReadOnly(d->path.toStdString(),error)||!service.listWells(wells,error)){emit statusChanged(text(error));return;}
  QHash<qlonglong,WellDataAvailability> support;QString supportError;
- if(!readWellDataAvailability(service,support,&supportError)){emit statusChanged(supportError);return;}
+ if(!readWellDataAvailability(service,support,&supportError,&wells)){emit statusChanged(supportError);return;}
  d->wells.clear();for(const auto &well:wells)if(support.value(well.id).curves)d->wells.append({well.id,text(well.name)});emit changed();
 }
 QList<StratigraphyTrack> StratigraphyWorkflow::tracks() const {

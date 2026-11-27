@@ -1,5 +1,16 @@
 // 层：QGIS 封装
 #pragma once
-#include <QString>
-class QgsProject;
-bool configureNativeProjectGrid(QgsProject *project, const QString &sourceCrs, const QString &destination, QString *error);
+#include <QStringList>
+#include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransformcontext.h>
+
+namespace paleo::mapreference {
+struct PreparedProjectGrid {
+  QgsCoordinateTransformContext context;
+  QgsCoordinateReferenceSystem crs;
+  QStringList targets;
+};
+
+bool prepareNativeProjectGrid(PreparedProjectGrid &grid, const QString &sourceCrs,
+                              const QString &destination, QString *error);
+}

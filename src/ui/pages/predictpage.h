@@ -7,6 +7,7 @@
 
 class PredictionWorkflow;
 class QgisLayerService;
+class QShowEvent;
 class QVBoxLayout;
 
 // ui/pages/predictpage.h — ①智能预测页（自 pagepanels 拆出，公共形状不变：
@@ -52,7 +53,12 @@ class PredictPage : public QWidget
     // 地震相：切片投票 → 层段综合发布（Slice≠Interval；Interval 强制策略+覆盖率）。
     void seismicMaskPublishRequested(const QVariantMap &params);
 
+  protected:
+    void showEvent(QShowEvent *event) override;
+
   private:
+    bool m_historyPending = false;
+    bool m_replacingHorizons = false;
     QVBoxLayout *buildOnnxAdvanced(QWidget *parent, QVBoxLayout *into, QWidget **body);
     void buildReadinessRow(QVBoxLayout *lay);
     QVariantMap parseInputParams();                    // onnx:* 三控件（行为不变）

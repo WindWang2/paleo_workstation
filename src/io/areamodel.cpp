@@ -25,6 +25,7 @@ QString key(const QString &path) {
 #endif
   return result;
 }
+}
 QString databaseStamp(const QString &root) {
   QString result;
   for (const auto &suffix : {"/data.sqlite", "/data.sqlite-wal"}) {
@@ -34,6 +35,7 @@ QString databaseStamp(const QString &root) {
   }
   return result;
 }
+namespace {
 bool indexedSource(const QString &root, const QString &wanted, long long &id, QString *error) {
   const QString stamp = databaseStamp(root);
   { QMutexLocker lock(&mutex);

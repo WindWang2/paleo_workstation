@@ -248,6 +248,7 @@ private slots:
     QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).clear();
     m_win = new PaleoMainWindow(m_ctx->canvasCtl(), m_ctx->projectSvc(),
                                 m_ctx->layerSvc(), m_ctx->toolSvc(), m_ctx->selection());
+    m_win->setSharedPreviewServices(m_ctx->previewDoc(), m_ctx->seismicTaskSvc());
     m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
                            m_ctx->compositionWf(), m_ctx->validationWf(),
                            m_ctx->importSvc(), m_ctx->seismicLink(),
@@ -925,20 +926,59 @@ private slots:
     QCOMPARE(floatingClicks.count(), 1);
   }
 
+  void backgroundOpenRestoresCatalogSurveyLayer()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath("survey.qgz");
+    auto *service = m_ctx->projectSvc();
+    const auto close = qScopeGuard([this] { m_ctx->closeProject(); });
+    QVERIFY(service->createProject(path));
+    m_ctx->closeProject();
+    {
+      // Add a survey while the project is closed. The QGZ contains no saved
+      // survey layer, so only the post-open catalog restoration can display it.
+      DataCatalog catalog;
+      QString error;
+      QVERIFY2(catalog.open(directory.path(), &error), qPrintable(error));
+      CatalogEntity survey;
+      survey.id = "test-survey"; survey.entityType = "seismic_survey"; survey.name = "Test";
+      survey.corners = {{0, 0}, {100, 0}, {100, 100}, {0, 100}};
+      QVERIFY2(catalog.addEntity(survey, &error), qPrintable(error));
+    }
+    QSignalSpy finished(service, &QgisProjectService::openFinished);
+    QVERIFY(service->openProjectAsync(path));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 30000);
+    QVERIFY(finished.first().first().toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->layerSvc()->isInstantiated("survey.area"), 10000);
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_ctx->layerSvc()->layer("survey.area"));
+    QVERIFY(layer && layer->isValid());
+    QCOMPARE(layer->featureCount(), 1);
+  }
+
   void realProjectBackgroundResponsiveness()
   {
     const QString path = qEnvironmentVariable("PALEO_BACKGROUND_PROJECT");
     if (path.isEmpty()) QSKIP("Set PALEO_BACKGROUND_PROJECT to a disposable project copy");
     QElapsedTimer pulse; pulse.start();
     qint64 last = 0, maximum = 0;
-    QString stage, slowStage;
+    QString stage, slowStage, previousTickStage;
+    QStringList arrivals;
+    qint64 slowStart = 0;
     const auto progressConnection = connect(m_ctx->projectSvc(), &QgisProjectService::openProgress, this,
-            [&](int, const QString &text) { stage = text; });
+            [&](int percent, const QString &text) {
+      stage = text;
+      arrivals.append(QStringLiteral("%1 ms (%2%) %3").arg(pulse.elapsed()).arg(percent).arg(text));
+    });
     const auto disconnectProgress = qScopeGuard([progressConnection] { QObject::disconnect(progressConnection); });
     QTimer heartbeat; heartbeat.setInterval(10);
     connect(&heartbeat, &QTimer::timeout, this, [&] {
-      const auto now = pulse.elapsed(); const auto lag = now - last; last = now;
-      if (lag > maximum) { maximum = lag; slowStage = stage; }
+      const auto now = pulse.elapsed(); const auto lag = now - last;
+      if (lag > maximum) {
+        maximum = lag; slowStart = last;
+        slowStage = previousTickStage + QStringLiteral(" -> ") + stage;
+      }
+      last = now; previousTickStage = stage;
     }); heartbeat.start();
     QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
     QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->projectSvc()->isOpening(), 60000);
@@ -949,6 +989,7 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(status->isHidden(), 60000);
     QTRY_COMPARE_WITH_TIMEOUT(m_ctx->taskSvc()->runningCount(), 0, 60000);
     const auto idle = [this] {
+      if (m_ctx->previewDoc()->hasPendingLasResults()) return false;
       for (auto *watcher : m_win->findChildren<QFutureWatcherBase *>()) if (watcher->isRunning()) return false;
       for (auto *preview : m_win->findChildren<PreviewDocService *>())
         if (preview->hasPendingLasResults()) return false;
@@ -956,7 +997,8 @@ private slots:
     };
     QTRY_VERIFY_WITH_TIMEOUT(idle(), 60000);
     QTest::qWait(250);
-    qInfo() << "Maximum UI heartbeat gap:" << maximum << "ms at" << slowStage;
+    qInfo().noquote() << "Project-open progress:" << arrivals.join(QStringLiteral(" | "));
+    qInfo() << "Maximum UI heartbeat gap:" << maximum << "ms from" << slowStart << "ms at" << slowStage;
     QVERIFY2(maximum < 500, qPrintable(QString("UI blocked for %1 ms at %2").arg(maximum).arg(slowStage)));
     m_ctx->closeProject();
   }

@@ -83,23 +83,20 @@ QString tileAttribution(const QString &path)
 }
 }
 
-static bool configurePrepared(QgsProject *project, const std::optional<PaleoGeoreference> &reference,
+static bool prepareProjectGrid(PreparedProjectGrid &grid, const std::optional<PaleoGeoreference> &reference,
                const QString &mapCrs, QString *error)
 {
-  if (!project) return false;
-  const auto local = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
-  auto context = project->transformContext();
+  const auto &local = grid.crs;
+  auto &context = grid.context;
   // 删除上一份配准的操作，保留工程其它 CRS 的原生转换设置。
-  QStringList targets = project->readListEntry("paleo", "localTransformTargets");
-  targets << QStringLiteral("EPSG:4326") << QStringLiteral("EPSG:3857");
-  for (const auto &target : targets)
+  grid.targets << QStringLiteral("EPSG:4326") << QStringLiteral("EPSG:3857");
+  grid.targets.removeDuplicates();
+  for (const auto &target : grid.targets)
     context.removeCoordinateOperation(local, QgsCoordinateReferenceSystem(target));
-  project->setCrs(local);
-  project->setTransformContext(context);
-  project->removeEntry("paleo", "localTransformTargets");
+  grid.targets.clear();
   if (!reference) return true;
   if (reference->kind == QLatin1String("crs"))
-    return configureNativeProjectGrid(project, reference->sourceCrs, mapCrs, error);
+    return prepareNativeProjectGrid(grid, reference->sourceCrs, mapCrs, error);
   const auto fail = [&](const QString &message) {
     paleo::qgis_detail::setError(error, message);
     return false;
@@ -111,7 +108,7 @@ static bool configurePrepared(QgsProject *project, const std::optional<PaleoGeor
     return fail(QObject::tr("地图坐标系无效或不是地理/投影坐标系：%1").arg(mapCrs));
   const QgsCoordinateReferenceSystem geographic(QStringLiteral("EPSG:4326"));
   const QString prefix = affine(*reference);
-  targets = {QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"), mapCrs};
+  QStringList targets{QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"), mapCrs};
   targets.removeDuplicates();
   try {
     for (const auto &target : targets) {
@@ -158,9 +155,8 @@ static bool configurePrepared(QgsProject *project, const std::optional<PaleoGeor
   } catch (const QgsCsException &ex) {
     return fail(ex.what());
   }
-  project->setTransformContext(context);
-  project->setCrs(destination);
-  project->writeEntry("paleo", "localTransformTargets", targets);
+  grid.crs = destination;
+  grid.targets = targets;
   return true;
 }
 
@@ -168,15 +164,15 @@ bool configure(QgsProject *project, const std::optional<PaleoGeoreference> &refe
                const QString &mapCrs, QString *error)
 {
   if (!project) return false;
-  QgsProject prepared;
-  prepared.setTransformContext(project->transformContext());
-  prepared.writeEntry("paleo", "localTransformTargets", project->readListEntry("paleo", "localTransformTargets"));
-  if (!configurePrepared(&prepared, reference, mapCrs, error)) return false;
+  PreparedProjectGrid prepared{project->transformContext(),
+      QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+      project->readListEntry("paleo", "localTransformTargets")};
+  if (!prepareProjectGrid(prepared, reference, mapCrs, error)) return false;
   // Publish only a complete configuration; a failed registration must not
   // switch a working map back to the engineering grid.
-  project->setTransformContext(prepared.transformContext());
-  project->setCrs(prepared.crs());
-  project->writeEntry("paleo", "localTransformTargets", prepared.readListEntry("paleo", "localTransformTargets"));
+  project->setTransformContext(prepared.context);
+  project->setCrs(prepared.crs);
+  project->writeEntry("paleo", "localTransformTargets", prepared.targets);
   return true;
 }
 

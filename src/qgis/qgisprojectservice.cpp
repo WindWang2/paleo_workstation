@@ -150,6 +150,16 @@ void QgisProjectService::notifyAboutToClose()
     emit projectAboutToClose();
 }
 
+bool QgisProjectService::finishSynchronousOpen()
+{
+  const auto session = ++m_sessionId;
+  const QString path = m_path;
+  emit projectContextRequested(path);
+  if (session != m_sessionId) return false;
+  emit projectOpened(path);
+  return true;
+}
+
 // 已发 projectAboutToClose 后 read() 失败：QgsProject::read() 先 clear()，
 // 旧工程内容已不在——把服务落到「无工程」而不是保留旧路径（否则保存会
 // 把空工程写回旧 .qgz，同 #152 的覆盖路径）。无论之前是否有工程都发
@@ -326,9 +336,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     else m_mapConfiguration = adopted;
   }
 
-  ++m_sessionId;
-  emit projectOpened( m_path );
-  return true;
+  return finishSynchronousOpen();
 }
 
 bool QgisProjectService::createProject( const QString &qgzPath )
@@ -418,9 +426,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
     }
   }
 
-  ++m_sessionId;
-  emit projectOpened( m_path );
-  return true;
+  return finishSynchronousOpen();
 }
 
 bool QgisProjectService::writeProject()

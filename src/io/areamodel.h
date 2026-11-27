@@ -10,6 +10,8 @@ class DataCatalog;
 namespace paleo::area_model {
 bool ensureProject(const QString &project, QString *error);
 QString directory(const QString &project);
+// Identifies the on-disk SQLite and WAL state for a model directory.
+QString databaseStamp(const QString &root);
 // Ordered mapping horizons from the published seismic stratigraphic scheme.
 QStringList mappingBoundaries(const QString &project);
 QString confirmedProjectCrs(const QString &project);

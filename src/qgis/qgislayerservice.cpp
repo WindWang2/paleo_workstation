@@ -105,12 +105,19 @@ QgisLayerService::QgisLayerService(QgisProjectService *projectSvc, LayerManifest
   // openProject()/createProject() swap the layer set wholesale (read() clears
   // first, but be explicit): drop every entry not still registered, then adopt
   // the layers read() restored from the .qgz (see adoptProjectLayers).
-  if (m_projectSvc)
-    connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+  if (m_projectSvc) {
+    connect(m_projectSvc, &QgisProjectService::projectContextRequested, this,
             [this] {
               purgeDanglingInstances();
               adoptProjectLayers();
             });
+    // The context signal also rebinds the manifest. Reconcile only after that
+    // signal has finished, using the new project's declared boundary source.
+    connect(m_projectSvc, &QgisProjectService::projectOpened, this, [this] {
+      const auto boundary = declaration(QStringLiteral("boundary.project_range"));
+      if (!boundary.layerId.isEmpty()) reconcileProjectBoundary(boundary);
+    });
+  }
 }
 
 bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
@@ -563,8 +570,6 @@ void QgisLayerService::adoptProjectLayers()
       trackInstance(paleoId, it.value());
     }
   }
-  const auto boundary = declaration(QStringLiteral("boundary.project_range"));
-  if (!boundary.layerId.isEmpty()) reconcileProjectBoundary(boundary);
 }
 
 QgsMapLayer *QgisLayerService::reconcileProjectBoundary(const LayerDeclaration &decl)

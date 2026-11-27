@@ -20,6 +20,8 @@ FILES = (
     "tools/env_redset.json",
     "tools/documented_redset.json",
     "tools/check_flaky_ledger.py",
+    "tools/check_test_manifest.py",
+    "tools/test-manifest-baseline.json",
     "vendor/deb-closure.lock",
 )
 
@@ -93,7 +95,54 @@ def main():
         empty = run_gate(root)
         assert junit.read_text(encoding="utf-8").strip() == empty_report, empty.stdout
         assert empty.returncode != 0, empty.stdout
-        print("CI CTest gate: mixed failures, flaky rerun, failed discovery, and empty JUnit verified")
+
+        # #965：配置期注册测试清单缩减时，ci_ctest_gate 必须在跑 CTest 前硬失败。
+        manifest_path = build / "Testing" / "registered-tests.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            '{"schema": 1, "platform": "linux", "have_ort": false, "count": 1, "tests": ["only_one"], "perf_tests": []}\n',
+            encoding="utf-8",
+        )
+        shrunk = run_gate(root)
+        assert shrunk.returncode != 0, shrunk.stdout
+        assert "注册测试清单对账失败" in shrunk.stdout, shrunk.stdout
+        manifest_path.unlink()
+
+        # #965：documented_redset 仅放行命中 expect_fail 且无崩溃的失败，失败形态漂移必须判红。
+        (root / "paleo-dev").write_text((ROOT / "paleo-dev").read_text(encoding="utf-8"), encoding="utf-8")
+        (root / "paleo-dev").chmod(0o755)
+        doc_script = root / "doc-red.sh"
+        qtest_out = build / "Testing" / "qtest-first-run" / "tst_wellcomposite_visual.txt"
+        doc_script.write_text(
+            "#!/bin/sh\n"
+            f"mkdir -p '{qtest_out.parent}'\n"
+            f"cat > '{qtest_out}' <<'EOF'\n"
+            "FAIL!  : WellCompositeVisualTests::testGoldenImageSampling() 'diffs <= 4' returned FALSE. (17/48 抽样点超容差)\n"
+            "Totals: 1 passed, 1 failed, 0 skipped, 0 blacklisted, 5ms\n"
+            "EOF\n"
+            "exit 1\n",
+            encoding="utf-8",
+        )
+        doc_script.chmod(0o755)
+        testfile.write_text(f'add_test(tst_wellcomposite_visual "{doc_script}")\n', encoding="utf-8")
+        doc_ok = run_gate(root)
+        assert doc_ok.returncode == 0, doc_ok.stdout
+
+        # 改变失败形态（非预期断言）→ 必须拒收并判红。
+        doc_script.write_text(
+            "#!/bin/sh\n"
+            f"mkdir -p '{qtest_out.parent}'\n"
+            f"cat > '{qtest_out}' <<'EOF'\n"
+            "FAIL!  : WellCompositeVisualTests::testExportPdf() Compared values are not the same\n"
+            "Totals: 1 passed, 1 failed, 0 skipped, 0 blacklisted, 5ms\n"
+            "EOF\n"
+            "exit 1\n",
+            encoding="utf-8",
+        )
+        doc_drift = run_gate(root)
+        assert doc_drift.returncode != 0, doc_drift.stdout
+
+        print("CI CTest gate: mixed failures, flaky rerun, failed discovery, empty JUnit, test manifest, and documented redset verified")
 
 
 if __name__ == "__main__":

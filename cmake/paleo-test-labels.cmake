@@ -19,10 +19,10 @@ set(_paleo_perf_tests
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_horizontracksvc_perf tst_timedepthperf
   tst_wellcomposite_perf tst_cache_las tst_welllogset_perf tst_geostat_perf
   tst_lasperf tst_dataperf_index tst_coldstart tst_inversion_perf tst_idw_hullclip_perf
-  # full-audit F10：吞吐比率断言（largeFieldThroughputRatio）无预热/无最小时
-  # 长闸，CI linux 并行轮实证红、串行重跑洗白（run 38835970978）——挂 perf
-  # 标签 + RUN_SERIAL 与同类比率门同一纪律。
-  tst_wellsiting_kernel
+  # full-audit F10 / #965：吞吐比率断言（largeFieldThroughputRatio）已按
+  # #758 tst_cache_pyramid_perf 先例拆到 tst_wellsiting_kernel_perf，
+  # 原 tst_wellsiting_kernel 功能 Oracle 重回必过车道，仅计时件挂 perf + RUN_SERIAL。
+  tst_wellsiting_kernel_perf
   # #758：tst_cache_pyramid::tileLruHitFast 的零余量比率门（warmMs < coldMs/2.0）
   # 在 -j8 并行车道下内存拷贝被抢占即假红；计时断言拆到 tst_cache_pyramid_perf
   # 后，该门随测试一起进 perf 标签 + RUN_SERIAL，功能侧只留语义断言。
@@ -91,3 +91,49 @@ foreach(_t IN LISTS _paleo_heavy_tests)
     set_property(TEST ${_t} APPEND PROPERTY LABELS heavy)
   endif()
 endforeach()
+
+# ---- #965：配置期生成注册测试清单与 perf 标签快照，供 CTest 前只缩必红对账 ----
+get_directory_property(_paleo_registered_tests TESTS)
+list(SORT _paleo_registered_tests)
+list(LENGTH _paleo_registered_tests _paleo_registered_count)
+set(_paleo_perf_registered "")
+foreach(_t IN LISTS _paleo_registered_tests)
+  get_test_property(${_t} LABELS _t_labels)
+  if(_t_labels AND "perf" IN_LIST _t_labels)
+    list(APPEND _paleo_perf_registered "${_t}")
+  endif()
+endforeach()
+set(_paleo_manifest_platform "other")
+if(WIN32)
+  set(_paleo_manifest_platform "windows")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(_paleo_manifest_platform "linux")
+endif()
+set(_paleo_manifest_ort "false")
+if(PALEO_HAVE_ORT)
+  set(_paleo_manifest_ort "true")
+endif()
+set(_paleo_tests_json "")
+foreach(_t IN LISTS _paleo_registered_tests)
+  if(_paleo_tests_json)
+    string(APPEND _paleo_tests_json ", ")
+  endif()
+  string(APPEND _paleo_tests_json "\"${_t}\"")
+endforeach()
+set(_paleo_perf_json "")
+foreach(_t IN LISTS _paleo_perf_registered)
+  if(_paleo_perf_json)
+    string(APPEND _paleo_perf_json ", ")
+  endif()
+  string(APPEND _paleo_perf_json "\"${_t}\"")
+endforeach()
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/Testing")
+file(WRITE "${CMAKE_BINARY_DIR}/Testing/registered-tests.json"
+  "{\n"
+  "  \"schema\": 1,\n"
+  "  \"platform\": \"${_paleo_manifest_platform}\",\n"
+  "  \"have_ort\": ${_paleo_manifest_ort},\n"
+  "  \"count\": ${_paleo_registered_count},\n"
+  "  \"tests\": [${_paleo_tests_json}],\n"
+  "  \"perf_tests\": [${_paleo_perf_json}]\n"
+  "}\n")

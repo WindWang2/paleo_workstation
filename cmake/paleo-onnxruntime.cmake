@@ -10,8 +10,15 @@ if(PALEO_ONNXRUNTIME STREQUAL "OFF" OR
 endif()
 
 set(_paleo_ort_prefix "${CMAKE_SOURCE_DIR}/vendor/onnxruntime")
-if(NOT EXISTS "${_paleo_ort_prefix}" AND PALEO_ONNXRUNTIME STREQUAL "AUTO")
-  return()
+if(NOT EXISTS "${_paleo_ort_prefix}")
+  # #965：CI 下禁止因缺少 vendored ORT 而静默跳过 17 个 ONNX 测试；
+  # 非 CI 本地开发仍维持 AUTO 可选降级，CI 缺 ORT 必须 configure 期硬失败。
+  if(PALEO_ONNXRUNTIME STREQUAL "AUTO" AND NOT DEFINED ENV{CI})
+    return()
+  endif()
+  if(DEFINED ENV{CI} AND PALEO_ONNXRUNTIME STREQUAL "AUTO")
+    message(FATAL_ERROR "CI requires pinned ONNX Runtime at ${_paleo_ort_prefix} (#965: silent conditional test drop forbidden). Run bootstrap fetch-only.")
+  endif()
 endif()
 file(REAL_PATH "${_paleo_ort_prefix}" _paleo_ort_prefix)
 file(READ "${CMAKE_SOURCE_DIR}/vendor/manifest.json" _paleo_vendor_manifest)

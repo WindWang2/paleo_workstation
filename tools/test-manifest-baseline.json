@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "doc": "#965 注册测试总数与条件注册清单对账基线（只缩必红纪律）。配置期由 cmake/paleo-test-labels.cmake 输出 <build>/Testing/registered-tests.json；CTest 前及 test_manifest 闸门经 tools/check_test_manifest.py 核对：1) 注册总数不得低于对应平台基线下限；2) 必需测试与 ORT 条件测试（在 --require-ort / have_ort=true 时）不得静默消失；3) 功能 Oracle 测试（如 tst_wellsiting_kernel）不得被重新挂回 perf 标签。",
+  "min_count": {
+    "linux": 691,
+    "windows": 690,
+    "default": 688
+  },
+  "required_tests": [
+    "tst_runtime",
+    "tst_wellsiting_kernel",
+    "tst_wellsiting_kernel_perf",
+    "tst_cache_pyramid",
+    "tst_cache_pyramid_perf",
+    "tst_scriptrunner",
+    "tst_pythonrepl",
+    "tst_scriptprocessscope",
+    "tst_pythonsandbox_view_journal",
+    "layering_strict",
+    "layering_link_audit",
+    "ci_gate_rules",
+    "env_redset_validate",
+    "portable_package_selftest",
+    "test_manifest",
+    "test_manifest_selftest"
+  ],
+  "ort_required_tests": [
+    "tst_onnx",
+    "tst_onnxsessions",
+    "tst_tileinference",
+    "tst_modelregistry",
+    "tst_aiassistworkflow",
+    "tst_remotepredictrouter",
+    "tst_aiassist_perf",
+    "tst_onnxworkflow",
+    "tst_predict_challenger_r2",
+    "tst_aichattoolloop",
+    "tst_pinned_inference",
+    "tst_modelcontractquery",
+    "tst_tile_operation",
+    "tst_agent_readiness",
+    "tst_tile_agent",
+    "tst_unit_onnx_agent",
+    "tst_ai_horizonsuggest"
+  ],
+  "must_not_be_perf": [
+    "tst_wellsiting_kernel",
+    "tst_cache_pyramid"
+  ],
+  "must_be_perf": [
+    "tst_wellsiting_kernel_perf",
+    "tst_cache_pyramid_perf"
+  ]
+}

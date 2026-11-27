@@ -208,6 +208,14 @@ if(PALEO_PYTHON3)
   # qgis_spread_strict 一致（可收缩即红，收敛一个删一行）。
   add_test(NAME layering_qgs_audit COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --qgs-audit --strict)
+  # #984：include 边与 CMake target_link_libraries 边一致性零基线闸。
+  add_test(NAME layering_link_audit COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_layering.py --link-audit)
+  # #965：配置期注册测试清单对账闸（只缩必红 + perf 标签隔离 + ORT 条件注册校验）。
+  add_test(NAME test_manifest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_test_manifest.py --build ${CMAKE_BINARY_DIR})
+  add_test(NAME test_manifest_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_test_manifest.py --selftest)
   # #497：CI 红项分诊名单（docs/ci/known-reds.json）结构校验 + 分诊器夹具
   add_test(NAME qgis_spread COMMAND ${PALEO_PYTHON3}
          ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py)
@@ -319,7 +327,8 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_role_tables.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        layering_symbol_audit layering_transitive
-                       layering_qgs_audit
+                       layering_qgs_audit layering_link_audit
+                       test_manifest test_manifest_selftest
                        ci_known_reds ci_triage_reds_selftest flaky_ledger_selftest
                        ci_gate_rules ci_gate_rules_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
@@ -344,7 +353,8 @@ if(PALEO_PYTHON3)
   set(_paleo_py_gates
       well_facies_input_audit
       layering layering_strict layering_selftest
-      layering_symbol_audit layering_transitive layering_qgs_audit
+      layering_symbol_audit layering_transitive layering_qgs_audit layering_link_audit
+      test_manifest test_manifest_selftest
       qgis_spread qgis_spread_strict qgis_spread_selftest
       ci_known_reds ci_triage_reds_selftest flaky_ledger_selftest
       ci_gate_rules ci_gate_rules_selftest
@@ -389,6 +399,11 @@ if(UNIX)
            ${CMAKE_SOURCE_DIR}/tools/test_ci_ctest_gate.py)
   set_tests_properties(ci_ctest_gate_selftest PROPERTIES
     TIMEOUT 150 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+  # #956：AppImage 打包脚本自测（未解析 ELF 阻断 + 关键资产探针 + vendored 前缀冒烟）。
+  add_test(NAME make_appimage_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/test_make_appimage.py)
+  set_tests_properties(make_appimage_selftest PROPERTIES
+    TIMEOUT 120 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 endif()
 
 # ---- 新 worktree 首次 configure 早失败护栏（goal/perf-maintenance-20261027）----

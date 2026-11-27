@@ -225,6 +225,59 @@ function Assert-NoEnvDebtRegression([string[]]$FailedTests, [string]$ManifestPat
   }
 }
 
+function Assert-CTestNonEmpty([string]$LogPath, [string]$SelectionDesc) {
+  # #957：与 Linux tools/ci_ctest_gate.sh 双重防护对齐——除 ctest 传 --no-tests=error
+  # 外，日志命中 'No tests were found' 也立即判红（探针/分片空选择不得假绿）。
+  if ((Test-Path -LiteralPath $LogPath) -and
+      (Select-String -Path $LogPath -SimpleMatch 'No tests were found' -Quiet)) {
+    Write-Host ("::error::ctest 选中 0 个测试（选择参数：{0}）——测试注册或选择器漂移，不是通过" -f $SelectionDesc)
+    throw ("CTest selected 0 tests ({0})" -f $SelectionDesc)
+  }
+}
+
+function Invoke-TestManifestCheck([string]$PythonExe, [string]$RepoRoot, [string]$BuildDir, [bool]$RequireOrt) {
+  # #965：CTest 前对账配置期注册测试清单（只缩必红；CI 强制要求 ORT 测试齐全）。
+  $manifestPath = Join-Path $BuildDir 'Testing/registered-tests.json'
+  if (-not (Test-Path -LiteralPath $manifestPath) -and ($env:PALEO_TEST_MANIFEST_CHECK -ne '1')) {
+    return
+  }
+  $argsList = @('--build', $BuildDir)
+  if ($RequireOrt) { $argsList += '--require-ort' }
+  & $PythonExe (Join-Path $RepoRoot 'tools/check_test_manifest.py') @argsList
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "::error::注册测试清单对账失败（#965：必需依赖缺失或测试注册数缩减）"
+    throw ("CTest registered test manifest check failed (exit {0})" -f $LASTEXITCODE)
+  }
+}
+
+function Invoke-FlakyLedgerCheck([string]$PythonExe, [string]$RepoRoot, [string]$LogPath, [bool]$Strict) {
+  # #957：strict 档不得吞掉 tools/check_flaky_ledger.py 的非零退出（与 Linux
+  # tools/ci_ctest_gate.sh 同口径）；警告档非零仍不阻断。
+  $flakyArgs = @()
+  if ($Strict) { $flakyArgs = @('--strict') }
+  $checker = Join-Path $RepoRoot 'tools/check_flaky_ledger.py'
+  $flakyExit = 0
+  try {
+    & $PythonExe $checker @flakyArgs
+    $flakyExit = $LASTEXITCODE
+  } catch {
+    $msg = "  (flaky 台账检查器不可用：$_)"
+    if ($LogPath) { $msg | Tee-Object -FilePath $LogPath -Append } else { Write-Host $msg }
+    if ($Strict) {
+      Write-Host "::error::flaky 台账 strict 检查失败（PALEO_FLAKY_STRICT=1）——检查器不可用"
+      throw "flaky ledger strict check failed (checker unavailable: $_)"
+    }
+    return
+  }
+  if ($flakyExit -ne 0) {
+    if ($Strict) {
+      Write-Host "::error::flaky 台账 strict 检查失败（PALEO_FLAKY_STRICT=1）——同一测试累计入账已达阈值"
+      throw ("flaky ledger strict check failed (exit {0})" -f $flakyExit)
+    }
+    Write-Warning ("check_flaky_ledger.py 非零退出（exit {0}，警告档，不阻断）" -f $flakyExit)
+  }
+}
+
 function Invoke-EnsureQgisResources {
   $prefix = $env:QGIS_PREFIX_PATH
   if (-not $prefix) { throw 'A locked QGIS prefix is required. Run ./paleo-dev.ps1 bootstrap fetch-only.' }
@@ -339,6 +392,8 @@ switch ($Verb) {
       $pythonArgs += "-DPALEO_PYTHON3=$env:PALEO_PYTHON"
       $pythonArgs += "-DPython3_EXECUTABLE=$env:PALEO_PYTHON"
     }
+    # #965：CI 强制要求 vendored ORT，防止条件注册测试静默消失。
+    if ($env:CI) { $pythonArgs += '-DPALEO_ONNXRUNTIME=ON' }
     cmake -S $Root -B $Build -G Ninja "-DCMAKE_BUILD_TYPE=$buildType" "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')" @pythonArgs
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     Repair-NinjaMsvcDependencyPrefix $Build
@@ -381,10 +436,15 @@ switch ($Verb) {
     Remove-Item (Join-Path $firstRunDir '*.txt') -Force -ErrorAction SilentlyContinue
     Remove-Item $junit -Force -ErrorAction SilentlyContinue
     $log = Join-Path $logDir 'ctest.log'
+    $manifestPy = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+    $requireOrt = [bool]($env:CI -or ($env:PALEO_REQUIRE_ORT -eq '1'))
+    Invoke-TestManifestCheck $manifestPy $Root $Build $requireOrt
     $ctestExtra = @()
     if ($env:PALEO_CTEST_ARGS) { $ctestExtra = $env:PALEO_CTEST_ARGS.Trim() -split '\s+' }
-    ctest --test-dir $Build --output-on-failure --output-junit $junit @ctestExtra 2>&1 | Tee-Object -FilePath $log
+    $selectionDesc = if ($ctestExtra.Count -gt 0) { $ctestExtra -join ' ' } else { '(default)' }
+    ctest --test-dir $Build --output-on-failure --output-junit $junit --no-tests=error @ctestExtra 2>&1 | Tee-Object -FilePath $log
     $ctestExit = $LASTEXITCODE
+    Assert-CTestNonEmpty $log $selectionDesc
     if ($ctestExit -ne 0) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
       # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台。
@@ -572,11 +632,7 @@ switch ($Verb) {
           Write-Host "::warning title=flaky 放行::$t 首轮失败、直跑通过——已记入 flaky 台账"
         }
         Write-Warning "直跑放行 $($rerunPassed.Count) 项（已逐条记入 tools/flaky-ledger.jsonl；同一测试累计 ≥3 次将被点名）"
-        try {
-          $flakyArgs = @()
-          if ($env:PALEO_FLAKY_STRICT -eq '1') { $flakyArgs = @('--strict') }
-          & $py (Join-Path $Root 'tools/check_flaky_ledger.py') @flakyArgs
-        } catch { "  (flaky 台账检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
+        Invoke-FlakyLedgerCheck $py $Root $log ($env:PALEO_FLAKY_STRICT -eq '1')
       }
     }
   }

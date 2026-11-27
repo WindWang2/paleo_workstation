@@ -211,10 +211,9 @@ void TestPythonRepl::descendantsReclaimedOnStop()
   QTRY_VERIFY_WITH_TIMEOUT(pidDead(childPid), 10000);
 }
 
-// 面板关闭/服务析构：运行中的 REPL 连同后代整树回收。
+// 面板关闭/服务析构：运行中的 REPL 连同后代整树回收（Unix 进程组 + Windows Job，#960）。
 void TestPythonRepl::descendantsReclaimedOnDestructor()
 {
-#ifdef Q_OS_UNIX
   auto *repl = new PythonReplSession;
   QSignalSpy startedSpy(repl, &PythonReplSession::started);
   repl->start(m_python);
@@ -229,12 +228,9 @@ void TestPythonRepl::descendantsReclaimedOnDestructor()
   QRegularExpression pattern(QStringLiteral("REPL_CHILD:(\\d+)"));
   QTRY_VERIFY_WITH_TIMEOUT(pattern.match(acc).hasMatch(), 15000);
   const qint64 childPid = pattern.match(acc).captured(1).toLongLong();
-  delete repl; // 析构强制整组回收（不等 exit()）
+  QVERIFY(childPid > 0);
+  delete repl; // 析构强制整树回收（不等 exit()）
   QTRY_VERIFY_WITH_TIMEOUT(pidDead(childPid), 10000);
-#else
-  QSKIP("orphan assertion is Unix-specific in this suite; Windows lanes cover it "
-        "via the job-object suite");
-#endif
 }
 
 void TestPythonRepl::treeReclamationFailureIsReported()

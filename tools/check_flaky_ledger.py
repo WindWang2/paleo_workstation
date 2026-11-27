@@ -41,7 +41,7 @@ def load_records(path):
     p = Path(path)
     if not p.is_file():
         return records, n_bad
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in p.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue

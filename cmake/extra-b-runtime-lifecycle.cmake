@@ -4,5 +4,8 @@
 target_sources(paleo_services PRIVATE src/services/scriptprocessscope.cpp)
 # 与 pythonsandbox_windows.cpp 同口径：文件内自带 Q_OS_WIN 守卫与空翻译
 # 单元，非 Windows 平台仅保住挂点、不产符号。
-target_sources(paleo_services_pythonruntime PRIVATE src/services/pythonsandbox_windows_view.cpp)
+target_sources(paleo_services_pythonruntime PRIVATE
+  src/services/pythonsandbox_windows_view.cpp
+  src/services/pythonsandbox_windows_view_logic.cpp)
 add_paleo_test(tst_scriptprocessscope LIBS paleo_services)
+add_paleo_test(tst_pythonsandbox_view_journal LIBS paleo_services_pythonruntime)

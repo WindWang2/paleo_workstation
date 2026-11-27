@@ -33,7 +33,10 @@ PythonReplSession::~PythonReplSession()
     m_stopTimer = nullptr;
   }
   if (!m_proc)
+  {
+    m_scope.reset();
     return;
+  }
   QProcess *proc = m_proc;
   m_proc = nullptr;
   proc->disconnect(this);
@@ -52,6 +55,7 @@ PythonReplSession::~PythonReplSession()
   proc->kill();
   proc->waitForFinished(kStopGraceMs);
   delete proc;
+  m_scope.reset(); // 显式关闭 Job 句柄（KILL_ON_JOB_CLOSE 兜底）
   m_pid = 0;
 }
 

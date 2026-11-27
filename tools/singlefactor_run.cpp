@@ -9,6 +9,12 @@
 //     marching squares），另写 MS 等值线 GPKG 与对比图件。
 // 输出：GeoTIFF 等值面 + .qc.json/.structural.json 侧卡 + GPKG 等值线×2 + PNG 图件×2。
 //
+// Build (#985):
+//   ./paleo-dev configure -DPALEO_BUILD_TOOLS=ON
+//   ./paleo-dev build --target singlefactor_run
+// Links: paleo_workflow, paleo_qgis, paleo_algorithms (and GDAL/QGIS runtime).
+// Runtime: set QGIS_PREFIX_PATH to the prepared QGIS prefix (or run via ./paleo-dev).
+//
 // Usage: singlefactor_run <data_dir> <out_dir>
 //   data_dir needs: well.shp 成图范围.shp 打断线.shp 方向线_已配准.shp
 #include <QDir>

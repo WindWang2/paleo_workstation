@@ -106,6 +106,149 @@ class PortablePackageTests(unittest.TestCase):
             files.write([], rewritten=[target])
             verify(output)
 
+    def test_unresolved_pe_dependency_fails_by_default_and_can_be_allowed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            out = root / "out"
+            out.mkdir()
+            src = root / "build"
+            src.mkdir()
+            exe = src / "paleo.exe"
+            exe.write_bytes(b"MZ-fixture")
+            files = PackageFiles(out)
+            copied = files.copy(exe, "paleo.exe", "build", src)
+            system = root / "System32"
+            system.mkdir()
+            fake_dumpbin_output = (
+                "Dump of file paleo.exe\n\n"
+                "  Image has the following dependencies:\n\n"
+                "    missing_dep_958.dll\n"
+            )
+            with patch.object(package, "checked", return_value=fake_dumpbin_output):
+                with self.assertRaisesRegex(ValueError, "missing_dep_958.dll"):
+                    package.collect_pe_imports(files, [copied], [], Path("dumpbin.exe"), system)
+                with patch("sys.stderr"):
+                    missing = package.collect_pe_imports(
+                        files, [copied], [], Path("dumpbin.exe"), system, allow_missing=True
+                    )
+            self.assertIn("missing_dep_958.dll", missing)
+
+    def test_verify_propagates_selfcheck_failure_as_nonzero(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pkg = root / "portable"
+            pkg.mkdir()
+            for name in ("paleo_selfcheck.exe", "paleo.exe"):
+                (pkg / name).write_bytes(b"fixture")
+            PackageFiles(pkg).write([])
+
+            def fake_run(cmd, **_kwargs):
+                if str(cmd[0]).endswith("paleo_selfcheck.exe"):
+                    raise subprocess.CalledProcessError(1, cmd, output="", stderr="selfcheck failed")
+                return "ok"
+
+            argv = ["package_portable.py", "--verify-only", str(pkg)]
+            with (
+                patch.dict(os.environ, {"SystemRoot": str(root)}, clear=False),
+                patch.object(package, "checked", side_effect=fake_run),
+                patch.object(sys, "argv", argv),
+                patch("sys.stderr"),
+                self.assertRaises(SystemExit) as error,
+            ):
+                package.main()
+            self.assertEqual(error.exception.code, 1)
+
+    def test_verify_propagates_main_exe_early_exit_and_launch_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pkg = root / "portable"
+            pkg.mkdir()
+            for name in ("paleo_selfcheck.exe", "paleo.exe"):
+                (pkg / name).write_bytes(b"fixture")
+            PackageFiles(pkg).write([])
+
+            for failure in (
+                subprocess.CalledProcessError(2, ["paleo.exe", "--check-runtime"], stderr="early exit"),
+                OSError("launch failed"),
+            ):
+                def fake_run(cmd, _err=failure, **_kwargs):
+                    if str(cmd[0]).endswith("paleo.exe"):
+                        raise _err
+                    return "selfcheck ok"
+
+                argv = ["package_portable.py", "--verify-only", str(pkg)]
+                with (
+                    patch.dict(os.environ, {"SystemRoot": str(root)}, clear=False),
+                    patch.object(package, "checked", side_effect=fake_run),
+                    patch.object(sys, "argv", argv),
+                    patch("sys.stderr"),
+                    self.assertRaises(SystemExit) as error,
+                ):
+                    package.main()
+                self.assertEqual(error.exception.code, 1)
+
+    def test_cli_path_overrides_deps_qgis_prefix_and_qt_pdf(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cache_prefix = root / "cache-prefix"
+            override_prefix = root / "override-prefix"
+            deps_dir = root / "extra-deps"
+            qt_pdf_dir = root / "qt-pdf"
+            for d in (
+                cache_prefix / "apps/qt6/bin",
+                cache_prefix / "apps/qgis/bin",
+                cache_prefix / "bin",
+                override_prefix / "apps/qt6/bin",
+                override_prefix / "apps/qgis/bin",
+                override_prefix / "bin",
+                deps_dir / "bin",
+                qt_pdf_dir / "bin",
+            ):
+                d.mkdir(parents=True)
+
+            (override_prefix / "bin/from_qgis_override.dll").write_bytes(b"qgis-override")
+            (deps_dir / "bin/from_deps_override.dll").write_bytes(b"deps-override")
+            (qt_pdf_dir / "bin/qt6pdf.dll").write_bytes(b"qtpdf-override")
+
+            cache = {"QGIS_PREFIX": str(cache_prefix)}
+            prefix, roots = package.resolve_prefix_and_roots(
+                cache,
+                qgis_prefix=override_prefix,
+                deps=[deps_dir],
+                qt_pdf=qt_pdf_dir,
+            )
+            self.assertEqual(prefix, override_prefix.resolve())
+
+            out = root / "out"
+            out.mkdir()
+            src = root / "build"
+            src.mkdir()
+            exe = src / "paleo.exe"
+            exe.write_bytes(b"MZ-fixture")
+            files = PackageFiles(out)
+            copied = files.copy(exe, "paleo.exe", "build", src)
+            system = root / "System32"
+            system.mkdir()
+
+            def fake_dumpbin(cmd, **_kwargs):
+                if str(cmd[-1]).endswith("paleo.exe"):
+                    return (
+                        "    from_qgis_override.dll\n"
+                        "    from_deps_override.dll\n"
+                        "    qt6pdf.dll\n"
+                    )
+                return ""
+
+            with patch.object(package, "checked", side_effect=fake_dumpbin):
+                missing = package.collect_pe_imports(files, [copied], roots, Path("dumpbin.exe"), system)
+            self.assertEqual(missing, {})
+            self.assertTrue((out / "from_qgis_override.dll").is_file())
+            self.assertTrue((out / "from_deps_override.dll").is_file())
+            self.assertTrue((out / "qt6pdf.dll").is_file())
+            self.assertEqual(files.origins["from_deps_override.dll"]["origin"], "deps")
+            self.assertEqual(files.origins["qt6pdf.dll"]["origin"], "qt-pdf")
+            self.assertEqual(files.origins["from_qgis_override.dll"]["origin"], "osgeo4w")
+
 
 if __name__ == "__main__":
     unittest.main()

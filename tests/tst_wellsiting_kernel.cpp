@@ -12,8 +12,8 @@
 //   · 方案评估——加一口候选井后指标改善方向与幅度（合成夹具可解析验证）；
 //   · 候选生成——最大空洞圆心/规则网格/避让/边界内缩/上限；
 //   · 预算与退化输入的如实回退。
-// 性能纪律：不设绝对毫秒墙钟；大工区空洞检测用「吞吐比率门」
-// （大格网吞吐 ≥ 参照小格网吞吐的一半——同机同进程内相对比较）。
+// 性能纪律（#965）：纯功能 Oracle 保留在本套以进入必过车道；大工区吞吐比率门
+// 已按 tst_cache_pyramid_perf 先例拆至 tests/tst_wellsiting_kernel_perf.cpp（perf 标签 + RUN_SERIAL）。
 
 using namespace paleo::wellsiting;
 namespace sf = paleo::singlefactor;
@@ -80,7 +80,6 @@ class TestWellSitingKernel : public QObject
     void candidateAvoidance();
     void scenarioImprovementDirectionAndMagnitude();
     void contributionMatchesScenarioDelta();
-    void largeFieldThroughputRatio();
 };
 
 void TestWellSitingKernel::nearestNeighborStatsRegularGrid()
@@ -410,42 +409,6 @@ void TestWellSitingKernel::contributionMatchesScenarioDelta()
     QVERIFY( contribution.holeAreaReduction >= 0 );
     QVERIFY( contribution.meanDistanceReduction >= 0 );
   }
-}
-
-void TestWellSitingKernel::largeFieldThroughputRatio()
-{
-  // 抽样式比率门：同一核在大格网（500×500）与参照小格网（100×100）上的
-  // 吞吐比 ≥ 0.5——桶格索引应让单格成本近似常数；比率塌方说明索引退化
-  // （如环形扩张未收敛）。不设绝对毫秒阈值。
-  std::vector<Point2> wells;
-  for ( int i = 0; i < 200; ++i )
-    wells.push_back( Point2{ double( i % 20 ) * 950.0 + 100.0,
-                             double( i / 20 ) * 950.0 + 100.0 } );
-
-  const auto throughput = [&]( double cellSize ) -> double {
-    SitingOptions options;
-    options.controlRadius = 2500;
-    options.cellSize = cellSize;
-    QElapsedTimer timer;
-    timer.start();
-    const SitingField field = sampleField( { squareDomain() }, wells, options );
-    const qint64 elapsed = timer.elapsed();
-    // QCOMPARE/QVERIFY 在 lambda 内展开为 return;（void）——状态断言放外面。
-    Q_ASSERT( field.status == Status::Ok );
-    return double( field.inDomain.size() ) / double( std::max<qint64>( elapsed, 1 ) );
-  };
-
-  const double reference = throughput( 100 ); // 100×100
-  const double large = throughput( 20 );      // 500×500
-  SitingOptions sanity;
-  sanity.controlRadius = 2500;
-  sanity.cellSize = 20;
-  QCOMPARE( sampleField( { squareDomain() }, wells, sanity ).status, Status::Ok );
-  QVERIFY2( large >= 0.5 * reference,
-            qPrintable( QStringLiteral( "throughput ratio %1/%2 = %3" )
-                            .arg( large )
-                            .arg( reference )
-                            .arg( large / reference ) ) );
 }
 
 QTEST_MAIN( TestWellSitingKernel )

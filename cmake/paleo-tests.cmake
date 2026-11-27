@@ -66,7 +66,8 @@ add_paleo_test(tst_projectfile_safety LIBS paleo_io)  # PW-075/126：project.pal
 add_paleo_test(tst_boundedread LIBS paleo_io)  # PW-076：有界整读 helper
 add_paleo_test(tst_segy_endian LIBS paleo_io)   # PW-070/071/125 字节序/格式/共用 ns 判定
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
-add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
+add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)       # 方向34 / #965：井网辅助纯核功能 Oracle（必过车道）
+add_paleo_test(tst_wellsiting_kernel_perf LIBS paleo_algorithms)  # #965：井网辅助吞吐比率门（拆出挂 perf + RUN_SERIAL）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_partition LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_faultpath LIBS paleo_algorithms)
@@ -343,6 +344,11 @@ set_tests_properties(tst_startup_trace PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(paleo_seismic_demo tools/seismic_showcase.cpp)
 target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
+# #985：单因素生产管线独立运行器，随 -DPALEO_BUILD_TOOLS=ON 编入构建图以防 API 漂移。
+if(PALEO_BUILD_TOOLS)
+  add_executable(singlefactor_run tools/singlefactor_run.cpp)
+  target_link_libraries(singlefactor_run PRIVATE paleo_workflow paleo_qgis paleo_algorithms)
+endif()
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----
 add_paleo_test(tst_metastore LIBS paleo_store)      # sqlite user_version：新库采纳/遗留升级/未来拒开

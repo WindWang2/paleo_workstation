@@ -93,14 +93,27 @@ void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
         dock->setProgrammaticVisible(kEditingToolPages.contains(pageId) && dock->userWantsVisible());
 }
 
+bool inspectorPrecedesAgent(QMainWindow *window)
+{
+  auto *inspector = window->findChild<QDockWidget *>(QStringLiteral("pagePanelDock"), Qt::FindDirectChildrenOnly);
+  auto *agent = window->findChild<QDockWidget *>(QStringLiteral("aiAgentDock"), Qt::FindDirectChildrenOnly);
+  if (inspector && agent && inspector->isVisible() && agent->isVisible() &&
+      window->tabifiedDockWidgets(inspector).contains(agent))
+    return !inspector->visibleRegion().isEmpty();
+  return window->property("inspectorBeforeAgent").toBool();
+}
+
 void hideAllDocksForCorrelation(QMainWindow *win)
 {
   // 原生地层对比页拥有井组、曲线和结果面；整片中央区域让给它。
   for (auto *dock : win->findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
+  {
+    if (dock->objectName() == QLatin1String("aiAgentDock")) continue;
     if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock))
       paleoDock->setProgrammaticVisible(false);
     else
       dock->hide();
+  }
 }
 
 } // namespace paleo::mainwindow_internal
@@ -136,6 +149,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (pageId != QLatin1String("data") && m_previewMaximized)
     if (auto *button = m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
       button->setChecked(false);
+  auto *agent = findChild<QDockWidget *>(QStringLiteral("aiAgentDock"), Qt::FindDirectChildrenOnly);
+  const bool agentInFront = agent && !agent->visibleRegion().isEmpty();
+  const bool inspectorFirst = paleo::mainwindow_internal::inspectorPrecedesAgent(this);
   const bool enteringCorrelation = pageId == QLatin1String("correlation") &&
                                    m_currentPage != pageId;
   const bool leavingCorrelation = m_currentPage == QLatin1String("correlation") &&
@@ -144,9 +160,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
     restoreCorrelationDocks();
   if (enteringCorrelation)
   {
-    m_beforeCorrelationWindowState = saveState();
+    setProperty("inspectorBeforeAgent", inspectorFirst);
     for (auto *dock : findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
-      if (!dock->isHidden())
+      if (!dock->isHidden() && dock->objectName() != QLatin1String("aiAgentDock"))
         m_correlationHiddenDocks.append(dock);
   }
   m_currentPage = pageId;
@@ -245,6 +261,11 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // 编辑会话经 owner 的 abort 路径拆台（等价 §42.15 的 Esc）。
   if (!kEditingToolPages.contains(pageId) && m_canvasCtl)
     m_canvasCtl->deactivateTool();
+  if (!m_rightDock->isHidden() && tabifiedDockWidgets(m_rightDock).contains(agent)) {
+    if (inspectorFirst) m_rightDock->raise();
+    else if (agentInFront) agent->raise();
+    setProperty("inspectorBeforeAgent", false);
+  }
 }
 
 void PaleoMainWindow::syncTaskStatus()
@@ -274,6 +295,7 @@ void PaleoMainWindow::syncTaskStatus()
 void PaleoMainWindow::showStartup()
 {
   exitWorkspaceFocus(this);
+  setProperty("inspectorBeforeAgent", paleo::mainwindow_internal::inspectorPrecedesAgent(this));
   if (m_currentPage == QLatin1String("correlation"))
     restoreCorrelationDocks();
   // 只读工程（另一实例持锁打开）回起始页不得重置只读态——现取 store 真源，

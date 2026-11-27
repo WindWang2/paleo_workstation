@@ -304,6 +304,7 @@ namespace
         std::vector<QAction *> out;
         for (QAction *a : m_right->actions())
           if (a != m_slotAction && a != m_searchBtnAction && a != m_moreAction && a->isVisible() &&
+              !a->property("paleo.keepInTitleRow").toBool() &&
               qobject_cast<QToolButton *>(m_right->widgetForAction(a)))
             out.push_back(a);
         return out;

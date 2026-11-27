@@ -21,8 +21,10 @@ class QComboBox;
 class QHBoxLayout;
 class QLabel;
 class QPushButton;
+class QProgressBar;
 class QFrame;
 class QScrollArea;
+class QStackedWidget;
 class QTextBrowser;
 class QTextEdit;
 class QTimer;
@@ -55,6 +57,7 @@ public:
   void attachPlanPresenter(paleo::chat::AiPlanPresentation *presenter);
   void setFileImportContext(quint64 projectSession, const QString &unavailableReason);
   void showFileImportStatus(const QString &message);
+  void focusComposer();
 
 public slots:
   void refresh(); // 按 controller 状态重画（状态行/按钮可用性/历史）
@@ -80,6 +83,8 @@ protected:
 
 private:
   void buildSessionHeader(QVBoxLayout *layout);
+  void buildConversationArea(QVBoxLayout *layout);
+  void updateWelcomeIcon();
   void buildComposer(QVBoxLayout *layout);
   void updateSendButton();
   void buildFileImportControls(QHBoxLayout *actions, QVBoxLayout *layout);
@@ -103,7 +108,7 @@ private:
   struct TranscriptEntry {
     QString label;
     QString text;
-    bool markdown = false;
+    ChatRole role = ChatRole::System;
     bool error = false;
   };
   QTextBrowser *createTranscript();
@@ -152,7 +157,14 @@ private:
   QAction *m_rename = nullptr;
   QAction *m_delete = nullptr;
   QTextBrowser *m_transcript = nullptr;
-  class PaleoEmptyStateLabel *m_emptyState = nullptr; // #870 对话区空态指引
+  QStackedWidget *m_conversationArea = nullptr;
+  QScrollArea *m_welcome = nullptr;
+  QLabel *m_welcomeIcon = nullptr;
+  QLabel *m_emptyState = nullptr;
+  QPushButton *m_projectPrompt = nullptr;
+  QPushButton *m_toolsPrompt = nullptr;
+  QPushButton *m_welcomeImport = nullptr;
+  QPushButton *m_welcomeConfigure = nullptr;
   void updateEmptyState();
   QWidget *m_cards = nullptr;
   QScrollArea *m_cardScroll = nullptr;
@@ -161,6 +173,8 @@ private:
   QPushButton *m_historyOlder = nullptr;
   QPushButton *m_historyNewer = nullptr;
   QTextEdit *m_input = nullptr;
+  QPushButton *m_configure = nullptr;
+  QProgressBar *m_activity = nullptr;
   QPushButton *m_send = nullptr;
   QPushButton *m_stop = nullptr;
   QAction *m_copy = nullptr;

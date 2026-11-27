@@ -152,6 +152,8 @@ void appendWorkspaceNavigation(QList<ShortcutEntry> &out, const char *mainPanel)
     e.id = QStringLiteral("main.page.") + pageId;
     out.append(e);
   }
+  out << make("main.agent.open", QKeySequence(QStringLiteral("Ctrl+J")), "main", S, "navigation",
+              QT_TRANSLATE_NOOP("PaleoShortcuts", "打开 AI Agent"), mainPanel, "src/ui/paleomainwindow_ribbon.cpp");
   out << make("main.workspace.focus", QKeySequence(Qt::Key_F8), "main", S, "navigation",
               QT_TRANSLATE_NOOP("PaleoShortcuts", "切换专注工作区"), mainPanel, "src/ui/workspacefocus.cpp");
 }

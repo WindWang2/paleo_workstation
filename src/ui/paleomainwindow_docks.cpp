@@ -404,16 +404,28 @@ void PaleoMainWindow::buildCenterArea()
     m_decorMgr = new PaleoDecorationManager(m_canvasCtl->canvas(), this);
 
   connect(m_previewTabs, &DataPreviewTabs::previewMaximizeToggled, this,
-          [this](bool on) {
+          [this, widths = QList<int>()](bool on) mutable {
     WorkspaceLayoutScope ordinaryLayout(this);
     m_previewMaximized = on;
     if (on) {
-      m_preMaxWindowState = saveState();
+      setProperty("inspectorBeforeAgent", paleo::mainwindow_internal::inspectorPrecedesAgent(this));
+      widths = {m_dataListDock->width(), m_rightDock->width()};
       m_dataListDock->setProgrammaticVisible(false);
       m_rightDock->setProgrammaticVisible(false);
-    } else if (!m_preMaxWindowState.isEmpty()) {
-      m_dockManager->restoreLayout(m_preMaxWindowState, nullptr);
-      m_preMaxWindowState.clear();
+    } else if (!widths.isEmpty()) {
+      // The preview masks only navigation and properties. The Agent may have
+      // been closed, floated or moved in the meantime; leave its layout live.
+      auto *agent = findChild<QDockWidget *>(QStringLiteral("aiAgentDock"));
+      const bool agentInFront = agent && !agent->visibleRegion().isEmpty();
+      m_dataListDock->setProgrammaticVisible(m_dataListDock->userWantsVisible());
+      m_rightDock->setProgrammaticVisible(m_rightDock->userWantsVisible());
+      resizeDocks({m_dataListDock, m_rightDock}, widths, Qt::Horizontal);
+      if (!m_rightDock->isHidden() && tabifiedDockWidgets(m_rightDock).contains(agent)) {
+        if (property("inspectorBeforeAgent").toBool()) m_rightDock->raise();
+        else if (agentInFront) agent->raise();
+        setProperty("inspectorBeforeAgent", false);
+      }
+      widths.clear();
     }
   });
   if (auto *inner = m_previewTabs->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
@@ -578,6 +590,19 @@ void PaleoMainWindow::buildPageDocks()
   addDockWidget(Qt::RightDockWidgetArea, m_rightDock);
   m_rightDock->setUserWantsVisible(false);
   m_rightDock->setProgrammaticVisible(false);
+
+  // Register before restoreState, even though the conversation service attaches later.
+  auto *agent = new PaleoDockWidget(tr("AI Agent"), this);
+  agent->setObjectName(QStringLiteral("aiAgentDock"));
+  auto *agentHost = new QWidget(agent);
+  agentHost->setObjectName(QStringLiteral("aiAgentPanelHost"));
+  auto *agentLayout = new QVBoxLayout(agentHost);
+  agentLayout->setContentsMargins(0, 0, 0, 0);
+  agent->setWidget(agentHost);
+  addDockWidget(Qt::RightDockWidgetArea, agent);
+  tabifyDockWidget(m_rightDock, agent);
+  agent->hide();
+  agent->toggleViewAction()->setEnabled(false);
 
   // ---- bottom dock: log + tasks tabs ----
   m_bottomDock = new PaleoDockWidget(tr("日志 / 任务"), this);
@@ -806,10 +831,25 @@ void PaleoMainWindow::saveWindowState()
   WorkspaceLayoutScope ordinaryLayout(this);
   QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
   s.setValue(QStringLiteral("windowGeometry"), saveGeometry());
-  s.setValue(QStringLiteral("windowState"),
-             m_currentPage == QLatin1String("correlation") && !m_beforeCorrelationWindowState.isEmpty()
-                 ? m_beforeCorrelationWindowState : saveState());
-  s.setValue(QStringLiteral("windowDockIntent"), m_dockManager->captureIntent());
+  // Temporarily unmask only the docks hidden by correlation. This preserves
+  // the current position of global panels moved or floated while on that page.
+  auto intent = m_dockManager->captureIntent();
+  intent.insert(QStringLiteral("inspectorBeforeAgent"), paleo::mainwindow_internal::inspectorPrecedesAgent(this));
+  QList<QDockWidget *> masked;
+  for (const auto &dock : m_correlationHiddenDocks) {
+    if (!dock || !dock->isHidden() || dock->property("workspaceCentralDocument").toBool()) continue;
+    auto *panel = qobject_cast<PaleoDockWidget *>(dock.data());
+    if (panel && !panel->userWantsVisible()) continue;
+    masked.append(dock);
+    if (panel) panel->setProgrammaticVisible(true);
+    else dock->show();
+  }
+  s.setValue(QStringLiteral("windowState"), saveState());
+  for (auto *dock : masked) {
+    if (auto *panel = qobject_cast<PaleoDockWidget *>(dock)) panel->setProgrammaticVisible(false);
+    else dock->hide();
+  }
+  s.setValue(QStringLiteral("windowDockIntent"), intent);
   // lastPage 不再写入：#565 起恢复侧固定打开工区看板（读取已删，写即死写）。
 }
 
@@ -835,6 +875,7 @@ void PaleoMainWindow::restoreWindowState()
       intent = s.value(QStringLiteral("windowDockIntent")).toMap();
     else
       m_rightDock->setUserWantsVisible(true); // 原版有布局、无意愿键时的参数面板默认值
+    setProperty("inspectorBeforeAgent", intent.value(QStringLiteral("inspectorBeforeAgent")).toBool());
     if (!m_dockManager->restoreLayout(state, hasIntent ? &intent : nullptr)) {
       m_dockManager->restoreDefaultLayout();
       statusBar()->showMessage(tr("窗口布局无法读取，已恢复默认布局。"), 8000);

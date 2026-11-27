@@ -38,6 +38,9 @@ struct PageDockState
 void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
                          QMainWindow *window = nullptr);
 void hideAllDocksForCorrelation(QMainWindow *win);
+// The project inspector can be temporarily masked on home/correlation while
+// a tabified Agent stays visible. Remember the user's front tab across the mask.
+bool inspectorPrecedesAgent(QMainWindow *window);
 
 // Tab order = reading order = right-panel stack order：页序表收敛到
 // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。

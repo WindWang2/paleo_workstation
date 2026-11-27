@@ -10,6 +10,7 @@
 #include <QStackedLayout>
 #include <QStatusBar>
 #include <QVBoxLayout>
+#include <QWindow>
 #include "../src/ui/paleodockmanager.h"
 
 class TestDockManager : public QObject
@@ -35,20 +36,24 @@ private slots:
     auto *dock = new QDockWidget("Drag panel");
     dock->setObjectName("dragPanel");
     dock->setWidget(new QLabel("content"));
-    manager.addDock(Qt::LeftDockWidgetArea, dock);
+    const auto startArea = targetIndex == 0 ? Qt::RightDockWidgetArea : Qt::LeftDockWidgetArea;
+    manager.addDock(startArea, dock);
     window.show();
-    QTest::qWait(30);
-    const QPoint press(dock->width() / 2, 8);
-    QTest::mousePress(dock, Qt::LeftButton, Qt::NoModifier, press);
-    QTest::mouseMove(dock, press + QPoint(180, 100));
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    const QPoint press(dock->width() / 2, dock->widget()->geometry().top() / 2);
+    auto *surface = window.windowHandle();
+    const QPoint origin = surface->mapFromGlobal(dock->mapToGlobal(press));
+    QTest::mousePress(surface, Qt::LeftButton, Qt::NoModifier, origin);
+    QTest::mouseMove(surface, window.rect().center());
     auto guides = window.findChildren<QLabel *>("dockDropGuide");
     QCOMPARE(guides.size(), 4);
-    QTRY_VERIFY(guides.first()->isVisible());
-    auto *guide = guides.at(targetIndex);
-    const QPoint target = guide->mapToGlobal(guide->rect().center());
-    QTest::mouseMove(dock, dock->mapFromGlobal(target));
+    for (auto *guide : guides)
+      QTRY_VERIFY(guide->isVisible());
+    auto *targetGuide = guides.at(targetIndex);
+    const QPoint target = targetGuide->mapToGlobal(targetGuide->rect().center());
+    QTest::mouseMove(surface, surface->mapFromGlobal(target));
     QTest::qWait(30);
-    QTest::mouseRelease(dock, Qt::LeftButton, Qt::NoModifier, dock->mapFromGlobal(target));
+    QTest::mouseRelease(surface, Qt::LeftButton, Qt::NoModifier, surface->mapFromGlobal(target));
     const Qt::DockWidgetArea areas[] = {Qt::LeftDockWidgetArea, Qt::RightDockWidgetArea,
                                         Qt::TopDockWidgetArea, Qt::BottomDockWidgetArea};
     QTRY_COMPARE(window.dockWidgetArea(dock), areas[targetIndex]);

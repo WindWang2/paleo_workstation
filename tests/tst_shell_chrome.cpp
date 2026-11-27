@@ -698,7 +698,9 @@ private slots:
                         m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
                         m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
                         m_ctx->layoutSvc(), m_ctx->taskSvc());
-    win.show();
+    win.resize(640, 650);
+    win.showNormal();
+    win.ribbonBar()->setMinimumMode(false);
     win.activateWindow();
     QTest::qWait(80);
     int clippedCases = 0;

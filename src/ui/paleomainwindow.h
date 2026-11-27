@@ -259,9 +259,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // goal/facies-automapping：证据合成 + QA 报告面板。幂等（dock 已建则只
     // 更新指针）。面板只发意图，链路在 FaciesMappingWorkflow。
     void attachFaciesMapping(FaciesMappingWorkflow *wf);
-    // 方向51：AI 地质对话助手——底栏加「AI 助手」页签，挂 AppContext 持有的
-    // AiChatController。编排与会话落盘全在 workflow 层，这里只装配面板 +
-    // 把「配置…」意图翻成状态栏提示（配置对话框递延，见 TODOS.md）。
+    // 为独立的 AI Agent 停靠面板连接 AppContext 的会话控制器与工程上下文。
     void attachAiAssistant(class AiChatController *controller);
     // I4：语义导航适配器工厂——把主窗持有的预览标签宿主/选择总线/井地图
     // 链接装进 AgentNavigationAdapter（窄接线，parent=主窗；幂等）。空入参
@@ -549,14 +547,12 @@ public:
     StratigraphyPage *m_stratigraphyPage = nullptr;
     QTabBar *m_visualizationTabs = nullptr;
     QList<QPointer<QDockWidget>> m_correlationHiddenDocks;
-    QByteArray m_beforeCorrelationWindowState;
     QStackedWidget *m_centerStack = nullptr;   // page0=startup, page1=workspace
     QStackedWidget *m_workspaceStack = nullptr; // page0=画布面，page1=数据面，page2=地层对比
     PaleoDockWidget *m_dataListDock = nullptr;
     QWidget *m_dataListHost = nullptr;
     DataPreviewTabs *m_previewTabs = nullptr;
     bool m_previewMaximized = false;
-    QByteArray m_preMaxWindowState;
     PaleoDockWidget *m_leftDock = nullptr;
     PaleoDockWidget *m_rightDock = nullptr;
     PaleoDockWidget *m_bottomDock = nullptr;

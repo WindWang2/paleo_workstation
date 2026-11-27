@@ -407,6 +407,76 @@
         <source>未选择</source>
         <translation>未选择</translation>
     </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="74"/>
+        <source>开始新对话</source>
+        <translation>开始新对话</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="93"/>
+        <source>梳理工程资料</source>
+        <translation>梳理工程资料</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="95"/>
+        <source>查找可用工具</source>
+        <translation>查找可用工具</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="97"/>
+        <source>选择工区文件…</source>
+        <translation>选择工区文件…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="99"/>
+        <source>配置对话模型…</source>
+        <translation>配置对话模型…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="111"/>
+        <source>梳理当前工程的井、地震和层位资料，列出还需要核对的项目。</source>
+        <translation>梳理当前工程的井、地震和层位资料，列出还需要核对的项目。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="112"/>
+        <source>当前有哪些工具可以用于资料检查和成图？请按用途列出。</source>
+        <translation>当前有哪些工具可以用于资料检查和成图？请按用途列出。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="212"/>
+        <source>询问 AI Agent…</source>
+        <translation>询问 AI Agent…</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_layout.cpp" line="251"/>
+        <source>Agent 正在处理请求</source>
+        <translation>Agent 正在处理请求</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="466"/>
+        <source>询问工区资料，或将文件拖到这里导入。</source>
+        <translation>询问工区资料，或将文件拖到这里导入。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="467"/>
+        <source>询问可用工具，或写下要处理的问题。</source>
+        <translation>询问可用工具，或写下要处理的问题。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="469"/>
+        <source>可直接导入工区文件。配置模型后即可对话。</source>
+        <translation>可直接导入工区文件。配置模型后即可对话。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock.cpp" line="471"/>
+        <source>配置模型后，即可在这里对话和调用工具。</source>
+        <translation>配置模型后，即可在这里对话和调用工具。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/ai/aiassistdock_transcript.cpp" line="146"/>
+        <source>AI Agent</source>
+        <translation>AI Agent</translation>
+    </message>
 </context>
 <context>
     <name>AiAssistWorkflow</name>
@@ -26222,6 +26292,16 @@ PDF：%3
         <source>窗口布局无法读取，已恢复默认布局。</source>
         <translation>窗口布局无法读取，已恢复默认布局。</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_docks.cpp" line="590"/>
+        <source>AI Agent</source>
+        <translation>AI Agent</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_ribbon.cpp" line="262"/>
+        <source>打开 AI Agent（%1）</source>
+        <translation>打开 AI Agent（%1）</translation>
+    </message>
 </context>
 <context>
     <name>PaleoMapBookController</name>
@@ -27424,6 +27504,11 @@ PDF：%3
         <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="156"/>
         <source>切换专注工作区</source>
         <translation>切换专注工作区</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/shortcuts/shortcutcatalog.cpp" line="156"/>
+        <source>打开 AI Agent</source>
+        <translation>打开 AI Agent</translation>
     </message>
 </context>
 <context>

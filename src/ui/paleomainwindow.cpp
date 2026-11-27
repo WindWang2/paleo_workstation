@@ -441,7 +441,6 @@ void PaleoMainWindow::onProjectOpened()
     ribbonBar()->setMinimumMode(settings.value(QStringLiteral("ui/workspace/compactRibbon"), true).toBool());
     setProperty("workspaceRibbonInitialized", true);
   }
-  if (m_rightDock) m_rightDock->setProgrammaticVisible(m_rightDock->userWantsVisible());
   if (m_centerStack)
     m_centerStack->setCurrentIndex(1); // startup -> workspace canvas
 

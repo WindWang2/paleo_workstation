@@ -206,6 +206,10 @@ private slots:
     // 1. 文案跟随当前注册表真实键位
     const QString locKey = displayKey(keyFor(QStringLiteral("main.locator.focus")));
     const QString saveKey = displayKey(keyFor(QStringLiteral("main.project.save")));
+    auto *agent = m_win->findChild<QAction *>(QStringLiteral("openAiAgentAction"));
+    QVERIFY(agent);
+    QCOMPARE(agent->shortcut(), keyFor(QStringLiteral("main.agent.open")));
+    QCOMPARE(agent->toolTip(), PaleoMainWindow::tr("打开 AI Agent（%1）").arg(displayKey(agent->shortcut())));
     QLineEdit *edit = locator->findChild<QLineEdit *>();
     QVERIFY(edit);
     QCOMPARE(edit->placeholderText(), PaleoMainWindow::tr("搜索井位/层位  %1").arg(locKey));
@@ -213,7 +217,7 @@ private slots:
 
     // 2. 只读模式下保存按钮文案切换与恢复
     m_win->setProjectReadOnly(true);
-    QCOMPARE(save->toolTip(), PaleoMainWindow::tr("工程处于只读模式（另一个实例持有写锁）"));
+    QCOMPARE(save->toolTip(), PaleoMainWindow::tr("工程处于只读模式"));
     m_win->setProjectReadOnly(false);
     QCOMPARE(save->toolTip(), PaleoMainWindow::tr("保存工程（%1）").arg(saveKey));
 

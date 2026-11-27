@@ -72,7 +72,7 @@ PaleoDockManager::PaleoDockManager(QMainWindow *window, const QString &settingsK
     m_guides.append(guide);
   }
   m_dragTimer.setInterval(16);
-  connect(&m_dragTimer, &QTimer::timeout, this, &PaleoDockManager::updateDrag);
+  connect(&m_dragTimer, &QTimer::timeout, this, &PaleoDockManager::pollDrag);
   qApp->installEventFilter(this);
 }
 
@@ -308,6 +308,8 @@ bool PaleoDockManager::eventFilter(QObject *object, QEvent *event)
           mouse->position().y() < content.top() && !content.contains(mouse->position().toPoint())))) {
       m_dragDock = dock;
       m_pressPosition = mouse->globalPosition().toPoint();
+      m_pointerPosition = m_pressPosition;
+      m_lastSystemCursor = QCursor::pos();
       m_dragTimer.start();
     }
   }
@@ -315,25 +317,44 @@ bool PaleoDockManager::eventFilter(QObject *object, QEvent *event)
       static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape)
     endDrag(false);
   if (m_dragDock && (event->type() == QEvent::MouseMove ||
-                     (object == m_dragDock && event->type() == QEvent::Move)))
-    updateDrag();
+                     event->type() == QEvent::NonClientAreaMouseMove)) {
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->buttons().testFlag(Qt::LeftButton)) {
+      m_lastSystemCursor = QCursor::pos();
+      updateDrag(mouse->globalPosition().toPoint(), mouse->modifiers());
+    }
+  }
   if (m_dragDock && (event->type() == QEvent::MouseButtonRelease ||
-                    event->type() == QEvent::NonClientAreaMouseButtonRelease))
-    endDrag(true);
+                    event->type() == QEvent::NonClientAreaMouseButtonRelease)) {
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->button() == Qt::LeftButton) {
+      updateDrag(mouse->globalPosition().toPoint(), mouse->modifiers());
+      endDrag(true);
+    }
+  }
   return QObject::eventFilter(object, event);
 }
 
-void PaleoDockManager::updateDrag()
+void PaleoDockManager::pollDrag()
 {
   if (!m_dragDock) {
     endDrag(false);
     return;
   }
-  if (!(QApplication::mouseButtons() & Qt::LeftButton)) {
-    endDrag(true);
-    return;
-  }
   const QPoint global = QCursor::pos();
+  // Window managers can move a floating dock without delivering Qt mouse
+  // moves. Only a new system position may supersede a delivered pointer event.
+  if (global != m_lastSystemCursor)
+    m_pointerPosition = global;
+  m_lastSystemCursor = global;
+  updateDrag(m_pointerPosition, QApplication::keyboardModifiers());
+  if (!(QApplication::mouseButtons() & Qt::LeftButton))
+    endDrag(true);
+}
+
+void PaleoDockManager::updateDrag(const QPoint &global, Qt::KeyboardModifiers modifiers)
+{
+  m_pointerPosition = global;
   if (!m_dragging && (global - m_pressPosition).manhattanLength() < QApplication::startDragDistance())
     return;
   m_dragging = true;
@@ -353,7 +374,7 @@ void PaleoDockManager::updateDrag()
     QRect(QPoint(c.x() - labelSize.width() / 2, bounds.bottom() - 32), labelSize)};
   m_target = Qt::NoDockWidgetArea;
   const bool allowed = m_window->isVisible() && bounds.contains(pos) &&
-                       !(QApplication::keyboardModifiers() & Qt::ControlModifier);
+                       !modifiers.testFlag(Qt::ControlModifier);
   const auto &t = PaleoTheme::tokens(PaleoTheme::currentTheme());
   for (int i = 0; i < 4; ++i) {
     const bool active = allowed && targets[i].adjusted(-8, -8, 8, 8).contains(pos);

@@ -1,7 +1,6 @@
 // 层：视图
 #include "aiassistdock.h"
 #include "aiplanreviewwidget.h"
-#include "../paleoemptystate.h"
 #include <QTextDocument>
 #include "../notifications/paleonotify.h"
 
@@ -29,9 +28,11 @@
 #include <QLabel>
 #include <QMimeData>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QStackedWidget>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocumentFragment>
@@ -83,17 +84,7 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
   m_contextBar->setObjectName(QStringLiteral("aiAssistantContextBar"));
   layout->addWidget(m_contextBar);
 
-  m_transcript = createTranscript();
-  m_transcript->setObjectName(QStringLiteral("aiAssistantTranscript"));
-  m_transcript->setReadOnly(true);
-  m_transcript->setOpenExternalLinks(false);
-  m_transcript->setFont(PaleoTheme::bodyFont());
-  layout->addWidget(m_transcript, 1);
-  // #870：对话区无内容时居中给下一步指引。
-  m_emptyState = new PaleoEmptyStateLabel(QString(), m_transcript->viewport());
-  m_emptyState->setObjectName(QStringLiteral("aiAssistantEmptyState"));
-  connect(m_transcript->document(), &QTextDocument::contentsChanged, this,
-          &AiAssistDock::updateEmptyState);
+  buildConversationArea(layout);
 
   // G5 W6：操作详情面（从结果卡「操作详情」显式打开；默认隐藏）。
   m_detail = new AiOperationDetailWidget(this);
@@ -410,6 +401,7 @@ void AiAssistDock::refreshContextBar() {
     // 服务未接入单独陈述；历史仍可读。
     m_contextBar->presentUnavailable(brief, streaming, turnId,
                                      tr("操作服务未接入（查询/取消/恢复不可用）"));
+    updateEmptyState();
     return;
   }
   const auto view = m_presenter->currentContext();
@@ -428,6 +420,7 @@ void AiAssistDock::refreshContextBar() {
   m_contextBar->present(brief, streaming, view.unavailableCode, view.open,
                         view.readOnly, view.horizon, view.unitId, view.documentId,
                         view.epoch, turnId, identity.join(QStringLiteral(", ")));
+  updateEmptyState();
 }
 
 void AiAssistDock::refresh() {
@@ -437,6 +430,7 @@ void AiAssistDock::refresh() {
   m_send->setVisible(!streaming);
   m_stop->setEnabled(streaming);
   m_stop->setVisible(streaming);
+  m_activity->setVisible(streaming);
   m_status->setText(m_controller ? m_controller->statusText() : tr("助手尚未接入"));
   m_status->setToolTip(m_status->text());
   m_input->setToolTip(ready && !streaming ? tr("Enter 发送，Shift+Enter 换行") : m_status->text());
@@ -456,17 +450,26 @@ void AiAssistDock::updateEmptyState() {
   if (!m_emptyState)
     return;
   const bool empty = m_transcript->document()->isEmpty();
+  m_conversationArea->setCurrentIndex(empty ? 0 : 1);
   m_emptyState->setVisible(empty);
   if (!empty)
     return;
   const bool ready = m_controller && m_controller->enabled();
-  m_emptyState->setDetailText(
-    m_importFiles && m_importFiles->isEnabled()
-      ? (ready ? tr("输入问题，或拖入文件以导入当前工程。")
-               : tr("拖入文件即可导入当前工程。配置模型后还可以提问。"))
-      : ready ? tr("输入问题，按 Enter 发送。")
-              : m_controller ? tr("点击「模型设置…」配置模型，即可开始对话。")
-                             : tr("助手尚未接入。"));
+  const bool canImport = m_importFiles && m_importFiles->isEnabled();
+  const bool canSuggest = ready && !m_controller->streaming() && m_input &&
+                          m_input->toPlainText().isEmpty();
+  m_projectPrompt->setVisible(canSuggest && (canImport || m_contextBar->hasOpenProject()));
+  m_toolsPrompt->setVisible(canSuggest);
+  m_welcomeConfigure->setVisible(!ready && m_controller);
+  m_welcomeImport->setVisible(!ready && canImport);
+  if (ready)
+    m_emptyState->setText(canImport ? tr("询问工区资料，或将文件拖到这里导入。")
+                                    : tr("询问可用工具，或写下要处理的问题。"));
+  else if (canImport)
+    m_emptyState->setText(tr("可直接导入工区文件。配置模型后即可对话。"));
+  else
+    m_emptyState->setText(m_controller ? tr("配置模型后，即可在这里对话和调用工具。")
+                                       : tr("助手尚未接入。"));
 }
 
 void AiAssistDock::updateActionStates() {

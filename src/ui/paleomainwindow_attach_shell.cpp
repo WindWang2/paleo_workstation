@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_shell — 壳面与全局组件接线（W4 拆分段）
 #include "ribbontitlefit.h"
+#include "workspacefocus.h"
 #include <algorithm>
 #include "paleomainwindow.h"
 #include "commandactionbinder.h"
@@ -60,6 +61,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QLineEdit>
+#include <QLayout>
 #include <QMenu>
 #include "notifications/paleonotify.h"
 #include <QShortcut>
@@ -607,24 +609,22 @@ void PaleoMainWindow::attachMapBookSurface()
 }
 
 // ---------------------------------------------------------------------------
-// 方向51：AI 助手 dock 装配。幂等（页签已建则只重挂控制器）。
+// AI Agent 停靠面板装配。重挂控制器保留原面板。
 // ---------------------------------------------------------------------------
 void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
 {
   if (!controller)
     return;
-  auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
-  if (!bottomTabs)
-    return;
-  auto *existing = bottomTabs->findChild<AiAssistDock *>(
-      QStringLiteral("aiAssistantDock"));
+  auto *panel = findChild<QDockWidget *>(QStringLiteral("aiAgentDock"));
+  auto *host = panel->findChild<QWidget *>(QStringLiteral("aiAgentPanelHost"));
+  auto *existing = host->findChild<AiAssistDock *>(QStringLiteral("aiAssistantDock"));
   if (existing)
   {
     // 幂等分支：只把新控制器交给面板（面本身不重建，避免丢滚动位置）。
     existing->attachController(controller);
     return;
   }
-  auto *dock = new AiAssistDock(controller, bottomTabs);
+  auto *dock = new AiAssistDock(controller, host);
   dock->setWorkspaceLabels([this] {
     QStringList labels;
     if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
@@ -639,7 +639,22 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
     return labels;
   });
   dock->setObjectName(QStringLiteral("aiAssistantDock"));
-  bottomTabs->addTab(dock, tr("AI 助手"));
+  host->layout()->addWidget(dock);
+  panel->toggleViewAction()->setEnabled(true);
+  auto *open = findChild<QAction *>(QStringLiteral("openAiAgentAction"));
+  panel->addAction(open);
+  open->setEnabled(true);
+  connect(open, &QAction::triggered, dock, [this, panel, dock] {
+    exitWorkspaceFocus(this);
+    setProperty("inspectorBeforeAgent", false);
+    panel->show();
+    panel->raise();
+    if (panel->isFloating()) panel->activateWindow();
+    dock->focusComposer();
+  });
+  connect(panel->toggleViewAction(), &QAction::triggered, dock, [open](bool visible) {
+    if (visible) open->trigger();
+  });
   wireAgentFileImport(dock);
   // 「配置…」打开图形化配置对话框（方向62）。对话框只出表单值意图；
   // 落盘/钥匙串/应用编排走 controller->applyConfig（功能层），

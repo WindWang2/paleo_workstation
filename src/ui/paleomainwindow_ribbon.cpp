@@ -15,6 +15,7 @@
 #include "commandactionbinder.h" // U1：文件菜单/任务/右键菜单动作 → 命令
 #include "../workflow/commanddispatcher.h"
 #include "ribboncollapse.h"  // #860 分组自适应折叠
+#include "shortcuts/shortcutcatalog.h"
 #include "help/helpsurface.h" // 方向63 帮助面（菜单 + F1 总表挂主窗）
 #include "pages/pageshared.h" // kPageIds（页签序）
 #include "datapreview/datapreviewtabs.h" // mapConfigurationChanged 重开测区标签
@@ -253,6 +254,21 @@ void PaleoMainWindow::buildRibbonRightGroup(SARibbonBar *bar)
   // SARibbon 原生标题行固定高度；纵向留白会裁切搜索文字，保持零内外留白。
   slotLay->setContentsMargins(0, 0, PaleoTheme::tokens().spacingSm, 0);
   right->addWidget(locatorSlot);
+
+  auto *openAgent = new QAction(PaleoIcons::commandIcon(QStringLiteral("aiAssistant")), tr("AI Agent"), this);
+  openAgent->setObjectName(QStringLiteral("openAiAgentAction"));
+  openAgent->setEnabled(false);
+  paleo::shortcuts::bindAction(QStringLiteral("main.agent.open"), openAgent);
+  openAgent->setToolTip(tr("打开 AI Agent（%1）").arg(openAgent->shortcut().toString(QKeySequence::NativeText)));
+  addAction(openAgent);
+  auto *agentButton = new QToolButton(right);
+  agentButton->setObjectName(QStringLiteral("aiAgentButton"));
+  agentButton->setDefaultAction(openAgent);
+  agentButton->setAccessibleName(openAgent->text());
+  agentButton->setFocusPolicy(Qt::TabFocus);
+  agentButton->setAutoRaise(true);
+  agentButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  right->addWidget(agentButton)->setProperty("paleo.keepInTitleRow", true);
 
   // 布局管理入口：右键 dock 标题栏使用同一菜单，包含显隐与布局命令。
   auto *panelsBtn = new QToolButton(right);

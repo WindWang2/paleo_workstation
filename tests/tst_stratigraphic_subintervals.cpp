@@ -64,7 +64,13 @@ private slots:
     QCOMPARE( revisions.first().revision, head );
     paleo::data::StratigraphicScheme loaded;
     std::vector<paleo::data::SubIntervalResultBinding> bindings;
-    QVERIFY2( loadProjectSchemeFromDir( project.path(), {}, {}, loaded, &bindings, &error ), qPrintable( error ) );
+    SchemeSelectorChoices choices;
+    QVERIFY2( loadProjectSchemeFromDir( project.path(), {}, {}, loaded, &bindings, &error, &choices ), qPrintable( error ) );
+    QCOMPARE( choices.schemes.size(), schemes.size() );
+    QCOMPARE( choices.schemes.first().id, QStringLiteral( "default" ) );
+    QCOMPARE( choices.schemes.first().headRevision, head );
+    QCOMPARE( choices.revisions.size(), revisions.size() );
+    QCOMPARE( choices.revisions.first().revision, head );
     QCOMPARE( QString::fromStdString( loaded.revision.value ), head );
     QVERIFY2( loadProjectSchemeFromDir( project.path(), "default", head, loaded, &bindings, &error ), qPrintable( error ) );
     QVERIFY( !loadProjectSchemeFromDir( project.path(), "default", "absent", loaded, nullptr, &error ) );

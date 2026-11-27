@@ -20,6 +20,7 @@
 #include <QXmlStreamReader>
 
 #include <algorithm>
+#include <bitset>
 #include <cmath>
 #include <limits>
 
@@ -117,9 +118,10 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
   int nextColumn = 0;
   QStringList row;
   bool rowHasError = false;
-  QSet<int> usedColumns;
+  std::bitset<kMaxColumns> usedColumns;
   qint64 cellBudget = cellLimit;
   bool visitorOk = true;
+  const QString source = QStringLiteral( "工作簿 %1" ).arg( path );
 
   const auto finishRow = [&]() {
     if ( !inRow )
@@ -148,7 +150,7 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
     }
     row.clear();
     rowHasError = false;
-    usedColumns.clear();
+    usedColumns.reset();
     inRow = false;
   };
   const auto finishSheet = [&]() {
@@ -181,11 +183,11 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
     //——QXmlStreamReader 会展开内部实体（billion laughs 可把数十 KB 声明
     // 展开成 GB 级文本）。合法 SpreadsheetML 不带 DTD；令牌级捕获不依赖
     // 头部嗅探、任意位置可命中。
-    if ( xmlsafe::rejectDtdToken( token, QStringLiteral( "工作簿 %1" ).arg( path ), &result.error ) )
+    if ( xmlsafe::rejectDtdToken( token, source, &result.error ) )
       return result;
     if ( token == QXmlStreamReader::StartElement )
     {
-      const QString name = reader.name().toString();
+      const QStringView name = reader.name();
       if ( name == QLatin1String( "Worksheet" ) )
       {
         finishSheet();
@@ -233,7 +235,8 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
       {
         int column = nextColumn;
         bool cellOk = true;
-        const QStringView index = reader.attributes().value( kSsNs, QStringLiteral( "Index" ) );
+        const auto attributes = reader.attributes();
+        const QStringView index = attributes.value( kSsNs, QStringLiteral( "Index" ) );
         if ( !index.isEmpty() )
         {
           bool ok = false;
@@ -261,7 +264,7 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
           }
         }
         int span = 0;
-        const QStringView merge = reader.attributes().value( kSsNs, QStringLiteral( "MergeAcross" ) );
+        const QStringView merge = attributes.value( kSsNs, QStringLiteral( "MergeAcross" ) );
         if ( !merge.isEmpty() )
         {
           bool ok = false;
@@ -278,7 +281,7 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
             span = value;
           }
         }
-        if ( column < 1 || column > kMaxColumns || usedColumns.contains( column ) )
+        if ( column < 1 || column > kMaxColumns || usedColumns.test( column - 1 ) )
         {
           result.issues.append( QCoreApplication::translate( "OutsourceWorkbook", "工作表「%1」第 %2 行列 %3 重复或越界，该格跳过" )
                                     .arg( sheet.name ).arg( rowNumber ).arg( column ) );
@@ -293,9 +296,9 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
                                     .arg( kMaxColumns ) );
           span = 0;
         }
-        if ( cellOk )
-          for ( int merged = column; merged <= column + span; ++merged )
-            if ( usedColumns.contains( merged ) )
+        if ( cellOk && span > 0 && column < nextColumn )
+          for ( int merged = column + 1; merged <= column + span; ++merged )
+            if ( usedColumns.test( merged - 1 ) )
             {
               result.issues.append( QCoreApplication::translate( "OutsourceWorkbook", "工作表「%1」第 %2 行合并范围覆盖已有列 %3，该格跳过" )
                                         .arg( sheet.name ).arg( rowNumber ).arg( merged ) );
@@ -319,14 +322,14 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, QXmlStreamReader &rea
           padTo( &row, column + span );
           row[column - 1] = text;
           for ( int merged = column; merged <= column + span; ++merged )
-            usedColumns.insert( merged );
+            usedColumns.set( merged - 1 );
           nextColumn = std::max( nextColumn, column + span + 1 );
         }
       }
     }
     else if ( token == QXmlStreamReader::EndElement )
     {
-      const QString name = reader.name().toString();
+      const QStringView name = reader.name();
       if ( name == QLatin1String( "Row" ) )
         finishRow();
       else if ( name == QLatin1String( "Worksheet" ) )

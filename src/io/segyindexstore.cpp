@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QSet>
+#include <QtEndian>
 
 #include <limits>
 #include <sys/stat.h>
@@ -28,6 +29,16 @@ namespace
   // checkpoint 无 +4096 宽容）。v5 及更旧缓存按版本闸安全失效重建。
   constexpr quint16 kSegyIndexVersion = 6;
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
+
+  // decodePayload has checked the byte span for all arrays before allocating them.
+  template <typename T>
+  void readIndexArray(const QByteArray &payload, qint64 &pos, quint32 count, QVector<T> &values)
+  {
+    values.resize(count);
+    if (count > 0)
+      qFromLittleEndian<T>(payload.constData() + pos, count, values.data());
+    pos += qint64(count) * sizeof(T);
+  }
 
   quint16 segyIndexCompressionFlags()
   {
@@ -191,25 +202,13 @@ bool SegyIndexStore::decodePayload(const QByteArray &payload, StoredIndex *out)
       qint64(n) * (out->layoutKind == 'V' ? 18 : 16) + qint64(bad) * 8;
   if (payload.size() - pos < need)
     return false; // 截断
-  out->inlineNos.resize(int(n));
-  out->xlineNos.resize(int(n));
-  out->offsets.resize(int(n));
-  for (quint32 i = 0; i < n && ok; ++i)
-    out->inlineNos[int(i)] = cacheio::i32(payload, &pos, &ok);
-  for (quint32 i = 0; i < n && ok; ++i)
-    out->xlineNos[int(i)] = cacheio::i32(payload, &pos, &ok);
-  for (quint32 i = 0; i < n && ok; ++i)
-    out->offsets[int(i)] = cacheio::i64(payload, &pos, &ok);
+  readIndexArray(payload, pos, n, out->inlineNos);
+  readIndexArray(payload, pos, n, out->xlineNos);
+  readIndexArray(payload, pos, n, out->offsets);
   if (out->layoutKind == 'V')
-  {
-    out->traceNs.resize(int(n));
-    for (quint32 i = 0; i < n && ok; ++i)
-      out->traceNs[int(i)] = cacheio::u16(payload, &pos, &ok);
-  }
-  out->badTraceOffsets.resize(int(bad));
-  for (quint32 i = 0; i < bad && ok; ++i)
-    out->badTraceOffsets[int(i)] = cacheio::i64(payload, &pos, &ok);
-  return ok && pos == payload.size(); // 尾部余字节 = 解码失步，按损坏自愈
+    readIndexArray(payload, pos, n, out->traceNs);
+  readIndexArray(payload, pos, bad, out->badTraceOffsets);
+  return pos == payload.size(); // 尾部余字节 = 解码失步，按损坏自愈
 }
 
 std::optional<SegyIndexStore::StoredIndex> SegyIndexStore::load(const QFileInfo &source,

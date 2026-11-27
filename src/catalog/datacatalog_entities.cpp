@@ -131,20 +131,9 @@ QStringList DataCatalog::wellsMatchingName(const QString &name) const
   if (!noteRead("wellsMatchingName"))
     return {};
   const QString needle = normalizeWellName(name);
-  QStringList out;
   if (needle.isEmpty())
-    return out;
-  const QVector<int> rows = m_idx.entityRowsByType(QStringLiteral("well")); // D5.1
-  QVector<CatalogEntity> candidates; candidates.reserve(rows.size());
-  for (int r : rows) candidates.append(m_entities.at(r));
-  projectAreaWells(projectDir(), candidates);
-  for (const auto &entity : candidates)
-  {
-    // D12：井身份只走规范化 name——uwi/别名匹配已随字段一并剥离。
-    if (normalizeWellName(entity.name) == needle)
-      out.append(entity.id);
-  }
-  return out;
+    return {};
+  return matchingAreaWellIds(projectDir(), needle, m_idx, m_entities);
 }
 
 QString DataCatalog::nextEntityId(const QString &prefix)

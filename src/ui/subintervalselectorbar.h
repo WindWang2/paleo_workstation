@@ -8,6 +8,7 @@
 #include "domain/stratigraphicunit.h"
 #include "paleo_data/stratigraphic_framework.h"
 
+namespace paleo::strat { struct SchemeSelectorChoices; }
 class SelectionContext;
 class QComboBox;
 class QBoxLayout;
@@ -69,8 +70,8 @@ class SubIntervalSelectorBar : public QWidget
     void resizeEvent( QResizeEvent *event ) override;
     void updateWrap();
     QWidget *buildRowContainers( QHBoxLayout **secondaryLayout );
-    void rebuildSchemeCombo();
-    void rebuildRevisionCombo();
+    void rebuildSchemeCombo( const paleo::strat::SchemeSelectorChoices *choices = nullptr );
+    void rebuildRevisionCombo( const paleo::strat::SchemeSelectorChoices *choices = nullptr );
     void refillSchemeComboPage();
     void refillRevisionComboPage();
     void rebuildParentCombo();

@@ -8,6 +8,7 @@ using namespace paleo::datapreview_detail;
 #include "../paleotheme.h" // DESIGN.md token 出口（颜色/字阶/活体样式共用）
 #include "../paleoicons.h" // 角落最大化/还原自绘图标
 #include "../../catalog/datacatalog.h"
+#include "../../qgis/previewrendercache.h"
 #include "../../domain/seismic/nicestep.h"
 #include "../../domain/wellrecords.h"     // WellTopRecord/TimeDepthTable（domain 纯数据）
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
@@ -130,7 +131,7 @@ QWidget *DataPreviewTabs::buildImageReferenceContent(
       page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
       page->setObjectName(QStringLiteral("imagePreviewPage"));
       page->setAssetKey(assetId);
-      page->setRenderCacheIdentity(assetId, v.id);
+      page->setRenderCacheIdentity(PreviewRenderCache::projectAssetKey(cat->projectDir(), assetId), v.id);
       page->mapCanvas()->canvas()->setObjectName(QStringLiteral("imageMapCanvas"));
       page->decorations()->setObjectName(QStringLiteral("imageDecorManager"));
       page->setProfileEnabled(false); // 影像非连续值面——剖面采样无意义

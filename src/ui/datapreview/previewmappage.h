@@ -120,6 +120,9 @@ class PreviewMapPage : public QWidget
     void mapLayersChanged();
 
   private:
+    bool eventFilter( QObject *watched, QEvent *event ) override;
+    QString currentRenderCacheKey() const;
+    void onRenderStarted();
     void buildToolBar();
     void buildStatusBar();
     void rebuildBookmarkMenu();
@@ -180,4 +183,5 @@ class PreviewMapPage : public QWidget
     class QTimer *m_cacheSettleTimer = nullptr; // #376 渲染 settle 去抖
     QgsPointXY m_lastMousePos;
     bool m_hasMousePos = false;
+    bool m_awaitingFirstSettledFrame = true;
 };

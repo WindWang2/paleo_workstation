@@ -45,7 +45,7 @@ src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:325
 src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:251
 src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:627
 src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:238
-src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
+src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:211
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:271
 src/ui/edittools/vertexeditortools.cpp:file:1247
 src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:210
@@ -67,7 +67,7 @@ src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:223
 src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:395
 src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:368
 src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:646
-src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:224
+src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:220
 src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:468
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:271
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:426

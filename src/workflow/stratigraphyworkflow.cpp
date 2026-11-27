@@ -110,7 +110,9 @@ void StratigraphyWorkflow::refreshWells() {
  d->wells.clear();for(const auto &well:wells)if(support.value(well.id).curves)d->wells.append({well.id,text(well.name)});emit changed();
 }
 QList<StratigraphyTrack> StratigraphyWorkflow::tracks() const {
- QList<StratigraphyTrack> result;const auto policy=conventions();
+ QList<StratigraphyTrack> result;
+ if (d->document.wells.empty()) return result;
+ const auto policy=conventions();
  for(const auto &w:d->document.wells) {
   const auto append=[&](const InterpretationSeries &s,bool raw=false){
    const QString basis=raw?(w.input.depthInfo.depthType.empty()?policy.depthType:text(w.input.depthInfo.depthType)):text(s.axisKind);

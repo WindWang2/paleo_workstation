@@ -420,7 +420,7 @@ void TestPreviewMapPage::renderCacheStoresOnCompletion()
         const QSize sz = m_page->mapCanvas()->canvas()->size();
         const QString key = PreviewRenderCache::makeKey(
             QStringLiteral("page-asset"), QStringLiteral("v1"),
-            m_page->mapCanvas()->currentExtent(), sz.width(), sz.height());
+            m_page->mapCanvas()->currentExtent(), sz.width(), sz.height(), m_page->mapCanvas()->canvas()->devicePixelRatioF());
         return !PreviewRenderCache::instance().lookup(key).isNull();
       }(),
       5000);
@@ -439,7 +439,7 @@ void TestPreviewMapPage::lowResSnapshotShowsOverlay()
   QVERIFY(!m_page->mapCanvas()->overlayVisible()); // 未灌缓存时不铺低清帧。
   PreviewRenderCache::instance().store(PreviewRenderCache::makeKey(
       QStringLiteral("cached-snapshot"), QStringLiteral("v1"),
-      m_page->mapCanvas()->currentExtent(), size.width(), size.height()), image);
+      m_page->mapCanvas()->currentExtent(), size.width(), size.height(), m_page->mapCanvas()->canvas()->devicePixelRatioF()), image);
   m_page->showLowResSnapshot();
   QVERIFY(m_page->mapCanvas()->overlayVisible()); // 缓存命中才先上。
   // 真渲完成后 overlay 让位。

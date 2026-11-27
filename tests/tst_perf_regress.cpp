@@ -17,6 +17,9 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#include <algorithm>
+#include <array>
+
 class PerfRegressTests : public QObject
 {
     Q_OBJECT
@@ -83,32 +86,53 @@ void PerfRegressTests::baselinesPresentAndWellFormed()
     QVERIFY2(b.contains(k), qPrintable(QStringLiteral("baseline 缺键 %1").arg(k)));
 }
 
+namespace
+{
+  // Each pair includes the first disk reopen immediately after publication.
+  // The median keeps a single delayed file open from determining the gate.
+  using CacheRatios = std::array<double, 5>;
+  double medianCacheRatio(CacheRatios ratios)
+  {
+    std::sort(ratios.begin(), ratios.end());
+    return ratios[ratios.size() / 2];
+  }
+}
+
 void PerfRegressTests::lasCacheHitRatioWithinGate()
 {
   const QJsonObject b = loadBaselines();
   if (b.isEmpty())
     QSKIP("baseline 缺失");
   const QString las = m_dir.filePath("gate.las");
-  QVERIFY(PerfFixtures::makeSyntheticLas(las, 15581));
-  LasCache::shared().setDiskRoot(m_dir.filePath("idx"));
-  LasCache::shared().invalidate();
+  QVERIFY(PerfFixtures::makeSyntheticLas(las, 93500));
+  auto &cache = LasCache::shared();
+  CacheRatios ratios;
+  for (size_t i = 0; i < ratios.size(); ++i)
+  {
+    cache.setDiskRoot(m_dir.filePath(QStringLiteral("las-%1").arg(i)));
+    cache.clearMemory();
+    const auto before = cache.stats();
+    QElapsedTimer t;
+    t.start();
+    const auto cold = cache.load(las);
+    const auto coldNs = t.nsecsElapsed();
+    QVERIFY(cold.ok && coldNs > 0);
+    QCOMPARE(cache.stats().diskWrites, before.diskWrites + 1);
 
-  QElapsedTimer t;
-  t.start();
-  QVERIFY(LasCache::shared().load(las).ok);
-  const double coldMs = t.nsecsElapsed() / 1.0e6;
-
-  LasCache::shared().clearMemory();
-  t.restart();
-  QVERIFY(LasCache::shared().load(las).ok);
-  const double hitMs = t.nsecsElapsed() / 1.0e6;
-
-  const double ratio = coldMs > 0 ? hitMs / coldMs : 99.0;
-  const double gate = ratioGate(b, QStringLiteral("las_cache_hit_vs_cold_max")) * 1.2; // +20% 容差
+    cache.clearMemory();
+    t.restart();
+    const auto hit = cache.load(las);
+    ratios[i] = double(t.nsecsElapsed()) / coldNs;
+    QVERIFY(hit.ok);
+    QCOMPARE(cache.stats().diskHits, before.diskHits + 1);
+    QCOMPARE(hit.curveNames, cold.curveNames);
+    QCOMPARE(hit.curves.first().values.size(), 93500);
+  }
+  const double ratio = medianCacheRatio(ratios);
+  const double gate = ratioGate(b, QStringLiteral("las_cache_hit_vs_cold_max")) * 1.2;
+  qInfo("LAS first disk hit/cold median %.4f, gate %.4f", ratio, gate);
   QVERIFY2(ratio <= gate,
-           qPrintable(QStringLiteral("hit/cold=%1 > 门限 %2（D8.2 劣化>20%%）")
-                          .arg(ratio, 0, 'f', 4)
-                          .arg(gate, 0, 'f', 4)));
+           qPrintable(QStringLiteral("hit/cold=%1 > 门限 %2").arg(ratio, 0, 'f', 4).arg(gate, 0, 'f', 4)));
 }
 
 void PerfRegressTests::segyIndexHitRatioWithinGate()
@@ -117,23 +141,33 @@ void PerfRegressTests::segyIndexHitRatioWithinGate()
   if (b.isEmpty())
     QSKIP("baseline 缺失");
   const QString sgy = m_dir.filePath("gate.sgy");
-  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 100, 100, 50) > 0);
-  const QString idx = m_dir.filePath("idx");
-
-  QElapsedTimer t;
-  t.start();
-  SegyReader cold;
-  QString err;
-  QVERIFY(cold.openCached(sgy, idx, &err));
-  const double buildMs = t.nsecsElapsed() / 1.0e6;
-
-  t.restart();
-  SegyReader hit;
-  QVERIFY(hit.openCached(sgy, idx, &err));
-  const double hitMs = t.nsecsElapsed() / 1.0e6;
-
-  const double ratio = hitMs / buildMs;
+  constexpr int traces = 200 * 200;
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, 200, 200, 240) == traces);
+  CacheRatios ratios;
+  for (size_t i = 0; i < ratios.size(); ++i)
+  {
+    const QString idx = m_dir.filePath(QStringLiteral("segy-%1").arg(i));
+    SegyReader cold, hit;
+    QString err;
+    QElapsedTimer t;
+    t.start();
+    QVERIFY2(cold.openCached(sgy, idx, &err), qPrintable(err));
+    const auto buildNs = t.nsecsElapsed();
+    QVERIFY(buildNs > 0);
+    int progressCalls = 0;
+    SegyOptions options;
+    options.progress = [&](qint64, qint64) { ++progressCalls; };
+    t.restart();
+    QVERIFY2(hit.openCached(sgy, idx, &err, &options), qPrintable(err));
+    ratios[i] = double(t.nsecsElapsed()) / buildNs;
+    QCOMPARE(progressCalls, 1); // an index hit reports completion without scanning
+    QCOMPARE(hit.traceCount(), traces);
+    QCOMPARE(hit.inlineNumbers(), cold.inlineNumbers());
+    QCOMPARE(hit.crosslineNumbers(), cold.crosslineNumbers());
+  }
+  const double ratio = medianCacheRatio(ratios);
   const double gate = ratioGate(b, QStringLiteral("segy_cached_vs_rebuild_max")) * 1.2;
+  qInfo("SEG-Y first disk hit/rebuild median %.4f, gate %.4f", ratio, gate);
   QVERIFY2(ratio <= gate,
            qPrintable(QStringLiteral("hit/rebuild=%1 > 门限 %2").arg(ratio, 0, 'f', 4).arg(gate, 0, 'f', 4)));
 }

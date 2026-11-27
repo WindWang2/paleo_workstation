@@ -27,6 +27,56 @@
 class TestAreaModel : public QObject {
   Q_OBJECT
 private slots:
+  void matchingWellNamesPreserveModelRenamesAndCatalogOrderAcrossPages() {
+    QTemporaryDir temp;
+    const auto project = temp.filePath("project");
+    QString error;
+    DataCatalog catalog;
+    QVERIFY2(catalog.open(project, &error), qPrintable(error));
+    paleo::data::DataService model;
+    std::string detail;
+    QVERIFY2(model.createProject(paleo::area_model::directory(project).toStdString(), "names", detail), detail.c_str());
+    paleo::data::WellInfo info;
+    info.wellName = "Old-Name";
+    long long modelId = 0;
+    QVERIFY2(model.createWell(info, modelId, detail), detail.c_str());
+    QStringList expected;
+    DataCatalog::BatchSave batch(&catalog);
+    for (int i = 260; i >= 1; --i) {
+      CatalogEntity well;
+      well.id = QStringLiteral("well-%1").arg(i);
+      well.entityType = "well";
+      well.name = "Old-Name";
+      if (i != 2) well.extra.insert("areaModelWellId", modelId);
+      QVERIFY2(catalog.addEntity(well, &error), qPrintable(error));
+      expected.append(well.id);
+    }
+    QVERIFY2(batch.flush(&error), qPrintable(error));
+    QCOMPARE(catalog.wellsMatchingName(" old_name "), expected);
+    info.wellName = "New-Name";
+    QVERIFY2(model.saveWellInfo(modelId, info, detail), detail.c_str());
+    QCOMPARE(catalog.wellsMatchingName("oldname"), QStringList{"well-2"});
+    expected.removeAll("well-2");
+    QCOMPARE(catalog.wellsMatchingName(" new_name "), expected);
+    auto legacy = catalog.storedEntityById("well-2");
+    legacy.name = "New Name";
+    QVERIFY2(catalog.updateEntity(legacy, &error), qPrintable(error));
+    expected.insert(expected.size() - 1, legacy.id);
+    QCOMPARE(catalog.wellsMatchingName("newname"), expected);
+    QVERIFY(catalog.wellsMatchingName("  -_ ").isEmpty());
+    // Keep the catalog's fallback names when the model is offline or unreadable.
+    model.closeProject();
+    const auto db = paleo::area_model::directory(project) + "/data.sqlite";
+    QVERIFY(QFile::rename(db, db + ".offline"));
+    expected.removeAll(legacy.id);
+    QCOMPARE(catalog.wellsMatchingName("oldname"), expected);
+    QFile damaged(db);
+    QVERIFY(damaged.open(QIODevice::WriteOnly));
+    QVERIFY(damaged.write("broken database") > 0);
+    damaged.close();
+    QCOMPARE(catalog.wellsMatchingName("oldname"), expected);
+    QCOMPARE(catalog.wellsMatchingName("newname"), QStringList{legacy.id});
+  }
   void selectedCurvesUseOnlyTheirDepthWindowAndShareTheBudget() {
     QTemporaryDir temp;const auto project=temp.filePath("project"),path=temp.filePath("fixture");
     QFile file(path);QVERIFY(file.open(QIODevice::WriteOnly));QCOMPARE(file.write("fixture"),7LL);file.close();

@@ -419,14 +419,15 @@ void SubIntervalSelectorBar::reloadFromProject( const QString &projectDir,
   paleo::data::StratigraphicScheme loaded;
   std::vector<paleo::data::SubIntervalResultBinding> bindings;
   QString err;
+  paleo::strat::SchemeSelectorChoices choices;
   if ( !projectDir.isEmpty()
-       && paleo::strat::loadProjectSchemeFromDir( projectDir, {}, {}, loaded, &bindings, &err ) )
+       && paleo::strat::loadProjectSchemeFromDir( projectDir, {}, {}, loaded, &bindings, &err, &choices ) )
   {
     m_fromDataService = true;
     m_bindings = std::move( bindings );
     applyLoadedScheme( loaded, true ); // 写入 SelectionContext（含 schemeId/revision）
-    rebuildSchemeCombo();
-    rebuildRevisionCombo();
+    rebuildSchemeCombo( &choices );
+    rebuildRevisionCombo( &choices );
     emit readinessMessage( tr( "已加载地层方案「%1」修订 %2" )
                                .arg( QString::fromStdString( loaded.name ),
                                      shortRevision( QString::fromStdString( loaded.revision.value ) ) ) );
@@ -444,13 +445,14 @@ void SubIntervalSelectorBar::refreshProjectResults()
   paleo::data::StratigraphicScheme loaded;
   std::vector<paleo::data::SubIntervalResultBinding> bindings;
   QString error;
+  paleo::strat::SchemeSelectorChoices choices;
   if (!paleo::strat::loadProjectSchemeFromDir(m_projectDir, m_current.schemeId, m_current.revision,
-                                             loaded, &bindings, &error)) {
+                                             loaded, &bindings, &error, &choices)) {
     emit readinessMessage(error); return;
   }
   m_bindings = std::move(bindings);
-  rebuildSchemeCombo();
-  rebuildRevisionCombo();
+  rebuildSchemeCombo( &choices );
+  rebuildRevisionCombo( &choices );
   rebuildStatusPanel();
 }
 
@@ -494,7 +496,7 @@ void SubIntervalSelectorBar::applyLoadedScheme( const paleo::data::Stratigraphic
   }
 }
 
-void SubIntervalSelectorBar::rebuildSchemeCombo()
+void SubIntervalSelectorBar::rebuildSchemeCombo( const paleo::strat::SchemeSelectorChoices *choices )
 {
   if ( !m_schemeCombo )
     return;
@@ -505,15 +507,14 @@ void SubIntervalSelectorBar::rebuildSchemeCombo()
   {
     QVector<paleo::strat::SchemeChoice> schemes;
     QString err;
-    if ( paleo::strat::listProjectSchemesFromDir( m_projectDir, schemes, &err ) )
+    if ( choices ) schemes = choices->schemes;
+    else paleo::strat::listProjectSchemesFromDir( m_projectDir, schemes, &err );
+    for ( const auto &c : schemes )
     {
-      for ( const auto &c : schemes )
-      {
-        SubIntervalLabeledChoice row;
-        row.id = c.id;
-        row.label = c.name.isEmpty() ? c.id : c.name;
-        m_schemeChoices.push_back( row );
-      }
+      SubIntervalLabeledChoice row;
+      row.id = c.id;
+      row.label = c.name.isEmpty() ? c.id : c.name;
+      m_schemeChoices.push_back( row );
     }
   }
   if ( m_schemeChoices.isEmpty() )
@@ -527,7 +528,7 @@ void SubIntervalSelectorBar::rebuildSchemeCombo()
   refillSchemeComboPage();
 }
 
-void SubIntervalSelectorBar::rebuildRevisionCombo()
+void SubIntervalSelectorBar::rebuildRevisionCombo( const paleo::strat::SchemeSelectorChoices *choices )
 {
   if ( !m_revisionCombo )
     return;
@@ -540,19 +541,18 @@ void SubIntervalSelectorBar::rebuildRevisionCombo()
   {
     QVector<paleo::strat::SchemeRevisionChoice> revs;
     QString err;
-    if ( paleo::strat::listProjectSchemeRevisionsFromDir( m_projectDir, schemeId, revs, &err ) )
+    if ( choices ) revs = choices->revisions;
+    else paleo::strat::listProjectSchemeRevisionsFromDir( m_projectDir, schemeId, revs, &err );
+    for ( const auto &r : revs )
     {
-      for ( const auto &r : revs )
-      {
-        SubIntervalLabeledChoice row;
-        row.id = r.revision;
-        row.label = shortRevision( r.revision );
-        if ( !r.note.isEmpty() )
-          row.label += QStringLiteral( " · " ) + r.note;
-        else if ( !r.created.isEmpty() )
-          row.label += QStringLiteral( " · " ) + r.created;
-        m_revisionChoices.push_back( row );
-      }
+      SubIntervalLabeledChoice row;
+      row.id = r.revision;
+      row.label = shortRevision( r.revision );
+      if ( !r.note.isEmpty() )
+        row.label += QStringLiteral( " · " ) + r.note;
+      else if ( !r.created.isEmpty() )
+        row.label += QStringLiteral( " · " ) + r.created;
+      m_revisionChoices.push_back( row );
     }
   }
   if ( m_revisionChoices.isEmpty() )

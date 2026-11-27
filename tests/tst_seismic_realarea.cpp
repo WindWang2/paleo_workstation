@@ -17,11 +17,11 @@
 #include <QOpenGLFunctions_3_3_Core>
 
 #include <cmath>
-#include <filesystem>
 
 #include "Engine/Sdk.h"
 
 #include "../src/domain/seismic/sgyvolume.h"
+#include "../src/services/fspathutils.h"
 #include "../src/ui/seismic3d/seismiccameracontroller.h"
 #include "../src/ui/seismic3d/seismicslicerenderer.h"
 #include "../src/ui/seismic3d/volumeframerenderer.h"
@@ -84,7 +84,7 @@ private slots:
     QElapsedTimer clock;
 
     clock.start();
-    auto ds = sdk::Dataset::Open(std::filesystem::path(realSgy_.toStdString()),
+    auto ds = sdk::Dataset::Open(paleo::toFsPath(realSgy_),
                                  sdk::OpenOptions{}, st);
     const double openColdMs = double(clock.elapsed());
     QVERIFY2(ds != nullptr && st.ok(), st.message.c_str());
@@ -120,7 +120,7 @@ private slots:
 
     // 暖开：同进程重开（缓存命中路径——冷扫描已发布集中式缓存）
     clock.restart();
-    auto ds2 = sdk::Dataset::Open(std::filesystem::path(realSgy_.toStdString()),
+    auto ds2 = sdk::Dataset::Open(paleo::toFsPath(realSgy_),
                                   sdk::OpenOptions{}, st);
     const double openWarmMs = double(clock.elapsed());
     QVERIFY(ds2 != nullptr && st.ok());
@@ -176,7 +176,7 @@ private slots:
 
     SgyVolume volume;
     std::string err;
-    QVERIFY2(volume.Load(realSgy_.toStdString(), err), err.c_str());
+    QVERIFY2(volume.Load(paleo::toFsPath(realSgy_), err), err.c_str());
     SgySliceImage img;
     const int midIl = volume.InlineValues()[volume.InlineValues().size() / 2];
     QVERIFY2(volume.ExtractSlice(SgySliceType::Inline, midIl, img, err), err.c_str());

@@ -131,6 +131,12 @@ struct SchemeRevisionChoice
   QString note;
 };
 
+struct SchemeSelectorChoices
+{
+  QVector<SchemeChoice> schemes;
+  QVector<SchemeRevisionChoice> revisions;
+};
+
 QVector<SchemeChoice> listProjectSchemes( paleo::data::DataService &ds, QString *error = nullptr );
 QVector<SchemeRevisionChoice> listProjectSchemeRevisions( paleo::data::DataService &ds, const QString &schemeId,
                                                           QString *error = nullptr );
@@ -144,6 +150,12 @@ bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeI
                                std::vector<paleo::data::SubIntervalResultBinding> *bindings = nullptr,
                                QString *error = nullptr );
 
+
+// Return the chooser lists using the same open model as the selected scheme.
+bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeId, const QString &revision,
+                               paleo::data::StratigraphicScheme &out,
+                               std::vector<paleo::data::SubIntervalResultBinding> *bindings,
+                               QString *error, SchemeSelectorChoices *choices );
 
 bool listProjectSchemesFromDir( const QString &projectDir, QVector<SchemeChoice> &out, QString *error = nullptr );
 bool listProjectSchemeRevisionsFromDir( const QString &projectDir, const QString &schemeId,

@@ -67,6 +67,40 @@ void mouse(QWidget* viewport,QEvent::Type type,const QPoint& point,Qt::MouseButt
 class StratigraphyEditingTest:public QObject {
  Q_OBJECT
 private slots:
+ void hiddenPageLoadsCurrentWellsAndHistoryOnDemand() {
+  Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));
+  StratigraphyWorkflow workflow(nullptr);
+  StratigraphyPage page(&workflow);
+  auto *wells=page.findChild<QListWidget*>("stratigraphyWells");
+  auto *saved=page.findChild<QComboBox*>("savedInterpretation");
+  auto *revisions=page.findChild<QComboBox*>("interpretationRevision");
+  auto *toggle=page.findChild<QPushButton*>("stratigraphyAdvancedToggle");
+  QVERIFY(wells && saved && revisions && toggle);
+  workflow.setProject(fixture.directory.path(),false);
+  QCOMPARE(workflow.wells().size(),2);
+  QCOMPARE(wells->count(),0);
+  page.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&page));
+  QCOMPARE(wells->count(),2);
+  QCOMPARE(saved->count(),0);
+  toggle->click();
+  QCOMPARE(saved->currentData().toString(),fixture.interpretation);
+  QCOMPARE(revisions->currentData().toString(),fixture.revision);
+  wells->item(0)->setCheckState(Qt::Checked);
+  page.hide();
+  workflow.setProject({},false);
+  QCOMPARE(wells->count(),0);
+  workflow.setProject(fixture.directory.path(),false);
+  page.show();
+  QCOMPARE(wells->count(),2);
+  QCOMPARE(wells->item(0)->checkState(),Qt::Unchecked);
+  page.hide();
+  workflow.setProject({},false);
+  page.show();
+  QCOMPARE(wells->count(),0);
+  QCOMPARE(saved->count(),0);
+  QCOMPARE(revisions->count(),0);
+ }
  void selectedWellsStartEmptyAndLoadOneChart() {
   Fixture fixture;QString error;QVERIFY2(fixture.create(error),qPrintable(error));
   // 无时深表的井也必须可选、可加载及人工划分，不能被井震计算前置条件隐藏。

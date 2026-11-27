@@ -589,6 +589,14 @@ bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeI
                                paleo::data::StratigraphicScheme &out,
                                std::vector<paleo::data::SubIntervalResultBinding> *bindings, QString *error )
 {
+  return loadProjectSchemeFromDir( projectDir, schemeId, revision, out, bindings, error, nullptr );
+}
+
+bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeId, const QString &revision,
+                               paleo::data::StratigraphicScheme &out,
+                               std::vector<paleo::data::SubIntervalResultBinding> *bindings, QString *error, SchemeSelectorChoices *choices )
+{
+  if ( choices ) *choices = {};
   paleo::data::DataService ds;
   if ( !openProjectStore( projectDir, ds, true, error ) )
     return false;
@@ -599,6 +607,7 @@ bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeI
     QString listErr;
     QVector<SchemeChoice> schemes;
     projectSchemeChoices( projectDir, ds, schemes, &listErr );
+    if ( choices ) choices->schemes = schemes;
     if ( schemes.isEmpty() )
     {
       if ( error )
@@ -622,6 +631,15 @@ bool loadProjectSchemeFromDir( const QString &projectDir, const QString &schemeI
          return loadProjectScheme( ds, sid, rev, out, &detail );
        } ) )
     return false;
+  if ( choices )
+  {
+    if ( !schemeId.isEmpty() )
+      projectSchemeChoices( projectDir, ds, choices->schemes, nullptr );
+    readSchemeData( projectDir, ds, nullptr, [&](QString &detail) {
+      choices->revisions = listProjectSchemeRevisions( ds, sid, &detail );
+      return detail.isEmpty();
+    } );
+  }
   if ( bindings )
   {
     // 成果列举失败不阻断方案加载——红绿灯退化为仅 occurrence。

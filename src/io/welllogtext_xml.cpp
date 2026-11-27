@@ -9,18 +9,19 @@ bool parseXml(const QString &path, LasHeaderInfo &header, QList<LasCurve> &curve
 {
   QVector<Samples> sets;
   QSet<QString> names;
-  QString detail;
+  QString detail, location;
   const auto workbook = paleo::io::streamSpreadsheetMlWorkbook(path,
       [&](const QString &label, const QStringList &headers, const QStringList &row, int line, bool isHeader) {
-        if (!label.startsWith(QStringLiteral("测井曲线")) && !label.startsWith(QStringLiteral("离散曲线"))) return true;
-        const auto location = path + QStringLiteral(" [%1]").arg(label);
         if (isHeader) {
+          location.clear();
+          if (!label.startsWith(QStringLiteral("测井曲线")) && !label.startsWith(QStringLiteral("离散曲线"))) return true;
+          location = path + QStringLiteral(" [%1]").arg(label);
           Samples samples;
           if (!beginTable(location, {label, headers, {}, {}}, header, samples, names, &detail, issues)) return false;
           sets.append(std::move(samples));
           return true;
         }
-        if (sets.isEmpty()) return false;
+        if (location.isEmpty()) return true;
         return appendSample(location, headers, row, line, header, sets.last(), &detail, issues);
       });
   if (!workbook.ok || !workbook.issues.isEmpty()) {

@@ -23,6 +23,7 @@ class TestHorizonBinner : public QObject
 private slots:
   void parsesHeader();
   void binsSamplePoints();
+  void mixedWhitespaceAndOptionalSurveyFields();
   void countsCollisions();
   void rejectsMalformedHeaders();
   void rejectsExtremeLineNumbersWithoutOverflow(); // #595 L4.1
@@ -77,6 +78,33 @@ void TestHorizonBinner::benchmarkLocalHorizons()
     QFile file(output); QVERIFY(file.open(QIODevice::WriteOnly));
     QVERIFY(file.write(QJsonDocument(results).toJson()) > 0);
   }
+}
+
+void TestHorizonBinner::mixedWhitespaceAndOptionalSurveyFields()
+{
+  const QByteArray header = "# Grid_size:2x2\n# P1: 100,200,0,0\n# P2: 100,201,10,0\n# P3: 101,201,10,10\n";
+  // Tabs, vertical tabs and form feeds separate columns. The survey pair is
+  // optional for a scatter point, and trailing vendor columns are ignored.
+  const auto rows = QStringLiteral("\u00a0+1.25\t2e1\v3.5\f100  200 trailing text\u00a0\r\n"
+                                   "2 3 4\r3 4 5 invalid 201\n4 5 -9999 100 201\n"
+                                   "5 bad 6 101 201\n6 7 8 101 201 # note").toUtf8();
+  const auto scatter = parseHorizonScatter(rows);
+  QCOMPARE(scatter.points.size(), 4);
+  QCOMPARE(scatter.skipped, 2);
+  QCOMPARE(scatter.points.first().x, 1.25);
+  QCOMPARE(scatter.points.first().y, 20.0);
+  QVERIFY(scatter.hasInlineRange && scatter.hasXlineRange);
+  QCOMPARE(scatter.inlineMin, 100);
+  QCOMPARE(scatter.inlineMax, 101);
+  QCOMPARE(scatter.xlineMin, 200);
+  QCOMPARE(scatter.xlineMax, 201);
+  BinnedHorizon grid;
+  QString error;
+  QVERIFY2(binHorizon(header + rows, &grid, &error), qPrintable(error));
+  QCOMPARE(grid.filledCells, 2);
+  QCOMPARE(grid.collisions, 1); // binning only needs z, inline and crossline
+  QCOMPARE(grid.z.at(2), 3.5f);
+  QCOMPARE(grid.z.at(1), 8.0f);
 }
 
 void TestHorizonBinner::parsesHeader()

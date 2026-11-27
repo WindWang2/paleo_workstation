@@ -3,6 +3,7 @@
 
 #include "algorithms/seismicattr.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -79,6 +80,7 @@ private slots:
   // ---- goal/attr-volume 相干道距加权 ---------------------------------------
   // Equal 档与原 semblanceCoherence 逐位一致（同累加路径，乘 1 不改浮点值）。
   void coherenceWeightedEqualBitwise();
+  void coherenceWindowsRemainLocalAcrossBlocks();
   // 道距加权：各向异性道距（IL 100m / XL 25m）渐变体上两档结果有差异；
   // 同波形体两档都 =1（S=1 与权重无关）；道距缺失 → 全 NaN（不静默降级）。
   void coherenceWeightedInverseDistance();
@@ -99,6 +101,10 @@ void TestSeismicAttr::semblanceRejectsIntOverflowDims()
     QCOMPARE(v, 7.0f);
   semblanceCoherenceWeighted(vol.data(), 65536, 65536, 1, 1, 1, 0, 1.0, 1.0,
                              CoherenceWeightMode::Equal, out.data());
+  for (float v : out)
+    QCOMPARE(v, 7.0f);
+  // Even the 64-bit product overflows for these dimensions.
+  semblanceCoherence(vol.data(), 1 << 30, 1 << 30, 1 << 30, 1, 1, 0, out.data());
   for (float v : out)
     QCOMPARE(v, 7.0f);
   // 窗半径过大（2h+1 溢出）同样拒绝
@@ -421,6 +427,34 @@ void TestSeismicAttr::coherenceWeightedEqualBitwise()
                               .arg(b[i])
                               .arg(a[i])));
   }
+}
+
+void TestSeismicAttr::coherenceWindowsRemainLocalAcrossBlocks()
+{
+  constexpr int samples = 141;
+  std::vector<float> volume(3 * samples, 1.0e-30f), out(volume.size());
+  for (int trace = 0; trace < 3; ++trace)
+    std::fill_n(volume.begin() + trace * samples + 90, 30, 0.0f);
+  volume[15] = 1.0e30f;       // One loud trace amid coherent, tiny amplitudes.
+  volume[samples + 64] = kNan;
+  for (auto mode : {CoherenceWeightMode::Equal, CoherenceWeightMode::InverseDistance})
+    for (int half : {0, 4, 68, std::numeric_limits<int>::max() / 2})
+    {
+      semblanceCoherenceWeighted(volume.data(), 1, 3, samples, 0, 1, half,
+                                 25.0, 25.0, mode, out.data());
+      for (int t = 0; t < samples; ++t)
+      {
+        const int lo = std::max(0, t - half), hi = std::min(samples - 1, t + half);
+        const float value = out[samples + t];
+        QVERIFY(std::isnan(out[t]) && std::isnan(out[2 * samples + t]));
+        if ((lo <= 64 && hi >= 64) || (lo >= 90 && hi < 120))
+          QVERIFY(std::isnan(value));
+        else if (lo <= 15 && hi >= 15)
+          QCOMPARE(value, mode == CoherenceWeightMode::Equal ? 1.0f / 3.0f : 0.25f);
+        else
+          QCOMPARE(value, 1.0f);
+      }
+    }
 }
 
 void TestSeismicAttr::coherenceWeightedInverseDistance()

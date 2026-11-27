@@ -29,6 +29,7 @@ private slots:
   void workbookEdgesAreHonest();
   void malformedCellReferencesAreRejected();
   void unorderedCellsRetainTheirColumns();
+  void spreadsheetMlTracksMergedAndOutOfOrderCellsPerRow();
   void physicalRowNumbersArePreserved();
   void workbookAdditionalEdges();
   // 方向 69 第二解释源：岩屑录井纯表解析（合成 WorkbookSheet 直调）。
@@ -85,6 +86,26 @@ void IoWorkbookEdgeTests::physicalRowNumbersArePreserved()
   QVERIFY(result.ok);
   QCOMPARE(result.issues.size(), 1);
   QVERIFY(result.issues[0].contains(QStringLiteral("第 100 行")));
+}
+
+void IoWorkbookEdgeTests::spreadsheetMlTracksMergedAndOutOfOrderCellsPerRow()
+{
+  const QByteArray xml = R"(<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+      xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="log"><Table>
+      <Row><Cell><Data>header</Data></Cell></Row>
+      <Row><Cell ss:Index="3"><Data>C</Data></Cell>
+           <Cell ss:Index="1" ss:MergeAcross="2"><Data>overlaps C</Data></Cell>
+           <Cell ss:Index="1" ss:MergeAcross="1"><Data>A</Data></Cell>
+           <Cell ss:Index="2"><Data>inside merge</Data></Cell><Cell><Data>D</Data></Cell></Row>
+      <Row><Cell><Data>next</Data></Cell></Row></Table></Worksheet></Workbook>)";
+  const auto workbook = paleo::io::readSpreadsheetMlWorkbook(QStringLiteral("log.xml"), xml);
+  QVERIFY2(workbook.ok, qPrintable(workbook.error));
+  QCOMPARE(workbook.issues.size(), 2);
+  QCOMPARE(workbook.sheets.size(), 1);
+  const auto &rows = workbook.sheets.first().rows;
+  QCOMPARE(rows.size(), 2);
+  QCOMPARE(rows.at(0), (QStringList{"A", "", "C", "D"}));
+  QCOMPARE(rows.at(1), QStringList{"next"});
 }
 
 void IoWorkbookEdgeTests::workbookAdditionalEdges()

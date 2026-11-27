@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../src/domain/seismic/sgyvolume.h"
+#include "../src/services/fspathutils.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/seismictaskservice.h"
 
@@ -132,14 +133,14 @@ private slots:
   {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
-    const QString sgy = dir.filePath(QStringLiteral("perf_ratio.sgy"));
+    const QString sgy = dir.filePath(QStringLiteral("地震属性-性能.sgy"));
     // 8 IL × 400 XL × 1024 样 ≈ 13MB：切片提取毫秒级、属性任务百毫秒级——
     // 比率稳定不抖
     QVERIFY(writePerfSegy(sgy, 8, 400, 1024, 2000));
 
     auto vol = std::make_shared<seismic::SgyVolume>();
     std::string err;
-    QVERIFY(vol->Load(sgy.toStdString(), err));
+    QVERIFY2(vol->Load(paleo::toFsPath(sgy), err), err.c_str());
     const int midInline = 1004;
 
     // 基线：纯切片提取（热态取 3 次最小，去首读抖动）
@@ -212,7 +213,7 @@ private slots:
     std::string err;
     QElapsedTimer clock;
     clock.start();
-    QVERIFY2(vol->Load(realSgy.toStdString(), err),
+    QVERIFY2(vol->Load(paleo::toFsPath(realSgy), err),
              qPrintable(QStringLiteral("真机体加载失败：%1")
                             .arg(QString::fromStdString(err))));
     qInfo("BASELINE attr_real_open_ms = %.0f", double(clock.elapsed()));

@@ -8,6 +8,7 @@
 // docs/perf/BASELINE.md（评估记录），机器无关退化由 tst_perf_regress 的
 // 5k/1k 比率门持续看护。
 #include <QtTest>
+#include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QTemporaryDir>
@@ -85,6 +86,7 @@ int main(int argc, char *argv[])
   // 函数级默认超时会误杀本测量；未显式设置时放宽到 20 分钟。
   if (qEnvironmentVariableIsEmpty("QTEST_FUNCTION_TIMEOUT"))
     qputenv("QTEST_FUNCTION_TIMEOUT", "1200000");
+  QCoreApplication app(argc, argv);
   TestCatalogScale tc;
   return QTest::qExec(&tc, argc, argv);
 }

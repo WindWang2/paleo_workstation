@@ -319,22 +319,18 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
   };
 
   // ---- 画布信号 → 状态条 / 鹰眼 ----
-  connect( m_canvas, &PreviewMapCanvas::renderStarted, this, [this] {
-    m_renderLabel->setText( QObject::tr( "渲染中…" ) );
-  } );
+  connect( m_canvas, &PreviewMapCanvas::renderStarted, this, &PreviewMapPage::onRenderStarted );
   // D6.2/#376：渲染 settle 后才缓存（去抖 300ms）——平移/缩放中间帧不再
   // 每帧整幅 grab+PNG 编码落盘，视图稳定后缓存一次终态即可。
   m_cacheSettleTimer = new QTimer( this );
   m_cacheSettleTimer->setSingleShot( true );
   m_cacheSettleTimer->setInterval( 300 );
   connect( m_cacheSettleTimer, &QTimer::timeout, this, [this] {
-    if ( m_cacheAssetId.isEmpty() )
+    if ( m_cacheAssetId.isEmpty() || !m_canvas->canvas()->isVisible() )
       return;
-    const QSize sz = m_canvas->canvas()->size();
-    const QString key = PreviewRenderCache::makeKey(
-        m_cacheAssetId, m_cacheVersionId, m_canvas->currentExtent(), sz.width(),
-        sz.height() );
-    PreviewRenderCache::instance().store( key, m_canvas->canvas()->grab().toImage() );
+    m_awaitingFirstSettledFrame = false;
+    m_canvas->hidePreviewOverlay(); // A queued resize may have primed again after renderCompleted.
+    PreviewRenderCache::instance().store( currentRenderCacheKey(), m_canvas->canvas()->grab().toImage() );
   } );
   connect( m_canvas, &PreviewMapCanvas::renderCompleted, this,
            [this]( qint64 ms, int layers, qint64 elements ) {
@@ -927,28 +923,17 @@ QString PreviewMapPage::measureReadout() const
 
 void PreviewMapPage::showLowResSnapshot()
 {
-  primeRenderCache(); // 已缓存的当前资料/版本/视野先上屏；未命中直接异步正式渲染。
+  primeRenderCache();
   m_canvas->canvas()->refresh();
 }
 
-void PreviewMapPage::setRenderCacheIdentity( const QString &assetId, const QString &versionId )
+QString PreviewMapPage::currentRenderCacheKey() const
 {
-  m_cacheAssetId = assetId;
-  m_cacheVersionId = versionId;
-}
-
-void PreviewMapPage::primeRenderCache()
-{
-  if ( m_cacheAssetId.isEmpty() )
-    return;
   const QSize sz = m_canvas->canvas()->size();
-  if ( sz.isEmpty() )
-    return;
-  const QString key = PreviewRenderCache::makeKey(
-      m_cacheAssetId, m_cacheVersionId, m_canvas->currentExtent(), sz.width(), sz.height() );
-  const QImage cached = PreviewRenderCache::instance().lookup( key );
-  if ( !cached.isNull() )
-    m_canvas->showPreviewOverlay( cached ); // 命中：缓存图立即上屏（D6.2）
+  if ( m_cacheAssetId.isEmpty() || sz.isEmpty() ) return {};
+  return PreviewRenderCache::makeKey(
+      m_cacheAssetId, m_cacheVersionId, m_canvas->currentExtent(), sz.width(), sz.height(),
+      m_canvas->canvas()->devicePixelRatioF() );
 }
 
 void PreviewMapPage::addToolBarAction( QAction *action )

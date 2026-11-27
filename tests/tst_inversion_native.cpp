@@ -20,7 +20,7 @@ namespace {
 struct Fixture {
  QTemporaryDir temp;QString project=temp.filePath("project"),path=temp.filePath("body.sgy"),error;
  paleo::data::DataService ds;std::string detail;
- bool init(bool synthetic=false){
+ bool init(bool synthetic=false, bool firstTraceZero=false){
   QFile file(path);if(!file.open(QIODevice::WriteOnly))return false;file.write(QByteArray(3200,' '));
   const auto put16=[](QByteArray& b,int at,quint16 v){qToBigEndian(v,reinterpret_cast<uchar*>(b.data()+at));};
   const auto put32=[](QByteArray& b,int at,quint32 v){qToBigEndian(v,reinterpret_cast<uchar*>(b.data()+at));};
@@ -36,6 +36,7 @@ struct Fixture {
       const int at=k-spike.first-int(wavelet.t0Ms/2);
       if(at>=0&&at<wavelet.sampleCount())v+=spike.second*wavelet.samples[size_t(at)];
     }}
+    if(firstTraceZero && i==0 && j==0)v=0;
     quint32 bits;std::memcpy(&bits,&v,4);put32(values,k*4,bits);
    }file.write(values);
   }file.close();
@@ -66,6 +67,39 @@ private slots:
   paleo::inv::InversionWorkflow workflow;
   QVERIFY(!workflow.computeWaveletJob(nullptr));
   QVERIFY(!workflow.computeInversionJob(nullptr));
+ }
+ void impedanceRequiresAtLeastOneUsableTrace_data(){
+  QTest::addColumn<bool>("registered");QTest::addColumn<bool>("oneValid");
+  QTest::newRow("segy-all-fail") << false << false;
+  QTest::newRow("registered-all-fail") << true << false;
+  QTest::newRow("segy-partial") << false << true;
+  QTest::newRow("registered-partial") << true << true;
+ }
+ void impedanceRequiresAtLeastOneUsableTrace(){
+  QFETCH(bool,registered);QFETCH(bool,oneValid);
+  Fixture f;QVERIFY2(f.init(false,oneValid),f.detail.c_str());
+  auto req=f.request();req.lowFreqWells.clear();
+  if(!registered)req.projectDirectory.clear();
+  req.wavelet.amplitudeScale=1e-20; // Nonzero traces fail the reflectivity clipping QC.
+  paleo::inv::InversionWorkflow workflow;paleo::inv::InversionWorkflow::InversionJob job;
+  QVERIFY2(workflow.prepareInversionJob(req,&job,&f.error),qPrintable(f.error));
+  QCOMPARE(job.dataServiceSource,registered);
+  QCOMPARE(workflow.computeInversionJob(&job),oneValid);QCOMPARE(job.ok,oneValid);
+  QCOMPARE(job.processedTraces,9);QCOMPARE(job.failedTraces,oneValid?8:9);
+  if(oneValid){
+   QFile file(job.tempVolumePath);QVERIFY(file.open(QIODevice::ReadOnly));
+   std::vector<float> values;QJsonObject header;
+   QVERIFY(paleo::inversion::readImpedanceVolumeBlob(file.readAll(),&values,&header,&f.error));file.close();
+   QCOMPARE(header.value("failedTraces").toInt(),8);
+   QCOMPARE(std::count_if(values.begin(),values.end(),[](float v){return std::isfinite(v);}),job.nS);
+   workflow.reclaimTempVolume(job.tempVolumePath);
+  }else{
+   QVERIFY2(job.error.contains("9") && job.error.contains("反射系数"),qPrintable(job.error));
+   QVERIFY(job.tempVolumePath.isEmpty());
+   DataCatalog catalog;QVERIFY(catalog.open(f.project,&f.error));DerivedAssetRegistrar registrar(&catalog,f.project);
+   const auto before=catalog.versions().size();QVERIFY(!workflow.publishInversionJob(job,registrar,&f.error).ok);
+   QCOMPARE(catalog.versions().size(),before);
+  }
  }
  void unsuccessfulRecomputeCannotPublishOldSuccess(){
   Fixture f;QVERIFY2(f.init(true),f.detail.c_str());paleo::inv::InversionWorkflow workflow;

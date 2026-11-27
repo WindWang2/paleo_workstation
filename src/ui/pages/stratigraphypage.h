@@ -50,6 +50,7 @@ private:
  WellComposite::MultiWellView *m_section=nullptr;
  bool m_reloadPreview=true;
  bool m_refreshing=false;
+ bool m_refreshPending=true;
  qlonglong m_selectedWell=0;
  QString m_selectedObject;bool m_selectedCycle=false;
  QLineEdit* m_name=nullptr;

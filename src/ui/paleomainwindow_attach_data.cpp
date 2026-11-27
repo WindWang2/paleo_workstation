@@ -44,6 +44,36 @@
 #include <QCheckBox>
 #include <QFileInfo>
 #include <QLineEdit>
+#include <functional>
+#include <memory>
+
+namespace
+{
+auto connectCatalogRefresh(DataCatalog *catalog, QgisProjectService *project, DataPage *page,
+                           const std::function<void()> &syncSeismic)
+{
+  const auto pending = std::make_shared<bool>(false);
+  const auto refresh = [page, pending, syncSeismic] {
+    *pending = false;
+    page->refreshAssetTable();
+    syncSeismic();
+  };
+  QObject::connect(catalog, &DataCatalog::changed, page, [project, pending, refresh] {
+    if (project && project->isOpening()) *pending = true;
+    else refresh();
+  });
+  if (project)
+    QObject::connect(project, &QgisProjectService::openFinished, page, [page, pending] {
+      // Catalog adoption and projectOpened can invalidate the same view.
+      // On cancellation, present any pending change to the surviving catalog.
+      if (*pending) {
+        *pending = false;
+        page->refreshAssetTable();
+      }
+    });
+  return refresh;
+}
+}
 
 // ---------------------------------------------------------------------------
 // 数据页接线：门面绑定 / catalog 联动 / 预览分栏 / 导入意图（W4 拆分段）
@@ -113,11 +143,8 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     // §3/§4 数据契约接线：数据页绑定导入服务，资产表跟 catalog 走，
     // 列表选中在中央预览标签（地图下方分栏）打开（确认入库后才开标签）。
     dataPage->setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(m_previewDoc));
-    connect(m_previewDoc->catalog(), &DataCatalog::changed, this,
-            [this, dataPage]() {
-              QMetaObject::invokeMethod(dataPage, "refreshAssetTable");
-              syncSeismicVolumeToDocks(false);
-            });
+    const auto refreshCatalog = connectCatalogRefresh(m_previewDoc->catalog(), m_projectSvc, dataPage,
+                                                     [this] { syncSeismicVolumeToDocks(false); });
     dataPage->refreshAssetTable();
     syncSeismicVolumeToDocks(false);
     // B2（wave/deepen-perf）：导入队列生产 runner（GAPS G-2.3 收口）——串行
@@ -161,7 +188,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     // 收告警、放开导入。
     if (m_projectSvc)
       connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-              [this, dataPage, importSvc, catalogError, setImportsEnabled](const QString &) {
+              [this, catalogError, setImportsEnabled, refreshCatalog](const QString &) {
                 if (m_previewTabs && m_projectSvc)
                   m_previewTabs->setProject(m_projectSvc->project());
                 if (m_previewDoc->catalogOpenError().isEmpty())
@@ -171,8 +198,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                 }
                 else
                   setImportsEnabled(false); // 换了个工程仍然失败 → 保持禁用
-                dataPage->refreshAssetTable();
-                syncSeismicVolumeToDocks(false);
+                refreshCatalog();
               });
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)

@@ -331,7 +331,7 @@ python3 tools/package_runtime_linux.py --verify-only build/paleo-portable
 两端包内的 `RUNTIME_SOURCES.json` 记录文件来源、大小和 SHA-256，
 `share/paleo/supply` 和 `share/paleo/licenses` 保留供货锁及许可。
 搬移到新路径后用 `--verify-only` 复验完整性、GIS 数据库和坐标变换。
-受控 Python 和 Pi 使用各自的可选部署入口。
+便携包包含 Pi 对话运行时。受控 Python 分析环境可单独部署。
 
 ## 测试布线约定（devex）
 
@@ -447,7 +447,7 @@ Linux 必过车道使用 RelWithDebInfo 的 `-O2 -g1 -DNDEBUG`：保留符号和
 本机默认 RelWithDebInfo 和 sanitizer 车道不受影响。
 ## 可选 Agent Python 环境
 
-离线安装、宿主持久配置与可选 Pi 接线见本节。设置页通过同一服务核验、探针和导出脱敏诊断；
+受控 Python 的离线安装和宿主配置，以及随包 Pi 对话引擎的构建方式见本节。设置页通过同一服务核验、探针和导出脱敏诊断；
 已安装、内容完整、已启用与当前可执行分别报告。各批范围和验收见
 [实施计划](docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md)。
 
@@ -501,27 +501,32 @@ prepare 冻结输入和声明，compute-only 只产生私有认证成果；正�
 Windows 线程与 CPU 限制的精确区别见[平台说明](vendor/agent-python/SANDBOX_SUPPORT.md)。
 已有人工控制台/REPL/MAMCL 保持独立，Shell、GPU、安装包与网络能力仍后置。
 
-### 可选 Pi 核心供货与编排（A1/A2）
+### AI Agent 的 Pi 运行时
 
-默认 configure、应用启动和安装都不发现或运行 Node。供货端显式执行
-`tools/prepare_pi_agent.py --cache <dedicated-cache> --fetch` 抓取源码锁的闭包，
-再用 `--offline --cache <cache> --store <dedicated-store> --platform <platform>`
-离线准备 generation；不使用系统 Node、npm 或包生命周期脚本。支持的固定发行包与
-源锁见 [Pi 清单](vendor/pi/README.md)。准备结果仍为禁用状态；A1 固定握手与
-A2 对话入口使用独立协议，运行时必须匹配所选入口的完整供货身份。
+Pi 是工作台唯一的 Agent 对话引擎。Windows 和 Linux x86-64 的常规应用构建都会准备
+锁定的 Pi 和 Node 运行时。首次构建从源码锁指定的地址获取归档，使用项目锁定的
+Node 和 esbuild 生成会话程序，再将核验后的完整目录放入
+`<build>/libexec/pi-agent/generations/<SHA>`。已有归档缓存可通过 CMake 参数
+`-DPALEO_PI_SUPPLY_CACHE=<cache>` 复用。版本与哈希见 [Pi 供货清单](vendor/pi/README.md)。
 
-`PALEO_PI_INSTALL_ROOT=<prepared-generation>` 和 `PALEO_PI_INSTALL_SHA256=<host-SHA>`
-仅为显式 `cmake --install <build> --component AgentPiRuntime` 提供输入；组件从默认
-安装排除，安装时完整校验与暂存发布，不启动 Node、不授执行权限。无 Node 的正常构建
-仍运行 `tst_piprotocol` / `tst_piruntime`。真实固定进程验收显式开启
-`PALEO_TEST_PI_NATIVE` 并提供 `PALEO_TEST_PI_NATIVE_ROOT` / `PALEO_TEST_PI_NATIVE_SHA256`，
-缺夹具直接失败。`tools/probe_pi_agent.py` 的独立 Node 协议证据不替代 C++ 进程验收。
+离线构建可在供货机预制运行时，再把输出的完整 generation 目录交给 CMake。以下以 Windows 为例。
 
-应用默认使用既有 C++ 编排。可信宿主同时设置 `PALEO_AGENT_PI_ENABLE=1`、
-`PALEO_AGENT_PI_ROOT=<prepared-generation>` 和
-`PALEO_AGENT_PI_MANIFEST_SHA256=<independently-approved-manifest-SHA>` 后，
-聊天才选择可选 Pi 入口。安装组件的变量不授予此权限；项目与模型参数也不能选择运行时。
-显式选择的 Pi 不可用时返回失败，不切换引擎重放该轮。模型设置、密钥与网络请求仍由
-C++ `LlmClient` 持有，工具通过共享 Runner/Host 准入；Node 是可信编排组件，不是隔离沙箱。
-协议、预算、取消及跨引擎重试语义见 [A2 对话契约](vendor/pi/CONVERSATION.md)。
+```powershell
+python tools/fetch_pi_archives.py --cache D:/paleo-deps/pi-cache
+python tools/prepare_pi_agent.py --offline --cache D:/paleo-deps/pi-cache --store D:/paleo-deps/pi-store --platform windows-x86_64
+$generation = (Get-Content D:/paleo-deps/pi-store/current.json -Raw | ConvertFrom-Json).generation
+cmake -S . -B build "-DPALEO_PI_INSTALL_ROOT=D:/paleo-deps/pi-store/$generation"
+```
+
+准备工具将已核验的 generation 路径写入 store 的 `current.json`。CMake 使用仓库登记的平台
+SHA 核对运行时，`PALEO_PI_INSTALL_SHA256` 可作为额外的一致性断言。
+`cmake --install <build>` 将同一运行时安装到 `<prefix>/libexec/pi-agent/generations/<SHA>`。
+工作台在对话开始时使用随应用交付的进程，用户只需在模型设置中配置服务。
+C++ 的 `LlmClient` 发出模型请求，工具调用由宿主检查权限并执行。
+详见 [Pi 会话协议](vendor/pi/CONVERSATION.md)。
+
+`tst_piprotocol` 和 `tst_piruntime` 检查协议及内容身份。真实 C++ 进程验收通过
+`PALEO_TEST_PI_NATIVE` 开启，默认使用随构建交付的 generation。也可使用
+`PALEO_TEST_PI_NATIVE_ROOT` 和 `PALEO_TEST_PI_NATIVE_SHA256` 指定同一版本的测试副本。独立工具
+`tools/probe_pi_agent.py` 可验证锁定 Node 进程的 A1 握手和异常帧处理。
 

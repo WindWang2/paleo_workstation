@@ -42,7 +42,7 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
   m_tools = tools; m_calls.clear(); m_completed.clear(); m_contextCurrent = std::move(contextCurrent);
   m_failure.clear(); m_round = 0; m_nextCall = 0; m_definition = 0; m_phase = Phase::Opening;
   m_pendingText.clear(); m_pendingTextBytes = 0; m_modelEnding = false; m_sentCalls = 0;
-  m_active = true; m_service = service; m_controlAge.start();
+  m_active = true; m_service = service; m_controlAge.invalidate();
   const QPointer<PiChatBridge> guard(this);
   if (!send("open")) { if (guard) m_active = false; return "pi_outgoing_budget"; }
   const auto state = std::make_shared<Result>(); const auto channel = m_channel;
@@ -50,7 +50,12 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
   // The application outlives its TaskService workers. Inspect QPointer only on
   // the owner thread; the worker posts one coalesced notification to this root.
   auto *application = QCoreApplication::instance();
-  auto *task = service->start(tr("Pi 对话编排"), [configuration, channel, state, guard, application, driver = m_workerDriver](PaleoTask *task) {
+  auto *task = service->start(tr("Pi 对话编排"), [configuration, channel, state, guard, generation, application, driver = m_workerDriver](PaleoTask *task) {
+    // A queued task has no peer to time out. Arm the opening deadline on dequeue.
+    if (application) QMetaObject::invokeMethod(application, [guard, generation] {
+      if (guard && guard->m_active && guard->m_generation == generation && !guard->m_controlAge.isValid())
+        guard->m_controlAge.start();
+    }, Qt::QueuedConnection);
     if (driver) {
       // G2 测试缝：受控 peer 顶替 Node 会话；notify 即生产 incoming 通知，
       // 空返回 = ok，走同一结算路径。
@@ -136,7 +141,7 @@ void PiChatBridge::controlTick() {
   if (!currentGeneration()) return;
   if (!current) fail("interrupted");
   if (!currentGeneration()) return;
-  if (!m_channel->stopReason() && (m_phase != Phase::Model || m_modelEnding) && m_phase != Phase::Tool && m_phase != Phase::Closed && m_controlAge.elapsed() > 15000)
+  if (!m_channel->stopReason() && (m_phase != Phase::Model || m_modelEnding) && m_phase != Phase::Tool && m_phase != Phase::Closed && m_controlAge.isValid() && m_controlAge.hasExpired(15000))
     fail("pi_control_timeout");
   if (!currentGeneration()) return;
   flushModel();

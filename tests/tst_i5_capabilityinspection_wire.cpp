@@ -438,7 +438,9 @@ void TestI5CapabilityInspectionWire::loopbackModelDrivesListDescribeCheckThenRea
   controller.toolRunner()->setContext(context);
   controller.setConfig(LlmConfig::fromParts(server.endpoint(), QStringLiteral("i5-fixture"),
                                             QByteArrayLiteral("test-key")));
-  QSignalSpy taskAdded(&host.tasks, &PaleoTaskService::taskAdded);
+  QStringList taskTitles;
+  connect(&host.tasks, &PaleoTaskService::taskAdded, &controller,
+          [&](PaleoTask *task) { taskTitles.append(task->title()); });
   const auto revisionBefore = host.catalog.catalogRevision();
 
   controller.sendUserText(QStringLiteral("先看能力目录，检查一个候选，再真实查询工程摘要"));
@@ -490,9 +492,8 @@ void TestI5CapabilityInspectionWire::loopbackModelDrivesListDescribeCheckThenRea
   QCOMPARE(queryData.value("topic").toString(), QStringLiteral("summary"));
   QCOMPARE(queryData.value("entities").toObject().value("well").toInt(), 2);
 
-  // 全链零执行面副作用：无任务、无 adapter freeze/validateInputs、无 operation
-  // 目录、catalog 修订不变（最后一步是只读查询）。
-  QCOMPARE(taskAdded.size(), 0);
+  // Pi owns the conversation worker. Inspection and the read-only query add no domain job.
+  QCOMPARE(taskTitles, QStringList{PiChatBridge::tr("Pi 对话编排")});
   QCOMPARE(host.freezeCalls->load(), 0);
   QCOMPARE(host.validateCalls->load(), 0);
   QVERIFY(!QDir(host.operationDir()).exists());

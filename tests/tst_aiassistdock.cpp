@@ -39,7 +39,7 @@
 #include "../src/ui/ai/aiassistdock.h"
 #include "../src/ui/ai/aicontextbar.h"
 #include "../src/ui/paleotheme.h"
-#include "../src/workflow/aichatcontroller.h"
+#include "pichattestcontroller.h"
 
 // 方向51：AI 助手 dock（视图层）——禁用态、流式渲染、工具调用占位卡片、
 // 错误态。方向62 追加：会话切换 round-trip（内容/滚动）、markdown 定型
@@ -236,7 +236,7 @@ void TestAiAssistDock::unconfiguredControllerShowsDisabledState() {
 void TestAiAssistDock::suggestedQuestionsOpenEditableDrafts() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::PausedMarkdown));
-  AiChatController controller;
+  PiTestChatController controller;
   auto config = makeConfig(server.endpoint());
   config.timeoutMs = 30000;
   controller.setConfig(config);
@@ -390,7 +390,7 @@ void TestAiAssistDock::filePickerOpensWithoutModelAndRejectsChangedProject() {
 void TestAiAssistDock::streamingRendersIntoTranscript() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   dock.show();
@@ -422,7 +422,7 @@ void TestAiAssistDock::completedTableIsReadableWhileReplyStreams() {
   const auto restore = qScopeGuard([original] { PaleoTheme::applyTheme(original); });
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::PausedMarkdown));
-  AiChatController controller;
+  PiTestChatController controller;
   auto config = makeConfig(server.endpoint());
   config.timeoutMs = 30000;
   controller.setConfig(config);
@@ -464,7 +464,7 @@ void TestAiAssistDock::completedTableIsReadableWhileReplyStreams() {
 void TestAiAssistDock::toolCallRendersPlaceholderCard() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsOnce));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *cards = dock.findChild<QWidget *>(QStringLiteral("aiAssistantToolCards"));
@@ -495,7 +495,7 @@ void TestAiAssistDock::toolCallRendersPlaceholderCard() {
 void TestAiAssistDock::errorStateIsRenderedWithReason() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Unauthorized));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -514,7 +514,7 @@ void TestAiAssistDock::errorStateIsRenderedWithReason() {
 void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Markdown));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -570,7 +570,7 @@ void TestAiAssistDock::markdownAnswerIsFormattedAfterStreamEnds() {
 void TestAiAssistDock::sessionSwitchRoundTripsContentAndScroll() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -642,7 +642,7 @@ void TestAiAssistDock::sessionSwitchRoundTripsContentAndScroll() {
 void TestAiAssistDock::renameAndDeleteKeepComboInSync() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *combo =
@@ -673,7 +673,7 @@ void TestAiAssistDock::renameAndDeleteKeepComboInSync() {
 void TestAiAssistDock::copyButtonPutsSelectionOrWholeTranscriptOnClipboard() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -709,7 +709,7 @@ void TestAiAssistDock::copyButtonPutsSelectionOrWholeTranscriptOnClipboard() {
 void TestAiAssistDock::resendIssuesNewRequestWithoutDuplicatingHistory() {
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Stream));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   auto *transcript =
@@ -748,7 +748,7 @@ void TestAiAssistDock::captureLedgerScreenshots() {
   PaleoTheme::applyLightTheme();
   FakeLlmServer server;
   QVERIFY(server.start(FakeLlmServer::Mode::Markdown));
-  AiChatController controller;
+  PiTestChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
   dock.resize(400, 640);

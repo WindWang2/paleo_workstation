@@ -30,13 +30,14 @@ def read_frame(process):
     return result
 
 
-def exercise(root, manifest_sha):
+def exercise(root, manifest_sha, *, loader=None):
     lock, _ = load_lock(); manifest = verify_runtime(root, manifest_sha, lock); root = Path(root).resolve()
     command = [str(root / manifest["node"]), "--no-addons", "--disable-proto=throw", "--no-warnings", str(root / manifest["entry"])]
     results = []
     with tempfile.TemporaryDirectory(prefix="pi-wire-") as private:
         environment = {"HOME": private, "USERPROFILE": private, "TEMP": private, "TMP": private, "LANG": "C.UTF-8"}
         if os.name == "nt": environment["SystemRoot"] = os.environ["SystemRoot"]
+        if loader is not None: environment["LD_LIBRARY_PATH"] = str(loader)
         def launch():
             return subprocess.Popen(command, cwd=private, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)

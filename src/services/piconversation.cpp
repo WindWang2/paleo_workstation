@@ -74,6 +74,7 @@ ConversationResult runConversation(const ConversationRequest &request) {
   const auto &runtime = *verified.runtime;
   QTemporaryDir directory; if (!directory.isValid()) { result.code = "pi_work_directory_failed"; return result; }
   const auto environment = detail::isolatedProcessEnvironment(directory.path());
+  if (environment.isEmpty()) { result.code = "pi_loader_unavailable"; return result; }
   detail::ProcessTree tree;
   if (!tree.available()) { result.code = "pi_process_tree_unavailable"; return result; }
   QProcess process; process.setWorkingDirectory(directory.path()); process.setProcessEnvironment(environment);

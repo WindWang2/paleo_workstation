@@ -8,6 +8,8 @@
 #include "services/piprotocol.h"
 #include <QElapsedTimer>
 #include <QJsonDocument>
+#include <QScopeGuard>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QThread>
 #include <QtTest>
@@ -176,6 +178,36 @@ class TestG2PiTerminal : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() { qRegisterMetaType<ChatToolCall>("ChatToolCall"); }
+  void queuedWorkerGetsTheFullOpeningDeadline() {
+    QSemaphore occupied, release;
+    PaleoTaskService tasks;
+    tasks.setMaxWorkerThreads(2);
+    FakeNode node;
+    PiChatBridge bridge;
+    auto cleanup = qScopeGuard([&] { release.release(2); tasks.shutdown(10000, true); });
+    for (int i = 0; i < 2; ++i) {
+      tasks.start("occupied", [&](PaleoTask *) {
+        occupied.release();
+        release.acquire();
+        return QString();
+      });
+    }
+    QVERIFY(occupied.tryAcquire(2, 5000));
+    bridge.setWorkerDriver([&](PaleoTask *task, const auto &channel, const auto &notify) {
+      return node.run(task, channel, notify);
+    });
+    connect(&bridge, &PiChatBridge::modelRequested, &bridge, [&] {
+      QVERIFY(bridge.modelFinished({}, QStringLiteral("stop")));
+    });
+    QSignalSpy finished(&bridge, &PiChatBridge::finished), failed(&bridge, &PiChatBridge::failed);
+    QCOMPARE(bridge.start({true, {}, {}}, &tasks, "queued", "first", {}, [] { return true; }), QString());
+    QTest::qWait(15500); // Longer than the opening handshake is allowed to take.
+    QVERIFY(failed.isEmpty());
+    QVERIFY(finished.isEmpty());
+    release.release(2);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 10000);
+    QCOMPARE(finished.first().first().toString(), QStringLiteral("ok"));
+  }
   // 正常闭环：两调用工具轮 → 第二模型轮终答 → closed → finished(ok) 各一次。
   void happyToolsRoundSettlesOk() {
     PaleoTaskService tasks; tasks.setMaxWorkerThreads(3); FakeNode node;

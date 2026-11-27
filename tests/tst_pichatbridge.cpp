@@ -85,14 +85,17 @@ class TestPiChatBridge : public QObject {
 private slots:
   void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
   void cleanupTestCase() { for (const auto &id : m_sessions) { QString error; ChatSessionStore::remove(id, &error); } }
-  void nativeHttpStillUsesTheExistingModelAndRealHostQuery() {
+  void bundledPiRequestsModelAndRealHostQueriesByDefault() {
     Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config()); QSignalSpy results(&controller, &AiChatController::toolResultReady);
+    QSignalSpy rounds(controller.piBridge(), &PiChatBridge::modelRequested);
+    QSignalSpy calls(controller.piBridge(), &PiChatBridge::toolRequested);
     controller.sendUserText("query the current project"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
+    QCOMPARE(rounds.size(), 2); QCOMPARE(calls.size(), 2);
     QCOMPARE(model.requests, 2); QCOMPARE(results.size(), 2); QVERIFY(results.first()[1].toBool());
     QCOMPARE(controller.messages().last().content, QString("host model completed")); QCOMPARE(host.catalog.versions().size(), 0);
   }
-  void nativeRetryUsesTheSameHostBindingsDespiteNewProviderIds() {
+  void retryUsesTheSameHostBindingsDespiteNewProviderIds() {
     Host host; Model model; model.toolsEveryTurn = true; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config()); QSignalSpy errors(&controller, &AiChatController::errorOccurred);
     controller.sendUserText("query with a stable host-owned turn"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
@@ -131,26 +134,34 @@ private slots:
       QCOMPARE(errors.first().first().toString(), QString("chat_legacy_retry_requires_operation_recovery")); QCOMPARE(controller.messages(), legacy.messages); }
     QCOMPARE(host.catalog.versions().size(), 0);
   }
-  void selectedMissingPiDoesNotFallBackToNativeOrSendProviderKeys() {
-    Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
-    m_sessions.append(controller.session().id); controller.setConfig(model.config()); controller.setPiRuntime({true, {}, {}});
-    QSignalSpy errors(&controller, &AiChatController::errorOccurred); controller.sendUserText("requires selected optional engine");
-    QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000); QVERIFY(!errors.isEmpty()); QCOMPARE(model.requests, 0);
-    QCOMPARE(host.catalog.versions().size(), 0);
+  void missingPiCannotSendAModelRequestOrRunTools_data() {
+    QTest::addColumn<bool>("enabled");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("missing-bundle") << true << QStringLiteral("pi_runtime_missing");
+    QTest::newRow("disabled-runtime") << false << QStringLiteral("pi_disabled");
   }
-  void hostSessionSaveFailurePrecedesAnyOptionalProcessOrToolDispatch_data() {
-    QTest::addColumn<bool>("pi"); QTest::newRow("pi-before-node") << true; QTest::newRow("native-before-tools") << false;
-  }
-  void hostSessionSaveFailurePrecedesAnyOptionalProcessOrToolDispatch() {
-    QFETCH(bool, pi);
+  void missingPiCannotSendAModelRequestOrRunTools() {
+    QFETCH(bool, enabled);
+    QFETCH(QString, expected);
     Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
-    m_sessions.append(controller.session().id); controller.setConfig(model.config()); controller.setPiRuntime({pi, {}, {}});
+    m_sessions.append(controller.session().id); controller.setConfig(model.config());
+    controller.setPiRuntime({enabled, host.project.filePath("absent-pi"), paleo::pi::bundledRuntime().manifestSha256});
+    QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+    QSignalSpy calls(&controller, &AiChatController::toolExecutionStarted);
+    controller.sendUserText("requires the bundled engine");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
+    QCOMPARE(errors.size(), 1); QCOMPARE(errors.first().first().toString(), expected);
+    QCOMPARE(model.requests, 0); QCOMPARE(calls.size(), 0); QCOMPARE(host.catalog.versions().size(), 0);
+  }
+  void hostSessionSaveFailurePrecedesAnyProcessOrToolDispatch() {
+    Host host; Model model; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
+    m_sessions.append(controller.session().id); controller.setConfig(model.config());
     const auto path = ChatSessionStore::pathFor(controller.session().id); QVERIFY(QDir().mkpath(path));
     const auto cleanup = qScopeGuard([&] { QDir().rmdir(path); });
     QSignalSpy errors(&controller, &AiChatController::errorOccurred), calls(&controller, &AiChatController::toolExecutionStarted);
     controller.sendUserText("a save error cannot dispatch side effects"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 10000);
-    QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains(pi ? "pi_session_save_failed" : "pi_invocation_save_failed"));
-    QCOMPARE(model.requests, pi ? 0 : 1); QCOMPARE(calls.size(), 0); QCOMPARE(host.catalog.versions().size(), 0);
+    QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains("pi_session_save_failed"));
+    QCOMPARE(model.requests, 0); QCOMPARE(calls.size(), 0); QCOMPARE(host.catalog.versions().size(), 0);
   }
   void destroyedTaskServiceCannotLeaveAQueuedConversationPermanentlyBusy() {
     auto tasks = std::make_unique<PaleoTaskService>(); tasks->setMaxWorkerThreads(2); auto running = std::make_shared<std::atomic_int>(0);
@@ -230,11 +241,9 @@ private slots:
     controller.newSession(); QVERIFY(switched); QCOMPARE(controller.session().id, newer); QVERIFY(controller.messages().isEmpty());
   }
   void realPiSseRoundUsesHostQueriesAndPreservesHostOnlyBinding() {
-    const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
-    if (root.isEmpty()) { QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1", "Required actual Pi fixture missing"); return; }
     Host host; Model model; model.sse = true; QVERIFY(model.open()); AiChatController controller; QVERIFY(host.bind(controller));
     m_sessions.append(controller.session().id); controller.setConfig(model.config());
-    controller.setPiRuntime({true, root, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")});
+
     QSignalSpy errors(&controller, &AiChatController::errorOccurred), results(&controller, &AiChatController::toolResultReady);
     controller.sendUserText("Pi asks C++ to read the real project"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
     QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first().first().toString()));
@@ -252,12 +261,10 @@ private slots:
   }
   void realPiHotSseCoalescesWhileTrueOverflowFailsWhole() {
     QFETCH(bool, overflow); QFETCH(int, fragments); QFETCH(QString, fragment);
-    const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
-    if (root.isEmpty()) { QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1", "Required actual Pi fixture missing"); return; }
     Host host; Model model; model.firstTools = false; model.sse = true; model.fragments = fragments;
     model.fragment = fragment; QVERIFY(model.open());
     AiChatController controller; QVERIFY(host.bind(controller)); m_sessions.append(controller.session().id); controller.setConfig(model.config());
-    controller.setPiRuntime({true, root, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")}); QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+    QSignalSpy errors(&controller, &AiChatController::errorOccurred);
     controller.sendUserText("exercise bounded IPC backpressure"); QTRY_VERIFY_WITH_TIMEOUT(!controller.streaming(), 180000);
     QCOMPARE(model.requests, 1);
     if (overflow) { QVERIFY(!errors.isEmpty()); QVERIFY(errors.first().first().toString().contains("pi_outgoing_budget")); }
@@ -270,8 +277,7 @@ private slots:
     QTest::newRow("10000-escaped-deltas") << QString("\"");
   }
   void realPiSingleOwnerCallbackCoalescesEscapedText() {
-    QFETCH(QString, fragment); const auto root = qEnvironmentVariable("PALEO_TEST_PI_NATIVE_ROOT");
-    if (root.isEmpty()) { QVERIFY2(qEnvironmentVariable("PALEO_REQUIRE_PI_EXECUTION") != "1", "Required actual Pi fixture missing"); return; }
+    QFETCH(QString, fragment);
     PaleoTaskService tasks; tasks.setMaxWorkerThreads(3); PiChatBridge bridge;
     QSignalSpy finished(&bridge, &PiChatBridge::finished), failed(&bridge, &PiChatBridge::failed);
     int accepted = 0; bool modelCompleted = false;
@@ -284,7 +290,7 @@ private slots:
       while (accepted < 10000 && bridge.modelDelta(fragment)) ++accepted;
       modelCompleted = bridge.modelFinished({}, "stop");
     });
-    QCOMPARE(bridge.start({true, root, qEnvironmentVariable("PALEO_TEST_PI_NATIVE_SHA256")}, &tasks,
+    QCOMPARE(bridge.start(paleo::pi::bundledRuntime(), &tasks,
       "burst-session", "burst-turn", {}, [] { return true; }), QString());
     QTRY_VERIFY_WITH_TIMEOUT(!finished.isEmpty(), 180000);
     QCOMPARE(accepted, 10000); QVERIFY(modelCompleted);

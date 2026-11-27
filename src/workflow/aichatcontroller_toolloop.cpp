@@ -55,7 +55,7 @@ void AiChatController::failTurnForSaveArrears(const QString &error) {
 void AiChatController::rejectToolRound(const QString &code, const QString &message) {
   const QPointer<AiChatController> guard(this);
   const auto sequence = m_turnSequence;
-  if (m_piBridge.busy()) m_piBridge.modelFailed(code);
+  m_piBridge.modelFailed(code);
   if (!guard || sequence != m_turnSequence) return;
   if (!m_session.messages.isEmpty() && m_session.messages.last().role == ChatRole::Assistant) {
     auto &assistant = m_session.messages.last();
@@ -109,7 +109,7 @@ QString AiChatController::negotiatedToolError(const ChatToolCall &call) const {
 
 void AiChatController::dispatchTurnTool(ChatToolCall call) {
   if (!ensureTurnContext()) return;
-  // H7-W2：native 首次/后继与 Pi toolRequested 都走这里。派发即按当前回合
+  // H7-W2：Pi 请求执行已准入的调用。派发即按当前回合
   // 额度冻结本次调用的最终回包配额，随 call 交给 runner；不预读、不消耗
   // 下一调用的份额，也不改 admitToolCalls 的准入与保存顺序。
   const int quota = paleo::chat::replyQuotaBytes(
@@ -136,20 +136,8 @@ void AiChatController::onRoundFinished(const QString &reason) {
       m_session.messages.last().role == ChatRole::Assistant &&
       !m_session.messages.last().toolCalls.isEmpty();
   if (!wantsTools) {
-    if (m_piBridge.busy()) {
-      // G2-W6：桥未接受本次完成（相位/停止/预算拒绝）即本轮失败——失败信号
-      // 已在桥内同步发出并结算（failTurn 幂等），此处兜底只处理无信号拒绝。
-      if (!m_piBridge.modelFinished({}, reason) && guard && m_streaming && sequence == m_turnSequence)
-        failTurn(QStringLiteral("pi_model_completion_rejected"));
-      return;
-    }
-    setStreaming(false);
-    if (!guard || sequence != m_turnSequence) return;
-    // G2-W3：最终回答的落盘失败不能被静默吞掉——回答保留在内存（保存欠账），
-    // 网络成功不冒充持久成功；恢复存储后重发/切换会话会先补保存。
-    QString error;
-    if (!saveCurrentSession(&error))
-      emit errorOccurred(tr("回答已完成，但会话保存失败（%1）。内容保留在内存").arg(error));
+    if (!m_piBridge.modelFinished({}, reason) && guard && m_streaming && sequence == m_turnSequence)
+      failTurn(QStringLiteral("pi_model_completion_rejected"));
     return;
   }
   auto calls = normalizedCalls(m_session.messages.last().toolCalls);
@@ -157,7 +145,6 @@ void AiChatController::onRoundFinished(const QString &reason) {
     const auto error = negotiatedToolError(call);
     if (!error.isEmpty()) { rejectToolRound(error); return; }
   }
-  const bool pi = m_piBridge.busy();
   auto bound = m_session;
   const auto code = paleo::chat::bindInvocations(bound, m_hostTurn, m_turnContext.value("documentId").toString(), calls);
   if (!code.isEmpty()) { rejectToolRound(code); return; }
@@ -175,21 +162,14 @@ void AiChatController::onRoundFinished(const QString &reason) {
   m_pendingToolResults = int(calls.size());
   m_session.hostToolBindings = bound.hostToolBindings;
   const auto session = m_session.id, turn = m_hostTurn; QString error;
-  // Both engines use the same durable admitted calls before any tool dispatch.
+  // Checkpoint the admitted calls before Pi can request their execution.
   if (!saveCurrentSession(&error)) { if (guard) rejectToolRound("pi_invocation_save_failed"); return; }
   if (!guard || sequence != m_turnSequence || m_session.id != session || m_hostTurn != turn ||
       !ensureTurnContext()) return;
-  if (pi) {
-    // G2-W6：同上——桥拒绝即失败（failed 信号已同步结算，兜底仅无信号路径）。
-    if (!m_piBridge.modelFinished(calls, reason) && guard && m_streaming && sequence == m_turnSequence)
-      failTurn(QStringLiteral("pi_model_completion_rejected"));
-    return;
-  }
   emit statusChanged(statusText());
   if (!guard || sequence != m_turnSequence) return;
-  // Dispatch the next native call only after its predecessor is checkpointed.
-  // Recheck ownership before each call instead of queuing it into a live context.
-  dispatchTurnTool(calls.first());
+  if (!m_piBridge.modelFinished(calls, reason) && guard && m_streaming && sequence == m_turnSequence)
+    failTurn(QStringLiteral("pi_model_completion_rejected"));
 }
 
 void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const QString &resultJson) {
@@ -221,7 +201,6 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   m_toolTokens += estimateTokens(tool.content);
   m_unansweredCalls.removeAt(match);
   --m_pendingToolResults;
-  const bool pi = m_piBridge.busy();
   // Publish completed state before signals: a listener may cancel or switch sessions synchronously.
   appendMessage(tool);
   if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
@@ -235,8 +214,8 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
     return;
   }
   if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
-  const bool piBudgetLimit = pi && m_pendingToolResults == 0 && m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens;
-  if (pi && m_streaming && !piBudgetLimit) {
+  const bool budgetExhausted = m_pendingToolResults == 0 && m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens;
+  if (m_streaming && !budgetExhausted) {
     const auto sent = m_piBridge.toolFinished(call, deliveredOk, tool.content);
     if (!guard) return;
     if (!sent) { failTurn("pi_tool_result_state"); return; }
@@ -253,23 +232,7 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   }
   emit toolResultReady(call, deliveredOk, summary);
   if (!guard || sessionId != m_session.id || sequence != m_turnSequence) return;
-  if (!m_streaming) return;
-  if (m_pendingToolResults > 0) {
-    if (!pi) dispatchTurnTool(m_unansweredCalls.first());
-    return;
-  }
-  if (!ensureTurnContext()) return;
-  if (piBudgetLimit) { failTurn("tool_turn_budget_exceeded"); return; }
-  if (m_toolTokens >= kHistoryTokenBudget - kMinimumReplyTokens) {
-    setStreaming(false);
-    if (!guard || sequence != m_turnSequence) return;
-    emit errorOccurred(QStringLiteral("tool_turn_budget_exceeded"));
-    if (!guard || sequence != m_turnSequence) return;
-    saveCurrentSession();
-    return;
-  }
-  if (pi) return;
-  sendRound();
+  if (budgetExhausted && m_streaming) failTurn("tool_turn_budget_exceeded");
 }
 
 QVector<ChatMessage> AiChatController::pairUnansweredToolCalls(const QString &reason, const QString &pendingCode) {
@@ -307,7 +270,7 @@ void AiChatController::handleModelError(LlmErrorKind kind, const QString &messag
   if (!m_streaming) return;
   const QPointer<AiChatController> guard(this); const auto session = m_session.id;
   const auto sequence = m_turnSequence;
-  if (m_piBridge.busy()) m_piBridge.modelFailed(QStringLiteral("llm_error_%1").arg(int(kind)));
+  m_piBridge.modelFailed(QStringLiteral("llm_error_%1").arg(int(kind)));
   if (!guard || !m_streaming || session != m_session.id) return;
   const auto completed = pairUnansweredToolCalls(tr("请求出错：本调用未执行"), "tool_not_executed");
   if (!m_session.messages.isEmpty() && m_session.messages.last().role == ChatRole::Assistant && m_session.messages.last().isEmpty())

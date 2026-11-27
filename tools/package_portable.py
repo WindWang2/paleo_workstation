@@ -11,8 +11,8 @@ import subprocess
 import tempfile
 import zipfile
 
-from portable_manifest import (PackageFiles, REPO_ROOT, load_cmake_cache,
-                               verify, verify_receipt)
+from portable_manifest import (PI_LOCKS, PackageFiles, REPO_ROOT, load_cmake_cache,
+                               verified_pi_generation, verify, verify_receipt)
 
 
 REQUIRED_EXES = ("paleo.exe", "paleo_selfcheck.exe", "paleo_data_snapshot_worker.exe")
@@ -110,6 +110,10 @@ def stage_windows(files: PackageFiles, build: Path, office: Path, cache, dumpbin
     gdal = prefix / "apps/gdal"
     products = (*REQUIRED_EXES, *(name for name in OPTIONAL_EXES if (build / name).is_file()))
     entries = [files.copy(build / name, name, "build", build) for name in products]
+    pi_root = verified_pi_generation(build, "windows-x86_64")
+    pi_relative = pi_root.relative_to(build)
+    files.tree(pi_root, pi_relative.as_posix(), "pi-runtime", pi_root)
+    entries.append(files.output / pi_relative / "bin/node.exe")
     entries.append(files.copy(qt / "bin/QtWebEngineProcess.exe", "QtWebEngineProcess.exe",
                               "osgeo4w", prefix))
     # Runtime loaders reach these plugins without an import from paleo.exe.
@@ -180,6 +184,7 @@ def add_windows_resources(files: PackageFiles, prefix: Path, qt: Path, gis: Path
 
 def verify_windows(package: Path):
     verify(package)
+    verified_pi_generation(package, "windows-x86_64")
     # Build SDK, Qt/GIS prefixes and the caller's Python are absent from PATH.
     with tempfile.TemporaryDirectory(prefix="paleo-portable-check-") as scratch:
         system = Path(os.environ["SystemRoot"])
@@ -222,7 +227,7 @@ def main():
             package.mkdir()
             files = PackageFiles(package)
             stage_windows(files, build, office, cache, find_dumpbin())
-            files.write(["vendor/osgeo4w-offline.lock.json", "vendor/manifest.json",
+            files.write([*PI_LOCKS, "vendor/osgeo4w-offline.lock.json", "vendor/manifest.json",
                          "vendor/opencl-source.lock.json", "vendor/pdal-arrow-source.lock.json",
                          "vendor/office-editor-required.txt", "vendor/fetch-ranuts-document.sh"])
             if args.verify:

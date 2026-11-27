@@ -1,11 +1,13 @@
-# Optional locked Pi core runtime
+# Bundled Pi Agent runtime
 
 This is the locked supply and fixed-process boundary from
 [the implementation plan](../../docs/planning/PYTHON_DELIVERY_AND_PI_AGENT_PLAN.md).
-The A1 handshake and optional A2 host-mediated conversation use distinct protocols.
+The workbench uses Pi for every Agent conversation. The A1 handshake and
+A2 host-mediated conversation use distinct protocols.
 Model transport, tool execution, authorization and durable facts remain in C++.
-The application remains a C++ application and does not need Node to build or start.
-See [the protocol](PROTOCOL.md) for the host-only interfaces and current limits.
+The application ships its own pinned Node executable and starts it when a
+conversation requires the engine. See the [handshake](PROTOCOL.md) and
+[conversation contract](CONVERSATION.md) for the interfaces and limits.
 
 ## Reviewed source and actual closure
 
@@ -34,23 +36,26 @@ Node 22.23.5 Windows/Linux x86-64 archives are pinned against the official
 [`SHASUMS256.txt`](https://nodejs.org/dist/v22.23.5/SHASUMS256.txt), retained here
 verbatim. The trust basis is that reviewed SHA evidence; no GPG signature
 verification is claimed. The extracted Node program and final module also have
-payload SHA pins compiled into the C++ verifier. Node's OS ABI dependencies remain
-a platform validation requirement, not a promise that the Node archive supplies
-the operating system.
+payload SHA pins compiled into the C++ verifier. Linux builds copy
+`libgcc_s.so.1` and `libstdc++.so.6` from the managed dependency prefix into
+an application-private directory. The host verifies both digests before adding
+that directory to the isolated Node environment's library search path. Linux
+portable verification checks the dynamic loader resolutions and exercises the
+Pi handshake in the relocated package.
 
 Pi's MIT license is preserved in `LICENSE.upstream`. The schema's adapted format
 validators have their original third-party notice, and the build compiler's
 license is preserved. Each runtime generation also includes Node's complete
 platform-archive LICENSE. Do not describe the whole closure as MIT-only.
 
-## Explicit developer/operator supply
+## Preparing an offline build
 
 The following are deployment tools, never Agent tools or application startup
 actions. Use a private cache and a separate runtime store. Their roots must not
 contain one another. Source archives and generated runtimes are not committed.
 
 ```sh
-python tools/prepare_pi_agent.py --fetch --cache /private/pi-cache
+python tools/fetch_pi_archives.py --cache /private/pi-cache
 python tools/prepare_pi_agent.py --offline --cache /private/pi-cache \
   --store /private/pi-store --platform linux-x86_64 --archive /private/pi-linux.zip
 ```
@@ -66,13 +71,16 @@ A complete generation is verified and sealed before same-parent publication to
 `generations/<manifest SHA>`. Only then is `current.json` atomically replaced.
 Failed preparation/package creation preserves the previous active pointer and
 every old generation. Repeated preparation verifies an existing generation;
-it never edits it. Retention and current pointers are not execution permission.
+it never edits it. Separate workstations can verify and read the same immutable
+generation concurrently. Each Pi process owns its own conversation channel.
+Retention and current pointers are not execution permission.
 There is no automatic GC, update or online application installation.
 
-The operator must provide the complete root and manifest SHA to trusted host
-configuration and explicitly enable Pi. The source manifest does not authorize
-itself. A2 selection uses trusted host configuration; runtime installation alone
-does not select a conversation engine. The native engine remains the default.
+Pass the prepared directory to CMake with
+`-DPALEO_PI_INSTALL_ROOT=<store>/generations/<manifest SHA>`.
+A normal build can also prepare the runtime from the repository's locked archives.
+Set `PALEO_PI_SUPPLY_CACHE` to reuse an existing archive cache. Each target platform
+has its own approved manifest identity in [runtime-manifests.lock.json](runtime-manifests.lock.json).
 
 ## Execution boundary
 
@@ -84,23 +92,21 @@ does not receive provider keys, endpoints, host scope, paths or commit credentia
 Neither protocol creates ModelRuntime, createAgentSession, a provider auth store
 or a resource loader. Unknown commands fail; arbitrary JavaScript is unavailable.
 
-Pi is trusted optional application code, **not a sandbox**. The short A1 process
+Pi runs trusted application code. The short A1 process
 has bounded IPC, deadlines, cancellation and host-death cleanup mechanisms.
 It does not claim OS memory/CPU/thread hard limits, filesystem or network
 isolation, or the existing Python sandbox profile. A2 sessions have their own
 bounded transport, lifetime controls and actual acceptance records. In-flight failures do not trigger a fallback
 engine or replay any operation.
 
-## Optional installation component
+## Build and installation layout
 
-The default build and default installation do not contain Node or executable JS.
-An operator may configure `PALEO_PI_INSTALL_ROOT` to an already prepared generation
-and `PALEO_PI_INSTALL_SHA256` to its separately approved manifest SHA, then run
-`cmake --install <build> --component AgentPiRuntime`. This component is explicitly
-excluded from the default installation. The native CMake guard checks complete
-file hashes and the compiled Node/bundle/source-lock pins, copies to same-parent
-staging, verifies again, then publishes
-`<prefix>/libexec/pi-agent/generations/<manifestSHA>`. Existing generations are
-verified and retained. Interrupted staging can remain for manual inspection;
-there is no automatic GC. Installation neither executes Node nor writes active
-configuration nor enables Pi. No model or Agent tool can install or enable Pi.
+The normal application build stages the generation at
+`<build>/libexec/pi-agent/generations/<manifest SHA>`. A regular
+`cmake --install <build>` includes the same generation at
+`<prefix>/libexec/pi-agent/generations/<manifest SHA>`; packagers can also
+select the `AgentPiRuntime` component. CMake verifies the manifest, files and
+compiled Node/bundle/source-lock pins before publishing the staged generation.
+It verifies an already installed generation before reuse. The application
+resolves the bundled directory relative to its executable and verifies the
+runtime on use. Model endpoint and key configuration stay in the workbench.

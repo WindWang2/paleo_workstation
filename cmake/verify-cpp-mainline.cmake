@@ -28,8 +28,8 @@
 #   superbuild-bindings  R6 vendor/superbuild 的 QGIS 构建失去
 #                        WITH_BINDINGS=OFF——PyQGIS 运行时不得经 superbuild
 #                        回流主程序依赖闭包。
-#   src-javascript       R7 src/ 不放 JS/TS 应用源码。可选 Pi 固定入口只在
-#                        vendor/pi，由单独闭包闸门与 EXCLUDE_FROM_ALL 安装约束。
+#   src-javascript       R7 src/ 不放 JS/TS 应用源码。Pi 固定入口只在
+#                        vendor/pi，构建和安装均校验仓库锁定的运行时闭包。
 #
 # R4 的 target 针串按「add_library(<名> <空格>…」单行形态匹配、R5 的受保护
 # 清单是现状锚点——有意重构（改声明排版/迁移受保护文件）时须同步更新下方
@@ -95,7 +95,7 @@ function(_cpp_ml_check_src_javascript root)
        "${root}/src/*.js" "${root}/src/*.mjs" "${root}/src/*.cjs"
        "${root}/src/*.ts" "${root}/src/*.tsx" "${root}/src/*.jsx")
   foreach(_f IN LISTS _js)
-    list(APPEND _v "src-javascript: ${_f}——可选 Pi 有源入口只允许 vendor/pi 的显式闭包")
+    list(APPEND _v "src-javascript: ${_f}——Pi 固定入口应位于 vendor/pi 的锁定闭包")
   endforeach()
   set(_violations "${_v}" PARENT_SCOPE)
 endfunction()

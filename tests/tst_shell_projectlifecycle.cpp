@@ -531,12 +531,14 @@ private slots:
     QString failureText;
     QTimer dismissFailure;
     connect(&dismissFailure, &QTimer::timeout, this, [&] {
-      auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-      if (!box || box->parentWidget() != m_win || box->icon() != QMessageBox::Critical ||
-          box->windowTitle() != PaleoMainWindow::tr("保存编辑失败")) return;
-      dismissFailure.stop();
-      failureText = box->text();
-      box->accept();
+      for (auto *box : m_win->findChildren<QMessageBox *>(QString(), Qt::FindDirectChildrenOnly)) {
+        if (!box->isModal() || box->icon() != QMessageBox::Critical ||
+            box->windowTitle() != PaleoMainWindow::tr("保存编辑失败")) continue;
+        dismissFailure.stop();
+        failureText = box->text();
+        box->accept();
+        return;
+      }
     });
     if (expectsDialog) dismissFailure.start(10);
     QVERIFY(!m_win->resolveDirtyLayerEdits());

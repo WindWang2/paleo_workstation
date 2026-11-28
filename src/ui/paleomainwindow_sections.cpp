@@ -16,6 +16,7 @@
 #include "workflow/sectionworkbench.h"
 #include "wellcomposite/derivedsink.h"
 #include "wellcomposite/wellcompositepanel.h"
+#include "wellsection/wellsectionpanel.h"
 #include <QAction>
 #include <QFileInfo>
 #include <QPointer>
@@ -85,17 +86,40 @@ void refreshSectionCandidates(SectionWorkbench *workbench,SectionSetupDialog *se
 bool extractWithInterpretation(SectionWorkbench *workbench,seismic::SeismicSectionDockWidget *dock,
     SectionSetupDialog *setup,const std::shared_ptr<const seismic::SgyVolume> &volume,
     const std::vector<glm::ivec2> &points,const QString &title,const std::vector<glm::dvec2> &line,
-    const QStringList &wellIds) {
+    const QStringList &wellIds,const std::vector<seismic::SectionWellInfo> &sectionWells) {
   const auto selection=workbench->sectionInterpretation(volume?paleo::fromFsPath(volume->Path()):QString());
   if(!selection.error.isEmpty()){setup->setMessage(selection.error);return false;}
-  if(selection.context) {
+  if(!sectionWells.empty()) {
+    dock->showMajorHorizonConnections();
+    dock->extractSectionFromVolumeAsync(volume,points,title,line,sectionWells,wellIds,selection.context?&selection:nullptr);
+  } else if(selection.context) {
     const QPointer<seismic::SeismicSectionDockWidget> guard(dock);
     workbench->requestPreviewData([guard,volume,points,title,line,wellIds,selection](const auto &data) {
-      if(guard)guard->extractSectionFromVolumeAsync(volume,points,title,line,data.sectionWells,wellIds,&selection);
+      if(guard && guard->volume()==volume)
+        guard->extractSectionFromVolumeAsync(volume,points,title,line,data.sectionWells,wellIds,&selection);
     });
   } else dock->extractSectionFromVolumeAsync(volume,points,title,line,workbench->sectionWells(),wellIds);
   setup->setMessage(QObject::tr("正在提取剖面；沿线井按各自时深关系叠加。"));
   return true;
+}
+
+void buildOrderedSeismicSection(SeismicMapLink *link,SectionWorkbench *workbench,
+    const QStringList &ids,const std::function<void(const QString &)> &report) {
+  const auto volume=link->activeVolume();
+  if(!volume||!link->gridGeometry().valid) {
+    report(QObject::tr("请先在连井 / 时深对齐中加载带有效坐标的地震体。"));
+    return;
+  }
+  const auto selection=workbench->sectionInterpretation(paleo::fromFsPath(volume->Path()));
+  if(!selection.error.isEmpty()){report(selection.error);return;}
+  report(QObject::tr("正在读取所选井的轨迹和时深关系…"));
+  workbench->requestPreviewData([guard=QPointer<SeismicMapLink>(link),volume,workbench,ids,report](const auto &data){
+    if(!guard||guard->activeVolume()!=volume)return;
+    QString error;
+    const auto wellheads=workbench->wellRoute(ids,&error,&data.sectionWells);
+    if(wellheads.empty()){report(error);return;}
+    guard->triggerSectionFromWellRoute(wellheads,data.sectionWells,ids);
+  });
 }
 void wireSectionTraceLocate(SeismicMapLink *link,
                             seismic::SeismicSectionDockWidget *dock) {
@@ -219,10 +243,11 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   auto catalogPath =
       std::make_shared<QString>(m_previewDoc->catalog()->catalogPath());
   connect(m_previewDoc->catalog(), &DataCatalog::changed, this,
-          [this, catalogPath, link, refresh] {
+          [this, catalogPath, link, refresh, setup] {
             const auto path = m_previewDoc->catalog()->catalogPath();
             if (*catalogPath != path) {
               *catalogPath = path;
+              setup->requestWellOrder({});
               link->setActiveVolume(nullptr);
               refresh();
             }
@@ -252,7 +277,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   // 「清除剖面连线」：地图 rubber band + 路线 + dock 侧 route 一并清，
   // 「保存剖面新版本」随 hasRoute() 复归而失效。
   connect(setup, &SectionSetupDialog::clearRequested, this,
-          [band, route, dock, report] {
+          [band, route, dock, workbench, report] {
+            workbench->cancelPreviewData();
             route->clear();
             band->reset(Qgis::GeometryType::Line);
             band->hide();
@@ -267,8 +293,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
           [this, dock, workbench, route, routeHorizon, band, link,
            setup](std::shared_ptr<const seismic::SgyVolume> volume,
                   std::vector<glm::ivec2> points, QString title,
-                  std::vector<glm::dvec2> line,QStringList selectedWellIds) {
-            if(!extractWithInterpretation(workbench,dock,setup,volume,points,title,line,selectedWellIds))return;
+                  std::vector<glm::dvec2> line,QStringList selectedWellIds,const std::vector<seismic::SectionWellInfo> &sectionWells) {
+            if(!extractWithInterpretation(workbench,dock,setup,volume,points,title,line,selectedWellIds,sectionWells))return;
             *route = line;
             *routeHorizon =
                 m_selection ? m_selection->activeHorizon() : QString();
@@ -282,9 +308,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             dock->raise();
           });
   connect(dock, &seismic::SeismicSectionDockWidget::sectionExtractionFinished,
-          this, [dock, workbench, report](bool ok, const QString &error) {
+          this, [dock, report](bool ok, const QString &error) {
             if (ok && dock->hasRoute()) {
-              dock->refreshWellOverlay(workbench->sectionWells());
               report(QObject::tr("剖面已更新。可在“井与分层”设置偏距范围；未对"
                                  "齐或超范围的数据不叠加。"));
             } else if (!ok)
@@ -333,20 +358,13 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     m_sectionCaptureTool->setSnapWells(workbench->wellSnapWells(true),link->sourceCrs()); // 每次激活前刷新分析井集
     canvas->setMapTool(m_sectionCaptureTool);
   });
-  connect(setup, &SectionSetupDialog::buildRequested, this,
-          [link, workbench, report, dock](const QStringList &ids) {
-            QString error;
-            const auto points = workbench->wellRoute(ids, &error);
-            if (points.empty()) {
-              report(error);
-              return;
-            }
-            dock->showMajorHorizonConnections();QVector<QgsPointXY> line;
-            for (const auto &p : points)
-              line << QgsPointXY(p.x, p.y);
-            link->triggerSectionFromMapPolyline(
-                line, QObject::tr("连井剖面 · %1 口井").arg(ids.size()),ids);
-          });
+  auto buildOrdered=[link,workbench,open,report,setup](const QStringList &ids) {
+    if(!link->activeVolume()||!link->gridGeometry().valid){setup->requestWellOrder(ids);open();}
+    buildOrderedSeismicSection(link,workbench,ids,report);
+  };
+  connect(setup,&SectionSetupDialog::buildRequested,this,buildOrdered);
+  if(m_wellSectionPanel)
+    connect(m_wellSectionPanel,&WellSectionPanel::linkedSeismicSectionRequested,this,buildOrdered);
   // 「按空间关系重排」：算法在 workbench（domain 纯函数），结果落回列表。
   connect(setup, &SectionSetupDialog::spatialReorderRequested, this,
           [workbench, setup](const QString &mode, const QStringList &ids) {
@@ -354,17 +372,13 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
           });
   connect(
       setup, &SectionSetupDialog::calibrationRequested, this,
-      [dock, workbench, refresh, report](const QString &id, bool constant,
+      [workbench, report](const QString &id, bool constant,
                                          double velocity, double shift) {
         QString error;
         if (!workbench->setCalibration(id, constant, velocity, shift, &error)) {
           report(error);
           return;
         }
-        const auto wells = workbench->sectionWells();
-        dock->refreshWellOverlay(wells);
-        dock->setCandidateWells(wells); // #225：校正后的时深随候选井下发
-        refresh();
         report(QObject::tr("时深对齐已应用；保存剖面新版本后可在工程中恢复。"));
       });
   connect(setup, &SectionSetupDialog::saveRequested, this,

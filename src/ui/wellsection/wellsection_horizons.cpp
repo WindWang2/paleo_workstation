@@ -5,9 +5,24 @@
 #include "ui/seismicsection/sectionhorizonrender.h"
 #include <QHBoxLayout>
 #include <QGraphicsScene>
+#include <QMenu>
 #include <cmath>
 
-void WellSectionPanel::setupHorizonOverlayControl(QWidget *toolbar){
+void WellSectionPanel::setupSeismicControls(QWidget *toolbar){
+  auto *menu = new QMenu(m_seismicBtn);
+  auto *openSection = menu->addAction(tr("按当前井序打开连井地震剖面（TWT）"));
+  openSection->setObjectName(QStringLiteral("wellSectionOpenLinkedSeismic"));
+  connect(menu, &QMenu::aboutToShow, this, [this, openSection] {
+    openSection->setEnabled(m_ids.size() >= 2);
+  });
+  connect(openSection, &QAction::triggered, this, [this] {
+    if (m_ids.size() >= 2)
+      emit linkedSeismicSectionRequested(m_ids);
+  });
+  m_seismicBtn->setCheckable(true);
+  m_seismicBtn->setMenu(menu);
+  m_seismicBtn->setPopupMode(QToolButton::MenuButtonPopup);
+
   auto *button=new seismic::SectionHorizonButton(toolbar);toolbar->layout()->addWidget(button);
   connect(button,&QToolButton::toggled,this,&WellSectionPanel::setSeismicHorizonsEnabled);
 }

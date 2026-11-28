@@ -323,6 +323,8 @@ void SeismicSectionCanvas::setNoDataReason(const QString &reason) {
 
 void SeismicSectionCanvas::setWells(const std::vector<SectionWellInfo> &wells) {
     m_wells = wells;
+    for (auto& well : m_wells)
+        selectSectionHorizonTies(well, m_bufferDistanceM);
     update();
 }
 

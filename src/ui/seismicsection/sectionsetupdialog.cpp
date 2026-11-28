@@ -212,6 +212,11 @@ void SectionSetupDialog::setWells(const QVariantList &wells) {
   }
   if (!m_wells->currentItem() && m_wells->count())
     m_wells->setCurrentRow(0);
+  if (!m_pendingWellOrder.isEmpty() && !wells.isEmpty()) {
+    applyWellOrder(m_pendingWellOrder);
+    m_pendingWellOrder.clear();
+    return;
+  }
   showWell();
   updateActions();
 }

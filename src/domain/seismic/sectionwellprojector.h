@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <vector>
 #include <optional>
+#include <utility>
 #include <glm/glm.hpp>
 
 #include "domain/seismic/timedepthmodel.h"
@@ -20,6 +21,12 @@ struct WellTopItem {
     double twtMs = 0.0;
     QColor color = QColor(QStringLiteral("#1B73D0"));
     double tracePosition = qQNaN(); // actual trajectory/horizon intersection
+    double offsetDistanceM = 0;
+};
+
+struct SectionHorizonTies {
+    std::vector<WellTopItem> formationTops;
+    std::vector<std::vector<WellTopItem>> crossings; // one group per sampled horizon, in MD order
 };
 
 struct WellCurveItem {
@@ -46,7 +53,7 @@ struct WellTrajSample {
     double x = 0.0;   // 井口 X + 东向位移（局部米）
     double y = 0.0;   // 井口 Y + 北向位移
     double twtMs = 0.0;
-    double tracePosition = qQNaN(), offsetDistanceM = qQNaN();
+    double tracePosition = qQNaN(), offsetDistanceM = qQNaN(); // may extend past terminal traces before clipping
     double sourceZ = qQNaN(); // never relabel an undeclared Petrel Z as TVD
 };
 
@@ -82,6 +89,7 @@ struct SectionWellInfo {
     std::vector<WellTopItem> tops;
     std::vector<WellCurveItem> curves;
     std::vector<WellTrajSample> trajectory; // 沿井检查点或测斜站折线；缺点不跨接
+    std::optional<SectionHorizonTies> horizonTies;
 };
 
 struct SectionPointProjection {
@@ -89,6 +97,13 @@ struct SectionPointProjection {
 };
 SectionPointProjection projectPointOnSection(const std::vector<glm::dvec2>& line,
     const std::vector<double>& traceDistancesM, const glm::dvec2& point);
+// Add end segments only for observed, timed borehole excursions beyond the end
+// wellheads. The original route vertices and their order are preserved.
+std::vector<glm::dvec2> extendWellSectionRoute(const std::vector<glm::dvec2>& route,
+    const std::vector<SectionWellInfo>& wells, const QStringList& selectedWellIds);
+// Intersect one observed segment with the finite section and its offset buffer.
+std::optional<std::pair<WellTrajSample, WellTrajSample>> clipWellPathSegment(
+    const WellTrajSample& a, const WellTrajSample& b, double lastTrace, double bufferDistanceM);
 // Strict, gap-preserving interpolation on the observed path; no end extrapolation.
 WellTrajSample wellPathAtMd(const SectionWellInfo& well, double md);
 WellTrajSample wellPathAtTwt(const SectionWellInfo& well, double twt);
@@ -105,5 +120,6 @@ public:
         const TimeDepthModel &tdModel = TimeDepthModel(),const QStringList &selectedWellIds = {});
 };
 void projectSectionHorizonTies(std::vector<SectionWellInfo>& wells,const SectionHorizons& horizons);
+void selectSectionHorizonTies(SectionWellInfo& well, double bufferDistanceM);
 
 } // namespace seismic

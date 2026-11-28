@@ -288,6 +288,31 @@ private slots:
     QCOMPARE(requests, 0);
     link.triggerSectionFromMapPolyline({{0, 0}, {100, 200}, {200, 200}});
     QCOMPARE(requests, 1);
+    // Both terminal wells deviate past the survey. Keep the two heads in order
+    // and extract actual edge traces on both sides.
+    seismic::SectionWellInfo first,last;
+    first.wellId="first";first.surfaceX=100;first.surfaceY=100;
+    first.trajectory={{0,0,100,100,50},{100,80,-300,-300,140}};
+    last.wellId="last";last.surfaceX=200;last.surfaceY=200;
+    last.trajectory={{0,0,200,200,50},{100,80,600,600,140}};
+    auto *curvesAction=dock.findChild<QAction*>("sectionShowWellCurves");
+    QVERIFY(curvesAction&&curvesAction->isChecked()&&dock.canvas()->showWellCurves());
+    curvesAction->trigger();
+    done.clear();
+    connect(&link,&SeismicMapLink::sectionExtractRequested,this,
+      [&](auto v,const auto &path,const QString &title,const auto &line,const QStringList &ids,
+          const std::vector<seismic::SectionWellInfo> &wells) {
+        QCOMPARE(line.size(),size_t(4));
+        for(int i=0;i<4;++i){QCOMPARE(line[i].x,i*100.);QCOMPARE(line[i].y,i*100.);}
+        QCOMPARE(wells.size(),size_t(2));
+        dock.extractSectionFromVolumeAsync(v,path,title,line,wells,ids);
+      });
+    link.triggerSectionFromWellRoute({{100,100},{200,200}},{first,last},{"first","last"});
+    QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,10000);
+    QVERIFY(done.front().front().toBool());QVERIFY(!curvesAction->isChecked()&&!dock.canvas()->showWellCurves());
+    const auto ordered=dock.canvas()->wells();QCOMPARE(ordered.size(),size_t(2));
+    QVERIFY(ordered.front().trajectory.back().tracePosition<0.);
+    QVERIFY(ordered.back().trajectory.back().tracePosition>dock.canvas()->traceCount()-1);
     done.clear();dock.setTimeOriginMs(-100);
     dock.extractSliceAsync(seismic::SgySliceType::Inline,1000);
     QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,10000);QVERIFY(done[0][0].toBool());

@@ -102,8 +102,6 @@ public:
     QStringList selectedWellIds() const { return m_selectedWellIds; }
     void showArbitraryLineEditor();                    // D5.1 多段折线路径编辑器
     void showWellSideTrace();                          // D5.6 井旁道小图（最近井）
-    // D5.3 井轨迹投影（顶/底到剖面折线的投影）；TD 无实测表 → 返回带原因注记
-    void computeWellTrajectories(const std::vector<glm::dvec2> &mapPolyline);
     void computeSyntheticOverlays();                   // D5.4
     void showMajorHorizonConnections(); // Applies to the next linked section request.
 
@@ -226,6 +224,8 @@ private slots:
     void onPrintImage();
 
 private:
+    void updateWellTrajectories(const std::vector<SectionWellInfo> &projected,
+                                const std::vector<double> &distances);
     bool m_majorHorizonConnectionsNext=false;
     void setupUi();
     void setupHorizonOverlayControl(QWidget *toolbar);
@@ -319,7 +319,6 @@ private:
     // ---- D5 ----
     std::vector<SectionWellInfo> m_candidateWells;
     QStringList m_selectedWellIds;
-    std::vector<glm::dvec2> m_lastMapPolyline;
 
     // ---- D4 解释 ----
     SeismicInterpretationSession m_session;

@@ -270,9 +270,6 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 const auto &well = *wellPtr;
 
                 const double wx = traceToPixelX(well.tracePosition);
-                if (wx < vp.left() - 60 || wx > vp.right() + 60)
-                    continue;
-
                 paintWellPath(p,well,vp,wx);
 
                 paintWellTracks(p,well,vp,wx);

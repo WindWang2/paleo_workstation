@@ -125,38 +125,30 @@ private:
 void SeismicSectionDockWidget::setCandidateWells(const std::vector<SectionWellInfo> &wells) {
     m_candidateWells = wells;
     refreshWellOverlay(wells);
-    if(m_route.size()>=2)computeWellTrajectories(m_route);
     computeSyntheticOverlays();
 }
 
-void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dvec2> &mapPolyline) {
-    m_lastMapPolyline = mapPolyline;
+void SeismicSectionDockWidget::updateWellTrajectories(const std::vector<SectionWellInfo> &projected,
+                                                      const std::vector<double> &distances) {
     std::vector<SeismicSectionCanvas::WellTrajectory> trajectories;
-    if (mapPolyline.size() >= 2) {
-        const std::vector<double> distances(m_distances.begin(), m_distances.end());
-        const auto wells=SectionWellProjector::ProjectWells(mapPolyline,{},distances,m_candidateWells,m_canvas->bufferDistanceM(),m_canvas->timeDepthModel(),m_selectedWellIds);
-        for (const SectionWellInfo &well : wells) {
-            SeismicSectionCanvas::WellTrajectory t;
-            t.wellId = well.wellId;
-            t.topTracePos = projectPointOnSection(mapPolyline,distances,{well.surfaceX,well.surfaceY}).tracePosition;
-            const glm::dvec2 bottom(well.bottomX != 0.0 ? well.bottomX : well.surfaceX,
-                                    well.bottomY != 0.0 ? well.bottomY : well.surfaceY);
-            t.bottomTracePos = projectPointOnSection(mapPolyline,distances,bottom).tracePosition;
-            t.topTwtMs = 0.0;
-            t.bottomTwtMs = well.calibrated?well.bottomTwtMs:m_canvas->timeDepthModel().DepthToTwtMs(well.totalDepth);
-            // goal/well-trajectory：测斜站逐点投影成折线（twt 用 workbench
-            // 逐站校准值；已标定井的表外站点保持空值，不回退全局均速）。
-            const TimeDepthModel &td = m_canvas->timeDepthModel();
-            for (const WellTrajSample &s : well.trajectory) {
-                SeismicSectionCanvas::TrajVertex v;
-                v.tracePos = s.tracePosition;
-                v.twtMs = well.calibrated ? s.twtMs
-                    : (std::isfinite(s.twtMs) && s.twtMs > 0.0 ? s.twtMs
-                       : (s.tvd > 0.0 ? td.DepthToTwtMs(s.tvd) : s.twtMs));
-                t.vertices.push_back(v);
-            }
-            trajectories.push_back(t);
+    trajectories.reserve(projected.size());
+    for (const SectionWellInfo &well : projected) {
+        SeismicSectionCanvas::WellTrajectory t;
+        t.wellId = well.wellId;
+        t.topTracePos = well.tracePosition;
+        const glm::dvec2 bottom(well.bottomX != 0.0 ? well.bottomX : well.surfaceX,
+                                well.bottomY != 0.0 ? well.bottomY : well.surfaceY);
+        t.bottomTracePos = projectPointOnSection(m_route,distances,bottom).tracePosition;
+        t.topTwtMs = 0.0;
+        const TimeDepthModel &td = m_canvas->timeDepthModel();
+        t.bottomTwtMs = well.calibrated ? well.bottomTwtMs : td.DepthToTwtMs(well.totalDepth);
+        t.vertices.reserve(well.trajectory.size());
+        for (const auto &sample : well.trajectory) {
+            const double time = !well.calibrated && (!std::isfinite(sample.twtMs)||sample.twtMs<=0) && sample.tvd>0
+                              ? td.DepthToTwtMs(sample.tvd) : sample.twtMs;
+            t.vertices.push_back({sample.tracePosition,time});
         }
+        trajectories.push_back(std::move(t));
     }
     m_canvas->setWellTrajectories(trajectories);
 
@@ -167,6 +159,7 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
 void SeismicSectionDockWidget::computeSyntheticOverlays() {
     std::vector<SeismicSectionCanvas::SyntheticOverlay> overlays;
     for (const SectionWellInfo &well : m_candidateWells) {
+        if(!m_route.empty() && !m_selectedWellIds.isEmpty() && !m_selectedWellIds.contains(well.wellId))continue;
         SeismicSectionCanvas::SyntheticOverlay ov;
         ov.wellId = well.wellId;
         const WellCurveItem *ac = nullptr;

@@ -195,6 +195,7 @@ void SeismicSectionCanvas::setBufferDistanceM(double bufferM) {
         m_bufferDistanceM = bufferM;
         for (auto &w : m_wells) {
             w.isWithinBuffer = (std::abs(w.offsetDistanceM) <= m_bufferDistanceM);
+            selectSectionHorizonTies(w, m_bufferDistanceM);
         }
         update();
     }

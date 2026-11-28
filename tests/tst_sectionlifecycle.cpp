@@ -35,10 +35,12 @@
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 #include "../src/ui/seismicsection/sectionsetupdialog.h"
+#include "../src/ui/wellsection/wellsectionpanel.h"
 #include "../src/ui/wellcomposite/derivedsink.h"
 #include "../src/workflow/sectionworkbench.h"
 #include "../src/services/paleotaskservice.h"
 #include "sectionalignmentfixtures.h"
+#include "realdeviatedsectionchecks.h"
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
 
@@ -238,16 +240,79 @@ private slots:
     }
     auto *link=m_ctx->seismicLink();link->setActiveVolume(nullptr);
     auto *action=m_win->findChild<QAction *>("sectionWorkbenchAction");QVERIFY(action);
-    const auto tasks=m_ctx->taskSvc()->tasks().size();action->trigger();
+    auto *panel=m_win->findChild<WellSectionPanel*>();QVERIFY(panel);
+    const QStringList fromPanel={"section-well-1","section-well-0"};
+    const auto tasks=m_ctx->taskSvc()->tasks().size();
+    panel->linkedSeismicSectionRequested(fromPanel);
     QVERIFY(m_ctx->taskSvc()->tasks().size()>tasks); // The entry itself starts loading.
+    action->trigger(); // Reopening the setup keeps the order while loading.
     QTRY_VERIFY_WITH_TIMEOUT(link->activeVolume()&&link->gridGeometry().valid,20000);
     auto *list=setup()->findChild<QListWidget *>("sectionWells");QTRY_COMPARE_WITH_TIMEOUT(list->count(),2,20000);
-    for(int i=0;i<list->count();++i)list->item(i)->setCheckState(Qt::Checked);
+    QCOMPARE(setup()->checkedWellIds(),fromPanel);
     auto *build=setup()->findChild<QPushButton *>("buildWellSection");QVERIFY(build->isEnabled());build->click();
+    const QStringList latest={"section-well-0","section-well-1"};
+    panel->linkedSeismicSectionRequested(latest);
     QTRY_VERIFY_WITH_TIMEOUT(dock()->hasRoute(),20000);QVERIFY(dock()->volume());
+    QCOMPARE(dock()->selectedWellIds(),latest);
     const auto pins=dock()->canvas()->wells();QCOMPARE(pins.size(),size_t(2));
     for(const auto &pin:pins){QVERIFY(pin.selectedForSection);QVERIFY(pin.requiresSpatialPath&&pin.trajectory.empty());QVERIFY(std::isnan(pin.bottomTwtMs));}
+    QObject observer;int published=0;
+    connect(link,&SeismicMapLink::sectionExtractRequested,&observer,[&published]{++published;});
+    panel->linkedSeismicSectionRequested(fromPanel);
     setup()->hide();link->setActiveVolume(nullptr);
+    QTRY_VERIFY_WITH_TIMEOUT(!workbench()->findChild<QObject*>("sectionWellPreviewWatcher"),20000);
+    QCOMPARE(published,0);QVERIFY(!dock()->hasRoute());
+  }
+
+  void hyDeviatedWellsThroughWorkbench() {
+    const auto project = qEnvironmentVariable("PALEO_DEVIATED_SECTION_PROJECT");
+    if (project.isEmpty()) QSKIP("Set PALEO_DEVIATED_SECTION_PROJECT to the imported HY project");
+    auto *catalog = m_ctx->importSvc()->catalog();
+    const bool readOnly = catalog->isLockedReadOnly();
+    catalog->setLockedReadOnly(true);
+    paleo::area_model::registerProject(project, this);
+    const auto restore = qScopeGuard([&] {
+      setup()->hide();
+      m_ctx->seismicLink()->setActiveVolume(nullptr);
+      paleo::area_model::unregisterProject(this);
+      catalog->setLockedReadOnly(readOnly);
+    });
+    QString error;
+    QVERIFY2(catalog->open(project, &error), qPrintable(error));
+    ProjectDataFacade data;
+    data.setCatalog(catalog, project);
+    QStringList ids;
+    for (const auto &name : {"HZ19-1-1A", "HZ19-6-1D"}) {
+      const auto matches = catalog->wellsMatchingName(name);
+      QCOMPARE(matches.size(), 1);
+      ids << matches.first();
+    }
+
+    auto *action = m_win->findChild<QAction *>("sectionWorkbenchAction");
+    auto *list = setup()->findChild<QListWidget *>("sectionWells");
+    auto *build = setup()->findChild<QPushButton *>("buildWellSection");
+    QVERIFY(action && list && build);
+    action->trigger();
+    // The original HY SEG-Y is 210 GB. A fresh cache requires a full header scan.
+    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->seismicLink()->activeVolume() && m_ctx->seismicLink()->gridGeometry().valid, 3600000);
+    QTRY_VERIFY_WITH_TIMEOUT(list->count() >= 2 && !dock()->candidateWells().empty(), 180000);
+    QStringList selected;
+    for (int i = 0; i < list->count(); ++i) {
+      auto *item = list->item(i);
+      const auto id = item->data(Qt::UserRole).toMap().value("id").toString();
+      item->setCheckState(ids.contains(id) ? Qt::Checked : Qt::Unchecked);
+      if (item->checkState() == Qt::Checked) selected << id;
+    }
+    QCOMPARE(selected.size(), 2);
+    QVERIFY(build->isEnabled());
+    build->click();
+    QTRY_VERIFY_WITH_TIMEOUT(dock()->hasRoute() && dock()->selectedWellIds() == selected, 180000);
+    setup()->hide();
+    dock()->setFloating(true);
+    dock()->resize(1600, 1000);
+    QApplication::processEvents();
+    dock()->canvas()->fitToWindow();
+    verifyRealDeviatedSection(*dock(), data, selected, qEnvironmentVariable("PALEO_DEVIATED_SECTION_OUTPUT"));
   }
 
   // 提取 → band 上线 + dock 有路线（后续边界用例的地基）

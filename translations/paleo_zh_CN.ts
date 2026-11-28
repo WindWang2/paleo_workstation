@@ -35219,6 +35219,14 @@ PDF：%3
         <translation>正在提取剖面；沿线井按各自时深关系叠加。</translation>
     </message>
     <message>
+        <source>请先在连井 / 时深对齐中加载带有效坐标的地震体。</source>
+        <translation>请先在连井 / 时深对齐中加载带有效坐标的地震体。</translation>
+    </message>
+    <message>
+        <source>正在读取所选井的轨迹和时深关系…</source>
+        <translation>正在读取所选井的轨迹和时深关系…</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_sections.cpp" line="225"/>
         <source>剖面已更新。可在“井与分层”设置偏距范围；未对齐或超范围的数据不叠加。</source>
         <translation>剖面已更新。可在“井与分层”设置偏距范围；未对齐或超范围的数据不叠加。</translation>
@@ -51480,6 +51488,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <location filename="../src/ui/wellsection/wellsectionpanel.cpp" line="1465"/>
         <source>井间叠加地震剖面（按时深关系自适应缩放）</source>
         <translation>井间叠加地震剖面（按时深关系自适应缩放）</translation>
+    </message>
+    <message>
+        <source>按当前井序打开连井地震剖面（TWT）</source>
+        <translation>按当前井序打开连井地震剖面（TWT）</translation>
     </message>
     <message>
         <location filename="../src/ui/wellsection/wellsectionpanel.cpp" line="201"/>

@@ -183,7 +183,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
                        tr("基准面与深度域：井深 / 海拔 / 拉平 / 垂深（TVD）"));
   m_seismicBtn = mkBtn("wellSectionSeismicButton", "mIconRasterLayer.svg",
                        tr("井间叠加地震剖面（按时深关系自适应缩放）"));
-  m_seismicBtn->setCheckable(true);setupHorizonOverlayControl(bar);
+  setupSeismicControls(bar);
   m_faultBtn = mkBtn("wellSectionFaultButton", "mIconLineLayer.svg",
                      tr("断层投绘（断面与剖面井径求交）"));
   m_faultBtn->setCheckable(true);

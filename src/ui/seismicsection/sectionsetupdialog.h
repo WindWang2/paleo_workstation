@@ -20,6 +20,7 @@ public:
   // 吸附成线/空间重排的井序落盘：ids 按给定序置顶并勾选，其余井保持当前
   // 相对序、置未勾选（sectionsetupdialog_order.cpp）。
   void applyWellOrder(const QStringList &ids);
+  void requestWellOrder(const QStringList &ids);
   // 当前勾选井 id（列表序）。
   QStringList checkedWellIds() const;
 signals:
@@ -39,6 +40,7 @@ private:
   void showWell();
   void updateActions();
   bool m_seismicReady=false;
+  QStringList m_pendingWellOrder;
   QListWidget *m_wells;
   QComboBox *m_mode, *m_saved;
   QDoubleSpinBox *m_velocity, *m_shift;

@@ -86,7 +86,8 @@ WellTrajSample wellPathAtTwt(const SectionWellInfo& well,double twt){
 }
 
 std::vector<glm::dvec2> extendWellSectionRoute(const std::vector<glm::dvec2>& route,
-    const std::vector<SectionWellInfo>& wells, const QStringList& selectedWellIds) {
+    const std::vector<SectionWellInfo>& wells, const QStringList& selectedWellIds,
+    bool extendFirst, bool extendLast) {
     if (route.size() < 2 || selectedWellIds.isEmpty())
         return route;
     const auto endpoint = [&](const glm::dvec2& head, const glm::dvec2& neighbour) {
@@ -110,8 +111,8 @@ std::vector<glm::dvec2> extendWellSectionRoute(const std::vector<glm::dvec2>& ro
         return extent > 1e-6 ? head + extent * outward : head;
     };
     auto extended = route;
-    const auto first = endpoint(route.front(), route[1]);
-    const auto last = endpoint(route.back(), route[route.size()-2]);
+    const auto first = extendFirst ? endpoint(route.front(), route[1]) : route.front();
+    const auto last = extendLast ? endpoint(route.back(), route[route.size()-2]) : route.back();
     if (first != route.front())
         extended.insert(extended.begin(), first);
     if (last != route.back())
@@ -123,10 +124,18 @@ namespace {
 struct RouteSegment {
     glm::dvec2 start, direction;
     double length, station, stationSpan;
+    double offsetSign;
 };
 std::vector<RouteSegment> routeSegments(const std::vector<glm::dvec2>& line,
                                       const std::vector<double>& stations) {
     std::vector<RouteSegment> segments;
+    // Evaluate a bent line in the same physical order in either direction.
+    // A station on a bend's bisector can be equally near two different feet.
+    const auto xyLess = [](const glm::dvec2& a, const glm::dvec2& b) {
+        return a.x < b.x || (a.x == b.x && a.y < b.y);
+    };
+    const bool reverse = line.size() > 2 &&
+        std::lexicographical_compare(line.rbegin(), line.rend(), line.begin(), line.end(), xyLess);
     double station = 0;
     for (size_t i = 1; i < line.size(); ++i) {
         const auto delta = line[i] - line[i-1];
@@ -136,9 +145,13 @@ std::vector<RouteSegment> routeSegments(const std::vector<glm::dvec2>& line,
         const bool supplied = stations.size() == line.size();
         const double start = supplied ? stations[i-1] : station;
         const double span = supplied ? stations[i] - start : length;
-        segments.push_back({line[i-1], delta / length, length, start, span});
+        if (reverse)
+            segments.push_back({line[i], -delta / length, length, supplied ? stations[i] : station + length, -span, -1.});
+        else
+            segments.push_back({line[i-1], delta / length, length, start, span, 1.});
         station += length;
     }
+    if (reverse) std::reverse(segments.begin(), segments.end());
     return segments;
 }
 
@@ -170,7 +183,7 @@ SectionPointProjection projectPoint(const std::vector<RouteSegment>& segments,
         // past the edge so the intersecting segment clips at its true time.
         const bool beyond = extendEnds && ((&segment == &segments.front() && along < 0) ||
                             (&segment == &segments.back() && along > segment.length));
-        const double cross = segment.direction.x * displacement.y - segment.direction.y * displacement.x;
+        const double cross = (segment.direction.x * displacement.y - segment.direction.y * displacement.x) * segment.offsetSign;
         result.cumulativeDistanceM = segment.station + (beyond ? along : bounded) / segment.length * segment.stationSpan;
         result.offsetDistanceM = beyond ? cross : std::copysign(std::sqrt(squared), cross);
     }

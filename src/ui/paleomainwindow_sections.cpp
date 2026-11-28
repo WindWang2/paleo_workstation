@@ -121,6 +121,20 @@ void buildOrderedSeismicSection(SeismicMapLink *link,SectionWorkbench *workbench
     guard->triggerSectionFromWellRoute(wellheads,data.sectionWells,ids);
   });
 }
+void wireCapturedSection(SeismicSectionTool *tool, SeismicMapLink *link, SectionWorkbench *workbench) {
+  // A subsequent freehand route can dispatch immediately while a snapped route is still loading its wells.
+  QObject::connect(tool, &SeismicSectionTool::sectionPathCaptured, workbench,
+      [workbench](const auto &, const QStringList &ids) { if (ids.size() < 2) workbench->cancelPreviewData(); });
+  QObject::connect(tool, &SeismicSectionTool::sectionPathCaptured, link, &SeismicMapLink::onSectionPathCaptured);
+  QObject::connect(link, &SeismicMapLink::snappedWellRouteCaptured, tool,
+      [link, workbench](const auto &route, const QStringList &ids, const QStringList &vertexIds) {
+    const auto volume = link->activeVolume();
+    workbench->requestPreviewData([guard=QPointer<SeismicMapLink>(link),volume,route,ids,vertexIds](const auto &data) {
+      if (guard && guard->activeVolume() == volume)
+        guard->triggerSectionFromWellRoute(route, data.sectionWells, ids, vertexIds);
+    });
+  });
+}
 void wireSectionTraceLocate(SeismicMapLink *link,
                             seismic::SeismicSectionDockWidget *dock) {
   auto locate = [link, dock](bool clicked, int trace, double time, double depth,
@@ -200,8 +214,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   connect(workbench,&SectionWorkbench::alignmentsChanged,dock,&seismic::SeismicSectionDockWidget::invalidateInterpretation);
   auto route = std::make_shared<std::vector<glm::dvec2>>();
   auto routeHorizon = std::make_shared<QString>();
-  auto *band =
-      new QgsRubberBand(m_canvasCtl->canvas(), Qgis::GeometryType::Line);
+  auto *band = new QgsRubberBand(m_canvasCtl->canvas(), Qgis::GeometryType::Line);
+  band->setObjectName(QStringLiteral("seismicSectionRouteBand"));
   band->setColor(QColor("#1B73D0"));
   band->setWidth(2);
   auto refresh = [workbench, setup, dock, link] {
@@ -339,8 +353,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     if (!m_sectionCaptureTool)
     {
       m_sectionCaptureTool = new SeismicSectionTool(canvas);
-      connect(m_sectionCaptureTool, &SeismicSectionTool::sectionPathCaptured,
-              m_sectionLink, &SeismicMapLink::onSectionPathCaptured);
+      wireCapturedSection(m_sectionCaptureTool, m_sectionLink, workbench);
       // 吸附成线的井序同步回设置对话框（≥2 口 → 勾选与顺序随吸附序）。
       connect(m_sectionCaptureTool, &SeismicSectionTool::sectionPathCaptured,
               setup, [setup](const QVector<QgsPointXY> &, const QStringList &wellIds) {

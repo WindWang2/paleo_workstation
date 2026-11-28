@@ -100,7 +100,8 @@ SectionPointProjection projectPointOnSection(const std::vector<glm::dvec2>& line
 // Add end segments only for observed, timed borehole excursions beyond the end
 // wellheads. The original route vertices and their order are preserved.
 std::vector<glm::dvec2> extendWellSectionRoute(const std::vector<glm::dvec2>& route,
-    const std::vector<SectionWellInfo>& wells, const QStringList& selectedWellIds);
+    const std::vector<SectionWellInfo>& wells, const QStringList& selectedWellIds,
+    bool extendFirst = true, bool extendLast = true);
 // Intersect one observed segment with the finite section and its offset buffer.
 std::optional<std::pair<WellTrajSample, WellTrajSample>> clipWellPathSegment(
     const WellTrajSample& a, const WellTrajSample& b, double lastTrace, double bufferDistanceM);

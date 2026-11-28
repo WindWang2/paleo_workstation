@@ -44205,6 +44205,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 <context>
     <name>SeismicMapLink</name>
     <message>
+        <source>吸附井标识与剖面顶点数量不一致</source>
+        <translation>吸附井标识与剖面顶点数量不一致</translation>
+    </message>
+    <message>
+        <source>所选井缺少有效井口坐标</source>
+        <translation>所选井缺少有效井口坐标</translation>
+    </message>
+    <message>
         <location filename="../src/linkage/seismicmaplink.cpp" line="133"/>
         <source>折线至少需要两个点</source>
         <translation>折线至少需要两个点</translation>

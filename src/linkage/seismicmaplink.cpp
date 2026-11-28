@@ -151,10 +151,29 @@ glm::dvec2 clipWellRouteExtension(const SurveyGridGeometry &grid, const glm::dve
 }
 }
 
-void SeismicMapLink::triggerSectionFromWellRoute(const std::vector<glm::dvec2> &wellheads,
-    const std::vector<seismic::SectionWellInfo> &wells, const QStringList &wellIds)
+void SeismicMapLink::triggerSectionFromWellRoute(const std::vector<glm::dvec2> &vertices,
+    const std::vector<seismic::SectionWellInfo> &wells, const QStringList &wellIds, const QStringList &vertexWellIds)
 {
-  auto route = seismic::extendWellSectionRoute(wellheads, wells, wellIds);
+  auto wellheads = vertices;
+  const bool captured = !vertexWellIds.isEmpty();
+  if (captured) {
+    if (size_t(vertexWellIds.size()) != vertices.size()) {
+      emit sectionExtractedFromMap(false, tr("吸附井标识与剖面顶点数量不一致"));
+      return;
+    }
+    for (qsizetype i=0; i<vertexWellIds.size(); ++i) {
+      const auto &id = vertexWellIds[i];
+      if (id.isEmpty()) continue;
+      const auto well = std::find_if(wells.begin(), wells.end(), [&](const auto &w){ return w.wellId == id; });
+      if (well == wells.end() || !std::isfinite(well->surfaceX) || !std::isfinite(well->surfaceY)) {
+        emit sectionExtractedFromMap(false, tr("所选井缺少有效井口坐标"));
+        return;
+      }
+      wellheads[size_t(i)] = {well->surfaceX, well->surfaceY};
+    }
+  }
+  auto route = seismic::extendWellSectionRoute(wellheads, wells, wellIds,
+      !captured || !vertexWellIds.front().isEmpty(), !captured || !vertexWellIds.back().isEmpty());
   if (m_gridGeom.valid && wellheads.size() >= 2) {
     if (route.front() != wellheads.front())
       route.front() = clipWellRouteExtension(m_gridGeom, wellheads.front(), route.front());
@@ -343,7 +362,7 @@ void SeismicMapLink::onSectionTraceClicked(
 }
 
 void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points,
-                                           const QStringList &wellIds)
+                                           const QStringList &wellIds, const QStringList &vertexWellIds)
 {
   if (!m_canvas) return;
   QVector<QgsPointXY> local;
@@ -356,8 +375,15 @@ void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points,
     }
     local << transformed;
   }
+  if (wellIds.size() >= 2 && vertexWellIds.size() == local.size() && m_volume && m_gridGeom.valid) {
+    std::vector<glm::dvec2> vertices;
+    vertices.reserve(local.size());
+    for (const auto &point : local) vertices.emplace_back(point.x(), point.y());
+    emit snappedWellRouteCaptured(vertices, wellIds, vertexWellIds);
+    return;
+  }
   triggerSectionFromMapPolyline(
       local, wellIds.size() >= 2
                  ? tr("连井剖面 · %1 口井").arg(wellIds.size())
-                 : tr("地图拾取任意剖面"),wellIds);
+                 : tr("地图拾取任意剖面"), wellIds.size() < 2 && !vertexWellIds.isEmpty() ? QStringList{} : wellIds);
 }

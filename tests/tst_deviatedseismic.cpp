@@ -184,6 +184,31 @@ private slots:
     QCOMPARE(wells[0].trajectory[0].tracePosition,2.);
     QCOMPARE(wells[0].trajectory[1].tracePosition,3.5);
   }
+  void reversingBentLineKeepsTheSamePhysicalProjection() {
+    const std::vector<glm::dvec2> line{{0,0},{100,0},{100,100}};
+    const std::vector<glm::dvec2> reverse(line.rbegin(),line.rend());
+    const std::vector<double> axis{0,100,200};
+    seismic::SectionWellInfo well;
+    well.surfaceX=80; well.surfaceY=20;
+    well.trajectory={{0,0,80,20,0}, {10,9,80,20.25,10}, {20,18,80,19.75,20},
+                     {30,27,115,-15,30}, {40,36,-10,0,40}, {50,45,100,110,50}};
+    const auto forward=seismic::SectionWellProjector::ProjectWells(line,{},axis,{well},50).front();
+    const auto backward=seismic::SectionWellProjector::ProjectWells(reverse,{},axis,{well},50).front();
+    const auto& path=forward.trajectory;
+    QCOMPARE(forward.tracePosition,0.8);
+    QCOMPARE(forward.tracePosition+backward.tracePosition,2.);
+    QCOMPARE(path[0].tracePosition,0.8);     // two equidistant, distinct feet
+    QCOMPARE(path[1].tracePosition,1.2025);  // the second leg is strictly closer
+    QCOMPARE(path[2].tracePosition,0.8);     // the first leg is strictly closer
+    QCOMPARE(path[3].tracePosition,1.);      // both legs project onto the corner
+    QCOMPARE(path[4].tracePosition,-0.1);    // beyond the first trace
+    QCOMPARE(path[5].tracePosition,2.1);     // beyond the last trace
+    for (size_t i=0;i<path.size();++i) {
+      QCOMPARE(path[i].tracePosition+backward.trajectory[i].tracePosition,2.);
+      QCOMPARE(path[i].offsetDistanceM,-backward.trajectory[i].offsetDistanceM);
+      QCOMPARE(path[i].twtMs,backward.trajectory[i].twtMs);
+    }
+  }
   void sparseBoreClipsAtItsTrueIntersectionWithTheSectionFootprint(){
     seismic::SectionWellInfo well;
     well.trajectory={{0,0,-50,-20,0},{200,150,150,20,200}};

@@ -165,11 +165,12 @@ void SeismicSectionTool::canvasPressEvent(QgsMapMouseEvent *e)
       for (const QString &id : m_vertexWellIds)
         if (!id.isEmpty() && !wellIds.contains(id))
           wellIds << id;
+      const auto vertexWellIds = m_vertexWellIds;
       m_points.clear();
       m_vertexWellIds.clear();
       if (m_rubberBand)
         m_rubberBand->reset(Qgis::GeometryType::Line);
-      emit sectionPathCaptured(captured, wellIds);
+      emit sectionPathCaptured(captured, wellIds, vertexWellIds);
     }
     else
     {

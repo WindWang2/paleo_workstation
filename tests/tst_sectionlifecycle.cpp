@@ -116,15 +116,14 @@ SurveyGridGeometry validGrid()
   return grid;
 }
 
-// attachSections 建的剖面连线 band（#1B73D0 / 宽 2）。QgsRubberBand 挂在
-// canvas 的 QGraphicsScene 里（非 QObject 子——findChildren 摸不到）。
+// 取已生成剖面的地图连线。手绘过程中的临时线也在同一个 scene 中。
 QgsRubberBand *sectionBand(QgsMapCanvas *canvas)
 {
   const auto items = canvas->scene()->items();
   for (auto *it : items)
   {
-    auto *b = qgraphicsitem_cast<QgsRubberBand *>(it);
-    if (b && b->width() == 2 && b->strokeColor() == QColor(QStringLiteral("#1B73D0")))
+    auto *b = dynamic_cast<QgsRubberBand *>(it);
+    if (b && b->objectName() == QStringLiteral("seismicSectionRouteBand"))
       return b;
   }
   return nullptr;
@@ -258,6 +257,22 @@ private slots:
     for(const auto &pin:pins){QVERIFY(pin.selectedForSection);QVERIFY(pin.requiresSpatialPath&&pin.trajectory.empty());QVERIFY(std::isnan(pin.bottomTwtMs));}
     QObject observer;int published=0;
     connect(link,&SeismicMapLink::sectionExtractRequested,&observer,[&published]{++published;});
+    auto *canvas=m_ctx->canvasCtl()->canvas();
+    const auto previousCrs=canvas->mapSettings().destinationCrs();
+    canvas->setDestinationCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+    const auto restoreCrs=qScopeGuard([&]{canvas->setDestinationCrs(previousCrs);});
+    link->requestSectionCapture();
+    auto *tool=qobject_cast<SeismicSectionTool*>(canvas->mapTool());QVERIFY(tool);
+    const QVector<QgsPointXY> heads{{300000,2300000},{300100,2300100}};
+    tool->sectionPathCaptured(heads,latest,latest);
+    QTRY_VERIFY_WITH_TIMEOUT(published==1 && dock()->hasRoute(),20000);
+    QCOMPARE(dock()->selectedWellIds(),latest);
+    published=0;
+    tool->sectionPathCaptured(heads,latest,latest); // well snapshot pending
+    tool->sectionPathCaptured(heads,{},{"",""});   // replaced by a freehand line
+    QTRY_VERIFY_WITH_TIMEOUT(!workbench()->findChild<QObject*>("sectionWellPreviewWatcher") && dock()->hasRoute(),20000);
+    QCOMPARE(published,1);QVERIFY(dock()->selectedWellIds().isEmpty());
+    published=0;
     panel->linkedSeismicSectionRequested(fromPanel);
     setup()->hide();link->setActiveVolume(nullptr);
     QTRY_VERIFY_WITH_TIMEOUT(!workbench()->findChild<QObject*>("sectionWellPreviewWatcher"),20000);

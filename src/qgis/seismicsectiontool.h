@@ -33,7 +33,8 @@ public:
 
 signals:
   // 完成：折线顶点 + 吸附井的有序 id 列表（<2 口时壳按纯任意线处理）。
-  void sectionPathCaptured(const QVector<QgsPointXY> &points, const QStringList &wellIds);
+  void sectionPathCaptured(const QVector<QgsPointXY> &points, const QStringList &wellIds,
+                           const QStringList &vertexWellIds = {});
   // Esc 取消：壳据此把为绘制而隐藏的设置对话框唤回。
   void captureCancelled();
 

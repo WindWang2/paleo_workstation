@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QFile>
 #include <QTemporaryDir>
+#include <algorithm>
 
 #include "../src/io/horizonbinner.h"
 #include "../src/io/timedeptool.h"
@@ -337,6 +338,65 @@ private slots:
   }
   // review-fix-numerics R3-7：线号步长 >1 时吸附到实际存在的格线。
   void xyToInlineXlineHonoursLineStep();
+  void capturedWellRouteExtendsSnappedEndsAndPreservesFreeVertices() {
+    auto index=std::make_shared<seismic::SgyIndex>();
+    index->complete=true; index->coordinateFieldsPresent=true;
+    index->inlineMin=index->xlineMin=0;
+    index->inlineMax=index->xlineMax=6;
+    index->inlineValues=index->xlineValues={0,1,2,3,4,5,6};
+    for (int il:index->inlineValues) for (int xl:index->xlineValues)
+      index->coordinateSamples.push_back({0,il,xl,100.*il,100.*xl});
+    auto volume=std::make_shared<seismic::SgyVolume>();
+    volume->AdoptIndex(index);
+    QgsMapCanvas canvas;
+    SeismicMapLink link(&canvas,nullptr);
+    link.setActiveVolume(volume);
+    QVERIFY(link.gridGeometry().valid);
+    link.setSourceCrs("EPSG:3857");
+    canvas.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:4326"));
+    QgsCoordinateTransform toMap(QgsCoordinateReferenceSystem("EPSG:3857"),
+        canvas.mapSettings().destinationCrs(),canvas.mapSettings().transformContext());
+    seismic::SectionWellInfo a,b;
+    a.wellId="a"; a.surfaceX=200; a.surfaceY=200; a.trajectory={{0,0,200,200,0},{100,99,100,200,100}};
+    b.wellId="b"; b.surfaceX=400; b.surfaceY=200; b.trajectory={{0,0,400,200,0},{100,99,500,200,100}};
+    const std::vector<seismic::SectionWellInfo> wells{a,b};
+    const QStringList ids{"a","b"};
+    using Path=std::vector<glm::dvec2>;
+    Path result;
+    QStringList selected;
+    connect(&link,&SeismicMapLink::sectionExtractRequested,this,
+        [&](auto,auto,auto,const Path &path,const QStringList &selection){result=path;selected=selection;});
+    connect(&link,&SeismicMapLink::snappedWellRouteCaptured,this,
+        [&](const Path &vertices,const QStringList &selection,const QStringList &vertexIds){
+          link.triggerSectionFromWellRoute(vertices,wells,selection,vertexIds);
+        });
+    const auto capture=[&](const Path &vertices,const QStringList &wellIds,const QStringList &vertexIds) {
+      result.clear();
+      QVector<QgsPointXY> points;
+      for (const auto &p:vertices) points << toMap.transform(QgsPointXY(p.x,p.y));
+      link.onSectionPathCaptured(points,wellIds,vertexIds);
+    };
+    const Path heads{{200,200},{400,200}};
+    const auto samePath=[](const Path &actual,const Path &expected) {
+      return actual.size()==expected.size() && std::equal(actual.begin(),actual.end(),expected.begin(),
+          [](auto a,auto b){ return glm::length(a-b)<1e-6; });
+    };
+    link.triggerSectionFromWellRoute(heads,wells,ids);
+    const auto listed=result;
+    QVERIFY(samePath(listed,{{100,200},{200,200},{400,200},{500,200}}));
+    capture(heads,ids,ids);
+    QVERIFY(result==listed); QCOMPARE(selected,ids);
+    const Path mixed{{200,200},{300,200},{400,200},{500,300},{600,300}};
+    capture(mixed,ids,{"a","","b","",""});
+    auto expected=mixed; expected.insert(expected.begin(),{100,200});
+    QVERIFY(samePath(result,expected));
+    const Path reverse(mixed.rbegin(),mixed.rend());
+    capture(reverse,{"b","a"},{"","","b","","a"});
+    std::reverse(expected.begin(),expected.end());
+    QVERIFY(samePath(result,expected));
+    capture(mixed,{"a"},{"a","","","",""});
+    QVERIFY(samePath(result,mixed)); QVERIFY(selected.isEmpty());
+  }
   void capturedPathSnapsToRealSparseAxes() {
     auto index=std::make_shared<seismic::SgyIndex>();index->complete=true;index->coordinateFieldsPresent=true;
     index->inlineMin=1000;index->inlineMax=1006;index->xlineMin=2000;index->xlineMax=2004;

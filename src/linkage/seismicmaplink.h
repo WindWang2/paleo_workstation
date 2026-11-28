@@ -66,14 +66,15 @@ class SeismicMapLink : public QObject
     // Polyline trigger
     void triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title = QString(),const QStringList &wellIds = {});
     void triggerSectionFromWellRoute(const std::vector<glm::dvec2> &wellheads,
-                                     const std::vector<seismic::SectionWellInfo> &wells, const QStringList &wellIds);
+                                     const std::vector<seismic::SectionWellInfo> &wells, const QStringList &wellIds,
+                                     const QStringList &vertexWellIds = {});
 
     // 工具路径回调（R4 信号化后由壳 connect：壳持有的 SeismicSectionTool
     // sectionPathCaptured 直连到此——语义与默认标题留在 linkage 侧）。
     // wellIds = 工具吸附收集的有序井 id（≥2 口 → 默认标题「连井剖面 · N 口井」，
     // <2 口 = 纯任意线，空列表）。
     void onSectionPathCaptured(const QVector<QgsPointXY> &points,
-                               const QStringList &wellIds = QStringList());
+                               const QStringList &wellIds = {}, const QStringList &vertexWellIds = {});
 
     // 剖面画布信号入口——由壳侧 connect（签名与剖面画布信号一致）。
     void onSectionTraceHovered(int traceIndex, double twtMs, double depthM, float amplitude, double mapX, double mapY);
@@ -81,6 +82,9 @@ class SeismicMapLink : public QObject
 
   signals:
     void sectionExtractedFromMap(bool success, const QString &message);
+    // Coordinates are already in the survey CRS. The shell supplies a fresh well snapshot.
+    void snappedWellRouteCaptured(const std::vector<glm::dvec2> &route,
+                                  const QStringList &wellIds, const QStringList &vertexWellIds);
     // 当前活动地震体变化——壳连给剖面控件的 setVolume。
     void sectionVolumeChanged(std::shared_ptr<const seismic::SgyVolume> volume);
     // 地图折线剖面意图——壳连给剖面 dock：extractSectionFromVolumeAsync +

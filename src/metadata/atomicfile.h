@@ -102,9 +102,18 @@ inline bool paleoReplaceFile(const QString &source, const QString &destination)
 #ifdef Q_OS_WIN
   const auto nativeSource = paleoWindowsExtendedPath(source);
   const auto nativeDestination = paleoWindowsExtendedPath(destination);
-  return MoveFileExW(reinterpret_cast<LPCWSTR>(nativeSource.utf16()),
-                     reinterpret_cast<LPCWSTR>(nativeDestination.utf16()),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+  for (int attempt = 0; attempt < 5; ++attempt)
+  {
+    if (MoveFileExW(reinterpret_cast<LPCWSTR>(nativeSource.utf16()),
+                    reinterpret_cast<LPCWSTR>(nativeDestination.utf16()),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0)
+      return true;
+    const DWORD err = GetLastError();
+    if (err != ERROR_SHARING_VIOLATION && err != ERROR_LOCK_VIOLATION)
+      break;
+    Sleep(5);
+  }
+  return false;
 #else
   return ::rename(QFile::encodeName(source).constData(),
                   QFile::encodeName(destination).constData()) == 0;

@@ -3,6 +3,7 @@
 
 #include <QCursor>
 #include <QKeyEvent>
+#include <qgscoordinatetransform.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
 #include <qgssnappingconfig.h>
@@ -50,14 +51,22 @@ void SeismicSectionTool::setSnapWells(const QVector<wellsection::Well> &wells,co
   // 落点都发生在画布 CRS 上——配准工程（画布 CRS ≠ 测网）下不投影就是「度
   // vs 米」的跨框架比较：吸附静默永不命中，数值巧合命中时落点双重错位
   // （#795；SeismicMapLink::onSectionPathCaptured 还会从画布 CRS 变换回测
-  // 网）。故注入时按画布目标 CRS 整体投影，投影失败的井移出吸附集；未配准
-  // 工程（画布 CRS 与测网同源或无效）原样直通。
+  // 网）。故注入时按画布目标 CRS 整体投影；未配准工程（画布 CRS 与测网同源、
+  // 无效，或无大地基准的工程网格且建不出坐标操作）原样直通。有真实转换时只
+  // 丢掉该井自己转换失败的点，不因一口井失败清空其余井。
   const auto destination = canvas()->mapSettings().destinationCrs();
   const auto source = sourceCrs.isEmpty()?QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()):QgsCoordinateReferenceSystem(sourceCrs);
   if (!destination.isValid() || destination == source ||
       destination.toWkt() == source.toWkt())
   {
     m_snapWells = wells;
+    return;
+  }
+  const QgsCoordinateTransform transform(source, destination, canvas()->mapSettings().transformContext());
+  if (!transform.isValid())
+  {
+    if (destination.type() == Qgis::CrsType::Engineering)
+      m_snapWells = wells;
     return;
   }
   for (const auto &well : wells)

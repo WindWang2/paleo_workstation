@@ -886,6 +886,9 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
 bool PaleoMainWindow::maybeSaveProject()
 {
   if (!resolveClusterDrafts()) return false;
+  if (!resolveFaciesDrafts()) return false;
+  if (!resolveCompositeEdits()) return false;
+  if (!resolveInterpretationEdits()) return false;
   if(m_stratigraphy&&m_stratigraphy->isRunning()) {
     PaleoNotify::warning(this,tr("地层对比仍在计算"),tr("请等待计算完成或取消计算后再关闭或切换工程。"));return false;
   }

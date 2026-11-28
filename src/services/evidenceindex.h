@@ -72,9 +72,11 @@ class Index {
 
     // 增量同步：扫描 catalog 中 mapping_product 且 layer_type=vector 的版本
     // （kind 含 facies_polygons / 其他矢量成果），按 (version_id, sha256)
-    // 跳过已索引；sha 变化或版本消失 → 整版本条目替换/删除。返回变更版本数
+    // 跳过已完整索引；sha 变化、上轮 truncated 或 error 非空 → 整版本重读。
+    // 返回变更版本数
     // （新增+替换+删除）；取消 → -1。解析失败的版本记入 indexed_versions 带
-    // error 列，synchronize 不中断；单条损坏 JSON 记录跳过并计数
+    // error 列（打开失败/缺图层同时标 truncated，下轮重试），synchronize
+    // 不中断；单条损坏 JSON 记录跳过并计数
     // （stats().corrupt_records）。versions 重载供后台 worker 使用——
     // DataCatalog 只在 GUI 线程，快照必须在发起线程取好。
     int synchronize(const DataCatalog *catalog, const QString &projectDir,

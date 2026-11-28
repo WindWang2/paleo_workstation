@@ -411,11 +411,19 @@ QString InversionWorkflow::publishWaveletJob(const WaveletJob &job, DerivedAsset
     extra.insert(QStringLiteral("nearestTrace"), job.nearestTraceNote);
     const QByteArray body = paleo::inversion::waveletToJson(job.wavelet, QJsonObject::fromVariantMap(job.spatialEvidence));
     QFile file(staging.absolutePath);
-    if (!file.open(QIODevice::WriteOnly) || file.write(body) != body.size()) {
+    if (!file.open(QIODevice::WriteOnly)) {
         setError(error, QStringLiteral("wavelet.json 写入失败: %1").arg(staging.absolutePath));
         return QString();
     }
+    const qint64 wrote = file.write(body);
+    const bool writeOk = wrote == static_cast<qint64>(body.size());
+    // close() 成功会清掉 error()，flush 失败必须在 close 前记下（同属性体）。
+    const bool flushOk = writeOk && file.flush();
     file.close();
+    if (!writeOk || !flushOk || file.error() != QFileDevice::NoError) {
+        setError(error, QStringLiteral("wavelet.json 写入失败: %1").arg(staging.absolutePath));
+        return QString();
+    }
 
     const QStringList parents = job.req.parentVersionId.isEmpty()
                                     ? QStringList()

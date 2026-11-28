@@ -275,14 +275,10 @@ void QgisCanvasController::zoomToLayer( const QString &layerId )
   QgsRectangle ext = paleo::mapreference::mapExtent(m_canvas, sourceExtent, l->crs());
   if ( ext.isEmpty() )
   {
-    // 图层 CRS 与画布 CRS 无可用转换（如未配准工程里的 WGS84 图层）：
-    // 回退按图层原始范围缩放——视图至少移动到图层坐标域，静默不动更糟。
-    if ( l->extent().isNull() )
-      return;
-    ext = sourceExtent;
-    ext.scale( 1.08 );
+    // 画布 CRS 不可达（转换无效）：不用图层原始数字冒充画布坐标。
+    return;
   }
-  else if (pointExtent && !m_canvas->extent().isEmpty()) {
+  if (pointExtent && !m_canvas->extent().isEmpty()) {
     const auto center = ext.center();
     const double halfWidth = m_canvas->extent().width() / 2;
     const double halfHeight = m_canvas->extent().height() / 2;

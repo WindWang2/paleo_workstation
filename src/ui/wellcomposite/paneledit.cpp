@@ -74,6 +74,26 @@ bool WellCompositePanel::saveDerived()
   return true;
 }
 
+bool WellCompositePanel::hasUnsavedDerivedEdits() const
+{
+  return m_editSession && m_editSession->isDirty();
+}
+
+bool WellCompositePanel::resolveUnsavedEdits()
+{
+  if (!hasUnsavedDerivedEdits())
+    return true;
+  const auto choice = PaleoNotify::askSaveDiscard(
+      this, PaleoNotify::AskIcon::Question, tr("TOP 编辑尚未保存"),
+      tr("本预览有未保存的 TOP 编辑。关闭前是否保存派生？"),
+      tr("保存派生"), tr("放弃"), tr("取消"));
+  if (choice == PaleoNotify::SaveChoice::Cancel)
+    return false;
+  if (choice == PaleoNotify::SaveChoice::Save)
+    return saveDerived();
+  return true;
+}
+
 void WellCompositePanel::setHighContrast(bool on)
 {
   m_highContrast = on;

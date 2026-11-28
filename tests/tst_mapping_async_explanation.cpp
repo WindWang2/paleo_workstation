@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -704,6 +705,104 @@ private slots:
     autoToggle->setChecked(false);
     QCOMPARE(cmdSpy.last().first().toString(), QStringLiteral("setAutoExplain"));
     QCOMPARE(cmdSpy.last().at(1).toMap().value(QStringLiteral("enabled")).toBool(), false);
+  }
+
+  void fullQueueReportsDroppedRequest() {
+    LoopbackLlmServer server;
+    QVERIFY(server.start());
+    const QString inner = QString::fromUtf8(
+        QJsonDocument(QJsonObject{{QStringLiteral("text"), QStringLiteral("仍在队列中的说明")},
+                                  {QStringLiteral("reason"), QStringLiteral("队列未丢")}})
+            .toJson(QJsonDocument::Compact));
+    server.setReply(200, QJsonDocument(QJsonObject{
+                                           {QStringLiteral("choices"),
+                                            QJsonArray{QJsonObject{
+                                                {QStringLiteral("index"), 0},
+                                                {QStringLiteral("message"),
+                                                 QJsonObject{{QStringLiteral("content"), inner}}},
+                                                {QStringLiteral("finish_reason"), QStringLiteral("stop")},
+                                            }}},
+                                       })
+                             .toJson(QJsonDocument::Compact));
+    server.setHoldResponses(true);
+
+    MappingExplanationService svc;
+    svc.setLlmConfig(LlmConfig::fromParts(server.endpointUrl(), QStringLiteral("queue-model"),
+                                          QByteArrayLiteral("k"), false));
+    QSignalSpy ready(&svc, &MappingExplanationService::explanationReady);
+    auto makeReq = [](const QString &uid) {
+      MappingExplanationRequest request;
+      request.horizon = QStringLiteral("D61");
+      request.layerId = QStringLiteral("draft.1");
+      request.featureUid = uid;
+      request.operationKind = QStringLiteral("paint");
+      return request;
+    };
+    const QString runningId = svc.enqueue(makeReq(QStringLiteral("running")));
+    QVERIFY(!runningId.isEmpty());
+    QTRY_VERIFY_WITH_TIMEOUT(server.requestCount() == 1, 5000);
+
+    QStringList queued;
+    for (int i = 0; i < 33; ++i)
+      queued << svc.enqueue(makeReq(QStringLiteral("uid-%1").arg(i)));
+    QVERIFY(!queued.last().isEmpty());
+    bool sawDrop = false;
+    QTRY_VERIFY_WITH_TIMEOUT(ready.count() >= 1, 5000);
+    for (int i = 0; i < ready.count(); ++i) {
+      const auto result = ready.at(i).at(0).value<MappingExplanationResult>();
+      if (result.requestId == queued.at(0)) {
+        QCOMPARE(result.generator, QStringLiteral("queue_dropped"));
+        QVERIFY(result.text.isEmpty());
+        sawDrop = true;
+      }
+      QVERIFY(result.requestId != runningId || result.generator != QLatin1String("queue_dropped"));
+      QVERIFY(result.requestId != queued.last() || result.generator != QLatin1String("queue_dropped"));
+    }
+    QVERIFY(sawDrop);
+    QVERIFY(svc.busy());
+
+    server.releaseHeld();
+    QTRY_VERIFY_WITH_TIMEOUT(!svc.busy(), 20000);
+    bool keptOk = false;
+    bool droppedLaterOk = false;
+    int droppedReports = 0;
+    for (int i = 0; i < ready.count(); ++i) {
+      const auto result = ready.at(i).at(0).value<MappingExplanationResult>();
+      if (result.requestId == queued.last() && result.generator != QLatin1String("queue_dropped") &&
+          !result.text.trimmed().isEmpty())
+        keptOk = true;
+      if (result.requestId == queued.at(0)) {
+        if (result.generator == QLatin1String("queue_dropped"))
+          ++droppedReports;
+        else if (!result.text.trimmed().isEmpty())
+          droppedLaterOk = true;
+      }
+    }
+    QVERIFY(keptOk);
+    QVERIFY(!droppedLaterOk);
+    QCOMPARE(droppedReports, 1);
+  }
+
+  void sidecarWriteFailureDoesNotMarkDraftReady() {
+    WorkbenchFixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = f.work.createBlankMap(QStringLiteral("D61"), &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    const QString sidecar =
+        f.dir.filePath(QStringLiteral("artifacts/working/%1/auto-explanations.json").arg(draft));
+    QVERIFY(QDir().mkpath(sidecar));
+
+    QSignalSpy ready(&f.work, &MappingWorkbench::autoExplanationReady);
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.requestBackgroundExplanation(QStringLiteral("D61"), draft, {}, {}, true, &error),
+             qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(errors.count() > 0 || ready.count() > 0, 5000);
+    QCOMPARE(ready.count(), 0);
+    QVERIFY(errors.count() > 0);
+    QVERIFY(f.work.explanationForTarget(draft, {}).isEmpty());
+    QVERIFY(f.work.lastAutoExplanation(QStringLiteral("D61")).isEmpty());
+    QVERIFY(QFileInfo(sidecar).isDir());
   }
 };
 

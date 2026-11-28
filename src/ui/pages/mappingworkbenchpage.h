@@ -47,6 +47,8 @@ public:
   // The command controller checks that the impact report matches this selection.
   void setImpactAvailable(bool ready);
   void markFaciesSaved() { m_faciesDirty = false; m_faciesDrafts.remove(m_horizon); }
+  // 换工程前三选一。保存走「保存分类」；放弃留到 catalogBound 再清；取消不改草稿。
+  bool resolveFaciesDrafts();
   // X9：索引后台同步完成后自动重发最近一次反查（仅存 kind+argument，
   // 不重新读控件——避免层位/输入变化把查询口径悄悄换掉）。
   void reissueReverseQuery();

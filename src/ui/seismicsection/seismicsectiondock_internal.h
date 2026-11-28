@@ -28,7 +28,7 @@ protected:
         if (m_dock && m_dock->pickPanel())
             m_dock->pickPanel()->refreshFromSession();
         if (m_dock)
-            m_dock->saveInterpretationSession(); // 自动保存（D4.8 会话持久化）
+            m_dock->saveInterpretationSession(); // 提交失败只记未保存，拾取仍留在会话里
         // opt-02：画布拾取叠加与会话同源刷新——undo/redo 后画布必须与
         // 面板/落盘一致（旧实现 Add::undo、Remove::undo/redo、Rename 均
         // 不刷画布：撤销后画布残留幽灵拾取点 / 恢复的点不显示）。

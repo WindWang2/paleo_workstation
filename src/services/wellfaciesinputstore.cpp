@@ -56,15 +56,20 @@ PreparedInput loadInput(const QString &project,const QJsonObject &reference,cons
   const auto directory=QDir(project).filePath(relative);
   if(!beneath(project,directory))return fail("stored_input_unavailable");
   qint64 budget=maxBytes;
+  struct ReadBytes { QByteArray bytes; bool cancelled=false; };
   const auto read=[&](const QString &name) {
-    if(cancelled&&cancelled())return QByteArray();
+    ReadBytes out;
+    if(cancelled&&cancelled()){out.cancelled=true;return out;}
     const auto path=directory+"/"+name;QFile file(path);
-    if(!beneath(project,path)||!file.open(QIODevice::ReadOnly)||file.size()>budget)return QByteArray();
-    auto bytes=file.read(budget+1);
-    if(bytes.size()>budget||!file.atEnd())return QByteArray();
-    budget-=bytes.size();return bytes;
+    if(!beneath(project,path)||!file.open(QIODevice::ReadOnly)||file.size()>budget)return out;
+    out.bytes=file.read(budget+1);
+    if(out.bytes.size()>budget||!file.atEnd())out.bytes.clear();
+    else budget-=out.bytes.size();
+    return out;
   };
-  const auto bytes=read("manifest.json");
+  const auto manifestRead=read("manifest.json");
+  if(manifestRead.cancelled)return fail("cancelled"); // D-06：取消不是哈希不符
+  const auto bytes=manifestRead.bytes;
   if(bytes.isEmpty()||detail::hash(bytes)!=reference.value("manifestHash").toString())return fail("stored_input_hash_mismatch");
   const auto manifest=QJsonDocument::fromJson(bytes).object();
   if(manifest.value("contract")!="paleo.well-facies.stored-input.v2")return fail("invalid_stored_input");
@@ -87,7 +92,9 @@ PreparedInput loadInput(const QString &project,const QJsonObject &reference,cons
   const auto segments=manifest.value("segments").toArray();
   if(segments.isEmpty()||segments.size()>64)return fail("invalid_stored_segments");
   for(int i=0;i<segments.size();++i) {
-    const auto segment=segments[i].toObject();const auto bodyBytes=read("body-"+QString::number(i)+".json");
+    const auto segment=segments[i].toObject();const auto bodyRead=read("body-"+QString::number(i)+".json");
+    if(bodyRead.cancelled)return fail("cancelled"); // D-06
+    const auto bodyBytes=bodyRead.bytes;
     if(bodyBytes.isEmpty()||detail::hash(bodyBytes)!=segment.value("bodyHash").toString())return fail("stored_input_hash_mismatch");
     const auto body=QJsonDocument::fromJson(bodyBytes).object();const auto wells=body.value("wells").toArray();
     if(body.value("modelVersionId").toString()!=out.model.id||wells.size()!=1||

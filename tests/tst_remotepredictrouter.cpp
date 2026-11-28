@@ -31,9 +31,10 @@ class LoopbackServer : public QObject
 {
   Q_OBJECT
   public:
-    enum class Mode { Normal, DeadOnAccept, Slow, Garbage, ReturnNullCells, OversizeDeclared, OversizeUndeclared };
+    enum class Mode { Normal, DeadOnAccept, Slow, Garbage, ReturnNullCells, OversizeDeclared,
+                      OversizeUndeclared, RedirectHealth, RedirectPredict };
     Mode mode = Mode::Normal;
-    int healthHits = 0, predictHits = 0;
+    int healthHits = 0, predictHits = 0, followedRedirects = 0;
 
     bool start( Mode m )
     {
@@ -95,6 +96,63 @@ class LoopbackServer : public QObject
     void respond( QTcpSocket *sock, const QString &requestLine, const QByteArray &body )
     {
       QByteArray payload;
+      const auto writeRaw = [sock]( int status, const char *reason, const QByteArray &location,
+                                    const QByteArray &raw ) {
+        QByteArray head = QByteArrayLiteral( "HTTP/1.1 " ) + QByteArray::number( status ) +
+                          QByteArrayLiteral( " " ) + QByteArray( reason ) + QByteArrayLiteral( "\r\n" );
+        if ( !location.isEmpty() )
+          head += QByteArrayLiteral( "Location: " ) + location + QByteArrayLiteral( "\r\n" );
+        head += QByteArrayLiteral( "Content-Length: " ) + QByteArray::number( raw.size() ) +
+                QByteArrayLiteral( "\r\nConnection: close\r\n\r\n" );
+        sock->write( head );
+        sock->write( raw );
+      };
+      const QByteArray loopback = QByteArrayLiteral( "http://127.0.0.1:" ) +
+                                  QByteArray::number( m_server.serverPort() );
+      // 跟随重定向会打到这里并得到可被当成成功的 200。不跟随则计数保持 0。
+      if ( requestLine.startsWith( QStringLiteral( "GET /stolen" ) ) ||
+           requestLine.startsWith( QStringLiteral( "POST /stolen" ) ) )
+      {
+        ++followedRedirects;
+        if ( requestLine.contains( QStringLiteral( "predict" ) ) )
+        {
+          QJsonArray cells;
+          for ( int i = 0; i < 16; ++i )
+            cells.append( 9 );
+          writeRaw( 200, "OK", {},
+                    QJsonDocument( QJsonObject{ { QStringLiteral( "cells" ), cells } } )
+                      .toJson( QJsonDocument::Compact ) );
+        }
+        else
+        {
+          writeRaw( 200, "OK", {}, QByteArrayLiteral( "ok" ) );
+        }
+        return;
+      }
+      if ( mode == Mode::RedirectHealth && requestLine.startsWith( QStringLiteral( "GET /health" ) ) )
+      {
+        ++healthHits;
+        // 正文含 "ok"，若被当成健康成功或跟随 Location，测试会看到完成或 followedRedirects。
+        writeRaw( 302, "Found", loopback + QByteArrayLiteral( "/stolen-health" ),
+                  QByteArrayLiteral( "ok" ) );
+        return;
+      }
+      if ( mode == Mode::RedirectPredict && requestLine.startsWith( QStringLiteral( "POST /predict" ) ) )
+      {
+        ++predictHits;
+        const QJsonObject req = QJsonDocument::fromJson( body ).object();
+        lastRequest = req;
+        const int count = req.value( QStringLiteral( "columns" ) ).toInt() *
+                          req.value( QStringLiteral( "rows" ) ).toInt();
+        QJsonArray cells;
+        for ( int i = 0; i < count; ++i )
+          cells.append( 3 );
+        // 307 正文本身是合法相网格。解析它或跟随 Location 都会变成一次成功预测。
+        writeRaw( 307, "Temporary Redirect", loopback + QByteArrayLiteral( "/stolen-predict" ),
+                  QJsonDocument( QJsonObject{ { QStringLiteral( "cells" ), cells } } )
+                    .toJson( QJsonDocument::Compact ) );
+        return;
+      }
       if ( ( mode == Mode::OversizeDeclared || mode == Mode::OversizeUndeclared ) &&
            requestLine.startsWith( QStringLiteral( "GET /health" ) ) )
       {
@@ -249,6 +307,7 @@ class TestRemotePredictionRouter : public QObject
     void remoteJsonNullDeserializedToNodataNegative9999();
     void localFallbackTranslatesFaciesCodesAndNodata();
     void oversizeResponseAbortsDuringReceive();
+    void redirectIsNotFollowedOrParsedAsClassGrid();
     // #479：本地 ORT 降级不得在 GUI 线程槽内同步执行（SHA 全读+会话构建+
     // warmup+全网格推理是秒~分钟级重活）——断言 predict 落在非 GUI 线程且
     // completed/failed 信号语义不变；取消后迟到的降级结果按过期丢弃。
@@ -566,6 +625,44 @@ void TestRemotePredictionRouter::cancelBeforeChainStartsFails()
   QVERIFY2( waitSpy( failed ), "cancelled start must report" );
   QCOMPARE( completed.size(), 0 );
   QVERIFY( failed.at( 0 ).at( 1 ).toString().contains( QStringLiteral( "已取消" ) ) );
+}
+
+void TestRemotePredictionRouter::redirectIsNotFollowedOrParsedAsClassGrid()
+{
+  {
+    LoopbackServer server;
+    QVERIFY( server.start( LoopbackServer::Mode::RedirectHealth ) );
+    HttpRemoteTransport transport( server.baseUrl() );
+    RemotePredictionRouter router( &transport );
+    QSignalSpy completed( &router, &RemotePredictionService::completed );
+    QSignalSpy failed( &router, &RemotePredictionService::failed );
+    router.start( makeRequest( 4, 4, true ) );
+    QVERIFY2( waitSpy( failed ), "302 health must fail closed" );
+    QCOMPARE( completed.size(), 0 );
+    const QString reason = failed.at( 0 ).at( 1 ).toString();
+    QVERIFY2( reason.contains( QStringLiteral( "302" ) ), qPrintable( reason ) );
+    QVERIFY2( reason.contains( QStringLiteral( "重定向" ) ), qPrintable( reason ) );
+    QCOMPARE( server.followedRedirects, 0 );
+    QCOMPARE( server.predictHits, 0 );
+    QCOMPARE( router.lastRoute(), QString() );
+  }
+  {
+    LoopbackServer server;
+    QVERIFY( server.start( LoopbackServer::Mode::RedirectPredict ) );
+    HttpRemoteTransport transport( server.baseUrl() );
+    RemotePredictionRouter router( &transport );
+    QSignalSpy completed( &router, &RemotePredictionService::completed );
+    QSignalSpy failed( &router, &RemotePredictionService::failed );
+    router.start( makeRequest( 4, 4, true ) );
+    QVERIFY2( waitSpy( failed ), "307 predict must fail closed" );
+    QCOMPARE( completed.size(), 0 );
+    const QString reason = failed.at( 0 ).at( 1 ).toString();
+    QVERIFY2( reason.contains( QStringLiteral( "307" ) ), qPrintable( reason ) );
+    QVERIFY2( reason.contains( QStringLiteral( "重定向" ) ), qPrintable( reason ) );
+    QCOMPARE( server.followedRedirects, 0 );
+    QCOMPARE( server.predictHits, 1 );
+    QCOMPARE( router.lastRoute(), QString() );
+  }
 }
 
 void TestRemotePredictionRouter::remoteJsonNullDeserializedToNodataNegative9999()

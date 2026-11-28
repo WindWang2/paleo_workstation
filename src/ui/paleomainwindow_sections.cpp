@@ -22,6 +22,7 @@
 #include <QPointer>
 #include <QStatusBar>
 #include <qgsmapcanvas.h>
+#include <qgsmaptool.h>
 #include <qgsrubberband.h>
 #include <qgsgeometry.h>
 
@@ -163,6 +164,36 @@ void wireSectionTraceLocate(SeismicMapLink *link,
   QObject::connect(dock,&seismic::SeismicSectionDockWidget::sectionExtractionFinished,link,
           [link,dock](bool ok,const QString&){if(ok)link->setSourceCrs(dock->canvas()->property("seismicSourceCrs").toString());});
 }
+void wireWellCompositeAlignmentSink(DataCatalog *catalog,
+                                    SectionWorkbench *workbench) {
+  auto *sink = WellComposite::WellCompositeDerivedSink::defaultSink();
+  if (!sink)
+    return;
+  QPointer<SectionWorkbench> guarded = workbench;
+  sink->setAlignmentProvider([guarded](WellComposite::WellCompositePanel *panel) {
+    if (!guarded || panel->isReferenceWell())
+      return;
+    const QString id = panel->modelWellId() > 0
+                           ? guarded->wellForModel(panel->modelWellId())
+                           : guarded->wellForSource(panel->sourceDataPath(),
+                                                    panel->wellName());
+    if (id.isEmpty()) {
+      panel->applyTimeDepthAlignment(std::nullopt, 0.0, QObject::tr("未关联工程井"));
+      return;
+    }
+    seismic::TimeDepthModel model;
+    double shift = 0.0;
+    QString status;
+    const bool ok = guarded->mdTimeDepth(id, &model, &shift, &status);
+    panel->applyTimeDepthAlignment(
+        ok ? std::optional<seismic::TimeDepthModel>(model) : std::nullopt,
+        shift, status);
+  });
+  QObject::connect(workbench, &SectionWorkbench::alignmentsChanged, sink,
+                   &WellComposite::WellCompositeDerivedSink::refreshAlignments);
+  QObject::connect(catalog, &DataCatalog::changed, sink,
+                   &WellComposite::WellCompositeDerivedSink::refreshAlignments);
+}
 } // namespace
 
 void paleo::mainwindow_internal::setSectionLinkVolume(
@@ -188,28 +219,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   auto *workbench = new SectionWorkbench(m_previewDoc->catalog(), this);
   workbench->setTaskService(m_taskSvc);
   m_sectionWorkbench = workbench; // 连井剖面共享逐井时深校正
-  if (auto *sink = WellComposite::WellCompositeDerivedSink::defaultSink()) {
-    QPointer<SectionWorkbench> guarded = workbench;
-    sink->setAlignmentProvider([guarded](WellComposite::WellCompositePanel *panel) {
-      if (!guarded || panel->isReferenceWell())
-        return;
-      const QString id=panel->modelWellId()>0?guarded->wellForModel(panel->modelWellId()):guarded->wellForSource(panel->sourceDataPath(),panel->wellName());
-      if (id.isEmpty()) {
-        panel->applyTimeDepthAlignment(std::nullopt, 0.0, QObject::tr("未关联工程井"));
-        return;
-      }
-      seismic::TimeDepthModel model;
-      double shift = 0.0;
-      QString status;
-      const bool ok = guarded->mdTimeDepth(id, &model, &shift, &status);
-      panel->applyTimeDepthAlignment(ok ? std::optional<seismic::TimeDepthModel>(model) : std::nullopt,
-                                    shift, status);
-    });
-    connect(workbench, &SectionWorkbench::alignmentsChanged, sink,
-            &WellComposite::WellCompositeDerivedSink::refreshAlignments);
-    connect(m_previewDoc->catalog(), &DataCatalog::changed, sink,
-            &WellComposite::WellCompositeDerivedSink::refreshAlignments);
-  }
+  wireWellCompositeAlignmentSink(m_previewDoc->catalog(), workbench);
   auto *setup = createSectionSetup(this,[this](const QStringList &ids){showTimeDepthAlignment(ids);});
   connect(workbench,&SectionWorkbench::alignmentsChanged,dock,&seismic::SeismicSectionDockWidget::invalidateInterpretation);
   auto route = std::make_shared<std::vector<glm::dvec2>>();
@@ -230,7 +240,6 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
       syncSeismicVolumeToDocks(true);
       return m_seismicOpenTask.data();
   });
-  // 绘制期间对话框隐藏；取消/失败时唤回（消息落在对话框状态行，藏着看不见）。
   auto drawingFromSetup = std::make_shared<bool>(false);
   auto *action = new QAction(tr("连井 / 时深对齐"), this);
   action->setObjectName("sectionWorkbenchAction");
@@ -278,7 +287,6 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             if (!ok)
               report(error);
           });
-  // Esc 取消绘制 → 唤回为绘制而隐藏的对话框。
   connect(link, &SeismicMapLink::sectionCaptureCancelled, this,
           [setup, report, drawingFromSetup] {
             if (!*drawingFromSetup)
@@ -288,6 +296,12 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             setup->show();
             setup->raise();
           });
+  if (QgsMapCanvas *canvas = m_canvasCtl->canvas())
+    connect(canvas, &QgsMapCanvas::mapToolSet, this,
+            [this, setup, drawingFromSetup](QgsMapTool *now, QgsMapTool *old) {
+              if (*drawingFromSetup && old == m_sectionCaptureTool && now != old)
+                *drawingFromSetup = false, setup->show(), setup->raise();
+            });
   // 「清除剖面连线」：地图 rubber band + 路线 + dock 侧 route 一并清，
   // 「保存剖面新版本」随 hasRoute() 复归而失效。
   connect(setup, &SectionSetupDialog::clearRequested, this,
@@ -342,9 +356,6 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             m_canvasCtl->canvas()->setFocus();
             report(tr("左键添加节点，右键完成；退格撤回节点，Esc 取消。"));
           });
-  // R4 信号化（方向 49）：任意剖面捕获工具归壳持有——linkage 只发
-  // sectionCaptureRequested 意图（先例 threewaylocator）；工具的路径完成
-  // 接回 linkage 的折线提取入口，Esc 取消直通其取消信号。
   connect(link, &SeismicMapLink::sectionCaptureRequested, this,
           [this, workbench, setup, link] {
     QgsMapCanvas *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;

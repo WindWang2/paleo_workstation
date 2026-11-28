@@ -41,7 +41,8 @@ enum class Content { Sine, Ricker, Ramp };
 
 bool writeScanSegyImpl(const QString &filePath, int nIl, int nXl, int ns, int dt,
                       Content content, int ilSpacing, int xlSpacing,
-                      int firstInline, int firstXline, bool withCoords)
+                      int firstInline, int firstXline, bool withCoords,
+                      int delayMs = 0)
 {
   QFile file(filePath);
   if (!file.open(QIODevice::WriteOnly))
@@ -70,6 +71,8 @@ bool writeScanSegyImpl(const QString &filePath, int nIl, int nXl, int ns, int dt
       QByteArray trHdr(240, 0);
       qToBigEndian<qint32>(firstInline + i, reinterpret_cast<uchar *>(trHdr.data()) + 188);
       qToBigEndian<qint32>(firstXline + j, reinterpret_cast<uchar *>(trHdr.data()) + 192);
+      qToBigEndian<qint16>(static_cast<qint16>(delayMs),
+                           reinterpret_cast<uchar *>(trHdr.data()) + 108);
       qToBigEndian<qint32>(withCoords ? 1000 + j * xlSpacing : 0,
                            reinterpret_cast<uchar *>(trHdr.data()) + 72);
       qToBigEndian<qint32>(withCoords ? 5000 + i * ilSpacing : 0,
@@ -114,10 +117,11 @@ bool writeScanSegyImpl(const QString &filePath, int nIl, int nXl, int ns, int dt
 
 bool writeScanSegy(const QString &filePath, int nIl, int nXl, int ns, int dt,
                    Content content, int ilSpacing = 25, int xlSpacing = 25,
-                   int firstInline = 10, int firstXline = 100)
+                   int firstInline = 10, int firstXline = 100, int delayMs = 0)
 {
   return writeScanSegyImpl(filePath, nIl, nXl, ns, dt, content, ilSpacing,
-                           xlSpacing, firstInline, firstXline, /*withCoords=*/true);
+                           xlSpacing, firstInline, firstXline, /*withCoords=*/true,
+                           delayMs);
 }
 
 // 全零 CDP 坐标体——SgyCoordinateMapper 拟合失败（道距加权前置校验用例）。
@@ -1051,6 +1055,72 @@ private slots:
                 sineSgy_, QString(), &err2)
                 .isEmpty());
     QVERIFY(err2.contains(QStringLiteral("产物缺失")));
+  }
+
+  // D-04：0 ms 是合法延迟，必须原样发布。打开失败或短道头不得记成时间 0。
+  void unreadableDelayFailsInsteadOfPublishingZero()
+  {
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    const auto params = SeismicTaskService::SeismicAttrParams{};
+    const int sample = 4;
+    const auto timeOf = [](const std::shared_ptr<seismic::SgyVolume> &vol,
+                           int sampleIndex, int delayMs) {
+      return delayMs + sampleIndex * double(vol->SampleIntervalUs()) / 1000.0;
+    };
+
+    const QString zeroPath = tempDir_.filePath(QStringLiteral("delay0.sgy"));
+    QVERIFY(writeScanSegy(zeroPath, 3, 3, 16, 2000, Content::Sine, 25, 25, 10,
+                          100, /*delayMs=*/0));
+    auto zeroVol = loadVolume(zeroPath);
+    QVERIFY(zeroVol && zeroVol->IsLoaded());
+    const QString zeroOut = tempDir_.filePath(QStringLiteral("delay0_out"));
+    TsOutcome zeroTs = runTimeSlice(svc, zeroVol, K::Envelope, params, sample, zeroOut);
+    QVERIFY2(zeroTs.ok, qPrintable(zeroTs.result.error));
+    QVERIFY(std::abs(zeroTs.result.timeMs - timeOf(zeroVol, sample, 0)) < 1e-6);
+    VolOutcome zeroVolScan = runVolume(svc, zeroVol, K::Envelope, params, zeroOut);
+    QVERIFY2(zeroVolScan.ok, qPrintable(zeroVolScan.result.error));
+    QVERIFY(std::abs(zeroVolScan.result.startTimeMs) < 1e-6);
+
+    const QString lagPath = tempDir_.filePath(QStringLiteral("delay40.sgy"));
+    QVERIFY(writeScanSegy(lagPath, 3, 3, 16, 2000, Content::Sine, 25, 25, 10,
+                          100, /*delayMs=*/40));
+    auto lagVol = loadVolume(lagPath);
+    QVERIFY(lagVol && lagVol->IsLoaded());
+    TsOutcome lagTs = runTimeSlice(svc, lagVol, K::Envelope, params, sample,
+                                   tempDir_.filePath(QStringLiteral("delay40_out")));
+    QVERIFY2(lagTs.ok, qPrintable(lagTs.result.error));
+    QVERIFY(std::abs(lagTs.result.timeMs - timeOf(lagVol, sample, 40)) < 1e-6);
+
+    const QString shortPath = tempDir_.filePath(QStringLiteral("delay_short.sgy"));
+    QVERIFY(writeScanSegy(shortPath, 3, 3, 16, 2000, Content::Sine));
+    auto shortVol = loadVolume(shortPath);
+    QVERIFY(shortVol && shortVol->IsLoaded());
+    QFile shortFile(shortPath);
+    QVERIFY(shortFile.resize(100));
+    const QString badOut = tempDir_.filePath(QStringLiteral("delay_bad_out"));
+    TsOutcome shortTs = runTimeSlice(svc, shortVol, K::Envelope, params, sample, badOut);
+    QVERIFY(shortTs.finished);
+    QVERIFY(!shortTs.ok);
+    QVERIFY(shortTs.result.error.contains(QStringLiteral("首样延迟")));
+    QDir badDir(badOut);
+    const auto leftover = badDir.entryList(QDir::Files);
+    for (const QString &name : leftover)
+      QVERIFY(!name.endsWith(QStringLiteral(".tif")));
+
+    const QString missingPath = tempDir_.filePath(QStringLiteral("delay_missing.sgy"));
+    QVERIFY(writeScanSegy(missingPath, 3, 3, 16, 2000, Content::Sine));
+    auto missingVol = loadVolume(missingPath);
+    QVERIFY(missingVol && missingVol->IsLoaded());
+    QVERIFY(QFile::remove(missingPath));
+    VolOutcome missingScan =
+        runVolume(svc, missingVol, K::Envelope, params, badOut);
+    QVERIFY(missingScan.finished);
+    QVERIFY(!missingScan.ok);
+    QVERIFY(missingScan.result.error.contains(QStringLiteral("首样延迟")));
+    QVERIFY(!missingScan.result.ok);
+    for (const QString &name : QDir(badOut).entryList(QDir::Files))
+      QVERIFY(!name.endsWith(QStringLiteral(".sattr")));
   }
 
 #if defined(Q_OS_UNIX)

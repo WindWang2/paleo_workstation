@@ -114,8 +114,14 @@ bool applyPointMapping(const QString &project, const QString &sourcePath,
   if (!service.listSourceData("tables", sourceId, tables, detail)) { *error = q(detail); return false; }
   std::vector<paleo::data::WellInfoRecord> existing;
   if (!service.listWellInfos(existing, detail)) { *error = q(detail); return false; }
-  QHash<QString, qlonglong> ids;
-  for (const auto &row : existing) ids.insert(DataCatalog::normalizeWellName(q(row.value.wellName)), row.id);
+  struct WellHit { qlonglong id = 0; QString raw; };
+  QHash<QString, WellHit> byRaw;
+  QHash<QString, QVector<WellHit>> byNorm;
+  for (const auto &row : existing) {
+    WellHit hit{row.id, q(row.value.wellName)};
+    byRaw.insert(hit.raw, hit);
+    byNorm[DataCatalog::normalizeWellName(hit.raw)].append(hit);
+  }
 
   int mapped = 0;
   for (const auto &table : tables) {
@@ -144,17 +150,43 @@ bool applyPointMapping(const QString &project, const QString &sourcePath,
         const double vx = field(x).toDouble(&xOk), vy = field(y).toDouble(&yOk);
         const QString normalized = DataCatalog::normalizeWellName(name);
         if (normalized.isEmpty() || !xOk || !yOk) continue;
-        paleo::data::WellInfo info; const auto id = ids.value(normalized, 0);
+        // Raw name first. A normalized key is usable only when one stored well
+        // collapses to it and that well's raw name normalizes to this row.
+        // Two stored wells on one key is a collision, not a last-insert write.
+        qlonglong id = 0;
+        if (byRaw.contains(name)) id = byRaw.value(name).id;
+        else {
+          const auto hits = byNorm.value(normalized);
+          if (hits.size() > 1) {
+            QString collided;
+            for (const auto &hit : hits) {
+              if (!collided.isEmpty()) collided += QStringLiteral("、");
+              collided += hit.raw;
+            }
+            if (error) *error = QStringLiteral("井名规范化冲突：%1（%2）").arg(name, collided);
+            return false;
+          }
+          if (hits.size() == 1 && DataCatalog::normalizeWellName(hits.front().raw) == normalized)
+            id = hits.front().id;
+        }
+        paleo::data::WellInfo info;
         if (id && !service.readWellInfo(id, info, detail)) { *error = q(detail); return false; }
         if (std::isfinite(info.wellheadX) && std::isfinite(info.wellheadY) &&
             (info.wellheadX != vx || info.wellheadY != vy)) continue;
+        const QString previousRaw = id ? q(info.wellName) : QString();
         info.wellName = name.toUtf8().toStdString(); info.wellheadX = vx; info.wellheadY = vy;
         info.coordinateSystem = mapping.value("crs").toString().toUtf8().toStdString();
         info.coordinateUnit = mapping.value("unit").toString().toUtf8().toStdString();
         qlonglong newId = id;
         const bool ok = id ? service.saveWellInfo(id, info, detail) : service.createWell(info, newId, detail);
         if (!ok) { *error = q(detail); return false; }
-        ids.insert(normalized, newId); ++mapped;
+        if (!previousRaw.isEmpty() && previousRaw != name) byRaw.remove(previousRaw);
+        byRaw.insert(name, WellHit{newId, name});
+        auto &bucket = byNorm[normalized];
+        bool seen = false;
+        for (auto &hit : bucket) if (hit.id == newId) { hit.raw = name; seen = true; break; }
+        if (!seen) bucket.append(WellHit{newId, name});
+        ++mapped;
       }
       offset += data.rows.size();
     }
@@ -203,8 +235,10 @@ bool ensureSurvey(DataCatalog &catalog, paleo::data::DataService &service, const
   QString surveyId;
   const auto existing = catalog.entities(QStringLiteral("seismic_survey"));
   for (const auto &entity : existing) {
-    if (entity.extra.value("areaModelVolumeId").toLongLong() == row.id ||
-        entity.name == q(volume.volumeName)) { surveyId = entity.id; break; }
+    if (entity.extra.value("areaModelVolumeId").toLongLong() == row.id) {
+      surveyId = entity.id;
+      break;
+    }
   }
   if (surveyId.isEmpty()) {
     CatalogEntity entity;

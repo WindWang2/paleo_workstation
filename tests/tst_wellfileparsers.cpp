@@ -4,16 +4,20 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QStringDecoder>
 #include <QStringEncoder>
 #include <QTemporaryDir>
 #include <cmath>
 
 #include "domain/wellnumeric.h"
 #include "domain/welltopsedit.h"
+#include "io/dataimportservice.h"
+#include "io/lasparser.h"
 #include "io/wellfileparsers.h"
 #include "io/welltable.h"
 #include "io/timedeptool.h"
 #include "io/ziparchive.h"
+#include "metadata/paleoprojectstore.h"
 
 namespace
 {
@@ -80,6 +84,26 @@ QString writeXlsxMulti(const QString &path, const QVector<QPair<QString, QVector
   QString error;
   return paleo::io::zipWriteArchive(path, entries, {}, &error) ? path : QString();
 }
+
+bool placeManaged(const QString &root, CatalogVersion &version, const QByteArray &head, qint64 bytes,
+                  QString *error)
+{
+  version.path = QStringLiteral("artifacts/") +
+                 DataCatalog::managedPath(QStringLiteral("raw"), version.assetId, version.id, version.fileName);
+  const QString abs = DataCatalog::resolvedVersionPath(root, version);
+  if (abs.isEmpty())
+  {
+    if (error) *error = QStringLiteral("unsafe path");
+    return false;
+  }
+  if (!QDir().mkpath(QFileInfo(abs).absolutePath())) return false;
+  QFile file(abs);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(head) != head.size()) return false;
+  if (bytes > head.size() && !file.resize(bytes)) return false;
+  file.close();
+  version.sha256 = DataCatalog::sha256FileHex(abs, error);
+  return !version.sha256.isEmpty();
+}
 }
 
 class WellFileParserTests : public QObject
@@ -120,6 +144,10 @@ private slots:
   // issue-796 / finding-61：.dat 分层底界按井名+层名哈希匹配（O(N²) → 索引）
   void layerIntervalDatBasesMatchByKey();
   void diagnosticSummaryIsBoundedWithoutDiscardingReport();
+  void trailingGb18030IsNotUtf8Replacement(); // A-01
+  void failedBaseReadDoesNotRewriteTops();    // A-02
+  void managedRawPublishesFinishedBytesOnly(); // A-03
+  void oversizedWellTextIsNotAnEmptySuccess(); // A-05
 };
 
 void WellFileParserTests::diagnosticSummaryIsBoundedWithoutDiscardingReport() {
@@ -967,4 +995,215 @@ void WellFileParserTests::stratTableWithoutSourceCrsKeepsImporting()
   const auto head = paleo::io::readWellTable(headPath, mapping);
   QVERIFY(!head.error.isEmpty());
   QVERIFY(head.error.contains(QStringLiteral("井点坐标系未知")));
+}
+
+void WellFileParserTests::trailingGb18030IsNotUtf8Replacement()
+{
+  // A-01：文件停在半截 UTF-8 / 完整 GBK「唰」(E0 A7) 上，不得存成 U+FFFD。
+  // 完整 UTF-8 码点收尾仍是 UTF-8。
+  const auto streamedTops = [](const QByteArray &bytes, QVector<WellTopRecord> *rows, QString *ioErr) {
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("tops.txt"));
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly) || f.write(bytes) != bytes.size()) return false;
+    f.close();
+    QFile dev(path);
+    if (!dev.open(QIODevice::ReadOnly)) return false;
+    WellParseReport report;
+    const auto streamed = parseWellTopsDevice(&dev, nullptr, &report, ioErr);
+    if (!streamed) return false;
+    *rows = *streamed;
+    return true;
+  };
+  QByteArray gbk("# wellName MD topName\nW1 100 ");
+  gbk.append('\xE0');
+  gbk.append('\xA7');
+  QVector<WellTopRecord> streamed;
+  QString ioErr;
+  QVERIFY2(streamedTops(gbk, &streamed, &ioErr), qPrintable(ioErr));
+  const auto whole = parseWellTopsText(gbk);
+  QCOMPARE(streamed.size(), 1);
+  QCOMPARE(whole.size(), 1);
+  QCOMPARE(streamed[0].wellName, QStringLiteral("W1"));
+  QCOMPARE(streamed[0].md, 100.0);
+  QCOMPARE(streamed[0].topName, whole[0].topName);
+  QVERIFY(!streamed[0].topName.contains(QChar(0xFFFD)));
+  QStringDecoder gb(QStringLiteral("GB18030"), QStringConverter::Flag::Stateless);
+  QCOMPARE(streamed[0].topName, gb.decode(QByteArray::fromHex("E0A7")));
+
+  QByteArray utf8("# wellName MD topName\nW1 100 ");
+  utf8 += QStringLiteral("井").toUtf8();
+  QVERIFY2(streamedTops(utf8, &streamed, &ioErr), qPrintable(ioErr));
+  const auto wholeUtf = parseWellTopsText(utf8);
+  QCOMPARE(streamed.size(), 1);
+  QCOMPARE(streamed[0].topName, wholeUtf[0].topName);
+  QCOMPARE(streamed[0].topName, QStringLiteral("井"));
+  QVERIFY(!streamed[0].topName.contains(QChar(0xFFFD)));
+}
+
+void WellFileParserTests::failedBaseReadDoesNotRewriteTops()
+{
+  // A-02：底界读失败或超过 64MB 限额时不得把空底界写回。没有底界行的成功读仍是空 error。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString headerless = dir.filePath(QStringLiteral("nobase.csv"));
+  QVERIFY(writeCsv(headerless, "WELL,TOP,MD\nA1,D61,100\n"));
+  QString err;
+  QVERIFY(paleo::io::readWellTableBases(headerless, &err).isEmpty());
+  QVERIFY(err.isEmpty());
+  const QString missing = dir.filePath(QStringLiteral("missing.csv"));
+  QVERIFY(paleo::io::readWellTableBases(missing, &err).isEmpty());
+  QVERIFY(!err.isEmpty());
+
+  const QString project = dir.filePath(QStringLiteral("project"));
+  const QString overlay = dir.filePath(QStringLiteral("project/overlay"));
+  QVERIFY(QDir().mkpath(project));
+  QVERIFY(QDir().mkpath(overlay));
+  DataCatalog live;
+  QVERIFY2(live.open(project, &err), qPrintable(err));
+  auto staging = live.createStagingCopy(overlay);
+  QVERIFY(staging);
+
+  CatalogEntity well;
+  well.id = staging->nextEntityId(QStringLiteral("well"));
+  well.entityType = QStringLiteral("well");
+  well.name = QStringLiteral("A1");
+  QVERIFY2(staging->addEntity(well, &err), qPrintable(err));
+
+  CatalogAsset tdAsset;
+  tdAsset.id = staging->nextAssetId();
+  tdAsset.type = QStringLiteral("time_depth");
+  tdAsset.format = QStringLiteral("dat");
+  tdAsset.displayName = QStringLiteral("td.dat");
+  QVERIFY2(staging->addAsset(tdAsset, &err), qPrintable(err));
+  CatalogVersion td;
+  td.id = staging->nextVersionId();
+  td.assetId = tdAsset.id;
+  td.stage = QStringLiteral("RAW");
+  td.versionNumber = 1;
+  td.managed = true;
+  td.fileName = QStringLiteral("td.dat");
+  const QByteArray tdText("# Well : A1\n0 0 0 0\n200 0 200 200\n");
+  QVERIFY2(placeManaged(overlay, td, tdText, 0, &err), qPrintable(err));
+  QVERIFY2(staging->addVersion(td, &err), qPrintable(err));
+  EntityAssetLink link;
+  link.entityType = QStringLiteral("well");
+  link.entityId = well.id;
+  link.assetId = tdAsset.id;
+  link.role = QStringLiteral("time_depth");
+  link.isPrimary = true;
+  QVERIFY2(staging->addLink(link, &err), qPrintable(err));
+
+  CatalogAsset strat;
+  strat.id = staging->nextAssetId();
+  strat.type = QStringLiteral("well_stratification");
+  strat.format = QStringLiteral("dat");
+  strat.displayName = QStringLiteral("layers.dat");
+  QVERIFY2(staging->addAsset(strat, &err), qPrintable(err));
+  CatalogVersion raw;
+  raw.id = staging->nextVersionId();
+  raw.assetId = strat.id;
+  raw.stage = QStringLiteral("RAW");
+  raw.versionNumber = 1;
+  raw.managed = true;
+  raw.fileName = QStringLiteral("layers.dat");
+  raw.extra.insert(QStringLiteral("wellTableParsed"), true);
+  const QByteArray head =
+      "# PaleoDepthBasis: explicit\n"
+      "A1 D61 -999.25 -999.25 -999.25 -999.25 100\n"
+      "# PaleoLayerInterval: {\"well\":\"A1\",\"layer\":\"D61\",\"topTvd\":100,\"baseTvd\":150}\n";
+  const qint64 over = 64ll * 1024 * 1024 + 64;
+  QVERIFY2(placeManaged(overlay, raw, head, over, &err), qPrintable(err));
+  QVERIFY2(staging->addVersion(raw, &err), qPrintable(err));
+  const QString rawPath = staging->versionFilePath(raw);
+  QVERIFY(QFileInfo(rawPath).size() > 64ll * 1024 * 1024);
+  err.clear();
+  QVERIFY(paleo::io::readWellTableBases(rawPath, &err).isEmpty());
+  QVERIFY(err.contains(QStringLiteral("too large")));
+
+  ImportSession session;
+  session.projectDir = project;
+  session.stagingRoot = overlay;
+  session.cat = std::move(staging);
+  err.clear();
+  QVERIFY(!paleo::io::resolveImportedWellDepths(session, &err));
+  QVERIFY2(err.contains(QStringLiteral("too large")), qPrintable(err));
+  QCOMPARE(session.cat->versionsForAsset(strat.id).size(), 1);
+  QFile kept(rawPath);
+  QVERIFY(kept.open(QIODevice::ReadOnly));
+  QVERIFY(kept.read(4096).contains("PaleoLayerInterval"));
+}
+
+void WellFileParserTests::managedRawPublishesFinishedBytesOnly()
+{
+  // A-03：flush/close 失败不得发布半截文件。成功时目标字节等于源，且不留 .partial。
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString source = dir.filePath(QStringLiteral("managed.las"));
+  const QByteArray payload(
+      "~VERSION INFORMATION\n"
+      " VERS. 2.0 : CWLS LOG ASCII STANDARD - VERSION 2.0\n"
+      " WRAP. NO : ONE LINE PER DEPTH STEP\n"
+      "~WELL INFORMATION\n"
+      " WELL. A1 : Well\n"
+      "~CURVE INFORMATION\n"
+      " DEPT.M : Depth\n"
+      " GR.GAPI : Gamma\n"
+      "~ASCII LOG DATA\n"
+      " 100.0 50.0\n");
+  QVERIFY(writeCsv(source, payload));
+  const QString project = dir.filePath(QStringLiteral("project"));
+  PaleoProjectStore store;
+  DataImportService importer(&store);
+  importer.setProjectDir(project);
+  QVERIFY2(importer.catalogWritable(), qPrintable(importer.catalogOpenError()));
+  DataImportService::ImportOptions options;
+  options.linkExternal = false;
+  QString error;
+  const DataImportService::ImportResult res = importer.importProjectFileEx(source, options, &error);
+  QVERIFY2(res.outcome == DataImportService::ImportOutcome::Imported, qPrintable(error));
+  const auto versions = importer.catalog()->versionsForAsset(res.assetId);
+  QCOMPARE(versions.size(), 1);
+  QVERIFY(versions.first().managed);
+  const QString abs = importer.absolutePathForVersion(versions.first());
+  QVERIFY(!abs.isEmpty());
+  QFile out(abs);
+  QVERIFY(out.open(QIODevice::ReadOnly));
+  QCOMPARE(out.readAll(), payload);
+  QCOMPARE(versions.first().sha256,
+           QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex()));
+  QVERIFY(!QFile::exists(abs + QStringLiteral(".partial")));
+}
+
+void WellFileParserTests::oversizedWellTextIsNotAnEmptySuccess()
+{
+  // A-05：预览/框架读井表与导入共用 LasParser::fileSizeLimit。超限是失败，不是空表成功。
+  struct RestoreLimit
+  {
+    qint64 saved = LasParser::fileSizeLimit();
+    ~RestoreLimit() { LasParser::setFileSizeLimit(saved); }
+  } restore;
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("heads.txt"));
+  QVERIFY(writeCsv(path, "W1 10 20 1 100\n"));
+  LasParser::setFileSizeLimit(8);
+  QVector<WellHeadRecord> heads;
+  QString error;
+  QVERIFY(!readWellHeads(path, heads, &error));
+  QVERIFY(heads.isEmpty());
+  QVERIFY(error.contains(QStringLiteral("too large")));
+  QVector<WellTopRecord> tops;
+  QVERIFY(!readWellTops(path, tops, &error));
+  QVERIFY(tops.isEmpty());
+  TimeDepthTable table;
+  QVERIFY(!readTimeDepth(path, table, &error));
+  QVERIFY(table.rows.isEmpty());
+  const QString missing = dir.filePath(QStringLiteral("missing.txt"));
+  QVERIFY(!readWellHeads(missing, heads, &error));
+  QVERIFY(!error.contains(QStringLiteral("too large")));
+  LasParser::setFileSizeLimit(restore.saved);
+  QVERIFY2(readWellHeads(path, heads, &error), qPrintable(error));
+  QCOMPARE(heads.size(), 1);
+  QCOMPARE(heads[0].name, QStringLiteral("W1"));
 }

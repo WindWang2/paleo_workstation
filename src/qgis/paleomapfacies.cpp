@@ -116,8 +116,15 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
   options.layerName = "facies";
   options.fileEncoding = "UTF-8";
   const auto destinationCrs = targetCrs.isEmpty() ? layer.crs() : QgsCoordinateReferenceSystem(targetCrs);
-  QgsCoordinateTransform transform(layer.crs(), destinationCrs, QgsCoordinateTransformContext());
   if (!destinationCrs.isValid()) { if (error) *error = QObject::tr("工程基准坐标系无效"); return {}; }
+  // 同 CRS 原样拷贝。CRS 不同则必须有可用操作，否则不能把源坐标写进目标 CRS 的文件。
+  const bool reproject = layer.crs() != destinationCrs;
+  QgsCoordinateTransform transform(layer.crs(), destinationCrs, QgsCoordinateTransformContext());
+  if (reproject && !transform.isValid()) {
+    if (error)
+      *error = QObject::tr("相图坐标转换失败");
+    return {};
+  }
   std::unique_ptr<QgsVectorFileWriter> writer(QgsVectorFileWriter::create(
       output, outputFields, layer.wkbType(), destinationCrs, QgsCoordinateTransformContext(), options));
   if (!writer || writer->hasError() != QgsVectorFileWriter::NoError)
@@ -140,8 +147,21 @@ QVariantMap normalizeFacies(const QString &source, const QString &output, const 
     attrs.insert("color", FaciesCatalog::appearance(FaciesCatalog::find(normalized, code)).value("color"));
     QgsFeature converted(outputFields);
     auto geometry = feature.geometry();
-    try { if (layer.crs() != destinationCrs) geometry.transform(transform); }
-    catch (const QgsCsException &) { if (error) *error = QObject::tr("相图坐标转换失败"); return {}; }
+    try {
+      if (reproject && geometry.transform(transform) != Qgis::GeometryOperationResult::Success) {
+        if (error)
+          *error = QObject::tr("相图坐标转换失败");
+        writer.reset();
+        QFile::remove(output);
+        return {};
+      }
+    } catch (const QgsCsException &) {
+      if (error)
+        *error = QObject::tr("相图坐标转换失败");
+      writer.reset();
+      QFile::remove(output);
+      return {};
+    }
     converted.setGeometry(geometry);
     QgsAttributes attributes;
     for (const auto i : originalFields)

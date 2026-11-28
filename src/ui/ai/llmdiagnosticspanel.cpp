@@ -3,7 +3,7 @@
 
 #include "../paleotheme.h"
 
-#include <QFile>
+#include <QSaveFile>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -174,13 +174,17 @@ void LlmDiagnosticsPanel::exportSummary() {
     tr("文本文件 (*.txt)"));
   if (path.isEmpty())
     return;
-  QFile file(path);
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+  const QByteArray bytes = m_lastSummary.toUtf8();
+  QSaveFile file(path);
+  if (!file.open(QIODevice::WriteOnly)) {
     showNotice(tr("导出失败：%1").arg(file.errorString()));
     return;
   }
-  if (file.write(m_lastSummary.toUtf8()) < 0) {
-    showNotice(tr("导出失败：%1").arg(file.errorString()));
+  const bool wrote = file.write(bytes) == bytes.size() && file.flush();
+  if (!wrote || !file.commit()) {
+    const QString detail = file.errorString();
+    file.cancelWriting();
+    showNotice(tr("导出失败：%1").arg(detail.isEmpty() ? tr("写入不完整") : detail));
     return;
   }
   showNotice(tr("已导出：%1").arg(path));

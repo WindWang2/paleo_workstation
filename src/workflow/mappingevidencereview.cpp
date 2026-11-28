@@ -1281,6 +1281,9 @@ void MappingWorkbench::materializePendingExplanations(QgsVectorLayer *layer, con
       modifiedSidecar = true;
     }
   }
-  if (modifiedSidecar)
-    saveDraftExplanations(layerId);
+  if (modifiedSidecar) {
+    QString writeError;
+    if (!saveDraftExplanations(layerId, &writeError))
+      emit errorOccurred(writeError.isEmpty() ? tr("自动解释草稿未能写入") : writeError);
+  }
 }

@@ -179,6 +179,27 @@ private slots:
     }
     QCOMPARE(rows, total - 1);
   }
+
+  // A-04：整页 event_json 都损坏不是 EOF。游标用被拒行的 fid 继续翻更老的事件。
+  // 没有任何要素的层仍成功（copied==0）。
+  void copyAuditAllRejectedPageIsNotEof() {
+    QTemporaryDir dir; ConstraintStore store(dir.filePath("constraints.gpkg")); QString error;
+    QVERIFY2(store.append("H2", "other", "POINT(1 1)", "point", 1, &error), qPrintable(error));
+    int copied = -1;
+    QVERIFY2(store.copyAudit(dir.filePath("empty-horizon.gpkg"), "H1", &error, &copied), qPrintable(error));
+    QCOMPARE(copied, 0);
+    const int total = 201; // 超过 200/页，首页可被整页损坏，仍有更老的一行
+    for (int i = 0; i < total; ++i)
+      QVERIFY2(store.append("H1", QStringLiteral("c%1").arg(i), "POINT(0 0)", "point", 1, &error),
+               qPrintable(error));
+    const QString path = store.gpkgPath();
+    QVERIFY(execute(path, "UPDATE constraint_audit SET event_json='{bad' WHERE horizon='H1' "
+                          "AND fid > (SELECT MAX(fid) FROM constraint_audit WHERE horizon='H1') - 200"));
+    const auto snapshot = dir.filePath("snapshot-allbad.gpkg");
+    copied = -1;
+    QVERIFY2(store.copyAudit(snapshot, "H1", &error, &copied), qPrintable(error));
+    QCOMPARE(copied, 1); // 最新 200 行整页拒收，更老的 1 行仍要带走
+  }
 };
 QTEST_GUILESS_MAIN(TestConstraintEvidence)
 #include "tst_constraintevidence.moc"

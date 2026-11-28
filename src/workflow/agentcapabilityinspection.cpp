@@ -7,6 +7,7 @@
 
 #include "../ai/chat/capabilityinspectiontool.h"
 #include "../ai/chat/domaintools.h"
+#include "../ai/chat/geostatictools.h"
 #include "../services/algorithmcontract.h"
 #include "../services/algorithmspec.h"
 #include "../services/capabilitydescription.h"
@@ -238,7 +239,18 @@ QJsonObject describeToolRoute(const QString &name) {
 }
 
 QJsonObject describeToolEffects(const AiToolSpec &spec) {
-  const unsigned effects = spec.effects;
+  unsigned effects = spec.effects;
+  // 无实参的 describe 不能把按 publish_intent 派生写效果的工具报成只读。
+  // 与 effectsForArguments / computeEffects 同一组相位，取并集。
+  if (paleo::geostat_atom::isGeostatAtomTool(spec.name)) {
+    effects = 0;
+    const QStringList phases{QStringLiteral("prepare"), QStringLiteral("compute-only"),
+                             QStringLiteral("publish")};
+    for (const QString &intent : phases) {
+      effects |= spec.effectsForArguments(
+          QJsonObject{{QStringLiteral("publish_intent"), intent}});
+    }
+  }
   return QJsonObject{{"declared_mask", QString::number(effects)},
                      {"declared_names",
                       QJsonArray::fromStringList(paleo::capability::hostEffectNames(effects))},

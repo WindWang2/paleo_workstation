@@ -141,6 +141,33 @@ class TestPaleomapLibrary : public QObject {
     }
     GDALClose(ds); return true;
   }
+  static bool polygonGpkg(const QString &path, const char *crsUser, const QString &micro) {
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    auto ds = GDALCreate(GDALGetDriverByName("GPKG"), path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr);
+    if (!ds) return false;
+    OGRSpatialReferenceH srs = nullptr;
+    if (crsUser && crsUser[0]) {
+      srs = OSRNewSpatialReference(nullptr);
+      if (OSRSetFromUserInput(srs, crsUser) != OGRERR_NONE) { OSRDestroySpatialReference(srs); GDALClose(ds); return false; }
+      OSRSetAxisMappingStrategy(srs, OAMS_TRADITIONAL_GIS_ORDER);
+    }
+    auto layer = GDALDatasetCreateLayer(ds, "map", srs, wkbPolygon, nullptr);
+    if (srs) OSRDestroySpatialReference(srs);
+    if (!layer) { GDALClose(ds); return false; }
+    auto field = OGR_Fld_Create("microfacies", OFTString);
+    OGR_Fld_SetWidth(field, 64);
+    const bool fieldOk = OGR_L_CreateField(layer, field, true) == OGRERR_NONE;
+    OGR_Fld_Destroy(field);
+    auto feature = OGR_F_Create(OGR_L_GetLayerDefn(layer));
+    OGR_F_SetFieldString(feature, 0, micro.toUtf8().constData());
+    char wkt[] = "POLYGON((0 0,1000 0,1000 1000,0 1000,0 0))";
+    char *ptr = wkt; OGRGeometryH geometry = nullptr;
+    OGR_G_CreateFromWkt(&ptr, nullptr, &geometry);
+    OGR_F_SetGeometryDirectly(feature, geometry);
+    const bool created = fieldOk && OGR_L_CreateFeature(layer, feature) == OGRERR_NONE;
+    OGR_F_Destroy(feature); GDALClose(ds);
+    return created;
+  }
 private slots:
   void checkingLayerRepairsStaleDrawOrder() {
     QObject context; Fixture f; QVERIFY(f.init()); f.project.setParent(&context);
@@ -492,6 +519,43 @@ private slots:
     meterPoly << QVector<QPair<double, double>>{{1000.0, 2000.0}, {6000.0, 2000.0},
                                                 {6000.0, 7000.0}, {1000.0, 7000.0}};
     QCOMPARE(PaleoMapSource::surveyArea(meterPoly), 25.0); // 5km × 5km
+  }
+  void normalizeFaciesDoesNotStoreSourceCoordinatesUnderAnotherCrs() {
+    QTemporaryDir dir;
+    const auto source = dir.filePath("eng.gpkg");
+    const auto wkt = DataCatalog::localGridCrsWkt().toUtf8();
+    QVERIFY(polygonGpkg(source, wkt.constData(), QStringLiteral("河口坝")));
+    const auto sourceUri = source + QStringLiteral("|layername=map");
+    const auto mismatched = dir.filePath("facies.gpkg");
+    QString error;
+    const auto failed = PaleoMapSource::normalizeFacies(sourceUri, mismatched, {}, {}, {}, &error,
+                                                        QStringLiteral("EPSG:32650"));
+    QVERIFY(failed.isEmpty());
+    QVERIFY(!error.isEmpty());
+    QVERIFY(!QFile::exists(mismatched));
+    error.clear();
+    const auto sameOut = dir.filePath("same.gpkg");
+    const auto copied = PaleoMapSource::normalizeFacies(sourceUri, sameOut, {}, {}, {}, &error);
+    QVERIFY2(!copied.isEmpty(), qPrintable(error));
+    QgsVectorLayer same(sameOut + QStringLiteral("|layername=facies"), QStringLiteral("same"), QStringLiteral("ogr"));
+    QVERIFY(same.isValid());
+    QgsFeature feature;
+    QVERIFY(same.getFeatures().nextFeature(feature));
+    const auto box = feature.geometry().boundingBox();
+    QVERIFY(box.xMinimum() > -1.0 && box.xMaximum() < 1001.0);
+    QVERIFY(box.yMinimum() > -1.0 && box.yMaximum() < 1001.0);
+    const auto web = dir.filePath("web.shp");
+    QVERIFY(microShape(web, {QVariantMap{{"microfacies", QStringLiteral("河口坝")}}}));
+    error.clear();
+    const auto projected = dir.filePath("deg.gpkg");
+    const auto transformed = PaleoMapSource::normalizeFacies(web, projected, {}, {}, {}, &error,
+                                                             QStringLiteral("EPSG:4326"));
+    QVERIFY2(!transformed.isEmpty(), qPrintable(error));
+    QgsVectorLayer degrees(projected + QStringLiteral("|layername=facies"), QStringLiteral("deg"), QStringLiteral("ogr"));
+    QVERIFY(degrees.isValid());
+    QgsFeature moved;
+    QVERIFY(degrees.getFeatures().nextFeature(moved));
+    QVERIFY(moved.geometry().boundingBox().xMaximum() < 1.0);
   }
   // B-03/A-14 导入侧（full-audit-20261020）：members() 消费 domain/sidecarvocab
   // 单一词表——dbf 属性索引（ain/aih）与统计文件随主件拷贝（此前导入不全）。

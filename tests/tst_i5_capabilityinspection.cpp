@@ -70,6 +70,7 @@ private slots:
   void describeCapabilityExactVersionAliasAndNoFallback();
   void describeAlgorithmVersionsWithoutMerging();
   void describeToolReflectsRealContractAndHonestRelations();
+  void geostatDescribeReportsWriteEffects();
   void counterExampleContoursCallableWithoutDedicatedTool();
   void counterExampleWellFaciesLegacyAdapterWithDedicatedTool();
   void viewCommandsAreDeclarationFactsOnly();
@@ -280,6 +281,42 @@ void TestI5CapabilityInspection::describeToolReflectsRealContractAndHonestRelati
                                .value("related").toObject();
   QCOMPARE(readRelated.value("status").toString(), QStringLiteral("ai_tool_spec_only"));
   QVERIFY(readRelated.value("capability_id").isNull());
+}
+
+void TestI5CapabilityInspection::geostatDescribeReportsWriteEffects() {
+  const unsigned publish = paleo::host::Read | paleo::host::PrivateStage |
+      paleo::host::CatalogPublish | paleo::host::Presentation;
+  const unsigned prepare = paleo::host::Read | paleo::host::PrivateStage;
+  for (const QString &id : {QStringLiteral("paleo.geostat_kriging"),
+                            QStringLiteral("paleo.geostat_sgs")}) {
+    const auto described = inspect({{"mode", "describe"},
+                                    {"target_kind", "tool"},
+                                    {"target_id", id},
+                                    {"sections", QJsonArray{QStringLiteral("lifecycle")}}});
+    QVERIFY2(described.ok, qPrintable(described.code));
+    const auto effects = payloadJson(described).value("sections").toObject()
+                             .value("effects").toObject();
+    const auto names = effects.value("declared_names").toArray();
+    QVERIFY(names.contains(QStringLiteral("private_stage")));
+    QVERIFY(names.contains(QStringLiteral("catalog_publish")));
+    QVERIFY(names.contains(QStringLiteral("presentation")));
+    QVERIFY(names.contains(QStringLiteral("read")));
+    QCOMPARE(names.size(), 4);
+    QCOMPARE(effects.value("declared_mask").toString(), QString::number(publish));
+    const AiToolSpec spec = aiToolSpec(id);
+    QCOMPARE(spec.effectsForArguments(QJsonObject{{"publish_intent", "prepare"}}), prepare);
+    QCOMPARE(spec.effectsForArguments(QJsonObject{{"publish_intent", "publish"}}), publish);
+    const auto checked = inspect(toolCheckArgs(id, QJsonObject{
+        {"client_request_id", "c"},
+        {"binding_mode", "pinned-value"},
+        {"publish_intent", "publish"},
+        {"parameters", QJsonObject{}},
+        {"inputs", QJsonObject{{"source_operation_id", "op"}}}}), readOnlyHost());
+    QVERIFY2(checked.ok, qPrintable(checked.code));
+    QCOMPARE(payloadJson(checked).value("check").toObject().value("policyAssessment").toObject()
+                 .value("effects_mask").toString(),
+             QString::number(publish));
+  }
 }
 
 void TestI5CapabilityInspection::counterExampleContoursCallableWithoutDedicatedTool() {

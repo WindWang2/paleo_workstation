@@ -942,7 +942,7 @@ bool WellSectionPanel::exportTo(const QString &path) const
     m_header->paintContents(&p, 0.0);
     m_scene->render(&p, QRectF(0, headerH, w, m_st.sceneHeight()),
                     QRectF(0, 0, w, m_st.sceneHeight()));
-    p.end();
+    if (!p.isActive() || !p.end()) return false;
     return true;
   }
   if (path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
@@ -962,7 +962,7 @@ bool WellSectionPanel::exportTo(const QString &path) const
     m_header->paintContents(&p, 0.0);
     m_scene->render(&p, QRectF(0, headerH, w, m_st.sceneHeight()),
                     QRectF(0, 0, w, m_st.sceneHeight()));
-    return true;
+    return p.isActive() && p.end();
   }
   return renderImage(1.0).save(path);
 }

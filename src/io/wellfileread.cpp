@@ -1,11 +1,18 @@
 // 层：数据
 #include "wellfileparsers.h"
 #include "nativemodel.h"
+#include "lasparser.h"
 #include <QFile>
 namespace {
 bool bytes(const QString &path,QByteArray &out,QString *error) {
   QFile file(path);
   if(!file.open(QIODevice::ReadOnly)) { if(error)*error=file.errorString(); return false; }
+  // A-05：与井表导入同一 LasParser::fileSizeLimit。超限返回 false，禁止读成空表成功。
+  if(file.size()>LasParser::fileSizeLimit()) {
+    if(error)*error=QStringLiteral("file too large (%1 MB limit): %2")
+        .arg(LasParser::fileSizeLimit()/(1024*1024)).arg(path);
+    return false;
+  }
   out=file.readAll();
   if(file.error()!=QFile::NoError) { if(error)*error=file.errorString(); return false; }
   return true;

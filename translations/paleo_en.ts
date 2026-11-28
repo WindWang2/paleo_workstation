@@ -14396,6 +14396,10 @@ Crossline: %3 ~ %4</source>
     <context>
         <name>LlmDiagnosticsPanel</name>
         <message>
+            <source>写入不完整</source>
+            <translation>Incomplete write</translation>
+        </message>
+        <message>
             <location filename="../src/ui/ai/llmdiagnosticspanel.cpp" line="34" />
             <source>以下动作均为显式启动：不点击不联网。目录/文本/流式各至多一次请求；工具往返最多两次小型模型请求（合成消息，非工程数据）。</source>
             <translation type="unfinished" />
@@ -15820,6 +15824,22 @@ Crossline: %3 ~ %4</source>
 </context>
     <context>
         <name>MappingWorkbench</name>
+        <message>
+            <source>自动解释草稿未能写入：%1</source>
+            <translation>Failed to write auto-explanation draft: %1</translation>
+        </message>
+        <message>
+            <source>自动解释草稿未能写入：%1（%2）</source>
+            <translation>Failed to write auto-explanation draft: %1 (%2)</translation>
+        </message>
+        <message>
+            <source>自动解释草稿未能写入</source>
+            <translation>Failed to write auto-explanation draft</translation>
+        </message>
+        <message>
+            <source>后台解释队列已满，较早的请求已被丢弃</source>
+            <translation>Background explanation queue is full; earlier requests were discarded</translation>
+        </message>
         <message>
             <source>预测层段与当前地震层位单元不一致，请重新选择层段</source>
             <translation type="unfinished" />
@@ -17770,6 +17790,14 @@ Crossline: %3 ~ %4</source>
 </context>
     <context>
         <name>MappingWorkbenchPage</name>
+        <message>
+            <source>相分类尚未保存</source>
+            <translation>Facies schema not saved</translation>
+        </message>
+        <message>
+            <source>有 %1 个层位包含未保存的微相分类。</source>
+            <translation>%1 horizon(s) contain unsaved microfacies schema drafts.</translation>
+        </message>
         <message>
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="118" />
             <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="128" />
@@ -22347,6 +22375,26 @@ Feature %4 · version %5</translation>
     </context>
     <context>
         <name>PaleoMainWindow</name>
+        <message>
+            <source>TOP 编辑尚未保存</source>
+            <translation>TOP edits not saved</translation>
+        </message>
+        <message>
+            <source>有 %1 个井预览包含未保存的 TOP 编辑。</source>
+            <translation>%1 well preview(s) contain unsaved TOP edits.</translation>
+        </message>
+        <message>
+            <source>地震解释尚未保存</source>
+            <translation>Seismic interpretation not saved</translation>
+        </message>
+        <message>
+            <source>剖面拾取未能写入磁盘。关闭或切换工程前是否重试保存？</source>
+            <translation>Section picks could not be written to disk. Retry saving before closing or switching projects?</translation>
+        </message>
+        <message>
+            <source>解释拾取仍未写入。</source>
+            <translation>Interpretation picks still failed to save.</translation>
+        </message>
         <message>
             <source>仅数据盘以外的只读工程需要复制</source>
             <translation>Only read-only projects outside the data drive need a copy</translation>
@@ -31013,6 +31061,22 @@ PDF：%3
     </context>
     <context>
         <name>QObject</name>
+        <message>
+            <source>健康检查拒绝跟随重定向: HTTP %1</source>
+            <translation>Health check refused to follow redirect: HTTP %1</translation>
+        </message>
+        <message>
+            <source>远端预测拒绝跟随重定向: HTTP %1</source>
+            <translation>Remote prediction refused to follow redirect: HTTP %1</translation>
+        </message>
+        <message>
+            <source>约束审计读取失败</source>
+            <translation>Failed to read constraint audit.</translation>
+        </message>
+        <message>
+            <source>无法删除计划外 LOD %1：%2</source>
+            <translation>Unable to remove unscheduled LOD %1: %2</translation>
+        </message>
         <message>
             <location filename="../src/services/paleotaskservice.cpp" line="35" />
             <source>任务在执行前已随工作台关闭</source>
@@ -46845,6 +46909,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     <context>
         <name>StratigraphyWorkflow</name>
         <message>
+            <source>工程参数写入失败</source>
+            <translation>Failed to write project area parameters</translation>
+        </message>
+        <message>
+            <source>工程参数写入不完整</source>
+            <translation>Incomplete write of project area parameters</translation>
+        </message>
+        <message>
             <location filename="../src/workflow/stratigraphyworkflow.cpp" line="51" />
             <source>解释方案列表读取失败：%1</source>
             <translation type="unfinished" />
@@ -59245,6 +59317,14 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
     </context>
 <context>
     <name>WellCompositePanel</name>
+        <message>
+            <source>TOP 编辑尚未保存</source>
+            <translation>TOP edits not saved</translation>
+        </message>
+        <message>
+            <source>本预览有未保存的 TOP 编辑。关闭前是否保存派生？</source>
+            <translation>This preview has unsaved TOP edits. Save derived results before closing?</translation>
+        </message>
     <message>
         <source>请在顶部选择地震层段</source>
         <translation>Select a seismic unit above</translation>
@@ -61611,6 +61691,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
 </context>
 <context>
     <name>MappingExplanationService</name>
+        <message>
+            <source>后台解释队列已满，该请求已被丢弃</source>
+            <translation>Background explanation queue is full; this request was discarded</translation>
+        </message>
     <message>
         <source>绘制/覆盖相面</source>
         <translation>Paint / overlay facies polygon</translation>

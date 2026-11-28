@@ -9,6 +9,10 @@
 #include <qgsmaplayer.h>
 #include <qgsmapsettings.h>
 #include <qgsproject.h>
+#include <qgsfeature.h>
+#include <qgsgeometry.h>
+#include <qgspointxy.h>
+#include <qgsvectorfilewriter.h>
 #include <qgsvectorlayer.h>
 
 #include "../src/catalog/datacatalog.h"
@@ -481,6 +485,64 @@ private slots:
     QVERIFY2(sawBasemapRemoval, "no basemap removal entry in error hub");
     // 声明仍在（拒绝卸除，非误删）。
     QVERIFY(!svc.declaration(QStringLiteral("basemap.hillshade")).layerId.isEmpty());
+  }
+
+  void crsLessLayerStaysUnlabeledOnEngineeringGrid()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QgisProjectService projectSvc;
+    QVERIFY2(projectSvc.createProject(tmp.filePath(QStringLiteral("proj.qgz"))),
+             qPrintable(projectSvc.lastErrors().join(QLatin1Char(';'))));
+    QVERIFY(projectSvc.project()->crs().type() == Qgis::CrsType::Engineering);
+
+    QgsVectorLayer memory(QStringLiteral("Point"), QStringLiteral("nosrs"), QStringLiteral("memory"));
+    QVERIFY(memory.isValid());
+    memory.setCrs(QgsCoordinateReferenceSystem());
+    QVERIFY(!memory.crs().isValid());
+    QgsFeature feature(memory.fields());
+    feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(10, 20)));
+    QVERIFY(memory.dataProvider()->addFeature(feature));
+    const QString path = tmp.filePath(QStringLiteral("nosrs.gpkg"));
+    QString writeError;
+    QgsVectorFileWriter::SaveVectorOptions options;
+    options.driverName = QStringLiteral("GPKG");
+    options.layerName = QStringLiteral("wells");
+    QCOMPARE(QgsVectorFileWriter::writeAsVectorFormatV3(
+                 &memory, path, QgsCoordinateTransformContext(), options, &writeError),
+             QgsVectorFileWriter::NoError);
+
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QString err;
+    QVERIFY2(manifest.open(&err), qPrintable(err));
+    QgisLayerService svc(&projectSvc, &manifest);
+    LayerDeclaration d;
+    d.layerId = QStringLiteral("wells.NOSRS");
+    d.type = QStringLiteral("vector");
+    d.source = path + QStringLiteral("|layername=wells");
+    QVERIFY2(svc.declare(d, &err), qPrintable(err));
+    auto *layer = svc.instantiate(d.layerId, &err);
+    QVERIFY2(layer, qPrintable(err));
+    QVERIFY(!layer->crs().isValid());
+    QCOMPARE(layer->crs().authid(), QString());
+    QVERIFY(layer->customProperty(QStringLiteral("paleoCrsProvenance")).toString()
+            != QLatin1String("confirmed_project_crs"));
+
+    PaleoGeoreference reference;
+    reference.kind = QStringLiteral("crs");
+    reference.sourceCrs = QStringLiteral("EPSG:3857");
+    reference.targetCrs = QStringLiteral("EPSG:4326");
+    projectSvc.setGeoreference(reference);
+    QVERIFY(projectSvc.project()->crs().isValid());
+    QVERIFY(projectSvc.project()->crs().type() != Qgis::CrsType::Engineering);
+    LayerDeclaration confirmedDecl = d;
+    confirmedDecl.layerId = QStringLiteral("wells.CONFIRMED");
+    QVERIFY2(svc.declare(confirmedDecl, &err), qPrintable(err));
+    auto *confirmed = svc.instantiate(confirmedDecl.layerId, &err);
+    QVERIFY2(confirmed, qPrintable(err));
+    QCOMPARE(confirmed->crs().authid(), QStringLiteral("EPSG:3857"));
+    QCOMPARE(confirmed->customProperty(QStringLiteral("paleoCrsProvenance")).toString(),
+             QStringLiteral("confirmed_project_crs"));
   }
 };
 

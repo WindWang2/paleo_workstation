@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSet>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -227,6 +228,7 @@ private slots:
   void thirdResumeStillSkipsCompleted();      // PW-005
   void duplicateFollowsFailedTwin();           // PW-026
   void unsafeBatchIdStaysInStateDir();         // PW-027
+  void corruptStateDoesNotStartFresh();
   void ownPoolSaturationDoesNotBlockDequeue();
   // B-01（full-audit-20261022）：批量任务 Low 优先级——同池排队时交互任务先出队。
   void batchTasksYieldPoolToInteractivePriority();
@@ -855,6 +857,49 @@ void TestBatchJobQueue::unsafeBatchIdStaysInStateDir()
     found = found || f.startsWith(QStringLiteral("______evil_x-"));
   QVERIFY2(found, qPrintable(files.join(QLatin1Char(','))));
   QVERIFY(!QFile::exists(m_dir.path() + QStringLiteral("/artifacts/evil/x.json")));
+}
+
+// 状态档在但损坏或版本不对时，resume/start 必须失败，不能当成首跑成功重跑。
+// 没有状态档的首跑仍然成功。
+void TestBatchJobQueue::corruptStateDoesNotStartFresh()
+{
+  setUp(1);
+  m_probe->gateOpen.store(1);
+  const BatchSpec s = makeSpec(QStringLiteral("bad-state"), {QStringLiteral("H1")},
+                               {QStringLiteral("m1")}, 1);
+  const QString path = m_queue->statePath(s.batchId);
+  QVERIFY(!path.isEmpty());
+  QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+  {
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    const QByteArray broken = QByteArrayLiteral("{not-json");
+    QCOMPARE(file.write(broken), qint64(broken.size()));
+  }
+  QString err;
+  QVERIFY(!m_queue->resume(s, &err));
+  QVERIFY2(err.contains(QStringLiteral("批次状态文件损坏")), qPrintable(err));
+  QVERIFY(!m_queue->busy());
+  QCOMPARE(m_probe->computeCalls.load(), 0);
+
+  {
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    const QByteArray body = QByteArrayLiteral("{\"state_version\":99,\"items\":[]}\n");
+    QCOMPARE(file.write(body), qint64(body.size()));
+  }
+  QVERIFY(!m_queue->start(s, &err));
+  QVERIFY2(err.contains(QStringLiteral("批次状态版本不兼容")), qPrintable(err));
+  QCOMPARE(m_probe->computeCalls.load(), 0);
+  QVERIFY(!m_queue->busy());
+
+  QVERIFY(QFile::remove(path));
+  err = QStringLiteral("sentinel");
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  QCOMPARE(err, QString());
+  QVERIFY(runToCompletion());
+  QCOMPARE(m_queue->report().succeeded, 1);
+  QCOMPARE(m_probe->executedCount(), 1);
 }
 
 // ---------------------------------------------------------------------------

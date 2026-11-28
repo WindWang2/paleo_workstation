@@ -594,6 +594,61 @@ private slots:
     QVERIFY(r.l0.valueMin < r.l0.valueMax);
   }
 
+  // D-05：计划外 LOD 不存在可以成功并清掉普通残留文件；删不掉时任务失败。
+  void obsoleteLodRemovalFailureIsNotSuccess()
+  {
+    QTemporaryDir dir;
+    const QString p = dir.filePath(QStringLiteral("lodrm.sgy"));
+    const QString l0 = dir.filePath(QStringLiteral("lodrm.sf3p"));
+    QVERIFY(writeStandardSegy(p, 4, 4, 64));
+    const QString obsolete = dir.filePath(QStringLiteral("lodrm.l1.sf3p"));
+    {
+      QFile planted(obsolete);
+      QVERIFY(planted.open(QIODevice::WriteOnly));
+      QVERIFY(planted.write("stale-lod") > 0);
+    }
+
+    Fixture fix;
+    bool done = false;
+    bool ok = false;
+    QString error;
+    fix.seismic.startPagedTranscodeDetailed(
+        p, l0, /*buildLod=*/false,
+        [&](bool success, const QString &, const QString &err) {
+          done = true;
+          ok = success;
+          error = err;
+        },
+        {});
+    QVERIFY(fix.waitFor([&]() { return done; }));
+    QVERIFY2(ok, qPrintable(error));
+    QVERIFY(!QFile::exists(obsolete));
+    QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("lodrm.l2.sf3p"))));
+    QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("lodrm.l3.sf3p"))));
+
+    QVERIFY(QDir().mkpath(obsolete + QStringLiteral("/blocked")));
+    QFile keep(obsolete + QStringLiteral("/blocked/keep.txt"));
+    QVERIFY(keep.open(QIODevice::WriteOnly));
+    QCOMPARE(keep.write("x"), qint64(1));
+    keep.close();
+
+    done = false;
+    ok = true;
+    error.clear();
+    fix.seismic.startPagedTranscodeDetailed(
+        p, l0, /*buildLod=*/false,
+        [&](bool success, const QString &, const QString &err) {
+          done = true;
+          ok = success;
+          error = err;
+        },
+        {});
+    QVERIFY(fix.waitFor([&]() { return done; }));
+    QVERIFY2(!ok, "D-05: failed LOD removal must not succeed");
+    QVERIFY(error.contains(QStringLiteral("L1")));
+    QVERIFY(QFileInfo(obsolete).exists());
+  }
+
 private:
   static QString sgy()
   {

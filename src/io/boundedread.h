@@ -46,8 +46,10 @@ inline bool readBoundedFile(const QString &path, qint64 limit, QByteArray *out,
                    .arg(path);
     return false;
   }
-  // limit<0（按 size 整读）：短读即失败——头注释承诺「读短返回 false」。
-  if (limit < 0 && bytes.size() != size)
+  // A-06：size()>0 时实读必须等于 size，limit>=0 与 limit<0 同一口径。
+  // size()==0 的管道/设备不走这条（上面最多读 limit+1）。限额内且实读
+  // 字节数等于 size 的常规文件仍然成功。
+  if (size > 0 && bytes.size() != size)
   {
     if (error)
       *error = QStringLiteral("short read %1 (%2 of %3 bytes)")

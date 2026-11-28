@@ -328,6 +328,14 @@ private slots:
     source.seismicPath = fixture.dir.filePath(QStringLiteral("missing.sgy"));
     QVERIFY(!prepareUnitOnnxPlan(&onnx, source, plan, {}, &error));
     QCOMPARE(error, QStringLiteral("seismic_source_unavailable"));
+    // 前两次取消检查是 prepare 入口闸。第三次起落在地震读取（检查或层位窗口，
+    // 句子是「地震读取已取消」/「地震层位窗口读取已取消」），必须是 cancelled。
+    int reads = 0;
+    const auto cancelDuringRead = [&reads] { return ++reads > 2; };
+    source = fixture.source(fixture.unit(1));
+    QVERIFY(!prepareUnitOnnxPlan(&onnx, source, plan, cancelDuringRead, &error));
+    QCOMPARE(error, QStringLiteral("cancelled"));
+    QVERIFY(plan.samples.isEmpty());
     // 未登记模型。
     QVERIFY(!prepareUnitOnnxPlan(&onnx, fixture.source(fixture.unit(1), QStringLiteral("ghost")), plan, {}, &error));
     QCOMPARE(error, QStringLiteral("model_unavailable"));
@@ -594,7 +602,23 @@ private slots:
     QVERIFY(!FrozenUnitOnnxPlan::fromJson(tampered, forged, &error));
     QVERIFY(forged.samples.isEmpty());
   }
-#else
+#endif
+
+  void seismicWindowCancelIsNotSourceUnavailable()
+  {
+    QCOMPARE(unitOnnxInputFailureCode(QStringLiteral("已取消")), QStringLiteral("cancelled"));
+    QCOMPARE(unitOnnxInputFailureCode(QStringLiteral("地震读取已取消")), QStringLiteral("cancelled"));
+    QCOMPARE(unitOnnxInputFailureCode(QStringLiteral("地震层位窗口读取已取消")),
+             QStringLiteral("cancelled"));
+    QCOMPARE(unitOnnxInputFailureCode(QStringLiteral("所选地震来源不在当前工区数据服务中")),
+             QStringLiteral("seismic_source_unavailable"));
+    QCOMPARE(unitOnnxInputFailureCode(QStringLiteral("工区中没有已导入的地震体")),
+             QStringLiteral("seismic_source_unavailable"));
+    QCOMPARE(unitOnnxInputFailureCode(QStringLiteral("当前层位单元内没有有效地震样点")),
+             QStringLiteral("unit_window_no_valid_samples"));
+  }
+
+#if !PALEO_HAVE_ORT
   void withoutOrtTheEntryPointsAreStructuredUnavailable()
   {
     UnitOnnxPrepareSource source;

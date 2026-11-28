@@ -16,11 +16,27 @@ bool Well::hasCoordinates() const {
   return std::isfinite(x) && std::isfinite(y);
 }
 
+namespace {
+// 同名顶取最浅有限 MD；只有一个顶时原样返回。
+double shallowestTopMd(const QVector<Top> &tops, const QString &name) {
+  double best = qQNaN();
+  bool found = false;
+  for (const Top &t : tops) {
+    if (t.name != name)
+      continue;
+    if (!found) {
+      best = t.md;
+      found = true;
+    }
+    if (std::isfinite(t.md) && (!std::isfinite(best) || t.md < best))
+      best = t.md;
+  }
+  return found ? best : qQNaN();
+}
+} // namespace
+
 double Well::topMd(const QString &name) const {
-  for (const Top &t : tops)
-    if (t.name == name)
-      return t.md;
-  return qQNaN();
+  return shallowestTopMd(tops, name);
 }
 
 const Curve *Well::curve(const QString &mnemonic) const {
@@ -66,9 +82,7 @@ QVector<Link> links(const Well &left, const Well &right) {
   const auto &lt = seismic ? *left.correlationTops : left.tops;
   const auto &rt = seismic ? *right.correlationTops : right.tops;
   for (const Top &t : lt) {
-    double r = qQNaN();
-    for (const auto &top : rt) if (top.name == t.name) { r = top.md; break; }
-    if (!std::isfinite(t.md) || !std::isfinite(r))
+    if (!std::isfinite(t.md))
       continue;
     bool dup = false;
     for (const Link &l : out)
@@ -76,8 +90,13 @@ QVector<Link> links(const Well &left, const Well &right) {
         dup = true;
         break;
       }
-    if (!dup)
-      out.push_back({t.name, t.md, r});
+    if (dup)
+      continue;
+    const double leftMd = shallowestTopMd(lt, t.name);
+    const double rightMd = shallowestTopMd(rt, t.name);
+    if (!std::isfinite(leftMd) || !std::isfinite(rightMd))
+      continue;
+    out.push_back({t.name, leftMd, rightMd});
   }
   return out;
 }
@@ -697,7 +716,13 @@ QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
       k = r + 1;
     }
     // 薄段并入前段（块首并入后段），再合并相邻同类；NaN 断块之间不并。
+    // base 浅于 top 的 run 直接丢弃，不把该底深抄到邻段。
     for (int i = 0; i < block.size(); ++i) {
+      if (block[i].baseMd < block[i].topMd) {
+        block.remove(i);
+        --i;
+        continue;
+      }
       if (block[i].baseMd - block[i].topMd >= minThicknessM)
         continue;
       if (block.size() == 1)

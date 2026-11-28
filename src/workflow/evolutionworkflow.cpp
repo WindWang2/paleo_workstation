@@ -419,7 +419,13 @@ bool EvolutionWorkflow::analyzePair( const QString &earlierHorizon, const QStrin
       discardStaged();
       return fail( tr( "无法写指标表：%1" ).arg( metricsStaging.absolutePath ) );
     }
-    if ( csv.write( bytes ) != bytes.size() )
+    const qint64 wrote = csv.write( bytes );
+    const bool writeOk = wrote == static_cast<qint64>( bytes.size() );
+    // close() 成功会清掉 error()，flush 失败必须在 close 前记下，否则
+    // commitExternal 会把未落盘的指标表登记成版本。
+    const bool flushOk = writeOk && csv.flush();
+    csv.close();
+    if ( !writeOk || !flushOk || csv.error() != QFileDevice::NoError )
     {
       m_metricsRows.remove( m_metricsRows.size() - pendingRows.size(), pendingRows.size() );
       discardStaged();

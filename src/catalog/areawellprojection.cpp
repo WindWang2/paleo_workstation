@@ -138,27 +138,58 @@ bool registerAreaWells(DataCatalog &catalog, QString *error) {
   if (!data.error.isEmpty()) { if (error) *error = data.error; return false; }
   DataCatalog::BatchSave batch(&catalog);
   // Public reads already overlay the latest model and can hide stale persisted values.
-  const auto existing = catalog.storedEntities("well");
-  QHash<qlonglong, int> byId; QHash<QString, int> byName;
+  // Pass 1 binds by areaModelWellId and refreshes the maps. Pass 2 may adopt a card
+  // only when that card has no model id and the name hits exactly one such card.
+  // A card that already has a different model id is never overwritten.
+  auto existing = catalog.storedEntities("well");
+  QHash<qlonglong, int> byId; QHash<QString, int> unboundByName;
   for (int i = 0; i < existing.size(); ++i) {
     const auto id = existing[i].extra.value("areaModelWellId").toLongLong();
     if (id) byId.insert(id, byId.contains(id) ? -1 : i);
-    byName.insert(existing[i].name, byName.contains(existing[i].name) ? -1 : i);
+    else unboundByName.insert(existing[i].name, unboundByName.contains(existing[i].name) ? -1 : i);
   }
-  for (const auto &model : data.rows) {
+  auto persist = [&](int match, const CatalogEntity &model) {
+    const auto updated = catalogRecord(overlayAreaWell(existing[match], model));
+    if (!sameWellProjection(existing[match], updated) && !catalog.updateEntity(updated, error)) return false;
+    const QString oldName = existing[match].name;
+    const auto oldId = existing[match].extra.value("areaModelWellId").toLongLong();
+    existing[match] = updated;
+    if (!oldId && unboundByName.value(oldName) == match) unboundByName.remove(oldName);
+    const auto newId = updated.extra.value("areaModelWellId").toLongLong();
+    if (newId) byId.insert(newId, match);
+    return true;
+  };
+  auto ambiguous = [&](const QString &name) {
+    if (error) *error = QStringLiteral("ambiguous catalog well for area model: ") + name;
+    batch.abort();
+    return false;
+  };
+  QVector<int> pending;
+  for (int mi = 0; mi < data.rows.size(); ++mi) {
+    const auto &model = data.rows[mi];
     const auto id = model.extra.value("areaModelWellId").toLongLong();
-    const int match = byId.value(id, byName.value(model.name, -2));
-    if (match == -1) {
-      if (error) *error = QStringLiteral("ambiguous catalog well for area model: ") + model.name;
-      batch.abort(); return false;
+    if (!id || !byId.contains(id)) { pending.append(mi); continue; }
+    if (byId.value(id) < 0) return ambiguous(model.name);
+    if (!persist(byId.value(id), model)) { batch.abort(); return false; }
+  }
+  for (int mi : pending) {
+    const auto &model = data.rows[mi];
+    const auto id = model.extra.value("areaModelWellId").toLongLong();
+    if (id && byId.contains(id)) {
+      if (byId.value(id) < 0) return ambiguous(model.name);
+      if (!persist(byId.value(id), model)) { batch.abort(); return false; }
+      continue;
     }
-    if (match >= 0) {
-      const auto updated = catalogRecord(overlayAreaWell(existing[match], model));
-      if (!sameWellProjection(existing[match], updated) && !catalog.updateEntity(updated, error)) { batch.abort(); return false; }
+    const int nameMatch = unboundByName.value(model.name, -2);
+    if (nameMatch == -1) return ambiguous(model.name);
+    if (nameMatch >= 0) {
+      if (!persist(nameMatch, model)) { batch.abort(); return false; }
       continue;
     }
     auto entity = catalogRecord(model); entity.id = catalog.nextEntityId("well");
     if (!catalog.addEntity(entity, error)) { batch.abort(); return false; }
+    existing.append(entity);
+    if (id) byId.insert(id, existing.size() - 1);
   }
   return batch.flush(error);
 }

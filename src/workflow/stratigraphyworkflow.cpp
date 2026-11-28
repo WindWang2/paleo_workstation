@@ -279,7 +279,17 @@ void StratigraphyWorkflow::activateClassification(qlonglong wellId) {
  }
  configuration["sequence_boundaries"]=QJsonArray::fromStringList(names);
  if(!names.contains(configuration.value("target_horizon").toString()))configuration["target_horizon"]=names.first();
- QSaveFile output(path);if(!output.open(QIODevice::WriteOnly)||output.write(QJsonDocument(configuration).toJson())<0||!output.commit()) {emit statusChanged(output.errorString());return;}
+ const QByteArray payload=QJsonDocument(configuration).toJson();
+ QSaveFile output(path);
+ output.setDirectWriteFallback(false);
+ if(!output.open(QIODevice::WriteOnly)){emit statusChanged(output.errorString().isEmpty()?tr("工程参数写入失败"):output.errorString());return;}
+ if(output.write(payload)!=payload.size()){
+  const QString why=output.errorString();
+  output.cancelWriting();
+  emit statusChanged(why.isEmpty()?tr("工程参数写入不完整"):why);
+  return;
+ }
+ if(!output.commit()){emit statusChanged(output.errorString().isEmpty()?tr("工程参数写入失败"):output.errorString());return;}
  AreaRules::setProjectDir(d->project);emit classificationChanged(names);
  emit statusChanged(tr("已将所选井的地层界面应用到当前工程，分层版本与原始资料均可追溯"));
 }

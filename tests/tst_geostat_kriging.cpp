@@ -34,6 +34,16 @@ GridSpec makeGrid( int cols, int rows, double x0, double y0, double cell )
   return grid;
 }
 
+std::vector<Sample> samplesPastFactorCap()
+{
+  std::vector<Sample> samples;
+  const int n = kMaxGlobalFactorSamples + 1;
+  samples.reserve( static_cast<std::size_t>( n ) );
+  for ( int i = 0; i < n; ++i )
+    samples.push_back( Sample{ static_cast<double>( i ), 0.0, static_cast<double>( i % 5 ) } );
+  return samples;
+}
+
 } // namespace
 
 class GeostatKrigingTests : public QObject
@@ -41,6 +51,8 @@ class GeostatKrigingTests : public QObject
   Q_OBJECT
 private slots:
     void globalModeFactorsOnceMatchesLocal();
+    void overCapNeighborhoodReturnsInvalidInput();
+    void neighborhoodWithinFactorCapStillSolves();
     void gaussianZeroNuggetStaysInDataRange();
   void exactAtSamplePoints();
   void gridPipelineMatchesPointQueries();
@@ -367,6 +379,59 @@ void GeostatKrigingTests::globalModeFactorsOnceMatchesLocal()
   QCOMPARE( grid.status, Status::Ok );
   QCOMPARE( grid.finiteCells, 900 );
 
+}
+
+void GeostatKrigingTests::overCapNeighborhoodReturnsInvalidInput()
+{
+  // C-01：n > kMaxGlobalFactorSamples 时不逐格分解 (n+1)^2。maxPoints<=0 仍是
+  // 「全部样本」，但求解时拒绝，状态是 InvalidInput，不是半幅 Ok。
+  const std::vector<Sample> samples = samplesPastFactorCap();
+  const VariogramModel model = sphericalModel();
+  const GridSpec grid = makeGrid( 1, 1, -0.5, 0.5, 1.0 );
+  KrigingParams global;
+  global.maxPoints = 0;
+  const KrigingResult refused = ordinaryKriging( samples, grid, model, global );
+  QCOMPARE( refused.status, Status::InvalidInput );
+  QCOMPARE( refused.message, std::string( "kriging neighborhood exceeds factorization budget" ) );
+  QVERIFY( refused.estimate.empty() );
+  QVERIFY( refused.variance.empty() );
+
+  const KrigingSolver point( samples, model, global );
+  QVERIFY( point.valid() );
+  QVERIFY( !point.solveAt( 0.0, 0.0 ).ok );
+
+  KrigingParams wide;
+  wide.maxPoints = 0;
+  wide.searchRadius = 100000.0;
+  wide.minPoints = 1;
+  const KrigingResult radius = ordinaryKriging( samples, grid, model, wide );
+  QCOMPARE( radius.status, Status::InvalidInput );
+  QCOMPARE( radius.message, std::string( "kriging neighborhood exceeds factorization budget" ) );
+  QVERIFY( radius.estimate.empty() );
+}
+
+void GeostatKrigingTests::neighborhoodWithinFactorCapStillSolves()
+{
+  // 样本册超过上限，但实际邻域不超过：半径只盖住近处几口，以及 K=16，都照常解。
+  std::vector<Sample> samples = samplesPastFactorCap();
+  for ( int i = 6; i < static_cast<int>( samples.size() ); ++i )
+    samples[static_cast<std::size_t>( i )].x = 1000000.0 + i;
+  const VariogramModel model = sphericalModel();
+  const GridSpec grid = makeGrid( 1, 1, -0.5, 0.5, 1.0 );
+  KrigingParams radius;
+  radius.maxPoints = 0;
+  radius.searchRadius = 20.0;
+  radius.minPoints = 1;
+  const KrigingResult near = ordinaryKriging( samples, grid, model, radius );
+  QCOMPARE( near.status, Status::Ok );
+  QCOMPARE( near.finiteCells, 1 );
+
+  KrigingParams capped;
+  capped.maxPoints = 16;
+  const KrigingResult local =
+      ordinaryKriging( samplesPastFactorCap(), makeGrid( 2, 2, -1.0, 1.0, 1.0 ), model, capped );
+  QCOMPARE( local.status, Status::Ok );
+  QCOMPARE( local.finiteCells, 4 );
 }
 
 QTEST_MAIN( GeostatKrigingTests )

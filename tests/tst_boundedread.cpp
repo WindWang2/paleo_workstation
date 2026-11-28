@@ -67,6 +67,32 @@ private slots:
     QVERIFY2(paleo::io::readBoundedFile(empty, -1, &out2, &err), qPrintable(err));
     QCOMPARE(out2, QByteArray());
   }
+  // A-06：正限额下 size 小于限额的常规文件必须整读成功（实读 == size）。
+  // size()==0 的空文件仍成功。短读（实读 != size）由 readBoundedFile 返回
+  // false；常规 QFile 一次读回全部字节，这里钉住不得误拒。
+  void positiveLimitReadsWholeSmallerFile()
+  {
+    QTemporaryDir d;
+    const QString p = d.filePath("short.txt");
+    {
+      QFile f(p);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("hello");
+      f.close();
+    }
+    QByteArray out;
+    QString err;
+    QVERIFY2(paleo::io::readBoundedFile(p, 100, &out, &err), qPrintable(err));
+    QCOMPARE(out, QByteArray("hello"));
+    const QString empty = d.filePath("empty.txt");
+    {
+      QFile f(empty);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+    }
+    QByteArray out2("untouched");
+    QVERIFY2(paleo::io::readBoundedFile(empty, 100, &out2, &err), qPrintable(err));
+    QCOMPARE(out2, QByteArray());
+  }
 };
 QTEST_GUILESS_MAIN(TestBoundedRead)
 #include "tst_boundedread.moc"

@@ -165,6 +165,7 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
     loadBookmarksFromSettings(); // D2.12：体身份确定后才有 settings 键
     // D4.8：会话锚定到 SEG-Y 伴生文件（存在即自动恢复）
     m_session = SeismicInterpretationSession{};
+    m_interpretationUnsaved = false;
     m_session.sourceSgyPath = paleo::fromFsPath(m_volume->Path());
     SeismicTaskService::loadSession(m_session.sourceSgyPath, m_session, nullptr);
     refreshInterpretationOverlay();

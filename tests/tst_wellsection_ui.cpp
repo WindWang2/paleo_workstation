@@ -2118,6 +2118,7 @@ class TestWellSectionUi : public QObject
       QVERIFY(!panel.exportTo(badDir + QStringLiteral("/tops.csv")));
       QVERIFY(!panel.exportTo(badDir + QStringLiteral("/section.png")));
       QVERIFY(!panel.exportTo(badDir + QStringLiteral("/section.svg")));
+      QVERIFY(!panel.exportTo(badDir + QStringLiteral("/section.pdf")));
     }
 
     // ---- QGIS 侧联动面：剖面线位带 + 井点闪烁（offscreen canvas）----

@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <system_error>
 
 namespace seismic {
 
@@ -624,8 +625,20 @@ PaleoTask *SeismicTaskService::startPagedTranscodeImpl(
       const QString tag = QStringLiteral("L%1").arg(level);
       if (plannedLevels.contains(tag))
         continue;
+      // D-05：计划外且不存在 → 成功；文件还在或删除报错都不得报成功。
       std::error_code ec;
-      std::filesystem::remove(engine::PagedLodPath(l0, level), ec);
+      const auto lodPath = engine::PagedLodPath(l0, level);
+      if (std::filesystem::remove(lodPath, ec))
+        continue;
+      if (!ec) {
+        std::error_code existsEc;
+        if (!std::filesystem::exists(lodPath, existsEc) && !existsEc)
+          continue;
+        if (!existsEc)
+          ec = std::make_error_code(std::errc::io_error);
+      }
+      return QObject::tr("无法删除计划外 LOD %1：%2")
+          .arg(tag, QString::fromStdString(ec.message()));
     }
     *outLevels = plannedLevels;
     return QString();

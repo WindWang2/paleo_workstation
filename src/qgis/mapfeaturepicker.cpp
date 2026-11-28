@@ -28,7 +28,11 @@ QList<Hit> candidates(QgsMapCanvas *canvas, QgsVectorLayer *layer, QPoint pos) {
   const QgsRectangle bounds(point.x() - radius, point.y() - radius, point.x() + radius, point.y() + radius);
   const bool transform = layer->crs().isValid() && settings.destinationCrs().isValid() &&
                          layer->crs() != settings.destinationCrs();
-  QgsCoordinateTransform toMap(layer->crs(), settings.destinationCrs(), settings.transformContext());
+  QgsCoordinateTransform toMap(transform ? layer->crs() : settings.destinationCrs(),
+                               settings.destinationCrs(), settings.transformContext());
+  // 建不出坐标操作时不要拿画布单位半径去比图层坐标（静默错选比未命中更糟）。
+  if (transform && !toMap.isValid())
+    return {};
   const auto queryBounds = transform ? toMap.transformBoundingBox(bounds, Qgis::TransformDirection::Reverse) : bounds;
   auto rows = layer->getFeatures(QgsFeatureRequest().setFilterRect(queryBounds).setNoAttributes());
   QList<Hit> hits;
@@ -36,7 +40,8 @@ QList<Hit> candidates(QgsMapCanvas *canvas, QgsVectorLayer *layer, QPoint pos) {
   while (rows.nextFeature(feature)) {
     auto geometry = feature.geometry();
     if (geometry.isEmpty()) continue;
-    if (transform) geometry.transform(toMap);
+    if (transform && geometry.transform(toMap) != Qgis::GeometryOperationResult::Success)
+      continue;
     const double distance = geometry.distance(center);
     if (distance >= 0 && distance <= radius) hits.append({feature.id(), distance});
   }

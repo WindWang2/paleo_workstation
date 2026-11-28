@@ -450,11 +450,20 @@ QString DataPreviewTabs::assetIdAt(int index) const
   return QString();
 }
 
-void DataPreviewTabs::closeAssetTab(const QString &assetId)
+bool DataPreviewTabs::closeAssetTab(const QString &assetId, bool promptEdits)
 {
   QWidget *page = m_pageOfAsset.value(assetId);
   if (!page)
-    return;
+    return false;
+  if (promptEdits) {
+    if (auto *self = qobject_cast<WellComposite::WellCompositePanel *>(page))
+      if (!self->resolveUnsavedEdits())
+        return false;
+    const auto panels = page->findChildren<WellComposite::WellCompositePanel *>();
+    for (auto *panel : panels)
+      if (!panel->resolveUnsavedEdits())
+        return false;
+  }
   // I4：typed 导航挂起回执随页关闭收口（cancelled——晚到的解码结果无人
   // 等待，不产生第二终态）。
   dropNavigationWatch(assetId, QStringLiteral("cancelled"), tr("预览页面已关闭"));
@@ -484,13 +493,14 @@ void DataPreviewTabs::closeAssetTab(const QString &assetId)
     m_tabs->setVisible(false);
     m_emptyLabel->setVisible(true);
   }
+  return true;
 }
 
 void DataPreviewTabs::closeAllTabs()
 {
   const QStringList ids = m_pageOfAsset.keys();
   for (const QString &id : ids)
-    closeAssetTab(id);
+    closeAssetTab(id, false);
   // 不在 m_pageOfAsset 里登记的页（理论上没有）一并摘掉，确保空态。
   while (m_tabs->count() > 0)
   {

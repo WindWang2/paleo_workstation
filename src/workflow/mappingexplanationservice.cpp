@@ -153,8 +153,18 @@ public slots:
         return;
       }
     }
-    while (int(m_queue.size()) >= kMaxQueuedRequests)
+    while (int(m_queue.size()) >= kMaxQueuedRequests) {
+      const auto droppedReq = m_queue.front();
       m_queue.pop_front();
+      if (m_shuttingDown || droppedReq.generation != m_generation->load())
+        continue;
+      auto dropped = baseResult(droppedReq);
+      dropped.generator = QStringLiteral("queue_dropped");
+      dropped.fallbackReason =
+          MappingExplanationService::tr("后台解释队列已满，该请求已被丢弃");
+      // +1：即将入队的新请求仍留在队列里，丢弃通知不能把忙状态收成空闲。
+      emit completed(dropped, int(m_queue.size()) + 1, m_highWaterSeq);
+    }
     m_queue.push_back(request);
     if (!m_running)
       processNext();

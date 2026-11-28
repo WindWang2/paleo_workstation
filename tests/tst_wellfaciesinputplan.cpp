@@ -275,6 +275,18 @@ private slots:
     QCOMPARE(wf::loadInput(f.job.projectDir,ref).code,"stored_input_hash_mismatch");
     auto escaped=ref;escaped.insert("directory","../outside");QCOMPARE(wf::loadInput(f.job.projectDir,escaped).code,"invalid_stored_input_ref");
   }
+  void cancelledStoredLoadIsNotHashMismatch() {
+    // D-06：取消读冻结输入报 cancelled；真正的哈希不符仍见上一测试。
+    Fixture f;QVERIFY2(f.init(),f.error.c_str());
+    const auto input=wf::prepareInput(f.job);QVERIFY2(input.ok,qPrintable(input.error));
+    QString code;const auto ref=wf::storeInput(f.job.projectDir,input,code);
+    QVERIFY2(!ref.isEmpty(),qPrintable(code));
+    QCOMPARE(wf::loadInput(f.job.projectDir,ref,[]{return true;}).code,"cancelled");
+    int reads=0;
+    QCOMPARE(wf::loadInput(f.job.projectDir,ref,[&]{return ++reads>1;}).code,"cancelled");
+    const auto loaded=wf::loadInput(f.job.projectDir,ref);
+    QVERIFY2(loaded.ok,qPrintable(loaded.error));
+  }
   void typedRequestHasNoNameOrPathFallback() {
     Fixture f;QVERIFY2(f.init(),f.error.c_str());
     QJsonObject json{{"contract_version",2},{"client_request_id",f.job.request.clientRequestId},

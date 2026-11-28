@@ -90,7 +90,10 @@ bool resolveImportedWellDepths(ImportSession &s, QString *error) {
     // Only normalize this import's accepted tables. Existing edited interpretations stay authoritative.
     if (!s.cat->isStagedVersion(version.id) || !version.extra.value("wellTableParsed").toBool()) continue;
     auto tops = parseWellTopsText(contents(s.cat.get(), version));
-    auto bases = readWellTableBases(s.cat->versionFilePath(version));
+    QString baseError;
+    auto bases = readWellTableBases(s.cat->versionFilePath(version), &baseError);
+    // A-02：底界读失败或超过底界读取限额时保留原表，禁止用空底界重写。
+    if (!baseError.isEmpty()) { if (error) *error = baseError; return false; }
     int resolved = 0, unresolved = 0; QStringList inputs;
     const auto convert = [&](WellTopRecord &record) {
       if (record.hasMd || !record.hasTvd) return;

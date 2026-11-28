@@ -294,6 +294,7 @@ Interval formationInterval(const Well &w, const QString &activeTop,
 // GR 切砂：value < cutoff 为砂。按升序处理（降序输入先反转）；NaN 深度/
 // 数值断段；异类相邻有限样点间以深度中点为界，断边以有限样点深度为界。
 // 薄于 minThicknessM 的段并入前一段（段首则并入后一段），再合并相邻同类。
+// baseMd < topMd 的段直接丢弃，不把该底深写回邻段。
 struct LithoInterval {
   double topMd = 0;
   double baseMd = 0;

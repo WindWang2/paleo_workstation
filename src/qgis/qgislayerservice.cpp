@@ -300,14 +300,18 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   // 转换上下文显示（配准工程走显式坐标操作），不再把无 CRS 层当画布坐标。
   paleo::constraintcrs::assignStoreCrsIfMissing(layer.get());
   if (!layer->crs().isValid()) {
-    QString auth = QStringLiteral("EPSG:32650");
-    if (m_projectSvc && m_projectSvc->georeference() && m_projectSvc->georeference()->kind == QLatin1String("crs")
-        && !m_projectSvc->georeference()->sourceCrs.isEmpty())
-      auth = m_projectSvc->georeference()->sourceCrs;
-    const QgsCoordinateReferenceSystem confirmed(auth);
-    if (confirmed.isValid()) {
-      layer->setCrs(confirmed);
-      layer->setCustomProperty(QStringLiteral("paleoCrsProvenance"), QStringLiteral("confirmed_project_crs"));
+    // 工程网格没有大地基准：不贴 EPSG:32650，也不标 confirmed_project_crs。
+    // 未确认保持「无 CRS」（layerCrsProvenance 的 "none"），不另造状态串。
+    const bool engineeringGrid = !proj || !proj->crs().isValid()
+        || proj->crs().type() == Qgis::CrsType::Engineering;
+    const auto *reference = m_projectSvc && m_projectSvc->georeference() ? &*m_projectSvc->georeference() : nullptr;
+    if (!engineeringGrid && reference && reference->kind == QLatin1String("crs")
+        && !reference->sourceCrs.isEmpty()) {
+      const QgsCoordinateReferenceSystem confirmed(reference->sourceCrs);
+      if (confirmed.isValid() && confirmed.type() != Qgis::CrsType::Engineering) {
+        layer->setCrs(confirmed);
+        layer->setCustomProperty(QStringLiteral("paleoCrsProvenance"), QStringLiteral("confirmed_project_crs"));
+      }
     }
   }
   // P3：混合几何伴随视图直连约束库，只读——编辑必须走主图层的约束会话（审计/撤销）。

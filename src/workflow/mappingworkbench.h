@@ -434,7 +434,7 @@ private:
   void onBackgroundExplanationReady(const MappingExplanationResult &result);
   QString draftExplanationsPath(const QString &layerId) const;
   QHash<QString, QVariantMap> loadDraftExplanations(const QString &layerId) const;
-  void saveDraftExplanations(const QString &layerId) const;
+  bool saveDraftExplanations(const QString &layerId, QString *error = nullptr) const;
   void materializePendingExplanations(QgsVectorLayer *layer, const QString &layerId);
   void refreshLastExplanation(const QString &layerId);
 public:

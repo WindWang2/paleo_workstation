@@ -281,14 +281,20 @@ void parseSheet(WellTable &out, const WorkbookSheet &sheet, const QVariantMap &m
 }
 
 QString wellSourceCrsHint(const QString &text) { return inferredCrs(text); }
-QVector<WellTopRecord> readWellTableBases(const QString &path)
+QVector<WellTopRecord> readWellTableBases(const QString &path, QString *error)
 {
+  if (error) error->clear();
   const auto extension = QFileInfo(path).suffix().toLower();
   if (extension == "dat") {
     // finding-61：与 readWellDelimitedTable 同口径的 64 MB 预算——此前
     // readAll() 无闸，坏/巨大 .dat 会把整文件读进内存。
+    // A-02：超限/读失败不是「没有底界」，必须把原因交回调用方。
     QByteArray bytes;
-    if (!readBoundedFile(path, 64ll * 1024 * 1024, &bytes)) return {};
+    QString readError;
+    if (!readBoundedFile(path, 64ll * 1024 * 1024, &bytes, &readError)) {
+      if (error) *error = readError;
+      return {};
+    }
     const auto tops = parseWellTopsText(bytes);
     // issue-796：井名+层名 → 顶界记录的哈希索引（首条命中，与 find_if 一致）
     // ——逐行 find_if 是 O(行×顶界)，大表直接把分类/导入卡死。
@@ -320,7 +326,16 @@ QVector<WellTopRecord> readWellTableBases(const QString &path)
   // scratch 后丢弃——单趟行解析同时产出两者，见 parseSheet 的 basesOut。
   WellTable scratch;
   QVector<WellTopRecord> bases;
-  if (workbook.ok) for (const auto &sheet : workbook.sheets) parseSheet(scratch, sheet, {}, &bases);
+  if (!workbook.ok) {
+    // A-02：无表头是读完后的空底界。打不开、超限、容器损坏要报错，不能当成没有底界。
+    const bool noHeader = workbook.error == QStringLiteral("井位文本没有可用表头");
+    if (error && !noHeader)
+      *error = workbook.error.isEmpty()
+                   ? QStringLiteral("cannot read well table bases: %1").arg(path)
+                   : workbook.error;
+    return {};
+  }
+  for (const auto &sheet : workbook.sheets) parseSheet(scratch, sheet, {}, &bases);
   return bases;
 }
 bool isWellTableContainer(const QString &path)

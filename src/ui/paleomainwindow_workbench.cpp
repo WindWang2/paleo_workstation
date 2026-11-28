@@ -38,6 +38,8 @@
 #include "pages/composepage.h"
 #include "pages/constraintpage.h"
 #include "pages/datapage.h"
+#include "seismicsection/seismicsectiondockwidget.h"
+#include "wellcomposite/wellcompositepanel.h"
 #include "pages/datagraphpage.h"
 #include "pages/mappingworkbenchpage.h"
 #include "pages/mappingreferencepanel.h"
@@ -900,4 +902,53 @@ void PaleoMainWindow::attachClusterInspector(MappingWorkbench *workbench, const 
 bool PaleoMainWindow::resolveClusterDrafts() {
   auto *panel = findChild<ClusterPatchInspector *>();
   return !panel || panel->resolveDrafts();
+}
+
+bool PaleoMainWindow::resolveFaciesDrafts() {
+  const auto pages = findChildren<MappingWorkbenchPage *>();
+  for (auto *page : pages)
+    if (page && !page->resolveFaciesDrafts())
+      return false;
+  return true;
+}
+
+bool PaleoMainWindow::resolveCompositeEdits() {
+  QList<WellComposite::WellCompositePanel *> dirty;
+  for (auto *panel : findChildren<WellComposite::WellCompositePanel *>())
+    if (panel && panel->hasUnsavedDerivedEdits())
+      dirty << panel;
+  if (dirty.isEmpty())
+    return true;
+  const auto choice = PaleoNotify::askSaveDiscard(
+      this, PaleoNotify::AskIcon::Question, tr("TOP 编辑尚未保存"),
+      tr("有 %1 个井预览包含未保存的 TOP 编辑。").arg(dirty.size()),
+      tr("保存派生"), tr("放弃"), tr("取消"));
+  if (choice == PaleoNotify::SaveChoice::Cancel)
+    return false;
+  if (choice == PaleoNotify::SaveChoice::Save)
+    for (auto *panel : dirty)
+      if (!panel->saveDerived())
+        return false;
+  return true;
+}
+
+bool PaleoMainWindow::resolveInterpretationEdits() {
+  auto *dock = m_seismicSectionDock;
+  if (!dock || !dock->hasUnsavedInterpretation())
+    return true;
+  const auto choice = PaleoNotify::askSaveDiscard(
+      this, PaleoNotify::AskIcon::Warning, tr("地震解释尚未保存"),
+      tr("剖面拾取未能写入磁盘。关闭或切换工程前是否重试保存？"),
+      tr("保存"), tr("放弃"), tr("取消"));
+  if (choice == PaleoNotify::SaveChoice::Cancel)
+    return false;
+  if (choice == PaleoNotify::SaveChoice::Save) {
+    QString err;
+    if (!dock->saveInterpretationSession(&err)) {
+      PaleoNotify::warning(this, tr("会话保存失败"),
+                           err.isEmpty() ? tr("解释拾取仍未写入。") : err);
+      return false;
+    }
+  }
+  return true;
 }

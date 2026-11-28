@@ -36,7 +36,9 @@ WellTable readWellTable(const QString &path, const QVariantMap &mapping, QVector
                         const WellTableCancelCheck &cancel = {});
 WellTable previewWellTable(const QString &path, const QVariantMap &mapping = {});
 // 同一表的显式层底界；使用独立边界记录，MD/TVD 缺失标记保持一致。
-QVector<WellTopRecord> readWellTableBases(const QString &path);
+// error 非空且读失败（打不开 / 超底界读取限额）时写入原因并返回空。
+// 读成功但确实没有底界行：error 清空，返回空，调用方仍可写顶界。
+QVector<WellTopRecord> readWellTableBases(const QString &path, QString *error = nullptr);
 QByteArray writeWellLayerTable(const QVector<WellTopRecord> &tops, const QVector<WellTopRecord> &bases);
 bool resolveImportedWellDepths(ImportSession &session, QString *error);
 struct ValidatedWellInput {

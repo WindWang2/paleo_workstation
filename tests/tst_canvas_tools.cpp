@@ -1,13 +1,18 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgsfeature.h>
+#include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
 #include <qgsmaptool.h>
 #include <qgsmaptoolpan.h>
 #include <qgsmapsettings.h>
 #include <qgsrectangle.h>
 #include <qgssnappingutils.h>
+#include <qgsvectorlayer.h>
 
+#include "../src/catalog/datacatalog.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/services/toolavailability.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -24,6 +29,7 @@ private slots:
   void nativeToolSwitchStaysInSync();
   void broadcastGuardCoalesces();
   void toolGating();
+  void zoomToLayerSkipsUnreachableCrs();
 };
 
 // (a) canvas() lazily creates a usable QgsMapCanvas offscreen
@@ -157,6 +163,36 @@ void TestCanvasTools::toolGating()
 
   // gate off, gate on, busy, free → one signal each
   QCOMPARE( spy.count(), 4 );
+}
+
+void TestCanvasTools::zoomToLayerSkipsUnreachableCrs()
+{
+  QgisCanvasController ctl;
+  QgsMapCanvas *canvas = ctl.canvas();
+  QVERIFY(canvas);
+  canvas->resize(200, 200);
+  canvas->setDestinationCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+  QVERIFY(canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering);
+  canvas->setExtent(QgsRectangle(0, 0, 1000, 1000));
+  const QgsRectangle parked = canvas->extent();
+
+  auto *layer = new QgsVectorLayer(QStringLiteral("Polygon?crs=EPSG:4326"), QStringLiteral("wgs"),
+                                   QStringLiteral("memory"));
+  QVERIFY(layer->isValid());
+  QgsFeature feature(layer->fields());
+  feature.setGeometry(QgsGeometry::fromWkt(QStringLiteral("POLYGON((5000 5000,6000 5000,6000 6000,5000 6000,5000 5000))")));
+  QVERIFY(layer->dataProvider()->addFeature(feature));
+  layer->updateExtents();
+  ctl.setLayerResolver([layer](const QString &) { return layer; });
+  ctl.zoomToLayer(QStringLiteral("wgs"));
+  QCOMPARE(canvas->extent(), parked);
+
+  layer->setCrs(canvas->mapSettings().destinationCrs());
+  layer->updateExtents();
+  ctl.zoomToLayer(QStringLiteral("wgs"));
+  QVERIFY(canvas->extent().contains(QgsPointXY(5500, 5500)));
+  QVERIFY(!canvas->extent().contains(QgsPointXY(0, 0)));
+  delete layer;
 }
 
 int main( int argc, char *argv[] )

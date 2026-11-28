@@ -65,4 +65,7 @@ bool prepareUnitOnnxPlan(PaleoOnnxService *onnx, const UnitOnnxPrepareSource &so
                          FrozenUnitOnnxPlan &out, const std::function<bool()> &cancelled,
                          QString *error);
 
+// 层段取数失败句 → 机器码。取消（含「地震层位窗口读取已取消」）不是来源缺失。
+QString unitOnnxInputFailureCode(const QString &message);
+
 } // namespace paleo

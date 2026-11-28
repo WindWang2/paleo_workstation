@@ -12,6 +12,7 @@
 #include <QTreeWidget>
 #include <QTimer>
 #include "../../workflow/mappingworkbench.h"
+#include "../notifications/paleonotify.h"
 #include <QLineEdit>
 #include <QListWidget>
 #include <QVBoxLayout>
@@ -200,7 +201,37 @@ void MappingWorkbenchPage::wireFaciesUpdates() {
             setHorizon(saved);
           });
   connect(m_workbench, &MappingWorkbench::catalogBound, this, [this] {
+    // 换工程前 resolveFaciesDrafts 已问过；取消不会走到重新绑定。
     m_faciesDrafts.clear(); m_faciesDirty = false;
     const auto horizon = m_horizon; m_horizon.clear(); setHorizon(horizon);
   });
+}
+
+bool MappingWorkbenchPage::resolveFaciesDrafts() {
+  if (!m_facies)
+    return true;
+  if (m_faciesDirty)
+    m_faciesDrafts.insert(m_horizon, faciesRows());
+  if (m_faciesDrafts.isEmpty())
+    return true;
+  const auto choice = PaleoNotify::askSaveDiscard(
+      this, PaleoNotify::AskIcon::Question, tr("相分类尚未保存"),
+      tr("有 %1 个层位包含未保存的微相分类。").arg(m_faciesDrafts.size()),
+      tr("保存分类"), tr("放弃草稿"), tr("取消"));
+  if (choice == PaleoNotify::SaveChoice::Cancel)
+    return false;
+  if (choice != PaleoNotify::SaveChoice::Save)
+    return true;
+  const QString restore = m_horizon;
+  const auto horizons = m_faciesDrafts.keys();
+  for (const auto &horizon : horizons) {
+    if (m_horizon != horizon)
+      setHorizon(horizon);
+    issue(QStringLiteral("schema"));
+    if (m_faciesDirty || m_faciesDrafts.contains(horizon))
+      return false;
+  }
+  if (m_horizon != restore)
+    setHorizon(restore);
+  return !m_faciesDirty && m_faciesDrafts.isEmpty();
 }

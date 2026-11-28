@@ -153,6 +153,9 @@ public:
   // D3.9/D3.3 保存编辑：产派生文档意图信号 + sidecar 审计追加 + 标记已保存。
   // 返回 false = 无会话/无脏编辑。
   bool saveDerived();
+  bool hasUnsavedDerivedEdits() const;
+  // 关预览标签：保存走 saveDerived；放弃由调用方销毁面板；取消则留下。
+  bool resolveUnsavedEdits();
 
   // D7.4 高对比模式
   void setHighContrast(bool on);

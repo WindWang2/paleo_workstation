@@ -102,6 +102,28 @@ double rmsError( const std::vector<double> &estimate, const std::vector<Point2> 
   return std::sqrt( sum / static_cast<double>( estimate.size() ) );
 }
 
+std::vector<Sample> samplesPastFactorCap()
+{
+  std::vector<Sample> samples;
+  const int n = kMaxGlobalFactorSamples + 1;
+  samples.reserve( static_cast<std::size_t>( n ) );
+  for ( int i = 0; i < n; ++i )
+    samples.push_back( Sample{ static_cast<double>( i ), 0.0, static_cast<double>( i % 5 ) } );
+  return samples;
+}
+
+GridSpec unitCellAtOrigin()
+{
+  GridSpec grid;
+  grid.cols = 1;
+  grid.rows = 1;
+  grid.originX = -0.5;
+  grid.originY = 0.5;
+  grid.pixelWidth = 1.0;
+  grid.pixelHeight = -1.0;
+  return grid;
+}
+
 } // namespace
 
 class CoKrigingTests : public QObject
@@ -119,6 +141,8 @@ class CoKrigingTests : public QObject
     void constraintMappingSurvivesDedupe();
     void fullFieldGridOrdinaryCoKriging();
     void overloadPairSharesOneScanPath();
+    void overCapNeighborhoodReturnsInvalidInput();
+    void neighborhoodWithinFactorCapStillSolves();
 };
 
 void CoKrigingTests::rejectsInvalidInputs()
@@ -304,6 +328,19 @@ void CoKrigingTests::constrainedWeightsRespondToGroupCap()
   QVERIFY( plain.valid() );
   const ConstrainedKrigingPointResult plainResult = plain.solveAt( targetX, targetY );
   QVERIFY( plainResult.ok );
+  // C-02：方差点的是 scaleSystem 缩放后的 b，再乘一次 systemScale。未修时点未缩放
+  // rhs 再乘 scale，方差大约再乘基台（本夹具 systemScale≈sill）。无约束解必须与
+  // 普通克里金同阶，而不是 sill*systemScale。
+  const KrigingPointResult reference =
+      ordinaryKrigingAt( targetX, targetY, wells, model, params );
+  QVERIFY( reference.ok );
+  QVERIFY( std::isfinite( plainResult.variance ) );
+  QVERIFY( plainResult.variance >= 0.0 );
+  QVERIFY2( std::fabs( plainResult.variance - reference.variance ) <=
+                1e-6 * ( model.nugget + model.sill ),
+            qPrintable( QStringLiteral( "plain var=%1 ok var=%2" )
+                            .arg( plainResult.variance )
+                            .arg( reference.variance ) ) );
   double plainFarWeight = 0;
   for ( std::size_t i = 0; i < plainResult.usedSamples.size(); ++i )
     if ( plainResult.usedSamples[i] >= 4 ) // 输入下标 4/5 = 界外两口井
@@ -321,6 +358,17 @@ void CoKrigingTests::constrainedWeightsRespondToGroupCap()
   QCOMPARE( constrained.constraintCount(), 1 );
   const ConstrainedKrigingPointResult hit = constrained.solveAt( targetX, targetY );
   QVERIFY( hit.ok );
+  QVERIFY( std::isfinite( hit.variance ) );
+  QVERIFY( hit.variance >= 0.0 );
+  // 软罚后仍在基台量级：约为无约束方差，不是再乘 systemScale 后的 sill*systemScale。
+  QVERIFY2( hit.variance < 1.5 * std::max( plainResult.variance, 1e-12 ),
+            qPrintable( QStringLiteral( "constrained var=%1 plain=%2" )
+                            .arg( hit.variance )
+                            .arg( plainResult.variance ) ) );
+  QVERIFY2( hit.variance < 2.0 * ( model.nugget + model.sill ),
+            qPrintable( QStringLiteral( "constrained var=%1 sill=%2" )
+                            .arg( hit.variance )
+                            .arg( model.nugget + model.sill ) ) );
   double hitFarWeight = 0;
   double weightSum = 0;
   for ( std::size_t i = 0; i < hit.usedSamples.size(); ++i )
@@ -550,6 +598,64 @@ void CoKrigingTests::covariateScaleInvariantAfterRescale()
             qPrintable( QStringLiteral( "%1 vs %2" ).arg( estimates[0] ).arg( estimates[1] ) ) );
   QVERIFY( std::fabs( estimates[0] - 21.18 ) < 1.0 );
 
+}
+
+void CoKrigingTests::overCapNeighborhoodReturnsInvalidInput()
+{
+  // C-01：主+协邻域 n > kMaxGlobalFactorSamples 时不分配协克里金矩阵。
+  // maxPrimary/maxSecondary <= 0 仍表示全部样本，超预算的全场入口是 InvalidInput。
+  const CoKrigingModel model = fixtureModel();
+  const GridSpec grid = unitCellAtOrigin();
+  const std::vector<Sample> primary = samplesPastFactorCap();
+  CoKrigingParams all;
+  all.maxPrimary = 0;
+  all.maxSecondary = 0;
+  const CoKrigingResult global = ordinaryCoKriging( primary, {}, grid, model, all );
+  QCOMPARE( global.status, Status::InvalidInput );
+  QCOMPARE( global.message, std::string( "cokriging neighborhood exceeds factorization budget" ) );
+  QVERIFY( global.estimates.empty() );
+  QVERIFY( global.variances.empty() );
+
+  std::vector<Sample> fewPrimary = { { 0.0, 0.0, 1.0 }, { 1.0, 0.0, 2.0 }, { 0.0, 1.0, 1.5 } };
+  const CoKrigingResult secondary =
+      ordinaryCoKriging( fewPrimary, samplesPastFactorCap(), grid, model, all );
+  QCOMPARE( secondary.status, Status::InvalidInput );
+  QVERIFY( secondary.estimates.empty() );
+
+  CoKrigingParams wide = all;
+  wide.searchRadius = 100000.0;
+  const CoKrigingResult radius = ordinaryCoKriging( primary, {}, grid, model, wide );
+  QCOMPARE( radius.status, Status::InvalidInput );
+  QCOMPARE( radius.message, std::string( "cokriging neighborhood exceeds factorization budget" ) );
+  QVERIFY( radius.estimates.empty() );
+
+  const CoKrigingSolver point( primary, {}, model, all );
+  QVERIFY( point.valid() );
+  QVERIFY( !point.solveAt( 0.0, 0.0 ).ok );
+}
+
+void CoKrigingTests::neighborhoodWithinFactorCapStillSolves()
+{
+  // 样本册超过上限，但查询邻域不超过：近处半径，以及显式 K，都照常解。
+  const CoKrigingModel model = fixtureModel();
+  std::vector<Sample> primary = samplesPastFactorCap();
+  for ( int i = 6; i < static_cast<int>( primary.size() ); ++i )
+    primary[static_cast<std::size_t>( i )].x = 1000000.0 + i;
+  CoKrigingParams radius;
+  radius.maxPrimary = 0;
+  radius.maxSecondary = 0;
+  radius.searchRadius = 20.0;
+  const CoKrigingResult near = ordinaryCoKriging( primary, {}, unitCellAtOrigin(), model, radius );
+  QCOMPARE( near.status, Status::Ok );
+  QCOMPARE( near.finiteCells, 1 );
+
+  CoKrigingParams capped;
+  capped.maxPrimary = 8;
+  capped.maxSecondary = 8;
+  const CoKrigingResult local = ordinaryCoKriging(
+      primarySamples(), samplesPastFactorCap(), unitCellAtOrigin(), model, capped );
+  QCOMPARE( local.status, Status::Ok );
+  QCOMPARE( local.finiteCells, 1 );
 }
 
 QTEST_MAIN( CoKrigingTests )

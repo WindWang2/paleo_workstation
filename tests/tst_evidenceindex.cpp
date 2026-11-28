@@ -104,12 +104,35 @@ bool writeGpkg(const QString &path, const QVector<FixtureFeature> &features,
   return ok;
 }
 
+// 能被 GDAL 打开、但没有任何矢量图层的 GPKG。
+bool writeVectorlessGpkg(const QString &path) {
+  QFile::remove(path);
+  QFile::remove(path + QStringLiteral("-wal"));
+  QFile::remove(path + QStringLiteral("-shm"));
+  CPLPushErrorHandler(CPLQuietErrorHandler);
+  GDALDriverH driver = GDALGetDriverByName("GPKG");
+  if (!driver) {
+    CPLPopErrorHandler();
+    return false;
+  }
+  GDALDatasetH ds = GDALCreate(driver, path.toUtf8().constData(), 0, 0, 0,
+                               GDT_Unknown, nullptr);
+  if (!ds) {
+    CPLPopErrorHandler();
+    return false;
+  }
+  GDALClose(ds);
+  CPLPopErrorHandler();
+  return true;
+}
+
 // 登记一个矢量成果版本（外链绝对路径；extra 与 mappingworkbench record()
 // 的成果面一致）。
 bool addMappingVersion(DataCatalog *catalog, const QString &versionId,
                        const QString &filePath,
                        const QString &horizon = QStringLiteral("D61"),
-                       const QString &layerName = QStringLiteral("facies_polygons")) {
+                       const QString &layerName = QStringLiteral("facies_polygons"),
+                       const QString &sha256 = {}) {
   const QString assetId = QStringLiteral("a-%1").arg(versionId);
   CatalogAsset a;
   a.id = assetId;
@@ -123,6 +146,7 @@ bool addMappingVersion(DataCatalog *catalog, const QString &versionId,
   v.versionNumber = 1;
   v.managed = false;
   v.path = filePath;
+  v.sha256 = sha256;
   QVariantMap extra;
   extra.insert(QStringLiteral("mapping_product"), true);
   extra.insert(QStringLiteral("layer_type"), QStringLiteral("vector"));
@@ -250,6 +274,8 @@ private slots:
   void truncationIsRecordedAndRescanned();
   void schemaUpgradeFromV1Rebuilds();
   void failedWriteRollsBackAndStaysUsable();
+  void failedOpenAndMissingLayerStayRetryable();
+  void failedOpenReleasesSqliteConnection();
 };
 
 void TestEvidenceIndex::syncIndexesEntriesIncludingUnlinked() {
@@ -467,17 +493,22 @@ void TestEvidenceIndex::corruptAndMissingVersionsDoNotAbort() {
   QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 2);
   const auto stats = index.stats();
   QCOMPARE(stats.value(QStringLiteral("versions_indexed")).toInt(), 2);
-  QCOMPARE(stats.value(QStringLiteral("entries")).toInt(), 6);
-  QCOMPARE(stats.value(QStringLiteral("corrupt_records")).toInt(), 1);
-  QCOMPARE(stats.value(QStringLiteral("errored_versions")).toInt(), 1);
+  // D-02：后缀点名的图层不在时不再回退首层。vx1 记错误且零行；
+  // 缺失文件仍记错误。两版都未完成（truncated），同步本身不中断。
+  QCOMPARE(stats.value(QStringLiteral("entries")).toInt(), 0);
+  QCOMPARE(stats.value(QStringLiteral("corrupt_records")).toInt(), 0);
+  QCOMPARE(stats.value(QStringLiteral("errored_versions")).toInt(), 2);
+  QCOMPARE(stats.value(QStringLiteral("truncated_versions")).toInt(), 2);
   QVERIFY(index.lastError().isEmpty());
-  // 后缀 layername 对不上 → 回退首层仍能索引。
-  QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 1);
-  // 文件随后出现 → 空不留底 sha 下一轮重试成功。
+  QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 0);
+  // 文件随后出现 → 空不留底 sha 的缺失版重试成功。vx1 图层仍对不上，
+  // 带 error 继续重试，不会把 layer 0 收成完成索引。
   QVERIFY(writeGpkg(dir.filePath(QStringLiteral("ghost.gpkg")), baseFeatures()));
-  QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
-  QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 12);
-  QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 0);
+  QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 2);
+  QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 6);
+  QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 1);
+  QCOMPARE(index.stats().value(QStringLiteral("truncated_versions")).toInt(), 1);
+  QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 1);
 }
 
 void TestEvidenceIndex::limitAndOffsetAreBounded() {
@@ -741,6 +772,171 @@ void TestEvidenceIndex::failedWriteRollsBackAndStaysUsable() {
   QString error;
   QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
   QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 6);
+}
+
+// D-01：GDAL 打不开 / 没有矢量图层时，即使目录 sha 未变也要在文件可读后重灌。
+// 已入库的 error（truncated 被清成 0 的旧行）同样不得按 sha 跳过。
+// D-02：点名图层缺失时不索引 layer 0；图层后来出现且 sha 不变仍会重读。
+// 未点名图层仍用首层。
+void TestEvidenceIndex::failedOpenAndMissingLayerStayRetryable() {
+  const QString fixedSha = QStringLiteral("fixed-sha-does-not-follow-bytes");
+  {
+    QTemporaryDir dir;
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path(), nullptr));
+    const QString gpkg = dir.filePath(QStringLiteral("result.gpkg"));
+    {
+      QFile junk(gpkg);
+      QVERIFY(junk.open(QIODevice::WriteOnly));
+      QCOMPARE(junk.write("not-a-vector"), qint64(12));
+    }
+    QVERIFY(addMappingVersion(&cat, QStringLiteral("vx-open"), gpkg,
+                              QStringLiteral("D61"),
+                              QStringLiteral("facies_polygons"), fixedSha));
+    Index index;
+    QVERIFY(index.open(dir.path(), nullptr));
+    QString error;
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 0);
+    QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("truncated_versions")).toInt(), 1);
+    QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 0);
+
+    index.close();
+    const QString conn = QStringLiteral("d01-clear-truncated");
+    {
+      QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+      db.setDatabaseName(dir.filePath(QStringLiteral("artifacts/evidence-index.sqlite")));
+      QVERIFY(db.open());
+      QSqlQuery q(db);
+      QVERIFY(q.exec(QStringLiteral("UPDATE indexed_versions SET truncated = 0")));
+      QVERIFY(q.exec(QStringLiteral(
+                 "SELECT error, truncated, sha256 FROM indexed_versions")) &&
+             q.next());
+      QVERIFY(!q.value(0).toString().isEmpty());
+      QCOMPARE(q.value(1).toInt(), 0);
+      QCOMPARE(q.value(2).toString(), fixedSha);
+      db.close();
+    }
+    QSqlDatabase::removeDatabase(conn);
+
+    QVERIFY(writeGpkg(gpkg, baseFeatures()));
+    QVERIFY(index.open(dir.path(), nullptr));
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 6);
+    QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 0);
+    QCOMPARE(index.stats().value(QStringLiteral("truncated_versions")).toInt(), 0);
+    QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 1);
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 0);
+  }
+  {
+    QTemporaryDir dir;
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path(), nullptr));
+    const QString gpkg = dir.filePath(QStringLiteral("empty.gpkg"));
+    QVERIFY(writeVectorlessGpkg(gpkg));
+    QVERIFY(addMappingVersion(&cat, QStringLiteral("vx-empty"), gpkg,
+                              QStringLiteral("D61"),
+                              QStringLiteral("facies_polygons"), fixedSha));
+    Index index;
+    QVERIFY(index.open(dir.path(), nullptr));
+    QString error;
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 0);
+    QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("truncated_versions")).toInt(), 1);
+    QVERIFY(writeGpkg(gpkg, baseFeatures()));
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+    QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 0);
+  }
+  {
+    QTemporaryDir dir;
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path(), nullptr));
+    const QString gpkg = dir.filePath(QStringLiteral("named.gpkg"));
+    FixtureFeature decoy;
+    decoy.uid = QStringLiteral("uid-decoy");
+    decoy.evidenceJson = encodeJson(QVariantList{record(QStringLiteral("ev-decoy"))});
+    decoy.interpretationJson = encodeJson(interpretation(
+        QStringLiteral("interp-decoy"), QStringLiteral("Confirmed"), decoy.uid));
+    QVERIFY(writeGpkg(gpkg, {decoy}, QStringLiteral("other")));
+    QVERIFY(addMappingVersion(&cat, QStringLiteral("vx-named"), gpkg,
+                              QStringLiteral("D61"),
+                              QStringLiteral("facies_polygons"), fixedSha));
+    Index index;
+    QVERIFY(index.open(dir.path(), nullptr));
+    QString error;
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+    QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-decoy")).size(), 0);
+    QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 0);
+    QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 1);
+    QVERIFY(writeGpkg(gpkg, baseFeatures()));
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+    QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-decoy")).size(), 0);
+    QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 0);
+  }
+  {
+    QTemporaryDir dir;
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path(), nullptr));
+    const QString gpkg = dir.filePath(QStringLiteral("first.gpkg"));
+    QVERIFY(writeGpkg(gpkg, baseFeatures(), QStringLiteral("features")));
+    QVERIFY(addMappingVersion(&cat, QStringLiteral("vx-unnamed"), gpkg,
+                              QStringLiteral("D61"), QString()));
+    Index index;
+    QVERIFY(index.open(dir.path(), nullptr));
+    QString error;
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+    QCOMPARE(index.featuresForEvidence(QStringLiteral("ev-1")).size(), 1);
+    QCOMPARE(index.stats().value(QStringLiteral("errored_versions")).toInt(), 0);
+  }
+}
+
+// D-03：schema 过新等 open 失败必须 removeDatabase，重试不累积 QSQLITE 连接。
+// close() 仍注销已打开的连接。
+void TestEvidenceIndex::failedOpenReleasesSqliteConnection() {
+  const auto evidenceConnections = [] {
+    int count = 0;
+    for (const QString &name : QSqlDatabase::connectionNames()) {
+      if (name.startsWith(QLatin1String("paleo_evidence_index_")))
+        ++count;
+    }
+    return count;
+  };
+  QTemporaryDir badDir;
+  QVERIFY(QDir().mkpath(badDir.filePath(QStringLiteral("artifacts"))));
+  const QString setup = QStringLiteral("d03-schema-too-new");
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), setup);
+    db.setDatabaseName(badDir.filePath(QStringLiteral("artifacts/evidence-index.sqlite")));
+    QVERIFY(db.open());
+    QSqlQuery q(db);
+    QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 99")));
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(setup);
+
+  const int before = evidenceConnections();
+  Index index;
+  QString error;
+  QVERIFY(!index.open(badDir.path(), &error));
+  QVERIFY(error.contains(QStringLiteral("过新")));
+  QVERIFY(!index.isOpen());
+  QCOMPARE(evidenceConnections(), before);
+  QVERIFY(!index.open(badDir.path(), &error));
+  QCOMPARE(evidenceConnections(), before);
+  index.close();
+  QCOMPARE(evidenceConnections(), before);
+
+  QTemporaryDir goodDir;
+  QVERIFY2(index.open(goodDir.path(), &error), qPrintable(error));
+  QVERIFY(index.isOpen());
+  QCOMPARE(evidenceConnections(), before + 1);
+  index.close();
+  QVERIFY(!index.isOpen());
+  QCOMPARE(evidenceConnections(), before);
 }
 
 QTEST_MAIN(TestEvidenceIndex)

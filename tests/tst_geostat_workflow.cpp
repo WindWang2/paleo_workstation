@@ -429,24 +429,20 @@ void GeostatWorkflowTests::geographicWellsAreRejected()
   QVERIFY2( f.layers.declare( nosrs, &err2 ), qPrintable( err2 ) );
   auto *nosrsLayer = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( QStringLiteral( "wells.NOSRS" ), &err2 ) );
   QVERIFY2( nosrsLayer, qPrintable( err2 ) );
-  // #822 口径：缺坐标系的井图层实例化时回落 EPSG:32650（不再保持无效 CRS）。
-  QCOMPARE( nosrsLayer->crs().authid(), QStringLiteral( "EPSG:32650" ) );
+  // 工程网格上缺 CRS 的井层保持未标注，不回落成 EPSG:32650 / confirmed_project_crs。
+  QVERIFY( !nosrsLayer->crs().isValid() );
+  QCOMPARE( nosrsLayer->crs().authid(), QString() );
+  QVERIFY( nosrsLayer->customProperty( QStringLiteral( "paleoCrsProvenance" ) ).toString()
+           != QLatin1String( "confirmed_project_crs" ) );
   ConstraintWorkflow wf2( &f.proc, &f.layers );
   wf2.setCatalog( &f.catalog, f.projectDir() );
   QVariantMap params2;
   params2.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
   params2.insert( QStringLiteral( "cellSize" ), 2.0 );
   params2.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
-  // #822 口径：缺坐标系井层回落 EPSG:32650（米制投影）后可参与地统计；
-  // 上方地理坐标（4326）井层仍被拒收。
-  QVERIFY2( wf2.generateFactor( QStringLiteral( "NOSRS" ), QStringLiteral( "sandthick" ), params2, &err2 ),
-            qPrintable( err2 ) );
-  QVERIFY2( err2.isEmpty(), qPrintable( err2 ) );
-  QVERIFY2( hasDeclaredLayer( f.layers, QStringLiteral( "factor.NOSRS.sandthick" ) ), "fallback-CRS factor must be declared" );
-  auto *nosrsFactor = f.layers.instantiate( QStringLiteral( "factor.NOSRS.sandthick" ), &err2 );
-  QVERIFY2( nosrsFactor, qPrintable( err2 ) );
-  QCOMPARE( nosrsFactor->crs().authid(), QStringLiteral( "EPSG:32650" ) ); // 产物沿用回落 CRS，非地理
-  QVERIFY( !nosrsFactor->crs().isGeographic() );
+  QVERIFY2( !wf2.generateFactor( QStringLiteral( "NOSRS" ), QStringLiteral( "sandthick" ), params2, &err2 ),
+            "CRS-less wells on the engineering grid must not be treated as EPSG:32650" );
+  QVERIFY2( err2.contains( QStringLiteral( "坐标系" ) ), qPrintable( err2 ) );
 }
 
 int main( int argc, char *argv[] )

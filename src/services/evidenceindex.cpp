@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QScopeGuard>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -271,15 +272,29 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
   if (!ds) {
     CPLPopErrorHandler();
     *versionError = QStringLiteral("无法打开成果文件：%1").arg(filePath);
+    // D-01：打开失败不是完整索引。truncated 让 sha 未变的下一轮重读。
+    *truncated = true;
     return rows;
   }
-  OGRLayerH layer = layerName.isEmpty() ? nullptr
-                                        : GDALDatasetGetLayerByName(ds, layerName.toUtf8().constData());
-  if (!layer) layer = GDALDatasetGetLayer(ds, 0); // 后备：首层
+  OGRLayerH layer = nullptr;
+  if (layerName.isEmpty()) {
+    layer = GDALDatasetGetLayer(ds, 0); // 未点名图层：仍用首层
+  } else {
+    layer = GDALDatasetGetLayerByName(ds, layerName.toUtf8().constData());
+    if (!layer) {
+      // D-02：点名的图层不在，不得用 layer 0 冒充并标完成。
+      GDALClose(ds);
+      CPLPopErrorHandler();
+      *versionError = QStringLiteral("成果文件不含指定图层 %1：%2").arg(layerName, filePath);
+      *truncated = true;
+      return rows;
+    }
+  }
   if (!layer) {
     GDALClose(ds);
     CPLPopErrorHandler();
     *versionError = QStringLiteral("成果文件不含矢量图层：%1").arg(filePath);
+    *truncated = true; // D-01：无图层同样不是完整索引
     return rows;
   }
   OGRFeatureDefnH defn = OGR_L_GetLayerDefn(layer);
@@ -461,6 +476,23 @@ bool Index::open(const QString &projectDir, QString *error) {
   // 别人家的连接）。改用 QUuid，每次 open 唯一。
   m_connection = QStringLiteral("paleo_evidence_index_%1")
                      .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+  // D-03：addDatabase 之后的失败返回必须注销本次连接。守卫放在 db 块之外，
+  // 局部 QSqlDatabase 先析构，再 removeDatabase，避免连接「仍在使用」留在进程里。
+  bool kept = false;
+  const auto dropFailed = qScopeGuard([&] {
+    if (kept)
+      return;
+    const QString name = m_connection;
+    m_connection.clear();
+    if (name.isEmpty() || !QSqlDatabase::contains(name))
+      return;
+    {
+      QSqlDatabase held = QSqlDatabase::database(name, false);
+      if (held.isValid())
+        held.close();
+    }
+    QSqlDatabase::removeDatabase(name);
+  });
   {
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connection);
     db.setDatabaseName(path);
@@ -558,6 +590,7 @@ bool Index::open(const QString &projectDir, QString *error) {
         return fail(error, QStringLiteral("无法写入索引 schema 版本"));
     }
   }
+  kept = true;
   m_dir = projectDir;
   m_open = true;
   m_lastError.clear();
@@ -623,16 +656,17 @@ int Index::synchronize(const QVector<CatalogVersion> &versions,
     wanted.insert(v.id, v);
   }
   QHash<QString, QString> existing; // version_id → 已索引 sha
-  QSet<QString> truncatedExisting;  // 上轮被上限截断的版本（视作未完成）
+  QSet<QString> incompleteExisting; // 截断或 error：未完成，不得按 sha 跳过
   {
     QSqlQuery q(db);
     if (!q.exec(QStringLiteral(
-            "SELECT version_id, sha256, truncated FROM indexed_versions")))
+            "SELECT version_id, sha256, truncated, error FROM indexed_versions")))
       return abortWith(q.lastError().text());
     while (q.next()) {
       existing.insert(q.value(0).toString(), q.value(1).toString());
-      if (q.value(2).toInt() != 0)
-        truncatedExisting.insert(q.value(0).toString());
+      // D-01：已入库的 error（含旧行 truncated=0）同样重试，打开失败不能永久跳过。
+      if (q.value(2).toInt() != 0 || !q.value(3).toString().isEmpty())
+        incompleteExisting.insert(q.value(0).toString());
     }
   }
 
@@ -650,10 +684,10 @@ int Index::synchronize(const QVector<CatalogVersion> &versions,
       // 文件缺失/不可读 → sha 为空：照常登记 error，下一轮重试（文件可能
       // 出现）；sha 为空永不参与「未变跳过」。
     }
-    // sha 未变跳过；但上轮截断的版本不算完成——否则部分索引会永远顶着
-    // 完整数据的表象留在库里。
+    // sha 未变跳过；上轮截断或带 error 的版本不算完成——否则部分索引
+    // 或打开失败会永远顶着完整数据的表象留在库里。
     if (!sha.isEmpty() && sha == existing.value(v.id) &&
-        !truncatedExisting.contains(v.id))
+        !incompleteExisting.contains(v.id))
       continue; // 未变且已完整索引，跳过
     int corrupt = 0;
     QString versionError;

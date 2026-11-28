@@ -1,6 +1,7 @@
 // 层：功能
 #include "capabilityhost.h"
 #include "capabilitysourcepublication.h"
+#include "services/geostaticapabilityspec.h"
 #include "services/paleotaskservice.h"
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -22,6 +23,28 @@ QByteArray digest(const ExecuteRequest &r) {
 ExecuteResult rejected(const QString &code) {
   ExecuteResult result; result.code = code; result.execution = QStringLiteral("Rejected");
   result.commitState = QStringLiteral("not_requested"); return result;
+}
+// 空 parameters 由调用方放行。非空只在与冻结计划的有效参数一致时放行，
+// 避免 publish 把新的 sill/range 写进目录。其它能力仍拒绝非空参数。
+bool geostatPublishRepeatsFrozenPlan(const QString &capabilityId, int contractVersion,
+                                    const QVariantMap &parameters,
+                                    const OperationLog::Record &source) {
+  if (capabilityId != paleo::geostat_atom::kKrigingCapabilityId() &&
+      capabilityId != paleo::geostat_atom::kSgsCapabilityId())
+    return false;
+  const QJsonObject frozen = source.frozenRequest.value(QStringLiteral("plan")).toObject()
+                                 .value(QStringLiteral("effective_parameters")).toObject();
+  if (frozen.isEmpty())
+    return false;
+  const CapabilitySpec spec = CapabilityRegistry::spec(capabilityId, contractVersion);
+  if (spec.algorithmId.isEmpty())
+    return false;
+  QString code;
+  const QVariantMap effective = effectiveScalarParams(
+      spec.algorithmId, spec.algorithmContractVersion, parameters, &code);
+  if (code != QLatin1String("ok") || effective.isEmpty())
+    return false;
+  return QJsonObject::fromVariantMap(effective) == frozen;
 }
 } // namespace
 QByteArray CapabilityHost::requestDigest(const ExecuteRequest &request) { return digest(request); }
@@ -211,9 +234,15 @@ HostPrepared CapabilityHost::prepare(const ExecuteRequest &intent, host::Caller 
   saved.request.currentHead.clear(); // Never trust the caller's alleged current state.
   saved.request.cancelled = {}; saved.request.onRunning = {};
   if(publishSource) {
-    if(!intent.parameters.isEmpty() || intent.inputs.size()!=1 || intent.seismicTrace)return fail("mixed_source_operation_inputs");
+    if(intent.inputs.size()!=1 || intent.seismicTrace)return fail("mixed_source_operation_inputs");
     OperationLog log(live.operationDir,live.projectDir,live.writeClaim);
-    saved.frozen=freezeSourcePublication(saved.request,original,log.recordById(sourceId),&code);
+    const auto source=log.recordById(sourceId);
+    // 空参数（省略或 {}）沿用冻结计划。非空仅当与冻结有效参数一致时放行，
+    // 不一致仍是 mixed_source_operation_inputs，不把新的 sill/range 应用到发布。
+    if(!intent.parameters.isEmpty() &&
+       !geostatPublishRepeatsFrozenPlan(id, intent.contractVersion, intent.parameters, source))
+      return fail("mixed_source_operation_inputs");
+    saved.frozen=freezeSourcePublication(saved.request,original,source,&code);
     if(!code.isEmpty())return fail(code);
   } else if(adapter.capture) {
     if(saved.request.bindingMode.isEmpty())saved.request.bindingMode="pinned-value";

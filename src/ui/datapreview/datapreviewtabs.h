@@ -121,9 +121,12 @@ class DataPreviewTabs : public QWidget
     int tabCount() const;
     QString versionIdAt(int index) const; // 页实际显示的版本，供标签切换恢复上下文
     QString assetIdAt(int index) const;   // "" 越界
-    void closeAssetTab(const QString &assetId);
+    // promptEdits：用户关标签时询问未保存 TOP。工程收尾传 false（已在
+    // maybeSaveProject 问过一次，关标签不再问）。
+    bool closeAssetTab(const QString &assetId, bool promptEdits = true);
     // #154：关闭全部标签（含测区全景）并释放各资产的服务侧缓存——工程切换
     // 前由壳调用；assetId 跨工程复用，旧标签不能留到新工程里。
+    // 不再询问 TOP：maybeSaveProject 已经问过。
     void closeAllTabs();
     bool isMissingSourceState(const QString &assetId) const; // 外链缺失态（测试/诊断）
 

@@ -515,6 +515,133 @@ private slots:
     QVERIFY(!paleo::area_model::importDirectory(temp.filePath("cancelled"), source, report, &error, [] { return true; }));
     QVERIFY(report.cancelled);
   }
+  void renamedAreaWellKeepsItsCard() {
+    // B-01: catalog well 10 Alpha, model renames 10 to Gamma and adds 30 Alpha.
+    QTemporaryDir temp; const auto project = temp.filePath("project"); QString error;
+    DataCatalog catalog; QVERIFY2(catalog.open(project, &error), qPrintable(error));
+    paleo::data::DataService model; std::string detail;
+    QVERIFY2(model.createProject(paleo::area_model::directory(project).toStdString(), "wells", detail), detail.c_str());
+    paleo::data::WellInfo alpha; alpha.wellName = "Alpha"; alpha.wellheadX = 10; alpha.wellheadY = 20;
+    long long idAlpha = 0; QVERIFY2(model.createWell(alpha, idAlpha, detail), detail.c_str());
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    const auto cards = catalog.storedEntities("well"); QCOMPARE(cards.size(), 1);
+    const QString cardId = cards.front().id;
+    QCOMPARE(cards.front().name, QString("Alpha"));
+    QCOMPARE(cards.front().extra.value("areaModelWellId").toLongLong(), idAlpha);
+    CatalogAsset asset; asset.id = QStringLiteral("ast-b01"); asset.type = QStringLiteral("well_log");
+    asset.format = QStringLiteral("las"); asset.displayName = QStringLiteral("alpha.las");
+    QVERIFY2(catalog.addAsset(asset, &error), qPrintable(error));
+    CatalogVersion version; version.id = QStringLiteral("ver-b01"); version.assetId = asset.id;
+    version.stage = QStringLiteral("RAW"); version.versionNumber = 1; version.fileName = QStringLiteral("alpha.las");
+    QVERIFY2(catalog.addVersion(version, &error), qPrintable(error));
+    EntityAssetLink link; link.entityType = QStringLiteral("well"); link.entityId = cardId;
+    link.assetId = asset.id; link.role = QStringLiteral("well_log");
+    QVERIFY2(catalog.addLink(link, &error), qPrintable(error));
+    alpha.wellName = "Gamma"; QVERIFY2(model.saveWellInfo(idAlpha, alpha, detail), detail.c_str());
+    paleo::data::WellInfo added; added.wellName = "Alpha"; added.wellheadX = 30; added.wellheadY = 40;
+    long long idAdded = 0; QVERIFY2(model.createWell(added, idAdded, detail), detail.c_str());
+    QVERIFY(idAdded != idAlpha);
+    QVERIFY2(registerAreaWells(catalog, &error), qPrintable(error));
+    const auto kept = catalog.storedEntityById(cardId);
+    QCOMPARE(kept.name, QString("Gamma"));
+    QCOMPARE(kept.extra.value("areaModelWellId").toLongLong(), idAlpha);
+    QCOMPARE(catalog.linksForEntity(cardId).size(), 1);
+    QCOMPARE(catalog.linksForEntity(cardId).front().assetId, asset.id);
+    const auto wells = catalog.storedEntities("well"); QCOMPARE(wells.size(), 2);
+    bool born = false;
+    for (const auto &well : wells) {
+      if (well.id == cardId) continue;
+      born = true;
+      QCOMPARE(well.name, QString("Alpha"));
+      QCOMPARE(well.extra.value("areaModelWellId").toLongLong(), idAdded);
+      QVERIFY(catalog.linksForEntity(well.id).isEmpty());
+    }
+    QVERIFY(born);
+    CatalogEntity twin = kept; twin.id = QStringLiteral("well-twin");
+    QVERIFY2(catalog.addEntity(twin, &error), qPrintable(error));
+    QVERIFY(!registerAreaWells(catalog, &error));
+    QVERIFY(error.contains(QStringLiteral("ambiguous")));
+    QCOMPARE(catalog.storedEntityById(cardId).name, QString("Gamma"));
+    QCOMPARE(catalog.storedEntityById(cardId).extra.value("areaModelWellId").toLongLong(), idAlpha);
+  }
+  void sameNameVolumesKeepSeparateSurveys() {
+    // B-02: same display name with a different volume id gets its own survey.
+    QTemporaryDir temp; const auto project = temp.filePath("project");
+    paleo::data::DataService model; std::string detail;
+    QVERIFY2(model.createProject(paleo::area_model::directory(project).toStdString(), "surveys", detail), detail.c_str());
+    const auto importParsed = [&](const QString &fileName, const paleo::data::ParsedFile &parsed) {
+      const auto path = temp.filePath(fileName);
+      const QByteArray bytes = fileName.toUtf8();
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) return false;
+      file.close();
+      const auto sha = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex().toStdString();
+      long long source = 0;
+      return model.importPreparedFile(path.toStdString(), path.toStdString(), path.toStdString(), sha, parsed, source, detail);
+    };
+    paleo::data::ParsedFile volumeFile; volumeFile.kind = "test"; volumeFile.status = "parsed";
+    paleo::data::SeismicVolume volume; volume.volumeName = "Shared";
+    volumeFile.volumes.push_back(volume);
+    QVERIFY2(importParsed("v1.sgy", volumeFile), detail.c_str());
+    QVERIFY2(importParsed("v2.sgy", volumeFile), detail.c_str());
+    paleo::data::ParsedFile horizonFile; horizonFile.kind = "test"; horizonFile.status = "parsed";
+    paleo::data::SeismicHorizon horizon; horizon.horizonName = "H1";
+    horizonFile.horizons.push_back(horizon);
+    QVERIFY2(importParsed("h1.txt", horizonFile), detail.c_str());
+    horizon.horizonName = "H2"; horizonFile.horizons = {horizon};
+    QVERIFY2(importParsed("h2.txt", horizonFile), detail.c_str());
+    std::vector<paleo::data::DataEntry> volumes, horizons;
+    QVERIFY2(model.listData("volumes", 0, volumes, detail), detail.c_str());
+    QVERIFY2(model.listData("horizons", 0, horizons, detail), detail.c_str());
+    QCOMPARE(volumes.size(), size_t(2)); QCOMPARE(horizons.size(), size_t(2));
+    QVERIFY(volumes[0].id != volumes[1].id);
+    for (int i = 0; i < 2; ++i) {
+      paleo::data::SeismicHorizon stored;
+      QVERIFY2(model.readHorizon(horizons[i].id, 0, 1, stored, detail), detail.c_str());
+      stored.parentVolumeId = int(volumes[i].id);
+      QVERIFY2(model.saveHorizonInfo(horizons[i].id, stored, detail), detail.c_str());
+    }
+    QVERIFY2(model.listData("horizons", 0, horizons, detail), detail.c_str());
+    QCOMPARE(horizons[0].parentId, volumes[0].id); QCOMPARE(horizons[1].parentId, volumes[1].id);
+    model.closeProject();
+    DataCatalog catalog; QString error;
+    QVERIFY2(catalog.open(project, &error), qPrintable(error));
+    QVERIFY2(registerAreaSources(catalog, &error), qPrintable(error));
+    const auto surveys = catalog.storedEntities("seismic_survey");
+    QCOMPARE(surveys.size(), 2);
+    QHash<qlonglong, QString> surveyForVolume;
+    for (const auto &survey : surveys) {
+      const auto volumeId = survey.extra.value("areaModelVolumeId").toLongLong();
+      QVERIFY(volumeId == volumes[0].id || volumeId == volumes[1].id);
+      QVERIFY(!surveyForVolume.contains(volumeId));
+      surveyForVolume.insert(volumeId, survey.id);
+      QCOMPARE(survey.name, QString("Shared"));
+    }
+    QCOMPARE(surveyForVolume.size(), 2);
+    QVERIFY(surveyForVolume.value(volumes[0].id) != surveyForVolume.value(volumes[1].id));
+    const auto assetForSource = [&](qlonglong sourceId) {
+      for (const auto &version : catalog.versions())
+        if (version.extra.value("areaModelSourceId").toLongLong() == sourceId) return version.assetId;
+      return QString();
+    };
+    for (int i = 0; i < 2; ++i) {
+      const auto surveyId = surveyForVolume.value(volumes[i].id);
+      const auto otherId = surveyForVolume.value(volumes[i == 0 ? 1 : 0].id);
+      const auto volumeAsset = assetForSource(volumes[i].sourceId);
+      const auto horizonAsset = assetForSource(horizons[i].sourceId);
+      QVERIFY(!volumeAsset.isEmpty()); QVERIFY(!horizonAsset.isEmpty());
+      bool volumeLink = false, horizonLink = false;
+      for (const auto &link : catalog.linksForEntity(surveyId)) {
+        if (link.role == "seismic_volume" && link.assetId == volumeAsset) volumeLink = true;
+        if (link.role == "horizon" && link.assetId == horizonAsset) horizonLink = true;
+      }
+      QVERIFY(volumeLink); QVERIFY(horizonLink);
+      for (const auto &link : catalog.linksForEntity(otherId)) {
+        QVERIFY(!(link.role == "seismic_volume" && link.assetId == volumeAsset));
+        QVERIFY(!(link.role == "horizon" && link.assetId == horizonAsset));
+      }
+    }
+  }
 };
 QTEST_GUILESS_MAIN(TestAreaModel)
 #include "tst_areamodel.moc"

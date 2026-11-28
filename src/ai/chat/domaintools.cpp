@@ -256,7 +256,13 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
   }
   for (const AiToolParamSpec &parameter : parameters) {
     const bool present = arguments.contains(parameter.name);
-    if (parameter.required && !present)
+    // 地统计 publish 的契约文本只要求 source_operation_id。parameters 在 schema
+    // 里仍是必填（prepare 不能省），但 publish 省略时必须能进宿主，不能在这里被拒。
+    const bool geostatPublishOmitsParameters =
+        paleo::geostat_atom::isGeostatAtomTool(name) &&
+        arguments.value(QStringLiteral("publish_intent")).toString() == QLatin1String("publish") &&
+        parameter.name == QLatin1String("parameters");
+    if (parameter.required && !present && !geostatPublishOmitsParameters)
       return QObject::tr("缺少必填参数 %1").arg(parameter.name);
     if (!present)
       continue;

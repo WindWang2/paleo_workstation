@@ -187,12 +187,14 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   const int bytes = paleo::chat::replyQuotaBytes(
       m_pendingToolResults, m_toolTokens, kHistoryTokenBudget, kMinimumReplyTokens);
   const auto envelope = m_runner.modelResult(call, resultJson, ok, bytes);
-  // 交付失败与 native tool_finished、Pi 外层 ok 和 UI 卡片必须是同一事实：
-  // 读取本次没有成功送达，不能仍报 ok=true。
-  const bool readDeliveryFailed = ok && call.name == QLatin1String("paleo.read_result") &&
-      envelope.value("transport").toObject().value("code").toString() ==
-          QLatin1String("tool_reply_budget_changed");
-  const bool deliveredOk = ok && !readDeliveryFailed;
+  // 交付失败与 native tool_finished、Pi 外层 ok 和 UI 卡片必须是同一事实。
+  // 任何工具的载荷被 transport 剥掉（读页预算、缓存满/过大，以及同一函数里
+  // 去掉 data 与 resultRefs 的其它码）都不能仍报 ok=true。工具自己的成败留在
+  // envelope 的 status/code，这里不改写。内联 data 或 resultRefs 仍算送达。
+  const bool deliveryFailed = ok && !paleo::chat::toolResultPayloadDelivered(envelope);
+  const bool deliveredOk = ok && !deliveryFailed;
+  const QString transportCode = envelope.value(QStringLiteral("transport")).toObject()
+                                    .value(QStringLiteral("code")).toString();
   ChatMessage tool;
   tool.role = ChatRole::Tool;
   tool.toolCallId = call.id;
@@ -223,8 +225,9 @@ void AiChatController::onToolFinished(const ChatToolCall &call, bool ok, const Q
   // The UI summary remains independent of the model's transport contract.
   const auto native = QJsonDocument::fromJson(resultJson.toUtf8()).object();
   QString summary = deliveredOk ? resultJson
-      : (readDeliveryFailed ? QStringLiteral("tool_reply_budget_changed")
-                           : native.value("error").toString(resultJson));
+      : (deliveryFailed ? (transportCode.isEmpty() ? QStringLiteral("result_not_delivered")
+                                                   : transportCode)
+                        : native.value("error").toString(resultJson));
   if (deliveredOk && resultJson.size() > 160) {
     int end = 160;
     if (resultJson[end - 1].isHighSurrogate() && resultJson[end].isLowSurrogate()) --end;

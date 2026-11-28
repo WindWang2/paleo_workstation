@@ -176,8 +176,9 @@ void DataPreviewTabs::setDocumentSession(paleo::document::DocumentSession *sessi
       if(key.startsWith(QLatin1String("model-well:"))) {
         const auto modelWellId=key.mid(11).toLongLong();
         if(!wellId.isEmpty() && (!m_doc || m_doc->entityIdForModelWell(modelWellId)!=wellId))continue;
-        wells.append({modelWellId,m_tabs->tabText(m_tabs->indexOf(m_pageOfAsset.value(key)))});
-        closeAssetTab(key);
+        const auto name=m_tabs->tabText(m_tabs->indexOf(m_pageOfAsset.value(key)));
+        if(!closeAssetTab(key))continue;
+        wells.append({modelWellId,name});
       } else if((wellId.isEmpty() || m_wellEntityOfAsset.value(key)==wellId) &&
                 m_pageOfAsset.value(key) && m_pageOfAsset.value(key)->findChild<XmlPreviewSession *>()) {
         rebuildAssetTab(key);

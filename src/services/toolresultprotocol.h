@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include <QByteArray>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QString>
@@ -30,4 +31,13 @@ QJsonObject transportResult(const QJsonObject &facts, const QString &code,
 QJsonObject resultError(const QString &code);
 QJsonObject toolResultEnvelopeSchema(const QJsonObject &nativeSchema = {});
 bool isResultEnvelope(const QJsonObject &value);
+// 模型读得到载荷：内联 data，或非空 resultRefs。transportResult 会同时去掉
+// 这两项；之后再插入的 resultRefs 仍是送达。result_too_large、
+// result_cache_full、tool_reply_budget_changed 以及同一函数里剥掉 data 与
+// resultRefs 的其它码都不是送达。
+inline bool toolResultPayloadDelivered(const QJsonObject &envelope) {
+  if (envelope.contains(QLatin1String("data")))
+    return true;
+  return !envelope.value(QLatin1String("resultRefs")).toArray().isEmpty();
+}
 } // namespace paleo::chat

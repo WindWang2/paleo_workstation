@@ -673,6 +673,9 @@ public:
     using WorkbenchShowFn = std::function<bool(const QString &, QString *)>;
     void attachClusterInspector(MappingWorkbench *, const WorkbenchShowFn &);
     bool resolveClusterDrafts();
+    bool resolveFaciesDrafts();
+    bool resolveCompositeEdits();
+    bool resolveInterpretationEdits();
     using WorkbenchOpenWellsFn = std::function<void(const QString &)>;
     using WorkbenchBeginEditFn = std::function<bool(const QString &)>;
     // 证据面板/图谱联动接线（_evidence.cpp）。

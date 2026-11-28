@@ -12,6 +12,16 @@
 #include <cmath>
 #include <limits>
 
+namespace {
+// Qt 6 默认 NoLessSafeRedirectPolicy 会跟随 http→http / https→https，含跨主机。
+// 样本不得送到 Location，3xx 正文也不得被当成相网格。
+void armManualRedirect(QNetworkRequest &request) {
+  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                       QNetworkRequest::ManualRedirectPolicy);
+  request.setTransferTimeout(0);
+}
+} // namespace
+
 // ai/ — 远端推理路由实现（方向51：全异步，零事件循环嵌套）。
 //
 // 轮次号（runId）契约：router 每次 start 领一个只增不复用的 runId，随
@@ -147,6 +157,17 @@ void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
         emit predictDone(runId, {}, limitMsg);
       return;
     }
+    // 手动重定向：3xx 到此为止，不读 Location，也不把正文解析成相网格。
+    if (status >= 300 && status < 400) {
+      const QString redirect = op == Op::Health
+          ? QObject::tr("健康检查拒绝跟随重定向: HTTP %1").arg(status)
+          : QObject::tr("远端预测拒绝跟随重定向: HTTP %1").arg(status);
+      if (op == Op::Health)
+        emit healthDone(runId, false, redirect);
+      else
+        emit predictDone(runId, {}, redirect);
+      return;
+    }
     if (op == Op::Health) {
       if (!ok || status != 200) {
         emit healthDone(runId, false, QObject::tr("健康检查失败: HTTP %1 (%2)")
@@ -214,7 +235,7 @@ void HttpRemoteTransport::healthCheck(int timeoutMs, quint64 runId)
   if (!m_nam)
     return;
   QNetworkRequest req(m_base.resolved(QUrl(QStringLiteral("/health"))));
-  req.setTransferTimeout(0); // 超时统一由本端定时器判
+  armManualRedirect(req); // 超时统一由本端定时器判（transfer timeout 置 0）
   begin(timeoutMs, Op::Health, m_nam->get(req), runId);
 }
 
@@ -246,7 +267,7 @@ void HttpRemoteTransport::predict(const RemotePredictionRequest &request,
   QNetworkRequest req(m_base.resolved(QUrl(QStringLiteral("/predict"))));
   req.setHeader(QNetworkRequest::ContentTypeHeader,
                 QStringLiteral("application/json"));
-  req.setTransferTimeout(0);
+  armManualRedirect(req);
   QNetworkReply *reply =
     m_nam->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
   begin(timeoutMs, Op::Predict, reply, runId);

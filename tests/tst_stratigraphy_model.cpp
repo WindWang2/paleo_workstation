@@ -1,8 +1,15 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include <QSignalSpy>
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -166,6 +173,53 @@ private slots:
   workflow.activateClassification(wellId);QCOMPARE(applied.count(),1);
   QCOMPARE(mappingHorizons(),QStringList({"NEW_TOP","NEW_BASE"}));
   workflow.setProject(project.path(),true);QVERIFY(!workflow.canEdit());
+  AreaRules::reset();
+ }
+ void failedProjectAreaWriteKeepsPreviousFile() {
+  QTemporaryDir project;QVERIFY(project.isValid());
+  qlonglong wellId=0;
+  QVERIFY(buildSyntheticProject(project.path(),&wellId,nullptr));
+  StratigraphyWorkflow workflow(nullptr);
+  workflow.setProject(project.path(),false);
+  QVERIFY(workflow.canEdit());
+  QSignalSpy status(&workflow,&StratigraphyWorkflow::statusChanged);
+  QSignalSpy applied(&workflow,&StratigraphyWorkflow::classificationChanged);
+  workflow.activateClassification(wellId);
+  QCOMPARE(applied.count(),1);
+  const QString path=AreaRules::configFilePath(project.path());
+  QFile before(path);
+  QVERIFY(before.open(QIODevice::ReadOnly));
+  const QByteArray original=before.readAll();
+  before.close();
+  QVERIFY(!original.isEmpty());
+  status.clear();
+  applied.clear();
+#ifdef Q_OS_WIN
+  const HANDLE lock=CreateFileW(reinterpret_cast<const wchar_t *>(path.utf16()),
+                                GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL,nullptr);
+  QVERIFY(lock!=INVALID_HANDLE_VALUE);
+#else
+  const QString dir=QFileInfo(path).absolutePath();
+  const auto writable=QFile::permissions(dir);
+  QVERIFY(QFile::setPermissions(dir,QFileDevice::ReadOwner|QFileDevice::ExeOwner|
+                                    QFileDevice::ReadGroup|QFileDevice::ExeGroup|
+                                    QFileDevice::ReadOther|QFileDevice::ExeOther));
+#endif
+  workflow.activateClassification(wellId);
+#ifdef Q_OS_WIN
+  CloseHandle(lock);
+#else
+  QVERIFY(QFile::setPermissions(dir,writable));
+#endif
+  QCOMPARE(applied.count(),0);
+  QVERIFY(status.count()>=1);
+  const QString message=status.last().first().toString();
+  QVERIFY(!message.isEmpty());
+  QVERIFY(!message.contains(QStringLiteral("已将所选井的地层界面应用到当前工程")));
+  QFile after(path);
+  QVERIFY(after.open(QIODevice::ReadOnly));
+  QCOMPARE(after.readAll(),original);
   AreaRules::reset();
  }
 };

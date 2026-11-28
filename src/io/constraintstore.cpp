@@ -144,12 +144,16 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
     if (error) *error = QObject::tr("约束审计结果列缺失");
     return result;
   }
+  CPLErrorReset();
   while (auto raw = OGR_L_GetNextFeature(rows)) {
     Feature feature(raw, OGR_F_Destroy); QJsonParseError parse;
     // SQLite 方言把 GPKG 的 fid 列映射进层 FID（audit_fid 字段被剥离）：
     // 字段在场则按名读，缺席时 GetFID 即同一 fid——两代方言行为都正确。
     const qint64 fid = fidIdx >= 0 ? OGR_F_GetFieldAsInteger64(raw, fidIdx)
                                    : OGR_F_GetFID(raw);
+    // A-04：被拒行的原始 fid 也要推进游标。整页拒收不是 EOF。
+    if (minFidOut && ( *minFidOut == 0 || fid < *minFidOut ))
+      *minFidOut = fid; // 事件图本身不掺 fid（快照 event_json 保持原样）
     const auto rawBytes = QByteArray(OGR_F_GetFieldAsString(raw, jsonIdx));
     auto document = QJsonDocument::fromJson(rawBytes, &parse);
     if (parse.error != QJsonParseError::NoError || !document.isObject()) {
@@ -157,10 +161,16 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
       continue;
     }
     result << document.toVariant().toMap();
-    if (minFidOut && ( *minFidOut == 0 || fid < *minFidOut ))
-      *minFidOut = fid; // 事件图本身不掺 fid（快照 event_json 保持原样）
   }
-  GDALDatasetReleaseResultSet(ds, rows); return result;
+  const bool ioFailed = CPLGetLastErrorType() >= CE_Failure;
+  QString ioError;
+  if (ioFailed) {
+    ioError = QString::fromUtf8(CPLGetLastErrorMsg());
+    if (ioError.isEmpty()) ioError = QObject::tr("约束审计读取失败");
+  }
+  GDALDatasetReleaseResultSet(ds, rows);
+  if (ioFailed && error) *error = ioError;
+  return result;
 }
 bool ensureAuditTable(GDALDatasetH ds) {
   auto audit = GDALDatasetGetLayerByName(ds, "constraint_audit");
@@ -574,10 +584,10 @@ bool ConstraintStore::copyAudit(const QString &destination, const QString &horiz
     const auto page = historyForHorizon(horizon, 200, 0, &reason, fidBelow, &minFid);
     if (!reason.isEmpty()) { if (error) *error = reason; return false; }
     events += page;
-    // 判终只看「整页无有效行」：readHistory 会跳过损坏 JSON 行（页变短但
-    // 后续页仍有数据），「页短即终页」会在损坏密集区静默截断快照；游标
-    // 每轮严格递减（fid 单调 + fid<fidBelow），无死循环面。
-    if (page.isEmpty() || minFid == 0) break;
+    // A-04：查询零要素（minFid 仍为 0）才是 EOF。整页 JSON 被拒时 minFid
+    // 是被拒行的原始 fid，还要继续翻更老的事件。I/O 错误已在上面返回 false。
+    // 游标每轮严格递减（fid 单调 + fid<fidBelow），无死循环面。
+    if (minFid == 0) break;
     fidBelow = minFid;
   }
   if (events.isEmpty()) return true;

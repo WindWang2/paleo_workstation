@@ -28,6 +28,10 @@ bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
                            const detail::NeighborIndex &index, double x0, double y0,
                            const VariogramModel &model, KrigingPointResult *out )
 {
+  // n > kMaxGlobalFactorSamples 的 (n+1)^2 不分配。maxPoints<=0 仍表示全部样本，
+  // 超预算在这里拒绝，不退回逐格分解。全场入口把这次拒绝报成 InvalidInput。
+  if ( neighborhood.size() > static_cast<std::size_t>( kMaxGlobalFactorSamples ) )
+    return false;
   const int n = static_cast<int>( neighborhood.size() );
   const int n1 = n + 1;
   std::vector<double> a( static_cast<std::size_t>( n1 ) * n1, 0.0 );
@@ -157,11 +161,9 @@ struct SolverCore
     buildGlobalFactor();
   }
 
-  // PW-079：maxPoints<=0 且无半径 = 每格都用全部 n 个样本。方程组矩阵与待估点
-  // 无关（只有右端项变），一次分解后每格只做 O(n²) 回代，替代每格 O(n³)。
-  // 内存 (n+1)² double，n 超过上限时退回逐格求解（旧口径）。
-  // 内存 (n+1)² double（+ luFactor 工作区副本）；上限按矩阵内存预算推导
-  // （kriging.h：kMaxGlobalFactorSamples，#802），超限退回逐格求解。
+  // PW-079：maxPoints<=0 且无半径、且 n<=kMaxGlobalFactorSamples = 每格都用全部
+  // n 个样本。方程组矩阵与待估点无关（只有右端项变），一次分解后每格只做
+  // O(n²) 回代。n 超过上限时不建这次分解，也不退回逐格 (n+1)^2。
   bool global = false;
   bool globalFactorOk = false;
   LuWorkspace globalLu;
@@ -331,6 +333,15 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
     result.message = "no finite samples";
     return result;
   }
+  // maxPoints<=0 且无半径：每格邻域就是全部样本。超过分解预算时不分配
+  // (n+1)^2，也不扫出半幅 Ok 网格。半径模式的邻域大小要等查询。
+  if ( core.params.maxPoints <= 0 && !( core.params.searchRadius > 0 ) &&
+       core.index.size() > static_cast<std::size_t>( kMaxGlobalFactorSamples ) )
+  {
+    result.status = Status::InvalidInput;
+    result.message = "kriging neighborhood exceeds factorization budget";
+    return result;
+  }
   const std::size_t total = static_cast<std::size_t>( cells );
   result.estimate.assign( total, std::numeric_limits<double>::quiet_NaN() );
   result.variance.assign( total, std::numeric_limits<double>::quiet_NaN() );
@@ -349,6 +360,18 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
       // 内部又查一遍，每格 k-NN 重复两次。
       if ( core.global || core.neighborhood( x0, y0, &neighborhood ) )
       {
+        // 半径（或未走全局分解）选出的邻域超过预算：不分配该格的 (n+1)^2，
+        // 整幅 InvalidInput，不用已写出的格子冒充 Ok。
+        if ( !core.global &&
+             neighborhood.size() > static_cast<std::size_t>( kMaxGlobalFactorSamples ) )
+        {
+          result.status = Status::InvalidInput;
+          result.message = "kriging neighborhood exceeds factorization budget";
+          result.estimate.clear();
+          result.variance.clear();
+          result.solverFailures = 0;
+          return result;
+        }
         KrigingPointResult point;
         const bool solved = core.global
             ? core.solveGlobal( x0, y0, &point )

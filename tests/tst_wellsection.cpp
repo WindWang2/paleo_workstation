@@ -45,6 +45,14 @@ private slots:
     QCOMPARE(ls[1].name, QString("C"));
     QCOMPARE(ls[1].leftMd, 300.0);
     QCOMPARE(ls[1].rightMd, 310.0);
+    // B-04: 重名顶取最浅有限 MD，不取先出现的那条。
+    Well deepLeft, deepRight;
+    deepLeft.tops = {{"A", 180}, {"A", 90}};
+    deepRight.tops = {{"A", 200}, {"A", 30}};
+    const auto shallow = links(deepLeft, deepRight);
+    QCOMPARE(shallow.size(), 1);
+    QCOMPARE(shallow[0].leftMd, 90.0);
+    QCOMPARE(shallow[0].rightMd, 30.0);
   }
   void orderedTopNamesMerge() {
     Well w1, w2, w3;
@@ -129,6 +137,14 @@ private slots:
     QVERIFY(!shallower.hasBase());
     QVERIFY(!formationInterval(w, "Z", "B").valid());
     QVERIFY(!formationInterval(w, "", "B").valid());
+    // B-04: 重名顶的层段和拉平基准用最浅有限 MD。
+    Well dup;
+    dup.tops = {{"A", 180}, {"A", 100}, {"B", 250}, {"B", 140}};
+    const auto window = formationInterval(dup, "A", "B");
+    QCOMPARE(window.topMd, 100.0);
+    QCOMPARE(window.baseMd, 140.0);
+    QCOMPARE(flattenOffset(dup, "A"), 100.0);
+    QCOMPARE(dup.topMd("A"), 100.0);
   }
   void inferSandShaleRules() {
     Curve gr;
@@ -189,6 +205,15 @@ private slots:
     QVERIFY(dc[2].sand);
     QCOMPARE(dc[2].topMd, 104.5);
     QCOMPARE(dc[2].baseMd, 105.0);
+    // B-05: 底浅于顶的 run 丢弃，不把该底深抄到前一段。
+    Curve back;
+    back.depths = {100, 110, 200, 50, 120};
+    back.values = {30, 30, 80, 80, 80};
+    const auto inv = inferSandShale(back, 50.0, 0.5);
+    QCOMPARE(inv.size(), 1);
+    QVERIFY(inv[0].sand);
+    QCOMPARE(inv[0].topMd, 100.0);
+    QCOMPARE(inv[0].baseMd, 155.0);
   }
   // GR 截断推断 provider（方向 69 domain 回落面）：段口径与 inferSandShale
   // 严格一致，来源 Inferred + 砂/泥词面。
@@ -399,8 +424,8 @@ private slots:
       QCOMPARE(tvd.rows[r][2], md.rows[r][2]); // MD
     }
     // 造斜井 TVD 值 = tvdOf；坏表井 TVD 格留空（不伪造）。
-    QCOMPARE(tvd.rows[0][3], QString::number(dev.tvdOf(1000), 'f', 2));
-    QCOMPARE(tvd.rows[1][3], QString::number(dev.tvdOf(2000), 'f', 2));
+    QCOMPARE(tvd.rows[0][3], QString::number(dev.tvdOf(1000), 'g', 17));
+    QCOMPARE(tvd.rows[1][3], QString::number(dev.tvdOf(2000), 'g', 17));
     QCOMPARE(tvd.rows[2][3], QString());
     // NoSurvey 井 TVD 格同留空（opt-02：几何恒等仅限绘制，导出面不得把
     // MD 冒充实测垂深——旧实现写出 1000.00，先红）。

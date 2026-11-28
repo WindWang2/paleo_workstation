@@ -166,8 +166,24 @@ bool DataImportService::storeManagedRaw(ImportSession &s, const QString &sourceP
     setError(error, QStringLiteral("read error on %1").arg(sourcePath));
     return false;
   }
-  out.flush();
+  // A-03：write() 只表示进了 QFile 缓冲。flush/close 失败时不得发布半截文件。
+  // close() 无返回值，引擎关闭失败记在 error() 上。不二次哈希已发布文件。
+  if (!out.flush())
+  {
+    const QString why = out.errorString();
+    out.close();
+    QFile::remove(partial);
+    setError(error, QStringLiteral("cannot flush %1: %2").arg(partial, why));
+    return false;
+  }
   out.close();
+  if (out.error() != QFileDevice::NoError)
+  {
+    const QString why = out.errorString();
+    QFile::remove(partial);
+    setError(error, QStringLiteral("cannot close %1: %2").arg(partial, why));
+    return false;
+  }
   if (!paleoReplaceFile(partial, dst))
   {
     QFile::remove(partial);

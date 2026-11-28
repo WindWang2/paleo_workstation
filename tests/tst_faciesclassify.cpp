@@ -272,6 +272,17 @@ void TestFacies::mapLocation() {
   s.locations[0].hasXY = false;
   QVERIFY(!link.locate(s, 0, &error));
   QVERIFY(!error.isEmpty());
+  QVERIFY(canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering);
+  s.grid.crs = QStringLiteral("EPSG:4326");
+  s.locations[0].hasXY = true;
+  const auto parked = canvas->extent();
+  error.clear();
+  QVERIFY(!link.locate(s, 0, &error));
+  QVERIFY(!error.isEmpty());
+  QCOMPARE(canvas->extent(), parked);
+  error.clear();
+  QVERIFY(!link.highlight(s, {0, 3, 8}, &error));
+  QVERIFY(!error.isEmpty());
 }
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, false);

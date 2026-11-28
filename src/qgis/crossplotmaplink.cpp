@@ -34,14 +34,16 @@ bool CrossplotMapLink::coordinate(const SampleSet &s, int index, double *x,
   if (!source.isValid())
     return fail(tr("样本 CRS 无效"));
   QgsPointXY point(loc.x, loc.y);
-  try {
-    if (source != m_canvas->mapSettings().destinationCrs())
-      point = QgsCoordinateTransform(source,
-                                     m_canvas->mapSettings().destinationCrs(),
-                                     m_canvas->mapSettings().transformContext())
-                  .transform(point);
-  } catch (const QgsCsException &ex) {
-    return fail(ex.what());
+  const auto destination = m_canvas->mapSettings().destinationCrs();
+  if (source != destination) {
+    try {
+      QgsCoordinateTransform transform(source, destination, m_canvas->mapSettings().transformContext());
+      if (!transform.isValid())
+        return fail(tr("无法建立坐标转换，请检查坐标系和基准操作。"));
+      point = transform.transform(point);
+    } catch (const QgsCsException &ex) {
+      return fail(ex.what());
+    }
   }
   *x = point.x();
   *y = point.y();
@@ -101,8 +103,14 @@ bool CrossplotMapLink::highlight(const SampleSet &s,
       *error = tr("样本 CRS 无效");
     return false;
   }
-  QgsCoordinateTransform transform(
-      source, m_canvas->mapSettings().destinationCrs(), m_canvas->mapSettings().transformContext());
+  const auto destination = m_canvas->mapSettings().destinationCrs();
+  const bool reproject = source != destination;
+  QgsCoordinateTransform transform(source, destination, m_canvas->mapSettings().transformContext());
+  if (reproject && !transform.isValid()) {
+    if (error)
+      *error = tr("无法建立坐标转换，请检查坐标系和基准操作。");
+    return false;
+  }
   QgsMultiPointXY points;
   points.reserve(indices.size());
   try {
@@ -115,7 +123,7 @@ bool CrossplotMapLink::highlight(const SampleSet &s,
       }
       const auto &loc = s.locations[index];
       QgsPointXY point(loc.x, loc.y);
-      if (source != m_canvas->mapSettings().destinationCrs())
+      if (reproject)
         point = transform.transform(point);
       points << point;
     }

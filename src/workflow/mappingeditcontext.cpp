@@ -180,22 +180,29 @@ QHash<QString, QVariantMap> MappingWorkbench::loadDraftExplanations(const QStrin
   return loaded;
 }
 
-void MappingWorkbench::saveDraftExplanations(const QString &layerId) const {
+bool MappingWorkbench::saveDraftExplanations(const QString &layerId, QString *error) const {
   const QString sidecar = draftExplanationsPath(layerId);
   if (sidecar.isEmpty() || !m_catalog || m_catalog->refusesWrites())
-    return;
+    return true;
   const auto entries = m_generatedExplanations.value(layerId);
   QVariantMap serialized;
   for (auto it = entries.cbegin(); it != entries.cend(); ++it)
     serialized.insert(it.key(), it.value());
   QDir().mkpath(QFileInfo(sidecar).absolutePath());
   QSaveFile out(sidecar);
+  out.setDirectWriteFallback(false);
   const auto bytes = QJsonDocument(QJsonObject{
       {QStringLiteral("schema"), QStringLiteral("paleo.mapping.auto_explanations.v1")},
       {QStringLiteral("layer_id"), layerId},
       {QStringLiteral("entries"), QJsonObject::fromVariantMap(serialized)}}).toJson(QJsonDocument::Compact);
-  if (out.open(QIODevice::WriteOnly) && out.write(bytes) == bytes.size())
-    out.commit();
+  if (out.open(QIODevice::WriteOnly) && out.write(bytes) == bytes.size() && out.commit())
+    return true;
+  if (error) {
+    const QString detail = out.errorString();
+    *error = detail.isEmpty() ? tr("自动解释草稿未能写入：%1").arg(sidecar)
+                              : tr("自动解释草稿未能写入：%1（%2）").arg(sidecar, detail);
+  }
+  return false;
 }
 
 QVariantMap MappingWorkbench::generatedExplanationForFeature(const QString &layerId,
@@ -223,9 +230,15 @@ bool MappingWorkbench::adoptExplanation(const QString &id, const QString &featur
   const auto current = explanationForTarget(id, featureUid);
   if (current.value("request_id").toString() != requestId) return false;
   auto &record = m_generatedExplanations[id][featureUid.isEmpty() ? QStringLiteral("__map__") : featureUid];
+  const QVariantMap previous = record;
   record.remove("pending_adoption");
   record.insert("adopted", true);
-  saveDraftExplanations(id);
+  QString writeError;
+  if (!saveDraftExplanations(id, &writeError)) {
+    record = previous;
+    emit errorOccurred(writeError.isEmpty() ? tr("自动解释草稿未能写入") : writeError);
+    return false;
+  }
   emit displayChanged(id);
   return true;
 }
@@ -339,6 +352,12 @@ void MappingWorkbench::cancelBackgroundExplanation() {
 }
 
 void MappingWorkbench::onBackgroundExplanationReady(const MappingExplanationResult &result) {
+  if (result.generator == QLatin1String("queue_dropped")) {
+    emit errorOccurred(result.fallbackReason.isEmpty()
+                           ? tr("后台解释队列已满，较早的请求已被丢弃")
+                           : result.fallbackReason);
+    return;
+  }
   if (result.cancelled || result.text.trimmed().isEmpty())
     return;
   if (m_dir != result.projectDir || !explanationTargetMatches(result))
@@ -350,8 +369,19 @@ void MappingWorkbench::onBackgroundExplanationReady(const MappingExplanationResu
   const QString key = result.featureUid.isEmpty() ? QStringLiteral("__map__") : result.featureUid;
   if (!result.layerId.isEmpty()) {
     loadDraftExplanations(result.layerId);
-    m_generatedExplanations[result.layerId].insert(key, record);
-    saveDraftExplanations(result.layerId);
+    auto &entries = m_generatedExplanations[result.layerId];
+    const bool hadPrevious = entries.contains(key);
+    const QVariantMap previous = entries.value(key);
+    entries.insert(key, record);
+    QString writeError;
+    if (!saveDraftExplanations(result.layerId, &writeError)) {
+      if (hadPrevious)
+        entries.insert(key, previous);
+      else
+        entries.remove(key);
+      emit errorOccurred(writeError.isEmpty() ? tr("自动解释草稿未能写入") : writeError);
+      return;
+    }
   }
   if (!result.horizon.isEmpty())
     m_lastAutoExplanations.insert(result.horizon, record);

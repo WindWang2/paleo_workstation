@@ -594,6 +594,18 @@ private slots:
                               Q_ARG(QString, QStringLiteral("提取失败：模拟错误")));
     QApplication::processEvents();
     QVERIFY(s->isVisible());
+    // 换成别的地图工具不发 captureCancelled，为绘制隐藏的对话框仍要回来。
+    QMetaObject::invokeMethod(s, "drawRequested");
+    QApplication::processEvents();
+    QVERIFY(!s->isVisible());
+    auto *canvas = m_ctx->canvasCtl()->canvas();
+    QVERIFY(canvas);
+    auto *replacement = new SeismicSectionTool(canvas);
+    canvas->setMapTool(replacement);
+    QApplication::processEvents();
+    QVERIFY(s->isVisible());
+    canvas->unsetMapTool(replacement);
+    delete replacement;
     s->hide();
   }
 

@@ -35,7 +35,7 @@ CoSampleIndex buildIndex( const std::vector<Sample> &samples )
 
 int clampNeighborhood( int value )
 {
-  return value > 0 ? std::clamp( value, 1, 64 ) : 0; // 0 = 全部样本
+  return value > 0 ? std::clamp( value, 1, 64 ) : 0; // 0 = 全部样本；超预算在求解时拒绝
 }
 
 // 显著负方差判失败（与 solveOrdinaryKriging 同口径：不静默输出病态解）。
@@ -93,7 +93,7 @@ struct CokrigingWorkspace
 };
 
 CoKrigingPointResult solveCoreAt( const CokrigingCore &core, double x, double y,
-                                  CokrigingWorkspace &ws )
+                                  CokrigingWorkspace &ws, bool *overBudget )
 {
   CoKrigingPointResult result;
   if ( !core.valid )
@@ -119,6 +119,15 @@ CoKrigingPointResult solveCoreAt( const CokrigingCore &core, double x, double y,
     ws.secondaryHood.clear();
   }
 
+  // 主+协样本数即待分配系统的 n。超过 kMaxGlobalFactorSamples 不分配 m×m，
+  // 也不逐格硬解。半径查询留下的邻域不超过上限时仍求解。
+  if ( ws.primaryHood.size() + ws.secondaryHood.size() >
+       static_cast<std::size_t>( kMaxGlobalFactorSamples ) )
+  {
+    if ( overBudget )
+      *overBudget = true;
+    return result;
+  }
   const int n1 = static_cast<int>( ws.primaryHood.size() );
   const int n2 = static_cast<int>( ws.secondaryHood.size() );
   // n2 = 0 时省去 μ2 行（全零行会让加边矩阵奇异）：方程组即普通克里金。
@@ -275,7 +284,7 @@ CoKrigingPointResult CoKrigingSolver::solveAt( double x, double y ) const
   // 单点调用自建工作区（每调用独立 → 公开 const API 保持可重入）；
   // 全场扫描走 solveCoreAt 复用一份（见 ordinaryCoKriging）。
   CokrigingWorkspace workspace;
-  return solveCoreAt( m_impl->core, x, y, workspace );
+  return solveCoreAt( m_impl->core, x, y, workspace, nullptr );
 }
 
 CoKrigingPointResult coKrigingAt( double x, double y, const std::vector<Sample> &primary,
@@ -322,6 +331,24 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
     result.message = "no finite primary samples or invalid model";
     return result;
   }
+  // 无半径时邻域就是（截断后的）全部主/协样本。合计超过分解预算则不分配
+  // 系统、不返回半幅网格。半径模式等逐点查询再判实际邻域。
+  if ( !( core.params.searchRadius > 0 ) )
+  {
+    const auto neighborhoodCount = []( int requested, std::size_t available ) {
+      if ( requested > 0 )
+        return std::min( static_cast<std::size_t>( requested ), available );
+      return available;
+    };
+    if ( neighborhoodCount( core.params.maxPrimary, core.primary.index.size() ) +
+             neighborhoodCount( core.params.maxSecondary, core.secondary.index.size() ) >
+         static_cast<std::size_t>( kMaxGlobalFactorSamples ) )
+    {
+      result.status = Status::InvalidInput;
+      result.message = "cokriging neighborhood exceeds factorization budget";
+      return result;
+    }
+  }
 
   const std::size_t total = static_cast<std::size_t>( cells );
   result.estimates.assign( total, std::numeric_limits<double>::quiet_NaN() );
@@ -336,8 +363,18 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
     for ( int column = 0; column < grid.cols; ++column )
     {
       const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
-      const CoKrigingPointResult pt =
-          solveCoreAt( core, grid.cellCenterX( column ), grid.cellCenterY( row ), workspace );
+      bool overBudget = false;
+      const CoKrigingPointResult pt = solveCoreAt(
+          core, grid.cellCenterX( column ), grid.cellCenterY( row ), workspace, &overBudget );
+      if ( overBudget )
+      {
+        result.status = Status::InvalidInput;
+        result.message = "cokriging neighborhood exceeds factorization budget";
+        result.estimates.clear();
+        result.variances.clear();
+        result.solverFailures = 0;
+        return result;
+      }
       if ( pt.ok )
       {
         result.estimates[cell] = pt.estimate;
@@ -539,6 +576,9 @@ ConstrainedKrigingPointResult ConstrainedKrigingSolver::solveAt( double x, doubl
   m_impl->index.queryNearest( x, y, k, m_impl->params.searchRadius, &neighborhood );
   if ( neighborhood.empty() )
     return result;
+  // 与普通克里金同一预算：n 超过上限不分配 (n+1)^2。
+  if ( neighborhood.size() > static_cast<std::size_t>( kMaxGlobalFactorSamples ) )
+    return result;
   const int n = static_cast<int>( neighborhood.size() );
   const int n1 = n + 1;
 
@@ -648,13 +688,13 @@ ConstrainedKrigingPointResult ConstrainedKrigingSolver::solveAt( double x, doubl
   }
 
   double estimate = 0;
-  double lambdaB = 0; // Σλᵢ·bᵢ（b 可能已按 systemScale 归一化）
+  double lambdaB = 0; // Σλᵢ·bᵢ（b 是 scaleSystem 写下的缩放右端，不是未缩放的 rhs）
   double weightSum = 0;
   for ( int i = 0; i < n; ++i )
   {
     const double weight = solution[static_cast<std::size_t>( i )];
     estimate += weight * m_impl->index.point( neighborhood[static_cast<std::size_t>( i )] ).value;
-    lambdaB += weight * rhs[static_cast<std::size_t>( i )];
+    lambdaB += weight * b[static_cast<std::size_t>( i )];
     weightSum += weight;
   }
   // #720：行归一化（矩阵与右端同步）不改变解——μ 不缩放，只有缩放后 b 算出

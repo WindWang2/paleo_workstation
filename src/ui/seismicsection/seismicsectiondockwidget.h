@@ -137,6 +137,8 @@ public:
     // 点串（同路径重提取可复现）；时间切片/无剖面 → false。
     bool currentFaultSection(paleo::fault::FaultSectionRef *out) const;
     bool saveInterpretationSession(QString *error = nullptr);
+    // 最近一次会话落盘失败（写短或 commit）。成功保存或工程边界复位后为 false。
+    bool hasUnsavedInterpretation() const { return m_interpretationUnsaved; }
     bool loadInterpretationSession(QString *error = nullptr);
     QString registerCurrentHorizonAsset(QString *error = nullptr);
     QString registerCurrentFaultAsset(QString *error = nullptr);
@@ -325,6 +327,7 @@ private:
     QUndoStack *m_undoStack = nullptr;
     void cancelPendingInterpretation();
     bool m_interpretationReadOnly = false;
+    bool m_interpretationUnsaved = false;
     quint64 m_interpretationEpoch = 0;
     SeismicPickPanel *m_pickPanel = nullptr;
     paleo::fault::FaultInterpretationController *m_faultController = nullptr;

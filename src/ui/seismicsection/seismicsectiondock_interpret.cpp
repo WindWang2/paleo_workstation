@@ -54,6 +54,7 @@ void SeismicSectionDockWidget::resetInterpretationState() {
     if (m_invPanel)
         m_invPanel->setBusy(false);
     m_session = SeismicInterpretationSession{};
+    m_interpretationUnsaved = false;
     if (m_undoStack)
         m_undoStack->clear();
     m_lastAttrResult = {};
@@ -314,7 +315,10 @@ bool SeismicSectionDockWidget::saveInterpretationSession(QString *error) {
     }
     if (m_session.sourceSgyPath.isEmpty())
         return false;
-    return SeismicTaskService::saveSession(m_session, error);
+    const bool ok = SeismicTaskService::saveSession(m_session, error);
+    // 打开/写短/commit 失败都不是已保存。拾取留在会话里，换工程前再问。
+    m_interpretationUnsaved = !ok;
+    return ok;
 }
 
 bool SeismicSectionDockWidget::loadInterpretationSession(QString *error) {
@@ -325,6 +329,7 @@ bool SeismicSectionDockWidget::loadInterpretationSession(QString *error) {
         return false;
     cancelPendingInterpretation();
     m_session = std::move(loaded);
+    m_interpretationUnsaved = false;
     m_undoStack->clear();
     refreshInterpretationOverlay();
     return true;

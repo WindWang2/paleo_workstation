@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -12,6 +13,7 @@
 #include "../src/ai/chat/llmclient.h"
 #include "../src/domain/wellfaciesrequest.h"
 #include "../src/services/pythonnumerictable.h"
+#include "../src/services/toolresultprotocol.h"
 #include "../src/services/pythonseismictrace.h"
 #include "../src/services/pythontableoutputspec.h"
 #include "../src/services/pythongeneratedoutputspec.h"
@@ -38,6 +40,8 @@ private slots:
   void domainToolsEnumerateWithValidSchemas();
   void pythonWindowToolsKeepSchemasAndEffects();
   void nativeCapabilityIntentsMatchSupportedExecutionPhases();
+  void geostatPublishMayOmitParameters();
+  void strippedToolPayloadIsNotDelivered();
   void toolDispatchIsHonestAboutWiring();
 
 private:
@@ -478,6 +482,53 @@ void TestAiChat::nativeCapabilityIntentsMatchSupportedExecutionPhases() {
     QJsonObject args{{"client_request_id","schema-phase"},{"binding_mode","pinned-value"},{"parameters",QJsonObject{}},{"inputs",QJsonObject{}}};
     for(const auto &phase:expected){args["publish_intent"]=phase;QVERIFY(spec.validateParameters(args).isEmpty());QCOMPARE(dispatchAiTool(name,args).status,AiToolDispatchStatus::Routed);}
     args["publish_intent"]="unknown";QVERIFY(!spec.validateParameters(args).isEmpty());
+  }
+}
+
+void TestAiChat::geostatPublishMayOmitParameters() {
+  for (const QString &name : {QStringLiteral("paleo.geostat_kriging"),
+                              QStringLiteral("paleo.geostat_sgs")}) {
+    const AiToolSpec spec = aiToolSpec(name);
+    QJsonObject publish{{QStringLiteral("client_request_id"), QStringLiteral("pub-1")},
+                        {QStringLiteral("binding_mode"), QStringLiteral("pinned-value")},
+                        {QStringLiteral("publish_intent"), QStringLiteral("publish")},
+                        {QStringLiteral("inputs"),
+                         QJsonObject{{QStringLiteral("source_operation_id"), QStringLiteral("op-1")}}}};
+    QVERIFY2(spec.validateParameters(publish).isEmpty(),
+             qPrintable(name + ": " + spec.validateParameters(publish)));
+    publish.insert(QStringLiteral("parameters"), QJsonObject{});
+    QVERIFY2(spec.validateParameters(publish).isEmpty(), qPrintable(name));
+    QJsonObject prepare = publish;
+    prepare.insert(QStringLiteral("publish_intent"), QStringLiteral("prepare"));
+    prepare.remove(QStringLiteral("parameters"));
+    const QString missing = spec.validateParameters(prepare);
+    QVERIFY2(missing.contains(QStringLiteral("parameters")), qPrintable(name + ": " + missing));
+  }
+}
+
+void TestAiChat::strippedToolPayloadIsNotDelivered() {
+  const QJsonObject small{{QStringLiteral("status"), QStringLiteral("succeeded")},
+                          {QStringLiteral("data"), QJsonObject{{QStringLiteral("rows"), 1}}},
+                          {QStringLiteral("transport"),
+                           QJsonObject{{QStringLiteral("code"), QStringLiteral("ok")}}}};
+  QVERIFY(paleo::chat::toolResultPayloadDelivered(small));
+  const QJsonObject referenced{
+      {QStringLiteral("status"), QStringLiteral("succeeded")},
+      {QStringLiteral("resultRefs"),
+       QJsonArray{QJsonObject{{QStringLiteral("kind"), QStringLiteral("chat-result-v1")},
+                              {QStringLiteral("ref"), QStringLiteral("chat-result-v1:scope:id")}}}},
+      {QStringLiteral("transport"),
+       QJsonObject{{QStringLiteral("code"), QStringLiteral("result_referenced")}}}};
+  QVERIFY(paleo::chat::toolResultPayloadDelivered(referenced));
+  for (const char *code : {"result_too_large", "result_cache_full", "tool_reply_budget_changed",
+                           "result_cache_disabled", "page_budget_exceeded"}) {
+    const QJsonObject stripped{
+        {QStringLiteral("status"), QStringLiteral("succeeded")},
+        {QStringLiteral("code"), QStringLiteral("ok")},
+        {QStringLiteral("transport"),
+         QJsonObject{{QStringLiteral("status"), QStringLiteral("incomplete")},
+                     {QStringLiteral("code"), QString::fromLatin1(code)}}}};
+    QVERIFY2(!paleo::chat::toolResultPayloadDelivered(stripped), code);
   }
 }
 

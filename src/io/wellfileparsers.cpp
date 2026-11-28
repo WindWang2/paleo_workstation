@@ -464,10 +464,10 @@ namespace
   }
 
   // ---- #561 流式骨架：全文件编码嗅探（O(64KB) 内存）→ 逐行收割喂核 ----
-  // 嗅探决策与 EncodingDetect::detect(stripBom(整文件)) 逐条对齐：BOM →
-  // Utf8；严格 UTF-8（EOF 半截尾序列按 detect 的 trimIncompleteUtf8Tail
-  // 同款容差）→ Utf8；无高位字节 → Utf8；GB18030 全文件合法 → GB18030；
-  // 否则 Latin1。
+  // 嗅探决策与 EncodingDetect::detect(stripBom(整文件)) 对齐：BOM → Utf8；
+  // 严格 UTF-8（文件结束在完整码点上，含纯 ASCII）→ Utf8；非空的半截
+  // UTF-8 尾不判 Utf8（A-01：与 detect 对 ASCII 正文 + 末尾 GBK 的决定
+  // 一致，例如唰 = E0 A7）→ GB18030 全文件合法则 GB18030；否则 Latin1。
   struct StrictUtf8Stream
   {
     bool ok = true;
@@ -490,8 +490,10 @@ namespace
       else if ((b & 0xF8) == 0xF0) { rem = 3; cp = b & 0x07; minCp = 0x10000; maxCp = 0x10FFFF; }
       else ok = false; // 0x80-0xBF 作首字节 / 0xF8+ 均非法
     }
-    // EOF：rem>0 是尾部半截序列——detect 对整段剥尾后再验，同款容差。
-    bool strictAtEof() const { return ok; }
+    // A-01：rem>0 是非空半截尾。detect 只在剥尾后仍有高位字节时才把截断
+    // 当 UTF-8；ASCII + 末尾 GBK 剥完没有高位字节，必须改走 GB18030。
+    // 完整码点（rem==0）仍是 UTF-8。
+    bool strictAtEof() const { return ok && rem == 0; }
   };
 
   // GB18030 字节合法性状态机（等价 QStringDecoder("GB18030") 无 U+FFFD 的

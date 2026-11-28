@@ -1172,6 +1172,100 @@ private slots:
               planOf( journal( h ).lookupRecordById( prepared.operationId ).record ) );
   }
 
+  // publish 按契约文本可以省略 parameters，也可以给 {} 或重复冻结计划的参数。
+  // 与冻结计划不一致的 parameters 仍拒绝，不把新的 sill/range 发布出去。
+  void publishAcceptsOmittedEmptyOrRepeatedFrozenParameters()
+  {
+    Host h;
+    QVERIFY( h.open( this ) );
+    ProjectFixture fixture;
+    QVERIFY2( fixture.build( h ), "fixture build failed" );
+    const Decoded prepare = prepareRequest( QStringLiteral( "pub-prepare" ), fixture );
+    QVERIFY2( prepare.ok, qPrintable( compact( prepare.rejected ) ) );
+    const ExecuteResult prepared = h.run( prepare.request, QStringLiteral( "pub-prepare" ) );
+    QVERIFY2( prepared.ok, qPrintable( prepared.code ) );
+    const Decoded compute = computeRequest( QStringLiteral( "pub-compute" ), prepared.operationId );
+    QVERIFY( compute.ok );
+    const ExecuteResult computed = h.run( compute.request, QStringLiteral( "pub-compute" ) );
+    QVERIFY2( computed.ok, qPrintable( computed.code ) );
+    const QJsonObject plan = planOf( journal( h ).lookupRecordById( computed.operationId ).record );
+    const QJsonObject effective = plan.value( QStringLiteral( "effective_parameters" ) ).toObject();
+    QCOMPARE( effective.value( QStringLiteral( "RANGE" ) ).toDouble(), 40.0 );
+    QCOMPARE( geostatVersions( h.catalog, fixture.wellsVersion ), 0 );
+
+    const auto publishArgs = [&]( const QString &requestId, const QJsonValue *parameters ) {
+      QJsonObject arguments{ { "client_request_id", requestId },
+                             { "binding_mode", QStringLiteral( "pinned-value" ) },
+                             { "publish_intent", QStringLiteral( "publish" ) },
+                             { "inputs", QJsonObject{ { "source_operation_id", computed.operationId } } } };
+      if ( parameters )
+        arguments.insert( QStringLiteral( "parameters" ), *parameters );
+      return arguments;
+    };
+    const auto hostRequest = [&]( const QJsonObject &arguments ) {
+      Decoded out;
+      out.rejected = prepareHostedChatToolRequest( out.request, kKrigingToolAlias(), arguments );
+      out.ok = out.rejected.isEmpty();
+      return out;
+    };
+
+    QVariantMap changed = krigingParameters();
+    changed.insert( QStringLiteral( "RANGE" ), 80.0 );
+    changed.insert( QStringLiteral( "SILL" ), 2.0 );
+    const QJsonValue changedParameters = QJsonObject::fromVariantMap( changed );
+    const QJsonObject changedArgs = publishArgs( QStringLiteral( "pub-changed" ), &changedParameters );
+    QVERIFY( aiToolSpec( kKrigingToolAlias() ).validateParameters( changedArgs ).isEmpty() );
+    const Decoded changedRequest = hostRequest( changedArgs );
+    QVERIFY2( changedRequest.ok, qPrintable( compact( changedRequest.rejected ) ) );
+    QCOMPARE( h.service->prepare( changedRequest.request, host::Caller::Agent ).code,
+              QStringLiteral( "mixed_source_operation_inputs" ) );
+    QCOMPARE( geostatVersions( h.catalog, fixture.wellsVersion ), 0 );
+
+    const QJsonObject omittedArgs = publishArgs( QStringLiteral( "pub-omit" ), nullptr );
+    QVERIFY2( aiToolSpec( kKrigingToolAlias() ).validateParameters( omittedArgs ).isEmpty(),
+              qPrintable( aiToolSpec( kKrigingToolAlias() ).validateParameters( omittedArgs ) ) );
+    const Decoded omitted = hostRequest( omittedArgs );
+    QVERIFY2( omitted.ok, qPrintable( compact( omitted.rejected ) ) );
+    QVERIFY( omitted.request.parameters.isEmpty() );
+    const ExecuteResult committed = h.run( omitted.request, QStringLiteral( "pub-omit" ) );
+    QVERIFY2( committed.ok, qPrintable( committed.code ) );
+    QCOMPARE( committed.commitState, QStringLiteral( "committed" ) );
+    QCOMPARE( computeCount( h, computed.operationId ), 1 );
+    const CatalogVersion estimate =
+        publishedVersion( h.catalog, QStringLiteral( "geostat_estimate_raster" ) );
+    QCOMPARE( estimate.extra.value( QStringLiteral( "variogram" ) ).toMap().value( QStringLiteral( "range" ) )
+                  .toDouble(),
+              40.0 );
+    QCOMPARE( estimate.extra.value( QStringLiteral( "variogram" ) ).toMap().value( QStringLiteral( "sill" ) )
+                  .toDouble(),
+              1.0 );
+
+    const QJsonValue emptyParameters = QJsonObject{};
+    const QJsonObject emptyArgs = publishArgs( QStringLiteral( "pub-empty" ), &emptyParameters );
+    QVERIFY( aiToolSpec( kKrigingToolAlias() ).validateParameters( emptyArgs ).isEmpty() );
+    const Decoded empty = hostRequest( emptyArgs );
+    QVERIFY( empty.ok );
+    const auto emptyPrepared = h.service->prepare( empty.request, host::Caller::Agent );
+    QVERIFY2( emptyPrepared.ok, qPrintable( emptyPrepared.code ) );
+
+    const QJsonValue repeatedParameters = QJsonObject::fromVariantMap( krigingParameters() );
+    const QJsonObject repeatedArgs = publishArgs( QStringLiteral( "pub-repeat" ), &repeatedParameters );
+    QVERIFY( aiToolSpec( kKrigingToolAlias() ).validateParameters( repeatedArgs ).isEmpty() );
+    const Decoded repeated = hostRequest( repeatedArgs );
+    QVERIFY( repeated.ok );
+    const auto repeatedPrepared = h.service->prepare( repeated.request, host::Caller::Agent );
+    QVERIFY2( repeatedPrepared.ok, qPrintable( repeatedPrepared.code ) );
+
+    const QJsonValue echoedParameters = effective;
+    const QJsonObject echoedArgs = publishArgs( QStringLiteral( "pub-echo" ), &echoedParameters );
+    QVERIFY( aiToolSpec( kKrigingToolAlias() ).validateParameters( echoedArgs ).isEmpty() );
+    const Decoded echoed = hostRequest( echoedArgs );
+    QVERIFY( echoed.ok );
+    const auto echoedPrepared = h.service->prepare( echoed.request, host::Caller::Agent );
+    QVERIFY2( echoedPrepared.ok, qPrintable( echoedPrepared.code ) );
+    QCOMPARE( geostatVersions( h.catalog, fixture.wellsVersion ), 2 );
+  }
+
   // 单元修订在 capture 后变化：继承 compute 仍用冻结数据（pinned-value）；携带
   // 旧修订的新请求冻结到该历史修订，而不是静默换成当前头。
   void computeInheritsFrozenUnitAcrossSchemeRevision()

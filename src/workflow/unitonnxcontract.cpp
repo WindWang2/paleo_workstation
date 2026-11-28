@@ -97,14 +97,7 @@ bool modelFeature(const QJsonArray &features, int version, QJsonObject &out) {
 // 问题；层段取数失败默认归地震来源不可用，语义明确的窗口问题单列。
 QString unitSelectionFailure() { return QStringLiteral("unit_selection_invalid"); }
 
-QString unitWindowFailure(const QString &message) {
-  if (message == QLatin1String("已取消")) return QStringLiteral("cancelled");
-  if (message.contains(QLatin1String("已变更"))) return QStringLiteral("seismic_source_changed");
-  if (message.contains(QLatin1String("坐标系"))) return QStringLiteral("unit_window_crs_unavailable");
-  if (message.contains(QLatin1String("没有有效地震样点"))) return QStringLiteral("unit_window_no_valid_samples");
-  if (message.contains(QLatin1String("坐标范围"))) return QStringLiteral("unit_window_geometry_unavailable");
-  return QStringLiteral("seismic_source_unavailable");
-}
+QString unitWindowFailure(const QString &message) { return unitOnnxInputFailureCode(message); }
 
 // 首输出合同（分类）：float32、[1,C,H,W]、C 与声明一致且 1..255、元素预算
 // 32 MiB。H/W 若为固定维必须等于冻结网格（动态 -1 允许，由输入侧保证）。
@@ -131,6 +124,18 @@ QString unitOutputContractCode(const OnnxModelMeta &meta, int expectedClasses, i
 }
 #endif
 } // namespace
+
+QString unitOnnxInputFailureCode(const QString &message) {
+  // 「已取消」与「地震层位窗口读取已取消」都是取消。QLatin1String 比不了
+  // 非 Latin-1 文本，精确相等会把窗口取消句落成来源不可用。
+  if (message == QStringLiteral("已取消") || message.endsWith(QStringLiteral("已取消")))
+    return QStringLiteral("cancelled");
+  if (message.contains(QStringLiteral("已变更"))) return QStringLiteral("seismic_source_changed");
+  if (message.contains(QStringLiteral("坐标系"))) return QStringLiteral("unit_window_crs_unavailable");
+  if (message.contains(QStringLiteral("没有有效地震样点"))) return QStringLiteral("unit_window_no_valid_samples");
+  if (message.contains(QStringLiteral("坐标范围"))) return QStringLiteral("unit_window_geometry_unavailable");
+  return QStringLiteral("seismic_source_unavailable");
+}
 
 QString FrozenUnitOnnxPlan::samplesSha256() const {
   return QString::fromLatin1(QCryptographicHash::hash(samples, QCryptographicHash::Sha256).toHex());

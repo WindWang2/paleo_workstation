@@ -42,14 +42,16 @@ namespace
 
 // 源 SEG-Y 首样延迟（t0，ms）：首道道头字节 109-110（big-endian i16）。
 // 单次 3600B 预读——比开整个 SegyReader 索引轻三个量级。
+// D-04：0 ms 是合法延迟。打开失败或短读返回 NaN，调用方不得当成时间原点。
 double readSgyStartTimeMs(const QString &sgyPath)
 {
+  const double unreadable = std::numeric_limits<double>::quiet_NaN();
   QFile f(sgyPath);
   if (!f.open(QIODevice::ReadOnly))
-    return 0.0;
+    return unreadable;
   const QByteArray binHdr = f.read(3600);
   if (binHdr.size() < 3600)
-    return 0.0;
+    return unreadable;
   // finding-93：首道偏移不在固定 3600——rev2 字段 3521-3528 / rev0-1 扩展
   // 文本头数 3505→3200+400+N·3200。硬编码 3600 会把扩展文本头字节当道头
   // 延迟读出垃圾值（时间轴元数据静默错值）。与 readTraceHeader 同源走
@@ -59,10 +61,10 @@ double readSgyStartTimeMs(const QString &sgyPath)
   if (trace0 < 3600)
     trace0 = 3600; // 异常字段不放大成负/零偏移：回落常轨布局
   if (!f.seek(qint64(trace0) + 108))
-    return 0.0;
+    return unreadable;
   uchar b[2] = {0, 0};
   if (f.read(reinterpret_cast<char *>(b), 2) != 2)
-    return 0.0;
+    return unreadable;
   return double(qFromBigEndian<qint16>(b));
 }
 
@@ -310,6 +312,14 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
                dtMs, t0Ms](PaleoTask *task) -> QString {
     if (task->cancelRequested())
       return QString();
+    // D-04：读不到延迟就失败，禁止把 NaN 当成 0 ms 写进时间切片。
+    if (!std::isfinite(t0Ms))
+    {
+      result->error = QStringLiteral(
+                          "无法读取 SEG-Y 首样延迟（%1）——拒绝把读取失败记成 0 ms")
+                          .arg(volumePath);
+      return result->error;
+    }
     result->timeMs = t0Ms + double(sampleIndex) * dtMs;
 
     const QString paramHash =
@@ -776,6 +786,14 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
                t0Ms](PaleoTask *task) -> QString {
     if (task->cancelRequested())
       return QString();
+    // D-04：读不到延迟就失败，禁止把 NaN 当成 0 ms 写进 SATV 头。
+    if (!std::isfinite(t0Ms))
+    {
+      result->error = QStringLiteral(
+                          "无法读取 SEG-Y 首样延迟（%1）——拒绝把读取失败记成 0 ms")
+                          .arg(volumePath);
+      return result->error;
+    }
     const QString paramHash = attrScanParamHash(
         QStringLiteral("vol"), kind, params, volumePath, 0);
     result->paramHash = paramHash;

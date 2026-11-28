@@ -85,29 +85,13 @@ struct GeometryCache {
     outdated=found.value();return {};
   }
 };
-QVariantMap identity(DataCatalog *catalog, const CatalogVersion &v, QSet<QString> &seen) {
-  if (seen.contains(v.id)) return {};
-  seen.insert(v.id);
-  auto unit = v.extra.value("unitSelection").toMap();
-  if (unit.isEmpty()) unit = v.extra.value("algorithm_parameters").toMap().value("unitSelection").toMap();
-  if (!unit.isEmpty()) return unit;
-  QVariantMap inherited;
-  for (const auto &id : v.parentVersionIds) {
-    auto branch = seen;
-    const auto candidate = identity(catalog, catalog->versionById(id), branch);
-    if (candidate.isEmpty()) continue;
-    if (!inherited.isEmpty() && inherited != candidate) return {};
-    inherited = candidate;
-  }
-  return inherited;
-}
 QString resultKind(const QString &type) {
   if (type == "prediction_raster" || type == "onnx_prediction" || type == "seismic_prediction") return "seismic_facies";
   if (type == "well_litho_intervals" || type == "well_facies_prediction" || type == "wells_prediction") return "well_facies";
   if (type == "facies_polygons" || type == "edited_facies" || type == "composed_facies") return "map";
   if (type == "facies_fusion_raster") return "composite";
   // P3/W5：约束插值主栅格按类型进入单因素证据（成员 extra 带冻结单元，
-  // identity() 过滤无单元历史产物——只读兼容，不补造假身份）。
+  // 层段归属查询过滤无单元历史产物——只读兼容，不补造假身份）。
   if (type == "constraint_idw_raster" ||
       type.contains("factor") || type.startsWith("thickness_") || type=="contour_lines") return "single_factor";
   return {};
@@ -198,11 +182,6 @@ paleo::data::SubIntervalResultBinding resultBinding(DataCatalog *catalog,const C
   return binding;
 }
 
-}
-
-paleo::strat::UnitSelection analysisResultUnitSelection(DataCatalog *catalog,const CatalogVersion &version) {
-  if(!catalog)return {};
-  QSet<QString> seen;return paleo::strat::fromMap(identity(catalog,version,seen));
 }
 
 QString syncAnalysisResults(DataCatalog *catalog, const QString &projectDir,

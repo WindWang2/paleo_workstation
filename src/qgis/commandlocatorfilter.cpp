@@ -27,7 +27,7 @@ QVector<QPair<CommandLocatorFilter::Entry, double>> CommandLocatorFilter::match(
     if (score <= 0)
       continue;
     if (!e.enabled)
-      score -= 0.3; // 禁用的仍列出（带原因），排在可用的后面
+      score *= 0.5; // 非空查询的可用命中最低为 0.55，禁用命中最高为 0.5。
     out.append({e, score});
   }
   std::stable_sort(out.begin(), out.end(), [](const auto &a, const auto &b) { return a.second > b.second; });

@@ -6039,6 +6039,22 @@ private slots:
     QVERIFY2(!edited.isEmpty(), qPrintable(error));
     QCOMPARE(paleo::strat::fromMap(f.work.versionForLayer(edited).extra.value("unitSelection").toMap()), original);
     QCOMPARE(f.work.analysisUnit(), other);
+    // A raster with a known unit cannot resolve a surface built from two different units.
+    const auto crossUnit = registrar.stage("wells_prediction", "other wells", "other.geojson", &error);
+    QVERIFY(crossUnit.isValid());
+    QVERIFY(QFile::copy(predicted.absolutePath, crossUnit.absolutePath));
+    QVERIFY(registrar.commit(crossUnit, {}, "fixture", {{"unitSelection",paleo::strat::toMap(other)}}, &error));
+    const auto mixed = registrar.stage("seismic_cluster_patches", "mixed parents", "mixed.gpkg", &error);
+    QVERIFY(mixed.isValid());
+    QVERIFY(QFile::copy(patches.absolutePath, mixed.absolutePath));
+    QVERIFY(registrar.commit(mixed, {raster.versionId, crossUnit.versionId}, "fixture",
+        {{"kind","seismic_cluster_patches"},{"horizon",key},{"cluster_raster_version",raster.versionId}}, &error));
+    const auto mixedLayer = "product." + mixed.versionId;
+    QVERIFY(f.work.clusterWellSources(mixedLayer, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("层段不一致")));
+    QVERIFY(f.work.assignClusterFacies(mixedLayer, patchId, false, code, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("层段不一致")));
+
     QVERIFY(f.catalog.updateVersionExtra(patches.versionId, "stale", true, &error));
     QVERIFY(f.work.clusterWellSources(layer, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("过期")));

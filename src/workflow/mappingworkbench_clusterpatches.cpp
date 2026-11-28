@@ -26,9 +26,10 @@ bool MappingWorkbench::readyClusterSurface(const CatalogVersion &surface, paleo:
     if (error) *error = tr("聚类成果已过期，请重新计算");
     return false;
   }
-  unit = analysisResultUnitSelection(m_catalog, surface);
-  const auto rasterUnit = analysisResultUnitSelection(m_catalog, raster);
-  if (unit.isValid() && rasterUnit.isValid() && unit != rasterUnit) {
+  bool surfaceConflict = false, rasterConflict = false;
+  unit = analysisResultUnitSelection(m_catalog, surface, &surfaceConflict);
+  const auto rasterUnit = analysisResultUnitSelection(m_catalog, raster, &rasterConflict);
+  if (surfaceConflict || rasterConflict || (unit.isValid() && rasterUnit.isValid() && unit != rasterUnit)) {
     if (error) *error = tr("聚类面与原始簇图的层段不一致，请重新选择成果");
     return false;
   }

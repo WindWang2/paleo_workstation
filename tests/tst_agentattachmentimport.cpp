@@ -324,6 +324,109 @@ private slots:
     QVERIFY(service.catalog()->assets().isEmpty());
   }
 
+  void eachEntryUsesItsOwnStorageChoice_data()
+  {
+    QTest::addColumn<bool>("background");
+    QTest::newRow("inline") << false;
+    QTest::newRow("queued") << true;
+  }
+
+  void eachEntryUsesItsOwnStorageChoice()
+  {
+    QFETCH(bool, background);
+    ImportProject project;
+    QTemporaryDir source;
+    PaleoTaskService tasks;
+    FolderImportWorkflow imports(&project.service, background ? &tasks : nullptr);
+    const QString manual = source.filePath("manual.las");
+    const QString agent = source.filePath("agent.las");
+    const QString retry = source.filePath("retry.las");
+    QVERIFY(writeFile(manual, las("M1")));
+    QVERIFY(writeFile(agent, las("P1")));
+    QVERIFY(writeFile(retry, las("R1")));
+
+    imports.setLinkExternal(false);
+    QMap<QString, QString> assets;
+    const auto done = [&](const QVector<FolderRowResult> &rows, const QString &error, bool cancelled) {
+      QVERIFY2(error.isEmpty(), qPrintable(error));
+      QVERIFY(!cancelled);
+      QCOMPARE(rows.size(), 1);
+      QVERIFY2(!rows.front().assetId.isEmpty(), qPrintable(rows.front().message));
+      assets.insert(rows.front().path, rows.front().assetId);
+    };
+    // A manual batch wants a managed copy. Pi starts on the same workflow.
+    imports.importFiles({manual}, {}, {}, done, {}, {}, {}, {}, {}, {}, {}, false);
+    imports.importAgentAttachments({agent}, [] { return true; }, done);
+    QTRY_COMPARE_WITH_TIMEOUT(assets.size(), 2, 15000);
+    const auto *catalog = project.service.catalog();
+    QVERIFY(catalog->currentVersion(assets.value(manual)).managed);
+    const auto attachment = catalog->currentVersion(assets.value(agent));
+    QVERIFY(!attachment.managed);
+    QCOMPARE(QDir::cleanPath(attachment.path), QDir::cleanPath(agent));
+
+    // An unhashed failed row uses its own dialog's checkbox and edited display name.
+    QString error;
+    const auto row = imports.importFolderRow(retry, QStringLiteral("well_log"), &error, {}, {},
+                                             true, QStringLiteral("Reviewed R1"));
+    QVERIFY2(!row.assetId.isEmpty(), qPrintable(error));
+    const auto version = catalog->currentVersion(row.assetId);
+    QVERIFY(!version.managed);
+    QCOMPARE(QDir::cleanPath(version.path), QDir::cleanPath(retry));
+    QCOMPARE(catalog->assetById(row.assetId).displayName, QStringLiteral("Reviewed R1"));
+  }
+
+  void rowRetryAppliesOptionsToNormalizedPath_data()
+  {
+    QTest::addColumn<bool>("relative");
+    QTest::newRow("relative") << true;
+#ifdef Q_OS_WIN
+    QTest::newRow("windows-native-absolute") << false;
+#endif
+  }
+
+  void rowRetryAppliesOptionsToNormalizedPath()
+  {
+    QFETCH(bool, relative);
+    ImportProject project;
+    QTemporaryDir source(QDir::current().absoluteFilePath("retry-path-XXXXXX"));
+    QVERIFY(source.isValid());
+    const QString path = source.filePath("row.dat");
+    QVERIFY(writeFile(path, "a,b\n1,2\n"));
+    const QString input = QDir::toNativeSeparators(relative ? QDir::current().relativeFilePath(path) : path);
+    QCOMPARE(QFileInfo(input).isRelative(), relative);
+    FolderImportWorkflow imports(&project.service, nullptr);
+    QString error;
+    const auto stale = imports.importFolderRow(input, "document", &error, {}, QString(64, QLatin1Char('0')), false, "Custom document");
+    QCOMPARE(stale.outcome, FolderRowResult::Outcome::Failed);
+    QVERIFY(!error.isEmpty());
+    QVERIFY(project.service.catalog()->assets().isEmpty());
+
+    const auto row = imports.importFolderRow(input, "document", &error, {}, DataCatalog::sha256FileHex(path), false, "Custom document");
+    QVERIFY2(!row.assetId.isEmpty(), qPrintable(error));
+    QCOMPARE(row.path, path);
+    QCOMPARE(row.classifiedType, QStringLiteral("document"));
+    const auto *catalog = project.service.catalog();
+    QCOMPARE(catalog->assetById(row.assetId).displayName, QStringLiteral("Custom document"));
+    QVERIFY(catalog->currentVersion(row.assetId).managed);
+  }
+
+  void rowRetryLeavesLooseShapefileSidecarAlone()
+  {
+    ImportProject project;
+    QTemporaryDir source;
+    const QString shape = source.filePath("outline.shp");
+    QVERIFY(writeFile(shape, "shape fixture"));
+    QVERIFY(writeFile(source.filePath("outline.dbf"), "unselected sidecar"));
+    FolderImportWorkflow imports(&project.service, nullptr);
+    QString error;
+    const auto row = imports.importFolderRow(shape, "document", &error, {}, {}, true);
+    QCOMPARE(row.path, shape);
+    QVERIFY2(!row.assetId.isEmpty(), qPrintable(error));
+    const auto *catalog = project.service.catalog();
+    QCOMPARE(catalog->assets().size(), 1);
+    QCOMPARE(catalog->currentVersion(row.assetId).sourceUri, shape);
+  }
+
   void workbenchAndAgentPreviewOnlyTheExplicitSingleImport()
   {
     ImportProject project;

@@ -35,6 +35,7 @@ public:
                                              const std::function<void()> &)>;
   void setWorkerDriver(WorkerDriver driver) { m_workerDriver = std::move(driver); }
 signals:
+  void userCancelRequested(); // Task Center cancellation also stops the host model and tool.
   void modelRequested();
   void toolRequested(const ChatToolCall &);
   void finished(const QString &code);

@@ -32,6 +32,7 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
     const QString &session, const QString &turn, const QVector<AiToolSpec> &tools, std::function<bool()> contextCurrent) {
   if (m_active) return "pi_engine_busy";
   if (!configuration.enabled) return "pi_disabled";
+  if (service && service->shutdownRequested()) return "pi_task_unavailable";
   if (!service || service->maxWorkerThreads() < 2) return "pi_worker_capacity_unavailable";
   if (m_generation == std::numeric_limits<quint64>::max()) return "pi_generation_budget";
   paleo::pi::ConversationIdentity identity{session, QString::number(++m_generation), turn, QUuid::createUuid().toString(QUuid::Id128)};
@@ -95,8 +96,10 @@ QString PiChatBridge::start(const paleo::pi::RuntimeConfig &configuration, Paleo
   // A host interruption may be the service itself disappearing. Leave that
   // diagnosis to controlTick if there is no task left to deliver a receipt.
   const auto stopFromTask = [this, generation] {
-    if (m_active && m_generation == generation && m_task && m_task->explicitCancelRequested())
+    if (m_active && m_generation == generation && m_task && m_task->explicitCancelRequested()) {
       m_channel->requestStop(true);
+      if (m_failure.isEmpty()) emit userCancelRequested();
+    }
   };
   connect(task, &PaleoTask::cancelAsked, this, stopFromTask);
   connect(task, &PaleoTask::finished, this, [this, guard, generation, state, channel] {
@@ -158,8 +161,9 @@ void PiChatBridge::controlTick() {
   if (!m_service || !m_task) {
     fail("pi_task_unavailable"); if (!currentGeneration()) return;
     // G2-W5：任务不可用即主因——收尾完成与根因一致，不再降级为 interrupted。
+    const QString stopped = m_channel->stopReason() == 1 ? QStringLiteral("cancelled") : QStringLiteral("interrupted");
     m_timer.stop(); m_task.clear(); m_active = false;
-    emit finished(m_failure.isEmpty() ? QStringLiteral("interrupted") : m_failure); return;
+    emit finished(m_failure.isEmpty() ? stopped : m_failure); return;
   }
   const bool current = m_contextCurrent && m_contextCurrent();
   if (!currentGeneration()) return;

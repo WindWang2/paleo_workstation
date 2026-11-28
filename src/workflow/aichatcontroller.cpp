@@ -116,6 +116,9 @@ AiChatController::AiChatController(QObject *parent)
     dispatchTurnTool(call);
   });
   connect(&m_piBridge, &PiChatBridge::failed, this, &AiChatController::failTurn);
+  connect(&m_piBridge, &PiChatBridge::userCancelRequested, this, [this] {
+    if (m_streaming) cancel();
+  });
   connect(&m_piBridge, &PiChatBridge::finished, this, [this](const QString &code) {
     // A cancelled or rejected turn becomes retryable once the worker has exited.
     if (!m_streaming) { emit statusChanged(statusText()); return; }

@@ -92,7 +92,7 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
     PaleoFolderConfirm::Hooks hooks;
     auto cancelImport = std::make_shared<FolderImportWorkflow::CancelImport>();
     hooks.cancelImport = [cancelImport] { if (*cancelImport) (*cancelImport)(); };
-    hooks.importRowWithWell = [wf, current](const QString &path, const QString &force, const QString &target,
+    hooks.importRowWithWell = [wf, current, dlgPtr = &dlg](const QString &path, const QString &force, const QString &target,
                                       const QString &expectedHash) {
       if (!current()) {
         FolderRowResult row;
@@ -101,7 +101,9 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
         row.message = tr("工程已变化，请重新选择资料。");
         return row;
       }
-      return wf->importFolderRow(path, force, nullptr, target, expectedHash);
+      return wf->importFolderRow(path, force, nullptr, target, expectedHash,
+                              !PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr),
+                              PaleoFolderConfirm::folderImportNameOverrides(dlgPtr).value(path));
     };
     hooks.importAllWithWells = [wf, dir, cancelImport, dlgPtr = &dlg, current](const QMap<QString, QString> &overrides,
                                         const QStringList &forcePaths,
@@ -116,10 +118,10 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
       }
       // 方向 D1：确认动作在对话框内经本出口发起——此刻读「复制进工程」勾选：
       // 不勾选（默认）只建索引；勾选恢复旧受管复制。
-      wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
+      const bool linkExternal = !PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr);
       // 确认表「显示名」列：编辑过的行（≠原文件 basename）随批透传后端。
       *cancelImport = wf->importFolder(dir, overrides, forcePaths, std::move(done), wellTargets, expectedHashes, skippedPaths, previewedPaths,
-                                       PaleoFolderConfirm::folderImportNameOverrides(dlgPtr), current);
+                                       PaleoFolderConfirm::folderImportNameOverrides(dlgPtr), current, linkExternal);
     };
     hooks.importedWellHead = [wf](const QString &rowPath) {
       return wf->importedWellHeadAsset(rowPath);
@@ -199,12 +201,14 @@ void PaleoMainWindow::confirmFileImport(const QStringList &paths, const QVector<
   PaleoFolderConfirm::Hooks hooks;
   auto cancelImport = std::make_shared<FolderImportWorkflow::CancelImport>();
   hooks.cancelImport = [cancelImport] { if (*cancelImport) (*cancelImport)(); };
-  hooks.importRowWithWell = [wf, current, report, &submitted](const QString &path, const QString &force, const QString &target,
+  hooks.importRowWithWell = [wf, current, report, &submitted, dlgPtr = &dlg](const QString &path, const QString &force, const QString &target,
                                 const QString &expectedHash) {
     FolderRowResult row;
     if (current()) {
       submitted = true;
-      row = wf->importFolderRow(path, force, nullptr, target, expectedHash);
+      row = wf->importFolderRow(path, force, nullptr, target, expectedHash,
+                              !PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr),
+                              PaleoFolderConfirm::folderImportNameOverrides(dlgPtr).value(path));
     } else {
       row.path = path;
       row.outcome = FolderRowResult::Outcome::Failed;
@@ -232,11 +236,11 @@ void PaleoMainWindow::confirmFileImport(const QStringList &paths, const QVector<
         }
         // 方向 D1：与 runFolderImportAt 同口径——确认时读「复制进工程」
         // 勾选；默认（不勾选）只建索引。
-        wf->setLinkExternal(!PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr));
+        const bool linkExternal = !PaleoFolderConfirm::folderImportCopyIntoProject(dlgPtr);
         // 确认表「显示名」列：与文件夹导入同一贯通口径。
         *cancelImport = wf->importFiles(paths, overrides, forceImportPaths, finished, wellTargets,
             expectedHashes, skippedPaths, previewedPaths, PaleoFolderConfirm::folderImportNameOverrides(dlgPtr),
-            {}, current);
+            {}, current, linkExternal);
       };
   hooks.importedWellHead = [wf](const QString &rowPath) {
     return wf->importedWellHeadAsset(rowPath);

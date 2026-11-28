@@ -65,6 +65,7 @@ class TestI5CapabilityInspection : public QObject {
   Q_OBJECT
 private slots:
   void listIsStableSortedPaginatedAndCursorBound();
+  void commandPagesRespectWholeReplyBudgetWithoutLosingEntries();
   void commandsOnlyWithExplicitFilter();
   void keywordSearchMatchesLocatorAndBindsPagination();
   void describeCapabilityExactVersionAliasAndNoFallback();
@@ -119,6 +120,33 @@ void TestI5CapabilityInspection::listIsStableSortedPaginatedAndCursorBound() {
                               {"filter", "tools"}});
   QVERIFY(!stale.ok);
   QCOMPARE(stale.code, QStringLiteral("cursor_stale"));
+}
+
+void TestI5CapabilityInspection::commandPagesRespectWholeReplyBudgetWithoutLosingEntries() {
+  QStringList expected;
+  for (const auto &spec : paleo::command::CommandRegistry::all())
+    expected.append(spec.commandId);
+  expected.sort();
+
+  QJsonObject args{{"mode", "list"}, {"filter", "commands"}, {"page_size", 32}, {"max_bytes", 2048}};
+  QStringList returned;
+  do {
+    const auto result = inspect(args);
+    QVERIFY(result.ok);
+    const auto &page = result.payload;
+    QVERIFY(QJsonDocument(page).toJson(QJsonDocument::Compact).size() <= 2048);
+    const auto entries = page.value("entries").toArray();
+    QVERIFY(!entries.isEmpty());
+    QCOMPARE(page.value("returnedCount").toInt(), entries.size());
+    for (const auto row : entries)
+      returned.append(row.toObject().value("id").toString());
+    QVERIFY(returned.size() <= expected.size());
+    QCOMPARE(page.value("hasMore").toBool(), returned.size() < expected.size());
+    QCOMPARE(page.value("coverage").toObject().value("complete").toBool(), returned.size() == expected.size());
+    QCOMPARE(page.contains("nextCursor"), returned.size() < expected.size());
+    args.insert("cursor", page.value("nextCursor"));
+  } while (returned.size() < expected.size());
+  QCOMPARE(returned, expected);
 }
 
 void TestI5CapabilityInspection::commandsOnlyWithExplicitFilter() {

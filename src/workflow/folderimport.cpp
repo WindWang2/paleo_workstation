@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QPointer>
 #include <QFile>
+#include <algorithm>
 #include <atomic>
 #include "domain/projectclassifier.h"
 
@@ -498,7 +499,7 @@ void FolderImportWorkflow::recordLedger(const QString &dir, const QDateTime &sta
 QVector<FolderRowResult> FolderImportWorkflow::runInlineImport(
     const std::function<void(ImportSession &)> &produce,
     const QMap<QString, QString> &wellTargets,
-    const QMap<QString, QString> &expectedHashes, QString *error,
+    const QMap<QString, QString> &expectedHashes, QString *error, bool linkExternal,
     const QStringList &skippedPaths, const QStringList &previewedPaths)
 {
   if (error) error->clear();
@@ -508,7 +509,7 @@ QVector<FolderRowResult> FolderImportWorkflow::runInlineImport(
     return {};
   }
   session->wellTargets = wellTargets;
-  session->linkExternal = m_linkExternal; // 方向 D1：同步路径注入「只建索引」
+  session->linkExternal = linkExternal;
   session->expectedSourceHashes = expectedHashes;
   session->skippedPaths = skippedPaths;
   session->previewedPaths = previewedPaths;
@@ -522,7 +523,8 @@ QVector<FolderRowResult> FolderImportWorkflow::runInlineImport(
 FolderRowResult
 FolderImportWorkflow::importFolderRow(const QString &path, const QString &forceType,
                                       QString *error, const QString &wellTarget,
-                                      const QString &expectedHash)
+                                      const QString &expectedHash, std::optional<bool> linkExternal,
+                                      const QString &displayName)
 {
   if (taskServiceStopped()) {
     FolderRowResult row;
@@ -540,26 +542,27 @@ FolderImportWorkflow::importFolderRow(const QString &path, const QString &forceT
   }
   setBatchActive(true);
   FolderRowResult res;
-  if (wellTarget.isEmpty() && expectedHash.isEmpty())
-    res = m_svc->importFolderRow(path, forceType, error);
+  const QString rowPath = QFileInfo(path).absoluteFilePath();
+  QMap<QString, QString> overrides, targets, hashes, names;
+  if (!forceType.isEmpty()) overrides.insert(rowPath, forceType);
+  if (!wellTarget.isEmpty()) targets.insert(rowPath, wellTarget);
+  if (!expectedHash.isEmpty()) hashes.insert(rowPath, expectedHash);
+  if (!displayName.isEmpty()) names.insert(rowPath, displayName);
+  QString message;
+  // A complete shapefile keeps its bundle members. Loose sidecars are separate
+  // plan rows and were not selected for this retry.
+  const auto rows = runInlineImport([&](ImportSession &session) {
+    DataImportService::produceFiles(session, {rowPath}, overrides, {rowPath}, {}, names);
+  }, targets, hashes, &message, linkExternal.value_or(m_linkExternal), {}, {rowPath});
+  const auto selected = std::find_if(rows.cbegin(), rows.cend(),
+      [&](const FolderRowResult &row) { return row.path == rowPath; });
+  if (selected != rows.cend()) res = *selected;
   else {
-    QMap<QString, QString> overrides;
-    if (!forceType.isEmpty()) overrides.insert(path, forceType);
-    const auto rows = runInlineImport([&](ImportSession &session) {
-      DataImportService::produceFiles(session, {path}, overrides, {path});
-    }, wellTarget.isEmpty() ? QMap<QString, QString>{}
-                           : QMap<QString, QString>{{path, wellTarget}},
-       expectedHash.isEmpty() ? QMap<QString, QString>{}
-                             : QMap<QString, QString>{{path, expectedHash}}, error);
-    if (!rows.isEmpty()) res = rows.first();
-    else {
-      res.path = path;
-      res.outcome = FolderRowResult::Outcome::Failed;
-      res.message = (error && !error->isEmpty())
-          ? *error
-          : tr("导入失败，未写入工程；请检查文件后重试。文件：%1").arg(path);
-    }
+    res.path = path;
+    res.outcome = FolderRowResult::Outcome::Failed;
+    res.message = message.isEmpty() ? tr("导入失败，未写入工程；请检查文件后重试。文件：%1").arg(path) : message;
   }
+  if (error) *error = res.outcome == FolderRowResult::Outcome::Failed ? res.message : message;
   setBatchActive(false);
   return res;
 }
@@ -586,7 +589,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
                                         const QStringList &skippedPaths,
                                         const QStringList &previewedPaths,
                                         const QMap<QString, QString> &nameOverrides,
-                                        const ProjectGuard &projectStillCurrent)
+                                        const ProjectGuard &projectStillCurrent, std::optional<bool> linkExternal)
 {
   if (taskServiceStopped()) {
     if (done) done({}, tr("已取消导入，未写入工程"), true);
@@ -608,7 +611,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
         tr("导入工区文件夹"),
         [dir, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths,
          previewedPaths, nameOverrides,
-         linkExternal = m_linkExternal](
+         linkExternal = linkExternal.value_or(m_linkExternal)](
             ImportSession &s,
             const std::function<bool(int, int, const QString &)> &progress) {
           s.wellTargets = wellTargets;
@@ -632,7 +635,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFolder(const QStr
   const auto res = runInlineImport([&](ImportSession &session) {
     DataImportService::produceFolder(session, dir, overrides, forceImportPaths, {},
                                      nameOverrides);
-  }, wellTargets, expectedHashes, &importErr, skippedPaths, previewedPaths);
+  }, wellTargets, expectedHashes, &importErr, linkExternal.value_or(m_linkExternal), skippedPaths, previewedPaths);
   setBatchActive(false);
   recordLedger(dir, started, res, importErr);
   if (done)
@@ -666,7 +669,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
                                         const QStringList &previewedPaths,
                                         const QMap<QString, QString> &nameOverrides,
                                         const QMap<QString, QVariantMap> &tableMappings,
-                                        const ProjectGuard &projectStillCurrent)
+                                        const ProjectGuard &projectStillCurrent, std::optional<bool> linkExternal)
 {
   if (taskServiceStopped()) {
     if (done) done({}, tr("已取消导入，未写入工程"), true);
@@ -688,7 +691,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
         tr("导入所选文件"),
         [paths, overrides, forceImportPaths, wellTargets, expectedHashes, skippedPaths,
          previewedPaths, nameOverrides, tableMappings,
-         linkExternal = m_linkExternal](
+         linkExternal = linkExternal.value_or(m_linkExternal)](
             ImportSession &s,
             const std::function<bool(int, int, const QString &)> &progress) {
           s.tableMappings = tableMappings;
@@ -715,7 +718,7 @@ FolderImportWorkflow::CancelImport FolderImportWorkflow::importFiles(const QStri
     session.tableMappings = tableMappings;
     DataImportService::produceFiles(session, paths, overrides, forceImportPaths, {},
                                     nameOverrides);
-  }, wellTargets, expectedHashes, &importErr, skippedPaths, previewedPaths);
+  }, wellTargets, expectedHashes, &importErr, linkExternal.value_or(m_linkExternal), skippedPaths, previewedPaths);
   setBatchActive(false);
   recordLedger(ledgerDir, started, res, importErr);
   if (done)

@@ -178,6 +178,16 @@ class TestG2PiTerminal : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() { qRegisterMetaType<ChatToolCall>("ChatToolCall"); }
+  void shutdownRefusesNewTurnsBeforeTaskRegistration() {
+    PaleoTaskService tasks;
+    PiChatBridge bridge;
+    QSignalSpy added(&tasks, &PaleoTaskService::taskAdded);
+    QVERIFY(tasks.shutdown(1000));
+    QCOMPARE(bridge.start({true, {}, {}}, &tasks, "closed", "1", {}, [] { return true; }),
+             QStringLiteral("pi_task_unavailable"));
+    QVERIFY(added.isEmpty());
+    QVERIFY(!bridge.busy());
+  }
   void stoppedQueuedTurnSettlesWithoutLaunchingItsPeer()
   {
     PaleoTaskService tasks;
@@ -326,7 +336,13 @@ private slots:
     tasks.shutdown(10000, true);
   }
   // W5：任务/服务销毁（控制心跳兜底）→ 终态与根因一致。
+  void destroyedTaskServiceSettlesRootCause_data() {
+    QTest::addColumn<bool>("userCancelled");
+    QTest::newRow("service-closed") << false;
+    QTest::newRow("user-cancelled-before-service-closed") << true;
+  }
   void destroyedTaskServiceSettlesRootCause() {
+    QFETCH(bool, userCancelled);
     auto tasks = std::make_unique<PaleoTaskService>(); tasks->setMaxWorkerThreads(2);
     auto running = std::make_shared<std::atomic_int>(0);
     for (int i = 0; i < 2; ++i) tasks->start("occupy", [running](PaleoTask *task) {
@@ -341,11 +357,13 @@ private slots:
     QSignalSpy finished(&bridge, &PiChatBridge::finished), failed(&bridge, &PiChatBridge::failed);
     QCOMPARE(bridge.start({true, {}, {}}, tasks.get(), "g2-session", "g2-turn", {}, [] { return true; }), QString());
     QVERIFY(bridge.busy());
+    if (userCancelled) tasks->tasks().last()->requestCancel();
     tasks.reset();
     QTRY_VERIFY_WITH_TIMEOUT(!bridge.busy(), 10000);
-    QCOMPARE(finished.size(), 1); QCOMPARE(failed.size(), 1);
-    QCOMPARE(finished.first().first().toString(), QString("pi_task_unavailable"));
-    QCOMPARE(failed.first().first().toString(), QString("pi_task_unavailable"));
+    QCOMPARE(finished.size(), 1);
+    QCOMPARE(finished.first().first().toString(), userCancelled ? QString("cancelled") : QString("pi_task_unavailable"));
+    QCOMPARE(failed.size(), userCancelled ? 0 : 1);
+    if (!userCancelled) QCOMPARE(failed.first().first().toString(), QString("pi_task_unavailable"));
   }
   // W6：满 16 帧环是可恢复背压——不失败、不丢帧，恢复后按序续传。
   void fullOutgoingRingStallsThenFlushesInOrder() {

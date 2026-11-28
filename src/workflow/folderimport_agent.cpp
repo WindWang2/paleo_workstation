@@ -121,7 +121,7 @@ void FolderImportWorkflow::importAgentAttachments(const QStringList &paths,
         if (!cancelled && err.isEmpty() && !review.isEmpty() && needsReview && projectStillCurrent()) needsReview(review);
       };
       if (ready.isEmpty()) finish({}, {}, false);
-      else importFiles(ready, types, {}, finish, wells, hashes, {}, ready, {}, {}, projectStillCurrent);
+      else importFiles(ready, types, {}, finish, wells, hashes, {}, ready, {}, {}, projectStillCurrent, /*linkExternal=*/true);
     }, [declined, done] {
       if (done) done(declined, {}, true);
     });

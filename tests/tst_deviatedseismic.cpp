@@ -156,6 +156,52 @@ private slots:
     table.coordinateSystem="invalid";rows=QVector<TdSample>(2);attachTimeDepthPositions(table,"EPSG:32650",rows);
     QVERIFY(std::isnan(rows[0].x));QVERIFY(!rows[0].positionError.isEmpty());
   }
+  void routeFollowsTheAlongSectionExcursionAtBothEndWells(){
+    const std::vector<glm::dvec2> route{{0,0},{100,0},{100,100}};
+    seismic::SectionWellInfo a,b;
+    a.wellId="A";
+    a.trajectory={{0,0,0,0,0},{80,70,-30,40,80},{100,90,-200,0,qQNaN()}};
+    b.wellId="B";b.surfaceX=100;b.surfaceY=100;
+    b.trajectory={{0,0,100,100,0},{90,70,160,150,90}};
+    auto unrelated=a;unrelated.wellId="other";unrelated.trajectory.back()={150,100,-500,0,150};
+    const auto extended=seismic::extendWellSectionRoute(route,{a,b,unrelated},{"A","B"});
+    const std::vector<glm::dvec2> expected{{-30,0},{0,0},{100,0},{100,100},{100,150}};
+    QVERIFY(extended==expected);
+    const auto wells=seismic::SectionWellProjector::ProjectWells(extended,{}, {0,30,130,230,280},{a,b},100);
+    QCOMPARE(wells[0].tracePosition,1.);QCOMPARE(wells[0].trajectory[1].tracePosition,0.);
+    QCOMPARE(wells[1].tracePosition,3.);QCOMPARE(wells[1].trajectory[1].tracePosition,4.);
+    a.trajectory[1].x=0;
+    QVERIFY(seismic::extendWellSectionRoute(route,{a},{"A"})==route);
+    const auto normal=seismic::SectionWellProjector::ProjectWells(route,{}, {0,100,200},{a},50);
+    QCOMPARE(normal[0].trajectory[1].tracePosition,0.);
+    QCOMPARE(normal[0].trajectory[1].offsetDistanceM,40.);
+  }
+  void headsAndStationsUseTheSameSurveyedDistanceAxis(){
+    seismic::SectionWellInfo well;well.surfaceX=50;well.trajectory={{0,0,50,0,0},{100,80,100,50,100}};
+    const auto wells=seismic::SectionWellProjector::ProjectWells({{0,0},{100,0},{100,100}},
+        {0,200,220},{0,20,100,200,220},{well},10);
+    QCOMPARE(wells[0].tracePosition,2.);
+    QCOMPARE(wells[0].trajectory[0].tracePosition,2.);
+    QCOMPARE(wells[0].trajectory[1].tracePosition,3.5);
+  }
+  void sparseBoreClipsAtItsTrueIntersectionWithTheSectionFootprint(){
+    seismic::SectionWellInfo well;
+    well.trajectory={{0,0,-50,-20,0},{200,150,150,20,200}};
+    auto wells=seismic::SectionWellProjector::ProjectWells({{0,0},{100,0}},{},{0,25,50,75,100},{well},4);
+    const auto& p=wells[0].trajectory;
+    QCOMPARE(p[0].tracePosition,-2.);QCOMPARE(p[1].tracePosition,6.);
+    QVERIFY(wells[0].isWithinBuffer);QCOMPARE(wells[0].offsetDistanceM,0.);
+    const auto clip=seismic::clipWellPathSegment(p[0],p[1],4,4);
+    QVERIFY(clip.has_value());QCOMPARE(clip->first.twtMs,80.);QCOMPARE(clip->second.twtMs,120.);
+    QVERIFY(std::abs(clip->first.tracePosition-1.2)<1e-12);
+    QVERIFY(std::abs(clip->second.tracePosition-2.8)<1e-12);
+    const auto survey=seismic::clipWellPathSegment(p[0],p[1],4,100);
+    QVERIFY(survey.has_value());QCOMPARE(survey->first.md,50.);QCOMPARE(survey->second.md,150.);
+    auto missing=p[1];missing.twtMs=qQNaN();QVERIFY(!seismic::clipWellPathSegment(p[0],missing,4,4));
+    well.trajectory.insert(well.trajectory.begin()+1,{100,75,qQNaN(),0,100});
+    wells=seismic::SectionWellProjector::ProjectWells({{0,0},{100,0}},{},{0,25,50,75,100},{well},4);
+    QVERIFY(!wells[0].isWithinBuffer);
+  }
   void obliquePathIntersectionUsesActualTraceNotWellhead(){
     seismic::SectionWellInfo w;w.wellId="D";w.requiresSpatialPath=true;w.calibrated=true;
     w.surfaceX=0;w.surfaceY=0;w.trajectory={{0,0,0,0,0},{100,90,100,0,100}};
@@ -173,6 +219,35 @@ private slots:
     QVERIFY(projected[0].isWithinBuffer); // the bore enters the section even though the head is distant
     projected[0].trajectory[1].x=qQNaN();projected[0].trajectory[1].tracePosition=qQNaN();
     seismic::projectSectionHorizonTies(projected,horizons);QVERIFY(projected[0].tops.empty());
+  }
+  void negativeTimeStationBreaksTheSameIntervalForBoresAndTracks(){
+    seismic::SectionWellInfo well;well.trajectory={{0,0,0,0,-20},{100,90,50,0,80},{200,180,100,0,180}};
+    auto projected=seismic::SectionWellProjector::ProjectWells({{0,0},{100,0}},{},{0,25,50,75,100},{well},10);
+    const auto& path=projected.front();
+    QVERIFY(!seismic::clipWellPathSegment(path.trajectory[0],path.trajectory[1],4,10));
+    QVERIFY(std::isnan(seismic::wellPathAtMd(path,50).tracePosition));
+    QVERIFY(std::isnan(seismic::wellPathAtTwt(path,30).tracePosition));
+    QCOMPARE(seismic::wellPathAtMd(path,100).tracePosition,2.);
+    QCOMPARE(seismic::wellPathAtMd(path,150).tracePosition,3.);
+    auto gap=path;gap.trajectory.insert(gap.trajectory.begin()+1,{50,40,25,0,qQNaN()});
+    QVERIFY(std::isnan(seismic::wellPathAtTwt(gap,30).tracePosition));
+    QCOMPARE(seismic::wellPathAtTwt(gap,130).tracePosition,3.);
+  }
+  void bufferSelectsFirstVisibleHorizonCrossingAndRetainsFormationPicks(){
+    seismic::SectionWellInfo well;well.requiresSpatialPath=true;
+    well.trajectory={{0,0,0,100,0},{100,90,100,100,100},{200,180,200,0,200},{300,270,300,0,300}};
+    seismic::TimeDepthModel md;QVERIFY(md.setCheckshots({{0,0},{300,300}}));well.mdTimeDepth=md;
+    well.tops={{"formation",20,19,20}};
+    auto projected=seismic::SectionWellProjector::ProjectWells({{0,0},{300,0}},{},{0,100,200,300},{well},200);
+    seismic::SectionHorizons horizons;seismic::SectionHorizonCurve curve;curve.name="T";curve.timesMs={50,0,250,250};
+    horizons.curves.push_back(curve);seismic::projectSectionHorizonTies(projected,horizons);
+    seismic::SeismicSectionCanvas canvas;canvas.setBufferDistanceM(10);canvas.setWells(projected);
+    const auto& displayed=canvas.wells().front();QCOMPARE(displayed.tops.size(),size_t(1));QCOMPARE(displayed.tops[0].md,250.);
+    canvas.setBufferDistanceM(40);QCOMPARE(displayed.tops.size(),size_t(1));QVERIFY(std::abs(displayed.tops[0].md-500./3)<1e-8);
+    canvas.setBufferDistanceM(120);QCOMPARE(displayed.tops.size(),size_t(1));QVERIFY(std::abs(displayed.tops[0].md-100./3)<1e-8);
+    seismic::projectSectionHorizonTies(projected,{});canvas.setWells(projected);canvas.setBufferDistanceM(10);
+    QCOMPARE(canvas.wells()[0].tops.size(),size_t(1));QCOMPARE(canvas.wells()[0].tops[0].topName,QString("formation"));
+    QCOMPARE(canvas.wells()[0].tops[0].md,20.);
   }
   void boreAndCurvePixelsFollowTheDeviatedPathAndBreakAtGaps(){
     seismic::SeismicSectionCanvas canvas;canvas.resize(900,650);
@@ -193,6 +268,54 @@ private slots:
     canvas.setShowWellCurves(true);const auto curve=canvas.grabCanvasImage();QVERIFY(changed(curve,bore,x+40,y)>0);
     projected[0].trajectory[1].tracePosition=qQNaN();canvas.setWells(projected);canvas.setShowWellCurves(false);
     const auto gap=canvas.grabCanvasImage();QVERIFY(changed(gap,background,x,y)==0); // never bridge a missing trajectory point
+    // Inspect the deep interval while the wellhead has been panned offscreen.
+    projected[0].trajectory[1].tracePosition=2.;
+    canvas.setZoom(64,2);canvas.panBy(-90,0);canvas.setWells({});
+    const auto zoomBackground=canvas.grabCanvasImage();
+    const int deepX=qRound(canvas.traceToPixelX(2)),deepY=qRound(canvas.timeToPixelY(100));
+    canvas.setWells(projected);const auto zoomBore=canvas.grabCanvasImage();
+    QVERIFY(changed(zoomBore,zoomBackground,deepX,deepY)>0);
+    canvas.setShowWellCurves(true);
+    QVERIFY(changed(canvas.grabCanvasImage(),zoomBore,deepX+40,deepY)>0);
+    // A sparsely sampled log still crosses a narrow buffer between its two
+    // observations. Preserve the middle station and break at a missing one.
+    auto &sparse=projected[0].curves.front();
+    sparse.depthsM={0,200};sparse.twtMs={0,200};sparse.values={150,150};
+    projected[0].trajectory.front().offsetDistanceM=-1000;
+    projected[0].trajectory.back().offsetDistanceM=1000;
+    canvas.setBufferDistanceM(50);canvas.setWells(projected);canvas.setShowWellCurves(false);
+    const auto clippedBore=canvas.grabCanvasImage();canvas.setShowWellCurves(true);
+    QVERIFY(changed(canvas.grabCanvasImage(),clippedBore,deepX+40,deepY)>0);
+    projected[0].trajectory[1].twtMs=qQNaN();canvas.setWells(projected);
+    QVERIFY(changed(canvas.grabCanvasImage(),zoomBackground,deepX+40,deepY)==0);
+  }
+  void rightWellLogAndSyntheticStayOnLeftThroughTheEdgeThreshold(){
+    seismic::SeismicSectionCanvas canvas;canvas.resize(900,650);
+    seismic::SgySliceImage image;image.width=101;image.height=201;
+    image.values.assign(image.width*image.height,0);image.rgba.assign(image.values.size()*4,255);
+    image.valueMin=-1;image.valueMax=1;canvas.setSectionData(image,1);
+    seismic::SectionWellInfo well;well.wellId="R";well.tracePosition=100;
+    well.requiresSpatialPath=true;well.isWithinBuffer=true;
+    well.trajectory={{0,0,100,0,0,100,0},{50,50,98,0,50,98,0},
+                     {100,100,90,0,100,90,0},{200,200,60,0,200,60,0}};
+    seismic::WellCurveItem gr;gr.curveName="GR";gr.depthsM={0,50,100,200};
+    gr.twtMs=gr.depthsM;gr.values={85,85,85,85};well.curves.push_back(gr);
+    canvas.setWells({well});canvas.setShowWellCurves(false);
+    const auto bore=canvas.grabCanvasImage();
+    canvas.setShowWellCurves(true);const auto log=canvas.grabCanvasImage();
+    seismic::SeismicSectionCanvas::SyntheticOverlay synthetic;
+    synthetic.wellId=well.wellId;synthetic.ok=true;synthetic.twtMs=gr.twtMs;synthetic.amplitude={0,0,0,0};
+    canvas.setShowWellCurves(false);canvas.setSyntheticOverlays({synthetic});const auto wave=canvas.grabCanvasImage();
+    for(double depth:{25.,75.,150.}){
+      const int x=qRound(canvas.traceToPixelX(seismic::wellPathAtMd(well,depth).tracePosition));
+      const int y=qRound(canvas.timeToPixelY(depth));
+      auto ink=[&](const QImage &withTrack,int dx){
+        const QRect region(x+dx-2,y-2,5,5);
+        return bore.copy(region)!=withTrack.copy(region);
+      };
+      QVERIFY(ink(log,-22));QVERIFY(!ink(log,22));
+      QVERIFY(ink(wave,-44));QVERIFY(!ink(wave,44));
+    }
   }
   void realProjectContainsDeviatedWellPaths(){
     const auto project=qEnvironmentVariable("PALEO_DEVIATED_REAL_PROJECT");if(project.isEmpty())QSKIP("Optional external project");

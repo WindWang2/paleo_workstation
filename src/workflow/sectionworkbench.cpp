@@ -60,7 +60,11 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
   m_previewReady = std::move(ready);
   m_previewIncludeSections=includeSections;
   ++m_previewGeneration;
-  if (!m_catalog || !m_catalog->isOpen()) { m_previewReady = {}; return; }
+  if (!m_catalog || !m_catalog->isOpen()) {
+    auto callback=std::move(m_previewReady);
+    if(callback)callback(PreviewData{});
+    return;
+  }
   if (m_previewRunning) { m_previewPending = true; return; }
   m_previewRunning = true; m_previewPending = false;
   const auto generation = m_previewGeneration;
@@ -215,6 +219,7 @@ bool SectionWorkbench::setCalibration(const QString &id, bool constant,
   if (!storeCalibrations(updated, error))
     return false;
   m_calibrations = updated;
+  cancelPreviewData();
   emit alignmentsChanged();
   return true;
 }
@@ -333,22 +338,25 @@ bool SectionWorkbench::mdTimeDepth(const QString &wellId,
   return true;
 }
 std::vector<glm::dvec2> SectionWorkbench::wellRoute(const QStringList &ids,
-                                                    QString *error) {
-  syncProject();
+    QString *error,const std::vector<seismic::SectionWellInfo> *snapshot) {
+  QHash<QString,glm::dvec2> heads;
+  if(snapshot) {
+    for(const auto &well:*snapshot)heads.insert(well.wellId,{well.surfaceX,well.surfaceY});
+  } else {
+    syncProject();
+    for(const auto &well:m_data.wells())
+      if(well.coordinateStatus=="ok" || well.coordinateStatus=="untransformed")
+        heads.insert(well.id,{well.surfaceX,well.surfaceY});
+  }
   std::vector<glm::dvec2> route;
-  const auto candidates = m_data.wells();
   for (const auto &id : ids) {
-    const auto it = std::find_if(candidates.begin(), candidates.end(),
-                                 [&](const auto &w) { return w.id == id; });
-    if (it == candidates.end() ||
-        (it->coordinateStatus != "ok" &&
-         it->coordinateStatus != "untransformed") ||
-        !std::isfinite(it->surfaceX) || !std::isfinite(it->surfaceY)) {
+    const auto it=heads.constFind(id);
+    if (it==heads.constEnd() || !std::isfinite(it->x) || !std::isfinite(it->y)) {
       if (error)
         *error = tr("所选井缺少有效井口坐标");
       return {};
     }
-    const glm::dvec2 p(it->surfaceX, it->surfaceY);
+    const auto p=it.value();
     if (route.empty() || glm::length(p - route.back()) > 1e-6)
       route.push_back(p);
   }

@@ -10,6 +10,11 @@
 #include <QSignalBlocker>
 #include <QVariantMap>
 
+void SectionSetupDialog::requestWellOrder(const QStringList &ids) {
+  m_pendingWellOrder=ids;
+  if(m_wells->count())applyWellOrder(ids);
+}
+
 void SectionSetupDialog::applyWellOrder(const QStringList &ids) {
   QMap<QString, QVariantMap> rows;
   QStringList rest;

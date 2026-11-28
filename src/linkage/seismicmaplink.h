@@ -11,6 +11,7 @@
 #include <qgspointxy.h>
 
 #include "domain/surveygridgeometry.h"
+Q_MOC_INCLUDE("domain/seismic/sectionwellprojector.h")
 
 class QgsMapCanvas;
 class QgsVectorLayer;
@@ -19,6 +20,7 @@ class QgsVertexMarker;
 
 namespace seismic {
 class SgyVolume;
+struct SectionWellInfo;
 }
 
 // linkage/ — SeismicMapLink maintains bidirectional linkage between map canvas and seismic views:
@@ -63,6 +65,8 @@ class SeismicMapLink : public QObject
 
     // Polyline trigger
     void triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title = QString(),const QStringList &wellIds = {});
+    void triggerSectionFromWellRoute(const std::vector<glm::dvec2> &wellheads,
+                                     const std::vector<seismic::SectionWellInfo> &wells, const QStringList &wellIds);
 
     // 工具路径回调（R4 信号化后由壳 connect：壳持有的 SeismicSectionTool
     // sectionPathCaptured 直连到此——语义与默认标题留在 linkage 侧）。
@@ -83,7 +87,8 @@ class SeismicMapLink : public QObject
     // show/raise（linkage 不碰 ui 控件）。glm 向量按值传，直连同线程即可。
     void sectionExtractRequested(std::shared_ptr<const seismic::SgyVolume> volume,
                                  std::vector<glm::ivec2> pathPoints, QString title,
-                                 std::vector<glm::dvec2> mapPolyline,QStringList wellIds);
+                                 std::vector<glm::dvec2> mapPolyline,QStringList wellIds,
+                                 const std::vector<seismic::SectionWellInfo> &sectionWells);
     // 剖面捕获被 Esc 取消——壳据此唤回设置对话框。
     void sectionCaptureCancelled();
     // 请求在地图上启动任意剖面捕获（R4 信号化，方向 49）：壳据此激活
@@ -94,6 +99,8 @@ class SeismicMapLink : public QObject
     void onContextSelection(const QStringList &ids, const QString &origin);
 
   private:
+    void extractMappedRoute(const QVector<QgsPointXY> &mapPoints,const QString &title,
+                            const QStringList &wellIds,const std::vector<seismic::SectionWellInfo> &sectionWells);
     QPointer<QgsMapCanvas> m_canvas;
     SelectionContext *m_ctx;
     QPointer<QgsVectorLayer> m_layer;

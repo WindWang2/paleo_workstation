@@ -47,7 +47,8 @@ public:
                    double *shiftMs, QString *status, QString *timeReference = nullptr);
   QString wellForSource(const QString &path, const QString &name);
   QString wellForModel(qlonglong modelWellId) const;
-  std::vector<glm::dvec2> wellRoute(const QStringList &ids, QString *error);
+  std::vector<glm::dvec2> wellRoute(const QStringList &ids, QString *error,
+      const std::vector<seismic::SectionWellInfo> *snapshot = nullptr);
   // 「按空间关系重排」：mode "nearest"=最近邻链 / "pca"=主轴投影（domain
   // orderWellsNearestNeighbor / orderWellsByPosition）；井坐标取工程井实体
   // （coordinateStatus ok/untransformed 且有限，与 wellRoute 同口径）。

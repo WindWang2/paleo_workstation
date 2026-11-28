@@ -2,6 +2,7 @@
 #include "seismicmaplink.h"
 #include <QSet>
 #include "domain/seismic/sgycoordinatemapper.h"
+#include "domain/seismic/sectionwellprojector.h"
 #include "domain/seismic/sgyvolume.h"
 #include "selectioncontext.h"
 #include "qgis/projectmapreference.h"
@@ -10,6 +11,7 @@
 #include "services/fspathutils.h"
 
 #include <QSignalBlocker>
+#include <algorithm>
 #include <cmath>
 
 #include <qgsfeature.h>
@@ -131,7 +133,46 @@ void SeismicMapLink::requestSectionCapture()
   emit sectionCaptureRequested();
 }
 
+namespace {
+glm::dvec2 clipWellRouteExtension(const SurveyGridGeometry &grid, const glm::dvec2 &head,
+                                  const glm::dvec2 &end)
+{
+  double startIl, startXl, endIl, endXl;
+  grid.xyToInlineXlineContinuous(head.x, head.y, &startIl, &startXl);
+  grid.xyToInlineXlineContinuous(end.x, end.y, &endIl, &endXl);
+  double fraction = 1.;
+  auto clip = [&fraction](double start, double finish, int low, int high) {
+    if (finish < low && finish < start) fraction = std::min(fraction, (low - start) / (finish - start));
+    if (finish > high && finish > start) fraction = std::min(fraction, (high - start) / (finish - start));
+  };
+  clip(startIl, endIl, grid.inlineMin, grid.inlineMax);
+  clip(startXl, endXl, grid.xlineMin, grid.xlineMax);
+  return head + std::max(0., fraction) * (end - head);
+}
+}
+
+void SeismicMapLink::triggerSectionFromWellRoute(const std::vector<glm::dvec2> &wellheads,
+    const std::vector<seismic::SectionWellInfo> &wells, const QStringList &wellIds)
+{
+  auto route = seismic::extendWellSectionRoute(wellheads, wells, wellIds);
+  if (m_gridGeom.valid && wellheads.size() >= 2) {
+    if (route.front() != wellheads.front())
+      route.front() = clipWellRouteExtension(m_gridGeom, wellheads.front(), route.front());
+    if (route.back() != wellheads.back())
+      route.back() = clipWellRouteExtension(m_gridGeom, wellheads.back(), route.back());
+  }
+  QVector<QgsPointXY> points;
+  for (const auto &p : route) points.append(QgsPointXY(p.x, p.y));
+  extractMappedRoute(points, tr("连井剖面 · %1 口井").arg(wellIds.size()), wellIds, wells);
+}
+
 void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title,const QStringList &wellIds)
+{
+  extractMappedRoute(mapPoints,title,wellIds,{});
+}
+
+void SeismicMapLink::extractMappedRoute(const QVector<QgsPointXY> &mapPoints, const QString &title,const QStringList &wellIds,
+    const std::vector<seismic::SectionWellInfo> &sectionWells)
 {
   if (mapPoints.size() < 2)
   {
@@ -181,7 +222,7 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
   // 壳订阅：折线已换算成测线序——剖面 dock 走异步提取 + show/raise。
   emit sectionExtractRequested(
       m_volume, pathPoints,
-      title.isEmpty() ? tr("地图折线剖面") : title, mapPolyline,wellIds);
+      title.isEmpty() ? tr("地图折线剖面") : title, mapPolyline,wellIds,sectionWells);
   emit sectionExtractedFromMap(true, QString());
 }
 

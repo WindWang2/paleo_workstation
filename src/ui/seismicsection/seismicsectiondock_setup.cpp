@@ -312,16 +312,13 @@ void SeismicSectionDockWidget::setupUi() {
 
     auto *wellMenu = new QMenu(m_btnWellOptions);
     auto *actShowWells = wellMenu->addAction(tr("显示井位"));
-    actShowWells->setCheckable(true);
-    actShowWells->setChecked(true);
-
     auto *actShowTops = wellMenu->addAction(tr("显示地层分层"));
-    actShowTops->setCheckable(true);
-    actShowTops->setChecked(true);
-
     auto *actShowCurves = wellMenu->addAction(tr("显示测井曲线"));
-    actShowCurves->setCheckable(true);
-    actShowCurves->setChecked(true);
+    actShowCurves->setObjectName("sectionShowWellCurves");
+    for (QAction *overlay : {actShowWells, actShowTops, actShowCurves}) {
+        overlay->setCheckable(true);
+        overlay->setChecked(true);
+    }
 
     wellMenu->addSeparator();
     auto *actBuf200 = wellMenu->addAction(tr("缓冲半径: 200 m"));

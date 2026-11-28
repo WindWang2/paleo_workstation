@@ -148,6 +148,7 @@ class WellSectionPanel : public QWidget
     void timeDepthSettingsRequested(const QStringList &ids);
     void dataRequested(const QStringList &wellIds, const QStringList &mnemonics);
     void seismicRequested();
+    void linkedSeismicSectionRequested(const QStringList &wellIds);
     void faultsRequested();
     void fenceRequested(); // 打开栅状图（剖面网）——壳层装配 WellSectionFenceWidget
     // 仅用户驱动（选井/拖排/移除）——持久化钩子。
@@ -204,7 +205,7 @@ class WellSectionPanel : public QWidget
     QString m_themeId = QStringLiteral("classic");
     bool m_highlightOn = true;
     bool m_seismicOn = false;
-    void setupHorizonOverlayControl(QWidget *toolbar);
+    void setupSeismicControls(QWidget *toolbar);
     void updateHorizonOverlayStatus();
     int m_seismicCmap = -1;      // -1 = 跟随主题；0..7 = SectionColorMapType
     bool m_seismicCmapInvert = false;

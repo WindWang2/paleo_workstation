@@ -1598,6 +1598,31 @@ class TestWellSectionUi : public QObject
       QCOMPARE(hint->text().count(QStringLiteral("上次落库失败")), 1);
     }
 
+    void openSeismicSectionUsesCurrentOrder()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      panel.setSeismicAvailable(true, QString());
+      const bool stripEnabled = panel.seismicEnabled();
+      auto *button = toolBtn(panel, "wellSectionSeismicButton");
+      QVERIFY(button && button->menu());
+      QCOMPARE(button->popupMode(), QToolButton::MenuButtonPopup);
+      auto *action = button->menu()->findChild<QAction *>("wellSectionOpenLinkedSeismic");
+      QVERIFY(action);
+      QSignalSpy opened(&panel, &WellSectionPanel::linkedSeismicSectionRequested);
+      panel.moveWell(0, 2);
+      QVERIFY(QMetaObject::invokeMethod(button->menu(), "aboutToShow"));
+      QVERIFY(action->isEnabled());
+      action->trigger();
+      QCOMPARE(opened.count(), 1);
+      QCOMPARE(opened.takeFirst().at(0).toStringList(), panel.wellIds());
+      panel.setWellIds({panel.wellIds().first()});
+      QVERIFY(QMetaObject::invokeMethod(button->menu(), "aboutToShow"));
+      QVERIFY(!action->isEnabled());
+      QCOMPARE(panel.seismicEnabled(), stripEnabled);
+    }
+
     // 地震：不可用原因进 tooltip；有效缝渲染非纸面像素；缝原因可读；
     // 缝数不符忽略。
     void seismicAvailabilityAndStrip()

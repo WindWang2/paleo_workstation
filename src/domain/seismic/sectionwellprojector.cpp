@@ -9,6 +9,8 @@
 namespace seismic {
 namespace {
 WellTrajSample interpolate(const WellTrajSample& a, const WellTrajSample& b, double f) {
+    if (f == 0) return a;
+    if (f == 1) return b;
     WellTrajSample p;
     const auto mix=[f](double x,double y){return x+(y-x)*f;};
     p.md=mix(a.md,b.md);p.tvd=mix(a.tvd,b.tvd);p.x=mix(a.x,b.x);p.y=mix(a.y,b.y);
@@ -18,37 +20,63 @@ WellTrajSample interpolate(const WellTrajSample& a, const WellTrajSample& b, dou
 WellTrajSample pathAt(const SectionWellInfo& well,double value,bool time) {
     WellTrajSample missing; missing.md=missing.tvd=missing.x=missing.y=missing.twtMs=qQNaN();
     const auto& points=well.trajectory;
-    const auto key=[time](const WellTrajSample& p){return time?p.twtMs:p.md;};
-    if(points.empty()||!std::isfinite(value)||value<key(points.front())||value>key(points.back()))return missing;
-    auto hi=std::lower_bound(points.begin(),points.end(),value,[&](const auto& p,double v){return key(p)<v;});
-    if(hi==points.end())return missing;
-    if(key(*hi)==value)return *hi;
+    if (points.empty() || !std::isfinite(value) || value<0) return missing;
+    if (time) {
+        // Missing TWT stations break the time axis into runs. A binary search
+        // over the full path could skip a valid run after a NaN.
+        for (size_t i=0; i<points.size(); ++i) {
+            const auto& point=points[i];
+            if (point.twtMs==value) return point;
+            if (i==0 || !(point.twtMs>value)) continue;
+            const auto& previous=points[i-1];
+            if (previous.twtMs>=0 && previous.twtMs<value && point.md>previous.md && std::isfinite(point.twtMs))
+                return interpolate(previous,point,(value-previous.twtMs)/(point.twtMs-previous.twtMs));
+        }
+        return missing;
+    }
+    auto hi=std::lower_bound(points.begin(),points.end(),value,[](const auto& p,double v){return p.md<v;});
+    if(hi==points.end() || !std::isfinite(hi->twtMs) || hi->twtMs<0) return missing;
+    if(hi->md==value)return *hi;
     if(hi==points.begin())return missing;
-    const auto& a=*(hi-1);const auto& b=*hi;const double span=key(b)-key(a);
-    if(!(span>0))return missing;
-    return interpolate(a,b,(value-key(a))/span);
+    const auto& a=*(hi-1);const double span=hi->md-a.md;
+    if(!(span>0)||!std::isfinite(a.twtMs)||a.twtMs<0)return missing;
+    return interpolate(a,*hi,(value-a.md)/span);
 }
 double horizonTime(const SectionHorizonCurve& curve,double trace) {
     if(!std::isfinite(trace)||trace<0||trace>double(curve.timesMs.size())-1)return qQNaN();
     const auto lo=size_t(std::floor(trace)),hi=size_t(std::ceil(trace));
     const double a=curve.timesMs[lo],b=curve.timesMs[hi];return a+(b-a)*(trace-double(lo));
 }
-std::optional<WellTrajSample> pathHorizonIntersection(const SectionWellInfo& well,const SectionHorizonCurve& curve) {
+std::vector<WellTopItem> pathHorizonIntersections(const SectionWellInfo& well,const SectionHorizonCurve& curve) {
+    std::vector<WellTopItem> hits;
     for(size_t i=1;i<well.trajectory.size();++i){
-        const auto& a=well.trajectory[i-1];const auto& b=well.trajectory[i];
-        if(!std::isfinite(a.tracePosition)||!std::isfinite(b.tracePosition)||!std::isfinite(a.twtMs)||!std::isfinite(b.twtMs)||b.md<=a.md)continue;
+        const auto clipped = clipWellPathSegment(well.trajectory[i-1], well.trajectory[i],
+            double(curve.timesMs.size())-1, std::numeric_limits<double>::infinity());
+        if (!clipped) continue;
+        const auto& [a,b] = *clipped;
         std::vector<double> splits{0,1};const double dx=b.tracePosition-a.tracePosition;
-        if(std::abs(dx)>1e-12)for(int x=int(std::floor(std::min(a.tracePosition,b.tracePosition)))+1;x<std::max(a.tracePosition,b.tracePosition);++x)
-            splits.push_back((x-a.tracePosition)/dx);
+        if (std::abs(dx)>1e-12) {
+            const double first=std::max(0.,std::ceil(std::min(a.tracePosition,b.tracePosition)));
+            const double last=std::min(double(curve.timesMs.size())-1,std::floor(std::max(a.tracePosition,b.tracePosition)));
+            for (double x=first;x<=last;++x) {
+                const double f=(x-a.tracePosition)/dx;
+                if (f>0 && f<1) splits.push_back(f);
+            }
+        }
         std::sort(splits.begin(),splits.end());
         for(size_t j=1;j<splits.size();++j){
             const auto left=interpolate(a,b,splits[j-1]),right=interpolate(a,b,splits[j]);
             const double u=left.twtMs-horizonTime(curve,left.tracePosition),v=right.twtMs-horizonTime(curve,right.tracePosition);
             if(!std::isfinite(u)||!std::isfinite(v)||u*v>0)continue;
-            return interpolate(left,right,std::abs(v-u)>1e-12?-u/(v-u):0);
+            const auto hit=interpolate(left,right,std::abs(v-u)>1e-12?-u/(v-u):0);
+            if (!hits.empty() && std::abs(hits.back().md-hit.md)<1e-8) continue;
+            WellTopItem top;
+            top.topName=curve.name;top.md=hit.md;top.tvd=hit.tvd;top.twtMs=hit.twtMs;
+            top.tracePosition=hit.tracePosition;top.offsetDistanceM=hit.offsetDistanceM;
+            hits.push_back(std::move(top));
         }
     }
-    return std::nullopt;
+    return hits;
 }
 }
 WellTrajSample wellPathAtMd(const SectionWellInfo& well,double md){return pathAt(well,md,false);}
@@ -57,46 +85,178 @@ WellTrajSample wellPathAtTwt(const SectionWellInfo& well,double twt){
     return pathAt(well,twt,true);
 }
 
+std::vector<glm::dvec2> extendWellSectionRoute(const std::vector<glm::dvec2>& route,
+    const std::vector<SectionWellInfo>& wells, const QStringList& selectedWellIds) {
+    if (route.size() < 2 || selectedWellIds.isEmpty())
+        return route;
+    const auto endpoint = [&](const glm::dvec2& head, const glm::dvec2& neighbour) {
+        const double segmentLength = glm::length(head - neighbour);
+        if (!(segmentLength > 1e-6))
+            return head;
+        const auto outward = (head - neighbour) / segmentLength;
+        double extent = 0;
+        for (const auto& well : wells) {
+            if (!selectedWellIds.contains(well.wellId) ||
+                glm::length(glm::dvec2(well.surfaceX, well.surfaceY) - head) > 1e-6)
+                continue;
+            for (const auto& station : well.trajectory) {
+                if (!std::isfinite(station.twtMs) || station.twtMs < 0 ||
+                    !std::isfinite(station.x) || !std::isfinite(station.y))
+                    continue;
+                const auto displacement = glm::dvec2(station.x, station.y) - head;
+                extent = std::max(extent, glm::dot(displacement, outward));
+            }
+        }
+        return extent > 1e-6 ? head + extent * outward : head;
+    };
+    auto extended = route;
+    const auto first = endpoint(route.front(), route[1]);
+    const auto last = endpoint(route.back(), route[route.size()-2]);
+    if (first != route.front())
+        extended.insert(extended.begin(), first);
+    if (last != route.back())
+        extended.push_back(last);
+    return extended;
+}
+
+namespace {
+struct RouteSegment {
+    glm::dvec2 start, direction;
+    double length, station, stationSpan;
+};
+std::vector<RouteSegment> routeSegments(const std::vector<glm::dvec2>& line,
+                                      const std::vector<double>& stations) {
+    std::vector<RouteSegment> segments;
+    double station = 0;
+    for (size_t i = 1; i < line.size(); ++i) {
+        const auto delta = line[i] - line[i-1];
+        const double length = glm::length(delta);
+        if (!(length > 1e-9))
+            continue;
+        const bool supplied = stations.size() == line.size();
+        const double start = supplied ? stations[i-1] : station;
+        const double span = supplied ? stations[i] - start : length;
+        segments.push_back({line[i-1], delta / length, length, start, span});
+        station += length;
+    }
+    return segments;
+}
+
+double traceAtDistance(const std::vector<double>& axis, double distance, bool extendEnds) {
+    if (axis.empty()) return qQNaN();
+    if (axis.size() == 1) return 0;
+    if (!extendEnds) distance = std::clamp(distance, axis.front(), axis.back());
+    const auto upper = std::lower_bound(axis.begin(), axis.end(), distance);
+    const auto right = std::clamp<size_t>(upper - axis.begin(), 1, axis.size()-1);
+    const double span = axis[right] - axis[right-1];
+    return double(right-1) + (span > 0 ? (distance-axis[right-1])/span : 0.);
+}
+
+SectionPointProjection projectPoint(const std::vector<RouteSegment>& segments,
+    const std::vector<double>& axis, const glm::dvec2& point, bool extendEnds) {
+    SectionPointProjection result;
+    if (axis.empty() || !std::isfinite(point.x) || !std::isfinite(point.y)) return result;
+    double bestSquared = std::numeric_limits<double>::infinity();
+    for (const auto& segment : segments) {
+        const auto displacement = point - segment.start;
+        const double along = glm::dot(displacement, segment.direction);
+        const double bounded = std::clamp(along, 0., segment.length);
+        const auto difference = displacement - bounded * segment.direction;
+        const double squared = glm::dot(difference, difference);
+        if (!(squared < bestSquared))
+            continue;
+        bestSquared = squared;
+        // End wells can leave the finite survey. Keep the trajectory moving
+        // past the edge so the intersecting segment clips at its true time.
+        const bool beyond = extendEnds && ((&segment == &segments.front() && along < 0) ||
+                            (&segment == &segments.back() && along > segment.length));
+        const double cross = segment.direction.x * displacement.y - segment.direction.y * displacement.x;
+        result.cumulativeDistanceM = segment.station + (beyond ? along : bounded) / segment.length * segment.stationSpan;
+        result.offsetDistanceM = beyond ? cross : std::copysign(std::sqrt(squared), cross);
+    }
+    if (std::isfinite(result.cumulativeDistanceM))
+        result.tracePosition = traceAtDistance(axis, result.cumulativeDistanceM, extendEnds);
+    return result;
+}
+}
+
 SectionPointProjection projectPointOnSection(const std::vector<glm::dvec2>& line,
     const std::vector<double>& distances,const glm::dvec2& point) {
-    SectionPointProjection out;if(line.size()<2||distances.empty()||!std::isfinite(point.x)||!std::isfinite(point.y))return out;
-    double best=std::numeric_limits<double>::infinity(),cum=0;
-    for(size_t i=1;i<line.size();++i){
-        const auto a=line[i-1],v=line[i]-a;const double length=glm::length(v);if(length<1e-9)continue;
-        const double f=std::clamp(glm::dot(point-a,v)/(length*length),0.,1.);
-        const double distance=glm::length(point-a-f*v);
-        if(distance<best){best=distance;out.cumulativeDistanceM=cum+f*length;
-            out.offsetDistanceM=(v.x*(point.y-a.y)-v.y*(point.x-a.x)>=0?1:-1)*distance;}
-        cum+=length;
-    }
-    if(!std::isfinite(best))return out;
-    const auto hi=std::lower_bound(distances.begin(),distances.end(),out.cumulativeDistanceM);
-    if(hi==distances.begin())out.tracePosition=0;
-    else if(hi==distances.end())out.tracePosition=double(distances.size()-1);
-    else {const auto index=size_t(hi-distances.begin());const double span=distances[index]-distances[index-1];
-        if(span>0)out.tracePosition=double(index-1)+(out.cumulativeDistanceM-distances[index-1])/span;}
-    return out;
+    return projectPoint(routeSegments(line, {}), distances, point, false);
 }
-void projectSectionHorizonTies(std::vector<SectionWellInfo>& wells,const SectionHorizons& horizons){
-    for(auto &well:wells){
-        if(!well.mdTimeDepth)continue;
-        well.tops.clear();
-        for(const auto &curve:horizons.curves){
-            if(curve.internalEdge||curve.timesMs.empty())continue;
-            if(!well.trajectory.empty()){
-                const auto hit=pathHorizonIntersection(well,curve);if(!hit)continue;
-                WellTopItem top;top.topName=curve.name;top.md=hit->md;top.tvd=hit->tvd;top.twtMs=hit->twtMs;
-                top.tracePosition=hit->tracePosition;well.tops.push_back(top);continue;
+
+std::optional<std::pair<WellTrajSample, WellTrajSample>> clipWellPathSegment(
+    const WellTrajSample& a, const WellTrajSample& b, double lastTrace, double bufferDistanceM) {
+    if (!std::isfinite(a.md) || !std::isfinite(b.md) || b.md <= a.md ||
+        !std::isfinite(a.twtMs) || !std::isfinite(b.twtMs) || a.twtMs < 0 || b.twtMs < 0 ||
+        !(lastTrace >= 0) || !(bufferDistanceM >= 0))
+        return std::nullopt;
+    double enter = 0, leave = 1;
+    const auto clip = [&](double from, double to, double low, double high) {
+        if (!std::isfinite(from) || !std::isfinite(to)) return false;
+        if (from >= low && from <= high && to >= low && to <= high) return true;
+        if (from == to) return false;
+        const double f = (low - from) / (to - from);
+        const double g = (high - from) / (to - from);
+        enter = std::max(enter, std::min(f, g));
+        leave = std::min(leave, std::max(f, g));
+        return enter <= leave;
+    };
+    if (!clip(a.tracePosition, b.tracePosition, 0, lastTrace) ||
+        !clip(a.offsetDistanceM, b.offsetDistanceM, -bufferDistanceM, bufferDistanceM))
+        return std::nullopt;
+    const auto endpoint = [&](double fraction) {
+        auto point = interpolate(a,b,fraction);
+        // Guard the exact boundary against sub-ULP error in the interpolant.
+        point.tracePosition = std::clamp(point.tracePosition, 0., lastTrace);
+        point.offsetDistanceM = std::clamp(point.offsetDistanceM, -bufferDistanceM, bufferDistanceM);
+        return point;
+    };
+    return std::make_pair(endpoint(enter), endpoint(leave));
+}
+
+void selectSectionHorizonTies(SectionWellInfo& well, double bufferDistanceM) {
+    if (!well.horizonTies) return;
+    well.tops.clear();
+    for (const auto& crossings : well.horizonTies->crossings) {
+        const auto first = std::find_if(crossings.begin(), crossings.end(), [&](const auto& top) {
+            return std::abs(top.offsetDistanceM) <= bufferDistanceM;
+        });
+        if (first != crossings.end()) well.tops.push_back(*first);
+    }
+}
+
+void projectSectionHorizonTies(std::vector<SectionWellInfo>& wells, const SectionHorizons& horizons) {
+    const auto sampled = [](const auto& curve) { return !curve.internalEdge && !curve.timesMs.empty(); };
+    const bool hasHorizons = std::any_of(horizons.curves.begin(), horizons.curves.end(), sampled);
+    for (auto& well : wells) {
+        if (!hasHorizons || !well.mdTimeDepth) {
+            if (well.horizonTies) {
+                well.tops = std::move(well.horizonTies->formationTops);
+                well.horizonTies.reset();
             }
-            if(well.requiresSpatialPath)continue;
-            if(curve.internalEdge||curve.timesMs.empty()||!std::isfinite(well.tracePosition)||well.tracePosition<0||well.tracePosition>double(curve.timesMs.size()-1))continue;
-            const auto lo=size_t(std::floor(well.tracePosition)),hi=size_t(std::ceil(well.tracePosition));
-            const double a=curve.timesMs[lo],b=curve.timesMs[hi];if(!std::isfinite(a)||!std::isfinite(b))continue;
-            const double time=a+(b-a)*(well.tracePosition-double(lo));
-            const double md=well.mdTimeDepth->TwtMsToDepth(time-well.timeShiftMs);
-            if(!std::isfinite(md))continue;
-            WellTopItem top;top.topName=curve.name;top.md=md;top.tvd=qQNaN();top.twtMs=time;well.tops.push_back(top);
+            continue;
         }
+        if (!well.horizonTies)
+            well.horizonTies.emplace().formationTops = std::move(well.tops);
+        auto& crossings = well.horizonTies->crossings;
+        crossings.clear();
+        for (const auto& curve : horizons.curves) {
+            if (!sampled(curve)) continue;
+            if (!well.trajectory.empty()) {
+                crossings.push_back(pathHorizonIntersections(well, curve));
+                continue;
+            }
+            if (well.requiresSpatialPath) continue;
+            const double time = horizonTime(curve, well.tracePosition);
+            const double md = well.mdTimeDepth->TwtMsToDepth(time-well.timeShiftMs);
+            if (!std::isfinite(md)) continue;
+            WellTopItem top;
+            top.topName=curve.name;top.md=md;top.tvd=qQNaN();top.twtMs=time;
+            top.offsetDistanceM=well.offsetDistanceM;
+            crossings.push_back({top});
+        }
+        selectSectionHorizonTies(well, std::numeric_limits<double>::infinity());
     }
 }
 
@@ -112,23 +272,7 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
     if (polylinePoints.size() < 2 || wells.empty())
         return results;
 
-    // Calculate vertex distances if not provided
-    std::vector<double> vDist = vertexDistancesM;
-    if (vDist.size() != polylinePoints.size()) {
-        // 尺寸不匹配 = 调用方给的累计距离不可信，整体重算。用 assign 而非
-        // resize：resize 只初始化新增元素，原样保留的前若干个值是调用方残留
-        // （vDist[0] 尤其——重算循环从 i=1 起，永不清它），距离基准被污染后
-        // 井位沿剖面距离与 tracePosition 静默错值（finding-37）。
-        vDist.assign(polylinePoints.size(), 0.0);
-        double cum = 0.0;
-        for (std::size_t i = 1; i < polylinePoints.size(); ++i) {
-            cum += glm::length(polylinePoints[i] - polylinePoints[i - 1]);
-            vDist[i] = cum;
-        }
-    }
-
-    const double totalLengthM = vDist.back();
-    const int totalTraces = static_cast<int>(traceDistancesM.size());
+    const auto segments = routeSegments(polylinePoints, vertexDistancesM);
 
     results.reserve(wells.size());
     for (const auto &w : wells) {
@@ -137,56 +281,11 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
         proj.selectedForSection=selectedWellIds.contains(w.wellId);
         const glm::dvec2 wellPos(w.surfaceX, w.surfaceY);
 
-        double minDistance = std::numeric_limits<double>::infinity();
-        double bestCumDist = 0.0;
-        double bestOffsetSigned = 0.0;
-
-        for (std::size_t i = 0; i + 1 < polylinePoints.size(); ++i) {
-            const glm::dvec2 p0 = polylinePoints[i];
-            const glm::dvec2 p1 = polylinePoints[i + 1];
-            const glm::dvec2 v = p1 - p0;
-            const double len = glm::length(v);
-            if (len < 1e-6)
-                continue;
-
-            const glm::dvec2 toWell = wellPos - p0;
-            const double t = std::clamp(glm::dot(toWell, v) / (len * len), 0.0, 1.0);
-            const glm::dvec2 q = p0 + t * v;
-            const double dist = glm::length(wellPos - q);
-
-            if (dist < minDistance) {
-                minDistance = dist;
-                bestCumDist = vDist[i] + t * (vDist[i + 1] - vDist[i]);
-                // Sign: cross product (v.x * toWell.y - v.y * toWell.x)
-                const double cross = v.x * toWell.y - v.y * toWell.x;
-                bestOffsetSigned = (cross >= 0.0 ? 1.0 : -1.0) * dist;
-            }
-        }
-
-        proj.cumulativeDistanceM = bestCumDist;
-        proj.offsetDistanceM = bestOffsetSigned;
-        proj.isWithinBuffer = (std::abs(minDistance) <= bufferDistanceM);
-
-        // Map cumulative distance to trace index
-        if (totalTraces > 1 && !traceDistancesM.empty()) {
-            auto it = std::lower_bound(traceDistancesM.begin(), traceDistancesM.end(), bestCumDist);
-            if (it == traceDistancesM.begin()) {
-                proj.tracePosition = 0.0;
-            } else if (it == traceDistancesM.end()) {
-                proj.tracePosition = static_cast<double>(totalTraces - 1);
-            } else {
-                const std::size_t idx = std::distance(traceDistancesM.begin(), it);
-                const double d0 = traceDistancesM[idx - 1];
-                const double d1 = traceDistancesM[idx];
-                const double span = std::max(1e-4, d1 - d0);
-                const double frac = std::clamp((bestCumDist - d0) / span, 0.0, 1.0);
-                proj.tracePosition = static_cast<double>(idx - 1) + frac;
-            }
-        } else if (totalLengthM > 1e-4 && totalTraces > 0) {
-            proj.tracePosition = (bestCumDist / totalLengthM) * static_cast<double>(totalTraces - 1);
-        } else {
-            proj.tracePosition = 0.0;
-        }
+        const auto head = projectPoint(segments, traceDistancesM, wellPos, false);
+        proj.cumulativeDistanceM = head.cumulativeDistanceM;
+        proj.offsetDistanceM = head.offsetDistanceM;
+        proj.tracePosition = head.tracePosition;
+        proj.isWithinBuffer = std::abs(head.offsetDistanceM) <= bufferDistanceM;
 
         // Calibrate Tops
         for (auto &top : proj.tops) {
@@ -221,17 +320,33 @@ std::vector<SectionWellInfo> SectionWellProjector::ProjectWells(
             }
         }
 
-        if(!proj.trajectory.empty()){
-            proj.isWithinBuffer=false;double closest=std::numeric_limits<double>::infinity();
-            for(auto& sample:proj.trajectory){
-                const auto position=projectPointOnSection(polylinePoints,traceDistancesM,{sample.x,sample.y});
-                sample.tracePosition=position.tracePosition;sample.offsetDistanceM=position.offsetDistanceM;
-                if(!std::isfinite(sample.twtMs)||sample.twtMs<0)continue;
-                if(std::abs(position.offsetDistanceM)<closest){closest=std::abs(position.offsetDistanceM);proj.offsetDistanceM=position.offsetDistanceM;}
-                if(std::isfinite(sample.tracePosition)&&std::abs(position.offsetDistanceM)<=bufferDistanceM)proj.isWithinBuffer=true;
+        if (!proj.trajectory.empty()) {
+            double closest = std::numeric_limits<double>::infinity();
+            const double lastTrace = double(traceDistancesM.size()) - 1;
+            const WellTrajSample* previous = nullptr;
+            for (auto& sample : proj.trajectory) {
+                const auto position = projectPoint(segments,traceDistancesM,{sample.x,sample.y},true);
+                sample.tracePosition = position.tracePosition;
+                sample.offsetDistanceM = position.offsetDistanceM;
+                if (std::isfinite(sample.twtMs) && sample.twtMs >= 0 &&
+                    sample.tracePosition >= 0 && sample.tracePosition <= lastTrace &&
+                    std::abs(sample.offsetDistanceM) < std::abs(closest))
+                    closest = sample.offsetDistanceM;
+                if (previous) {
+                    const auto visible = clipWellPathSegment(*previous, sample, lastTrace,
+                                                             std::numeric_limits<double>::infinity());
+                    if (visible) {
+                        const double a = visible->first.offsetDistanceM, b = visible->second.offsetDistanceM;
+                        const double offset = std::clamp(0., std::min(a,b), std::max(a,b));
+                        if (std::abs(offset) < std::abs(closest)) closest = offset;
+                    }
+                }
+                previous = &sample;
             }
-        }else if(proj.requiresSpatialPath)proj.isWithinBuffer=false;
-        results.push_back(proj);
+            proj.isWithinBuffer = std::isfinite(closest) && std::abs(closest) <= bufferDistanceM;
+            proj.offsetDistanceM = closest;
+        } else if(proj.requiresSpatialPath)proj.isWithinBuffer=false;
+        results.push_back(std::move(proj));
     }
 
     return results;

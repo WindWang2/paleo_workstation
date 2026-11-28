@@ -91,6 +91,12 @@ SeismicSectionDockWidget::~SeismicSectionDockWidget() {
 }
 
 void SeismicSectionDockWidget::clearRoute() {
+  if(m_extraction && m_extraction->running()){
+    ++m_generation;
+    m_extraction->requestCancel();
+    m_extraction.clear();
+    m_progressBar->hide();
+  }
   m_route.clear();
   m_distances.clear();
 }
@@ -542,6 +548,7 @@ void SeismicSectionDockWidget::refreshWellOverlay(
       m_route, {}, distances, wells, std::numeric_limits<double>::max(),
       m_canvas->timeDepthModel(),m_selectedWellIds);
   projectSectionHorizonTies(projected,m_canvas->horizonOverlays());
+  updateWellTrajectories(projected,distances);
   m_canvas->setWells(projected);
 }
 

@@ -35083,6 +35083,14 @@ PDF：%3
             <translation type="unfinished" />
         </message>
         <message>
+            <source>请先在连井 / 时深对齐中加载带有效坐标的地震体。</source>
+            <translation>Load a seismic volume with valid survey coordinates in the well section setup.</translation>
+        </message>
+        <message>
+            <source>正在读取所选井的轨迹和时深关系…</source>
+            <translation>Reading trajectories and time-depth relations for the selected wells…</translation>
+        </message>
+        <message>
             <location filename="../src/ui/paleomainwindow_sections.cpp" line="225" />
             <source>剖面已更新。可在“井与分层”设置偏距范围；未对齐或超范围的数据不叠加。</source>
             <translation type="unfinished" />
@@ -35090,7 +35098,7 @@ PDF：%3
         <message>
             <location filename="../src/ui/paleomainwindow_sections.cpp" line="285" />
             <source>连井剖面 · %1 口井</source>
-            <translation type="unfinished" />
+            <translation>Well-linked seismic section · %1 wells</translation>
         </message>
         <message>
             <location filename="../src/ui/paleomainwindow_sections.cpp" line="305" />
@@ -44082,7 +44090,7 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
         <message>
             <location filename="../src/linkage/seismicmaplink.cpp" line="298" />
             <source>连井剖面 · %1 口井</source>
-            <translation type="unfinished" />
+            <translation>Well-linked seismic section · %1 wells</translation>
         </message>
         <message>
             <location filename="../src/linkage/seismicmaplink.cpp" line="299" />
@@ -51303,6 +51311,10 @@ layout.qpt 是版面模板，使用时需先在 QGIS 工程加载对应数据；
             <location filename="../src/ui/wellsection/wellsectionpanel.cpp" line="1465" />
             <source>井间叠加地震剖面（按时深关系自适应缩放）</source>
             <translation type="unfinished" />
+        </message>
+        <message>
+            <source>按当前井序打开连井地震剖面（TWT）</source>
+            <translation>Open a seismic section along these wells (TWT)</translation>
         </message>
         <message>
             <location filename="../src/ui/wellsection/wellsectionpanel.cpp" line="201" />
